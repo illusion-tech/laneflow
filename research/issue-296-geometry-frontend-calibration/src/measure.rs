@@ -1,7 +1,8 @@
 //! §9.1 四级测量边界与 §9.2 三进程采样协议：每行每级 1 次未计时预热 + 7 次正式计时
 //! 样本，三个独立进程各自产出一份样本文件。fullCompile 样本同时核对零诊断、语义指纹
 //! 与完整输出 digest 和 manifest 行一致（防漂移护栏），并记录编译器控制峰值与冷实例
-//! 保留容量——全部来自编译器只读视图，harness 不自报任何数字。
+//! 保留容量。单模块前端存续/峰值与后端峰值全部来自编译器只读视图；harness 只按
+//! builders/modules 的实际所有权生命周期累计模块值，不自报分配数字。
 
 use std::hint::black_box;
 use std::path::Path;
@@ -140,15 +141,37 @@ fn build_builders(
         .collect()
 }
 
-fn finish_modules(builders: Vec<GeometryModuleBuilder>) -> Vec<laneflow_compiler::GeometryModule> {
-    builders
-        .into_iter()
-        .map(|builder| {
-            builder
-                .finish()
-                .unwrap_or_else(|diagnostics| panic!("geometry 模块 finish 失败：{diagnostics:?}"))
-        })
-        .collect()
+struct FinishedGeometryModules {
+    modules: Vec<laneflow_compiler::GeometryModule>,
+    frontend_peak_controlled_live_bytes: u64,
+}
+
+fn finish_modules(builders: Vec<GeometryModuleBuilder>) -> FinishedGeometryModules {
+    let mut pending_builder_bytes = builders.iter().fold(0_u64, |total, builder| {
+        total.saturating_add(builder.controlled_live_bytes())
+    });
+    let mut finished_module_bytes = 0_u64;
+    let mut frontend_peak_controlled_live_bytes = pending_builder_bytes;
+    let mut modules = Vec::with_capacity(builders.len());
+    for builder in builders {
+        pending_builder_bytes =
+            pending_builder_bytes.saturating_sub(builder.controlled_live_bytes());
+        let module = builder
+            .finish()
+            .unwrap_or_else(|diagnostics| panic!("geometry 模块 finish 失败：{diagnostics:?}"));
+        frontend_peak_controlled_live_bytes = frontend_peak_controlled_live_bytes.max(
+            pending_builder_bytes
+                .saturating_add(finished_module_bytes)
+                .saturating_add(module.counts().frontend_peak_controlled_live_bytes()),
+        );
+        finished_module_bytes =
+            finished_module_bytes.saturating_add(module.counts().controlled_live_bytes());
+        modules.push(module);
+    }
+    FinishedGeometryModules {
+        modules,
+        frontend_peak_controlled_live_bytes,
+    }
 }
 
 /// 边界 1：从借用原始 bytes 到 `GeometryModuleBuilder`（含一次 SHA-256 与有界解析，
@@ -175,7 +198,7 @@ fn level_numeric_freeze(
 ) -> Duration {
     let builders = build_builders(sources, accuracy, direction, limits);
     let started = Instant::now();
-    let modules = finish_modules(builders);
+    let modules = finish_modules(builders).modules;
     let elapsed = started.elapsed();
     black_box(&modules);
     elapsed
@@ -189,7 +212,7 @@ fn level_common_admission(
     direction: GeometryDirectionProfile,
     limits: &CompileLimits,
 ) -> Duration {
-    let modules = finish_modules(build_builders(sources, accuracy, direction, limits));
+    let modules = finish_modules(build_builders(sources, accuracy, direction, limits)).modules;
     let started = Instant::now();
     let mut unit = CompilationUnitBuilder::new(limits.clone());
     for module in modules {
@@ -209,11 +232,11 @@ fn level_full_compile(
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
     limits: &CompileLimits,
-) -> (Duration, laneflow_compiler::CompilationOutput, u64) {
+) -> (Duration, laneflow_compiler::CompilationOutput, u64, u64) {
     let started = Instant::now();
-    let modules = finish_modules(build_builders(sources, accuracy, direction, limits));
+    let finished = finish_modules(build_builders(sources, accuracy, direction, limits));
     let mut unit = CompilationUnitBuilder::new(limits.clone());
-    for module in modules {
+    for module in finished.modules {
         unit.add_geometry_module(module)
             .unwrap_or_else(|diagnostics| panic!("共同 admission 失败：{diagnostics:?}"));
     }
@@ -223,7 +246,10 @@ fn level_full_compile(
         .expect("fullCompile 样本必须可编译");
     let elapsed = started.elapsed();
     let retained = compiler.retained_capacity_bytes();
-    (elapsed, output, retained)
+    let pipeline_peak = finished
+        .frontend_peak_controlled_live_bytes
+        .max(output.metrics().compiler_controlled_peak_bytes());
+    (elapsed, output, retained, pipeline_peak)
 }
 
 /// Synthetic base 边界 3：孪生构造在计时区外，只对 `add_synthetic_module + build` 计时。
@@ -321,7 +347,7 @@ fn measure_row(
     let mut retained_bytes: Option<u64> = None;
     let mut last_output = None;
     for index in 0..=FORMAL_SAMPLE_COUNT {
-        let (elapsed, output, retained) =
+        let (elapsed, output, retained, peak) =
             level_full_compile(&sources, accuracy, direction, &limits);
         assert!(
             output.diagnostics().is_empty(),
@@ -337,7 +363,6 @@ fn measure_row(
             expected.complete_output_digest,
             "{label} 完整输出 digest 与 manifest 行不符"
         );
-        let peak = output.metrics().compiler_controlled_peak_bytes();
         match peak_bytes {
             None => peak_bytes = Some(peak),
             Some(previous) => assert_eq!(previous, peak, "{label} 编译器控制峰值跨样本漂移"),
@@ -491,4 +516,37 @@ pub fn measure_process(
         report["rows"].as_array().map_or(0, Vec::len),
         output_path.display()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frontend_peak_aggregates_all_simultaneously_live_builders_and_modules() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap();
+        let fixture = load_fixture(&repo_root, P100_FIXTURE_PATH, P100_WORKLOAD_ID);
+        let sources = sources_of(&fixture);
+        let builders = build_builders(
+            &sources,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &CompileLimits::p100_initial_v1(),
+        );
+        assert!(builders.len() > 1);
+        let initial_builder_bytes = builders.iter().fold(0_u64, |total, builder| {
+            total.saturating_add(builder.controlled_live_bytes())
+        });
+
+        let finished = finish_modules(builders);
+        let final_module_bytes = finished.modules.iter().fold(0_u64, |total, module| {
+            total.saturating_add(module.counts().controlled_live_bytes())
+        });
+
+        assert!(finished.frontend_peak_controlled_live_bytes >= initial_builder_bytes);
+        assert!(finished.frontend_peak_controlled_live_bytes >= final_module_bytes);
+    }
 }

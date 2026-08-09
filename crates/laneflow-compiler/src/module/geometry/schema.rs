@@ -6,6 +6,7 @@
 )]
 
 use std::collections::HashMap;
+use std::mem::size_of_val;
 
 use super::json::{ByteSpan, JsonCursor, JsonError, JsonErrorKind, StageScratchMeter};
 
@@ -130,6 +131,262 @@ pub(in crate::module::geometry) struct ParsedGeometryDocument {
     pub(in crate::module::geometry) junctions: Box<[junction::ParsedJunctionRecord]>,
     pub(in crate::module::geometry) overlays: overlay::ParsedOverlays,
     pub(in crate::module::geometry) span: ByteSpan,
+}
+
+fn allocation_bytes<T>(items: &[T]) -> u64 {
+    u64::try_from(size_of_val(items)).unwrap_or(u64::MAX)
+}
+
+fn string_bytes(value: &SpannedString) -> u64 {
+    u64::try_from(value.value.len()).unwrap_or(u64::MAX)
+}
+
+fn raw_number_bytes(value: &road::RawNumber) -> u64 {
+    u64::try_from(value.token.len()).unwrap_or(u64::MAX)
+}
+
+fn vec3_bytes(value: &road::ParsedVec3) -> u64 {
+    value.components.iter().fold(0_u64, |total, component| {
+        total.saturating_add(raw_number_bytes(component))
+    })
+}
+
+fn curve_bytes(value: &road::ParsedCurve) -> u64 {
+    let mut total = vec3_bytes(&value.start).saturating_add(allocation_bytes(&value.segments));
+    for segment in &value.segments {
+        total = total.saturating_add(match segment {
+            road::ParsedCurveSegment::Line { end, .. } => vec3_bytes(end),
+            road::ParsedCurveSegment::CubicBezier { controls, end, .. } => {
+                allocation_bytes(&**controls)
+                    .saturating_add(controls.iter().fold(0_u64, |sum, control| {
+                        sum.saturating_add(vec3_bytes(control))
+                    }))
+                    .saturating_add(vec3_bytes(end))
+            }
+        });
+    }
+    total
+}
+
+fn spanned_slice_bytes(values: &[SpannedString]) -> u64 {
+    allocation_bytes(values).saturating_add(values.iter().fold(0_u64, |total, value| {
+        total.saturating_add(string_bytes(value))
+    }))
+}
+
+/// 解析树全部自有 heap allocation 的确定性逻辑字节数；顶层 builder 内联字段不重复计入。
+pub(in crate::module::geometry) fn parsed_document_live_bytes(
+    document: &ParsedGeometryDocument,
+) -> u64 {
+    let mut total = string_bytes(&document.module.namespace)
+        .saturating_add(string_bytes(&document.module.document_key))
+        .saturating_add(spanned_slice_bytes(&document.module.imports))
+        .saturating_add(match &document.module.provenance {
+            ParsedProvenance::Direct { description } => string_bytes(description),
+            ParsedProvenance::Generated {
+                generator_build_id,
+                description,
+                ..
+            } => string_bytes(generator_build_id).saturating_add(string_bytes(description)),
+        });
+
+    total = total.saturating_add(allocation_bytes(&document.frames));
+    for frame in &document.frames {
+        total = total.saturating_add(string_bytes(&frame.frame_key));
+    }
+
+    total = total.saturating_add(allocation_bytes(&document.roads));
+    for road in &document.roads {
+        total = total
+            .saturating_add(string_bytes(&road.road_key))
+            .saturating_add(string_bytes(&road.frame))
+            .saturating_add(curve_bytes(&road.reference_line))
+            .saturating_add(allocation_bytes(&road.cross_section_spans));
+        for span in &road.cross_section_spans {
+            total = total
+                .saturating_add(string_bytes(&span.span_key))
+                .saturating_add(string_bytes(&span.corridor_key))
+                .saturating_add(raw_number_bytes(&span.start_station_meters))
+                .saturating_add(match &span.end_station_meters {
+                    road::ParsedEndStation::Number(number) => raw_number_bytes(number),
+                    road::ParsedEndStation::End(_) => 0,
+                })
+                .saturating_add(string_bytes(&span.reference_section_key))
+                .saturating_add(string_bytes(&span.reference_lane_key))
+                .saturating_add(allocation_bytes(&span.elements));
+            for element in &span.elements {
+                total = total.saturating_add(match element {
+                    road::ParsedCorridorElement::RoadSection { section_key, .. } => {
+                        string_bytes(section_key)
+                    }
+                    road::ParsedCorridorElement::FacilityBand {
+                        facility_band_key, ..
+                    } => string_bytes(facility_band_key),
+                });
+            }
+            total = total.saturating_add(allocation_bytes(&span.road_sections));
+            for section in &span.road_sections {
+                total = total
+                    .saturating_add(string_bytes(&section.section_key))
+                    .saturating_add(string_bytes(&section.kind_id))
+                    .saturating_add(allocation_bytes(&section.lanes));
+                for lane in &section.lanes {
+                    total = total
+                        .saturating_add(string_bytes(&lane.lane_key))
+                        .saturating_add(string_bytes(&lane.lane_edge_key))
+                        .saturating_add(raw_number_bytes(&lane.width_meters))
+                        .saturating_add(raw_number_bytes(&lane.speed_limit_meters_per_second))
+                        .saturating_add(lane.lane_group_key.as_ref().map_or(0, string_bytes))
+                        .saturating_add(spanned_slice_bytes(&lane.successors));
+                }
+                total = total.saturating_add(allocation_bytes(&section.lane_groups));
+                for group in &section.lane_groups {
+                    total = total.saturating_add(string_bytes(&group.lane_group_key));
+                }
+            }
+            total = total.saturating_add(allocation_bytes(&span.facility_bands));
+            for band in &span.facility_bands {
+                total = total
+                    .saturating_add(string_bytes(&band.facility_band_key))
+                    .saturating_add(string_bytes(&band.kind_id))
+                    .saturating_add(raw_number_bytes(&band.width_meters));
+            }
+        }
+    }
+
+    total = total.saturating_add(allocation_bytes(&document.junctions));
+    for junction in &document.junctions {
+        total = total
+            .saturating_add(string_bytes(&junction.junction_key))
+            .saturating_add(spanned_slice_bytes(&junction.approach_edges))
+            .saturating_add(allocation_bytes(&junction.internal_edges));
+        for internal in &junction.internal_edges {
+            total = total
+                .saturating_add(string_bytes(&internal.lane_edge_key))
+                .saturating_add(raw_number_bytes(&internal.speed_limit_meters_per_second))
+                .saturating_add(curve_bytes(&internal.geometry));
+        }
+        total = total.saturating_add(allocation_bytes(&junction.connections));
+        for connection in &junction.connections {
+            total = total
+                .saturating_add(string_bytes(&connection.movement_key))
+                .saturating_add(string_bytes(&connection.directed_entry_approach_key))
+                .saturating_add(string_bytes(&connection.directed_exit_approach_key))
+                .saturating_add(string_bytes(&connection.maneuver_path_key))
+                .saturating_add(string_bytes(&connection.entry_edge))
+                .saturating_add(spanned_slice_bytes(&connection.internal_edge_sequence))
+                .saturating_add(string_bytes(&connection.exit_edge));
+        }
+    }
+
+    let overlays = &document.overlays;
+    total = total.saturating_add(allocation_bytes(&overlays.signal_groups));
+    for group in &overlays.signal_groups {
+        total = total.saturating_add(string_bytes(&group.signal_group_key));
+    }
+    total = total.saturating_add(allocation_bytes(&overlays.signal_controllers));
+    for controller in &overlays.signal_controllers {
+        total = total
+            .saturating_add(string_bytes(&controller.signal_controller_key))
+            .saturating_add(raw_number_bytes(&controller.offset_seconds))
+            .saturating_add(spanned_slice_bytes(&controller.signal_groups))
+            .saturating_add(allocation_bytes(&controller.phases));
+        for phase in &controller.phases {
+            total = total
+                .saturating_add(string_bytes(&phase.signal_phase_key))
+                .saturating_add(raw_number_bytes(&phase.duration_seconds))
+                .saturating_add(allocation_bytes(&phase.states));
+            for state in &phase.states {
+                total = total.saturating_add(string_bytes(&state.signal_group));
+            }
+        }
+    }
+    total = total.saturating_add(allocation_bytes(&overlays.parking_areas));
+    for area in &overlays.parking_areas {
+        total = total.saturating_add(string_bytes(&area.parking_area_key));
+    }
+    total = total.saturating_add(allocation_bytes(&overlays.parking_spaces));
+    for space in &overlays.parking_spaces {
+        total = total
+            .saturating_add(string_bytes(&space.parking_space_key))
+            .saturating_add(space.parking_area.as_ref().map_or(0, string_bytes))
+            .saturating_add(string_bytes(&space.entry.lane_edge))
+            .saturating_add(raw_number_bytes(&space.entry.progress_meters))
+            .saturating_add(string_bytes(&space.exit.lane_edge))
+            .saturating_add(raw_number_bytes(&space.exit.progress_meters))
+            .saturating_add(raw_number_bytes(&space.geometry.lateral_offset_meters))
+            .saturating_add(raw_number_bytes(&space.geometry.heading_offset_radians))
+            .saturating_add(raw_number_bytes(&space.geometry.length_meters))
+            .saturating_add(raw_number_bytes(&space.geometry.width_meters));
+    }
+    total = total.saturating_add(allocation_bytes(&overlays.participant_classes));
+    for class in &overlays.participant_classes {
+        total = total
+            .saturating_add(string_bytes(&class.participant_class_key))
+            .saturating_add(class.extends.as_ref().map_or(0, string_bytes));
+    }
+    total = total.saturating_add(allocation_bytes(&overlays.vehicle_profiles));
+    for profile in &overlays.vehicle_profiles {
+        total = total
+            .saturating_add(string_bytes(&profile.vehicle_profile_key))
+            .saturating_add(string_bytes(&profile.participant_class))
+            .saturating_add(allocation_bytes(&*profile.iidm));
+        for number in profile.iidm.iter() {
+            total = total.saturating_add(raw_number_bytes(number));
+        }
+    }
+    total = total.saturating_add(allocation_bytes(&overlays.access_rules));
+    for rule in &overlays.access_rules {
+        let target = match &rule.target {
+            overlay::ParsedAccessTarget::LaneEdge(value)
+            | overlay::ParsedAccessTarget::LaneGroup(value)
+            | overlay::ParsedAccessTarget::RoadSection(value)
+            | overlay::ParsedAccessTarget::ManeuverPath(value)
+            | overlay::ParsedAccessTarget::FacilityBand(value) => string_bytes(value),
+        };
+        total = total
+            .saturating_add(string_bytes(&rule.access_rule_key))
+            .saturating_add(target)
+            .saturating_add(spanned_slice_bytes(&rule.participant_classes))
+            .saturating_add(raw_number_bytes(&rule.priority));
+        if let Some(regulation) = &rule.regulation {
+            total = total
+                .saturating_add(string_bytes(&regulation.jurisdiction))
+                .saturating_add(string_bytes(&regulation.version))
+                .saturating_add(regulation.source.as_ref().map_or(0, string_bytes));
+        }
+    }
+    total = total.saturating_add(allocation_bytes(&overlays.static_routes));
+    for route in &overlays.static_routes {
+        total = total
+            .saturating_add(string_bytes(&route.static_route_key))
+            .saturating_add(spanned_slice_bytes(&route.edge_sequence));
+    }
+    total = total.saturating_add(allocation_bytes(&overlays.stop_lines));
+    for stop_line in &overlays.stop_lines {
+        total = total
+            .saturating_add(string_bytes(&stop_line.stop_line_key))
+            .saturating_add(string_bytes(&stop_line.lane_edge));
+    }
+    total = total.saturating_add(allocation_bytes(&overlays.maneuver_gates));
+    for gate in &overlays.maneuver_gates {
+        total = total
+            .saturating_add(string_bytes(&gate.maneuver_gate_key))
+            .saturating_add(string_bytes(&gate.maneuver_path))
+            .saturating_add(raw_number_bytes(&gate.transition_index))
+            .saturating_add(string_bytes(&gate.stop_line))
+            .saturating_add(gate.signal_control.as_ref().map_or(0, string_bytes));
+    }
+    total = total.saturating_add(allocation_bytes(&overlays.waiting_zones));
+    for zone in &overlays.waiting_zones {
+        total = total
+            .saturating_add(string_bytes(&zone.waiting_zone_key))
+            .saturating_add(string_bytes(&zone.maneuver_path))
+            .saturating_add(string_bytes(&zone.entry_gate))
+            .saturating_add(string_bytes(&zone.release_gate))
+            .saturating_add(raw_number_bytes(&zone.max_occupancy));
+    }
+    total
 }
 
 struct ClosedFields<const N: usize> {

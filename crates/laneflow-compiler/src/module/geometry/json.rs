@@ -177,6 +177,10 @@ impl LineIndex {
         )
     }
 
+    pub(super) fn controlled_live_bytes(&self) -> u64 {
+        u64::try_from(std::mem::size_of_val(&*self.line_starts)).unwrap_or(u64::MAX)
+    }
+
     fn position(&self, offset: usize) -> (u32, u32) {
         let line_index = self.line_starts.partition_point(|start| *start <= offset) - 1;
         let line_start = self.line_starts[line_index];

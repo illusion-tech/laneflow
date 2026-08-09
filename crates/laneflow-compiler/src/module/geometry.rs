@@ -45,7 +45,7 @@ use super::descriptor::{
     SOURCE_DOCUMENT_SET_DIGEST_VERSION, SourceDocumentDescriptor, SourceDocumentOrigin,
     SourceLanguage, SourceModuleDescriptor, freeze_source_documents, source_document_digest,
 };
-use super::resources::{ModuleResourceCounts, size_bytes};
+use super::resources::{ModuleResourceCounts, requested_hash_table_bytes, size_bytes};
 
 mod json;
 mod schema;
@@ -238,6 +238,7 @@ pub struct GeometryModuleBuilder {
     limits: CompileLimits,
     line_index: LineIndex,
     parsed: ParsedGeometryDocument,
+    controlled_live_bytes: u64,
 }
 
 impl<'a> GeometryDocumentInput<'a> {
@@ -345,6 +346,22 @@ impl GeometryModuleBuilder {
         )
         .map_err(|error| schema_diagnostic(error, &source_document_key, Some(&line_index)))?;
 
+        let controlled_live_bytes = len_u64(&source_document_key)
+            .saturating_add(input.display_source().map_or(0, len_u64))
+            .saturating_add(line_index.controlled_live_bytes())
+            .saturating_add(schema::parsed_document_live_bytes(&parsed));
+        let controlled_live_limit =
+            limits.value(CompileLimitDimension::CompilerControlledLiveBytes);
+        if controlled_live_bytes > controlled_live_limit {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::compile_limit_exceeded(
+                    CompileLimitDimension::CompilerControlledLiveBytes,
+                    controlled_live_limit,
+                    controlled_live_bytes,
+                ),
+            ));
+        }
+
         if parsed.module.document_key.value.as_ref() != input.source_document_key() {
             let primary_span =
                 line_index.source_span(&source_document_key, parsed.module.document_key.span);
@@ -369,7 +386,14 @@ impl GeometryModuleBuilder {
             limits: limits.clone(),
             line_index,
             parsed,
+            controlled_live_bytes,
         })
+    }
+
+    /// 返回当前 builder 在 numeric freeze 前持有的编译器控制存续字节数。
+    #[must_use]
+    pub const fn controlled_live_bytes(&self) -> u64 {
+        self.controlled_live_bytes
     }
 
     #[allow(dead_code, reason = "called by the following public finish slice")]
@@ -468,11 +492,13 @@ impl GeometryModuleBuilder {
         })
     }
 
-    fn freeze_geometry_payload(&self) -> Result<schema::FrozenGeometryPayload, DiagnosticBundle> {
+    fn freeze_geometry_payload(
+        &self,
+    ) -> Result<(schema::FrozenGeometryPayload, u64), DiagnosticBundle> {
         let point_limit = self.limits.value(CompileLimitDimension::GeometryPointCount);
         let scratch_limit = self.limits.value(CompileLimitDimension::StageScratchBytes);
         let mut scratch = StageScratchMeter::new(scratch_limit);
-        schema::freeze_geometry_payload(
+        let payload = schema::freeze_geometry_payload(
             &self.parsed,
             self.accuracy_profile,
             self.direction_profile,
@@ -504,7 +530,8 @@ impl GeometryModuleBuilder {
                 Some("complete bounded Geometry v1 canonical geometry payload"),
                 primary_span,
             ))
-        })
+        })?;
+        Ok((payload, scratch.peak()))
     }
 
     /// 原子完成模块头与键检查、numeric freeze、Typed AST 降阶与资源上限校验，
@@ -525,7 +552,7 @@ impl GeometryModuleBuilder {
         // ① 模块头、导入、键分组与 approach 引用检查；先到先得单诊断。
         let header = self.finish_header(single_string_limit, &span_of)?;
         // ② numeric freeze 恰好一次；GeometryPointCount 单模块上限在 freeze 内闭合。
-        let payload = self.freeze_geometry_payload()?;
+        let (payload, freeze_scratch_peak_bytes) = self.freeze_geometry_payload()?;
         // ③ Typed AST 降阶；长度从冻结折线按 §6.1 的固定约定派生，§4.4 的
         // internal edge 声明校验与连接引用解析在此闭合。
         let resolver = ReferenceResolver {
@@ -552,17 +579,29 @@ impl GeometryModuleBuilder {
             self.source_record_byte_len,
             self.display_source.as_deref(),
         );
+        let frontend_peak_controlled_live_bytes = counts
+            .controlled_live_bytes
+            .saturating_add(schema::parsed_document_live_bytes(&self.parsed))
+            .saturating_add(self.line_index.controlled_live_bytes())
+            .saturating_add(header.lookup_live_bytes)
+            .saturating_add(freeze_scratch_peak_bytes);
         let declaration_span = span_of(self.parsed.module.span);
         check_finish_limits(
             &self.limits,
             &counts,
+            frontend_peak_controlled_live_bytes,
             u64::try_from(header.imports.len()).unwrap_or(u64::MAX),
             &header.namespace,
             &declaration_span,
         )?;
 
         // §9.2 前端计数与描述符同批原子冻结；随后解析树与载荷按所有权移交。
-        let module_counts = finish_module_counts(&self.parsed, &payload, &counts);
+        let module_counts = finish_module_counts(
+            &self.parsed,
+            &payload,
+            &counts,
+            frontend_peak_controlled_live_bytes,
+        );
 
         // ⑤ 组装描述符、来源文档与不可分的冻结几何载荷。
         let frontend_options_digest = frontend_options_digest(
@@ -580,6 +619,7 @@ impl GeometryModuleBuilder {
             limits: _,
             line_index: _,
             parsed: _,
+            controlled_live_bytes: _,
         } = self;
         let FinishHeader {
             namespace,
@@ -587,6 +627,7 @@ impl GeometryModuleBuilder {
             provenance,
             import_index: _,
             approaches: _,
+            lookup_live_bytes: _,
         } = header;
         let source_document = SourceDocumentDescriptor {
             source_document_key,
@@ -695,21 +736,75 @@ impl GeometryModuleBuilder {
         };
         let mut approaches = Vec::with_capacity(self.parsed.junctions.len());
         for junction in &self.parsed.junctions {
-            let mut approach_set = BTreeSet::new();
-            for approach in &junction.approach_edges {
+            let mut resolved_approaches = Vec::with_capacity(junction.approach_edges.len());
+            for (input_index, approach) in junction.approach_edges.iter().enumerate() {
                 let (namespace, key) =
                     resolver.resolve_parts(approach, "junctions[].approachEdges", span_of)?;
-                approach_set.insert((namespace, Arc::from(key)));
+                resolved_approaches.push((namespace, Arc::from(key), input_index, approach));
             }
-            approaches.push(approach_set);
+            resolved_approaches.sort_unstable_by(|left, right| {
+                (&left.0, &left.1, left.2).cmp(&(&right.0, &right.1, right.2))
+            });
+            if let Some(duplicate) = resolved_approaches
+                .windows(2)
+                .find(|pair| pair[0].0 == pair[1].0 && pair[0].1 == pair[1].1)
+            {
+                let approach = duplicate[1].3;
+                return Err(DiagnosticBundle::single(
+                    Diagnostic::invalid_geometry_document(
+                        GeometryDocumentViolation::FieldValue,
+                        Some("junctions[].approachEdges"),
+                        Some(&approach.value),
+                        Some("distinct resolved approach edge references"),
+                        span_of(approach.span),
+                    ),
+                ));
+            }
+            if resolved_approaches.len() < 2 {
+                return Err(DiagnosticBundle::single(
+                    Diagnostic::invalid_geometry_document(
+                        GeometryDocumentViolation::FieldValue,
+                        Some("junctions[].approachEdges"),
+                        Some("fewer than two distinct resolved approach edges"),
+                        Some("at least two distinct resolved approach edge references"),
+                        span_of(junction.span),
+                    ),
+                ));
+            }
+            approaches.push(
+                resolved_approaches
+                    .into_iter()
+                    .map(|(namespace, key, _, _)| (namespace, key))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            );
         }
         let provenance = self.finish_provenance(single_string_limit, span_of)?;
+        let lookup_live_bytes = requested_hash_table_bytes::<Arc<str>, usize>(
+            u64::try_from(import_index.len()).unwrap_or(u64::MAX),
+        )
+        .saturating_add(import_index.keys().fold(0_u64, |total, namespace| {
+            total.saturating_add(len_u64(namespace))
+        }))
+        .saturating_add(size_bytes::<Box<[ResolvedKey]>>(
+            u64::try_from(approaches.len()).unwrap_or(u64::MAX),
+        ))
+        .saturating_add(approaches.iter().fold(0_u64, |total, approach_set| {
+            total
+                .saturating_add(size_bytes::<ResolvedKey>(
+                    u64::try_from(approach_set.len()).unwrap_or(u64::MAX),
+                ))
+                .saturating_add(approach_set.iter().fold(0_u64, |strings, (_, key)| {
+                    strings.saturating_add(len_u64(key))
+                }))
+        }));
         Ok(FinishHeader {
             namespace,
             imports: imports.into_boxed_slice(),
             import_index,
             approaches: approaches.into_boxed_slice(),
             provenance,
+            lookup_live_bytes,
         })
     }
 
@@ -869,6 +964,8 @@ pub struct GeometryModuleCounts {
     offset_curve_count: u64,
     canonical_point_count: u64,
     absolute_offset_distribution: Box<[GeometryOffsetCurveBucket]>,
+    controlled_live_bytes: u64,
+    frontend_peak_controlled_live_bytes: u64,
 }
 
 impl GeometryModuleCounts {
@@ -925,6 +1022,18 @@ impl GeometryModuleCounts {
     pub fn absolute_offset_distribution(&self) -> &[GeometryOffsetCurveBucket] {
         &self.absolute_offset_distribution
     }
+
+    /// 返回成功 finish 后该模块进入共同准入的存续字节数。
+    #[must_use]
+    pub const fn controlled_live_bytes(&self) -> u64 {
+        self.controlled_live_bytes
+    }
+
+    /// 返回单模块从已解析 builder 到 finish 完成期间的编译器控制峰值字节数。
+    #[must_use]
+    pub const fn frontend_peak_controlled_live_bytes(&self) -> u64 {
+        self.frontend_peak_controlled_live_bytes
+    }
 }
 
 /// finish ① 的模块头校验结果；approach 集合只服务连接 entry/exit 成员检查，
@@ -933,12 +1042,23 @@ struct FinishHeader {
     namespace: Arc<str>,
     imports: Box<[ImportRecord]>,
     import_index: HashMap<Arc<str>, usize>,
-    approaches: Box<[ResolvedKeySet]>,
+    approaches: Box<[Box<[ResolvedKey]>]>,
     provenance: FinishProvenance,
+    lookup_live_bytes: u64,
 }
 
 /// 解析后 `(namespace, key)` 的键集合；字面不同但解析相同的目标在此去重。
-type ResolvedKeySet = BTreeSet<(Arc<str>, Arc<str>)>;
+type ResolvedKey = (Arc<str>, Arc<str>);
+
+fn resolved_keys_contain(keys: &[ResolvedKey], namespace: &str, key: &str) -> bool {
+    keys.binary_search_by(|(candidate_namespace, candidate_key)| {
+        candidate_namespace
+            .as_ref()
+            .cmp(namespace)
+            .then_with(|| candidate_key.as_ref().cmp(key))
+    })
+    .is_ok()
+}
 
 /// §2.3 provenance 登记字段的拥有型映射结果。
 struct FinishProvenance {
@@ -965,6 +1085,7 @@ fn finish_module_counts(
     document: &ParsedGeometryDocument,
     payload: &schema::FrozenGeometryPayload,
     resource_counts: &ModuleResourceCounts,
+    frontend_peak_controlled_live_bytes: u64,
 ) -> GeometryModuleCounts {
     let mut line_segment_count = 0_u64;
     let mut cubic_segment_count = 0_u64;
@@ -1009,6 +1130,8 @@ fn finish_module_counts(
                 curve_count: bucket.curve_count,
             })
             .collect(),
+        controlled_live_bytes: resource_counts.controlled_live_bytes,
+        frontend_peak_controlled_live_bytes,
     }
 }
 
@@ -2212,10 +2335,11 @@ fn lower_junctions(
                 "connections[].entryEdge",
                 span_of,
             )?;
-            if !approaches.contains(&(
-                Arc::clone(&entry_edge.module_namespace),
-                Arc::clone(&entry_edge.declaration_key),
-            )) {
+            if !resolved_keys_contain(
+                approaches,
+                &entry_edge.module_namespace,
+                &entry_edge.declaration_key,
+            ) {
                 return Err(DiagnosticBundle::single(
                     Diagnostic::invalid_geometry_document(
                         GeometryDocumentViolation::FieldValue,
@@ -2231,10 +2355,11 @@ fn lower_junctions(
                 "connections[].exitEdge",
                 span_of,
             )?;
-            if !approaches.contains(&(
-                Arc::clone(&exit_edge.module_namespace),
-                Arc::clone(&exit_edge.declaration_key),
-            )) {
+            if !resolved_keys_contain(
+                approaches,
+                &exit_edge.module_namespace,
+                &exit_edge.declaration_key,
+            ) {
                 return Err(DiagnosticBundle::single(
                     Diagnostic::invalid_geometry_document(
                         GeometryDocumentViolation::FieldValue,
@@ -2249,7 +2374,7 @@ fn lower_junctions(
             // Junction 的 internalEdges；解析后的 (namespace, key) 在同一连接内
             // 不得重复（parser 只保证字面 token 不重复）。
             let mut internal_edges = Vec::with_capacity(connection.internal_edge_sequence.len());
-            let mut connection_internal_keys: ResolvedKeySet = BTreeSet::new();
+            let mut connection_internal_keys: BTreeSet<ResolvedKey> = BTreeSet::new();
             for token in &connection.internal_edge_sequence {
                 let reference = resolver.resolve::<LaneEdgeKind>(
                     token,
@@ -3360,6 +3485,7 @@ fn finish_resource_counts(
 fn check_finish_limits(
     limits: &CompileLimits,
     counts: &ModuleResourceCounts,
+    frontend_peak_controlled_live_bytes: u64,
     import_count: u64,
     namespace: &Arc<str>,
     declaration_span: &SourceSpan,
@@ -3407,7 +3533,7 @@ fn check_finish_limits(
         ),
         (
             CompileLimitDimension::CompilerControlledLiveBytes,
-            counts.controlled_live_bytes,
+            frontend_peak_controlled_live_bytes,
         ),
     ] {
         let limit = limits.value(dimension);
@@ -3903,7 +4029,7 @@ mod tests {
                     panic!("九组合 golden 文档必须冻结成功（{}）：{error:?}", context())
                 })
             };
-            let payload = freeze();
+            let payload = freeze().0;
 
             assert_eq!(
                 payload.geometry_point_count,
@@ -3945,7 +4071,7 @@ mod tests {
             );
 
             // 确定性：同一组合独立重建再 freeze 一次，载荷逐位一致。
-            let repeat = freeze();
+            let repeat = freeze().0;
             assert_eq!(
                 repeat.geometry_point_count,
                 payload.geometry_point_count,
@@ -4013,7 +4139,7 @@ mod tests {
         assert_eq!(curves[0].points.len(), 2);
         assert_eq!(curves[0].points[0].x, 0.0);
         assert_eq!(curves[0].points[1].x, 10.0);
-        let payload = builder.freeze_geometry_payload().unwrap();
+        let payload = builder.freeze_geometry_payload().unwrap().0;
         assert_eq!(payload.geometry_point_count, 2);
         assert_eq!(payload.lateral_curves.len(), 1);
         assert_eq!(
@@ -4039,7 +4165,7 @@ mod tests {
                 GeometryDirectionProfile::Balanced2Deg,
                 &limits,
             )?;
-            Ok(builder.freeze_geometry_payload()?.geometry_point_count)
+            Ok(builder.freeze_geometry_payload()?.0.geometry_point_count)
         }
 
         assert_eq!(freeze_with_limit(2).unwrap(), 2);
@@ -4247,6 +4373,26 @@ mod tests {
             error.diagnostics()[0].code(),
             DiagnosticCode::DuplicateLaneEdgeSuccessor
         );
+    }
+
+    #[test]
+    fn finish_rejects_duplicate_junction_approach_aliases_after_resolution() {
+        let source = FULL_DOCUMENT.replace(
+            "\"approachEdges\":[\"edge.f1\",\"edge.b1\"]",
+            "\"approachEdges\":[\"edge.f1\",\"city/main::edge.f1\"]",
+        );
+        let error = finish_document(source.as_bytes(), &CompileLimits::p100_initial_v1())
+            .err()
+            .unwrap();
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            DiagnosticPayload::InvalidGeometryDocument {
+                field: Some(field),
+                actual: Some(actual),
+                ..
+            } if field.as_ref() == "junctions[].approachEdges"
+                && actual.as_ref() == "city/main::edge.f1"
+        ));
     }
 
     #[test]
@@ -4966,7 +5112,7 @@ mod tests {
                 GeometryDirectionProfile::Balanced2Deg,
                 &limits,
             )?;
-            Ok(builder.freeze_geometry_payload()?.geometry_point_count)
+            Ok(builder.freeze_geometry_payload()?.0.geometry_point_count)
         }
 
         // lateral 4 点 + internal 2 点共用同一预算：边界通过，边界减一失败。
@@ -5728,6 +5874,50 @@ mod tests {
             + size_bytes::<super::super::descriptor::SourceDocumentDescriptor>(1)
             + payload_bytes;
         assert_eq!(counts.controlled_live_bytes, expected_live);
+    }
+
+    #[test]
+    fn frontend_peak_includes_builder_line_index_parsed_tree_lookup_and_freeze_scratch() {
+        let source = valid_minimal_document();
+        let limits = CompileLimits::p100_initial_v1();
+        let builder = GeometryModuleBuilder::new(
+            GeometryDocumentInput::new("source/main", source.as_bytes(), None),
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &limits,
+        )
+        .unwrap();
+        let builder_live_bytes = builder.controlled_live_bytes();
+        let module = builder.finish().unwrap();
+        let final_live_bytes = module.counts().controlled_live_bytes();
+        let frontend_peak_bytes = module.counts().frontend_peak_controlled_live_bytes();
+
+        assert!(builder_live_bytes > 0);
+        assert!(frontend_peak_bytes > builder_live_bytes);
+        assert!(frontend_peak_bytes > final_live_bytes);
+
+        let rejected_limit = u32::try_from(frontend_peak_bytes - 1).unwrap();
+        let limited = CompileLimits::p100_initial_v1().with_test_admission_limit(
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            rejected_limit,
+        );
+        let builder = GeometryModuleBuilder::new(
+            GeometryDocumentInput::new("source/main", source.as_bytes(), None),
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &limited,
+        )
+        .unwrap();
+        assert!(builder.controlled_live_bytes() <= u64::from(rejected_limit));
+        let error = builder.finish().err().unwrap();
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::CompilerControlledLiveBytes,
+                limit,
+                observed,
+            } if *limit == u64::from(rejected_limit) && *observed == frontend_peak_bytes
+        ));
     }
 
     fn road_fragment(road_key: &str, span: &str) -> String {

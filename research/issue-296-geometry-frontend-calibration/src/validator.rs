@@ -402,7 +402,7 @@ pub const EVIDENCE_PATH: &str = "docs/reference/geometry-frontend-calibration-ev
 /// 执行 evidence 方向校验链：先完成 manifest 方向全链（contract → 四件 exact bytes →
 /// Draft 2020-12 → oracle cross-record），再 Draft 2020-12 校验证据，最后 cross-record
 /// （raw 绑定 / 来源 / 环境 / 27 行 / 预算校准）并从 raw 独立重算逐字节比对。
-pub fn validate_evidence_with_contract(repo_root: &Path) {
+pub fn validate_evidence_with_contract(repo_root: &Path, release_binary: Option<&Path>) {
     // 1. manifest 方向全链（§9.2：禁止先信任 evidence 自报的 manifest）。
     validate_manifest_with_contract(repo_root);
     let contract = load_contract(repo_root);
@@ -445,7 +445,8 @@ pub fn validate_evidence_with_contract(repo_root: &Path) {
     );
 
     // 4. source 绑定：contract 描述符、manifest、证据 schema、参考机声明与 Cargo.lock
-    // 的 SHA-256 必须与磁盘字节一致；release 二进制逐个核对 exact bytes。
+    // 的 SHA-256 必须与磁盘字节一致；release 二进制身份必须完整且规范。历史测量二进制
+    // 不属于版本控制工件，普通独立验证不要求它留在 target/；显式提供时才核对 exact bytes。
     let source = evidence.get("source").expect("证据缺少 source");
     let contract_bytes = std::fs::read(repo_root.join(CONTRACT_PATH)).expect("读取 contract 失败");
     let expect_source_sha256 = |key: &str, expected: String| {
@@ -469,11 +470,12 @@ pub fn validate_evidence_with_contract(repo_root: &Path) {
         source.get("harnessCommit"),
         "measurement/harness commit 必须一致（同仓库同 commit 测量）"
     );
-    for binary in source
+    let release_binaries = source
         .get("releaseBinaries")
         .and_then(Value::as_array)
-        .expect("source 缺少 releaseBinaries")
-    {
+        .expect("source 缺少 releaseBinaries");
+    assert_eq!(release_binaries.len(), 1, "v1 必须恰好绑定一个测量二进制");
+    for binary in release_binaries {
         let path = binary
             .get("path")
             .and_then(Value::as_str)
@@ -486,22 +488,42 @@ pub fn validate_evidence_with_contract(repo_root: &Path) {
                     .all(|component| matches!(component, Component::Normal(_))),
             "release 二进制 path 必须是不能逃逸 repo 的规范相对路径：{path}"
         );
-        let resolved_path = repo_root.join(binary_path);
-        let bytes = std::fs::read(&resolved_path).unwrap_or_else(|error| {
+        assert!(
+            binary
+                .get("byteLength")
+                .and_then(Value::as_u64)
+                .is_some_and(|length| length > 0),
+            "release 二进制 {path} 必须登记正字节长度"
+        );
+        let sha256 = binary
+            .get("sha256")
+            .and_then(Value::as_str)
+            .expect("release 二进制缺少 sha256");
+        assert!(
+            sha256.len() == 64
+                && sha256
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()),
+            "release 二进制 {path} SHA-256 必须是 64 位小写十六进制"
+        );
+    }
+    if let Some(release_binary) = release_binary {
+        let bytes = std::fs::read(release_binary).unwrap_or_else(|error| {
             panic!(
-                "读取 release 二进制 {} 失败：{error}",
-                resolved_path.display()
+                "读取显式 release 二进制 {} 失败：{error}",
+                release_binary.display()
             )
         });
+        let binding = &release_binaries[0];
         assert_eq!(
-            binary.get("byteLength").and_then(Value::as_u64),
+            binding.get("byteLength").and_then(Value::as_u64),
             Some(u64::try_from(bytes.len()).unwrap_or(u64::MAX)),
-            "release 二进制 {path} 字节长度不符"
+            "显式 release 二进制字节长度与证据绑定不符"
         );
         assert_eq!(
-            binary.get("sha256").and_then(Value::as_str),
+            binding.get("sha256").and_then(Value::as_str),
             Some(sha256_hex(&bytes).as_str()),
-            "release 二进制 {path} SHA-256 不符"
+            "显式 release 二进制 SHA-256 与证据绑定不符"
         );
     }
 
@@ -679,10 +701,11 @@ pub fn validate_evidence_with_contract(repo_root: &Path) {
             Some(observed),
             "{key}.observedValue 与证据行重算不符"
         );
-        assert_eq!(
+        assert_budget_supported(
+            key,
+            observed,
+            candidate,
             entry.get("supported").and_then(Value::as_bool),
-            Some(observed <= candidate),
-            "{key}.supported 与 observedValue/候选预算关系不符"
         );
         let applies: Vec<&str> = entry
             .get("appliesTo")
@@ -712,6 +735,18 @@ pub fn validate_evidence_with_contract(repo_root: &Path) {
     );
 }
 
+fn assert_budget_supported(key: &str, observed: u64, candidate: u64, supported: Option<bool>) {
+    assert_eq!(
+        supported,
+        Some(observed <= candidate),
+        "{key}.supported 与 observedValue/候选预算关系不符"
+    );
+    assert!(
+        observed <= candidate,
+        "{key} 候选预算不受证据支持：observed={observed}, candidate={candidate}；必须返回 G1 并阻断 G3"
+    );
+}
+
 /// 重算某级的 `medianOfMediansNs`：必须等于三个进程 `medianNs` 的中位数。
 fn check_median_of_medians(level_value: &Value, label: &str, level: &str) {
     let per_process = level_value
@@ -733,4 +768,19 @@ fn check_median_of_medians(level_value: &Value, label: &str, level: &str) {
         Some(expected),
         "{label} {level} 中位数的中位数重算不符"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::assert_budget_supported;
+
+    #[test]
+    fn unsupported_budget_fails_closed_even_when_supported_field_is_consistent() {
+        assert!(
+            std::panic::catch_unwind(|| {
+                assert_budget_supported("compilerControlledPeak", 101, 100, Some(false));
+            })
+            .is_err()
+        );
+    }
 }

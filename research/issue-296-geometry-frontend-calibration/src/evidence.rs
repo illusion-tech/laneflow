@@ -230,6 +230,7 @@ pub fn build_evidence(raw_bytes: &[u8], raw_repo_relative_path: &str) -> String 
         PROCESS_COUNT as usize,
         "raw 必须恰好含三个进程"
     );
+    validate_processes(processes);
     let first_rows = processes[0]
         .get("rows")
         .and_then(Value::as_array)
@@ -366,31 +367,25 @@ pub fn validate_evidence_document(schema_bytes: &[u8], evidence_bytes: &[u8]) {
 
 /// 校验三份进程样本文件的结构性一致（schema、进程序号、二进制、冻结行序与跨进程
 /// 确定性字段），返回排序后的进程对象与测量二进制绑定。
-fn load_process_files(repo_root: &Path, paths: &[PathBuf]) -> (Vec<Value>, Value) {
+fn validate_processes(processes: &[Value]) -> Value {
     assert_eq!(
-        paths.len(),
+        processes.len(),
         PROCESS_COUNT as usize,
-        "必须恰好提供三份进程样本文件"
+        "必须恰好包含三个进程"
     );
-    let mut processes = Vec::with_capacity(PROCESS_COUNT as usize);
-    for path in paths {
-        let bytes = std::fs::read(path)
-            .unwrap_or_else(|error| panic!("读取进程样本 {} 失败：{error}", path.display()));
-        let value: Value = serde_json::from_slice(&bytes).expect("进程样本必须是合法 JSON");
+    for process in processes {
         assert_eq!(
-            value.get("schema").and_then(Value::as_str),
+            process.get("schema").and_then(Value::as_str),
             Some(PROCESS_SAMPLES_SCHEMA),
             "进程样本 schema 字段不匹配"
         );
         assert_eq!(
-            value.get("schemaVersion").and_then(Value::as_u64),
+            process.get("schemaVersion").and_then(Value::as_u64),
             Some(1),
             "不支持的进程样本 schemaVersion"
         );
-        processes.push(value);
     }
-    processes.sort_by_key(|p| row_u64(p, "processIndex"));
-    for (expected, process) in (1..=u64::from(PROCESS_COUNT)).zip(&processes) {
+    for (expected, process) in (1..=u64::from(PROCESS_COUNT)).zip(processes) {
         assert_eq!(
             row_u64(process, "processIndex"),
             expected,
@@ -405,28 +400,11 @@ fn load_process_files(repo_root: &Path, paths: &[PathBuf]) -> (Vec<Value>, Value
             "三进程必须使用同一测量二进制"
         );
     }
-    let executable = std::env::current_exe().expect("读取当前可执行路径失败");
-    let (executable_length, executable_sha256) = sha256_file(&executable);
-    assert_eq!(
-        row_string(&binary, "path"),
-        repo_relative(repo_root, &executable),
-        "assemble 与 measure 必须使用同一 repo 相对二进制路径"
-    );
-    assert_eq!(
-        row_u64(&binary, "byteLength"),
-        executable_length,
-        "assemble 与 measure 必须是同一二进制"
-    );
-    assert_eq!(
-        row_string(&binary, "sha256"),
-        executable_sha256,
-        "assemble 与 measure 必须是同一二进制"
-    );
 
     let order = expected_row_order();
     for (row_index, (workload_id, accuracy, direction)) in order.iter().enumerate() {
         let mut reference: Option<&Value> = None;
-        for process in &processes {
+        for process in processes {
             let rows = process
                 .get("rows")
                 .and_then(Value::as_array)
@@ -468,6 +446,42 @@ fn load_process_files(repo_root: &Path, paths: &[PathBuf]) -> (Vec<Value>, Value
             }
         }
     }
+    binary
+}
+
+fn load_process_files(repo_root: &Path, paths: &[PathBuf]) -> (Vec<Value>, Value) {
+    assert_eq!(
+        paths.len(),
+        PROCESS_COUNT as usize,
+        "必须恰好提供三份进程样本文件"
+    );
+    let mut processes = Vec::with_capacity(PROCESS_COUNT as usize);
+    for path in paths {
+        let bytes = std::fs::read(path)
+            .unwrap_or_else(|error| panic!("读取进程样本 {} 失败：{error}", path.display()));
+        let value: Value = serde_json::from_slice(&bytes).expect("进程样本必须是合法 JSON");
+        processes.push(value);
+    }
+    processes.sort_by_key(|p| row_u64(p, "processIndex"));
+    let binary = validate_processes(&processes);
+    let executable = std::env::current_exe().expect("读取当前可执行路径失败");
+    let (executable_length, executable_sha256) = sha256_file(&executable);
+    assert_eq!(
+        row_string(&binary, "path"),
+        repo_relative(repo_root, &executable),
+        "assemble 与 measure 必须使用同一 repo 相对二进制路径"
+    );
+    assert_eq!(
+        row_u64(&binary, "byteLength"),
+        executable_length,
+        "assemble 与 measure 必须是同一二进制"
+    );
+    assert_eq!(
+        row_string(&binary, "sha256"),
+        executable_sha256,
+        "assemble 与 measure 必须是同一二进制"
+    );
+
     (processes, binary)
 }
 
@@ -527,4 +541,39 @@ pub fn assemble(
         sha256_hex(evidence_text.as_bytes())
     );
     eprintln!("raw 与证据装配完成，证据通过 Draft 2020-12 校验");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn committed_raw() -> Value {
+        serde_json::from_slice(include_bytes!(
+            "../../../docs/reference/geometry-frontend-calibration-raw-execution-v1.json"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn raw_rebuild_rejects_reordered_process_rows() {
+        let mut raw = committed_raw();
+        let rows = raw["processes"][1]["rows"].as_array_mut().unwrap();
+        rows.swap(0, 1);
+        let bytes = serde_json::to_vec(&raw).unwrap();
+        assert!(
+            std::panic::catch_unwind(|| build_evidence(&bytes, "raw.json")).is_err(),
+            "独立重算不得把不同 workload 的时序按下标混合"
+        );
+    }
+
+    #[test]
+    fn raw_rebuild_rejects_cross_process_deterministic_drift() {
+        let mut raw = committed_raw();
+        raw["processes"][2]["rows"][0]["compilerControlledPeakBytes"] = json!(u64::MAX);
+        let bytes = serde_json::to_vec(&raw).unwrap();
+        assert!(
+            std::panic::catch_unwind(|| build_evidence(&bytes, "raw.json")).is_err(),
+            "独立重算必须复核每个进程的确定性字段"
+        );
+    }
 }

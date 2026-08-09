@@ -878,6 +878,11 @@ G2 必须在 release、单工作线程、同机 base/candidate 下分别报告�
 逻辑输出字节、编译器控制峰值、保留容量与语义指纹。不得把 parser-only 数字、受控
 分配记录或操作系统进程内存互相替代。
 
+完整 compile 的编译器控制峰值取同一实际生命周期中 Geometry 模块构建器（builders）
+的累计存续/finish 峰值与既有 HIR/MIR/LIR/source-map 后端峰值的最大值。`CompilationMetrics` 的
+后端值不能单独替代前端峰值；多个 builder 在 finish 前同时存续时必须累计，已经
+finish 的模块与尚未 finish 的 builder 也按实际共存关系入账。
+
 ### 9.2 工作负载
 
 Geometry 性能仍采用绝对硬门槛；但门槛只对 exact fixture、exact harness 和具名参考机
@@ -918,6 +923,12 @@ distribution 的 `curveCount` 总和等于 `offsetCurveCount`、全部 LIR table
 操作系统/CPU/内存/电源与固件身份、计时量子、预热/正式样本和进程数，并保存原始执行
 制品摘要。校验顺序复用 #308 的 trusted contract → schema/manifest exact bytes → evidence
 cross-record validation，禁止先信任 evidence 自报的 manifest。
+
+发布二进制摘要（release binary digest）的 exact bytes 核对在 `measure`/`assemble` 的
+参考机链路中强制执行；
+提交后的离线 `verify` 必须复核 raw/evidence 内二进制身份绑定一致，但不要求 Git 忽略的
+历史 `target/` 文件继续存在。审计方持有历史二进制时可显式提供路径并再次核对长度与
+SHA-256；二进制本身不作为普通 Git 制品提交。
 
 冻结三个 Geometry workload identity：
 

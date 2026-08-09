@@ -59,9 +59,12 @@ fn main() {
             );
             eprintln!("环境采集完成：全部字段与参考机声明一致");
         }
-        "verify" => validator::validate_evidence_with_contract(&root),
+        "verify" => {
+            let release_binary = flag_value(rest, "--release-binary").map(PathBuf::from);
+            validator::validate_evidence_with_contract(&root, release_binary.as_deref());
+        }
         _ => panic!(
-            "未知子命令 {command}：用法 calibrate <measure|assemble|collect-environment|verify>"
+            "未知子命令 {command}：用法 calibrate <measure|assemble|collect-environment|verify>；verify 可选 --release-binary <路径>"
         ),
     }
 }
