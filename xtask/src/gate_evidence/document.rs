@@ -352,8 +352,8 @@ pub(super) fn validate_g3_timing(
         .ok_or_else(|| format!("{label} comment createdAt 不是有效 UTC RFC3339 时间"))?;
     let merge_time = lockfile_policy::parse_utc_rfc3339(merged_at)
         .ok_or_else(|| format!("{label} PR mergedAt 不是有效 UTC RFC3339 时间"))?;
-    if comment_time > merge_time {
-        return Err(format!("{label} comment 创建时间晚于 PR 合并时间"));
+    if comment_time >= merge_time {
+        return Err(format!("{label} comment 必须严格早于 PR 合并时间"));
     }
     Ok(())
 }

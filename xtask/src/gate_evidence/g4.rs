@@ -270,8 +270,8 @@ pub(super) fn validate_g4_evidence(
     validate_gate_assertion(&g4_comment.body, "Issue G4", args, GateEvidencePhase::G4)?;
     let g4_comment_time = lockfile_policy::parse_utc_rfc3339(&g4_comment.created_at)
         .ok_or("Issue G4 comment createdAt 不是有效 UTC RFC3339 时间")?;
-    if g4_comment_time < latest_merge_time {
-        return Err("Issue G4 comment 早于最后一个关联 PR 的合并时间".to_string());
+    if g4_comment_time <= latest_merge_time {
+        return Err("Issue G4 comment 必须严格晚于最后一个关联 PR 的合并时间".to_string());
     }
     if !delivery_pr.body.contains("G4 回写") || !delivery_pr.body.contains(&issue_g4_permalink) {
         return Err(

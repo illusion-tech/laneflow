@@ -1019,6 +1019,11 @@ fn merged_g3_timing_uses_fractional_timestamp_ordering() {
 
     pr.comments[0].created_at = "2026-08-07T10:00:01.2Z".to_string();
     assert!(validate_g3_timing(&pr, &permalink, "Related PR").is_err());
+
+    pr.comments[0].created_at = "2026-08-07T10:00:01.1Z".to_string();
+    let error = validate_g3_timing(&pr, &permalink, "Related PR")
+        .expect_err("G3 comment must strictly predate merge");
+    assert!(error.contains("必须严格早于 PR 合并时间"));
 }
 
 #[test]
@@ -1819,7 +1824,19 @@ fn rejects_g4_comment_created_before_merge() {
     let error = validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
         .expect_err("G4 comment must be created after merge");
 
-    assert!(error.contains("早于最后一个关联 PR"));
+    assert!(error.contains("必须严格晚于最后一个关联 PR"));
+}
+
+#[test]
+fn rejects_g4_comment_created_at_merge_timestamp() {
+    let mut issue = issue("OPEN", "Done");
+    issue.comments[0].created_at = "2026-07-10T05:30:00Z".to_string();
+    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+
+    let error = validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
+        .expect_err("G4 comment must strictly follow merge");
+
+    assert!(error.contains("必须严格晚于最后一个关联 PR"));
 }
 
 #[test]
@@ -1834,7 +1851,7 @@ fn g4_merge_ordering_uses_fractional_timestamps() {
     issue.comments[0].created_at = "2026-07-10T05:30:00Z".to_string();
     let error = validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
         .expect_err("whole-second comment precedes fractional merge");
-    assert!(error.contains("早于最后一个关联 PR"));
+    assert!(error.contains("必须严格晚于最后一个关联 PR"));
 }
 
 #[test]
