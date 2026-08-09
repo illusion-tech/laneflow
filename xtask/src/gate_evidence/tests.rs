@@ -962,6 +962,10 @@ fn parses_one_exact_codeql_policy_field() {
         Ok("other")
     );
     assert!(codeql_policy(&format!(
+        "- CodeQL：`not_applicable`；expected policy `{expected}`；https://github.com/illusion-tech/laneflow/runs/1"
+    ))
+    .is_err());
+    assert!(codeql_policy(&format!(
         "- CodeQL：`not_applicable`；policy `other`；policy `{expected}`；https://github.com/illusion-tech/laneflow/runs/1"
     ))
     .is_err());
@@ -1168,6 +1172,38 @@ fn parses_only_the_designated_current_head_field() {
         g3_current_head(&format!(
             "- Current head：`{head}`\n- Current head：`{head}`"
         ))
+        .is_err()
+    );
+}
+
+#[test]
+fn binds_recorded_review_fields_to_the_selected_completion() {
+    let head = "999fb1d056ddf18eca0061dc4d62393228d27ddf";
+    let completion = "2026-08-06T04:27:54Z";
+    let evidence = "https://github.com/illusion-tech/laneflow/pull/311#issuecomment-5200386889";
+    let body = format!(
+        "- 审阅：provider=`codex`、actor=`chatgpt-codex-connector`、reviewed head=`{head}`、outcome=`pass / Did not find any major issues`、completion=`{completion}`、证据：{evidence}"
+    );
+    assert!(
+        validate_recorded_review_completion(
+            &body,
+            "codex",
+            "chatgpt-codex-connector",
+            head,
+            completion,
+            evidence,
+        )
+        .is_ok()
+    );
+    assert!(
+        validate_recorded_review_completion(
+            &body,
+            "copilot",
+            "chatgpt-codex-connector",
+            head,
+            completion,
+            evidence,
+        )
         .is_err()
     );
 }

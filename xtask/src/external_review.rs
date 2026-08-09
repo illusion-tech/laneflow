@@ -549,6 +549,35 @@ impl ExternalReviewResult {
         self.completion_time.as_deref()
     }
 
+    pub(crate) fn provider(&self) -> Option<&str> {
+        self.provider.as_deref()
+    }
+
+    pub(crate) fn actor(&self) -> Option<&str> {
+        self.actor.as_deref()
+    }
+
+    pub(crate) fn reviewed_head_oid(&self) -> Option<&str> {
+        self.reviewed_head_oid.as_deref()
+    }
+
+    pub(crate) fn selected_evidence_url(&self) -> Option<&str> {
+        let provider = self.provider.as_deref()?;
+        let actor = self.actor.as_deref()?;
+        let reviewed_head = self.reviewed_head_oid.as_deref()?;
+        let completion_time = self.completion_time.as_deref()?;
+        self.evidence
+            .iter()
+            .find(|evidence| {
+                evidence.provider == provider
+                    && evidence.actor == actor
+                    && evidence.reviewed_head_oid == reviewed_head
+                    && evidence.submitted_at == completion_time
+                    && evidence.outcome == EvidenceOutcome::Clean
+            })
+            .map(|evidence| evidence.evidence_url.as_str())
+    }
+
     fn bind_identity_if_missing(&mut self, repository: &str, identity: &PullRequestIdentity) {
         if self.repository.is_empty() {
             self.repository = repository.to_string();
@@ -890,6 +919,21 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         let mut unassociated_trusted_replies = Vec::new();
         for (comment_index, comment) in thread.comments.nodes.iter().enumerate() {
             let Some(actor) = comment.author.as_ref() else {
+                let Some(review) = comment.pull_request_review.as_ref() else {
+                    continue;
+                };
+                let Some(review_actor) = review.author.as_ref() else {
+                    continue;
+                };
+                if trusted_provider(&review_actor.login, &author).is_none() {
+                    continue;
+                }
+                diagnostics.push(format!(
+                    "受信任 reviewer 的 thread `{}` comment `{}` 缺少 author",
+                    thread.id, comment.id
+                ));
+                review_ids_with_thread_comments.insert(review.id.clone());
+                linked_review_ids.insert(review.id.clone());
                 continue;
             };
             if trusted_provider(&actor.login, &author).is_none() {
@@ -1045,6 +1089,13 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 if state == "COMMENTED"
                     && !review.body.trim().is_empty()
                     && !review_ids_with_thread_comments.contains(&review.id) =>
+            {
+                Some(EvidenceOutcome::Findings)
+            }
+            "codex"
+                if state == "APPROVED"
+                    && review.includes_created_edit
+                    && review.last_edited_at.is_some() =>
             {
                 Some(EvidenceOutcome::Findings)
             }
@@ -3373,6 +3424,42 @@ mod tests {
         assert_eq!(
             evaluate_snapshot(&copilot_snapshot).state,
             ExternalReviewState::AwaitingRereview
+        );
+    }
+
+    #[test]
+    fn authorless_comment_linked_to_trusted_review_fails_closed() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        snapshot.pull_request.reviews.nodes[0].state = "APPROVED".to_string();
+        snapshot.pull_request.reviews.nodes[0].body.clear();
+        snapshot.pull_request.review_threads.nodes[0].comments.nodes[0].author = None;
+
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::ProviderError
+        );
+    }
+
+    #[test]
+    fn edited_approved_codex_review_requires_rereview() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-awaiting-rereview.json"
+        ));
+        snapshot.pull_request.review_threads.nodes.clear();
+        let review = &mut snapshot.pull_request.reviews.nodes[0];
+        review.state = "APPROVED".to_string();
+        review.body = "A newly edited substantive finding.".to_string();
+        review.includes_created_edit = true;
+        review.last_edited_at = Some("2026-07-24T03:23:00Z".to_string());
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::AwaitingRereview);
+        assert_eq!(result.finding_count, 1);
+        assert_eq!(
+            result.completion_time.as_deref(),
+            Some("2026-07-24T03:23:00Z")
         );
     }
 

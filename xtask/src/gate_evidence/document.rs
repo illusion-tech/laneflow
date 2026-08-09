@@ -379,6 +379,65 @@ pub(super) fn g3_current_head(body: &str) -> Result<&str, String> {
     Ok(value)
 }
 
+fn review_field_value<'a>(line: &'a str, field: &str) -> Result<&'a str, String> {
+    let tail = line
+        .trim_start()
+        .strip_prefix("- 审阅：")
+        .ok_or_else(|| "G3 comment 的审阅行缺少精确字段前缀".to_string())?;
+    let prefix = format!("{field}=`");
+    let values = tail
+        .split('、')
+        .filter_map(|segment| segment.trim().strip_prefix(&prefix))
+        .collect::<Vec<_>>();
+    let [value_tail] = values.as_slice() else {
+        return Err(format!("G3 comment 的审阅行必须恰好记录一个 `{field}` 值"));
+    };
+    value_tail
+        .strip_suffix('`')
+        .filter(|value| !value.is_empty() && !value.contains('`'))
+        .ok_or_else(|| format!("G3 comment 的审阅 `{field}` backtick 格式无效"))
+}
+
+fn review_evidence_url(line: &str) -> Result<&str, String> {
+    let tail = line
+        .trim_start()
+        .strip_prefix("- 审阅：")
+        .ok_or_else(|| "G3 comment 的审阅行缺少精确字段前缀".to_string())?;
+    let values = tail
+        .split('、')
+        .filter_map(|segment| segment.trim().strip_prefix("证据："))
+        .map(|value| value.trim_end_matches('。'))
+        .collect::<Vec<_>>();
+    match values.as_slice() {
+        [value] if !value.is_empty() => Ok(value),
+        _ => Err("G3 comment 的审阅行必须恰好记录一个 `证据` URL".to_string()),
+    }
+}
+
+pub(super) fn validate_recorded_review_completion(
+    body: &str,
+    provider: &str,
+    actor: &str,
+    reviewed_head: &str,
+    completion_time: &str,
+    evidence_url: &str,
+) -> Result<(), String> {
+    let line = unique_metadata_line(body, "审阅")?;
+    if review_field_value(line, "provider")? != provider
+        || review_field_value(line, "actor")? != actor
+        || review_field_value(line, "reviewed head")? != reviewed_head
+        || review_field_value(line, "completion")? != completion_time
+        || review_evidence_url(line)? != evidence_url
+    {
+        return Err("G3 comment 的审阅记录与 External Review Gate completion 不一致".to_string());
+    }
+    let outcome = review_field_value(line, "outcome")?;
+    if !matches!(outcome, "clean" | "pass / Did not find any major issues") {
+        return Err("G3 comment 的审阅 outcome 未记录 clean completion".to_string());
+    }
+    Ok(())
+}
+
 pub(super) fn validate_external_review_g3(
     repo: &str,
     issue_number: u64,
@@ -422,9 +481,29 @@ pub(super) fn validate_external_review_g3(
         ));
     }
     if gate_result != G3Result::Waived {
+        let provider = result
+            .provider()
+            .ok_or_else(|| format!("{label} pass 结果缺少 provider"))?;
+        let actor = result
+            .actor()
+            .ok_or_else(|| format!("{label} pass 结果缺少 actor"))?;
+        let reviewed_head = result
+            .reviewed_head_oid()
+            .ok_or_else(|| format!("{label} pass 结果缺少 reviewed head"))?;
         let completion_time = result
             .completion_time()
             .ok_or_else(|| format!("{label} pass 结果缺少 completion time"))?;
+        let evidence_url = result
+            .selected_evidence_url()
+            .ok_or_else(|| format!("{label} pass 结果缺少 selected evidence URL"))?;
+        validate_recorded_review_completion(
+            &comment.body,
+            provider,
+            actor,
+            reviewed_head,
+            completion_time,
+            evidence_url,
+        )?;
         validate_external_review_completion_order(label, &comment.created_at, completion_time)?;
     }
     Ok(())
@@ -539,16 +618,21 @@ pub(super) fn codeql_state(line: &str) -> Result<codeql::CodeQlState, String> {
 }
 
 pub(super) fn codeql_policy(line: &str) -> Result<&str, String> {
-    let marker = "policy `";
-    let positions = line.match_indices(marker).collect::<Vec<_>>();
-    let [position] = positions.as_slice() else {
+    let tail = line
+        .trim_start()
+        .strip_prefix("- CodeQL：")
+        .ok_or_else(|| "G3 comment 的 CodeQL 行缺少精确字段前缀".to_string())?;
+    let values = tail
+        .split(['；', ';'])
+        .filter_map(|segment| segment.trim().strip_prefix("policy `"))
+        .collect::<Vec<_>>();
+    let [value_tail] = values.as_slice() else {
         return Err("G3 comment 的 CodeQL 行必须恰好记录一个 `policy` 值".to_string());
     };
-    let value_tail = &line[position.0 + marker.len()..];
-    let end = value_tail
-        .find('`')
-        .ok_or_else(|| "G3 comment 的 CodeQL policy 缺少结束 backtick".to_string())?;
-    let value = &value_tail[..end];
+    let value = value_tail
+        .strip_suffix('`')
+        .filter(|value| !value.contains('`'))
+        .ok_or_else(|| "G3 comment 的 CodeQL policy backtick 格式无效".to_string())?;
     if value.is_empty() {
         return Err("G3 comment 的 CodeQL policy 不能为空".to_string());
     }
