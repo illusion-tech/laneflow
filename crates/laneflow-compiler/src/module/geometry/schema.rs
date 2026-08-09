@@ -516,7 +516,12 @@ pub(super) fn parse_units_record(
 pub(super) fn parse_geometry_document(
     source: &[u8],
 ) -> Result<ParsedGeometryDocument, SchemaError> {
-    parse_geometry_document_with_scratch(source, u64::MAX)
+    parse_geometry_document_with_scratch(source, u64::MAX).map(|parsed| parsed.document)
+}
+
+pub(in crate::module::geometry) struct ParsedGeometryDocumentWithScratch {
+    pub(in crate::module::geometry) document: ParsedGeometryDocument,
+    pub(in crate::module::geometry) scratch_peak_bytes: u64,
 }
 
 /// 与 [`parse_geometry_document`] 相同，但把 parser 栈帧、duplicate-key 表等
@@ -524,7 +529,7 @@ pub(super) fn parse_geometry_document(
 pub(in crate::module::geometry) fn parse_geometry_document_with_scratch(
     source: &[u8],
     scratch_limit: u64,
-) -> Result<ParsedGeometryDocument, SchemaError> {
+) -> Result<ParsedGeometryDocumentWithScratch, SchemaError> {
     let mut cursor = JsonCursor::new_with_scratch(source, scratch_limit)?;
     let start = cursor.begin_object()?.start;
     let mut fields = ClosedFields::new([
@@ -571,17 +576,29 @@ pub(in crate::module::geometry) fn parse_geometry_document_with_scratch(
     let end = cursor.end_object()?.end;
     let span = ByteSpan { start, end };
     fields.require_all(span)?;
+    let scratch_peak_bytes = cursor.scratch_peak_bytes();
     cursor.finish()?;
-    Ok(ParsedGeometryDocument {
-        geometry_version_span: version_span.unwrap(),
-        module: module.unwrap(),
-        units: units.unwrap(),
-        frames: frames.unwrap(),
-        roads: roads.unwrap(),
-        junctions: junctions.unwrap(),
-        overlays: overlays.unwrap(),
-        span,
+    Ok(ParsedGeometryDocumentWithScratch {
+        document: ParsedGeometryDocument {
+            geometry_version_span: version_span.unwrap(),
+            module: module.unwrap(),
+            units: units.unwrap(),
+            frames: frames.unwrap(),
+            roads: roads.unwrap(),
+            junctions: junctions.unwrap(),
+            overlays: overlays.unwrap(),
+            span,
+        },
+        scratch_peak_bytes,
     })
+}
+
+/// 按 Geometry v1 的保留分隔符切分引用拼写；无前缀引用由调用方绑定当前命名空间。
+pub(in crate::module::geometry) fn split_reference_spelling(value: &str) -> (Option<&str>, &str) {
+    match value.rsplit_once("::") {
+        Some((namespace, key)) => (Some(namespace), key),
+        None => (None, value),
+    }
 }
 
 pub(in crate::module::geometry) fn freeze_reference_lines(

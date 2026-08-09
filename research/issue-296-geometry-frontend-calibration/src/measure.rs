@@ -121,24 +121,48 @@ fn sources_of(fixture: &WorkloadFixture) -> Vec<GeometrySource<'_>> {
         .collect()
 }
 
+fn source_namespace(source: &str) -> String {
+    serde_json::from_str::<Value>(source)
+        .expect("fixture module source 必须是合法 JSON")
+        .get("module")
+        .and_then(|module| module.get("namespace"))
+        .and_then(Value::as_str)
+        .expect("fixture module source 缺少 module.namespace")
+        .to_string()
+}
+
 fn build_builders(
     sources: &[GeometrySource<'_>],
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
     limits: &CompileLimits,
-) -> Vec<GeometryModuleBuilder> {
-    sources
-        .iter()
-        .map(|source| {
-            GeometryModuleBuilder::new(
-                GeometryDocumentInput::new(source.document_key, source.source, None),
-                accuracy,
-                direction,
-                limits,
-            )
-            .unwrap_or_else(|diagnostics| panic!("geometry 模块构造失败：{diagnostics:?}"))
-        })
-        .collect()
+) -> BuiltGeometryModules {
+    let mut builders = Vec::with_capacity(sources.len());
+    let mut live_builder_bytes = 0_u64;
+    let mut parse_build_peak_controlled_live_bytes = 0_u64;
+    for source in sources {
+        let builder = GeometryModuleBuilder::new(
+            GeometryDocumentInput::new(source.document_key, source.source, None),
+            accuracy,
+            direction,
+            limits,
+        )
+        .unwrap_or_else(|diagnostics| panic!("geometry 模块构造失败：{diagnostics:?}"));
+        parse_build_peak_controlled_live_bytes = parse_build_peak_controlled_live_bytes.max(
+            live_builder_bytes.saturating_add(builder.parse_build_peak_controlled_live_bytes()),
+        );
+        live_builder_bytes = live_builder_bytes.saturating_add(builder.controlled_live_bytes());
+        builders.push(builder);
+    }
+    BuiltGeometryModules {
+        builders,
+        parse_build_peak_controlled_live_bytes,
+    }
+}
+
+struct BuiltGeometryModules {
+    builders: Vec<GeometryModuleBuilder>,
+    parse_build_peak_controlled_live_bytes: u64,
 }
 
 struct FinishedGeometryModules {
@@ -146,12 +170,14 @@ struct FinishedGeometryModules {
     frontend_peak_controlled_live_bytes: u64,
 }
 
-fn finish_modules(builders: Vec<GeometryModuleBuilder>) -> FinishedGeometryModules {
+fn finish_modules(built: BuiltGeometryModules) -> FinishedGeometryModules {
+    let builders = built.builders;
     let mut pending_builder_bytes = builders.iter().fold(0_u64, |total, builder| {
         total.saturating_add(builder.controlled_live_bytes())
     });
     let mut finished_module_bytes = 0_u64;
-    let mut frontend_peak_controlled_live_bytes = pending_builder_bytes;
+    let mut frontend_peak_controlled_live_bytes =
+        pending_builder_bytes.max(built.parse_build_peak_controlled_live_bytes);
     let mut modules = Vec::with_capacity(builders.len());
     for builder in builders {
         pending_builder_bytes =
@@ -185,7 +211,7 @@ fn level_parse_build(
     let started = Instant::now();
     let builders = build_builders(sources, accuracy, direction, limits);
     let elapsed = started.elapsed();
-    black_box(&builders);
+    black_box(&builders.builders);
     elapsed
 }
 
@@ -387,13 +413,13 @@ fn measure_row(
     let synthetic_base = corridor_model.map(|model| {
         let harvest =
             harvest_geometry_output(last_output.as_ref().expect("fullCompile 已产生输出"));
-        let namespace = &fixture.workload_id;
+        let namespace = source_namespace(&fixture.modules[0].source);
         let document_key = &fixture.modules[0].source_path;
         let base_admission = measure_level(|| {
-            base_common_admission(model, namespace, document_key, &limits, &harvest)
+            base_common_admission(model, &namespace, document_key, &limits, &harvest)
         });
         let base_compile =
-            measure_level(|| base_full_compile(model, namespace, document_key, &limits, &harvest));
+            measure_level(|| base_full_compile(model, &namespace, document_key, &limits, &harvest));
         json!({
             "levels": {
                 "commonAdmission": base_admission.to_json(),
@@ -523,6 +549,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn synthetic_base_namespace_comes_from_geometry_document() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap();
+        let fixture = load_fixture(&repo_root, CORRIDOR_FIXTURE_PATH, CORRIDOR_WORKLOAD_ID);
+
+        assert_eq!(
+            source_namespace(&fixture.modules[0].source),
+            "calibration/geometry/corridor"
+        );
+        assert_ne!(
+            source_namespace(&fixture.modules[0].source),
+            fixture.workload_id
+        );
+    }
+
+    #[test]
     fn frontend_peak_aggregates_all_simultaneously_live_builders_and_modules() {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
@@ -530,18 +574,19 @@ mod tests {
             .unwrap();
         let fixture = load_fixture(&repo_root, P100_FIXTURE_PATH, P100_WORKLOAD_ID);
         let sources = sources_of(&fixture);
-        let builders = build_builders(
+        let built = build_builders(
             &sources,
             GeometryAccuracyProfile::Balanced5Cm,
             GeometryDirectionProfile::Balanced2Deg,
             &CompileLimits::p100_initial_v1(),
         );
-        assert!(builders.len() > 1);
-        let initial_builder_bytes = builders.iter().fold(0_u64, |total, builder| {
+        assert!(built.builders.len() > 1);
+        let initial_builder_bytes = built.builders.iter().fold(0_u64, |total, builder| {
             total.saturating_add(builder.controlled_live_bytes())
         });
+        assert!(built.parse_build_peak_controlled_live_bytes >= initial_builder_bytes);
 
-        let finished = finish_modules(builders);
+        let finished = finish_modules(built);
         let final_module_bytes = finished.modules.iter().fold(0_u64, |total, module| {
             total.saturating_add(module.counts().controlled_live_bytes())
         });

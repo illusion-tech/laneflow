@@ -238,6 +238,10 @@ impl<'a> JsonCursor<'a> {
         &mut self.scratch
     }
 
+    pub(in crate::module::geometry) const fn scratch_peak_bytes(&self) -> u64 {
+        self.scratch.peak()
+    }
+
     pub(super) const fn offset(&self) -> usize {
         self.offset
     }

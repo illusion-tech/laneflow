@@ -711,6 +711,11 @@ pub(crate) struct FacilityBandDeclaration {
 /// 已通过字段级检查、等待反向形成非空 Movement 成员集的路口 Typed AST 记录。
 pub(crate) struct JunctionDeclaration {
     pub(crate) header: DeclarationHeader,
+    /// Geometry 文档显式声明的全部 approach edge；Synthetic 前端保持为空。
+    ///
+    /// 这些引用只服务 HIR 的符号存在性、owner/frame 闭包和资源计数，不形成新的
+    /// 稳定实体或 LIR 表行。
+    pub(crate) approach_edges: Box<[OwnedEntityReference<LaneEdgeKind>]>,
 }
 
 /// 已通过字段级检查、等待解析唯一 Junction 父项的通行流向 Typed AST 记录。
@@ -1047,10 +1052,16 @@ impl TypedAstDeclaration {
                 try_visit_reference(road_section, &mut visit)?;
             }
             Self::FacilityBand(FacilityBandDeclaration { header, kind_id: _ })
-            | Self::Junction(JunctionDeclaration { header })
             | Self::SignalGroup(SignalGroupDeclaration { header })
             | Self::ParkingArea(ParkingAreaDeclaration { header }) => {
                 try_visit_declaration_header(header, &mut visit)?;
+            }
+            Self::Junction(JunctionDeclaration {
+                header,
+                approach_edges,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_references(approach_edges, &mut visit)?;
             }
             Self::Movement(MovementDeclaration {
                 header,

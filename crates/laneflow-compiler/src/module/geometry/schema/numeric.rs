@@ -240,9 +240,36 @@ pub(super) fn freeze_cross_section_layouts(
     document: &ParsedGeometryDocument,
     meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenCrossSectionLayout]>, NumericFreezeError> {
+    fn owner_local_key<'a>(value: &'a str, namespace: &str) -> Option<&'a str> {
+        match super::split_reference_spelling(value) {
+            (Some(explicit_namespace), key) if explicit_namespace == namespace => Some(key),
+            (Some(_), _) => None,
+            (None, key) => Some(key),
+        }
+    }
+
+    let namespace = document.module.namespace.value.as_ref();
     let mut output = Vec::new();
     for road in &document.roads {
         for span in &road.cross_section_spans {
+            let Some(reference_section_key) =
+                owner_local_key(&span.reference_section_key.value, namespace)
+            else {
+                return Err(NumericFreezeError {
+                    violation: NumericFreezeViolation::InvalidCrossSectionReference,
+                    field: "referenceSectionKey",
+                    span: span.reference_section_key.span,
+                });
+            };
+            let Some(reference_lane_key) =
+                owner_local_key(&span.reference_lane_key.value, namespace)
+            else {
+                return Err(NumericFreezeError {
+                    violation: NumericFreezeViolation::InvalidCrossSectionReference,
+                    field: "referenceLaneKey",
+                    span: span.reference_lane_key.span,
+                });
+            };
             let mut pending = Vec::new();
             let mut pending_scratch_bytes = 0_u64;
             let mut reference_index = None;
@@ -253,10 +280,7 @@ pub(super) fn freeze_cross_section_layouts(
                         section_key,
                         span: element_span,
                     } => {
-                        let Some(section) = span
-                            .road_sections
-                            .iter()
-                            .find(|section| section.section_key.value == section_key.value)
+                        let Some(section_key) = owner_local_key(&section_key.value, namespace)
                         else {
                             return Err(NumericFreezeError {
                                 violation: NumericFreezeViolation::InvalidCrossSectionReference,
@@ -264,7 +288,18 @@ pub(super) fn freeze_cross_section_layouts(
                                 span: *element_span,
                             });
                         };
-                        if section.section_key.value == span.reference_section_key.value {
+                        let Some(section) = span
+                            .road_sections
+                            .iter()
+                            .find(|section| section.section_key.value.as_ref() == section_key)
+                        else {
+                            return Err(NumericFreezeError {
+                                violation: NumericFreezeViolation::InvalidCrossSectionReference,
+                                field: "elements.sectionKey",
+                                span: *element_span,
+                            });
+                        };
+                        if section.section_key.value.as_ref() == reference_section_key {
                             reference_section_was_element = true;
                         }
                         let expected_direction = section.lanes[0].direction;
@@ -277,8 +312,8 @@ pub(super) fn freeze_cross_section_layouts(
                                 });
                             }
                             let width = parse_positive(&lane.width_meters, "widthMeters")?;
-                            if section.section_key.value == span.reference_section_key.value
-                                && lane.lane_key.value == span.reference_lane_key.value
+                            if section.section_key.value.as_ref() == reference_section_key
+                                && lane.lane_key.value.as_ref() == reference_lane_key
                             {
                                 if lane.direction != super::road::ParsedLaneDirection::Forward {
                                     return Err(NumericFreezeError {
@@ -312,8 +347,17 @@ pub(super) fn freeze_cross_section_layouts(
                         facility_band_key,
                         span: element_span,
                     } => {
+                        let Some(facility_band_key) =
+                            owner_local_key(&facility_band_key.value, namespace)
+                        else {
+                            return Err(NumericFreezeError {
+                                violation: NumericFreezeViolation::InvalidCrossSectionReference,
+                                field: "elements.facilityBandKey",
+                                span: *element_span,
+                            });
+                        };
                         let Some(facility) = span.facility_bands.iter().find(|facility| {
-                            facility.facility_band_key.value == facility_band_key.value
+                            facility.facility_band_key.value.as_ref() == facility_band_key
                         }) else {
                             return Err(NumericFreezeError {
                                 violation: NumericFreezeViolation::InvalidCrossSectionReference,
@@ -2729,6 +2773,48 @@ mod tests {
         assert_eq!(layouts[0].items[0].key.as_ref(), "lane.main");
         assert_eq!(layouts[0].items[0].kind, LateralIntentKind::ForwardLane);
         assert_eq!(layouts[0].items[0].center_offset_meters, 0.0);
+    }
+
+    #[test]
+    fn cross_section_layout_normalizes_self_qualified_owner_local_references() {
+        let minimal = std::str::from_utf8(super::super::MINIMAL_DOCUMENT).unwrap();
+        let source = minimal
+            .replace(
+                r#""referenceSectionKey":"section.main","referenceLaneKey":"lane.main""#,
+                r#""referenceSectionKey":"city/main::section.main","referenceLaneKey":"city/main::lane.main""#,
+            )
+            .replace(
+                r#""elements":[{"kind":"roadSection","sectionKey":"section.main"}]"#,
+                r#""elements":[{"kind":"roadSection","sectionKey":"city/main::section.main"},{"kind":"facilityBand","facilityBandKey":"city/main::facility.main"}]"#,
+            )
+            .replace(
+                r#""facilityBands":[]"#,
+                r#""facilityBands":[{"facilityBandKey":"facility.main","kindId":"sidewalk","widthMeters":2}]"#,
+            );
+        assert_ne!(source, minimal);
+        let document = parse_geometry_document(source.as_bytes()).unwrap();
+        let layouts = freeze_cross_section_layouts(&document, &mut unlimited_meter()).unwrap();
+
+        assert_eq!(layouts[0].items.len(), 2);
+        assert_eq!(layouts[0].items[0].key.as_ref(), "lane.main");
+        assert_eq!(layouts[0].items[1].key.as_ref(), "facility.main");
+    }
+
+    #[test]
+    fn cross_section_layout_rejects_foreign_qualified_owner_local_reference() {
+        let minimal = std::str::from_utf8(super::super::MINIMAL_DOCUMENT).unwrap();
+        let source = minimal.replace(
+            r#""referenceSectionKey":"section.main""#,
+            r#""referenceSectionKey":"city/other::section.main""#,
+        );
+        let document = parse_geometry_document(source.as_bytes()).unwrap();
+        let error = freeze_cross_section_layouts(&document, &mut unlimited_meter()).unwrap_err();
+
+        assert_eq!(error.field, "referenceSectionKey");
+        assert_eq!(
+            error.violation,
+            NumericFreezeViolation::InvalidCrossSectionReference
+        );
     }
 
     #[test]

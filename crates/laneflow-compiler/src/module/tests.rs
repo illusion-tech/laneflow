@@ -2956,9 +2956,9 @@ fn geometry_connection_derives_successors_through_hir_and_mir() {
             .all(|occurrence| occurrence.source_span == connection_span)
     );
     // 资源口径：两条 road 各 1 车道的 admission 计数 + geometry_point 6（三条曲线
-    // 各 2 点）+ 空间 segment 3（每条曲线 1 段）+ §4.4 派生 transition 上界 2 × 2
-    //（合并引用与 occurrence 各计一条）。
-    assert_eq!(hir.hir_record_count, 99);
+    // 各 2 点）+ 空间 segment 3（每条曲线 1 段）+ junction approach 引用 2
+    // + §4.4 派生 transition 上界 2 × 2（合并引用与 occurrence 各计一条）。
+    assert_eq!(hir.hir_record_count, 101);
 
     let mir = crate::mir::lower_to_mir(&unit, &hir).unwrap();
     assert_eq!(mir_successor_keys(&mir, "edge.a"), ["edge.internal"]);

@@ -172,9 +172,17 @@ fn level_samples(process_row: &Value, level: &str, base: bool) -> Vec<u64> {
     } else {
         process_row.get("levels").expect("行缺少 levels")
     };
-    let samples: Vec<u64> = holder
+    let level_row = holder
         .get(level)
-        .and_then(|l| l.get("samplesNs"))
+        .unwrap_or_else(|| panic!("行缺少 {level}"));
+    let warmups = level_row
+        .get("warmupNs")
+        .and_then(Value::as_array)
+        .unwrap_or_else(|| panic!("行缺少 {level}.warmupNs"));
+    assert_eq!(warmups.len(), 1, "每级必须恰好 1 个预热样本");
+    assert!(warmups.iter().all(Value::is_u64), "预热样本必须全部是 u64");
+    let samples: Vec<u64> = level_row
+        .get("samplesNs")
         .and_then(Value::as_array)
         .unwrap_or_else(|| panic!("行缺少 {level}.samplesNs"))
         .iter()
@@ -575,5 +583,19 @@ mod tests {
             std::panic::catch_unwind(|| build_evidence(&bytes, "raw.json")).is_err(),
             "独立重算必须复核每个进程的确定性字段"
         );
+    }
+
+    #[test]
+    fn raw_rebuild_validates_every_warmup_sample_shape_and_type() {
+        for replacement in [json!([]), json!([1, 2]), json!(["invalid"])] {
+            let mut raw = committed_raw();
+            raw["processes"][1]["rows"][0]["levels"]["geometryParseBuild"]["warmupNs"] =
+                replacement;
+            let bytes = serde_json::to_vec(&raw).unwrap();
+            assert!(
+                std::panic::catch_unwind(|| build_evidence(&bytes, "raw.json")).is_err(),
+                "独立重算必须拒绝预热样本数量或类型漂移"
+            );
+        }
     }
 }

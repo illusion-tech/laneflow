@@ -239,6 +239,7 @@ pub struct GeometryModuleBuilder {
     line_index: LineIndex,
     parsed: ParsedGeometryDocument,
     controlled_live_bytes: u64,
+    parse_build_peak_controlled_live_bytes: u64,
 }
 
 impl<'a> GeometryDocumentInput<'a> {
@@ -340,24 +341,29 @@ impl GeometryModuleBuilder {
         let line_index = LineIndex::new(input.source_bytes()).map_err(|error| {
             schema_diagnostic(SchemaError::from(error), &source_document_key, None)
         })?;
-        let parsed = schema::parse_geometry_document_with_scratch(
+        let parsed_with_scratch = schema::parse_geometry_document_with_scratch(
             input.source_bytes(),
             limits.value(CompileLimitDimension::StageScratchBytes),
         )
         .map_err(|error| schema_diagnostic(error, &source_document_key, Some(&line_index)))?;
+        let parsed = parsed_with_scratch.document;
 
         let controlled_live_bytes = len_u64(&source_document_key)
             .saturating_add(input.display_source().map_or(0, len_u64))
             .saturating_add(line_index.controlled_live_bytes())
             .saturating_add(schema::parsed_document_live_bytes(&parsed));
+        // parser scratch 的峰值发生在来源键、行索引和逐步增长的解析树仍存活时。用完成态
+        // 解析树作保守上界，避免 transient scratch 在 cursor 返回时从前端峰值中消失。
+        let parse_build_peak_controlled_live_bytes =
+            controlled_live_bytes.saturating_add(parsed_with_scratch.scratch_peak_bytes);
         let controlled_live_limit =
             limits.value(CompileLimitDimension::CompilerControlledLiveBytes);
-        if controlled_live_bytes > controlled_live_limit {
+        if parse_build_peak_controlled_live_bytes > controlled_live_limit {
             return Err(DiagnosticBundle::single(
                 Diagnostic::compile_limit_exceeded(
                     CompileLimitDimension::CompilerControlledLiveBytes,
                     controlled_live_limit,
-                    controlled_live_bytes,
+                    parse_build_peak_controlled_live_bytes,
                 ),
             ));
         }
@@ -387,6 +393,7 @@ impl GeometryModuleBuilder {
             line_index,
             parsed,
             controlled_live_bytes,
+            parse_build_peak_controlled_live_bytes,
         })
     }
 
@@ -394,6 +401,12 @@ impl GeometryModuleBuilder {
     #[must_use]
     pub const fn controlled_live_bytes(&self) -> u64 {
         self.controlled_live_bytes
+    }
+
+    /// 返回该模块 parse/build 阶段的编译器控制峰值，包含 parser transient scratch。
+    #[must_use]
+    pub const fn parse_build_peak_controlled_live_bytes(&self) -> u64 {
+        self.parse_build_peak_controlled_live_bytes
     }
 
     #[allow(dead_code, reason = "called by the following public finish slice")]
@@ -579,12 +592,15 @@ impl GeometryModuleBuilder {
             self.source_record_byte_len,
             self.display_source.as_deref(),
         );
-        let frontend_peak_controlled_live_bytes = counts
+        let finish_peak_controlled_live_bytes = counts
             .controlled_live_bytes
             .saturating_add(schema::parsed_document_live_bytes(&self.parsed))
             .saturating_add(self.line_index.controlled_live_bytes())
             .saturating_add(header.lookup_live_bytes)
             .saturating_add(freeze_scratch_peak_bytes);
+        let frontend_peak_controlled_live_bytes = self
+            .parse_build_peak_controlled_live_bytes
+            .max(finish_peak_controlled_live_bytes);
         let declaration_span = span_of(self.parsed.module.span);
         check_finish_limits(
             &self.limits,
@@ -620,6 +636,7 @@ impl GeometryModuleBuilder {
             line_index: _,
             parsed: _,
             controlled_live_bytes: _,
+            parse_build_peak_controlled_live_bytes: _,
         } = self;
         let FinishHeader {
             namespace,
@@ -871,6 +888,27 @@ fn validate_provenance_description(
                 Some(&description.value),
                 Some("non-empty UTF-8 text within SingleStringBytes"),
                 span_of(description.span),
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_human_string_limit(
+    value: &SpannedString,
+    field: &'static str,
+    single_string_limit: u64,
+    span_of: &dyn Fn(ByteSpan) -> SourceSpan,
+) -> Result<(), DiagnosticBundle> {
+    let observed = len_u64(&value.value);
+    if observed > single_string_limit {
+        return Err(DiagnosticBundle::single(
+            Diagnostic::invalid_geometry_document(
+                GeometryDocumentViolation::FieldValue,
+                Some(field),
+                Some(&value.value),
+                Some("non-empty UTF-8 text within SingleStringBytes"),
+                span_of(value.span),
             ),
         ));
     }
@@ -1503,10 +1541,7 @@ impl ReferenceResolver<'_> {
         span_of: &dyn Fn(ByteSpan) -> SourceSpan,
     ) -> Result<(Arc<str>, &'a str), DiagnosticBundle> {
         let span = span_of(value.span);
-        let (explicit_namespace, key) = match value.value.rsplit_once("::") {
-            Some((namespace, key)) => (Some(namespace), key),
-            None => (None, value.value.as_ref()),
-        };
+        let (explicit_namespace, key) = schema::split_reference_spelling(&value.value);
         if let Some(namespace) = explicit_namespace
             && let Some(violation) = external_token_violation(namespace, self.single_string_limit)
         {
@@ -2266,12 +2301,21 @@ fn lower_junctions(
     declarations: &mut Vec<TypedAstDeclaration>,
 ) -> Result<(), DiagnosticBundle> {
     for (junction_index, junction) in parsed.junctions.iter().enumerate() {
+        let mut approach_edges = Vec::with_capacity(junction.approach_edges.len());
+        for approach in &junction.approach_edges {
+            approach_edges.push(resolver.resolve::<LaneEdgeKind>(
+                approach,
+                "junctions[].approachEdges",
+                span_of,
+            )?);
+        }
         declarations.push(TypedAstDeclaration::Junction(JunctionDeclaration {
             header: DeclarationHeader {
                 entity_kind: EntityKind::Junction,
                 stable_key: Arc::from(junction.junction_key.value.as_ref()),
                 span: span_of(junction.junction_key.span),
             },
+            approach_edges: approach_edges.into_boxed_slice(),
         }));
         // §4.4/§5.1：每条 internal record 由当前 Junction 唯一拥有，产出带显式
         // speed、successors 为空的 `LaneEdge` 共同声明与显式 geometry intent；
@@ -2482,7 +2526,6 @@ fn lower_overlays(
     span_of: &dyn Fn(ByteSpan) -> SourceSpan,
     declarations: &mut Vec<TypedAstDeclaration>,
 ) -> Result<(), DiagnosticBundle> {
-    let _ = single_string_limit;
     let overlays = &parsed.overlays;
     for group in &overlays.signal_groups {
         declarations.push(TypedAstDeclaration::SignalGroup(SignalGroupDeclaration {
@@ -2704,17 +2747,38 @@ fn lower_overlays(
                 span_of,
             )?);
         }
-        let regulation = rule
-            .regulation
-            .as_ref()
-            .map(|regulation| OwnedAccessRegulation {
+        let regulation = if let Some(regulation) = &rule.regulation {
+            validate_human_string_limit(
+                &regulation.jurisdiction,
+                "accessRules[].regulation.jurisdiction",
+                single_string_limit,
+                span_of,
+            )?;
+            validate_human_string_limit(
+                &regulation.version,
+                "accessRules[].regulation.version",
+                single_string_limit,
+                span_of,
+            )?;
+            if let Some(source) = &regulation.source {
+                validate_human_string_limit(
+                    source,
+                    "accessRules[].regulation.source",
+                    single_string_limit,
+                    span_of,
+                )?;
+            }
+            Some(OwnedAccessRegulation {
                 jurisdiction: Arc::from(regulation.jurisdiction.value.as_ref()),
                 version: Arc::from(regulation.version.value.as_ref()),
                 source: regulation
                     .source
                     .as_ref()
                     .map(|source| Arc::from(source.value.as_ref())),
-            });
+            })
+        } else {
+            None
+        };
         let priority = parse_i32_field(&rule.priority, "accessRules[].priority", span_of)?;
         declarations.push(TypedAstDeclaration::AccessRule(AccessRuleDeclaration {
             header: DeclarationHeader {
@@ -3023,11 +3087,17 @@ impl FinishCounters {
                 self.add_structural::<FacilityBandDeclaration>(1);
             }
             TypedAstDeclaration::Junction(declaration) => {
+                let approaches = count_u64(declaration.approach_edges.len());
                 self.add_header_only_entity(
                     namespace_bytes,
                     &declaration.header.stable_key,
                     size_bytes::<JunctionDeclaration>(1),
                 );
+                self.reference_count = self.reference_count.saturating_add(approaches);
+                for approach in &declaration.approach_edges {
+                    self.add_reference_strings(approach);
+                }
+                self.add_structural::<OwnedEntityReference<LaneEdgeKind>>(approaches);
             }
             TypedAstDeclaration::Movement(declaration) => {
                 self.reference_count = self.reference_count.saturating_add(1);
@@ -3728,8 +3798,9 @@ mod tests {
         RoadCorridorDeclaration, RoadSectionDeclaration, TypedAstDeclaration,
     };
     use crate::{
-        AccessEffect, CompileLimitDimension, CompileLimits, DiagnosticBundle, DiagnosticCode,
-        DiagnosticPayload, GeometryDocumentViolation, SignalAspect, SourceLanguage,
+        AccessEffect, CompilationUnitBuilder, CompileLimitDimension, CompileLimits, Compiler,
+        DiagnosticBundle, DiagnosticCode, DiagnosticPayload, GeometryDocumentViolation,
+        SignalAspect, SourceLanguage,
     };
     use laneflow_static_contract::{
         CanonicalFrameKind, EntityKind, JunctionKind, LaneEdgeKind, LaneGroupKind, MovementKind,
@@ -4361,6 +4432,27 @@ mod tests {
     }
 
     #[test]
+    fn finish_bounds_every_access_regulation_string_before_copying() {
+        let source = valid_minimal_document().replace(
+            r#""participantClasses":[],"vehicleProfiles":[],"accessRules":[]"#,
+            concat!(
+                r#""participantClasses":[{"participantClassKey":"class.car"}],"vehicleProfiles":[],"accessRules":["#,
+                r#"{"accessRuleKey":"access.main","target":{"kind":"laneEdge","laneEdge":"edge.main"},"effect":"allow","participantClasses":["class.car"],"regulation":{"jurisdiction":"123456789012345678901","version":"1","source":"law"},"priority":0}]"#
+            ),
+        );
+        let limits = CompileLimits::p100_initial_v1().with_test_single_string_limit(20);
+        let error = finish_document(source.as_bytes(), &limits).err().unwrap();
+
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            DiagnosticPayload::InvalidGeometryDocument {
+                field: Some(field),
+                ..
+            } if field.as_ref() == "accessRules[].regulation.jurisdiction"
+        ));
+    }
+
+    #[test]
     fn finish_rejects_duplicate_successor_aliases_after_resolution() {
         let source = valid_minimal_document().replace(
             "\"successors\":[]",
@@ -4786,7 +4878,7 @@ mod tests {
         // 声明计数 = 27 个顶层声明 + 3 条嵌套编制车道 + 1 个嵌套信号相位；
         // 引用/关系计数固定为 golden（口径与 finish_resource_counts 公式测试一致）。
         assert_eq!(counts.declaration_count(), 31);
-        assert_eq!(counts.reference_count(), 40);
+        assert_eq!(counts.reference_count(), 42);
         assert_eq!(counts.relation_occurrence_count(), 37);
 
         // 曲线段与控制点：reference line 的 line+cubic；本文档无 internal edge geometry。
@@ -5089,6 +5181,39 @@ mod tests {
             .collect();
         assert_eq!(points, [(0.0, 0.0, 0.0), (5.0, 0.0, 5.0)]);
         assert_eq!(payload.frozen.geometry_point_count, 6);
+    }
+
+    #[test]
+    fn hir_rejects_unused_unknown_junction_approach_reference() {
+        let base_source = two_lane_document(&format!(
+            "[{}]",
+            junction_fragment(
+                "[]",
+                &format!("[{}]", connection_fragment("movement.a", "path.a", "[]"))
+            )
+        ));
+        let source = base_source.replace(
+            r#""approachEdges":["edge.a","edge.b"]"#,
+            r#""approachEdges":["edge.a","edge.b","edge.missing"]"#,
+        );
+        let limits = CompileLimits::p100_initial_v1();
+        let base_reference_count = finish_document(base_source.as_bytes(), &limits)
+            .unwrap()
+            .counts()
+            .reference_count();
+        let module = finish_document(source.as_bytes(), &limits).unwrap();
+        assert_eq!(module.counts().reference_count(), base_reference_count + 1);
+        let mut unit = CompilationUnitBuilder::new(limits);
+        unit.add_geometry_module(module).unwrap();
+        let diagnostics = Compiler::new()
+            .compile(unit.build().unwrap())
+            .err()
+            .unwrap();
+
+        assert!(diagnostics.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code() == DiagnosticCode::UnknownReferenceTarget
+                && diagnostic.stable_key() == Some("junction.main")
+        }));
     }
 
     #[test]
@@ -5827,15 +5952,15 @@ mod tests {
         // + section 1 + lane 2 + junction 1 + connection 1 + internal edge 1。
         assert_eq!(counts.typed_ast_record_count, 11);
         // 引用：frame←road 1 + frame←span 1 + corridor←span 1 + referenceSection/elements 2
-        // + lane→edge 2 + junction←intent 1 + junction←movement 1
+        // + lane→edge 2 + junction approach 2 + junction←intent 1 + junction←movement 1
         // + path 4（movement/entry/internal/exit）+ connection intent 5。
-        assert_eq!(counts.reference_count, 18);
+        assert_eq!(counts.reference_count, 20);
         // corridor 2 + section 4 + movement 1 + path 4；intent 不进 relation 维度。
         assert_eq!(counts.relation_occurrence_count, 11);
         assert_eq!(counts.identity_field_occurrence_count, 31);
         assert_eq!(counts.symbol_count, 11);
-        assert_eq!(counts.string_item_count, 53);
-        assert_eq!(counts.string_bytes, 676);
+        assert_eq!(counts.string_item_count, 55);
+        assert_eq!(counts.string_bytes, 708);
         assert_eq!(counts.maneuver_gate_count, 0);
         assert_eq!(counts.waiting_zone_count, 0);
         assert_eq!(counts.route_occurrence_count, 0);
@@ -5856,6 +5981,7 @@ mod tests {
             + size_bytes::<OwnedEntityReference<LaneGroupKind>>(0)
             + size_bytes::<LaneEdgeDeclaration>(3)
             + size_bytes::<JunctionDeclaration>(1)
+            + size_bytes::<OwnedEntityReference<LaneEdgeKind>>(2)
             + size_bytes::<GeometryInternalEdgeIntent>(1)
             + size_bytes::<OwnedEntityReference<JunctionKind>>(1)
             + size_bytes::<MovementDeclaration>(1)
@@ -5868,8 +5994,8 @@ mod tests {
         let payload_bytes = size_bytes::<FrozenLateralCurve>(2)
             + size_bytes::<FrozenInternalEdgeCurve>(1)
             + size_bytes::<FrozenCanonicalPoint>(6);
-        // controlled 字符串：模块头 ns/doc/generator/provenance 51 + 各声明 350 = 401。
-        let expected_live = 401
+        // controlled 字符串：模块头 ns/doc/generator/provenance 51 + 各声明 362 = 413。
+        let expected_live = 413
             + structural
             + size_bytes::<super::super::descriptor::SourceDocumentDescriptor>(1)
             + payload_bytes;
@@ -5888,11 +6014,14 @@ mod tests {
         )
         .unwrap();
         let builder_live_bytes = builder.controlled_live_bytes();
+        let parse_peak_bytes = builder.parse_build_peak_controlled_live_bytes();
         let module = builder.finish().unwrap();
         let final_live_bytes = module.counts().controlled_live_bytes();
         let frontend_peak_bytes = module.counts().frontend_peak_controlled_live_bytes();
 
         assert!(builder_live_bytes > 0);
+        assert!(parse_peak_bytes > builder_live_bytes);
+        assert!(frontend_peak_bytes >= parse_peak_bytes);
         assert!(frontend_peak_bytes > builder_live_bytes);
         assert!(frontend_peak_bytes > final_live_bytes);
 
@@ -5901,15 +6030,14 @@ mod tests {
             CompileLimitDimension::CompilerControlledLiveBytes,
             rejected_limit,
         );
-        let builder = GeometryModuleBuilder::new(
+        let error = GeometryModuleBuilder::new(
             GeometryDocumentInput::new("source/main", source.as_bytes(), None),
             GeometryAccuracyProfile::Balanced5Cm,
             GeometryDirectionProfile::Balanced2Deg,
             &limited,
         )
+        .err()
         .unwrap();
-        assert!(builder.controlled_live_bytes() <= u64::from(rejected_limit));
-        let error = builder.finish().err().unwrap();
         assert!(matches!(
             error.diagnostics()[0].payload(),
             DiagnosticPayload::CompileLimitExceeded {

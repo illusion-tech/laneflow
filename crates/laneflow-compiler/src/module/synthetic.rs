@@ -894,6 +894,7 @@ impl SyntheticModuleBuilder {
                 stable_key: Arc::clone(&stable_key),
                 span: span.clone(),
             },
+            approach_edges: Box::default(),
         });
         self.declaration_index
             .entry(EntityKind::Junction)

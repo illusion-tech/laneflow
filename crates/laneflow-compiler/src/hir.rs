@@ -3205,6 +3205,26 @@ fn build_junction_hir(
 
     let mut diagnostics =
         DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    // Geometry `approachEdges` 是完整的显式引用集合，即使某条边没有被任一 connection
+    // 使用也必须在 HIR 解析存在性；Synthetic Junction 的集合为空，不改变其契约。
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        for declaration in &source_module.declarations {
+            let TypedAstDeclaration::Junction(source) = declaration else {
+                continue;
+            };
+            for approach in &source.approach_edges {
+                let _ = resolve_reference(
+                    module_lookup,
+                    lane_edge_symbols,
+                    approach,
+                    EntityKind::Junction,
+                    &source.header,
+                    u32::try_from(module_index).unwrap_or(u32::MAX),
+                    &mut diagnostics,
+                );
+            }
+        }
+    }
     let mut junction_member_counts = vec![0_usize; junctions.len()];
     for location in &movement_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
