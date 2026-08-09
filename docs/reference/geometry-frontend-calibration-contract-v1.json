@@ -5,8 +5,8 @@
     "id": "https://github.com/illusion-tech/laneflow/blob/main/docs/reference/geometry-frontend-calibration-evidence-v1.schema.json",
     "schemaVersion": 1,
     "path": "docs/reference/geometry-frontend-calibration-evidence-v1.schema.json",
-    "byteLength": 14250,
-    "sha256": "96c08d3eae1b7a71c72b893f19dde6974dc4335eab81a080d7cec0d66f0483d5"
+    "byteLength": 14477,
+    "sha256": "2efbeb5b87141fef14bfc5c1e7ba0bba9819e355ee5f2dac441a66ea3556a5b7"
   },
   "workloadManifestSchema": {
     "id": "https://github.com/illusion-tech/laneflow/blob/main/docs/reference/geometry-frontend-calibration-workload-manifest-v1.schema.json",

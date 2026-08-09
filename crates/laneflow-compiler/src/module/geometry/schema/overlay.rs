@@ -978,7 +978,7 @@ mod tests {
     }
 
     #[test]
-    fn integer_fields_accept_all_schema_integer_spellings() {
+    fn parser_preserves_noncanonical_integer_tokens_for_compiler_validation() {
         let mut rules = JsonCursor::new(br#"[{"accessRuleKey":"access.main","target":{"kind":"laneEdge","laneEdge":"edge.main"},"effect":"allow","participantClasses":["class.car"],"priority":1.0}]"#).unwrap();
         assert_eq!(
             parse_access_rules(&mut rules).unwrap()[0]

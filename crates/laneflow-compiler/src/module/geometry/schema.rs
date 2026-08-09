@@ -644,7 +644,7 @@ pub(in crate::module::geometry) fn freeze_lateral_curves(
 }
 
 pub(in crate::module::geometry) fn freeze_geometry_payload(
-    document: &ParsedGeometryDocument,
+    document: &mut ParsedGeometryDocument,
     accuracy_profile: super::GeometryAccuracyProfile,
     direction_profile: super::GeometryDirectionProfile,
     geometry_point_limit: u64,

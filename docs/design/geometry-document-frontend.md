@@ -599,8 +599,13 @@ de Casteljau `t = 0.5` 细分、station 累计和 lane offset；每个标量表�
 ties-to-even 转为 `f32`，并把 `-0.0` 规范化为 `+0.0`。
 JSON 十进制 token 必须先保留精确字节，再以 Rust 标准库 `str::parse::<f64>()` 的最近值
 语义转换一次；溢出、非有限结果或不满足字段值域时失败，禁止先经通用 JSON number
-或另一精度往返。整数和 `randomSeed` 等整数文本按目标 `u32`/`u64` 直接解析并检查，
-不得经 `f64` 往返。
+或另一精度往返。Schema 中 `priority`、`transitionIndex`、`maxOccupancy` 等整数位置继续以
+`"type": "integer"` 和各自 min/max 表达数学值域；LaneFlow 编译器还必须检查对应原始
+JSON token 恰好匹配规范整数形式 `0|[1-9][0-9]*|-[1-9][0-9]*`（无符号字段不允许负分支），
+随后直接 checked parse 为目标 `u32`/`i32`。因此 `-0`、前导零、显式正号、小数点和指数
+拼写均失败关闭；即使 JSON Schema 按数学整数语义接受 `1.0` 或 `1e0`，LaneFlow 工程输入
+格式也不接受。实现不得为这些非规范拼写保留精确十进制归约或经 `f64` 往返的兼容路径。
+`randomSeed` 等其他整数文本同样按其目标整数类型直接解析并检查。
 
 对 cubic Bézier，按原始段顺序深度优先、左子段优先递归。Reference curve 的位置停止
 条件是两个内控制点到端点**有限线段**的最大三维平方距离不超过所选位置配置档的曲线
@@ -794,10 +799,12 @@ Geometry 前端复用全部 #315 共同累计维度。额外工作必须归入�
   payload；它先以模块自身 `CompileLimits` 检查单模块上限，再由 #315 common admission
   与 builder 已提交计数做 checked 累加和全单元上限检查。后继 HIR/MIR/LIR 只消费该
   payload，禁止 count-only 预跑、估算计数、二次生成或扫描重算；
-- parser stack、duplicate-key table、曲线细分栈、station scratch、HIR/MIR 工作集分别
-  计入 `StageScratchBytes`；
+- parser stack、duplicate-key table、曲线细分栈、station scratch、lowering 查找表以及
+  HIR/MIR 工作集分别计入 `StageScratchBytes`；每个 lowering 容器必须在分配前按候选
+  容量门禁，阶段峰值按实际并发生命周期合并，不能把先后发生的 freeze/lowering 暂存相加；
 - 解析后存续的字符串、记录、span、点和模块包装计入真实
-  `CompilerControlledLiveBytes`；
+  `CompilerControlledLiveBytes`；冻结 Geometry payload 自有的 curve key `Box<str>`、点数组
+  与 offset distribution backing 均必须入账，不能仅统计结构体和规范点；
 - 诊断条数继续受 `DiagnosticCount` 限制，达到保留上限后仍按安全边界完成计数，并
   只保留全局规范顺序最小前缀。
 
@@ -919,9 +926,14 @@ distribution 的 `curveCount` 总和等于 `offsetCurveCount`、全部 LIR table
 实现改变 record-counted 表集合，必须先修改 schema 并返回 G1，不能由 validator 接受
 动态表名。
 
-证据还必须绑定 measurement/harness commit、clean tree、`Cargo.lock`、release binary digest、
-操作系统/CPU/内存/电源与固件身份、计时量子、预热/正式样本和进程数，并保存原始执行
-制品摘要。校验顺序复用 #308 的 trusted contract → schema/manifest exact bytes → evidence
+证据还必须绑定 measurement/harness commit 及其可解析 tree、clean worktree、`Cargo.lock`、
+release binary digest、操作系统/CPU/内存/电源与固件身份、计时量子、预热/正式样本和进程数，
+并保存原始执行制品摘要。每个正式测量进程必须在计时前捕获 source/tree、环境、二进制与
+协议，计时后复核 source/tree 和环境未漂移；三进程的 source、环境和二进制必须逐值一致。
+每个进程现场观测计时量子，顶层协议采用三次观测的保守最大值；预热数必须恰好为 1、正式
+样本数恰好为 7、level 数组及顺序必须与冻结协议完全相同，不能只用 minimum 约束替代。
+提交后的验证还必须证明 measurement commit 是当前证据提交的可达祖先且其 tree 与绑定值
+一致。校验顺序复用 #308 的 trusted contract → schema/manifest exact bytes → evidence
 cross-record validation，禁止先信任 evidence 自报的 manifest。
 
 发布二进制摘要（release binary digest）的 exact bytes 核对在 `measure`/`assemble` 的

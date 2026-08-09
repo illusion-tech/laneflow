@@ -470,6 +470,7 @@ pub fn validate_evidence_with_contract(repo_root: &Path, release_binary: Option<
         source.get("harnessCommit"),
         "measurement/harness commit 必须一致（同仓库同 commit 测量）"
     );
+    evidence::verify_source_binding(repo_root, source);
     let release_binaries = source
         .get("releaseBinaries")
         .and_then(Value::as_array)

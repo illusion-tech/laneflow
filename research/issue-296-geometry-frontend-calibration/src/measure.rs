@@ -20,12 +20,14 @@ use crate::counts::{
     ACCURACY_PROFILES, DIRECTION_PROFILES, GeometrySource, accuracy_code, complete_output_digest,
     direction_code,
 };
-use crate::evidence::repo_relative;
+use crate::environment::environment_json;
+use crate::evidence::{observe_clock_quantum_ns, protocol_json, repo_relative, source_json};
 use crate::manifest::{
     self, CORRIDOR_FIXTURE_PATH, CORRIDOR_WORKLOAD_ID, MIN_FIXTURE_PATH, MIN_WORKLOAD_ID,
     P100_FIXTURE_PATH, P100_WORKLOAD_ID, WorkloadFixture, load_fixture,
 };
 use crate::twin::{build_corridor_twin, harvest_geometry_output};
+use crate::validator::load_contract;
 
 /// 每级正式计时样本数（§9.1：七个正式样本）。
 pub const FORMAL_SAMPLE_COUNT: usize = 7;
@@ -476,6 +478,18 @@ pub fn measure_process(
         (1..=PROCESS_COUNT).contains(&process_index),
         "processIndex 必须在 1..={PROCESS_COUNT}"
     );
+    let executable = std::env::current_exe().expect("读取当前可执行路径失败");
+    let binary_bytes = std::fs::read(&executable)
+        .unwrap_or_else(|error| panic!("读取测量二进制 {} 失败：{error}", executable.display()));
+    let binary = json!({
+        "path": repo_relative(repo_root, &executable),
+        "byteLength": u64::try_from(binary_bytes.len()).unwrap_or(u64::MAX),
+        "sha256": sha256_hex(&binary_bytes),
+    });
+    let contract = load_contract(repo_root);
+    let source = source_json(repo_root, &contract, &binary);
+    let environment = environment_json(repo_root);
+    let protocol = protocol_json(observe_clock_quantum_ns());
     let expected = load_expected_digests(repo_root);
     let fixtures = [
         load_fixture(repo_root, MIN_FIXTURE_PATH, MIN_WORKLOAD_ID),
@@ -519,19 +533,24 @@ pub fn measure_process(
         assert_eq!(rows.len(), 27, "正式测量必须覆盖 27 行");
     }
 
-    let executable = std::env::current_exe().expect("读取当前可执行路径失败");
-    let binary_bytes = std::fs::read(&executable)
-        .unwrap_or_else(|error| panic!("读取测量二进制 {} 失败：{error}", executable.display()));
-    let binary = json!({
-        "path": repo_relative(repo_root, &executable),
-        "byteLength": u64::try_from(binary_bytes.len()).unwrap_or(u64::MAX),
-        "sha256": sha256_hex(&binary_bytes),
-    });
+    assert_eq!(
+        source_json(repo_root, &contract, &binary),
+        source,
+        "测量进程前后 source commit/tree/工件绑定必须一致"
+    );
+    assert_eq!(
+        environment_json(repo_root),
+        environment,
+        "测量进程前后环境绑定必须一致"
+    );
     let report = json!({
         "schema": PROCESS_SAMPLES_SCHEMA,
         "schemaVersion": 1,
         "processIndex": process_index,
         "binary": binary,
+        "source": source,
+        "environment": environment,
+        "protocol": protocol,
         "rows": rows,
     });
     let serialized = serde_json::to_string_pretty(&report).expect("进程样本序列化");

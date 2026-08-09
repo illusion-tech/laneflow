@@ -140,6 +140,44 @@ pub(crate) struct FrozenGeometryPayload {
     pub(crate) offset_curve_distribution: Box<[FrozenOffsetCurveBucket]>,
 }
 
+impl FrozenGeometryPayload {
+    /// payload 自有 heap allocation 的确定性逻辑字节数。除曲线/点数组外，显式
+    /// 计入每个 `Box<str>` 键和 offset 分布桶，避免字符串副本从受控账本中消失。
+    pub(crate) fn controlled_live_bytes(&self) -> u64 {
+        let mut total = scaled_bytes(
+            self.lateral_curves.len(),
+            size_of::<FrozenLateralCurve>() as u64,
+        )
+        .saturating_add(scaled_bytes(
+            self.internal_edge_curves.len(),
+            size_of::<FrozenInternalEdgeCurve>() as u64,
+        ))
+        .saturating_add(scaled_bytes(
+            self.offset_curve_distribution.len(),
+            size_of::<FrozenOffsetCurveBucket>() as u64,
+        ));
+        for curve in &self.lateral_curves {
+            total = total
+                .saturating_add(u64::try_from(curve.span_key.len()).unwrap_or(u64::MAX))
+                .saturating_add(u64::try_from(curve.key.len()).unwrap_or(u64::MAX))
+                .saturating_add(scaled_bytes(
+                    curve.points.len(),
+                    size_of::<FrozenCanonicalPoint>() as u64,
+                ));
+        }
+        for curve in &self.internal_edge_curves {
+            total = total
+                .saturating_add(u64::try_from(curve.junction_key.len()).unwrap_or(u64::MAX))
+                .saturating_add(u64::try_from(curve.lane_edge_key.len()).unwrap_or(u64::MAX))
+                .saturating_add(scaled_bytes(
+                    curve.points.len(),
+                    size_of::<FrozenCanonicalPoint>() as u64,
+                ));
+        }
+        total
+    }
+}
+
 /// 横向 offset 曲线按 |中心偏移| f64 位模式分组的冻结分布桶（§9.2 前端计数）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct FrozenOffsetCurveBucket {
@@ -240,36 +278,11 @@ pub(super) fn freeze_cross_section_layouts(
     document: &ParsedGeometryDocument,
     meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenCrossSectionLayout]>, NumericFreezeError> {
-    fn owner_local_key<'a>(value: &'a str, namespace: &str) -> Option<&'a str> {
-        match super::split_reference_spelling(value) {
-            (Some(explicit_namespace), key) if explicit_namespace == namespace => Some(key),
-            (Some(_), _) => None,
-            (None, key) => Some(key),
-        }
-    }
-
-    let namespace = document.module.namespace.value.as_ref();
     let mut output = Vec::new();
     for road in &document.roads {
         for span in &road.cross_section_spans {
-            let Some(reference_section_key) =
-                owner_local_key(&span.reference_section_key.value, namespace)
-            else {
-                return Err(NumericFreezeError {
-                    violation: NumericFreezeViolation::InvalidCrossSectionReference,
-                    field: "referenceSectionKey",
-                    span: span.reference_section_key.span,
-                });
-            };
-            let Some(reference_lane_key) =
-                owner_local_key(&span.reference_lane_key.value, namespace)
-            else {
-                return Err(NumericFreezeError {
-                    violation: NumericFreezeViolation::InvalidCrossSectionReference,
-                    field: "referenceLaneKey",
-                    span: span.reference_lane_key.span,
-                });
-            };
+            let reference_section_key = span.reference_section_key.value.as_ref();
+            let reference_lane_key = span.reference_lane_key.value.as_ref();
             let mut pending = Vec::new();
             let mut pending_scratch_bytes = 0_u64;
             let mut reference_index = None;
@@ -280,14 +293,7 @@ pub(super) fn freeze_cross_section_layouts(
                         section_key,
                         span: element_span,
                     } => {
-                        let Some(section_key) = owner_local_key(&section_key.value, namespace)
-                        else {
-                            return Err(NumericFreezeError {
-                                violation: NumericFreezeViolation::InvalidCrossSectionReference,
-                                field: "elements.sectionKey",
-                                span: *element_span,
-                            });
-                        };
+                        let section_key = section_key.value.as_ref();
                         let Some(section) = span
                             .road_sections
                             .iter()
@@ -347,15 +353,7 @@ pub(super) fn freeze_cross_section_layouts(
                         facility_band_key,
                         span: element_span,
                     } => {
-                        let Some(facility_band_key) =
-                            owner_local_key(&facility_band_key.value, namespace)
-                        else {
-                            return Err(NumericFreezeError {
-                                violation: NumericFreezeViolation::InvalidCrossSectionReference,
-                                field: "elements.facilityBandKey",
-                                span: *element_span,
-                            });
-                        };
+                        let facility_band_key = facility_band_key.value.as_ref();
                         let Some(facility) = span.facility_bands.iter().find(|facility| {
                             facility.facility_band_key.value.as_ref() == facility_band_key
                         }) else {
@@ -407,6 +405,85 @@ pub(super) fn freeze_cross_section_layouts(
     Ok(output.into_boxed_slice())
 }
 
+fn normalize_owner_local_reference(
+    value: &mut super::SpannedString,
+    namespace: &str,
+    field: &'static str,
+    meter: &mut StageScratchMeter,
+) -> Result<(), NumericFreezeError> {
+    let (explicit_namespace, key) = super::split_reference_spelling(&value.value);
+    match explicit_namespace {
+        Some(explicit_namespace) if explicit_namespace != namespace => {
+            return Err(NumericFreezeError {
+                violation: NumericFreezeViolation::InvalidCrossSectionReference,
+                field,
+                span: value.span,
+            });
+        }
+        None => return Ok(()),
+        Some(_) => {}
+    }
+
+    // 新 key 分配与旧 self-qualified token 在替换瞬间同时存活；把这段短暂重叠
+    // 计入 StageScratchBytes。替换后新 key 已属于解析树，不继续占用阶段暂存。
+    let normalized_bytes = u64::try_from(key.len()).unwrap_or(u64::MAX);
+    meter
+        .grow(normalized_bytes)
+        .map_err(|_| scratch_exceeded(value.span))?;
+    let normalized: Box<str> = key.into();
+    value.value = normalized;
+    meter.shrink(normalized_bytes);
+    Ok(())
+}
+
+/// 把只允许指向 owning module 的 cross-section 引用恰好归一化一次。
+/// numeric freeze 与后续 lowering 随后消费同一份 owner-local key，不再各自解释拼写。
+fn normalize_owner_local_cross_section_references(
+    document: &mut ParsedGeometryDocument,
+    meter: &mut StageScratchMeter,
+) -> Result<(), NumericFreezeError> {
+    let namespace = document.module.namespace.value.as_ref();
+    for road in &mut document.roads {
+        for span in &mut road.cross_section_spans {
+            normalize_owner_local_reference(
+                &mut span.reference_section_key,
+                namespace,
+                "referenceSectionKey",
+                meter,
+            )?;
+            normalize_owner_local_reference(
+                &mut span.reference_lane_key,
+                namespace,
+                "referenceLaneKey",
+                meter,
+            )?;
+            for element in &mut span.elements {
+                match element {
+                    super::road::ParsedCorridorElement::RoadSection { section_key, .. } => {
+                        normalize_owner_local_reference(
+                            section_key,
+                            namespace,
+                            "elements.sectionKey",
+                            meter,
+                        )?;
+                    }
+                    super::road::ParsedCorridorElement::FacilityBand {
+                        facility_band_key, ..
+                    } => {
+                        normalize_owner_local_reference(
+                            facility_band_key,
+                            namespace,
+                            "elements.facilityBandKey",
+                            meter,
+                        )?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn freeze_lateral_curves(
     document: &ParsedGeometryDocument,
     stationing: &[FrozenRoadStationing],
@@ -427,12 +504,13 @@ pub(super) fn freeze_lateral_curves(
 }
 
 pub(super) fn freeze_geometry_payload(
-    document: &ParsedGeometryDocument,
+    document: &mut ParsedGeometryDocument,
     accuracy_profile: GeometryAccuracyProfile,
     direction_profile: GeometryDirectionProfile,
     geometry_point_limit: u64,
     meter: &mut StageScratchMeter,
 ) -> Result<FrozenGeometryPayload, NumericFreezeError> {
+    normalize_owner_local_cross_section_references(document, meter)?;
     let stationing = freeze_stationing(document, direction_profile, meter)?;
     let layouts = freeze_cross_section_layouts(document, meter)?;
     let lateral_curves = freeze_lateral_curves_with_limit(
@@ -2459,7 +2537,7 @@ mod tests {
             r#""segments":[{"kind":"line","end":[10,0,0]},{"kind":"line","end":[18,0.20948737255349544,0]}]"#,
         );
         assert_ne!(source, minimal);
-        let document = parse_geometry_document(source.as_bytes()).unwrap();
+        let mut document = parse_geometry_document(source.as_bytes()).unwrap();
         // 细分仍按固定档：两条 line segment → 每 segment 恰好一个 station 区间。
         let roads = freeze_stationing(
             &document,
@@ -2480,7 +2558,7 @@ mod tests {
         );
         // payload 路径以所选方向档裁决同一 join。
         let error = freeze_geometry_payload(
-            &document,
+            &mut document,
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
             u64::MAX,
@@ -2492,7 +2570,7 @@ mod tests {
             NumericFreezeViolation::DiscontinuousSourceJoin
         );
         freeze_geometry_payload(
-            &document,
+            &mut document,
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Balanced2Deg,
             u64::MAX,
@@ -2792,7 +2870,9 @@ mod tests {
                 r#""facilityBands":[{"facilityBandKey":"facility.main","kindId":"sidewalk","widthMeters":2}]"#,
             );
         assert_ne!(source, minimal);
-        let document = parse_geometry_document(source.as_bytes()).unwrap();
+        let mut document = parse_geometry_document(source.as_bytes()).unwrap();
+        normalize_owner_local_cross_section_references(&mut document, &mut unlimited_meter())
+            .unwrap();
         let layouts = freeze_cross_section_layouts(&document, &mut unlimited_meter()).unwrap();
 
         assert_eq!(layouts[0].items.len(), 2);
@@ -2807,8 +2887,10 @@ mod tests {
             r#""referenceSectionKey":"section.main""#,
             r#""referenceSectionKey":"city/other::section.main""#,
         );
-        let document = parse_geometry_document(source.as_bytes()).unwrap();
-        let error = freeze_cross_section_layouts(&document, &mut unlimited_meter()).unwrap_err();
+        let mut document = parse_geometry_document(source.as_bytes()).unwrap();
+        let error =
+            normalize_owner_local_cross_section_references(&mut document, &mut unlimited_meter())
+                .unwrap_err();
 
         assert_eq!(error.field, "referenceSectionKey");
         assert_eq!(

@@ -9,7 +9,6 @@ use serde_json::{Value, json};
 
 use crate::container::sha256_hex;
 use crate::counts::{ACCURACY_PROFILES, DIRECTION_PROFILES, accuracy_code, direction_code};
-use crate::environment::environment_json;
 use crate::manifest::{CORRIDOR_WORKLOAD_ID, MIN_WORKLOAD_ID, P100_WORKLOAD_ID};
 use crate::measure::{BASE_LEVEL_IDS, FORMAL_SAMPLE_COUNT, LEVEL_IDS, PROCESS_COUNT};
 use crate::validator::{CONTRACT_PATH, load_contract, read_bound_artifact};
@@ -72,6 +71,16 @@ fn run_git(repo_root: &Path, args: &[&str]) -> String {
         .to_string()
 }
 
+fn git_succeeds(repo_root: &Path, args: &[&str]) -> bool {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(args)
+        .status()
+        .unwrap_or_else(|error| panic!("启动 git 失败：{error}"))
+        .success()
+}
+
 fn source_commit(repo_root: &Path) -> String {
     let commit = run_git(repo_root, &["rev-parse", "HEAD"]);
     assert!(
@@ -82,6 +91,19 @@ fn source_commit(repo_root: &Path) -> String {
         "source commit 必须是 40 位小写十六进制：{commit}"
     );
     commit
+}
+
+fn source_tree(repo_root: &Path, commit: &str) -> String {
+    let revision = format!("{commit}^{{tree}}");
+    let tree = run_git(repo_root, &["rev-parse", "--verify", &revision]);
+    assert!(
+        tree.len() == 40
+            && tree
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        "source tree 必须是 40 位小写十六进制：{tree}"
+    );
+    tree
 }
 
 /// 测量与装配必须发生在干净工作树（dirty:false 由本检查保证而非自报）。
@@ -114,16 +136,20 @@ pub(crate) fn repo_relative(repo_root: &Path, path: &Path) -> String {
         .replace('\\', "/")
 }
 
-/// 装配证据 `source` 对象：commit、干净树、Cargo.lock、contract 四件绑定与测量二进制。
-fn source_json(repo_root: &Path, contract: &Value, binary: &Value) -> Value {
+/// 测量进程与装配共同生成 `source` 对象：commit/tree、干净树、Cargo.lock、contract
+/// 四件绑定与测量二进制。进程必须在计时前后得到逐字节相同的对象。
+pub(crate) fn source_json(repo_root: &Path, contract: &Value, binary: &Value) -> Value {
     let commit = source_commit(repo_root);
+    let tree = source_tree(repo_root, &commit);
     verify_clean_worktree(repo_root);
     let (_, cargo_lock_sha256) = sha256_file(&repo_root.join("Cargo.lock"));
     let contract_bytes = std::fs::read(repo_root.join(CONTRACT_PATH)).expect("读取 contract 失败");
     let bound_sha256 = |key: &str| sha256_hex(&read_bound_artifact(repo_root, contract, key));
     json!({
-        "measurementCommit": commit,
+        "measurementCommit": commit.clone(),
+        "measurementTree": tree.clone(),
         "harnessCommit": commit,
+        "harnessTree": tree,
         "dirty": false,
         "cargoLockSha256": cargo_lock_sha256,
         "contractDescriptorSha256": sha256_hex(&contract_bytes),
@@ -132,6 +158,85 @@ fn source_json(repo_root: &Path, contract: &Value, binary: &Value) -> Value {
         "referenceMachineDeclarationSha256": bound_sha256("referenceMachineDeclaration"),
         "releaseBinaries": [binary],
     })
+}
+
+pub(crate) fn verify_source_binding(repo_root: &Path, source: &Value) {
+    let measurement_commit = row_string(source, "measurementCommit");
+    let measurement_tree = row_string(source, "measurementTree");
+    assert_eq!(
+        source.get("harnessCommit").and_then(Value::as_str),
+        Some(measurement_commit),
+        "measurement/harness commit 必须一致"
+    );
+    assert_eq!(
+        source.get("harnessTree").and_then(Value::as_str),
+        Some(measurement_tree),
+        "measurement/harness tree 必须一致"
+    );
+    assert_eq!(
+        source_tree(repo_root, measurement_commit),
+        measurement_tree,
+        "measurement commit 的 tree 与证据绑定不符"
+    );
+    assert!(
+        git_succeeds(
+            repo_root,
+            &["merge-base", "--is-ancestor", measurement_commit, "HEAD"]
+        ),
+        "measurement commit 必须是当前证据提交的可达祖先：{measurement_commit}"
+    );
+}
+
+pub(crate) fn protocol_json(clock_quantum_ns: u64) -> Value {
+    json!({
+        "id": PROTOCOL_ID,
+        "releaseBuild": true,
+        "singleWorkerThread": true,
+        "clockQuantumNs": clock_quantum_ns,
+        "processCount": PROCESS_COUNT,
+        "warmupCountPerLevel": 1,
+        "formalSampleCountPerLevel": FORMAL_SAMPLE_COUNT,
+        "levels": LEVEL_IDS,
+    })
+}
+
+pub(crate) fn validate_protocol(protocol: &Value) {
+    assert_eq!(
+        protocol.get("id").and_then(Value::as_str),
+        Some(PROTOCOL_ID)
+    );
+    assert_eq!(
+        protocol.get("releaseBuild").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        protocol.get("singleWorkerThread").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert!(
+        protocol
+            .get("clockQuantumNs")
+            .and_then(Value::as_u64)
+            .is_some_and(|value| value > 0),
+        "clockQuantumNs 必须是正 u64"
+    );
+    assert_eq!(
+        protocol.get("processCount").and_then(Value::as_u64),
+        Some(u64::from(PROCESS_COUNT))
+    );
+    assert_eq!(
+        protocol.get("warmupCountPerLevel").and_then(Value::as_u64),
+        Some(1),
+        "每级协议必须声明恰好一个预热样本"
+    );
+    assert_eq!(
+        protocol
+            .get("formalSampleCountPerLevel")
+            .and_then(Value::as_u64),
+        Some(u64::try_from(FORMAL_SAMPLE_COUNT).unwrap_or(u64::MAX)),
+        "每级协议必须声明恰好七个正式样本"
+    );
+    assert_eq!(protocol.get("levels"), Some(&json!(LEVEL_IDS)));
 }
 
 /// 27 行冻结行序（workload 登记序 × 位置鉴别码 × 方向鉴别码）。
@@ -238,7 +343,22 @@ pub fn build_evidence(raw_bytes: &[u8], raw_repo_relative_path: &str) -> String 
         PROCESS_COUNT as usize,
         "raw 必须恰好含三个进程"
     );
-    validate_processes(processes);
+    let bindings = validate_processes(processes);
+    assert_eq!(
+        raw.get("source"),
+        Some(&bindings.source),
+        "raw source 与测量进程不符"
+    );
+    assert_eq!(
+        raw.get("environment"),
+        Some(&bindings.environment),
+        "raw environment 与测量进程不符"
+    );
+    assert_eq!(
+        raw.get("protocol"),
+        Some(&bindings.protocol),
+        "raw protocol 与测量进程不符"
+    );
     let first_rows = processes[0]
         .get("rows")
         .and_then(Value::as_array)
@@ -375,7 +495,14 @@ pub fn validate_evidence_document(schema_bytes: &[u8], evidence_bytes: &[u8]) {
 
 /// 校验三份进程样本文件的结构性一致（schema、进程序号、二进制、冻结行序与跨进程
 /// 确定性字段），返回排序后的进程对象与测量二进制绑定。
-fn validate_processes(processes: &[Value]) -> Value {
+struct ProcessBindings {
+    binary: Value,
+    source: Value,
+    environment: Value,
+    protocol: Value,
+}
+
+fn validate_processes(processes: &[Value]) -> ProcessBindings {
     assert_eq!(
         processes.len(),
         PROCESS_COUNT as usize,
@@ -401,12 +528,34 @@ fn validate_processes(processes: &[Value]) -> Value {
         );
     }
     let binary = processes[0].get("binary").expect("进程缺少 binary").clone();
+    let source = processes[0].get("source").expect("进程缺少 source").clone();
+    let environment = processes[0]
+        .get("environment")
+        .expect("进程缺少 environment")
+        .clone();
+    let first_protocol = processes[0].get("protocol").expect("进程缺少 protocol");
+    validate_protocol(first_protocol);
+    let mut maximum_clock_quantum_ns = row_u64(first_protocol, "clockQuantumNs");
     for process in &processes[1..] {
         assert_eq!(
             process.get("binary"),
             Some(&binary),
             "三进程必须使用同一测量二进制"
         );
+        assert_eq!(
+            process.get("source"),
+            Some(&source),
+            "三进程 source 绑定必须一致"
+        );
+        assert_eq!(
+            process.get("environment"),
+            Some(&environment),
+            "三进程环境绑定必须一致"
+        );
+        let process_protocol = process.get("protocol").expect("进程缺少 protocol");
+        validate_protocol(process_protocol);
+        maximum_clock_quantum_ns =
+            maximum_clock_quantum_ns.max(row_u64(process_protocol, "clockQuantumNs"));
     }
 
     let order = expected_row_order();
@@ -454,10 +603,18 @@ fn validate_processes(processes: &[Value]) -> Value {
             }
         }
     }
-    binary
+    // clockQuantumNs 是各测量进程现场观测值，不要求偶然相等；顶层协议采用三次
+    // 观测的保守最大值，其余协议字段由 validate_protocol 精确约束。
+    let protocol = protocol_json(maximum_clock_quantum_ns);
+    ProcessBindings {
+        binary,
+        source,
+        environment,
+        protocol,
+    }
 }
 
-fn load_process_files(repo_root: &Path, paths: &[PathBuf]) -> (Vec<Value>, Value) {
+fn load_process_files(repo_root: &Path, paths: &[PathBuf]) -> (Vec<Value>, ProcessBindings) {
     assert_eq!(
         paths.len(),
         PROCESS_COUNT as usize,
@@ -471,26 +628,39 @@ fn load_process_files(repo_root: &Path, paths: &[PathBuf]) -> (Vec<Value>, Value
         processes.push(value);
     }
     processes.sort_by_key(|p| row_u64(p, "processIndex"));
-    let binary = validate_processes(&processes);
+    let bindings = validate_processes(&processes);
     let executable = std::env::current_exe().expect("读取当前可执行路径失败");
     let (executable_length, executable_sha256) = sha256_file(&executable);
     assert_eq!(
-        row_string(&binary, "path"),
+        row_string(&bindings.binary, "path"),
         repo_relative(repo_root, &executable),
         "assemble 与 measure 必须使用同一 repo 相对二进制路径"
     );
     assert_eq!(
-        row_u64(&binary, "byteLength"),
+        row_u64(&bindings.binary, "byteLength"),
         executable_length,
         "assemble 与 measure 必须是同一二进制"
     );
     assert_eq!(
-        row_string(&binary, "sha256"),
+        row_string(&bindings.binary, "sha256"),
         executable_sha256,
         "assemble 与 measure 必须是同一二进制"
     );
 
-    (processes, binary)
+    let contract = load_contract(repo_root);
+    assert_eq!(
+        bindings.source,
+        source_json(repo_root, &contract, &bindings.binary),
+        "assemble 必须位于测量进程绑定的同一 commit/tree 干净源码上"
+    );
+    let current_environment = crate::environment::environment_json(repo_root);
+    assert_eq!(
+        bindings.environment, current_environment,
+        "assemble 环境必须与测量进程环境一致"
+    );
+    validate_protocol(&bindings.protocol);
+
+    (processes, bindings)
 }
 
 /// 正式装配：三进程样本 → raw artifact（写盘）→ 证据（Draft 2020-12 校验后写盘）。
@@ -504,26 +674,13 @@ pub fn assemble(
     if cfg!(debug_assertions) {
         panic!("正式 assemble 必须 release 构建");
     }
-    let (processes, binary) = load_process_files(repo_root, process_files);
-    let contract = load_contract(repo_root);
-    let source = source_json(repo_root, &contract, &binary);
-    let environment = environment_json(repo_root);
-    let protocol = json!({
-        "id": PROTOCOL_ID,
-        "releaseBuild": true,
-        "singleWorkerThread": true,
-        "clockQuantumNs": observe_clock_quantum_ns(),
-        "processCount": PROCESS_COUNT,
-        "warmupCountPerLevel": 1,
-        "formalSampleCountPerLevel": FORMAL_SAMPLE_COUNT,
-        "levels": LEVEL_IDS,
-    });
+    let (processes, bindings) = load_process_files(repo_root, process_files);
     let raw = json!({
         "schema": RAW_EXECUTION_SCHEMA,
         "schemaVersion": 1,
-        "source": source,
-        "environment": environment,
-        "protocol": protocol,
+        "source": bindings.source,
+        "environment": bindings.environment,
+        "protocol": bindings.protocol,
         "processes": processes,
     });
     let raw_text = serde_json::to_string_pretty(&raw).expect("raw 序列化");
@@ -532,6 +689,7 @@ pub fn assemble(
 
     let raw_relative = repo_relative(repo_root, raw_output);
     let evidence_text = build_evidence(raw_text.as_bytes(), &raw_relative);
+    let contract = load_contract(repo_root);
     let evidence_schema_bytes = read_bound_artifact(repo_root, &contract, "evidenceSchema");
     validate_evidence_document(&evidence_schema_bytes, evidence_text.as_bytes());
     std::fs::write(evidence_output, &evidence_text)
@@ -556,10 +714,58 @@ mod tests {
     use super::*;
 
     fn committed_raw() -> Value {
-        serde_json::from_slice(include_bytes!(
+        let mut raw: Value = serde_json::from_slice(include_bytes!(
             "../../../docs/reference/geometry-frontend-calibration-raw-execution-v1.json"
         ))
-        .unwrap()
+        .unwrap();
+        // 历史 committed raw 尚无进程内绑定时，在单元测试夹具中从顶层 exact 值补齐，
+        // 使后续破坏性测试真正到达各自目标检查；正式制品不得依赖该测试迁移。
+        let source = raw["source"].clone();
+        let environment = raw["environment"].clone();
+        let protocol = raw["protocol"].clone();
+        for process in raw["processes"].as_array_mut().unwrap() {
+            let object = process.as_object_mut().unwrap();
+            object.entry("source").or_insert_with(|| source.clone());
+            object
+                .entry("environment")
+                .or_insert_with(|| environment.clone());
+            object.entry("protocol").or_insert_with(|| protocol.clone());
+        }
+        raw
+    }
+
+    #[test]
+    fn raw_rebuild_accepts_process_bound_source_environment_and_protocol() {
+        let raw = committed_raw();
+        build_evidence(&serde_json::to_vec(&raw).unwrap(), "raw.json");
+    }
+
+    #[test]
+    fn raw_protocol_uses_maximum_process_clock_quantum_but_exact_frozen_counts() {
+        let mut raw = committed_raw();
+        for (process, quantum) in raw["processes"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .zip([100_u64, 300, 200])
+        {
+            process["protocol"]["clockQuantumNs"] = json!(quantum);
+        }
+        raw["protocol"]["clockQuantumNs"] = json!(300);
+        build_evidence(&serde_json::to_vec(&raw).unwrap(), "raw.json");
+
+        for (field, invalid) in [
+            ("warmupCountPerLevel", json!(2)),
+            ("formalSampleCountPerLevel", json!(8)),
+            ("levels", json!(["fullCompile"])),
+        ] {
+            let mut protocol = protocol_json(100);
+            protocol[field] = invalid;
+            assert!(
+                std::panic::catch_unwind(|| validate_protocol(&protocol)).is_err(),
+                "协议字段 {field} 必须精确匹配冻结值"
+            );
+        }
     }
 
     #[test]
@@ -583,6 +789,21 @@ mod tests {
             std::panic::catch_unwind(|| build_evidence(&bytes, "raw.json")).is_err(),
             "独立重算必须复核每个进程的确定性字段"
         );
+    }
+
+    #[test]
+    fn raw_rebuild_rejects_cross_process_binding_drift() {
+        for field in ["source", "environment", "protocol"] {
+            let mut raw = committed_raw();
+            raw["processes"][1][field] = json!({"drift": true});
+            assert!(
+                std::panic::catch_unwind(|| {
+                    build_evidence(&serde_json::to_vec(&raw).unwrap(), "raw.json")
+                })
+                .is_err(),
+                "跨进程 {field} 漂移必须失败关闭"
+            );
+        }
     }
 
     #[test]

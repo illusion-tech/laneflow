@@ -57,7 +57,9 @@
       "additionalProperties": false,
       "required": [
         "measurementCommit",
+        "measurementTree",
         "harnessCommit",
+        "harnessTree",
         "dirty",
         "cargoLockSha256",
         "contractDescriptorSha256",
@@ -70,7 +72,13 @@
         "measurementCommit": {
           "$ref": "#/$defs/gitCommit"
         },
+        "measurementTree": {
+          "$ref": "#/$defs/gitCommit"
+        },
         "harnessCommit": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "harnessTree": {
           "$ref": "#/$defs/gitCommit"
         },
         "dirty": {
@@ -222,15 +230,16 @@
           "minimum": 1
         },
         "processCount": {
+          "type": "integer",
           "const": 3
         },
         "warmupCountPerLevel": {
           "type": "integer",
-          "minimum": 1
+          "const": 1
         },
         "formalSampleCountPerLevel": {
           "type": "integer",
-          "minimum": 7
+          "const": 7
         },
         "levels": {
           "type": "array",

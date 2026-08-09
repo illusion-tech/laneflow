@@ -3,7 +3,7 @@
 //! 本模块只建立 #296 G1 冻结的公共构造面基础。解析器、numeric freeze 与共同
 //! admission 继续保持 crate 私有，并且不得从这些配置档之外接受任意浮点容差。
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use laneflow_static_contract::{
@@ -506,13 +506,13 @@ impl GeometryModuleBuilder {
     }
 
     fn freeze_geometry_payload(
-        &self,
+        &mut self,
     ) -> Result<(schema::FrozenGeometryPayload, u64), DiagnosticBundle> {
         let point_limit = self.limits.value(CompileLimitDimension::GeometryPointCount);
         let scratch_limit = self.limits.value(CompileLimitDimension::StageScratchBytes);
         let mut scratch = StageScratchMeter::new(scratch_limit);
         let payload = schema::freeze_geometry_payload(
-            &self.parsed,
+            &mut self.parsed,
             self.accuracy_profile,
             self.direction_profile,
             point_limit,
@@ -558,14 +558,18 @@ impl GeometryModuleBuilder {
     /// 模块头非法、键非法或重复、引用拼写或导入边界非法、junction internal edge
     /// 声明或连接引用不满足 §4.4、numeric freeze 失败，或任一资源维度超过配置档时，
     /// 返回规范结构化诊断。
-    pub fn finish(self) -> Result<GeometryModule, DiagnosticBundle> {
+    pub fn finish(mut self) -> Result<GeometryModule, DiagnosticBundle> {
         let single_string_limit = self.limits.value(CompileLimitDimension::SingleStringBytes);
-        let span_of = |span: ByteSpan| self.line_index.source_span(&self.source_document_key, span);
 
         // ① 模块头、导入、键分组与 approach 引用检查；先到先得单诊断。
-        let header = self.finish_header(single_string_limit, &span_of)?;
+        let header = {
+            let span_of =
+                |span: ByteSpan| self.line_index.source_span(&self.source_document_key, span);
+            self.finish_header(single_string_limit, &span_of)?
+        };
         // ② numeric freeze 恰好一次；GeometryPointCount 单模块上限在 freeze 内闭合。
         let (payload, freeze_scratch_peak_bytes) = self.freeze_geometry_payload()?;
+        let span_of = |span: ByteSpan| self.line_index.source_span(&self.source_document_key, span);
         // ③ Typed AST 降阶；长度从冻结折线按 §6.1 的固定约定派生，§4.4 的
         // internal edge 声明校验与连接引用解析在此闭合。
         let resolver = ReferenceResolver {
@@ -574,6 +578,17 @@ impl GeometryModuleBuilder {
             import_index: &header.import_index,
             single_string_limit,
         };
+        let lowering_scratch_peak_bytes = lowering_scratch_peak_bytes(&self.parsed, &payload);
+        let scratch_limit = self.limits.value(CompileLimitDimension::StageScratchBytes);
+        if lowering_scratch_peak_bytes > scratch_limit {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::compile_limit_exceeded(
+                    CompileLimitDimension::StageScratchBytes,
+                    scratch_limit,
+                    lowering_scratch_peak_bytes,
+                ),
+            ));
+        }
         let declarations = lower_typed_ast(
             &self.parsed,
             &header,
@@ -597,7 +612,7 @@ impl GeometryModuleBuilder {
             .saturating_add(schema::parsed_document_live_bytes(&self.parsed))
             .saturating_add(self.line_index.controlled_live_bytes())
             .saturating_add(header.lookup_live_bytes)
-            .saturating_add(freeze_scratch_peak_bytes);
+            .saturating_add(freeze_scratch_peak_bytes.max(lowering_scratch_peak_bytes));
         let frontend_peak_controlled_live_bytes = self
             .parse_build_peak_controlled_live_bytes
             .max(finish_peak_controlled_live_bytes);
@@ -1625,6 +1640,17 @@ fn parse_finite_field(
     schema::parse_finite(value, field).map_err(|error| numeric_field_diagnostic(error, span_of))
 }
 
+/// JSON number token 的负号只有在尾数含非零数字时才表示数学负值。
+/// 这在 lossy `f64` 转换前区分 `-1e-400` 与数学负零拼写。
+fn is_negative_nonzero_json_number(token: &str) -> bool {
+    token.strip_prefix('-').is_some_and(|unsigned| {
+        unsigned
+            .bytes()
+            .take_while(|byte| !matches!(byte, b'e' | b'E'))
+            .any(|byte| matches!(byte, b'1'..=b'9'))
+    })
+}
+
 /// §4.5 的秒到毫秒换算：乘积必须有限、无小数且可无损收窄为 `u64`，
 /// 不做四舍五入。
 fn seconds_to_milliseconds(
@@ -1632,6 +1658,17 @@ fn seconds_to_milliseconds(
     field: &'static str,
     span_of: &dyn Fn(ByteSpan) -> SourceSpan,
 ) -> Result<u64, DiagnosticBundle> {
+    if is_negative_nonzero_json_number(&value.token) {
+        return Err(DiagnosticBundle::single(
+            Diagnostic::invalid_geometry_document(
+                GeometryDocumentViolation::FieldValue,
+                Some(field),
+                Some(&value.token),
+                Some("non-negative whole milliseconds representable as u64"),
+                span_of(value.span),
+            ),
+        ));
+    }
     let seconds = parse_finite_field(value, field, span_of)?;
     let milliseconds = seconds * 1000.0;
     if milliseconds.is_finite()
@@ -1652,149 +1689,63 @@ fn seconds_to_milliseconds(
     ))
 }
 
-#[derive(Clone, Copy)]
-struct ExactJsonInteger {
-    negative: bool,
-    magnitude: u64,
-}
-
-/// 把 JSON number token 按十进制值精确归约为整数，不经过 `f64`。
-///
-/// Draft 2020-12 的 `integer` 是数学整数，因此 `1`、`1.0`、`1e0` 和 `100e-2`
-/// 等价。调用方分别提供正负方向的最大绝对值；任何非整数或越界值返回 `None`。
-fn parse_exact_json_integer(
-    token: &str,
-    positive_max: u64,
-    negative_max: u64,
-) -> Option<ExactJsonInteger> {
-    let bytes = token.as_bytes();
-    let negative = bytes.first() == Some(&b'-');
-    let significand_start = usize::from(negative);
-    let exponent_at = bytes.iter().position(|byte| matches!(byte, b'e' | b'E'));
-    let significand_end = exponent_at.unwrap_or(bytes.len());
-    let decimal_at = bytes[significand_start..significand_end]
-        .iter()
-        .position(|byte| *byte == b'.')
-        .map(|offset| significand_start + offset);
-    let fractional_digits = decimal_at.map_or(0_usize, |index| significand_end - index - 1);
-    let digit_count = (significand_end - significand_start) - usize::from(decimal_at.is_some());
-
-    let exponent = exponent_at.map_or(0_i64, |index| {
-        let mut cursor = index + 1;
-        let exponent_negative = bytes.get(cursor) == Some(&b'-');
-        if matches!(bytes.get(cursor), Some(b'+' | b'-')) {
-            cursor += 1;
-        }
-        let mut value = 0_i64;
-        while cursor < bytes.len() {
-            value = value
-                .saturating_mul(10)
-                .saturating_add(i64::from(bytes[cursor] - b'0'));
-            cursor += 1;
-        }
-        if exponent_negative {
-            value.saturating_neg()
-        } else {
-            value
-        }
-    });
-    let decimal_shift =
-        exponent.saturating_sub(i64::try_from(fractional_digits).unwrap_or(i64::MAX));
-    let removed_digits = if decimal_shift < 0 {
-        usize::try_from(decimal_shift.unsigned_abs()).unwrap_or(usize::MAX)
-    } else {
-        0
+/// LaneFlow Geometry 的整数位置只接受规范 JSON 整数 token：`0`、正整数
+/// 或负整数。小数点、指数、前导零、显式正号和 `-0` 均不是规范形式。
+fn is_canonical_integer_token(token: &str, allow_negative: bool) -> bool {
+    let (negative, digits) = match token.strip_prefix('-') {
+        Some(digits) if allow_negative => (true, digits),
+        Some(_) => return false,
+        None => (false, token),
     };
-    let retained_digits = digit_count.saturating_sub(removed_digits);
-    let max_magnitude = if negative { negative_max } else { positive_max };
-    let mut magnitude = 0_u64;
-    let mut digit_index = 0_usize;
-    for byte in &bytes[significand_start..significand_end] {
-        if *byte == b'.' {
-            continue;
-        }
-        let digit = u64::from(*byte - b'0');
-        if digit_index >= retained_digits {
-            if digit != 0 {
-                return None;
-            }
-        } else {
-            magnitude = magnitude.checked_mul(10)?.checked_add(digit)?;
-            if magnitude > max_magnitude {
-                return None;
-            }
-        }
-        digit_index += 1;
+    if digits == "0" {
+        return !negative;
     }
-    if removed_digits > digit_count && magnitude != 0 {
-        return None;
-    }
-    if decimal_shift > 0 && magnitude != 0 {
-        let appended_zeros = u64::try_from(decimal_shift).ok()?;
-        if appended_zeros > 10 {
-            return None;
-        }
-        for _ in 0..appended_zeros {
-            magnitude = magnitude.checked_mul(10)?;
-            if magnitude > max_magnitude {
-                return None;
-            }
-        }
-    }
-    Some(ExactJsonInteger {
-        negative,
-        magnitude,
-    })
+    digits
+        .as_bytes()
+        .first()
+        .is_some_and(|first| matches!(first, b'1'..=b'9'))
+        && digits.as_bytes()[1..].iter().all(u8::is_ascii_digit)
 }
 
-/// 解析可精确收窄为 `u32` 的非负数学整数字段。
+/// 校验规范整数 token，并直接 checked parse 为 `u32`。
 fn parse_u32_field(
     value: &RawNumber,
     field: &'static str,
     span_of: &dyn Fn(ByteSpan) -> SourceSpan,
 ) -> Result<u32, DiagnosticBundle> {
-    if let Some(parsed) = parse_exact_json_integer(&value.token, u64::from(u32::MAX), 0)
-        && (!parsed.negative || parsed.magnitude == 0)
+    if is_canonical_integer_token(&value.token, false)
+        && let Ok(parsed) = value.token.parse::<u32>()
     {
-        return Ok(u32::try_from(parsed.magnitude).expect("magnitude is u32-bounded"));
+        return Ok(parsed);
     }
     Err(DiagnosticBundle::single(
         Diagnostic::invalid_geometry_document(
             GeometryDocumentViolation::FieldValue,
             Some(field),
             Some(&value.token),
-            Some("non-negative whole number representable as u32"),
+            Some("canonical non-negative integer token representable as u32"),
             span_of(value.span),
         ),
     ))
 }
 
-/// 解析可精确收窄为 `i32` 的数学整数字段。
+/// 校验规范整数 token，并直接 checked parse 为 `i32`。
 fn parse_i32_field(
     value: &RawNumber,
     field: &'static str,
     span_of: &dyn Fn(ByteSpan) -> SourceSpan,
 ) -> Result<i32, DiagnosticBundle> {
-    if let Some(parsed) = parse_exact_json_integer(
-        &value.token,
-        u64::try_from(i32::MAX).expect("i32::MAX is non-negative"),
-        u64::from(i32::MAX.unsigned_abs()) + 1,
-    ) {
-        if parsed.negative {
-            if parsed.magnitude == u64::from(i32::MAX.unsigned_abs()) + 1 {
-                return Ok(i32::MIN);
-            }
-            let magnitude = i32::try_from(parsed.magnitude).expect("negative magnitude is bounded");
-            return Ok(-magnitude);
-        }
-        return Ok(i32::try_from(parsed.magnitude).expect("positive magnitude is bounded"));
+    if is_canonical_integer_token(&value.token, true)
+        && let Ok(parsed) = value.token.parse::<i32>()
+    {
+        return Ok(parsed);
     }
     Err(DiagnosticBundle::single(
         Diagnostic::invalid_geometry_document(
             GeometryDocumentViolation::FieldValue,
             Some(field),
             Some(&value.token),
-            Some("whole number representable as i32"),
+            Some("canonical integer token representable as i32"),
             span_of(value.span),
         ),
     ))
@@ -1842,8 +1793,13 @@ fn lower_typed_ast(
     single_string_limit: u64,
     span_of: &dyn Fn(ByteSpan) -> SourceSpan,
 ) -> Result<Vec<TypedAstDeclaration>, DiagnosticBundle> {
+    let lane_curve_count = payload
+        .lateral_curves
+        .iter()
+        .filter(|curve| curve.kind != schema::LateralIntentKind::FacilityBand)
+        .count();
     let mut lane_curves: HashMap<(&str, &str), &schema::FrozenLateralCurve> =
-        HashMap::with_capacity(payload.lateral_curves.len());
+        HashMap::with_capacity(lane_curve_count);
     for curve in &payload.lateral_curves {
         if curve.kind != schema::LateralIntentKind::FacilityBand {
             lane_curves.insert((&curve.span_key, &curve.key), curve);
@@ -1879,6 +1835,76 @@ fn lower_typed_ast(
         &mut declarations,
     )?;
     Ok(declarations)
+}
+
+/// lowering 中所有按输入规模增长的查找表峰值。顶层曲线表贯穿整次 lowering；
+/// road span 与 junction 的局部表不会并发，因此只叠加两类局部峰值的最大值。
+/// 该值既用于 StageScratchBytes 分配前门禁，也进入前端受控内存峰值。
+fn lowering_scratch_peak_bytes(
+    parsed: &ParsedGeometryDocument,
+    payload: &schema::FrozenGeometryPayload,
+) -> u64 {
+    let lane_curve_count = payload
+        .lateral_curves
+        .iter()
+        .filter(|curve| curve.kind != schema::LateralIntentKind::FacilityBand)
+        .count();
+    let top_level = requested_hash_table_bytes::<(&str, &str), &schema::FrozenLateralCurve>(
+        count_u64(lane_curve_count),
+    )
+    .saturating_add(requested_hash_table_bytes::<
+        (&str, &str),
+        &schema::FrozenInternalEdgeCurve,
+    >(count_u64(payload.internal_edge_curves.len())));
+
+    let road_local_peak = parsed
+        .roads
+        .iter()
+        .flat_map(|road| road.cross_section_spans.iter())
+        .map(|span| {
+            requested_hash_table_bytes::<&str, &schema::ParsedRoadSection>(count_u64(
+                span.road_sections.len(),
+            ))
+            .saturating_add(requested_hash_table_bytes::<
+                &str,
+                &schema::ParsedFacilityBand,
+            >(count_u64(span.facility_bands.len())))
+            .saturating_add(requested_hash_table_bytes::<(&str, &str), ()>(count_u64(
+                span.elements.len(),
+            )))
+            .saturating_add(requested_hash_table_bytes::<&str, ()>(count_u64(
+                span.road_sections.len(),
+            )))
+        })
+        .max()
+        .unwrap_or(0);
+
+    let junction_local_peak = parsed
+        .junctions
+        .iter()
+        .map(|junction| {
+            let connection_peak = junction
+                .connections
+                .iter()
+                .map(|connection| {
+                    requested_hash_table_bytes::<ResolvedKey, ()>(count_u64(
+                        connection.internal_edge_sequence.len(),
+                    ))
+                })
+                .max()
+                .unwrap_or(0);
+            requested_hash_table_bytes::<&str, &schema::ParsedInternalEdge>(count_u64(
+                junction.internal_edges.len(),
+            ))
+            .saturating_add(requested_hash_table_bytes::<&str, ()>(count_u64(
+                junction.internal_edges.len(),
+            )))
+            .saturating_add(connection_peak)
+        })
+        .max()
+        .unwrap_or(0);
+
+    top_level.saturating_add(road_local_peak.max(junction_local_peak))
 }
 
 /// 顶层声明数的精确预分配上界。
@@ -1990,8 +2016,9 @@ fn lower_cross_section_span(
     // 显式 `elements` 从左到右展开 offset 意图；每个 RoadSection/FacilityBand 恰好一次。
     let mut offsets = Vec::new();
     let mut elements = Vec::with_capacity(span.elements.len());
-    let mut consumed: BTreeSet<(&str, &str)> = BTreeSet::new();
-    let mut road_section_element_keys: BTreeSet<&str> = BTreeSet::new();
+    let mut consumed: HashSet<(&str, &str)> = HashSet::with_capacity(span.elements.len());
+    let mut road_section_element_keys: HashSet<&str> =
+        HashSet::with_capacity(span.road_sections.len());
     for element in &span.elements {
         match element {
             schema::ParsedCorridorElement::RoadSection {
@@ -2372,7 +2399,8 @@ fn lower_junctions(
             ));
         }
         let approaches = &header.approaches[junction_index];
-        let mut referenced_internal_edges: BTreeSet<&str> = BTreeSet::new();
+        let mut referenced_internal_edges: HashSet<&str> =
+            HashSet::with_capacity(junction.internal_edges.len());
         for connection in &junction.connections {
             let entry_edge = resolver.resolve::<LaneEdgeKind>(
                 &connection.entry_edge,
@@ -2418,7 +2446,8 @@ fn lower_junctions(
             // Junction 的 internalEdges；解析后的 (namespace, key) 在同一连接内
             // 不得重复（parser 只保证字面 token 不重复）。
             let mut internal_edges = Vec::with_capacity(connection.internal_edge_sequence.len());
-            let mut connection_internal_keys: BTreeSet<ResolvedKey> = BTreeSet::new();
+            let mut connection_internal_keys: HashSet<ResolvedKey> =
+                HashSet::with_capacity(connection.internal_edge_sequence.len());
             for token in &connection.internal_edge_sequence {
                 let reference = resolver.resolve::<LaneEdgeKind>(
                     token,
@@ -3507,26 +3536,7 @@ fn finish_resource_counts(
     for declaration in declarations {
         counters.add_declaration(declaration, namespace_bytes);
     }
-    let payload_bytes =
-        size_bytes::<schema::FrozenLateralCurve>(count_u64(payload.lateral_curves.len()))
-            .saturating_add(payload.lateral_curves.iter().fold(0_u64, |total, curve| {
-                total.saturating_add(size_bytes::<schema::FrozenCanonicalPoint>(count_u64(
-                    curve.points.len(),
-                )))
-            }))
-            .saturating_add(size_bytes::<schema::FrozenInternalEdgeCurve>(count_u64(
-                payload.internal_edge_curves.len(),
-            )))
-            .saturating_add(
-                payload
-                    .internal_edge_curves
-                    .iter()
-                    .fold(0_u64, |total, curve| {
-                        total.saturating_add(size_bytes::<schema::FrozenCanonicalPoint>(count_u64(
-                            curve.points.len(),
-                        )))
-                    }),
-            );
+    let payload_bytes = payload.controlled_live_bytes();
     let controlled_live_bytes = counters
         .controlled_string_bytes
         .saturating_add(counters.controlled_structural_bytes)
@@ -3808,12 +3818,12 @@ mod tests {
     };
 
     use super::super::resources::size_bytes;
-    use super::schema::{FrozenCanonicalPoint, FrozenInternalEdgeCurve, FrozenLateralCurve};
+    use super::schema::{FrozenCanonicalPoint, FrozenLateralCurve};
     use super::{
         GEOMETRY_FRONTEND_VERSION, GeometryAccuracyProfile, GeometryDirectionProfile,
-        GeometryDocumentInput, GeometryModule, GeometryModuleBuilder,
+        GeometryDocumentInput, GeometryModule, GeometryModuleBuilder, count_u64,
         direct_parameters_and_inputs_digest, direct_source_frontend_options_digest,
-        frontend_options_digest,
+        frontend_options_digest, lowering_scratch_peak_bytes,
     };
 
     #[test]
@@ -4169,7 +4179,7 @@ mod tests {
         super::super::descriptor::SOURCE_DOCUMENT_DIGEST_CALL_COUNT.with(|count| count.set(0));
         let source = super::schema::MINIMAL_DOCUMENT.to_vec();
         let expected_digest: [u8; 32] = Sha256::digest(&source).into();
-        let builder = GeometryModuleBuilder::new(
+        let mut builder = GeometryModuleBuilder::new(
             GeometryDocumentInput::new("source/main", &source, Some("authoring/main.json")),
             GeometryAccuracyProfile::Balanced5Cm,
             GeometryDirectionProfile::Balanced2Deg,
@@ -4230,7 +4240,7 @@ mod tests {
         fn freeze_with_limit(limit: u32) -> Result<u64, crate::DiagnosticBundle> {
             let limits = CompileLimits::p100_initial_v1()
                 .with_test_admission_limit(crate::CompileLimitDimension::GeometryPointCount, limit);
-            let builder = GeometryModuleBuilder::new(
+            let mut builder = GeometryModuleBuilder::new(
                 GeometryDocumentInput::new("source/main", super::schema::MINIMAL_DOCUMENT, None),
                 GeometryAccuracyProfile::Balanced5Cm,
                 GeometryDirectionProfile::Balanced2Deg,
@@ -4468,6 +4478,22 @@ mod tests {
     }
 
     #[test]
+    fn finish_normalizes_owner_local_cross_section_references_once_for_freeze_and_lowering() {
+        let source = valid_minimal_document()
+            .replace(
+                r#""referenceSectionKey":"section.main","referenceLaneKey":"lane.main""#,
+                r#""referenceSectionKey":"city/main::section.main","referenceLaneKey":"city/main::lane.main""#,
+            )
+            .replace(
+                r#""elements":[{"kind":"roadSection","sectionKey":"section.main"}]"#,
+                r#""elements":[{"kind":"roadSection","sectionKey":"city/main::section.main"}]"#,
+            );
+
+        finish_document(source.as_bytes(), &CompileLimits::p100_initial_v1())
+            .expect("numeric freeze and lowering must consume the same owner-local spelling");
+    }
+
+    #[test]
     fn finish_rejects_duplicate_junction_approach_aliases_after_resolution() {
         let source = FULL_DOCUMENT.replace(
             "\"approachEdges\":[\"edge.f1\",\"edge.b1\"]",
@@ -4488,13 +4514,43 @@ mod tests {
     }
 
     #[test]
-    fn exact_json_integer_accepts_schema_integer_spellings_without_f64() {
-        for token in ["1", "1.0", "1e0", "100e-2", "-0.0"] {
-            let parsed = super::parse_exact_json_integer(token, u64::from(u32::MAX), 0).unwrap();
-            assert_eq!(parsed.magnitude, u64::from(token != "-0.0"));
+    fn integer_fields_accept_only_canonical_integer_tokens() {
+        for token in ["0", "1", "4294967295"] {
+            assert!(super::is_canonical_integer_token(token, false));
+            assert!(token.parse::<u32>().is_ok());
         }
-        assert!(super::parse_exact_json_integer("1.2", u64::from(u32::MAX), 0).is_none());
-        assert!(super::parse_exact_json_integer("4294967296", u64::from(u32::MAX), 0).is_none());
+        for token in ["-2147483648", "-1", "0", "1", "2147483647"] {
+            assert!(super::is_canonical_integer_token(token, true));
+            assert!(token.parse::<i32>().is_ok());
+        }
+        for token in ["-0", "+1", "01", "1.0", "1e0", "100e-2"] {
+            assert!(!super::is_canonical_integer_token(token, true));
+        }
+        assert!("4294967296".parse::<u32>().is_err());
+        assert!("2147483648".parse::<i32>().is_err());
+        assert!("-2147483649".parse::<i32>().is_err());
+    }
+
+    #[test]
+    fn nonnegative_seconds_reject_negative_underflow_before_f64_conversion() {
+        assert!(super::is_negative_nonzero_json_number("-1e-400"));
+        assert!(super::is_negative_nonzero_json_number("-0.0001e-400"));
+        for token in ["-0", "-0.0", "-0e400", "0", "1e-400"] {
+            assert!(!super::is_negative_nonzero_json_number(token));
+        }
+
+        let source =
+            FULL_DOCUMENT.replacen("\"offsetSeconds\":1.5", "\"offsetSeconds\":-1e-400", 1);
+        let error = finish_document(source.as_bytes(), &CompileLimits::p100_initial_v1())
+            .err()
+            .expect("negative underflow must not become accepted -0.0");
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            DiagnosticPayload::InvalidGeometryDocument {
+                field: Some(field),
+                ..
+            } if field.as_ref() == "signalControllers[].offsetSeconds"
+        ));
     }
 
     fn declaration_name(declaration: &TypedAstDeclaration) -> &'static str {
@@ -4597,12 +4653,36 @@ mod tests {
     }"#;
 
     #[test]
-    fn finish_accepts_schema_integer_decimal_and_exponent_spellings() {
-        let source = FULL_DOCUMENT
-            .replace("\"priority\":0", "\"priority\":0.0")
-            .replace("\"maxOccupancy\":2", "\"maxOccupancy\":2e0");
-
-        finish_document(source.as_bytes(), &CompileLimits::p100_initial_v1()).unwrap();
+    fn finish_rejects_noncanonical_integer_spellings_after_schema_validation() {
+        for (needle, replacement, field) in [
+            (
+                "\"priority\":0",
+                "\"priority\":0.0",
+                "accessRules[].priority",
+            ),
+            (
+                "\"transitionIndex\":0",
+                "\"transitionIndex\":1e0",
+                "maneuverGates[].transitionIndex",
+            ),
+            (
+                "\"maxOccupancy\":2",
+                "\"maxOccupancy\":2.0",
+                "waitingZones[].maxOccupancy",
+            ),
+        ] {
+            let source = FULL_DOCUMENT.replacen(needle, replacement, 1);
+            let error = finish_document(source.as_bytes(), &CompileLimits::p100_initial_v1())
+                .err()
+                .expect("LaneFlow integer positions must reject decimal/exponent spellings");
+            assert!(matches!(
+                error.diagnostics()[0].payload(),
+                DiagnosticPayload::InvalidGeometryDocument {
+                    field: Some(actual),
+                    ..
+                } if actual.as_ref() == field
+            ));
+        }
     }
 
     #[test]
@@ -5231,7 +5311,7 @@ mod tests {
                     ),
                 )
             ));
-            let builder = GeometryModuleBuilder::new(
+            let mut builder = GeometryModuleBuilder::new(
                 GeometryDocumentInput::new("source/main", source.as_bytes(), None),
                 GeometryAccuracyProfile::Balanced5Cm,
                 GeometryDirectionProfile::Balanced2Deg,
@@ -5840,6 +5920,42 @@ mod tests {
     }
 
     #[test]
+    fn finish_checks_lowering_lookup_peak_before_allocating_lookup_tables() {
+        let source = valid_minimal_document();
+        let mut builder = GeometryModuleBuilder::new(
+            GeometryDocumentInput::new("source/main", source.as_bytes(), None),
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &CompileLimits::p100_initial_v1(),
+        )
+        .unwrap();
+        let (payload, freeze_peak) = builder.freeze_geometry_payload().unwrap();
+        let lowering_peak = lowering_scratch_peak_bytes(&builder.parsed, &payload);
+        assert!(
+            lowering_peak > freeze_peak,
+            "测试需要由 lowering lookup 主导"
+        );
+        let limit = u32::try_from(lowering_peak - 1).unwrap();
+        builder.limits = builder
+            .limits
+            .clone()
+            .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, limit);
+
+        let error = builder
+            .finish()
+            .err()
+            .expect("lowering lookup 超限必须失败关闭");
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::StageScratchBytes,
+                limit: actual_limit,
+                observed,
+            } if *actual_limit == u64::from(limit) && *observed == lowering_peak
+        ));
+    }
+
+    #[test]
     fn finish_resource_counts_follow_the_wire_and_declaration_formulas() {
         let source = valid_minimal_document();
         let module = finish_document(source.as_bytes(), &CompileLimits::p100_initial_v1()).unwrap();
@@ -5895,8 +6011,23 @@ mod tests {
             + size_bytes::<OwnedEntityReference<LaneEdgeKind>>(1)
             + size_bytes::<OwnedEntityReference<LaneGroupKind>>(0)
             + size_bytes::<LaneEdgeDeclaration>(1);
-        let payload_bytes =
-            size_bytes::<FrozenLateralCurve>(1) + size_bytes::<FrozenCanonicalPoint>(2);
+        let frozen = &module.admitted.geometry_payload().unwrap().frozen;
+        let payload_bytes = frozen.controlled_live_bytes();
+        let curve_key_bytes = frozen.lateral_curves.iter().fold(0_u64, |total, curve| {
+            total
+                .saturating_add(count_u64(curve.span_key.len()))
+                .saturating_add(count_u64(curve.key.len()))
+        });
+        let distribution_bytes =
+            u64::try_from(std::mem::size_of_val(&*frozen.offset_curve_distribution)).unwrap();
+        assert_eq!(
+            payload_bytes,
+            size_bytes::<FrozenLateralCurve>(1)
+                + size_bytes::<FrozenCanonicalPoint>(2)
+                + curve_key_bytes
+                + distribution_bytes,
+            "payload 账本必须包含自有 curve key 与 offset distribution backing"
+        );
         // controlled 字符串：模块头 ns/doc/generator/provenance 54 + 各声明 155 = 209。
         let expected_live = 209
             + structural
@@ -5991,9 +6122,12 @@ mod tests {
             + size_bytes::<OwnedEntityReference<LaneEdgeKind>>(3)
             + size_bytes::<GeometryConnectionIntent>(1)
             + size_bytes::<OwnedEntityReference<LaneEdgeKind>>(1);
-        let payload_bytes = size_bytes::<FrozenLateralCurve>(2)
-            + size_bytes::<FrozenInternalEdgeCurve>(1)
-            + size_bytes::<FrozenCanonicalPoint>(6);
+        let payload_bytes = module
+            .admitted
+            .geometry_payload()
+            .unwrap()
+            .frozen
+            .controlled_live_bytes();
         // controlled 字符串：模块头 ns/doc/generator/provenance 51 + 各声明 362 = 413。
         let expected_live = 413
             + structural
