@@ -81,6 +81,12 @@ impl ManifestFields {
         mark: usize,
         gate: &mut RootGate,
     ) {
+        // R4-3：首个延迟失败确立后，后续字段只捕获 token（walk 层已完成
+        // syntax/trailing 校验）不再物化 DTO，恢复旧两遍 loader 的
+        // fail-fast 拒绝成本；formatVersion 由闸口层处理不经此路。
+        if gate.has_deferred() {
+            return;
+        }
         let result = match key {
             "traffic" => walk::set_once(
                 ctx,
@@ -209,6 +215,12 @@ impl SpatialFields {
         mark: usize,
         gate: &mut RootGate,
     ) {
+        // R4-3：首个延迟失败确立后，后续字段只捕获 token（walk 层已完成
+        // syntax/trailing 校验）不再物化 DTO，恢复旧两遍 loader 的
+        // fail-fast 拒绝成本；formatVersion 由闸口层处理不经此路。
+        if gate.has_deferred() {
+            return;
+        }
         let result = match key {
             "frameId" => walk::set_once(
                 ctx,

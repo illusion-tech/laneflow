@@ -53,6 +53,13 @@ pub(crate) struct RootGate {
 }
 
 impl RootGate {
+    /// 是否已确立首个延迟失败（R4-3：确立后根驱动跳过后续字段物化，恢复旧
+    /// 两遍 loader 的 fail-fast 拒绝成本；token 捕获的 syntax/trailing 校验
+    /// 与 formatVersion 处理在 walk/闸口层不受影响）。
+    pub(crate) fn has_deferred(&self) -> bool {
+        self.deferred.is_some() || self.deferred_syntax.is_some()
+    }
+
     /// 记录首个延迟 shape 候选并继续遍历（后续候选不改变首错选择）。
     pub(crate) fn defer(&mut self, candidate: ShapeCandidate) {
         if self.deferred.is_none() {
@@ -608,6 +615,78 @@ mod tests {
         );
     }
 
+    /// R4-1：untagged 元素内 Syntax 类 replay 失败（serde 数字词素溢出先于
+    /// 类型检查）按 derive untagged 的 Content 缓冲语义传播，保留原生
+    /// category 与字段级 path；只有 Data 类不匹配才归一为变体 mismatch。
+    #[test]
+    fn untagged_field_syntax_failure_propagates_with_native_category() {
+        // corridor object-form：`{"sectionId":1e999}` → number out of range。
+        let input = minimal_traffic().replacen(
+            r#""roadCorridors": []"#,
+            r#""roadCorridors": [{"id": "c", "referenceSectionId": "s", "elements": [{"sectionId":1e999}]}]"#,
+            1,
+        );
+        match parse_traffic(input.as_bytes()).expect_err("sectionId 数字溢出") {
+            ParseFailure::Syntax {
+                path,
+                source,
+                position,
+            } => {
+                assert_eq!(path, "roadCorridors[0].elements[0].sectionId");
+                assert!(
+                    source.to_string().starts_with("number out of range"),
+                    "消息：{source}"
+                );
+                assert!(position.is_some(), "全局 span override");
+            }
+            other => panic!("expected Syntax, got {other:?}"),
+        }
+
+        // signalControl object-form：`{"kind":"group","groupId":1e999}`。
+        let input = minimal_traffic().replacen(
+            r#""signals": {"stopLines": [], "maneuverGates": [], "groups": [], "controllers": []}"#,
+            r#""signals": {"stopLines": [], "maneuverGates": [{"id": "g", "maneuverPathId": "m", "transitionIndex": 0, "stopLineId": "s", "signalControl": {"kind":"group","groupId":1e999}}], "groups": [], "controllers": []}"#,
+            1,
+        );
+        match parse_traffic(input.as_bytes()).expect_err("groupId 数字溢出") {
+            ParseFailure::Syntax { path, source, .. } => {
+                assert_eq!(path, "signals.maneuverGates[0].signalControl.groupId");
+                assert!(
+                    source.to_string().starts_with("number out of range"),
+                    "消息：{source}"
+                );
+            }
+            other => panic!("expected Syntax, got {other:?}"),
+        }
+
+        // corridor seq-form：`[1e999]` → 位置 0 Syntax 传播。
+        let input = minimal_traffic().replacen(
+            r#""roadCorridors": []"#,
+            r#""roadCorridors": [{"id": "c", "referenceSectionId": "s", "elements": [[1e999]]}]"#,
+            1,
+        );
+        match parse_traffic(input.as_bytes()).expect_err("seq-form 数字溢出") {
+            ParseFailure::Syntax { path, .. } => {
+                assert_eq!(path, "roadCorridors[0].elements[0][0]");
+            }
+            other => panic!("expected Syntax, got {other:?}"),
+        }
+
+        // 回归守卫：Data 类不匹配（合法数字给 String 字段）仍归一 mismatch。
+        let input = minimal_traffic().replacen(
+            r#""roadCorridors": []"#,
+            r#""roadCorridors": [{"id": "c", "referenceSectionId": "s", "elements": [{"sectionId":123}]}]"#,
+            1,
+        );
+        let (path, message, _anchor) =
+            shape_parts(parse_traffic(input.as_bytes()).expect_err("Data 类不匹配"));
+        assert_eq!(path, "roadCorridors[0].elements[0]");
+        assert_eq!(
+            message,
+            "data did not match any variant of untagged enum WireCorridorElement"
+        );
+    }
+
     /// serde(default) 位置语义（R2 T3 探针实证）：位置序列元素耗尽后，带
     /// `#[serde(default)]` 的剩余字段取默认值而非 invalid length；第一个无
     /// default 的剩余字段才报 invalid length（索引为字段声明位置）。
@@ -1074,6 +1153,46 @@ mod tests {
         let (_, _message, anchor) =
             shape_parts(parse_traffic(b"1.5e+3 trailing").expect_err("指数数字根 + trailing"));
         assert_eq!(anchor, ByteRange::new(0, 6), "锚只吃 `1.5e+3`");
+    }
+
+    /// R4-2：数字根锚停在 serde 实际消费的 JSON number 词素边界——字符类
+    /// 扫描会把 `1-2`/`1.2.3` 的 trailing 垃圾吃进锚（`json_number_end` 按
+    /// `-? int frac? exp?` 语法推进）。
+    #[test]
+    fn numeric_root_error_anchor_stops_at_lexeme_end() {
+        let (_, _, anchor) = shape_parts(parse_traffic(b"1-2").expect_err("数字根 + -2"));
+        assert_eq!(anchor, ByteRange::new(0, 1), "锚只吃 `1`");
+
+        let (_, _, anchor) = shape_parts(parse_traffic(b"1+2").expect_err("数字根 + +2"));
+        assert_eq!(anchor, ByteRange::new(0, 1), "锚只吃 `1`");
+
+        let (_, _, anchor) = shape_parts(parse_traffic(b"1.2.3").expect_err("数字根 + .3"));
+        assert_eq!(anchor, ByteRange::new(0, 3), "锚只吃 `1.2`");
+
+        let (_, _, anchor) = shape_parts(parse_traffic(b"-1.5e+3rest").expect_err("数字根 + rest"));
+        assert_eq!(anchor, ByteRange::new(0, 7), "锚只吃 `-1.5e+3`");
+    }
+
+    /// R4-3：首个延迟失败确立后，后续根字段只捕获 token 不再物化 DTO（旧
+    /// 两遍 loader 的 fail-fast 拒绝成本）；报错结果与跳过前逐字一致。
+    #[test]
+    fn first_deferred_failure_skips_later_field_materialization() {
+        // `bogus` 在 units 之后、laneGraph 之前：units 正常解码，bogus 之
+        // 后的全部字段（laneGraph…parking）跳过物化。
+        let input = minimal_traffic().replacen(r#""laneGraph""#, r#""bogus": 1, "laneGraph""#, 1);
+        crate::counters::reset();
+        let (path, message, _anchor) =
+            shape_parts(parse_traffic(input.as_bytes()).expect_err("未知根字段"));
+        assert_eq!(path, "bogus");
+        assert!(
+            message.starts_with("unknown field `bogus`"),
+            "消息：{message}"
+        );
+        // 失败前的 replay：formatVersion 标量 1 + units record 1 + 其两个
+        // 标量字段各 1 = 4；bogus 之后 16 个字段的 token 被捕获但零 replay。
+        let snapshot = crate::counters::snapshot();
+        assert_eq!(snapshot.root_drivers, 1);
+        assert_eq!(snapshot.replays, 4, "首个延迟失败后的字段不得 replay 物化");
     }
 
     /// R3 延迟 syntax 与延迟 shape 统一按锚点文档序裁决（与 extensions 内容

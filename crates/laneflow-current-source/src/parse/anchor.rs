@@ -101,9 +101,9 @@ pub(crate) fn root_consumed_end(input: &[u8], start: u32) -> u32 {
 }
 
 /// 标量根 token 的实际终点（零基 end offset）：字符串经 `skip_string`；
-/// `true`/`false`/`null` 定长；数字按 JSON 词法扫描（`-0-9.eE+`）；其余形态
-/// 防御性取 `start + 1`。只在根 walk 的 Data 失败路径（非 object 根的
-/// invalid type）作锚，不吃进 trailing content（R3-8）。
+/// `true`/`false`/`null` 定长；数字经 `json_number_end` 按 JSON number 语
+/// 法求词素终点；其余形态防御性取 `start + 1`。只在根 walk 的 Data 失败路
+/// 径（非 object 根的 invalid type）作锚，不吃进 trailing content（R3-8）。
 pub(crate) fn root_scalar_end(input: &[u8], start: u32) -> u32 {
     let begin = start as usize;
     match input.get(begin) {
@@ -111,15 +111,7 @@ pub(crate) fn root_scalar_end(input: &[u8], start: u32) -> u32 {
         Some(b't') => saturate(begin + 4), // true
         Some(b'f') => saturate(begin + 5), // false
         Some(b'n') => saturate(begin + 4), // null
-        Some(b'-' | b'0'..=b'9') => {
-            let mut index = begin;
-            while index < input.len()
-                && matches!(input[index], b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-')
-            {
-                index += 1;
-            }
-            saturate(index)
-        }
+        Some(b'-' | b'0'..=b'9') => saturate(json_number_end(input, begin)),
         _ => saturate(begin + 1),
     }
 }
@@ -133,6 +125,52 @@ pub(crate) fn skip_string(input: &[u8], quote: usize) -> usize {
             b'\\' => index += 2,
             b'"' => return index + 1,
             _ => index += 1,
+        }
+    }
+    index
+}
+
+/// 从 `begin`（`-` 或数字）起按 JSON number 语法求词素终点（零基 end
+/// offset）：`-? (0 | [1-9][0-9]*) (\. [0-9]+)? ([eE] [+-]? [0-9]+)?`，在第
+/// 一个不符合语法推进的 byte 处停（R4-2：字符类扫描会把 `1-2`/`1.2.3` 的
+/// trailing 垃圾吃进锚）。起点已被 serde 成功解析为合法 number，语法推进
+/// 必然完整，残缺分支（如 `1e`）只在 root walk Data 失败路径的防御兜底出
+/// 现，停在语法允许的最远位置即可。
+fn json_number_end(input: &[u8], begin: usize) -> usize {
+    let mut index = begin;
+    if input.get(index) == Some(&b'-') {
+        index += 1;
+    }
+    // int：`0` 或 `[1-9][0-9]*`。
+    match input.get(index) {
+        Some(b'0') => index += 1,
+        Some(b'1'..=b'9') => {
+            index += 1;
+            while input.get(index).is_some_and(u8::is_ascii_digit) {
+                index += 1;
+            }
+        }
+        _ => return index,
+    }
+    // frac：`\. [0-9]+`（`.` 后无数字则 `.` 不属于词素）。
+    if input.get(index) == Some(&b'.') && input.get(index + 1).is_some_and(u8::is_ascii_digit) {
+        index += 2;
+        while input.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+    }
+    // exp：`[eE] [+-]? [0-9]+`（指数标记后无数字则标记不属于词素）。
+    if matches!(input.get(index), Some(b'e' | b'E')) {
+        let mut cursor = index + 1;
+        if matches!(input.get(cursor), Some(b'+' | b'-')) {
+            cursor += 1;
+        }
+        if input.get(cursor).is_some_and(u8::is_ascii_digit) {
+            cursor += 1;
+            while input.get(cursor).is_some_and(u8::is_ascii_digit) {
+                cursor += 1;
+            }
+            index = cursor;
         }
     }
     index

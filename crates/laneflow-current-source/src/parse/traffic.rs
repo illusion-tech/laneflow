@@ -219,6 +219,12 @@ impl PackageFields {
         mark: usize,
         gate: &mut RootGate,
     ) {
+        // R4-3：首个延迟失败确立后，后续字段只捕获 token（walk 层已完成
+        // syntax/trailing 校验）不再物化 DTO，恢复旧两遍 loader 的
+        // fail-fast 拒绝成本；formatVersion 由闸口层处理不经此路。
+        if gate.has_deferred() {
+            return;
+        }
         let result = match key {
             "units" => walk::set_once(
                 ctx,
@@ -1344,9 +1350,15 @@ fn decode_corridor_element<'de, L: LocationPolicy>(
                     if section_id.is_some() {
                         clean = false;
                     }
+                    // R4-1：Syntax 类 replay 失败（如 `1e999` number out of
+                    // range）按 derive untagged 的 Content 缓冲语义传播；只有
+                    // Data 类不匹配才吞掉归一为变体失败。
                     match walk::decode_scalar::<String, L>(ctx, value, value_range) {
                         Ok(id) => section_id = Some(id),
-                        Err(_) => clean = false,
+                        Err(ReplayFailure::Syntax(failure)) => {
+                            return Err(ReplayFailure::Syntax(failure));
+                        }
+                        Err(ReplayFailure::Shape(_)) => clean = false,
                     }
                 }
                 "bandId" => {
@@ -1355,7 +1367,10 @@ fn decode_corridor_element<'de, L: LocationPolicy>(
                     }
                     match walk::decode_scalar::<String, L>(ctx, value, value_range) {
                         Ok(id) => band_id = Some(id),
-                        Err(_) => clean = false,
+                        Err(ReplayFailure::Syntax(failure)) => {
+                            return Err(ReplayFailure::Syntax(failure));
+                        }
+                        Err(ReplayFailure::Shape(_)) => clean = false,
                     }
                 }
                 _ => clean = false,
@@ -1398,9 +1413,14 @@ fn decode_corridor_element_seq<'de, L: LocationPolicy>(
         "struct WireCorridorElement",
         |ctx, index, element, element_range| {
             if index == 0 {
+                // R4-1：Syntax 类失败传播（derive untagged Content 缓冲语义），
+                // Data 类不匹配吞掉归一为变体失败。
                 match walk::decode_scalar::<String, L>(ctx, element, element_range) {
                     Ok(id) => first = Some(id),
-                    Err(_) => clean = false,
+                    Err(ReplayFailure::Syntax(failure)) => {
+                        return Err(ReplayFailure::Syntax(failure));
+                    }
+                    Err(ReplayFailure::Shape(_)) => clean = false,
                 }
             }
             count += 1;
@@ -2230,9 +2250,13 @@ fn decode_signal_control<'de, L: LocationPolicy>(
                     if kind.is_some() {
                         clean = false;
                     }
+                    // R4-1：Syntax 类失败传播；Data 类不匹配吞掉归一变体失败。
                     match walk::decode_scalar::<String, L>(ctx, value, value_range) {
                         Ok(value) => kind = Some(value),
-                        Err(_) => clean = false,
+                        Err(ReplayFailure::Syntax(failure)) => {
+                            return Err(ReplayFailure::Syntax(failure));
+                        }
+                        Err(ReplayFailure::Shape(_)) => clean = false,
                     }
                 }
                 "groupId" => {
@@ -2241,7 +2265,10 @@ fn decode_signal_control<'de, L: LocationPolicy>(
                     }
                     match walk::decode_scalar::<String, L>(ctx, value, value_range) {
                         Ok(value) => group_id = Some(value),
-                        Err(_) => clean = false,
+                        Err(ReplayFailure::Syntax(failure)) => {
+                            return Err(ReplayFailure::Syntax(failure));
+                        }
+                        Err(ReplayFailure::Shape(_)) => clean = false,
                     }
                 }
                 _ => clean = false,
@@ -2290,13 +2317,20 @@ fn decode_signal_control_seq<'de, L: LocationPolicy>(
         "struct WireSignalControl",
         |ctx, index, element, element_range| {
             match index {
+                // R4-1：Syntax 类失败传播；Data 类不匹配吞掉归一变体失败。
                 0 => match walk::decode_scalar::<String, L>(ctx, element, element_range) {
                     Ok(value) => kind = Some(value),
-                    Err(_) => kind_clean = false,
+                    Err(ReplayFailure::Syntax(failure)) => {
+                        return Err(ReplayFailure::Syntax(failure));
+                    }
+                    Err(ReplayFailure::Shape(_)) => kind_clean = false,
                 },
                 1 => match walk::decode_scalar::<String, L>(ctx, element, element_range) {
                     Ok(value) => group_id = Some(value),
-                    Err(_) => group_clean = false,
+                    Err(ReplayFailure::Syntax(failure)) => {
+                        return Err(ReplayFailure::Syntax(failure));
+                    }
+                    Err(ReplayFailure::Shape(_)) => group_clean = false,
                 },
                 _ => {}
             }
