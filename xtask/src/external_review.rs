@@ -1050,7 +1050,6 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         let state = review.state.to_ascii_uppercase();
         if state == "DISMISSED" {
             stale_or_dismissed = true;
-            continue;
         }
 
         let linked_findings = review_to_finding_threads
@@ -1068,6 +1067,19 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             continue;
         }
         let outcome = match provider {
+            "codex" | "copilot" | "human" if state == "DISMISSED" && linked_findings > 0 => {
+                Some(EvidenceOutcome::Findings)
+            }
+            "codex"
+                if state == "DISMISSED"
+                    && !review.body.trim().is_empty()
+                    && !review_ids_with_thread_comments.contains(&review.id) =>
+            {
+                Some(EvidenceOutcome::Findings)
+            }
+            "human" if state == "DISMISSED" && !review.body.trim().is_empty() => {
+                Some(EvidenceOutcome::Findings)
+            }
             "codex" | "copilot" if state == "CHANGES_REQUESTED" => Some(EvidenceOutcome::Findings),
             "copilot" if state == "COMMENTED" || state == "APPROVED" => {
                 match copilot_outcome(&review.body, linked_findings) {
@@ -3475,6 +3487,35 @@ mod tests {
         assert_eq!(
             result.completion_time.as_deref(),
             Some("2026-07-24T03:23:00Z")
+        );
+    }
+
+    #[test]
+    fn dismissed_substantive_review_still_requires_later_clean() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-awaiting-rereview.json"
+        ));
+        snapshot.pull_request.review_threads.nodes.clear();
+        let head = snapshot.pull_request.head_ref_oid.clone();
+        let review = &mut snapshot.pull_request.reviews.nodes[0];
+        review.state = "DISMISSED".to_string();
+        review.body = "A substantive current-head finding.".to_string();
+        snapshot.pull_request.comments.nodes.push(IssueComment {
+            id: "IC-clean-before-dismissed-finding".to_string(),
+            author: Some(Actor {
+                login: "chatgpt-codex-connector".to_string(),
+            }),
+            body: format!(
+                "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `{head}`"
+            ),
+            created_at: "2026-07-24T03:20:00Z".to_string(),
+            updated_at: "2026-07-24T03:20:00Z".to_string(),
+            url: "https://github.com/illusion-tech/laneflow/pull/226#issuecomment-clean-before-dismissed-finding".to_string(),
+        });
+
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::AwaitingRereview
         );
     }
 
