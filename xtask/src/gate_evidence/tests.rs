@@ -1182,7 +1182,7 @@ fn binds_recorded_review_fields_to_the_selected_completion() {
     let completion = "2026-08-06T04:27:54Z";
     let evidence = "https://github.com/illusion-tech/laneflow/pull/311#issuecomment-5200386889";
     let body = format!(
-        "- 审阅：provider=`codex`、actor=`chatgpt-codex-connector`、reviewed head=`{head}`、outcome=`pass / Did not find any major issues`、completion=`{completion}`、证据：{evidence}"
+        "- 审阅：provider=`codex`、actor=`chatgpt-codex-connector`、reviewed head=`{head}`、outcome=`clean`、completion=`{completion}`、证据：{evidence}"
     );
     assert!(
         validate_recorded_review_completion(
@@ -1206,6 +1206,16 @@ fn binds_recorded_review_fields_to_the_selected_completion() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn documents_exact_g3_review_record_syntax() {
+    let documented = "- 审阅：provider=`<provider>`、actor=`<actor>`、reviewed head=`<full sha>`、outcome=`clean`、completion=`<UTC RFC3339>`、证据：<GitHub HTTPS URL>";
+    let gates = include_str!("../../../docs/governance/development-gates.md");
+    let template = include_str!("../../../.github/pull_request_template.md");
+
+    assert!(gates.contains(documented));
+    assert!(template.contains(documented));
 }
 
 #[test]

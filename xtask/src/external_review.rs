@@ -977,14 +977,16 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             linked_review_ids.insert(review.id.clone());
         }
         for comment in unassociated_trusted_replies {
-            let valid_disposition_reply = verified_lockfile.is_some()
-                && !linked_review_ids.is_empty()
+            let valid_identity_disposition = verified_lockfile.is_some()
                 && valid_non_range_identity_disposition_reply(
                     first_comment,
                     comment,
                     &lockfile_metadata,
                 );
-            if valid_disposition_reply {
+            if !linked_review_ids.is_empty()
+                && (valid_identity_disposition
+                    || valid_owner_disposition_reply(first_comment, comment, &lockfile_metadata))
+            {
                 continue;
             }
             has_unbound_trusted_finding = true;
@@ -1710,6 +1712,32 @@ fn valid_non_range_identity_disposition_reply(
         && identity_only_disposition(&comment.body, claimed_oid, &metadata.head_oid)
         && first_comment.updated_at == first_comment.created_at
         && comment.updated_at == comment.created_at
+        && valid_timestamp(&comment.created_at)
+        && timestamp_after(&comment.created_at, &first_comment.created_at)
+}
+
+fn valid_owner_disposition_reply(
+    first_comment: &ReviewThreadComment,
+    comment: &ReviewThreadComment,
+    metadata: &PullRequestMetadata,
+) -> bool {
+    if claimed_pr_identity_oid(&first_comment.body).is_some_and(|claimed_oid| {
+        identity_only_non_range_finding(&first_comment.body, claimed_oid)
+            && !lockfile_policy::oid_matches_any_commit(claimed_oid, &metadata.commits)
+    }) {
+        return false;
+    }
+    let Some(disposition) = comment.body.trim().strip_prefix("Disposition:") else {
+        return false;
+    };
+    !disposition.trim().is_empty()
+        && comment.author.as_ref().is_some_and(|author| {
+            let actor = normalize_actor(&author.login);
+            TRUSTED_HUMAN_ACTORS.contains(&actor.as_str())
+        })
+        && first_comment.updated_at == first_comment.created_at
+        && comment.updated_at == comment.created_at
+        && valid_timestamp(&first_comment.created_at)
         && valid_timestamp(&comment.created_at)
         && timestamp_after(&comment.created_at, &first_comment.created_at)
 }
@@ -3329,17 +3357,57 @@ mod tests {
     }
 
     #[test]
-    fn disposition_prefix_without_exact_context_fails_closed() {
+    fn ordinary_owner_disposition_still_requires_rereview() {
         let mut snapshot = fixture(include_str!(
             "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
         ));
         let thread = &mut snapshot.pull_request.review_threads.nodes[0];
+        thread.comments.nodes[0].body = "The lockfile contains an invalid checksum.".to_string();
         thread.comments.nodes[1].body =
             "Disposition: the lockfile checksum is invalid.".to_string();
 
         let result = evaluate_snapshot(&snapshot);
-        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert_eq!(result.state, ExternalReviewState::AwaitingRereview);
         assert_eq!(result.finding_count, 1);
+        assert!(result.requires_rereview);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.contains("缺少 pullRequestReview 关联"))
+        );
+    }
+
+    #[test]
+    fn bot_pr_owner_disposition_allows_later_clean_rereview() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        let head = snapshot.pull_request.head_ref_oid.clone();
+        let thread = &mut snapshot.pull_request.review_threads.nodes[0];
+        thread.comments.nodes[0].body = "The lockfile contains an invalid checksum.".to_string();
+        thread.comments.nodes[1].body =
+            "Disposition: 已确认该 finding，并修复后请求 current-head clean re-review。"
+                .to_string();
+        snapshot.pull_request.comments.nodes.push(IssueComment {
+            id: "IC-clean-after-owner-disposition".to_string(),
+            author: Some(Actor {
+                login: "chatgpt-codex-connector".to_string(),
+            }),
+            body: format!(
+                "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `{head}`"
+            ),
+            created_at: "2026-08-06T02:40:00Z".to_string(),
+            updated_at: "2026-08-06T02:40:00Z".to_string(),
+            url: "https://github.com/illusion-tech/laneflow/pull/313#issuecomment-clean-after-disposition"
+                .to_string(),
+        });
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert_eq!(result.finding_count, 1);
+        assert_eq!(result.unresolved_actionable_threads, 0);
+        assert!(!result.requires_rereview);
     }
 
     #[test]
