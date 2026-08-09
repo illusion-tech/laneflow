@@ -32,6 +32,7 @@ pub(super) fn has_late_related_pr(
         .ok_or("Delivery PR 尚未合并，不能判断 late Related PR")?;
     let delivery_merged_at_time = lockfile_policy::parse_utc_rfc3339(delivery_merged_at)
         .ok_or("Delivery PR mergedAt 不是有效 UTC RFC3339 时间")?;
+    let mut has_late = false;
     for (number, related_pr) in args.related_prs.iter().zip(related_prs) {
         let related_created_at = lockfile_policy::parse_utc_rfc3339(&related_pr.created_at)
             .ok_or_else(|| format!("Related PR #{number} createdAt 不是有效 UTC RFC3339 时间"))?;
@@ -41,10 +42,10 @@ pub(super) fn has_late_related_pr(
             ));
         }
         if related_created_at > delivery_merged_at_time {
-            return Ok(true);
+            has_late = true;
         }
     }
-    Ok(false)
+    Ok(has_late)
 }
 
 pub(super) fn validate_g4_g3_full_set_recovery(
