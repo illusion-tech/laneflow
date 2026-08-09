@@ -217,16 +217,29 @@ pub(super) fn validate_g4_g3_full_set_recovery(
             .ok_or_else(|| {
                 format!("Related PR #{number} G3 comment createdAt 不是有效 UTC RFC3339 时间")
             })?;
-            if related_g3_created_at > delivery_merged_at_time {
-                return Err(format!(
-                    "original Related PR #{number} G3 comment 不得晚于 Delivery PR 合并时间"
-                ));
-            }
+            validate_original_related_g3_timing(
+                *number,
+                related_g3_created_at,
+                delivery_merged_at_time,
+            )?;
         } else {
             return Err(format!(
                 "Related PR #{number} 未归入 originalRelatedPrs 或 lateRelatedPrs"
             ));
         }
+    }
+    Ok(())
+}
+
+pub(super) fn validate_original_related_g3_timing(
+    number: u64,
+    related_g3_created_at: lockfile_policy::UtcTimestamp,
+    delivery_merged_at: lockfile_policy::UtcTimestamp,
+) -> Result<(), String> {
+    if related_g3_created_at >= delivery_merged_at {
+        return Err(format!(
+            "original Related PR #{number} G3 comment 必须严格早于 Delivery PR 合并时间"
+        ));
     }
     Ok(())
 }

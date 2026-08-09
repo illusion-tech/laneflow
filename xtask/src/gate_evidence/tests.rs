@@ -2,6 +2,7 @@
 
 use super::fixtures::*;
 use super::*;
+use crate::lockfile_policy;
 
 #[test]
 fn parses_gate_evidence_arguments() {
@@ -1659,6 +1660,19 @@ fn rejects_timestamp_equal_delivery_g3_during_recovery() {
         .expect_err("the original Delivery G3 must strictly predate its merge");
 
     assert!(error.contains("必须严格早于 Delivery merge"));
+}
+
+#[test]
+fn rejects_timestamp_equal_original_related_g3_during_recovery() {
+    let merge_time = lockfile_policy::parse_utc_rfc3339("2026-07-10T05:30:00Z").unwrap();
+    let equal_time = lockfile_policy::parse_utc_rfc3339("2026-07-10T05:30:00Z").unwrap();
+    let earlier_time = lockfile_policy::parse_utc_rfc3339("2026-07-10T05:29:59Z").unwrap();
+
+    let error = validate_original_related_g3_timing(62, equal_time, merge_time)
+        .expect_err("original Related G3 must strictly predate Delivery merge");
+
+    assert!(error.contains("必须严格早于 Delivery PR 合并时间"));
+    assert!(validate_original_related_g3_timing(62, earlier_time, merge_time).is_ok());
 }
 
 #[test]
