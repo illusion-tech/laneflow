@@ -1886,6 +1886,23 @@ fn late_related_detection_uses_fractional_timestamps() {
 }
 
 #[test]
+fn late_related_detection_scans_past_an_earlier_late_pr() {
+    let mut args = gate_args(GateEvidencePhase::G4);
+    args.related_prs = vec![62, 63];
+    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+    let mut late_pr = related_pr(false);
+    late_pr.created_at = "2026-07-10T05:31:00Z".to_string();
+    let mut equal_pr = related_pr(false);
+    equal_pr.created_at = "2026-07-10T05:30:00Z".to_string();
+
+    let error = has_late_related_pr(&args, &delivery_pr, &[late_pr, equal_pr])
+        .expect_err("later equal timestamp must not be skipped after a late PR");
+
+    assert!(error.contains("Related PR #63"));
+    assert!(error.contains("相同"));
+}
+
+#[test]
 fn rejects_g4_when_delivery_pr_is_not_project_done() {
     let issue = issue("OPEN", "Done");
     let mut delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
