@@ -61,7 +61,8 @@
 - Findings disposition / clean re-review：
 - Review threads：`unresolved = <count>`，证据：
 - External Review Gate：Check URL；R0/R1 尚未启用时写明 bootstrap 状态和缺失项：
-- CodeQL：`pass` + Check URL / `not_applicable` + `dependabot-cargo-lock-only-v1` policy 与证据 URL：
+- CodeQL：`pass`；<current-head CodeQL Check URL>
+  - 只有 `check-codeql` 返回窄路径 `not_applicable` 时，删除上一行并只保留：``- CodeQL：`not_applicable`；policy `dependabot-cargo-lock-only-v1`；<neutral/no-analysis Check URL>``
 - G3 Evidence Gate Shadow：使用唯一且非空的规范值：`Check URL：https://github.com/...` / `R1 non-required：<原因>` / `候选 workflow bootstrap：<边界>`：
 
 ## 风险与例外

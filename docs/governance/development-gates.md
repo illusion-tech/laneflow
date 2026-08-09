@@ -350,7 +350,7 @@ G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 cur
 - Rollout phase：R0 / R1 / R2
 - Current head：
 - Checks：
-- CodeQL：`pass` + Check URL / `not_applicable` + `dependabot-cargo-lock-only-v1` policy 与证据 URL
+- CodeQL：`pass`；<current-head CodeQL Check URL>
 - External Review Gate：Check URL / R0-R1 non-required 原因
 - 审阅：provider=`<provider>`、actor=`<actor>`、reviewed head=`<full sha>`、outcome=`clean`、completion=`<UTC RFC3339>`、证据：<GitHub HTTPS URL>
 - Review threads：actionable / unresolved / disposition / re-review
@@ -359,6 +359,12 @@ G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 cur
 - 例外：N/A / exception type、风险、到期、follow-up、Cleanup owner
 - 合并方式：Rebase and merge / 例外原因
 - Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` 已通过。
+```
+
+若且仅若 `check-codeql` 返回窄路径 `not_applicable`，必须删除模板中的 `pass` 行，并只保留以下精确机器行；两种状态不得同时保留：
+
+```text
+- CodeQL：`not_applicable`；policy `dependabot-cargo-lock-only-v1`；<neutral/no-analysis Check URL>
 ```
 
 ## 7. G4 完成闸口

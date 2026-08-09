@@ -1219,6 +1219,19 @@ fn documents_exact_g3_review_record_syntax() {
 }
 
 #[test]
+fn documents_exact_g3_codeql_record_syntax() {
+    let pass = "- CodeQL：`pass`；<current-head CodeQL Check URL>";
+    let not_applicable = "- CodeQL：`not_applicable`；policy `dependabot-cargo-lock-only-v1`；<neutral/no-analysis Check URL>";
+    let gates = include_str!("../../../docs/governance/development-gates.md");
+    let template = include_str!("../../../.github/pull_request_template.md");
+
+    assert!(gates.contains(pass));
+    assert!(gates.contains(not_applicable));
+    assert!(template.contains(pass));
+    assert!(template.contains(not_applicable));
+}
+
+#[test]
 fn waived_full_set_member_cannot_receive_shadow_success() {
     let mut delivery = delivery_pr(None);
     delivery.comments[0].body = "- Gate 结果：`G3 Pass`".to_string();
