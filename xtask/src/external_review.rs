@@ -568,6 +568,7 @@ impl ExternalReviewResult {
         let completion_time = self.completion_time.as_deref()?;
         self.evidence
             .iter()
+            .rev()
             .find(|evidence| {
                 evidence.provider == provider
                     && evidence.actor == actor
@@ -2581,6 +2582,20 @@ mod tests {
         ] {
             assert_eq!(state.check_conclusion(), "failure");
         }
+    }
+
+    #[test]
+    fn selected_evidence_url_uses_the_latest_tie_break_entry() {
+        let mut result = sample_result(ExternalReviewState::Pass);
+        let mut later = result.evidence[0].clone();
+        later.evidence_url =
+            "https://github.com/illusion-tech/laneflow/pull/239#issuecomment-2".to_string();
+        result.evidence.push(later);
+
+        assert_eq!(
+            result.selected_evidence_url(),
+            Some("https://github.com/illusion-tech/laneflow/pull/239#issuecomment-2")
+        );
     }
 
     #[test]
