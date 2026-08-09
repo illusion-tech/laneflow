@@ -352,7 +352,7 @@ G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 cur
 - Checks：
 - CodeQL：`pass` + Check URL / `not_applicable` + `dependabot-cargo-lock-only-v1` policy 与证据 URL
 - External Review Gate：Check URL / R0-R1 non-required 原因
-- 审阅：provider、actor、reviewed head、outcome、completion time、evidence URL
+- 审阅：provider=`<provider>`、actor=`<actor>`、reviewed head=`<full sha>`、outcome=`clean`、completion=`<UTC RFC3339>`、证据：<GitHub HTTPS URL>
 - Review threads：actionable / unresolved / disposition / re-review
 - 验证：
 - 风险：

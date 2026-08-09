@@ -88,7 +88,7 @@ G3 comment 模板（合并前发表）：
 - CodeQL：`pass` + Check URL / `not_applicable` + `dependabot-cargo-lock-only-v1` policy 与证据 URL：
 - External Review Gate：
 - G3 Evidence Gate Shadow：`Check URL：https://github.com/...` / `R1 non-required：<原因>` / `候选 workflow bootstrap：<边界>`：
-- 审阅：provider、actor、reviewed head、outcome、completion、evidence URL：
+- 审阅：provider=`<provider>`、actor=`<actor>`、reviewed head=`<full sha>`、outcome=`clean`、completion=`<UTC RFC3339>`、证据：<GitHub HTTPS URL>
 - Findings disposition / clean re-review：
 - Review threads：`unresolved = <count>`，证据：
 - R1 thread-state signal：每批 resolve / unresolve 后新增顶层 `external-review: thread-state-changed` comment；R2 写 GitHub App webhook receipt：
