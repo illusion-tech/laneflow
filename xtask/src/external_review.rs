@@ -1023,6 +1023,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             continue;
         }
         let outcome = match provider {
+            "codex" | "copilot" if state == "CHANGES_REQUESTED" => Some(EvidenceOutcome::Findings),
             "copilot" if state == "COMMENTED" || state == "APPROVED" => {
                 match copilot_outcome(&review.body, linked_findings) {
                     Ok(outcome) => outcome,
@@ -3344,6 +3345,34 @@ mod tests {
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
             ExternalReviewState::Pass
+        );
+    }
+
+    #[test]
+    fn trusted_changes_requested_review_is_a_finding() {
+        let mut codex_snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        codex_snapshot.pull_request.review_threads.nodes.clear();
+        let codex_review = &mut codex_snapshot.pull_request.reviews.nodes[0];
+        codex_review.state = "CHANGES_REQUESTED".to_string();
+        codex_review.body.clear();
+        assert_eq!(
+            evaluate_snapshot(&codex_snapshot).state,
+            ExternalReviewState::AwaitingRereview
+        );
+
+        let mut copilot_snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        copilot_snapshot.pull_request.review_threads.nodes.clear();
+        copilot_snapshot.pull_request.reviews.nodes.remove(0);
+        let copilot_review = &mut copilot_snapshot.pull_request.reviews.nodes[0];
+        copilot_review.state = "CHANGES_REQUESTED".to_string();
+        copilot_review.body = "Changes requested.".to_string();
+        assert_eq!(
+            evaluate_snapshot(&copilot_snapshot).state,
+            ExternalReviewState::AwaitingRereview
         );
     }
 
