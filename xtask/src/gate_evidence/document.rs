@@ -494,7 +494,7 @@ pub(super) fn validate_codeql_g3(
         }
     }
     if result.state == codeql::CodeQlState::NotApplicable
-        && (!line.contains("`dependabot-cargo-lock-only-v1`")
+        && (codeql_policy(line)? != "dependabot-cargo-lock-only-v1"
             || result.policy() != Some("dependabot-cargo-lock-only-v1"))
     {
         return Err(format!(
@@ -536,6 +536,23 @@ pub(super) fn codeql_state(line: &str) -> Result<codeql::CodeQlState, String> {
         return Err("G3 comment 的 CodeQL 行必须恰好记录一个状态值".to_string());
     }
     Ok(state)
+}
+
+pub(super) fn codeql_policy(line: &str) -> Result<&str, String> {
+    let marker = "policy `";
+    let positions = line.match_indices(marker).collect::<Vec<_>>();
+    let [position] = positions.as_slice() else {
+        return Err("G3 comment 的 CodeQL 行必须恰好记录一个 `policy` 值".to_string());
+    };
+    let value_tail = &line[position.0 + marker.len()..];
+    let end = value_tail
+        .find('`')
+        .ok_or_else(|| "G3 comment 的 CodeQL policy 缺少结束 backtick".to_string())?;
+    let value = &value_tail[..end];
+    if value.is_empty() {
+        return Err("G3 comment 的 CodeQL policy 不能为空".to_string());
+    }
+    Ok(value)
 }
 
 pub(super) fn codeql_evidence_url(line: &str) -> Result<&str, String> {

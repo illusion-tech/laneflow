@@ -947,6 +947,27 @@ fn parses_one_exact_codeql_state_and_rejects_contradictions() {
 }
 
 #[test]
+fn parses_one_exact_codeql_policy_field() {
+    let expected = "dependabot-cargo-lock-only-v1";
+    assert_eq!(
+        codeql_policy(&format!(
+            "- CodeQL：`not_applicable`；policy `{expected}`；https://github.com/illusion-tech/laneflow/runs/1"
+        )),
+        Ok(expected)
+    );
+    assert_eq!(
+        codeql_policy(&format!(
+            "- CodeQL：`not_applicable`；policy `other`；expected `{expected}`；https://github.com/illusion-tech/laneflow/runs/1"
+        )),
+        Ok("other")
+    );
+    assert!(codeql_policy(&format!(
+        "- CodeQL：`not_applicable`；policy `other`；policy `{expected}`；https://github.com/illusion-tech/laneflow/runs/1"
+    ))
+    .is_err());
+}
+
+#[test]
 fn codeql_completion_must_not_follow_the_append_only_g3_comment() {
     assert!(
         validate_codeql_completion_order(
