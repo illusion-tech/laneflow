@@ -14,6 +14,68 @@ use crate::SourceSpan;
 
 const MAX_GEOMETRY_JSON_NESTING_DEPTH: u32 = 32;
 
+/// 每层 object/array 计入 parser 栈帧与 closed-shape duplicate-key 表（`ClosedFields`
+/// 固定槽位）的合并固定成本；深度 ≤32 使 parser 侧峰值 ≤ 16KiB。
+const JSON_CONTAINER_SCRATCH_BYTES: u64 = 512;
+
+/// `StageScratchBytes` 维度超限的失败关闭记录：上限与候选容量（已饱和到 `u64`）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::module::geometry) struct StageScratchExceeded {
+    pub(in crate::module::geometry) limit: u64,
+    pub(in crate::module::geometry) observed: u64,
+}
+
+/// §7.1 parser stack / duplicate-key table / 曲线细分栈 / station scratch 的共享账簿。
+/// 任何按输入规模的暂存区分配先以 checked u64 计算候选容量并在增长前比较上限，
+/// 超限即失败关闭；瞬时分配归还时 `shrink`，存续到载荷的输出不入账。
+#[derive(Debug)]
+pub(in crate::module::geometry) struct StageScratchMeter {
+    limit: u64,
+    current: u64,
+    peak: u64,
+}
+
+impl StageScratchMeter {
+    pub(in crate::module::geometry) const fn new(limit: u64) -> Self {
+        Self {
+            limit,
+            current: 0,
+            peak: 0,
+        }
+    }
+
+    /// 测试与默认游标使用的无上限账簿。
+    pub(in crate::module::geometry) const fn unlimited() -> Self {
+        Self::new(u64::MAX)
+    }
+
+    pub(in crate::module::geometry) fn grow(
+        &mut self,
+        bytes: u64,
+    ) -> Result<(), StageScratchExceeded> {
+        let candidate = self.current.saturating_add(bytes);
+        if candidate > self.limit {
+            return Err(StageScratchExceeded {
+                limit: self.limit,
+                observed: candidate,
+            });
+        }
+        self.current = candidate;
+        self.peak = self.peak.max(candidate);
+        Ok(())
+    }
+
+    pub(in crate::module::geometry) fn shrink(&mut self, bytes: u64) {
+        self.current = self.current.saturating_sub(bytes);
+    }
+
+    /// 峰值并发占用；当前只由测试断言使用。
+    #[allow(dead_code, reason = "asserted by the meter and freeze tests")]
+    pub(in crate::module::geometry) const fn peak(&self) -> u64 {
+        self.peak
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct ByteSpan {
     pub(super) start: usize,
@@ -31,6 +93,7 @@ pub(super) enum JsonErrorKind {
     UnescapedControlCharacter,
     InvalidNumber,
     NestingDepthExceeded,
+    StageScratchExceeded(StageScratchExceeded),
     TrailingBytes,
     SourcePositionOverflow,
 }
@@ -46,6 +109,7 @@ pub(super) struct JsonCursor<'a> {
     bytes: &'a [u8],
     offset: usize,
     depth: u32,
+    scratch: StageScratchMeter,
 }
 
 pub(super) struct LineIndex {
@@ -126,6 +190,19 @@ impl LineIndex {
 
 impl<'a> JsonCursor<'a> {
     pub(super) fn new(source_bytes: &'a [u8]) -> Result<Self, JsonError> {
+        Self::with_meter(source_bytes, StageScratchMeter::unlimited())
+    }
+
+    /// 与 [`JsonCursor::new`] 相同，但把每层容器的合并固定成本计入
+    /// `scratch_limit`（`StageScratchBytes` 维度），超限失败关闭。
+    pub(super) fn new_with_scratch(
+        source_bytes: &'a [u8],
+        scratch_limit: u64,
+    ) -> Result<Self, JsonError> {
+        Self::with_meter(source_bytes, StageScratchMeter::new(scratch_limit))
+    }
+
+    fn with_meter(source_bytes: &'a [u8], scratch: StageScratchMeter) -> Result<Self, JsonError> {
         if source_bytes.starts_with(&[0xef, 0xbb, 0xbf]) {
             return Err(JsonError {
                 kind: JsonErrorKind::Utf8Bom,
@@ -148,7 +225,13 @@ impl<'a> JsonCursor<'a> {
             bytes: source_bytes,
             offset: 0,
             depth: 0,
+            scratch,
         })
+    }
+
+    /// 共享暂存账簿：schema parser 的瞬时查重表在分配前经此入账。
+    pub(in crate::module::geometry) fn scratch(&mut self) -> &mut StageScratchMeter {
+        &mut self.scratch
     }
 
     pub(super) const fn offset(&self) -> usize {
@@ -335,6 +418,14 @@ impl<'a> JsonCursor<'a> {
                 start.saturating_add(1).min(self.bytes.len()),
             ));
         }
+        // 深度检查通过后、消费字节前入账本层的 parser 栈帧与 duplicate-key 表成本。
+        if let Err(exceeded) = self.scratch.grow(JSON_CONTAINER_SCRATCH_BYTES) {
+            return Err(self.error_at(
+                JsonErrorKind::StageScratchExceeded(exceeded),
+                start,
+                start.saturating_add(1).min(self.bytes.len()),
+            ));
+        }
         let span = self.consume_byte(expected)?;
         self.depth = next_depth;
         Ok(span)
@@ -344,6 +435,7 @@ impl<'a> JsonCursor<'a> {
         let span = self.consume_byte(expected)?;
         debug_assert!(self.depth > 0, "schema parser balances JSON containers");
         self.depth -= 1;
+        self.scratch.shrink(JSON_CONTAINER_SCRATCH_BYTES);
         Ok(span)
     }
 
@@ -502,7 +594,55 @@ const fn utf8_scalar_len(first_byte: u8) -> usize {
 mod tests {
     use std::sync::Arc;
 
-    use super::{ByteSpan, JsonCursor, JsonErrorKind, LineIndex, MAX_GEOMETRY_JSON_NESTING_DEPTH};
+    use super::{
+        ByteSpan, JsonCursor, JsonErrorKind, LineIndex, MAX_GEOMETRY_JSON_NESTING_DEPTH,
+        StageScratchExceeded, StageScratchMeter,
+    };
+
+    #[test]
+    fn stage_scratch_meter_grows_shrinks_and_fails_closed() {
+        // 增长到上限恰好通过，再 +1 失败关闭；shrink 后同额度可重新 grow。
+        let mut meter = StageScratchMeter::new(1024);
+        meter.grow(1024).unwrap();
+        assert_eq!(meter.peak(), 1024);
+        assert_eq!(
+            meter.grow(1).unwrap_err(),
+            StageScratchExceeded {
+                limit: 1024,
+                observed: 1025,
+            }
+        );
+        meter.shrink(512);
+        meter.grow(512).unwrap();
+        assert_eq!(meter.peak(), 1024);
+        // 无上限账簿供测试与默认游标使用，永不超过。
+        StageScratchMeter::unlimited().grow(u64::MAX).unwrap();
+    }
+
+    #[test]
+    fn cursor_accounts_container_scratch_against_the_limit() {
+        // 每层容器 512B：限 512 时第二层嵌套失败关闭，默认游标照常通过。
+        let mut limited = JsonCursor::new_with_scratch(b"[[0]]", 512).unwrap();
+        limited.begin_array().unwrap();
+        assert_eq!(
+            limited.begin_array().unwrap_err().kind,
+            JsonErrorKind::StageScratchExceeded(StageScratchExceeded {
+                limit: 512,
+                observed: 1024,
+            })
+        );
+
+        let mut unlimited = JsonCursor::new(b"[[0]]").unwrap();
+        unlimited.begin_array().unwrap();
+        unlimited.begin_array().unwrap();
+
+        // end_container 归还本层成本后，同额度可再次 begin。
+        let mut reused = JsonCursor::new_with_scratch(b"[][]", 512).unwrap();
+        reused.begin_array().unwrap();
+        reused.end_array().unwrap();
+        reused.begin_array().unwrap();
+        reused.end_array().unwrap();
+    }
 
     #[test]
     fn parses_exact_strings_numbers_literals_and_containers() {

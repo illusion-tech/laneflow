@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use super::road::{ParsedCurve, ParsedCurveSegment, ParsedVec3, RawNumber};
 use super::{ByteSpan, ParsedGeometryDocument};
+use crate::module::geometry::json::StageScratchMeter;
 use crate::module::geometry::{GeometryAccuracyProfile, GeometryDirectionProfile};
 use laneflow_static_contract::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS,
@@ -11,6 +12,26 @@ use laneflow_static_contract::{
 };
 
 const MAX_SUBDIVISION_DEPTH: u8 = 20;
+
+/// 两个显式细分栈的栈帧：当前候选控制点、参数区间与深度。
+type SubdivisionFrame = ([Point3; 4], f64, f64, u8);
+
+/// 契约 §7.1：按输入规模的候选容量先以 checked u64 计算（计数或乘法溢出饱和到
+/// `u64::MAX`，必然超过任何实际上限），再交给共享账簿在增长前比较上限。
+fn scaled_bytes(count: usize, element_bytes: u64) -> u64 {
+    u64::try_from(count)
+        .unwrap_or(u64::MAX)
+        .saturating_mul(element_bytes)
+}
+
+/// `StageScratchBytes` 超限的统一 freeze 错误；字节细节由 builder 映射为资源上限诊断。
+const fn scratch_exceeded(span: ByteSpan) -> NumericFreezeError {
+    NumericFreezeError {
+        violation: NumericFreezeViolation::StageScratchExceeded,
+        field: "stageScratchBytes",
+        span,
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Point3 {
@@ -145,6 +166,7 @@ pub(in crate::module::geometry) enum NumericFreezeViolation {
     FinalDirectionExceeded,
     TotalPositionErrorExceeded,
     GeometryPointLimitExceeded,
+    StageScratchExceeded,
 }
 
 #[derive(Debug)]
@@ -158,6 +180,7 @@ pub(super) fn freeze_reference_lines(
     document: &ParsedGeometryDocument,
     accuracy_profile: GeometryAccuracyProfile,
     direction_profile: GeometryDirectionProfile,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenRoadReference]>, NumericFreezeError> {
     document
         .roads
@@ -165,15 +188,25 @@ pub(super) fn freeze_reference_lines(
         .map(|road| {
             Ok(FrozenRoadReference {
                 road_key: road.road_key.value.clone(),
-                samples: freeze_curve(&road.reference_line, accuracy_profile, direction_profile)?,
+                samples: freeze_curve(
+                    &road.reference_line,
+                    accuracy_profile,
+                    direction_profile,
+                    direction_profile,
+                    meter,
+                )?,
             })
         })
         .collect::<Result<Vec<_>, _>>()
         .map(Vec::into_boxed_slice)
 }
 
+/// Station 表按契约 §6.1 固定 `Fine2Cm`/`Smooth1Deg` 细分，与调用方配置档无关；
+/// 来源 join 的方向门禁仍按 §6.1 使用调用方所选方向档。
 pub(super) fn freeze_stationing(
     document: &ParsedGeometryDocument,
+    direction_profile: GeometryDirectionProfile,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenRoadStationing]>, NumericFreezeError> {
     document
         .roads
@@ -183,9 +216,16 @@ pub(super) fn freeze_stationing(
                 &road.reference_line,
                 GeometryAccuracyProfile::Fine2Cm,
                 GeometryDirectionProfile::Smooth1Deg,
+                direction_profile,
+                meter,
             )?;
-            let intervals = build_station_intervals(&samples, road.reference_line.span)?;
-            let spans = freeze_span_stations(&road.cross_section_spans, &intervals)?;
+            let intervals = build_station_intervals(&samples, road.reference_line.span, meter)?;
+            let spans = freeze_span_stations(&road.cross_section_spans, &intervals, meter)?;
+            // samples 已被 intervals/spans 消费完，归还全部暂存字节。
+            meter.shrink(scaled_bytes(
+                samples.len(),
+                size_of::<FrozenReferenceSample>() as u64,
+            ));
             Ok(FrozenRoadStationing {
                 road_key: road.road_key.value.clone(),
                 intervals,
@@ -198,11 +238,13 @@ pub(super) fn freeze_stationing(
 
 pub(super) fn freeze_cross_section_layouts(
     document: &ParsedGeometryDocument,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenCrossSectionLayout]>, NumericFreezeError> {
     let mut output = Vec::new();
     for road in &document.roads {
         for span in &road.cross_section_spans {
             let mut pending = Vec::new();
+            let mut pending_scratch_bytes = 0_u64;
             let mut reference_index = None;
             let mut reference_section_was_element = false;
             for element in &span.elements {
@@ -248,6 +290,10 @@ pub(super) fn freeze_cross_section_layouts(
                                 }
                                 reference_index = Some(pending.len());
                             }
+                            meter
+                                .grow(size_of::<PendingLateralIntent>() as u64)
+                                .map_err(|_| scratch_exceeded(span.span))?;
+                            pending_scratch_bytes += size_of::<PendingLateralIntent>() as u64;
                             pending.push(PendingLateralIntent {
                                 key: lane.lane_key.value.clone(),
                                 kind: match lane.direction {
@@ -275,6 +321,10 @@ pub(super) fn freeze_cross_section_layouts(
                                 span: *element_span,
                             });
                         };
+                        meter
+                            .grow(size_of::<PendingLateralIntent>() as u64)
+                            .map_err(|_| scratch_exceeded(span.span))?;
+                        pending_scratch_bytes += size_of::<PendingLateralIntent>() as u64;
                         pending.push(PendingLateralIntent {
                             key: facility.facility_band_key.value.clone(),
                             kind: LateralIntentKind::FacilityBand,
@@ -298,9 +348,15 @@ pub(super) fn freeze_cross_section_layouts(
                     },
                 });
             };
+            let items = compute_lateral_offsets(pending, reference_index, span.span, meter)?;
+            // pending 已交给 compute_lateral_offsets 消费，归还整份暂存字节。
+            meter.shrink(pending_scratch_bytes);
+            meter
+                .grow(size_of::<FrozenCrossSectionLayout>() as u64)
+                .map_err(|_| scratch_exceeded(span.span))?;
             output.push(FrozenCrossSectionLayout {
                 span_key: span.span_key.value.clone(),
-                items: compute_lateral_offsets(pending, reference_index, span.span)?,
+                items,
             });
         }
     }
@@ -313,6 +369,7 @@ pub(super) fn freeze_lateral_curves(
     layouts: &[FrozenCrossSectionLayout],
     accuracy_profile: GeometryAccuracyProfile,
     direction_profile: GeometryDirectionProfile,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenLateralCurve]>, NumericFreezeError> {
     freeze_lateral_curves_with_limit(
         document,
@@ -321,6 +378,7 @@ pub(super) fn freeze_lateral_curves(
         accuracy_profile,
         direction_profile,
         u64::MAX,
+        meter,
     )
 }
 
@@ -329,9 +387,10 @@ pub(super) fn freeze_geometry_payload(
     accuracy_profile: GeometryAccuracyProfile,
     direction_profile: GeometryDirectionProfile,
     geometry_point_limit: u64,
+    meter: &mut StageScratchMeter,
 ) -> Result<FrozenGeometryPayload, NumericFreezeError> {
-    let stationing = freeze_stationing(document)?;
-    let layouts = freeze_cross_section_layouts(document)?;
+    let stationing = freeze_stationing(document, direction_profile, meter)?;
+    let layouts = freeze_cross_section_layouts(document, meter)?;
     let lateral_curves = freeze_lateral_curves_with_limit(
         document,
         &stationing,
@@ -339,6 +398,7 @@ pub(super) fn freeze_geometry_payload(
         accuracy_profile,
         direction_profile,
         geometry_point_limit,
+        meter,
     )?;
     let geometry_point_count = lateral_curves.iter().try_fold(0_u64, |total, curve| {
         total.checked_add(u64::try_from(curve.points.len()).ok()?)
@@ -354,6 +414,7 @@ pub(super) fn freeze_geometry_payload(
         geometry_point_limit
             .checked_sub(geometry_point_count)
             .ok_or_else(arithmetic_error)?,
+        meter,
     )?;
     geometry_point_count = internal_edge_curves
         .iter()
@@ -401,19 +462,32 @@ fn freeze_internal_edge_curves(
     accuracy_profile: GeometryAccuracyProfile,
     direction_profile: GeometryDirectionProfile,
     geometry_point_limit: u64,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenInternalEdgeCurve]>, NumericFreezeError> {
     let mut output = Vec::new();
     let mut geometry_point_count = 0_u64;
     for junction in &document.junctions {
         for edge in &junction.internal_edges {
-            let samples = freeze_curve(&edge.geometry, accuracy_profile, direction_profile)?;
+            let samples = freeze_curve(
+                &edge.geometry,
+                accuracy_profile,
+                direction_profile,
+                direction_profile,
+                meter,
+            )?;
             let points = quantize_and_validate_explicit_curve(
                 &edge.geometry,
                 &samples,
                 accuracy_profile,
                 direction_profile,
                 edge.geometry.span,
+                meter,
             )?;
+            // 每条 edge 的 samples 在 quantize 完后即消费完，归还其暂存字节。
+            meter.shrink(scaled_bytes(
+                samples.len(),
+                size_of::<FrozenReferenceSample>() as u64,
+            ));
             geometry_point_count = geometry_point_count
                 .checked_add(u64::try_from(points.len()).map_err(|_| arithmetic_error())?)
                 .ok_or_else(arithmetic_error)?;
@@ -437,6 +511,7 @@ fn freeze_lateral_curves_with_limit(
     accuracy_profile: GeometryAccuracyProfile,
     direction_profile: GeometryDirectionProfile,
     geometry_point_limit: u64,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenLateralCurve]>, NumericFreezeError> {
     if stationing.len() != document.roads.len() {
         return Err(arithmetic_error());
@@ -479,6 +554,7 @@ fn freeze_lateral_curves_with_limit(
                     accuracy_profile,
                     direction_profile,
                     remaining_point_count,
+                    meter,
                 )?;
                 let mut points = quantize_and_validate_curve(
                     &road.reference_line,
@@ -487,7 +563,13 @@ fn freeze_lateral_curves_with_limit(
                     accuracy_profile,
                     direction_profile,
                     span.span,
+                    meter,
                 )?;
+                // samples 在 quantize 完后即消费完，归还其暂存字节。
+                meter.shrink(scaled_bytes(
+                    samples.len(),
+                    size_of::<FrozenOffsetSample>() as u64,
+                ));
                 if intent.kind == LateralIntentKind::BackwardLane {
                     points.reverse();
                 }
@@ -517,6 +599,7 @@ fn compute_lateral_offsets(
     pending: Vec<PendingLateralIntent>,
     reference_index: usize,
     span: ByteSpan,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenLateralIntent]>, NumericFreezeError> {
     if pending.is_empty() || reference_index >= pending.len() {
         return Err(NumericFreezeError {
@@ -525,6 +608,11 @@ fn compute_lateral_offsets(
             span,
         });
     }
+    // boundaries 与 pending 同亡：分配前入账，成功返回前归还；错误路径不归还。
+    let boundaries_bytes = scaled_bytes(pending.len(), size_of::<(f64, f64)>() as u64);
+    meter
+        .grow(boundaries_bytes)
+        .map_err(|_| scratch_exceeded(span))?;
     let mut boundaries = vec![(0.0_f64, 0.0_f64); pending.len()];
     let reference_half_width = pending[reference_index].width * 0.5;
     boundaries[reference_index] = (reference_half_width, -reference_half_width);
@@ -551,7 +639,7 @@ fn compute_lateral_offsets(
         adjacent_right_boundary = right;
     }
 
-    pending
+    let items = pending
         .into_iter()
         .zip(boundaries)
         .map(|(pending, (left, right))| {
@@ -567,8 +655,9 @@ fn compute_lateral_offsets(
                 right_boundary_offset_meters: canonical_zero(right),
             })
         })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Vec::into_boxed_slice)
+        .collect::<Result<Vec<_>, _>>()?;
+    meter.shrink(boundaries_bytes);
+    Ok(items.into_boxed_slice())
 }
 
 fn parse_positive(value: &RawNumber, field: &'static str) -> Result<f64, NumericFreezeError> {
@@ -594,6 +683,7 @@ const fn lateral_overflow(span: ByteSpan) -> NumericFreezeError {
 fn build_station_intervals(
     samples: &[FrozenReferenceSample],
     span: ByteSpan,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[StationInterval]>, NumericFreezeError> {
     let Some(first) = samples.first() else {
         return Err(NumericFreezeError {
@@ -602,6 +692,13 @@ fn build_station_intervals(
             span,
         });
     };
+    // intervals 存续到 station 表冻结完成（payload 结束），只入账不归还。
+    meter
+        .grow(scaled_bytes(
+            samples.len().saturating_sub(1),
+            size_of::<StationInterval>() as u64,
+        ))
+        .map_err(|_| scratch_exceeded(span))?;
     let mut intervals = Vec::with_capacity(samples.len().saturating_sub(1));
     let mut previous_segment = first.segment_index;
     let mut previous_parameter = first.parameter;
@@ -646,6 +743,7 @@ fn build_station_intervals(
 fn freeze_span_stations(
     spans: &[super::road::ParsedCrossSectionSpan],
     intervals: &[StationInterval],
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenSpanStations]>, NumericFreezeError> {
     let Some(last_interval) = intervals.last() else {
         return Err(NumericFreezeError {
@@ -655,6 +753,19 @@ fn freeze_span_stations(
         });
     };
     let final_station = f64::from_bits(last_interval.cumulative_end_length_bits);
+    // frozen 存续到 station 表冻结完成，只入账不归还。
+    meter
+        .grow(scaled_bytes(
+            spans.len(),
+            size_of::<FrozenSpanStations>() as u64,
+        ))
+        .map_err(|_| {
+            scratch_exceeded(
+                spans
+                    .first()
+                    .map_or(ByteSpan { start: 0, end: 0 }, |span| span.span),
+            )
+        })?;
     let mut frozen = Vec::with_capacity(spans.len());
     let mut expected_start_bits = 0.0_f64.to_bits();
     for (index, span) in spans.iter().enumerate() {
@@ -759,8 +870,13 @@ fn freeze_curve(
     curve: &ParsedCurve,
     accuracy_profile: GeometryAccuracyProfile,
     direction_profile: GeometryDirectionProfile,
+    join_profile: GeometryDirectionProfile,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenReferenceSample]>, NumericFreezeError> {
     let start = parse_vec3(&curve.start, "referenceLine.start")?;
+    meter
+        .grow(size_of::<FrozenReferenceSample>() as u64)
+        .map_err(|_| scratch_exceeded(curve.span))?;
     let mut samples = vec![FrozenReferenceSample {
         segment_index: 0,
         parameter: 0.0,
@@ -800,15 +916,20 @@ fn freeze_curve(
         validate_tangent(start_tangent, span)?;
         validate_tangent(end_tangent, span)?;
         if let Some(previous) = previous_end_tangent {
-            validate_source_join(previous, start_tangent, direction_profile, span)?;
+            validate_source_join(previous, start_tangent, join_profile, span)?;
         }
 
         match segment {
-            ParsedCurveSegment::Line { .. } => samples.push(FrozenReferenceSample {
-                segment_index,
-                parameter: 1.0,
-                point: end.into_array(),
-            }),
+            ParsedCurveSegment::Line { .. } => {
+                meter
+                    .grow(size_of::<FrozenReferenceSample>() as u64)
+                    .map_err(|_| scratch_exceeded(span))?;
+                samples.push(FrozenReferenceSample {
+                    segment_index,
+                    parameter: 1.0,
+                    point: end.into_array(),
+                });
+            }
             ParsedCurveSegment::CubicBezier { controls, .. } => {
                 let first = parse_vec3(&controls[0], "referenceLine.segments.controls")?;
                 let second = parse_vec3(&controls[1], "referenceLine.segments.controls")?;
@@ -819,6 +940,7 @@ fn freeze_curve(
                     direction_profile,
                     span,
                     &mut samples,
+                    meter,
                 )?;
             }
         }
@@ -837,6 +959,7 @@ fn freeze_offset_curve(
     offset_meters: f64,
     accuracy_profile: GeometryAccuracyProfile,
     direction_profile: GeometryDirectionProfile,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenOffsetSample]>, NumericFreezeError> {
     freeze_offset_curve_with_forced(
         curve,
@@ -844,6 +967,7 @@ fn freeze_offset_curve(
         accuracy_profile,
         direction_profile,
         &[],
+        meter,
     )
 }
 
@@ -853,6 +977,7 @@ fn freeze_offset_curve_with_forced(
     accuracy_profile: GeometryAccuracyProfile,
     direction_profile: GeometryDirectionProfile,
     forced_parameters: &[FrozenCurveParameter],
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenOffsetSample]>, NumericFreezeError> {
     if !offset_meters.is_finite() {
         return Err(NumericFreezeError {
@@ -863,6 +988,9 @@ fn freeze_offset_curve_with_forced(
     }
     let mut segment_start = parse_vec3(&curve.start, "referenceLine.start")?;
     let first = evaluate_segment_offset(segment_start, &curve.segments[0], 0.0, offset_meters)?;
+    meter
+        .grow(size_of::<FrozenOffsetSample>() as u64)
+        .map_err(|_| scratch_exceeded(curve.span))?;
     let mut output = vec![FrozenOffsetSample {
         segment_index: 0,
         parameter: 0.0,
@@ -878,11 +1006,17 @@ fn freeze_offset_curve_with_forced(
                 for parameter in parameters.iter().copied().skip(1) {
                     let frozen =
                         evaluate_line_offset(segment_start, end, parameter, offset_meters, *span)?;
-                    output.push(FrozenOffsetSample {
-                        segment_index,
-                        parameter,
-                        point: frozen.position.into_array(),
-                    });
+                    push_offset_sample(
+                        &mut output,
+                        FrozenOffsetSample {
+                            segment_index,
+                            parameter,
+                            point: frozen.position.into_array(),
+                        },
+                        u64::MAX,
+                        *span,
+                        meter,
+                    )?;
                 }
                 segment_start = end;
             }
@@ -903,13 +1037,14 @@ fn freeze_offset_curve_with_forced(
                             max_point_count: u64::MAX,
                         },
                         &mut output,
+                        meter,
                     )?;
                 }
                 segment_start = parse_vec3(end, "referenceLine.segments.end")?;
             }
         }
     }
-    reevaluate_offset_samples(curve, offset_meters, &mut output)?;
+    reevaluate_offset_samples(curve, offset_meters, &mut output, meter)?;
     Ok(output.into_boxed_slice())
 }
 
@@ -920,6 +1055,7 @@ fn freeze_offset_curve_range(
     accuracy_profile: GeometryAccuracyProfile,
     direction_profile: GeometryDirectionProfile,
     point_limit: u64,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenOffsetSample]>, NumericFreezeError> {
     if !offset_meters.is_finite()
         || range.start.segment_index > range.end.segment_index
@@ -938,6 +1074,11 @@ fn freeze_offset_curve_range(
         .segments
         .get(start_index)
         .ok_or_else(arithmetic_error)?;
+    // segment_starts 随本函数结束而归还（见循环后的 shrink）。
+    let segment_starts_bytes = scaled_bytes(curve.segments.len(), size_of::<Point3>() as u64);
+    meter
+        .grow(segment_starts_bytes)
+        .map_err(|_| scratch_exceeded(curve.span))?;
     let segment_starts = parsed_segment_starts(curve)?;
     let first = evaluate_segment_offset(
         segment_starts[start_index],
@@ -948,6 +1089,9 @@ fn freeze_offset_curve_range(
     if point_limit == 0 {
         return Err(point_limit_error(curve.span));
     }
+    meter
+        .grow(size_of::<FrozenOffsetSample>() as u64)
+        .map_err(|_| scratch_exceeded(curve.span))?;
     let mut output = vec![FrozenOffsetSample {
         segment_index: range.start.segment_index,
         parameter: range.start.parameter,
@@ -1000,6 +1144,7 @@ fn freeze_offset_curve_range(
                     },
                     point_limit,
                     *span,
+                    meter,
                 )?;
             }
             ParsedCurveSegment::CubicBezier { span, .. } => {
@@ -1018,11 +1163,15 @@ fn freeze_offset_curve_range(
                         max_point_count: point_limit,
                     },
                     &mut output,
+                    meter,
                 )?;
             }
         }
     }
-    reevaluate_offset_samples(curve, offset_meters, &mut output)?;
+    // segment_starts 此后不再使用；samples 输出由调用方在 quantize 完后归还。
+    meter.shrink(segment_starts_bytes);
+    drop(segment_starts);
+    reevaluate_offset_samples(curve, offset_meters, &mut output, meter)?;
     Ok(output.into_boxed_slice())
 }
 
@@ -1031,10 +1180,14 @@ fn push_offset_sample(
     sample: FrozenOffsetSample,
     point_limit: u64,
     span: ByteSpan,
+    meter: &mut StageScratchMeter,
 ) -> Result<(), NumericFreezeError> {
     if u64::try_from(output.len()).unwrap_or(u64::MAX) >= point_limit {
         return Err(point_limit_error(span));
     }
+    meter
+        .grow(size_of::<FrozenOffsetSample>() as u64)
+        .map_err(|_| scratch_exceeded(span))?;
     output.push(sample);
     Ok(())
 }
@@ -1051,7 +1204,12 @@ fn reevaluate_offset_samples(
     curve: &ParsedCurve,
     offset_meters: f64,
     samples: &mut [FrozenOffsetSample],
+    meter: &mut StageScratchMeter,
 ) -> Result<(), NumericFreezeError> {
+    let segment_starts_bytes = scaled_bytes(curve.segments.len(), size_of::<Point3>() as u64);
+    meter
+        .grow(segment_starts_bytes)
+        .map_err(|_| scratch_exceeded(curve.span))?;
     let segment_starts = parsed_segment_starts(curve)?;
     for sample in samples {
         let index = usize::try_from(sample.segment_index).map_err(|_| arithmetic_error())?;
@@ -1065,6 +1223,7 @@ fn reevaluate_offset_samples(
         .position
         .into_array();
     }
+    meter.shrink(segment_starts_bytes);
     Ok(())
 }
 
@@ -1089,6 +1248,7 @@ fn quantize_and_validate_curve(
     accuracy_profile: GeometryAccuracyProfile,
     direction_profile: GeometryDirectionProfile,
     span: ByteSpan,
+    meter: &mut StageScratchMeter,
 ) -> Result<Vec<FrozenCanonicalPoint>, NumericFreezeError> {
     if samples.len() < 2 {
         return Err(NumericFreezeError {
@@ -1097,12 +1257,18 @@ fn quantize_and_validate_curve(
             span,
         });
     }
+    // 输出 points 是 GeometryPointCount 维度管控的载荷，不计入暂存账簿。
     let points = samples
         .iter()
         .map(|sample| quantize_point(Point3::from_array(sample.point), span))
         .collect::<Result<Vec<_>, _>>()?;
 
     validate_quantized_segments(&points, direction_profile, span)?;
+    // segment_starts 是按输入规模的中间 Vec：分配前入账，用完归还。
+    let segment_starts_bytes = scaled_bytes(curve.segments.len(), size_of::<Point3>() as u64);
+    meter
+        .grow(segment_starts_bytes)
+        .map_err(|_| scratch_exceeded(curve.span))?;
     let segment_starts = parsed_segment_starts(curve)?;
     for (index, pair) in samples.windows(2).enumerate() {
         let segment_index = pair[1].segment_index;
@@ -1150,6 +1316,7 @@ fn quantize_and_validate_curve(
             });
         }
     }
+    meter.shrink(segment_starts_bytes);
     Ok(points)
 }
 
@@ -1161,6 +1328,7 @@ fn quantize_and_validate_explicit_curve(
     accuracy_profile: GeometryAccuracyProfile,
     direction_profile: GeometryDirectionProfile,
     span: ByteSpan,
+    meter: &mut StageScratchMeter,
 ) -> Result<Vec<FrozenCanonicalPoint>, NumericFreezeError> {
     if samples.len() < 2 {
         return Err(NumericFreezeError {
@@ -1169,12 +1337,18 @@ fn quantize_and_validate_explicit_curve(
             span,
         });
     }
+    // 输出 points 是 GeometryPointCount 维度管控的载荷，不计入暂存账簿。
     let points = samples
         .iter()
         .map(|sample| quantize_point(Point3::from_array(sample.point), span))
         .collect::<Result<Vec<_>, _>>()?;
 
     validate_quantized_segments(&points, direction_profile, span)?;
+    // segment_starts 是按输入规模的中间 Vec：分配前入账，用完归还。
+    let segment_starts_bytes = scaled_bytes(curve.segments.len(), size_of::<Point3>() as u64);
+    meter
+        .grow(segment_starts_bytes)
+        .map_err(|_| scratch_exceeded(curve.span))?;
     let segment_starts = parsed_segment_starts(curve)?;
     for (index, pair) in samples.windows(2).enumerate() {
         let segment_index = pair[1].segment_index;
@@ -1215,6 +1389,7 @@ fn quantize_and_validate_explicit_curve(
             });
         }
     }
+    meter.shrink(segment_starts_bytes);
     Ok(points)
 }
 
@@ -1498,9 +1673,15 @@ fn subdivide_offset_cubic(
     controls: [Point3; 4],
     spec: OffsetSubdivisionSpec,
     output: &mut Vec<FrozenOffsetSample>,
+    meter: &mut StageScratchMeter,
 ) -> Result<(), NumericFreezeError> {
-    let mut stack = vec![(controls, spec.parameter_start, spec.parameter_end, 0_u8)];
+    meter
+        .grow(size_of::<SubdivisionFrame>() as u64)
+        .map_err(|_| scratch_exceeded(spec.span))?;
+    let mut stack: Vec<SubdivisionFrame> =
+        vec![(controls, spec.parameter_start, spec.parameter_end, 0_u8)];
     while let Some((candidate, t0, t1, depth)) = stack.pop() {
+        meter.shrink(size_of::<SubdivisionFrame>() as u64);
         if offset_cubic_is_acceptable(
             candidate,
             spec.offset_meters,
@@ -1518,6 +1699,7 @@ fn subdivide_offset_cubic(
                 },
                 spec.max_point_count,
                 spec.span,
+                meter,
             )?;
             continue;
         }
@@ -1534,7 +1716,13 @@ fn subdivide_offset_cubic(
         })?;
         let midpoint = t0 + ((t1 - t0) * 0.5);
         let next_depth = depth + 1;
+        meter
+            .grow(size_of::<SubdivisionFrame>() as u64)
+            .map_err(|_| scratch_exceeded(spec.span))?;
         stack.push((right, midpoint, t1, next_depth));
+        meter
+            .grow(size_of::<SubdivisionFrame>() as u64)
+            .map_err(|_| scratch_exceeded(spec.span))?;
         stack.push((left, t0, midpoint, next_depth));
     }
     Ok(())
@@ -1720,15 +1908,23 @@ fn subdivide_cubic(
     direction_profile: GeometryDirectionProfile,
     span: ByteSpan,
     output: &mut Vec<FrozenReferenceSample>,
+    meter: &mut StageScratchMeter,
 ) -> Result<(), NumericFreezeError> {
-    let mut stack = vec![(controls, 0.0_f64, 1.0_f64, 0_u8)];
+    meter
+        .grow(size_of::<SubdivisionFrame>() as u64)
+        .map_err(|_| scratch_exceeded(span))?;
+    let mut stack: Vec<SubdivisionFrame> = vec![(controls, 0.0_f64, 1.0_f64, 0_u8)];
     while let Some((candidate, t0, t1, depth)) = stack.pop() {
+        meter.shrink(size_of::<SubdivisionFrame>() as u64);
         if cubic_is_acceptable(candidate, accuracy_profile, direction_profile).map_err(
             |mut error| {
                 error.span = span;
                 error
             },
         )? {
+            meter
+                .grow(size_of::<FrozenReferenceSample>() as u64)
+                .map_err(|_| scratch_exceeded(span))?;
             output.push(FrozenReferenceSample {
                 segment_index,
                 parameter: t1,
@@ -1746,7 +1942,13 @@ fn subdivide_cubic(
         let (left, right) = split_half(candidate)?;
         let midpoint = t0 + ((t1 - t0) * 0.5);
         let next_depth = depth + 1;
+        meter
+            .grow(size_of::<SubdivisionFrame>() as u64)
+            .map_err(|_| scratch_exceeded(span))?;
         stack.push((right, midpoint, t1, next_depth));
+        meter
+            .grow(size_of::<SubdivisionFrame>() as u64)
+            .map_err(|_| scratch_exceeded(span))?;
         stack.push((left, t0, midpoint, next_depth));
     }
     Ok(())
@@ -2037,6 +2239,7 @@ mod tests {
             &document,
             GeometryAccuracyProfile::Balanced5Cm,
             GeometryDirectionProfile::Balanced2Deg,
+            &mut unlimited_meter(),
         )
         .unwrap();
 
@@ -2063,12 +2266,16 @@ mod tests {
             &curve,
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
+            GeometryDirectionProfile::Smooth1Deg,
+            &mut unlimited_meter(),
         )
         .unwrap();
         let compact = freeze_curve(
             &curve,
             GeometryAccuracyProfile::Compact10Cm,
             GeometryDirectionProfile::Compact5Deg,
+            GeometryDirectionProfile::Compact5Deg,
+            &mut unlimited_meter(),
         )
         .unwrap();
 
@@ -2102,6 +2309,8 @@ mod tests {
             &curve,
             GeometryAccuracyProfile::Compact10Cm,
             GeometryDirectionProfile::Compact5Deg,
+            GeometryDirectionProfile::Compact5Deg,
+            &mut unlimited_meter(),
         )
         .unwrap_err();
 
@@ -2109,6 +2318,143 @@ mod tests {
             error.violation,
             NumericFreezeViolation::DiscontinuousSourceJoin
         );
+    }
+
+    /// §6.1：来源 join 的三维夹角门禁使用调用方所选方向档，而非细分档；同方位
+    /// 纯俯仰变化（两侧规范化 `left` bits 相同）在更宽档下必须被接受。
+    #[test]
+    fn source_join_pitch_gate_uses_join_profile() {
+        // 切向 (10,0,0) → (8,8·tan(1.5°),0)：三维夹角 1.5°，XZ 方位一致，
+        // 两侧规范化 `left` 均为 (0,0,-1) 且 bits 相同。
+        let curve = ParsedCurve {
+            start: vec3(["0", "0", "0"]),
+            segments: vec![
+                ParsedCurveSegment::Line {
+                    end: vec3(["10", "0", "0"]),
+                    span: test_span(),
+                },
+                ParsedCurveSegment::Line {
+                    end: vec3(["18", "0.20948737255349544", "0"]),
+                    span: test_span(),
+                },
+            ]
+            .into_boxed_slice(),
+            span: test_span(),
+        };
+        // 细分档固定 Smooth1Deg 时，join 档 Balanced2Deg 必须接受 1.5° 俯仰 join。
+        freeze_curve(
+            &curve,
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            GeometryDirectionProfile::Balanced2Deg,
+            &mut unlimited_meter(),
+        )
+        .unwrap();
+        // 同一曲线 join 档 Smooth1Deg 必须失败关闭。
+        let error = freeze_curve(
+            &curve,
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            GeometryDirectionProfile::Smooth1Deg,
+            &mut unlimited_meter(),
+        )
+        .expect_err("join 档 Smooth1Deg 必须拒绝 1.5° 俯仰 join");
+        assert_eq!(
+            error.violation,
+            NumericFreezeViolation::DiscontinuousSourceJoin
+        );
+    }
+
+    #[test]
+    fn source_join_pitch_gate_compact_accepts_wider_angle() {
+        // 3.5° 俯仰 join：join 档 Balanced2Deg 拒绝、Compact5Deg 接受。
+        let curve = ParsedCurve {
+            start: vec3(["0", "0", "0"]),
+            segments: vec![
+                ParsedCurveSegment::Line {
+                    end: vec3(["10", "0", "0"]),
+                    span: test_span(),
+                },
+                ParsedCurveSegment::Line {
+                    end: vec3(["18", "0.4893009602177391", "0"]),
+                    span: test_span(),
+                },
+            ]
+            .into_boxed_slice(),
+            span: test_span(),
+        };
+        let error = freeze_curve(
+            &curve,
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            GeometryDirectionProfile::Balanced2Deg,
+            &mut unlimited_meter(),
+        )
+        .expect_err("join 档 Balanced2Deg 必须拒绝 3.5° 俯仰 join");
+        assert_eq!(
+            error.violation,
+            NumericFreezeViolation::DiscontinuousSourceJoin
+        );
+        freeze_curve(
+            &curve,
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            GeometryDirectionProfile::Compact5Deg,
+            &mut unlimited_meter(),
+        )
+        .unwrap();
+    }
+
+    /// §6.1：station 表细分保持固定档（每 line segment 一个区间），但 join
+    /// 门禁按所选方向档裁决；payload 路径把所选方向档传入 station freeze。
+    #[test]
+    fn station_and_payload_join_gate_use_selected_direction_profile() {
+        let minimal = std::str::from_utf8(super::super::MINIMAL_DOCUMENT).unwrap();
+        let source = minimal.replace(
+            r#""segments":[{"kind":"line","end":[10,0,0]}]"#,
+            r#""segments":[{"kind":"line","end":[10,0,0]},{"kind":"line","end":[18,0.20948737255349544,0]}]"#,
+        );
+        assert_ne!(source, minimal);
+        let document = parse_geometry_document(source.as_bytes()).unwrap();
+        // 细分仍按固定档：两条 line segment → 每 segment 恰好一个 station 区间。
+        let roads = freeze_stationing(
+            &document,
+            GeometryDirectionProfile::Balanced2Deg,
+            &mut unlimited_meter(),
+        )
+        .unwrap();
+        assert_eq!(roads[0].intervals.len(), 2);
+        let error = freeze_stationing(
+            &document,
+            GeometryDirectionProfile::Smooth1Deg,
+            &mut unlimited_meter(),
+        )
+        .expect_err("station join 档 Smooth1Deg 必须拒绝 1.5° 俯仰 join");
+        assert_eq!(
+            error.violation,
+            NumericFreezeViolation::DiscontinuousSourceJoin
+        );
+        // payload 路径以所选方向档裁决同一 join。
+        let error = freeze_geometry_payload(
+            &document,
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            u64::MAX,
+            &mut unlimited_meter(),
+        )
+        .expect_err("payload 路径必须把所选方向档传入 station join 门禁");
+        assert_eq!(
+            error.violation,
+            NumericFreezeViolation::DiscontinuousSourceJoin
+        );
+        freeze_geometry_payload(
+            &document,
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            u64::MAX,
+            &mut unlimited_meter(),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -2156,7 +2502,12 @@ mod tests {
     #[test]
     fn station_table_is_fixed_fine_smooth_and_bit_contiguous() {
         let document = parse_geometry_document(super::super::MINIMAL_DOCUMENT).unwrap();
-        let roads = freeze_stationing(&document).unwrap();
+        let roads = freeze_stationing(
+            &document,
+            GeometryDirectionProfile::Smooth1Deg,
+            &mut unlimited_meter(),
+        )
+        .unwrap();
         let road = &roads[0];
 
         assert_eq!(road.road_key.as_ref(), "road.main");
@@ -2187,7 +2538,7 @@ mod tests {
             cross_section_span("0", ParsedEndStation::Number(raw("4"))),
             cross_section_span("4", ParsedEndStation::End(test_span())),
         ];
-        let frozen = freeze_span_stations(&exact, &intervals).unwrap();
+        let frozen = freeze_span_stations(&exact, &intervals, &mut unlimited_meter()).unwrap();
         assert_eq!(frozen[0].start.parameter, 0.0);
         assert_eq!(frozen[0].end.parameter, 0.4);
         assert_eq!(frozen[1].start.parameter, 0.4);
@@ -2198,7 +2549,7 @@ mod tests {
             cross_section_span("5", ParsedEndStation::End(test_span())),
         ];
         assert_eq!(
-            freeze_span_stations(&gap, &intervals)
+            freeze_span_stations(&gap, &intervals, &mut unlimited_meter())
                 .unwrap_err()
                 .violation,
             NumericFreezeViolation::IncompleteStationCoverage
@@ -2221,6 +2572,7 @@ mod tests {
             2.0,
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
+            &mut unlimited_meter(),
         )
         .unwrap();
 
@@ -2262,6 +2614,7 @@ mod tests {
             2.0,
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
+            &mut unlimited_meter(),
         )
         .unwrap();
         let compact = freeze_offset_curve(
@@ -2269,6 +2622,7 @@ mod tests {
             2.0,
             GeometryAccuracyProfile::Compact10Cm,
             GeometryDirectionProfile::Compact5Deg,
+            &mut unlimited_meter(),
         )
         .unwrap();
 
@@ -2303,6 +2657,7 @@ mod tests {
             GeometryAccuracyProfile::Balanced5Cm,
             GeometryDirectionProfile::Balanced2Deg,
             &[forced, forced],
+            &mut unlimited_meter(),
         )
         .unwrap();
 
@@ -2346,7 +2701,8 @@ mod tests {
             pending("reference", 4.0),
             pending("right", 6.0),
         ];
-        let frozen = compute_lateral_offsets(pending, 1, test_span()).unwrap();
+        let frozen =
+            compute_lateral_offsets(pending, 1, test_span(), &mut unlimited_meter()).unwrap();
 
         assert_eq!(frozen[0].center_offset_meters, 3.0);
         assert_eq!(frozen[0].left_boundary_offset_meters, 4.0);
@@ -2365,7 +2721,7 @@ mod tests {
     #[test]
     fn minimal_document_freezes_reference_lane_at_zero_offset() {
         let document = parse_geometry_document(super::super::MINIMAL_DOCUMENT).unwrap();
-        let layouts = freeze_cross_section_layouts(&document).unwrap();
+        let layouts = freeze_cross_section_layouts(&document, &mut unlimited_meter()).unwrap();
 
         assert_eq!(layouts.len(), 1);
         assert_eq!(layouts[0].span_key.as_ref(), "span.main");
@@ -2403,6 +2759,7 @@ mod tests {
             GeometryAccuracyProfile::Balanced5Cm,
             GeometryDirectionProfile::Balanced2Deg,
             u64::MAX,
+            &mut unlimited_meter(),
         )
         .unwrap();
         let points = quantize_and_validate_curve(
@@ -2412,6 +2769,7 @@ mod tests {
             GeometryAccuracyProfile::Balanced5Cm,
             GeometryDirectionProfile::Balanced2Deg,
             test_span(),
+            &mut unlimited_meter(),
         )
         .unwrap();
 
@@ -2436,14 +2794,20 @@ mod tests {
             );
         assert_ne!(source, minimal);
         let document = parse_geometry_document(source.as_bytes()).unwrap();
-        let stationing = freeze_stationing(&document).unwrap();
-        let layouts = freeze_cross_section_layouts(&document).unwrap();
+        let stationing = freeze_stationing(
+            &document,
+            GeometryDirectionProfile::Balanced2Deg,
+            &mut unlimited_meter(),
+        )
+        .unwrap();
+        let layouts = freeze_cross_section_layouts(&document, &mut unlimited_meter()).unwrap();
         let curves = freeze_lateral_curves(
             &document,
             &stationing,
             &layouts,
             GeometryAccuracyProfile::Balanced5Cm,
             GeometryDirectionProfile::Balanced2Deg,
+            &mut unlimited_meter(),
         )
         .unwrap();
 
@@ -2480,6 +2844,73 @@ mod tests {
             .violation,
             NumericFreezeViolation::QuantizedSegmentTooShort
         );
+    }
+
+    #[test]
+    fn scratch_meter_fails_closed_on_small_limit_and_passes_when_unlimited() {
+        // 单条 line segment：首元素 + line push 各记入 size_of::<FrozenReferenceSample>()
+        // （40B）；限 64 时第二次 push 越限失败关闭，unlimited 账簿照常通过。
+        let curve = ParsedCurve {
+            start: vec3(["0", "0", "0"]),
+            segments: vec![ParsedCurveSegment::Line {
+                end: vec3(["10", "0", "0"]),
+                span: test_span(),
+            }]
+            .into_boxed_slice(),
+            span: test_span(),
+        };
+        let error = freeze_curve(
+            &curve,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            GeometryDirectionProfile::Balanced2Deg,
+            &mut StageScratchMeter::new(64),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.violation,
+            NumericFreezeViolation::StageScratchExceeded
+        );
+        assert_eq!(error.field, "stageScratchBytes");
+
+        let samples = freeze_curve(
+            &curve,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            GeometryDirectionProfile::Balanced2Deg,
+            &mut unlimited_meter(),
+        )
+        .unwrap();
+        assert_eq!(samples.len(), 2);
+    }
+
+    #[test]
+    fn cubic_subdivision_accounts_stack_frames_in_meter_peak() {
+        // cubic 细分的显式栈帧计入账簿：无上限时峰值至少覆盖一个栈帧。
+        let curve = ParsedCurve {
+            start: vec3(["0", "0", "0"]),
+            segments: vec![ParsedCurveSegment::CubicBezier {
+                controls: Box::new([vec3(["3", "0", "0"]), vec3(["7", "0", "3"])]),
+                end: vec3(["10", "0", "3"]),
+                span: test_span(),
+            }]
+            .into_boxed_slice(),
+            span: test_span(),
+        };
+        let mut meter = unlimited_meter();
+        freeze_curve(
+            &curve,
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            GeometryDirectionProfile::Smooth1Deg,
+            &mut meter,
+        )
+        .unwrap();
+        assert!(meter.peak() >= size_of::<SubdivisionFrame>() as u64);
+    }
+
+    fn unlimited_meter() -> StageScratchMeter {
+        StageScratchMeter::unlimited()
     }
 
     fn vec3(tokens: [&str; 3]) -> ParsedVec3 {

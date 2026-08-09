@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 
 use super::{
-    ByteSpan, ClosedFields, JsonCursor, SchemaError, SchemaErrorKind, SpannedString,
-    parse_object_members, parse_string, parse_token,
+    ByteSpan, ClosedFields, JsonCursor, JsonError, JsonErrorKind, SchemaError, SchemaErrorKind,
+    SpannedString, parse_object_members, parse_string, parse_token,
 };
 
 #[derive(Debug)]
@@ -567,9 +567,24 @@ pub(in crate::module::geometry) fn parse_unique_tokens(
     cursor.begin_array()?;
     let mut values = Vec::new();
     let mut seen = HashMap::<Box<str>, ByteSpan>::new();
+    // 与 parse_imports 同款的瞬时 duplicate-key 表入账：insert 前 grow，
+    // 成功返回前归还；错误路径不归还，保持失败安全方向。
+    let mut seen_scratch_bytes = 0_u64;
     if !cursor.next_is(b']') {
         loop {
             let value = parse_token(cursor, field)?;
+            let entry_bytes = value.value.len() as u64 + size_of::<(Box<str>, ByteSpan)>() as u64;
+            cursor
+                .scratch()
+                .grow(entry_bytes)
+                .map_err(|exceeded| SchemaError {
+                    kind: SchemaErrorKind::Json(JsonError {
+                        kind: JsonErrorKind::StageScratchExceeded(exceeded),
+                        span: value.span,
+                    }),
+                    span: value.span,
+                })?;
+            seen_scratch_bytes += entry_bytes;
             if seen.insert(value.value.clone(), value.span).is_some() {
                 return Err(SchemaError {
                     kind: SchemaErrorKind::DuplicateArrayItem {
@@ -587,6 +602,7 @@ pub(in crate::module::geometry) fn parse_unique_tokens(
         }
     }
     cursor.end_array()?;
+    cursor.scratch().shrink(seen_scratch_bytes);
     Ok(values.into_boxed_slice())
 }
 

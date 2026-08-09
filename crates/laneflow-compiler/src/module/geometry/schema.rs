@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use super::json::{ByteSpan, JsonCursor, JsonError};
+use super::json::{ByteSpan, JsonCursor, JsonError, JsonErrorKind, StageScratchMeter};
 
 mod junction;
 mod numeric;
@@ -259,7 +259,16 @@ pub(super) fn parse_units_record(
 pub(super) fn parse_geometry_document(
     source: &[u8],
 ) -> Result<ParsedGeometryDocument, SchemaError> {
-    let mut cursor = JsonCursor::new(source)?;
+    parse_geometry_document_with_scratch(source, u64::MAX)
+}
+
+/// 与 [`parse_geometry_document`] 相同，但把 parser 栈帧、duplicate-key 表等
+/// §7.1 阶段 1 暂存计入 `scratch_limit`（`StageScratchBytes` 维度），超限失败关闭。
+pub(in crate::module::geometry) fn parse_geometry_document_with_scratch(
+    source: &[u8],
+    scratch_limit: u64,
+) -> Result<ParsedGeometryDocument, SchemaError> {
+    let mut cursor = JsonCursor::new_with_scratch(source, scratch_limit)?;
     let start = cursor.begin_object()?.start;
     let mut fields = ClosedFields::new([
         "geometryVersion",
@@ -322,20 +331,24 @@ pub(in crate::module::geometry) fn freeze_reference_lines(
     document: &ParsedGeometryDocument,
     accuracy_profile: super::GeometryAccuracyProfile,
     direction_profile: super::GeometryDirectionProfile,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenRoadReference]>, NumericFreezeError> {
-    numeric::freeze_reference_lines(document, accuracy_profile, direction_profile)
+    numeric::freeze_reference_lines(document, accuracy_profile, direction_profile, meter)
 }
 
 pub(in crate::module::geometry) fn freeze_stationing(
     document: &ParsedGeometryDocument,
+    direction_profile: super::GeometryDirectionProfile,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenRoadStationing]>, NumericFreezeError> {
-    numeric::freeze_stationing(document)
+    numeric::freeze_stationing(document, direction_profile, meter)
 }
 
 pub(in crate::module::geometry) fn freeze_cross_section_layouts(
     document: &ParsedGeometryDocument,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenCrossSectionLayout]>, NumericFreezeError> {
-    numeric::freeze_cross_section_layouts(document)
+    numeric::freeze_cross_section_layouts(document, meter)
 }
 
 pub(in crate::module::geometry) fn freeze_lateral_curves(
@@ -344,6 +357,7 @@ pub(in crate::module::geometry) fn freeze_lateral_curves(
     layouts: &[FrozenCrossSectionLayout],
     accuracy_profile: super::GeometryAccuracyProfile,
     direction_profile: super::GeometryDirectionProfile,
+    meter: &mut StageScratchMeter,
 ) -> Result<Box<[FrozenLateralCurve]>, NumericFreezeError> {
     numeric::freeze_lateral_curves(
         document,
@@ -351,6 +365,7 @@ pub(in crate::module::geometry) fn freeze_lateral_curves(
         layouts,
         accuracy_profile,
         direction_profile,
+        meter,
     )
 }
 
@@ -359,12 +374,14 @@ pub(in crate::module::geometry) fn freeze_geometry_payload(
     accuracy_profile: super::GeometryAccuracyProfile,
     direction_profile: super::GeometryDirectionProfile,
     geometry_point_limit: u64,
+    meter: &mut StageScratchMeter,
 ) -> Result<FrozenGeometryPayload, NumericFreezeError> {
     numeric::freeze_geometry_payload(
         document,
         accuracy_profile,
         direction_profile,
         geometry_point_limit,
+        meter,
     )
 }
 
@@ -392,9 +409,24 @@ fn parse_imports(cursor: &mut JsonCursor<'_>) -> Result<Box<[SpannedString]>, Sc
     cursor.begin_array()?;
     let mut imports = Vec::new();
     let mut seen = HashMap::<Box<str>, ByteSpan>::new();
+    // duplicate-key 表是瞬时暂存：每条 import 的键字节与表项槽位在 insert 前入账，
+    // 成功返回前归还全部已记字节；错误路径不归还，保持失败安全方向。
+    let mut seen_scratch_bytes = 0_u64;
     if !cursor.next_is(b']') {
         loop {
             let import = parse_token(cursor, "imports")?;
+            let entry_bytes = import.value.len() as u64 + size_of::<(Box<str>, ByteSpan)>() as u64;
+            cursor
+                .scratch()
+                .grow(entry_bytes)
+                .map_err(|exceeded| SchemaError {
+                    kind: SchemaErrorKind::Json(JsonError {
+                        kind: JsonErrorKind::StageScratchExceeded(exceeded),
+                        span: import.span,
+                    }),
+                    span: import.span,
+                })?;
+            seen_scratch_bytes += entry_bytes;
             if seen.insert(import.value.clone(), import.span).is_some() {
                 return Err(SchemaError {
                     kind: SchemaErrorKind::DuplicateImport(import.value),
@@ -409,6 +441,7 @@ fn parse_imports(cursor: &mut JsonCursor<'_>) -> Result<Box<[SpannedString]>, Sc
         }
     }
     cursor.end_array()?;
+    cursor.scratch().shrink(seen_scratch_bytes);
     Ok(imports.into_boxed_slice())
 }
 

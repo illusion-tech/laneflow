@@ -35,7 +35,7 @@ use crate::{
     SourceHeaderField, SourceSpan,
 };
 
-use self::json::{ByteSpan, JsonErrorKind, LineIndex};
+use self::json::{ByteSpan, JsonErrorKind, LineIndex, StageScratchMeter};
 use self::schema::{
     ParsedCurveSegment, ParsedGeometryDocument, RawNumber, SchemaError, SchemaErrorKind,
     SpannedString,
@@ -316,8 +316,11 @@ impl GeometryModuleBuilder {
         let line_index = LineIndex::new(input.source_bytes()).map_err(|error| {
             schema_diagnostic(SchemaError::from(error), &source_document_key, None)
         })?;
-        let parsed = schema::parse_geometry_document(input.source_bytes())
-            .map_err(|error| schema_diagnostic(error, &source_document_key, Some(&line_index)))?;
+        let parsed = schema::parse_geometry_document_with_scratch(
+            input.source_bytes(),
+            limits.value(CompileLimitDimension::StageScratchBytes),
+        )
+        .map_err(|error| schema_diagnostic(error, &source_document_key, Some(&line_index)))?;
 
         if parsed.module.document_key.value.as_ref() != input.source_document_key() {
             let primary_span =
@@ -350,24 +353,15 @@ impl GeometryModuleBuilder {
     fn freeze_reference_lines(
         &self,
     ) -> Result<Box<[schema::FrozenRoadReference]>, DiagnosticBundle> {
-        schema::freeze_reference_lines(&self.parsed, self.accuracy_profile, self.direction_profile)
-            .map_err(|error| {
-                let primary_span = self
-                    .line_index
-                    .source_span(&self.source_document_key, error.span);
-                DiagnosticBundle::single(Diagnostic::invalid_geometry_document(
-                    GeometryDocumentViolation::FieldValue,
-                    Some(error.field),
-                    Some(&format!("{:?}", error.violation)),
-                    Some("finite deterministic Geometry v1 reference curve"),
-                    primary_span,
-                ))
-            })
-    }
-
-    #[allow(dead_code, reason = "called by the following public finish slice")]
-    fn freeze_stationing(&self) -> Result<Box<[schema::FrozenRoadStationing]>, DiagnosticBundle> {
-        schema::freeze_stationing(&self.parsed).map_err(|error| {
+        let mut scratch =
+            StageScratchMeter::new(self.limits.value(CompileLimitDimension::StageScratchBytes));
+        schema::freeze_reference_lines(
+            &self.parsed,
+            self.accuracy_profile,
+            self.direction_profile,
+            &mut scratch,
+        )
+        .map_err(|error| {
             let primary_span = self
                 .line_index
                 .source_span(&self.source_document_key, error.span);
@@ -375,17 +369,39 @@ impl GeometryModuleBuilder {
                 GeometryDocumentViolation::FieldValue,
                 Some(error.field),
                 Some(&format!("{:?}", error.violation)),
-                Some("complete deterministic Geometry v1 station coverage"),
+                Some("finite deterministic Geometry v1 reference curve"),
                 primary_span,
             ))
         })
     }
 
     #[allow(dead_code, reason = "called by the following public finish slice")]
+    fn freeze_stationing(&self) -> Result<Box<[schema::FrozenRoadStationing]>, DiagnosticBundle> {
+        let mut scratch =
+            StageScratchMeter::new(self.limits.value(CompileLimitDimension::StageScratchBytes));
+        schema::freeze_stationing(&self.parsed, self.direction_profile, &mut scratch).map_err(
+            |error| {
+                let primary_span = self
+                    .line_index
+                    .source_span(&self.source_document_key, error.span);
+                DiagnosticBundle::single(Diagnostic::invalid_geometry_document(
+                    GeometryDocumentViolation::FieldValue,
+                    Some(error.field),
+                    Some(&format!("{:?}", error.violation)),
+                    Some("complete deterministic Geometry v1 station coverage"),
+                    primary_span,
+                ))
+            },
+        )
+    }
+
+    #[allow(dead_code, reason = "called by the following public finish slice")]
     fn freeze_cross_section_layouts(
         &self,
     ) -> Result<Box<[schema::FrozenCrossSectionLayout]>, DiagnosticBundle> {
-        schema::freeze_cross_section_layouts(&self.parsed).map_err(|error| {
+        let mut scratch =
+            StageScratchMeter::new(self.limits.value(CompileLimitDimension::StageScratchBytes));
+        schema::freeze_cross_section_layouts(&self.parsed, &mut scratch).map_err(|error| {
             let primary_span = self
                 .line_index
                 .source_span(&self.source_document_key, error.span);
@@ -405,12 +421,15 @@ impl GeometryModuleBuilder {
         stationing: &[schema::FrozenRoadStationing],
         layouts: &[schema::FrozenCrossSectionLayout],
     ) -> Result<Box<[schema::FrozenLateralCurve]>, DiagnosticBundle> {
+        let mut scratch =
+            StageScratchMeter::new(self.limits.value(CompileLimitDimension::StageScratchBytes));
         schema::freeze_lateral_curves(
             &self.parsed,
             stationing,
             layouts,
             self.accuracy_profile,
             self.direction_profile,
+            &mut scratch,
         )
         .map_err(|error| {
             let primary_span = self
@@ -428,11 +447,14 @@ impl GeometryModuleBuilder {
 
     fn freeze_geometry_payload(&self) -> Result<schema::FrozenGeometryPayload, DiagnosticBundle> {
         let point_limit = self.limits.value(CompileLimitDimension::GeometryPointCount);
+        let scratch_limit = self.limits.value(CompileLimitDimension::StageScratchBytes);
+        let mut scratch = StageScratchMeter::new(scratch_limit);
         schema::freeze_geometry_payload(
             &self.parsed,
             self.accuracy_profile,
             self.direction_profile,
             point_limit,
+            &mut scratch,
         )
         .map_err(|error| {
             if error.violation == schema::NumericFreezeViolation::GeometryPointLimitExceeded {
@@ -440,6 +462,13 @@ impl GeometryModuleBuilder {
                     CompileLimitDimension::GeometryPointCount,
                     point_limit,
                     point_limit.saturating_add(1),
+                ));
+            }
+            if error.violation == schema::NumericFreezeViolation::StageScratchExceeded {
+                return DiagnosticBundle::single(Diagnostic::compile_limit_exceeded(
+                    CompileLimitDimension::StageScratchBytes,
+                    scratch_limit,
+                    scratch_limit.saturating_add(1),
                 ));
             }
             let primary_span = self
@@ -3221,6 +3250,17 @@ fn schema_diagnostic(
     source_document_key: &Arc<str>,
     line_index: Option<&LineIndex>,
 ) -> DiagnosticBundle {
+    // §7.2 阶段 1 parser 资源错误：StageScratchBytes 超限在 generic 映射前单独
+    // 映射为资源上限诊断。
+    if let SchemaErrorKind::Json(json_error) = &error.kind
+        && let JsonErrorKind::StageScratchExceeded(exceeded) = json_error.kind
+    {
+        return DiagnosticBundle::single(Diagnostic::compile_limit_exceeded(
+            CompileLimitDimension::StageScratchBytes,
+            exceeded.limit,
+            exceeded.observed,
+        ));
+    }
     let primary_span = line_index.map_or_else(
         || crate::SourceSpan::point(Arc::clone(source_document_key), 1, 1),
         |index| index.source_span(source_document_key, error.span),
@@ -3252,7 +3292,10 @@ fn schema_error_parts(kind: SchemaErrorKind) -> SchemaDiagnosticParts {
                 | JsonErrorKind::InvalidUtf8
                 | JsonErrorKind::SourcePositionOverflow => Encoding,
                 JsonErrorKind::NestingDepthExceeded => NestingDepth,
-                JsonErrorKind::UnexpectedEnd
+                // schema_diagnostic 已把 StageScratchExceeded 特判为资源上限诊断，
+                // 此臂仅为 match 穷尽性兜底。
+                JsonErrorKind::StageScratchExceeded(_)
+                | JsonErrorKind::UnexpectedEnd
                 | JsonErrorKind::UnexpectedByte
                 | JsonErrorKind::InvalidStringEscape
                 | JsonErrorKind::InvalidUnicodeEscape
@@ -5174,6 +5217,63 @@ mod tests {
             ));
             assert!(diagnostic.primary_span().is_some());
         }
+    }
+
+    #[test]
+    fn new_enforces_stage_scratch_bytes_at_parse_stage() {
+        // §7.2 阶段 1 parser 资源错误：每层容器 512B，本文档最深 10 层
+        // （roads→road→crossSectionSpans→span→roadSections→section→lanes→lane→successors），
+        // 限 1024 时第三层 overlays.signalGroups 的候选 3×512=1536B 越限，new 即失败关闭。
+        let source = valid_minimal_document();
+        let limits = CompileLimits::p100_initial_v1()
+            .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, 1024);
+        let error = GeometryModuleBuilder::new(
+            GeometryDocumentInput::new("source/main", source.as_bytes(), None),
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &limits,
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.diagnostics().len(), 1);
+        let diagnostic = &error.diagnostics()[0];
+        assert!(matches!(
+            diagnostic.payload(),
+            DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::StageScratchBytes,
+                limit: 1024,
+                observed: 1536,
+            }
+        ));
+    }
+
+    #[test]
+    fn finish_enforces_stage_scratch_bytes_at_freeze_stage() {
+        // 实测：文档最深 10 层容器 → parse 峰值 10×512 = 5120B；
+        // 200 条 line segment 的 station freeze 峰值 ≈ 201×40 + 200×40 + 32 = 16072B。
+        // 阈值 8192 让 parse（阶段 1）通过、freeze（阶段 2）失败关闭。
+        let segments = (1..=200)
+            .map(|index| format!(r#"{{"kind":"line","end":[{},0,0]}}"#, 10 * index))
+            .collect::<Vec<_>>()
+            .join(",");
+        let source = valid_minimal_document().replace(
+            r#""segments":[{"kind":"line","end":[10,0,0]}]"#,
+            &format!("\"segments\":[{}]", segments),
+        );
+        assert!(source.contains("\"end\":[2000,0,0]"));
+        let limits = CompileLimits::p100_initial_v1()
+            .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, 8192);
+        let error = finish_document(source.as_bytes(), &limits).err().unwrap();
+        assert_eq!(error.diagnostics().len(), 1);
+        let diagnostic = &error.diagnostics()[0];
+        assert!(matches!(
+            diagnostic.payload(),
+            DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::StageScratchBytes,
+                limit: 8192,
+                observed: 8193,
+            }
+        ));
     }
 
     #[test]
