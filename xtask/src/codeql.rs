@@ -465,6 +465,7 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
         .iter()
         .copied()
         .filter(|check| {
+            // OPEN target 必须显式绑定 PR/head/base；只有 MERGED 历史重放允许 GitHub 清空 association。
             check.pull_requests.iter().any(|association| {
                 association.number == pr.number
                     && association.head_oid == pr.head_ref_oid
