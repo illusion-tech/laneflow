@@ -3,6 +3,7 @@
 use laneflow_core::CoreError;
 use laneflow_current_source::{
     CurrentDocumentRole, CurrentSourceError, CurrentSourceErrorPayload, CurrentSourceIssueContext,
+    CurrentSourceSpan,
 };
 
 /// LaneFlow data package 解析、版本与 Core normalization 错误。
@@ -67,7 +68,8 @@ pub enum DataError {
 
 impl DataError {
     /// 把 Traffic-only source 错误映射回现有 loader 错误形状；line/column 取自
-    /// 立即失败的原始 `serde_json::Error`。
+    /// issue span 的显式 `start`（shape payload 的 serde 错误内部位置为 0:0，
+    /// 禁止从它读取）。
     pub(crate) fn from_current_source(error: CurrentSourceError) -> Self {
         let issues = error.into_issues();
         debug_assert_eq!(issues.len(), 1, "production-compatible source 立即失败");
@@ -86,28 +88,36 @@ impl DataError {
         let path = path
             .expect("production-compatible issue 必携带规范 path")
             .into_string();
-        let None = span else {
-            unreachable!("切片 2 production 路径不产出 span")
-        };
-        Self::from_traffic_payload(path, payload)
+        Self::from_traffic_payload(path, payload, span)
     }
 
     /// 把 Traffic wire/version payload 映射为现有 `DataError` variant。
-    pub(crate) fn from_traffic_payload(path: String, payload: CurrentSourceErrorPayload) -> Self {
+    pub(crate) fn from_traffic_payload(
+        path: String,
+        payload: CurrentSourceErrorPayload,
+        span: Option<CurrentSourceSpan>,
+    ) -> Self {
         match payload {
-            CurrentSourceErrorPayload::JsonSyntax { source } => Self::JsonSyntax {
-                path,
-                line: source.line(),
-                column: source.column(),
-                source,
-            },
-            CurrentSourceErrorPayload::JsonShape { source } => Self::JsonShape {
-                path,
-                line: source.line(),
-                column: source.column(),
-                source,
-            },
+            CurrentSourceErrorPayload::JsonSyntax { source } => {
+                let (line, column) = json_issue_position(span);
+                Self::JsonSyntax {
+                    path,
+                    line,
+                    column,
+                    source,
+                }
+            }
+            CurrentSourceErrorPayload::JsonShape { source } => {
+                let (line, column) = json_issue_position(span);
+                Self::JsonShape {
+                    path,
+                    line,
+                    column,
+                    source,
+                }
+            }
             CurrentSourceErrorPayload::UnsupportedFormatVersion { expected, actual } => {
+                debug_assert!(span.is_none(), "version payload 冻结为无 span");
                 Self::UnsupportedFormatVersion {
                     expected,
                     actual: actual.into_string(),
@@ -126,4 +136,11 @@ impl DataError {
             source: Box::new(source),
         }
     }
+}
+
+/// JSON issue 的一基位置：只读 span 的显式 `start`（shape payload 的 serde
+/// 错误内部位置恒为 0:0）。
+fn json_issue_position(span: Option<CurrentSourceSpan>) -> (usize, usize) {
+    let start = span.expect("production JSON issue 必携带 span").start();
+    (start.line() as usize, start.column() as usize)
 }

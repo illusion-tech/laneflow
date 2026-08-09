@@ -3,16 +3,14 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use serde::de::DeserializeOwned;
-use serde_json::error::Category;
-
 use crate::digest::{MAX_PORTABLE_ARTIFACT_SIZE, encode_digest, parse_digest, sha256_digest};
 use crate::error::{
     CurrentArtifactRole, CurrentDocumentRole, CurrentSourceError, CurrentSourceErrorPayload,
-    CurrentSourceIssue, CurrentSourceIssueContext,
+    CurrentSourceIssue, CurrentSourceIssueContext, CurrentSourceSpan,
 };
+use crate::parse::{self, ParseFailure};
 use crate::scenario_wire::{WireArtifactDescriptor, WireScenarioManifest, WireSpatialPackage};
-use crate::wire::{WirePackage, WireVersionHeader};
+use crate::wire::WirePackage;
 use crate::{
     CURRENT_SCENARIO_MANIFEST_FORMAT_VERSION, CURRENT_SPATIAL_FORMAT_VERSION,
     CURRENT_TRAFFIC_FORMAT_VERSION, SPATIAL_PACKAGE_MEDIA_TYPE, TRAFFIC_PACKAGE_MEDIA_TYPE,
@@ -249,7 +247,7 @@ impl CurrentSourceParts {
     }
 }
 
-/// 版本闸口（恰好一个合法字符串 `formatVersion` 才参与版本裁决）后完整解析
+/// 版本闸口（恰好一个合法字符串 `formatVersion` 才参与版本裁决）后单遍解析
 /// Traffic wire。Traffic-only 能力不虚构 Manifest 或 Spatial。
 ///
 /// # Errors
@@ -263,8 +261,8 @@ pub fn validate_traffic_compatible(
         document: CurrentDocumentRole::Traffic,
         context: CurrentSourceIssueContext::None,
     };
-    gate_format_version(traffic_bytes, CURRENT_TRAFFIC_FORMAT_VERSION, &context)?;
-    let wire: WirePackage = deserialize_json(traffic_bytes, &context)?;
+    let wire = parse::parse_traffic(traffic_bytes)
+        .map_err(|failure| context.parse_failure(traffic_bytes, failure))?;
     debug_assert_eq!(wire.format_version(), CURRENT_TRAFFIC_FORMAT_VERSION);
     Ok(ValidatedCurrentTrafficPackage { traffic: wire })
 }
@@ -288,12 +286,8 @@ pub fn validate_scenario_compatible(
         document: CurrentDocumentRole::Manifest,
         context: CurrentSourceIssueContext::None,
     };
-    gate_format_version(
-        manifest_bytes,
-        CURRENT_SCENARIO_MANIFEST_FORMAT_VERSION,
-        &manifest_context,
-    )?;
-    let manifest: WireScenarioManifest = deserialize_json(manifest_bytes, &manifest_context)?;
+    let manifest = parse::parse_manifest(manifest_bytes)
+        .map_err(|failure| manifest_context.parse_failure(manifest_bytes, failure))?;
     debug_assert_eq!(
         manifest.format_version(),
         CURRENT_SCENARIO_MANIFEST_FORMAT_VERSION
@@ -332,28 +326,22 @@ pub fn validate_scenario_compatible(
             artifact_ref: traffic_descriptor.artifact_ref.into(),
         },
     };
-    gate_format_version(
-        traffic_bytes,
-        CURRENT_TRAFFIC_FORMAT_VERSION,
-        &traffic_context,
-    )?;
-    let traffic: WirePackage = deserialize_json(traffic_bytes, &traffic_context)?;
+    let traffic = parse::parse_traffic(traffic_bytes)
+        .map_err(|failure| traffic_context.parse_failure(traffic_bytes, failure))?;
     debug_assert_eq!(traffic.format_version(), CURRENT_TRAFFIC_FORMAT_VERSION);
 
     let spatial_context = IssueContext {
         document: CurrentDocumentRole::Spatial,
         context: CurrentSourceIssueContext::None,
     };
-    gate_format_version(
-        spatial_bytes,
-        CURRENT_SPATIAL_FORMAT_VERSION,
-        &spatial_context,
-    )?;
-    let spatial: WireSpatialPackage = deserialize_json(spatial_bytes, &spatial_context)?;
+    let spatial = parse::parse_spatial(spatial_bytes)
+        .map_err(|failure| spatial_context.parse_failure(spatial_bytes, failure))?;
     debug_assert_eq!(spatial.format_version(), CURRENT_SPATIAL_FORMAT_VERSION);
 
     // descriptor 借用 manifest wire；move 进 bundle 前先把 owned 摘要拷出；
     // Manifest 精确摘要对其原始 bytes 恰好计算一次。
+    #[cfg(debug_assertions)]
+    crate::counters::record_digest(CurrentDocumentRole::Manifest);
     let manifest_digest = sha256_digest(manifest_bytes);
     let traffic_digest = traffic_descriptor.digest;
     let spatial_digest = spatial_descriptor.digest;
@@ -385,64 +373,56 @@ impl IssueContext {
             self.context.clone(),
             Some(path.into().into_boxed_str()),
             payload,
+            None,
         ))
     }
 
-    /// 按 serde category 分流 JSON payload：`Data` 归 shape，其余归 syntax，
-    /// 与 `laneflow-data` 迁移前的分类逐字节一致。
-    fn json(&self, path: String, source: serde_json::Error) -> CurrentSourceError {
-        let payload = match source.classify() {
-            Category::Data => CurrentSourceErrorPayload::JsonShape { source },
-            Category::Io | Category::Syntax | Category::Eof => {
-                CurrentSourceErrorPayload::JsonSyntax { source }
+    /// JSON issue 构造：syntax 以 serde 一基位置造单点 span；shape 以延迟候选
+    /// 锚点对原始字节做一次 allocation-free 前缀扫描造区间 span；payload 为
+    /// `Error::custom` 形态（内部位置 0:0，位置只由 span 承载）。
+    fn parse_failure(&self, input: &[u8], failure: ParseFailure) -> CurrentSourceError {
+        match failure {
+            ParseFailure::Syntax { path, source } => {
+                let span = parse::point_span(source.line(), source.column());
+                self.error_json(
+                    path,
+                    Some(span),
+                    CurrentSourceErrorPayload::JsonSyntax { source },
+                )
             }
-        };
-        self.error(path, payload)
+            ParseFailure::Shape(candidate) => {
+                let span = parse::range_span(input, candidate.anchor);
+                let source = <serde_json::Error as serde::de::Error>::custom(candidate.message);
+                self.error_json(
+                    candidate.path,
+                    Some(span),
+                    CurrentSourceErrorPayload::JsonShape { source },
+                )
+            }
+            ParseFailure::UnsupportedVersion { expected, actual } => self.error(
+                "$",
+                CurrentSourceErrorPayload::UnsupportedFormatVersion {
+                    expected,
+                    actual: actual.into_boxed_str(),
+                },
+            ),
+        }
     }
-}
 
-/// 带 `serde_path_to_error` 路径跟踪的单次完整 JSON 解析；trailing content
-/// 在根 `$` 处以 syntax 失败。
-fn deserialize_json<T>(input: &[u8], context: &IssueContext) -> Result<T, CurrentSourceError>
-where
-    T: DeserializeOwned,
-{
-    let mut deserializer = serde_json::Deserializer::from_slice(input);
-    let value = serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
-        let path = normalize_path(error.path().to_string());
-        context.json(path, error.into_inner())
-    })?;
-    deserializer
-        .end()
-        .map_err(|source| context.json("$".to_owned(), source))?;
-    Ok(value)
-}
-
-fn normalize_path(path: String) -> String {
-    if path.is_empty() || path == "." {
-        "$".to_owned()
-    } else {
-        path
+    fn error_json(
+        &self,
+        path: impl Into<String>,
+        span: Option<CurrentSourceSpan>,
+        payload: CurrentSourceErrorPayload,
+    ) -> CurrentSourceError {
+        CurrentSourceError::single(CurrentSourceIssue::new(
+            Some(self.document),
+            self.context.clone(),
+            Some(path.into().into_boxed_str()),
+            payload,
+            span,
+        ))
     }
-}
-
-/// 头部版本闸口：先解析 `WireVersionHeader`，再裁决 unsupported version。
-fn gate_format_version(
-    input: &[u8],
-    expected: &'static str,
-    context: &IssueContext,
-) -> Result<(), CurrentSourceError> {
-    let header: WireVersionHeader = deserialize_json(input, context)?;
-    if header.format_version != expected {
-        return Err(context.error(
-            "$",
-            CurrentSourceErrorPayload::UnsupportedFormatVersion {
-                expected,
-                actual: header.format_version.into_boxed_str(),
-            },
-        ));
-    }
-    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -568,6 +548,11 @@ fn verify_artifact<'a>(
         ));
     }
 
+    #[cfg(debug_assertions)]
+    crate::counters::record_digest(match descriptor.role {
+        CurrentArtifactRole::Traffic => CurrentDocumentRole::Traffic,
+        CurrentArtifactRole::Spatial => CurrentDocumentRole::Spatial,
+    });
     let actual_digest = sha256_digest(bytes);
     if actual_digest != descriptor.digest {
         return Err(artifact_context.error(
@@ -581,4 +566,60 @@ fn verify_artifact<'a>(
         ));
     }
     Ok(bytes)
+}
+
+/// 单遍证明（docs/design/current-package-import.md §7）：每份文档恰好一次根
+/// deserializer 驱动、恰好一次 SHA-256 计算。计数器状态为线程局部且本测试
+/// 先 `reset`，与并行用例无干扰。
+#[cfg(all(test, debug_assertions))]
+mod single_pass_counter_tests {
+    use super::{validate_scenario_compatible, validate_traffic_compatible};
+    use crate::counters;
+    use crate::{CurrentArtifactInput, CurrentDocumentRole};
+
+    const TRAFFIC_REF: &str = "v0.10-empty-signals-and-parking.laneflow.json";
+    const SPATIAL_REF: &str = "v0.1-campus.spatial.json";
+    const TRAFFIC: &[u8] =
+        include_bytes!("../../../examples/data/v0.10-empty-signals-and-parking.laneflow.json");
+    const SPATIAL: &[u8] = include_bytes!("../../../examples/data/v0.1-campus.spatial.json");
+    const MANIFEST: &[u8] = include_bytes!("../../../examples/data/v0.1-campus.scenario.json");
+
+    #[test]
+    fn counters_pin_one_root_driver_and_one_digest_per_document() {
+        counters::reset();
+        validate_traffic_compatible(TRAFFIC).expect("traffic fixture 必须校验通过");
+        let snapshot = counters::snapshot();
+        assert_eq!(
+            snapshot.root_drivers, 1,
+            "traffic-only 单文档恰好一次根驱动"
+        );
+        assert!(
+            snapshot.digests.is_empty(),
+            "traffic-only facade 不计算任何摘要"
+        );
+        assert!(snapshot.replays > 0, "record token 经 replay 解码");
+
+        counters::reset();
+        let artifacts = [
+            CurrentArtifactInput::new(TRAFFIC_REF, TRAFFIC, None),
+            CurrentArtifactInput::new(SPATIAL_REF, SPATIAL, None),
+        ];
+        validate_scenario_compatible(MANIFEST, &artifacts).expect("scenario fixture 必须校验通过");
+        let snapshot = counters::snapshot();
+        assert_eq!(
+            snapshot.root_drivers, 3,
+            "manifest + traffic + spatial 各一次根驱动"
+        );
+        // 顺序 = 代码调用序：verify_artifact(traffic) → verify_artifact(spatial)
+        // → manifest 精确摘要；「每 token 至多 replay 一次」由计数器硬断言覆盖。
+        assert_eq!(
+            snapshot.digests,
+            vec![
+                CurrentDocumentRole::Traffic,
+                CurrentDocumentRole::Spatial,
+                CurrentDocumentRole::Manifest,
+            ],
+            "每份文档摘要恰好一次"
+        );
+    }
 }

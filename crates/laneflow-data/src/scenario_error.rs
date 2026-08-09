@@ -4,7 +4,7 @@ use std::fmt;
 
 use laneflow_current_source::{
     CurrentArtifactRole, CurrentDocumentRole, CurrentSourceError, CurrentSourceErrorPayload,
-    CurrentSourceIssueContext,
+    CurrentSourceIssueContext, CurrentSourceSpan,
 };
 use laneflow_spatial::SpatialError;
 
@@ -198,13 +198,10 @@ impl ScenarioError {
         let path = path
             .expect("production-compatible issue 必携带规范 path")
             .into_string();
-        let None = span else {
-            unreachable!("切片 2 production 路径不产出 span")
-        };
         if let CurrentSourceIssueContext::ScenarioTraffic { artifact_ref } = context {
             return Self::TrafficPackage {
                 artifact_ref: artifact_ref.into_string(),
-                source: Box::new(DataError::from_traffic_payload(path, payload)),
+                source: Box::new(DataError::from_traffic_payload(path, payload, span)),
             };
         }
         // document 只在 JSON/version variant 上有公共意义；制品配对 variant
@@ -227,20 +224,26 @@ impl ScenarioError {
             },
         };
         match payload {
-            CurrentSourceErrorPayload::JsonSyntax { source } => Self::JsonSyntax {
-                document: scenario_document,
-                path,
-                line: source.line(),
-                column: source.column(),
-                source,
-            },
-            CurrentSourceErrorPayload::JsonShape { source } => Self::JsonShape {
-                document: scenario_document,
-                path,
-                line: source.line(),
-                column: source.column(),
-                source,
-            },
+            CurrentSourceErrorPayload::JsonSyntax { source } => {
+                let (line, column) = json_issue_position(span);
+                Self::JsonSyntax {
+                    document: scenario_document,
+                    path,
+                    line,
+                    column,
+                    source,
+                }
+            }
+            CurrentSourceErrorPayload::JsonShape { source } => {
+                let (line, column) = json_issue_position(span);
+                Self::JsonShape {
+                    document: scenario_document,
+                    path,
+                    line,
+                    column,
+                    source,
+                }
+            }
             CurrentSourceErrorPayload::UnsupportedFormatVersion { expected, actual } => {
                 Self::UnsupportedFormatVersion {
                     document: scenario_document,
@@ -315,6 +318,13 @@ fn artifact_role(role: CurrentArtifactRole) -> ArtifactRole {
         CurrentArtifactRole::Traffic => ArtifactRole::Traffic,
         CurrentArtifactRole::Spatial => ArtifactRole::Spatial,
     }
+}
+
+/// JSON issue 的一基位置：只读 span 的显式 `start`（shape payload 的 serde
+/// 错误内部位置恒为 0:0）。
+fn json_issue_position(span: Option<CurrentSourceSpan>) -> (usize, usize) {
+    let start = span.expect("production JSON issue 必携带 span").start();
+    (start.line() as usize, start.column() as usize)
 }
 
 /// descriptor payload 的 path 在 source 侧就是固定静态串，映射回既有

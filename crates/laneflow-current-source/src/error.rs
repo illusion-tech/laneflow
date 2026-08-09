@@ -30,8 +30,6 @@ pub struct CurrentSourcePosition {
 }
 
 impl CurrentSourcePosition {
-    // 位置表归 #297 后续切片；本切片无构造入口，构造器暂存为 pub(crate)。
-    #[allow(dead_code)]
     pub(crate) const fn new(line: u32, column: u32) -> Self {
         Self { line, column }
     }
@@ -55,8 +53,6 @@ pub struct CurrentSourceSpan {
 }
 
 impl CurrentSourceSpan {
-    // 位置表归 #297 后续切片；本切片无构造入口，构造器暂存为 pub(crate)。
-    #[allow(dead_code)]
     pub(crate) const fn new(start: CurrentSourcePosition, end: CurrentSourcePosition) -> Self {
         Self { start, end }
     }
@@ -102,7 +98,8 @@ pub enum CurrentSourceErrorPayload {
     },
     /// JSON 字段缺失、类型错误、显式 `null` 或包含 unknown/duplicate field。
     JsonShape {
-        /// 立即失败的原始 serde 错误（自带真实 line/column）。
+        /// 延迟 shape 候选的 `Error::custom` 形态（内部位置恒为 0:0；真实位置
+        /// 由 issue 的 span 承载，Data 桥只读 span，禁读该 0:0）。
         source: serde_json::Error,
     },
     /// `formatVersion` 不是当前接受的版本。
@@ -214,13 +211,14 @@ impl CurrentSourceIssue {
         context: CurrentSourceIssueContext,
         path: Option<Box<str>>,
         payload: CurrentSourceErrorPayload,
+        span: Option<CurrentSourceSpan>,
     ) -> Self {
         Self {
             payload,
             document,
             context,
             path,
-            span: None,
+            span,
         }
     }
 
@@ -248,7 +246,8 @@ impl CurrentSourceIssue {
         self.path.as_deref()
     }
 
-    /// 返回该 issue 的 source 位置区间；本切片无位置表，恒为 `None`。
+    /// 返回该 issue 的 source 位置区间；JSON syntax/shape issue 恒携带 span，
+    /// 非 JSON payload（version 与制品配对类）恒为 `None`。
     pub const fn span(&self) -> Option<CurrentSourceSpan> {
         self.span
     }

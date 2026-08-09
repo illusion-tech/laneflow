@@ -1,109 +1,30 @@
 //! 当前 v0.10 JSON 格式的 wire DTO。
 //!
-//! record 类型字段私有，跨包消费只经逐项借用 accessor；serde 行为
-//! （`deny_unknown_fields`、explicit-null 拒绝、priority 原始词法、untagged 枚举）
-//! 与 `laneflow-data` 迁移前逐字节一致。
-
-use serde::Deserialize;
-
-/// 可选字段拒绝显式 `null`：缺省字段返回 `None`（配合 `#[serde(default)]`），
-/// 显式 `null` 返回反序列化错误。loader 路径不执行 JSON Schema，而 schema 不接受
-/// `null`；对 `timeWindows` 这类 null 会改变语义的字段（被当作未声明而绕过
-/// capability guard），缺省与显式 null 必须可区分。
-fn non_null_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    match Option::<T>::deserialize(deserializer)? {
-        Some(value) => Ok(Some(value)),
-        None => Err(serde::de::Error::custom(
-            "可选字段不接受显式 null；请省略该字段",
-        )),
-    }
-}
-
-// priority 保留原始数值字面量：serde_json::Number 会按 f64 归一化
-// （1.00000000000000001 变 1.0、1e400 溢出为 JsonShape），字面量必须不经
-// 浮点转换进入 Core phase 9.5 精确校验（capability guard 之后）。wire 层只
-// 把关 JSON number type/语法，整数性与 i32 范围语义归 Core。
-fn access_priority_lexeme<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let raw = match Option::<Box<serde_json::value::RawValue>>::deserialize(deserializer)? {
-        Some(raw) => raw,
-        None => {
-            return Err(serde::de::Error::custom(
-                "可选字段不接受显式 null；请省略该字段",
-            ));
-        }
-    };
-    let lexeme = raw.get().trim();
-    if is_json_number_lexeme(lexeme) {
-        Ok(Some(lexeme.to_owned()))
-    } else {
-        Err(serde::de::Error::custom(format!(
-            "priority 必须是 JSON number，实际为 `{lexeme}`"
-        )))
-    }
-}
-
-/// JSON number 语法：`-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?`。
-fn is_json_number_lexeme(lexeme: &str) -> bool {
-    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
-    let lexeme = lexeme.strip_prefix('-').unwrap_or(lexeme);
-    let (mantissa, exponent) = match lexeme.find(['e', 'E']) {
-        Some(index) => (&lexeme[..index], Some(&lexeme[index + 1..])),
-        None => (lexeme, None),
-    };
-    if let Some(exponent) = exponent {
-        let exponent = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
-        if !digits(exponent) {
-            return false;
-        }
-    }
-    let (integer, fraction) = match mantissa.find('.') {
-        Some(index) => (&mantissa[..index], Some(&mantissa[index + 1..])),
-        None => (mantissa, None),
-    };
-    let integer_ok = integer == "0"
-        || (integer.starts_with(|c: char| c.is_ascii_digit() && c != '0') && digits(integer));
-    integer_ok && fraction.is_none_or(digits)
-}
-
-/// 版本闸口专用的头部 DTO；恰好一个合法字符串 `formatVersion` occurrence 才
-/// 通过本 DTO 参与版本裁决（缺失、显式 `null`、非字符串或重复 occurrence 都
-/// 在本步以 shape 错误立即失败）。
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WireVersionHeader {
-    pub(crate) format_version: String,
-}
+//! record 类型字段 `pub(crate)`，跨包消费只经逐项借用 accessor；反序列化由
+//! [`crate::parse`] 的手写单遍解析器实现，serde 行为（`deny_unknown_fields`、
+//! explicit-null 拒绝、priority 原始词法、untagged 枚举）与 `laneflow-data`
+//! 迁移前逐字节一致。
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WirePackage {
-    format_version: String,
-    units: WireUnits,
-    lane_graph: WireLaneGraph,
-    junctions: Vec<WireJunction>,
-    movements: Vec<WireMovement>,
-    maneuver_paths: Vec<WireManeuverPath>,
-    routes: Vec<WireRoute>,
-    vehicle_profiles: Vec<WireVehicleProfile>,
-    participant_classes: Vec<WireParticipantClass>,
-    facility_bands: Vec<WireFacilityBand>,
-    road_sections: Vec<WireRoadSection>,
-    lane_groups: Vec<WireLaneGroup>,
-    road_corridors: Vec<WireRoadCorridor>,
-    access_rules: Vec<WireAccessRule>,
-    waiting_zones: Vec<WireWaitingZone>,
-    signals: WireSignals,
-    parking: WireParking,
-    #[serde(default, rename = "extensions")]
-    _extensions: serde_json::Map<String, serde_json::Value>,
+    pub(crate) format_version: String,
+    pub(crate) units: WireUnits,
+    pub(crate) lane_graph: WireLaneGraph,
+    pub(crate) junctions: Vec<WireJunction>,
+    pub(crate) movements: Vec<WireMovement>,
+    pub(crate) maneuver_paths: Vec<WireManeuverPath>,
+    pub(crate) routes: Vec<WireRoute>,
+    pub(crate) vehicle_profiles: Vec<WireVehicleProfile>,
+    pub(crate) participant_classes: Vec<WireParticipantClass>,
+    pub(crate) facility_bands: Vec<WireFacilityBand>,
+    pub(crate) road_sections: Vec<WireRoadSection>,
+    pub(crate) lane_groups: Vec<WireLaneGroup>,
+    pub(crate) road_corridors: Vec<WireRoadCorridor>,
+    pub(crate) access_rules: Vec<WireAccessRule>,
+    pub(crate) waiting_zones: Vec<WireWaitingZone>,
+    pub(crate) signals: WireSignals,
+    pub(crate) parking: WireParking,
 }
 
 impl WirePackage {
@@ -177,11 +98,10 @@ impl WirePackage {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireUnits {
-    distance: String,
-    time: String,
+    pub(crate) distance: String,
+    pub(crate) time: String,
 }
 
 impl WireUnits {
@@ -195,10 +115,9 @@ impl WireUnits {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireLaneGraph {
-    edges: Vec<WireLaneEdge>,
+    pub(crate) edges: Vec<WireLaneEdge>,
 }
 
 impl WireLaneGraph {
@@ -208,15 +127,12 @@ impl WireLaneGraph {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireLaneEdge {
-    id: String,
-    length: f64,
-    #[serde(rename = "speedLimit")]
-    speed_limit: f64,
-    #[serde(rename = "connections")]
-    connections: Vec<WireLaneConnection>,
+    pub(crate) id: String,
+    pub(crate) length: f64,
+    pub(crate) speed_limit: f64,
+    pub(crate) connections: Vec<WireLaneConnection>,
 }
 
 impl WireLaneEdge {
@@ -238,10 +154,9 @@ impl WireLaneEdge {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireLaneConnection {
-    to_edge_id: String,
+    pub(crate) to_edge_id: String,
 }
 
 impl WireLaneConnection {
@@ -251,10 +166,9 @@ impl WireLaneConnection {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireJunction {
-    id: String,
+    pub(crate) id: String,
 }
 
 impl WireJunction {
@@ -264,11 +178,10 @@ impl WireJunction {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireMovement {
-    id: String,
-    junction_id: String,
+    pub(crate) id: String,
+    pub(crate) junction_id: String,
 }
 
 impl WireMovement {
@@ -282,14 +195,13 @@ impl WireMovement {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireManeuverPath {
-    id: String,
-    movement_id: String,
-    entry_edge_id: String,
-    internal_edge_ids: Vec<String>,
-    exit_edge_id: String,
+    pub(crate) id: String,
+    pub(crate) movement_id: String,
+    pub(crate) entry_edge_id: String,
+    pub(crate) internal_edge_ids: Vec<String>,
+    pub(crate) exit_edge_id: String,
 }
 
 impl WireManeuverPath {
@@ -315,11 +227,10 @@ impl WireManeuverPath {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireRoute {
-    id: String,
-    edge_ids: Vec<String>,
+    pub(crate) id: String,
+    pub(crate) edge_ids: Vec<String>,
 }
 
 impl WireRoute {
@@ -333,19 +244,18 @@ impl WireRoute {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireVehicleProfile {
-    id: String,
-    length: f64,
-    model: String,
-    desired_speed: f64,
-    min_gap: f64,
-    time_headway: f64,
-    max_acceleration: f64,
-    comfortable_deceleration: f64,
-    emergency_deceleration: f64,
-    participant_class_id: String,
+    pub(crate) id: String,
+    pub(crate) length: f64,
+    pub(crate) model: String,
+    pub(crate) desired_speed: f64,
+    pub(crate) min_gap: f64,
+    pub(crate) time_headway: f64,
+    pub(crate) max_acceleration: f64,
+    pub(crate) comfortable_deceleration: f64,
+    pub(crate) emergency_deceleration: f64,
+    pub(crate) participant_class_id: String,
 }
 
 impl WireVehicleProfile {
@@ -391,12 +301,10 @@ impl WireVehicleProfile {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireParticipantClass {
-    id: String,
-    #[serde(default, deserialize_with = "non_null_option")]
-    extends_id: Option<String>,
+    pub(crate) id: String,
+    pub(crate) extends_id: Option<String>,
 }
 
 impl WireParticipantClass {
@@ -410,11 +318,10 @@ impl WireParticipantClass {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireFacilityBand {
-    id: String,
-    kind_id: String,
+    pub(crate) id: String,
+    pub(crate) kind_id: String,
 }
 
 impl WireFacilityBand {
@@ -428,12 +335,11 @@ impl WireFacilityBand {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireRoadSection {
-    id: String,
-    kind_id: String,
-    lanes: Vec<WireSectionLane>,
+    pub(crate) id: String,
+    pub(crate) kind_id: String,
+    pub(crate) lanes: Vec<WireSectionLane>,
 }
 
 impl WireRoadSection {
@@ -451,12 +357,10 @@ impl WireRoadSection {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireSectionLane {
-    edge_ids: Vec<String>,
-    #[serde(default, deserialize_with = "non_null_option")]
-    lane_group_id: Option<String>,
+    pub(crate) edge_ids: Vec<String>,
+    pub(crate) lane_group_id: Option<String>,
 }
 
 impl WireSectionLane {
@@ -470,11 +374,10 @@ impl WireSectionLane {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireLaneGroup {
-    id: String,
-    road_section_id: String,
+    pub(crate) id: String,
+    pub(crate) road_section_id: String,
 }
 
 impl WireLaneGroup {
@@ -488,12 +391,11 @@ impl WireLaneGroup {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireRoadCorridor {
-    id: String,
-    reference_section_id: String,
-    elements: Vec<WireCorridorElement>,
+    pub(crate) id: String,
+    pub(crate) reference_section_id: String,
+    pub(crate) elements: Vec<WireCorridorElement>,
 }
 
 impl WireRoadCorridor {
@@ -511,8 +413,7 @@ impl WireRoadCorridor {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(untagged)]
+#[derive(Debug)]
 pub enum WireCorridorElement {
     Section(WireCorridorSectionElement),
     Band(WireCorridorBandElement),
@@ -537,10 +438,9 @@ impl WireCorridorElement {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireCorridorSectionElement {
-    section_id: String,
+    pub(crate) section_id: String,
 }
 
 impl WireCorridorSectionElement {
@@ -550,10 +450,9 @@ impl WireCorridorSectionElement {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireCorridorBandElement {
-    band_id: String,
+    pub(crate) band_id: String,
 }
 
 impl WireCorridorBandElement {
@@ -562,20 +461,27 @@ impl WireCorridorBandElement {
     }
 }
 
+// timeWindows 是 v1 不可用 capability：wire 层只校验字段是数组（JSON type
+// 检查）并记录是否声明，窗口内容（字段结构、分钟数值）一律不解码。capability
+// guard 先于 shape（cross-section-access.md §10 phase 9：能力整体拒绝后其内部
+// 细节校验无意义），因此极端数值（1e400 这类 serde_json::Number 无法表示的字
+// 面量）、缺字段、未知字段、错误类型都必须先抵达 guard 得到
+// AccessCapabilityUnavailable，而不是在 DTO 解码期以 DataError::JsonShape 抢
+// 先。capability 未来可用时，窗口子树在 guard 之后的 phase 再做完整
+// shape/range 校验（空数组、days 空集、分钟越界等 §10 已规约）。
+
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireAccessRule {
-    id: String,
-    target: WireAccessTarget,
-    effect: WireAccessEffect,
-    participant_class_ids: Vec<String>,
-    #[serde(default, deserialize_with = "non_null_option")]
-    time_windows: Option<Vec<Box<serde_json::value::RawValue>>>,
-    #[serde(default, deserialize_with = "non_null_option")]
-    regulation: Option<WireRegulation>,
-    #[serde(default, deserialize_with = "access_priority_lexeme")]
-    priority: Option<String>,
+    pub(crate) id: String,
+    pub(crate) target: WireAccessTarget,
+    pub(crate) effect: WireAccessEffect,
+    pub(crate) participant_class_ids: Vec<String>,
+    /// 是否声明了 `timeWindows`；窗口内容不透明，wire 层只记 presence。
+    pub(crate) time_windows: bool,
+    pub(crate) regulation: Option<WireRegulation>,
+    /// 未经浮点转换的 priority 原始数值字面量（trim 后）。
+    pub(crate) priority: Option<String>,
 }
 
 impl WireAccessRule {
@@ -595,10 +501,9 @@ impl WireAccessRule {
         &self.participant_class_ids
     }
 
-    /// timeWindows 是 v1 不可用 capability：wire 层只以 RawValue 不透明捕获，
-    /// 调用方只需要是否声明。
+    /// timeWindows 是 v1 不可用 capability：wire 层只记录是否声明。
     pub fn has_time_windows(&self) -> bool {
-        self.time_windows.is_some()
+        self.time_windows
     }
 
     pub fn regulation(&self) -> Option<&WireRegulation> {
@@ -612,11 +517,10 @@ impl WireAccessRule {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireAccessTarget {
-    kind: WireAccessTargetKind,
-    id: String,
+    pub(crate) kind: WireAccessTargetKind,
+    pub(crate) id: String,
 }
 
 impl WireAccessTarget {
@@ -630,14 +534,13 @@ impl WireAccessTarget {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireWaitingZone {
-    id: String,
-    maneuver_path_id: String,
-    entry_gate_id: String,
-    release_gate_id: String,
-    max_occupancy: u32,
+    pub(crate) id: String,
+    pub(crate) maneuver_path_id: String,
+    pub(crate) entry_gate_id: String,
+    pub(crate) release_gate_id: String,
+    pub(crate) max_occupancy: u32,
 }
 
 impl WireWaitingZone {
@@ -663,8 +566,7 @@ impl WireWaitingZone {
 }
 
 #[doc(hidden)]
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WireAccessTargetKind {
     LaneEdge,
     LaneGroup,
@@ -674,30 +576,18 @@ pub enum WireAccessTargetKind {
 }
 
 #[doc(hidden)]
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WireAccessEffect {
     Allow,
     Deny,
 }
 
-// timeWindows 是 v1 不可用 capability：wire 层只校验字段是数组（JSON type
-// 检查）并以 RawValue 不透明捕获元素，窗口内容（字段结构、分钟数值）一律不
-// 解码。capability guard 先于 shape（cross-section-access.md §10 phase 9：
-// 能力整体拒绝后其内部细节校验无意义），因此极端数值（1e400 这类
-// serde_json::Number 无法表示的字面量）、缺字段、未知字段、错误类型都必须先
-// 抵达 guard 得到 AccessCapabilityUnavailable，而不是在 DTO 解码期以
-// DataError::JsonShape 抢先。capability 未来可用时，窗口子树在 guard 之后的
-// phase 再做完整 shape/range 校验（空数组、days 空集、分钟越界等 §10 已规约）。
-
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireRegulation {
-    jurisdiction: String,
-    version: String,
-    #[serde(default, deserialize_with = "non_null_option")]
-    source: Option<String>,
+    pub(crate) jurisdiction: String,
+    pub(crate) version: String,
+    pub(crate) source: Option<String>,
 }
 
 impl WireRegulation {
@@ -715,11 +605,10 @@ impl WireRegulation {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireParking {
-    areas: Vec<WireParkingArea>,
-    spaces: Vec<WireParkingSpace>,
+    pub(crate) areas: Vec<WireParkingArea>,
+    pub(crate) spaces: Vec<WireParkingSpace>,
 }
 
 impl WireParking {
@@ -733,10 +622,9 @@ impl WireParking {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireParkingArea {
-    id: String,
+    pub(crate) id: String,
 }
 
 impl WireParkingArea {
@@ -746,15 +634,13 @@ impl WireParkingArea {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireParkingSpace {
-    id: String,
-    #[serde(default)]
-    area_id: OmittedAreaId,
-    entry: WireParkingAnchor,
-    exit: WireParkingAnchor,
-    geometry: WireParkingGeometry,
+    pub(crate) id: String,
+    pub(crate) area_id: Option<String>,
+    pub(crate) entry: WireParkingAnchor,
+    pub(crate) exit: WireParkingAnchor,
+    pub(crate) geometry: WireParkingGeometry,
 }
 
 impl WireParkingSpace {
@@ -779,30 +665,11 @@ impl WireParkingSpace {
     }
 }
 
-#[derive(Default)]
-struct OmittedAreaId(Option<String>);
-
-impl OmittedAreaId {
-    fn as_deref(&self) -> Option<&str> {
-        self.0.as_deref()
-    }
-}
-
-impl<'de> Deserialize<'de> for OmittedAreaId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        String::deserialize(deserializer).map(|value| Self(Some(value)))
-    }
-}
-
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireParkingAnchor {
-    edge_id: String,
-    progress: f64,
+    pub(crate) edge_id: String,
+    pub(crate) progress: f64,
 }
 
 impl WireParkingAnchor {
@@ -816,13 +683,12 @@ impl WireParkingAnchor {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireParkingGeometry {
-    lateral_offset: f64,
-    heading_offset_radians: f64,
-    length: f64,
-    width: f64,
+    pub(crate) lateral_offset: f64,
+    pub(crate) heading_offset_radians: f64,
+    pub(crate) length: f64,
+    pub(crate) width: f64,
 }
 
 impl WireParkingGeometry {
@@ -844,13 +710,12 @@ impl WireParkingGeometry {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireSignals {
-    stop_lines: Vec<WireStopLine>,
-    maneuver_gates: Vec<WireManeuverGate>,
-    groups: Vec<WireSignalGroup>,
-    controllers: Vec<WireSignalController>,
+    pub(crate) stop_lines: Vec<WireStopLine>,
+    pub(crate) maneuver_gates: Vec<WireManeuverGate>,
+    pub(crate) groups: Vec<WireSignalGroup>,
+    pub(crate) controllers: Vec<WireSignalController>,
 }
 
 impl WireSignals {
@@ -872,12 +737,11 @@ impl WireSignals {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireStopLine {
-    id: String,
-    edge_id: String,
-    location: WireStopLineLocation,
+    pub(crate) id: String,
+    pub(crate) edge_id: String,
+    pub(crate) location: WireStopLineLocation,
 }
 
 impl WireStopLine {
@@ -895,21 +759,19 @@ impl WireStopLine {
 }
 
 #[doc(hidden)]
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WireStopLineLocation {
     EdgeEnd,
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireManeuverGate {
-    id: String,
-    maneuver_path_id: String,
-    transition_index: u32,
-    stop_line_id: String,
-    signal_control: WireSignalControl,
+    pub(crate) id: String,
+    pub(crate) maneuver_path_id: String,
+    pub(crate) transition_index: u32,
+    pub(crate) stop_line_id: String,
+    pub(crate) signal_control: WireSignalControl,
 }
 
 impl WireManeuverGate {
@@ -935,8 +797,7 @@ impl WireManeuverGate {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(untagged)]
+#[derive(Debug)]
 pub enum WireSignalControl {
     Group(WireGroupSignalControl),
     None(WireNoneSignalControl),
@@ -961,11 +822,10 @@ impl WireSignalControl {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireGroupSignalControl {
-    kind: WireGroupSignalControlKind,
-    group_id: String,
+    pub(crate) kind: WireGroupSignalControlKind,
+    pub(crate) group_id: String,
 }
 
 impl WireGroupSignalControl {
@@ -979,17 +839,15 @@ impl WireGroupSignalControl {
 }
 
 #[doc(hidden)]
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WireGroupSignalControlKind {
     Group,
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireNoneSignalControl {
-    kind: WireNoneSignalControlKind,
+    pub(crate) kind: WireNoneSignalControlKind,
 }
 
 impl WireNoneSignalControl {
@@ -999,17 +857,15 @@ impl WireNoneSignalControl {
 }
 
 #[doc(hidden)]
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WireNoneSignalControlKind {
     None,
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireSignalGroup {
-    id: String,
+    pub(crate) id: String,
 }
 
 impl WireSignalGroup {
@@ -1019,14 +875,13 @@ impl WireSignalGroup {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireSignalController {
-    id: String,
-    kind: WireSignalControllerKind,
-    offset_ms: u64,
-    group_ids: Vec<String>,
-    phases: Vec<WireSignalPhase>,
+    pub(crate) id: String,
+    pub(crate) kind: WireSignalControllerKind,
+    pub(crate) offset_ms: u64,
+    pub(crate) group_ids: Vec<String>,
+    pub(crate) phases: Vec<WireSignalPhase>,
 }
 
 impl WireSignalController {
@@ -1052,19 +907,17 @@ impl WireSignalController {
 }
 
 #[doc(hidden)]
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WireSignalControllerKind {
     FixedTime,
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireSignalPhase {
-    id: String,
-    duration_ms: u64,
-    states: Vec<WireSignalGroupState>,
+    pub(crate) id: String,
+    pub(crate) duration_ms: u64,
+    pub(crate) states: Vec<WireSignalGroupState>,
 }
 
 impl WireSignalPhase {
@@ -1082,11 +935,10 @@ impl WireSignalPhase {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireSignalGroupState {
-    group_id: String,
-    aspect: WireSignalAspect,
+    pub(crate) group_id: String,
+    pub(crate) aspect: WireSignalAspect,
 }
 
 impl WireSignalGroupState {
@@ -1100,8 +952,7 @@ impl WireSignalGroupState {
 }
 
 #[doc(hidden)]
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WireSignalAspect {
     Red,
     Yellow,

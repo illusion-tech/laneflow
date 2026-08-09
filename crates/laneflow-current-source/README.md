@@ -20,4 +20,4 @@ laneflow-data -> laneflow-current-source
 laneflow-current-source -X-> laneflow-core / laneflow-spatial / laneflow-compiler
 ```
 
-本 crate 只依赖 Rust 标准库、Serde/serde_json、serde_path_to_error、SHA-256 与 thiserror，不依赖任何 LaneFlow crate。
+本 crate 只依赖 Rust 标准库、Serde/serde_json（不走 derive，wire 解码由 `src/parse/` 手写 visitor 驱动）、SHA-256 与 thiserror，不依赖任何 LaneFlow crate。

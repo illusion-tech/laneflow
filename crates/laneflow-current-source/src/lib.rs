@@ -1,7 +1,10 @@
 #![doc = include_str!("../README.md")]
 
+#[cfg(debug_assertions)]
+mod counters;
 mod digest;
 mod error;
+mod parse;
 #[doc(hidden)]
 pub mod scenario_wire;
 mod validate;

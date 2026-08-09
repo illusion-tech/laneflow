@@ -665,8 +665,13 @@ fn issue_parts_into_components_is_the_only_owned_bridge() {
     let (payload, document, context, path, span) = issue.into_parts().into_components();
     assert_eq!(document, Some(CurrentDocumentRole::Traffic));
     assert_eq!(context, CurrentSourceIssueContext::None);
-    assert_eq!(span, None);
-    // serde_path_to_error 对 syntax 错误报 "?"，normalize_path 只映射 ""/"."，与旧 Data 行为一致。
+    // 新 parse 层为 syntax 错误产出 serde 位置的单点 span（旧实现经
+    // serde_path_to_error 链丢弃位置返回 None，属修正而非回归）。
+    let span = span.expect("syntax issue 携带单点 span");
+    assert_eq!(span.start().line(), 1);
+    assert_eq!(span.start().column(), 1);
+    assert_eq!(span.start(), span.end());
+    // syntax 错误归位为根 path "$"。
     let path = path.expect("production-compatible issue 必携带 path");
     assert!(!path.is_empty());
     match payload {

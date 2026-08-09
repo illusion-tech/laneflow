@@ -1,17 +1,15 @@
 //! SpatialPackage 0.1 与 ScenarioManifest 0.1 的 wire DTO。
 //!
-//! record 类型字段私有，跨包消费只经逐项借用 accessor；serde 行为与
-//! `laneflow-data` 迁移前逐字节一致。
-
-use serde::Deserialize;
+//! record 类型字段 `pub(crate)`，跨包消费只经逐项借用 accessor；反序列化由
+//! [`crate::parse`] 的手写单遍解析器实现，serde 行为与 `laneflow-data`
+//! 迁移前逐字节一致。
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireScenarioManifest {
-    format_version: String,
-    traffic: WireArtifactDescriptor,
-    spatial: WireArtifactDescriptor,
+    pub(crate) format_version: String,
+    pub(crate) traffic: WireArtifactDescriptor,
+    pub(crate) spatial: WireArtifactDescriptor,
 }
 
 impl WireScenarioManifest {
@@ -29,13 +27,12 @@ impl WireScenarioManifest {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireArtifactDescriptor {
-    artifact_ref: String,
-    media_type: String,
-    digest: String,
-    size: u64,
+    pub(crate) artifact_ref: String,
+    pub(crate) media_type: String,
+    pub(crate) digest: String,
+    pub(crate) size: u64,
 }
 
 impl WireArtifactDescriptor {
@@ -57,12 +54,11 @@ impl WireArtifactDescriptor {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireSpatialPackage {
-    format_version: String,
-    frame_id: String,
-    edges: Vec<WireSpatialEdge>,
+    pub(crate) format_version: String,
+    pub(crate) frame_id: String,
+    pub(crate) edges: Vec<WireSpatialEdge>,
 }
 
 impl WireSpatialPackage {
@@ -85,11 +81,10 @@ impl WireSpatialPackage {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireSpatialEdge {
-    traffic_edge_id: String,
-    centerline: WireCenterline,
+    pub(crate) traffic_edge_id: String,
+    pub(crate) centerline: WireCenterline,
 }
 
 impl WireSpatialEdge {
@@ -108,10 +103,9 @@ impl WireSpatialEdge {
 }
 
 #[doc(hidden)]
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct WireCenterline {
-    points: Vec<[f64; 3]>,
+    pub(crate) points: Vec<[f64; 3]>,
 }
 
 impl WireCenterline {
