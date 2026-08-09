@@ -1,0 +1,2895 @@
+{
+  "rows": [
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 1
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 1
+        }
+      ],
+      "accuracyProfileCode": 1,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "counts": {
+        "canonicalPointCount": 4,
+        "controlPointCount": 0,
+        "cubicSegmentCount": 0,
+        "declarationCount": 9,
+        "documentCount": 1,
+        "lineSegmentCount": 1,
+        "lirRecordCount": 20,
+        "logicalOutputBytes": 1010,
+        "moduleCount": 1,
+        "offsetCurveCount": 2,
+        "referenceCount": 7,
+        "relationOccurrenceCount": 6
+      },
+      "directionProfileCode": 1,
+      "fixture": {
+        "byteLength": 1723,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/min-v1.fixture.json",
+        "sha256": "051d057c430126d28dd18f31ba2093d175e231ce8457b9684aa5cbd452adc639"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 0,
+        "access_rules": 0,
+        "authoring_lane_edges": 2,
+        "authoring_lanes": 2,
+        "canonical_frames": 1,
+        "canonical_points": 4,
+        "corridor_elements": 1,
+        "facility_band_geometries": 0,
+        "facility_bands": 0,
+        "gate_occurrences": 0,
+        "junction_internal_edges": 0,
+        "junction_movements": 0,
+        "junctions": 0,
+        "lane_edge_geometries": 2,
+        "lane_edge_route_occurrences": 0,
+        "lane_edge_successors": 0,
+        "lane_edges": 2,
+        "lane_group_members": 0,
+        "lane_groups": 0,
+        "maneuver_gate_route_occurrences": 0,
+        "maneuver_gates": 0,
+        "maneuver_occurrences": 0,
+        "maneuver_path_edges": 0,
+        "maneuver_path_gates": 0,
+        "maneuver_path_route_occurrences": 0,
+        "maneuver_path_waiting_zones": 0,
+        "maneuver_paths": 0,
+        "movement_maneuver_paths": 0,
+        "movements": 0,
+        "parking_area_spaces": 0,
+        "parking_areas": 0,
+        "parking_spaces": 0,
+        "participant_classes": 0,
+        "road_corridors": 1,
+        "road_section_lanes": 2,
+        "road_sections": 1,
+        "signal_controller_groups": 0,
+        "signal_controller_phases": 0,
+        "signal_controllers": 0,
+        "signal_group_maneuver_gates": 0,
+        "signal_groups": 0,
+        "signal_phase_states": 0,
+        "signal_phases": 0,
+        "spatial_segments": 2,
+        "static_route_edges": 0,
+        "static_route_transitions": 0,
+        "static_routes": 0,
+        "stop_line_maneuver_gates": 0,
+        "stop_lines": 0,
+        "vehicle_profiles": 0,
+        "waiting_zone_occurrences": 0,
+        "waiting_zone_route_occurrences": 0,
+        "waiting_zones": 0
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 1
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 1
+        }
+      ],
+      "accuracyProfileCode": 1,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "counts": {
+        "canonicalPointCount": 4,
+        "controlPointCount": 0,
+        "cubicSegmentCount": 0,
+        "declarationCount": 9,
+        "documentCount": 1,
+        "lineSegmentCount": 1,
+        "lirRecordCount": 20,
+        "logicalOutputBytes": 1010,
+        "moduleCount": 1,
+        "offsetCurveCount": 2,
+        "referenceCount": 7,
+        "relationOccurrenceCount": 6
+      },
+      "directionProfileCode": 2,
+      "fixture": {
+        "byteLength": 1723,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/min-v1.fixture.json",
+        "sha256": "051d057c430126d28dd18f31ba2093d175e231ce8457b9684aa5cbd452adc639"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 0,
+        "access_rules": 0,
+        "authoring_lane_edges": 2,
+        "authoring_lanes": 2,
+        "canonical_frames": 1,
+        "canonical_points": 4,
+        "corridor_elements": 1,
+        "facility_band_geometries": 0,
+        "facility_bands": 0,
+        "gate_occurrences": 0,
+        "junction_internal_edges": 0,
+        "junction_movements": 0,
+        "junctions": 0,
+        "lane_edge_geometries": 2,
+        "lane_edge_route_occurrences": 0,
+        "lane_edge_successors": 0,
+        "lane_edges": 2,
+        "lane_group_members": 0,
+        "lane_groups": 0,
+        "maneuver_gate_route_occurrences": 0,
+        "maneuver_gates": 0,
+        "maneuver_occurrences": 0,
+        "maneuver_path_edges": 0,
+        "maneuver_path_gates": 0,
+        "maneuver_path_route_occurrences": 0,
+        "maneuver_path_waiting_zones": 0,
+        "maneuver_paths": 0,
+        "movement_maneuver_paths": 0,
+        "movements": 0,
+        "parking_area_spaces": 0,
+        "parking_areas": 0,
+        "parking_spaces": 0,
+        "participant_classes": 0,
+        "road_corridors": 1,
+        "road_section_lanes": 2,
+        "road_sections": 1,
+        "signal_controller_groups": 0,
+        "signal_controller_phases": 0,
+        "signal_controllers": 0,
+        "signal_group_maneuver_gates": 0,
+        "signal_groups": 0,
+        "signal_phase_states": 0,
+        "signal_phases": 0,
+        "spatial_segments": 2,
+        "static_route_edges": 0,
+        "static_route_transitions": 0,
+        "static_routes": 0,
+        "stop_line_maneuver_gates": 0,
+        "stop_lines": 0,
+        "vehicle_profiles": 0,
+        "waiting_zone_occurrences": 0,
+        "waiting_zone_route_occurrences": 0,
+        "waiting_zones": 0
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 1
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 1
+        }
+      ],
+      "accuracyProfileCode": 1,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "counts": {
+        "canonicalPointCount": 4,
+        "controlPointCount": 0,
+        "cubicSegmentCount": 0,
+        "declarationCount": 9,
+        "documentCount": 1,
+        "lineSegmentCount": 1,
+        "lirRecordCount": 20,
+        "logicalOutputBytes": 1010,
+        "moduleCount": 1,
+        "offsetCurveCount": 2,
+        "referenceCount": 7,
+        "relationOccurrenceCount": 6
+      },
+      "directionProfileCode": 3,
+      "fixture": {
+        "byteLength": 1723,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/min-v1.fixture.json",
+        "sha256": "051d057c430126d28dd18f31ba2093d175e231ce8457b9684aa5cbd452adc639"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 0,
+        "access_rules": 0,
+        "authoring_lane_edges": 2,
+        "authoring_lanes": 2,
+        "canonical_frames": 1,
+        "canonical_points": 4,
+        "corridor_elements": 1,
+        "facility_band_geometries": 0,
+        "facility_bands": 0,
+        "gate_occurrences": 0,
+        "junction_internal_edges": 0,
+        "junction_movements": 0,
+        "junctions": 0,
+        "lane_edge_geometries": 2,
+        "lane_edge_route_occurrences": 0,
+        "lane_edge_successors": 0,
+        "lane_edges": 2,
+        "lane_group_members": 0,
+        "lane_groups": 0,
+        "maneuver_gate_route_occurrences": 0,
+        "maneuver_gates": 0,
+        "maneuver_occurrences": 0,
+        "maneuver_path_edges": 0,
+        "maneuver_path_gates": 0,
+        "maneuver_path_route_occurrences": 0,
+        "maneuver_path_waiting_zones": 0,
+        "maneuver_paths": 0,
+        "movement_maneuver_paths": 0,
+        "movements": 0,
+        "parking_area_spaces": 0,
+        "parking_areas": 0,
+        "parking_spaces": 0,
+        "participant_classes": 0,
+        "road_corridors": 1,
+        "road_section_lanes": 2,
+        "road_sections": 1,
+        "signal_controller_groups": 0,
+        "signal_controller_phases": 0,
+        "signal_controllers": 0,
+        "signal_group_maneuver_gates": 0,
+        "signal_groups": 0,
+        "signal_phase_states": 0,
+        "signal_phases": 0,
+        "spatial_segments": 2,
+        "static_route_edges": 0,
+        "static_route_transitions": 0,
+        "static_routes": 0,
+        "stop_line_maneuver_gates": 0,
+        "stop_lines": 0,
+        "vehicle_profiles": 0,
+        "waiting_zone_occurrences": 0,
+        "waiting_zone_route_occurrences": 0,
+        "waiting_zones": 0
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 1
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 1
+        }
+      ],
+      "accuracyProfileCode": 2,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "counts": {
+        "canonicalPointCount": 4,
+        "controlPointCount": 0,
+        "cubicSegmentCount": 0,
+        "declarationCount": 9,
+        "documentCount": 1,
+        "lineSegmentCount": 1,
+        "lirRecordCount": 20,
+        "logicalOutputBytes": 1010,
+        "moduleCount": 1,
+        "offsetCurveCount": 2,
+        "referenceCount": 7,
+        "relationOccurrenceCount": 6
+      },
+      "directionProfileCode": 1,
+      "fixture": {
+        "byteLength": 1723,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/min-v1.fixture.json",
+        "sha256": "051d057c430126d28dd18f31ba2093d175e231ce8457b9684aa5cbd452adc639"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 0,
+        "access_rules": 0,
+        "authoring_lane_edges": 2,
+        "authoring_lanes": 2,
+        "canonical_frames": 1,
+        "canonical_points": 4,
+        "corridor_elements": 1,
+        "facility_band_geometries": 0,
+        "facility_bands": 0,
+        "gate_occurrences": 0,
+        "junction_internal_edges": 0,
+        "junction_movements": 0,
+        "junctions": 0,
+        "lane_edge_geometries": 2,
+        "lane_edge_route_occurrences": 0,
+        "lane_edge_successors": 0,
+        "lane_edges": 2,
+        "lane_group_members": 0,
+        "lane_groups": 0,
+        "maneuver_gate_route_occurrences": 0,
+        "maneuver_gates": 0,
+        "maneuver_occurrences": 0,
+        "maneuver_path_edges": 0,
+        "maneuver_path_gates": 0,
+        "maneuver_path_route_occurrences": 0,
+        "maneuver_path_waiting_zones": 0,
+        "maneuver_paths": 0,
+        "movement_maneuver_paths": 0,
+        "movements": 0,
+        "parking_area_spaces": 0,
+        "parking_areas": 0,
+        "parking_spaces": 0,
+        "participant_classes": 0,
+        "road_corridors": 1,
+        "road_section_lanes": 2,
+        "road_sections": 1,
+        "signal_controller_groups": 0,
+        "signal_controller_phases": 0,
+        "signal_controllers": 0,
+        "signal_group_maneuver_gates": 0,
+        "signal_groups": 0,
+        "signal_phase_states": 0,
+        "signal_phases": 0,
+        "spatial_segments": 2,
+        "static_route_edges": 0,
+        "static_route_transitions": 0,
+        "static_routes": 0,
+        "stop_line_maneuver_gates": 0,
+        "stop_lines": 0,
+        "vehicle_profiles": 0,
+        "waiting_zone_occurrences": 0,
+        "waiting_zone_route_occurrences": 0,
+        "waiting_zones": 0
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 1
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 1
+        }
+      ],
+      "accuracyProfileCode": 2,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "counts": {
+        "canonicalPointCount": 4,
+        "controlPointCount": 0,
+        "cubicSegmentCount": 0,
+        "declarationCount": 9,
+        "documentCount": 1,
+        "lineSegmentCount": 1,
+        "lirRecordCount": 20,
+        "logicalOutputBytes": 1010,
+        "moduleCount": 1,
+        "offsetCurveCount": 2,
+        "referenceCount": 7,
+        "relationOccurrenceCount": 6
+      },
+      "directionProfileCode": 2,
+      "fixture": {
+        "byteLength": 1723,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/min-v1.fixture.json",
+        "sha256": "051d057c430126d28dd18f31ba2093d175e231ce8457b9684aa5cbd452adc639"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 0,
+        "access_rules": 0,
+        "authoring_lane_edges": 2,
+        "authoring_lanes": 2,
+        "canonical_frames": 1,
+        "canonical_points": 4,
+        "corridor_elements": 1,
+        "facility_band_geometries": 0,
+        "facility_bands": 0,
+        "gate_occurrences": 0,
+        "junction_internal_edges": 0,
+        "junction_movements": 0,
+        "junctions": 0,
+        "lane_edge_geometries": 2,
+        "lane_edge_route_occurrences": 0,
+        "lane_edge_successors": 0,
+        "lane_edges": 2,
+        "lane_group_members": 0,
+        "lane_groups": 0,
+        "maneuver_gate_route_occurrences": 0,
+        "maneuver_gates": 0,
+        "maneuver_occurrences": 0,
+        "maneuver_path_edges": 0,
+        "maneuver_path_gates": 0,
+        "maneuver_path_route_occurrences": 0,
+        "maneuver_path_waiting_zones": 0,
+        "maneuver_paths": 0,
+        "movement_maneuver_paths": 0,
+        "movements": 0,
+        "parking_area_spaces": 0,
+        "parking_areas": 0,
+        "parking_spaces": 0,
+        "participant_classes": 0,
+        "road_corridors": 1,
+        "road_section_lanes": 2,
+        "road_sections": 1,
+        "signal_controller_groups": 0,
+        "signal_controller_phases": 0,
+        "signal_controllers": 0,
+        "signal_group_maneuver_gates": 0,
+        "signal_groups": 0,
+        "signal_phase_states": 0,
+        "signal_phases": 0,
+        "spatial_segments": 2,
+        "static_route_edges": 0,
+        "static_route_transitions": 0,
+        "static_routes": 0,
+        "stop_line_maneuver_gates": 0,
+        "stop_lines": 0,
+        "vehicle_profiles": 0,
+        "waiting_zone_occurrences": 0,
+        "waiting_zone_route_occurrences": 0,
+        "waiting_zones": 0
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 1
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 1
+        }
+      ],
+      "accuracyProfileCode": 2,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "counts": {
+        "canonicalPointCount": 4,
+        "controlPointCount": 0,
+        "cubicSegmentCount": 0,
+        "declarationCount": 9,
+        "documentCount": 1,
+        "lineSegmentCount": 1,
+        "lirRecordCount": 20,
+        "logicalOutputBytes": 1010,
+        "moduleCount": 1,
+        "offsetCurveCount": 2,
+        "referenceCount": 7,
+        "relationOccurrenceCount": 6
+      },
+      "directionProfileCode": 3,
+      "fixture": {
+        "byteLength": 1723,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/min-v1.fixture.json",
+        "sha256": "051d057c430126d28dd18f31ba2093d175e231ce8457b9684aa5cbd452adc639"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 0,
+        "access_rules": 0,
+        "authoring_lane_edges": 2,
+        "authoring_lanes": 2,
+        "canonical_frames": 1,
+        "canonical_points": 4,
+        "corridor_elements": 1,
+        "facility_band_geometries": 0,
+        "facility_bands": 0,
+        "gate_occurrences": 0,
+        "junction_internal_edges": 0,
+        "junction_movements": 0,
+        "junctions": 0,
+        "lane_edge_geometries": 2,
+        "lane_edge_route_occurrences": 0,
+        "lane_edge_successors": 0,
+        "lane_edges": 2,
+        "lane_group_members": 0,
+        "lane_groups": 0,
+        "maneuver_gate_route_occurrences": 0,
+        "maneuver_gates": 0,
+        "maneuver_occurrences": 0,
+        "maneuver_path_edges": 0,
+        "maneuver_path_gates": 0,
+        "maneuver_path_route_occurrences": 0,
+        "maneuver_path_waiting_zones": 0,
+        "maneuver_paths": 0,
+        "movement_maneuver_paths": 0,
+        "movements": 0,
+        "parking_area_spaces": 0,
+        "parking_areas": 0,
+        "parking_spaces": 0,
+        "participant_classes": 0,
+        "road_corridors": 1,
+        "road_section_lanes": 2,
+        "road_sections": 1,
+        "signal_controller_groups": 0,
+        "signal_controller_phases": 0,
+        "signal_controllers": 0,
+        "signal_group_maneuver_gates": 0,
+        "signal_groups": 0,
+        "signal_phase_states": 0,
+        "signal_phases": 0,
+        "spatial_segments": 2,
+        "static_route_edges": 0,
+        "static_route_transitions": 0,
+        "static_routes": 0,
+        "stop_line_maneuver_gates": 0,
+        "stop_lines": 0,
+        "vehicle_profiles": 0,
+        "waiting_zone_occurrences": 0,
+        "waiting_zone_route_occurrences": 0,
+        "waiting_zones": 0
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 1
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 1
+        }
+      ],
+      "accuracyProfileCode": 3,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "counts": {
+        "canonicalPointCount": 4,
+        "controlPointCount": 0,
+        "cubicSegmentCount": 0,
+        "declarationCount": 9,
+        "documentCount": 1,
+        "lineSegmentCount": 1,
+        "lirRecordCount": 20,
+        "logicalOutputBytes": 1010,
+        "moduleCount": 1,
+        "offsetCurveCount": 2,
+        "referenceCount": 7,
+        "relationOccurrenceCount": 6
+      },
+      "directionProfileCode": 1,
+      "fixture": {
+        "byteLength": 1723,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/min-v1.fixture.json",
+        "sha256": "051d057c430126d28dd18f31ba2093d175e231ce8457b9684aa5cbd452adc639"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 0,
+        "access_rules": 0,
+        "authoring_lane_edges": 2,
+        "authoring_lanes": 2,
+        "canonical_frames": 1,
+        "canonical_points": 4,
+        "corridor_elements": 1,
+        "facility_band_geometries": 0,
+        "facility_bands": 0,
+        "gate_occurrences": 0,
+        "junction_internal_edges": 0,
+        "junction_movements": 0,
+        "junctions": 0,
+        "lane_edge_geometries": 2,
+        "lane_edge_route_occurrences": 0,
+        "lane_edge_successors": 0,
+        "lane_edges": 2,
+        "lane_group_members": 0,
+        "lane_groups": 0,
+        "maneuver_gate_route_occurrences": 0,
+        "maneuver_gates": 0,
+        "maneuver_occurrences": 0,
+        "maneuver_path_edges": 0,
+        "maneuver_path_gates": 0,
+        "maneuver_path_route_occurrences": 0,
+        "maneuver_path_waiting_zones": 0,
+        "maneuver_paths": 0,
+        "movement_maneuver_paths": 0,
+        "movements": 0,
+        "parking_area_spaces": 0,
+        "parking_areas": 0,
+        "parking_spaces": 0,
+        "participant_classes": 0,
+        "road_corridors": 1,
+        "road_section_lanes": 2,
+        "road_sections": 1,
+        "signal_controller_groups": 0,
+        "signal_controller_phases": 0,
+        "signal_controllers": 0,
+        "signal_group_maneuver_gates": 0,
+        "signal_groups": 0,
+        "signal_phase_states": 0,
+        "signal_phases": 0,
+        "spatial_segments": 2,
+        "static_route_edges": 0,
+        "static_route_transitions": 0,
+        "static_routes": 0,
+        "stop_line_maneuver_gates": 0,
+        "stop_lines": 0,
+        "vehicle_profiles": 0,
+        "waiting_zone_occurrences": 0,
+        "waiting_zone_route_occurrences": 0,
+        "waiting_zones": 0
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 1
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 1
+        }
+      ],
+      "accuracyProfileCode": 3,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "counts": {
+        "canonicalPointCount": 4,
+        "controlPointCount": 0,
+        "cubicSegmentCount": 0,
+        "declarationCount": 9,
+        "documentCount": 1,
+        "lineSegmentCount": 1,
+        "lirRecordCount": 20,
+        "logicalOutputBytes": 1010,
+        "moduleCount": 1,
+        "offsetCurveCount": 2,
+        "referenceCount": 7,
+        "relationOccurrenceCount": 6
+      },
+      "directionProfileCode": 2,
+      "fixture": {
+        "byteLength": 1723,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/min-v1.fixture.json",
+        "sha256": "051d057c430126d28dd18f31ba2093d175e231ce8457b9684aa5cbd452adc639"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 0,
+        "access_rules": 0,
+        "authoring_lane_edges": 2,
+        "authoring_lanes": 2,
+        "canonical_frames": 1,
+        "canonical_points": 4,
+        "corridor_elements": 1,
+        "facility_band_geometries": 0,
+        "facility_bands": 0,
+        "gate_occurrences": 0,
+        "junction_internal_edges": 0,
+        "junction_movements": 0,
+        "junctions": 0,
+        "lane_edge_geometries": 2,
+        "lane_edge_route_occurrences": 0,
+        "lane_edge_successors": 0,
+        "lane_edges": 2,
+        "lane_group_members": 0,
+        "lane_groups": 0,
+        "maneuver_gate_route_occurrences": 0,
+        "maneuver_gates": 0,
+        "maneuver_occurrences": 0,
+        "maneuver_path_edges": 0,
+        "maneuver_path_gates": 0,
+        "maneuver_path_route_occurrences": 0,
+        "maneuver_path_waiting_zones": 0,
+        "maneuver_paths": 0,
+        "movement_maneuver_paths": 0,
+        "movements": 0,
+        "parking_area_spaces": 0,
+        "parking_areas": 0,
+        "parking_spaces": 0,
+        "participant_classes": 0,
+        "road_corridors": 1,
+        "road_section_lanes": 2,
+        "road_sections": 1,
+        "signal_controller_groups": 0,
+        "signal_controller_phases": 0,
+        "signal_controllers": 0,
+        "signal_group_maneuver_gates": 0,
+        "signal_groups": 0,
+        "signal_phase_states": 0,
+        "signal_phases": 0,
+        "spatial_segments": 2,
+        "static_route_edges": 0,
+        "static_route_transitions": 0,
+        "static_routes": 0,
+        "stop_line_maneuver_gates": 0,
+        "stop_lines": 0,
+        "vehicle_profiles": 0,
+        "waiting_zone_occurrences": 0,
+        "waiting_zone_route_occurrences": 0,
+        "waiting_zones": 0
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 1
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 1
+        }
+      ],
+      "accuracyProfileCode": 3,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "counts": {
+        "canonicalPointCount": 4,
+        "controlPointCount": 0,
+        "cubicSegmentCount": 0,
+        "declarationCount": 9,
+        "documentCount": 1,
+        "lineSegmentCount": 1,
+        "lirRecordCount": 20,
+        "logicalOutputBytes": 1010,
+        "moduleCount": 1,
+        "offsetCurveCount": 2,
+        "referenceCount": 7,
+        "relationOccurrenceCount": 6
+      },
+      "directionProfileCode": 3,
+      "fixture": {
+        "byteLength": 1723,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/min-v1.fixture.json",
+        "sha256": "051d057c430126d28dd18f31ba2093d175e231ce8457b9684aa5cbd452adc639"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 0,
+        "access_rules": 0,
+        "authoring_lane_edges": 2,
+        "authoring_lanes": 2,
+        "canonical_frames": 1,
+        "canonical_points": 4,
+        "corridor_elements": 1,
+        "facility_band_geometries": 0,
+        "facility_bands": 0,
+        "gate_occurrences": 0,
+        "junction_internal_edges": 0,
+        "junction_movements": 0,
+        "junctions": 0,
+        "lane_edge_geometries": 2,
+        "lane_edge_route_occurrences": 0,
+        "lane_edge_successors": 0,
+        "lane_edges": 2,
+        "lane_group_members": 0,
+        "lane_groups": 0,
+        "maneuver_gate_route_occurrences": 0,
+        "maneuver_gates": 0,
+        "maneuver_occurrences": 0,
+        "maneuver_path_edges": 0,
+        "maneuver_path_gates": 0,
+        "maneuver_path_route_occurrences": 0,
+        "maneuver_path_waiting_zones": 0,
+        "maneuver_paths": 0,
+        "movement_maneuver_paths": 0,
+        "movements": 0,
+        "parking_area_spaces": 0,
+        "parking_areas": 0,
+        "parking_spaces": 0,
+        "participant_classes": 0,
+        "road_corridors": 1,
+        "road_section_lanes": 2,
+        "road_sections": 1,
+        "signal_controller_groups": 0,
+        "signal_controller_phases": 0,
+        "signal_controllers": 0,
+        "signal_group_maneuver_gates": 0,
+        "signal_groups": 0,
+        "signal_phase_states": 0,
+        "signal_phases": 0,
+        "spatial_segments": 2,
+        "static_route_edges": 0,
+        "static_route_transitions": 0,
+        "static_routes": 0,
+        "stop_line_maneuver_gates": 0,
+        "stop_lines": 0,
+        "vehicle_profiles": 0,
+        "waiting_zone_occurrences": 0,
+        "waiting_zone_route_occurrences": 0,
+        "waiting_zones": 0
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 4
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 7
+        }
+      ],
+      "accuracyProfileCode": 1,
+      "completeOutputDigest": "ae7d83cd640b6183f963d79fc1b37a42bd195576389d65076cc3d11468a58a58",
+      "counts": {
+        "canonicalPointCount": 2310,
+        "controlPointCount": 40,
+        "cubicSegmentCount": 20,
+        "declarationCount": 421,
+        "documentCount": 1,
+        "lineSegmentCount": 35,
+        "lirRecordCount": 6057,
+        "logicalOutputBytes": 168395,
+        "moduleCount": 1,
+        "offsetCurveCount": 41,
+        "referenceCount": 832,
+        "relationOccurrenceCount": 677
+      },
+      "directionProfileCode": 1,
+      "fixture": {
+        "byteLength": 75707,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/corridor-v1.fixture.json",
+        "sha256": "27d092744e2434f663f4e72918b1a3f00729c92bbc6d85298c8d3f80dccdabec"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 18,
+        "access_rules": 18,
+        "authoring_lane_edges": 34,
+        "authoring_lanes": 34,
+        "canonical_frames": 1,
+        "canonical_points": 2310,
+        "corridor_elements": 21,
+        "facility_band_geometries": 7,
+        "facility_bands": 7,
+        "gate_occurrences": 46,
+        "junction_internal_edges": 32,
+        "junction_movements": 32,
+        "junctions": 2,
+        "lane_edge_geometries": 66,
+        "lane_edge_route_occurrences": 116,
+        "lane_edge_successors": 64,
+        "lane_edges": 66,
+        "lane_group_members": 6,
+        "lane_groups": 6,
+        "maneuver_gate_route_occurrences": 46,
+        "maneuver_gates": 33,
+        "maneuver_occurrences": 44,
+        "maneuver_path_edges": 96,
+        "maneuver_path_gates": 33,
+        "maneuver_path_route_occurrences": 44,
+        "maneuver_path_waiting_zones": 1,
+        "maneuver_paths": 32,
+        "movement_maneuver_paths": 32,
+        "movements": 32,
+        "parking_area_spaces": 1,
+        "parking_areas": 1,
+        "parking_spaces": 1,
+        "participant_classes": 3,
+        "road_corridors": 7,
+        "road_section_lanes": 34,
+        "road_sections": 14,
+        "signal_controller_groups": 8,
+        "signal_controller_phases": 24,
+        "signal_controllers": 2,
+        "signal_group_maneuver_gates": 32,
+        "signal_groups": 8,
+        "signal_phase_states": 96,
+        "signal_phases": 24,
+        "spatial_segments": 2230,
+        "static_route_edges": 116,
+        "static_route_transitions": 88,
+        "static_routes": 28,
+        "stop_line_maneuver_gates": 33,
+        "stop_lines": 21,
+        "vehicle_profiles": 2,
+        "waiting_zone_occurrences": 2,
+        "waiting_zone_route_occurrences": 2,
+        "waiting_zones": 1
+      },
+      "semanticFingerprint": "3c76be28224851d2455e95c6f654be593d96e5957bdf85ab531e7516dff72e92",
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 4
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 7
+        }
+      ],
+      "accuracyProfileCode": 1,
+      "completeOutputDigest": "f0ede0f8c76116635a1130e09809f6912612b037727d26bf173188c43889dcfa",
+      "counts": {
+        "canonicalPointCount": 1238,
+        "controlPointCount": 40,
+        "cubicSegmentCount": 20,
+        "declarationCount": 421,
+        "documentCount": 1,
+        "lineSegmentCount": 35,
+        "lirRecordCount": 3913,
+        "logicalOutputBytes": 121227,
+        "moduleCount": 1,
+        "offsetCurveCount": 41,
+        "referenceCount": 832,
+        "relationOccurrenceCount": 677
+      },
+      "directionProfileCode": 2,
+      "fixture": {
+        "byteLength": 75707,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/corridor-v1.fixture.json",
+        "sha256": "27d092744e2434f663f4e72918b1a3f00729c92bbc6d85298c8d3f80dccdabec"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 18,
+        "access_rules": 18,
+        "authoring_lane_edges": 34,
+        "authoring_lanes": 34,
+        "canonical_frames": 1,
+        "canonical_points": 1238,
+        "corridor_elements": 21,
+        "facility_band_geometries": 7,
+        "facility_bands": 7,
+        "gate_occurrences": 46,
+        "junction_internal_edges": 32,
+        "junction_movements": 32,
+        "junctions": 2,
+        "lane_edge_geometries": 66,
+        "lane_edge_route_occurrences": 116,
+        "lane_edge_successors": 64,
+        "lane_edges": 66,
+        "lane_group_members": 6,
+        "lane_groups": 6,
+        "maneuver_gate_route_occurrences": 46,
+        "maneuver_gates": 33,
+        "maneuver_occurrences": 44,
+        "maneuver_path_edges": 96,
+        "maneuver_path_gates": 33,
+        "maneuver_path_route_occurrences": 44,
+        "maneuver_path_waiting_zones": 1,
+        "maneuver_paths": 32,
+        "movement_maneuver_paths": 32,
+        "movements": 32,
+        "parking_area_spaces": 1,
+        "parking_areas": 1,
+        "parking_spaces": 1,
+        "participant_classes": 3,
+        "road_corridors": 7,
+        "road_section_lanes": 34,
+        "road_sections": 14,
+        "signal_controller_groups": 8,
+        "signal_controller_phases": 24,
+        "signal_controllers": 2,
+        "signal_group_maneuver_gates": 32,
+        "signal_groups": 8,
+        "signal_phase_states": 96,
+        "signal_phases": 24,
+        "spatial_segments": 1158,
+        "static_route_edges": 116,
+        "static_route_transitions": 88,
+        "static_routes": 28,
+        "stop_line_maneuver_gates": 33,
+        "stop_lines": 21,
+        "vehicle_profiles": 2,
+        "waiting_zone_occurrences": 2,
+        "waiting_zone_route_occurrences": 2,
+        "waiting_zones": 1
+      },
+      "semanticFingerprint": "01bd0afc0c2760167f605a7d5282145ec139503670bc9e7a883737b3bb92ddb2",
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 4
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 7
+        }
+      ],
+      "accuracyProfileCode": 1,
+      "completeOutputDigest": "ea010f016e5cace04c68182836a66e3846bc9a1c324cc4cdefc99185577d1ccd",
+      "counts": {
+        "canonicalPointCount": 726,
+        "controlPointCount": 40,
+        "cubicSegmentCount": 20,
+        "declarationCount": 421,
+        "documentCount": 1,
+        "lineSegmentCount": 35,
+        "lirRecordCount": 2889,
+        "logicalOutputBytes": 98699,
+        "moduleCount": 1,
+        "offsetCurveCount": 41,
+        "referenceCount": 832,
+        "relationOccurrenceCount": 677
+      },
+      "directionProfileCode": 3,
+      "fixture": {
+        "byteLength": 75707,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/corridor-v1.fixture.json",
+        "sha256": "27d092744e2434f663f4e72918b1a3f00729c92bbc6d85298c8d3f80dccdabec"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 18,
+        "access_rules": 18,
+        "authoring_lane_edges": 34,
+        "authoring_lanes": 34,
+        "canonical_frames": 1,
+        "canonical_points": 726,
+        "corridor_elements": 21,
+        "facility_band_geometries": 7,
+        "facility_bands": 7,
+        "gate_occurrences": 46,
+        "junction_internal_edges": 32,
+        "junction_movements": 32,
+        "junctions": 2,
+        "lane_edge_geometries": 66,
+        "lane_edge_route_occurrences": 116,
+        "lane_edge_successors": 64,
+        "lane_edges": 66,
+        "lane_group_members": 6,
+        "lane_groups": 6,
+        "maneuver_gate_route_occurrences": 46,
+        "maneuver_gates": 33,
+        "maneuver_occurrences": 44,
+        "maneuver_path_edges": 96,
+        "maneuver_path_gates": 33,
+        "maneuver_path_route_occurrences": 44,
+        "maneuver_path_waiting_zones": 1,
+        "maneuver_paths": 32,
+        "movement_maneuver_paths": 32,
+        "movements": 32,
+        "parking_area_spaces": 1,
+        "parking_areas": 1,
+        "parking_spaces": 1,
+        "participant_classes": 3,
+        "road_corridors": 7,
+        "road_section_lanes": 34,
+        "road_sections": 14,
+        "signal_controller_groups": 8,
+        "signal_controller_phases": 24,
+        "signal_controllers": 2,
+        "signal_group_maneuver_gates": 32,
+        "signal_groups": 8,
+        "signal_phase_states": 96,
+        "signal_phases": 24,
+        "spatial_segments": 646,
+        "static_route_edges": 116,
+        "static_route_transitions": 88,
+        "static_routes": 28,
+        "stop_line_maneuver_gates": 33,
+        "stop_lines": 21,
+        "vehicle_profiles": 2,
+        "waiting_zone_occurrences": 2,
+        "waiting_zone_route_occurrences": 2,
+        "waiting_zones": 1
+      },
+      "semanticFingerprint": "cddb44383843a3af927af2fa6e95c047e8fd192311b7cd37e206f05cc9a9cde7",
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 4
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 7
+        }
+      ],
+      "accuracyProfileCode": 2,
+      "completeOutputDigest": "ae7d83cd640b6183f963d79fc1b37a42bd195576389d65076cc3d11468a58a58",
+      "counts": {
+        "canonicalPointCount": 2310,
+        "controlPointCount": 40,
+        "cubicSegmentCount": 20,
+        "declarationCount": 421,
+        "documentCount": 1,
+        "lineSegmentCount": 35,
+        "lirRecordCount": 6057,
+        "logicalOutputBytes": 168395,
+        "moduleCount": 1,
+        "offsetCurveCount": 41,
+        "referenceCount": 832,
+        "relationOccurrenceCount": 677
+      },
+      "directionProfileCode": 1,
+      "fixture": {
+        "byteLength": 75707,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/corridor-v1.fixture.json",
+        "sha256": "27d092744e2434f663f4e72918b1a3f00729c92bbc6d85298c8d3f80dccdabec"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 18,
+        "access_rules": 18,
+        "authoring_lane_edges": 34,
+        "authoring_lanes": 34,
+        "canonical_frames": 1,
+        "canonical_points": 2310,
+        "corridor_elements": 21,
+        "facility_band_geometries": 7,
+        "facility_bands": 7,
+        "gate_occurrences": 46,
+        "junction_internal_edges": 32,
+        "junction_movements": 32,
+        "junctions": 2,
+        "lane_edge_geometries": 66,
+        "lane_edge_route_occurrences": 116,
+        "lane_edge_successors": 64,
+        "lane_edges": 66,
+        "lane_group_members": 6,
+        "lane_groups": 6,
+        "maneuver_gate_route_occurrences": 46,
+        "maneuver_gates": 33,
+        "maneuver_occurrences": 44,
+        "maneuver_path_edges": 96,
+        "maneuver_path_gates": 33,
+        "maneuver_path_route_occurrences": 44,
+        "maneuver_path_waiting_zones": 1,
+        "maneuver_paths": 32,
+        "movement_maneuver_paths": 32,
+        "movements": 32,
+        "parking_area_spaces": 1,
+        "parking_areas": 1,
+        "parking_spaces": 1,
+        "participant_classes": 3,
+        "road_corridors": 7,
+        "road_section_lanes": 34,
+        "road_sections": 14,
+        "signal_controller_groups": 8,
+        "signal_controller_phases": 24,
+        "signal_controllers": 2,
+        "signal_group_maneuver_gates": 32,
+        "signal_groups": 8,
+        "signal_phase_states": 96,
+        "signal_phases": 24,
+        "spatial_segments": 2230,
+        "static_route_edges": 116,
+        "static_route_transitions": 88,
+        "static_routes": 28,
+        "stop_line_maneuver_gates": 33,
+        "stop_lines": 21,
+        "vehicle_profiles": 2,
+        "waiting_zone_occurrences": 2,
+        "waiting_zone_route_occurrences": 2,
+        "waiting_zones": 1
+      },
+      "semanticFingerprint": "3c76be28224851d2455e95c6f654be593d96e5957bdf85ab531e7516dff72e92",
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 4
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 7
+        }
+      ],
+      "accuracyProfileCode": 2,
+      "completeOutputDigest": "f9b3ac45cdb3403cf5785bdd1602f584bf4e01ef41d4e9b22b2ba7169f70682a",
+      "counts": {
+        "canonicalPointCount": 1222,
+        "controlPointCount": 40,
+        "cubicSegmentCount": 20,
+        "declarationCount": 421,
+        "documentCount": 1,
+        "lineSegmentCount": 35,
+        "lirRecordCount": 3881,
+        "logicalOutputBytes": 120523,
+        "moduleCount": 1,
+        "offsetCurveCount": 41,
+        "referenceCount": 832,
+        "relationOccurrenceCount": 677
+      },
+      "directionProfileCode": 2,
+      "fixture": {
+        "byteLength": 75707,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/corridor-v1.fixture.json",
+        "sha256": "27d092744e2434f663f4e72918b1a3f00729c92bbc6d85298c8d3f80dccdabec"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 18,
+        "access_rules": 18,
+        "authoring_lane_edges": 34,
+        "authoring_lanes": 34,
+        "canonical_frames": 1,
+        "canonical_points": 1222,
+        "corridor_elements": 21,
+        "facility_band_geometries": 7,
+        "facility_bands": 7,
+        "gate_occurrences": 46,
+        "junction_internal_edges": 32,
+        "junction_movements": 32,
+        "junctions": 2,
+        "lane_edge_geometries": 66,
+        "lane_edge_route_occurrences": 116,
+        "lane_edge_successors": 64,
+        "lane_edges": 66,
+        "lane_group_members": 6,
+        "lane_groups": 6,
+        "maneuver_gate_route_occurrences": 46,
+        "maneuver_gates": 33,
+        "maneuver_occurrences": 44,
+        "maneuver_path_edges": 96,
+        "maneuver_path_gates": 33,
+        "maneuver_path_route_occurrences": 44,
+        "maneuver_path_waiting_zones": 1,
+        "maneuver_paths": 32,
+        "movement_maneuver_paths": 32,
+        "movements": 32,
+        "parking_area_spaces": 1,
+        "parking_areas": 1,
+        "parking_spaces": 1,
+        "participant_classes": 3,
+        "road_corridors": 7,
+        "road_section_lanes": 34,
+        "road_sections": 14,
+        "signal_controller_groups": 8,
+        "signal_controller_phases": 24,
+        "signal_controllers": 2,
+        "signal_group_maneuver_gates": 32,
+        "signal_groups": 8,
+        "signal_phase_states": 96,
+        "signal_phases": 24,
+        "spatial_segments": 1142,
+        "static_route_edges": 116,
+        "static_route_transitions": 88,
+        "static_routes": 28,
+        "stop_line_maneuver_gates": 33,
+        "stop_lines": 21,
+        "vehicle_profiles": 2,
+        "waiting_zone_occurrences": 2,
+        "waiting_zone_route_occurrences": 2,
+        "waiting_zones": 1
+      },
+      "semanticFingerprint": "75c12764cb4d372e97832e704ebcf9a60d0e17678d88a0295f9a7abc8780a499",
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 4
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 7
+        }
+      ],
+      "accuracyProfileCode": 2,
+      "completeOutputDigest": "6f57ed08303a256fddb1473b872efd173eadea29e67155196dae42db43276267",
+      "counts": {
+        "canonicalPointCount": 702,
+        "controlPointCount": 40,
+        "cubicSegmentCount": 20,
+        "declarationCount": 421,
+        "documentCount": 1,
+        "lineSegmentCount": 35,
+        "lirRecordCount": 2841,
+        "logicalOutputBytes": 97643,
+        "moduleCount": 1,
+        "offsetCurveCount": 41,
+        "referenceCount": 832,
+        "relationOccurrenceCount": 677
+      },
+      "directionProfileCode": 3,
+      "fixture": {
+        "byteLength": 75707,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/corridor-v1.fixture.json",
+        "sha256": "27d092744e2434f663f4e72918b1a3f00729c92bbc6d85298c8d3f80dccdabec"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 18,
+        "access_rules": 18,
+        "authoring_lane_edges": 34,
+        "authoring_lanes": 34,
+        "canonical_frames": 1,
+        "canonical_points": 702,
+        "corridor_elements": 21,
+        "facility_band_geometries": 7,
+        "facility_bands": 7,
+        "gate_occurrences": 46,
+        "junction_internal_edges": 32,
+        "junction_movements": 32,
+        "junctions": 2,
+        "lane_edge_geometries": 66,
+        "lane_edge_route_occurrences": 116,
+        "lane_edge_successors": 64,
+        "lane_edges": 66,
+        "lane_group_members": 6,
+        "lane_groups": 6,
+        "maneuver_gate_route_occurrences": 46,
+        "maneuver_gates": 33,
+        "maneuver_occurrences": 44,
+        "maneuver_path_edges": 96,
+        "maneuver_path_gates": 33,
+        "maneuver_path_route_occurrences": 44,
+        "maneuver_path_waiting_zones": 1,
+        "maneuver_paths": 32,
+        "movement_maneuver_paths": 32,
+        "movements": 32,
+        "parking_area_spaces": 1,
+        "parking_areas": 1,
+        "parking_spaces": 1,
+        "participant_classes": 3,
+        "road_corridors": 7,
+        "road_section_lanes": 34,
+        "road_sections": 14,
+        "signal_controller_groups": 8,
+        "signal_controller_phases": 24,
+        "signal_controllers": 2,
+        "signal_group_maneuver_gates": 32,
+        "signal_groups": 8,
+        "signal_phase_states": 96,
+        "signal_phases": 24,
+        "spatial_segments": 622,
+        "static_route_edges": 116,
+        "static_route_transitions": 88,
+        "static_routes": 28,
+        "stop_line_maneuver_gates": 33,
+        "stop_lines": 21,
+        "vehicle_profiles": 2,
+        "waiting_zone_occurrences": 2,
+        "waiting_zone_route_occurrences": 2,
+        "waiting_zones": 1
+      },
+      "semanticFingerprint": "93ffc68933691638d9659ff954299f17afa3a070fad4452424191fecd3dc1dcd",
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 4
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 7
+        }
+      ],
+      "accuracyProfileCode": 3,
+      "completeOutputDigest": "ae7d83cd640b6183f963d79fc1b37a42bd195576389d65076cc3d11468a58a58",
+      "counts": {
+        "canonicalPointCount": 2310,
+        "controlPointCount": 40,
+        "cubicSegmentCount": 20,
+        "declarationCount": 421,
+        "documentCount": 1,
+        "lineSegmentCount": 35,
+        "lirRecordCount": 6057,
+        "logicalOutputBytes": 168395,
+        "moduleCount": 1,
+        "offsetCurveCount": 41,
+        "referenceCount": 832,
+        "relationOccurrenceCount": 677
+      },
+      "directionProfileCode": 1,
+      "fixture": {
+        "byteLength": 75707,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/corridor-v1.fixture.json",
+        "sha256": "27d092744e2434f663f4e72918b1a3f00729c92bbc6d85298c8d3f80dccdabec"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 18,
+        "access_rules": 18,
+        "authoring_lane_edges": 34,
+        "authoring_lanes": 34,
+        "canonical_frames": 1,
+        "canonical_points": 2310,
+        "corridor_elements": 21,
+        "facility_band_geometries": 7,
+        "facility_bands": 7,
+        "gate_occurrences": 46,
+        "junction_internal_edges": 32,
+        "junction_movements": 32,
+        "junctions": 2,
+        "lane_edge_geometries": 66,
+        "lane_edge_route_occurrences": 116,
+        "lane_edge_successors": 64,
+        "lane_edges": 66,
+        "lane_group_members": 6,
+        "lane_groups": 6,
+        "maneuver_gate_route_occurrences": 46,
+        "maneuver_gates": 33,
+        "maneuver_occurrences": 44,
+        "maneuver_path_edges": 96,
+        "maneuver_path_gates": 33,
+        "maneuver_path_route_occurrences": 44,
+        "maneuver_path_waiting_zones": 1,
+        "maneuver_paths": 32,
+        "movement_maneuver_paths": 32,
+        "movements": 32,
+        "parking_area_spaces": 1,
+        "parking_areas": 1,
+        "parking_spaces": 1,
+        "participant_classes": 3,
+        "road_corridors": 7,
+        "road_section_lanes": 34,
+        "road_sections": 14,
+        "signal_controller_groups": 8,
+        "signal_controller_phases": 24,
+        "signal_controllers": 2,
+        "signal_group_maneuver_gates": 32,
+        "signal_groups": 8,
+        "signal_phase_states": 96,
+        "signal_phases": 24,
+        "spatial_segments": 2230,
+        "static_route_edges": 116,
+        "static_route_transitions": 88,
+        "static_routes": 28,
+        "stop_line_maneuver_gates": 33,
+        "stop_lines": 21,
+        "vehicle_profiles": 2,
+        "waiting_zone_occurrences": 2,
+        "waiting_zone_route_occurrences": 2,
+        "waiting_zones": 1
+      },
+      "semanticFingerprint": "3c76be28224851d2455e95c6f654be593d96e5957bdf85ab531e7516dff72e92",
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 4
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 7
+        }
+      ],
+      "accuracyProfileCode": 3,
+      "completeOutputDigest": "f9b3ac45cdb3403cf5785bdd1602f584bf4e01ef41d4e9b22b2ba7169f70682a",
+      "counts": {
+        "canonicalPointCount": 1222,
+        "controlPointCount": 40,
+        "cubicSegmentCount": 20,
+        "declarationCount": 421,
+        "documentCount": 1,
+        "lineSegmentCount": 35,
+        "lirRecordCount": 3881,
+        "logicalOutputBytes": 120523,
+        "moduleCount": 1,
+        "offsetCurveCount": 41,
+        "referenceCount": 832,
+        "relationOccurrenceCount": 677
+      },
+      "directionProfileCode": 2,
+      "fixture": {
+        "byteLength": 75707,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/corridor-v1.fixture.json",
+        "sha256": "27d092744e2434f663f4e72918b1a3f00729c92bbc6d85298c8d3f80dccdabec"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 18,
+        "access_rules": 18,
+        "authoring_lane_edges": 34,
+        "authoring_lanes": 34,
+        "canonical_frames": 1,
+        "canonical_points": 1222,
+        "corridor_elements": 21,
+        "facility_band_geometries": 7,
+        "facility_bands": 7,
+        "gate_occurrences": 46,
+        "junction_internal_edges": 32,
+        "junction_movements": 32,
+        "junctions": 2,
+        "lane_edge_geometries": 66,
+        "lane_edge_route_occurrences": 116,
+        "lane_edge_successors": 64,
+        "lane_edges": 66,
+        "lane_group_members": 6,
+        "lane_groups": 6,
+        "maneuver_gate_route_occurrences": 46,
+        "maneuver_gates": 33,
+        "maneuver_occurrences": 44,
+        "maneuver_path_edges": 96,
+        "maneuver_path_gates": 33,
+        "maneuver_path_route_occurrences": 44,
+        "maneuver_path_waiting_zones": 1,
+        "maneuver_paths": 32,
+        "movement_maneuver_paths": 32,
+        "movements": 32,
+        "parking_area_spaces": 1,
+        "parking_areas": 1,
+        "parking_spaces": 1,
+        "participant_classes": 3,
+        "road_corridors": 7,
+        "road_section_lanes": 34,
+        "road_sections": 14,
+        "signal_controller_groups": 8,
+        "signal_controller_phases": 24,
+        "signal_controllers": 2,
+        "signal_group_maneuver_gates": 32,
+        "signal_groups": 8,
+        "signal_phase_states": 96,
+        "signal_phases": 24,
+        "spatial_segments": 1142,
+        "static_route_edges": 116,
+        "static_route_transitions": 88,
+        "static_routes": 28,
+        "stop_line_maneuver_gates": 33,
+        "stop_lines": 21,
+        "vehicle_profiles": 2,
+        "waiting_zone_occurrences": 2,
+        "waiting_zone_route_occurrences": 2,
+        "waiting_zones": 1
+      },
+      "semanticFingerprint": "75c12764cb4d372e97832e704ebcf9a60d0e17678d88a0295f9a7abc8780a499",
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 4
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 3
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 7
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 7
+        }
+      ],
+      "accuracyProfileCode": 3,
+      "completeOutputDigest": "0ddd0e546d633d2ace33574550c9430b7c20a2fd60ec2a9540f3afbd4ca7420b",
+      "counts": {
+        "canonicalPointCount": 694,
+        "controlPointCount": 40,
+        "cubicSegmentCount": 20,
+        "declarationCount": 421,
+        "documentCount": 1,
+        "lineSegmentCount": 35,
+        "lirRecordCount": 2825,
+        "logicalOutputBytes": 97291,
+        "moduleCount": 1,
+        "offsetCurveCount": 41,
+        "referenceCount": 832,
+        "relationOccurrenceCount": 677
+      },
+      "directionProfileCode": 3,
+      "fixture": {
+        "byteLength": 75707,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/corridor-v1.fixture.json",
+        "sha256": "27d092744e2434f663f4e72918b1a3f00729c92bbc6d85298c8d3f80dccdabec"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 18,
+        "access_rules": 18,
+        "authoring_lane_edges": 34,
+        "authoring_lanes": 34,
+        "canonical_frames": 1,
+        "canonical_points": 694,
+        "corridor_elements": 21,
+        "facility_band_geometries": 7,
+        "facility_bands": 7,
+        "gate_occurrences": 46,
+        "junction_internal_edges": 32,
+        "junction_movements": 32,
+        "junctions": 2,
+        "lane_edge_geometries": 66,
+        "lane_edge_route_occurrences": 116,
+        "lane_edge_successors": 64,
+        "lane_edges": 66,
+        "lane_group_members": 6,
+        "lane_groups": 6,
+        "maneuver_gate_route_occurrences": 46,
+        "maneuver_gates": 33,
+        "maneuver_occurrences": 44,
+        "maneuver_path_edges": 96,
+        "maneuver_path_gates": 33,
+        "maneuver_path_route_occurrences": 44,
+        "maneuver_path_waiting_zones": 1,
+        "maneuver_paths": 32,
+        "movement_maneuver_paths": 32,
+        "movements": 32,
+        "parking_area_spaces": 1,
+        "parking_areas": 1,
+        "parking_spaces": 1,
+        "participant_classes": 3,
+        "road_corridors": 7,
+        "road_section_lanes": 34,
+        "road_sections": 14,
+        "signal_controller_groups": 8,
+        "signal_controller_phases": 24,
+        "signal_controllers": 2,
+        "signal_group_maneuver_gates": 32,
+        "signal_groups": 8,
+        "signal_phase_states": 96,
+        "signal_phases": 24,
+        "spatial_segments": 614,
+        "static_route_edges": 116,
+        "static_route_transitions": 88,
+        "static_routes": 28,
+        "stop_line_maneuver_gates": 33,
+        "stop_lines": 21,
+        "vehicle_profiles": 2,
+        "waiting_zone_occurrences": 2,
+        "waiting_zone_route_occurrences": 2,
+        "waiting_zones": 1
+      },
+      "semanticFingerprint": "641510b18b10904f3aee695968d262c88a2060b1a8ddae46940c4029ae5a0a90",
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 20
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 35
+        }
+      ],
+      "accuracyProfileCode": 1,
+      "completeOutputDigest": "e85e7677f7f8dcef0b61d3429cd26c4b2c58a094efbdcad45cbaed05ce0c2a10",
+      "counts": {
+        "canonicalPointCount": 11550,
+        "controlPointCount": 200,
+        "cubicSegmentCount": 100,
+        "declarationCount": 2105,
+        "documentCount": 5,
+        "lineSegmentCount": 175,
+        "lirRecordCount": 30285,
+        "logicalOutputBytes": 840132,
+        "moduleCount": 5,
+        "offsetCurveCount": 205,
+        "referenceCount": 4160,
+        "relationOccurrenceCount": 3385
+      },
+      "directionProfileCode": 1,
+      "fixture": {
+        "byteLength": 378059,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/p100-v1.fixture.json",
+        "sha256": "05a32c19f3fe4ab8f7ea176d996a505688f875197433ab7f83d629ef5d560ce2"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 90,
+        "access_rules": 90,
+        "authoring_lane_edges": 170,
+        "authoring_lanes": 170,
+        "canonical_frames": 5,
+        "canonical_points": 11550,
+        "corridor_elements": 105,
+        "facility_band_geometries": 35,
+        "facility_bands": 35,
+        "gate_occurrences": 230,
+        "junction_internal_edges": 160,
+        "junction_movements": 160,
+        "junctions": 10,
+        "lane_edge_geometries": 330,
+        "lane_edge_route_occurrences": 580,
+        "lane_edge_successors": 320,
+        "lane_edges": 330,
+        "lane_group_members": 30,
+        "lane_groups": 30,
+        "maneuver_gate_route_occurrences": 230,
+        "maneuver_gates": 165,
+        "maneuver_occurrences": 220,
+        "maneuver_path_edges": 480,
+        "maneuver_path_gates": 165,
+        "maneuver_path_route_occurrences": 220,
+        "maneuver_path_waiting_zones": 5,
+        "maneuver_paths": 160,
+        "movement_maneuver_paths": 160,
+        "movements": 160,
+        "parking_area_spaces": 5,
+        "parking_areas": 5,
+        "parking_spaces": 5,
+        "participant_classes": 15,
+        "road_corridors": 35,
+        "road_section_lanes": 170,
+        "road_sections": 70,
+        "signal_controller_groups": 40,
+        "signal_controller_phases": 120,
+        "signal_controllers": 10,
+        "signal_group_maneuver_gates": 160,
+        "signal_groups": 40,
+        "signal_phase_states": 480,
+        "signal_phases": 120,
+        "spatial_segments": 11150,
+        "static_route_edges": 580,
+        "static_route_transitions": 440,
+        "static_routes": 140,
+        "stop_line_maneuver_gates": 165,
+        "stop_lines": 105,
+        "vehicle_profiles": 10,
+        "waiting_zone_occurrences": 10,
+        "waiting_zone_route_occurrences": 10,
+        "waiting_zones": 5
+      },
+      "semanticFingerprint": "3da8c43c5e1126d59098bc81bf24203d87d6d9009ad125340ba186ade895bc4f",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 20
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 35
+        }
+      ],
+      "accuracyProfileCode": 1,
+      "completeOutputDigest": "578b17f98596c8dd8316c08fe9fbcf38583d52e5f3215675ef48ef04494a61f9",
+      "counts": {
+        "canonicalPointCount": 6190,
+        "controlPointCount": 200,
+        "cubicSegmentCount": 100,
+        "declarationCount": 2105,
+        "documentCount": 5,
+        "lineSegmentCount": 175,
+        "lirRecordCount": 19565,
+        "logicalOutputBytes": 604292,
+        "moduleCount": 5,
+        "offsetCurveCount": 205,
+        "referenceCount": 4160,
+        "relationOccurrenceCount": 3385
+      },
+      "directionProfileCode": 2,
+      "fixture": {
+        "byteLength": 378059,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/p100-v1.fixture.json",
+        "sha256": "05a32c19f3fe4ab8f7ea176d996a505688f875197433ab7f83d629ef5d560ce2"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 90,
+        "access_rules": 90,
+        "authoring_lane_edges": 170,
+        "authoring_lanes": 170,
+        "canonical_frames": 5,
+        "canonical_points": 6190,
+        "corridor_elements": 105,
+        "facility_band_geometries": 35,
+        "facility_bands": 35,
+        "gate_occurrences": 230,
+        "junction_internal_edges": 160,
+        "junction_movements": 160,
+        "junctions": 10,
+        "lane_edge_geometries": 330,
+        "lane_edge_route_occurrences": 580,
+        "lane_edge_successors": 320,
+        "lane_edges": 330,
+        "lane_group_members": 30,
+        "lane_groups": 30,
+        "maneuver_gate_route_occurrences": 230,
+        "maneuver_gates": 165,
+        "maneuver_occurrences": 220,
+        "maneuver_path_edges": 480,
+        "maneuver_path_gates": 165,
+        "maneuver_path_route_occurrences": 220,
+        "maneuver_path_waiting_zones": 5,
+        "maneuver_paths": 160,
+        "movement_maneuver_paths": 160,
+        "movements": 160,
+        "parking_area_spaces": 5,
+        "parking_areas": 5,
+        "parking_spaces": 5,
+        "participant_classes": 15,
+        "road_corridors": 35,
+        "road_section_lanes": 170,
+        "road_sections": 70,
+        "signal_controller_groups": 40,
+        "signal_controller_phases": 120,
+        "signal_controllers": 10,
+        "signal_group_maneuver_gates": 160,
+        "signal_groups": 40,
+        "signal_phase_states": 480,
+        "signal_phases": 120,
+        "spatial_segments": 5790,
+        "static_route_edges": 580,
+        "static_route_transitions": 440,
+        "static_routes": 140,
+        "stop_line_maneuver_gates": 165,
+        "stop_lines": 105,
+        "vehicle_profiles": 10,
+        "waiting_zone_occurrences": 10,
+        "waiting_zone_route_occurrences": 10,
+        "waiting_zones": 5
+      },
+      "semanticFingerprint": "ce524330b60b148378e8a58e0274b0dc6937cbd4ff9a45df8f32eb3c9e20e717",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 20
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 35
+        }
+      ],
+      "accuracyProfileCode": 1,
+      "completeOutputDigest": "812972f972060caaba9913b2a1cd70c617b2be3cc30646dfaf187ded9ededa9f",
+      "counts": {
+        "canonicalPointCount": 3630,
+        "controlPointCount": 200,
+        "cubicSegmentCount": 100,
+        "declarationCount": 2105,
+        "documentCount": 5,
+        "lineSegmentCount": 175,
+        "lirRecordCount": 14445,
+        "logicalOutputBytes": 491652,
+        "moduleCount": 5,
+        "offsetCurveCount": 205,
+        "referenceCount": 4160,
+        "relationOccurrenceCount": 3385
+      },
+      "directionProfileCode": 3,
+      "fixture": {
+        "byteLength": 378059,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/p100-v1.fixture.json",
+        "sha256": "05a32c19f3fe4ab8f7ea176d996a505688f875197433ab7f83d629ef5d560ce2"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 90,
+        "access_rules": 90,
+        "authoring_lane_edges": 170,
+        "authoring_lanes": 170,
+        "canonical_frames": 5,
+        "canonical_points": 3630,
+        "corridor_elements": 105,
+        "facility_band_geometries": 35,
+        "facility_bands": 35,
+        "gate_occurrences": 230,
+        "junction_internal_edges": 160,
+        "junction_movements": 160,
+        "junctions": 10,
+        "lane_edge_geometries": 330,
+        "lane_edge_route_occurrences": 580,
+        "lane_edge_successors": 320,
+        "lane_edges": 330,
+        "lane_group_members": 30,
+        "lane_groups": 30,
+        "maneuver_gate_route_occurrences": 230,
+        "maneuver_gates": 165,
+        "maneuver_occurrences": 220,
+        "maneuver_path_edges": 480,
+        "maneuver_path_gates": 165,
+        "maneuver_path_route_occurrences": 220,
+        "maneuver_path_waiting_zones": 5,
+        "maneuver_paths": 160,
+        "movement_maneuver_paths": 160,
+        "movements": 160,
+        "parking_area_spaces": 5,
+        "parking_areas": 5,
+        "parking_spaces": 5,
+        "participant_classes": 15,
+        "road_corridors": 35,
+        "road_section_lanes": 170,
+        "road_sections": 70,
+        "signal_controller_groups": 40,
+        "signal_controller_phases": 120,
+        "signal_controllers": 10,
+        "signal_group_maneuver_gates": 160,
+        "signal_groups": 40,
+        "signal_phase_states": 480,
+        "signal_phases": 120,
+        "spatial_segments": 3230,
+        "static_route_edges": 580,
+        "static_route_transitions": 440,
+        "static_routes": 140,
+        "stop_line_maneuver_gates": 165,
+        "stop_lines": 105,
+        "vehicle_profiles": 10,
+        "waiting_zone_occurrences": 10,
+        "waiting_zone_route_occurrences": 10,
+        "waiting_zones": 5
+      },
+      "semanticFingerprint": "86b713efda25ecbdb71785a32f042ac56ccf1db3d976e3b0992a3bf3abb99854",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 20
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 35
+        }
+      ],
+      "accuracyProfileCode": 2,
+      "completeOutputDigest": "e85e7677f7f8dcef0b61d3429cd26c4b2c58a094efbdcad45cbaed05ce0c2a10",
+      "counts": {
+        "canonicalPointCount": 11550,
+        "controlPointCount": 200,
+        "cubicSegmentCount": 100,
+        "declarationCount": 2105,
+        "documentCount": 5,
+        "lineSegmentCount": 175,
+        "lirRecordCount": 30285,
+        "logicalOutputBytes": 840132,
+        "moduleCount": 5,
+        "offsetCurveCount": 205,
+        "referenceCount": 4160,
+        "relationOccurrenceCount": 3385
+      },
+      "directionProfileCode": 1,
+      "fixture": {
+        "byteLength": 378059,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/p100-v1.fixture.json",
+        "sha256": "05a32c19f3fe4ab8f7ea176d996a505688f875197433ab7f83d629ef5d560ce2"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 90,
+        "access_rules": 90,
+        "authoring_lane_edges": 170,
+        "authoring_lanes": 170,
+        "canonical_frames": 5,
+        "canonical_points": 11550,
+        "corridor_elements": 105,
+        "facility_band_geometries": 35,
+        "facility_bands": 35,
+        "gate_occurrences": 230,
+        "junction_internal_edges": 160,
+        "junction_movements": 160,
+        "junctions": 10,
+        "lane_edge_geometries": 330,
+        "lane_edge_route_occurrences": 580,
+        "lane_edge_successors": 320,
+        "lane_edges": 330,
+        "lane_group_members": 30,
+        "lane_groups": 30,
+        "maneuver_gate_route_occurrences": 230,
+        "maneuver_gates": 165,
+        "maneuver_occurrences": 220,
+        "maneuver_path_edges": 480,
+        "maneuver_path_gates": 165,
+        "maneuver_path_route_occurrences": 220,
+        "maneuver_path_waiting_zones": 5,
+        "maneuver_paths": 160,
+        "movement_maneuver_paths": 160,
+        "movements": 160,
+        "parking_area_spaces": 5,
+        "parking_areas": 5,
+        "parking_spaces": 5,
+        "participant_classes": 15,
+        "road_corridors": 35,
+        "road_section_lanes": 170,
+        "road_sections": 70,
+        "signal_controller_groups": 40,
+        "signal_controller_phases": 120,
+        "signal_controllers": 10,
+        "signal_group_maneuver_gates": 160,
+        "signal_groups": 40,
+        "signal_phase_states": 480,
+        "signal_phases": 120,
+        "spatial_segments": 11150,
+        "static_route_edges": 580,
+        "static_route_transitions": 440,
+        "static_routes": 140,
+        "stop_line_maneuver_gates": 165,
+        "stop_lines": 105,
+        "vehicle_profiles": 10,
+        "waiting_zone_occurrences": 10,
+        "waiting_zone_route_occurrences": 10,
+        "waiting_zones": 5
+      },
+      "semanticFingerprint": "3da8c43c5e1126d59098bc81bf24203d87d6d9009ad125340ba186ade895bc4f",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 20
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 35
+        }
+      ],
+      "accuracyProfileCode": 2,
+      "completeOutputDigest": "08e97fdc27a0b8fb54ae8655b6443791ea0db941414af3d9a369f6ce2c2a072f",
+      "counts": {
+        "canonicalPointCount": 6110,
+        "controlPointCount": 200,
+        "cubicSegmentCount": 100,
+        "declarationCount": 2105,
+        "documentCount": 5,
+        "lineSegmentCount": 175,
+        "lirRecordCount": 19405,
+        "logicalOutputBytes": 600772,
+        "moduleCount": 5,
+        "offsetCurveCount": 205,
+        "referenceCount": 4160,
+        "relationOccurrenceCount": 3385
+      },
+      "directionProfileCode": 2,
+      "fixture": {
+        "byteLength": 378059,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/p100-v1.fixture.json",
+        "sha256": "05a32c19f3fe4ab8f7ea176d996a505688f875197433ab7f83d629ef5d560ce2"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 90,
+        "access_rules": 90,
+        "authoring_lane_edges": 170,
+        "authoring_lanes": 170,
+        "canonical_frames": 5,
+        "canonical_points": 6110,
+        "corridor_elements": 105,
+        "facility_band_geometries": 35,
+        "facility_bands": 35,
+        "gate_occurrences": 230,
+        "junction_internal_edges": 160,
+        "junction_movements": 160,
+        "junctions": 10,
+        "lane_edge_geometries": 330,
+        "lane_edge_route_occurrences": 580,
+        "lane_edge_successors": 320,
+        "lane_edges": 330,
+        "lane_group_members": 30,
+        "lane_groups": 30,
+        "maneuver_gate_route_occurrences": 230,
+        "maneuver_gates": 165,
+        "maneuver_occurrences": 220,
+        "maneuver_path_edges": 480,
+        "maneuver_path_gates": 165,
+        "maneuver_path_route_occurrences": 220,
+        "maneuver_path_waiting_zones": 5,
+        "maneuver_paths": 160,
+        "movement_maneuver_paths": 160,
+        "movements": 160,
+        "parking_area_spaces": 5,
+        "parking_areas": 5,
+        "parking_spaces": 5,
+        "participant_classes": 15,
+        "road_corridors": 35,
+        "road_section_lanes": 170,
+        "road_sections": 70,
+        "signal_controller_groups": 40,
+        "signal_controller_phases": 120,
+        "signal_controllers": 10,
+        "signal_group_maneuver_gates": 160,
+        "signal_groups": 40,
+        "signal_phase_states": 480,
+        "signal_phases": 120,
+        "spatial_segments": 5710,
+        "static_route_edges": 580,
+        "static_route_transitions": 440,
+        "static_routes": 140,
+        "stop_line_maneuver_gates": 165,
+        "stop_lines": 105,
+        "vehicle_profiles": 10,
+        "waiting_zone_occurrences": 10,
+        "waiting_zone_route_occurrences": 10,
+        "waiting_zones": 5
+      },
+      "semanticFingerprint": "f543cd6b089b3ee100155e5e986ad3bc83189a1302c6ea2beca670cff0faf99b",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 20
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 35
+        }
+      ],
+      "accuracyProfileCode": 2,
+      "completeOutputDigest": "38051c3a205c1f8680902349ecb4750841b1b8a09789afe9780f48b43be08102",
+      "counts": {
+        "canonicalPointCount": 3510,
+        "controlPointCount": 200,
+        "cubicSegmentCount": 100,
+        "declarationCount": 2105,
+        "documentCount": 5,
+        "lineSegmentCount": 175,
+        "lirRecordCount": 14205,
+        "logicalOutputBytes": 486372,
+        "moduleCount": 5,
+        "offsetCurveCount": 205,
+        "referenceCount": 4160,
+        "relationOccurrenceCount": 3385
+      },
+      "directionProfileCode": 3,
+      "fixture": {
+        "byteLength": 378059,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/p100-v1.fixture.json",
+        "sha256": "05a32c19f3fe4ab8f7ea176d996a505688f875197433ab7f83d629ef5d560ce2"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 90,
+        "access_rules": 90,
+        "authoring_lane_edges": 170,
+        "authoring_lanes": 170,
+        "canonical_frames": 5,
+        "canonical_points": 3510,
+        "corridor_elements": 105,
+        "facility_band_geometries": 35,
+        "facility_bands": 35,
+        "gate_occurrences": 230,
+        "junction_internal_edges": 160,
+        "junction_movements": 160,
+        "junctions": 10,
+        "lane_edge_geometries": 330,
+        "lane_edge_route_occurrences": 580,
+        "lane_edge_successors": 320,
+        "lane_edges": 330,
+        "lane_group_members": 30,
+        "lane_groups": 30,
+        "maneuver_gate_route_occurrences": 230,
+        "maneuver_gates": 165,
+        "maneuver_occurrences": 220,
+        "maneuver_path_edges": 480,
+        "maneuver_path_gates": 165,
+        "maneuver_path_route_occurrences": 220,
+        "maneuver_path_waiting_zones": 5,
+        "maneuver_paths": 160,
+        "movement_maneuver_paths": 160,
+        "movements": 160,
+        "parking_area_spaces": 5,
+        "parking_areas": 5,
+        "parking_spaces": 5,
+        "participant_classes": 15,
+        "road_corridors": 35,
+        "road_section_lanes": 170,
+        "road_sections": 70,
+        "signal_controller_groups": 40,
+        "signal_controller_phases": 120,
+        "signal_controllers": 10,
+        "signal_group_maneuver_gates": 160,
+        "signal_groups": 40,
+        "signal_phase_states": 480,
+        "signal_phases": 120,
+        "spatial_segments": 3110,
+        "static_route_edges": 580,
+        "static_route_transitions": 440,
+        "static_routes": 140,
+        "stop_line_maneuver_gates": 165,
+        "stop_lines": 105,
+        "vehicle_profiles": 10,
+        "waiting_zone_occurrences": 10,
+        "waiting_zone_route_occurrences": 10,
+        "waiting_zones": 5
+      },
+      "semanticFingerprint": "276d2c82e57e3cbe8e24c5001f1abc3d8add21ecac07ce43f3b5e1967cb59cdd",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 20
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 35
+        }
+      ],
+      "accuracyProfileCode": 3,
+      "completeOutputDigest": "e85e7677f7f8dcef0b61d3429cd26c4b2c58a094efbdcad45cbaed05ce0c2a10",
+      "counts": {
+        "canonicalPointCount": 11550,
+        "controlPointCount": 200,
+        "cubicSegmentCount": 100,
+        "declarationCount": 2105,
+        "documentCount": 5,
+        "lineSegmentCount": 175,
+        "lirRecordCount": 30285,
+        "logicalOutputBytes": 840132,
+        "moduleCount": 5,
+        "offsetCurveCount": 205,
+        "referenceCount": 4160,
+        "relationOccurrenceCount": 3385
+      },
+      "directionProfileCode": 1,
+      "fixture": {
+        "byteLength": 378059,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/p100-v1.fixture.json",
+        "sha256": "05a32c19f3fe4ab8f7ea176d996a505688f875197433ab7f83d629ef5d560ce2"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 90,
+        "access_rules": 90,
+        "authoring_lane_edges": 170,
+        "authoring_lanes": 170,
+        "canonical_frames": 5,
+        "canonical_points": 11550,
+        "corridor_elements": 105,
+        "facility_band_geometries": 35,
+        "facility_bands": 35,
+        "gate_occurrences": 230,
+        "junction_internal_edges": 160,
+        "junction_movements": 160,
+        "junctions": 10,
+        "lane_edge_geometries": 330,
+        "lane_edge_route_occurrences": 580,
+        "lane_edge_successors": 320,
+        "lane_edges": 330,
+        "lane_group_members": 30,
+        "lane_groups": 30,
+        "maneuver_gate_route_occurrences": 230,
+        "maneuver_gates": 165,
+        "maneuver_occurrences": 220,
+        "maneuver_path_edges": 480,
+        "maneuver_path_gates": 165,
+        "maneuver_path_route_occurrences": 220,
+        "maneuver_path_waiting_zones": 5,
+        "maneuver_paths": 160,
+        "movement_maneuver_paths": 160,
+        "movements": 160,
+        "parking_area_spaces": 5,
+        "parking_areas": 5,
+        "parking_spaces": 5,
+        "participant_classes": 15,
+        "road_corridors": 35,
+        "road_section_lanes": 170,
+        "road_sections": 70,
+        "signal_controller_groups": 40,
+        "signal_controller_phases": 120,
+        "signal_controllers": 10,
+        "signal_group_maneuver_gates": 160,
+        "signal_groups": 40,
+        "signal_phase_states": 480,
+        "signal_phases": 120,
+        "spatial_segments": 11150,
+        "static_route_edges": 580,
+        "static_route_transitions": 440,
+        "static_routes": 140,
+        "stop_line_maneuver_gates": 165,
+        "stop_lines": 105,
+        "vehicle_profiles": 10,
+        "waiting_zone_occurrences": 10,
+        "waiting_zone_route_occurrences": 10,
+        "waiting_zones": 5
+      },
+      "semanticFingerprint": "3da8c43c5e1126d59098bc81bf24203d87d6d9009ad125340ba186ade895bc4f",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 20
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 35
+        }
+      ],
+      "accuracyProfileCode": 3,
+      "completeOutputDigest": "08e97fdc27a0b8fb54ae8655b6443791ea0db941414af3d9a369f6ce2c2a072f",
+      "counts": {
+        "canonicalPointCount": 6110,
+        "controlPointCount": 200,
+        "cubicSegmentCount": 100,
+        "declarationCount": 2105,
+        "documentCount": 5,
+        "lineSegmentCount": 175,
+        "lirRecordCount": 19405,
+        "logicalOutputBytes": 600772,
+        "moduleCount": 5,
+        "offsetCurveCount": 205,
+        "referenceCount": 4160,
+        "relationOccurrenceCount": 3385
+      },
+      "directionProfileCode": 2,
+      "fixture": {
+        "byteLength": 378059,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/p100-v1.fixture.json",
+        "sha256": "05a32c19f3fe4ab8f7ea176d996a505688f875197433ab7f83d629ef5d560ce2"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 90,
+        "access_rules": 90,
+        "authoring_lane_edges": 170,
+        "authoring_lanes": 170,
+        "canonical_frames": 5,
+        "canonical_points": 6110,
+        "corridor_elements": 105,
+        "facility_band_geometries": 35,
+        "facility_bands": 35,
+        "gate_occurrences": 230,
+        "junction_internal_edges": 160,
+        "junction_movements": 160,
+        "junctions": 10,
+        "lane_edge_geometries": 330,
+        "lane_edge_route_occurrences": 580,
+        "lane_edge_successors": 320,
+        "lane_edges": 330,
+        "lane_group_members": 30,
+        "lane_groups": 30,
+        "maneuver_gate_route_occurrences": 230,
+        "maneuver_gates": 165,
+        "maneuver_occurrences": 220,
+        "maneuver_path_edges": 480,
+        "maneuver_path_gates": 165,
+        "maneuver_path_route_occurrences": 220,
+        "maneuver_path_waiting_zones": 5,
+        "maneuver_paths": 160,
+        "movement_maneuver_paths": 160,
+        "movements": 160,
+        "parking_area_spaces": 5,
+        "parking_areas": 5,
+        "parking_spaces": 5,
+        "participant_classes": 15,
+        "road_corridors": 35,
+        "road_section_lanes": 170,
+        "road_sections": 70,
+        "signal_controller_groups": 40,
+        "signal_controller_phases": 120,
+        "signal_controllers": 10,
+        "signal_group_maneuver_gates": 160,
+        "signal_groups": 40,
+        "signal_phase_states": 480,
+        "signal_phases": 120,
+        "spatial_segments": 5710,
+        "static_route_edges": 580,
+        "static_route_transitions": 440,
+        "static_routes": 140,
+        "stop_line_maneuver_gates": 165,
+        "stop_lines": 105,
+        "vehicle_profiles": 10,
+        "waiting_zone_occurrences": 10,
+        "waiting_zone_route_occurrences": 10,
+        "waiting_zones": 5
+      },
+      "semanticFingerprint": "f543cd6b089b3ee100155e5e986ad3bc83189a1302c6ea2beca670cff0faf99b",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "absoluteOffsetDistribution": [
+        {
+          "absoluteOffsetMetersBits": "0x0000000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4002000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x400c000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4012000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4017000000000000",
+          "curveCount": 20
+        },
+        {
+          "absoluteOffsetMetersBits": "0x401c000000000000",
+          "curveCount": 15
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4020000000000000",
+          "curveCount": 35
+        },
+        {
+          "absoluteOffsetMetersBits": "0x4027000000000000",
+          "curveCount": 35
+        }
+      ],
+      "accuracyProfileCode": 3,
+      "completeOutputDigest": "42c87ebd6e30bd032104ae6d0b1a57a2ef7c3a489958383c57ecf3b13f657e78",
+      "counts": {
+        "canonicalPointCount": 3470,
+        "controlPointCount": 200,
+        "cubicSegmentCount": 100,
+        "declarationCount": 2105,
+        "documentCount": 5,
+        "lineSegmentCount": 175,
+        "lirRecordCount": 14125,
+        "logicalOutputBytes": 484612,
+        "moduleCount": 5,
+        "offsetCurveCount": 205,
+        "referenceCount": 4160,
+        "relationOccurrenceCount": 3385
+      },
+      "directionProfileCode": 3,
+      "fixture": {
+        "byteLength": 378059,
+        "path": "research/issue-296-geometry-frontend-calibration/fixtures/p100-v1.fixture.json",
+        "sha256": "05a32c19f3fe4ab8f7ea176d996a505688f875197433ab7f83d629ef5d560ce2"
+      },
+      "lirTableCounts": {
+        "access_rule_participant_classes": 90,
+        "access_rules": 90,
+        "authoring_lane_edges": 170,
+        "authoring_lanes": 170,
+        "canonical_frames": 5,
+        "canonical_points": 3470,
+        "corridor_elements": 105,
+        "facility_band_geometries": 35,
+        "facility_bands": 35,
+        "gate_occurrences": 230,
+        "junction_internal_edges": 160,
+        "junction_movements": 160,
+        "junctions": 10,
+        "lane_edge_geometries": 330,
+        "lane_edge_route_occurrences": 580,
+        "lane_edge_successors": 320,
+        "lane_edges": 330,
+        "lane_group_members": 30,
+        "lane_groups": 30,
+        "maneuver_gate_route_occurrences": 230,
+        "maneuver_gates": 165,
+        "maneuver_occurrences": 220,
+        "maneuver_path_edges": 480,
+        "maneuver_path_gates": 165,
+        "maneuver_path_route_occurrences": 220,
+        "maneuver_path_waiting_zones": 5,
+        "maneuver_paths": 160,
+        "movement_maneuver_paths": 160,
+        "movements": 160,
+        "parking_area_spaces": 5,
+        "parking_areas": 5,
+        "parking_spaces": 5,
+        "participant_classes": 15,
+        "road_corridors": 35,
+        "road_section_lanes": 170,
+        "road_sections": 70,
+        "signal_controller_groups": 40,
+        "signal_controller_phases": 120,
+        "signal_controllers": 10,
+        "signal_group_maneuver_gates": 160,
+        "signal_groups": 40,
+        "signal_phase_states": 480,
+        "signal_phases": 120,
+        "spatial_segments": 3070,
+        "static_route_edges": 580,
+        "static_route_transitions": 440,
+        "static_routes": 140,
+        "stop_line_maneuver_gates": 165,
+        "stop_lines": 105,
+        "vehicle_profiles": 10,
+        "waiting_zone_occurrences": 10,
+        "waiting_zone_route_occurrences": 10,
+        "waiting_zones": 5
+      },
+      "semanticFingerprint": "50b88fc28933473c41826421ae855567fa924a679da72b03488769a2737b6bd4",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    }
+  ],
+  "schema": "laneflow.geometry-frontend-calibration-workload-manifest",
+  "schemaVersion": 1
+}

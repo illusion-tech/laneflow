@@ -8,6 +8,16 @@ use laneflow_compiler::{
     CompilationOutput, CompilationUnitBuilder, CompileLimits, Compiler, GeometryAccuracyProfile,
     GeometryDirectionProfile, GeometryDocumentInput, GeometryModuleBuilder, LirTableCounts,
 };
+use sha2::{Digest as _, Sha256};
+
+/// 完整 `CompilationOutput` 规范编码的域分隔符（UTF-8，NUL 结尾）。
+/// 编码 = 域分隔符 || semantic_fingerprint(32B) || lir_record_count(u64le) ||
+/// output_logical_bytes(u64le) || compiler_controlled_peak_bytes(u64le) ||
+/// diagnostics 条数(u64le) || 53 张 record-counted 表行数（`LirTableCounts::NAMES`
+/// 字典序，各 u64le）。LIR 逐行内容由编译器计算的 semantic_fingerprint 绑定，
+/// 表基数与指标显式列入；manifest 生成器与 cross-record validator 共用本函数。
+const COMPLETE_OUTPUT_DIGEST_DOMAIN: &[u8] =
+    b"laneflow.geometry-frontend-calibration.complete-output.v1\0";
 
 /// 位置误差配置档全集合；鉴别码 1..=3 与 manifest `accuracyProfileCode` 一致。
 pub const ACCURACY_PROFILES: [GeometryAccuracyProfile; 3] = [
@@ -142,4 +152,30 @@ pub fn compile_geometry_workload(
     counts.semantic_fingerprint = output.metrics().semantic_fingerprint();
     counts.lir_table_counts = Some(output.lir().lir_table_counts());
     (output, counts)
+}
+
+/// 计算完整 `CompilationOutput` 规范编码的 SHA-256（编码规则见域分隔符常量注释）。
+/// 校准 fixture 必须编译零诊断；成功路径残留任何诊断都直接 panic。
+#[must_use]
+pub fn complete_output_digest(output: &CompilationOutput) -> [u8; 32] {
+    assert!(
+        output.diagnostics().is_empty(),
+        "校准 workload 编译必须零诊断"
+    );
+    let metrics = output.metrics();
+    let mut hasher = Sha256::new();
+    hasher.update(COMPLETE_OUTPUT_DIGEST_DOMAIN);
+    hasher.update(metrics.semantic_fingerprint());
+    for value in [
+        metrics.lir_record_count(),
+        metrics.output_logical_bytes(),
+        metrics.compiler_controlled_peak_bytes(),
+        0_u64, // diagnostics 条数；上面的断言冻结为零
+    ] {
+        hasher.update(value.to_le_bytes());
+    }
+    for (_, count) in output.lir().lir_table_counts().entries() {
+        hasher.update(count.to_le_bytes());
+    }
+    hasher.finalize().into()
 }

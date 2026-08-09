@@ -9,5 +9,6 @@ pub mod container;
 pub mod corridor;
 pub mod counts;
 pub mod emit;
+pub mod manifest;
 pub mod selfcheck;
 pub mod twin;

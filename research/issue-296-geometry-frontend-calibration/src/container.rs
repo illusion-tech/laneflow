@@ -49,3 +49,44 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     }
     hex
 }
+
+/// 解码容器字节并校验自报 schema / schemaVersion；返回 `(workloadId, 模块集合)`。
+/// 任何格式偏差即 panic：校准容器必须由生成器逐字节产生。
+#[must_use]
+pub fn decode_container(bytes: &[u8]) -> (String, Vec<FixtureModule>) {
+    let value: serde_json::Value = serde_json::from_slice(bytes).expect("容器必须是合法 JSON");
+    let schema = value
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .expect("容器缺少 schema 字段");
+    assert_eq!(schema, CONTAINER_SCHEMA, "容器 schema 字段不匹配");
+    let schema_version = value
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+        .expect("容器缺少 schemaVersion 字段");
+    assert_eq!(schema_version, 1, "不支持的容器 schemaVersion");
+    let workload_id = value
+        .get("workloadId")
+        .and_then(serde_json::Value::as_str)
+        .expect("容器缺少 workloadId 字段")
+        .to_string();
+    let modules = value
+        .get("modules")
+        .and_then(serde_json::Value::as_array)
+        .expect("容器缺少 modules 字段")
+        .iter()
+        .map(|module| FixtureModule {
+            source_path: module
+                .get("sourcePath")
+                .and_then(serde_json::Value::as_str)
+                .expect("容器模块缺少 sourcePath 字段")
+                .to_string(),
+            source: module
+                .get("source")
+                .and_then(serde_json::Value::as_str)
+                .expect("容器模块缺少 source 字段")
+                .to_string(),
+        })
+        .collect();
+    (workload_id, modules)
+}
