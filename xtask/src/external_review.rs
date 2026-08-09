@@ -943,14 +943,10 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 continue;
             }
             has_unbound_trusted_finding = true;
-            if linked_review_ids.is_empty()
-                || !comment.body.trim_start().starts_with("Disposition:")
-            {
-                diagnostics.push(format!(
-                    "受信任 reviewer 的 thread `{}` 缺少 pullRequestReview 关联",
-                    thread.id
-                ));
-            }
+            diagnostics.push(format!(
+                "受信任 reviewer 的 thread `{}` 缺少 pullRequestReview 关联",
+                thread.id
+            ));
         }
         if has_unbound_trusted_finding {
             finding_thread_ids.insert(thread.id.clone());
@@ -2895,6 +2891,10 @@ mod tests {
             "\n\nUseful?",
             " The lockfile also removes a package required by the build.\n\nUseful?",
         );
+        snapshot.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes
+            .truncate(1);
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
             ExternalReviewState::AwaitingRereview
@@ -2909,7 +2909,7 @@ mod tests {
         snapshot.pull_request.review_threads.nodes[0].comments.nodes[1].created_at = finding_time;
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
-            ExternalReviewState::AwaitingRereview
+            ExternalReviewState::ProviderError
         );
 
         let mut snapshot = fixture(include_str!(
@@ -2918,6 +2918,10 @@ mod tests {
         snapshot.pull_request.review_threads.nodes[0].comments.nodes[0]
             .body
             .push_str(" Also, the Cargo.lock checksum is invalid.");
+        snapshot.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes
+            .truncate(1);
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
             ExternalReviewState::AwaitingRereview
@@ -2953,7 +2957,7 @@ mod tests {
             "2026-08-06T02:30:18Z".to_string();
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
-            ExternalReviewState::AwaitingRereview
+            ExternalReviewState::ProviderError
         );
 
         let mut snapshot = fixture(include_str!(
@@ -2982,7 +2986,7 @@ mod tests {
             .insert_str("Disposition:".len(), " rejected;");
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
-            ExternalReviewState::AwaitingRereview
+            ExternalReviewState::ProviderError
         );
     }
 
@@ -3137,6 +3141,10 @@ mod tests {
         ));
         let old_head = "4d2fb5becdaed398cb61ea42191f1e477a18ad1a";
         let current_head = snapshot.pull_request.head_ref_oid.clone();
+        snapshot.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes
+            .truncate(1);
         snapshot.pull_request.reviews.nodes[0]
             .commit
             .as_mut()
@@ -3187,6 +3195,7 @@ mod tests {
         trusted_reply.body = "The lockfile contains an invalid checksum.".to_string();
         trusted_reply.created_at = "2026-08-06T02:31:00Z".to_string();
         trusted_reply.updated_at = trusted_reply.created_at.clone();
+        thread.comments.nodes.truncate(1);
         thread.comments.nodes[0].author = Some(Actor {
             login: "dependabot[bot]".to_string(),
         });
@@ -3232,13 +3241,8 @@ mod tests {
             "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
         ));
         let thread = &mut snapshot.pull_request.review_threads.nodes[0];
-        thread.comments.nodes[0].author = Some(Actor {
-            login: "untrusted-reviewer".to_string(),
-        });
-        thread.comments.nodes[0].pull_request_review = None;
         thread.comments.nodes[1].body =
             "Disposition: the lockfile checksum is invalid.".to_string();
-        snapshot.pull_request.reviews.nodes.clear();
 
         let result = evaluate_snapshot(&snapshot);
         assert_eq!(result.state, ExternalReviewState::ProviderError);
