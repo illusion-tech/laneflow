@@ -35,6 +35,9 @@
 - `compiler-calibration-contract-v1.json`：#308 已完成研究的非自指契约描述符；从
   Evidence v1 Schema 外部绑定证据 Schema 与工作负载清单的路径、版本、长度和
   SHA-256，正式验证必须先校验该描述符。
+- `geometry-document-v1.schema.json`：#296 Geometry 文档来源格式 v1 的 Draft 2020-12
+  JSON Schema；冻结一逻辑模块一份严格 UTF-8 JSON Geometry 文档的完整 closed wire
+  shape，是 `../design/geometry-document-frontend.md` 的唯一机器校验入口。
 - `geometry-frontend-calibration-workload-manifest-v1.schema.json`：#296 Geometry 前端
   §9.2 27 行 workload manifest 的 Draft 2020-12 JSON Schema；冻结行结构、十二项计数、
   绝对偏移分布、53 个 record-counted LIR 表名注册表与两个摘要。
@@ -46,7 +49,9 @@
   Synthetic base，以及三个候选预算的校准写回封套。
 - `geometry-frontend-calibration-reference-machine-v1.json`：#296 校准参考机声明；以
   hardwareId 与硬件身份 SHA-256 绑定正式校准运行的物理机器，其余字段为声明时快照，
-  正式证据独立重报并由 cross-record validator 核对一致。
+  正式证据独立重报并由 cross-record validator 核对一致。硬件身份 scheme 为
+  `laneflow-p100-hardware-identity-v2`：v1 的冻结规则文本无法复现其自身指纹，v2
+  冻结声明内可复现的精确规则，历史冻结证据不改写。
 - `geometry-frontend-calibration-contract-v1.json`：#296 的非自指契约描述符；从
   Evidence v1 Schema 外部绑定证据 Schema、manifest Schema、workload manifest 与参考机
   声明的路径、版本、长度和 SHA-256，正式验证必须先校验该描述符。

@@ -26,8 +26,8 @@
     "schema": "laneflow.geometry-frontend-calibration-reference-machine",
     "schemaVersion": 1,
     "path": "docs/reference/geometry-frontend-calibration-reference-machine-v1.json",
-    "byteLength": 1433,
-    "sha256": "03e7767b56d8cf60ceb82a8630dc3e36baae09557bbd7c9fac904db256b21938"
+    "byteLength": 1582,
+    "sha256": "4ddfc36696328fc60da62f812e54db353f720cb7667755b9cba61d1746ee1e97"
   },
   "validationBootstrap": [
     "load this descriptor from the trusted sourceCommit before parsing the workload manifest or evidence",

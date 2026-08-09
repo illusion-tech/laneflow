@@ -1,7 +1,7 @@
 //! 正式证据环境字段采集（§9.2：操作系统/CPU/内存/电源与固件身份）。全部可采集字段在
 //! 测量时从操作系统与 toolchain 独立重报，并与参考机声明逐字段比对；任何漂移即拒绝
 //! 正式运行。hardwareId / hardwareIdentityScheme 是声明名而非测量值，由声明原文提供；
-//! 硬件身份 SHA-256 按 `laneflow-p100-hardware-identity-v1` 规则在本机重算。
+//! 硬件身份 SHA-256 按 `laneflow-p100-hardware-identity-v2` 规则在本机重算。
 
 use std::path::Path;
 
@@ -84,8 +84,9 @@ fn run_command(program: &str, args: &[&str]) -> String {
         .to_string()
 }
 
-/// `laneflow-p100-hardware-identity-v1`：smbiosUuid / biosSerial / baseboardSerial 去全部
-/// 空白并转大写，`\n` 拼接、无尾换行，SHA-256。
+/// `laneflow-p100-hardware-identity-v2`：smbiosUuid / biosSerial / baseboardSerial 去全部
+/// 空白并转大写，`\n` 拼接、无尾换行，SHA-256。scheme 自 v1 升级：v1 冻结文本无法复现
+/// 其自身指纹，v2 冻结本条可复现精确规则，历史冻结证据不改写。
 fn hardware_identity_sha256(uuid: &str, bios_serial: &str, baseboard_serial: &str) -> String {
     fn normalized(value: &str) -> String {
         value
@@ -248,7 +249,7 @@ pub fn verify_against_declaration(collected: &CollectedEnvironment, declaration:
         (
             "hardwareIdentityScheme",
             declaration_string(declaration, "hardwareIdentityScheme"),
-            "laneflow-p100-hardware-identity-v1",
+            "laneflow-p100-hardware-identity-v2",
         ),
     ];
     for (key, expected, actual) in string_fields {
