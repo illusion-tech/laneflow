@@ -696,6 +696,37 @@ fn empty_input_syntax_issue_carries_clamped_point_span() {
     assert_eq!(path.expect("path 必携带").as_ref(), "$");
 }
 
+/// extensions 内容校验（R2 T5 探针实证）：超 f64 数字以 JsonSyntax 失败，
+/// path 深入 extensions 子树，span 为全局一基位置（与旧全量解析逐字节一
+/// 致）。
+#[test]
+fn extensions_out_of_range_number_is_syntax_with_global_span() {
+    let mut doc = TRAFFIC_TEXT.trim_end().to_owned();
+    doc.truncate(doc.len() - 1);
+    doc.push_str(r#", "extensions": {"x": 1e999}}"#);
+    let lexeme_start = doc.find("1e999").expect("lexeme 在文档中") as u32;
+    let issue =
+        single_issue(validate_traffic_compatible(doc.as_bytes()).expect_err("超 f64 数字必须失败"));
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
+    assert_eq!(issue.category(), serde_json::error::Category::Syntax);
+    assert_eq!(issue.path(), Some("extensions.x"));
+    match issue.payload() {
+        CurrentSourceErrorPayload::JsonSyntax { source } => {
+            assert!(source.to_string().starts_with("number out of range"));
+        }
+        other => panic!("expected JsonSyntax, got {}", other.stable_code()),
+    }
+    let span = issue.span().expect("syntax issue 恒携带 span");
+    // lexeme 末位之后（包含式终点=起点，单点 span）；行列由文档实际布局求得。
+    let prefix = &doc[..lexeme_start as usize];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() as u32 + 1;
+    let line_start = prefix.rfind('\n').map_or(0, |index| index + 1);
+    let column = (lexeme_start as usize - line_start) as u32 + 5;
+    assert_eq!(span.start().line(), line);
+    assert_eq!(span.start().column(), column);
+    assert_eq!(span.start(), span.end());
+}
+
 const TRAFFIC_TEXT: &str =
     include_str!("../../../examples/data/v0.10-empty-signals-and-parking.laneflow.json");
 

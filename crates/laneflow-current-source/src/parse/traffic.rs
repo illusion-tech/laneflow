@@ -2,7 +2,7 @@
 
 use serde_json::value::RawValue;
 
-use super::walk::{self, Ctx, LocationPolicy, ShapeCandidate};
+use super::walk::{self, Ctx, FieldSpec, LocationPolicy, ShapeCandidate, dflt, req};
 use super::{ByteRange, GateReport, ParseFailure, RootGate, missing_root_field};
 use crate::CURRENT_TRAFFIC_FORMAT_VERSION;
 use crate::wire::{
@@ -17,95 +17,121 @@ use crate::wire::{
     WireStopLine, WireStopLineLocation, WireUnits, WireVehicleProfile, WireWaitingZone,
 };
 
-const PACKAGE_FIELDS: &[&str] = &[
-    "formatVersion",
-    "units",
-    "laneGraph",
-    "junctions",
-    "movements",
-    "maneuverPaths",
-    "routes",
-    "vehicleProfiles",
-    "participantClasses",
-    "facilityBands",
-    "roadSections",
-    "laneGroups",
-    "roadCorridors",
-    "accessRules",
-    "waitingZones",
-    "signals",
-    "parking",
-    "extensions",
+const PACKAGE_FIELDS: &[FieldSpec] = &[
+    req("formatVersion"),
+    req("units"),
+    req("laneGraph"),
+    req("junctions"),
+    req("movements"),
+    req("maneuverPaths"),
+    req("routes"),
+    req("vehicleProfiles"),
+    req("participantClasses"),
+    req("facilityBands"),
+    req("roadSections"),
+    req("laneGroups"),
+    req("roadCorridors"),
+    req("accessRules"),
+    req("waitingZones"),
+    req("signals"),
+    req("parking"),
+    dflt("extensions"),
 ];
-const UNITS_FIELDS: &[&str] = &["distance", "time"];
-const LANE_GRAPH_FIELDS: &[&str] = &["edges"];
-const LANE_EDGE_FIELDS: &[&str] = &["id", "length", "speedLimit", "connections"];
-const LANE_CONNECTION_FIELDS: &[&str] = &["toEdgeId"];
-const JUNCTION_FIELDS: &[&str] = &["id"];
-const MOVEMENT_FIELDS: &[&str] = &["id", "junctionId"];
-const MANEUVER_PATH_FIELDS: &[&str] = &[
-    "id",
-    "movementId",
-    "entryEdgeId",
-    "internalEdgeIds",
-    "exitEdgeId",
+const UNITS_FIELDS: &[FieldSpec] = &[req("distance"), req("time")];
+const LANE_GRAPH_FIELDS: &[FieldSpec] = &[req("edges")];
+const LANE_EDGE_FIELDS: &[FieldSpec] = &[
+    req("id"),
+    req("length"),
+    req("speedLimit"),
+    req("connections"),
 ];
-const ROUTE_FIELDS: &[&str] = &["id", "edgeIds"];
-const VEHICLE_PROFILE_FIELDS: &[&str] = &[
-    "id",
-    "length",
-    "model",
-    "desiredSpeed",
-    "minGap",
-    "timeHeadway",
-    "maxAcceleration",
-    "comfortableDeceleration",
-    "emergencyDeceleration",
-    "participantClassId",
+const LANE_CONNECTION_FIELDS: &[FieldSpec] = &[req("toEdgeId")];
+const JUNCTION_FIELDS: &[FieldSpec] = &[req("id")];
+const MOVEMENT_FIELDS: &[FieldSpec] = &[req("id"), req("junctionId")];
+const MANEUVER_PATH_FIELDS: &[FieldSpec] = &[
+    req("id"),
+    req("movementId"),
+    req("entryEdgeId"),
+    req("internalEdgeIds"),
+    req("exitEdgeId"),
 ];
-const PARTICIPANT_CLASS_FIELDS: &[&str] = &["id", "extendsId"];
-const FACILITY_BAND_FIELDS: &[&str] = &["id", "kindId"];
-const ROAD_SECTION_FIELDS: &[&str] = &["id", "kindId", "lanes"];
-const SECTION_LANE_FIELDS: &[&str] = &["edgeIds", "laneGroupId"];
-const LANE_GROUP_FIELDS: &[&str] = &["id", "roadSectionId"];
-const ROAD_CORRIDOR_FIELDS: &[&str] = &["id", "referenceSectionId", "elements"];
-const ACCESS_RULE_FIELDS: &[&str] = &[
-    "id",
-    "target",
-    "effect",
-    "participantClassIds",
-    "timeWindows",
-    "regulation",
-    "priority",
+const ROUTE_FIELDS: &[FieldSpec] = &[req("id"), req("edgeIds")];
+const VEHICLE_PROFILE_FIELDS: &[FieldSpec] = &[
+    req("id"),
+    req("length"),
+    req("model"),
+    req("desiredSpeed"),
+    req("minGap"),
+    req("timeHeadway"),
+    req("maxAcceleration"),
+    req("comfortableDeceleration"),
+    req("emergencyDeceleration"),
+    req("participantClassId"),
 ];
-const ACCESS_TARGET_FIELDS: &[&str] = &["kind", "id"];
-const WAITING_ZONE_FIELDS: &[&str] = &[
-    "id",
-    "maneuverPathId",
-    "entryGateId",
-    "releaseGateId",
-    "maxOccupancy",
+const PARTICIPANT_CLASS_FIELDS: &[FieldSpec] = &[req("id"), dflt("extendsId")];
+const FACILITY_BAND_FIELDS: &[FieldSpec] = &[req("id"), req("kindId")];
+const ROAD_SECTION_FIELDS: &[FieldSpec] = &[req("id"), req("kindId"), req("lanes")];
+const SECTION_LANE_FIELDS: &[FieldSpec] = &[req("edgeIds"), dflt("laneGroupId")];
+const LANE_GROUP_FIELDS: &[FieldSpec] = &[req("id"), req("roadSectionId")];
+const ROAD_CORRIDOR_FIELDS: &[FieldSpec] = &[req("id"), req("referenceSectionId"), req("elements")];
+const ACCESS_RULE_FIELDS: &[FieldSpec] = &[
+    req("id"),
+    req("target"),
+    req("effect"),
+    req("participantClassIds"),
+    dflt("timeWindows"),
+    dflt("regulation"),
+    dflt("priority"),
 ];
-const REGULATION_FIELDS: &[&str] = &["jurisdiction", "version", "source"];
-const PARKING_FIELDS: &[&str] = &["areas", "spaces"];
-const PARKING_AREA_FIELDS: &[&str] = &["id"];
-const PARKING_SPACE_FIELDS: &[&str] = &["id", "areaId", "entry", "exit", "geometry"];
-const PARKING_ANCHOR_FIELDS: &[&str] = &["edgeId", "progress"];
-const PARKING_GEOMETRY_FIELDS: &[&str] =
-    &["lateralOffset", "headingOffsetRadians", "length", "width"];
-const SIGNALS_FIELDS: &[&str] = &["stopLines", "maneuverGates", "groups", "controllers"];
-const STOP_LINE_FIELDS: &[&str] = &["id", "edgeId", "location"];
-const MANEUVER_GATE_FIELDS: &[&str] = &[
-    "id",
-    "maneuverPathId",
-    "transitionIndex",
-    "stopLineId",
-    "signalControl",
+const ACCESS_TARGET_FIELDS: &[FieldSpec] = &[req("kind"), req("id")];
+const WAITING_ZONE_FIELDS: &[FieldSpec] = &[
+    req("id"),
+    req("maneuverPathId"),
+    req("entryGateId"),
+    req("releaseGateId"),
+    req("maxOccupancy"),
 ];
-const SIGNAL_GROUP_FIELDS: &[&str] = &["id"];
-const SIGNAL_CONTROLLER_FIELDS: &[&str] = &["id", "kind", "offsetMs", "groupIds", "phases"];
-const SIGNAL_PHASE_FIELDS: &[&str] = &["id", "durationMs", "states"];
-const SIGNAL_GROUP_STATE_FIELDS: &[&str] = &["groupId", "aspect"];
+const REGULATION_FIELDS: &[FieldSpec] = &[req("jurisdiction"), req("version"), dflt("source")];
+const PARKING_FIELDS: &[FieldSpec] = &[req("areas"), req("spaces")];
+const PARKING_AREA_FIELDS: &[FieldSpec] = &[req("id")];
+const PARKING_SPACE_FIELDS: &[FieldSpec] = &[
+    req("id"),
+    dflt("areaId"),
+    req("entry"),
+    req("exit"),
+    req("geometry"),
+];
+const PARKING_ANCHOR_FIELDS: &[FieldSpec] = &[req("edgeId"), req("progress")];
+const PARKING_GEOMETRY_FIELDS: &[FieldSpec] = &[
+    req("lateralOffset"),
+    req("headingOffsetRadians"),
+    req("length"),
+    req("width"),
+];
+const SIGNALS_FIELDS: &[FieldSpec] = &[
+    req("stopLines"),
+    req("maneuverGates"),
+    req("groups"),
+    req("controllers"),
+];
+const STOP_LINE_FIELDS: &[FieldSpec] = &[req("id"), req("edgeId"), req("location")];
+const MANEUVER_GATE_FIELDS: &[FieldSpec] = &[
+    req("id"),
+    req("maneuverPathId"),
+    req("transitionIndex"),
+    req("stopLineId"),
+    req("signalControl"),
+];
+const SIGNAL_GROUP_FIELDS: &[FieldSpec] = &[req("id")];
+const SIGNAL_CONTROLLER_FIELDS: &[FieldSpec] = &[
+    req("id"),
+    req("kind"),
+    req("offsetMs"),
+    req("groupIds"),
+    req("phases"),
+];
+const SIGNAL_PHASE_FIELDS: &[FieldSpec] = &[req("id"), req("durationMs"), req("states")];
+const SIGNAL_GROUP_STATE_FIELDS: &[FieldSpec] = &[req("groupId"), req("aspect")];
 
 const ACCESS_TARGET_KIND_VARIANTS: &[&str] = &[
     "laneEdge",
@@ -142,7 +168,10 @@ const SIGNAL_ASPECT_TABLE: &[(&str, WireSignalAspect)] = &[
 /// 解析 Traffic package wire（单遍：闸口 + 完整 shape）。
 pub(crate) fn parse_traffic(input: &[u8]) -> Result<WirePackage, ParseFailure> {
     let mut fields = PackageFields::default();
-    let GateReport { gate, root_range } = super::drive_root(
+    let GateReport {
+        mut gate,
+        root_range,
+    } = super::drive_root(
         input,
         CURRENT_TRAFFIC_FORMAT_VERSION,
         "struct WirePackage",
@@ -151,8 +180,8 @@ pub(crate) fn parse_traffic(input: &[u8]) -> Result<WirePackage, ParseFailure> {
             fields.handle(ctx, key, value, range, mark, gate);
         },
     )?;
-    if let Some(candidate) = gate.deferred {
-        return Err(ParseFailure::Shape(candidate));
+    if let Some(failure) = gate.first_deferred() {
+        return Err(failure);
     }
     let format_version = gate.format_version.expect("闸口保证版本字段存在");
     PackageFields::finish(fields, format_version, root_range)
@@ -335,17 +364,24 @@ impl PackageFields {
                 mark,
                 decode_parking,
             ),
-            // 根 extensions：任何合法 object 都接受，内容不透明；duplicate
-            // 检查与其他字段一致（derive 行为平价）。
-            "extensions" => walk::set_once(
-                ctx,
-                &mut self.extensions,
-                "extensions",
-                value,
-                range,
-                mark,
-                walk::check_extensions_object,
-            ),
+            // 根 extensions：duplicate 检查与其他字段一致；object 内容以 sink
+            // 单遍校验（数值 range/递归深度），失败延迟为 syntax 候选（R2 T5：
+            // 旧全量解析的 JsonSyntax 语义，版本裁决后按文档序择首）。
+            "extensions" => {
+                if self.extensions.is_some() {
+                    Err(ctx.candidate_at(mark, walk::duplicate_field_message("extensions"), range))
+                } else {
+                    self.extensions = Some(());
+                    match walk::check_extensions(ctx, value, range) {
+                        Ok(()) => Ok(()),
+                        Err(walk::ExtensionsCheck::Shape(candidate)) => Err(candidate),
+                        Err(walk::ExtensionsCheck::Syntax(failure)) => {
+                            gate.defer_syntax(failure);
+                            Ok(())
+                        }
+                    }
+                }
+            }
             _ => Err(ctx.candidate(walk::unknown_field_message(key, PACKAGE_FIELDS), range)),
         };
         if let Err(candidate) = result {
@@ -654,7 +690,7 @@ fn decode_id_only<'de, L: LocationPolicy>(
     token: &'de RawValue,
     range: ByteRange,
     expecting: &'static str,
-    fields: &'static [&'static str],
+    fields: &'static [FieldSpec],
 ) -> Result<String, ShapeCandidate> {
     let mut id = None;
     walk::decode_record(
@@ -1348,9 +1384,10 @@ fn decode_corridor_element<'de, L: LocationPolicy>(
 }
 
 /// seq-form corridor 元素：两个 variant 均为单字段 record，位置 0 解码为字符
-/// 串即第一 variant（Section）胜出；位置 0 解码失败则两个 variant 都失败；
-/// 多余元素不解码、按 derive untagged 经 Content 的语义静默忽略。token 只扫
-/// 一遍（replay ≤1 计数器硬断言保持成立）。
+/// 串即第一 variant（Section）胜出；元素数必须恰好等于所选 variant 的声明元
+/// 数（1）——超出时 derive untagged 的 variant 尝试全部失败，报 `data did not
+/// match any variant of untagged enum WireCorridorElement`（R2 T4 探针实证）。
+/// token 只扫一遍（replay ≤1 计数器硬断言保持成立）。
 fn decode_corridor_element_seq<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
@@ -1358,6 +1395,7 @@ fn decode_corridor_element_seq<'de, L: LocationPolicy>(
 ) -> Result<WireCorridorElement, ShapeCandidate> {
     let mut first = None;
     let mut clean = true;
+    let mut count = 0_usize;
     walk::decode_array(
         ctx,
         token,
@@ -1370,11 +1408,12 @@ fn decode_corridor_element_seq<'de, L: LocationPolicy>(
                     Err(_) => clean = false,
                 }
             }
+            count += 1;
             Ok(())
         },
     )?;
-    match (first, clean) {
-        (Some(section_id), true) => Ok(WireCorridorElement::Section(
+    match (first, clean, count) {
+        (Some(section_id), true, 1) => Ok(WireCorridorElement::Section(
             crate::wire::WireCorridorSectionElement { section_id },
         )),
         _ => Err(ctx.candidate(
@@ -2234,9 +2273,11 @@ fn decode_signal_control<'de, L: LocationPolicy>(
 }
 
 /// seq-form signal control：位置 0=`kind`、位置 1=`groupId`。按 variant 声明
-/// 序确定性分派：Group 需要两个位置都成功（`kind=="group"` 且 `groupId` 字
-/// 符串）；None 只看位置 0（`kind=="none"`，其余位置不解码、按 derive
-/// untagged 经 Content 的语义静默忽略）。token 只扫一遍。
+/// 序确定性分派，元素数必须恰好等于所选 variant 的声明元数：Group 需要两
+/// 个位置都成功（`kind=="group"` 且 `groupId` 字符串，恰好 2 元素）；None
+/// 只看位置 0（`kind=="none"`，恰好 1 元素）。超出声明元数的元素使全部
+/// variant 尝试失败（derive untagged 语义，R2 T4 探针实证）。token 只扫一
+/// 遍。
 fn decode_signal_control_seq<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
@@ -2246,6 +2287,7 @@ fn decode_signal_control_seq<'de, L: LocationPolicy>(
     let mut kind_clean = true;
     let mut group_id = None;
     let mut group_clean = true;
+    let mut count = 0_usize;
     walk::decode_array(
         ctx,
         token,
@@ -2263,11 +2305,13 @@ fn decode_signal_control_seq<'de, L: LocationPolicy>(
                 },
                 _ => {}
             }
+            count += 1;
             Ok(())
         },
     )?;
     if kind_clean
         && group_clean
+        && count == 2
         && let (Some("group"), Some(group_id)) = (kind.as_deref(), group_id)
     {
         return Ok(WireSignalControl::Group(WireGroupSignalControl {
@@ -2275,7 +2319,7 @@ fn decode_signal_control_seq<'de, L: LocationPolicy>(
             group_id,
         }));
     }
-    if kind_clean && kind.as_deref() == Some("none") {
+    if kind_clean && count == 1 && kind.as_deref() == Some("none") {
         return Ok(WireSignalControl::None(WireNoneSignalControl {
             kind: WireNoneSignalControlKind::None,
         }));

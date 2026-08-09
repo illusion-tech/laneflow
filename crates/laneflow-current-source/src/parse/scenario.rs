@@ -2,7 +2,7 @@
 
 use serde_json::value::RawValue;
 
-use super::walk::{self, Ctx, LocationPolicy, ShapeCandidate};
+use super::walk::{self, Ctx, FieldSpec, LocationPolicy, ShapeCandidate, req};
 use super::{ByteRange, GateReport, ParseFailure, RootGate, missing_root_field};
 use crate::scenario_wire::{
     WireArtifactDescriptor, WireCenterline, WireScenarioManifest, WireSpatialEdge,
@@ -10,16 +10,24 @@ use crate::scenario_wire::{
 };
 use crate::{CURRENT_SCENARIO_MANIFEST_FORMAT_VERSION, CURRENT_SPATIAL_FORMAT_VERSION};
 
-const MANIFEST_FIELDS: &[&str] = &["formatVersion", "traffic", "spatial"];
-const DESCRIPTOR_FIELDS: &[&str] = &["artifactRef", "mediaType", "digest", "size"];
-const SPATIAL_FIELDS: &[&str] = &["formatVersion", "frameId", "edges"];
-const EDGE_FIELDS: &[&str] = &["trafficEdgeId", "centerline"];
-const CENTERLINE_FIELDS: &[&str] = &["points"];
+const MANIFEST_FIELDS: &[FieldSpec] = &[req("formatVersion"), req("traffic"), req("spatial")];
+const DESCRIPTOR_FIELDS: &[FieldSpec] = &[
+    req("artifactRef"),
+    req("mediaType"),
+    req("digest"),
+    req("size"),
+];
+const SPATIAL_FIELDS: &[FieldSpec] = &[req("formatVersion"), req("frameId"), req("edges")];
+const EDGE_FIELDS: &[FieldSpec] = &[req("trafficEdgeId"), req("centerline")];
+const CENTERLINE_FIELDS: &[FieldSpec] = &[req("points")];
 
 /// 解析 ScenarioManifest wire（单遍：闸口 + 完整 shape）。
 pub(crate) fn parse_manifest(input: &[u8]) -> Result<WireScenarioManifest, ParseFailure> {
     let mut fields = ManifestFields::default();
-    let GateReport { gate, root_range } = super::drive_root(
+    let GateReport {
+        mut gate,
+        root_range,
+    } = super::drive_root(
         input,
         CURRENT_SCENARIO_MANIFEST_FORMAT_VERSION,
         "struct WireScenarioManifest",
@@ -28,8 +36,8 @@ pub(crate) fn parse_manifest(input: &[u8]) -> Result<WireScenarioManifest, Parse
             fields.handle(ctx, key, value, range, mark, gate);
         },
     )?;
-    if let Some(candidate) = gate.deferred {
-        return Err(ParseFailure::Shape(candidate));
+    if let Some(failure) = gate.first_deferred() {
+        return Err(failure);
     }
     let format_version = gate.format_version.expect("闸口保证版本字段存在");
     ManifestFields::finish(fields, format_version, root_range)
@@ -38,7 +46,10 @@ pub(crate) fn parse_manifest(input: &[u8]) -> Result<WireScenarioManifest, Parse
 /// 解析 SpatialPackage wire（单遍：闸口 + 完整 shape）。
 pub(crate) fn parse_spatial(input: &[u8]) -> Result<WireSpatialPackage, ParseFailure> {
     let mut fields = SpatialFields::default();
-    let GateReport { gate, root_range } = super::drive_root(
+    let GateReport {
+        mut gate,
+        root_range,
+    } = super::drive_root(
         input,
         CURRENT_SPATIAL_FORMAT_VERSION,
         "struct WireSpatialPackage",
@@ -47,8 +58,8 @@ pub(crate) fn parse_spatial(input: &[u8]) -> Result<WireSpatialPackage, ParseFai
             fields.handle(ctx, key, value, range, mark, gate);
         },
     )?;
-    if let Some(candidate) = gate.deferred {
-        return Err(ParseFailure::Shape(candidate));
+    if let Some(failure) = gate.first_deferred() {
+        return Err(failure);
     }
     let format_version = gate.format_version.expect("闸口保证版本字段存在");
     SpatialFields::finish(fields, format_version, root_range)

@@ -154,6 +154,32 @@ impl<'de, L: LocationPolicy> Ctx<'de, L> {
     }
 }
 
+/// struct 字段元数据：声明名 + 是否有 `#[serde(default)]`（R2 T3：位置序列
+/// 元素耗尽时，带 default 的剩余字段取默认值而非 invalid length）。元数据与
+/// 旧 derive DTO（fe41706 wire.rs）逐字段盘点一致：extensions / extendsId /
+/// laneGroupId / timeWindows / regulation / priority / source / areaId 共 8 个。
+#[derive(Clone, Copy)]
+pub(crate) struct FieldSpec {
+    name: &'static str,
+    has_default: bool,
+}
+
+/// 必填字段（无 `#[serde(default)]`）。
+pub(crate) const fn req(name: &'static str) -> FieldSpec {
+    FieldSpec {
+        name,
+        has_default: false,
+    }
+}
+
+/// `#[serde(default)]` 字段。
+pub(crate) const fn dflt(name: &'static str) -> FieldSpec {
+    FieldSpec {
+        name,
+        has_default: true,
+    }
+}
+
 /// object 的 DeserializeSeed/Visitor 合体：捕获 value token、打位置 hook、调
 /// handler（参数 `(ctx, key, value token, value 区间, push 前 path 标记)`）；
 /// handler 失败时存候选并以 sentinel 中止。
@@ -215,16 +241,18 @@ where
 }
 
 /// struct 位置序列（seq-form）的 DeserializeSeed/Visitor 合体：按声明序逐位
-/// 置把 `fields[index]` 作为 key 调同一个 per-field handler（path 用 `[index]`
-/// 段落，与 serde_path_to_error 对 seq-form 的输出一致）。元素不足时以
-/// derive 的 invalid length 文本（`struct X with N elements`）产出候选；多余
-/// 元素不消费，由 serde_json 的 `end_seq` 报 `trailing characters`（与 derive
-/// 一致）。
+/// 置把 `fields[index]` 作为 key 调同一个 per-field handler（元素级 path 用
+/// `[index]` 段落，与 serde_path_to_error 对 seq-form 的输出一致）。元素在
+/// 索引 i 耗尽后：`#[serde(default)]` 字段跳过（slot 保持未设，按 map-form
+/// 缺席处理）；第一个无 default 的剩余字段 j 以 derive 的 invalid length 文
+/// 本产出候选（path 停在 record 级——serde_path_to_error 探针实证，R2 T3）。
+/// 多余元素不消费，由 serde_json 的 `end_seq` 报 `trailing characters`（与
+/// derive 一致）。
 pub(crate) struct StructSeqSeed<'a, 'de, L, F> {
     ctx: &'a mut Ctx<'de, L>,
     failure: &'a mut Option<ShapeCandidate>,
     expecting: &'static str,
-    fields: &'static [&'static str],
+    fields: &'static [FieldSpec],
     anchor: ByteRange,
     handler: F,
 }
@@ -259,23 +287,27 @@ where
     where
         A: SeqAccess<'de>,
     {
-        for (index, key) in self.fields.iter().enumerate() {
+        for (index, spec) in self.fields.iter().enumerate() {
             let Some(element) = seq.next_element::<&RawValue>()? else {
-                // derive：位置序列缺位报 invalid length（非 missing field），
-                // 锚=所属 record token，path 停在缺位索引。
-                let _mark = self.ctx.push_index(index);
-                let message = format!(
-                    "invalid length {index}, expected {} with {} elements",
-                    self.expecting,
-                    self.fields.len()
-                );
+                // 元素耗尽：剩余字段中第一个无 `#[serde(default)]` 的字段 j 报
+                // derive invalid length（path 停在 record 级）；全部带 default
+                // 则取默认值（slot 保持未设，按 map-form 缺席处理）。
+                let missing = self.fields[index..]
+                    .iter()
+                    .position(|spec| !spec.has_default)
+                    .map(|offset| index + offset);
+                let Some(missing_index) = missing else {
+                    return Ok(());
+                };
+                let message =
+                    invalid_length_message(missing_index, self.expecting, self.fields.len());
                 *self.failure = Some(self.ctx.candidate(message, self.anchor));
                 return Err(de::Error::custom(SENTINEL));
             };
             let mark = self.ctx.push_index(index);
             let range = self.ctx.token_range(element);
             self.ctx.policy_value(range);
-            match (self.handler)(self.ctx, key, element, range, mark) {
+            match (self.handler)(self.ctx, spec.name, element, range, mark) {
                 Ok(()) => self.ctx.truncate(mark),
                 Err(candidate) => {
                     *self.failure = Some(candidate);
@@ -374,7 +406,7 @@ pub(crate) fn drive_seq<'de, L, F, D>(
     ctx: &mut Ctx<'de, L>,
     failure: &mut Option<ShapeCandidate>,
     expecting: &'static str,
-    fields: &'static [&'static str],
+    fields: &'static [FieldSpec],
     anchor: ByteRange,
     deserializer: D,
     handler: F,
@@ -412,7 +444,7 @@ pub(crate) fn decode_record<'de, L, F>(
     token: &'de RawValue,
     range: ByteRange,
     expecting: &'static str,
-    fields: &'static [&'static str],
+    fields: &'static [FieldSpec],
     handler: F,
 ) -> Result<(), ShapeCandidate>
 where
@@ -712,20 +744,280 @@ where
     decode_scalar::<Vec<serde_json::Value>, L>(ctx, token, range).map(|_| true)
 }
 
-/// 根 `extensions`：内容不透明（任何合法 object 都接受）；非 object 借用
-/// serde 的 invalid type 消息（`expected a map`）。
-pub(crate) fn check_extensions_object<'de, L>(
+/// 延迟到版本裁决之后的 syntax 失败（R2 T5：extensions 内容）：path、真实
+/// serde 错误（token 局部位置）与重建的全局一基位置。
+pub(crate) struct DeferredSyntax {
+    pub(crate) path: String,
+    pub(crate) source: serde_json::Error,
+    /// 全局一基 (line, column)（span 用；payload 内部位置保持 token 局部）。
+    pub(crate) position: (u32, u32),
+    /// 文档序比较键：extensions value token 的全局起点。
+    pub(crate) token_start: u32,
+}
+
+/// extensions 内容校验的失败通道：非 object 外壳是 shape（R1 语义不变）；
+/// object 内容的数值 range/递归深度失败是延迟 syntax（旧全量解析语义）。
+pub(crate) enum ExtensionsCheck {
+    Shape(ShapeCandidate),
+    Syntax(DeferredSyntax),
+}
+
+/// 根 `extensions`：非 object 借用 serde 的 invalid type 消息（`expected a
+/// map`，锚=value token）；object 内容以 sink visitor 单遍校验（SSOT §7：
+/// 禁 Value/Content 树，token 只驱动一遍）。数值经 serde_json 自身的
+/// u64/i64/f64 解析执行 range 检查（`1e999` → `number out of range`）；递归
+/// 深度由 serde_json 递归预算自然执行——包一层 wrapper seq 抵消根 object
+/// 层，使 128 层预算的生效边界与旧全量 `Map<String, Value>` 解析逐层一致。
+pub(crate) fn check_extensions<'de, L>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<(), ShapeCandidate>
+) -> Result<(), ExtensionsCheck>
 where
     L: LocationPolicy,
 {
-    if token.get().trim_start().starts_with('{') {
-        return Ok(());
+    if !token.get().trim_start().starts_with('{') {
+        return decode_scalar::<serde_json::Map<String, serde_json::Value>, L>(ctx, token, range)
+            .map(|_| ())
+            .map_err(ExtensionsCheck::Shape);
     }
-    decode_scalar::<serde_json::Map<String, serde_json::Value>, L>(ctx, token, range).map(|_| ())
+    count_replay(range);
+    let mut wrapped = Vec::with_capacity(token.get().len() + 2);
+    wrapped.push(b'[');
+    wrapped.extend_from_slice(token.get().as_bytes());
+    wrapped.push(b']');
+    let mut suffix = String::new();
+    let mut deserializer = serde_json::Deserializer::from_slice(&wrapped);
+    let result = ExtensionsTopSeed {
+        suffix: &mut suffix,
+    }
+    .deserialize(&mut deserializer);
+    match result {
+        Ok(()) => Ok(()),
+        Err(source) => Err(ExtensionsCheck::Syntax(DeferredSyntax {
+            path: format!("extensions{suffix}"),
+            position: global_position(ctx.input, range.start, &wrapped, &source),
+            token_start: range.start,
+            source,
+        })),
+    }
+}
+
+/// 把 wrapped 输入的 token 局部 serde 位置重建为全局一基位置：局部
+/// (line,column) → wrapped byte offset → 减 wrapper seq 前缀（1 byte）→ 加
+/// token 全局起点后做 allocation-free 前缀扫描。
+fn global_position(
+    input: &[u8],
+    token_start: u32,
+    wrapped: &[u8],
+    source: &serde_json::Error,
+) -> (u32, u32) {
+    let local_offset = offset_of_position(wrapped, source.line(), source.column());
+    let token_offset = local_offset.saturating_sub(1);
+    let global = token_start as usize + token_offset;
+    position_of_offset(input, global)
+}
+
+/// 一基 (line,column) → 零基 byte offset（line 按 LF、column 按 byte，与
+/// anchor::range_span 的计数规则一致；越界防御性收尾到末尾）。
+fn offset_of_position(bytes: &[u8], line: usize, column: usize) -> usize {
+    let mut current_line = 1_usize;
+    let mut current_column = 1_usize;
+    for (index, byte) in bytes.iter().enumerate() {
+        if current_line == line && current_column == column {
+            return index;
+        }
+        if *byte == b'\n' {
+            current_line += 1;
+            current_column = 1;
+        } else {
+            current_column += 1;
+        }
+    }
+    bytes.len()
+}
+
+/// 零基 byte offset → 一基 (line,column)。
+fn position_of_offset(input: &[u8], offset: usize) -> (u32, u32) {
+    let end = offset.min(input.len());
+    let mut line = 1_u32;
+    let mut column = 1_u32;
+    for byte in &input[..end] {
+        if *byte == b'\n' {
+            line = line.saturating_add(1);
+            column = 1;
+        } else {
+            column = column.saturating_add(1);
+        }
+    }
+    (line, column)
+}
+
+/// extensions 内容 sink 的 wrapper seq seed：wrapper 恰好一个元素
+/// （extensions object），这一层 seq 抵消根 object 层，使 serde_json 的 128
+/// 层递归预算生效边界与旧全量 `Map<String, Value>` 解析逐层一致。
+struct ExtensionsTopSeed<'a> {
+    suffix: &'a mut String,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for ExtensionsTopSeed<'_> {
+    type Value = ();
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(ExtensionsTop {
+            suffix: self.suffix,
+        })
+    }
+}
+
+struct ExtensionsTop<'a> {
+    suffix: &'a mut String,
+}
+
+impl<'de> Visitor<'de> for ExtensionsTop<'_> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a sequence")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        // wrapper 由 `check_extensions` 构造，恰好一个元素（extensions object）。
+        seq.next_element_seed(ExtensionsMapSeed {
+            suffix: self.suffix,
+        })?;
+        Ok(())
+    }
+}
+
+/// extensions object 顶层 seed：`deserialize_map` 驱动（expecting `a map`，
+/// 与旧 `Map<String, Value>` 的 invalid type 文本一致；token 已预检 `{`）。
+struct ExtensionsMapSeed<'a> {
+    suffix: &'a mut String,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for ExtensionsMapSeed<'_> {
+    type Value = ();
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_map(ExtensionsSink {
+            suffix: self.suffix,
+        })
+    }
+}
+
+/// extensions 内容的 sink visitor：不物化任何值（所有标量丢弃）；object/
+/// array 递归经 `deserialize_any` 驱动，path 后缀（`.key`/`[index]`）在成功
+/// 返回时截断、失败传播时保留在失败深度（serde_path_to_error 文本平价）。
+struct ExtensionsSink<'a> {
+    suffix: &'a mut String,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for ExtensionsSink<'_> {
+    type Value = ();
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(self)
+    }
+}
+
+impl<'de> Visitor<'de> for ExtensionsSink<'_> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a map")
+    }
+
+    fn visit_bool<E>(self, _value: bool) -> Result<Self::Value, E> {
+        Ok(())
+    }
+
+    fn visit_i64<E>(self, _value: i64) -> Result<Self::Value, E> {
+        Ok(())
+    }
+
+    fn visit_u64<E>(self, _value: u64) -> Result<Self::Value, E> {
+        Ok(())
+    }
+
+    fn visit_f64<E>(self, _value: f64) -> Result<Self::Value, E> {
+        Ok(())
+    }
+
+    fn visit_str<E>(self, _value: &str) -> Result<Self::Value, E> {
+        Ok(())
+    }
+
+    fn visit_string<E>(self, _value: String) -> Result<Self::Value, E> {
+        Ok(())
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E> {
+        Ok(())
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E> {
+        Ok(())
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(self)
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let mut index = 0_usize;
+        loop {
+            let mark = self.suffix.len();
+            self.suffix.push_str(&format!("[{index}]"));
+            let suffix = &mut *self.suffix;
+            match seq.next_element_seed(ExtensionsSink { suffix }) {
+                Ok(Some(())) => {
+                    self.suffix.truncate(mark);
+                    index += 1;
+                }
+                Ok(None) => {
+                    self.suffix.truncate(mark);
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        while let Some(key) = map.next_key::<String>()? {
+            let mark = self.suffix.len();
+            self.suffix.push('.');
+            self.suffix.push_str(&key);
+            let suffix = &mut *self.suffix;
+            match map.next_value_seed(ExtensionsSink { suffix }) {
+                Ok(()) => self.suffix.truncate(mark),
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
 }
 
 /// centerline point `[f64; 3]`：逐轴解码（轴级 path/锚）；元素数不为 3 时以
@@ -795,9 +1087,35 @@ pub(crate) fn duplicate_field_message(field: &'static str) -> String {
     <serde_json::Error as de::Error>::duplicate_field(field).to_string()
 }
 
-/// `unknown field` 消息（与 serde derive 逐字节一致，含 expected 列表）。
-pub(crate) fn unknown_field_message(field: &str, expected: &'static [&'static str]) -> String {
-    <serde_json::Error as de::Error>::unknown_field(field, expected).to_string()
+/// `unknown field` 消息（serde_core `unknown_field`/`OneOf` 的逐字节复刻：1
+/// 个 `` `a` ``，2 个 `` `a` or `b` ``，≥3 个 `one of `a`, `b`, `c``）。
+pub(crate) fn unknown_field_message(field: &str, expected: &[FieldSpec]) -> String {
+    if expected.is_empty() {
+        return format!("unknown field `{field}`, there are no fields");
+    }
+    let mut list = String::new();
+    if expected.len() == 1 {
+        list.push_str(&format!("`{}`", expected[0].name));
+    } else if expected.len() == 2 {
+        list.push_str(&format!("`{}` or `{}`", expected[0].name, expected[1].name));
+    } else {
+        list.push_str("one of ");
+        for (index, spec) in expected.iter().enumerate() {
+            if index > 0 {
+                list.push_str(", ");
+            }
+            list.push_str(&format!("`{}`", spec.name));
+        }
+    }
+    format!("unknown field `{field}`, expected {list}")
+}
+
+/// 位置序列缺位的 derive `invalid length` 消息（`struct X with N elements`，
+/// N=1 时单数 `element`；expecting 已含 `struct` 前缀，与 derive visitor 文
+/// 本逐字节一致）。
+pub(crate) fn invalid_length_message(index: usize, expecting: &str, len: usize) -> String {
+    let plural = if len == 1 { "" } else { "s" };
+    format!("invalid length {index}, expected {expecting} with {len} element{plural}")
 }
 
 /// serde_json 的 Display 在 line ≥ 1 时附带 ` at line L column C`；shape 候选
@@ -850,13 +1168,17 @@ mod tests {
             duplicate_field_message("formatVersion"),
             "duplicate field `formatVersion`"
         );
+        // unknown_field 手工复刻与 serde_core `unknown_field`/`OneOf` 逐字节一致。
+        for names in [&["a"][..], &["a", "b"][..], &["a", "b", "c"][..]] {
+            let specs: Vec<FieldSpec> = names.iter().map(|name| req(name)).collect();
+            assert_eq!(
+                unknown_field_message("bogus", &specs),
+                <serde_json::Error as de::Error>::unknown_field("bogus", names).to_string()
+            );
+        }
         assert_eq!(
-            unknown_field_message("bogus", &["a"]),
-            "unknown field `bogus`, expected `a`"
-        );
-        assert_eq!(
-            unknown_field_message("bogus", &["a", "b"]),
-            "unknown field `bogus`, expected `a` or `b`"
+            invalid_length_message(1, "struct WireUnits", 2),
+            "invalid length 1, expected struct WireUnits with 2 elements"
         );
     }
 

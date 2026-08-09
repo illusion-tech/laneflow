@@ -382,8 +382,14 @@ impl IssueContext {
     /// `Error::custom` 形态（内部位置 0:0，位置只由 span 承载）。
     fn parse_failure(&self, input: &[u8], failure: ParseFailure) -> CurrentSourceError {
         match failure {
-            ParseFailure::Syntax { path, source } => {
-                let span = parse::point_span(source.line(), source.column());
+            ParseFailure::Syntax {
+                path,
+                source,
+                position,
+            } => {
+                let (line, column) =
+                    position.unwrap_or((source.line() as u32, source.column() as u32));
+                let span = parse::point_span(line as usize, column as usize);
                 self.error_json(
                     path,
                     Some(span),

@@ -26,10 +26,13 @@ use walk::Ctx;
 #[derive(Debug)]
 pub(crate) enum ParseFailure {
     /// JSON token/UTF-8/EOF/trailing content 无效：携带真实 serde 错误（一基
-    /// 位置由调用方造单点 span）。
+    /// 位置由调用方造单点 span）。`position` 为重建的全局位置 override
+    /// （extensions 内容 sink 的 token 局部错误）；`None` 时取 serde 错误自
+    /// 带位置。
     Syntax {
         path: String,
         source: serde_json::Error,
+        position: Option<(u32, u32)>,
     },
     /// JSON shape 无效：延迟候选（锚点区间由调用方造 span）。
     Shape(ShapeCandidate),
@@ -41,10 +44,12 @@ pub(crate) enum ParseFailure {
 }
 
 /// 版本闸口状态：恰好一个合法字符串 `formatVersion` occurrence 参与版本裁
-/// 决；延迟候选只保留文档序首个。
+/// 决；延迟候选只保留文档序首个（shape 与 extensions 内容 syntax 分开记
+/// 录，裁决后按文档位置取先到者——旧全量解析的首错语义）。
 pub(crate) struct RootGate {
     format_version: Option<String>,
     deferred: Option<ShapeCandidate>,
+    deferred_syntax: Option<walk::DeferredSyntax>,
 }
 
 impl RootGate {
@@ -52,6 +57,38 @@ impl RootGate {
     pub(crate) fn defer(&mut self, candidate: ShapeCandidate) {
         if self.deferred.is_none() {
             self.deferred = Some(candidate);
+        }
+    }
+
+    /// 记录 extensions 内容的延迟 syntax 失败并继续遍历（R2 T5）。
+    pub(crate) fn defer_syntax(&mut self, failure: walk::DeferredSyntax) {
+        if self.deferred_syntax.is_none() {
+            self.deferred_syntax = Some(failure);
+        }
+    }
+
+    /// 版本裁决后的首个延迟失败：shape 与 extensions syntax 按文档位置取先
+    /// 到者（旧全量解析在文档序首个错误处失败的语义）。
+    pub(crate) fn first_deferred(&mut self) -> Option<ParseFailure> {
+        let deferred = self.deferred.take();
+        let deferred_syntax = self.deferred_syntax.take();
+        let syntax_start = deferred_syntax.as_ref().map(|failure| failure.token_start);
+        let syntax = deferred_syntax.map(|failure| ParseFailure::Syntax {
+            path: failure.path,
+            source: failure.source,
+            position: Some(failure.position),
+        });
+        match (deferred, syntax) {
+            (None, None) => None,
+            (Some(shape), None) => Some(ParseFailure::Shape(shape)),
+            (None, Some(syntax)) => Some(syntax),
+            (Some(shape), Some(syntax)) => {
+                Some(if shape.anchor.start <= syntax_start.unwrap_or(u32::MAX) {
+                    ParseFailure::Shape(shape)
+                } else {
+                    syntax
+                })
+            }
         }
     }
 }
@@ -77,19 +114,27 @@ pub(crate) fn missing_root_field(field: &'static str, root_range: ByteRange) -> 
     })
 }
 
+/// 根 seq-form 的头部闸口字段（旧 `WireVersionHeader` 仅 1 字段
+/// formatVersion；R2 T1/T2：根 seq 多于 1 元素时 header `end_seq` 在第二元
+/// 素处报 `trailing characters`，永远到不了全量解析）。
+const HEADER_FIELDS: &[walk::FieldSpec] = &[walk::req("formatVersion")];
+
 /// 根文档单遍驱动：流式 walk + `formatVersion` 头部闸口 + trailing 检查 +
 /// 版本裁决。根不捕获为 token；根区间起点取首非空白 byte，终点在 walk 成功
 /// 后经 JSON 感知配对扫描求得（根容器闭括号之后），不捕获或 replay 根文档。
 ///
 /// map 路径的 `expecting` 固定为旧头部 DTO 的 expecting 文本（`struct
 /// WireVersionHeader`），使非 object 根的 invalid type 消息与旧 gate 逐字节
-/// 一致；seq-form 根按 `fields` 声明序逐位置解码，`struct_expecting` 用于
-/// 缺位时的 derive invalid length 文本（`struct X with N elements`）。
+/// 一致。seq-form 根复刻旧两阶段语义（R2 T1/T2 探针实证）：先以
+/// `HEADER_FIELDS` 单字段走位置序列头部闸口（多于 1 元素由 serde_json
+/// `end_seq` 报 trailing characters → JsonSyntax；空序列报 header invalid
+/// length 0），版本裁决后 1 元素序列对 N 字段 struct 的结局是确定的（位置 1
+/// 缺位），直接构造 invalid length 1 候选，不驱动第二次根 deserializer。
 fn drive_root<'de, F>(
     input: &'de [u8],
     expected_version: &'static str,
     struct_expecting: &'static str,
-    fields: &'static [&'static str],
+    fields: &'static [walk::FieldSpec],
     mut handler: F,
 ) -> Result<GateReport, ParseFailure>
 where
@@ -102,6 +147,7 @@ where
     let mut gate = RootGate {
         format_version: None,
         deferred: None,
+        deferred_syntax: None,
     };
     let mut failure = None;
     let mut deserializer = serde_json::Deserializer::from_slice(input);
@@ -129,8 +175,9 @@ where
         handler(ctx, key, value, range, mark, &mut gate);
         Ok(())
     };
-    // token 形态分派：`[` 按声明序走位置序列（derive struct seq-form 平价）；
-    // 其余形态走 map（非 object 由 map 路径报头部 expecting 的 invalid type）。
+    // token 形态分派：`[` 走 seq-form 头部闸口（HEADER_FIELDS 单字段位置序
+    // 列；多于 1 元素由 `end_seq` 报 trailing characters）；其余形态走 map
+    // （非 object 由 map 路径报头部 expecting 的 invalid type）。
     let is_seq = input
         .get(probe_range.start as usize)
         .is_some_and(|byte| *byte == b'[');
@@ -138,8 +185,8 @@ where
         walk::drive_seq(
             &mut ctx,
             &mut failure,
-            struct_expecting,
-            fields,
+            "struct WireVersionHeader",
+            HEADER_FIELDS,
             probe_range,
             &mut deserializer,
             gate_dispatch,
@@ -170,6 +217,7 @@ where
             Category::Io | Category::Syntax | Category::Eof => ParseFailure::Syntax {
                 path: ctx.canonical_path().to_owned(),
                 source: error,
+                position: None,
             },
         });
     }
@@ -189,6 +237,7 @@ where
         return Err(ParseFailure::Syntax {
             path: "$".to_owned(),
             source,
+            position: None,
         });
     }
     // ⑤ 版本裁决（先于其他 shape）。
@@ -197,6 +246,17 @@ where
             expected: expected_version,
             actual: format_version,
         });
+    }
+    // ⑥ seq-form 根：头部闸口通过即恰好 1 元素（多元素已在闸口以 trailing
+    //    characters 失败）；1 元素对 N 字段 struct 的全量解析结局确定——位置
+    //    1 缺位，直接构造 derive invalid length 1 候选（不驱动第二次根
+    //    deserializer；探针实证 path `$`、category Data）。
+    if is_seq {
+        return Err(ParseFailure::Shape(ShapeCandidate {
+            path: "$".to_owned(),
+            message: walk::invalid_length_message(1, struct_expecting, fields.len()),
+            anchor: root_range,
+        }));
     }
     Ok(GateReport { gate, root_range })
 }
@@ -216,7 +276,7 @@ mod tests {
     fn root_eof_is_syntax_with_real_position() {
         let failure = parse_traffic(b"{").expect_err("截断输入必须失败");
         match failure {
-            ParseFailure::Syntax { path, source } => {
+            ParseFailure::Syntax { path, source, .. } => {
                 assert_eq!(path, "$");
                 assert_eq!((source.line(), source.column()), (1, 1));
                 assert!(source.to_string().contains("EOF while parsing"));
@@ -269,7 +329,7 @@ mod tests {
     fn empty_input_is_syntax_eof() {
         let failure = parse_traffic(b"").expect_err("空输入");
         match failure {
-            ParseFailure::Syntax { path, source } => {
+            ParseFailure::Syntax { path, source, .. } => {
                 assert_eq!(path, "$");
                 assert_eq!((source.line(), source.column()), (1, 0));
             }
@@ -296,31 +356,103 @@ mod tests {
         );
     }
 
-    /// seq-form 平价：全位置形态根包被接受（嵌套 units/signals 也用位置形
-    /// 态，extensions 位置 17 为 opaque object）。
+    /// 根 seq-form 两阶段平价（R2 T1/T2 探针实证）：多于 1 元素的根 seq 在
+    /// header 闸口以 `trailing characters` 立即失败（JsonSyntax，真实 serde
+    /// 位置）；根 seq 永远不成功。
     #[test]
-    fn fully_positional_root_package_is_accepted() {
+    fn seq_root_with_extra_elements_is_trailing_characters_syntax() {
+        let failure = parse_traffic(br#"["0.10",{}]"#).expect_err("两元素根 seq");
+        match failure {
+            ParseFailure::Syntax {
+                path,
+                source,
+                position,
+            } => {
+                assert_eq!(path, "$");
+                assert_eq!(position, None);
+                assert_eq!((source.line(), source.column()), (1, 9));
+                assert_eq!(source.to_string(), "trailing characters at line 1 column 9");
+            }
+            other => panic!("expected Syntax, got {other:?}"),
+        }
+
+        // 完整位置形态根包同样止步于 header 闸口（逗号后空白计入位置）。
         let input = br#"["0.10", ["m", "s"], {"edges": []}, [], [], [], [], [], [], [], [], [], [], [], [], [[], [], [], []], {"areas": [], "spaces": []}, {}]"#;
-        let wire = parse_traffic(input).expect("全位置形态根包必须被接受");
-        assert_eq!(wire.format_version(), "0.10");
-        assert_eq!(wire.units().distance(), "m");
-        assert_eq!(wire.units().time(), "s");
-        assert!(wire.signals().maneuver_gates().is_empty());
+        let failure = parse_traffic(input).expect_err("完整位置根包必须被拒绝");
+        match failure {
+            ParseFailure::Syntax { path, source, .. } => {
+                assert_eq!(path, "$");
+                assert_eq!((source.line(), source.column()), (1, 10));
+                assert_eq!(
+                    source.to_string(),
+                    "trailing characters at line 1 column 10"
+                );
+            }
+            other => panic!("expected Syntax, got {other:?}"),
+        }
     }
 
-    /// seq-form 平价：缺位报 derive invalid length（`struct X with N
-    /// elements`），path 停在缺位索引；嵌套 record 同理。
+    /// 根 seq 空序列（R2 T1/T2 探针实证）：header 位置 0 缺位 → derive
+    /// invalid length 0（JsonShape，path `$`）。
     #[test]
-    fn seq_form_short_sequence_reports_invalid_length() {
-        // 根：18 字段只给 1 个。
-        let (path, message, _anchor) =
-            shape_parts(parse_traffic(br#"["0.10"]"#).expect_err("根缺位"));
-        assert_eq!(path, "[1]");
+    fn seq_root_empty_is_header_invalid_length_shape() {
+        let (path, message, _anchor) = shape_parts(parse_traffic(b"[]").expect_err("空根 seq"));
+        assert_eq!(path, "$");
+        assert_eq!(
+            message,
+            "invalid length 0, expected struct WireVersionHeader with 1 element"
+        );
+    }
+
+    /// 根 seq 版本裁决先于 invalid length（R2 T1/T2 探针实证）：`["9.9"]`
+    /// header 成功 → UnsupportedFormatVersion。
+    #[test]
+    fn seq_root_bad_version_is_unsupported() {
+        let failure = parse_traffic(br#"["9.9"]"#).expect_err("不受支持的版本");
+        match failure {
+            ParseFailure::UnsupportedVersion { expected, actual } => {
+                assert_eq!(expected, "0.10");
+                assert_eq!(actual, "9.9");
+            }
+            other => panic!("expected UnsupportedVersion, got {other:?}"),
+        }
+    }
+
+    /// 根 seq 恰好 1 元素（R2 T1/T2 探针实证）：header 成功、版本 OK → 全量
+    /// struct 位置 1 缺位 → derive invalid length 1（JsonShape，path `$`）；
+    /// 直接构造候选，不驱动第二次根 deserializer。
+    #[test]
+    fn seq_root_header_only_is_struct_invalid_length() {
+        let (path, message, anchor) =
+            shape_parts(parse_traffic(br#"["0.10"]"#).expect_err("traffic 根缺位"));
+        assert_eq!(path, "$");
         assert_eq!(
             message,
             "invalid length 1, expected struct WirePackage with 18 elements"
         );
+        assert_eq!(anchor, ByteRange::new(0, 8));
 
+        let (path, message, _anchor) =
+            shape_parts(parse_manifest(br#"["0.1"]"#).expect_err("manifest 根缺位"));
+        assert_eq!(path, "$");
+        assert_eq!(
+            message,
+            "invalid length 1, expected struct WireScenarioManifest with 3 elements"
+        );
+
+        let (path, message, _anchor) =
+            shape_parts(parse_spatial(br#"["0.1"]"#).expect_err("spatial 根缺位"));
+        assert_eq!(path, "$");
+        assert_eq!(
+            message,
+            "invalid length 1, expected struct WireSpatialPackage with 3 elements"
+        );
+    }
+
+    /// 嵌套 record 缺位报 derive invalid length（`struct X with N
+    /// elements`），path 停在 record 级（serde_path_to_error 探针实证）。
+    #[test]
+    fn seq_form_short_sequence_reports_invalid_length() {
         // 嵌套：units 只给 1 个位置。
         let input = minimal_traffic().replacen(
             r#""units": {"distance": "m", "time": "s"}"#,
@@ -329,7 +461,7 @@ mod tests {
         );
         let (path, message, _anchor) =
             shape_parts(parse_traffic(input.as_bytes()).expect_err("units 缺位"));
-        assert_eq!(path, "units[1]");
+        assert_eq!(path, "units");
         assert_eq!(
             message,
             "invalid length 1, expected struct WireUnits with 2 elements"
@@ -403,12 +535,118 @@ mod tests {
         let wire = parse_traffic(gate(r#"["none"]"#).as_bytes()).expect("None seq-form");
         let control = wire.signals().maneuver_gates()[0].signal_control();
         assert!(control.as_group().is_none(), "None variant");
+    }
 
-        // derive 平价：None 单字段 variant 忽略多余位置（`["none", "ignored"]`）。
-        let wire =
-            parse_traffic(gate(r#"["none", "ignored"]"#).as_bytes()).expect("多余位置静默忽略");
-        let control = wire.signals().maneuver_gates()[0].signal_control();
-        assert!(control.as_group().is_none(), "None variant 忽略位置 1");
+    /// untagged 位置 variant 超元元素一律拒绝（R2 T4 探针实证）：超出所选
+    /// variant 声明元数的元素使全部 variant 尝试失败，报 `data did not match
+    /// any variant of untagged enum X`。
+    #[test]
+    fn untagged_seq_form_rejects_extra_elements() {
+        // corridor：`["section", "unexpected"]` → 两个单字段 variant 都失败。
+        let input = minimal_traffic().replacen(
+            r#""roadCorridors": []"#,
+            r#""roadCorridors": [{"id": "c", "referenceSectionId": "s", "elements": [["section", "unexpected"]]}]"#,
+            1,
+        );
+        let (path, message, _anchor) =
+            shape_parts(parse_traffic(input.as_bytes()).expect_err("corridor 超元元素"));
+        assert_eq!(path, "roadCorridors[0].elements[0]");
+        assert_eq!(
+            message,
+            "data did not match any variant of untagged enum WireCorridorElement"
+        );
+
+        let gate = |control: &str| {
+            minimal_traffic().replacen(
+                r#""signals": {"stopLines": [], "maneuverGates": [], "groups": [], "controllers": []}"#,
+                &format!(
+                    r#""signals": {{"stopLines": [], "maneuverGates": [{{"id": "g", "maneuverPathId": "m", "transitionIndex": 0, "stopLineId": "s", "signalControl": {control}}}], "groups": [], "controllers": []}}"#
+                ),
+                1,
+            )
+        };
+        // `["none", "unexpected"]` → None 单字段 variant 因超元失败。
+        let (path, message, _anchor) = shape_parts(
+            parse_traffic(gate(r#"["none", "unexpected"]"#).as_bytes()).expect_err("none 超元元素"),
+        );
+        assert_eq!(path, "signals.maneuverGates[0].signalControl");
+        assert_eq!(
+            message,
+            "data did not match any variant of untagged enum WireSignalControl"
+        );
+
+        // `["group", "g1", "extra"]` → Group 双字段 variant 因超元失败。
+        let (_path, message, _anchor) = shape_parts(
+            parse_traffic(gate(r#"["group", "g1", "extra"]"#).as_bytes())
+                .expect_err("group 超元元素"),
+        );
+        assert_eq!(
+            message,
+            "data did not match any variant of untagged enum WireSignalControl"
+        );
+    }
+
+    /// serde(default) 位置语义（R2 T3 探针实证）：位置序列元素耗尽后，带
+    /// `#[serde(default)]` 的剩余字段取默认值而非 invalid length；第一个无
+    /// default 的剩余字段才报 invalid length（索引为字段声明位置）。
+    #[test]
+    fn positional_defaults_follow_serde_default_semantics() {
+        // participant class：["pc"] —— extendsId（default）取 None。
+        let input = minimal_traffic().replacen(
+            r#""participantClasses": []"#,
+            r#""participantClasses": [["pc"]]"#,
+            1,
+        );
+        let wire = parse_traffic(input.as_bytes()).expect("participantClass 尾缺省");
+        assert_eq!(wire.participant_classes()[0].id(), "pc");
+
+        // access rule：只给前四必填字段 —— timeWindows/regulation/priority
+        // （均 default）取 None。
+        let input = minimal_traffic().replacen(
+            r#""accessRules": []"#,
+            r#""accessRules": [["r1", {"kind": "laneEdge", "id": "e1"}, "allow", ["pc"]]]"#,
+            1,
+        );
+        let wire = parse_traffic(input.as_bytes()).expect("accessRule 尾缺省");
+        assert_eq!(wire.access_rules()[0].id(), "r1");
+
+        // regulation：["jurisdiction", "version"] —— source（default）取 None。
+        let input = minimal_traffic().replacen(
+            r#""accessRules": []"#,
+            r#""accessRules": [{"id": "r1", "target": {"kind": "laneEdge", "id": "e1"}, "effect": "allow", "participantClassIds": ["pc"], "regulation": ["j", "v"]}]"#,
+            1,
+        );
+        let wire = parse_traffic(input.as_bytes()).expect("regulation 尾缺省");
+        assert_eq!(
+            wire.access_rules()[0]
+                .regulation()
+                .expect("regulation 存在")
+                .jurisdiction(),
+            "j"
+        );
+
+        // parking space：areaId（位置 1，default）跳过，entry（位置 2，必填）
+        // 缺位 → invalid length 2（索引为字段声明位置，非耗尽位置）。
+        let input = minimal_traffic().replacen(
+            r#""parking": {"areas": [], "spaces": []}"#,
+            r#""parking": {"areas": [], "spaces": [["s1"]]}"#,
+            1,
+        );
+        let (path, message, _anchor) =
+            shape_parts(parse_traffic(input.as_bytes()).expect_err("space 必填缺位"));
+        assert_eq!(path, "parking.spaces[0]");
+        assert_eq!(
+            message,
+            "invalid length 2, expected struct WireParkingSpace with 5 elements"
+        );
+
+        // 反例：无 default 的尾字段（units.time）缺位仍报 invalid length。
+        let input = minimal_traffic().replacen(
+            r#""units": {"distance": "m", "time": "s"}"#,
+            r#""units": ["m"]"#,
+            1,
+        );
+        parse_traffic(input.as_bytes()).expect_err("无 default 尾字段仍 invalid length");
     }
 
     /// 转义 key 平价（R1 T5）：含 `\uXXXX` 转义的合法 key 解码后与明文 key
@@ -456,13 +694,152 @@ mod tests {
         assert_eq!(message, "duplicate field `extensions`");
     }
 
+    /// 以 extensions 结尾的最小合法 traffic（`{"x": ...}` 内容）。
+    fn traffic_with_extensions(value: &str) -> String {
+        minimal_traffic().replacen(
+            r#""parking": {"areas": [], "spaces": []}}"#,
+            &format!(r#""parking": {{"areas": [], "spaces": []}}, "extensions": {value}}}"#),
+            1,
+        )
+    }
+
+    fn nested_arrays(depth: usize) -> String {
+        let mut nested = String::new();
+        for _ in 0..depth {
+            nested.push('[');
+        }
+        nested.push('1');
+        for _ in 0..depth {
+            nested.push(']');
+        }
+        nested
+    }
+
+    /// extensions 内容数值 range（R2 T5 探针实证）：超 f64 数字以 JsonSyntax
+    /// 立即于版本裁决后失败；path 深入 extensions 子树，span 为全局位置。
+    #[test]
+    fn extensions_content_validates_number_range() {
+        let doc = traffic_with_extensions(r#"{"x": 1e999}"#);
+        let lexeme_start = doc.find("1e999").expect("lexeme 在文档中") as u32;
+        let failure = parse_traffic(doc.as_bytes()).expect_err("超 f64 数字必须被拒绝");
+        match failure {
+            ParseFailure::Syntax {
+                path,
+                source,
+                position,
+            } => {
+                assert_eq!(path, "extensions.x");
+                assert_eq!(source.classify(), Category::Syntax);
+                // payload 为 wrapped token 局部错误；span 位置重建为全局
+                // （lexeme 末位之后）。
+                assert_eq!(
+                    source.to_string(),
+                    "number out of range at line 1 column 12"
+                );
+                assert_eq!(position, Some((1, lexeme_start + 5)));
+            }
+            other => panic!("expected Syntax, got {other:?}"),
+        }
+    }
+
+    /// extensions 内容递归深度（R2 T5 探针实证）：serde_json 128 层递归预算
+    /// 经 wrapper seq 抵消根 object 层，生效边界与旧全量解析逐层一致
+    /// （125 接受 / 126 起拒绝；审阅用例 128/129 均拒绝）。
+    #[test]
+    fn extensions_content_enforces_recursion_limit() {
+        for depth in [100_usize, 125] {
+            let doc = traffic_with_extensions(&format!("{{\"x\": {}}}", nested_arrays(depth)));
+            parse_traffic(doc.as_bytes()).unwrap_or_else(|failure| {
+                panic!("深度 {depth} 必须被接受：{failure:?}");
+            });
+        }
+        for depth in [126_usize, 128, 129] {
+            let doc = traffic_with_extensions(&format!("{{\"x\": {}}}", nested_arrays(depth)));
+            let failure = match parse_traffic(doc.as_bytes()) {
+                Err(failure) => failure,
+                Ok(_) => panic!("深度 {depth} 必须被拒绝"),
+            };
+            match failure {
+                ParseFailure::Syntax {
+                    path,
+                    source,
+                    position,
+                } => {
+                    assert!(path.starts_with("extensions.x[0]"), "深度 {depth} path");
+                    assert_eq!(source.classify(), Category::Syntax);
+                    assert!(
+                        source.to_string().starts_with("recursion limit exceeded"),
+                        "深度 {depth} 消息"
+                    );
+                    assert!(position.is_some(), "深度 {depth} 全局 span");
+                }
+                other => panic!("expected Syntax, got {other:?}"),
+            }
+        }
+    }
+
+    /// extensions 非 object 外壳（R1 语义不变）：invalid type shape，锚=value
+    /// token。
+    #[test]
+    fn extensions_non_object_is_shape_invalid_type() {
+        let doc = traffic_with_extensions("[1]");
+        let (path, message, _anchor) =
+            shape_parts(parse_traffic(doc.as_bytes()).expect_err("非 object extensions"));
+        assert_eq!(path, "extensions");
+        assert_eq!(message, "invalid type: sequence, expected a map");
+    }
+
+    /// 冻结顺序（R2 T5）：extensions 内容 syntax 失败延迟到版本裁决之后；
+    /// 与延迟 shape 候选按文档位置取先到者。
+    #[test]
+    fn extensions_content_error_defers_and_orders_by_document_position() {
+        // 版本裁决优先于 extensions 内容错误。
+        let doc = traffic_with_extensions(r#"{"x": 1e999}"#).replacen(r#""0.10""#, r#""9.9""#, 1);
+        match parse_traffic(doc.as_bytes()).expect_err("不受支持的版本") {
+            ParseFailure::UnsupportedVersion { actual, .. } => assert_eq!(actual, "9.9"),
+            other => panic!("expected UnsupportedVersion, got {other:?}"),
+        }
+
+        // units shape（文档序在前）先于 extensions 内容错误。
+        let doc = traffic_with_extensions(r#"{"x": 1e999}"#).replacen(
+            r#""units": {"distance": "m", "time": "s"}"#,
+            r#""units": 1"#,
+            1,
+        );
+        let (path, message, _anchor) =
+            shape_parts(parse_traffic(doc.as_bytes()).expect_err("文档序先到者优先"));
+        assert_eq!(path, "units");
+        assert_eq!(
+            message,
+            "invalid type: integer `1`, expected struct WireUnits"
+        );
+
+        // extensions 在文档序靠前时其内容错误优先。
+        let doc = minimal_traffic()
+            .replacen(
+                r#""formatVersion": "0.10", "#,
+                r#""extensions": {"x": 1e999}, "formatVersion": "0.10", "#,
+                1,
+            )
+            .replacen(
+                r#""units": {"distance": "m", "time": "s"}"#,
+                r#""units": 1"#,
+                1,
+            );
+        let failure = parse_traffic(doc.as_bytes()).expect_err("extensions 先到者优先");
+        match failure {
+            ParseFailure::Syntax { path, .. } => assert_eq!(path, "extensions.x"),
+            other => panic!("expected Syntax, got {other:?}"),
+        }
+    }
+
     /// 冻结顺序：trailing content（④）先于版本裁决（⑤）。
     #[test]
     fn trailing_content_precedes_version_decision() {
         let failure =
             parse_traffic(br#"{"formatVersion": "9.9"} x"#).expect_err("trailing content");
         match failure {
-            ParseFailure::Syntax { path, source } => {
+            ParseFailure::Syntax { path, source, .. } => {
                 assert_eq!(path, "$");
                 assert!(source.to_string().starts_with("trailing characters"));
             }
