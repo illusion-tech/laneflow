@@ -31,5 +31,9 @@ path = "src/bin/generate_manifest.rs"
 name = "validate-manifest"
 path = "src/bin/validate_manifest.rs"
 
+[[bin]]
+name = "calibrate"
+path = "src/bin/calibrate.rs"
+
 [lints]
 workspace = true
