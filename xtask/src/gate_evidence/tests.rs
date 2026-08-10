@@ -903,6 +903,20 @@ fn accepts_merged_related_pr_history_in_delivery_full_set_g3() {
 }
 
 #[test]
+fn rejects_merged_related_g3_effective_at_merge_second() {
+    let mut related_pr = related_pr(false);
+    related_pr.state = "MERGED".to_string();
+    related_pr.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+    related_pr.comments[0].includes_created_edit = true;
+    related_pr.comments[0].updated_at = Some("2026-07-10T05:30:00Z".to_string());
+
+    let error = validate_g3_timing(&related_pr, RELATED_G3_URL, "Related PR #62")
+        .expect_err("the merge second cannot prove that an edit happened before merge");
+
+    assert!(error.contains("生效时间必须严格早于 PR 合并时间"));
+}
+
+#[test]
 fn rejects_merged_related_as_current_related_only_g3_target() {
     let args = related_only_g3_args();
     let mut related_pr = related_pr(false);

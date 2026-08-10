@@ -364,8 +364,10 @@ pub(super) fn validate_g3_timing(
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} permalink 未指向该 PR 的 comment"))?;
     let effective_at = g3_comment_effective_at(comment, label)?;
-    if effective_at > merged_at {
-        return Err(format!("{label} comment 生效时间晚于 PR 合并时间"));
+    if effective_at >= merged_at {
+        return Err(format!(
+            "{label} comment 生效时间必须严格早于 PR 合并时间；GitHub 同秒无法证明编辑发生在合并前"
+        ));
     }
     Ok(())
 }

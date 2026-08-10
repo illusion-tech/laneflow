@@ -89,7 +89,7 @@ Refs: #12
 
 提交标题遵循 Conventional Commits，正文保留 LaneFlow 治理字段。只有满足 G4 完成边界时，才使用 `Closes: #<id>`；否则使用 `Refs: #<id>`。
 
-`Gate: G3 Candidate` 表示 commit 已准备进入 PR 级 G3 判断，不等同于正式通过。正式 `G3 Pass` 只记录在当前 head 的 `External Review Gate` Check 和 append-only G3 comment；阻断中的本地提交可使用 `Gate: G3 Block`，但 PR / push range 校验会拒绝它，解除阻断后必须重写或移除。
+`Gate: G3 Candidate` 表示 commit 已准备进入 PR 级 G3 判断，不等同于正式通过。正式 `G3 Pass` 只记录在当前 head 的 `External Review Gate` Check 和 current G3 Owner comment；comment 可在合并前纠错编辑，但以 REST 核验的 `updatedAt` 重新生效并要求新 marker，合并后不得编辑历史 G3。阻断中的本地提交可使用 `Gate: G3 Block`，但 PR / push range 校验会拒绝它，解除阻断后必须重写或移除。
 
 ## 7. 文档要求
 
