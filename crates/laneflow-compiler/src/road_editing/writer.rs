@@ -1067,7 +1067,7 @@ fn encode_canonical_frame<'fbb>(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::road_editing::RoadEditingSourceModuleBuilder;
 
@@ -1148,7 +1148,7 @@ mod tests {
         .expect("curve")
     }
 
-    fn module_with_every_declaration(limits: &CompileLimits) -> RoadEditingSourceModule {
+    pub(crate) fn module_with_every_declaration(limits: &CompileLimits) -> RoadEditingSourceModule {
         let mut builder = RoadEditingSourceModuleBuilder::new(
             RoadEditingModuleHeader::try_new(
                 "city",
