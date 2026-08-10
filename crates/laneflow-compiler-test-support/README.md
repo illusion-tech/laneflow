@@ -11,9 +11,10 @@
 重算派生数据后掩盖 LIR 错误。包保持 `publish = false`，并将在 #294 完成生产切换后
 删除。
 
-包内集成测试直接构造编译器原生的有类型模块，覆盖完整代表性静态契约、空间采样、
-多机动门与等待区出现项，以及重复投影的确定性。测试不读取 current JSON，也不维护
-current JSON 到编译器输入的转换器；旧 JSON loader 的解析测试留在 `laneflow-data`。
+包内集成测试直接构造编译器原生的有类型模块，以两条可区分所有权链覆盖完整代表性
+静态契约、空间采样、多机动门与等待区出现项，以及重复投影的有类型语义确定性。测试
+不读取 current JSON，也不维护 current JSON 到编译器输入的转换器；旧 JSON loader 的
+解析测试留在 `laneflow-data`。
 
 历史 `LF-COMP-P100-PRODUCTION-R0-v1` 基线记录保留在
 `docs/reference/v0.10-compiler-production-baseline.md`，但它不再作为可重放测试入口，
