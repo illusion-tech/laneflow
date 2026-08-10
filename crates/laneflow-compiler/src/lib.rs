@@ -17,6 +17,7 @@ mod mir;
 mod module;
 pub mod road_editing;
 mod source;
+mod source_location;
 mod source_map;
 
 pub use compiler::{
@@ -66,6 +67,15 @@ pub use module::{
     SourceModuleDescriptor, SyntheticModule, SyntheticModuleBuilder,
 };
 pub use source::{SourceModuleHeader, SourceModuleHeaderInput};
+pub use source_location::{
+    RoadEditingByteRange, RoadEditingCanvasSelectionOrdinal, RoadEditingDocumentIdentity,
+    RoadEditingInputDocumentIdentity, RoadEditingLocationContext, RoadEditingPropertyPath,
+    RoadEditingPropertyPathOrdinal, RoadEditingPropertyStep, RoadEditingRelationKind,
+    RoadEditingRelationOccurrence, RoadEditingRootVectorKind, RoadEditingSourceAddress,
+    RoadEditingSourceLocation, RoadEditingStringOrdinal, RoadEditingStructKind, RoadEditingSubject,
+    RoadEditingTableKind, RoadEditingUnionKind, RoadEditingVerifiedDocumentIdentity,
+    SourceLocation,
+};
 pub use source_map::{
     AccessRelationOwner, AccessRelationSourceView, AccessRuleSourceView, AuthoringLaneSourceView,
     CanonicalFrameSourceView, CrossSectionRelationOwner, CrossSectionRelationSourceView,
