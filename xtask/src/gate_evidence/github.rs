@@ -238,48 +238,46 @@ pub(super) fn validate_dependabot_body_edits_after_marker(
     Ok(())
 }
 
-pub(super) fn validate_latest_body_edit_is_dependabot(
+pub(super) fn validate_dependabot_body_edits_after_g3_comment(
+    g3_comment_created_at: &str,
     edits: &GitHubUserContentEditConnection,
     label: &str,
 ) -> Result<(), String> {
     if edits.page_info.has_next_page {
         return Err(format!(
-            "{label} body edit history 超过 100 条；无法确认当前 body 由 Dependabot 自主改写"
+            "{label} body edit history 超过 100 条；无法确认 G3 comment 后只有 Dependabot 自主改写"
         ));
     }
-    let mut latest_seconds = None;
-    let mut latest_edits = Vec::new();
+    let g3_comment_seconds = parse_utc_timestamp_seconds(g3_comment_created_at)
+        .ok_or("current G3 comment createdAt 不是 UTC RFC3339 时间")?;
+    let mut later_edit_count = 0;
     for edit in &edits.nodes {
         let edited_seconds = parse_utc_timestamp_seconds(&edit.edited_at)
             .ok_or_else(|| format!("{label} userContentEdit.editedAt 不是 UTC RFC3339 时间"))?;
-        match latest_seconds {
-            None => {
-                latest_seconds = Some(edited_seconds);
-                latest_edits.push(edit);
-            }
-            Some(current) if edited_seconds > current => {
-                latest_seconds = Some(edited_seconds);
-                latest_edits.clear();
-                latest_edits.push(edit);
-            }
-            Some(current) if edited_seconds == current => latest_edits.push(edit),
-            _ => {}
+        if edited_seconds < g3_comment_seconds {
+            continue;
         }
-    }
-    if latest_edits.is_empty() {
-        return Err(format!("{label} 缺少 body edit history"));
-    }
-    for edit in latest_edits {
+        if edited_seconds == g3_comment_seconds {
+            return Err(format!(
+                "{label} body edit 与 current G3 comment 同秒；无法证明 Dependabot 在 comment 后自主改写"
+            ));
+        }
+        later_edit_count += 1;
         let editor = edit
             .editor
             .as_ref()
-            .ok_or_else(|| format!("{label} 最新 body edit 缺少 editor"))?;
+            .ok_or_else(|| format!("{label} G3 comment 后的 body edit 缺少 editor"))?;
         if !is_dependabot_actor(&editor.login) {
             return Err(format!(
-                "{label} 最新 body edit editor={}，不能启用仅供 Dependabot 自主改写的元数据恢复",
+                "{label} G3 comment 后包含非 Dependabot body edit（editor={}）；不能恢复 target 元数据",
                 editor.login
             ));
         }
+    }
+    if later_edit_count == 0 {
+        return Err(format!(
+            "{label} 缺少严格晚于 current G3 comment 的 Dependabot body edit；不能恢复 target 元数据"
+        ));
     }
     Ok(())
 }

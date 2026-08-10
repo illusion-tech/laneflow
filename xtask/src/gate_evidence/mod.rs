@@ -52,7 +52,11 @@ fn gh_pr_view_for_gate_evidence(
         ));
     }
     let edits = gh_pr_user_content_edits(repo, number)?;
-    validate_latest_body_edit_is_dependabot(&edits, &format!("PR #{number}"))?;
+    validate_dependabot_body_edits_after_g3_comment(
+        &comment.created_at,
+        &edits,
+        &format!("PR #{number}"),
+    )?;
     let (role, issue_numbers) =
         parse_gate_evidence_target_metadata_from_g3_comment(repo, number, &comment.body)?;
     let issues = issue_numbers

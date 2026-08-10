@@ -802,20 +802,33 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             diagnostics.push(format!("review thread `{}` 没有 comment", thread.id));
             continue;
         };
-        if let Some(completion) = dependabot_completion {
-            if let Some(disposition) = dependabot_lockfile_false_positive_disposition(
+        if let Some(completion) = dependabot_completion
+            && let Some(disposition) = dependabot_lockfile_false_positive_disposition(
                 thread,
                 completion,
                 &pr.head_ref_oid,
                 &author,
-            ) {
-                if dependabot_completion_event.is_none_or(|current| {
-                    timestamp_second(disposition.0) > timestamp_second(current.0)
-                }) {
-                    dependabot_completion_event = Some(disposition);
-                }
+            )
+        {
+            let Some(review) = first_comment.pull_request_review.as_ref() else {
+                diagnostics.push(format!(
+                    "Dependabot 已知误报 thread `{}` 缺少 pullRequestReview 关联",
+                    thread.id
+                ));
+                continue;
+            };
+            if let Err(error) =
+                validate_review_reference_in_connection(&thread.id, review, &pr.reviews.nodes)
+            {
+                diagnostics.push(error);
                 continue;
             }
+            if dependabot_completion_event
+                .is_none_or(|current| timestamp_second(disposition.0) > timestamp_second(current.0))
+            {
+                dependabot_completion_event = Some(disposition);
+            }
+            continue;
         }
         let has_authorless_starter = first_comment.author.is_none();
         let mut has_trusted_finding = false;
@@ -1296,12 +1309,8 @@ fn dependabot_lockfile_false_positive_disposition<'a>(
     if !thread.is_resolved && !thread.is_outdated {
         return None;
     }
-    let Some(first) = thread.comments.nodes.first() else {
-        return None;
-    };
-    let Some(review) = first.pull_request_review.as_ref() else {
-        return None;
-    };
+    let first = thread.comments.nodes.first()?;
+    let review = first.pull_request_review.as_ref()?;
     let linked_head = review.commit.as_ref().map(|commit| commit.oid.as_str());
     let claimed_head = first
         .body
@@ -1348,6 +1357,42 @@ fn dependabot_lockfile_false_positive_disposition<'a>(
         }
     }
     latest_disposition
+}
+
+fn validate_review_reference_in_connection(
+    thread_id: &str,
+    reference: &ReviewReference,
+    reviews: &[Review],
+) -> Result<(), String> {
+    let review = reviews
+        .iter()
+        .find(|review| review.id == reference.id)
+        .ok_or_else(|| {
+            format!(
+                "Dependabot 已知误报 thread `{thread_id}` 引用了 reviews connection 中不存在的 review：{}",
+                reference.id
+            )
+        })?;
+    let reference_actor = reference
+        .author
+        .as_ref()
+        .map(|actor| normalize_actor(&actor.login));
+    let review_actor = review
+        .author
+        .as_ref()
+        .map(|actor| normalize_actor(&actor.login));
+    let reference_commit = reference.commit.as_ref().map(|commit| commit.oid.as_str());
+    let review_commit = review.commit.as_ref().map(|commit| commit.oid.as_str());
+    if reference_actor != review_actor
+        || !reference.state.eq_ignore_ascii_case(&review.state)
+        || reference_commit != review_commit
+    {
+        return Err(format!(
+            "Dependabot 已知误报 thread `{thread_id}` 的 review `{}` 与 reviews connection 的 actor/state/commit 不一致",
+            reference.id
+        ));
+    }
+    Ok(())
 }
 
 fn known_dependabot_author_false_positive_body(body: &str, claimed_head: &str) -> bool {
@@ -2552,6 +2597,40 @@ mod tests {
             pass.evidence[0].evidence_url,
             "https://github.com/illusion-tech/laneflow/pull/313#discussion_r2"
         );
+
+        let mut missing_review = fixture(contents);
+        missing_review.pull_request.reviews.nodes.clear();
+        let missing_review_result = evaluate_snapshot(&missing_review);
+        assert_eq!(
+            missing_review_result.state,
+            ExternalReviewState::ProviderError
+        );
+        assert!(
+            missing_review_result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("reviews connection 中不存在的 review"))
+        );
+
+        let mut conflicting_actor = fixture(contents);
+        conflicting_actor.pull_request.reviews.nodes[0].author = Some(Actor {
+            login: "copilot-pull-request-reviewer[bot]".to_string(),
+        });
+        let mut conflicting_state = fixture(contents);
+        conflicting_state.pull_request.reviews.nodes[0].state = "APPROVED".to_string();
+        let mut conflicting_commit = fixture(contents);
+        conflicting_commit.pull_request.reviews.nodes[0]
+            .commit
+            .as_mut()
+            .expect("fixture review commit")
+            .oid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string();
+        for conflicting in [conflicting_actor, conflicting_state, conflicting_commit] {
+            let result = evaluate_snapshot(&conflicting);
+            assert_eq!(result.state, ExternalReviewState::ProviderError);
+            assert!(result.diagnostics.iter().any(|diagnostic| {
+                diagnostic.contains("与 reviews connection 的 actor/state/commit 不一致")
+            }));
+        }
 
         let mut later_clean_review = fixture(contents);
         let mut clean_review = later_clean_review.pull_request.reviews.nodes[0].clone();

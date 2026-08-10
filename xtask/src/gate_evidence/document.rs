@@ -396,12 +396,28 @@ pub(super) fn validate_external_review_g3(
         let completion_time = result
             .completion_time()
             .ok_or_else(|| format!("{label} pass 结果缺少 completion time"))?;
-        if comment.created_at.as_str() < completion_time {
-            return Err(format!(
-                "{label} G3 comment 早于最终 external review completion：comment={}，completion={completion_time}",
-                comment.created_at
-            ));
-        }
+        validate_g3_comment_after_external_review_completion(
+            &comment.created_at,
+            completion_time,
+            label,
+        )?;
+    }
+    Ok(())
+}
+
+pub(super) fn validate_g3_comment_after_external_review_completion(
+    comment_created_at: &str,
+    completion_time: &str,
+    label: &str,
+) -> Result<(), String> {
+    let comment_seconds = parse_utc_timestamp_seconds(comment_created_at)
+        .ok_or_else(|| format!("{label} G3 comment createdAt 不是 UTC RFC3339 时间"))?;
+    let completion_seconds = parse_utc_timestamp_seconds(completion_time)
+        .ok_or_else(|| format!("{label} external review completion 不是 UTC RFC3339 时间"))?;
+    if comment_seconds <= completion_seconds {
+        return Err(format!(
+            "{label} G3 comment 必须严格晚于最终 external review completion；GitHub 同秒无法证明 completion 已完成：comment={comment_created_at}，completion={completion_time}"
+        ));
     }
     Ok(())
 }

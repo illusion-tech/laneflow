@@ -422,6 +422,21 @@ fn validates_unedited_marker_identity_and_strict_ordering() {
         )
         .is_err()
     );
+    assert!(
+        validate_g3_comment_after_external_review_completion(
+            "2026-08-06T03:30:01Z",
+            "2026-08-06T03:30:00Z",
+            "Delivery PR",
+        )
+        .is_ok()
+    );
+    let error = validate_g3_comment_after_external_review_completion(
+        "2026-08-06T03:30:00Z",
+        "2026-08-06T03:30:00Z",
+        "Delivery PR",
+    )
+    .expect_err("a same-second G3 comment cannot prove that disposition completed first");
+    assert!(error.contains("必须严格晚于"));
     assert!(parse_utc_timestamp_seconds("2026-08-06T03:30:00.Z").is_none());
 }
 
@@ -461,7 +476,20 @@ fn only_dependabot_body_edits_may_reuse_an_older_marker() {
         )
         .is_ok()
     );
-    assert!(validate_latest_body_edit_is_dependabot(&edits, "PR #313").is_ok());
+    assert!(
+        validate_dependabot_body_edits_after_g3_comment("2026-08-06T03:25:00Z", &edits, "PR #313",)
+            .is_ok()
+    );
+    let error =
+        validate_dependabot_body_edits_after_g3_comment("2026-08-06T03:15:00Z", &edits, "PR #313")
+            .expect_err(
+                "a human edit after the G3 comment cannot be hidden by a later bot refresh",
+            );
+    assert!(error.contains("G3 comment 后包含非 Dependabot body edit"));
+    let error =
+        validate_dependabot_body_edits_after_g3_comment("2026-08-06T03:31:00Z", &edits, "PR #313")
+            .expect_err("a same-second body edit cannot prove that Dependabot edited after G3");
+    assert!(error.contains("与 current G3 comment 同秒"));
 
     edits.nodes[0].edited_at = "2026-08-06T03:30:00Z".to_string();
     let error = validate_dependabot_body_edits_after_marker(
@@ -486,7 +514,14 @@ fn only_dependabot_body_edits_may_reuse_an_older_marker() {
     )
     .expect_err("a later human edit still requires a new marker");
     assert!(error.contains("非 Dependabot body edit"));
-    assert!(validate_latest_body_edit_is_dependabot(&human_edit, "PR #313").is_err());
+    assert!(
+        validate_dependabot_body_edits_after_g3_comment(
+            "2026-08-06T03:25:00Z",
+            &human_edit,
+            "PR #313",
+        )
+        .is_err()
+    );
 }
 
 #[test]
