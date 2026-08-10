@@ -7250,7 +7250,7 @@ mod tests {
         assert!(diagnostics.diagnostics().iter().all(|diagnostic| {
             diagnostic.code() == DiagnosticCode::UnknownReferenceTarget
                 && diagnostic.primary_span().is_some()
-                && diagnostic.related_spans().len() == 1
+                && diagnostic.related_locations().len() == 1
         }));
     }
 

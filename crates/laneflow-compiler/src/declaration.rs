@@ -596,6 +596,50 @@ pub(crate) struct OwnedEntityReference<K: EntityKindMarker> {
     marker: PhantomData<fn() -> K>,
 }
 
+/// Typed AST 中与产品身份分层的来源实体地址。
+///
+/// module-scoped 声明的 owner tuple 为空；owner-scoped 声明按父先子后顺序保存原始
+/// sibling-local key。地址用于符号查找，`local_key` 仍只是 Identity v1 前像中的一个
+/// 字段，不能单独充当模块内全局键。
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[allow(
+    dead_code,
+    reason = "introduced with SourceLocation and consumed by the following shared-admission slice"
+)]
+pub(crate) struct TypedAstEntityAddress {
+    owner_local_keys: Box<[Arc<str>]>,
+    local_key: Arc<str>,
+}
+
+#[allow(
+    dead_code,
+    reason = "introduced with SourceLocation and consumed by the following shared-admission slice"
+)]
+impl TypedAstEntityAddress {
+    pub(crate) fn module_scoped(local_key: Arc<str>) -> Self {
+        Self {
+            owner_local_keys: Box::default(),
+            local_key,
+        }
+    }
+
+    pub(crate) fn owner_scoped(owner_local_keys: Box<[Arc<str>]>, local_key: Arc<str>) -> Self {
+        debug_assert!(!owner_local_keys.is_empty());
+        Self {
+            owner_local_keys,
+            local_key,
+        }
+    }
+
+    pub(crate) fn owner_local_keys(&self) -> &[Arc<str>] {
+        &self.owner_local_keys
+    }
+
+    pub(crate) fn local_key(&self) -> &Arc<str> {
+        &self.local_key
+    }
+}
+
 impl<K: EntityKindMarker> OwnedEntityReference<K> {
     pub(crate) fn new(
         module_namespace: Arc<str>,
