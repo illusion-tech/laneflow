@@ -4,5 +4,15 @@
 //! `laneflow-compiler` 的受检道路编辑入口使用这些类型，且不得重导出 generated table。
 
 #[rustfmt::skip]
+#[allow(
+    clippy::derivable_impls,
+    clippy::extra_unused_lifetimes,
+    clippy::missing_safety_doc,
+    reason = "fixed flatc 25.12.19 generated code; clean regeneration is the authority"
+)]
 #[path = "generated/road-editing_generated.rs"]
 pub mod generated;
+
+/// 只供 `laneflow-compiler` 的私有 writer/reader 实现使用；不是产品 API。
+#[doc(hidden)]
+pub use flatbuffers as runtime;

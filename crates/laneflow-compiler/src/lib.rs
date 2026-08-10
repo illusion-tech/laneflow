@@ -14,6 +14,7 @@ mod limits;
 mod lir;
 mod mir;
 mod module;
+pub mod road_editing;
 mod source;
 mod source_map;
 
@@ -50,8 +51,8 @@ pub use declaration::{
 pub use diagnostic::{
     AccessCapability, AccessPlane, AccessRegulationField, Diagnostic, DiagnosticBundle,
     DiagnosticCode, DiagnosticPayload, DiagnosticSeverity, ParkingAnchorRole, ParkingGeometryField,
-    ParkingGeometryViolation, SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation,
-    SpatialAxis, SpatialGeometryViolation, WaitingZoneGateRole,
+    ParkingGeometryViolation, RoadEditingInputViolation, SourceHeaderField, SourcePosition,
+    SourceSpan, SourceTextViolation, SpatialAxis, SpatialGeometryViolation, WaitingZoneGateRole,
 };
 pub use identity::CanonicalIdentityViolation;
 pub use laneflow_static_contract::{AccessEffect, SignalAspect};
