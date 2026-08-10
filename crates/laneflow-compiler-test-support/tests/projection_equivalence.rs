@@ -30,35 +30,65 @@ const NAMESPACE: &str = "fixture/projection";
 #[test]
 fn compiler_native_fixture_projects_complete_representative_contract() {
     let output = compile_fixture();
+    let projection = project(output.lir()).expect("代表性 LIR 必须可投影");
+    assert_complete_representative_projection(&output, &projection);
+}
+
+#[test]
+fn repeated_compilation_and_projection_are_deterministic() {
+    let first = compile_fixture();
+    let second = compile_fixture();
+    assert_eq!(
+        first.metrics().semantic_fingerprint(),
+        second.metrics().semantic_fingerprint()
+    );
+
+    let first_projection = project(first.lir()).expect("首次投影");
+    let second_projection = project(second.lir()).expect("重复投影");
+    assert_eq!(first_projection.mappings(), second_projection.mappings());
+    // 两次结果分别核对同一套完整有类型预期，避免恢复会掩盖字段意义的字符串快照。
+    assert_complete_representative_projection(&first, &first_projection);
+    assert_complete_representative_projection(&second, &second_projection);
+}
+
+fn assert_complete_representative_projection(
+    output: &CompilationOutput,
+    projection: &laneflow_compiler_test_support::CurrentProjection,
+) {
     let lir = output.lir();
-    let projection = project(lir).expect("代表性 LIR 必须可投影");
     let ids = stable_ids_by_source_key(lir);
-    assert_eq!(ids.len(), 34);
+    assert_eq!(ids.len(), 54);
 
     assert_entity_counts(
         lir,
         [
-            4, 1, 1, 1, 1, 1, 1, 1, 1, 3, 3, 2, 2, 1, 3, 1, 1, 2, 1, 2, 1, 1,
+            7, 2, 2, 2, 2, 2, 2, 2, 2, 4, 4, 2, 3, 2, 4, 2, 2, 3, 2, 2, 2, 1,
         ],
     );
-    assert_eq!(projection.traffic().lane_graph().edges().len(), 4);
-    assert_eq!(projection.traffic().routes().len(), 1);
-    assert_eq!(projection.traffic().signals().controllers().len(), 1);
-    assert_eq!(projection.traffic().signals().maneuver_gates().len(), 3);
+    assert_eq!(projection.traffic().lane_graph().edges().len(), 7);
+    assert_eq!(projection.traffic().routes().len(), 2);
+    assert_eq!(projection.traffic().signals().controllers().len(), 2);
+    assert_eq!(projection.traffic().signals().maneuver_gates().len(), 4);
     assert_eq!(projection.traffic().waiting().waiting_zones().len(), 2);
-    assert_eq!(projection.traffic().parking().areas().len(), 1);
-    assert_eq!(projection.traffic().parking().spaces().len(), 1);
-    assert_projection_mappings(&projection, lir);
-    assert_projection_semantics(&projection, &ids);
+    assert_eq!(projection.traffic().parking().areas().len(), 2);
+    assert_eq!(projection.traffic().parking().spaces().len(), 2);
+    assert_projection_mappings(projection, lir);
+    assert_projection_semantics(projection, &ids);
 
-    let route = lir.static_routes().next().expect("静态路线");
-    assert_eq!(route.gate_occurrences().len(), 3);
-    assert_eq!(route.waiting_zone_occurrences().len(), 2);
+    for (route_key, gate_count, waiting_zone_count) in [("route", 3, 2), ("aux-route", 1, 0)] {
+        let route_id = stable_id_for(route_key, &ids);
+        let route = lir
+            .static_routes()
+            .find(|route| route.stable_id().to_string() == route_id)
+            .expect("静态路线必须存在");
+        assert_eq!(route.gate_occurrences().len(), gate_count);
+        assert_eq!(route.waiting_zone_occurrences().len(), waiting_zone_count);
+    }
 
     let spatial = projection
         .spatial()
         .expect("完整几何必须生成 SpatialRegistry");
-    assert_eq!(spatial.len(), 4);
+    assert_eq!(spatial.len(), 7);
     for (edge_key, progress, expected_position, expected_tangent, expected_up) in [
         (
             "entry",
@@ -95,6 +125,27 @@ fn compiler_native_fixture_projects_complete_representative_contract() {
             [1.0, 0.0, 0.0],
             [0.0, 1.0, 0.0],
         ),
+        (
+            "aux-entry",
+            4.0,
+            [4.0, 10.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ),
+        (
+            "aux-internal",
+            2.5,
+            [10.5, 10.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ),
+        (
+            "aux-exit",
+            4.5,
+            [17.5, 10.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ),
     ] {
         let edge_id = stable_id_for(edge_key, &ids);
         let handle = projection
@@ -120,7 +171,30 @@ fn compiler_native_fixture_projects_complete_representative_contract() {
         assert_eq!([pose.up().x(), pose.up().y(), pose.up().z()], expected_up);
     }
 
-    let profile_id = stable_id_for("passenger-car", &ids);
+    assert_vehicle_profile(
+        projection,
+        &ids,
+        "passenger-car",
+        "car",
+        [4.5, 10.0, 2.0, 1.5, 1.5, 2.0, 6.0],
+    );
+    assert_vehicle_profile(
+        projection,
+        &ids,
+        "city-bus",
+        "bus",
+        [12.0, 8.0, 3.0, 2.5, 1.0, 2.5, 7.0],
+    );
+}
+
+fn assert_vehicle_profile(
+    projection: &laneflow_compiler_test_support::CurrentProjection,
+    ids: &BTreeMap<String, String>,
+    profile_key: &str,
+    class_key: &str,
+    expected_iidm: [f64; 7],
+) {
+    let profile_id = stable_id_for(profile_key, ids);
     let profile_handle = projection
         .traffic()
         .vehicle_profiles()
@@ -136,33 +210,20 @@ fn compiler_native_fixture_projects_complete_representative_contract() {
         projection
             .traffic()
             .participant_classes()
-            .class_handle(stable_id_for("car", &ids))
+            .class_handle(stable_id_for(class_key, ids))
             .expect("车辆类别必须存在")
     );
-    assert_eq!(profile.iidm().length, 4.5);
-    assert_eq!(profile.iidm().desired_speed, 10.0);
-    assert_eq!(profile.iidm().min_gap, 2.0);
-    assert_eq!(profile.iidm().time_headway, 1.5);
-    assert_eq!(profile.iidm().max_acceleration, 1.5);
-    assert_eq!(profile.iidm().comfortable_deceleration, 2.0);
-    assert_eq!(profile.iidm().emergency_deceleration, 6.0);
-}
-
-#[test]
-fn repeated_compilation_and_projection_are_deterministic() {
-    let first = compile_fixture();
-    let second = compile_fixture();
     assert_eq!(
-        first.metrics().semantic_fingerprint(),
-        second.metrics().semantic_fingerprint()
-    );
-
-    let first_projection = project(first.lir()).expect("首次投影");
-    let second_projection = project(second.lir()).expect("重复投影");
-    assert_eq!(first_projection.mappings(), second_projection.mappings());
-    assert_eq!(
-        first_projection.traffic().lane_graph().edges().count(),
-        second_projection.traffic().lane_graph().edges().count()
+        [
+            profile.iidm().length,
+            profile.iidm().desired_speed,
+            profile.iidm().min_gap,
+            profile.iidm().time_headway,
+            profile.iidm().max_acceleration,
+            profile.iidm().comfortable_deceleration,
+            profile.iidm().emergency_deceleration,
+        ],
+        expected_iidm
     );
 }
 
@@ -196,6 +257,27 @@ fn compile_fixture() -> CompilationOutput {
             lane_edge_key: "exit",
             length_meters: 10.0,
             speed_limit_meters_per_second: 7.0,
+            successors: &[],
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "aux-entry",
+            length_meters: 8.0,
+            speed_limit_meters_per_second: 15.0,
+            successors: &[LaneEdgeReference::local("aux-internal")],
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "aux-internal",
+            length_meters: 5.0,
+            speed_limit_meters_per_second: 8.0,
+            successors: &[LaneEdgeReference::local("aux-exit")],
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "aux-exit",
+            length_meters: 9.0,
+            speed_limit_meters_per_second: 6.0,
             successors: &[],
         })
         .unwrap()
@@ -233,6 +315,41 @@ fn compile_fixture() -> CompilationOutput {
             ],
         })
         .unwrap()
+        .add_facility_band(FacilityBandInput {
+            facility_band_key: "aux-shoulder",
+            kind_id: "shoulder",
+        })
+        .unwrap()
+        .add_lane_group(LaneGroupInput {
+            lane_group_key: "aux-group",
+            road_section: RoadSectionReference::local("aux-section"),
+        })
+        .unwrap()
+        .add_road_section(RoadSectionInput {
+            road_section_key: "aux-section",
+            kind_id: "nonMotorLane",
+            lanes: &[AuthoringLaneInput {
+                authoring_lane_key: "aux-lane",
+                edge_chain: &[
+                    LaneEdgeReference::local("aux-entry"),
+                    LaneEdgeReference::local("aux-internal"),
+                    LaneEdgeReference::local("aux-exit"),
+                ],
+                lane_group: Some(LaneGroupReference::local("aux-group")),
+            }],
+        })
+        .unwrap()
+        .add_road_corridor(RoadCorridorInput {
+            road_corridor_key: "aux-corridor",
+            reference_section: RoadSectionReference::local("aux-section"),
+            elements: &[
+                CorridorElementReference::facility_band(FacilityBandReference::local(
+                    "aux-shoulder",
+                )),
+                CorridorElementReference::road_section(RoadSectionReference::local("aux-section")),
+            ],
+        })
+        .unwrap()
         .add_junction(JunctionInput {
             junction_key: "junction",
         })
@@ -254,12 +371,32 @@ fn compile_fixture() -> CompilationOutput {
             ],
             exit_edge: LaneEdgeReference::local("exit"),
         })
+        .unwrap()
+        .add_junction(JunctionInput {
+            junction_key: "aux-junction",
+        })
+        .unwrap()
+        .add_movement(MovementInput {
+            movement_key: "aux-movement",
+            junction: JunctionReference::local("aux-junction"),
+            directed_entry_approach_key: "aux-movement/entry",
+            directed_exit_approach_key: "aux-movement/exit",
+        })
+        .unwrap()
+        .add_maneuver_path(ManeuverPathInput {
+            maneuver_path_key: "aux-path",
+            movement: laneflow_compiler::MovementReference::local("aux-movement"),
+            entry_edge: LaneEdgeReference::local("aux-entry"),
+            internal_edges: &[LaneEdgeReference::local("aux-internal")],
+            exit_edge: LaneEdgeReference::local("aux-exit"),
+        })
         .unwrap();
 
     for (stop_line_key, edge_key) in [
         ("stop-entry", "entry"),
         ("stop-middle", "internal-a"),
         ("stop-release", "internal-b"),
+        ("aux-stop", "aux-entry"),
     ] {
         module
             .add_stop_line(StopLineInput {
@@ -276,6 +413,10 @@ fn compile_fixture() -> CompilationOutput {
         .unwrap()
         .add_signal_group(SignalGroupInput {
             signal_group_key: "secondary-signal",
+        })
+        .unwrap()
+        .add_signal_group(SignalGroupInput {
+            signal_group_key: "aux-signal",
         })
         .unwrap();
     let green_states = [
@@ -325,6 +466,15 @@ fn compile_fixture() -> CompilationOutput {
             states: &red_states,
         },
     ];
+    let aux_states = [SignalGroupStateInput {
+        signal_group: SignalGroupReference::local("aux-signal"),
+        aspect: SignalAspect::Yellow,
+    }];
+    let aux_phases = [SignalPhaseInput {
+        signal_phase_key: "aux-caution",
+        duration_ms: 4_000,
+        states: &aux_states,
+    }];
     module
         .add_signal_controller(SignalControllerInput {
             signal_controller_key: "controller",
@@ -334,6 +484,21 @@ fn compile_fixture() -> CompilationOutput {
                 SignalGroupReference::local("secondary-signal"),
             ],
             phases: &phases,
+        })
+        .unwrap()
+        .add_signal_controller(SignalControllerInput {
+            signal_controller_key: "aux-controller",
+            offset_ms: 750,
+            signal_groups: &[SignalGroupReference::local("aux-signal")],
+            phases: &aux_phases,
+        })
+        .unwrap()
+        .add_maneuver_gate(ManeuverGateInput {
+            maneuver_gate_key: "aux-gate",
+            maneuver_path: ManeuverPathReference::local("aux-path"),
+            transition_index: 0,
+            stop_line: StopLineReference::local("aux-stop"),
+            signal_control: SignalControlInput::Group(SignalGroupReference::local("aux-signal")),
         })
         .unwrap()
         .add_maneuver_gate(ManeuverGateInput {
@@ -401,6 +566,29 @@ fn compile_fixture() -> CompilationOutput {
             },
         })
         .unwrap()
+        .add_parking_area(ParkingAreaInput {
+            parking_area_key: "aux-parking-area",
+        })
+        .unwrap()
+        .add_parking_space(ParkingSpaceInput {
+            parking_space_key: "aux-parking-space",
+            parking_area: Some(ParkingAreaReference::local("aux-parking-area")),
+            entry: ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local("aux-entry"),
+                progress_meters: 4.0,
+            },
+            exit: ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local("aux-exit"),
+                progress_meters: 4.5,
+            },
+            geometry: ParkingSpaceGeometryInput {
+                lateral_offset_meters: -3.0,
+                heading_offset_radians: 0.25,
+                length_meters: 12.5,
+                width_meters: 3.0,
+            },
+        })
+        .unwrap()
         .add_participant_class(ParticipantClassInput {
             participant_class_key: "road-user",
             extends: None,
@@ -408,6 +596,11 @@ fn compile_fixture() -> CompilationOutput {
         .unwrap()
         .add_participant_class(ParticipantClassInput {
             participant_class_key: "car",
+            extends: Some(ParticipantClassReference::local("road-user")),
+        })
+        .unwrap()
+        .add_participant_class(ParticipantClassInput {
+            participant_class_key: "bus",
             extends: Some(ParticipantClassReference::local("road-user")),
         })
         .unwrap()
@@ -422,6 +615,20 @@ fn compile_fixture() -> CompilationOutput {
                 max_acceleration_meters_per_second_squared: 1.5,
                 comfortable_deceleration_meters_per_second_squared: 2.0,
                 emergency_deceleration_meters_per_second_squared: 6.0,
+            },
+        })
+        .unwrap()
+        .add_vehicle_profile(VehicleProfileInput {
+            vehicle_profile_key: "city-bus",
+            participant_class: ParticipantClassReference::local("bus"),
+            iidm: IidmVehicleProfileInput {
+                length_meters: 12.0,
+                desired_speed_meters_per_second: 8.0,
+                min_gap_meters: 3.0,
+                time_headway_seconds: 2.5,
+                max_acceleration_meters_per_second_squared: 1.0,
+                comfortable_deceleration_meters_per_second_squared: 2.5,
+                emergency_deceleration_meters_per_second_squared: 7.0,
             },
         })
         .unwrap()
@@ -456,6 +663,15 @@ fn compile_fixture() -> CompilationOutput {
                 LaneEdgeReference::local("exit"),
             ],
         })
+        .unwrap()
+        .add_static_route(StaticRouteInput {
+            static_route_key: "aux-route",
+            edge_sequence: &[
+                LaneEdgeReference::local("aux-entry"),
+                LaneEdgeReference::local("aux-internal"),
+                LaneEdgeReference::local("aux-exit"),
+            ],
+        })
         .unwrap();
 
     let entry_points = [
@@ -466,11 +682,17 @@ fn compile_fixture() -> CompilationOutput {
     let internal_a_points = [point(3.0, 4.0, 7.0), point(9.0, 4.0, 7.0)];
     let internal_b_points = [point(9.0, 4.0, 7.0), point(16.0, 4.0, 7.0)];
     let exit_points = [point(16.0, 4.0, 7.0), point(26.0, 4.0, 7.0)];
+    let aux_entry_points = [point(0.0, 10.0, 0.0), point(8.0, 10.0, 0.0)];
+    let aux_internal_points = [point(8.0, 10.0, 0.0), point(13.0, 10.0, 0.0)];
+    let aux_exit_points = [point(13.0, 10.0, 0.0), point(22.0, 10.0, 0.0)];
     let geometries = [
         geometry("entry", &entry_points),
         geometry("internal-a", &internal_a_points),
         geometry("internal-b", &internal_b_points),
         geometry("exit", &exit_points),
+        geometry("aux-entry", &aux_entry_points),
+        geometry("aux-internal", &aux_internal_points),
+        geometry("aux-exit", &aux_exit_points),
     ];
     module
         .add_canonical_frame(CanonicalFrameInput {
@@ -628,6 +850,11 @@ fn assert_projection_semantics(
             .edge_handle(stable_id_for(key, ids))
             .expect("投影边必须存在")
     });
+    let aux_edge_handles = ["aux-entry", "aux-internal", "aux-exit"].map(|key| {
+        graph
+            .edge_handle(stable_id_for(key, ids))
+            .expect("辅助投影边必须存在")
+    });
     assert_eq!(
         graph.next_edges(edge_handles[0]),
         Some([edge_handles[1]].as_slice())
@@ -641,12 +868,24 @@ fn assert_projection_semantics(
         Some([edge_handles[3]].as_slice())
     );
     assert_eq!(graph.next_edges(edge_handles[3]), Some([].as_slice()));
+    assert_eq!(
+        graph.next_edges(aux_edge_handles[0]),
+        Some([aux_edge_handles[1]].as_slice())
+    );
+    assert_eq!(
+        graph.next_edges(aux_edge_handles[1]),
+        Some([aux_edge_handles[2]].as_slice())
+    );
+    assert_eq!(graph.next_edges(aux_edge_handles[2]), Some([].as_slice()));
 
     for (edge_key, expected_length, expected_speed_limit) in [
         ("entry", 10.0, 13.0),
         ("internal-a", 6.0, 11.0),
         ("internal-b", 7.0, 9.0),
         ("exit", 10.0, 7.0),
+        ("aux-entry", 8.0, 15.0),
+        ("aux-internal", 5.0, 8.0),
+        ("aux-exit", 9.0, 6.0),
     ] {
         let edge_id = stable_id_for(edge_key, ids);
         assert_eq!(
@@ -712,6 +951,61 @@ fn assert_projection_semantics(
             .as_slice()
         )
     );
+    let aux_section = cross_section
+        .section_handle(stable_id_for("aux-section", ids))
+        .expect("辅助道路横断面必须存在");
+    let aux_group = cross_section
+        .group_handle(stable_id_for("aux-group", ids))
+        .expect("辅助车道组必须存在");
+    let aux_band = cross_section
+        .band_handle(stable_id_for("aux-shoulder", ids))
+        .expect("辅助设施带必须存在");
+    let aux_corridor = cross_section
+        .corridor_handle(stable_id_for("aux-corridor", ids))
+        .expect("辅助道路走廊必须存在");
+    assert_eq!(
+        cross_section
+            .section(aux_section)
+            .expect("辅助道路区段")
+            .kind_id(),
+        "nonMotorLane"
+    );
+    assert_eq!(
+        cross_section.band(aux_band).expect("辅助设施带").kind_id(),
+        "shoulder"
+    );
+    assert_eq!(
+        cross_section.lane_group_section(aux_group),
+        Some(aux_section)
+    );
+    assert_eq!(
+        cross_section
+            .group_lanes(aux_group)
+            .expect("辅助车道组成员")
+            .collect::<Vec<_>>(),
+        vec![0]
+    );
+    let aux_section_lanes = cross_section
+        .section_lanes(aux_section)
+        .expect("辅助横断面车道")
+        .collect::<Vec<_>>();
+    assert_eq!(aux_section_lanes.len(), 1);
+    assert_eq!(aux_section_lanes[0].0, 0);
+    assert_eq!(aux_section_lanes[0].1, aux_edge_handles);
+    assert_eq!(
+        cross_section.corridor_reference_section(aux_corridor),
+        Some(aux_section)
+    );
+    assert_eq!(
+        cross_section.corridor_elements(aux_corridor),
+        Some(
+            [
+                CorridorElement::Band(aux_band),
+                CorridorElement::Section(aux_section),
+            ]
+            .as_slice()
+        )
+    );
 
     let junctions = traffic.junctions();
     let junction = junctions
@@ -739,6 +1033,33 @@ fn assert_projection_semantics(
         Some(junction)
     );
     assert_eq!(junctions.internal_edge_owner(edge_handles[3]), None);
+    let aux_junction = junctions
+        .junction_handle(stable_id_for("aux-junction", ids))
+        .expect("辅助路口必须存在");
+    let aux_movement = junctions
+        .movement_handle(stable_id_for("aux-movement", ids))
+        .expect("辅助交通流向必须存在");
+    let aux_path = junctions
+        .maneuver_path_handle(stable_id_for("aux-path", ids))
+        .expect("辅助机动路径必须存在");
+    assert_eq!(
+        junctions.movement_junction(aux_movement),
+        Some(aux_junction)
+    );
+    assert_eq!(
+        junctions.maneuver_path_movement(aux_path),
+        Some(aux_movement)
+    );
+    assert_eq!(
+        junctions.maneuver_path_edges(aux_path),
+        Some(aux_edge_handles.as_slice())
+    );
+    assert_eq!(junctions.internal_edge_owner(aux_edge_handles[0]), None);
+    assert_eq!(
+        junctions.internal_edge_owner(aux_edge_handles[1]),
+        Some(aux_junction)
+    );
+    assert_eq!(junctions.internal_edge_owner(aux_edge_handles[2]), None);
 
     let signals = traffic.signals();
     let signal_groups = ["main-signal", "secondary-signal"].map(|key| {
@@ -799,6 +1120,46 @@ fn assert_projection_semantics(
         assert_eq!(signals.phase_aspects(phase), Some(aspects.as_slice()));
         assert_eq!(signals.phase_end_offset_ms(phase), Some(end_offset_ms));
     }
+    let aux_signal_group = signals
+        .group_handle(stable_id_for("aux-signal", ids))
+        .expect("辅助信号组必须存在");
+    let aux_controller = signals
+        .controller_handle(stable_id_for("aux-controller", ids))
+        .expect("辅助信号控制器必须存在");
+    assert_eq!(
+        signals.group_controller(aux_signal_group),
+        Some(aux_controller)
+    );
+    assert_eq!(
+        signals.controller_groups(aux_controller),
+        Some([aux_signal_group].as_slice())
+    );
+    assert_eq!(
+        signals.controller_cycle_duration_ms(aux_controller),
+        Some(4_000)
+    );
+    assert_eq!(
+        signals
+            .controller(aux_controller)
+            .expect("辅助信号控制器")
+            .offset_ms(),
+        750
+    );
+    let aux_phase = signals
+        .phase_ref(aux_controller, stable_id_for("aux-caution", ids))
+        .expect("辅助信号相位必须存在");
+    assert_eq!(
+        signals
+            .phase(aux_phase)
+            .expect("辅助信号相位")
+            .duration_ms(),
+        4_000
+    );
+    assert_eq!(
+        signals.phase_aspects(aux_phase),
+        Some([CoreSignalAspect::Yellow].as_slice())
+    );
+    assert_eq!(signals.phase_end_offset_ms(aux_phase), Some(4_000));
 
     let stop_lines = ["stop-entry", "stop-middle", "stop-release"].map(|key| {
         signals
@@ -840,6 +1201,32 @@ fn assert_projection_semantics(
         signals.maneuver_gate_control(gates[2]),
         Some(CoreSignalControl::None)
     );
+    let aux_stop_line = signals
+        .stop_line_handle(stable_id_for("aux-stop", ids))
+        .expect("辅助停止线必须存在");
+    let aux_gate = signals
+        .maneuver_gate_handle(stable_id_for("aux-gate", ids))
+        .expect("辅助机动门必须存在");
+    assert_eq!(
+        signals.stop_line_edge(aux_stop_line),
+        Some(aux_edge_handles[0])
+    );
+    assert_eq!(signals.maneuver_gate_path(aux_gate), Some(aux_path));
+    assert_eq!(
+        signals.maneuver_gate_stop_line(aux_gate),
+        Some(aux_stop_line)
+    );
+    assert_eq!(
+        signals
+            .maneuver_gate(aux_gate)
+            .expect("辅助机动门")
+            .transition_index(),
+        0
+    );
+    assert_eq!(
+        signals.maneuver_gate_control(aux_gate),
+        Some(CoreSignalControl::Group(aux_signal_group))
+    );
 
     let waiting = traffic.waiting();
     for (zone_key, entry_gate, release_gate, max_occupancy) in [
@@ -878,6 +1265,25 @@ fn assert_projection_semantics(
     assert_eq!(geometry.heading_offset_radians(), 0.0);
     assert_eq!(geometry.length(), 5.0);
     assert_eq!(geometry.width(), 2.4);
+    let aux_area = parking
+        .area_handle(stable_id_for("aux-parking-area", ids))
+        .expect("辅助停车区域必须存在");
+    let aux_space = parking
+        .space_handle(stable_id_for("aux-parking-space", ids))
+        .expect("辅助停车位必须存在");
+    assert_eq!(parking.space_area(aux_space), Some(Some(aux_area)));
+    assert_eq!(parking.area_spaces(aux_area), Some([aux_space].as_slice()));
+    let aux_entry_anchor = parking.space_entry(aux_space).expect("辅助停车位入口");
+    let aux_exit_anchor = parking.space_exit(aux_space).expect("辅助停车位出口");
+    assert_eq!(aux_entry_anchor.edge(), aux_edge_handles[0]);
+    assert_eq!(aux_entry_anchor.progress(), 4.0);
+    assert_eq!(aux_exit_anchor.edge(), aux_edge_handles[2]);
+    assert_eq!(aux_exit_anchor.progress(), 4.5);
+    let aux_geometry = parking.space_geometry(aux_space).expect("辅助停车位几何");
+    assert_eq!(aux_geometry.lateral_offset(), -3.0);
+    assert_eq!(aux_geometry.heading_offset_radians(), 0.25);
+    assert_eq!(aux_geometry.length(), 12.5);
+    assert_eq!(aux_geometry.width(), 3.0);
 
     let classes = traffic.participant_classes();
     let road_user = classes
@@ -886,9 +1292,14 @@ fn assert_projection_semantics(
     let car = classes
         .class_handle(stable_id_for("car", ids))
         .expect("车辆类别必须存在");
+    let bus = classes
+        .class_handle(stable_id_for("bus", ids))
+        .expect("公交车类别必须存在");
     assert_eq!(classes.depth(road_user), Some(0));
     assert_eq!(classes.depth(car), Some(1));
+    assert_eq!(classes.depth(bus), Some(1));
     assert!(classes.is_descendant_or_self(car, road_user));
+    assert!(classes.is_descendant_or_self(bus, road_user));
 
     let access = traffic.access();
     let rule = access
@@ -932,7 +1343,10 @@ fn assert_projection_semantics(
         );
     }
 
-    let route = traffic.routes().next().expect("静态路线必须存在");
+    let route = traffic
+        .routes()
+        .find(|route| route.id() == stable_id_for("route", ids))
+        .expect("静态路线必须存在");
     assert_eq!(route.id(), stable_id_for("route", ids));
     assert!(
         route.edge_ids().iter().map(String::as_str).eq([
@@ -940,6 +1354,18 @@ fn assert_projection_semantics(
             "internal-a",
             "internal-b",
             "exit"
+        ]
+        .map(|key| stable_id_for(key, ids)))
+    );
+    let aux_route = traffic
+        .routes()
+        .find(|route| route.id() == stable_id_for("aux-route", ids))
+        .expect("辅助静态路线必须存在");
+    assert!(
+        aux_route.edge_ids().iter().map(String::as_str).eq([
+            "aux-entry",
+            "aux-internal",
+            "aux-exit"
         ]
         .map(|key| stable_id_for(key, ids)))
     );
