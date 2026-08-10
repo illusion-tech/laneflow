@@ -14,7 +14,7 @@ use laneflow_static_contract::{
     VehicleProfileKind,
 };
 
-use crate::SourceSpan;
+use crate::SourceLocation;
 
 /// 指向同一编译单元内某类来源声明的有类型未解析引用。
 ///
@@ -568,7 +568,7 @@ pub(crate) struct OwnedEntityReference<K: EntityKindMarker> {
     /// 目标模块内的稳定声明键；此阶段尚未解析为 HIR 键。
     pub(crate) declaration_key: Arc<str>,
     /// 引用出现的位置，用于解析失败时定位调用方来源。
-    pub(crate) span: SourceSpan,
+    pub(crate) span: SourceLocation,
     marker: PhantomData<fn() -> K>,
 }
 
@@ -620,12 +620,12 @@ impl<K: EntityKindMarker> OwnedEntityReference<K> {
     pub(crate) fn new(
         module_namespace: Arc<str>,
         declaration_key: Arc<str>,
-        span: SourceSpan,
+        span: impl Into<SourceLocation>,
     ) -> Self {
         Self {
             module_namespace,
             declaration_key,
-            span,
+            span: span.into(),
             marker: PhantomData,
         }
     }
@@ -702,7 +702,7 @@ pub(crate) struct DeclarationHeader {
     /// 所属来源模块内唯一且显式持久化的稳定键。
     pub(crate) stable_key: Arc<str>,
     /// 声明出现的位置，不参与实体身份。
-    pub(crate) span: SourceSpan,
+    pub(crate) span: SourceLocation,
 }
 
 /// 已通过字段级与模块内约束检查的车道图边 Typed AST 记录。
@@ -933,9 +933,9 @@ impl TypedAstDeclaration {
     /// 该遍历显式覆盖每个声明变体及其嵌套声明、引用和关系位置，使 HIR 能在产生任何
     /// 语义诊断前统一核对来源文档所有权。它不分配、不改变声明顺序，也不把来源位置
     /// 纳入稳定身份。
-    pub(crate) fn try_visit_source_spans<E>(
+    pub(crate) fn try_visit_source_locations<E>(
         &self,
-        mut visit: impl FnMut(&SourceSpan) -> Result<(), E>,
+        mut visit: impl FnMut(&SourceLocation) -> Result<(), E>,
     ) -> Result<(), E> {
         match self {
             Self::LaneEdge(LaneEdgeDeclaration {
@@ -1164,7 +1164,7 @@ impl TypedAstDeclaration {
 
 fn try_visit_declaration_header<E>(
     header: &DeclarationHeader,
-    visit: &mut impl FnMut(&SourceSpan) -> Result<(), E>,
+    visit: &mut impl FnMut(&SourceLocation) -> Result<(), E>,
 ) -> Result<(), E> {
     let DeclarationHeader {
         entity_kind: _,
@@ -1176,7 +1176,7 @@ fn try_visit_declaration_header<E>(
 
 fn try_visit_reference<K: EntityKindMarker, E>(
     reference: &OwnedEntityReference<K>,
-    visit: &mut impl FnMut(&SourceSpan) -> Result<(), E>,
+    visit: &mut impl FnMut(&SourceLocation) -> Result<(), E>,
 ) -> Result<(), E> {
     let OwnedEntityReference {
         module_namespace: _,
@@ -1189,7 +1189,7 @@ fn try_visit_reference<K: EntityKindMarker, E>(
 
 fn try_visit_references<K: EntityKindMarker, E>(
     references: &[OwnedEntityReference<K>],
-    visit: &mut impl FnMut(&SourceSpan) -> Result<(), E>,
+    visit: &mut impl FnMut(&SourceLocation) -> Result<(), E>,
 ) -> Result<(), E> {
     for reference in references {
         try_visit_reference(reference, visit)?;

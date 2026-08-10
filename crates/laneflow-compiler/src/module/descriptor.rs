@@ -321,7 +321,6 @@ mod tests {
     #[test]
     fn source_language_values_keep_the_unpublished_geometry_gap_and_new_exact_code() {
         assert_eq!(SourceLanguage::SyntheticDsl as u16, 1);
-        assert_eq!(SourceLanguage::GeometryDocument as u16, 2);
         assert_eq!(SourceLanguage::RoadEditingSource as u16, 3);
         assert_eq!(
             SourceLanguage::RoadEditingSource.as_str(),

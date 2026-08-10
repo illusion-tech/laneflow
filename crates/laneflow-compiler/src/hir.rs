@@ -41,7 +41,7 @@ use crate::module::ResolvedSourceLocation;
 use crate::{
     AccessCapability, AccessPlane, AccessRegulationField, CompilationUnit, CompileLimitDimension,
     Diagnostic, DiagnosticBundle, ParkingAnchorRole, ParkingGeometryField,
-    ParkingGeometryViolation, SourceSpan, SpatialGeometryViolation, WaitingZoneGateRole,
+    ParkingGeometryViolation, SourceLocation, SpatialGeometryViolation, WaitingZoneGateRole,
 };
 
 /// 区分 HIR 模块表键的零尺寸阶段标记。
@@ -102,7 +102,7 @@ pub(crate) struct HirImport {
     pub(crate) target: HirModuleKey,
     /// 原始导入声明位置。
     #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// HIR 模块记录及其在平坦导入表中的连续区间。
@@ -112,7 +112,7 @@ pub(crate) struct HirModule {
     /// 此模块在 `HirUnit::imports` 中的半开区间。
     pub(crate) imports: TableRange<HirImport>,
     /// 模块声明位置。
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已解析为 HIR 车道图边键的下游引用。
@@ -120,7 +120,7 @@ pub(crate) struct HirLaneEdgeReference {
     /// 当前 `HirUnit::lane_edges` 中的目标键。
     pub(crate) target: HirLaneEdgeKey,
     /// 原始引用位置。
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 完成模块归属和下游符号解析的车道图边 HIR 记录。
@@ -138,7 +138,7 @@ pub(crate) struct HirLaneEdge {
     /// 此边在 `HirUnit::lane_edge_references` 中的连续下游引用区间。
     pub(crate) successors: TableRange<HirLaneEdgeReference>,
     /// 原始声明位置。
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 道路走廊有序横断面中的已解析异构成员。
@@ -160,7 +160,7 @@ pub(crate) struct HirRoadCorridor {
     pub(crate) stable_id: RoadCorridorId,
     pub(crate) reference_section: HirRoadSectionKey,
     pub(crate) elements: TableRange<HirCorridorElement>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已闭合到唯一道路走廊父项的道路区段。
@@ -171,13 +171,13 @@ pub(crate) struct HirRoadSection {
     pub(crate) road_corridor: HirRoadCorridorKey,
     pub(crate) kind_id: Arc<str>,
     pub(crate) lanes: TableRange<HirAuthoringLane>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 编制车道覆盖链中的一项已解析车道图边及其来源位置。
 pub(crate) struct HirAuthoringLaneEdge {
     pub(crate) target: HirLaneEdgeKey,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已解析父区段、覆盖链和可选车道组的编制车道。
@@ -189,7 +189,7 @@ pub(crate) struct HirAuthoringLane {
     pub(crate) edge_chain: TableRange<HirAuthoringLaneEdge>,
     pub(crate) lane_group: Option<HirLaneGroupKey>,
     pub(crate) lane_group_source_location: Option<ResolvedSourceLocation>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 车道组成员表中的一条编制车道引用。
@@ -205,7 +205,7 @@ pub(crate) struct HirLaneGroup {
     pub(crate) stable_id: LaneGroupId,
     pub(crate) road_section: HirRoadSectionKey,
     pub(crate) members: TableRange<HirLaneGroupMember>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已闭合到唯一道路走廊父项的非遍历设施带。
@@ -215,7 +215,7 @@ pub(crate) struct HirFacilityBand {
     pub(crate) stable_id: FacilityBandId,
     pub(crate) road_corridor: HirRoadCorridorKey,
     pub(crate) kind_id: Arc<str>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已解析出非空通行流向成员区间的路口。
@@ -224,7 +224,7 @@ pub(crate) struct HirJunction {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: JunctionId,
     pub(crate) movements: TableRange<HirJunctionMovement>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已闭合到唯一路口父项并保留 Identity v1 有向引道键的通行流向。
@@ -237,7 +237,7 @@ pub(crate) struct HirMovement {
     pub(crate) directed_entry_approach_key: Arc<str>,
     pub(crate) directed_exit_approach_key: Arc<str>,
     pub(crate) maneuver_paths: TableRange<HirMovementManeuverPath>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 #[derive(Clone, Copy)]
@@ -253,7 +253,7 @@ pub(crate) struct HirMovementManeuverPath {
 /// 一条机动路径完整遍历序列中的已解析车道图边。
 pub(crate) struct HirManeuverPathEdge {
     pub(crate) target: HirLaneEdgeKey,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已解析父项、入口/内部/出口边和全局唯一遍历序列的机动路径。
@@ -269,7 +269,7 @@ pub(crate) struct HirManeuverPath {
     pub(crate) maneuver_gates: TableRange<HirManeuverPathGate>,
     /// 按入口转换、释放转换和稳定 ID 排序的等待区成员区间。
     pub(crate) waiting_zones: TableRange<HirManeuverPathWaitingZone>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 机动路径规范门序列中的一项。
@@ -297,7 +297,7 @@ pub(crate) struct HirStopLine {
     pub(crate) stable_id: StopLineId,
     pub(crate) lane_edge: HirLaneEdgeKey,
     pub(crate) maneuver_gates: TableRange<HirStopLineManeuverGate>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已闭合到合法路径转换和同边停止线的机动门。
@@ -312,10 +312,10 @@ pub(crate) struct HirManeuverGate {
     pub(crate) stop_line_source_location: Option<ResolvedSourceLocation>,
     /// 信号层绑定；`None` 不改变其他通行权层的约束。
     pub(crate) signal_control: HirSignalControl,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) enum HirSignalControl {
     Group {
         signal_group: HirSignalGroupKey,
@@ -331,7 +331,7 @@ pub(crate) struct HirSignalGroup {
     pub(crate) stable_id: SignalGroupId,
     pub(crate) controller: HirSignalControllerKey,
     pub(crate) maneuver_gates: TableRange<HirSignalGroupManeuverGate>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 一个信号组控制的机动门反向关系项。
@@ -341,7 +341,7 @@ pub(crate) struct HirSignalGroupManeuverGate {
 }
 
 /// 控制器有序信号组列表中的一项。
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct HirSignalControllerGroup {
     pub(crate) signal_group: HirSignalGroupKey,
     pub(crate) source_location: ResolvedSourceLocation,
@@ -356,7 +356,7 @@ pub(crate) struct HirSignalController {
     pub(crate) cycle_duration_ms: u64,
     pub(crate) signal_groups: TableRange<HirSignalControllerGroup>,
     pub(crate) phases: TableRange<HirSignalPhase>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 控制器所有者局部（owner-local）的一个有序固定时制相位。
@@ -368,11 +368,11 @@ pub(crate) struct HirSignalPhase {
     pub(crate) duration_ms: u64,
     /// 状态按所属控制器的 `signal_groups` 顺序规范化，而非按输入顺序保存。
     pub(crate) states: TableRange<HirSignalPhaseState>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 一个相位对其控制器信号组的完整灯色赋值。
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct HirSignalPhaseState {
     pub(crate) signal_group: HirSignalGroupKey,
     pub(crate) aspect: SignalAspect,
@@ -391,11 +391,11 @@ pub(crate) struct HirParkingArea {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: ParkingAreaId,
     pub(crate) parking_spaces: TableRange<HirParkingAreaSpace>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已解析到车道图边严格内部位置的停车锚点。
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct HirParkingLaneAnchor {
     pub(crate) lane_edge: HirLaneEdgeKey,
     pub(crate) progress_meters: f64,
@@ -421,7 +421,7 @@ pub(crate) struct HirParkingSpace {
     pub(crate) entry: HirParkingLaneAnchor,
     pub(crate) exit: HirParkingLaneAnchor,
     pub(crate) geometry: HirParkingSpaceGeometry,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已解析父类并编译单继承层级信息的参与者类别。
@@ -430,13 +430,13 @@ pub(crate) struct HirParticipantClass {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: ParticipantClassId,
     pub(crate) parent: Option<HirParticipantClassKey>,
-    pub(crate) parent_source_span: Option<SourceSpan>,
+    pub(crate) parent_source_span: Option<SourceLocation>,
     /// 根类别为 0；准入规则以更深类别作为更高 specificity。
     pub(crate) depth: u32,
     /// Euler tour 半开子树区间 `[enter, exit)`。
     pub(crate) subtree_enter: u32,
     pub(crate) subtree_exit: u32,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已解析唯一参与者类别、并保持 current Core IIDM `f64` 语义的车辆配置。
@@ -445,7 +445,7 @@ pub(crate) struct HirVehicleProfile {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: VehicleProfileId,
     pub(crate) participant_class: HirParticipantClassKey,
-    pub(crate) participant_class_source_span: SourceSpan,
+    pub(crate) participant_class_source_span: SourceLocation,
     pub(crate) length_meters: f64,
     pub(crate) desired_speed_meters_per_second: f64,
     pub(crate) min_gap_meters: f64,
@@ -453,7 +453,7 @@ pub(crate) struct HirVehicleProfile {
     pub(crate) max_acceleration_meters_per_second_squared: f64,
     pub(crate) comfortable_deceleration_meters_per_second_squared: f64,
     pub(crate) emergency_deceleration_meters_per_second_squared: f64,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已冻结稳定身份的规范坐标框架。
@@ -465,7 +465,7 @@ pub(crate) struct HirCanonicalFrame {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: CanonicalFrameId,
     pub(crate) lane_edge_geometries: TableRange<HirLaneEdgeGeometry>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 规范坐标框架内的一条中心线；点与线段区间均按行驶方向排列。
@@ -475,7 +475,7 @@ pub(crate) struct HirLaneEdgeGeometry {
     pub(crate) points: TableRange<HirCanonicalPoint3F32>,
     pub(crate) segments: TableRange<HirSpatialSegment>,
     pub(crate) arc_length_meters: f32,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 #[derive(Clone, Copy)]
@@ -512,7 +512,7 @@ pub(crate) struct HirAccessRegulation {
 /// 一条准入规则引用的参与者类别。
 pub(crate) struct HirAccessRuleParticipantClass {
     pub(crate) participant_class: HirParticipantClassKey,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 完成静态引用解析和组合歧义验证的准入规则。
@@ -521,12 +521,12 @@ pub(crate) struct HirAccessRule {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: AccessRuleId,
     pub(crate) target: HirAccessTarget,
-    pub(crate) target_source_span: SourceSpan,
+    pub(crate) target_source_span: SourceLocation,
     pub(crate) effect: AccessEffect,
     pub(crate) participant_classes: TableRange<HirAccessRuleParticipantClass>,
     pub(crate) regulation: Option<HirAccessRegulation>,
     pub(crate) priority: i32,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已证明门所有权、严格正向区间和同路径内部不重叠的等待区。
@@ -539,7 +539,7 @@ pub(crate) struct HirWaitingZone {
     pub(crate) entry_gate: HirManeuverGateKey,
     pub(crate) release_gate: HirManeuverGateKey,
     pub(crate) max_occupancy: u32,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 从全部路径派生的路口内部边排他所有者。
@@ -548,13 +548,13 @@ pub(crate) struct HirJunctionInternalEdge {
     pub(crate) junction: HirJunctionKey,
     /// 首次建立该排他声明的路径，供诊断回链、规范来源选择与路线闭包使用。
     pub(crate) source_path: HirManeuverPathKey,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 静态路线有序边序列中的一次出现；同一 `LaneEdge` 可以出现多次。
 pub(crate) struct HirStaticRouteEdge {
     pub(crate) target: HirLaneEdgeKey,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 静态路线相邻边转换上预编译的可选机动门。
@@ -601,7 +601,7 @@ pub(crate) struct HirStaticRoute {
     pub(crate) maneuver_occurrences: TableRange<HirManeuverOccurrence>,
     pub(crate) gate_occurrences: TableRange<HirGateOccurrence>,
     pub(crate) waiting_zone_occurrences: TableRange<HirWaitingZoneOccurrence>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// HIR 阶段成功后一次性冻结的连续只读表集合。
@@ -869,7 +869,7 @@ struct FirstAccessRegulation {
     jurisdiction: Arc<str>,
     version: Arc<str>,
     rule_key: Arc<str>,
-    source_span: SourceSpan,
+    source_span: SourceLocation,
 }
 
 impl AccessCounts {
@@ -1042,7 +1042,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         .saturating_add(requested_bytes::<
             CanonicalDeclarationSource<HirFacilityBandKey>,
         >(cross_section_counts.facility_bands))
-        .saturating_add(requested_bytes::<Option<(HirRoadCorridorKey, SourceSpan)>>(
+        .saturating_add(requested_bytes::<
+            Option<(HirRoadCorridorKey, SourceLocation)>,
+        >(
             cross_section_counts
                 .road_sections
                 .saturating_add(cross_section_counts.facility_bands),
@@ -1055,7 +1057,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         ))
         .saturating_add(requested_bytes::<usize>(unit.declaration_count))
     };
-    let import_sort_scratch = requested_bytes::<(&str, &SourceSpan)>(unit.import_edge_count);
+    let import_sort_scratch = requested_bytes::<(&str, &SourceLocation)>(unit.import_edge_count);
     let junction_scratch = if junction_counts.entity_count() == 0 {
         0
     } else {
@@ -1076,9 +1078,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             .saturating_add(requested_bytes::<Option<HirJunctionInternalEdge>>(
                 lane_edge_count,
             ))
-            .saturating_add(requested_bytes::<Option<(HirManeuverPathKey, SourceSpan)>>(
-                lane_edge_count,
-            ))
+            .saturating_add(requested_bytes::<
+                Option<(HirManeuverPathKey, SourceLocation)>,
+            >(lane_edge_count))
             .saturating_add(requested_bytes::<usize>(unit.declaration_count))
     };
     let control_scratch = if control_counts.entity_count() == 0 {
@@ -1153,9 +1155,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                 CanonicalDeclarationSource<HirSignalControllerKey>,
             >(signal_counts.controllers))
             .saturating_add(requested_bytes::<
-                Option<(HirSignalControllerKey, SourceSpan)>,
+                Option<(HirSignalControllerKey, SourceLocation)>,
             >(signal_counts.groups))
-            .saturating_add(requested_bytes::<Option<(SignalAspect, SourceSpan)>>(
+            .saturating_add(requested_bytes::<Option<(SignalAspect, SourceLocation)>>(
                 signal_counts.groups,
             ))
             .saturating_add(requested_bytes::<usize>(
@@ -1167,13 +1169,14 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             .saturating_add(requested_bytes::<(HirSignalGroupKey, HirManeuverGateKey)>(
                 signal_counts.controlled_gates,
             ))
-            .saturating_add(requested_hash_table_bytes::<HirSignalGroupKey, SourceSpan>(
-                signal_counts.controller_groups,
-            ))
+            .saturating_add(requested_hash_table_bytes::<
+                HirSignalGroupKey,
+                SourceLocation,
+            >(signal_counts.controller_groups))
             .saturating_add(requested_hash_table_bytes::<HirSignalGroupKey, usize>(
                 signal_counts.controller_groups,
             ))
-            .saturating_add(requested_hash_table_bytes::<Arc<str>, SourceSpan>(
+            .saturating_add(requested_hash_table_bytes::<Arc<str>, SourceLocation>(
                 signal_counts.phases,
             ))
             .saturating_add(requested_bytes::<usize>(unit.declaration_count))
@@ -1832,7 +1835,7 @@ fn validate_source_document_ownership(unit: &CompilationUnit) -> Result<(), Diag
             unit.resolve_source_document_for_module(module_ordinal, span)?;
         }
         for declaration in &module.declarations {
-            declaration.try_visit_source_spans(|span| {
+            declaration.try_visit_source_locations(|span| {
                 unit.resolve_source_document_for_module(module_ordinal, span)
                     .map(|_| ())
             })?;
@@ -2108,9 +2111,10 @@ fn build_cross_section_hir(
         DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
     let mut corridor_elements =
         Vec::with_capacity(count_to_usize(counts.corridor_elements, &unit.limits)?);
-    let mut section_owners: Vec<Option<(HirRoadCorridorKey, SourceSpan)>> =
+    let mut section_owners: Vec<Option<(HirRoadCorridorKey, SourceLocation)>> =
         vec![None; sections.len()];
-    let mut band_owners: Vec<Option<(HirRoadCorridorKey, SourceSpan)>> = vec![None; bands.len()];
+    let mut band_owners: Vec<Option<(HirRoadCorridorKey, SourceLocation)>> =
+        vec![None; bands.len()];
 
     for location in &corridor_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
@@ -2817,7 +2821,7 @@ fn build_junction_hir(
             &mut diagnostics,
         );
         let start = path_edges.len();
-        let mut predecessor: Option<(HirLaneEdgeKey, SourceSpan)> = None;
+        let mut predecessor: Option<(HirLaneEdgeKey, SourceLocation)> = None;
         let mut entry = None;
         let mut exit = None;
         for (index, reference) in core::iter::once(&source.entry_edge)
@@ -2944,7 +2948,7 @@ fn build_junction_hir(
 
     let mut internal_claims: Vec<Option<HirJunctionInternalEdge>> =
         (0..lane_edges.len()).map(|_| None).collect();
-    let mut boundary_claims: Vec<Option<(HirManeuverPathKey, SourceSpan)>> =
+    let mut boundary_claims: Vec<Option<(HirManeuverPathKey, SourceLocation)>> =
         (0..lane_edges.len()).map(|_| None).collect();
     for (path_key, path) in paths.iter() {
         let edge_range = path.edges.as_usize_range();
@@ -3965,7 +3969,8 @@ fn build_signal_hir(
 
     let mut diagnostics =
         DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
-    let mut owners: Vec<Option<(HirSignalControllerKey, SourceSpan)>> = vec![None; groups.len()];
+    let mut owners: Vec<Option<(HirSignalControllerKey, SourceLocation)>> =
+        vec![None; groups.len()];
     let mut controller_group_rows =
         Vec::with_capacity(count_to_usize(counts.controller_groups, &unit.limits)?);
     let mut phase_states = Vec::with_capacity(count_to_usize(counts.phase_states, &unit.limits)?);
@@ -3999,7 +4004,7 @@ fn build_signal_hir(
 
         let mut resolved_groups = Vec::with_capacity(source.signal_groups.len());
         let mut first_group_spans =
-            HashMap::<HirSignalGroupKey, SourceSpan>::with_capacity(source.signal_groups.len());
+            HashMap::<HirSignalGroupKey, SourceLocation>::with_capacity(source.signal_groups.len());
         for reference in &source.signal_groups {
             let Some(group_key) = resolve_reference(
                 module_lookup,
@@ -4069,7 +4074,8 @@ fn build_signal_hir(
             .map(|(position, key)| (key, position))
             .collect();
         let phase_start = phases.len();
-        let mut phase_keys = HashMap::<Arc<str>, SourceSpan>::with_capacity(source.phases.len());
+        let mut phase_keys =
+            HashMap::<Arc<str>, SourceLocation>::with_capacity(source.phases.len());
         let mut cycle_duration_ms = 0_u64;
         let mut cycle_overflow = false;
         let mut cycle_valid = true;
@@ -4153,7 +4159,7 @@ fn build_signal_hir(
                 &fields,
             )?);
 
-            let mut states_by_position: Vec<Option<(SignalAspect, SourceSpan)>> =
+            let mut states_by_position: Vec<Option<(SignalAspect, SourceLocation)>> =
                 vec![None; resolved_groups.len()];
             for state in &phase_source.states {
                 let Some(group_key) = resolve_reference(
@@ -5860,7 +5866,7 @@ fn resolve_access_target(
     }
 }
 
-fn access_target_source_span(source: &crate::declaration::AccessRuleDeclaration) -> SourceSpan {
+fn access_target_source_span(source: &crate::declaration::AccessRuleDeclaration) -> SourceLocation {
     match &source.target {
         OwnedAccessRuleTarget::LaneEdge(reference) => reference.span.clone(),
         OwnedAccessRuleTarget::LaneGroup(reference) => reference.span.clone(),
@@ -6569,7 +6575,7 @@ fn derive_identity(
     module_index: usize,
     entity_kind: EntityKind,
     stable_key: &str,
-    source_span: &SourceSpan,
+    source_span: &SourceLocation,
     fields: &[IdentityFieldInput<'_>],
 ) -> Result<StableId128, DiagnosticBundle> {
     let identity = encode_canonical_identity(
@@ -6621,7 +6627,7 @@ fn register_owner(
     target_key: &str,
     owner: HirRoadCorridorKey,
     owner_header: &crate::declaration::DeclarationHeader,
-    owners: &mut [Option<(HirRoadCorridorKey, SourceSpan)>],
+    owners: &mut [Option<(HirRoadCorridorKey, SourceLocation)>],
     corridors: &TypedArena<HirRoadCorridorTag, HirRoadCorridor>,
     module_order: u32,
     diagnostics: &mut DiagnosticCollector,
@@ -7120,7 +7126,7 @@ fn count_to_usize(count: u64, limits: &crate::CompileLimits) -> Result<usize, Di
 fn arena_overflow(
     _: ArenaKeyOverflow,
     limits: &crate::CompileLimits,
-    primary_span: Option<SourceSpan>,
+    primary_span: Option<SourceLocation>,
 ) -> DiagnosticBundle {
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
         CompileLimitDimension::HirRecordCount,

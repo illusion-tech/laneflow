@@ -5,7 +5,8 @@ use crate::arena::ArenaKey;
 use crate::declaration::TypedAstDeclaration;
 use crate::diagnostic::DiagnosticCollector;
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourcePosition, SourceSpan,
+    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceLocation,
+    SourcePosition, SourceSpan,
 };
 
 use super::descriptor::{SourceDocumentDescriptor, SourceModuleDescriptor};
@@ -22,13 +23,13 @@ pub(crate) type SourceDocumentOrdinal = ArenaKey<SourceDocumentTag>;
 
 pub(super) struct ImportRecord {
     pub(super) namespace: Arc<str>,
-    pub(super) span: SourceSpan,
+    pub(super) span: SourceLocation,
 }
 
 /// 官方前端完成受检构造后交给共同编译管线的 Typed AST 模块。
 pub(crate) struct TypedAstModule {
     pub(crate) descriptor: SourceModuleDescriptor,
-    pub(crate) declaration_span: SourceSpan,
+    pub(crate) declaration_span: SourceLocation,
     pub(crate) source_documents: Box<[SourceDocumentDescriptor]>,
     pub(super) imports: Box<[ImportRecord]>,
     pub(crate) declarations: Box<[TypedAstDeclaration]>,
@@ -39,11 +40,11 @@ impl TypedAstModule {
         &self.descriptor
     }
 
-    pub(crate) const fn declaration_span(&self) -> &SourceSpan {
+    pub(crate) const fn declaration_span(&self) -> &SourceLocation {
         &self.declaration_span
     }
 
-    pub(crate) fn import_records(&self) -> impl ExactSizeIterator<Item = (&str, &SourceSpan)> {
+    pub(crate) fn import_records(&self) -> impl ExactSizeIterator<Item = (&str, &SourceLocation)> {
         self.imports
             .iter()
             .map(|record| (record.namespace.as_ref(), &record.span))
@@ -188,12 +189,12 @@ impl TestOfficialModule {
         else {
             panic!("test wrapper expected first declaration to be LaneEdge");
         };
-        declaration.header.span = SourceSpan::point(Arc::from(source_document_key), 41, 7);
+        declaration.header.span = SourceSpan::point(Arc::from(source_document_key), 41, 7).into();
     }
 
     pub(super) fn move_module_declaration_span_to(&mut self, source_document_key: &str) {
         self.admitted.typed_ast.declaration_span =
-            SourceSpan::point(Arc::from(source_document_key), 37, 5);
+            SourceSpan::point(Arc::from(source_document_key), 37, 5).into();
     }
 
     pub(super) fn from_synthetic_with_unsorted_documents(
@@ -217,7 +218,8 @@ impl TestOfficialModule {
         else {
             panic!("test wrapper expected first declaration to be LaneEdge");
         };
-        declaration.successors[0].span = SourceSpan::point(Arc::from(source_document_key), 43, 9);
+        declaration.successors[0].span =
+            SourceSpan::point(Arc::from(source_document_key), 43, 9).into();
     }
 
     pub(super) fn move_signal_relation_spans_to(
@@ -242,7 +244,8 @@ impl TestOfficialModule {
                             Arc::from(controller_group_document),
                             51 + relation_offset(&reference.declaration_key),
                             3,
-                        );
+                        )
+                        .into();
                         controller_group_count = controller_group_count.saturating_add(1);
                     }
                     for phase in &mut controller.phases {
@@ -251,7 +254,8 @@ impl TestOfficialModule {
                                 Arc::from(phase_state_document),
                                 61 + relation_offset(&state.signal_group.declaration_key),
                                 5,
-                            );
+                            )
+                            .into();
                             phase_state_count = phase_state_count.saturating_add(1);
                         }
                     }
@@ -264,7 +268,8 @@ impl TestOfficialModule {
                             Arc::from(gate_signal_document),
                             71 + relation_offset(&reference.declaration_key),
                             7,
-                        );
+                        )
+                        .into();
                         gate_signal_count = gate_signal_count.saturating_add(1);
                     }
                 }
@@ -284,7 +289,13 @@ impl TestOfficialModule {
         );
 
         let source_document_key: Arc<str> = source_document_key.into();
-        let span = |line| SourceSpan::point(Arc::clone(&source_document_key), line, 11);
+        let span = |line| {
+            SourceLocation::from(SourceSpan::point(
+                Arc::clone(&source_document_key),
+                line,
+                11,
+            ))
+        };
         let mut counts = [0_u32; 11];
         for declaration in &mut self.admitted.typed_ast.declarations {
             match declaration {
@@ -500,25 +511,17 @@ impl ResolvedSourceDocument {
 /// 已核对模块归属并解析到编译单元文档表的紧凑来源位置。
 ///
 /// HIR/MIR 关系记录携带本值，避免在后续热循环中继续持有或比较文档键字符串。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ResolvedSourceLocation {
-    source_document_ordinal: SourceDocumentOrdinal,
-    start: SourcePosition,
-    end: SourcePosition,
-}
-
-impl ResolvedSourceLocation {
-    pub(crate) const fn source_document_ordinal(self) -> SourceDocumentOrdinal {
-        self.source_document_ordinal
-    }
-
-    pub(crate) const fn start(self) -> SourcePosition {
-        self.start
-    }
-
-    pub(crate) const fn end(self) -> SourcePosition {
-        self.end
-    }
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ResolvedSourceLocation {
+    Text {
+        source_document_ordinal: SourceDocumentOrdinal,
+        start: SourcePosition,
+        end: SourcePosition,
+    },
+    RoadEditing {
+        source_document_ordinal: SourceDocumentOrdinal,
+        location: crate::RoadEditingSourceLocation,
+    },
 }
 
 #[inline]
@@ -1058,7 +1061,7 @@ impl CompilationUnit {
     pub(crate) fn resolve_source_document_for_module(
         &self,
         owner_module_ordinal: u32,
-        span: &SourceSpan,
+        location: &SourceLocation,
     ) -> Result<SourceDocumentOrdinal, DiagnosticBundle> {
         let owner_module_index = usize::try_from(owner_module_ordinal)
             .expect("u32 module ordinals fit usize on supported targets");
@@ -1067,14 +1070,14 @@ impl CompilationUnit {
             .authoring_namespace_id();
         let Some(binding) = self
             .source_document_index
-            .resolve(span.source_document_key())
+            .resolve(location.source_document_key())
         else {
             return Err(DiagnosticBundle::single(
                 Diagnostic::source_document_ownership_mismatch(
-                    span.source_document_key(),
+                    location.source_document_key(),
                     expected_namespace,
                     None,
-                    span.clone(),
+                    location.clone(),
                 ),
             ));
         };
@@ -1086,10 +1089,10 @@ impl CompilationUnit {
                 .authoring_namespace_id();
             return Err(DiagnosticBundle::single(
                 Diagnostic::source_document_ownership_mismatch(
-                    span.source_document_key(),
+                    location.source_document_key(),
                     expected_namespace,
                     Some(actual_namespace),
-                    span.clone(),
+                    location.clone(),
                 ),
             ));
         }
@@ -1101,13 +1104,20 @@ impl CompilationUnit {
     pub(crate) fn resolve_source_location_for_module(
         &self,
         owner_module_ordinal: u32,
-        span: &SourceSpan,
+        location: &SourceLocation,
     ) -> Result<ResolvedSourceLocation, DiagnosticBundle> {
-        Ok(ResolvedSourceLocation {
-            source_document_ordinal: self
-                .resolve_source_document_for_module(owner_module_ordinal, span)?,
-            start: span.start(),
-            end: span.end(),
+        let source_document_ordinal =
+            self.resolve_source_document_for_module(owner_module_ordinal, location)?;
+        Ok(match location {
+            SourceLocation::Text(span) => ResolvedSourceLocation::Text {
+                source_document_ordinal,
+                start: span.start(),
+                end: span.end(),
+            },
+            SourceLocation::RoadEditing(location) => ResolvedSourceLocation::RoadEditing {
+                source_document_ordinal,
+                location: location.clone(),
+            },
         })
     }
 
