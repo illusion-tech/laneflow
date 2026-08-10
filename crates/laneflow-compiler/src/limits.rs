@@ -298,6 +298,13 @@ impl CompileLimits {
     }
 
     #[cfg(test)]
+    pub(crate) fn with_test_source_byte_limits(mut self, per_module: u32, total: u32) -> Self {
+        self.max_source_bytes_per_module = per_module;
+        self.max_source_bytes_total = total;
+        self
+    }
+
+    #[cfg(test)]
     pub(crate) fn with_test_admission_limit(
         mut self,
         dimension: CompileLimitDimension,

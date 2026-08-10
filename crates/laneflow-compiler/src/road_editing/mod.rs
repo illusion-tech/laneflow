@@ -4,10 +4,13 @@
 //! 只接受后续 reader 切片定义的受检 size-prefixed bytes；这里不公开 generated table。
 
 mod builder;
+mod input;
 mod model;
+pub(crate) mod reader;
 mod rules;
 mod writer;
 
 pub use builder::{RoadEditingSourceModule, RoadEditingSourceModuleBuilder};
+pub use input::{InvalidRoadEditingModuleInput, RoadEditingModuleInput};
 pub use model::*;
 pub use writer::{OwnedRoadEditingSourceBuffer, RoadEditingSourceWriter};
