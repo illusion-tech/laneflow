@@ -146,9 +146,13 @@ A 阶段不承诺在已建道路上直接显示并拖拽原始曲线控制柄。
 
 道路走向定义（Road Alignment Definition）是重建当前已建道路所需的几何编制描述。
 v1 只接受直线与三次 Bé塞尔曲线。圆弧、螺旋线或其他 importer/generator 曲线必须在
-写入 v1 前转换为这两种 segment，并按所选 2/5/10 cm B1 目标记录固定网格的观测误差；
-该观测不构成原始 primitive 到 cubic 的连续硬证明。v1 不保存原始 primitive 语义。
-增加新 curve union 必须提升来源格式版本并显式迁移。保存走向定义不
+写入 v1 前转换为这两种 segment。第一方 converter 对自身原始 primitive 与输出 cubic
+使用固定网格观测，观测最大值超过所选 2/5/10 cm B1 目标即拒绝转换，并把分布/最坏参数
+作为 caller-owned conversion report 返回；该 report 不写入 `.lfre`、不进入摘要，也不由
+#296 compiler 复验，第三方 primitive evaluator 不成为 LaneFlow source 语义。该观测不
+构成原始 primitive 到 cubic 的连续硬证明。v1 不保存原始 primitive 语义。若后续已发布
+版本增加 curve union，必须提升来源格式版本；是否迁移由该次产品/G1 决定，未发布 B1
+fixture 只 clean-regenerate。保存走向定义不
 等于运行时保留曲线求值器，也不等于 UI 必须暴露全部控制参数。
 
 常见道路 taper 由 lane/facility 在一个 corridor station 区间内的线性起止宽度表达；
@@ -168,8 +172,8 @@ Spatial 不保存或重建编制控制点；Adapter 的网格细分和车辆物�
 区域/模块级协作和实体级并发编辑都属于来源编码与编辑器契约。v1 以模块 blob 为加载和
 原子保存边界，以一稳定声明一有类型条目、稳定 identity 与 typed property path 为后继
 来源差异提供输入；它不把二进制 bytes diff 当作协作协议。#296 A 阶段只提供该定位和
-#298 的规范 LIR 差异输入，不实现 authoring-only `RoadEditingSourceDiff`。C 阶段必须由
-独立后继 Delivery Issue 交付来源差异/冲突合并，并与 #298 的路网影响差异明确分层。
+#298 的规范 LIR 差异输入，不实现 authoring-only `RoadEditingSourceDiff`。C 阶段由后继
+Delivery Issue [#345] 交付来源差异/冲突合并，并与 #298 的路网影响差异明确分层。
 宿主负责跨模块保存事务，LaneFlow 不拥有整个城市存档容器。
 
 ## 来源编码选择记录
@@ -285,12 +289,14 @@ verifier + 借用 view 和更少自定义协议为优先，接受受控 generate
 ## 治理与实施
 
 1. #296 保持 `G1 In Progress`，PR #332 保持 Draft；旧 G1/G2 与校准证据只作历史。
-2. 产品负责人已选择 A；本 ADR 与 `road-editing-source-and-geometry-frontend.md` 必须精确
+2. 产品负责人已选择 FlatBuffers 来源编码候选；本 ADR 与
+   `road-editing-source-and-geometry-frontend.md` 必须精确
    回写被选编码、未选候选、兼容/删除清单、schema、依赖和 workload。
 3. 当前 exact head 完成一致性验证和外部 clean review 前，不得记录新 `G1 Pass`。
 4. 新 G1 Pass 后重新记录 G2；实现、资源校准和外部审阅均绑定新 exact head。
 5. #298 继续只消费 validated canonical LIR；#302 继续拥有运行时修订切换；编辑器 UI、
    城市对象影响预览和迁移策略若超出既有 Issue，必须拆出独立 Delivery Issue。
-6. `RoadEditingSourceDiff` 与 authoring-only 冲突合并必须在 #296 新 G1 Pass 前登记独立
-   后继 Delivery Issue；未登记或未实现时只能陈述稳定来源定位能力，不能宣称 C 阶段已
-   覆盖来源差异。
+6. `RoadEditingSourceDiff` 与 authoring-only 冲突合并已登记为独立后继 Delivery Issue
+   [#345]；未实现时只能陈述稳定来源定位能力，不能宣称 C 阶段已覆盖来源差异。
+
+[#345]: https://github.com/illusion-tech/laneflow/issues/345

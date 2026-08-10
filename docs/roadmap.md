@@ -274,7 +274,8 @@ image 外部 trusted descriptor/validation receipt 与 bounded verifier 建立 v
 static occurrences。
 
 本路线图中的 #298 “语义差异”只指规范 LIR/路网影响差异；道路编辑控制点等
-authoring-only 改动由 C 阶段独立 `RoadEditingSourceDiff` 后继能力负责。
+authoring-only 改动由 C 阶段后继 [#345](https://github.com/illusion-tech/laneflow/issues/345)
+`RoadEditingSourceDiff` 负责。
 
 ADR 0023 已启动 #296 G1 纠偏：production 道路来源首先服务可视化编辑器，并支持游戏
 初始化时的程序化生成；道路编辑先交付整体替换 A 阶段，再演进到候选调整与影响预览 C
@@ -284,8 +285,9 @@ Geometry JSON 尚未发布且不获得兼容承诺，分段 Protobuf 也不进�
 `G1 Pass`，随后才能恢复 G2、实现 schema/reader、第一方 Rust
 有类型来源构造面并重建性能基线。v1 曲线只含 line/cubic Bézier，常见 taper 使用线性
 起止宽度；FacilityBand 不作为 v1 AccessRule target。#296 只为 #298 的 LIR 影响差异
-提供输入，C 阶段的 authoring-only 来源差异由后继 Issue #345 交付。完整 C++/C# SDK
-与引擎事务封装属于后继交付。
+提供输入，C 阶段的 authoring-only 来源差异已登记为后继 Delivery Issue
+[#345](https://github.com/illusion-tech/laneflow/issues/345)。完整 C++/C# SDK 与引擎事务封装
+属于后继交付。
 
 ADR 0020、ADR 0021 与 [`design/network-compiler.md`](design/network-compiler.md)
 是 #291 G1 已接受的长期设计。Identity v1 区分 StableId128

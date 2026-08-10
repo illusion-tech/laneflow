@@ -51,7 +51,7 @@
 
 #296 的 A 阶段只冻结稳定实体/属性位置，并为 #298 的规范 LIR 差异提供确定输入；它不
 实现 `RoadEditingSourceDiff`。C 阶段需要的 authoring-only 差异（例如控制点改变但规范
-LIR 未改变）必须由独立后继 Delivery Issue 拥有，并在进入 C 前显式登记；不能把
+LIR 未改变）由已登记的后继 Delivery Issue [#345] 拥有；不能把
 #298 的 LIR 差异冒充完整编辑来源差异。
 
 ## 4. 道路编辑状态的最小内容
@@ -98,8 +98,9 @@ FlatBuffers writer 与编译器 reader 必须共享验证规则，不得形成�
 ## 6. 几何权威
 
 道路编辑状态 v1 只保存直线和三次 Bé塞尔曲线。圆弧、螺旋线及其他 importer/generator
-原语必须在写入 v1 前转换为这两种 segment，并按所选 2/5/10 cm B1 档记录固定网格
-观测误差；该观测不构成原始 primitive 到 cubic 的连续硬保证。
+原语必须在写入 v1 前转换为这两种 segment；第一方转换器必须按所选 2/5/10 cm B1 档
+执行固定网格观测并在超限时拒绝转换。转换报告由调用者持有，不进入 `.lfre`、内容摘要或
+#296 编译器输入；该观测不构成原始 primitive 到 cubic 的连续硬保证。
 v1 不保存其原始 primitive 语义。增加新的 curve union 判别值必须提升来源格式版本并
 在已发布后提供显式迁移。MIR 按 ADR 0022 的配置档执行 stationing、offset、确定性细分
 与直接检查，LIR
@@ -132,7 +133,7 @@ v1 不保存其原始 primitive 语义。增加新的 curve union 判别值必�
 - 原子保存模块及其导入/关系更新，失败不产生半写状态。
 
 物理编码不必直接成为多人协作协议，但必须保留稳定实体/属性定位，使后继
-`RoadEditingSourceDiff` 能比较 authoring-only 改动；当前 #296 只交付模块级读取、
+[#345] 的 `RoadEditingSourceDiff` 能比较 authoring-only 改动；当前 #296 只交付模块级读取、
 编译和保存，不交付该 diff engine。模块边界保证一次小改动不解析或重写整个城市。
 
 ## 9. 来源编码决策与评估
@@ -245,6 +246,40 @@ v1 字段所有权进一步固定为同模块 owner tree：`RoadCorridor.element
 同一 `LaneEdge` table 提供 `explicit_geometry`。这样 wire 不重复公共声明，也不把
 物理 vector 顺序误作 owner 或身份。
 
+owner-qualified 地址必须继续穿过共同 Typed AST/HIR，不能在 reader 末端退化回旧的
+`module namespace + stable_key`。#296 G2 把 compiler-private 共同表示扩展为以下逻辑形状；
+实现可用等价的受计量 interner/ordinal 优化布局，但不能拼接伪 key：
+
+```rust
+struct TypedAstEntityAddress {
+    owner_local_keys: Box<[Arc<str>]>, // module-scoped kind 为空，最多 3 项
+    local_key: Arc<str>,               // 原始 sibling-local identity key
+}
+
+struct DeclarationHeader {
+    entity_kind: EntityKind,
+    source_address: TypedAstEntityAddress,
+    identity_local_key: Arc<str>,
+    location: SourceLocation,
+}
+
+struct OwnedEntityReference<K> {
+    module_namespace: Arc<str>,
+    target_address: TypedAstEntityAddress,
+    location: SourceLocation,
+}
+```
+
+每种 HIR symbol table 以 `(target module, TypedAstEntityAddress)` 查找，不以 local key 单独
+查找。owner kind 按 `RoadCorridor -> RoadSection/FacilityBand`、
+`RoadCorridor -> RoadSection -> AuthoringLane/LaneGroup`、
+`Junction -> Movement -> ManeuverPath -> ManeuverGate/WaitingZone` 和
+`SignalController -> SignalPhase` 的固定父先子后顺序解析；child 的 Identity v1 仍使用
+`identity_local_key + 已解析 parent StableId`，不把 owner path 的来源拼写直接哈希为产品
+身份。Synthetic/current 的模块级声明映射为空 owner path，既有身份与诊断排序不变。
+地址 component、共享 backing 和 symbol-key capacity 全部进入 string/scratch/live-byte
+账本；不得用重复路径字符串规避计量。
+
 `AuthoringLane` 与 `FacilityBand` 的宽度都使用 required inline
 `LinearWidthProfile { start_width_meters, end_width_meters }`。两端有限、非负且不能同时
 为零；在对应 corridor station 区间内只做线性插值。插值的固定求值顺序、横断面中心
@@ -260,7 +295,10 @@ approach/internal、controller signal group、phase state group 与 access parti
 明确允许同一 edge 的多个有序 occurrence。namespace、local key 与 alignment key 禁止
 `::`，owner-qualified reference 使用 token 中禁止的 `>` 分隔完整 owner key 链；
 qualified reference 必须恰好一个 `::`。每段 token 仍受 53-byte 上限，完整引用按 schema
-README 的 270-byte 派生上限检查。owner reference 禁止跨模块，普通关系目标才可引用 imports。
+README 的 270-byte 派生上限检查。完整引用只是借用 source bytes 的语法拼写，不作为
+`SingleStringBytes` 或第二份字符串驻留；拆出的 namespace/owner/local-key component 分别
+计入 `SingleStringBytes`、`StringItemCount`、`TotalStringBytes` 和阶段 live bytes。owner
+reference 禁止跨模块，普通关系目标才可引用 imports。
 
 模块沿袭与编译选项摘要的精确前像、direct 固定检查值、键/引用语法、字段所有者、
 有序/集合向量及 scalar 缺省语义由 schema 同目录 `README.md` 冻结。G2 writer 与 reader
@@ -314,7 +352,7 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
 - 编译器直接遍历 verifier 通过的只读 buffer，先预检、再构造 Typed AST，不因编译而
   unpack 一棵 generated object graph；
 - 顶层按声明种类分组的有类型向量保留 stable identity 与 typed property path；
-  FlatBuffers table offset、原始 bytes diff 与 #298 的 LIR diff 都不能替代后继
+  FlatBuffers table offset、原始 bytes diff 与 #298 的 LIR diff 都不能替代 [#345] 的
   `RoadEditingSourceDiff`；
 - 同一声明向量的物理顺序不进入语义。来源 v1 要求 `RoadAlignment` 和模块级身份种类按
   kind/module local key 唯一；owner-scoped 种类只要求同一直接 owner 下 sibling local key
@@ -337,9 +375,11 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
   `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 1`；数值 `2`
   已由 #297 的 feature-gated `CurrentTrafficSpatialV0_10` 独占，旧未发布
   `GeometryDocument = 2` 在 G2 删除且不建立别名；
-- `format_version = 1` 是精确 schema 版本，不是“最低兼容版本”。v1 reader 只接受 1；
-  任何持久字段增加/删除、含义改变、声明种类或 union 变化都产生新版本和显式一次性
-  迁移器；
+- `format_version = 1` 是本 exact G1 schema 的精确版本，不是“最低兼容版本”。B1 尚未进入
+  publication，内部 fixture 只由 exact commit/digest 绑定；本阶段 schema/语义变化直接
+  clean-regenerate，旧 B1 bytes 失败关闭且不提供迁移。只有后续经产品确认并发布的存档
+  版本，才要求持久字段增加/删除、含义改变、声明种类或 union 变化产生新版本，并由当次
+  产品/G1 决定是否交付一次性迁移器；
 - 每个 table 字段的 `id`、enum 数值和 union discriminant 永不复用；删除字段只能标记
   `(deprecated)`，schema 演进必须由固定版本 `flatc --conform` 检查；
 - 旧工具可能在结构 verifier 后看到新版本，但必须在任何 LaneFlow 语义 lowering 和
@@ -426,7 +466,12 @@ pub enum SourceLocation {
 }
 
 pub struct RoadEditingSourceLocation {
-    /* source document key + subject + optional property/canvas ordinals + optional wire range */
+    /* document identity + subject + optional property/canvas ordinals + optional wire range */
+}
+
+pub enum RoadEditingDocumentIdentity {
+    Input { /* expected source document key supplied outside wire */ },
+    Verified { /* module namespace + equal verified wire source document key */ },
 }
 
 pub enum RoadEditingSubject {
@@ -465,22 +510,32 @@ parent StableId 形成产品稳定身份。`RoadEditingPropertyPath` 是最多�
 x 分量表示为 `CurveSegment.geometry -> CubicBezierSegment -> control_1 -> Vec3F64.x`。
 关系 occurrence 已由 subject 携带，故属性路径不重复表达 owner 向量下标。
 
-每次 `add_road_editing_module` 在 verifier 前建立一个空 `RoadEditingLocationContext`；verifier 失败时只 intern
-受检 wire trace，语义预检成功后则按规范遍历补齐来源地址的 namespace/key components、
+每次 `add_road_editing_module` 在 verifier 前先接收已经由 `RoadEditingModuleInput::try_new`
+验证的 `expected_source_document_key`，再建立唯一可变的 candidate
+`RoadEditingLocationContext`；
+verifier 失败时以 `RoadEditingDocumentIdentity::Input` 和受检 wire trace 定位，不能冒充
+已读出的 module identity。verifier 成功并验证 wire `source_document_key` 与 expected key
+逐 byte 相等后，后续位置改用 `Verified`，语义预检再按规范遍历补齐来源地址的 namespace/key components、
 闭合属性路径和 `canvas_selection`。完整 owner-qualified wire reference 只从已计量的借用
 source bytes 解析，不作为第二份字符串驻留；每个 intern component 继续受 53-byte 单项
 上限，component、路径步和索引容量全部计入现有 total-string/live-byte 预算。位置只保存
-有类型 `u32` ordinal，不为每条诊断复制路径或字符串。add 成功后，
-`CompilationUnitBuilder` 按值接管该模块 context，并分配与 admitted module 记录绑定、
+有类型 `u32` ordinal，不为每条诊断复制路径或字符串。在 context 第一次进入 builder、
+`DiagnosticBundle` 或 source-map owner 前冻结为 `Arc<RoadEditingLocationContext>`，冻结后
+不再可变。add 成功后，
+`CompilationUnitBuilder` 接管该模块共享 context handle，并分配与 admitted module 记录绑定、
 单调且不复用的 builder-local context index；
-后续 add/build 失败时 `DiagnosticBundle` 按值接管所有被其位置引用的 module contexts，
-成功时 `ValidatedSourceMapInput` 接管完整 context 集合。跨模块位置先保存 context index、
+后续 add 失败时，candidate context 直接移入 `DiagnosticBundle`，已提交模块的 context 只
+clone `Arc` handle，builder 保留原 handle 并可继续使用；build 失败使用同一共享规则，
+成功时 `ValidatedSourceMapInput` 接管完整 handle 集合。Arc allocation、strong handle 数、
+handle vector capacity 和失败 bundle 的 retained bytes 全部预收费并进入 live-byte 账本，
+禁止深拷贝 context。跨模块位置先保存 context index、
 再保存 context-local ordinal，二者都由受检构造器建立；build 的规范模块重排只移动携带
 该 index 的 module record，不重编号 context，也不把 index 当成排序键。因此候选 Typed
 AST/module 或 builder 释放后仍可解析。两种返回对象只公开只读解析 accessor；ordinal
 只是一轮编译内的紧凑地址，不得持久化、参与摘要或直接用于诊断排序。
 
-verifier 失败使用 `Wire` subject、field/vector trace 和可选 `RoadEditingByteRange`；该
+verifier 失败使用 `Input` document identity、`Wire` subject、field/vector trace 和可选
+`RoadEditingByteRange`；该
 range 只允许结构损坏诊断，必须先证明位于输入内。成功验证后的领域诊断使用稳定
 alignment/declaration/owner-local subject 与闭合 property，不依赖物理 vector index，也
 不反推伪精确 byte range。全局诊断排序先沿用 module/document 规范顺序，再按
@@ -493,10 +548,16 @@ ordinal 后比较实际 step/key bytes，不能比较分配顺序。这样文本
 首版 production Rust 入口冻结为一个原子借用路径：
 
 ```rust
-pub struct RoadEditingModuleInput<'a> { /* bytes + optional display source */ }
+pub struct RoadEditingModuleInput<'a> {
+    /* required expected source document key + bytes + optional display source */
+}
 
 impl<'a> RoadEditingModuleInput<'a> {
-    pub const fn new(source_bytes: &'a [u8], display_source: Option<&'a str>) -> Self;
+    pub fn try_new(
+        expected_source_document_key: &'a str,
+        source_bytes: &'a [u8],
+        display_source: Option<&'a str>,
+    ) -> Result<Self, InvalidRoadEditingModuleInput>;
 }
 
 impl CompilationUnitBuilder {
@@ -507,8 +568,11 @@ impl CompilationUnitBuilder {
 }
 ```
 
-该调用在同一个 `&mut self` 事务中取得剩余预算、检查 size prefix/identifier、运行
-verifier、执行语义预检、降阶并进入 #315 共同 admission。不得公开预构造 generated
+`try_new` 只按 source-document token/53-byte 规则验证 expected key，不读取、哈希或验证
+source bytes。builder 调用在同一个 `&mut self` 事务中取得剩余预算、检查 size
+prefix/identifier、运行 verifier，并要求验证后的 `ModuleHeader.source_document_key` 与 expected key 逐 byte
+相等，随后执行语义预检、降阶并进入 #315 共同 admission。expected key 只提供损坏输入
+定位和成功后的绑定，不覆盖 wire module/document identity。不得公开预构造 generated
 wire view、裸 Typed AST、可伪造 module descriptor 或绕过 builder 余额的
 `RoadEditingModule::decode`。程序化生成器、editor 和 importer 必须先用官方
 schema/writer 物化相同来源缓冲区，再进入此唯一编译路径；是否持久化由产品事务决定，
@@ -612,7 +676,8 @@ byte range 天然适合损坏定位。主要代价是 LaneFlow 要长期维护 F
 自定义 framing；`prost` decode 会为 string、bytes、repeated/nested message 建立 owned
 对象，因此还需要限制 message 形状、证明每记录分配上界，或引入 packed key/parallel
 array 等 wire 专用结构。现有探针没有完成 FB/PB 同 workload 的定量性能比较，因此不能
-宣称 B 已被实测证明更慢或峰值更高；产品负责人选择 A 的依据是整体产品/架构适配，并
+宣称 B 已被实测证明更慢或峰值更高；产品负责人选择 size-prefixed FlatBuffers 的依据是
+整体产品/架构适配，并
 明确接受受控 generated `unsafe`，不以未测性能差距作为事实。
 
 ### 9.9 候选比较与依赖结论
@@ -691,7 +756,7 @@ runtime 必须保持同一固定版本，生成物再现检查和 `flatc --confo
 
 ## 10. 测试、性能与 workload
 
-以下矩阵是已选择 A 的 G2 输入，但当前仍不授权开工。G2 至少实现：
+以下矩阵是已选择 size-prefixed FlatBuffers 编码的 G2 输入，但当前仍不授权开工。G2 至少实现：
 
 - size prefix、`LFRE`、版本、checked exact length、截断、trailing bytes、错位 offset、
   非法 vtable/vector/string/union 的 known vectors；
@@ -701,6 +766,8 @@ runtime 必须保持同一固定版本，生成物再现检查和 `flatc --confo
   StableId、LIR 或 #298 规范路网影响差异；
 - programmatic Rust writer → bytes → production reader → LIR，以及 C++ writer → Rust
   reader、C# writer → Rust reader 两条最小跨语言 fixture；
+- line/cubic/taper 的 scalar-dual 逐 bit known vectors，覆盖大坐标、九种档位阈值
+  `-1/0/+1 ULP`、source-offset canonical weld、水平 cusp/近 cusp、regularity depth/node 上限；
 - 模块独立加载、导入闭包、实体属性诊断、候选失败不污染、失败后恢复和同实例重复编译；
 - 模块级重复 key/同 owner sibling 重复拒绝、不同 owner 同名 child 接受、完整 owner-key
   来源地址、嵌套 struct/union 叶属性路径、owner-local 来源地址，以及
@@ -728,7 +795,8 @@ fixture digest，因此 workload definition 与 G2 measurement evidence 是两�
 
 每个组合分别测量 typed-model build、encode/save、size/identifier 预检、verifier、语义
 预检 + Typed AST lowering、完整 compile、来源字节、阶段峰值、总峰值和 returned buffer
-retained capacity，并记录位置误差 P50/P95/P99/最大观测值及其来源。单模块改写必须在旧
+retained capacity，并记录 horizontal-regularity node visits、evaluator interval/sample
+完整性计数，以及位置误差 P50/P95/P99/最大观测值及其来源。单模块改写必须在旧
 五模块 accepted revision 仍存续时构造/编码候选，
 编译 import closure，成功后才原子替换并释放旧 blob；不能只测释放旧模块后的理想峰值。
 正式测量在 `LF-P100-REF-01` 上以 release/locked、单进程单线程执行；每个 profile 组合先
@@ -758,7 +826,8 @@ ceiling）未被突破；在取得新证据前，不复用旧 JSON 的 `3_669_80
   `.fbs`、固定 `flatc` 再现入口和私有 generated wire package；
 - ADR 0022 的曲线/折线误差档位独立保留并在新来源模型上重新验证；
 - 本轮只交付 ADR 0022 B1 内部完整验证语义：schema 不进入 publication，不承诺长期存档
-  兼容，也不把 2/5/10 cm 写成连续硬上限；后继 A 或 B1 production promotion 都重新走
+  兼容，也不把 2/5/10 cm 写成连续硬上限；后继 certified continuous-bound 语义或 B1
+  production promotion 都重新走
   产品/G1，而不是在同一语义版本内静默换算法；
 - #315 的共同模块接入、来源摘要和资源维度如需适配非文本来源，必须在 #296 G1 明确
   兼容的抽象语义；不得复制第二套 admission；
@@ -768,13 +837,15 @@ ceiling）未被突破；在取得新证据前，不复用旧 JSON 的 `3_669_80
 ## 12. 新 G1 完成条件
 
 1. ADR 0023、architecture、roadmap、glossary、network/compiler design 一致；
-2. 产品负责人已于 2026-08-10 选择 A，接受模块重建和受控 generated `unsafe` 审计边界，
-   不选择 B/C 的原因已记录；
+2. 产品负责人已于 2026-08-10 选择 size-prefixed FlatBuffers，接受模块重建和受控
+   generated `unsafe` 审计边界，不选择两个 Protobuf 候选和 JSON 的原因已记录；
 3. 被选编码的稳定标识、exact bytes/schema、版本、依赖、资源失败关闭和审计边界已
    冻结，未选候选不进入 production 实现；
 4. 有类型模型、模块/文档组成、来源位置和公共入口已精确到可实现；
 5. A 阶段的候选替换失败原子性、身份边界和与 #302 的职责分离已冻结；
-6. C 阶段 authoring-only `RoadEditingSourceDiff` 已登记独立后继 Delivery Issue，且与
+6. C 阶段 authoring-only `RoadEditingSourceDiff` 已登记为后继 Delivery Issue [#345]，且与
    #298 的规范 LIR 影响差异边界明确；
 7. 兼容/删除清单、verifier 公式、测试矩阵、资源上限和机器可读新 workload 已冻结；
 8. 当前 exact head 取得外部 clean review，并在 #296 追加新的 `G1 Pass`。
+
+[#345]: https://github.com/illusion-tech/laneflow/issues/345

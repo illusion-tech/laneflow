@@ -246,7 +246,8 @@ table SignalGroup {
   canvas_selection:string (id: 1);
 }
 
-/// signal_groups 是无序 owner 集合，signal_phases 的顺序定义固定时制循环。
+/// signal_groups 是无序唯一归属集合；该归属不改变 SignalGroup 的 module-scoped identity。
+/// signal_phases 的顺序定义固定时制循环。
 table SignalController {
   signal_controller_key:string (required, id: 0);
   offset_milliseconds:ulong = 0 (id: 1);

@@ -65,7 +65,9 @@ namespace::owner-key>...>local-key
 目标是 `Junction > Movement > ManeuverPath > ManeuverGate/WaitingZone`，所以完整引用
 最多 4 个 key token；连同可选 53-byte namespace 和分隔符，wire string 的派生硬上限
 固定为 `270 bytes`。该例外只适用于已解析为有类型实体引用的 string，普通 string 和
-单个 token 仍不得超过 53 bytes。
+单个 token 仍不得超过 53 bytes。reader 就地拆分并借用完整 wire spelling；它不把最多
+270-byte 拼写作为一条驻留 `SingleStringBytes` 对象，拆出的每个 component 才分别消费
+53-byte 单项、string item/total bytes 和 live-byte 预算。
 
 被引用实体的种类由字段或伴随的封闭 enum 决定，因而链深固定：`RoadSection` 和
 `FacilityBand` 为 `RoadCorridor > local`；`AuthoringLane`/`LaneGroup` 为
@@ -238,7 +240,9 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
 - `ManeuverGate.transition_index` 指向路径边序列的一个有效相邻转换。
   `signal_control = None` 时 `signal_group` 必须缺失；`SignalGroup` 时该字段必须存在。
 - `WaitingZone.max_occupancy` 必须大于零；entry/release gate 必须属于同一路径且顺序合法。
-- `SignalController.signal_groups` 是无序引用集合；`signal_phases` 的顺序定义循环。
+- `SignalController.signal_groups` 是无序唯一归属集合；每个 module-scoped `SignalGroup`
+  必须被恰好一个 controller 引用，但该归属不改变其 module-scoped Identity anchor；
+  `signal_phases` 的顺序定义循环。
   每个 phase 的显式 `signal_controller` 必须与该向量互证并在同模块被恰好一个 controller
   拥有，`duration_milliseconds > 0`，其 owner-local
   `states` 对 controller 全部 signal group 恰好各出现一次。
@@ -286,9 +290,11 @@ FlatBuffers scalar 的 wire 缺省值与显式写入同一默认值不可区分�
 
 - 每张 table 的字段 `id` 从 0 连续分配；union 字段同时占用隐式 type id。字段只能在
   末尾追加或标记 `(deprecated)`，不能改类型、改默认语义、移动/复用 id。
-- enum 与 union 判别值显式固定且永不复用；新增持久字段、声明种类、曲线 union 或
-  语义变化都提升 `format_version`。只有已经产品确认并发布的存档语义才承担一次性迁移；
-  B1 v1 只授权内部完整验证，尚未进入 `schemas/publication.json`，不建立长期存档兼容。
+- enum 与 union 判别值显式固定且永不复用。B1 v1 只授权内部完整验证，尚未进入
+  `schemas/publication.json`；其 fixture 由 exact commit/digest 绑定，变更后 clean-regenerate，
+  旧 B1 bytes 失败关闭且不提供迁移。只有经产品确认并发布的存档语义，新增持久字段、
+  声明种类、曲线 union 或语义变化才必须提升 `format_version`，并由当次产品/G1 决定
+  一次性迁移范围。
 - 未来连续硬保证或 B1 production promotion 都必须重新进行产品/G1 判断；B1 UI/文档
   只能陈述工程目标和观测证据，不能声明 `2/5/10 cm` 连续最大误差保证。
 - G2 必须使用固定 `flatc 25.12.19` 对 Rust、C++、C# 生成物执行 clean regeneration，

@@ -385,6 +385,18 @@ struct TypedAstModule {
     declarations: Box<[TypedAstDeclaration]>,
 }
 
+struct TypedAstEntityAddress {
+    /* owner local-key components（module-scoped 为空）+ 原始 sibling-local key */
+}
+
+struct DeclarationHeader {
+    /* entity kind + TypedAstEntityAddress + 独立 identity local key + SourceLocation */
+}
+
+struct OwnedEntityReference<K> {
+    /* target module namespace + TypedAstEntityAddress + SourceLocation */
+}
+
 pub struct CompilationUnitBuilder {
     modules: Vec<AdmittedOfficialModule>,
     /* 与 admitted module 对齐的来源位置 context、唯一性索引和累计资源状态 */
@@ -432,6 +444,14 @@ pub fn add_road_editing_module(
 ) -> Result<&mut Self, DiagnosticBundle>;
 ```
 
+#296 的 owner-qualified child 不能继续塞入现有 `module + stable_key` 查找形状。道路编辑
+reader 产出的每个声明/引用必须使用上面的 private `TypedAstEntityAddress`；HIR symbol
+table 以 `(module, typed address)` 查找，并按固定 owner-kind 父先子后顺序解析 owner。
+CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::required_tags()`
+构造；parent StableId 只在适用 kind 中作为其中一项，不能替代 Movement/ManeuverPath
+等实体的其他必需 tag。实际布局可以使用受计量 interner/ordinal 和共享 backing，不能
+拼接 owner path 成伪 key，也不能让 HIR 按来源语言分支。
+
 具体方法消费 compiler 自身字段私有封装并进入同一个私有接入函数。不得公开
 `add_module`、`OfficialFrontend` 特征、裸 `TypedAstModule` 或裸描述符/内容配对入口，
 也不得让外部包实现接入特征。
@@ -452,7 +472,8 @@ pub fn add_road_editing_module(
    出现项、几何点和编译器控制存续字节数的候选累计值，并执行全部
    `CompileLimits` 检查。任一失败只返回规范诊断；构建器的模块、索引和计数保持不变，
    已消费模块被释放。
-4. 全部检查成功后才移动模块、写入模块/文档索引并提交候选累计值。调用方加入顺序仍不是规范
+4. 全部检查成功后才移动模块及其来源位置 context handle、写入模块/文档索引并提交
+   候选累计值。调用方加入顺序仍不是规范
    顺序；`build` 在全部模块到齐后统一验证未知导入和循环，并冻结依赖优先、命名空间
    字节序打破平局的规范模块拓扑顺序。来源文档序号在逻辑模块顺序之上，再按模块内完整
    `sourceDocumentKey` 的 UTF-8 字节序冻结；它是独立登记，不能从模块序号推导。
@@ -604,21 +625,31 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 **#315 G2 Implemented：**一模块一文档基线已扩展为分离的来源模块描述符表、来源文档描述符表
 与逐文档来源记录：每个文档显式关联所属逻辑模块和一条来源记录，模块级工具/转换沿袭不能
 替代该关联；编译单元按第 3.3 节的独立文档顺序冻结全局来源文档登记。从有类型抽象语法树
-降阶到 HIR 时，每个声明、关系或诊断位置都把自身 `SourceSpan.source_document_key`
+降阶到 HIR 时，每个声明、关系或诊断位置都把自身
+`SourceLocation::source_document_key()`
 解析为已登记文档序号，不能从所属模块序号推断文档。为避免后续记录热循环携带或比较
 `Arc<str>`，共同准入建立并保留文档键到“所属规范模块序号 + 紧凑文档序号”的唯一索引，
 `build` 原位冻结序号，源映射阶段复用该索引而不重新建表。每次解析还必须核对文档所属
 模块；键缺失或跨模块错绑均返回结构化诊断。每条已冻结来源记录只保存解析后的序号和
 区间；HIR/MIR 模块不保留“默认文档”键或序号。该内部序号不构成可持久制品编码承诺。
 
-#296 道路编辑来源还建立字段私有的 `RoadEditingLocationContext`，统一拥有 intern 后的
-来源地址字符串、闭合属性路径、`canvas_selection` key 和必要显示字节。该 context 在
-verifier 前建立，wire 失败只保留受检 trace，语义 preflight 再补齐稳定地址。失败编译由返回的
-`DiagnosticBundle` 接管该 context，成功编译由 `ValidatedSourceMapInput` 接管；两者都
-提供只读解析 accessor，因此候选 Typed AST/module 释放后，诊断或源映射内的有类型
-ordinal 仍有有效 owner。ordinal 不进入 LIR、摘要、持久编码或规范排序；排序必须解析并
-比较实际来源地址、属性 step 与 key bytes。context 的 string、路径 step、索引容量和
-失败返回存续量全部属于 `CompilerControlledLiveBytes`。
+#296 道路编辑来源为每个模块建立字段私有的 `RoadEditingLocationContext`，统一拥有
+intern 后的来源地址 namespace/key components、闭合属性路径、`canvas_selection` key 和
+必要显示字节；完整 owner-qualified wire reference 不作为第二份字符串驻留。输入先以
+`RoadEditingModuleInput::try_new` 验证 required expected document key；context 在 verifier
+前以该 key 建立 `Input` identity，wire 失败只保留受检 trace。verifier 后 wire document
+key 必须与 expected key 相等，语义 preflight 才补齐 `Verified` module/document identity
+和稳定地址。
+
+context 在进入任何返回对象前冻结为 `Arc` 或等价的共享不可变 owner。add 成功后 builder
+接管 handle；后续 add 失败时 candidate handle 移入 `DiagnosticBundle`，bundle 对已经提交
+module context 只复制 handle，builder 保留原 handle 并可继续使用；build 失败遵守同一
+规则，成功编译时 `ValidatedSourceMapInput` 接管完整 handle 集合。禁止为了诊断深拷贝
+context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 全部预收费并
+进入 `CompilerControlledLiveBytes`。道路编辑位置以不复用的 builder-local context index
++ context-local typed ordinal 寻址；规范模块重排携带 index 而不重编号，也不以 index
+排序。ordinal 不进入 LIR、摘要、持久编码或规范排序；排序必须解析并比较实际来源地址、
+属性 step 与 key bytes。
 
 后继 #298 只能从同一个已验证编译结果（Validated Compilation Output）中的 LIR 与
 该伴随数据原子发射源映射；不能从已经释放的 AST/HIR/MIR 重新猜测来源，也不能让
@@ -722,7 +753,7 @@ v1 的精确语义和构造器。配置档选择也是官方前端准入能力�
 | `max_geometry_point_count`            |    22368 | 规范几何点                                       |
 | `max_symbol_count`                    |    11265 | 符号                                             |
 | `max_string_item_count`               |    36894 | 驻留字符串项                                     |
-| `max_single_string_bytes`             |       53 | 单个字符串字节                                   |
+| `max_single_string_bytes`             |       53 | 单个驻留语义字符串 / key token component 字节    |
 | `max_total_string_bytes`              |   991537 | 驻留字符串总字节                                 |
 | `max_diagnostic_count`                |       16 | 规范排序后保留的诊断                             |
 | `max_stage_scratch_bytes`             |   304896 | 单次编译遍暂存请求字节                           |
@@ -742,6 +773,13 @@ v1 的精确语义和构造器。配置档选择也是官方前端准入能力�
 `TypedAstRecordCount` 计数。配置档 v2 在实现中成为生产选择前，必须按第 3.3 与 10.4 节完成五级、
 多文档和边界重新资格验证。
 
+`max_single_string_bytes` 约束进入 Typed AST/HIR/诊断/source-map interner 的单个语义
+字符串或 key component，不约束已经由 source-specific parser 就地拆分且不作为第二份
+字符串驻留的完整 framing/reference spelling。#296 owner-qualified FlatBuffers reference
+先受来源 v1 派生的 270-byte wire 上限，再就地解析为最多一个 namespace 与四个
+53-byte key components；每个 component 分别消费 `StringItemCount`，实际 bytes 消费
+`TotalStringBytes`，完整 wire spelling 只由 `SourceBytes*` 与 reference occurrence 计量。
+
 单模块来源上限与总来源上限同值，是从已资格验证的总来源上限作出的失败关闭收窄；#292 G2
 仍须分别验证单模块与跨模块累计边界。阶段记录数是实现预算而不是公共数据模型：生产 IR
 可以使用不同 Rust 结构，但必须为每个逻辑记录定义可审计计数，且不能用拆分/合并结构
@@ -753,7 +791,8 @@ v1 的精确语义和构造器。配置档选择也是官方前端准入能力�
 - 模块数、导入边数和单模块 / 总来源字节；
 - 各有类型抽象语法树、HIR、MIR 和 LIR 表的记录数；
 - 关系、字段字节、来源位置与诊断数；
-- 单条字符串 / 键长度和已驻留字符串总字节数；
+- 单个驻留字符串 / key component 长度和已驻留字符串总字节数；source-specific 借用
+  framing 的完整长度另由其闭合语法上限约束；
 - 编译期间允许的暂存区峰值字节数；
 - 来源副本、字符串、各阶段表、关系、诊断、暂存区和正在构造的输出共同形成的
   编译器控制总存续内存峰值，以及编译结束后允许保留的内部容量。

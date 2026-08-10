@@ -98,13 +98,13 @@ B1 可以进入编辑器、生成器、游戏初始化和车辆路径的内部�
 
 ### 4. 运行时表示预算独立保持
 
-| 预算项                                      | 上限或规则          | 说明                            |
-| ------------------------------------------- | ------------------- | ------------------------------- |
-| f64 细分候选的端点切向与弦夹角              | `<= 所选方向档半角` | 只形成候选，不代替最终检查      |
-| 最终 f32 相邻弦及相连 edge 首尾弦夹角       | `<= 所选方向档全角` | 在量化和强制插点后直接检查      |
-| `f64` 参考折线到 `f32` 规范折线的位置误差   | `<= 0.01 m`         | 继续执行 ADR 0015，不因档位放宽 |
-| `f64` 参考折线到 `f32` 规范折线的切线角误差 | `<= 0.5°`           | 继续执行 ADR 0015               |
-| 相连 edge 的实际 `f32` 端点间隙             | `<= 0.005 m`        | 继续执行 ADR 0015；不 snap      |
+| 预算项                                      | 上限或规则          | 说明                                                    |
+| ------------------------------------------- | ------------------- | ------------------------------------------------------- |
+| f64 细分候选的端点切向与弦夹角              | `<= 所选方向档半角` | 只形成候选，不代替最终检查                              |
+| 最终 f32 相邻弦及相连 edge 首尾弦夹角       | `<= 所选方向档全角` | 在量化和强制插点后直接检查                              |
+| `f64` 参考折线到 `f32` 规范折线的位置误差   | `<= 0.01 m`         | 继续执行 ADR 0015，不因档位放宽                         |
+| `f64` 参考折线到 `f32` 规范折线的切线角误差 | `<= 0.5°`           | 继续执行 ADR 0015                                       |
+| 相连 edge 的实际 `f32` 端点间隙             | `<= 0.005 m`        | 跨 edge 不 snap；source offset join 仅允许下述唯一 weld |
 
 每档按第 6 节固定的有限采样规则决定是否继续二分，并在量化和强制插点后直接检查最终
 `f32` 折线。该规则保证固定来源、固定档位和相同 compiler 语义版本在全部受支持平台
@@ -115,9 +115,12 @@ B1 可以进入编辑器、生成器、游戏初始化和车辆路径的内部�
 把 ADR 0015 的 `0.5°` 表示误差叠加到公开档位之外。因此量化后按实际 f32 点直接检查
 每个内部折点、source segment join 和相连 edge join；超限失败关闭，不做隐式平滑。
 source segment join 不再要求两侧水平 `left` 逐 bit 相同：两侧独立求值后按实际位置间隙
-与所选方向档验收。reference curve 继续共享显式端点；offset join 在通过 `5 mm` 位置
-检查后使用前一段末端作为唯一规范边界点，下一段的 B1 采样检查从该点开始，不能绕过
-位置目标。跨 edge join 仍保留各自端点并执行实际 `f32` 间隙/方向检查，不进行修补。
+与所选方向档验收。reference curve 继续共享显式端点；offset source join 在通过 `5 mm`
+位置与所选方向档检查后，执行唯一登记的 **canonical weld**：保留前一段规范末点、丢弃
+后一段量化起点，把该点作为两段唯一边界，下一段的 B1 候选弦从 welded 点开始。weld 位移
+进入最终折线、语义摘要、长度、离线误差观测和后一段 source-map 归属，不能绕过位置目标。
+间隙超限必须拒绝，不搜索最近点。跨 edge join 仍保留各自端点并执行实际 `f32` 间隙/
+方向检查，不进行修补。
 只满足位置误差的长线段可能造成车辆朝向或控制目标在折点明显阶跃；把固定极小切线角
 强加给所有场景又会让较粗位置档失去资源收益。因此 #296 使用三个封闭方向档，并在 G2
 对九种组合的最终方向跳变和车辆路径跟踪分别验证。
@@ -132,8 +135,9 @@ source segment join 不再要求两侧水平 `left` 逐 bit 相同：两侧独�
 - StopLine、ManeuverGate、WaitingZone、Parking 等绑定到 edge/station 的语义锚点。
 
 曲线段端点必须进入规范点表；station 边界必须按冻结的 reference station 参数表插点；
-相连端点继续在实际 `f32` 坐标上执行 `5 mm` 检查。不得以任何档位的总预算执行 snap、
-最近点吸附或连接修补。
+相连端点继续在实际 `f32` 坐标上执行 `5 mm` 检查。除第 4 节已经受检且唯一确定的
+offset source-join canonical weld 外，不得以任何档位的总预算执行 snap、最近点吸附或
+连接修补；该唯一例外也不能移动 reference 端点、station 锚点或跨 edge 端点。
 
 Reference station 基表固定使用与输出配置档无关的 `0.01 m` / `0.5°` B1 目标政策和 `f64`
 累计弦长。每行是只属于一个 source segment 的
@@ -151,7 +155,9 @@ reference line 的通过不能说明 lane/facility offset curve 已达到同一�
 接受树，也不能把 B1 的有限采样写成连续最大误差证明。
 
 令 reference curve 为 `B(t)`，LaneFlow 规范 up 为 `+Y`，水平导数
-`H(t) = (B'_x(t), 0, B'_z(t))`。每个实际求值点都必须得到有限且非零的 `H(t)`，并按固定表达式
+`H(t) = (B'_x(t), 0, B'_z(t))`。每个实际求值点都必须得到有限且非零的 `H(t)`，每个
+被接受的完整候选区间还必须按下述 Bernstein 有效域检查证明 `H` 不经过水平原点；随后按
+固定表达式
 
 ```text
 L(t) = (+Y × H(t)) / ||H(t)|| = (H_z(t), 0, -H_x(t)) / ||H(t)||
@@ -183,10 +189,50 @@ corridor station 边界和 reference station 基表行边界都是强制二分�
 nearest ties to even；每个写出的运算符后都完成一次舍入，禁止重结合、FMA/`mul_add` 和
 fast-math，结果 `-0.0` 规范化为 `+0.0`。
 
-line/cubic 的 `B(t)` 使用固定 de Casteljau 求值：
-`lerp(a,b,t) = a + t * (b - a)` 严格按先减、再乘、再加执行；cubic 做三层 lerp，line
-做一层 lerp。切向使用同一控制多边形的一阶导数 de Casteljau 求值。offset 的一阶切向
-只需要 scalar binary64 求值，不建立区间 jet、任意精度数或连续证明层。
+line/cubic 的值与一阶切向使用固定的一阶 scalar dual `D(v, dv)`；它只冻结运算图，不形成
+连续误差证明：
+
+```text
+D(c)       = (c, 0)
+D(t)       = (t, 1)
+a + b      = (a.v + b.v, a.dv + b.dv)
+a - b      = (a.v - b.v, a.dv - b.dv)
+-a         = (-a.v, -a.dv)
+a * b      = (a.v * b.v, a.dv * b.v + a.v * b.dv)
+a / b      = (a.v / b.v,
+               (a.dv * b.v - a.v * b.dv) / (b.v * b.v))
+sqrt(a)    = (y, a.dv / (2 * y)), y = sqrt(a.v)
+lerp(a,b,t)= a + t * (b - a)
+```
+
+每一行和括号内严格从左到右执行；`2 * y` 的 `2` 是 binary64 常量。除法前分母必须有限
+且非零，平方根输入必须有限且严格为正。cubic `B` 对原控制点以 `D(t)` 做三层 lerp，line
+做一层 lerp。一阶导数控制点固定为 `Q_i = 3 * (P_(i+1) - P_i)`，逐分量先减再乘；cubic
+`H` 对 `Q_0/Q_1/Q_2` 以 `D(t)` 做两层 lerp，line 的 `H` 是常量 dual。`s(t)`、`d(s)`、
+`L(t)` 和最终 `O(t) = B(t) + d(s(t)) * L(t)` 全部用同一 dual 运算得到 value 与 first；
+其中 `horizontal_norm = sqrt(H.x * H.x + H.z * H.z)` 严格先平方 x、平方 z、相加、再开方，
+`L = (H.z / horizontal_norm, D(0), -H.x / horizontal_norm)`。实现不得另写有限差分、
+展开幂基或代数等价的 `O'(t)`。
+
+仅为了保证 offset evaluator 在整个 source segment 有定义，offset lowering 在 B1 细分前
+对上述已舍入 `Q_i.x/Q_i.z` 执行一次固定的 horizontal-regularity walk。line 直接要求其
+常量 `H` 非零；cubic 把三个 derivative control 当作退化 binary64 interval，并只按精确
+`u = 0.5` 用 interval `lerp(a,b) = a + 0.5 * (b - a)` 做 quadratic de Casteljau split。
+interval 运算固定为：减法下界用 `next_down(a.lo - b.hi)`、上界用
+`next_up(a.hi - b.lo)`；乘以非负 `0.5` 后分别对两端使用 `next_down/next_up`；加法下界用
+`next_down(a.lo + b.lo)`、上界用 `next_up(a.hi + b.hi)`。每个标量运算先按 round-to-nearest
+ties-to-even 得到 finite binary64，再向指定方向扩一 ULP；`next_down/next_up` 分别表示相邻
+的较小/较大 binary64，`-0.0` 先规范化为 `+0.0`。
+
+候选 derivative control hull 只有在
+`x.lo > 0 || x.hi < 0 || z.lo > 0 || z.hi < 0` 时才证明 `H` 不为零；否则按左、右顺序
+深度优先继续二分。三个 control 的 x/z 全部为零时立即以 `HorizontalDerivativeZero`
+失败；根深度为 0，深度 20 仍无法证明时以 `HorizontalDerivativeNotProvenNonZero` 失败。
+实现使用容量 21 的固定栈，不保留整棵树；栈、interval controls 和访问计数进入 stage
+scratch/live-byte 账本。每次从栈取出一个候选即计一次 visit；单 segment 最多 `4095`
+次，下一次取出前即以 `HorizontalDerivativeNotProvenNonZero` 失败。该独立检查每个 source
+segment 只执行一次，不产生规范几何点，
+不消费 `GeometryPointCount`，也不证明位置误差的连续上限。
 
 对每个候选区间 `[ta,tb]`，参数固定为：
 
@@ -196,27 +242,54 @@ tq1 = ta + (tm - ta) / 2
 tq3 = tm + (tb - tm) / 2
 ```
 
-先把两端 evaluator 点分别量化为最终 `f32`、再无损提升回 `f64` 作为候选弦端点；若该区间
-左端是已通过的 offset source join，则使用第 4 节选定的前段规范边界点。依次在
-`tq1/tm/tq3` 求解析点，并与候选弦的 `u=1/4,1/2,3/4` 点比较三维欧氏距离。三项均
-`<=` 所选档位的 B1 细分采样目标，且两端切向与弦夹角均 `<=` 方向档半角时接受；否则
-只按 `tm` 二分并重复。所有减、乘、加、平方和平方根按文字顺序执行，禁止 `pow/powi`、
-FMA 和 fast-math。
+先把两端 evaluator point value 分别量化为最终 `f32`、再无损提升回 `f64` 作为候选弦
+端点 `Qa/Qb`；若左端是已通过的 offset source join，则使用第 4 节的 welded 点。候选弦
+点逐分量固定为 `C(u) = Qa + u * (Qb - Qa)`，依次使用 binary64 常量 `0.25/0.5/0.75`。
+依次在 `tq1/tm/tq3` 求解析 point value `P`，再按
+`delta = P - C(u)`、`distance_squared = (dx*dx + dy*dy) + dz*dz` 比较。档位 target 先以
+下表固定 f64 值自乘一次得到 `target_squared`；三项均满足
+`distance_squared <= target_squared` 才通过位置采样，不在 production 停止条件中调用
+平方根。
 
-方向比较不调用 `acos/cos`：先要求点积为正，再按现有 profile 已冻结的 binary64
-`cos²` 常量比较 `dot*dot >= cos_squared * norm_left_squared * norm_right_squared`，乘法与
-分量平方和顺序固定。最终 `f32` 弦无损提升为 `f64` 后执行同一比较；阈值相等时接受。
+方向比较使用固定三维运算图：
 
-若中点不再严格位于两端之间、任一规定求值非有限、规定采样点的水平导数为零，或在
-位置/方向采样通过前命中几何点、二分深度或存续内存上限，numeric freeze 必须失败关闭。
+```text
+dot(a,b)  = (a.x*b.x + a.y*b.y) + a.z*b.z
+norm2(a)  = (a.x*a.x + a.y*a.y) + a.z*a.z
+lhs       = dot(a,b) * dot(a,b)
+rhs       = (cos_squared * norm2(a)) * norm2(b)
+accept    = dot(a,b) > 0 && lhs >= rhs
+```
+
+分别比较 `O'(ta)` 与候选弦 `Qb-Qa`、候选弦与 `O'(tb)`；阈值相等时接受。最终 `f32`
+相邻弦无损提升为 `f64` 后用同一运算图和 full-angle 常量检查。profile 常量的精确
+binary64 bits 固定为：
+
+| Profile       | position target bits | half-angle `cos²` bits | full-angle `cos²` bits |
+| ------------- | -------------------- | ---------------------- | ---------------------- |
+| Fine / Smooth | `0x3f847ae147ae147b` | `0x3fefff604bfad7c5`   | `0x3feffd813c5f82b4`   |
+| Balanced      | `0x3f9999999999999a` | `0x3feffd813c5f82b4`   | `0x3feff605b8b87ffc`   |
+| Compact       | `0x3fa999999999999a` | `0x3feff069da0c0ad2`   | `0x3fefc1c5c6408e0c`   |
+
+位置与方向 profile 正交：表中 position 列按 accuracy profile 取值，两列 `cos²` 按
+direction profile 取值。所有规定运算继续禁止重结合、`pow/powi`、`acos/cos`、FMA 和
+fast-math。
+
+根候选深度为 0，最大二分深度固定为 20；深度小于 20 时才可产生两个 `depth + 1`
+子候选。若中点不再严格位于两端之间、任一规定求值非有限、scalar `H` 为零、Bernstein
+有效域未通过，或在位置/方向采样通过前命中几何点、深度 20 或存续内存上限，numeric
+freeze 必须失败关闭。
 offset 可以增加自己的采样点，但不能反向改变 reference station。最终量化点还必须执行
 第 4 节的方向、连接和 ADR 0015 表示检查。
 
 G2 校准另对每个不跨 source segment/station 行的 evaluator 区间使用固定 4097 点均匀
-参数网格（含两端）测量解析 evaluator 到最终参数化折线的**观测**距离，记录 P50、P95、
-P99 和最大观测值、对应来源地址与参数。该网格只用于离线证据，不参与 production
-accept/reject，也不声称覆盖采样点之间的连续最大值。验证与资源报告必须覆盖九种组合、
-最内侧、最外侧、跨 span 宽度变化以及最终车辆路径跟踪，不能只测零偏移 reference line。
+参数网格（含两端）测量解析 evaluator 到最终参数化折线的**观测**距离。任意区间
+`[ta,tb]` 的第 `k` 个参数固定为
+`t = ta + (tb - ta) * (binary64(k) / 4096.0)`，严格先减、整数精确转 f64、再除、乘、加；
+`k=4096` 强制使用已存储 `tb`。点到所属最终参数区间弦的投影、分位数和完整性计数由
+P100 workload definition 冻结。该网格只用于离线证据，不参与 production accept/reject，
+也不声称覆盖采样点之间的连续最大值。验证与资源报告必须覆盖九种组合、最内侧、最外侧、
+跨 span 宽度变化以及最终车辆路径跟踪，不能只测零偏移 reference line。
 
 不可遍历 FacilityBand 的最终 offset 中心线仍属于 canonical LIR 语义：道路编辑来源
 派生的 FacilityBand 进入显式携带 `FacilityBandOrdinal`、按该 ordinal 排列的稀疏
@@ -290,7 +363,8 @@ Adapter 可以从规范折线生成更密的路面 mesh、视觉样条或 LOD，
 
 连续硬保证需要保守区间求值、定向舍入、端点求值误差和跨平台阈值 known vectors；当前
 产品尚无证据证明这些复杂度能改善可见道路或车辆行为。先以 B1 完整试玩和测量，再决定
-是否建立新的 certified 语义版本；不得把未来可能需要 A 当作当前兼容包袱。
+是否建立新的 certified continuous-bound 语义版本；不得把未来可能需要的硬保证当作当前
+兼容包袱。
 
 ### 只约束位置，不约束方向
 

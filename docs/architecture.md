@@ -104,7 +104,8 @@ StaticNetworkImage
 ```
 
 这里的 `semantic diff` 是 #298 基于规范 LIR 的路网影响差异；C 阶段道路编辑控制点等
-authoring-only 差异由独立 `RoadEditingSourceDiff` 后继能力负责。
+authoring-only 差异由后继 [#345](https://github.com/illusion-tech/laneflow/issues/345)
+`RoadEditingSourceDiff` 负责。
 
 compiler 拥有静态 identity、topology、geometry、owner/member、coverage、length、
 initial/static occurrence 与 dense layout；target `LaneFlow Traffic Runtime`
