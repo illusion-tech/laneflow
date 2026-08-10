@@ -122,36 +122,65 @@
     "widthProfileRule": {
       "memberSet": "all 170 AuthoringLane and 35 FacilityBand declarations across the five generated modules",
       "baseWidth": "the seed widthMeters of the mapped lane or facility band",
-      "sortOrder": "module index ascending, AuthoringLane before FacilityBand, then local key UTF-8 bytes ascending",
-      "rewriteTargetExclusion": "p100.m02 AuthoringLane section-main-w2e-road-2/lane/2 is excluded before selecting the 30 non-constant profiles",
-      "assignmentsAfterExclusion": [
+      "singleJunctionEndpointCorridorsPerModule": {
+        "junctionConnectedEnd": [
+          "corridor-main-road-0",
+          "corridor-side-1-road-0",
+          "corridor-side-2-road-0"
+        ],
+        "junctionConnectedStart": [
+          "corridor-main-road-4",
+          "corridor-side-1-road-2",
+          "corridor-side-2-road-2"
+        ],
+        "bothEndsConnectedAndIneligible": ["corridor-main-road-2"]
+      },
+      "candidateMemberRule": "a member is eligible for a non-constant profile only when its containing RoadCorridor is listed under junctionConnectedEnd or junctionConnectedStart; the named endpoint is the sole endpoint used by a Junction approach edge and must retain baseWidth",
+      "rewriteTargetExclusion": "p100.m02 AuthoringLane section-main-w2e-road-0/lane/2 must remain constant and is excluded from every non-constant candidate list",
+      "sortOrder": "eligible members after rewriteTargetExclusion, module index ascending, AuthoringLane before FacilityBand, then local key UTF-8 bytes ascending",
+      "moderateProfileSelection": "take zero-based sorted eligible ordinals 0 through 19; even ordinals are wideningPositive and odd ordinals are narrowingPositive",
+      "assignments": [
         {
-          "sortedRange": "0..10",
           "kind": "wideningPositive",
-          "start": "0.75 * baseWidth",
-          "end": "baseWidth"
+          "selection": "the 10 even ordinals in moderateProfileSelection",
+          "junctionConnectedEnd": {
+            "start": "0.75 * baseWidth",
+            "end": "baseWidth"
+          },
+          "junctionConnectedStart": {
+            "start": "baseWidth",
+            "end": "1.25 * baseWidth"
+          }
         },
         {
-          "sortedRange": "10..20",
           "kind": "narrowingPositive",
-          "start": "baseWidth",
-          "end": "0.75 * baseWidth"
+          "selection": "the 10 odd ordinals in moderateProfileSelection",
+          "junctionConnectedEnd": {
+            "start": "1.25 * baseWidth",
+            "end": "baseWidth"
+          },
+          "junctionConnectedStart": {
+            "start": "baseWidth",
+            "end": "0.75 * baseWidth"
+          }
         },
         {
-          "sortedRange": "20..25",
           "kind": "zeroToPositive",
+          "selection": "after removing moderateProfileSelection, retain the same sort order, filter to FacilityBand members in junctionConnectedEnd, and take the first 5",
           "start": 0.0,
           "end": "baseWidth"
         },
         {
-          "sortedRange": "25..30",
           "kind": "positiveToZero",
+          "selection": "after removing moderateProfileSelection, retain the same sort order, filter to FacilityBand members in junctionConnectedStart, and take the first 5",
           "start": "baseWidth",
           "end": 0.0
         }
       ],
+      "selectionDisjointness": "the four selections are pairwise disjoint and contain exactly 10, 10, 5 and 5 members respectively",
+      "junctionJoinInvariant": "for every member in a corridor with a Junction-connected endpoint, its width at that endpoint equals the seed baseWidth bit-for-bit; zero-width endpoints are restricted to FacilityBand members so the shortest-corridor cumulative offset slope remains below the Smooth1Deg join budget; no width rewrite moves a section-derived LaneEdge endpoint relative to the preserved junction-internal explicit curves",
       "constantRule": "every other member, including rewriteTargetExclusion, uses start = baseWidth and end = baseWidth",
-      "arithmetic": "IEEE 754 binary64 round-to-nearest ties-to-even; multiplication is one rounded operation"
+      "arithmetic": "IEEE 754 binary64 round-to-nearest ties-to-even; each multiplication by 0.75 or 1.25 is one rounded operation"
     },
     "optionalFieldRule": {
       "canvasSelectionPresence": "present on every table that declares canvas_selection, including every CurveSegment",
@@ -311,7 +340,7 @@
         ]
       },
       "endpointAndJoinRule": "start and end exactly equal the replaced line; control2 has the same z as the end, so the connected end tangent remains +X and the existing junction join direction is preserved; topology endpoints and every declaration/reference/count remain unchanged",
-      "widthRule": "retain the base workload widthProfileRule assignments; this alignment therefore includes inner/outer offsets and widening/narrowing lane profiles"
+      "widthRule": "retain the base workload widthProfileRule assignments; this alignment therefore includes inner/outer offsets and widening/narrowing lane profiles while every member retains seed baseWidth at the connected junction end"
     },
     "exactStructuralCounts": {
       "curveProgramCount": 195,
@@ -382,16 +411,17 @@
     },
     "editedModule": "p100.m02",
     "targetKind": "AuthoringLane",
-    "targetLocalKey": "section-main-w2e-road-2/lane/2",
+    "targetLocalKey": "section-main-w2e-road-0/lane/2",
     "initialWidthProfile": {
       "startWidthMeters": 3.5,
       "endWidthMeters": 3.5
     },
     "candidateWidthProfile": {
-      "startWidthMeters": 3.5,
-      "endWidthMeters": 3.0
+      "startWidthMeters": 3.0,
+      "endWidthMeters": 3.5
     },
-    "onlyChangedSemanticProperty": "AuthoringLane.width_profile.end_width_meters",
+    "onlyChangedSemanticProperty": "AuthoringLane.width_profile.start_width_meters",
+    "connectionInvariant": "the edited lane belongs to corridor-main-road-0 whose Junction-connected endpoint is end; candidate endWidthMeters remains the seed 3.5 and complete candidate compilation must not emit a join diagnostic",
     "unmodifiedModuleByteIdentityRequired": true,
     "lifecycle": [
       "retain all five accepted source buffers",
@@ -444,6 +474,7 @@
     "crossRecordChecks": [
       "exact counts equal this manifest",
       "the regularity probe applies only its explicit count overrides, inherits every other base count, and uses Fine2Cm/Smooth1Deg",
+      "every non-constant width profile preserves seed baseWidth at its sole Junction-connected corridor endpoint, and both base P100 and the regularity probe complete without a width-derived join diagnostic",
       "the regularity probe preserves the replaced road's connected junction endpoint and +X end tangent, and complete compile succeeds without a join diagnostic",
       "all nine profile combinations are present",
       "all five module digests and byte lengths are present per combination",
@@ -452,6 +483,7 @@
       "reference machine identity matches",
       "writer, compiler and generator revisions are one exact commit",
       "single-module rewrite lifecycle and all three rewrite peaks are present",
+      "the single-module rewrite changes only the non-Junction start width of p100.m02 section-main-w2e-road-0/lane/2 and preserves its 3.5-meter connected end without a join diagnostic",
       "the base P100 reports zero cubic regularity visits and the formal companion resource probe reports exactly three total and three maximum visits per compile",
       "every offset-bearing reference source segment reports horizontal-regularity node visits no greater than 4095; line direct checks and junction-internal explicit curves are excluded",
       "all nine combinations include the fixed 4097-point observed-error distribution and worst attribution without a continuous-bound claim",

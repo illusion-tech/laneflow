@@ -815,6 +815,9 @@ production 依赖或实现。
 冻结 5 个模块、1,715 个稳定声明、35 条 alignment reference curve、160 条 junction
 internal curve（合计 195 个 curve program）、205 条 offset curve、线性 width/taper
 分布、九种 2/5/10 cm B1 目标 × 1/2/5° 配置组合、4097 点观测网格和单模块改写生命周期。
+非恒定宽度只分配给恰有一个路口连接端的 corridor，且该连接端逐 bit 保持 seed
+基准宽度；相对基准宽度的端点偏差只允许出现在非路口端，归零 profile 只分配给
+FacilityBand，不能通过改写 junction internal curve 或跨 edge weld 掩盖位置/方向不闭合。
 它把旧 P100 JSON fixture
 仅作为带 SHA-256 的**基准语义种子**：G2 的 test-only generator 按机器可读映射规则把
 其中道路拓扑、坐标、控制、停车、准入和字符串逐项映射到公开有类型编制模型，再由
@@ -828,7 +831,8 @@ fixture digest，因此 workload definition 与 G2 measurement evidence 是两�
 同一机器定义因此另冻结正式五模块 companion workload
 `LF-ROAD-EDITING-P100-REGULARITY-v1`：它不修改 semantic seed，只在生成后把
 `p100.m00/corridor-main-road-0/road` 的同端点 line 替换为机器定义中的单 cubic，保留全部
-声明、引用、宽度/taper 与 275 个 segment 总数。该变体每次 compile 必须得到 3 次 cubic
+声明、引用、连接端基准宽度、宽度/taper 与 275 个 segment 总数。该变体每次 compile
+必须得到 3 次 cubic
 regularity node visit，并独立报告完整 compile CPU/scratch/live-byte peak；它与主 P100 在
 不同 fresh process 测量，两个峰值不能相加，也不能互相替代。
 
