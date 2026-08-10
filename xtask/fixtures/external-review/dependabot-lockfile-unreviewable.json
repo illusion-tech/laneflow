@@ -15,7 +15,11 @@
           "commit": {
             "oid": "9d941d7b54a79e089b97520d66a3bf0125d5c91a",
             "committedDate": "2026-08-06T02:05:11Z",
-            "url": "https://github.com/illusion-tech/laneflow/commit/9d941d7b54a79e089b97520d66a3bf0125d5c91a"
+            "url": "https://github.com/illusion-tech/laneflow/commit/9d941d7b54a79e089b97520d66a3bf0125d5c91a",
+            "author": {
+              "name": "dependabot[bot]",
+              "email": "49699333+dependabot[bot]@users.noreply.github.com"
+            }
           }
         }
       ]

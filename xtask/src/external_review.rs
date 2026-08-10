@@ -13,6 +13,8 @@ const EXTERNAL_REVIEW_SHADOW_CHECK_NAME: &str = "External Review Gate Shadow";
 const R1_SHADOW_CHECK_APP_SLUG: &str = "github-actions";
 const COPILOT_ACTOR: &str = "copilot-pull-request-reviewer";
 const CODEX_ACTOR: &str = "chatgpt-codex-connector";
+const DEPENDABOT_AUTHOR_NAME: &str = "dependabot[bot]";
+const DEPENDABOT_AUTHOR_EMAIL: &str = "49699333+dependabot[bot]@users.noreply.github.com";
 const TRUSTED_HUMAN_ACTORS: &[&str] = &["wangzishi"];
 
 const EXTERNAL_REVIEW_QUERY: &str = r#"
@@ -30,7 +32,12 @@ query($owner:String!, $name:String!, $number:Int!) {
       }
       commits(first:2) {
         nodes {
-          commit { oid committedDate url }
+          commit {
+            oid
+            committedDate
+            url
+            author { name email }
+          }
         }
         pageInfo { hasNextPage }
       }
@@ -255,6 +262,15 @@ struct CommitMetadata {
     oid: String,
     committed_date: String,
     url: String,
+    #[serde(default)]
+    author: Option<CommitAuthor>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CommitAuthor {
+    name: String,
+    email: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1244,11 +1260,14 @@ fn dependabot_lockfile_completion(pr: &PullRequestSnapshot) -> Option<&CommitMet
         return None;
     }
     let commit = &pr.commits.nodes[0].commit;
+    let commit_author = commit.author.as_ref()?;
     (commit.oid == pr.head_ref_oid
         && valid_full_oid(&commit.oid)
         && valid_timestamp(&commit.committed_date)
-        && valid_github_url(&commit.url))
-    .then_some(commit)
+        && valid_github_url(&commit.url)
+        && commit_author.name == DEPENDABOT_AUTHOR_NAME
+        && commit_author.email == DEPENDABOT_AUTHOR_EMAIL)
+        .then_some(commit)
 }
 
 fn dependabot_lockfile_false_positive_disposition<'a>(
@@ -1285,27 +1304,33 @@ fn dependabot_lockfile_false_positive_disposition<'a>(
     {
         return None;
     }
-    thread
-        .comments
-        .nodes
-        .iter()
-        .skip(1)
-        .filter(|reply| {
-            trusted_provider(
-                reply.author.as_ref().map_or("", |actor| &actor.login),
-                pr_author,
-            ) == Some("human")
-                && valid_timestamp(&reply.updated_at)
-                && valid_github_url(&reply.url)
-                && timestamp_second(&reply.updated_at) > timestamp_second(&first.updated_at)
-                && reply.body.starts_with("Disposition:")
-                && reply.body.contains(&completion.oid)
-                && reply
-                    .body
-                    .contains("dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>")
-        })
-        .max_by_key(|reply| timestamp_second(&reply.updated_at))
-        .map(|reply| (reply.updated_at.as_str(), reply.url.as_str()))
+    let mut latest_disposition = None;
+    for reply in thread.comments.nodes.iter().skip(1) {
+        let Some(provider) = trusted_provider(
+            reply.author.as_ref().map_or("", |actor| &actor.login),
+            pr_author,
+        ) else {
+            continue;
+        };
+        let accepted_disposition = provider == "human"
+            && valid_timestamp(&reply.updated_at)
+            && valid_github_url(&reply.url)
+            && timestamp_second(&reply.updated_at) > timestamp_second(&first.updated_at)
+            && reply.body.starts_with("Disposition:")
+            && reply.body.contains(&completion.oid)
+            && reply.body.contains(&format!(
+                "{DEPENDABOT_AUTHOR_NAME} <{DEPENDABOT_AUTHOR_EMAIL}>"
+            ));
+        if !accepted_disposition {
+            return None;
+        }
+        if latest_disposition.is_none_or(|current: (&str, &str)| {
+            timestamp_second(&reply.updated_at) > timestamp_second(current.0)
+        }) {
+            latest_disposition = Some((reply.updated_at.as_str(), reply.url.as_str()));
+        }
+    }
+    latest_disposition
 }
 
 fn known_dependabot_author_false_positive_body(body: &str, claimed_head: &str) -> bool {
@@ -2522,6 +2547,15 @@ mod tests {
             .push(multiple_commits.pull_request.commits.nodes[0].clone());
         assert!(!evaluate_snapshot(&multiple_commits).state.is_pass());
 
+        let mut human_authored_commit = fixture(contents);
+        human_authored_commit.pull_request.commits.nodes[0]
+            .commit
+            .author
+            .as_mut()
+            .expect("fixture commit author")
+            .name = "Maintainer".to_string();
+        assert!(!evaluate_snapshot(&human_authored_commit).state.is_pass());
+
         let mut dismissed_review = fixture(contents);
         let mut dismissed = dismissed_review.pull_request.reviews.nodes[0].clone();
         dismissed.id = "PRR-dismissed-body-finding".to_string();
@@ -2557,6 +2591,22 @@ mod tests {
             .body
             .push_str("\n\nAdditional substantive concern.");
         assert!(!evaluate_snapshot(&appended_finding).state.is_pass());
+
+        let mut trusted_reply_finding = fixture(contents);
+        let mut reply = trusted_reply_finding.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .clone();
+        reply.id = "PRRC-codex-follow-up-finding".to_string();
+        reply.body = "Additional substantive concern.".to_string();
+        reply.created_at = "2026-08-06T03:06:00Z".to_string();
+        reply.updated_at = "2026-08-06T03:06:00Z".to_string();
+        reply.url = "https://github.com/illusion-tech/laneflow/pull/313#discussion_r3".to_string();
+        trusted_reply_finding.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes
+            .push(reply);
+        assert!(!evaluate_snapshot(&trusted_reply_finding).state.is_pass());
 
         let mut missing_disposition = fixture(contents);
         missing_disposition.pull_request.review_threads.nodes[0]
