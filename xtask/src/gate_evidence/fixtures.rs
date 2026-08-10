@@ -40,6 +40,7 @@ pub(super) fn g3_comment_for_args(
             login: "wangzishi".to_string(),
         }),
         created_at: created_at.to_string(),
+        updated_at: None,
         includes_created_edit: false,
     }
 }
@@ -60,6 +61,7 @@ pub(super) fn g4_comment_for_args(
             login: "wangzishi".to_string(),
         }),
         created_at: created_at.to_string(),
+        updated_at: None,
         includes_created_edit: false,
     }
 }

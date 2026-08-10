@@ -45,6 +45,19 @@ pub(super) fn has_late_related_pr(
     Ok(false)
 }
 
+pub(super) fn validate_original_related_g3_before_delivery_merge(
+    number: u64,
+    related_g3_effective_at: u64,
+    delivery_merged_at: u64,
+) -> Result<(), String> {
+    if related_g3_effective_at >= delivery_merged_at {
+        return Err(format!(
+            "original Related PR #{number} G3 comment 生效时间必须严格早于 Delivery PR 合并时间"
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn validate_g4_g3_full_set_recovery(
     args: &GateEvidenceArgs,
     issue: &GitHubIssue,
@@ -101,16 +114,14 @@ pub(super) fn validate_g4_g3_full_set_recovery(
         .iter()
         .find(|comment| comment.url == delivery_permalink)
         .ok_or_else(|| "Delivery PR original G3 permalink 未指向该 PR comment".to_string())?;
-    if delivery_g3_comment.includes_created_edit {
+    let delivery_g3_effective_at = parse_utc_timestamp_seconds(g3_comment_effective_at(
+        delivery_g3_comment,
+        "Delivery PR original G3 comment",
+    )?)
+    .ok_or("Delivery PR original G3 comment effectiveAt 不是 UTC RFC3339 秒级时间")?;
+    if delivery_g3_effective_at >= delivery_merged_at_seconds {
         return Err(
-            "G3 full-set recovery 的 Delivery PR original G3 comment 在创建后被编辑".to_string(),
-        );
-    }
-    let delivery_g3_created_at = parse_utc_timestamp_seconds(&delivery_g3_comment.created_at)
-        .ok_or("Delivery PR original G3 comment createdAt 不是 UTC RFC3339 秒级时间")?;
-    if delivery_g3_created_at >= delivery_merged_at_seconds {
-        return Err(
-            "G3 full-set recovery 的 Delivery PR original G3 comment 必须严格早于 Delivery merge"
+            "G3 full-set recovery 的 Delivery PR original G3 comment 生效时间必须严格早于 Delivery merge"
                 .to_string(),
         );
     }
@@ -189,11 +200,6 @@ pub(super) fn validate_g4_g3_full_set_recovery(
             .iter()
             .find(|comment| comment.url == related_permalink)
             .ok_or_else(|| format!("Related PR #{number} G3 permalink 未指向该 PR comment"))?;
-        if related_g3_comment.includes_created_edit {
-            return Err(format!(
-                "G3 full-set recovery 的 Related PR #{number} G3 comment 在创建后被编辑"
-            ));
-        }
         let related_created_at = parse_utc_timestamp_seconds(&related_pr.created_at)
             .ok_or_else(|| format!("Related PR #{number} createdAt 不是 UTC RFC3339 秒级时间"))?;
         if late_related_prs.contains(number) {
@@ -208,15 +214,18 @@ pub(super) fn validate_g4_g3_full_set_recovery(
                     "original Related PR #{number} 不得在 Delivery PR 合并后创建"
                 ));
             }
-            let related_g3_created_at = parse_utc_timestamp_seconds(&related_g3_comment.created_at)
-                .ok_or_else(|| {
-                    format!("Related PR #{number} G3 comment createdAt 不是 UTC RFC3339 秒级时间")
-                })?;
-            if related_g3_created_at > delivery_merged_at_seconds {
-                return Err(format!(
-                    "original Related PR #{number} G3 comment 不得晚于 Delivery PR 合并时间"
-                ));
-            }
+            let related_g3_effective_at = parse_utc_timestamp_seconds(g3_comment_effective_at(
+                related_g3_comment,
+                &format!("Related PR #{number} G3 comment"),
+            )?)
+            .ok_or_else(|| {
+                format!("Related PR #{number} G3 comment effectiveAt 不是 UTC RFC3339 秒级时间")
+            })?;
+            validate_original_related_g3_before_delivery_merge(
+                *number,
+                related_g3_effective_at,
+                delivery_merged_at_seconds,
+            )?;
         } else {
             return Err(format!(
                 "Related PR #{number} 未归入 originalRelatedPrs 或 lateRelatedPrs"

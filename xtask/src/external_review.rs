@@ -13,6 +13,8 @@ const EXTERNAL_REVIEW_SHADOW_CHECK_NAME: &str = "External Review Gate Shadow";
 const R1_SHADOW_CHECK_APP_SLUG: &str = "github-actions";
 const COPILOT_ACTOR: &str = "copilot-pull-request-reviewer";
 const CODEX_ACTOR: &str = "chatgpt-codex-connector";
+const DEPENDABOT_AUTHOR_NAME: &str = "dependabot[bot]";
+const DEPENDABOT_AUTHOR_EMAIL: &str = "49699333+dependabot[bot]@users.noreply.github.com";
 const TRUSTED_HUMAN_ACTORS: &[&str] = &["wangzishi"];
 
 const EXTERNAL_REVIEW_QUERY: &str = r#"
@@ -24,6 +26,21 @@ query($owner:String!, $name:String!, $number:Int!) {
       headRefOid
       baseRefOid
       isDraft
+      files(first:2) {
+        nodes { path changeType }
+        pageInfo { hasNextPage }
+      }
+      commits(first:2) {
+        nodes {
+          commit {
+            oid
+            committedDate
+            url
+            author { name email }
+          }
+        }
+        pageInfo { hasNextPage }
+      }
       reviewRequests(first:100) {
         nodes {
           requestedReviewer {
@@ -207,6 +224,10 @@ struct PullRequestSnapshot {
     #[serde(default)]
     is_draft: bool,
     #[serde(default)]
+    files: Connection<ChangedFile>,
+    #[serde(default)]
+    commits: Connection<PullRequestCommit>,
+    #[serde(default)]
     review_requests: Connection<ReviewRequest>,
     #[serde(default)]
     reviews: Connection<Review>,
@@ -220,6 +241,36 @@ struct PullRequestSnapshot {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Actor {
     login: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ChangedFile {
+    path: String,
+    change_type: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PullRequestCommit {
+    commit: CommitMetadata,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CommitMetadata {
+    oid: String,
+    committed_date: String,
+    url: String,
+    #[serde(default)]
+    author: Option<CommitAuthor>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CommitAuthor {
+    name: String,
+    email: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -406,6 +457,16 @@ impl ExternalReviewResult {
 
     pub fn completion_time(&self) -> Option<&str> {
         self.completion_time.as_deref()
+    }
+
+    pub(crate) fn uses_dependabot_lockfile_policy(&self) -> bool {
+        self.state == ExternalReviewState::Pass
+            && self.evidence.iter().any(|item| {
+                item.provider == "dependabot_lockfile_policy"
+                    && item.source_kind == "machine_verification"
+                    && item.outcome == EvidenceOutcome::Clean
+                    && oid_matches_current(&item.reviewed_head_oid, &self.current_head_oid)
+            })
     }
 
     fn bind_identity_if_missing(&mut self, repository: &str, identity: &PullRequestIdentity) {
@@ -724,8 +785,11 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         diagnostics.push("baseRefOid 必须是 40 位十六进制 OID".to_string());
     }
     collect_pagination_errors(pr, &mut diagnostics);
+    let dependabot_completion = dependabot_lockfile_completion(pr);
+    let mut dependabot_completion_event = dependabot_completion
+        .map(|completion| (completion.committed_date.as_str(), completion.url.as_str()));
 
-    let mut review_to_finding_threads = BTreeMap::<String, usize>::new();
+    let mut review_to_finding_threads = BTreeMap::<String, BTreeSet<String>>::new();
     let mut finding_thread_ids = BTreeSet::<String>::new();
     let mut unresolved_actionable_threads = 0;
     let mut seen_thread_ids = BTreeSet::new();
@@ -738,38 +802,81 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             diagnostics.push(format!("review thread `{}` 没有 comment", thread.id));
             continue;
         };
-        let Some(actor) = first_comment.author.as_ref() else {
-            continue;
-        };
-        if trusted_provider(&actor.login, &author).is_none() {
+        if let Some(completion) = dependabot_completion
+            && let Some(disposition) = dependabot_lockfile_false_positive_disposition(
+                thread,
+                completion,
+                &pr.head_ref_oid,
+                &author,
+            )
+        {
+            let Some(review) = first_comment.pull_request_review.as_ref() else {
+                diagnostics.push(format!(
+                    "Dependabot 已知误报 thread `{}` 缺少 pullRequestReview 关联",
+                    thread.id
+                ));
+                continue;
+            };
+            if let Err(error) =
+                validate_review_reference_in_connection(&thread.id, review, &pr.reviews.nodes)
+            {
+                diagnostics.push(error);
+                continue;
+            }
+            if dependabot_completion_event
+                .is_none_or(|current| timestamp_second(disposition.0) > timestamp_second(current.0))
+            {
+                dependabot_completion_event = Some(disposition);
+            }
             continue;
         }
-        let Some(review) = first_comment.pull_request_review.as_ref() else {
-            diagnostics.push(format!(
-                "受信任 reviewer 的 thread `{}` 缺少 pullRequestReview 关联",
-                thread.id
-            ));
-            continue;
-        };
-        let Some(review_actor) = review.author.as_ref() else {
-            diagnostics.push(format!(
-                "受信任 reviewer 的 thread `{}` 关联 review 缺少 author",
-                thread.id
-            ));
-            continue;
-        };
-        if normalize_actor(&review_actor.login) != normalize_actor(&actor.login) {
-            diagnostics.push(format!(
-                "review thread `{}` 的 comment actor 与 review actor 不一致",
-                thread.id
-            ));
-            continue;
+        let has_authorless_comment = thread
+            .comments
+            .nodes
+            .iter()
+            .any(|comment| comment.author.is_none());
+        let mut has_trusted_finding = false;
+        for (index, comment) in thread.comments.nodes.iter().enumerate() {
+            let Some(actor) = comment.author.as_ref() else {
+                continue;
+            };
+            if trusted_provider(&actor.login, &author).is_none() {
+                continue;
+            }
+            let Some(review) = comment.pull_request_review.as_ref() else {
+                if index == 0 {
+                    diagnostics.push(format!(
+                        "受信任 reviewer 的 thread `{}` 缺少 pullRequestReview 关联",
+                        thread.id
+                    ));
+                }
+                continue;
+            };
+            let Some(review_actor) = review.author.as_ref() else {
+                diagnostics.push(format!(
+                    "受信任 reviewer 的 thread `{}` 关联 review 缺少 author",
+                    thread.id
+                ));
+                continue;
+            };
+            if normalize_actor(&review_actor.login) != normalize_actor(&actor.login) {
+                diagnostics.push(format!(
+                    "review thread `{}` 的 comment actor 与 review actor 不一致",
+                    thread.id
+                ));
+                continue;
+            }
+            has_trusted_finding = true;
+            finding_thread_ids.insert(thread.id.clone());
+            review_to_finding_threads
+                .entry(review.id.clone())
+                .or_default()
+                .insert(thread.id.clone());
         }
-        finding_thread_ids.insert(thread.id.clone());
-        *review_to_finding_threads
-            .entry(review.id.clone())
-            .or_default() += 1;
-        if !thread.is_resolved && !thread.is_outdated {
+        if !thread.is_resolved
+            && !thread.is_outdated
+            && (has_trusted_finding || (dependabot_completion.is_some() && has_authorless_comment))
+        {
             unresolved_actionable_threads += 1;
         }
     }
@@ -807,8 +914,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
 
         let linked_findings = review_to_finding_threads
             .get(&review.id)
-            .copied()
-            .unwrap_or_default();
+            .map_or(0, |threads| threads.len());
         let outcome = match provider {
             "copilot" if state == "COMMENTED" || state == "APPROVED" => {
                 match copilot_outcome(&review.body, linked_findings) {
@@ -875,8 +981,11 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         if normalize_actor(&actor.login) != CODEX_ACTOR {
             continue;
         }
-        if comment.body.contains("To use Codex here") {
+        if comment.body.contains("To use Codex here") && dependabot_completion.is_none() {
             diagnostics.push(format!("Codex provider 报告环境不可用：{}", comment.url));
+            continue;
+        }
+        if comment.body.contains("To use Codex here") {
             continue;
         }
         if !comment.body.contains("Codex Review:") {
@@ -908,6 +1017,31 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 outcome: EvidenceOutcome::Clean,
                 submitted_at: &comment.created_at,
                 evidence_url: &comment.url,
+            },
+        );
+    }
+
+    if let (Some(completion), Some((completion_time, completion_url))) = (
+        dependabot_completion.filter(|_| {
+            finding_thread_ids.is_empty()
+                && unthreaded_findings == 0
+                && unresolved_actionable_threads == 0
+                && !stale_or_dismissed
+        }),
+        dependabot_completion_event,
+    ) {
+        push_evidence(
+            &mut evidence,
+            &mut diagnostics,
+            EvidenceInput {
+                provider: "dependabot_lockfile_policy",
+                actor: "github-metadata",
+                source_kind: "machine_verification",
+                reviewed_head: &completion.oid,
+                reviewed_base: &pr.base_ref_oid,
+                outcome: EvidenceOutcome::Clean,
+                submitted_at: completion_time,
+                evidence_url: completion_url,
             },
         );
     }
@@ -1140,6 +1274,148 @@ fn push_evidence(
         submitted_at: input.submitted_at.to_string(),
         evidence_url: input.evidence_url.to_string(),
     });
+}
+
+fn dependabot_lockfile_completion(pr: &PullRequestSnapshot) -> Option<&CommitMetadata> {
+    let author = normalize_actor(pr.author.as_ref()?.login.as_str());
+    if author != "dependabot" && author != "app/dependabot" {
+        return None;
+    }
+    if pr.files.page_info.has_next_page {
+        return None;
+    }
+    let [file] = pr.files.nodes.as_slice() else {
+        return None;
+    };
+    if file.path != "Cargo.lock" || file.change_type != "MODIFIED" {
+        return None;
+    }
+    if pr.commits.page_info.has_next_page || pr.commits.nodes.len() != 1 {
+        return None;
+    }
+    let commit = &pr.commits.nodes[0].commit;
+    let commit_author = commit.author.as_ref()?;
+    (commit.oid == pr.head_ref_oid
+        && valid_full_oid(&commit.oid)
+        && valid_timestamp(&commit.committed_date)
+        && valid_github_url(&commit.url)
+        && commit_author.name == DEPENDABOT_AUTHOR_NAME
+        && commit_author.email == DEPENDABOT_AUTHOR_EMAIL)
+        .then_some(commit)
+}
+
+fn dependabot_lockfile_false_positive_disposition<'a>(
+    thread: &'a ReviewThread,
+    completion: &CommitMetadata,
+    current_head: &str,
+    pr_author: &str,
+) -> Option<(&'a str, &'a str)> {
+    if !thread.is_resolved && !thread.is_outdated {
+        return None;
+    }
+    let first = thread.comments.nodes.first()?;
+    let review = first.pull_request_review.as_ref()?;
+    let linked_head = review.commit.as_ref().map(|commit| commit.oid.as_str());
+    let claimed_head = first
+        .body
+        .split('`')
+        .find(|part| valid_oid_fragment(part.trim()))
+        .map(str::trim);
+    if normalize_actor(first.author.as_ref().map_or("", |actor| &actor.login)) != CODEX_ACTOR
+        || normalize_actor(review.author.as_ref().map_or("", |actor| &actor.login)) != CODEX_ACTOR
+        || !review.state.eq_ignore_ascii_case("COMMENTED")
+        || linked_head != Some(current_head)
+        || !valid_timestamp(&first.updated_at)
+        || !valid_github_url(&first.url)
+        || claimed_head.is_none_or(|claimed| oid_matches_current(claimed, current_head))
+        || claimed_head.is_none_or(|claimed| {
+            !known_dependabot_author_false_positive_body(&first.body, claimed)
+        })
+    {
+        return None;
+    }
+    let mut latest_disposition = None;
+    for reply in thread.comments.nodes.iter().skip(1) {
+        let Some(provider) = trusted_provider(
+            reply.author.as_ref().map_or("", |actor| &actor.login),
+            pr_author,
+        ) else {
+            continue;
+        };
+        let accepted_disposition = provider == "human"
+            && valid_timestamp(&reply.updated_at)
+            && valid_github_url(&reply.url)
+            && timestamp_second(&reply.updated_at) > timestamp_second(&first.updated_at)
+            && reply.body.starts_with("Disposition:")
+            && reply.body.contains(&completion.oid)
+            && reply.body.contains(&format!(
+                "{DEPENDABOT_AUTHOR_NAME} <{DEPENDABOT_AUTHOR_EMAIL}>"
+            ));
+        if !accepted_disposition {
+            return None;
+        }
+        if latest_disposition.is_none_or(|current: (&str, &str)| {
+            timestamp_second(&reply.updated_at) > timestamp_second(current.0)
+        }) {
+            latest_disposition = Some((reply.updated_at.as_str(), reply.url.as_str()));
+        }
+    }
+    latest_disposition
+}
+
+fn validate_review_reference_in_connection(
+    thread_id: &str,
+    reference: &ReviewReference,
+    reviews: &[Review],
+) -> Result<(), String> {
+    let review = reviews
+        .iter()
+        .find(|review| review.id == reference.id)
+        .ok_or_else(|| {
+            format!(
+                "Dependabot 已知误报 thread `{thread_id}` 引用了 reviews connection 中不存在的 review：{}",
+                reference.id
+            )
+        })?;
+    let reference_actor = reference
+        .author
+        .as_ref()
+        .map(|actor| normalize_actor(&actor.login));
+    let review_actor = review
+        .author
+        .as_ref()
+        .map(|actor| normalize_actor(&actor.login));
+    let reference_commit = reference.commit.as_ref().map(|commit| commit.oid.as_str());
+    let review_commit = review.commit.as_ref().map(|commit| commit.oid.as_str());
+    if reference_actor != review_actor
+        || !reference.state.eq_ignore_ascii_case(&review.state)
+        || reference_commit != review_commit
+    {
+        return Err(format!(
+            "Dependabot 已知误报 thread `{thread_id}` 的 review `{}` 与 reviews connection 的 actor/state/commit 不一致",
+            reference.id
+        ));
+    }
+    Ok(())
+}
+
+fn known_dependabot_author_false_positive_body(body: &str, claimed_head: &str) -> bool {
+    const HEADING_DEPENDABOT: &str = "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Restore Dependabot author or add governance fields**";
+    const HEADING_BOT: &str = "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Restore bot authorship or add governance fields**";
+    const FOOTER: &str = "Useful? React with 👍 / 👎.";
+
+    let candidates = [
+        format!(
+            "{HEADING_DEPENDABOT}\n\nFor this lockfile bump, the reviewed commit `{claimed_head}` is authored as `Codex <codex@openai.com>` while keeping a Dependabot-style message body that lacks the required LaneFlow `Gate`/`Slice`/`Impact`/`Scope`/`Validation`/`Docs`/`Refs` fields. The range checker only skips that validation when `xtask/src/main.rs:761-765` sees the exact Dependabot author/email and `xtask/src/main.rs:818-828` accepts the `build(deps)` title, so this commit will be rejected by the commit-message check unless it is re-authored as Dependabot or rewritten with the full governance block.\n\n{FOOTER}"
+        ),
+        format!(
+            "{HEADING_BOT}\n\nWhen CI checks this PR's commit range, this commit is not eligible for the Dependabot exception: fresh evidence versus the earlier rebuttal is that the reviewed object `{claimed_head}` is actually authored by `Codex <codex@openai.com>`, while `xtask/src/main.rs:761-765` and `818-820` require the exact Dependabot name/email. The `Check commit messages` step in `.github/workflows/ci.yml:125-127` therefore validates the body and reports all required governance fields plus `Refs`/`Closes` as missing, blocking the required CI check; re-author this object as the bot or rewrite its message with the complete governance block.\n\n{FOOTER}"
+        ),
+        format!(
+            "{HEADING_BOT}\n\nWhen the `Check commit messages` step in `.github/workflows/ci.yml:125-127` validates this PR range, this commit cannot use the Dependabot exception. Fresh evidence versus the earlier rebuttals is that the requested object `{claimed_head}` is authored by `Codex <codex@openai.com>`, whereas `xtask/src/main.rs:761-765` and `818-828` require the exact Dependabot name and email; its Dependabot-style body consequently lacks the required governance fields and `Refs`/`Closes`, blocking the governance check. Re-author this object as Dependabot or replace the body with the complete LaneFlow governance block.\n\n{FOOTER}"
+        ),
+    ];
+    candidates.iter().any(|candidate| candidate == body)
 }
 
 fn collect_pagination_errors(pr: &PullRequestSnapshot, diagnostics: &mut Vec<String>) {
@@ -1797,6 +2073,8 @@ fn load_live_waiver_snapshot(
             head_ref_oid: identity.head_ref_oid,
             base_ref_oid: identity.base_ref_oid,
             is_draft: identity.is_draft,
+            files: Connection::default(),
+            commits: Connection::default(),
             review_requests: Connection::default(),
             reviews: Connection::default(),
             comments: Connection::default(),
@@ -2291,10 +2569,342 @@ mod tests {
                 include_str!("../fixtures/external-review/history-pr-232-final.json"),
                 ExternalReviewState::Pass,
             ),
+            (
+                include_str!("../fixtures/external-review/dependabot-lockfile-wrong-sha.json"),
+                ExternalReviewState::Pass,
+            ),
+            (
+                include_str!("../fixtures/external-review/dependabot-lockfile-unreviewable.json"),
+                ExternalReviewState::Pass,
+            ),
         ];
 
         for (contents, expected) in cases {
             assert_eq!(evaluate_snapshot(&fixture(contents)).state, expected);
+        }
+    }
+
+    #[test]
+    fn limits_dependabot_lockfile_completion_to_the_exact_policy_boundary() {
+        let contents =
+            include_str!("../fixtures/external-review/dependabot-lockfile-wrong-sha.json");
+        let pass = evaluate_snapshot(&fixture(contents));
+        assert_eq!(pass.state, ExternalReviewState::Pass);
+        assert_eq!(pass.provider.as_deref(), Some("dependabot_lockfile_policy"));
+        assert!(pass.uses_dependabot_lockfile_policy());
+        assert_eq!(pass.finding_count, 0);
+        assert_eq!(
+            pass.completion_time.as_deref(),
+            Some("2026-08-06T03:05:00Z")
+        );
+        assert_eq!(
+            pass.evidence[0].evidence_url,
+            "https://github.com/illusion-tech/laneflow/pull/313#discussion_r2"
+        );
+
+        let mut missing_review = fixture(contents);
+        missing_review.pull_request.reviews.nodes.clear();
+        let missing_review_result = evaluate_snapshot(&missing_review);
+        assert_eq!(
+            missing_review_result.state,
+            ExternalReviewState::ProviderError
+        );
+        assert!(
+            missing_review_result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("reviews connection 中不存在的 review"))
+        );
+
+        let mut conflicting_actor = fixture(contents);
+        conflicting_actor.pull_request.reviews.nodes[0].author = Some(Actor {
+            login: "copilot-pull-request-reviewer[bot]".to_string(),
+        });
+        let mut conflicting_state = fixture(contents);
+        conflicting_state.pull_request.reviews.nodes[0].state = "APPROVED".to_string();
+        let mut conflicting_commit = fixture(contents);
+        conflicting_commit.pull_request.reviews.nodes[0]
+            .commit
+            .as_mut()
+            .expect("fixture review commit")
+            .oid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string();
+        for conflicting in [conflicting_actor, conflicting_state, conflicting_commit] {
+            let result = evaluate_snapshot(&conflicting);
+            assert_eq!(result.state, ExternalReviewState::ProviderError);
+            assert!(result.diagnostics.iter().any(|diagnostic| {
+                diagnostic.contains("与 reviews connection 的 actor/state/commit 不一致")
+            }));
+        }
+
+        let mut later_clean_review = fixture(contents);
+        let mut clean_review = later_clean_review.pull_request.reviews.nodes[0].clone();
+        clean_review.id = "PRR-codex-clean-after-machine".to_string();
+        clean_review.state = "APPROVED".to_string();
+        clean_review.submitted_at = Some("2026-08-06T03:06:00Z".to_string());
+        clean_review.url = Some(
+            "https://github.com/illusion-tech/laneflow/pull/313#pullrequestreview-2".to_string(),
+        );
+        later_clean_review
+            .pull_request
+            .reviews
+            .nodes
+            .push(clean_review);
+        let later_clean_result = evaluate_snapshot(&later_clean_review);
+        assert_eq!(later_clean_result.state, ExternalReviewState::Pass);
+        assert_eq!(later_clean_result.provider.as_deref(), Some("codex"));
+        assert!(later_clean_result.uses_dependabot_lockfile_policy());
+
+        let mut source_change = fixture(contents);
+        source_change.pull_request.files.nodes[0].path = "src/lib.rs".to_string();
+        assert!(!evaluate_snapshot(&source_change).state.is_pass());
+
+        let mut multiple_commits = fixture(contents);
+        multiple_commits
+            .pull_request
+            .commits
+            .nodes
+            .push(multiple_commits.pull_request.commits.nodes[0].clone());
+        assert!(!evaluate_snapshot(&multiple_commits).state.is_pass());
+
+        let mut human_authored_commit = fixture(contents);
+        human_authored_commit.pull_request.commits.nodes[0]
+            .commit
+            .author
+            .as_mut()
+            .expect("fixture commit author")
+            .name = "Maintainer".to_string();
+        assert!(!evaluate_snapshot(&human_authored_commit).state.is_pass());
+
+        let mut dismissed_review = fixture(contents);
+        let mut dismissed = dismissed_review.pull_request.reviews.nodes[0].clone();
+        dismissed.id = "PRR-dismissed-body-finding".to_string();
+        dismissed.state = "DISMISSED".to_string();
+        dismissed.body = "Substantive body-only finding".to_string();
+        dismissed_review.pull_request.reviews.nodes.push(dismissed);
+        assert_eq!(
+            evaluate_snapshot(&dismissed_review).state,
+            ExternalReviewState::Stale
+        );
+
+        let mut unresolved = fixture(contents);
+        unresolved.pull_request.review_threads.nodes[0].is_resolved = false;
+        assert_eq!(
+            evaluate_snapshot(&unresolved).state,
+            ExternalReviewState::FindingsOpen
+        );
+
+        let mut authorless = fixture(contents);
+        authorless.pull_request.review_threads.nodes[0].is_resolved = false;
+        authorless.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .author = None;
+        let authorless_result = evaluate_snapshot(&authorless);
+        assert!(!authorless_result.state.is_pass());
+        assert_eq!(authorless_result.unresolved_actionable_threads, 1);
+
+        let mut untrusted_thread = fixture(contents);
+        let thread = &mut untrusted_thread.pull_request.review_threads.nodes[0];
+        thread.is_resolved = false;
+        thread.is_outdated = false;
+        let first_comment = &mut thread.comments.nodes[0];
+        first_comment.author = Some(Actor {
+            login: "external-contributor".to_string(),
+        });
+        let thread_review = first_comment
+            .pull_request_review
+            .as_mut()
+            .expect("fixture thread review");
+        thread_review.author = Some(Actor {
+            login: "external-contributor".to_string(),
+        });
+        let untrusted_result = evaluate_snapshot(&untrusted_thread);
+        assert!(untrusted_result.state.is_pass());
+        assert_eq!(untrusted_result.unresolved_actionable_threads, 0);
+
+        let mut authorless_reply_to_untrusted = untrusted_thread.clone();
+        let thread = &mut authorless_reply_to_untrusted
+            .pull_request
+            .review_threads
+            .nodes[0];
+        let mut authorless_reply = thread.comments.nodes[0].clone();
+        authorless_reply.id = "PRRC-authorless-reply-to-untrusted".to_string();
+        authorless_reply.author = None;
+        thread.comments.nodes.push(authorless_reply);
+        let authorless_reply_result = evaluate_snapshot(&authorless_reply_to_untrusted);
+        assert!(!authorless_reply_result.state.is_pass());
+        assert_eq!(authorless_reply_result.unresolved_actionable_threads, 1);
+
+        let mut trusted_reply_to_untrusted = fixture(contents);
+        let mut trusted_reply = trusted_reply_to_untrusted.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .clone();
+        trusted_reply.id = "PRRC-codex-reply-to-untrusted".to_string();
+        trusted_reply.body = "Additional substantive concern.".to_string();
+        trusted_reply.created_at = "2026-08-06T03:06:00Z".to_string();
+        trusted_reply.updated_at = "2026-08-06T03:06:00Z".to_string();
+        trusted_reply.url =
+            "https://github.com/illusion-tech/laneflow/pull/313#discussion_r3".to_string();
+        let trusted_review = trusted_reply
+            .pull_request_review
+            .as_mut()
+            .expect("fixture thread review");
+        trusted_review.id = "PRR-codex-reply-to-untrusted".to_string();
+        trusted_review.submitted_at = Some("2026-08-06T03:06:00Z".to_string());
+
+        let mut trusted_review_connection =
+            trusted_reply_to_untrusted.pull_request.reviews.nodes[0].clone();
+        trusted_review_connection.id = "PRR-codex-reply-to-untrusted".to_string();
+        trusted_review_connection.submitted_at = Some("2026-08-06T03:06:00Z".to_string());
+        trusted_review_connection.url = Some(
+            "https://github.com/illusion-tech/laneflow/pull/313#pullrequestreview-2".to_string(),
+        );
+        trusted_reply_to_untrusted
+            .pull_request
+            .reviews
+            .nodes
+            .push(trusted_review_connection);
+
+        let thread = &mut trusted_reply_to_untrusted.pull_request.review_threads.nodes[0];
+        thread.is_resolved = false;
+        thread.is_outdated = false;
+        let first_comment = &mut thread.comments.nodes[0];
+        first_comment.author = Some(Actor {
+            login: "external-contributor".to_string(),
+        });
+        first_comment
+            .pull_request_review
+            .as_mut()
+            .expect("fixture thread review")
+            .author = Some(Actor {
+            login: "external-contributor".to_string(),
+        });
+        thread.comments.nodes.push(trusted_reply);
+        let trusted_reply_result = evaluate_snapshot(&trusted_reply_to_untrusted);
+        assert_eq!(
+            trusted_reply_result.state,
+            ExternalReviewState::FindingsOpen
+        );
+        assert_eq!(trusted_reply_result.finding_count, 1);
+        assert_eq!(trusted_reply_result.unresolved_actionable_threads, 1);
+
+        let mut trusted_reply_after_authorless = trusted_reply_to_untrusted.clone();
+        let thread = &mut trusted_reply_after_authorless
+            .pull_request
+            .review_threads
+            .nodes[0];
+        thread.is_resolved = true;
+        thread.comments.nodes[0].author = None;
+        let authorless_reply_result = evaluate_snapshot(&trusted_reply_after_authorless);
+        assert_eq!(
+            authorless_reply_result.state,
+            ExternalReviewState::AwaitingRereview
+        );
+        assert_eq!(authorless_reply_result.finding_count, 1);
+        assert_eq!(authorless_reply_result.unresolved_actionable_threads, 0);
+
+        let mut human_commented = fixture(contents);
+        let mut review = human_commented.pull_request.reviews.nodes[0].clone();
+        review.id = "PRR-human-commented-body-only".to_string();
+        review.state = "COMMENTED".to_string();
+        review.body = "Informational review note; no change requested.".to_string();
+        review.author = Some(Actor {
+            login: "wangzishi".to_string(),
+        });
+        human_commented.pull_request.reviews.nodes.push(review);
+        assert!(evaluate_snapshot(&human_commented).state.is_pass());
+
+        let mut appended_finding = fixture(contents);
+        appended_finding.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .body
+            .push_str("\n\nAdditional substantive concern.");
+        assert!(!evaluate_snapshot(&appended_finding).state.is_pass());
+
+        let mut trusted_reply_finding = fixture(contents);
+        let mut reply = trusted_reply_finding.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .clone();
+        reply.id = "PRRC-codex-follow-up-finding".to_string();
+        reply.body = "Additional substantive concern.".to_string();
+        reply.created_at = "2026-08-06T03:06:00Z".to_string();
+        reply.updated_at = "2026-08-06T03:06:00Z".to_string();
+        reply.url = "https://github.com/illusion-tech/laneflow/pull/313#discussion_r3".to_string();
+        trusted_reply_finding.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes
+            .push(reply);
+        assert!(!evaluate_snapshot(&trusted_reply_finding).state.is_pass());
+
+        let mut missing_disposition = fixture(contents);
+        missing_disposition.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[1]
+            .body
+            .replace_range(.."Disposition:".len(), "Rejected:");
+        assert!(!evaluate_snapshot(&missing_disposition).state.is_pass());
+
+        let mut claimed_current_head = fixture(contents);
+        let head = claimed_current_head.pull_request.head_ref_oid.clone();
+        claimed_current_head.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .body = claimed_current_head.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .body
+            .replace("91f05a4", &head);
+        assert!(!evaluate_snapshot(&claimed_current_head).state.is_pass());
+
+        let mut edited_comments = fixture(contents);
+        edited_comments.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .updated_at = "2026-08-06T03:01:00Z".to_string();
+        edited_comments.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[1]
+            .updated_at = "2026-08-06T03:06:00Z".to_string();
+        let edited = evaluate_snapshot(&edited_comments);
+        assert!(edited.state.is_pass());
+        assert_eq!(
+            edited.completion_time.as_deref(),
+            Some("2026-08-06T03:06:00Z")
+        );
+
+        let mut finding_edited_after_disposition = fixture(contents);
+        finding_edited_after_disposition
+            .pull_request
+            .review_threads
+            .nodes[0]
+            .comments
+            .nodes[0]
+            .updated_at = "2026-08-06T03:06:00Z".to_string();
+        assert!(
+            !evaluate_snapshot(&finding_edited_after_disposition)
+                .state
+                .is_pass()
+        );
+    }
+
+    #[test]
+    fn documents_the_lockfile_only_codeql_not_applicable_semantics() {
+        let gates = include_str!("../../docs/governance/development-gates.md");
+        let scanning = include_str!("../../docs/governance/security-scanning.md");
+        let dependency = include_str!("../../docs/governance/dependency-security.md");
+        let template = include_str!("../../.github/pull_request_template.md");
+        let agent_guide = include_str!("../../docs/governance/agent-development-guide.md");
+
+        assert!(gates.contains("dependabot-cargo-lock-only-v1"));
+        assert!(scanning.contains("dependabot-cargo-lock-only-v1"));
+        assert!(scanning.contains("NEUTRAL"));
+        assert!(scanning.contains("2 configurations not found"));
+        assert!(scanning.contains("not applicable"));
+        for entry_point in [dependency, template, agent_guide] {
+            assert!(entry_point.contains("dependabot-cargo-lock-only-v1"));
         }
     }
 

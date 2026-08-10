@@ -73,6 +73,36 @@ fn parses_gate_evidence_target_arguments() {
 }
 
 #[test]
+fn recovers_dependabot_target_metadata_from_canonical_g3_assertions() {
+    let first = GateEvidenceArgs {
+        phase: GateEvidencePhase::G3,
+        repo: "illusion-tech/laneflow".to_string(),
+        issue: 325,
+        delivery_pr: None,
+        related_prs: vec![313],
+    };
+    let second = GateEvidenceArgs {
+        issue: 326,
+        ..first.clone()
+    };
+    let body = format!(
+        "## G3 合并判断\n- Gate 断言：`{}` 已通过。\n- Gate 断言：`{}` 已通过。",
+        expected_gate_command(&first, GateEvidencePhase::G3),
+        expected_gate_command(&second, GateEvidencePhase::G3),
+    );
+
+    assert_eq!(
+        parse_gate_evidence_target_metadata_from_g3_comment("illusion-tech/laneflow", 313, &body,),
+        Ok((GateEvidencePrRole::Related, vec![325, 326]))
+    );
+
+    let wrong_pr =
+        parse_gate_evidence_target_metadata_from_g3_comment("illusion-tech/laneflow", 314, &body)
+            .expect_err("a G3 assertion for another PR must not recover metadata");
+    assert!(wrong_pr.contains("当前 PR #314"));
+}
+
+#[test]
 fn target_requires_exact_closing_issue_associations() {
     let mut delivery_target = delivery_pr(None);
     delivery_target
@@ -392,7 +422,167 @@ fn validates_unedited_marker_identity_and_strict_ordering() {
         )
         .is_err()
     );
+    assert!(
+        validate_g3_comment_after_external_review_completion(
+            "2026-08-06T03:30:01Z",
+            "2026-08-06T03:30:00Z",
+            "Delivery PR",
+        )
+        .is_ok()
+    );
+    let error = validate_g3_comment_after_external_review_completion(
+        "2026-08-06T03:30:00Z",
+        "2026-08-06T03:30:00Z",
+        "Delivery PR",
+    )
+    .expect_err("a same-second G3 comment cannot prove that disposition completed first");
+    assert!(error.contains("必须严格晚于"));
     assert!(parse_utc_timestamp_seconds("2026-08-06T03:30:00.Z").is_none());
+}
+
+#[test]
+fn validates_rest_backed_effective_time_for_an_edited_g3_comment() {
+    let mut comment = g3_comment(DELIVERY_G3_URL, "2026-08-06T03:30:00Z");
+    comment.includes_created_edit = true;
+    let snapshot = GitHubIssueCommentRest {
+        body: Some(comment.body.clone()),
+        created_at: comment.created_at.clone(),
+        updated_at: "2026-08-06T03:31:00Z".to_string(),
+        issue_url: "https://api.github.com/repos/illusion-tech/laneflow/issues/61".to_string(),
+    };
+
+    assert_eq!(issue_comment_id_from_permalink(&comment.url), Ok(100));
+    assert_eq!(
+        validate_edited_g3_comment_snapshot("illusion-tech/laneflow", 61, &comment, &snapshot,),
+        Ok("2026-08-06T03:31:00Z".to_string())
+    );
+
+    let wrong_pr = GitHubIssueCommentRest {
+        issue_url: "https://api.github.com/repos/illusion-tech/laneflow/issues/62".to_string(),
+        ..snapshot.clone()
+    };
+    assert!(
+        validate_edited_g3_comment_snapshot("illusion-tech/laneflow", 61, &comment, &wrong_pr,)
+            .is_err()
+    );
+}
+
+#[test]
+fn only_dependabot_body_edits_may_reuse_an_older_marker() {
+    let timestamps = GitHubEditTimestamps {
+        created_at: "2026-08-06T03:00:00Z".to_string(),
+        last_edited_at: Some("2026-08-06T03:31:00Z".to_string()),
+        updated_at: "2026-08-06T03:31:00Z".to_string(),
+    };
+    let mut edits = GitHubUserContentEditConnection {
+        page_info: GitHubPageInfo {
+            has_next_page: false,
+        },
+        nodes: vec![
+            GitHubUserContentEdit {
+                edited_at: "2026-08-06T03:20:00Z".to_string(),
+                editor: Some(GitHubActor {
+                    login: "wangzishi".to_string(),
+                }),
+            },
+            GitHubUserContentEdit {
+                edited_at: "2026-08-06T03:31:00Z".to_string(),
+                editor: Some(GitHubActor {
+                    login: "dependabot".to_string(),
+                }),
+            },
+        ],
+    };
+
+    assert!(
+        validate_dependabot_body_edits_after_marker(
+            "2026-08-06T03:30:00Z",
+            &timestamps,
+            &edits,
+            "PR #313",
+        )
+        .is_ok()
+    );
+    assert!(
+        validate_dependabot_body_edits_after_g3_comment("2026-08-06T03:25:00Z", &edits, "PR #313",)
+            .is_ok()
+    );
+    let error =
+        validate_dependabot_body_edits_after_g3_comment("2026-08-06T03:15:00Z", &edits, "PR #313")
+            .expect_err(
+                "a human edit after the G3 comment cannot be hidden by a later bot refresh",
+            );
+    assert!(error.contains("G3 comment 后包含非 Dependabot body edit"));
+    let error =
+        validate_dependabot_body_edits_after_g3_comment("2026-08-06T03:31:00Z", &edits, "PR #313")
+            .expect_err("a same-second body edit cannot prove that Dependabot edited after G3");
+    assert!(error.contains("与 current G3 comment 同秒"));
+
+    edits.nodes[0].edited_at = "2026-08-06T03:30:00Z".to_string();
+    edits.nodes[0].editor = Some(GitHubActor {
+        login: "dependabot".to_string(),
+    });
+    let error = validate_dependabot_body_edits_after_marker(
+        "2026-08-06T03:30:00Z",
+        &timestamps,
+        &edits,
+        "PR #313",
+    )
+    .expect_err("a same-second bot edit is ambiguous and requires a new marker");
+    assert!(error.contains("与 G3 evidence marker 同秒"));
+    edits.nodes[0].edited_at = "2026-08-06T03:20:00Z".to_string();
+
+    let mut human_edit = edits;
+    human_edit.nodes[1].editor = Some(GitHubActor {
+        login: "wangzishi".to_string(),
+    });
+    let error = validate_dependabot_body_edits_after_marker(
+        "2026-08-06T03:30:00Z",
+        &timestamps,
+        &human_edit,
+        "PR #313",
+    )
+    .expect_err("a later human edit still requires a new marker");
+    assert!(error.contains("非 Dependabot body edit"));
+    assert!(
+        validate_dependabot_body_edits_after_g3_comment(
+            "2026-08-06T03:25:00Z",
+            &human_edit,
+            "PR #313",
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn recovered_dependabot_metadata_preserves_g4_related_replay_inputs() {
+    let g3_args = GateEvidenceArgs {
+        phase: GateEvidencePhase::G3,
+        repo: "illusion-tech/laneflow".to_string(),
+        issue: 325,
+        delivery_pr: None,
+        related_prs: vec![313],
+    };
+    let comment = g3_comment_for_args(RELATED_G3_URL, "2026-07-10T05:00:00Z", &g3_args);
+    let recovered_body =
+        recovered_gate_evidence_target_body(&g3_args.repo, 313, RELATED_G3_URL, &comment.body)
+            .expect("validated Dependabot recovery should rebuild target metadata");
+
+    assert_eq!(
+        parse_gate_evidence_target_metadata(&recovered_body),
+        Ok((GateEvidencePrRole::Related, vec![325]))
+    );
+
+    let mut related = related_pr_for_args(false, &g3_args);
+    related.body = recovered_body;
+    related.comments = vec![comment];
+    let issue_body = format!("- [x] G3 合并判断已记录：[Related G3 评论]({RELATED_G3_URL})");
+    let g4_args = GateEvidenceArgs {
+        phase: GateEvidencePhase::G4,
+        ..g3_args
+    };
+
+    assert!(validate_related_pr_g3(&g4_args, &issue_body, &issue_body, 313, &related,).is_ok());
 }
 
 #[test]
@@ -713,6 +903,20 @@ fn accepts_merged_related_pr_history_in_delivery_full_set_g3() {
 }
 
 #[test]
+fn rejects_merged_related_g3_effective_at_merge_second() {
+    let mut related_pr = related_pr(false);
+    related_pr.state = "MERGED".to_string();
+    related_pr.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+    related_pr.comments[0].includes_created_edit = true;
+    related_pr.comments[0].updated_at = Some("2026-07-10T05:30:00Z".to_string());
+
+    let error = validate_g3_timing(&related_pr, RELATED_G3_URL, "Related PR #62")
+        .expect_err("the merge second cannot prove that an edit happened before merge");
+
+    assert!(error.contains("生效时间必须严格早于 PR 合并时间"));
+}
+
+#[test]
 fn rejects_merged_related_as_current_related_only_g3_target() {
     let args = related_only_g3_args();
     let mut related_pr = related_pr(false);
@@ -784,6 +988,12 @@ fn g3_evidence_shadow_workflow_preserves_trusted_ref_boundary() {
     assert!(workflow.contains("Fresh G3 evidence marker required"));
     assert!(workflow.contains("ALLOW_SUCCESS"));
     assert!(workflow.contains("MARKER_COMMENT_ID"));
+    assert!(workflow.contains("REUSE_MARKER_EVENT"));
+    assert!(workflow.contains("REUSE_MARKER"));
+    assert!(workflow.contains("github.event.changes.body.from != null"));
+    assert!(workflow.contains("github.event.changes.base == null"));
+    assert!(!workflow.contains("github.event.changes.title == null"));
+    assert!(workflow.contains("repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100"));
     assert!(workflow.contains("- closed"));
     assert!(workflow.contains("initial_head"));
     assert!(workflow.contains("final_head"));
@@ -843,7 +1053,7 @@ fn accepts_current_g3_fields_at_external_review_activation() {
 fn rejects_current_g3_without_shadow_evidence_field() {
     let args = related_only_g3_args();
     let mut related_pr = related_pr_for_args(false, &args);
-    related_pr.comments[0].created_at = EXTERNAL_REVIEW_G3_ACTIVATION.to_string();
+    related_pr.comments[0].created_at = G3_EVIDENCE_SHADOW_ACTIVATION.to_string();
     related_pr.comments[0].body = gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args);
 
     assert!(
@@ -866,6 +1076,25 @@ fn rejects_current_g3_without_shadow_evidence_field() {
     .expect_err("target/shadow G3 must record the shadow evidence boundary");
 
     assert!(error.contains("G3 Evidence Gate Shadow"));
+}
+
+#[test]
+fn accepts_g3_without_shadow_evidence_before_shadow_activation() {
+    let args = related_only_g3_args();
+    let mut related_pr = related_pr_for_args(false, &args);
+    related_pr.comments[0].created_at = "2026-08-06T10:49:20Z".to_string();
+    related_pr.comments[0].body = gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args);
+
+    assert!(
+        validate_gate_evidence_target_pr(
+            "illusion-tech/laneflow",
+            GateEvidencePhase::G3,
+            &related_pr,
+            GateEvidencePrRole::Related,
+            &[60],
+        )
+        .is_ok()
+    );
 }
 
 #[test]
@@ -910,6 +1139,22 @@ fn rejects_legacy_g3_fields_after_external_review_activation() {
 
     assert!(error.contains("- Gate 结果："));
     assert!(error.contains("- Rollout phase："));
+    assert!(error.contains("- Current head："));
+}
+
+#[test]
+fn edited_g3_uses_effective_time_for_policy_activation() {
+    let args = related_only_g3_args();
+    let issue = issue_with_pending_delivery_and_related_g3();
+    let mut related_pr = related_pr_for_args(false, &args);
+    related_pr.comments[0].created_at = "2026-07-24T15:16:20Z".to_string();
+    related_pr.comments[0].updated_at = Some(EXTERNAL_REVIEW_G3_ACTIVATION.to_string());
+    related_pr.comments[0].includes_created_edit = true;
+
+    let error = validate_related_g3_evidence(&args, &issue, 62, &related_pr)
+        .expect_err("an edit crossing the activation boundary must use current fields");
+
+    assert!(error.contains("- Gate 结果："));
     assert!(error.contains("- Current head："));
 }
 
@@ -978,6 +1223,7 @@ fn parses_reference_style_structured_gate_waiver() {
             login: "wangzishi".to_string(),
         }),
         created_at: "2026-07-24T16:00:00Z".to_string(),
+        updated_at: None,
         includes_created_edit: false,
     };
     let now = parse_utc_timestamp_seconds("2026-07-24T16:30:00Z").unwrap();
@@ -1052,6 +1298,7 @@ fn parses_one_structured_gate_waiver_per_associated_issue() {
             login: "wangzishi".to_string(),
         }),
         created_at: "2026-07-24T16:00:00Z".to_string(),
+        updated_at: None,
         includes_created_edit: false,
     };
     let now = parse_utc_timestamp_seconds("2026-07-24T16:30:00Z").unwrap();
@@ -1118,17 +1365,40 @@ fn rejects_expired_structured_gate_waiver() {
             login: "wangzishi".to_string(),
         }),
         created_at: "2026-07-24T16:00:00Z".to_string(),
+        updated_at: None,
         includes_created_edit: false,
     };
     let after_expiry = parse_utc_timestamp_seconds("2026-07-24T17:00:01Z").unwrap();
-    let error =
-        parse_gate_waiver(&comment, 60, after_expiry).expect_err("expired waiver must fail closed");
+    let current_time = waiver_validation_time(None, after_expiry).unwrap();
+    let error = parse_gate_waiver(&comment, 60, current_time)
+        .expect_err("current PR must reject an expired waiver");
 
     assert!(error.contains("已过期"));
+
+    let merged_at = waiver_validation_time(Some("2026-07-24T16:30:00Z"), after_expiry)
+        .expect("historical Related PR must use its merge time");
+    assert!(parse_gate_waiver(&comment, 60, merged_at).is_ok());
+
+    let invalid_merged_at = waiver_validation_time(Some("not-a-timestamp"), after_expiry)
+        .expect_err("invalid historical mergedAt must fail closed");
+    assert!(invalid_merged_at.contains("mergedAt 不是 UTC RFC3339 时间"));
 }
 
 #[test]
-fn rejects_edited_current_g3_comment() {
+fn accepts_edited_current_g3_comment_at_its_effective_time() {
+    let args = related_only_g3_args();
+    let issue = issue_with_pending_delivery_and_related_g3();
+    let mut related_pr = related_pr_for_args(false, &args);
+    related_pr.comments[0].created_at = EXTERNAL_REVIEW_G3_ACTIVATION.to_string();
+    related_pr.comments[0].updated_at = Some("2026-07-24T15:16:22Z".to_string());
+    related_pr.comments[0].body = gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args);
+    related_pr.comments[0].includes_created_edit = true;
+
+    assert!(validate_related_g3_evidence(&args, &issue, 62, &related_pr).is_ok());
+}
+
+#[test]
+fn edited_current_g3_requires_a_hydrated_updated_at() {
     let args = related_only_g3_args();
     let issue = issue_with_pending_delivery_and_related_g3();
     let mut related_pr = related_pr_for_args(false, &args);
@@ -1137,9 +1407,9 @@ fn rejects_edited_current_g3_comment() {
     related_pr.comments[0].includes_created_edit = true;
 
     let error = validate_related_g3_evidence(&args, &issue, 62, &related_pr)
-        .expect_err("current G3 must be append-only");
+        .expect_err("edited G3 must carry the REST-backed effective time");
 
-    assert!(error.contains("创建后被编辑"));
+    assert!(error.contains("缺少 hydrated updatedAt"));
 }
 
 #[test]
@@ -1444,14 +1714,24 @@ fn rejects_edited_g4_recovery_comment() {
 }
 
 #[test]
-fn rejects_edited_legacy_delivery_g3_during_recovery() {
+fn accepts_edited_delivery_g3_before_merge_during_recovery() {
     let (args, issue, mut delivery_pr, related_pr) = late_related_recovery_fixture();
     delivery_pr.comments[0].includes_created_edit = true;
+    delivery_pr.comments[0].updated_at = Some("2026-07-10T05:10:00Z".to_string());
+
+    assert!(validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr]).is_ok());
+}
+
+#[test]
+fn rejects_delivery_g3_edited_after_merge_during_recovery() {
+    let (args, issue, mut delivery_pr, related_pr) = late_related_recovery_fixture();
+    delivery_pr.comments[0].includes_created_edit = true;
+    delivery_pr.comments[0].updated_at = Some("2026-07-10T05:31:00Z".to_string());
 
     let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
-        .expect_err("recovery must reject edits even for a legacy Delivery G3");
+        .expect_err("an edit after merge is still retroactive evidence");
 
-    assert!(error.contains("Delivery PR original G3 comment 在创建后被编辑"));
+    assert!(error.contains("生效时间必须严格早于 Delivery merge"));
 }
 
 #[test]
@@ -1466,14 +1746,24 @@ fn rejects_timestamp_equal_delivery_g3_during_recovery() {
 }
 
 #[test]
-fn rejects_edited_related_g3_during_recovery() {
+fn accepts_edited_related_g3_before_its_merge_during_recovery() {
     let (args, issue, delivery_pr, mut related_pr) = late_related_recovery_fixture();
     related_pr.comments[0].includes_created_edit = true;
+    related_pr.comments[0].updated_at = Some("2026-07-10T05:41:00Z".to_string());
 
-    let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
-        .expect_err("recovery must reject edits to every Related G3");
+    assert!(validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr]).is_ok());
+}
 
-    assert!(error.contains("Related PR #62 G3 comment 在创建后被编辑"));
+#[test]
+fn rejects_original_related_g3_effective_at_delivery_merge_second() {
+    assert!(validate_original_related_g3_before_delivery_merge(62, 29, 30).is_ok());
+    let error = validate_original_related_g3_before_delivery_merge(62, 30, 30)
+        .expect_err("the Delivery merge second cannot prove that an original G3 edit came first");
+
+    assert!(
+        error.contains("生效时间必须严格早于 Delivery PR 合并时间"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -1496,6 +1786,7 @@ fn late_related_pr_cannot_take_edited_legacy_strict_shortcut() {
     delivery_pr.comments[0] =
         g3_comment_for_args(DELIVERY_G3_URL, "2026-07-10T05:00:00Z", &strict_g3_args);
     delivery_pr.comments[0].includes_created_edit = true;
+    delivery_pr.comments[0].updated_at = Some("2026-07-10T05:10:00Z".to_string());
 
     assert!(
         validate_g3_evidence(

@@ -2,6 +2,8 @@
 
 // Issue #230 G2-B incremental start record. Older G3 comments remain historical evidence.
 pub(super) const EXTERNAL_REVIEW_G3_ACTIVATION: &str = "2026-07-24T15:16:21Z";
+// PR #324 merge time. Earlier G3 comments cannot be retroactively required to carry this field.
+pub(super) const G3_EVIDENCE_SHADOW_ACTIVATION: &str = "2026-08-06T10:49:21Z";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum GateEvidencePhase {
     G3,
@@ -119,6 +121,48 @@ pub(super) struct GitHubEditTimestamps {
 }
 
 #[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubUserContentEditsResponse {
+    pub(super) data: GitHubUserContentEditsData,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubUserContentEditsData {
+    pub(super) repository: Option<GitHubUserContentEditsRepository>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubUserContentEditsRepository {
+    #[serde(rename = "pullRequest")]
+    pub(super) pull_request: Option<GitHubUserContentEditsPullRequest>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubUserContentEditsPullRequest {
+    #[serde(rename = "userContentEdits")]
+    pub(super) user_content_edits: GitHubUserContentEditConnection,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubUserContentEditConnection {
+    #[serde(rename = "pageInfo")]
+    pub(super) page_info: GitHubPageInfo,
+    pub(super) nodes: Vec<GitHubUserContentEdit>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubPageInfo {
+    #[serde(rename = "hasNextPage")]
+    pub(super) has_next_page: bool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubUserContentEdit {
+    #[serde(rename = "editedAt")]
+    pub(super) edited_at: String,
+    pub(super) editor: Option<GitHubActor>,
+}
+
+#[derive(Debug, serde::Deserialize)]
 pub(super) struct GitHubTimelineItem {
     #[serde(default)]
     pub(super) id: Option<u64>,
@@ -198,6 +242,8 @@ pub(super) struct GitHubComment {
     pub(super) author: Option<GitHubActor>,
     #[serde(rename = "createdAt")]
     pub(super) created_at: String,
+    #[serde(skip)]
+    pub(super) updated_at: Option<String>,
     #[serde(rename = "includesCreatedEdit", default)]
     pub(super) includes_created_edit: bool,
 }

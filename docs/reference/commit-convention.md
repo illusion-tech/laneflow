@@ -141,7 +141,7 @@ LaneFlow 允许的 `type`：
 - `G3 Candidate`：实现者已完成当前提交的本地验证，可以进入 PR 外部审阅；它不声明正式 G3 通过。
 - `G3 Block`：提交用于分支上的阻断调查或纠偏记录，不应合入 `main` 或视为完成。本地 hook 接受该值，但 PR / push range 校验必须拒绝它；解除阻断后应重写或移除该 commit，再以 `G3 Candidate` 进入合并范围。
 
-正式 `G3 Pass` 只由绑定 current head 的 `External Review Gate` Check 与 append-only `## G3 合并判断` comment 双钥匙表达，不再通过 amend commit 回写。`G3 Waived` 同样只存在于 PR Check / comment 的显式例外证据层；`Docs Only` 不再绕过外部审阅。
+正式 `G3 Pass` 只由绑定 current head 的 `External Review Gate` Check 与当前 `## G3 合并判断` Owner comment 双钥匙表达，不再通过 amend commit 回写。comment 合并前可编辑，但以最新 `updatedAt` 为生效时间并重新验证；`G3 Waived` 同样只存在于 PR Check / comment 的显式例外证据层；`Docs Only` 不再绕过外部审阅。
 
 迁移规则：
 

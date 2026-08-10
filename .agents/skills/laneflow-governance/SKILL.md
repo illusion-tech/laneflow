@@ -70,7 +70,7 @@ Gate Ledger 必须按任务阶段增量记录，不得等到 G4 清场时一次�
 - 开始实现、文档修改或开 PR 前，Issue 必须已有 G0/G1/G2 记录；小型 `docs-only` 或 `governance` 任务可用一条开工记录覆盖 G0-G2，但必须发生在实现前。
 - 任务不需要 G1 时，也必须记录不适用原因。
 - 准备合并 PR 前，必须取得当前 head 上一个有效外部 reviewer 的完成态审阅；有 findings 时，完成处置后还必须取得新的当前 head clean re-review。PR author 的自审是 G3 owner 职责，但不计入外部 reviewer。
-- PR 必须新增一条 append-only 的 `## G3 合并判断` comment，包含当前 head、rollout phase、Checks、External Review Gate、结构化审阅证据、review threads、验证、风险、例外、合并方式和 Gate 断言；不得编辑旧 head 的 G3 comment 冒充当前结论。PR body 的 G3 checkbox 必须回链当前 comment；Issue body 的 G3 Gate Ledger 对 Related PR 增量回链但保持未勾选，直到 Delivery PR 与全部 Related PR 均完成。`Gate 断言` 行必须包含与实际参数完全一致的反引号命令并明确写 `已通过`，且 `check-gate-evidence g3` 必须成功。
+- PR 必须有一条 current `## G3 合并判断` comment，包含当前 head、rollout phase、Checks、External Review Gate、结构化审阅证据、review threads、验证、风险、例外、合并方式和 Gate 断言。允许在 PR 合并前纠错编辑：未编辑时以 `createdAt`、编辑后以 REST 核验的 `updatedAt` 作为生效时间，重新验证全部当前证据并新增严格更晚的 marker；合并后不得编辑历史 G3。PR body 的 G3 checkbox 必须回链 current comment；Issue body 的 G3 Gate Ledger 对 Related PR 增量回链但保持未勾选，直到 Delivery PR 与全部 Related PR 均完成。`Gate 断言` 行必须包含与实际参数完全一致的反引号命令并明确写 `已通过`，且 `check-gate-evidence g3` 必须成功。
 - 清场时只补 G4；如果发现 G0-G3 缺失，必须标记为补救记录，并说明这是流程遗漏，不能当作标准流程。
 - 任一 Gate 记录缺失且没有显式例外时，不得声称任务完成。
 
@@ -119,7 +119,7 @@ Issue Gate Ledger 模板：
 - 标准路径只接受 trusted reviewer 对 PR 当前 exact head 的完成态审阅；`unresolved review threads = 0` 只是必要条件，不能替代外部审阅证据。
 - reviewer 报告 findings 后，author 必须记录每项 disposition，并在修复后的当前 head 请求新的 clean re-review；旧 head 的 approval、无新评论或仅解决线程都不能沿用。
 - 单维护者场景不降低门槛：维护者可以且应当自审、处置 findings 并发表 G3 comment，但必须另有一个有效外部 reviewer。
-- R0/R1 尚未具备 required check 时，按文档中的 bootstrap 规则显式记录阶段和缺失项。Related PR B 自身不能用候选 validator 自批，仍由 G3 Owner 人工核验新增外部审阅字段；PR B 合入后，后续 PR 的 `check-gate-evidence g3` 还必须取得 live `check-external-review` exact-head `pass`。进入 R2 后，`External Review Gate` Check success 与当前 head 的 append-only G3 comment 构成双钥匙。
+- R0/R1 尚未具备 required check 时，按文档中的 bootstrap 规则显式记录阶段和缺失项。Related PR B 自身不能用候选 validator 自批，仍由 G3 Owner 人工核验新增外部审阅字段；PR B 合入后，后续 PR 的 `check-gate-evidence g3` 还必须取得 live `check-external-review` exact-head `pass`。进入 R2 后，`External Review Gate` Check success 与 current G3 Owner comment 构成双钥匙；comment 编辑后以 `updatedAt` 重新生效并要求新 marker。
 - Related PR C 自身不能使用尚未合入 default branch 的候选 shadow workflow 自批；使用 main 上的 live validator 完成 exact-head 判断，并在 G3 comment 记录 Check 尚未发布 / required 的 R0 bootstrap 边界。PR C 合入、首次 trusted-ref Check 验证与 R1 起点 comment 完成前，不开始 14 天 / 10 eligible PR 计时。
 - content-equivalent rebase、provider / platform outage、security / emergency hotfix、confirmed gate defect 只能走文档定义的显式例外；current comment 必须写 `- Gate 结果：G3 Waived` 并提供 `external-review-waiver:v1` 结构化、未过期证据，validator 保持 `waived` 而不映射成 `pass`；不得扩展成日常 bypass。
 - fork / cross-repository PR 不计入 R1 eligible sample，也不能在 R2 以缺失 `External Review Gate` Check 合并；必须把最终 patchset 迁移到 same-repository PR，并对新 PR exact head 重新完成外部审阅与 G3。
@@ -157,7 +157,7 @@ Docs: updated
 Refs: #<id>
 ```
 
-`Gate: G3 Candidate` 只表示该 commit 可进入 PR 级 G3 判断；正式 `G3 Pass` 只存在于当前 head 的 Check 和 append-only G3 comment。阻断中的本地提交可使用 `Gate: G3 Block`，但它不得进入 PR / push 合并范围。
+`Gate: G3 Candidate` 只表示该 commit 可进入 PR 级 G3 判断；正式 `G3 Pass` 只存在于当前 head 的 Check 和 current G3 Owner comment，合并前编辑按最新 `updatedAt` 重验。阻断中的本地提交可使用 `Gate: G3 Block`，但它不得进入 PR / push 合并范围。
 
 只有关联 Issue 满足 G4 完成边界时，才在 commit message footer 使用 `Closes: #<id>`；否则使用 `Refs: #<id>`。PR body 的 `Closes #<id>` / `Resolves #<id>` 用于 GitHub Development 关联，不改变常规 commit footer 规则。
 

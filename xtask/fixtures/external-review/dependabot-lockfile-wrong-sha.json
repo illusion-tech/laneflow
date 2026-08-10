@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 313,
+    "author": { "login": "dependabot[bot]" },
+    "headRefOid": "9d941d7b54a79e089b97520d66a3bf0125d5c91a",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "files": {
+      "nodes": [{ "path": "Cargo.lock", "changeType": "MODIFIED" }]
+    },
+    "commits": {
+      "nodes": [
+        {
+          "commit": {
+            "oid": "9d941d7b54a79e089b97520d66a3bf0125d5c91a",
+            "committedDate": "2026-08-06T02:05:11Z",
+            "url": "https://github.com/illusion-tech/laneflow/commit/9d941d7b54a79e089b97520d66a3bf0125d5c91a",
+            "author": {
+              "name": "dependabot[bot]",
+              "email": "49699333+dependabot[bot]@users.noreply.github.com"
+            }
+          }
+        }
+      ]
+    },
+    "reviews": {
+      "nodes": [
+        {
+          "id": "PRR-codex-wrong-sha",
+          "author": { "login": "chatgpt-codex-connector" },
+          "body": "",
+          "state": "COMMENTED",
+          "submittedAt": "2026-08-06T03:00:00Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/313#pullrequestreview-1",
+          "commit": { "oid": "9d941d7b54a79e089b97520d66a3bf0125d5c91a" }
+        }
+      ]
+    },
+    "reviewThreads": {
+      "nodes": [
+        {
+          "id": "PRRT-codex-wrong-sha",
+          "isResolved": true,
+          "isOutdated": false,
+          "comments": {
+            "nodes": [
+              {
+                "id": "PRRC-codex-wrong-sha",
+                "author": { "login": "chatgpt-codex-connector" },
+                "body": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Restore Dependabot author or add governance fields**\n\nFor this lockfile bump, the reviewed commit `91f05a4` is authored as `Codex <codex@openai.com>` while keeping a Dependabot-style message body that lacks the required LaneFlow `Gate`/`Slice`/`Impact`/`Scope`/`Validation`/`Docs`/`Refs` fields. The range checker only skips that validation when `xtask/src/main.rs:761-765` sees the exact Dependabot author/email and `xtask/src/main.rs:818-828` accepts the `build(deps)` title, so this commit will be rejected by the commit-message check unless it is re-authored as Dependabot or rewritten with the full governance block.\n\nUseful? React with 👍 / 👎.",
+                "createdAt": "2026-08-06T03:00:00Z",
+                "updatedAt": "2026-08-06T03:00:00Z",
+                "url": "https://github.com/illusion-tech/laneflow/pull/313#discussion_r1",
+                "pullRequestReview": {
+                  "id": "PRR-codex-wrong-sha",
+                  "author": { "login": "chatgpt-codex-connector" },
+                  "state": "COMMENTED",
+                  "submittedAt": "2026-08-06T03:00:00Z",
+                  "commit": { "oid": "9d941d7b54a79e089b97520d66a3bf0125d5c91a" }
+                }
+              },
+              {
+                "id": "PRRC-disposition",
+                "author": { "login": "wangzishi" },
+                "body": "Disposition: rejected as wrong-range metadata. Current head 9d941d7b54a79e089b97520d66a3bf0125d5c91a is authored by dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>.",
+                "createdAt": "2026-08-06T03:05:00Z",
+                "updatedAt": "2026-08-06T03:05:00Z",
+                "url": "https://github.com/illusion-tech/laneflow/pull/313#discussion_r2"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
