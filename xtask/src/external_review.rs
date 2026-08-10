@@ -760,6 +760,8 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     }
     collect_pagination_errors(pr, &mut diagnostics);
     let dependabot_completion = dependabot_lockfile_completion(pr);
+    let mut dependabot_completion_event = dependabot_completion
+        .map(|completion| (completion.committed_date.as_str(), completion.url.as_str()));
 
     let mut review_to_finding_threads = BTreeMap::<String, usize>::new();
     let mut finding_thread_ids = BTreeSet::<String>::new();
@@ -774,10 +776,20 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             diagnostics.push(format!("review thread `{}` 没有 comment", thread.id));
             continue;
         };
-        if dependabot_completion.is_some_and(|completion| {
-            is_dependabot_lockfile_false_positive(thread, completion, &pr.head_ref_oid, &author)
-        }) {
-            continue;
+        if let Some(completion) = dependabot_completion {
+            if let Some(disposition) = dependabot_lockfile_false_positive_disposition(
+                thread,
+                completion,
+                &pr.head_ref_oid,
+                &author,
+            ) {
+                if dependabot_completion_event.is_none_or(|current| {
+                    timestamp_second(disposition.0) > timestamp_second(current.0)
+                }) {
+                    dependabot_completion_event = Some(disposition);
+                }
+                continue;
+            }
         }
         let Some(actor) = first_comment.author.as_ref() else {
             continue;
@@ -956,11 +968,15 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         );
     }
 
-    if let Some(completion) = dependabot_completion.filter(|_| {
-        finding_thread_ids.is_empty()
-            && unthreaded_findings == 0
-            && unresolved_actionable_threads == 0
-    }) {
+    if let (Some(completion), Some((completion_time, completion_url))) = (
+        dependabot_completion.filter(|_| {
+            finding_thread_ids.is_empty()
+                && unthreaded_findings == 0
+                && unresolved_actionable_threads == 0
+                && !stale_or_dismissed
+        }),
+        dependabot_completion_event,
+    ) {
         push_evidence(
             &mut evidence,
             &mut diagnostics,
@@ -971,8 +987,8 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 reviewed_head: &completion.oid,
                 reviewed_base: &pr.base_ref_oid,
                 outcome: EvidenceOutcome::Clean,
-                submitted_at: &completion.committed_date,
-                evidence_url: &completion.url,
+                submitted_at: completion_time,
+                evidence_url: completion_url,
             },
         );
     }
@@ -1232,20 +1248,20 @@ fn dependabot_lockfile_completion(pr: &PullRequestSnapshot) -> Option<&CommitMet
     .then_some(commit)
 }
 
-fn is_dependabot_lockfile_false_positive(
-    thread: &ReviewThread,
+fn dependabot_lockfile_false_positive_disposition<'a>(
+    thread: &'a ReviewThread,
     completion: &CommitMetadata,
     current_head: &str,
     pr_author: &str,
-) -> bool {
+) -> Option<(&'a str, &'a str)> {
     if !thread.is_resolved && !thread.is_outdated {
-        return false;
+        return None;
     }
     let Some(first) = thread.comments.nodes.first() else {
-        return false;
+        return None;
     };
     let Some(review) = first.pull_request_review.as_ref() else {
-        return false;
+        return None;
     };
     let linked_head = review.commit.as_ref().map(|commit| commit.oid.as_str());
     let title_matches = [
@@ -1269,22 +1285,29 @@ fn is_dependabot_lockfile_false_positive(
         || !first.body.contains("Codex <codex@openai.com>")
         || claimed_head.is_none_or(|claimed| oid_matches_current(claimed, current_head))
     {
-        return false;
+        return None;
     }
-    thread.comments.nodes.iter().skip(1).any(|reply| {
-        trusted_provider(
-            reply.author.as_ref().map_or("", |actor| &actor.login),
-            pr_author,
-        ) == Some("human")
-            && valid_timestamp(&reply.updated_at)
-            && valid_github_url(&reply.url)
-            && timestamp_second(&reply.updated_at) > timestamp_second(&first.updated_at)
-            && reply.body.starts_with("Disposition:")
-            && reply.body.contains(&completion.oid)
-            && reply
-                .body
-                .contains("dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>")
-    })
+    thread
+        .comments
+        .nodes
+        .iter()
+        .skip(1)
+        .filter(|reply| {
+            trusted_provider(
+                reply.author.as_ref().map_or("", |actor| &actor.login),
+                pr_author,
+            ) == Some("human")
+                && valid_timestamp(&reply.updated_at)
+                && valid_github_url(&reply.url)
+                && timestamp_second(&reply.updated_at) > timestamp_second(&first.updated_at)
+                && reply.body.starts_with("Disposition:")
+                && reply.body.contains(&completion.oid)
+                && reply
+                    .body
+                    .contains("dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>")
+        })
+        .max_by_key(|reply| timestamp_second(&reply.updated_at))
+        .map(|reply| (reply.updated_at.as_str(), reply.url.as_str()))
 }
 
 fn collect_pagination_errors(pr: &PullRequestSnapshot, diagnostics: &mut Vec<String>) {
@@ -2461,6 +2484,14 @@ mod tests {
         assert_eq!(pass.state, ExternalReviewState::Pass);
         assert_eq!(pass.provider.as_deref(), Some("dependabot_lockfile_policy"));
         assert_eq!(pass.finding_count, 0);
+        assert_eq!(
+            pass.completion_time.as_deref(),
+            Some("2026-08-06T03:05:00Z")
+        );
+        assert_eq!(
+            pass.evidence[0].evidence_url,
+            "https://github.com/illusion-tech/laneflow/pull/313#discussion_r2"
+        );
 
         let mut source_change = fixture(contents);
         source_change.pull_request.files.nodes[0].path = "src/lib.rs".to_string();
@@ -2473,6 +2504,17 @@ mod tests {
             .nodes
             .push(multiple_commits.pull_request.commits.nodes[0].clone());
         assert!(!evaluate_snapshot(&multiple_commits).state.is_pass());
+
+        let mut dismissed_review = fixture(contents);
+        let mut dismissed = dismissed_review.pull_request.reviews.nodes[0].clone();
+        dismissed.id = "PRR-dismissed-body-finding".to_string();
+        dismissed.state = "DISMISSED".to_string();
+        dismissed.body = "Substantive body-only finding".to_string();
+        dismissed_review.pull_request.reviews.nodes.push(dismissed);
+        assert_eq!(
+            evaluate_snapshot(&dismissed_review).state,
+            ExternalReviewState::Stale
+        );
 
         let mut unresolved = fixture(contents);
         unresolved.pull_request.review_threads.nodes[0].is_resolved = false;
@@ -2510,7 +2552,12 @@ mod tests {
             .comments
             .nodes[1]
             .updated_at = "2026-08-06T03:06:00Z".to_string();
-        assert!(evaluate_snapshot(&edited_comments).state.is_pass());
+        let edited = evaluate_snapshot(&edited_comments);
+        assert!(edited.state.is_pass());
+        assert_eq!(
+            edited.completion_time.as_deref(),
+            Some("2026-08-06T03:06:00Z")
+        );
 
         let mut finding_edited_after_disposition = fixture(contents);
         finding_edited_after_disposition
