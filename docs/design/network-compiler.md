@@ -380,7 +380,7 @@ AST 不含 Core handle、runtime slot、target ABI 或 compiler 推断出的最�
 - defaults 的显式化；
 - authoring semantic category 与 overlay merge。
 
-HIR 仍能追溯全部 source span。跨 module 重名、引用 cycle、unit/type 错误在此失败。
+HIR 仍能追溯全部 source location。跨 module 重名、引用 cycle、unit/type 错误在此失败。
 
 ### 6.3 中层中间表示（MIR）
 
@@ -695,7 +695,7 @@ StableId128 =
 - **SHA-256**：承担 artifact/image/publication integrity，不与实体标识摘要
   混用。
 
-compiler 维护 `StableId128 -> CanonicalIdentity + owning span` 登记。两个 stable
+compiler 维护 `StableId128 -> CanonicalIdentity + owning source location` 登记。两个 stable
 entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest 对应不同 tuple
 返回 `IdentityDigestCollision`。不得追加 ordinal、salt 或 suffix 静默修复。
 
@@ -1009,7 +1009,7 @@ envelope 内的 records 绑定权威来源模块图、frontend/import 工具与�
 - 拥有声明（owning declaration）和贡献来源位置（contributing locations）；
 - declaration/addressable-derived 使用
   `(entityKind, StableId128, typed ordinal)` 引用 portable artifact 中的
-    `CanonicalIdentityTable` row，并附加闭合 `SourceLocation` / provenance；可以为诊断展示
+  `CanonicalIdentityTable` row，并附加闭合 `SourceLocation` / provenance；可以为诊断展示
   冗余规范元组，但该副本不是 validator 输入或身份权威；
 - owner-local relation/occurrence 使用 owning StableId128、typed role 和本次
   compilation 的 `localIndex`；
@@ -1059,8 +1059,9 @@ compilerBuildId` 全部精确相等；来源沿袭记录作为 envelope exact by
 不匹配都以 `SourceMapArtifactMismatch` 失败关闭；记录级三元组 key 只能在完成该
 配对后定位行，不能单独证明 source map 属于某份 artifact。
 
-诊断对标 rustc：稳定 code、severity、primary/secondary span、原因和可执行建议。
-authoring error 指向 source/画布；artifact corruption/version mismatch 面向运维，不
+诊断对标 rustc：稳定 code、severity、primary/secondary source location、原因和可执行
+建议；文本来源可把 location 渲染为 span。authoring error 指向 source/画布；artifact
+corruption/version mismatch 面向运维，不
 返回 generated JSON 行号。
 
 ### 8.5 语义差异（Semantic Diff）
@@ -1540,7 +1541,7 @@ descriptor/receipt。
   restore 与 dynamic Route rebuild；
 - source map completeness 与 diagnostic stability；
 - source map descriptor/envelope 的 exact artifact、revision、provenance、digest、
-  length 绑定，以及旧 span、替换 source map、truncated/appended bytes 的拒绝测试；
+  length 绑定，以及旧 source location、替换 source map、truncated/appended bytes 的拒绝测试；
 - semantic diff golden tests，以及 forged/tampered diff、错误 base/target digest、
   未受信任 cutover descriptor、缺失 diff 和 index-only cutover 的拒绝测试；
 - 对保持同一 StableId128 但改变 topology relation、geometry、access/signal policy

@@ -450,7 +450,8 @@ table 以 `(module, typed address)` 查找，并按固定 owner-kind 父先子�
 CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::required_tags()`
 构造；parent StableId 只在适用 kind 中作为其中一项，不能替代 Movement/ManeuverPath
 等实体的其他必需 tag。实际布局可以使用受计量 interner/ordinal 和共享 backing，不能
-拼接 owner path 成伪 key，也不能让 HIR 按来源语言分支。
+拼接 owner path 成伪 key，也不能让 HIR 按来源语言分支；地址 component、索引 capacity
+和解析 scratch 全部进入现有 string/live-byte 账本。
 
 具体方法消费 compiler 自身字段私有封装并进入同一个私有接入函数。不得公开
 `add_module`、`OfficialFrontend` 特征、裸 `TypedAstModule` 或裸描述符/内容配对入口，
@@ -650,6 +651,11 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
 + context-local typed ordinal 寻址；规范模块重排携带 index 而不重编号，也不以 index
 排序。ordinal 不进入 LIR、摘要、持久编码或规范排序；排序必须解析并比较实际来源地址、
 属性 step 与 key bytes。
+
+返回 `DiagnosticBundle` 后，candidate context、bundle handle vector 与 retained capacity
+转为 caller-owned，不计入后续 compiler 调用；builder 仍持有的 admitted context allocation
+继续只在 builder ledger 计一次。G2 必须验证 caller 保留旧 bundle 时同一 builder 重试，
+并把 compiler-controlled 与 caller-retained bytes 分开报告。
 
 后继 #298 只能从同一个已验证编译结果（Validated Compilation Output）中的 LIR 与
 该伴随数据原子发射源映射；不能从已经释放的 AST/HIR/MIR 重新猜测来源，也不能让

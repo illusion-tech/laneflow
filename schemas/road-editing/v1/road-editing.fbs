@@ -1,8 +1,9 @@
 // LaneFlow 道路编辑来源缓冲区 v1。
 //
 // 本 schema 只冻结 portable wire shape。字符串语法、引用闭包、数值范围、所有者
-// 唯一性、曲线误差与资源上限仍由 LaneFlow 语义验证器执行。所有 table 字段都显式
-// 分配 id；后继版本只能追加或 deprecated，不能复用 id / enum / union 判别值。
+// 唯一性、曲线误差与资源上限仍由 LaneFlow 语义验证器执行。当前 exact B1 version 的
+// table id / enum / union 判别值固定；未发布的后继 version 可经新 G1 clean-regenerate，
+// 不在 promotion/publication 前承担 append / deprecated / no-reuse 兼容承诺。
 
 namespace LaneFlow.RoadEditing.V1;
 

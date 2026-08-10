@@ -288,15 +288,17 @@ FlatBuffers scalar 的 wire 缺省值与显式写入同一默认值不可区分�
 
 ## 9. 演进和验证
 
-- 每张 table 的字段 `id` 从 0 连续分配；union 字段同时占用隐式 type id。字段只能在
-  末尾追加或标记 `(deprecated)`，不能改类型、改默认语义、移动/复用 id。
-- enum 与 union 判别值显式固定且永不复用。B1 v1 只授权内部完整验证，尚未进入
-  `schemas/publication.json`；其 fixture 由 exact commit/digest 绑定，变更后 clean-regenerate，
-  旧 B1 bytes 失败关闭且不提供迁移。只有经产品确认并发布的存档语义，新增持久字段、
-  声明种类、曲线 union 或语义变化才必须提升 `format_version`，并由当次产品/G1 决定
-  一次性迁移范围。
+- 当前 exact B1 schema 的每张 table 字段 `id` 从 0 连续分配，union 字段同时占用隐式
+  type id，enum 与 union 判别值显式固定。B1 v1 只授权内部完整验证，尚未进入
+  `schemas/publication.json`；任何会让旧 bytes 被不同解释的 wire/语义变化都必须提升
+  `format_version` 及相应 frontend/geometry semantics code，当前 reader 拒绝旧值且不提供
+  迁移。internal family 保持 `LFRE + root format_version(id:0,uint)` 可读 envelope；若该
+  envelope 也改变，则分配新 file identifier。
+- 未发布的新版本经新 G1 可以重排其他 field/enum/union 编号并 clean-regenerate，不承担
+  append/deprecated/no-reuse 债务。只有产品确认 promotion/publication 后，才由当次
+  产品/G1 冻结跨版本编号兼容、`flatc --conform` 和一次性迁移范围。
 - 未来连续硬保证或 B1 production promotion 都必须重新进行产品/G1 判断；B1 UI/文档
   只能陈述工程目标和观测证据，不能声明 `2/5/10 cm` 连续最大误差保证。
 - G2 必须使用固定 `flatc 25.12.19` 对 Rust、C++、C# 生成物执行 clean regeneration，
-  对后继 schema 执行 `flatc --conform`，并证明 production 调用图只从受检
+  对当前 exact schema 执行 self-conform，并证明 production 调用图只从受检
   size-prefixed root 进入且不调用 `_unchecked`。

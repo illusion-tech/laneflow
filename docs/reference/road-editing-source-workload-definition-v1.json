@@ -6,7 +6,7 @@
   "productMaturity": "B1-internal-complete-validation-only; not a published long-term save contract",
   "sourceFormatSchema": {
     "path": "schemas/road-editing/v1/road-editing.fbs",
-    "sha256": "8f53d8b8e07d82709e5a2215bdd83a41de447e232a9c25cdfd34fa2d5961acaf"
+    "sha256": "173c25751659124e7a9c9835b59606aed0838b62a944db62fe99be9345f9a268"
   },
   "semanticSeed": {
     "path": "research/issue-296-geometry-frontend-calibration/fixtures/p100-v1.fixture.json",
@@ -287,6 +287,48 @@
     "enumerationOrder": "accuracy profile outer loop numeric ascending, direction profile inner loop numeric ascending",
     "requiredCombinationCount": 9
   },
+  "horizontalRegularityResourceProbe": {
+    "workloadId": "LF-ROAD-EDITING-P100-REGULARITY-v1",
+    "role": "formal five-module companion resource workload; exercises the production curved-offset path without mutating semanticSeed",
+    "baseWorkload": "generate the complete LF-ROAD-EDITING-P100-v1 five-module source exactly, then apply the one replacement below before writer encoding",
+    "profileCombination": {
+      "geometryAccuracyProfile": 2,
+      "geometryDirectionProfile": 2
+    },
+    "replacement": {
+      "module": "p100.m00",
+      "roadAlignmentKey": "corridor-main-road-0/road",
+      "onlyChangedSemanticProperty": "RoadAlignment.reference_line",
+      "referenceLine": {
+        "start": [0.0, 0.0, 0.0],
+        "segments": [
+          {
+            "kind": "cubicBezier",
+            "control1": [20.0, 0.0, 0.0],
+            "control2": [20.0, 0.0, 20.0],
+            "end": [189.5, 0.0, 0.0]
+          }
+        ]
+      },
+      "endpointIdentityRule": "start and end exactly equal the replaced line, so topology endpoints and every declaration/reference/count remain unchanged",
+      "widthRule": "retain the base workload widthProfileRule assignments; this alignment therefore includes inner/outer offsets and widening/narrowing lane profiles"
+    },
+    "exactStructuralCounts": {
+      "curveProgramCount": 195,
+      "curveSegmentCount": 275,
+      "lineSegmentCount": 174,
+      "cubicBezierSegmentCount": 101,
+      "offsetBearingCubicReferenceSegmentCount": 1
+    },
+    "horizontalRegularityVisitExpectation": {
+      "baseP100TotalCubicNodeVisitsPerCompile": 0,
+      "probeTotalCubicNodeVisitsPerCompile": 3,
+      "probeMaximumPerOffsetBearingSourceSegment": 3,
+      "accountingRule": "count each cubic regularity DFS pop once, cache by RoadAlignment source segment across all derived lane/facility offsets, and do not count direct line checks or junction-internal explicit curves"
+    },
+    "measurementRule": "use the same release/locked reference machine, one warmup, seven fresh formal processes, named stage timing, live-byte ledger and retained-capacity protocol as the main workload; retain the probe module digests and byte lengths separately",
+    "peakRelationship": "the probe complete-compile CPU/scratch/live-byte peak is coequal formal absolute-budget evidence and must independently fit the same production limits; it neither replaces the main nine-combination P100 evidence nor adds its separate-process peak arithmetically to the main peak"
+  },
   "requiredMeasurements": [
     "typed-model-build",
     "encode-save",
@@ -297,7 +339,8 @@
     "source-byte-size",
     "verified-table-occurrences",
     "derived-geometry-point-count",
-    "horizontal-regularity-node-visits",
+    "total-horizontal-regularity-node-visits",
+    "maximum-horizontal-regularity-node-visits-per-offset-bearing-source-segment",
     "observed-evaluator-interval-count",
     "observed-sample-count",
     "observed-position-error-p50-p95-p99-max",
@@ -398,7 +441,8 @@
       "reference machine identity matches",
       "writer, compiler and generator revisions are one exact commit",
       "single-module rewrite lifecycle and all three rewrite peaks are present",
-      "every source segment reports horizontal-regularity node visits no greater than 4095",
+      "the base P100 reports zero cubic regularity visits and the formal companion resource probe reports exactly three total and three maximum visits per compile",
+      "every offset-bearing reference source segment reports horizontal-regularity node visits no greater than 4095; line direct checks and junction-internal explicit curves are excluded",
       "all nine combinations include the fixed 4097-point observed-error distribution and worst attribution without a continuous-bound claim",
       "for every combination the canonical evaluator interval identity list matches independently and observedSampleCount equals observedEvaluatorIntervalCount multiplied by 4097"
     ]

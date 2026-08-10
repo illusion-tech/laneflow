@@ -101,8 +101,9 @@ FlatBuffers writer 与编译器 reader 必须共享验证规则，不得形成�
 原语必须在写入 v1 前转换为这两种 segment；第一方转换器必须按所选 2/5/10 cm B1 档
 执行固定网格观测并在超限时拒绝转换。转换报告由调用者持有，不进入 `.lfre`、内容摘要或
 #296 编译器输入；该观测不构成原始 primitive 到 cubic 的连续硬保证。
-v1 不保存其原始 primitive 语义。增加新的 curve union 判别值必须提升来源格式版本并
-在已发布后提供显式迁移。MIR 按 ADR 0022 的配置档执行 stationing、offset、确定性细分
+v1 不保存其原始 primitive 语义。后继若增加 curve union，未发布 B1 也必须提升来源格式
+版本、拒绝旧版本并 clean-regenerate；只有已经产品确认并发布的存档语义才由当次
+产品/G1 决定是否交付迁移。MIR 按 ADR 0022 的配置档执行 stationing、offset、确定性细分
 与直接检查，LIR
 只保留规范 `f32` 折线及派生静态语义。
 
@@ -207,8 +208,9 @@ schema 遵守以下闭合规则：
   `RoadCorridor` 以 alignment key 和 station 区间引用走向，避免在每个走廊复制完整曲线；
 - 不使用尚未在预期 C++、C#、Rust 组合中形成共同稳定基线的 vector-of-union；v1 只有
   每个 `CurveSegment` table 内的普通 `CurveSegmentGeometry` union；
-- 每个 table 的全部字段从 v1 起显式分配连续 `id`，enum 与 union discriminant 显式
-  固定数值；字段/判别值永不复用；
+- 当前 exact B1 schema 的每个 table 字段显式分配连续 `id`，enum 与 union discriminant
+  显式固定数值；这些编号只绑定当前 exact `format_version`，不提前形成跨版本 no-reuse
+  兼容承诺；
 - 必需 string、table、struct 和 vector 使用 `(required)`。只有确实区分“缺失”和零值的
   `random_seed` 使用可选 inline `OptionalU64`；其他 scalar 按值解释，合法零值不要求
   writer 使用 `force_defaults`。enum 的零值只作 `Unspecified` 哨兵并在要求具体选择时
@@ -274,9 +276,12 @@ struct OwnedEntityReference<K> {
 查找。owner kind 按 `RoadCorridor -> RoadSection/FacilityBand`、
 `RoadCorridor -> RoadSection -> AuthoringLane/LaneGroup`、
 `Junction -> Movement -> ManeuverPath -> ManeuverGate/WaitingZone` 和
-`SignalController -> SignalPhase` 的固定父先子后顺序解析；child 的 Identity v1 仍使用
-`identity_local_key + 已解析 parent StableId`，不把 owner path 的来源拼写直接哈希为产品
-身份。Synthetic/current 的模块级声明映射为空 owner path，既有身份与诊断排序不变。
+`SignalController -> SignalPhase` 的固定父先子后顺序解析。typed address 只负责找到声明和
+解析 parent；最终 Identity 必须按 `EntityKind::required_tags()` 在 Identity v1 registry
+登记的完整 tag 顺序构造，owner anchor 只是其中一项。例如 `Movement` 还包含 directed
+entry/exit approach keys，`ManeuverPath` 还包含 Movement、entry/exit edge StableId。owner
+path 的来源拼写不得直接哈希为产品身份。Synthetic/current 的模块级声明映射为空 owner
+path，既有身份与诊断排序不变。
 地址 component、共享 backing 和 symbol-key capacity 全部进入 string/scratch/live-byte
 账本；不得用重复路径字符串规避计量。
 
@@ -376,12 +381,15 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
   已由 #297 的 feature-gated `CurrentTrafficSpatialV0_10` 独占，旧未发布
   `GeometryDocument = 2` 在 G2 删除且不建立别名；
 - `format_version = 1` 是本 exact G1 schema 的精确版本，不是“最低兼容版本”。B1 尚未进入
-  publication，内部 fixture 只由 exact commit/digest 绑定；本阶段 schema/语义变化直接
-  clean-regenerate，旧 B1 bytes 失败关闭且不提供迁移。只有后续经产品确认并发布的存档
-  版本，才要求持久字段增加/删除、含义改变、声明种类或 union 变化产生新版本，并由当次
-  产品/G1 决定是否交付一次性迁移器；
-- 每个 table 字段的 `id`、enum 数值和 union discriminant 永不复用；删除字段只能标记
-  `(deprecated)`，schema 演进必须由固定版本 `flatc --conform` 检查；
+  publication，内部 fixture 由 exact commit/digest 绑定；任何可能让旧 bytes 被不同解释的
+  wire 或语义变化都必须提升 `format_version` 及对应 frontend/geometry semantics code，
+  当前 reader 只接受新的精确值，旧 B1 bytes 失败关闭且不提供迁移。internal family 至少
+  保持可在语义读取前识别的 `LFRE + root format_version(id:0,uint)` envelope；若连该
+  envelope 也改变，则分配新 file identifier。新未发布版本可在新 G1 后重排其他
+  field/enum/union 编号并 clean-regenerate，不承担 append/no-reuse 债务；
+- 只有后续经产品确认并发布的存档版本，才由当次产品/G1 冻结
+  append/deprecated/no-reuse、跨版本 `flatc --conform` 和是否提供一次性迁移；当前 B1
+  只要求 exact schema/codegen 再现、版本拒绝与同版本 known vectors；
 - 旧工具可能在结构 verifier 后看到新版本，但必须在任何 LaneFlow 语义 lowering 和
   规模相关分配前拒绝；不能依靠未知字段忽略完成跨版本 round trip；
 - 攻击性输入或错误 writer 在 `format_version = 1` 下附带的未知 vtable slot 语义上无效
@@ -478,8 +486,13 @@ pub enum RoadEditingSubject {
     ModuleHeader,
     RoadAlignment { /* RoadEditingSourceAddress */ },
     Declaration { /* RoadEditingSourceAddress */ },
-    OwnerLocal { /* owner RoadEditingSourceAddress + relation kind + u32 occurrence */ },
+    OwnerLocal { /* owner address + relation kind + RoadEditingRelationOccurrence */ },
     Wire { /* root vector kind + u32 physical index + table kind */ },
+}
+
+pub enum RoadEditingRelationOccurrence {
+    OrderedProductOrdinal(u32),
+    CanonicalSetOrdinal(u32),
 }
 
 pub struct RoadEditingSourceAddress {
@@ -508,7 +521,11 @@ parent StableId 形成产品稳定身份。`RoadEditingPropertyPath` 是最多�
 字符串或向量下标；例如 lane 结束宽度表示为
 `AuthoringLane.width_profile -> LinearWidthProfile.end_width_meters`，Bezier 第二控制点的
 x 分量表示为 `CurveSegment.geometry -> CubicBezierSegment -> control_1 -> Vec3F64.x`。
-关系 occurrence 已由 subject 携带，故属性路径不重复表达 owner 向量下标。
+关系 occurrence 已由 subject 携带，故属性路径不重复表达 owner 向量下标。有产品顺序的
+owner vector 使用原产品 ordinal；无序唯一集合使用解析/规范化 target reference 后按
+`namespace + owner tuple + local key` 排序得到的 canonical ordinal。可解析但目标未知的
+reference 仍按其规范拼写参与排序；语法本身损坏时只能使用 `Wire` structural fallback，
+物理 vector index 不得进入 `OwnerLocal`、稳定诊断排序或后继来源差异。
 
 每次 `add_road_editing_module` 在 verifier 前先接收已经由 `RoadEditingModuleInput::try_new`
 验证的 `expected_source_document_key`，再建立唯一可变的 candidate
@@ -533,6 +550,12 @@ handle vector capacity 和失败 bundle 的 retained bytes 全部预收费并进
 该 index 的 module record，不重编号 context，也不把 index 当成排序键。因此候选 Typed
 AST/module 或 builder 释放后仍可解析。两种返回对象只公开只读解析 accessor；ordinal
 只是一轮编译内的紧凑地址，不得持久化、参与摘要或直接用于诊断排序。
+
+`DiagnosticBundle` 返回后，其 candidate context、handle vector 和 retained capacity 转为
+caller-owned，不再计入下一次 compiler 调用；仍由 builder 同时持有的 admitted context
+allocation 继续且只在 builder ledger 中计一次。调用方保留旧 bundle 并重试不会让 builder
+重复承担旧 bundle handle/capacity，但 G2 必须覆盖“旧 bundle 仍存续 + 同 builder 新候选”
+生命周期测试，并分别报告 compiler ledger 与 caller-retained bytes。
 
 verifier 失败使用 `Input` document identity、`Wire` subject、field/vector trace 和可选
 `RoadEditingByteRange`；该
@@ -652,7 +675,8 @@ width/profile 和模块内集合规则，保证同一字段值域只有一份实
 
 构造模型、排序 scratch、FlatBuffers storage、错误诊断和返回 buffer 全部纳入
 `CompilerControlledLiveBytes`。builder 按实际元素/string 逐次计量；writer 在分配前以
-schema table/vector/string、每对象最多 8-byte alignment padding 和 vtable 上界计算
+schema table/vector/string、每一次 schema emission `push/align` 最多 8-byte padding 和
+vtable 上界计算
 checked wire upper bound，超过 `SourceBytesPerModule` 或 live-byte 余额即失败。storage
 只按该上界预分配一次；实际 size prefix 必须等于 `as_bytes().len() - 4`。G2 边界测试
 必须分别报告 write 峰值、返回 buffer retained capacity，以及该 buffer 随后进入 reader
@@ -751,8 +775,9 @@ schema probe，不进入 source tree。命令不得增加 `--gen-object-api`、`
 本 G1 冻结依赖版本与生成器身份，但不在 G2 前修改 Cargo。G2 实际新增依赖时仍须运行
 `cargo metadata`、固定版本 `cargo-deny`、workspace tests，并按
 `dependency-security.md` 复核许可证、来源、RustSec/Dependabot 和分发影响；`flatc` 与
-runtime 必须保持同一固定版本，生成物再现检查和 `flatc --conform` 属于数据格式 G3
-必需证据。未选的 B/C 不进入 production 依赖或实现。
+runtime 必须保持同一固定版本，生成物再现检查和当前 exact schema self-conform 属于数据
+格式 G3 必需证据；跨版本 `flatc --conform` 只服务后继已经产品批准的兼容承诺。未选的
+B/C 不进入 production 依赖或实现。
 
 ## 10. 测试、性能与 workload
 
@@ -763,7 +788,8 @@ runtime 必须保持同一固定版本，生成物再现检查和 `flatc --confo
 - verifier 的 `max_depth`、`max_tables`、`max_apparent_size` 以及 required presence、未知
   enum/union、非法数字、字符串/集合边界和 owner-local 关系的正负测试；
 - 22 种稳定声明的 identity/reorder/insertion known vectors，确保 vector 顺序不改变
-  StableId、LIR 或 #298 规范路网影响差异；
+  StableId、LIR 或 #298 规范路网影响差异，并逐 kind 与现有
+  `EntityKind::required_tags()` registry known vectors 对齐；
 - programmatic Rust writer → bytes → production reader → LIR，以及 C++ writer → Rust
   reader、C# writer → Rust reader 两条最小跨语言 fixture；
 - line/cubic/taper 的 scalar-dual 逐 bit known vectors，覆盖大坐标、九种档位阈值
@@ -773,10 +799,13 @@ runtime 必须保持同一固定版本，生成物再现检查和 `flatc --confo
   来源地址、嵌套 struct/union 叶属性路径、owner-local 来源地址，以及
   失败 `DiagnosticBundle` / 成功 `ValidatedSourceMapInput` 在候选释放后仍能解析
   `canvas_selection` 的生命周期测试；
+- 无序 relation 物理排列不改变 canonical occurrence/诊断/source-map，以及 caller 保留旧
+  `DiagnosticBundle` 后同一 builder 重试的计量/生命周期测试；
 - fuzz / differential：只从安全 size-prefixed root 进入，verifier/accessor 不 panic，旧
   JSON bytes 和任意新版本均失败关闭；CI 证明 production 调用图没有 `_unchecked`；
-- 固定 `flatc` 的 Rust 生成物 clean-diff、schema `--conform`、生成路径外无 `unsafe` /
-  `allow(unsafe_code)`；
+- 固定 `flatc` 的 Rust 生成物 clean-diff、当前 exact schema self-conform、生成路径外无
+  `unsafe` / `allow(unsafe_code)`；跨版本 `--conform` 只在后续 promotion/publication 决策
+  已经建立兼容承诺时成为门禁；
 - `SourceBytesPerModule`、`SourceBytesTotal`、`DeclarationCount`、字符串、几何点、
   verifier table/depth/apparent size 与 `CompilerControlledLiveBytes` 的边界/边界加一。
 
@@ -792,6 +821,14 @@ internal curve（合计 195 个 curve program）、205 条 offset curve、线性
 exact commit、每模块 fixture digest 与 byte length。writer 尚不存在时不能在 G1 伪造
 fixture digest，因此 workload definition 与 G2 measurement evidence 是两个明确制品，
 后者不得改变前者的计数、映射或场景。
+
+基准 P100 的 35 条 alignment 都是 line，不能单独证明 curved-offset regularity 的正常成本。
+同一机器定义因此另冻结正式五模块 companion workload
+`LF-ROAD-EDITING-P100-REGULARITY-v1`：它不修改 semantic seed，只在生成后把
+`p100.m00/corridor-main-road-0/road` 的同端点 line 替换为机器定义中的单 cubic，保留全部
+声明、引用、宽度/taper 与 275 个 segment 总数。该变体每次 compile 必须得到 3 次 cubic
+regularity node visit，并独立报告完整 compile CPU/scratch/live-byte peak；它与主 P100 在
+不同 fresh process 测量，两个峰值不能相加，也不能互相替代。
 
 每个组合分别测量 typed-model build、encode/save、size/identifier 预检、verifier、语义
 预检 + Typed AST lowering、完整 compile、来源字节、阶段峰值、总峰值和 returned buffer

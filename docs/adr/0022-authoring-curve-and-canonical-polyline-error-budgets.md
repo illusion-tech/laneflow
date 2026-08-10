@@ -218,6 +218,9 @@ lerp(a,b,t)= a + t * (b - a)
 对上述已舍入 `Q_i.x/Q_i.z` 执行一次固定的 horizontal-regularity walk。line 直接要求其
 常量 `H` 非零；cubic 把三个 derivative control 当作退化 binary64 interval，并只按精确
 `u = 0.5` 用 interval `lerp(a,b) = a + 0.5 * (b - a)` 做 quadratic de Casteljau split。
+对 controls `(q0,q1,q2)` 固定计算 `q01=lerp(q0,q1)`、`q12=lerp(q1,q2)`、
+`q012=lerp(q01,q12)`，左 child 为 `(q0,q01,q012)`，右 child 为 `(q012,q12,q2)`；栈先压
+右、再压左，使左 child 先访问。
 interval 运算固定为：减法下界用 `next_down(a.lo - b.hi)`、上界用
 `next_up(a.hi - b.lo)`；乘以非负 `0.5` 后分别对两端使用 `next_down/next_up`；加法下界用
 `next_down(a.lo + b.lo)`、上界用 `next_up(a.hi + b.hi)`。每个标量运算先按 round-to-nearest
@@ -231,7 +234,10 @@ ties-to-even 得到 finite binary64，再向指定方向扩一 ULP；`next_down/
 实现使用容量 21 的固定栈，不保留整棵树；栈、interval controls 和访问计数进入 stage
 scratch/live-byte 账本。每次从栈取出一个候选即计一次 visit；单 segment 最多 `4095`
 次，下一次取出前即以 `HorizontalDerivativeNotProvenNonZero` 失败。该独立检查每个 source
-segment 只执行一次，不产生规范几何点，
+segment 在一次 compile 中只执行一次并按 alignment/segment 缓存，不因同一 reference
+派生多个 lane/facility offset 而重复；junction-internal explicit curve 不构造 offset
+evaluator，因而不执行该 walk。line 的常量非零检查不计 interval-node visit。该检查不
+产生规范几何点，
 不消费 `GeometryPointCount`，也不证明位置误差的连续上限。
 
 对每个候选区间 `[ta,tb]`，参数固定为：
