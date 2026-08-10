@@ -492,14 +492,17 @@ fn only_dependabot_body_edits_may_reuse_an_older_marker() {
     assert!(error.contains("与 current G3 comment 同秒"));
 
     edits.nodes[0].edited_at = "2026-08-06T03:30:00Z".to_string();
+    edits.nodes[0].editor = Some(GitHubActor {
+        login: "dependabot".to_string(),
+    });
     let error = validate_dependabot_body_edits_after_marker(
         "2026-08-06T03:30:00Z",
         &timestamps,
         &edits,
         "PR #313",
     )
-    .expect_err("a same-second human edit is ambiguous and requires a new marker");
-    assert!(error.contains("非 Dependabot body edit"));
+    .expect_err("a same-second bot edit is ambiguous and requires a new marker");
+    assert!(error.contains("与 G3 evidence marker 同秒"));
     edits.nodes[0].edited_at = "2026-08-06T03:20:00Z".to_string();
 
     let mut human_edit = edits;
@@ -522,6 +525,37 @@ fn only_dependabot_body_edits_may_reuse_an_older_marker() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn recovered_dependabot_metadata_preserves_g4_related_replay_inputs() {
+    let g3_args = GateEvidenceArgs {
+        phase: GateEvidencePhase::G3,
+        repo: "illusion-tech/laneflow".to_string(),
+        issue: 325,
+        delivery_pr: None,
+        related_prs: vec![313],
+    };
+    let comment = g3_comment_for_args(RELATED_G3_URL, "2026-07-10T05:00:00Z", &g3_args);
+    let recovered_body =
+        recovered_gate_evidence_target_body(&g3_args.repo, 313, RELATED_G3_URL, &comment.body)
+            .expect("validated Dependabot recovery should rebuild target metadata");
+
+    assert_eq!(
+        parse_gate_evidence_target_metadata(&recovered_body),
+        Ok((GateEvidencePrRole::Related, vec![325]))
+    );
+
+    let mut related = related_pr_for_args(false, &g3_args);
+    related.body = recovered_body;
+    related.comments = vec![comment];
+    let issue_body = format!("- [x] G3 合并判断已记录：[Related G3 评论]({RELATED_G3_URL})");
+    let g4_args = GateEvidenceArgs {
+        phase: GateEvidencePhase::G4,
+        ..g3_args
+    };
+
+    assert!(validate_related_pr_g3(&g4_args, &issue_body, &issue_body, 313, &related,).is_ok());
 }
 
 #[test]

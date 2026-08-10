@@ -29,10 +29,12 @@ fn gh_pr_view_for_gate_evidence(
     phase: GateEvidencePhase,
 ) -> Result<GitHubPullRequest, String> {
     let mut pr = gh_pr_view_for_phase(repo, number, phase)?;
-    if phase != GateEvidencePhase::G3 || parse_gate_evidence_target_metadata(&pr.body).is_ok() {
+    if parse_gate_evidence_target_metadata(&pr.body).is_ok() {
         return Ok(pr);
     }
 
+    // G4 会复核同一份 pre-merge G3 证据，因此也必须复用这条经过完整验证的窄
+    // Dependabot 元数据恢复路径，不能重新读取已被 Dependabot 改坏的原始 body。
     let metadata_error = parse_gate_evidence_target_metadata(&pr.body)
         .expect_err("checked missing or invalid PR target metadata");
     let permalink = completed_gate_permalink(&pr.body, "G3").map_err(|permalink_error| {
@@ -57,8 +59,18 @@ fn gh_pr_view_for_gate_evidence(
         &edits,
         &format!("PR #{number}"),
     )?;
+    pr.body = recovered_gate_evidence_target_body(repo, number, &permalink, &comment.body)?;
+    Ok(pr)
+}
+
+fn recovered_gate_evidence_target_body(
+    repo: &str,
+    number: u64,
+    permalink: &str,
+    comment_body: &str,
+) -> Result<String, String> {
     let (role, issue_numbers) =
-        parse_gate_evidence_target_metadata_from_g3_comment(repo, number, &comment.body)?;
+        parse_gate_evidence_target_metadata_from_g3_comment(repo, number, comment_body)?;
     let issues = issue_numbers
         .iter()
         .map(|issue| format!("#{issue}"))
@@ -73,10 +85,9 @@ fn gh_pr_view_for_gate_evidence(
         .map(|issue| format!("Refs: #{issue}"))
         .collect::<Vec<_>>()
         .join("\n");
-    pr.body = format!(
+    Ok(format!(
         "- 关联 Issue：{issues}\n- PR 角色：`{role}`\n- [x] G3 合并判断已记录：{permalink}\n{refs}"
-    );
-    Ok(pr)
+    ))
 }
 
 fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> {

@@ -213,6 +213,11 @@ pub(super) fn validate_dependabot_body_edits_after_marker(
         if edited_seconds < marker_seconds {
             continue;
         }
+        if edited_seconds == marker_seconds {
+            return Err(format!(
+                "{label} body edit 与 G3 evidence marker 同秒；无法证明 Dependabot 在 marker 后自主改写"
+            ));
+        }
         later_edit_count += 1;
         let editor = edit
             .editor
