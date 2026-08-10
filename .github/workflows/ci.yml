@@ -111,7 +111,7 @@ jobs:
         run: rustup toolchain install 1.96.0 --profile minimal
 
       - name: Cache Rust dependencies for governance tools
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: laneflow-msrv-1.96.0-governance
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -183,7 +183,7 @@ jobs:
 
       - name: Cache Rust dependencies
         if: steps.filter.outputs.rust == 'true'
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: laneflow-msrv-1.96.0-rust
           save-if: ${{ github.ref == 'refs/heads/main' }}
