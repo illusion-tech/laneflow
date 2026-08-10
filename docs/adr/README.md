@@ -53,7 +53,12 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   降级边界（Accepted；#291 G1）
 - `0022`: Geometry 编制解析曲线、编译期参考折线、规范 `f32` 运行时折线与 Adapter
   表现几何的误差预算分层；冻结 `Fine2Cm`、`Balanced5Cm`、`Compact10Cm` 三个封闭
-  几何精度配置档与独立方向连续性约束（Accepted；#296 G1）
+  几何精度候选与独立方向连续性约束；旧 G1 Accepted 已因来源产品前提纠偏而返回
+  新 G1 复核（Proposed；#296 G1）
+- `0023`: 道路编辑状态作为生产编制权威、可视化编辑器与程序化生成器共享有类型道路
+  编辑模型，以及道路修改按整体替换 A 阶段演进到候选调整/原子替换 C 阶段；产品负责人
+  已选择按模块 size-prefixed FlatBuffers 作为 production source 编码，等待当前 exact-head
+  G1 审阅（Proposed；#296 G1）
 
 ## 命名规则
 

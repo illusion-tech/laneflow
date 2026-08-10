@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "workloadId": "LF-ROAD-EDITING-P100-v1",
+  "status": "g1-definition",
+  "sourceFormat": "LF-ROAD-EDITING-SOURCE-v1",
+  "sourceFormatSchema": {
+    "path": "schemas/road-editing/v1/road-editing.fbs",
+    "sha256": "764f578262239cdfabf9e8be19052edca4e77b76064b20d5bdbb6cec61d84a88"
+  },
+  "generatorContract": {
+    "id": "LF-ROAD-EDITING-P100-GENERATOR-v1",
+    "randomness": "none",
+    "moduleKeys": [
+      "p100.m00",
+      "p100.m01",
+      "p100.m02",
+      "p100.m03",
+      "p100.m04"
+    ],
+    "importEdges": [
+      ["p100.m01", "p100.m00"],
+      ["p100.m02", "p100.m01"],
+      ["p100.m03", "p100.m02"],
+      ["p100.m04", "p100.m03"]
+    ],
+    "keyRule": "<kind-prefix>-<module-index-2d>-<local-index-3d>",
+    "rootVectorOrder": "local-key-utf8-bytes",
+    "unorderedReferenceOrder": "normalized-reference-utf8-bytes",
+    "orderedOwnerVectors": "preserve-generator-product-order"
+  },
+  "exactCounts": {
+    "moduleCount": 5,
+    "sourceDocumentCount": 5,
+    "roadAlignmentCount": 5,
+    "stableDeclarationCount": 1715,
+    "stableDeclarations": {
+      "RoadCorridor": 35,
+      "RoadSection": 70,
+      "AuthoringLane": 170,
+      "LaneEdge": 330,
+      "Junction": 10,
+      "Movement": 160,
+      "ManeuverPath": 160,
+      "ManeuverGate": 165,
+      "WaitingZone": 5,
+      "StopLine": 105,
+      "SignalGroup": 40,
+      "SignalController": 10,
+      "SignalPhase": 120,
+      "ParkingArea": 5,
+      "ParkingSpace": 5,
+      "LaneGroup": 30,
+      "FacilityBand": 35,
+      "ParticipantClass": 15,
+      "AccessRule": 90,
+      "VehicleProfile": 10,
+      "StaticRoute": 140,
+      "CanonicalFrame": 5
+    },
+    "curveProgramCount": 165,
+    "lineSegmentCount": 175,
+    "cubicBezierSegmentCount": 100,
+    "cubicControlPointCount": 200,
+    "sectionDerivedLaneEdgeCount": 170,
+    "junctionInternalLaneEdgeCount": 160,
+    "facilityOffsetCurveCount": 35,
+    "totalOffsetCurveCount": 205,
+    "linearWidthProfiles": {
+      "constantPositive": 175,
+      "wideningPositive": 10,
+      "narrowingPositive": 10,
+      "zeroToPositive": 5,
+      "positiveToZero": 5
+    },
+    "relationOccurrences": {
+      "imports": 4,
+      "corridorElements": 105,
+      "roadSectionAuthoringLanes": 170,
+      "laneEdgeSuccessors": 320,
+      "junctionApproachEdges": 40,
+      "junctionInternalEdges": 160,
+      "maneuverPathInternalEdges": 160,
+      "signalControllerGroups": 40,
+      "signalControllerPhases": 120,
+      "signalPhaseStates": 480,
+      "accessRuleParticipantClasses": 90,
+      "staticRouteEdges": 580
+    }
+  },
+  "perModuleCounts": {
+    "roadAlignmentCount": 1,
+    "stableDeclarationCount": 343,
+    "lineSegmentCount": 35,
+    "cubicBezierSegmentCount": 20,
+    "sectionDerivedLaneEdgeCount": 34,
+    "junctionInternalLaneEdgeCount": 32,
+    "facilityOffsetCurveCount": 7,
+    "totalOffsetCurveCount": 41
+  },
+  "profileMatrix": {
+    "geometryAccuracyProfiles": [1, 2, 3],
+    "geometryAccuracyNames": ["Fine2Cm", "Balanced5Cm", "Compact10Cm"],
+    "geometryDirectionProfiles": [1, 2, 3],
+    "geometryDirectionNames": ["Smooth1Deg", "Balanced2Deg", "Compact5Deg"],
+    "requiredCombinationCount": 9
+  },
+  "requiredMeasurements": [
+    "typed-model-build",
+    "encode-save",
+    "size-prefix-and-identifier-preflight",
+    "flatbuffers-verifier",
+    "semantic-preflight-and-typed-ast-lowering",
+    "complete-compile",
+    "source-byte-size",
+    "phase-controlled-live-byte-peak",
+    "combined-controlled-live-byte-peak",
+    "returned-buffer-retained-capacity"
+  ],
+  "singleModuleRewriteScenario": {
+    "editedModule": "p100.m02",
+    "edit": "change authoring-lane-02-000 width_profile.end_width_meters from 3.5 to 3.0",
+    "unmodifiedModuleByteIdentityRequired": true,
+    "lifecycle": [
+      "retain all five accepted source buffers",
+      "retain the old p100.m02 buffer while building the candidate typed model",
+      "encode and retain the new p100.m02 buffer",
+      "compile the candidate import closure while old accepted revision remains live",
+      "on success atomically replace p100.m02 and then release its old buffer"
+    ],
+    "requiredPeaks": [
+      "candidate-encode-peak-with-old-buffer",
+      "candidate-compile-peak-with-old-revision",
+      "post-commit-retained-capacity"
+    ]
+  },
+  "g2EvidenceBinding": {
+    "writerImplementationRevision": "must-equal-the-exact-evidence-commit",
+    "fixtureSha256": "must-be-recorded-by-g2-evidence-after-the-writer-exists",
+    "bufferByteLengths": "must-be-recorded-per-module-and-profile-by-g2-evidence",
+    "compilerImplementationRevision": "must-equal-the-exact-evidence-commit"
+  }
+}

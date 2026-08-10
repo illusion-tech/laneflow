@@ -20,7 +20,9 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 10. 准备 #292 G3/G4、推进 #315/#296/#297、审阅官方前端共同接入、current JSON
     退役或编译器性能验收、
     或同步这些议题的 Gate Ledger 时，额外阅读 `docs/design/compiler-foundation.md` 与
-    `docs/reference/v0.10-compiler-foundation-validation.md`
+    `docs/reference/v0.10-compiler-foundation-validation.md`；推进 #296 新 G1 时还须读取
+    `docs/adr/0023-road-editing-state-and-phased-network-replacement.md` 与
+    `docs/design/road-editing-source-and-geometry-frontend.md`
 
 ## 工作流
 

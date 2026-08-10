@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）
 
-**最后更新**: 2026-08-07（current Traffic v0.10；#291/ADR 0020 target；#296/ADR 0022 accepted 误差分层）
+**最后更新**: 2026-08-10（current Traffic v0.10；#291/ADR 0020 target；#296/ADR 0022 新 G1 复核）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -243,11 +243,11 @@ P0 -> P1 -> ... -> Pn
 这些值应用于受检转换后的 runtime `f32` 坐标。若相邻输入点量化后重合，直接返回退化线段错误，不静默合并。basis 阈值按 `projected_up_length < SPATIAL_MIN_PROJECTED_UP_LENGTH` 拒绝，不能复制旧 `f64` epsilon。Core 长度量化余量仍作为独立加项，不能隐藏进几何容差；current-f64 值固定为 `0.0 m`。
 
 这里的最终 `1 cm` 是调用方已经提供同一条高保真参考折线后，`f64` 参考到 runtime
-`f32` 表示的误差预算。Accepted ADR 0022（#296 G1）为 #296 的上游解析曲线细分另设
+`f32` 表示的误差预算。ADR 0022（#296 新 G1 复核中）为上游解析曲线细分提出
 `Fine2Cm`、`Balanced5Cm`、`Compact10Cm` 三个封闭几何精度配置档，并以
 `Smooth1Deg`、`Balanced2Deg`、`Compact5Deg` 三个封闭几何方向配置档正交选择；该决策不修改
 本节任何 production Spatial 常量，也不把 Adapter 展示或车辆物理偏差计入静态几何
-预算。
+预算；候选状态不修改本节任何 production Spatial 常量。
 
 ## 6. 长度权威与绑定
 

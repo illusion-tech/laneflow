@@ -1,7 +1,7 @@
 # 几何文档前端与拓扑/几何中层表示
 
-**文档状态**: Frozen（#296 G1；G2 实现权威输入）<br>
-**最后更新**: 2026-08-07<br>
+**文档状态**: Archived（#296 旧 G1；不再作为实现输入）<br>
+**最后更新**: 2026-08-10<br>
 **适用范围**: `laneflow-compiler` 的几何文档前端（Geometry Document Frontend）、
 `GeometryModuleBuilder` / `GeometryModule`、几何来源格式 v1、拓扑/几何中层表示
 （Topology/Geometry MIR）与已验证规范低层中间表示（Validated Canonical LIR）降阶<br>
@@ -9,10 +9,16 @@
 `spatial-geometry.md`、`../adr/0020-compiler-owned-static-network-and-static-image.md`、
 `../adr/0022-authoring-curve-and-canonical-polyline-error-budgets.md`
 
+> 2026-08-10 产品纠偏确认，人工编辑来源文本和原始 Git diff 不是道路编制产品要求，
+> JSON 不再作为 production source format。本文只保留旧 G1/G2 的历史语义，不提供兼容
+> 承诺。当前设计入口见 `../adr/0023-road-editing-state-and-phased-network-replacement.md`
+> 与 `road-editing-source-and-geometry-frontend.md`。
+
 ## 1. 目标与状态边界
 
-本文冻结 #296 的实现输入；对应 Rust 实现已按本文交付并通过 §8 等价与九组合验证。
-#296 G1 通过前不得修改生产 Rust；G2 后的实现必须保持以下边界：
+以下内容是旧 JSON 路径在被纠偏前的冻结快照；其中“必须”“不得”和完成声明只描述
+历史候选，不约束当前 #296，也不得被 Issue、PR 或实现引用为现行权威。当前约束全部见
+文首指向的 ADR 0023 与道路编辑来源设计。旧候选当时记录的边界如下：
 
 - 几何文档是生产场景的主要编制语言，但不是唯一来源权威；它与合成领域专用语言和
   后继导入前端平级进入共同有类型抽象语法树（Typed AST）。

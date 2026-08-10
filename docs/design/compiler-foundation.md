@@ -51,10 +51,11 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /
 `laneflow-data` / `laneflow-core` / `laneflow-spatial`。#315 已按 G2 授权落地共同私有
 `TypedAstModule` / `TypedAstDeclaration`、逻辑模块与来源文档独立登记、原子共同接入、
-文档集摘要以及 `LF-COMP-P100-INITIAL-v2`。#296 G1 已接受并冻结
-`geometry-document-frontend.md`，固定 Geometry 的目标公开入口、单文档来源
-格式和专用降阶；其 G2 Rust 实现已按冻结契约交付并通过 §8 等价与九组合验证，但在
-后继门禁完成前仍不是当前生产事实。#297 调整后不建立 current JSON 编译器前端；
+文档集摘要以及 `LF-COMP-P100-INITIAL-v2`。#296 因 production 来源产品前提纠偏返回
+`G1 In Progress`；旧 `geometry-document-frontend.md` 与其 JSON 实现只作历史证据，
+新的 FlatBuffers 道路编辑来源契约由
+`road-editing-source-and-geometry-frontend.md` 冻结，在取得 exact-head G1 Pass 前
+不构成已接受或当前生产事实。#297 调整后不建立 current JSON 编译器前端；
 精确退役和测试边界见 `current-package-import.md`。
 
 **关联决策与设计**:
@@ -62,7 +63,9 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
 - `../adr/0021-city-simulation-game-traffic-foundation.md`
+- `../adr/0023-road-editing-state-and-phased-network-replacement.md`
 - `network-compiler.md`
+- `road-editing-source-and-geometry-frontend.md`
 - `data-format.md`
 - `data-loading.md`
 - `numeric-representation.md`
@@ -179,9 +182,9 @@ HIR 和 MIR 的区块分配键（arena key）则留在编译器内部。这样�
 #292 可以定义后继编译发射器所需的只读已验证规范低层中间表示视图（View），但不得用私有
 临时线格式提前冻结 #298/#300 的公共字节契约。
 
-### 2.3 #315 官方前端共同接入与 #297 调整后边界
+### 2.3 #315 官方前端共同接入、#296 道路编辑与 #297 调整后边界
 
-#315 已实现的共同受检模块接入继续服务 Synthetic、Geometry 和后续正式编制前端，
+#315 已实现的共同受检模块接入继续服务 Synthetic、道路编辑和后续正式编制前端，
 不因 #297 调整而回退。current JSON 不再是编译器前端：
 
 ```text
@@ -195,6 +198,17 @@ laneflow-data --------------------> laneflow-core / laneflow-spatial
 `laneflow-current-source` 只集中当前加载器的 wire DTO、版本、摘要和配对；不提供严格
 导入策略、编译器位置表或资源余额。编译器不建立 `current-v0_10-import` 特性，项目不
 建立 `laneflow-current-import`。编译器原生有类型模块是投影测试的唯一输入。
+
+#296 新 G1 选择字段私有、借用完整 size-prefixed FlatBuffers bytes 的
+`RoadEditingModuleInput`，并由唯一原子
+`CompilationUnitBuilder::add_road_editing_module` 在同一次 builder 可变借用中取得
+剩余预算、执行有界 verifier、语义预检、降阶和共同接入。它不公开预构造
+`GeometryModule`、wire DTO、通用模块特征或第二条接入路径。
+
+道路编辑来源的 owner tree 必须在单模块内闭合：模块级 key 按 kind 唯一，
+owner-scoped key 只在直接 parent 下唯一，来源地址和 writer 顺序携带完整 owner-key
+tuple。#296 同时提供第一方 Rust 字段私有有类型来源构造面和 writer；writer 只生成
+标准 owned bytes，编译器仍把 reader/verifier 作为不受信任字节的唯一准入边界。
 
 ### 2.4 #297 current JSON 退役边界
 
@@ -346,8 +360,9 @@ impl CompileLimits {
 
 ```rust
 pub struct SyntheticModule { /* 字段私有的官方具体模块 */ }
-// #296 后继增加同包具体类型，而不是公开通用模块特征（trait）。
-pub struct GeometryModule { /* 字段私有 */ }
+// #296 的 production 编译输入只公开受检 expected document key + 借用 bytes；
+// generated wire view 与 verifier 后的 Typed AST/HIR/MIR 保持 compiler-private。
+pub struct RoadEditingModuleInput<'a> { /* expected key + bytes + 可选显示来源 */ }
 
 struct AdmittedOfficialModule {
     typed_ast: TypedAstModule,
@@ -401,14 +416,19 @@ pub struct CompilationUnit {
 #315 G2 已把此前承载共同有类型抽象语法树声明的私有 `SyntheticDeclaration` 改名为
 `TypedAstDeclaration`。HIR 只遍历
 `TypedAstModule` 与 `TypedAstDeclaration`，不能按 `SourceLanguage`、前端种类或公开
-模块封装在记录级分支。#315 不提前增加 `SourceLanguage` 变体；Geometry 的精确来源语言值由 #296 G1 冻结；不增加 current JSON 来源语言。
+模块封装在记录级分支。#315 不提前增加 `SourceLanguage` 变体；#296 新 G1 登记未发布
+`RoadEditingSource = 3`，旧未发布 `GeometryDocument = 2` 不形成兼容或数值别名；不增加
+current JSON 来源语言。
 
 `CompilationUnitBuilder` 的公开入口保持具体且封闭：
 
 ```rust
 pub fn add_synthetic_module(&mut self, module: SyntheticModule) -> Result<&mut Self, DiagnosticBundle>;
-// 后继由 #296 增加：
-pub fn add_geometry_module(&mut self, module: GeometryModule) -> Result<&mut Self, DiagnosticBundle>;
+// #296 在同一次 builder 事务中消费借用 bytes：
+pub fn add_road_editing_module(
+    &mut self,
+    input: RoadEditingModuleInput<'_>,
+) -> Result<&mut Self, DiagnosticBundle>;
 ```
 
 具体方法消费 compiler 自身字段私有封装并进入同一个私有接入函数。不得公开
@@ -478,7 +498,7 @@ Synthetic 路径。#315 G2 使用新的 `LF-COMP-P100-INITIAL-v2`：除新增
 字符串或几何点循环都不得承担前端变体分支或虚调用。
 
 职责归属保持互补：#315 只拥有共同表示、模块/文档独立登记与源映射不变量、原子接入、
-生命周期和共享测试；#296 只拥有 Geometry 来源契约及专用降阶；#297 调整后只拥有
+生命周期和共享测试；#296 只拥有道路编辑来源契约及专用降阶；#297 调整后只拥有
 current JSON 退役与投影测试边界，不再拥有编译器前端。
 
 ## 4. 阶段表示与内存所有权
@@ -654,7 +674,8 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 v1 的精确语义和构造器。配置档选择也是官方前端准入能力，不只是数值查表：v1 仅以
 `ModuleCount` 隐式约束一模块一文档形状，
 多文档模块要求 v2 或后继显式携带 `SourceDocumentCount` 的配置档。实现不得为 v1 合成默认文档上限、
-自动升级或在提交后补检。Geometry 按 #296 冻结的实际文档基数应用同一规则。v2 及其
+自动升级或在提交后补检。#296 道路编辑来源按“一模块一个 source buffer/document”
+应用同一规则。v2 及其
 `SourceDocumentCount` 已经是当前编译器配置档；#296 的具体入口须按自身设计选择并
 执行该配置档契约。
 
@@ -1303,7 +1324,7 @@ Delivery PR 收口是 #296/#297 进入各自 G2 的硬前置；该前置后来�
       均进入分阶段资源账本；专项 admission-only 基准报告 median/MAD、冷来源字符串字节、
       构建器/结果存续、冻结 scratch 与准入控制峰值；完整验证证据见
       [`v0.10-official-module-admission-validation.md`](../reference/v0.10-official-module-admission-validation.md)；
-- [x] #296 几何文档语义明确排除在本切片之外；当时排除的 #297 current 导入设计现已
+- [x] #296 道路编辑来源语义明确排除在本切片之外；当时排除的 #297 current 导入设计现已
       取消，不再是后继实现目标。
 
 本节只记录稳定实现边界，不充当动态治理状态。Delivery PR、required CI、精确头外部审阅、

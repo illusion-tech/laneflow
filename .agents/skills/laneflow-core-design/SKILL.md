@@ -29,6 +29,9 @@ Runtime）的兼容发现入口；它不表示目标态继续命名为 Core。
 9. 涉及 #292/#315/#296/#297 编译器基础设施、官方前端共同受检模块接入、current JSON
    退役、已验证规范 LIR 或集成专用 LIR→当前态投影时，额外读取
    `docs/design/compiler-foundation.md`；
+   #296 的道路编辑状态、候选道路替换或来源权威还须读取
+   `docs/adr/0023-road-editing-state-and-phased-network-replacement.md` 与
+   `docs/design/road-editing-source-and-geometry-frontend.md`；
    准备 #292 G3 或复核生产性能证据时，同时读取
    `docs/reference/v0.10-compiler-foundation-validation.md`
 10. 涉及城市模拟游戏范围、出行编排、Routing、路网修订、存档/回放、并行或

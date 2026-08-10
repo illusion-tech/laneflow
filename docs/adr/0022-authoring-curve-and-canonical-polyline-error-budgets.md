@@ -1,6 +1,6 @@
 # ADR 0022：编制曲线与规范折线的误差预算分层
 
-**状态**: Accepted（#296 G1）<br>
+**状态**: Proposed（#296 G1 纠偏重启；三档产品方向待新来源模型复核）<br>
 **日期**: 2026-08-07<br>
 **适用范围**: Geometry 来源格式中的解析曲线、编译器几何中层表示、已验证规范
 低层中间表示中的有界 `f32` 折线、当前/目标 Spatial 采样，以及 Adapter 表现几何边界<br>
@@ -16,6 +16,11 @@
 - `../design/network-compiler.md`
 - `../design/spatial-geometry.md`
 
+> 历史状态：本 ADR 于 2026-08-07 随 #296 旧 Geometry JSON G1 记为 Accepted。
+> 2026-08-10 产品来源前提纠偏使 #296 返回 G1；`2 cm`、`5 cm`、`10 cm` 三档产品
+> 方向继续保留，但其精确算法、方向组合和资源证据必须在新的有类型道路编辑模型上
+> 重新审阅，当前不再单独授权 G2。
+
 ## 背景
 
 ADR 0013/0015 冻结的是调用方已经提供一条高保真折线后，LaneFlow 如何把它转换为
@@ -23,7 +28,7 @@ ADR 0013/0015 冻结的是调用方已经提供一条高保真折线后，LaneFl
 位置误差和 `0.5°` 切线误差比较同一条折线的 `f64` 参考与 `f32` 运行时表示；它没有
 定义解析曲线如何离散为该折线。
 
-#296 的 Geometry 文档前端首次把 cubic Bézier 作为生产编制输入。编译器必须离线把
+#296 的道路编辑前端把 cubic Bézier 作为首批生产编制候选。编译器必须离线把
 解析曲线细分为唯一的规范折线，因为 LIR、静态镜像和 Traffic/Spatial 只保留折线，
 不保留 authoring evaluator 或引擎样条权威。若继续把 ADR 0015 的 `1 cm` 直接当成
 全部曲线细分预算，会混淆两个误差来源，并为游戏道路生成远超视觉和运动需要的点数；
@@ -40,7 +45,7 @@ station 或拓扑锚点。因此表现细分不能替代编译器误差契约。
 
 | 层次                   | 权威与用途                                                            | 是否进入运行时规范权威 |
 | ---------------------- | --------------------------------------------------------------------- | ---------------------- |
-| 编制解析曲线           | Geometry 前端在 `f64` 中求值的 line/cubic Bézier                      | 否，仅在前端/MIR 存续  |
+| 编制解析曲线           | 道路编辑来源前端在 `f64` 中求值的 line/cubic Bézier                   | 否，仅在前端/MIR 存续  |
 | Station reference 基表 | 配置档无关的固定 `f64` 参数区间与累计弦长，只解释 source station      | 否                     |
 | 配置档近似参考         | 所选位置/方向档下，offset 独立细分与总误差 oracle 使用的 `f64` 点序列 | 否                     |
 | 规范运行时折线         | 量化后的有界 `f32` 点、弧长、切向、Traffic length 与 Spatial sampling | 是                     |
@@ -51,7 +56,7 @@ Adapter 表现几何也不能反向修改规范长度、station、拓扑连接�
 
 ### 2. 几何精度使用三个封闭配置档
 
-几何精度配置档（Geometry Accuracy Profile）是 Geometry 前端的显式编译选项：
+几何精度配置档（Geometry Accuracy Profile）是道路编辑来源前端的显式编译选项：
 
 | Rust 变体     | 稳定名            | 代码 | 解析曲线→配置档近似子预算 | authoring→runtime 总位置上限 | 预期用途                 |
 | ------------- | ----------------- | ---: | ------------------------: | ---------------------------: | ------------------------ |
@@ -132,7 +137,7 @@ Reference station 基表固定使用与输出配置档无关的 `0.01 m` / `0.5�
 ### 6. offset 曲线也受所选档位约束
 
 reference line 的通过不能证明 lane/facility offset curve 自动通过。横向偏移会放大
-曲率与切线变化，而且一般 offset evaluator 不再是 cubic Bézier。因此 Geometry 前端
+曲率与切线变化，而且一般 offset evaluator 不再是 cubic Bézier。因此道路编辑来源前端
 `finish` 的 numeric freeze
 必须在相同曲线参数域对每条最终中心线独立二分，以解析 offset 二阶导数的保守范数
 上界和线性插值误差界证明整段位置误差，并以解析 offset 端点切向证明方向门槛；不得用
@@ -140,12 +145,12 @@ reference line 的通过不能证明 lane/facility offset curve 自动通过。�
 的接受树。它可以增加自己的采样点，但不能反向改变 reference station。验证与资源报告
 必须覆盖九种组合、最内侧、最外侧和跨 span 宽度变化，不能只测零偏移参考线。
 
-不可遍历 FacilityBand 的最终 offset 中心线仍属于 canonical LIR 语义：Geometry module
+不可遍历 FacilityBand 的最终 offset 中心线仍属于 canonical LIR 语义：道路编辑来源
 派生的 FacilityBand 进入显式携带 `FacilityBandOrdinal`、按该 ordinal 排列的稀疏
 `facility_band_geometries` 范围表和共享规范点表，并参与
 点数、LIR 记录、逻辑输出字节和摘要；它不产生 Spatial segment、Traffic length、
 successor 或路线可遍历性。这样独立细分的结果有唯一归宿，不会由 G2 实现选择丢弃或
-隐式变成 Adapter 数据；没有 Geometry intent 的其他官方前端 FacilityBand 不产生占位行。
+隐式变成 Adapter 数据；没有道路编辑 geometry intent 的其他官方前端 FacilityBand 不产生占位行。
 
 Numeric freeze 每个模块只执行一次并把最终点 payload 与精确 `GeometryPointCount` 一同
 放入字段私有模块候选；#315 common admission 仍在 HIR/MIR 前对完整模块计数执行原子
@@ -183,8 +188,9 @@ Adapter 可以从规范折线生成更密的路面 mesh、视觉样条或 LOD，
   `GeometryPointCount` 和性能证据；
 - FacilityBand 增加一张不可遍历 geometry 范围表及其规范点；这是独立细分选择的制品
   与内存成本，换取跨 target 一致的设施几何语义；
-- 后继加入圆弧、螺旋线、NURBS 或 importer 时必须对各自 evaluator 重新证明同一总
-  预算，不能只复用 cubic Bézier 的停止判据名称；
+- v1 importer/generator 必须先把圆弧、螺旋线、NURBS 等转换为 line/cubic Bézier 并证明
+  同一总预算；后继若把它们加入来源 curve union，必须提升格式版本，并对各自 evaluator
+  重新证明预算，不能只复用 cubic Bézier 的停止判据名称；
 - 改变任一阈值、求值顺序或总预算都改变规范点 bit pattern、语义指纹和制品含义，
   必须重新进入 G1 并提升对应 frontend/constraint 版本。
 
@@ -217,8 +223,9 @@ Adapter 可以从规范折线生成更密的路面 mesh、视觉样条或 LOD，
 
 ## 实施与治理
 
-1. #296 初始 G1 同时审阅本 ADR 与 `geometry-document-frontend.md`，冻结算法、配置档、
-   workload identity、测量协议和候选预算；在该 G1 Pass 前不修改 production Rust。
+1. #296 新 G1 同时审阅本 ADR 与 `road-editing-source-and-geometry-frontend.md`，冻结
+   算法、配置档、workload identity、测量协议和候选预算；在新的 G1 Pass 前不修改
+   production Rust。
 2. #296 G2 实现两类三档编码/摘要、混用拒绝、阈值边界/加一 ULP、station、offset、
    语义锚点、方向跳变、`f64` oracle 与 `f32` 总误差的九组合自动化矩阵，并生成 exact
    fixture/manifest、参考机校准与点数/资源证据。
