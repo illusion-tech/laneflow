@@ -62,16 +62,11 @@ impl SourceLocationResolver<'_> {
     fn resolve(
         &self,
         owner_module: MirModuleKey,
-        span: &SourceSpan,
+        location: &SourceLocation,
     ) -> Result<SourceLocationRecord, DiagnosticBundle> {
-        let source_document_ordinal = self
-            .unit
-            .resolve_source_document_for_module(owner_module.raw(), span)?;
-        Ok(SourceLocationRecord {
-            source_document_ordinal,
-            start: span.start(),
-            end: span.end(),
-        })
+        self.unit
+            .resolve_source_location_for_module(owner_module.raw(), location)
+            .map(Into::into)
     }
 }
 
@@ -364,15 +359,15 @@ pub(crate) fn freeze_source_map(
             route_relation_count,
         ));
     // 派生内部边需要按 owner 生成稠密 local index；计数器只活到源映射冻结完成。
-    let source_map_scratch_bytes = requested_bytes::<u32>(
-        mir.junctions.len().try_into().unwrap_or(u64::MAX),
-    )
-    .max(requested_bytes::<(ParticipantClassOrdinal, SourceSpan)>(
-        mir.access_rule_participant_classes
-            .len()
-            .try_into()
-            .unwrap_or(u64::MAX),
-    ));
+    let source_map_scratch_bytes =
+        requested_bytes::<u32>(mir.junctions.len().try_into().unwrap_or(u64::MAX)).max(
+            requested_bytes::<(ParticipantClassOrdinal, SourceLocation)>(
+                mir.access_rule_participant_classes
+                    .len()
+                    .try_into()
+                    .unwrap_or(u64::MAX),
+            ),
+        );
     let sizing = SourceMapSizing::from_components(
         &unit,
         mir,
@@ -528,7 +523,7 @@ pub(crate) fn freeze_source_map(
                 }
                 | crate::mir::MirCorridorElement::FacilityBand {
                     source_location, ..
-                } => *source_location,
+                } => source_location.clone(),
             };
             cross_section_relation_sources.push(CrossSectionRelationSourceRecord {
                 owner: CrossSectionRelationOwnerRecord::RoadCorridor(ordinal, corridor.stable_id),
@@ -614,7 +609,9 @@ pub(crate) fn freeze_source_map(
                     .expect("MIR range precheck proved local index fits u32"),
                 primary: lane
                     .lane_group_source_location
+                    .as_ref()
                     .expect("resolved lane-group member retains its reference source")
+                    .clone()
                     .into(),
             });
         }
@@ -664,7 +661,9 @@ pub(crate) fn freeze_source_map(
                     .expect("LIR relation range precheck proved local index fits u32"),
                 primary: movement
                     .junction_source_location
+                    .as_ref()
                     .expect("resolved junction member retains its reference source")
+                    .clone()
                     .into(),
             });
         }
@@ -701,7 +700,9 @@ pub(crate) fn freeze_source_map(
                     .expect("LIR relation range precheck proved local index fits u32"),
                 primary: path
                     .movement_source_location
+                    .as_ref()
                     .expect("resolved movement path retains its parent reference source")
+                    .clone()
                     .into(),
             });
         }
@@ -750,7 +751,9 @@ pub(crate) fn freeze_source_map(
                     .expect("LIR relation range precheck proved local index fits u32"),
                 primary: gate
                     .maneuver_path_source_location
+                    .as_ref()
                     .expect("resolved maneuver gate retains its path reference source")
+                    .clone()
                     .into(),
             });
         }
@@ -771,7 +774,9 @@ pub(crate) fn freeze_source_map(
                     .expect("LIR relation range precheck proved local index fits u32"),
                 primary: waiting
                     .maneuver_path_source_location
+                    .as_ref()
                     .expect("resolved waiting zone retains its path reference source")
+                    .clone()
                     .into(),
             });
         }
@@ -808,7 +813,9 @@ pub(crate) fn freeze_source_map(
                     .expect("LIR relation range precheck proved local index fits u32"),
                 primary: gate
                     .stop_line_source_location
+                    .as_ref()
                     .expect("resolved maneuver gate retains its stop-line reference source")
+                    .clone()
                     .into(),
             });
         }
@@ -884,7 +891,7 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::SignalControllerGroup,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: group.source_location.into(),
+                primary: group.source_location.clone().into(),
             });
         }
         for (local_index, phase_ordinal) in frozen_lir.lir.signal_controller_phases
@@ -936,7 +943,7 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::SignalPhaseState,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: state.source_location.into(),
+                primary: state.source_location.clone().into(),
             });
         }
     }
@@ -949,7 +956,7 @@ pub(crate) fn freeze_source_map(
         let gate = &mir.maneuver_gates[mir_key.index()];
         if let MirSignalControl::Group {
             source_location, ..
-        } = gate.signal_control
+        } = &gate.signal_control
         {
             signal_relation_sources.push(SignalRelationSourceRecord {
                 owner: SignalRelationOwnerRecord::ManeuverGate(
@@ -958,7 +965,7 @@ pub(crate) fn freeze_source_map(
                 ),
                 role: SourceRelationRole::ManeuverGateSignalGroup,
                 local_index: 0,
-                primary: source_location.into(),
+                primary: source_location.clone().into(),
             });
         }
     }
@@ -998,18 +1005,20 @@ pub(crate) fn freeze_source_map(
                 local_index: 0,
                 primary: space
                     .parking_area_source_location
+                    .as_ref()
                     .expect("resolved parking-area member retains its reference source")
+                    .clone()
                     .into(),
             });
         }
         for (role, source_location) in [
             (
                 SourceRelationRole::ParkingSpaceEntry,
-                space.entry.source_location,
+                space.entry.source_location.clone(),
             ),
             (
                 SourceRelationRole::ParkingSpaceExit,
-                space.exit.source_location,
+                space.exit.source_location.clone(),
             ),
         ] {
             parking_relation_sources.push(ParkingRelationSourceRecord {
@@ -1310,7 +1319,10 @@ fn requested_bytes<T>(count: u64) -> u64 {
     count.saturating_mul(u64::try_from(size_of::<T>()).unwrap_or(u64::MAX))
 }
 
-fn output_overflow(unit: &CompilationUnit, primary_span: Option<SourceSpan>) -> DiagnosticBundle {
+fn output_overflow(
+    unit: &CompilationUnit,
+    primary_span: Option<SourceLocation>,
+) -> DiagnosticBundle {
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
         CompileLimitDimension::OutputBytes,
         unit.limits.value(CompileLimitDimension::OutputBytes),
