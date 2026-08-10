@@ -594,7 +594,10 @@ pub(in crate::module::geometry) fn parse_unique_tokens(
                     span: value.span,
                 });
             }
-            values.push(value);
+            let span = value.span;
+            cursor
+                .push_vec(&mut values, value)
+                .map_err(|exceeded| super::stage_scratch_schema_error(exceeded, span))?;
             if cursor.next_is(b']') {
                 break;
             }
@@ -603,6 +606,7 @@ pub(in crate::module::geometry) fn parse_unique_tokens(
     }
     cursor.end_array()?;
     cursor.scratch().shrink(seen_scratch_bytes);
+    cursor.finish_vec(&values);
     Ok(values.into_boxed_slice())
 }
 
@@ -616,7 +620,16 @@ pub(in crate::module::geometry) fn parse_array<T>(
     let mut values = Vec::new();
     if !cursor.next_is(b']') {
         loop {
-            values.push(parse_item(cursor)?);
+            let value = parse_item(cursor)?;
+            cursor.push_vec(&mut values, value).map_err(|exceeded| {
+                super::stage_scratch_schema_error(
+                    exceeded,
+                    ByteSpan {
+                        start,
+                        end: cursor.offset(),
+                    },
+                )
+            })?;
             if cursor.next_is(b']') {
                 break;
             }
@@ -630,6 +643,7 @@ pub(in crate::module::geometry) fn parse_array<T>(
             span: ByteSpan { start, end },
         });
     }
+    cursor.finish_vec(&values);
     Ok(values.into_boxed_slice())
 }
 

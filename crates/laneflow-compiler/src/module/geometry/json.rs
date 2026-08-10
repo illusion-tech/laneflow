@@ -8,7 +8,7 @@
     reason = "consumed by the following schema-specific parser slice"
 )]
 
-use std::sync::Arc;
+use std::{mem::size_of, sync::Arc};
 
 use crate::SourceSpan;
 
@@ -69,6 +69,59 @@ impl StageScratchMeter {
         self.current = self.current.saturating_sub(bytes);
     }
 
+    #[cfg(test)]
+    pub(in crate::module::geometry) const fn current(&self) -> u64 {
+        self.current
+    }
+
+    /// 以显式二倍容量策略增长 schema parser 的拥有型数组，并只把尚未成为完成态
+    /// 记录的 spare capacity 计入阶段暂存。这样 parser 不依赖标准库私有增长策略，
+    /// 也不会把最终 boxed slice 的精确 backing 重复计费。
+    pub(in crate::module::geometry) fn push_vec<T>(
+        &mut self,
+        values: &mut Vec<T>,
+        value: T,
+    ) -> Result<(), StageScratchExceeded> {
+        let element_bytes = u64::try_from(size_of::<T>()).unwrap_or(u64::MAX);
+        if values.len() == values.capacity() && element_bytes != 0 {
+            let current_capacity = values.capacity();
+            let requested_capacity = if current_capacity == 0 {
+                4
+            } else {
+                current_capacity.saturating_mul(2)
+            };
+            let requested_growth = requested_capacity.saturating_sub(current_capacity);
+            self.grow(
+                u64::try_from(requested_growth)
+                    .unwrap_or(u64::MAX)
+                    .saturating_mul(element_bytes),
+            )?;
+            values.reserve_exact(requested_capacity.saturating_sub(values.len()));
+
+            // `reserve_exact` 只承诺至少满足请求；若 allocator 暴露更大 capacity，
+            // 把额外槽位一并纳入逻辑账本并失败关闭。
+            let extra_capacity = values.capacity().saturating_sub(requested_capacity);
+            self.grow(
+                u64::try_from(extra_capacity)
+                    .unwrap_or(u64::MAX)
+                    .saturating_mul(element_bytes),
+            )?;
+        }
+        values.push(value);
+        self.shrink(element_bytes);
+        Ok(())
+    }
+
+    /// 数组冻结为 boxed slice 前归还仍未使用的 spare capacity。
+    pub(in crate::module::geometry) fn finish_vec<T>(&mut self, values: &Vec<T>) {
+        let spare_capacity = values.capacity().saturating_sub(values.len());
+        self.shrink(
+            u64::try_from(spare_capacity)
+                .unwrap_or(u64::MAX)
+                .saturating_mul(u64::try_from(size_of::<T>()).unwrap_or(u64::MAX)),
+        );
+    }
+
     /// 峰值并发占用；当前只由测试断言使用。
     #[allow(dead_code, reason = "asserted by the meter and freeze tests")]
     pub(in crate::module::geometry) const fn peak(&self) -> u64 {
@@ -119,7 +172,23 @@ pub(super) struct LineIndex {
 
 impl LineIndex {
     pub(super) fn new(source: &[u8]) -> Result<Self, JsonError> {
-        let mut line_starts = vec![0];
+        Self::new_with_scratch(source, u64::MAX).map(|(index, _)| index)
+    }
+
+    /// 建立行索引并返回增长期间的 spare-capacity 峰值；换行数量受与 parser 相同的
+    /// `StageScratchBytes` 门禁约束，避免换行密集输入在 boxed slice 冻结前逃逸账本。
+    pub(super) fn new_with_scratch(
+        source: &[u8],
+        scratch_limit: u64,
+    ) -> Result<(Self, u64), JsonError> {
+        let mut scratch = StageScratchMeter::new(scratch_limit);
+        let mut line_starts = Vec::new();
+        scratch
+            .push_vec(&mut line_starts, 0)
+            .map_err(|exceeded| JsonError {
+                kind: JsonErrorKind::StageScratchExceeded(exceeded),
+                span: ByteSpan { start: 0, end: 0 },
+            })?;
         let mut offset = 0_usize;
         while offset < source.len() {
             match source[offset] {
@@ -128,11 +197,27 @@ impl LineIndex {
                     if source.get(offset) == Some(&b'\n') {
                         offset += 1;
                     }
-                    line_starts.push(offset);
+                    scratch
+                        .push_vec(&mut line_starts, offset)
+                        .map_err(|exceeded| JsonError {
+                            kind: JsonErrorKind::StageScratchExceeded(exceeded),
+                            span: ByteSpan {
+                                start: offset,
+                                end: offset,
+                            },
+                        })?;
                 }
                 b'\n' => {
                     offset += 1;
-                    line_starts.push(offset);
+                    scratch
+                        .push_vec(&mut line_starts, offset)
+                        .map_err(|exceeded| JsonError {
+                            kind: JsonErrorKind::StageScratchExceeded(exceeded),
+                            span: ByteSpan {
+                                start: offset,
+                                end: offset,
+                            },
+                        })?;
                 }
                 byte => offset += utf8_scalar_len(byte),
             }
@@ -151,10 +236,15 @@ impl LineIndex {
                 },
             });
         }
-        Ok(Self {
-            line_starts: line_starts.into_boxed_slice(),
-            source_len: source.len(),
-        })
+        scratch.finish_vec(&line_starts);
+        let scratch_peak_bytes = scratch.peak();
+        Ok((
+            Self {
+                line_starts: line_starts.into_boxed_slice(),
+                source_len: source.len(),
+            },
+            scratch_peak_bytes,
+        ))
     }
 
     pub(super) fn source_span(&self, source_document_key: &Arc<str>, span: ByteSpan) -> SourceSpan {
@@ -236,6 +326,20 @@ impl<'a> JsonCursor<'a> {
     /// 共享暂存账簿：schema parser 的瞬时查重表在分配前经此入账。
     pub(in crate::module::geometry) fn scratch(&mut self) -> &mut StageScratchMeter {
         &mut self.scratch
+    }
+
+    /// 把 schema array 的显式容量增长纳入 parser 共享暂存账本。
+    pub(in crate::module::geometry) fn push_vec<T>(
+        &mut self,
+        values: &mut Vec<T>,
+        value: T,
+    ) -> Result<(), StageScratchExceeded> {
+        self.scratch.push_vec(values, value)
+    }
+
+    /// 数组冻结前归还 spare capacity；完成态精确 backing 由 parsed tree 账本拥有。
+    pub(in crate::module::geometry) fn finish_vec<T>(&mut self, values: &Vec<T>) {
+        self.scratch.finish_vec(values);
     }
 
     pub(in crate::module::geometry) const fn scratch_peak_bytes(&self) -> u64 {
@@ -625,6 +729,52 @@ mod tests {
         assert_eq!(meter.peak(), 1024);
         // 无上限账簿供测试与默认游标使用，永不超过。
         StageScratchMeter::unlimited().grow(u64::MAX).unwrap();
+    }
+
+    #[test]
+    fn metered_vec_preflights_growth_and_releases_spare_capacity() {
+        let element_bytes = u64::try_from(std::mem::size_of::<u64>()).unwrap();
+        let initial_growth = element_bytes * 4;
+        let mut rejected = StageScratchMeter::new(initial_growth - 1);
+        let mut rejected_values = Vec::new();
+        assert_eq!(
+            rejected.push_vec(&mut rejected_values, 1_u64).unwrap_err(),
+            StageScratchExceeded {
+                limit: initial_growth - 1,
+                observed: initial_growth,
+            }
+        );
+        assert_eq!(rejected_values.capacity(), 0, "必须在分配前失败关闭");
+
+        let mut accepted = StageScratchMeter::new(initial_growth);
+        let mut values = Vec::new();
+        for value in 0_u64..5 {
+            accepted.push_vec(&mut values, value).unwrap();
+        }
+        assert_eq!(accepted.peak(), initial_growth);
+        assert_eq!(accepted.current(), element_bytes * 3);
+        accepted.finish_vec(&values);
+        assert_eq!(accepted.current(), 0);
+        assert_eq!(values, [0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn line_index_preflights_newline_growth_before_freezing_backing() {
+        let source = b"\n\n\n\n";
+        let expected_peak = u64::try_from(std::mem::size_of::<usize>()).unwrap() * 4;
+        let error = LineIndex::new_with_scratch(source, expected_peak - 1)
+            .err()
+            .expect("newline growth must exceed the scratch limit");
+        assert_eq!(
+            error.kind,
+            JsonErrorKind::StageScratchExceeded(StageScratchExceeded {
+                limit: expected_peak - 1,
+                observed: expected_peak,
+            })
+        );
+        let (index, peak) = LineIndex::new_with_scratch(source, expected_peak).unwrap();
+        assert_eq!(peak, expected_peak);
+        assert_eq!(index.line_starts.len(), 5);
     }
 
     #[test]

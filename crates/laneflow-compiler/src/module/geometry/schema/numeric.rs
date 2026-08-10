@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use super::road::{ParsedCurve, ParsedCurveSegment, ParsedVec3, RawNumber};
 use super::{ByteSpan, ParsedGeometryDocument};
 use crate::module::geometry::json::StageScratchMeter;
-use crate::module::geometry::{GeometryAccuracyProfile, GeometryDirectionProfile};
+use crate::module::geometry::{
+    GeometryAccuracyProfile, GeometryDirectionProfile, GeometryOffsetCurveBucket,
+};
 use laneflow_static_contract::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS,
     SPATIAL_MIN_PROJECTED_UP_LENGTH, SPATIAL_MIN_SEGMENT_LENGTH_METERS,
@@ -137,7 +139,7 @@ pub(crate) struct FrozenGeometryPayload {
     pub(crate) lateral_curves: Box<[FrozenLateralCurve]>,
     pub(crate) internal_edge_curves: Box<[FrozenInternalEdgeCurve]>,
     pub(crate) geometry_point_count: u64,
-    pub(crate) offset_curve_distribution: Box<[FrozenOffsetCurveBucket]>,
+    pub(crate) offset_curve_distribution: Box<[GeometryOffsetCurveBucket]>,
 }
 
 impl FrozenGeometryPayload {
@@ -154,7 +156,7 @@ impl FrozenGeometryPayload {
         ))
         .saturating_add(scaled_bytes(
             self.offset_curve_distribution.len(),
-            size_of::<FrozenOffsetCurveBucket>() as u64,
+            size_of::<GeometryOffsetCurveBucket>() as u64,
         ));
         for curve in &self.lateral_curves {
             total = total
@@ -176,13 +178,6 @@ impl FrozenGeometryPayload {
         }
         total
     }
-}
-
-/// 横向 offset 曲线按 |中心偏移| f64 位模式分组的冻结分布桶（§9.2 前端计数）。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct FrozenOffsetCurveBucket {
-    pub(crate) absolute_offset_meters_bits: u64,
-    pub(crate) curve_count: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -557,7 +552,7 @@ pub(super) fn freeze_geometry_payload(
 /// 桶序即位模式升序，与曲线声明顺序无关。
 fn offset_curve_distribution(
     layouts: &[FrozenCrossSectionLayout],
-) -> Box<[FrozenOffsetCurveBucket]> {
+) -> Box<[GeometryOffsetCurveBucket]> {
     let mut buckets = BTreeMap::<u64, u64>::new();
     for layout in layouts {
         for intent in &layout.items {
@@ -569,7 +564,7 @@ fn offset_curve_distribution(
     buckets
         .into_iter()
         .map(
-            |(absolute_offset_meters_bits, curve_count)| FrozenOffsetCurveBucket {
+            |(absolute_offset_meters_bits, curve_count)| GeometryOffsetCurveBucket {
                 absolute_offset_meters_bits,
                 curve_count,
             },

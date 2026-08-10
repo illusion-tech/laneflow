@@ -803,8 +803,9 @@ Geometry 前端复用全部 #315 共同累计维度。额外工作必须归入�
   HIR/MIR 工作集分别计入 `StageScratchBytes`；每个 lowering 容器必须在分配前按候选
   容量门禁，阶段峰值按实际并发生命周期合并，不能把先后发生的 freeze/lowering 暂存相加；
 - 解析后存续的字符串、记录、span、点和模块包装计入真实
-  `CompilerControlledLiveBytes`；冻结 Geometry payload 自有的 curve key `Box<str>`、点数组
-  与 offset distribution backing 均必须入账，不能仅统计结构体和规范点；
+  `CompilerControlledLiveBytes`；冻结 Geometry payload 自有的 curve key `Box<str>` 与点数组、
+  以及由 `GeometryModuleCounts` 单一持有的 offset distribution backing 均必须入账，不能仅
+  统计结构体和规范点，也不能在 payload 与只读计数视图之间保留两份分布 backing；
 - 诊断条数继续受 `DiagnosticCount` 限制，达到保留上限后仍按安全边界完成计数，并
   只保留全局规范顺序最小前缀。
 

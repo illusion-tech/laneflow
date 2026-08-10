@@ -707,7 +707,10 @@ fn parse_imports(cursor: &mut JsonCursor<'_>) -> Result<Box<[SpannedString]>, Sc
                     span: import.span,
                 });
             }
-            imports.push(import);
+            let span = import.span;
+            cursor
+                .push_vec(&mut imports, import)
+                .map_err(|exceeded| stage_scratch_schema_error(exceeded, span))?;
             if cursor.next_is(b']') {
                 break;
             }
@@ -716,7 +719,21 @@ fn parse_imports(cursor: &mut JsonCursor<'_>) -> Result<Box<[SpannedString]>, Sc
     }
     cursor.end_array()?;
     cursor.scratch().shrink(seen_scratch_bytes);
+    cursor.finish_vec(&imports);
     Ok(imports.into_boxed_slice())
+}
+
+pub(super) const fn stage_scratch_schema_error(
+    exceeded: super::json::StageScratchExceeded,
+    span: ByteSpan,
+) -> SchemaError {
+    SchemaError {
+        kind: SchemaErrorKind::Json(JsonError {
+            kind: JsonErrorKind::StageScratchExceeded(exceeded),
+            span,
+        }),
+        span,
+    }
 }
 
 fn parse_provenance(cursor: &mut JsonCursor<'_>) -> Result<ParsedProvenance, SchemaError> {

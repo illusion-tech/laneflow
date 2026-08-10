@@ -432,7 +432,8 @@ pub fn validate_evidence_with_contract(repo_root: &Path, release_binary: Option<
         .get("path")
         .and_then(Value::as_str)
         .expect("rawExecution 缺少 path");
-    let raw_bytes = std::fs::read(repo_root.join(raw_path)).expect("读取 raw 制品失败");
+    let raw_relative_path = repo_relative_artifact_path(raw_path, "rawExecution");
+    let raw_bytes = std::fs::read(repo_root.join(raw_relative_path)).expect("读取 raw 制品失败");
     assert_eq!(
         raw_execution.get("byteLength").and_then(Value::as_u64),
         Some(u64::try_from(raw_bytes.len()).unwrap_or(u64::MAX)),
@@ -481,14 +482,7 @@ pub fn validate_evidence_with_contract(repo_root: &Path, release_binary: Option<
             .get("path")
             .and_then(Value::as_str)
             .expect("release 二进制缺少 path");
-        let binary_path = Path::new(path);
-        assert!(
-            !binary_path.is_absolute()
-                && binary_path
-                    .components()
-                    .all(|component| matches!(component, Component::Normal(_))),
-            "release 二进制 path 必须是不能逃逸 repo 的规范相对路径：{path}"
-        );
+        repo_relative_artifact_path(path, "release 二进制");
         assert!(
             binary
                 .get("byteLength")
@@ -736,6 +730,19 @@ pub fn validate_evidence_with_contract(repo_root: &Path, release_binary: Option<
     );
 }
 
+fn repo_relative_artifact_path<'a>(path: &'a str, field: &str) -> &'a Path {
+    let candidate = Path::new(path);
+    assert!(
+        !candidate.as_os_str().is_empty()
+            && !candidate.is_absolute()
+            && candidate
+                .components()
+                .all(|component| matches!(component, Component::Normal(_))),
+        "{field} path 必须是不能逃逸 repo 的规范相对路径：{path}"
+    );
+    candidate
+}
+
 fn assert_budget_supported(key: &str, observed: u64, candidate: u64, supported: Option<bool>) {
     assert_eq!(
         supported,
@@ -773,7 +780,7 @@ fn check_median_of_medians(level_value: &Value, label: &str, level: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::assert_budget_supported;
+    use super::{assert_budget_supported, repo_relative_artifact_path};
 
     #[test]
     fn unsupported_budget_fails_closed_even_when_supported_field_is_consistent() {
@@ -783,5 +790,32 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn artifact_paths_must_be_normal_repository_relative_paths() {
+        assert_eq!(
+            repo_relative_artifact_path("docs/reference/evidence.json", "test"),
+            std::path::Path::new("docs/reference/evidence.json")
+        );
+        for path in [
+            "",
+            ".",
+            "../evidence.json",
+            "docs/../evidence.json",
+            "/tmp/evidence.json",
+        ] {
+            assert!(
+                std::panic::catch_unwind(|| repo_relative_artifact_path(path, "test")).is_err(),
+                "path must be rejected: {path}"
+            );
+        }
+        #[cfg(windows)]
+        for path in [r"C:\evidence.json", r"\\server\share\evidence.json"] {
+            assert!(
+                std::panic::catch_unwind(|| repo_relative_artifact_path(path, "test")).is_err(),
+                "Windows absolute path must be rejected: {path}"
+            );
+        }
     }
 }
