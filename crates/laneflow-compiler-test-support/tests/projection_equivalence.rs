@@ -33,6 +33,7 @@ fn compiler_native_fixture_projects_complete_representative_contract() {
     let lir = output.lir();
     let projection = project(lir).expect("代表性 LIR 必须可投影");
     let ids = stable_ids_by_source_key(lir);
+    assert_eq!(ids.len(), 32);
 
     assert_entity_counts(
         lir,
@@ -47,7 +48,7 @@ fn compiler_native_fixture_projects_complete_representative_contract() {
     assert_eq!(projection.traffic().waiting().waiting_zones().len(), 2);
     assert_eq!(projection.traffic().parking().areas().len(), 1);
     assert_eq!(projection.traffic().parking().spaces().len(), 1);
-    assert_projection_mappings(&projection, &ids);
+    assert_projection_mappings(&projection, lir);
     assert_projection_semantics(&projection, &ids);
 
     let route = lir.static_routes().next().expect("静态路线");
@@ -267,7 +268,7 @@ fn compile_fixture() -> CompilationOutput {
     module
         .add_signal_controller(SignalControllerInput {
             signal_controller_key: "controller",
-            offset_ms: 0,
+            offset_ms: 1_250,
             signal_groups: &[SignalGroupReference::local("main-signal")],
             phases: &phases,
         })
@@ -481,32 +482,61 @@ fn stable_id_for<'a>(source_key: &str, ids: &'a BTreeMap<String, String>) -> &'a
 
 fn assert_projection_mappings(
     projection: &laneflow_compiler_test_support::CurrentProjection,
-    ids: &BTreeMap<String, String>,
+    lir: &laneflow_compiler::ValidatedCanonicalLir,
 ) {
-    let expected_counts = [
-        1, 1, 1, 4, 1, 1, 1, 3, 2, 3, 1, 1, 3, 1, 1, 1, 1, 2, 1, 1, 1, 1,
-    ];
-    assert_eq!(projection.mappings().entries().len(), 33);
-    for (kind, expected_count) in EntityKind::ALL.into_iter().zip(expected_counts) {
-        assert_eq!(
-            projection.mappings().entries_for(kind).count(),
-            expected_count,
-            "{kind:?} 映射项数量"
-        );
+    let mut mappings = projection.mappings().entries().iter();
+    macro_rules! assert_table {
+        ($kind:expr, $views:expr, $has_external_id:expr) => {
+            for view in $views {
+                let mapping = mappings.next().expect("映射报告不得遗漏 LIR 实体");
+                let stable_id = view.stable_id();
+                assert_eq!(mapping.entity_kind(), $kind);
+                assert_eq!(mapping.lir_ordinal(), view.ordinal().raw());
+                assert_eq!(mapping.stable_id(), stable_id.into_untyped());
+                if $has_external_id {
+                    let expected_external_id = stable_id.to_string();
+                    assert_eq!(
+                        mapping.current_external_id(),
+                        Some(expected_external_id.as_str())
+                    );
+                } else {
+                    assert_eq!(mapping.current_external_id(), None);
+                }
+            }
+        };
     }
-    for mapping in projection.mappings().entries() {
-        if mapping.entity_kind() == EntityKind::AuthoringLane {
-            assert_eq!(mapping.current_external_id(), None);
-        } else {
-            assert!(
-                mapping
-                    .current_external_id()
-                    .is_some_and(|external_id| ids.values().any(|id| id == external_id)),
-                "投影 external ID 必须来自对应 LIR StableId"
-            );
-        }
-    }
-    assert_eq!(ids.len(), 32);
+
+    assert_table!(EntityKind::RoadCorridor, lir.road_corridors(), true);
+    assert_table!(EntityKind::RoadSection, lir.road_sections(), true);
+    assert_table!(EntityKind::AuthoringLane, lir.authoring_lanes(), false);
+    assert_table!(EntityKind::LaneEdge, lir.lane_edges(), true);
+    assert_table!(EntityKind::Junction, lir.junctions(), true);
+    assert_table!(EntityKind::Movement, lir.movements(), true);
+    assert_table!(EntityKind::ManeuverPath, lir.maneuver_paths(), true);
+    assert_table!(EntityKind::ManeuverGate, lir.maneuver_gates(), true);
+    assert_table!(EntityKind::WaitingZone, lir.waiting_zones(), true);
+    assert_table!(EntityKind::StopLine, lir.stop_lines(), true);
+    assert_table!(EntityKind::SignalGroup, lir.signal_groups(), true);
+    assert_table!(EntityKind::SignalController, lir.signal_controllers(), true);
+    assert_table!(EntityKind::SignalPhase, lir.signal_phases(), true);
+    assert_table!(EntityKind::ParkingArea, lir.parking_areas(), true);
+    assert_table!(EntityKind::ParkingSpace, lir.parking_spaces(), true);
+    assert_table!(EntityKind::LaneGroup, lir.lane_groups(), true);
+    assert_table!(EntityKind::FacilityBand, lir.facility_bands(), true);
+    assert_table!(
+        EntityKind::ParticipantClass,
+        lir.participant_classes(),
+        true
+    );
+    assert_table!(EntityKind::AccessRule, lir.access_rules(), true);
+    assert_table!(EntityKind::VehicleProfile, lir.vehicle_profiles(), true);
+    assert_table!(EntityKind::StaticRoute, lir.static_routes(), true);
+    assert_table!(EntityKind::CanonicalFrame, lir.canonical_frames(), true);
+
+    assert!(
+        mappings.next().is_none(),
+        "映射报告不得包含没有对应 LIR 实体的额外记录"
+    );
 }
 
 fn assert_projection_semantics(
@@ -567,6 +597,14 @@ fn assert_projection_semantics(
     let corridor = cross_section
         .corridor_handle(stable_id_for("main-corridor", ids))
         .expect("道路走廊必须存在");
+    assert_eq!(
+        cross_section.section(section).expect("道路区段").kind_id(),
+        "motorLane"
+    );
+    assert_eq!(
+        cross_section.band(band).expect("设施带").kind_id(),
+        "median"
+    );
     assert_eq!(cross_section.lane_group_section(group), Some(section));
     assert_eq!(
         cross_section
@@ -639,6 +677,13 @@ fn assert_projection_semantics(
     assert_eq!(
         signals.controller_cycle_duration_ms(controller),
         Some(6_000)
+    );
+    assert_eq!(
+        signals
+            .controller(controller)
+            .expect("信号控制器")
+            .offset_ms(),
+        1_250
     );
     for (phase_key, duration_ms, aspect, end_offset_ms) in [
         ("green", 3_000, CoreSignalAspect::Green, 3_000),

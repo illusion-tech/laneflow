@@ -585,12 +585,11 @@ validated canonical LIR 必须保存有类型（Typed）的
 
 - Geometry/Synthetic/Editor 来源若展开出逻辑边，必须从显式稳定 authoring key
   产生并持久化边键；几何坐标、曲线离散片段、数组下标和遍历顺序均不得成为边键；
-- 当前 Traffic v0.10 导入前端对**全部** `laneGraph.edges[].id`（不是只对未覆盖边）
-  原样使用其符合 External ID 约束的文本作为 `laneEdgeKey`，并置于导入模块的稳定
-  namespace；因此道路区段覆盖、路口内部角色、`loop`、`isolated` 和被静态路线引用
-  的未覆盖边都进入同一身份规则；
-- current `RoadSectionData.lanes[].edgeIds` 和派生 internal-edge ownership 只建立
-  关系；importer 不得因角色存在与否把同一 current edge 分派到不同 identity kind；
+- current JSON 不进入编译器；Traffic v0.10 的 `laneGraph.edges[].id`、
+  `RoadSectionData.lanes[].edgeIds` 和派生内部边角色只属于当前加载路径，本设计不定义
+  它们到 `laneEdgeKey` 或实体种类的导入映射；
+- 后继若为其他真实来源增加导入器，必须在自身 G1 冻结稳定命名空间、显式边键和角色
+  关系降阶；不得恢复已取消的 current JSON 映射，也不得按角色选择不同实体种类；
 - 缺失边键只能产生待确认建议，未持久化确认前不得发布匿名、按几何或按序号派生的
   边身份。
 
