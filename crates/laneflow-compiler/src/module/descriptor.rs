@@ -15,6 +15,7 @@ pub const SOURCE_DOCUMENT_SET_DIGEST_VERSION: u32 = 1;
 #[non_exhaustive]
 pub enum SourceLanguage {
     SyntheticDsl = 1,
+    RoadEditingSource = 3,
 }
 
 impl SourceLanguage {
@@ -23,6 +24,7 @@ impl SourceLanguage {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::SyntheticDsl => "synthetic-dsl",
+            Self::RoadEditingSource => "road-editing-source",
         }
     }
 }
@@ -310,4 +312,20 @@ pub(super) fn freeze_source_documents(
 #[cfg(test)]
 thread_local! {
     pub(super) static SOURCE_DOCUMENT_DIGEST_CALL_COUNT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SourceLanguage;
+
+    #[test]
+    fn source_language_values_keep_the_unpublished_geometry_gap_and_new_exact_code() {
+        assert_eq!(SourceLanguage::SyntheticDsl as u16, 1);
+        assert_eq!(SourceLanguage::GeometryDocument as u16, 2);
+        assert_eq!(SourceLanguage::RoadEditingSource as u16, 3);
+        assert_eq!(
+            SourceLanguage::RoadEditingSource.as_str(),
+            "road-editing-source"
+        );
+    }
 }

@@ -10,9 +10,9 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{EntityKind, FieldTag, StableId128};
 
-use crate::CompileLimitDimension;
 use crate::declaration::{FacilityKindCategory, FacilityKindViolation, ScalarViolation};
 use crate::identity::CanonicalIdentityViolation;
+use crate::{CompileLimitDimension, SourceLocation};
 
 /// 来源文档内受检的一基行列位置。
 ///
@@ -1205,17 +1205,17 @@ pub enum DiagnosticPayload {
 /// 一条不可变结构化诊断。
 ///
 /// 排序同时考虑规范模块顺序、来源位置、代码、严重程度、载荷、稳定键和关联位置。
-/// `primary_span` 指向主要失败位置，`related_spans` 用于重复声明、跨模块引用等需要同时
+/// `primary_location` 指向主要失败位置，`related_locations` 用于重复声明、跨模块引用等需要同时
 /// 展示上下文的情况。
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Diagnostic {
     canonical_module_order: u32,
-    primary_span: Option<SourceSpan>,
+    primary_span: Option<SourceLocation>,
     code: DiagnosticCode,
     severity: DiagnosticSeverity,
     payload: DiagnosticPayload,
     stable_key: Option<Box<str>>,
-    related_spans: Box<[SourceSpan]>,
+    related_spans: Box<[SourceLocation]>,
 }
 
 impl Diagnostic {
@@ -1246,9 +1246,25 @@ impl Diagnostic {
         expected_source_document_key: &str,
         actual_source_document_key: Option<&str>,
     ) -> Self {
+        Self::invalid_road_editing_source_at(
+            violation,
+            field,
+            expected_source_document_key,
+            actual_source_document_key,
+            None,
+        )
+    }
+
+    pub(crate) fn invalid_road_editing_source_at(
+        violation: RoadEditingSourceViolation,
+        field: Option<&str>,
+        expected_source_document_key: &str,
+        actual_source_document_key: Option<&str>,
+        primary_location: Option<SourceLocation>,
+    ) -> Self {
         Self {
             canonical_module_order: 0,
-            primary_span: None,
+            primary_span: primary_location,
             code: DiagnosticCode::InvalidRoadEditingSource,
             severity: DiagnosticSeverity::Error,
             payload: DiagnosticPayload::InvalidRoadEditingSource {
@@ -2937,14 +2953,34 @@ impl Diagnostic {
         related_spans: Box<[SourceSpan]>,
         stable_key: Option<Box<str>>,
     ) -> Self {
+        Self::error_with_location_context(
+            code,
+            payload,
+            primary_span.map(SourceLocation::Text),
+            related_spans
+                .into_vec()
+                .into_iter()
+                .map(SourceLocation::Text)
+                .collect(),
+            stable_key,
+        )
+    }
+
+    fn error_with_location_context(
+        code: DiagnosticCode,
+        payload: DiagnosticPayload,
+        primary_location: Option<SourceLocation>,
+        related_locations: Box<[SourceLocation]>,
+        stable_key: Option<Box<str>>,
+    ) -> Self {
         Self {
             canonical_module_order: 0,
-            primary_span,
+            primary_span: primary_location,
             code,
             severity: DiagnosticSeverity::Error,
             payload,
             stable_key,
-            related_spans,
+            related_spans: related_locations,
         }
     }
 
@@ -2966,16 +3002,32 @@ impl Diagnostic {
         &self.payload
     }
 
-    /// 返回主要来源位置；资源或头级错误可能没有具体位置。
+    /// 返回主要闭合来源位置；资源或头级错误可能没有具体位置。
     #[must_use]
-    pub const fn primary_span(&self) -> Option<&SourceSpan> {
+    pub const fn primary_location(&self) -> Option<&SourceLocation> {
         self.primary_span.as_ref()
     }
 
-    /// 返回与主要错误相关的其他声明或引用位置。
+    /// 若主要位置来自文本，返回其真实文本范围。
     #[must_use]
-    pub fn related_spans(&self) -> &[SourceSpan] {
+    pub const fn primary_span(&self) -> Option<&SourceSpan> {
+        match self.primary_span.as_ref() {
+            Some(SourceLocation::Text(span)) => Some(span),
+            Some(SourceLocation::RoadEditing(_)) | None => None,
+        }
+    }
+
+    /// 返回与主要错误相关的其他闭合来源位置。
+    #[must_use]
+    pub fn related_locations(&self) -> &[SourceLocation] {
         &self.related_spans
+    }
+
+    /// 遍历关联位置中的文本范围；道路编辑位置不会被伪装成文本行列。
+    pub fn related_spans(&self) -> impl Iterator<Item = &SourceSpan> {
+        self.related_spans
+            .iter()
+            .filter_map(SourceLocation::text_span)
     }
 
     /// 返回用于规范排序和快速定位的稳定键（若该诊断与键相关）。
