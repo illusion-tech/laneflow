@@ -905,6 +905,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     let mut review_to_latest_finding_edit_time = BTreeMap::<String, String>::new();
     let mut review_ids_with_thread_comments = BTreeSet::<String>::new();
     let mut finding_thread_ids = BTreeSet::<String>::new();
+    let mut disposed_finding_thread_ids = BTreeSet::<String>::new();
     let mut unresolved_actionable_threads = 0;
     let mut seen_thread_ids = BTreeSet::new();
     for thread in &pr.review_threads.nodes {
@@ -916,6 +917,9 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             diagnostics.push(format!("review thread `{}` 没有 comment", thread.id));
             continue;
         };
+        let has_owner_disposition = thread.comments.nodes.iter().skip(1).any(|comment| {
+            valid_owner_disposition_reply(first_comment, comment, &lockfile_metadata)
+        });
         let mut linked_review_ids = BTreeSet::new();
         let mut has_unbound_trusted_finding = false;
         let mut unassociated_trusted_replies = Vec::new();
@@ -1026,6 +1030,9 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             continue;
         }
         let newly_counted = finding_thread_ids.insert(thread.id.clone());
+        if has_owner_disposition {
+            disposed_finding_thread_ids.insert(thread.id.clone());
+        }
         for review_id in linked_review_ids {
             *review_to_finding_threads.entry(review_id).or_default() += 1;
         }
@@ -1054,6 +1061,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     let mut unthreaded_findings = 0;
     for review in &pr.reviews.nodes {
         let Some(actor) = review.author.as_ref() else {
+            diagnostics.push(format!("review `{}` 缺少 author", review.id));
             continue;
         };
         let Some(provider) = trusted_provider(&actor.login, &author) else {
@@ -1127,6 +1135,14 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             }
             "codex" if state == "APPROVED" => Some(EvidenceOutcome::Clean),
             "human" if linked_findings > 0 => Some(EvidenceOutcome::Findings),
+            "human"
+                if state == "APPROVED"
+                    && review.includes_created_edit
+                    && review.last_edited_at.is_some()
+                    && !review.body.trim().is_empty() =>
+            {
+                Some(EvidenceOutcome::Findings)
+            }
             "human"
                 if state == "COMMENTED"
                     && review.includes_created_edit
@@ -1349,6 +1365,9 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         }
     }
     let finding_count = finding_thread_ids.len() + unthreaded_findings;
+    let undisposed_finding_threads = finding_thread_ids
+        .difference(&disposed_finding_thread_ids)
+        .count();
 
     let (state, requires_rereview, primary, state_diagnostic) = if !diagnostics.is_empty() {
         (
@@ -1382,6 +1401,13 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 Some(blocking_finding),
                 Some("current-head finding 仍有 unresolved actionable thread".to_string()),
             )
+        } else if undisposed_finding_threads > 0 {
+            (
+                ExternalReviewState::AwaitingRereview,
+                true,
+                Some(blocking_finding),
+                Some("finding thread 已解决，但仍缺少逐项 disposition".to_string()),
+            )
         } else if let Some(clean) = clean_after_finding {
             (ExternalReviewState::Pass, false, Some(clean), None)
         } else {
@@ -1399,6 +1425,13 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 true,
                 Some(clean),
                 Some("存在 unresolved actionable thread，clean completion 不足以放行".to_string()),
+            )
+        } else if undisposed_finding_threads > 0 {
+            (
+                ExternalReviewState::AwaitingRereview,
+                true,
+                latest_substantive_finding.or(Some(clean)),
+                Some("finding thread 已解决，但仍缺少逐项 disposition".to_string()),
             )
         } else if let Some(finding) = latest_substantive_finding
             .filter(|finding| !timestamp_after(&clean.submitted_at, &finding.submitted_at))
@@ -1740,19 +1773,26 @@ fn valid_owner_disposition_reply(
     }) {
         return false;
     }
-    let Some(disposition) = comment.body.trim().strip_prefix("Disposition:") else {
+    let finding_time = if first_comment.updated_at == first_comment.created_at {
+        first_comment.created_at.as_str()
+    } else if timestamp_after(&first_comment.updated_at, &first_comment.created_at) {
+        first_comment.updated_at.as_str()
+    } else {
         return false;
     };
-    !disposition.trim().is_empty()
+    let disposition_time = if comment.updated_at == comment.created_at {
+        comment.created_at.as_str()
+    } else if timestamp_after(&comment.updated_at, &comment.created_at) {
+        comment.updated_at.as_str()
+    } else {
+        return false;
+    };
+    !comment.body.trim().is_empty()
         && comment.author.as_ref().is_some_and(|author| {
             let actor = normalize_actor(&author.login);
             TRUSTED_HUMAN_ACTORS.contains(&actor.as_str())
         })
-        && first_comment.updated_at == first_comment.created_at
-        && comment.updated_at == comment.created_at
-        && valid_timestamp(&first_comment.created_at)
-        && valid_timestamp(&comment.created_at)
-        && timestamp_after(&comment.created_at, &first_comment.created_at)
+        && timestamp_after(disposition_time, finding_time)
 }
 
 fn identity_only_non_range_finding(body: &str, claimed_oid: &str) -> bool {
@@ -3159,6 +3199,21 @@ mod tests {
         let head = snapshot.pull_request.head_ref_oid.clone();
         snapshot.pull_request.review_threads.nodes[0].comments.nodes[0].updated_at =
             "2026-07-24T03:22:00Z".to_string();
+        snapshot.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes
+            .push(ReviewThreadComment {
+                id: "PRRC-disposition-after-finding-edit".to_string(),
+                author: Some(Actor {
+                    login: "wangzishi".to_string(),
+                }),
+                body: "已记录该 finding 的处置，并请求后续 clean re-review。".to_string(),
+                created_at: "2026-07-24T03:22:00.5Z".to_string(),
+                updated_at: "2026-07-24T03:22:00.5Z".to_string(),
+                url: "https://github.com/illusion-tech/laneflow/pull/226#discussion-disposition"
+                    .to_string(),
+                pull_request_review: None,
+            });
         snapshot.pull_request.comments.nodes.push(IssueComment {
             id: "IC-clean-before-finding-edit".to_string(),
             author: Some(Actor {
@@ -3271,6 +3326,27 @@ mod tests {
         assert_eq!(result.finding_count, 2);
         assert_eq!(result.unresolved_actionable_threads, 0);
         assert!(!result.requires_rereview);
+    }
+
+    #[test]
+    fn resolved_findings_without_dispositions_do_not_pass_after_clean() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/history-pr-232-final.json"
+        ));
+        for thread in &mut snapshot.pull_request.review_threads.nodes {
+            thread.comments.nodes.truncate(1);
+        }
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::AwaitingRereview);
+        assert_eq!(result.finding_count, 2);
+        assert!(result.requires_rereview);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("缺少逐项 disposition"))
+        );
     }
 
     #[test]
@@ -3587,6 +3663,23 @@ mod tests {
     }
 
     #[test]
+    fn authorless_review_fails_closed() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/human-approved.json"
+        ));
+        snapshot.pull_request.reviews.nodes[0].author = None;
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("review `PRR-human-approved` 缺少 author"))
+        );
+    }
+
+    #[test]
     fn edited_approved_codex_review_requires_rereview() {
         let mut snapshot = fixture(include_str!(
             "../fixtures/external-review/codex-awaiting-rereview.json"
@@ -3604,6 +3697,55 @@ mod tests {
         assert_eq!(
             result.completion_time.as_deref(),
             Some("2026-07-24T03:23:00Z")
+        );
+    }
+
+    #[test]
+    fn edited_substantive_human_approval_requires_later_clean() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/human-approved.json"
+        ));
+        let head = snapshot.pull_request.head_ref_oid.clone();
+        let review = &mut snapshot.pull_request.reviews.nodes[0];
+        review.body = "The approval was edited to add a substantive concern.".to_string();
+        review.includes_created_edit = true;
+        review.last_edited_at = Some("2026-07-24T02:01:00Z".to_string());
+        snapshot.pull_request.comments.nodes.push(IssueComment {
+            id: "IC-clean-before-human-approval-edit".to_string(),
+            author: Some(Actor {
+                login: "chatgpt-codex-connector".to_string(),
+            }),
+            body: format!(
+                "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `{head}`"
+            ),
+            created_at: "2026-07-24T02:00:30Z".to_string(),
+            updated_at: "2026-07-24T02:00:30Z".to_string(),
+            url: "https://github.com/illusion-tech/laneflow/pull/300#issuecomment-before-edit"
+                .to_string(),
+        });
+
+        let before_edit = evaluate_snapshot(&snapshot);
+        assert_eq!(before_edit.state, ExternalReviewState::AwaitingRereview);
+        assert_eq!(
+            before_edit.completion_time.as_deref(),
+            Some("2026-07-24T02:01:00Z")
+        );
+
+        let clean = snapshot
+            .pull_request
+            .comments
+            .nodes
+            .last_mut()
+            .expect("test clean comment must exist");
+        clean.id = "IC-clean-after-human-approval-edit".to_string();
+        clean.created_at = "2026-07-24T02:01:01Z".to_string();
+        clean.updated_at = clean.created_at.clone();
+        clean.url = "https://github.com/illusion-tech/laneflow/pull/300#issuecomment-after-edit"
+            .to_string();
+
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::Pass
         );
     }
 
