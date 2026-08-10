@@ -115,6 +115,8 @@ impl SourceSpan {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum DiagnosticCode {
+    /// 第一方道路编辑编制模型的字段值或闭合构造非法。
+    InvalidRoadEditingInput,
     /// Geometry v1 来源文档的编码、JSON 形状或局部字段值非法。
     InvalidGeometryDocument,
     /// 来源模块头字段违反文本或资源约束。
@@ -308,6 +310,7 @@ impl DiagnosticCode {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::InvalidRoadEditingInput => "LF-COMP-ROAD-EDITING-INPUT",
             Self::InvalidGeometryDocument => "LF-COMP-GEOMETRY-DOCUMENT",
             Self::InvalidSourceHeaderField => "LF-COMP-SOURCE-HEADER-FIELD",
             Self::InvalidImportNamespace => "LF-COMP-IMPORT-NAMESPACE",
@@ -437,6 +440,31 @@ pub enum GeometryDocumentViolation {
     FieldValue,
     /// 文档内声明的稳定键与调用方预期键不一致。
     DocumentKeyMismatch,
+}
+
+/// 第一方道路编辑编制模型拒绝字段值的结构化原因。
+///
+/// 该诊断发生在来源 buffer 尚未建立时，因此不伪造 wire offset 或文本行列。字段路径由
+/// [`DiagnosticPayload::InvalidRoadEditingInput`] 单独携带。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum RoadEditingInputViolation {
+    /// token、显示键或来源文本违反统一文本规则。
+    InvalidText(SourceTextViolation),
+    /// owner-qualified 引用的 key component 数量与目标种类不一致。
+    InvalidReferenceDepth { expected: u8, actual: u8 },
+    /// 语义要求非空的集合没有成员。
+    EmptyCollection,
+    /// 唯一集合或所有者向量中出现重复值。
+    DuplicateValue,
+    /// 浮点字段是 NaN 或正负无穷。
+    NonFinite { value_bits: u64 },
+    /// 浮点字段没有严格大于零。
+    NotGreaterThanZero { value_bits: u64 },
+    /// 浮点字段小于零。
+    LessThanZero { value_bits: u64 },
+    /// 多个字段的组合违反闭合 variant 规则。
+    InvalidCombination,
 }
 
 /// 诊断严重程度。数值顺序同时是规范排序顺序。
@@ -711,6 +739,11 @@ pub enum AccessRegulationField {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum DiagnosticPayload {
+    /// 第一方道路编辑编制模型中的字段级失败。
+    InvalidRoadEditingInput {
+        field: Box<str>,
+        violation: RoadEditingInputViolation,
+    },
     /// Geometry v1 来源文档的 parse/build 失败。
     InvalidGeometryDocument {
         violation: GeometryDocumentViolation,
@@ -1264,6 +1297,24 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
+    pub(crate) fn invalid_road_editing_input(
+        field: &str,
+        violation: RoadEditingInputViolation,
+    ) -> Self {
+        Self {
+            canonical_module_order: 0,
+            primary_span: None,
+            code: DiagnosticCode::InvalidRoadEditingInput,
+            severity: DiagnosticSeverity::Error,
+            payload: DiagnosticPayload::InvalidRoadEditingInput {
+                field: field.into(),
+                violation,
+            },
+            stable_key: None,
+            related_spans: Box::default(),
+        }
+    }
+
     pub(crate) fn invalid_geometry_document(
         violation: GeometryDocumentViolation,
         field: Option<&str>,
@@ -3102,6 +3153,9 @@ impl fmt::Display for Diagnostic {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}: ", self.code.as_str())?;
         match &self.payload {
+            DiagnosticPayload::InvalidRoadEditingInput { field, violation } => {
+                write!(formatter, "道路编辑编制字段 {field} 非法：{violation:?}")
+            }
             DiagnosticPayload::InvalidGeometryDocument {
                 violation,
                 field,
