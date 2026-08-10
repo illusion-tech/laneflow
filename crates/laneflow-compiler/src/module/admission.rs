@@ -242,7 +242,7 @@ impl TestOfficialModule {
                     for reference in &mut controller.signal_groups {
                         reference.span = SourceSpan::point(
                             Arc::from(controller_group_document),
-                            51 + relation_offset(&reference.declaration_key),
+                            51 + relation_offset(reference.declaration_key()),
                             3,
                         )
                         .into();
@@ -252,7 +252,7 @@ impl TestOfficialModule {
                         for state in &mut phase.states {
                             state.signal_group.span = SourceSpan::point(
                                 Arc::from(phase_state_document),
-                                61 + relation_offset(&state.signal_group.declaration_key),
+                                61 + relation_offset(state.signal_group.declaration_key()),
                                 5,
                             )
                             .into();
@@ -266,7 +266,7 @@ impl TestOfficialModule {
                     {
                         reference.span = SourceSpan::point(
                             Arc::from(gate_signal_document),
-                            71 + relation_offset(&reference.declaration_key),
+                            71 + relation_offset(reference.declaration_key()),
                             7,
                         )
                         .into();
