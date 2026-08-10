@@ -120,7 +120,7 @@ pub(super) fn encoded_declaration_len(declaration: &TypedAstDeclaration) -> Opti
             for successor in &declaration.successors {
                 length = length.checked_add(encoded_reference_len(
                     &successor.module_namespace,
-                    &successor.declaration_key,
+                    successor.declaration_key(),
                 ))?;
             }
             Some(length)
@@ -230,7 +230,7 @@ pub(super) fn vehicle_profile_declaration_len(
     declaration_header_len(stable_key)
         .saturating_add(encoded_reference_len(
             &participant_class.module_namespace,
-            &participant_class.declaration_key,
+            participant_class.declaration_key(),
         ))
         .saturating_add(7 * 8)
 }
@@ -269,7 +269,7 @@ pub(super) fn canonical_frame_declaration_len(declaration: &CanonicalFrameDeclar
             total
                 .saturating_add(encoded_reference_len(
                     &geometry.lane_edge.module_namespace,
-                    &geometry.lane_edge.declaration_key,
+                    geometry.lane_edge.declaration_key(),
                 ))
                 .saturating_add(4)
                 .saturating_add(
@@ -303,7 +303,7 @@ pub(super) fn movement_declaration_len(
     declaration_header_len(stable_key)
         .saturating_add(encoded_reference_len(
             &junction.module_namespace,
-            &junction.declaration_key,
+            junction.declaration_key(),
         ))
         .saturating_add(4)
         .saturating_add(u64::try_from(directed_entry_approach_key.len()).unwrap_or(u64::MAX))
@@ -322,22 +322,22 @@ pub(super) fn maneuver_path_declaration_len(
     let mut length = declaration_header_len(stable_key)
         .saturating_add(encoded_reference_len(
             &movement.module_namespace,
-            &movement.declaration_key,
+            movement.declaration_key(),
         ))
         .saturating_add(encoded_reference_len(
             &entry_edge.module_namespace,
-            &entry_edge.declaration_key,
+            entry_edge.declaration_key(),
         ))
         .saturating_add(4);
     for edge in internal_edges {
         length = length.saturating_add(encoded_reference_len(
             &edge.module_namespace,
-            &edge.declaration_key,
+            edge.declaration_key(),
         ));
     }
     length.saturating_add(encoded_reference_len(
         &exit_edge.module_namespace,
-        &exit_edge.declaration_key,
+        exit_edge.declaration_key(),
     ))
 }
 
@@ -348,7 +348,7 @@ pub(super) fn stop_line_declaration_len(
 ) -> u64 {
     declaration_header_len(stable_key).saturating_add(encoded_reference_len(
         &lane_edge.module_namespace,
-        &lane_edge.declaration_key,
+        lane_edge.declaration_key(),
     ))
 }
 
@@ -363,17 +363,17 @@ pub(super) fn maneuver_gate_declaration_len(
     declaration_header_len(stable_key)
         .saturating_add(encoded_reference_len(
             &maneuver_path.module_namespace,
-            &maneuver_path.declaration_key,
+            maneuver_path.declaration_key(),
         ))
         .saturating_add(4)
         .saturating_add(encoded_reference_len(
             &stop_line.module_namespace,
-            &stop_line.declaration_key,
+            stop_line.declaration_key(),
         ))
         .saturating_add(1)
         .saturating_add(match signal_control {
             OwnedSignalControl::Group(group) => {
-                encoded_reference_len(&group.module_namespace, &group.declaration_key)
+                encoded_reference_len(&group.module_namespace, group.declaration_key())
             }
             OwnedSignalControl::None => 0,
         })
@@ -419,7 +419,7 @@ pub(super) fn signal_controller_declaration_len(declaration: &SignalControllerDe
     for group in &declaration.signal_groups {
         length = length.saturating_add(encoded_reference_len(
             &group.module_namespace,
-            &group.declaration_key,
+            group.declaration_key(),
         ));
     }
     for phase in &declaration.phases {
@@ -430,7 +430,7 @@ pub(super) fn signal_controller_declaration_len(declaration: &SignalControllerDe
             length = length
                 .saturating_add(encoded_reference_len(
                     &state.signal_group.module_namespace,
-                    &state.signal_group.declaration_key,
+                    state.signal_group.declaration_key(),
                 ))
                 .saturating_add(1);
         }
@@ -462,13 +462,13 @@ pub(super) fn parking_space_declaration_len(declaration: &ParkingSpaceDeclaratio
     if let Some(area) = &declaration.parking_area {
         length = length.saturating_add(encoded_reference_len(
             &area.module_namespace,
-            &area.declaration_key,
+            area.declaration_key(),
         ));
     }
     for anchor in [&declaration.entry, &declaration.exit] {
         length = length.saturating_add(encoded_reference_len(
             &anchor.lane_edge.module_namespace,
-            &anchor.lane_edge.declaration_key,
+            anchor.lane_edge.declaration_key(),
         ));
     }
     length
@@ -482,7 +482,7 @@ pub(super) fn participant_class_declaration_len(
     declaration_header_len(stable_key)
         .saturating_add(1)
         .saturating_add(extends.map_or(0, |reference| {
-            encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+            encoded_reference_len(&reference.module_namespace, reference.declaration_key())
         }))
 }
 
@@ -572,7 +572,7 @@ pub(super) fn access_rule_declaration_len(
     for class in participant_classes {
         length = length.saturating_add(encoded_reference_len(
             &class.module_namespace,
-            &class.declaration_key,
+            class.declaration_key(),
         ));
     }
     length = length.saturating_add(1);
@@ -596,19 +596,19 @@ pub(super) fn access_rule_declaration_len(
 pub(super) fn access_target_encoded_reference_len(target: &OwnedAccessRuleTarget) -> u64 {
     match target {
         OwnedAccessRuleTarget::LaneEdge(reference) => {
-            encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+            encoded_reference_len(&reference.module_namespace, reference.declaration_key())
         }
         OwnedAccessRuleTarget::LaneGroup(reference) => {
-            encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+            encoded_reference_len(&reference.module_namespace, reference.declaration_key())
         }
         OwnedAccessRuleTarget::RoadSection(reference) => {
-            encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+            encoded_reference_len(&reference.module_namespace, reference.declaration_key())
         }
         OwnedAccessRuleTarget::ManeuverPath(reference) => {
-            encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+            encoded_reference_len(&reference.module_namespace, reference.declaration_key())
         }
         OwnedAccessRuleTarget::FacilityBand(reference) => {
-            encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+            encoded_reference_len(&reference.module_namespace, reference.declaration_key())
         }
     }
 }
@@ -623,15 +623,15 @@ pub(super) fn waiting_zone_declaration_len(
     declaration_header_len(stable_key)
         .saturating_add(encoded_reference_len(
             &maneuver_path.module_namespace,
-            &maneuver_path.declaration_key,
+            maneuver_path.declaration_key(),
         ))
         .saturating_add(encoded_reference_len(
             &entry_gate.module_namespace,
-            &entry_gate.declaration_key,
+            entry_gate.declaration_key(),
         ))
         .saturating_add(encoded_reference_len(
             &release_gate.module_namespace,
-            &release_gate.declaration_key,
+            release_gate.declaration_key(),
         ))
         .saturating_add(4)
 }
@@ -645,7 +645,7 @@ pub(super) fn static_route_declaration_len(
         |length, edge| {
             length.saturating_add(encoded_reference_len(
                 &edge.module_namespace,
-                &edge.declaration_key,
+                edge.declaration_key(),
             ))
         },
     )
@@ -658,7 +658,7 @@ pub(super) fn lane_group_declaration_len(
 ) -> u64 {
     declaration_header_len(stable_key).saturating_add(encoded_reference_len(
         &road_section.module_namespace,
-        &road_section.declaration_key,
+        road_section.declaration_key(),
     ))
 }
 
@@ -680,13 +680,13 @@ pub(super) fn road_section_declaration_len(
         for edge in &lane.edge_chain {
             length = length.saturating_add(encoded_reference_len(
                 &edge.module_namespace,
-                &edge.declaration_key,
+                edge.declaration_key(),
             ));
         }
         if let Some(lane_group) = &lane.lane_group {
             length = length.saturating_add(encoded_reference_len(
                 &lane_group.module_namespace,
-                &lane_group.declaration_key,
+                lane_group.declaration_key(),
             ));
         }
     }
@@ -702,16 +702,16 @@ pub(super) fn road_corridor_declaration_len(
     let mut length = declaration_header_len(stable_key)
         .saturating_add(encoded_reference_len(
             &reference_section.module_namespace,
-            &reference_section.declaration_key,
+            reference_section.declaration_key(),
         ))
         .saturating_add(4);
     for element in elements {
         let reference_len = match element {
             OwnedCorridorElementReference::RoadSection(reference) => {
-                encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+                encoded_reference_len(&reference.module_namespace, reference.declaration_key())
             }
             OwnedCorridorElementReference::FacilityBand(reference) => {
-                encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+                encoded_reference_len(&reference.module_namespace, reference.declaration_key())
             }
         };
         length = length.saturating_add(2).saturating_add(reference_len);
@@ -741,7 +741,7 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
             );
             for successor in &declaration.successors {
                 put_bytes(output, &successor.module_namespace);
-                put_bytes(output, &successor.declaration_key);
+                put_bytes(output, successor.declaration_key());
                 put_source_location(output, &successor.span);
             }
         }
@@ -1005,7 +1005,7 @@ pub(super) fn put_owned_reference<K: laneflow_static_contract::EntityKindMarker>
     reference: &OwnedEntityReference<K>,
 ) {
     put_bytes(output, &reference.module_namespace);
-    put_bytes(output, &reference.declaration_key);
+    put_bytes(output, reference.declaration_key());
     put_source_location(output, &reference.span);
 }
 
