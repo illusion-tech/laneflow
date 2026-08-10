@@ -425,8 +425,8 @@ recovery 必须同时满足：
 reference-style 定义解析为对应的 GitHub G3 permalinks。不存在 late Related PR 时，
 G4 继续使用严格 full-set G3，且 G4 comment 不得包含 recovery 标记；一旦检测到
 late Related PR，缺少结构化记录，或时间、集合、授权、证据任一不匹配，均 fail
-closed。GitHub 时间只有秒级；Delivery 原 G3 `createdAt` 或 Related `createdAt`
-与 Delivery `mergedAt` 同秒时无法安全判定先后，也必须失败。
+closed。GitHub 时间只有秒级；Delivery 与 original Related 的 G3 comment effective time，
+或任一 Related PR `createdAt` 与 Delivery `mergedAt` 同秒时无法安全判定先后，也必须失败。
 
 ## 8. 例外治理
 

@@ -830,7 +830,11 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             }
             continue;
         }
-        let has_authorless_starter = first_comment.author.is_none();
+        let has_authorless_comment = thread
+            .comments
+            .nodes
+            .iter()
+            .any(|comment| comment.author.is_none());
         let mut has_trusted_finding = false;
         for (index, comment) in thread.comments.nodes.iter().enumerate() {
             let Some(actor) = comment.author.as_ref() else {
@@ -871,7 +875,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         }
         if !thread.is_resolved
             && !thread.is_outdated
-            && (has_trusted_finding || (dependabot_completion.is_some() && has_authorless_starter))
+            && (has_trusted_finding || (dependabot_completion.is_some() && has_authorless_comment))
         {
             unresolved_actionable_threads += 1;
         }
@@ -2717,6 +2721,19 @@ mod tests {
         let untrusted_result = evaluate_snapshot(&untrusted_thread);
         assert!(untrusted_result.state.is_pass());
         assert_eq!(untrusted_result.unresolved_actionable_threads, 0);
+
+        let mut authorless_reply_to_untrusted = untrusted_thread.clone();
+        let thread = &mut authorless_reply_to_untrusted
+            .pull_request
+            .review_threads
+            .nodes[0];
+        let mut authorless_reply = thread.comments.nodes[0].clone();
+        authorless_reply.id = "PRRC-authorless-reply-to-untrusted".to_string();
+        authorless_reply.author = None;
+        thread.comments.nodes.push(authorless_reply);
+        let authorless_reply_result = evaluate_snapshot(&authorless_reply_to_untrusted);
+        assert!(!authorless_reply_result.state.is_pass());
+        assert_eq!(authorless_reply_result.unresolved_actionable_threads, 1);
 
         let mut trusted_reply_to_untrusted = fixture(contents);
         let mut trusted_reply = trusted_reply_to_untrusted.pull_request.review_threads.nodes[0]
