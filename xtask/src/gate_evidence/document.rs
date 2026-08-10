@@ -357,6 +357,7 @@ pub(super) fn validate_external_review_g3(
     number: u64,
     pr: &GitHubPullRequest,
     label: &str,
+    historical_related_merged_at: Option<&str>,
 ) -> Result<(), String> {
     let permalink = completed_gate_permalink(&pr.body, "G3")?;
     let comment = pr
@@ -367,11 +368,13 @@ pub(super) fn validate_external_review_g3(
     let gate_result = parse_g3_result(&comment.body)?;
     let result = match gate_result {
         G3Result::Waived => {
-            let now = SystemTime::now()
+            let current_time = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_err(|error| format!("系统时间早于 Unix epoch：{error}"))?
                 .as_secs();
-            let waiver = parse_gate_waiver(comment, issue_number, now)?;
+            let validation_time =
+                waiver_validation_time(historical_related_merged_at, current_time)?;
+            let waiver = parse_gate_waiver(comment, issue_number, validation_time)?;
             external_review::evaluate_live_with_waiver(repo, number, waiver)?
         }
         G3Result::Pass | G3Result::Bootstrap => external_review::evaluate_live(repo, number)?,
@@ -403,6 +406,17 @@ pub(super) fn validate_external_review_g3(
         )?;
     }
     Ok(())
+}
+
+pub(super) fn waiver_validation_time(
+    historical_related_merged_at: Option<&str>,
+    current_time: u64,
+) -> Result<u64, String> {
+    match historical_related_merged_at {
+        Some(merged_at) => parse_utc_timestamp_seconds(merged_at)
+            .ok_or_else(|| "历史 Related PR mergedAt 不是 UTC RFC3339 时间".to_string()),
+        None => Ok(current_time),
+    }
 }
 
 pub(super) fn validate_g3_comment_after_external_review_completion(

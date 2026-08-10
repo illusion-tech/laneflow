@@ -114,6 +114,7 @@ fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> 
                 delivery_number,
                 delivery_pr,
                 "Delivery PR",
+                None,
             )?;
         }
         for (number, related_pr) in args.related_prs.iter().zip(&related_prs) {
@@ -127,6 +128,7 @@ fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> 
                     *number,
                     related_pr,
                     &format!("Related PR #{number}"),
+                    related_pr.merged_at.as_deref(),
                 )?;
             }
         }
@@ -143,6 +145,7 @@ fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> 
                 related_number,
                 &related_prs[0],
                 &format!("Related PR #{related_number}"),
+                None,
             )?;
         }
     }

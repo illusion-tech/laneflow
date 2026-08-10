@@ -1290,10 +1290,19 @@ fn rejects_expired_structured_gate_waiver() {
         includes_created_edit: false,
     };
     let after_expiry = parse_utc_timestamp_seconds("2026-07-24T17:00:01Z").unwrap();
-    let error =
-        parse_gate_waiver(&comment, 60, after_expiry).expect_err("expired waiver must fail closed");
+    let current_time = waiver_validation_time(None, after_expiry).unwrap();
+    let error = parse_gate_waiver(&comment, 60, current_time)
+        .expect_err("current PR must reject an expired waiver");
 
     assert!(error.contains("已过期"));
+
+    let merged_at = waiver_validation_time(Some("2026-07-24T16:30:00Z"), after_expiry)
+        .expect("historical Related PR must use its merge time");
+    assert!(parse_gate_waiver(&comment, 60, merged_at).is_ok());
+
+    let invalid_merged_at = waiver_validation_time(Some("not-a-timestamp"), after_expiry)
+        .expect_err("invalid historical mergedAt must fail closed");
+    assert!(invalid_merged_at.contains("mergedAt 不是 UTC RFC3339 时间"));
 }
 
 #[test]
