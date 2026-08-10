@@ -107,6 +107,8 @@ impl ModuleUsage {
         limits: &CompileLimits,
     ) -> Result<(), DiagnosticBundle> {
         let single_limit = limits.value(CompileLimitDimension::SingleStringBytes);
+        let mut component_count = 0_u64;
+        let mut component_bytes = 0_u64;
         for component in value
             .module_namespace()
             .into_iter()
@@ -123,11 +125,13 @@ impl ModuleUsage {
                     ),
                 ));
             }
+            component_count = component_count.saturating_add(1);
+            component_bytes = component_bytes.saturating_add(observed);
         }
         self.reference_count = self.reference_count.saturating_add(1);
-        self.string_item_count = self.string_item_count.saturating_add(1);
+        self.string_item_count = self.string_item_count.saturating_add(component_count);
         let wire_bytes = u64::try_from(value.wire_len()).unwrap_or(u64::MAX);
-        self.total_string_bytes = self.total_string_bytes.saturating_add(wire_bytes);
+        self.total_string_bytes = self.total_string_bytes.saturating_add(component_bytes);
         self.wire_upper_bound = self
             .wire_upper_bound
             .saturating_add(wire_bytes)
@@ -938,6 +942,47 @@ mod tests {
             ))
             .expect("builder remains reusable");
         assert_eq!(builder.finish().expect("module").declarations().len(), 1);
+    }
+
+    #[test]
+    fn owner_qualified_reference_charges_each_semantic_component() {
+        let limits = CompileLimits::p100_initial_v1()
+            .with_test_admission_limit(CompileLimitDimension::StringItemCount, 12);
+        let mut builder = builder(&limits);
+        builder
+            .add_declaration(RoadEditingDeclaration::Movement(
+                MovementInput::try_new(
+                    "movement",
+                    JunctionReference::local("junction").expect("junction reference"),
+                    "entry",
+                    "exit",
+                )
+                .expect("movement"),
+            ))
+            .expect("movement declaration");
+
+        let path = ManeuverPathInput::try_new(
+            "path",
+            MovementReference::owner_scoped(vec!["junction".into()], "movement")
+                .expect("movement reference"),
+            LaneEdgeReference::local("entry-edge").expect("entry edge"),
+            Vec::new(),
+            LaneEdgeReference::local("exit-edge").expect("exit edge"),
+        )
+        .expect("path");
+        let error = match builder.add_declaration(RoadEditingDeclaration::ManeuverPath(path)) {
+            Ok(_) => panic!("four path reference components exceed the remaining item budget"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            crate::DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::StringItemCount,
+                limit: 12,
+                observed: 13,
+            }
+        ));
     }
 
     #[test]
