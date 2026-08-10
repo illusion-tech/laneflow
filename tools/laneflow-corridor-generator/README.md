@@ -29,7 +29,7 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config exam
 ## 依赖与分发
 
 - `toml 1.1.4+spec-1.1.0` 只解析/序列化仓库内部配置与 catalog，许可证为 MIT OR Apache-2.0，MSRV 低于 workspace 1.96。
-- `jsonschema 0.49.3` 沿用 workspace 已锁定版本，用于写盘前校验三个 production JSON 文档；其 `borrow-or-share 0.2.4` 传递依赖采用 MIT-0，`deny.toml` 只为该精确 crate/version 设置例外。
+- `jsonschema 0.49.6` 沿用 workspace 已锁定版本，用于写盘前校验三个 production JSON 文档；其 `borrow-or-share 0.2.4` 传递依赖采用 MIT-0，`deny.toml` 只为该精确 crate/version 设置例外。
 - 工具离线运行，不进入 Core fixed-step 或 Adapter 热路径，不引入网络、引擎或 copyleft 依赖。
 
 ## 边界
