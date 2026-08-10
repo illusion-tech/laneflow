@@ -292,8 +292,8 @@
     "role": "formal five-module companion resource workload; exercises the production curved-offset path without mutating semanticSeed",
     "baseWorkload": "generate the complete LF-ROAD-EDITING-P100-v1 five-module source exactly, then apply the one replacement below before writer encoding",
     "profileCombination": {
-      "geometryAccuracyProfile": 2,
-      "geometryDirectionProfile": 2
+      "geometryAccuracyProfile": 1,
+      "geometryDirectionProfile": 1
     },
     "replacement": {
       "module": "p100.m00",
@@ -304,13 +304,13 @@
         "segments": [
           {
             "kind": "cubicBezier",
-            "control1": [20.0, 0.0, 0.0],
-            "control2": [20.0, 0.0, 20.0],
+            "control1": [20.0, 0.0, 20.0],
+            "control2": [20.0, 0.0, 0.0],
             "end": [189.5, 0.0, 0.0]
           }
         ]
       },
-      "endpointIdentityRule": "start and end exactly equal the replaced line, so topology endpoints and every declaration/reference/count remain unchanged",
+      "endpointAndJoinRule": "start and end exactly equal the replaced line; control2 has the same z as the end, so the connected end tangent remains +X and the existing junction join direction is preserved; topology endpoints and every declaration/reference/count remain unchanged",
       "widthRule": "retain the base workload widthProfileRule assignments; this alignment therefore includes inner/outer offsets and widening/narrowing lane profiles"
     },
     "exactStructuralCounts": {
@@ -318,15 +318,24 @@
       "curveSegmentCount": 275,
       "lineSegmentCount": 174,
       "cubicBezierSegmentCount": 101,
+      "cubicControlPointCount": 202,
       "offsetBearingCubicReferenceSegmentCount": 1
     },
+    "p100M00StructuralOverrides": {
+      "lineSegmentCount": 34,
+      "cubicBezierSegmentCount": 21,
+      "cubicControlPointCount": 42,
+      "flatbuffersTableOccurrenceCount": 633
+    },
+    "countInheritanceRule": "all exactCounts, perModuleCounts and tableOccurrenceAccounting values not explicitly overridden above remain identical to the base workload; in particular total table occurrences remain 3165 and canvas selection occurrences remain 2025",
     "horizontalRegularityVisitExpectation": {
       "baseP100TotalCubicNodeVisitsPerCompile": 0,
       "probeTotalCubicNodeVisitsPerCompile": 3,
       "probeMaximumPerOffsetBearingSourceSegment": 3,
       "accountingRule": "count each cubic regularity DFS pop once, cache by RoadAlignment source segment across all derived lane/facility offsets, and do not count direct line checks or junction-internal explicit curves"
     },
-    "measurementRule": "use the same release/locked reference machine, one warmup, seven fresh formal processes, named stage timing, live-byte ledger and retained-capacity protocol as the main workload; retain the probe module digests and byte lengths separately",
+    "measurementRule": "use Fine2Cm plus Smooth1Deg and the same release/locked reference machine, one warmup, seven fresh formal processes, named stage timing, live-byte ledger and retained-capacity protocol as the main workload; retain the probe module digests and byte lengths separately",
+    "resourceMonotonicityRule": "for this identical source and deterministic midpoint tree, Fine2Cm/Smooth1Deg has a subset acceptance predicate relative to every looser supported profile and is the required curved-offset point-count/CPU/scratch/live resource upper case; the probe is invalid if Fine2Cm/Smooth1Deg does not complete successfully",
     "peakRelationship": "the probe complete-compile CPU/scratch/live-byte peak is coequal formal absolute-budget evidence and must independently fit the same production limits; it neither replaces the main nine-combination P100 evidence nor adds its separate-process peak arithmetically to the main peak"
   },
   "requiredMeasurements": [
@@ -434,6 +443,8 @@
     "measurementRawEvidence": "must-be-repository-relative-and-bound-by-sha256",
     "crossRecordChecks": [
       "exact counts equal this manifest",
+      "the regularity probe applies only its explicit count overrides, inherits every other base count, and uses Fine2Cm/Smooth1Deg",
+      "the regularity probe preserves the replaced road's connected junction endpoint and +X end tangent, and complete compile succeeds without a join diagnostic",
       "all nine profile combinations are present",
       "all five module digests and byte lengths are present per combination",
       "all modules satisfy module-local owner closure while preserving the 60 cross-owner SignalPhase same-local-key pairs",

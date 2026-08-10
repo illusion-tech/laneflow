@@ -516,8 +516,9 @@ pub struct RoadEditingByteRange { /* checked u32 start + length */ }
 ```
 
 以上字段均私有并由受检构造器建立。道路编辑来源地址与 `CanonicalIdentity` 明确分层：
-前者保存来源 v1 的模块/kind/完整 owner-key tuple/local key，后者仍按 Identity v1 的
-parent StableId 形成产品稳定身份。`RoadEditingPropertyPath` 是最多四步的闭合叶属性路径，不接受任意
+前者保存来源 v1 的模块/kind/完整 owner-key tuple/local key，后者按 Identity v1 registry
+的 `EntityKind::required_tags()` 完整 tag 序列形成产品稳定身份；parent StableId 只是在
+适用 kind 中的一项。`RoadEditingPropertyPath` 是最多四步的闭合叶属性路径，不接受任意
 字符串或向量下标；例如 lane 结束宽度表示为
 `AuthoringLane.width_profile -> LinearWidthProfile.end_width_meters`，Bezier 第二控制点的
 x 分量表示为 `CurveSegment.geometry -> CubicBezierSegment -> control_1 -> Vec3F64.x`。
@@ -676,7 +677,8 @@ width/profile 和模块内集合规则，保证同一字段值域只有一份实
 构造模型、排序 scratch、FlatBuffers storage、错误诊断和返回 buffer 全部纳入
 `CompilerControlledLiveBytes`。builder 按实际元素/string 逐次计量；writer 在分配前以
 schema table/vector/string、每一次 schema emission `push/align` 最多 8-byte padding 和
-vtable 上界计算
+vtable 上界，以及 `finish_size_prefixed` 的 root offset、`LFRE` identifier、size prefix 和
+final minimum alignment 逐项计算
 checked wire upper bound，超过 `SourceBytesPerModule` 或 live-byte 余额即失败。storage
 只按该上界预分配一次；实际 size prefix 必须等于 `as_bytes().len() - 4`。G2 边界测试
 必须分别报告 write 峰值、返回 buffer retained capacity，以及该 buffer 随后进入 reader
