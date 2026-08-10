@@ -75,8 +75,8 @@ impl CurrentSourceSpan {
 /// issue 的调用上下文。
 ///
 /// 跨包检查固定为 `CurrentSourceIssue::artifact_ref()` 借用视图与
-/// `CurrentSourceIssueParts::into_components` owned bridge；本枚举按 SSOT
-/// `current-package-import.md:686-690` 隐藏，不构成文档化能力面。
+/// `CurrentSourceIssueParts::into_components` owned bridge；本枚举是在 #294 删除当前
+/// 加载路径前的内部可执行权威，保持隐藏且不构成公开兼容契约。
 #[doc(hidden)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CurrentSourceIssueContext {

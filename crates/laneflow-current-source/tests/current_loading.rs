@@ -629,7 +629,8 @@ fn error_bundle_is_never_empty_and_codes_are_stable_and_distinct() {
         .iter()
         .map(CurrentSourceErrorPayload::stable_code)
         .collect::<Vec<_>>();
-    // 与 docs/design/current-package-import.md 的 stable issue code 冻结表逐值一致。
+    // 逐值固定当前内部 payload 的 stable_code 映射；该可执行契约随 #294 删除，
+    // 不构成对外发布格式或长期兼容承诺。
     let expected = [
         "LF-CURRENT-SOURCE-JSON-SYNTAX",
         "LF-CURRENT-SOURCE-JSON-SHAPE",

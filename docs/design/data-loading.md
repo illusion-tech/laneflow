@@ -374,7 +374,7 @@ manifest JSON syntax
   -> one atomic LoadedScenario
 ```
 
-`NamedArtifact` 只借用调用方已经读取的原始 bytes；loader 不解释 `artifactRef` 为路径或 URI，不读取文件，也不联网。descriptor media type 固定为 `application/vnd.laneflow.traffic+json` 与 `application/vnd.laneflow.spatial+json`。SHA-256 由 `sha2` 0.11 在 Data crate 内部计算，不新增 hex 依赖。
+`NamedArtifact` 只借用调用方已经读取的原始 bytes；loader 不解释 `artifactRef` 为路径或 URI，不读取文件，也不联网。descriptor media type 固定为 `application/vnd.laneflow.traffic+json` 与 `application/vnd.laneflow.spatial+json`。SHA-256 由 `sha2` 0.11 在 `laneflow-current-source` 内部计算；`laneflow-data` 只在测试中用同一算法构造和核对夹具摘要，不新增 hex 依赖。
 
 `LoadedSpatialPackage` 保存 `CanonicalFrameId` 与按 Traffic lane graph 稳定顺序排列的 `LoadedSpatialEdge`；每条 edge 已解析为 `EdgeHandle` 并只含受检 `CanonicalPoint3F32`。它是 #135 几何构建的输入，不是完整 `SpatialRegistry`，也不在 #134 中计算弧长、绑定长度、检查连接端点或生成采样基底。
 
