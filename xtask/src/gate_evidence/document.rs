@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{codeql, external_review, lockfile_policy};
+use crate::external_review;
 
 use super::model::*;
 
@@ -184,7 +184,7 @@ pub(super) fn validate_comment(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} permalink 未指向该 PR 的 comment"))?;
-    let required_fields = if external_review_g3_active(&comment.created_at)? {
+    let required_fields = if comment.created_at.as_str() >= EXTERNAL_REVIEW_G3_ACTIVATION {
         if comment.includes_created_edit {
             return Err(format!(
                 "{label} comment 在创建后被编辑；current G3 必须 append-only"
@@ -195,9 +195,6 @@ pub(super) fn validate_comment(
         required_fields
     };
     validate_comment_body(&comment.body, required_fields, label)?;
-    if codeql_g3_active(&comment.created_at)? {
-        validate_comment_body(&comment.body, &["- CodeQL："], label)?;
-    }
     validate_gate_assertion(&comment.body, label, args, GateEvidencePhase::G3)
 }
 
@@ -348,92 +345,8 @@ pub(super) fn validate_g3_timing(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} permalink 未指向该 PR 的 comment"))?;
-    let comment_time = lockfile_policy::parse_utc_rfc3339(&comment.created_at)
-        .ok_or_else(|| format!("{label} comment createdAt 不是有效 UTC RFC3339 时间"))?;
-    let merge_time = lockfile_policy::parse_utc_rfc3339(merged_at)
-        .ok_or_else(|| format!("{label} PR mergedAt 不是有效 UTC RFC3339 时间"))?;
-    if comment_time >= merge_time {
-        return Err(format!("{label} comment 必须严格早于 PR 合并时间"));
-    }
-    Ok(())
-}
-
-pub(super) fn g3_current_head(body: &str) -> Result<&str, String> {
-    let line = unique_metadata_line(body, "Current head")?;
-    let value = line
-        .strip_prefix("- Current head：")
-        .expect("unique_metadata_line returned an unexpected prefix")
-        .trim();
-    if value.is_empty() {
-        return Err("G3 comment 的 `Current head` 字段不能为空".to_string());
-    }
-    if let Some(value) = value.strip_prefix('`') {
-        return value
-            .strip_suffix('`')
-            .filter(|value| !value.is_empty() && !value.contains('`'))
-            .ok_or_else(|| "G3 comment 的 `Current head` 字段 backtick 格式无效".to_string());
-    }
-    if value.contains('`') {
-        return Err("G3 comment 的 `Current head` 字段 backtick 格式无效".to_string());
-    }
-    Ok(value)
-}
-
-fn review_field_value<'a>(line: &'a str, field: &str) -> Result<&'a str, String> {
-    let tail = line
-        .trim_start()
-        .strip_prefix("- 审阅：")
-        .ok_or_else(|| "G3 comment 的审阅行缺少精确字段前缀".to_string())?;
-    let prefix = format!("{field}=`");
-    let values = tail
-        .split('、')
-        .filter_map(|segment| segment.trim().strip_prefix(&prefix))
-        .collect::<Vec<_>>();
-    let [value_tail] = values.as_slice() else {
-        return Err(format!("G3 comment 的审阅行必须恰好记录一个 `{field}` 值"));
-    };
-    value_tail
-        .strip_suffix('`')
-        .filter(|value| !value.is_empty() && !value.contains('`'))
-        .ok_or_else(|| format!("G3 comment 的审阅 `{field}` backtick 格式无效"))
-}
-
-fn review_evidence_url(line: &str) -> Result<&str, String> {
-    let tail = line
-        .trim_start()
-        .strip_prefix("- 审阅：")
-        .ok_or_else(|| "G3 comment 的审阅行缺少精确字段前缀".to_string())?;
-    let values = tail
-        .split('、')
-        .filter_map(|segment| segment.trim().strip_prefix("证据："))
-        .map(|value| value.trim_end_matches('。'))
-        .collect::<Vec<_>>();
-    match values.as_slice() {
-        [value] if !value.is_empty() => Ok(value),
-        _ => Err("G3 comment 的审阅行必须恰好记录一个 `证据` URL".to_string()),
-    }
-}
-
-pub(super) fn validate_recorded_review_completion(
-    body: &str,
-    provider: &str,
-    actor: &str,
-    reviewed_head: &str,
-    completion_time: &str,
-    evidence_url: &str,
-) -> Result<(), String> {
-    let line = unique_metadata_line(body, "审阅")?;
-    if review_field_value(line, "provider")? != provider
-        || review_field_value(line, "actor")? != actor
-        || review_field_value(line, "reviewed head")? != reviewed_head
-        || review_field_value(line, "completion")? != completion_time
-        || review_evidence_url(line)? != evidence_url
-    {
-        return Err("G3 comment 的审阅记录与 External Review Gate completion 不一致".to_string());
-    }
-    let outcome = review_field_value(line, "outcome")?;
-    if !matches!(outcome, "clean" | "pass / Did not find any major issues") {
-        return Err("G3 comment 的审阅 outcome 未记录 clean completion".to_string());
+    if comment.created_at.as_str() > merged_at {
+        return Err(format!("{label} comment 创建时间晚于 PR 合并时间"));
     }
     Ok(())
 }
@@ -454,12 +367,11 @@ pub(super) fn validate_external_review_g3(
     let gate_result = parse_g3_result(&comment.body)?;
     let result = match gate_result {
         G3Result::Waived => {
-            let current_time = SystemTime::now()
+            let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_err(|error| format!("系统时间早于 Unix epoch：{error}"))?
                 .as_secs();
-            let reference_time = gate_waiver_reference_time(pr, current_time)?;
-            let waiver = parse_gate_waiver(comment, issue_number, reference_time)?;
+            let waiver = parse_gate_waiver(comment, issue_number, now)?;
             external_review::evaluate_live_with_waiver(repo, number, waiver)?
         }
         G3Result::Pass | G3Result::Bootstrap => external_review::evaluate_live(repo, number)?,
@@ -474,240 +386,24 @@ pub(super) fn validate_external_review_g3(
             result.state
         ));
     }
-    if g3_current_head(&comment.body)? != result.current_head_oid() {
+    if !comment.body.contains(result.current_head_oid()) {
         return Err(format!(
             "{label} G3 comment 未记录 External Review Gate 对应的完整 current head `{}`",
             result.current_head_oid()
         ));
     }
     if gate_result != G3Result::Waived {
-        let provider = result
-            .provider()
-            .ok_or_else(|| format!("{label} pass 结果缺少 provider"))?;
-        let actor = result
-            .actor()
-            .ok_or_else(|| format!("{label} pass 结果缺少 actor"))?;
-        let reviewed_head = result
-            .reviewed_head_oid()
-            .ok_or_else(|| format!("{label} pass 结果缺少 reviewed head"))?;
         let completion_time = result
             .completion_time()
             .ok_or_else(|| format!("{label} pass 结果缺少 completion time"))?;
-        let evidence_url = result
-            .selected_evidence_url()
-            .ok_or_else(|| format!("{label} pass 结果缺少 selected evidence URL"))?;
-        validate_recorded_review_completion(
-            &comment.body,
-            provider,
-            actor,
-            reviewed_head,
-            completion_time,
-            evidence_url,
-        )?;
-        validate_external_review_completion_order(label, &comment.created_at, completion_time)?;
-    }
-    Ok(())
-}
-
-pub(super) fn gate_waiver_reference_time(
-    pr: &GitHubPullRequest,
-    current_time: u64,
-) -> Result<u64, String> {
-    let Some(merged_at) = pr.merged_at.as_deref() else {
-        return Ok(current_time);
-    };
-    lockfile_policy::parse_utc_rfc3339(merged_at)
-        .map(lockfile_policy::UtcTimestamp::seconds)
-        .ok_or_else(|| "已合并 PR 的 mergedAt 不是有效 UTC RFC3339 时间".to_string())
-}
-
-pub(super) fn validate_codeql_g3(
-    repo: &str,
-    number: u64,
-    pr: &GitHubPullRequest,
-    label: &str,
-) -> Result<(), String> {
-    let permalink = completed_gate_permalink(&pr.body, "G3")?;
-    let comment = pr
-        .comments
-        .iter()
-        .find(|comment| comment.url == permalink)
-        .ok_or_else(|| format!("{label} G3 permalink 未指向该 PR 的 comment"))?;
-    if !codeql_g3_active(&comment.created_at)? {
-        return Ok(());
-    }
-    let codeql_lines = comment
-        .body
-        .lines()
-        .filter(|line| line.trim_start().starts_with("- CodeQL："))
-        .collect::<Vec<_>>();
-    if codeql_lines.len() != 1 {
-        return Err(format!("{label} G3 comment 必须恰好包含一条 `- CodeQL：`"));
-    }
-    let line = codeql_lines[0];
-    let recorded_state = codeql_state(line)?;
-    let evidence_url = codeql_evidence_url(line)?;
-    let result = if pr.merged_at.is_some() {
-        codeql::evaluate_live_recorded(repo, number, evidence_url)?
-    } else {
-        codeql::evaluate_live(repo, number)?
-    };
-    if !result.state.satisfies_g3() {
-        return Err(format!(
-            "{label} 的 CodeQL 未满足 G3：{}",
-            result.state.as_str()
-        ));
-    }
-    validate_codeql_completion_order(label, &comment.created_at, result.completion_time())?;
-    if recorded_state != result.state {
-        return Err(format!(
-            "{label} G3 comment 的 CodeQL 状态与机器结果不一致：{}",
-            result.state.as_str()
-        ));
-    }
-    if let Some(evidence_url) = result.evidence_url() {
-        if !codeql_evidence_matches(line, evidence_url)? {
+        if comment.created_at.as_str() < completion_time {
             return Err(format!(
-                "{label} G3 comment 的 CodeQL 行未回链机器结果 evidence URL"
+                "{label} G3 comment 早于最终 external review completion：comment={}，completion={completion_time}",
+                comment.created_at
             ));
         }
     }
-    if result.state == codeql::CodeQlState::NotApplicable
-        && (codeql_policy(line)? != "dependabot-cargo-lock-only-v1"
-            || result.policy() != Some("dependabot-cargo-lock-only-v1"))
-    {
-        return Err(format!(
-            "{label} CodeQL not_applicable 必须记录精确 `dependabot-cargo-lock-only-v1` policy"
-        ));
-    }
     Ok(())
-}
-
-pub(super) fn codeql_evidence_matches(line: &str, expected: &str) -> Result<bool, String> {
-    Ok(codeql_evidence_url(line)? == expected)
-}
-
-pub(super) fn codeql_state(line: &str) -> Result<codeql::CodeQlState, String> {
-    let tail = line
-        .trim_start()
-        .strip_prefix("- CodeQL：")
-        .ok_or_else(|| "G3 comment 的 CodeQL 行缺少精确字段前缀".to_string())?
-        .trim_start();
-    let value_tail = tail
-        .strip_prefix('`')
-        .ok_or_else(|| "G3 comment 的 CodeQL 状态必须是字段后的首个 backtick 值".to_string())?;
-    let end = value_tail
-        .find('`')
-        .ok_or_else(|| "G3 comment 的 CodeQL 状态缺少结束 backtick".to_string())?;
-    let state = codeql::CodeQlState::parse(&value_tail[..end])?;
-    let state_tokens = [
-        "pass",
-        "not_applicable",
-        "pending",
-        "failed",
-        "missing",
-        "provider_error",
-    ]
-    .iter()
-    .map(|candidate| line.matches(&format!("`{candidate}`")).count())
-    .sum::<usize>();
-    if state_tokens != 1 {
-        return Err("G3 comment 的 CodeQL 行必须恰好记录一个状态值".to_string());
-    }
-    Ok(state)
-}
-
-pub(super) fn codeql_policy(line: &str) -> Result<&str, String> {
-    let tail = line
-        .trim_start()
-        .strip_prefix("- CodeQL：")
-        .ok_or_else(|| "G3 comment 的 CodeQL 行缺少精确字段前缀".to_string())?;
-    let values = tail
-        .split(['；', ';'])
-        .filter_map(|segment| segment.trim().strip_prefix("policy `"))
-        .collect::<Vec<_>>();
-    let [value_tail] = values.as_slice() else {
-        return Err("G3 comment 的 CodeQL 行必须恰好记录一个 `policy` 值".to_string());
-    };
-    let value = value_tail
-        .strip_suffix('`')
-        .filter(|value| !value.contains('`'))
-        .ok_or_else(|| "G3 comment 的 CodeQL policy backtick 格式无效".to_string())?;
-    if value.is_empty() {
-        return Err("G3 comment 的 CodeQL policy 不能为空".to_string());
-    }
-    Ok(value)
-}
-
-pub(super) fn codeql_evidence_url(line: &str) -> Result<&str, String> {
-    let marker = "https://github.com/";
-    let positions = line.match_indices(marker).collect::<Vec<_>>();
-    if positions.len() != 1 {
-        return Err("G3 comment 的 CodeQL 行必须恰好包含一个 GitHub evidence URL".to_string());
-    }
-    let suffix = &line[positions[0].0..];
-    let end = suffix
-        .find(|character: char| {
-            character.is_whitespace() || matches!(character, ',' | '，' | '。' | ')' | ']')
-        })
-        .unwrap_or(suffix.len());
-    Ok(&suffix[..end])
-}
-
-pub(super) fn validate_codeql_completion_order(
-    label: &str,
-    comment_created_at: &str,
-    completion_time: Option<&str>,
-) -> Result<(), String> {
-    let Some(completion_time_text) = completion_time else {
-        return Ok(());
-    };
-    let comment_time = lockfile_policy::parse_utc_rfc3339(comment_created_at)
-        .ok_or_else(|| format!("{label} G3 comment createdAt 不是有效 UTC RFC3339 时间"))?;
-    let completion_time = lockfile_policy::parse_utc_rfc3339(completion_time_text)
-        .ok_or_else(|| format!("{label} CodeQL completedAt 不是有效 UTC RFC3339 时间"))?;
-    if comment_time <= completion_time {
-        return Err(format!(
-            "{label} G3 comment 未严格晚于 CodeQL 完成时间：comment={comment_created_at}，completion={}",
-            completion_time_text
-        ));
-    }
-    Ok(())
-}
-
-pub(super) fn validate_external_review_completion_order(
-    label: &str,
-    comment_created_at: &str,
-    completion_time_text: &str,
-) -> Result<(), String> {
-    let comment_time = lockfile_policy::parse_utc_rfc3339(comment_created_at)
-        .ok_or_else(|| format!("{label} G3 comment createdAt 不是有效 UTC RFC3339 时间"))?;
-    let completion_time =
-        lockfile_policy::parse_utc_rfc3339(completion_time_text).ok_or_else(|| {
-            format!("{label} external review completion time 不是有效 UTC RFC3339 时间")
-        })?;
-    if comment_time <= completion_time {
-        return Err(format!(
-            "{label} G3 comment 未严格晚于最终 external review completion：comment={comment_created_at}，completion={completion_time_text}"
-        ));
-    }
-    Ok(())
-}
-
-pub(super) fn external_review_g3_active(comment_created_at: &str) -> Result<bool, String> {
-    let comment_time = lockfile_policy::parse_utc_rfc3339(comment_created_at)
-        .ok_or_else(|| "G3 comment createdAt 不是有效 UTC RFC3339 时间".to_string())?;
-    let activation_time = lockfile_policy::parse_utc_rfc3339(EXTERNAL_REVIEW_G3_ACTIVATION)
-        .expect("external review G3 activation must be valid UTC RFC3339");
-    Ok(comment_time >= activation_time)
-}
-
-pub(super) fn codeql_g3_active(comment_created_at: &str) -> Result<bool, String> {
-    let comment_time = lockfile_policy::parse_utc_rfc3339(comment_created_at)
-        .ok_or_else(|| "G3 comment createdAt 不是有效 UTC RFC3339 时间".to_string())?;
-    let activation_time = lockfile_policy::parse_utc_rfc3339(CODEQL_G3_ACTIVATION)
-        .expect("CodeQL G3 activation must be valid UTC RFC3339");
-    Ok(comment_time >= activation_time)
 }
 
 pub(super) fn parse_g3_result(body: &str) -> Result<G3Result, String> {
@@ -797,8 +493,8 @@ pub(super) fn parse_g3_full_set_recovery(
             record.delivery_merged_at
         ));
     }
-    lockfile_policy::parse_utc_rfc3339(&record.delivery_merged_at).ok_or_else(|| {
-        "G3 full-set recovery deliveryMergedAt 不是有效 UTC RFC3339 时间".to_string()
+    parse_utc_timestamp_seconds(&record.delivery_merged_at).ok_or_else(|| {
+        "G3 full-set recovery deliveryMergedAt 不是 UTC RFC3339 秒级时间".to_string()
     })?;
     for (field, value) in [
         ("reason", record.reason.as_str()),
@@ -954,7 +650,7 @@ pub(super) fn validate_gate_waiver_record_set(
     comment: &GitHubComment,
     declared_issues: &BTreeSet<u64>,
 ) -> Result<(), String> {
-    if !external_review_g3_active(&comment.created_at)? {
+    if comment.created_at.as_str() < EXTERNAL_REVIEW_G3_ACTIVATION {
         return Ok(());
     }
     match parse_g3_result(&comment.body)? {
@@ -1097,7 +793,77 @@ pub(super) fn reference_github_url(body: &str, label: &str) -> Option<String> {
 }
 
 pub(super) fn parse_utc_timestamp_seconds(value: &str) -> Option<u64> {
-    lockfile_policy::parse_utc_rfc3339(value).map(lockfile_policy::UtcTimestamp::seconds)
+    let timestamp = value.strip_suffix('Z')?;
+    let whole_seconds = if let Some((whole_seconds, fractional_seconds)) = timestamp.split_once('.')
+    {
+        if fractional_seconds.is_empty()
+            || !fractional_seconds.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return None;
+        }
+        whole_seconds
+    } else {
+        timestamp
+    };
+    let bytes = whole_seconds.as_bytes();
+    if bytes.len() != 19
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+    {
+        return None;
+    }
+    let year = whole_seconds.get(0..4)?.parse::<u64>().ok()?;
+    let month = whole_seconds.get(5..7)?.parse::<u64>().ok()?;
+    let day = whole_seconds.get(8..10)?.parse::<u64>().ok()?;
+    let hour = whole_seconds.get(11..13)?.parse::<u64>().ok()?;
+    let minute = whole_seconds.get(14..16)?.parse::<u64>().ok()?;
+    let second = whole_seconds.get(17..19)?.parse::<u64>().ok()?;
+    if year < 1970 || !(1..=12).contains(&month) || hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    let leap = is_leap_year(year);
+    let month_days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let max_day = month_days[(month - 1) as usize];
+    if day == 0 || day > max_day {
+        return None;
+    }
+    let years_before = year - 1;
+    let epoch_years_before = 1969;
+    let leap_days_before = years_before / 4 - years_before / 100 + years_before / 400;
+    let epoch_leap_days_before =
+        epoch_years_before / 4 - epoch_years_before / 100 + epoch_years_before / 400;
+    let days_before_year = (year - 1970) * 365 + leap_days_before - epoch_leap_days_before;
+    let days_before_month = month_days
+        .iter()
+        .take((month - 1) as usize)
+        .copied()
+        .sum::<u64>();
+    Some(
+        (days_before_year + days_before_month + day - 1) * 86_400
+            + hour * 3_600
+            + minute * 60
+            + second,
+    )
+}
+
+pub(super) fn is_leap_year(year: u64) -> bool {
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
 pub(super) fn g3_requires_external_review(pr: &GitHubPullRequest) -> Result<bool, String> {
@@ -1107,5 +873,5 @@ pub(super) fn g3_requires_external_review(pr: &GitHubPullRequest) -> Result<bool
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| "G3 permalink 未指向该 PR 的 comment".to_string())?;
-    external_review_g3_active(&comment.created_at)
+    Ok(comment.created_at.as_str() >= EXTERNAL_REVIEW_G3_ACTIVATION)
 }

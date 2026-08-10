@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active  
-**最后更新**: 2026-08-07
+**最后更新**: 2026-08-05
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
 ## 1. 工作流原则
@@ -146,7 +146,6 @@ Delivery PR / Related PRs 关联规则：
 - finding 被作者 resolve 后进入 `AwaitingRereview`，必须重新请求 reviewer 并取得 current-head clean completion。
 - new push 或 review dismissal 使旧 completion、Check 与 G3 comment stale。G3 comment 必须新增，不得编辑旧评论回填。
 - 其他贡献者创建 PR 时，`wangzishi` 的 exact-head `APPROVED` 可以计数；`wangzishi` 自己创建 PR 时，由受信任 AI / GitHub actor 提供外部审阅。
-- 外部 provider 无法审阅时不自动通过。只有 trusted-ref validator 同时证明 Dependabot App / bot PR author、同 repository 的 `dependabot/cargo/*` ref、唯一 current-head GitHub `web-flow` verified Dependabot commit、完整 Dependabot force-push provenance、完整且唯一 `MODIFIED Cargo.lock`，并确认错误 PR commit/object SHA finding 与 G3 Owner `Disposition:` 均未编辑、处置时间严格更晚且线程已解决，才能由 `dependabot_lockfile_policy` 形成机器替代 completion；其他路径继续要求 exact-head reviewer 或结构化 waiver。
 
 PR commit 使用 `Gate: G3 Candidate`，只说明实现者验证完成并准备进入 review。正式 G3 结果不写回 commit。
 
@@ -169,27 +168,15 @@ live metadata 校验使用：
 cargo +1.96.0 run --locked -p xtask -- check-external-review --repo <owner/repo> --pr <number> --format json
 ```
 
-CodeQL current-head 适用性独立校验使用：
-
-```text
-cargo +1.96.0 run --locked -p xtask -- check-codeql --repo <owner/repo> --pr <number> --format json
-```
-
-只有 PR-bound rollup 选定且 REST source App=`github-advanced-security` 的 aggregate success 所得 `pass`，以及精确 `dependabot-cargo-lock-only-v1` 对 aggregate `NEUTRAL` / no-analysis 的 `not_applicable` 可进入标准 G3；`SKIPPED` 失败关闭。OPEN target 还要求 REST `pull_requests` 精确绑定 PR number/current head/current base；MERGED 历史重放允许 association 被 GitHub 清空，但仍须由 PR-bound URL 与 REST source/head/conclusion 双重匹配。同 head 的其他 PR/base 分析或同名 Actions job 不计入；external-review waiver 不连带豁免 CodeQL；
-从 `2026-08-08T00:00:00Z` 创建的 G3 comment 起必须唯一记录 `- CodeQL：` 状态、
-policy（若适用）和 evidence URL；状态必须是字段后的首个且唯一 backtick 状态，URL 必须
-与机器结果精确相等。fixture/replay 使用 `--input ... --expect <state>`，普通
-源码/workflow PR 的 neutral/no-analysis 仍失败关闭。
-
 R0 fixture / 历史事件 replay 使用版本化 snapshot：
 
 ```text
 cargo +1.96.0 run --locked -p xtask -- check-external-review --input <snapshot.json> --format json --expect <state>
 ```
 
-snapshot 与结果均使用 `schemaVersion: 1`。live evaluator 读取 author、current head/base、review requests、reviews、issue comments 和 review threads，并在计算后再次读取 head/base；review request / review / issue comment / review thread 等审阅生命周期 connection 超过 100 条、thread comment 截断、actor/timestamp 缺失、provider 文案歧义或二次读取发生竞态时返回 `provider_error`。changed files、commits、commit authors 与 force-push provenance 的分页完整性只决定窄 `dependabot_lockfile_policy` 是否适用，不得阻断已有 exact-head reviewer completion 的普通源码 PR。review/review comment 的 SHA 缺失同样失败关闭；所有 finding / clean evidence 的排序和“clean 是否严格晚于 finding”均使用已校验 UTC RFC3339 的秒与纳秒数值，不使用字符串顺序。唯一窄例外是受信任 Codex provider 的无绑定 clean comment 可被创建/提交时间严格更晚、绑定 current exact head 且字段完整有效的 clean completion supersede。被编辑的 clean comment 不计为 completion，但更晚的有效 exact-head clean 可以正常通过；被编辑的受信任 finding comment 在 `updatedAt` 有效且严格晚于 `createdAt` 时以 `updatedAt` 作为 finding 时间，仍要求其后的 exact-head clean re-review。仅有无绑定 clean、最终有效 current-head clean 之后又出现无绑定 clean、两者同秒无法证明先后，或时间/URL/OID 无效时仍返回 `provider_error`。`--expect` 只用于 fixture/replay 断言；未提供时只有 `pass` 退出成功，`waived` 仍保持独立状态。
+snapshot 与结果均使用 `schemaVersion: 1`。live evaluator 读取 author、current head/base、review requests、reviews、issue comments 和 review threads，并在计算后再次读取 head/base；任一 connection 超过 100 条、thread comment 截断、actor/timestamp 缺失、provider 文案歧义或二次读取发生竞态时返回 `provider_error`。review/review comment 的 SHA 缺失同样失败关闭；唯一窄例外是受信任 Codex provider 的无绑定 clean comment 可被创建/提交时间严格更晚、绑定 current exact head 且字段完整有效的 clean completion supersede。仅有无绑定 clean、最终有效 current-head clean 之后又出现无绑定 clean、两者同秒无法证明先后、comment 被编辑，或时间/URL/OID 无效时仍返回 `provider_error`。`--expect` 只用于 fixture/replay 断言；未提供时只有 `pass` 退出成功，`waived` 仍保持独立状态。
 
-`check-gate-evidence g3` 的 external-review 集成以 Issue #230 的 G2-B 增量开工记录时间 `2026-07-24T15:16:21Z` 为迁移边界：更早的 G3 comment 保留 legacy 历史语义，不追溯要求新增字段；该时点及之后创建的 G3 comment 必须显式包含 `Gate 结果`，是未编辑的 append-only 记录，并包含完整 current head。激活边界、G3 comment 与最终 completion、以及历史 G3 comment 与 `mergedAt` 的先后关系均按严格 UTC RFC3339 的秒与纳秒数值比较，不能用字符串顺序处理小数秒。`G3 Pass` / `R0-R1 bootstrap` 必须晚于 live evaluator 识别的最终 completion；`G3 Waived` 必须使用 `development-gates.md` 规定的 `external-review-waiver:v1` 结构化记录，多 Issue PR 按 `followUpIssue` 为每个关联 Issue 保留一条唯一记录，且 record set 与 `关联 Issue` 集合精确一致；live evaluator 逐 Issue 匹配并保持 `waived` 而不冒充 `pass`。waiver 路径只读取并二次确认 PR number、author、draft、current head/base identity，不依赖 provider review connection；GitHub identity API 不可读、head/base 竞态或 Draft PR 仍然 fail closed。OPEN current target 按当前时间判断 waiver 未过期；Delivery full-set / G4 重放 MERGED 历史成员时按其 `mergedAt` 判断当时有效性，不能把历史 waiver 重新用于新的 merge。G3 Evidence Shadow 不把有到期时间的 waiver 发布为 success，避免时钟推进后留下假阳性。
+`check-gate-evidence g3` 的 external-review 集成以 Issue #230 的 G2-B 增量开工记录时间 `2026-07-24T15:16:21Z` 为迁移边界：更早的 G3 comment 保留 legacy 历史语义，不追溯要求新增字段；该时点及之后创建的 G3 comment 必须显式包含 `Gate 结果`，是未编辑的 append-only 记录，并包含完整 current head。`G3 Pass` / `R0-R1 bootstrap` 必须晚于 live evaluator 识别的最终 completion；`G3 Waived` 必须使用 `development-gates.md` 规定的 `external-review-waiver:v1` 结构化记录，多 Issue PR 按 `followUpIssue` 为每个关联 Issue 保留一条唯一记录，且 record set 与 `关联 Issue` 集合精确一致；live evaluator 逐 Issue 匹配并保持 `waived` 而不冒充 `pass`。waiver 路径只读取并二次确认 PR number、author、draft、current head/base identity，不依赖 provider review connection；GitHub identity API 不可读、head/base 竞态或 Draft PR 仍然 fail closed。G3 Evidence Shadow 不把有到期时间的 waiver 发布为 success，避免时钟推进后留下假阳性。
 
 #### R1 shadow workflow 实现边界
 
@@ -306,7 +293,7 @@ CI 的初始目标是保证基础质量，不追求一次到位。
 
 外部审阅检查按 #230 rollout 逐步加入：R1 以 non-required shadow 运行；R2 达标后 `External Review Gate` 成为 required check。当前阶段不得把“workflow 文件已存在”写成 ruleset 已启用。
 
-GitHub CodeQL、Secret Scanning 和 Dependabot 属于平台安全检查，其配置、状态语义和阻断规则见 `security-scanning.md`。GitHub 为当前 PR 产生的适用 CodeQL check 必须在 G3 前完成；唯一长期 `not_applicable` 是 `check-codeql` 机器证明的 `dependabot-cargo-lock-only-v1`。其他缺失预期分析、失败或平台不可用不能解释为通过。
+GitHub CodeQL、Secret Scanning 和 Dependabot 属于平台安全检查，其配置、状态语义和阻断规则见 `security-scanning.md`。GitHub 为当前 PR 产生的适用 CodeQL check 必须在 G3 前完成；缺失预期分析、失败或平台不可用不能解释为通过。
 
 后续根据实际技术栈继续增加 Markdown/YAML 语法检查、lint、schema validation、adapter build 和 example smoke test。新增 data spec、Adapter 或示例代码后，应同步增加对应专用门禁。
 

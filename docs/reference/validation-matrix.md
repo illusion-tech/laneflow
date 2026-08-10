@@ -1,7 +1,7 @@
 # 验证矩阵
 
 **文档状态**: Active  
-**最后更新**: 2026-08-07
+**最后更新**: 2026-08-05
 
 **适用范围**: LaneFlow 各切片类型在 `G3` 合并和 `G4` 收口闸口前的最小验证要求  
 **关联文档**:
@@ -55,84 +55,52 @@ cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
 
 ## 4. 外部审阅 Gate 回归矩阵
 
-所有切片默认需要一个有效 external reviewer。首版标准路径只接受 exact-head review；`unresolved=0` 是必要非充分条件。唯一长期替代是严格验证的 Dependabot 单提交 `Cargo.lock`-only trusted-ref policy。
+所有切片默认需要一个有效 external reviewer。首版标准路径只接受 exact-head review；`unresolved=0` 是必要非充分条件。
 
-| 场景                                                                                                                                                                       | 预期状态 / 结果                                                                                   |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| 无 review；仅 request、reaction 或任务启动                                                                                                                                 | `awaiting_review` / `review_pending`，Fail                                                        |
-| 仅有受信任 Codex provider 的无 reviewed SHA clean 摘要                                                                                                                     | `provider_error`，Fail                                                                            |
-| 旧无 SHA clean 摘要后有严格更晚、字段完整、绑定 current exact head 的 clean completion                                                                                     | 旧歧义被 supersede，进入正常 completion/thread 状态机                                             |
-| current-head clean completion 后又有无 SHA clean 摘要，或两者为 GitHub 同秒                                                                                                | `provider_error`，Fail；无法证明最终歧义已被覆盖                                                  |
-| 只有 PR author self-review                                                                                                                                                 | `awaiting_review`，Fail                                                                           |
-| 受信任 reviewer 在 current head 完成 clean review                                                                                                                          | `pass` 候选；仍需 threads、Checks 与 G3 comment                                                   |
-| finding 未处置或仍有 unresolved actionable thread                                                                                                                          | `findings_open`，Fail                                                                             |
-| finding 已回复/resolve，但没有新的 clean re-review                                                                                                                         | `awaiting_rereview`，Fail                                                                         |
-| finding 处置后，受信任 reviewer 在 current head clean re-review                                                                                                            | `pass` 候选                                                                                       |
-| R1 resolve / unresolve 后未新增 `external-review: thread-state-changed` comment                                                                                            | shadow 状态可能 stale，Fail；marker 触发 trusted metadata re-read 后再判断                        |
-| clean completion 后 new push 或 review dismissed                                                                                                                           | `stale`，Fail 并重新请求 review                                                                   |
-| clean review 绑定旧 head，且没有已批准的等价例外                                                                                                                           | `stale`，Fail                                                                                     |
-| provider 文案正确但 actor 不在 allowlist                                                                                                                                   | Fail                                                                                              |
-| author 转贴 Cursor / 本地 Agent 输出                                                                                                                                       | Fail                                                                                              |
-| content-equivalent rebase 具备全部附加证据                                                                                                                                 | `waived`；不得自动转成标准 `pass`                                                                 |
-| 预创建或编辑旧 G3 comment 回填新证据                                                                                                                                       | Fail；必须新增 superseding comment                                                                |
-| Related PR B 自身仍由 main 上的旧 validator 判断                                                                                                                           | 按 R0 bootstrap 人工核验 exact-head review；不得用候选 validator 自批                             |
-| Related PR C 自身尚未把 shadow workflow 合入 main                                                                                                                          | 使用 main 上的 live validator；候选 Check 不得自批，Check 缺失按 R0 bootstrap 记录                |
-| PR B 合入后的 R0/R1 PR 尚无 required External Review Gate                                                                                                                  | `G3 Pass` / bootstrap 要求 live `pass`；结构化 `G3 Waived` 保持 `waived`，并记录 Check 缺失       |
-| 多 Issue PR 使用 `G3 Waived`，但 waiver 缺少某个 Issue 或 `followUpIssue` 重复                                                                                             | Fail；每个关联 Issue 必须有一条唯一匹配的 `external-review-waiver:v1` 记录                        |
-| waiver record set 含未声明 Issue，或 target / Delivery full-set 任一成员使用 waiver                                                                                        | Fail；record set 必须精确匹配关联 Issue，Shadow 对任一 `G3 Waived` 永不发布 success               |
-| Delivery closing set 含未声明 Issue，或 Related closing set 非空                                                                                                           | Fail；target 的完整 closing set 必须与 PR 角色和全部 `关联 Issue` 精确一致                        |
-| PR body 缺少明确 `关联 Issue` 列表、仍保留角色模板占位或角色与任一 Issue 元数据不一致                                                                                      | `G3 Evidence Gate Shadow` Fail；多 Issue 必须逐个校验，不得猜测 target 参数                       |
-| 多 Issue PR 的 G3 断言有缺失、重复或未声明 Issue / 参数的额外成功命令                                                                                                      | Fail；完整断言命令集合必须与全部解析 target 精确相等                                              |
-| Delivery target 的 Related 成员角色/Issue 元数据错误、closing set 非空或断言集不闭合                                                                                       | Fail；每个 current-policy Related 成员必须按自身 target 规则独立校验                              |
-| Issue 的具体 PR 字段仍含 `pending / #61 / N/A`、`#<number>` 或空 `N/A` 原因                                                                                                | Fail；具体编号只接受明确 `#<number>` 列表，互斥模板选项必须清理                                   |
-| G3 comment / body / Issue permalink 或关联 PR/Issue timeline 活动后未新增严格更晚的精确 marker                                                                             | Fail；marker 必须未编辑且晚于最终 body 与 lifecycle evidence；同秒或其他事件只能撤销旧 success    |
-| `G3 Evidence Gate Shadow` 字段缺失、重复、为空、嵌入无关 prose 或不符合三种规范值                                                                                          | Fail；只接受 Check URL、带原因的 R1 non-required 或带边界的候选 workflow bootstrap                |
-| review/thread 状态变化后未刷新 G3 shadow，或 Related 变化未级联刷新 Delivery                                                                                               | Fail；trusted signal 重读直接目标并让受影响 Delivery 的旧 success 失效                            |
-| Delivery marker run 尚在 resolver，后发 Related body edit 或 close/reopen 往返先到 publisher                                                                               | marker 必须晚于 full-set 内全部 Related PR body 与 timeline；旧 marker 即使后到也只能 non-success |
-| success 候选首次校验后 evidence / marker 或 head/base 再变化                                                                                                               | 最终可信重验或 identity 复核失败；在原始已评估 head 发布 failure                                  |
-| PR 从 `main` retarget 到其他 base，head 不变                                                                                                                               | 事件仍触发；trusted eligibility 发布 non-success，不能保留原 success                              |
-| Delivery full-set 含 CLOSED Related，或 state 与 `mergedAt` 不一致                                                                                                         | Fail；只接受非 Draft OPEN current target 或带 `mergedAt` 的 MERGED 历史证据                       |
-| 关联 Issue 已 closed，或当前 Delivery / Related PR 为 Draft、merged 或 closed                                                                                              | Fail；同仓不再 eligible 的 PR 发布 non-success，历史证据只由 G4 复核                              |
-| 候选 G3 validator / workflow 尚未合入 `main`                                                                                                                               | 不得用候选 `G3 Evidence Gate Shadow` 自批；使用当前 main validator 并记录 bootstrap 边界          |
-| fork / cross-repository PR 的 head 不属于 base repository                                                                                                                  | R1 不发布 Check 且不计 eligible sample；R2 前迁移到 same-repository PR 并重新 exact-head 审阅     |
-| 精确 Dependabot 单提交 `Cargo.lock`-only，具有同仓 bot ref、GitHub verified signature 和完整 Dependabot force-push provenance，provider 无法审阅                           | `dependabot_lockfile_policy` 机器 completion；仍须独立通过 CI、依赖政策和 CodeQL 适用性           |
-| lockfile-only finding 声称的 reviewed commit/object 不在 PR range，完整匹配 identity-only paragraph allowlist，且 finding / disposition 均未编辑、后者严格更晚并已解决线程 | 记为已处置 provider identity anomaly，不计 actionable finding；机器 policy 可继续判断             |
-| 错误 OID finding 添加任意第三句/额外 claim，或 identity-only 标题、paragraph、footer / Disposition 任一不精确                                                              | 仍是 actionable finding，Fail；不得因含错误 OID 而整条忽略                                        |
-| 上述错误 SHA finding 未 disposition、仍 unresolved，或 finding 不满足窄 identity 模式                                                                                      | `findings_open` / `awaiting_rereview`，Fail；机器 policy 不隐藏正常 finding                       |
-| Copilot 返回 “wasn't able to review any files”，但 PR 不是精确 policy                                                                                                      | 不计 completion，保持 `awaiting_review` / 其他既有失败状态                                        |
-| Dependabot PR 同时修改源码/workflow、commit/signature/ref/force-push identity 不精确、多个 commit 或分页截断                                                               | 不适用机器替代，Fail closed                                                                       |
-| R2 PR 缺少 current-head External Review Gate success                                                                                                                       | Fail                                                                                              |
-| Check success 与 G3 comment 绑定不同 head，或 comment 未严格晚于最终 completion / Check                                                                                    | Fail                                                                                              |
+| 场景                                                                                           | 预期状态 / 结果                                                                                   |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| 无 review；仅 request、reaction 或任务启动                                                     | `awaiting_review` / `review_pending`，Fail                                                        |
+| 仅有受信任 Codex provider 的无 reviewed SHA clean 摘要                                         | `provider_error`，Fail                                                                            |
+| 旧无 SHA clean 摘要后有严格更晚、字段完整、绑定 current exact head 的 clean completion         | 旧歧义被 supersede，进入正常 completion/thread 状态机                                             |
+| current-head clean completion 后又有无 SHA clean 摘要，或两者为 GitHub 同秒                    | `provider_error`，Fail；无法证明最终歧义已被覆盖                                                  |
+| 只有 PR author self-review                                                                     | `awaiting_review`，Fail                                                                           |
+| 受信任 reviewer 在 current head 完成 clean review                                              | `pass` 候选；仍需 threads、Checks 与 G3 comment                                                   |
+| finding 未处置或仍有 unresolved actionable thread                                              | `findings_open`，Fail                                                                             |
+| finding 已回复/resolve，但没有新的 clean re-review                                             | `awaiting_rereview`，Fail                                                                         |
+| finding 处置后，受信任 reviewer 在 current head clean re-review                                | `pass` 候选                                                                                       |
+| R1 resolve / unresolve 后未新增 `external-review: thread-state-changed` comment                | shadow 状态可能 stale，Fail；marker 触发 trusted metadata re-read 后再判断                        |
+| clean completion 后 new push 或 review dismissed                                               | `stale`，Fail 并重新请求 review                                                                   |
+| clean review 绑定旧 head，且没有已批准的等价例外                                               | `stale`，Fail                                                                                     |
+| provider 文案正确但 actor 不在 allowlist                                                       | Fail                                                                                              |
+| author 转贴 Cursor / 本地 Agent 输出                                                           | Fail                                                                                              |
+| content-equivalent rebase 具备全部附加证据                                                     | `waived`；不得自动转成标准 `pass`                                                                 |
+| 预创建或编辑旧 G3 comment 回填新证据                                                           | Fail；必须新增 superseding comment                                                                |
+| Related PR B 自身仍由 main 上的旧 validator 判断                                               | 按 R0 bootstrap 人工核验 exact-head review；不得用候选 validator 自批                             |
+| Related PR C 自身尚未把 shadow workflow 合入 main                                              | 使用 main 上的 live validator；候选 Check 不得自批，Check 缺失按 R0 bootstrap 记录                |
+| PR B 合入后的 R0/R1 PR 尚无 required External Review Gate                                      | `G3 Pass` / bootstrap 要求 live `pass`；结构化 `G3 Waived` 保持 `waived`，并记录 Check 缺失       |
+| 多 Issue PR 使用 `G3 Waived`，但 waiver 缺少某个 Issue 或 `followUpIssue` 重复                 | Fail；每个关联 Issue 必须有一条唯一匹配的 `external-review-waiver:v1` 记录                        |
+| waiver record set 含未声明 Issue，或 target / Delivery full-set 任一成员使用 waiver            | Fail；record set 必须精确匹配关联 Issue，Shadow 对任一 `G3 Waived` 永不发布 success               |
+| Delivery closing set 含未声明 Issue，或 Related closing set 非空                               | Fail；target 的完整 closing set 必须与 PR 角色和全部 `关联 Issue` 精确一致                        |
+| PR body 缺少明确 `关联 Issue` 列表、仍保留角色模板占位或角色与任一 Issue 元数据不一致          | `G3 Evidence Gate Shadow` Fail；多 Issue 必须逐个校验，不得猜测 target 参数                       |
+| 多 Issue PR 的 G3 断言有缺失、重复或未声明 Issue / 参数的额外成功命令                          | Fail；完整断言命令集合必须与全部解析 target 精确相等                                              |
+| Delivery target 的 Related 成员角色/Issue 元数据错误、closing set 非空或断言集不闭合           | Fail；每个 current-policy Related 成员必须按自身 target 规则独立校验                              |
+| Issue 的具体 PR 字段仍含 `pending / #61 / N/A`、`#<number>` 或空 `N/A` 原因                    | Fail；具体编号只接受明确 `#<number>` 列表，互斥模板选项必须清理                                   |
+| G3 comment / body / Issue permalink 或关联 PR/Issue timeline 活动后未新增严格更晚的精确 marker | Fail；marker 必须未编辑且晚于最终 body 与 lifecycle evidence；同秒或其他事件只能撤销旧 success    |
+| `G3 Evidence Gate Shadow` 字段缺失、重复、为空、嵌入无关 prose 或不符合三种规范值              | Fail；只接受 Check URL、带原因的 R1 non-required 或带边界的候选 workflow bootstrap                |
+| review/thread 状态变化后未刷新 G3 shadow，或 Related 变化未级联刷新 Delivery                   | Fail；trusted signal 重读直接目标并让受影响 Delivery 的旧 success 失效                            |
+| Delivery marker run 尚在 resolver，后发 Related body edit 或 close/reopen 往返先到 publisher   | marker 必须晚于 full-set 内全部 Related PR body 与 timeline；旧 marker 即使后到也只能 non-success |
+| success 候选首次校验后 evidence / marker 或 head/base 再变化                                   | 最终可信重验或 identity 复核失败；在原始已评估 head 发布 failure                                  |
+| PR 从 `main` retarget 到其他 base，head 不变                                                   | 事件仍触发；trusted eligibility 发布 non-success，不能保留原 success                              |
+| Delivery full-set 含 CLOSED Related，或 state 与 `mergedAt` 不一致                             | Fail；只接受非 Draft OPEN current target 或带 `mergedAt` 的 MERGED 历史证据                       |
+| 关联 Issue 已 closed，或当前 Delivery / Related PR 为 Draft、merged 或 closed                  | Fail；同仓不再 eligible 的 PR 发布 non-success，历史证据只由 G4 复核                              |
+| 候选 G3 validator / workflow 尚未合入 `main`                                                   | 不得用候选 `G3 Evidence Gate Shadow` 自批；使用当前 main validator 并记录 bootstrap 边界          |
+| fork / cross-repository PR 的 head 不属于 base repository                                      | R1 不发布 Check 且不计 eligible sample；R2 前迁移到 same-repository PR 并重新 exact-head 审阅     |
+| R2 PR 缺少 current-head External Review Gate success                                           | Fail                                                                                              |
+| Check success 与 G3 comment 绑定不同 head，或 comment 早于最终 completion / Check              | Fail                                                                                              |
 
-Provider fixtures 至少覆盖 Copilot clean/findings、Codex clean/findings、人工 `APPROVED`、仅有无 SHA、旧无 SHA 后严格更晚 current-head clean、current-head clean 后更晚无 SHA、无 SHA 与 clean 同秒、错误 actor、new-push stale、finding 后无复审、被编辑 completion、重复 thread、provider outage、lockfile reviewer wrong SHA、被编辑 finding/disposition、错误 signature/force-push provenance、reviewer unable-to-review 与普通源码 PR 不得误用机器替代。历史事件 replay、live evaluator、trusted-ref shadow publisher 和人工审计必须与机器最终分类一致。
+Provider fixtures 至少覆盖 Copilot clean/findings、Codex clean/findings、人工 `APPROVED`、仅有无 SHA、旧无 SHA 后严格更晚 current-head clean、current-head clean 后更晚无 SHA、无 SHA 与 clean 同秒、错误 actor、new-push stale、finding 后无复审、被编辑 completion、重复 thread 与 provider outage。历史事件 replay、live evaluator、trusted-ref shadow publisher 和人工审计必须与机器最终分类一致。
 
 离线 fixture / replay 使用 `check-external-review --input <snapshot.json> --format json --expect <state>`；live 对照使用 `check-external-review --repo <owner/repo> --pr <number> --format json`。snapshot、结果 schema、固定状态枚举和 fail-closed 退出语义必须保持向后可识别；无法完整分页或二次读取 head/base 不一致时不得降级为 `awaiting_review` 或 `pass`。current G3 comment 缺少显式 `Gate 结果` 时必须失败；`G3 Waived` 还必须覆盖结构化 record、current head/base、reference-style evidence、授权人、当前 follow-up Issue、24 小时上限与过期回归。
-
-### 4.1 CodeQL 适用性回归
-
-`check-codeql` fixture 至少覆盖源码 PR `success`、精确 lockfile-only `neutral`、精确
-lockfile-only 空 rollup、源码 PR `neutral` 和错误 author identity。预期状态分别为
-`pass`、`not_applicable`、`missing`、`failed`、`failed`；同名但 source App 为
-`github-actions` 的 spoof fixture 必须是 `missing`。异构 `StatusContext` rollup 不得导致
-反序列化失败；`SKIPPED` 不得误映射为 `not_applicable`。普通 PR 的 missing、pending、
-cancelled、failure、多个 aggregate Check、同 head 但其他 PR/base association、
-head/base 竞态、缺失/无效 `completedAt`、矛盾/重复状态和不精确 evidence URL
-继续失败关闭。
-
-```powershell
-cargo +1.96.0 run --locked -p xtask -- check-codeql --input xtask/fixtures/codeql/lockfile-neutral.json --format json --expect not_applicable
-cargo +1.96.0 run --locked -p xtask -- check-codeql --repo <owner/repo> --pr <number> --format json
-cargo +1.96.0 run --locked -p xtask -- check-codeql --repo <owner/repo> --pr <merged-number> --evidence-url <recorded-url> --format json
-```
-
-从 `2026-08-08T00:00:00Z` 创建的 current G3 comment 起，`check-gate-evidence g3`
-还会要求唯一 `- CodeQL：` 行以字段后的首个且唯一 backtick 值精确匹配 live 状态，并让
-evidence URL 精确相等；`not_applicable` 必须同时记录
-`dependabot-cargo-lock-only-v1` 和 evidence URL，且 comment 时间必须严格晚于 check-run
-`completed_at`。`check-gate-evidence g4` 对 MERGED PR
-按 append-only G3 comment 记录的具体 run URL 重放，不允许合并后的 latest rerun 改写
-历史结论；激活点同秒的小数秒 timestamp 必须按 UTC 数值判为已激活，更早的 append-only
-G3 历史不追溯改写。
 
 workflow 安全检查至少验证：
 

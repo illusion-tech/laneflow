@@ -1,7 +1,7 @@
 # 开发闸口
 
 **文档状态**: Active  
-**最后更新**: 2026-08-07
+**最后更新**: 2026-08-05
 
 **适用范围**: LaneFlow 的需求、设计、实现、评审与完成治理
 
@@ -192,7 +192,7 @@ G1 证据可以是：
 
 ### 6.1 外部审阅硬门槛
 
-所有 PR 在进入标准 `G3 Pass` 前至少需要一个有效外部 reviewer。`docs-only`、`governance` 和小改动不自动豁免；唯一长期替代是本节定义、由 trusted-ref validator 机器证明的 Dependabot 单提交 `Cargo.lock`-only 窄路径，其他跳过只能使用第 8 节和本节定义的显式 `G3 Waived`。
+所有 PR 在进入标准 `G3 Pass` 前至少需要一个有效外部 reviewer。`docs-only`、`governance` 和小改动不自动豁免；确需跳过时只能使用第 8 节和本节定义的显式 `G3 Waived`。
 
 单维护者仓库采用双层责任：
 
@@ -228,33 +228,9 @@ AwaitingReview
 - 当前 exact head 首次得到一个有效 reviewer 的 clean completion 后，才满足 reviewer 数量门槛。
 - 出现 finding 后，仅修复代码、回复或由作者 resolve thread 不能恢复为 clean；必须形成 `finding -> disposition -> exact-head clean re-review`。
 - `unresolved actionable threads == 0` 是必要条件，不是充分条件。
-- 受信任 Codex provider 创建且保持未编辑、时间与 URL 有效、符合 clean marker 但缺少可解析 `Reviewed commit` 的 comment，是无绑定 clean 歧义事件。只有创建/提交时间严格晚于该事件、actor/provider 可信、绑定 current exact head 且字段完整有效的 clean completion 才能覆盖它；GitHub 秒级时间相同不能证明先后。仅有此类歧义，或最后一个有效 current-head clean completion 之后仍有此类歧义，均返回 `provider_error`。被编辑的 clean comment 不计为 completion，但也不永久污染后续有效证据；被编辑的受信任 finding comment 在 `updatedAt` 有效且严格晚于 `createdAt` 时仍计为实质 finding，并以 `updatedAt` 参与排序，只有更晚的 exact-head clean re-review 才能封口。无效时间/URL/OID、分页截断、actor/provider 不可信和 head/base 竞态继续直接失败关闭。
+- 受信任 Codex provider 创建且保持未编辑、时间与 URL 有效、符合 clean marker 但缺少可解析 `Reviewed commit` 的 comment，是无绑定 clean 歧义事件。只有创建/提交时间严格晚于该事件、actor/provider 可信、绑定 current exact head 且字段完整有效的 clean completion 才能覆盖它；GitHub 秒级时间相同不能证明先后。仅有此类歧义，或最后一个有效 current-head clean completion 之后仍有此类歧义，均返回 `provider_error`。被编辑 comment、无效时间/URL/OID、分页截断、actor/provider 不可信和 head/base 竞态不适用该窄规则，继续直接失败关闭。
 - R1 没有原生 thread-resolution workflow event；每批 resolve / unresolve 后必须新增顶层 `external-review: thread-state-changed` comment，等待 trusted publisher 重读状态。R2 必须由专用 GitHub App 的 `pull_request_review_thread` webhook 或等价自动信号覆盖两个方向；若 unresolve 仍需人工 marker，不得进入 R2。
 - 首版标准路径只接受 exact-head review。content-equivalent rebase 不自动继承 Pass，只能按显式例外处理。
-
-#### Dependabot 单提交 Cargo.lock-only 机器替代路径
-
-当外部 provider 无法审阅纯 lockfile diff 时，`check-external-review` 可以由
-`dependabot_lockfile_policy` / `trusted-ref-validator` 形成机器 completion，但必须同时证明：
-
-- PR author 是 GitHub 返回的 Dependabot App / `dependabot[bot]`，head ref 必须是同 repository 的 `dependabot/cargo/*`；
-- PR commit range 恰好一个 commit，OID 等于 current exact head，author name、email 和
-  GitHub login 精确满足 Dependabot 窄例外，标题是非 breaking `build(deps):`；该 commit
-  还必须具有 GitHub `web-flow` 的有效 `GpgSignature`、`noreply@github.com` signer email、
-  `VALID` state 与 `wasSignedByGitHub=true`；
-- changed files 完整且恰好只有 `MODIFIED Cargo.lock`，files、commits 与 commit authors
-  分页均未截断；
-- force-push timeline 必须完整；每个事件都由 Dependabot actor 触发、OID / createdAt 有效，
-  最后一次事件的 after OID（若存在）必须等于 current head；
-- live evaluator 完成后再次读取 head/base，identity 全程稳定；
-- provider 声称的“reviewed commit/object”不属于 PR commit range 时，finding 还必须完整精确匹配版本化的 identity-only 标题、paragraph allowlist 与 footer，不允许第三句或其他额外 claim；finding 与 G3 Owner `Disposition:` 都必须保持未编辑，且 disposition 的有效 UTC RFC3339 createdAt 按数值严格晚于 finding，并回链 current head 与精确 Dependabot name/email；thread 已 resolved / outdated 后才能记为已处置 provider identity anomaly。任何不在完整 allowlist 内的实质 finding 都不得整条忽略；
-- provider 的 “wasn't able to review any files” 只记录为未形成 completion，不得伪装成
-  clean；任何不满足上述身份模式的 finding、普通源码/workflow/mixed-path PR 和解析歧义
-  继续走常规 finding / re-review 或 fail-closed。
-
-该路径不是 Dependabot 自动批准：Governance、workspace tests、`Dependency policy`、
-依赖来源/许可证/漏洞审计和下述 CodeQL 适用性判断仍须独立满足。离线 fixture 与 live
-replay 均保持 `schemaVersion: 1`；PR #313 是要求长期回放的 canary。
 
 ### 6.2 G3 双钥匙与时序
 
@@ -313,7 +289,7 @@ G3 comment 采用 append-only。new push、review dismissal 或 Gate 状态变�
 - 单 Issue PR 的 comment 必须包含且只包含一个 `external-review-waiver:v1` HTML comment；多 Issue PR 必须为每个关联 Issue 分别包含一个记录，并以唯一 `followUpIssue` 精确匹配；完整 record set 必须与 PR 的 `关联 Issue` 集合相等，不接受缺失、额外、重复或共享的模糊 waiver。每个 HTML comment 内都是 `schemaVersion: 1` JSON；字段固定为 `id`、`exceptionType`、`currentHeadOid`、`currentBaseOid`、`reason`、`evidenceRefs`、`risk`、`acceptanceBoundary`、`expiresAt`、`followUpIssue`、`cleanupOwner`、`authorizedBy`；
 - `evidenceRefs` 只保存 Markdown reference label；每个 label 必须由可见的 `- 例外：` 行引用，并在 comment 文末解析为 GitHub HTTPS 证据，JSON 内不直接写 URL；
 - current head/base 必须与 live PR 一致，`followUpIssue` 必须指向当前关联 Issue，`authorizedBy` 必须等于 append-only G3 comment author，且该 actor 必须在 trusted G3 Owner allowlist；
-- `expiresAt` 必须晚于 comment 创建时间、有效期不超过 24 小时；OPEN current target 在每次 Gate 运行时仍不得过期。Delivery full-set / G4 重放已合并 PR 的 append-only 历史时，以 `mergedAt` 判断 waiver 当时是否仍有效；这只证明既有 merge 的历史 Gate，不重新授权任何当前或后续 merge，也不让 Shadow 发布 success；
+- `expiresAt` 必须晚于 comment 创建时间、有效期不超过 24 小时，并在每次 Gate 运行时仍未过期；
 - validator 的输出保持 `waived`，只与 `G3 Waived` 配对；它不得转换成标准 `pass`，`G3 Pass` / `R0-R1 bootstrap` 仍要求 live exact-head `pass`。
 
 content-equivalent rebase 还必须记录 reviewed/new head、old/new base、changed paths、稳定 patch fingerprint、受影响路径 blob 对照和常规 checks；workflow、Gate、权限、安全策略、依赖锁定语义变化或任何无法解释的不等价都禁止使用该例外。
@@ -335,9 +311,7 @@ content-equivalent rebase 还必须记录 reviewed/new head、old/new base、cha
 - R2 激活后，current-head `External Review Gate` 未成功，或 G3 comment 早于最终 Check / completion。
 - G3 comment 通过编辑旧记录回填，或 commit 使用 `G3 Pass` / `G3 Waived` 冒充 PR Gate 结果。
 - 源代码许可证、依赖许可证、RustSec advisory、crate 来源或 Dependabot 配置违反 `dependency-security.md`，或适用 cargo-deny 检查未通过。
-- `security-scanning.md` 要求的适用扫描仍为 `pending`、失败、已禁用或不可用；无分析既不满足精确 lockfile-only `not_applicable`，也没有记录显式例外。
-- `check-codeql` 既未得到 current-head `pass`，也未在精确 `dependabot-cargo-lock-only-v1` 路径得到 `not_applicable`，且没有记录显式例外。
-- external-review 的 `G3 Waived` 不覆盖 CodeQL；激活边界后的 waived review 仍须独立取得 PR-bound `pass` 或精确 lockfile-only `not_applicable`。只有 aggregate `NEUTRAL`（不是 `SKIPPED`）可进入 lockfile-only `not_applicable`。G3 comment 必须以字段后的首个 backtick 值记录且只记录一个精确状态，并精确等于机器 evidence URL，不接受额外数字、query 或 fragment；comment 必须严格晚于所记录 check-run 的 `completed_at`。OPEN current target 的 REST check-run association 必须精确匹配 PR/head/base；G4 对 MERGED PR 历史重放时从 append-only G3 comment 取当时记录的 run URL，再由 REST 复核该具体 run 的 source App、head 与结论，不能改用合并后的 latest rerun。GitHub 已清空 association 时允许为空，但存在的 association 必须精确匹配。
+- `security-scanning.md` 要求的适用扫描仍为 `pending`、失败、无分析、已禁用或不可用，且没有记录显式例外。
 
 PR 合入 `main` 默认使用 **Rebase and merge**；若使用 Squash 或 Merge commit，须在 PR 中说明原因。详见 `github-workflow.md` 第 7 节。
 
@@ -350,21 +324,14 @@ G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 cur
 - Rollout phase：R0 / R1 / R2
 - Current head：
 - Checks：
-- CodeQL：`pass`；<current-head CodeQL Check URL>
 - External Review Gate：Check URL / R0-R1 non-required 原因
-- 审阅：provider=`<provider>`、actor=`<actor>`、reviewed head=`<full sha>`、outcome=`clean`、completion=`<UTC RFC3339>`、证据：<GitHub HTTPS URL>
+- 审阅：provider、actor、reviewed head、outcome、completion time、evidence URL
 - Review threads：actionable / unresolved / disposition / re-review
 - 验证：
 - 风险：
 - 例外：N/A / exception type、风险、到期、follow-up、Cleanup owner
 - 合并方式：Rebase and merge / 例外原因
 - Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` 已通过。
-```
-
-若且仅若 `check-codeql` 返回窄路径 `not_applicable`，必须删除模板中的 `pass` 行，并只保留以下精确机器行；两种状态不得同时保留：
-
-```text
-- CodeQL：`not_applicable`；policy `dependabot-cargo-lock-only-v1`；<neutral/no-analysis Check URL>
 ```
 
 ## 7. G4 完成闸口

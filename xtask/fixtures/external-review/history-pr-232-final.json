@@ -80,16 +80,6 @@
                     "oid": "e309a676dfeecaf4b658e5c309684e508eaedc9c"
                   }
                 }
-              },
-              {
-                "id": "PRRC_kwDOS9Hn_c7ZSf2l",
-                "author": {
-                  "login": "wangzishi"
-                },
-                "body": "已采纳并在 `537ab36` 处置：`.github/copilot-instructions.md` 不再复制治理字段和正式 G3 表达规则，改为统一指向权威文档。",
-                "createdAt": "2026-07-24T13:06:13Z",
-                "updatedAt": "2026-07-24T13:06:13Z",
-                "url": "https://github.com/illusion-tech/laneflow/pull/232#discussion_r3645504933"
               }
             ]
           }
@@ -120,16 +110,6 @@
                     "oid": "6a3cf214679ce78ed73ffb547acdc12f076a5828"
                   }
                 }
-              },
-              {
-                "id": "PRRC_kwDOS9Hn_c7ZT-bO",
-                "author": {
-                  "login": "wangzishi"
-                },
-                "body": "已采纳并在 `0882a92` 处置：统一 permalink extractor 现在把 `>` 作为 destination 终止符，并新增回归测试。",
-                "createdAt": "2026-07-24T14:07:49Z",
-                "updatedAt": "2026-07-24T14:07:49Z",
-                "url": "https://github.com/illusion-tech/laneflow/pull/232#discussion_r3645892302"
               }
             ]
           }

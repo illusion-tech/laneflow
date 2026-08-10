@@ -1,7 +1,7 @@
 # 安全扫描基线
 
 **文档状态**: Active  
-**最后更新**: 2026-08-07
+**最后更新**: 2026-07-17
 **适用范围**: LaneFlow 仓库的 Code Scanning、Secret Scanning、Dependabot 状态审计与公开发布阻断  
 **关联 Issue**: `#88`、`#56`
 
@@ -30,33 +30,6 @@ LaneFlow 使用 GitHub CodeQL default setup：
 - 只有实际出现覆盖率、查询、构建方式或 runner 限制时，才通过独立 Issue 评估 advanced setup。
 
 选择 default setup 是为了保留 GitHub 的自动语言识别与低维护升级路径，避免在没有定制需求时自行维护 CodeQL workflow。使用原生 ruleset merge protection 是为了让分析缺失、未完成和高危结果成为机器可执行阻断，而不是只依赖人工阅读 Checks。GitHub 官方说明见 [配置 Code Scanning](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configure-code-scanning)、[Code Scanning setup types](https://docs.github.com/en/code-security/concepts/code-scanning/setup-types) 和 [Code Scanning merge protection](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/manage-your-configuration/set-merge-protection)。
-
-#### 2.1.1 Dependabot Cargo.lock-only PR 的适用性
-
-CodeQL default setup 可以对只修改 `Cargo.lock` 的 PR 返回已完成的 aggregate
-`CodeQL=neutral`（例如 `configurations not found`），也可能暂时未创建 current-PR analysis。
-前者可进入窄例外判定，后者必须保持 `missing` 并等待明确结果。`check-codeql` 固定输出
-`pass`、`not_applicable`、`pending`、`failed`、`missing` 或 `provider_error`：
-
-- PR-bound rollup 选定、REST source App 精确为 `github-advanced-security` 的 aggregate `CodeQL=success` 才是常规 `pass`；每个未按 details URL 出现在 rollup 的官方 REST current-head CodeQL run 都必须补为候选，再进入同一唯一性与 PR/head/base/app 校验。该规则同时覆盖 rollup 只有同名 `github-actions` spoof，以及两次读取之间新增第二个官方失败/取消 run 的竞态，不能丢弃它们后误判 no-analysis 或沿用单个 success。任何官方候选因缺少或不匹配 `pull_requests` association 而无法绑定时都返回 `provider_error`，即使 lockfile-only policy 原本可能进入 `not_applicable`；普通源码 PR 的官方 success 则不依赖仅供 lockfile 例外使用的完整 commit/signature/force-push provenance，provenance 分页或 provider 错误只会使该窄例外不适用。已完成 run 必须提供有效 `completed_at`，G3 comment 必须严格晚于该时间，带小数秒时按秒与纳秒精确比较。OPEN target 的 check-run `pull_requests` association 还必须精确匹配目标 PR number、current head 与 current base；G4 对 MERGED PR 重放时按 append-only G3 comment 记录的 run URL 读取该具体 REST check-run，并复核 source App、head 与结论，允许 GitHub 清空 association，但存在的 association 必须仍精确匹配。同 head 的其他 PR/base 分析、合并后新增的 latest rerun 与同名 `github-actions` job 均不计入原 G3 证据；
-- 只有 `dependabot-cargo-lock-only-v1` 能把已完成 aggregate `NEUTRAL` / no-analysis 判为
-  `not_applicable`；空 rollup 仍为 `missing`。该 policy 与 external-review 机器替代路径共用同一组证明：Dependabot
-  App / bot PR author、同 repository 的 `dependabot/cargo/*` head ref、唯一 current-head
-  commit、GitHub `web-flow` verified signature、完整 Dependabot force-push provenance、精确
-  Dependabot commit identity、非 breaking `build(deps):` 标题、完整且唯一的
-  `MODIFIED Cargo.lock` changed path；`SKIPPED` 不等于无分析并继续失败关闭；
-- 普通源码、Actions workflow、mixed-path、人工 lockfile commit、分页/身份歧义、
-  `failure` / `cancelled` 或平台错误不得使用 `not_applicable`；
-- `not_applicable` 只说明 CodeQL 对该 PR diff 无受支持源码分析输入，不替代
-  cargo-deny、workspace tests、Dependabot/open-alert 审计或合并后 `main` 分析。
-
-从 `2026-08-08T00:00:00Z` 创建的 current G3 comment 起，必须唯一记录
-`- CodeQL：`：常规路径写 `pass` 与 Check URL；窄路径写 `not_applicable`、精确 policy
-ID 与 neutral/no-analysis Check 证据 URL。状态必须是字段后的首个且唯一 backtick
-状态，URL 必须与机器结果精确相等，不能附加数字、query 或 fragment。Gate 结果为 `G3 Waived` 时也不能把 waiver
-冒充 CodeQL 结论；external-review waiver 不覆盖 CodeQL，waived review 仍必须独立满足
-上述 `pass` / `not_applicable`。激活边界按解析后的 UTC 秒值比较，带小数秒的同秒时间不会
-因 RFC3339 字符串排序而绕过字段或 live 校验。
 
 ### 2.2 Secret Scanning
 
@@ -113,16 +86,15 @@ ADR 0011 把 catalog 中的 JSON Schema `$id` 定义为 public retrieval URL。S
 
 安全审计必须记录能力状态、最近运行状态和开放告警结果，不得只写“通过”。
 
-| 状态               | 判定要求                                                             | 可否写“零开放告警”                          |
-| ------------------ | -------------------------------------------------------------------- | ------------------------------------------- |
-| 已配置且成功       | 功能已启用；CodeQL 最近适用分析成功；alerts API 成功返回空集合       | 可以，同时记录时间、分支或 commit、运行链接 |
-| 已配置，分析待完成 | 功能已启用，但首次或最近适用分析仍为 `pending` / `queued`            | 不可以                                      |
-| 已配置，无分析     | 功能已启用，但找不到适用分析或分析未覆盖目标语言 / commit            | 不可以                                      |
-| 明确不适用         | PR 精确满足 `dependabot-cargo-lock-only-v1`；仅该 PR diff 无适用分析 | 不可以；仍须单独读取 open alerts API        |
-| 分析失败或降级     | 最近适用分析失败、取消、超时，或预期语言缺失                         | 不可以                                      |
-| 未配置             | 平台返回 `not-configured` 或没有对应 setup                           | 不可以                                      |
-| 已禁用             | 平台明确返回 `disabled`                                              | 不可以                                      |
-| 无权限或不可用     | API 返回权限、plan、组织策略或平台可用性错误                         | 不可以；必须记录显式例外                    |
+| 状态               | 判定要求                                                       | 可否写“零开放告警”                          |
+| ------------------ | -------------------------------------------------------------- | ------------------------------------------- |
+| 已配置且成功       | 功能已启用；CodeQL 最近适用分析成功；alerts API 成功返回空集合 | 可以，同时记录时间、分支或 commit、运行链接 |
+| 已配置，分析待完成 | 功能已启用，但首次或最近适用分析仍为 `pending` / `queued`      | 不可以                                      |
+| 已配置，无分析     | 功能已启用，但找不到适用分析或分析未覆盖目标语言 / commit      | 不可以                                      |
+| 分析失败或降级     | 最近适用分析失败、取消、超时，或预期语言缺失                   | 不可以                                      |
+| 未配置             | 平台返回 `not-configured` 或没有对应 setup                     | 不可以                                      |
+| 已禁用             | 平台明确返回 `disabled`                                        | 不可以                                      |
+| 无权限或不可用     | API 返回权限、plan、组织策略或平台可用性错误                   | 不可以；必须记录显式例外                    |
 
 对三类能力分别采用以下最低证据：
 
@@ -137,8 +109,8 @@ API 返回空集合只表示该次查询范围内无开放告警。未配置、�
 ### 4.1 G3
 
 - 修改安全设置、扫描 workflow、依赖策略或安全治理规则的 PR，必须在 G3 前验证受影响配置，并等待对应首次或最新扫描完成。
-- GitHub 为当前 PR 产生的 CodeQL aggregate check 必须成功；或由 `check-codeql` 对精确 Dependabot `Cargo.lock`-only PR 返回 `not_applicable`。`pending`、`failure`、`cancelled`、普通 PR 缺少预期语言分析均不能作为通过。
-- 当前 PR 没有产生预期扫描时，必须运行并记录 `check-codeql`；不满足精确 `not_applicable` policy 时，配置、权限或平台异常必须记录显式例外，不得静默忽略。
+- GitHub 为当前 PR 产生的 CodeQL check 必须成功；`pending`、`failure`、`cancelled` 或缺少预期语言分析均不能作为通过。
+- 当前 PR 没有产生预期扫描时，必须说明原因；若属于配置、权限或平台异常，应记录显式例外，不得静默忽略。
 - 任何与当前变更相关且仍为 open 的 Secret Scanning alert 默认阻断 G3。
 - CodeQL 或 Dependabot 的 `high` / `critical` 开放告警默认阻断 G3；若确认与本次变更无关，仍须链接修复 Issue 或按 `development-gates.md` 记录显式例外。
 - 修改 Cargo dependency、许可证、`deny.toml` 或依赖更新配置时，cargo-deny 的 advisories、licenses、bans 和 sources 检查必须成功；规则见 `dependency-security.md`。
@@ -165,7 +137,6 @@ gh api 'repos/illusion-tech/laneflow/code-scanning/alerts?state=open&per_page=10
 gh api 'repos/illusion-tech/laneflow/secret-scanning/alerts?state=open&per_page=100'
 gh api 'repos/illusion-tech/laneflow/dependabot/alerts?state=open&per_page=100'
 gh api repos/illusion-tech/laneflow
-cargo +1.96.0 run --locked -p xtask -- check-codeql --repo illusion-tech/laneflow --pr <number> --format json
 cargo deny --locked --all-features check advisories bans licenses sources
 ```
 

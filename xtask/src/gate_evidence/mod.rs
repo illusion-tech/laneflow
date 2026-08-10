@@ -48,7 +48,6 @@ fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> 
                 delivery_pr,
                 "Delivery PR",
             )?;
-            validate_codeql_g3(&args.repo, delivery_number, delivery_pr, "Delivery PR")?;
         }
         for (number, related_pr) in args.related_prs.iter().zip(&related_prs) {
             if g3_requires_external_review(related_pr)? {
@@ -58,12 +57,6 @@ fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> 
                 validate_external_review_g3(
                     &args.repo,
                     args.issue,
-                    *number,
-                    related_pr,
-                    &format!("Related PR #{number}"),
-                )?;
-                validate_codeql_g3(
-                    &args.repo,
                     *number,
                     related_pr,
                     &format!("Related PR #{number}"),
@@ -80,12 +73,6 @@ fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> 
             validate_external_review_g3(
                 &args.repo,
                 args.issue,
-                related_number,
-                &related_prs[0],
-                &format!("Related PR #{related_number}"),
-            )?;
-            validate_codeql_g3(
-                &args.repo,
                 related_number,
                 &related_prs[0],
                 &format!("Related PR #{related_number}"),

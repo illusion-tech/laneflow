@@ -2,7 +2,6 @@
 
 use super::fixtures::*;
 use super::*;
-use crate::lockfile_policy;
 
 #[test]
 fn parses_gate_evidence_arguments() {
@@ -394,7 +393,6 @@ fn validates_unedited_marker_identity_and_strict_ordering() {
         .is_err()
     );
     assert!(parse_utc_timestamp_seconds("2026-08-06T03:30:00.Z").is_none());
-    assert!(parse_utc_timestamp_seconds("2026-08-06T03:30:00.1234567890Z").is_none());
 }
 
 #[test]
@@ -715,23 +713,6 @@ fn accepts_merged_related_pr_history_in_delivery_full_set_g3() {
 }
 
 #[test]
-fn merged_waiver_replay_uses_merge_time_without_reauthorizing_current_targets() {
-    let mut historical = related_pr(false);
-    historical.state = "MERGED".to_string();
-    historical.merged_at = Some("2026-07-10T05:30:00Z".to_string());
-    assert_eq!(
-        gate_waiver_reference_time(&historical, 2_000_000_000).unwrap(),
-        1_783_661_400
-    );
-
-    let current = related_pr(false);
-    assert_eq!(
-        gate_waiver_reference_time(&current, 2_000_000_000).unwrap(),
-        2_000_000_000
-    );
-}
-
-#[test]
 fn rejects_merged_related_as_current_related_only_g3_target() {
     let args = related_only_g3_args();
     let mut related_pr = related_pr(false);
@@ -859,209 +840,6 @@ fn accepts_current_g3_fields_at_external_review_activation() {
 }
 
 #[test]
-fn external_review_activation_uses_numeric_timestamp_ordering() {
-    assert!(!external_review_g3_active("2026-07-24T15:16:20.999Z").unwrap());
-    assert!(external_review_g3_active("2026-07-24T15:16:21Z").unwrap());
-    assert!(external_review_g3_active("2026-07-24T15:16:21.123Z").unwrap());
-    assert!(external_review_g3_active("invalid").is_err());
-}
-
-#[test]
-fn requires_explicit_codeql_state_after_codeql_activation() {
-    let args = related_only_g3_args();
-    let issue = issue_with_pending_delivery_and_related_g3();
-    let mut related_pr = related_pr_for_args(false, &args);
-    related_pr.comments[0].created_at = CODEQL_G3_ACTIVATION.to_string();
-    related_pr.comments[0].body = gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args);
-
-    let error = validate_related_g3_evidence(&args, &issue, 62, &related_pr)
-        .expect_err("CodeQL activation must require an explicit field");
-    assert!(error.contains("- CodeQL："));
-
-    related_pr.comments[0]
-        .body
-        .push_str("\n- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/1\n");
-    assert!(validate_related_g3_evidence(&args, &issue, 62, &related_pr).is_ok());
-}
-
-#[test]
-fn extracts_one_recorded_codeql_evidence_url() {
-    assert_eq!(
-        codeql_evidence_url(
-            "- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/92519398933。"
-        ),
-        Ok("https://github.com/illusion-tech/laneflow/runs/92519398933")
-    );
-    assert!(codeql_evidence_url("- CodeQL：`pass`").is_err());
-    assert!(
-        codeql_evidence_url(
-            "- CodeQL：https://github.com/a/b/runs/1 https://github.com/a/b/runs/2"
-        )
-        .is_err()
-    );
-    assert_eq!(
-        codeql_evidence_url(
-            "- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/925193989330"
-        ),
-        Ok("https://github.com/illusion-tech/laneflow/runs/925193989330")
-    );
-    assert!(
-        codeql_evidence_matches(
-            "- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/92519398933",
-            "https://github.com/illusion-tech/laneflow/runs/92519398933"
-        )
-        .unwrap()
-    );
-    assert!(
-        !codeql_evidence_matches(
-            "- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/925193989330",
-            "https://github.com/illusion-tech/laneflow/runs/92519398933"
-        )
-        .unwrap()
-    );
-    assert!(!codeql_evidence_matches(
-        "- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/92519398933?attempt=2",
-        "https://github.com/illusion-tech/laneflow/runs/92519398933"
-    )
-    .unwrap());
-}
-
-#[test]
-fn parses_one_exact_codeql_state_and_rejects_contradictions() {
-    assert_eq!(
-        codeql_state(
-            "- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/92519398933"
-        ),
-        Ok(crate::codeql::CodeQlState::Pass)
-    );
-    assert!(
-        codeql_state(
-            "- CodeQL：`pass`，但另记 `failed`，https://github.com/illusion-tech/laneflow/runs/1"
-        )
-        .is_err()
-    );
-    assert!(
-        codeql_state("- CodeQL：状态 pass，https://github.com/illusion-tech/laneflow/runs/1")
-            .is_err()
-    );
-}
-
-#[test]
-fn parses_one_exact_codeql_policy_field() {
-    let expected = "dependabot-cargo-lock-only-v1";
-    assert_eq!(
-        codeql_policy(&format!(
-            "- CodeQL：`not_applicable`；policy `{expected}`；https://github.com/illusion-tech/laneflow/runs/1"
-        )),
-        Ok(expected)
-    );
-    assert_eq!(
-        codeql_policy(&format!(
-            "- CodeQL：`not_applicable`；policy `other`；expected `{expected}`；https://github.com/illusion-tech/laneflow/runs/1"
-        )),
-        Ok("other")
-    );
-    assert!(codeql_policy(&format!(
-        "- CodeQL：`not_applicable`；expected policy `{expected}`；https://github.com/illusion-tech/laneflow/runs/1"
-    ))
-    .is_err());
-    assert!(codeql_policy(&format!(
-        "- CodeQL：`not_applicable`；policy `other`；policy `{expected}`；https://github.com/illusion-tech/laneflow/runs/1"
-    ))
-    .is_err());
-}
-
-#[test]
-fn codeql_completion_must_not_follow_the_append_only_g3_comment() {
-    assert!(
-        validate_codeql_completion_order(
-            "Delivery PR",
-            "2026-08-07T10:00:00Z",
-            Some("2026-08-07T10:00:01Z")
-        )
-        .is_err()
-    );
-    assert!(
-        validate_codeql_completion_order(
-            "Delivery PR",
-            "2026-08-07T10:00:01Z",
-            Some("2026-08-07T10:00:01Z")
-        )
-        .is_err()
-    );
-    assert!(
-        validate_codeql_completion_order(
-            "Delivery PR",
-            "2026-08-07T10:00:01.1Z",
-            Some("2026-08-07T10:00:01.2Z")
-        )
-        .is_err()
-    );
-    assert!(
-        validate_codeql_completion_order(
-            "Delivery PR",
-            "2026-08-07T10:00:01.2Z",
-            Some("2026-08-07T10:00:01.1Z")
-        )
-        .is_ok()
-    );
-}
-
-#[test]
-fn external_review_completion_uses_fractional_timestamp_ordering() {
-    assert!(
-        validate_external_review_completion_order(
-            "Delivery PR",
-            "2026-08-07T10:00:01.1Z",
-            "2026-08-07T10:00:01.2Z"
-        )
-        .is_err()
-    );
-    assert!(
-        validate_external_review_completion_order(
-            "Delivery PR",
-            "2026-08-07T10:00:01.2Z",
-            "2026-08-07T10:00:01.1Z"
-        )
-        .is_ok()
-    );
-    assert!(
-        validate_external_review_completion_order(
-            "Delivery PR",
-            "2026-08-07T10:00:01Z",
-            "2026-08-07T10:00:01Z"
-        )
-        .is_err()
-    );
-}
-
-#[test]
-fn merged_g3_timing_uses_fractional_timestamp_ordering() {
-    let mut pr = related_pr(false);
-    let permalink = pr.comments[0].url.clone();
-    pr.merged_at = Some("2026-08-07T10:00:01.1Z".to_string());
-    pr.comments[0].created_at = "2026-08-07T10:00:01Z".to_string();
-    assert!(validate_g3_timing(&pr, &permalink, "Related PR").is_ok());
-
-    pr.comments[0].created_at = "2026-08-07T10:00:01.2Z".to_string();
-    assert!(validate_g3_timing(&pr, &permalink, "Related PR").is_err());
-
-    pr.comments[0].created_at = "2026-08-07T10:00:01.1Z".to_string();
-    let error = validate_g3_timing(&pr, &permalink, "Related PR")
-        .expect_err("G3 comment must strictly predate merge");
-    assert!(error.contains("必须严格早于 PR 合并时间"));
-}
-
-#[test]
-fn codeql_activation_uses_numeric_timestamp_ordering() {
-    assert!(!codeql_g3_active("2026-08-07T23:59:59.999Z").unwrap());
-    assert!(codeql_g3_active("2026-08-08T00:00:00Z").unwrap());
-    assert!(codeql_g3_active("2026-08-08T00:00:00.123Z").unwrap());
-    assert!(codeql_g3_active("2026-08-08T00:00:00.1234567890Z").is_err());
-    assert!(codeql_g3_active("invalid").is_err());
-}
-
-#[test]
 fn rejects_current_g3_without_shadow_evidence_field() {
     let args = related_only_g3_args();
     let mut related_pr = related_pr_for_args(false, &args);
@@ -1154,81 +932,6 @@ fn parses_explicit_current_g3_results() {
     assert!(validate_g3_shadow_success_result(G3Result::Pass).is_ok());
     assert!(validate_g3_shadow_success_result(G3Result::Bootstrap).is_ok());
     assert!(validate_g3_shadow_success_result(G3Result::Waived).is_err());
-}
-
-#[test]
-fn parses_only_the_designated_current_head_field() {
-    let head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    assert_eq!(
-        g3_current_head(&format!("- Current head：`{head}`")),
-        Ok(head)
-    );
-
-    let wrong_field = format!(
-        "- Current head：`bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`\n- 审阅：reviewed head `{head}`"
-    );
-    assert_ne!(g3_current_head(&wrong_field).unwrap(), head);
-    assert!(
-        g3_current_head(&format!(
-            "- Current head：`{head}`\n- Current head：`{head}`"
-        ))
-        .is_err()
-    );
-}
-
-#[test]
-fn binds_recorded_review_fields_to_the_selected_completion() {
-    let head = "999fb1d056ddf18eca0061dc4d62393228d27ddf";
-    let completion = "2026-08-06T04:27:54Z";
-    let evidence = "https://github.com/illusion-tech/laneflow/pull/311#issuecomment-5200386889";
-    let body = format!(
-        "- 审阅：provider=`codex`、actor=`chatgpt-codex-connector`、reviewed head=`{head}`、outcome=`clean`、completion=`{completion}`、证据：{evidence}"
-    );
-    assert!(
-        validate_recorded_review_completion(
-            &body,
-            "codex",
-            "chatgpt-codex-connector",
-            head,
-            completion,
-            evidence,
-        )
-        .is_ok()
-    );
-    assert!(
-        validate_recorded_review_completion(
-            &body,
-            "copilot",
-            "chatgpt-codex-connector",
-            head,
-            completion,
-            evidence,
-        )
-        .is_err()
-    );
-}
-
-#[test]
-fn documents_exact_g3_review_record_syntax() {
-    let documented = "- 审阅：provider=`<provider>`、actor=`<actor>`、reviewed head=`<full sha>`、outcome=`clean`、completion=`<UTC RFC3339>`、证据：<GitHub HTTPS URL>";
-    let gates = include_str!("../../../docs/governance/development-gates.md");
-    let template = include_str!("../../../.github/pull_request_template.md");
-
-    assert!(gates.contains(documented));
-    assert!(template.contains(documented));
-}
-
-#[test]
-fn documents_exact_g3_codeql_record_syntax() {
-    let pass = "- CodeQL：`pass`；<current-head CodeQL Check URL>";
-    let not_applicable = "- CodeQL：`not_applicable`；policy `dependabot-cargo-lock-only-v1`；<neutral/no-analysis Check URL>";
-    let gates = include_str!("../../../docs/governance/development-gates.md");
-    let template = include_str!("../../../.github/pull_request_template.md");
-
-    assert!(gates.contains(pass));
-    assert!(gates.contains(not_applicable));
-    assert!(template.contains(pass));
-    assert!(template.contains(not_applicable));
 }
 
 #[test]
@@ -1763,19 +1466,6 @@ fn rejects_timestamp_equal_delivery_g3_during_recovery() {
 }
 
 #[test]
-fn rejects_timestamp_equal_original_related_g3_during_recovery() {
-    let merge_time = lockfile_policy::parse_utc_rfc3339("2026-07-10T05:30:00Z").unwrap();
-    let equal_time = lockfile_policy::parse_utc_rfc3339("2026-07-10T05:30:00Z").unwrap();
-    let earlier_time = lockfile_policy::parse_utc_rfc3339("2026-07-10T05:29:59Z").unwrap();
-
-    let error = validate_original_related_g3_timing(62, equal_time, merge_time)
-        .expect_err("original Related G3 must strictly predate Delivery merge");
-
-    assert!(error.contains("必须严格早于 Delivery PR 合并时间"));
-    assert!(validate_original_related_g3_timing(62, earlier_time, merge_time).is_ok());
-}
-
-#[test]
 fn rejects_edited_related_g3_during_recovery() {
     let (args, issue, delivery_pr, mut related_pr) = late_related_recovery_fixture();
     related_pr.comments[0].includes_created_edit = true;
@@ -1839,9 +1529,9 @@ fn rejects_timestamp_equal_related_pr_boundary() {
         &delivery_pr,
         std::slice::from_ref(&related_pr),
     )
-    .expect_err("exact timestamp equality is ambiguous");
+    .expect_err("timestamp equality is ambiguous at GitHub's reported precision");
 
-    assert!(error.contains("相同"));
+    assert!(error.contains("同秒"));
 }
 
 #[test]
@@ -1938,68 +1628,7 @@ fn rejects_g4_comment_created_before_merge() {
     let error = validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
         .expect_err("G4 comment must be created after merge");
 
-    assert!(error.contains("必须严格晚于最后一个关联 PR"));
-}
-
-#[test]
-fn rejects_g4_comment_created_at_merge_timestamp() {
-    let mut issue = issue("OPEN", "Done");
-    issue.comments[0].created_at = "2026-07-10T05:30:00Z".to_string();
-    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
-
-    let error = validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
-        .expect_err("G4 comment must strictly follow merge");
-
-    assert!(error.contains("必须严格晚于最后一个关联 PR"));
-}
-
-#[test]
-fn g4_merge_ordering_uses_fractional_timestamps() {
-    let mut issue = issue("OPEN", "Done");
-    issue.comments[0].created_at = "2026-07-10T05:30:00.2Z".to_string();
-    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00.1Z"));
-    assert!(
-        validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[]).is_ok()
-    );
-
-    issue.comments[0].created_at = "2026-07-10T05:30:00Z".to_string();
-    let error = validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
-        .expect_err("whole-second comment precedes fractional merge");
-    assert!(error.contains("必须严格晚于最后一个关联 PR"));
-}
-
-#[test]
-fn late_related_detection_uses_fractional_timestamps() {
-    let mut args = gate_args(GateEvidencePhase::G4);
-    args.related_prs = vec![62];
-    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00.1Z"));
-    let mut related_pr = related_pr(false);
-
-    related_pr.created_at = "2026-07-10T05:30:00.2Z".to_string();
-    assert!(has_late_related_pr(&args, &delivery_pr, std::slice::from_ref(&related_pr)).unwrap());
-
-    related_pr.created_at = "2026-07-10T05:30:00.05Z".to_string();
-    assert!(!has_late_related_pr(&args, &delivery_pr, std::slice::from_ref(&related_pr)).unwrap());
-
-    related_pr.created_at = "2026-07-10T05:30:00.1Z".to_string();
-    assert!(has_late_related_pr(&args, &delivery_pr, &[related_pr]).is_err());
-}
-
-#[test]
-fn late_related_detection_scans_past_an_earlier_late_pr() {
-    let mut args = gate_args(GateEvidencePhase::G4);
-    args.related_prs = vec![62, 63];
-    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
-    let mut late_pr = related_pr(false);
-    late_pr.created_at = "2026-07-10T05:31:00Z".to_string();
-    let mut equal_pr = related_pr(false);
-    equal_pr.created_at = "2026-07-10T05:30:00Z".to_string();
-
-    let error = has_late_related_pr(&args, &delivery_pr, &[late_pr, equal_pr])
-        .expect_err("later equal timestamp must not be skipped after a late PR");
-
-    assert!(error.contains("Related PR #63"));
-    assert!(error.contains("相同"));
+    assert!(error.contains("早于最后一个关联 PR"));
 }
 
 #[test]

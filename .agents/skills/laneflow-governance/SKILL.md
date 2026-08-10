@@ -68,7 +68,7 @@ Gate Ledger 必须按任务阶段增量记录，不得等到 G4 清场时一次�
 - 新建或接手 Issue 时，先检查 Gate Ledger 和 GitHub 元数据 / 依赖关系审计。
 - 开始实现、文档修改或开 PR 前，Issue 必须已有 G0/G1/G2 记录；小型 `docs-only` 或 `governance` 任务可用一条开工记录覆盖 G0-G2，但必须发生在实现前。
 - 任务不需要 G1 时，也必须记录不适用原因。
-- 准备合并 PR 前，必须取得当前 head 上一个有效外部 reviewer 的完成态审阅；唯一长期替代是 `development-gates.md` 的 Dependabot 单提交 `Cargo.lock`-only trusted-ref 机器路径。有正常 findings 时，完成处置后还必须取得新的当前 head clean re-review。PR author 的自审是 G3 owner 职责，但不计入外部 reviewer。
+- 准备合并 PR 前，必须取得当前 head 上一个有效外部 reviewer 的完成态审阅；有 findings 时，完成处置后还必须取得新的当前 head clean re-review。PR author 的自审是 G3 owner 职责，但不计入外部 reviewer。
 - PR 必须新增一条 append-only 的 `## G3 合并判断` comment，包含当前 head、rollout phase、Checks、External Review Gate、结构化审阅证据、review threads、验证、风险、例外、合并方式和 Gate 断言；不得编辑旧 head 的 G3 comment 冒充当前结论。PR body 的 G3 checkbox 必须回链当前 comment；Issue body 的 G3 Gate Ledger 对 Related PR 增量回链但保持未勾选，直到 Delivery PR 与全部 Related PR 均完成。`Gate 断言` 行必须包含与实际参数完全一致的反引号命令并明确写 `已通过`，且 `check-gate-evidence g3` 必须成功。
 - 清场时只补 G4；如果发现 G0-G3 缺失，必须标记为补救记录，并说明这是流程遗漏，不能当作标准流程。
 - 任一 Gate 记录缺失且没有显式例外时，不得声称任务完成。
@@ -116,7 +116,6 @@ Issue Gate Ledger 模板：
 完整契约以 `docs/governance/development-gates.md` 和 `docs/governance/github-workflow.md` 为准，本 Skill 只保留执行入口：
 
 - 标准路径只接受 trusted reviewer 对 PR 当前 exact head 的完成态审阅；`unresolved review threads = 0` 只是必要条件，不能替代外部审阅证据。
-- 精确 Dependabot 单提交 `Cargo.lock`-only PR 可使用长期机器替代：`check-external-review` 必须验证同仓 bot ref、GitHub verified signature、Dependabot force-push provenance 与 commit/path/head 完整身份；错误 PR-range SHA finding 与 trusted G3 Owner `Disposition:` 必须均未编辑、处置严格更晚且线程 resolved/outdated。`check-codeql` 只可在同一 policy 下把 aggregate `NEUTRAL`/no-analysis 记为 `not_applicable`，`SKIPPED` 失败关闭；其他 PR 继续失败关闭。
 - reviewer 报告 findings 后，author 必须记录每项 disposition，并在修复后的当前 head 请求新的 clean re-review；旧 head 的 approval、无新评论或仅解决线程都不能沿用。
 - 单维护者场景不降低门槛：维护者可以且应当自审、处置 findings 并发表 G3 comment，但必须另有一个有效外部 reviewer。
 - R0/R1 尚未具备 required check 时，按文档中的 bootstrap 规则显式记录阶段和缺失项。Related PR B 自身不能用候选 validator 自批，仍由 G3 Owner 人工核验新增外部审阅字段；PR B 合入后，后续 PR 的 `check-gate-evidence g3` 还必须取得 live `check-external-review` exact-head `pass`。进入 R2 后，`External Review Gate` Check success 与当前 head 的 append-only G3 comment 构成双钥匙。
