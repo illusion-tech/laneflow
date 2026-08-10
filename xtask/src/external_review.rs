@@ -461,7 +461,12 @@ impl ExternalReviewResult {
 
     pub(crate) fn uses_dependabot_lockfile_policy(&self) -> bool {
         self.state == ExternalReviewState::Pass
-            && self.provider.as_deref() == Some("dependabot_lockfile_policy")
+            && self.evidence.iter().any(|item| {
+                item.provider == "dependabot_lockfile_policy"
+                    && item.source_kind == "machine_verification"
+                    && item.outcome == EvidenceOutcome::Clean
+                    && oid_matches_current(&item.reviewed_head_oid, &self.current_head_oid)
+            })
     }
 
     fn bind_identity_if_missing(&mut self, repository: &str, identity: &PullRequestIdentity) {
@@ -784,7 +789,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     let mut dependabot_completion_event = dependabot_completion
         .map(|completion| (completion.committed_date.as_str(), completion.url.as_str()));
 
-    let mut review_to_finding_threads = BTreeMap::<String, usize>::new();
+    let mut review_to_finding_threads = BTreeMap::<String, BTreeSet<String>>::new();
     let mut finding_thread_ids = BTreeSet::<String>::new();
     let mut unresolved_actionable_threads = 0;
     let mut seen_thread_ids = BTreeSet::new();
@@ -812,41 +817,51 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 continue;
             }
         }
-        let Some(actor) = first_comment.author.as_ref() else {
+        if first_comment.author.is_none() {
             if dependabot_completion.is_some() && !thread.is_resolved && !thread.is_outdated {
                 unresolved_actionable_threads += 1;
             }
             continue;
-        };
-        if trusted_provider(&actor.login, &author).is_none() {
-            continue;
         }
-        let Some(review) = first_comment.pull_request_review.as_ref() else {
-            diagnostics.push(format!(
-                "受信任 reviewer 的 thread `{}` 缺少 pullRequestReview 关联",
-                thread.id
-            ));
-            continue;
-        };
-        let Some(review_actor) = review.author.as_ref() else {
-            diagnostics.push(format!(
-                "受信任 reviewer 的 thread `{}` 关联 review 缺少 author",
-                thread.id
-            ));
-            continue;
-        };
-        if normalize_actor(&review_actor.login) != normalize_actor(&actor.login) {
-            diagnostics.push(format!(
-                "review thread `{}` 的 comment actor 与 review actor 不一致",
-                thread.id
-            ));
-            continue;
+        let mut has_trusted_finding = false;
+        for (index, comment) in thread.comments.nodes.iter().enumerate() {
+            let Some(actor) = comment.author.as_ref() else {
+                continue;
+            };
+            if trusted_provider(&actor.login, &author).is_none() {
+                continue;
+            }
+            let Some(review) = comment.pull_request_review.as_ref() else {
+                if index == 0 {
+                    diagnostics.push(format!(
+                        "受信任 reviewer 的 thread `{}` 缺少 pullRequestReview 关联",
+                        thread.id
+                    ));
+                }
+                continue;
+            };
+            let Some(review_actor) = review.author.as_ref() else {
+                diagnostics.push(format!(
+                    "受信任 reviewer 的 thread `{}` 关联 review 缺少 author",
+                    thread.id
+                ));
+                continue;
+            };
+            if normalize_actor(&review_actor.login) != normalize_actor(&actor.login) {
+                diagnostics.push(format!(
+                    "review thread `{}` 的 comment actor 与 review actor 不一致",
+                    thread.id
+                ));
+                continue;
+            }
+            has_trusted_finding = true;
+            finding_thread_ids.insert(thread.id.clone());
+            review_to_finding_threads
+                .entry(review.id.clone())
+                .or_default()
+                .insert(thread.id.clone());
         }
-        finding_thread_ids.insert(thread.id.clone());
-        *review_to_finding_threads
-            .entry(review.id.clone())
-            .or_default() += 1;
-        if !thread.is_resolved && !thread.is_outdated {
+        if has_trusted_finding && !thread.is_resolved && !thread.is_outdated {
             unresolved_actionable_threads += 1;
         }
     }
@@ -884,8 +899,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
 
         let linked_findings = review_to_finding_threads
             .get(&review.id)
-            .copied()
-            .unwrap_or_default();
+            .map_or(0, |threads| threads.len());
         let outcome = match provider {
             "copilot" if state == "COMMENTED" || state == "APPROVED" => {
                 match copilot_outcome(&review.body, linked_findings) {
@@ -2541,6 +2555,24 @@ mod tests {
             "https://github.com/illusion-tech/laneflow/pull/313#discussion_r2"
         );
 
+        let mut later_clean_review = fixture(contents);
+        let mut clean_review = later_clean_review.pull_request.reviews.nodes[0].clone();
+        clean_review.id = "PRR-codex-clean-after-machine".to_string();
+        clean_review.state = "APPROVED".to_string();
+        clean_review.submitted_at = Some("2026-08-06T03:06:00Z".to_string());
+        clean_review.url = Some(
+            "https://github.com/illusion-tech/laneflow/pull/313#pullrequestreview-2".to_string(),
+        );
+        later_clean_review
+            .pull_request
+            .reviews
+            .nodes
+            .push(clean_review);
+        let later_clean_result = evaluate_snapshot(&later_clean_review);
+        assert_eq!(later_clean_result.state, ExternalReviewState::Pass);
+        assert_eq!(later_clean_result.provider.as_deref(), Some("codex"));
+        assert!(later_clean_result.uses_dependabot_lockfile_policy());
+
         let mut source_change = fixture(contents);
         source_change.pull_request.files.nodes[0].path = "src/lib.rs".to_string();
         assert!(!evaluate_snapshot(&source_change).state.is_pass());
@@ -2608,6 +2640,60 @@ mod tests {
         let untrusted_result = evaluate_snapshot(&untrusted_thread);
         assert!(untrusted_result.state.is_pass());
         assert_eq!(untrusted_result.unresolved_actionable_threads, 0);
+
+        let mut trusted_reply_to_untrusted = fixture(contents);
+        let mut trusted_reply = trusted_reply_to_untrusted.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .clone();
+        trusted_reply.id = "PRRC-codex-reply-to-untrusted".to_string();
+        trusted_reply.body = "Additional substantive concern.".to_string();
+        trusted_reply.created_at = "2026-08-06T03:06:00Z".to_string();
+        trusted_reply.updated_at = "2026-08-06T03:06:00Z".to_string();
+        trusted_reply.url =
+            "https://github.com/illusion-tech/laneflow/pull/313#discussion_r3".to_string();
+        let trusted_review = trusted_reply
+            .pull_request_review
+            .as_mut()
+            .expect("fixture thread review");
+        trusted_review.id = "PRR-codex-reply-to-untrusted".to_string();
+        trusted_review.submitted_at = Some("2026-08-06T03:06:00Z".to_string());
+
+        let mut trusted_review_connection =
+            trusted_reply_to_untrusted.pull_request.reviews.nodes[0].clone();
+        trusted_review_connection.id = "PRR-codex-reply-to-untrusted".to_string();
+        trusted_review_connection.submitted_at = Some("2026-08-06T03:06:00Z".to_string());
+        trusted_review_connection.url = Some(
+            "https://github.com/illusion-tech/laneflow/pull/313#pullrequestreview-2".to_string(),
+        );
+        trusted_reply_to_untrusted
+            .pull_request
+            .reviews
+            .nodes
+            .push(trusted_review_connection);
+
+        let thread = &mut trusted_reply_to_untrusted.pull_request.review_threads.nodes[0];
+        thread.is_resolved = false;
+        thread.is_outdated = false;
+        let first_comment = &mut thread.comments.nodes[0];
+        first_comment.author = Some(Actor {
+            login: "external-contributor".to_string(),
+        });
+        first_comment
+            .pull_request_review
+            .as_mut()
+            .expect("fixture thread review")
+            .author = Some(Actor {
+            login: "external-contributor".to_string(),
+        });
+        thread.comments.nodes.push(trusted_reply);
+        let trusted_reply_result = evaluate_snapshot(&trusted_reply_to_untrusted);
+        assert_eq!(
+            trusted_reply_result.state,
+            ExternalReviewState::FindingsOpen
+        );
+        assert_eq!(trusted_reply_result.finding_count, 1);
+        assert_eq!(trusted_reply_result.unresolved_actionable_threads, 1);
 
         let mut human_commented = fixture(contents);
         let mut review = human_commented.pull_request.reviews.nodes[0].clone();
