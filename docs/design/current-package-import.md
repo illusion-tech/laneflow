@@ -62,9 +62,12 @@ current JSON -> compiler frontend -> HIR/MIR/LIR
 
 ### 4.1 `laneflow-data`
 
-继续拥有当前态 JSON 到 `InitialTrafficData` / `SpatialRegistry` 的加载与规范化，直到
-#294 完成主代码路径切换。它的测试只验证仓库当前仍使用的接受集合、错误分类和构造
-结果，不作为编译器的语义预言机。
+继续拥有当前态 JSON 到 `LoadedPackage`（内含 `InitialTrafficData`）/
+`LoadedSpatialPackage` 的加载与规范化，直到 #294 完成主代码路径切换。
+`LoadedSpatialPackage` 只保存已绑定当前车道图的受检空间输入；`SpatialRegistry` 由
+调用方通过 `SpatialRegistry::try_new` 构造，不属于 `laneflow-data` 的构造权威。旧
+加载器测试只验证仓库当前仍使用的接受集合、错误分类和加载结果，不作为编译器的语义
+预言机。
 
 ### 4.2 `laneflow-current-source`
 
