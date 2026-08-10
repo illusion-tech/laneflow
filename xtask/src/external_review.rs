@@ -792,6 +792,9 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             }
         }
         let Some(actor) = first_comment.author.as_ref() else {
+            if dependabot_completion.is_some() && !thread.is_resolved && !thread.is_outdated {
+                unresolved_actionable_threads += 1;
+            }
             continue;
         };
         if trusted_provider(&actor.login, &author).is_none() {
@@ -1264,12 +1267,6 @@ fn dependabot_lockfile_false_positive_disposition<'a>(
         return None;
     };
     let linked_head = review.commit.as_ref().map(|commit| commit.oid.as_str());
-    let title_matches = [
-        "Restore Dependabot author or add governance fields",
-        "Restore bot authorship or add governance fields",
-    ]
-    .iter()
-    .any(|title| first.body.contains(title));
     let claimed_head = first
         .body
         .split('`')
@@ -1281,9 +1278,10 @@ fn dependabot_lockfile_false_positive_disposition<'a>(
         || linked_head != Some(current_head)
         || !valid_timestamp(&first.updated_at)
         || !valid_github_url(&first.url)
-        || !title_matches
-        || !first.body.contains("Codex <codex@openai.com>")
         || claimed_head.is_none_or(|claimed| oid_matches_current(claimed, current_head))
+        || claimed_head.is_none_or(|claimed| {
+            !known_dependabot_author_false_positive_body(&first.body, claimed)
+        })
     {
         return None;
     }
@@ -1308,6 +1306,25 @@ fn dependabot_lockfile_false_positive_disposition<'a>(
         })
         .max_by_key(|reply| timestamp_second(&reply.updated_at))
         .map(|reply| (reply.updated_at.as_str(), reply.url.as_str()))
+}
+
+fn known_dependabot_author_false_positive_body(body: &str, claimed_head: &str) -> bool {
+    const HEADING_DEPENDABOT: &str = "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Restore Dependabot author or add governance fields**";
+    const HEADING_BOT: &str = "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Restore bot authorship or add governance fields**";
+    const FOOTER: &str = "Useful? React with 👍 / 👎.";
+
+    let candidates = [
+        format!(
+            "{HEADING_DEPENDABOT}\n\nFor this lockfile bump, the reviewed commit `{claimed_head}` is authored as `Codex <codex@openai.com>` while keeping a Dependabot-style message body that lacks the required LaneFlow `Gate`/`Slice`/`Impact`/`Scope`/`Validation`/`Docs`/`Refs` fields. The range checker only skips that validation when `xtask/src/main.rs:761-765` sees the exact Dependabot author/email and `xtask/src/main.rs:818-828` accepts the `build(deps)` title, so this commit will be rejected by the commit-message check unless it is re-authored as Dependabot or rewritten with the full governance block.\n\n{FOOTER}"
+        ),
+        format!(
+            "{HEADING_BOT}\n\nWhen CI checks this PR's commit range, this commit is not eligible for the Dependabot exception: fresh evidence versus the earlier rebuttal is that the reviewed object `{claimed_head}` is actually authored by `Codex <codex@openai.com>`, while `xtask/src/main.rs:761-765` and `818-820` require the exact Dependabot name/email. The `Check commit messages` step in `.github/workflows/ci.yml:125-127` therefore validates the body and reports all required governance fields plus `Refs`/`Closes` as missing, blocking the required CI check; re-author this object as the bot or rewrite its message with the complete governance block.\n\n{FOOTER}"
+        ),
+        format!(
+            "{HEADING_BOT}\n\nWhen the `Check commit messages` step in `.github/workflows/ci.yml:125-127` validates this PR range, this commit cannot use the Dependabot exception. Fresh evidence versus the earlier rebuttals is that the requested object `{claimed_head}` is authored by `Codex <codex@openai.com>`, whereas `xtask/src/main.rs:761-765` and `818-828` require the exact Dependabot name and email; its Dependabot-style body consequently lacks the required governance fields and `Refs`/`Closes`, blocking the governance check. Re-author this object as Dependabot or replace the body with the complete LaneFlow governance block.\n\n{FOOTER}"
+        ),
+    ];
+    candidates.iter().any(|candidate| candidate == body)
 }
 
 fn collect_pagination_errors(pr: &PullRequestSnapshot, diagnostics: &mut Vec<String>) {
@@ -2523,6 +2540,24 @@ mod tests {
             ExternalReviewState::FindingsOpen
         );
 
+        let mut authorless = fixture(contents);
+        authorless.pull_request.review_threads.nodes[0].is_resolved = false;
+        authorless.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .author = None;
+        let authorless_result = evaluate_snapshot(&authorless);
+        assert!(!authorless_result.state.is_pass());
+        assert_eq!(authorless_result.unresolved_actionable_threads, 1);
+
+        let mut appended_finding = fixture(contents);
+        appended_finding.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .body
+            .push_str("\n\nAdditional substantive concern.");
+        assert!(!evaluate_snapshot(&appended_finding).state.is_pass());
+
         let mut missing_disposition = fixture(contents);
         missing_disposition.pull_request.review_threads.nodes[0]
             .comments
@@ -2578,12 +2613,18 @@ mod tests {
     fn documents_the_lockfile_only_codeql_not_applicable_semantics() {
         let gates = include_str!("../../docs/governance/development-gates.md");
         let scanning = include_str!("../../docs/governance/security-scanning.md");
+        let dependency = include_str!("../../docs/governance/dependency-security.md");
+        let template = include_str!("../../.github/pull_request_template.md");
+        let agent_guide = include_str!("../../docs/governance/agent-development-guide.md");
 
         assert!(gates.contains("dependabot-cargo-lock-only-v1"));
         assert!(scanning.contains("dependabot-cargo-lock-only-v1"));
         assert!(scanning.contains("NEUTRAL"));
         assert!(scanning.contains("2 configurations not found"));
         assert!(scanning.contains("not applicable"));
+        for entry_point in [dependency, template, agent_guide] {
+            assert!(entry_point.contains("dependabot-cargo-lock-only-v1"));
+        }
     }
 
     #[test]

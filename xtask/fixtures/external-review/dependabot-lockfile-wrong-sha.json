@@ -44,7 +44,7 @@
               {
                 "id": "PRRC-codex-wrong-sha",
                 "author": { "login": "chatgpt-codex-connector" },
-                "body": "Restore bot authorship or add governance fields\n\nCommit `91f05a4` is authored by `Codex <codex@openai.com>`.",
+                "body": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Restore Dependabot author or add governance fields**\n\nFor this lockfile bump, the reviewed commit `91f05a4` is authored as `Codex <codex@openai.com>` while keeping a Dependabot-style message body that lacks the required LaneFlow `Gate`/`Slice`/`Impact`/`Scope`/`Validation`/`Docs`/`Refs` fields. The range checker only skips that validation when `xtask/src/main.rs:761-765` sees the exact Dependabot author/email and `xtask/src/main.rs:818-828` accepts the `build(deps)` title, so this commit will be rejected by the commit-message check unless it is re-authored as Dependabot or rewritten with the full governance block.\n\nUseful? React with 👍 / 👎.",
                 "createdAt": "2026-08-06T03:00:00Z",
                 "updatedAt": "2026-08-06T03:00:00Z",
                 "url": "https://github.com/illusion-tech/laneflow/pull/313#discussion_r1",
