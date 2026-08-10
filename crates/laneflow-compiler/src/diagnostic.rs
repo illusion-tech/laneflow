@@ -435,6 +435,8 @@ pub enum RoadEditingSourceViolation {
     UnsupportedFormatVersion { expected: u32, actual: u32 },
     /// verified wire 内的 source-document key 与 wire 外 expected key 不同。
     SourceDocumentKeyMismatch,
+    /// verifier 后的字段值违反与第一方 authoring model 共用的闭合语义规则。
+    InvalidSemanticValue(RoadEditingInputViolation),
 }
 
 /// 诊断严重程度。数值顺序同时是规范排序顺序。
@@ -703,6 +705,7 @@ pub enum DiagnosticPayload {
     /// 道路编辑来源 reader 的 framing、wire、版本或外部身份绑定失败。
     InvalidRoadEditingSource {
         violation: RoadEditingSourceViolation,
+        field: Option<Box<str>>,
         expected_source_document_key: Box<str>,
         actual_source_document_key: Option<Box<str>>,
     },
@@ -1239,6 +1242,7 @@ impl Diagnostic {
     )]
     pub(crate) fn invalid_road_editing_source(
         violation: RoadEditingSourceViolation,
+        field: Option<&str>,
         expected_source_document_key: &str,
         actual_source_document_key: Option<&str>,
     ) -> Self {
@@ -1249,6 +1253,7 @@ impl Diagnostic {
             severity: DiagnosticSeverity::Error,
             payload: DiagnosticPayload::InvalidRoadEditingSource {
                 violation,
+                field: field.map(Into::into),
                 expected_source_document_key: expected_source_document_key.into(),
                 actual_source_document_key: actual_source_document_key.map(Into::into),
             },
@@ -2989,6 +2994,7 @@ impl fmt::Display for Diagnostic {
             }
             DiagnosticPayload::InvalidRoadEditingSource {
                 violation,
+                field,
                 expected_source_document_key,
                 actual_source_document_key,
             } => {
@@ -2996,6 +3002,9 @@ impl fmt::Display for Diagnostic {
                     formatter,
                     "道路编辑来源 {expected_source_document_key} 非法：{violation:?}"
                 )?;
+                if let Some(field) = field {
+                    write!(formatter, "，字段 {field}")?;
+                }
                 if let Some(actual) = actual_source_document_key {
                     write!(formatter, "，wire 文档键 {actual}")?;
                 }
