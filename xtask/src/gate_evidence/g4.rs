@@ -45,6 +45,19 @@ pub(super) fn has_late_related_pr(
     Ok(false)
 }
 
+pub(super) fn validate_original_related_g3_before_delivery_merge(
+    number: u64,
+    related_g3_effective_at: u64,
+    delivery_merged_at: u64,
+) -> Result<(), String> {
+    if related_g3_effective_at >= delivery_merged_at {
+        return Err(format!(
+            "original Related PR #{number} G3 comment 生效时间必须严格早于 Delivery PR 合并时间"
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn validate_g4_g3_full_set_recovery(
     args: &GateEvidenceArgs,
     issue: &GitHubIssue,
@@ -208,11 +221,11 @@ pub(super) fn validate_g4_g3_full_set_recovery(
             .ok_or_else(|| {
                 format!("Related PR #{number} G3 comment effectiveAt 不是 UTC RFC3339 秒级时间")
             })?;
-            if related_g3_effective_at > delivery_merged_at_seconds {
-                return Err(format!(
-                    "original Related PR #{number} G3 comment 生效时间不得晚于 Delivery PR 合并时间"
-                ));
-            }
+            validate_original_related_g3_before_delivery_merge(
+                *number,
+                related_g3_effective_at,
+                delivery_merged_at_seconds,
+            )?;
         } else {
             return Err(format!(
                 "Related PR #{number} 未归入 originalRelatedPrs 或 lateRelatedPrs"

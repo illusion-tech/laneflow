@@ -1755,6 +1755,18 @@ fn accepts_edited_related_g3_before_its_merge_during_recovery() {
 }
 
 #[test]
+fn rejects_original_related_g3_effective_at_delivery_merge_second() {
+    assert!(validate_original_related_g3_before_delivery_merge(62, 29, 30).is_ok());
+    let error = validate_original_related_g3_before_delivery_merge(62, 30, 30)
+        .expect_err("the Delivery merge second cannot prove that an original G3 edit came first");
+
+    assert!(
+        error.contains("生效时间必须严格早于 Delivery PR 合并时间"),
+        "{error}"
+    );
+}
+
+#[test]
 fn rejects_g4_recovery_without_structured_record() {
     let (args, mut issue, delivery_pr, related_pr) = late_related_recovery_fixture();
     issue.comments[0] = g4_comment_for_args(ISSUE_G4_URL, "2026-07-10T06:00:00Z", &args);
