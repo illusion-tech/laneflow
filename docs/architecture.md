@@ -194,11 +194,12 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 `laneflow-data` 不拥有 fixed tick、runtime entity、world lifecycle 或 Engine asset I/O。初始 loader 接收内存 bytes/string，不直接读取文件或创建 `CoreWorld`。
 
-ADR 0020 target 中，`laneflow-data` 只作为 current JSON compatibility façade；
+ADR 0020 target 中，`laneflow-data` 只作为 current JSON 临时内部加载实现；
 portable canonical artifact 由 `laneflow-format`/compiler contract 描述，生产
 Runtime 由 `laneflow-static-image` 的 trusted descriptor + bounded verifier/view
 挂载。静态 semantic normalization 从 Data/Core constructors 前移到 compiler，
-static image 不取代 public publication/provenance/validation-receipt 契约。
+static image 不取代 public publication/provenance/validation-receipt 契约。current JSON
+未曾作为外部资产发布，不接入 compiler，也不形成长期兼容或迁移工具承诺。
 
 current v0.10 在保持相同依赖方向的前提下包含 per-edge 基础道路限速、
 Junction/Movement/ManeuverPath、StopLine、一等 ManeuverGate、SignalGroup、

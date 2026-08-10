@@ -9,6 +9,12 @@
 交通运行时（Traffic Runtime）、Data、Spatial 初始化边界<br>
 **目标取代范围**: ADR 0005、0007、0008、0011、0013、0015、0017 中与静态数据 normalization、制品配对和运行时 registry 构建位置冲突的条款，并在目标态以 `LaneFlow Traffic Runtime`/`laneflow-runtime` 一次性不兼容替代当前 `LaneFlow Core`/`laneflow-core`；在本 ADR Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，当前生产实现继续由原 ADR 约束<br>
 
+**2026-08-10 范围澄清**：current Traffic/Spatial/Scenario JSON 从未作为外部资产发布，
+只属于当前仓库加载器和夹具；它不建立 compiler import frontend、批量迁移工具或长期
+离线兼容入口。编译器迁移正确性以原生有类型来源模块和集成专用 LIR→current 投影
+验证，精确边界见 `../design/current-package-import.md`。本澄清不改变通用外部来源导入
+前端或规范制品版本迁移能力。
+
 **关联文档**:
 
 - 上游决策:
@@ -521,8 +527,8 @@ tick、已实现执行域的交通参与单元、动态通行定义和每 world 
 projection 仍是 vehicle/dynamic Route 特化，但不得反向冻结终态 Runtime。
 Static/shared contract 不得留在 Runtime；否则 compiler/validator 会反向依赖动态
 运行时。Spatial 继续不依赖 compiler/validator/引擎，Runtime 继续不依赖 Spatial。
-`laneflow-data` 在迁移期间作为 current JSON compatibility façade 存在，终态不再
-拥有静态 normalization authority。
+`laneflow-data` 在主代码路径切换期间作为 current JSON 临时内部加载实现存在，终态
+不再拥有静态 normalization authority，也不保留 current JSON 离线导入入口。
 
 ### 10. 迁移必须保持当前态（Current）与目标态（Target）语义可区分
 

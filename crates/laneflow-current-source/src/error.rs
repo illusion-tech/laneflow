@@ -1,4 +1,4 @@
-//! Current source 结构化错误面（production-compatible 子集）。
+//! Current source 内部加载路径的结构化错误面。
 
 use serde_json::error::Category;
 
@@ -91,8 +91,8 @@ pub enum CurrentSourceIssueContext {
 
 /// 单项 source 校验失败 payload。
 ///
-/// 只含 production-compatible 路径可达的 variant；strict profile 的资源与输入契约
-/// variant 归 #297 后续切片。
+/// 只含当前内部加载路径可达的 variant；已取消的 strict profile 资源与输入契约
+/// 不得出现在当前错误面。
 #[derive(Debug)]
 pub enum CurrentSourceErrorPayload {
     /// JSON token、UTF-8、EOF 或 trailing content 无效。
@@ -318,7 +318,7 @@ impl CurrentSourceIssueParts {
 
 /// 至少含一项 issue 的 source 校验错误 bundle。
 ///
-/// production-compatible 路径全部立即失败，因此 bundle 恒为单元素。
+/// 当前加载路径全部立即失败，因此 bundle 恒为单元素。
 #[derive(Debug, thiserror::Error)]
 #[error("current source 校验失败（详见 issues()）")]
 pub struct CurrentSourceError {

@@ -268,7 +268,7 @@ CI 会校验 PR commit 标题和必需治理字段。若确需例外，必须在
 例外（须在 PR 或 Issue 中说明原因）：
 
 - **Squash and merge**：PR 内含多个无独立意义的 wip commit，或明确要求 `main` 上 1 个 PR 对应 1 个 commit。
-- **Create a merge commit**：发布分支、长期分支合流等需要保留 merge 节点的场景；以及 `docs/design/current-package-import.md` 第 13.2 节已冻结的 #297 资产审计证据 PR：`A..E` 仅新增固定报告路径的提交必须原样进入 `main`，使报告 `source.commit` 与 G3 记录的提交身份在标准 clone 中可重放。
+- **Create a merge commit**：发布分支、长期分支合流等需要保留 merge 节点的场景。
 
 命令示例：
 

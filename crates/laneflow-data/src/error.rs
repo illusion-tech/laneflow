@@ -70,7 +70,7 @@ impl DataError {
     /// 立即失败的原始 `serde_json::Error`。
     pub(crate) fn from_current_source(error: CurrentSourceError) -> Self {
         let issues = error.into_issues();
-        debug_assert_eq!(issues.len(), 1, "production-compatible source 立即失败");
+        debug_assert_eq!(issues.len(), 1, "current source 立即失败");
         let issue = issues
             .into_iter()
             .next()
@@ -81,13 +81,13 @@ impl DataError {
             "Traffic-only 能力不带 scenario 上下文"
         );
         let Some(CurrentDocumentRole::Traffic) = document else {
-            unreachable!("production-compatible Traffic issue 必携带 Traffic document")
+            unreachable!("current Traffic issue 必携带 Traffic document")
         };
         let path = path
-            .expect("production-compatible issue 必携带规范 path")
+            .expect("current source issue 必携带规范 path")
             .into_string();
         let None = span else {
-            unreachable!("切片 2 production 路径不产出 span")
+            unreachable!("current 加载路径不产出 span")
         };
         Self::from_traffic_payload(path, payload)
     }

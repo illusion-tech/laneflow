@@ -14,7 +14,7 @@ use laneflow_core::{
     SignalRegistry, SpeedLimit, StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
     WaitingRegistry, WaitingZone, WaitingZoneError,
 };
-use laneflow_current_source::validate_traffic_compatible;
+use laneflow_current_source::validate_traffic;
 use laneflow_current_source::wire::{
     WireAccessEffect, WireAccessTargetKind, WireCorridorElement, WireManeuverGate, WirePackage,
     WireParking, WireRoadCorridor, WireRoute, WireSignalAspect, WireSignalControllerKind,
@@ -60,7 +60,7 @@ impl LoadedPackage {
 pub fn from_json_slice(input: &[u8]) -> Result<LoadedPackage, DataError> {
     // wire 校验与版本闸口由 laneflow-current-source 原子完成；Data 只经
     // capability parts 视图消费同一 DTO，不再反序列化原始 JSON。
-    let parts = validate_traffic_compatible(input)
+    let parts = validate_traffic(input)
         .map_err(DataError::from_current_source)?
         .into_parts();
     normalize(parts.traffic_wire())

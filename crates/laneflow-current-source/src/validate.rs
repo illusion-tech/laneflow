@@ -1,4 +1,4 @@
-//! production-compatible current source 能力入口。
+//! current 内部加载 source 能力入口。
 
 use std::collections::HashMap;
 use std::fmt;
@@ -256,7 +256,7 @@ impl CurrentSourceParts {
 ///
 /// JSON syntax/shape 或 format version 校验失败时返回单元素
 /// `CurrentSourceError`。
-pub fn validate_traffic_compatible(
+pub fn validate_traffic(
     traffic_bytes: &[u8],
 ) -> Result<ValidatedCurrentTrafficPackage, CurrentSourceError> {
     let context = IssueContext {
@@ -280,7 +280,7 @@ pub fn validate_traffic_compatible(
 /// # Errors
 ///
 /// 任一冻结步骤失败时返回单元素 `CurrentSourceError`。
-pub fn validate_scenario_compatible(
+pub fn validate_scenario(
     manifest_bytes: &[u8],
     artifacts: &[CurrentArtifactInput<'_>],
 ) -> Result<ValidatedCurrentSourceBundle, CurrentSourceError> {

@@ -351,10 +351,9 @@ version 并在同一交付 PR 中完成这些切换；不保留 v0.9 分派、�
 
 ## 12. ScenarioManifest v0.1 原子加载
 
-#297 的 [`current-package-import.md`](current-package-import.md) 已通过 G1（Accepted），把
-本节 wire DTO、版本/摘要/配对权威迁入 unpublished `laneflow-current-source`；在该议题
-完成 G2 实现与兼容矩阵前，本节和现有 `laneflow-data` 仍是 current production
-事实，strict compiler 配置不得提前成为本入口的新拒绝条件。
+本节 wire DTO、版本/摘要/配对实现已经集中到未发布的 `laneflow-current-source`，并
+由 `laneflow-data` 消费。#297 调整后不再建立 strict compiler 导入策略；current JSON
+只作为当前内部加载路径和仓库夹具保留到 #294，不形成外部兼容或迁移工具承诺。
 
 Scenario loader 不替代现有 Traffic loader，而是在它外层建立精确制品配对和 Spatial 规范化：
 
