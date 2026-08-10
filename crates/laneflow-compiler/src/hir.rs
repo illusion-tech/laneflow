@@ -1,7 +1,7 @@
 //! Typed AST 到高层中间表示（HIR）的符号解析阶段。
 //!
 //! 输入 [`CompilationUnit`] 已闭合模块导入图并冻结依赖优先顺序。本阶段据此建立连续
-//! 模块表与分实体符号表，把 `(module namespace, stable key)` 引用解析为阶段私有
+//! 模块表与分实体符号表，把 `(module namespace, typed entity address)` 引用解析为阶段私有
 //! `u32` 键，并保留来源位置供后续诊断/源映射使用。声明先全部登记、再统一解析引用，
 //! 因此前向引用和自环合法；横断面子阶段在派生子实体身份前证明唯一所有者树，路口
 //! 子阶段则闭合父子身份、完整机动路径与内部边排他角色。
@@ -10,6 +10,7 @@
 //! 也使用已显式规范化的序列。`HashMap` 仅作查找，绝不能通过迭代哈希表决定诊断或
 //! 后续布局。所有键、区间和类型均为 crate 私有，不能跨阶段或进入持久制品。
 
+use core::cmp::Ordering;
 use core::hash::{Hash, Hasher};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -31,6 +32,7 @@ use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::declaration::{
     GeometryOffsetIntentKind, LaneEdgeDeclaration, OwnedAccessRegulation, OwnedAccessRuleTarget,
     OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl, TypedAstDeclaration,
+    TypedAstEntityAddress,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::identity::{
@@ -149,6 +151,7 @@ pub(crate) struct HirLaneEdge {
     pub(crate) module: HirModuleKey,
     /// 模块内稳定键；不是 HIR 致密下标。
     pub(crate) stable_key: Arc<str>,
+    pub(crate) source_address: TypedAstEntityAddress,
     /// 由 `(authoringNamespaceId, laneEdgeKey)` 的完整 Identity v1 前像派生。
     pub(crate) stable_id: LaneEdgeId,
     /// 交通权威长度，单位为米并保留来源 `f64` 精度。
@@ -187,6 +190,7 @@ pub(crate) struct HirRoadCorridor {
 pub(crate) struct HirRoadSection {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
+    pub(crate) source_address: TypedAstEntityAddress,
     pub(crate) stable_id: RoadSectionId,
     pub(crate) road_corridor: HirRoadCorridorKey,
     pub(crate) kind_id: Arc<str>,
@@ -222,6 +226,7 @@ pub(crate) struct HirLaneGroupMember {
 pub(crate) struct HirLaneGroup {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
+    pub(crate) source_address: TypedAstEntityAddress,
     pub(crate) stable_id: LaneGroupId,
     pub(crate) road_section: HirRoadSectionKey,
     pub(crate) members: TableRange<HirLaneGroupMember>,
@@ -232,6 +237,7 @@ pub(crate) struct HirLaneGroup {
 pub(crate) struct HirFacilityBand {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
+    pub(crate) source_address: TypedAstEntityAddress,
     pub(crate) stable_id: FacilityBandId,
     pub(crate) road_corridor: HirRoadCorridorKey,
     pub(crate) kind_id: Arc<str>,
@@ -280,6 +286,7 @@ pub(crate) struct HirManeuverPathEdge {
 pub(crate) struct HirManeuverPath {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
+    pub(crate) source_address: TypedAstEntityAddress,
     pub(crate) stable_id: ManeuverPathId,
     pub(crate) movement: HirMovementKey,
     pub(crate) movement_source_location: Option<ResolvedSourceLocation>,
@@ -324,6 +331,7 @@ pub(crate) struct HirStopLine {
 pub(crate) struct HirManeuverGate {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
+    pub(crate) source_address: TypedAstEntityAddress,
     pub(crate) stable_id: ManeuverGateId,
     pub(crate) maneuver_path: HirManeuverPathKey,
     pub(crate) maneuver_path_source_location: Option<ResolvedSourceLocation>,
@@ -729,7 +737,7 @@ pub(crate) struct HirUnit {
 
 /// 按 HIR 模块隔离的有类型符号查找索引；不提供规范遍历能力。
 struct SymbolTable<K> {
-    by_module: Vec<HashMap<Arc<str>, K>>,
+    by_module: Vec<HashMap<TypedAstEntityAddress, K>>,
 }
 
 impl<K: Copy> SymbolTable<K> {
@@ -742,16 +750,16 @@ impl<K: Copy> SymbolTable<K> {
         }
     }
 
-    fn insert(&mut self, module: HirModuleKey, stable_key: Arc<str>, key: K) {
-        let previous = self.by_module[module.index()].insert(stable_key, key);
+    fn insert(&mut self, module: HirModuleKey, source_address: TypedAstEntityAddress, key: K) {
+        let previous = self.by_module[module.index()].insert(source_address, key);
         debug_assert!(
             previous.is_none(),
             "Typed AST rejected duplicate declarations"
         );
     }
 
-    fn get(&self, module: HirModuleKey, stable_key: &str) -> Option<K> {
-        self.by_module[module.index()].get(stable_key).copied()
+    fn get(&self, module: HirModuleKey, source_address: &TypedAstEntityAddress) -> Option<K> {
+        self.by_module[module.index()].get(source_address).copied()
     }
 }
 
@@ -1782,17 +1790,11 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                 TypedAstDeclaration::LaneEdge(_)
             )
         });
-        declaration_indices.sort_unstable_by(|left, right| {
-            lane_edge_declaration(&source_module.declarations[*left])
+        declaration_indices.sort_unstable_by_key(|index| {
+            &lane_edge_declaration(&source_module.declarations[*index])
                 .expect("filtered declaration must be LaneEdge")
                 .header
-                .stable_key
-                .cmp(
-                    &lane_edge_declaration(&source_module.declarations[*right])
-                        .expect("filtered declaration must be LaneEdge")
-                        .header
-                        .stable_key,
-                )
+                .source_address
         });
         for declaration_index in declaration_indices {
             let source = lane_edge_declaration(&source_module.declarations[declaration_index])
@@ -1852,6 +1854,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                 .push(HirLaneEdge {
                     module: module_key,
                     stable_key: Arc::clone(&source.header.stable_key),
+                    source_address: source.header.source_address.clone(),
                     stable_id: LaneEdgeId::from_untyped(identity.stable_id()),
                     length_meters: source.length.value(),
                     speed_limit_meters_per_second: source.speed_limit.value(),
@@ -1861,7 +1864,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                 .map_err(|overflow| {
                     arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                 })?;
-            symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+            symbols.insert(module_key, source.header.source_address.clone(), key);
             canonical_sources.push(CanonicalLaneEdgeSource {
                 source_module_index: u32::try_from(module_index).map_err(|_| {
                     arena_overflow(
@@ -1928,7 +1931,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                 && canonical_edge_sort_key(&modules, &lane_edges, transition.successor)
                     < (
                         successor.module_namespace.as_ref(),
-                        successor.declaration_key.as_ref(),
+                        successor.declaration_key().as_ref(),
                     )
             {
                 let transition = derived.next().expect("peeked transition must exist");
@@ -1944,12 +1947,12 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                 && canonical_edge_sort_key(&modules, &lane_edges, transition.successor)
                     == (
                         successor.module_namespace.as_ref(),
-                        successor.declaration_key.as_ref(),
+                        successor.declaration_key().as_ref(),
                     )
             {
                 let mut diagnostic = Diagnostic::lane_edge_successor_path_conflict(
                     &source.header.stable_key,
-                    &successor.declaration_key,
+                    successor.declaration_key(),
                     &transition.junction_key,
                     &transition.maneuver_path_key,
                     transition.occurrence_span.clone(),
@@ -1960,12 +1963,12 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                 derived.next();
             }
             let target_module = module_lookup[successor.module_namespace.as_ref()];
-            let Some(target) = symbols.get(target_module, &successor.declaration_key) else {
+            let Some(target) = symbols.get(target_module, &successor.target_address) else {
                 let mut diagnostic = Diagnostic::unknown_reference_target(
                     EntityKind::LaneEdge,
                     &source.header.stable_key,
                     &successor.module_namespace,
-                    &successor.declaration_key,
+                    successor.declaration_key(),
                     successor.span.clone(),
                     source.header.span.clone(),
                 );
@@ -2178,7 +2181,7 @@ fn derive_geometry_connection_transitions(
                 .chain(core::iter::once(&intent.exit_edge))
             {
                 let target_module = module_lookup[reference.module_namespace.as_ref()];
-                let Some(target) = lane_edge_symbols.get(target_module, &reference.declaration_key)
+                let Some(target) = lane_edge_symbols.get(target_module, &reference.target_address)
                 else {
                     predecessor = None;
                     continue;
@@ -2189,8 +2192,8 @@ fn derive_geometry_connection_transitions(
                         successor: target,
                         module: module_key,
                         junction_namespace: Arc::clone(&intent.junction.module_namespace),
-                        junction_key: Arc::clone(&intent.junction.declaration_key),
-                        maneuver_path_key: Arc::clone(&intent.maneuver_path.declaration_key),
+                        junction_key: Arc::clone(intent.junction.declaration_key()),
+                        maneuver_path_key: Arc::clone(intent.maneuver_path.declaration_key()),
                         occurrence_span: intent.span.clone(),
                     });
                 }
@@ -2390,8 +2393,8 @@ fn build_cross_section_hir(
         declaration_indices.sort_unstable_by(|left, right| {
             let left = declaration_header(&source_module.declarations[*left]);
             let right = declaration_header(&source_module.declarations[*right]);
-            (left.entity_kind.code(), left.stable_key.as_bytes())
-                .cmp(&(right.entity_kind.code(), right.stable_key.as_bytes()))
+            (left.entity_kind.code(), &left.source_address)
+                .cmp(&(right.entity_kind.code(), &right.source_address))
         });
         for source_declaration_index in declaration_indices {
             let source_module_index = u32::try_from(module_index)
@@ -2449,6 +2452,7 @@ fn build_cross_section_hir(
                         .push(HirRoadSection {
                             module: module_key,
                             stable_key: Arc::clone(&source.header.stable_key),
+                            source_address: source.header.source_address.clone(),
                             stable_id: RoadSectionId::from_untyped(StableId128::ZERO),
                             road_corridor: HirRoadCorridorKey::from_raw(0),
                             kind_id: Arc::clone(&source.kind_id),
@@ -2460,7 +2464,7 @@ fn build_cross_section_hir(
                         })?;
                     section_symbols.insert(
                         module_key,
-                        Arc::clone(&source.header.stable_key),
+                        source.header.source_address.clone(),
                         section_key,
                     );
                     section_sources.push(CanonicalDeclarationSource {
@@ -2513,6 +2517,7 @@ fn build_cross_section_hir(
                         .push(HirLaneGroup {
                             module: module_key,
                             stable_key: Arc::clone(&source.header.stable_key),
+                            source_address: source.header.source_address.clone(),
                             stable_id: LaneGroupId::from_untyped(StableId128::ZERO),
                             road_section: HirRoadSectionKey::from_raw(0),
                             members: TableRange::empty(),
@@ -2521,7 +2526,7 @@ fn build_cross_section_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    group_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+                    group_symbols.insert(module_key, source.header.source_address.clone(), key);
                     group_sources.push(CanonicalDeclarationSource {
                         source_module_index,
                         declaration_index,
@@ -2533,6 +2538,7 @@ fn build_cross_section_hir(
                         .push(HirFacilityBand {
                             module: module_key,
                             stable_key: Arc::clone(&source.header.stable_key),
+                            source_address: source.header.source_address.clone(),
                             stable_id: FacilityBandId::from_untyped(StableId128::ZERO),
                             road_corridor: HirRoadCorridorKey::from_raw(0),
                             kind_id: Arc::clone(&source.kind_id),
@@ -2541,7 +2547,7 @@ fn build_cross_section_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    band_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+                    band_symbols.insert(module_key, source.header.source_address.clone(), key);
                     band_sources.push(CanonicalDeclarationSource {
                         source_module_index,
                         declaration_index,
@@ -2673,7 +2679,7 @@ fn build_cross_section_hir(
                 let mut diagnostic = Diagnostic::invalid_corridor_reference_section(
                     &source.header.stable_key,
                     &source.reference_section.module_namespace,
-                    &source.reference_section.declaration_key,
+                    source.reference_section.declaration_key(),
                     source.reference_section.span.clone(),
                     source.header.span.clone(),
                 );
@@ -3100,8 +3106,10 @@ fn build_junction_hir(
         let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
         let mut declaration_indices: Vec<_> = (0..source_module.declarations.len()).collect();
         declaration_indices.sort_unstable_by(|left, right| {
-            declaration_sort_key(&source_module.declarations[*left])
-                .cmp(declaration_sort_key(&source_module.declarations[*right]))
+            compare_declaration_source_order(
+                &source_module.declarations[*left],
+                &source_module.declarations[*right],
+            )
         });
         for declaration_index in declaration_indices {
             match &source_module.declarations[declaration_index] {
@@ -3139,7 +3147,7 @@ fn build_junction_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    junction_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+                    junction_symbols.insert(module_key, source.header.source_address.clone(), key);
                 }
                 TypedAstDeclaration::Movement(source) => {
                     let key = movements
@@ -3161,7 +3169,7 @@ fn build_junction_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    movement_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+                    movement_symbols.insert(module_key, source.header.source_address.clone(), key);
                     movement_sources.push(CanonicalDeclarationSource {
                         source_module_index: module_order,
                         declaration_index: u32::try_from(declaration_index).map_err(|_| {
@@ -3179,6 +3187,7 @@ fn build_junction_hir(
                         .push(HirManeuverPath {
                             module: module_key,
                             stable_key: Arc::clone(&source.header.stable_key),
+                            source_address: source.header.source_address.clone(),
                             stable_id: ManeuverPathId::from_untyped(StableId128::ZERO),
                             movement: HirMovementKey::from_raw(0),
                             movement_source_location: None,
@@ -3638,7 +3647,7 @@ fn build_control_hir(
             u32::try_from(index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
-        path_symbols.insert(path.module, Arc::clone(&path.stable_key), key);
+        path_symbols.insert(path.module, path.source_address.clone(), key);
     }
 
     let mut stop_lines = TypedArena::<HirStopLineTag, HirStopLine>::with_capacity(count_to_usize(
@@ -3695,8 +3704,8 @@ fn build_control_hir(
         declaration_indices.sort_unstable_by(|left, right| {
             let left = declaration_header(&source_module.declarations[*left]);
             let right = declaration_header(&source_module.declarations[*right]);
-            (left.entity_kind.code(), left.stable_key.as_bytes())
-                .cmp(&(right.entity_kind.code(), right.stable_key.as_bytes()))
+            (left.entity_kind.code(), &left.source_address)
+                .cmp(&(right.entity_kind.code(), &right.source_address))
         });
         for declaration_index in declaration_indices {
             let source_index = u32::try_from(declaration_index)
@@ -3737,7 +3746,7 @@ fn build_control_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    stop_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+                    stop_symbols.insert(module_key, source.header.source_address.clone(), key);
                     stop_sources.push(CanonicalDeclarationSource {
                         source_module_index: module_order,
                         declaration_index: source_index,
@@ -3749,6 +3758,7 @@ fn build_control_hir(
                         .push(HirManeuverGate {
                             module: module_key,
                             stable_key: Arc::clone(&source.header.stable_key),
+                            source_address: source.header.source_address.clone(),
                             stable_id: ManeuverGateId::from_untyped(StableId128::ZERO),
                             maneuver_path: HirManeuverPathKey::from_raw(0),
                             maneuver_path_source_location: None,
@@ -3761,7 +3771,7 @@ fn build_control_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    gate_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+                    gate_symbols.insert(module_key, source.header.source_address.clone(), key);
                     gate_sources.push(CanonicalDeclarationSource {
                         source_module_index: module_order,
                         declaration_index: source_index,
@@ -4327,7 +4337,7 @@ fn build_signal_hir(
             u32::try_from(index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
-        gate_symbols.insert(gate.module, Arc::clone(&gate.stable_key), key);
+        gate_symbols.insert(gate.module, gate.source_address.clone(), key);
     }
 
     let mut group_sources = Vec::with_capacity(count_to_usize(counts.groups, &unit.limits)?);
@@ -4357,8 +4367,8 @@ fn build_signal_hir(
         declaration_indices.sort_unstable_by(|left, right| {
             let left = declaration_header(&source_module.declarations[*left]);
             let right = declaration_header(&source_module.declarations[*right]);
-            (left.entity_kind.code(), left.stable_key.as_bytes())
-                .cmp(&(right.entity_kind.code(), right.stable_key.as_bytes()))
+            (left.entity_kind.code(), &left.source_address)
+                .cmp(&(right.entity_kind.code(), &right.source_address))
         });
         for declaration_index in declaration_indices {
             let source_index = u32::try_from(declaration_index)
@@ -4399,7 +4409,7 @@ fn build_signal_hir(
                         .map_err(|overflow| {
                             arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                         })?;
-                    group_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+                    group_symbols.insert(module_key, source.header.source_address.clone(), key);
                     group_sources.push(CanonicalDeclarationSource {
                         source_module_index: module_order,
                         declaration_index: source_index,
@@ -4790,11 +4800,12 @@ fn build_signal_hir(
                 _ => None,
             })
             .collect();
-        declarations
-            .sort_unstable_by(|left, right| left.header.stable_key.cmp(&right.header.stable_key));
+        declarations.sort_unstable_by(|left, right| {
+            left.header.source_address.cmp(&right.header.source_address)
+        });
         for source in declarations {
             let gate_key = gate_symbols
-                .get(module_key, &source.header.stable_key)
+                .get(module_key, &source.header.source_address)
                 .expect("control HIR must contain every ManeuverGate symbol");
             match &source.signal_control {
                 OwnedSignalControl::None => {}
@@ -4928,10 +4939,8 @@ fn build_spatial_hir(
                 matches!(declaration, TypedAstDeclaration::CanonicalFrame(_)).then_some(index)
             })
             .collect();
-        declaration_indices.sort_unstable_by(|left, right| {
-            declaration_header(&source_module.declarations[*left])
-                .stable_key
-                .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
+        declaration_indices.sort_unstable_by_key(|index| {
+            &declaration_header(&source_module.declarations[*index]).source_address
         });
         for declaration_index in declaration_indices {
             let TypedAstDeclaration::CanonicalFrame(source) =
@@ -4972,12 +4981,12 @@ fn build_spatial_hir(
                 .map_err(|overflow| {
                     arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                 })?;
-            frame_symbols.insert(module_key, Arc::clone(&source.header.stable_key), frame_key);
+            frame_symbols.insert(module_key, source.header.source_address.clone(), frame_key);
             // synthetic 显式声明的绑定来源先登记；geometry 派生来源在派生绑定阶段登记。
             for geometry in &source.lane_edge_geometries {
                 let target_module = module_lookup[geometry.lane_edge.module_namespace.as_ref()];
                 if let Some(lane_edge) =
-                    lane_edge_symbols.get(target_module, &geometry.lane_edge.declaration_key)
+                    lane_edge_symbols.get(target_module, &geometry.lane_edge.target_address)
                     && symbolic_edge_frames[lane_edge.index()].is_none()
                 {
                     symbolic_edge_frames[lane_edge.index()] = Some(frame_key);
@@ -4987,13 +4996,13 @@ fn build_spatial_hir(
             for geometry in &source.lane_edge_geometries {
                 let target_module = module_lookup[geometry.lane_edge.module_namespace.as_ref()];
                 let Some(lane_edge) =
-                    lane_edge_symbols.get(target_module, &geometry.lane_edge.declaration_key)
+                    lane_edge_symbols.get(target_module, &geometry.lane_edge.target_address)
                 else {
                     let mut diagnostic = Diagnostic::unknown_reference_target(
                         EntityKind::LaneEdge,
                         &source.header.stable_key,
                         &geometry.lane_edge.module_namespace,
-                        &geometry.lane_edge.declaration_key,
+                        geometry.lane_edge.declaration_key(),
                         geometry.lane_edge.span.clone(),
                         source.header.span.clone(),
                     );
@@ -5006,7 +5015,7 @@ fn build_spatial_hir(
                 if let Some(existing) = edge_bindings[lane_edge.index()] {
                     let mut diagnostic = Diagnostic::invalid_spatial_geometry(
                         Some(&source.header.stable_key),
-                        &geometry.lane_edge.declaration_key,
+                        geometry.lane_edge.declaration_key(),
                         None,
                         SpatialGeometryViolation::DuplicateEdgeBinding,
                         geometry.lane_edge.span.clone(),
@@ -5095,13 +5104,13 @@ fn build_spatial_hir(
                 continue;
             };
             let frame_module = module_lookup[intent.frame.module_namespace.as_ref()];
-            let Some(frame_key) = frame_symbols.get(frame_module, &intent.frame.declaration_key)
+            let Some(frame_key) = frame_symbols.get(frame_module, &intent.frame.target_address)
             else {
                 let mut diagnostic = Diagnostic::unknown_reference_target(
                     EntityKind::CanonicalFrame,
                     &intent.span_key,
                     &intent.frame.module_namespace,
-                    &intent.frame.declaration_key,
+                    intent.frame.declaration_key(),
                     intent.frame.span.clone(),
                     intent.span.clone(),
                 );
@@ -5217,11 +5226,12 @@ fn build_spatial_hir(
             let junction_key = *junction_symbols
                 .get(&(
                     intent.junction.module_namespace.as_ref(),
-                    intent.junction.declaration_key.as_ref(),
+                    intent.junction.declaration_key().as_ref(),
                 ))
                 .expect("junction HIR owns every internal edge junction");
+            let lane_edge_address = TypedAstEntityAddress::module_scoped(Arc::clone(&intent.key));
             let lane_edge = lane_edge_symbols
-                .get(module_key, &intent.key)
+                .get(module_key, &lane_edge_address)
                 .expect("Typed AST registers every internal LaneEdge");
             let closure_frame = derive_internal_edge_connection_frame(
                 &mut diagnostics,
@@ -5255,7 +5265,7 @@ fn build_spatial_hir(
             }
             let curve_points = internal_curves
                 .get(&(
-                    intent.junction.declaration_key.as_ref(),
+                    intent.junction.declaration_key().as_ref(),
                     intent.key.as_ref(),
                 ))
                 .expect("numeric freeze emits one curve per internal edge");
@@ -5817,10 +5827,8 @@ fn build_parking_hir(
                 matches!(declaration, TypedAstDeclaration::ParkingArea(_)).then_some(index)
             })
             .collect();
-        area_indices.sort_unstable_by(|left, right| {
-            declaration_header(&source_module.declarations[*left])
-                .stable_key
-                .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
+        area_indices.sort_unstable_by_key(|index| {
+            &declaration_header(&source_module.declarations[*index]).source_address
         });
         for declaration_index in area_indices {
             let TypedAstDeclaration::ParkingArea(source) =
@@ -5861,7 +5869,7 @@ fn build_parking_hir(
                 .map_err(|overflow| {
                     arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                 })?;
-            area_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+            area_symbols.insert(module_key, source.header.source_address.clone(), key);
             area_sources.push(CanonicalDeclarationSource {
                 source_module_index: module_order,
                 declaration_index: u32::try_from(declaration_index)
@@ -5878,10 +5886,8 @@ fn build_parking_hir(
                 matches!(declaration, TypedAstDeclaration::ParkingSpace(_)).then_some(index)
             })
             .collect();
-        indices.sort_unstable_by(|left, right| {
-            declaration_header(&source_module.declarations[*left])
-                .stable_key
-                .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
+        indices.sort_unstable_by_key(|index| {
+            &declaration_header(&source_module.declarations[*index]).source_address
         });
         for declaration_index in indices {
             space_sources.push((
@@ -6218,33 +6224,33 @@ fn build_access_hir(
             .count()
     }));
     for (key, edge) in lane_edges.iter() {
-        edge_symbols.insert(edge.module, Arc::clone(&edge.stable_key), key);
+        edge_symbols.insert(edge.module, edge.source_address.clone(), key);
     }
     for (index, group) in cross_section.lane_groups.iter().enumerate() {
         group_symbols.insert(
             group.module,
-            Arc::clone(&group.stable_key),
+            group.source_address.clone(),
             HirLaneGroupKey::from_raw(u32::try_from(index).expect("HIR table is u32-bounded")),
         );
     }
     for (index, section) in cross_section.road_sections.iter().enumerate() {
         section_symbols.insert(
             section.module,
-            Arc::clone(&section.stable_key),
+            section.source_address.clone(),
             HirRoadSectionKey::from_raw(u32::try_from(index).expect("HIR table is u32-bounded")),
         );
     }
     for (index, path) in maneuver_paths.iter().enumerate() {
         path_symbols.insert(
             path.module,
-            Arc::clone(&path.stable_key),
+            path.source_address.clone(),
             HirManeuverPathKey::from_raw(u32::try_from(index).expect("HIR table is u32-bounded")),
         );
     }
     for (index, band) in cross_section.facility_bands.iter().enumerate() {
         band_symbols.insert(
             band.module,
-            Arc::clone(&band.stable_key),
+            band.source_address.clone(),
             HirFacilityBandKey::from_raw(u32::try_from(index).expect("HIR table is u32-bounded")),
         );
     }
@@ -6266,10 +6272,8 @@ fn build_access_hir(
                 matches!(declaration, TypedAstDeclaration::ParticipantClass(_)).then_some(index)
             })
             .collect();
-        declaration_indices.sort_unstable_by(|left, right| {
-            declaration_header(&source_module.declarations[*left])
-                .stable_key
-                .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
+        declaration_indices.sort_unstable_by_key(|index| {
+            &declaration_header(&source_module.declarations[*index]).source_address
         });
         for declaration_index in declaration_indices {
             let TypedAstDeclaration::ParticipantClass(source) =
@@ -6314,7 +6318,7 @@ fn build_access_hir(
                 .map_err(|overflow| {
                     arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                 })?;
-            class_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+            class_symbols.insert(module_key, source.header.source_address.clone(), key);
             class_sources.push(CanonicalDeclarationSource {
                 source_module_index: u32::try_from(module_index)
                     .expect("module table is u32-bounded"),
@@ -6491,10 +6495,8 @@ fn build_access_hir(
                 matches!(declaration, TypedAstDeclaration::VehicleProfile(_)).then_some(index)
             })
             .collect();
-        declaration_indices.sort_unstable_by(|left, right| {
-            declaration_header(&source_module.declarations[*left])
-                .stable_key
-                .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
+        declaration_indices.sort_unstable_by_key(|index| {
+            &declaration_header(&source_module.declarations[*index]).source_address
         });
         for declaration_index in declaration_indices {
             let TypedAstDeclaration::VehicleProfile(source) =
@@ -6596,10 +6598,8 @@ fn build_access_hir(
                 matches!(declaration, TypedAstDeclaration::AccessRule(_)).then_some(index)
             })
             .collect();
-        declaration_indices.sort_unstable_by(|left, right| {
-            declaration_header(&source_module.declarations[*left])
-                .stable_key
-                .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
+        declaration_indices.sort_unstable_by_key(|index| {
+            &declaration_header(&source_module.declarations[*index]).source_address
         });
         for declaration_index in declaration_indices {
             let TypedAstDeclaration::AccessRule(source) =
@@ -7153,10 +7153,8 @@ fn build_route_hir(
                 matches!(declaration, TypedAstDeclaration::StaticRoute(_)).then_some(index)
             })
             .collect::<Vec<_>>();
-        declaration_indices.sort_unstable_by(|left, right| {
-            declaration_header(&source_module.declarations[*left])
-                .stable_key
-                .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
+        declaration_indices.sort_unstable_by_key(|index| {
+            &declaration_header(&source_module.declarations[*index]).source_address
         });
         for declaration_index in declaration_indices {
             let TypedAstDeclaration::StaticRoute(source) =
@@ -7662,12 +7660,12 @@ where
     M: laneflow_static_contract::EntityKindMarker,
 {
     let target_module = module_lookup[reference.module_namespace.as_ref()];
-    let Some(target) = symbols.get(target_module, &reference.declaration_key) else {
+    let Some(target) = symbols.get(target_module, &reference.target_address) else {
         let mut diagnostic = Diagnostic::unknown_reference_target(
             source_kind,
             &source_header.stable_key,
             &reference.module_namespace,
-            &reference.declaration_key,
+            reference.declaration_key(),
             reference.span.clone(),
             source_header.span.clone(),
         );
@@ -7734,15 +7732,66 @@ fn declaration_header(declaration: &TypedAstDeclaration) -> &crate::declaration:
     }
 }
 
-/// 全声明排序键：实体声明取稳定键，Geometry intent 取自身依附的声明键。
-fn declaration_sort_key(declaration: &TypedAstDeclaration) -> &Arc<str> {
-    match declaration {
-        TypedAstDeclaration::GeometryReferenceLine(intent) => &intent.road_key,
-        TypedAstDeclaration::GeometryCrossSectionSpan(intent) => &intent.span_key,
-        TypedAstDeclaration::GeometryConnection(intent) => &intent.maneuver_path.declaration_key,
-        TypedAstDeclaration::GeometryInternalEdge(intent) => &intent.key,
-        entity => &declaration_header(entity).stable_key,
+/// 全声明来源顺序：实体使用完整有类型地址，Geometry intent 使用闭合依附键。
+fn compare_declaration_source_order(
+    left: &TypedAstDeclaration,
+    right: &TypedAstDeclaration,
+) -> Ordering {
+    let left_header = entity_declaration_header(left);
+    let right_header = entity_declaration_header(right);
+    match (left_header, right_header) {
+        (Some(left), Some(right)) => (left.entity_kind.code(), &left.source_address)
+            .cmp(&(right.entity_kind.code(), &right.source_address)),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => compare_geometry_intents(left, right),
     }
+}
+
+fn entity_declaration_header(
+    declaration: &TypedAstDeclaration,
+) -> Option<&crate::declaration::DeclarationHeader> {
+    match declaration {
+        TypedAstDeclaration::GeometryReferenceLine(_)
+        | TypedAstDeclaration::GeometryCrossSectionSpan(_)
+        | TypedAstDeclaration::GeometryConnection(_)
+        | TypedAstDeclaration::GeometryInternalEdge(_) => None,
+        entity => Some(declaration_header(entity)),
+    }
+}
+
+fn compare_geometry_intents(left: &TypedAstDeclaration, right: &TypedAstDeclaration) -> Ordering {
+    let rank = |value: &TypedAstDeclaration| match value {
+        TypedAstDeclaration::GeometryReferenceLine(_) => 0_u8,
+        TypedAstDeclaration::GeometryCrossSectionSpan(_) => 1,
+        TypedAstDeclaration::GeometryConnection(_) => 2,
+        TypedAstDeclaration::GeometryInternalEdge(_) => 3,
+        _ => unreachable!("entity declarations are handled before geometry intents"),
+    };
+    rank(left)
+        .cmp(&rank(right))
+        .then_with(|| match (left, right) {
+            (
+                TypedAstDeclaration::GeometryReferenceLine(left),
+                TypedAstDeclaration::GeometryReferenceLine(right),
+            ) => left.road_key.cmp(&right.road_key),
+            (
+                TypedAstDeclaration::GeometryCrossSectionSpan(left),
+                TypedAstDeclaration::GeometryCrossSectionSpan(right),
+            ) => left.span_key.cmp(&right.span_key),
+            (
+                TypedAstDeclaration::GeometryConnection(left),
+                TypedAstDeclaration::GeometryConnection(right),
+            ) => left
+                .maneuver_path
+                .target_address
+                .cmp(&right.maneuver_path.target_address),
+            (
+                TypedAstDeclaration::GeometryInternalEdge(left),
+                TypedAstDeclaration::GeometryInternalEdge(right),
+            ) => left.key.cmp(&right.key),
+            _ => Ordering::Equal,
+        })
 }
 
 fn lane_edge_count(unit: &CompilationUnit) -> u64 {
@@ -8223,9 +8272,10 @@ mod tests {
     use super::*;
     use crate::{
         CompilationUnitBuilder, CompileLimits, DiagnosticCode, DiagnosticPayload, LaneEdgeInput,
-        LaneEdgeReference, SourceModuleHeader, SourceModuleHeaderInput, SyntheticModule,
-        SyntheticModuleBuilder,
+        LaneEdgeReference, SourceModuleHeader, SourceModuleHeaderInput, SourceSpan,
+        SyntheticModule, SyntheticModuleBuilder,
     };
+    use laneflow_static_contract::LaneEdgeKind;
 
     fn header(namespace: &str) -> SourceModuleHeader {
         SourceModuleHeader::new(
@@ -8272,6 +8322,46 @@ mod tests {
             builder.add_synthetic_module(module).unwrap();
         }
         builder.build().unwrap()
+    }
+
+    #[test]
+    fn typed_symbol_table_distinguishes_equal_local_keys_under_different_owners() {
+        let local_key: Arc<str> = Arc::from("lane-1");
+        let left_address = TypedAstEntityAddress::owner_scoped(
+            Arc::from([Arc::from("section-a")]),
+            Arc::clone(&local_key),
+        );
+        let right_address = TypedAstEntityAddress::owner_scoped(
+            Arc::from([Arc::from("section-b")]),
+            Arc::clone(&local_key),
+        );
+        assert_eq!(left_address.owner_local_keys()[0].as_ref(), "section-a");
+        assert_eq!(right_address.owner_local_keys()[0].as_ref(), "section-b");
+
+        let module = HirModuleKey::from_raw(0);
+        let mut symbols = SymbolTable::new([2]);
+        symbols.insert(module, left_address.clone(), 11_u32);
+        symbols.insert(module, right_address.clone(), 29_u32);
+        assert_eq!(symbols.get(module, &left_address), Some(11));
+        assert_eq!(symbols.get(module, &right_address), Some(29));
+
+        let span = SourceSpan::point(Arc::from("city/main.lfre"), 1, 1);
+        let reference = OwnedEntityReference::<LaneEdgeKind>::with_target_address(
+            Arc::from("city/main"),
+            right_address.clone(),
+            span.clone(),
+        );
+        assert_eq!(reference.declaration_key().as_ref(), "lane-1");
+        assert_eq!(reference.target_address, right_address);
+
+        let header = crate::declaration::DeclarationHeader::with_source_address(
+            EntityKind::LaneEdge,
+            left_address.clone(),
+            local_key,
+            span.into(),
+        );
+        assert_eq!(header.source_address, left_address);
+        assert_eq!(header.stable_key.as_ref(), "lane-1");
     }
 
     #[test]

@@ -2019,11 +2019,11 @@ fn lower_frames_and_roads(
         // §5.1 反向闭合：geometry 的边几何由 intent 绑定，frame 声明不携带显式中心线。
         declarations.push(TypedAstDeclaration::CanonicalFrame(
             CanonicalFrameDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::CanonicalFrame,
-                    stable_key: Arc::from(frame.frame_key.value.as_ref()),
-                    span: span_of(frame.frame_key.span).into(),
-                },
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::CanonicalFrame,
+                    Arc::from(frame.frame_key.value.as_ref()),
+                    span_of(frame.frame_key.span).into(),
+                ),
                 lane_edge_geometries: Box::default(),
             },
         ));
@@ -2211,11 +2211,11 @@ fn lower_cross_section_span(
         },
     ));
     declarations.push(TypedAstDeclaration::RoadCorridor(RoadCorridorDeclaration {
-        header: DeclarationHeader {
-            entity_kind: EntityKind::RoadCorridor,
-            stable_key: Arc::from(span.corridor_key.value.as_ref()),
-            span: span_of(span.corridor_key.span).into(),
-        },
+        header: DeclarationHeader::module_scoped(
+            EntityKind::RoadCorridor,
+            Arc::from(span.corridor_key.value.as_ref()),
+            span_of(span.corridor_key.span).into(),
+        ),
         reference_section: resolver.resolve::<RoadSectionKind>(
             &span.reference_section_key,
             "crossSectionSpans[].referenceSectionKey",
@@ -2255,11 +2255,11 @@ fn lower_cross_section_span(
         let mut lanes = Vec::with_capacity(section.lanes.len());
         for lane in &section.lanes {
             lanes.push(AuthoringLaneDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::AuthoringLane,
-                    stable_key: Arc::from(lane.lane_key.value.as_ref()),
-                    span: span_of(lane.lane_key.span).into(),
-                },
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::AuthoringLane,
+                    Arc::from(lane.lane_key.value.as_ref()),
+                    span_of(lane.lane_key.span).into(),
+                ),
                 edge_chain: Box::new([resolver.resolve::<LaneEdgeKind>(
                     &lane.lane_edge_key,
                     "lanes[].laneEdgeKey",
@@ -2275,21 +2275,21 @@ fn lower_cross_section_span(
             });
         }
         declarations.push(TypedAstDeclaration::RoadSection(RoadSectionDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::RoadSection,
-                stable_key: Arc::from(section.section_key.value.as_ref()),
-                span: span_of(section.section_key.span).into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::RoadSection,
+                Arc::from(section.section_key.value.as_ref()),
+                span_of(section.section_key.span).into(),
+            ),
             kind_id: Arc::from(section.kind_id.value.as_ref()),
             lanes: lanes.into_boxed_slice(),
         }));
         for group in &section.lane_groups {
             declarations.push(TypedAstDeclaration::LaneGroup(LaneGroupDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::LaneGroup,
-                    stable_key: Arc::from(group.lane_group_key.value.as_ref()),
-                    span: span_of(group.lane_group_key.span).into(),
-                },
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::LaneGroup,
+                    Arc::from(group.lane_group_key.value.as_ref()),
+                    span_of(group.lane_group_key.span).into(),
+                ),
                 road_section: resolver.local_reference(&section.section_key, span_of(group.span)),
             }));
         }
@@ -2330,28 +2330,28 @@ fn lower_cross_section_span(
             // 与 Synthetic 前端一致：successors 按 (module namespace, declaration key)
             // 规范化排序，文档内书写顺序不进入来源身份。
             successors.sort_unstable_by(|left, right| {
-                (&left.module_namespace, &left.declaration_key)
-                    .cmp(&(&right.module_namespace, &right.declaration_key))
+                (&left.module_namespace, &left.declaration_key())
+                    .cmp(&(&right.module_namespace, &right.declaration_key()))
             });
             if let Some(duplicate) = successors.windows(2).find(|pair| {
                 pair[0].module_namespace == pair[1].module_namespace
-                    && pair[0].declaration_key == pair[1].declaration_key
+                    && pair[0].declaration_key() == pair[1].declaration_key()
             }) {
                 return Err(DiagnosticBundle::single(
                     Diagnostic::duplicate_lane_edge_successor(
                         &lane.lane_edge_key.value,
                         &duplicate[1].module_namespace,
-                        &duplicate[1].declaration_key,
+                        duplicate[1].declaration_key(),
                         duplicate[1].span.clone(),
                     ),
                 ));
             }
             declarations.push(TypedAstDeclaration::LaneEdge(LaneEdgeDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::LaneEdge,
-                    stable_key: Arc::from(lane.lane_edge_key.value.as_ref()),
-                    span: span_of(lane.lane_edge_key.span).into(),
-                },
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::LaneEdge,
+                    Arc::from(lane.lane_edge_key.value.as_ref()),
+                    span_of(lane.lane_edge_key.span).into(),
+                ),
                 length,
                 speed_limit,
                 successors: successors.into_boxed_slice(),
@@ -2368,11 +2368,11 @@ fn lower_cross_section_span(
             span_of,
         )?;
         declarations.push(TypedAstDeclaration::FacilityBand(FacilityBandDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::FacilityBand,
-                stable_key: Arc::from(facility.facility_band_key.value.as_ref()),
-                span: span_of(facility.facility_band_key.span).into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::FacilityBand,
+                Arc::from(facility.facility_band_key.value.as_ref()),
+                span_of(facility.facility_band_key.span).into(),
+            ),
             kind_id: Arc::from(facility.kind_id.value.as_ref()),
         }));
     }
@@ -2397,11 +2397,11 @@ fn lower_junctions(
             )?);
         }
         declarations.push(TypedAstDeclaration::Junction(JunctionDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::Junction,
-                stable_key: Arc::from(junction.junction_key.value.as_ref()),
-                span: span_of(junction.junction_key.span).into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::Junction,
+                Arc::from(junction.junction_key.value.as_ref()),
+                span_of(junction.junction_key.span).into(),
+            ),
             approach_edges: approach_edges.into_boxed_slice(),
         }));
         // §4.4/§5.1：每条 internal record 由当前 Junction 唯一拥有，产出带显式
@@ -2440,11 +2440,11 @@ fn lower_junctions(
                 ))
             })?;
             declarations.push(TypedAstDeclaration::LaneEdge(LaneEdgeDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::LaneEdge,
-                    stable_key: Arc::from(internal_edge.lane_edge_key.value.as_ref()),
-                    span: span_of(internal_edge.lane_edge_key.span).into(),
-                },
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::LaneEdge,
+                    Arc::from(internal_edge.lane_edge_key.value.as_ref()),
+                    span_of(internal_edge.lane_edge_key.span).into(),
+                ),
                 length,
                 speed_limit,
                 successors: Box::default(),
@@ -2470,7 +2470,7 @@ fn lower_junctions(
             if !resolved_keys_contain(
                 approaches,
                 &entry_edge.module_namespace,
-                &entry_edge.declaration_key,
+                entry_edge.declaration_key(),
             ) {
                 return Err(DiagnosticBundle::single(
                     Diagnostic::invalid_geometry_document(
@@ -2490,7 +2490,7 @@ fn lower_junctions(
             if !resolved_keys_contain(
                 approaches,
                 &exit_edge.module_namespace,
-                &exit_edge.declaration_key,
+                exit_edge.declaration_key(),
             ) {
                 return Err(DiagnosticBundle::single(
                     Diagnostic::invalid_geometry_document(
@@ -2517,7 +2517,7 @@ fn lower_junctions(
                 let internal_edge =
                     if reference.module_namespace.as_ref() == resolver.namespace.as_ref() {
                         internal_edge_index
-                            .get(reference.declaration_key.as_ref())
+                            .get(reference.declaration_key().as_ref())
                             .copied()
                     } else {
                         None
@@ -2536,7 +2536,7 @@ fn lower_junctions(
                 referenced_internal_edges.insert(internal_edge.lane_edge_key.value.as_ref());
                 if !connection_internal_keys.insert((
                     Arc::clone(&reference.module_namespace),
-                    Arc::clone(&reference.declaration_key),
+                    Arc::clone(reference.declaration_key()),
                 )) {
                     return Err(DiagnosticBundle::single(
                         Diagnostic::invalid_geometry_document(
@@ -2551,11 +2551,11 @@ fn lower_junctions(
                 internal_edges.push(reference);
             }
             declarations.push(TypedAstDeclaration::Movement(MovementDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::Movement,
-                    stable_key: Arc::from(connection.movement_key.value.as_ref()),
-                    span: span_of(connection.movement_key.span).into(),
-                },
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::Movement,
+                    Arc::from(connection.movement_key.value.as_ref()),
+                    span_of(connection.movement_key.span).into(),
+                ),
                 junction: resolver
                     .local_reference(&junction.junction_key, span_of(connection.span)),
                 directed_entry_approach_key: Arc::from(
@@ -2566,11 +2566,11 @@ fn lower_junctions(
                 ),
             }));
             declarations.push(TypedAstDeclaration::ManeuverPath(ManeuverPathDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::ManeuverPath,
-                    stable_key: Arc::from(connection.maneuver_path_key.value.as_ref()),
-                    span: span_of(connection.maneuver_path_key.span).into(),
-                },
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::ManeuverPath,
+                    Arc::from(connection.maneuver_path_key.value.as_ref()),
+                    span_of(connection.maneuver_path_key.span).into(),
+                ),
                 movement: resolver
                     .local_reference(&connection.movement_key, span_of(connection.span)),
                 entry_edge: entry_edge.clone(),
@@ -2618,11 +2618,11 @@ fn lower_overlays(
     let overlays = &parsed.overlays;
     for group in &overlays.signal_groups {
         declarations.push(TypedAstDeclaration::SignalGroup(SignalGroupDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::SignalGroup,
-                stable_key: Arc::from(group.signal_group_key.value.as_ref()),
-                span: span_of(group.signal_group_key.span).into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::SignalGroup,
+                Arc::from(group.signal_group_key.value.as_ref()),
+                span_of(group.signal_group_key.span).into(),
+            ),
         }));
     }
     for controller in &overlays.signal_controllers {
@@ -2662,22 +2662,22 @@ fn lower_overlays(
                 });
             }
             phases.push(SignalPhaseDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::SignalPhase,
-                    stable_key: Arc::from(phase.signal_phase_key.value.as_ref()),
-                    span: span_of(phase.signal_phase_key.span).into(),
-                },
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::SignalPhase,
+                    Arc::from(phase.signal_phase_key.value.as_ref()),
+                    span_of(phase.signal_phase_key.span).into(),
+                ),
                 duration_ms,
                 states: states.into_boxed_slice(),
             });
         }
         declarations.push(TypedAstDeclaration::SignalController(
             SignalControllerDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::SignalController,
-                    stable_key: Arc::from(controller.signal_controller_key.value.as_ref()),
-                    span: span_of(controller.signal_controller_key.span).into(),
-                },
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::SignalController,
+                    Arc::from(controller.signal_controller_key.value.as_ref()),
+                    span_of(controller.signal_controller_key.span).into(),
+                ),
                 offset_ms,
                 signal_groups: signal_groups.into_boxed_slice(),
                 phases: phases.into_boxed_slice(),
@@ -2686,11 +2686,11 @@ fn lower_overlays(
     }
     for area in &overlays.parking_areas {
         declarations.push(TypedAstDeclaration::ParkingArea(ParkingAreaDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::ParkingArea,
-                stable_key: Arc::from(area.parking_area_key.value.as_ref()),
-                span: span_of(area.parking_area_key.span).into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::ParkingArea,
+                Arc::from(area.parking_area_key.value.as_ref()),
+                span_of(area.parking_area_key.span).into(),
+            ),
         }));
     }
     for space in &overlays.parking_spaces {
@@ -2711,11 +2711,11 @@ fn lower_overlays(
         };
         let geometry = &space.geometry;
         declarations.push(TypedAstDeclaration::ParkingSpace(ParkingSpaceDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::ParkingSpace,
-                stable_key: Arc::from(space.parking_space_key.value.as_ref()),
-                span: span_of(space.parking_space_key.span).into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::ParkingSpace,
+                Arc::from(space.parking_space_key.value.as_ref()),
+                span_of(space.parking_space_key.span).into(),
+            ),
             parking_area,
             entry: anchor(&space.entry, "parkingSpaces[].entry")?,
             exit: anchor(&space.exit, "parkingSpaces[].exit")?,
@@ -2757,11 +2757,11 @@ fn lower_overlays(
             .transpose()?;
         declarations.push(TypedAstDeclaration::ParticipantClass(
             ParticipantClassDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::ParticipantClass,
-                    stable_key: Arc::from(class.participant_class_key.value.as_ref()),
-                    span: span_of(class.participant_class_key.span).into(),
-                },
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::ParticipantClass,
+                    Arc::from(class.participant_class_key.value.as_ref()),
+                    span_of(class.participant_class_key.span).into(),
+                ),
                 extends,
             },
         ));
@@ -2796,11 +2796,11 @@ fn lower_overlays(
         )?;
         declarations.push(TypedAstDeclaration::VehicleProfile(
             VehicleProfileDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::VehicleProfile,
-                    stable_key: Arc::from(profile.vehicle_profile_key.value.as_ref()),
-                    span: span_of(profile.vehicle_profile_key.span).into(),
-                },
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::VehicleProfile,
+                    Arc::from(profile.vehicle_profile_key.value.as_ref()),
+                    span_of(profile.vehicle_profile_key.span).into(),
+                ),
                 participant_class: resolver.resolve::<ParticipantClassKind>(
                     &profile.participant_class,
                     "vehicleProfiles[].participantClass",
@@ -2870,11 +2870,11 @@ fn lower_overlays(
         };
         let priority = parse_i32_field(&rule.priority, "accessRules[].priority", span_of)?;
         declarations.push(TypedAstDeclaration::AccessRule(AccessRuleDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::AccessRule,
-                stable_key: Arc::from(rule.access_rule_key.value.as_ref()),
-                span: span_of(rule.access_rule_key.span).into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::AccessRule,
+                Arc::from(rule.access_rule_key.value.as_ref()),
+                span_of(rule.access_rule_key.span).into(),
+            ),
             target,
             effect: match rule.effect {
                 schema::ParsedAccessEffect::Allow => AccessEffect::Allow,
@@ -2895,21 +2895,21 @@ fn lower_overlays(
             )?);
         }
         declarations.push(TypedAstDeclaration::StaticRoute(StaticRouteDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::StaticRoute,
-                stable_key: Arc::from(route.static_route_key.value.as_ref()),
-                span: span_of(route.static_route_key.span).into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::StaticRoute,
+                Arc::from(route.static_route_key.value.as_ref()),
+                span_of(route.static_route_key.span).into(),
+            ),
             edge_sequence: edge_sequence.into_boxed_slice(),
         }));
     }
     for stop_line in &overlays.stop_lines {
         declarations.push(TypedAstDeclaration::StopLine(StopLineDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::StopLine,
-                stable_key: Arc::from(stop_line.stop_line_key.value.as_ref()),
-                span: span_of(stop_line.stop_line_key.span).into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::StopLine,
+                Arc::from(stop_line.stop_line_key.value.as_ref()),
+                span_of(stop_line.stop_line_key.span).into(),
+            ),
             lane_edge: resolver.resolve::<LaneEdgeKind>(
                 &stop_line.lane_edge,
                 "stopLines[].laneEdge",
@@ -2932,11 +2932,11 @@ fn lower_overlays(
             .transpose()?
             .map_or(OwnedSignalControl::None, OwnedSignalControl::Group);
         declarations.push(TypedAstDeclaration::ManeuverGate(ManeuverGateDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::ManeuverGate,
-                stable_key: Arc::from(gate.maneuver_gate_key.value.as_ref()),
-                span: span_of(gate.maneuver_gate_key.span).into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::ManeuverGate,
+                Arc::from(gate.maneuver_gate_key.value.as_ref()),
+                span_of(gate.maneuver_gate_key.span).into(),
+            ),
             maneuver_path: resolver.resolve::<ManeuverPathKind>(
                 &gate.maneuver_path,
                 "maneuverGates[].maneuverPath",
@@ -2963,11 +2963,11 @@ fn lower_overlays(
             ));
         }
         declarations.push(TypedAstDeclaration::WaitingZone(WaitingZoneDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::WaitingZone,
-                stable_key: Arc::from(zone.waiting_zone_key.value.as_ref()),
-                span: span_of(zone.waiting_zone_key.span).into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::WaitingZone,
+                Arc::from(zone.waiting_zone_key.value.as_ref()),
+                span_of(zone.waiting_zone_key.span).into(),
+            ),
             maneuver_path: resolver.resolve::<ManeuverPathKind>(
                 &zone.maneuver_path,
                 "waitingZones[].maneuverPath",
@@ -3021,7 +3021,7 @@ fn len_u64(value: &str) -> u64 {
 fn reference_spelling_bytes<K: EntityKindMarker>(reference: &OwnedEntityReference<K>) -> u64 {
     len_u64(&reference.module_namespace)
         .saturating_add(1)
-        .saturating_add(len_u64(&reference.declaration_key))
+        .saturating_add(len_u64(reference.declaration_key()))
 }
 
 impl FinishCounters {
@@ -3045,7 +3045,7 @@ impl FinishCounters {
             .saturating_add(reference_spelling_bytes(reference));
         self.controlled_string_bytes = self
             .controlled_string_bytes
-            .saturating_add(len_u64(&reference.declaration_key));
+            .saturating_add(len_u64(reference.declaration_key()));
     }
 
     /// `kindId` 等本地分类字段的字符串维度。
@@ -4795,14 +4795,14 @@ mod tests {
             panic!("checked above");
         };
         assert_eq!(intent.road_key.as_ref(), "road.main");
-        assert_eq!(intent.frame.declaration_key.as_ref(), "frame.main");
+        assert_eq!(intent.frame.declaration_key().as_ref(), "frame.main");
         assert_eq!(intent.frame.module_namespace.as_ref(), "city/main");
 
         let TypedAstDeclaration::GeometryCrossSectionSpan(intent) = &declarations[2] else {
             panic!("checked above");
         };
         assert_eq!(intent.span_key.as_ref(), "span.main");
-        assert_eq!(intent.corridor.declaration_key.as_ref(), "corridor.main");
+        assert_eq!(intent.corridor.declaration_key().as_ref(), "corridor.main");
         let offsets: Vec<(&str, GeometryOffsetIntentKind, f64)> = intent
             .offsets
             .iter()
@@ -4822,7 +4822,7 @@ mod tests {
             panic!("checked above");
         };
         assert_eq!(
-            corridor.reference_section.declaration_key.as_ref(),
+            corridor.reference_section.declaration_key().as_ref(),
             "section.forward"
         );
         let elements: Vec<&str> = corridor
@@ -4830,10 +4830,10 @@ mod tests {
             .iter()
             .map(|element| match element {
                 OwnedCorridorElementReference::RoadSection(reference) => {
-                    reference.declaration_key.as_ref()
+                    reference.declaration_key().as_ref()
                 }
                 OwnedCorridorElementReference::FacilityBand(reference) => {
-                    reference.declaration_key.as_ref()
+                    reference.declaration_key().as_ref()
                 }
             })
             .collect();
@@ -4848,7 +4848,7 @@ mod tests {
         assert_eq!(section.kind_id.as_ref(), "motorLane");
         assert_eq!(section.lanes.len(), 2);
         assert_eq!(
-            section.lanes[0].edge_chain[0].declaration_key.as_ref(),
+            section.lanes[0].edge_chain[0].declaration_key().as_ref(),
             "edge.f1"
         );
         assert_eq!(
@@ -4856,7 +4856,7 @@ mod tests {
                 .lane_group
                 .as_ref()
                 .unwrap()
-                .declaration_key
+                .declaration_key()
                 .as_ref(),
             "group.f"
         );
@@ -4866,7 +4866,7 @@ mod tests {
             panic!("checked above");
         };
         assert_eq!(
-            group.road_section.declaration_key.as_ref(),
+            group.road_section.declaration_key().as_ref(),
             "section.forward"
         );
 
@@ -4878,7 +4878,7 @@ mod tests {
         assert_eq!(edge.length.value(), 10.0);
         assert_eq!(edge.speed_limit.value(), 10.0);
         assert_eq!(edge.successors.len(), 1);
-        assert_eq!(edge.successors[0].declaration_key.as_ref(), "edge.b1");
+        assert_eq!(edge.successors[0].declaration_key().as_ref(), "edge.b1");
 
         let TypedAstDeclaration::LaneEdge(edge) = &declarations[9] else {
             panic!("checked above");
@@ -4895,7 +4895,10 @@ mod tests {
         let TypedAstDeclaration::Movement(movement) = &declarations[12] else {
             panic!("checked above");
         };
-        assert_eq!(movement.junction.declaration_key.as_ref(), "junction.main");
+        assert_eq!(
+            movement.junction.declaration_key().as_ref(),
+            "junction.main"
+        );
         assert_eq!(movement.junction.module_namespace.as_ref(), "city/main");
         assert_eq!(movement.directed_entry_approach_key.as_ref(), "approach.in");
         assert_eq!(movement.directed_exit_approach_key.as_ref(), "approach.out");
@@ -4903,19 +4906,19 @@ mod tests {
         let TypedAstDeclaration::ManeuverPath(path) = &declarations[13] else {
             panic!("checked above");
         };
-        assert_eq!(path.movement.declaration_key.as_ref(), "movement.main");
-        assert_eq!(path.entry_edge.declaration_key.as_ref(), "edge.f1");
+        assert_eq!(path.movement.declaration_key().as_ref(), "movement.main");
+        assert_eq!(path.entry_edge.declaration_key().as_ref(), "edge.f1");
         assert!(path.internal_edges.is_empty());
-        assert_eq!(path.exit_edge.declaration_key.as_ref(), "edge.b1");
+        assert_eq!(path.exit_edge.declaration_key().as_ref(), "edge.b1");
 
         let TypedAstDeclaration::GeometryConnection(intent) = &declarations[14] else {
             panic!("checked above");
         };
-        assert_eq!(intent.junction.declaration_key.as_ref(), "junction.main");
-        assert_eq!(intent.maneuver_path.declaration_key.as_ref(), "path.main");
-        assert_eq!(intent.entry_edge.declaration_key.as_ref(), "edge.f1");
+        assert_eq!(intent.junction.declaration_key().as_ref(), "junction.main");
+        assert_eq!(intent.maneuver_path.declaration_key().as_ref(), "path.main");
+        assert_eq!(intent.entry_edge.declaration_key().as_ref(), "edge.f1");
         assert!(intent.internal_edges.is_empty());
-        assert_eq!(intent.exit_edge.declaration_key.as_ref(), "edge.b1");
+        assert_eq!(intent.exit_edge.declaration_key().as_ref(), "edge.b1");
 
         let TypedAstDeclaration::SignalController(controller) = &declarations[16] else {
             panic!("checked above");
@@ -4935,7 +4938,7 @@ mod tests {
                 .parking_area
                 .as_ref()
                 .unwrap()
-                .declaration_key
+                .declaration_key()
                 .as_ref(),
             "parking.area.main"
         );
@@ -4947,7 +4950,7 @@ mod tests {
             panic!("checked above");
         };
         assert_eq!(
-            profile.participant_class.declaration_key.as_ref(),
+            profile.participant_class.declaration_key().as_ref(),
             "class.car"
         );
         assert_eq!(profile.iidm.length_meters, 4.5);
@@ -4958,7 +4961,7 @@ mod tests {
         let OwnedAccessRuleTarget::LaneEdge(target) = &rule.target else {
             panic!("lane edge target checked in the document");
         };
-        assert_eq!(target.declaration_key.as_ref(), "edge.f1");
+        assert_eq!(target.declaration_key().as_ref(), "edge.f1");
         assert_eq!(rule.effect, AccessEffect::Allow);
         let regulation = rule.regulation.as_ref().unwrap();
         assert_eq!(regulation.jurisdiction.as_ref(), "cn");
@@ -4971,7 +4974,7 @@ mod tests {
         let route_edges: Vec<&str> = route
             .edge_sequence
             .iter()
-            .map(|edge| edge.declaration_key.as_ref())
+            .map(|edge| edge.declaration_key().as_ref())
             .collect();
         assert_eq!(route_edges, ["edge.f1", "edge.b1"]);
 
@@ -4983,7 +4986,7 @@ mod tests {
         let OwnedSignalControl::Group(group) = &gate.signal_control else {
             panic!("signal control checked in the document");
         };
-        assert_eq!(group.declaration_key.as_ref(), "signal.group.main");
+        assert_eq!(group.declaration_key().as_ref(), "signal.group.main");
 
         let TypedAstDeclaration::ManeuverGate(gate) = &declarations[25] else {
             panic!("checked above");
@@ -4994,8 +4997,8 @@ mod tests {
             panic!("checked above");
         };
         assert_eq!(zone.max_occupancy, 2);
-        assert_eq!(zone.entry_gate.declaration_key.as_ref(), "gate.entry");
-        assert_eq!(zone.release_gate.declaration_key.as_ref(), "gate.release");
+        assert_eq!(zone.entry_gate.declaration_key().as_ref(), "gate.entry");
+        assert_eq!(zone.release_gate.declaration_key().as_ref(), "gate.release");
 
         // 冻结载荷随模块不可分：每条 lane 一条规范折线，facility 带也有一条。
         let payload = module.admitted.geometry_payload().unwrap();
@@ -5230,7 +5233,7 @@ mod tests {
     fn reference_keys(edges: &[OwnedEntityReference<LaneEdgeKind>]) -> Vec<&str> {
         edges
             .iter()
-            .map(|edge| edge.declaration_key.as_ref())
+            .map(|edge| edge.declaration_key().as_ref())
             .collect()
     }
 
@@ -5286,7 +5289,7 @@ mod tests {
             panic!("checked above");
         };
         assert_eq!(intent.key.as_ref(), "edge.internal");
-        assert_eq!(intent.junction.declaration_key.as_ref(), "junction.main");
+        assert_eq!(intent.junction.declaration_key().as_ref(), "junction.main");
         assert_eq!(intent.junction.module_namespace.as_ref(), "city/main");
 
         // 权威路径序列唯一等于 entry+internal+exit；同一 internal edge 可被该
@@ -5295,15 +5298,15 @@ mod tests {
             let TypedAstDeclaration::ManeuverPath(path) = &declarations[index] else {
                 panic!("checked above");
             };
-            assert_eq!(path.entry_edge.declaration_key.as_ref(), "edge.a");
+            assert_eq!(path.entry_edge.declaration_key().as_ref(), "edge.a");
             assert_eq!(reference_keys(&path.internal_edges), ["edge.internal"]);
-            assert_eq!(path.exit_edge.declaration_key.as_ref(), "edge.b");
+            assert_eq!(path.exit_edge.declaration_key().as_ref(), "edge.b");
         }
         for index in [12, 15] {
             let TypedAstDeclaration::GeometryConnection(intent) = &declarations[index] else {
                 panic!("checked above");
             };
-            assert_eq!(intent.junction.declaration_key.as_ref(), "junction.main");
+            assert_eq!(intent.junction.declaration_key().as_ref(), "junction.main");
             assert_eq!(reference_keys(&intent.internal_edges), ["edge.internal"]);
         }
 
@@ -5779,7 +5782,7 @@ mod tests {
             .map(|successor| {
                 (
                     successor.module_namespace.as_ref(),
-                    successor.declaration_key.as_ref(),
+                    successor.declaration_key().as_ref(),
                 )
             })
             .collect();

@@ -32,12 +32,7 @@ fn digest_location(hasher: &mut Sha256, location: SourceLocationView<'_>) {
     let Some((start, end)) = location.text_range() else {
         unreachable!("legacy Geometry calibration only accepts text source locations");
     };
-    for value in [
-        start.line(),
-        start.column(),
-        end.line(),
-        end.column(),
-    ] {
+    for value in [start.line(), start.column(), end.line(), end.column()] {
         hasher.update(value.to_le_bytes());
     }
 }

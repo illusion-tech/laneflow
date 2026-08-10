@@ -803,18 +803,18 @@ impl SyntheticModuleBuilder {
             ));
         }
         successors.sort_unstable_by(|left, right| {
-            (&left.module_namespace, &left.declaration_key)
-                .cmp(&(&right.module_namespace, &right.declaration_key))
+            (&left.module_namespace, &left.declaration_key())
+                .cmp(&(&right.module_namespace, &right.declaration_key()))
         });
         if let Some(duplicate) = successors.windows(2).find(|pair| {
             pair[0].module_namespace == pair[1].module_namespace
-                && pair[0].declaration_key == pair[1].declaration_key
+                && pair[0].declaration_key() == pair[1].declaration_key()
         }) {
             return Err(DiagnosticBundle::single(
                 Diagnostic::duplicate_lane_edge_successor(
                     input.lane_edge_key,
                     &duplicate[1].module_namespace,
-                    &duplicate[1].declaration_key,
+                    duplicate[1].declaration_key(),
                     span.clone(),
                 ),
             ));
@@ -822,11 +822,11 @@ impl SyntheticModuleBuilder {
 
         let stable_key: Arc<str> = input.lane_edge_key.into();
         let declaration = TypedAstDeclaration::LaneEdge(LaneEdgeDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::LaneEdge,
-                stable_key: Arc::clone(&stable_key),
-                span: span.clone().into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::LaneEdge,
+                Arc::clone(&stable_key),
+                span.clone().into(),
+            ),
             length,
             speed_limit,
             successors: successors.into_boxed_slice(),
@@ -889,11 +889,11 @@ impl SyntheticModuleBuilder {
 
         let stable_key: Arc<str> = input.junction_key.into();
         let declaration = TypedAstDeclaration::Junction(JunctionDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::Junction,
-                stable_key: Arc::clone(&stable_key),
-                span: span.clone().into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::Junction,
+                Arc::clone(&stable_key),
+                span.clone().into(),
+            ),
             approach_edges: Box::default(),
         });
         self.declaration_index
@@ -958,7 +958,7 @@ impl SyntheticModuleBuilder {
                     .saturating_add(exit_bytes),
                 controlled_string_bytes: key_bytes
                     .saturating_add(
-                        u64::try_from(junction.declaration_key.len()).unwrap_or(u64::MAX),
+                        u64::try_from(junction.declaration_key().len()).unwrap_or(u64::MAX),
                     )
                     .saturating_add(entry_bytes)
                     .saturating_add(exit_bytes),
@@ -978,11 +978,11 @@ impl SyntheticModuleBuilder {
 
         let stable_key: Arc<str> = input.movement_key.into();
         let declaration = TypedAstDeclaration::Movement(MovementDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::Movement,
-                stable_key: Arc::clone(&stable_key),
-                span: span.clone().into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::Movement,
+                Arc::clone(&stable_key),
+                span.clone().into(),
+            ),
             junction,
             directed_entry_approach_key: input.directed_entry_approach_key.into(),
             directed_exit_approach_key: input.directed_exit_approach_key.into(),
@@ -1025,10 +1025,14 @@ impl SyntheticModuleBuilder {
         let namespace_bytes =
             u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
         let key_bytes = u64::try_from(input.maneuver_path_key.len()).unwrap_or(u64::MAX);
-        let references_logical_bytes = [&movement.declaration_key, &entry_edge.declaration_key]
+        let references_logical_bytes = [movement.declaration_key(), entry_edge.declaration_key()]
             .into_iter()
-            .chain(internal_edges.iter().map(|edge| &edge.declaration_key))
-            .chain([&exit_edge.declaration_key])
+            .chain(
+                internal_edges
+                    .iter()
+                    .map(OwnedEntityReference::declaration_key),
+            )
+            .chain([exit_edge.declaration_key()])
             .fold(0_u64, |total, key| {
                 total.saturating_add(u64::try_from(key.len()).unwrap_or(u64::MAX))
             });
@@ -1071,11 +1075,11 @@ impl SyntheticModuleBuilder {
 
         let stable_key: Arc<str> = input.maneuver_path_key.into();
         let declaration = TypedAstDeclaration::ManeuverPath(ManeuverPathDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::ManeuverPath,
-                stable_key: Arc::clone(&stable_key),
-                span: span.clone().into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::ManeuverPath,
+                Arc::clone(&stable_key),
+                span.clone().into(),
+            ),
             movement,
             entry_edge,
             internal_edges: internal_edges.into_boxed_slice(),
@@ -1124,7 +1128,7 @@ impl SyntheticModuleBuilder {
                     .saturating_add(key_bytes)
                     .saturating_add(reference_spelling_bytes(&lane_edge)),
                 controlled_string_bytes: key_bytes.saturating_add(
-                    u64::try_from(lane_edge.declaration_key.len()).unwrap_or(u64::MAX),
+                    u64::try_from(lane_edge.declaration_key().len()).unwrap_or(u64::MAX),
                 ),
                 controlled_structural_bytes: size_bytes::<StopLineDeclaration>(1)
                     .saturating_add(size_bytes::<OwnedEntityReference<LaneEdgeKind>>(1)),
@@ -1142,11 +1146,11 @@ impl SyntheticModuleBuilder {
             .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::StopLine(StopLineDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::StopLine,
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::StopLine,
                     stable_key,
-                    span: span.clone().into(),
-                },
+                    span.clone().into(),
+                ),
                 lane_edge,
             }));
         self.commit_declaration_resources(state);
@@ -1196,11 +1200,11 @@ impl SyntheticModuleBuilder {
             .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::SignalGroup(SignalGroupDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::SignalGroup,
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::SignalGroup,
                     stable_key,
-                    span: span.clone().into(),
-                },
+                    span.clone().into(),
+                ),
             }));
         self.commit_declaration_resources(state);
         Ok(self)
@@ -1348,11 +1352,11 @@ impl SyntheticModuleBuilder {
                 });
             }
             phases.push(SignalPhaseDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::SignalPhase,
-                    stable_key: phase.signal_phase_key.into(),
-                    span: span.clone().into(),
-                },
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::SignalPhase,
+                    phase.signal_phase_key.into(),
+                    span.clone().into(),
+                ),
                 duration_ms: phase.duration_ms,
                 states: states.into_boxed_slice(),
             });
@@ -1366,11 +1370,11 @@ impl SyntheticModuleBuilder {
         self.declarations
             .push(TypedAstDeclaration::SignalController(
                 SignalControllerDeclaration {
-                    header: DeclarationHeader {
-                        entity_kind: EntityKind::SignalController,
+                    header: DeclarationHeader::module_scoped(
+                        EntityKind::SignalController,
                         stable_key,
-                        span: span.clone().into(),
-                    },
+                        span.clone().into(),
+                    ),
                     offset_ms: input.offset_ms,
                     signal_groups: signal_groups.into_boxed_slice(),
                     phases: phases.into_boxed_slice(),
@@ -1423,11 +1427,11 @@ impl SyntheticModuleBuilder {
             .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::ParkingArea(ParkingAreaDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::ParkingArea,
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::ParkingArea,
                     stable_key,
-                    span: span.clone().into(),
-                },
+                    span.clone().into(),
+                ),
             }));
         self.commit_declaration_resources(state);
         Ok(self)
@@ -1520,11 +1524,11 @@ impl SyntheticModuleBuilder {
             .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::ParkingSpace(ParkingSpaceDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::ParkingSpace,
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::ParkingSpace,
                     stable_key,
-                    span: span.clone().into(),
-                },
+                    span.clone().into(),
+                ),
                 parking_area,
                 entry,
                 exit,
@@ -1564,7 +1568,7 @@ impl SyntheticModuleBuilder {
         let reference_count = u64::from(extends.is_some());
         let reference_bytes = extends.as_ref().map_or(0, reference_spelling_bytes);
         let controlled_reference_bytes = extends.as_ref().map_or(0, |reference| {
-            u64::try_from(reference.declaration_key.len()).unwrap_or(u64::MAX)
+            u64::try_from(reference.declaration_key().len()).unwrap_or(u64::MAX)
         });
         let state = self.check_declaration_resources(
             DeclarationResourceDelta {
@@ -1601,11 +1605,11 @@ impl SyntheticModuleBuilder {
         self.declarations
             .push(TypedAstDeclaration::ParticipantClass(
                 ParticipantClassDeclaration {
-                    header: DeclarationHeader {
-                        entity_kind: EntityKind::ParticipantClass,
+                    header: DeclarationHeader::module_scoped(
+                        EntityKind::ParticipantClass,
                         stable_key,
-                        span: span.clone().into(),
-                    },
+                        span.clone().into(),
+                    ),
                     extends,
                 },
             ));
@@ -1644,7 +1648,7 @@ impl SyntheticModuleBuilder {
         let key_bytes = u64::try_from(input.vehicle_profile_key.len()).unwrap_or(u64::MAX);
         let reference_bytes = reference_spelling_bytes(&participant_class);
         let controlled_reference_bytes =
-            u64::try_from(participant_class.declaration_key.len()).unwrap_or(u64::MAX);
+            u64::try_from(participant_class.declaration_key().len()).unwrap_or(u64::MAX);
         let state = self.check_declaration_resources(
             DeclarationResourceDelta {
                 declarations: 1,
@@ -1677,11 +1681,11 @@ impl SyntheticModuleBuilder {
             .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations.push(TypedAstDeclaration::VehicleProfile(
             VehicleProfileDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::VehicleProfile,
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::VehicleProfile,
                     stable_key,
-                    span: span.clone().into(),
-                },
+                    span.clone().into(),
+                ),
                 participant_class,
                 iidm: input.iidm,
             },
@@ -1916,11 +1920,11 @@ impl SyntheticModuleBuilder {
             .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations.push(TypedAstDeclaration::CanonicalFrame(
             CanonicalFrameDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::CanonicalFrame,
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::CanonicalFrame,
                     stable_key,
-                    span: span.clone().into(),
-                },
+                    span.clone().into(),
+                ),
                 lane_edge_geometries,
             },
         ));
@@ -2091,11 +2095,11 @@ impl SyntheticModuleBuilder {
             .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::AccessRule(AccessRuleDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::AccessRule,
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::AccessRule,
                     stable_key,
-                    span: span.clone().into(),
-                },
+                    span.clone().into(),
+                ),
                 target,
                 effect: input.effect,
                 participant_classes: participant_classes.into_boxed_slice(),
@@ -2157,13 +2161,13 @@ impl SyntheticModuleBuilder {
                     .saturating_add(signal_group_reference.map_or(0, reference_spelling_bytes)),
                 controlled_string_bytes: key_bytes
                     .saturating_add(
-                        u64::try_from(maneuver_path.declaration_key.len()).unwrap_or(u64::MAX),
+                        u64::try_from(maneuver_path.declaration_key().len()).unwrap_or(u64::MAX),
                     )
                     .saturating_add(
-                        u64::try_from(stop_line.declaration_key.len()).unwrap_or(u64::MAX),
+                        u64::try_from(stop_line.declaration_key().len()).unwrap_or(u64::MAX),
                     )
                     .saturating_add(signal_group_reference.map_or(0, |group| {
-                        u64::try_from(group.declaration_key.len()).unwrap_or(u64::MAX)
+                        u64::try_from(group.declaration_key().len()).unwrap_or(u64::MAX)
                     })),
                 controlled_structural_bytes: size_bytes::<ManeuverGateDeclaration>(1)
                     .saturating_add(size_bytes::<OwnedEntityReference<ManeuverPathKind>>(1))
@@ -2192,11 +2196,11 @@ impl SyntheticModuleBuilder {
             .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::ManeuverGate(ManeuverGateDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::ManeuverGate,
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::ManeuverGate,
                     stable_key,
-                    span: span.clone().into(),
-                },
+                    span.clone().into(),
+                ),
                 maneuver_path,
                 transition_index: input.transition_index,
                 stop_line,
@@ -2236,9 +2240,9 @@ impl SyntheticModuleBuilder {
             u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
         let key_bytes = u64::try_from(input.waiting_zone_key.len()).unwrap_or(u64::MAX);
         let references = [
-            &maneuver_path.declaration_key,
-            &entry_gate.declaration_key,
-            &release_gate.declaration_key,
+            &maneuver_path.declaration_key(),
+            &entry_gate.declaration_key(),
+            &release_gate.declaration_key(),
         ];
         let state = self.check_declaration_resources(
             DeclarationResourceDelta {
@@ -2280,11 +2284,11 @@ impl SyntheticModuleBuilder {
             .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::WaitingZone(WaitingZoneDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::WaitingZone,
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::WaitingZone,
                     stable_key,
-                    span: span.clone().into(),
-                },
+                    span.clone().into(),
+                ),
                 maneuver_path,
                 entry_gate,
                 release_gate,
@@ -2387,11 +2391,11 @@ impl SyntheticModuleBuilder {
             .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::StaticRoute(StaticRouteDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::StaticRoute,
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::StaticRoute,
                     stable_key,
-                    span: span.into(),
-                },
+                    span.into(),
+                ),
                 edge_sequence: edge_sequence.into_boxed_slice(),
             }));
         self.commit_declaration_resources(state);
@@ -2446,11 +2450,11 @@ impl SyntheticModuleBuilder {
 
         let stable_key: Arc<str> = input.facility_band_key.into();
         let declaration = TypedAstDeclaration::FacilityBand(FacilityBandDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::FacilityBand,
-                stable_key: Arc::clone(&stable_key),
-                span: span.clone().into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::FacilityBand,
+                Arc::clone(&stable_key),
+                span.clone().into(),
+            ),
             kind_id: input.kind_id.into(),
         });
         self.declaration_index
@@ -2500,7 +2504,7 @@ impl SyntheticModuleBuilder {
                     .saturating_add(key_bytes)
                     .saturating_add(reference_bytes),
                 controlled_string_bytes: key_bytes.saturating_add(
-                    u64::try_from(road_section.declaration_key.len()).unwrap_or(u64::MAX),
+                    u64::try_from(road_section.declaration_key().len()).unwrap_or(u64::MAX),
                 ),
                 controlled_structural_bytes: size_bytes::<LaneGroupDeclaration>(1)
                     .saturating_add(size_bytes::<OwnedEntityReference<RoadSectionKind>>(1)),
@@ -2513,11 +2517,11 @@ impl SyntheticModuleBuilder {
 
         let stable_key: Arc<str> = input.lane_group_key.into();
         let declaration = TypedAstDeclaration::LaneGroup(LaneGroupDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::LaneGroup,
-                stable_key: Arc::clone(&stable_key),
-                span: span.clone().into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::LaneGroup,
+                Arc::clone(&stable_key),
+                span.clone().into(),
+            ),
             road_section,
         });
         self.declaration_index
@@ -2592,14 +2596,14 @@ impl SyntheticModuleBuilder {
                 let edge = self.own_reference(EntityKind::LaneEdge, *edge, &span)?;
                 let edge_key = (
                     Arc::clone(&edge.module_namespace),
-                    Arc::clone(&edge.declaration_key),
+                    Arc::clone(edge.declaration_key()),
                 );
                 if !seen_edges.insert(edge_key) {
                     return Err(DiagnosticBundle::single(
                         Diagnostic::duplicate_authoring_lane_edge(
                             lane.authoring_lane_key,
                             &edge.module_namespace,
-                            &edge.declaration_key,
+                            edge.declaration_key(),
                             span.clone(),
                         ),
                     ));
@@ -2615,11 +2619,11 @@ impl SyntheticModuleBuilder {
             lane_group_reference_count =
                 lane_group_reference_count.saturating_add(u64::from(lane_group.is_some()));
             lanes.push(AuthoringLaneDeclaration {
-                header: DeclarationHeader {
-                    entity_kind: EntityKind::AuthoringLane,
-                    stable_key: lane.authoring_lane_key.into(),
-                    span: span.clone().into(),
-                },
+                header: DeclarationHeader::module_scoped(
+                    EntityKind::AuthoringLane,
+                    lane.authoring_lane_key.into(),
+                    span.clone().into(),
+                ),
                 edge_chain: edge_chain.into_boxed_slice(),
                 lane_group,
             });
@@ -2645,14 +2649,16 @@ impl SyntheticModuleBuilder {
             for edge in &lane.edge_chain {
                 logical_string_bytes =
                     logical_string_bytes.saturating_add(reference_spelling_bytes(edge));
-                controlled_string_bytes = controlled_string_bytes
-                    .saturating_add(u64::try_from(edge.declaration_key.len()).unwrap_or(u64::MAX));
+                controlled_string_bytes = controlled_string_bytes.saturating_add(
+                    u64::try_from(edge.declaration_key().len()).unwrap_or(u64::MAX),
+                );
             }
             if let Some(group) = &lane.lane_group {
                 logical_string_bytes =
                     logical_string_bytes.saturating_add(reference_spelling_bytes(group));
-                controlled_string_bytes = controlled_string_bytes
-                    .saturating_add(u64::try_from(group.declaration_key.len()).unwrap_or(u64::MAX));
+                controlled_string_bytes = controlled_string_bytes.saturating_add(
+                    u64::try_from(group.declaration_key().len()).unwrap_or(u64::MAX),
+                );
             }
         }
         let structural_bytes = size_bytes::<RoadSectionDeclaration>(1)
@@ -2699,11 +2705,11 @@ impl SyntheticModuleBuilder {
                 );
         }
         let declaration = TypedAstDeclaration::RoadSection(RoadSectionDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::RoadSection,
-                stable_key: Arc::clone(&stable_key),
-                span: span.clone().into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::RoadSection,
+                Arc::clone(&stable_key),
+                span.clone().into(),
+            ),
             kind_id: input.kind_id.into(),
             lanes: lanes.into_boxed_slice(),
         });
@@ -2748,7 +2754,7 @@ impl SyntheticModuleBuilder {
                     (
                         EntityKind::RoadSection,
                         Arc::clone(&owned.module_namespace),
-                        Arc::clone(&owned.declaration_key),
+                        Arc::clone(owned.declaration_key()),
                         OwnedCorridorElementReference::RoadSection(owned),
                     )
                 }
@@ -2757,7 +2763,7 @@ impl SyntheticModuleBuilder {
                     (
                         EntityKind::FacilityBand,
                         Arc::clone(&owned.module_namespace),
-                        Arc::clone(&owned.declaration_key),
+                        Arc::clone(owned.declaration_key()),
                         OwnedCorridorElementReference::FacilityBand(owned),
                     )
                 }
@@ -2788,15 +2794,15 @@ impl SyntheticModuleBuilder {
             .saturating_add(key_bytes)
             .saturating_add(reference_spelling_bytes(&reference_section));
         let mut controlled_string_bytes = key_bytes.saturating_add(
-            u64::try_from(reference_section.declaration_key.len()).unwrap_or(u64::MAX),
+            u64::try_from(reference_section.declaration_key().len()).unwrap_or(u64::MAX),
         );
         for element in &elements {
             let (namespace, key) = match element {
                 OwnedCorridorElementReference::RoadSection(reference) => {
-                    (&reference.module_namespace, &reference.declaration_key)
+                    (&reference.module_namespace, &reference.declaration_key())
                 }
                 OwnedCorridorElementReference::FacilityBand(reference) => {
-                    (&reference.module_namespace, &reference.declaration_key)
+                    (&reference.module_namespace, &reference.declaration_key())
                 }
             };
             logical_string_bytes =
@@ -2831,11 +2837,11 @@ impl SyntheticModuleBuilder {
 
         let stable_key: Arc<str> = input.road_corridor_key.into();
         let declaration = TypedAstDeclaration::RoadCorridor(RoadCorridorDeclaration {
-            header: DeclarationHeader {
-                entity_kind: EntityKind::RoadCorridor,
-                stable_key: Arc::clone(&stable_key),
-                span: span.clone().into(),
-            },
+            header: DeclarationHeader::module_scoped(
+                EntityKind::RoadCorridor,
+                Arc::clone(&stable_key),
+                span.clone().into(),
+            ),
             reference_section,
             elements: elements.into_boxed_slice(),
         });
@@ -3051,7 +3057,7 @@ fn normalize_spatial_zero(value: f32) -> f32 {
 fn reference_spelling_bytes<K: laneflow_static_contract::EntityKindMarker>(
     reference: &OwnedEntityReference<K>,
 ) -> u64 {
-    reference_spelling_parts_bytes(&reference.module_namespace, &reference.declaration_key)
+    reference_spelling_parts_bytes(&reference.module_namespace, reference.declaration_key())
 }
 
 fn reference_spelling_parts_bytes(module_namespace: &str, declaration_key: &str) -> u64 {

@@ -344,7 +344,7 @@ fn lane_edge_accepts_terminal_and_self_loop_topology() {
         panic!("expected LaneEdge declaration")
     };
     assert_eq!(loop_edge.successors.len(), 1);
-    assert_eq!(loop_edge.successors[0].declaration_key.as_ref(), "loop");
+    assert_eq!(loop_edge.successors[0].declaration_key().as_ref(), "loop");
 }
 
 #[test]
@@ -2869,7 +2869,7 @@ fn connection_intent_span(unit: &CompilationUnit, path_key: &str) -> SourceLocat
         .flat_map(|module| module.declarations.iter())
         .find_map(|declaration| match declaration {
             TypedAstDeclaration::GeometryConnection(intent)
-                if intent.maneuver_path.declaration_key.as_ref() == path_key =>
+                if intent.maneuver_path.declaration_key().as_ref() == path_key =>
             {
                 Some(intent.span.clone())
             }
