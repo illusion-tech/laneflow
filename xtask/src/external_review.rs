@@ -2590,6 +2590,36 @@ mod tests {
         assert!(!authorless_result.state.is_pass());
         assert_eq!(authorless_result.unresolved_actionable_threads, 1);
 
+        let mut untrusted_thread = fixture(contents);
+        let thread = &mut untrusted_thread.pull_request.review_threads.nodes[0];
+        thread.is_resolved = false;
+        thread.is_outdated = false;
+        let first_comment = &mut thread.comments.nodes[0];
+        first_comment.author = Some(Actor {
+            login: "external-contributor".to_string(),
+        });
+        let thread_review = first_comment
+            .pull_request_review
+            .as_mut()
+            .expect("fixture thread review");
+        thread_review.author = Some(Actor {
+            login: "external-contributor".to_string(),
+        });
+        let untrusted_result = evaluate_snapshot(&untrusted_thread);
+        assert!(untrusted_result.state.is_pass());
+        assert_eq!(untrusted_result.unresolved_actionable_threads, 0);
+
+        let mut human_commented = fixture(contents);
+        let mut review = human_commented.pull_request.reviews.nodes[0].clone();
+        review.id = "PRR-human-commented-body-only".to_string();
+        review.state = "COMMENTED".to_string();
+        review.body = "Informational review note; no change requested.".to_string();
+        review.author = Some(Actor {
+            login: "wangzishi".to_string(),
+        });
+        human_commented.pull_request.reviews.nodes.push(review);
+        assert!(evaluate_snapshot(&human_commented).state.is_pass());
+
         let mut appended_finding = fixture(contents);
         appended_finding.pull_request.review_threads.nodes[0]
             .comments
