@@ -772,14 +772,14 @@ flatc --csharp -o target/road-editing-codegen/csharp schemas/road-editing/v1/roa
 只有 Rust 的 `road-editing_generated.rs` 提交仓库；C++/C# 输出只用于跨语言 fixture 与
 schema probe，不进入 source tree。命令不得增加 `--gen-object-api`、`--rust-serialize`
 或 reflection 选项。CI 在空输出目录运行同一 Rust argv 后 byte-for-byte 比较生成物，
-并以同一固定 binary 对后继 schema 运行 `--conform`。
+并以同一固定 binary 生成 C++/C# probe；未发布 B1 后继版本不运行跨版本 `--conform`。
 
 本 G1 冻结依赖版本与生成器身份，但不在 G2 前修改 Cargo。G2 实际新增依赖时仍须运行
 `cargo metadata`、固定版本 `cargo-deny`、workspace tests，并按
 `dependency-security.md` 复核许可证、来源、RustSec/Dependabot 和分发影响；`flatc` 与
-runtime 必须保持同一固定版本，生成物再现检查和当前 exact schema self-conform 属于数据
-格式 G3 必需证据；跨版本 `flatc --conform` 只服务后继已经产品批准的兼容承诺。未选的
-B/C 不进入 production 依赖或实现。
+runtime 必须保持同一固定版本，生成物 clean regeneration 属于数据格式 G3 必需证据；
+跨版本 `flatc --conform` 只服务后继已经产品批准的兼容承诺。未选的 B/C 不进入
+production 依赖或实现。
 
 ## 10. 测试、性能与 workload
 
@@ -805,9 +805,9 @@ B/C 不进入 production 依赖或实现。
   `DiagnosticBundle` 后同一 builder 重试的计量/生命周期测试；
 - fuzz / differential：只从安全 size-prefixed root 进入，verifier/accessor 不 panic，旧
   JSON bytes 和任意新版本均失败关闭；CI 证明 production 调用图没有 `_unchecked`；
-- 固定 `flatc` 的 Rust 生成物 clean-diff、当前 exact schema self-conform、生成路径外无
-  `unsafe` / `allow(unsafe_code)`；跨版本 `--conform` 只在后续 promotion/publication 决策
-  已经建立兼容承诺时成为门禁；
+- 固定 `flatc` 的 Rust 生成物 clean-diff、C++/C# probe、生成路径外无 `unsafe` /
+  `allow(unsafe_code)`；跨版本 `--conform` 只在后续 promotion/publication 决策已经建立
+  兼容承诺时成为门禁；
 - `SourceBytesPerModule`、`SourceBytesTotal`、`DeclarationCount`、字符串、几何点、
   verifier table/depth/apparent size 与 `CompilerControlledLiveBytes` 的边界/边界加一。
 

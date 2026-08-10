@@ -300,5 +300,4 @@ FlatBuffers scalar 的 wire 缺省值与显式写入同一默认值不可区分�
 - 未来连续硬保证或 B1 production promotion 都必须重新进行产品/G1 判断；B1 UI/文档
   只能陈述工程目标和观测证据，不能声明 `2/5/10 cm` 连续最大误差保证。
 - G2 必须使用固定 `flatc 25.12.19` 对 Rust、C++、C# 生成物执行 clean regeneration，
-  对当前 exact schema 执行 self-conform，并证明 production 调用图只从受检
-  size-prefixed root 进入且不调用 `_unchecked`。
+  并证明 production 调用图只从受检 size-prefixed root 进入且不调用 `_unchecked`。
