@@ -11,11 +11,11 @@
 重算派生数据后掩盖 LIR 错误。包保持 `publish = false`，并将在 #294 完成生产切换后
 删除。
 
-包内集成测试以独立测试 frontend 读取 G1 冻结制品，覆盖完整当前静态快照、空间采样、
-固定步进行为与事件、重复编译确定性，以及多机动门等待区出现项。测试可以读取当前
-`JSON` 作为迁移预言机；生产库中的 `project()` 不读取该输入，也不会借其补齐 LIR。
+包内集成测试直接构造编译器原生的有类型模块，以两条可区分所有权链覆盖完整代表性
+静态契约、空间采样、多机动门与等待区出现项，以及重复投影的有类型语义确定性。测试
+不读取 current JSON，也不维护 current JSON 到编译器输入的转换器；旧 JSON loader 的
+解析测试留在 `laneflow-data`。
 
-同一集成测试文件还提供默认忽略的 `p100_production_compiler_baseline`。它把完整
-信号化走廊复制为独立命名空间，只计时 `Compiler::compile`，并在停表后输出五级紧凑
-生产基线；普通 workspace test 不运行墙钟测量。精确命令、环境和结果见
-`docs/reference/v0.10-compiler-production-baseline.md`。
+历史 `LF-COMP-P100-PRODUCTION-R0-v1` 基线记录保留在
+`docs/reference/v0.10-compiler-production-baseline.md`，但它不再作为可重放测试入口，
+后续编译器基准应使用编译器原生 workload。

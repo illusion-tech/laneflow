@@ -1,7 +1,8 @@
 # 路网编译器与目标静态镜像
 
-**文档状态**: Accepted（#291 target design）；#315 共同受检模块接入契约已实现<br>
-**最后更新**: 2026-08-06<br>
+**文档状态**: Accepted（#291 target design）；#315 共同受检模块接入契约已实现；
+#297 current JSON 编译器导入设计已取消<br>
+**最后更新**: 2026-08-10<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网编译权威、标识派生、可移植规范制品（Portable Canonical
 Artifact）、目标静态镜像（Target Static Image）、源映射（Source Map）、语义差异
@@ -12,8 +13,8 @@ Runtime）命名、静态执行约束（Static Execution Constraints）、不可
 ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial Registry）；
 #292 已完成编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
 （Synthetic DSL Frontend）G4；#315 已落地私有共同 Typed AST、逻辑模块/来源文档独立登记、
-原子共同接入、文档集摘要与 v2 文档数配置档；#297 已通过 G1（Accepted），
-在各自取得独立 G2 Pass 前，#296/#297 具体前端仍未实现
+原子共同接入、文档集摘要与 v2 文档数配置档；#296 具体前端仍按自身 Gate 推进；
+#297 不再建立 current JSON 编译器前端
 
 **关联决策与设计**:
 
@@ -280,7 +281,7 @@ compiler、Adapter 或 scenario policy 绕过。
 
 ### 5.2 官方前端共同受检模块接入（Shared Checked Module Admission，#315 G2 Implemented）
 
-合成、几何与当前态导入来源都以字段私有的具体官方前端模块进入
+合成、几何及后续正式编制来源都以字段私有的具体官方前端模块进入
 `CompilationUnitBuilder`，但构建器内部只存在一条编译器私有（compiler-private）
 原子接入路径。
 该路径统一拥有命名空间/来源文档唯一性、共同接入适用的全部资源上限、失败不污染和
@@ -296,9 +297,9 @@ compiler、Adapter 或 scenario policy 绕过。
 `compiler-foundation.md` 第 3.3、10.4 节为权威。
 v1 只以 `ModuleCount` 隐式约束一模块一文档形状，当前 Synthetic 符合该形状；任何多文档模块都
 必须在前端按规模分配和共同接入提交前确认宿主显式选择了 v2 或后继携带
-`SourceDocumentCount` 的版本化配置档。固定三文档的
-current 导入必须在读取/哈希/解析前拒绝 v1；Geometry 按 #296 冻结的实际文档基数应用同一规则，
-不得为 v1 猜测默认值或自动升级。
+`SourceDocumentCount` 的版本化配置档。多文档正式前端必须在读取、哈希或解析前拒绝
+不具备 `SourceDocumentCount` 的配置档；Geometry 按 #296 冻结的实际文档基数应用
+同一规则，不得为 v1 猜测默认值或自动升级。
 
 来源专用封装以移动语义进入接入值，不复制完整 AST、字符串或几何。精确来源载荷
 （exact source record）只存续到官方前端 `finish` 完成一次摘要、长度和来源位置派生；
@@ -306,40 +307,21 @@ current 导入必须在读取/哈希/解析前拒绝 v1；Geometry 按 #296 冻�
 调用方输入的前端不得
 为接入复制来源全文。记录级循环禁止特征对象（trait object）、前端枚举
 （enum）分支、重复
-摘要、重复资源计数或第二次规范排序。精确所有权、失败事务、#297 迁移包依赖图和
-配对性能验证以 `compiler-foundation.md` 第 2.3、3.3 与 10.4 节为权威。
-对 current 原始制品，`laneflow-current-source` 在一套私有版本、解析、配对与摘要实现上分离两种官方策略：
-`laneflow-data` 使用的当前态生产兼容策略不得新增制品数、单个引用长度或引用总字节拒绝条件；compiler
-使用的严格导入策略必须在 builder 的同一次 `&mut self` 调用内取得剩余 `CurrentSourceLimits`，并由
-source-owned 可克隆精确长度借用迭代器在按输入规模分配前完成预检；compiler 不镜像 source 硬上限或
-构造中间 view `Vec`。不存在默认、无限、外部预取后回传或先完整解码后计数的严格路径。
-该严格入口为 compiler 跨包调用而可见，不被误写为 friend-crate 隔离；官方 importer 通过包依赖图
-禁止直接依赖 `laneflow-current-source`，只把 compiler 自有的借用输入交给 builder。任意外部程序
-自行声明 source 依赖后进行的调用方自有（caller-owned）解析不属于 compiler 资源保证，其结果也不能提交给 builder。
-ScenarioManifest v0.1 仍封闭为 Traffic/Spatial 两个角色，但调用方查找集合允许未引用的唯一额外制品；
-两种策略都保持既有全集合非空/唯一检查，只匹配、哈希并解析 Manifest 引用的两份载荷。原子成功结果是
-分型的字段私有能力：生产兼容策略只返回不含 compiler-only 位置表的
-`ValidatedCurrentSourceBundle`，并在同一解析流程使用不收集位置的静态接收器；严格导入策略返回
-不可分包含该来源包、逐文档来源记录和受限字段/记录位置表的 `ValidatedCurrentImportBundle`。二者
-不允许调用方互相转换；严格能力使 compiler 的迁移特性无需重读或重新解析原始 JSON 即可构造真实
-`SourceSpan`，生产能力则不为现行加载器新增随记录数增长的无界位置分配。
+摘要、重复资源计数或第二次规范排序。精确所有权、失败事务和共同接入性能验证以
+`compiler-foundation.md` 第 3.3 与 10.4 节为权威。
+
+current JSON 不属于官方编译器前端。`laneflow-current-source` 只服务当前
+`laneflow-data` 加载器，不提供严格导入策略、编译器资源余额或位置表；
+`laneflow-compiler` 不依赖它。编译器和投影测试直接构造有类型模块，避免用旧 wire
+format 决定编译器语义。精确退役边界见
+[`current-package-import.md`](current-package-import.md)。
 
 这不是第三方前端插件协议。#315 只冻结公开面继续使用 LaneFlow 拥有的具体入口以及它们进入共同
 私有接入的规则，不交付或冻结 Geometry 公共签名。`GeometryModule` 与
 `add_geometry_module` 是 #296 保留入口，其精确类型、签名、实际来源文档基数和 v1/v2 准入行为只由
-#296 G1 冻结。#315 G1 已接受的 current 迁移入口只在迁移特性下接受借用
-`CurrentSourceInput`、内部完成剩余预算派生与严格验证；其精确借用参数仍由 #297 G1 冻结。
-`CurrentSourceInput` 字段私有但提供特性门控的公开零复制构造器，使独立
-`laneflow-current-import` 可整理 compiler 自有的原始借用；构造器不解析、哈希、验证或铸造来源记录，
-签名也不得泄漏 current-source 类型。
-compiler 不公开接受预构造的 `ValidatedCurrentImportBundle`。
+#296 G1 冻结。#297 已取消 current JSON 迁移入口，不建立相应特性、输入类型或导入器。
 通用 `add_module`、公共前端
 特征（trait）、裸 Typed AST 和裸描述符/内容配对继续禁止。
-
-#297 的已接受设计见 [`current-package-import.md`](current-package-import.md)：公共
-借用输入、三文档键、来源语言值、`LF-CURRENT-SOURCE-P100-IMPORT-v1` 全部精确上限、
-位置闭合集合、current ID 降阶和资产/等价矩阵均由该文件独占。#297 已通过 G1
-（Accepted），但仍不授权实现，开工须另行取得 `G2 Pass`。
 
 ### 5.3 几何文档前端（Geometry Document Frontend）
 
@@ -603,12 +585,11 @@ validated canonical LIR 必须保存有类型（Typed）的
 
 - Geometry/Synthetic/Editor 来源若展开出逻辑边，必须从显式稳定 authoring key
   产生并持久化边键；几何坐标、曲线离散片段、数组下标和遍历顺序均不得成为边键；
-- 当前 Traffic v0.10 导入前端对**全部** `laneGraph.edges[].id`（不是只对未覆盖边）
-  原样使用其符合 External ID 约束的文本作为 `laneEdgeKey`，并置于导入模块的稳定
-  namespace；因此道路区段覆盖、路口内部角色、`loop`、`isolated` 和被静态路线引用
-  的未覆盖边都进入同一身份规则；
-- current `RoadSectionData.lanes[].edgeIds` 和派生 internal-edge ownership 只建立
-  关系；importer 不得因角色存在与否把同一 current edge 分派到不同 identity kind；
+- current JSON 不进入编译器；Traffic v0.10 的 `laneGraph.edges[].id`、
+  `RoadSectionData.lanes[].edgeIds` 和派生内部边角色只属于当前加载路径，本设计不定义
+  它们到 `laneEdgeKey` 或实体种类的导入映射；
+- 后继若为其他真实来源增加导入器，必须在自身 G1 冻结稳定命名空间、显式边键和角色
+  关系降阶；不得恢复已取消的 current JSON 映射，也不得按角色选择不同实体种类；
 - 缺失边键只能产生待确认建议，未持久化确认前不得发布匿名、按几何或按序号派生的
   边身份。
 
@@ -1554,7 +1535,9 @@ descriptor/receipt。
 - 对保持同一 StableId128 但改变 topology relation、geometry、access/signal policy
   的实体，证明 `StaticIdentityIndex` round-trip 仍成功而语义迁移必须依赖已验证
   diff；缺少相容迁移动作时失败关闭；
-- current JSON path 与 target image path behavior/determinism/pose equivalence；
+- 编译器原生类型化夹具经 canonical LIR 投影到 Core/Spatial 的静态语义、确定性与
+  pose 契约；current JSON 旧加载行为只由 `laneflow-data` / `laneflow-current-source`
+  自身测试覆盖，不作为 target image 的对照权威；
 - worker 数/partition plan 置换下 committed state、event 与确定性状态摘要等价；
 - 分区边界不引入额外一 tick 延迟，连接资源组件保持唯一规范归约权威，并比较
   reference、融合单 worker 与多 worker 路径的状态/事件/错误逐位等价；
@@ -1766,53 +1749,20 @@ laneflow-adapter-* ------> laneflow-spatial
 laneflow-adapter-* ------> laneflow-static-image
 ```
 
-#315 G1 另外已接受下列迁移专用边界；下图只表达 LaneFlow 项目内包依赖，它不进入上述目标
-生产/运行时包依赖图：
+切换期仅保留下列当前态内部依赖：
 
 ```text
-laneflow-compiler --[current-v0_10-import]--> laneflow-current-source
-laneflow-current-import --------------------> laneflow-compiler
-laneflow-data ------------------------------> laneflow-current-source
+laneflow-data ----------------> laneflow-current-source
+laneflow-data ----------------> laneflow-core
+laneflow-data ----------------> laneflow-spatial
+
+laneflow-compiler -X-> laneflow-current-source / laneflow-data
 ```
 
-`laneflow-current-source` 是无 Core/Spatial 依赖的版本锁定当前态来源包验证 SSOT。它在同一私有实现上
-提供当前态生产兼容与严格编译导入两种官方策略。前者供 `laneflow-data` 保持 v0.1 schema 和当前加载器已经
-接受的非空不透明引用、任意数量唯一具名制品及唯一额外制品，不新增制品数、单个引用长度或引用总字节
-拒绝条件；后者只由 compiler 的 `add_current_source` 在持有 builder 可变借用期间调用，并在任何集合
-索引、复制或按输入规模分配前按 builder 剩余 `CurrentSourceLimits` 检查这些维度。ScenarioManifest 的
-角色仍恰好只有 Traffic/Spatial；两种策略都保持全集合非空/唯一语义，只定位目标两项且不哈希、解析或
-复制额外制品载荷。具体唯一性容器由 #297 G1 按严格上限和配对基准选择，不在 #315 预选。
-严格编译导入随后先检查 ScenarioManifest 实际长度，有界解析并对其原始字节计算一次 SHA-256，再验证
-制品引用和角色专属媒体类型；在计算摘要或解析 Traffic/Spatial 前，检查它们的声明/实际/组合字节
-上限。只有通过这些上限的原始字节才各计算一次 SHA-256，与同一场景清单精确配对后再由按规模分配前
-累计资源的解码器构造 DTO 和受限的字段/记录来源位置表。当前态生产兼容策略复用相同的版本、摘要、角色、
-媒体类型和配对语义，但不采用新增的严格资源拒绝条件，并使用不收集位置的静态接收器，不构造或保留
-`CurrentSourceLocationTable`。生产策略返回字段私有的 `ValidatedCurrentSourceBundle`；严格策略返回
-不可分拥有该来源包、逐文档来源记录和位置表的 `ValidatedCurrentImportBundle`。两类能力不能由调用方
-互相转换。compiler 只在默认关闭的 `current-v0_10-import` 迁移特性下依赖严格导入能力；其
-`add_current_source(CurrentSourceInput<'_>)` 在同一独占 builder 调用内派生剩余上限、取得并消费该能力，
-在包内把身份和所需真实来源位置一对一移入编译器拥有的文档描述符 / `SourceSpan`，不重新哈希、重读或
-重新解析原始字节；
-导入模块完成后释放位置表。该组合仍是一个
-逻辑导入模块，不虚构三个模块或导入边。任一步失败都不返回部分结果。凡以 ScenarioManifest 组合
-Traffic/Spatial，`laneflow-data`
-与 compiler 的迁移特性都只能消费各自策略返回的受检结果，不得重复或绕过绑定；无需空间
-制品的 Traffic-only current Core 入口保持独立。`laneflow-data` 继续拥有当前
-Core/Spatial 规范化；`laneflow-current-import` 以 compiler 为唯一 LaneFlow 直接依赖，只选择迁移
-特性、经公开零复制构造器整理借用的 `CurrentSourceInput` 并调用 compiler 的原子入口；它可以按
-#297 白名单直接使用 `serde`、`serde_json`、`sha2` 与 `thiserror` 完成宿主工具职责，但不预取上限、
-不自行铸造或回传受检能力，也不接触 compiler 私有 builder。该构造器不解析、哈希、验证或要求
-调用方构造字段私有来源记录。
-默认 `laneflow-compiler` 不能依赖迁移包；其迁移特性只依赖无 Core/Spatial 对象图的
-`laneflow-current-source`，导入器也不能消费
-`InitialTrafficData` 或 `SpatialRegistry`；其正常依赖中也不得出现 `laneflow-current-source`，
-`CurrentSourceInput` 的公共构造签名不得要求该依赖。完整职责和退役边界见
-`compiler-foundation.md` 第 2.3 节。
-
-两类受检包都没有公开字段、裸构造器、`Default` 或反序列化入口，只能由对应组合验证成功路径
-铸造；compiler 可以从严格导入包只读访问或按值移出其既有绑定内容，但任何调用方都不能从生产
-来源包或拆出的 DTO、摘要、来源记录、位置重新组装/升级为导入包。该能力边界是可由 Rust 跨包
-强制的公开类型约束，不依赖 friend-crate 可见性。
+`laneflow-current-source` 为 `laneflow-data` 集中当前 wire DTO、版本、摘要和
+ScenarioManifest 配对；它不提供编译器严格导入能力。current JSON 未曾对外发布，仓库
+夹具由新编制来源一次性重写或随旧加载器删除，因此不建立迁移 crate、编译器特性或
+长期离线导入入口。完整边界见 `current-package-import.md`。
 
 职责与禁止依赖：
 
@@ -1829,8 +1779,8 @@ Core/Spatial 规范化；`laneflow-current-import` 以 compiler 为唯一 LaneFl
 `laneflow-runtime` 是 current `laneflow-core` 的 target 名称；
 `laneflow-static-image` 取代含混的 `laneflow-runtime-image` 名称。共享 static
 contract 不能继续留在 Runtime，否则 compiler/validator 会反向依赖动态运行时。
-`laneflow-data` 是 current JSON compatibility façade，cutover 后不再拥有静态
-normalization authority。
+`laneflow-data` 是 current JSON 临时内部加载实现，主代码路径切换后不再拥有静态
+normalization authority，也不保留离线兼容入口。
 
 ## 14. 迁移路线
 
@@ -1841,7 +1791,7 @@ normalization authority。
 阶段 3  #292 验收：integration-only LIR→current projection 支撑 #282–#285 等价验证
 阶段 4a #315：官方前端共同受检模块接入实现；治理收口边界以动态记录为准
 阶段 4b #296 几何文档前端 + 拓扑/几何 MIR
-        #297 当前 Traffic/Spatial 迁移导入前端（两者分别按自身 Gate 推进）
+        #297 收口 current JSON 测试边界并停止迁移前端
 阶段 5  #298 可移植规范制品/源映射/语义差异 + #299 独立验证器
 阶段 6  #300 目标静态镜像 + #301 交通运行时/空间层共享镜像路径
         + #302 不可变路网修订/运行时快照/在线切换
@@ -1851,18 +1801,17 @@ normalization authority。
 
 阶段是架构迁移顺序，不是把终态降级为最小方案。#292 已在阶段 2 与阶段 3 均完成后
 达到 G4，因此“#292 G4”与“projection 就绪后恢复 #282–#285”是同一前置条件，不是
-两个互相竞争的恢复点。阶段 4a 只建立共享模块基础；#296/#297 分别完成自身 G1 后，
-仍须在 G2 判断中以当时 exact `main` 复核共同实现和继承的治理证明边界。每个阶段都
+两个互相竞争的恢复点。阶段 4a 只建立共享模块基础；#296 仍按自身 Gate 推进，#297
+调整后只收口 current JSON 与投影测试边界。每个阶段都
 必须沿同一个
 AST/HIR/MIR/LIR 与 artifact/image contract 前进，不允许先建一个注定废弃的 Core
 builder API。阶段 3 的 bridge 固定为 `laneflow-compiler-test-support` 或等价
 integration-only crate：它可以依赖 compiler + current Core/Spatial，将 validated
 LIR 投影为 current inputs；compiler 不依赖它，它不构成 public backend contract，
-并由阶段 8 的 cutover owner #294 删除。该投影器（Projection）只消费 LIR 已验证的
+并由阶段 8 的切换责任议题 #294 删除。该投影器（Projection）只消费 LIR 已验证的
 StableId、有类型所有者关系（Typed Owner Relation）与其他规范语义，不从当前 JSON
-或核心对象图（Core Object Graph）反向派生标识（Identity）；未来当前 JSON 的迁移 /
-导入前端（Migration / Import Frontend）也必须先产生并验证同一唯一所有者关系，
-才能进入 LIR。
+或核心对象图（Core Object Graph）反向派生标识（Identity），测试输入直接由编译器
+原生有类型模块构造。
 
 阶段 8 的 #294 一次性不兼容改名不仅覆盖 crate/type，也覆盖文档导航、Agent Skill
 ID、工具薄包装和治理枚举：`laneflow-core-design` 目标改为
@@ -1926,8 +1875,8 @@ Cutover 前必须证明：
   target；
 - #292 已完成 compiler foundation + Synthetic DSL frontend、集成专用
   LIR→current projection 及其 G2/G3/G4；#282–#285 关于 #292 的稳定开工前置已经满足；
-  #296/#297 可以并行完成自身 G1，但进入 G2 仍必须满足各自 Gate，并以当时 exact
-  `main` 复核共同准入实现和上游治理证明边界；
+  #296 按自身 Gate 推进；#297 不建立 current JSON 编译器前端，并按调整后范围重新
+  完成 Gate；
   当前 Project 状态和原生依赖关系不在长期设计中镜像；
 - 阶段 8 生产切换、core→runtime 原子改名与旧路径移除由 #294 的 G4 独占，不再
   误绑到 #291 的设计交付 G4；

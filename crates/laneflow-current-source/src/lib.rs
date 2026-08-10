@@ -15,7 +15,7 @@ pub use error::{
 };
 pub use validate::{
     CurrentArtifactInput, CurrentDocumentInput, ValidatedCurrentSourceBundle,
-    ValidatedCurrentTrafficPackage, validate_scenario_compatible, validate_traffic_compatible,
+    ValidatedCurrentTrafficPackage, validate_scenario, validate_traffic,
 };
 #[doc(hidden)]
 pub use validate::{CurrentSourceParts, CurrentTrafficParts};

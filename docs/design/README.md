@@ -69,14 +69,11 @@
   工作负载不能按原自然身份无损映射为合法生产语义；后继 append-only G1 修订已把
   #308 降为容量估算输入，并用真实合法产品场景形成 P100 首轮生产编译基线。不得把
   #308 研究替身记录冒充产品通过（Product Pass）。#315 已实现官方前端模块的共同
-  受检接入与来源记录生命周期，并冻结 #297 迁移包依赖图与配对性能目标边界；#297
-  的具体 current 前端仍未实现，不构成当前生产事实。
-- `current-package-import.md`：#297 G1 已接受（Accepted）；冻结 current Traffic v0.10、
-  SpatialPackage v0.1 与 ScenarioManifest v0.1 的 production-compatible / strict
-  双策略 SSOT、携带实际导入来源沿袭的零复制 compiler 输入、三文档身份与来源位置、严格
-  资源配置档、current external ID 降阶、迁移包 DAG、资产失败清单、父提交独立验证的清理
-  责任事实记录和 current→LIR→projection 等价矩阵；尚未授权生产 Rust 实现，G2 开工
-  须基于当时 exact `main` 复核后另行取得 `G2 Pass`。
+  受检接入与来源记录生命周期；#297 不再建立 current JSON 编译器前端。
+- `current-package-import.md`：#297 调整后的 Accepted 设计；确认 current Traffic v0.10、
+  SpatialPackage v0.1 与 ScenarioManifest v0.1 仅为未发布的内部加载格式，取消 compiler
+  导入特性、迁移包、严格资源/位置能力和资产报告，改用编译器原生有类型夹具验证
+  Canonical LIR→当前 Core/Spatial 投影，并由 #294 删除旧加载路径。
 
 ## 文档状态
 

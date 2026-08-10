@@ -165,7 +165,7 @@ fn canonical_parking_signals_fixture_drives_deterministic_area_lifecycle_and_rep
 }
 
 #[test]
-fn production_loader_preserves_repeated_edge_occurrence_for_parking_approach() {
+fn current_loader_preserves_repeated_edge_occurrence_for_parking_approach() {
     let mut package: Value = serde_json::from_str(EMPTY_FIXTURE).expect("empty fixture JSON");
     package["parking"]["spaces"] = json!([{
         "id": "loop-space",
@@ -233,7 +233,7 @@ fn production_loader_preserves_repeated_edge_occurrence_for_parking_approach() {
 }
 
 #[test]
-fn production_loader_rejects_invalid_parking_area_reference_without_partial_world() {
+fn current_loader_rejects_invalid_parking_area_reference_without_partial_world() {
     let mut package: Value =
         serde_json::from_str(PARKING_SIGNALS_FIXTURE).expect("canonical fixture JSON");
     package["parking"]["spaces"][0]["areaId"] = json!("missing-area");

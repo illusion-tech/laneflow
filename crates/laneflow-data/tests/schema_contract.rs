@@ -579,7 +579,7 @@ fn schema_enforces_v0_10_participant_class_and_access_ranges() {
     instance["accessRules"] = serde_json::json!([empty_class_ids]);
     assert!(draft202012::validate(&schema, &instance).is_err());
 
-    // 结构数组空数组拒绝（与 production normalization / capability guard 口径一致）。
+    // 结构数组空数组拒绝（与 current normalization / capability guard 口径一致）。
     let mut empty_time_windows = valid_rule.clone();
     empty_time_windows["timeWindows"] = serde_json::json!([]);
     let mut instance: Value = serde_json::from_str(SIGNALS_FIXTURE).expect("fixture JSON");

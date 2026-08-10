@@ -15,7 +15,7 @@ fn baseline_world() -> CoreWorld {
 }
 
 #[test]
-fn production_loader_drives_controlled_and_uncontrolled_gate_snapshots() {
+fn current_loader_drives_controlled_and_uncontrolled_gate_snapshots() {
     let world = baseline_world();
     let controlled = world
         .signals()
