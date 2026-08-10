@@ -259,7 +259,9 @@ pub(super) fn validate_gate_evidence_target_pr(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or("PR G3 permalink 未指向当前 PR comment")?;
-    if phase == GateEvidencePhase::G3 {
+    if phase == GateEvidencePhase::G3
+        && comment.created_at.as_str() >= G3_EVIDENCE_SHADOW_ACTIVATION
+    {
         validate_g3_evidence_shadow_comment_field(&comment.body)?;
     }
     validate_gate_waiver_record_set(comment, &declared_issues)

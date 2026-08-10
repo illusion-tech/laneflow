@@ -1012,7 +1012,7 @@ fn accepts_current_g3_fields_at_external_review_activation() {
 fn rejects_current_g3_without_shadow_evidence_field() {
     let args = related_only_g3_args();
     let mut related_pr = related_pr_for_args(false, &args);
-    related_pr.comments[0].created_at = EXTERNAL_REVIEW_G3_ACTIVATION.to_string();
+    related_pr.comments[0].created_at = G3_EVIDENCE_SHADOW_ACTIVATION.to_string();
     related_pr.comments[0].body = gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args);
 
     assert!(
@@ -1035,6 +1035,25 @@ fn rejects_current_g3_without_shadow_evidence_field() {
     .expect_err("target/shadow G3 must record the shadow evidence boundary");
 
     assert!(error.contains("G3 Evidence Gate Shadow"));
+}
+
+#[test]
+fn accepts_g3_without_shadow_evidence_before_shadow_activation() {
+    let args = related_only_g3_args();
+    let mut related_pr = related_pr_for_args(false, &args);
+    related_pr.comments[0].created_at = "2026-08-06T10:49:20Z".to_string();
+    related_pr.comments[0].body = gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args);
+
+    assert!(
+        validate_gate_evidence_target_pr(
+            "illusion-tech/laneflow",
+            GateEvidencePhase::G3,
+            &related_pr,
+            GateEvidencePrRole::Related,
+            &[60],
+        )
+        .is_ok()
+    );
 }
 
 #[test]
