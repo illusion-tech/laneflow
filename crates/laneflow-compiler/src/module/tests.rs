@@ -493,7 +493,9 @@ fn duplicate_lane_edge_and_successor_fail_without_mutating_prior_state() {
         DiagnosticCode::DuplicateDeclaration
     );
     assert_eq!(
-        duplicate_declaration.diagnostics()[0].related_spans().len(),
+        duplicate_declaration.diagnostics()[0]
+            .related_locations()
+            .len(),
         1
     );
 
@@ -680,7 +682,7 @@ fn duplicate_and_self_imports_fail_with_source_context() {
         DiagnosticCode::DuplicateImport
     );
     assert!(duplicate.diagnostics()[0].primary_span().is_some());
-    assert_eq!(duplicate.diagnostics()[0].related_spans().len(), 1);
+    assert_eq!(duplicate.diagnostics()[0].related_locations().len(), 1);
 
     let self_import = expect_diagnostics(builder.add_import("city/a"));
     assert_eq!(
@@ -751,7 +753,7 @@ fn compilation_unit_rejects_unknown_imports_and_duplicate_namespaces() {
         duplicate.diagnostics()[0].code(),
         DiagnosticCode::DuplicateModuleNamespace
     );
-    assert_eq!(duplicate.diagnostics()[0].related_spans().len(), 1);
+    assert_eq!(duplicate.diagnostics()[0].related_locations().len(), 1);
 }
 
 #[test]
@@ -771,7 +773,7 @@ fn compilation_unit_rejects_duplicate_source_document_keys_atomically() {
             source_document_key
         } if source_document_key.as_ref() == "shared.document"
     ));
-    assert_eq!(duplicate.diagnostics()[0].related_spans().len(), 1);
+    assert_eq!(duplicate.diagnostics()[0].related_locations().len(), 1);
 
     // 重复文档失败发生在任何累计计数变更之前；修正文档键后，同一 namespace 可直接
     // 重试。这里同时防止未来把文档唯一性检查移到非原子的 build 阶段。
@@ -1988,7 +1990,7 @@ fn compilation_unit_rejects_duplicate_geometry_namespaces_atomically() {
         duplicate.diagnostics()[0].code(),
         DiagnosticCode::DuplicateModuleNamespace
     );
-    assert_eq!(duplicate.diagnostics()[0].related_spans().len(), 1);
+    assert_eq!(duplicate.diagnostics()[0].related_locations().len(), 1);
 
     // 混合前端同样按 namespace 查重；失败不消耗构建器状态，修正后可直接重试。
     let duplicate = expect_diagnostics(builder.add_synthetic_module(module_with_document(
@@ -2217,9 +2219,9 @@ fn geometry_mixed_accuracy_profile_fails_hir_with_single_diagnostic() {
         diagnostic.primary_span().unwrap().source_document_key(),
         "doc.geo.b"
     );
-    assert_eq!(diagnostic.related_spans().len(), 1);
+    assert_eq!(diagnostic.related_locations().len(), 1);
     assert_eq!(
-        diagnostic.related_spans()[0].source_document_key(),
+        diagnostic.related_locations()[0].source_document_key(),
         "doc.geo.a"
     );
     assert_eq!(
@@ -2328,7 +2330,7 @@ fn geometry_mixed_accuracy_and_direction_profiles_report_both_diagnostics() {
     assert!(diagnostics.diagnostics().iter().all(|diagnostic| {
         diagnostic.stable_key() == Some("city/geo.b")
             && diagnostic.primary_span().unwrap().source_document_key() == "doc.geo.b"
-            && diagnostic.related_spans()[0].source_document_key() == "doc.geo.a"
+            && diagnostic.related_locations()[0].source_document_key() == "doc.geo.a"
     }));
 }
 
@@ -2378,7 +2380,7 @@ fn geometry_mixed_profile_reports_only_conflicting_module_against_canonical() {
         "doc.geo.c"
     );
     assert_eq!(
-        diagnostic.related_spans()[0].source_document_key(),
+        diagnostic.related_locations()[0].source_document_key(),
         "doc.geo.a"
     );
 }
@@ -3149,7 +3151,10 @@ fn geometry_plain_successor_and_path_derived_conflict_fails() {
         DiagnosticCode::LaneEdgeSuccessorPathConflict
     );
     assert_eq!(diagnostic.primary_span(), Some(&connection_span));
-    assert_eq!(diagnostic.related_spans(), [explicit_span].as_slice());
+    assert_eq!(
+        diagnostic.related_locations(),
+        [crate::SourceLocation::Text(explicit_span)].as_slice()
+    );
     assert_eq!(diagnostic.stable_key(), Some("edge.a"));
     let DiagnosticPayload::LaneEdgeSuccessorPathConflict {
         edge_key,
@@ -3217,7 +3222,10 @@ fn geometry_same_transition_from_different_junctions_fails() {
         DiagnosticCode::DerivedTransitionJunctionConflict
     );
     assert_eq!(diagnostic.primary_span(), Some(&duplicate_span));
-    assert_eq!(diagnostic.related_spans(), [first_span].as_slice());
+    assert_eq!(
+        diagnostic.related_locations(),
+        [crate::SourceLocation::Text(first_span)].as_slice()
+    );
     assert_eq!(diagnostic.stable_key(), Some("edge.a"));
     let DiagnosticPayload::DerivedTransitionJunctionConflict {
         predecessor_key,
