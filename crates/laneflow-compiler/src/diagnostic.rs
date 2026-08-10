@@ -96,6 +96,8 @@ impl SourceSpan {
 pub enum DiagnosticCode {
     /// 第一方道路编辑编制模型的字段值或闭合构造非法。
     InvalidRoadEditingInput,
+    /// size-prefixed 道路编辑来源的 framing、wire、版本或外部身份绑定非法。
+    InvalidRoadEditingSource,
     /// 来源模块头字段违反文本或资源约束。
     InvalidSourceHeaderField,
     /// 导入命名空间不是合法外部 token。
@@ -280,6 +282,7 @@ impl DiagnosticCode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::InvalidRoadEditingInput => "LF-COMP-ROAD-EDITING-INPUT",
+            Self::InvalidRoadEditingSource => "LF-COMP-ROAD-EDITING-SOURCE",
             Self::InvalidSourceHeaderField => "LF-COMP-SOURCE-HEADER-FIELD",
             Self::InvalidImportNamespace => "LF-COMP-IMPORT-NAMESPACE",
             Self::DuplicateImport => "LF-COMP-DUPLICATE-IMPORT",
@@ -410,6 +413,30 @@ pub enum RoadEditingInputViolation {
     /// 多个字段的组合违反闭合 variant 规则。
     InvalidCombination,
 }
+/// size-prefixed 道路编辑来源在受检 reader 边界的闭合失败类别。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum RoadEditingSourceViolation {
+    /// buffer 小于读取 size prefix、root offset 与 `LFRE` 所需的最小长度。
+    TruncatedFraming,
+    /// 四字节 size prefix 与实际尾部长度不完全相等。
+    SizePrefixMismatch { declared: u64, actual: u64 },
+    /// size-prefixed FlatBuffer 不带精确 `LFRE` file identifier。
+    FileIdentifierMismatch,
+    /// verifier 发现一般结构损坏、UTF-8、required field 或 union 不一致。
+    MalformedWire,
+    /// verifier 命中固定 schema 深度上限，或上限公式无法表示。
+    VerifierDepthExceeded,
+    /// verifier 命中固定 16 倍 apparent-size 上限，或上限公式无法表示。
+    VerifierApparentSizeExceeded,
+    /// wire table 数超过调用点剩余 Typed AST record 预算。
+    VerifierTableBudgetExceeded,
+    /// reader 只接受 exact v1 语义。
+    UnsupportedFormatVersion { expected: u32, actual: u32 },
+    /// verified wire 内的 source-document key 与 wire 外 expected key 不同。
+    SourceDocumentKeyMismatch,
+}
+
 /// 诊断严重程度。数值顺序同时是规范排序顺序。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
@@ -672,6 +699,12 @@ pub enum DiagnosticPayload {
     InvalidRoadEditingInput {
         field: Box<str>,
         violation: RoadEditingInputViolation,
+    },
+    /// 道路编辑来源 reader 的 framing、wire、版本或外部身份绑定失败。
+    InvalidRoadEditingSource {
+        violation: RoadEditingSourceViolation,
+        expected_source_document_key: Box<str>,
+        actual_source_document_key: Option<Box<str>>,
     },
     /// 模块头字段及其文本失败原因。
     InvalidSourceHeaderField {
@@ -1200,6 +1233,30 @@ impl Diagnostic {
             related_spans: Box::default(),
         }
     }
+    #[allow(
+        dead_code,
+        reason = "called by the staged road-editing reader before public admission lands"
+    )]
+    pub(crate) fn invalid_road_editing_source(
+        violation: RoadEditingSourceViolation,
+        expected_source_document_key: &str,
+        actual_source_document_key: Option<&str>,
+    ) -> Self {
+        Self {
+            canonical_module_order: 0,
+            primary_span: None,
+            code: DiagnosticCode::InvalidRoadEditingSource,
+            severity: DiagnosticSeverity::Error,
+            payload: DiagnosticPayload::InvalidRoadEditingSource {
+                violation,
+                expected_source_document_key: expected_source_document_key.into(),
+                actual_source_document_key: actual_source_document_key.map(Into::into),
+            },
+            stable_key: Some(expected_source_document_key.into()),
+            related_spans: Box::default(),
+        }
+    }
+
     pub(crate) fn invalid_source_header_field(
         field: SourceHeaderField,
         violation: SourceTextViolation,
@@ -2929,6 +2986,20 @@ impl fmt::Display for Diagnostic {
         match &self.payload {
             DiagnosticPayload::InvalidRoadEditingInput { field, violation } => {
                 write!(formatter, "道路编辑编制字段 {field} 非法：{violation:?}")
+            }
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation,
+                expected_source_document_key,
+                actual_source_document_key,
+            } => {
+                write!(
+                    formatter,
+                    "道路编辑来源 {expected_source_document_key} 非法：{violation:?}"
+                )?;
+                if let Some(actual) = actual_source_document_key {
+                    write!(formatter, "，wire 文档键 {actual}")?;
+                }
+                Ok(())
             }
             DiagnosticPayload::InvalidSourceHeaderField { field, violation } => {
                 write!(
