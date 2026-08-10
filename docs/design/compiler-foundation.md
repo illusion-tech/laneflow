@@ -361,8 +361,9 @@ impl CompileLimits {
 ```rust
 pub struct SyntheticModule { /* 字段私有的官方具体模块 */ }
 // #296 的 production 编译输入只公开受检 expected document key + 借用 bytes；
+// 公开编制 model/writer 是独立 authoring API。
+pub struct RoadEditingModuleInput<'a> { /* expected key + 完整 size-prefixed bytes + 可选显示来源 */ }
 // generated wire view 与 verifier 后的 Typed AST/HIR/MIR 保持 compiler-private。
-pub struct RoadEditingModuleInput<'a> { /* expected key + bytes + 可选显示来源 */ }
 
 struct AdmittedOfficialModule {
     typed_ast: TypedAstModule,
@@ -606,6 +607,15 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 `build` 原位冻结序号，源映射阶段复用该索引而不重新建表。每次解析还必须核对文档所属
 模块；键缺失或跨模块错绑均返回结构化诊断。每条已冻结来源记录只保存解析后的序号和
 区间；HIR/MIR 模块不保留“默认文档”键或序号。该内部序号不构成可持久制品编码承诺。
+
+#296 道路编辑来源还建立字段私有的 `RoadEditingLocationContext`，统一拥有 intern 后的
+来源地址字符串、闭合属性路径、`canvas_selection` key 和必要显示字节。该 context 在
+verifier 前建立，wire 失败只保留受检 trace，语义 preflight 再补齐稳定地址。失败编译由返回的
+`DiagnosticBundle` 接管该 context，成功编译由 `ValidatedSourceMapInput` 接管；两者都
+提供只读解析 accessor，因此候选 Typed AST/module 释放后，诊断或源映射内的有类型
+ordinal 仍有有效 owner。ordinal 不进入 LIR、摘要、持久编码或规范排序；排序必须解析并
+比较实际来源地址、属性 step 与 key bytes。context 的 string、路径 step、索引容量和
+失败返回存续量全部属于 `CompilerControlledLiveBytes`。
 
 后继 #298 只能从同一个已验证编译结果（Validated Compilation Output）中的 LIR 与
 该伴随数据原子发射源映射；不能从已经释放的 AST/HIR/MIR 重新猜测来源，也不能让

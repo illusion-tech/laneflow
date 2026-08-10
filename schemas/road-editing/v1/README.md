@@ -105,12 +105,16 @@ namespace::local-key
 |   22 | `CanonicalFrame`   | `canonical_frame_key`   | 当前 module namespace                       |
 
 所有 table 在其根向量中的物理顺序都不进入语义。一个 buffer 只属于一个 namespace，
-且 owner 可能位于另一模块；因此官方 writer 对 `RoadAlignment` 按模块内
-`road_alignment_key`、对每个稳定声明向量按模块内 local key 的 UTF-8 bytes 排序，
-不尝试在单模块 writer 中构造跨模块 `CanonicalIdentity`。有语义顺序的 owner 向量
-保持产品顺序；无序引用集合先规范引用拼写（当前模块使用 local form，导入模块使用
-qualified form）再按 bytes 排序。production reader 接受任意物理顺序并在 HIR/MIR 中
-闭合完整身份与最终规范顺序。
+且 owner 可能位于另一模块。来源 v1 要求 `RoadAlignment` 根向量内
+`road_alignment_key` 唯一，并要求每个稳定声明根向量内 local key 唯一；因此模块
+namespace、根 table kind 与 local key 共同形成无歧义来源地址。该规则只服务来源定位与
+writer 全序，不改变 Identity v1 的 parent-scoped `CanonicalIdentity`，不同模块或不同
+声明种类仍可复用同一 local-key 拼写；production reader 与第一方 writer 都拒绝根向量
+内重复 key。官方 writer 对 `RoadAlignment` 和每个稳定声明
+向量按 local key 的 UTF-8 bytes 排序，不尝试在单模块 writer 中构造跨模块
+`CanonicalIdentity`。有语义顺序的 owner 向量保持产品顺序；无序引用集合先规范引用
+拼写（当前模块使用 local form，导入模块使用 qualified form）再按 bytes 排序。
+production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份与最终规范顺序。
 
 ## 4. 模块头、固定单位和配置档
 
@@ -181,6 +185,8 @@ qualified form）再按 bytes 排序。production reader 接受任意物理顺�
   横向位置在每个 station 由从左到右宽度前缀的半宽累计唯一导出；v1 不接受独立横向
   offset 或第二份中心线。`Backward` lane 先在 alignment 参考方向求 offset，最终规范
   点序列再反转到行驶方向；successor、停车 progress 和 StopLine 均按该行驶方向解释。
+  线性宽度 taper 的精确 `d(s)`、`s(t)`、left 向量、区间导数界、舍入顺序和失败关闭
+  条件只由 ADR 0022 第 6 节定义，reader/writer 不得另选数值公式。
 
 ## 6. 路口、控制、停车与准入
 
@@ -190,7 +196,10 @@ qualified form）再按 bytes 排序。production reader 接受任意物理顺�
   `CanonicalFrame`；一个 internal edge 被使用的全部 path 也必须从 entry/exit approach
   导出同一个 frame，冲突即失败。internal edge 不另存 frame 字段。
 - `Movement.junction` 是唯一 owner；有向 entry/exit approach key 是 Identity v1 字段，
-  不从几何或边名推断。`ManeuverPath` 的权威边序列固定为
+  不从几何或边名推断。对该 Movement 所属 junction `J`，path 的 entry/exit 必须属于
+  `J.approach_edges`，每个 internal occurrence 必须属于 `J.internal_edges` 且同一路径内
+  不得重复；`J.internal_edges` 必须精确等于其全部 path internal 成员的并集，跨 junction、
+  少声明和孤立成员均失败。`ManeuverPath` 的权威边序列固定为
   `entry_edge + internal_edges + exit_edge`。
 - `ManeuverGate.transition_index` 指向路径边序列的一个有效相邻转换。
   `signal_control = None` 时 `signal_group` 必须缺失；`SignalGroup` 时该字段必须存在。

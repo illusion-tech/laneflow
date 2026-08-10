@@ -62,9 +62,11 @@
   base、编译器控制峰值与冷实例保留容量，以及三个 G1 候选预算的校准写回（全部
   supported）。
 - `road-editing-source-workload-definition-v1.json`：#296 纠偏后
-  `LF-ROAD-EDITING-P100-v1` 的 G1 机器可读定义；冻结五模块/1,715 稳定声明、曲线、
-  width/taper、九档组合、单模块候选替换生命周期和 G2 证据绑定要求。它不是测量结果；
-  writer/fixture digest 与 exact commit 只由后继 G2 evidence 填写。
+  `LF-ROAD-EDITING-P100-v1` 的 G1 机器可读定义；以带摘要的旧研究 fixture 仅作 test-only
+  语义种子，冻结五模块/1,715 稳定声明、35 条 alignment 与 160 条 junction-internal
+  curve、完整映射/optional/string/width 规则、九档组合、单模块候选替换生命周期和精确
+  测量协议。它不是 production JSON 兼容层或测量结果；writer/fixture digest 与 exact
+  commit 只由后继 G2 evidence 填写。
 - `v0.10-compiler-pilot-budget.md`：#308 在 R0 研究机上得到的九个基础规模冷实例临时
   性能预算、来源、计算规则、正确性核对与禁止外推边界；只用于早期基础规模发现与
   正式校准候选输入，不是 #292 G1 冻结的首轮实现预算。

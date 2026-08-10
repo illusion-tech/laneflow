@@ -138,12 +138,84 @@ Reference station 基表固定使用与输出配置档无关的 `0.01 m` / `0.5�
 
 reference line 的通过不能证明 lane/facility offset curve 自动通过。横向偏移会放大
 曲率与切线变化，而且一般 offset evaluator 不再是 cubic Bézier。因此道路编辑来源前端
-`finish` 的 numeric freeze
-必须在相同曲线参数域对每条最终中心线独立二分，以解析 offset 二阶导数的保守范数
-上界和线性插值误差界证明整段位置误差，并以解析 offset 端点切向证明方向门槛；不得用
-有限采样冒充最大误差证明，也不得引用不存在的 offset 内控制点或复用 reference curve
-的接受树。它可以增加自己的采样点，但不能反向改变 reference station。验证与资源报告
-必须覆盖九种组合、最内侧、最外侧和跨 span 宽度变化，不能只测零偏移参考线。
+`finish` 的 numeric freeze 必须按以下规范算法在相同曲线参数域对每条最终中心线独立
+二分；不得用有限采样冒充最大误差证明，也不得引用不存在的 offset 内控制点或复用
+reference curve 的接受树。
+
+令 reference curve 为 `B(t)`，LaneFlow 规范 up 为 `+Y`，水平导数
+`H(t) = (B'_x(t), 0, B'_z(t))`。每个候选区间都必须证明 `||H(t)|| > 0`，并按固定表达式
+
+```text
+L(t) = (+Y × H(t)) / ||H(t)|| = (H_z(t), 0, -H_x(t)) / ||H(t)||
+```
+
+取得左向单位向量。把 `RoadCorridor.elements` 及每个 section 的 lane 从左到右展平为
+member `0..n`，reference lane 下标为 `r`，member 宽度为 `w_i(s)`。对 corridor station
+端点 `s0/s1`，先分别以从 reference 向外的固定求和顺序计算中心偏移端点：
+
+```text
+d_r = 0
+d_i =  0.5*w_r + w_(r-1) + ... + w_(i+1) + 0.5*w_i,  i < r
+d_i = -0.5*w_r - w_(r+1) - ... - w_(i-1) - 0.5*w_i,  i > r
+```
+
+不存在中间 member 时省略中间项；这同时冻结了从 reference 向外的逐项舍入顺序。再用
+`u = (s - s0) / (s1 - s0)` 和
+`d(s) = d0 + (d1 - d0) * u` 求值；不得逐点重新改变求和顺序。reference station 基表每行
+`(t0, t1, cumulativeStart, cumulativeEnd)` 内的 station 固定为
+
+```text
+s(t) = cumulativeStart
+     + (cumulativeEnd - cumulativeStart) * ((t - t0) / (t1 - t0))
+```
+
+因此最终 offset evaluator 唯一为 `O(t) = B(t) + d(s(t)) * L(t)`。source segment、
+corridor station 边界和 reference station 基表行边界都是强制二分边界，不能让一个证明
+区间跨越它们。宽度端点、偏移端点和上述表达式全部使用 IEEE 754 binary64、round to
+nearest ties to even；每个写出的运算符后都完成一次舍入，禁止重结合、FMA/`mul_add` 和
+fast-math，结果 `-0.0` 规范化为 `+0.0`。
+
+在一个基表行内，`s(t)` 与 `d(s(t))` 都是 affine。实现使用固定的二阶 jet
+`J(x) = (x, x', x'')` 对上面的表达式做区间自动微分。line/cubic 的 `B` jet 和
+`H = (B'_x, 0, B'_z)` jet 分别由解析 `B/B'/B''` 与 `B'/B''/B'''` 构造，`d` jet 为
+`(d, d', 0)`。具体构造不展开成可重结合的幂基：令 `J(t) = (t, 1, 0)`，并以
+`lerp(a,b,t) = a + t * (b - a)` 的先减、再乘、再加顺序执行 de Casteljau；`B` 对原
+cubic 控制点做三层 lerp，`H` 对
+`3*(P1-P0), 3*(P2-P1), 3*(P3-P2)` 的水平分量做两层 lerp。line 使用同一 lerp 和常量
+导数。scalar 点/切向求值使用 binary64 scalar jet；连续区间证明把 `t` 换成 `[ta,tb]`
+后使用 interval jet。两者的 primitive 都严格使用以下规则：
+
+```text
+J(a + b) = (a+b, a'+b', a''+b'')
+J(a * b) = (a*b, a'*b + a*b', a''*b + 2*a'*b' + a*b'')
+J(1/a)   = (1/a, -a'/a^2, 2*a'*a'/a^3 - a''/a^2)
+J(sqrt(a)) = (y, a'/(2*y), a''/(2*y) - a'*a'/(4*y^3)), y=sqrt(a)
+J(a / b) = J(a) * J(1/b)
+```
+
+每一行右侧按文字从左到右和括号顺序求值；向量逐 `x/y/z` 分量求值。区间加、减、乘、
+除和平方根的每个 binary64 下/上端点结果分别以 `next_down/next_up` 向外扩一个可表示值。
+乘法取四个端点乘积的最小/最大外包；除法先构造分母倒数区间再执行同一乘法；平方根对
+非负上下端点分别求值。
+除法前必须证明分母区间不含零，平方根前必须证明下界严格为正，否则继续二分。若
+`O.second` 分量区间为 `[lo_k, hi_k]`，令
+`a_k = max(abs(lo_k), abs(hi_k))`，再按 `x/y/z` 顺序对 `a_k*a_k` 向上舍入求和并对平方根
+向上舍入，所得 `M2` 满足 `M2 >= sup ||O''(t)||`。最后以
+
+```text
+position_error_bound = M2 * (tb - ta)^2 / 8
+```
+
+证明该区间的连续 offset curve 到端点弦误差。`O'(ta)` / `O'(tb)` 由上述 scalar jet
+求值得到，必须有限且非零，并继续执行第 4 节的 f64 候选方向门槛与最终 f32 直接检查。
+line 加常量或线性 `d` 在单个 affine station 行内使 `O` 仍为 affine，故二阶界为零；
+曲线 taper 则自然包含 `2*d'*L' + d*L''`，不能复用常量 offset 的界。
+
+二分中点固定为 `ta + (tb - ta) / 2`。若中点不再严格位于两端之间、区间运算出现非有限
+值、水平导数无法证明非零，或在位置/方向证明通过前命中几何点或存续内存上限，numeric
+freeze 必须失败关闭。offset 可以增加自己的采样点，但不能反向改变 reference station。
+验证与资源报告必须覆盖九种组合、最内侧、最外侧和跨 span 宽度变化，不能只测零偏移
+reference line。
 
 不可遍历 FacilityBand 的最终 offset 中心线仍属于 canonical LIR 语义：道路编辑来源
 派生的 FacilityBand 进入显式携带 `FacilityBandOrdinal`、按该 ordinal 排列的稀疏
