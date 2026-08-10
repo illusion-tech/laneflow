@@ -52,8 +52,8 @@ pub use diagnostic::{
     AccessCapability, AccessPlane, AccessRegulationField, Diagnostic, DiagnosticBundle,
     DiagnosticCode, DiagnosticPayload, DiagnosticSeverity, GeometryDocumentViolation,
     ParkingAnchorRole, ParkingGeometryField, ParkingGeometryViolation, RoadEditingInputViolation,
-    SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation, SpatialAxis,
-    SpatialGeometryViolation, WaitingZoneGateRole,
+    RoadEditingSourceViolation, SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation,
+    SpatialAxis, SpatialGeometryViolation, WaitingZoneGateRole,
 };
 pub use identity::CanonicalIdentityViolation;
 pub use laneflow_static_contract::{AccessEffect, SignalAspect};
