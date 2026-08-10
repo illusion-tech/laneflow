@@ -344,7 +344,7 @@ fn lane_edge_accepts_terminal_and_self_loop_topology() {
         panic!("expected LaneEdge declaration")
     };
     assert_eq!(loop_edge.successors.len(), 1);
-    assert_eq!(loop_edge.successors[0].declaration_key.as_ref(), "loop");
+    assert_eq!(loop_edge.successors[0].declaration_key().as_ref(), "loop");
 }
 
 #[test]

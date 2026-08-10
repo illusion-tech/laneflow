@@ -2,7 +2,7 @@
 //!
 //! 公共输入仍保留调用方借用的文本；`SyntheticModuleBuilder` 校验标识、数值、导入与
 //! 资源上限后，才把它们复制为本模块的拥有型 Typed AST 记录。这里的引用只描述
-//! “目标模块命名空间 + 模块内稳定键”，真正的符号解析留给 HIR 阶段完成。
+//! “目标模块命名空间 + 有类型来源地址”，真正的符号解析留给 HIR 阶段完成。
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -589,8 +589,8 @@ pub struct LaneEdgeInput<'a> {
 pub(crate) struct OwnedEntityReference<K: EntityKindMarker> {
     /// 已展开为本模块或显式导入模块的规范命名空间。
     pub(crate) module_namespace: Arc<str>,
-    /// 目标模块内的稳定声明键；此阶段尚未解析为 HIR 键。
-    pub(crate) declaration_key: Arc<str>,
+    /// 目标模块内的完整来源地址；此阶段尚未解析为 HIR 键。
+    pub(crate) target_address: TypedAstEntityAddress,
     /// 引用出现的位置，用于解析失败时定位调用方来源。
     pub(crate) span: SourceLocation,
     marker: PhantomData<fn() -> K>,
@@ -602,28 +602,24 @@ pub(crate) struct OwnedEntityReference<K: EntityKindMarker> {
 /// sibling-local key。地址用于符号查找，`local_key` 仍只是 Identity v1 前像中的一个
 /// 字段，不能单独充当模块内全局键。
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[allow(
-    dead_code,
-    reason = "introduced with SourceLocation and consumed by the following shared-admission slice"
-)]
 pub(crate) struct TypedAstEntityAddress {
-    owner_local_keys: Box<[Arc<str>]>,
+    owner_local_keys: Arc<[Arc<str>]>,
     local_key: Arc<str>,
 }
 
-#[allow(
-    dead_code,
-    reason = "introduced with SourceLocation and consumed by the following shared-admission slice"
-)]
 impl TypedAstEntityAddress {
     pub(crate) fn module_scoped(local_key: Arc<str>) -> Self {
         Self {
-            owner_local_keys: Box::default(),
+            owner_local_keys: Arc::from([]),
             local_key,
         }
     }
 
-    pub(crate) fn owner_scoped(owner_local_keys: Box<[Arc<str>]>, local_key: Arc<str>) -> Self {
+    #[allow(
+        dead_code,
+        reason = "consumed by the following RoadEditingSource shared-admission slice"
+    )]
+    pub(crate) fn owner_scoped(owner_local_keys: Arc<[Arc<str>]>, local_key: Arc<str>) -> Self {
         debug_assert!(!owner_local_keys.is_empty());
         Self {
             owner_local_keys,
@@ -631,6 +627,10 @@ impl TypedAstEntityAddress {
         }
     }
 
+    #[allow(
+        dead_code,
+        reason = "consumed by the following RoadEditingSource shared-admission slice"
+    )]
     pub(crate) fn owner_local_keys(&self) -> &[Arc<str>] {
         &self.owner_local_keys
     }
@@ -648,10 +648,31 @@ impl<K: EntityKindMarker> OwnedEntityReference<K> {
     ) -> Self {
         Self {
             module_namespace,
-            declaration_key,
+            target_address: TypedAstEntityAddress::module_scoped(declaration_key),
             span: span.into(),
             marker: PhantomData,
         }
+    }
+
+    #[allow(
+        dead_code,
+        reason = "consumed by the following RoadEditingSource shared-admission slice"
+    )]
+    pub(crate) fn with_target_address(
+        module_namespace: Arc<str>,
+        target_address: TypedAstEntityAddress,
+        span: impl Into<SourceLocation>,
+    ) -> Self {
+        Self {
+            module_namespace,
+            target_address,
+            span: span.into(),
+            marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn declaration_key(&self) -> &Arc<str> {
+        self.target_address.local_key()
     }
 }
 
@@ -723,10 +744,49 @@ pub enum ScalarViolation {
 pub(crate) struct DeclarationHeader {
     /// 声明实体种类；与外层 `TypedAstDeclaration` 变体保持一致。
     pub(crate) entity_kind: EntityKind,
-    /// 所属来源模块内唯一且显式持久化的稳定键。
+    /// 只用于来源符号查找的完整 owner-qualified 地址。
+    pub(crate) source_address: TypedAstEntityAddress,
+    /// Identity v1 前像中独立的 sibling-local key。
     pub(crate) stable_key: Arc<str>,
     /// 声明出现的位置，不参与实体身份。
     pub(crate) span: SourceLocation,
+}
+
+impl DeclarationHeader {
+    pub(crate) fn module_scoped(
+        entity_kind: EntityKind,
+        stable_key: Arc<str>,
+        span: SourceLocation,
+    ) -> Self {
+        Self {
+            entity_kind,
+            source_address: TypedAstEntityAddress::module_scoped(Arc::clone(&stable_key)),
+            stable_key,
+            span,
+        }
+    }
+
+    #[allow(
+        dead_code,
+        reason = "consumed by the following RoadEditingSource shared-admission slice"
+    )]
+    pub(crate) fn with_source_address(
+        entity_kind: EntityKind,
+        source_address: TypedAstEntityAddress,
+        identity_local_key: Arc<str>,
+        span: SourceLocation,
+    ) -> Self {
+        debug_assert_eq!(
+            source_address.local_key().as_ref(),
+            identity_local_key.as_ref()
+        );
+        Self {
+            entity_kind,
+            source_address,
+            stable_key: identity_local_key,
+            span,
+        }
+    }
 }
 
 /// 已通过字段级与模块内约束检查的车道图边 Typed AST 记录。
@@ -1192,6 +1252,7 @@ fn try_visit_declaration_header<E>(
 ) -> Result<(), E> {
     let DeclarationHeader {
         entity_kind: _,
+        source_address: _,
         stable_key: _,
         span,
     } = header;
@@ -1204,7 +1265,7 @@ fn try_visit_reference<K: EntityKindMarker, E>(
 ) -> Result<(), E> {
     let OwnedEntityReference {
         module_namespace: _,
-        declaration_key: _,
+        target_address: _,
         span,
         marker: _,
     } = reference;
