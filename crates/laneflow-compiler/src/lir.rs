@@ -35,7 +35,7 @@ use crate::mir::{
     MirSignalPhaseState, MirStaticRouteKey, MirStopLineKey, MirUnit, MirVehicleProfileKey,
     MirWaitingZoneKey,
 };
-use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
+use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
 
 /// 与公开制品版本轴无关的编译器私有摘要域。
 const LIR_SEMANTIC_DIGEST_DOMAIN: &[u8] = b"LANEFLOW-COMPILER-LIR-SEMANTIC-V1\0";
@@ -3258,7 +3258,7 @@ fn ordinal_mapping<K, O: Copy, E>(
     canonical_order: &[ArenaKey<K>],
     make_ordinal: fn(usize) -> Result<O, E>,
     limits: &crate::CompileLimits,
-    primary_span: Option<SourceSpan>,
+    primary_span: Option<SourceLocation>,
 ) -> Result<Vec<O>, DiagnosticBundle> {
     let first = make_ordinal(0).map_err(|_| ordinal_overflow(limits, primary_span.clone()))?;
     let mut mapping = vec![first; count];
@@ -3273,7 +3273,7 @@ fn relation_range<T>(
     start: usize,
     end: usize,
     limits: &crate::CompileLimits,
-    primary_span: Option<SourceSpan>,
+    primary_span: Option<SourceLocation>,
 ) -> Result<TableRange<T>, DiagnosticBundle> {
     TableRange::try_from_usize(start, end.saturating_sub(start))
         .map_err(|overflow| table_overflow(overflow, limits, primary_span))
@@ -3288,7 +3288,7 @@ fn push_lir_identity(
     stable_key: &str,
     parent: Option<(FieldTag, &[u8; 16])>,
     limits: &crate::CompileLimits,
-    primary_span: Option<SourceSpan>,
+    primary_span: Option<SourceLocation>,
 ) -> Result<TableRange<LirIdentityField>, DiagnosticBundle> {
     let start = fields.len();
     push_identity_field(
@@ -3458,7 +3458,7 @@ fn freeze_reverse_occurrences<T>(
     entities: &mut [T],
     mut set_range: impl FnMut(&mut T, TableRange<LirRouteOccurrenceRef>),
     limits: &crate::CompileLimits,
-    primary_span: Option<SourceSpan>,
+    primary_span: Option<SourceLocation>,
 ) -> Result<Vec<LirRouteOccurrenceRef>, DiagnosticBundle> {
     entries.sort_unstable_by_key(|(target, occurrence)| {
         (
@@ -3490,7 +3490,7 @@ fn push_identity_field(
     tag: FieldTag,
     value: &[u8],
     limits: &crate::CompileLimits,
-    primary_span: Option<SourceSpan>,
+    primary_span: Option<SourceLocation>,
 ) -> Result<(), DiagnosticBundle> {
     let start = bytes.len();
     bytes.extend_from_slice(value);
@@ -4275,14 +4275,14 @@ fn requested_bytes<T>(count: u64) -> u64 {
 fn table_overflow(
     _: ArenaKeyOverflow,
     limits: &crate::CompileLimits,
-    primary_span: Option<SourceSpan>,
+    primary_span: Option<SourceLocation>,
 ) -> DiagnosticBundle {
     ordinal_overflow(limits, primary_span)
 }
 
 fn ordinal_overflow(
     limits: &crate::CompileLimits,
-    primary_span: Option<SourceSpan>,
+    primary_span: Option<SourceLocation>,
 ) -> DiagnosticBundle {
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
         CompileLimitDimension::LirRecordCount,
@@ -4295,7 +4295,7 @@ fn ordinal_overflow(
 
 fn output_overflow(
     limits: &crate::CompileLimits,
-    primary_span: Option<SourceSpan>,
+    primary_span: Option<SourceLocation>,
 ) -> DiagnosticBundle {
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
         CompileLimitDimension::OutputBytes,

@@ -1332,6 +1332,16 @@ pub struct Diagnostic {
     related_spans: Box<[SourceLocation]>,
 }
 
+pub(crate) trait IntoSourceLocationOption {
+    fn into_source_location_option(self) -> Option<SourceLocation>;
+}
+
+impl<T: Into<SourceLocation>> IntoSourceLocationOption for Option<T> {
+    fn into_source_location_option(self) -> Option<SourceLocation> {
+        self.map(Into::into)
+    }
+}
+
 impl Diagnostic {
     pub(crate) fn invalid_road_editing_input(
         field: &str,
@@ -1398,7 +1408,7 @@ impl Diagnostic {
         field: Option<&str>,
         actual: Option<&str>,
         expected: Option<&str>,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidGeometryDocument,
@@ -1452,7 +1462,7 @@ impl Diagnostic {
     pub(crate) fn compile_profile_incompatible(
         profile_id: &str,
         required_dimension: CompileLimitDimension,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
         stable_key: &str,
     ) -> Self {
         Self::error_with_context(
@@ -1469,7 +1479,7 @@ impl Diagnostic {
 
     pub(crate) fn invalid_import_namespace(
         violation: SourceTextViolation,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidImportNamespace,
@@ -1482,8 +1492,8 @@ impl Diagnostic {
 
     pub(crate) fn duplicate_import(
         namespace: &str,
-        primary_span: SourceSpan,
-        related_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        related_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateImport,
@@ -1491,15 +1501,15 @@ impl Diagnostic {
                 namespace: namespace.into(),
             },
             Some(primary_span),
-            Box::new([related_span]),
+            Box::new([related_span.into()]),
             Some(namespace.into()),
         )
     }
 
     pub(crate) fn duplicate_module_namespace(
         namespace: &str,
-        primary_span: SourceSpan,
-        related_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        related_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateModuleNamespace,
@@ -1507,15 +1517,15 @@ impl Diagnostic {
                 namespace: namespace.into(),
             },
             Some(primary_span),
-            Box::new([related_span]),
+            Box::new([related_span.into()]),
             Some(namespace.into()),
         )
     }
 
     pub(crate) fn duplicate_source_document_key(
         source_document_key: &str,
-        primary_span: SourceSpan,
-        related_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        related_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateSourceDocumentKey,
@@ -1523,7 +1533,7 @@ impl Diagnostic {
                 source_document_key: source_document_key.into(),
             },
             Some(primary_span),
-            Box::new([related_span]),
+            Box::new([related_span.into()]),
             Some(source_document_key.into()),
         )
     }
@@ -1532,7 +1542,7 @@ impl Diagnostic {
         source_document_key: &str,
         expected_authoring_namespace_id: &str,
         actual_authoring_namespace_id: Option<&str>,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::SourceDocumentOwnershipMismatch,
@@ -1547,7 +1557,7 @@ impl Diagnostic {
         )
     }
 
-    pub(crate) fn unknown_import(namespace: &str, primary_span: SourceSpan) -> Self {
+    pub(crate) fn unknown_import(namespace: &str, primary_span: impl Into<SourceLocation>) -> Self {
         Self::error_with_context(
             DiagnosticCode::UnknownImport,
             DiagnosticPayload::UnknownImport {
@@ -1559,7 +1569,11 @@ impl Diagnostic {
         )
     }
 
-    pub(crate) fn import_cycle(namespaces: &[&str], spans: Box<[SourceSpan]>) -> Self {
+    pub(crate) fn import_cycle<T: Into<SourceLocation>>(
+        namespaces: &[&str],
+        spans: Box<[T]>,
+    ) -> Self {
+        let spans: Box<[SourceLocation]> = spans.into_vec().into_iter().map(Into::into).collect();
         let stable_key = namespaces.first().copied().map(Into::into);
         let mut spans = spans.into_vec();
         let primary_span = if spans.is_empty() {
@@ -1586,8 +1600,8 @@ impl Diagnostic {
         conflicting_namespace: &str,
         canonical_profile: &str,
         conflicting_profile: &str,
-        primary_span: SourceSpan,
-        related_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        related_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::MixedGeometryAccuracyProfile,
@@ -1598,7 +1612,7 @@ impl Diagnostic {
                 conflicting_profile: conflicting_profile.into(),
             },
             Some(primary_span),
-            Box::new([related_span]),
+            Box::new([related_span.into()]),
             Some(conflicting_namespace.into()),
         )
     }
@@ -1608,8 +1622,8 @@ impl Diagnostic {
         conflicting_namespace: &str,
         canonical_profile: &str,
         conflicting_profile: &str,
-        primary_span: SourceSpan,
-        related_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        related_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::MixedGeometryDirectionProfile,
@@ -1620,7 +1634,7 @@ impl Diagnostic {
                 conflicting_profile: conflicting_profile.into(),
             },
             Some(primary_span),
-            Box::new([related_span]),
+            Box::new([related_span.into()]),
             Some(conflicting_namespace.into()),
         )
     }
@@ -1628,7 +1642,7 @@ impl Diagnostic {
     pub(crate) fn invalid_declaration_key(
         entity_kind: EntityKind,
         violation: SourceTextViolation,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidDeclarationKey,
@@ -1645,8 +1659,8 @@ impl Diagnostic {
     pub(crate) fn duplicate_declaration(
         entity_kind: EntityKind,
         stable_key: &str,
-        primary_span: SourceSpan,
-        related_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        related_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateDeclaration,
@@ -1655,7 +1669,7 @@ impl Diagnostic {
                 stable_key: stable_key.into(),
             },
             Some(primary_span),
-            Box::new([related_span]),
+            Box::new([related_span.into()]),
             Some(stable_key.into()),
         )
     }
@@ -1663,7 +1677,7 @@ impl Diagnostic {
     pub(crate) fn invalid_reference_key(
         entity_kind: EntityKind,
         violation: SourceTextViolation,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidReferenceKey,
@@ -1679,7 +1693,7 @@ impl Diagnostic {
 
     pub(crate) fn invalid_reference_namespace(
         violation: SourceTextViolation,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidReferenceNamespace,
@@ -1690,7 +1704,10 @@ impl Diagnostic {
         )
     }
 
-    pub(crate) fn unimported_reference_module(namespace: &str, primary_span: SourceSpan) -> Self {
+    pub(crate) fn unimported_reference_module(
+        namespace: &str,
+        primary_span: impl Into<SourceLocation>,
+    ) -> Self {
         Self::error_with_context(
             DiagnosticCode::UnimportedReferenceModule,
             DiagnosticPayload::UnimportedReferenceModule {
@@ -1707,8 +1724,8 @@ impl Diagnostic {
         source_key: &str,
         target_namespace: &str,
         target_key: &str,
-        primary_span: SourceSpan,
-        source_declaration_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        source_declaration_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::UnknownReferenceTarget,
@@ -1719,7 +1736,7 @@ impl Diagnostic {
                 target_key: target_key.into(),
             },
             Some(primary_span),
-            Box::new([source_declaration_span]),
+            Box::new([source_declaration_span.into()]),
             Some(source_key.into()),
         )
     }
@@ -1729,7 +1746,7 @@ impl Diagnostic {
         stable_key: &str,
         field_tag: FieldTag,
         violation: SourceTextViolation,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidIdentityAsciiField,
@@ -1749,7 +1766,7 @@ impl Diagnostic {
         stable_key: &str,
         value: f64,
         violation: ScalarViolation,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidLaneEdgeLength,
@@ -1768,7 +1785,7 @@ impl Diagnostic {
         stable_key: &str,
         value: f64,
         violation: ScalarViolation,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidLaneEdgeSpeedLimit,
@@ -1788,7 +1805,7 @@ impl Diagnostic {
         field: &'static str,
         value: f64,
         violation: ScalarViolation,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidVehicleProfileValue,
@@ -1808,7 +1825,7 @@ impl Diagnostic {
         vehicle_profile_key: &str,
         comfortable_deceleration: f64,
         emergency_deceleration: f64,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidVehicleProfileDecelerationOrder,
@@ -1828,8 +1845,8 @@ impl Diagnostic {
         lane_edge_key: &str,
         related_lane_edge_key: Option<&str>,
         violation: SpatialGeometryViolation,
-        primary_span: SourceSpan,
-        related_span: Option<SourceSpan>,
+        primary_span: impl Into<SourceLocation>,
+        related_span: Option<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidSpatialGeometry,
@@ -1852,7 +1869,7 @@ impl Diagnostic {
         stable_key: &str,
         target_namespace: &str,
         target_key: &str,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateLaneEdgeSuccessor,
@@ -1873,7 +1890,7 @@ impl Diagnostic {
         kind_id: &str,
         expected_category: FacilityKindCategory,
         violation: FacilityKindViolation,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidFacilityKind,
@@ -1890,7 +1907,10 @@ impl Diagnostic {
         )
     }
 
-    pub(crate) fn empty_road_section_lanes(stable_key: &str, primary_span: SourceSpan) -> Self {
+    pub(crate) fn empty_road_section_lanes(
+        stable_key: &str,
+        primary_span: impl Into<SourceLocation>,
+    ) -> Self {
         Self::error_with_context(
             DiagnosticCode::EmptyRoadSectionLanes,
             DiagnosticPayload::EmptyRoadSectionLanes {
@@ -1904,7 +1924,7 @@ impl Diagnostic {
 
     pub(crate) fn empty_authoring_lane_edge_chain(
         stable_key: &str,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::EmptyAuthoringLaneEdgeChain,
@@ -1921,7 +1941,7 @@ impl Diagnostic {
         stable_key: &str,
         target_namespace: &str,
         target_key: &str,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateAuthoringLaneEdge,
@@ -1936,7 +1956,10 @@ impl Diagnostic {
         )
     }
 
-    pub(crate) fn empty_road_corridor_elements(stable_key: &str, primary_span: SourceSpan) -> Self {
+    pub(crate) fn empty_road_corridor_elements(
+        stable_key: &str,
+        primary_span: impl Into<SourceLocation>,
+    ) -> Self {
         Self::error_with_context(
             DiagnosticCode::EmptyRoadCorridorElements,
             DiagnosticPayload::EmptyRoadCorridorElements {
@@ -1953,7 +1976,7 @@ impl Diagnostic {
         target_kind: EntityKind,
         target_namespace: &str,
         target_key: &str,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateRoadCorridorElement,
@@ -1972,7 +1995,7 @@ impl Diagnostic {
     pub(crate) fn missing_cross_section_owner(
         entity_kind: EntityKind,
         stable_key: &str,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::MissingCrossSectionOwner,
@@ -1991,8 +2014,8 @@ impl Diagnostic {
         stable_key: &str,
         first_owner_key: &str,
         second_owner_key: &str,
-        primary_span: SourceSpan,
-        first_owner_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_owner_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::MultipleCrossSectionOwners,
@@ -2003,7 +2026,7 @@ impl Diagnostic {
                 second_owner_key: second_owner_key.into(),
             },
             Some(primary_span),
-            Box::new([first_owner_span]),
+            Box::new([first_owner_span.into()]),
             Some(stable_key.into()),
         )
     }
@@ -2012,8 +2035,8 @@ impl Diagnostic {
         corridor_key: &str,
         target_namespace: &str,
         target_key: &str,
-        primary_span: SourceSpan,
-        corridor_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        corridor_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidCorridorReferenceSection,
@@ -2023,7 +2046,7 @@ impl Diagnostic {
                 target_key: target_key.into(),
             },
             Some(primary_span),
-            Box::new([corridor_span]),
+            Box::new([corridor_span.into()]),
             Some(corridor_key.into()),
         )
     }
@@ -2032,8 +2055,8 @@ impl Diagnostic {
         lane_key: &str,
         predecessor_key: &str,
         successor_key: &str,
-        primary_span: SourceSpan,
-        predecessor_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        predecessor_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DisconnectedAuthoringLaneEdgeChain,
@@ -2043,7 +2066,7 @@ impl Diagnostic {
                 successor_key: successor_key.into(),
             },
             Some(primary_span),
-            Box::new([predecessor_span]),
+            Box::new([predecessor_span.into()]),
             Some(lane_key.into()),
         )
     }
@@ -2052,8 +2075,8 @@ impl Diagnostic {
         edge_key: &str,
         first_lane_key: &str,
         second_lane_key: &str,
-        primary_span: SourceSpan,
-        first_lane_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_lane_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::MultipleAuthoringLaneOwners,
@@ -2063,7 +2086,7 @@ impl Diagnostic {
                 second_lane_key: second_lane_key.into(),
             },
             Some(primary_span),
-            Box::new([first_lane_span]),
+            Box::new([first_lane_span.into()]),
             Some(edge_key.into()),
         )
     }
@@ -2073,8 +2096,8 @@ impl Diagnostic {
         lane_group_key: &str,
         lane_section_key: &str,
         group_section_key: &str,
-        primary_span: SourceSpan,
-        group_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        group_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::LaneGroupParentMismatch,
@@ -2085,12 +2108,15 @@ impl Diagnostic {
                 group_section_key: group_section_key.into(),
             },
             Some(primary_span),
-            Box::new([group_span]),
+            Box::new([group_span.into()]),
             Some(lane_key.into()),
         )
     }
 
-    pub(crate) fn empty_lane_group(stable_key: &str, primary_span: SourceSpan) -> Self {
+    pub(crate) fn empty_lane_group(
+        stable_key: &str,
+        primary_span: impl Into<SourceLocation>,
+    ) -> Self {
         Self::error_with_context(
             DiagnosticCode::EmptyLaneGroup,
             DiagnosticPayload::EmptyLaneGroup {
@@ -2102,7 +2128,10 @@ impl Diagnostic {
         )
     }
 
-    pub(crate) fn empty_junction(junction_key: &str, primary_span: SourceSpan) -> Self {
+    pub(crate) fn empty_junction(
+        junction_key: &str,
+        primary_span: impl Into<SourceLocation>,
+    ) -> Self {
         Self::error_with_context(
             DiagnosticCode::EmptyJunction,
             DiagnosticPayload::EmptyJunction {
@@ -2114,7 +2143,10 @@ impl Diagnostic {
         )
     }
 
-    pub(crate) fn empty_movement(movement_key: &str, primary_span: SourceSpan) -> Self {
+    pub(crate) fn empty_movement(
+        movement_key: &str,
+        primary_span: impl Into<SourceLocation>,
+    ) -> Self {
         Self::error_with_context(
             DiagnosticCode::EmptyMovement,
             DiagnosticPayload::EmptyMovement {
@@ -2130,8 +2162,8 @@ impl Diagnostic {
         path_key: &str,
         predecessor_key: &str,
         successor_key: &str,
-        primary_span: SourceSpan,
-        predecessor_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        predecessor_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DisconnectedManeuverPath,
@@ -2141,7 +2173,7 @@ impl Diagnostic {
                 successor_key: successor_key.into(),
             },
             Some(primary_span),
-            Box::new([predecessor_span]),
+            Box::new([predecessor_span.into()]),
             Some(path_key.into()),
         )
     }
@@ -2152,8 +2184,8 @@ impl Diagnostic {
         duplicate_path_key: &str,
         first_junction_key: &str,
         duplicate_junction_key: &str,
-        primary_span: SourceSpan,
-        first_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateManeuverPathSequence,
@@ -2164,7 +2196,7 @@ impl Diagnostic {
                 duplicate_junction_key: duplicate_junction_key.into(),
             },
             Some(primary_span),
-            Box::new([first_span]),
+            Box::new([first_span.into()]),
             Some(duplicate_path_key.into()),
         )
     }
@@ -2176,8 +2208,8 @@ impl Diagnostic {
         duplicate_junction_key: &str,
         first_path_key: &str,
         duplicate_path_key: &str,
-        primary_span: SourceSpan,
-        first_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InternalEdgeJunctionConflict,
@@ -2189,7 +2221,7 @@ impl Diagnostic {
                 duplicate_path_key: duplicate_path_key.into(),
             },
             Some(primary_span),
-            Box::new([first_span]),
+            Box::new([first_span.into()]),
             Some(edge_key.into()),
         )
     }
@@ -2198,8 +2230,8 @@ impl Diagnostic {
         edge_key: &str,
         internal_path_key: &str,
         boundary_path_key: &str,
-        primary_span: SourceSpan,
-        internal_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        internal_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InternalBoundaryRoleConflict,
@@ -2209,7 +2241,7 @@ impl Diagnostic {
                 boundary_path_key: boundary_path_key.into(),
             },
             Some(primary_span),
-            Box::new([internal_span]),
+            Box::new([internal_span.into()]),
             Some(edge_key.into()),
         )
     }
@@ -2220,8 +2252,8 @@ impl Diagnostic {
         successor_key: &str,
         junction_key: &str,
         maneuver_path_key: &str,
-        primary_span: SourceSpan,
-        successor_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        successor_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::LaneEdgeSuccessorPathConflict,
@@ -2232,7 +2264,7 @@ impl Diagnostic {
                 maneuver_path_key: maneuver_path_key.into(),
             },
             Some(primary_span),
-            Box::new([successor_span]),
+            Box::new([successor_span.into()]),
             Some(edge_key.into()),
         )
     }
@@ -2243,8 +2275,8 @@ impl Diagnostic {
         successor_key: &str,
         first_junction_key: &str,
         duplicate_junction_key: &str,
-        primary_span: SourceSpan,
-        first_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DerivedTransitionJunctionConflict,
@@ -2255,7 +2287,7 @@ impl Diagnostic {
                 duplicate_junction_key: duplicate_junction_key.into(),
             },
             Some(primary_span),
-            Box::new([first_span]),
+            Box::new([first_span.into()]),
             Some(predecessor_key.into()),
         )
     }
@@ -2265,8 +2297,8 @@ impl Diagnostic {
         maneuver_path_key: &str,
         transition_index: u32,
         transition_count: u32,
-        primary_span: SourceSpan,
-        path_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        path_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::ManeuverGateTransitionOutOfRange,
@@ -2277,7 +2309,7 @@ impl Diagnostic {
                 transition_count,
             },
             Some(primary_span),
-            Box::new([path_span]),
+            Box::new([path_span.into()]),
             Some(maneuver_gate_key.into()),
         )
     }
@@ -2287,8 +2319,8 @@ impl Diagnostic {
         transition_index: u32,
         first_maneuver_gate_key: &str,
         duplicate_maneuver_gate_key: &str,
-        primary_span: SourceSpan,
-        first_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateManeuverGatePathTransition,
@@ -2299,7 +2331,7 @@ impl Diagnostic {
                 duplicate_maneuver_gate_key: duplicate_maneuver_gate_key.into(),
             },
             Some(primary_span),
-            Box::new([first_span]),
+            Box::new([first_span.into()]),
             Some(duplicate_maneuver_gate_key.into()),
         )
     }
@@ -2310,8 +2342,8 @@ impl Diagnostic {
         stop_line_key: &str,
         path_from_edge_key: &str,
         stop_line_edge_key: &str,
-        primary_span: SourceSpan,
-        stop_line_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        stop_line_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::ManeuverGateStopLineMismatch,
@@ -2322,7 +2354,7 @@ impl Diagnostic {
                 stop_line_edge_key: stop_line_edge_key.into(),
             },
             Some(primary_span),
-            Box::new([stop_line_span]),
+            Box::new([stop_line_span.into()]),
             Some(maneuver_gate_key.into()),
         )
     }
@@ -2331,8 +2363,8 @@ impl Diagnostic {
         edge_key: &str,
         first_stop_line_key: &str,
         duplicate_stop_line_key: &str,
-        primary_span: SourceSpan,
-        first_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateStopLineEdge,
@@ -2342,7 +2374,7 @@ impl Diagnostic {
                 duplicate_stop_line_key: duplicate_stop_line_key.into(),
             },
             Some(primary_span),
-            Box::new([first_span]),
+            Box::new([first_span.into()]),
             Some(duplicate_stop_line_key.into()),
         )
     }
@@ -2350,7 +2382,7 @@ impl Diagnostic {
     pub(crate) fn orphan_stop_line(
         stop_line_key: &str,
         edge_key: &str,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::OrphanStopLine,
@@ -2367,7 +2399,7 @@ impl Diagnostic {
     pub(crate) fn unreferenced_stop_line(
         stop_line_key: &str,
         edge_key: &str,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::UnreferencedStopLine,
@@ -2385,8 +2417,8 @@ impl Diagnostic {
         stop_line_key: &str,
         from_edge_key: &str,
         to_edge_key: &str,
-        primary_span: SourceSpan,
-        to_edge_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        to_edge_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::MissingManeuverPathCoverage,
@@ -2396,7 +2428,7 @@ impl Diagnostic {
                 to_edge_key: to_edge_key.into(),
             },
             Some(primary_span),
-            Box::new([to_edge_span]),
+            Box::new([to_edge_span.into()]),
             Some(stop_line_key.into()),
         )
     }
@@ -2405,8 +2437,8 @@ impl Diagnostic {
         stop_line_key: &str,
         edge_key: &str,
         maneuver_path_key: &str,
-        primary_span: SourceSpan,
-        path_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        path_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::MissingManeuverGateCoverage,
@@ -2416,14 +2448,14 @@ impl Diagnostic {
                 maneuver_path_key: maneuver_path_key.into(),
             },
             Some(primary_span),
-            Box::new([path_span]),
+            Box::new([path_span.into()]),
             Some(stop_line_key.into()),
         )
     }
 
     pub(crate) fn invalid_waiting_zone_capacity(
         waiting_zone_key: &str,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidWaitingZoneCapacity,
@@ -2443,8 +2475,8 @@ impl Diagnostic {
         gate_key: &str,
         declared_path_key: &str,
         gate_path_key: &str,
-        primary_span: SourceSpan,
-        gate_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        gate_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::WaitingZoneGatePathMismatch,
@@ -2456,7 +2488,7 @@ impl Diagnostic {
                 gate_path_key: gate_path_key.into(),
             },
             Some(primary_span),
-            Box::new([gate_span]),
+            Box::new([gate_span.into()]),
             Some(waiting_zone_key.into()),
         )
     }
@@ -2465,7 +2497,7 @@ impl Diagnostic {
         waiting_zone_key: &str,
         entry_transition_index: u32,
         release_transition_index: u32,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidWaitingZoneGateOrder,
@@ -2484,8 +2516,8 @@ impl Diagnostic {
         maneuver_path_key: &str,
         first_waiting_zone_key: &str,
         second_waiting_zone_key: &str,
-        primary_span: SourceSpan,
-        first_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::OverlappingWaitingZones,
@@ -2495,12 +2527,15 @@ impl Diagnostic {
                 second_waiting_zone_key: second_waiting_zone_key.into(),
             },
             Some(primary_span),
-            Box::new([first_span]),
+            Box::new([first_span.into()]),
             Some(second_waiting_zone_key.into()),
         )
     }
 
-    pub(crate) fn empty_static_route(static_route_key: &str, primary_span: SourceSpan) -> Self {
+    pub(crate) fn empty_static_route(
+        static_route_key: &str,
+        primary_span: impl Into<SourceLocation>,
+    ) -> Self {
         Self::error_with_context(
             DiagnosticCode::EmptyStaticRoute,
             DiagnosticPayload::EmptyStaticRoute {
@@ -2517,8 +2552,8 @@ impl Diagnostic {
         predecessor_key: &str,
         successor_key: &str,
         successor_route_edge_index: u32,
-        primary_span: SourceSpan,
-        predecessor_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        predecessor_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DisconnectedStaticRouteEdge,
@@ -2529,7 +2564,7 @@ impl Diagnostic {
                 successor_route_edge_index,
             },
             Some(primary_span),
-            Box::new([predecessor_span]),
+            Box::new([predecessor_span.into()]),
             Some(static_route_key.into()),
         )
     }
@@ -2537,8 +2572,8 @@ impl Diagnostic {
     pub(crate) fn static_route_starts_inside_junction(
         static_route_key: &str,
         edge_key: &str,
-        primary_span: SourceSpan,
-        path_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        path_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::StaticRouteStartsInsideJunction,
@@ -2547,7 +2582,7 @@ impl Diagnostic {
                 edge_key: edge_key.into(),
             },
             Some(primary_span),
-            Box::new([path_span]),
+            Box::new([path_span.into()]),
             Some(static_route_key.into()),
         )
     }
@@ -2555,8 +2590,8 @@ impl Diagnostic {
     pub(crate) fn static_route_ends_inside_junction(
         static_route_key: &str,
         edge_key: &str,
-        primary_span: SourceSpan,
-        path_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        path_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::StaticRouteEndsInsideJunction,
@@ -2565,7 +2600,7 @@ impl Diagnostic {
                 edge_key: edge_key.into(),
             },
             Some(primary_span),
-            Box::new([path_span]),
+            Box::new([path_span.into()]),
             Some(static_route_key.into()),
         )
     }
@@ -2574,8 +2609,8 @@ impl Diagnostic {
         static_route_key: &str,
         edge_key: &str,
         stop_line_key: &str,
-        primary_span: SourceSpan,
-        stop_line_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        stop_line_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::StaticRouteTerminatesAtStopLine,
@@ -2585,7 +2620,7 @@ impl Diagnostic {
                 stop_line_key: stop_line_key.into(),
             },
             Some(primary_span),
-            Box::new([stop_line_span]),
+            Box::new([stop_line_span.into()]),
             Some(static_route_key.into()),
         )
     }
@@ -2595,8 +2630,8 @@ impl Diagnostic {
         entry_route_edge_index: u32,
         entry_edge_key: &str,
         next_edge_key: &str,
-        primary_span: SourceSpan,
-        candidate_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        candidate_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::StaticRouteManeuverNoFullMatch,
@@ -2607,7 +2642,7 @@ impl Diagnostic {
                 next_edge_key: next_edge_key.into(),
             },
             Some(primary_span),
-            Box::new([candidate_span]),
+            Box::new([candidate_span.into()]),
             Some(static_route_key.into()),
         )
     }
@@ -2618,9 +2653,9 @@ impl Diagnostic {
         entry_route_edge_index: u32,
         first_path_key: &str,
         second_path_key: &str,
-        primary_span: SourceSpan,
-        first_path_span: SourceSpan,
-        second_path_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_path_span: impl Into<SourceLocation>,
+        second_path_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::StaticRouteManeuverMultipleFullMatches,
@@ -2631,7 +2666,7 @@ impl Diagnostic {
                 second_path_key: second_path_key.into(),
             },
             Some(primary_span),
-            Box::new([first_path_span, second_path_span]),
+            Box::new([first_path_span.into(), second_path_span.into()]),
             Some(static_route_key.into()),
         )
     }
@@ -2643,9 +2678,9 @@ impl Diagnostic {
         edge_key: &str,
         first_path_key: &str,
         second_path_key: &str,
-        primary_span: SourceSpan,
-        first_path_span: SourceSpan,
-        second_path_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_path_span: impl Into<SourceLocation>,
+        second_path_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::StaticRouteManeuverInternalOverlap,
@@ -2657,7 +2692,7 @@ impl Diagnostic {
                 second_path_key: second_path_key.into(),
             },
             Some(primary_span),
-            Box::new([first_path_span, second_path_span]),
+            Box::new([first_path_span.into(), second_path_span.into()]),
             Some(static_route_key.into()),
         )
     }
@@ -2666,8 +2701,8 @@ impl Diagnostic {
         static_route_key: &str,
         route_edge_index: u32,
         edge_key: &str,
-        primary_span: SourceSpan,
-        path_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        path_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::StaticRouteInternalEdgeUncovered,
@@ -2677,14 +2712,14 @@ impl Diagnostic {
                 edge_key: edge_key.into(),
             },
             Some(primary_span),
-            Box::new([path_span]),
+            Box::new([path_span.into()]),
             Some(static_route_key.into()),
         )
     }
 
     pub(crate) fn empty_signal_controller_groups(
         controller_key: &str,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::EmptySignalControllerGroups,
@@ -2699,7 +2734,7 @@ impl Diagnostic {
 
     pub(crate) fn empty_signal_controller_phases(
         controller_key: &str,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::EmptySignalControllerPhases,
@@ -2715,8 +2750,8 @@ impl Diagnostic {
     pub(crate) fn duplicate_signal_controller_group(
         controller_key: &str,
         group_key: &str,
-        primary_span: SourceSpan,
-        first_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateSignalControllerGroup,
@@ -2725,7 +2760,7 @@ impl Diagnostic {
                 signal_group_key: group_key.into(),
             },
             Some(primary_span),
-            Box::new([first_span]),
+            Box::new([first_span.into()]),
             Some(controller_key.into()),
         )
     }
@@ -2734,8 +2769,8 @@ impl Diagnostic {
         group_key: &str,
         first_controller_key: &str,
         duplicate_controller_key: &str,
-        primary_span: SourceSpan,
-        first_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::SignalGroupMultipleControllers,
@@ -2745,12 +2780,15 @@ impl Diagnostic {
                 duplicate_controller_key: duplicate_controller_key.into(),
             },
             Some(primary_span),
-            Box::new([first_span]),
+            Box::new([first_span.into()]),
             Some(group_key.into()),
         )
     }
 
-    pub(crate) fn unowned_signal_group(group_key: &str, primary_span: SourceSpan) -> Self {
+    pub(crate) fn unowned_signal_group(
+        group_key: &str,
+        primary_span: impl Into<SourceLocation>,
+    ) -> Self {
         Self::error_with_context(
             DiagnosticCode::UnownedSignalGroup,
             DiagnosticPayload::UnownedSignalGroup {
@@ -2762,7 +2800,10 @@ impl Diagnostic {
         )
     }
 
-    pub(crate) fn unused_signal_group(group_key: &str, primary_span: SourceSpan) -> Self {
+    pub(crate) fn unused_signal_group(
+        group_key: &str,
+        primary_span: impl Into<SourceLocation>,
+    ) -> Self {
         Self::error_with_context(
             DiagnosticCode::UnusedSignalGroup,
             DiagnosticPayload::UnusedSignalGroup {
@@ -2777,8 +2818,8 @@ impl Diagnostic {
     pub(crate) fn duplicate_signal_phase_key(
         controller_key: &str,
         phase_key: &str,
-        primary_span: SourceSpan,
-        first_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateSignalPhaseKey,
@@ -2787,7 +2828,7 @@ impl Diagnostic {
                 signal_phase_key: phase_key.into(),
             },
             Some(primary_span),
-            Box::new([first_span]),
+            Box::new([first_span.into()]),
             Some(controller_key.into()),
         )
     }
@@ -2797,7 +2838,7 @@ impl Diagnostic {
         phase_key: &str,
         duration_ms: u64,
         max_inclusive: u64,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidSignalPhaseDuration,
@@ -2818,8 +2859,8 @@ impl Diagnostic {
         controller_key: &str,
         phase_key: &str,
         group_key: &str,
-        primary_span: SourceSpan,
-        first_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        first_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateSignalPhaseGroup,
@@ -2829,7 +2870,7 @@ impl Diagnostic {
                 signal_group_key: group_key.into(),
             },
             Some(primary_span),
-            Box::new([first_span]),
+            Box::new([first_span.into()]),
             Some(controller_key.into()),
         )
     }
@@ -2838,8 +2879,8 @@ impl Diagnostic {
         controller_key: &str,
         phase_key: &str,
         group_key: &str,
-        primary_span: SourceSpan,
-        controller_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        controller_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::UnknownSignalPhaseGroup,
@@ -2849,7 +2890,7 @@ impl Diagnostic {
                 signal_group_key: group_key.into(),
             },
             Some(primary_span),
-            Box::new([controller_span]),
+            Box::new([controller_span.into()]),
             Some(controller_key.into()),
         )
     }
@@ -2858,8 +2899,8 @@ impl Diagnostic {
         controller_key: &str,
         phase_key: &str,
         group_key: &str,
-        primary_span: SourceSpan,
-        group_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        group_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::MissingSignalPhaseGroup,
@@ -2869,7 +2910,7 @@ impl Diagnostic {
                 signal_group_key: group_key.into(),
             },
             Some(primary_span),
-            Box::new([group_span]),
+            Box::new([group_span.into()]),
             Some(controller_key.into()),
         )
     }
@@ -2877,7 +2918,7 @@ impl Diagnostic {
     pub(crate) fn signal_cycle_duration_overflow(
         controller_key: &str,
         max_inclusive: u64,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::SignalCycleDurationOverflow,
@@ -2896,7 +2937,7 @@ impl Diagnostic {
         offset_ms: u64,
         cycle_duration_ms: u64,
         max_inclusive: u64,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidSignalControllerOffset,
@@ -2919,7 +2960,7 @@ impl Diagnostic {
         progress_meters: f64,
         edge_length_meters: f64,
         endpoint_clearance_meters: f64,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidParkingAnchorProgress,
@@ -2942,7 +2983,7 @@ impl Diagnostic {
         field: ParkingGeometryField,
         value: f64,
         violation: ParkingGeometryViolation,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidParkingSpaceGeometry,
@@ -2958,7 +2999,10 @@ impl Diagnostic {
         )
     }
 
-    pub(crate) fn orphan_parking_area(parking_area_key: &str, primary_span: SourceSpan) -> Self {
+    pub(crate) fn orphan_parking_area(
+        parking_area_key: &str,
+        primary_span: impl Into<SourceLocation>,
+    ) -> Self {
         Self::error_with_context(
             DiagnosticCode::OrphanParkingArea,
             DiagnosticPayload::OrphanParkingArea {
@@ -2972,8 +3016,8 @@ impl Diagnostic {
 
     pub(crate) fn participant_class_inheritance_cycle(
         participant_class_key: &str,
-        primary_span: SourceSpan,
-        related_spans: Box<[SourceSpan]>,
+        primary_span: impl Into<SourceLocation>,
+        related_spans: Box<[impl Into<SourceLocation>]>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::ParticipantClassInheritanceCycle,
@@ -2981,14 +3025,18 @@ impl Diagnostic {
                 participant_class_key: participant_class_key.into(),
             },
             Some(primary_span),
-            related_spans,
+            related_spans
+                .into_vec()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             Some(participant_class_key.into()),
         )
     }
 
     pub(crate) fn empty_access_rule_participant_classes(
         access_rule_key: &str,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::EmptyAccessRuleParticipantClasses,
@@ -3004,7 +3052,7 @@ impl Diagnostic {
     pub(crate) fn access_capability_unavailable(
         access_rule_key: &str,
         capability: AccessCapability,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::AccessCapabilityUnavailable,
@@ -3022,7 +3070,7 @@ impl Diagnostic {
         access_rule_key: &str,
         field: AccessRegulationField,
         character_count: u32,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidAccessRegulationString,
@@ -3045,8 +3093,8 @@ impl Diagnostic {
         second_rule_key: &str,
         second_jurisdiction: &str,
         second_version: &str,
-        primary_span: SourceSpan,
-        related_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        related_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::AccessRegulationMismatch,
@@ -3059,7 +3107,7 @@ impl Diagnostic {
                 second_version: second_version.into(),
             },
             Some(primary_span),
-            vec![related_span].into_boxed_slice(),
+            vec![related_span.into()].into_boxed_slice(),
             Some(second_rule_key.into()),
         )
     }
@@ -3072,8 +3120,8 @@ impl Diagnostic {
         participant_class_key: &str,
         first_rule_key: &str,
         second_rule_key: &str,
-        primary_span: SourceSpan,
-        related_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        related_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::AccessRuleAmbiguity,
@@ -3086,7 +3134,7 @@ impl Diagnostic {
                 second_rule_key: second_rule_key.into(),
             },
             Some(primary_span),
-            vec![related_span].into_boxed_slice(),
+            vec![related_span.into()].into_boxed_slice(),
             Some(second_rule_key.into()),
         )
     }
@@ -3095,7 +3143,7 @@ impl Diagnostic {
         entity_kind: EntityKind,
         stable_key: &str,
         violation: CanonicalIdentityViolation,
-        primary_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::InvalidCanonicalIdentity,
@@ -3114,8 +3162,8 @@ impl Diagnostic {
         entity_kind: EntityKind,
         stable_key: &str,
         stable_id: StableId128,
-        primary_span: SourceSpan,
-        existing_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        existing_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::DuplicateCanonicalIdentity,
@@ -3124,7 +3172,7 @@ impl Diagnostic {
                 stable_id,
             },
             Some(primary_span),
-            Box::new([existing_span]),
+            Box::new([existing_span.into()]),
             Some(stable_key.into()),
         )
     }
@@ -3133,8 +3181,8 @@ impl Diagnostic {
         entity_kind: EntityKind,
         stable_key: &str,
         stable_id: StableId128,
-        primary_span: SourceSpan,
-        existing_span: SourceSpan,
+        primary_span: impl Into<SourceLocation>,
+        existing_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
             DiagnosticCode::IdentityDigestCollision,
@@ -3143,7 +3191,7 @@ impl Diagnostic {
                 stable_id,
             },
             Some(primary_span),
-            Box::new([existing_span]),
+            Box::new([existing_span.into()]),
             Some(stable_key.into()),
         )
     }
@@ -3156,7 +3204,7 @@ impl Diagnostic {
         dimension: CompileLimitDimension,
         limit: u64,
         observed: u64,
-        primary_span: Option<SourceSpan>,
+        primary_span: impl IntoSourceLocationOption,
         stable_key: Option<Box<str>>,
     ) -> Self {
         Self::error_with_context(
@@ -3175,19 +3223,15 @@ impl Diagnostic {
     fn error_with_context(
         code: DiagnosticCode,
         payload: DiagnosticPayload,
-        primary_span: Option<SourceSpan>,
-        related_spans: Box<[SourceSpan]>,
+        primary_span: impl IntoSourceLocationOption,
+        related_spans: Box<[SourceLocation]>,
         stable_key: Option<Box<str>>,
     ) -> Self {
         Self::error_with_location_context(
             code,
             payload,
-            primary_span.map(SourceLocation::Text),
-            related_spans
-                .into_vec()
-                .into_iter()
-                .map(SourceLocation::Text)
-                .collect(),
+            primary_span.into_source_location_option(),
+            related_spans,
             stable_key,
         )
     }

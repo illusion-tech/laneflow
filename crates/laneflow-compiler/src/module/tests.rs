@@ -1337,8 +1337,8 @@ fn three_document_module_retains_distinct_entity_relation_and_cold_origins() {
             .map(|source| (
                 source.descriptor().authoring_namespace_id(),
                 source.primary_source().source_document_key(),
-                source.primary_source().start().line(),
-                source.primary_source().start().column(),
+                source.primary_source().text_range().unwrap().0.line(),
+                source.primary_source().text_range().unwrap().0.column(),
             ))
             .collect::<Vec<_>>(),
         [("city/a", "source/secondary", 37, 5)]
@@ -1424,8 +1424,8 @@ fn signal_relations_keep_their_own_multi_document_locations() {
                 source.role(),
                 source.local_index(),
                 primary.source_document_key().to_owned(),
-                primary.start().line(),
-                primary.start().column(),
+                primary.text_range().unwrap().0.line(),
+                primary.text_range().unwrap().0.column(),
             )
         })
         .collect::<Vec<_>>();
@@ -2828,7 +2828,7 @@ fn synthetic_edge_module(namespace: &str) -> SyntheticModule {
 }
 
 /// 目标边稳定键与合并后来源位置，按 `lane_edge_references` 中的存储序返回。
-fn hir_successors(hir: &crate::hir::HirUnit, edge_key: &str) -> Vec<(String, SourceSpan)> {
+fn hir_successors(hir: &crate::hir::HirUnit, edge_key: &str) -> Vec<(String, SourceLocation)> {
     let edge = hir
         .lane_edges
         .iter()
@@ -2863,7 +2863,7 @@ fn mir_successor_keys(mir: &crate::mir::MirUnit, edge_key: &str) -> Vec<String> 
         .collect()
 }
 
-fn connection_intent_span(unit: &CompilationUnit, path_key: &str) -> SourceSpan {
+fn connection_intent_span(unit: &CompilationUnit, path_key: &str) -> SourceLocation {
     unit.modules
         .iter()
         .flat_map(|module| module.declarations.iter())
@@ -2882,7 +2882,7 @@ fn lane_successor_span(
     unit: &CompilationUnit,
     edge_key: &str,
     successor_index: usize,
-) -> SourceSpan {
+) -> SourceLocation {
     unit.modules
         .iter()
         .flat_map(|module| module.declarations.iter())
@@ -3150,11 +3150,8 @@ fn geometry_plain_successor_and_path_derived_conflict_fails() {
         diagnostic.code(),
         DiagnosticCode::LaneEdgeSuccessorPathConflict
     );
-    assert_eq!(diagnostic.primary_span(), Some(&connection_span));
-    assert_eq!(
-        diagnostic.related_locations(),
-        [crate::SourceLocation::Text(explicit_span)].as_slice()
-    );
+    assert_eq!(diagnostic.primary_location(), Some(&connection_span));
+    assert_eq!(diagnostic.related_locations(), [explicit_span].as_slice());
     assert_eq!(diagnostic.stable_key(), Some("edge.a"));
     let DiagnosticPayload::LaneEdgeSuccessorPathConflict {
         edge_key,
@@ -3221,11 +3218,8 @@ fn geometry_same_transition_from_different_junctions_fails() {
         diagnostic.code(),
         DiagnosticCode::DerivedTransitionJunctionConflict
     );
-    assert_eq!(diagnostic.primary_span(), Some(&duplicate_span));
-    assert_eq!(
-        diagnostic.related_locations(),
-        [crate::SourceLocation::Text(first_span)].as_slice()
-    );
+    assert_eq!(diagnostic.primary_location(), Some(&duplicate_span));
+    assert_eq!(diagnostic.related_locations(), [first_span].as_slice());
     assert_eq!(diagnostic.stable_key(), Some("edge.a"));
     let DiagnosticPayload::DerivedTransitionJunctionConflict {
         predecessor_key,
@@ -3319,7 +3313,7 @@ fn geometry_shared_internal_edge_dedups_same_junction_occurrences() {
         ["edge.b", "edge.c"]
     );
     assert_eq!(hir.derived_transition_occurrences.len(), 4);
-    let shared: Vec<&SourceSpan> = hir
+    let shared: Vec<&SourceLocation> = hir
         .derived_transition_occurrences
         .iter()
         .filter(|occurrence| {

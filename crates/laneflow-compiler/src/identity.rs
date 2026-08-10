@@ -15,8 +15,10 @@ use laneflow_static_contract::{
     STABLE_ID_DOMAIN_PREFIX, StableId128,
 };
 
+#[cfg(test)]
+use crate::SourceSpan;
 use crate::source::external_token_violation;
-use crate::{SourceSpan, SourceTextViolation};
+use crate::{SourceLocation, SourceTextViolation};
 
 /// 标识字段集合不能形成规范 Identity v1 前像的精确原因。
 ///
@@ -232,7 +234,7 @@ fn append(output: &mut Vec<u8>, hasher: &mut blake3::Hasher, bytes: &[u8]) {
 /// 临时身份登记项；完整前像使摘要相等时仍能作权威比较。
 pub(crate) struct RegisteredCanonicalIdentity {
     canonical_bytes: Box<[u8]>,
-    owning_span: SourceSpan,
+    owning_span: SourceLocation,
 }
 
 /// 单次编译内的稳定标识唯一性登记表。
@@ -246,8 +248,8 @@ pub(crate) struct IdentityRegistry {
 
 #[derive(Debug)]
 pub(crate) enum IdentityRegistrationError {
-    Duplicate { existing_span: SourceSpan },
-    DigestCollision { existing_span: SourceSpan },
+    Duplicate { existing_span: SourceLocation },
+    DigestCollision { existing_span: SourceLocation },
 }
 
 impl IdentityRegistry {
@@ -261,7 +263,7 @@ impl IdentityRegistry {
     pub(crate) fn register(
         &mut self,
         identity: &EncodedCanonicalIdentity,
-        owning_span: &SourceSpan,
+        owning_span: &SourceLocation,
     ) -> Result<(), IdentityRegistrationError> {
         self.register_prederived(identity.stable_id, identity.canonical_bytes(), owning_span)
     }
@@ -270,7 +272,7 @@ impl IdentityRegistry {
         &mut self,
         stable_id: StableId128,
         canonical_bytes: &[u8],
-        owning_span: &SourceSpan,
+        owning_span: &SourceLocation,
     ) -> Result<(), IdentityRegistrationError> {
         if let Some(existing) = self.by_stable_id.get(&stable_id) {
             return if existing.canonical_bytes.as_ref() == canonical_bytes {
@@ -553,8 +555,8 @@ mod tests {
 
     #[test]
     fn registry_distinguishes_duplicate_identity_from_digest_collision() {
-        let span = SourceSpan::point("vector".into(), 1, 1);
-        let other_span = SourceSpan::point("vector".into(), 2, 1);
+        let span: SourceLocation = SourceSpan::point("vector".into(), 1, 1).into();
+        let other_span: SourceLocation = SourceSpan::point("vector".into(), 2, 1).into();
         let stable_id = StableId128::from_bytes([0x42; 16]);
         let mut registry = IdentityRegistry::with_capacity(2);
 

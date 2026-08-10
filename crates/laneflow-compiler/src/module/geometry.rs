@@ -708,7 +708,7 @@ impl GeometryModuleBuilder {
             admitted: AdmittedOfficialModule::new_geometry(
                 TypedAstModule {
                     descriptor,
-                    declaration_span,
+                    declaration_span: declaration_span.into(),
                     source_documents,
                     imports,
                     declarations: declarations.into_boxed_slice(),
@@ -774,7 +774,7 @@ impl GeometryModuleBuilder {
             import_index.insert(Arc::from(value), imports.len());
             imports.push(ImportRecord {
                 namespace: Arc::from(value),
-                span: span_of(import.span),
+                span: span_of(import.span).into(),
             });
         }
 
@@ -2022,7 +2022,7 @@ fn lower_frames_and_roads(
                 header: DeclarationHeader {
                     entity_kind: EntityKind::CanonicalFrame,
                     stable_key: Arc::from(frame.frame_key.value.as_ref()),
-                    span: span_of(frame.frame_key.span),
+                    span: span_of(frame.frame_key.span).into(),
                 },
                 lane_edge_geometries: Box::default(),
             },
@@ -2035,7 +2035,7 @@ fn lower_frames_and_roads(
             GeometryReferenceLineIntent {
                 road_key: Arc::from(road.road_key.value.as_ref()),
                 frame: frame.clone(),
-                span: span_of(road.span),
+                span: span_of(road.span).into(),
             },
         ));
         for span in &road.cross_section_spans {
@@ -2124,7 +2124,7 @@ fn lower_cross_section_span(
                             "lanes[].widthMeters",
                             span_of,
                         )?,
-                        span: span_of(lane.span),
+                        span: span_of(lane.span).into(),
                     });
                 }
                 elements.push(OwnedCorridorElementReference::RoadSection(
@@ -2172,7 +2172,7 @@ fn lower_cross_section_span(
                         "facilityBands[].widthMeters",
                         span_of,
                     )?,
-                    span: span_of(facility.span),
+                    span: span_of(facility.span).into(),
                 });
                 elements.push(OwnedCorridorElementReference::FacilityBand(
                     resolver.resolve::<FacilityBandKind>(
@@ -2207,14 +2207,14 @@ fn lower_cross_section_span(
                 span_of,
             )?,
             offsets: offsets.into_boxed_slice(),
-            span: span_of(span.span),
+            span: span_of(span.span).into(),
         },
     ));
     declarations.push(TypedAstDeclaration::RoadCorridor(RoadCorridorDeclaration {
         header: DeclarationHeader {
             entity_kind: EntityKind::RoadCorridor,
             stable_key: Arc::from(span.corridor_key.value.as_ref()),
-            span: span_of(span.corridor_key.span),
+            span: span_of(span.corridor_key.span).into(),
         },
         reference_section: resolver.resolve::<RoadSectionKind>(
             &span.reference_section_key,
@@ -2258,7 +2258,7 @@ fn lower_cross_section_span(
                 header: DeclarationHeader {
                     entity_kind: EntityKind::AuthoringLane,
                     stable_key: Arc::from(lane.lane_key.value.as_ref()),
-                    span: span_of(lane.lane_key.span),
+                    span: span_of(lane.lane_key.span).into(),
                 },
                 edge_chain: Box::new([resolver.resolve::<LaneEdgeKind>(
                     &lane.lane_edge_key,
@@ -2278,7 +2278,7 @@ fn lower_cross_section_span(
             header: DeclarationHeader {
                 entity_kind: EntityKind::RoadSection,
                 stable_key: Arc::from(section.section_key.value.as_ref()),
-                span: span_of(section.section_key.span),
+                span: span_of(section.section_key.span).into(),
             },
             kind_id: Arc::from(section.kind_id.value.as_ref()),
             lanes: lanes.into_boxed_slice(),
@@ -2288,7 +2288,7 @@ fn lower_cross_section_span(
                 header: DeclarationHeader {
                     entity_kind: EntityKind::LaneGroup,
                     stable_key: Arc::from(group.lane_group_key.value.as_ref()),
-                    span: span_of(group.lane_group_key.span),
+                    span: span_of(group.lane_group_key.span).into(),
                 },
                 road_section: resolver.local_reference(&section.section_key, span_of(group.span)),
             }));
@@ -2350,7 +2350,7 @@ fn lower_cross_section_span(
                 header: DeclarationHeader {
                     entity_kind: EntityKind::LaneEdge,
                     stable_key: Arc::from(lane.lane_edge_key.value.as_ref()),
-                    span: span_of(lane.lane_edge_key.span),
+                    span: span_of(lane.lane_edge_key.span).into(),
                 },
                 length,
                 speed_limit,
@@ -2371,7 +2371,7 @@ fn lower_cross_section_span(
             header: DeclarationHeader {
                 entity_kind: EntityKind::FacilityBand,
                 stable_key: Arc::from(facility.facility_band_key.value.as_ref()),
-                span: span_of(facility.facility_band_key.span),
+                span: span_of(facility.facility_band_key.span).into(),
             },
             kind_id: Arc::from(facility.kind_id.value.as_ref()),
         }));
@@ -2400,7 +2400,7 @@ fn lower_junctions(
             header: DeclarationHeader {
                 entity_kind: EntityKind::Junction,
                 stable_key: Arc::from(junction.junction_key.value.as_ref()),
-                span: span_of(junction.junction_key.span),
+                span: span_of(junction.junction_key.span).into(),
             },
             approach_edges: approach_edges.into_boxed_slice(),
         }));
@@ -2443,7 +2443,7 @@ fn lower_junctions(
                 header: DeclarationHeader {
                     entity_kind: EntityKind::LaneEdge,
                     stable_key: Arc::from(internal_edge.lane_edge_key.value.as_ref()),
-                    span: span_of(internal_edge.lane_edge_key.span),
+                    span: span_of(internal_edge.lane_edge_key.span).into(),
                 },
                 length,
                 speed_limit,
@@ -2454,7 +2454,7 @@ fn lower_junctions(
                     key: Arc::from(internal_edge.lane_edge_key.value.as_ref()),
                     junction: resolver
                         .local_reference(&junction.junction_key, span_of(internal_edge.span)),
-                    span: span_of(internal_edge.span),
+                    span: span_of(internal_edge.span).into(),
                 },
             ));
         }
@@ -2554,7 +2554,7 @@ fn lower_junctions(
                 header: DeclarationHeader {
                     entity_kind: EntityKind::Movement,
                     stable_key: Arc::from(connection.movement_key.value.as_ref()),
-                    span: span_of(connection.movement_key.span),
+                    span: span_of(connection.movement_key.span).into(),
                 },
                 junction: resolver
                     .local_reference(&junction.junction_key, span_of(connection.span)),
@@ -2569,7 +2569,7 @@ fn lower_junctions(
                 header: DeclarationHeader {
                     entity_kind: EntityKind::ManeuverPath,
                     stable_key: Arc::from(connection.maneuver_path_key.value.as_ref()),
-                    span: span_of(connection.maneuver_path_key.span),
+                    span: span_of(connection.maneuver_path_key.span).into(),
                 },
                 movement: resolver
                     .local_reference(&connection.movement_key, span_of(connection.span)),
@@ -2586,7 +2586,7 @@ fn lower_junctions(
                     entry_edge,
                     internal_edges: internal_edges.into_boxed_slice(),
                     exit_edge,
-                    span: span_of(connection.span),
+                    span: span_of(connection.span).into(),
                 },
             ));
         }
@@ -2621,7 +2621,7 @@ fn lower_overlays(
             header: DeclarationHeader {
                 entity_kind: EntityKind::SignalGroup,
                 stable_key: Arc::from(group.signal_group_key.value.as_ref()),
-                span: span_of(group.signal_group_key.span),
+                span: span_of(group.signal_group_key.span).into(),
             },
         }));
     }
@@ -2665,7 +2665,7 @@ fn lower_overlays(
                 header: DeclarationHeader {
                     entity_kind: EntityKind::SignalPhase,
                     stable_key: Arc::from(phase.signal_phase_key.value.as_ref()),
-                    span: span_of(phase.signal_phase_key.span),
+                    span: span_of(phase.signal_phase_key.span).into(),
                 },
                 duration_ms,
                 states: states.into_boxed_slice(),
@@ -2676,7 +2676,7 @@ fn lower_overlays(
                 header: DeclarationHeader {
                     entity_kind: EntityKind::SignalController,
                     stable_key: Arc::from(controller.signal_controller_key.value.as_ref()),
-                    span: span_of(controller.signal_controller_key.span),
+                    span: span_of(controller.signal_controller_key.span).into(),
                 },
                 offset_ms,
                 signal_groups: signal_groups.into_boxed_slice(),
@@ -2689,7 +2689,7 @@ fn lower_overlays(
             header: DeclarationHeader {
                 entity_kind: EntityKind::ParkingArea,
                 stable_key: Arc::from(area.parking_area_key.value.as_ref()),
-                span: span_of(area.parking_area_key.span),
+                span: span_of(area.parking_area_key.span).into(),
             },
         }));
     }
@@ -2714,7 +2714,7 @@ fn lower_overlays(
             header: DeclarationHeader {
                 entity_kind: EntityKind::ParkingSpace,
                 stable_key: Arc::from(space.parking_space_key.value.as_ref()),
-                span: span_of(space.parking_space_key.span),
+                span: span_of(space.parking_space_key.span).into(),
             },
             parking_area,
             entry: anchor(&space.entry, "parkingSpaces[].entry")?,
@@ -2760,7 +2760,7 @@ fn lower_overlays(
                 header: DeclarationHeader {
                     entity_kind: EntityKind::ParticipantClass,
                     stable_key: Arc::from(class.participant_class_key.value.as_ref()),
-                    span: span_of(class.participant_class_key.span),
+                    span: span_of(class.participant_class_key.span).into(),
                 },
                 extends,
             },
@@ -2799,7 +2799,7 @@ fn lower_overlays(
                 header: DeclarationHeader {
                     entity_kind: EntityKind::VehicleProfile,
                     stable_key: Arc::from(profile.vehicle_profile_key.value.as_ref()),
-                    span: span_of(profile.vehicle_profile_key.span),
+                    span: span_of(profile.vehicle_profile_key.span).into(),
                 },
                 participant_class: resolver.resolve::<ParticipantClassKind>(
                     &profile.participant_class,
@@ -2873,7 +2873,7 @@ fn lower_overlays(
             header: DeclarationHeader {
                 entity_kind: EntityKind::AccessRule,
                 stable_key: Arc::from(rule.access_rule_key.value.as_ref()),
-                span: span_of(rule.access_rule_key.span),
+                span: span_of(rule.access_rule_key.span).into(),
             },
             target,
             effect: match rule.effect {
@@ -2898,7 +2898,7 @@ fn lower_overlays(
             header: DeclarationHeader {
                 entity_kind: EntityKind::StaticRoute,
                 stable_key: Arc::from(route.static_route_key.value.as_ref()),
-                span: span_of(route.static_route_key.span),
+                span: span_of(route.static_route_key.span).into(),
             },
             edge_sequence: edge_sequence.into_boxed_slice(),
         }));
@@ -2908,7 +2908,7 @@ fn lower_overlays(
             header: DeclarationHeader {
                 entity_kind: EntityKind::StopLine,
                 stable_key: Arc::from(stop_line.stop_line_key.value.as_ref()),
-                span: span_of(stop_line.stop_line_key.span),
+                span: span_of(stop_line.stop_line_key.span).into(),
             },
             lane_edge: resolver.resolve::<LaneEdgeKind>(
                 &stop_line.lane_edge,
@@ -2935,7 +2935,7 @@ fn lower_overlays(
             header: DeclarationHeader {
                 entity_kind: EntityKind::ManeuverGate,
                 stable_key: Arc::from(gate.maneuver_gate_key.value.as_ref()),
-                span: span_of(gate.maneuver_gate_key.span),
+                span: span_of(gate.maneuver_gate_key.span).into(),
             },
             maneuver_path: resolver.resolve::<ManeuverPathKind>(
                 &gate.maneuver_path,
@@ -2966,7 +2966,7 @@ fn lower_overlays(
             header: DeclarationHeader {
                 entity_kind: EntityKind::WaitingZone,
                 stable_key: Arc::from(zone.waiting_zone_key.value.as_ref()),
-                span: span_of(zone.waiting_zone_key.span),
+                span: span_of(zone.waiting_zone_key.span).into(),
             },
             maneuver_path: resolver.resolve::<ManeuverPathKind>(
                 &zone.maneuver_path,

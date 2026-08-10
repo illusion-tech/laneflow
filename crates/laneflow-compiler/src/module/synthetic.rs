@@ -29,8 +29,8 @@ use crate::declaration::{
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceModuleHeader,
-    SourceSpan, SpatialAxis, SpatialGeometryViolation,
+    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceLocation,
+    SourceModuleHeader, SourceSpan, SpatialAxis, SpatialGeometryViolation,
 };
 
 use super::admission::{AdmittedOfficialModule, ImportRecord, TypedAstModule};
@@ -58,7 +58,7 @@ pub struct SyntheticModuleBuilder {
     imports: Vec<ImportRecord>,
     import_index: HashMap<Arc<str>, usize>,
     declarations: Vec<TypedAstDeclaration>,
-    declaration_index: HashMap<EntityKind, HashMap<Arc<str>, SourceSpan>>,
+    declaration_index: HashMap<EntityKind, HashMap<Arc<str>, SourceLocation>>,
     declaration_count: u64,
     typed_ast_record_count: u64,
     reference_count: u64,
@@ -545,7 +545,7 @@ impl SyntheticModuleBuilder {
         let namespace: Arc<str> = namespace.into();
         self.imports.push(ImportRecord {
             namespace: Arc::clone(&namespace),
-            span,
+            span: span.into(),
         });
         self.import_index.insert(namespace, self.imports.len() - 1);
         self.string_item_count = observed_string_items;
@@ -815,7 +815,7 @@ impl SyntheticModuleBuilder {
                     input.lane_edge_key,
                     &duplicate[1].module_namespace,
                     &duplicate[1].declaration_key,
-                    span,
+                    span.clone(),
                 ),
             ));
         }
@@ -825,7 +825,7 @@ impl SyntheticModuleBuilder {
             header: DeclarationHeader {
                 entity_kind: EntityKind::LaneEdge,
                 stable_key: Arc::clone(&stable_key),
-                span: span.clone(),
+                span: span.clone().into(),
             },
             length,
             speed_limit,
@@ -835,7 +835,7 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::LaneEdge)
             .or_default()
-            .insert(Arc::clone(&stable_key), span);
+            .insert(Arc::clone(&stable_key), span.into());
         self.declarations.push(declaration);
         self.declaration_count = next_declaration_count;
         self.reference_count = next_reference_count;
@@ -892,14 +892,14 @@ impl SyntheticModuleBuilder {
             header: DeclarationHeader {
                 entity_kind: EntityKind::Junction,
                 stable_key: Arc::clone(&stable_key),
-                span: span.clone(),
+                span: span.clone().into(),
             },
             approach_edges: Box::default(),
         });
         self.declaration_index
             .entry(EntityKind::Junction)
             .or_default()
-            .insert(Arc::clone(&stable_key), span);
+            .insert(Arc::clone(&stable_key), span.into());
         self.declarations.push(declaration);
         self.commit_declaration_resources(state);
         Ok(self)
@@ -981,7 +981,7 @@ impl SyntheticModuleBuilder {
             header: DeclarationHeader {
                 entity_kind: EntityKind::Movement,
                 stable_key: Arc::clone(&stable_key),
-                span: span.clone(),
+                span: span.clone().into(),
             },
             junction,
             directed_entry_approach_key: input.directed_entry_approach_key.into(),
@@ -990,7 +990,7 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::Movement)
             .or_default()
-            .insert(Arc::clone(&stable_key), span);
+            .insert(Arc::clone(&stable_key), span.into());
         self.declarations.push(declaration);
         self.commit_declaration_resources(state);
         Ok(self)
@@ -1074,7 +1074,7 @@ impl SyntheticModuleBuilder {
             header: DeclarationHeader {
                 entity_kind: EntityKind::ManeuverPath,
                 stable_key: Arc::clone(&stable_key),
-                span: span.clone(),
+                span: span.clone().into(),
             },
             movement,
             entry_edge,
@@ -1084,7 +1084,7 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::ManeuverPath)
             .or_default()
-            .insert(Arc::clone(&stable_key), span);
+            .insert(Arc::clone(&stable_key), span.into());
         self.declarations.push(declaration);
         self.commit_declaration_resources(state);
         Ok(self)
@@ -1139,13 +1139,13 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::StopLine)
             .or_default()
-            .insert(Arc::clone(&stable_key), span.clone());
+            .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::StopLine(StopLineDeclaration {
                 header: DeclarationHeader {
                     entity_kind: EntityKind::StopLine,
                     stable_key,
-                    span,
+                    span: span.clone().into(),
                 },
                 lane_edge,
             }));
@@ -1193,13 +1193,13 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::SignalGroup)
             .or_default()
-            .insert(Arc::clone(&stable_key), span.clone());
+            .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::SignalGroup(SignalGroupDeclaration {
                 header: DeclarationHeader {
                     entity_kind: EntityKind::SignalGroup,
                     stable_key,
-                    span,
+                    span: span.clone().into(),
                 },
             }));
         self.commit_declaration_resources(state);
@@ -1351,7 +1351,7 @@ impl SyntheticModuleBuilder {
                 header: DeclarationHeader {
                     entity_kind: EntityKind::SignalPhase,
                     stable_key: phase.signal_phase_key.into(),
-                    span: span.clone(),
+                    span: span.clone().into(),
                 },
                 duration_ms: phase.duration_ms,
                 states: states.into_boxed_slice(),
@@ -1362,14 +1362,14 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::SignalController)
             .or_default()
-            .insert(Arc::clone(&stable_key), span.clone());
+            .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::SignalController(
                 SignalControllerDeclaration {
                     header: DeclarationHeader {
                         entity_kind: EntityKind::SignalController,
                         stable_key,
-                        span,
+                        span: span.clone().into(),
                     },
                     offset_ms: input.offset_ms,
                     signal_groups: signal_groups.into_boxed_slice(),
@@ -1420,13 +1420,13 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::ParkingArea)
             .or_default()
-            .insert(Arc::clone(&stable_key), span.clone());
+            .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::ParkingArea(ParkingAreaDeclaration {
                 header: DeclarationHeader {
                     entity_kind: EntityKind::ParkingArea,
                     stable_key,
-                    span,
+                    span: span.clone().into(),
                 },
             }));
         self.commit_declaration_resources(state);
@@ -1517,13 +1517,13 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::ParkingSpace)
             .or_default()
-            .insert(Arc::clone(&stable_key), span.clone());
+            .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::ParkingSpace(ParkingSpaceDeclaration {
                 header: DeclarationHeader {
                     entity_kind: EntityKind::ParkingSpace,
                     stable_key,
-                    span,
+                    span: span.clone().into(),
                 },
                 parking_area,
                 entry,
@@ -1597,14 +1597,14 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::ParticipantClass)
             .or_default()
-            .insert(Arc::clone(&stable_key), span.clone());
+            .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::ParticipantClass(
                 ParticipantClassDeclaration {
                     header: DeclarationHeader {
                         entity_kind: EntityKind::ParticipantClass,
                         stable_key,
-                        span,
+                        span: span.clone().into(),
                     },
                     extends,
                 },
@@ -1674,13 +1674,13 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::VehicleProfile)
             .or_default()
-            .insert(Arc::clone(&stable_key), span.clone());
+            .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations.push(TypedAstDeclaration::VehicleProfile(
             VehicleProfileDeclaration {
                 header: DeclarationHeader {
                     entity_kind: EntityKind::VehicleProfile,
                     stable_key,
-                    span,
+                    span: span.clone().into(),
                 },
                 participant_class,
                 iidm: input.iidm,
@@ -1880,7 +1880,7 @@ impl SyntheticModuleBuilder {
                     duplicate.lane_edge.declaration_key(),
                     None,
                     SpatialGeometryViolation::DuplicateEdgeBinding,
-                    span,
+                    span.clone(),
                     None,
                 ),
             ));
@@ -1913,13 +1913,13 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::CanonicalFrame)
             .or_default()
-            .insert(Arc::clone(&stable_key), span.clone());
+            .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations.push(TypedAstDeclaration::CanonicalFrame(
             CanonicalFrameDeclaration {
                 header: DeclarationHeader {
                     entity_kind: EntityKind::CanonicalFrame,
                     stable_key,
-                    span,
+                    span: span.clone().into(),
                 },
                 lane_edge_geometries,
             },
@@ -2088,13 +2088,13 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::AccessRule)
             .or_default()
-            .insert(Arc::clone(&stable_key), span.clone());
+            .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::AccessRule(AccessRuleDeclaration {
                 header: DeclarationHeader {
                     entity_kind: EntityKind::AccessRule,
                     stable_key,
-                    span,
+                    span: span.clone().into(),
                 },
                 target,
                 effect: input.effect,
@@ -2189,13 +2189,13 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::ManeuverGate)
             .or_default()
-            .insert(Arc::clone(&stable_key), span.clone());
+            .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::ManeuverGate(ManeuverGateDeclaration {
                 header: DeclarationHeader {
                     entity_kind: EntityKind::ManeuverGate,
                     stable_key,
-                    span,
+                    span: span.clone().into(),
                 },
                 maneuver_path,
                 transition_index: input.transition_index,
@@ -2277,13 +2277,13 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::WaitingZone)
             .or_default()
-            .insert(Arc::clone(&stable_key), span.clone());
+            .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::WaitingZone(WaitingZoneDeclaration {
                 header: DeclarationHeader {
                     entity_kind: EntityKind::WaitingZone,
                     stable_key,
-                    span,
+                    span: span.clone().into(),
                 },
                 maneuver_path,
                 entry_gate,
@@ -2384,13 +2384,13 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::StaticRoute)
             .or_default()
-            .insert(Arc::clone(&stable_key), span.clone());
+            .insert(Arc::clone(&stable_key), span.clone().into());
         self.declarations
             .push(TypedAstDeclaration::StaticRoute(StaticRouteDeclaration {
                 header: DeclarationHeader {
                     entity_kind: EntityKind::StaticRoute,
                     stable_key,
-                    span,
+                    span: span.into(),
                 },
                 edge_sequence: edge_sequence.into_boxed_slice(),
             }));
@@ -2449,14 +2449,14 @@ impl SyntheticModuleBuilder {
             header: DeclarationHeader {
                 entity_kind: EntityKind::FacilityBand,
                 stable_key: Arc::clone(&stable_key),
-                span: span.clone(),
+                span: span.clone().into(),
             },
             kind_id: input.kind_id.into(),
         });
         self.declaration_index
             .entry(EntityKind::FacilityBand)
             .or_default()
-            .insert(Arc::clone(&stable_key), span);
+            .insert(Arc::clone(&stable_key), span.into());
         self.declarations.push(declaration);
         self.commit_declaration_resources(state);
         Ok(self)
@@ -2516,14 +2516,14 @@ impl SyntheticModuleBuilder {
             header: DeclarationHeader {
                 entity_kind: EntityKind::LaneGroup,
                 stable_key: Arc::clone(&stable_key),
-                span: span.clone(),
+                span: span.clone().into(),
             },
             road_section,
         });
         self.declaration_index
             .entry(EntityKind::LaneGroup)
             .or_default()
-            .insert(Arc::clone(&stable_key), span);
+            .insert(Arc::clone(&stable_key), span.into());
         self.declarations.push(declaration);
         self.commit_declaration_resources(state);
         Ok(self)
@@ -2618,7 +2618,7 @@ impl SyntheticModuleBuilder {
                 header: DeclarationHeader {
                     entity_kind: EntityKind::AuthoringLane,
                     stable_key: lane.authoring_lane_key.into(),
-                    span: span.clone(),
+                    span: span.clone().into(),
                 },
                 edge_chain: edge_chain.into_boxed_slice(),
                 lane_group,
@@ -2702,7 +2702,7 @@ impl SyntheticModuleBuilder {
             header: DeclarationHeader {
                 entity_kind: EntityKind::RoadSection,
                 stable_key: Arc::clone(&stable_key),
-                span: span.clone(),
+                span: span.clone().into(),
             },
             kind_id: input.kind_id.into(),
             lanes: lanes.into_boxed_slice(),
@@ -2710,7 +2710,7 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::RoadSection)
             .or_default()
-            .insert(Arc::clone(&stable_key), span);
+            .insert(Arc::clone(&stable_key), span.into());
         self.declarations.push(declaration);
         self.commit_declaration_resources(state);
         Ok(self)
@@ -2834,7 +2834,7 @@ impl SyntheticModuleBuilder {
             header: DeclarationHeader {
                 entity_kind: EntityKind::RoadCorridor,
                 stable_key: Arc::clone(&stable_key),
-                span: span.clone(),
+                span: span.clone().into(),
             },
             reference_section,
             elements: elements.into_boxed_slice(),
@@ -2842,7 +2842,7 @@ impl SyntheticModuleBuilder {
         self.declaration_index
             .entry(EntityKind::RoadCorridor)
             .or_default()
-            .insert(Arc::clone(&stable_key), span);
+            .insert(Arc::clone(&stable_key), span.into());
         self.declarations.push(declaration);
         self.commit_declaration_resources(state);
         Ok(self)
@@ -2944,7 +2944,7 @@ impl SyntheticModuleBuilder {
             admitted: AdmittedOfficialModule::new(
                 TypedAstModule {
                     descriptor,
-                    declaration_span: self.header.declaration_span,
+                    declaration_span: self.header.declaration_span.into(),
                     source_documents,
                     imports: self.imports.into_boxed_slice(),
                     declarations: self.declarations.into_boxed_slice(),

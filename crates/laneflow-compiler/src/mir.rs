@@ -22,7 +22,7 @@ use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::diagnostic::DiagnosticCollector;
 use crate::hir::{HirAccessTarget, HirCorridorElement, HirLaneEdgeKey, HirSignalControl, HirUnit};
 use crate::module::ResolvedSourceLocation;
-use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
+use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
 
 /// 区分 MIR 模块表键的零尺寸阶段标记。
 pub(crate) enum MirModuleTag {}
@@ -81,7 +81,7 @@ pub(crate) struct MirModule {
     /// 模块稳定 authoring namespace。
     pub(crate) authoring_namespace_id: Arc<str>,
     /// 模块声明位置。
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// MIR 平坦连接表中的一条有类型车道图边连接。
@@ -89,7 +89,7 @@ pub(crate) struct MirLaneEdgeConnection {
     /// 当前 `MirUnit::lane_edges` 中的目标键。
     pub(crate) target: MirLaneEdgeKey,
     /// 原始引用位置，供后续诊断与源映射使用。
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
     /// `source_span` 的属主模块：派生 transition 为声明该 connection 的模块（entry/exit
     /// 可跨模块导入，不能由起始边归属反推）；普通显式 successor 为 `None`，解析时回落到
     /// 起始边模块。
@@ -113,7 +113,7 @@ pub(crate) struct MirDerivedTransitionOccurrence {
     /// 转换目标边。
     pub(crate) successor: MirLaneEdgeKey,
     /// 派生该 transition 的 connection 记录来源位置。
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// 已冻结模块归属和连续连接区间的车道图边 MIR 记录。
@@ -131,7 +131,7 @@ pub(crate) struct MirLaneEdge {
     /// 此边在 `MirUnit::lane_edge_connections` 中的半开连续区间。
     pub(crate) connections: TableRange<MirLaneEdgeConnection>,
     /// 原始声明位置。
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) enum MirCorridorElement {
@@ -151,7 +151,7 @@ pub(crate) struct MirRoadCorridor {
     pub(crate) stable_id: RoadCorridorId,
     pub(crate) reference_section: MirRoadSectionKey,
     pub(crate) elements: TableRange<MirCorridorElement>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirRoadSection {
@@ -161,12 +161,12 @@ pub(crate) struct MirRoadSection {
     pub(crate) road_corridor: MirRoadCorridorKey,
     pub(crate) kind_id: Arc<str>,
     pub(crate) lanes: TableRange<MirAuthoringLane>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirAuthoringLaneEdge {
     pub(crate) target: MirLaneEdgeKey,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirAuthoringLane {
@@ -177,7 +177,7 @@ pub(crate) struct MirAuthoringLane {
     pub(crate) edge_chain: TableRange<MirAuthoringLaneEdge>,
     pub(crate) lane_group: Option<MirLaneGroupKey>,
     pub(crate) lane_group_source_location: Option<ResolvedSourceLocation>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirLaneGroupMember {
@@ -190,7 +190,7 @@ pub(crate) struct MirLaneGroup {
     pub(crate) stable_id: LaneGroupId,
     pub(crate) road_section: MirRoadSectionKey,
     pub(crate) members: TableRange<MirLaneGroupMember>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirFacilityBand {
@@ -199,7 +199,7 @@ pub(crate) struct MirFacilityBand {
     pub(crate) stable_id: FacilityBandId,
     pub(crate) road_corridor: MirRoadCorridorKey,
     pub(crate) kind_id: Arc<str>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirJunction {
@@ -207,7 +207,7 @@ pub(crate) struct MirJunction {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: JunctionId,
     pub(crate) movements: TableRange<MirJunctionMovement>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirMovement {
@@ -219,7 +219,7 @@ pub(crate) struct MirMovement {
     pub(crate) directed_entry_approach_key: Arc<str>,
     pub(crate) directed_exit_approach_key: Arc<str>,
     pub(crate) maneuver_paths: TableRange<MirMovementManeuverPath>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirJunctionMovement {
@@ -232,7 +232,7 @@ pub(crate) struct MirMovementManeuverPath {
 
 pub(crate) struct MirManeuverPathEdge {
     pub(crate) target: MirLaneEdgeKey,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirManeuverPath {
@@ -244,7 +244,7 @@ pub(crate) struct MirManeuverPath {
     pub(crate) edges: TableRange<MirManeuverPathEdge>,
     pub(crate) maneuver_gates: TableRange<MirManeuverPathGate>,
     pub(crate) waiting_zones: TableRange<MirManeuverPathWaitingZone>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirManeuverPathGate {
@@ -265,7 +265,7 @@ pub(crate) struct MirStopLine {
     pub(crate) stable_id: StopLineId,
     pub(crate) lane_edge: MirLaneEdgeKey,
     pub(crate) maneuver_gates: TableRange<MirStopLineManeuverGate>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirManeuverGate {
@@ -278,10 +278,10 @@ pub(crate) struct MirManeuverGate {
     pub(crate) stop_line: MirStopLineKey,
     pub(crate) stop_line_source_location: Option<ResolvedSourceLocation>,
     pub(crate) signal_control: MirSignalControl,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) enum MirSignalControl {
     Group {
         signal_group: MirSignalGroupKey,
@@ -296,7 +296,7 @@ pub(crate) struct MirSignalGroup {
     pub(crate) stable_id: SignalGroupId,
     pub(crate) controller: MirSignalControllerKey,
     pub(crate) maneuver_gates: TableRange<MirSignalGroupManeuverGate>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirSignalGroupManeuverGate {
@@ -316,7 +316,7 @@ pub(crate) struct MirSignalController {
     pub(crate) cycle_duration_ms: u64,
     pub(crate) signal_groups: TableRange<MirSignalControllerGroup>,
     pub(crate) phases: TableRange<MirSignalPhase>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirSignalPhase {
@@ -326,7 +326,7 @@ pub(crate) struct MirSignalPhase {
     pub(crate) controller: MirSignalControllerKey,
     pub(crate) duration_ms: u64,
     pub(crate) states: TableRange<MirSignalPhaseState>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirSignalPhaseState {
@@ -344,10 +344,10 @@ pub(crate) struct MirParkingArea {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: ParkingAreaId,
     pub(crate) parking_spaces: TableRange<MirParkingAreaSpace>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct MirParkingLaneAnchor {
     pub(crate) lane_edge: MirLaneEdgeKey,
     pub(crate) progress_meters: f64,
@@ -371,7 +371,7 @@ pub(crate) struct MirParkingSpace {
     pub(crate) entry: MirParkingLaneAnchor,
     pub(crate) exit: MirParkingLaneAnchor,
     pub(crate) geometry: MirParkingSpaceGeometry,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirParticipantClass {
@@ -379,11 +379,11 @@ pub(crate) struct MirParticipantClass {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: ParticipantClassId,
     pub(crate) parent: Option<MirParticipantClassKey>,
-    pub(crate) parent_source_span: Option<SourceSpan>,
+    pub(crate) parent_source_span: Option<SourceLocation>,
     pub(crate) depth: u32,
     pub(crate) subtree_enter: u32,
     pub(crate) subtree_exit: u32,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirVehicleProfile {
@@ -391,7 +391,7 @@ pub(crate) struct MirVehicleProfile {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: VehicleProfileId,
     pub(crate) participant_class: MirParticipantClassKey,
-    pub(crate) participant_class_source_span: SourceSpan,
+    pub(crate) participant_class_source_span: SourceLocation,
     pub(crate) length_meters: f64,
     pub(crate) desired_speed_meters_per_second: f64,
     pub(crate) min_gap_meters: f64,
@@ -399,7 +399,7 @@ pub(crate) struct MirVehicleProfile {
     pub(crate) max_acceleration_meters_per_second_squared: f64,
     pub(crate) comfortable_deceleration_meters_per_second_squared: f64,
     pub(crate) emergency_deceleration_meters_per_second_squared: f64,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirCanonicalFrame {
@@ -407,7 +407,7 @@ pub(crate) struct MirCanonicalFrame {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: CanonicalFrameId,
     pub(crate) lane_edge_geometries: TableRange<MirLaneEdgeGeometry>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirLaneEdgeGeometry {
@@ -419,7 +419,7 @@ pub(crate) struct MirLaneEdgeGeometry {
     pub(crate) points: TableRange<MirCanonicalPoint3F32>,
     pub(crate) segments: TableRange<MirSpatialSegment>,
     pub(crate) arc_length_meters: f32,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// Facility band 的几何行：只携带点范围（无 segment/弧长），点在全部 lane edge
@@ -428,7 +428,7 @@ pub(crate) struct MirFacilityBandGeometry {
     pub(crate) facility_band: MirFacilityBandKey,
     pub(crate) canonical_frame: MirCanonicalFrameKey,
     pub(crate) points: TableRange<MirCanonicalPoint3F32>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 #[derive(Clone, Copy)]
@@ -462,7 +462,7 @@ pub(crate) struct MirAccessRegulation {
 
 pub(crate) struct MirAccessRuleParticipantClass {
     pub(crate) participant_class: MirParticipantClassKey,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirAccessRule {
@@ -470,12 +470,12 @@ pub(crate) struct MirAccessRule {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: AccessRuleId,
     pub(crate) target: MirAccessTarget,
-    pub(crate) target_source_span: SourceSpan,
+    pub(crate) target_source_span: SourceLocation,
     pub(crate) effect: AccessEffect,
     pub(crate) participant_classes: TableRange<MirAccessRuleParticipantClass>,
     pub(crate) regulation: Option<MirAccessRegulation>,
     pub(crate) priority: i32,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirWaitingZone {
@@ -487,7 +487,7 @@ pub(crate) struct MirWaitingZone {
     pub(crate) entry_gate: MirManeuverGateKey,
     pub(crate) release_gate: MirManeuverGateKey,
     pub(crate) max_occupancy: u32,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirJunctionInternalEdge {
@@ -495,12 +495,12 @@ pub(crate) struct MirJunctionInternalEdge {
     pub(crate) junction: MirJunctionKey,
     /// 选择为规范主要来源的路径所属模块。
     pub(crate) module: MirModuleKey,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirStaticRouteEdge {
     pub(crate) target: MirLaneEdgeKey,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 pub(crate) struct MirStaticRouteTransition {
@@ -542,7 +542,7 @@ pub(crate) struct MirStaticRoute {
     pub(crate) maneuver_occurrences: TableRange<MirManeuverOccurrence>,
     pub(crate) gate_occurrences: TableRange<MirGateOccurrence>,
     pub(crate) waiting_zone_occurrences: TableRange<MirWaitingZoneOccurrence>,
-    pub(crate) source_span: SourceSpan,
+    pub(crate) source_span: SourceLocation,
 }
 
 /// MIR 阶段成功后一次性冻结的目标布局中立表集合。
@@ -1073,20 +1073,20 @@ pub(crate) fn lower_to_mir(
     let corridor_elements: Vec<MirCorridorElement> = hir
         .corridor_elements
         .iter()
-        .map(|element| match *element {
+        .map(|element| match element {
             HirCorridorElement::RoadSection {
                 road_section,
                 source_location,
             } => MirCorridorElement::RoadSection {
                 road_section: section_mapping[road_section.index()],
-                source_location,
+                source_location: source_location.clone(),
             },
             HirCorridorElement::FacilityBand {
                 facility_band,
                 source_location,
             } => MirCorridorElement::FacilityBand {
                 facility_band: band_mapping[facility_band.index()],
-                source_location,
+                source_location: source_location.clone(),
             },
         })
         .collect();
@@ -1116,7 +1116,7 @@ pub(crate) fn lower_to_mir(
                 road_section: section_mapping[lane.road_section.index()],
                 edge_chain: remap_range(lane.edge_chain, &unit.limits, &lane.source_span)?,
                 lane_group: lane.lane_group.map(|key| group_mapping[key.index()]),
-                lane_group_source_location: lane.lane_group_source_location,
+                lane_group_source_location: lane.lane_group_source_location.clone(),
                 source_span: lane.source_span.clone(),
             })
         })
@@ -1188,7 +1188,7 @@ pub(crate) fn lower_to_mir(
                 stable_key: Arc::clone(&movement.stable_key),
                 stable_id: movement.stable_id,
                 junction: junction_mapping[movement.junction.index()],
-                junction_source_location: movement.junction_source_location,
+                junction_source_location: movement.junction_source_location.clone(),
                 directed_entry_approach_key: Arc::clone(&movement.directed_entry_approach_key),
                 directed_exit_approach_key: Arc::clone(&movement.directed_exit_approach_key),
                 maneuver_paths: remap_range(
@@ -1216,7 +1216,7 @@ pub(crate) fn lower_to_mir(
                 stable_key: Arc::clone(&path.stable_key),
                 stable_id: path.stable_id,
                 movement: movement_mapping[path.movement.index()],
-                movement_source_location: path.movement_source_location,
+                movement_source_location: path.movement_source_location.clone(),
                 edges: remap_range(path.edges, &unit.limits, &path.source_span)?,
                 maneuver_gates: remap_range(path.maneuver_gates, &unit.limits, &path.source_span)?,
                 waiting_zones: remap_range(path.waiting_zones, &unit.limits, &path.source_span)?,
@@ -1284,17 +1284,17 @@ pub(crate) fn lower_to_mir(
             stable_key: Arc::clone(&gate.stable_key),
             stable_id: gate.stable_id,
             maneuver_path: maneuver_path_mapping[gate.maneuver_path.index()],
-            maneuver_path_source_location: gate.maneuver_path_source_location,
+            maneuver_path_source_location: gate.maneuver_path_source_location.clone(),
             transition_index: gate.transition_index,
             stop_line: stop_line_mapping[gate.stop_line.index()],
-            stop_line_source_location: gate.stop_line_source_location,
-            signal_control: match gate.signal_control {
+            stop_line_source_location: gate.stop_line_source_location.clone(),
+            signal_control: match &gate.signal_control {
                 HirSignalControl::Group {
                     signal_group,
                     source_location,
                 } => MirSignalControl::Group {
                     signal_group: signal_group_mapping[signal_group.index()],
-                    source_location,
+                    source_location: source_location.clone(),
                 },
                 HirSignalControl::None => MirSignalControl::None,
             },
@@ -1309,7 +1309,7 @@ pub(crate) fn lower_to_mir(
             stable_key: Arc::clone(&waiting.stable_key),
             stable_id: waiting.stable_id,
             maneuver_path: maneuver_path_mapping[waiting.maneuver_path.index()],
-            maneuver_path_source_location: waiting.maneuver_path_source_location,
+            maneuver_path_source_location: waiting.maneuver_path_source_location.clone(),
             entry_gate: maneuver_gate_mapping[waiting.entry_gate.index()],
             release_gate: maneuver_gate_mapping[waiting.release_gate.index()],
             max_occupancy: waiting.max_occupancy,
@@ -1381,7 +1381,7 @@ pub(crate) fn lower_to_mir(
         .iter()
         .map(|member| MirSignalControllerGroup {
             signal_group: signal_group_mapping[member.signal_group.index()],
-            source_location: member.source_location,
+            source_location: member.source_location.clone(),
         })
         .collect::<Vec<_>>();
     let signal_phases = hir
@@ -1405,7 +1405,7 @@ pub(crate) fn lower_to_mir(
         .map(|state| MirSignalPhaseState {
             signal_group: signal_group_mapping[state.signal_group.index()],
             aspect: state.aspect,
-            source_location: state.source_location,
+            source_location: state.source_location.clone(),
         })
         .collect::<Vec<_>>();
     let signal_group_maneuver_gates = hir
@@ -1441,16 +1441,16 @@ pub(crate) fn lower_to_mir(
             parking_area: space
                 .parking_area
                 .map(|area| parking_area_mapping[area.index()]),
-            parking_area_source_location: space.parking_area_source_location,
+            parking_area_source_location: space.parking_area_source_location.clone(),
             entry: MirParkingLaneAnchor {
                 lane_edge: hir_to_mir[space.entry.lane_edge.index()],
                 progress_meters: space.entry.progress_meters,
-                source_location: space.entry.source_location,
+                source_location: space.entry.source_location.clone(),
             },
             exit: MirParkingLaneAnchor {
                 lane_edge: hir_to_mir[space.exit.lane_edge.index()],
                 progress_meters: space.exit.progress_meters,
-                source_location: space.exit.source_location,
+                source_location: space.exit.source_location.clone(),
             },
             geometry: MirParkingSpaceGeometry {
                 lateral_offset_meters: space.geometry.lateral_offset_meters,
@@ -1803,7 +1803,7 @@ fn dense_mapping<K>(count: usize) -> Result<Vec<ArenaKey<K>>, DiagnosticBundle> 
                     CompileLimitDimension::MirRecordCount,
                     u64::from(u32::MAX),
                     u64::from(u32::MAX) + 1,
-                    None,
+                    None::<SourceLocation>,
                     None,
                 ))
             })
@@ -1814,7 +1814,7 @@ fn dense_mapping<K>(count: usize) -> Result<Vec<ArenaKey<K>>, DiagnosticBundle> 
 fn remap_range<T, U>(
     range: TableRange<T>,
     limits: &crate::CompileLimits,
-    source_span: &SourceSpan,
+    source_span: &SourceLocation,
 ) -> Result<TableRange<U>, DiagnosticBundle> {
     TableRange::try_from_usize(range.start() as usize, range.len() as usize)
         .map_err(|overflow| arena_overflow(overflow, limits, Some(source_span.clone())))
@@ -1823,7 +1823,7 @@ fn remap_range<T, U>(
 fn remap_range_optional_span<T, U>(
     range: TableRange<T>,
     limits: &crate::CompileLimits,
-    source_span: Option<&SourceSpan>,
+    source_span: Option<&SourceLocation>,
 ) -> Result<TableRange<U>, DiagnosticBundle> {
     TableRange::try_from_usize(range.start() as usize, range.len() as usize)
         .map_err(|overflow| arena_overflow(overflow, limits, source_span.cloned()))
@@ -1836,7 +1836,7 @@ fn requested_bytes<T>(count: u64) -> u64 {
 fn arena_overflow(
     _: ArenaKeyOverflow,
     limits: &crate::CompileLimits,
-    primary_span: Option<SourceSpan>,
+    primary_span: Option<SourceLocation>,
 ) -> DiagnosticBundle {
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
         CompileLimitDimension::MirRecordCount,
