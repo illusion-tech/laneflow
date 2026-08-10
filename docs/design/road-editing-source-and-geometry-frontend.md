@@ -378,8 +378,8 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
 
 - 来源描述符固定使用 `SourceLanguage::RoadEditingSource = 3`、
   `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 1`；数值 `2`
-  已由 #297 的 feature-gated `CurrentTrafficSpatialV0_10` 独占，旧未发布
-  `GeometryDocument = 2` 在 G2 删除且不建立别名；
+  只是旧未发布 `GeometryDocument` 的历史编号，G2 删除且不建立别名；#297 不增加
+  compiler `SourceLanguage` 变体；
 - `format_version = 1` 是本 exact G1 schema 的精确版本，不是“最低兼容版本”。B1 尚未进入
   publication，内部 fixture 由 exact commit/digest 绑定；任何可能让旧 bytes 被不同解释的
   wire 或语义变化都必须提升 `format_version` 及对应 frontend/geometry semantics code，
@@ -521,7 +521,7 @@ pub struct RoadEditingByteRange { /* checked u32 start + length */ }
 适用 kind 中的一项。`RoadEditingPropertyPath` 是最多四步的闭合叶属性路径，不接受任意
 字符串或向量下标；例如 lane 结束宽度表示为
 `AuthoringLane.width_profile -> LinearWidthProfile.end_width_meters`，Bezier 第二控制点的
-x 分量表示为 `CurveSegment.geometry -> CubicBezierSegment -> control_1 -> Vec3F64.x`。
+x 分量表示为 `CurveSegment.geometry -> CubicBezierSegment -> control_2 -> Vec3F64.x`。
 关系 occurrence 已由 subject 携带，故属性路径不重复表达 owner 向量下标。有产品顺序的
 owner vector 使用原产品 ordinal；无序唯一集合使用解析/规范化 target reference 后按
 `namespace + owner tuple + local key` 排序得到的 canonical ordinal。可解析但目标未知的
