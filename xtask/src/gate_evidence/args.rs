@@ -148,6 +148,61 @@ pub(super) fn parse_gate_evidence_target_metadata(
     Ok((role, issue_numbers))
 }
 
+pub(super) fn parse_gate_evidence_target_metadata_from_g3_comment(
+    repo: &str,
+    pr_number: u64,
+    body: &str,
+) -> Result<(GateEvidencePrRole, Vec<u64>), String> {
+    let commands = gate_assertion_commands(body, "PR G3", GateEvidencePhase::G3)?;
+    let mut role = None;
+    let mut issues = BTreeSet::new();
+
+    for command in commands {
+        let tokens = command.split_ascii_whitespace().collect::<Vec<_>>();
+        let command_index = tokens
+            .iter()
+            .position(|token| *token == "check-gate-evidence")
+            .ok_or("PR G3 comment 的 `Gate 断言` 缺少 `check-gate-evidence`")?;
+        let parsed_tokens = tokens[command_index + 1..]
+            .iter()
+            .map(|token| (*token).to_string())
+            .collect::<Vec<_>>();
+        let args = parse_gate_evidence_args(&parsed_tokens)?;
+        if args.phase != GateEvidencePhase::G3
+            || args.repo != repo
+            || expected_gate_command(&args, GateEvidencePhase::G3) != command
+        {
+            return Err(
+                "PR G3 comment 的 `Gate 断言` 不是当前 repository 的规范 G3 命令".to_string(),
+            );
+        }
+
+        let command_role = match (args.delivery_pr, args.related_prs.as_slice()) {
+            (Some(number), _) if number == pr_number => GateEvidencePrRole::Delivery,
+            (None, [number]) if *number == pr_number => GateEvidencePrRole::Related,
+            _ => {
+                return Err(format!(
+                    "PR G3 comment 的 `Gate 断言` 未把当前 PR #{pr_number} 记录为 Delivery 或唯一 Related target"
+                ));
+            }
+        };
+        if role
+            .replace(command_role)
+            .is_some_and(|current| current != command_role)
+        {
+            return Err("PR G3 comment 的 `Gate 断言` 混用了 Delivery / Related 角色".to_string());
+        }
+        if !issues.insert(args.issue) {
+            return Err("PR G3 comment 的 `Gate 断言` 重复记录同一关联 Issue".to_string());
+        }
+    }
+
+    Ok((
+        role.ok_or("PR G3 comment 未解析出当前 PR 角色")?,
+        issues.into_iter().collect(),
+    ))
+}
+
 pub(super) fn validate_gate_evidence_target_pr(
     repo: &str,
     phase: GateEvidencePhase,

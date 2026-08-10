@@ -171,7 +171,14 @@ jobs:
         id: targets
         shell: bash
         env:
-          ALLOW_SUCCESS_EVENT: "${{ github.run_attempt == 1 && github.event_name == 'issue_comment' && github.event.action == 'created' && github.event.comment.body == 'g3-evidence: changed' }}"
+          MARKER_SUCCESS_EVENT: "${{ github.run_attempt == 1 && github.event_name == 'issue_comment' && github.event.action == 'created' && github.event.comment.body == 'g3-evidence: changed' }}"
+          REUSE_MARKER_EVENT: >-
+            ${{ github.run_attempt == 1 &&
+                github.event_name == 'pull_request_target' &&
+                github.event.action == 'edited' &&
+                github.event.changes.body.from != null &&
+                contains(fromJSON('["dependabot", "dependabot[bot]", "app/dependabot"]'), github.event.sender.login) &&
+                contains(fromJSON('["dependabot", "dependabot[bot]", "app/dependabot"]'), github.event.pull_request.user.login) }}
           DIRECT_PRS: ${{ steps.direct.outputs.pr_numbers }}
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
@@ -253,20 +260,24 @@ jobs:
                 --argjson open "$open_prs" \
                 '$direct + $open | unique'
             )"
+            REUSE_MARKER_EVENT=false
           fi
 
           matrix="$(
             jq -cn \
               --argjson targets "$targets" \
               --argjson direct "$direct_prs" \
-              --argjson allow_success "$ALLOW_SUCCESS_EVENT" '
+              --argjson marker_success "$MARKER_SUCCESS_EVENT" \
+              --argjson reuse_marker "$REUSE_MARKER_EVENT" '
                 {include: [
                   $targets[] as $pr |
                   {
                     pr: $pr,
                     allow_success: (
-                      $allow_success and (($direct | index($pr)) != null)
-                    )
+                      ($marker_success and (($direct | index($pr)) != null)) or
+                      $reuse_marker
+                    ),
+                    reuse_marker: $reuse_marker
                   }
                 ]}'
           )"
@@ -311,6 +322,7 @@ jobs:
           ALLOW_SUCCESS: "${{ matrix.allow_success }}"
           GH_TOKEN: ${{ github.token }}
           MARKER_COMMENT_ID: "${{ matrix.allow_success && github.event.comment.id || '' }}"
+          REUSE_MARKER: "${{ matrix.reuse_marker }}"
           PR_NUMBER: ${{ matrix.pr }}
           REPOSITORY: ${{ github.repository }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
@@ -343,6 +355,24 @@ jobs:
           )"
 
           if [[ "$initial_eligibility" == "eligible" ]]; then
+            marker_comment_id="$MARKER_COMMENT_ID"
+            if [[ "$REUSE_MARKER" == "true" ]]; then
+              marker_comment_id="$(
+                gh api --paginate --slurp \
+                  "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" |
+                  jq -r '
+                    [.[][] |
+                      select(
+                        .body == "g3-evidence: changed" and
+                        .created_at == .updated_at
+                      )] |
+                    sort_by(.created_at, .id) |
+                    last |
+                    (.id // "")
+                  '
+              )"
+            fi
+
             evaluate_evidence() {
               local eligibility_exit
               local eligibility_output
@@ -371,7 +401,7 @@ jobs:
                 validation_output="${validation_output}\n\n${eligibility_output}"
                 if [[ "$eligibility_exit" -ne 0 ]]; then
                   validation_exit=$eligibility_exit
-                elif [[ ! "$MARKER_COMMENT_ID" =~ ^[1-9][0-9]*$ ]]; then
+                elif [[ ! "$marker_comment_id" =~ ^[1-9][0-9]*$ ]]; then
                   validation_output="${validation_output}\n\nTrusted marker comment ID is missing or invalid."
                   validation_exit=1
                 else
@@ -381,7 +411,7 @@ jobs:
                       check-g3-evidence-marker \
                       --repo "$REPOSITORY" \
                       --pr "$PR_NUMBER" \
-                      --comment-id "$MARKER_COMMENT_ID" 2>&1
+                      --comment-id "$marker_comment_id" 2>&1
                   )"
                   marker_exit=$?
                   set -e

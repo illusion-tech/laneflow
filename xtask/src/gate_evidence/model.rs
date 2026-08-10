@@ -119,6 +119,48 @@ pub(super) struct GitHubEditTimestamps {
 }
 
 #[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubUserContentEditsResponse {
+    pub(super) data: GitHubUserContentEditsData,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubUserContentEditsData {
+    pub(super) repository: Option<GitHubUserContentEditsRepository>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubUserContentEditsRepository {
+    #[serde(rename = "pullRequest")]
+    pub(super) pull_request: Option<GitHubUserContentEditsPullRequest>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubUserContentEditsPullRequest {
+    #[serde(rename = "userContentEdits")]
+    pub(super) user_content_edits: GitHubUserContentEditConnection,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubUserContentEditConnection {
+    #[serde(rename = "pageInfo")]
+    pub(super) page_info: GitHubPageInfo,
+    pub(super) nodes: Vec<GitHubUserContentEdit>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubPageInfo {
+    #[serde(rename = "hasNextPage")]
+    pub(super) has_next_page: bool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubUserContentEdit {
+    #[serde(rename = "editedAt")]
+    pub(super) edited_at: String,
+    pub(super) editor: Option<GitHubActor>,
+}
+
+#[derive(Debug, serde::Deserialize)]
 pub(super) struct GitHubTimelineItem {
     #[serde(default)]
     pub(super) id: Option<u64>,

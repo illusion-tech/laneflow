@@ -61,6 +61,44 @@ pub(super) fn gh_edit_timestamps(
         .ok_or_else(|| format!("GitHub GraphQL 未返回 {label} #{number}"))
 }
 
+pub(super) fn gh_pr_user_content_edits(
+    repo: &str,
+    number: u64,
+) -> Result<GitHubUserContentEditConnection, String> {
+    let (owner, name) = repo
+        .split_once('/')
+        .ok_or_else(|| format!("`--repo` 格式不正确：{repo}，应为 `owner/repo`"))?;
+    let query = r#"query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      userContentEdits(first: 100) {
+        pageInfo { hasNextPage }
+        nodes { editedAt editor { login } }
+      }
+    }
+  }
+}"#;
+    let response: GitHubUserContentEditsResponse = gh_json(&[
+        "api".to_string(),
+        "graphql".to_string(),
+        "-f".to_string(),
+        format!("query={query}"),
+        "-F".to_string(),
+        format!("owner={owner}"),
+        "-F".to_string(),
+        format!("name={name}"),
+        "-F".to_string(),
+        format!("number={number}"),
+    ])?;
+    response
+        .data
+        .repository
+        .ok_or("GitHub GraphQL 未返回目标 repository")?
+        .pull_request
+        .ok_or_else(|| format!("GitHub GraphQL 未返回 PR #{number}"))
+        .map(|pull_request| pull_request.user_content_edits)
+}
+
 pub(super) fn gh_issue_timeline(
     repo: &str,
     number: u64,
@@ -135,6 +173,126 @@ pub(super) fn validate_marker_after_activity_timestamp(
         ));
     }
     Ok(())
+}
+
+pub(super) fn validate_dependabot_body_edits_after_marker(
+    marker_created_at: &str,
+    timestamps: &GitHubEditTimestamps,
+    edits: &GitHubUserContentEditConnection,
+    label: &str,
+) -> Result<(), String> {
+    if edits.page_info.has_next_page {
+        return Err(format!(
+            "{label} body edit history 超过 100 条；无法证明 marker 后只有 Dependabot 自主改写"
+        ));
+    }
+    let marker_seconds = parse_utc_timestamp_seconds(marker_created_at)
+        .ok_or("G3 evidence marker createdAt 不是 UTC RFC3339 时间")?;
+    let last_edited_at = timestamps
+        .last_edited_at
+        .as_deref()
+        .ok_or_else(|| format!("{label} 缺少 lastEditedAt"))?;
+    let last_edited_seconds = parse_utc_timestamp_seconds(last_edited_at)
+        .ok_or_else(|| format!("{label} lastEditedAt 不是 UTC RFC3339 时间"))?;
+    let updated_seconds = parse_utc_timestamp_seconds(&timestamps.updated_at)
+        .ok_or_else(|| format!("{label} updatedAt 不是 UTC RFC3339 时间"))?;
+    if updated_seconds != last_edited_seconds {
+        return Err(format!(
+            "{label} 在最后一次 body edit 之外还有无法归因的 PR activity；旧 marker 不得恢复 success"
+        ));
+    }
+
+    let mut latest_history_edit = None;
+    let mut later_edit_count = 0;
+    for edit in &edits.nodes {
+        let edited_seconds = parse_utc_timestamp_seconds(&edit.edited_at)
+            .ok_or_else(|| format!("{label} userContentEdit.editedAt 不是 UTC RFC3339 时间"))?;
+        latest_history_edit = Some(
+            latest_history_edit.map_or(edited_seconds, |current: u64| current.max(edited_seconds)),
+        );
+        if edited_seconds <= marker_seconds {
+            continue;
+        }
+        later_edit_count += 1;
+        let editor = edit
+            .editor
+            .as_ref()
+            .ok_or_else(|| format!("{label} marker 后的 body edit 缺少 editor"))?;
+        if !is_dependabot_actor(&editor.login) {
+            return Err(format!(
+                "{label} marker 后包含非 Dependabot body edit（editor={}）；必须新增 marker",
+                editor.login
+            ));
+        }
+    }
+    if later_edit_count == 0 {
+        return Err(format!(
+            "{label} 没有可验证的 marker 后 Dependabot body edit；不得放宽常规 freshness"
+        ));
+    }
+    if latest_history_edit != Some(last_edited_seconds) {
+        return Err(format!(
+            "{label} userContentEdits 与 lastEditedAt 不一致；body edit history 不完整"
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn validate_latest_body_edit_is_dependabot(
+    edits: &GitHubUserContentEditConnection,
+    label: &str,
+) -> Result<(), String> {
+    if edits.page_info.has_next_page {
+        return Err(format!(
+            "{label} body edit history 超过 100 条；无法确认当前 body 由 Dependabot 自主改写"
+        ));
+    }
+    let mut latest_seconds = None;
+    let mut latest_edits = Vec::new();
+    for edit in &edits.nodes {
+        let edited_seconds = parse_utc_timestamp_seconds(&edit.edited_at)
+            .ok_or_else(|| format!("{label} userContentEdit.editedAt 不是 UTC RFC3339 时间"))?;
+        match latest_seconds {
+            None => {
+                latest_seconds = Some(edited_seconds);
+                latest_edits.push(edit);
+            }
+            Some(current) if edited_seconds > current => {
+                latest_seconds = Some(edited_seconds);
+                latest_edits.clear();
+                latest_edits.push(edit);
+            }
+            Some(current) if edited_seconds == current => latest_edits.push(edit),
+            _ => {}
+        }
+    }
+    if latest_edits.is_empty() {
+        return Err(format!("{label} 缺少 body edit history"));
+    }
+    for edit in latest_edits {
+        let editor = edit
+            .editor
+            .as_ref()
+            .ok_or_else(|| format!("{label} 最新 body edit 缺少 editor"))?;
+        if !is_dependabot_actor(&editor.login) {
+            return Err(format!(
+                "{label} 最新 body edit editor={}，不能启用仅供 Dependabot 自主改写的元数据恢复",
+                editor.login
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn is_dependabot_actor(actor: &str) -> bool {
+    matches!(
+        actor
+            .trim()
+            .trim_end_matches("[bot]")
+            .to_ascii_lowercase()
+            .as_str(),
+        "dependabot" | "app/dependabot"
+    )
 }
 
 pub(super) fn validate_marker_after_timeline(

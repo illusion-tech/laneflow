@@ -72,7 +72,7 @@
 ## Gate Ledger
 
 - [ ] G3 合并判断已记录：[当前 head 的 PR G3 comment](...)。该 comment 必须在合并前新增且保持 append-only，并包含 current head、rollout phase、checks、External Review Gate、G3 Evidence Gate Shadow、结构化审阅证据、review threads、验证、风险、例外、合并方式和 Gate 断言。
-- [ ] PR / Issue permalink 均已更新后，已新增精确 `g3-evidence: changed` 顶层 PR comment 并等待 trusted `G3 Evidence Gate Shadow` 重读；marker 必须未编辑，严格晚于 current G3 comment、当前 PR 与全部关联 Issue body 的最后编辑时间，并晚于关联 Issue 的 close/reopen 及 full-set 全部 PR 的 comment/review/commit/lifecycle timeline 活动；只有该新建 marker 可为直接目标发布 success，其他 conversation comment、marker edit/delete、review/thread/metadata/manual 或级联 Delivery 刷新只撤销旧 success；候选 workflow 尚未合入 `main` 时记录 bootstrap 边界。
+- [ ] PR / Issue permalink 均已更新后，已新增精确 `g3-evidence: changed` 顶层 PR comment 并等待 trusted `G3 Evidence Gate Shadow` 重读；marker 必须未编辑，严格晚于 current G3 comment、当前 PR 与全部关联 Issue body 的最后编辑时间，并晚于关联 Issue 的 close/reopen 及 full-set 全部 PR 的 comment/review/commit/lifecycle timeline 活动。只有该新建 marker 可首次为直接目标发布 success；仅精确 `dependabot-cargo-lock-only-v1` 的 Dependabot 自主 body edit 可在完整 trusted replay 后重用受影响 target 各自最近的 marker，人工 edit 与其他 conversation/review/thread/metadata/manual 活动仍要求新增 marker；候选 workflow 尚未合入 `main` 时记录 bootstrap 边界。
 - G4 回写：Delivery PR 在关联 Issue 的 G4 comment 发表后填入 permalink；Related PR 填 `N/A` 并说明不承担 Issue G4。
 
 <!--

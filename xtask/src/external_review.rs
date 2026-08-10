@@ -459,6 +459,11 @@ impl ExternalReviewResult {
         self.completion_time.as_deref()
     }
 
+    pub(crate) fn uses_dependabot_lockfile_policy(&self) -> bool {
+        self.state == ExternalReviewState::Pass
+            && self.provider.as_deref() == Some("dependabot_lockfile_policy")
+    }
+
     fn bind_identity_if_missing(&mut self, repository: &str, identity: &PullRequestIdentity) {
         if self.repository.is_empty() {
             self.repository = repository.to_string();
@@ -2525,6 +2530,7 @@ mod tests {
         let pass = evaluate_snapshot(&fixture(contents));
         assert_eq!(pass.state, ExternalReviewState::Pass);
         assert_eq!(pass.provider.as_deref(), Some("dependabot_lockfile_policy"));
+        assert!(pass.uses_dependabot_lockfile_policy());
         assert_eq!(pass.finding_count, 0);
         assert_eq!(
             pass.completion_time.as_deref(),

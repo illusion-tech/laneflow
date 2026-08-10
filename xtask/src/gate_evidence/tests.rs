@@ -73,6 +73,36 @@ fn parses_gate_evidence_target_arguments() {
 }
 
 #[test]
+fn recovers_dependabot_target_metadata_from_canonical_g3_assertions() {
+    let first = GateEvidenceArgs {
+        phase: GateEvidencePhase::G3,
+        repo: "illusion-tech/laneflow".to_string(),
+        issue: 325,
+        delivery_pr: None,
+        related_prs: vec![313],
+    };
+    let second = GateEvidenceArgs {
+        issue: 326,
+        ..first.clone()
+    };
+    let body = format!(
+        "## G3 合并判断\n- Gate 断言：`{}` 已通过。\n- Gate 断言：`{}` 已通过。",
+        expected_gate_command(&first, GateEvidencePhase::G3),
+        expected_gate_command(&second, GateEvidencePhase::G3),
+    );
+
+    assert_eq!(
+        parse_gate_evidence_target_metadata_from_g3_comment("illusion-tech/laneflow", 313, &body,),
+        Ok((GateEvidencePrRole::Related, vec![325, 326]))
+    );
+
+    let wrong_pr =
+        parse_gate_evidence_target_metadata_from_g3_comment("illusion-tech/laneflow", 314, &body)
+            .expect_err("a G3 assertion for another PR must not recover metadata");
+    assert!(wrong_pr.contains("当前 PR #314"));
+}
+
+#[test]
 fn target_requires_exact_closing_issue_associations() {
     let mut delivery_target = delivery_pr(None);
     delivery_target
@@ -393,6 +423,59 @@ fn validates_unedited_marker_identity_and_strict_ordering() {
         .is_err()
     );
     assert!(parse_utc_timestamp_seconds("2026-08-06T03:30:00.Z").is_none());
+}
+
+#[test]
+fn only_dependabot_body_edits_may_reuse_an_older_marker() {
+    let timestamps = GitHubEditTimestamps {
+        created_at: "2026-08-06T03:00:00Z".to_string(),
+        last_edited_at: Some("2026-08-06T03:31:00Z".to_string()),
+        updated_at: "2026-08-06T03:31:00Z".to_string(),
+    };
+    let edits = GitHubUserContentEditConnection {
+        page_info: GitHubPageInfo {
+            has_next_page: false,
+        },
+        nodes: vec![
+            GitHubUserContentEdit {
+                edited_at: "2026-08-06T03:20:00Z".to_string(),
+                editor: Some(GitHubActor {
+                    login: "wangzishi".to_string(),
+                }),
+            },
+            GitHubUserContentEdit {
+                edited_at: "2026-08-06T03:31:00Z".to_string(),
+                editor: Some(GitHubActor {
+                    login: "dependabot".to_string(),
+                }),
+            },
+        ],
+    };
+
+    assert!(
+        validate_dependabot_body_edits_after_marker(
+            "2026-08-06T03:30:00Z",
+            &timestamps,
+            &edits,
+            "PR #313",
+        )
+        .is_ok()
+    );
+    assert!(validate_latest_body_edit_is_dependabot(&edits, "PR #313").is_ok());
+
+    let mut human_edit = edits;
+    human_edit.nodes[1].editor = Some(GitHubActor {
+        login: "wangzishi".to_string(),
+    });
+    let error = validate_dependabot_body_edits_after_marker(
+        "2026-08-06T03:30:00Z",
+        &timestamps,
+        &human_edit,
+        "PR #313",
+    )
+    .expect_err("a later human edit still requires a new marker");
+    assert!(error.contains("非 Dependabot body edit"));
+    assert!(validate_latest_body_edit_is_dependabot(&human_edit, "PR #313").is_err());
 }
 
 #[test]
@@ -784,6 +867,10 @@ fn g3_evidence_shadow_workflow_preserves_trusted_ref_boundary() {
     assert!(workflow.contains("Fresh G3 evidence marker required"));
     assert!(workflow.contains("ALLOW_SUCCESS"));
     assert!(workflow.contains("MARKER_COMMENT_ID"));
+    assert!(workflow.contains("REUSE_MARKER_EVENT"));
+    assert!(workflow.contains("REUSE_MARKER"));
+    assert!(workflow.contains("github.event.changes.body.from != null"));
+    assert!(workflow.contains("repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100"));
     assert!(workflow.contains("- closed"));
     assert!(workflow.contains("initial_head"));
     assert!(workflow.contains("final_head"));
