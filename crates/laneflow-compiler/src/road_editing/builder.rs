@@ -318,7 +318,8 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
         limits: &'limits CompileLimits,
     ) -> Result<Self, DiagnosticBundle> {
         let mut usage = ModuleUsage {
-            typed_ast_record_count: 2,
+            // root 与 Provenance 不进入 Typed AST；ModuleHeader 恰好消费一条记录。
+            typed_ast_record_count: 1,
             wire_upper_bound: 32,
             ..ModuleUsage::default()
         };
