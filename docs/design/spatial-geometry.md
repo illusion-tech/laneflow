@@ -247,7 +247,8 @@ P0 -> P1 -> ... -> Pn
 `Fine2Cm`、`Balanced5Cm`、`Compact10Cm` 三个封闭几何精度配置档，并以
 `Smooth1Deg`、`Balanced2Deg`、`Compact5Deg` 三个封闭几何方向配置档正交选择；该决策不修改
 本节任何 production Spatial 常量，也不把 Adapter 展示或车辆物理偏差计入静态几何
-预算；候选状态不修改本节任何 production Spatial 常量。
+预算；其 B1 厘米值是内部验证的工程目标，不是连续曲线最大误差证明。候选状态不修改
+本节任何 production Spatial 常量。
 
 ## 6. 长度权威与绑定
 

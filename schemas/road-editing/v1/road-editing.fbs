@@ -170,6 +170,7 @@ table RoadSection {
   kind_id:string (required, id: 1);
   authoring_lanes:[string] (required, id: 2);
   canvas_selection:string (id: 3);
+  road_corridor:string (required, id: 4);
 }
 
 table AuthoringLane {
@@ -179,6 +180,7 @@ table AuthoringLane {
   width_profile:LinearWidthProfile (required, id: 3);
   lane_group:string (id: 4);
   canvas_selection:string (id: 5);
+  road_section:string (required, id: 6);
 }
 
 /// explicit_geometry 只用于路口内部边；道路区段车道的中心线由走向与横断面派生。
@@ -264,6 +266,7 @@ table SignalPhase {
   duration_milliseconds:ulong = 0 (id: 1);
   states:[SignalPhaseState] (required, id: 2);
   canvas_selection:string (id: 3);
+  signal_controller:string (required, id: 4);
 }
 
 table ParkingArea {
@@ -303,6 +306,7 @@ table FacilityBand {
   kind_id:string (required, id: 1);
   width_profile:LinearWidthProfile (required, id: 2);
   canvas_selection:string (id: 3);
+  road_corridor:string (required, id: 4);
 }
 
 table ParticipantClass {

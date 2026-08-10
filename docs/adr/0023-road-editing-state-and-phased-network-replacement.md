@@ -112,8 +112,13 @@ ManeuverPath target；不暴露当前 runtime 尚不可执行的 FacilityBand ta
 取舍和回归算法；production 只允许已选择的 FlatBuffers 来源编码与一条官方读取路径。
 
 清理只移除 JSON 词法、对象 shape 和文本行列等格式复杂度。曲线求值、
-stationing、offset、规范 `f32` 量化、位置/方向误差证明、身份和领域语义验证仍然必要，
+stationing、offset、规范 `f32` 量化、确定性位置/方向目标、身份和领域语义验证仍然必要，
 不能把它们误计为 JSON 债务。
+
+ADR 0022 的 B1 决定只改变首轮几何质量承诺：FlatBuffers v1 与第一方 writer/reader 可以
+用于内部完整验证，但在后续产品复核前不进入公开 schema publication，也不承诺长期城市
+存档兼容。B1 不是隐藏 JSON fallback，未来若需要连续硬误差保证，必须以新的来源/几何
+语义版本重新进入 G1；在 B1 尚未提升为正式存档语义前不承担迁移兼容。
 
 ### 4. 道路修改按 A → C 分阶段交付
 
@@ -141,8 +146,9 @@ A 阶段不承诺在已建道路上直接显示并拖拽原始曲线控制柄。
 
 道路走向定义（Road Alignment Definition）是重建当前已建道路所需的几何编制描述。
 v1 只接受直线与三次 Bé塞尔曲线。圆弧、螺旋线或其他 importer/generator 曲线必须在
-写入 v1 前转换为这两种 segment，并在所选 2/5/10 cm 位置档内证明误差；v1 不保存原始
-primitive 语义。增加新 curve union 必须提升来源格式版本并显式迁移。保存走向定义不
+写入 v1 前转换为这两种 segment，并按所选 2/5/10 cm B1 目标记录固定网格的观测误差；
+该观测不构成原始 primitive 到 cubic 的连续硬证明。v1 不保存原始 primitive 语义。
+增加新 curve union 必须提升来源格式版本并显式迁移。保存走向定义不
 等于运行时保留曲线求值器，也不等于 UI 必须暴露全部控制参数。
 
 常见道路 taper 由 lane/facility 在一个 corridor station 区间内的线性起止宽度表达；

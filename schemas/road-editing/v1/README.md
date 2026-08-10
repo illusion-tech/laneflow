@@ -32,8 +32,8 @@ file identifier。`.fbs` 冻结 wire shape；本文冻结不能只靠 verifier �
 ### 2.1 Token
 
 所有 namespace、document key、稳定声明 key、road alignment key、`kind_id`、有向
-approach key、引用和 `canvas_selection` 都先受调用点的 `max_single_string_bytes`
-约束。稳定标识 token 另外满足：
+approach key、引用中的每个 token 和 `canvas_selection` 都先受调用点的
+`max_single_string_bytes`（当前 `53` bytes）约束。稳定标识 token 另外满足：
 
 ```text
 首字节: ASCII 字母或数字
@@ -46,17 +46,41 @@ key 和 `road_alignment_key` 都不能包含保留分隔符 `::`；单个 `:` �
 
 ### 2.2 有类型引用
 
-所有名为实体引用的 `string` 字段只接受：
+模块级身份实体引用只接受：
 
 ```text
 local-key
 namespace::local-key
 ```
 
-限定引用必须恰好包含一个 `::`，两侧都非空且分别满足上述 token 规则；不接受多个
-分隔符。限定引用的 namespace 必须等于当前模块或出现在 `module_header.imports`；被
-引用实体的种类由字段或伴随的封闭 enum 决定。`RoadCorridor.road_alignment_key` 只
-引用当前模块的 `RoadAlignment`，不能跨模块，因为道路走向不是 Identity v1 实体。
+owner-scoped 身份实体引用必须携带从模块根 owner 到目标的完整 key 链：
+
+```text
+owner-key>...>local-key
+namespace::owner-key>...>local-key
+```
+
+`>` 不属于 token 字符；链中每段分别按 token 和 53-byte 上限验证。限定引用必须恰好
+包含一个 `::`，两侧非空；namespace 必须等于当前模块或出现在 imports。当前 v1 最深
+目标是 `Junction > Movement > ManeuverPath > ManeuverGate/WaitingZone`，所以完整引用
+最多 4 个 key token；连同可选 53-byte namespace 和分隔符，wire string 的派生硬上限
+固定为 `270 bytes`。该例外只适用于已解析为有类型实体引用的 string，普通 string 和
+单个 token 仍不得超过 53 bytes。
+
+被引用实体的种类由字段或伴随的封闭 enum 决定，因而链深固定：`RoadSection` 和
+`FacilityBand` 为 `RoadCorridor > local`；`AuthoringLane`/`LaneGroup` 为
+`RoadCorridor > RoadSection > local`；`Movement` 为 `Junction > local`；
+`ManeuverPath` 为 `Junction > Movement > local`；`ManeuverGate`/`WaitingZone` 为
+`Junction > Movement > ManeuverPath > local`；`SignalPhase` 为
+`SignalController > local`。模块级身份种类只允许一个 local token。
+
+定义 owner 的字段必须指向当前模块，禁止 `namespace::`：`RoadSection.road_corridor`、
+`AuthoringLane.road_section`、`Movement.junction`、`ManeuverPath.movement`、
+`ManeuverGate.maneuver_path`、`WaitingZone.maneuver_path`、
+`SignalPhase.signal_controller`、`LaneGroup.road_section` 和
+`FacilityBand.road_corridor`。一个 owner tree 不能跨模块；其他普通引用可以指向显式
+import。`RoadCorridor.road_alignment_key` 只引用当前模块的 `RoadAlignment`，因为道路
+走向不是 Identity v1 实体。
 
 ### 2.3 Canvas 关联
 
@@ -82,8 +106,8 @@ namespace::local-key
 | 代码 | FlatBuffers table  | 稳定 key 字段           | 所有者 / 身份锚点来源                       |
 | ---: | ------------------ | ----------------------- | ------------------------------------------- |
 |    1 | `RoadCorridor`     | `road_corridor_key`     | 当前 module namespace                       |
-|    2 | `RoadSection`      | `road_section_key`      | 唯一 `RoadCorridor.elements`                |
-|    3 | `AuthoringLane`    | `authoring_lane_key`    | 唯一 `RoadSection.authoring_lanes`          |
+|    2 | `RoadSection`      | `road_section_key`      | 同模块 `road_corridor` + 唯一 elements 成员 |
+|    3 | `AuthoringLane`    | `authoring_lane_key`    | 同模块 `road_section` + 唯一 lanes 成员     |
 |    4 | `LaneEdge`         | `lane_edge_key`         | 当前 module namespace；角色不参与身份       |
 |    5 | `Junction`         | `junction_key`          | 当前 module namespace                       |
 |    6 | `Movement`         | `movement_key`          | `junction` + 两个有向 approach key          |
@@ -93,11 +117,11 @@ namespace::local-key
 |   10 | `StopLine`         | `stop_line_key`         | 当前 module namespace                       |
 |   11 | `SignalGroup`      | `signal_group_key`      | 当前 module namespace                       |
 |   12 | `SignalController` | `signal_controller_key` | 当前 module namespace                       |
-|   13 | `SignalPhase`      | `signal_phase_key`      | 唯一 `SignalController.signal_phases`       |
+|   13 | `SignalPhase`      | `signal_phase_key`      | 同模块 controller + 唯一 phases 成员        |
 |   14 | `ParkingArea`      | `parking_area_key`      | 当前 module namespace                       |
 |   15 | `ParkingSpace`     | `parking_space_key`     | 当前 module namespace；可选 area 不参与身份 |
 |   16 | `LaneGroup`        | `lane_group_key`        | `road_section`                              |
-|   17 | `FacilityBand`     | `facility_band_key`     | 唯一 `RoadCorridor.elements`                |
+|   17 | `FacilityBand`     | `facility_band_key`     | 同模块 corridor + 唯一 elements 成员        |
 |   18 | `ParticipantClass` | `participant_class_key` | 当前 module namespace                       |
 |   19 | `AccessRule`       | `access_rule_key`       | 当前 module namespace                       |
 |   20 | `VehicleProfile`   | `vehicle_profile_key`   | 当前 module namespace                       |
@@ -105,15 +129,17 @@ namespace::local-key
 |   22 | `CanonicalFrame`   | `canonical_frame_key`   | 当前 module namespace                       |
 
 所有 table 在其根向量中的物理顺序都不进入语义。一个 buffer 只属于一个 namespace，
-且 owner 可能位于另一模块。来源 v1 要求 `RoadAlignment` 根向量内
-`road_alignment_key` 唯一，并要求每个稳定声明根向量内 local key 唯一；因此模块
-namespace、根 table kind 与 local key 共同形成无歧义来源地址。该规则只服务来源定位与
-writer 全序，不改变 Identity v1 的 parent-scoped `CanonicalIdentity`，不同模块或不同
-声明种类仍可复用同一 local-key 拼写；production reader 与第一方 writer 都拒绝根向量
-内重复 key。官方 writer 对 `RoadAlignment` 和每个稳定声明
-向量按 local key 的 UTF-8 bytes 排序，不尝试在单模块 writer 中构造跨模块
-`CanonicalIdentity`。有语义顺序的 owner 向量保持产品顺序；无序引用集合先规范引用
-拼写（当前模块使用 local form，导入模块使用 qualified form）再按 bytes 排序。
+且全部身份 owner 必须在同一 buffer。来源 v1 要求 `RoadAlignment` 和模块级身份种类在
+各自根向量内 local key 唯一；owner-scoped 种类只要求同一直接 owner 下 sibling local
+key 唯一，不同 owner 可以合法复用同名 local key。每个 child 的显式 parent 字段必须与
+owner 向量精确互证，缺失、重复或冲突 owner 均失败关闭。
+
+道路编辑来源地址固定为“module namespace + table kind + 完整 owner key 链 + local key”。
+官方 writer 对 `RoadAlignment` 按 key 排序；模块级身份种类按 local key 排序；
+owner-scoped 根向量按完整 owner key tuple、再按 local key 的 UTF-8 bytes 逐段字典序排序。
+该 tuple 是全序，不拼接后比较，也不依赖稳定排序或调用者输入次序。有语义顺序的 owner
+向量保持产品顺序；无序引用集合先规范引用拼写（当前模块省略 namespace，导入模块使用
+qualified form）再按 namespace、owner key tuple、local key 逐段排序。
 production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份与最终规范顺序。
 
 ## 4. 模块头、固定单位和配置档
@@ -133,19 +159,21 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
 - v1 不保存一张永远固定、却会与字段后缀竞争权威的 `Units` table。距离、角度、速度和
   时间单位由精确字段名冻结为米、弧度、米每秒、秒或毫秒；writer/reader 不能接受
   每文档单位切换，也不能把宿主单位隐式带入来源。
-- `geometry_accuracy_profile` 只接受 `Fine2Cm / Balanced5Cm / Compact10Cm`；
+- `geometry_accuracy_profile` 只接受 `Fine2Cm / Balanced5Cm / Compact10Cm`；这些名称
+  表示 ADR 0022 B1 的 `2/5/10 cm` 工程目标，不是连续曲线最大误差保证；
   `geometry_direction_profile` 只接受 `Smooth1Deg / Balanced2Deg / Compact5Deg`。
   `Unspecified` 一律无效，不存在隐式默认、任意浮点容差或资源不足自动降级。
 - 最终 `SourceModuleDescriptor.frontendOptionsDigest` 对以下精确前像计算一次 SHA-256：
 
   ```text
   ASCII "laneflow.road-editing.frontend-options.v1\0"
+  || geometry approximation semantics fixed code DeterministicTargetV1 = 1: u8
   || geometry_accuracy_profile: u8
   || geometry_direction_profile: u8
   || provenance.frontend_options_digest: [u8; 32]
   ```
 
-  它绑定实际选择的两个几何档位；不进入来源文档摘要或实体稳定身份。
+  它绑定 B1 算法语义和实际选择的两个几何档位；不进入来源文档摘要或实体稳定身份。
 
 ## 5. 道路走向、横断面和车道
 
@@ -153,23 +181,25 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   `LineSegment` 和 `CubicBezierSegment`；段起点是前一段终点，第一段起点是
   `CurveProgram.start`。所有点必须有限并位于规范 frame 可证明的范围内。圆弧、螺旋线
   和其他外部曲线必须由 importer/generator 在写入前转换为这两种 segment，并在所选
-  2/5/10 cm 位置档内证明误差；v1 不保存原始曲线原语语义。
+  2/5/10 cm B1 目标下记录固定网格观测误差；该观测不是连续硬保证。v1 不保存原始
+  曲线原语语义。
 - 每个 `RoadCorridor` 绑定一个当前模块 alignment 和半开 station 区间。第一段从
   `0 m` 开始；同一 alignment 的 corridor 按 station 无重叠、无间隙完整覆盖。
   `end_station_kind = Finite` 时读取严格更大的 `end_station_meters`；末段必须使用
   `AlignmentEnd`，此时 `end_station_meters` 必须为规范 `+0.0` 且不参与含义。
 - `RoadCorridor.elements` 的顺序是横断面从左到右的语义顺序；每个引用按 `kind` 指向
-  `RoadSection` 或 `FacilityBand`。每个 section/band 必须在整个模块图中恰有一个
-  corridor owner。
+  同模块 `RoadSection` 或 `FacilityBand`。每个 section/band 的显式 `road_corridor`
+  必须与该向量互证，并在当前模块恰有一个 corridor owner。
 - `reference_section` 必须出现在 `elements`；`reference_lane` 必须出现在该 section 的
   `authoring_lanes`，方向为 `Forward`，其中心线精确绑定 reference line。
-- `RoadSection.authoring_lanes` 是从左到右的语义顺序。每个 `AuthoringLane` v1 恰好
+- `RoadSection.authoring_lanes` 是从左到右的语义顺序；每个 child 的显式
+  `road_section` 必须与该向量互证。每个 `AuthoringLane` v1 恰好
   覆盖一个 `lane_edge`，携带线性宽度档、显式方向和可选 lane group。宽度两端都必须
   有限且非负，不能同时为零；在 corridor station 上按端点线性插值。零端点只表达该
   member 在该 corridor 边界开始或结束，不允许用同一 lane 身份穿过零宽边界；与另一
   edge 的拓扑连接仍须显式声明。需要把同一逻辑车道跨多个 corridor span 延续时，使用
   不同稳定 lane/edge 并通过显式 successor 连接，不从左右下标猜测身份。
-- `LaneGroup.road_section` 是唯一 owner；被 lane 引用时必须与该 lane 所属 section 相同。
+- `LaneGroup.road_section` 是同模块唯一 owner；被 lane 引用时必须与该 lane 所属 section 相同。
 - `FacilityBand` 携带 non-traversable `kind_id` 和同样的线性非负宽度档，不产生可遍历
   边；零端点同样只能表达 member 在 corridor 边界开始或结束。
 - `LaneEdge.speed_limit_meters_per_second` 必须有限且严格大于零。道路区段 edge 不设置
@@ -185,7 +215,7 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   横向位置在每个 station 由从左到右宽度前缀的半宽累计唯一导出；v1 不接受独立横向
   offset 或第二份中心线。`Backward` lane 先在 alignment 参考方向求 offset，最终规范
   点序列再反转到行驶方向；successor、停车 progress 和 StopLine 均按该行驶方向解释。
-  线性宽度 taper 的精确 `d(s)`、`s(t)`、left 向量、区间导数界、舍入顺序和失败关闭
+  线性宽度 taper 的精确 `d(s)`、`s(t)`、left 向量、B1 固定采样、舍入顺序和失败关闭
   条件只由 ADR 0022 第 6 节定义，reader/writer 不得另选数值公式。
 
 ## 6. 路口、控制、停车与准入
@@ -201,11 +231,16 @@ production reader 接受任意物理顺序并在 HIR/MIR 中闭合完整身份�
   不得重复；`J.internal_edges` 必须精确等于其全部 path internal 成员的并集，跨 junction、
   少声明和孤立成员均失败。`ManeuverPath` 的权威边序列固定为
   `entry_edge + internal_edges + exit_edge`。
+- 每个 `Junction.approach_edges` 成员必须是 section-derived edge，且与完整编译单元的
+  junction-internal owner map 全局不相交。一个 junction 的 internal edge 不能作为本身或
+  另一 junction 的 approach/entry/exit；该检查使用现有 edge role/owner index，不从名称
+  或几何推断。
 - `ManeuverGate.transition_index` 指向路径边序列的一个有效相邻转换。
   `signal_control = None` 时 `signal_group` 必须缺失；`SignalGroup` 时该字段必须存在。
 - `WaitingZone.max_occupancy` 必须大于零；entry/release gate 必须属于同一路径且顺序合法。
-- `SignalController.signal_groups` 是无序唯一 owner 集合；`signal_phases` 的顺序定义循环。
-  每个 phase 被恰好一个 controller 拥有，`duration_milliseconds > 0`，其 owner-local
+- `SignalController.signal_groups` 是无序引用集合；`signal_phases` 的顺序定义循环。
+  每个 phase 的显式 `signal_controller` 必须与该向量互证并在同模块被恰好一个 controller
+  拥有，`duration_milliseconds > 0`，其 owner-local
   `states` 对 controller 全部 signal group 恰好各出现一次。
 - `ParkingSpace.parking_area` 只是可选组织关系，不参与身份。entry/exit progress、矩形
   尺寸、横向偏移和朝向继续遵守已接受停车几何范围。
@@ -252,7 +287,10 @@ FlatBuffers scalar 的 wire 缺省值与显式写入同一默认值不可区分�
 - 每张 table 的字段 `id` 从 0 连续分配；union 字段同时占用隐式 type id。字段只能在
   末尾追加或标记 `(deprecated)`，不能改类型、改默认语义、移动/复用 id。
 - enum 与 union 判别值显式固定且永不复用；新增持久字段、声明种类、曲线 union 或
-  语义变化都提升 `format_version`，并提供显式一次性迁移器。
+  语义变化都提升 `format_version`。只有已经产品确认并发布的存档语义才承担一次性迁移；
+  B1 v1 只授权内部完整验证，尚未进入 `schemas/publication.json`，不建立长期存档兼容。
+- 未来连续硬保证或 B1 production promotion 都必须重新进行产品/G1 判断；B1 UI/文档
+  只能陈述工程目标和观测证据，不能声明 `2/5/10 cm` 连续最大误差保证。
 - G2 必须使用固定 `flatc 25.12.19` 对 Rust、C++、C# 生成物执行 clean regeneration，
   对后继 schema 执行 `flatc --conform`，并证明 production 调用图只从受检
   size-prefixed root 进入且不调用 `_unchecked`。

@@ -3,9 +3,10 @@
   "workloadId": "LF-ROAD-EDITING-P100-v1",
   "status": "g1-definition",
   "sourceFormat": "LF-ROAD-EDITING-SOURCE-v1",
+  "productMaturity": "B1-internal-complete-validation-only; not a published long-term save contract",
   "sourceFormatSchema": {
     "path": "schemas/road-editing/v1/road-editing.fbs",
-    "sha256": "764f578262239cdfabf9e8be19052edca4e77b76064b20d5bdbb6cec61d84a88"
+    "sha256": "19a00983bf18bd8b84b68523f3db2f72eecaa822ecac0d0a0665401014317a68"
   },
   "semanticSeed": {
     "path": "research/issue-296-geometry-frontend-calibration/fixtures/p100-v1.fixture.json",
@@ -17,7 +18,7 @@
     "testParser": {
       "crate": "serde_json",
       "version": "1.0.151",
-      "cargoLockChecksum": "c841b55ecdae098c80dcae9cf767f6a0c2cdb3416bbef72181df4d0fe73f14",
+      "cargoLockChecksum": "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14",
       "numberRule": "deserialize every seed geometry/scalar number directly into its declared Rust f64, u32, i32 or u64 destination type; no decimal normalization layer",
       "duplicateAndUnknownRule": "the test-only seed DTO uses deny_unknown_fields and rejects duplicate logical fields before mapping"
     },
@@ -67,6 +68,7 @@
       ],
       "frontendOptionsDigestPreimage": [
         "ASCII laneflow.road-editing.p100.frontend-options.v1 followed by U+0000",
+        "geometry approximation semantics fixed code DeterministicTargetV1 = 1 as one u8",
         "geometry accuracy profile numeric code as one u8",
         "geometry direction profile numeric code as one u8"
       ],
@@ -78,9 +80,10 @@
       "crossSectionRule": "nested roadSections, lanes, laneGroups and facilityBands are promoted one-for-one to their corresponding stable root tables; all seed keys, kind IDs, directions, references, speeds and ordered/set-like relationships are preserved",
       "laneEdgeRule": "every seed lane maps its laneEdgeKey to one section-derived LaneEdge; every junction.internalEdges[] entry maps its laneEdgeKey to one junction-internal LaneEdge with its exact explicit curve; no other LaneEdge is generated",
       "junctionRule": "every seed junction maps one-for-one; approachEdges and internalEdges preserve their member sets; every connections[] entry maps one Movement and one ManeuverPath using movementKey, junctionKey, directed approach keys, maneuverPathKey, entryEdge, ordered internalEdgeSequence and exitEdge exactly",
-      "remainingStableTablesRule": "seed overlays.stopLines, maneuverGates, waitingZones, signalGroups, signalControllers, each signalControllers[].phases entry, parkingAreas, parkingSpaces, participantClasses, accessRules, vehicleProfiles, staticRoutes and root frames map one-for-one to same-semantic v1 tables with all scalar, string, enum, optional and ordered values preserved except rules explicitly overridden below",
+      "remainingStableTablesRule": "seed overlays.stopLines, maneuverGates, waitingZones, signalGroups, signalControllers, each signalControllers[].phases entry, parkingAreas, parkingSpaces, participantClasses, accessRules, vehicleProfiles, staticRoutes and root frames map one-for-one to same-semantic v1 tables with all scalar, string, enum, optional and ordered values preserved except rules explicitly overridden below; equal signalPhaseKey values under different controllers remain equal sibling-local keys and are not renamed",
       "curveRule": "all seed line/cubic segment kinds, start/end/control coordinates and segment order are preserved bit-for-bit as parsed binary64 values; roads create alignment CurvePrograms and junction internal edges create explicit CurvePrograms",
-      "referenceRule": "all preserved seed references are local-form references in their generated module; the synthetic import chain adds no cross-module entity reference",
+      "referenceRule": "the synthetic import chain adds no cross-module entity reference; module-scoped targets use local-key, while owner-scoped targets use the exact current-module chain owner-key>...>local-key with no namespace prefix; the chain is derived from the explicit owner rules below and every segment preserves the seed key",
+      "identityOwnerRule": "all identity owner trees are module-local; synthesize and mutually validate RoadSection.road_corridor, AuthoringLane.road_section, Movement.junction, ManeuverPath.movement, ManeuverGate.maneuver_path, WaitingZone.maneuver_path, SignalPhase.signal_controller, LaneGroup.road_section and FacilityBand.road_corridor; RoadCorridor.elements, RoadSection.authoring_lanes and SignalController.signal_phases must name the same children in their preserved semantic order",
       "enumAndUnionMapping": {
         "curve.line": "CurveSegmentGeometry.LineSegment",
         "curve.cubicBezier": "CurveSegmentGeometry.CubicBezierSegment",
@@ -108,12 +111,13 @@
         "junctionInternalSuccessors": "empty vector",
         "canonicalFrame": "seed frames[].frameKey maps to CanonicalFrame.canonical_frame_key",
         "signalDuration": "seed durationSeconds multiplied by exactly 1000.0 in binary64, required integral, then checked-converted to u64 duration_milliseconds",
-        "signalOffset": "seed offsetSeconds multiplied by exactly 1000.0 in binary64, required integral, then checked-converted to u64 offset_milliseconds"
+        "signalOffset": "seed offsetSeconds multiplied by exactly 1000.0 in binary64, required integral, then checked-converted to u64 offset_milliseconds",
+        "ownerReferenceEncoding": "encode the root-to-target seed key tuple with one ASCII > byte between adjacent keys and no namespace prefix; every owner-defining field uses the root-to-parent tuple, while owner vectors and other references use the root-to-target tuple required by the target kind"
       },
-      "rootVectorOrder": "local-key UTF-8 bytes ascending for every root table kind",
-      "unorderedReferenceOrder": "normalized reference UTF-8 bytes ascending",
+      "rootVectorOrder": "RoadAlignment and module-scoped identity kinds use local-key UTF-8 bytes ascending; owner-scoped kinds use full owner-key tuple then local-key, comparing each UTF-8 byte segment lexicographically without concatenation",
+      "unorderedReferenceOrder": "normalized parsed namespace, owner-key tuple and local-key ascending",
       "orderedOwnerVectors": "preserve semantic seed product order",
-      "sourceAddressUniqueness": "RoadAlignment keys and each stable root table kind's local keys must be unique within a module"
+      "sourceAddressUniqueness": "RoadAlignment and module-scoped kind keys are unique within a module; owner-scoped keys are unique only among siblings under the same direct owner, so equal SignalPhase local keys under the two different controllers in each module are valid and produce different full source addresses"
     },
     "widthProfileRule": {
       "memberSet": "all 170 AuthoringLane and 35 FacilityBand declarations across the five generated modules",
@@ -151,10 +155,12 @@
     },
     "optionalFieldRule": {
       "canvasSelectionPresence": "present on every table that declares canvas_selection, including every CurveSegment",
-      "stableCanvasSelection": "ASCII canvas/<module-key>/<root-kind-kebab>/<local-key>",
-      "alignmentCanvasSelection": "ASCII canvas/<module-key>/road-alignment/<road-alignment-key>",
-      "curveCanvasSelection": "ASCII canvas/<module-key>/curve-segment/<owner-kind-kebab>/<owner-local-key>/<segment-index-3d>",
-      "curveOwnerKinds": ["road-alignment", "junction-internal-lane-edge"],
+      "stableCanvasSelection": "ASCII cv/m<module-index-2d>/d<identity-kind-code-2d>/<canonical-root-vector-ordinal-3d>",
+      "alignmentCanvasSelection": "ASCII cv/m<module-index-2d>/a/<canonical-alignment-ordinal-3d>",
+      "curveCanvasSelection": "ASCII cv/m<module-index-2d>/c/<curve-program-ordinal-3d>/<segment-ordinal-3d>",
+      "curveProgramOrdinalRule": "within each module, alignments in canonical alignment order first, followed by junction-internal LaneEdge explicit programs in canonical LaneEdge order; zero-based three-digit ordinals",
+      "canvasSelectionMaxUtf8Bytes": 16,
+      "canvasSelectionUniqueness": "all generated canvas_selection values are pairwise unique within one module and every value is within max_single_string_bytes=53; these compact workload-only opaque keys do not define a general editor display label",
       "seedOptionalFields": "lane group, parking area, participant parent, signal group and every other seed optional preserve present/absent state",
       "accessRegulationSelection": "sort all AccessRule values by module index then access_rule_key UTF-8 bytes; zero-based even ordinals have regulation present and odd ordinals have it absent",
       "accessRegulationValue": {
@@ -163,7 +169,7 @@
         "source": "LF-ROAD-EDITING-P100-v1"
       }
     },
-    "profileGenerationRule": "generate the same five semantic modules independently for every one of the nine profileMatrix combinations; source buffers vary only through root profile codes, provenance.frontend_options_digest and their deterministic FlatBuffers encoding, while compiled LIR point payload may additionally vary by profile"
+    "profileGenerationRule": "generate the same five semantic modules independently for every one of the nine profileMatrix combinations under DeterministicTargetV1; source buffers vary only through root profile codes, provenance.frontend_options_digest and their deterministic FlatBuffers encoding, while compiled LIR point payload may additionally vary by profile"
   },
   "exactCounts": {
     "moduleCount": 5,
@@ -208,6 +214,9 @@
     "totalOffsetCurveCount": 205,
     "accessRegulationTableCount": 45,
     "canvasSelectionStringOccurrenceCount": 2025,
+    "identityOwnerReferenceOccurrenceCount": 915,
+    "signalPhaseCrossOwnerSameLocalKeyPairCount": 60,
+    "ownerQualifiedReferenceMaxUtf8Bytes": 144,
     "flatbuffersTableOccurrenceCount": 3165,
     "linearWidthProfiles": {
       "constantPositive": 175,
@@ -220,8 +229,8 @@
       "imports": 4,
       "corridorElements": 105,
       "roadSectionAuthoringLanes": 170,
-      "laneEdgeSuccessors": 320,
-      "junctionApproachEdges": 40,
+      "laneEdgeSuccessors": 0,
+      "junctionApproachEdges": 200,
       "junctionInternalEdges": 160,
       "maneuverPathInternalEdges": 160,
       "signalControllerGroups": 40,
@@ -244,6 +253,8 @@
     "laneOffsetCurveCount": 34,
     "totalOffsetCurveCount": 41,
     "accessRegulationTableCount": 9,
+    "identityOwnerReferenceOccurrenceCount": 183,
+    "signalPhaseCrossOwnerSameLocalKeyPairCount": 12,
     "flatbuffersTableOccurrenceCountWithoutAccessRegulation": 624,
     "flatbuffersTableOccurrenceCount": 633
   },
@@ -265,6 +276,8 @@
     "sum": 3165
   },
   "profileMatrix": {
+    "approximationSemantics": "DeterministicTargetV1",
+    "positionValuesAreContinuousHardBounds": false,
     "geometryAccuracyProfiles": [1, 2, 3],
     "geometryAccuracyNames": ["Fine2Cm", "Balanced5Cm", "Compact10Cm"],
     "geometryDirectionProfiles": [1, 2, 3],
@@ -282,10 +295,24 @@
     "source-byte-size",
     "verified-table-occurrences",
     "derived-geometry-point-count",
+    "observed-position-error-p50-p95-p99-max",
+    "worst-observed-error-source-address-and-parameter",
+    "final-f32-direction-jump-max",
     "phase-controlled-live-byte-peak",
     "combined-controlled-live-byte-peak",
     "returned-buffer-retained-capacity"
   ],
+  "offlineGeometryObservation": {
+    "productionAcceptanceInput": false,
+    "continuousMaximumProof": false,
+    "gridPointCountPerEvaluatorInterval": 4097,
+    "intervalRule": "each uninterrupted source-segment and reference-station-row evaluator interval independently, including both endpoints",
+    "parameterRule": "uniform binary64 parameter fractions k/4096 for integer k=0..4096, evaluated with the frozen scalar evaluator order",
+    "distanceRule": "three-dimensional Euclidean distance from the analytic evaluator point to the final parameter-associated f32 polyline segment, evaluated in binary64 with no FMA or pow/powi",
+    "reportedStatistics": ["p50", "p95", "p99", "maximum"],
+    "attributionRule": "record module, full owner-qualified source address, source segment/station-row ordinal and parameter for the maximum observed value",
+    "interpretation": "observed engineering evidence only; samples between grid points are not covered and no value may be described as a continuous hard bound"
+  },
   "singleModuleRewriteScenario": {
     "profileCombination": {
       "geometryAccuracyProfile": 2,
@@ -328,7 +355,8 @@
     "toolchain": {
       "rustc": "1.96.0 (ac68faa20 2026-05-25)",
       "targetTriple": "x86_64-pc-windows-msvc",
-      "cargoArguments": ["+1.96.0", "run", "--release", "--locked"],
+      "cargoArguments": ["+1.96.0", "run", "--release", "--locked", "-p", "issue-296-geometry-frontend-calibration", "--bin", "calibrate", "--"],
+      "measurementSubcommandRule": "G2 adds a road-editing-p100 subcommand whose complete per-sample argv, profile codes, sample index and repository-relative output path are retained in evidence; the cargoArguments array is the exact executable-selection prefix",
       "workerThreadCount": 1
     },
     "processIsolation": "one fresh process for the warmup and each formal sample; no benchmark concurrency",
@@ -341,7 +369,7 @@
     "timingBoundary": "semantic seed file read and harness deserialization occur before timing; each named stage times only that production operation; complete-compile begins immediately before RoadEditingModuleInput admission and ends after validated compilation output is returned",
     "memoryBoundary": "report the compiler-controlled live-byte ledger at every named phase boundary and its maximum; OS RSS is supplemental and cannot replace the ledger",
     "environmentRule": "AC power and the reference machine's recorded Balanced power plan; do not override process affinity; capture OS build, firmware, CPU, memory, rustc, LLVM, power state and complete argv in evidence",
-    "retentionRule": "retain every raw sample, phase ledger, generated module digest, byte length, table occurrence count and geometry point count"
+    "retentionRule": "retain every raw sample, phase ledger, generated module digest, byte length, table occurrence count, geometry point count, observed position-error distribution, worst-case attribution and final direction-jump maximum"
   },
   "g2EvidenceBinding": {
     "semanticSeedSha256": "must-equal-semanticSeed.sha256",
@@ -355,9 +383,12 @@
       "exact counts equal this manifest",
       "all nine profile combinations are present",
       "all five module digests and byte lengths are present per combination",
+      "all modules satisfy module-local owner closure while preserving the 60 cross-owner SignalPhase same-local-key pairs",
+      "all compact canvas keys are unique and at most 16 UTF-8 bytes",
       "reference machine identity matches",
       "writer, compiler and generator revisions are one exact commit",
-      "single-module rewrite lifecycle and all three rewrite peaks are present"
+      "single-module rewrite lifecycle and all three rewrite peaks are present",
+      "all nine combinations include the fixed 4097-point observed-error distribution and worst attribution without a continuous-bound claim"
     ]
   }
 }

@@ -387,7 +387,7 @@ struct TypedAstModule {
 
 pub struct CompilationUnitBuilder {
     modules: Vec<AdmittedOfficialModule>,
-    /* 唯一性索引和累计资源状态 */
+    /* 与 admitted module 对齐的来源位置 context、唯一性索引和累计资源状态 */
 }
 
 pub struct CompilationUnit {
@@ -442,7 +442,10 @@ pub fn add_road_editing_module(
    其中任一部分。
    逐文档摘要和精确长度只能由前端对各文档的实际规范来源字节计算；模块文档集摘要只能按本节
    v1 前像从这些受检描述符聚合，二者都不能由调用方自报。
-2. `add_*_module` 按值消费具体封装并把内容移动到私有接入值；不得克隆（clone）完整声明、
+2. `add_*_module` 按值消费具体封装；道路编辑入口只借用原始输入，并在调用内部按值
+   消费验证结果。道路编辑 add 成功后还把该模块的 location context 移入 builder，以
+   不复用的 builder-local context index 与 admitted module record 绑定；内容移动到私有
+   接入值；不得克隆完整声明、
    字符串或几何点，也不得再次编码来源、计算摘要或扫描声明重算资源。
 3. 私有接入函数在修改构建器前一次性计算命名空间、全部 `sourceDocumentKey`、模块数、文档数、
    来源字节、导入、声明、引用、关系、身份字段、符号、字符串、机动门、等待区、路线
@@ -925,11 +928,19 @@ G1 冻结以下两个当前态固定样例的等价迁移：
 错误必须同时指向声明与冲突来源。中文渲染是权威说明；英文辅助渲染不能改变诊断代码
 或有类型载荷语义。
 
-来源位置使用“`sourceDocumentKey`、起始行 / 列、结束行 / 列”四部分，字段宽度使用
-受检的 `u32`。#292 已接受的 `sourceDocumentKey` 是编译单元内显式、稳定、与机器路径无关的 `ASCII`
-键；合成领域专用语言使用该键、调用位置和声明的显式稳定键，未来文本前端使用该键与
-真实文本范围。宿主路径只服务显示和来源沿袭，不参与规范标识、规范排序、可移植规范
-制品或语义差异。
+公共来源位置是闭合和类型 `SourceLocation`：`Text(SourceSpan)` 保留
+“`sourceDocumentKey`、起始行/列、结束行/列”的现有受检 `u32` 表示；
+`RoadEditing(RoadEditingSourceLocation)` 使用 module/document、稳定声明或 owner-local
+subject、由 1..=4 个已知 table field / struct member / union variant step 形成的闭合叶
+property path，以及可选 interned canvas selection。只有 FlatBuffers 结构损坏可以携带
+已证明在输入内的 byte range 和物理 vector fallback；领域诊断不得伪造行列或依赖数组
+位置。精确类型、规范顺序和资源计量由
+`road-editing-source-and-geometry-frontend.md` §9.7 冻结。
+
+#292 已接受的 `sourceDocumentKey` 仍是编译单元内显式、稳定、与机器路径无关的 ASCII
+键；合成领域专用语言使用该键、调用位置和声明的显式稳定键，文本前端使用真实文本
+范围，道路编辑来源使用有类型实体/属性位置。宿主路径只服务显示和来源沿袭，不参与
+规范标识、规范排序、可移植规范制品或语义差异。
 
 **#315 G2 Implemented：**每个位置的文档键必须存在于所属逻辑模块的文档描述符集，并解析
 为独立来源文档序号；来源模块序号不能替代或推导文档序号。该多文档解析规则已经由

@@ -15,7 +15,8 @@
 `Fine2Cm`、`Balanced5Cm`、`Compact10Cm` 三个封闭几何精度配置档，并另设
 `Smooth1Deg`、`Balanced2Deg`、`Compact5Deg` 三个封闭几何方向配置档；本文的 `1 cm`
 `f64` 参考折线→`f32` 运行时表示误差、`0.5°` 切线误差和 `5 mm` 连接容差在九种组合中
-均保持不变。该候选状态不修改本文任何 current production 常量。
+均保持不变。ADR 0022 当前 B1 只把 `2/5/10 cm` 作为内部验证的确定性工程目标，不把
+有限采样结果声明为连续曲线硬上限。该候选状态不修改本文任何 current production 常量。
 
 **取代范围**:
 
