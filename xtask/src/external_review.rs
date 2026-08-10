@@ -902,6 +902,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         lockfile_policy::verify_dependabot_lockfile_only(&lockfile_metadata).ok();
 
     let mut review_to_finding_threads = BTreeMap::<String, usize>::new();
+    let mut review_to_latest_finding_edit_time = BTreeMap::<String, String>::new();
     let mut review_ids_with_thread_comments = BTreeSet::<String>::new();
     let mut finding_thread_ids = BTreeSet::<String>::new();
     let mut unresolved_actionable_threads = 0;
@@ -967,11 +968,21 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 continue;
             }
             if comment.updated_at != comment.created_at {
-                diagnostics.push(format!(
-                    "受信任 reviewer 的 finding comment `{}` 在创建后被编辑",
-                    comment.id
-                ));
-                continue;
+                if !timestamp_after(&comment.updated_at, &comment.created_at) {
+                    diagnostics.push(format!(
+                        "受信任 reviewer 的 edited finding comment `{}` updatedAt 必须是严格晚于 createdAt 的有效 UTC RFC3339 时间",
+                        comment.id
+                    ));
+                    continue;
+                }
+                review_to_latest_finding_edit_time
+                    .entry(review.id.clone())
+                    .and_modify(|latest| {
+                        if timestamp_after(&comment.updated_at, latest) {
+                            latest.clone_from(&comment.updated_at);
+                        }
+                    })
+                    .or_insert_with(|| comment.updated_at.clone());
             }
             review_ids_with_thread_comments.insert(review.id.clone());
             linked_review_ids.insert(review.id.clone());
@@ -1144,7 +1155,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             ));
             continue;
         };
-        let evidence_time = if outcome == EvidenceOutcome::Findings
+        let mut evidence_time = if outcome == EvidenceOutcome::Findings
             && review.includes_created_edit
             && review.last_edited_at.is_some()
         {
@@ -1166,6 +1177,12 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         } else {
             submitted_at
         };
+        if outcome == EvidenceOutcome::Findings
+            && let Some(comment_edit_time) = review_to_latest_finding_edit_time.get(&review.id)
+            && timestamp_after(comment_edit_time, evidence_time)
+        {
+            evidence_time = comment_edit_time;
+        }
         let Some(reviewed_head) = review.commit.as_ref().map(|commit| commit.oid.as_str()) else {
             diagnostics.push(format!("completion review `{}` 缺少 commit OID", review.id));
             continue;
@@ -1211,10 +1228,6 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             continue;
         }
         if comment.updated_at != comment.created_at {
-            diagnostics.push(format!(
-                "Codex clean comment `{}` 在创建后被编辑，不能作为 append-only completion",
-                comment.id
-            ));
             continue;
         }
         let Some(reviewed_head) = parse_reviewed_commit(&comment.body) else {
@@ -3123,32 +3136,73 @@ mod tests {
     }
 
     #[test]
-    fn edited_codex_clean_comment_fails_closed() {
+    fn edited_codex_clean_comment_is_not_a_completion() {
         let mut snapshot = fixture(include_str!("../fixtures/external-review/codex-clean.json"));
         snapshot.pull_request.comments.nodes[0].updated_at = "2026-07-24T14:47:49Z".to_string();
         let result = evaluate_snapshot(&snapshot);
 
-        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert_eq!(result.state, ExternalReviewState::AwaitingReview);
+        assert!(result.evidence.is_empty());
         assert!(
-            result
+            !result
                 .diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.contains("在创建后被编辑"))
         );
+    }
 
+    #[test]
+    fn edited_finding_uses_updated_at_for_rereview_order() {
         let mut snapshot = fixture(include_str!(
             "../fixtures/external-review/codex-awaiting-rereview.json"
         ));
+        let head = snapshot.pull_request.head_ref_oid.clone();
         snapshot.pull_request.review_threads.nodes[0].comments.nodes[0].updated_at =
             "2026-07-24T03:22:00Z".to_string();
+        snapshot.pull_request.comments.nodes.push(IssueComment {
+            id: "IC-clean-before-finding-edit".to_string(),
+            author: Some(Actor {
+                login: "chatgpt-codex-connector".to_string(),
+            }),
+            body: format!(
+                "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `{head}`"
+            ),
+            created_at: "2026-07-24T03:21:59Z".to_string(),
+            updated_at: "2026-07-24T03:21:59Z".to_string(),
+            url:
+                "https://github.com/illusion-tech/laneflow/pull/226#issuecomment-clean-before-edit"
+                    .to_string(),
+        });
+
         let result = evaluate_snapshot(&snapshot);
-        assert_eq!(result.state, ExternalReviewState::ProviderError);
-        assert!(
-            result
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.contains("finding comment")
-                    && diagnostic.contains("在创建后被编辑"))
+        assert_eq!(result.state, ExternalReviewState::AwaitingRereview);
+        assert_eq!(
+            result.completion_time.as_deref(),
+            Some("2026-07-24T03:22:00Z")
+        );
+
+        let clean = snapshot
+            .pull_request
+            .comments
+            .nodes
+            .last_mut()
+            .expect("test clean comment must exist");
+        clean.id = "IC-clean-after-finding-edit".to_string();
+        clean.created_at = "2026-07-24T03:22:01Z".to_string();
+        clean.updated_at = clean.created_at.clone();
+        clean.url =
+            "https://github.com/illusion-tech/laneflow/pull/226#issuecomment-clean-after-edit"
+                .to_string();
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert!(result.diagnostics.is_empty());
+
+        snapshot.pull_request.review_threads.nodes[0].comments.nodes[0].updated_at =
+            "invalid-timestamp".to_string();
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::ProviderError
         );
     }
 
@@ -3179,13 +3233,8 @@ mod tests {
                 diagnostic.contains("没有严格晚于它的 current-head clean completion")
             }));
         }
-        assert_eq!(edited.state, ExternalReviewState::ProviderError);
-        assert!(
-            edited
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.contains("在创建后被编辑"))
-        );
+        assert_eq!(edited.state, ExternalReviewState::Pass);
+        assert!(edited.diagnostics.is_empty());
     }
 
     #[test]
