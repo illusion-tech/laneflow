@@ -50,12 +50,13 @@ fn gh_pr_view_for_gate_evidence(
     let review = crate::external_review::evaluate_live(repo, number)?;
     if !review.uses_dependabot_lockfile_policy() {
         return Err(format!(
-            "{metadata_error}；仅精确 dependabot-cargo-lock-only-v1 可从 append-only G3 comment 恢复 target 元数据"
+            "{metadata_error}；仅精确 dependabot-cargo-lock-only-v1 可从 current G3 comment 恢复 target 元数据"
         ));
     }
     let edits = gh_pr_user_content_edits(repo, number)?;
+    let g3_effective_at = g3_comment_effective_at(comment, "current G3 comment")?;
     validate_dependabot_body_edits_after_g3_comment(
-        &comment.created_at,
+        g3_effective_at,
         &edits,
         &format!("PR #{number}"),
     )?;
@@ -270,9 +271,10 @@ pub(crate) fn check_g3_evidence_marker(args: &[String]) -> Result<(), String> {
         .iter()
         .find(|comment| comment.url == g3_permalink)
         .ok_or("PR G3 permalink 未指向当前 PR comment")?;
+    let g3_effective_at = g3_comment_effective_at(g3_comment, "current G3 comment")?;
     validate_marker_is_strictly_later(
         &marker_before.created_at,
-        &g3_comment.created_at,
+        g3_effective_at,
         "current G3 comment",
     )?;
 

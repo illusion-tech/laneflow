@@ -14,6 +14,75 @@ pub(super) fn gh_issue_comment(
     ])
 }
 
+pub(super) fn issue_comment_id_from_permalink(permalink: &str) -> Result<u64, String> {
+    let value = permalink
+        .rsplit_once("#issuecomment-")
+        .map(|(_, value)| value)
+        .ok_or("G3 comment permalink 缺少 `#issuecomment-<number>`")?;
+    let comment_id = value
+        .parse::<u64>()
+        .map_err(|_| "G3 comment permalink 的 comment ID 不是正整数".to_string())?;
+    if comment_id == 0 {
+        return Err("G3 comment permalink 的 comment ID 必须大于 0".to_string());
+    }
+    Ok(comment_id)
+}
+
+pub(super) fn validate_edited_g3_comment_snapshot(
+    repo: &str,
+    pr_number: u64,
+    comment: &GitHubComment,
+    snapshot: &GitHubIssueCommentRest,
+) -> Result<String, String> {
+    let expected_issue_url = format!("https://api.github.com/repos/{repo}/issues/{pr_number}");
+    if snapshot.issue_url != expected_issue_url {
+        return Err(format!(
+            "edited G3 comment 不属于当前 PR #{pr_number}：{}",
+            snapshot.issue_url
+        ));
+    }
+    if snapshot.created_at != comment.created_at {
+        return Err("edited G3 comment 的 REST / GraphQL createdAt 不一致".to_string());
+    }
+    if snapshot.body.as_deref() != Some(comment.body.as_str()) {
+        return Err("edited G3 comment 的 REST / GraphQL 当前正文不一致".to_string());
+    }
+    let created_at = parse_utc_timestamp_seconds(&snapshot.created_at)
+        .ok_or("edited G3 comment createdAt 不是 UTC RFC3339 时间")?;
+    let updated_at = parse_utc_timestamp_seconds(&snapshot.updated_at)
+        .ok_or("edited G3 comment updatedAt 不是 UTC RFC3339 时间")?;
+    if updated_at < created_at {
+        return Err("edited G3 comment updatedAt 早于 createdAt".to_string());
+    }
+    Ok(snapshot.updated_at.clone())
+}
+
+pub(super) fn hydrate_current_g3_comment_effective_time(
+    repo: &str,
+    pr_number: u64,
+    pr: &mut GitHubPullRequest,
+) -> Result<(), String> {
+    let Ok(permalink) = completed_gate_permalink(&pr.body, "G3") else {
+        return Ok(());
+    };
+    let Some(comment) = pr
+        .comments
+        .iter_mut()
+        .find(|comment| comment.url == permalink)
+    else {
+        return Ok(());
+    };
+    if !comment.includes_created_edit {
+        return Ok(());
+    }
+    let comment_id = issue_comment_id_from_permalink(&comment.url)?;
+    let snapshot = gh_issue_comment(repo, comment_id)?;
+    comment.updated_at = Some(validate_edited_g3_comment_snapshot(
+        repo, pr_number, comment, &snapshot,
+    )?);
+    Ok(())
+}
+
 pub(super) fn gh_edit_timestamps(
     repo: &str,
     number: u64,
@@ -423,7 +492,7 @@ pub(super) fn gh_pr_view_for_phase(
     phase: GateEvidencePhase,
 ) -> Result<GitHubPullRequest, String> {
     let fields = gh_pr_fields(phase);
-    gh_json(&[
+    let mut pr = gh_json(&[
         "pr".to_string(),
         "view".to_string(),
         number.to_string(),
@@ -431,7 +500,9 @@ pub(super) fn gh_pr_view_for_phase(
         repo.to_string(),
         "--json".to_string(),
         fields.to_string(),
-    ])
+    ])?;
+    hydrate_current_g3_comment_effective_time(repo, number, &mut pr)?;
+    Ok(pr)
 }
 
 pub(super) fn gh_issue_fields(phase: GateEvidencePhase) -> &'static str {

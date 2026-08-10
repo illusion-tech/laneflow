@@ -2,7 +2,7 @@
 
 // Issue #230 G2-B incremental start record. Older G3 comments remain historical evidence.
 pub(super) const EXTERNAL_REVIEW_G3_ACTIVATION: &str = "2026-07-24T15:16:21Z";
-// PR #324 merge time. Earlier append-only G3 comments cannot be retroactively amended.
+// PR #324 merge time. Earlier G3 comments cannot be retroactively required to carry this field.
 pub(super) const G3_EVIDENCE_SHADOW_ACTIVATION: &str = "2026-08-06T10:49:21Z";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum GateEvidencePhase {
@@ -242,6 +242,8 @@ pub(super) struct GitHubComment {
     pub(super) author: Option<GitHubActor>,
     #[serde(rename = "createdAt")]
     pub(super) created_at: String,
+    #[serde(skip)]
+    pub(super) updated_at: Option<String>,
     #[serde(rename = "includesCreatedEdit", default)]
     pub(super) includes_created_edit: bool,
 }

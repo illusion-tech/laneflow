@@ -172,6 +172,28 @@ pub(super) fn reference_comment_permalink(body: &str, label: &str) -> Option<Str
     })
 }
 
+pub(super) fn g3_comment_effective_at<'a>(
+    comment: &'a GitHubComment,
+    label: &str,
+) -> Result<&'a str, String> {
+    let effective_at = if comment.includes_created_edit {
+        comment
+            .updated_at
+            .as_deref()
+            .ok_or_else(|| format!("{label} 已编辑但缺少 hydrated updatedAt"))?
+    } else {
+        &comment.created_at
+    };
+    let created_at = parse_utc_timestamp_seconds(&comment.created_at)
+        .ok_or_else(|| format!("{label} createdAt 不是 UTC RFC3339 时间"))?;
+    let effective_seconds = parse_utc_timestamp_seconds(effective_at)
+        .ok_or_else(|| format!("{label} effectiveAt 不是 UTC RFC3339 时间"))?;
+    if effective_seconds < created_at {
+        return Err(format!("{label} effectiveAt 早于 createdAt"));
+    }
+    Ok(effective_at)
+}
+
 pub(super) fn validate_comment(
     pr: &GitHubPullRequest,
     permalink: &str,
@@ -184,12 +206,8 @@ pub(super) fn validate_comment(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} permalink 未指向该 PR 的 comment"))?;
-    let required_fields = if comment.created_at.as_str() >= EXTERNAL_REVIEW_G3_ACTIVATION {
-        if comment.includes_created_edit {
-            return Err(format!(
-                "{label} comment 在创建后被编辑；current G3 必须 append-only"
-            ));
-        }
+    let effective_at = g3_comment_effective_at(comment, label)?;
+    let required_fields = if effective_at >= EXTERNAL_REVIEW_G3_ACTIVATION {
         CURRENT_G3_COMMENT_FIELDS
     } else {
         required_fields
@@ -345,8 +363,9 @@ pub(super) fn validate_g3_timing(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} permalink 未指向该 PR 的 comment"))?;
-    if comment.created_at.as_str() > merged_at {
-        return Err(format!("{label} comment 创建时间晚于 PR 合并时间"));
+    let effective_at = g3_comment_effective_at(comment, label)?;
+    if effective_at > merged_at {
+        return Err(format!("{label} comment 生效时间晚于 PR 合并时间"));
     }
     Ok(())
 }
@@ -365,6 +384,7 @@ pub(super) fn validate_external_review_g3(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} G3 permalink 未指向该 PR 的 comment"))?;
+    let effective_at = g3_comment_effective_at(comment, label)?;
     let gate_result = parse_g3_result(&comment.body)?;
     let result = match gate_result {
         G3Result::Waived => {
@@ -399,11 +419,7 @@ pub(super) fn validate_external_review_g3(
         let completion_time = result
             .completion_time()
             .ok_or_else(|| format!("{label} pass 结果缺少 completion time"))?;
-        validate_g3_comment_after_external_review_completion(
-            &comment.created_at,
-            completion_time,
-            label,
-        )?;
+        validate_g3_comment_after_external_review_completion(effective_at, completion_time, label)?;
     }
     Ok(())
 }
@@ -420,17 +436,17 @@ pub(super) fn waiver_validation_time(
 }
 
 pub(super) fn validate_g3_comment_after_external_review_completion(
-    comment_created_at: &str,
+    comment_effective_at: &str,
     completion_time: &str,
     label: &str,
 ) -> Result<(), String> {
-    let comment_seconds = parse_utc_timestamp_seconds(comment_created_at)
-        .ok_or_else(|| format!("{label} G3 comment createdAt 不是 UTC RFC3339 时间"))?;
+    let comment_seconds = parse_utc_timestamp_seconds(comment_effective_at)
+        .ok_or_else(|| format!("{label} G3 comment effectiveAt 不是 UTC RFC3339 时间"))?;
     let completion_seconds = parse_utc_timestamp_seconds(completion_time)
         .ok_or_else(|| format!("{label} external review completion 不是 UTC RFC3339 时间"))?;
     if comment_seconds <= completion_seconds {
         return Err(format!(
-            "{label} G3 comment 必须严格晚于最终 external review completion；GitHub 同秒无法证明 completion 已完成：comment={comment_created_at}，completion={completion_time}"
+            "{label} G3 comment 生效时间必须严格晚于最终 external review completion；GitHub 同秒无法证明 completion 已完成：comment={comment_effective_at}，completion={completion_time}"
         ));
     }
     Ok(())
@@ -680,7 +696,7 @@ pub(super) fn validate_gate_waiver_record_set(
     comment: &GitHubComment,
     declared_issues: &BTreeSet<u64>,
 ) -> Result<(), String> {
-    if comment.created_at.as_str() < EXTERNAL_REVIEW_G3_ACTIVATION {
+    if g3_comment_effective_at(comment, "G3 comment")? < EXTERNAL_REVIEW_G3_ACTIVATION {
         return Ok(());
     }
     match parse_g3_result(&comment.body)? {
@@ -744,14 +760,15 @@ pub(super) fn parse_gate_waiver(
             "G3 Waived comment author `{author}` 不在 trusted G3 Owner allowlist"
         ));
     }
-    let created_at = parse_utc_timestamp_seconds(&comment.created_at)
-        .ok_or_else(|| "G3 Waived comment createdAt 不是 UTC RFC3339 秒级时间".to_string())?;
+    let effective_at =
+        parse_utc_timestamp_seconds(g3_comment_effective_at(comment, "G3 Waived comment")?)
+            .ok_or_else(|| "G3 Waived comment effectiveAt 不是 UTC RFC3339 秒级时间".to_string())?;
     let expires_at = parse_utc_timestamp_seconds(&record.expires_at)
         .ok_or_else(|| "G3 Waived expiresAt 必须是 UTC RFC3339 秒级时间".to_string())?;
-    if expires_at <= created_at {
-        return Err("G3 Waived expiresAt 必须晚于 comment createdAt".to_string());
+    if expires_at <= effective_at {
+        return Err("G3 Waived expiresAt 必须晚于 comment effectiveAt".to_string());
     }
-    if expires_at - created_at > EXTERNAL_REVIEW_WAIVER_MAX_SECONDS {
+    if expires_at - effective_at > EXTERNAL_REVIEW_WAIVER_MAX_SECONDS {
         return Err("G3 Waived 有效期不得超过 24 小时".to_string());
     }
     if expires_at <= now {
@@ -903,5 +920,5 @@ pub(super) fn g3_requires_external_review(pr: &GitHubPullRequest) -> Result<bool
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| "G3 permalink 未指向该 PR 的 comment".to_string())?;
-    Ok(comment.created_at.as_str() >= EXTERNAL_REVIEW_G3_ACTIVATION)
+    Ok(g3_comment_effective_at(comment, "G3 comment")? >= EXTERNAL_REVIEW_G3_ACTIVATION)
 }

@@ -260,7 +260,7 @@ pub(super) fn validate_gate_evidence_target_pr(
         .find(|comment| comment.url == permalink)
         .ok_or("PR G3 permalink 未指向当前 PR comment")?;
     if phase == GateEvidencePhase::G3
-        && comment.created_at.as_str() >= G3_EVIDENCE_SHADOW_ACTIVATION
+        && g3_comment_effective_at(comment, "PR G3 comment")? >= G3_EVIDENCE_SHADOW_ACTIVATION
     {
         validate_g3_evidence_shadow_comment_field(&comment.body)?;
     }
