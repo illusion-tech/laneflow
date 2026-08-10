@@ -1,7 +1,7 @@
 # 开发闸口
 
 **文档状态**: Active  
-**最后更新**: 2026-08-05
+**最后更新**: 2026-08-10
 
 **适用范围**: LaneFlow 的需求、设计、实现、评审与完成治理
 
@@ -291,7 +291,7 @@ G3 comment 采用 append-only。new push、review dismissal 或 Gate 状态变�
 - 单 Issue PR 的 comment 必须包含且只包含一个 `external-review-waiver:v1` HTML comment；多 Issue PR 必须为每个关联 Issue 分别包含一个记录，并以唯一 `followUpIssue` 精确匹配；完整 record set 必须与 PR 的 `关联 Issue` 集合相等，不接受缺失、额外、重复或共享的模糊 waiver。每个 HTML comment 内都是 `schemaVersion: 1` JSON；字段固定为 `id`、`exceptionType`、`currentHeadOid`、`currentBaseOid`、`reason`、`evidenceRefs`、`risk`、`acceptanceBoundary`、`expiresAt`、`followUpIssue`、`cleanupOwner`、`authorizedBy`；
 - `evidenceRefs` 只保存 Markdown reference label；每个 label 必须由可见的 `- 例外：` 行引用，并在 comment 文末解析为 GitHub HTTPS 证据，JSON 内不直接写 URL；
 - current head/base 必须与 live PR 一致，`followUpIssue` 必须指向当前关联 Issue，`authorizedBy` 必须等于 append-only G3 comment author，且该 actor 必须在 trusted G3 Owner allowlist；
-- `expiresAt` 必须晚于 comment 创建时间、有效期不超过 24 小时，并在每次 Gate 运行时仍未过期；
+- `expiresAt` 必须晚于 comment 创建时间，且有效期不超过 24 小时。当前仍为 `OPEN` 的 Delivery / Related PR 在每次 Gate 运行时都必须保持未过期；Delivery full-set 或 G4 复核带 `mergedAt` 的 `MERGED` 历史 Related PR 时，只按该 `mergedAt` 判断 waiver 在其合并时是否有效。该历史复核不延长或恢复 waiver，不适用于 Delivery PR 自身或 `OPEN` Related PR，不把 `waived` 转换为 `pass`，也不允许包含 waived member 的 full-set 取得 Shadow success；缺失或非法 `mergedAt` 继续失败关闭；
 - validator 的输出保持 `waived`，只与 `G3 Waived` 配对；它不得转换成标准 `pass`，`G3 Pass` / `R0-R1 bootstrap` 仍要求 live exact-head `pass`。
 
 content-equivalent rebase 还必须记录 reviewed/new head、old/new base、changed paths、稳定 patch fingerprint、受影响路径 blob 对照和常规 checks；workflow、Gate、权限、安全策略、依赖锁定语义变化或任何无法解释的不等价都禁止使用该例外。
