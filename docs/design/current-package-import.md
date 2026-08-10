@@ -78,6 +78,11 @@ current JSON -> compiler frontend -> HIR/MIR/LIR
 除修复当前加载路径的实际正确性问题外，不再为逐项复刻未承诺的 Serde 边缘行为增加
 手写解析复杂度。
 
+`CurrentSourceIssueContext` 与 `CurrentSourceErrorPayload::stable_code` 只是在 #294 删除
+当前加载路径前维持跨内部包错误传递的可执行契约；其精确形状和字符串映射分别由
+`laneflow-current-source/src/error.rs` 及 `tests/current_loading.rs` 共同约束。本文不复制
+一张可能形成长期兼容暗示的错误码表，这些内部符号也不构成公开诊断协议。
+
 ### 4.3 `laneflow-compiler-test-support`
 
 只消费 `ValidatedCanonicalLir` 并投影到当前 Core/Spatial，用于切换期集成验证。测试

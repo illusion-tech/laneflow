@@ -20,7 +20,7 @@ use laneflow_compiler::{
 };
 use laneflow_compiler_test_support::project;
 use laneflow_core::{
-    AccessCell, AccessEffect as CoreAccessEffect, CorridorElement, EdgeProgress,
+    AccessCell, AccessEffect as CoreAccessEffect, AccessTargetId, CorridorElement, EdgeProgress,
     SignalAspect as CoreSignalAspect, SignalControl as CoreSignalControl,
 };
 use laneflow_static_contract::{EntityKind, FieldTag};
@@ -33,12 +33,12 @@ fn compiler_native_fixture_projects_complete_representative_contract() {
     let lir = output.lir();
     let projection = project(lir).expect("代表性 LIR 必须可投影");
     let ids = stable_ids_by_source_key(lir);
-    assert_eq!(ids.len(), 32);
+    assert_eq!(ids.len(), 34);
 
     assert_entity_counts(
         lir,
         [
-            4, 1, 1, 1, 1, 1, 1, 1, 1, 3, 3, 2, 1, 1, 3, 1, 1, 2, 1, 1, 1, 1,
+            4, 1, 1, 1, 1, 1, 1, 1, 1, 3, 3, 2, 2, 1, 3, 1, 1, 2, 1, 2, 1, 1,
         ],
     );
     assert_eq!(projection.traffic().lane_graph().edges().len(), 4);
@@ -59,11 +59,42 @@ fn compiler_native_fixture_projects_complete_representative_contract() {
         .spatial()
         .expect("完整几何必须生成 SpatialRegistry");
     assert_eq!(spatial.len(), 4);
-    for (edge_key, progress, expected_x) in [
-        ("entry", 5.0, 5.0),
-        ("internal-a", 3.0, 13.0),
-        ("internal-b", 3.5, 19.5),
-        ("exit", 5.0, 28.0),
+    for (edge_key, progress, expected_position, expected_tangent, expected_up) in [
+        (
+            "entry",
+            2.5,
+            [1.5, 0.0, 2.0],
+            [0.6, 0.0, 0.8],
+            [0.0, 1.0, 0.0],
+        ),
+        (
+            "entry",
+            7.5,
+            [3.0, 2.0, 5.5],
+            [0.0, 0.8, 0.6],
+            [0.0, 0.6, -0.8],
+        ),
+        (
+            "internal-a",
+            3.0,
+            [6.0, 4.0, 7.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ),
+        (
+            "internal-b",
+            3.5,
+            [12.5, 4.0, 7.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ),
+        (
+            "exit",
+            5.0,
+            [21.0, 4.0, 7.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ),
     ] {
         let edge_id = stable_id_for(edge_key, &ids);
         let handle = projection
@@ -74,12 +105,19 @@ fn compiler_native_fixture_projects_complete_representative_contract() {
         let pose = spatial
             .sample(handle, EdgeProgress::try_new(progress).unwrap())
             .expect("几何采样必须成功");
-        assert_eq!(pose.position().x(), expected_x);
-        assert_eq!(pose.position().y(), 0.0);
-        assert_eq!(pose.position().z(), 0.0);
-        assert_eq!(pose.tangent().x(), 1.0);
-        assert_eq!(pose.tangent().y(), 0.0);
-        assert_eq!(pose.tangent().z(), 0.0);
+        assert_eq!(
+            [
+                pose.position().x(),
+                pose.position().y(),
+                pose.position().z(),
+            ],
+            expected_position
+        );
+        assert_eq!(
+            [pose.tangent().x(), pose.tangent().y(), pose.tangent().z()],
+            expected_tangent
+        );
+        assert_eq!([pose.up().x(), pose.up().y(), pose.up().z()], expected_up);
     }
 
     let profile_id = stable_id_for("passenger-car", &ids);
@@ -136,28 +174,28 @@ fn compile_fixture() -> CompilationOutput {
         .add_lane_edge(LaneEdgeInput {
             lane_edge_key: "entry",
             length_meters: 10.0,
-            speed_limit_meters_per_second: 10.0,
+            speed_limit_meters_per_second: 13.0,
             successors: &[LaneEdgeReference::local("internal-a")],
         })
         .unwrap()
         .add_lane_edge(LaneEdgeInput {
             lane_edge_key: "internal-a",
             length_meters: 6.0,
-            speed_limit_meters_per_second: 10.0,
+            speed_limit_meters_per_second: 11.0,
             successors: &[LaneEdgeReference::local("internal-b")],
         })
         .unwrap()
         .add_lane_edge(LaneEdgeInput {
             lane_edge_key: "internal-b",
             length_meters: 7.0,
-            speed_limit_meters_per_second: 10.0,
+            speed_limit_meters_per_second: 9.0,
             successors: &[LaneEdgeReference::local("exit")],
         })
         .unwrap()
         .add_lane_edge(LaneEdgeInput {
             lane_edge_key: "exit",
             length_meters: 10.0,
-            speed_limit_meters_per_second: 10.0,
+            speed_limit_meters_per_second: 7.0,
             successors: &[],
         })
         .unwrap()
@@ -235,19 +273,41 @@ fn compile_fixture() -> CompilationOutput {
         .add_signal_group(SignalGroupInput {
             signal_group_key: "main-signal",
         })
+        .unwrap()
+        .add_signal_group(SignalGroupInput {
+            signal_group_key: "secondary-signal",
+        })
         .unwrap();
-    let green_states = [SignalGroupStateInput {
-        signal_group: SignalGroupReference::local("main-signal"),
-        aspect: SignalAspect::Green,
-    }];
-    let yellow_states = [SignalGroupStateInput {
-        signal_group: SignalGroupReference::local("main-signal"),
-        aspect: SignalAspect::Yellow,
-    }];
-    let red_states = [SignalGroupStateInput {
-        signal_group: SignalGroupReference::local("main-signal"),
-        aspect: SignalAspect::Red,
-    }];
+    let green_states = [
+        SignalGroupStateInput {
+            signal_group: SignalGroupReference::local("main-signal"),
+            aspect: SignalAspect::Green,
+        },
+        SignalGroupStateInput {
+            signal_group: SignalGroupReference::local("secondary-signal"),
+            aspect: SignalAspect::Red,
+        },
+    ];
+    let yellow_states = [
+        SignalGroupStateInput {
+            signal_group: SignalGroupReference::local("secondary-signal"),
+            aspect: SignalAspect::Green,
+        },
+        SignalGroupStateInput {
+            signal_group: SignalGroupReference::local("main-signal"),
+            aspect: SignalAspect::Yellow,
+        },
+    ];
+    let red_states = [
+        SignalGroupStateInput {
+            signal_group: SignalGroupReference::local("main-signal"),
+            aspect: SignalAspect::Red,
+        },
+        SignalGroupStateInput {
+            signal_group: SignalGroupReference::local("secondary-signal"),
+            aspect: SignalAspect::Yellow,
+        },
+    ];
     let phases = [
         SignalPhaseInput {
             signal_phase_key: "green",
@@ -269,7 +329,10 @@ fn compile_fixture() -> CompilationOutput {
         .add_signal_controller(SignalControllerInput {
             signal_controller_key: "controller",
             offset_ms: 1_250,
-            signal_groups: &[SignalGroupReference::local("main-signal")],
+            signal_groups: &[
+                SignalGroupReference::local("main-signal"),
+                SignalGroupReference::local("secondary-signal"),
+            ],
             phases: &phases,
         })
         .unwrap()
@@ -286,7 +349,9 @@ fn compile_fixture() -> CompilationOutput {
             maneuver_path: ManeuverPathReference::local("path"),
             transition_index: 1,
             stop_line: StopLineReference::local("stop-middle"),
-            signal_control: SignalControlInput::None,
+            signal_control: SignalControlInput::Group(SignalGroupReference::local(
+                "secondary-signal",
+            )),
         })
         .unwrap()
         .add_maneuver_gate(ManeuverGateInput {
@@ -373,6 +438,15 @@ fn compile_fixture() -> CompilationOutput {
             priority: 10,
         })
         .unwrap()
+        .add_access_rule(AccessRuleInput {
+            access_rule_key: "main-group-allow",
+            target: AccessRuleTargetInput::LaneGroup(LaneGroupReference::local("main-group")),
+            effect: AccessEffect::Allow,
+            participant_classes: &[ParticipantClassReference::local("car")],
+            regulation: None,
+            priority: 5,
+        })
+        .unwrap()
         .add_static_route(StaticRouteInput {
             static_route_key: "route",
             edge_sequence: &[
@@ -384,10 +458,14 @@ fn compile_fixture() -> CompilationOutput {
         })
         .unwrap();
 
-    let entry_points = [point(0.0), point(10.0)];
-    let internal_a_points = [point(10.0), point(16.0)];
-    let internal_b_points = [point(16.0), point(23.0)];
-    let exit_points = [point(23.0), point(33.0)];
+    let entry_points = [
+        point(0.0, 0.0, 0.0),
+        point(3.0, 0.0, 4.0),
+        point(3.0, 4.0, 7.0),
+    ];
+    let internal_a_points = [point(3.0, 4.0, 7.0), point(9.0, 4.0, 7.0)];
+    let internal_b_points = [point(9.0, 4.0, 7.0), point(16.0, 4.0, 7.0)];
+    let exit_points = [point(16.0, 4.0, 7.0), point(26.0, 4.0, 7.0)];
     let geometries = [
         geometry("entry", &entry_points),
         geometry("internal-a", &internal_a_points),
@@ -422,8 +500,8 @@ fn header(limits: &CompileLimits) -> SourceModuleHeader {
     .unwrap()
 }
 
-const fn point(x: f32) -> CanonicalPoint3F32Input {
-    CanonicalPoint3F32Input { x, y: 0.0, z: 0.0 }
+const fn point(x: f32, y: f32, z: f32) -> CanonicalPoint3F32Input {
+    CanonicalPoint3F32Input { x, y, z }
 }
 
 const fn geometry<'a>(
@@ -550,39 +628,39 @@ fn assert_projection_semantics(
             .edge_handle(stable_id_for(key, ids))
             .expect("投影边必须存在")
     });
-    for ((from, to), expected_length) in [
-        (("entry", "internal-a"), 10.0),
-        (("internal-a", "internal-b"), 6.0),
-        (("internal-b", "exit"), 7.0),
+    assert_eq!(
+        graph.next_edges(edge_handles[0]),
+        Some([edge_handles[1]].as_slice())
+    );
+    assert_eq!(
+        graph.next_edges(edge_handles[1]),
+        Some([edge_handles[2]].as_slice())
+    );
+    assert_eq!(
+        graph.next_edges(edge_handles[2]),
+        Some([edge_handles[3]].as_slice())
+    );
+    assert_eq!(graph.next_edges(edge_handles[3]), Some([].as_slice()));
+
+    for (edge_key, expected_length, expected_speed_limit) in [
+        ("entry", 10.0, 13.0),
+        ("internal-a", 6.0, 11.0),
+        ("internal-b", 7.0, 9.0),
+        ("exit", 10.0, 7.0),
     ] {
-        let from_id = stable_id_for(from, ids);
-        let to_id = stable_id_for(to, ids);
-        assert!(graph.can_traverse_by_id(from_id, to_id));
+        let edge_id = stable_id_for(edge_key, ids);
         assert_eq!(
-            graph.edge_length_by_id(from_id).expect("边长度").value(),
+            graph.edge_length_by_id(edge_id).expect("边长度").value(),
             expected_length
         );
         assert_eq!(
             graph
-                .edge_speed_limit_by_id(from_id)
+                .edge_speed_limit_by_id(edge_id)
                 .expect("边限速")
                 .value(),
-            10.0
+            expected_speed_limit
         );
     }
-    assert_eq!(
-        graph
-            .edge_length_by_id(stable_id_for("exit", ids))
-            .expect("出口边长度")
-            .value(),
-        10.0
-    );
-    assert!(
-        graph
-            .next_edges(edge_handles[3])
-            .expect("出口边必须存在")
-            .is_empty()
-    );
 
     let cross_section = traffic.cross_section();
     let section = cross_section
@@ -663,16 +741,22 @@ fn assert_projection_semantics(
     assert_eq!(junctions.internal_edge_owner(edge_handles[3]), None);
 
     let signals = traffic.signals();
-    let signal_group = signals
-        .group_handle(stable_id_for("main-signal", ids))
-        .expect("信号组必须存在");
+    let signal_groups = ["main-signal", "secondary-signal"].map(|key| {
+        signals
+            .group_handle(stable_id_for(key, ids))
+            .expect("信号组必须存在")
+    });
+    let signal_group = signal_groups[0];
+    let secondary_signal_group = signal_groups[1];
     let controller = signals
         .controller_handle(stable_id_for("controller", ids))
         .expect("信号控制器必须存在");
-    assert_eq!(signals.group_controller(signal_group), Some(controller));
+    for group in signal_groups {
+        assert_eq!(signals.group_controller(group), Some(controller));
+    }
     assert_eq!(
         signals.controller_groups(controller),
-        Some([signal_group].as_slice())
+        Some(signal_groups.as_slice())
     );
     assert_eq!(
         signals.controller_cycle_duration_ms(controller),
@@ -685,10 +769,25 @@ fn assert_projection_semantics(
             .offset_ms(),
         1_250
     );
-    for (phase_key, duration_ms, aspect, end_offset_ms) in [
-        ("green", 3_000, CoreSignalAspect::Green, 3_000),
-        ("yellow", 1_000, CoreSignalAspect::Yellow, 4_000),
-        ("red", 2_000, CoreSignalAspect::Red, 6_000),
+    for (phase_key, duration_ms, aspects, end_offset_ms) in [
+        (
+            "green",
+            3_000,
+            [CoreSignalAspect::Green, CoreSignalAspect::Red],
+            3_000,
+        ),
+        (
+            "yellow",
+            1_000,
+            [CoreSignalAspect::Yellow, CoreSignalAspect::Green],
+            4_000,
+        ),
+        (
+            "red",
+            2_000,
+            [CoreSignalAspect::Red, CoreSignalAspect::Yellow],
+            6_000,
+        ),
     ] {
         let phase = signals
             .phase_ref(controller, stable_id_for(phase_key, ids))
@@ -697,7 +796,7 @@ fn assert_projection_semantics(
             signals.phase(phase).expect("信号相位").duration_ms(),
             duration_ms
         );
-        assert_eq!(signals.phase_aspects(phase), Some([aspect].as_slice()));
+        assert_eq!(signals.phase_aspects(phase), Some(aspects.as_slice()));
         assert_eq!(signals.phase_end_offset_ms(phase), Some(end_offset_ms));
     }
 
@@ -735,7 +834,7 @@ fn assert_projection_semantics(
     );
     assert_eq!(
         signals.maneuver_gate_control(gates[1]),
-        Some(CoreSignalControl::None)
+        Some(CoreSignalControl::Group(secondary_signal_group))
     );
     assert_eq!(
         signals.maneuver_gate_control(gates[2]),
@@ -807,6 +906,15 @@ fn assert_projection_semantics(
     assert_eq!(regulation.jurisdiction(), "fixture");
     assert_eq!(regulation.version(), "1");
     assert_eq!(regulation.source(), Some("compiler-native-test"));
+    let group_rule = access
+        .rule_handle(stable_id_for("main-group-allow", ids))
+        .expect("车道组准入规则必须存在");
+    let group_definition = access.rule(group_rule).expect("车道组准入规则");
+    assert_eq!(
+        group_definition.target(),
+        &AccessTargetId::lane_group(stable_id_for("main-group", ids))
+    );
+    assert_eq!(group_definition.effect(), CoreAccessEffect::Allow);
     assert_eq!(
         access.edge_access(edge_handles[0], car),
         AccessCell::Decided {
@@ -814,10 +922,15 @@ fn assert_projection_semantics(
             effect: CoreAccessEffect::Deny,
         }
     );
-    assert_eq!(
-        access.edge_access(edge_handles[1], car),
-        AccessCell::Unconstrained
-    );
+    for edge in &edge_handles[1..] {
+        assert_eq!(
+            access.edge_access(*edge, car),
+            AccessCell::Decided {
+                rule: group_rule,
+                effect: CoreAccessEffect::Allow,
+            }
+        );
+    }
 
     let route = traffic.routes().next().expect("静态路线必须存在");
     assert_eq!(route.id(), stable_id_for("route", ids));
