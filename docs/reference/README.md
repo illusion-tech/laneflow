@@ -54,9 +54,6 @@
 - `v0.10-official-module-admission-validation.md`：#315 官方前端共同受检模块接入 G2
   的编译器私有共同 Typed AST、逐文档描述符、v1/v2 配置档版本边界、原子准入、来源映射、同机配对性能
   与进入 Delivery PR 前的本地验证事实。
-- `current-asset-audit-v1.schema.json`：#297 current v0.10 仓库资产清单、三个正式发布渠道的
-  可验证空清单、迁移分类、结构化失败、整体裁决，以及绑定父提交固定事实记录并逐字段独立验证的
-  cleanup 责任版本化机器报告契约；同一 `$defs` 冻结专用清理 Issue、Node ID 与 owner 的授权记录。
 - `v0.10-compiler-production-baseline.md`：#292 在 P100 推荐参考机型上运行真实生产
   `Compiler::compile` 的工作负载、计时边界、五级紧凑结果和使用边界。
 - `v0.10-compiler-production-baseline.json`：上述生产 R0 的机器可读紧凑证据；只保存

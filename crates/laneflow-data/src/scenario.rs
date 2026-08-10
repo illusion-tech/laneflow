@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use laneflow_core::{EdgeHandle, LaneGraph};
 use laneflow_current_source::scenario_wire::{WireScenarioManifest, WireSpatialPackage};
 use laneflow_current_source::wire::WirePackage;
-use laneflow_current_source::{CurrentArtifactInput, validate_scenario_compatible};
+use laneflow_current_source::{CurrentArtifactInput, validate_scenario};
 use laneflow_spatial::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS, CanonicalFrameId,
     CanonicalPoint3F32,
@@ -124,11 +124,10 @@ pub fn from_scenario_json_slice(
         .iter()
         .map(|artifact| CurrentArtifactInput::new(artifact.artifact_ref(), artifact.bytes(), None))
         .collect::<Vec<_>>();
-    let (manifest, traffic_wire, spatial_wire) =
-        validate_scenario_compatible(manifest_input, &inputs)
-            .map_err(ScenarioError::from_current_source)?
-            .into_parts()
-            .into_documents();
+    let (manifest, traffic_wire, spatial_wire) = validate_scenario(manifest_input, &inputs)
+        .map_err(ScenarioError::from_current_source)?
+        .into_parts()
+        .into_documents();
 
     // source 原子成功后仍按 Traffic → Spatial 执行 current Core/Spatial 规范化；
     // Spatial 绑定依赖 Traffic 规范化产出的 LaneGraph。三份 owned DTO 各自在

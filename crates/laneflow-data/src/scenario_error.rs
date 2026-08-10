@@ -189,17 +189,17 @@ impl ScenarioError {
     /// `TrafficPackage`，保持既有公共错误面不变。
     pub(crate) fn from_current_source(error: CurrentSourceError) -> Self {
         let issues = error.into_issues();
-        debug_assert_eq!(issues.len(), 1, "production-compatible source 立即失败");
+        debug_assert_eq!(issues.len(), 1, "current source 立即失败");
         let issue = issues
             .into_iter()
             .next()
             .expect("CurrentSourceError 至少含一项 issue");
         let (payload, document, context, path, span) = issue.into_parts().into_components();
         let path = path
-            .expect("production-compatible issue 必携带规范 path")
+            .expect("current source issue 必携带规范 path")
             .into_string();
         let None = span else {
-            unreachable!("切片 2 production 路径不产出 span")
+            unreachable!("current 加载路径不产出 span")
         };
         if let CurrentSourceIssueContext::ScenarioTraffic { artifact_ref } = context {
             return Self::TrafficPackage {
@@ -210,7 +210,7 @@ impl ScenarioError {
         // document 只在 JSON/version variant 上有公共意义；制品配对 variant
         // （Missing/Size/DigestMismatch）在现有错误面上不携带 document，其
         // document 值不会被观察。
-        let document = document.expect("production-compatible issue 必携带 document");
+        let document = document.expect("current source issue 必携带 document");
         let scenario_document = match document {
             CurrentDocumentRole::Manifest => ScenarioDocument::Manifest,
             CurrentDocumentRole::Spatial => ScenarioDocument::Spatial,

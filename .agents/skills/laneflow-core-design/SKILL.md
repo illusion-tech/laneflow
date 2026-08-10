@@ -26,8 +26,9 @@ Runtime）的兼容发现入口；它不表示目标态继续命名为 Core。
    `docs/reference/compiler-calibration-workloads-v1.json` 与
    `docs/reference/compiler-calibration-evidence-v1.schema.json`、
    `docs/reference/compiler-calibration-contract-v1.json`
-9. 涉及 #292/#315/#296/#297 编译器基础设施、官方前端共同受检模块接入、已验证规范
-   LIR 或集成专用 LIR→当前态投影时，额外读取 `docs/design/compiler-foundation.md`；
+9. 涉及 #292/#315/#296/#297 编译器基础设施、官方前端共同受检模块接入、current JSON
+   退役、已验证规范 LIR 或集成专用 LIR→当前态投影时，额外读取
+   `docs/design/compiler-foundation.md`；
    准备 #292 G3 或复核生产性能证据时，同时读取
    `docs/reference/v0.10-compiler-foundation-validation.md`
 10. 涉及城市模拟游戏范围、出行编排、Routing、路网修订、存档/回放、并行或

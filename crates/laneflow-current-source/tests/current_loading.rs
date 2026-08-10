@@ -1,4 +1,4 @@
-//! `laneflow-current-source` production-compatible 能力的行为测试。
+//! `laneflow-current-source` 当前内部加载能力的行为测试。
 //!
 //! 覆盖：版本闸口（缺失/null/非字符串/重复 `formatVersion`）、
 //! `deny_unknown_fields`、digest 词法、size-before-digest、conflicting/
@@ -10,8 +10,7 @@ use laneflow_current_source::{
     CURRENT_SCENARIO_MANIFEST_FORMAT_VERSION, CURRENT_SPATIAL_FORMAT_VERSION,
     CURRENT_TRAFFIC_FORMAT_VERSION, CurrentArtifactInput, CurrentArtifactRole, CurrentDocumentRole,
     CurrentSourceError, CurrentSourceErrorPayload, CurrentSourceIssueContext,
-    SPATIAL_PACKAGE_MEDIA_TYPE, TRAFFIC_PACKAGE_MEDIA_TYPE, validate_scenario_compatible,
-    validate_traffic_compatible,
+    SPATIAL_PACKAGE_MEDIA_TYPE, TRAFFIC_PACKAGE_MEDIA_TYPE, validate_scenario, validate_traffic,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -40,8 +39,7 @@ fn current_constants_pin_the_frozen_versions_and_media_types() {
 
 #[test]
 fn traffic_only_facade_accepts_current_fixture_without_scenario_documents() {
-    let validated =
-        validate_traffic_compatible(TRAFFIC).expect("current traffic fixture must validate");
+    let validated = validate_traffic(TRAFFIC).expect("current traffic fixture must validate");
     assert!(format!("{validated:?}").contains("ValidatedCurrentTrafficPackage"));
     let parts = validated.into_parts();
     assert_eq!(parts.traffic_wire().units().distance(), "meter");
@@ -53,9 +51,8 @@ fn traffic_only_facade_accepts_current_fixture_without_scenario_documents() {
 #[test]
 fn traffic_version_gate_rejects_missing_null_non_string_and_duplicate_occurrence() {
     let missing = TRAFFIC_TEXT.replacen("\"formatVersion\": \"0.10\",", "", 1);
-    let issue = single_issue(
-        validate_traffic_compatible(missing.as_bytes()).expect_err("missing formatVersion"),
-    );
+    let issue =
+        single_issue(validate_traffic(missing.as_bytes()).expect_err("missing formatVersion"));
     assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
     assert_eq!(issue.artifact_ref(), None);
     assert_eq!(issue.path(), Some("$"));
@@ -68,7 +65,7 @@ fn traffic_version_gate_rejects_missing_null_non_string_and_duplicate_occurrence
     for replacement in ["\"formatVersion\": null", "\"formatVersion\": 0.10"] {
         let mutated = TRAFFIC_TEXT.replacen("\"formatVersion\": \"0.10\"", replacement, 1);
         let issue = single_issue(
-            validate_traffic_compatible(mutated.as_bytes()).expect_err("non-string formatVersion"),
+            validate_traffic(mutated.as_bytes()).expect_err("non-string formatVersion"),
         );
         assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
         assert!(
@@ -82,9 +79,8 @@ fn traffic_version_gate_rejects_missing_null_non_string_and_duplicate_occurrence
         "\"formatVersion\": \"0.10\", \"formatVersion\": \"0.10\"",
         1,
     );
-    let issue = single_issue(
-        validate_traffic_compatible(duplicate.as_bytes()).expect_err("duplicate formatVersion"),
-    );
+    let issue =
+        single_issue(validate_traffic(duplicate.as_bytes()).expect_err("duplicate formatVersion"));
     assert!(
         matches!(issue.payload(), CurrentSourceErrorPayload::JsonShape { .. }),
         "重复 occurrence 不得选择任一值继续版本裁决"
@@ -97,9 +93,7 @@ fn traffic_unsupported_version_is_rejected_before_other_shape_errors() {
     value["formatVersion"] = json!("0.9");
     value["futureTopLevelField"] = json!({ "newShape": true });
     let source = serde_json::to_vec(&value).expect("JSON");
-    let issue = single_issue(
-        validate_traffic_compatible(&source).expect_err("unsupported version must win"),
-    );
+    let issue = single_issue(validate_traffic(&source).expect_err("unsupported version must win"));
     assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
     assert_eq!(issue.path(), Some("$"));
     assert_eq!(issue.span(), None);
@@ -119,8 +113,7 @@ fn traffic_unsupported_version_is_rejected_before_other_shape_errors() {
 #[test]
 fn traffic_syntax_error_carries_real_position_and_syntax_category() {
     let issue = single_issue(
-        validate_traffic_compatible(b"{\"formatVersion\":\"0.10\",")
-            .expect_err("truncated JSON must fail"),
+        validate_traffic(b"{\"formatVersion\":\"0.10\",").expect_err("truncated JSON must fail"),
     );
     assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
     // 截断输入的 serde 分类可能是 Eof 或 Syntax，两者都归入 JsonSyntax payload。
@@ -141,8 +134,7 @@ fn traffic_wire_denies_unknown_fields() {
     let mut value: Value = serde_json::from_slice(TRAFFIC).expect("fixture JSON");
     value["futureTopLevelField"] = json!(true);
     let source = serde_json::to_vec(&value).expect("JSON");
-    let issue =
-        single_issue(validate_traffic_compatible(&source).expect_err("unknown field must fail"));
+    let issue = single_issue(validate_traffic(&source).expect_err("unknown field must fail"));
     assert!(matches!(
         issue.payload(),
         CurrentSourceErrorPayload::JsonShape { .. }
@@ -153,7 +145,7 @@ fn traffic_wire_denies_unknown_fields() {
 fn traffic_facade_accepts_128_byte_current_ids() {
     let long_id = "e".repeat(128);
     let mutated = TRAFFIC_TEXT.replace("\"entry\"", &format!("\"{long_id}\""));
-    validate_traffic_compatible(mutated.as_bytes()).expect("128-byte current ID must be accepted");
+    validate_traffic(mutated.as_bytes()).expect("128-byte current ID must be accepted");
 }
 
 #[test]
@@ -184,7 +176,7 @@ fn scenario_happy_path_binds_descriptors_and_skips_extra_artifacts() {
         None,
     ));
 
-    let validated = validate_scenario_compatible(MANIFEST.as_bytes(), &artifacts)
+    let validated = validate_scenario(MANIFEST.as_bytes(), &artifacts)
         .expect("canonical scenario with extra unique artifacts must validate");
     assert_eq!(validated.traffic_digest(), sha256(TRAFFIC));
     assert_eq!(validated.spatial_digest(), sha256(SPATIAL));
@@ -203,7 +195,7 @@ fn scenario_happy_path_binds_descriptors_and_skips_extra_artifacts() {
 
 #[test]
 fn scenario_bundle_carries_exact_manifest_digest() {
-    let validated = validate_scenario_compatible(MANIFEST.as_bytes(), &base_artifacts())
+    let validated = validate_scenario(MANIFEST.as_bytes(), &base_artifacts())
         .expect("canonical scenario must validate");
     assert_eq!(validated.manifest_digest(), sha256(MANIFEST.as_bytes()));
     assert_eq!(validated.traffic_digest(), sha256(TRAFFIC));
@@ -275,7 +267,7 @@ fn manifest_shape_denies_unknown_fields_with_descriptor_path() {
     assert!(
         issue
             .path()
-            .expect("production-compatible issue 必携带 path")
+            .expect("current source issue 必携带 path")
             .contains("traffic")
     );
     assert!(matches!(
@@ -588,7 +580,7 @@ fn failure_order_is_frozen() {
 
 #[test]
 fn error_bundle_is_never_empty_and_codes_are_stable_and_distinct() {
-    let error = validate_traffic_compatible(b"{").expect_err("syntax error");
+    let error = validate_traffic(b"{").expect_err("syntax error");
     assert_eq!(error.issues().len(), 1);
     assert!(!format!("{error}").is_empty());
 
@@ -657,7 +649,7 @@ fn error_bundle_is_never_empty_and_codes_are_stable_and_distinct() {
 
 #[test]
 fn issue_parts_into_components_is_the_only_owned_bridge() {
-    let error = validate_traffic_compatible(b"{").expect_err("syntax error");
+    let error = validate_traffic(b"{").expect_err("syntax error");
     let issues = error.into_issues();
     assert_eq!(issues.len(), 1);
     let issue = issues.into_iter().next().expect("one issue");
@@ -667,7 +659,7 @@ fn issue_parts_into_components_is_the_only_owned_bridge() {
     assert_eq!(context, CurrentSourceIssueContext::None);
     assert_eq!(span, None);
     // serde_path_to_error 对 syntax 错误报 "?"，normalize_path 只映射 ""/"."，与旧 Data 行为一致。
-    let path = path.expect("production-compatible issue 必携带 path");
+    let path = path.expect("current source issue 必携带 path");
     assert!(!path.is_empty());
     match payload {
         CurrentSourceErrorPayload::JsonSyntax { source } => {
@@ -688,7 +680,7 @@ fn base_artifacts() -> Vec<CurrentArtifactInput<'static>> {
 }
 
 fn scenario_error(manifest: &[u8], artifacts: &[CurrentArtifactInput<'_>]) -> CurrentSourceError {
-    validate_scenario_compatible(manifest, artifacts).expect_err("scenario must fail")
+    validate_scenario(manifest, artifacts).expect_err("scenario must fail")
 }
 
 fn load_value(manifest: &Value, traffic: &[u8], spatial: &[u8]) -> CurrentSourceError {
@@ -702,7 +694,7 @@ fn load_value(manifest: &Value, traffic: &[u8], spatial: &[u8]) -> CurrentSource
 
 fn single_issue(error: CurrentSourceError) -> laneflow_current_source::CurrentSourceIssue {
     let issues = error.into_issues();
-    assert_eq!(issues.len(), 1, "production 立即失败恒为单元素 bundle");
+    assert_eq!(issues.len(), 1, "current source 立即失败恒为单元素 bundle");
     issues.into_iter().next().expect("one issue")
 }
 
