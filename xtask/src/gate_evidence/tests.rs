@@ -432,7 +432,7 @@ fn only_dependabot_body_edits_may_reuse_an_older_marker() {
         last_edited_at: Some("2026-08-06T03:31:00Z".to_string()),
         updated_at: "2026-08-06T03:31:00Z".to_string(),
     };
-    let edits = GitHubUserContentEditConnection {
+    let mut edits = GitHubUserContentEditConnection {
         page_info: GitHubPageInfo {
             has_next_page: false,
         },
@@ -462,6 +462,17 @@ fn only_dependabot_body_edits_may_reuse_an_older_marker() {
         .is_ok()
     );
     assert!(validate_latest_body_edit_is_dependabot(&edits, "PR #313").is_ok());
+
+    edits.nodes[0].edited_at = "2026-08-06T03:30:00Z".to_string();
+    let error = validate_dependabot_body_edits_after_marker(
+        "2026-08-06T03:30:00Z",
+        &timestamps,
+        &edits,
+        "PR #313",
+    )
+    .expect_err("a same-second human edit is ambiguous and requires a new marker");
+    assert!(error.contains("非 Dependabot body edit"));
+    edits.nodes[0].edited_at = "2026-08-06T03:20:00Z".to_string();
 
     let mut human_edit = edits;
     human_edit.nodes[1].editor = Some(GitHubActor {
@@ -870,6 +881,8 @@ fn g3_evidence_shadow_workflow_preserves_trusted_ref_boundary() {
     assert!(workflow.contains("REUSE_MARKER_EVENT"));
     assert!(workflow.contains("REUSE_MARKER"));
     assert!(workflow.contains("github.event.changes.body.from != null"));
+    assert!(workflow.contains("github.event.changes.base == null"));
+    assert!(!workflow.contains("github.event.changes.title == null"));
     assert!(workflow.contains("repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100"));
     assert!(workflow.contains("- closed"));
     assert!(workflow.contains("initial_head"));

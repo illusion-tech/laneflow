@@ -177,6 +177,7 @@ jobs:
                 github.event_name == 'pull_request_target' &&
                 github.event.action == 'edited' &&
                 github.event.changes.body.from != null &&
+                github.event.changes.base == null &&
                 contains(fromJSON('["dependabot", "dependabot[bot]", "app/dependabot"]'), github.event.sender.login) &&
                 contains(fromJSON('["dependabot", "dependabot[bot]", "app/dependabot"]'), github.event.pull_request.user.login) }}
           DIRECT_PRS: ${{ steps.direct.outputs.pr_numbers }}

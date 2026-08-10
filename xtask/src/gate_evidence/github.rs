@@ -210,7 +210,7 @@ pub(super) fn validate_dependabot_body_edits_after_marker(
         latest_history_edit = Some(
             latest_history_edit.map_or(edited_seconds, |current: u64| current.max(edited_seconds)),
         );
-        if edited_seconds <= marker_seconds {
+        if edited_seconds < marker_seconds {
             continue;
         }
         later_edit_count += 1;
