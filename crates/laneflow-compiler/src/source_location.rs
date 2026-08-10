@@ -1,0 +1,889 @@
+//! 闭合、与来源介质匹配的编译来源位置。
+//!
+//! 文本前端继续使用 [`SourceSpan`]；道路编辑 FlatBuffer 使用稳定文档身份、实体地址、
+//! owner-local 关系与闭合属性路径。道路编辑位置中的 ordinal 只在一次编译内解析共享
+//! context，不参与持久身份、摘要或规范排序。
+
+use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
+use laneflow_static_contract::EntityKind;
+
+use crate::SourceSpan;
+
+/// 编译器支持的闭合来源位置。
+#[derive(Clone, Debug)]
+pub enum SourceLocation {
+    /// 具有真实一基行列范围的文本来源。
+    Text(SourceSpan),
+    /// 受检道路编辑 FlatBuffer 中的有类型语义位置。
+    RoadEditing(RoadEditingSourceLocation),
+}
+
+impl SourceLocation {
+    /// 返回位置所属的稳定来源文档键。
+    #[must_use]
+    pub fn source_document_key(&self) -> &str {
+        match self {
+            Self::Text(span) => span.source_document_key(),
+            Self::RoadEditing(location) => location.document_identity.source_document_key(),
+        }
+    }
+
+    /// 若位置来自文本，返回真实文本范围。
+    #[must_use]
+    pub const fn text_span(&self) -> Option<&SourceSpan> {
+        match self {
+            Self::Text(span) => Some(span),
+            Self::RoadEditing(_) => None,
+        }
+    }
+
+    /// 若位置来自道路编辑来源，返回其有类型位置。
+    #[must_use]
+    pub const fn road_editing(&self) -> Option<&RoadEditingSourceLocation> {
+        match self {
+            Self::Text(_) => None,
+            Self::RoadEditing(location) => Some(location),
+        }
+    }
+}
+
+impl From<SourceSpan> for SourceLocation {
+    fn from(value: SourceSpan) -> Self {
+        Self::Text(value)
+    }
+}
+
+impl PartialEq for SourceLocation {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for SourceLocation {}
+
+impl PartialOrd for SourceLocation {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SourceLocation {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::Text(left), Self::Text(right)) => left.cmp(right),
+            (Self::Text(_), Self::RoadEditing(_)) => Ordering::Less,
+            (Self::RoadEditing(_), Self::Text(_)) => Ordering::Greater,
+            (Self::RoadEditing(left), Self::RoadEditing(right)) => left.cmp(right),
+        }
+    }
+}
+
+impl Hash for SourceLocation {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Text(span) => {
+                0_u8.hash(state);
+                span.hash(state);
+            }
+            Self::RoadEditing(location) => {
+                1_u8.hash(state);
+                location.hash(state);
+            }
+        }
+    }
+}
+
+/// verifier 前后不同可信度的道路编辑文档身份。
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum RoadEditingDocumentIdentity {
+    /// wire 尚未验证，只能使用调用方在输入外提供并已受检的预期文档键。
+    Input(RoadEditingInputDocumentIdentity),
+    /// wire 模块命名空间和文档键均已验证且与外部预期键逐字节相等。
+    Verified(RoadEditingVerifiedDocumentIdentity),
+}
+
+impl RoadEditingDocumentIdentity {
+    /// 返回稳定来源文档键。
+    #[must_use]
+    pub fn source_document_key(&self) -> &str {
+        match self {
+            Self::Input(identity) => &identity.expected_source_document_key,
+            Self::Verified(identity) => &identity.source_document_key,
+        }
+    }
+
+    /// verifier 成功后返回受检模块命名空间；输入级损坏诊断没有该值。
+    #[must_use]
+    pub fn module_namespace(&self) -> Option<&str> {
+        match self {
+            Self::Input(_) => None,
+            Self::Verified(identity) => Some(&identity.module_namespace),
+        }
+    }
+
+    #[allow(
+        dead_code,
+        reason = "used by the staged verifier diagnostic integration in the next admission slice"
+    )]
+    pub(crate) fn input(expected_source_document_key: Arc<str>) -> Self {
+        Self::Input(RoadEditingInputDocumentIdentity {
+            expected_source_document_key,
+        })
+    }
+
+    #[allow(
+        dead_code,
+        reason = "consumed by the staged shared-admission slice after verifier success"
+    )]
+    pub(crate) fn verified(module_namespace: Arc<str>, source_document_key: Arc<str>) -> Self {
+        Self::Verified(RoadEditingVerifiedDocumentIdentity {
+            module_namespace,
+            source_document_key,
+        })
+    }
+}
+
+/// verifier 前可用的道路编辑输入文档身份。
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RoadEditingInputDocumentIdentity {
+    expected_source_document_key: Arc<str>,
+}
+
+/// verifier 后可用的道路编辑模块和文档身份。
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RoadEditingVerifiedDocumentIdentity {
+    module_namespace: Arc<str>,
+    source_document_key: Arc<str>,
+}
+
+/// 道路编辑 schema 的根向量种类。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum RoadEditingRootVectorKind {
+    RoadAlignment,
+    RoadCorridor,
+    RoadSection,
+    AuthoringLane,
+    LaneEdge,
+    Junction,
+    Movement,
+    ManeuverPath,
+    ManeuverGate,
+    WaitingZone,
+    StopLine,
+    SignalGroup,
+    SignalController,
+    SignalPhase,
+    ParkingArea,
+    ParkingSpace,
+    LaneGroup,
+    FacilityBand,
+    ParticipantClass,
+    AccessRule,
+    VehicleProfile,
+    StaticRoute,
+    CanonicalFrame,
+}
+
+/// 道路编辑 schema 中可出现在来源路径或 wire fallback 的 table 种类。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum RoadEditingTableKind {
+    RoadEditingSource,
+    ModuleHeader,
+    Provenance,
+    LineSegment,
+    CubicBezierSegment,
+    CurveSegment,
+    CurveProgram,
+    RoadAlignment,
+    CorridorElement,
+    RoadCorridor,
+    RoadSection,
+    AuthoringLane,
+    LaneEdge,
+    Junction,
+    Movement,
+    ManeuverPath,
+    ManeuverGate,
+    WaitingZone,
+    StopLine,
+    SignalGroup,
+    SignalController,
+    SignalPhaseState,
+    SignalPhase,
+    ParkingArea,
+    ParkingLaneAnchor,
+    ParkingSpaceGeometry,
+    ParkingSpace,
+    LaneGroup,
+    FacilityBand,
+    ParticipantClass,
+    AccessRegulation,
+    AccessRule,
+    IidmVehicleProfile,
+    VehicleProfile,
+    StaticRoute,
+    CanonicalFrame,
+}
+
+/// 道路编辑 schema 中可出现在来源路径的 inline struct 种类。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum RoadEditingStructKind {
+    Digest256,
+    OptionalU64,
+    Vec3F64,
+    LinearWidthProfile,
+}
+
+/// 道路编辑 schema 中可出现在来源路径的 union 种类。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum RoadEditingUnionKind {
+    CurveSegmentGeometry,
+}
+
+/// owner-local 关系的闭合集合。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum RoadEditingRelationKind {
+    Import,
+    CurveSegment,
+    CorridorElement,
+    RoadSectionAuthoringLane,
+    LaneEdgeSuccessor,
+    JunctionApproachEdge,
+    JunctionInternalEdge,
+    ManeuverPathInternalEdge,
+    SignalControllerGroup,
+    SignalControllerPhase,
+    SignalPhaseState,
+    AccessRuleParticipantClass,
+    StaticRouteEdge,
+}
+
+/// 有序产品关系或规范集合关系中的稳定 occurrence。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum RoadEditingRelationOccurrence {
+    OrderedProductOrdinal(u32),
+    CanonicalSetOrdinal(u32),
+}
+
+/// context 内字符串的编译期 ordinal；不得持久化或参与摘要。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RoadEditingStringOrdinal(u32);
+
+/// context 内属性路径的编译期 ordinal；不得持久化或参与摘要。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RoadEditingPropertyPathOrdinal(u32);
+
+/// context 内画布选择键的编译期 ordinal；不得持久化或参与摘要。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RoadEditingCanvasSelectionOrdinal(u32);
+
+/// 道路编辑来源中的稳定实体地址；它不是产品 `CanonicalIdentity`。
+#[derive(Clone, Debug)]
+pub struct RoadEditingSourceAddress {
+    module_namespace: RoadEditingStringOrdinal,
+    entity_kind: EntityKind,
+    owner_local_keys: Box<[RoadEditingStringOrdinal]>,
+    local_key: RoadEditingStringOrdinal,
+}
+
+impl RoadEditingSourceAddress {
+    /// 返回来源声明种类。
+    #[must_use]
+    pub const fn entity_kind(&self) -> EntityKind {
+        self.entity_kind
+    }
+
+    /// 解析模块命名空间。
+    #[must_use]
+    pub fn module_namespace<'a>(&self, context: &'a RoadEditingLocationContext) -> &'a str {
+        context.resolve_string(self.module_namespace)
+    }
+
+    /// 按父先子后顺序解析完整 owner local-key tuple。
+    pub fn owner_local_keys<'a>(
+        &'a self,
+        context: &'a RoadEditingLocationContext,
+    ) -> impl ExactSizeIterator<Item = &'a str> + 'a {
+        self.owner_local_keys
+            .iter()
+            .copied()
+            .map(|ordinal| context.resolve_string(ordinal))
+    }
+
+    /// 解析直接 owner 下的 sibling-local key。
+    #[must_use]
+    pub fn local_key<'a>(&self, context: &'a RoadEditingLocationContext) -> &'a str {
+        context.resolve_string(self.local_key)
+    }
+
+    #[allow(
+        dead_code,
+        reason = "consumed by the staged road-editing location-context builder"
+    )]
+    pub(crate) fn new(
+        module_namespace: RoadEditingStringOrdinal,
+        entity_kind: EntityKind,
+        owner_local_keys: Box<[RoadEditingStringOrdinal]>,
+        local_key: RoadEditingStringOrdinal,
+    ) -> Self {
+        Self {
+            module_namespace,
+            entity_kind,
+            owner_local_keys,
+            local_key,
+        }
+    }
+}
+
+/// 道路编辑来源中最多四步的闭合叶属性路径。
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RoadEditingPropertyPath {
+    steps: Box<[RoadEditingPropertyStep]>,
+}
+
+impl RoadEditingPropertyPath {
+    /// 返回按外到内顺序排列的属性步骤。
+    #[must_use]
+    pub fn steps(&self) -> &[RoadEditingPropertyStep] {
+        &self.steps
+    }
+
+    #[allow(
+        dead_code,
+        reason = "consumed by the staged road-editing location-context builder"
+    )]
+    pub(crate) fn new(steps: Box<[RoadEditingPropertyStep]>) -> Self {
+        assert!(
+            (1..=4).contains(&steps.len()),
+            "property path depth must be 1..=4"
+        );
+        Self { steps }
+    }
+}
+
+/// 一个已知 table field、struct member 或 union variant 步骤。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum RoadEditingPropertyStep {
+    TableField {
+        table: RoadEditingTableKind,
+        field_id: u16,
+    },
+    StructMember {
+        structure: RoadEditingStructKind,
+        member_id: u8,
+    },
+    UnionVariant {
+        union: RoadEditingUnionKind,
+        discriminant: u8,
+    },
+}
+
+/// 已证明完全位于输入 buffer 内的结构损坏字节范围。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RoadEditingByteRange {
+    start: u32,
+    length: u32,
+}
+
+impl RoadEditingByteRange {
+    /// 返回零基起始 byte offset。
+    #[must_use]
+    pub const fn start(self) -> u32 {
+        self.start
+    }
+
+    /// 返回范围 byte 数。
+    #[must_use]
+    pub const fn length(self) -> u32 {
+        self.length
+    }
+
+    #[allow(
+        dead_code,
+        reason = "consumed by the staged verifier trace diagnostic integration"
+    )]
+    pub(crate) fn checked(start: u32, length: u32, source_len: usize) -> Option<Self> {
+        let end = start.checked_add(length)?;
+        (u64::from(end) <= u64::try_from(source_len).ok()?).then_some(Self { start, length })
+    }
+}
+
+/// 道路编辑语义或结构位置的闭合 subject。
+#[derive(Clone, Debug)]
+pub enum RoadEditingSubject {
+    ModuleHeader,
+    RoadAlignment {
+        address: RoadEditingSourceAddress,
+    },
+    Declaration {
+        address: RoadEditingSourceAddress,
+    },
+    OwnerLocal {
+        owner: RoadEditingSourceAddress,
+        relation: RoadEditingRelationKind,
+        occurrence: RoadEditingRelationOccurrence,
+    },
+    Wire {
+        root_vector: RoadEditingRootVectorKind,
+        physical_index: u32,
+        table: RoadEditingTableKind,
+    },
+}
+
+/// 一个模块共享、冻结后不可变的道路编辑位置 context。
+#[derive(Debug)]
+pub struct RoadEditingLocationContext {
+    strings: Box<[Arc<str>]>,
+    property_paths: Box<[RoadEditingPropertyPath]>,
+    canvas_selection_keys: Box<[Arc<str>]>,
+}
+
+impl RoadEditingLocationContext {
+    fn resolve_string(&self, ordinal: RoadEditingStringOrdinal) -> &str {
+        &self.strings[ordinal.0 as usize]
+    }
+
+    fn resolve_property_path(
+        &self,
+        ordinal: RoadEditingPropertyPathOrdinal,
+    ) -> &RoadEditingPropertyPath {
+        &self.property_paths[ordinal.0 as usize]
+    }
+
+    fn resolve_canvas_selection(&self, ordinal: RoadEditingCanvasSelectionOrdinal) -> &str {
+        &self.canvas_selection_keys[ordinal.0 as usize]
+    }
+
+    #[allow(
+        dead_code,
+        reason = "consumed by the staged road-editing shared-admission slice"
+    )]
+    pub(crate) fn new(
+        strings: Box<[Arc<str>]>,
+        property_paths: Box<[RoadEditingPropertyPath]>,
+        canvas_selection_keys: Box<[Arc<str>]>,
+    ) -> Self {
+        Self {
+            strings,
+            property_paths,
+            canvas_selection_keys,
+        }
+    }
+
+    #[allow(
+        dead_code,
+        reason = "consumed by the staged road-editing shared-admission slice"
+    )]
+    pub(crate) fn string_ordinal(&self, index: usize) -> RoadEditingStringOrdinal {
+        assert!(
+            index < self.strings.len(),
+            "string ordinal must resolve in context"
+        );
+        RoadEditingStringOrdinal(u32::try_from(index).expect("compile limits bound ordinals"))
+    }
+
+    #[allow(
+        dead_code,
+        reason = "consumed by the staged road-editing shared-admission slice"
+    )]
+    pub(crate) fn property_path_ordinal(&self, index: usize) -> RoadEditingPropertyPathOrdinal {
+        assert!(
+            index < self.property_paths.len(),
+            "property path ordinal must resolve in context"
+        );
+        RoadEditingPropertyPathOrdinal(u32::try_from(index).expect("compile limits bound ordinals"))
+    }
+
+    #[allow(
+        dead_code,
+        reason = "consumed by the staged road-editing shared-admission slice"
+    )]
+    pub(crate) fn canvas_selection_ordinal(
+        &self,
+        index: usize,
+    ) -> RoadEditingCanvasSelectionOrdinal {
+        assert!(
+            index < self.canvas_selection_keys.len(),
+            "canvas selection ordinal must resolve in context"
+        );
+        RoadEditingCanvasSelectionOrdinal(
+            u32::try_from(index).expect("compile limits bound ordinals"),
+        )
+    }
+}
+
+/// 一条道路编辑来源位置；所有 ordinal 均由同一个冻结 context 解析。
+#[derive(Clone, Debug)]
+pub struct RoadEditingSourceLocation {
+    context: Arc<RoadEditingLocationContext>,
+    document_identity: RoadEditingDocumentIdentity,
+    subject: RoadEditingSubject,
+    property_path: Option<RoadEditingPropertyPathOrdinal>,
+    canvas_selection: Option<RoadEditingCanvasSelectionOrdinal>,
+    byte_range: Option<RoadEditingByteRange>,
+}
+
+impl RoadEditingSourceLocation {
+    /// 返回文档身份。
+    #[must_use]
+    pub const fn document_identity(&self) -> &RoadEditingDocumentIdentity {
+        &self.document_identity
+    }
+
+    /// 返回稳定语义或结构 fallback subject。
+    #[must_use]
+    pub const fn subject(&self) -> &RoadEditingSubject {
+        &self.subject
+    }
+
+    /// 返回共享的只读位置 context。
+    #[must_use]
+    pub fn context(&self) -> &RoadEditingLocationContext {
+        &self.context
+    }
+
+    /// 解析可选闭合属性路径。
+    #[must_use]
+    pub fn property_path(&self) -> Option<&RoadEditingPropertyPath> {
+        self.property_path
+            .map(|ordinal| self.context.resolve_property_path(ordinal))
+    }
+
+    /// 解析可选画布选择键。
+    #[must_use]
+    pub fn canvas_selection(&self) -> Option<&str> {
+        self.canvas_selection
+            .map(|ordinal| self.context.resolve_canvas_selection(ordinal))
+    }
+
+    /// 仅结构损坏位置可携带受检 byte range。
+    #[must_use]
+    pub const fn byte_range(&self) -> Option<RoadEditingByteRange> {
+        self.byte_range
+    }
+
+    #[allow(
+        dead_code,
+        reason = "consumed by the staged road-editing shared-admission slice"
+    )]
+    pub(crate) fn new(
+        context: Arc<RoadEditingLocationContext>,
+        document_identity: RoadEditingDocumentIdentity,
+        subject: RoadEditingSubject,
+        property_path: Option<RoadEditingPropertyPathOrdinal>,
+        canvas_selection: Option<RoadEditingCanvasSelectionOrdinal>,
+        byte_range: Option<RoadEditingByteRange>,
+    ) -> Self {
+        Self {
+            context,
+            document_identity,
+            subject,
+            property_path,
+            canvas_selection,
+            byte_range,
+        }
+    }
+}
+
+impl PartialEq for RoadEditingSourceLocation {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for RoadEditingSourceLocation {}
+
+impl PartialOrd for RoadEditingSourceLocation {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RoadEditingSourceLocation {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.document_identity
+            .cmp(&other.document_identity)
+            .then_with(|| {
+                compare_subject(&self.subject, &self.context, &other.subject, &other.context)
+            })
+            .then_with(|| self.property_path().cmp(&other.property_path()))
+            .then_with(|| self.canvas_selection().cmp(&other.canvas_selection()))
+            .then_with(|| self.byte_range.cmp(&other.byte_range))
+    }
+}
+
+impl Hash for RoadEditingSourceLocation {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.document_identity.hash(state);
+        hash_subject(&self.subject, &self.context, state);
+        self.property_path().hash(state);
+        self.canvas_selection().hash(state);
+        self.byte_range.hash(state);
+    }
+}
+
+fn subject_rank(subject: &RoadEditingSubject) -> u8 {
+    match subject {
+        RoadEditingSubject::ModuleHeader => 0,
+        RoadEditingSubject::RoadAlignment { .. } => 1,
+        RoadEditingSubject::Declaration { .. } => 2,
+        RoadEditingSubject::OwnerLocal { .. } => 3,
+        RoadEditingSubject::Wire { .. } => 4,
+    }
+}
+
+fn compare_subject(
+    left: &RoadEditingSubject,
+    left_context: &RoadEditingLocationContext,
+    right: &RoadEditingSubject,
+    right_context: &RoadEditingLocationContext,
+) -> Ordering {
+    subject_rank(left)
+        .cmp(&subject_rank(right))
+        .then_with(|| match (left, right) {
+            (RoadEditingSubject::ModuleHeader, RoadEditingSubject::ModuleHeader) => Ordering::Equal,
+            (
+                RoadEditingSubject::RoadAlignment { address: left },
+                RoadEditingSubject::RoadAlignment { address: right },
+            )
+            | (
+                RoadEditingSubject::Declaration { address: left },
+                RoadEditingSubject::Declaration { address: right },
+            ) => compare_address(left, left_context, right, right_context),
+            (
+                RoadEditingSubject::OwnerLocal {
+                    owner: left_owner,
+                    relation: left_relation,
+                    occurrence: left_occurrence,
+                },
+                RoadEditingSubject::OwnerLocal {
+                    owner: right_owner,
+                    relation: right_relation,
+                    occurrence: right_occurrence,
+                },
+            ) => compare_address(left_owner, left_context, right_owner, right_context)
+                .then_with(|| left_relation.cmp(right_relation))
+                .then_with(|| left_occurrence.cmp(right_occurrence)),
+            (
+                RoadEditingSubject::Wire {
+                    root_vector: left_root,
+                    physical_index: left_index,
+                    table: left_table,
+                },
+                RoadEditingSubject::Wire {
+                    root_vector: right_root,
+                    physical_index: right_index,
+                    table: right_table,
+                },
+            ) => left_root
+                .cmp(right_root)
+                .then_with(|| left_index.cmp(right_index))
+                .then_with(|| left_table.cmp(right_table)),
+            _ => Ordering::Equal,
+        })
+}
+
+fn compare_address(
+    left: &RoadEditingSourceAddress,
+    left_context: &RoadEditingLocationContext,
+    right: &RoadEditingSourceAddress,
+    right_context: &RoadEditingLocationContext,
+) -> Ordering {
+    left.entity_kind
+        .cmp(&right.entity_kind)
+        .then_with(|| {
+            left.module_namespace(left_context)
+                .as_bytes()
+                .cmp(right.module_namespace(right_context).as_bytes())
+        })
+        .then_with(|| {
+            left.owner_local_keys(left_context)
+                .map(str::as_bytes)
+                .cmp(right.owner_local_keys(right_context).map(str::as_bytes))
+        })
+        .then_with(|| {
+            left.local_key(left_context)
+                .as_bytes()
+                .cmp(right.local_key(right_context).as_bytes())
+        })
+}
+
+fn hash_subject<H: Hasher>(
+    subject: &RoadEditingSubject,
+    context: &RoadEditingLocationContext,
+    state: &mut H,
+) {
+    subject_rank(subject).hash(state);
+    match subject {
+        RoadEditingSubject::ModuleHeader => {}
+        RoadEditingSubject::RoadAlignment { address }
+        | RoadEditingSubject::Declaration { address } => hash_address(address, context, state),
+        RoadEditingSubject::OwnerLocal {
+            owner,
+            relation,
+            occurrence,
+        } => {
+            hash_address(owner, context, state);
+            relation.hash(state);
+            occurrence.hash(state);
+        }
+        RoadEditingSubject::Wire {
+            root_vector,
+            physical_index,
+            table,
+        } => {
+            root_vector.hash(state);
+            physical_index.hash(state);
+            table.hash(state);
+        }
+    }
+}
+
+fn hash_address<H: Hasher>(
+    address: &RoadEditingSourceAddress,
+    context: &RoadEditingLocationContext,
+    state: &mut H,
+) {
+    address.entity_kind.hash(state);
+    address.module_namespace(context).hash(state);
+    address.owner_local_keys.len().hash(state);
+    for owner in address.owner_local_keys(context) {
+        owner.hash(state);
+    }
+    address.local_key(context).hash(state);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::hash_map::DefaultHasher;
+
+    fn hash_of(value: &SourceLocation) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        value.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    #[test]
+    fn road_editing_location_resolves_shared_ordinals_without_text_span() {
+        let context = Arc::new(RoadEditingLocationContext::new(
+            Box::new([
+                Arc::from("city/main"),
+                Arc::from("corridor-main"),
+                Arc::from("section-w2e"),
+                Arc::from("lane-1"),
+            ]),
+            Box::new([RoadEditingPropertyPath::new(Box::new([
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::AuthoringLane,
+                    field_id: 3,
+                },
+                RoadEditingPropertyStep::StructMember {
+                    structure: RoadEditingStructKind::LinearWidthProfile,
+                    member_id: 1,
+                },
+            ]))]),
+            Box::new([Arc::from("canvas/lane-1")]),
+        ));
+        let address = RoadEditingSourceAddress::new(
+            context.string_ordinal(0),
+            EntityKind::AuthoringLane,
+            Box::new([context.string_ordinal(1), context.string_ordinal(2)]),
+            context.string_ordinal(3),
+        );
+        let location = SourceLocation::RoadEditing(RoadEditingSourceLocation::new(
+            Arc::clone(&context),
+            RoadEditingDocumentIdentity::verified(
+                Arc::from("city/main"),
+                Arc::from("city-main.lfre"),
+            ),
+            RoadEditingSubject::Declaration { address },
+            Some(context.property_path_ordinal(0)),
+            Some(context.canvas_selection_ordinal(0)),
+            None,
+        ));
+
+        assert_eq!(location.source_document_key(), "city-main.lfre");
+        assert!(location.text_span().is_none());
+        let road = location.road_editing().expect("road-editing location");
+        assert_eq!(road.canvas_selection(), Some("canvas/lane-1"));
+        assert_eq!(
+            road.property_path().expect("property path").steps().len(),
+            2
+        );
+        let RoadEditingSubject::Declaration { address } = road.subject() else {
+            panic!("declaration subject expected");
+        };
+        assert_eq!(address.module_namespace(road.context()), "city/main");
+        assert_eq!(
+            address.owner_local_keys(road.context()).collect::<Vec<_>>(),
+            ["corridor-main", "section-w2e"]
+        );
+        assert_eq!(address.local_key(road.context()), "lane-1");
+    }
+
+    #[test]
+    fn byte_range_must_be_fully_inside_source() {
+        assert_eq!(
+            RoadEditingByteRange::checked(4, 8, 12),
+            Some(RoadEditingByteRange {
+                start: 4,
+                length: 8
+            })
+        );
+        assert!(RoadEditingByteRange::checked(4, 9, 12).is_none());
+        assert!(RoadEditingByteRange::checked(u32::MAX, 2, usize::MAX).is_none());
+    }
+
+    #[test]
+    fn semantic_order_and_hash_ignore_context_interning_order() {
+        fn location(strings: [&str; 4], indexes: [usize; 4]) -> SourceLocation {
+            let context = Arc::new(RoadEditingLocationContext::new(
+                strings.map(Arc::from).into(),
+                Box::default(),
+                Box::default(),
+            ));
+            let address = RoadEditingSourceAddress::new(
+                context.string_ordinal(indexes[0]),
+                EntityKind::AuthoringLane,
+                Box::new([
+                    context.string_ordinal(indexes[1]),
+                    context.string_ordinal(indexes[2]),
+                ]),
+                context.string_ordinal(indexes[3]),
+            );
+            SourceLocation::RoadEditing(RoadEditingSourceLocation::new(
+                context,
+                RoadEditingDocumentIdentity::verified(
+                    Arc::from("city/main"),
+                    Arc::from("city-main.lfre"),
+                ),
+                RoadEditingSubject::Declaration { address },
+                None,
+                None,
+                None,
+            ))
+        }
+
+        let left = location(
+            ["city/main", "corridor-main", "section-w2e", "lane-1"],
+            [0, 1, 2, 3],
+        );
+        let right = location(
+            ["lane-1", "section-w2e", "city/main", "corridor-main"],
+            [2, 3, 1, 0],
+        );
+
+        assert_eq!(left, right);
+        assert_eq!(left.cmp(&right), Ordering::Equal);
+        assert_eq!(hash_of(&left), hash_of(&right));
+    }
+}
