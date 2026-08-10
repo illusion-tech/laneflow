@@ -109,8 +109,9 @@ API 返回空集合只表示该次查询范围内无开放告警。未配置、�
 ### 4.1 G3
 
 - 修改安全设置、扫描 workflow、依赖策略或安全治理规则的 PR，必须在 G3 前验证受影响配置，并等待对应首次或最新扫描完成。
-- GitHub 为当前 PR 产生的 CodeQL check 必须成功；`pending`、`failure`、`cancelled` 或缺少预期语言分析均不能作为通过。
+- 对包含适用源代码的 PR，GitHub 为当前 PR 产生的 CodeQL check 必须成功；`pending`、`failure`、`cancelled` 或缺少预期语言分析均不能作为通过。
 - 当前 PR 没有产生预期扫描时，必须说明原因；若属于配置、权限或平台异常，应记录显式例外，不得静默忽略。
+- 对满足 `development-gates.md` 中 `dependabot-cargo-lock-only-v1` 全部机器条件的 PR，CodeQL default setup 返回 `NEUTRAL` 且摘要为 `2 configurations not found`、没有 PR analysis，表示本次纯 lockfile 变更对源代码分析为 `not applicable`。这既不是 CodeQL success，也不表示零告警；G3 仍须记录该 Check URL，并要求 Governance、Rust、Dependency policy 及适用的 cargo-deny 检查成功。任何源文件或额外 commit 都不得使用此语义。
 - 任何与当前变更相关且仍为 open 的 Secret Scanning alert 默认阻断 G3。
 - CodeQL 或 Dependabot 的 `high` / `critical` 开放告警默认阻断 G3；若确认与本次变更无关，仍须链接修复 Issue 或按 `development-gates.md` 记录显式例外。
 - 修改 Cargo dependency、许可证、`deny.toml` 或依赖更新配置时，cargo-deny 的 advisories、licenses、bans 和 sources 检查必须成功；规则见 `dependency-security.md`。

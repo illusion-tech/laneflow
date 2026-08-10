@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 313,
+    "author": { "login": "app/dependabot" },
+    "headRefOid": "9d941d7b54a79e089b97520d66a3bf0125d5c91a",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "files": {
+      "nodes": [{ "path": "Cargo.lock", "changeType": "MODIFIED" }]
+    },
+    "commits": {
+      "nodes": [
+        {
+          "commit": {
+            "oid": "9d941d7b54a79e089b97520d66a3bf0125d5c91a",
+            "committedDate": "2026-08-06T02:05:11Z",
+            "url": "https://github.com/illusion-tech/laneflow/commit/9d941d7b54a79e089b97520d66a3bf0125d5c91a"
+          }
+        }
+      ]
+    },
+    "reviews": {
+      "nodes": [
+        {
+          "id": "PRR-copilot-unreviewable",
+          "author": { "login": "copilot-pull-request-reviewer[bot]" },
+          "body": "Copilot was unable to review the changed files.",
+          "state": "COMMENTED",
+          "submittedAt": "2026-08-06T03:10:00Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/313#pullrequestreview-2",
+          "commit": { "oid": "9d941d7b54a79e089b97520d66a3bf0125d5c91a" }
+        }
+      ]
+    },
+    "comments": {
+      "nodes": [
+        {
+          "id": "IC-codex-unavailable",
+          "author": { "login": "chatgpt-codex-connector" },
+          "body": "To use Codex here, connect a supported environment.",
+          "createdAt": "2026-08-06T03:15:00Z",
+          "updatedAt": "2026-08-06T03:15:00Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/313#issuecomment-1"
+        }
+      ]
+    }
+  }
+}

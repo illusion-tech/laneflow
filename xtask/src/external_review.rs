@@ -24,6 +24,16 @@ query($owner:String!, $name:String!, $number:Int!) {
       headRefOid
       baseRefOid
       isDraft
+      files(first:2) {
+        nodes { path changeType }
+        pageInfo { hasNextPage }
+      }
+      commits(first:2) {
+        nodes {
+          commit { oid committedDate url }
+        }
+        pageInfo { hasNextPage }
+      }
       reviewRequests(first:100) {
         nodes {
           requestedReviewer {
@@ -207,6 +217,10 @@ struct PullRequestSnapshot {
     #[serde(default)]
     is_draft: bool,
     #[serde(default)]
+    files: Connection<ChangedFile>,
+    #[serde(default)]
+    commits: Connection<PullRequestCommit>,
+    #[serde(default)]
     review_requests: Connection<ReviewRequest>,
     #[serde(default)]
     reviews: Connection<Review>,
@@ -220,6 +234,27 @@ struct PullRequestSnapshot {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Actor {
     login: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ChangedFile {
+    path: String,
+    change_type: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PullRequestCommit {
+    commit: CommitMetadata,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CommitMetadata {
+    oid: String,
+    committed_date: String,
+    url: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -724,6 +759,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         diagnostics.push("baseRefOid 必须是 40 位十六进制 OID".to_string());
     }
     collect_pagination_errors(pr, &mut diagnostics);
+    let dependabot_completion = dependabot_lockfile_completion(pr);
 
     let mut review_to_finding_threads = BTreeMap::<String, usize>::new();
     let mut finding_thread_ids = BTreeSet::<String>::new();
@@ -738,6 +774,11 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             diagnostics.push(format!("review thread `{}` 没有 comment", thread.id));
             continue;
         };
+        if dependabot_completion.is_some_and(|completion| {
+            is_dependabot_lockfile_false_positive(thread, completion, &pr.head_ref_oid, &author)
+        }) {
+            continue;
+        }
         let Some(actor) = first_comment.author.as_ref() else {
             continue;
         };
@@ -875,8 +916,11 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         if normalize_actor(&actor.login) != CODEX_ACTOR {
             continue;
         }
-        if comment.body.contains("To use Codex here") {
+        if comment.body.contains("To use Codex here") && dependabot_completion.is_none() {
             diagnostics.push(format!("Codex provider 报告环境不可用：{}", comment.url));
+            continue;
+        }
+        if comment.body.contains("To use Codex here") {
             continue;
         }
         if !comment.body.contains("Codex Review:") {
@@ -908,6 +952,27 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 outcome: EvidenceOutcome::Clean,
                 submitted_at: &comment.created_at,
                 evidence_url: &comment.url,
+            },
+        );
+    }
+
+    if let Some(completion) = dependabot_completion.filter(|_| {
+        finding_thread_ids.is_empty()
+            && unthreaded_findings == 0
+            && unresolved_actionable_threads == 0
+    }) {
+        push_evidence(
+            &mut evidence,
+            &mut diagnostics,
+            EvidenceInput {
+                provider: "dependabot_lockfile_policy",
+                actor: "github-metadata",
+                source_kind: "machine_verification",
+                reviewed_head: &completion.oid,
+                reviewed_base: &pr.base_ref_oid,
+                outcome: EvidenceOutcome::Clean,
+                submitted_at: &completion.committed_date,
+                evidence_url: &completion.url,
             },
         );
     }
@@ -1140,6 +1205,86 @@ fn push_evidence(
         submitted_at: input.submitted_at.to_string(),
         evidence_url: input.evidence_url.to_string(),
     });
+}
+
+fn dependabot_lockfile_completion(pr: &PullRequestSnapshot) -> Option<&CommitMetadata> {
+    let author = normalize_actor(pr.author.as_ref()?.login.as_str());
+    if author != "dependabot" && author != "app/dependabot" {
+        return None;
+    }
+    if pr.files.page_info.has_next_page {
+        return None;
+    }
+    let [file] = pr.files.nodes.as_slice() else {
+        return None;
+    };
+    if file.path != "Cargo.lock" || file.change_type != "MODIFIED" {
+        return None;
+    }
+    if pr.commits.page_info.has_next_page || pr.commits.nodes.len() != 1 {
+        return None;
+    }
+    let commit = &pr.commits.nodes[0].commit;
+    (commit.oid == pr.head_ref_oid
+        && valid_full_oid(&commit.oid)
+        && valid_timestamp(&commit.committed_date)
+        && valid_github_url(&commit.url))
+    .then_some(commit)
+}
+
+fn is_dependabot_lockfile_false_positive(
+    thread: &ReviewThread,
+    completion: &CommitMetadata,
+    current_head: &str,
+    pr_author: &str,
+) -> bool {
+    if !thread.is_resolved && !thread.is_outdated {
+        return false;
+    }
+    let Some(first) = thread.comments.nodes.first() else {
+        return false;
+    };
+    let Some(review) = first.pull_request_review.as_ref() else {
+        return false;
+    };
+    let linked_head = review.commit.as_ref().map(|commit| commit.oid.as_str());
+    let title_matches = [
+        "Restore Dependabot author or add governance fields",
+        "Restore bot authorship or add governance fields",
+    ]
+    .iter()
+    .any(|title| first.body.contains(title));
+    let claimed_head = first
+        .body
+        .split('`')
+        .find(|part| valid_oid_fragment(part.trim()))
+        .map(str::trim);
+    if normalize_actor(first.author.as_ref().map_or("", |actor| &actor.login)) != CODEX_ACTOR
+        || normalize_actor(review.author.as_ref().map_or("", |actor| &actor.login)) != CODEX_ACTOR
+        || !review.state.eq_ignore_ascii_case("COMMENTED")
+        || linked_head != Some(current_head)
+        || !valid_timestamp(&first.updated_at)
+        || !valid_github_url(&first.url)
+        || !title_matches
+        || !first.body.contains("Codex <codex@openai.com>")
+        || claimed_head.is_none_or(|claimed| oid_matches_current(claimed, current_head))
+    {
+        return false;
+    }
+    thread.comments.nodes.iter().skip(1).any(|reply| {
+        trusted_provider(
+            reply.author.as_ref().map_or("", |actor| &actor.login),
+            pr_author,
+        ) == Some("human")
+            && valid_timestamp(&reply.updated_at)
+            && valid_github_url(&reply.url)
+            && timestamp_second(&reply.updated_at) > timestamp_second(&first.updated_at)
+            && reply.body.starts_with("Disposition:")
+            && reply.body.contains(&completion.oid)
+            && reply
+                .body
+                .contains("dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>")
+    })
 }
 
 fn collect_pagination_errors(pr: &PullRequestSnapshot, diagnostics: &mut Vec<String>) {
@@ -1797,6 +1942,8 @@ fn load_live_waiver_snapshot(
             head_ref_oid: identity.head_ref_oid,
             base_ref_oid: identity.base_ref_oid,
             is_draft: identity.is_draft,
+            files: Connection::default(),
+            commits: Connection::default(),
             review_requests: Connection::default(),
             reviews: Connection::default(),
             comments: Connection::default(),
@@ -2291,11 +2438,105 @@ mod tests {
                 include_str!("../fixtures/external-review/history-pr-232-final.json"),
                 ExternalReviewState::Pass,
             ),
+            (
+                include_str!("../fixtures/external-review/dependabot-lockfile-wrong-sha.json"),
+                ExternalReviewState::Pass,
+            ),
+            (
+                include_str!("../fixtures/external-review/dependabot-lockfile-unreviewable.json"),
+                ExternalReviewState::Pass,
+            ),
         ];
 
         for (contents, expected) in cases {
             assert_eq!(evaluate_snapshot(&fixture(contents)).state, expected);
         }
+    }
+
+    #[test]
+    fn limits_dependabot_lockfile_completion_to_the_exact_policy_boundary() {
+        let contents =
+            include_str!("../fixtures/external-review/dependabot-lockfile-wrong-sha.json");
+        let pass = evaluate_snapshot(&fixture(contents));
+        assert_eq!(pass.state, ExternalReviewState::Pass);
+        assert_eq!(pass.provider.as_deref(), Some("dependabot_lockfile_policy"));
+        assert_eq!(pass.finding_count, 0);
+
+        let mut source_change = fixture(contents);
+        source_change.pull_request.files.nodes[0].path = "src/lib.rs".to_string();
+        assert!(!evaluate_snapshot(&source_change).state.is_pass());
+
+        let mut multiple_commits = fixture(contents);
+        multiple_commits
+            .pull_request
+            .commits
+            .nodes
+            .push(multiple_commits.pull_request.commits.nodes[0].clone());
+        assert!(!evaluate_snapshot(&multiple_commits).state.is_pass());
+
+        let mut unresolved = fixture(contents);
+        unresolved.pull_request.review_threads.nodes[0].is_resolved = false;
+        assert_eq!(
+            evaluate_snapshot(&unresolved).state,
+            ExternalReviewState::FindingsOpen
+        );
+
+        let mut missing_disposition = fixture(contents);
+        missing_disposition.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[1]
+            .body
+            .replace_range(.."Disposition:".len(), "Rejected:");
+        assert!(!evaluate_snapshot(&missing_disposition).state.is_pass());
+
+        let mut claimed_current_head = fixture(contents);
+        let head = claimed_current_head.pull_request.head_ref_oid.clone();
+        claimed_current_head.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .body = claimed_current_head.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .body
+            .replace("91f05a4", &head);
+        assert!(!evaluate_snapshot(&claimed_current_head).state.is_pass());
+
+        let mut edited_comments = fixture(contents);
+        edited_comments.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[0]
+            .updated_at = "2026-08-06T03:01:00Z".to_string();
+        edited_comments.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes[1]
+            .updated_at = "2026-08-06T03:06:00Z".to_string();
+        assert!(evaluate_snapshot(&edited_comments).state.is_pass());
+
+        let mut finding_edited_after_disposition = fixture(contents);
+        finding_edited_after_disposition
+            .pull_request
+            .review_threads
+            .nodes[0]
+            .comments
+            .nodes[0]
+            .updated_at = "2026-08-06T03:06:00Z".to_string();
+        assert!(
+            !evaluate_snapshot(&finding_edited_after_disposition)
+                .state
+                .is_pass()
+        );
+    }
+
+    #[test]
+    fn documents_the_lockfile_only_codeql_not_applicable_semantics() {
+        let gates = include_str!("../../docs/governance/development-gates.md");
+        let scanning = include_str!("../../docs/governance/security-scanning.md");
+
+        assert!(gates.contains("dependabot-cargo-lock-only-v1"));
+        assert!(scanning.contains("dependabot-cargo-lock-only-v1"));
+        assert!(scanning.contains("NEUTRAL"));
+        assert!(scanning.contains("2 configurations not found"));
+        assert!(scanning.contains("not applicable"));
     }
 
     #[test]
