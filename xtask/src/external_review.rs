@@ -817,12 +817,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 continue;
             }
         }
-        if first_comment.author.is_none() {
-            if dependabot_completion.is_some() && !thread.is_resolved && !thread.is_outdated {
-                unresolved_actionable_threads += 1;
-            }
-            continue;
-        }
+        let has_authorless_starter = first_comment.author.is_none();
         let mut has_trusted_finding = false;
         for (index, comment) in thread.comments.nodes.iter().enumerate() {
             let Some(actor) = comment.author.as_ref() else {
@@ -861,7 +856,10 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 .or_default()
                 .insert(thread.id.clone());
         }
-        if has_trusted_finding && !thread.is_resolved && !thread.is_outdated {
+        if !thread.is_resolved
+            && !thread.is_outdated
+            && (has_trusted_finding || (dependabot_completion.is_some() && has_authorless_starter))
+        {
             unresolved_actionable_threads += 1;
         }
     }
@@ -2694,6 +2692,21 @@ mod tests {
         );
         assert_eq!(trusted_reply_result.finding_count, 1);
         assert_eq!(trusted_reply_result.unresolved_actionable_threads, 1);
+
+        let mut trusted_reply_after_authorless = trusted_reply_to_untrusted.clone();
+        let thread = &mut trusted_reply_after_authorless
+            .pull_request
+            .review_threads
+            .nodes[0];
+        thread.is_resolved = true;
+        thread.comments.nodes[0].author = None;
+        let authorless_reply_result = evaluate_snapshot(&trusted_reply_after_authorless);
+        assert_eq!(
+            authorless_reply_result.state,
+            ExternalReviewState::AwaitingRereview
+        );
+        assert_eq!(authorless_reply_result.finding_count, 1);
+        assert_eq!(authorless_reply_result.unresolved_actionable_threads, 0);
 
         let mut human_commented = fixture(contents);
         let mut review = human_commented.pull_request.reviews.nodes[0].clone();
