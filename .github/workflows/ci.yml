@@ -36,6 +36,7 @@ jobs:
             ".github/workflows/external-review-gate.yml"
             ".github/workflows/external-review-signal.yml"
             ".github/workflows/g3-evidence-gate.yml"
+            ".github/workflows/road-editing-codegen.yml"
             ".github/pull_request_template.md"
             ".github/ISSUE_TEMPLATE/config.yml"
             ".github/ISSUE_TEMPLATE/feature.yml"
@@ -163,6 +164,7 @@ jobs:
               - '.github/workflows/external-review-gate.yml'
               - '.github/workflows/external-review-signal.yml'
               - '.github/workflows/g3-evidence-gate.yml'
+              - '.github/workflows/road-editing-codegen.yml'
               - 'docs/governance/github-workflow.md'
             bevy:
               - 'crates/laneflow-bevy/**'

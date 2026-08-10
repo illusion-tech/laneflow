@@ -6,6 +6,7 @@ members = [
     "crates/laneflow-core",
     "crates/laneflow-current-source",
     "crates/laneflow-data",
+    "crates/laneflow-road-editing-wire",
     "crates/laneflow-scenario",
     "crates/laneflow-spatial",
     "crates/laneflow-static-contract",

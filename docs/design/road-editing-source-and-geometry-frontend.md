@@ -458,9 +458,10 @@ vtable dedup 例外；第三方 writer 可使用同一 schema，但超出 16 倍
   精确生成路径，且生成文件必须带 `@generated` 标记；
 - `laneflow-compiler` 只调用 verifier 驱动的安全 root/accessor，不重导出 wire 类型，
   其 `unsafe_code = forbid` 也使 `_unchecked` 入口无法被调用；
-- CI 以固定 `flatc` 重生成并要求 byte-for-byte clean diff，同时拒绝精确生成路径以外的
-  `unsafe` 与 `allow(unsafe_code)`；生成器/runtime 升级必须重新走依赖审计、fuzz 和
-  exact-head 外部审阅。
+- CI 以固定 `flatc` 重生成，只规范化平台原生 CRLF/LF 后要求 canonical bytes
+  byte-for-byte clean diff，同时拒绝精确生成路径以外的 `unsafe` 与
+  `allow(unsafe_code)`；生成器/runtime 升级必须重新走依赖审计、fuzz 和 exact-head
+  外部审阅。
 
 ### 9.7 来源位置与公共入口
 
@@ -771,8 +772,9 @@ flatc --csharp -o target/road-editing-codegen/csharp schemas/road-editing/v1/roa
 
 只有 Rust 的 `road-editing_generated.rs` 提交仓库；C++/C# 输出只用于跨语言 fixture 与
 schema probe，不进入 source tree。命令不得增加 `--gen-object-api`、`--rust-serialize`
-或 reflection 选项。CI 在空输出目录运行同一 Rust argv 后 byte-for-byte 比较生成物，
-并以同一固定 binary 生成 C++/C# probe；未发布 B1 后继版本不运行跨版本 `--conform`。
+或 reflection 选项。CI 在空输出目录运行同一 Rust argv，只把平台原生 CRLF/LF 统一为
+LF 后 byte-for-byte 比较生成物；不得规范化空白、标识符或其他源码字节。CI 还以同一固定
+binary 生成 C++/C# probe；未发布 B1 后继版本不运行跨版本 `--conform`。
 
 本 G1 冻结依赖版本与生成器身份，但不在 G2 前修改 Cargo。G2 实际新增依赖时仍须运行
 `cargo metadata`、固定版本 `cargo-deny`、workspace tests，并按
