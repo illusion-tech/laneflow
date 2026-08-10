@@ -493,7 +493,9 @@ fn duplicate_lane_edge_and_successor_fail_without_mutating_prior_state() {
         DiagnosticCode::DuplicateDeclaration
     );
     assert_eq!(
-        duplicate_declaration.diagnostics()[0].related_spans().len(),
+        duplicate_declaration.diagnostics()[0]
+            .related_locations()
+            .len(),
         1
     );
 
@@ -680,7 +682,7 @@ fn duplicate_and_self_imports_fail_with_source_context() {
         DiagnosticCode::DuplicateImport
     );
     assert!(duplicate.diagnostics()[0].primary_span().is_some());
-    assert_eq!(duplicate.diagnostics()[0].related_spans().len(), 1);
+    assert_eq!(duplicate.diagnostics()[0].related_locations().len(), 1);
 
     let self_import = expect_diagnostics(builder.add_import("city/a"));
     assert_eq!(
@@ -751,7 +753,7 @@ fn compilation_unit_rejects_unknown_imports_and_duplicate_namespaces() {
         duplicate.diagnostics()[0].code(),
         DiagnosticCode::DuplicateModuleNamespace
     );
-    assert_eq!(duplicate.diagnostics()[0].related_spans().len(), 1);
+    assert_eq!(duplicate.diagnostics()[0].related_locations().len(), 1);
 }
 
 #[test]
@@ -771,7 +773,7 @@ fn compilation_unit_rejects_duplicate_source_document_keys_atomically() {
             source_document_key
         } if source_document_key.as_ref() == "shared.document"
     ));
-    assert_eq!(duplicate.diagnostics()[0].related_spans().len(), 1);
+    assert_eq!(duplicate.diagnostics()[0].related_locations().len(), 1);
 
     // 重复文档失败发生在任何累计计数变更之前；修正文档键后，同一 namespace 可直接
     // 重试。这里同时防止未来把文档唯一性检查移到非原子的 build 阶段。
@@ -1331,8 +1333,8 @@ fn three_document_module_retains_distinct_entity_relation_and_cold_origins() {
             .map(|source| (
                 source.descriptor().authoring_namespace_id(),
                 source.primary_source().source_document_key(),
-                source.primary_source().start().line(),
-                source.primary_source().start().column(),
+                source.primary_source().text_range().unwrap().0.line(),
+                source.primary_source().text_range().unwrap().0.column(),
             ))
             .collect::<Vec<_>>(),
         [("city/a", "source/secondary", 37, 5)]
@@ -1418,8 +1420,8 @@ fn signal_relations_keep_their_own_multi_document_locations() {
                 source.role(),
                 source.local_index(),
                 primary.source_document_key().to_owned(),
-                primary.start().line(),
-                primary.start().column(),
+                primary.text_range().unwrap().0.line(),
+                primary.text_range().unwrap().0.column(),
             )
         })
         .collect::<Vec<_>>();
