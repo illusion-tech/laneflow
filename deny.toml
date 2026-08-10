@@ -24,7 +24,7 @@ confidence-threshold = 0.93
 # 例外只接受下列精确 crate/version，不扩展全局 allow-list；版本漂移时必须重新审查。
 exceptions = [
     # #188 的离线 corridor generator 在写盘前执行 repository JSON Schema；
-    # jsonschema 0.49.3 经 referencing 0.49.5 / fluent-uri 传递依赖此精确版本；
+    # jsonschema 0.49.6 经 referencing 0.49.9 / fluent-uri 传递依赖此精确版本；
     # 已重新复核 MIT-0 宽松许可边界与无 copyleft 影响，例外不扩展到其他 crate/version。
     # Cleanup owner：#188 assignee / 仓库维护者；tracking Issue：#188 / #270。
     { allow = ["MIT-0"], crate = "borrow-or-share@0.2.4" },
