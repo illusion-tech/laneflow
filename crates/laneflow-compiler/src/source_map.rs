@@ -27,8 +27,9 @@ use crate::lir::LirFreezeOutput;
 use crate::mir::{MirModuleKey, MirSignalControl, MirUnit};
 use crate::module::{ResolvedSourceLocation, SourceDocumentOrdinal};
 use crate::{
-    CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceDocumentDescriptor,
-    SourceModuleDescriptor, SourcePosition, SourceSpan,
+    CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle,
+    RoadEditingSourceLocation, SourceDocumentDescriptor, SourceLocation, SourceModuleDescriptor,
+    SourcePosition,
 };
 
 const LANE_EDGE_SOURCE_LOGICAL_BYTES: u64 = 4 + 16 + 4 + 16 + 4;
@@ -108,19 +109,38 @@ pub enum SourceRelationRole {
     CanonicalFrameLaneEdgeGeometry = 28,
 }
 
-#[derive(Clone, Copy)]
-struct SourceLocationRecord {
-    source_document_ordinal: SourceDocumentOrdinal,
-    start: SourcePosition,
-    end: SourcePosition,
+#[derive(Clone)]
+enum SourceLocationRecord {
+    Text {
+        source_document_ordinal: SourceDocumentOrdinal,
+        start: SourcePosition,
+        end: SourcePosition,
+    },
+    RoadEditing {
+        source_document_ordinal: SourceDocumentOrdinal,
+        location: RoadEditingSourceLocation,
+    },
 }
 
 impl From<ResolvedSourceLocation> for SourceLocationRecord {
     fn from(location: ResolvedSourceLocation) -> Self {
-        Self {
-            source_document_ordinal: location.source_document_ordinal(),
-            start: location.start(),
-            end: location.end(),
+        match location {
+            ResolvedSourceLocation::Text {
+                source_document_ordinal,
+                start,
+                end,
+            } => Self::Text {
+                source_document_ordinal,
+                start,
+                end,
+            },
+            ResolvedSourceLocation::RoadEditing {
+                source_document_ordinal,
+                location,
+            } => Self::RoadEditing {
+                source_document_ordinal,
+                location,
+            },
         }
     }
 }
@@ -291,7 +311,7 @@ impl ValidatedSourceMapInput {
     ) -> impl ExactSizeIterator<Item = SourceModuleSourceView<'_>> {
         self.source_modules
             .iter()
-            .zip(self.source_module_declaration_sources.iter().copied())
+            .zip(self.source_module_declaration_sources.iter())
             .map(|(descriptor, primary)| SourceModuleSourceView {
                 source_map: self,
                 descriptor,
@@ -642,12 +662,30 @@ impl ValidatedSourceMapInput {
             })
     }
 
-    fn location(&self, record: SourceLocationRecord) -> SourceLocationView<'_> {
-        let descriptor = &self.source_documents[record.source_document_ordinal.index()];
-        SourceLocationView {
-            source_document_key: descriptor.source_document_key(),
-            start: record.start,
-            end: record.end,
+    fn location<'a>(&'a self, record: &'a SourceLocationRecord) -> SourceLocationView<'a> {
+        match record {
+            SourceLocationRecord::Text {
+                source_document_ordinal,
+                start,
+                end,
+            } => {
+                let descriptor = &self.source_documents[source_document_ordinal.index()];
+                SourceLocationView::Text {
+                    source_document_key: descriptor.source_document_key(),
+                    start: *start,
+                    end: *end,
+                }
+            }
+            SourceLocationRecord::RoadEditing {
+                source_document_ordinal,
+                location,
+            } => {
+                debug_assert_eq!(
+                    self.source_documents[source_document_ordinal.index()].source_document_key(),
+                    location.document_identity().source_document_key(),
+                );
+                SourceLocationView::RoadEditing(location)
+            }
         }
     }
 }
@@ -657,7 +695,7 @@ impl ValidatedSourceMapInput {
 pub struct SourceModuleSourceView<'a> {
     source_map: &'a ValidatedSourceMapInput,
     descriptor: &'a SourceModuleDescriptor,
-    primary: SourceLocationRecord,
+    primary: &'a SourceLocationRecord,
 }
 
 impl<'a> SourceModuleSourceView<'a> {
@@ -714,29 +752,44 @@ impl<'a> SourceDocumentView<'a> {
 
 /// 已解析到来源文档登记的一项只读来源位置。
 #[derive(Clone, Copy)]
-pub struct SourceLocationView<'a> {
-    source_document_key: &'a str,
-    start: SourcePosition,
-    end: SourcePosition,
+pub enum SourceLocationView<'a> {
+    Text {
+        source_document_key: &'a str,
+        start: SourcePosition,
+        end: SourcePosition,
+    },
+    RoadEditing(&'a RoadEditingSourceLocation),
 }
 
 impl<'a> SourceLocationView<'a> {
     /// 返回稳定来源文档键，而不是宿主文件系统路径。
     #[must_use]
-    pub const fn source_document_key(&self) -> &'a str {
-        self.source_document_key
+    pub fn source_document_key(&self) -> &'a str {
+        match self {
+            Self::Text {
+                source_document_key,
+                ..
+            } => source_document_key,
+            Self::RoadEditing(location) => location.document_identity().source_document_key(),
+        }
     }
 
-    /// 返回一基起始行列。
+    /// 文本来源返回一基起止行列；道路编辑来源没有伪造的文本位置。
     #[must_use]
-    pub const fn start(&self) -> SourcePosition {
-        self.start
+    pub const fn text_range(&self) -> Option<(SourcePosition, SourcePosition)> {
+        match self {
+            Self::Text { start, end, .. } => Some((*start, *end)),
+            Self::RoadEditing(_) => None,
+        }
     }
 
-    /// 返回一基结束行列。
+    /// 道路编辑来源返回其有类型语义位置。
     #[must_use]
-    pub const fn end(&self) -> SourcePosition {
-        self.end
+    pub const fn road_editing(&self) -> Option<&'a RoadEditingSourceLocation> {
+        match self {
+            Self::Text { .. } => None,
+            Self::RoadEditing(location) => Some(location),
+        }
     }
 }
 
@@ -763,7 +816,7 @@ impl LaneEdgeSourceView<'_> {
     /// 返回拥有该声明的主要来源位置。
     #[must_use]
     pub fn primary_source(&self) -> SourceLocationView<'_> {
-        self.source_map.location(self.record.primary)
+        self.source_map.location(&self.record.primary)
     }
 
     /// 返回额外贡献来源位置；当前显式 `LaneEdge` 声明没有额外贡献项。
@@ -797,7 +850,7 @@ macro_rules! stable_source_view {
             /// 返回拥有该声明的主要来源位置。
             #[must_use]
             pub fn primary_source(&self) -> SourceLocationView<'_> {
-                self.source_map.location(self.record.primary)
+                self.source_map.location(&self.record.primary)
             }
 
             /// 当前显式声明没有额外贡献来源。
@@ -921,7 +974,7 @@ impl CrossSectionRelationSourceView<'_> {
     /// 返回关系声明的主要来源位置。
     #[must_use]
     pub fn primary_source(&self) -> SourceLocationView<'_> {
-        self.source_map.location(self.record.primary)
+        self.source_map.location(&self.record.primary)
     }
 
     /// 当前显式关系没有额外贡献来源。
@@ -1004,7 +1057,7 @@ impl JunctionRelationSourceView<'_> {
     /// 返回显式关系或派生内部边声明的规范主要来源位置。
     #[must_use]
     pub fn primary_source(&self) -> SourceLocationView<'_> {
-        self.source_map.location(self.record.primary)
+        self.source_map.location(&self.record.primary)
     }
 
     /// 当前关系没有额外贡献来源；共享内部边只登记规范选定的主要路径来源。
@@ -1076,7 +1129,7 @@ impl SignalRelationSourceView<'_> {
     /// 返回建立该静态信号关系的主要来源位置。
     #[must_use]
     pub fn primary_source(&self) -> SourceLocationView<'_> {
-        self.source_map.location(self.record.primary)
+        self.source_map.location(&self.record.primary)
     }
 
     /// 当前显式信号关系没有额外贡献来源。
@@ -1120,7 +1173,7 @@ impl ParkingRelationSourceView<'_> {
     /// 返回建立该停车静态关系的主要来源位置。
     #[must_use]
     pub fn primary_source(&self) -> SourceLocationView<'_> {
-        self.source_map.location(self.record.primary)
+        self.source_map.location(&self.record.primary)
     }
 
     /// 当前显式停车关系没有额外贡献来源。
@@ -1159,7 +1212,7 @@ impl SpatialRelationSourceView<'_> {
 
     #[must_use]
     pub fn primary_source(&self) -> SourceLocationView<'_> {
-        self.source_map.location(self.record.primary)
+        self.source_map.location(&self.record.primary)
     }
 
     pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
@@ -1230,7 +1283,7 @@ impl AccessRelationSourceView<'_> {
     /// 返回关系引用的精确来源位置。
     #[must_use]
     pub fn primary_source(&self) -> SourceLocationView<'_> {
-        self.source_map.location(self.record.primary)
+        self.source_map.location(&self.record.primary)
     }
 
     /// 当前显式准入关系没有额外贡献来源。
@@ -1274,7 +1327,7 @@ impl LaneEdgeSuccessorSourceView<'_> {
     /// 返回显式关系声明的主要来源位置。
     #[must_use]
     pub fn primary_source(&self) -> SourceLocationView<'_> {
-        self.source_map.location(self.record.primary)
+        self.source_map.location(&self.record.primary)
     }
 
     /// 返回生成关系的贡献来源；当前显式 successor 关系没有推导链。
@@ -1317,7 +1370,7 @@ impl RouteRelationSourceView<'_> {
 
     /// 返回声明边引用或派生出现项所锚定的路线边引用位置。
     pub fn primary_source(&self) -> SourceLocationView<'_> {
-        self.source_map.location(self.record.primary)
+        self.source_map.location(&self.record.primary)
     }
 
     /// 返回生成出现项所依赖的静态控制声明位置。
@@ -1327,7 +1380,7 @@ impl RouteRelationSourceView<'_> {
     pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
         self.record
             .contributing
-            .into_iter()
+            .iter()
             .map(|record| self.source_map.location(record))
     }
 }

@@ -12,7 +12,10 @@ use crate::declaration::{
     ParkingSpaceDeclaration, ParkingSpaceInput, ParticipantClassReference,
     SignalControllerDeclaration, SignalGroupReference, SignalPhaseInput, TypedAstDeclaration,
 };
-use crate::{CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceModuleHeader, SourceSpan};
+use crate::{
+    CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation, SourceModuleHeader,
+    SourceSpan,
+};
 
 use super::admission::ImportRecord;
 use super::descriptor::SourceLanguage;
@@ -96,7 +99,7 @@ pub(super) fn encode_source_record(
     );
     for import in imports {
         put_bytes(&mut bytes, &import.namespace);
-        put_span(&mut bytes, &import.span);
+        put_source_location(&mut bytes, &import.span);
     }
     bytes.extend_from_slice(
         &u32::try_from(declarations.len())
@@ -739,7 +742,7 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
             for successor in &declaration.successors {
                 put_bytes(output, &successor.module_namespace);
                 put_bytes(output, &successor.declaration_key);
-                put_span(output, &successor.span);
+                put_source_location(output, &successor.span);
             }
         }
         TypedAstDeclaration::RoadCorridor(declaration) => {
@@ -994,7 +997,7 @@ pub(super) fn access_effect_source_code(effect: AccessEffect) -> u8 {
 pub(super) fn put_declaration_header(output: &mut Vec<u8>, header: &DeclarationHeader) {
     output.extend_from_slice(&(header.entity_kind as u16).to_le_bytes());
     put_bytes(output, &header.stable_key);
-    put_span(output, &header.span);
+    put_source_location(output, &header.span);
 }
 
 pub(super) fn put_owned_reference<K: laneflow_static_contract::EntityKindMarker>(
@@ -1003,7 +1006,7 @@ pub(super) fn put_owned_reference<K: laneflow_static_contract::EntityKindMarker>
 ) {
     put_bytes(output, &reference.module_namespace);
     put_bytes(output, &reference.declaration_key);
-    put_span(output, &reference.span);
+    put_source_location(output, &reference.span);
 }
 
 pub(super) fn put_access_target(output: &mut Vec<u8>, target: &OwnedAccessRuleTarget) {
@@ -1048,4 +1051,11 @@ pub(super) fn put_span(output: &mut Vec<u8>, span: &SourceSpan) {
     output.extend_from_slice(&span.start().column().to_le_bytes());
     output.extend_from_slice(&span.end().line().to_le_bytes());
     output.extend_from_slice(&span.end().column().to_le_bytes());
+}
+
+fn put_source_location(output: &mut Vec<u8>, location: &SourceLocation) {
+    let span = location
+        .text_span()
+        .expect("the synthetic exact source record only contains text locations");
+    put_span(output, span);
 }
