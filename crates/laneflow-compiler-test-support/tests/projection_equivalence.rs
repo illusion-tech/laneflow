@@ -649,7 +649,10 @@ fn compile_fixture() -> CompilationOutput {
             access_rule_key: "main-group-allow",
             target: AccessRuleTargetInput::LaneGroup(LaneGroupReference::local("main-group")),
             effect: AccessEffect::Allow,
-            participant_classes: &[ParticipantClassReference::local("car")],
+            participant_classes: &[
+                ParticipantClassReference::local("car"),
+                ParticipantClassReference::local("bus"),
+            ],
             regulation: None,
             priority: 5,
         })
@@ -1326,6 +1329,21 @@ fn assert_projection_semantics(
         &AccessTargetId::lane_group(stable_id_for("main-group", ids))
     );
     assert_eq!(group_definition.effect(), CoreAccessEffect::Allow);
+    assert_eq!(group_definition.participant_class_ids().len(), 2);
+    assert!(
+        group_definition
+            .participant_class_ids()
+            .iter()
+            .any(|class_id| class_id == stable_id_for("car", ids))
+    );
+    assert!(
+        group_definition
+            .participant_class_ids()
+            .iter()
+            .any(|class_id| class_id == stable_id_for("bus", ids))
+    );
+    assert_eq!(group_definition.priority(), "5");
+    assert!(group_definition.regulation().is_none());
     assert_eq!(
         access.edge_access(edge_handles[0], car),
         AccessCell::Decided {
@@ -1336,6 +1354,15 @@ fn assert_projection_semantics(
     for edge in &edge_handles[1..] {
         assert_eq!(
             access.edge_access(*edge, car),
+            AccessCell::Decided {
+                rule: group_rule,
+                effect: CoreAccessEffect::Allow,
+            }
+        );
+    }
+    for edge in edge_handles {
+        assert_eq!(
+            access.edge_access(edge, bus),
             AccessCell::Decided {
                 rule: group_rule,
                 effect: CoreAccessEffect::Allow,
