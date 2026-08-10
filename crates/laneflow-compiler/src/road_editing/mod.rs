@@ -6,6 +6,15 @@
 mod builder;
 mod input;
 mod model;
+#[allow(
+    dead_code,
+    reason = "semantic preflight is consumed by the following shared-admission slice"
+)]
+mod preflight;
+#[allow(
+    dead_code,
+    reason = "verified view is consumed by the following shared-admission slice"
+)]
 pub(crate) mod reader;
 mod rules;
 mod writer;

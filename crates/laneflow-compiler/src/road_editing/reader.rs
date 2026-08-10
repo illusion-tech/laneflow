@@ -1,12 +1,8 @@
-#![allow(
-    dead_code,
-    reason = "verified view is consumed by the following semantic-preflight/admission slice"
-)]
-
 use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
 use laneflow_road_editing_wire::runtime::{InvalidFlatbuffer, VerifierOptions};
 
 use super::RoadEditingModuleInput;
+use super::preflight::{RoadEditingPreflightCounts, preflight_source};
 use crate::{
     CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, RoadEditingSourceViolation,
 };
@@ -24,6 +20,7 @@ pub(crate) struct VerifiedRoadEditingSource<'a> {
     input: RoadEditingModuleInput<'a>,
     root: wire::RoadEditingSource<'a>,
     table_count: u64,
+    preflight_counts: RoadEditingPreflightCounts,
 }
 
 impl<'a> VerifiedRoadEditingSource<'a> {
@@ -42,6 +39,10 @@ impl<'a> VerifiedRoadEditingSource<'a> {
     pub(crate) const fn typed_ast_record_count(&self) -> u64 {
         // v1 只有 root 与 Provenance 不进入 Typed AST record 计数。
         self.table_count - 2
+    }
+
+    pub(crate) const fn preflight_counts(&self) -> RoadEditingPreflightCounts {
+        self.preflight_counts
     }
 }
 
@@ -169,10 +170,20 @@ pub(crate) fn verify_source<'a>(
         ));
     }
 
+    let preflight_counts = preflight_source(root, limits, expected_key)?;
+    if preflight_counts.typed_ast_record_count() != typed_ast_record_count {
+        return Err(semantic_error(
+            "roadEditingSource.tableAccounting",
+            crate::RoadEditingInputViolation::InvalidCombination,
+            expected_key,
+        ));
+    }
+
     Ok(VerifiedRoadEditingSource {
         input,
         root,
         table_count,
+        preflight_counts,
     })
 }
 
@@ -220,8 +231,22 @@ fn source_error(
 ) -> DiagnosticBundle {
     DiagnosticBundle::single(Diagnostic::invalid_road_editing_source(
         violation,
+        None,
         expected_key,
         actual_key,
+    ))
+}
+
+fn semantic_error(
+    field: &'static str,
+    violation: crate::RoadEditingInputViolation,
+    expected_key: &str,
+) -> DiagnosticBundle {
+    DiagnosticBundle::single(Diagnostic::invalid_road_editing_source(
+        RoadEditingSourceViolation::InvalidSemanticValue(violation),
+        Some(field),
+        expected_key,
+        Some(expected_key),
     ))
 }
 
@@ -342,6 +367,23 @@ mod tests {
         bytes[field_position..field_position + 4].copy_from_slice(&version.to_le_bytes());
     }
 
+    fn overwrite_root_u8_field(bytes: &mut [u8], field_id: usize, value: u8) {
+        let root_offset = u32::from_le_bytes(bytes[4..8].try_into().expect("root offset"));
+        let root_position = 4_usize + usize::try_from(root_offset).expect("root position");
+        let vtable_distance = i32::from_le_bytes(
+            bytes[root_position..root_position + 4]
+                .try_into()
+                .expect("vtable offset"),
+        );
+        let vtable_position = root_position
+            .checked_sub(usize::try_from(vtable_distance).expect("positive vtable distance"))
+            .expect("vtable position");
+        let entry = vtable_position + 4 + field_id * 2;
+        let field_offset = u16::from_le_bytes(bytes[entry..entry + 2].try_into().expect("field"));
+        assert_ne!(field_offset, 0, "test field must be present");
+        bytes[root_position + usize::from(field_offset)] = value;
+    }
+
     #[test]
     fn verifies_writer_output_with_explicit_limits_and_exact_table_count() {
         let limits = CompileLimits::p100_initial_v1();
@@ -361,6 +403,73 @@ mod tests {
         );
         assert_eq!(verified.table_count(), 4);
         assert_eq!(verified.typed_ast_record_count(), 2);
+        assert_eq!(verified.preflight_counts().typed_ast_record_count(), 2);
+    }
+
+    #[test]
+    fn semantic_preflight_accepts_every_first_party_declaration_shape() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = RoadEditingSourceWriter::new(&limits)
+            .write(super::super::writer::tests::module_with_every_declaration(
+                &limits,
+            ))
+            .expect("all declarations buffer");
+        let input = RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None)
+            .expect("input");
+
+        let verified = verify_source(input, &limits, 0, 0).expect("semantic preflight");
+
+        assert_eq!(
+            verified.preflight_counts().typed_ast_record_count(),
+            verified.typed_ast_record_count()
+        );
+    }
+
+    #[test]
+    fn semantic_preflight_rejects_unspecified_profile_after_wire_verification() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let mut bytes = buffer.as_bytes().to_vec();
+        overwrite_root_u8_field(&mut bytes, 2, 0);
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("unspecified profile");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::InvalidSemanticValue(
+                    crate::RoadEditingInputViolation::InvalidCombination
+                ),
+                field: Some(field),
+                ..
+            } if field.as_ref() == "roadEditingSource.geometryAccuracyProfile"
+        ));
+    }
+
+    #[test]
+    fn semantic_preflight_applies_exact_string_item_budget() {
+        let normal_limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&normal_limits, "roads/main");
+        let input =
+            RoadEditingModuleInput::try_new("roads/main", buffer.as_bytes(), None).expect("input");
+        let verified = verify_source(input, &normal_limits, 0, 0).expect("normal limits");
+        let observed = verified.preflight_counts().string_item_count();
+        let limits = normal_limits.with_test_admission_limit(
+            CompileLimitDimension::StringItemCount,
+            u32::try_from(observed - 1).expect("small fixture"),
+        );
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("string item budget");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::StringItemCount,
+                limit,
+                observed: actual,
+            } if *limit == observed - 1 && *actual == observed
+        ));
     }
 
     #[test]
