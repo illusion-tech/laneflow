@@ -3,21 +3,21 @@ use std::mem::size_of;
 use crate::CompileLimitDimension;
 
 /// 由具体官方前端一次性派生、供共同准入复核的模块资源计数。
-pub(super) struct ModuleResourceCounts {
-    pub(super) source_bytes: u64,
-    pub(super) declaration_count: u64,
-    pub(super) typed_ast_record_count: u64,
-    pub(super) reference_count: u64,
-    pub(super) relation_occurrence_count: u64,
-    pub(super) identity_field_occurrence_count: u64,
-    pub(super) symbol_count: u64,
-    pub(super) string_item_count: u64,
-    pub(super) string_bytes: u64,
-    pub(super) maneuver_gate_count: u64,
-    pub(super) waiting_zone_count: u64,
-    pub(super) route_occurrence_count: u64,
-    pub(super) geometry_point_count: u64,
-    pub(super) controlled_live_bytes: u64,
+pub(crate) struct ModuleResourceCounts {
+    pub(crate) source_bytes: u64,
+    pub(crate) declaration_count: u64,
+    pub(crate) typed_ast_record_count: u64,
+    pub(crate) reference_count: u64,
+    pub(crate) relation_occurrence_count: u64,
+    pub(crate) identity_field_occurrence_count: u64,
+    pub(crate) symbol_count: u64,
+    pub(crate) string_item_count: u64,
+    pub(crate) string_bytes: u64,
+    pub(crate) maneuver_gate_count: u64,
+    pub(crate) waiting_zone_count: u64,
+    pub(crate) route_occurrence_count: u64,
+    pub(crate) geometry_point_count: u64,
+    pub(crate) controlled_live_bytes: u64,
 }
 
 /// 编译单元准入过程中唯一的累计资源状态。
@@ -159,7 +159,7 @@ impl AdmissionTotals {
     }
 }
 
-pub(super) fn size_bytes<T>(count: u64) -> u64 {
+pub(crate) fn size_bytes<T>(count: u64) -> u64 {
     count.saturating_mul(u64::try_from(size_of::<T>()).unwrap_or(u64::MAX))
 }
 

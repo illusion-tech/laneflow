@@ -25,16 +25,18 @@ pub use descriptor::{
 };
 pub use synthetic::{SYNTHETIC_FRONTEND_VERSION, SyntheticModule, SyntheticModuleBuilder};
 
+pub(crate) use admission::{AdmittedOfficialModule, ImportRecord, TypedAstModule};
 pub(crate) use admission::{ResolvedSourceLocation, SourceDocumentOrdinal};
+pub(crate) use descriptor::{freeze_source_documents, source_document_digest};
+pub(crate) use resources::{ModuleResourceCounts, size_bytes};
 
 #[cfg(test)]
 use admission::{
-    AdmissionSizing, AdmittedOfficialModule, TestOfficialModule, TestSourceDocument,
-    TypedAstModule, source_document_index_requested_bytes,
+    AdmissionSizing, TestOfficialModule, TestSourceDocument, source_document_index_requested_bytes,
 };
 #[cfg(test)]
 use descriptor::SOURCE_DOCUMENT_DIGEST_CALL_COUNT;
 #[cfg(test)]
-use resources::{requested_hash_table_bytes, size_bytes};
+use resources::requested_hash_table_bytes;
 #[cfg(test)]
 use synthetic_record::{encode_source_record, encoded_source_record_len};
