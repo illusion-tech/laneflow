@@ -14,9 +14,10 @@ use sha2::{Digest, Sha256};
 mod generator;
 
 pub use generator::{
-    EncodedP100Module, GeneratorError, P100_PROFILE_COMBINATIONS, P100ProfileCombination,
-    TypedP100Module, build_base_modules, build_regularity_probe_modules, compile_encoded_modules,
-    encode_modules,
+    EncodedP100Module, GeneratorError, P100_PROFILE_COMBINATIONS, P100CompileStageDurations,
+    P100ProfileCombination, TypedP100Module, build_base_modules, build_base_modules_from_seed,
+    build_regularity_probe_modules, build_regularity_probe_modules_from_seed,
+    compile_encoded_modules, compile_encoded_modules_with_stage_timing, encode_modules,
 };
 
 const SEED_RELATIVE_PATH: &str = "docs/reference/road-editing-source-semantic-seed-v1.json";
@@ -88,6 +89,17 @@ impl std::error::Error for SeedError {
 
 pub fn load_bound_seed(repository_root: &Path) -> Result<SeedAudit, SeedError> {
     Ok(load_bound_seed_data(repository_root)?.audit)
+}
+
+/// 已在计时区外完成 SHA/closed-DTO/结构计数校验的冻结 P100 语义种子。
+pub struct LoadedP100Seed {
+    data: BoundSeedData,
+}
+
+pub fn load_p100_seed(repository_root: &Path) -> Result<LoadedP100Seed, SeedError> {
+    Ok(LoadedP100Seed {
+        data: load_bound_seed_data(repository_root)?,
+    })
 }
 
 struct BoundSeedData {

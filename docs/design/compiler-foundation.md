@@ -308,6 +308,12 @@ FlatBuffers table 与 horizontal-regularity 计数只由道路编辑前端增加
 阶段；它不是 allocator RSS。`compiler_controlled_peak_bytes` 取该前端峰值与后续 HIR、MIR、
 LIR、source-map 阶段峰值的最大值，不能因候选失败或释放旧模块而回写成较小值。
 
+#296 G3 的 research crate 通过 compiler 的非默认 `road-editing-g3-evidence` feature 取得
+三个 `Duration` 计时值。该 feature 只给 `CompilationUnitBuilder` 增加与默认道路编辑入口
+共享私有准备函数的 `add_road_editing_module_with_stage_timing`，不公开或复制 verifier、
+preflight、Typed AST/lowering 对象；默认 production build 不执行时钟读取。它是正式证据与
+CI 的可复现 seam，不进入默认产品 SDK，也不能演化成通用前端 observer/plugin API。
+
 以下第二段代码登记 #315 已实现的多文档共同能力；它不包含 current JSON 专用入口：
 
 ```rust

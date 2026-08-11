@@ -28,3 +28,9 @@ admission 与 Canonical LIR；输出每模块 byte length、retained capacity、
 指标。正式 G3 测量仍必须由后继 evidence 子命令按冻结的 fresh-process 协议执行。
 `road-editing-fixture-identities` 只审计九组合及 companion 的确定性 byte identity，不是
 正式计时或峰值样本。
+
+本 research crate 是唯一启用 compiler 非默认 `road-editing-g3-evidence` feature 的 workspace
+调用方。种子可先由 `load_p100_seed` 在计时区外闭合，再由 `build_*_from_seed` 独立执行
+typed-model build；`compile_encoded_modules_with_stage_timing` 从同一 production admission
+准备函数取得 size/identifier、verifier、semantic preflight + lowering 三段耗时和完整 compile
+耗时。该 seam 不暴露或复制 wire/Typed AST 私有对象，也不改变默认产品构建。
