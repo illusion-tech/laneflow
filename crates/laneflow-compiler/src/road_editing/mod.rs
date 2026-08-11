@@ -14,6 +14,8 @@ mod evidence;
     reason = "consumed by the staged RoadEditingSource geometry lowering"
 )]
 mod geometry;
+#[cfg(test)]
+mod geometry_known_vectors;
 mod input;
 mod location;
 mod lowering;

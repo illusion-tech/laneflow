@@ -226,7 +226,7 @@ pub(super) fn approximate_interval(
             })?;
             continue;
         }
-        if node.depth == MAX_SUBDIVISION_DEPTH {
+        if !subdivision_depth_can_split(node.depth) {
             return Err(NumericFreezeError::ApproximationNotConverged);
         }
         let parameter_mid =
@@ -278,8 +278,7 @@ fn candidate_accepts(
     let start = promote_point(node.start.point);
     let end = promote_point(node.end.point);
     let chord = point_sub(end, start)?;
-    let target = position_target(accuracy);
-    let target_squared = finite(target * target)?;
+    let target_squared = position_target_squared(accuracy)?;
     for (parameter, chord_parameter) in [
         (parameter_quarter_1, 0.25_f64),
         (parameter_mid, 0.5),
@@ -288,7 +287,7 @@ fn candidate_accepts(
         let sample = evaluator.evaluate(parameter)?;
         let chord_point = point_lerp(start, end, chord_parameter)?;
         let delta = point_sub(sample.point, chord_point)?;
-        if norm_squared(delta)? > target_squared {
+        if !position_distance_squared_accepts(norm_squared(delta)?, target_squared)? {
             return Ok(false);
         }
     }
@@ -298,7 +297,7 @@ fn candidate_accepts(
         && direction_accepts(chord, node.end.first, cosine_squared)?)
 }
 
-fn position_target(profile: GeometryAccuracyProfile) -> f64 {
+pub(super) fn position_target(profile: GeometryAccuracyProfile) -> f64 {
     f64::from_bits(match profile {
         GeometryAccuracyProfile::Fine2Cm => 0x3f84_7ae1_47ae_147b,
         GeometryAccuracyProfile::Balanced5Cm => 0x3f99_9999_9999_999a,
@@ -306,7 +305,22 @@ fn position_target(profile: GeometryAccuracyProfile) -> f64 {
     })
 }
 
-fn half_angle_cosine_squared(profile: GeometryDirectionProfile) -> f64 {
+pub(super) fn position_target_squared(
+    profile: GeometryAccuracyProfile,
+) -> Result<f64, NumericFreezeError> {
+    let target = position_target(profile);
+    finite(target * target)
+}
+
+pub(super) fn position_distance_squared_accepts(
+    distance_squared: f64,
+    target_squared: f64,
+) -> Result<bool, NumericFreezeError> {
+    let distance_squared = finite(distance_squared)?;
+    Ok(distance_squared <= finite(target_squared)?)
+}
+
+pub(super) fn half_angle_cosine_squared(profile: GeometryDirectionProfile) -> f64 {
     f64::from_bits(match profile {
         GeometryDirectionProfile::Smooth1Deg => 0x3fef_ff60_4bfa_d7c5,
         GeometryDirectionProfile::Balanced2Deg => 0x3fef_fd81_3c5f_82b4,
@@ -786,7 +800,7 @@ fn regularity_walk(controls: [Point3; 3]) -> Result<u32, NumericFreezeError> {
     let mut visits = 0_u32;
 
     while stack_len != 0 {
-        if visits == MAX_REGULARITY_NODE_VISITS {
+        if !regularity_visit_budget_allows(visits) {
             return Err(NumericFreezeError::HorizontalDerivativeNotProvenNonZero);
         }
         stack_len -= 1;
@@ -797,7 +811,7 @@ fn regularity_walk(controls: [Point3; 3]) -> Result<u32, NumericFreezeError> {
         if hull_proves_nonzero(node.controls) {
             continue;
         }
-        if node.depth == MAX_SUBDIVISION_DEPTH {
+        if !subdivision_depth_can_split(node.depth) {
             return Err(NumericFreezeError::HorizontalDerivativeNotProvenNonZero);
         }
         let (left, right) = split_regularity_node(node)?;
@@ -807,6 +821,14 @@ fn regularity_walk(controls: [Point3; 3]) -> Result<u32, NumericFreezeError> {
         stack_len += 2;
     }
     Ok(visits)
+}
+
+pub(super) const fn regularity_visit_budget_allows(completed_visits: u32) -> bool {
+    completed_visits < MAX_REGULARITY_NODE_VISITS
+}
+
+pub(super) const fn subdivision_depth_can_split(depth: u8) -> bool {
+    depth < MAX_SUBDIVISION_DEPTH
 }
 
 fn hull_proves_nonzero(controls: [IntervalPoint2; 3]) -> bool {

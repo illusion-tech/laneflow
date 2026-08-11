@@ -389,7 +389,10 @@ FlatBuffers G1 冻结非权威表现载荷，不能让每个引擎从粗折线�
    测量协议和候选预算；G2 production Rust 必须逐项实现该已接受契约。
 2. #296 G2 实现两类三档编码/摘要、混用拒绝、固定四分点/中点二分、station、offset、
    语义锚点、方向跳变和九组合自动化矩阵，并生成 exact fixture/manifest、4097 点离线
-   观测、参考机点数/时间/资源与车辆路径证据。
+   观测、参考机点数/时间/资源与车辆路径证据。逐 bit 数值权威固定在
+   [`road-editing-geometry-known-vectors.txt`](../../crates/laneflow-compiler/tests/road-editing-geometry-known-vectors.txt)：
+   它使用封闭的行式语法和 16 位十六进制 binary64 bits，预期值由本 ADR 运算图独立计算，
+   production Rust 不得从自身输出重生成预期值；后继 C++/C# 与独立 oracle 复用同一制品。
 3. G3 前新增 append-only B1 calibration closure，忠实记录每档观测分布、最坏来源、视觉/
    车辆结果和资源收益；不得把观测最大值改写为连续硬上限。
 4. #296 的 B1 实现可以合入内部验证路径，但在新的产品复核前不得公开发布 schema、承诺

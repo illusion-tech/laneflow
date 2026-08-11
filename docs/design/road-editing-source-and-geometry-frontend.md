@@ -796,8 +796,12 @@ production 依赖或实现。
   `EntityKind::required_tags()` registry known vectors 对齐；
 - programmatic Rust writer → bytes → production reader → LIR，以及 C++ writer → Rust
   reader、C# writer → Rust reader 两条最小跨语言 fixture；
-- line/cubic/taper 的 scalar-dual 逐 bit known vectors，覆盖大坐标、九种档位阈值
-  `-1/0/+1 ULP`、source-offset canonical weld、水平 cusp/近 cusp、regularity depth/node 上限；
+- line/cubic/taper 的 scalar-dual 逐 bit known vectors 使用
+  [`road-editing-geometry-known-vectors.txt`](../../crates/laneflow-compiler/tests/road-editing-geometry-known-vectors.txt)
+  的封闭行式十六进制制品，覆盖大坐标、九种档位阈值 `-1/0/+1 ULP`、source-offset
+  canonical weld、水平 cusp/近 cusp、regularity depth/node 上限；预期 bits 从 ADR 0022
+  运算图独立产生，production compiler 不得用自身输出刷新它，C++/C# 与独立 oracle
+  必须复用同一份输入和预期值；
 - 模块独立加载、导入闭包、实体属性诊断、候选失败不污染、失败后恢复和同实例重复编译；
 - 模块级重复 key/同 owner sibling 重复拒绝、不同 owner 同名 child 接受、完整 owner-key
   来源地址、嵌套 struct/union 叶属性路径、owner-local 来源地址，以及
