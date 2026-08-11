@@ -915,7 +915,7 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::SignalControllerPhase,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: location.resolve(phase.module, &phase.source_span)?,
+                primary: phase.controller_relation_source_location.clone().into(),
             });
         }
     }

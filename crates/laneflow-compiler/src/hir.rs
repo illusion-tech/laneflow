@@ -375,6 +375,7 @@ pub(crate) struct HirSignalPhase {
     pub(crate) duration_ms: u64,
     /// 状态按所属控制器的 `signal_groups` 顺序规范化，而非按输入顺序保存。
     pub(crate) states: TableRange<HirSignalPhaseState>,
+    pub(crate) controller_relation_source_location: ResolvedSourceLocation,
     pub(crate) source_span: SourceLocation,
 }
 
@@ -4441,6 +4442,10 @@ fn build_signal_hir(
                             Some(phase_source.header.span.clone()),
                         )
                     })?,
+                    controller_relation_source_location: unit.resolve_source_location_for_module(
+                        module_order,
+                        &phase_source.controller_relation_span,
+                    )?,
                     source_span: phase_source.header.span.clone(),
                 })
                 .map_err(|overflow| {
