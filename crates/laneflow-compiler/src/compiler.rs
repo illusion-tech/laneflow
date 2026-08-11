@@ -5206,6 +5206,80 @@ mod tests {
     }
 
     #[test]
+    fn path_owned_internal_transition_accepts_release_stop_without_explicit_successor() {
+        let mut builder = junction_builder("internal-release-stop.document");
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "entry",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("middle")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "middle",
+                length_meters: 8.0,
+                speed_limit_meters_per_second: 8.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit",
+                length_meters: 12.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_junction(JunctionInput {
+                junction_key: "junction-main",
+            })
+            .unwrap()
+            .add_movement(MovementInput {
+                movement_key: "movement-through",
+                junction: JunctionReference::local("junction-main"),
+                directed_entry_approach_key: "approach-westbound",
+                directed_exit_approach_key: "approach-eastbound",
+            })
+            .unwrap()
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path-main",
+                movement: MovementReference::local("movement-through"),
+                entry_edge: LaneEdgeReference::local("entry"),
+                internal_edges: &[LaneEdgeReference::local("middle")],
+                exit_edge: LaneEdgeReference::local("exit"),
+            })
+            .unwrap()
+            .add_stop_line(StopLineInput {
+                stop_line_key: "stop-middle",
+                lane_edge: LaneEdgeReference::local("middle"),
+            })
+            .unwrap()
+            .add_maneuver_gate(ManeuverGateInput {
+                maneuver_gate_key: "gate-release",
+                maneuver_path: ManeuverPathReference::local("path-main"),
+                transition_index: 1,
+                stop_line: StopLineReference::local("stop-middle"),
+                signal_control: SignalControlInput::None,
+            })
+            .unwrap()
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route-main",
+                edge_sequence: &[
+                    LaneEdgeReference::local("entry"),
+                    LaneEdgeReference::local("middle"),
+                    LaneEdgeReference::local("exit"),
+                ],
+            })
+            .unwrap();
+
+        let output = Compiler::new()
+            .compile(unit([builder.finish().unwrap()]))
+            .unwrap();
+        assert_eq!(output.lir().maneuver_gates().count(), 1);
+        assert_eq!(output.lir().static_routes().count(), 1);
+    }
+
+    #[test]
     fn waiting_zone_validation_rejects_zero_reverse_and_overlap() {
         let mut zero = control_builder("waiting-zero.document");
         let diagnostics = match zero.add_waiting_zone(WaitingZoneInput {
