@@ -3,6 +3,7 @@
 mod seed;
 
 pub use seed::{
-    EncodedP100Module, GeneratorError, SeedAudit, SeedError, TypedP100Module, build_base_modules,
+    EncodedP100Module, GeneratorError, P100_PROFILE_COMBINATIONS, P100ProfileCombination,
+    SeedAudit, SeedError, TypedP100Module, build_base_modules, build_regularity_probe_modules,
     compile_encoded_modules, encode_modules, load_bound_seed,
 };
