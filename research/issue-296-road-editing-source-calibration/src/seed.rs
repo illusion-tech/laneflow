@@ -14,8 +14,9 @@ use sha2::{Digest, Sha256};
 mod generator;
 
 pub use generator::{
-    EncodedP100Module, GeneratorError, TypedP100Module, build_base_modules,
-    compile_encoded_modules, encode_modules,
+    EncodedP100Module, GeneratorError, P100_PROFILE_COMBINATIONS, P100ProfileCombination,
+    TypedP100Module, build_base_modules, build_regularity_probe_modules, compile_encoded_modules,
+    encode_modules,
 };
 
 const SEED_RELATIVE_PATH: &str = "docs/reference/road-editing-source-semantic-seed-v1.json";

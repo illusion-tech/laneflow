@@ -30,6 +30,73 @@ use super::*;
 const GENERATOR_BUILD_ID: &str = "laneflow-road-editing-p100-generator-v1";
 const PARAMETERS_PREFIX: &[u8] = b"laneflow.road-editing.p100.parameters-and-inputs.v1\0";
 const FRONTEND_OPTIONS_PREFIX: &[u8] = b"laneflow.road-editing.p100.frontend-options.v1\0";
+const REGULARITY_MODULE_INDEX: usize = 0;
+const REGULARITY_ALIGNMENT_KEY: &str = "corridor-main-road-0/road";
+
+/// 冻结 workload 中一组位置档与方向档组合。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct P100ProfileCombination {
+    accuracy: GeometryAccuracyProfile,
+    direction: GeometryDirectionProfile,
+}
+
+impl P100ProfileCombination {
+    #[must_use]
+    pub const fn accuracy(self) -> GeometryAccuracyProfile {
+        self.accuracy
+    }
+
+    #[must_use]
+    pub const fn direction(self) -> GeometryDirectionProfile {
+        self.direction
+    }
+}
+
+/// `LF-ROAD-EDITING-P100-v1` 冻结的九种组合和枚举顺序。
+pub const P100_PROFILE_COMBINATIONS: [P100ProfileCombination; 9] = [
+    P100ProfileCombination {
+        accuracy: GeometryAccuracyProfile::Fine2Cm,
+        direction: GeometryDirectionProfile::Smooth1Deg,
+    },
+    P100ProfileCombination {
+        accuracy: GeometryAccuracyProfile::Fine2Cm,
+        direction: GeometryDirectionProfile::Balanced2Deg,
+    },
+    P100ProfileCombination {
+        accuracy: GeometryAccuracyProfile::Fine2Cm,
+        direction: GeometryDirectionProfile::Compact5Deg,
+    },
+    P100ProfileCombination {
+        accuracy: GeometryAccuracyProfile::Balanced5Cm,
+        direction: GeometryDirectionProfile::Smooth1Deg,
+    },
+    P100ProfileCombination {
+        accuracy: GeometryAccuracyProfile::Balanced5Cm,
+        direction: GeometryDirectionProfile::Balanced2Deg,
+    },
+    P100ProfileCombination {
+        accuracy: GeometryAccuracyProfile::Balanced5Cm,
+        direction: GeometryDirectionProfile::Compact5Deg,
+    },
+    P100ProfileCombination {
+        accuracy: GeometryAccuracyProfile::Compact10Cm,
+        direction: GeometryDirectionProfile::Smooth1Deg,
+    },
+    P100ProfileCombination {
+        accuracy: GeometryAccuracyProfile::Compact10Cm,
+        direction: GeometryDirectionProfile::Balanced2Deg,
+    },
+    P100ProfileCombination {
+        accuracy: GeometryAccuracyProfile::Compact10Cm,
+        direction: GeometryDirectionProfile::Compact5Deg,
+    },
+];
+
+#[derive(Clone, Copy)]
+enum P100Variant {
+    Base,
+    RegularityProbe,
+}
 
 pub struct TypedP100Module {
     module_index: u8,
@@ -147,7 +214,43 @@ pub fn build_base_modules(
     direction: GeometryDirectionProfile,
     limits: &CompileLimits,
 ) -> Result<Vec<TypedP100Module>, GeneratorError> {
-    let data = load_bound_seed_data(repository_root)?;
+    build_modules(
+        repository_root,
+        accuracy,
+        direction,
+        limits,
+        P100Variant::Base,
+    )
+}
+
+/// 构造冻结的五模块 curved-offset regularity companion workload。
+///
+/// 该 workload 固定使用 `Fine2Cm` / `Smooth1Deg`，只替换 m00 的一条 reference line；
+/// semantic seed 文件和其余有类型字段保持不变。
+pub fn build_regularity_probe_modules(
+    repository_root: &Path,
+    limits: &CompileLimits,
+) -> Result<Vec<TypedP100Module>, GeneratorError> {
+    build_modules(
+        repository_root,
+        GeometryAccuracyProfile::Fine2Cm,
+        GeometryDirectionProfile::Smooth1Deg,
+        limits,
+        P100Variant::RegularityProbe,
+    )
+}
+
+fn build_modules(
+    repository_root: &Path,
+    accuracy: GeometryAccuracyProfile,
+    direction: GeometryDirectionProfile,
+    limits: &CompileLimits,
+    variant: P100Variant,
+) -> Result<Vec<TypedP100Module>, GeneratorError> {
+    let mut data = load_bound_seed_data(repository_root)?;
+    if matches!(variant, P100Variant::RegularityProbe) {
+        apply_regularity_probe(&mut data.documents)?;
+    }
     let width_profiles = WidthProfiles::new(&data.documents)?;
     let regulated_access_rules = regulated_access_rules(&data.documents);
     let mut modules = Vec::with_capacity(data.documents.len());
@@ -201,6 +304,43 @@ pub fn build_base_modules(
         });
     }
     Ok(modules)
+}
+
+fn apply_regularity_probe(documents: &mut [GeometryDocument]) -> Result<(), GeneratorError> {
+    let document = documents
+        .get_mut(REGULARITY_MODULE_INDEX)
+        .ok_or_else(|| contract("regularity probe module p100.m00 is missing"))?;
+    let mut matches = document
+        .roads
+        .iter_mut()
+        .filter(|road| road.road_key == REGULARITY_ALIGNMENT_KEY);
+    let road = matches
+        .next()
+        .ok_or_else(|| contract("regularity probe alignment is missing"))?;
+    if matches.next().is_some() {
+        return Err(contract("regularity probe alignment is not unique"));
+    }
+    let expected_start = [0.0, 0.0, 0.0];
+    let expected_end = [189.5, 0.0, 0.0];
+    if road.reference_line.start != expected_start
+        || !matches!(
+            road.reference_line.segments.as_slice(),
+            [CurveSegment::Line { end }] if *end == expected_end
+        )
+    {
+        return Err(contract(
+            "regularity probe replacement precondition does not match the frozen base line",
+        ));
+    }
+    road.reference_line = Curve {
+        start: expected_start,
+        segments: vec![CurveSegment::CubicBezier {
+            control1: [20.0, 0.0, 20.0],
+            control2: [20.0, 0.0, 0.0],
+            end: expected_end,
+        }],
+    };
+    Ok(())
 }
 
 pub fn encode_modules(
@@ -1437,8 +1577,24 @@ impl WidthProfiles {
                 eligible.len()
             )));
         }
+        let moderate_candidates = eligible
+            .iter()
+            .filter(|candidate| candidate.key.kind == MemberKind::AuthoringLane)
+            .filter(|candidate| {
+                matches!(
+                    candidate.key.corridor_key.as_str(),
+                    "corridor-main-road-0" | "corridor-main-road-4"
+                )
+            })
+            .collect::<Vec<_>>();
+        if moderate_candidates.len() != 59 {
+            return Err(contract(format!(
+                "width moderate candidate count should be 59, got {}",
+                moderate_candidates.len()
+            )));
+        }
         let mut selected = BTreeSet::new();
-        for (ordinal, candidate) in eligible.iter().take(20).enumerate() {
+        for (ordinal, candidate) in moderate_candidates.into_iter().take(20).enumerate() {
             let widening = ordinal % 2 == 0;
             let base = candidate.base_width;
             let endpoints = match (widening, candidate.connected) {
@@ -1645,6 +1801,7 @@ fn contract(message: impl Into<String>) -> GeneratorError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use laneflow_compiler::road_editing::RoadEditingCurveSegmentGeometry;
 
     fn repository_root() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1722,5 +1879,210 @@ mod tests {
         assert_eq!(lir.static_routes().count(), 140);
         assert_eq!(lir.canonical_frames().count(), 5);
         assert_eq!(output.diagnostics(), []);
+    }
+
+    #[test]
+    fn all_nine_profile_combinations_encode_uniquely_and_compile() {
+        let limits = CompileLimits::p100_initial_v2();
+        let expected_codes = [
+            (1, 1),
+            (1, 2),
+            (1, 3),
+            (2, 1),
+            (2, 2),
+            (2, 3),
+            (3, 1),
+            (3, 2),
+            (3, 3),
+        ];
+        let actual_codes = P100_PROFILE_COMBINATIONS
+            .map(|combination| (combination.accuracy() as u8, combination.direction() as u8));
+        assert_eq!(actual_codes, expected_codes);
+
+        let mut fixture_digests = BTreeSet::new();
+        for combination in P100_PROFILE_COMBINATIONS {
+            let encoded = encode_modules(
+                build_base_modules(
+                    &repository_root(),
+                    combination.accuracy(),
+                    combination.direction(),
+                    &limits,
+                )
+                .unwrap(),
+                &limits,
+            )
+            .unwrap();
+            assert_eq!(encoded.len(), 5);
+            for module in &encoded {
+                assert!(fixture_digests.insert(module.sha256()));
+            }
+            let output =
+                compile_encoded_modules(&encoded, limits.clone()).unwrap_or_else(|error| {
+                    panic!(
+                        "P100 profile {}/{} failed production compile: {error}",
+                        combination.accuracy() as u8,
+                        combination.direction() as u8
+                    )
+                });
+            assert_eq!(output.diagnostics(), []);
+        }
+        assert_eq!(fixture_digests.len(), 45);
+    }
+
+    #[test]
+    fn width_profiles_keep_side_lanes_constant_and_exact_counts() {
+        let data = load_bound_seed_data(&repository_root()).unwrap();
+        let profiles = WidthProfiles::new(&data.documents).unwrap();
+        let mut constant = 0;
+        let mut widening = 0;
+        let mut narrowing = 0;
+        let mut zero_to_positive = 0;
+        let mut positive_to_zero = 0;
+        for (key, (start, end)) in &profiles.profiles {
+            if key.kind == MemberKind::AuthoringLane
+                && key.corridor_key.starts_with("corridor-side-")
+            {
+                assert_eq!(start.to_bits(), end.to_bits(), "{}", key.local_key);
+            }
+            match (*start, *end) {
+                (0.0, value) if value > 0.0 => zero_to_positive += 1,
+                (value, 0.0) if value > 0.0 => positive_to_zero += 1,
+                (left, right) if left < right => widening += 1,
+                (left, right) if left > right => narrowing += 1,
+                _ => constant += 1,
+            }
+        }
+        assert_eq!(
+            (
+                constant,
+                widening,
+                narrowing,
+                zero_to_positive,
+                positive_to_zero,
+            ),
+            (175, 10, 10, 5, 5)
+        );
+    }
+
+    #[test]
+    fn regularity_probe_changes_only_the_frozen_curve_and_compiles() {
+        let limits = CompileLimits::p100_initial_v2();
+        let base = build_base_modules(
+            &repository_root(),
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            &limits,
+        )
+        .unwrap();
+        let probe = build_regularity_probe_modules(&repository_root(), &limits).unwrap();
+        assert_eq!(base.len(), 5);
+        assert_eq!(probe.len(), 5);
+
+        for (base_module, probe_module) in base.iter().zip(&probe) {
+            assert_eq!(base_module.module_index(), probe_module.module_index());
+            assert_eq!(
+                base_module.module().header(),
+                probe_module.module().header()
+            );
+            assert_eq!(
+                base_module.module().declarations(),
+                probe_module.module().declarations()
+            );
+            assert_eq!(
+                base_module.module().geometry_accuracy_profile(),
+                GeometryAccuracyProfile::Fine2Cm
+            );
+            assert_eq!(
+                probe_module.module().geometry_direction_profile(),
+                GeometryDirectionProfile::Smooth1Deg
+            );
+            assert_alignment_delta(base_module, probe_module);
+        }
+
+        assert_eq!(curve_counts(&base), (175, 100, 200));
+        assert_eq!(curve_counts(&probe), (174, 101, 202));
+
+        let base_encoded = encode_modules(base, &limits).unwrap();
+        let probe_encoded = encode_modules(probe, &limits).unwrap();
+        assert_ne!(base_encoded[0].as_bytes(), probe_encoded[0].as_bytes());
+        for (base_module, probe_module) in base_encoded[1..].iter().zip(&probe_encoded[1..]) {
+            assert_eq!(base_module.as_bytes(), probe_module.as_bytes());
+        }
+        let output = compile_encoded_modules(&probe_encoded, limits)
+            .unwrap_or_else(|error| panic!("regularity probe failed production compile: {error}"));
+        assert_eq!(output.diagnostics(), []);
+    }
+
+    fn assert_alignment_delta(base: &TypedP100Module, probe: &TypedP100Module) {
+        let base_alignments = base.module().road_alignments();
+        let probe_alignments = probe.module().road_alignments();
+        assert_eq!(base_alignments.len(), probe_alignments.len());
+        for (base_alignment, probe_alignment) in base_alignments.iter().zip(probe_alignments) {
+            assert_eq!(
+                base_alignment.road_alignment_key(),
+                probe_alignment.road_alignment_key()
+            );
+            if base.module_index() == REGULARITY_MODULE_INDEX as u8
+                && base_alignment.road_alignment_key() == REGULARITY_ALIGNMENT_KEY
+            {
+                assert_eq!(
+                    base_alignment.reference_line().start(),
+                    probe_alignment.reference_line().start()
+                );
+                assert_eq!(
+                    base_alignment.reference_line().segments()[0].geometry(),
+                    RoadEditingCurveSegmentGeometry::Line {
+                        end: point([189.5, 0.0, 0.0]).unwrap()
+                    }
+                );
+                assert_eq!(
+                    probe_alignment.reference_line().segments()[0].geometry(),
+                    RoadEditingCurveSegmentGeometry::CubicBezier {
+                        control_1: point([20.0, 0.0, 20.0]).unwrap(),
+                        control_2: point([20.0, 0.0, 0.0]).unwrap(),
+                        end: point([189.5, 0.0, 0.0]).unwrap(),
+                    }
+                );
+                assert_eq!(
+                    base_alignment.canonical_frame(),
+                    probe_alignment.canonical_frame()
+                );
+                assert_eq!(
+                    base_alignment.canvas_selection(),
+                    probe_alignment.canvas_selection()
+                );
+            } else {
+                assert_eq!(base_alignment, probe_alignment);
+            }
+        }
+    }
+
+    fn curve_counts(modules: &[TypedP100Module]) -> (usize, usize, usize) {
+        let mut counts = (0, 0, 0);
+        for module in modules {
+            for alignment in module.module().road_alignments() {
+                add_curve_counts(alignment.reference_line(), &mut counts);
+            }
+            for declaration in module.module().declarations() {
+                if let RoadEditingDeclaration::LaneEdge(edge) = declaration
+                    && let Some(curve) = edge.explicit_geometry()
+                {
+                    add_curve_counts(curve, &mut counts);
+                }
+            }
+        }
+        counts
+    }
+
+    fn add_curve_counts(program: &RoadEditingCurveProgram, counts: &mut (usize, usize, usize)) {
+        for segment in program.segments() {
+            match segment.geometry() {
+                RoadEditingCurveSegmentGeometry::Line { .. } => counts.0 += 1,
+                RoadEditingCurveSegmentGeometry::CubicBezier { .. } => {
+                    counts.1 += 1;
+                    counts.2 += 2;
+                }
+            }
+        }
     }
 }

@@ -17,10 +17,14 @@
 
 ```powershell
 cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- seed-audit
-cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-p100
+cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-p100 2 2
+cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-regularity
+cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-fixture-identities
 ```
 
 `road-editing-p100` 通过第一方 typed model 和 writer 生成五个 size-prefixed `LFRE`
 buffer，再让它们通过 production reader、preflight、lowering、geometry compile、common
 admission 与 Canonical LIR；输出每模块 byte length、retained capacity、SHA-256 及完整编译
 指标。正式 G3 测量仍必须由后继 evidence 子命令按冻结的 fresh-process 协议执行。
+`road-editing-fixture-identities` 只审计九组合及 companion 的确定性 byte identity，不是
+正式计时或峰值样本。

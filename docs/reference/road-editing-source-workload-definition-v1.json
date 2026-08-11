@@ -134,7 +134,8 @@
       "candidateMemberRule": "a member is eligible for a non-constant profile only when its containing RoadCorridor is listed under junctionConnectedEnd or junctionConnectedStart; the named endpoint is the sole endpoint used by a Junction approach edge and must retain baseWidth",
       "rewriteTargetExclusion": "p100.m02 AuthoringLane section-main-w2e-road-0/lane/2 must remain constant and is excluded from every non-constant candidate list",
       "sortOrder": "eligible members after rewriteTargetExclusion, module index ascending, AuthoringLane before FacilityBand, then local key UTF-8 bytes ascending",
-      "moderateProfileSelection": "take zero-based sorted eligible ordinals 0 through 19; even ordinals are wideningPositive and odd ordinals are narrowingPositive",
+      "moderateProfileCandidateRule": "from the sorted eligible members retain only AuthoringLane members whose containing corridor is corridor-main-road-0 or corridor-main-road-4; side-corridor lanes remain constant so their taper cannot combine with the shortest-corridor FacilityBand taper and exceed Smooth1Deg at a Junction join",
+      "moderateProfileSelection": "take zero-based ordinals 0 through 19 from moderateProfileCandidateRule in the existing sort order; even ordinals are wideningPositive and odd ordinals are narrowingPositive",
       "assignments": [
         {
           "kind": "wideningPositive",
@@ -174,7 +175,7 @@
         }
       ],
       "selectionDisjointness": "the four selections are pairwise disjoint and contain exactly 10, 10, 5 and 5 members respectively",
-      "junctionJoinInvariant": "for every member in a corridor with a Junction-connected endpoint, its width at that endpoint equals the seed baseWidth bit-for-bit; zero-width endpoints are restricted to FacilityBand members so the shortest-corridor cumulative offset slope remains below the Smooth1Deg join budget; no width rewrite moves a section-derived LaneEdge endpoint relative to the preserved junction-internal explicit curves",
+      "junctionJoinInvariant": "for every member in a corridor with a Junction-connected endpoint, its width at that endpoint equals the seed baseWidth bit-for-bit; side-corridor AuthoringLane members remain constant and zero-width endpoints are restricted to FacilityBand members so the shortest-corridor cumulative offset slope remains below the Smooth1Deg join budget; no width rewrite moves a section-derived LaneEdge endpoint relative to the preserved junction-internal explicit curves",
       "constantRule": "every other member, including rewriteTargetExclusion, uses start = baseWidth and end = baseWidth",
       "arithmetic": "IEEE 754 binary64 round-to-nearest ties-to-even; each multiplication by 0.75 or 1.25 is one rounded operation"
     },
@@ -470,7 +471,7 @@
     "crossRecordChecks": [
       "exact counts equal this manifest",
       "the regularity probe applies only its explicit count overrides, inherits every other base count, and uses Fine2Cm/Smooth1Deg",
-      "every non-constant width profile preserves seed baseWidth at its sole Junction-connected corridor endpoint, and both base P100 and the regularity probe complete without a width-derived join diagnostic",
+      "every non-constant width profile preserves seed baseWidth at its sole Junction-connected corridor endpoint, every one of the nine base P100 profile combinations completes without a width-derived join diagnostic, and the Fine2Cm/Smooth1Deg regularity probe completes without a width-derived join diagnostic",
       "the regularity probe preserves the replaced road's connected junction endpoint and +X end tangent, and complete compile succeeds without a join diagnostic",
       "all nine profile combinations are present",
       "all five module digests and byte lengths are present per combination",
