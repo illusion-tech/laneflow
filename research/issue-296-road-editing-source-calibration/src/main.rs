@@ -1,10 +1,13 @@
 use std::error::Error;
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use issue_296_road_editing_source_calibration::{
-    P100_PROFILE_COMBINATIONS, build_base_modules, build_regularity_probe_modules,
-    compile_encoded_modules, encode_modules, load_bound_seed,
+    EvidenceSampleKind, EvidenceSampleRequest, EvidenceWorkload, P100_PROFILE_COMBINATIONS,
+    build_base_modules, build_regularity_probe_modules, compile_encoded_modules, encode_modules,
+    load_bound_seed, run_evidence_sample,
 };
 use laneflow_compiler::road_editing::RoadEditingModuleInput;
 use laneflow_compiler::{
@@ -26,8 +29,11 @@ fn main() {
         "road-editing-fixture-identities" => require_no_arguments(&arguments[1..])
             .and_then(|()| run_fixture_identities(&repository_root)),
         "road-editing-cross-language" => run_cross_language_fixtures(&arguments[1..]),
+        "road-editing-evidence-sample" => {
+            run_formal_evidence_sample(&repository_root, &arguments[1..])
+        }
         _ => Err(format!(
-            "unknown subcommand {command:?}; expected seed-audit, road-editing-p100, road-editing-regularity, road-editing-fixture-identities or road-editing-cross-language"
+            "unknown subcommand {command:?}; expected seed-audit, road-editing-p100, road-editing-regularity, road-editing-fixture-identities, road-editing-cross-language or road-editing-evidence-sample"
         )
         .into()),
     };
@@ -118,6 +124,81 @@ fn run_cross_language_fixtures(arguments: &[String]) -> Result<(), Box<dyn Error
         csharp_bytes.len(),
         hex(&cpp_fingerprint)
     );
+    Ok(())
+}
+
+fn run_formal_evidence_sample(
+    repository_root: &Path,
+    arguments: &[String],
+) -> Result<(), Box<dyn Error>> {
+    let [
+        workload,
+        accuracy,
+        direction,
+        sample_kind,
+        sample_index,
+        output,
+    ] = arguments
+    else {
+        return Err("road-editing-evidence-sample requires workload, accuracy, direction, sample kind, sample index and repository-relative output path".into());
+    };
+    let workload = match workload.as_str() {
+        "base" => EvidenceWorkload::Base,
+        "regularity" => EvidenceWorkload::Regularity,
+        _ => return Err(format!("unknown evidence workload {workload:?}").into()),
+    };
+    let (accuracy, direction) = parse_profile_arguments(&[accuracy.clone(), direction.clone()])?;
+    let sample_kind = match sample_kind.as_str() {
+        "warmup" => EvidenceSampleKind::Warmup,
+        "formal" => EvidenceSampleKind::Formal,
+        _ => return Err(format!("unknown evidence sample kind {sample_kind:?}").into()),
+    };
+    let sample_index = sample_index.parse::<u8>()?;
+    let output = checked_repository_output(repository_root, output)?;
+    let sample = run_evidence_sample(
+        repository_root,
+        &EvidenceSampleRequest {
+            workload,
+            accuracy,
+            direction,
+            sample_kind,
+            sample_index,
+            argv: std::env::args().collect(),
+        },
+    )?;
+    write_new_json(&output, &sample)?;
+    println!("wrote road-editing evidence sample {}", output.display());
+    Ok(())
+}
+
+fn checked_repository_output(
+    repository_root: &Path,
+    relative: &str,
+) -> Result<PathBuf, Box<dyn Error>> {
+    let path = Path::new(relative);
+    if path.is_absolute()
+        || path.extension().and_then(|extension| extension.to_str()) != Some("json")
+        || path.components().any(|component| {
+            !matches!(
+                component,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        })
+    {
+        return Err("evidence sample output must be a repository-relative .json path without parent traversal".into());
+    }
+    Ok(repository_root.join(path))
+}
+
+fn write_new_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<(), Box<dyn Error>> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut bytes = serde_json::to_vec_pretty(value)?;
+    bytes.push(b'\n');
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(&bytes)?;
+    file.sync_all()?;
     Ok(())
 }
 

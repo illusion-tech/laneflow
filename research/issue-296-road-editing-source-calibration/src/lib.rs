@@ -1,6 +1,12 @@
 //! #296 RoadEditingSource P100 的非生产语义种子与校准边界。
 
+mod evidence;
 mod seed;
+
+pub use evidence::{
+    EvidenceSample, EvidenceSampleKind, EvidenceSampleRequest, EvidenceWorkload, SAMPLE_SCHEMA,
+    SAMPLE_SCHEMA_VERSION, run_evidence_sample,
+};
 
 pub use seed::{
     EncodedP100Module, GeneratorError, LoadedP100Seed, P100_PROFILE_COMBINATIONS,

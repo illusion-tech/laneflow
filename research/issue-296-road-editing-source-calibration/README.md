@@ -21,6 +21,7 @@ cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin ca
 cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-regularity
 cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-fixture-identities
 cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-cross-language target/road-editing-codegen/cross-language/cpp.lfre target/road-editing-codegen/cross-language/csharp.lfre
+cargo +1.96.0 run --release --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-evidence-sample base 1 1 formal 1 target/road-editing-evidence/smoke.json
 ```
 
 `road-editing-p100` 通过第一方 typed model 和 writer 生成五个 size-prefixed `LFRE`
@@ -37,6 +38,14 @@ size-prefixed `LFRE`。上述 `road-editing-cross-language` 子命令随后让�
 production reader、共同 admission 与完整 compiler，要求 Canonical LIR 语义指纹和唯一
 `CanonicalFrame` StableId 一致。CI 以同一流程形成证据；这不是新增 C++/C# SDK，也不把
 generated binding 或语言 runtime 源码提交仓库。
+
+`road-editing-evidence-sample` 是正式 fresh-process 编排器使用的单样本角色，不是完整
+G3 evidence。它要求封闭的 workload/profile/sample identity 和 repository-relative 新 JSON
+路径；semantic seed 在计时前读取，随后分别记录 typed-model build、encode、三个
+production admission stage 与 complete compile。fixture digest/byte length/retained capacity
+来自本次 writer 输出，来源、table、几何点、regularity、LIR 与 peak 则只读取同一次成功
+`CompilationMetrics`，不在 research 侧重算资源账本。只有后继编排器完成每组合一次预热、
+七个独立正式进程、环境/exact-commit 绑定、统计和剩余观测/改写协议后，才可形成正式证据。
 
 本 research crate 是唯一启用 compiler 非默认 `road-editing-g3-evidence` feature 的 workspace
 调用方。种子可先由 `load_p100_seed` 在计时区外闭合，再由 `build_*_from_seed` 独立执行
