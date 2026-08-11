@@ -65,11 +65,19 @@ pub(super) fn compile_explicit_curve(
     program: &AuthoringCurveProgramDeclaration,
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
+    station_row_byte_limit: u64,
     remaining_point_limit: u64,
 ) -> Result<CompiledCurve, NumericFreezeError> {
+    let station_row_size = u64::try_from(core::mem::size_of::<ReferenceStationRow>())
+        .map_err(|_| NumericFreezeError::StationRowLimit)?;
+    let station_vertex_limit = station_row_byte_limit
+        .checked_div(station_row_size)
+        .and_then(|row_limit| row_limit.checked_add(1))
+        .ok_or(NumericFreezeError::StationRowLimit)?;
     let mut station_counter = CountingSink {
         count: 0,
-        limit: remaining_point_limit,
+        limit: station_vertex_limit,
+        limit_error: NumericFreezeError::StationRowLimit,
     };
     walk_reference_program(
         program,
@@ -78,7 +86,7 @@ pub(super) fn compile_explicit_curve(
         &mut station_counter,
     )?;
     let expected_station_rows = usize::try_from(station_counter.count.saturating_sub(1))
-        .map_err(|_| NumericFreezeError::GeometryPointLimit)?;
+        .map_err(|_| NumericFreezeError::StationRowLimit)?;
     let mut station_collector = StationRowSink {
         rows: Vec::with_capacity(expected_station_rows),
         active_segment: None,
@@ -99,6 +107,7 @@ pub(super) fn compile_explicit_curve(
     let mut output_counter = CountingSink {
         count: 0,
         limit: remaining_point_limit,
+        limit_error: NumericFreezeError::GeometryPointLimit,
     };
     walk_reference_program(program, accuracy, direction, &mut output_counter)?;
     let expected_points = usize::try_from(output_counter.count)
@@ -188,12 +197,13 @@ fn point3(value: AuthoringPoint3F64) -> Result<Point3, NumericFreezeError> {
 struct CountingSink {
     count: u64,
     limit: u64,
+    limit_error: NumericFreezeError,
 }
 
 impl ApproximationPointSink for CountingSink {
     fn push(&mut self, _vertex: ApproximationVertex) -> Result<(), NumericFreezeError> {
         if self.count == self.limit {
-            return Err(NumericFreezeError::GeometryPointLimit);
+            return Err(self.limit_error);
         }
         self.count += 1;
         Ok(())
@@ -317,6 +327,10 @@ mod tests {
         SourceSpan::point(Arc::from("roads/main"), 1, column).into()
     }
 
+    fn station_row_bytes(rows: u64) -> u64 {
+        rows * u64::try_from(core::mem::size_of::<ReferenceStationRow>()).unwrap()
+    }
+
     #[test]
     fn explicit_line_uses_two_pass_exact_allocation_and_frozen_length() {
         let program = AuthoringCurveProgramDeclaration {
@@ -334,6 +348,7 @@ mod tests {
             &program,
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
+            station_row_bytes(1),
             2,
         )
         .unwrap();
@@ -373,6 +388,7 @@ mod tests {
             &program,
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
+            station_row_bytes(153),
             154,
         )
         .unwrap();
@@ -391,7 +407,8 @@ mod tests {
             &program,
             GeometryAccuracyProfile::Compact10Cm,
             GeometryDirectionProfile::Compact5Deg,
-            154,
+            station_row_bytes(153),
+            153,
         )
         .unwrap();
         assert!(compact.points.len() < compiled.points.len());
@@ -401,10 +418,22 @@ mod tests {
                 &program,
                 GeometryAccuracyProfile::Fine2Cm,
                 GeometryDirectionProfile::Smooth1Deg,
+                station_row_bytes(153),
                 153,
             )
             .err(),
             Some(NumericFreezeError::GeometryPointLimit)
+        );
+        assert_eq!(
+            compile_explicit_curve(
+                &program,
+                GeometryAccuracyProfile::Compact10Cm,
+                GeometryDirectionProfile::Compact5Deg,
+                station_row_bytes(152),
+                153,
+            )
+            .err(),
+            Some(NumericFreezeError::StationRowLimit)
         );
     }
 
@@ -433,6 +462,7 @@ mod tests {
             &program,
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
+            station_row_bytes(2),
             3,
         )
         .unwrap();
