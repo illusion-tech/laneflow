@@ -849,6 +849,16 @@ retained capacity，并记录 horizontal-regularity node visits、evaluator inte
 来源或重算一套“等价”计数。前端峰值必须保留已接纳 builder 的模块、文档/模块索引和
 容器，并取候选预分配 + 实际几何 scratch 与共同 `build()` 冻结阶段的最大值；正式 allocator
 instrumentation 只用于证明该保守账本没有漏项，不能以 RSS 替换该契约值。
+三个 admission 计时边界使用同一条 production 私有准备函数：
+`size-prefix-and-identifier-preflight` 从来源字节累计限额开始，到 exact size prefix 与
+`LFRE` identifier 通过为止；
+`flatbuffers-verifier` 只包含按冻结 depth/table/apparent-size options 取得安全 root；
+`semantic-preflight-and-typed-ast-lowering` 从 exact format/document identity、table 计量和领域
+preflight 开始，到 owner-qualified Typed AST 与 authoring geometry 候选全部构造成功为止，
+不包含随后共同 admission commit。非默认 `road-editing-g3-evidence` feature 只在这些边界
+插入 `Instant::now` 并返回三个 `Duration`；默认 production 入口使用零尺寸 no-op observer，
+两者共用相同准备函数。该 feature 不公开 wire view、preflight counts、Typed AST 或几何
+中间态，也不是新的前端插件/产品 SDK。
 正式测量在 `LF-P100-REF-01` 上以 release/locked、单进程单线程执行；每个 profile 组合先
 1 次不计时预热，再运行 7 次独立正式样本，不删异常值，以中位数为主值并保留全部样本、
 MAD、阶段计时和峰值账本。语义种子读取与工作负载对象构造在计时区外，但 typed model

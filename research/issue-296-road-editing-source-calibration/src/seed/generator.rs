@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use laneflow_compiler::road_editing::{
     AccessRegulationInput, AccessRuleInput, AuthoringLaneInput, CanonicalFrameInput,
@@ -214,13 +215,21 @@ pub fn build_base_modules(
     direction: GeometryDirectionProfile,
     limits: &CompileLimits,
 ) -> Result<Vec<TypedP100Module>, GeneratorError> {
-    build_modules(
-        repository_root,
+    build_base_modules_from_seed(
+        load_p100_seed(repository_root)?,
         accuracy,
         direction,
         limits,
-        P100Variant::Base,
     )
+}
+
+pub fn build_base_modules_from_seed(
+    seed: LoadedP100Seed,
+    accuracy: GeometryAccuracyProfile,
+    direction: GeometryDirectionProfile,
+    limits: &CompileLimits,
+) -> Result<Vec<TypedP100Module>, GeneratorError> {
+    build_modules(seed, accuracy, direction, limits, P100Variant::Base)
 }
 
 /// 构造冻结的五模块 curved-offset regularity companion workload。
@@ -231,8 +240,15 @@ pub fn build_regularity_probe_modules(
     repository_root: &Path,
     limits: &CompileLimits,
 ) -> Result<Vec<TypedP100Module>, GeneratorError> {
+    build_regularity_probe_modules_from_seed(load_p100_seed(repository_root)?, limits)
+}
+
+pub fn build_regularity_probe_modules_from_seed(
+    seed: LoadedP100Seed,
+    limits: &CompileLimits,
+) -> Result<Vec<TypedP100Module>, GeneratorError> {
     build_modules(
-        repository_root,
+        seed,
         GeometryAccuracyProfile::Fine2Cm,
         GeometryDirectionProfile::Smooth1Deg,
         limits,
@@ -241,13 +257,13 @@ pub fn build_regularity_probe_modules(
 }
 
 fn build_modules(
-    repository_root: &Path,
+    seed: LoadedP100Seed,
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
     limits: &CompileLimits,
     variant: P100Variant,
 ) -> Result<Vec<TypedP100Module>, GeneratorError> {
-    let mut data = load_bound_seed_data(repository_root)?;
+    let mut data = seed.data;
     if matches!(variant, P100Variant::RegularityProbe) {
         apply_regularity_probe(&mut data.documents)?;
     }
@@ -384,6 +400,71 @@ pub fn compile_encoded_modules(
     }
     let unit = builder.build()?;
     Ok(Compiler::new().compile(unit)?)
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct P100CompileStageDurations {
+    size_prefix_and_identifier_preflight: Duration,
+    flatbuffers_verifier: Duration,
+    semantic_preflight_and_typed_ast_lowering: Duration,
+    complete_compile: Duration,
+}
+
+impl P100CompileStageDurations {
+    #[must_use]
+    pub const fn size_prefix_and_identifier_preflight(self) -> Duration {
+        self.size_prefix_and_identifier_preflight
+    }
+
+    #[must_use]
+    pub const fn flatbuffers_verifier(self) -> Duration {
+        self.flatbuffers_verifier
+    }
+
+    #[must_use]
+    pub const fn semantic_preflight_and_typed_ast_lowering(self) -> Duration {
+        self.semantic_preflight_and_typed_ast_lowering
+    }
+
+    #[must_use]
+    pub const fn complete_compile(self) -> Duration {
+        self.complete_compile
+    }
+}
+
+/// 在输入身份构造完成后，按冻结边界计时 production admission 与完整编译。
+pub fn compile_encoded_modules_with_stage_timing(
+    modules: &[EncodedP100Module],
+    limits: CompileLimits,
+) -> Result<(CompilationOutput, P100CompileStageDurations), GeneratorError> {
+    let inputs = modules
+        .iter()
+        .map(|module| {
+            RoadEditingModuleInput::try_new(module.source_document_key(), module.as_bytes(), None)
+                .map_err(|error| contract(format!("generated source identity is invalid: {error}")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut builder = CompilationUnitBuilder::new(limits);
+    let mut compiler = Compiler::new();
+    let complete_started = Instant::now();
+    let mut stage_durations = P100CompileStageDurations::default();
+    for input in inputs {
+        let durations = builder.add_road_editing_module_with_stage_timing(input)?;
+        stage_durations.size_prefix_and_identifier_preflight = stage_durations
+            .size_prefix_and_identifier_preflight
+            .saturating_add(durations.size_prefix_and_identifier_preflight());
+        stage_durations.flatbuffers_verifier = stage_durations
+            .flatbuffers_verifier
+            .saturating_add(durations.flatbuffers_verifier());
+        stage_durations.semantic_preflight_and_typed_ast_lowering = stage_durations
+            .semantic_preflight_and_typed_ast_lowering
+            .saturating_add(durations.semantic_preflight_and_typed_ast_lowering());
+    }
+    let unit = builder.build()?;
+    let output = compiler.compile(unit)?;
+    stage_durations.complete_compile = complete_started.elapsed();
+    Ok((output, stage_durations))
 }
 
 fn parameters_digest(seed_digest: [u8; 32], module_index: u8) -> [u8; 32] {
@@ -2025,7 +2106,7 @@ mod tests {
         for (base_module, probe_module) in base_encoded[1..].iter().zip(&probe_encoded[1..]) {
             assert_eq!(base_module.as_bytes(), probe_module.as_bytes());
         }
-        let output = compile_encoded_modules(&probe_encoded, limits)
+        let (output, durations) = compile_encoded_modules_with_stage_timing(&probe_encoded, limits)
             .unwrap_or_else(|error| panic!("regularity probe failed production compile: {error}"));
         assert_eq!(output.diagnostics(), []);
         let metrics = output.metrics();
@@ -2043,6 +2124,14 @@ mod tests {
         assert!(
             metrics.compiler_controlled_peak_bytes() >= metrics.frontend_controlled_peak_bytes()
         );
+        assert!(durations.size_prefix_and_identifier_preflight() > Duration::ZERO);
+        assert!(durations.flatbuffers_verifier() > Duration::ZERO);
+        assert!(durations.semantic_preflight_and_typed_ast_lowering() > Duration::ZERO);
+        let named_stages = durations
+            .size_prefix_and_identifier_preflight()
+            .saturating_add(durations.flatbuffers_verifier())
+            .saturating_add(durations.semantic_preflight_and_typed_ast_lowering());
+        assert!(durations.complete_compile() >= named_stages);
     }
 
     fn assert_alignment_delta(base: &TypedP100Module, probe: &TypedP100Module) {

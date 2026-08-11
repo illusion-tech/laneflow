@@ -13,6 +13,35 @@ const MIN_SIZE_PREFIXED_LFRE_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 5;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
 
+/// 已通过来源字节、size prefix 与 file identifier 前门的借用输入。
+#[derive(Debug)]
+pub(crate) struct FramedRoadEditingSource<'a> {
+    input: RoadEditingModuleInput<'a>,
+}
+
+impl<'a> FramedRoadEditingSource<'a> {
+    pub(crate) const fn input(&self) -> RoadEditingModuleInput<'a> {
+        self.input
+    }
+}
+
+/// 已由固定上限 FlatBuffers verifier 产生安全 root、尚未读取 LaneFlow 语义的借用 view。
+#[derive(Debug)]
+pub(crate) struct WireVerifiedRoadEditingSource<'a> {
+    input: RoadEditingModuleInput<'a>,
+    root: wire::RoadEditingSource<'a>,
+}
+
+impl<'a> WireVerifiedRoadEditingSource<'a> {
+    pub(crate) const fn input(&self) -> RoadEditingModuleInput<'a> {
+        self.input
+    }
+
+    pub(crate) const fn root(&self) -> wire::RoadEditingSource<'a> {
+        self.root
+    }
+}
+
 /// 已通过 framing、显式 verifier 上限、exact version 与外部文档身份绑定的借用 view。
 ///
 /// 本类型保持 crate-private，不能绕过后续语义预检和共同 admission 成为编译输入。
@@ -47,13 +76,12 @@ impl<'a> VerifiedRoadEditingSource<'a> {
     }
 }
 
-/// 在任何领域对象分配前验证一份完整 size-prefixed `LFRE` buffer。
-pub(crate) fn verify_source<'a>(
+/// 在任何 wire traversal 前校验来源字节限额、size prefix 与 `LFRE` identifier。
+pub(crate) fn preflight_source_framing<'a>(
     input: RoadEditingModuleInput<'a>,
     limits: &CompileLimits,
     source_bytes_already_admitted: u64,
-    typed_ast_records_already_admitted: u64,
-) -> Result<VerifiedRoadEditingSource<'a>, DiagnosticBundle> {
+) -> Result<FramedRoadEditingSource<'a>, DiagnosticBundle> {
     let expected_key = input.expected_source_document_key();
     let bytes = input.source_bytes();
     let source_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
@@ -108,6 +136,19 @@ pub(crate) fn verify_source<'a>(
         ));
     }
 
+    Ok(FramedRoadEditingSource { input })
+}
+
+/// 使用冻结 verifier 上限产生唯一安全 FlatBuffers root，不读取 LaneFlow 领域语义。
+pub(crate) fn verify_source_wire<'a>(
+    framed: FramedRoadEditingSource<'a>,
+    limits: &CompileLimits,
+    typed_ast_records_already_admitted: u64,
+) -> Result<WireVerifiedRoadEditingSource<'a>, DiagnosticBundle> {
+    let input = framed.input();
+    let expected_key = input.expected_source_document_key();
+    let bytes = input.source_bytes();
+
     let typed_ast_limit = limits.value(CompileLimitDimension::TypedAstRecordCount);
     let remaining_records = typed_ast_limit.saturating_sub(typed_ast_records_already_admitted);
     let max_tables_u64 = remaining_records.checked_add(2).ok_or_else(|| {
@@ -143,6 +184,19 @@ pub(crate) fn verify_source<'a>(
     let root = wire::size_prefixed_root_as_road_editing_source_with_opts(&options, bytes)
         .map_err(|error| verifier_error(error, limits, expected_key))?;
 
+    Ok(WireVerifiedRoadEditingSource { input, root })
+}
+
+/// 在安全 root 上执行 exact version/identity、table 计量与完整 LaneFlow 语义预检。
+pub(crate) fn preflight_verified_source<'a>(
+    wire_verified: WireVerifiedRoadEditingSource<'a>,
+    limits: &CompileLimits,
+    typed_ast_records_already_admitted: u64,
+) -> Result<VerifiedRoadEditingSource<'a>, DiagnosticBundle> {
+    let input = wire_verified.input();
+    let expected_key = input.expected_source_document_key();
+    let root = wire_verified.root();
+
     if root.format_version() != FORMAT_VERSION {
         return Err(source_error(
             RoadEditingSourceViolation::UnsupportedFormatVersion {
@@ -164,6 +218,7 @@ pub(crate) fn verify_source<'a>(
 
     let table_count = table_count(root);
     let typed_ast_record_count = table_count.saturating_sub(2);
+    let typed_ast_limit = limits.value(CompileLimitDimension::TypedAstRecordCount);
     let total_records = typed_ast_records_already_admitted.saturating_add(typed_ast_record_count);
     if total_records > typed_ast_limit {
         return Err(limit_error(
@@ -196,6 +251,19 @@ pub(crate) fn verify_source<'a>(
         table_count,
         preflight_counts,
     })
+}
+
+/// 组合生产 reader 的三段边界；供不需要独立计时的内部调用与测试复用。
+#[cfg(test)]
+pub(crate) fn verify_source<'a>(
+    input: RoadEditingModuleInput<'a>,
+    limits: &CompileLimits,
+    source_bytes_already_admitted: u64,
+    typed_ast_records_already_admitted: u64,
+) -> Result<VerifiedRoadEditingSource<'a>, DiagnosticBundle> {
+    let framed = preflight_source_framing(input, limits, source_bytes_already_admitted)?;
+    let wire_verified = verify_source_wire(framed, limits, typed_ast_records_already_admitted)?;
+    preflight_verified_source(wire_verified, limits, typed_ast_records_already_admitted)
 }
 
 fn verifier_error(
@@ -459,7 +527,11 @@ mod tests {
         overwrite_root_u8_field(&mut bytes, 2, 0);
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let error = verify_source(input, &limits, 0, 0).expect_err("unspecified profile");
+        let framed = preflight_source_framing(input, &limits, 0).expect("framing preflight");
+        let wire_verified = verify_source_wire(framed, &limits, 0)
+            .expect("unspecified profile remains structurally valid wire");
+        let error = preflight_verified_source(wire_verified, &limits, 0)
+            .expect_err("unspecified profile is a semantic failure");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),

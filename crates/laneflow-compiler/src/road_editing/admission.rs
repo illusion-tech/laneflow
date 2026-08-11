@@ -13,7 +13,10 @@ use super::lowering::{
     lower_road_alignments, lower_topology_authoring_declarations,
 };
 use super::preflight::RoadEditingPreflightCounts;
-use super::reader::{VerifiedRoadEditingSource, verify_source};
+use super::reader::{
+    VerifiedRoadEditingSource, preflight_source_framing, preflight_verified_source,
+    verify_source_wire,
+};
 use crate::declaration::{CanonicalPoint3F32Input, TypedAstDeclaration};
 use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::module::{
@@ -47,6 +50,28 @@ struct GeometryScratchAllowance {
     candidate_live_upper_bound: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RoadEditingAdmissionStage {
+    SizePrefixAndIdentifierPreflight,
+    FlatbuffersVerifier,
+    SemanticPreflightAndTypedAstLowering,
+}
+
+pub(super) trait RoadEditingAdmissionObserver {
+    fn stage_started(&mut self, stage: RoadEditingAdmissionStage);
+    fn stage_finished(&mut self, stage: RoadEditingAdmissionStage);
+}
+
+struct NoopRoadEditingAdmissionObserver;
+
+impl RoadEditingAdmissionObserver for NoopRoadEditingAdmissionObserver {
+    #[inline]
+    fn stage_started(&mut self, _stage: RoadEditingAdmissionStage) {}
+
+    #[inline]
+    fn stage_finished(&mut self, _stage: RoadEditingAdmissionStage) {}
+}
+
 impl CompilationUnitBuilder {
     /// 原子验证并加入一份 size-prefixed `LFRE` 道路编辑来源。
     ///
@@ -62,13 +87,33 @@ impl CompilationUnitBuilder {
         &mut self,
         input: RoadEditingModuleInput<'_>,
     ) -> Result<&mut Self, DiagnosticBundle> {
+        let mut observer = NoopRoadEditingAdmissionObserver;
+        let admitted = self.prepare_road_editing_module(input, &mut observer)?;
+        self.admit_official_module(admitted)
+    }
+
+    pub(super) fn prepare_road_editing_module<O: RoadEditingAdmissionObserver>(
+        &self,
+        input: RoadEditingModuleInput<'_>,
+        observer: &mut O,
+    ) -> Result<AdmittedOfficialModule, DiagnosticBundle> {
         let limits = self.road_editing_limits().clone();
-        let verified = verify_source(
-            input,
-            &limits,
-            self.road_editing_source_bytes_already_admitted(),
-            self.road_editing_typed_ast_records_already_admitted(),
-        )?;
+        let source_bytes_already_admitted = self.road_editing_source_bytes_already_admitted();
+        let typed_ast_records_already_admitted =
+            self.road_editing_typed_ast_records_already_admitted();
+
+        observer.stage_started(RoadEditingAdmissionStage::SizePrefixAndIdentifierPreflight);
+        let framed = preflight_source_framing(input, &limits, source_bytes_already_admitted)?;
+        observer.stage_finished(RoadEditingAdmissionStage::SizePrefixAndIdentifierPreflight);
+
+        observer.stage_started(RoadEditingAdmissionStage::FlatbuffersVerifier);
+        let wire_verified =
+            verify_source_wire(framed, &limits, typed_ast_records_already_admitted)?;
+        observer.stage_finished(RoadEditingAdmissionStage::FlatbuffersVerifier);
+
+        observer.stage_started(RoadEditingAdmissionStage::SemanticPreflightAndTypedAstLowering);
+        let verified =
+            preflight_verified_source(wire_verified, &limits, typed_ast_records_already_admitted)?;
         precheck_accumulated_counts(self, &limits, &verified)?;
         let remaining_geometry_points = self.road_editing_remaining_geometry_points();
         let scratch_allowance = geometry_scratch_allowance(self, &limits, &verified);
@@ -78,7 +123,8 @@ impl CompilationUnitBuilder {
             remaining_geometry_points,
             scratch_allowance,
         )?;
-        self.admit_official_module(admitted)
+        observer.stage_finished(RoadEditingAdmissionStage::SemanticPreflightAndTypedAstLowering);
+        Ok(admitted)
     }
 }
 

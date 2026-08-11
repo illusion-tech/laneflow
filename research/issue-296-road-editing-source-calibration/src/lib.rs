@@ -3,7 +3,9 @@
 mod seed;
 
 pub use seed::{
-    EncodedP100Module, GeneratorError, P100_PROFILE_COMBINATIONS, P100ProfileCombination,
-    SeedAudit, SeedError, TypedP100Module, build_base_modules, build_regularity_probe_modules,
-    compile_encoded_modules, encode_modules, load_bound_seed,
+    EncodedP100Module, GeneratorError, LoadedP100Seed, P100_PROFILE_COMBINATIONS,
+    P100CompileStageDurations, P100ProfileCombination, SeedAudit, SeedError, TypedP100Module,
+    build_base_modules, build_base_modules_from_seed, build_regularity_probe_modules,
+    build_regularity_probe_modules_from_seed, compile_encoded_modules,
+    compile_encoded_modules_with_stage_timing, encode_modules, load_bound_seed, load_p100_seed,
 };

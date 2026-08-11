@@ -7,6 +7,8 @@
 mod admission;
 mod builder;
 mod compile_geometry;
+#[cfg(feature = "road-editing-g3-evidence")]
+mod evidence;
 #[allow(
     dead_code,
     reason = "consumed by the staged RoadEditingSource geometry lowering"
@@ -22,6 +24,8 @@ mod rules;
 mod writer;
 
 pub use builder::{RoadEditingSourceModule, RoadEditingSourceModuleBuilder};
+#[cfg(feature = "road-editing-g3-evidence")]
+pub use evidence::RoadEditingAdmissionStageDurations;
 pub use input::{InvalidRoadEditingModuleInput, RoadEditingModuleInput};
 pub use model::*;
 pub use writer::{OwnedRoadEditingSourceBuffer, RoadEditingSourceWriter};
