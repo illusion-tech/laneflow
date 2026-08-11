@@ -6655,10 +6655,11 @@ where
 {
     let target_module = module_lookup[reference.module_namespace.as_ref()];
     let Some(target) = symbols.get(target_module, &reference.target_address) else {
-        let mut diagnostic = Diagnostic::unknown_reference_target(
+        let mut diagnostic = Diagnostic::unknown_owner_qualified_reference_target(
             source_kind,
             &source_header.stable_key,
             &reference.module_namespace,
+            reference.target_address.owner_local_keys(),
             reference.declaration_key(),
             reference.span.clone(),
             source_header.span.clone(),
@@ -7215,6 +7216,30 @@ mod tests {
         );
         assert_eq!(reference.declaration_key().as_ref(), "lane-1");
         assert_eq!(reference.target_address, right_address);
+
+        let diagnostic = Diagnostic::unknown_owner_qualified_reference_target(
+            EntityKind::LaneEdge,
+            "source-edge",
+            "city/main",
+            reference.target_address.owner_local_keys(),
+            reference.declaration_key(),
+            span.clone(),
+            span.clone(),
+        );
+        assert!(matches!(
+            diagnostic.payload(),
+            crate::DiagnosticPayload::UnknownReferenceTarget {
+                target_owner_local_keys,
+                target_key,
+                ..
+            } if target_owner_local_keys.iter().map(AsRef::as_ref).collect::<Vec<_>>() == ["section-b"]
+                && target_key.as_ref() == "lane-1"
+        ));
+        assert!(
+            diagnostic
+                .to_string()
+                .contains("city/main::section-b>lane-1")
+        );
 
         let header = crate::declaration::DeclarationHeader::with_source_address(
             EntityKind::LaneEdge,

@@ -292,12 +292,18 @@ pub struct RoadEditingPropertyPathOrdinal(u32);
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RoadEditingCanvasSelectionOrdinal(u32);
 
+const MAX_ROAD_EDITING_OWNER_DEPTH: usize = 3;
+const ROAD_EDITING_CONTEXT_HEADER_LOGICAL_BYTES: u64 = 4 + 4 + 4;
+const ROAD_EDITING_CONTEXT_ITEM_LENGTH_LOGICAL_BYTES: u64 = 4;
+const ROAD_EDITING_PROPERTY_STEP_LOGICAL_BYTES: u64 = 4 + 4;
+
 /// 道路编辑来源中的稳定实体地址；它不是产品 `CanonicalIdentity`。
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct RoadEditingSourceAddress {
     module_namespace: RoadEditingStringOrdinal,
     kind: RoadEditingAddressKind,
-    owner_local_keys: Box<[RoadEditingStringOrdinal]>,
+    owner_local_keys: [RoadEditingStringOrdinal; MAX_ROAD_EDITING_OWNER_DEPTH],
+    owner_local_key_count: u8,
     local_key: RoadEditingStringOrdinal,
 }
 
@@ -328,7 +334,7 @@ impl RoadEditingSourceAddress {
         &'a self,
         context: &'a RoadEditingLocationContext,
     ) -> impl ExactSizeIterator<Item = &'a str> + 'a {
-        self.owner_local_keys
+        self.owner_local_keys[..usize::from(self.owner_local_key_count)]
             .iter()
             .copied()
             .map(|ordinal| context.resolve_string(ordinal))
@@ -344,16 +350,31 @@ impl RoadEditingSourceAddress {
         dead_code,
         reason = "consumed by the staged road-editing location-context builder"
     )]
-    pub(crate) fn new(
+    pub(crate) fn new<I>(
         module_namespace: RoadEditingStringOrdinal,
         kind: RoadEditingAddressKind,
-        owner_local_keys: Box<[RoadEditingStringOrdinal]>,
+        owner_local_keys: I,
         local_key: RoadEditingStringOrdinal,
-    ) -> Self {
+    ) -> Self
+    where
+        I: IntoIterator<Item = RoadEditingStringOrdinal>,
+    {
+        let mut inline_owner_local_keys = [module_namespace; MAX_ROAD_EDITING_OWNER_DEPTH];
+        let mut owner_local_key_count = 0_usize;
+        for ordinal in owner_local_keys {
+            assert!(
+                owner_local_key_count < MAX_ROAD_EDITING_OWNER_DEPTH,
+                "road-editing source addresses are bounded to three owner components"
+            );
+            inline_owner_local_keys[owner_local_key_count] = ordinal;
+            owner_local_key_count += 1;
+        }
         Self {
             module_namespace,
             kind,
-            owner_local_keys,
+            owner_local_keys: inline_owner_local_keys,
+            owner_local_key_count: u8::try_from(owner_local_key_count)
+                .expect("owner depth is bounded to three"),
             local_key,
         }
     }
@@ -433,14 +454,14 @@ impl RoadEditingByteRange {
 }
 
 /// 道路编辑 owner-local 关系的有类型 owner。
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum RoadEditingOwner {
     ModuleHeader,
     Address(RoadEditingSourceAddress),
 }
 
 /// 道路编辑语义或结构位置的闭合 subject。
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum RoadEditingSubject {
     ModuleHeader,
     RoadAlignment {
@@ -483,6 +504,40 @@ impl RoadEditingLocationContext {
 
     fn resolve_canvas_selection(&self, ordinal: RoadEditingCanvasSelectionOrdinal) -> &str {
         &self.canvas_selection_keys[ordinal.0 as usize]
+    }
+
+    /// 返回该共享 context 在来源映射闭合逻辑编码中的字节数。
+    ///
+    /// 编码按三个有序表保存字符串、属性路径与画布选择。字符串项为 `u32` 长度加
+    /// UTF-8 bytes；路径项为 `u32` 步数加固定 8-byte 有类型步骤。该口径不使用
+    /// Rust `Arc`、enum padding 或 allocator 元数据。
+    pub(crate) fn source_map_logical_bytes(&self) -> u64 {
+        let strings = self.strings.iter().fold(0_u64, |total, value| {
+            total
+                .saturating_add(ROAD_EDITING_CONTEXT_ITEM_LENGTH_LOGICAL_BYTES)
+                .saturating_add(u64::try_from(value.len()).unwrap_or(u64::MAX))
+        });
+        let property_paths = self.property_paths.iter().fold(0_u64, |total, path| {
+            total
+                .saturating_add(ROAD_EDITING_CONTEXT_ITEM_LENGTH_LOGICAL_BYTES)
+                .saturating_add(
+                    u64::try_from(path.steps().len())
+                        .unwrap_or(u64::MAX)
+                        .saturating_mul(ROAD_EDITING_PROPERTY_STEP_LOGICAL_BYTES),
+                )
+        });
+        let canvas_selections = self
+            .canvas_selection_keys
+            .iter()
+            .fold(0_u64, |total, value| {
+                total
+                    .saturating_add(ROAD_EDITING_CONTEXT_ITEM_LENGTH_LOGICAL_BYTES)
+                    .saturating_add(u64::try_from(value.len()).unwrap_or(u64::MAX))
+            });
+        ROAD_EDITING_CONTEXT_HEADER_LOGICAL_BYTES
+            .saturating_add(strings)
+            .saturating_add(property_paths)
+            .saturating_add(canvas_selections)
     }
 
     pub(crate) fn string_ordinal_for(&self, value: &str) -> RoadEditingStringOrdinal {
@@ -829,7 +884,7 @@ fn hash_address<H: Hasher>(
 ) {
     address.kind.hash(state);
     address.module_namespace(context).hash(state);
-    address.owner_local_keys.len().hash(state);
+    address.owner_local_key_count.hash(state);
     for owner in address.owner_local_keys(context) {
         owner.hash(state);
     }
@@ -871,7 +926,7 @@ mod tests {
         let address = RoadEditingSourceAddress::new(
             context.string_ordinal(0),
             RoadEditingAddressKind::Declaration(EntityKind::AuthoringLane),
-            Box::new([context.string_ordinal(1), context.string_ordinal(2)]),
+            [context.string_ordinal(1), context.string_ordinal(2)],
             context.string_ordinal(3),
         );
         let location = SourceLocation::RoadEditing(RoadEditingSourceLocation::new(
@@ -929,10 +984,10 @@ mod tests {
             let address = RoadEditingSourceAddress::new(
                 context.string_ordinal(indexes[0]),
                 RoadEditingAddressKind::Declaration(EntityKind::AuthoringLane),
-                Box::new([
+                [
                     context.string_ordinal(indexes[1]),
                     context.string_ordinal(indexes[2]),
-                ]),
+                ],
                 context.string_ordinal(indexes[3]),
             );
             SourceLocation::RoadEditing(RoadEditingSourceLocation::new(
@@ -960,5 +1015,26 @@ mod tests {
         assert_eq!(left, right);
         assert_eq!(left.cmp(&right), Ordering::Equal);
         assert_eq!(hash_of(&left), hash_of(&right));
+    }
+
+    #[test]
+    fn source_address_is_copy_and_context_logical_size_is_closed() {
+        fn assert_copy<T: Copy>() {}
+        assert_copy::<RoadEditingSourceAddress>();
+
+        let context = RoadEditingLocationContext::new(
+            Box::new([Arc::from("a")]),
+            Box::new([RoadEditingPropertyPath::new(Box::new([
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::LaneEdge,
+                    field_id: 0,
+                },
+            ]))]),
+            Box::new([Arc::from("canvas")]),
+        );
+        assert_eq!(
+            context.source_map_logical_bytes(),
+            12 + (4 + 1) + (4 + 8) + (4 + 6)
+        );
     }
 }
