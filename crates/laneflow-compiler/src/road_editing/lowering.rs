@@ -246,18 +246,8 @@ pub(super) fn lower_independent_declarations(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
     shared_namespace: &Arc<str>,
-) -> Vec<TypedAstDeclaration> {
-    let mut declarations = Vec::with_capacity(
-        root.signal_groups()
-            .len()
-            .saturating_add(root.parking_areas().len())
-            .saturating_add(root.participant_classes().len())
-            .saturating_add(root.vehicle_profiles().len())
-            .saturating_add(root.stop_lines().len())
-            .saturating_add(root.static_routes().len())
-            .saturating_add(root.canonical_frames().len()),
-    );
-
+    declarations: &mut Vec<TypedAstDeclaration>,
+) {
     let mut signal_groups: Vec<_> = root.signal_groups().iter().collect();
     signal_groups.sort_unstable_by(|left, right| {
         left.signal_group_key()
@@ -467,8 +457,6 @@ pub(super) fn lower_independent_declarations(
             lane_edge_geometries: Box::new([]),
         })
     }));
-
-    declarations
 }
 
 /// 降阶以完整 owner tuple 定址、但不依赖几何点载荷或嵌套聚合的声明族。
@@ -476,18 +464,9 @@ pub(super) fn lower_owner_scoped_declarations(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
     shared_namespace: &Arc<str>,
-) -> Vec<TypedAstDeclaration> {
+    declarations: &mut Vec<TypedAstDeclaration>,
+) {
     let namespace = shared_namespace.as_ref();
-    let mut declarations = Vec::with_capacity(
-        root.lane_groups()
-            .len()
-            .saturating_add(root.facility_bands().len())
-            .saturating_add(root.junctions().len())
-            .saturating_add(root.movements().len())
-            .saturating_add(root.maneuver_paths().len())
-            .saturating_add(root.maneuver_gates().len())
-            .saturating_add(root.waiting_zones().len()),
-    );
 
     let mut lane_groups: Vec<_> = root.lane_groups().iter().collect();
     lane_groups.sort_unstable_by(|left, right| {
@@ -941,8 +920,6 @@ pub(super) fn lower_owner_scoped_declarations(
             max_occupancy: value.max_occupancy(),
         })
     }));
-
-    declarations
 }
 
 /// 降阶 RoadEditingSource 的道路横断面、LaneEdge 和 authoring 几何权威。
@@ -953,15 +930,10 @@ pub(super) fn lower_topology_authoring_declarations(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
     shared_namespace: &Arc<str>,
-) -> Result<Vec<TypedAstDeclaration>, crate::DiagnosticBundle> {
+    declarations: &mut Vec<TypedAstDeclaration>,
+) -> Result<(), crate::DiagnosticBundle> {
     let namespace = shared_namespace.as_ref();
     let expected_key = root.module_header().source_document_key();
-    let mut declarations = Vec::with_capacity(
-        root.lane_edges()
-            .len()
-            .saturating_add(root.road_corridors().len())
-            .saturating_add(root.road_sections().len()),
-    );
 
     let mut lane_edges: Vec<_> = root.lane_edges().iter().collect();
     lane_edges.sort_unstable_by(|left, right| {
@@ -1307,7 +1279,7 @@ pub(super) fn lower_topology_authoring_declarations(
         ));
     }
 
-    Ok(declarations)
+    Ok(())
 }
 
 /// 降阶需要把顶层声明与嵌套成员合并的非几何声明族。
@@ -1318,14 +1290,9 @@ pub(super) fn lower_aggregate_declarations(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
     shared_namespace: &Arc<str>,
-) -> Vec<TypedAstDeclaration> {
+    declarations: &mut Vec<TypedAstDeclaration>,
+) {
     let namespace = shared_namespace.as_ref();
-    let mut declarations = Vec::with_capacity(
-        root.signal_controllers()
-            .len()
-            .saturating_add(root.parking_spaces().len())
-            .saturating_add(root.access_rules().len()),
-    );
 
     let mut controllers: Vec<_> = root.signal_controllers().iter().collect();
     controllers.sort_unstable_by(|left, right| {
@@ -1650,8 +1617,6 @@ pub(super) fn lower_aggregate_declarations(
             priority: value.priority(),
         })
     }));
-
-    declarations
 }
 
 fn module_scoped_header(
@@ -1898,6 +1863,23 @@ mod tests {
     }
 
     #[test]
+    fn local_reference_reuses_verified_document_namespace_allocation() {
+        let source = RoadEditingLocationFactory::verified_module_header("city/main", "roads/main");
+        let document_namespace = source
+            .road_editing()
+            .and_then(|location| location.document_identity().module_namespace_arc())
+            .expect("verified RoadEditing source has a module namespace");
+
+        let reference =
+            lower_reference::<SignalGroupKind>("group-a", 1, &document_namespace, source);
+
+        assert!(Arc::ptr_eq(
+            &reference.module_namespace,
+            &document_namespace
+        ));
+    }
+
+    #[test]
     fn independent_declarations_are_lowered_in_stable_key_order() {
         let limits = CompileLimits::p100_initial_v2();
         let header = RoadEditingModuleHeader::try_new(
@@ -1933,8 +1915,13 @@ mod tests {
         let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
-        let declarations =
-            lower_independent_declarations(verified.root(), &locations, &shared_namespace);
+        let mut declarations = Vec::new();
+        lower_independent_declarations(
+            verified.root(),
+            &locations,
+            &shared_namespace,
+            &mut declarations,
+        );
 
         assert_eq!(declarations.len(), 4);
         assert!(matches!(
@@ -2018,8 +2005,13 @@ mod tests {
         let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
-        let declarations =
-            lower_independent_declarations(verified.root(), &locations, &shared_namespace);
+        let mut declarations = Vec::new();
+        lower_independent_declarations(
+            verified.root(),
+            &locations,
+            &shared_namespace,
+            &mut declarations,
+        );
 
         let TypedAstDeclaration::ParticipantClass(participant) = &declarations[0] else {
             panic!("expected participant class");
@@ -2069,10 +2061,20 @@ mod tests {
         let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
-        let independent =
-            lower_independent_declarations(verified.root(), &locations, &shared_namespace);
-        let declarations =
-            lower_owner_scoped_declarations(verified.root(), &locations, &shared_namespace);
+        let mut independent = Vec::new();
+        lower_independent_declarations(
+            verified.root(),
+            &locations,
+            &shared_namespace,
+            &mut independent,
+        );
+        let mut declarations = Vec::new();
+        lower_owner_scoped_declarations(
+            verified.root(),
+            &locations,
+            &shared_namespace,
+            &mut declarations,
+        );
 
         assert_eq!(declarations.len(), 7);
         let owners = declarations
@@ -2229,8 +2231,13 @@ mod tests {
         let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
-        let declarations =
-            lower_owner_scoped_declarations(verified.root(), &locations, &shared_namespace);
+        let mut declarations = Vec::new();
+        lower_owner_scoped_declarations(
+            verified.root(),
+            &locations,
+            &shared_namespace,
+            &mut declarations,
+        );
         let junction = declarations
             .iter()
             .find_map(|declaration| match declaration {
@@ -2301,9 +2308,14 @@ mod tests {
             Some("canvas/alignment-segment")
         );
 
-        let declarations =
-            lower_topology_authoring_declarations(verified.root(), &locations, &shared_namespace)
-                .unwrap();
+        let mut declarations = Vec::new();
+        lower_topology_authoring_declarations(
+            verified.root(),
+            &locations,
+            &shared_namespace,
+            &mut declarations,
+        )
+        .unwrap();
         assert_eq!(declarations.len(), 5);
         let section = declarations
             .iter()
@@ -2369,9 +2381,15 @@ mod tests {
         let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
+        let mut declarations = Vec::new();
         assert!(
-            lower_topology_authoring_declarations(verified.root(), &locations, &shared_namespace)
-                .is_err()
+            lower_topology_authoring_declarations(
+                verified.root(),
+                &locations,
+                &shared_namespace,
+                &mut declarations,
+            )
+            .is_err()
         );
     }
 
@@ -2385,8 +2403,13 @@ mod tests {
         let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
-        let declarations =
-            lower_aggregate_declarations(verified.root(), &locations, &shared_namespace);
+        let mut declarations = Vec::new();
+        lower_aggregate_declarations(
+            verified.root(),
+            &locations,
+            &shared_namespace,
+            &mut declarations,
+        );
 
         assert_eq!(declarations.len(), 3);
         let controller = declarations

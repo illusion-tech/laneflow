@@ -1,11 +1,12 @@
 use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
-use laneflow_road_editing_wire::runtime::{InvalidFlatbuffer, VerifierOptions};
+use laneflow_road_editing_wire::runtime::{ErrorTraceDetail, InvalidFlatbuffer, VerifierOptions};
 
 use super::RoadEditingModuleInput;
 use super::location::RoadEditingLocationFactory;
 use super::preflight::{RoadEditingPreflightCounts, preflight_source};
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, RoadEditingSourceViolation,
+    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, RoadEditingByteRange,
+    RoadEditingRootVectorKind, RoadEditingSourceViolation, RoadEditingTableKind, SourceLocation,
 };
 
 const FORMAT_VERSION: u32 = 1;
@@ -142,7 +143,7 @@ pub(crate) fn verify_source<'a>(
         ignore_missing_null_terminator: false,
     };
     let root = wire::size_prefixed_root_as_road_editing_source_with_opts(&options, bytes)
-        .map_err(|error| verifier_error(error, limits, expected_key))?;
+        .map_err(|error| verifier_error(error, limits, expected_key, bytes.len()))?;
 
     if root.format_version() != FORMAT_VERSION {
         return Err(source_error(
@@ -204,6 +205,7 @@ fn verifier_error(
     error: InvalidFlatbuffer,
     limits: &CompileLimits,
     expected_key: &str,
+    source_len: usize,
 ) -> DiagnosticBundle {
     match error {
         InvalidFlatbuffer::TooManyTables => limit_error(
@@ -224,18 +226,197 @@ fn verifier_error(
             expected_key,
             None,
         ),
-        InvalidFlatbuffer::MissingRequiredField { .. }
-        | InvalidFlatbuffer::InconsistentUnion { .. }
-        | InvalidFlatbuffer::Utf8Error { .. }
-        | InvalidFlatbuffer::MissingNullTerminator { .. }
-        | InvalidFlatbuffer::Unaligned { .. }
-        | InvalidFlatbuffer::RangeOutOfBounds { .. }
-        | InvalidFlatbuffer::SignedOffsetOutOfBounds { .. } => source_error(
-            RoadEditingSourceViolation::MalformedWire,
-            expected_key,
-            None,
-        ),
+        data_error => {
+            let (trace, range) = verifier_data_site(&data_error, source_len);
+            let field = trace.iter().find_map(|detail| match detail {
+                ErrorTraceDetail::TableField { field_name, .. } => Some(field_name.as_ref()),
+                _ => None,
+            });
+            let location = wire_location_from_trace(trace, expected_key, range);
+            source_error_at(
+                RoadEditingSourceViolation::MalformedWire,
+                field,
+                expected_key,
+                None,
+                location,
+            )
+        }
     }
+}
+
+fn verifier_data_site(
+    error: &InvalidFlatbuffer,
+    source_len: usize,
+) -> (&[ErrorTraceDetail], Option<RoadEditingByteRange>) {
+    let (trace, start, length) = match error {
+        InvalidFlatbuffer::MissingRequiredField { error_trace, .. }
+        | InvalidFlatbuffer::InconsistentUnion { error_trace, .. } => (error_trace, None, None),
+        InvalidFlatbuffer::Utf8Error {
+            range, error_trace, ..
+        }
+        | InvalidFlatbuffer::MissingNullTerminator { range, error_trace }
+        | InvalidFlatbuffer::RangeOutOfBounds { range, error_trace } => (
+            error_trace,
+            u32::try_from(range.start).ok(),
+            u32::try_from(range.end.saturating_sub(range.start)).ok(),
+        ),
+        InvalidFlatbuffer::Unaligned {
+            position,
+            error_trace,
+            ..
+        }
+        | InvalidFlatbuffer::SignedOffsetOutOfBounds {
+            position,
+            error_trace,
+            ..
+        } => (error_trace, u32::try_from(*position).ok(), Some(1)),
+        InvalidFlatbuffer::TooManyTables
+        | InvalidFlatbuffer::ApparentSizeTooLarge
+        | InvalidFlatbuffer::DepthLimitReached => {
+            unreachable!("DoS verifier errors are handled before data-site extraction")
+        }
+    };
+    let direct = start
+        .zip(length)
+        .and_then(|(start, length)| RoadEditingByteRange::checked(start, length, source_len));
+    let traced = trace.as_ref().iter().find_map(|detail| {
+        let position = match detail {
+            ErrorTraceDetail::VectorElement { position, .. }
+            | ErrorTraceDetail::TableField { position, .. }
+            | ErrorTraceDetail::UnionVariant { position, .. } => *position,
+        };
+        RoadEditingByteRange::checked(u32::try_from(position).ok()?, 1, source_len)
+    });
+    (trace.as_ref(), direct.or(traced))
+}
+
+fn wire_location_from_trace(
+    details: &[ErrorTraceDetail],
+    expected_key: &str,
+    range: Option<RoadEditingByteRange>,
+) -> Option<SourceLocation> {
+    for (field_position, detail) in details.iter().enumerate() {
+        let ErrorTraceDetail::TableField { field_name, .. } = detail else {
+            continue;
+        };
+        let Some((root_vector, table)) = root_vector_site(field_name.as_ref()) else {
+            continue;
+        };
+        let physical_index =
+            details[..field_position]
+                .iter()
+                .rev()
+                .find_map(|detail| match detail {
+                    ErrorTraceDetail::VectorElement { index, .. } => u32::try_from(*index).ok(),
+                    _ => None,
+                })?;
+        return Some(RoadEditingLocationFactory::input_wire(
+            expected_key,
+            root_vector,
+            physical_index,
+            table,
+            range,
+        ));
+    }
+    None
+}
+
+fn root_vector_site(field_name: &str) -> Option<(RoadEditingRootVectorKind, RoadEditingTableKind)> {
+    Some(match field_name {
+        "road_alignments" => (
+            RoadEditingRootVectorKind::RoadAlignment,
+            RoadEditingTableKind::RoadAlignment,
+        ),
+        "road_corridors" => (
+            RoadEditingRootVectorKind::RoadCorridor,
+            RoadEditingTableKind::RoadCorridor,
+        ),
+        "road_sections" => (
+            RoadEditingRootVectorKind::RoadSection,
+            RoadEditingTableKind::RoadSection,
+        ),
+        "authoring_lanes" => (
+            RoadEditingRootVectorKind::AuthoringLane,
+            RoadEditingTableKind::AuthoringLane,
+        ),
+        "lane_edges" => (
+            RoadEditingRootVectorKind::LaneEdge,
+            RoadEditingTableKind::LaneEdge,
+        ),
+        "junctions" => (
+            RoadEditingRootVectorKind::Junction,
+            RoadEditingTableKind::Junction,
+        ),
+        "movements" => (
+            RoadEditingRootVectorKind::Movement,
+            RoadEditingTableKind::Movement,
+        ),
+        "maneuver_paths" => (
+            RoadEditingRootVectorKind::ManeuverPath,
+            RoadEditingTableKind::ManeuverPath,
+        ),
+        "maneuver_gates" => (
+            RoadEditingRootVectorKind::ManeuverGate,
+            RoadEditingTableKind::ManeuverGate,
+        ),
+        "waiting_zones" => (
+            RoadEditingRootVectorKind::WaitingZone,
+            RoadEditingTableKind::WaitingZone,
+        ),
+        "stop_lines" => (
+            RoadEditingRootVectorKind::StopLine,
+            RoadEditingTableKind::StopLine,
+        ),
+        "signal_groups" => (
+            RoadEditingRootVectorKind::SignalGroup,
+            RoadEditingTableKind::SignalGroup,
+        ),
+        "signal_controllers" => (
+            RoadEditingRootVectorKind::SignalController,
+            RoadEditingTableKind::SignalController,
+        ),
+        "signal_phases" => (
+            RoadEditingRootVectorKind::SignalPhase,
+            RoadEditingTableKind::SignalPhase,
+        ),
+        "parking_areas" => (
+            RoadEditingRootVectorKind::ParkingArea,
+            RoadEditingTableKind::ParkingArea,
+        ),
+        "parking_spaces" => (
+            RoadEditingRootVectorKind::ParkingSpace,
+            RoadEditingTableKind::ParkingSpace,
+        ),
+        "lane_groups" => (
+            RoadEditingRootVectorKind::LaneGroup,
+            RoadEditingTableKind::LaneGroup,
+        ),
+        "facility_bands" => (
+            RoadEditingRootVectorKind::FacilityBand,
+            RoadEditingTableKind::FacilityBand,
+        ),
+        "participant_classes" => (
+            RoadEditingRootVectorKind::ParticipantClass,
+            RoadEditingTableKind::ParticipantClass,
+        ),
+        "access_rules" => (
+            RoadEditingRootVectorKind::AccessRule,
+            RoadEditingTableKind::AccessRule,
+        ),
+        "vehicle_profiles" => (
+            RoadEditingRootVectorKind::VehicleProfile,
+            RoadEditingTableKind::VehicleProfile,
+        ),
+        "static_routes" => (
+            RoadEditingRootVectorKind::StaticRoute,
+            RoadEditingTableKind::StaticRoute,
+        ),
+        "canonical_frames" => (
+            RoadEditingRootVectorKind::CanonicalFrame,
+            RoadEditingTableKind::CanonicalFrame,
+        ),
+        _ => return None,
+    })
 }
 
 fn source_error(
@@ -243,7 +424,7 @@ fn source_error(
     expected_key: &str,
     actual_key: Option<&str>,
 ) -> DiagnosticBundle {
-    DiagnosticBundle::single(Diagnostic::invalid_road_editing_source_at(
+    source_error_at(
         violation,
         None,
         expected_key,
@@ -251,6 +432,26 @@ fn source_error(
         Some(RoadEditingLocationFactory::input_module_header(
             expected_key,
         )),
+    )
+}
+
+fn source_error_at(
+    violation: RoadEditingSourceViolation,
+    field: Option<&str>,
+    expected_key: &str,
+    actual_key: Option<&str>,
+    location: Option<SourceLocation>,
+) -> DiagnosticBundle {
+    DiagnosticBundle::single(Diagnostic::invalid_road_editing_source_at(
+        violation,
+        field,
+        expected_key,
+        actual_key,
+        location.or_else(|| {
+            Some(RoadEditingLocationFactory::input_module_header(
+                expected_key,
+            ))
+        }),
     ))
 }
 
@@ -343,6 +544,7 @@ mod tests {
     };
     use crate::{
         DiagnosticCode, DiagnosticPayload, GeometryAccuracyProfile, GeometryDirectionProfile,
+        RoadEditingDocumentIdentity, RoadEditingRootVectorKind, RoadEditingSubject,
     };
 
     fn source_buffer(
@@ -714,6 +916,43 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn verifier_trace_preserves_root_vector_index_and_checked_byte_range() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let mut bytes = buffer.as_bytes().to_vec();
+        let key_position = bytes
+            .windows(b"frame".len())
+            .position(|window| window == b"frame")
+            .expect("canonical-frame key bytes");
+        bytes[key_position] = 0xff;
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("invalid utf-8");
+        let Some(crate::SourceLocation::RoadEditing(location)) =
+            first_diagnostic(&error).primary_location()
+        else {
+            panic!("verifier data error must retain a wire location");
+        };
+        assert!(matches!(
+            location.document_identity(),
+            RoadEditingDocumentIdentity::Input(_)
+        ));
+        assert!(matches!(
+            location.subject(),
+            RoadEditingSubject::Wire {
+                root_vector: RoadEditingRootVectorKind::CanonicalFrame,
+                physical_index: 0,
+                table: RoadEditingTableKind::CanonicalFrame,
+            }
+        ));
+        let range = location.byte_range().expect("verified byte range");
+        assert!(range.start() <= u32::try_from(key_position).unwrap());
+        assert!(
+            range.start().saturating_add(range.length()) > u32::try_from(key_position).unwrap()
+        );
     }
 
     #[test]

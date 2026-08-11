@@ -2978,7 +2978,12 @@ impl SyntheticModuleBuilder {
                     waiting_zone_count: self.waiting_zone_count,
                     route_occurrence_count: self.route_occurrence_count,
                     geometry_point_count: self.geometry_point_count,
+                    geometry_source_range_count: 0,
                     controlled_live_bytes: self
+                        .controlled_string_bytes
+                        .saturating_add(self.controlled_structural_bytes)
+                        .saturating_add(size_bytes::<SourceDocumentDescriptor>(1)),
+                    admission_peak_live_bytes: self
                         .controlled_string_bytes
                         .saturating_add(self.controlled_structural_bytes)
                         .saturating_add(size_bytes::<SourceDocumentDescriptor>(1)),

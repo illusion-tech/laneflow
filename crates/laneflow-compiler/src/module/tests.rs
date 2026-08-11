@@ -1024,8 +1024,11 @@ fn admission_sizing_accounts_for_builder_indexes_wrappers_and_result_modules() {
             .module_payload_live_bytes
             .saturating_add(expected_document_index)
             .saturating_add(expected_module_index)
-            .saturating_add(size_bytes::<AdmittedOfficialModule>(1))
+            .saturating_add(size_bytes::<AdmittedOfficialModule>(
+                builder.totals.module_slot_capacity,
+            ))
     );
+    assert_eq!(builder.modules.capacity(), 4);
     assert_eq!(
         sizing.result_live_bytes,
         builder
@@ -1039,6 +1042,53 @@ fn admission_sizing_accounts_for_builder_indexes_wrappers_and_result_modules() {
 
     let unit = builder.build().unwrap();
     assert_eq!(unit.controlled_live_bytes, sizing.result_live_bytes);
+}
+
+#[test]
+fn module_vector_growth_is_explicitly_budgeted_before_commit() {
+    let limits = CompileLimits::p100_initial_v2();
+    let mut builder = CompilationUnitBuilder::new(limits);
+    for index in 0..4 {
+        builder
+            .add_synthetic_module(module_with_document(
+                &format!("city/{index}"),
+                &format!("source/{index}"),
+                &[],
+            ))
+            .unwrap();
+    }
+    assert_eq!(builder.modules.capacity(), 4);
+    assert_eq!(builder.totals.module_slot_capacity, 4);
+    let live_before_growth =
+        builder.already_admitted(CompileLimitDimension::CompilerControlledLiveBytes);
+
+    let mut fifth = module_with_document("city/4", "source/4", &[]);
+    let candidate_retained = fifth.admitted.resource_counts.controlled_live_bytes;
+    fifth.admitted.resource_counts.admission_peak_live_bytes =
+        candidate_retained.saturating_add(size_bytes::<AdmittedOfficialModule>(32));
+    let candidate_peak = fifth.admitted.resource_counts.admission_peak_live_bytes;
+    let expected_growth_allocation = size_bytes::<AdmittedOfficialModule>(8);
+    let next_totals = builder
+        .totals
+        .candidate_after(1, 0, &fifth.admitted.resource_counts);
+    let expected_peak = builder
+        .totals
+        .admission_peak_live_bytes
+        .max(admission::builder_live_requested_bytes(next_totals))
+        .max(live_before_growth.saturating_add(candidate_peak))
+        .max(
+            live_before_growth
+                .saturating_add(candidate_retained)
+                .saturating_add(expected_growth_allocation),
+        );
+    builder.add_synthetic_module(fifth).unwrap();
+
+    assert_eq!(builder.modules.capacity(), 8);
+    assert_eq!(builder.totals.module_slot_capacity, 8);
+    assert_eq!(
+        builder.totals.admission_peak_live_bytes, expected_peak,
+        "frontend scratch and later module-vector growth are distinct lifetimes"
+    );
 }
 
 #[test]

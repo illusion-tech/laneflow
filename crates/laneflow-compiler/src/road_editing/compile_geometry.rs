@@ -8,7 +8,7 @@ use crate::declaration::{
     LaneEdgeGeometryAuthority, OwnedCorridorElementReference, RoadAlignmentDeclaration,
     RoadSectionDeclaration, TypedAstDeclaration, TypedAstEntityAddress,
 };
-use crate::{GeometryAccuracyProfile, GeometryDirectionProfile};
+use crate::{GeometryAccuracyProfile, GeometryDirectionProfile, SourceLocation};
 
 use super::geometry::{
     ApproximationInterval, ApproximationPoint, ApproximationPointSink, ApproximationVertex,
@@ -28,6 +28,7 @@ pub(super) struct ReferenceStationRow {
     pub(super) cumulative_end_meters: f64,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ReferenceStationPosition {
     pub(super) row_index: u32,
@@ -35,6 +36,7 @@ pub(super) struct ReferenceStationPosition {
     pub(super) parameter: f64,
 }
 
+#[cfg(test)]
 pub(super) fn locate_reference_station(
     rows: &[ReferenceStationRow],
     station_meters: f64,
@@ -247,18 +249,63 @@ fn capacity_bytes<T>(count: usize) -> Option<u64> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct GeometryCompilationUsage {
     pub(super) output_point_count: u64,
+    pub(super) output_source_range_count: u64,
     pub(super) peak_scratch_bytes: u64,
+    /// 不含调用方、既有 builder 与候选非几何 retained base 的几何工作峰值。
+    pub(super) peak_output_and_scratch_bytes: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct GeometryCompilationBudget {
+    pub(super) station_row_byte_limit: u64,
+    pub(super) point_limit: u64,
+    pub(super) scratch_limit: u64,
+    pub(super) live_headroom: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CurveSizing {
+    point_count: usize,
+    source_range_count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum GeometryCompilationError {
-    Numeric(NumericFreezeError),
-    ScratchLimit { limit: u64, observed: u64 },
+    Numeric {
+        error: NumericFreezeError,
+        source: Option<SourceLocation>,
+    },
+    ScratchLimit {
+        limit: u64,
+        observed: u64,
+    },
+    LiveLimit {
+        limit: u64,
+        observed: u64,
+    },
 }
 
 impl From<NumericFreezeError> for GeometryCompilationError {
     fn from(value: NumericFreezeError) -> Self {
-        Self::Numeric(value)
+        Self::Numeric {
+            error: value,
+            source: None,
+        }
+    }
+}
+
+impl GeometryCompilationError {
+    fn with_numeric_source(self, source: SourceLocation) -> Self {
+        match self {
+            Self::Numeric {
+                error,
+                source: None,
+            } => Self::Numeric {
+                error,
+                source: Some(source),
+            },
+            other => other,
+        }
     }
 }
 
@@ -354,10 +401,14 @@ pub(super) fn compile_authoring_geometry(
     declarations: &mut [TypedAstDeclaration],
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
-    station_row_byte_limit: u64,
-    geometry_point_limit: u64,
-    geometry_scratch_byte_limit: u64,
+    budget: GeometryCompilationBudget,
 ) -> Result<GeometryCompilationUsage, GeometryCompilationError> {
+    let GeometryCompilationBudget {
+        station_row_byte_limit,
+        point_limit: geometry_point_limit,
+        scratch_limit: geometry_scratch_byte_limit,
+        live_headroom,
+    } = budget;
     let mut scratch = GeometryScratchBudget::new(geometry_scratch_byte_limit);
     let plans = resolve_corridor_plans(
         authoring_namespace_id,
@@ -411,6 +462,7 @@ pub(super) fn compile_authoring_geometry(
     scratch.reserve::<u32>(regularity_visit_count)?;
     scratch.reserve::<PendingLaneGeometry>(expected_lane_outputs)?;
     scratch.reserve::<PendingFacilityGeometry>(expected_facility_outputs)?;
+    let mut peak_output_and_scratch_bytes = check_live_limit(live_headroom, scratch.live, 0, 0)?;
     let mut compiled_alignments = Vec::with_capacity(referenced_alignment_count);
     let mut lane_outputs = Vec::with_capacity(expected_lane_outputs);
     let mut facility_outputs = Vec::with_capacity(expected_facility_outputs);
@@ -436,6 +488,8 @@ pub(super) fn compile_authoring_geometry(
             (scratch_vertex_limit, NumericFreezeError::GeometryPointLimit)
         };
         scratch.reserve_bytes(numeric_scratch_bytes)?;
+        peak_output_and_scratch_bytes =
+            peak_output_and_scratch_bytes.max(check_live_limit(live_headroom, scratch.live, 0, 0)?);
         let sizing_result = measure_alignment_reference(
             &plan.alignment.reference_line,
             transient_vertex_limit,
@@ -449,10 +503,15 @@ pub(super) fn compile_authoring_geometry(
                     observed: geometry_scratch_byte_limit.saturating_add(1),
                 });
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => {
+                return Err(GeometryCompilationError::from(error)
+                    .with_numeric_source(plan.alignment.span.clone()));
+            }
             Ok(value) => value,
         };
         scratch.reserve::<ReferenceStationRow>(sizing.station_rows)?;
+        peak_output_and_scratch_bytes =
+            peak_output_and_scratch_bytes.max(check_live_limit(live_headroom, scratch.live, 0, 0)?);
         station_row_count = station_row_count.checked_add(sizing.station_rows).ok_or(
             GeometryCompilationError::ScratchLimit {
                 limit: geometry_scratch_byte_limit,
@@ -460,10 +519,14 @@ pub(super) fn compile_authoring_geometry(
             },
         )?;
         scratch.reserve_bytes(numeric_scratch_bytes)?;
+        peak_output_and_scratch_bytes =
+            peak_output_and_scratch_bytes.max(check_live_limit(live_headroom, scratch.live, 0, 0)?);
         let reference_result =
             compile_measured_alignment_reference(&plan.alignment.reference_line, sizing);
         scratch.release_bytes(numeric_scratch_bytes);
-        let reference = reference_result?;
+        let reference = reference_result
+            .map_err(GeometryCompilationError::from)
+            .map_err(|error| error.with_numeric_source(plan.alignment.span.clone()))?;
         compiled_alignments.push(CompiledAlignmentEntry {
             declaration: plan.alignment,
             reference,
@@ -471,6 +534,7 @@ pub(super) fn compile_authoring_geometry(
     }
 
     let mut used_points = 0_u64;
+    let mut used_source_ranges = 0_u64;
 
     for declaration in declarations.iter() {
         let TypedAstDeclaration::LaneEdge(edge) = declaration else {
@@ -483,15 +547,40 @@ pub(super) fn compile_authoring_geometry(
             continue;
         };
         scratch.reserve_bytes(numeric_scratch_bytes)?;
-        let compiled_result = compile_explicit_curve(
+        peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
+            live_headroom,
+            scratch.live,
+            used_points,
+            used_source_ranges,
+        )?);
+        let expected_result = measure_explicit_curve(
             curve,
             accuracy,
             direction,
             remaining_points(geometry_point_limit, used_points)?,
         );
         scratch.release_bytes(numeric_scratch_bytes);
-        let compiled = compiled_result?;
-        used_points = charge_points(geometry_point_limit, used_points, compiled.points.len())?;
+        let sizing = expected_result
+            .map_err(GeometryCompilationError::from)
+            .map_err(|error| error.with_numeric_source(edge.header.span.clone()))?;
+        let next_used_points =
+            charge_points(geometry_point_limit, used_points, sizing.point_count)?;
+        let next_used_source_ranges =
+            charge_source_ranges(live_headroom, used_source_ranges, sizing.source_range_count)?;
+        scratch.reserve_bytes(numeric_scratch_bytes)?;
+        peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
+            live_headroom,
+            scratch.live,
+            next_used_points,
+            next_used_source_ranges,
+        )?);
+        let compiled_result = compile_explicit_curve_exact(curve, accuracy, direction, sizing);
+        scratch.release_bytes(numeric_scratch_bytes);
+        let compiled = compiled_result
+            .map_err(GeometryCompilationError::from)
+            .map_err(|error| error.with_numeric_source(edge.header.span.clone()))?;
+        used_points = next_used_points;
+        used_source_ranges = next_used_source_ranges;
         lane_outputs.push(PendingLaneGeometry {
             target: edge.header.source_address.clone(),
             value: Some(CompiledLaneEdgeGeometry {
@@ -535,6 +624,12 @@ pub(super) fn compile_authoring_geometry(
         scratch.reserve::<CorridorMember<'_>>(plan.member_count)?;
         scratch.reserve::<AuthoringWidthProfile>(plan.member_count)?;
         scratch.reserve::<MemberOffsetEndpoints>(plan.member_count)?;
+        peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
+            live_headroom,
+            scratch.live,
+            used_points,
+            used_source_ranges,
+        )?);
         let mut members = Vec::with_capacity(plan.member_count);
         expand_corridor_members(&mut members, &plan.elements);
         debug_assert_eq!(members.len(), plan.member_count);
@@ -548,7 +643,39 @@ pub(super) fn compile_authoring_geometry(
                 CorridorMemberTarget::FacilityBand { .. } => AuthoringLaneDirection::Forward,
             };
             scratch.reserve_bytes(numeric_scratch_bytes)?;
-            let compiled_result = compile_offset_curve(
+            peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
+                live_headroom,
+                scratch.live,
+                used_points,
+                used_source_ranges,
+            )?);
+            let sizing_result = measure_offset_curve(
+                &alignment.declaration.reference_line,
+                &alignment.reference,
+                authoring.start_station_meters,
+                station_end,
+                offset.start_meters,
+                offset.end_meters,
+                accuracy,
+                direction,
+                remaining_points(geometry_point_limit, used_points)?,
+            );
+            scratch.release_bytes(numeric_scratch_bytes);
+            let sizing = sizing_result
+                .map_err(GeometryCompilationError::from)
+                .map_err(|error| error.with_numeric_source(plan.corridor.header.span.clone()))?;
+            let next_used_points =
+                charge_points(geometry_point_limit, used_points, sizing.point_count)?;
+            let next_used_source_ranges =
+                charge_source_ranges(live_headroom, used_source_ranges, sizing.source_range_count)?;
+            scratch.reserve_bytes(numeric_scratch_bytes)?;
+            peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
+                live_headroom,
+                scratch.live,
+                next_used_points,
+                next_used_source_ranges,
+            )?);
+            let compiled_result = compile_offset_curve_exact(
                 &alignment.declaration.reference_line,
                 &alignment.reference,
                 authoring.start_station_meters,
@@ -558,11 +685,14 @@ pub(super) fn compile_authoring_geometry(
                 lane_direction,
                 accuracy,
                 direction,
-                remaining_points(geometry_point_limit, used_points)?,
+                sizing,
             );
             scratch.release_bytes(numeric_scratch_bytes);
-            let compiled = compiled_result?;
-            used_points = charge_points(geometry_point_limit, used_points, compiled.points.len())?;
+            let compiled = compiled_result
+                .map_err(GeometryCompilationError::from)
+                .map_err(|error| error.with_numeric_source(plan.corridor.header.span.clone()))?;
+            used_points = next_used_points;
+            used_source_ranges = next_used_source_ranges;
             match &member.target {
                 CorridorMemberTarget::LaneEdge { target, .. } => {
                     lane_outputs.push(PendingLaneGeometry {
@@ -698,7 +828,9 @@ pub(super) fn compile_authoring_geometry(
     debug_assert_eq!(scratch.live, 0);
     Ok(GeometryCompilationUsage {
         output_point_count: used_points,
+        output_source_range_count: used_source_ranges,
         peak_scratch_bytes: scratch.peak,
+        peak_output_and_scratch_bytes,
     })
 }
 
@@ -1034,26 +1166,92 @@ fn charge_points(limit: u64, used: u64, additional: usize) -> Result<u64, Numeri
     Ok(total)
 }
 
+fn charge_source_ranges(
+    limit: u64,
+    used: u64,
+    additional: usize,
+) -> Result<u64, GeometryCompilationError> {
+    let additional =
+        u64::try_from(additional).map_err(|_| GeometryCompilationError::LiveLimit {
+            limit,
+            observed: u64::MAX,
+        })?;
+    used.checked_add(additional)
+        .ok_or(GeometryCompilationError::LiveLimit {
+            limit,
+            observed: u64::MAX,
+        })
+}
+
+fn check_live_limit(
+    limit: u64,
+    scratch_bytes: u64,
+    point_count: u64,
+    source_range_count: u64,
+) -> Result<u64, GeometryCompilationError> {
+    let observed = scratch_bytes
+        .saturating_add(
+            u64::try_from(core::mem::size_of::<CanonicalPoint3F32Input>())
+                .unwrap_or(u64::MAX)
+                .saturating_mul(point_count),
+        )
+        .saturating_add(
+            u64::try_from(core::mem::size_of::<CompiledGeometrySourceRange>())
+                .unwrap_or(u64::MAX)
+                .saturating_mul(source_range_count),
+        );
+    if observed > limit {
+        return Err(GeometryCompilationError::LiveLimit { limit, observed });
+    }
+    Ok(observed)
+}
+
+#[cfg(test)]
 pub(super) fn compile_explicit_curve(
     program: &AuthoringCurveProgramDeclaration,
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
     remaining_point_limit: u64,
 ) -> Result<CompiledCurve, NumericFreezeError> {
+    let sizing = measure_explicit_curve(program, accuracy, direction, remaining_point_limit)?;
+    compile_explicit_curve_exact(program, accuracy, direction, sizing)
+}
+
+fn measure_explicit_curve(
+    program: &AuthoringCurveProgramDeclaration,
+    accuracy: GeometryAccuracyProfile,
+    direction: GeometryDirectionProfile,
+    remaining_point_limit: u64,
+) -> Result<CurveSizing, NumericFreezeError> {
     let mut output_counter = CountingSink {
         count: 0,
         limit: remaining_point_limit,
         limit_error: NumericFreezeError::GeometryPointLimit,
         last_point: None,
+        active_source: None,
+        source_range_count: 0,
     };
     walk_reference_program(program, accuracy, direction, &mut output_counter)?;
-    let expected_points = usize::try_from(output_counter.count)
-        .map_err(|_| NumericFreezeError::GeometryPointLimit)?;
+    let source_range_count = output_counter.finish_source_range_count()?;
+    Ok(CurveSizing {
+        point_count: usize::try_from(output_counter.count)
+            .map_err(|_| NumericFreezeError::GeometryPointLimit)?,
+        source_range_count,
+    })
+}
+
+fn compile_explicit_curve_exact(
+    program: &AuthoringCurveProgramDeclaration,
+    accuracy: GeometryAccuracyProfile,
+    direction: GeometryDirectionProfile,
+    sizing: CurveSizing,
+) -> Result<CompiledCurve, NumericFreezeError> {
     let mut point_collector = ExactPointSink {
-        points: Vec::with_capacity(expected_points),
-        expected_points,
+        points: Vec::with_capacity(sizing.point_count),
+        expected_points: sizing.point_count,
         active_source: None,
-        source_ranges: Vec::with_capacity(program.segments.len()),
+        source_ranges: Vec::with_capacity(sizing.source_range_count),
+        expected_source_ranges: sizing.source_range_count,
     };
     walk_reference_program(program, accuracy, direction, &mut point_collector)?;
     if point_collector.points.len() != point_collector.expected_points {
@@ -1070,6 +1268,7 @@ pub(super) fn compile_explicit_curve(
     })
 }
 
+#[cfg(test)]
 pub(super) fn compile_alignment_reference(
     program: &AuthoringCurveProgramDeclaration,
     station_row_byte_limit: u64,
@@ -1109,6 +1308,8 @@ fn measure_alignment_reference(
         limit: transient_vertex_limit,
         limit_error,
         last_point: None,
+        active_source: None,
+        source_range_count: 0,
     };
     walk_reference_program(
         program,
@@ -1152,6 +1353,7 @@ fn compile_measured_alignment_reference(
     })
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compile_offset_curve(
     program: &AuthoringCurveProgramDeclaration,
@@ -1165,6 +1367,43 @@ pub(super) fn compile_offset_curve(
     direction: GeometryDirectionProfile,
     remaining_point_limit: u64,
 ) -> Result<CompiledCurve, NumericFreezeError> {
+    let sizing = measure_offset_curve(
+        program,
+        reference,
+        corridor_start_meters,
+        corridor_end_meters,
+        offset_start_meters,
+        offset_end_meters,
+        accuracy,
+        direction,
+        remaining_point_limit,
+    )?;
+    compile_offset_curve_exact(
+        program,
+        reference,
+        corridor_start_meters,
+        corridor_end_meters,
+        offset_start_meters,
+        offset_end_meters,
+        lane_direction,
+        accuracy,
+        direction,
+        sizing,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn measure_offset_curve(
+    program: &AuthoringCurveProgramDeclaration,
+    reference: &CompiledAlignmentReference,
+    corridor_start_meters: f64,
+    corridor_end_meters: f64,
+    offset_start_meters: f64,
+    offset_end_meters: f64,
+    accuracy: GeometryAccuracyProfile,
+    direction: GeometryDirectionProfile,
+    remaining_point_limit: u64,
+) -> Result<CurveSizing, NumericFreezeError> {
     validate_offset_domain(
         program,
         reference,
@@ -1176,6 +1415,8 @@ pub(super) fn compile_offset_curve(
         limit: remaining_point_limit,
         limit_error: NumericFreezeError::GeometryPointLimit,
         last_point: None,
+        active_source: None,
+        source_range_count: 0,
     };
     walk_offset_program(
         program,
@@ -1188,13 +1429,33 @@ pub(super) fn compile_offset_curve(
         direction,
         &mut counter,
     )?;
-    let expected_points =
-        usize::try_from(counter.count).map_err(|_| NumericFreezeError::GeometryPointLimit)?;
+    let source_range_count = counter.finish_source_range_count()?;
+    Ok(CurveSizing {
+        point_count: usize::try_from(counter.count)
+            .map_err(|_| NumericFreezeError::GeometryPointLimit)?,
+        source_range_count,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compile_offset_curve_exact(
+    program: &AuthoringCurveProgramDeclaration,
+    reference: &CompiledAlignmentReference,
+    corridor_start_meters: f64,
+    corridor_end_meters: f64,
+    offset_start_meters: f64,
+    offset_end_meters: f64,
+    lane_direction: AuthoringLaneDirection,
+    accuracy: GeometryAccuracyProfile,
+    direction: GeometryDirectionProfile,
+    sizing: CurveSizing,
+) -> Result<CompiledCurve, NumericFreezeError> {
     let mut collector = ExactPointSink {
-        points: Vec::with_capacity(expected_points),
-        expected_points,
+        points: Vec::with_capacity(sizing.point_count),
+        expected_points: sizing.point_count,
         active_source: None,
-        source_ranges: Vec::with_capacity(program.segments.len()),
+        source_ranges: Vec::with_capacity(sizing.source_range_count),
+        expected_source_ranges: sizing.source_range_count,
     };
     walk_offset_program(
         program,
@@ -1478,6 +1739,45 @@ struct CountingSink {
     limit: u64,
     limit_error: NumericFreezeError,
     last_point: Option<ApproximationPoint>,
+    active_source: Option<(u32, u64)>,
+    source_range_count: usize,
+}
+
+impl CountingSink {
+    fn begin_source(&mut self, segment_ordinal: u32) -> Result<(), NumericFreezeError> {
+        if self
+            .active_source
+            .is_some_and(|(active_ordinal, _)| active_ordinal == segment_ordinal)
+        {
+            return Ok(());
+        }
+        let point_start = if self.active_source.is_some() && self.count != 0 {
+            self.count - 1
+        } else {
+            self.count
+        };
+        self.finish_active_source(point_start)?;
+        self.active_source = Some((segment_ordinal, point_start));
+        Ok(())
+    }
+
+    fn finish_active_source(&mut self, point_end_exclusive: u64) -> Result<(), NumericFreezeError> {
+        let Some((_, point_start)) = self.active_source.take() else {
+            return Ok(());
+        };
+        if point_start < point_end_exclusive {
+            self.source_range_count = self
+                .source_range_count
+                .checked_add(1)
+                .ok_or(NumericFreezeError::GeometryPointLimit)?;
+        }
+        Ok(())
+    }
+
+    fn finish_source_range_count(&mut self) -> Result<usize, NumericFreezeError> {
+        self.finish_active_source(self.count)?;
+        Ok(self.source_range_count)
+    }
 }
 
 impl ApproximationPointSink for CountingSink {
@@ -1508,21 +1808,21 @@ impl CanonicalPointSink for CountingSink {
 
     fn begin_source_segment(
         &mut self,
-        _segment_ordinal: u32,
+        segment_ordinal: u32,
         _source: &crate::SourceLocation,
     ) -> Result<(), NumericFreezeError> {
-        Ok(())
+        self.begin_source(segment_ordinal)
     }
 }
 
 impl ReferenceProgramSink for CountingSink {
     fn begin_segment(
         &mut self,
-        _segment_ordinal: u32,
+        segment_ordinal: u32,
         _segment: CurveSegment,
         _source: &crate::SourceLocation,
     ) -> Result<(), NumericFreezeError> {
-        Ok(())
+        self.begin_source(segment_ordinal)
     }
 }
 
@@ -1604,6 +1904,7 @@ struct ExactPointSink {
     expected_points: usize,
     active_source: Option<ActivePointSource>,
     source_ranges: Vec<CompiledGeometrySourceRange>,
+    expected_source_ranges: usize,
 }
 
 struct ActivePointSource {
@@ -1663,6 +1964,9 @@ impl ExactPointSink {
         &mut self,
     ) -> Result<Box<[CompiledGeometrySourceRange]>, NumericFreezeError> {
         self.finish_active_source(self.points.len())?;
+        if self.source_ranges.len() != self.expected_source_ranges {
+            return Err(NumericFreezeError::ApproximationNotConverged);
+        }
         Ok(core::mem::take(&mut self.source_ranges).into_boxed_slice())
     }
 
@@ -1728,6 +2032,7 @@ mod tests {
     use crate::declaration::{
         AuthoringCurveSegmentDeclaration, AuthoringCurveSegmentGeometry, AuthoringPoint3F64,
     };
+    use crate::module::size_bytes;
     use crate::{CompileLimits, SourceSpan};
 
     fn point(x: f64, z: f64) -> AuthoringPoint3F64 {
@@ -1740,6 +2045,28 @@ mod tests {
 
     fn station_row_bytes(rows: u64) -> u64 {
         rows * u64::try_from(core::mem::size_of::<ReferenceStationRow>()).unwrap()
+    }
+
+    fn compilation_budget(
+        station_row_byte_limit: u64,
+        point_limit: u64,
+        scratch_limit: u64,
+    ) -> GeometryCompilationBudget {
+        compilation_budget_with_live(station_row_byte_limit, point_limit, scratch_limit, u64::MAX)
+    }
+
+    fn compilation_budget_with_live(
+        station_row_byte_limit: u64,
+        point_limit: u64,
+        scratch_limit: u64,
+        live_headroom: u64,
+    ) -> GeometryCompilationBudget {
+        GeometryCompilationBudget {
+            station_row_byte_limit,
+            point_limit,
+            scratch_limit,
+            live_headroom,
+        }
     }
 
     fn lowered_geometry_fixture() -> (Box<[RoadAlignmentDeclaration]>, Vec<TypedAstDeclaration>) {
@@ -1763,17 +2090,20 @@ mod tests {
             &locations,
             &shared_namespace,
         );
-        let mut declarations = super::super::lowering::lower_topology_authoring_declarations(
+        let mut declarations = Vec::new();
+        super::super::lowering::lower_topology_authoring_declarations(
             verified.root(),
             &locations,
             &shared_namespace,
+            &mut declarations,
         )
         .unwrap();
-        declarations.extend(super::super::lowering::lower_owner_scoped_declarations(
+        super::super::lowering::lower_owner_scoped_declarations(
             verified.root(),
             &locations,
             &shared_namespace,
-        ));
+            &mut declarations,
+        );
         declarations.retain(|declaration| {
             !matches!(
                 declaration,
@@ -2005,11 +2335,25 @@ mod tests {
             ]
             .into_boxed_slice(),
         };
-        let compiled = compile_explicit_curve(
+        let sizing = measure_explicit_curve(
             &program,
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
             3,
+        )
+        .unwrap();
+        assert_eq!(
+            sizing,
+            CurveSizing {
+                point_count: 3,
+                source_range_count: 2,
+            }
+        );
+        let compiled = compile_explicit_curve_exact(
+            &program,
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            sizing,
         )
         .unwrap();
 
@@ -2090,6 +2434,25 @@ mod tests {
             .into_boxed_slice(),
         };
         let reference = compile_alignment_reference(&program, station_row_bytes(3)).unwrap();
+        let sizing = measure_offset_curve(
+            &program,
+            &reference,
+            0.0,
+            1.5,
+            0.0,
+            0.0,
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            3,
+        )
+        .unwrap();
+        assert_eq!(
+            sizing,
+            CurveSizing {
+                point_count: 3,
+                source_range_count: 2,
+            }
+        );
         let compiled = compile_offset_curve(
             &program,
             &reference,
@@ -2412,12 +2775,29 @@ mod tests {
             &mut declarations,
             GeometryAccuracyProfile::Balanced5Cm,
             GeometryDirectionProfile::Balanced2Deg,
-            station_row_bytes(1),
-            6,
-            u64::MAX,
+            compilation_budget(station_row_bytes(1), 6, u64::MAX),
         )
         .unwrap();
         assert_eq!(usage.output_point_count, 6);
+        let retained_source_ranges = declarations
+            .iter()
+            .map(|declaration| match declaration {
+                TypedAstDeclaration::LaneEdge(edge) => match &edge.geometry_authority {
+                    LaneEdgeGeometryAuthority::Compiled(geometry) => geometry.source_ranges.len(),
+                    LaneEdgeGeometryAuthority::DirectLength(_)
+                    | LaneEdgeGeometryAuthority::Authoring { .. } => 0,
+                },
+                TypedAstDeclaration::FacilityBand(facility) => facility
+                    .compiled_geometry
+                    .as_ref()
+                    .map_or(0, |geometry| geometry.source_ranges.len()),
+                _ => 0,
+            })
+            .sum::<usize>();
+        assert_eq!(
+            usage.output_source_range_count,
+            u64::try_from(retained_source_ranges).unwrap()
+        );
         assert!(usage.peak_scratch_bytes > 0);
 
         let edge_a = declarations
@@ -2519,21 +2899,20 @@ mod tests {
         }
 
         let (alignments, mut rejected) = lowered_geometry_fixture();
-        assert_eq!(
+        assert!(matches!(
             compile_authoring_geometry(
                 "city",
                 alignments,
                 &mut rejected,
                 GeometryAccuracyProfile::Balanced5Cm,
                 GeometryDirectionProfile::Balanced2Deg,
-                station_row_bytes(1),
-                5,
-                u64::MAX,
+                compilation_budget(station_row_bytes(1), 5, u64::MAX),
             ),
-            Err(GeometryCompilationError::Numeric(
-                NumericFreezeError::GeometryPointLimit
-            ))
-        );
+            Err(GeometryCompilationError::Numeric {
+                error: NumericFreezeError::GeometryPointLimit,
+                ..
+            })
+        ));
         assert!(rejected.iter().any(|declaration| matches!(
             declaration,
             TypedAstDeclaration::LaneEdge(edge)
@@ -2557,21 +2936,20 @@ mod tests {
             .unwrap()
             .direction = AuthoringLaneDirection::Backward;
 
-        assert_eq!(
+        assert!(matches!(
             compile_authoring_geometry(
                 "city",
                 alignments,
                 &mut declarations,
                 GeometryAccuracyProfile::Balanced5Cm,
                 GeometryDirectionProfile::Balanced2Deg,
-                station_row_bytes(1),
-                6,
-                u64::MAX,
+                compilation_budget(station_row_bytes(1), 6, u64::MAX),
             ),
-            Err(GeometryCompilationError::Numeric(
-                NumericFreezeError::GeometryTopologyMismatch
-            ))
-        );
+            Err(GeometryCompilationError::Numeric {
+                error: NumericFreezeError::GeometryTopologyMismatch,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -2606,21 +2984,20 @@ mod tests {
             .unwrap();
         facility.header.source_address = cross_owner_address;
 
-        assert_eq!(
+        assert!(matches!(
             compile_authoring_geometry(
                 "city",
                 alignments,
                 &mut declarations,
                 GeometryAccuracyProfile::Balanced5Cm,
                 GeometryDirectionProfile::Balanced2Deg,
-                station_row_bytes(1),
-                6,
-                u64::MAX,
+                compilation_budget(station_row_bytes(1), 6, u64::MAX),
             ),
-            Err(GeometryCompilationError::Numeric(
-                NumericFreezeError::GeometryTopologyMismatch
-            ))
-        );
+            Err(GeometryCompilationError::Numeric {
+                error: NumericFreezeError::GeometryTopologyMismatch,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -2633,9 +3010,7 @@ mod tests {
             &mut declarations,
             GeometryAccuracyProfile::Balanced5Cm,
             GeometryDirectionProfile::Balanced2Deg,
-            station_row_bytes(1),
-            6,
-            u64::MAX,
+            compilation_budget(station_row_bytes(1), 6, u64::MAX),
         )
         .unwrap();
         assert_eq!(usage.output_point_count, 6);
@@ -2694,9 +3069,7 @@ mod tests {
             &mut declarations,
             GeometryAccuracyProfile::Balanced5Cm,
             GeometryDirectionProfile::Balanced2Deg,
-            station_row_bytes(1),
-            6,
-            u64::MAX,
+            compilation_budget(station_row_bytes(1), 6, u64::MAX),
         )
         .unwrap();
         assert_eq!(usage.output_point_count, 6);
@@ -2717,21 +3090,20 @@ mod tests {
             .as_mut()
             .unwrap()
             .start_station_meters = 1.0;
-        assert_eq!(
+        assert!(matches!(
             compile_authoring_geometry(
                 "city",
                 alignments,
                 &mut declarations,
                 GeometryAccuracyProfile::Balanced5Cm,
                 GeometryDirectionProfile::Balanced2Deg,
-                station_row_bytes(1),
-                6,
-                u64::MAX,
+                compilation_budget(station_row_bytes(1), 6, u64::MAX),
             ),
-            Err(GeometryCompilationError::Numeric(
-                NumericFreezeError::GeometryTopologyMismatch
-            ))
-        );
+            Err(GeometryCompilationError::Numeric {
+                error: NumericFreezeError::GeometryTopologyMismatch,
+                ..
+            })
+        ));
 
         let (alignments, mut declarations) = lowered_geometry_fixture();
         let corridor = declarations
@@ -2743,21 +3115,20 @@ mod tests {
             .unwrap();
         corridor.authoring_geometry.as_mut().unwrap().end_station =
             AuthoringStationEnd::Finite(10.0);
-        assert_eq!(
+        assert!(matches!(
             compile_authoring_geometry(
                 "city",
                 alignments,
                 &mut declarations,
                 GeometryAccuracyProfile::Balanced5Cm,
                 GeometryDirectionProfile::Balanced2Deg,
-                station_row_bytes(1),
-                6,
-                u64::MAX,
+                compilation_budget(station_row_bytes(1), 6, u64::MAX),
             ),
-            Err(GeometryCompilationError::Numeric(
-                NumericFreezeError::GeometryTopologyMismatch
-            ))
-        );
+            Err(GeometryCompilationError::Numeric {
+                error: NumericFreezeError::GeometryTopologyMismatch,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -2790,9 +3161,7 @@ mod tests {
                 &mut declarations,
                 GeometryAccuracyProfile::Balanced5Cm,
                 GeometryDirectionProfile::Balanced2Deg,
-                station_row_bytes(1),
-                6,
-                u64::MAX,
+                compilation_budget(station_row_bytes(1), 6, u64::MAX),
             )
             .map(|usage| usage.output_point_count),
             Ok(6)
@@ -2809,9 +3178,7 @@ mod tests {
                 &mut declarations,
                 GeometryAccuracyProfile::Balanced5Cm,
                 GeometryDirectionProfile::Balanced2Deg,
-                station_row_bytes(1),
-                6,
-                scratch_limit,
+                compilation_budget(station_row_bytes(1), 6, scratch_limit),
             )
         };
         let unlimited = attempt(u64::MAX).unwrap();
@@ -2832,11 +3199,51 @@ mod tests {
                 &mut declarations,
                 GeometryAccuracyProfile::Balanced5Cm,
                 GeometryDirectionProfile::Balanced2Deg,
-                station_row_bytes(1),
-                6,
-                exact_peak - 1,
+                compilation_budget(station_row_bytes(1), 6, exact_peak - 1),
             ),
             Err(GeometryCompilationError::ScratchLimit { .. })
+        ));
+        assert!(declarations.iter().any(|declaration| matches!(
+            declaration,
+            TypedAstDeclaration::LaneEdge(edge)
+                if matches!(edge.geometry_authority, LaneEdgeGeometryAuthority::Authoring { .. })
+        )));
+    }
+
+    #[test]
+    fn geometry_live_limit_counts_points_source_ranges_and_numeric_scratch_atomically() {
+        let attempt = |live_headroom| {
+            let (alignments, mut declarations) = lowered_geometry_fixture();
+            let result = compile_authoring_geometry(
+                "city",
+                alignments,
+                &mut declarations,
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+                compilation_budget_with_live(station_row_bytes(1), 6, u64::MAX, live_headroom),
+            );
+            (result, declarations)
+        };
+
+        let (unlimited, _) = attempt(u64::MAX);
+        let unlimited = unlimited.unwrap();
+        let exact_peak = unlimited.peak_output_and_scratch_bytes;
+        assert!(
+            exact_peak
+                >= size_bytes::<CanonicalPoint3F32Input>(unlimited.output_point_count)
+                    .saturating_add(size_bytes::<CompiledGeometrySourceRange>(
+                        unlimited.output_source_range_count,
+                    ))
+        );
+        assert_eq!(attempt(exact_peak).0, Ok(unlimited));
+
+        let (rejected, declarations) = attempt(exact_peak - 1);
+        assert!(matches!(
+            rejected,
+            Err(GeometryCompilationError::LiveLimit {
+                limit,
+                observed,
+            }) if limit == exact_peak - 1 && observed == exact_peak
         ));
         assert!(declarations.iter().any(|declaration| matches!(
             declaration,

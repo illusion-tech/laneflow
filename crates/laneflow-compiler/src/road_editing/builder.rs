@@ -48,7 +48,6 @@ struct ModuleUsage {
     route_occurrence_count: u64,
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
-    geometry_point_count: u64,
     symbol_count: u64,
     string_item_count: u64,
     total_string_bytes: u64,
@@ -166,24 +165,19 @@ impl ModuleUsage {
         limits: &CompileLimits,
     ) -> Result<(), DiagnosticBundle> {
         self.typed_ast_record_count = self.typed_ast_record_count.saturating_add(1);
-        self.geometry_point_count = self.geometry_point_count.saturating_add(1);
         self.charge_table(2, 28);
         self.charge_vector(value.segments().len(), 4);
         for segment in value.segments() {
             self.typed_ast_record_count = self.typed_ast_record_count.saturating_add(2);
             self.charge_table(3, 9);
-            self.geometry_point_count =
-                self.geometry_point_count
-                    .saturating_add(match segment.geometry() {
-                        RoadEditingCurveSegmentGeometry::Line { .. } => {
-                            self.charge_table(1, 24);
-                            1
-                        }
-                        RoadEditingCurveSegmentGeometry::CubicBezier { .. } => {
-                            self.charge_table(3, 72);
-                            3
-                        }
-                    });
+            match segment.geometry() {
+                RoadEditingCurveSegmentGeometry::Line { .. } => {
+                    self.charge_table(1, 24);
+                }
+                RoadEditingCurveSegmentGeometry::CubicBezier { .. } => {
+                    self.charge_table(3, 72);
+                }
+            }
             self.charge_canvas(segment.canvas_selection(), limits)?;
         }
         Ok(())
@@ -219,10 +213,6 @@ impl ModuleUsage {
             (
                 CompileLimitDimension::WaitingZoneCount,
                 self.waiting_zone_count,
-            ),
-            (
-                CompileLimitDimension::GeometryPointCount,
-                self.geometry_point_count,
             ),
             (CompileLimitDimension::SymbolCount, self.symbol_count),
             (

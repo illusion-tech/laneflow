@@ -124,6 +124,14 @@ impl RoadEditingDocumentIdentity {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn module_namespace_arc(&self) -> Option<Arc<str>> {
+        match self {
+            Self::Input(_) => None,
+            Self::Verified(identity) => Some(Arc::clone(&identity.module_namespace)),
+        }
+    }
+
     pub(crate) fn input(expected_source_document_key: Arc<str>) -> Self {
         Self::Input(RoadEditingInputDocumentIdentity {
             expected_source_document_key,

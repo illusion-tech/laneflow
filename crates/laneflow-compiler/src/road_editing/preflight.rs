@@ -28,12 +28,13 @@ pub(crate) struct RoadEditingPreflightCounts {
     declaration_count: u64,
     typed_ast_record_count: u64,
     reference_count: u64,
+    external_namespace_reference_count: u64,
     relation_occurrence_count: u64,
     identity_field_occurrence_count: u64,
     route_occurrence_count: u64,
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
-    geometry_point_count: u64,
+    authoring_point_count: u64,
     symbol_count: u64,
     string_item_count: u64,
     total_string_bytes: u64,
@@ -50,6 +51,10 @@ impl RoadEditingPreflightCounts {
 
     pub(crate) const fn reference_count(self) -> u64 {
         self.reference_count
+    }
+
+    pub(crate) const fn external_namespace_reference_count(self) -> u64 {
+        self.external_namespace_reference_count
     }
 
     pub(crate) const fn relation_occurrence_count(self) -> u64 {
@@ -70,10 +75,6 @@ impl RoadEditingPreflightCounts {
 
     pub(crate) const fn waiting_zone_count(self) -> u64 {
         self.waiting_zone_count
-    }
-
-    pub(crate) const fn geometry_point_count(self) -> u64 {
-        self.geometry_point_count
     }
 
     pub(crate) const fn symbol_count(self) -> u64 {
@@ -140,13 +141,16 @@ impl RoadEditingPreflightCounts {
             .map_err(|violation| semantic_error(field, violation, expected_key))?;
         if let Some(namespace) = parsed.namespace()
             && namespace != current_namespace
-            && !imports.iter().any(|import| import == namespace)
         {
-            return Err(semantic_error(
-                field,
-                RoadEditingInputViolation::InvalidCombination,
-                expected_key,
-            ));
+            if !imports.iter().any(|import| import == namespace) {
+                return Err(semantic_error(
+                    field,
+                    RoadEditingInputViolation::InvalidCombination,
+                    expected_key,
+                ));
+            }
+            self.external_namespace_reference_count =
+                self.external_namespace_reference_count.saturating_add(1);
         }
         if let Some(namespace) = parsed.namespace() {
             self.charge_token(namespace, field, limits, expected_key)?;
@@ -234,10 +238,6 @@ impl RoadEditingPreflightCounts {
             (
                 CompileLimitDimension::WaitingZoneCount,
                 self.waiting_zone_count,
-            ),
-            (
-                CompileLimitDimension::GeometryPointCount,
-                self.geometry_point_count,
             ),
             (CompileLimitDimension::SymbolCount, self.symbol_count),
             (
@@ -463,7 +463,7 @@ fn validate_curve(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
-    usage.geometry_point_count = usage.geometry_point_count.saturating_add(1);
+    usage.authoring_point_count = usage.authoring_point_count.saturating_add(1);
     validate_point(value.start(), "curveProgram.start", expected_key)?;
     if value.segments().is_empty() {
         return Err(semantic_error(
@@ -484,7 +484,7 @@ fn validate_curve(
                     "curveSegment.geometry.line.end",
                     expected_key,
                 )?;
-                usage.geometry_point_count = usage.geometry_point_count.saturating_add(1);
+                usage.authoring_point_count = usage.authoring_point_count.saturating_add(1);
             }
             wire::CurveSegmentGeometry::CubicBezierSegment => {
                 let geometry = segment
@@ -505,7 +505,7 @@ fn validate_curve(
                     "curveSegment.geometry.cubic.end",
                     expected_key,
                 )?;
-                usage.geometry_point_count = usage.geometry_point_count.saturating_add(3);
+                usage.authoring_point_count = usage.authoring_point_count.saturating_add(3);
             }
             _ => return Err(invalid_combination("curveSegment.geometry", expected_key)),
         }
