@@ -44,6 +44,7 @@ struct GeometryScratchAllowance {
     limit: u64,
     limiting_dimension: CompileLimitDimension,
     live_bytes_before_scratch: u64,
+    candidate_live_upper_bound: u64,
 }
 
 impl CompilationUnitBuilder {
@@ -217,12 +218,14 @@ fn geometry_scratch_allowance(
             limit: stage_limit,
             limiting_dimension: CompileLimitDimension::StageScratchBytes,
             live_bytes_before_scratch,
+            candidate_live_upper_bound: candidate_live_upper,
         }
     } else {
         GeometryScratchAllowance {
             limit: live_headroom,
             limiting_dimension: CompileLimitDimension::CompilerControlledLiveBytes,
             live_bytes_before_scratch,
+            candidate_live_upper_bound: candidate_live_upper,
         }
     }
 }
@@ -290,6 +293,9 @@ fn lower_verified_source(
     })?;
     debug_assert!(geometry_usage.peak_scratch_bytes <= geometry_scratch_allowance.limit);
     let geometry_point_count = geometry_usage.output_point_count;
+    let frontend_peak_controlled_live_bytes = geometry_scratch_allowance
+        .candidate_live_upper_bound
+        .saturating_add(geometry_usage.peak_scratch_bytes);
 
     let header = root.module_header();
     let namespace: Arc<str> = Arc::from(header.authoring_namespace_id());
@@ -398,7 +404,13 @@ fn lower_verified_source(
             waiting_zone_count: counts.waiting_zone_count(),
             route_occurrence_count: counts.route_occurrence_count(),
             geometry_point_count,
+            verified_table_occurrence_count: verified.table_count(),
+            total_horizontal_regularity_node_visits: geometry_usage
+                .total_horizontal_regularity_node_visits,
+            maximum_horizontal_regularity_node_visits: geometry_usage
+                .maximum_horizontal_regularity_node_visits,
             controlled_live_bytes,
+            frontend_peak_controlled_live_bytes,
         },
     ))
 }

@@ -779,7 +779,7 @@ impl CompilationUnitBuilder {
             CompileLimitDimension::RouteOccurrenceCount => self.totals.route_occurrence_count,
             CompileLimitDimension::GeometryPointCount => self.totals.geometry_point_count,
             CompileLimitDimension::CompilerControlledLiveBytes => {
-                self.totals.module_payload_live_bytes
+                builder_live_requested_bytes(self.totals)
             }
             CompileLimitDimension::SourceBytesPerModule
             | CompileLimitDimension::SingleStringBytes
@@ -850,7 +850,10 @@ impl CompilationUnitBuilder {
             }
         }
 
-        let next_totals = self.totals.candidate_after(
+        let current_builder_live_bytes = builder_live_requested_bytes(self.totals);
+        let candidate_frontend_peak_live_bytes = current_builder_live_bytes
+            .saturating_add(module.resource_counts.frontend_peak_controlled_live_bytes);
+        let mut next_totals = self.totals.candidate_after(
             document_count,
             u64::try_from(module.imports.len()).unwrap_or(u64::MAX),
             &module.resource_counts,
@@ -862,7 +865,14 @@ impl CompilationUnitBuilder {
                 .saturating_add(1)
         );
         let next_builder_live_bytes = builder_live_requested_bytes(next_totals);
-        for (dimension, observed) in next_totals.limit_observations(next_builder_live_bytes) {
+        let candidate_admission_peak_live_bytes =
+            candidate_frontend_peak_live_bytes.max(next_builder_live_bytes);
+        next_totals.frontend_peak_controlled_live_bytes = next_totals
+            .frontend_peak_controlled_live_bytes
+            .max(candidate_admission_peak_live_bytes);
+        for (dimension, observed) in
+            next_totals.limit_observations(candidate_admission_peak_live_bytes)
+        {
             let limit = self.limits.value(dimension);
             if observed > limit {
                 return Err(DiagnosticBundle::single(
@@ -1049,6 +1059,7 @@ impl CompilationUnitBuilder {
             source_document_index,
             source_document_count: self.totals.source_document_count,
             import_edge_count: self.totals.import_edge_count,
+            source_bytes_total: self.totals.source_bytes_total,
             declaration_count: self.totals.declaration_count,
             reference_count: self.totals.reference_count,
             relation_occurrence_count: self.totals.relation_occurrence_count,
@@ -1057,7 +1068,19 @@ impl CompilationUnitBuilder {
             maneuver_gate_count: self.totals.maneuver_gate_count,
             waiting_zone_count: self.totals.waiting_zone_count,
             route_occurrence_count: self.totals.route_occurrence_count,
+            geometry_point_count: self.totals.geometry_point_count,
+            verified_table_occurrence_count: self.totals.verified_table_occurrence_count,
+            total_horizontal_regularity_node_visits: self
+                .totals
+                .total_horizontal_regularity_node_visits,
+            maximum_horizontal_regularity_node_visits: self
+                .totals
+                .maximum_horizontal_regularity_node_visits,
             controlled_live_bytes: sizing.result_live_bytes,
+            frontend_peak_controlled_live_bytes: self
+                .totals
+                .frontend_peak_controlled_live_bytes
+                .max(sizing.build_peak_live_bytes),
         })
     }
 }
@@ -1072,6 +1095,7 @@ pub struct CompilationUnit {
     source_document_index: FrozenSourceDocumentIndex,
     pub(crate) source_document_count: u64,
     pub(crate) import_edge_count: u64,
+    pub(crate) source_bytes_total: u64,
     pub(crate) declaration_count: u64,
     pub(crate) reference_count: u64,
     pub(crate) relation_occurrence_count: u64,
@@ -1080,7 +1104,12 @@ pub struct CompilationUnit {
     pub(crate) maneuver_gate_count: u64,
     pub(crate) waiting_zone_count: u64,
     pub(crate) route_occurrence_count: u64,
+    pub(crate) geometry_point_count: u64,
+    pub(crate) verified_table_occurrence_count: u64,
+    pub(crate) total_horizontal_regularity_node_visits: u64,
+    pub(crate) maximum_horizontal_regularity_node_visits: u32,
     pub(crate) controlled_live_bytes: u64,
+    pub(crate) frontend_peak_controlled_live_bytes: u64,
 }
 
 impl CompilationUnit {

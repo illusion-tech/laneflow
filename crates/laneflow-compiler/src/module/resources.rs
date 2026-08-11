@@ -17,7 +17,11 @@ pub(crate) struct ModuleResourceCounts {
     pub(crate) waiting_zone_count: u64,
     pub(crate) route_occurrence_count: u64,
     pub(crate) geometry_point_count: u64,
+    pub(crate) verified_table_occurrence_count: u64,
+    pub(crate) total_horizontal_regularity_node_visits: u64,
+    pub(crate) maximum_horizontal_regularity_node_visits: u32,
     pub(crate) controlled_live_bytes: u64,
+    pub(crate) frontend_peak_controlled_live_bytes: u64,
 }
 
 /// 编译单元准入过程中唯一的累计资源状态。
@@ -43,7 +47,11 @@ pub(super) struct AdmissionTotals {
     pub(super) waiting_zone_count: u64,
     pub(super) route_occurrence_count: u64,
     pub(super) geometry_point_count: u64,
+    pub(super) verified_table_occurrence_count: u64,
+    pub(super) total_horizontal_regularity_node_visits: u64,
+    pub(super) maximum_horizontal_regularity_node_visits: u32,
     pub(super) module_payload_live_bytes: u64,
+    pub(super) frontend_peak_controlled_live_bytes: u64,
 }
 
 impl AdmissionTotals {
@@ -91,9 +99,22 @@ impl AdmissionTotals {
             geometry_point_count: self
                 .geometry_point_count
                 .saturating_add(counts.geometry_point_count),
+            verified_table_occurrence_count: self
+                .verified_table_occurrence_count
+                .saturating_add(counts.verified_table_occurrence_count),
+            total_horizontal_regularity_node_visits: self
+                .total_horizontal_regularity_node_visits
+                .saturating_add(counts.total_horizontal_regularity_node_visits),
+            maximum_horizontal_regularity_node_visits: self
+                .maximum_horizontal_regularity_node_visits
+                .max(counts.maximum_horizontal_regularity_node_visits),
             module_payload_live_bytes: self
                 .module_payload_live_bytes
                 .saturating_add(counts.controlled_live_bytes),
+            // 候选前端阶段的全局峰值还需要共同 builder 索引的当前存续量；只有
+            // `CompilationUnitBuilder::prepare_admission` 拥有该完整口径，因此这里
+            // 只沿用已提交峰值，不用 payload-only 近似重复计算。
+            frontend_peak_controlled_live_bytes: self.frontend_peak_controlled_live_bytes,
         }
     }
 

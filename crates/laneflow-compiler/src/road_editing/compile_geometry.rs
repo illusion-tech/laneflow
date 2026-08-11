@@ -76,6 +76,8 @@ struct AlignmentReferenceSizing {
 pub(super) struct GeometryCompilationUsage {
     pub(super) output_point_count: u64,
     pub(super) peak_scratch_bytes: u64,
+    pub(super) total_horizontal_regularity_node_visits: u64,
+    pub(super) maximum_horizontal_regularity_node_visits: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -269,6 +271,20 @@ pub(super) fn compile_authoring_geometry(
         alignment_sizings.push(sizing);
     }
     let station_row_count = station_row_budget.saturating_sub(remaining_station_rows);
+    let total_horizontal_regularity_node_visits =
+        alignment_sizings.iter().fold(0_u64, |total, sizing| {
+            sizing
+                .horizontal_regularity_visits
+                .iter()
+                .fold(total, |total, visits| {
+                    total.saturating_add(u64::from(*visits))
+                })
+        });
+    let maximum_horizontal_regularity_node_visits = alignment_sizings
+        .iter()
+        .flat_map(|sizing| sizing.horizontal_regularity_visits.iter().copied())
+        .max()
+        .unwrap_or(0);
     let retained_alignment_scratch_bytes = numeric_stack_scratch_bytes()
         .saturating_add(capacity_bytes::<CompiledAlignmentEntry<'_>>(
             alignments.len(),
@@ -533,6 +549,8 @@ pub(super) fn compile_authoring_geometry(
     Ok(GeometryCompilationUsage {
         output_point_count: used_points,
         peak_scratch_bytes,
+        total_horizontal_regularity_node_visits,
+        maximum_horizontal_regularity_node_visits,
     })
 }
 

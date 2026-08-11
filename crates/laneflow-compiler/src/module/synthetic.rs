@@ -2952,6 +2952,10 @@ impl SyntheticModuleBuilder {
             provenance: self.header.provenance,
             imports: canonical_imports.into_boxed_slice(),
         };
+        let controlled_live_bytes = self
+            .controlled_string_bytes
+            .saturating_add(self.controlled_structural_bytes)
+            .saturating_add(size_bytes::<SourceDocumentDescriptor>(1));
 
         Ok(SyntheticModule {
             admitted: AdmittedOfficialModule::new(
@@ -2978,10 +2982,11 @@ impl SyntheticModuleBuilder {
                     waiting_zone_count: self.waiting_zone_count,
                     route_occurrence_count: self.route_occurrence_count,
                     geometry_point_count: self.geometry_point_count,
-                    controlled_live_bytes: self
-                        .controlled_string_bytes
-                        .saturating_add(self.controlled_structural_bytes)
-                        .saturating_add(size_bytes::<SourceDocumentDescriptor>(1)),
+                    verified_table_occurrence_count: 0,
+                    total_horizontal_regularity_node_visits: 0,
+                    maximum_horizontal_regularity_node_visits: 0,
+                    controlled_live_bytes,
+                    frontend_peak_controlled_live_bytes: controlled_live_bytes,
                 },
             ),
         })

@@ -33,7 +33,6 @@ impl<'a> VerifiedRoadEditingSource<'a> {
         self.root
     }
 
-    #[cfg(test)]
     pub(crate) const fn table_count(&self) -> u64 {
         self.table_count
     }

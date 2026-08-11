@@ -1036,9 +1036,63 @@ fn admission_sizing_accounts_for_builder_indexes_wrappers_and_result_modules() {
     );
     assert!(sizing.build_scratch_bytes > 0);
     assert!(sizing.build_peak_live_bytes > sizing.builder_live_bytes);
+    assert_eq!(
+        builder.already_admitted(CompileLimitDimension::CompilerControlledLiveBytes),
+        sizing.builder_live_bytes
+    );
 
     let unit = builder.build().unwrap();
     assert_eq!(unit.controlled_live_bytes, sizing.result_live_bytes);
+    assert_eq!(
+        unit.frontend_peak_controlled_live_bytes,
+        sizing.build_peak_live_bytes
+    );
+}
+
+#[test]
+fn candidate_frontend_peak_includes_the_live_builder_indexes() {
+    let limits = CompileLimits::p100_initial_v2();
+    let diagnostic_limit = limits.value(CompileLimitDimension::DiagnosticCount);
+    let mut builder = CompilationUnitBuilder::new(limits);
+    builder
+        .add_synthetic_module(module_with_document("city/a", "source/a", &[]))
+        .unwrap();
+
+    let first_totals = builder.totals;
+    let first_sizing = AdmissionSizing::from_totals(first_totals, diagnostic_limit);
+    builder
+        .add_synthetic_module(module_with_document("city/b", "source/b", &[]))
+        .unwrap();
+
+    let second_module_live_bytes = builder
+        .totals
+        .module_payload_live_bytes
+        .saturating_sub(first_totals.module_payload_live_bytes);
+    let second_sizing = AdmissionSizing::from_totals(builder.totals, diagnostic_limit);
+    let expected_candidate_peak = first_sizing
+        .builder_live_bytes
+        .saturating_add(second_module_live_bytes);
+    let expected_admission_peak = first_totals
+        .frontend_peak_controlled_live_bytes
+        .max(expected_candidate_peak)
+        .max(second_sizing.builder_live_bytes);
+    assert_eq!(
+        builder.totals.frontend_peak_controlled_live_bytes,
+        expected_admission_peak
+    );
+    assert!(
+        expected_candidate_peak
+            > first_totals
+                .module_payload_live_bytes
+                .saturating_add(second_module_live_bytes),
+        "the candidate peak must retain the first module's builder indexes"
+    );
+
+    let unit = builder.build().unwrap();
+    assert_eq!(
+        unit.frontend_peak_controlled_live_bytes,
+        expected_admission_peak.max(second_sizing.build_peak_live_bytes)
+    );
 }
 
 #[test]
