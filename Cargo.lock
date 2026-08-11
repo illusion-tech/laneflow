@@ -2977,6 +2977,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "issue-296-road-editing-source-calibration"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "issue-308-compiler-budget-calibration-research"
 version = "0.0.0"
 dependencies = [
