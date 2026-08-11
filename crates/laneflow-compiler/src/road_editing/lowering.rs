@@ -559,6 +559,7 @@ pub(super) fn lower_owner_scoped_declarations(
                 start_width_meters: canonicalize_zero(value.width_profile().start_width_meters()),
                 end_width_meters: canonicalize_zero(value.width_profile().end_width_meters()),
             }),
+            compiled_geometry: None,
         })
     }));
 
