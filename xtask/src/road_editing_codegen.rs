@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const FLATC_VERSION: &str = "flatc version 25.12.19";
+const FLATBUFFERS_VERSION: &str = "25.12.19";
 const SCHEMA_PATH: &str = "schemas/road-editing/v1/road-editing.fbs";
 const CHECKED_RUST_PATH: &str =
     "crates/laneflow-road-editing-wire/src/generated/road-editing_generated.rs";
@@ -21,6 +21,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         std::env::current_dir().map_err(|error| format!("无法解析仓库根目录: {error}"))?;
     require_repository_root(&repository_root)?;
     check_unsafe_boundary(&repository_root)?;
+    check_flatbuffers_runtime_version(&repository_root)?;
     check_flatc_version(&flatc)?;
 
     let output_root = repository_root.join(OUTPUT_ROOT);
@@ -86,9 +87,72 @@ fn check_flatc_version(flatc: &Path) -> Result<(), String> {
     let stdout = String::from_utf8(output.stdout)
         .map_err(|error| format!("flatc version 输出不是 UTF-8: {error}"))?;
     let actual = stdout.trim();
-    if actual != FLATC_VERSION {
+    let expected = format!("flatc version {FLATBUFFERS_VERSION}");
+    if actual != expected {
         return Err(format!(
-            "flatc 版本不匹配：预期 `{FLATC_VERSION}`，实际 `{actual}`"
+            "flatc 版本不匹配：预期 `{expected}`，实际 `{actual}`"
+        ));
+    }
+    Ok(())
+}
+
+fn check_flatbuffers_runtime_version(repository_root: &Path) -> Result<(), String> {
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let output = Command::new(cargo)
+        .current_dir(repository_root)
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+            "--locked",
+            "--manifest-path",
+            WIRE_MANIFEST_PATH,
+        ])
+        .output()
+        .map_err(|error| format!("无法读取 wire crate Cargo metadata: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "`cargo metadata --manifest-path {WIRE_MANIFEST_PATH}` 失败，exit={}，stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    require_flatbuffers_runtime_pin(&output.stdout)
+}
+
+fn require_flatbuffers_runtime_pin(metadata: &[u8]) -> Result<(), String> {
+    let metadata: serde_json::Value = serde_json::from_slice(metadata)
+        .map_err(|error| format!("Cargo metadata 不是有效 JSON: {error}"))?;
+    let packages = metadata
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "Cargo metadata 缺少 packages 数组".to_string())?;
+    let wire_package = packages
+        .iter()
+        .find(|package| {
+            package.get("name").and_then(serde_json::Value::as_str)
+                == Some("laneflow-road-editing-wire")
+        })
+        .ok_or_else(|| "Cargo metadata 缺少 laneflow-road-editing-wire package".to_string())?;
+    let dependencies = wire_package
+        .get("dependencies")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "wire package metadata 缺少 dependencies 数组".to_string())?;
+    let runtime = dependencies
+        .iter()
+        .find(|dependency| {
+            dependency.get("name").and_then(serde_json::Value::as_str) == Some("flatbuffers")
+        })
+        .ok_or_else(|| "wire package 缺少 flatbuffers runtime 依赖".to_string())?;
+    let actual = runtime
+        .get("req")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "flatbuffers runtime metadata 缺少版本约束".to_string())?;
+    let expected = format!("={FLATBUFFERS_VERSION}");
+    if actual != expected {
+        return Err(format!(
+            "flatbuffers runtime 版本不匹配：预期精确约束 `{expected}`，实际 `{actual}`"
         ));
     }
     Ok(())
@@ -403,6 +467,25 @@ mod tests {
             "unsafe_code",
             "forbid"
         ));
+    }
+
+    #[test]
+    fn requires_runtime_version_to_match_flatc() {
+        let matching = br#"{
+            "packages": [{
+                "name": "laneflow-road-editing-wire",
+                "dependencies": [{"name": "flatbuffers", "req": "=25.12.19"}]
+            }]
+        }"#;
+        assert_eq!(require_flatbuffers_runtime_pin(matching), Ok(()));
+
+        let mismatched = br#"{
+            "packages": [{
+                "name": "laneflow-road-editing-wire",
+                "dependencies": [{"name": "flatbuffers", "req": "=25.9.23"}]
+            }]
+        }"#;
+        assert!(require_flatbuffers_runtime_pin(mismatched).is_err());
     }
 
     #[test]
