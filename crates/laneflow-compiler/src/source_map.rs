@@ -124,6 +124,8 @@ pub enum SourceRelationRole {
     VehicleProfileParticipantClass = 27,
     /// 规范坐标框架拥有的一条车道图边中心线。
     CanonicalFrameLaneEdgeGeometry = 28,
+    /// 规范坐标框架拥有的一条 non-traversable 设施带中心线。
+    CanonicalFrameFacilityBandGeometry = 29,
 }
 
 #[derive(Clone)]
@@ -619,7 +621,7 @@ impl ValidatedSourceMapInput {
             })
     }
 
-    /// 按规范坐标框架序号和局部下标遍历中心线归属来源记录。
+    /// 按规范坐标框架序号、关系角色和角色内局部下标遍历几何归属来源记录。
     pub fn spatial_relation_sources(
         &self,
     ) -> impl ExactSizeIterator<Item = SpatialRelationSourceView<'_>> {
@@ -1207,7 +1209,7 @@ impl ParkingRelationSourceView<'_> {
     }
 }
 
-/// 一条 canonical frame 到中心线的 owner-local 来源记录。
+/// 一条 canonical frame 到车道边或设施带几何的 owner-local 来源记录。
 #[derive(Clone, Copy)]
 pub struct SpatialRelationSourceView<'a> {
     source_map: &'a ValidatedSourceMapInput,
