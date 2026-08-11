@@ -36,7 +36,7 @@ pub struct GeometryObservation {
     pub evaluator_interval_identity_sha256: String,
     pub position_error: PositionErrorStatistics,
     pub worst_observed_error: WorstObservedError,
-    pub final_f32_direction_jump_maximum_degrees_bits: String,
+    pub final_f32_direction_minimum_cosine_squared_bits: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -61,6 +61,7 @@ pub struct WorstObservedError {
 
 pub(crate) struct ObservationPlan {
     tasks: Vec<ObservationTask>,
+    direction: GeometryDirectionProfile,
 }
 
 struct ObservationTask {
@@ -178,20 +179,46 @@ struct DistanceAttribution {
     parameter: f64,
 }
 
+struct FinalPointSet {
+    by_identity: BTreeMap<(String, String), Vec<F32Point>>,
+    identities_in_lir_order: Vec<(String, String)>,
+}
+
+impl FinalPointSet {
+    fn in_lir_order(&self) -> impl Iterator<Item = &Vec<F32Point>> {
+        self.identities_in_lir_order
+            .iter()
+            .map(|identity| &self.by_identity[identity])
+    }
+}
+
 pub(crate) fn prepare_observation(
     modules: &[TypedP100Module],
 ) -> Result<ObservationPlan, GeneratorError> {
+    let direction = modules
+        .first()
+        .map(|module| module.module().geometry_direction_profile())
+        .ok_or_else(|| contract("geometry observation module set is empty"))?;
+    if modules
+        .iter()
+        .any(|module| module.module().geometry_direction_profile() != direction)
+    {
+        return Err(contract(
+            "geometry observation module set mixes direction profiles",
+        ));
+    }
     let mut tasks = Vec::new();
     for module in modules {
         prepare_module(module, &mut tasks)?;
     }
-    Ok(ObservationPlan { tasks })
+    Ok(ObservationPlan { tasks, direction })
 }
 
 pub(crate) fn observe(
     plan: &ObservationPlan,
     output: &CompilationOutput,
 ) -> Result<GeometryObservation, GeneratorError> {
+    let direction = plan.direction;
     let lane_points = lane_points(output)?;
     let facility_points = facility_points(output)?;
     let mut distances = Vec::new();
@@ -215,7 +242,9 @@ pub(crate) fn observe(
                     &task.module,
                     key,
                     &expected,
-                    lane_points.get(&(task.module.clone(), key.clone())),
+                    lane_points
+                        .by_identity
+                        .get(&(task.module.clone(), key.clone())),
                 )?;
             }
             ObservationTarget::FacilityBand { key } => require_final_points(
@@ -225,7 +254,9 @@ pub(crate) fn observe(
                     .iter()
                     .map(|vertex| vertex.point)
                     .collect::<Vec<_>>(),
-                facility_points.get(&(task.module.clone(), key.clone())),
+                facility_points
+                    .by_identity
+                    .get(&(task.module.clone(), key.clone())),
             )?,
         }
 
@@ -303,8 +334,11 @@ pub(crate) fn observe(
             evaluator_interval_ordinal: worst.interval_ordinal,
             parameter_bits: bits(worst.parameter),
         },
-        final_f32_direction_jump_maximum_degrees_bits: bits(max_direction_jump_degrees(
-            lane_points.values().chain(facility_points.values()),
+        final_f32_direction_minimum_cosine_squared_bits: bits(minimum_direction_cosine_squared(
+            lane_points
+                .in_lir_order()
+                .chain(facility_points.in_lir_order()),
+            direction,
         )?),
     })
 }
@@ -1157,10 +1191,9 @@ fn require_final_points(
     Ok(())
 }
 
-fn lane_points(
-    output: &CompilationOutput,
-) -> Result<BTreeMap<(String, String), Vec<F32Point>>, GeneratorError> {
+fn lane_points(output: &CompilationOutput) -> Result<FinalPointSet, GeneratorError> {
     let mut map = BTreeMap::new();
+    let mut identities_in_lir_order = Vec::new();
     for edge in output.lir().lane_edges() {
         let namespace = identity_text(edge.identity_fields(), MODULE_NAMESPACE_TAG)?;
         let key = identity_text(edge.identity_fields(), LANE_EDGE_KEY_TAG)?;
@@ -1168,17 +1201,21 @@ fn lane_points(
             .spatial_geometry()
             .ok_or_else(|| contract("P100 lane edge is missing spatial geometry"))?;
         let points = geometry.points().map(f32_point).collect::<Vec<_>>();
-        if map.insert((namespace, key), points).is_some() {
+        let identity = (namespace, key);
+        if map.insert(identity.clone(), points).is_some() {
             return Err(contract("duplicate LIR lane edge identity"));
         }
+        identities_in_lir_order.push(identity);
     }
-    Ok(map)
+    Ok(FinalPointSet {
+        by_identity: map,
+        identities_in_lir_order,
+    })
 }
 
-fn facility_points(
-    output: &CompilationOutput,
-) -> Result<BTreeMap<(String, String), Vec<F32Point>>, GeneratorError> {
+fn facility_points(output: &CompilationOutput) -> Result<FinalPointSet, GeneratorError> {
     let mut map = BTreeMap::new();
+    let mut identities_in_lir_order = Vec::new();
     for band in output.lir().facility_bands() {
         let namespace = identity_text(band.identity_fields(), MODULE_NAMESPACE_TAG)?;
         let key = identity_text(band.identity_fields(), FACILITY_BAND_KEY_TAG)?;
@@ -1186,11 +1223,16 @@ fn facility_points(
             .spatial_geometry()
             .ok_or_else(|| contract("P100 facility band is missing spatial geometry"))?;
         let points = geometry.points().map(f32_point).collect::<Vec<_>>();
-        if map.insert((namespace, key), points).is_some() {
+        let identity = (namespace, key);
+        if map.insert(identity.clone(), points).is_some() {
             return Err(contract("duplicate LIR facility band identity"));
         }
+        identities_in_lir_order.push(identity);
     }
-    Ok(map)
+    Ok(FinalPointSet {
+        by_identity: map,
+        identities_in_lir_order,
+    })
 }
 
 fn identity_text<'a>(
@@ -1208,26 +1250,43 @@ fn identity_text<'a>(
     Ok(value.clone())
 }
 
-fn max_direction_jump_degrees<'a>(
+fn minimum_direction_cosine_squared<'a>(
     polylines: impl Iterator<Item = &'a Vec<F32Point>>,
+    direction: GeometryDirectionProfile,
 ) -> Result<f64, GeneratorError> {
-    let mut maximum = 0.0_f64;
+    let mut minimum = 1.0_f64;
+    let acceptance_cosine_squared = full_angle_cosine_squared(direction);
     for points in polylines {
         let chords = points
             .windows(2)
             .map(|pair| pair[1].promote().sub(pair[0].promote()))
             .collect::<Result<Vec<_>, _>>()?;
         for pair in chords.windows(2) {
-            let cross = Point {
-                x: finite(pair[0].y * pair[1].z - pair[0].z * pair[1].y)?,
-                y: finite(pair[0].z * pair[1].x - pair[0].x * pair[1].z)?,
-                z: finite(pair[0].x * pair[1].y - pair[0].y * pair[1].x)?,
-            };
-            let angle = finite(cross.norm_squared()?.sqrt().atan2(dot(pair[0], pair[1])?))?;
-            maximum = maximum.max(finite(angle * (180.0 / std::f64::consts::PI))?);
+            let dot = dot(pair[0], pair[1])?;
+            let left_norm_squared = pair[0].norm_squared()?;
+            let right_norm_squared = pair[1].norm_squared()?;
+            if dot <= 0.0 || left_norm_squared <= 0.0 || right_norm_squared <= 0.0 {
+                return Err(contract(
+                    "final f32 direction observation contains a non-forward chord pair",
+                ));
+            }
+            if !direction_accepts(pair[0], pair[1], acceptance_cosine_squared)? {
+                return Err(contract(
+                    "final f32 direction observation exceeds the selected profile",
+                ));
+            }
+            let numerator = finite(dot * dot)?;
+            let normalized = finite(finite(numerator / left_norm_squared)? / right_norm_squared)?;
+            if normalized <= 0.0 {
+                return Err(contract(
+                    "final f32 direction cosine squared is not positive",
+                ));
+            }
+            let cosine_squared = if normalized >= 1.0 { 1.0 } else { normalized };
+            minimum = minimum.min(cosine_squared);
         }
     }
-    Ok(maximum)
+    Ok(minimum)
 }
 
 fn direction_accepts(
@@ -1304,6 +1363,14 @@ fn half_angle_cosine_squared(profile: GeometryDirectionProfile) -> f64 {
         GeometryDirectionProfile::Smooth1Deg => 0x3fef_ff60_4bfa_d7c5,
         GeometryDirectionProfile::Balanced2Deg => 0x3fef_fd81_3c5f_82b4,
         GeometryDirectionProfile::Compact5Deg => 0x3fef_f069_da0c_0ad2,
+    })
+}
+
+fn full_angle_cosine_squared(profile: GeometryDirectionProfile) -> f64 {
+    f64::from_bits(match profile {
+        GeometryDirectionProfile::Smooth1Deg => 0x3fef_fd81_3c5f_82b4,
+        GeometryDirectionProfile::Balanced2Deg => 0x3fef_f605_b8b8_7ffc,
+        GeometryDirectionProfile::Compact5Deg => 0x3fef_c1c5_c640_8e0c,
     })
 }
 
@@ -1392,10 +1459,70 @@ mod tests {
             &observation.position_error.p99_meters_bits,
             &observation.position_error.maximum_meters_bits,
             &observation.worst_observed_error.parameter_bits,
-            &observation.final_f32_direction_jump_maximum_degrees_bits,
+            &observation.final_f32_direction_minimum_cosine_squared_bits,
         ] {
             assert_eq!(value.len(), 18);
             assert!(value.starts_with("0x"));
         }
+    }
+
+    #[test]
+    fn final_direction_observation_uses_frozen_cosine_squared_graph() {
+        let points = vec![
+            F32Point {
+                x: 0.0_f32.to_bits(),
+                y: 0.0_f32.to_bits(),
+                z: 0.0_f32.to_bits(),
+            },
+            F32Point {
+                x: 100.0_f32.to_bits(),
+                y: 0.0_f32.to_bits(),
+                z: 0.0_f32.to_bits(),
+            },
+            F32Point {
+                x: 200.0_f32.to_bits(),
+                y: 0.0_f32.to_bits(),
+                z: 1.0_f32.to_bits(),
+            },
+        ];
+
+        assert_eq!(
+            minimum_direction_cosine_squared(
+                std::iter::once(&points),
+                GeometryDirectionProfile::Smooth1Deg,
+            )
+            .unwrap()
+            .to_bits(),
+            0x3fef_ff2e_4e46_e7a8
+        );
+    }
+
+    #[test]
+    fn final_direction_observation_rejects_non_forward_chords() {
+        let points = vec![
+            F32Point {
+                x: 0.0_f32.to_bits(),
+                y: 0.0_f32.to_bits(),
+                z: 0.0_f32.to_bits(),
+            },
+            F32Point {
+                x: 1.0_f32.to_bits(),
+                y: 0.0_f32.to_bits(),
+                z: 0.0_f32.to_bits(),
+            },
+            F32Point {
+                x: 0.0_f32.to_bits(),
+                y: 0.0_f32.to_bits(),
+                z: 0.0_f32.to_bits(),
+            },
+        ];
+
+        assert!(
+            minimum_direction_cosine_squared(
+                std::iter::once(&points),
+                GeometryDirectionProfile::Compact5Deg,
+            )
+            .is_err()
+        );
     }
 }

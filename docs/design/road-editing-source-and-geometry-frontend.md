@@ -848,9 +848,11 @@ regularity node visit，并独立报告完整 compile CPU/scratch/live-byte peak
 每个组合分别测量 typed-model build、encode/save、size/identifier 预检、verifier、语义
 预检 + Typed AST lowering、完整 compile、来源字节、阶段峰值、总峰值和 returned buffer
 retained capacity，并记录 horizontal-regularity node visits、evaluator interval/sample
-完整性计数，以及位置误差 P50/P95/P99/最大观测值及其来源。单模块改写必须在旧
-五模块 accepted revision 仍存续时构造/编码候选，
-编译 import closure，成功后才原子替换并释放旧 blob；不能只测释放旧模块后的理想峰值。
+完整性计数，以及位置误差 P50/P95/P99/最大观测值及其来源。最终 `f32` 相邻弦的方向观测不保存
+`atan2`/角度结果作为逐 bit 权威；它按 workload 冻结的 binary64 运算图保存最小归一化
+cosine-squared bits，人类可读角度只允许作为非规范派生显示。
+单模块改写必须在旧五模块 accepted revision 仍存续时构造/编码候选，编译 import closure，
+成功后才原子替换并释放旧 blob；不能只测释放旧模块后的理想峰值。
 来源字节、verified table、规范几何点、regularity visit 与 compiler-controlled peak 必须直接
 读取 production `CompilationMetrics` 的同一次成功编译账本；research harness 不得另行遍历
 来源或重算一套“等价”计数。前端峰值必须保留已接纳 builder 的模块、文档/模块索引和
