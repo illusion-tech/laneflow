@@ -1343,7 +1343,7 @@ fn usize_u64(value: usize) -> u64 {
 }
 
 fn bits(value: f64) -> String {
-    format!("{:016x}", value.to_bits())
+    format!("0x{:016x}", value.to_bits())
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -1386,5 +1386,16 @@ mod tests {
             observation.evaluator_interval_count * GRID_POINT_COUNT
         );
         assert!(!observation.evaluator_interval_identity_sha256.is_empty());
+        for value in [
+            &observation.position_error.p50_meters_bits,
+            &observation.position_error.p95_meters_bits,
+            &observation.position_error.p99_meters_bits,
+            &observation.position_error.maximum_meters_bits,
+            &observation.worst_observed_error.parameter_bits,
+            &observation.final_f32_direction_jump_maximum_degrees_bits,
+        ] {
+            assert_eq!(value.len(), 18);
+            assert!(value.starts_with("0x"));
+        }
     }
 }
