@@ -1897,11 +1897,17 @@ pub struct CompilationOutput {
 
 /// 一次成功生产编译的只读资源与确定性观测值。
 ///
-/// 这些值来自编译器实际完成的 HIR→MIR→Canonical LIR 管线，不包含前端构造、当前态
-/// 投影或证据序列化。字节数是编译器内部资源模型使用的逻辑值，不等同于操作系统进程
-/// 工作集，也不是静态镜像或后继可移植制品的文件大小。
+/// 这些值来自官方来源准入和编译器实际完成的 HIR→MIR→Canonical LIR 管线；不包含调用方
+/// typed-model/writer 构造、当前态投影或证据序列化。字节数是编译器内部资源模型使用的
+/// 逻辑值，不等同于操作系统进程工作集，也不是静态镜像或后继可移植制品的文件大小。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CompilationMetrics {
+    source_bytes_total: u64,
+    verified_table_occurrence_count: u64,
+    geometry_point_count: u64,
+    total_horizontal_regularity_node_visits: u64,
+    maximum_horizontal_regularity_node_visits_per_offset_bearing_source_segment: u32,
+    frontend_controlled_peak_bytes: u64,
     lir_record_count: u64,
     output_logical_bytes: u64,
     compiler_controlled_peak_bytes: u64,
@@ -1909,6 +1915,50 @@ pub struct CompilationMetrics {
 }
 
 impl CompilationMetrics {
+    /// 返回进入本次编译单元的官方来源字节总数。
+    #[must_use]
+    pub const fn source_bytes_total(self) -> u64 {
+        self.source_bytes_total
+    }
+
+    /// 返回道路编辑 FlatBuffers verifier 实际接受的 table occurrence 总数。
+    ///
+    /// 非道路编辑官方前端不产生 FlatBuffers table，因此不会增加该值。
+    #[must_use]
+    pub const fn verified_table_occurrence_count(self) -> u64 {
+        self.verified_table_occurrence_count
+    }
+
+    /// 返回官方前端写入共同 Typed AST 的规范几何点总数。
+    #[must_use]
+    pub const fn geometry_point_count(self) -> u64 {
+        self.geometry_point_count
+    }
+
+    /// 返回 offset-bearing reference source segment 的 horizontal-regularity DFS pop 总数。
+    #[must_use]
+    pub const fn total_horizontal_regularity_node_visits(self) -> u64 {
+        self.total_horizontal_regularity_node_visits
+    }
+
+    /// 返回任一 offset-bearing reference source segment 的最大 regularity DFS pop 数。
+    #[must_use]
+    pub const fn maximum_horizontal_regularity_node_visits_per_offset_bearing_source_segment(
+        self,
+    ) -> u32 {
+        self.maximum_horizontal_regularity_node_visits_per_offset_bearing_source_segment
+    }
+
+    /// 返回官方前端准入期间的 compiler-controlled live-byte 账本峰值。
+    ///
+    /// 该值包括已接纳 builder 的索引与模块、候选模块预分配上界、该候选的实际几何
+    /// scratch 峰值，以及共同 `CompilationUnitBuilder::build` 冻结阶段；不会用 allocator
+    /// RSS 或释放旧模块后的理想状态替代原子候选生命周期。
+    #[must_use]
+    pub const fn frontend_controlled_peak_bytes(self) -> u64 {
+        self.frontend_controlled_peak_bytes
+    }
+
     /// 返回 Canonical LIR 的实体、关系与出现项逻辑记录总数。
     #[must_use]
     pub const fn lir_record_count(self) -> u64 {
@@ -2006,6 +2056,13 @@ impl Compiler {
         &mut self,
         unit: CompilationUnit,
     ) -> Result<CompilationOutput, DiagnosticBundle> {
+        let source_bytes_total = unit.source_bytes_total;
+        let verified_table_occurrence_count = unit.verified_table_occurrence_count;
+        let geometry_point_count = unit.geometry_point_count;
+        let total_horizontal_regularity_node_visits = unit.total_horizontal_regularity_node_visits;
+        let maximum_horizontal_regularity_node_visits_per_offset_bearing_source_segment =
+            unit.maximum_horizontal_regularity_node_visits;
+        let frontend_controlled_peak_bytes = unit.admission_peak_live_bytes;
         let hir = build_hir(&unit)?;
         let hir_peak_controlled_live_bytes = hir.peak_controlled_live_bytes;
         let mir = lower_to_mir(&unit, &hir)?;
@@ -2020,9 +2077,16 @@ impl Compiler {
         let lir_peak_controlled_live_bytes = frozen_lir.lir.peak_controlled_live_bytes;
         let source_map_input = freeze_source_map(unit, &mir, &frozen_lir)?;
         let metrics = CompilationMetrics {
+            source_bytes_total,
+            verified_table_occurrence_count,
+            geometry_point_count,
+            total_horizontal_regularity_node_visits,
+            maximum_horizontal_regularity_node_visits_per_offset_bearing_source_segment,
+            frontend_controlled_peak_bytes,
             lir_record_count,
             output_logical_bytes,
-            compiler_controlled_peak_bytes: hir_peak_controlled_live_bytes
+            compiler_controlled_peak_bytes: frontend_controlled_peak_bytes
+                .max(hir_peak_controlled_live_bytes)
                 .max(mir_peak_controlled_live_bytes)
                 .max(lir_peak_controlled_live_bytes)
                 .max(source_map_input.peak_controlled_live_bytes()),
@@ -3158,6 +3222,17 @@ mod tests {
         assert_eq!(
             metrics.output_logical_bytes(),
             output.lir.inner.output_bytes
+        );
+        assert!(metrics.source_bytes_total() > 0);
+        assert_eq!(metrics.verified_table_occurrence_count(), 0);
+        assert_eq!(metrics.total_horizontal_regularity_node_visits(), 0);
+        assert_eq!(
+            metrics.maximum_horizontal_regularity_node_visits_per_offset_bearing_source_segment(),
+            0
+        );
+        assert!(metrics.frontend_controlled_peak_bytes() > 0);
+        assert!(
+            metrics.compiler_controlled_peak_bytes() >= metrics.frontend_controlled_peak_bytes()
         );
         assert!(metrics.compiler_controlled_peak_bytes() >= output.lir.inner.controlled_live_bytes);
         assert_eq!(

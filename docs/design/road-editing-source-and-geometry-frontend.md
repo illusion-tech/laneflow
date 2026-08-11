@@ -844,6 +844,11 @@ retained capacity，并记录 horizontal-regularity node visits、evaluator inte
 完整性计数，以及位置误差 P50/P95/P99/最大观测值及其来源。单模块改写必须在旧
 五模块 accepted revision 仍存续时构造/编码候选，
 编译 import closure，成功后才原子替换并释放旧 blob；不能只测释放旧模块后的理想峰值。
+来源字节、verified table、规范几何点、regularity visit 与 compiler-controlled peak 必须直接
+读取 production `CompilationMetrics` 的同一次成功编译账本；research harness 不得另行遍历
+来源或重算一套“等价”计数。前端峰值必须保留已接纳 builder 的模块、文档/模块索引和
+容器，并取候选预分配 + 实际几何 scratch 与共同 `build()` 冻结阶段的最大值；正式 allocator
+instrumentation 只用于证明该保守账本没有漏项，不能以 RSS 替换该契约值。
 正式测量在 `LF-P100-REF-01` 上以 release/locked、单进程单线程执行；每个 profile 组合先
 1 次不计时预热，再运行 7 次独立正式样本，不删异常值，以中位数为主值并保留全部样本、
 MAD、阶段计时和峰值账本。语义种子读取与工作负载对象构造在计时区外，但 typed model

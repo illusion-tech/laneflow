@@ -279,11 +279,34 @@ impl Compiler {
 impl CompilationOutput {
     pub fn metrics(&self) -> CompilationMetrics;
 }
+
+impl CompilationMetrics {
+    pub const fn source_bytes_total(self) -> u64;
+    pub const fn verified_table_occurrence_count(self) -> u64;
+    pub const fn geometry_point_count(self) -> u64;
+    pub const fn total_horizontal_regularity_node_visits(self) -> u64;
+    pub const fn maximum_horizontal_regularity_node_visits_per_offset_bearing_source_segment(
+        self,
+    ) -> u32;
+    pub const fn frontend_controlled_peak_bytes(self) -> u64;
+    pub const fn lir_record_count(self) -> u64;
+    pub const fn output_logical_bytes(self) -> u64;
+    pub const fn compiler_controlled_peak_bytes(self) -> u64;
+    pub const fn semantic_fingerprint(self) -> [u8; 32];
+}
 ```
 
 以上代码表达 #292 G1 与后继性能证据边界修订已接受的公共接口形状。G2 可以在不改变公共构造、所有权、
 可见性、错误和确定性契约的前提下细化包内私有字段与实现名称；任何公共接口或上述
 契约变化都必须重新进入 G1，不得作为实现细节直接修改。
+
+#296 G1 在同一个只读 `CompilationMetrics` 值上增加官方来源准入观测，不公开 verifier、
+preflight、Typed AST 或几何编译器的私有阶段对象。来源字节和几何点由所有官方前端累计；
+FlatBuffers table 与 horizontal-regularity 计数只由道路编辑前端增加，其他官方前端贡献零。
+`frontend_controlled_peak_bytes` 使用生产资源账本的保守峰值：保留当前 builder 的模块、文档/
+模块索引和容器，同时计入候选模块预分配上界、实际几何 scratch，以及共同 `build()` 冻结
+阶段；它不是 allocator RSS。`compiler_controlled_peak_bytes` 取该前端峰值与后续 HIR、MIR、
+LIR、source-map 阶段峰值的最大值，不能因候选失败或释放旧模块而回写成较小值。
 
 以下第二段代码登记 #315 已实现的多文档共同能力；它不包含 current JSON 专用入口：
 

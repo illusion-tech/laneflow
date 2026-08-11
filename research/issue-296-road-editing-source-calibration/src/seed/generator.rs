@@ -1925,6 +1925,23 @@ mod tests {
                     )
                 });
             assert_eq!(output.diagnostics(), []);
+            let metrics = output.metrics();
+            let expected_source_bytes = encoded.iter().fold(0_u64, |total, module| {
+                total.saturating_add(u64::try_from(module.as_bytes().len()).unwrap())
+            });
+            assert_eq!(metrics.source_bytes_total(), expected_source_bytes);
+            assert_eq!(metrics.verified_table_occurrence_count(), 3_165);
+            assert!(metrics.geometry_point_count() > 0);
+            assert_eq!(metrics.total_horizontal_regularity_node_visits(), 0);
+            assert_eq!(
+                metrics
+                    .maximum_horizontal_regularity_node_visits_per_offset_bearing_source_segment(),
+                0
+            );
+            assert!(
+                metrics.compiler_controlled_peak_bytes()
+                    >= metrics.frontend_controlled_peak_bytes()
+            );
         }
         assert_eq!(fixture_digests.len(), 45);
     }
@@ -2011,6 +2028,21 @@ mod tests {
         let output = compile_encoded_modules(&probe_encoded, limits)
             .unwrap_or_else(|error| panic!("regularity probe failed production compile: {error}"));
         assert_eq!(output.diagnostics(), []);
+        let metrics = output.metrics();
+        let expected_source_bytes = probe_encoded.iter().fold(0_u64, |total, module| {
+            total.saturating_add(u64::try_from(module.as_bytes().len()).unwrap())
+        });
+        assert_eq!(metrics.source_bytes_total(), expected_source_bytes);
+        assert_eq!(metrics.verified_table_occurrence_count(), 3_165);
+        assert!(metrics.geometry_point_count() > 0);
+        assert_eq!(metrics.total_horizontal_regularity_node_visits(), 3);
+        assert_eq!(
+            metrics.maximum_horizontal_regularity_node_visits_per_offset_bearing_source_segment(),
+            3
+        );
+        assert!(
+            metrics.compiler_controlled_peak_bytes() >= metrics.frontend_controlled_peak_bytes()
+        );
     }
 
     fn assert_alignment_delta(base: &TypedP100Module, probe: &TypedP100Module) {

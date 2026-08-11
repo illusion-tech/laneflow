@@ -18,6 +18,9 @@ pub(crate) struct ModuleResourceCounts {
     pub(crate) route_occurrence_count: u64,
     pub(crate) geometry_point_count: u64,
     pub(crate) geometry_source_range_count: u64,
+    pub(crate) verified_table_occurrence_count: u64,
+    pub(crate) total_horizontal_regularity_node_visits: u64,
+    pub(crate) maximum_horizontal_regularity_node_visits: u32,
     pub(crate) controlled_live_bytes: u64,
     /// 具体官方前端构造本候选模块期间的受控存续峰值，不含既有 builder。
     pub(crate) admission_peak_live_bytes: u64,
@@ -47,6 +50,9 @@ pub(super) struct AdmissionTotals {
     pub(super) route_occurrence_count: u64,
     pub(super) geometry_point_count: u64,
     pub(super) geometry_source_range_count: u64,
+    pub(super) verified_table_occurrence_count: u64,
+    pub(super) total_horizontal_regularity_node_visits: u64,
+    pub(super) maximum_horizontal_regularity_node_visits: u32,
     pub(super) module_payload_live_bytes: u64,
     pub(super) module_slot_capacity: u64,
     pub(super) admission_peak_live_bytes: u64,
@@ -101,6 +107,15 @@ impl AdmissionTotals {
             geometry_source_range_count: self
                 .geometry_source_range_count
                 .saturating_add(counts.geometry_source_range_count),
+            verified_table_occurrence_count: self
+                .verified_table_occurrence_count
+                .saturating_add(counts.verified_table_occurrence_count),
+            total_horizontal_regularity_node_visits: self
+                .total_horizontal_regularity_node_visits
+                .saturating_add(counts.total_horizontal_regularity_node_visits),
+            maximum_horizontal_regularity_node_visits: self
+                .maximum_horizontal_regularity_node_visits
+                .max(counts.maximum_horizontal_regularity_node_visits),
             module_payload_live_bytes: self
                 .module_payload_live_bytes
                 .saturating_add(counts.controlled_live_bytes),

@@ -1095,6 +1095,7 @@ impl CompilationUnitBuilder {
             source_document_index,
             source_document_count: self.totals.source_document_count,
             import_edge_count: self.totals.import_edge_count,
+            source_bytes_total: self.totals.source_bytes_total,
             declaration_count: self.totals.declaration_count,
             reference_count: self.totals.reference_count,
             relation_occurrence_count: self.totals.relation_occurrence_count,
@@ -1103,6 +1104,14 @@ impl CompilationUnitBuilder {
             maneuver_gate_count: self.totals.maneuver_gate_count,
             waiting_zone_count: self.totals.waiting_zone_count,
             route_occurrence_count: self.totals.route_occurrence_count,
+            geometry_point_count: self.totals.geometry_point_count,
+            verified_table_occurrence_count: self.totals.verified_table_occurrence_count,
+            total_horizontal_regularity_node_visits: self
+                .totals
+                .total_horizontal_regularity_node_visits,
+            maximum_horizontal_regularity_node_visits: self
+                .totals
+                .maximum_horizontal_regularity_node_visits,
             controlled_live_bytes: sizing.result_live_bytes,
             admission_peak_live_bytes: self
                 .totals
@@ -1122,6 +1131,7 @@ pub struct CompilationUnit {
     source_document_index: FrozenSourceDocumentIndex,
     pub(crate) source_document_count: u64,
     pub(crate) import_edge_count: u64,
+    pub(crate) source_bytes_total: u64,
     pub(crate) declaration_count: u64,
     pub(crate) reference_count: u64,
     pub(crate) relation_occurrence_count: u64,
@@ -1130,6 +1140,10 @@ pub struct CompilationUnit {
     pub(crate) maneuver_gate_count: u64,
     pub(crate) waiting_zone_count: u64,
     pub(crate) route_occurrence_count: u64,
+    pub(crate) geometry_point_count: u64,
+    pub(crate) verified_table_occurrence_count: u64,
+    pub(crate) total_horizontal_regularity_node_visits: u64,
+    pub(crate) maximum_horizontal_regularity_node_visits: u32,
     pub(crate) controlled_live_bytes: u64,
     pub(crate) admission_peak_live_bytes: u64,
 }

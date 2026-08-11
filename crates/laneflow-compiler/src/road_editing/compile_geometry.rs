@@ -491,6 +491,8 @@ pub(super) struct GeometryCompilationUsage {
     pub(super) peak_scratch_bytes: u64,
     /// 不含调用方、既有 builder 与候选非几何 retained base 的几何工作峰值。
     pub(super) peak_output_and_scratch_bytes: u64,
+    pub(super) total_horizontal_regularity_node_visits: u64,
+    pub(super) maximum_horizontal_regularity_node_visits: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -745,6 +747,8 @@ pub(super) fn compile_authoring_geometry(
     let mut lane_outputs = Vec::with_capacity(expected_lane_outputs);
     let mut facility_outputs = Vec::with_capacity(expected_facility_outputs);
     let mut station_row_count = 0_usize;
+    let mut total_horizontal_regularity_node_visits = 0_u64;
+    let mut maximum_horizontal_regularity_node_visits = 0_u32;
     let numeric_scratch_bytes = numeric_stack_scratch_bytes();
     let station_vertex_limit = station_vertex_limit_from_bytes(station_row_byte_limit)?;
     for plan in &plans {
@@ -818,6 +822,12 @@ pub(super) fn compile_authoring_geometry(
         scratch.release_bytes(numeric_scratch_bytes);
         let reference = reference_result
             .map_err(|error| error.with_numeric_source(plan.alignment.span.clone()))?;
+        for visits in reference.horizontal_regularity_visits.iter().copied() {
+            total_horizontal_regularity_node_visits =
+                total_horizontal_regularity_node_visits.saturating_add(u64::from(visits));
+            maximum_horizontal_regularity_node_visits =
+                maximum_horizontal_regularity_node_visits.max(visits);
+        }
         compiled_alignments.push(CompiledAlignmentEntry {
             declaration: plan.alignment,
             reference,
@@ -1151,6 +1161,8 @@ pub(super) fn compile_authoring_geometry(
         output_source_range_count: used_source_ranges,
         peak_scratch_bytes: scratch.peak,
         peak_output_and_scratch_bytes,
+        total_horizontal_regularity_node_visits,
+        maximum_horizontal_regularity_node_visits,
     })
 }
 

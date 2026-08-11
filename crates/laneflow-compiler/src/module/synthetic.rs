@@ -2983,6 +2983,9 @@ impl SyntheticModuleBuilder {
                     route_occurrence_count: self.route_occurrence_count,
                     geometry_point_count: self.geometry_point_count,
                     geometry_source_range_count: 0,
+                    verified_table_occurrence_count: 0,
+                    total_horizontal_regularity_node_visits: 0,
+                    maximum_horizontal_regularity_node_visits: 0,
                     controlled_live_bytes: self
                         .controlled_string_bytes
                         .saturating_add(self.controlled_structural_bytes)

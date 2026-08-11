@@ -619,6 +619,11 @@ fn lower_verified_source(
             route_occurrence_count: counts.route_occurrence_count(),
             geometry_point_count,
             geometry_source_range_count,
+            verified_table_occurrence_count: verified.table_count(),
+            total_horizontal_regularity_node_visits: geometry_usage
+                .total_horizontal_regularity_node_visits,
+            maximum_horizontal_regularity_node_visits: geometry_usage
+                .maximum_horizontal_regularity_node_visits,
             controlled_live_bytes,
             admission_peak_live_bytes,
         },

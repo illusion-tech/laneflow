@@ -110,9 +110,15 @@ fn print_workload(
     let output = compile_encoded_modules(&encoded, limits)?;
     let metrics = output.metrics();
     println!(
-        "compiled lane_edges={} facility_bands={} lir_records={} logical_bytes={} peak_bytes={} semantic_fingerprint={}",
+        "compiled lane_edges={} facility_bands={} source_bytes={} verified_tables={} geometry_points={} regularity_visits={} regularity_max={} frontend_peak_bytes={} lir_records={} logical_bytes={} combined_peak_bytes={} semantic_fingerprint={}",
         output.lir().lane_edges().count(),
         output.lir().facility_bands().count(),
+        metrics.source_bytes_total(),
+        metrics.verified_table_occurrence_count(),
+        metrics.geometry_point_count(),
+        metrics.total_horizontal_regularity_node_visits(),
+        metrics.maximum_horizontal_regularity_node_visits_per_offset_bearing_source_segment(),
+        metrics.frontend_controlled_peak_bytes(),
         metrics.lir_record_count(),
         metrics.output_logical_bytes(),
         metrics.compiler_controlled_peak_bytes(),
