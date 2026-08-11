@@ -821,8 +821,9 @@ pub(super) fn lower_owner_scoped_declarations(
 pub(super) fn lower_aggregate_declarations(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
+    shared_namespace: &Arc<str>,
 ) -> Vec<TypedAstDeclaration> {
-    let namespace = root.module_header().authoring_namespace_id();
+    let namespace = shared_namespace.as_ref();
     let mut declarations = Vec::with_capacity(
         root.signal_controllers()
             .len()
@@ -847,7 +848,7 @@ pub(super) fn lower_aggregate_declarations(
                 lower_reference::<SignalGroupKind>(
                     group,
                     1,
-                    namespace,
+                    shared_namespace,
                     locations.owner_local(
                         EntityKind::SignalController,
                         &[],
@@ -860,6 +861,7 @@ pub(super) fn lower_aggregate_declarations(
                             table: RoadEditingTableKind::SignalController,
                             field_id: 2,
                         }],
+                        controller.canvas_selection(),
                     ),
                 )
             })
@@ -895,7 +897,7 @@ pub(super) fn lower_aggregate_declarations(
                         signal_group: lower_reference::<SignalGroupKind>(
                             state.signal_group(),
                             1,
-                            namespace,
+                            shared_namespace,
                             locations.owner_local(
                                 EntityKind::SignalPhase,
                                 &[controller_key],
@@ -915,6 +917,7 @@ pub(super) fn lower_aggregate_declarations(
                                         field_id: 0,
                                     },
                                 ],
+                                phase.canvas_selection(),
                             ),
                         ),
                         aspect: match state.aspect() {
@@ -949,6 +952,7 @@ pub(super) fn lower_aggregate_declarations(
                             table: RoadEditingTableKind::SignalController,
                             field_id: 3,
                         }],
+                        controller.canvas_selection(),
                     ),
                     duration_ms: phase.duration_milliseconds(),
                     states,
@@ -991,7 +995,7 @@ pub(super) fn lower_aggregate_declarations(
                 lower_reference::<ParkingAreaKind>(
                     area,
                     1,
-                    namespace,
+                    shared_namespace,
                     property_location(
                         locations,
                         EntityKind::ParkingSpace,
@@ -1006,7 +1010,7 @@ pub(super) fn lower_aggregate_declarations(
                 lane_edge: lower_reference::<LaneEdgeKind>(
                     entry.lane_edge(),
                     1,
-                    namespace,
+                    shared_namespace,
                     nested_property_location(
                         locations,
                         EntityKind::ParkingSpace,
@@ -1024,7 +1028,7 @@ pub(super) fn lower_aggregate_declarations(
                 lane_edge: lower_reference::<LaneEdgeKind>(
                     exit.lane_edge(),
                     1,
-                    namespace,
+                    shared_namespace,
                     nested_property_location(
                         locations,
                         EntityKind::ParkingSpace,
@@ -1040,7 +1044,7 @@ pub(super) fn lower_aggregate_declarations(
             },
             geometry: ParkingSpaceGeometryInput {
                 lateral_offset_meters: geometry.lateral_offset_meters(),
-                heading_offset_radians: geometry.heading_offset_radians(),
+                heading_offset_radians: canonicalize_zero(geometry.heading_offset_radians()),
                 length_meters: geometry.length_meters(),
                 width_meters: geometry.width_meters(),
             },
@@ -1068,7 +1072,7 @@ pub(super) fn lower_aggregate_declarations(
                 OwnedAccessRuleTarget::LaneEdge(lower_reference::<LaneEdgeKind>(
                     value.target_reference(),
                     1,
-                    namespace,
+                    shared_namespace,
                     target_location,
                 ))
             }
@@ -1076,7 +1080,7 @@ pub(super) fn lower_aggregate_declarations(
                 OwnedAccessRuleTarget::LaneGroup(lower_reference::<LaneGroupKind>(
                     value.target_reference(),
                     3,
-                    namespace,
+                    shared_namespace,
                     target_location,
                 ))
             }
@@ -1084,7 +1088,7 @@ pub(super) fn lower_aggregate_declarations(
                 OwnedAccessRuleTarget::RoadSection(lower_reference::<RoadSectionKind>(
                     value.target_reference(),
                     2,
-                    namespace,
+                    shared_namespace,
                     target_location,
                 ))
             }
@@ -1092,7 +1096,7 @@ pub(super) fn lower_aggregate_declarations(
                 OwnedAccessRuleTarget::ManeuverPath(lower_reference::<ManeuverPathKind>(
                     value.target_reference(),
                     3,
-                    namespace,
+                    shared_namespace,
                     target_location,
                 ))
             }
@@ -1108,7 +1112,7 @@ pub(super) fn lower_aggregate_declarations(
                 lower_reference::<ParticipantClassKind>(
                     class,
                     1,
-                    namespace,
+                    shared_namespace,
                     locations.owner_local(
                         EntityKind::AccessRule,
                         &[],
@@ -1121,6 +1125,7 @@ pub(super) fn lower_aggregate_declarations(
                             table: RoadEditingTableKind::AccessRule,
                             field_id: 4,
                         }],
+                        value.canvas_selection(),
                     ),
                 )
             })
@@ -1282,6 +1287,11 @@ fn nested_property_location(
     )
 }
 
+#[inline]
+fn canonicalize_zero(value: f64) -> f64 {
+    if value == 0.0 { 0.0 } else { value }
+}
+
 #[cfg(test)]
 mod tests {
     use laneflow_static_contract::{ManeuverGateKind, SignalGroupKind};
@@ -1296,6 +1306,12 @@ mod tests {
         StaticRouteInput, StopLineInput, VehicleProfileInput,
     };
     use crate::{CompileLimits, GeometryAccuracyProfile, GeometryDirectionProfile, SourceSpan};
+
+    #[test]
+    fn negative_zero_is_canonicalized_before_synthetic_lowering() {
+        assert_eq!(canonicalize_zero(-0.0).to_bits(), 0.0_f64.to_bits());
+        assert_eq!(canonicalize_zero(1.25).to_bits(), 1.25_f64.to_bits());
+    }
 
     #[test]
     fn owner_qualified_reference_lowers_without_flattening_the_address() {
@@ -1727,7 +1743,9 @@ mod tests {
             RoadEditingModuleInput::try_new("road-editing", bytes.as_bytes(), None).unwrap();
         let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
-        let declarations = lower_aggregate_declarations(verified.root(), &locations);
+        let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
+        let declarations =
+            lower_aggregate_declarations(verified.root(), &locations, &shared_namespace);
 
         assert_eq!(declarations.len(), 3);
         let controller = declarations

@@ -50,8 +50,8 @@ use super::synthetic_record::{
     vehicle_profile_declaration_len, waiting_zone_declaration_len,
 };
 
-/// 首版合成领域专用语言 `LFSOURCE` 来源记录编码版本。
-pub const SYNTHETIC_FRONTEND_VERSION: u32 = 1;
+/// 当前合成领域专用语言 `LFSOURCE` 来源记录编码版本。
+pub const SYNTHETIC_FRONTEND_VERSION: u32 = 2;
 
 pub struct SyntheticModuleBuilder {
     header: SourceModuleHeader,
