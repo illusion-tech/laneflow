@@ -8,6 +8,7 @@ mod arena;
 mod compiler;
 mod declaration;
 mod diagnostic;
+mod geometry_profile;
 mod hir;
 mod identity;
 mod limits;
@@ -54,6 +55,7 @@ pub use diagnostic::{
     ParkingGeometryViolation, RoadEditingInputViolation, SourceHeaderField, SourcePosition,
     SourceSpan, SourceTextViolation, SpatialAxis, SpatialGeometryViolation, WaitingZoneGateRole,
 };
+pub use geometry_profile::{GeometryAccuracyProfile, GeometryDirectionProfile};
 pub use identity::CanonicalIdentityViolation;
 pub use laneflow_static_contract::{AccessEffect, SignalAspect};
 pub use limits::{CompileLimitDimension, CompileLimits};
