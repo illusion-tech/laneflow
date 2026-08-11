@@ -172,6 +172,8 @@ pub enum DiagnosticCode {
     InternalEdgeJunctionConflict,
     /// 同一边同时被声明为路口内部边和任一路口的边界边。
     InternalBoundaryRoleConflict,
+    /// 路口显式 approach/internal 集与路径角色或 section-derived 边界不闭合。
+    JunctionEdgeSetMismatch,
     /// 机动门引用的转换下标不在拥有路径的合法范围内。
     ManeuverGateTransitionOutOfRange,
     /// 同一机动路径转换重复声明机动门。
@@ -322,6 +324,7 @@ impl DiagnosticCode {
             Self::DuplicateManeuverPathSequence => "LF-COMP-DUPLICATE-MANEUVER-PATH-SEQUENCE",
             Self::InternalEdgeJunctionConflict => "LF-COMP-INTERNAL-EDGE-JUNCTION-CONFLICT",
             Self::InternalBoundaryRoleConflict => "LF-COMP-INTERNAL-BOUNDARY-ROLE-CONFLICT",
+            Self::JunctionEdgeSetMismatch => "LF-COMP-JUNCTION-EDGE-SET-MISMATCH",
             Self::ManeuverGateTransitionOutOfRange => {
                 "LF-COMP-MANEUVER-GATE-TRANSITION-OUT-OF-RANGE"
             }
@@ -443,6 +446,18 @@ pub enum RoadEditingSourceViolation {
     SourceDocumentKeyMismatch,
     /// verifier 后的字段值违反与第一方 authoring model 共用的闭合语义规则。
     InvalidSemanticValue(RoadEditingInputViolation),
+}
+
+/// 路口显式边集合与路径角色闭包不一致的原因。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum JunctionEdgeSetViolation {
+    ApproachNotSectionDerived,
+    InternalIsSectionDerived,
+    BoundaryNotDeclaredApproach,
+    InternalNotDeclared,
+    DeclaredInternalUnused,
+    ApproachClaimedInternal,
 }
 
 /// 诊断严重程度。数值顺序同时是规范排序顺序。
@@ -935,6 +950,12 @@ pub enum DiagnosticPayload {
         edge_key: Box<str>,
         internal_path_key: Box<str>,
         boundary_path_key: Box<str>,
+    },
+    JunctionEdgeSetMismatch {
+        junction_key: Box<str>,
+        edge_key: Box<str>,
+        path_key: Option<Box<str>>,
+        violation: JunctionEdgeSetViolation,
     },
     /// 机动门、路径、越界转换下标及该路径可用转换数。
     ManeuverGateTransitionOutOfRange {
@@ -2093,6 +2114,28 @@ impl Diagnostic {
             },
             Some(primary_span),
             Box::new([internal_span.into()]),
+            Some(edge_key.into()),
+        )
+    }
+
+    pub(crate) fn junction_edge_set_mismatch(
+        junction_key: &str,
+        edge_key: &str,
+        path_key: Option<&str>,
+        violation: JunctionEdgeSetViolation,
+        primary_span: impl Into<SourceLocation>,
+        related_span: Option<SourceLocation>,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::JunctionEdgeSetMismatch,
+            DiagnosticPayload::JunctionEdgeSetMismatch {
+                junction_key: junction_key.into(),
+                edge_key: edge_key.into(),
+                path_key: path_key.map(Into::into),
+                violation,
+            },
+            Some(primary_span),
+            related_span.into_iter().collect(),
             Some(edge_key.into()),
         )
     }
@@ -3443,6 +3486,37 @@ impl fmt::Display for Diagnostic {
                 formatter,
                 "车道图边 {edge_key} 同时被路径 {internal_path_key} 声明为内部边、被路径 {boundary_path_key} 声明为边界边"
             ),
+            DiagnosticPayload::JunctionEdgeSetMismatch {
+                junction_key,
+                edge_key,
+                path_key,
+                violation,
+            } => {
+                write!(formatter, "路口 {junction_key} 的车道图边 {edge_key}")?;
+                if let Some(path_key) = path_key {
+                    write!(formatter, "（机动路径 {path_key}）")?;
+                }
+                formatter.write_str(match violation {
+                    JunctionEdgeSetViolation::ApproachNotSectionDerived => {
+                        "不是道路区段派生边，不能声明为 approach edge"
+                    }
+                    JunctionEdgeSetViolation::InternalIsSectionDerived => {
+                        "是道路区段派生边，不能声明为 junction-internal edge"
+                    }
+                    JunctionEdgeSetViolation::BoundaryNotDeclaredApproach => {
+                        "被路径用作边界，但不在显式 approachEdges 集中"
+                    }
+                    JunctionEdgeSetViolation::InternalNotDeclared => {
+                        "被路径用作内部边，但不在显式 internalEdges 集中"
+                    }
+                    JunctionEdgeSetViolation::DeclaredInternalUnused => {
+                        "出现在显式 internalEdges 集中，但不属于该路口任何路径"
+                    }
+                    JunctionEdgeSetViolation::ApproachClaimedInternal => {
+                        "同时属于全局 approach 与 junction-internal 角色"
+                    }
+                })
+            }
             DiagnosticPayload::ManeuverGateTransitionOutOfRange {
                 maneuver_gate_key,
                 maneuver_path_key,

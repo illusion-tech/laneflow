@@ -846,6 +846,9 @@ pub(crate) struct JunctionDeclaration {
     /// Synthetic 前端没有这一独立来源集合，因此保持为空；RoadEditingSource 用它在 HIR
     /// 阶段验证引用存在性以及 junction boundary/internal role 闭包。
     pub(crate) approach_edges: Box<[OwnedEntityReference<LaneEdgeKind>]>,
+    /// 来源显式声明的全部 junction-internal edge；HIR 要求它与所属路径内部边的并集
+    /// 精确相等，并且与所有路口 approach 集全局不交叠。
+    pub(crate) internal_edges: Box<[OwnedEntityReference<LaneEdgeKind>]>,
 }
 
 /// 已通过字段级检查、等待解析唯一 Junction 父项的通行流向 Typed AST 记录。
@@ -1090,9 +1093,11 @@ impl TypedAstDeclaration {
             Self::Junction(JunctionDeclaration {
                 header,
                 approach_edges,
+                internal_edges,
             }) => {
                 try_visit_declaration_header(header, &mut visit)?;
                 try_visit_references(approach_edges, &mut visit)?;
+                try_visit_references(internal_edges, &mut visit)?;
             }
             Self::Movement(MovementDeclaration {
                 header,
