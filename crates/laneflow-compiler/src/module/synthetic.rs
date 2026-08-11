@@ -1359,6 +1359,7 @@ impl SyntheticModuleBuilder {
                     phase.signal_phase_key.into(),
                     span.clone().into(),
                 ),
+                controller_relation_span: span.clone().into(),
                 duration_ms: phase.duration_ms,
                 states: states.into_boxed_slice(),
             });

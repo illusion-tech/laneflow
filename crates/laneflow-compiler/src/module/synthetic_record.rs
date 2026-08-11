@@ -397,7 +397,9 @@ pub(super) fn signal_controller_input_len(
     for phase in phases {
         length = length
             .saturating_add(declaration_header_len(phase.signal_phase_key))
-            .saturating_add(8 + 4);
+            // controller_relation_span 与 synthetic phase 声明共用同一文本位置，但仍是
+            // 独立来源语义，必须进入精确来源记录。
+            .saturating_add(16 + 8 + 4);
         for state in phase.states {
             length = length
                 .saturating_add(encoded_reference_len(
@@ -425,7 +427,7 @@ pub(super) fn signal_controller_declaration_len(declaration: &SignalControllerDe
     for phase in &declaration.phases {
         length = length
             .saturating_add(declaration_header_len(&phase.header.stable_key))
-            .saturating_add(8 + 4);
+            .saturating_add(16 + 8 + 4);
         for state in &phase.states {
             length = length
                 .saturating_add(encoded_reference_len(
@@ -877,6 +879,7 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
             );
             for phase in &declaration.phases {
                 put_declaration_header(output, &phase.header);
+                put_source_location(output, &phase.controller_relation_span);
                 output.extend_from_slice(&phase.duration_ms.to_le_bytes());
                 output.extend_from_slice(
                     &u32::try_from(phase.states.len())

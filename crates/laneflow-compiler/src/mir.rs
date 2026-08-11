@@ -302,6 +302,7 @@ pub(crate) struct MirSignalPhase {
     pub(crate) controller: MirSignalControllerKey,
     pub(crate) duration_ms: u64,
     pub(crate) states: TableRange<MirSignalPhaseState>,
+    pub(crate) controller_relation_source_location: ResolvedSourceLocation,
     pub(crate) source_span: SourceLocation,
 }
 
@@ -1322,6 +1323,9 @@ pub(crate) fn lower_to_mir(
                 controller: signal_controller_mapping[phase.controller.index()],
                 duration_ms: phase.duration_ms,
                 states: remap_range(phase.states, &unit.limits, &phase.source_span)?,
+                controller_relation_source_location: phase
+                    .controller_relation_source_location
+                    .clone(),
                 source_span: phase.source_span.clone(),
             })
         })
