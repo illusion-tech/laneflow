@@ -797,6 +797,7 @@ pub enum DiagnosticPayload {
         entity_kind: EntityKind,
         source_key: Box<str>,
         target_namespace: Box<str>,
+        target_owner_local_keys: Box<[Box<str>]>,
         target_key: Box<str>,
     },
     /// 显式 Identity v1 ASCII 字段及其文本失败原因。
@@ -1553,12 +1554,36 @@ impl Diagnostic {
         primary_span: impl Into<SourceLocation>,
         source_declaration_span: impl Into<SourceLocation>,
     ) -> Self {
+        Self::unknown_owner_qualified_reference_target(
+            entity_kind,
+            source_key,
+            target_namespace,
+            &[],
+            target_key,
+            primary_span,
+            source_declaration_span,
+        )
+    }
+
+    pub(crate) fn unknown_owner_qualified_reference_target(
+        entity_kind: EntityKind,
+        source_key: &str,
+        target_namespace: &str,
+        target_owner_local_keys: &[Arc<str>],
+        target_key: &str,
+        primary_span: impl Into<SourceLocation>,
+        source_declaration_span: impl Into<SourceLocation>,
+    ) -> Self {
         Self::error_with_context(
             DiagnosticCode::UnknownReferenceTarget,
             DiagnosticPayload::UnknownReferenceTarget {
                 entity_kind,
                 source_key: source_key.into(),
                 target_namespace: target_namespace.into(),
+                target_owner_local_keys: target_owner_local_keys
+                    .iter()
+                    .map(|key| Box::<str>::from(key.as_ref()))
+                    .collect(),
                 target_key: target_key.into(),
             },
             Some(primary_span),
@@ -3233,12 +3258,19 @@ impl fmt::Display for Diagnostic {
                 entity_kind,
                 source_key,
                 target_namespace,
+                target_owner_local_keys,
                 target_key,
-            } => write!(
-                formatter,
-                "{} 声明 {source_key} 引用了不存在的目标 {target_namespace}:{target_key}",
-                entity_kind.slug()
-            ),
+            } => {
+                write!(
+                    formatter,
+                    "{} 声明 {source_key} 引用了不存在的目标 {target_namespace}::",
+                    entity_kind.slug()
+                )?;
+                for owner_key in target_owner_local_keys {
+                    write!(formatter, "{owner_key}>")?;
+                }
+                formatter.write_str(target_key)
+            }
             DiagnosticPayload::InvalidLaneEdgeLength {
                 stable_key,
                 value_bits,
@@ -4115,6 +4147,15 @@ impl DiagnosticBundle {
             diagnostics: Box::new([diagnostic]),
             diagnostics_truncated: false,
         }
+    }
+
+    pub(crate) fn with_fallback_primary_location(mut self, location: SourceLocation) -> Self {
+        for diagnostic in &mut self.diagnostics {
+            if diagnostic.primary_span.is_none() {
+                diagnostic.primary_span = Some(location.clone());
+            }
+        }
+        self
     }
     /// 返回按规范顺序保留的诊断切片。
     #[must_use]

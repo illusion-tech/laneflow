@@ -1601,7 +1601,7 @@ fn source_map_output_bytes_include_module_declaration_document_ordinal() {
         module.source_documents.iter().fold(
             total
                 .saturating_add(module.descriptor.source_map_logical_bytes())
-                .saturating_add(4 + 8 + 8),
+                .saturating_add(crate::source_map::SOURCE_LOCATION_LOGICAL_BYTES),
             |document_total, document| {
                 document_total.saturating_add(document.source_map_logical_bytes())
             },

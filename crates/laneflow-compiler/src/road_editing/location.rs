@@ -18,6 +18,30 @@ pub(crate) struct RoadEditingLocationFactory {
 }
 
 impl RoadEditingLocationFactory {
+    pub(crate) fn input_module_header(expected_source_document_key: &str) -> SourceLocation {
+        Self {
+            context: empty_context(),
+            document_identity: RoadEditingDocumentIdentity::input(Arc::from(
+                expected_source_document_key,
+            )),
+        }
+        .module_header()
+    }
+
+    pub(crate) fn verified_module_header(
+        module_namespace: &str,
+        source_document_key: &str,
+    ) -> SourceLocation {
+        Self {
+            context: empty_context(),
+            document_identity: RoadEditingDocumentIdentity::verified(
+                Arc::from(module_namespace),
+                Arc::from(source_document_key),
+            ),
+        }
+        .module_header()
+    }
+
     pub(crate) fn from_verified_root(root: wire::RoadEditingSource<'_>) -> Self {
         let header = root.module_header();
         let mut strings = vec![Arc::<str>::from(header.authoring_namespace_id())];
@@ -124,6 +148,44 @@ impl RoadEditingLocationFactory {
         )
     }
 
+    pub(crate) fn road_alignment_property(
+        &self,
+        road_alignment_key: &str,
+        steps: &[RoadEditingPropertyStep],
+        canvas_selection: Option<&str>,
+    ) -> SourceLocation {
+        self.location(
+            RoadEditingSubject::RoadAlignment {
+                address: self.address(
+                    RoadEditingAddressKind::RoadAlignment,
+                    &[],
+                    road_alignment_key,
+                ),
+            },
+            Some(steps),
+            canvas_selection,
+        )
+    }
+
+    pub(crate) fn road_alignment_owner_local(
+        &self,
+        road_alignment_key: &str,
+        relation: RoadEditingRelationKind,
+        occurrence: RoadEditingRelationOccurrence,
+        steps: &[RoadEditingPropertyStep],
+        canvas_selection: Option<&str>,
+    ) -> SourceLocation {
+        self.owner_local_address(
+            RoadEditingAddressKind::RoadAlignment,
+            &[],
+            road_alignment_key,
+            relation,
+            occurrence,
+            steps,
+            canvas_selection,
+        )
+    }
+
     pub(crate) fn property(
         &self,
         entity_kind: EntityKind,
@@ -145,6 +207,10 @@ impl RoadEditingLocationFactory {
         )
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "closed typed location fields remain explicit at relation call sites"
+    )]
     pub(crate) fn owner_local(
         &self,
         owner_kind: EntityKind,
@@ -153,11 +219,34 @@ impl RoadEditingLocationFactory {
         relation: RoadEditingRelationKind,
         occurrence: RoadEditingRelationOccurrence,
         steps: &[RoadEditingPropertyStep],
+        canvas_selection: Option<&str>,
+    ) -> SourceLocation {
+        self.owner_local_address(
+            RoadEditingAddressKind::Declaration(owner_kind),
+            owner_local_keys,
+            owner_key,
+            relation,
+            occurrence,
+            steps,
+            canvas_selection,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn owner_local_address(
+        &self,
+        owner_kind: RoadEditingAddressKind,
+        owner_local_keys: &[&str],
+        owner_key: &str,
+        relation: RoadEditingRelationKind,
+        occurrence: RoadEditingRelationOccurrence,
+        steps: &[RoadEditingPropertyStep],
+        canvas_selection: Option<&str>,
     ) -> SourceLocation {
         self.location(
             RoadEditingSubject::OwnerLocal {
                 owner: RoadEditingOwner::Address(self.address(
-                    RoadEditingAddressKind::Declaration(owner_kind),
+                    owner_kind,
                     owner_local_keys,
                     owner_key,
                 )),
@@ -165,7 +254,7 @@ impl RoadEditingLocationFactory {
                 occurrence,
             },
             Some(steps),
-            None,
+            canvas_selection,
         )
     }
 
@@ -205,8 +294,7 @@ impl RoadEditingLocationFactory {
             kind,
             owner_local_keys
                 .iter()
-                .map(|key| self.context.string_ordinal_for(key))
-                .collect(),
+                .map(|key| self.context.string_ordinal_for(key)),
             self.context.string_ordinal_for(local_key),
         )
     }
@@ -232,6 +320,14 @@ impl RoadEditingLocationFactory {
             None,
         ))
     }
+}
+
+fn empty_context() -> Arc<RoadEditingLocationContext> {
+    Arc::new(RoadEditingLocationContext::new(
+        Box::default(),
+        Box::default(),
+        Box::default(),
+    ))
 }
 
 fn collect_canvas(output: &mut Vec<Arc<str>>, value: Option<&str>) {
@@ -340,6 +436,124 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         for member_id in 0..members {
             paths.push(RoadEditingPropertyPath::new(Box::new([
                 RoadEditingPropertyStep::TableField { table, field_id },
+                RoadEditingPropertyStep::StructMember {
+                    structure,
+                    member_id,
+                },
+            ])));
+        }
+    }
+    for (outer_table, outer_field_id, inner_table, inner_last_field_id) in [
+        (
+            RoadEditingTableKind::ModuleHeader,
+            3,
+            RoadEditingTableKind::Provenance,
+            5_u16,
+        ),
+        (
+            RoadEditingTableKind::RoadAlignment,
+            2,
+            RoadEditingTableKind::CurveProgram,
+            1,
+        ),
+        (
+            RoadEditingTableKind::LaneEdge,
+            3,
+            RoadEditingTableKind::CurveProgram,
+            1,
+        ),
+        (
+            RoadEditingTableKind::RoadCorridor,
+            7,
+            RoadEditingTableKind::CorridorElement,
+            1,
+        ),
+        (
+            RoadEditingTableKind::SignalPhase,
+            2,
+            RoadEditingTableKind::SignalPhaseState,
+            1,
+        ),
+        (
+            RoadEditingTableKind::ParkingSpace,
+            2,
+            RoadEditingTableKind::ParkingLaneAnchor,
+            1,
+        ),
+        (
+            RoadEditingTableKind::ParkingSpace,
+            3,
+            RoadEditingTableKind::ParkingLaneAnchor,
+            1,
+        ),
+        (
+            RoadEditingTableKind::ParkingSpace,
+            4,
+            RoadEditingTableKind::ParkingSpaceGeometry,
+            3,
+        ),
+        (
+            RoadEditingTableKind::AccessRule,
+            5,
+            RoadEditingTableKind::AccessRegulation,
+            2,
+        ),
+        (
+            RoadEditingTableKind::VehicleProfile,
+            2,
+            RoadEditingTableKind::IidmVehicleProfile,
+            6,
+        ),
+    ] {
+        for inner_field_id in 0..=inner_last_field_id {
+            paths.push(RoadEditingPropertyPath::new(Box::new([
+                RoadEditingPropertyStep::TableField {
+                    table: outer_table,
+                    field_id: outer_field_id,
+                },
+                RoadEditingPropertyStep::TableField {
+                    table: inner_table,
+                    field_id: inner_field_id,
+                },
+            ])));
+        }
+    }
+    for (outer_table, outer_field_id) in [
+        (RoadEditingTableKind::RoadAlignment, 2_u16),
+        (RoadEditingTableKind::LaneEdge, 3),
+    ] {
+        for member_id in 0..3_u8 {
+            paths.push(RoadEditingPropertyPath::new(Box::new([
+                RoadEditingPropertyStep::TableField {
+                    table: outer_table,
+                    field_id: outer_field_id,
+                },
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::CurveProgram,
+                    field_id: 0,
+                },
+                RoadEditingPropertyStep::StructMember {
+                    structure: RoadEditingStructKind::Vec3F64,
+                    member_id,
+                },
+            ])));
+        }
+    }
+    for (field_id, structure, members) in [
+        (2_u16, RoadEditingStructKind::Digest256, 1_u8),
+        (3, RoadEditingStructKind::Digest256, 1),
+        (4, RoadEditingStructKind::OptionalU64, 1),
+    ] {
+        for member_id in 0..members {
+            paths.push(RoadEditingPropertyPath::new(Box::new([
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::ModuleHeader,
+                    field_id: 3,
+                },
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::Provenance,
+                    field_id,
+                },
                 RoadEditingPropertyStep::StructMember {
                     structure,
                     member_id,
@@ -489,5 +703,94 @@ mod tests {
                 occurrence: RoadEditingRelationOccurrence::CanonicalSetOrdinal(0),
             }
         ));
+    }
+
+    #[test]
+    fn closed_paths_cover_nested_table_leaves() {
+        let paths = closed_property_paths();
+        for expected in [
+            RoadEditingPropertyPath::new(Box::new([
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::ParkingSpace,
+                    field_id: 2,
+                },
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::ParkingLaneAnchor,
+                    field_id: 1,
+                },
+            ])),
+            RoadEditingPropertyPath::new(Box::new([
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::VehicleProfile,
+                    field_id: 2,
+                },
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::IidmVehicleProfile,
+                    field_id: 6,
+                },
+            ])),
+            RoadEditingPropertyPath::new(Box::new([
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::ModuleHeader,
+                    field_id: 3,
+                },
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::Provenance,
+                    field_id: 2,
+                },
+                RoadEditingPropertyStep::StructMember {
+                    structure: RoadEditingStructKind::Digest256,
+                    member_id: 0,
+                },
+            ])),
+        ] {
+            assert!(
+                paths.contains(&expected),
+                "missing nested path: {expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn road_alignment_segment_location_keeps_address_and_canvas() {
+        let path = RoadEditingPropertyPath::new(Box::new([RoadEditingPropertyStep::TableField {
+            table: RoadEditingTableKind::CurveSegment,
+            field_id: 1,
+        }]));
+        let context = Arc::new(RoadEditingLocationContext::new(
+            Box::new([Arc::from("alignment-main"), Arc::from("city/main")]),
+            Box::new([path]),
+            Box::new([Arc::from("canvas/segment-0")]),
+        ));
+        let factory = RoadEditingLocationFactory {
+            context,
+            document_identity: RoadEditingDocumentIdentity::verified(
+                Arc::from("city/main"),
+                Arc::from("roads/main"),
+            ),
+        };
+
+        let location = factory.road_alignment_owner_local(
+            "alignment-main",
+            RoadEditingRelationKind::CurveSegment,
+            RoadEditingRelationOccurrence::OrderedProductOrdinal(0),
+            &[RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::CurveSegment,
+                field_id: 1,
+            }],
+            Some("canvas/segment-0"),
+        );
+        let road = location.road_editing().expect("road-editing location");
+
+        assert_eq!(road.canvas_selection(), Some("canvas/segment-0"));
+        let RoadEditingSubject::OwnerLocal {
+            owner: RoadEditingOwner::Address(address),
+            ..
+        } = road.subject()
+        else {
+            panic!("road-alignment owner-local subject expected");
+        };
+        assert_eq!(address.kind(), RoadEditingAddressKind::RoadAlignment);
+        assert_eq!(address.local_key(road.context()), "alignment-main");
     }
 }

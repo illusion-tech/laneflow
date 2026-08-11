@@ -193,8 +193,14 @@ pub(crate) fn freeze_source_map(
         .modules
         .iter()
         .fold(0_u64, |total, module| {
+            let road_editing_context_bytes = module
+                .declaration_span()
+                .road_editing()
+                .map_or(0, |location| location.context().source_map_logical_bytes());
             module.source_documents.iter().fold(
-                total.saturating_add(module.descriptor().source_map_logical_bytes()),
+                total
+                    .saturating_add(module.descriptor().source_map_logical_bytes())
+                    .saturating_add(road_editing_context_bytes),
                 |document_total, document| {
                     document_total.saturating_add(document.source_map_logical_bytes())
                 },
