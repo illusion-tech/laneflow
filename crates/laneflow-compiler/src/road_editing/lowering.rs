@@ -115,7 +115,7 @@ fn sort_reference_set(values: &mut [&str], component_count: u8, current_namespac
 }
 
 /// 先降阶不依赖几何载荷或 owner 聚合的独立声明族。
-fn lower_independent_declarations(
+pub(super) fn lower_independent_declarations(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
 ) -> Vec<TypedAstDeclaration> {
@@ -339,7 +339,7 @@ fn lower_independent_declarations(
 }
 
 /// 降阶以完整 owner tuple 定址、但不依赖几何点载荷或嵌套聚合的声明族。
-fn lower_owner_scoped_declarations(
+pub(super) fn lower_owner_scoped_declarations(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
 ) -> Vec<TypedAstDeclaration> {

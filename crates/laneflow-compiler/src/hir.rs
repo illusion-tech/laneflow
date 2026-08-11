@@ -2749,6 +2749,27 @@ fn build_junction_hir(
 
     let mut diagnostics =
         DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    // RoadEditingSource 的 approachEdges 是完整显式集合。即使某条边没有被任一
+    // ManeuverPath 使用，也必须在进入 junction role 闭包前验证目标存在；Synthetic
+    // Junction 的集合为空，不改变原有合成前端语义。
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        for declaration in &source_module.declarations {
+            let TypedAstDeclaration::Junction(source) = declaration else {
+                continue;
+            };
+            for approach in &source.approach_edges {
+                let _ = resolve_reference(
+                    module_lookup,
+                    lane_edge_symbols,
+                    approach,
+                    EntityKind::Junction,
+                    &source.header,
+                    u32::try_from(module_index).unwrap_or(u32::MAX),
+                    &mut diagnostics,
+                );
+            }
+        }
+    }
     let mut junction_member_counts = vec![0_usize; junctions.len()];
     for location in &movement_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
