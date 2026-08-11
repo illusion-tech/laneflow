@@ -22,9 +22,9 @@ pub(crate) enum SourceDocumentTag {}
 /// 仅在同一次编译的来源模块描述符表内有效的致密序号。
 pub(crate) type SourceDocumentOrdinal = ArenaKey<SourceDocumentTag>;
 
-pub(super) struct ImportRecord {
-    pub(super) namespace: Arc<str>,
-    pub(super) span: SourceLocation,
+pub(crate) struct ImportRecord {
+    pub(crate) namespace: Arc<str>,
+    pub(crate) span: SourceLocation,
 }
 
 /// 官方前端完成受检构造后交给共同编译管线的 Typed AST 模块。
@@ -32,7 +32,7 @@ pub(crate) struct TypedAstModule {
     pub(crate) descriptor: SourceModuleDescriptor,
     pub(crate) declaration_span: SourceLocation,
     pub(crate) source_documents: Box<[SourceDocumentDescriptor]>,
-    pub(super) imports: Box<[ImportRecord]>,
+    pub(crate) imports: Box<[ImportRecord]>,
     /// 只对已经执行 authoring numeric freeze 的官方来源存在；共同 HIR 在完整模块图上
     /// 校验所有此类模块使用同一对位置/方向档。
     pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
@@ -57,13 +57,13 @@ impl TypedAstModule {
 }
 
 /// 描述符、文档、Typed AST 与准入资源计数不可分的内部载荷。
-pub(super) struct AdmittedOfficialModule {
+pub(crate) struct AdmittedOfficialModule {
     typed_ast: TypedAstModule,
     pub(super) resource_counts: ModuleResourceCounts,
 }
 
 impl AdmittedOfficialModule {
-    pub(super) fn new(typed_ast: TypedAstModule, resource_counts: ModuleResourceCounts) -> Self {
+    pub(crate) fn new(typed_ast: TypedAstModule, resource_counts: ModuleResourceCounts) -> Self {
         assert!(
             typed_ast.source_documents.windows(2).all(|pair| {
                 pair[0].source_document_key.as_bytes() <= pair[1].source_document_key.as_bytes()
@@ -76,7 +76,7 @@ impl AdmittedOfficialModule {
         }
     }
 
-    pub(super) const fn typed_ast(&self) -> &TypedAstModule {
+    pub(crate) const fn typed_ast(&self) -> &TypedAstModule {
         &self.typed_ast
     }
 }
@@ -731,13 +731,66 @@ impl CompilationUnitBuilder {
     }
 
     #[inline]
-    fn admit_official_module(
+    pub(crate) fn admit_official_module(
         &mut self,
         module: AdmittedOfficialModule,
     ) -> Result<&mut Self, DiagnosticBundle> {
         let plan = self.prepare_admission(module)?;
         self.commit_admission(plan);
         Ok(self)
+    }
+
+    pub(crate) const fn road_editing_limits(&self) -> &CompileLimits {
+        &self.limits
+    }
+
+    pub(crate) const fn road_editing_source_bytes_already_admitted(&self) -> u64 {
+        self.totals.source_bytes_total
+    }
+
+    pub(crate) const fn road_editing_typed_ast_records_already_admitted(&self) -> u64 {
+        self.totals.typed_ast_record_count
+    }
+
+    pub(crate) fn road_editing_remaining_geometry_points(&self) -> u64 {
+        self.limits
+            .value(CompileLimitDimension::GeometryPointCount)
+            .saturating_sub(self.totals.geometry_point_count)
+    }
+
+    pub(crate) fn already_admitted(&self, dimension: CompileLimitDimension) -> u64 {
+        match dimension {
+            CompileLimitDimension::ModuleCount => self.totals.module_count,
+            CompileLimitDimension::SourceDocumentCount => self.totals.source_document_count,
+            CompileLimitDimension::ImportEdgeCount => self.totals.import_edge_count,
+            CompileLimitDimension::SourceBytesTotal => self.totals.source_bytes_total,
+            CompileLimitDimension::DeclarationCount => self.totals.declaration_count,
+            CompileLimitDimension::TypedAstRecordCount => self.totals.typed_ast_record_count,
+            CompileLimitDimension::ReferenceCount => self.totals.reference_count,
+            CompileLimitDimension::RelationOccurrenceCount => self.totals.relation_occurrence_count,
+            CompileLimitDimension::IdentityFieldOccurrenceCount => {
+                self.totals.identity_field_occurrence_count
+            }
+            CompileLimitDimension::SymbolCount => self.totals.symbol_count,
+            CompileLimitDimension::StringItemCount => self.totals.string_item_count,
+            CompileLimitDimension::TotalStringBytes => self.totals.string_bytes,
+            CompileLimitDimension::ManeuverGateCount => self.totals.maneuver_gate_count,
+            CompileLimitDimension::WaitingZoneCount => self.totals.waiting_zone_count,
+            CompileLimitDimension::RouteOccurrenceCount => self.totals.route_occurrence_count,
+            CompileLimitDimension::GeometryPointCount => self.totals.geometry_point_count,
+            CompileLimitDimension::CompilerControlledLiveBytes => {
+                self.totals.module_payload_live_bytes
+            }
+            CompileLimitDimension::SourceBytesPerModule
+            | CompileLimitDimension::SingleStringBytes
+            | CompileLimitDimension::DiagnosticCount
+            | CompileLimitDimension::HirRecordCount
+            | CompileLimitDimension::MirRecordCount
+            | CompileLimitDimension::LirRecordCount
+            | CompileLimitDimension::StageScratchBytes
+            | CompileLimitDimension::OutputBytes
+            | CompileLimitDimension::RetainedCapacityBytes => 0,
+        }
     }
 
     #[inline]

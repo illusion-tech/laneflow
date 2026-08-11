@@ -46,6 +46,15 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 `TypedAstDeclaration`，具体官方前端通过同一条原子私有接入路径提交。逻辑模块与
 一份或多份 `SourceDocumentDescriptor` 独立建模；模块使用版本化
 `sourceDocumentSetDigest`，每份文档单独保留键、SHA-256、长度与冷显示/审计来源。
+道路编辑来源由唯一的 `CompilationUnitBuilder::add_road_editing_module` 接收借用的
+size-prefixed `LFRE` bytes；同一事务完成有界 verifier、语义预检、owner-qualified
+Typed AST 降阶、authoring geometry 数值冻结和共同准入。失败不会污染 builder，成功后
+只保留 owned 描述符、编译结果与共享来源位置 context，不保留 wire bytes 或 generated
+view。最终 LaneEdge 与不可遍历 FacilityBand 的规范 `f32` 点表进入同一 HIR/MIR/LIR
+管线，但仍分别保存在可遍历边表与设施带稀疏几何表中。alignment station rows、
+regularity visit cache、待提交几何包装与单 corridor 临时集合使用一个累计 stage-scratch
+账本，并同时受 compiler-controlled live-byte 剩余空间约束，不能按每条 alignment 重复
+享用完整上限。
 `LF-COMP-P100-INITIAL-v1` 保持不变且只支持每模块一份文档；
 `LF-COMP-P100-INITIAL-v2` 只新增 `max_source_document_count = 1566`。
 `sourceDocumentKey` 在整个编译单元内唯一，来源位置按每条 span 的文档键解析独立

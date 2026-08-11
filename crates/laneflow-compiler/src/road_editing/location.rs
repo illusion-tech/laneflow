@@ -18,6 +18,30 @@ pub(crate) struct RoadEditingLocationFactory {
 }
 
 impl RoadEditingLocationFactory {
+    pub(crate) fn input_module_header(expected_source_document_key: &str) -> SourceLocation {
+        Self {
+            context: empty_context(),
+            document_identity: RoadEditingDocumentIdentity::input(Arc::from(
+                expected_source_document_key,
+            )),
+        }
+        .module_header()
+    }
+
+    pub(crate) fn verified_module_header(
+        module_namespace: &str,
+        source_document_key: &str,
+    ) -> SourceLocation {
+        Self {
+            context: empty_context(),
+            document_identity: RoadEditingDocumentIdentity::verified(
+                Arc::from(module_namespace),
+                Arc::from(source_document_key),
+            ),
+        }
+        .module_header()
+    }
+
     pub(crate) fn from_verified_root(root: wire::RoadEditingSource<'_>) -> Self {
         let header = root.module_header();
         let mut strings = vec![Arc::<str>::from(header.authoring_namespace_id())];
@@ -231,6 +255,10 @@ impl RoadEditingLocationFactory {
         self.location(RoadEditingSubject::ModuleHeader, None, None)
     }
 
+    pub(crate) fn controlled_live_bytes(&self) -> u64 {
+        self.context.controlled_live_bytes()
+    }
+
     fn address(
         &self,
         kind: RoadEditingAddressKind,
@@ -273,6 +301,14 @@ impl RoadEditingLocationFactory {
             None,
         ))
     }
+}
+
+fn empty_context() -> Arc<RoadEditingLocationContext> {
+    Arc::new(RoadEditingLocationContext::new(
+        Box::default(),
+        Box::default(),
+        Box::default(),
+    ))
 }
 
 fn collect_canvas(output: &mut Vec<Arc<str>>, value: Option<&str>) {

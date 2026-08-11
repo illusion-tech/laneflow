@@ -2,6 +2,7 @@ use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
 use laneflow_road_editing_wire::runtime::{InvalidFlatbuffer, VerifierOptions};
 
 use super::RoadEditingModuleInput;
+use super::location::RoadEditingLocationFactory;
 use super::preflight::{RoadEditingPreflightCounts, preflight_source};
 use crate::{
     CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, RoadEditingSourceViolation,
@@ -32,6 +33,7 @@ impl<'a> VerifiedRoadEditingSource<'a> {
         self.root
     }
 
+    #[cfg(test)]
     pub(crate) const fn table_count(&self) -> u64 {
         self.table_count
     }
@@ -62,6 +64,7 @@ pub(crate) fn verify_source<'a>(
             CompileLimitDimension::SourceBytesPerModule,
             per_module_limit,
             source_len,
+            expected_key,
         ));
     }
     let source_total_limit = limits.value(CompileLimitDimension::SourceBytesTotal);
@@ -71,6 +74,7 @@ pub(crate) fn verify_source<'a>(
             CompileLimitDimension::SourceBytesTotal,
             source_total_limit,
             source_total,
+            expected_key,
         ));
     }
     if bytes.len() < MIN_SIZE_PREFIXED_LFRE_BYTES {
@@ -167,10 +171,18 @@ pub(crate) fn verify_source<'a>(
             CompileLimitDimension::TypedAstRecordCount,
             typed_ast_limit,
             total_records,
+            expected_key,
         ));
     }
 
-    let preflight_counts = preflight_source(root, limits, expected_key)?;
+    let verified_header_location = || {
+        RoadEditingLocationFactory::verified_module_header(
+            root.module_header().authoring_namespace_id(),
+            expected_key,
+        )
+    };
+    let preflight_counts = preflight_source(root, limits, expected_key)
+        .map_err(|bundle| bundle.with_fallback_primary_location(verified_header_location()))?;
     if preflight_counts.typed_ast_record_count() != typed_ast_record_count {
         return Err(semantic_error(
             "roadEditingSource.tableAccounting",
@@ -199,6 +211,7 @@ fn verifier_error(
             limits
                 .value(CompileLimitDimension::TypedAstRecordCount)
                 .saturating_add(1),
+            expected_key,
         ),
         InvalidFlatbuffer::ApparentSizeTooLarge => source_error(
             RoadEditingSourceViolation::VerifierApparentSizeExceeded,
@@ -229,11 +242,14 @@ fn source_error(
     expected_key: &str,
     actual_key: Option<&str>,
 ) -> DiagnosticBundle {
-    DiagnosticBundle::single(Diagnostic::invalid_road_editing_source(
+    DiagnosticBundle::single(Diagnostic::invalid_road_editing_source_at(
         violation,
         None,
         expected_key,
         actual_key,
+        Some(RoadEditingLocationFactory::input_module_header(
+            expected_key,
+        )),
     ))
 }
 
@@ -250,9 +266,20 @@ fn semantic_error(
     ))
 }
 
-fn limit_error(dimension: CompileLimitDimension, limit: u64, observed: u64) -> DiagnosticBundle {
-    DiagnosticBundle::single(Diagnostic::compile_limit_exceeded(
-        dimension, limit, observed,
+fn limit_error(
+    dimension: CompileLimitDimension,
+    limit: u64,
+    observed: u64,
+    expected_key: &str,
+) -> DiagnosticBundle {
+    DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
+        dimension,
+        limit,
+        observed,
+        Some(RoadEditingLocationFactory::input_module_header(
+            expected_key,
+        )),
+        None,
     ))
 }
 

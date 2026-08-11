@@ -13,8 +13,8 @@ use crate::{GeometryAccuracyProfile, GeometryDirectionProfile};
 use super::geometry::{
     ApproximationInterval, ApproximationPoint, ApproximationPointSink, ApproximationVertex,
     CurveSegment, NumericFreezeError, OffsetInterval, Point3, SegmentEvaluator, StationInterval,
-    approximate_interval, canonical_point_distance, point_distance, quantize_point,
-    validate_canonical_polyline,
+    approximate_interval, canonical_point_distance, numeric_stack_scratch_bytes, point_distance,
+    quantize_point, validate_canonical_polyline,
 };
 
 const MAX_SOURCE_JOIN_GAP_METERS: f64 = 0.005;
@@ -28,6 +28,7 @@ pub(super) struct ReferenceStationRow {
     pub(super) cumulative_end_meters: f64,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ReferenceStationPosition {
     pub(super) row_index: u32,
@@ -35,6 +36,7 @@ pub(super) struct ReferenceStationPosition {
     pub(super) parameter: f64,
 }
 
+#[cfg(test)]
 pub(super) fn locate_reference_station(
     rows: &[ReferenceStationRow],
     station_meters: f64,
@@ -62,6 +64,30 @@ pub(super) struct CompiledCurve {
 pub(super) struct CompiledAlignmentReference {
     pub(super) station_rows: Box<[ReferenceStationRow]>,
     pub(super) horizontal_regularity_visits: Box<[u32]>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct AlignmentReferenceSizing {
+    station_rows: usize,
+    horizontal_regularity_visits: Box<[u32]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct GeometryCompilationUsage {
+    pub(super) output_point_count: u64,
+    pub(super) peak_scratch_bytes: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum GeometryCompilationError {
+    Numeric(NumericFreezeError),
+    ScratchLimit { limit: u64, observed: u64 },
+}
+
+impl From<NumericFreezeError> for GeometryCompilationError {
+    fn from(value: NumericFreezeError) -> Self {
+        Self::Numeric(value)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -181,21 +207,97 @@ pub(super) fn compile_authoring_geometry(
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
     geometry_point_limit: u64,
-) -> Result<u64, NumericFreezeError> {
-    let mut compiled_alignments = Vec::with_capacity(alignments.len());
+    scratch_limit: u64,
+) -> Result<GeometryCompilationUsage, GeometryCompilationError> {
+    let expected_lane_outputs = declarations
+        .iter()
+        .filter(|declaration| {
+            matches!(
+                declaration,
+                TypedAstDeclaration::LaneEdge(edge)
+                    if matches!(edge.geometry_authority, LaneEdgeGeometryAuthority::Authoring { .. })
+            )
+        })
+        .count();
+    let expected_facility_outputs = declarations
+        .iter()
+        .filter(|declaration| {
+            matches!(
+                declaration,
+                TypedAstDeclaration::FacilityBand(facility)
+                    if facility.authoring_width_profile.is_some()
+            )
+        })
+        .count();
+
+    // alignment station rows and visit caches stay live together until every corridor has
+    // consumed them. Freeze their complete requested-capacity peak before allocating the first
+    // input-dependent box; the per-corridor member arrays are checked against the same base below.
+    let regularity_visit_count = alignments.iter().fold(0_usize, |total, alignment| {
+        total.saturating_add(alignment.reference_line.segments.len())
+    });
+    let fixed_scratch_bytes = numeric_stack_scratch_bytes()
+        .saturating_add(capacity_bytes::<AlignmentReferenceSizing>(alignments.len()))
+        .saturating_add(capacity_bytes::<CompiledAlignmentEntry<'_>>(
+            alignments.len(),
+        ))
+        .saturating_add(capacity_bytes::<u32>(regularity_visit_count))
+        .saturating_add(capacity_bytes::<PendingLaneGeometry>(expected_lane_outputs))
+        .saturating_add(capacity_bytes::<PendingFacilityGeometry>(
+            expected_facility_outputs,
+        ));
+    check_scratch_limit(scratch_limit, fixed_scratch_bytes)?;
+    let station_row_budget = scratch_limit.saturating_sub(fixed_scratch_bytes)
+        / u64::try_from(core::mem::size_of::<ReferenceStationRow>()).unwrap_or(u64::MAX);
+    let mut remaining_station_rows = station_row_budget;
+    let mut alignment_sizings = Vec::with_capacity(alignments.len());
     for alignment in &alignments {
+        let transient_vertex_limit = remaining_station_rows.saturating_add(1);
+        let sizing =
+            match measure_alignment_reference(&alignment.reference_line, transient_vertex_limit) {
+                Ok(value) => value,
+                Err(NumericFreezeError::GeometryPointLimit) => {
+                    return Err(GeometryCompilationError::ScratchLimit {
+                        limit: scratch_limit,
+                        observed: scratch_limit.saturating_add(1),
+                    });
+                }
+                Err(error) => return Err(error.into()),
+            };
+        remaining_station_rows = remaining_station_rows
+            .saturating_sub(u64::try_from(sizing.station_rows).unwrap_or(u64::MAX));
+        alignment_sizings.push(sizing);
+    }
+    let station_row_count = station_row_budget.saturating_sub(remaining_station_rows);
+    let retained_alignment_scratch_bytes = numeric_stack_scratch_bytes()
+        .saturating_add(capacity_bytes::<CompiledAlignmentEntry<'_>>(
+            alignments.len(),
+        ))
+        .saturating_add(capacity_bytes::<ReferenceStationRow>(
+            usize::try_from(station_row_count).unwrap_or(usize::MAX),
+        ))
+        .saturating_add(capacity_bytes::<u32>(regularity_visit_count))
+        .saturating_add(capacity_bytes::<PendingLaneGeometry>(expected_lane_outputs))
+        .saturating_add(capacity_bytes::<PendingFacilityGeometry>(
+            expected_facility_outputs,
+        ));
+    let mut peak_scratch_bytes =
+        fixed_scratch_bytes.saturating_add(capacity_bytes::<ReferenceStationRow>(
+            usize::try_from(station_row_count).unwrap_or(usize::MAX),
+        ));
+    check_scratch_limit(scratch_limit, peak_scratch_bytes)?;
+
+    let mut compiled_alignments = Vec::with_capacity(alignments.len());
+    for (alignment, sizing) in alignments.iter().zip(alignment_sizings) {
         compiled_alignments.push(CompiledAlignmentEntry {
             declaration: alignment,
-            reference: compile_alignment_reference(
-                &alignment.reference_line,
-                geometry_point_limit,
-            )?,
+            reference: compile_measured_alignment_reference(&alignment.reference_line, sizing)?,
         });
     }
 
     let mut used_points = 0_u64;
-    let mut lane_outputs = Vec::new();
-    let mut facility_outputs = Vec::new();
+    let mut lane_outputs = Vec::with_capacity(expected_lane_outputs);
+    let mut facility_outputs = Vec::with_capacity(expected_facility_outputs);
 
     for declaration in declarations.iter() {
         let TypedAstDeclaration::LaneEdge(edge) = declaration else {
@@ -250,12 +352,27 @@ pub(super) fn compile_authoring_geometry(
             }
         };
 
-        let mut members = Vec::new();
+        let expected_member_count =
+            corridor_member_count(corridor, declarations, authoring_namespace_id)?;
+        // `members`, width profiles and derived offsets coexist only for this corridor. Their
+        // canonical member count is known before allocation, so the peak remains exact and local.
+        let corridor_scratch_bytes = retained_alignment_scratch_bytes
+            .saturating_add(capacity_bytes::<CorridorMember<'_>>(expected_member_count))
+            .saturating_add(capacity_bytes::<AuthoringWidthProfile>(
+                expected_member_count,
+            ))
+            .saturating_add(capacity_bytes::<MemberOffsetEndpoints>(
+                expected_member_count,
+            ));
+        check_scratch_limit(scratch_limit, corridor_scratch_bytes)?;
+        peak_scratch_bytes = peak_scratch_bytes.max(corridor_scratch_bytes);
+
+        let mut members = Vec::with_capacity(expected_member_count);
         for element in &corridor.elements {
             match element {
                 OwnedCorridorElementReference::RoadSection(reference) => {
                     if reference.module_namespace.as_ref() != authoring_namespace_id {
-                        return Err(NumericFreezeError::GeometryTopologyMismatch);
+                        return Err(NumericFreezeError::GeometryTopologyMismatch.into());
                     }
                     let section = find_road_section(declarations, &reference.target_address)
                         .ok_or(NumericFreezeError::GeometryTopologyMismatch)?;
@@ -263,7 +380,7 @@ pub(super) fn compile_authoring_geometry(
                 }
                 OwnedCorridorElementReference::FacilityBand(reference) => {
                     if reference.module_namespace.as_ref() != authoring_namespace_id {
-                        return Err(NumericFreezeError::GeometryTopologyMismatch);
+                        return Err(NumericFreezeError::GeometryTopologyMismatch.into());
                     }
                     let facility = find_facility_band(declarations, &reference.target_address)
                         .ok_or(NumericFreezeError::GeometryTopologyMismatch)?;
@@ -280,6 +397,7 @@ pub(super) fn compile_authoring_geometry(
                 }
             }
         }
+        debug_assert_eq!(members.len(), expected_member_count);
         let reference_ordinal = members
             .iter()
             .position(|member| {
@@ -287,8 +405,10 @@ pub(super) fn compile_authoring_geometry(
                     && authoring.reference_lane.module_namespace.as_ref() == authoring_namespace_id
             })
             .ok_or(NumericFreezeError::GeometryTopologyMismatch)?;
-        let width_profiles: Vec<_> = members.iter().map(|member| member.width_profile).collect();
+        let mut width_profiles = Vec::with_capacity(expected_member_count);
+        width_profiles.extend(members.iter().map(|member| member.width_profile));
         let offsets = derive_member_offset_endpoints(&width_profiles, reference_ordinal)?;
+        drop(width_profiles);
 
         for (member, offset) in members.into_iter().zip(offsets.iter()) {
             let lane_direction = match member.target {
@@ -342,29 +462,9 @@ pub(super) fn compile_authoring_geometry(
             .windows(2)
             .any(|pair| pair[0].target == pair[1].target)
     {
-        return Err(NumericFreezeError::GeometryTopologyMismatch);
+        return Err(NumericFreezeError::GeometryTopologyMismatch.into());
     }
 
-    let expected_lane_outputs = declarations
-        .iter()
-        .filter(|declaration| {
-            matches!(
-                declaration,
-                TypedAstDeclaration::LaneEdge(edge)
-                    if matches!(edge.geometry_authority, LaneEdgeGeometryAuthority::Authoring { .. })
-            )
-        })
-        .count();
-    let expected_facility_outputs = declarations
-        .iter()
-        .filter(|declaration| {
-            matches!(
-                declaration,
-                TypedAstDeclaration::FacilityBand(facility)
-                    if facility.authoring_width_profile.is_some()
-            )
-        })
-        .count();
     if expected_lane_outputs != lane_outputs.len()
         || expected_facility_outputs != facility_outputs.len()
         || declarations.iter().any(|declaration| match declaration {
@@ -388,7 +488,7 @@ pub(super) fn compile_authoring_geometry(
             _ => false,
         })
     {
-        return Err(NumericFreezeError::GeometryTopologyMismatch);
+        return Err(NumericFreezeError::GeometryTopologyMismatch.into());
     }
 
     for declaration in declarations.iter_mut() {
@@ -430,7 +530,52 @@ pub(super) fn compile_authoring_geometry(
     }
     debug_assert!(lane_outputs.iter().all(|output| output.value.is_none()));
     debug_assert!(facility_outputs.iter().all(|output| output.value.is_none()));
-    Ok(used_points)
+    Ok(GeometryCompilationUsage {
+        output_point_count: used_points,
+        peak_scratch_bytes,
+    })
+}
+
+fn corridor_member_count(
+    corridor: &crate::declaration::RoadCorridorDeclaration,
+    declarations: &[TypedAstDeclaration],
+    authoring_namespace_id: &str,
+) -> Result<usize, NumericFreezeError> {
+    let mut count = 0_usize;
+    for element in &corridor.elements {
+        match element {
+            OwnedCorridorElementReference::RoadSection(reference) => {
+                if reference.module_namespace.as_ref() != authoring_namespace_id {
+                    return Err(NumericFreezeError::GeometryTopologyMismatch);
+                }
+                let section = find_road_section(declarations, &reference.target_address)
+                    .ok_or(NumericFreezeError::GeometryTopologyMismatch)?;
+                count = count.saturating_add(section.lanes.len());
+            }
+            OwnedCorridorElementReference::FacilityBand(reference) => {
+                if reference.module_namespace.as_ref() != authoring_namespace_id
+                    || find_facility_band(declarations, &reference.target_address).is_none()
+                {
+                    return Err(NumericFreezeError::GeometryTopologyMismatch);
+                }
+                count = count.saturating_add(1);
+            }
+        }
+    }
+    Ok(count)
+}
+
+fn capacity_bytes<T>(capacity: usize) -> u64 {
+    u64::try_from(core::mem::size_of::<T>())
+        .unwrap_or(u64::MAX)
+        .saturating_mul(u64::try_from(capacity).unwrap_or(u64::MAX))
+}
+
+fn check_scratch_limit(limit: u64, observed: u64) -> Result<(), GeometryCompilationError> {
+    if observed > limit {
+        return Err(GeometryCompilationError::ScratchLimit { limit, observed });
+    }
+    Ok(())
 }
 
 fn append_section_members<'a>(
@@ -542,10 +687,19 @@ pub(super) fn compile_explicit_curve(
     })
 }
 
+#[cfg(test)]
 pub(super) fn compile_alignment_reference(
     program: &AuthoringCurveProgramDeclaration,
     transient_vertex_limit: u64,
 ) -> Result<CompiledAlignmentReference, NumericFreezeError> {
+    let sizing = measure_alignment_reference(program, transient_vertex_limit)?;
+    compile_measured_alignment_reference(program, sizing)
+}
+
+fn measure_alignment_reference(
+    program: &AuthoringCurveProgramDeclaration,
+    transient_vertex_limit: u64,
+) -> Result<AlignmentReferenceSizing, NumericFreezeError> {
     let mut station_counter = CountingSink {
         count: 0,
         limit: transient_vertex_limit,
@@ -559,12 +713,30 @@ pub(super) fn compile_alignment_reference(
     )?;
     let expected_station_rows = usize::try_from(station_counter.count.saturating_sub(1))
         .map_err(|_| NumericFreezeError::GeometryPointLimit)?;
+
+    let mut visits = Vec::with_capacity(program.segments.len());
+    let mut start = point3(program.start)?;
+    for source in &program.segments {
+        let (segment, end) = source_segment(start, source)?;
+        visits.push(segment.prove_horizontal_regularity()?);
+        start = end;
+    }
+    Ok(AlignmentReferenceSizing {
+        station_rows: expected_station_rows,
+        horizontal_regularity_visits: visits.into_boxed_slice(),
+    })
+}
+
+fn compile_measured_alignment_reference(
+    program: &AuthoringCurveProgramDeclaration,
+    sizing: AlignmentReferenceSizing,
+) -> Result<CompiledAlignmentReference, NumericFreezeError> {
     let mut station_collector = StationRowSink {
-        rows: Vec::with_capacity(expected_station_rows),
+        rows: Vec::with_capacity(sizing.station_rows),
         active_segment: None,
         cumulative_meters: 0.0,
         seen_first_point: false,
-        expected_rows: expected_station_rows,
+        expected_rows: sizing.station_rows,
     };
     walk_reference_program(
         program,
@@ -576,16 +748,12 @@ pub(super) fn compile_alignment_reference(
         return Err(NumericFreezeError::ApproximationNotConverged);
     }
 
-    let mut visits = Vec::with_capacity(program.segments.len());
-    let mut start = point3(program.start)?;
-    for source in &program.segments {
-        let (segment, end) = source_segment(start, source)?;
-        visits.push(segment.prove_horizontal_regularity()?);
-        start = end;
+    if sizing.horizontal_regularity_visits.len() != program.segments.len() {
+        return Err(NumericFreezeError::ApproximationNotConverged);
     }
     Ok(CompiledAlignmentReference {
         station_rows: station_collector.rows.into_boxed_slice(),
-        horizontal_regularity_visits: visits.into_boxed_slice(),
+        horizontal_regularity_visits: sizing.horizontal_regularity_visits,
     })
 }
 
@@ -1373,9 +1541,11 @@ mod tests {
             GeometryAccuracyProfile::Balanced5Cm,
             GeometryDirectionProfile::Balanced2Deg,
             6,
+            u64::MAX,
         )
         .unwrap();
-        assert_eq!(used_points, 6);
+        assert_eq!(used_points.output_point_count, 6);
+        assert!(used_points.peak_scratch_bytes > 0);
 
         let edge_a = declarations
             .iter()
@@ -1456,8 +1626,11 @@ mod tests {
                 GeometryAccuracyProfile::Balanced5Cm,
                 GeometryDirectionProfile::Balanced2Deg,
                 5,
+                u64::MAX,
             ),
-            Err(NumericFreezeError::GeometryPointLimit)
+            Err(GeometryCompilationError::Numeric(
+                NumericFreezeError::GeometryPointLimit
+            ))
         );
         assert!(rejected.iter().any(|declaration| matches!(
             declaration,

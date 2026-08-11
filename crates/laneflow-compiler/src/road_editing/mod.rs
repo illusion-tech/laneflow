@@ -1,13 +1,11 @@
 //! 第一方道路编辑编制模型与 FlatBuffers writer。
 //!
 //! 本模块是编辑器和程序化生成器使用的字段私有 production authoring API。编译输入仍
-//! 只接受后续 reader 切片定义的受检 size-prefixed bytes；这里不公开 generated table。
+//! 只接受原子 reader/admission 路径中的受检 size-prefixed bytes；这里不公开 generated
+//! table 或 verifier 后的借用 view。
 
+mod admission;
 mod builder;
-#[allow(
-    dead_code,
-    reason = "consumed by the following RoadEditingSource atomic admission slice"
-)]
 mod compile_geometry;
 #[allow(
     dead_code,
@@ -15,26 +13,10 @@ mod compile_geometry;
 )]
 mod geometry;
 mod input;
-#[allow(
-    dead_code,
-    reason = "consumed by the staged RoadEditingSource Typed AST lowering"
-)]
 mod location;
-#[allow(
-    dead_code,
-    reason = "consumed by the staged RoadEditingSource Typed AST lowering"
-)]
 mod lowering;
 mod model;
-#[allow(
-    dead_code,
-    reason = "semantic preflight is consumed by the following shared-admission slice"
-)]
 mod preflight;
-#[allow(
-    dead_code,
-    reason = "verified view is consumed by the following shared-admission slice"
-)]
 pub(crate) mod reader;
 mod rules;
 mod writer;

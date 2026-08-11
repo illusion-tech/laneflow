@@ -54,9 +54,9 @@ pub use declaration::{
 pub use diagnostic::{
     AccessCapability, AccessPlane, AccessRegulationField, Diagnostic, DiagnosticBundle,
     DiagnosticCode, DiagnosticPayload, DiagnosticSeverity, ParkingAnchorRole, ParkingGeometryField,
-    ParkingGeometryViolation, RoadEditingInputViolation, RoadEditingSourceViolation,
-    SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation, SpatialAxis,
-    SpatialGeometryViolation, WaitingZoneGateRole,
+    ParkingGeometryViolation, RoadEditingInputViolation, RoadEditingNumericViolation,
+    RoadEditingSourceViolation, SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation,
+    SpatialAxis, SpatialGeometryViolation, WaitingZoneGateRole,
 };
 pub use geometry_profile::{GeometryAccuracyProfile, GeometryDirectionProfile};
 pub use identity::CanonicalIdentityViolation;
