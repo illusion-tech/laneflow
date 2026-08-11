@@ -6,6 +6,11 @@
 mod builder;
 #[allow(
     dead_code,
+    reason = "consumed by the following RoadEditingSource atomic admission slice"
+)]
+mod compile_geometry;
+#[allow(
+    dead_code,
     reason = "consumed by the staged RoadEditingSource geometry lowering"
 )]
 mod geometry;
