@@ -425,6 +425,36 @@ pub enum RoadEditingInputViolation {
     /// 多个字段的组合违反闭合 variant 规则。
     InvalidCombination,
 }
+
+/// 道路编辑 authoring 几何在确定性 numeric freeze 中失败的闭合原因。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum RoadEditingNumericViolation {
+    /// 中间标量或向量结果不是有限值。
+    NonFinite,
+    /// 冻结运算图命中零除数。
+    DivisionByZero,
+    /// 平方根输入落在定义域外。
+    SquareRootDomain,
+    /// source curve 的水平导数在一个确定点为零。
+    HorizontalDerivativeZero,
+    /// 有界 regularity walk 无法证明整段水平导数非零。
+    HorizontalDerivativeNotProvenNonZero,
+    /// 量化前坐标超出 canonical `f32` 领域。
+    CoordinateOutOfRange,
+    /// 深度、方向或误差门槛内无法形成接受的规范折线。
+    ApproximationNotConverged,
+    /// corridor station 不在所选 alignment 区间内。
+    StationOutOfRange,
+    /// corridor、section、lane、edge 或 facility 的几何所有权不能闭合。
+    GeometryTopologyMismatch,
+    /// 同一 source curve 相邻 offset 段的端点间隙超过 canonical weld 门槛。
+    SourceJoinGapExceeded,
+    /// 规范折线包含退化段或不能形成正长度。
+    DegenerateCanonicalSegment,
+    /// 规范弦或跨边连接超过所选方向档。
+    DirectionDiscontinuity,
+}
 /// size-prefixed 道路编辑来源在受检 reader 边界的闭合失败类别。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
@@ -449,6 +479,8 @@ pub enum RoadEditingSourceViolation {
     SourceDocumentKeyMismatch,
     /// verifier 后的字段值违反与第一方 authoring model 共用的闭合语义规则。
     InvalidSemanticValue(RoadEditingInputViolation),
+    /// authoring 曲线与 offset 几何不能按冻结数值契约形成规范折线。
+    NumericFreeze(RoadEditingNumericViolation),
 }
 
 /// 路口显式边集合与路径角色闭包不一致的原因。
