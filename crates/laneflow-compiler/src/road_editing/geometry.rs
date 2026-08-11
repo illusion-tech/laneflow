@@ -319,14 +319,6 @@ fn half_angle_cosine_squared(profile: GeometryDirectionProfile) -> f64 {
     })
 }
 
-pub(super) fn full_angle_cosine_squared(profile: GeometryDirectionProfile) -> f64 {
-    f64::from_bits(match profile {
-        GeometryDirectionProfile::Smooth1Deg => 0x3fef_fd81_3c5f_82b4,
-        GeometryDirectionProfile::Balanced2Deg => 0x3fef_f605_b8b8_7ffc,
-        GeometryDirectionProfile::Compact5Deg => 0x3fef_c1c5_c640_8e0c,
-    })
-}
-
 pub(super) fn direction_accepts(
     left: Point3,
     right: Point3,
@@ -366,7 +358,7 @@ pub(super) fn validate_canonical_polyline(
     if points.len() < 2 {
         return Err(NumericFreezeError::DegenerateCanonicalSegment);
     }
-    let cosine_squared = full_angle_cosine_squared(direction);
+    let cosine_squared = direction.full_angle_cosine_squared();
     let mut previous_chord = None;
     let mut cumulative_length = 0.0_f64;
     for pair in points.windows(2) {
@@ -1006,7 +998,9 @@ mod tests {
             0x3fef_ff60_4bfa_d7c5
         );
         assert_eq!(
-            full_angle_cosine_squared(GeometryDirectionProfile::Compact5Deg).to_bits(),
+            GeometryDirectionProfile::Compact5Deg
+                .full_angle_cosine_squared()
+                .to_bits(),
             0x3fef_c1c5_c640_8e0c
         );
     }

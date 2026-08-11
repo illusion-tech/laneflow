@@ -6,6 +6,7 @@ use crate::SourceSpan;
 use crate::arena::ArenaKey;
 use crate::declaration::{RoadAlignmentDeclaration, TypedAstDeclaration};
 use crate::diagnostic::DiagnosticCollector;
+use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::{
     CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceLocation,
     SourcePosition,
@@ -34,6 +35,9 @@ pub(crate) struct TypedAstModule {
     pub(crate) declaration_span: SourceLocation,
     pub(crate) source_documents: Box<[SourceDocumentDescriptor]>,
     pub(super) imports: Box<[ImportRecord]>,
+    /// 只对已经执行 authoring numeric freeze 的官方来源存在；共同 HIR 在完整模块图上
+    /// 校验所有此类模块使用同一对位置/方向档。
+    pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
     pub(crate) road_alignments: Box<[RoadAlignmentDeclaration]>,
     pub(crate) declarations: Box<[TypedAstDeclaration]>,
 }
@@ -1002,7 +1006,6 @@ impl CompilationUnitBuilder {
             maneuver_gate_count: self.totals.maneuver_gate_count,
             waiting_zone_count: self.totals.waiting_zone_count,
             route_occurrence_count: self.totals.route_occurrence_count,
-            geometry_point_count: self.totals.geometry_point_count,
             controlled_live_bytes: sizing.result_live_bytes,
         })
     }
@@ -1026,7 +1029,6 @@ pub struct CompilationUnit {
     pub(crate) maneuver_gate_count: u64,
     pub(crate) waiting_zone_count: u64,
     pub(crate) route_occurrence_count: u64,
-    pub(crate) geometry_point_count: u64,
     pub(crate) controlled_live_bytes: u64,
 }
 
