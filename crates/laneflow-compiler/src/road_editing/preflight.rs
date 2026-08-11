@@ -3,18 +3,18 @@
 use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
 use laneflow_road_editing_wire::runtime::{ForwardsUOffset, Vector};
 use laneflow_static_contract::{
-    EntityKind, MIN_PARKING_EXTENT_EXCLUSIVE_METERS,
-    MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS, MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS,
-    PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS, PARKING_HEADING_OFFSET_MAXIMUM_RADIANS,
-    PARKING_HEADING_OFFSET_MINIMUM_RADIANS,
+    CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS, EntityKind,
+    MIN_PARKING_EXTENT_EXCLUSIVE_METERS, MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS,
+    MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS, PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS,
+    PARKING_HEADING_OFFSET_MAXIMUM_RADIANS, PARKING_HEADING_OFFSET_MINIMUM_RADIANS,
 };
 
 use super::model::{
     DIRECT_FRONTEND_OPTIONS_DIGEST, DIRECT_GENERATOR_BUILD_ID, DIRECT_INPUTS_DIGEST,
 };
 use super::rules::{
-    finite_violation, non_negative_violation, positive_violation, token_violation,
-    validate_wire_reference, visible_ascii_violation,
+    finite_violation, inclusive_range_violation, non_negative_violation, positive_violation,
+    token_violation, validate_wire_reference, visible_ascii_violation,
 };
 use crate::{
     CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, RoadEditingInputViolation,
@@ -481,9 +481,31 @@ fn validate_point(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     for component in [value.x(), value.y(), value.z()] {
-        if let Some(violation) = finite_violation(component) {
+        let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
+        let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
+        if let Some(violation) = inclusive_range_violation(component, minimum, maximum) {
             return Err(semantic_error(field, violation, expected_key));
         }
+    }
+    Ok(())
+}
+
+fn validate_corridor_owned_reference(
+    value: &str,
+    component_count: u8,
+    corridor_key: &str,
+    field: &'static str,
+    expected_key: &str,
+) -> Result<(), DiagnosticBundle> {
+    let reference = validate_wire_reference(value, component_count, true)
+        .map_err(|violation| semantic_error(field, violation, expected_key))?;
+    if reference.namespace().is_some()
+        || reference
+            .key_components()
+            .next()
+            .is_none_or(|owner| owner != corridor_key)
+    {
+        return Err(invalid_combination(field, expected_key));
     }
     Ok(())
 }
@@ -626,6 +648,13 @@ fn validate_corridors(
             limits,
             expected_key,
         )?;
+        validate_corridor_owned_reference(
+            value.reference_section(),
+            2,
+            value.road_corridor_key(),
+            "roadCorridor.referenceSection",
+            expected_key,
+        )?;
         usage.charge_reference(
             value.reference_lane(),
             3,
@@ -634,6 +663,13 @@ fn validate_corridors(
             namespace,
             imports,
             limits,
+            expected_key,
+        )?;
+        validate_corridor_owned_reference(
+            value.reference_lane(),
+            3,
+            value.road_corridor_key(),
+            "roadCorridor.referenceLane",
             expected_key,
         )?;
         let elements = value.elements();
@@ -665,6 +701,13 @@ fn validate_corridors(
                 namespace,
                 imports,
                 limits,
+                expected_key,
+            )?;
+            validate_corridor_owned_reference(
+                element.entity_reference(),
+                depth,
+                value.road_corridor_key(),
+                "roadCorridor.elements.entityReference",
                 expected_key,
             )?;
             for other in elements.iter().skip(index + 1) {
@@ -1981,5 +2024,59 @@ mod tests {
         );
         assert_eq!(usage.string_item_count, 0);
         assert_eq!(usage.total_string_bytes, 0);
+    }
+
+    #[test]
+    fn canonical_points_accept_exact_boundaries_and_reject_outside_controls() {
+        let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
+        let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
+        let boundary = wire::Vec3F64::new(minimum, 0.0, maximum);
+        validate_point(&boundary, "curve.control", "roads/main").expect("inclusive bounds");
+
+        let outside = wire::Vec3F64::new(maximum + 0.25, 0.0, 0.0);
+        let error = validate_point(&outside, "curve.control", "roads/main")
+            .expect_err("outside canonical frame");
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            crate::DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::InvalidSemanticValue(
+                    RoadEditingInputViolation::OutsideInclusiveRange { .. }
+                ),
+                field: Some(field),
+                ..
+            } if field.as_ref() == "curve.control"
+        ));
+    }
+
+    #[test]
+    fn corridor_owned_references_require_the_local_corridor_key() {
+        validate_corridor_owned_reference(
+            "corridor-a>section",
+            2,
+            "corridor-a",
+            "roadCorridor.referenceSection",
+            "roads/main",
+        )
+        .expect("matching local owner");
+        assert!(
+            validate_corridor_owned_reference(
+                "corridor-b>section",
+                2,
+                "corridor-a",
+                "roadCorridor.referenceSection",
+                "roads/main",
+            )
+            .is_err()
+        );
+        assert!(
+            validate_corridor_owned_reference(
+                "city/base::corridor-a>section",
+                2,
+                "corridor-a",
+                "roadCorridor.referenceSection",
+                "roads/main",
+            )
+            .is_err()
+        );
     }
 }
