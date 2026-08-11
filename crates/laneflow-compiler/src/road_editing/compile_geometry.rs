@@ -98,17 +98,17 @@ pub(super) fn derive_member_offset_endpoints(
     }
     for ordinal in (0..reference_ordinal).rev() {
         let width = width_profiles[ordinal];
-        left_start += 0.5 * width.start_width_meters;
-        left_end += 0.5 * width.end_width_meters;
-        if !left_start.is_finite() || !left_end.is_finite() {
+        let target_start = left_start + 0.5 * width.start_width_meters;
+        let target_end = left_end + 0.5 * width.end_width_meters;
+        if !target_start.is_finite() || !target_end.is_finite() {
             return Err(NumericFreezeError::NonFinite);
         }
         offsets[ordinal] = MemberOffsetEndpoints {
-            start_meters: left_start,
-            end_meters: left_end,
+            start_meters: target_start,
+            end_meters: target_end,
         };
-        left_start += 0.5 * width.start_width_meters;
-        left_end += 0.5 * width.end_width_meters;
+        left_start += width.start_width_meters;
+        left_end += width.end_width_meters;
         if !left_start.is_finite() || !left_end.is_finite() {
             return Err(NumericFreezeError::NonFinite);
         }
@@ -121,17 +121,17 @@ pub(super) fn derive_member_offset_endpoints(
     }
     for ordinal in (reference_ordinal + 1)..width_profiles.len() {
         let width = width_profiles[ordinal];
-        right_start -= 0.5 * width.start_width_meters;
-        right_end -= 0.5 * width.end_width_meters;
-        if !right_start.is_finite() || !right_end.is_finite() {
+        let target_start = right_start - 0.5 * width.start_width_meters;
+        let target_end = right_end - 0.5 * width.end_width_meters;
+        if !target_start.is_finite() || !target_end.is_finite() {
             return Err(NumericFreezeError::NonFinite);
         }
         offsets[ordinal] = MemberOffsetEndpoints {
-            start_meters: right_start,
-            end_meters: right_end,
+            start_meters: target_start,
+            end_meters: target_end,
         };
-        right_start -= 0.5 * width.start_width_meters;
-        right_end -= 0.5 * width.end_width_meters;
+        right_start -= width.start_width_meters;
+        right_end -= width.end_width_meters;
         if !right_start.is_finite() || !right_end.is_finite() {
             return Err(NumericFreezeError::NonFinite);
         }
@@ -181,6 +181,13 @@ pub(super) fn compile_alignment_reference(
         .checked_div(station_row_size)
         .and_then(|row_limit| row_limit.checked_add(1))
         .ok_or(NumericFreezeError::StationRowLimit)?;
+    let mut visits = Vec::with_capacity(program.segments.len());
+    let mut start = point3(program.start)?;
+    for source in &program.segments {
+        let (segment, end) = source_segment(start, source)?;
+        visits.push(segment.prove_horizontal_regularity()?);
+        start = end;
+    }
     let mut station_counter = CountingSink {
         count: 0,
         limit: station_vertex_limit,
@@ -212,13 +219,6 @@ pub(super) fn compile_alignment_reference(
         return Err(NumericFreezeError::ApproximationNotConverged);
     }
 
-    let mut visits = Vec::with_capacity(program.segments.len());
-    let mut start = point3(program.start)?;
-    for source in &program.segments {
-        let (segment, end) = source_segment(start, source)?;
-        visits.push(segment.prove_horizontal_regularity()?);
-        start = end;
-    }
     Ok(CompiledAlignmentReference {
         station_rows: station_collector.rows.into_boxed_slice(),
         horizontal_regularity_visits: visits.into_boxed_slice(),
@@ -362,24 +362,35 @@ fn walk_offset_program(
             }
             let station_start = row.cumulative_start_meters.max(corridor_start_meters);
             let station_end = row.cumulative_end_meters.min(corridor_end_meters);
+            let evaluator = SegmentEvaluator::Offset {
+                segment,
+                station: StationInterval {
+                    parameter_start: row.parameter_start,
+                    parameter_end: row.parameter_end,
+                    cumulative_start_meters: row.cumulative_start_meters,
+                    cumulative_end_meters: row.cumulative_end_meters,
+                },
+                offset: OffsetInterval {
+                    station_start_meters: corridor_start_meters,
+                    station_end_meters: corridor_end_meters,
+                    offset_start_meters,
+                    offset_end_meters,
+                },
+            };
+            if sink.last_point().is_none()
+                && station_start == corridor_start_meters
+                && station_start == station_end
+            {
+                let parameter = parameter_in_station_row(row, corridor_start_meters)?;
+                sink.push(ApproximationVertex {
+                    parameter,
+                    point: quantize_point(evaluator.evaluate(parameter)?.point)?,
+                })?;
+                emitted_segment = Some(segment_ordinal);
+            }
             if station_start < station_end {
                 let parameter_start = parameter_in_station_row(row, station_start)?;
                 let parameter_end = parameter_in_station_row(row, station_end)?;
-                let evaluator = SegmentEvaluator::Offset {
-                    segment,
-                    station: StationInterval {
-                        parameter_start: row.parameter_start,
-                        parameter_end: row.parameter_end,
-                        cumulative_start_meters: row.cumulative_start_meters,
-                        cumulative_end_meters: row.cumulative_end_meters,
-                    },
-                    offset: OffsetInterval {
-                        station_start_meters: corridor_start_meters,
-                        station_end_meters: corridor_end_meters,
-                        offset_start_meters,
-                        offset_end_meters,
-                    },
-                };
                 let source_boundary = emitted_segment.is_some_and(|value| value != segment_ordinal);
                 let welded_start = if source_boundary {
                     let previous = sink
@@ -817,7 +828,6 @@ mod tests {
             &program,
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
-            station_row_bytes(2),
             3,
         )
         .expect("adjacent segments share one retained endpoint");
@@ -856,7 +866,6 @@ mod tests {
             &program,
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
-            station_row_bytes(2),
             3,
         )
         .expect("the second segment must weld to the endpoint actually emitted by the first");
@@ -866,6 +875,28 @@ mod tests {
         assert_ne!(
             compiled.points[1].x.to_bits(),
             (source_endpoint as f32).to_bits()
+        );
+    }
+
+    #[test]
+    fn horizontal_regularity_fails_before_station_subdivision_limits() {
+        let program = AuthoringCurveProgramDeclaration {
+            start: point(0.0, 0.0),
+            start_span: span(1),
+            segments: vec![AuthoringCurveSegmentDeclaration {
+                geometry: AuthoringCurveSegmentGeometry::CubicBezier {
+                    control_1: point(0.0, 0.0),
+                    control_2: point(0.0, 0.0),
+                    end: point(0.0, 0.0),
+                },
+                span: span(2),
+            }]
+            .into_boxed_slice(),
+        };
+
+        assert_eq!(
+            compile_alignment_reference(&program, 0).err(),
+            Some(NumericFreezeError::HorizontalDerivativeZero)
         );
     }
 
@@ -1040,6 +1071,47 @@ mod tests {
     }
 
     #[test]
+    fn corridor_start_at_source_boundary_keeps_the_preceding_offset_owner() {
+        let program = AuthoringCurveProgramDeclaration {
+            start: point(0.0, 0.0),
+            start_span: span(1),
+            segments: vec![
+                AuthoringCurveSegmentDeclaration {
+                    geometry: AuthoringCurveSegmentGeometry::Line {
+                        end: point(10.0, 0.0),
+                    },
+                    span: span(2),
+                },
+                AuthoringCurveSegmentDeclaration {
+                    geometry: AuthoringCurveSegmentGeometry::Line {
+                        end: point(10.0, 10.0),
+                    },
+                    span: span(3),
+                },
+            ]
+            .into_boxed_slice(),
+        };
+        let reference = compile_alignment_reference(&program, station_row_bytes(2)).unwrap();
+
+        assert_eq!(
+            compile_offset_curve(
+                &program,
+                &reference,
+                10.0,
+                20.0,
+                1.0,
+                1.0,
+                AuthoringLaneDirection::Forward,
+                GeometryAccuracyProfile::Fine2Cm,
+                GeometryDirectionProfile::Smooth1Deg,
+                3,
+            )
+            .err(),
+            Some(NumericFreezeError::SourceJoinGapExceeded)
+        );
+    }
+
+    #[test]
     fn member_offsets_sum_widths_from_the_reference_outward() {
         let profiles = [
             AuthoringWidthProfile {
@@ -1086,5 +1158,39 @@ mod tests {
             derive_member_offset_endpoints(&profiles, profiles.len()),
             Err(NumericFreezeError::StationOutOfRange)
         );
+    }
+
+    #[test]
+    fn member_offsets_add_each_intermediate_width_once() {
+        let reference_half = f64::from_bits(0x3ff6_13fd_14e5_b137);
+        let intermediate = f64::from_bits(0x4005_f2f1_b98a_74a2);
+        let outer = f64::from_bits(0x4009_0f04_8499_edb0);
+        let profiles = |values: [f64; 3]| {
+            values.map(|width| AuthoringWidthProfile {
+                start_width_meters: width,
+                end_width_meters: width,
+            })
+        };
+
+        let left = derive_member_offset_endpoints(
+            &profiles([outer, intermediate, 2.0 * reference_half]),
+            2,
+        )
+        .unwrap();
+        let expected_left = (reference_half + intermediate) + 0.5 * outer;
+        let split_left = ((reference_half + 0.5 * intermediate) + 0.5 * intermediate) + 0.5 * outer;
+        assert_ne!(expected_left.to_bits(), split_left.to_bits());
+        assert_eq!(left[0].start_meters.to_bits(), expected_left.to_bits());
+
+        let right = derive_member_offset_endpoints(
+            &profiles([2.0 * reference_half, intermediate, outer]),
+            0,
+        )
+        .unwrap();
+        let expected_right = (-reference_half - intermediate) - 0.5 * outer;
+        let split_right =
+            ((-reference_half - 0.5 * intermediate) - 0.5 * intermediate) - 0.5 * outer;
+        assert_ne!(expected_right.to_bits(), split_right.to_bits());
+        assert_eq!(right[2].start_meters.to_bits(), expected_right.to_bits());
     }
 }
