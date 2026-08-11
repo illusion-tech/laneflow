@@ -43,6 +43,16 @@ pub enum GeometryDirectionProfile {
     Compact5Deg = 3,
 }
 
+/// 单个道路编辑来源模块完成 numeric freeze 时使用的封闭几何配置。
+///
+/// 该值保持 crate 私有：公共 API 继续暴露两个正交档位，官方前端把配对结果随
+/// `TypedAstModule` 交给共同 HIR，后者才能在完整导入闭包上拒绝混用。
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct GeometryCompilationProfiles {
+    pub(crate) accuracy: GeometryAccuracyProfile,
+    pub(crate) direction: GeometryDirectionProfile,
+}
+
 impl GeometryDirectionProfile {
     /// 返回进入描述符、诊断与校准工件的稳定 ASCII 名称。
     #[must_use]
@@ -62,6 +72,18 @@ impl GeometryDirectionProfile {
             Self::Balanced2Deg => 2.0,
             Self::Compact5Deg => 5.0,
         }
+    }
+
+    /// 返回 ADR 0022 为最终 `f32` 相邻弦和跨 edge 连接冻结的 `cos²` 阈值。
+    ///
+    /// 使用精确 binary64 位模式，避免 Spatial HIR 与 authoring numeric freeze 各自
+    /// 维护一套方向阈值。
+    pub(crate) const fn full_angle_cosine_squared(self) -> f64 {
+        f64::from_bits(match self {
+            Self::Smooth1Deg => 0x3fef_fd81_3c5f_82b4,
+            Self::Balanced2Deg => 0x3fef_f605_b8b8_7ffc,
+            Self::Compact5Deg => 0x3fef_c1c5_c640_8e0c,
+        })
     }
 }
 
