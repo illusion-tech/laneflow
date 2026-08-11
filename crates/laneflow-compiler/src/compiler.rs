@@ -21,13 +21,13 @@ use laneflow_static_contract::{
 use crate::hir::build_hir;
 use crate::lir::{
     LirAccessRule, LirAccessTarget, LirAuthoringLane, LirCanonicalFrame, LirCanonicalPoint3F32,
-    LirCorridorElement, LirFacilityBand, LirGateOccurrence, LirIdentityField, LirJunction,
-    LirJunctionInternalEdge, LirLaneEdge, LirLaneEdgeGeometry, LirLaneGroup, LirManeuverGate,
-    LirManeuverOccurrence, LirManeuverPath, LirMovement, LirParkingArea, LirParkingSpace,
-    LirParticipantClass, LirRoadCorridor, LirRoadSection, LirRouteOccurrenceRef, LirSignalControl,
-    LirSignalController, LirSignalGroup, LirSignalPhase, LirSignalPhaseState, LirSpatialSegment,
-    LirStaticRoute, LirStopLine, LirUnit, LirVehicleProfile, LirWaitingZone,
-    LirWaitingZoneOccurrence, freeze_lir,
+    LirCorridorElement, LirFacilityBand, LirFacilityBandGeometry, LirGateOccurrence,
+    LirIdentityField, LirJunction, LirJunctionInternalEdge, LirLaneEdge, LirLaneEdgeGeometry,
+    LirLaneGroup, LirManeuverGate, LirManeuverOccurrence, LirManeuverPath, LirMovement,
+    LirParkingArea, LirParkingSpace, LirParticipantClass, LirRoadCorridor, LirRoadSection,
+    LirRouteOccurrenceRef, LirSignalControl, LirSignalController, LirSignalGroup, LirSignalPhase,
+    LirSignalPhaseState, LirSpatialSegment, LirStaticRoute, LirStopLine, LirUnit,
+    LirVehicleProfile, LirWaitingZone, LirWaitingZoneOccurrence, freeze_lir,
 };
 use crate::mir::lower_to_mir;
 use crate::source_map::{ValidatedSourceMapInput, freeze_source_map};
@@ -1071,6 +1071,55 @@ impl CanonicalFacilityBandView<'_> {
     pub fn kind_id(&self) -> &str {
         &self.record.kind_id
     }
+
+    /// 返回 non-traversable 设施带的规范空间几何；headless LIR 返回 `None`。
+    #[must_use]
+    pub fn spatial_geometry(&self) -> Option<CanonicalFacilityBandGeometryView<'_>> {
+        self.lir.facility_band_geometries[self.record.spatial_geometry.as_usize_range()]
+            .first()
+            .map(|geometry| CanonicalFacilityBandGeometryView {
+                lir: self.lir,
+                geometry,
+            })
+    }
+}
+
+/// 一条 non-traversable `FacilityBand` 的只读规范中心线及预计算采样表。
+#[derive(Clone, Copy)]
+pub struct CanonicalFacilityBandGeometryView<'a> {
+    lir: &'a LirUnit,
+    geometry: &'a LirFacilityBandGeometry,
+}
+
+impl CanonicalFacilityBandGeometryView<'_> {
+    #[must_use]
+    pub const fn facility_band(&self) -> FacilityBandOrdinal {
+        self.geometry.facility_band
+    }
+
+    #[must_use]
+    pub const fn canonical_frame(&self) -> CanonicalFrameOrdinal {
+        self.geometry.canonical_frame
+    }
+
+    #[must_use]
+    pub const fn arc_length_meters(&self) -> f32 {
+        self.geometry.arc_length_meters
+    }
+
+    pub fn points(&self) -> impl ExactSizeIterator<Item = CanonicalPoint3F32> + '_ {
+        self.lir.canonical_points[self.geometry.points.as_usize_range()]
+            .iter()
+            .copied()
+            .map(CanonicalPoint3F32::from)
+    }
+
+    pub fn segments(&self) -> impl ExactSizeIterator<Item = CanonicalSpatialSegment> + '_ {
+        self.lir.spatial_segments[self.geometry.segments.as_usize_range()]
+            .iter()
+            .copied()
+            .map(CanonicalSpatialSegment::from)
+    }
 }
 
 impl CanonicalJunctionView<'_> {
@@ -2001,6 +2050,9 @@ impl Compiler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::declaration::{
+        CompiledFacilityBandGeometry, EdgeLength, OwnedEntityReference, TypedAstDeclaration,
+    };
     use crate::{
         AccessCapability, AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput,
         AuthoringLaneInput, CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder,
@@ -2017,6 +2069,8 @@ mod tests {
         StaticRouteInput, StopLineInput, StopLineReference, SyntheticModule,
         SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
     };
+    use laneflow_static_contract::CanonicalFrameKind;
+    use std::sync::Arc;
 
     fn module(
         namespace: &str,
@@ -2159,6 +2213,148 @@ mod tests {
             add_corridor(&mut builder);
         }
         builder.finish().unwrap()
+    }
+
+    fn spatial_cross_section_unit(
+        permuted: bool,
+        facility_a_z: f32,
+        include_facility_geometry: bool,
+    ) -> CompilationUnit {
+        let limits = CompileLimits::p100_initial_v1();
+        let header = SourceModuleHeader::new(
+            SourceModuleHeaderInput {
+                authoring_namespace_id: "city/spatial-cross-section",
+                source_document_key: "spatial-cross-section.document",
+                generator_build_id: "git:0123456789abcdef",
+                parameters_and_inputs_digest: [0x11; 32],
+                frontend_options_digest: [0x22; 32],
+                random_seed: Some(42),
+                provenance: "repository:laneflow",
+            },
+            &limits,
+        )
+        .unwrap();
+        let mut builder = SyntheticModuleBuilder::new(header, &limits).unwrap();
+        let lane_points = [
+            CanonicalPoint3F32Input {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            CanonicalPoint3F32Input {
+                x: 10.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        ];
+        let lane_geometry = [LaneEdgeGeometryInput {
+            lane_edge: LaneEdgeReference::local("edge-main"),
+            centerline_points: &lane_points,
+        }];
+        let corridor_elements = [
+            CorridorElementReference::facility_band(FacilityBandReference::local("band-z")),
+            CorridorElementReference::road_section(RoadSectionReference::local("carriageway")),
+            CorridorElementReference::facility_band(FacilityBandReference::local("band-a")),
+        ];
+        let add_edge = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "edge-main",
+                    length_meters: 10.0,
+                    speed_limit_meters_per_second: 12.0,
+                    successors: &[],
+                })
+                .unwrap();
+        };
+        let add_bands = |builder: &mut SyntheticModuleBuilder, reverse: bool| {
+            let keys = if reverse {
+                ["band-z", "band-a"]
+            } else {
+                ["band-a", "band-z"]
+            };
+            for key in keys {
+                builder
+                    .add_facility_band(FacilityBandInput {
+                        facility_band_key: key,
+                        kind_id: "sidewalk",
+                    })
+                    .unwrap();
+            }
+        };
+        let add_section = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_road_section(RoadSectionInput {
+                    road_section_key: "carriageway",
+                    kind_id: "motorLane",
+                    lanes: &[AuthoringLaneInput {
+                        authoring_lane_key: "lane-main",
+                        edge_chain: &[LaneEdgeReference::local("edge-main")],
+                        lane_group: None,
+                    }],
+                })
+                .unwrap();
+        };
+        let add_corridor = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_road_corridor(RoadCorridorInput {
+                    road_corridor_key: "main-road",
+                    reference_section: RoadSectionReference::local("carriageway"),
+                    elements: &corridor_elements,
+                })
+                .unwrap();
+        };
+        let add_frame = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_canonical_frame(CanonicalFrameInput {
+                    canonical_frame_key: "frame-main",
+                    lane_edge_geometries: &lane_geometry,
+                })
+                .unwrap();
+        };
+
+        if permuted {
+            add_corridor(&mut builder);
+            add_frame(&mut builder);
+            add_bands(&mut builder, true);
+            add_section(&mut builder);
+            add_edge(&mut builder);
+        } else {
+            add_edge(&mut builder);
+            add_bands(&mut builder, false);
+            add_section(&mut builder);
+            add_corridor(&mut builder);
+            add_frame(&mut builder);
+        }
+
+        let mut unit = unit([builder.finish().unwrap()]);
+        if include_facility_geometry {
+            let module = &mut unit.modules[0];
+            let namespace: Arc<str> = module.descriptor().authoring_namespace_id().into();
+            for declaration in &mut module.declarations {
+                let TypedAstDeclaration::FacilityBand(band) = declaration else {
+                    continue;
+                };
+                let z = if band.header.stable_key.as_ref() == "band-a" {
+                    facility_a_z
+                } else {
+                    4.0
+                };
+                band.compiled_geometry = Some(CompiledFacilityBandGeometry {
+                    length: EdgeLength::try_new(10.0).unwrap(),
+                    canonical_frame: OwnedEntityReference::<CanonicalFrameKind>::new(
+                        Arc::clone(&namespace),
+                        Arc::from("frame-main"),
+                        band.header.span.clone(),
+                    ),
+                    centerline_points: [
+                        CanonicalPoint3F32Input { x: 0.0, y: 0.0, z },
+                        CanonicalPoint3F32Input { x: 10.0, y: 0.0, z },
+                    ]
+                    .into(),
+                });
+            }
+        }
+        unit
     }
 
     fn junction_builder(document: &str) -> SyntheticModuleBuilder {
@@ -5349,6 +5545,170 @@ mod tests {
             SourceRelationRole::CanonicalFrameLaneEdgeGeometry
         );
         assert_eq!(relation.local_index(), 0);
+    }
+
+    #[test]
+    fn compiler_freezes_non_traversable_facility_geometry_in_canonical_band_order() {
+        let baseline = Compiler::new()
+            .compile(spatial_cross_section_unit(false, 2.0, true))
+            .unwrap();
+        let permuted = Compiler::new()
+            .compile(spatial_cross_section_unit(true, 2.0, true))
+            .unwrap();
+        let changed = Compiler::new()
+            .compile(spatial_cross_section_unit(false, 3.0, true))
+            .unwrap();
+        let headless_facilities = Compiler::new()
+            .compile(spatial_cross_section_unit(false, 2.0, false))
+            .unwrap();
+
+        let bands = baseline.lir().facility_bands().collect::<Vec<_>>();
+        assert_eq!(bands.len(), 2);
+        let keys = bands
+            .iter()
+            .map(|band| {
+                band.identity_fields()
+                    .find(|field| field.tag() == FieldTag::FacilityBandKey)
+                    .map(|field| String::from_utf8(field.value_bytes().to_vec()).unwrap())
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(keys, ["band-a", "band-z"]);
+
+        let geometry = bands[0].spatial_geometry().unwrap();
+        assert_eq!(geometry.facility_band(), bands[0].ordinal());
+        assert_eq!(geometry.canonical_frame().raw(), 0);
+        assert_eq!(geometry.arc_length_meters(), 10.0);
+        assert_eq!(
+            geometry.points().collect::<Vec<_>>(),
+            [
+                CanonicalPoint3F32 {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 2.0,
+                },
+                CanonicalPoint3F32 {
+                    x: 10.0,
+                    y: 0.0,
+                    z: 2.0,
+                },
+            ]
+        );
+        assert_eq!(geometry.segments().len(), 1);
+        assert_eq!(baseline.lir.inner.lane_edge_geometries.len(), 1);
+        assert_eq!(baseline.lir.inner.facility_band_geometries.len(), 2);
+        assert_eq!(baseline.lir.inner.canonical_points.len(), 6);
+
+        let spatial_relations = baseline
+            .source_map_input()
+            .spatial_relation_sources()
+            .map(|relation| (relation.role(), relation.local_index()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            spatial_relations,
+            [
+                (SourceRelationRole::CanonicalFrameLaneEdgeGeometry, 0),
+                (SourceRelationRole::CanonicalFrameFacilityBandGeometry, 0,),
+                (SourceRelationRole::CanonicalFrameFacilityBandGeometry, 1,),
+            ]
+        );
+
+        assert_eq!(
+            baseline.metrics().semantic_fingerprint(),
+            permuted.metrics().semantic_fingerprint()
+        );
+        assert_ne!(
+            baseline.metrics().semantic_fingerprint(),
+            changed.metrics().semantic_fingerprint()
+        );
+        assert_eq!(
+            baseline.metrics().lir_record_count(),
+            headless_facilities
+                .metrics()
+                .lir_record_count()
+                .saturating_add(8)
+        );
+        // 两条 facility geometry 行、四个点和两个 segment 的目标布局逻辑量。
+        assert_eq!(
+            baseline.metrics().output_logical_bytes(),
+            headless_facilities
+                .metrics()
+                .output_logical_bytes()
+                .saturating_add(168)
+        );
+        assert!(
+            headless_facilities
+                .lir()
+                .facility_bands()
+                .all(|band| band.spatial_geometry().is_none())
+        );
+    }
+
+    #[test]
+    fn invalid_facility_geometry_fails_without_exposing_partial_lir() {
+        let diagnostics = Compiler::new()
+            .compile(spatial_cross_section_unit(false, f32::NAN, true))
+            .err()
+            .expect("non-finite FacilityBand geometry must fail");
+        assert!(diagnostics.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code() == DiagnosticCode::InvalidFacilityBandGeometry
+                && matches!(
+                    diagnostic.payload(),
+                    DiagnosticPayload::InvalidFacilityBandGeometry {
+                        violation: crate::SpatialGeometryViolation::NonFiniteCoordinate { .. },
+                        ..
+                    }
+                )
+        }));
+    }
+
+    #[test]
+    fn facility_geometry_without_any_canonical_frame_reports_the_reference_failure() {
+        let mut input = unit([cross_section_module(false)]);
+        let module = &mut input.modules[0];
+        let namespace: Arc<str> = module.descriptor().authoring_namespace_id().into();
+        let band = module
+            .declarations
+            .iter_mut()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::FacilityBand(band) => Some(band),
+                _ => None,
+            })
+            .unwrap();
+        band.compiled_geometry = Some(CompiledFacilityBandGeometry {
+            length: EdgeLength::try_new(10.0).unwrap(),
+            canonical_frame: OwnedEntityReference::<CanonicalFrameKind>::new(
+                namespace,
+                Arc::from("missing-frame"),
+                band.header.span.clone(),
+            ),
+            centerline_points: [
+                CanonicalPoint3F32Input {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 2.0,
+                },
+                CanonicalPoint3F32Input {
+                    x: 10.0,
+                    y: 0.0,
+                    z: 2.0,
+                },
+            ]
+            .into(),
+        });
+
+        let diagnostics = Compiler::new()
+            .compile(input)
+            .err()
+            .expect("compiled FacilityBand without a resolvable frame must fail");
+        assert_eq!(
+            diagnostics
+                .diagnostics()
+                .iter()
+                .map(Diagnostic::code)
+                .collect::<Vec<_>>(),
+            [DiagnosticCode::UnknownReferenceTarget]
+        );
     }
 
     #[test]

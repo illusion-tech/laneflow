@@ -493,10 +493,6 @@ pub(crate) struct HirLaneEdgeGeometry {
 }
 
 /// 不可遍历 FacilityBand 的规范中心线；与 LaneEdge 几何共享规范点表。
-#[allow(
-    dead_code,
-    reason = "consumed by the following FacilityBand MIR/LIR slice"
-)]
 pub(crate) struct HirFacilityBandGeometry {
     pub(crate) canonical_frame: HirCanonicalFrameKey,
     pub(crate) facility_band: HirFacilityBandKey,
@@ -686,10 +682,6 @@ pub(crate) struct HirUnit {
     pub(crate) vehicle_profiles: Box<[HirVehicleProfile]>,
     pub(crate) canonical_frames: Box<[HirCanonicalFrame]>,
     pub(crate) lane_edge_geometries: Box<[HirLaneEdgeGeometry]>,
-    #[allow(
-        dead_code,
-        reason = "consumed by the following FacilityBand MIR/LIR slice"
-    )]
     pub(crate) facility_band_geometries: Box<[HirFacilityBandGeometry]>,
     pub(crate) geometry_source_ranges: Box<[HirGeometrySourceRange]>,
     pub(crate) canonical_points: Box<[HirCanonicalPoint3F32]>,
@@ -5130,7 +5122,7 @@ fn build_spatial_hir(
     }
 
     // FacilityBand 不参与可遍历 LaneEdge 图，但其中心线必须进入同一 frame、规范点表
-    // 和资源权威，供后继 MIR/LIR 生成不可遍历设施几何表。
+    // 和资源权威，供 MIR/LIR 生成不可遍历设施几何表。
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let module_key = HirModuleKey::from_raw(
             u32::try_from(module_index)

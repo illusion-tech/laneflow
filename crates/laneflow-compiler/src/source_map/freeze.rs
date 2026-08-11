@@ -169,7 +169,9 @@ pub(crate) fn freeze_source_map(
         .saturating_mul(2)
         .saturating_add(u64::try_from(mir.parking_area_spaces.len()).unwrap_or(u64::MAX));
     let spatial_entity_count = u64::try_from(mir.canonical_frames.len()).unwrap_or(u64::MAX);
-    let spatial_relation_count = u64::try_from(mir.lane_edge_geometries.len()).unwrap_or(u64::MAX);
+    let spatial_relation_count = u64::try_from(mir.lane_edge_geometries.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(mir.facility_band_geometries.len()).unwrap_or(u64::MAX));
     let spatial_contributing_source_count =
         u64::try_from(mir.geometry_source_ranges.len()).unwrap_or(u64::MAX);
     let access_entity_count = u64::try_from(mir.participant_classes.len())
@@ -529,7 +531,10 @@ pub(crate) fn freeze_source_map(
     let mut participant_class_sources = Vec::with_capacity(mir.participant_classes.len());
     let mut vehicle_profile_sources = Vec::with_capacity(mir.vehicle_profiles.len());
     let mut canonical_frame_sources = Vec::with_capacity(mir.canonical_frames.len());
-    let mut spatial_relation_sources = Vec::with_capacity(mir.lane_edge_geometries.len());
+    let mut spatial_relation_sources = Vec::with_capacity(
+        usize::try_from(spatial_relation_count)
+            .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
+    );
     let mut access_rule_sources = Vec::with_capacity(mir.access_rules.len());
     let mut access_relation_sources = Vec::with_capacity(
         usize::try_from(access_relation_count)
@@ -1193,6 +1198,30 @@ pub(crate) fn freeze_source_map(
             primary: location.resolve(geometry.source_module, &geometry.source_span)?,
             source_ranges: source_ranges.into_boxed_slice(),
         });
+    }
+    for mir_frame in frozen_lir
+        .canonical_frames
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
+        let frame = &mir.canonical_frames[mir_frame.index()];
+        let owner_ordinal = frozen_lir.canonical_frames.ordinal(mir_frame);
+        for (local_index, geometry) in mir.facility_band_geometries
+            [frame.facility_band_geometries.as_usize_range()]
+        .iter()
+        .enumerate()
+        {
+            spatial_relation_sources.push(SpatialRelationSourceRecord {
+                owner_ordinal,
+                owner_stable_id: frame.stable_id,
+                role: SourceRelationRole::CanonicalFrameFacilityBandGeometry,
+                local_index: u32::try_from(local_index)
+                    .expect("MIR range precheck proved local index fits u32"),
+                primary: location.resolve(frame.module, &geometry.source_span)?,
+                source_ranges: Box::default(),
+            });
+        }
     }
     for (frame_index, frame) in mir.canonical_frames.iter().enumerate() {
         debug_assert_eq!(
