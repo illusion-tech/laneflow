@@ -181,6 +181,10 @@ impl TestOfficialModule {
             .saturating_add(size_bytes::<SourceDocumentDescriptor>(
                 u64::try_from(documents.len()).unwrap_or(u64::MAX),
             ));
+        admitted.resource_counts.admission_peak_live_bytes = admitted
+            .resource_counts
+            .admission_peak_live_bytes
+            .max(admitted.resource_counts.controlled_live_bytes);
         let AdmittedOfficialModule {
             typed_ast,
             resource_counts,
@@ -549,14 +553,16 @@ fn ordered_ready_set_requested_bytes(module_count: u64) -> u64 {
 }
 
 #[inline]
-fn builder_live_requested_bytes(totals: AdmissionTotals) -> u64 {
+pub(super) fn builder_live_requested_bytes(totals: AdmissionTotals) -> u64 {
     totals
         .module_payload_live_bytes
         .saturating_add(source_document_index_requested_bytes(
             totals.source_document_count,
         ))
         .saturating_add(module_index_requested_bytes(totals.module_count))
-        .saturating_add(size_bytes::<AdmittedOfficialModule>(totals.module_count))
+        .saturating_add(size_bytes::<AdmittedOfficialModule>(
+            totals.module_slot_capacity,
+        ))
 }
 
 /// 共同准入的三层内存账本：构建器存续量、冻结阶段暂存峰值与成功结果存续量。
@@ -781,7 +787,7 @@ impl CompilationUnitBuilder {
             CompileLimitDimension::RouteOccurrenceCount => self.totals.route_occurrence_count,
             CompileLimitDimension::GeometryPointCount => self.totals.geometry_point_count,
             CompileLimitDimension::CompilerControlledLiveBytes => {
-                self.totals.module_payload_live_bytes
+                builder_live_requested_bytes(self.totals)
             }
             CompileLimitDimension::SourceBytesPerModule
             | CompileLimitDimension::SingleStringBytes
@@ -852,7 +858,10 @@ impl CompilationUnitBuilder {
             }
         }
 
-        let next_totals = self.totals.candidate_after(
+        let previous_builder_live_bytes = builder_live_requested_bytes(self.totals);
+        let candidate_frontend_peak = module.resource_counts.admission_peak_live_bytes;
+        let candidate_retained_live = module.resource_counts.controlled_live_bytes;
+        let mut next_totals = self.totals.candidate_after(
             document_count,
             u64::try_from(module.imports.len()).unwrap_or(u64::MAX),
             &module.resource_counts,
@@ -864,7 +873,23 @@ impl CompilationUnitBuilder {
                 .saturating_add(1)
         );
         let next_builder_live_bytes = builder_live_requested_bytes(next_totals);
-        for (dimension, observed) in next_totals.limit_observations(next_builder_live_bytes) {
+        let module_growth_bytes =
+            if next_totals.module_slot_capacity > self.totals.module_slot_capacity {
+                size_bytes::<AdmittedOfficialModule>(next_totals.module_slot_capacity)
+            } else {
+                0
+            };
+        let admission_observed_live_bytes = next_builder_live_bytes
+            .max(previous_builder_live_bytes.saturating_add(candidate_frontend_peak))
+            .max(
+                previous_builder_live_bytes
+                    .saturating_add(candidate_retained_live)
+                    .saturating_add(module_growth_bytes),
+            );
+        next_totals.admission_peak_live_bytes = next_totals
+            .admission_peak_live_bytes
+            .max(admission_observed_live_bytes);
+        for (dimension, observed) in next_totals.limit_observations(admission_observed_live_bytes) {
             let limit = self.limits.value(dimension);
             if observed > limit {
                 return Err(DiagnosticBundle::single(
@@ -900,6 +925,18 @@ impl CompilationUnitBuilder {
 
     #[inline]
     fn commit_admission(&mut self, plan: AdmissionPlan) {
+        if plan.next_totals.module_slot_capacity > self.totals.module_slot_capacity {
+            let target = usize::try_from(plan.next_totals.module_slot_capacity)
+                .expect("ModuleCount is represented by usize");
+            let mut grown = Vec::with_capacity(target);
+            assert_eq!(
+                grown.capacity(),
+                target,
+                "pinned Rust Vec must retain the explicitly budgeted exact capacity"
+            );
+            grown.append(&mut self.modules);
+            self.modules = grown;
+        }
         let namespace = Arc::clone(&plan.module.descriptor.authoring_namespace_id);
         let module_index = self.modules.len();
         self.modules.push(plan.module);
@@ -915,6 +952,10 @@ impl CompilationUnitBuilder {
             );
         }
         self.totals = plan.next_totals;
+        debug_assert_eq!(
+            u64::try_from(self.modules.capacity()).unwrap_or(u64::MAX),
+            self.totals.module_slot_capacity
+        );
     }
 
     /// 验证完整导入图并冻结依赖优先的规范模块顺序。
@@ -1060,6 +1101,10 @@ impl CompilationUnitBuilder {
             waiting_zone_count: self.totals.waiting_zone_count,
             route_occurrence_count: self.totals.route_occurrence_count,
             controlled_live_bytes: sizing.result_live_bytes,
+            admission_peak_live_bytes: self
+                .totals
+                .admission_peak_live_bytes
+                .max(sizing.build_peak_live_bytes),
         })
     }
 }
@@ -1083,6 +1128,7 @@ pub struct CompilationUnit {
     pub(crate) waiting_zone_count: u64,
     pub(crate) route_occurrence_count: u64,
     pub(crate) controlled_live_bytes: u64,
+    pub(crate) admission_peak_live_bytes: u64,
 }
 
 impl CompilationUnit {

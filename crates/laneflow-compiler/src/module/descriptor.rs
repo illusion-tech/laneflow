@@ -186,7 +186,7 @@ impl SourceModuleDescriptor {
         self.frontend_version
     }
 
-    /// 返回调用方登记的前端选项摘要；它不认证来源记录内容。
+    /// 返回官方前端冻结的选项摘要；精确前像由具体来源语言定义，且不认证来源记录内容。
     #[must_use]
     pub const fn frontend_options_digest(&self) -> &[u8; 32] {
         &self.frontend_options_digest
