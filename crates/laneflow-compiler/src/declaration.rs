@@ -899,6 +899,18 @@ pub(crate) struct AuthoringLaneGeometry {
     pub(crate) width_profile: AuthoringWidthProfile,
 }
 
+/// 规范点表中连续范围到 authoring source segment 的压缩来源映射。
+#[allow(
+    dead_code,
+    reason = "consumed by the following spatial HIR/MIR/LIR source-map slice"
+)]
+pub(crate) struct CompiledGeometrySourceRange {
+    pub(crate) point_start: u32,
+    pub(crate) point_end_exclusive: u32,
+    pub(crate) source_segment_ordinal: u32,
+    pub(crate) source: SourceLocation,
+}
+
 /// RoadEditingSource authoring 几何已冻结为共同规范点表后的 LaneEdge 权威。
 pub(crate) struct CompiledLaneEdgeGeometry {
     pub(crate) length: EdgeLength,
@@ -909,6 +921,11 @@ pub(crate) struct CompiledLaneEdgeGeometry {
         reason = "consumed by the following spatial HIR/MIR/LIR slice"
     )]
     pub(crate) centerline_points: Box<[CanonicalPoint3F32Input]>,
+    #[allow(
+        dead_code,
+        reason = "consumed by the following spatial HIR/MIR/LIR source-map slice"
+    )]
+    pub(crate) source_ranges: Box<[CompiledGeometrySourceRange]>,
 }
 
 /// 不可遍历 FacilityBand 的规范中心线；后续 LIR 以独立稀疏范围表保存。
@@ -920,6 +937,7 @@ pub(crate) struct CompiledFacilityBandGeometry {
     pub(crate) length: EdgeLength,
     pub(crate) canonical_frame: OwnedEntityReference<CanonicalFrameKind>,
     pub(crate) centerline_points: Box<[CanonicalPoint3F32Input]>,
+    pub(crate) source_ranges: Box<[CompiledGeometrySourceRange]>,
 }
 
 /// LaneEdge 的唯一几何权威；它表达语义形状，不表达来源编码。
@@ -1217,10 +1235,13 @@ impl TypedAstDeclaration {
                 {
                     try_visit_authoring_curve(curve, &mut visit)?;
                 }
-                if let LaneEdgeGeometryAuthority::Compiled(geometry) = geometry_authority
-                    && let Some(frame) = &geometry.canonical_frame
-                {
-                    try_visit_reference(frame, &mut visit)?;
+                if let LaneEdgeGeometryAuthority::Compiled(geometry) = geometry_authority {
+                    if let Some(frame) = &geometry.canonical_frame {
+                        try_visit_reference(frame, &mut visit)?;
+                    }
+                    for range in &geometry.source_ranges {
+                        visit(&range.source)?;
+                    }
                 }
             }
             Self::RoadCorridor(RoadCorridorDeclaration {
@@ -1283,6 +1304,9 @@ impl TypedAstDeclaration {
                 try_visit_declaration_header(header, &mut visit)?;
                 if let Some(geometry) = compiled_geometry {
                     try_visit_reference(&geometry.canonical_frame, &mut visit)?;
+                    for range in &geometry.source_ranges {
+                        visit(&range.source)?;
+                    }
                 }
             }
             Self::SignalGroup(SignalGroupDeclaration { header })
