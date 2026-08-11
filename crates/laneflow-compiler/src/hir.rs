@@ -20,25 +20,26 @@ use laneflow_static_contract::{
     MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS, ManeuverGateId, ManeuverPathId, MovementId,
     PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS, PARKING_HEADING_OFFSET_MAXIMUM_RADIANS,
     PARKING_HEADING_OFFSET_MINIMUM_RADIANS, ParkingAreaId, ParkingSpaceId, ParticipantClassId,
-    RoadCorridorId, RoadSectionId, SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS,
-    SPATIAL_JOIN_POSITION_TOLERANCE_METERS, SPATIAL_LENGTH_ABS_TOLERANCE_METERS,
-    SPATIAL_LENGTH_REL_TOLERANCE, SPATIAL_MIN_PROJECTED_UP_LENGTH,
-    SPATIAL_MIN_SEGMENT_LENGTH_METERS, SignalAspect, SignalControllerId, SignalGroupId,
-    SignalPhaseId, StableId128, StaticRouteId, StopLineId, VehicleProfileId, WaitingZoneId,
+    RoadCorridorId, RoadSectionId, SPATIAL_JOIN_POSITION_TOLERANCE_METERS, SignalAspect,
+    SignalControllerId, SignalGroupId, SignalPhaseId, StableId128, StaticRouteId, StopLineId,
+    VehicleProfileId, WaitingZoneId,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::declaration::{
-    LaneEdgeDeclaration, MAX_PORTABLE_SIGNAL_TIME_MS, OwnedAccessRegulation, OwnedAccessRuleTarget,
+    CanonicalPoint3F32Input, LaneEdgeDeclaration, LaneEdgeGeometryAuthority,
+    MAX_PORTABLE_SIGNAL_TIME_MS, OwnedAccessRegulation, OwnedAccessRuleTarget,
     OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl, TypedAstDeclaration,
     TypedAstEntityAddress,
 };
 use crate::diagnostic::{DiagnosticCollector, JunctionEdgeSetViolation};
+use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::identity::{
     IdentityFieldInput, IdentityRegistrationError, IdentityRegistry, RegisteredCanonicalIdentity,
     encode_canonical_identity,
 };
 use crate::module::ResolvedSourceLocation;
+use crate::spatial_freeze::{check_spatial_direction, freeze_spatial_polyline};
 use crate::{
     AccessCapability, AccessPlane, AccessRegulationField, CompilationUnit, CompileLimitDimension,
     Diagnostic, DiagnosticBundle, ParkingAnchorRole, ParkingGeometryField,
@@ -865,6 +866,23 @@ struct SpatialCounts {
     spatial_segments: u64,
 }
 
+struct PendingSpatialGeometry<'a> {
+    centerline_points: &'a [CanonicalPoint3F32Input],
+    source_span: SourceLocation,
+}
+
+#[derive(Clone)]
+struct SpatialFrameAssignment {
+    frame: HirCanonicalFrameKey,
+    source_span: SourceLocation,
+}
+
+struct SpatialTopologyContext<'a> {
+    maneuver_paths: &'a [HirManeuverPath],
+    maneuver_path_edges: &'a [HirManeuverPathEdge],
+    junction_internal_edges: &'a [HirJunctionInternalEdge],
+}
+
 #[derive(Default)]
 struct AccessHir {
     participant_classes: Box<[HirParticipantClass]>,
@@ -1038,7 +1056,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         .saturating_add(unit.identity_field_occurrence_count)
         .saturating_add(unit.reference_count)
         .saturating_add(unit.relation_occurrence_count)
-        .saturating_add(unit.geometry_point_count)
+        // HIR 记录数必须使用实际冻结后的规范点，而不是 RoadEditing source curve 的
+        // 控制点计数；细分可能让两者显著不同。
+        .saturating_add(spatial_counts.canonical_points)
         .saturating_add(spatial_counts.spatial_segments)
         // 信号组到机动门的反向使用关系由 HIR 派生，Typed AST 只计正向绑定。
         .saturating_add(signal_counts.controlled_gates)
@@ -1138,7 +1158,8 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                 control_counts
                     .stop_lines
                     .saturating_add(junction_counts.maneuver_paths)
-                    .saturating_add(lane_edge_reference_count),
+                    .saturating_add(lane_edge_reference_count)
+                    .saturating_add(lane_edge_count),
             ))
             .saturating_add(requested_bytes::<HirManeuverGateKey>(
                 control_counts.maneuver_gates.saturating_mul(2),
@@ -1228,13 +1249,30 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             ))
             .saturating_add(requested_bytes::<usize>(unit.declaration_count))
     };
-    let spatial_scratch = if spatial_counts.canonical_frames == 0 {
-        0
-    } else {
-        requested_bytes::<usize>(unit.declaration_count).saturating_add(requested_bytes::<
-            Option<(HirCanonicalFrameKey, usize)>,
-        >(lane_edge_count))
-    };
+    let spatial_scratch =
+        if spatial_counts.canonical_frames == 0 && spatial_counts.lane_edge_geometries == 0 {
+            0
+        } else {
+            requested_bytes::<usize>(unit.declaration_count)
+                .saturating_add(requested_bytes::<Option<PendingSpatialGeometry<'static>>>(
+                    lane_edge_count,
+                ))
+                .saturating_add(requested_bytes::<Option<SpatialFrameAssignment>>(
+                    lane_edge_count,
+                ))
+                .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
+                .saturating_add(requested_bytes::<u8>(lane_edge_count))
+                .saturating_add(requested_bytes::<HirLaneEdgeKey>(
+                    spatial_counts.lane_edge_geometries,
+                ))
+                .saturating_add(requested_bytes::<
+                    HashMap<TypedAstEntityAddress, HirCanonicalFrameKey>,
+                >(module_count))
+                .saturating_add(requested_hash_table_bytes::<
+                    TypedAstEntityAddress,
+                    HirCanonicalFrameKey,
+                >(spatial_counts.canonical_frames))
+        };
     let access_scratch = if access_counts.entity_count() == 0 {
         0
     } else {
@@ -1503,6 +1541,10 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let mut limit_diagnostics =
         DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
     for (dimension, observed) in [
+        (
+            CompileLimitDimension::GeometryPointCount,
+            spatial_counts.canonical_points,
+        ),
         (CompileLimitDimension::HirRecordCount, hir_record_count),
         (
             CompileLimitDimension::StageScratchBytes,
@@ -1777,6 +1819,11 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &lane_edges,
         &references,
         &symbols,
+        SpatialTopologyContext {
+            maneuver_paths: &junction.maneuver_paths,
+            maneuver_path_edges: &junction.maneuver_path_edges,
+            junction_internal_edges: &junction.junction_internal_edges,
+        },
         &mut identities,
     )?;
     let access = build_access_hir(
@@ -2968,7 +3015,6 @@ fn build_junction_hir(
             &mut diagnostics,
         );
         let start = path_edges.len();
-        let mut predecessor: Option<(HirLaneEdgeKey, SourceLocation)> = None;
         let mut entry = None;
         let mut exit = None;
         for (index, reference) in core::iter::once(&source.entry_edge)
@@ -2985,7 +3031,6 @@ fn build_junction_hir(
                 location.source_module_index,
                 &mut diagnostics,
             ) else {
-                predecessor = None;
                 continue;
             };
             if index == 0 {
@@ -2994,25 +3039,6 @@ fn build_junction_hir(
             if index == source.internal_edges.len().saturating_add(1) {
                 exit = Some(target);
             }
-            if let Some((predecessor_key, predecessor_span)) = predecessor {
-                let predecessor_record = lane_edges.get(predecessor_key);
-                let connected = lane_edge_references
-                    [predecessor_record.successors.as_usize_range()]
-                .iter()
-                .any(|candidate| candidate.target == target);
-                if !connected {
-                    let mut diagnostic = Diagnostic::disconnected_maneuver_path(
-                        &source.header.stable_key,
-                        &predecessor_record.stable_key,
-                        &lane_edges.get(target).stable_key,
-                        reference.span.clone(),
-                        predecessor_span,
-                    );
-                    diagnostic.set_canonical_module_order(location.source_module_index);
-                    diagnostics.push(diagnostic);
-                }
-            }
-            predecessor = Some((target, reference.span.clone()));
             path_edges.push(HirManeuverPathEdge {
                 target,
                 source_span: reference.span.clone(),
@@ -3238,6 +3264,43 @@ fn build_junction_hir(
         );
         diagnostic.set_canonical_module_order(junctions.get(declared.junction).module.raw());
         diagnostics.push(diagnostic);
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
+    // Junction-internal edges intentionally carry no `successors`: the ManeuverPath sequence is
+    // the sole topology authority for every transition that touches one. A path with no internal
+    // edge is an ordinary section-to-section transition and must still be backed by a declared
+    // successor, preserving the non-junction lane graph contract.
+    for (_, path) in paths.iter() {
+        let edges = &path_edges[path.edges.as_usize_range()];
+        for pair in edges.windows(2) {
+            let [predecessor, successor] = pair else {
+                unreachable!("windows(2) always yields two elements")
+            };
+            if internal_claims[predecessor.target.index()].is_some()
+                || internal_claims[successor.target.index()].is_some()
+            {
+                continue;
+            }
+            let predecessor_record = lane_edges.get(predecessor.target);
+            let connected = lane_edge_references[predecessor_record.successors.as_usize_range()]
+                .iter()
+                .any(|candidate| candidate.target == successor.target);
+            if connected {
+                continue;
+            }
+            let mut diagnostic = Diagnostic::disconnected_maneuver_path(
+                &path.stable_key,
+                &predecessor_record.stable_key,
+                &lane_edges.get(successor.target).stable_key,
+                successor.source_span.clone(),
+                predecessor.source_span.clone(),
+            );
+            diagnostic.set_canonical_module_order(path.module.raw());
+            diagnostics.push(diagnostic);
+        }
     }
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
@@ -3722,20 +3785,23 @@ fn build_control_hir(
         }
     }
 
-    // 每个 successor 引用是否至少有一条 ManeuverPath 以该转换起步。路径已在前一阶段
-    // 验证连通，因此这里可以用首个转换建立线性覆盖表，并同时检查所有候选路径的入口门。
+    // 每个显式 successor 引用是否至少有一条 ManeuverPath 以该转换起步；另行记录所有
+    // path entry edge，使由 ManeuverPath 独占权威的 junction-internal 转换无需伪造 successor。
     let mut successor_has_path = vec![0_u8; lane_edge_references.len()];
+    let mut edge_has_entry_path = vec![0_u8; lane_edges.len()];
     for (path_index, path) in maneuver_paths.iter().enumerate() {
         let path_edges = &maneuver_path_edges[path.edges.as_usize_range()];
         let [from, to, ..] = path_edges else {
             unreachable!("validated ManeuverPath must contain at least entry and exit edges")
         };
+        edge_has_entry_path[from.target.index()] = 1;
         let successor_range = lane_edges.get(from.target).successors.as_usize_range();
-        let successor_offset = lane_edge_references[successor_range.clone()]
+        if let Some(successor_offset) = lane_edge_references[successor_range.clone()]
             .iter()
             .position(|successor| successor.target == to.target)
-            .expect("validated ManeuverPath first transition must be connected");
-        successor_has_path[successor_range.start + successor_offset] = 1;
+        {
+            successor_has_path[successor_range.start + successor_offset] = 1;
+        }
 
         let Some(stop_key) = stop_line_by_edge[from.target.index()] else {
             continue;
@@ -3756,7 +3822,7 @@ fn build_control_hir(
     }
     for (stop_key, stop) in stop_lines.iter() {
         let successor_range = lane_edges.get(stop.lane_edge).successors.as_usize_range();
-        if successor_range.is_empty() {
+        if successor_range.is_empty() && edge_has_entry_path[stop.lane_edge.index()] == 0 {
             let mut diagnostic = Diagnostic::orphan_stop_line(
                 &stop.stable_key,
                 &lane_edges.get(stop.lane_edge).stable_key,
@@ -3797,6 +3863,7 @@ fn build_control_hir(
     drop(path_has_entry_gate);
     drop(stop_has_entry_gate);
     drop(successor_has_path);
+    drop(edge_has_entry_path);
 
     let mut path_gate_total = 0_usize;
     for (index, count) in path_gate_counts.iter().copied().enumerate() {
@@ -4617,10 +4684,11 @@ fn build_spatial_hir(
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     lane_edge_references: &[HirLaneEdgeReference],
     lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
+    topology: SpatialTopologyContext<'_>,
     identities: &mut IdentityRegistry,
 ) -> Result<SpatialHir, DiagnosticBundle> {
     let counts = spatial_counts(unit);
-    if counts.canonical_frames == 0 {
+    if counts.canonical_frames == 0 && counts.lane_edge_geometries == 0 {
         return Ok(SpatialHir::default());
     }
 
@@ -4631,7 +4699,22 @@ fn build_spatial_hir(
         Vec::with_capacity(count_to_usize(counts.lane_edge_geometries, &unit.limits)?);
     let mut points = Vec::with_capacity(count_to_usize(counts.canonical_points, &unit.limits)?);
     let mut segments = Vec::with_capacity(count_to_usize(counts.spatial_segments, &unit.limits)?);
-    let mut edge_bindings = vec![None::<(HirCanonicalFrameKey, usize)>; lane_edges.len()];
+    let mut pending_geometries: Vec<Option<PendingSpatialGeometry<'_>>> =
+        (0..lane_edges.len()).map(|_| None).collect();
+    let mut frame_assignments: Vec<Option<SpatialFrameAssignment>> =
+        (0..lane_edges.len()).map(|_| None).collect();
+    let mut geometry_index_by_edge = vec![None::<usize>; lane_edges.len()];
+    let mut internal_edge_flags = vec![0_u8; lane_edges.len()];
+    for relation in topology.junction_internal_edges {
+        internal_edge_flags[relation.edge.index()] = 1;
+    }
+    let mut frame_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
+        module
+            .declarations
+            .iter()
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::CanonicalFrame(_)))
+            .count()
+    }));
     let mut diagnostics =
         DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
     for (module_index, source_module) in unit.modules.iter().enumerate() {
@@ -4678,7 +4761,6 @@ fn build_spatial_hir(
                 &source.header.span,
                 &fields,
             )?);
-            let geometry_start = geometries.len();
             let frame_key = frames
                 .push(HirCanonicalFrame {
                     module: module_key,
@@ -4690,6 +4772,7 @@ fn build_spatial_hir(
                 .map_err(|overflow| {
                     arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                 })?;
+            frame_symbols.insert(module_key, source.header.source_address.clone(), frame_key);
 
             for geometry in &source.lane_edge_geometries {
                 let target_module = module_lookup[geometry.lane_edge.module_namespace.as_ref()];
@@ -4710,14 +4793,14 @@ fn build_spatial_hir(
                     diagnostics.push(diagnostic);
                     continue;
                 };
-                if let Some((_, existing_index)) = edge_bindings[lane_edge.index()] {
+                if let Some(existing) = &pending_geometries[lane_edge.index()] {
                     let mut diagnostic = Diagnostic::invalid_spatial_geometry(
                         Some(&source.header.stable_key),
                         geometry.lane_edge.declaration_key(),
                         None,
                         SpatialGeometryViolation::DuplicateEdgeBinding,
                         geometry.lane_edge.span.clone(),
-                        Some(geometries[existing_index].source_span.clone()),
+                        Some(existing.source_span.clone()),
                     );
                     diagnostic.set_canonical_module_order(
                         u32::try_from(module_index).unwrap_or(u32::MAX),
@@ -4725,194 +4808,266 @@ fn build_spatial_hir(
                     diagnostics.push(diagnostic);
                     continue;
                 }
-
-                let point_start = points.len();
-                points.extend(geometry.centerline_points.iter().map(|point| {
-                    HirCanonicalPoint3F32 {
-                        x: point.x,
-                        y: point.y,
-                        z: point.z,
-                    }
-                }));
-                let segment_start = segments.len();
-                let mut cumulative = 0.0_f32;
-                let mut geometry_valid = true;
-                for (segment_index, pair) in geometry.centerline_points.windows(2).enumerate() {
-                    let delta = [
-                        canonicalize_spatial_zero(pair[1].x - pair[0].x),
-                        canonicalize_spatial_zero(pair[1].y - pair[0].y),
-                        canonicalize_spatial_zero(pair[1].z - pair[0].z),
-                    ];
-                    let length = delta[0].hypot(delta[1]).hypot(delta[2]);
-                    if length <= SPATIAL_MIN_SEGMENT_LENGTH_METERS {
-                        let mut diagnostic = Diagnostic::invalid_spatial_geometry(
-                            Some(&source.header.stable_key),
-                            geometry.lane_edge.declaration_key(),
-                            None,
-                            SpatialGeometryViolation::DegenerateSegment {
-                                segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
-                                length_bits: length.to_bits(),
-                                minimum_bits: SPATIAL_MIN_SEGMENT_LENGTH_METERS.to_bits(),
-                            },
-                            geometry.lane_edge.span.clone(),
-                            None,
-                        );
-                        diagnostic.set_canonical_module_order(
-                            u32::try_from(module_index).unwrap_or(u32::MAX),
-                        );
-                        diagnostics.push(diagnostic);
-                        geometry_valid = false;
-                        break;
-                    }
-                    // 与 current Spatial 的受检单位向量构造保持逐位一致：先按最大绝对
-                    // 分量缩放可避免平方求和溢出，也防止迁移投影重建出不同的局部基。
-                    let tangent = normalize_spatial_vector(delta);
-                    let projected_up = tangent[0].hypot(tangent[2]);
-                    if projected_up < SPATIAL_MIN_PROJECTED_UP_LENGTH {
-                        let mut diagnostic = Diagnostic::invalid_spatial_geometry(
-                            Some(&source.header.stable_key),
-                            geometry.lane_edge.declaration_key(),
-                            None,
-                            SpatialGeometryViolation::DegenerateProjectedUp {
-                                segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
-                                projected_up_bits: projected_up.to_bits(),
-                                minimum_bits: SPATIAL_MIN_PROJECTED_UP_LENGTH.to_bits(),
-                            },
-                            geometry.lane_edge.span.clone(),
-                            None,
-                        );
-                        diagnostic.set_canonical_module_order(
-                            u32::try_from(module_index).unwrap_or(u32::MAX),
-                        );
-                        diagnostics.push(diagnostic);
-                        geometry_valid = false;
-                        break;
-                    }
-                    let left = normalize_spatial_vector([tangent[2], 0.0, -tangent[0]]);
-                    let raw_up = [
-                        tangent[1] * left[2],
-                        tangent[2] * left[0] - tangent[0] * left[2],
-                        -tangent[1] * left[0],
-                    ];
-                    let up = normalize_spatial_vector(raw_up);
-                    let next_cumulative = cumulative + length;
-                    if !next_cumulative.is_finite() || next_cumulative <= cumulative {
-                        let mut diagnostic = Diagnostic::invalid_spatial_geometry(
-                            Some(&source.header.stable_key),
-                            geometry.lane_edge.declaration_key(),
-                            None,
-                            SpatialGeometryViolation::ArcLengthAccumulationFailed {
-                                segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
-                                accumulated_bits: cumulative.to_bits(),
-                                segment_length_bits: length.to_bits(),
-                            },
-                            geometry.lane_edge.span.clone(),
-                            None,
-                        );
-                        diagnostic.set_canonical_module_order(
-                            u32::try_from(module_index).unwrap_or(u32::MAX),
-                        );
-                        diagnostics.push(diagnostic);
-                        geometry_valid = false;
-                        break;
-                    }
-                    segments.push(HirSpatialSegment {
-                        length_meters: length,
-                        cumulative_end_meters: next_cumulative,
-                        tangent,
-                        up,
-                    });
-                    cumulative = next_cumulative;
-                }
-                if !geometry_valid {
-                    points.truncate(point_start);
-                    segments.truncate(segment_start);
-                    continue;
-                }
-                let lane_edge_length = lane_edges.get(lane_edge).length_meters;
-                let tolerance = SPATIAL_LENGTH_ABS_TOLERANCE_METERS.max(
-                    SPATIAL_LENGTH_REL_TOLERANCE * lane_edge_length.max(f64::from(cumulative)),
-                ) + SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS;
-                if (lane_edge_length - f64::from(cumulative)).abs() > tolerance {
-                    let mut diagnostic = Diagnostic::invalid_spatial_geometry(
-                        Some(&source.header.stable_key),
-                        geometry.lane_edge.declaration_key(),
-                        None,
-                        SpatialGeometryViolation::LengthMismatch {
-                            lane_edge_length_bits: lane_edge_length.to_bits(),
-                            geometry_length_bits: cumulative.to_bits(),
-                            tolerance_bits: tolerance.to_bits(),
-                        },
-                        geometry.lane_edge.span.clone(),
-                        None,
-                    );
-                    diagnostic.set_canonical_module_order(
-                        u32::try_from(module_index).unwrap_or(u32::MAX),
-                    );
-                    diagnostics.push(diagnostic);
-                    points.truncate(point_start);
-                    segments.truncate(segment_start);
-                    continue;
-                }
-                let geometry_index = geometries.len();
-                geometries.push(HirLaneEdgeGeometry {
-                    canonical_frame: frame_key,
-                    lane_edge,
-                    points: TableRange::try_from_usize(
-                        point_start,
-                        points.len().saturating_sub(point_start),
-                    )
-                    .map_err(|overflow| {
-                        arena_overflow(
-                            overflow,
-                            &unit.limits,
-                            Some(geometry.lane_edge.span.clone()),
-                        )
-                    })?,
-                    segments: TableRange::try_from_usize(
-                        segment_start,
-                        segments.len().saturating_sub(segment_start),
-                    )
-                    .map_err(|overflow| {
-                        arena_overflow(
-                            overflow,
-                            &unit.limits,
-                            Some(geometry.lane_edge.span.clone()),
-                        )
-                    })?,
-                    arc_length_meters: cumulative,
+                pending_geometries[lane_edge.index()] = Some(PendingSpatialGeometry {
+                    centerline_points: &geometry.centerline_points,
                     source_span: geometry.lane_edge.span.clone(),
                 });
-                edge_bindings[lane_edge.index()] = Some((frame_key, geometry_index));
+                frame_assignments[lane_edge.index()] = Some(SpatialFrameAssignment {
+                    frame: frame_key,
+                    source_span: geometry.lane_edge.span.clone(),
+                });
             }
-            frames.get_mut(frame_key).lane_edge_geometries = TableRange::try_from_usize(
-                geometry_start,
-                geometries.len().saturating_sub(geometry_start),
-            )
-            .map_err(|overflow| {
-                arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
-            })?;
+        }
+    }
+
+    // RoadEditingSource 点表不回填 CanonicalFrame 声明。先把全部 compiled LaneEdge
+    // 登记到与 Synthetic 显式几何相同的 edge-indexed pending 表；section-derived edge
+    // 解析显式 frame，junction-internal edge 留给完整 ManeuverPath 图唯一推导。
+    let mut compilation_profiles: Option<(GeometryCompilationProfiles, SourceLocation)> = None;
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let module_key = HirModuleKey::from_raw(
+            u32::try_from(module_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        let mut declaration_indices: Vec<_> = source_module
+            .declarations
+            .iter()
+            .enumerate()
+            .filter_map(|(index, declaration)| {
+                matches!(
+                    declaration,
+                    TypedAstDeclaration::LaneEdge(LaneEdgeDeclaration {
+                        geometry_authority: LaneEdgeGeometryAuthority::Compiled(_),
+                        ..
+                    })
+                )
+                .then_some(index)
+            })
+            .collect();
+        declaration_indices.sort_unstable_by_key(|index| {
+            &declaration_header(&source_module.declarations[*index]).source_address
+        });
+        if let Some(first_index) = declaration_indices.first().copied() {
+            let first = lane_edge_declaration(&source_module.declarations[first_index])
+                .expect("compiled geometry filter must name a LaneEdge");
+            match source_module.geometry_profiles {
+                None => {
+                    let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                        None,
+                        &first.header.stable_key,
+                        None,
+                        SpatialGeometryViolation::MissingGeometryProfiles,
+                        first.header.span.clone(),
+                        None,
+                    );
+                    diagnostic.set_canonical_module_order(
+                        u32::try_from(module_index).unwrap_or(u32::MAX),
+                    );
+                    diagnostics.push(diagnostic);
+                }
+                Some(actual) => {
+                    if let Some((expected, expected_span)) = &compilation_profiles {
+                        if actual != *expected {
+                            let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                                None,
+                                &first.header.stable_key,
+                                None,
+                                SpatialGeometryViolation::GeometryProfileMismatch {
+                                    expected_accuracy_code: expected.accuracy as u8,
+                                    expected_direction_code: expected.direction as u8,
+                                    actual_accuracy_code: actual.accuracy as u8,
+                                    actual_direction_code: actual.direction as u8,
+                                },
+                                first.header.span.clone(),
+                                Some(expected_span.clone()),
+                            );
+                            diagnostic.set_canonical_module_order(
+                                u32::try_from(module_index).unwrap_or(u32::MAX),
+                            );
+                            diagnostics.push(diagnostic);
+                        }
+                    } else {
+                        compilation_profiles = Some((actual, first.header.span.clone()));
+                    }
+                }
+            }
+        }
+
+        for declaration_index in declaration_indices {
+            let source = lane_edge_declaration(&source_module.declarations[declaration_index])
+                .expect("compiled geometry filter must name a LaneEdge");
+            let LaneEdgeGeometryAuthority::Compiled(compiled) = &source.geometry_authority else {
+                unreachable!("compiled geometry filter changed authority")
+            };
+            let lane_edge = lane_edge_symbols
+                .get(module_key, &source.header.source_address)
+                .expect("HIR registered every Typed AST LaneEdge symbol");
+            if let Some(existing) = &pending_geometries[lane_edge.index()] {
+                let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                    None,
+                    &source.header.stable_key,
+                    None,
+                    SpatialGeometryViolation::DuplicateEdgeBinding,
+                    source.header.span.clone(),
+                    Some(existing.source_span.clone()),
+                );
+                diagnostic
+                    .set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
+                diagnostics.push(diagnostic);
+                continue;
+            }
+            pending_geometries[lane_edge.index()] = Some(PendingSpatialGeometry {
+                centerline_points: &compiled.centerline_points,
+                source_span: source.header.span.clone(),
+            });
+            if compiled.canonical_frame.is_none() && internal_edge_flags[lane_edge.index()] == 0 {
+                let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                    None,
+                    &source.header.stable_key,
+                    None,
+                    SpatialGeometryViolation::MissingCanonicalFrame,
+                    source.header.span.clone(),
+                    None,
+                );
+                diagnostic
+                    .set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
+                diagnostics.push(diagnostic);
+            }
+            if let Some(frame_reference) = &compiled.canonical_frame
+                && let Some(frame) = resolve_reference(
+                    module_lookup,
+                    &frame_symbols,
+                    frame_reference,
+                    EntityKind::LaneEdge,
+                    &source.header,
+                    u32::try_from(module_index).unwrap_or(u32::MAX),
+                    &mut diagnostics,
+                )
+            {
+                frame_assignments[lane_edge.index()] = Some(SpatialFrameAssignment {
+                    frame,
+                    source_span: frame_reference.span.clone(),
+                });
+            }
         }
     }
 
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
     }
+    if pending_geometries.iter().all(Option::is_none) {
+        return Ok(SpatialHir {
+            canonical_frames: frames.into_boxed_slice(),
+            ..SpatialHir::default()
+        });
+    }
 
-    if !geometries.is_empty() {
-        for (index, binding) in edge_bindings.iter().enumerate() {
-            if binding.is_none() {
-                let edge = lane_edges.get(HirLaneEdgeKey::from_raw(
-                    u32::try_from(index).expect("LaneEdge arena length is bounded by u32"),
-                ));
-                diagnostics.push(Diagnostic::invalid_spatial_geometry(
+    // entry/exit frame 是 internal edge frame 的唯一来源。共享 internal edge 可被多条 path
+    // 使用，但所有路径必须推导出同一 frame；赋值只改变阶段私有索引，不移动任何点。
+    for path in topology.maneuver_paths {
+        let path_edges = &topology.maneuver_path_edges[path.edges.as_usize_range()];
+        let [entry, .., exit] = path_edges else {
+            unreachable!("validated ManeuverPath contains entry and exit")
+        };
+        let Some(entry_assignment) = frame_assignments[entry.target.index()].clone() else {
+            let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                None,
+                &lane_edges.get(entry.target).stable_key,
+                None,
+                SpatialGeometryViolation::MissingCanonicalFrame,
+                entry.source_span.clone(),
+                Some(path.source_span.clone()),
+            );
+            diagnostic.set_canonical_module_order(path.module.raw());
+            diagnostics.push(diagnostic);
+            continue;
+        };
+        let Some(exit_assignment) = frame_assignments[exit.target.index()].clone() else {
+            let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                None,
+                &lane_edges.get(exit.target).stable_key,
+                None,
+                SpatialGeometryViolation::MissingCanonicalFrame,
+                exit.source_span.clone(),
+                Some(path.source_span.clone()),
+            );
+            diagnostic.set_canonical_module_order(path.module.raw());
+            diagnostics.push(diagnostic);
+            continue;
+        };
+        if entry_assignment.frame != exit_assignment.frame {
+            let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                Some(&frames.get(entry_assignment.frame).stable_key),
+                &lane_edges.get(entry.target).stable_key,
+                Some(&lane_edges.get(exit.target).stable_key),
+                SpatialGeometryViolation::ManeuverPathFrameMismatch,
+                entry.source_span.clone(),
+                Some(exit.source_span.clone()),
+            );
+            diagnostic.set_canonical_module_order(path.module.raw());
+            diagnostics.push(diagnostic);
+            continue;
+        }
+        for internal in &path_edges[1..path_edges.len() - 1] {
+            debug_assert_ne!(internal_edge_flags[internal.target.index()], 0);
+            match &frame_assignments[internal.target.index()] {
+                Some(existing) if existing.frame != entry_assignment.frame => {
+                    let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                        Some(&frames.get(existing.frame).stable_key),
+                        &lane_edges.get(internal.target).stable_key,
+                        None,
+                        SpatialGeometryViolation::InternalEdgeFrameConflict,
+                        internal.source_span.clone(),
+                        Some(existing.source_span.clone()),
+                    );
+                    diagnostic.set_canonical_module_order(path.module.raw());
+                    diagnostics.push(diagnostic);
+                }
+                Some(_) => {}
+                None => {
+                    frame_assignments[internal.target.index()] = Some(SpatialFrameAssignment {
+                        frame: entry_assignment.frame,
+                        source_span: internal.source_span.clone(),
+                    });
+                }
+            }
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
+    if pending_geometries.iter().any(Option::is_some) {
+        for (index, pending) in pending_geometries.iter().enumerate() {
+            let edge = lane_edges.get(HirLaneEdgeKey::from_raw(
+                u32::try_from(index).expect("LaneEdge arena length is bounded by u32"),
+            ));
+            if pending.is_none() {
+                let mut diagnostic = Diagnostic::invalid_spatial_geometry(
                     None,
                     &edge.stable_key,
                     None,
                     SpatialGeometryViolation::MissingEdgeBinding,
                     edge.source_span.clone(),
                     None,
-                ));
+                );
+                diagnostic.set_canonical_module_order(edge.module.raw());
+                diagnostics.push(diagnostic);
+            } else if frame_assignments[index].is_none() {
+                let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                    None,
+                    &edge.stable_key,
+                    None,
+                    SpatialGeometryViolation::MissingCanonicalFrame,
+                    pending
+                        .as_ref()
+                        .expect("checked pending geometry")
+                        .source_span
+                        .clone(),
+                    None,
+                );
+                diagnostic.set_canonical_module_order(edge.module.raw());
+                diagnostics.push(diagnostic);
             }
         }
     }
@@ -4920,46 +5075,135 @@ fn build_spatial_hir(
         return Err(diagnostics.finish());
     }
 
+    let mut geometry_order = pending_geometries
+        .iter()
+        .enumerate()
+        .filter_map(|(index, pending)| {
+            pending.as_ref().map(|_| {
+                HirLaneEdgeKey::from_raw(
+                    u32::try_from(index).expect("LaneEdge arena length is bounded by u32"),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    geometry_order.sort_unstable_by_key(|edge| {
+        (
+            frame_assignments[edge.index()]
+                .as_ref()
+                .expect("complete spatial frame coverage")
+                .frame
+                .raw(),
+            edge.raw(),
+        )
+    });
+    let mut order_cursor = 0_usize;
+    for frame_index in 0..frames.len() {
+        let frame_key = HirCanonicalFrameKey::from_raw(
+            u32::try_from(frame_index).expect("compile limits bound CanonicalFrame indexes"),
+        );
+        let geometry_start = geometries.len();
+        while let Some(edge) = geometry_order.get(order_cursor).copied() {
+            let assignment = frame_assignments[edge.index()]
+                .as_ref()
+                .expect("complete spatial frame coverage");
+            if assignment.frame != frame_key {
+                break;
+            }
+            let pending = pending_geometries[edge.index()]
+                .as_ref()
+                .expect("geometry order only contains pending inputs");
+            let frozen = match freeze_spatial_polyline(
+                pending.centerline_points,
+                lane_edges.get(edge).length_meters,
+                &mut points,
+                &mut segments,
+            ) {
+                Ok(frozen) => frozen,
+                Err(violation) => {
+                    let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                        Some(&frames.get(frame_key).stable_key),
+                        &lane_edges.get(edge).stable_key,
+                        None,
+                        violation,
+                        pending.source_span.clone(),
+                        None,
+                    );
+                    diagnostic.set_canonical_module_order(lane_edges.get(edge).module.raw());
+                    diagnostics.push(diagnostic);
+                    order_cursor = order_cursor.saturating_add(1);
+                    continue;
+                }
+            };
+            let geometry_index = geometries.len();
+            geometries.push(HirLaneEdgeGeometry {
+                canonical_frame: frame_key,
+                lane_edge: edge,
+                points: TableRange::try_from_usize(frozen.point_start, frozen.point_count)
+                    .map_err(|overflow| {
+                        arena_overflow(overflow, &unit.limits, Some(pending.source_span.clone()))
+                    })?,
+                segments: TableRange::try_from_usize(frozen.segment_start, frozen.segment_count)
+                    .map_err(|overflow| {
+                        arena_overflow(overflow, &unit.limits, Some(pending.source_span.clone()))
+                    })?,
+                arc_length_meters: frozen.arc_length_meters,
+                source_span: pending.source_span.clone(),
+            });
+            geometry_index_by_edge[edge.index()] = Some(geometry_index);
+            order_cursor = order_cursor.saturating_add(1);
+        }
+        let frame_span = frames.get(frame_key).source_span.clone();
+        frames.get_mut(frame_key).lane_edge_geometries = TableRange::try_from_usize(
+            geometry_start,
+            geometries.len().saturating_sub(geometry_start),
+        )
+        .map_err(|overflow| arena_overflow(overflow, &unit.limits, Some(frame_span)))?;
+    }
+    debug_assert_eq!(order_cursor, geometry_order.len());
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
     for (edge_key, edge) in lane_edges.iter() {
-        let Some((frame, geometry_index)) = edge_bindings[edge_key.index()] else {
-            continue;
-        };
-        let geometry = &geometries[geometry_index];
-        let end = points[geometry.points.as_usize_range().end - 1];
         for successor in &lane_edge_references[edge.successors.as_usize_range()] {
-            let (successor_frame, successor_geometry_index) = edge_bindings
-                [successor.target.index()]
-            .expect("complete spatial coverage must bind every successor");
-            let successor_geometry = &geometries[successor_geometry_index];
-            let successor_edge = lane_edges.get(successor.target);
-            if frame != successor_frame {
-                diagnostics.push(Diagnostic::invalid_spatial_geometry(
-                    Some(&frames.get(frame).stable_key),
-                    &edge.stable_key,
-                    Some(&successor_edge.stable_key),
-                    SpatialGeometryViolation::ConnectedEdgesUseDifferentFrames,
-                    geometry.source_span.clone(),
-                    Some(successor.source_span.clone()),
-                ));
+            validate_spatial_connection(
+                &frames,
+                lane_edges,
+                &geometries,
+                &points,
+                &geometry_index_by_edge,
+                edge_key,
+                successor.target,
+                &successor.source_span,
+                compilation_profiles.as_ref().map(|(profiles, _)| *profiles),
+                &mut diagnostics,
+            );
+        }
+    }
+    // RoadEditing junction-internal edge 不重复声明 successor。对 Synthetic 已由 successor
+    // 覆盖的转换跳过，剩余 ManeuverPath 转换仍走完全相同的 frame/间隙/方向权威。
+    for path in topology.maneuver_paths {
+        let path_edges = &topology.maneuver_path_edges[path.edges.as_usize_range()];
+        for pair in path_edges.windows(2) {
+            let predecessor = lane_edges.get(pair[0].target);
+            if lane_edge_references[predecessor.successors.as_usize_range()]
+                .iter()
+                .any(|successor| successor.target == pair[1].target)
+            {
                 continue;
             }
-            let start = points[successor_geometry.points.as_usize_range().start];
-            let distance = (start.x - end.x)
-                .hypot(start.y - end.y)
-                .hypot(start.z - end.z);
-            if distance > SPATIAL_JOIN_POSITION_TOLERANCE_METERS {
-                diagnostics.push(Diagnostic::invalid_spatial_geometry(
-                    Some(&frames.get(frame).stable_key),
-                    &edge.stable_key,
-                    Some(&successor_edge.stable_key),
-                    SpatialGeometryViolation::DiscontinuousJoin {
-                        distance_bits: distance.to_bits(),
-                        tolerance_bits: SPATIAL_JOIN_POSITION_TOLERANCE_METERS.to_bits(),
-                    },
-                    geometry.source_span.clone(),
-                    Some(successor.source_span.clone()),
-                ));
-            }
+            validate_spatial_connection(
+                &frames,
+                lane_edges,
+                &geometries,
+                &points,
+                &geometry_index_by_edge,
+                pair[0].target,
+                pair[1].target,
+                &pair[1].source_span,
+                compilation_profiles.as_ref().map(|(profiles, _)| *profiles),
+                &mut diagnostics,
+            );
         }
     }
     if !diagnostics.is_empty() {
@@ -4974,20 +5218,102 @@ fn build_spatial_hir(
     })
 }
 
-fn normalize_spatial_vector(vector: [f32; 3]) -> [f32; 3] {
-    let scale = vector[0].abs().max(vector[1].abs()).max(vector[2].abs());
-    debug_assert!(scale > 0.0, "validated spatial direction must be non-zero");
-    let scaled = [vector[0] / scale, vector[1] / scale, vector[2] / scale];
-    let scaled_length = scaled[0].hypot(scaled[1]).hypot(scaled[2]);
-    [
-        canonicalize_spatial_zero(scaled[0] / scaled_length),
-        canonicalize_spatial_zero(scaled[1] / scaled_length),
-        canonicalize_spatial_zero(scaled[2] / scaled_length),
-    ]
-}
-
-const fn canonicalize_spatial_zero(value: f32) -> f32 {
-    if value == 0.0 { 0.0 } else { value }
+#[allow(clippy::too_many_arguments)]
+fn validate_spatial_connection(
+    frames: &TypedArena<HirCanonicalFrameTag, HirCanonicalFrame>,
+    lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
+    geometries: &[HirLaneEdgeGeometry],
+    points: &[HirCanonicalPoint3F32],
+    geometry_index_by_edge: &[Option<usize>],
+    predecessor: HirLaneEdgeKey,
+    successor: HirLaneEdgeKey,
+    relation_span: &SourceLocation,
+    profiles: Option<GeometryCompilationProfiles>,
+    diagnostics: &mut DiagnosticCollector,
+) {
+    let geometry = &geometries[geometry_index_by_edge[predecessor.index()]
+        .expect("complete spatial coverage must bind every predecessor")];
+    let successor_geometry = &geometries[geometry_index_by_edge[successor.index()]
+        .expect("complete spatial coverage must bind every successor")];
+    let edge = lane_edges.get(predecessor);
+    let successor_edge = lane_edges.get(successor);
+    if geometry.canonical_frame != successor_geometry.canonical_frame {
+        let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+            Some(&frames.get(geometry.canonical_frame).stable_key),
+            &edge.stable_key,
+            Some(&successor_edge.stable_key),
+            SpatialGeometryViolation::ConnectedEdgesUseDifferentFrames,
+            geometry.source_span.clone(),
+            Some(relation_span.clone()),
+        );
+        diagnostic.set_canonical_module_order(edge.module.raw());
+        diagnostics.push(diagnostic);
+        return;
+    }
+    let end = points[geometry.points.as_usize_range().end - 1];
+    let start = points[successor_geometry.points.as_usize_range().start];
+    let delta_x = f64::from(start.x) - f64::from(end.x);
+    let delta_y = f64::from(start.y) - f64::from(end.y);
+    let delta_z = f64::from(start.z) - f64::from(end.z);
+    let x_squared = delta_x * delta_x;
+    let y_squared = delta_y * delta_y;
+    let xy_squared = x_squared + y_squared;
+    let z_squared = delta_z * delta_z;
+    let distance_squared = xy_squared + z_squared;
+    let distance = distance_squared.sqrt();
+    let tolerance = f64::from(SPATIAL_JOIN_POSITION_TOLERANCE_METERS);
+    if distance > tolerance {
+        let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+            Some(&frames.get(geometry.canonical_frame).stable_key),
+            &edge.stable_key,
+            Some(&successor_edge.stable_key),
+            SpatialGeometryViolation::DiscontinuousJoin {
+                distance_bits: distance.to_bits(),
+                tolerance_bits: tolerance.to_bits(),
+            },
+            geometry.source_span.clone(),
+            Some(relation_span.clone()),
+        );
+        diagnostic.set_canonical_module_order(edge.module.raw());
+        diagnostics.push(diagnostic);
+        return;
+    }
+    let Some(profiles) = profiles else {
+        return;
+    };
+    let predecessor_points = geometry.points.as_usize_range();
+    let predecessor_end = points[predecessor_points.end - 1];
+    let predecessor_start = points[predecessor_points.end - 2];
+    let successor_points = successor_geometry.points.as_usize_range();
+    let successor_start = points[successor_points.start];
+    let successor_end = points[successor_points.start + 1];
+    let outgoing = [
+        f64::from(predecessor_end.x) - f64::from(predecessor_start.x),
+        f64::from(predecessor_end.y) - f64::from(predecessor_start.y),
+        f64::from(predecessor_end.z) - f64::from(predecessor_start.z),
+    ];
+    let incoming = [
+        f64::from(successor_end.x) - f64::from(successor_start.x),
+        f64::from(successor_end.y) - f64::from(successor_start.y),
+        f64::from(successor_end.z) - f64::from(successor_start.z),
+    ];
+    let check = check_spatial_direction(outgoing, incoming, profiles.direction);
+    if !check.accepted {
+        let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+            Some(&frames.get(geometry.canonical_frame).stable_key),
+            &edge.stable_key,
+            Some(&successor_edge.stable_key),
+            SpatialGeometryViolation::DirectionDiscontinuity {
+                dot_bits: check.dot_bits,
+                lhs_bits: check.lhs_bits,
+                rhs_bits: check.rhs_bits,
+            },
+            geometry.source_span.clone(),
+            Some(relation_span.clone()),
+        );
+        diagnostic.set_canonical_module_order(edge.module.raw());
+        diagnostics.push(diagnostic);
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -7184,18 +7510,33 @@ fn spatial_counts(unit: &CompilationUnit) -> SpatialCounts {
         .iter()
         .flat_map(|module| module.declarations.iter())
     {
-        if let TypedAstDeclaration::CanonicalFrame(frame) = declaration {
-            counts.canonical_frames = counts.canonical_frames.saturating_add(1);
-            counts.lane_edge_geometries = counts.lane_edge_geometries.saturating_add(
-                u64::try_from(frame.lane_edge_geometries.len()).unwrap_or(u64::MAX),
-            );
-            for geometry in &frame.lane_edge_geometries {
+        match declaration {
+            TypedAstDeclaration::CanonicalFrame(frame) => {
+                counts.canonical_frames = counts.canonical_frames.saturating_add(1);
+                counts.lane_edge_geometries = counts.lane_edge_geometries.saturating_add(
+                    u64::try_from(frame.lane_edge_geometries.len()).unwrap_or(u64::MAX),
+                );
+                for geometry in &frame.lane_edge_geometries {
+                    let points =
+                        u64::try_from(geometry.centerline_points.len()).unwrap_or(u64::MAX);
+                    counts.canonical_points = counts.canonical_points.saturating_add(points);
+                    counts.spatial_segments = counts
+                        .spatial_segments
+                        .saturating_add(points.saturating_sub(1));
+                }
+            }
+            TypedAstDeclaration::LaneEdge(LaneEdgeDeclaration {
+                geometry_authority: LaneEdgeGeometryAuthority::Compiled(geometry),
+                ..
+            }) => {
+                counts.lane_edge_geometries = counts.lane_edge_geometries.saturating_add(1);
                 let points = u64::try_from(geometry.centerline_points.len()).unwrap_or(u64::MAX);
                 counts.canonical_points = counts.canonical_points.saturating_add(points);
                 counts.spatial_segments = counts
                     .spatial_segments
                     .saturating_add(points.saturating_sub(1));
             }
+            _ => {}
         }
     }
     counts
@@ -7356,13 +7697,15 @@ fn arena_overflow(
 mod tests {
     use super::*;
     use crate::{
-        AuthoringLaneInput, CompilationUnitBuilder, CompileLimits, CorridorElementReference,
-        DiagnosticCode, DiagnosticPayload, JunctionInput, JunctionReference, LaneEdgeInput,
-        LaneEdgeReference, ManeuverPathInput, MovementInput, MovementReference, RoadCorridorInput,
-        RoadSectionInput, RoadSectionReference, SourceModuleHeader, SourceModuleHeaderInput,
-        SourceSpan, SyntheticModule, SyntheticModuleBuilder,
+        AuthoringLaneInput, CanonicalFrameInput, CompilationUnitBuilder, CompileLimits,
+        CorridorElementReference, DiagnosticCode, DiagnosticPayload, GeometryAccuracyProfile,
+        GeometryDirectionProfile, JunctionInput, JunctionReference, LaneEdgeInput,
+        LaneEdgeReference, ManeuverGateInput, ManeuverPathInput, ManeuverPathReference,
+        MovementInput, MovementReference, RoadCorridorInput, RoadSectionInput,
+        RoadSectionReference, SignalControlInput, SourceModuleHeader, SourceModuleHeaderInput,
+        SourceSpan, StopLineInput, StopLineReference, SyntheticModule, SyntheticModuleBuilder,
     };
-    use laneflow_static_contract::LaneEdgeKind;
+    use laneflow_static_contract::{CanonicalFrameKind, LaneEdgeKind};
 
     fn header(namespace: &str) -> SourceModuleHeader {
         SourceModuleHeader::new(
@@ -7409,6 +7752,464 @@ mod tests {
             builder.add_synthetic_module(module).unwrap();
         }
         builder.build().unwrap()
+    }
+
+    fn install_compiled_lane_geometries(
+        unit: &mut CompilationUnit,
+        module_namespace: &str,
+        profiles: GeometryCompilationProfiles,
+        mut geometry: impl FnMut(&str) -> (Option<(&str, &str)>, Vec<CanonicalPoint3F32Input>),
+    ) {
+        let module = unit
+            .modules
+            .iter_mut()
+            .find(|module| module.descriptor().authoring_namespace_id() == module_namespace)
+            .expect("test module must exist");
+        module.geometry_profiles = Some(profiles);
+        for declaration in &mut module.declarations {
+            let TypedAstDeclaration::LaneEdge(edge) = declaration else {
+                continue;
+            };
+            let (frame, points) = geometry(&edge.header.stable_key);
+            let length = points
+                .windows(2)
+                .map(|pair| {
+                    let x = f64::from(pair[1].x) - f64::from(pair[0].x);
+                    let y = f64::from(pair[1].y) - f64::from(pair[0].y);
+                    let z = f64::from(pair[1].z) - f64::from(pair[0].z);
+                    x.hypot(y).hypot(z)
+                })
+                .sum::<f64>();
+            edge.geometry_authority =
+                LaneEdgeGeometryAuthority::Compiled(crate::declaration::CompiledLaneEdgeGeometry {
+                    length: crate::declaration::EdgeLength::try_new(length).unwrap(),
+                    canonical_frame: frame.map(|(namespace, key)| {
+                        OwnedEntityReference::<CanonicalFrameKind>::new(
+                            Arc::from(namespace),
+                            Arc::from(key),
+                            edge.header.span.clone(),
+                        )
+                    }),
+                    centerline_points: points.into_boxed_slice(),
+                    source_ranges: Box::new([]),
+                });
+        }
+    }
+
+    fn point(x: f32, y: f32, z: f32) -> CanonicalPoint3F32Input {
+        CanonicalPoint3F32Input { x, y, z }
+    }
+
+    fn compiled_junction_unit(conflicting_frames: bool) -> CompilationUnit {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut builder = SyntheticModuleBuilder::new(header("city/junction"), &limits).unwrap();
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "entry-a",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "entry-b",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "internal",
+                length_meters: 8.0,
+                speed_limit_meters_per_second: 8.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit-a",
+                length_meters: 12.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit-b",
+                length_meters: 12.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame-a",
+                lane_edge_geometries: &[],
+            })
+            .unwrap()
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame-b",
+                lane_edge_geometries: &[],
+            })
+            .unwrap()
+            .add_junction(JunctionInput {
+                junction_key: "junction-main",
+            })
+            .unwrap()
+            .add_movement(MovementInput {
+                movement_key: "movement-through",
+                junction: JunctionReference::local("junction-main"),
+                directed_entry_approach_key: "approach-westbound",
+                directed_exit_approach_key: "approach-eastbound",
+            })
+            .unwrap();
+        let internal = [LaneEdgeReference::local("internal")];
+        builder
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path-a",
+                movement: MovementReference::local("movement-through"),
+                entry_edge: LaneEdgeReference::local("entry-a"),
+                internal_edges: &internal,
+                exit_edge: LaneEdgeReference::local("exit-a"),
+            })
+            .unwrap()
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path-b",
+                movement: MovementReference::local("movement-through"),
+                entry_edge: LaneEdgeReference::local("entry-b"),
+                internal_edges: &internal,
+                exit_edge: LaneEdgeReference::local("exit-b"),
+            })
+            .unwrap()
+            .add_stop_line(StopLineInput {
+                stop_line_key: "stop-a",
+                lane_edge: LaneEdgeReference::local("entry-a"),
+            })
+            .unwrap()
+            .add_maneuver_gate(ManeuverGateInput {
+                maneuver_gate_key: "gate-a",
+                maneuver_path: ManeuverPathReference::local("path-a"),
+                transition_index: 0,
+                stop_line: StopLineReference::local("stop-a"),
+                signal_control: SignalControlInput::None,
+            })
+            .unwrap();
+        let mut unit = unit([builder.finish().unwrap()]);
+        install_compiled_lane_geometries(
+            &mut unit,
+            "city/junction",
+            GeometryCompilationProfiles {
+                accuracy: GeometryAccuracyProfile::Balanced5Cm,
+                direction: GeometryDirectionProfile::Balanced2Deg,
+            },
+            |key| {
+                let frame = match key {
+                    "internal" => None,
+                    "entry-b" | "exit-b" if conflicting_frames => {
+                        Some(("city/junction", "frame-b"))
+                    }
+                    _ => Some(("city/junction", "frame-a")),
+                };
+                let points = match key {
+                    "entry-a" | "entry-b" => vec![point(-10.0, 0.0, 0.0), point(0.0, 0.0, 0.0)],
+                    "internal" => vec![point(0.0, 0.0, 0.0), point(8.0, 0.0, 0.0)],
+                    "exit-a" | "exit-b" => {
+                        vec![point(8.0, 0.0, 0.0), point(20.0, 0.0, 0.0)]
+                    }
+                    _ => unreachable!("unexpected fixture edge"),
+                };
+                (frame, points)
+            },
+        );
+        unit
+    }
+
+    #[test]
+    fn compiled_geometry_resolves_imported_frame_and_freezes_through_shared_kernel() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut base = SyntheticModuleBuilder::new(header("city/base"), &limits).unwrap();
+        base.add_canonical_frame(CanonicalFrameInput {
+            canonical_frame_key: "world",
+            lane_edge_geometries: &[],
+        })
+        .unwrap();
+        let mut roads = SyntheticModuleBuilder::new(header("city/roads"), &limits).unwrap();
+        roads
+            .add_import("city/base")
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap();
+        let mut unit = unit([roads.finish().unwrap(), base.finish().unwrap()]);
+        install_compiled_lane_geometries(
+            &mut unit,
+            "city/roads",
+            GeometryCompilationProfiles {
+                accuracy: GeometryAccuracyProfile::Balanced5Cm,
+                direction: GeometryDirectionProfile::Balanced2Deg,
+            },
+            |_| {
+                (
+                    Some(("city/base", "world")),
+                    vec![point(0.0, 0.0, 0.0), point(10.0, 0.0, 0.0)],
+                )
+            },
+        );
+
+        let hir = build_hir(&unit).unwrap();
+        assert_eq!(hir.canonical_frames.len(), 1);
+        assert_eq!(hir.lane_edge_geometries.len(), 1);
+        assert_eq!(hir.canonical_points.len(), 2);
+        assert_eq!(hir.spatial_segments.len(), 1);
+        let geometry = &hir.lane_edge_geometries[0];
+        assert_eq!(geometry.canonical_frame.raw(), 0);
+        assert_eq!(geometry.arc_length_meters, 10.0);
+        assert_eq!(hir.canonical_frames[0].lane_edge_geometries.len(), 1);
+    }
+
+    #[test]
+    fn hir_limits_the_actual_compiled_canonical_point_count() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut builder = SyntheticModuleBuilder::new(header("city/roads"), &limits).unwrap();
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "world",
+                lane_edge_geometries: &[],
+            })
+            .unwrap();
+        let mut unit = unit([builder.finish().unwrap()]);
+        install_compiled_lane_geometries(
+            &mut unit,
+            "city/roads",
+            GeometryCompilationProfiles {
+                accuracy: GeometryAccuracyProfile::Balanced5Cm,
+                direction: GeometryDirectionProfile::Balanced2Deg,
+            },
+            |_| {
+                (
+                    Some(("city/roads", "world")),
+                    vec![
+                        point(0.0, 0.0, 0.0),
+                        point(5.0, 0.0, 0.0),
+                        point(10.0, 0.0, 0.0),
+                    ],
+                )
+            },
+        );
+        unit.limits = CompileLimits::p100_initial_v1()
+            .with_test_admission_limit(CompileLimitDimension::GeometryPointCount, 2);
+
+        let diagnostics = match build_hir(&unit) {
+            Ok(_) => panic!("actual canonical output points must be limited before allocation"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert!(diagnostics.diagnostics().iter().any(|diagnostic| matches!(
+            diagnostic.payload(),
+            DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::GeometryPointCount,
+                limit: 2,
+                observed: 3,
+            }
+        )));
+    }
+
+    #[test]
+    fn shared_internal_edge_derives_one_frame_from_every_path() {
+        let hir = build_hir(&compiled_junction_unit(false)).unwrap();
+        assert_eq!(hir.lane_edge_geometries.len(), 5);
+        assert_eq!(hir.stop_lines.len(), 1);
+        assert_eq!(hir.maneuver_gates.len(), 1);
+        assert_eq!(hir.canonical_frames[0].lane_edge_geometries.len(), 5);
+        assert!(
+            hir.lane_edge_geometries
+                .iter()
+                .all(|geometry| geometry.canonical_frame.raw() == 0)
+        );
+        let internal = hir
+            .lane_edges
+            .iter()
+            .position(|edge| edge.stable_key.as_ref() == "internal")
+            .unwrap();
+        let internal_geometry = hir
+            .lane_edge_geometries
+            .iter()
+            .find(|geometry| geometry.lane_edge.index() == internal)
+            .unwrap();
+        assert_eq!(internal_geometry.canonical_frame.raw(), 0);
+    }
+
+    #[test]
+    fn shared_internal_edge_rejects_conflicting_path_frames() {
+        let diagnostics = match build_hir(&compiled_junction_unit(true)) {
+            Ok(_) => panic!("conflicting derived frames must reject HIR"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert!(diagnostics.diagnostics().iter().any(|diagnostic| {
+            matches!(
+                diagnostic.payload(),
+                DiagnosticPayload::InvalidSpatialGeometry {
+                    violation: SpatialGeometryViolation::InternalEdgeFrameConflict,
+                    ..
+                }
+            )
+        }));
+    }
+
+    #[test]
+    fn compiled_geometry_profiles_must_match_across_the_compilation_unit() {
+        let limits = CompileLimits::p100_initial_v1();
+        let module_with_frame = |namespace: &str| {
+            let mut builder = SyntheticModuleBuilder::new(header(namespace), &limits).unwrap();
+            builder
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "edge",
+                    length_meters: 10.0,
+                    speed_limit_meters_per_second: 10.0,
+                    successors: &[],
+                })
+                .unwrap()
+                .add_canonical_frame(CanonicalFrameInput {
+                    canonical_frame_key: "frame",
+                    lane_edge_geometries: &[],
+                })
+                .unwrap();
+            builder.finish().unwrap()
+        };
+        let mut unit = unit([module_with_frame("city/b"), module_with_frame("city/a")]);
+        install_compiled_lane_geometries(
+            &mut unit,
+            "city/a",
+            GeometryCompilationProfiles {
+                accuracy: GeometryAccuracyProfile::Fine2Cm,
+                direction: GeometryDirectionProfile::Smooth1Deg,
+            },
+            |_| {
+                (
+                    Some(("city/a", "frame")),
+                    vec![point(0.0, 0.0, 0.0), point(10.0, 0.0, 0.0)],
+                )
+            },
+        );
+        install_compiled_lane_geometries(
+            &mut unit,
+            "city/b",
+            GeometryCompilationProfiles {
+                accuracy: GeometryAccuracyProfile::Compact10Cm,
+                direction: GeometryDirectionProfile::Compact5Deg,
+            },
+            |_| {
+                (
+                    Some(("city/b", "frame")),
+                    vec![point(0.0, 0.0, 0.0), point(10.0, 0.0, 0.0)],
+                )
+            },
+        );
+
+        let diagnostics = match build_hir(&unit) {
+            Ok(_) => panic!("mixed geometry profiles must reject HIR"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert!(diagnostics.diagnostics().iter().any(|diagnostic| {
+            matches!(
+                diagnostic.payload(),
+                DiagnosticPayload::InvalidSpatialGeometry {
+                    violation: SpatialGeometryViolation::GeometryProfileMismatch {
+                        expected_accuracy_code: 1,
+                        expected_direction_code: 1,
+                        actual_accuracy_code: 3,
+                        actual_direction_code: 3,
+                    },
+                    ..
+                }
+            )
+        }));
+    }
+
+    fn two_edge_compiled_unit(direction: GeometryDirectionProfile) -> CompilationUnit {
+        let limits = CompileLimits::p100_initial_v1();
+        let successors = [LaneEdgeReference::local("edge-b")];
+        let mut builder = SyntheticModuleBuilder::new(header("city/roads"), &limits).unwrap();
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-a",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &successors,
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-b",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame",
+                lane_edge_geometries: &[],
+            })
+            .unwrap();
+        let mut unit = unit([builder.finish().unwrap()]);
+        install_compiled_lane_geometries(
+            &mut unit,
+            "city/roads",
+            GeometryCompilationProfiles {
+                accuracy: GeometryAccuracyProfile::Balanced5Cm,
+                direction,
+            },
+            |key| match key {
+                "edge-a" => (
+                    Some(("city/roads", "frame")),
+                    vec![point(0.0, 0.0, 0.0), point(10.0, 0.0, 0.0)],
+                ),
+                "edge-b" => (
+                    Some(("city/roads", "frame")),
+                    vec![point(10.004, 0.0, 0.0), point(20.0, 0.0, 0.5)],
+                ),
+                _ => unreachable!("unexpected fixture edge"),
+            },
+        );
+        unit
+    }
+
+    #[test]
+    fn cross_edge_join_checks_direction_without_welding_or_snapping() {
+        let diagnostics = match build_hir(&two_edge_compiled_unit(
+            GeometryDirectionProfile::Smooth1Deg,
+        )) {
+            Ok(_) => panic!("smooth profile must reject the near-three-degree join"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert!(diagnostics.diagnostics().iter().any(|diagnostic| {
+            matches!(
+                diagnostic.payload(),
+                DiagnosticPayload::InvalidSpatialGeometry {
+                    violation: SpatialGeometryViolation::DirectionDiscontinuity { .. },
+                    ..
+                }
+            )
+        }));
+        let hir = build_hir(&two_edge_compiled_unit(
+            GeometryDirectionProfile::Compact5Deg,
+        ))
+        .expect("the same endpoints pass the looser direction profile");
+        let first = &hir.lane_edge_geometries[0];
+        let second = &hir.lane_edge_geometries[1];
+        let first_end = hir.canonical_points[first.points.as_usize_range().end - 1];
+        let second_start = hir.canonical_points[second.points.as_usize_range().start];
+        assert_eq!([first_end.x, first_end.y, first_end.z], [10.0, 0.0, 0.0]);
+        assert_eq!(
+            [second_start.x, second_start.y, second_start.z],
+            [10.004, 0.0, 0.0]
+        );
     }
 
     #[test]

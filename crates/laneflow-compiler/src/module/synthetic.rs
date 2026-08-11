@@ -2961,6 +2961,7 @@ impl SyntheticModuleBuilder {
                     declaration_span: self.header.declaration_span.into(),
                     source_documents,
                     imports: self.imports.into_boxed_slice(),
+                    geometry_profiles: None,
                     road_alignments: Box::default(),
                     declarations: self.declarations.into_boxed_slice(),
                 },
