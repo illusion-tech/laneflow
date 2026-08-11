@@ -389,6 +389,7 @@ pub(crate) struct MirCanonicalFrame {
 }
 
 pub(crate) struct MirLaneEdgeGeometry {
+    pub(crate) source_module: MirModuleKey,
     pub(crate) canonical_frame: MirCanonicalFrameKey,
     pub(crate) lane_edge: MirLaneEdgeKey,
     pub(crate) points: TableRange<MirCanonicalPoint3F32>,
@@ -1426,6 +1427,7 @@ pub(crate) fn lower_to_mir(
         .iter()
         .map(|geometry| {
             Ok(MirLaneEdgeGeometry {
+                source_module: hir_module_to_mir[geometry.source_module.index()],
                 canonical_frame: canonical_frame_mapping[geometry.canonical_frame.index()],
                 lane_edge: hir_to_mir[geometry.lane_edge.index()],
                 points: remap_range(geometry.points, &unit.limits, &geometry.source_span)?,

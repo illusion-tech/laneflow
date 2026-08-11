@@ -482,6 +482,7 @@ pub(crate) struct HirCanonicalFrame {
 
 /// 规范坐标框架内的一条中心线；点与线段区间均按行驶方向排列。
 pub(crate) struct HirLaneEdgeGeometry {
+    pub(crate) source_module: HirModuleKey,
     pub(crate) canonical_frame: HirCanonicalFrameKey,
     pub(crate) lane_edge: HirLaneEdgeKey,
     pub(crate) points: TableRange<HirCanonicalPoint3F32>,
@@ -892,6 +893,7 @@ struct SpatialCounts {
 }
 
 struct PendingSpatialGeometry<'a> {
+    source_module: HirModuleKey,
     centerline_points: &'a [CanonicalPoint3F32Input],
     expected_length_meters: f64,
     source_span: SourceLocation,
@@ -4899,6 +4901,7 @@ fn build_spatial_hir(
                     continue;
                 }
                 pending_geometries[lane_edge.index()] = Some(PendingSpatialGeometry {
+                    source_module: module_key,
                     centerline_points: &geometry.centerline_points,
                     expected_length_meters: lane_edges.get(lane_edge).length_meters,
                     source_span: geometry.lane_edge.span.clone(),
@@ -5008,6 +5011,7 @@ fn build_spatial_hir(
                 continue;
             }
             pending_geometries[lane_edge.index()] = Some(PendingSpatialGeometry {
+                source_module: module_key,
                 centerline_points: &compiled.centerline_points,
                 expected_length_meters: compiled.length.value(),
                 source_span: source.header.span.clone(),
@@ -5062,6 +5066,7 @@ fn build_spatial_hir(
                 .get(module_key, &source.header.source_address)
                 .expect("cross-section HIR registered every FacilityBand symbol");
             pending_facility_geometries[band.index()] = Some(PendingSpatialGeometry {
+                source_module: module_key,
                 centerline_points: &compiled.centerline_points,
                 expected_length_meters: compiled.length.value(),
                 source_span: source.header.span.clone(),
@@ -5292,6 +5297,7 @@ fn build_spatial_hir(
             };
             let geometry_index = geometries.len();
             geometries.push(HirLaneEdgeGeometry {
+                source_module: pending.source_module,
                 canonical_frame: frame_key,
                 lane_edge: edge,
                 points: TableRange::try_from_usize(frozen.point_start, frozen.point_count)
@@ -8239,6 +8245,19 @@ mod tests {
         assert_eq!(geometry.canonical_frame.raw(), 0);
         assert_eq!(geometry.arc_length_meters, 10.0);
         assert_eq!(hir.canonical_frames[0].lane_edge_geometries.len(), 1);
+
+        let output = crate::Compiler::new().compile(unit).unwrap();
+        let relation = output
+            .source_map_input()
+            .spatial_relation_sources()
+            .find(|source| {
+                source.role() == crate::SourceRelationRole::CanonicalFrameLaneEdgeGeometry
+            })
+            .expect("compiled lane geometry retains a source relation");
+        assert_eq!(
+            relation.primary_source().source_document_key(),
+            "city/roads"
+        );
     }
 
     #[test]
