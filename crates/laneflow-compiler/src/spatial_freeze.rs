@@ -23,6 +23,12 @@ pub(crate) struct FrozenSpatialPolyline {
     pub(crate) arc_length_meters: f32,
 }
 
+pub(crate) struct FrozenCanonicalPolyline {
+    pub(crate) point_start: usize,
+    pub(crate) point_count: usize,
+    pub(crate) arc_length_meters: f32,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct SpatialDirectionCheck {
     pub(crate) accepted: bool,
@@ -41,6 +47,44 @@ pub(crate) fn freeze_spatial_polyline(
     points: &mut Vec<HirCanonicalPoint3F32>,
     segments: &mut Vec<HirSpatialSegment>,
 ) -> Result<FrozenSpatialPolyline, SpatialGeometryViolation> {
+    let point_start = points.len();
+    let segment_start = segments.len();
+    let result = freeze_polyline(input, expected_length_meters, points, Some(&mut *segments)).map(
+        |frozen| FrozenSpatialPolyline {
+            point_start: frozen.point_start,
+            point_count: frozen.point_count,
+            segment_start,
+            segment_count: segments.len().saturating_sub(segment_start),
+            arc_length_meters: frozen.arc_length_meters,
+        },
+    );
+    if result.is_err() {
+        points.truncate(point_start);
+        segments.truncate(segment_start);
+    }
+    result
+}
+
+/// 冻结不可遍历几何的规范点与弧长，不派生 Spatial segment 或交通长度。
+pub(crate) fn freeze_canonical_polyline(
+    input: &[CanonicalPoint3F32Input],
+    expected_length_meters: f64,
+    points: &mut Vec<HirCanonicalPoint3F32>,
+) -> Result<FrozenCanonicalPolyline, SpatialGeometryViolation> {
+    let point_start = points.len();
+    let result = freeze_polyline(input, expected_length_meters, points, None);
+    if result.is_err() {
+        points.truncate(point_start);
+    }
+    result
+}
+
+fn freeze_polyline(
+    input: &[CanonicalPoint3F32Input],
+    expected_length_meters: f64,
+    points: &mut Vec<HirCanonicalPoint3F32>,
+    mut segments: Option<&mut Vec<HirSpatialSegment>>,
+) -> Result<FrozenCanonicalPolyline, SpatialGeometryViolation> {
     if input.len() < 2 {
         return Err(SpatialGeometryViolation::InsufficientPoints {
             minimum: 2,
@@ -76,35 +120,11 @@ pub(crate) fn freeze_spatial_polyline(
     }
 
     let point_start = points.len();
-    let segment_start = segments.len();
     points.extend(input.iter().map(|point| HirCanonicalPoint3F32 {
         x: point.x,
         y: point.y,
         z: point.z,
     }));
-    let result = freeze_segments(
-        input,
-        expected_length_meters,
-        point_start,
-        segment_start,
-        points.len(),
-        segments,
-    );
-    if result.is_err() {
-        points.truncate(point_start);
-        segments.truncate(segment_start);
-    }
-    result
-}
-
-fn freeze_segments(
-    input: &[CanonicalPoint3F32Input],
-    expected_length_meters: f64,
-    point_start: usize,
-    segment_start: usize,
-    point_end: usize,
-    segments: &mut Vec<HirSpatialSegment>,
-) -> Result<FrozenSpatialPolyline, SpatialGeometryViolation> {
     let mut cumulative = 0.0_f32;
     for (segment_index, pair) in input.windows(2).enumerate() {
         let delta = [
@@ -120,22 +140,6 @@ fn freeze_segments(
                 minimum_bits: SPATIAL_MIN_SEGMENT_LENGTH_METERS.to_bits(),
             });
         }
-        let tangent = normalize_spatial_vector(delta);
-        let projected_up = tangent[0].hypot(tangent[2]);
-        if projected_up < SPATIAL_MIN_PROJECTED_UP_LENGTH {
-            return Err(SpatialGeometryViolation::DegenerateProjectedUp {
-                segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
-                projected_up_bits: projected_up.to_bits(),
-                minimum_bits: SPATIAL_MIN_PROJECTED_UP_LENGTH.to_bits(),
-            });
-        }
-        let left = normalize_spatial_vector([tangent[2], 0.0, -tangent[0]]);
-        let raw_up = [
-            tangent[1] * left[2],
-            tangent[2] * left[0] - tangent[0] * left[2],
-            -tangent[1] * left[0],
-        ];
-        let up = normalize_spatial_vector(raw_up);
         let next_cumulative = cumulative + length;
         if !next_cumulative.is_finite() || next_cumulative <= cumulative {
             return Err(SpatialGeometryViolation::ArcLengthAccumulationFailed {
@@ -144,12 +148,30 @@ fn freeze_segments(
                 segment_length_bits: length.to_bits(),
             });
         }
-        segments.push(HirSpatialSegment {
-            length_meters: length,
-            cumulative_end_meters: next_cumulative,
-            tangent,
-            up,
-        });
+        if let Some(segments) = segments.as_deref_mut() {
+            let tangent = normalize_spatial_vector(delta);
+            let projected_up = tangent[0].hypot(tangent[2]);
+            if projected_up < SPATIAL_MIN_PROJECTED_UP_LENGTH {
+                return Err(SpatialGeometryViolation::DegenerateProjectedUp {
+                    segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
+                    projected_up_bits: projected_up.to_bits(),
+                    minimum_bits: SPATIAL_MIN_PROJECTED_UP_LENGTH.to_bits(),
+                });
+            }
+            let left = normalize_spatial_vector([tangent[2], 0.0, -tangent[0]]);
+            let raw_up = [
+                tangent[1] * left[2],
+                tangent[2] * left[0] - tangent[0] * left[2],
+                -tangent[1] * left[0],
+            ];
+            let up = normalize_spatial_vector(raw_up);
+            segments.push(HirSpatialSegment {
+                length_meters: length,
+                cumulative_end_meters: next_cumulative,
+                tangent,
+                up,
+            });
+        }
         cumulative = next_cumulative;
     }
 
@@ -158,17 +180,15 @@ fn freeze_segments(
         + SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS;
     if (expected_length_meters - f64::from(cumulative)).abs() > tolerance {
         return Err(SpatialGeometryViolation::LengthMismatch {
-            lane_edge_length_bits: expected_length_meters.to_bits(),
+            expected_length_bits: expected_length_meters.to_bits(),
             geometry_length_bits: cumulative.to_bits(),
             tolerance_bits: tolerance.to_bits(),
         });
     }
 
-    Ok(FrozenSpatialPolyline {
+    Ok(FrozenCanonicalPolyline {
         point_start,
-        point_count: point_end.saturating_sub(point_start),
-        segment_start,
-        segment_count: segments.len().saturating_sub(segment_start),
+        point_count: points.len().saturating_sub(point_start),
         arc_length_meters: cumulative,
     })
 }
@@ -227,6 +247,37 @@ const fn canonicalize_spatial_zero(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_polyline_failure_restores_the_existing_point_table() {
+        let sentinel = HirCanonicalPoint3F32 {
+            x: 7.0,
+            y: 8.0,
+            z: 9.0,
+        };
+        let mut points = vec![sentinel];
+        let input = [
+            CanonicalPoint3F32Input {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            CanonicalPoint3F32Input {
+                x: 10.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        ];
+
+        assert!(matches!(
+            freeze_canonical_polyline(&input, 11.0, &mut points),
+            Err(SpatialGeometryViolation::LengthMismatch { .. })
+        ));
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].x.to_bits(), sentinel.x.to_bits());
+        assert_eq!(points[0].y.to_bits(), sentinel.y.to_bits());
+        assert_eq!(points[0].z.to_bits(), sentinel.z.to_bits());
+    }
 
     #[test]
     fn direction_check_uses_the_selected_full_angle_profile() {
