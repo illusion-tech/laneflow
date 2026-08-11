@@ -580,6 +580,12 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
     }
     for (outer_table, outer_field_id, inner_table, inner_field_id) in [
         (
+            RoadEditingTableKind::RoadCorridor,
+            7,
+            RoadEditingTableKind::CorridorElement,
+            1,
+        ),
+        (
             RoadEditingTableKind::SignalPhase,
             2,
             RoadEditingTableKind::SignalPhaseState,

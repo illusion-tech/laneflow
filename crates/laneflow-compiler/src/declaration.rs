@@ -8,10 +8,10 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    AccessEffect, EntityKind, EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind,
-    LaneGroupKind, ManeuverGateKind, ManeuverPathKind, MovementKind, ParkingAreaKind,
-    ParticipantClassKind, RoadSectionKind, SignalAspect, SignalGroupKind, StopLineKind,
-    VehicleProfileKind,
+    AccessEffect, AuthoringLaneKind, CanonicalFrameKind, EntityKind, EntityKindMarker,
+    FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind, ManeuverGateKind,
+    ManeuverPathKind, MovementKind, ParkingAreaKind, ParticipantClassKind, RoadSectionKind,
+    SignalAspect, SignalGroupKind, StopLineKind, VehicleProfileKind,
 };
 
 use crate::SourceLocation;
@@ -791,10 +791,137 @@ impl DeclarationHeader {
     }
 }
 
+/// 共同 Typed AST 中由编制曲线保留的有限 `f64` 点。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct AuthoringPoint3F64 {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) z: f64,
+}
+
+/// 一条编制曲线段的闭合几何载荷。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum AuthoringCurveSegmentGeometry {
+    Line {
+        end: AuthoringPoint3F64,
+    },
+    CubicBezier {
+        control_1: AuthoringPoint3F64,
+        control_2: AuthoringPoint3F64,
+        end: AuthoringPoint3F64,
+    },
+}
+
+/// 共同 Typed AST 中一条带来源位置的 owner-local 曲线段。
+#[allow(
+    dead_code,
+    reason = "consumed by the following topology/geometry compiler slice"
+)]
+pub(crate) struct AuthoringCurveSegmentDeclaration {
+    pub(crate) geometry: AuthoringCurveSegmentGeometry,
+    pub(crate) span: SourceLocation,
+}
+
+/// 共同 Typed AST 中一条从显式起点开始的非空编制曲线。
+#[allow(
+    dead_code,
+    reason = "consumed by the following topology/geometry compiler slice"
+)]
+pub(crate) struct AuthoringCurveProgramDeclaration {
+    pub(crate) start: AuthoringPoint3F64,
+    pub(crate) start_span: SourceLocation,
+    pub(crate) segments: Box<[AuthoringCurveSegmentDeclaration]>,
+}
+
+/// 一个 canonical frame 内不分配 StableId 的道路走向。
+pub(crate) struct RoadAlignmentDeclaration {
+    #[allow(
+        dead_code,
+        reason = "consumed by the following topology/geometry compiler slice"
+    )]
+    pub(crate) road_alignment_key: Arc<str>,
+    pub(crate) canonical_frame: OwnedEntityReference<CanonicalFrameKind>,
+    pub(crate) reference_line: AuthoringCurveProgramDeclaration,
+    pub(crate) span: SourceLocation,
+}
+
+impl RoadAlignmentDeclaration {
+    pub(crate) fn try_visit_source_locations<E>(
+        &self,
+        mut visit: impl FnMut(&SourceLocation) -> Result<(), E>,
+    ) -> Result<(), E> {
+        visit(&self.span)?;
+        try_visit_reference(&self.canonical_frame, &mut visit)?;
+        try_visit_authoring_curve(&self.reference_line, &mut visit)
+    }
+}
+
+/// authoring station 区间的闭合终点。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum AuthoringStationEnd {
+    Finite(f64),
+    AlignmentEnd,
+}
+
+/// corridor station 区间内的线性宽度。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct AuthoringWidthProfile {
+    pub(crate) start_width_meters: f64,
+    pub(crate) end_width_meters: f64,
+}
+
+/// authoring lane 相对 alignment reference 参数方向的行驶方向。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AuthoringLaneDirection {
+    Forward,
+    Backward,
+}
+
+/// 需要由 topology/geometry lowering 派生的 corridor 几何语义。
+#[allow(
+    dead_code,
+    reason = "consumed by the following topology/geometry compiler slice"
+)]
+pub(crate) struct RoadCorridorAuthoringGeometry {
+    pub(crate) road_alignment_key: Arc<str>,
+    pub(crate) start_station_meters: f64,
+    pub(crate) end_station: AuthoringStationEnd,
+    pub(crate) reference_lane: OwnedEntityReference<AuthoringLaneKind>,
+}
+
+/// 需要由 topology/geometry lowering 派生的一条编制车道几何语义。
+#[allow(
+    dead_code,
+    reason = "consumed by the following topology/geometry compiler slice"
+)]
+pub(crate) struct AuthoringLaneGeometry {
+    pub(crate) direction: AuthoringLaneDirection,
+    pub(crate) width_profile: AuthoringWidthProfile,
+}
+
+/// LaneEdge 的唯一几何权威；它表达语义形状，不表达来源编码。
+pub(crate) enum LaneEdgeGeometryAuthority {
+    /// 现有 Synthetic 前端已经给出 Traffic length；显式点列由 canonical frame 声明提供。
+    DirectLength(EdgeLength),
+    /// RoadEditingSource 由横断面派生，或者以路口内部显式曲线编译最终长度和点列。
+    Authoring {
+        explicit_curve: Option<AuthoringCurveProgramDeclaration>,
+    },
+}
+
+impl LaneEdgeGeometryAuthority {
+    pub(crate) const fn direct_length(&self) -> Option<EdgeLength> {
+        match self {
+            Self::DirectLength(length) => Some(*length),
+            Self::Authoring { .. } => None,
+        }
+    }
+}
+
 /// 已通过字段级与模块内约束检查的车道图边 Typed AST 记录。
 pub(crate) struct LaneEdgeDeclaration {
     pub(crate) header: DeclarationHeader,
-    pub(crate) length: EdgeLength,
+    pub(crate) geometry_authority: LaneEdgeGeometryAuthority,
     pub(crate) speed_limit: SpeedLimit,
     pub(crate) successors: Box<[OwnedEntityReference<LaneEdgeKind>]>,
 }
@@ -810,13 +937,20 @@ pub(crate) struct RoadCorridorDeclaration {
     pub(crate) header: DeclarationHeader,
     pub(crate) reference_section: OwnedEntityReference<RoadSectionKind>,
     pub(crate) elements: Box<[OwnedCorridorElementReference]>,
+    pub(crate) authoring_geometry: Option<RoadCorridorAuthoringGeometry>,
 }
 
 /// 已通过字段级检查的编制车道 Typed AST 记录。
 pub(crate) struct AuthoringLaneDeclaration {
     pub(crate) header: DeclarationHeader,
+    pub(crate) section_relation_span: SourceLocation,
     pub(crate) edge_chain: Box<[OwnedEntityReference<LaneEdgeKind>]>,
     pub(crate) lane_group: Option<OwnedEntityReference<LaneGroupKind>>,
+    #[allow(
+        dead_code,
+        reason = "consumed by the following topology/geometry compiler slice"
+    )]
+    pub(crate) authoring_geometry: Option<AuthoringLaneGeometry>,
 }
 
 /// 已通过字段级检查、拥有有序编制车道的道路区段 Typed AST 记录。
@@ -836,6 +970,11 @@ pub(crate) struct LaneGroupDeclaration {
 pub(crate) struct FacilityBandDeclaration {
     pub(crate) header: DeclarationHeader,
     pub(crate) kind_id: Arc<str>,
+    #[allow(
+        dead_code,
+        reason = "consumed by the following topology/geometry compiler slice"
+    )]
+    pub(crate) authoring_width_profile: Option<AuthoringWidthProfile>,
 }
 
 /// 已通过字段级检查、等待解析显式边界并反向形成非空 Movement 成员集的路口 Typed AST 记录。
@@ -1036,20 +1175,30 @@ impl TypedAstDeclaration {
         match self {
             Self::LaneEdge(LaneEdgeDeclaration {
                 header,
-                length: _,
+                geometry_authority,
                 speed_limit: _,
                 successors,
             }) => {
                 try_visit_declaration_header(header, &mut visit)?;
                 try_visit_references(successors, &mut visit)?;
+                if let LaneEdgeGeometryAuthority::Authoring {
+                    explicit_curve: Some(curve),
+                } = geometry_authority
+                {
+                    try_visit_authoring_curve(curve, &mut visit)?;
+                }
             }
             Self::RoadCorridor(RoadCorridorDeclaration {
                 header,
                 reference_section,
                 elements,
+                authoring_geometry,
             }) => {
                 try_visit_declaration_header(header, &mut visit)?;
                 try_visit_reference(reference_section, &mut visit)?;
+                if let Some(authoring_geometry) = authoring_geometry {
+                    try_visit_reference(&authoring_geometry.reference_lane, &mut visit)?;
+                }
                 for element in elements {
                     match element {
                         OwnedCorridorElementReference::RoadSection(reference) => {
@@ -1070,10 +1219,13 @@ impl TypedAstDeclaration {
                 for lane in lanes {
                     let AuthoringLaneDeclaration {
                         header,
+                        section_relation_span,
                         edge_chain,
                         lane_group,
+                        authoring_geometry: _,
                     } = lane;
                     try_visit_declaration_header(header, &mut visit)?;
+                    visit(section_relation_span)?;
                     try_visit_references(edge_chain, &mut visit)?;
                     if let Some(lane_group) = lane_group {
                         try_visit_reference(lane_group, &mut visit)?;
@@ -1087,7 +1239,11 @@ impl TypedAstDeclaration {
                 try_visit_declaration_header(header, &mut visit)?;
                 try_visit_reference(road_section, &mut visit)?;
             }
-            Self::FacilityBand(FacilityBandDeclaration { header, kind_id: _ })
+            Self::FacilityBand(FacilityBandDeclaration {
+                header,
+                kind_id: _,
+                authoring_width_profile: _,
+            })
             | Self::SignalGroup(SignalGroupDeclaration { header })
             | Self::ParkingArea(ParkingAreaDeclaration { header }) => {
                 try_visit_declaration_header(header, &mut visit)?;
@@ -1279,6 +1435,17 @@ fn try_visit_declaration_header<E>(
         span,
     } = header;
     visit(span)
+}
+
+fn try_visit_authoring_curve<E>(
+    curve: &AuthoringCurveProgramDeclaration,
+    visit: &mut impl FnMut(&SourceLocation) -> Result<(), E>,
+) -> Result<(), E> {
+    visit(&curve.start_span)?;
+    for segment in &curve.segments {
+        visit(&segment.span)?;
+    }
+    Ok(())
 }
 
 fn try_visit_reference<K: EntityKindMarker, E>(
