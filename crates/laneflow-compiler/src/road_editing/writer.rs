@@ -1148,6 +1148,20 @@ pub(super) mod tests {
         .expect("curve")
     }
 
+    fn minimal_curve_with_segment_canvas() -> RoadEditingCurveProgram {
+        RoadEditingCurveProgram::try_new(
+            RoadEditingPoint3::try_new(0.0, 0.0, 0.0).expect("start"),
+            vec![
+                RoadEditingCurveSegment::line(
+                    RoadEditingPoint3::try_new(10.0, 0.0, 0.0).expect("end"),
+                )
+                .with_canvas_selection("canvas/alignment-segment")
+                .expect("segment canvas"),
+            ],
+        )
+        .expect("curve")
+    }
+
     pub(crate) fn module_with_every_declaration(limits: &CompileLimits) -> RoadEditingSourceModule {
         let mut builder = RoadEditingSourceModuleBuilder::new(
             RoadEditingModuleHeader::try_new(
@@ -1202,7 +1216,7 @@ pub(super) mod tests {
                 RoadAlignmentInput::try_new(
                     "alignment",
                     CanonicalFrameReference::local("frame").expect("frame ref"),
-                    minimal_curve(),
+                    minimal_curve_with_segment_canvas(),
                 )
                 .expect("alignment"),
             )

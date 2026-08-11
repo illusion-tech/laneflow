@@ -38,8 +38,8 @@ const MAX_OWNER_QUALIFIED_COMPONENTS: usize = 4;
 pub(super) fn lower_road_alignments(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
+    shared_namespace: &Arc<str>,
 ) -> Vec<RoadAlignmentDeclaration> {
-    let namespace = root.module_header().authoring_namespace_id();
     let mut values: Vec<_> = root.road_alignments().iter().collect();
     values.sort_unstable_by(|left, right| {
         left.road_alignment_key()
@@ -55,7 +55,7 @@ pub(super) fn lower_road_alignments(
                 canonical_frame: lower_reference::<CanonicalFrameKind>(
                     value.canonical_frame(),
                     1,
-                    namespace,
+                    shared_namespace,
                     locations.road_alignment_property(
                         key,
                         &[RoadEditingPropertyStep::TableField {
@@ -75,7 +75,7 @@ pub(super) fn lower_road_alignments(
                         }],
                         value.canvas_selection(),
                     ),
-                    |index| {
+                    |index, canvas_selection| {
                         locations.road_alignment_owner_local(
                             key,
                             RoadEditingRelationKind::CurveSegment,
@@ -87,6 +87,7 @@ pub(super) fn lower_road_alignments(
                                 table: RoadEditingTableKind::CurveSegment,
                                 field_id: 1,
                             }],
+                            canvas_selection,
                         )
                     },
                 ),
@@ -99,7 +100,7 @@ pub(super) fn lower_road_alignments(
 fn lower_curve_program(
     value: wire::CurveProgram<'_>,
     start_span: SourceLocation,
-    mut segment_span: impl FnMut(usize) -> SourceLocation,
+    mut segment_span: impl FnMut(usize, Option<&str>) -> SourceLocation,
 ) -> AuthoringCurveProgramDeclaration {
     let start = lower_point(value.start());
     let segments = value
@@ -130,7 +131,7 @@ fn lower_curve_program(
             };
             AuthoringCurveSegmentDeclaration {
                 geometry,
-                span: segment_span(index),
+                span: segment_span(index, segment.canvas_selection()),
             }
         })
         .collect();
@@ -143,9 +144,9 @@ fn lower_curve_program(
 
 fn lower_point(value: &wire::Vec3F64) -> AuthoringPoint3F64 {
     AuthoringPoint3F64 {
-        x: value.x(),
-        y: value.y(),
-        z: value.z(),
+        x: canonicalize_zero(value.x()),
+        y: canonicalize_zero(value.y()),
+        z: canonicalize_zero(value.z()),
     }
 }
 
@@ -354,16 +355,21 @@ pub(super) fn lower_independent_declarations(
                 ),
             ),
             iidm: IidmVehicleProfileInput {
-                length_meters: iidm.length_meters(),
-                desired_speed_meters_per_second: iidm.desired_speed_meters_per_second(),
-                min_gap_meters: iidm.min_gap_meters(),
-                time_headway_seconds: iidm.time_headway_seconds(),
-                max_acceleration_meters_per_second_squared: iidm
-                    .max_acceleration_meters_per_second_squared(),
-                comfortable_deceleration_meters_per_second_squared: iidm
-                    .comfortable_deceleration_meters_per_second_squared(),
-                emergency_deceleration_meters_per_second_squared: iidm
-                    .emergency_deceleration_meters_per_second_squared(),
+                length_meters: canonicalize_zero(iidm.length_meters()),
+                desired_speed_meters_per_second: canonicalize_zero(
+                    iidm.desired_speed_meters_per_second(),
+                ),
+                min_gap_meters: canonicalize_zero(iidm.min_gap_meters()),
+                time_headway_seconds: canonicalize_zero(iidm.time_headway_seconds()),
+                max_acceleration_meters_per_second_squared: canonicalize_zero(
+                    iidm.max_acceleration_meters_per_second_squared(),
+                ),
+                comfortable_deceleration_meters_per_second_squared: canonicalize_zero(
+                    iidm.comfortable_deceleration_meters_per_second_squared(),
+                ),
+                emergency_deceleration_meters_per_second_squared: canonicalize_zero(
+                    iidm.emergency_deceleration_meters_per_second_squared(),
+                ),
             },
         })
     }));
@@ -550,8 +556,8 @@ pub(super) fn lower_owner_scoped_declarations(
             ),
             kind_id: Arc::from(value.kind_id()),
             authoring_width_profile: Some(AuthoringWidthProfile {
-                start_width_meters: value.width_profile().start_width_meters(),
-                end_width_meters: value.width_profile().end_width_meters(),
+                start_width_meters: canonicalize_zero(value.width_profile().start_width_meters()),
+                end_width_meters: canonicalize_zero(value.width_profile().end_width_meters()),
             }),
         })
     }));
@@ -614,32 +620,6 @@ pub(super) fn lower_owner_scoped_declarations(
                             field_id: 2,
                         }],
                         value.canvas_selection(),
-                    ),
-                )
-            })
-            .collect();
-        let mut internals: Vec<_> = value.internal_edges().iter().collect();
-        sort_reference_set(&mut internals, 1, namespace);
-        let internal_edges = internals
-            .into_iter()
-            .enumerate()
-            .map(|(index, edge)| {
-                lower_reference::<LaneEdgeKind>(
-                    edge,
-                    1,
-                    namespace,
-                    locations.owner_local(
-                        EntityKind::Junction,
-                        &[],
-                        key,
-                        RoadEditingRelationKind::JunctionInternalEdge,
-                        RoadEditingRelationOccurrence::CanonicalSetOrdinal(
-                            u32::try_from(index).expect("compile limits bound relation ordinals"),
-                        ),
-                        &[RoadEditingPropertyStep::TableField {
-                            table: RoadEditingTableKind::Junction,
-                            field_id: 2,
-                        }],
                     ),
                 )
             })
@@ -971,8 +951,9 @@ pub(super) fn lower_owner_scoped_declarations(
 pub(super) fn lower_topology_authoring_declarations(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
+    shared_namespace: &Arc<str>,
 ) -> Result<Vec<TypedAstDeclaration>, crate::DiagnosticBundle> {
-    let namespace = root.module_header().authoring_namespace_id();
+    let namespace = shared_namespace.as_ref();
     let expected_key = root.module_header().source_document_key();
     let mut declarations = Vec::with_capacity(
         root.lane_edges()
@@ -998,7 +979,7 @@ pub(super) fn lower_topology_authoring_declarations(
                 lower_reference::<LaneEdgeKind>(
                     successor,
                     1,
-                    namespace,
+                    shared_namespace,
                     locations.owner_local(
                         EntityKind::LaneEdge,
                         &[],
@@ -1011,6 +992,7 @@ pub(super) fn lower_topology_authoring_declarations(
                             table: RoadEditingTableKind::LaneEdge,
                             field_id: 2,
                         }],
+                        value.canvas_selection(),
                     ),
                 )
             })
@@ -1026,7 +1008,7 @@ pub(super) fn lower_topology_authoring_declarations(
                     3,
                     value.canvas_selection(),
                 ),
-                |index| {
+                |index, canvas_selection| {
                     locations.owner_local(
                         EntityKind::LaneEdge,
                         &[],
@@ -1040,6 +1022,7 @@ pub(super) fn lower_topology_authoring_declarations(
                             table: RoadEditingTableKind::CurveSegment,
                             field_id: 1,
                         }],
+                        canvas_selection,
                     )
                 },
             )
@@ -1089,6 +1072,7 @@ pub(super) fn lower_topology_authoring_declarations(
                             field_id: 1,
                         },
                     ],
+                    value.canvas_selection(),
                 );
                 match element.kind() {
                     wire::CorridorElementKind::RoadSection => {
@@ -1096,7 +1080,7 @@ pub(super) fn lower_topology_authoring_declarations(
                             lower_reference::<RoadSectionKind>(
                                 element.entity_reference(),
                                 2,
-                                namespace,
+                                shared_namespace,
                                 span,
                             ),
                         )
@@ -1107,7 +1091,7 @@ pub(super) fn lower_topology_authoring_declarations(
                         >(
                             element.entity_reference(),
                             2,
-                            namespace,
+                            shared_namespace,
                             span,
                         ))
                     }
@@ -1116,7 +1100,9 @@ pub(super) fn lower_topology_authoring_declarations(
             })
             .collect();
         let end_station = match value.end_station_kind() {
-            wire::StationEndKind::Finite => AuthoringStationEnd::Finite(value.end_station_meters()),
+            wire::StationEndKind::Finite => {
+                AuthoringStationEnd::Finite(canonicalize_zero(value.end_station_meters()))
+            }
             wire::StationEndKind::AlignmentEnd => AuthoringStationEnd::AlignmentEnd,
             _ => unreachable!("semantic preflight validated station end kind"),
         };
@@ -1130,7 +1116,7 @@ pub(super) fn lower_topology_authoring_declarations(
             reference_section: lower_reference::<RoadSectionKind>(
                 value.reference_section(),
                 2,
-                namespace,
+                shared_namespace,
                 property_location(
                     locations,
                     EntityKind::RoadCorridor,
@@ -1143,12 +1129,12 @@ pub(super) fn lower_topology_authoring_declarations(
             elements,
             authoring_geometry: Some(RoadCorridorAuthoringGeometry {
                 road_alignment_key: Arc::from(value.road_alignment_key()),
-                start_station_meters: value.start_station_meters(),
+                start_station_meters: canonicalize_zero(value.start_station_meters()),
                 end_station,
                 reference_lane: lower_reference::<AuthoringLaneKind>(
                     value.reference_lane(),
                     3,
-                    namespace,
+                    shared_namespace,
                     property_location(
                         locations,
                         EntityKind::RoadCorridor,
@@ -1244,11 +1230,12 @@ pub(super) fn lower_topology_authoring_declarations(
                             table: RoadEditingTableKind::RoadSection,
                             field_id: 2,
                         }],
+                        value.canvas_selection(),
                     ),
                     edge_chain: Box::new([lower_reference::<LaneEdgeKind>(
                         lane.lane_edge(),
                         1,
-                        namespace,
+                        shared_namespace,
                         owner_property_location(
                             locations,
                             EntityKind::AuthoringLane,
@@ -1265,7 +1252,7 @@ pub(super) fn lower_topology_authoring_declarations(
                         lower_reference::<LaneGroupKind>(
                             group,
                             3,
-                            namespace,
+                            shared_namespace,
                             owner_property_location(
                                 locations,
                                 EntityKind::AuthoringLane,
@@ -1286,8 +1273,12 @@ pub(super) fn lower_topology_authoring_declarations(
                             _ => unreachable!("semantic preflight validated lane direction"),
                         },
                         width_profile: AuthoringWidthProfile {
-                            start_width_meters: lane.width_profile().start_width_meters(),
-                            end_width_meters: lane.width_profile().end_width_meters(),
+                            start_width_meters: canonicalize_zero(
+                                lane.width_profile().start_width_meters(),
+                            ),
+                            end_width_meters: canonicalize_zero(
+                                lane.width_profile().end_width_meters(),
+                            ),
                         },
                     }),
                 })
@@ -1526,7 +1517,7 @@ pub(super) fn lower_aggregate_declarations(
                         value.canvas_selection(),
                     ),
                 ),
-                progress_meters: entry.progress_meters(),
+                progress_meters: canonicalize_zero(entry.progress_meters()),
             },
             exit: ParkingLaneAnchorDeclaration {
                 lane_edge: lower_reference::<LaneEdgeKind>(
@@ -1544,13 +1535,13 @@ pub(super) fn lower_aggregate_declarations(
                         value.canvas_selection(),
                     ),
                 ),
-                progress_meters: exit.progress_meters(),
+                progress_meters: canonicalize_zero(exit.progress_meters()),
             },
             geometry: ParkingSpaceGeometryInput {
-                lateral_offset_meters: geometry.lateral_offset_meters(),
+                lateral_offset_meters: canonicalize_zero(geometry.lateral_offset_meters()),
                 heading_offset_radians: canonicalize_zero(geometry.heading_offset_radians()),
-                length_meters: geometry.length_meters(),
-                width_meters: geometry.width_meters(),
+                length_meters: canonicalize_zero(geometry.length_meters()),
+                width_meters: canonicalize_zero(geometry.width_meters()),
             },
         })
     }));
@@ -1864,6 +1855,15 @@ mod tests {
             ["junction-main", "movement-left", "path-main"]
         );
         assert_eq!(reference.declaration_key().as_ref(), "gate-entry");
+    }
+
+    #[test]
+    fn geometry_points_canonicalize_negative_zero_at_the_typed_ast_boundary() {
+        let lowered = lower_point(&wire::Vec3F64::new(-0.0, -0.0, -0.0));
+
+        assert_eq!(lowered.x.to_bits(), 0.0_f64.to_bits());
+        assert_eq!(lowered.y.to_bits(), 0.0_f64.to_bits());
+        assert_eq!(lowered.z.to_bits(), 0.0_f64.to_bits());
     }
 
     #[test]
@@ -2274,8 +2274,9 @@ mod tests {
             RoadEditingModuleInput::try_new("road-editing", bytes.as_bytes(), None).unwrap();
         let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
+        let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
 
-        let alignments = lower_road_alignments(verified.root(), &locations);
+        let alignments = lower_road_alignments(verified.root(), &locations, &shared_namespace);
         assert_eq!(alignments.len(), 1);
         assert_eq!(alignments[0].road_alignment_key.as_ref(), "alignment");
         assert_eq!(
@@ -2290,9 +2291,18 @@ mod tests {
                 end: AuthoringPoint3F64 { x: 10.0, .. }
             }
         ));
+        assert_eq!(
+            alignments[0].reference_line.segments[0]
+                .span
+                .road_editing()
+                .unwrap()
+                .canvas_selection(),
+            Some("canvas/alignment-segment")
+        );
 
         let declarations =
-            lower_topology_authoring_declarations(verified.root(), &locations).unwrap();
+            lower_topology_authoring_declarations(verified.root(), &locations, &shared_namespace)
+                .unwrap();
         assert_eq!(declarations.len(), 5);
         let section = declarations
             .iter()
@@ -2357,7 +2367,11 @@ mod tests {
         let input = RoadEditingModuleInput::try_new("road-editing", &malformed, None).unwrap();
         let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
-        assert!(lower_topology_authoring_declarations(verified.root(), &locations).is_err());
+        let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
+        assert!(
+            lower_topology_authoring_declarations(verified.root(), &locations, &shared_namespace)
+                .is_err()
+        );
     }
 
     #[test]
