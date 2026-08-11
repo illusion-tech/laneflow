@@ -20,6 +20,7 @@ use laneflow_static_contract::{
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::diagnostic::DiagnosticCollector;
+use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::hir::{HirAccessTarget, HirCorridorElement, HirLaneEdgeKey, HirSignalControl, HirUnit};
 use crate::module::ResolvedSourceLocation;
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
@@ -516,6 +517,7 @@ pub(crate) struct MirStaticRoute {
 /// `lane_edges`。`controlled_live_bytes` 只统计 MIR 成功返回后自身拥有的表；
 /// `peak_controlled_live_bytes` 另保存 CompilationUnit、HIR 与键映射暂存区的共存峰值。
 pub(crate) struct MirUnit {
+    pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
     pub(crate) modules: Box<[MirModule]>,
     pub(crate) lane_edges: Box<[MirLaneEdge]>,
     pub(crate) lane_edge_connections: Box<[MirLaneEdgeConnection]>,
@@ -1654,6 +1656,7 @@ pub(crate) fn lower_to_mir(
     debug_assert_eq!(lane_edges.len(), edge_capacity);
     debug_assert_eq!(connections.len(), connection_capacity);
     Ok(MirUnit {
+        geometry_profiles: hir.geometry_profiles,
         modules: modules.into_boxed_slice(),
         lane_edges: lane_edges.into_boxed_slice(),
         lane_edge_connections: connections.into_boxed_slice(),
