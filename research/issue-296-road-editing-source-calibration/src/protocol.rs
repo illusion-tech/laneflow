@@ -1,7 +1,7 @@
 //! #296 道路编辑正式校准的 fresh-process 编排与原始记录。
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
 
 use laneflow_compiler::{GeometryAccuracyProfile, GeometryDirectionProfile};
@@ -34,6 +34,8 @@ const EXPECTED_COMPACT_EVIDENCE_SCHEMA_SHA256: &str =
 const BALANCED_POWER_PLAN_GUID: &str = "381b4222-f694-41f0-9685-ff5bb260df2e";
 const SAMPLE_OUTPUT_ROOT: &str = "target/road-editing-evidence";
 const PACKAGE: &str = "issue-296-road-editing-source-calibration";
+const RUSTUP: &str = "rustup";
+const RUST_TOOLCHAIN: &str = "1.96.0";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -500,9 +502,10 @@ fn run_all_allocator_probes(
     for role in allocator_probe_roles() {
         let output = probe_root.join(format!("{}.json", role.id()));
         let relative_output = repository_relative(repository_root, &output)?;
-        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let arguments = vec![
-            "+1.96.0".to_owned(),
+            "run".to_owned(),
+            RUST_TOOLCHAIN.to_owned(),
+            "cargo".to_owned(),
             "run".to_owned(),
             "--release".to_owned(),
             "--locked".to_owned(),
@@ -514,7 +517,7 @@ fn run_all_allocator_probes(
             role.id().to_owned(),
             relative_output.clone(),
         ];
-        let status = Command::new(&cargo)
+        let status = Command::new(RUSTUP)
             .current_dir(repository_root)
             .args(&arguments)
             .output()
@@ -526,7 +529,7 @@ fn run_all_allocator_probes(
             .map_err(|error| format!("invalid probe {}: {error}", output.display()))?;
         validate_allocator_probe(&probe, role, measurement_commit)?;
         let mut argv = Vec::with_capacity(arguments.len() + 1);
-        argv.push(PathBuf::from(cargo).to_string_lossy().into_owned());
+        argv.push(RUSTUP.to_owned());
         argv.extend(arguments);
         invocations.push(AllocatorProbeInvocation {
             role,
@@ -562,9 +565,10 @@ fn run_one_sample(
     );
     let output = sample_root.join(file_name);
     let relative_output = repository_relative(repository_root, &output)?;
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let arguments = vec![
-        "+1.96.0".to_owned(),
+        "run".to_owned(),
+        RUST_TOOLCHAIN.to_owned(),
+        "cargo".to_owned(),
         "run".to_owned(),
         "--release".to_owned(),
         "--locked".to_owned(),
@@ -581,7 +585,7 @@ fn run_one_sample(
         sample_index.to_string(),
         relative_output.clone(),
     ];
-    let output_status = Command::new(&cargo)
+    let output_status = Command::new(RUSTUP)
         .current_dir(repository_root)
         .args(&arguments)
         .output()
@@ -593,7 +597,7 @@ fn run_one_sample(
         .map_err(|error| format!("invalid sample {}: {error}", output.display()))?;
     validate_sample(&sample, profile, sample_kind, sample_index)?;
     let mut argv = Vec::with_capacity(arguments.len() + 1);
-    argv.push(PathBuf::from(cargo).to_string_lossy().into_owned());
+    argv.push(RUSTUP.to_owned());
     argv.extend(arguments);
     invocations.push(EvidenceInvocation {
         workload: profile.workload.id().to_owned(),
