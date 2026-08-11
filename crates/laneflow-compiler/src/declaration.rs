@@ -871,6 +871,8 @@ pub(crate) struct SignalGroupStateDeclaration {
 
 pub(crate) struct SignalPhaseDeclaration {
     pub(crate) header: DeclarationHeader,
+    /// 该相位在所属控制器有序 `signal_phases` 关系中的来源位置。
+    pub(crate) controller_relation_span: SourceLocation,
     pub(crate) duration_ms: u64,
     pub(crate) states: Box<[SignalGroupStateDeclaration]>,
 }
@@ -1141,10 +1143,12 @@ impl TypedAstDeclaration {
                 for phase in phases {
                     let SignalPhaseDeclaration {
                         header,
+                        controller_relation_span,
                         duration_ms: _,
                         states,
                     } = phase;
                     try_visit_declaration_header(header, &mut visit)?;
+                    visit(controller_relation_span)?;
                     for state in states {
                         let SignalGroupStateDeclaration {
                             signal_group,
