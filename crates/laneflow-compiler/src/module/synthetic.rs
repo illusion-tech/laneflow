@@ -2459,6 +2459,7 @@ impl SyntheticModuleBuilder {
             ),
             kind_id: input.kind_id.into(),
             authoring_width_profile: None,
+            compiled_geometry: None,
         });
         self.declaration_index
             .entry(EntityKind::FacilityBand)

@@ -2,8 +2,11 @@
 
 use crate::declaration::{
     AuthoringCurveProgramDeclaration, AuthoringCurveSegmentDeclaration,
-    AuthoringCurveSegmentGeometry, AuthoringLaneDirection, AuthoringPoint3F64,
-    AuthoringWidthProfile, CanonicalPoint3F32Input, EdgeLength,
+    AuthoringCurveSegmentGeometry, AuthoringLaneDirection, AuthoringPoint3F64, AuthoringStationEnd,
+    AuthoringWidthProfile, CanonicalPoint3F32Input, CompiledFacilityBandGeometry,
+    CompiledLaneEdgeGeometry, EdgeLength, FacilityBandDeclaration, LaneEdgeGeometryAuthority,
+    OwnedCorridorElementReference, RoadAlignmentDeclaration, RoadSectionDeclaration,
+    TypedAstDeclaration, TypedAstEntityAddress,
 };
 use crate::{GeometryAccuracyProfile, GeometryDirectionProfile};
 
@@ -137,6 +140,375 @@ pub(super) fn derive_member_offset_endpoints(
         }
     }
     Ok(offsets.into_boxed_slice())
+}
+
+struct CompiledAlignmentEntry<'a> {
+    declaration: &'a RoadAlignmentDeclaration,
+    reference: CompiledAlignmentReference,
+}
+
+enum CorridorMemberTarget<'a> {
+    LaneEdge {
+        target: &'a TypedAstEntityAddress,
+        direction: AuthoringLaneDirection,
+    },
+    FacilityBand {
+        target: &'a TypedAstEntityAddress,
+    },
+}
+
+struct CorridorMember<'a> {
+    source_address: &'a TypedAstEntityAddress,
+    width_profile: AuthoringWidthProfile,
+    target: CorridorMemberTarget<'a>,
+}
+
+struct PendingLaneGeometry {
+    target: TypedAstEntityAddress,
+    value: Option<CompiledLaneEdgeGeometry>,
+}
+
+struct PendingFacilityGeometry {
+    target: TypedAstEntityAddress,
+    value: Option<CompiledFacilityBandGeometry>,
+}
+
+#[allow(clippy::too_many_lines)]
+pub(super) fn compile_authoring_geometry(
+    authoring_namespace_id: &str,
+    alignments: Box<[RoadAlignmentDeclaration]>,
+    declarations: &mut [TypedAstDeclaration],
+    accuracy: GeometryAccuracyProfile,
+    direction: GeometryDirectionProfile,
+    geometry_point_limit: u64,
+) -> Result<u64, NumericFreezeError> {
+    let mut compiled_alignments = Vec::with_capacity(alignments.len());
+    for alignment in &alignments {
+        compiled_alignments.push(CompiledAlignmentEntry {
+            declaration: alignment,
+            reference: compile_alignment_reference(
+                &alignment.reference_line,
+                geometry_point_limit,
+            )?,
+        });
+    }
+
+    let mut used_points = 0_u64;
+    let mut lane_outputs = Vec::new();
+    let mut facility_outputs = Vec::new();
+
+    for declaration in declarations.iter() {
+        let TypedAstDeclaration::LaneEdge(edge) = declaration else {
+            continue;
+        };
+        let LaneEdgeGeometryAuthority::Authoring {
+            explicit_curve: Some(curve),
+        } = &edge.geometry_authority
+        else {
+            continue;
+        };
+        let compiled = compile_explicit_curve(
+            curve,
+            accuracy,
+            direction,
+            remaining_points(geometry_point_limit, used_points)?,
+        )?;
+        used_points = charge_points(geometry_point_limit, used_points, compiled.points.len())?;
+        lane_outputs.push(PendingLaneGeometry {
+            target: edge.header.source_address.clone(),
+            value: Some(CompiledLaneEdgeGeometry {
+                length: compiled.length,
+                canonical_frame: None,
+                centerline_points: compiled.points,
+            }),
+        });
+    }
+
+    for declaration in declarations.iter() {
+        let TypedAstDeclaration::RoadCorridor(corridor) = declaration else {
+            continue;
+        };
+        let Some(authoring) = &corridor.authoring_geometry else {
+            continue;
+        };
+        let alignment = compiled_alignments
+            .iter()
+            .find(|entry| {
+                entry.declaration.road_alignment_key.as_ref()
+                    == authoring.road_alignment_key.as_ref()
+            })
+            .ok_or(NumericFreezeError::GeometryTopologyMismatch)?;
+        let station_end = match authoring.end_station {
+            AuthoringStationEnd::Finite(value) => value,
+            AuthoringStationEnd::AlignmentEnd => {
+                alignment
+                    .reference
+                    .station_rows
+                    .last()
+                    .ok_or(NumericFreezeError::StationOutOfRange)?
+                    .cumulative_end_meters
+            }
+        };
+
+        let mut members = Vec::new();
+        for element in &corridor.elements {
+            match element {
+                OwnedCorridorElementReference::RoadSection(reference) => {
+                    if reference.module_namespace.as_ref() != authoring_namespace_id {
+                        return Err(NumericFreezeError::GeometryTopologyMismatch);
+                    }
+                    let section = find_road_section(declarations, &reference.target_address)
+                        .ok_or(NumericFreezeError::GeometryTopologyMismatch)?;
+                    append_section_members(&mut members, section, authoring_namespace_id)?;
+                }
+                OwnedCorridorElementReference::FacilityBand(reference) => {
+                    if reference.module_namespace.as_ref() != authoring_namespace_id {
+                        return Err(NumericFreezeError::GeometryTopologyMismatch);
+                    }
+                    let facility = find_facility_band(declarations, &reference.target_address)
+                        .ok_or(NumericFreezeError::GeometryTopologyMismatch)?;
+                    let width_profile = facility
+                        .authoring_width_profile
+                        .ok_or(NumericFreezeError::GeometryTopologyMismatch)?;
+                    members.push(CorridorMember {
+                        source_address: &facility.header.source_address,
+                        width_profile,
+                        target: CorridorMemberTarget::FacilityBand {
+                            target: &facility.header.source_address,
+                        },
+                    });
+                }
+            }
+        }
+        let reference_ordinal = members
+            .iter()
+            .position(|member| {
+                member.source_address == &authoring.reference_lane.target_address
+                    && authoring.reference_lane.module_namespace.as_ref() == authoring_namespace_id
+            })
+            .ok_or(NumericFreezeError::GeometryTopologyMismatch)?;
+        let width_profiles: Vec<_> = members.iter().map(|member| member.width_profile).collect();
+        let offsets = derive_member_offset_endpoints(&width_profiles, reference_ordinal)?;
+
+        for (member, offset) in members.into_iter().zip(offsets.iter()) {
+            let lane_direction = match member.target {
+                CorridorMemberTarget::LaneEdge { direction, .. } => direction,
+                CorridorMemberTarget::FacilityBand { .. } => AuthoringLaneDirection::Forward,
+            };
+            let compiled = compile_offset_curve(
+                &alignment.declaration.reference_line,
+                &alignment.reference,
+                authoring.start_station_meters,
+                station_end,
+                offset.start_meters,
+                offset.end_meters,
+                lane_direction,
+                accuracy,
+                direction,
+                remaining_points(geometry_point_limit, used_points)?,
+            )?;
+            used_points = charge_points(geometry_point_limit, used_points, compiled.points.len())?;
+            match member.target {
+                CorridorMemberTarget::LaneEdge { target, .. } => {
+                    lane_outputs.push(PendingLaneGeometry {
+                        target: target.clone(),
+                        value: Some(CompiledLaneEdgeGeometry {
+                            length: compiled.length,
+                            canonical_frame: Some(alignment.declaration.canonical_frame.clone()),
+                            centerline_points: compiled.points,
+                        }),
+                    });
+                }
+                CorridorMemberTarget::FacilityBand { target } => {
+                    facility_outputs.push(PendingFacilityGeometry {
+                        target: target.clone(),
+                        value: Some(CompiledFacilityBandGeometry {
+                            length: compiled.length,
+                            canonical_frame: alignment.declaration.canonical_frame.clone(),
+                            centerline_points: compiled.points,
+                        }),
+                    });
+                }
+            }
+        }
+    }
+
+    lane_outputs.sort_unstable_by(|left, right| left.target.cmp(&right.target));
+    facility_outputs.sort_unstable_by(|left, right| left.target.cmp(&right.target));
+    if lane_outputs
+        .windows(2)
+        .any(|pair| pair[0].target == pair[1].target)
+        || facility_outputs
+            .windows(2)
+            .any(|pair| pair[0].target == pair[1].target)
+    {
+        return Err(NumericFreezeError::GeometryTopologyMismatch);
+    }
+
+    let expected_lane_outputs = declarations
+        .iter()
+        .filter(|declaration| {
+            matches!(
+                declaration,
+                TypedAstDeclaration::LaneEdge(edge)
+                    if matches!(edge.geometry_authority, LaneEdgeGeometryAuthority::Authoring { .. })
+            )
+        })
+        .count();
+    let expected_facility_outputs = declarations
+        .iter()
+        .filter(|declaration| {
+            matches!(
+                declaration,
+                TypedAstDeclaration::FacilityBand(facility)
+                    if facility.authoring_width_profile.is_some()
+            )
+        })
+        .count();
+    if expected_lane_outputs != lane_outputs.len()
+        || expected_facility_outputs != facility_outputs.len()
+        || declarations.iter().any(|declaration| match declaration {
+            TypedAstDeclaration::LaneEdge(edge)
+                if matches!(
+                    edge.geometry_authority,
+                    LaneEdgeGeometryAuthority::Authoring { .. }
+                ) =>
+            {
+                lane_outputs
+                    .binary_search_by(|output| output.target.cmp(&edge.header.source_address))
+                    .is_err()
+            }
+            TypedAstDeclaration::FacilityBand(facility)
+                if facility.authoring_width_profile.is_some() =>
+            {
+                facility_outputs
+                    .binary_search_by(|output| output.target.cmp(&facility.header.source_address))
+                    .is_err()
+            }
+            _ => false,
+        })
+    {
+        return Err(NumericFreezeError::GeometryTopologyMismatch);
+    }
+
+    for declaration in declarations.iter_mut() {
+        match declaration {
+            TypedAstDeclaration::LaneEdge(edge) => {
+                if matches!(
+                    edge.geometry_authority,
+                    LaneEdgeGeometryAuthority::Authoring { .. }
+                ) {
+                    let index = lane_outputs
+                        .binary_search_by(|output| output.target.cmp(&edge.header.source_address))
+                        .expect("geometry targets were prevalidated before atomic replacement");
+                    let geometry = lane_outputs[index]
+                        .value
+                        .take()
+                        .expect("each prevalidated geometry target is consumed once");
+                    edge.geometry_authority = LaneEdgeGeometryAuthority::Compiled(geometry);
+                }
+            }
+            TypedAstDeclaration::RoadCorridor(corridor) => {
+                corridor.authoring_geometry = None;
+            }
+            TypedAstDeclaration::RoadSection(section) => {
+                for lane in &mut section.lanes {
+                    lane.authoring_geometry = None;
+                }
+            }
+            TypedAstDeclaration::FacilityBand(facility)
+                if facility.authoring_width_profile.is_some() =>
+            {
+                let index = facility_outputs
+                    .binary_search_by(|output| output.target.cmp(&facility.header.source_address))
+                    .expect("geometry targets were prevalidated before atomic replacement");
+                facility.compiled_geometry = facility_outputs[index].value.take();
+                facility.authoring_width_profile = None;
+            }
+            _ => {}
+        }
+    }
+    debug_assert!(lane_outputs.iter().all(|output| output.value.is_none()));
+    debug_assert!(facility_outputs.iter().all(|output| output.value.is_none()));
+    Ok(used_points)
+}
+
+fn append_section_members<'a>(
+    members: &mut Vec<CorridorMember<'a>>,
+    section: &'a RoadSectionDeclaration,
+    authoring_namespace_id: &str,
+) -> Result<(), NumericFreezeError> {
+    for lane in &section.lanes {
+        let geometry = lane
+            .authoring_geometry
+            .as_ref()
+            .ok_or(NumericFreezeError::GeometryTopologyMismatch)?;
+        let [edge] = lane.edge_chain.as_ref() else {
+            return Err(NumericFreezeError::GeometryTopologyMismatch);
+        };
+        if edge.module_namespace.as_ref() != authoring_namespace_id {
+            return Err(NumericFreezeError::GeometryTopologyMismatch);
+        }
+        members.push(CorridorMember {
+            source_address: &lane.header.source_address,
+            width_profile: geometry.width_profile,
+            target: CorridorMemberTarget::LaneEdge {
+                target: &edge.target_address,
+                direction: geometry.direction,
+            },
+        });
+    }
+    Ok(())
+}
+
+fn find_road_section<'a>(
+    declarations: &'a [TypedAstDeclaration],
+    address: &TypedAstEntityAddress,
+) -> Option<&'a RoadSectionDeclaration> {
+    declarations
+        .iter()
+        .find_map(|declaration| match declaration {
+            TypedAstDeclaration::RoadSection(section)
+                if &section.header.source_address == address =>
+            {
+                Some(section)
+            }
+            _ => None,
+        })
+}
+
+fn find_facility_band<'a>(
+    declarations: &'a [TypedAstDeclaration],
+    address: &TypedAstEntityAddress,
+) -> Option<&'a FacilityBandDeclaration> {
+    declarations
+        .iter()
+        .find_map(|declaration| match declaration {
+            TypedAstDeclaration::FacilityBand(facility)
+                if &facility.header.source_address == address =>
+            {
+                Some(facility)
+            }
+            _ => None,
+        })
+}
+
+fn remaining_points(limit: u64, used: u64) -> Result<u64, NumericFreezeError> {
+    limit
+        .checked_sub(used)
+        .ok_or(NumericFreezeError::GeometryPointLimit)
+}
+
+fn charge_points(limit: u64, used: u64, additional: usize) -> Result<u64, NumericFreezeError> {
+    let additional =
+        u64::try_from(additional).map_err(|_| NumericFreezeError::GeometryPointLimit)?;
+    let total = used
+        .checked_add(additional)
+        .ok_or(NumericFreezeError::GeometryPointLimit)?;
+    if total > limit {
+        return Err(NumericFreezeError::GeometryPointLimit);
+    }
+    Ok(total)
 }
 
 pub(super) fn compile_explicit_curve(
@@ -638,10 +1010,10 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::SourceSpan;
     use crate::declaration::{
         AuthoringCurveSegmentDeclaration, AuthoringCurveSegmentGeometry, AuthoringPoint3F64,
     };
+    use crate::{CompileLimits, SourceSpan};
 
     fn point(x: f64, z: f64) -> AuthoringPoint3F64 {
         AuthoringPoint3F64 { x, y: 0.0, z }
@@ -649,6 +1021,41 @@ mod tests {
 
     fn span(column: u32) -> crate::SourceLocation {
         SourceSpan::point(Arc::from("roads/main"), 1, column).into()
+    }
+
+    fn lowered_geometry_fixture() -> (Box<[RoadAlignmentDeclaration]>, Vec<TypedAstDeclaration>) {
+        let limits = CompileLimits::p100_initial_v2();
+        let module = super::super::writer::tests::module_with_every_declaration(&limits);
+        let bytes = super::super::writer::RoadEditingSourceWriter::new(&limits)
+            .write(module)
+            .unwrap();
+        let input = super::super::input::RoadEditingModuleInput::try_new(
+            "road-editing",
+            bytes.as_bytes(),
+            None,
+        )
+        .unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
+        let locations =
+            super::super::location::RoadEditingLocationFactory::from_verified_root(verified.root());
+        let alignments = super::super::lowering::lower_road_alignments(verified.root(), &locations);
+        let mut declarations = super::super::lowering::lower_topology_authoring_declarations(
+            verified.root(),
+            &locations,
+        )
+        .unwrap();
+        declarations.extend(super::super::lowering::lower_owner_scoped_declarations(
+            verified.root(),
+            &locations,
+        ));
+        declarations.retain(|declaration| {
+            !matches!(
+                declaration,
+                TypedAstDeclaration::LaneEdge(edge)
+                    if edge.header.stable_key.as_ref() == "edge-b"
+            )
+        });
+        (alignments.into_boxed_slice(), declarations)
     }
 
     #[test]
@@ -954,5 +1361,108 @@ mod tests {
             derive_member_offset_endpoints(&profiles, profiles.len()),
             Err(NumericFreezeError::StationOutOfRange)
         );
+    }
+
+    #[test]
+    fn module_geometry_compilation_replaces_authoring_authorities_atomically() {
+        let (alignments, mut declarations) = lowered_geometry_fixture();
+        let used_points = compile_authoring_geometry(
+            "city",
+            alignments,
+            &mut declarations,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            6,
+        )
+        .unwrap();
+        assert_eq!(used_points, 6);
+
+        let edge_a = declarations
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::LaneEdge(edge)
+                    if edge.header.stable_key.as_ref() == "edge-a" =>
+                {
+                    Some(edge)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let LaneEdgeGeometryAuthority::Compiled(geometry) = &edge_a.geometry_authority else {
+            panic!("section-derived edge must have compiled geometry");
+        };
+        assert_eq!(geometry.length.value(), 10.0);
+        assert_eq!(geometry.centerline_points.len(), 2);
+        assert_eq!(
+            geometry
+                .canonical_frame
+                .as_ref()
+                .unwrap()
+                .declaration_key()
+                .as_ref(),
+            "frame"
+        );
+
+        let internal = declarations
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::LaneEdge(edge)
+                    if edge.header.stable_key.as_ref() == "edge-internal" =>
+                {
+                    Some(edge)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let LaneEdgeGeometryAuthority::Compiled(geometry) = &internal.geometry_authority else {
+            panic!("junction-internal edge must have compiled geometry");
+        };
+        assert!(geometry.canonical_frame.is_none());
+
+        let facility = declarations
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::FacilityBand(value) => Some(value),
+                _ => None,
+            })
+            .unwrap();
+        assert!(facility.authoring_width_profile.is_none());
+        assert_eq!(
+            facility
+                .compiled_geometry
+                .as_ref()
+                .unwrap()
+                .centerline_points
+                .len(),
+            2
+        );
+        assert!(declarations.iter().all(|declaration| {
+            match declaration {
+                TypedAstDeclaration::RoadCorridor(value) => value.authoring_geometry.is_none(),
+                TypedAstDeclaration::RoadSection(value) => value
+                    .lanes
+                    .iter()
+                    .all(|lane| lane.authoring_geometry.is_none()),
+                _ => true,
+            }
+        }));
+
+        let (alignments, mut rejected) = lowered_geometry_fixture();
+        assert_eq!(
+            compile_authoring_geometry(
+                "city",
+                alignments,
+                &mut rejected,
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+                5,
+            ),
+            Err(NumericFreezeError::GeometryPointLimit)
+        );
+        assert!(rejected.iter().any(|declaration| matches!(
+            declaration,
+            TypedAstDeclaration::LaneEdge(edge)
+                if matches!(edge.geometry_authority, LaneEdgeGeometryAuthority::Authoring { .. })
+        )));
     }
 }

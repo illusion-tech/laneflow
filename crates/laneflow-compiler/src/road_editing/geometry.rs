@@ -26,6 +26,7 @@ pub(super) enum NumericFreezeError {
     ApproximationNotConverged,
     GeometryPointLimit,
     StationOutOfRange,
+    GeometryTopologyMismatch,
     SourceJoinGapExceeded,
     DegenerateCanonicalSegment,
     DirectionDiscontinuity,
