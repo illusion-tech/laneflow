@@ -10,6 +10,11 @@ mod input;
     reason = "consumed by the staged RoadEditingSource Typed AST lowering"
 )]
 mod location;
+#[allow(
+    dead_code,
+    reason = "consumed by the staged RoadEditingSource Typed AST lowering"
+)]
+mod lowering;
 mod model;
 #[allow(
     dead_code,
