@@ -1195,6 +1195,7 @@ impl ReferenceProgramSink for ExactPointSink {
 mod tests {
     use std::sync::Arc;
 
+    use super::super::geometry_known_vectors::canonical_weld_vector;
     use super::*;
     use crate::declaration::{
         AuthoringCurveSegmentDeclaration, AuthoringCurveSegmentGeometry, AuthoringPoint3F64,
@@ -1437,6 +1438,8 @@ mod tests {
 
     #[test]
     fn offset_source_join_welds_only_within_the_five_millimeter_gate() {
+        let vector = canonical_weld_vector();
+
         fn joined_program(second_end_z: f64) -> AuthoringCurveProgramDeclaration {
             AuthoringCurveProgramDeclaration {
                 start: point(0.0, 0.0),
@@ -1459,7 +1462,7 @@ mod tests {
             }
         }
 
-        let accepted = joined_program(0.001);
+        let accepted = joined_program(vector.accepted_second_end_z);
         let reference = compile_alignment_reference(&accepted, 3).unwrap();
         let station_end = reference.station_rows.last().unwrap().cumulative_end_meters;
         let offset = compile_offset_curve(
@@ -1467,8 +1470,8 @@ mod tests {
             &reference,
             0.0,
             station_end,
-            1.0,
-            1.0,
+            vector.offset_meters,
+            vector.offset_meters,
             AuthoringLaneDirection::Forward,
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
@@ -1476,10 +1479,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(offset.points.len(), 3);
-        assert_eq!(offset.points[1].x, 10.0);
-        assert_eq!(offset.points[1].z, -1.0);
+        assert_eq!(
+            [
+                f64::from(offset.points[1].x).to_bits(),
+                f64::from(offset.points[1].y).to_bits(),
+                f64::from(offset.points[1].z).to_bits(),
+            ],
+            vector.expected_promoted_point_bits
+        );
 
-        let rejected = joined_program(0.1);
+        let rejected = joined_program(vector.rejected_second_end_z);
         let reference = compile_alignment_reference(&rejected, 3).unwrap();
         let station_end = reference.station_rows.last().unwrap().cumulative_end_meters;
         assert_eq!(
@@ -1488,15 +1497,15 @@ mod tests {
                 &reference,
                 0.0,
                 station_end,
-                1.0,
-                1.0,
+                vector.offset_meters,
+                vector.offset_meters,
                 AuthoringLaneDirection::Forward,
                 GeometryAccuracyProfile::Fine2Cm,
                 GeometryDirectionProfile::Smooth1Deg,
                 3,
             )
             .err(),
-            Some(NumericFreezeError::SourceJoinGapExceeded)
+            Some(vector.rejected_error)
         );
     }
 
