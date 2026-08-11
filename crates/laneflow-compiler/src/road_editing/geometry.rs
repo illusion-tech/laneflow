@@ -25,6 +25,7 @@ pub(super) enum NumericFreezeError {
     CoordinateOutOfRange,
     ApproximationNotConverged,
     GeometryPointLimit,
+    StationOutOfRange,
     DegenerateCanonicalSegment,
     DirectionDiscontinuity,
 }
@@ -370,6 +371,11 @@ fn point_sub(left: Point3, right: Point3) -> Result<Point3, NumericFreezeError> 
         finite(left.y - right.y)?,
         finite(left.z - right.z)?,
     )
+}
+
+pub(super) fn point_distance(left: Point3, right: Point3) -> Result<f64, NumericFreezeError> {
+    let delta = point_sub(left, right)?;
+    finite(norm_squared(delta)?.sqrt())
 }
 
 fn point_lerp(start: Point3, end: Point3, parameter: f64) -> Result<Point3, NumericFreezeError> {
