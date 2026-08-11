@@ -5121,8 +5121,8 @@ fn build_spatial_hir(
         }
     }
 
-    // FacilityBand 不参与可遍历 LaneEdge 图，但其中心线必须进入同一 frame、规范点表
-    // 和资源权威，供 MIR/LIR 生成不可遍历设施几何表。
+    // FacilityBand 几何不可遍历，因此不进入 LaneEdge 覆盖或连接图；它仍与车道边共享
+    // frame 符号、点冻结器、资源前门以及规范点 backing table。
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let module_key = HirModuleKey::from_raw(
             u32::try_from(module_index)

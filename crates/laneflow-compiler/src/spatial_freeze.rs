@@ -65,7 +65,7 @@ pub(crate) fn freeze_spatial_polyline(
     result
 }
 
-/// 冻结不可遍历几何的规范点与弧长，不派生 Spatial segment 或交通长度。
+/// 冻结不可遍历几何的规范点并校验声明长度，不派生 Spatial segment 或交通长度。
 pub(crate) fn freeze_canonical_polyline(
     input: &[CanonicalPoint3F32Input],
     expected_length_meters: f64,
