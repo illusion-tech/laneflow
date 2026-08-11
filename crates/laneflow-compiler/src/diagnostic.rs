@@ -3006,7 +3006,7 @@ impl fmt::Display for Diagnostic {
                     write!(formatter, "，字段 {field}")?;
                 }
                 if let Some(actual) = actual_source_document_key {
-                    write!(formatter, "，wire 文档键 {actual}")?;
+                    write!(formatter, "，wire 文档键 {actual:?}")?;
                 }
                 Ok(())
             }
@@ -4193,5 +4193,20 @@ mod tests {
         assert_eq!(span.start().column(), 3);
         assert_eq!(span.end().line(), 7);
         assert_eq!(span.end().column(), 11);
+    }
+
+    #[test]
+    fn unverified_wire_document_key_is_escaped_when_rendered() {
+        let diagnostic = Diagnostic::invalid_road_editing_source(
+            RoadEditingSourceViolation::SourceDocumentKeyMismatch,
+            None,
+            "roads/expected",
+            Some("roads/actual\n\u{1b}[31m"),
+        );
+
+        let rendered = diagnostic.to_string();
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(rendered.contains(r#"wire 文档键 "roads/actual\n\u{1b}[31m""#));
     }
 }
