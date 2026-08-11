@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use issue_296_road_editing_source_calibration::{
     EvidenceSampleKind, EvidenceSampleRequest, EvidenceWorkload, P100_PROFILE_COMBINATIONS,
     build_base_modules, build_regularity_probe_modules, compile_encoded_modules, encode_modules,
-    load_bound_seed, run_evidence_sample,
+    load_bound_seed, run_evidence_protocol, run_evidence_sample, verify_compact_evidence,
+    write_compact_evidence,
 };
 use laneflow_compiler::road_editing::RoadEditingModuleInput;
 use laneflow_compiler::{
@@ -32,8 +33,17 @@ fn main() {
         "road-editing-evidence-sample" => {
             run_formal_evidence_sample(&repository_root, &arguments[1..])
         }
+        "road-editing-evidence-run" => {
+            run_formal_evidence_protocol(&repository_root, &arguments[1..])
+        }
+        "road-editing-evidence-compact" => {
+            run_compact_evidence(&repository_root, &arguments[1..])
+        }
+        "road-editing-evidence-verify" => {
+            run_verify_evidence(&repository_root, &arguments[1..])
+        }
         _ => Err(format!(
-            "unknown subcommand {command:?}; expected seed-audit, road-editing-p100, road-editing-regularity, road-editing-fixture-identities, road-editing-cross-language or road-editing-evidence-sample"
+            "unknown subcommand {command:?}; expected seed-audit, road-editing-p100, road-editing-regularity, road-editing-fixture-identities, road-editing-cross-language, road-editing-evidence-sample, road-editing-evidence-run, road-editing-evidence-compact or road-editing-evidence-verify"
         )
         .into()),
     };
@@ -171,7 +181,66 @@ fn run_formal_evidence_sample(
     Ok(())
 }
 
+fn run_formal_evidence_protocol(
+    repository_root: &Path,
+    arguments: &[String],
+) -> Result<(), Box<dyn Error>> {
+    let [output] = arguments else {
+        return Err(
+            "road-editing-evidence-run requires one repository-relative output path".into(),
+        );
+    };
+    let output = checked_repository_output(repository_root, output)?;
+    let evidence = run_evidence_protocol(repository_root)?;
+    write_new_json(&output, &evidence)?;
+    println!("wrote road-editing raw evidence {}", output.display());
+    Ok(())
+}
+
+fn run_compact_evidence(
+    repository_root: &Path,
+    arguments: &[String],
+) -> Result<(), Box<dyn Error>> {
+    let [raw, output] = arguments else {
+        return Err(
+            "road-editing-evidence-compact requires repository-relative raw and compact JSON paths"
+                .into(),
+        );
+    };
+    let raw = checked_repository_json_path(repository_root, raw)?;
+    let output = checked_repository_json_path(repository_root, output)?;
+    let outcome = write_compact_evidence(repository_root, &raw, &output)?;
+    println!(
+        "wrote road-editing compact evidence {} bytes={} sha256={}",
+        outcome.output_path, outcome.byte_length, outcome.sha256
+    );
+    Ok(())
+}
+
+fn run_verify_evidence(repository_root: &Path, arguments: &[String]) -> Result<(), Box<dyn Error>> {
+    let [compact] = arguments else {
+        return Err(
+            "road-editing-evidence-verify requires one repository-relative compact JSON path"
+                .into(),
+        );
+    };
+    let compact = checked_repository_json_path(repository_root, compact)?;
+    let outcome = verify_compact_evidence(repository_root, &compact)?;
+    println!(
+        "verified road-editing compact evidence {} bytes={} sha256={}",
+        outcome.output_path, outcome.byte_length, outcome.sha256
+    );
+    Ok(())
+}
+
 fn checked_repository_output(
+    repository_root: &Path,
+    relative: &str,
+) -> Result<PathBuf, Box<dyn Error>> {
+    checked_repository_json_path(repository_root, relative)
+}
+
+fn checked_repository_json_path(
     repository_root: &Path,
     relative: &str,
 ) -> Result<PathBuf, Box<dyn Error>> {

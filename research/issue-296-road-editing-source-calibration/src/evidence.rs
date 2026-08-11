@@ -4,13 +4,16 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use laneflow_compiler::{
-    CompilationMetrics, CompileLimits, GeometryAccuracyProfile, GeometryDirectionProfile,
+    CompilationMetrics, CompilationOutput, CompileLimits, GeometryAccuracyProfile,
+    GeometryDirectionProfile,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::oracle::{GeometryObservation, observe, prepare_observation};
 use crate::{
     EncodedP100Module, GeneratorError, build_base_modules_from_seed,
-    build_regularity_probe_modules_from_seed, compile_encoded_modules_with_stage_timing,
+    build_regularity_probe_modules_from_seed, build_rewrite_candidate_module_from_seed,
+    compile_encoded_modules_with_stage_timing, compile_rewrite_candidate_modules, encode_module,
     encode_modules, load_p100_seed,
 };
 
@@ -65,6 +68,8 @@ pub struct EvidenceSample {
     pub timings_ns: EvidenceTimings,
     pub fixtures: Vec<EvidenceFixture>,
     pub metrics: EvidenceMetrics,
+    pub geometry_observation: GeometryObservation,
+    pub single_module_rewrite: Option<SingleModuleRewriteEvidence>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -104,6 +109,36 @@ pub struct EvidenceMetrics {
     pub semantic_fingerprint: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SingleModuleRewriteEvidence {
+    pub edited_module: String,
+    pub target_kind: String,
+    pub target_local_key: String,
+    pub initial_start_width_f64_bits: String,
+    pub initial_end_width_f64_bits: String,
+    pub candidate_start_width_f64_bits: String,
+    pub candidate_end_width_f64_bits: String,
+    pub old_fixture: EvidenceFixture,
+    pub candidate_fixture: EvidenceFixture,
+    pub unmodified_modules: Vec<EvidenceFixture>,
+    pub unmodified_module_byte_identity: bool,
+    pub old_source_buffer_retained_capacity_bytes: u64,
+    pub candidate_source_buffer_retained_capacity_bytes: u64,
+    pub post_commit_retained_capacity_bytes: u64,
+    pub timings_ns: SingleModuleRewriteTimings,
+    pub old_metrics: EvidenceMetrics,
+    pub candidate_metrics: EvidenceMetrics,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SingleModuleRewriteTimings {
+    pub candidate_typed_model_build: u64,
+    pub candidate_encode: u64,
+    pub candidate_complete_compile: u64,
+}
+
 /// 构造一次正式协议样本；调用方负责保证每次调用发生在新的进程中。
 ///
 /// semantic seed 在第一个计时边界前读取和闭合。资源计数只读取同一次成功 production
@@ -115,6 +150,9 @@ pub fn run_evidence_sample(
     validate_request(request)?;
     let limits = CompileLimits::p100_initial_v2();
     let seed = load_p100_seed(repository_root)?;
+    let rewrite_seed = rewrite_is_required(request)
+        .then(|| load_p100_seed(repository_root))
+        .transpose()?;
 
     let typed_model_started = Instant::now();
     let modules = match request.workload {
@@ -124,14 +162,20 @@ pub fn run_evidence_sample(
         EvidenceWorkload::Regularity => build_regularity_probe_modules_from_seed(seed, &limits)?,
     };
     let typed_model_build = typed_model_started.elapsed();
+    let observation_plan = prepare_observation(&modules)?;
 
     let encode_started = Instant::now();
-    let encoded = encode_modules(modules, &limits)?;
+    let mut encoded = encode_modules(modules, &limits)?;
     let encode = encode_started.elapsed();
     let fixtures = encoded.iter().map(fixture_record).collect::<Vec<_>>();
 
-    let (output, compile) = compile_encoded_modules_with_stage_timing(&encoded, limits)?;
+    let (mut output, compile) =
+        compile_encoded_modules_with_stage_timing(&encoded, limits.clone())?;
     let metrics = metrics_record(output.metrics());
+    let geometry_observation = observe(&observation_plan, &output)?;
+    let single_module_rewrite = rewrite_seed
+        .map(|seed| run_single_module_rewrite(seed, &mut encoded, &mut output, &limits))
+        .transpose()?;
     Ok(EvidenceSample {
         schema: SAMPLE_SCHEMA.to_owned(),
         schema_version: SAMPLE_SCHEMA_VERSION,
@@ -155,6 +199,120 @@ pub fn run_evidence_sample(
         },
         fixtures,
         metrics,
+        geometry_observation,
+        single_module_rewrite,
+    })
+}
+
+fn rewrite_is_required(request: &EvidenceSampleRequest) -> bool {
+    request.workload == EvidenceWorkload::Base
+        && request.accuracy == GeometryAccuracyProfile::Balanced5Cm
+        && request.direction == GeometryDirectionProfile::Balanced2Deg
+}
+
+fn run_single_module_rewrite(
+    seed: crate::LoadedP100Seed,
+    accepted_buffers: &mut [EncodedP100Module],
+    accepted_revision: &mut CompilationOutput,
+    limits: &CompileLimits,
+) -> Result<SingleModuleRewriteEvidence, GeneratorError> {
+    const EDITED_MODULE_INDEX: usize = 2;
+    let old_fixtures = accepted_buffers
+        .iter()
+        .map(fixture_record)
+        .collect::<Vec<_>>();
+    let old_metrics = metrics_record(accepted_revision.metrics());
+    let old_source_buffer_retained_capacity_bytes =
+        old_fixtures.iter().fold(0_u64, |sum, fixture| {
+            sum.saturating_add(fixture.retained_capacity_bytes)
+        });
+
+    let typed_started = Instant::now();
+    let candidate_typed = build_rewrite_candidate_module_from_seed(seed, limits)?;
+    let candidate_typed_model_build = typed_started.elapsed();
+    let encode_started = Instant::now();
+    let candidate = encode_module(candidate_typed, limits)?;
+    let candidate_encode = encode_started.elapsed();
+    let candidate_fixture = fixture_record(&candidate);
+    let compile_started = Instant::now();
+    let candidate_revision =
+        compile_rewrite_candidate_modules(accepted_buffers, &candidate, limits.clone())?;
+    let candidate_complete_compile = compile_started.elapsed();
+    std::hint::black_box(&*accepted_revision);
+    std::hint::black_box(&*accepted_buffers);
+    let candidate_metrics = metrics_record(candidate_revision.metrics());
+    if !candidate_revision.diagnostics().is_empty()
+        || candidate_metrics.semantic_fingerprint == old_metrics.semantic_fingerprint
+    {
+        return Err(GeneratorError::Contract(
+            "rewrite candidate did not produce a clean, changed accepted revision".to_owned(),
+        ));
+    }
+
+    let old_buffer = std::mem::replace(
+        accepted_buffers
+            .get_mut(EDITED_MODULE_INDEX)
+            .ok_or_else(|| GeneratorError::Contract("accepted p100.m02 is missing".to_owned()))?,
+        candidate,
+    );
+    let old_revision = std::mem::replace(accepted_revision, candidate_revision);
+    let committed_fixtures = accepted_buffers
+        .iter()
+        .map(fixture_record)
+        .collect::<Vec<_>>();
+    let unmodified_modules = committed_fixtures
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != EDITED_MODULE_INDEX)
+        .map(|(_, fixture)| fixture.clone())
+        .collect::<Vec<_>>();
+    let unmodified_module_byte_identity = old_fixtures
+        .iter()
+        .zip(&committed_fixtures)
+        .enumerate()
+        .filter(|(index, _)| *index != EDITED_MODULE_INDEX)
+        .all(|(_, (old, committed))| old == committed);
+    let post_commit_retained_capacity_bytes =
+        committed_fixtures.iter().fold(0_u64, |sum, fixture| {
+            sum.saturating_add(fixture.retained_capacity_bytes)
+        });
+    let old_fixture = old_fixtures
+        .get(EDITED_MODULE_INDEX)
+        .cloned()
+        .ok_or_else(|| GeneratorError::Contract("old p100.m02 fixture is missing".to_owned()))?;
+    if !unmodified_module_byte_identity
+        || old_fixture.sha256 == candidate_fixture.sha256
+        || !accepted_revision.diagnostics().is_empty()
+    {
+        return Err(GeneratorError::Contract(
+            "rewrite commit did not preserve four modules and replace only p100.m02".to_owned(),
+        ));
+    }
+    drop(old_revision);
+    drop(old_buffer);
+
+    Ok(SingleModuleRewriteEvidence {
+        edited_module: "p100.m02".to_owned(),
+        target_kind: "AuthoringLane".to_owned(),
+        target_local_key: "section-main-w2e-road-0/lane/2".to_owned(),
+        initial_start_width_f64_bits: f64_bits(3.5),
+        initial_end_width_f64_bits: f64_bits(3.5),
+        candidate_start_width_f64_bits: f64_bits(3.0),
+        candidate_end_width_f64_bits: f64_bits(3.5),
+        old_fixture,
+        candidate_fixture: candidate_fixture.clone(),
+        unmodified_modules,
+        unmodified_module_byte_identity,
+        old_source_buffer_retained_capacity_bytes,
+        candidate_source_buffer_retained_capacity_bytes: candidate_fixture.retained_capacity_bytes,
+        post_commit_retained_capacity_bytes,
+        timings_ns: SingleModuleRewriteTimings {
+            candidate_typed_model_build: duration_ns(candidate_typed_model_build),
+            candidate_encode: duration_ns(candidate_encode),
+            candidate_complete_compile: duration_ns(candidate_complete_compile),
+        },
+        old_metrics,
+        candidate_metrics,
     })
 }
 
@@ -194,7 +352,7 @@ fn fixture_record(module: &EncodedP100Module) -> EvidenceFixture {
     }
 }
 
-fn metrics_record(metrics: CompilationMetrics) -> EvidenceMetrics {
+pub(crate) fn metrics_record(metrics: CompilationMetrics) -> EvidenceMetrics {
     EvidenceMetrics {
         source_bytes_total: metrics.source_bytes_total(),
         verified_table_occurrence_count: metrics.verified_table_occurrence_count(),
@@ -216,6 +374,10 @@ fn duration_ns(duration: Duration) -> u64 {
 
 fn usize_u64(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
+}
+
+fn f64_bits(value: f64) -> String {
+    format!("0x{:016x}", value.to_bits())
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -289,6 +451,40 @@ mod tests {
                 .metrics
                 .maximum_horizontal_regularity_node_visits_per_offset_bearing_source_segment,
             3
+        );
+    }
+
+    #[test]
+    fn balanced_sample_retains_and_atomically_replaces_the_single_module() {
+        let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap();
+        let mut request = request(EvidenceWorkload::Base);
+        request.accuracy = GeometryAccuracyProfile::Balanced5Cm;
+        request.direction = GeometryDirectionProfile::Balanced2Deg;
+        let sample = run_evidence_sample(repository_root, &request).unwrap();
+        let rewrite = sample.single_module_rewrite.unwrap();
+
+        assert_eq!(rewrite.edited_module, "p100.m02");
+        assert_eq!(rewrite.target_kind, "AuthoringLane");
+        assert_eq!(rewrite.target_local_key, "section-main-w2e-road-0/lane/2");
+        assert_eq!(rewrite.initial_start_width_f64_bits, f64_bits(3.5));
+        assert_eq!(rewrite.candidate_start_width_f64_bits, f64_bits(3.0));
+        assert_eq!(rewrite.candidate_end_width_f64_bits, f64_bits(3.5));
+        assert!(rewrite.unmodified_module_byte_identity);
+        assert_eq!(rewrite.unmodified_modules.len(), 4);
+        assert_ne!(rewrite.old_fixture.sha256, rewrite.candidate_fixture.sha256);
+        assert_ne!(
+            rewrite.old_metrics.semantic_fingerprint,
+            rewrite.candidate_metrics.semantic_fingerprint
+        );
+        assert_eq!(
+            rewrite.post_commit_retained_capacity_bytes,
+            rewrite
+                .old_source_buffer_retained_capacity_bytes
+                .saturating_sub(rewrite.old_fixture.retained_capacity_bytes)
+                .saturating_add(rewrite.candidate_fixture.retained_capacity_bytes)
         );
     }
 }

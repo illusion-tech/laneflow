@@ -1,0 +1,830 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/illusion-tech/laneflow/blob/main/docs/reference/road-editing-source-calibration-evidence-v1.schema.json",
+  "title": "LaneFlow RoadEditingSource calibration compact evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "rawEvidence",
+    "evidenceSchema",
+    "source",
+    "environment",
+    "protocol",
+    "bindings",
+    "coverage",
+    "allocatorProbes",
+    "summaries"
+  ],
+  "properties": {
+    "schema": {
+      "const": "laneflow.road-editing-source-calibration-evidence"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "rawEvidence": {
+      "$ref": "#/$defs/artifactBinding"
+    },
+    "evidenceSchema": {
+      "$ref": "#/$defs/artifactBinding"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "environment": {
+      "$ref": "#/$defs/environment"
+    },
+    "protocol": {
+      "$ref": "#/$defs/protocol"
+    },
+    "bindings": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "$ref": "#/$defs/artifactBinding"
+      }
+    },
+    "coverage": {
+      "$ref": "#/$defs/coverage"
+    },
+    "allocatorProbes": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "$ref": "#/$defs/allocatorProbe"
+      }
+    },
+    "summaries": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": {
+        "$ref": "#/$defs/summary"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "f64Bits": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{16}$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "artifactBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "byteLength", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._/-]+$"
+        },
+        "byteLength": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measurementCommit",
+        "generatorContractRevision",
+        "writerImplementationRevision",
+        "compilerImplementationRevision",
+        "worktreeClean"
+      ],
+      "properties": {
+        "measurementCommit": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "generatorContractRevision": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "writerImplementationRevision": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "compilerImplementationRevision": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "worktreeClean": {
+          "const": true
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hardwareId",
+        "hardwareIdentitySha256",
+        "cpu",
+        "physicalCoreCount",
+        "logicalProcessorCount",
+        "physicalMemoryBytes",
+        "operatingSystem",
+        "operatingSystemBuild",
+        "biosFirmware",
+        "powerSource",
+        "powerPlanGuid",
+        "powerPlanDescription",
+        "rustcVerboseVersion",
+        "cargoVersion"
+      ],
+      "properties": {
+        "hardwareId": {
+          "const": "LF-P100-REF-01"
+        },
+        "hardwareIdentitySha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "cpu": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "physicalCoreCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "logicalProcessorCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "physicalMemoryBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "operatingSystem": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "operatingSystemBuild": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "biosFirmware": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "powerSource": {
+          "const": "AC"
+        },
+        "powerPlanGuid": {
+          "const": "381b4222-f694-41f0-9685-ff5bb260df2e"
+        },
+        "powerPlanDescription": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "rustcVerboseVersion": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "cargoVersion": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release",
+        "locked",
+        "workerThreadCount",
+        "warmupCountPerWorkloadProfile",
+        "formalSampleCountPerWorkloadProfile",
+        "outlierDeletion",
+        "primaryStatistic",
+        "dispersionStatistic"
+      ],
+      "properties": {
+        "release": {
+          "const": true
+        },
+        "locked": {
+          "const": true
+        },
+        "workerThreadCount": {
+          "const": 1
+        },
+        "warmupCountPerWorkloadProfile": {
+          "const": 1
+        },
+        "formalSampleCountPerWorkloadProfile": {
+          "const": 7
+        },
+        "outlierDeletion": {
+          "const": "forbidden"
+        },
+        "primaryStatistic": {
+          "const": "median-of-seven-formal-samples"
+        },
+        "dispersionStatistic": {
+          "const": "median-absolute-deviation-of-same-seven"
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timedProcessInvocationCount",
+        "allocatorProbeInvocationCount",
+        "totalFreshProcessCount",
+        "rawSampleCount",
+        "warmupSampleCount",
+        "formalSampleCount",
+        "summaryCount",
+        "baseProfileCombinationCount",
+        "regularityCompanionCount",
+        "rewriteSampleCount"
+      ],
+      "properties": {
+        "timedProcessInvocationCount": {
+          "const": 80
+        },
+        "allocatorProbeInvocationCount": {
+          "const": 4
+        },
+        "totalFreshProcessCount": {
+          "const": 84
+        },
+        "rawSampleCount": {
+          "const": 80
+        },
+        "warmupSampleCount": {
+          "const": 10
+        },
+        "formalSampleCount": {
+          "const": 70
+        },
+        "summaryCount": {
+          "const": 10
+        },
+        "baseProfileCombinationCount": {
+          "const": 9
+        },
+        "regularityCompanionCount": {
+          "const": 1
+        },
+        "rewriteSampleCount": {
+          "const": 8
+        }
+      }
+    },
+    "medianMad": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["median", "medianAbsoluteDeviation"],
+      "properties": {
+        "median": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "medianAbsoluteDeviation": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "timingSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "typedModelBuild",
+        "encode",
+        "sizePrefixAndIdentifierPreflight",
+        "flatbuffersVerifier",
+        "semanticPreflightAndTypedAstLowering",
+        "completeCompile"
+      ],
+      "properties": {
+        "typedModelBuild": {
+          "$ref": "#/$defs/medianMad"
+        },
+        "encode": {
+          "$ref": "#/$defs/medianMad"
+        },
+        "sizePrefixAndIdentifierPreflight": {
+          "$ref": "#/$defs/medianMad"
+        },
+        "flatbuffersVerifier": {
+          "$ref": "#/$defs/medianMad"
+        },
+        "semanticPreflightAndTypedAstLowering": {
+          "$ref": "#/$defs/medianMad"
+        },
+        "completeCompile": {
+          "$ref": "#/$defs/medianMad"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleIndex",
+        "namespace",
+        "sourceDocumentKey",
+        "byteLength",
+        "retainedCapacityBytes",
+        "sha256"
+      ],
+      "properties": {
+        "moduleIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "namespace": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "sourceDocumentKey": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "byteLength": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "retainedCapacityBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceBytesTotal",
+        "verifiedTableOccurrenceCount",
+        "geometryPointCount",
+        "totalHorizontalRegularityNodeVisits",
+        "maximumHorizontalRegularityNodeVisitsPerOffsetBearingSourceSegment",
+        "frontendControlledPeakBytes",
+        "lirRecordCount",
+        "outputLogicalBytes",
+        "compilerControlledPeakBytes",
+        "semanticFingerprint"
+      ],
+      "properties": {
+        "sourceBytesTotal": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "verifiedTableOccurrenceCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "geometryPointCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "totalHorizontalRegularityNodeVisits": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "maximumHorizontalRegularityNodeVisitsPerOffsetBearingSourceSegment": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "frontendControlledPeakBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "lirRecordCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "outputLogicalBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "compilerControlledPeakBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "semanticFingerprint": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "positionError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "p50MetersBits",
+        "p95MetersBits",
+        "p99MetersBits",
+        "maximumMetersBits"
+      ],
+      "properties": {
+        "p50MetersBits": {
+          "$ref": "#/$defs/f64Bits"
+        },
+        "p95MetersBits": {
+          "$ref": "#/$defs/f64Bits"
+        },
+        "p99MetersBits": {
+          "$ref": "#/$defs/f64Bits"
+        },
+        "maximumMetersBits": {
+          "$ref": "#/$defs/f64Bits"
+        }
+      }
+    },
+    "worstObservedError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module",
+        "sourceAddress",
+        "sourceSegmentOrdinal",
+        "stationRowOrdinal",
+        "evaluatorIntervalOrdinal",
+        "parameterBits"
+      ],
+      "properties": {
+        "module": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "sourceAddress": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "sourceSegmentOrdinal": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "stationRowOrdinal": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/nonNegativeInteger"
+            }
+          ]
+        },
+        "evaluatorIntervalOrdinal": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "parameterBits": {
+          "$ref": "#/$defs/f64Bits"
+        }
+      }
+    },
+    "geometryObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evaluatorIntervalCount",
+        "observedSampleCount",
+        "evaluatorIntervalIdentitySha256",
+        "positionError",
+        "worstObservedError",
+        "finalF32DirectionJumpMaximumDegreesBits"
+      ],
+      "properties": {
+        "evaluatorIntervalCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "observedSampleCount": {
+          "type": "integer",
+          "minimum": 4097
+        },
+        "evaluatorIntervalIdentitySha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "positionError": {
+          "$ref": "#/$defs/positionError"
+        },
+        "worstObservedError": {
+          "$ref": "#/$defs/worstObservedError"
+        },
+        "finalF32DirectionJumpMaximumDegreesBits": {
+          "$ref": "#/$defs/f64Bits"
+        }
+      }
+    },
+    "rewriteTimingSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateTypedModelBuild",
+        "candidateEncode",
+        "candidateCompleteCompile"
+      ],
+      "properties": {
+        "candidateTypedModelBuild": {
+          "$ref": "#/$defs/medianMad"
+        },
+        "candidateEncode": {
+          "$ref": "#/$defs/medianMad"
+        },
+        "candidateCompleteCompile": {
+          "$ref": "#/$defs/medianMad"
+        }
+      }
+    },
+    "rewriteSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "editedModule",
+        "targetKind",
+        "targetLocalKey",
+        "initialStartWidthF64Bits",
+        "initialEndWidthF64Bits",
+        "candidateStartWidthF64Bits",
+        "candidateEndWidthF64Bits",
+        "oldFixture",
+        "candidateFixture",
+        "unmodifiedModules",
+        "unmodifiedModuleByteIdentity",
+        "oldSourceBufferRetainedCapacityBytes",
+        "candidateSourceBufferRetainedCapacityBytes",
+        "postCommitRetainedCapacityBytes",
+        "timingsNs",
+        "oldMetrics",
+        "candidateMetrics"
+      ],
+      "properties": {
+        "editedModule": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "targetKind": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "targetLocalKey": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "initialStartWidthF64Bits": {
+          "$ref": "#/$defs/f64Bits"
+        },
+        "initialEndWidthF64Bits": {
+          "$ref": "#/$defs/f64Bits"
+        },
+        "candidateStartWidthF64Bits": {
+          "$ref": "#/$defs/f64Bits"
+        },
+        "candidateEndWidthF64Bits": {
+          "$ref": "#/$defs/f64Bits"
+        },
+        "oldFixture": {
+          "$ref": "#/$defs/fixture"
+        },
+        "candidateFixture": {
+          "$ref": "#/$defs/fixture"
+        },
+        "unmodifiedModules": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/fixture"
+          }
+        },
+        "unmodifiedModuleByteIdentity": {
+          "const": true
+        },
+        "oldSourceBufferRetainedCapacityBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "candidateSourceBufferRetainedCapacityBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "postCommitRetainedCapacityBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "timingsNs": {
+          "$ref": "#/$defs/rewriteTimingSummary"
+        },
+        "oldMetrics": {
+          "$ref": "#/$defs/metrics"
+        },
+        "candidateMetrics": {
+          "$ref": "#/$defs/metrics"
+        }
+      }
+    },
+    "allocatorHeap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "totalAllocationCount",
+        "totalAllocatedBytes",
+        "peakLiveAllocationCount",
+        "peakLiveBytes",
+        "endLiveAllocationCount",
+        "endLiveBytes"
+      ],
+      "properties": {
+        "totalAllocationCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "totalAllocatedBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "peakLiveAllocationCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "peakLiveBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endLiveAllocationCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "endLiveBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "preloadedRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceBufferRetainedCapacityBytes",
+        "outputLogicalBytes",
+        "candidateSourceBufferRetainedCapacityBytes",
+        "conservativeCoexistingBytes"
+      ],
+      "properties": {
+        "sourceBufferRetainedCapacityBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "outputLogicalBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "candidateSourceBufferRetainedCapacityBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "conservativeCoexistingBytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "allocatorProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "schemaVersion",
+        "role",
+        "workload",
+        "accuracyProfileCode",
+        "directionProfileCode",
+        "measurementCommit",
+        "argv",
+        "preloadedRevision",
+        "operationHeap",
+        "candidateSourceBufferRetainedCapacityBytes",
+        "productionMetrics",
+        "compilerLedgerCoversObservedOperationPeak"
+      ],
+      "properties": {
+        "schema": {
+          "const": "laneflow.road-editing-source-calibration-allocator-probe"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "role": {
+          "enum": [
+            "base-complete-compile",
+            "regularity-complete-compile",
+            "rewrite-candidate-build-encode",
+            "rewrite-candidate-complete-compile"
+          ]
+        },
+        "workload": {
+          "enum": [
+            "LF-ROAD-EDITING-P100-v1",
+            "LF-ROAD-EDITING-P100-REGULARITY-v1"
+          ]
+        },
+        "accuracyProfileCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "directionProfileCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "measurementCommit": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "argv": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "preloadedRevision": {
+          "$ref": "#/$defs/preloadedRevision"
+        },
+        "operationHeap": {
+          "$ref": "#/$defs/allocatorHeap"
+        },
+        "candidateSourceBufferRetainedCapacityBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "productionMetrics": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/metrics"
+            }
+          ]
+        },
+        "compilerLedgerCoversObservedOperationPeak": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "const": true
+            }
+          ]
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workload",
+        "accuracyProfileCode",
+        "directionProfileCode",
+        "formalSampleCount",
+        "timingsNs",
+        "fixtures",
+        "metrics",
+        "geometryObservation",
+        "singleModuleRewrite"
+      ],
+      "properties": {
+        "workload": {
+          "enum": [
+            "LF-ROAD-EDITING-P100-v1",
+            "LF-ROAD-EDITING-P100-REGULARITY-v1"
+          ]
+        },
+        "accuracyProfileCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "directionProfileCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "formalSampleCount": {
+          "const": 7
+        },
+        "timingsNs": {
+          "$ref": "#/$defs/timingSummary"
+        },
+        "fixtures": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/fixture"
+          }
+        },
+        "metrics": {
+          "$ref": "#/$defs/metrics"
+        },
+        "geometryObservation": {
+          "$ref": "#/$defs/geometryObservation"
+        },
+        "singleModuleRewrite": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/rewriteSummary"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

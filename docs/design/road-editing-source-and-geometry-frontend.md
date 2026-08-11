@@ -856,6 +856,15 @@ retained capacity，并记录 horizontal-regularity node visits、evaluator inte
 来源或重算一套“等价”计数。前端峰值必须保留已接纳 builder 的模块、文档/模块索引和
 容器，并取候选预分配 + 实际几何 scratch 与共同 `build()` 冻结阶段的最大值；正式 allocator
 instrumentation 只用于证明该保守账本没有漏项，不能以 RSS 替换该契约值。
+allocator instrumentation 使用四个额外、非计时的 fresh release process：Fine/Smooth
+base complete compile、Fine/Smooth regularity companion complete compile、Balanced
+single-module candidate build+encode，以及旧 accepted revision 仍存续时的 candidate
+complete compile。被观察操作需要的来源、旧 revision 与适用的 candidate buffer 在
+profiler 启动前预载；两个 complete-compile probe 必须证明实际新增 heap peak 不超过同次
+production `CompilerControlledLiveBytes` 账本，build+encode peak 独立报告而不冒充
+compiler 账本。固定 `dhat 0.3.3` 只存在于 research-only allocator binary，不参与 80 个
+计时样本，也不进入 production compiler/writer 依赖方向；其 process-global heap 数字只作
+保守账本的缺漏探针，不是 RSS、分配器保留页或产品内存 API。
 三个 admission 计时边界使用同一条 production 私有准备函数：
 `size-prefix-and-identifier-preflight` 从来源字节累计限额开始，到 exact size prefix 与
 `LFRE` identifier 通过为止；
