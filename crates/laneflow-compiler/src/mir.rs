@@ -385,6 +385,7 @@ pub(crate) struct MirCanonicalFrame {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: CanonicalFrameId,
     pub(crate) lane_edge_geometries: TableRange<MirLaneEdgeGeometry>,
+    pub(crate) facility_band_geometries: TableRange<MirFacilityBandGeometry>,
     pub(crate) source_span: SourceLocation,
 }
 
@@ -408,6 +409,15 @@ pub(crate) struct MirGeometrySourceRange {
     pub(crate) points: TableRange<MirCanonicalPoint3F32>,
     pub(crate) source_segment_ordinal: u32,
     pub(crate) source: SourceLocation,
+}
+
+pub(crate) struct MirFacilityBandGeometry {
+    pub(crate) canonical_frame: MirCanonicalFrameKey,
+    pub(crate) facility_band: MirFacilityBandKey,
+    pub(crate) points: TableRange<MirCanonicalPoint3F32>,
+    pub(crate) segments: TableRange<MirSpatialSegment>,
+    pub(crate) arc_length_meters: f32,
+    pub(crate) source_span: SourceLocation,
 }
 
 #[derive(Clone, Copy)]
@@ -569,6 +579,7 @@ pub(crate) struct MirUnit {
     pub(crate) canonical_frames: Box<[MirCanonicalFrame]>,
     pub(crate) lane_edge_geometries: Box<[MirLaneEdgeGeometry]>,
     pub(crate) geometry_source_ranges: Box<[MirGeometrySourceRange]>,
+    pub(crate) facility_band_geometries: Box<[MirFacilityBandGeometry]>,
     pub(crate) canonical_points: Box<[MirCanonicalPoint3F32]>,
     pub(crate) spatial_segments: Box<[MirSpatialSegment]>,
     pub(crate) access_rules: Box<[MirAccessRule]>,
@@ -693,6 +704,7 @@ pub(crate) fn lower_to_mir(
         .saturating_add(u64::try_from(hir.canonical_frames.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.lane_edge_geometries.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.geometry_source_ranges.len()).unwrap_or(u64::MAX))
+        .saturating_add(u64::try_from(hir.facility_band_geometries.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.canonical_points.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.spatial_segments.len()).unwrap_or(u64::MAX))
         .saturating_add(access_record_count)
@@ -860,6 +872,12 @@ pub(crate) fn lower_to_mir(
         ))
         .saturating_add(requested_bytes::<MirGeometrySourceRange>(
             hir.geometry_source_ranges
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirFacilityBandGeometry>(
+            hir.facility_band_geometries
                 .len()
                 .try_into()
                 .unwrap_or(u64::MAX),
@@ -1438,7 +1456,26 @@ pub(crate) fn lower_to_mir(
                     &unit.limits,
                     &frame.source_span,
                 )?,
+                facility_band_geometries: remap_range(
+                    frame.facility_band_geometries,
+                    &unit.limits,
+                    &frame.source_span,
+                )?,
                 source_span: frame.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let facility_band_geometries = hir
+        .facility_band_geometries
+        .iter()
+        .map(|geometry| {
+            Ok(MirFacilityBandGeometry {
+                canonical_frame: canonical_frame_mapping[geometry.canonical_frame.index()],
+                facility_band: band_mapping[geometry.facility_band.index()],
+                points: remap_range(geometry.points, &unit.limits, &geometry.source_span)?,
+                segments: remap_range(geometry.segments, &unit.limits, &geometry.source_span)?,
+                arc_length_meters: geometry.arc_length_meters,
+                source_span: geometry.source_span.clone(),
             })
         })
         .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
@@ -1729,6 +1766,7 @@ pub(crate) fn lower_to_mir(
         canonical_frames: canonical_frames.into_boxed_slice(),
         lane_edge_geometries: lane_edge_geometries.into_boxed_slice(),
         geometry_source_ranges: geometry_source_ranges.into_boxed_slice(),
+        facility_band_geometries: facility_band_geometries.into_boxed_slice(),
         canonical_points: canonical_points.into_boxed_slice(),
         spatial_segments: spatial_segments.into_boxed_slice(),
         participant_classes: participant_classes.into_boxed_slice(),
