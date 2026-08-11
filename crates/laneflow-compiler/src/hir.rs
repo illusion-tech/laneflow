@@ -1653,7 +1653,11 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                     stable_key: Arc::clone(&source.header.stable_key),
                     source_address: source.header.source_address.clone(),
                     stable_id: LaneEdgeId::from_untyped(identity.stable_id()),
-                    length_meters: source.length.value(),
+                    length_meters: source
+                        .geometry_authority
+                        .direct_length()
+                        .expect("authoring geometry is compiled before HIR lane construction")
+                        .value(),
                     speed_limit_meters_per_second: source.speed_limit.value(),
                     successors: TableRange::empty(),
                     source_span: source.header.span.clone(),
@@ -1863,6 +1867,12 @@ fn validate_source_document_ownership(unit: &CompilationUnit) -> Result<(), Diag
         unit.resolve_source_document_for_module(module_ordinal, module.declaration_span())?;
         for (_, span) in module.import_records() {
             unit.resolve_source_document_for_module(module_ordinal, span)?;
+        }
+        for alignment in &module.road_alignments {
+            alignment.try_visit_source_locations(|span| {
+                unit.resolve_source_document_for_module(module_ordinal, span)
+                    .map(|_| ())
+            })?;
         }
         for declaration in &module.declarations {
             declaration.try_visit_source_locations(|span| {

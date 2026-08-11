@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use crate::arena::ArenaKey;
-use crate::declaration::TypedAstDeclaration;
+use crate::declaration::{RoadAlignmentDeclaration, TypedAstDeclaration};
 use crate::diagnostic::DiagnosticCollector;
 use crate::{
     CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceLocation,
@@ -32,6 +32,7 @@ pub(crate) struct TypedAstModule {
     pub(crate) declaration_span: SourceLocation,
     pub(crate) source_documents: Box<[SourceDocumentDescriptor]>,
     pub(super) imports: Box<[ImportRecord]>,
+    pub(crate) road_alignments: Box<[RoadAlignmentDeclaration]>,
     pub(crate) declarations: Box<[TypedAstDeclaration]>,
 }
 

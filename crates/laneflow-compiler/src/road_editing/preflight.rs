@@ -2125,7 +2125,7 @@ fn semantic_error(
     ))
 }
 
-fn invalid_combination(field: &'static str, expected_key: &str) -> DiagnosticBundle {
+pub(super) fn invalid_combination(field: &'static str, expected_key: &str) -> DiagnosticBundle {
     semantic_error(
         field,
         RoadEditingInputViolation::InvalidCombination,
