@@ -124,20 +124,12 @@ impl RoadEditingDocumentIdentity {
         }
     }
 
-    #[allow(
-        dead_code,
-        reason = "used by the staged verifier diagnostic integration in the next admission slice"
-    )]
     pub(crate) fn input(expected_source_document_key: Arc<str>) -> Self {
         Self::Input(RoadEditingInputDocumentIdentity {
             expected_source_document_key,
         })
     }
 
-    #[allow(
-        dead_code,
-        reason = "consumed by the staged shared-admission slice after verifier success"
-    )]
     pub(crate) fn verified(module_namespace: Arc<str>, source_document_key: Arc<str>) -> Self {
         Self::Verified(RoadEditingVerifiedDocumentIdentity {
             module_namespace,
@@ -540,6 +532,53 @@ impl RoadEditingLocationContext {
             .saturating_add(canvas_selections)
     }
 
+    /// 返回该共享 context 自身全部堆分配的保守请求字节数。
+    ///
+    /// 每条 `RoadEditingSourceLocation` 中的强引用 handle 已由所属 Typed AST 记录的
+    /// 结构大小覆盖；这里仅计一次 Arc allocation、三个 boxed slice、唯一字符串载荷与
+    /// 属性路径 step backing，避免按位置数量重复计算同一个 context。
+    pub(crate) fn controlled_live_bytes(&self) -> u64 {
+        let usize_bytes = u64::try_from(core::mem::size_of::<usize>()).unwrap_or(u64::MAX);
+        let arc_header_bytes = usize_bytes.saturating_mul(2);
+        let arc_string_bytes = |value: &Arc<str>| {
+            arc_header_bytes.saturating_add(u64::try_from(value.len()).unwrap_or(u64::MAX))
+        };
+        let string_slots = u64::try_from(self.strings.len()).unwrap_or(u64::MAX);
+        let canvas_slots = u64::try_from(self.canvas_selection_keys.len()).unwrap_or(u64::MAX);
+        let path_slots = u64::try_from(self.property_paths.len()).unwrap_or(u64::MAX);
+        let string_payload = self
+            .strings
+            .iter()
+            .chain(self.canvas_selection_keys.iter())
+            .fold(0_u64, |total, value| {
+                total.saturating_add(arc_string_bytes(value))
+            });
+        let path_step_bytes = self.property_paths.iter().fold(0_u64, |total, path| {
+            total.saturating_add(
+                u64::try_from(path.steps.len())
+                    .unwrap_or(u64::MAX)
+                    .saturating_mul(
+                        u64::try_from(core::mem::size_of::<RoadEditingPropertyStep>())
+                            .unwrap_or(u64::MAX),
+                    ),
+            )
+        });
+
+        arc_header_bytes
+            .saturating_add(u64::try_from(core::mem::size_of::<Self>()).unwrap_or(u64::MAX))
+            .saturating_add(string_slots.saturating_mul(
+                u64::try_from(core::mem::size_of::<Arc<str>>()).unwrap_or(u64::MAX),
+            ))
+            .saturating_add(canvas_slots.saturating_mul(
+                u64::try_from(core::mem::size_of::<Arc<str>>()).unwrap_or(u64::MAX),
+            ))
+            .saturating_add(path_slots.saturating_mul(
+                u64::try_from(core::mem::size_of::<RoadEditingPropertyPath>()).unwrap_or(u64::MAX),
+            ))
+            .saturating_add(string_payload)
+            .saturating_add(path_step_bytes)
+    }
+
     pub(crate) fn string_ordinal_for(&self, value: &str) -> RoadEditingStringOrdinal {
         let index = self
             .strings
@@ -570,10 +609,6 @@ impl RoadEditingLocationContext {
         self.canvas_selection_ordinal(index)
     }
 
-    #[allow(
-        dead_code,
-        reason = "consumed by the staged road-editing shared-admission slice"
-    )]
     pub(crate) fn new(
         strings: Box<[Arc<str>]>,
         property_paths: Box<[RoadEditingPropertyPath]>,
@@ -586,10 +621,6 @@ impl RoadEditingLocationContext {
         }
     }
 
-    #[allow(
-        dead_code,
-        reason = "consumed by the staged road-editing shared-admission slice"
-    )]
     pub(crate) fn string_ordinal(&self, index: usize) -> RoadEditingStringOrdinal {
         assert!(
             index < self.strings.len(),
@@ -598,10 +629,6 @@ impl RoadEditingLocationContext {
         RoadEditingStringOrdinal(u32::try_from(index).expect("compile limits bound ordinals"))
     }
 
-    #[allow(
-        dead_code,
-        reason = "consumed by the staged road-editing shared-admission slice"
-    )]
     pub(crate) fn property_path_ordinal(&self, index: usize) -> RoadEditingPropertyPathOrdinal {
         assert!(
             index < self.property_paths.len(),
@@ -610,10 +637,6 @@ impl RoadEditingLocationContext {
         RoadEditingPropertyPathOrdinal(u32::try_from(index).expect("compile limits bound ordinals"))
     }
 
-    #[allow(
-        dead_code,
-        reason = "consumed by the staged road-editing shared-admission slice"
-    )]
     pub(crate) fn canvas_selection_ordinal(
         &self,
         index: usize,
@@ -678,10 +701,6 @@ impl RoadEditingSourceLocation {
         self.byte_range
     }
 
-    #[allow(
-        dead_code,
-        reason = "consumed by the staged road-editing shared-admission slice"
-    )]
     pub(crate) fn new(
         context: Arc<RoadEditingLocationContext>,
         document_identity: RoadEditingDocumentIdentity,

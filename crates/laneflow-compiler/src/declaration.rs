@@ -617,10 +617,6 @@ impl TypedAstEntityAddress {
         }
     }
 
-    #[allow(
-        dead_code,
-        reason = "consumed by the following RoadEditingSource shared-admission slice"
-    )]
     pub(crate) fn owner_scoped(owner_local_keys: Arc<[Arc<str>]>, local_key: Arc<str>) -> Self {
         debug_assert!(!owner_local_keys.is_empty());
         Self {
@@ -629,10 +625,6 @@ impl TypedAstEntityAddress {
         }
     }
 
-    #[allow(
-        dead_code,
-        reason = "consumed by the following RoadEditingSource shared-admission slice"
-    )]
     pub(crate) fn owner_local_keys(&self) -> &[Arc<str>] {
         self.owner_local_keys.as_deref().unwrap_or(&[])
     }
@@ -656,10 +648,6 @@ impl<K: EntityKindMarker> OwnedEntityReference<K> {
         }
     }
 
-    #[allow(
-        dead_code,
-        reason = "consumed by the following RoadEditingSource shared-admission slice"
-    )]
     pub(crate) fn with_target_address(
         module_namespace: Arc<str>,
         target_address: TypedAstEntityAddress,
@@ -768,10 +756,6 @@ impl DeclarationHeader {
         }
     }
 
-    #[allow(
-        dead_code,
-        reason = "consumed by the following RoadEditingSource shared-admission slice"
-    )]
     pub(crate) fn with_source_address(
         entity_kind: EntityKind,
         source_address: TypedAstEntityAddress,

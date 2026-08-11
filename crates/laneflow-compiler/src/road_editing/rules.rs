@@ -4,21 +4,15 @@ use crate::declaration::{FacilityKindCategory, facility_kind_category};
 use crate::source::external_token_violation;
 use crate::{Diagnostic, DiagnosticBundle, RoadEditingInputViolation, SourceTextViolation};
 
-#[allow(dead_code, reason = "consumed by the pending shared-admission entry")]
 pub(super) const MAX_COMPONENT_BYTES: u64 = 53;
-#[allow(dead_code, reason = "consumed by the pending shared-admission entry")]
 pub(super) const MAX_REFERENCE_BYTES: u64 = 270;
 
-#[allow(dead_code, reason = "consumed by the pending shared-admission entry")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct ValidatedReference<'a> {
     namespace: Option<&'a str>,
     key_path: &'a str,
-    component_count: u8,
-    component_bytes: u64,
 }
 
-#[allow(dead_code, reason = "consumed by the pending shared-admission entry")]
 impl<'a> ValidatedReference<'a> {
     pub(super) const fn namespace(self) -> Option<&'a str> {
         self.namespace
@@ -26,14 +20,6 @@ impl<'a> ValidatedReference<'a> {
 
     pub(super) fn key_components(self) -> impl Iterator<Item = &'a str> {
         self.key_path.split('>')
-    }
-
-    pub(super) const fn component_count(self) -> u8 {
-        self.component_count
-    }
-
-    pub(super) const fn component_bytes(self) -> u64 {
-        self.component_bytes
     }
 }
 
@@ -82,7 +68,6 @@ pub(super) fn token_violation(
     None
 }
 
-#[allow(dead_code, reason = "consumed by the pending shared-admission entry")]
 pub(super) fn validate_wire_reference(
     value: &str,
     expected_key_component_count: u8,
@@ -123,16 +108,11 @@ pub(super) fn validate_wire_reference(
     };
 
     let mut component_count = 0_u8;
-    let mut component_bytes = namespace.map_or(0_u64, |value| {
-        u64::try_from(value.len()).unwrap_or(u64::MAX)
-    });
     for component in key_path.split('>') {
         if let Some(violation) = token_violation(component, MAX_COMPONENT_BYTES, true) {
             return Err(violation);
         }
         component_count = component_count.saturating_add(1);
-        component_bytes =
-            component_bytes.saturating_add(u64::try_from(component.len()).unwrap_or(u64::MAX));
     }
     if component_count != expected_key_component_count {
         return Err(RoadEditingInputViolation::InvalidReferenceDepth {
@@ -143,8 +123,6 @@ pub(super) fn validate_wire_reference(
     Ok(ValidatedReference {
         namespace,
         key_path,
-        component_count,
-        component_bytes,
     })
 }
 
@@ -188,14 +166,12 @@ pub(super) fn visible_ascii_violation(
         })
 }
 
-#[allow(dead_code, reason = "consumed by the pending shared-admission entry")]
 pub(super) fn finite_violation(value: f64) -> Option<RoadEditingInputViolation> {
     (!value.is_finite()).then_some(RoadEditingInputViolation::NonFinite {
         value_bits: value.to_bits(),
     })
 }
 
-#[allow(dead_code, reason = "consumed by the pending shared-admission entry")]
 pub(super) fn positive_violation(value: f64) -> Option<RoadEditingInputViolation> {
     finite_violation(value).or_else(|| {
         (value <= 0.0).then_some(RoadEditingInputViolation::NotGreaterThanZero {
@@ -204,7 +180,6 @@ pub(super) fn positive_violation(value: f64) -> Option<RoadEditingInputViolation
     })
 }
 
-#[allow(dead_code, reason = "consumed by the pending shared-admission entry")]
 pub(super) fn non_negative_violation(value: f64) -> Option<RoadEditingInputViolation> {
     finite_violation(value).or_else(|| {
         (value < 0.0).then_some(RoadEditingInputViolation::LessThanZero {
@@ -325,8 +300,12 @@ mod tests {
             parsed.key_components().collect::<Vec<_>>(),
             ["junction", "movement", "path"]
         );
-        assert_eq!(parsed.component_count(), 3);
-        assert_eq!(parsed.component_bytes(), 5 + 8 + 8 + 4);
+        assert_eq!(parsed.key_components().count(), 3);
+        assert_eq!(
+            parsed.namespace().map_or(0, str::len)
+                + parsed.key_components().map(str::len).sum::<usize>(),
+            5 + 8 + 8 + 4
+        );
     }
 
     #[test]

@@ -52,11 +52,7 @@ impl SourceDocumentOrigin {
     }
 
     /// 保存 RoadEditingSource 调用方提供的未认证显示/审计来源。
-    #[allow(
-        dead_code,
-        reason = "consumed by the staged RoadEditingSource shared-admission lowering"
-    )]
-    pub(super) const fn road_editing(display_source: Option<Arc<str>>) -> Self {
+    pub(crate) const fn road_editing(display_source: Option<Arc<str>>) -> Self {
         Self { display_source }
     }
     #[cfg(test)]
@@ -83,11 +79,11 @@ impl SourceDocumentOrigin {
 /// };
 /// ```
 pub struct SourceDocumentDescriptor {
-    pub(super) source_document_key: Arc<str>,
-    pub(super) source_document_digest: [u8; 32],
-    pub(super) source_record_byte_len: u32,
-    pub(super) authoring_namespace_id: Arc<str>,
-    pub(super) origin: SourceDocumentOrigin,
+    pub(crate) source_document_key: Arc<str>,
+    pub(crate) source_document_digest: [u8; 32],
+    pub(crate) source_record_byte_len: u32,
+    pub(crate) authoring_namespace_id: Arc<str>,
+    pub(crate) origin: SourceDocumentOrigin,
 }
 
 impl SourceDocumentDescriptor {
@@ -146,17 +142,17 @@ impl SourceDocumentDescriptor {
 /// 文档集摘要只用于模块级重放/缓存比较；精确文档摘要、长度、键与来源
 /// 记录属于 [`SourceDocumentDescriptor`]。
 pub struct SourceModuleDescriptor {
-    pub(super) authoring_namespace_id: Arc<str>,
-    pub(super) source_language: SourceLanguage,
-    pub(super) source_document_set_digest: [u8; 32],
-    pub(super) source_document_set_digest_version: u32,
-    pub(super) frontend_version: u32,
-    pub(super) frontend_options_digest: [u8; 32],
-    pub(super) generator_build_id: Arc<str>,
-    pub(super) parameters_and_inputs_digest: [u8; 32],
-    pub(super) random_seed: Option<u64>,
-    pub(super) provenance: Arc<str>,
-    pub(super) imports: Box<[Arc<str>]>,
+    pub(crate) authoring_namespace_id: Arc<str>,
+    pub(crate) source_language: SourceLanguage,
+    pub(crate) source_document_set_digest: [u8; 32],
+    pub(crate) source_document_set_digest_version: u32,
+    pub(crate) frontend_version: u32,
+    pub(crate) frontend_options_digest: [u8; 32],
+    pub(crate) generator_build_id: Arc<str>,
+    pub(crate) parameters_and_inputs_digest: [u8; 32],
+    pub(crate) random_seed: Option<u64>,
+    pub(crate) provenance: Arc<str>,
+    pub(crate) imports: Box<[Arc<str>]>,
 }
 
 impl SourceModuleDescriptor {
@@ -291,13 +287,13 @@ pub(super) fn source_document_set_digest_v1(documents: &[SourceDocumentDescripto
     hasher.finalize().into()
 }
 
-pub(super) fn source_document_digest(source_record: &[u8]) -> [u8; 32] {
+pub(crate) fn source_document_digest(source_record: &[u8]) -> [u8; 32] {
     #[cfg(test)]
     SOURCE_DOCUMENT_DIGEST_CALL_COUNT.with(|count| count.set(count.get().saturating_add(1)));
     Sha256::digest(source_record).into()
 }
 
-pub(super) fn freeze_source_documents(
+pub(crate) fn freeze_source_documents(
     authoring_namespace_id: &Arc<str>,
     mut first: SourceDocumentDescriptor,
     mut remaining: Vec<SourceDocumentDescriptor>,

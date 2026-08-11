@@ -282,6 +282,10 @@ impl RoadEditingLocationFactory {
         self.location(RoadEditingSubject::ModuleHeader, None, None)
     }
 
+    pub(crate) fn controlled_live_bytes(&self) -> u64 {
+        self.context.controlled_live_bytes()
+    }
+
     fn address(
         &self,
         kind: RoadEditingAddressKind,
