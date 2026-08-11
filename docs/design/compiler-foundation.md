@@ -52,11 +52,12 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 `laneflow-data` / `laneflow-core` / `laneflow-spatial`。#315 已按 G2 授权落地共同私有
 `TypedAstModule` / `TypedAstDeclaration`、逻辑模块与来源文档独立登记、原子共同接入、
 文档集摘要以及 `LF-COMP-P100-INITIAL-v2`。#296 因 production 来源产品前提纠偏返回
-FlatBuffers `G1 Pass` 与 `G2 Pass` 已记录且 implementation ongoing；#332 草稿中的旧
-Geometry JSON 原型只作历史证据。新的 FlatBuffers 道路编辑来源契约由
-`road-editing-source-and-geometry-frontend.md` 冻结，并已成为接受的内部未发布实现契约；
-在对应 production 实现合入前不构成当前生产入口，B1 也不构成已发布存档格式或长期
-兼容承诺。#297 调整后不建立 current JSON 编译器前端；
+FlatBuffers，`G1 Pass` 与 `G2 Pass` 已记录，拆分 implementation 与正式参考机 evidence
+已经完成并进入 G3 Candidate；#332 草稿中的旧 Geometry JSON 原型只作历史证据。
+新的 FlatBuffers 道路编辑来源契约由
+`road-editing-source-and-geometry-frontend.md` 冻结并由默认 production compiler 入口实现，
+但在 current exact-head Check 与 G3 Owner 形成 G3 Pass 前仍只是 unpublished B1 候选，
+不构成已发布存档格式或长期兼容承诺。#297 调整后不建立 current JSON 编译器前端；
 精确退役和测试边界见 `current-package-import.md`。
 
 **关联决策与设计**:

@@ -281,8 +281,10 @@ ADR 0023 已完成 #296 FlatBuffers G1 纠偏：production 道路来源首先服
 初始化时的程序化生成；道路编辑先交付整体替换 A 阶段，再演进到候选调整与影响预览 C
 阶段。产品负责人已选择按模块 size-prefixed FlatBuffers 作为 production source；旧
 Geometry JSON 尚未发布且不获得兼容承诺，分段 Protobuf 也不进入 production。借用的
-原子 compiler 入口、依赖/审计边界已经通过 G1/G2 Gate；当前按独立 PR 系列实现
-schema/reader、第一方 Rust 有类型来源构造面并重建性能基线。v1 曲线只含 line/cubic
+原子 compiler 入口、依赖/审计边界已经通过 G1/G2 Gate；独立 PR 系列已完成
+schema/reader、第一方 Rust 有类型来源构造面、几何降阶、原子接入和正式性能证据，当前为
+G3 Candidate。只有 current exact-head Check 与 G3 Owner 可以形成 G3 Pass；B1 在此之前
+仍不发布，也不增加旧 JSON 别名、读取兼容或迁移器。v1 曲线只含 line/cubic
 Bézier，常见 taper 使用线性
 起止宽度；FacilityBand 不作为 v1 AccessRule target。#296 只为 #298 的 LIR 影响差异
 提供输入，C 阶段的 authoring-only 来源差异已登记为后继 Delivery Issue
