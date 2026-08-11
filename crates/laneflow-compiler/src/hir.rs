@@ -3646,21 +3646,31 @@ fn build_control_hir(
     }
 
     // 每个显式 successor 引用是否至少有一条 ManeuverPath 以该转换起步；另行记录所有
-    // path entry edge，使由 ManeuverPath 独占权威的 junction-internal 转换无需伪造 successor。
+    // path 转换的起始边，使由 ManeuverPath 独占权威的 junction-internal 转换无需伪造
+    // successor。内部边可以被多条路径共享，此处只冻结“至少存在一条有序转换”的布尔
+    // 事实，不另建第二套拓扑所有权。
     let mut successor_has_path = vec![0_u8; lane_edge_references.len()];
-    let mut edge_has_entry_path = vec![0_u8; lane_edges.len()];
+    let mut edge_has_path_transition = vec![0_u8; lane_edges.len()];
     for (path_index, path) in maneuver_paths.iter().enumerate() {
         let path_edges = &maneuver_path_edges[path.edges.as_usize_range()];
-        let [from, to, ..] = path_edges else {
+        let [from, _to, ..] = path_edges else {
             unreachable!("validated ManeuverPath must contain at least entry and exit edges")
         };
-        edge_has_entry_path[from.target.index()] = 1;
-        let successor_range = lane_edges.get(from.target).successors.as_usize_range();
-        if let Some(successor_offset) = lane_edge_references[successor_range.clone()]
-            .iter()
-            .position(|successor| successor.target == to.target)
-        {
-            successor_has_path[successor_range.start + successor_offset] = 1;
+        for transition in path_edges.windows(2) {
+            let [transition_from, transition_to] = transition else {
+                unreachable!("windows(2) always yields two path edge references")
+            };
+            edge_has_path_transition[transition_from.target.index()] = 1;
+            let successor_range = lane_edges
+                .get(transition_from.target)
+                .successors
+                .as_usize_range();
+            if let Some(successor_offset) = lane_edge_references[successor_range.clone()]
+                .iter()
+                .position(|successor| successor.target == transition_to.target)
+            {
+                successor_has_path[successor_range.start + successor_offset] = 1;
+            }
         }
 
         let Some(stop_key) = stop_line_by_edge[from.target.index()] else {
@@ -3682,7 +3692,7 @@ fn build_control_hir(
     }
     for (stop_key, stop) in stop_lines.iter() {
         let successor_range = lane_edges.get(stop.lane_edge).successors.as_usize_range();
-        if successor_range.is_empty() && edge_has_entry_path[stop.lane_edge.index()] == 0 {
+        if successor_range.is_empty() && edge_has_path_transition[stop.lane_edge.index()] == 0 {
             let mut diagnostic = Diagnostic::orphan_stop_line(
                 &stop.stable_key,
                 &lane_edges.get(stop.lane_edge).stable_key,
@@ -3723,7 +3733,7 @@ fn build_control_hir(
     drop(path_has_entry_gate);
     drop(stop_has_entry_gate);
     drop(successor_has_path);
-    drop(edge_has_entry_path);
+    drop(edge_has_path_transition);
 
     let mut path_gate_total = 0_usize;
     for (index, count) in path_gate_counts.iter().copied().enumerate() {
@@ -6824,10 +6834,16 @@ fn build_route_hir(
         for (index, pair) in resolved_edges.windows(2).enumerate() {
             let successors =
                 &lane_edge_references[lane_edges.get(pair[0].target).successors.as_usize_range()];
-            if !successors
+            let has_explicit_successor = successors
                 .iter()
-                .any(|successor| successor.target == pair[1].target)
-            {
+                .any(|successor| successor.target == pair[1].target);
+            // Junction-internal transitions intentionally do not duplicate ManeuverPath authority
+            // in LaneEdge.successors. Their exact ordered continuity is checked below by full path
+            // matching and internal coverage, so only a pair wholly outside every internal edge
+            // must be justified by an explicit successor here.
+            let touches_internal_edge = internal_owner[pair[0].target.index()].is_some()
+                || internal_owner[pair[1].target.index()].is_some();
+            if !has_explicit_successor && !touches_internal_edge {
                 let mut diagnostic = Diagnostic::disconnected_static_route_edge(
                     &source.header.stable_key,
                     &lane_edges.get(pair[0].target).stable_key,
