@@ -33,7 +33,7 @@ use crate::declaration::{
     OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl, TypedAstDeclaration,
     TypedAstEntityAddress,
 };
-use crate::diagnostic::DiagnosticCollector;
+use crate::diagnostic::{DiagnosticCollector, JunctionEdgeSetViolation};
 use crate::identity::{
     IdentityFieldInput, IdentityRegistrationError, IdentityRegistry, RegisteredCanonicalIdentity,
     encode_canonical_identity,
@@ -775,6 +775,26 @@ struct JunctionCounts {
     movements: u64,
     maneuver_paths: u64,
     maneuver_path_edges: u64,
+    declared_approach_edges: u64,
+    declared_internal_edges: u64,
+}
+
+#[derive(Clone)]
+struct HirDeclaredJunctionEdge {
+    junction: HirJunctionKey,
+    edge: HirLaneEdgeKey,
+    source_span: SourceLocation,
+}
+
+fn find_declared_junction_edge(
+    values: &[HirDeclaredJunctionEdge],
+    junction: HirJunctionKey,
+    edge: HirLaneEdgeKey,
+) -> Option<&HirDeclaredJunctionEdge> {
+    values
+        .binary_search_by_key(&(junction, edge), |value| (value.junction, value.edge))
+        .ok()
+        .map(|index| &values[index])
 }
 
 #[derive(Default)]
@@ -1072,6 +1092,12 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             .saturating_add(requested_bytes::<
                 CanonicalDeclarationSource<HirManeuverPathKey>,
             >(junction_counts.maneuver_paths))
+            .saturating_add(requested_bytes::<HirDeclaredJunctionEdge>(
+                junction_counts
+                    .declared_approach_edges
+                    .saturating_add(junction_counts.declared_internal_edges),
+            ))
+            .saturating_add(requested_bytes::<u8>(lane_edge_count))
             .saturating_add(requested_bytes::<usize>(
                 junction_counts
                     .junctions
@@ -1712,6 +1738,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &lane_edges,
         &references,
         &symbols,
+        &cross_section.authoring_lane_edges,
         &mut identities,
     )?;
     let mut control = build_control_hir(
@@ -2597,6 +2624,7 @@ fn build_junction_hir(
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     lane_edge_references: &[HirLaneEdgeReference],
     lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
+    authoring_lane_edges: &[HirAuthoringLaneEdge],
     identities: &mut IdentityRegistry,
 ) -> Result<JunctionHir, DiagnosticBundle> {
     let counts = junction_counts(unit);
@@ -2749,16 +2777,33 @@ fn build_junction_hir(
 
     let mut diagnostics =
         DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
-    // RoadEditingSource 的 approachEdges 是完整显式集合。即使某条边没有被任一
-    // ManeuverPath 使用，也必须在进入 junction role 闭包前验证目标存在；Synthetic
-    // Junction 的集合为空，不改变原有合成前端语义。
+    let mut section_derived_edges = vec![0_u8; lane_edges.len()];
+    for edge in authoring_lane_edges {
+        section_derived_edges[edge.target.index()] = 1;
+    }
+    let mut declared_approaches = Vec::with_capacity(count_to_usize(
+        counts.declared_approach_edges,
+        &unit.limits,
+    )?);
+    let mut declared_internal_edges = Vec::with_capacity(count_to_usize(
+        counts.declared_internal_edges,
+        &unit.limits,
+    )?);
+    // RoadEditingSource 的 approach/internal vectors 是完整显式集合。Synthetic Junction
+    // 的两个集合为空，继续沿用仅由路径派生角色的历史输入语义。
     for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let module_key = HirModuleKey::from_raw(
+            u32::try_from(module_index).expect("compile limits bound module ordinals"),
+        );
         for declaration in &source_module.declarations {
             let TypedAstDeclaration::Junction(source) = declaration else {
                 continue;
             };
+            let junction = junction_symbols
+                .get(module_key, &source.header.source_address)
+                .expect("every canonical Junction has a symbol");
             for approach in &source.approach_edges {
-                let _ = resolve_reference(
+                let Some(edge) = resolve_reference(
                     module_lookup,
                     lane_edge_symbols,
                     approach,
@@ -2766,10 +2811,65 @@ fn build_junction_hir(
                     &source.header,
                     u32::try_from(module_index).unwrap_or(u32::MAX),
                     &mut diagnostics,
-                );
+                ) else {
+                    continue;
+                };
+                if section_derived_edges[edge.index()] == 0 {
+                    let mut diagnostic = Diagnostic::junction_edge_set_mismatch(
+                        &source.header.stable_key,
+                        &lane_edges.get(edge).stable_key,
+                        None,
+                        JunctionEdgeSetViolation::ApproachNotSectionDerived,
+                        approach.span.clone(),
+                        Some(source.header.span.clone()),
+                    );
+                    diagnostic.set_canonical_module_order(
+                        u32::try_from(module_index).unwrap_or(u32::MAX),
+                    );
+                    diagnostics.push(diagnostic);
+                }
+                declared_approaches.push(HirDeclaredJunctionEdge {
+                    junction,
+                    edge,
+                    source_span: approach.span.clone(),
+                });
+            }
+            for internal in &source.internal_edges {
+                let Some(edge) = resolve_reference(
+                    module_lookup,
+                    lane_edge_symbols,
+                    internal,
+                    EntityKind::Junction,
+                    &source.header,
+                    u32::try_from(module_index).unwrap_or(u32::MAX),
+                    &mut diagnostics,
+                ) else {
+                    continue;
+                };
+                if section_derived_edges[edge.index()] != 0 {
+                    let mut diagnostic = Diagnostic::junction_edge_set_mismatch(
+                        &source.header.stable_key,
+                        &lane_edges.get(edge).stable_key,
+                        None,
+                        JunctionEdgeSetViolation::InternalIsSectionDerived,
+                        internal.span.clone(),
+                        Some(source.header.span.clone()),
+                    );
+                    diagnostic.set_canonical_module_order(
+                        u32::try_from(module_index).unwrap_or(u32::MAX),
+                    );
+                    diagnostics.push(diagnostic);
+                }
+                declared_internal_edges.push(HirDeclaredJunctionEdge {
+                    junction,
+                    edge,
+                    source_span: internal.span.clone(),
+                });
             }
         }
     }
+    declared_approaches.sort_unstable_by_key(|value| (value.junction, value.edge));
+    declared_internal_edges.sort_unstable_by_key(|value| (value.junction, value.edge));
     let mut junction_member_counts = vec![0_usize; junctions.len()];
     for location in &movement_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
@@ -2902,6 +3002,40 @@ fn build_junction_hir(
         let (Some(movement), Some(entry), Some(exit)) = (movement, entry, exit) else {
             continue;
         };
+        let junction = movements.get(movement).junction;
+        let has_explicit_edge_contract = declared_approaches
+            .binary_search_by_key(&junction, |value| value.junction)
+            .is_ok()
+            || declared_internal_edges
+                .binary_search_by_key(&junction, |value| value.junction)
+                .is_ok();
+        if has_explicit_edge_contract {
+            let edges = &path_edges[start..];
+            for (local_index, edge) in edges.iter().enumerate() {
+                let is_boundary = local_index == 0 || local_index + 1 == edges.len();
+                let declared = if is_boundary {
+                    find_declared_junction_edge(&declared_approaches, junction, edge.target)
+                } else {
+                    find_declared_junction_edge(&declared_internal_edges, junction, edge.target)
+                };
+                if declared.is_none() {
+                    let mut diagnostic = Diagnostic::junction_edge_set_mismatch(
+                        &junctions.get(junction).stable_key,
+                        &lane_edges.get(edge.target).stable_key,
+                        Some(&source.header.stable_key),
+                        if is_boundary {
+                            JunctionEdgeSetViolation::BoundaryNotDeclaredApproach
+                        } else {
+                            JunctionEdgeSetViolation::InternalNotDeclared
+                        },
+                        edge.source_span.clone(),
+                        Some(junctions.get(junction).source_span.clone()),
+                    );
+                    diagnostic.set_canonical_module_order(location.source_module_index);
+                    diagnostics.push(diagnostic);
+                }
+            }
+        }
         let movement_id = movements.get(movement).stable_id.into_untyped();
         let entry_id = lane_edges.get(entry).stable_id.into_untyped();
         let exit_id = lane_edges.get(exit).stable_id.into_untyped();
@@ -3047,6 +3181,44 @@ fn build_junction_hir(
                 });
             }
         }
+    }
+
+    // RoadEditingSource 的显式集合是路口角色的完整闭包：任何 approach 都不能在任一
+    // 路口被路径声明为 internal，且每条显式 internal edge 都必须由同一路口至少一条
+    // 路径实际使用。Synthetic Junction 没有显式集合，因此自然不会进入这两轮检查。
+    for declared in &declared_approaches {
+        let Some(internal) = &internal_claims[declared.edge.index()] else {
+            continue;
+        };
+        let internal_path = paths.get(internal.source_path);
+        let mut diagnostic = Diagnostic::junction_edge_set_mismatch(
+            &junctions.get(declared.junction).stable_key,
+            &lane_edges.get(declared.edge).stable_key,
+            Some(&internal_path.stable_key),
+            JunctionEdgeSetViolation::ApproachClaimedInternal,
+            declared.source_span.clone(),
+            Some(internal.source_span.clone()),
+        );
+        diagnostic.set_canonical_module_order(junctions.get(declared.junction).module.raw());
+        diagnostics.push(diagnostic);
+    }
+    for declared in &declared_internal_edges {
+        let claim = internal_claims[declared.edge.index()].as_ref();
+        if claim.is_some_and(|claim| claim.junction == declared.junction) {
+            continue;
+        }
+        let related_span = claim.map(|claim| claim.source_span.clone());
+        let path_key = claim.map(|claim| paths.get(claim.source_path).stable_key.as_ref());
+        let mut diagnostic = Diagnostic::junction_edge_set_mismatch(
+            &junctions.get(declared.junction).stable_key,
+            &lane_edges.get(declared.edge).stable_key,
+            path_key,
+            JunctionEdgeSetViolation::DeclaredInternalUnused,
+            declared.source_span.clone(),
+            related_span,
+        );
+        diagnostic.set_canonical_module_order(junctions.get(declared.junction).module.raw());
+        diagnostics.push(diagnostic);
     }
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
@@ -6828,8 +7000,14 @@ fn junction_counts(unit: &CompilationUnit) -> JunctionCounts {
         .flat_map(|module| module.declarations.iter())
     {
         match declaration {
-            TypedAstDeclaration::Junction(_) => {
+            TypedAstDeclaration::Junction(junction) => {
                 counts.junctions = counts.junctions.saturating_add(1);
+                counts.declared_approach_edges = counts.declared_approach_edges.saturating_add(
+                    u64::try_from(junction.approach_edges.len()).unwrap_or(u64::MAX),
+                );
+                counts.declared_internal_edges = counts.declared_internal_edges.saturating_add(
+                    u64::try_from(junction.internal_edges.len()).unwrap_or(u64::MAX),
+                );
             }
             TypedAstDeclaration::Movement(_) => {
                 counts.movements = counts.movements.saturating_add(1);
@@ -7158,9 +7336,11 @@ fn arena_overflow(
 mod tests {
     use super::*;
     use crate::{
-        CompilationUnitBuilder, CompileLimits, DiagnosticCode, DiagnosticPayload, LaneEdgeInput,
-        LaneEdgeReference, SourceModuleHeader, SourceModuleHeaderInput, SourceSpan,
-        SyntheticModule, SyntheticModuleBuilder,
+        AuthoringLaneInput, CompilationUnitBuilder, CompileLimits, CorridorElementReference,
+        DiagnosticCode, DiagnosticPayload, JunctionInput, JunctionReference, LaneEdgeInput,
+        LaneEdgeReference, ManeuverPathInput, MovementInput, MovementReference, RoadCorridorInput,
+        RoadSectionInput, RoadSectionReference, SourceModuleHeader, SourceModuleHeaderInput,
+        SourceSpan, SyntheticModule, SyntheticModuleBuilder,
     };
     use laneflow_static_contract::LaneEdgeKind;
 
@@ -7456,6 +7636,212 @@ mod tests {
             baseline.lane_edges[0].stable_id,
             changed.lane_edges[0].stable_id
         );
+    }
+
+    #[test]
+    fn explicit_junction_internal_set_must_equal_the_path_internal_union() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut builder =
+            SyntheticModuleBuilder::new(header("city/junction-closure"), &limits).unwrap();
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "entry",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("exit")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "unused-internal",
+                length_meters: 5.0,
+                speed_limit_meters_per_second: 5.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_road_section(RoadSectionInput {
+                road_section_key: "section",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane",
+                    edge_chain: &[
+                        LaneEdgeReference::local("entry"),
+                        LaneEdgeReference::local("exit"),
+                    ],
+                    lane_group: None,
+                }],
+            })
+            .unwrap()
+            .add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor",
+                reference_section: RoadSectionReference::local("section"),
+                elements: &[CorridorElementReference::road_section(
+                    RoadSectionReference::local("section"),
+                )],
+            })
+            .unwrap()
+            .add_junction(JunctionInput {
+                junction_key: "junction",
+            })
+            .unwrap()
+            .add_movement(MovementInput {
+                movement_key: "movement",
+                junction: JunctionReference::local("junction"),
+                directed_entry_approach_key: "entry",
+                directed_exit_approach_key: "exit",
+            })
+            .unwrap()
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path",
+                movement: MovementReference::local("movement"),
+                entry_edge: LaneEdgeReference::local("entry"),
+                internal_edges: &[],
+                exit_edge: LaneEdgeReference::local("exit"),
+            })
+            .unwrap();
+        let mut unit = unit([builder.finish().unwrap()]);
+        let module = &mut unit.modules[0];
+        let junction = module
+            .declarations
+            .iter_mut()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::Junction(junction) => Some(junction),
+                _ => None,
+            })
+            .unwrap();
+        let namespace = Arc::<str>::from("city/junction-closure");
+        let location = |column| SourceSpan::point(Arc::from("city/junction-closure"), 1, column);
+        junction.approach_edges = Box::new([
+            OwnedEntityReference::new(Arc::clone(&namespace), Arc::from("entry"), location(1)),
+            OwnedEntityReference::new(Arc::clone(&namespace), Arc::from("exit"), location(2)),
+        ]);
+        junction.internal_edges = Box::new([OwnedEntityReference::new(
+            namespace,
+            Arc::from("unused-internal"),
+            location(3),
+        )]);
+
+        let diagnostics = match build_hir(&unit) {
+            Ok(_) => panic!("unused explicit internal edge must fail"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert!(diagnostics.diagnostics().iter().any(|diagnostic| matches!(
+            diagnostic.payload(),
+            DiagnosticPayload::JunctionEdgeSetMismatch {
+                edge_key,
+                violation: JunctionEdgeSetViolation::DeclaredInternalUnused,
+                ..
+            } if edge_key.as_ref() == "unused-internal"
+        )));
+    }
+
+    #[test]
+    fn explicit_junction_internal_edge_cannot_be_section_derived() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut builder =
+            SyntheticModuleBuilder::new(header("city/junction-role"), &limits).unwrap();
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "entry",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("internal")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "internal",
+                length_meters: 5.0,
+                speed_limit_meters_per_second: 5.0,
+                successors: &[LaneEdgeReference::local("exit")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_road_section(RoadSectionInput {
+                road_section_key: "section",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane",
+                    edge_chain: &[
+                        LaneEdgeReference::local("entry"),
+                        LaneEdgeReference::local("internal"),
+                        LaneEdgeReference::local("exit"),
+                    ],
+                    lane_group: None,
+                }],
+            })
+            .unwrap()
+            .add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor",
+                reference_section: RoadSectionReference::local("section"),
+                elements: &[CorridorElementReference::road_section(
+                    RoadSectionReference::local("section"),
+                )],
+            })
+            .unwrap()
+            .add_junction(JunctionInput {
+                junction_key: "junction",
+            })
+            .unwrap()
+            .add_movement(MovementInput {
+                movement_key: "movement",
+                junction: JunctionReference::local("junction"),
+                directed_entry_approach_key: "entry",
+                directed_exit_approach_key: "exit",
+            })
+            .unwrap()
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path",
+                movement: MovementReference::local("movement"),
+                entry_edge: LaneEdgeReference::local("entry"),
+                internal_edges: &[LaneEdgeReference::local("internal")],
+                exit_edge: LaneEdgeReference::local("exit"),
+            })
+            .unwrap();
+        let mut unit = unit([builder.finish().unwrap()]);
+        let junction = unit.modules[0]
+            .declarations
+            .iter_mut()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::Junction(junction) => Some(junction),
+                _ => None,
+            })
+            .unwrap();
+        let namespace = Arc::<str>::from("city/junction-role");
+        let location = |column| SourceSpan::point(Arc::from("city/junction-role"), 1, column);
+        junction.approach_edges = Box::new([
+            OwnedEntityReference::new(Arc::clone(&namespace), Arc::from("entry"), location(1)),
+            OwnedEntityReference::new(Arc::clone(&namespace), Arc::from("exit"), location(2)),
+        ]);
+        junction.internal_edges = Box::new([OwnedEntityReference::new(
+            namespace,
+            Arc::from("internal"),
+            location(3),
+        )]);
+
+        let diagnostics = match build_hir(&unit) {
+            Ok(_) => panic!("section-derived junction internal edge must fail"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert!(diagnostics.diagnostics().iter().any(|diagnostic| matches!(
+            diagnostic.payload(),
+            DiagnosticPayload::JunctionEdgeSetMismatch {
+                edge_key,
+                violation: JunctionEdgeSetViolation::InternalIsSectionDerived,
+                ..
+            } if edge_key.as_ref() == "internal"
+        )));
     }
 
     #[test]

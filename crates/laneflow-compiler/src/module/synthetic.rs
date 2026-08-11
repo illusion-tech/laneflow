@@ -895,6 +895,7 @@ impl SyntheticModuleBuilder {
                 span.clone().into(),
             ),
             approach_edges: Box::default(),
+            internal_edges: Box::default(),
         });
         self.declaration_index
             .entry(EntityKind::Junction)
