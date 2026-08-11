@@ -488,7 +488,7 @@
         "evaluatorIntervalIdentitySha256",
         "positionError",
         "worstObservedError",
-        "finalF32DirectionJumpMaximumDegreesBits"
+        "finalF32DirectionMinimumCosineSquaredBits"
       ],
       "properties": {
         "evaluatorIntervalCount": {
@@ -508,7 +508,7 @@
         "worstObservedError": {
           "$ref": "#/$defs/worstObservedError"
         },
-        "finalF32DirectionJumpMaximumDegreesBits": {
+        "finalF32DirectionMinimumCosineSquaredBits": {
           "$ref": "#/$defs/f64Bits"
         }
       }

@@ -380,7 +380,7 @@
     "observed-sample-count",
     "observed-position-error-p50-p95-p99-max",
     "worst-observed-error-source-address-and-parameter",
-    "final-f32-direction-jump-max",
+    "final-f32-direction-minimum-cosine-squared",
     "phase-controlled-live-byte-peak",
     "combined-controlled-live-byte-peak",
     "returned-buffer-retained-capacity"
@@ -397,6 +397,7 @@
     "statisticsPopulation": "the complete aggregate sample occurrence sequence for one profile combination, including repeated boundary occurrences",
     "percentileRule": "sort all finite nonnegative binary64 distance values ascending; for p in 50,95,99 select zero-based rank ceil(p*N/100)-1, computed as ((p*N+99)/100)-1 with checked integers; maximum is the final sorted value; equal maximum values attribute to the earliest sample in combinationAggregationRule order",
     "completenessRule": "record evaluatorIntervalCount and sampleCount for each profile combination; require sampleCount = checked_mul(evaluatorIntervalCount,4097), and require the validator's independently enumerated canonical interval identities to match one-for-one before accepting statistics",
+    "finalDirectionObservationRule": "enumerate every final canonical LaneEdge polyline followed by every final canonical FacilityBand polyline in their canonical LIR ordinal order, and within each polyline enumerate adjacent chord pairs in point order; lift f32 points exactly to binary64, compute each chord by component subtraction, independently require every pair to pass ADR 0022's frozen full-angle dot-squared acceptance graph for the selected direction profile, then compute dot=(lx*rx+ly*ry)+lz*rz, leftNormSquared=(lx*lx+ly*ly)+lz*lz, rightNormSquared=(rx*rx+ry*ry)+rz*rz, numerator=dot*dot and normalized=(numerator/leftNormSquared)/rightNormSquared with each written operator rounded once to nearest ties-to-even in that exact order; require dot, both norms and normalized finite and strictly positive, clamp normalized>=1 to exactly 1, and retain the minimum value or exactly 1 when no adjacent chord pair exists; normalize -0 to +0 and forbid reassociation, FMA, mul_add, pow/powi, sqrt, acos, cos and atan2; require the retained minimum no smaller than the selected profile's frozen full-angle cos-squared constant; this minimum cosine-squared value is the normative bit-exact direction observation, while any degrees shown to humans are non-normative derived presentation",
     "reportedStatistics": ["p50", "p95", "p99", "maximum"],
     "attributionRule": "record module, full owner-qualified source address, source segment/station-row ordinal and parameter for the maximum observed value",
     "interpretation": "observed engineering evidence only; samples between grid points are not covered and no value may be described as a continuous hard bound"
@@ -458,7 +459,7 @@
     "timingBoundary": "semantic seed file read and harness deserialization occur before timing; each named stage times only that production operation; complete-compile begins immediately before RoadEditingModuleInput admission and ends after validated compilation output is returned",
     "memoryBoundary": "report the compiler-controlled live-byte ledger at every named phase boundary and its maximum; OS RSS is supplemental and cannot replace the ledger",
     "environmentRule": "AC power and the reference machine's recorded Balanced power plan; do not override process affinity; capture OS build, firmware, CPU, memory, rustc, LLVM, power state and complete argv in evidence",
-    "retentionRule": "retain every raw sample, phase ledger, generated module digest, byte length, table occurrence count, geometry point count, observed position-error distribution, worst-case attribution and final direction-jump maximum"
+    "retentionRule": "retain every raw sample, phase ledger, generated module digest, byte length, table occurrence count, geometry point count, observed position-error distribution, worst-case attribution and final f32 direction minimum cosine-squared bits"
   },
   "g2EvidenceBinding": {
     "semanticSeedSha256": "must-equal-semanticSeed.sha256",
@@ -484,7 +485,8 @@
       "the base P100 reports zero cubic regularity visits and the formal companion resource probe reports exactly three total and three maximum visits per compile",
       "every offset-bearing reference source segment reports horizontal-regularity node visits no greater than 4095; line direct checks and junction-internal explicit curves are excluded",
       "all nine combinations include the fixed 4097-point observed-error distribution and worst attribution without a continuous-bound claim",
-      "for every combination the canonical evaluator interval identity list matches independently and observedSampleCount equals observedEvaluatorIntervalCount multiplied by 4097"
+      "for every combination the canonical evaluator interval identity list matches independently and observedSampleCount equals observedEvaluatorIntervalCount multiplied by 4097",
+      "for every combination the final f32 direction observation uses only the frozen minimum cosine-squared graph; no normative direction evidence field depends on a transcendental function"
     ]
   }
 }

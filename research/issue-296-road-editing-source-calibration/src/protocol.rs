@@ -28,9 +28,9 @@ const EXPECTED_SCHEMA_SHA256: &str =
 const EXPECTED_SEED_SHA256: &str =
     "05a32c19f3fe4ab8f7ea176d996a505688f875197433ab7f83d629ef5d560ce2";
 const EXPECTED_WORKLOAD_SHA256: &str =
-    "a65a59990da51e833264d6c476f017aad6d99d817a61a3b030867d8b9fd7e78f";
+    "0b7ef419af05e0eac08b67d551f207bed510b7bdaca079184cef12c386672f5a";
 const EXPECTED_COMPACT_EVIDENCE_SCHEMA_SHA256: &str =
-    "4b2fda3e6f6ccb9cf3416e7d4a11a8db0742ee2b9cfdc8e486a8c6d87995394e";
+    "d741b2235de123fc3466d6917a0942472ade03cddd39b17740b1d59437f6240a";
 const BALANCED_POWER_PLAN_GUID: &str = "381b4222-f694-41f0-9685-ff5bb260df2e";
 const SAMPLE_OUTPUT_ROOT: &str = "target/road-editing-evidence";
 const PACKAGE: &str = "issue-296-road-editing-source-calibration";
@@ -630,7 +630,7 @@ fn validate_sample(
     {
         return Err("fresh sample identity or exact P100 counts do not match protocol".to_owned());
     }
-    validate_geometry_observation(&sample.geometry_observation)?;
+    validate_geometry_observation(&sample.geometry_observation, profile.direction)?;
     if rewrite_is_required(profile) != sample.single_module_rewrite.is_some() {
         return Err(
             "single-module rewrite evidence must appear only for base Balanced5Cm/Balanced2Deg"
@@ -783,7 +783,10 @@ fn validate_allocator_probe(
     }
 }
 
-fn validate_geometry_observation(observation: &GeometryObservation) -> Result<(), String> {
+fn validate_geometry_observation(
+    observation: &GeometryObservation,
+    direction: GeometryDirectionProfile,
+) -> Result<(), String> {
     let expected_samples = observation
         .evaluator_interval_count
         .checked_mul(4_097)
@@ -807,22 +810,32 @@ fn validate_geometry_observation(observation: &GeometryObservation) -> Result<()
     let p99 = parse_f64_bits(&observation.position_error.p99_meters_bits)?;
     let maximum = parse_f64_bits(&observation.position_error.maximum_meters_bits)?;
     let parameter = parse_f64_bits(&observation.worst_observed_error.parameter_bits)?;
-    let direction = parse_f64_bits(&observation.final_f32_direction_jump_maximum_degrees_bits)?;
+    let direction_cosine_squared =
+        parse_f64_bits(&observation.final_f32_direction_minimum_cosine_squared_bits)?;
     if !p50.is_finite()
         || !p95.is_finite()
         || !p99.is_finite()
         || !maximum.is_finite()
         || !parameter.is_finite()
-        || !direction.is_finite()
+        || !direction_cosine_squared.is_finite()
         || p50.is_sign_negative()
         || p95 < p50
         || p99 < p95
         || maximum < p99
-        || direction.is_sign_negative()
+        || !(0.0 < direction_cosine_squared && direction_cosine_squared <= 1.0)
+        || direction_cosine_squared < full_angle_cosine_squared(direction)
     {
         return Err("geometry observation statistics are not finite ordered values".to_owned());
     }
     Ok(())
+}
+
+fn full_angle_cosine_squared(profile: GeometryDirectionProfile) -> f64 {
+    f64::from_bits(match profile {
+        GeometryDirectionProfile::Smooth1Deg => 0x3fef_fd81_3c5f_82b4,
+        GeometryDirectionProfile::Balanced2Deg => 0x3fef_f605_b8b8_7ffc,
+        GeometryDirectionProfile::Compact5Deg => 0x3fef_c1c5_c640_8e0c,
+    })
 }
 
 fn parse_f64_bits(value: &str) -> Result<f64, String> {
@@ -1319,6 +1332,45 @@ mod tests {
         assert_eq!(
             captured.hardware_identity_sha256(),
             sha256_hex(b"ABC\nDEF\nGH")
+        );
+    }
+
+    #[test]
+    fn direction_observation_must_meet_the_selected_profile() {
+        let smooth_threshold = full_angle_cosine_squared(GeometryDirectionProfile::Smooth1Deg);
+        let mut observation = GeometryObservation {
+            evaluator_interval_count: 1,
+            observed_sample_count: 4_097,
+            evaluator_interval_identity_sha256: "0".repeat(64),
+            position_error: crate::PositionErrorStatistics {
+                p50_meters_bits: "0x0000000000000000".to_owned(),
+                p95_meters_bits: "0x0000000000000000".to_owned(),
+                p99_meters_bits: "0x0000000000000000".to_owned(),
+                maximum_meters_bits: "0x0000000000000000".to_owned(),
+            },
+            worst_observed_error: crate::WorstObservedError {
+                module: "p100.m00".to_owned(),
+                source_address: "LaneEdge/lane-0".to_owned(),
+                source_segment_ordinal: 0,
+                station_row_ordinal: None,
+                evaluator_interval_ordinal: 0,
+                parameter_bits: "0x0000000000000000".to_owned(),
+            },
+            final_f32_direction_minimum_cosine_squared_bits: format!(
+                "0x{:016x}",
+                smooth_threshold.to_bits()
+            ),
+        };
+
+        assert!(
+            validate_geometry_observation(&observation, GeometryDirectionProfile::Smooth1Deg,)
+                .is_ok()
+        );
+        observation.final_f32_direction_minimum_cosine_squared_bits =
+            format!("0x{:016x}", smooth_threshold.to_bits().saturating_sub(1));
+        assert!(
+            validate_geometry_observation(&observation, GeometryDirectionProfile::Smooth1Deg,)
+                .is_err()
         );
     }
 
