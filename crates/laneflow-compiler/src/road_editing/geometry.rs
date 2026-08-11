@@ -15,6 +15,18 @@ const MAX_SUBDIVISION_DEPTH: u8 = 20;
 const MAX_REGULARITY_NODE_VISITS: u32 = 4095;
 const REGULARITY_STACK_CAPACITY: usize = 21;
 
+pub(super) const fn numeric_stack_scratch_bytes() -> u64 {
+    let approximation =
+        core::mem::size_of::<Option<ApproximationNode>>().saturating_mul(REGULARITY_STACK_CAPACITY);
+    let regularity =
+        core::mem::size_of::<Option<RegularityNode>>().saturating_mul(REGULARITY_STACK_CAPACITY);
+    if approximation >= regularity {
+        approximation as u64
+    } else {
+        regularity as u64
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum NumericFreezeError {
     NonFinite,
