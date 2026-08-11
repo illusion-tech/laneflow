@@ -415,8 +415,6 @@ pub(crate) struct MirFacilityBandGeometry {
     pub(crate) canonical_frame: MirCanonicalFrameKey,
     pub(crate) facility_band: MirFacilityBandKey,
     pub(crate) points: TableRange<MirCanonicalPoint3F32>,
-    pub(crate) segments: TableRange<MirSpatialSegment>,
-    pub(crate) arc_length_meters: f32,
     pub(crate) source_span: SourceLocation,
 }
 
@@ -1473,8 +1471,6 @@ pub(crate) fn lower_to_mir(
                 canonical_frame: canonical_frame_mapping[geometry.canonical_frame.index()],
                 facility_band: band_mapping[geometry.facility_band.index()],
                 points: remap_range(geometry.points, &unit.limits, &geometry.source_span)?,
-                segments: remap_range(geometry.segments, &unit.limits, &geometry.source_span)?,
-                arc_length_meters: geometry.arc_length_meters,
                 source_span: geometry.source_span.clone(),
             })
         })

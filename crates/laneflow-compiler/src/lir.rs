@@ -49,7 +49,7 @@ const LIR_CORRIDOR_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
 const LIR_SECTION_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 8;
 const LIR_LANE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 1 + 4;
 const LIR_GROUP_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
-const LIR_BAND_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 8;
+const LIR_BAND_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4;
 const LIR_JUNCTION_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8;
 const LIR_MOVEMENT_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 8;
 const LIR_MANEUVER_PATH_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 8 + 8 + 8;
@@ -73,7 +73,7 @@ const LIR_PARTICIPANT_CLASS_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + 4 + 4 + 4;
 const LIR_VEHICLE_PROFILE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 * 7;
 const LIR_CANONICAL_FRAME_LOGICAL_BYTES: u64 = 4 + 16 + 8;
 const LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES: u64 = 4 + 8 + 8 + 4;
-const LIR_FACILITY_BAND_GEOMETRY_LOGICAL_BYTES: u64 = 4 + LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES;
+const LIR_FACILITY_BAND_GEOMETRY_LOGICAL_BYTES: u64 = 4 + 4 + 8;
 const LIR_CANONICAL_POINT_LOGICAL_BYTES: u64 = 4 * 3;
 const LIR_SPATIAL_SEGMENT_LOGICAL_BYTES: u64 = 4 * 8;
 // target 按 tag+ordinal 计；可选 regulation 按 presence、两个必需字符串区间和一个
@@ -154,7 +154,6 @@ pub(crate) struct LirFacilityBand {
     pub(crate) identity_fields: TableRange<LirIdentityField>,
     pub(crate) road_corridor: RoadCorridorOrdinal,
     pub(crate) kind_id: Box<str>,
-    pub(crate) spatial_geometry: TableRange<LirFacilityBandGeometry>,
 }
 
 pub(crate) struct LirJunction {
@@ -317,8 +316,6 @@ pub(crate) struct LirFacilityBandGeometry {
     pub(crate) facility_band: FacilityBandOrdinal,
     pub(crate) canonical_frame: CanonicalFrameOrdinal,
     pub(crate) points: TableRange<LirCanonicalPoint3F32>,
-    pub(crate) segments: TableRange<LirSpatialSegment>,
-    pub(crate) arc_length_meters: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -1497,7 +1494,6 @@ pub(crate) fn freeze_lir(
             identity_fields: identity_range,
             road_corridor: mir_corridor_to_lir[band.road_corridor.index()],
             kind_id: band.kind_id.as_ref().into(),
-            spatial_geometry: TableRange::empty(),
         });
     }
 
@@ -2688,8 +2684,8 @@ pub(crate) fn freeze_lir(
         });
     }
 
-    // FacilityBand 不进入可通行图，但其可视几何必须和实体使用同一规范顺序。稀疏
-    // 几何表由每个 band 上的零或一行区间索引，避免把 MIR 物理顺序泄漏到 LIR。
+    // FacilityBand 不进入可通行图，但其可视几何必须和实体使用同一规范顺序。每个
+    // 稀疏几何行携带 band ordinal，view 通过有序表查找，避免复制第二份范围索引。
     let mut mir_band_to_geometry = vec![None; mir.facility_bands.len()];
     for (index, geometry) in mir.facility_band_geometries.iter().enumerate() {
         debug_assert!(mir_band_to_geometry[geometry.facility_band.index()].is_none());
@@ -2711,19 +2707,7 @@ pub(crate) fn freeze_lir(
                     z: point.z,
                 }),
         );
-        let segment_start = spatial_segments.len();
-        spatial_segments.extend(
-            mir.spatial_segments[geometry.segments.as_usize_range()]
-                .iter()
-                .map(|segment| LirSpatialSegment {
-                    length_meters: segment.length_meters,
-                    cumulative_end_meters: segment.cumulative_end_meters,
-                    tangent: segment.tangent,
-                    up: segment.up,
-                }),
-        );
         let facility_band = mir_band_to_lir[mir_band.index()];
-        let geometry_start = facility_band_geometries.len();
         facility_band_geometries.push(LirFacilityBandGeometry {
             facility_band,
             canonical_frame: mir_canonical_frame_to_lir[geometry.canonical_frame.index()],
@@ -2732,20 +2716,7 @@ pub(crate) fn freeze_lir(
                 canonical_points.len().saturating_sub(point_start),
             )
             .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
-            segments: TableRange::try_from_usize(
-                segment_start,
-                spatial_segments.len().saturating_sub(segment_start),
-            )
-            .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
-            arc_length_meters: geometry.arc_length_meters,
         });
-        facility_bands[facility_band.index()].spatial_geometry = TableRange::try_from_usize(
-            geometry_start,
-            facility_band_geometries
-                .len()
-                .saturating_sub(geometry_start),
-        )
-        .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?;
     }
 
     let mut access_rules = Vec::with_capacity(mir.access_rules.len());
@@ -4060,21 +4031,10 @@ fn semantic_digest(
     for geometry in facility_band_geometries {
         hash_u32(&mut hasher, geometry.facility_band.raw());
         hash_u32(&mut hasher, geometry.canonical_frame.raw());
-        hasher.update(&geometry.arc_length_meters.to_bits().to_le_bytes());
         hash_u32(&mut hasher, geometry.points.len());
         for point in &canonical_points[geometry.points.as_usize_range()] {
             for component in [point.x, point.y, point.z] {
                 hasher.update(&component.to_bits().to_le_bytes());
-            }
-        }
-        hash_u32(&mut hasher, geometry.segments.len());
-        for segment in &spatial_segments[geometry.segments.as_usize_range()] {
-            for value in [segment.length_meters, segment.cumulative_end_meters]
-                .into_iter()
-                .chain(segment.tangent)
-                .chain(segment.up)
-            {
-                hasher.update(&value.to_bits().to_le_bytes());
             }
         }
     }
