@@ -5,19 +5,22 @@ use std::sync::Arc;
 
 use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
 use laneflow_static_contract::{
-    EntityKind, EntityKindMarker, JunctionKind, LaneEdgeKind, ManeuverGateKind, ManeuverPathKind,
-    MovementKind, ParticipantClassKind, RoadSectionKind, SignalGroupKind, StopLineKind,
+    AccessEffect, EntityKind, EntityKindMarker, JunctionKind, LaneEdgeKind, LaneGroupKind,
+    ManeuverGateKind, ManeuverPathKind, MovementKind, ParkingAreaKind, ParticipantClassKind,
+    RoadSectionKind, SignalAspect, SignalGroupKind, StopLineKind,
 };
 
 use super::location::RoadEditingLocationFactory;
 use super::rules::validate_wire_reference;
 use crate::declaration::{
-    CanonicalFrameDeclaration, DeclarationHeader, FacilityBandDeclaration, IidmVehicleProfileInput,
-    JunctionDeclaration, LaneGroupDeclaration, ManeuverGateDeclaration, ManeuverPathDeclaration,
-    MovementDeclaration, OwnedEntityReference, OwnedSignalControl, ParkingAreaDeclaration,
-    ParticipantClassDeclaration, SignalGroupDeclaration, StaticRouteDeclaration,
-    StopLineDeclaration, TypedAstDeclaration, TypedAstEntityAddress, VehicleProfileDeclaration,
-    WaitingZoneDeclaration,
+    AccessRuleDeclaration, CanonicalFrameDeclaration, DeclarationHeader, FacilityBandDeclaration,
+    IidmVehicleProfileInput, JunctionDeclaration, LaneGroupDeclaration, ManeuverGateDeclaration,
+    ManeuverPathDeclaration, MovementDeclaration, OwnedAccessRegulation, OwnedAccessRuleTarget,
+    OwnedEntityReference, OwnedSignalControl, ParkingAreaDeclaration, ParkingLaneAnchorDeclaration,
+    ParkingSpaceDeclaration, ParkingSpaceGeometryInput, ParticipantClassDeclaration,
+    SignalControllerDeclaration, SignalGroupDeclaration, SignalGroupStateDeclaration,
+    SignalPhaseDeclaration, StaticRouteDeclaration, StopLineDeclaration, TypedAstDeclaration,
+    TypedAstEntityAddress, VehicleProfileDeclaration, WaitingZoneDeclaration,
 };
 use crate::{
     RoadEditingPropertyStep, RoadEditingRelationKind, RoadEditingRelationOccurrence,
@@ -776,6 +779,345 @@ pub(super) fn lower_owner_scoped_declarations(
     declarations
 }
 
+/// 降阶需要把顶层声明与嵌套成员合并的非几何声明族。
+///
+/// semantic preflight 已闭合 SignalController/SignalPhase 双向所有权和状态完备性；这里
+/// 只做确定性排序、来源位置绑定与共同 Typed AST 形状转换，不建立第二套语义规则。
+pub(super) fn lower_aggregate_declarations(
+    root: wire::RoadEditingSource<'_>,
+    locations: &RoadEditingLocationFactory,
+) -> Vec<TypedAstDeclaration> {
+    let namespace = root.module_header().authoring_namespace_id();
+    let mut declarations = Vec::with_capacity(
+        root.signal_controllers()
+            .len()
+            .saturating_add(root.parking_spaces().len())
+            .saturating_add(root.access_rules().len()),
+    );
+
+    let mut controllers: Vec<_> = root.signal_controllers().iter().collect();
+    controllers.sort_unstable_by(|left, right| {
+        left.signal_controller_key()
+            .as_bytes()
+            .cmp(right.signal_controller_key().as_bytes())
+    });
+    declarations.extend(controllers.into_iter().map(|controller| {
+        let controller_key = controller.signal_controller_key();
+        let mut group_references: Vec<_> = controller.signal_groups().iter().collect();
+        sort_reference_set(&mut group_references, 1, namespace);
+        let signal_groups = group_references
+            .into_iter()
+            .enumerate()
+            .map(|(index, group)| {
+                lower_reference::<SignalGroupKind>(
+                    group,
+                    1,
+                    namespace,
+                    locations.owner_local(
+                        EntityKind::SignalController,
+                        &[],
+                        controller_key,
+                        RoadEditingRelationKind::SignalControllerGroup,
+                        RoadEditingRelationOccurrence::CanonicalSetOrdinal(
+                            u32::try_from(index).expect("compile limits bound relation ordinals"),
+                        ),
+                        &[RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::SignalController,
+                            field_id: 2,
+                        }],
+                    ),
+                )
+            })
+            .collect();
+
+        let phases = controller
+            .signal_phases()
+            .iter()
+            .enumerate()
+            .map(|(phase_index, phase_reference)| {
+                let phase_reference = BorrowedReference::parse(phase_reference, 2, namespace);
+                debug_assert_eq!(phase_reference.module_namespace, namespace);
+                debug_assert_eq!(phase_reference.owner_local_keys(), &[controller_key]);
+                let phase_key = phase_reference.local_key();
+                let phase = root
+                    .signal_phases()
+                    .iter()
+                    .find(|phase| {
+                        phase.signal_controller() == controller_key
+                            && phase.signal_phase_key() == phase_key
+                    })
+                    .expect("semantic preflight closed controller/phase ownership");
+
+                let mut states: Vec<_> = phase.states().iter().collect();
+                states.sort_unstable_by(|left, right| {
+                    BorrowedReference::parse(left.signal_group(), 1, namespace)
+                        .cmp(BorrowedReference::parse(right.signal_group(), 1, namespace))
+                });
+                let states = states
+                    .into_iter()
+                    .enumerate()
+                    .map(|(state_index, state)| SignalGroupStateDeclaration {
+                        signal_group: lower_reference::<SignalGroupKind>(
+                            state.signal_group(),
+                            1,
+                            namespace,
+                            locations.owner_local(
+                                EntityKind::SignalPhase,
+                                &[controller_key],
+                                phase_key,
+                                RoadEditingRelationKind::SignalPhaseState,
+                                RoadEditingRelationOccurrence::CanonicalSetOrdinal(
+                                    u32::try_from(state_index)
+                                        .expect("compile limits bound relation ordinals"),
+                                ),
+                                &[
+                                    RoadEditingPropertyStep::TableField {
+                                        table: RoadEditingTableKind::SignalPhase,
+                                        field_id: 2,
+                                    },
+                                    RoadEditingPropertyStep::TableField {
+                                        table: RoadEditingTableKind::SignalPhaseState,
+                                        field_id: 0,
+                                    },
+                                ],
+                            ),
+                        ),
+                        aspect: match state.aspect() {
+                            wire::SignalAspect::Red => SignalAspect::Red,
+                            wire::SignalAspect::Yellow => SignalAspect::Yellow,
+                            wire::SignalAspect::Green => SignalAspect::Green,
+                            _ => unreachable!("semantic preflight rejects unknown signal aspect"),
+                        },
+                    })
+                    .collect();
+
+                SignalPhaseDeclaration {
+                    header: owner_scoped_header(
+                        locations,
+                        EntityKind::SignalPhase,
+                        phase.signal_controller(),
+                        1,
+                        phase_key,
+                        phase.canvas_selection(),
+                        namespace,
+                    ),
+                    controller_relation_span: locations.owner_local(
+                        EntityKind::SignalController,
+                        &[],
+                        controller_key,
+                        RoadEditingRelationKind::SignalControllerPhase,
+                        RoadEditingRelationOccurrence::OrderedProductOrdinal(
+                            u32::try_from(phase_index)
+                                .expect("compile limits bound relation ordinals"),
+                        ),
+                        &[RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::SignalController,
+                            field_id: 3,
+                        }],
+                    ),
+                    duration_ms: phase.duration_milliseconds(),
+                    states,
+                }
+            })
+            .collect();
+
+        TypedAstDeclaration::SignalController(SignalControllerDeclaration {
+            header: module_scoped_header(
+                locations,
+                EntityKind::SignalController,
+                controller_key,
+                controller.canvas_selection(),
+            ),
+            offset_ms: controller.offset_milliseconds(),
+            signal_groups,
+            phases,
+        })
+    }));
+
+    let mut parking_spaces: Vec<_> = root.parking_spaces().iter().collect();
+    parking_spaces.sort_unstable_by(|left, right| {
+        left.parking_space_key()
+            .as_bytes()
+            .cmp(right.parking_space_key().as_bytes())
+    });
+    declarations.extend(parking_spaces.into_iter().map(|value| {
+        let key = value.parking_space_key();
+        let entry = value.entry();
+        let exit = value.exit();
+        let geometry = value.geometry();
+        TypedAstDeclaration::ParkingSpace(ParkingSpaceDeclaration {
+            header: module_scoped_header(
+                locations,
+                EntityKind::ParkingSpace,
+                key,
+                value.canvas_selection(),
+            ),
+            parking_area: value.parking_area().map(|area| {
+                lower_reference::<ParkingAreaKind>(
+                    area,
+                    1,
+                    namespace,
+                    property_location(
+                        locations,
+                        EntityKind::ParkingSpace,
+                        key,
+                        RoadEditingTableKind::ParkingSpace,
+                        1,
+                        value.canvas_selection(),
+                    ),
+                )
+            }),
+            entry: ParkingLaneAnchorDeclaration {
+                lane_edge: lower_reference::<LaneEdgeKind>(
+                    entry.lane_edge(),
+                    1,
+                    namespace,
+                    nested_property_location(
+                        locations,
+                        EntityKind::ParkingSpace,
+                        key,
+                        RoadEditingTableKind::ParkingSpace,
+                        2,
+                        RoadEditingTableKind::ParkingLaneAnchor,
+                        0,
+                        value.canvas_selection(),
+                    ),
+                ),
+                progress_meters: entry.progress_meters(),
+            },
+            exit: ParkingLaneAnchorDeclaration {
+                lane_edge: lower_reference::<LaneEdgeKind>(
+                    exit.lane_edge(),
+                    1,
+                    namespace,
+                    nested_property_location(
+                        locations,
+                        EntityKind::ParkingSpace,
+                        key,
+                        RoadEditingTableKind::ParkingSpace,
+                        3,
+                        RoadEditingTableKind::ParkingLaneAnchor,
+                        0,
+                        value.canvas_selection(),
+                    ),
+                ),
+                progress_meters: exit.progress_meters(),
+            },
+            geometry: ParkingSpaceGeometryInput {
+                lateral_offset_meters: geometry.lateral_offset_meters(),
+                heading_offset_radians: geometry.heading_offset_radians(),
+                length_meters: geometry.length_meters(),
+                width_meters: geometry.width_meters(),
+            },
+        })
+    }));
+
+    let mut access_rules: Vec<_> = root.access_rules().iter().collect();
+    access_rules.sort_unstable_by(|left, right| {
+        left.access_rule_key()
+            .as_bytes()
+            .cmp(right.access_rule_key().as_bytes())
+    });
+    declarations.extend(access_rules.into_iter().map(|value| {
+        let key = value.access_rule_key();
+        let target_location = property_location(
+            locations,
+            EntityKind::AccessRule,
+            key,
+            RoadEditingTableKind::AccessRule,
+            2,
+            value.canvas_selection(),
+        );
+        let target = match value.target_kind() {
+            wire::AccessTargetKind::LaneEdge => {
+                OwnedAccessRuleTarget::LaneEdge(lower_reference::<LaneEdgeKind>(
+                    value.target_reference(),
+                    1,
+                    namespace,
+                    target_location,
+                ))
+            }
+            wire::AccessTargetKind::LaneGroup => {
+                OwnedAccessRuleTarget::LaneGroup(lower_reference::<LaneGroupKind>(
+                    value.target_reference(),
+                    3,
+                    namespace,
+                    target_location,
+                ))
+            }
+            wire::AccessTargetKind::RoadSection => {
+                OwnedAccessRuleTarget::RoadSection(lower_reference::<RoadSectionKind>(
+                    value.target_reference(),
+                    2,
+                    namespace,
+                    target_location,
+                ))
+            }
+            wire::AccessTargetKind::ManeuverPath => {
+                OwnedAccessRuleTarget::ManeuverPath(lower_reference::<ManeuverPathKind>(
+                    value.target_reference(),
+                    3,
+                    namespace,
+                    target_location,
+                ))
+            }
+            _ => unreachable!("semantic preflight rejects unknown access target"),
+        };
+
+        let mut classes: Vec<_> = value.participant_classes().iter().collect();
+        sort_reference_set(&mut classes, 1, namespace);
+        let participant_classes = classes
+            .into_iter()
+            .enumerate()
+            .map(|(index, class)| {
+                lower_reference::<ParticipantClassKind>(
+                    class,
+                    1,
+                    namespace,
+                    locations.owner_local(
+                        EntityKind::AccessRule,
+                        &[],
+                        key,
+                        RoadEditingRelationKind::AccessRuleParticipantClass,
+                        RoadEditingRelationOccurrence::CanonicalSetOrdinal(
+                            u32::try_from(index).expect("compile limits bound relation ordinals"),
+                        ),
+                        &[RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::AccessRule,
+                            field_id: 4,
+                        }],
+                    ),
+                )
+            })
+            .collect();
+        let regulation = value.regulation().map(|regulation| OwnedAccessRegulation {
+            jurisdiction: Arc::from(regulation.jurisdiction()),
+            version: Arc::from(regulation.version()),
+            source: regulation.source().map(Arc::from),
+        });
+
+        TypedAstDeclaration::AccessRule(AccessRuleDeclaration {
+            header: module_scoped_header(
+                locations,
+                EntityKind::AccessRule,
+                key,
+                value.canvas_selection(),
+            ),
+            target,
+            effect: match value.effect() {
+                wire::AccessEffect::Allow => AccessEffect::Allow,
+                wire::AccessEffect::Deny => AccessEffect::Deny,
+                _ => unreachable!("semantic preflight rejects unknown access effect"),
+            },
+            participant_classes,
+            regulation,
+            priority: value.priority(),
+        })
+    }));
+
+    declarations
+}
+
 fn module_scoped_header(
     locations: &RoadEditingLocationFactory,
     entity_kind: EntityKind,
@@ -872,6 +1214,35 @@ fn property_location(
         &[],
         local_key,
         &[RoadEditingPropertyStep::TableField { table, field_id }],
+        canvas_selection,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn nested_property_location(
+    locations: &RoadEditingLocationFactory,
+    entity_kind: EntityKind,
+    local_key: &str,
+    outer_table: RoadEditingTableKind,
+    outer_field_id: u16,
+    inner_table: RoadEditingTableKind,
+    inner_field_id: u16,
+    canvas_selection: Option<&str>,
+) -> SourceLocation {
+    locations.property(
+        entity_kind,
+        &[],
+        local_key,
+        &[
+            RoadEditingPropertyStep::TableField {
+                table: outer_table,
+                field_id: outer_field_id,
+            },
+            RoadEditingPropertyStep::TableField {
+                table: inner_table,
+                field_id: inner_field_id,
+            },
+        ],
         canvas_selection,
     )
 }
@@ -1151,5 +1522,109 @@ mod tests {
             junction.approach_edges[1].declaration_key().as_ref(),
             "edge-b"
         );
+    }
+
+    #[test]
+    fn aggregate_declarations_preserve_product_and_set_relation_locations() {
+        let limits = CompileLimits::p100_initial_v2();
+        let module = super::super::writer::tests::module_with_every_declaration(&limits);
+        let bytes = RoadEditingSourceWriter::new(&limits).write(module).unwrap();
+        let input =
+            RoadEditingModuleInput::try_new("road-editing", bytes.as_bytes(), None).unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
+        let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
+        let declarations = lower_aggregate_declarations(verified.root(), &locations);
+
+        assert_eq!(declarations.len(), 3);
+        let controller = declarations
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::SignalController(value) => Some(value),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(controller.signal_groups.len(), 1);
+        assert_eq!(controller.phases.len(), 1);
+        let phase = &controller.phases[0];
+        assert_eq!(
+            phase
+                .header
+                .source_address
+                .owner_local_keys()
+                .iter()
+                .map(AsRef::as_ref)
+                .collect::<Vec<_>>(),
+            ["controller"]
+        );
+        assert!(matches!(
+            phase
+                .controller_relation_span
+                .road_editing()
+                .unwrap()
+                .subject(),
+            crate::RoadEditingSubject::OwnerLocal {
+                relation: RoadEditingRelationKind::SignalControllerPhase,
+                occurrence: RoadEditingRelationOccurrence::OrderedProductOrdinal(0),
+                ..
+            }
+        ));
+        assert!(matches!(
+            phase.states[0]
+                .signal_group
+                .span
+                .road_editing()
+                .unwrap()
+                .subject(),
+            crate::RoadEditingSubject::OwnerLocal {
+                relation: RoadEditingRelationKind::SignalPhaseState,
+                occurrence: RoadEditingRelationOccurrence::CanonicalSetOrdinal(0),
+                ..
+            }
+        ));
+
+        let parking = declarations
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::ParkingSpace(value) => Some(value),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(parking.entry.progress_meters, 1.0);
+        assert_eq!(parking.geometry.length_meters, 5.0);
+        assert_eq!(
+            parking
+                .entry
+                .lane_edge
+                .span
+                .road_editing()
+                .unwrap()
+                .property_path()
+                .unwrap()
+                .steps()
+                .len(),
+            2
+        );
+
+        let access = declarations
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::AccessRule(value) => Some(value),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(access.effect, AccessEffect::Allow);
+        assert_eq!(access.participant_classes.len(), 1);
+        assert!(matches!(
+            access.participant_classes[0]
+                .span
+                .road_editing()
+                .unwrap()
+                .subject(),
+            crate::RoadEditingSubject::OwnerLocal {
+                relation: RoadEditingRelationKind::AccessRuleParticipantClass,
+                occurrence: RoadEditingRelationOccurrence::CanonicalSetOrdinal(0),
+                ..
+            }
+        ));
     }
 }

@@ -361,6 +361,37 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
             ])));
         }
     }
+    for (outer_table, outer_field_id, inner_table, inner_field_id) in [
+        (
+            RoadEditingTableKind::SignalPhase,
+            2,
+            RoadEditingTableKind::SignalPhaseState,
+            0,
+        ),
+        (
+            RoadEditingTableKind::ParkingSpace,
+            2,
+            RoadEditingTableKind::ParkingLaneAnchor,
+            0,
+        ),
+        (
+            RoadEditingTableKind::ParkingSpace,
+            3,
+            RoadEditingTableKind::ParkingLaneAnchor,
+            0,
+        ),
+    ] {
+        paths.push(RoadEditingPropertyPath::new(Box::new([
+            RoadEditingPropertyStep::TableField {
+                table: outer_table,
+                field_id: outer_field_id,
+            },
+            RoadEditingPropertyStep::TableField {
+                table: inner_table,
+                field_id: inner_field_id,
+            },
+        ])));
+    }
     for (variant, table, field_count) in [
         (1_u8, RoadEditingTableKind::LineSegment, 1_u16),
         (2, RoadEditingTableKind::CubicBezierSegment, 3),
