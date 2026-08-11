@@ -2,4 +2,7 @@
 
 mod seed;
 
-pub use seed::{SeedAudit, SeedError, load_bound_seed};
+pub use seed::{
+    EncodedP100Module, GeneratorError, SeedAudit, SeedError, TypedP100Module, build_base_modules,
+    compile_encoded_modules, encode_modules, load_bound_seed,
+};

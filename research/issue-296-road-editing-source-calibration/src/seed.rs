@@ -11,6 +11,13 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+mod generator;
+
+pub use generator::{
+    EncodedP100Module, GeneratorError, TypedP100Module, build_base_modules,
+    compile_encoded_modules, encode_modules,
+};
+
 const SEED_RELATIVE_PATH: &str = "docs/reference/road-editing-source-semantic-seed-v1.json";
 const SEED_SHA256: &str = "05a32c19f3fe4ab8f7ea176d996a505688f875197433ab7f83d629ef5d560ce2";
 const SEED_WORKLOAD_ID: &str = "LF-COMP-GEOMETRY-P100-v1";
@@ -79,13 +86,25 @@ impl std::error::Error for SeedError {
 }
 
 pub fn load_bound_seed(repository_root: &Path) -> Result<SeedAudit, SeedError> {
+    Ok(load_bound_seed_data(repository_root)?.audit)
+}
+
+struct BoundSeedData {
+    workload: WorkloadBinding,
+    documents: Vec<GeometryDocument>,
+    seed_digest: [u8; 32],
+    audit: SeedAudit,
+}
+
+fn load_bound_seed_data(repository_root: &Path) -> Result<BoundSeedData, SeedError> {
     let workload = validate_workload_binding(repository_root)?;
     let path = repository_root.join(SEED_RELATIVE_PATH);
     let bytes = fs::read(&path).map_err(|source| SeedError::Io {
         path: path.clone(),
         source,
     })?;
-    let actual_digest = hex_digest(&bytes);
+    let seed_digest: [u8; 32] = Sha256::digest(&bytes).into();
+    let actual_digest = hex_digest(&seed_digest);
     if actual_digest != SEED_SHA256 {
         return Err(SeedError::Digest {
             expected: SEED_SHA256,
@@ -131,7 +150,12 @@ pub fn load_bound_seed(repository_root: &Path) -> Result<SeedAudit, SeedError> {
     );
     validate_exact_audit(&audit)?;
     validate_workload_exact_counts(&audit, &workload.exact_counts)?;
-    Ok(audit)
+    Ok(BoundSeedData {
+        workload,
+        documents,
+        seed_digest,
+        audit,
+    })
 }
 
 fn validate_workload_binding(repository_root: &Path) -> Result<WorkloadBinding, SeedError> {
@@ -406,10 +430,7 @@ fn validate_exact_audit(audit: &SeedAudit) -> Result<(), SeedError> {
 }
 
 fn hex_digest(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[derive(Default)]
