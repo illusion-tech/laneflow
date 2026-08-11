@@ -899,6 +899,29 @@ pub(crate) struct AuthoringLaneGeometry {
     pub(crate) width_profile: AuthoringWidthProfile,
 }
 
+/// RoadEditingSource authoring 几何已冻结为共同规范点表后的 LaneEdge 权威。
+pub(crate) struct CompiledLaneEdgeGeometry {
+    pub(crate) length: EdgeLength,
+    /// section-derived edge 继承 alignment frame；junction-internal edge 在 HIR 从 path 推导。
+    pub(crate) canonical_frame: Option<OwnedEntityReference<CanonicalFrameKind>>,
+    #[allow(
+        dead_code,
+        reason = "consumed by the following spatial HIR/MIR/LIR slice"
+    )]
+    pub(crate) centerline_points: Box<[CanonicalPoint3F32Input]>,
+}
+
+/// 不可遍历 FacilityBand 的规范中心线；后续 LIR 以独立稀疏范围表保存。
+#[allow(
+    dead_code,
+    reason = "consumed by the following facility-band MIR/LIR slice"
+)]
+pub(crate) struct CompiledFacilityBandGeometry {
+    pub(crate) length: EdgeLength,
+    pub(crate) canonical_frame: OwnedEntityReference<CanonicalFrameKind>,
+    pub(crate) centerline_points: Box<[CanonicalPoint3F32Input]>,
+}
+
 /// LaneEdge 的唯一几何权威；它表达语义形状，不表达来源编码。
 pub(crate) enum LaneEdgeGeometryAuthority {
     /// 现有 Synthetic 前端已经给出 Traffic length；显式点列由 canonical frame 声明提供。
@@ -907,12 +930,14 @@ pub(crate) enum LaneEdgeGeometryAuthority {
     Authoring {
         explicit_curve: Option<AuthoringCurveProgramDeclaration>,
     },
+    Compiled(CompiledLaneEdgeGeometry),
 }
 
 impl LaneEdgeGeometryAuthority {
     pub(crate) const fn direct_length(&self) -> Option<EdgeLength> {
         match self {
             Self::DirectLength(length) => Some(*length),
+            Self::Compiled(geometry) => Some(geometry.length),
             Self::Authoring { .. } => None,
         }
     }
@@ -975,6 +1000,11 @@ pub(crate) struct FacilityBandDeclaration {
         reason = "consumed by the following topology/geometry compiler slice"
     )]
     pub(crate) authoring_width_profile: Option<AuthoringWidthProfile>,
+    #[allow(
+        dead_code,
+        reason = "consumed by the following facility-band MIR/LIR slice"
+    )]
+    pub(crate) compiled_geometry: Option<CompiledFacilityBandGeometry>,
 }
 
 /// 已通过字段级检查、等待解析显式边界并反向形成非空 Movement 成员集的路口 Typed AST 记录。
@@ -1187,6 +1217,11 @@ impl TypedAstDeclaration {
                 {
                     try_visit_authoring_curve(curve, &mut visit)?;
                 }
+                if let LaneEdgeGeometryAuthority::Compiled(geometry) = geometry_authority
+                    && let Some(frame) = &geometry.canonical_frame
+                {
+                    try_visit_reference(frame, &mut visit)?;
+                }
             }
             Self::RoadCorridor(RoadCorridorDeclaration {
                 header,
@@ -1243,8 +1278,14 @@ impl TypedAstDeclaration {
                 header,
                 kind_id: _,
                 authoring_width_profile: _,
-            })
-            | Self::SignalGroup(SignalGroupDeclaration { header })
+                compiled_geometry,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                if let Some(geometry) = compiled_geometry {
+                    try_visit_reference(&geometry.canonical_frame, &mut visit)?;
+                }
+            }
+            Self::SignalGroup(SignalGroupDeclaration { header })
             | Self::ParkingArea(ParkingAreaDeclaration { header }) => {
                 try_visit_declaration_header(header, &mut visit)?;
             }
