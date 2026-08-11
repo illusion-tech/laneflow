@@ -13,10 +13,10 @@ use crate::declaration::{
     CanonicalFrameDeclaration, CanonicalFrameInput, CanonicalPoint3F32Input,
     CorridorElementReference, DeclarationHeader, EdgeLength, FacilityBandDeclaration,
     FacilityBandInput, FacilityKindCategory, FacilityKindViolation, JunctionDeclaration,
-    JunctionInput, LaneEdgeDeclaration, LaneEdgeGeometryDeclaration, LaneEdgeInput,
-    LaneGroupDeclaration, LaneGroupInput, ManeuverGateDeclaration, ManeuverGateInput,
-    ManeuverPathDeclaration, ManeuverPathInput, MovementDeclaration, MovementInput,
-    OwnedAccessRegulation, OwnedAccessRuleTarget, OwnedCorridorElementReference,
+    JunctionInput, LaneEdgeDeclaration, LaneEdgeGeometryAuthority, LaneEdgeGeometryDeclaration,
+    LaneEdgeInput, LaneGroupDeclaration, LaneGroupInput, ManeuverGateDeclaration,
+    ManeuverGateInput, ManeuverPathDeclaration, ManeuverPathInput, MovementDeclaration,
+    MovementInput, OwnedAccessRegulation, OwnedAccessRuleTarget, OwnedCorridorElementReference,
     OwnedEntityReference, OwnedSignalControl, ParkingAreaDeclaration, ParkingAreaInput,
     ParkingLaneAnchorDeclaration, ParkingSpaceDeclaration, ParkingSpaceInput,
     ParticipantClassDeclaration, ParticipantClassInput, RoadCorridorDeclaration, RoadCorridorInput,
@@ -827,7 +827,7 @@ impl SyntheticModuleBuilder {
                 Arc::clone(&stable_key),
                 span.clone().into(),
             ),
-            length,
+            geometry_authority: LaneEdgeGeometryAuthority::DirectLength(length),
             speed_limit,
             successors: successors.into_boxed_slice(),
         });
@@ -895,6 +895,7 @@ impl SyntheticModuleBuilder {
                 span.clone().into(),
             ),
             approach_edges: Box::default(),
+            internal_edges: Box::default(),
         });
         self.declaration_index
             .entry(EntityKind::Junction)
@@ -2457,6 +2458,7 @@ impl SyntheticModuleBuilder {
                 span.clone().into(),
             ),
             kind_id: input.kind_id.into(),
+            authoring_width_profile: None,
         });
         self.declaration_index
             .entry(EntityKind::FacilityBand)
@@ -2625,8 +2627,10 @@ impl SyntheticModuleBuilder {
                     lane.authoring_lane_key.into(),
                     span.clone().into(),
                 ),
+                section_relation_span: span.clone().into(),
                 edge_chain: edge_chain.into_boxed_slice(),
                 lane_group,
+                authoring_geometry: None,
             });
         }
 
@@ -2845,6 +2849,7 @@ impl SyntheticModuleBuilder {
             ),
             reference_section,
             elements: elements.into_boxed_slice(),
+            authoring_geometry: None,
         });
         self.declaration_index
             .entry(EntityKind::RoadCorridor)
@@ -2954,6 +2959,7 @@ impl SyntheticModuleBuilder {
                     declaration_span: self.header.declaration_span.into(),
                     source_documents,
                     imports: self.imports.into_boxed_slice(),
+                    road_alignments: Box::default(),
                     declarations: self.declarations.into_boxed_slice(),
                 },
                 ModuleResourceCounts {

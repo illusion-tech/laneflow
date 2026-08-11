@@ -124,6 +124,47 @@ impl RoadEditingLocationFactory {
         )
     }
 
+    pub(crate) fn road_alignment_property(
+        &self,
+        road_alignment_key: &str,
+        steps: &[RoadEditingPropertyStep],
+        canvas_selection: Option<&str>,
+    ) -> SourceLocation {
+        self.location(
+            RoadEditingSubject::RoadAlignment {
+                address: self.address(
+                    RoadEditingAddressKind::RoadAlignment,
+                    &[],
+                    road_alignment_key,
+                ),
+            },
+            Some(steps),
+            canvas_selection,
+        )
+    }
+
+    pub(crate) fn road_alignment_owner_local(
+        &self,
+        road_alignment_key: &str,
+        relation: RoadEditingRelationKind,
+        occurrence: RoadEditingRelationOccurrence,
+        steps: &[RoadEditingPropertyStep],
+    ) -> SourceLocation {
+        self.location(
+            RoadEditingSubject::OwnerLocal {
+                owner: RoadEditingOwner::Address(self.address(
+                    RoadEditingAddressKind::RoadAlignment,
+                    &[],
+                    road_alignment_key,
+                )),
+                relation,
+                occurrence,
+            },
+            Some(steps),
+            None,
+        )
+    }
+
     pub(crate) fn property(
         &self,
         entity_kind: EntityKind,
@@ -362,6 +403,12 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         }
     }
     for (outer_table, outer_field_id, inner_table, inner_field_id) in [
+        (
+            RoadEditingTableKind::RoadCorridor,
+            7,
+            RoadEditingTableKind::CorridorElement,
+            1,
+        ),
         (
             RoadEditingTableKind::SignalPhase,
             2,
