@@ -33,6 +33,9 @@ const PARAMETERS_PREFIX: &[u8] = b"laneflow.road-editing.p100.parameters-and-inp
 const FRONTEND_OPTIONS_PREFIX: &[u8] = b"laneflow.road-editing.p100.frontend-options.v1\0";
 const REGULARITY_MODULE_INDEX: usize = 0;
 const REGULARITY_ALIGNMENT_KEY: &str = "corridor-main-road-0/road";
+const REWRITE_MODULE_INDEX: usize = 2;
+const REWRITE_CORRIDOR_KEY: &str = "corridor-main-road-0";
+const REWRITE_LANE_KEY: &str = "section-main-w2e-road-0/lane/2";
 
 /// 冻结 workload 中一组位置档与方向档组合。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -232,6 +235,29 @@ pub fn build_base_modules_from_seed(
     build_modules(seed, accuracy, direction, limits, P100Variant::Base)
 }
 
+/// 只构造冻结单模块改写场景的 `p100.m02` candidate typed model。
+///
+/// 调用方必须在构造和编码期间继续持有旧五模块来源与 accepted revision；本函数不会为了
+/// 方便而重建其余四个未修改模块。
+pub fn build_rewrite_candidate_module_from_seed(
+    seed: LoadedP100Seed,
+    limits: &CompileLimits,
+) -> Result<TypedP100Module, GeneratorError> {
+    let data = seed.data;
+    let mut width_profiles = WidthProfiles::new(&data.documents)?;
+    width_profiles.apply_rewrite_candidate()?;
+    let regulated_access_rules = regulated_access_rules(&data.documents);
+    build_typed_module(
+        &data,
+        REWRITE_MODULE_INDEX,
+        GeometryAccuracyProfile::Balanced5Cm,
+        GeometryDirectionProfile::Balanced2Deg,
+        limits,
+        &width_profiles,
+        &regulated_access_rules,
+    )
+}
+
 /// 构造冻结的五模块 curved-offset regularity companion workload。
 ///
 /// 该 workload 固定使用 `Fine2Cm` / `Smooth1Deg`，只替换 m00 的一条 reference line；
@@ -271,55 +297,78 @@ fn build_modules(
     let regulated_access_rules = regulated_access_rules(&data.documents);
     let mut modules = Vec::with_capacity(data.documents.len());
 
-    for (module_index, document) in data.documents.iter().enumerate() {
-        let index = u8::try_from(module_index)
-            .map_err(|_| contract("P100 module index does not fit u8"))?;
-        let module_key = data
-            .workload
-            .generator_contract
-            .module_keys
-            .get(module_index)
-            .ok_or_else(|| contract("P100 module key is missing"))?;
-        let source_document_key = data
-            .workload
-            .generator_contract
-            .source_document_keys
-            .get(module_index)
-            .ok_or_else(|| contract("P100 source document key is missing"))?;
-        let imports = if module_index == 0 {
-            Vec::new()
-        } else {
-            vec![data.workload.generator_contract.module_keys[module_index - 1].clone()]
-        };
-        let provenance = RoadEditingProvenance::generated(
-            GENERATOR_BUILD_ID,
-            parameters_digest(data.seed_digest, index),
-            frontend_options_digest(accuracy, direction),
-            Some(u64::from(index)),
-            format!("LF-ROAD-EDITING-P100-v1 module {index:02}"),
-        )?;
-        let header = RoadEditingModuleHeader::try_new(
-            module_key.clone(),
-            source_document_key.clone(),
-            imports,
-            provenance,
-        )?;
-        let module = build_module(
+    for module_index in 0..data.documents.len() {
+        modules.push(build_typed_module(
+            &data,
             module_index,
-            document,
-            header,
             accuracy,
             direction,
             limits,
             &width_profiles,
             &regulated_access_rules,
-        )?;
-        modules.push(TypedP100Module {
-            module_index: index,
-            module,
-        });
+        )?);
     }
     Ok(modules)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_typed_module(
+    data: &BoundSeedData,
+    module_index: usize,
+    accuracy: GeometryAccuracyProfile,
+    direction: GeometryDirectionProfile,
+    limits: &CompileLimits,
+    width_profiles: &WidthProfiles,
+    regulated_access_rules: &BTreeSet<(usize, String)>,
+) -> Result<TypedP100Module, GeneratorError> {
+    let index =
+        u8::try_from(module_index).map_err(|_| contract("P100 module index does not fit u8"))?;
+    let module_key = data
+        .workload
+        .generator_contract
+        .module_keys
+        .get(module_index)
+        .ok_or_else(|| contract("P100 module key is missing"))?;
+    let source_document_key = data
+        .workload
+        .generator_contract
+        .source_document_keys
+        .get(module_index)
+        .ok_or_else(|| contract("P100 source document key is missing"))?;
+    let imports = if module_index == 0 {
+        Vec::new()
+    } else {
+        vec![data.workload.generator_contract.module_keys[module_index - 1].clone()]
+    };
+    let provenance = RoadEditingProvenance::generated(
+        GENERATOR_BUILD_ID,
+        parameters_digest(data.seed_digest, index),
+        frontend_options_digest(accuracy, direction),
+        Some(u64::from(index)),
+        format!("LF-ROAD-EDITING-P100-v1 module {index:02}"),
+    )?;
+    let header = RoadEditingModuleHeader::try_new(
+        module_key.clone(),
+        source_document_key.clone(),
+        imports,
+        provenance,
+    )?;
+    let module = build_module(
+        module_index,
+        data.documents
+            .get(module_index)
+            .ok_or_else(|| contract("P100 document is missing"))?,
+        header,
+        accuracy,
+        direction,
+        limits,
+        width_profiles,
+        regulated_access_rules,
+    )?;
+    Ok(TypedP100Module {
+        module_index: index,
+        module,
+    })
 }
 
 fn apply_regularity_probe(documents: &mut [GeometryDocument]) -> Result<(), GeneratorError> {
@@ -365,18 +414,26 @@ pub fn encode_modules(
 ) -> Result<Vec<EncodedP100Module>, GeneratorError> {
     let mut encoded = Vec::with_capacity(modules.len());
     for module in modules {
-        let module_index = module.module_index;
-        let namespace: Box<str> = module.namespace().into();
-        let source_document_key: Box<str> = module.source_document_key().into();
-        let buffer = RoadEditingSourceWriter::new(limits).write(module.into_module())?;
-        encoded.push(EncodedP100Module {
-            module_index,
-            namespace,
-            source_document_key,
-            buffer,
-        });
+        encoded.push(encode_module(module, limits)?);
     }
     Ok(encoded)
+}
+
+/// 编码一个已构造的 P100 模块，供单模块候选替换生命周期复用同一 production writer。
+pub fn encode_module(
+    module: TypedP100Module,
+    limits: &CompileLimits,
+) -> Result<EncodedP100Module, GeneratorError> {
+    let module_index = module.module_index;
+    let namespace: Box<str> = module.namespace().into();
+    let source_document_key: Box<str> = module.source_document_key().into();
+    let buffer = RoadEditingSourceWriter::new(limits).write(module.into_module())?;
+    Ok(EncodedP100Module {
+        module_index,
+        namespace,
+        source_document_key,
+        buffer,
+    })
 }
 
 /// 让已编码 P100 模块通过 production reader、preflight、lowering、geometry compile 和
@@ -396,6 +453,44 @@ pub fn compile_encoded_modules(
                 .map_err(|error| {
                     contract(format!("generated source identity is invalid: {error}"))
                 })?;
+        builder.add_road_editing_module(input)?;
+    }
+    let unit = builder.build()?;
+    Ok(Compiler::new().compile(unit)?)
+}
+
+/// 以 candidate `p100.m02` 替换输入闭包中的旧模块并完成一次 production compile。
+///
+/// `accepted_modules` 与 candidate 都只被借用，因此调用方可以证明旧五个 buffers 与旧
+/// accepted revision 在候选编译返回前始终存续。
+pub fn compile_rewrite_candidate_modules(
+    accepted_modules: &[EncodedP100Module],
+    candidate: &EncodedP100Module,
+    limits: CompileLimits,
+) -> Result<CompilationOutput, GeneratorError> {
+    if accepted_modules.len() != 5
+        || candidate.module_index() != u8::try_from(REWRITE_MODULE_INDEX).unwrap_or(u8::MAX)
+        || accepted_modules
+            .get(REWRITE_MODULE_INDEX)
+            .is_none_or(|old| old.namespace() != candidate.namespace())
+    {
+        return Err(contract(
+            "rewrite candidate must replace p100.m02 in the exact five-module closure",
+        ));
+    }
+    let mut builder = CompilationUnitBuilder::new(limits);
+    for (index, accepted) in accepted_modules.iter().enumerate() {
+        let selected = if index == REWRITE_MODULE_INDEX {
+            candidate
+        } else {
+            accepted
+        };
+        let input = RoadEditingModuleInput::try_new(
+            selected.source_document_key(),
+            selected.as_bytes(),
+            None,
+        )
+        .map_err(|error| contract(format!("generated source identity is invalid: {error}")))?;
         builder.add_road_editing_module(input)?;
     }
     let unit = builder.build()?;
@@ -1718,6 +1813,27 @@ impl WidthProfiles {
         Ok(Self { profiles })
     }
 
+    fn apply_rewrite_candidate(&mut self) -> Result<(), GeneratorError> {
+        let key = MemberKey {
+            module_index: REWRITE_MODULE_INDEX,
+            kind: MemberKind::AuthoringLane,
+            corridor_key: REWRITE_CORRIDOR_KEY.to_owned(),
+            local_key: REWRITE_LANE_KEY.to_owned(),
+        };
+        let current = self
+            .profiles
+            .get(&key)
+            .copied()
+            .ok_or_else(|| contract("rewrite target width profile is missing"))?;
+        if current.0.to_bits() != 3.5_f64.to_bits() || current.1.to_bits() != 3.5_f64.to_bits() {
+            return Err(contract(
+                "rewrite target must start from the frozen constant 3.5-meter profile",
+            ));
+        }
+        self.profiles.insert(key, (3.0, 3.5));
+        Ok(())
+    }
+
     fn get(
         &self,
         module_index: usize,
@@ -1960,6 +2076,89 @@ mod tests {
         assert_eq!(lir.static_routes().count(), 140);
         assert_eq!(lir.canonical_frames().count(), 5);
         assert_eq!(output.diagnostics(), []);
+    }
+
+    #[test]
+    fn rewrite_candidate_changes_only_the_frozen_lane_start_width_and_compiles() {
+        let limits = CompileLimits::p100_initial_v2();
+        let mut base = build_base_modules(
+            &repository_root(),
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &limits,
+        )
+        .unwrap();
+        let candidate = build_rewrite_candidate_module_from_seed(
+            load_p100_seed(&repository_root()).unwrap(),
+            &limits,
+        )
+        .unwrap();
+        let base_m02 = base
+            .iter()
+            .find(|module| module.module_index() == 2)
+            .unwrap();
+        assert_eq!(candidate.module_index(), 2);
+        assert_eq!(candidate.module().header(), base_m02.module().header());
+        assert_eq!(
+            candidate.module().road_alignments(),
+            base_m02.module().road_alignments()
+        );
+        assert_eq!(
+            candidate.module().declarations().len(),
+            base_m02.module().declarations().len()
+        );
+        let changed = candidate
+            .module()
+            .declarations()
+            .iter()
+            .zip(base_m02.module().declarations())
+            .filter(|(candidate, current)| candidate != current)
+            .collect::<Vec<_>>();
+        let [(RoadEditingDeclaration::AuthoringLane(candidate_lane), current)] = changed.as_slice()
+        else {
+            panic!("rewrite candidate must change exactly one AuthoringLane declaration");
+        };
+        let RoadEditingDeclaration::AuthoringLane(current_lane) = current else {
+            panic!("rewrite target kind changed");
+        };
+        assert_eq!(candidate_lane.authoring_lane_key(), REWRITE_LANE_KEY);
+        assert_eq!(current_lane.authoring_lane_key(), REWRITE_LANE_KEY);
+        assert_eq!(
+            current_lane.width_profile().start_width_meters().to_bits(),
+            3.5_f64.to_bits()
+        );
+        assert_eq!(
+            current_lane.width_profile().end_width_meters().to_bits(),
+            3.5_f64.to_bits()
+        );
+        assert_eq!(
+            candidate_lane
+                .width_profile()
+                .start_width_meters()
+                .to_bits(),
+            3.0_f64.to_bits()
+        );
+        assert_eq!(
+            candidate_lane.width_profile().end_width_meters().to_bits(),
+            3.5_f64.to_bits()
+        );
+
+        let accepted = encode_modules(std::mem::take(&mut base), &limits).unwrap();
+        let current = compile_encoded_modules(&accepted, limits.clone()).unwrap();
+        let candidate = encode_module(candidate, &limits).unwrap();
+        let replacement = compile_rewrite_candidate_modules(&accepted, &candidate, limits).unwrap();
+        assert_eq!(replacement.diagnostics(), []);
+        assert_ne!(
+            replacement.metrics().semantic_fingerprint(),
+            current.metrics().semantic_fingerprint()
+        );
+        assert!(
+            accepted
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| *index != REWRITE_MODULE_INDEX)
+                .all(|(index, module)| module.module_index() == u8::try_from(index).unwrap())
+        );
     }
 
     #[test]

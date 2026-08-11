@@ -22,6 +22,9 @@ cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin ca
 cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-fixture-identities
 cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-cross-language target/road-editing-codegen/cross-language/cpp.lfre target/road-editing-codegen/cross-language/csharp.lfre
 cargo +1.96.0 run --release --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-evidence-sample base 1 1 formal 1 target/road-editing-evidence/smoke.json
+cargo +1.96.0 run --release --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-evidence-run target/road-editing-evidence/raw.json
+cargo +1.96.0 run --release --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-evidence-compact target/road-editing-evidence/raw.json target/road-editing-evidence/compact.json
+cargo +1.96.0 run --release --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-evidence-verify target/road-editing-evidence/compact.json
 ```
 
 `road-editing-p100` 通过第一方 typed model 和 writer 生成五个 size-prefixed `LFRE`
@@ -46,6 +49,23 @@ production admission stage 与 complete compile。fixture digest/byte length/ret
 来自本次 writer 输出，来源、table、几何点、regularity、LIR 与 peak 则只读取同一次成功
 `CompilationMetrics`，不在 research 侧重算资源账本。只有后继编排器完成每组合一次预热、
 七个独立正式进程、环境/exact-commit 绑定、统计和剩余观测/改写协议后，才可形成正式证据。
+
+`road-editing-evidence-run` 只允许 clean exact commit，在冻结参考机上串行运行 80 个计时
+进程（十个 workload/profile 各一次预热、七次正式样本），随后另起四个不参与计时统计的
+allocator probe 进程：base complete compile、regularity complete compile、rewrite candidate
+build+encode 与 rewrite candidate complete compile。后两者在 profiler 启动前保留旧五模块
+buffer 和旧 accepted revision；complete-compile probe 要求实际新增 heap peak 不超过同次
+production `compiler_controlled_peak_bytes`。build+encode peak 单独报告，不伪装成 compiler
+账本或 RSS。四个角色使用固定 `dhat 0.3.3` global allocator；该 experimental profiler 只
+存在于 research-only `calibrate-alloc` binary，MIT OR Apache-2.0，不进入 production crate
+依赖方向，也不污染 80 个正式 CPU 样本。
+
+raw evidence 保留 80 个样本、四个 allocator probe、完整 argv 和环境；compact evidence
+通过 `road-editing-source-calibration-evidence-v1.schema.json`，重新读取 measurement commit
+中的六个绑定、重算十组中位数/MAD、核对 4097 点观测完整性与单模块 rewrite identity，
+再绑定 raw artifact 的 repository-relative path、byte length 与 SHA-256。`compact` 和
+`verify` 都拒绝绝对路径、父目录穿越、覆盖已有输出、字段漂移或脱离 exact commit 的
+artifact。
 
 本 research crate 是唯一启用 compiler 非默认 `road-editing-g3-evidence` feature 的 workspace
 调用方。种子可先由 `load_p100_seed` 在计时区外闭合，再由 `build_*_from_seed` 独立执行

@@ -17,7 +17,9 @@ pub use generator::{
     EncodedP100Module, GeneratorError, P100_PROFILE_COMBINATIONS, P100CompileStageDurations,
     P100ProfileCombination, TypedP100Module, build_base_modules, build_base_modules_from_seed,
     build_regularity_probe_modules, build_regularity_probe_modules_from_seed,
-    compile_encoded_modules, compile_encoded_modules_with_stage_timing, encode_modules,
+    build_rewrite_candidate_module_from_seed, compile_encoded_modules,
+    compile_encoded_modules_with_stage_timing, compile_rewrite_candidate_modules, encode_module,
+    encode_modules,
 };
 
 const SEED_RELATIVE_PATH: &str = "docs/reference/road-editing-source-semantic-seed-v1.json";
