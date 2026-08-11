@@ -4,6 +4,11 @@
 //! 只接受后续 reader 切片定义的受检 size-prefixed bytes；这里不公开 generated table。
 
 mod builder;
+#[allow(
+    dead_code,
+    reason = "consumed by the staged RoadEditingSource geometry lowering"
+)]
+mod geometry;
 mod input;
 #[allow(
     dead_code,
