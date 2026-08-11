@@ -19,6 +19,7 @@ pub mod road_editing;
 mod source;
 mod source_location;
 mod source_map;
+mod spatial_freeze;
 
 pub use compiler::{
     CanonicalAccessRegulationView, CanonicalAccessRuleView, CanonicalAccessTarget,

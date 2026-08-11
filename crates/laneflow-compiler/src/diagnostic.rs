@@ -599,6 +599,21 @@ pub enum SpatialGeometryViolation {
     },
     DuplicateEdgeBinding,
     MissingEdgeBinding,
+    /// 已编译 authoring 几何没有携带产生其点表的配置档。
+    MissingGeometryProfiles,
+    /// 同一编译单元内两个已编译 authoring 模块使用了不同配置档。
+    GeometryProfileMismatch {
+        expected_accuracy_code: u8,
+        expected_direction_code: u8,
+        actual_accuracy_code: u8,
+        actual_direction_code: u8,
+    },
+    /// 已编译点表既没有显式 frame，也不能从合法机动路径推导 frame。
+    MissingCanonicalFrame,
+    /// 同一机动路径的 entry 与 exit 没有解析到同一 frame。
+    ManeuverPathFrameMismatch,
+    /// 共享 internal edge 从不同机动路径推导出冲突 frame。
+    InternalEdgeFrameConflict,
     DegenerateSegment {
         segment_index: u32,
         length_bits: u32,
@@ -621,8 +636,14 @@ pub enum SpatialGeometryViolation {
     },
     ConnectedEdgesUseDifferentFrames,
     DiscontinuousJoin {
-        distance_bits: u32,
-        tolerance_bits: u32,
+        distance_bits: u64,
+        tolerance_bits: u64,
+    },
+    /// 相连 edge 最终 `f32` 首尾弦超过所选方向档。
+    DirectionDiscontinuity {
+        dot_bits: u64,
+        lhs_bits: u64,
+        rhs_bits: u64,
     },
 }
 
@@ -3980,6 +4001,27 @@ impl fmt::Display for SpatialGeometryViolationDisplay {
             SpatialGeometryViolation::MissingEdgeBinding => {
                 formatter.write_str("启用空间几何后该车道图边缺少中心线")
             }
+            SpatialGeometryViolation::MissingGeometryProfiles => {
+                formatter.write_str("已编译 authoring 几何缺少位置/方向配置档")
+            }
+            SpatialGeometryViolation::GeometryProfileMismatch {
+                expected_accuracy_code,
+                expected_direction_code,
+                actual_accuracy_code,
+                actual_direction_code,
+            } => write!(
+                formatter,
+                "同一编译单元混用了几何配置档：期望 ({expected_accuracy_code}, {expected_direction_code})，实际 ({actual_accuracy_code}, {actual_direction_code})"
+            ),
+            SpatialGeometryViolation::MissingCanonicalFrame => {
+                formatter.write_str("中心线没有可解析或可从机动路径唯一推导的 canonical frame")
+            }
+            SpatialGeometryViolation::ManeuverPathFrameMismatch => {
+                formatter.write_str("同一机动路径的 entry 与 exit 属于不同 canonical frame")
+            }
+            SpatialGeometryViolation::InternalEdgeFrameConflict => {
+                formatter.write_str("共享 internal edge 从不同机动路径推导出冲突 canonical frame")
+            }
             SpatialGeometryViolation::DegenerateSegment {
                 segment_index,
                 length_bits,
@@ -4030,8 +4072,19 @@ impl fmt::Display for SpatialGeometryViolationDisplay {
             } => write!(
                 formatter,
                 "连接端点距离 {} 米超过容差 {} 米",
-                f32::from_bits(distance_bits),
-                f32::from_bits(tolerance_bits)
+                f64::from_bits(distance_bits),
+                f64::from_bits(tolerance_bits)
+            ),
+            SpatialGeometryViolation::DirectionDiscontinuity {
+                dot_bits,
+                lhs_bits,
+                rhs_bits,
+            } => write!(
+                formatter,
+                "相连 edge 方向不连续：dot={}，dot²={}，最低加权范数={}",
+                f64::from_bits(dot_bits),
+                f64::from_bits(lhs_bits),
+                f64::from_bits(rhs_bits)
             ),
         }
     }
