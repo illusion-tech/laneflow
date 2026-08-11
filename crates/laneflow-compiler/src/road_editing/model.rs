@@ -16,8 +16,8 @@ use laneflow_static_contract::{
 
 use super::rules::{
     input_error, require_non_empty, require_unique, validate_facility_kind, validate_finite,
-    validate_non_empty_text, validate_non_negative, validate_positive, validate_token,
-    validate_visible_ascii,
+    validate_inclusive_range, validate_non_empty_text, validate_non_negative, validate_positive,
+    validate_token, validate_visible_ascii,
 };
 use crate::declaration::MAX_PORTABLE_SIGNAL_TIME_MS;
 use crate::{DiagnosticBundle, FacilityKindCategory, RoadEditingInputViolation};
@@ -381,10 +381,12 @@ pub struct RoadEditingPoint3 {
 
 impl RoadEditingPoint3 {
     pub fn try_new(x: f64, y: f64, z: f64) -> Result<Self, DiagnosticBundle> {
+        let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
+        let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
         Ok(Self {
-            x: validate_point_component(x, "point.x")?,
-            y: validate_point_component(y, "point.y")?,
-            z: validate_point_component(z, "point.z")?,
+            x: validate_inclusive_range(x, minimum, maximum, "point.x")?,
+            y: validate_inclusive_range(y, minimum, maximum, "point.y")?,
+            z: validate_inclusive_range(z, minimum, maximum, "point.z")?,
         })
     }
 
@@ -402,19 +404,6 @@ impl RoadEditingPoint3 {
     pub const fn z(self) -> f64 {
         self.z
     }
-}
-
-fn validate_point_component(value: f64, field: &str) -> Result<f64, DiagnosticBundle> {
-    let value = validate_finite(value, field)?;
-    let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
-    let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
-    if !(minimum..=maximum).contains(&value) {
-        return Err(input_error(
-            field,
-            RoadEditingInputViolation::InvalidCombination,
-        ));
-    }
-    Ok(value)
 }
 
 /// corridor station 区间内的线性非负宽度。
@@ -2318,7 +2307,7 @@ mod tests {
         assert!(RoadEditingPoint3::try_new(f64::NAN, 0.0, 0.0).is_err());
         assert!(
             RoadEditingPoint3::try_new(
-                f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS) + 1.0,
+                f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS) + 0.25,
                 0.0,
                 0.0,
             )

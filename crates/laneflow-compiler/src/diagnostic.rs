@@ -410,6 +410,12 @@ pub enum RoadEditingInputViolation {
     NotGreaterThanZero { value_bits: u64 },
     /// 浮点字段小于零。
     LessThanZero { value_bits: u64 },
+    /// 浮点字段落在闭合规范范围之外。
+    OutsideInclusiveRange {
+        value_bits: u64,
+        minimum_bits: u64,
+        maximum_bits: u64,
+    },
     /// 多个字段的组合违反闭合 variant 规则。
     InvalidCombination,
 }

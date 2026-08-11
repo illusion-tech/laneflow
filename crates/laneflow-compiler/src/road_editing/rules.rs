@@ -223,6 +223,22 @@ pub(super) fn validate_non_empty_text(value: &str, field: &str) -> Result<(), Di
     Ok(())
 }
 
+pub(super) fn inclusive_range_violation(
+    value: f64,
+    minimum: f64,
+    maximum: f64,
+) -> Option<RoadEditingInputViolation> {
+    finite_violation(value).or_else(|| {
+        (!(minimum..=maximum).contains(&value)).then_some(
+            RoadEditingInputViolation::OutsideInclusiveRange {
+                value_bits: value.to_bits(),
+                minimum_bits: minimum.to_bits(),
+                maximum_bits: maximum.to_bits(),
+            },
+        )
+    })
+}
+
 pub(super) fn validate_finite(value: f64, field: &str) -> Result<f64, DiagnosticBundle> {
     if !value.is_finite() {
         return Err(input_error(
@@ -257,6 +273,19 @@ pub(super) fn validate_non_negative(value: f64, field: &str) -> Result<f64, Diag
                 value_bits: value.to_bits(),
             },
         ));
+    }
+    Ok(value)
+}
+
+pub(super) fn validate_inclusive_range(
+    value: f64,
+    minimum: f64,
+    maximum: f64,
+    field: &str,
+) -> Result<f64, DiagnosticBundle> {
+    let value = validate_finite(value, field)?;
+    if let Some(violation) = inclusive_range_violation(value, minimum, maximum) {
+        return Err(input_error(field, violation));
     }
     Ok(value)
 }
