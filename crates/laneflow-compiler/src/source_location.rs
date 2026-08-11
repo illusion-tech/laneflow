@@ -188,6 +188,13 @@ pub enum RoadEditingRootVectorKind {
     CanonicalFrame,
 }
 
+/// 道路编辑来源地址中的有类型声明种类；道路走向不是 Identity v1 实体。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum RoadEditingAddressKind {
+    RoadAlignment,
+    Declaration(EntityKind),
+}
+
 /// 道路编辑 schema 中可出现在来源路径或 wire fallback 的 table 种类。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
@@ -289,16 +296,25 @@ pub struct RoadEditingCanvasSelectionOrdinal(u32);
 #[derive(Clone, Debug)]
 pub struct RoadEditingSourceAddress {
     module_namespace: RoadEditingStringOrdinal,
-    entity_kind: EntityKind,
+    kind: RoadEditingAddressKind,
     owner_local_keys: Box<[RoadEditingStringOrdinal]>,
     local_key: RoadEditingStringOrdinal,
 }
 
 impl RoadEditingSourceAddress {
-    /// 返回来源声明种类。
+    /// 返回来源地址种类。
     #[must_use]
-    pub const fn entity_kind(&self) -> EntityKind {
-        self.entity_kind
+    pub const fn kind(&self) -> RoadEditingAddressKind {
+        self.kind
+    }
+
+    /// 稳定实体声明返回其 Identity v1 种类；道路走向返回 `None`。
+    #[must_use]
+    pub const fn entity_kind(&self) -> Option<EntityKind> {
+        match self.kind {
+            RoadEditingAddressKind::RoadAlignment => None,
+            RoadEditingAddressKind::Declaration(kind) => Some(kind),
+        }
     }
 
     /// 解析模块命名空间。
@@ -330,13 +346,13 @@ impl RoadEditingSourceAddress {
     )]
     pub(crate) fn new(
         module_namespace: RoadEditingStringOrdinal,
-        entity_kind: EntityKind,
+        kind: RoadEditingAddressKind,
         owner_local_keys: Box<[RoadEditingStringOrdinal]>,
         local_key: RoadEditingStringOrdinal,
     ) -> Self {
         Self {
             module_namespace,
-            entity_kind,
+            kind,
             owner_local_keys,
             local_key,
         }
@@ -416,6 +432,13 @@ impl RoadEditingByteRange {
     }
 }
 
+/// 道路编辑 owner-local 关系的有类型 owner。
+#[derive(Clone, Debug)]
+pub enum RoadEditingOwner {
+    ModuleHeader,
+    Address(RoadEditingSourceAddress),
+}
+
 /// 道路编辑语义或结构位置的闭合 subject。
 #[derive(Clone, Debug)]
 pub enum RoadEditingSubject {
@@ -427,7 +450,7 @@ pub enum RoadEditingSubject {
         address: RoadEditingSourceAddress,
     },
     OwnerLocal {
-        owner: RoadEditingSourceAddress,
+        owner: RoadEditingOwner,
         relation: RoadEditingRelationKind,
         occurrence: RoadEditingRelationOccurrence,
     },
@@ -460,6 +483,36 @@ impl RoadEditingLocationContext {
 
     fn resolve_canvas_selection(&self, ordinal: RoadEditingCanvasSelectionOrdinal) -> &str {
         &self.canvas_selection_keys[ordinal.0 as usize]
+    }
+
+    pub(crate) fn string_ordinal_for(&self, value: &str) -> RoadEditingStringOrdinal {
+        let index = self
+            .strings
+            .binary_search_by(|candidate| candidate.as_bytes().cmp(value.as_bytes()))
+            .expect("location factory interns every address component before freezing");
+        self.string_ordinal(index)
+    }
+
+    pub(crate) fn property_path_ordinal_for(
+        &self,
+        value: &RoadEditingPropertyPath,
+    ) -> RoadEditingPropertyPathOrdinal {
+        let index = self
+            .property_paths
+            .binary_search(value)
+            .expect("location factory freezes every closed property path");
+        self.property_path_ordinal(index)
+    }
+
+    pub(crate) fn canvas_selection_ordinal_for(
+        &self,
+        value: &str,
+    ) -> RoadEditingCanvasSelectionOrdinal {
+        let index = self
+            .canvas_selection_keys
+            .binary_search_by(|candidate| candidate.as_bytes().cmp(value.as_bytes()))
+            .expect("location factory interns every canvas selection before freezing");
+        self.canvas_selection_ordinal(index)
     }
 
     #[allow(
@@ -669,7 +722,7 @@ fn compare_subject(
                     relation: right_relation,
                     occurrence: right_occurrence,
                 },
-            ) => compare_address(left_owner, left_context, right_owner, right_context)
+            ) => compare_owner(left_owner, left_context, right_owner, right_context)
                 .then_with(|| left_relation.cmp(right_relation))
                 .then_with(|| left_occurrence.cmp(right_occurrence)),
             (
@@ -697,8 +750,8 @@ fn compare_address(
     right: &RoadEditingSourceAddress,
     right_context: &RoadEditingLocationContext,
 ) -> Ordering {
-    left.entity_kind
-        .cmp(&right.entity_kind)
+    left.kind
+        .cmp(&right.kind)
         .then_with(|| {
             left.module_namespace(left_context)
                 .as_bytes()
@@ -716,6 +769,22 @@ fn compare_address(
         })
 }
 
+fn compare_owner(
+    left: &RoadEditingOwner,
+    left_context: &RoadEditingLocationContext,
+    right: &RoadEditingOwner,
+    right_context: &RoadEditingLocationContext,
+) -> Ordering {
+    match (left, right) {
+        (RoadEditingOwner::ModuleHeader, RoadEditingOwner::ModuleHeader) => Ordering::Equal,
+        (RoadEditingOwner::ModuleHeader, RoadEditingOwner::Address(_)) => Ordering::Less,
+        (RoadEditingOwner::Address(_), RoadEditingOwner::ModuleHeader) => Ordering::Greater,
+        (RoadEditingOwner::Address(left), RoadEditingOwner::Address(right)) => {
+            compare_address(left, left_context, right, right_context)
+        }
+    }
+}
+
 fn hash_subject<H: Hasher>(
     subject: &RoadEditingSubject,
     context: &RoadEditingLocationContext,
@@ -731,7 +800,13 @@ fn hash_subject<H: Hasher>(
             relation,
             occurrence,
         } => {
-            hash_address(owner, context, state);
+            match owner {
+                RoadEditingOwner::ModuleHeader => 0_u8.hash(state),
+                RoadEditingOwner::Address(address) => {
+                    1_u8.hash(state);
+                    hash_address(address, context, state);
+                }
+            }
             relation.hash(state);
             occurrence.hash(state);
         }
@@ -752,7 +827,7 @@ fn hash_address<H: Hasher>(
     context: &RoadEditingLocationContext,
     state: &mut H,
 ) {
-    address.entity_kind.hash(state);
+    address.kind.hash(state);
     address.module_namespace(context).hash(state);
     address.owner_local_keys.len().hash(state);
     for owner in address.owner_local_keys(context) {
@@ -795,7 +870,7 @@ mod tests {
         ));
         let address = RoadEditingSourceAddress::new(
             context.string_ordinal(0),
-            EntityKind::AuthoringLane,
+            RoadEditingAddressKind::Declaration(EntityKind::AuthoringLane),
             Box::new([context.string_ordinal(1), context.string_ordinal(2)]),
             context.string_ordinal(3),
         );
@@ -853,7 +928,7 @@ mod tests {
             ));
             let address = RoadEditingSourceAddress::new(
                 context.string_ordinal(indexes[0]),
-                EntityKind::AuthoringLane,
+                RoadEditingAddressKind::Declaration(EntityKind::AuthoringLane),
                 Box::new([
                     context.string_ordinal(indexes[1]),
                     context.string_ordinal(indexes[2]),
