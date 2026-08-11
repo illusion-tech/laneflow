@@ -1840,6 +1840,19 @@ fn validate_signal_owner_closure(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     for controller in root.signal_controllers() {
+        for group_reference in controller.signal_groups() {
+            if group_reference.contains("::")
+                || root
+                    .signal_groups()
+                    .iter()
+                    .all(|group| group.signal_group_key() != group_reference)
+            {
+                return Err(invalid_combination(
+                    "signalController.signalGroups",
+                    expected_key,
+                ));
+            }
+        }
         for phase_reference in controller.signal_phases() {
             if phase_reference.contains("::") {
                 return Err(invalid_combination(
