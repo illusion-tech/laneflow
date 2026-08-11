@@ -1,8 +1,14 @@
 //! ADR 0022 B1 的确定性曲线数值内核。
 //!
 //! 本模块只实现固定 scalar-dual 运算图、line/cubic evaluator 和 offset 前置的
-//! horizontal-regularity walk。点表细分、station 强制边界和共同 Typed AST 组装由后续
-//! 切片组合，避免在数值内核中建立第二套拓扑或资源权威。
+//! horizontal-regularity walk，以及不拥有容器的自适应点表细分。station 强制边界和
+//! 共同 Typed AST 组装由后续切片组合，避免在数值内核中建立第二套拓扑或资源权威。
+
+use laneflow_static_contract::{
+    CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS,
+};
+
+use crate::{GeometryAccuracyProfile, GeometryDirectionProfile};
 
 const MAX_SUBDIVISION_DEPTH: u8 = 20;
 const MAX_REGULARITY_NODE_VISITS: u32 = 4095;
@@ -15,6 +21,9 @@ pub(super) enum NumericFreezeError {
     SquareRootDomain,
     HorizontalDerivativeZero,
     HorizontalDerivativeNotProvenNonZero,
+    CoordinateOutOfRange,
+    ApproximationNotConverged,
+    GeometryPointLimit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -52,6 +61,278 @@ pub(super) enum CurveSegment {
 pub(super) struct CurveSample {
     pub(super) point: Point3,
     pub(super) first: Point3,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ApproximationPoint {
+    pub(super) x: f32,
+    pub(super) y: f32,
+    pub(super) z: f32,
+}
+
+impl ApproximationPoint {
+    fn quantize(value: Point3) -> Result<Self, NumericFreezeError> {
+        let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
+        let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
+        if [value.x, value.y, value.z]
+            .into_iter()
+            .any(|component| !(minimum..=maximum).contains(&component))
+        {
+            return Err(NumericFreezeError::CoordinateOutOfRange);
+        }
+        Ok(Self {
+            x: canonical_f32(value.x as f32),
+            y: canonical_f32(value.y as f32),
+            z: canonical_f32(value.z as f32),
+        })
+    }
+
+    fn promoted(self) -> Point3 {
+        Point3 {
+            x: f64::from(self.x),
+            y: f64::from(self.y),
+            z: f64::from(self.z),
+        }
+    }
+}
+
+pub(super) trait ApproximationPointSink {
+    fn push(&mut self, point: ApproximationPoint) -> Result<(), NumericFreezeError>;
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum SegmentEvaluator {
+    Reference(CurveSegment),
+    Offset {
+        segment: CurveSegment,
+        station: StationInterval,
+        offset: OffsetInterval,
+    },
+}
+
+impl SegmentEvaluator {
+    fn evaluate(self, parameter: f64) -> Result<CurveSample, NumericFreezeError> {
+        match self {
+            Self::Reference(segment) => segment.evaluate(parameter),
+            Self::Offset {
+                segment,
+                station,
+                offset,
+            } => segment.evaluate_offset(parameter, station, offset),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CandidateEndpoint {
+    point: ApproximationPoint,
+    first: Point3,
+}
+
+impl CandidateEndpoint {
+    fn evaluate(evaluator: SegmentEvaluator, parameter: f64) -> Result<Self, NumericFreezeError> {
+        let sample = evaluator.evaluate(parameter)?;
+        Ok(Self {
+            point: ApproximationPoint::quantize(sample.point)?,
+            first: sample.first,
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ApproximationNode {
+    parameter_start: f64,
+    parameter_end: f64,
+    start: CandidateEndpoint,
+    end: CandidateEndpoint,
+    depth: u8,
+}
+
+pub(super) fn approximate_interval(
+    evaluator: SegmentEvaluator,
+    parameter_start: f64,
+    parameter_end: f64,
+    welded_start: Option<ApproximationPoint>,
+    accuracy: GeometryAccuracyProfile,
+    direction: GeometryDirectionProfile,
+    sink: &mut impl ApproximationPointSink,
+) -> Result<(), NumericFreezeError> {
+    if !parameter_start.is_finite()
+        || !parameter_end.is_finite()
+        || parameter_start >= parameter_end
+    {
+        return Err(NumericFreezeError::ApproximationNotConverged);
+    }
+    let mut start = CandidateEndpoint::evaluate(evaluator, parameter_start)?;
+    if let Some(welded_start) = welded_start {
+        start.point = welded_start;
+    }
+    let end = CandidateEndpoint::evaluate(evaluator, parameter_end)?;
+    sink.push(start.point)?;
+
+    let mut stack = [None; REGULARITY_STACK_CAPACITY];
+    stack[0] = Some(ApproximationNode {
+        parameter_start,
+        parameter_end,
+        start,
+        end,
+        depth: 0,
+    });
+    let mut stack_len = 1_usize;
+    while stack_len != 0 {
+        stack_len -= 1;
+        let node = stack[stack_len]
+            .take()
+            .expect("fixed approximation stack contains every live node");
+        if candidate_accepts(evaluator, node, accuracy, direction)? {
+            sink.push(node.end.point)?;
+            continue;
+        }
+        if node.depth == MAX_SUBDIVISION_DEPTH {
+            return Err(NumericFreezeError::ApproximationNotConverged);
+        }
+        let parameter_mid =
+            finite(node.parameter_start + (node.parameter_end - node.parameter_start) / 2.0)?;
+        if parameter_mid <= node.parameter_start || parameter_mid >= node.parameter_end {
+            return Err(NumericFreezeError::ApproximationNotConverged);
+        }
+        let midpoint = CandidateEndpoint::evaluate(evaluator, parameter_mid)?;
+        let child_depth = node.depth + 1;
+        debug_assert!(stack_len + 2 <= REGULARITY_STACK_CAPACITY);
+        stack[stack_len] = Some(ApproximationNode {
+            parameter_start: parameter_mid,
+            parameter_end: node.parameter_end,
+            start: midpoint,
+            end: node.end,
+            depth: child_depth,
+        });
+        stack[stack_len + 1] = Some(ApproximationNode {
+            parameter_start: node.parameter_start,
+            parameter_end: parameter_mid,
+            start: node.start,
+            end: midpoint,
+            depth: child_depth,
+        });
+        stack_len += 2;
+    }
+    Ok(())
+}
+
+fn candidate_accepts(
+    evaluator: SegmentEvaluator,
+    node: ApproximationNode,
+    accuracy: GeometryAccuracyProfile,
+    direction: GeometryDirectionProfile,
+) -> Result<bool, NumericFreezeError> {
+    let parameter_mid =
+        finite(node.parameter_start + (node.parameter_end - node.parameter_start) / 2.0)?;
+    let parameter_quarter_1 =
+        finite(node.parameter_start + (parameter_mid - node.parameter_start) / 2.0)?;
+    let parameter_quarter_3 = finite(parameter_mid + (node.parameter_end - parameter_mid) / 2.0)?;
+    if parameter_quarter_1 <= node.parameter_start
+        || parameter_mid <= parameter_quarter_1
+        || parameter_quarter_3 <= parameter_mid
+        || parameter_quarter_3 >= node.parameter_end
+    {
+        return Err(NumericFreezeError::ApproximationNotConverged);
+    }
+
+    let start = node.start.point.promoted();
+    let end = node.end.point.promoted();
+    let chord = point_sub(end, start)?;
+    let target = position_target(accuracy);
+    let target_squared = finite(target * target)?;
+    for (parameter, chord_parameter) in [
+        (parameter_quarter_1, 0.25_f64),
+        (parameter_mid, 0.5),
+        (parameter_quarter_3, 0.75),
+    ] {
+        let sample = evaluator.evaluate(parameter)?;
+        let chord_point = point_lerp(start, end, chord_parameter)?;
+        let delta = point_sub(sample.point, chord_point)?;
+        if norm_squared(delta)? > target_squared {
+            return Ok(false);
+        }
+    }
+
+    let cosine_squared = half_angle_cosine_squared(direction);
+    Ok(direction_accepts(node.start.first, chord, cosine_squared)?
+        && direction_accepts(chord, node.end.first, cosine_squared)?)
+}
+
+fn position_target(profile: GeometryAccuracyProfile) -> f64 {
+    f64::from_bits(match profile {
+        GeometryAccuracyProfile::Fine2Cm => 0x3f84_7ae1_47ae_147b,
+        GeometryAccuracyProfile::Balanced5Cm => 0x3f99_9999_9999_999a,
+        GeometryAccuracyProfile::Compact10Cm => 0x3fa9_9999_9999_999a,
+    })
+}
+
+fn half_angle_cosine_squared(profile: GeometryDirectionProfile) -> f64 {
+    f64::from_bits(match profile {
+        GeometryDirectionProfile::Smooth1Deg => 0x3fef_ff60_4bfa_d7c5,
+        GeometryDirectionProfile::Balanced2Deg => 0x3fef_fd81_3c5f_82b4,
+        GeometryDirectionProfile::Compact5Deg => 0x3fef_f069_da0c_0ad2,
+    })
+}
+
+pub(super) fn full_angle_cosine_squared(profile: GeometryDirectionProfile) -> f64 {
+    f64::from_bits(match profile {
+        GeometryDirectionProfile::Smooth1Deg => 0x3fef_fd81_3c5f_82b4,
+        GeometryDirectionProfile::Balanced2Deg => 0x3fef_f605_b8b8_7ffc,
+        GeometryDirectionProfile::Compact5Deg => 0x3fef_c1c5_c640_8e0c,
+    })
+}
+
+pub(super) fn direction_accepts(
+    left: Point3,
+    right: Point3,
+    cosine_squared: f64,
+) -> Result<bool, NumericFreezeError> {
+    let dot = dot(left, right)?;
+    let left_norm = norm_squared(left)?;
+    let right_norm = norm_squared(right)?;
+    let lhs = finite(dot * dot)?;
+    let weighted_left_norm = finite(cosine_squared * left_norm)?;
+    let rhs = finite(weighted_left_norm * right_norm)?;
+    Ok(dot > 0.0 && lhs >= rhs)
+}
+
+fn dot(left: Point3, right: Point3) -> Result<f64, NumericFreezeError> {
+    let x = finite(left.x * right.x)?;
+    let y = finite(left.y * right.y)?;
+    let xy = finite(x + y)?;
+    let z = finite(left.z * right.z)?;
+    finite(xy + z)
+}
+
+fn norm_squared(value: Point3) -> Result<f64, NumericFreezeError> {
+    let x = finite(value.x * value.x)?;
+    let y = finite(value.y * value.y)?;
+    let xy = finite(x + y)?;
+    let z = finite(value.z * value.z)?;
+    finite(xy + z)
+}
+
+fn point_sub(left: Point3, right: Point3) -> Result<Point3, NumericFreezeError> {
+    Point3::try_new(
+        finite(left.x - right.x)?,
+        finite(left.y - right.y)?,
+        finite(left.z - right.z)?,
+    )
+}
+
+fn point_lerp(start: Point3, end: Point3, parameter: f64) -> Result<Point3, NumericFreezeError> {
+    fn component(start: f64, end: f64, parameter: f64) -> Result<f64, NumericFreezeError> {
+        let delta = finite(end - start)?;
+        let scaled = finite(parameter * delta)?;
+        finite(start + scaled)
+    }
+    Point3::try_new(
+        component(start.x, end.x, parameter)?,
+        component(start.y, end.y, parameter)?,
+        component(start.z, end.z, parameter)?,
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -504,6 +785,10 @@ fn finite(value: f64) -> Result<f64, NumericFreezeError> {
     Ok(if value == 0.0 { 0.0 } else { value })
 }
 
+fn canonical_f32(value: f32) -> f32 {
+    if value == 0.0 { 0.0 } else { value }
+}
+
 fn next_up(value: f64) -> Result<f64, NumericFreezeError> {
     let value = finite(value)?;
     let next = if value == 0.0 {
@@ -531,6 +816,22 @@ fn next_down(value: f64) -> Result<f64, NumericFreezeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Default)]
+    struct TestPointSink {
+        points: Vec<ApproximationPoint>,
+        maximum_points: Option<usize>,
+    }
+
+    impl ApproximationPointSink for TestPointSink {
+        fn push(&mut self, point: ApproximationPoint) -> Result<(), NumericFreezeError> {
+            if self.maximum_points == Some(self.points.len()) {
+                return Err(NumericFreezeError::GeometryPointLimit);
+            }
+            self.points.push(point);
+            Ok(())
+        }
+    }
 
     fn point(x: f64, y: f64, z: f64) -> Point3 {
         Point3::try_new(x, y, z).unwrap()
@@ -583,6 +884,164 @@ mod tests {
 
         assert_eq!(sample.point, point(4.0, 0.0, -3.0));
         assert_eq!(sample.first, point(8.0, 0.0, -2.0));
+    }
+
+    #[test]
+    fn adaptive_profile_constants_keep_the_frozen_bits() {
+        assert_eq!(
+            position_target(GeometryAccuracyProfile::Fine2Cm).to_bits(),
+            0x3f84_7ae1_47ae_147b
+        );
+        assert_eq!(
+            position_target(GeometryAccuracyProfile::Balanced5Cm).to_bits(),
+            0x3f99_9999_9999_999a
+        );
+        assert_eq!(
+            position_target(GeometryAccuracyProfile::Compact10Cm).to_bits(),
+            0x3fa9_9999_9999_999a
+        );
+        assert_eq!(
+            half_angle_cosine_squared(GeometryDirectionProfile::Smooth1Deg).to_bits(),
+            0x3fef_ff60_4bfa_d7c5
+        );
+        assert_eq!(
+            full_angle_cosine_squared(GeometryDirectionProfile::Compact5Deg).to_bits(),
+            0x3fef_c1c5_c640_8e0c
+        );
+    }
+
+    #[test]
+    fn straight_reference_emits_only_the_two_quantized_endpoints_for_every_profile() {
+        let evaluator = SegmentEvaluator::Reference(CurveSegment::Line {
+            start: point(-0.0, 1.25, 0.0),
+            end: point(8.0, 1.25, 4.0),
+        });
+        for accuracy in [
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryAccuracyProfile::Compact10Cm,
+        ] {
+            for direction in [
+                GeometryDirectionProfile::Smooth1Deg,
+                GeometryDirectionProfile::Balanced2Deg,
+                GeometryDirectionProfile::Compact5Deg,
+            ] {
+                let mut sink = TestPointSink::default();
+                approximate_interval(evaluator, 0.0, 1.0, None, accuracy, direction, &mut sink)
+                    .unwrap();
+                assert_eq!(
+                    sink.points,
+                    [
+                        ApproximationPoint {
+                            x: 0.0,
+                            y: 1.25,
+                            z: 0.0,
+                        },
+                        ApproximationPoint {
+                            x: 8.0,
+                            y: 1.25,
+                            z: 4.0,
+                        },
+                    ]
+                );
+                assert_eq!(sink.points[0].x.to_bits(), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn companion_cubic_subdivides_under_the_strict_profiles() {
+        let evaluator = SegmentEvaluator::Reference(CurveSegment::CubicBezier {
+            start: point(0.0, 0.0, 0.0),
+            control_1: point(20.0, 0.0, 20.0),
+            control_2: point(20.0, 0.0, 0.0),
+            end: point(189.5, 0.0, 0.0),
+        });
+        let mut sink = TestPointSink::default();
+        approximate_interval(
+            evaluator,
+            0.0,
+            1.0,
+            None,
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            &mut sink,
+        )
+        .unwrap();
+
+        assert_eq!(sink.points.len(), 154);
+        assert_eq!(
+            sink.points.first(),
+            Some(&ApproximationPoint {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            })
+        );
+        assert_eq!(
+            sink.points.last(),
+            Some(&ApproximationPoint {
+                x: 189.5,
+                y: 0.0,
+                z: 0.0,
+            })
+        );
+    }
+
+    #[test]
+    fn welded_start_and_sink_point_limit_fail_closed_without_hidden_allocation() {
+        let evaluator = SegmentEvaluator::Reference(CurveSegment::Line {
+            start: point(0.0, 0.0, 0.0),
+            end: point(8.0, 0.0, 0.0),
+        });
+        let welded = ApproximationPoint {
+            x: 0.003,
+            y: 0.0,
+            z: 0.0,
+        };
+        let mut sink = TestPointSink {
+            points: Vec::new(),
+            maximum_points: Some(1),
+        };
+        assert_eq!(
+            approximate_interval(
+                evaluator,
+                0.0,
+                1.0,
+                Some(welded),
+                GeometryAccuracyProfile::Fine2Cm,
+                GeometryDirectionProfile::Smooth1Deg,
+                &mut sink,
+            ),
+            Err(NumericFreezeError::GeometryPointLimit)
+        );
+        assert_eq!(sink.points, [welded]);
+    }
+
+    #[test]
+    fn endpoint_quantization_rejects_coordinates_outside_the_canonical_domain() {
+        let evaluator = SegmentEvaluator::Reference(CurveSegment::Line {
+            start: point(0.0, 0.0, 0.0),
+            end: point(
+                f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS) + 1.0,
+                0.0,
+                0.0,
+            ),
+        });
+        let mut sink = TestPointSink::default();
+        assert_eq!(
+            approximate_interval(
+                evaluator,
+                0.0,
+                1.0,
+                None,
+                GeometryAccuracyProfile::Fine2Cm,
+                GeometryDirectionProfile::Smooth1Deg,
+                &mut sink,
+            ),
+            Err(NumericFreezeError::CoordinateOutOfRange)
+        );
+        assert!(sink.points.is_empty());
     }
 
     #[test]
