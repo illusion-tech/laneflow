@@ -27,6 +27,7 @@ pub(super) enum NumericFreezeError {
     GeometryPointLimit,
     StationRowLimit,
     StationOutOfRange,
+    SourceJoinGapExceeded,
     DegenerateCanonicalSegment,
     DirectionDiscontinuity,
 }
@@ -70,7 +71,7 @@ pub(super) struct CurveSample {
 
 pub(super) type ApproximationPoint = CanonicalPoint3F32Input;
 
-fn quantize_point(value: Point3) -> Result<ApproximationPoint, NumericFreezeError> {
+pub(super) fn quantize_point(value: Point3) -> Result<ApproximationPoint, NumericFreezeError> {
     let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
     let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
     if [value.x, value.y, value.z]
@@ -115,7 +116,7 @@ pub(super) enum SegmentEvaluator {
 }
 
 impl SegmentEvaluator {
-    fn evaluate(self, parameter: f64) -> Result<CurveSample, NumericFreezeError> {
+    pub(super) fn evaluate(self, parameter: f64) -> Result<CurveSample, NumericFreezeError> {
         match self {
             Self::Reference(segment) => segment.evaluate(parameter),
             Self::Offset {
@@ -377,6 +378,13 @@ fn point_sub(left: Point3, right: Point3) -> Result<Point3, NumericFreezeError> 
 pub(super) fn point_distance(left: Point3, right: Point3) -> Result<f64, NumericFreezeError> {
     let delta = point_sub(left, right)?;
     finite(norm_squared(delta)?.sqrt())
+}
+
+pub(super) fn canonical_point_distance(
+    left: ApproximationPoint,
+    right: ApproximationPoint,
+) -> Result<f64, NumericFreezeError> {
+    point_distance(promote_point(left), promote_point(right))
 }
 
 fn point_lerp(start: Point3, end: Point3, parameter: f64) -> Result<Point3, NumericFreezeError> {
