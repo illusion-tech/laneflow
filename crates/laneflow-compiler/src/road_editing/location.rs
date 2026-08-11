@@ -4,11 +4,11 @@ use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
 use laneflow_static_contract::EntityKind;
 
 use crate::{
-    RoadEditingAddressKind, RoadEditingDocumentIdentity, RoadEditingLocationContext,
-    RoadEditingOwner, RoadEditingPropertyPath, RoadEditingPropertyStep, RoadEditingRelationKind,
-    RoadEditingRelationOccurrence, RoadEditingSourceAddress, RoadEditingSourceLocation,
-    RoadEditingStructKind, RoadEditingSubject, RoadEditingTableKind, RoadEditingUnionKind,
-    SourceLocation,
+    RoadEditingAddressKind, RoadEditingByteRange, RoadEditingDocumentIdentity,
+    RoadEditingLocationContext, RoadEditingOwner, RoadEditingPropertyPath, RoadEditingPropertyStep,
+    RoadEditingRelationKind, RoadEditingRelationOccurrence, RoadEditingRootVectorKind,
+    RoadEditingSourceAddress, RoadEditingSourceLocation, RoadEditingStructKind, RoadEditingSubject,
+    RoadEditingTableKind, RoadEditingUnionKind, SourceLocation,
 };
 
 /// verifier 后的第二遍只收集来源位置需要保留的唯一 token；不复制完整 wire 字符串集。
@@ -28,6 +28,27 @@ impl RoadEditingLocationFactory {
         .module_header()
     }
 
+    pub(crate) fn input_wire(
+        expected_source_document_key: &str,
+        root_vector: RoadEditingRootVectorKind,
+        physical_index: u32,
+        table: RoadEditingTableKind,
+        byte_range: Option<RoadEditingByteRange>,
+    ) -> SourceLocation {
+        SourceLocation::RoadEditing(RoadEditingSourceLocation::new(
+            empty_context(),
+            RoadEditingDocumentIdentity::input(Arc::from(expected_source_document_key)),
+            RoadEditingSubject::Wire {
+                root_vector,
+                physical_index,
+                table,
+            },
+            None,
+            None,
+            byte_range,
+        ))
+    }
+
     pub(crate) fn verified_module_header(
         module_namespace: &str,
         source_document_key: &str,
@@ -44,8 +65,9 @@ impl RoadEditingLocationFactory {
 
     pub(crate) fn from_verified_root(root: wire::RoadEditingSource<'_>) -> Self {
         let header = root.module_header();
-        let mut strings = vec![Arc::<str>::from(header.authoring_namespace_id())];
-        let mut canvas_selections = Vec::<Arc<str>>::new();
+        let mut strings = Vec::with_capacity(location_string_occurrence_count(root));
+        strings.push(Arc::<str>::from(header.authoring_namespace_id()));
+        let mut canvas_selections = Vec::<Arc<str>>::with_capacity(canvas_occurrence_count(root));
 
         macro_rules! collect_root {
             ($values:expr, $key:ident) => {
@@ -349,6 +371,92 @@ fn collect_curve_canvas(output: &mut Vec<Arc<str>>, curve: wire::CurveProgram<'_
     }
 }
 
+fn location_string_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize {
+    1_usize
+        .saturating_add(root.road_alignments().len())
+        .saturating_add(root.road_corridors().len())
+        .saturating_add(root.road_sections().len())
+        .saturating_add(root.authoring_lanes().len())
+        .saturating_add(root.lane_edges().len())
+        .saturating_add(root.junctions().len())
+        .saturating_add(root.movements().len())
+        .saturating_add(root.maneuver_paths().len())
+        .saturating_add(root.maneuver_gates().len())
+        .saturating_add(root.waiting_zones().len())
+        .saturating_add(root.stop_lines().len())
+        .saturating_add(root.signal_groups().len())
+        .saturating_add(root.signal_controllers().len())
+        .saturating_add(root.signal_phases().len())
+        .saturating_add(root.parking_areas().len())
+        .saturating_add(root.parking_spaces().len())
+        .saturating_add(root.lane_groups().len())
+        .saturating_add(root.facility_bands().len())
+        .saturating_add(root.participant_classes().len())
+        .saturating_add(root.access_rules().len())
+        .saturating_add(root.vehicle_profiles().len())
+        .saturating_add(root.static_routes().len())
+        .saturating_add(root.canonical_frames().len())
+}
+
+fn canvas_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize {
+    let mut count = 0_usize;
+    macro_rules! charge_root {
+        ($values:expr) => {
+            count = count.saturating_add(
+                $values
+                    .iter()
+                    .filter(|value| value.canvas_selection().is_some())
+                    .count(),
+            );
+        };
+    }
+    charge_root!(root.road_alignments());
+    charge_root!(root.road_corridors());
+    charge_root!(root.road_sections());
+    charge_root!(root.authoring_lanes());
+    charge_root!(root.lane_edges());
+    charge_root!(root.junctions());
+    charge_root!(root.movements());
+    charge_root!(root.maneuver_paths());
+    charge_root!(root.maneuver_gates());
+    charge_root!(root.waiting_zones());
+    charge_root!(root.stop_lines());
+    charge_root!(root.signal_groups());
+    charge_root!(root.signal_controllers());
+    charge_root!(root.signal_phases());
+    charge_root!(root.parking_areas());
+    charge_root!(root.parking_spaces());
+    charge_root!(root.lane_groups());
+    charge_root!(root.facility_bands());
+    charge_root!(root.participant_classes());
+    charge_root!(root.access_rules());
+    charge_root!(root.vehicle_profiles());
+    charge_root!(root.static_routes());
+    charge_root!(root.canonical_frames());
+    for alignment in root.road_alignments() {
+        count = count.saturating_add(
+            alignment
+                .reference_line()
+                .segments()
+                .iter()
+                .filter(|segment| segment.canvas_selection().is_some())
+                .count(),
+        );
+    }
+    for edge in root.lane_edges() {
+        if let Some(curve) = edge.explicit_geometry() {
+            count = count.saturating_add(
+                curve
+                    .segments()
+                    .iter()
+                    .filter(|segment| segment.canvas_selection().is_some())
+                    .count(),
+            );
+        }
+    }
+    count
+}
+
 fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
     let tables = [
         (RoadEditingTableKind::RoadEditingSource, 26_u16),
@@ -388,7 +496,7 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         (RoadEditingTableKind::StaticRoute, 2),
         (RoadEditingTableKind::CanonicalFrame, 1),
     ];
-    let mut paths = Vec::new();
+    let mut paths = Vec::with_capacity(512);
     for (table, last_field_id) in tables {
         for field_id in 0..=last_field_id {
             paths.push(RoadEditingPropertyPath::new(Box::new([

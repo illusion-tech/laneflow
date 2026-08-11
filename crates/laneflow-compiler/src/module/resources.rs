@@ -17,7 +17,10 @@ pub(crate) struct ModuleResourceCounts {
     pub(crate) waiting_zone_count: u64,
     pub(crate) route_occurrence_count: u64,
     pub(crate) geometry_point_count: u64,
+    pub(crate) geometry_source_range_count: u64,
     pub(crate) controlled_live_bytes: u64,
+    /// 具体官方前端构造本候选模块期间的受控存续峰值，不含既有 builder。
+    pub(crate) admission_peak_live_bytes: u64,
 }
 
 /// 编译单元准入过程中唯一的累计资源状态。
@@ -43,7 +46,10 @@ pub(super) struct AdmissionTotals {
     pub(super) waiting_zone_count: u64,
     pub(super) route_occurrence_count: u64,
     pub(super) geometry_point_count: u64,
+    pub(super) geometry_source_range_count: u64,
     pub(super) module_payload_live_bytes: u64,
+    pub(super) module_slot_capacity: u64,
+    pub(super) admission_peak_live_bytes: u64,
 }
 
 impl AdmissionTotals {
@@ -54,8 +60,9 @@ impl AdmissionTotals {
         import_edge_count: u64,
         counts: &ModuleResourceCounts,
     ) -> Self {
+        let module_count = self.module_count.saturating_add(1);
         Self {
-            module_count: self.module_count.saturating_add(1),
+            module_count,
             source_document_count: self
                 .source_document_count
                 .saturating_add(source_document_count),
@@ -91,9 +98,17 @@ impl AdmissionTotals {
             geometry_point_count: self
                 .geometry_point_count
                 .saturating_add(counts.geometry_point_count),
+            geometry_source_range_count: self
+                .geometry_source_range_count
+                .saturating_add(counts.geometry_source_range_count),
             module_payload_live_bytes: self
                 .module_payload_live_bytes
                 .saturating_add(counts.controlled_live_bytes),
+            module_slot_capacity: planned_module_slot_capacity(
+                self.module_slot_capacity,
+                module_count,
+            ),
+            admission_peak_live_bytes: self.admission_peak_live_bytes,
         }
     }
 
@@ -157,6 +172,13 @@ impl AdmissionTotals {
             ),
         ]
     }
+}
+
+fn planned_module_slot_capacity(current: u64, required: u64) -> u64 {
+    if required <= current {
+        return current;
+    }
+    required.next_power_of_two().max(4)
 }
 
 pub(crate) fn size_bytes<T>(count: u64) -> u64 {

@@ -1593,7 +1593,8 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         .controlled_live_bytes
         .saturating_add(hir_persistent_bytes)
         .saturating_add(hir_lookup_bytes)
-        .saturating_add(stage_scratch_bytes);
+        .saturating_add(stage_scratch_bytes)
+        .max(unit.admission_peak_live_bytes);
 
     let primary_span = unit
         .modules
@@ -3912,22 +3913,31 @@ fn build_control_hir(
         }
     }
 
-    // 每个显式 successor 引用是否至少有一条 ManeuverPath 以该转换起步；另行记录所有
-    // path entry edge，使由 ManeuverPath 独占权威的 junction-internal 转换无需伪造 successor。
+    // 每个显式 successor 引用是否至少有一条 ManeuverPath 使用该转换；另行记录所有
+    // path transition 的起始边，使由 ManeuverPath 独占权威的 junction-internal 转换无需
+    // 伪造 successor，也能合法承载 release gate 的 stop line。
     let mut successor_has_path = vec![0_u8; lane_edge_references.len()];
-    let mut edge_has_entry_path = vec![0_u8; lane_edges.len()];
+    let mut edge_has_path_transition = vec![0_u8; lane_edges.len()];
     for (path_index, path) in maneuver_paths.iter().enumerate() {
         let path_edges = &maneuver_path_edges[path.edges.as_usize_range()];
-        let [from, to, ..] = path_edges else {
+        let [from, _to, ..] = path_edges else {
             unreachable!("validated ManeuverPath must contain at least entry and exit edges")
         };
-        edge_has_entry_path[from.target.index()] = 1;
-        let successor_range = lane_edges.get(from.target).successors.as_usize_range();
-        if let Some(successor_offset) = lane_edge_references[successor_range.clone()]
-            .iter()
-            .position(|successor| successor.target == to.target)
-        {
-            successor_has_path[successor_range.start + successor_offset] = 1;
+        for pair in path_edges.windows(2) {
+            let [transition_from, transition_to] = pair else {
+                unreachable!("path transition windows always contain two edges")
+            };
+            edge_has_path_transition[transition_from.target.index()] = 1;
+            let successor_range = lane_edges
+                .get(transition_from.target)
+                .successors
+                .as_usize_range();
+            if let Some(successor_offset) = lane_edge_references[successor_range.clone()]
+                .iter()
+                .position(|successor| successor.target == transition_to.target)
+            {
+                successor_has_path[successor_range.start + successor_offset] = 1;
+            }
         }
 
         let Some(stop_key) = stop_line_by_edge[from.target.index()] else {
@@ -3949,7 +3959,7 @@ fn build_control_hir(
     }
     for (stop_key, stop) in stop_lines.iter() {
         let successor_range = lane_edges.get(stop.lane_edge).successors.as_usize_range();
-        if successor_range.is_empty() && edge_has_entry_path[stop.lane_edge.index()] == 0 {
+        if successor_range.is_empty() && edge_has_path_transition[stop.lane_edge.index()] == 0 {
             let mut diagnostic = Diagnostic::orphan_stop_line(
                 &stop.stable_key,
                 &lane_edges.get(stop.lane_edge).stable_key,
@@ -3990,7 +4000,7 @@ fn build_control_hir(
     drop(path_has_entry_gate);
     drop(stop_has_entry_gate);
     drop(successor_has_path);
-    drop(edge_has_entry_path);
+    drop(edge_has_path_transition);
 
     let mut path_gate_total = 0_usize;
     for (index, count) in path_gate_counts.iter().copied().enumerate() {
