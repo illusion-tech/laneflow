@@ -1075,16 +1075,20 @@ impl CanonicalFacilityBandView<'_> {
     /// 返回 non-traversable 设施带的规范空间几何；headless LIR 返回 `None`。
     #[must_use]
     pub fn spatial_geometry(&self) -> Option<CanonicalFacilityBandGeometryView<'_>> {
-        self.lir.facility_band_geometries[self.record.spatial_geometry.as_usize_range()]
-            .first()
-            .map(|geometry| CanonicalFacilityBandGeometryView {
+        self.lir
+            .facility_band_geometries
+            .binary_search_by_key(&self.record.ordinal.raw(), |geometry| {
+                geometry.facility_band.raw()
+            })
+            .ok()
+            .map(|index| CanonicalFacilityBandGeometryView {
                 lir: self.lir,
-                geometry,
+                geometry: &self.lir.facility_band_geometries[index],
             })
     }
 }
 
-/// 一条 non-traversable `FacilityBand` 的只读规范中心线及预计算采样表。
+/// 一条 non-traversable `FacilityBand` 的只读规范中心线。
 #[derive(Clone, Copy)]
 pub struct CanonicalFacilityBandGeometryView<'a> {
     lir: &'a LirUnit,
@@ -1102,23 +1106,11 @@ impl CanonicalFacilityBandGeometryView<'_> {
         self.geometry.canonical_frame
     }
 
-    #[must_use]
-    pub const fn arc_length_meters(&self) -> f32 {
-        self.geometry.arc_length_meters
-    }
-
     pub fn points(&self) -> impl ExactSizeIterator<Item = CanonicalPoint3F32> + '_ {
         self.lir.canonical_points[self.geometry.points.as_usize_range()]
             .iter()
             .copied()
             .map(CanonicalPoint3F32::from)
-    }
-
-    pub fn segments(&self) -> impl ExactSizeIterator<Item = CanonicalSpatialSegment> + '_ {
-        self.lir.spatial_segments[self.geometry.segments.as_usize_range()]
-            .iter()
-            .copied()
-            .map(CanonicalSpatialSegment::from)
     }
 }
 
@@ -2351,6 +2343,7 @@ mod tests {
                         CanonicalPoint3F32Input { x: 10.0, y: 0.0, z },
                     ]
                     .into(),
+                    source_ranges: Box::new([]),
                 });
             }
         }
@@ -5562,6 +5555,22 @@ mod tests {
         let headless_facilities = Compiler::new()
             .compile(spatial_cross_section_unit(false, 2.0, false))
             .unwrap();
+        let mut sparse_unit = spatial_cross_section_unit(false, 2.0, true);
+        let sparse_module = &mut sparse_unit.modules[0];
+        let sparse_band_a = sparse_module
+            .declarations
+            .iter_mut()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::FacilityBand(band)
+                    if band.header.stable_key.as_ref() == "band-a" =>
+                {
+                    Some(band)
+                }
+                _ => None,
+            })
+            .expect("fixture contains band-a");
+        sparse_band_a.compiled_geometry = None;
+        let sparse = Compiler::new().compile(sparse_unit).unwrap();
 
         let bands = baseline.lir().facility_bands().collect::<Vec<_>>();
         assert_eq!(bands.len(), 2);
@@ -5579,7 +5588,6 @@ mod tests {
         let geometry = bands[0].spatial_geometry().unwrap();
         assert_eq!(geometry.facility_band(), bands[0].ordinal());
         assert_eq!(geometry.canonical_frame().raw(), 0);
-        assert_eq!(geometry.arc_length_meters(), 10.0);
         assert_eq!(
             geometry.points().collect::<Vec<_>>(),
             [
@@ -5595,10 +5603,67 @@ mod tests {
                 },
             ]
         );
-        assert_eq!(geometry.segments().len(), 1);
         assert_eq!(baseline.lir.inner.lane_edge_geometries.len(), 1);
         assert_eq!(baseline.lir.inner.facility_band_geometries.len(), 2);
+        assert_eq!(
+            baseline
+                .lir
+                .inner
+                .facility_band_geometries
+                .iter()
+                .map(|geometry| geometry.facility_band.raw())
+                .collect::<Vec<_>>(),
+            [0, 1]
+        );
+        let sparse_bands = sparse.lir().facility_bands().collect::<Vec<_>>();
+        assert!(sparse_bands[0].spatial_geometry().is_none());
+        assert_eq!(
+            sparse_bands[1]
+                .spatial_geometry()
+                .expect("ordinal one keeps its sparse geometry")
+                .facility_band(),
+            sparse_bands[1].ordinal()
+        );
+        assert_eq!(
+            sparse
+                .lir
+                .inner
+                .facility_band_geometries
+                .iter()
+                .map(|geometry| geometry.facility_band.raw())
+                .collect::<Vec<_>>(),
+            [1]
+        );
         assert_eq!(baseline.lir.inner.canonical_points.len(), 6);
+        assert_eq!(baseline.lir.inner.spatial_segments.len(), 1);
+        assert_eq!(
+            baseline.lir.inner.spatial_segments.len(),
+            headless_facilities.lir.inner.spatial_segments.len()
+        );
+        let baseline_edge = baseline
+            .lir()
+            .lane_edges()
+            .next()
+            .expect("fixture retains its lane edge");
+        let baseline_lane = baseline_edge
+            .spatial_geometry()
+            .expect("fixture retains lane geometry");
+        let changed_edge = changed
+            .lir()
+            .lane_edges()
+            .next()
+            .expect("changed fixture retains its lane edge");
+        let changed_lane = changed_edge
+            .spatial_geometry()
+            .expect("changed fixture retains lane geometry");
+        assert_eq!(
+            baseline_lane.points().collect::<Vec<_>>(),
+            changed_lane.points().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            baseline_lane.segments().collect::<Vec<_>>(),
+            changed_lane.segments().collect::<Vec<_>>()
+        );
 
         let spatial_relations = baseline
             .source_map_input()
@@ -5627,15 +5692,15 @@ mod tests {
             headless_facilities
                 .metrics()
                 .lir_record_count()
-                .saturating_add(8)
+                .saturating_add(6)
         );
-        // 两条 facility geometry 行、四个点和两个 segment 的目标布局逻辑量。
+        // 两条 point-only facility geometry 行和四个点的目标布局逻辑量。
         assert_eq!(
             baseline.metrics().output_logical_bytes(),
             headless_facilities
                 .metrics()
                 .output_logical_bytes()
-                .saturating_add(168)
+                .saturating_add(80)
         );
         assert!(
             headless_facilities
@@ -5696,6 +5761,7 @@ mod tests {
                 },
             ]
             .into(),
+            source_ranges: Box::new([]),
         });
 
         let diagnostics = Compiler::new()
