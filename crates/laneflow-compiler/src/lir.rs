@@ -26,6 +26,7 @@ use laneflow_static_contract::{
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange};
 use crate::diagnostic::DiagnosticCollector;
+use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::mir::{
     MirAccessRuleKey, MirAccessTarget, MirAuthoringLaneKey, MirCanonicalFrameKey,
     MirCorridorElement, MirFacilityBandKey, MirJunctionKey, MirLaneEdgeKey, MirLaneGroupKey,
@@ -78,6 +79,7 @@ const LIR_SPATIAL_SEGMENT_LOGICAL_BYTES: u64 = 4 * 8;
 // 可选来源区间的最大形状计。实际 UTF-8 内容在下方按字节数另行累加。
 const LIR_ACCESS_RULE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + (2 + 4) + 1 + 8 + (1 + 4 + 4 + 1 + 4) + 4;
 const LIR_CORRIDOR_ELEMENT_LOGICAL_BYTES: u64 = 2 + 4;
+const LIR_GEOMETRY_PROFILE_LOGICAL_BYTES: u64 = 2;
 const LIR_SEMANTIC_DIGEST_BYTES: u64 = 32;
 
 /// 一项规范身份字段；值位于 `LirUnit::identity_field_bytes` 的连续区间。
@@ -418,6 +420,15 @@ pub(crate) struct LirRouteOccurrenceRef {
 /// 对应平面表内。`controlled_live_bytes` 只统计成功返回后由本结果持有的请求字节；
 /// `peak_controlled_live_bytes` 另保存 MIR、冻结暂存区与新输出共存时的阶段峰值。
 pub(crate) struct LirUnit {
+    /// `None` 使用两个零 code；道路编辑规范几何使用两个闭合的非零档位 code。
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "consumed by the following artifact emission slice"
+        )
+    )]
+    pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
     pub(crate) lane_edges: Box<[LirLaneEdge]>,
     pub(crate) lane_edge_successors: Box<[LaneEdgeOrdinal]>,
     pub(crate) road_corridors: Box<[LirRoadCorridor]>,
@@ -930,7 +941,8 @@ pub(crate) fn freeze_lir(
         .saturating_add(waiting_zone_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
         .saturating_add(maneuver_gate_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
         .saturating_add(kind_id_byte_count)
-        .saturating_add(LIR_SEMANTIC_DIGEST_BYTES);
+        .saturating_add(LIR_SEMANTIC_DIGEST_BYTES)
+        .saturating_add(LIR_GEOMETRY_PROFILE_LOGICAL_BYTES);
     let output_owned_bytes = requested_bytes::<LirLaneEdge>(lane_edge_count)
         .saturating_add(requested_bytes::<LaneEdgeOrdinal>(successor_count))
         .saturating_add(requested_bytes::<LirIdentityField>(identity_field_count))
@@ -2920,7 +2932,9 @@ pub(crate) fn freeze_lir(
     debug_assert_eq!(successors.len(), successor_capacity);
     debug_assert_eq!(identity_fields.len(), identity_field_capacity);
     debug_assert_eq!(identity_field_bytes.len(), identity_byte_capacity);
+    let geometry_profiles = mir.geometry_profiles;
     let semantic_digest = semantic_digest(
+        geometry_profiles,
         &lane_edges,
         &successors,
         &road_corridors,
@@ -2978,6 +2992,7 @@ pub(crate) fn freeze_lir(
     );
     Ok(LirFreezeOutput {
         lir: LirUnit {
+            geometry_profiles,
             lane_edges: lane_edges.into_boxed_slice(),
             lane_edge_successors: successors.into_boxed_slice(),
             road_corridors: road_corridors.into_boxed_slice(),
@@ -3427,6 +3442,7 @@ fn push_identity_field(
 // 已支持的封闭实体表增长，但保持每张表是否进入确定性摘要一目了然。
 #[allow(clippy::too_many_arguments)]
 fn semantic_digest(
+    geometry_profiles: Option<GeometryCompilationProfiles>,
     edges: &[LirLaneEdge],
     successors: &[LaneEdgeOrdinal],
     corridors: &[LirRoadCorridor],
@@ -3484,6 +3500,10 @@ fn semantic_digest(
 ) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(LIR_SEMANTIC_DIGEST_DOMAIN);
+    let profile_codes = geometry_profiles.map_or([0, 0], |profiles| {
+        [profiles.accuracy as u8, profiles.direction as u8]
+    });
+    hasher.update(&profile_codes);
     hash_u32(&mut hasher, EntityKind::LaneEdge.code().into());
     hash_u32(
         &mut hasher,
@@ -4293,7 +4313,7 @@ mod tests {
         assert_eq!(lir.lane_edges.len(), 2);
         assert_eq!(lir.lane_edge_successors.len(), 1);
         assert_eq!(lir.lir_record_count, 3);
-        assert_eq!(lir.output_bytes, 210);
+        assert_eq!(lir.output_bytes, 212);
         assert!(lir.controlled_live_bytes > 0);
         assert_eq!(lir.lane_edges[0].ordinal.raw(), 0);
         assert_eq!(lir.lane_edges[1].ordinal.raw(), 1);

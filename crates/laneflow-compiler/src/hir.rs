@@ -38,7 +38,9 @@ use crate::identity::{
     encode_canonical_identity,
 };
 use crate::module::ResolvedSourceLocation;
-use crate::spatial_freeze::{check_spatial_direction, freeze_spatial_polyline};
+use crate::spatial_freeze::{
+    check_spatial_direction, freeze_canonical_polyline, freeze_spatial_polyline,
+};
 use crate::{
     AccessCapability, AccessPlane, AccessRegulationField, CompilationUnit, CompileLimitDimension,
     Diagnostic, DiagnosticBundle, ParkingAnchorRole, ParkingGeometryField,
@@ -473,6 +475,7 @@ pub(crate) struct HirCanonicalFrame {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: CanonicalFrameId,
     pub(crate) lane_edge_geometries: TableRange<HirLaneEdgeGeometry>,
+    pub(crate) facility_band_geometries: TableRange<HirFacilityBandGeometry>,
     pub(crate) source_span: SourceLocation,
 }
 
@@ -483,6 +486,18 @@ pub(crate) struct HirLaneEdgeGeometry {
     pub(crate) points: TableRange<HirCanonicalPoint3F32>,
     pub(crate) segments: TableRange<HirSpatialSegment>,
     pub(crate) arc_length_meters: f32,
+    pub(crate) source_span: SourceLocation,
+}
+
+/// 不可遍历 FacilityBand 的规范中心线；与 LaneEdge 几何共享规范点表。
+#[allow(
+    dead_code,
+    reason = "consumed by the following FacilityBand MIR/LIR slice"
+)]
+pub(crate) struct HirFacilityBandGeometry {
+    pub(crate) canonical_frame: HirCanonicalFrameKey,
+    pub(crate) facility_band: HirFacilityBandKey,
+    pub(crate) points: TableRange<HirCanonicalPoint3F32>,
     pub(crate) source_span: SourceLocation,
 }
 
@@ -618,6 +633,8 @@ pub(crate) struct HirStaticRoute {
 /// 本实例有效。`controlled_live_bytes` 统计成功返回后由 HIR 自身持有的阶段字节；
 /// `peak_controlled_live_bytes` 另保存资源预检已经计算的输入、查找表和暂存区共存峰值。
 pub(crate) struct HirUnit {
+    /// 全编译单元唯一的道路几何编译档；无 RoadEditing 规范几何时为 `None`。
+    pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
     pub(crate) modules: Box<[HirModule]>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) imports: Box<[HirImport]>,
@@ -657,6 +674,11 @@ pub(crate) struct HirUnit {
     pub(crate) vehicle_profiles: Box<[HirVehicleProfile]>,
     pub(crate) canonical_frames: Box<[HirCanonicalFrame]>,
     pub(crate) lane_edge_geometries: Box<[HirLaneEdgeGeometry]>,
+    #[allow(
+        dead_code,
+        reason = "consumed by the following FacilityBand MIR/LIR slice"
+    )]
+    pub(crate) facility_band_geometries: Box<[HirFacilityBandGeometry]>,
     pub(crate) canonical_points: Box<[HirCanonicalPoint3F32]>,
     pub(crate) spatial_segments: Box<[HirSpatialSegment]>,
     pub(crate) access_rules: Box<[HirAccessRule]>,
@@ -851,8 +873,10 @@ struct ParkingCounts {
 
 #[derive(Default)]
 struct SpatialHir {
+    geometry_profiles: Option<GeometryCompilationProfiles>,
     canonical_frames: Box<[HirCanonicalFrame]>,
     lane_edge_geometries: Box<[HirLaneEdgeGeometry]>,
+    facility_band_geometries: Box<[HirFacilityBandGeometry]>,
     canonical_points: Box<[HirCanonicalPoint3F32]>,
     spatial_segments: Box<[HirSpatialSegment]>,
 }
@@ -861,12 +885,14 @@ struct SpatialHir {
 struct SpatialCounts {
     canonical_frames: u64,
     lane_edge_geometries: u64,
+    facility_band_geometries: u64,
     canonical_points: u64,
     spatial_segments: u64,
 }
 
 struct PendingSpatialGeometry<'a> {
     centerline_points: &'a [CanonicalPoint3F32Input],
+    expected_length_meters: f64,
     source_span: SourceLocation,
 }
 
@@ -876,7 +902,11 @@ struct SpatialFrameAssignment {
     source_span: SourceLocation,
 }
 
-struct SpatialTopologyContext<'a> {
+struct SpatialHirContext<'a> {
+    lane_edges: &'a TypedArena<HirLaneEdgeTag, HirLaneEdge>,
+    lane_edge_references: &'a [HirLaneEdgeReference],
+    lane_edge_symbols: &'a SymbolTable<HirLaneEdgeKey>,
+    facility_bands: &'a [HirFacilityBand],
     maneuver_paths: &'a [HirManeuverPath],
     maneuver_path_edges: &'a [HirManeuverPathEdge],
     junction_internal_edges: &'a [HirJunctionInternalEdge],
@@ -1057,6 +1087,8 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         .saturating_add(unit.relation_occurrence_count)
         // HIR 记录数必须使用实际冻结后的规范点，而不是 RoadEditing source curve 的
         // 控制点计数；细分可能让两者显著不同。
+        .saturating_add(spatial_counts.lane_edge_geometries)
+        .saturating_add(spatial_counts.facility_band_geometries)
         .saturating_add(spatial_counts.canonical_points)
         .saturating_add(spatial_counts.spatial_segments)
         // 信号组到机动门的反向使用关系由 HIR 派生，Typed AST 只计正向绑定。
@@ -1248,30 +1280,48 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             ))
             .saturating_add(requested_bytes::<usize>(unit.declaration_count))
     };
-    let spatial_scratch =
-        if spatial_counts.canonical_frames == 0 && spatial_counts.lane_edge_geometries == 0 {
-            0
-        } else {
-            requested_bytes::<usize>(unit.declaration_count)
-                .saturating_add(requested_bytes::<Option<PendingSpatialGeometry<'static>>>(
-                    lane_edge_count,
-                ))
-                .saturating_add(requested_bytes::<Option<SpatialFrameAssignment>>(
-                    lane_edge_count,
-                ))
-                .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
-                .saturating_add(requested_bytes::<u8>(lane_edge_count))
-                .saturating_add(requested_bytes::<HirLaneEdgeKey>(
-                    spatial_counts.lane_edge_geometries,
-                ))
-                .saturating_add(requested_bytes::<
-                    HashMap<TypedAstEntityAddress, HirCanonicalFrameKey>,
-                >(module_count))
-                .saturating_add(requested_hash_table_bytes::<
-                    TypedAstEntityAddress,
-                    HirCanonicalFrameKey,
-                >(spatial_counts.canonical_frames))
-        };
+    let spatial_scratch = if spatial_counts.canonical_frames == 0
+        && spatial_counts.lane_edge_geometries == 0
+        && spatial_counts.facility_band_geometries == 0
+    {
+        0
+    } else {
+        requested_bytes::<usize>(unit.declaration_count)
+            .saturating_add(requested_bytes::<Option<PendingSpatialGeometry<'static>>>(
+                lane_edge_count,
+            ))
+            .saturating_add(requested_bytes::<Option<PendingSpatialGeometry<'static>>>(
+                cross_section_counts.facility_bands,
+            ))
+            .saturating_add(requested_bytes::<Option<SpatialFrameAssignment>>(
+                lane_edge_count,
+            ))
+            .saturating_add(requested_bytes::<Option<SpatialFrameAssignment>>(
+                cross_section_counts.facility_bands,
+            ))
+            .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
+            .saturating_add(requested_bytes::<u8>(lane_edge_count))
+            .saturating_add(requested_bytes::<HirLaneEdgeKey>(
+                spatial_counts.lane_edge_geometries,
+            ))
+            .saturating_add(requested_bytes::<HirFacilityBandKey>(
+                spatial_counts.facility_band_geometries,
+            ))
+            .saturating_add(requested_bytes::<
+                HashMap<TypedAstEntityAddress, HirCanonicalFrameKey>,
+            >(module_count))
+            .saturating_add(requested_bytes::<
+                HashMap<TypedAstEntityAddress, HirFacilityBandKey>,
+            >(module_count))
+            .saturating_add(requested_hash_table_bytes::<
+                TypedAstEntityAddress,
+                HirCanonicalFrameKey,
+            >(spatial_counts.canonical_frames))
+            .saturating_add(requested_hash_table_bytes::<
+                TypedAstEntityAddress,
+                HirFacilityBandKey,
+            >(cross_section_counts.facility_bands))
+    };
     let access_scratch = if access_counts.entity_count() == 0 {
         0
     } else {
@@ -1398,6 +1448,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         ))
         .saturating_add(requested_bytes::<HirLaneEdgeGeometry>(
             spatial_counts.lane_edge_geometries,
+        ))
+        .saturating_add(requested_bytes::<HirFacilityBandGeometry>(
+            spatial_counts.facility_band_geometries,
         ))
         .saturating_add(requested_bytes::<HirCanonicalPoint3F32>(
             spatial_counts.canonical_points,
@@ -1807,10 +1860,11 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let spatial = build_spatial_hir(
         unit,
         &module_lookup,
-        &lane_edges,
-        &references,
-        &symbols,
-        SpatialTopologyContext {
+        SpatialHirContext {
+            lane_edges: &lane_edges,
+            lane_edge_references: &references,
+            lane_edge_symbols: &symbols,
+            facility_bands: &cross_section.facility_bands,
             maneuver_paths: &junction.maneuver_paths,
             maneuver_path_edges: &junction.maneuver_path_edges,
             junction_internal_edges: &junction.junction_internal_edges,
@@ -1848,6 +1902,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     debug_assert_eq!(modules.len(), module_capacity);
     debug_assert_eq!(lane_edges.len(), lane_edge_capacity);
     Ok(HirUnit {
+        geometry_profiles: spatial.geometry_profiles,
         modules: modules.into_boxed_slice(),
         imports: imports.into_boxed_slice(),
         lane_edges: lane_edges.into_boxed_slice(),
@@ -1884,6 +1939,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         parking_area_spaces: parking.parking_area_spaces,
         canonical_frames: spatial.canonical_frames,
         lane_edge_geometries: spatial.lane_edge_geometries,
+        facility_band_geometries: spatial.facility_band_geometries,
         canonical_points: spatial.canonical_points,
         spatial_segments: spatial.spatial_segments,
         participant_classes: access.participant_classes,
@@ -4675,14 +4731,23 @@ fn build_signal_hir(
 fn build_spatial_hir(
     unit: &CompilationUnit,
     module_lookup: &HashMap<Arc<str>, HirModuleKey>,
-    lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
-    lane_edge_references: &[HirLaneEdgeReference],
-    lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
-    topology: SpatialTopologyContext<'_>,
+    context: SpatialHirContext<'_>,
     identities: &mut IdentityRegistry,
 ) -> Result<SpatialHir, DiagnosticBundle> {
+    let SpatialHirContext {
+        lane_edges,
+        lane_edge_references,
+        lane_edge_symbols,
+        facility_bands,
+        maneuver_paths,
+        maneuver_path_edges,
+        junction_internal_edges,
+    } = context;
     let counts = spatial_counts(unit);
-    if counts.canonical_frames == 0 && counts.lane_edge_geometries == 0 {
+    if counts.canonical_frames == 0
+        && counts.lane_edge_geometries == 0
+        && counts.facility_band_geometries == 0
+    {
         return Ok(SpatialHir::default());
     }
 
@@ -4691,15 +4756,23 @@ fn build_spatial_hir(
     );
     let mut geometries: Vec<HirLaneEdgeGeometry> =
         Vec::with_capacity(count_to_usize(counts.lane_edge_geometries, &unit.limits)?);
+    let mut facility_geometries: Vec<HirFacilityBandGeometry> = Vec::with_capacity(count_to_usize(
+        counts.facility_band_geometries,
+        &unit.limits,
+    )?);
     let mut points = Vec::with_capacity(count_to_usize(counts.canonical_points, &unit.limits)?);
     let mut segments = Vec::with_capacity(count_to_usize(counts.spatial_segments, &unit.limits)?);
     let mut pending_geometries: Vec<Option<PendingSpatialGeometry<'_>>> =
         (0..lane_edges.len()).map(|_| None).collect();
+    let mut pending_facility_geometries: Vec<Option<PendingSpatialGeometry<'_>>> =
+        (0..facility_bands.len()).map(|_| None).collect();
+    let mut facility_frame_assignments: Vec<Option<SpatialFrameAssignment>> =
+        (0..facility_bands.len()).map(|_| None).collect();
     let mut frame_assignments: Vec<Option<SpatialFrameAssignment>> =
         (0..lane_edges.len()).map(|_| None).collect();
     let mut geometry_index_by_edge = vec![None::<usize>; lane_edges.len()];
     let mut internal_edge_flags = vec![0_u8; lane_edges.len()];
-    for relation in topology.junction_internal_edges {
+    for relation in junction_internal_edges {
         internal_edge_flags[relation.edge.index()] = 1;
     }
     let mut frame_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
@@ -4709,6 +4782,22 @@ fn build_spatial_hir(
             .filter(|declaration| matches!(declaration, TypedAstDeclaration::CanonicalFrame(_)))
             .count()
     }));
+    let mut facility_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
+        module
+            .declarations
+            .iter()
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::FacilityBand(_)))
+            .count()
+    }));
+    for (index, band) in facility_bands.iter().enumerate() {
+        facility_symbols.insert(
+            band.module,
+            band.source_address.clone(),
+            HirFacilityBandKey::from_raw(
+                u32::try_from(index).expect("FacilityBand arena length is bounded by u32"),
+            ),
+        );
+    }
     let mut diagnostics =
         DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
     for (module_index, source_module) in unit.modules.iter().enumerate() {
@@ -4761,6 +4850,7 @@ fn build_spatial_hir(
                     stable_key: Arc::clone(&source.header.stable_key),
                     stable_id,
                     lane_edge_geometries: TableRange::empty(),
+                    facility_band_geometries: TableRange::empty(),
                     source_span: source.header.span.clone(),
                 })
                 .map_err(|overflow| {
@@ -4804,6 +4894,7 @@ fn build_spatial_hir(
                 }
                 pending_geometries[lane_edge.index()] = Some(PendingSpatialGeometry {
                     centerline_points: &geometry.centerline_points,
+                    expected_length_meters: lane_edges.get(lane_edge).length_meters,
                     source_span: geometry.lane_edge.span.clone(),
                 });
                 frame_assignments[lane_edge.index()] = Some(SpatialFrameAssignment {
@@ -4912,6 +5003,7 @@ fn build_spatial_hir(
             }
             pending_geometries[lane_edge.index()] = Some(PendingSpatialGeometry {
                 centerline_points: &compiled.centerline_points,
+                expected_length_meters: compiled.length.value(),
                 source_span: source.header.span.clone(),
             });
             if compiled.canonical_frame.is_none() && internal_edge_flags[lane_edge.index()] == 0 {
@@ -4946,11 +5038,53 @@ fn build_spatial_hir(
         }
     }
 
+    // FacilityBand 不参与可遍历 LaneEdge 图，但其中心线必须进入同一 frame、规范点表
+    // 和资源权威，供后继 MIR/LIR 生成不可遍历设施几何表。
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let module_key = HirModuleKey::from_raw(
+            u32::try_from(module_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        for declaration in &source_module.declarations {
+            let TypedAstDeclaration::FacilityBand(source) = declaration else {
+                continue;
+            };
+            let Some(compiled) = &source.compiled_geometry else {
+                continue;
+            };
+            let band = facility_symbols
+                .get(module_key, &source.header.source_address)
+                .expect("cross-section HIR registered every FacilityBand symbol");
+            pending_facility_geometries[band.index()] = Some(PendingSpatialGeometry {
+                centerline_points: &compiled.centerline_points,
+                expected_length_meters: compiled.length.value(),
+                source_span: source.header.span.clone(),
+            });
+            if let Some(frame) = resolve_reference(
+                module_lookup,
+                &frame_symbols,
+                &compiled.canonical_frame,
+                EntityKind::FacilityBand,
+                &source.header,
+                u32::try_from(module_index).unwrap_or(u32::MAX),
+                &mut diagnostics,
+            ) {
+                facility_frame_assignments[band.index()] = Some(SpatialFrameAssignment {
+                    frame,
+                    source_span: compiled.canonical_frame.span.clone(),
+                });
+            }
+        }
+    }
+
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
     }
-    if pending_geometries.iter().all(Option::is_none) {
+    if pending_geometries.iter().all(Option::is_none)
+        && pending_facility_geometries.iter().all(Option::is_none)
+    {
         return Ok(SpatialHir {
+            geometry_profiles: compilation_profiles.map(|(profiles, _)| profiles),
             canonical_frames: frames.into_boxed_slice(),
             ..SpatialHir::default()
         });
@@ -4958,8 +5092,8 @@ fn build_spatial_hir(
 
     // entry/exit frame 是 internal edge frame 的唯一来源。共享 internal edge 可被多条 path
     // 使用，但所有路径必须推导出同一 frame；赋值只改变阶段私有索引，不移动任何点。
-    for path in topology.maneuver_paths {
-        let path_edges = &topology.maneuver_path_edges[path.edges.as_usize_range()];
+    for path in maneuver_paths {
+        let path_edges = &maneuver_path_edges[path.edges.as_usize_range()];
         let [entry, .., exit] = path_edges else {
             unreachable!("validated ManeuverPath contains entry and exit")
         };
@@ -5090,7 +5224,29 @@ fn build_spatial_hir(
             edge.raw(),
         )
     });
+    let mut facility_geometry_order = pending_facility_geometries
+        .iter()
+        .enumerate()
+        .filter_map(|(index, pending)| {
+            pending.as_ref().map(|_| {
+                HirFacilityBandKey::from_raw(
+                    u32::try_from(index).expect("FacilityBand arena length is bounded by u32"),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    facility_geometry_order.sort_unstable_by_key(|band| {
+        (
+            facility_frame_assignments[band.index()]
+                .as_ref()
+                .expect("compiled FacilityBand frame was resolved")
+                .frame
+                .raw(),
+            band.raw(),
+        )
+    });
     let mut order_cursor = 0_usize;
+    let mut facility_order_cursor = 0_usize;
     for frame_index in 0..frames.len() {
         let frame_key = HirCanonicalFrameKey::from_raw(
             u32::try_from(frame_index).expect("compile limits bound CanonicalFrame indexes"),
@@ -5108,7 +5264,7 @@ fn build_spatial_hir(
                 .expect("geometry order only contains pending inputs");
             let frozen = match freeze_spatial_polyline(
                 pending.centerline_points,
-                lane_edges.get(edge).length_meters,
+                pending.expected_length_meters,
                 &mut points,
                 &mut segments,
             ) {
@@ -5151,9 +5307,60 @@ fn build_spatial_hir(
             geometry_start,
             geometries.len().saturating_sub(geometry_start),
         )
+        .map_err(|overflow| arena_overflow(overflow, &unit.limits, Some(frame_span.clone())))?;
+
+        let facility_geometry_start = facility_geometries.len();
+        while let Some(band) = facility_geometry_order.get(facility_order_cursor).copied() {
+            let assignment = facility_frame_assignments[band.index()]
+                .as_ref()
+                .expect("compiled FacilityBand frame was resolved");
+            if assignment.frame != frame_key {
+                break;
+            }
+            let pending = pending_facility_geometries[band.index()]
+                .as_ref()
+                .expect("facility geometry order only contains pending inputs");
+            let frozen = match freeze_canonical_polyline(
+                pending.centerline_points,
+                pending.expected_length_meters,
+                &mut points,
+            ) {
+                Ok(frozen) => frozen,
+                Err(violation) => {
+                    let band_record = &facility_bands[band.index()];
+                    let mut diagnostic = Diagnostic::invalid_facility_band_geometry(
+                        Some(&frames.get(frame_key).stable_key),
+                        &band_record.stable_key,
+                        violation,
+                        pending.source_span.clone(),
+                    );
+                    diagnostic.set_canonical_module_order(band_record.module.raw());
+                    diagnostics.push(diagnostic);
+                    facility_order_cursor = facility_order_cursor.saturating_add(1);
+                    continue;
+                }
+            };
+            facility_geometries.push(HirFacilityBandGeometry {
+                canonical_frame: frame_key,
+                facility_band: band,
+                points: TableRange::try_from_usize(frozen.point_start, frozen.point_count)
+                    .map_err(|overflow| {
+                        arena_overflow(overflow, &unit.limits, Some(pending.source_span.clone()))
+                    })?,
+                source_span: pending.source_span.clone(),
+            });
+            facility_order_cursor = facility_order_cursor.saturating_add(1);
+        }
+        frames.get_mut(frame_key).facility_band_geometries = TableRange::try_from_usize(
+            facility_geometry_start,
+            facility_geometries
+                .len()
+                .saturating_sub(facility_geometry_start),
+        )
         .map_err(|overflow| arena_overflow(overflow, &unit.limits, Some(frame_span)))?;
     }
     debug_assert_eq!(order_cursor, geometry_order.len());
+    debug_assert_eq!(facility_order_cursor, facility_geometry_order.len());
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
     }
@@ -5176,8 +5383,8 @@ fn build_spatial_hir(
     }
     // RoadEditing junction-internal edge 不重复声明 successor。对 Synthetic 已由 successor
     // 覆盖的转换跳过，剩余 ManeuverPath 转换仍走完全相同的 frame/间隙/方向权威。
-    for path in topology.maneuver_paths {
-        let path_edges = &topology.maneuver_path_edges[path.edges.as_usize_range()];
+    for path in maneuver_paths {
+        let path_edges = &maneuver_path_edges[path.edges.as_usize_range()];
         for pair in path_edges.windows(2) {
             let predecessor = lane_edges.get(pair[0].target);
             if lane_edge_references[predecessor.successors.as_usize_range()]
@@ -5205,8 +5412,10 @@ fn build_spatial_hir(
     }
 
     Ok(SpatialHir {
+        geometry_profiles: compilation_profiles.map(|(profiles, _)| profiles),
         canonical_frames: frames.into_boxed_slice(),
         lane_edge_geometries: geometries.into_boxed_slice(),
+        facility_band_geometries: facility_geometries.into_boxed_slice(),
         canonical_points: points.into_boxed_slice(),
         spatial_segments: segments.into_boxed_slice(),
     })
@@ -6798,10 +7007,15 @@ fn build_route_hir(
         for (index, pair) in resolved_edges.windows(2).enumerate() {
             let successors =
                 &lane_edge_references[lane_edges.get(pair[0].target).successors.as_usize_range()];
-            if !successors
+            let has_explicit_successor = successors
                 .iter()
-                .any(|successor| successor.target == pair[1].target)
-            {
+                .any(|successor| successor.target == pair[1].target);
+            // Junction-internal transitions intentionally use ManeuverPath as their sole topology
+            // authority. Exact full-path matching and internal coverage below reject wrong exits or
+            // partial paths, so only a pair wholly outside internal ownership needs a successor.
+            let touches_internal_edge = internal_owner[pair[0].target.index()].is_some()
+                || internal_owner[pair[1].target.index()].is_some();
+            if !has_explicit_successor && !touches_internal_edge {
                 let mut diagnostic = Diagnostic::disconnected_static_route_edge(
                     &source.header.stable_key,
                     &lane_edges.get(pair[0].target).stable_key,
@@ -7530,6 +7744,15 @@ fn spatial_counts(unit: &CompilationUnit) -> SpatialCounts {
                     .spatial_segments
                     .saturating_add(points.saturating_sub(1));
             }
+            TypedAstDeclaration::FacilityBand(band) => {
+                if let Some(geometry) = &band.compiled_geometry {
+                    counts.facility_band_geometries =
+                        counts.facility_band_geometries.saturating_add(1);
+                    counts.canonical_points = counts.canonical_points.saturating_add(
+                        u64::try_from(geometry.centerline_points.len()).unwrap_or(u64::MAX),
+                    );
+                }
+            }
             _ => {}
         }
     }
@@ -7690,14 +7913,18 @@ fn arena_overflow(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::declaration::{CompiledFacilityBandGeometry, EdgeLength};
+    use crate::lir::freeze_lir;
+    use crate::mir::lower_to_mir;
     use crate::{
         AuthoringLaneInput, CanonicalFrameInput, CompilationUnitBuilder, CompileLimits,
-        CorridorElementReference, DiagnosticCode, DiagnosticPayload, GeometryAccuracyProfile,
-        GeometryDirectionProfile, JunctionInput, JunctionReference, LaneEdgeInput,
-        LaneEdgeReference, ManeuverGateInput, ManeuverPathInput, ManeuverPathReference,
-        MovementInput, MovementReference, RoadCorridorInput, RoadSectionInput,
-        RoadSectionReference, SignalControlInput, SourceModuleHeader, SourceModuleHeaderInput,
-        SourceSpan, StopLineInput, StopLineReference, SyntheticModule, SyntheticModuleBuilder,
+        CorridorElementReference, DiagnosticCode, DiagnosticPayload, FacilityBandInput,
+        FacilityBandReference, GeometryAccuracyProfile, GeometryDirectionProfile, JunctionInput,
+        JunctionReference, LaneEdgeInput, LaneEdgeReference, ManeuverGateInput, ManeuverPathInput,
+        ManeuverPathReference, MovementInput, MovementReference, RoadCorridorInput,
+        RoadSectionInput, RoadSectionReference, SignalControlInput, SourceModuleHeader,
+        SourceModuleHeaderInput, SourceSpan, StopLineInput, StopLineReference, SyntheticModule,
+        SyntheticModuleBuilder,
     };
     use laneflow_static_contract::{CanonicalFrameKind, LaneEdgeKind};
 
@@ -7788,6 +8015,52 @@ mod tests {
                     source_ranges: Box::new([]),
                 });
         }
+    }
+
+    fn install_compiled_facility_geometry(
+        unit: &mut CompilationUnit,
+        module_namespace: &str,
+        facility_band_key: &str,
+        frame_namespace: &str,
+        frame_key: &str,
+        points: Vec<CanonicalPoint3F32Input>,
+    ) {
+        let length = points
+            .windows(2)
+            .map(|pair| {
+                let x = f64::from(pair[1].x) - f64::from(pair[0].x);
+                let y = f64::from(pair[1].y) - f64::from(pair[0].y);
+                let z = f64::from(pair[1].z) - f64::from(pair[0].z);
+                x.hypot(y).hypot(z)
+            })
+            .sum::<f64>();
+        let module = unit
+            .modules
+            .iter_mut()
+            .find(|module| module.descriptor().authoring_namespace_id() == module_namespace)
+            .expect("test module must exist");
+        let band = module
+            .declarations
+            .iter_mut()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::FacilityBand(band)
+                    if band.header.stable_key.as_ref() == facility_band_key =>
+                {
+                    Some(band)
+                }
+                _ => None,
+            })
+            .expect("test FacilityBand must exist");
+        band.compiled_geometry = Some(CompiledFacilityBandGeometry {
+            length: EdgeLength::try_new(length).unwrap(),
+            canonical_frame: OwnedEntityReference::<CanonicalFrameKind>::new(
+                Arc::from(frame_namespace),
+                Arc::from(frame_key),
+                band.header.span.clone(),
+            ),
+            centerline_points: points.into_boxed_slice(),
+            source_ranges: Box::new([]),
+        });
     }
 
     fn point(x: f32, y: f32, z: f32) -> CanonicalPoint3F32Input {
@@ -7963,6 +8236,81 @@ mod tests {
     }
 
     #[test]
+    fn facility_band_geometry_freezes_points_without_spatial_segments() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut builder = SyntheticModuleBuilder::new(header("city/roads"), &limits).unwrap();
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "world",
+                lane_edge_geometries: &[],
+            })
+            .unwrap()
+            .add_facility_band(FacilityBandInput {
+                facility_band_key: "median",
+                kind_id: "median",
+            })
+            .unwrap()
+            .add_road_section(RoadSectionInput {
+                road_section_key: "carriageway",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane",
+                    edge_chain: &[LaneEdgeReference::local("edge")],
+                    lane_group: None,
+                }],
+            })
+            .unwrap()
+            .add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "road",
+                reference_section: RoadSectionReference::local("carriageway"),
+                elements: &[
+                    CorridorElementReference::road_section(RoadSectionReference::local(
+                        "carriageway",
+                    )),
+                    CorridorElementReference::facility_band(FacilityBandReference::local("median")),
+                ],
+            })
+            .unwrap();
+        let mut unit = unit([builder.finish().unwrap()]);
+        let profiles = GeometryCompilationProfiles {
+            accuracy: GeometryAccuracyProfile::Balanced5Cm,
+            direction: GeometryDirectionProfile::Balanced2Deg,
+        };
+        install_compiled_lane_geometries(&mut unit, "city/roads", profiles, |_| {
+            (
+                Some(("city/roads", "world")),
+                vec![point(0.0, 0.0, 0.0), point(10.0, 0.0, 0.0)],
+            )
+        });
+        install_compiled_facility_geometry(
+            &mut unit,
+            "city/roads",
+            "median",
+            "city/roads",
+            "world",
+            vec![point(0.0, 0.0, 2.0), point(10.0, 0.0, 2.0)],
+        );
+
+        let hir = build_hir(&unit).unwrap();
+        assert_eq!(hir.geometry_profiles, Some(profiles));
+        assert_eq!(hir.lane_edge_geometries.len(), 1);
+        assert_eq!(hir.facility_band_geometries.len(), 1);
+        assert_eq!(hir.canonical_points.len(), 4);
+        assert_eq!(hir.spatial_segments.len(), 1);
+        let geometry = &hir.facility_band_geometries[0];
+        assert_eq!(geometry.canonical_frame.raw(), 0);
+        assert_eq!(geometry.points.len(), 2);
+        assert_eq!(hir.canonical_frames[0].facility_band_geometries.len(), 1);
+    }
+
+    #[test]
     fn hir_limits_the_actual_compiled_canonical_point_count() {
         let limits = CompileLimits::p100_initial_v1();
         let mut builder = SyntheticModuleBuilder::new(header("city/roads"), &limits).unwrap();
@@ -8125,6 +8473,64 @@ mod tests {
                 }
             )
         }));
+    }
+
+    #[test]
+    fn geometry_profiles_are_retained_in_hir_and_mir_and_change_the_lir_digest() {
+        let compile = |profiles: GeometryCompilationProfiles| {
+            let limits = CompileLimits::p100_initial_v1();
+            let mut builder = SyntheticModuleBuilder::new(header("city/roads"), &limits).unwrap();
+            builder
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "edge",
+                    length_meters: 10.0,
+                    speed_limit_meters_per_second: 10.0,
+                    successors: &[],
+                })
+                .unwrap()
+                .add_canonical_frame(CanonicalFrameInput {
+                    canonical_frame_key: "world",
+                    lane_edge_geometries: &[],
+                })
+                .unwrap();
+            let mut unit = unit([builder.finish().unwrap()]);
+            install_compiled_lane_geometries(&mut unit, "city/roads", profiles, |_| {
+                (
+                    Some(("city/roads", "world")),
+                    vec![point(0.0, 0.0, 0.0), point(10.0, 0.0, 0.0)],
+                )
+            });
+            let hir = build_hir(&unit).unwrap();
+            assert_eq!(hir.geometry_profiles, Some(profiles));
+            let points = hir
+                .canonical_points
+                .iter()
+                .map(|point| [point.x.to_bits(), point.y.to_bits(), point.z.to_bits()])
+                .collect::<Vec<_>>();
+            let mir = lower_to_mir(&unit, &hir).unwrap();
+            assert_eq!(mir.geometry_profiles, Some(profiles));
+            let lir = freeze_lir(&unit, &mir).unwrap().lir;
+            assert_eq!(lir.geometry_profiles, Some(profiles));
+            let digest = lir.semantic_digest;
+            (points, digest)
+        };
+
+        let (balanced_points, balanced_digest) = compile(GeometryCompilationProfiles {
+            accuracy: GeometryAccuracyProfile::Balanced5Cm,
+            direction: GeometryDirectionProfile::Balanced2Deg,
+        });
+        let (fine_points, fine_digest) = compile(GeometryCompilationProfiles {
+            accuracy: GeometryAccuracyProfile::Fine2Cm,
+            direction: GeometryDirectionProfile::Balanced2Deg,
+        });
+        let (smooth_points, smooth_digest) = compile(GeometryCompilationProfiles {
+            accuracy: GeometryAccuracyProfile::Balanced5Cm,
+            direction: GeometryDirectionProfile::Smooth1Deg,
+        });
+        assert_eq!(balanced_points, fine_points);
+        assert_eq!(balanced_points, smooth_points);
+        assert_ne!(balanced_digest, fine_digest);
+        assert_ne!(balanced_digest, smooth_digest);
     }
 
     fn two_edge_compiled_unit(direction: GeometryDirectionProfile) -> CompilationUnit {
