@@ -1,11 +1,16 @@
 use std::error::Error;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use issue_296_road_editing_source_calibration::{
     P100_PROFILE_COMBINATIONS, build_base_modules, build_regularity_probe_modules,
     compile_encoded_modules, encode_modules, load_bound_seed,
 };
-use laneflow_compiler::{CompileLimits, GeometryAccuracyProfile, GeometryDirectionProfile};
+use laneflow_compiler::road_editing::RoadEditingModuleInput;
+use laneflow_compiler::{
+    CompilationOutput, CompilationUnitBuilder, CompileLimits, Compiler, GeometryAccuracyProfile,
+    GeometryDirectionProfile,
+};
 
 fn main() {
     let repository_root = repository_root();
@@ -20,8 +25,9 @@ fn main() {
             .and_then(|()| run_regularity_probe(&repository_root)),
         "road-editing-fixture-identities" => require_no_arguments(&arguments[1..])
             .and_then(|()| run_fixture_identities(&repository_root)),
+        "road-editing-cross-language" => run_cross_language_fixtures(&arguments[1..]),
         _ => Err(format!(
-            "unknown subcommand {command:?}; expected seed-audit, road-editing-p100, road-editing-regularity or road-editing-fixture-identities"
+            "unknown subcommand {command:?}; expected seed-audit, road-editing-p100, road-editing-regularity, road-editing-fixture-identities or road-editing-cross-language"
         )
         .into()),
     };
@@ -81,6 +87,71 @@ fn run_fixture_identities(repository_root: &Path) -> Result<(), Box<dyn Error>> 
         &limits,
     )?;
     Ok(())
+}
+
+fn run_cross_language_fixtures(arguments: &[String]) -> Result<(), Box<dyn Error>> {
+    let [cpp_path, csharp_path] = arguments else {
+        return Err("road-editing-cross-language requires C++ and C# fixture paths".into());
+    };
+    let cpp_bytes = fs::read(cpp_path)?;
+    let csharp_bytes = fs::read(csharp_path)?;
+    let cpp = compile_cross_language_fixture("C++", &cpp_bytes)?;
+    let csharp = compile_cross_language_fixture("C#", &csharp_bytes)?;
+    let cpp_fingerprint = cpp.metrics().semantic_fingerprint();
+    let csharp_fingerprint = csharp.metrics().semantic_fingerprint();
+    if cpp_fingerprint != csharp_fingerprint {
+        return Err(format!(
+            "cross-language semantic fingerprints differ: cpp={} csharp={}",
+            hex(&cpp_fingerprint),
+            hex(&csharp_fingerprint)
+        )
+        .into());
+    }
+    let cpp_frame = only_cross_language_frame("C++", &cpp)?;
+    let csharp_frame = only_cross_language_frame("C#", &csharp)?;
+    if cpp_frame != csharp_frame {
+        return Err("cross-language CanonicalFrame StableIds differ".into());
+    }
+    println!(
+        "cross-language fixtures accepted cpp_bytes={} csharp_bytes={} semantic_fingerprint={}",
+        cpp_bytes.len(),
+        csharp_bytes.len(),
+        hex(&cpp_fingerprint)
+    );
+    Ok(())
+}
+
+fn compile_cross_language_fixture(
+    language: &str,
+    bytes: &[u8],
+) -> Result<CompilationOutput, Box<dyn Error>> {
+    let limits = CompileLimits::p100_initial_v2();
+    let input = RoadEditingModuleInput::try_new("cross-language", bytes, None)
+        .map_err(|error| format!("{language} fixture identity is invalid: {error}"))?;
+    let mut builder = CompilationUnitBuilder::new(limits);
+    builder.add_road_editing_module(input)?;
+    let unit = builder.build()?;
+    Ok(Compiler::new().compile(unit)?)
+}
+
+fn only_cross_language_frame(
+    language: &str,
+    output: &CompilationOutput,
+) -> Result<[u8; 16], Box<dyn Error>> {
+    let mut frames = output.lir().canonical_frames();
+    if frames.len() != 1 {
+        return Err(format!(
+            "{language} fixture produced {} CanonicalFrames; expected one",
+            frames.len()
+        )
+        .into());
+    }
+    Ok(*frames
+        .next()
+        .expect("length check proves one CanonicalFrame")
+        .stable_id()
+        .as_untyped()
+        .as_bytes())
 }
 
 fn print_workload(

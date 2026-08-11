@@ -3,6 +3,7 @@ mod external_review;
 mod gate_evidence;
 mod markdown_tables;
 mod road_editing_codegen;
+mod road_editing_cross_language;
 mod schema_publication;
 
 use std::env;
@@ -45,6 +46,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         Some("format-md-tables") => markdown_tables::run(&args[1..]),
         Some("check-road-editing-codegen") => road_editing_codegen::run(&args[1..]),
+        Some("check-road-editing-cross-language") => {
+            road_editing_cross_language::run(&args[1..])
+        }
         Some("check-schema-publication-contract") => schema_publication::check_schema_publication_contract(),
         Some("build-schema-publication") => match args.as_slice() {
             [_, output_directory] => schema_publication::build_schema_publication(output_directory),
@@ -55,7 +59,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         },
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-gate-evidence-target, check-g3-shadow-success-eligibility, check-g3-evidence-marker, resolve-g3-evidence-shadow-targets, resolve-g3-evidence-shadow-issue-event-targets, check-external-review, publish-external-review-check, format-md-tables, check-road-editing-codegen, check-schema-publication-contract, build-schema-publication"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-gate-evidence-target, check-g3-shadow-success-eligibility, check-g3-evidence-marker, resolve-g3-evidence-shadow-targets, resolve-g3-evidence-shadow-issue-event-targets, check-external-review, publish-external-review-check, format-md-tables, check-road-editing-codegen, check-road-editing-cross-language, check-schema-publication-contract, build-schema-publication"
                 .to_string(),
         ),
     }

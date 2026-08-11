@@ -795,7 +795,10 @@ production 依赖或实现。
   StableId、LIR 或 #298 规范路网影响差异，并逐 kind 与现有
   `EntityKind::required_tags()` registry known vectors 对齐；
 - programmatic Rust writer → bytes → production reader → LIR，以及 C++ writer → Rust
-  reader、C# writer → Rust reader 两条最小跨语言 fixture；
+  reader、C# writer → Rust reader 两条最小跨语言 fixture；固定 source commit、编译命令、
+  ignored 输出与 production LIR 等价检查由
+  [`Road Editing Codegen`](../../.github/workflows/road-editing-codegen.yml) 执行，不提交
+  generated C++/C# binding、语言 runtime 或 fixture bytes；
 - line/cubic/taper 的 scalar-dual 逐 bit known vectors 使用
   [`road-editing-geometry-known-vectors.txt`](../../crates/laneflow-compiler/tests/road-editing-geometry-known-vectors.txt)
   的封闭行式十六进制制品，覆盖大坐标、九种档位阈值 `-1/0/+1 ULP`、source-offset

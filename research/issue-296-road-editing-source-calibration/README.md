@@ -20,6 +20,7 @@ cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin ca
 cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-p100 2 2
 cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-regularity
 cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-fixture-identities
+cargo +1.96.0 run --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-cross-language target/road-editing-codegen/cross-language/cpp.lfre target/road-editing-codegen/cross-language/csharp.lfre
 ```
 
 `road-editing-p100` 通过第一方 typed model 和 writer 生成五个 size-prefixed `LFRE`
@@ -28,6 +29,14 @@ admission 与 Canonical LIR；输出每模块 byte length、retained capacity、
 指标。正式 G3 测量仍必须由后继 evidence 子命令按冻结的 fresh-process 协议执行。
 `road-editing-fixture-identities` 只审计九组合及 companion 的确定性 byte identity，不是
 正式计时或峰值样本。
+
+跨语言输入不提交仓库。`xtask check-road-editing-cross-language` 使用固定 `flatc` 和精确
+FlatBuffers source commit `7e163021e59cca4f8e1e35a7c828b5c6b7915953`，分别编译最小
+C++/C# writer，并在 ignored `target/road-editing-codegen/cross-language/` 生成两份
+size-prefixed `LFRE`。上述 `road-editing-cross-language` 子命令随后让两份输入各自经过
+production reader、共同 admission 与完整 compiler，要求 Canonical LIR 语义指纹和唯一
+`CanonicalFrame` StableId 一致。CI 以同一流程形成证据；这不是新增 C++/C# SDK，也不把
+generated binding 或语言 runtime 源码提交仓库。
 
 本 research crate 是唯一启用 compiler 非默认 `road-editing-g3-evidence` feature 的 workspace
 调用方。种子可先由 `load_p100_seed` 在计时区外闭合，再由 `build_*_from_seed` 独立执行
