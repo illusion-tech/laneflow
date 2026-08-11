@@ -2980,6 +2980,7 @@ dependencies = [
 name = "issue-296-road-editing-source-calibration"
 version = "0.0.0"
 dependencies = [
+ "laneflow-compiler",
  "serde",
  "serde_json",
  "sha2",
