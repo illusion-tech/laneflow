@@ -254,6 +254,8 @@ pub enum DiagnosticCode {
     InvalidVehicleProfileDecelerationOrder,
     /// 规范空间几何违反点、线段、长度绑定或覆盖完整性约束。
     InvalidSpatialGeometry,
+    /// 不可遍历设施带的规范中心线违反点、线段、长度或 frame 约束。
+    InvalidFacilityBandGeometry,
     /// 准入规则没有声明任何参与者类别。
     EmptyAccessRuleParticipantClasses,
     /// 准入规则请求了首版尚未实现的能力。
@@ -375,6 +377,7 @@ impl DiagnosticCode {
                 "LF-COMP-VEHICLE-PROFILE-DECELERATION-ORDER"
             }
             Self::InvalidSpatialGeometry => "LF-COMP-SPATIAL-GEOMETRY",
+            Self::InvalidFacilityBandGeometry => "LF-COMP-FACILITY-BAND-GEOMETRY",
             Self::EmptyAccessRuleParticipantClasses => "LF-COMP-EMPTY-ACCESS-RULE-CLASSES",
             Self::AccessCapabilityUnavailable => "LF-COMP-ACCESS-CAPABILITY-UNAVAILABLE",
             Self::InvalidAccessRegulationString => "LF-COMP-ACCESS-REGULATION-STRING",
@@ -1177,6 +1180,12 @@ pub enum DiagnosticPayload {
         related_lane_edge_key: Option<Box<str>>,
         violation: SpatialGeometryViolation,
     },
+    /// 非法 FacilityBand 规范中心线。
+    InvalidFacilityBandGeometry {
+        canonical_frame_key: Option<Box<str>>,
+        facility_band_key: Box<str>,
+        violation: SpatialGeometryViolation,
+    },
     EmptyAccessRuleParticipantClasses {
         access_rule_key: Box<str>,
     },
@@ -1703,6 +1712,25 @@ impl Diagnostic {
                 |span| vec![span].into_boxed_slice(),
             ),
             Some(lane_edge_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_facility_band_geometry(
+        canonical_frame_key: Option<&str>,
+        facility_band_key: &str,
+        violation: SpatialGeometryViolation,
+        primary_span: impl Into<SourceLocation>,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidFacilityBandGeometry,
+            DiagnosticPayload::InvalidFacilityBandGeometry {
+                canonical_frame_key: canonical_frame_key.map(Into::into),
+                facility_band_key: facility_band_key.into(),
+                violation,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(facility_band_key.into()),
         )
     }
 
@@ -3754,6 +3782,21 @@ impl fmt::Display for Diagnostic {
                 }
                 if let Some(related_key) = related_lane_edge_key {
                     write!(formatter, "（关联边 {related_key}）")?;
+                }
+                write!(
+                    formatter,
+                    "非法：{}",
+                    SpatialGeometryViolationDisplay(*violation)
+                )
+            }
+            DiagnosticPayload::InvalidFacilityBandGeometry {
+                canonical_frame_key,
+                facility_band_key,
+                violation,
+            } => {
+                write!(formatter, "设施带 {facility_band_key} 的规范空间几何")?;
+                if let Some(frame_key) = canonical_frame_key {
+                    write!(formatter, "（规范坐标框架 {frame_key}）")?;
                 }
                 write!(
                     formatter,

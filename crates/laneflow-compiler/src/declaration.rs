@@ -878,18 +878,10 @@ pub(crate) struct CompiledLaneEdgeGeometry {
     pub(crate) length: EdgeLength,
     /// section-derived edge 继承 alignment frame；junction-internal edge 在 HIR 从 path 推导。
     pub(crate) canonical_frame: Option<OwnedEntityReference<CanonicalFrameKind>>,
-    #[allow(
-        dead_code,
-        reason = "consumed by the following spatial HIR/MIR/LIR slice"
-    )]
     pub(crate) centerline_points: Box<[CanonicalPoint3F32Input]>,
 }
 
 /// 不可遍历 FacilityBand 的规范中心线；后续 LIR 以独立稀疏范围表保存。
-#[allow(
-    dead_code,
-    reason = "consumed by the following facility-band MIR/LIR slice"
-)]
 pub(crate) struct CompiledFacilityBandGeometry {
     pub(crate) length: EdgeLength,
     pub(crate) canonical_frame: OwnedEntityReference<CanonicalFrameKind>,
@@ -974,10 +966,6 @@ pub(crate) struct FacilityBandDeclaration {
         reason = "consumed by the following topology/geometry compiler slice"
     )]
     pub(crate) authoring_width_profile: Option<AuthoringWidthProfile>,
-    #[allow(
-        dead_code,
-        reason = "consumed by the following facility-band MIR/LIR slice"
-    )]
     pub(crate) compiled_geometry: Option<CompiledFacilityBandGeometry>,
 }
 

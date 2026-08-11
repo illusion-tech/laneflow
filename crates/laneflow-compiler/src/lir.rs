@@ -48,7 +48,7 @@ const LIR_CORRIDOR_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
 const LIR_SECTION_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 8;
 const LIR_LANE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 1 + 4;
 const LIR_GROUP_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
-const LIR_BAND_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4;
+const LIR_BAND_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 8;
 const LIR_JUNCTION_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8;
 const LIR_MOVEMENT_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 8;
 const LIR_MANEUVER_PATH_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 8 + 8 + 8;
@@ -72,6 +72,7 @@ const LIR_PARTICIPANT_CLASS_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + 4 + 4 + 4;
 const LIR_VEHICLE_PROFILE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 * 7;
 const LIR_CANONICAL_FRAME_LOGICAL_BYTES: u64 = 4 + 16 + 8;
 const LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES: u64 = 4 + 8 + 8 + 4;
+const LIR_FACILITY_BAND_GEOMETRY_LOGICAL_BYTES: u64 = 4 + LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES;
 const LIR_CANONICAL_POINT_LOGICAL_BYTES: u64 = 4 * 3;
 const LIR_SPATIAL_SEGMENT_LOGICAL_BYTES: u64 = 4 * 8;
 // target 按 tag+ordinal 计；可选 regulation 按 presence、两个必需字符串区间和一个
@@ -151,6 +152,7 @@ pub(crate) struct LirFacilityBand {
     pub(crate) identity_fields: TableRange<LirIdentityField>,
     pub(crate) road_corridor: RoadCorridorOrdinal,
     pub(crate) kind_id: Box<str>,
+    pub(crate) spatial_geometry: TableRange<LirFacilityBandGeometry>,
 }
 
 pub(crate) struct LirJunction {
@@ -308,6 +310,15 @@ pub(crate) struct LirLaneEdgeGeometry {
     pub(crate) arc_length_meters: f32,
 }
 
+/// 按 FacilityBand 规范身份排序的稀疏不可遍历中心线表。
+pub(crate) struct LirFacilityBandGeometry {
+    pub(crate) facility_band: FacilityBandOrdinal,
+    pub(crate) canonical_frame: CanonicalFrameOrdinal,
+    pub(crate) points: TableRange<LirCanonicalPoint3F32>,
+    pub(crate) segments: TableRange<LirSpatialSegment>,
+    pub(crate) arc_length_meters: f32,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct LirCanonicalPoint3F32 {
     pub(crate) x: f32,
@@ -456,6 +467,7 @@ pub(crate) struct LirUnit {
     pub(crate) vehicle_profiles: Box<[LirVehicleProfile]>,
     pub(crate) canonical_frames: Box<[LirCanonicalFrame]>,
     pub(crate) lane_edge_geometries: Box<[LirLaneEdgeGeometry]>,
+    pub(crate) facility_band_geometries: Box<[LirFacilityBandGeometry]>,
     pub(crate) canonical_points: Box<[LirCanonicalPoint3F32]>,
     pub(crate) spatial_segments: Box<[LirSpatialSegment]>,
     pub(crate) access_rules: Box<[LirAccessRule]>,
@@ -684,6 +696,8 @@ pub(crate) fn freeze_lir(
     let vehicle_profile_count = u64::try_from(mir.vehicle_profiles.len()).unwrap_or(u64::MAX);
     let canonical_frame_count = u64::try_from(mir.canonical_frames.len()).unwrap_or(u64::MAX);
     let spatial_geometry_count = u64::try_from(mir.lane_edge_geometries.len()).unwrap_or(u64::MAX);
+    let facility_band_geometry_count =
+        u64::try_from(mir.facility_band_geometries.len()).unwrap_or(u64::MAX);
     let canonical_point_count = u64::try_from(mir.canonical_points.len()).unwrap_or(u64::MAX);
     let spatial_segment_count = u64::try_from(mir.spatial_segments.len()).unwrap_or(u64::MAX);
     let access_rule_count = u64::try_from(mir.access_rules.len()).unwrap_or(u64::MAX);
@@ -748,6 +762,7 @@ pub(crate) fn freeze_lir(
         vehicle_profile_count,
         canonical_frame_count,
         spatial_geometry_count,
+        facility_band_geometry_count,
         canonical_point_count,
         spatial_segment_count,
         access_rule_count,
@@ -854,6 +869,7 @@ pub(crate) fn freeze_lir(
             signal_phase_state_count,
         ))
         .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
+        .saturating_add(requested_bytes::<Option<usize>>(band_count))
         // 四类反向索引先以 `(targetOrdinal, occurrence)` 排序，再复制进最终连续表；
         // 最终表已计入 output-owned bytes，这里只补临时排序对。
         .saturating_add(requested_bytes::<(u32, LirRouteOccurrenceRef)>(
@@ -907,6 +923,9 @@ pub(crate) fn freeze_lir(
         .saturating_add(vehicle_profile_count.saturating_mul(LIR_VEHICLE_PROFILE_LOGICAL_BYTES))
         .saturating_add(canonical_frame_count.saturating_mul(LIR_CANONICAL_FRAME_LOGICAL_BYTES))
         .saturating_add(spatial_geometry_count.saturating_mul(LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES))
+        .saturating_add(
+            facility_band_geometry_count.saturating_mul(LIR_FACILITY_BAND_GEOMETRY_LOGICAL_BYTES),
+        )
         .saturating_add(canonical_point_count.saturating_mul(LIR_CANONICAL_POINT_LOGICAL_BYTES))
         .saturating_add(spatial_segment_count.saturating_mul(LIR_SPATIAL_SEGMENT_LOGICAL_BYTES))
         .saturating_add(access_rule_count.saturating_mul(LIR_ACCESS_RULE_LOGICAL_BYTES))
@@ -991,6 +1010,9 @@ pub(crate) fn freeze_lir(
         .saturating_add(requested_bytes::<LirCanonicalFrame>(canonical_frame_count))
         .saturating_add(requested_bytes::<LirLaneEdgeGeometry>(
             spatial_geometry_count,
+        ))
+        .saturating_add(requested_bytes::<LirFacilityBandGeometry>(
+            facility_band_geometry_count,
         ))
         .saturating_add(requested_bytes::<LirCanonicalPoint3F32>(
             canonical_point_count,
@@ -1463,6 +1485,7 @@ pub(crate) fn freeze_lir(
             identity_fields: identity_range,
             road_corridor: mir_corridor_to_lir[band.road_corridor.index()],
             kind_id: band.kind_id.as_ref().into(),
+            spatial_geometry: TableRange::empty(),
         });
     }
 
@@ -2653,6 +2676,66 @@ pub(crate) fn freeze_lir(
         });
     }
 
+    // FacilityBand 不进入可通行图，但其可视几何必须和实体使用同一规范顺序。稀疏
+    // 几何表由每个 band 上的零或一行区间索引，避免把 MIR 物理顺序泄漏到 LIR。
+    let mut mir_band_to_geometry = vec![None; mir.facility_bands.len()];
+    for (index, geometry) in mir.facility_band_geometries.iter().enumerate() {
+        debug_assert!(mir_band_to_geometry[geometry.facility_band.index()].is_none());
+        mir_band_to_geometry[geometry.facility_band.index()] = Some(index);
+    }
+    let mut facility_band_geometries = Vec::with_capacity(mir.facility_band_geometries.len());
+    for mir_band in canonical_mir_band_order.iter().copied() {
+        let Some(geometry_index) = mir_band_to_geometry[mir_band.index()] else {
+            continue;
+        };
+        let geometry = &mir.facility_band_geometries[geometry_index];
+        let point_start = canonical_points.len();
+        canonical_points.extend(
+            mir.canonical_points[geometry.points.as_usize_range()]
+                .iter()
+                .map(|point| LirCanonicalPoint3F32 {
+                    x: point.x,
+                    y: point.y,
+                    z: point.z,
+                }),
+        );
+        let segment_start = spatial_segments.len();
+        spatial_segments.extend(
+            mir.spatial_segments[geometry.segments.as_usize_range()]
+                .iter()
+                .map(|segment| LirSpatialSegment {
+                    length_meters: segment.length_meters,
+                    cumulative_end_meters: segment.cumulative_end_meters,
+                    tangent: segment.tangent,
+                    up: segment.up,
+                }),
+        );
+        let facility_band = mir_band_to_lir[mir_band.index()];
+        let geometry_start = facility_band_geometries.len();
+        facility_band_geometries.push(LirFacilityBandGeometry {
+            facility_band,
+            canonical_frame: mir_canonical_frame_to_lir[geometry.canonical_frame.index()],
+            points: TableRange::try_from_usize(
+                point_start,
+                canonical_points.len().saturating_sub(point_start),
+            )
+            .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
+            segments: TableRange::try_from_usize(
+                segment_start,
+                spatial_segments.len().saturating_sub(segment_start),
+            )
+            .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
+            arc_length_meters: geometry.arc_length_meters,
+        });
+        facility_bands[facility_band.index()].spatial_geometry = TableRange::try_from_usize(
+            geometry_start,
+            facility_band_geometries
+                .len()
+                .saturating_sub(geometry_start),
+        )
+        .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?;
+    }
+
     let mut access_rules = Vec::with_capacity(mir.access_rules.len());
     let mut access_rule_participant_classes =
         Vec::with_capacity(mir.access_rule_participant_classes.len());
@@ -2959,6 +3042,7 @@ pub(crate) fn freeze_lir(
         &vehicle_profiles,
         &canonical_frames,
         &lane_edge_geometries,
+        &facility_band_geometries,
         &canonical_points,
         &spatial_segments,
         &access_rules,
@@ -3016,6 +3100,7 @@ pub(crate) fn freeze_lir(
             vehicle_profiles: vehicle_profiles.into_boxed_slice(),
             canonical_frames: canonical_frames.into_boxed_slice(),
             lane_edge_geometries: lane_edge_geometries.into_boxed_slice(),
+            facility_band_geometries: facility_band_geometries.into_boxed_slice(),
             canonical_points: canonical_points.into_boxed_slice(),
             spatial_segments: spatial_segments.into_boxed_slice(),
             access_rules: access_rules.into_boxed_slice(),
@@ -3465,6 +3550,7 @@ fn semantic_digest(
     vehicle_profiles: &[LirVehicleProfile],
     canonical_frames: &[LirCanonicalFrame],
     lane_edge_geometries: &[LirLaneEdgeGeometry],
+    facility_band_geometries: &[LirFacilityBandGeometry],
     canonical_points: &[LirCanonicalPoint3F32],
     spatial_segments: &[LirSpatialSegment],
     access_rules: &[LirAccessRule],
@@ -3925,6 +4011,34 @@ fn semantic_digest(
         lane_edge_geometries.len().try_into().unwrap_or(u32::MAX),
     );
     for geometry in lane_edge_geometries {
+        hash_u32(&mut hasher, geometry.canonical_frame.raw());
+        hasher.update(&geometry.arc_length_meters.to_bits().to_le_bytes());
+        hash_u32(&mut hasher, geometry.points.len());
+        for point in &canonical_points[geometry.points.as_usize_range()] {
+            for component in [point.x, point.y, point.z] {
+                hasher.update(&component.to_bits().to_le_bytes());
+            }
+        }
+        hash_u32(&mut hasher, geometry.segments.len());
+        for segment in &spatial_segments[geometry.segments.as_usize_range()] {
+            for value in [segment.length_meters, segment.cumulative_end_meters]
+                .into_iter()
+                .chain(segment.tangent)
+                .chain(segment.up)
+            {
+                hasher.update(&value.to_bits().to_le_bytes());
+            }
+        }
+    }
+    hash_u32(
+        &mut hasher,
+        facility_band_geometries
+            .len()
+            .try_into()
+            .unwrap_or(u32::MAX),
+    );
+    for geometry in facility_band_geometries {
+        hash_u32(&mut hasher, geometry.facility_band.raw());
         hash_u32(&mut hasher, geometry.canonical_frame.raw());
         hasher.update(&geometry.arc_length_meters.to_bits().to_le_bytes());
         hash_u32(&mut hasher, geometry.points.len());
