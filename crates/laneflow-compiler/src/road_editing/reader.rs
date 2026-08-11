@@ -228,11 +228,15 @@ fn verifier_error(
         ),
         data_error => {
             let (trace, range) = verifier_data_site(&data_error, source_len);
-            let field = trace.iter().find_map(|detail| match detail {
-                ErrorTraceDetail::TableField { field_name, .. } => Some(field_name.as_ref()),
-                _ => None,
+            let field = verifier_field_hint(&data_error, trace);
+            let location = wire_location_from_trace(trace, expected_key, range).or_else(|| {
+                range.map(|range| {
+                    RoadEditingLocationFactory::input_module_header_with_range(
+                        expected_key,
+                        Some(range),
+                    )
+                })
             });
-            let location = wire_location_from_trace(trace, expected_key, range);
             source_error_at(
                 RoadEditingSourceViolation::MalformedWire,
                 field,
@@ -241,6 +245,20 @@ fn verifier_error(
                 location,
             )
         }
+    }
+}
+
+fn verifier_field_hint<'a>(
+    error: &'a InvalidFlatbuffer,
+    trace: &'a [ErrorTraceDetail],
+) -> Option<&'a str> {
+    match error {
+        InvalidFlatbuffer::MissingRequiredField { required, .. } => Some(required.as_ref()),
+        InvalidFlatbuffer::InconsistentUnion { field, .. } => Some(field.as_ref()),
+        _ => trace.iter().find_map(|detail| match detail {
+            ErrorTraceDetail::TableField { field_name, .. } => Some(field_name.as_ref()),
+            _ => None,
+        }),
     }
 }
 
@@ -295,7 +313,9 @@ fn wire_location_from_trace(
     expected_key: &str,
     range: Option<RoadEditingByteRange>,
 ) -> Option<SourceLocation> {
-    for (field_position, detail) in details.iter().enumerate() {
+    // FlatBuffers 从内层向外层追加 trace；必须选择最外层已知 root vector，避免
+    // `SignalController.signal_groups` 等嵌套字段被误报为根 `signal_groups`。
+    for (field_position, detail) in details.iter().enumerate().rev() {
         let ErrorTraceDetail::TableField { field_name, .. } = detail else {
             continue;
         };
@@ -535,6 +555,8 @@ fn len_u64<T>(values: laneflow_road_editing_wire::runtime::Vector<'_, T>) -> u64
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use super::*;
     use crate::road_editing::{
         CanonicalFrameInput, RoadEditingDeclaration, RoadEditingModuleHeader,
@@ -544,7 +566,8 @@ mod tests {
     };
     use crate::{
         DiagnosticCode, DiagnosticPayload, GeometryAccuracyProfile, GeometryDirectionProfile,
-        RoadEditingDocumentIdentity, RoadEditingRootVectorKind, RoadEditingSubject,
+        RoadEditingDocumentIdentity, RoadEditingPropertyStep, RoadEditingRootVectorKind,
+        RoadEditingSubject,
     };
 
     fn source_buffer(
@@ -738,15 +761,118 @@ mod tests {
                 ..
             } if field.as_ref() == "roadEditingSource.geometryAccuracyProfile"
         ));
-        let primary = first_diagnostic(&error)
+        let location = first_diagnostic(&error)
             .primary_location()
-            .and_then(crate::SourceLocation::road_editing)
-            .expect("semantic failures retain a verified binary source location");
-        assert_eq!(primary.document_identity().module_namespace(), Some("city"));
+            .and_then(SourceLocation::road_editing)
+            .expect("semantic preflight location");
         assert!(matches!(
-            primary.subject(),
-            crate::RoadEditingSubject::ModuleHeader
+            location.subject(),
+            RoadEditingSubject::ModuleHeader
         ));
+        assert_eq!(
+            location.property_path().expect("profile property").steps(),
+            &[RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::RoadEditingSource,
+                field_id: 2,
+            }]
+        );
+    }
+
+    #[test]
+    fn wire_trace_selects_outer_root_when_nested_field_has_root_name() {
+        let trace = [
+            ErrorTraceDetail::VectorElement {
+                index: 3,
+                position: 24,
+            },
+            ErrorTraceDetail::TableField {
+                field_name: Cow::Borrowed("signal_groups"),
+                position: 20,
+            },
+            ErrorTraceDetail::VectorElement {
+                index: 1,
+                position: 12,
+            },
+            ErrorTraceDetail::TableField {
+                field_name: Cow::Borrowed("signal_controllers"),
+                position: 8,
+            },
+        ];
+
+        let Some(SourceLocation::RoadEditing(location)) =
+            wire_location_from_trace(&trace, "roads/main", None)
+        else {
+            panic!("outer root wire location expected");
+        };
+        assert!(matches!(
+            location.document_identity(),
+            RoadEditingDocumentIdentity::Input(_)
+        ));
+        assert!(matches!(
+            location.subject(),
+            RoadEditingSubject::Wire {
+                root_vector: RoadEditingRootVectorKind::SignalController,
+                physical_index: 1,
+                table: RoadEditingTableKind::SignalController,
+            }
+        ));
+        assert!(location.property_path().is_none());
+        assert!(location.byte_range().is_none());
+    }
+
+    #[test]
+    fn verifier_field_hint_prefers_terminal_error_metadata() {
+        let trace = [ErrorTraceDetail::TableField {
+            field_name: Cow::Borrowed("road_alignments"),
+            position: 8,
+        }];
+        let missing = InvalidFlatbuffer::MissingRequiredField {
+            required: Cow::Borrowed("reference_line"),
+            error_trace: Default::default(),
+        };
+        let inconsistent = InvalidFlatbuffer::InconsistentUnion {
+            field: Cow::Borrowed("geometry"),
+            field_type: Cow::Borrowed("geometry_type"),
+            error_trace: Default::default(),
+        };
+
+        assert_eq!(
+            verifier_field_hint(&missing, &trace),
+            Some("reference_line")
+        );
+        assert_eq!(verifier_field_hint(&inconsistent, &trace), Some("geometry"));
+    }
+
+    #[test]
+    fn semantic_preflight_uses_verified_wire_fallback_for_invalid_declaration_key() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "roads/main");
+        let mut bytes = buffer.as_bytes().to_vec();
+        let key_position = bytes
+            .windows(b"frame".len())
+            .position(|window| window == b"frame")
+            .expect("canonical frame key");
+        bytes[key_position] = b'_';
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("invalid declaration key");
+        let location = first_diagnostic(&error)
+            .primary_location()
+            .and_then(SourceLocation::road_editing)
+            .expect("semantic preflight location");
+        assert!(matches!(
+            location.document_identity(),
+            RoadEditingDocumentIdentity::Verified(_)
+        ));
+        assert!(matches!(
+            location.subject(),
+            RoadEditingSubject::Wire {
+                root_vector: RoadEditingRootVectorKind::CanonicalFrame,
+                physical_index: 0,
+                table: RoadEditingTableKind::CanonicalFrame,
+            }
+        ));
+        assert!(location.property_path().is_none());
     }
 
     #[test]
@@ -904,7 +1030,7 @@ mod tests {
         let limits = CompileLimits::p100_initial_v1();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
-        bytes[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+        bytes[4..8].copy_from_slice(&5_u32.to_le_bytes());
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
         let error = verify_source(input, &limits, 0, 0).expect_err("malformed root offset");
@@ -916,6 +1042,22 @@ mod tests {
                 ..
             }
         ));
+        let Some(crate::SourceLocation::RoadEditing(location)) =
+            first_diagnostic(&error).primary_location()
+        else {
+            panic!("unscoped verifier error must retain an input location");
+        };
+        assert!(matches!(
+            location.subject(),
+            RoadEditingSubject::ModuleHeader
+        ));
+        assert!(location.property_path().is_none());
+        let range = location.byte_range().expect("checked direct byte range");
+        assert!(range.length() > 0);
+        assert!(
+            u64::from(range.start().saturating_add(range.length()))
+                <= u64::try_from(bytes.len()).unwrap()
+        );
     }
 
     #[test]
@@ -948,6 +1090,7 @@ mod tests {
                 table: RoadEditingTableKind::CanonicalFrame,
             }
         ));
+        assert!(location.property_path().is_none());
         let range = location.byte_range().expect("verified byte range");
         assert!(range.start() <= u32::try_from(key_position).unwrap());
         assert!(

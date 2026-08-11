@@ -1,5 +1,7 @@
 //! verifier 后、任何领域分配前的道路编辑来源语义预检。
 
+use std::ops::{Deref, DerefMut};
+
 use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
 use laneflow_road_editing_wire::runtime::{ForwardsUOffset, Vector};
 use laneflow_static_contract::{
@@ -9,6 +11,9 @@ use laneflow_static_contract::{
     PARKING_HEADING_OFFSET_MAXIMUM_RADIANS, PARKING_HEADING_OFFSET_MINIMUM_RADIANS,
 };
 
+use super::location::{
+    RoadEditingLocationFactory, SemanticPreflightSite, SemanticPreflightSubjectSite,
+};
 use super::model::{
     DIRECT_FRONTEND_OPTIONS_DIGEST, DIRECT_GENERATOR_BUILD_ID, DIRECT_INPUTS_DIGEST,
 };
@@ -17,8 +22,9 @@ use super::rules::{
     token_violation, validate_wire_reference, visible_ascii_violation,
 };
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, RoadEditingInputViolation,
-    RoadEditingSourceViolation,
+    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, DiagnosticPayload,
+    RoadEditingInputViolation, RoadEditingRelationKind, RoadEditingRelationOccurrence,
+    RoadEditingRootVectorKind, RoadEditingSourceViolation,
 };
 
 type StringVector<'a> = Vector<'a, ForwardsUOffset<&'a str>>;
@@ -38,6 +44,60 @@ pub(crate) struct RoadEditingPreflightCounts {
     symbol_count: u64,
     string_item_count: u64,
     total_string_bytes: u64,
+}
+
+struct RoadEditingPreflightState {
+    counts: RoadEditingPreflightCounts,
+    failure_subject: Option<SemanticPreflightSubjectSite>,
+}
+
+impl RoadEditingPreflightState {
+    fn new(counts: RoadEditingPreflightCounts) -> Self {
+        Self {
+            counts,
+            failure_subject: Some(SemanticPreflightSubjectSite::ModuleHeader),
+        }
+    }
+
+    fn clear_site(&mut self) {
+        self.failure_subject = None;
+    }
+
+    fn set_root_site(&mut self, vector: RoadEditingRootVectorKind, physical_index: usize) {
+        self.failure_subject = Some(SemanticPreflightSubjectSite::Root {
+            vector,
+            physical_index: u32::try_from(physical_index).unwrap_or(u32::MAX),
+        });
+    }
+
+    fn set_owner_local_site(
+        &mut self,
+        owner_vector: RoadEditingRootVectorKind,
+        owner_physical_index: usize,
+        relation: RoadEditingRelationKind,
+        occurrence: RoadEditingRelationOccurrence,
+    ) {
+        self.failure_subject = Some(SemanticPreflightSubjectSite::OwnerLocal {
+            owner_vector,
+            owner_physical_index: u32::try_from(owner_physical_index).unwrap_or(u32::MAX),
+            relation,
+            occurrence,
+        });
+    }
+}
+
+impl Deref for RoadEditingPreflightState {
+    type Target = RoadEditingPreflightCounts;
+
+    fn deref(&self) -> &Self::Target {
+        &self.counts
+    }
+}
+
+impl DerefMut for RoadEditingPreflightState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.counts
+    }
 }
 
 impl RoadEditingPreflightCounts {
@@ -266,111 +326,134 @@ pub(crate) fn preflight_source(
     let header = root.module_header();
     let namespace = header.authoring_namespace_id();
     let imports = header.imports();
-    let mut usage = RoadEditingPreflightCounts {
+    let mut usage = RoadEditingPreflightState::new(RoadEditingPreflightCounts {
         typed_ast_record_count: 1, // root 与 Provenance 不计；ModuleHeader 计一条
         ..RoadEditingPreflightCounts::default()
-    };
+    });
 
-    usage.charge_token(
-        namespace,
-        "moduleHeader.authoringNamespaceId",
-        limits,
-        expected_key,
-    )?;
-    usage.charge_token(
-        header.source_document_key(),
-        "moduleHeader.sourceDocumentKey",
-        limits,
-        expected_key,
-    )?;
-    let import_count = u64::try_from(imports.len()).unwrap_or(u64::MAX);
-    let import_limit = limits.value(CompileLimitDimension::ImportEdgeCount);
-    if import_count > import_limit {
-        return Err(limit_error(
-            CompileLimitDimension::ImportEdgeCount,
-            import_limit,
-            import_count,
-        ));
-    }
-    ensure_unique_strings(imports, "moduleHeader.imports", expected_key)?;
-    for import in imports {
-        usage.charge_token(import, "moduleHeader.imports", limits, expected_key)?;
-        if import == namespace {
-            return Err(semantic_error(
-                "moduleHeader.imports",
-                RoadEditingInputViolation::InvalidCombination,
+    let result = (|| {
+        usage.charge_token(
+            namespace,
+            "moduleHeader.authoringNamespaceId",
+            limits,
+            expected_key,
+        )?;
+        usage.charge_token(
+            header.source_document_key(),
+            "moduleHeader.sourceDocumentKey",
+            limits,
+            expected_key,
+        )?;
+        let import_count = u64::try_from(imports.len()).unwrap_or(u64::MAX);
+        let import_limit = limits.value(CompileLimitDimension::ImportEdgeCount);
+        if import_count > import_limit {
+            return Err(limit_error(
+                CompileLimitDimension::ImportEdgeCount,
+                import_limit,
+                import_count,
+            ));
+        }
+        ensure_unique_strings(imports, "moduleHeader.imports", expected_key)?;
+        for import in imports {
+            usage.charge_token(import, "moduleHeader.imports", limits, expected_key)?;
+            if import == namespace {
+                return Err(semantic_error(
+                    "moduleHeader.imports",
+                    RoadEditingInputViolation::InvalidCombination,
+                    expected_key,
+                ));
+            }
+        }
+        validate_provenance(&mut usage, header.provenance(), limits, expected_key)?;
+
+        if !matches!(
+            root.geometry_accuracy_profile(),
+            wire::GeometryAccuracyProfile::Fine2Cm
+                | wire::GeometryAccuracyProfile::Balanced5Cm
+                | wire::GeometryAccuracyProfile::Compact10Cm
+        ) {
+            return Err(invalid_combination(
+                "roadEditingSource.geometryAccuracyProfile",
                 expected_key,
             ));
         }
-    }
-    validate_provenance(&mut usage, header.provenance(), limits, expected_key)?;
+        if !matches!(
+            root.geometry_direction_profile(),
+            wire::GeometryDirectionProfile::Smooth1Deg
+                | wire::GeometryDirectionProfile::Balanced2Deg
+                | wire::GeometryDirectionProfile::Compact5Deg
+        ) {
+            return Err(invalid_combination(
+                "roadEditingSource.geometryDirectionProfile",
+                expected_key,
+            ));
+        }
 
-    if !matches!(
-        root.geometry_accuracy_profile(),
-        wire::GeometryAccuracyProfile::Fine2Cm
-            | wire::GeometryAccuracyProfile::Balanced5Cm
-            | wire::GeometryAccuracyProfile::Compact10Cm
-    ) {
-        return Err(invalid_combination(
-            "roadEditingSource.geometryAccuracyProfile",
+        usage.clear_site();
+        validate_alignments(&mut usage, root, namespace, imports, limits, expected_key)?;
+        usage.clear_site();
+        validate_corridors(&mut usage, root, namespace, imports, limits, expected_key)?;
+        usage.clear_site();
+        validate_sections(&mut usage, root, namespace, imports, limits, expected_key)?;
+        usage.clear_site();
+        validate_authoring_lanes(&mut usage, root, namespace, imports, limits, expected_key)?;
+        usage.clear_site();
+        validate_lane_edges(&mut usage, root, namespace, imports, limits, expected_key)?;
+        usage.clear_site();
+        validate_junctions(&mut usage, root, namespace, imports, limits, expected_key)?;
+        usage.clear_site();
+        validate_movements(&mut usage, root, namespace, imports, limits, expected_key)?;
+        usage.clear_site();
+        validate_maneuver_paths(&mut usage, root, namespace, imports, limits, expected_key)?;
+        usage.clear_site();
+        validate_maneuver_gates(&mut usage, root, namespace, imports, limits, expected_key)?;
+        usage.clear_site();
+        validate_waiting_zones(&mut usage, root, namespace, imports, limits, expected_key)?;
+        usage.clear_site();
+        validate_stop_lines_and_signal_groups(
+            &mut usage,
+            root,
+            namespace,
+            imports,
+            limits,
             expected_key,
-        ));
-    }
-    if !matches!(
-        root.geometry_direction_profile(),
-        wire::GeometryDirectionProfile::Smooth1Deg
-            | wire::GeometryDirectionProfile::Balanced2Deg
-            | wire::GeometryDirectionProfile::Compact5Deg
-    ) {
-        return Err(invalid_combination(
-            "roadEditingSource.geometryDirectionProfile",
+        )?;
+        usage.clear_site();
+        validate_signal_controllers_and_phases(
+            &mut usage,
+            root,
+            namespace,
+            imports,
+            limits,
             expected_key,
-        ));
-    }
+        )?;
+        usage.clear_site();
+        validate_parking(&mut usage, root, namespace, imports, limits, expected_key)?;
+        usage.clear_site();
+        validate_lane_groups_and_facility_bands(
+            &mut usage,
+            root,
+            namespace,
+            imports,
+            limits,
+            expected_key,
+        )?;
+        usage.clear_site();
+        validate_access_and_profiles(&mut usage, root, namespace, imports, limits, expected_key)?;
+        usage.clear_site();
+        validate_routes_and_frames(&mut usage, root, namespace, imports, limits, expected_key)?;
 
-    validate_alignments(&mut usage, root, namespace, imports, limits, expected_key)?;
-    validate_corridors(&mut usage, root, namespace, imports, limits, expected_key)?;
-    validate_sections(&mut usage, root, namespace, imports, limits, expected_key)?;
-    validate_authoring_lanes(&mut usage, root, namespace, imports, limits, expected_key)?;
-    validate_lane_edges(&mut usage, root, namespace, imports, limits, expected_key)?;
-    validate_junctions(&mut usage, root, namespace, imports, limits, expected_key)?;
-    validate_movements(&mut usage, root, namespace, imports, limits, expected_key)?;
-    validate_maneuver_paths(&mut usage, root, namespace, imports, limits, expected_key)?;
-    validate_maneuver_gates(&mut usage, root, namespace, imports, limits, expected_key)?;
-    validate_waiting_zones(&mut usage, root, namespace, imports, limits, expected_key)?;
-    validate_stop_lines_and_signal_groups(
-        &mut usage,
-        root,
-        namespace,
-        imports,
-        limits,
-        expected_key,
-    )?;
-    validate_signal_controllers_and_phases(
-        &mut usage,
-        root,
-        namespace,
-        imports,
-        limits,
-        expected_key,
-    )?;
-    validate_parking(&mut usage, root, namespace, imports, limits, expected_key)?;
-    validate_lane_groups_and_facility_bands(
-        &mut usage,
-        root,
-        namespace,
-        imports,
-        limits,
-        expected_key,
-    )?;
-    validate_access_and_profiles(&mut usage, root, namespace, imports, limits, expected_key)?;
-    validate_routes_and_frames(&mut usage, root, namespace, imports, limits, expected_key)?;
+        usage.clear_site();
+        usage.counts.validate(limits)
+    })();
 
-    usage.validate(limits)
+    result.map_err(|bundle| {
+        with_semantic_preflight_location(root, expected_key, usage.failure_subject, bundle)
+    })
 }
 
 fn validate_provenance(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     provenance: wire::Provenance<'_>,
     limits: &CompileLimits,
     expected_key: &str,
@@ -419,7 +502,7 @@ fn validate_provenance(
 }
 
 fn validate_alignments(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -432,7 +515,8 @@ fn validate_alignments(
         "roadAlignments.roadAlignmentKey",
         expected_key,
     )?;
-    for value in root.road_alignments() {
+    for (physical_index, value) in root.road_alignments().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::RoadAlignment, physical_index);
         usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
         usage.charge_token(
             value.road_alignment_key(),
@@ -450,15 +534,25 @@ fn validate_alignments(
             limits,
             expected_key,
         )?;
-        validate_curve(usage, value.reference_line(), limits, expected_key)?;
+        validate_curve(
+            usage,
+            value.reference_line(),
+            RoadEditingRootVectorKind::RoadAlignment,
+            physical_index,
+            limits,
+            expected_key,
+        )?;
+        usage.set_root_site(RoadEditingRootVectorKind::RoadAlignment, physical_index);
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
     }
     Ok(())
 }
 
 fn validate_curve(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     value: wire::CurveProgram<'_>,
+    owner_vector: RoadEditingRootVectorKind,
+    owner_physical_index: usize,
     limits: &CompileLimits,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
@@ -472,7 +566,15 @@ fn validate_curve(
             expected_key,
         ));
     }
-    for segment in value.segments() {
+    for (segment_index, segment) in value.segments().iter().enumerate() {
+        usage.set_owner_local_site(
+            owner_vector,
+            owner_physical_index,
+            RoadEditingRelationKind::CurveSegment,
+            RoadEditingRelationOccurrence::OrderedProductOrdinal(
+                u32::try_from(segment_index).unwrap_or(u32::MAX),
+            ),
+        );
         usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(2);
         match segment.geometry_type() {
             wire::CurveSegmentGeometry::LineSegment => {
@@ -568,7 +670,7 @@ fn validate_width(
 
 #[allow(clippy::too_many_arguments)]
 fn validate_reference_vector(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     values: StringVector<'_>,
     component_count: u8,
     field: &'static str,
@@ -612,7 +714,7 @@ fn validate_reference_vector(
 }
 
 fn validate_corridors(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -625,7 +727,8 @@ fn validate_corridors(
         "roadCorridors.roadCorridorKey",
         expected_key,
     )?;
-    for value in root.road_corridors() {
+    for (physical_index, value) in root.road_corridors().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::RoadCorridor, physical_index);
         usage.charge_declaration(EntityKind::RoadCorridor);
         usage.charge_token(
             value.road_corridor_key(),
@@ -771,7 +874,7 @@ fn validate_corridors(
 }
 
 fn validate_sections(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -784,7 +887,8 @@ fn validate_sections(
         "roadSections.address",
         expected_key,
     )?;
-    for value in root.road_sections() {
+    for (physical_index, value) in root.road_sections().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::RoadSection, physical_index);
         usage.charge_declaration(EntityKind::RoadSection);
         usage.charge_token(
             value.road_section_key(),
@@ -834,7 +938,7 @@ fn validate_sections(
 }
 
 fn validate_authoring_lanes(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -847,7 +951,8 @@ fn validate_authoring_lanes(
         "authoringLanes.address",
         expected_key,
     )?;
-    for value in root.authoring_lanes() {
+    for (physical_index, value) in root.authoring_lanes().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::AuthoringLane, physical_index);
         usage.charge_declaration(EntityKind::AuthoringLane);
         usage.charge_token(
             value.authoring_lane_key(),
@@ -904,7 +1009,7 @@ fn validate_authoring_lanes(
 }
 
 fn validate_lane_edges(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -917,7 +1022,8 @@ fn validate_lane_edges(
         "laneEdges.laneEdgeKey",
         expected_key,
     )?;
-    for value in root.lane_edges() {
+    for (physical_index, value) in root.lane_edges().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::LaneEdge, physical_index);
         usage.charge_declaration(EntityKind::LaneEdge);
         usage.charge_token(
             value.lane_edge_key(),
@@ -946,15 +1052,23 @@ fn validate_lane_edges(
             expected_key,
         )?;
         if let Some(curve) = value.explicit_geometry() {
-            validate_curve(usage, curve, limits, expected_key)?;
+            validate_curve(
+                usage,
+                curve,
+                RoadEditingRootVectorKind::LaneEdge,
+                physical_index,
+                limits,
+                expected_key,
+            )?;
         }
+        usage.set_root_site(RoadEditingRootVectorKind::LaneEdge, physical_index);
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
     }
     Ok(())
 }
 
 fn validate_junctions(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -967,7 +1081,8 @@ fn validate_junctions(
         "junctions.junctionKey",
         expected_key,
     )?;
-    for value in root.junctions() {
+    for (physical_index, value) in root.junctions().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::Junction, physical_index);
         usage.charge_declaration(EntityKind::Junction);
         usage.charge_token(
             value.junction_key(),
@@ -1016,7 +1131,7 @@ fn validate_junctions(
 }
 
 fn validate_movements(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -1029,7 +1144,8 @@ fn validate_movements(
         "movements.address",
         expected_key,
     )?;
-    for value in root.movements() {
+    for (physical_index, value) in root.movements().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::Movement, physical_index);
         usage.charge_declaration(EntityKind::Movement);
         usage.charge_token(
             value.movement_key(),
@@ -1065,7 +1181,7 @@ fn validate_movements(
 }
 
 fn validate_maneuver_paths(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -1078,7 +1194,8 @@ fn validate_maneuver_paths(
         "maneuverPaths.address",
         expected_key,
     )?;
-    for value in root.maneuver_paths() {
+    for (physical_index, value) in root.maneuver_paths().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::ManeuverPath, physical_index);
         usage.charge_declaration(EntityKind::ManeuverPath);
         usage.charge_token(
             value.maneuver_path_key(),
@@ -1135,7 +1252,7 @@ fn validate_maneuver_paths(
 }
 
 fn validate_maneuver_gates(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -1148,7 +1265,8 @@ fn validate_maneuver_gates(
         "maneuverGates.address",
         expected_key,
     )?;
-    for value in root.maneuver_gates() {
+    for (physical_index, value) in root.maneuver_gates().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::ManeuverGate, physical_index);
         usage.charge_declaration(EntityKind::ManeuverGate);
         usage.maneuver_gate_count = usage.maneuver_gate_count.saturating_add(1);
         usage.charge_token(
@@ -1202,7 +1320,7 @@ fn validate_maneuver_gates(
 }
 
 fn validate_waiting_zones(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -1215,7 +1333,8 @@ fn validate_waiting_zones(
         "waitingZones.address",
         expected_key,
     )?;
-    for value in root.waiting_zones() {
+    for (physical_index, value) in root.waiting_zones().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::WaitingZone, physical_index);
         usage.charge_declaration(EntityKind::WaitingZone);
         usage.waiting_zone_count = usage.waiting_zone_count.saturating_add(1);
         usage.charge_token(
@@ -1266,7 +1385,7 @@ fn validate_waiting_zones(
 }
 
 fn validate_stop_lines_and_signal_groups(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -1279,7 +1398,8 @@ fn validate_stop_lines_and_signal_groups(
         "stopLines.stopLineKey",
         expected_key,
     )?;
-    for value in root.stop_lines() {
+    for (physical_index, value) in root.stop_lines().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::StopLine, physical_index);
         usage.charge_declaration(EntityKind::StopLine);
         usage.charge_token(
             value.stop_line_key(),
@@ -1305,7 +1425,8 @@ fn validate_stop_lines_and_signal_groups(
         "signalGroups.signalGroupKey",
         expected_key,
     )?;
-    for value in root.signal_groups() {
+    for (physical_index, value) in root.signal_groups().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::SignalGroup, physical_index);
         usage.charge_declaration(EntityKind::SignalGroup);
         usage.charge_token(
             value.signal_group_key(),
@@ -1319,7 +1440,7 @@ fn validate_stop_lines_and_signal_groups(
 }
 
 fn validate_signal_controllers_and_phases(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -1332,7 +1453,8 @@ fn validate_signal_controllers_and_phases(
         "signalControllers.signalControllerKey",
         expected_key,
     )?;
-    for value in root.signal_controllers() {
+    for (physical_index, value) in root.signal_controllers().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::SignalController, physical_index);
         usage.charge_declaration(EntityKind::SignalController);
         usage.charge_token(
             value.signal_controller_key(),
@@ -1375,7 +1497,8 @@ fn validate_signal_controllers_and_phases(
         "signalPhases.address",
         expected_key,
     )?;
-    for value in root.signal_phases() {
+    for (physical_index, value) in root.signal_phases().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::SignalPhase, physical_index);
         usage.charge_declaration(EntityKind::SignalPhase);
         usage.charge_token(
             value.signal_phase_key(),
@@ -1441,7 +1564,7 @@ fn validate_signal_controllers_and_phases(
         )?;
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
     }
-    validate_signal_owner_closure(root, namespace, expected_key)?;
+    validate_signal_owner_closure(usage, root, namespace, expected_key)?;
     Ok(())
 }
 
@@ -1450,11 +1573,13 @@ fn validate_signal_controllers_and_phases(
 /// 第一方 builder 会提前拒绝这些错误，但 production reader 不能信任来源 writer。这里
 /// 只遍历已通过语法与基数预检的借用 vector，不分配第二份索引或字符串。
 fn validate_signal_owner_closure(
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
-    for controller in root.signal_controllers() {
+    for (physical_index, controller) in root.signal_controllers().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::SignalController, physical_index);
         for group_reference in controller.signal_groups() {
             if group_reference.contains("::")
                 || root
@@ -1497,7 +1622,8 @@ fn validate_signal_owner_closure(
         }
     }
 
-    for phase in root.signal_phases() {
+    for (physical_index, phase) in root.signal_phases().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::SignalPhase, physical_index);
         let Some(controller) = root
             .signal_controllers()
             .iter()
@@ -1539,7 +1665,8 @@ fn validate_signal_owner_closure(
         }
     }
 
-    for group in root.signal_groups() {
+    for (physical_index, group) in root.signal_groups().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::SignalGroup, physical_index);
         let owner_count = root
             .signal_controllers()
             .iter()
@@ -1560,7 +1687,7 @@ fn validate_signal_owner_closure(
 }
 
 fn validate_parking(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -1573,7 +1700,8 @@ fn validate_parking(
         "parkingAreas.parkingAreaKey",
         expected_key,
     )?;
-    for value in root.parking_areas() {
+    for (physical_index, value) in root.parking_areas().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::ParkingArea, physical_index);
         usage.charge_declaration(EntityKind::ParkingArea);
         usage.charge_token(
             value.parking_area_key(),
@@ -1590,7 +1718,8 @@ fn validate_parking(
         "parkingSpaces.parkingSpaceKey",
         expected_key,
     )?;
-    for value in root.parking_spaces() {
+    for (physical_index, value) in root.parking_spaces().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::ParkingSpace, physical_index);
         usage.charge_declaration(EntityKind::ParkingSpace);
         usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(3);
         usage.charge_token(
@@ -1680,7 +1809,7 @@ fn validate_parking(
 
 #[allow(clippy::too_many_arguments)]
 fn validate_parking_anchor(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     value: wire::ParkingLaneAnchor<'_>,
     field: &'static str,
     namespace: &str,
@@ -1708,7 +1837,7 @@ fn validate_parking_anchor(
 }
 
 fn validate_lane_groups_and_facility_bands(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -1721,7 +1850,8 @@ fn validate_lane_groups_and_facility_bands(
         "laneGroups.address",
         expected_key,
     )?;
-    for value in root.lane_groups() {
+    for (physical_index, value) in root.lane_groups().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::LaneGroup, physical_index);
         usage.charge_declaration(EntityKind::LaneGroup);
         usage.charge_token(
             value.lane_group_key(),
@@ -1748,7 +1878,8 @@ fn validate_lane_groups_and_facility_bands(
         "facilityBands.address",
         expected_key,
     )?;
-    for value in root.facility_bands() {
+    for (physical_index, value) in root.facility_bands().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::FacilityBand, physical_index);
         usage.charge_declaration(EntityKind::FacilityBand);
         usage.charge_token(
             value.facility_band_key(),
@@ -1778,7 +1909,7 @@ fn validate_lane_groups_and_facility_bands(
 }
 
 fn validate_access_and_profiles(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -1791,7 +1922,8 @@ fn validate_access_and_profiles(
         "participantClasses.participantClassKey",
         expected_key,
     )?;
-    for value in root.participant_classes() {
+    for (physical_index, value) in root.participant_classes().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::ParticipantClass, physical_index);
         usage.charge_declaration(EntityKind::ParticipantClass);
         usage.charge_token(
             value.participant_class_key(),
@@ -1820,7 +1952,8 @@ fn validate_access_and_profiles(
         "accessRules.accessRuleKey",
         expected_key,
     )?;
-    for value in root.access_rules() {
+    for (physical_index, value) in root.access_rules().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::AccessRule, physical_index);
         usage.charge_declaration(EntityKind::AccessRule);
         usage.charge_token(
             value.access_rule_key(),
@@ -1896,7 +2029,8 @@ fn validate_access_and_profiles(
         "vehicleProfiles.vehicleProfileKey",
         expected_key,
     )?;
-    for value in root.vehicle_profiles() {
+    for (physical_index, value) in root.vehicle_profiles().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::VehicleProfile, physical_index);
         usage.charge_declaration(EntityKind::VehicleProfile);
         usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
         usage.charge_token(
@@ -1978,7 +2112,7 @@ fn validate_iidm(
 }
 
 fn validate_routes_and_frames(
-    usage: &mut RoadEditingPreflightCounts,
+    usage: &mut RoadEditingPreflightState,
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     imports: StringVector<'_>,
@@ -1991,7 +2125,8 @@ fn validate_routes_and_frames(
         "staticRoutes.staticRouteKey",
         expected_key,
     )?;
-    for value in root.static_routes() {
+    for (physical_index, value) in root.static_routes().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::StaticRoute, physical_index);
         usage.charge_declaration(EntityKind::StaticRoute);
         usage.charge_token(
             value.static_route_key(),
@@ -2032,7 +2167,8 @@ fn validate_routes_and_frames(
         "canonicalFrames.canonicalFrameKey",
         expected_key,
     )?;
-    for value in root.canonical_frames() {
+    for (physical_index, value) in root.canonical_frames().iter().enumerate() {
+        usage.set_root_site(RoadEditingRootVectorKind::CanonicalFrame, physical_index);
         usage.charge_declaration(EntityKind::CanonicalFrame);
         usage.charge_token(
             value.canonical_frame_key(),
@@ -2149,6 +2285,55 @@ fn limit_error(dimension: CompileLimitDimension, limit: u64, observed: u64) -> D
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded(
         dimension, limit, observed,
     ))
+}
+
+fn with_semantic_preflight_location(
+    root: wire::RoadEditingSource<'_>,
+    expected_key: &str,
+    subject: Option<SemanticPreflightSubjectSite>,
+    bundle: DiagnosticBundle,
+) -> DiagnosticBundle {
+    let Some(subject) = subject else {
+        return bundle;
+    };
+    let field = bundle.diagnostics().iter().find_map(|diagnostic| {
+        let DiagnosticPayload::InvalidRoadEditingSource { field, .. } = diagnostic.payload() else {
+            return None;
+        };
+        field.as_deref()
+    });
+    let Some(field) = field else {
+        return bundle;
+    };
+    let site = match subject {
+        SemanticPreflightSubjectSite::ModuleHeader => {
+            SemanticPreflightSite::module_header(Some(field))
+        }
+        SemanticPreflightSubjectSite::Root {
+            vector,
+            physical_index,
+        } => SemanticPreflightSite::root(
+            vector,
+            usize::try_from(physical_index).unwrap_or(usize::MAX),
+            Some(field),
+        ),
+        SemanticPreflightSubjectSite::OwnerLocal {
+            owner_vector,
+            owner_physical_index,
+            relation,
+            occurrence,
+        } => SemanticPreflightSite::owner_local(
+            owner_vector,
+            usize::try_from(owner_physical_index).unwrap_or(usize::MAX),
+            relation,
+            occurrence,
+            Some(field),
+        ),
+    };
+    match RoadEditingLocationFactory::semantic_preflight(root, expected_key, site) {
+        Some(location) => bundle.with_fallback_primary_location(location),
+        None => bundle,
+    }
 }
 
 #[cfg(test)]

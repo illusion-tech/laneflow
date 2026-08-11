@@ -447,6 +447,7 @@ fn lower_verified_source(
     let namespace = root.module_header().authoring_namespace_id();
     let geometry_usage = compile_authoring_geometry(
         namespace,
+        &locations,
         alignments,
         &mut declarations,
         profiles.accuracy,
@@ -886,7 +887,10 @@ mod tests {
         RoadEditingSourceModuleBuilder, RoadEditingSourceWriter, RoadEditingStationEnd,
         RoadSectionInput, RoadSectionReference,
     };
-    use crate::{RoadEditingDocumentIdentity, RoadEditingSubject, SourceLocation};
+    use crate::{
+        RoadEditingDocumentIdentity, RoadEditingPropertyStep, RoadEditingRelationKind,
+        RoadEditingRelationOccurrence, RoadEditingSubject, RoadEditingTableKind, SourceLocation,
+    };
 
     fn source_buffer(
         limits: &CompileLimits,
@@ -1601,8 +1605,22 @@ mod tests {
         };
         assert!(matches!(
             location.subject(),
-            RoadEditingSubject::Declaration { .. }
+            RoadEditingSubject::OwnerLocal {
+                relation: RoadEditingRelationKind::CurveSegment,
+                occurrence: RoadEditingRelationOccurrence::OrderedProductOrdinal(0),
+                ..
+            }
         ));
+        assert_eq!(
+            location
+                .property_path()
+                .expect("curve segment property")
+                .steps(),
+            &[RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::CurveSegment,
+                field_id: 1,
+            }]
+        );
         let Some(SourceLocation::RoadEditing(location)) = error.diagnostics()[0].primary_location()
         else {
             panic!("numeric failure must retain a verified road-editing location");
