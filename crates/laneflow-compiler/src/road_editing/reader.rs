@@ -336,7 +336,9 @@ mod tests {
     use super::*;
     use crate::road_editing::{
         CanonicalFrameInput, RoadEditingDeclaration, RoadEditingModuleHeader,
-        RoadEditingProvenance, RoadEditingSourceModuleBuilder, RoadEditingSourceWriter,
+        RoadEditingProvenance, RoadEditingSignalPhaseState, RoadEditingSourceModuleBuilder,
+        RoadEditingSourceWriter, SignalControllerInput, SignalControllerReference,
+        SignalGroupInput, SignalGroupReference, SignalPhaseInput,
     };
     use crate::{
         DiagnosticCode, DiagnosticPayload, GeometryAccuracyProfile, GeometryDirectionProfile,
@@ -365,6 +367,67 @@ mod tests {
                 CanonicalFrameInput::try_new("frame").expect("frame"),
             ))
             .expect("frame declaration");
+        RoadEditingSourceWriter::new(limits)
+            .write(builder.finish().expect("module"))
+            .expect("buffer")
+    }
+
+    fn signal_source_buffer(limits: &CompileLimits) -> super::super::OwnedRoadEditingSourceBuffer {
+        let header = RoadEditingModuleHeader::try_new(
+            "city",
+            "road-editing",
+            vec!["signal".to_owned()],
+            RoadEditingProvenance::direct("editor save").expect("provenance"),
+        )
+        .expect("header");
+        let mut builder = RoadEditingSourceModuleBuilder::new(
+            header,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            limits,
+        )
+        .expect("builder");
+        let group = SignalGroupReference::local("signal-group").expect("group");
+        let controller = SignalControllerReference::local("controller").expect("controller");
+        builder
+            .add_declaration(RoadEditingDeclaration::SignalGroup(
+                SignalGroupInput::try_new("signal-group").expect("group"),
+            ))
+            .expect("group declaration");
+        builder
+            .add_declaration(RoadEditingDeclaration::SignalController(
+                SignalControllerInput::try_new(
+                    "controller",
+                    0,
+                    vec![group.clone()],
+                    vec![
+                        super::super::SignalPhaseReference::owner_scoped(
+                            vec!["controller".into()],
+                            "phase",
+                        )
+                        .expect("phase reference"),
+                    ],
+                )
+                .expect("controller"),
+            ))
+            .expect("controller declaration");
+        builder
+            .add_declaration(RoadEditingDeclaration::SignalPhase(
+                SignalPhaseInput::try_new(
+                    "phase",
+                    1_000,
+                    vec![
+                        RoadEditingSignalPhaseState::try_new(
+                            group,
+                            laneflow_static_contract::SignalAspect::Green,
+                        )
+                        .expect("phase state"),
+                    ],
+                    controller,
+                )
+                .expect("phase"),
+            ))
+            .expect("phase declaration");
         RoadEditingSourceWriter::new(limits)
             .write(builder.finish().expect("module"))
             .expect("buffer")
@@ -542,6 +605,43 @@ mod tests {
                 field: Some(field),
                 ..
             } if field.as_ref() == "signalController.signalPhases"
+        ));
+    }
+
+    #[test]
+    fn semantic_preflight_rejects_imported_signal_group_owner() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = signal_source_buffer(&limits);
+        let mut bytes = buffer.as_bytes().to_vec();
+        let reference_offset = {
+            let input =
+                RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
+            let verified = verify_source(input, &limits, 0, 0).expect("valid source");
+            let controller = verified.root().signal_controllers().get(0);
+            let reference = controller.signal_groups().get(0);
+            (reference.as_ptr() as usize)
+                .checked_sub(bytes.as_ptr() as usize)
+                .expect("reference belongs to source buffer")
+        };
+        assert_eq!(
+            &bytes[reference_offset..reference_offset + "signal-group".len()],
+            b"signal-group"
+        );
+        bytes[reference_offset + "signal".len()..reference_offset + "signal::".len()]
+            .copy_from_slice(b"::");
+        let input = RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("imported signal group owner");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::InvalidSemanticValue(
+                    crate::RoadEditingInputViolation::InvalidCombination
+                ),
+                field: Some(field),
+                ..
+            } if field.as_ref() == "signalController.signalGroups"
         ));
     }
 
