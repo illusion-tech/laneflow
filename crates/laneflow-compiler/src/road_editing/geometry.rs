@@ -8,6 +8,7 @@ use laneflow_static_contract::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS,
 };
 
+use crate::declaration::CanonicalPoint3F32Input;
 use crate::{GeometryAccuracyProfile, GeometryDirectionProfile};
 
 const MAX_SUBDIVISION_DEPTH: u8 = 20;
@@ -65,36 +66,29 @@ pub(super) struct CurveSample {
     pub(super) first: Point3,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct ApproximationPoint {
-    pub(super) x: f32,
-    pub(super) y: f32,
-    pub(super) z: f32,
+pub(super) type ApproximationPoint = CanonicalPoint3F32Input;
+
+fn quantize_point(value: Point3) -> Result<ApproximationPoint, NumericFreezeError> {
+    let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
+    let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
+    if [value.x, value.y, value.z]
+        .into_iter()
+        .any(|component| !(minimum..=maximum).contains(&component))
+    {
+        return Err(NumericFreezeError::CoordinateOutOfRange);
+    }
+    Ok(ApproximationPoint {
+        x: canonical_f32(value.x as f32),
+        y: canonical_f32(value.y as f32),
+        z: canonical_f32(value.z as f32),
+    })
 }
 
-impl ApproximationPoint {
-    fn quantize(value: Point3) -> Result<Self, NumericFreezeError> {
-        let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
-        let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
-        if [value.x, value.y, value.z]
-            .into_iter()
-            .any(|component| !(minimum..=maximum).contains(&component))
-        {
-            return Err(NumericFreezeError::CoordinateOutOfRange);
-        }
-        Ok(Self {
-            x: canonical_f32(value.x as f32),
-            y: canonical_f32(value.y as f32),
-            z: canonical_f32(value.z as f32),
-        })
-    }
-
-    fn promoted(self) -> Point3 {
-        Point3 {
-            x: f64::from(self.x),
-            y: f64::from(self.y),
-            z: f64::from(self.z),
-        }
+fn promote_point(value: ApproximationPoint) -> Point3 {
+    Point3 {
+        x: f64::from(value.x),
+        y: f64::from(value.y),
+        z: f64::from(value.z),
     }
 }
 
@@ -141,7 +135,7 @@ impl CandidateEndpoint {
     fn evaluate(evaluator: SegmentEvaluator, parameter: f64) -> Result<Self, NumericFreezeError> {
         let sample = evaluator.evaluate(parameter)?;
         Ok(Self {
-            point: ApproximationPoint::quantize(sample.point)?,
+            point: quantize_point(sample.point)?,
             first: sample.first,
         })
     }
@@ -270,8 +264,8 @@ fn candidate_accepts(
         return Err(NumericFreezeError::ApproximationNotConverged);
     }
 
-    let start = node.start.point.promoted();
-    let end = node.end.point.promoted();
+    let start = promote_point(node.start.point);
+    let end = promote_point(node.end.point);
     let chord = point_sub(end, start)?;
     let target = position_target(accuracy);
     let target_squared = finite(target * target)?;
@@ -360,7 +354,7 @@ pub(super) fn validate_canonical_polyline(
     let mut previous_chord = None;
     let mut cumulative_length = 0.0_f64;
     for pair in points.windows(2) {
-        let chord = point_sub(pair[1].promoted(), pair[0].promoted())?;
+        let chord = point_sub(promote_point(pair[1]), promote_point(pair[0]))?;
         let chord_norm_squared = norm_squared(chord)?;
         if chord_norm_squared == 0.0 {
             return Err(NumericFreezeError::DegenerateCanonicalSegment);
