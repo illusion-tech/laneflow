@@ -146,6 +146,25 @@ impl RoadEditingPreflightCounts {
             .saturating_add(u64::try_from(count).unwrap_or(u64::MAX));
     }
 
+    fn require_relation_capacity(
+        &self,
+        count: usize,
+        limits: &CompileLimits,
+    ) -> Result<(), DiagnosticBundle> {
+        let observed = self
+            .relation_occurrence_count
+            .saturating_add(u64::try_from(count).unwrap_or(u64::MAX));
+        let limit = limits.value(CompileLimitDimension::RelationOccurrenceCount);
+        if observed > limit {
+            return Err(limit_error(
+                CompileLimitDimension::RelationOccurrenceCount,
+                limit,
+                observed,
+            ));
+        }
+        Ok(())
+    }
+
     fn validate(self, limits: &CompileLimits) -> Result<Self, DiagnosticBundle> {
         for (dimension, observed) in [
             (
@@ -225,6 +244,15 @@ pub(crate) fn preflight_source(
         limits,
         expected_key,
     )?;
+    let import_count = u64::try_from(imports.len()).unwrap_or(u64::MAX);
+    let import_limit = limits.value(CompileLimitDimension::ImportEdgeCount);
+    if import_count > import_limit {
+        return Err(limit_error(
+            CompileLimitDimension::ImportEdgeCount,
+            import_limit,
+            import_count,
+        ));
+    }
     ensure_unique_strings(imports, "moduleHeader.imports", expected_key)?;
     for import in imports {
         usage.charge_token(import, "moduleHeader.imports", limits, expected_key)?;
@@ -235,15 +263,6 @@ pub(crate) fn preflight_source(
                 expected_key,
             ));
         }
-    }
-    let import_count = u64::try_from(imports.len()).unwrap_or(u64::MAX);
-    let import_limit = limits.value(CompileLimitDimension::ImportEdgeCount);
-    if import_count > import_limit {
-        return Err(limit_error(
-            CompileLimitDimension::ImportEdgeCount,
-            import_limit,
-            import_count,
-        ));
     }
     validate_provenance(&mut usage, header.provenance(), limits, expected_key)?;
 
@@ -317,7 +336,7 @@ fn validate_provenance(
     limits: &CompileLimits,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
-    usage.charge_visible_ascii(
+    usage.charge_token(
         provenance.generator_build_id(),
         "moduleHeader.provenance.generatorBuildId",
         limits,
@@ -506,6 +525,9 @@ fn validate_reference_vector(
             RoadEditingInputViolation::EmptyCollection,
             expected_key,
         ));
+    }
+    if relation {
+        usage.require_relation_capacity(values.len(), limits)?;
     }
     if unique {
         ensure_unique_references(values, namespace, field, expected_key)?;
@@ -1918,4 +1940,46 @@ fn limit_error(dimension: CompileLimitDimension, limit: u64, observed: u64) -> D
     DiagnosticBundle::single(Diagnostic::compile_limit_exceeded(
         dimension, limit, observed,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relation_capacity_is_checked_before_usage_is_mutated() {
+        let limits = CompileLimits::p100_initial_v1()
+            .with_test_admission_limit(CompileLimitDimension::RelationOccurrenceCount, 2);
+        let mut usage = RoadEditingPreflightCounts {
+            relation_occurrence_count: 1,
+            ..RoadEditingPreflightCounts::default()
+        };
+
+        assert!(usage.require_relation_capacity(2, &limits).is_err());
+        assert_eq!(usage.relation_occurrence_count, 1);
+        usage
+            .require_relation_capacity(1, &limits)
+            .expect("remaining relation capacity");
+        usage.charge_relation(1);
+        assert_eq!(usage.relation_occurrence_count, 2);
+    }
+
+    #[test]
+    fn generated_build_id_uses_the_token_rule() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut usage = RoadEditingPreflightCounts::default();
+
+        assert!(
+            usage
+                .charge_token(
+                    "generator build",
+                    "moduleHeader.provenance.generatorBuildId",
+                    &limits,
+                    "roads/main",
+                )
+                .is_err()
+        );
+        assert_eq!(usage.string_item_count, 0);
+        assert_eq!(usage.total_string_bytes, 0);
+    }
 }
