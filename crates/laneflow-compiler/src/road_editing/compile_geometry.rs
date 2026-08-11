@@ -3,7 +3,7 @@
 use crate::declaration::{
     AuthoringCurveProgramDeclaration, AuthoringCurveSegmentDeclaration,
     AuthoringCurveSegmentGeometry, AuthoringLaneDirection, AuthoringPoint3F64,
-    CanonicalPoint3F32Input, EdgeLength,
+    AuthoringWidthProfile, CanonicalPoint3F32Input, EdgeLength,
 };
 use crate::{GeometryAccuracyProfile, GeometryDirectionProfile};
 
@@ -59,6 +59,84 @@ pub(super) struct CompiledCurve {
 pub(super) struct CompiledAlignmentReference {
     pub(super) station_rows: Box<[ReferenceStationRow]>,
     pub(super) horizontal_regularity_visits: Box<[u32]>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct MemberOffsetEndpoints {
+    pub(super) start_meters: f64,
+    pub(super) end_meters: f64,
+}
+
+pub(super) fn derive_member_offset_endpoints(
+    width_profiles: &[AuthoringWidthProfile],
+    reference_ordinal: usize,
+) -> Result<Box<[MemberOffsetEndpoints]>, NumericFreezeError> {
+    if width_profiles.is_empty() || reference_ordinal >= width_profiles.len() {
+        return Err(NumericFreezeError::StationOutOfRange);
+    }
+    for profile in width_profiles {
+        if !profile.start_width_meters.is_finite()
+            || !profile.end_width_meters.is_finite()
+            || profile.start_width_meters < 0.0
+            || profile.end_width_meters < 0.0
+        {
+            return Err(NumericFreezeError::NonFinite);
+        }
+    }
+    let mut offsets = vec![
+        MemberOffsetEndpoints {
+            start_meters: 0.0,
+            end_meters: 0.0,
+        };
+        width_profiles.len()
+    ];
+    let reference = width_profiles[reference_ordinal];
+    let mut left_start = 0.5 * reference.start_width_meters;
+    let mut left_end = 0.5 * reference.end_width_meters;
+    if !left_start.is_finite() || !left_end.is_finite() {
+        return Err(NumericFreezeError::NonFinite);
+    }
+    for ordinal in (0..reference_ordinal).rev() {
+        let width = width_profiles[ordinal];
+        left_start += 0.5 * width.start_width_meters;
+        left_end += 0.5 * width.end_width_meters;
+        if !left_start.is_finite() || !left_end.is_finite() {
+            return Err(NumericFreezeError::NonFinite);
+        }
+        offsets[ordinal] = MemberOffsetEndpoints {
+            start_meters: left_start,
+            end_meters: left_end,
+        };
+        left_start += 0.5 * width.start_width_meters;
+        left_end += 0.5 * width.end_width_meters;
+        if !left_start.is_finite() || !left_end.is_finite() {
+            return Err(NumericFreezeError::NonFinite);
+        }
+    }
+
+    let mut right_start = -(0.5 * reference.start_width_meters);
+    let mut right_end = -(0.5 * reference.end_width_meters);
+    if !right_start.is_finite() || !right_end.is_finite() {
+        return Err(NumericFreezeError::NonFinite);
+    }
+    for ordinal in (reference_ordinal + 1)..width_profiles.len() {
+        let width = width_profiles[ordinal];
+        right_start -= 0.5 * width.start_width_meters;
+        right_end -= 0.5 * width.end_width_meters;
+        if !right_start.is_finite() || !right_end.is_finite() {
+            return Err(NumericFreezeError::NonFinite);
+        }
+        offsets[ordinal] = MemberOffsetEndpoints {
+            start_meters: right_start,
+            end_meters: right_end,
+        };
+        right_start -= 0.5 * width.start_width_meters;
+        right_end -= 0.5 * width.end_width_meters;
+        if !right_start.is_finite() || !right_end.is_finite() {
+            return Err(NumericFreezeError::NonFinite);
+        }
+    }
+    Ok(offsets.into_boxed_slice())
 }
 
 pub(super) fn compile_explicit_curve(
@@ -879,6 +957,55 @@ mod tests {
             )
             .err(),
             Some(NumericFreezeError::SourceJoinGapExceeded)
+        );
+    }
+
+    #[test]
+    fn member_offsets_sum_widths_from_the_reference_outward() {
+        let profiles = [
+            AuthoringWidthProfile {
+                start_width_meters: 2.0,
+                end_width_meters: 4.0,
+            },
+            AuthoringWidthProfile {
+                start_width_meters: 4.0,
+                end_width_meters: 6.0,
+            },
+            AuthoringWidthProfile {
+                start_width_meters: 6.0,
+                end_width_meters: 8.0,
+            },
+            AuthoringWidthProfile {
+                start_width_meters: 2.0,
+                end_width_meters: 2.0,
+            },
+        ];
+        assert_eq!(
+            derive_member_offset_endpoints(&profiles, 1)
+                .unwrap()
+                .as_ref(),
+            [
+                MemberOffsetEndpoints {
+                    start_meters: 3.0,
+                    end_meters: 5.0,
+                },
+                MemberOffsetEndpoints {
+                    start_meters: 0.0,
+                    end_meters: 0.0,
+                },
+                MemberOffsetEndpoints {
+                    start_meters: -5.0,
+                    end_meters: -7.0,
+                },
+                MemberOffsetEndpoints {
+                    start_meters: -9.0,
+                    end_meters: -12.0,
+                },
+            ]
+        );
+        assert_eq!(
+            derive_member_offset_endpoints(&profiles, profiles.len()),
+            Err(NumericFreezeError::StationOutOfRange)
         );
     }
 }
