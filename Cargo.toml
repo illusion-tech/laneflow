@@ -11,6 +11,7 @@ members = [
     "crates/laneflow-spatial",
     "crates/laneflow-static-contract",
     "research/issue-123-spatial-prototype",
+    "research/issue-296-road-editing-source-calibration",
     "research/issue-308-compiler-budget-calibration-research",
     "tools/laneflow-corridor-generator",
     "xtask",
