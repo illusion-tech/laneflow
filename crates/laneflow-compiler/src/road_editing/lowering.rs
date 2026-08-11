@@ -5,22 +5,28 @@ use std::sync::Arc;
 
 use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
 use laneflow_static_contract::{
-    AccessEffect, EntityKind, EntityKindMarker, JunctionKind, LaneEdgeKind, LaneGroupKind,
-    ManeuverGateKind, ManeuverPathKind, MovementKind, ParkingAreaKind, ParticipantClassKind,
-    RoadSectionKind, SignalAspect, SignalGroupKind, StopLineKind,
+    AccessEffect, AuthoringLaneKind, CanonicalFrameKind, EntityKind, EntityKindMarker,
+    FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind, ManeuverGateKind,
+    ManeuverPathKind, MovementKind, ParkingAreaKind, ParticipantClassKind, RoadSectionKind,
+    SignalAspect, SignalGroupKind, StopLineKind,
 };
 
 use super::location::RoadEditingLocationFactory;
 use super::rules::validate_wire_reference;
 use crate::declaration::{
-    AccessRuleDeclaration, CanonicalFrameDeclaration, DeclarationHeader, FacilityBandDeclaration,
-    IidmVehicleProfileInput, JunctionDeclaration, LaneGroupDeclaration, ManeuverGateDeclaration,
-    ManeuverPathDeclaration, MovementDeclaration, OwnedAccessRegulation, OwnedAccessRuleTarget,
-    OwnedEntityReference, OwnedSignalControl, ParkingAreaDeclaration, ParkingLaneAnchorDeclaration,
-    ParkingSpaceDeclaration, ParkingSpaceGeometryInput, ParticipantClassDeclaration,
+    AccessRuleDeclaration, AuthoringCurveProgramDeclaration, AuthoringCurveSegmentDeclaration,
+    AuthoringCurveSegmentGeometry, AuthoringLaneDeclaration, AuthoringLaneDirection,
+    AuthoringLaneGeometry, AuthoringPoint3F64, AuthoringStationEnd, AuthoringWidthProfile,
+    CanonicalFrameDeclaration, DeclarationHeader, FacilityBandDeclaration, IidmVehicleProfileInput,
+    JunctionDeclaration, LaneEdgeDeclaration, LaneEdgeGeometryAuthority, LaneGroupDeclaration,
+    ManeuverGateDeclaration, ManeuverPathDeclaration, MovementDeclaration, OwnedAccessRegulation,
+    OwnedAccessRuleTarget, OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl,
+    ParkingAreaDeclaration, ParkingLaneAnchorDeclaration, ParkingSpaceDeclaration,
+    ParkingSpaceGeometryInput, ParticipantClassDeclaration, RoadAlignmentDeclaration,
+    RoadCorridorAuthoringGeometry, RoadCorridorDeclaration, RoadSectionDeclaration,
     SignalControllerDeclaration, SignalGroupDeclaration, SignalGroupStateDeclaration,
-    SignalPhaseDeclaration, StaticRouteDeclaration, StopLineDeclaration, TypedAstDeclaration,
-    TypedAstEntityAddress, VehicleProfileDeclaration, WaitingZoneDeclaration,
+    SignalPhaseDeclaration, SpeedLimit, StaticRouteDeclaration, StopLineDeclaration,
+    TypedAstDeclaration, TypedAstEntityAddress, VehicleProfileDeclaration, WaitingZoneDeclaration,
 };
 use crate::{
     RoadEditingPropertyStep, RoadEditingRelationKind, RoadEditingRelationOccurrence,
@@ -28,6 +34,120 @@ use crate::{
 };
 
 const MAX_OWNER_QUALIFIED_COMPONENTS: usize = 4;
+
+pub(super) fn lower_road_alignments(
+    root: wire::RoadEditingSource<'_>,
+    locations: &RoadEditingLocationFactory,
+) -> Vec<RoadAlignmentDeclaration> {
+    let namespace = root.module_header().authoring_namespace_id();
+    let mut values: Vec<_> = root.road_alignments().iter().collect();
+    values.sort_unstable_by(|left, right| {
+        left.road_alignment_key()
+            .as_bytes()
+            .cmp(right.road_alignment_key().as_bytes())
+    });
+    values
+        .into_iter()
+        .map(|value| {
+            let key = value.road_alignment_key();
+            RoadAlignmentDeclaration {
+                road_alignment_key: Arc::from(key),
+                canonical_frame: lower_reference::<CanonicalFrameKind>(
+                    value.canonical_frame(),
+                    1,
+                    namespace,
+                    locations.road_alignment_property(
+                        key,
+                        &[RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::RoadAlignment,
+                            field_id: 1,
+                        }],
+                        value.canvas_selection(),
+                    ),
+                ),
+                reference_line: lower_curve_program(
+                    value.reference_line(),
+                    locations.road_alignment_property(
+                        key,
+                        &[RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::RoadAlignment,
+                            field_id: 2,
+                        }],
+                        value.canvas_selection(),
+                    ),
+                    |index| {
+                        locations.road_alignment_owner_local(
+                            key,
+                            RoadEditingRelationKind::CurveSegment,
+                            RoadEditingRelationOccurrence::OrderedProductOrdinal(
+                                u32::try_from(index)
+                                    .expect("compile limits bound curve segment ordinals"),
+                            ),
+                            &[RoadEditingPropertyStep::TableField {
+                                table: RoadEditingTableKind::CurveSegment,
+                                field_id: 1,
+                            }],
+                        )
+                    },
+                ),
+                span: locations.road_alignment(key, value.canvas_selection()),
+            }
+        })
+        .collect()
+}
+
+fn lower_curve_program(
+    value: wire::CurveProgram<'_>,
+    start_span: SourceLocation,
+    mut segment_span: impl FnMut(usize) -> SourceLocation,
+) -> AuthoringCurveProgramDeclaration {
+    let start = lower_point(value.start());
+    let segments = value
+        .segments()
+        .iter()
+        .enumerate()
+        .map(|(index, segment)| {
+            let geometry = match segment.geometry_type() {
+                wire::CurveSegmentGeometry::LineSegment => {
+                    let geometry = segment
+                        .geometry_as_line_segment()
+                        .expect("semantic preflight validated curve union payloads");
+                    AuthoringCurveSegmentGeometry::Line {
+                        end: lower_point(geometry.end()),
+                    }
+                }
+                wire::CurveSegmentGeometry::CubicBezierSegment => {
+                    let geometry = segment
+                        .geometry_as_cubic_bezier_segment()
+                        .expect("semantic preflight validated curve union payloads");
+                    AuthoringCurveSegmentGeometry::CubicBezier {
+                        control_1: lower_point(geometry.control_1()),
+                        control_2: lower_point(geometry.control_2()),
+                        end: lower_point(geometry.end()),
+                    }
+                }
+                _ => unreachable!("semantic preflight validated curve union discriminants"),
+            };
+            AuthoringCurveSegmentDeclaration {
+                geometry,
+                span: segment_span(index),
+            }
+        })
+        .collect();
+    AuthoringCurveProgramDeclaration {
+        start,
+        start_span,
+        segments,
+    }
+}
+
+fn lower_point(value: &wire::Vec3F64) -> AuthoringPoint3F64 {
+    AuthoringPoint3F64 {
+        x: value.x(),
+        y: value.y(),
+        z: value.z(),
+    }
+}
 
 /// 受检 wire reference 的借用规范视图；固定数组避免为比较和排序建立临时 key 字符串。
 #[derive(Clone, Copy, Debug)]
@@ -429,6 +549,10 @@ pub(super) fn lower_owner_scoped_declarations(
                 namespace,
             ),
             kind_id: Arc::from(value.kind_id()),
+            authoring_width_profile: Some(AuthoringWidthProfile {
+                start_width_meters: value.width_profile().start_width_meters(),
+                end_width_meters: value.width_profile().end_width_meters(),
+            }),
         })
     }));
 
@@ -490,6 +614,32 @@ pub(super) fn lower_owner_scoped_declarations(
                             field_id: 2,
                         }],
                         value.canvas_selection(),
+                    ),
+                )
+            })
+            .collect();
+        let mut internals: Vec<_> = value.internal_edges().iter().collect();
+        sort_reference_set(&mut internals, 1, namespace);
+        let internal_edges = internals
+            .into_iter()
+            .enumerate()
+            .map(|(index, edge)| {
+                lower_reference::<LaneEdgeKind>(
+                    edge,
+                    1,
+                    namespace,
+                    locations.owner_local(
+                        EntityKind::Junction,
+                        &[],
+                        key,
+                        RoadEditingRelationKind::JunctionInternalEdge,
+                        RoadEditingRelationOccurrence::CanonicalSetOrdinal(
+                            u32::try_from(index).expect("compile limits bound relation ordinals"),
+                        ),
+                        &[RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::Junction,
+                            field_id: 2,
+                        }],
                     ),
                 )
             })
@@ -812,6 +962,360 @@ pub(super) fn lower_owner_scoped_declarations(
     }));
 
     declarations
+}
+
+/// 降阶 RoadEditingSource 的道路横断面、LaneEdge 和 authoring 几何权威。
+///
+/// 该函数只转换已通过模块内 owner-tree 预检的值；跨模块引用、角色闭包、frame 派生和
+/// 最终曲线编译仍由共同 HIR/topology-geometry 阶段一次完成。
+pub(super) fn lower_topology_authoring_declarations(
+    root: wire::RoadEditingSource<'_>,
+    locations: &RoadEditingLocationFactory,
+) -> Result<Vec<TypedAstDeclaration>, crate::DiagnosticBundle> {
+    let namespace = root.module_header().authoring_namespace_id();
+    let expected_key = root.module_header().source_document_key();
+    let mut declarations = Vec::with_capacity(
+        root.lane_edges()
+            .len()
+            .saturating_add(root.road_corridors().len())
+            .saturating_add(root.road_sections().len()),
+    );
+
+    let mut lane_edges: Vec<_> = root.lane_edges().iter().collect();
+    lane_edges.sort_unstable_by(|left, right| {
+        left.lane_edge_key()
+            .as_bytes()
+            .cmp(right.lane_edge_key().as_bytes())
+    });
+    declarations.extend(lane_edges.into_iter().map(|value| {
+        let key = value.lane_edge_key();
+        let mut successor_values: Vec<_> = value.successors().iter().collect();
+        sort_reference_set(&mut successor_values, 1, namespace);
+        let successors = successor_values
+            .into_iter()
+            .enumerate()
+            .map(|(index, successor)| {
+                lower_reference::<LaneEdgeKind>(
+                    successor,
+                    1,
+                    namespace,
+                    locations.owner_local(
+                        EntityKind::LaneEdge,
+                        &[],
+                        key,
+                        RoadEditingRelationKind::LaneEdgeSuccessor,
+                        RoadEditingRelationOccurrence::CanonicalSetOrdinal(
+                            u32::try_from(index).expect("compile limits bound relation ordinals"),
+                        ),
+                        &[RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::LaneEdge,
+                            field_id: 2,
+                        }],
+                    ),
+                )
+            })
+            .collect();
+        let explicit_curve = value.explicit_geometry().map(|curve| {
+            lower_curve_program(
+                curve,
+                property_location(
+                    locations,
+                    EntityKind::LaneEdge,
+                    key,
+                    RoadEditingTableKind::LaneEdge,
+                    3,
+                    value.canvas_selection(),
+                ),
+                |index| {
+                    locations.owner_local(
+                        EntityKind::LaneEdge,
+                        &[],
+                        key,
+                        RoadEditingRelationKind::CurveSegment,
+                        RoadEditingRelationOccurrence::OrderedProductOrdinal(
+                            u32::try_from(index)
+                                .expect("compile limits bound curve segment ordinals"),
+                        ),
+                        &[RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::CurveSegment,
+                            field_id: 1,
+                        }],
+                    )
+                },
+            )
+        });
+        TypedAstDeclaration::LaneEdge(LaneEdgeDeclaration {
+            header: module_scoped_header(
+                locations,
+                EntityKind::LaneEdge,
+                key,
+                value.canvas_selection(),
+            ),
+            geometry_authority: LaneEdgeGeometryAuthority::Authoring { explicit_curve },
+            speed_limit: SpeedLimit::try_new(value.speed_limit_meters_per_second())
+                .expect("semantic preflight validated lane speed"),
+            successors,
+        })
+    }));
+
+    let mut corridors: Vec<_> = root.road_corridors().iter().collect();
+    corridors.sort_unstable_by(|left, right| {
+        left.road_corridor_key()
+            .as_bytes()
+            .cmp(right.road_corridor_key().as_bytes())
+    });
+    declarations.extend(corridors.into_iter().map(|value| {
+        let key = value.road_corridor_key();
+        let elements = value
+            .elements()
+            .iter()
+            .enumerate()
+            .map(|(index, element)| {
+                let span = locations.owner_local(
+                    EntityKind::RoadCorridor,
+                    &[],
+                    key,
+                    RoadEditingRelationKind::CorridorElement,
+                    RoadEditingRelationOccurrence::OrderedProductOrdinal(
+                        u32::try_from(index).expect("compile limits bound relation ordinals"),
+                    ),
+                    &[
+                        RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::RoadCorridor,
+                            field_id: 7,
+                        },
+                        RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::CorridorElement,
+                            field_id: 1,
+                        },
+                    ],
+                );
+                match element.kind() {
+                    wire::CorridorElementKind::RoadSection => {
+                        OwnedCorridorElementReference::RoadSection(
+                            lower_reference::<RoadSectionKind>(
+                                element.entity_reference(),
+                                2,
+                                namespace,
+                                span,
+                            ),
+                        )
+                    }
+                    wire::CorridorElementKind::FacilityBand => {
+                        OwnedCorridorElementReference::FacilityBand(lower_reference::<
+                            FacilityBandKind,
+                        >(
+                            element.entity_reference(),
+                            2,
+                            namespace,
+                            span,
+                        ))
+                    }
+                    _ => unreachable!("semantic preflight validated corridor element kind"),
+                }
+            })
+            .collect();
+        let end_station = match value.end_station_kind() {
+            wire::StationEndKind::Finite => AuthoringStationEnd::Finite(value.end_station_meters()),
+            wire::StationEndKind::AlignmentEnd => AuthoringStationEnd::AlignmentEnd,
+            _ => unreachable!("semantic preflight validated station end kind"),
+        };
+        TypedAstDeclaration::RoadCorridor(RoadCorridorDeclaration {
+            header: module_scoped_header(
+                locations,
+                EntityKind::RoadCorridor,
+                key,
+                value.canvas_selection(),
+            ),
+            reference_section: lower_reference::<RoadSectionKind>(
+                value.reference_section(),
+                2,
+                namespace,
+                property_location(
+                    locations,
+                    EntityKind::RoadCorridor,
+                    key,
+                    RoadEditingTableKind::RoadCorridor,
+                    5,
+                    value.canvas_selection(),
+                ),
+            ),
+            elements,
+            authoring_geometry: Some(RoadCorridorAuthoringGeometry {
+                road_alignment_key: Arc::from(value.road_alignment_key()),
+                start_station_meters: value.start_station_meters(),
+                end_station,
+                reference_lane: lower_reference::<AuthoringLaneKind>(
+                    value.reference_lane(),
+                    3,
+                    namespace,
+                    property_location(
+                        locations,
+                        EntityKind::RoadCorridor,
+                        key,
+                        RoadEditingTableKind::RoadCorridor,
+                        6,
+                        value.canvas_selection(),
+                    ),
+                ),
+            }),
+        })
+    }));
+
+    let mut authoring_lanes: Vec<_> = root.authoring_lanes().iter().collect();
+    authoring_lanes.sort_unstable_by(|left, right| {
+        compare_owner_scoped_values(
+            left.road_section(),
+            left.authoring_lane_key(),
+            right.road_section(),
+            right.authoring_lane_key(),
+            2,
+            namespace,
+        )
+    });
+    let expected_lane_count = authoring_lanes.len();
+    let mut lowered_lane_count = 0_usize;
+    let mut sections: Vec<_> = root.road_sections().iter().collect();
+    sections.sort_unstable_by(|left, right| {
+        compare_owner_scoped_values(
+            left.road_corridor(),
+            left.road_section_key(),
+            right.road_corridor(),
+            right.road_section_key(),
+            1,
+            namespace,
+        )
+    });
+    for value in sections {
+        let key = value.road_section_key();
+        let owner = BorrowedReference::parse(value.road_corridor(), 1, namespace);
+        let corridor_key = owner.local_key();
+        let lanes = value
+            .authoring_lanes()
+            .iter()
+            .enumerate()
+            .map(|(index, lane_reference)| {
+                let reference = BorrowedReference::parse(lane_reference, 3, namespace);
+                if reference.module_namespace != namespace
+                    || reference.owner_local_keys() != [corridor_key, key]
+                {
+                    return Err(super::preflight::invalid_combination(
+                        "roadSection.authoringLanes",
+                        expected_key,
+                    ));
+                }
+                let lane_index = authoring_lanes
+                    .binary_search_by(|lane| {
+                        compare_owner_scoped_value_to_reference(
+                            lane.road_section(),
+                            lane.authoring_lane_key(),
+                            2,
+                            reference,
+                            namespace,
+                        )
+                    })
+                    .map_err(|_| {
+                        super::preflight::invalid_combination(
+                            "roadSection.authoringLanes",
+                            expected_key,
+                        )
+                    })?;
+                let lane = authoring_lanes[lane_index];
+                let lane_key = lane.authoring_lane_key();
+                Ok(AuthoringLaneDeclaration {
+                    header: owner_scoped_header(
+                        locations,
+                        EntityKind::AuthoringLane,
+                        lane.road_section(),
+                        2,
+                        lane_key,
+                        lane.canvas_selection(),
+                        namespace,
+                    ),
+                    section_relation_span: locations.owner_local(
+                        EntityKind::RoadSection,
+                        &[corridor_key],
+                        key,
+                        RoadEditingRelationKind::RoadSectionAuthoringLane,
+                        RoadEditingRelationOccurrence::OrderedProductOrdinal(
+                            u32::try_from(index).expect("compile limits bound relation ordinals"),
+                        ),
+                        &[RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::RoadSection,
+                            field_id: 2,
+                        }],
+                    ),
+                    edge_chain: Box::new([lower_reference::<LaneEdgeKind>(
+                        lane.lane_edge(),
+                        1,
+                        namespace,
+                        owner_property_location(
+                            locations,
+                            EntityKind::AuthoringLane,
+                            lane.road_section(),
+                            2,
+                            lane_key,
+                            RoadEditingTableKind::AuthoringLane,
+                            1,
+                            lane.canvas_selection(),
+                            namespace,
+                        ),
+                    )]),
+                    lane_group: lane.lane_group().map(|group| {
+                        lower_reference::<LaneGroupKind>(
+                            group,
+                            3,
+                            namespace,
+                            owner_property_location(
+                                locations,
+                                EntityKind::AuthoringLane,
+                                lane.road_section(),
+                                2,
+                                lane_key,
+                                RoadEditingTableKind::AuthoringLane,
+                                4,
+                                lane.canvas_selection(),
+                                namespace,
+                            ),
+                        )
+                    }),
+                    authoring_geometry: Some(AuthoringLaneGeometry {
+                        direction: match lane.direction() {
+                            wire::LaneDirection::Forward => AuthoringLaneDirection::Forward,
+                            wire::LaneDirection::Backward => AuthoringLaneDirection::Backward,
+                            _ => unreachable!("semantic preflight validated lane direction"),
+                        },
+                        width_profile: AuthoringWidthProfile {
+                            start_width_meters: lane.width_profile().start_width_meters(),
+                            end_width_meters: lane.width_profile().end_width_meters(),
+                        },
+                    }),
+                })
+            })
+            .collect::<Result<Box<[_]>, crate::DiagnosticBundle>>()?;
+        lowered_lane_count = lowered_lane_count.saturating_add(lanes.len());
+        declarations.push(TypedAstDeclaration::RoadSection(RoadSectionDeclaration {
+            header: owner_scoped_header(
+                locations,
+                EntityKind::RoadSection,
+                value.road_corridor(),
+                1,
+                key,
+                value.canvas_selection(),
+                namespace,
+            ),
+            kind_id: Arc::from(value.kind_id()),
+            lanes,
+        }));
+    }
+    if lowered_lane_count != expected_lane_count {
+        return Err(super::preflight::invalid_combination(
+            "authoringLanes.roadSection",
+            expected_key,
+        ));
+    }
+
+    Ok(declarations)
 }
 
 /// 降阶需要把顶层声明与嵌套成员合并的非几何声明族。
@@ -1243,6 +1747,33 @@ fn compare_owner_scoped_values(
             current_namespace,
         ))
         .then_with(|| left_key.as_bytes().cmp(right_key.as_bytes()))
+}
+
+fn compare_owner_scoped_value_to_reference(
+    value_owner: &str,
+    value_key: &str,
+    owner_component_count: u8,
+    reference: BorrowedReference<'_>,
+    current_namespace: &str,
+) -> Ordering {
+    let owner = BorrowedReference::parse(value_owner, owner_component_count, current_namespace);
+    owner
+        .module_namespace
+        .as_bytes()
+        .cmp(reference.module_namespace.as_bytes())
+        .then_with(|| {
+            owner
+                .owner_local_keys_with_local()
+                .iter()
+                .map(|component| component.as_bytes())
+                .cmp(
+                    reference
+                        .owner_local_keys()
+                        .iter()
+                        .map(|component| component.as_bytes()),
+                )
+        })
+        .then_with(|| value_key.as_bytes().cmp(reference.local_key().as_bytes()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1759,6 +2290,101 @@ mod tests {
                 .canvas_selection(),
             Some("canvas/path")
         );
+    }
+
+    #[test]
+    fn authoring_topology_and_curves_lower_without_losing_owner_or_parameter_authority() {
+        let limits = CompileLimits::p100_initial_v2();
+        let module = super::super::writer::tests::module_with_every_declaration(&limits);
+        let bytes = RoadEditingSourceWriter::new(&limits).write(module).unwrap();
+        let input =
+            RoadEditingModuleInput::try_new("road-editing", bytes.as_bytes(), None).unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
+        let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
+
+        let alignments = lower_road_alignments(verified.root(), &locations);
+        assert_eq!(alignments.len(), 1);
+        assert_eq!(alignments[0].road_alignment_key.as_ref(), "alignment");
+        assert_eq!(
+            alignments[0].canonical_frame.declaration_key().as_ref(),
+            "frame"
+        );
+        assert_eq!(alignments[0].reference_line.start.x, 0.0);
+        assert_eq!(alignments[0].reference_line.segments.len(), 1);
+        assert!(matches!(
+            alignments[0].reference_line.segments[0].geometry,
+            AuthoringCurveSegmentGeometry::Line {
+                end: AuthoringPoint3F64 { x: 10.0, .. }
+            }
+        ));
+
+        let declarations =
+            lower_topology_authoring_declarations(verified.root(), &locations).unwrap();
+        assert_eq!(declarations.len(), 5);
+        let section = declarations
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::RoadSection(value) => Some(value),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(section.lanes.len(), 1);
+        let lane = &section.lanes[0];
+        assert_eq!(
+            lane.header
+                .source_address
+                .owner_local_keys()
+                .iter()
+                .map(AsRef::as_ref)
+                .collect::<Vec<_>>(),
+            ["corridor", "section"]
+        );
+        assert_eq!(lane.edge_chain[0].declaration_key().as_ref(), "edge-a");
+        let lane_geometry = lane.authoring_geometry.as_ref().unwrap();
+        assert_eq!(lane_geometry.direction, AuthoringLaneDirection::Forward);
+        assert_eq!(lane_geometry.width_profile.start_width_meters, 3.5);
+
+        let internal_edge = declarations
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::LaneEdge(value)
+                    if value.header.stable_key.as_ref() == "edge-internal" =>
+                {
+                    Some(value)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert!(matches!(
+            internal_edge.geometry_authority,
+            LaneEdgeGeometryAuthority::Authoring {
+                explicit_curve: Some(_)
+            }
+        ));
+    }
+
+    #[test]
+    fn authoring_lane_owner_mismatch_is_a_diagnostic_instead_of_a_lowering_panic() {
+        let limits = CompileLimits::p100_initial_v2();
+        let module = super::super::writer::tests::module_with_every_declaration(&limits);
+        let bytes = RoadEditingSourceWriter::new(&limits).write(module).unwrap();
+        let mut malformed = bytes.as_bytes().to_vec();
+        let needle = b"corridor>section>lane";
+        let replacement = b"corridor>section>fake";
+        let positions = malformed
+            .windows(needle.len())
+            .enumerate()
+            .filter_map(|(index, window)| (window == needle).then_some(index))
+            .collect::<Vec<_>>();
+        assert!(positions.len() >= 2);
+        for position in positions {
+            malformed[position..position + replacement.len()].copy_from_slice(replacement);
+        }
+
+        let input = RoadEditingModuleInput::try_new("road-editing", &malformed, None).unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
+        let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
+        assert!(lower_topology_authoring_declarations(verified.root(), &locations).is_err());
     }
 
     #[test]

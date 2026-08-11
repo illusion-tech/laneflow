@@ -504,7 +504,10 @@ fn duplicate_lane_edge_and_successor_fail_without_mutating_prior_state() {
     let TypedAstDeclaration::LaneEdge(edge) = &module.admitted.declarations[0] else {
         panic!("expected LaneEdge declaration")
     };
-    assert_eq!(edge.length.value(), 1.0);
+    assert_eq!(
+        edge.geometry_authority.direct_length().unwrap().value(),
+        1.0
+    );
 }
 
 #[test]

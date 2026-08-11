@@ -734,7 +734,14 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
     match declaration {
         TypedAstDeclaration::LaneEdge(declaration) => {
             put_declaration_header(output, &declaration.header);
-            output.extend_from_slice(&declaration.length.value().to_le_bytes());
+            output.extend_from_slice(
+                &declaration
+                    .geometry_authority
+                    .direct_length()
+                    .expect("synthetic source records only contain direct lane lengths")
+                    .value()
+                    .to_le_bytes(),
+            );
             output.extend_from_slice(&declaration.speed_limit.value().to_le_bytes());
             output.extend_from_slice(
                 &u32::try_from(declaration.successors.len())
