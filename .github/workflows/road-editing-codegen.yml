@@ -8,6 +8,13 @@ on:
       - "crates/laneflow-road-editing-wire/**"
       - "**/Cargo.toml"
       - "research/issue-296-road-editing-source-calibration/**"
+      - "docs/reference/road-editing-source-calibration-evidence-v1.schema.json"
+      - "docs/reference/road-editing-source-reference-machine-v1.json"
+      - "docs/reference/road-editing-source-semantic-seed-v1.json"
+      - "docs/reference/road-editing-source-workload-definition-v1.json"
+      - "docs/reference/v0.10-road-editing-source-calibration-evidence.json"
+      - "docs/reference/v0.10-road-editing-source-calibration-raw.json"
+      - "docs/reference/v0.10-road-editing-source-calibration-report.md"
       - "xtask/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -21,6 +28,13 @@ on:
       - "crates/laneflow-road-editing-wire/**"
       - "**/Cargo.toml"
       - "research/issue-296-road-editing-source-calibration/**"
+      - "docs/reference/road-editing-source-calibration-evidence-v1.schema.json"
+      - "docs/reference/road-editing-source-reference-machine-v1.json"
+      - "docs/reference/road-editing-source-semantic-seed-v1.json"
+      - "docs/reference/road-editing-source-workload-definition-v1.json"
+      - "docs/reference/v0.10-road-editing-source-calibration-evidence.json"
+      - "docs/reference/v0.10-road-editing-source-calibration-raw.json"
+      - "docs/reference/v0.10-road-editing-source-calibration-report.md"
       - "xtask/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -50,6 +64,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Evidence verification reads the six frozen inputs from the exact
+          # measurement commit, which is an ancestor of the publication commit.
+          fetch-depth: 0
 
       - name: Install Rust MSRV toolchain
         shell: bash
@@ -131,6 +149,17 @@ jobs:
       - name: Compile generated Rust binding
         shell: bash
         run: cargo +1.96.0 test --locked -p laneflow-road-editing-wire
+
+      - name: Verify committed RoadEditingSource G3 evidence
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.96.0 run --release --locked \
+            -p issue-296-road-editing-source-calibration \
+            --bin calibrate -- \
+            road-editing-evidence-verify \
+            docs/reference/v0.10-road-editing-source-calibration-evidence.json
 
       - name: Checkout exact FlatBuffers source for cross-language fixtures
         if: runner.os == 'Linux'

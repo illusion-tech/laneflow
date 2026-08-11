@@ -27,6 +27,19 @@ cargo +1.96.0 run --release --locked -p issue-296-road-editing-source-calibratio
 cargo +1.96.0 run --release --locked -p issue-296-road-editing-source-calibration --bin calibrate -- road-editing-evidence-verify target/road-editing-evidence/compact.json
 ```
 
+仓库已提交的 G3 evidence 不需要重新执行参考机测量；独立复核入口为：
+
+```powershell
+cargo +1.96.0 run --release --locked `
+  -p issue-296-road-editing-source-calibration `
+  --bin calibrate -- `
+  road-editing-evidence-verify `
+  docs/reference/v0.10-road-editing-source-calibration-evidence.json
+```
+
+验证器会重新读取并校验仓库内 raw artifact、measurement commit、绑定文件、全部正式样本、
+统计量、几何观测和 allocator probe；它不会重跑 84 个参考机进程。
+
 `road-editing-p100` 通过第一方 typed model 和 writer 生成五个 size-prefixed `LFRE`
 buffer，再让它们通过 production reader、preflight、lowering、geometry compile、common
 admission 与 Canonical LIR；输出每模块 byte length、retained capacity、SHA-256 及完整编译

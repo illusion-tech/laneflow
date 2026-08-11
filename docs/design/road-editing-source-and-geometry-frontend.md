@@ -890,6 +890,8 @@ ceiling）未被突破；在取得新证据前，不复用旧 JSON 的 `3_669_80
 墙钟先报告中位数/MAD 和相对旧实现的解释，不在没有产品加载 SLA 时虚构绝对毫秒门槛。
 这些证据只支持 B1 内部产品判断，不得把固定网格最大观测值改写为连续硬保证；B1 schema
 在产品复核前不发布、不承担长期存档兼容。
+正式 G3 测量结果、制品摘要和独立复核命令记录在
+[`v0.10 RoadEditingSource 校准报告`](../reference/v0.10-road-editing-source-calibration-report.md)。
 
 ## 11. 兼容和清理边界
 
