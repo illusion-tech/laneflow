@@ -1826,6 +1826,108 @@ fn validate_signal_controllers_and_phases(
         )?;
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
     }
+    validate_signal_owner_closure(root, namespace, expected_key)?;
+    Ok(())
+}
+
+/// 验证 SignalController/SignalPhase 的同模块 owner tree 与状态完备性。
+///
+/// 第一方 builder 会提前拒绝这些错误，但 production reader 不能信任来源 writer。这里
+/// 只遍历已通过语法与基数预检的借用 vector，不分配第二份索引或字符串。
+fn validate_signal_owner_closure(
+    root: wire::RoadEditingSource<'_>,
+    namespace: &str,
+    expected_key: &str,
+) -> Result<(), DiagnosticBundle> {
+    for controller in root.signal_controllers() {
+        for phase_reference in controller.signal_phases() {
+            if phase_reference.contains("::") {
+                return Err(invalid_combination(
+                    "signalController.signalPhases",
+                    expected_key,
+                ));
+            }
+            let (owner_key, phase_key) = phase_reference
+                .split_once('>')
+                .expect("reference syntax preflight proved two components");
+            if owner_key != controller.signal_controller_key()
+                || root
+                    .signal_phases()
+                    .iter()
+                    .filter(|phase| {
+                        phase.signal_controller() == owner_key
+                            && phase.signal_phase_key() == phase_key
+                    })
+                    .count()
+                    != 1
+            {
+                return Err(invalid_combination(
+                    "signalController.signalPhases",
+                    expected_key,
+                ));
+            }
+        }
+    }
+
+    for phase in root.signal_phases() {
+        let Some(controller) = root
+            .signal_controllers()
+            .iter()
+            .find(|controller| controller.signal_controller_key() == phase.signal_controller())
+        else {
+            return Err(invalid_combination(
+                "signalPhase.signalController",
+                expected_key,
+            ));
+        };
+        let reciprocal_count = controller
+            .signal_phases()
+            .iter()
+            .filter(|reference| {
+                reference
+                    .split_once('>')
+                    .is_some_and(|(owner_key, phase_key)| {
+                        owner_key == controller.signal_controller_key()
+                            && phase_key == phase.signal_phase_key()
+                    })
+            })
+            .count();
+        if reciprocal_count != 1 {
+            return Err(invalid_combination(
+                "signalPhase.signalController",
+                expected_key,
+            ));
+        }
+
+        if phase.states().len() != controller.signal_groups().len()
+            || controller.signal_groups().iter().any(|group| {
+                !phase
+                    .states()
+                    .iter()
+                    .any(|state| references_equal(group, state.signal_group(), namespace))
+            })
+        {
+            return Err(invalid_combination("signalPhase.states", expected_key));
+        }
+    }
+
+    for group in root.signal_groups() {
+        let owner_count = root
+            .signal_controllers()
+            .iter()
+            .filter(|controller| {
+                controller.signal_groups().iter().any(|reference| {
+                    references_equal(reference, group.signal_group_key(), namespace)
+                })
+            })
+            .count();
+        if owner_count != 1 {
+            return Err(invalid_combination(
+                "signalController.signalGroups",
+                expected_key,
+            ));
+        }
+    }
     Ok(())
 }
 

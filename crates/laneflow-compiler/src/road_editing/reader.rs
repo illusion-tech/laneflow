@@ -554,6 +554,43 @@ mod tests {
     }
 
     #[test]
+    fn semantic_preflight_rejects_non_reciprocal_signal_phase_owner() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = RoadEditingSourceWriter::new(&limits)
+            .write(super::super::writer::tests::module_with_every_declaration(
+                &limits,
+            ))
+            .expect("all declarations buffer");
+        let mut bytes = buffer.as_bytes().to_vec();
+        let needle = b"controller>phase";
+        let matches = bytes
+            .windows(needle.len())
+            .enumerate()
+            .filter_map(|(index, value)| (value == needle).then_some(index))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            1,
+            "fixture has one controller phase reference"
+        );
+        bytes[matches[0] + "controlle".len()] = b'z';
+        let input = RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("owner mismatch");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::InvalidSemanticValue(
+                    crate::RoadEditingInputViolation::InvalidCombination
+                ),
+                field: Some(field),
+                ..
+            } if field.as_ref() == "signalController.signalPhases"
+        ));
+    }
+
+    #[test]
     fn rejects_prefix_mismatch_before_flatbuffers_verifier() {
         let limits = CompileLimits::p100_initial_v1();
         let buffer = source_buffer(&limits, "roads/main");
