@@ -625,6 +625,8 @@ pub enum SourceTextViolation {
     InvalidTokenByte { byte_index: u64, byte: u8 },
     /// 可见文本包含控制字节；空格不属于此错误。
     ControlByte { byte_index: u64, byte: u8 },
+    /// 来源键包含为限定引用保留的 `::` 分隔符。
+    ReservedDelimiter { byte_index: u64 },
 }
 
 /// 首版静态准入编译明确拒绝的能力。
@@ -3906,6 +3908,10 @@ impl fmt::Display for SourceTextViolationDisplay {
             SourceTextViolation::ControlByte { byte_index, byte } => {
                 write!(formatter, "字节位置 {byte_index} 包含控制字节 0x{byte:02x}")
             }
+            SourceTextViolation::ReservedDelimiter { byte_index } => write!(
+                formatter,
+                "字节位置 {byte_index} 包含为限定引用保留的 :: 分隔符"
+            ),
         }
     }
 }
