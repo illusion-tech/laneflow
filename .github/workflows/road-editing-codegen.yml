@@ -5,6 +5,9 @@ on:
     paths:
       - "schemas/road-editing/**"
       - "crates/laneflow-road-editing-wire/**"
+      - "crates/**/Cargo.toml"
+      - "research/**/Cargo.toml"
+      - "tools/**/Cargo.toml"
       - "xtask/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -15,6 +18,9 @@ on:
     paths:
       - "schemas/road-editing/**"
       - "crates/laneflow-road-editing-wire/**"
+      - "crates/**/Cargo.toml"
+      - "research/**/Cargo.toml"
+      - "tools/**/Cargo.toml"
       - "xtask/**"
       - "Cargo.toml"
       - "Cargo.lock"
