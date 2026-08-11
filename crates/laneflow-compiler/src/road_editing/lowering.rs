@@ -30,6 +30,7 @@ const MAX_OWNER_QUALIFIED_COMPONENTS: usize = 4;
 #[derive(Clone, Copy, Debug)]
 struct BorrowedReference<'a> {
     module_namespace: &'a str,
+    uses_current_namespace: bool,
     components: [&'a str; MAX_OWNER_QUALIFIED_COMPONENTS],
     component_count: u8,
 }
@@ -44,6 +45,7 @@ impl<'a> BorrowedReference<'a> {
         }
         Self {
             module_namespace: parsed.namespace().unwrap_or(current_namespace),
+            uses_current_namespace: parsed.namespace().is_none(),
             components,
             component_count,
         }
@@ -82,10 +84,10 @@ impl<'a> BorrowedReference<'a> {
 fn lower_reference<K: EntityKindMarker>(
     value: &str,
     component_count: u8,
-    current_namespace: &str,
+    current_namespace: &Arc<str>,
     span: SourceLocation,
 ) -> OwnedEntityReference<K> {
-    let reference = BorrowedReference::parse(value, component_count, current_namespace);
+    let reference = BorrowedReference::parse(value, component_count, current_namespace.as_ref());
     let owner_local_keys: Arc<[Arc<str>]> = reference
         .owner_local_keys()
         .iter()
@@ -98,11 +100,12 @@ fn lower_reference<K: EntityKindMarker>(
     } else {
         TypedAstEntityAddress::owner_scoped(owner_local_keys, local_key)
     };
-    OwnedEntityReference::with_target_address(
-        Arc::from(reference.module_namespace),
-        target_address,
-        span,
-    )
+    let module_namespace = if reference.uses_current_namespace {
+        Arc::clone(current_namespace)
+    } else {
+        Arc::from(reference.module_namespace)
+    };
+    OwnedEntityReference::with_target_address(module_namespace, target_address, span)
 }
 
 /// 按解析后的命名空间与完整 owner tuple 规范排序无序引用集合。
@@ -118,6 +121,7 @@ fn sort_reference_set(values: &mut [&str], component_count: u8, current_namespac
 pub(super) fn lower_independent_declarations(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
+    shared_namespace: &Arc<str>,
 ) -> Vec<TypedAstDeclaration> {
     let mut declarations = Vec::with_capacity(
         root.signal_groups()
@@ -164,7 +168,6 @@ pub(super) fn lower_independent_declarations(
         })
     }));
 
-    let namespace = root.module_header().authoring_namespace_id();
     let mut participant_classes: Vec<_> = root.participant_classes().iter().collect();
     participant_classes.sort_unstable_by(|left, right| {
         left.participant_class_key()
@@ -184,7 +187,7 @@ pub(super) fn lower_independent_declarations(
                 lower_reference::<ParticipantClassKind>(
                     parent,
                     1,
-                    namespace,
+                    shared_namespace,
                     property_location(
                         locations,
                         EntityKind::ParticipantClass,
@@ -217,7 +220,7 @@ pub(super) fn lower_independent_declarations(
             participant_class: lower_reference::<ParticipantClassKind>(
                 value.participant_class(),
                 1,
-                namespace,
+                shared_namespace,
                 property_location(
                     locations,
                     EntityKind::VehicleProfile,
@@ -260,7 +263,7 @@ pub(super) fn lower_independent_declarations(
             lane_edge: lower_reference::<LaneEdgeKind>(
                 value.lane_edge(),
                 1,
-                namespace,
+                shared_namespace,
                 property_location(
                     locations,
                     EntityKind::StopLine,
@@ -289,7 +292,7 @@ pub(super) fn lower_independent_declarations(
                 lower_reference::<LaneEdgeKind>(
                     edge,
                     1,
-                    namespace,
+                    shared_namespace,
                     locations.owner_local(
                         EntityKind::StaticRoute,
                         &[],
@@ -302,6 +305,7 @@ pub(super) fn lower_independent_declarations(
                             table: RoadEditingTableKind::StaticRoute,
                             field_id: 1,
                         }],
+                        value.canvas_selection(),
                     ),
                 )
             })
@@ -342,8 +346,9 @@ pub(super) fn lower_independent_declarations(
 pub(super) fn lower_owner_scoped_declarations(
     root: wire::RoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
+    shared_namespace: &Arc<str>,
 ) -> Vec<TypedAstDeclaration> {
-    let namespace = root.module_header().authoring_namespace_id();
+    let namespace = shared_namespace.as_ref();
     let mut declarations = Vec::with_capacity(
         root.lane_groups()
             .len()
@@ -381,7 +386,7 @@ pub(super) fn lower_owner_scoped_declarations(
             road_section: lower_reference::<RoadSectionKind>(
                 value.road_section(),
                 2,
-                namespace,
+                shared_namespace,
                 owner_property_location(
                     locations,
                     EntityKind::LaneGroup,
@@ -441,7 +446,7 @@ pub(super) fn lower_owner_scoped_declarations(
                 lower_reference::<LaneEdgeKind>(
                     edge,
                     1,
-                    namespace,
+                    shared_namespace,
                     locations.owner_local(
                         EntityKind::Junction,
                         &[],
@@ -454,6 +459,34 @@ pub(super) fn lower_owner_scoped_declarations(
                             table: RoadEditingTableKind::Junction,
                             field_id: 1,
                         }],
+                        value.canvas_selection(),
+                    ),
+                )
+            })
+            .collect();
+        let mut internal: Vec<_> = value.internal_edges().iter().collect();
+        sort_reference_set(&mut internal, 1, namespace);
+        let internal_edges = internal
+            .into_iter()
+            .enumerate()
+            .map(|(index, edge)| {
+                lower_reference::<LaneEdgeKind>(
+                    edge,
+                    1,
+                    shared_namespace,
+                    locations.owner_local(
+                        EntityKind::Junction,
+                        &[],
+                        key,
+                        RoadEditingRelationKind::JunctionInternalEdge,
+                        RoadEditingRelationOccurrence::CanonicalSetOrdinal(
+                            u32::try_from(index).expect("compile limits bound relation ordinals"),
+                        ),
+                        &[RoadEditingPropertyStep::TableField {
+                            table: RoadEditingTableKind::Junction,
+                            field_id: 2,
+                        }],
+                        value.canvas_selection(),
                     ),
                 )
             })
@@ -466,6 +499,7 @@ pub(super) fn lower_owner_scoped_declarations(
                 value.canvas_selection(),
             ),
             approach_edges,
+            internal_edges,
         })
     }));
 
@@ -495,7 +529,7 @@ pub(super) fn lower_owner_scoped_declarations(
             junction: lower_reference::<JunctionKind>(
                 value.junction(),
                 1,
-                namespace,
+                shared_namespace,
                 owner_property_location(
                     locations,
                     EntityKind::Movement,
@@ -535,7 +569,7 @@ pub(super) fn lower_owner_scoped_declarations(
                 lower_reference::<LaneEdgeKind>(
                     edge,
                     1,
-                    namespace,
+                    shared_namespace,
                     locations.owner_local(
                         EntityKind::ManeuverPath,
                         owner.owner_local_keys_with_local(),
@@ -548,6 +582,7 @@ pub(super) fn lower_owner_scoped_declarations(
                             table: RoadEditingTableKind::ManeuverPath,
                             field_id: 3,
                         }],
+                        value.canvas_selection(),
                     ),
                 )
             })
@@ -565,7 +600,7 @@ pub(super) fn lower_owner_scoped_declarations(
             movement: lower_reference::<MovementKind>(
                 value.movement(),
                 2,
-                namespace,
+                shared_namespace,
                 owner_property_location(
                     locations,
                     EntityKind::ManeuverPath,
@@ -581,7 +616,7 @@ pub(super) fn lower_owner_scoped_declarations(
             entry_edge: lower_reference::<LaneEdgeKind>(
                 value.entry_edge(),
                 1,
-                namespace,
+                shared_namespace,
                 owner_property_location(
                     locations,
                     EntityKind::ManeuverPath,
@@ -598,7 +633,7 @@ pub(super) fn lower_owner_scoped_declarations(
             exit_edge: lower_reference::<LaneEdgeKind>(
                 value.exit_edge(),
                 1,
-                namespace,
+                shared_namespace,
                 owner_property_location(
                     locations,
                     EntityKind::ManeuverPath,
@@ -635,7 +670,7 @@ pub(super) fn lower_owner_scoped_declarations(
                         .signal_group()
                         .expect("semantic preflight requires signal group for group control"),
                     1,
-                    namespace,
+                    shared_namespace,
                     owner_property_location(
                         locations,
                         EntityKind::ManeuverGate,
@@ -664,7 +699,7 @@ pub(super) fn lower_owner_scoped_declarations(
             maneuver_path: lower_reference::<ManeuverPathKind>(
                 value.maneuver_path(),
                 3,
-                namespace,
+                shared_namespace,
                 owner_property_location(
                     locations,
                     EntityKind::ManeuverGate,
@@ -681,7 +716,7 @@ pub(super) fn lower_owner_scoped_declarations(
             stop_line: lower_reference::<StopLineKind>(
                 value.stop_line(),
                 1,
-                namespace,
+                shared_namespace,
                 owner_property_location(
                     locations,
                     EntityKind::ManeuverGate,
@@ -724,7 +759,7 @@ pub(super) fn lower_owner_scoped_declarations(
             maneuver_path: lower_reference::<ManeuverPathKind>(
                 value.maneuver_path(),
                 3,
-                namespace,
+                shared_namespace,
                 owner_property_location(
                     locations,
                     EntityKind::WaitingZone,
@@ -740,7 +775,7 @@ pub(super) fn lower_owner_scoped_declarations(
             entry_gate: lower_reference::<ManeuverGateKind>(
                 value.entry_gate(),
                 4,
-                namespace,
+                shared_namespace,
                 owner_property_location(
                     locations,
                     EntityKind::WaitingZone,
@@ -756,7 +791,7 @@ pub(super) fn lower_owner_scoped_declarations(
             release_gate: lower_reference::<ManeuverGateKind>(
                 value.release_gate(),
                 4,
-                namespace,
+                shared_namespace,
                 owner_property_location(
                     locations,
                     EntityKind::WaitingZone,
@@ -882,11 +917,12 @@ mod tests {
 
     use super::*;
     use crate::road_editing::{
-        CanonicalFrameInput, IidmVehicleProfileInput as RoadEditingIidmInput, LaneEdgeReference,
-        ParkingAreaInput, ParticipantClassInput, ParticipantClassReference, RoadEditingDeclaration,
-        RoadEditingModuleHeader, RoadEditingModuleInput, RoadEditingProvenance,
-        RoadEditingSourceModuleBuilder, RoadEditingSourceWriter, StaticRouteInput, StopLineInput,
-        VehicleProfileInput,
+        CanonicalFrameInput, IidmVehicleProfileInput as RoadEditingIidmInput, JunctionInput,
+        JunctionReference, LaneEdgeInput, LaneEdgeReference, ManeuverPathInput, MovementInput,
+        MovementReference, ParkingAreaInput, ParticipantClassInput, ParticipantClassReference,
+        RoadEditingDeclaration, RoadEditingModuleHeader, RoadEditingModuleInput,
+        RoadEditingProvenance, RoadEditingSourceModuleBuilder, RoadEditingSourceWriter,
+        StaticRouteInput, StopLineInput, VehicleProfileInput,
     };
     use crate::{CompileLimits, GeometryAccuracyProfile, GeometryDirectionProfile, SourceSpan};
 
@@ -895,7 +931,7 @@ mod tests {
         let reference = lower_reference::<ManeuverGateKind>(
             "city/base::junction-main>movement-left>path-main>gate-entry",
             4,
-            "city/current",
+            &Arc::from("city/current"),
             SourceSpan::point(Arc::from("roads/main"), 1, 1).into(),
         );
 
@@ -922,13 +958,24 @@ mod tests {
             ["city/a::group-z", "group-a", "group-z", "city/z::group-a"]
         );
 
+        let shared_namespace = Arc::<str>::from("city/main");
         let local = lower_reference::<SignalGroupKind>(
             values[1],
             1,
-            "city/main",
+            &shared_namespace,
             SourceSpan::point(Arc::from("roads/main"), 1, 1).into(),
         );
+        let other_local = lower_reference::<SignalGroupKind>(
+            values[2],
+            1,
+            &shared_namespace,
+            SourceSpan::point(Arc::from("roads/main"), 1, 2).into(),
+        );
         assert_eq!(local.module_namespace.as_ref(), "city/main");
+        assert!(Arc::ptr_eq(
+            &local.module_namespace,
+            &other_local.module_namespace
+        ));
     }
 
     #[test]
@@ -966,7 +1013,9 @@ mod tests {
         let input = RoadEditingModuleInput::try_new("roads/main", bytes.as_bytes(), None).unwrap();
         let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
-        let declarations = lower_independent_declarations(verified.root(), &locations);
+        let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
+        let declarations =
+            lower_independent_declarations(verified.root(), &locations, &shared_namespace);
 
         assert_eq!(declarations.len(), 4);
         assert!(matches!(
@@ -1037,6 +1086,8 @@ mod tests {
         builder
             .add_declaration(RoadEditingDeclaration::StaticRoute(
                 StaticRouteInput::try_new("route-main", vec![imported_edge.clone(), imported_edge])
+                    .unwrap()
+                    .with_canvas_selection("canvas/route")
                     .unwrap(),
             ))
             .unwrap();
@@ -1047,7 +1098,9 @@ mod tests {
         let input = RoadEditingModuleInput::try_new("roads/main", bytes.as_bytes(), None).unwrap();
         let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
-        let declarations = lower_independent_declarations(verified.root(), &locations);
+        let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
+        let declarations =
+            lower_independent_declarations(verified.root(), &locations, &shared_namespace);
 
         let TypedAstDeclaration::ParticipantClass(participant) = &declarations[0] else {
             panic!("expected participant class");
@@ -1077,6 +1130,14 @@ mod tests {
                 ..
             }
         ));
+        assert_eq!(
+            route.edge_sequence[1]
+                .span
+                .road_editing()
+                .unwrap()
+                .canvas_selection(),
+            Some("canvas/route")
+        );
     }
 
     #[test]
@@ -1088,7 +1149,11 @@ mod tests {
             RoadEditingModuleInput::try_new("road-editing", bytes.as_bytes(), None).unwrap();
         let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
-        let declarations = lower_owner_scoped_declarations(verified.root(), &locations);
+        let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
+        let independent =
+            lower_independent_declarations(verified.root(), &locations, &shared_namespace);
+        let declarations =
+            lower_owner_scoped_declarations(verified.root(), &locations, &shared_namespace);
 
         assert_eq!(declarations.len(), 7);
         let owners = declarations
@@ -1150,6 +1215,135 @@ mod tests {
         assert_eq!(
             junction.approach_edges[1].declaration_key().as_ref(),
             "edge-b"
+        );
+        assert_eq!(junction.internal_edges.len(), 1);
+        assert_eq!(
+            junction.internal_edges[0].declaration_key().as_ref(),
+            "edge-internal"
+        );
+        let stop_line_namespace = independent
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::StopLine(value) => Some(&value.lane_edge.module_namespace),
+                _ => None,
+            })
+            .unwrap();
+        let movement_namespace = declarations
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::Movement(value) => Some(&value.junction.module_namespace),
+                _ => None,
+            })
+            .unwrap();
+        assert!(Arc::ptr_eq(stop_line_namespace, movement_namespace));
+        assert!(Arc::ptr_eq(stop_line_namespace, &shared_namespace));
+    }
+
+    #[test]
+    fn junction_relation_locations_preserve_the_owner_canvas_selection() {
+        let limits = CompileLimits::p100_initial_v2();
+        let header = RoadEditingModuleHeader::try_new(
+            "city/main",
+            "roads/main",
+            Vec::new(),
+            RoadEditingProvenance::direct("test").unwrap(),
+        )
+        .unwrap();
+        let mut builder = RoadEditingSourceModuleBuilder::new(
+            header,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &limits,
+        )
+        .unwrap();
+        for key in ["entry", "internal", "exit"] {
+            builder
+                .add_declaration(RoadEditingDeclaration::LaneEdge(
+                    LaneEdgeInput::try_new(key, 10.0, Vec::new(), None).unwrap(),
+                ))
+                .unwrap();
+        }
+        builder
+            .add_declaration(RoadEditingDeclaration::Junction(
+                JunctionInput::try_new(
+                    "junction",
+                    vec![
+                        LaneEdgeReference::local("entry").unwrap(),
+                        LaneEdgeReference::local("exit").unwrap(),
+                    ],
+                    vec![LaneEdgeReference::local("internal").unwrap()],
+                )
+                .unwrap()
+                .with_canvas_selection("canvas/junction")
+                .unwrap(),
+            ))
+            .unwrap();
+        builder
+            .add_declaration(RoadEditingDeclaration::Movement(
+                MovementInput::try_new(
+                    "movement",
+                    JunctionReference::local("junction").unwrap(),
+                    "entry",
+                    "exit",
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+        builder
+            .add_declaration(RoadEditingDeclaration::ManeuverPath(
+                ManeuverPathInput::try_new(
+                    "path",
+                    MovementReference::owner_scoped(vec!["junction".into()], "movement").unwrap(),
+                    LaneEdgeReference::local("entry").unwrap(),
+                    vec![LaneEdgeReference::local("internal").unwrap()],
+                    LaneEdgeReference::local("exit").unwrap(),
+                )
+                .unwrap()
+                .with_canvas_selection("canvas/path")
+                .unwrap(),
+            ))
+            .unwrap();
+        let bytes = RoadEditingSourceWriter::new(&limits)
+            .write(builder.finish().unwrap())
+            .unwrap();
+        let input = RoadEditingModuleInput::try_new("roads/main", bytes.as_bytes(), None).unwrap();
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
+        let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
+        let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
+        let declarations =
+            lower_owner_scoped_declarations(verified.root(), &locations, &shared_namespace);
+        let junction = declarations
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::Junction(value) => Some(value),
+                _ => None,
+            })
+            .unwrap();
+
+        for relation in junction
+            .approach_edges
+            .iter()
+            .chain(junction.internal_edges.iter())
+        {
+            assert_eq!(
+                relation.span.road_editing().unwrap().canvas_selection(),
+                Some("canvas/junction")
+            );
+        }
+        let path = declarations
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::ManeuverPath(value) => Some(value),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            path.internal_edges[0]
+                .span
+                .road_editing()
+                .unwrap()
+                .canvas_selection(),
+            Some("canvas/path")
         );
     }
 }

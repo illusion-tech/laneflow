@@ -232,7 +232,10 @@ impl RoadEditingLocationFactory {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "closed typed location fields remain explicit at relation call sites"
+    )]
     fn owner_local_address(
         &self,
         owner_kind: RoadEditingAddressKind,
