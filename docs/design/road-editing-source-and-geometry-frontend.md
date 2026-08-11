@@ -1,7 +1,7 @@
 # 道路编辑来源与几何编制前端
 
-**文档状态**: Frozen（#296 FlatBuffers G1 Pass；G2 implementation ongoing）<br>
-**最后更新**: 2026-08-10<br>
+**文档状态**: Frozen（#296 FlatBuffers G1/G2 Pass；G3 Candidate）<br>
+**最后更新**: 2026-08-11<br>
 **适用范围**: 道路编辑状态、有类型道路编辑模型、几何编制前端、程序化生成器接入、
 来源持久化编码与 topology/geometry MIR 降阶<br>
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
@@ -11,11 +11,13 @@
 
 ## 1. 当前状态
 
-本文是 #296 FlatBuffers G1 已冻结的产品与架构输入，也是 G2 implementation authority。
+本文是 #296 FlatBuffers G1 已冻结的产品与架构输入，也是已完成 G2 实现的契约权威。
 #332 草稿中的旧 Geometry JSON 原型只保存旧 G1 的历史证据，不再自动成为实现权威。
 本文冻结已经由产品负责人确认的产品路径与 A → C 边界；产品负责人于 2026-08-10
 依据 §9 矩阵选择 A：按模块保存的 size-prefixed FlatBuffers。新的 G1 Pass 与 G2 Pass
-已经记录；通过拆分 PR 交付实现不改变本契约的产品语义，也不提前授权 G3。
+已经记录；拆分 implementation 与正式参考机 evidence 已完成并进入 G3 Candidate，但只有
+current exact-head Check 与 G3 Owner 判断可以形成 G3 Pass。该候选状态不发布 B1 schema，
+也不建立旧 Geometry JSON 读取、别名、迁移器或隐藏 fallback。
 
 ## 2. 产品使用路径
 
