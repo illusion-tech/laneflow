@@ -302,3 +302,8 @@ FlatBuffers scalar 的 wire 缺省值与显式写入同一默认值不可区分�
 - G2 必须使用固定 `flatc 25.12.19` 对 Rust、C++、C# 生成物执行 clean regeneration；
   Rust clean diff 只允许把平台原生 CRLF/LF 统一为 LF，其他源码字节必须逐字节一致，并
   证明 production 调用图只从受检 size-prefixed root 进入且不调用 `_unchecked`。
+- G3 的最小跨语言 fixture 由
+  [`Road Editing Codegen`](../../../.github/workflows/road-editing-codegen.yml) 在 Linux 编译
+  C++/C# writer，再把两份独立生成的 `LFRE` 输入 production Rust reader 与完整 compiler；
+  generated binding、runtime 源码和 fixture bytes 都只存在于 ignored/临时目录，不形成
+  第二套 SDK 或提交产物。

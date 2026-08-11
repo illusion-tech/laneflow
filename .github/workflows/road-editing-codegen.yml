@@ -4,8 +4,10 @@ on:
   pull_request:
     paths:
       - "schemas/road-editing/**"
+      - "crates/laneflow-compiler/**"
       - "crates/laneflow-road-editing-wire/**"
       - "**/Cargo.toml"
+      - "research/issue-296-road-editing-source-calibration/**"
       - "xtask/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -15,8 +17,10 @@ on:
       - main
     paths:
       - "schemas/road-editing/**"
+      - "crates/laneflow-compiler/**"
       - "crates/laneflow-road-editing-wire/**"
       - "**/Cargo.toml"
+      - "research/issue-296-road-editing-source-calibration/**"
       - "xtask/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -127,3 +131,41 @@ jobs:
       - name: Compile generated Rust binding
         shell: bash
         run: cargo +1.96.0 test --locked -p laneflow-road-editing-wire
+
+      - name: Checkout exact FlatBuffers source for cross-language fixtures
+        if: runner.os == 'Linux'
+        id: flatbuffers-source
+        shell: bash
+        env:
+          FLATBUFFERS_COMMIT: 7e163021e59cca4f8e1e35a7c828b5c6b7915953
+        run: |
+          set -euo pipefail
+          source_root="$RUNNER_TEMP/flatbuffers-source"
+          git init --quiet "$source_root"
+          git -C "$source_root" remote add origin https://github.com/google/flatbuffers.git
+          git -C "$source_root" fetch --quiet --depth 1 origin "$FLATBUFFERS_COMMIT"
+          git -C "$source_root" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$source_root" rev-parse HEAD)" = "$FLATBUFFERS_COMMIT"
+          test -z "$(git -C "$source_root" status --porcelain=v1 --untracked-files=no)"
+          printf 'source_root=%s\n' "$source_root" >> "$GITHUB_OUTPUT"
+
+      - name: Verify C++ and C# writers through the production Rust reader
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          FLATC_PATH: ${{ steps.flatc-linux.outputs.flatc_path }}
+          FLATBUFFERS_SOURCE: ${{ steps.flatbuffers-source.outputs.source_root }}
+        run: |
+          set -euo pipefail
+          cargo +1.96.0 run --locked -p xtask -- \
+            check-road-editing-cross-language \
+            --flatc "$FLATC_PATH" \
+            --flatbuffers-source "$FLATBUFFERS_SOURCE" \
+            --cxx "$(command -v c++)" \
+            --dotnet "$(command -v dotnet)"
+          cargo +1.96.0 run --locked \
+            -p issue-296-road-editing-source-calibration \
+            --bin calibrate -- \
+            road-editing-cross-language \
+            target/road-editing-codegen/cross-language/cpp.lfre \
+            target/road-editing-codegen/cross-language/csharp.lfre
