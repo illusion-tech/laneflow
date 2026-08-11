@@ -51,6 +51,14 @@ impl SourceDocumentOrigin {
         }
     }
 
+    /// 保存 RoadEditingSource 调用方提供的未认证显示/审计来源。
+    #[allow(
+        dead_code,
+        reason = "consumed by the staged RoadEditingSource shared-admission lowering"
+    )]
+    pub(super) const fn road_editing(display_source: Option<Arc<str>>) -> Self {
+        Self { display_source }
+    }
     #[cfg(test)]
     pub(super) fn test(display_source: Option<&str>) -> Self {
         Self {

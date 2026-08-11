@@ -40,13 +40,52 @@ pub(crate) struct RoadEditingPreflightCounts {
 }
 
 impl RoadEditingPreflightCounts {
+    pub(crate) const fn declaration_count(self) -> u64 {
+        self.declaration_count
+    }
+
     pub(crate) const fn typed_ast_record_count(self) -> u64 {
         self.typed_ast_record_count
     }
 
-    #[cfg(test)]
+    pub(crate) const fn reference_count(self) -> u64 {
+        self.reference_count
+    }
+
+    pub(crate) const fn relation_occurrence_count(self) -> u64 {
+        self.relation_occurrence_count
+    }
+
+    pub(crate) const fn identity_field_occurrence_count(self) -> u64 {
+        self.identity_field_occurrence_count
+    }
+
+    pub(crate) const fn route_occurrence_count(self) -> u64 {
+        self.route_occurrence_count
+    }
+
+    pub(crate) const fn maneuver_gate_count(self) -> u64 {
+        self.maneuver_gate_count
+    }
+
+    pub(crate) const fn waiting_zone_count(self) -> u64 {
+        self.waiting_zone_count
+    }
+
+    pub(crate) const fn geometry_point_count(self) -> u64 {
+        self.geometry_point_count
+    }
+
+    pub(crate) const fn symbol_count(self) -> u64 {
+        self.symbol_count
+    }
+
     pub(crate) const fn string_item_count(self) -> u64 {
         self.string_item_count
+    }
+
+    pub(crate) const fn total_string_bytes(self) -> u64 {
+        self.total_string_bytes
     }
 
     fn charge_token(
