@@ -1152,13 +1152,14 @@ pub(crate) fn freeze_source_map(
         .iter()
         .enumerate()
         {
+            let source_module = mir.facility_bands[geometry.facility_band.index()].module;
             spatial_relation_sources.push(SpatialRelationSourceRecord {
                 owner_ordinal: ordinal,
                 owner_stable_id: frame.stable_id,
                 role: SourceRelationRole::CanonicalFrameFacilityBandGeometry,
                 local_index: u32::try_from(local_index)
                     .expect("MIR range precheck proved local index fits u32"),
-                primary: location.resolve(frame.module, &geometry.source_span)?,
+                primary: location.resolve(source_module, &geometry.source_span)?,
             });
         }
     }

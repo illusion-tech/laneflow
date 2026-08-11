@@ -2212,6 +2212,20 @@ mod tests {
         facility_a_z: f32,
         include_facility_geometry: bool,
     ) -> CompilationUnit {
+        spatial_cross_section_unit_with_frame(
+            permuted,
+            facility_a_z,
+            include_facility_geometry,
+            false,
+        )
+    }
+
+    fn spatial_cross_section_unit_with_frame(
+        permuted: bool,
+        facility_a_z: f32,
+        include_facility_geometry: bool,
+        imported_facility_frame: bool,
+    ) -> CompilationUnit {
         let limits = CompileLimits::p100_initial_v1();
         let header = SourceModuleHeader::new(
             SourceModuleHeaderInput {
@@ -2227,6 +2241,9 @@ mod tests {
         )
         .unwrap();
         let mut builder = SyntheticModuleBuilder::new(header, &limits).unwrap();
+        if imported_facility_frame {
+            builder.add_import("city/base").unwrap();
+        }
         let lane_points = [
             CanonicalPoint3F32Input {
                 x: 0.0,
@@ -2318,9 +2335,39 @@ mod tests {
             add_frame(&mut builder);
         }
 
-        let mut unit = unit([builder.finish().unwrap()]);
+        let source_module = builder.finish().unwrap();
+        let mut unit = if imported_facility_frame {
+            let base_header = SourceModuleHeader::new(
+                SourceModuleHeaderInput {
+                    authoring_namespace_id: "city/base",
+                    source_document_key: "base.document",
+                    generator_build_id: "git:0123456789abcdef",
+                    parameters_and_inputs_digest: [0x11; 32],
+                    frontend_options_digest: [0x22; 32],
+                    random_seed: Some(42),
+                    provenance: "repository:laneflow",
+                },
+                &limits,
+            )
+            .unwrap();
+            let mut base = SyntheticModuleBuilder::new(base_header, &limits).unwrap();
+            base.add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "world",
+                lane_edge_geometries: &[],
+            })
+            .unwrap();
+            unit([source_module, base.finish().unwrap()])
+        } else {
+            unit([source_module])
+        };
         if include_facility_geometry {
-            let module = &mut unit.modules[0];
+            let module = unit
+                .modules
+                .iter_mut()
+                .find(|module| {
+                    module.descriptor().authoring_namespace_id() == "city/spatial-cross-section"
+                })
+                .expect("fixture contains its cross-section module");
             let namespace: Arc<str> = module.descriptor().authoring_namespace_id().into();
             for declaration in &mut module.declarations {
                 let TypedAstDeclaration::FacilityBand(band) = declaration else {
@@ -2334,8 +2381,16 @@ mod tests {
                 band.compiled_geometry = Some(CompiledFacilityBandGeometry {
                     length: EdgeLength::try_new(10.0).unwrap(),
                     canonical_frame: OwnedEntityReference::<CanonicalFrameKind>::new(
-                        Arc::clone(&namespace),
-                        Arc::from("frame-main"),
+                        if imported_facility_frame {
+                            Arc::from("city/base")
+                        } else {
+                            Arc::clone(&namespace)
+                        },
+                        if imported_facility_frame {
+                            Arc::from("world")
+                        } else {
+                            Arc::from("frame-main")
+                        },
                         band.header.span.clone(),
                     ),
                     centerline_points: [
@@ -5708,6 +5763,42 @@ mod tests {
                 .facility_bands()
                 .all(|band| band.spatial_geometry().is_none())
         );
+    }
+
+    #[test]
+    fn imported_facility_frame_keeps_the_band_module_as_its_relation_source() {
+        let output = Compiler::new()
+            .compile(spatial_cross_section_unit_with_frame(
+                false, 2.0, true, true,
+            ))
+            .unwrap();
+        let bands = output.lir().facility_bands().collect::<Vec<_>>();
+        assert_eq!(
+            output
+                .lir
+                .inner
+                .facility_band_geometries
+                .iter()
+                .map(|geometry| geometry.facility_band.raw())
+                .collect::<Vec<_>>(),
+            [0, 1]
+        );
+        let geometry = bands[0]
+            .spatial_geometry()
+            .expect("fixture contains compiled FacilityBand geometry");
+        let sources = output
+            .source_map_input()
+            .spatial_relation_sources()
+            .filter(|source| {
+                source.role() == SourceRelationRole::CanonicalFrameFacilityBandGeometry
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(sources.len(), 2);
+        assert!(sources.iter().all(|source| {
+            source.owner_ordinal() == geometry.canonical_frame()
+                && source.primary_source().source_document_key() == "spatial-cross-section.document"
+        }));
     }
 
     #[test]
