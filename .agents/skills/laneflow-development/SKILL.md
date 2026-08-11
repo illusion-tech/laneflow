@@ -28,9 +28,11 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
    在 #308 自身 G2 后进入 `research/` 非生产边界
 10. 涉及 #292、#315、#296、#297、`laneflow-static-contract`、
     `laneflow-compiler`、官方前端共同受检模块接入、合成领域专用语言前端
-    （Synthetic DSL Frontend）、几何文档前端、current JSON 退役或集成专用
+    （Synthetic DSL Frontend）、道路编辑前端、current JSON 退役或集成专用
     LIR→当前态投影时，额外读取
-   `docs/design/compiler-foundation.md`；准备 #292 G3 或复核生产性能证据时，同时读取
+   `docs/design/compiler-foundation.md`；#296 还须读取
+   `docs/adr/0023-road-editing-state-and-phased-network-replacement.md` 与
+   `docs/design/road-editing-source-and-geometry-frontend.md`；准备 #292 G3 或复核生产性能证据时，同时读取
    `docs/reference/v0.10-compiler-foundation-validation.md`
 11. 涉及城市模拟游戏范围、Routing、路网修订、存档/回放、并行或 fidelity 时读取
    `docs/adr/0021-city-simulation-game-traffic-foundation.md`

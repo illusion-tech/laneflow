@@ -52,6 +52,10 @@
   compiler foundation、Synthetic DSL frontend、集成专用 LIR→current projection 及 G4，
   #282–#285 关于 #292 的稳定开工前置已经满足。该完成事实不表示整个目标路网编译器、
   静态镜像或 Traffic Runtime 已经实现；当前 Project 状态与原生依赖关系以 GitHub 为准。
+- `road-editing-source-and-geometry-frontend.md`：#296 FlatBuffers G1 已接受的设计入口；冻结
+  可视化编辑器为主、程序化生成器为辅、道路编辑按 A → C 演进、有类型道路编辑模型、
+  来源位置/协作，以及产品负责人已选择的按模块 size-prefixed FlatBuffers production
+  source；G2 正按独立 PR 系列实施，尚未授权 G3 或发布 B1 schema。
 - `compiler-budget-calibration.md`：#308 已完成 G4 的一次性非生产编译器校准研究设计；冻结
   标识、走廊关系、密集路口和研究夹具对照工作负载，以及宽星形、深链、共享扇入
   三种模块图；用机器可读清单与证据 JSON Schema、至少五级规模阶梯、成本/内存拐点、校准/压力

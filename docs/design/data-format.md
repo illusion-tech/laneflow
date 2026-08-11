@@ -62,9 +62,9 @@ production loader、canonical fixtures、validator 和 Adapter/authoring tool �
 ADR 0020 不把当前 Traffic JSON 直接改名为编译器中间表示（Compiler IR）。目标态把
 版本与职责拆为：
 
-- 编制来源：权威来源模块图（Authoritative Source Module Graph）；几何文档是主要
-  生产来源语言，合成领域专用语言（Synthetic DSL）、导入模块和编辑器编制模块可以
-  共同组成编译单元（Compilation Unit）；
+- 编制来源：权威来源模块图（Authoritative Source Module Graph）；按模块保存的道路
+  编辑来源缓冲区是编辑器与程序化生成的主要 production 来源语言，合成领域专用语言
+  （Synthetic DSL）、导入模块和其他受检模块可以共同组成编译单元（Compilation Unit）；
 - 可移植规范制品（Portable Canonical Artifact）：平台无关、可发布、可独立校验；
 - 目标静态镜像（Target Static Image）：按目标、布局、封闭配置档（Closed
   Profile）和分区提示版本生成且可重建；v1 所有生产配置档都必须包含

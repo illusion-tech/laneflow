@@ -260,7 +260,7 @@ G0-G4 与元数据审计。#281 已交付 static/Data 0.10 并合入主干。#28
 
 #291 已把目标从“L1/L2 生成器 + JSON 管线”修订为编译器拥有的静态路网
 （Compiler-owned Static Network）：
-Geometry、Synthetic DSL、imported 与 editor-authored module 共同组成唯一
+道路编辑状态、Synthetic DSL、imported 与其他受检 module 共同组成唯一
 authoritative source module graph，再进入
 `typed AST → HIR → MIR → validated canonical LIR`。同一次成功编译以 LIR 作为唯一
 静态语义输入，原子生成 portable canonical artifact、target-specific
@@ -272,6 +272,22 @@ authoritative source module graph，再进入
 image 外部 trusted descriptor/validation receipt 与 bounded verifier 建立 view，
 不再解析 JSON、按字符串 rebind、重建 registry、重复 Traffic/Spatial join 或重编译
 static occurrences。
+
+本路线图中的 #298 “语义差异”只指规范 LIR/路网影响差异；道路编辑控制点等
+authoring-only 改动由 C 阶段后继 [#345](https://github.com/illusion-tech/laneflow/issues/345)
+`RoadEditingSourceDiff` 负责。
+
+ADR 0023 已完成 #296 FlatBuffers G1 纠偏：production 道路来源首先服务可视化编辑器，并支持游戏
+初始化时的程序化生成；道路编辑先交付整体替换 A 阶段，再演进到候选调整与影响预览 C
+阶段。产品负责人已选择按模块 size-prefixed FlatBuffers 作为 production source；旧
+Geometry JSON 尚未发布且不获得兼容承诺，分段 Protobuf 也不进入 production。借用的
+原子 compiler 入口、依赖/审计边界已经通过 G1/G2 Gate；当前按独立 PR 系列实现
+schema/reader、第一方 Rust 有类型来源构造面并重建性能基线。v1 曲线只含 line/cubic
+Bézier，常见 taper 使用线性
+起止宽度；FacilityBand 不作为 v1 AccessRule target。#296 只为 #298 的 LIR 影响差异
+提供输入，C 阶段的 authoring-only 来源差异已登记为后继 Delivery Issue
+[#345](https://github.com/illusion-tech/laneflow/issues/345)。完整 C++/C# SDK 与引擎事务封装
+属于后继交付。
 
 ADR 0020、ADR 0021 与 [`design/network-compiler.md`](design/network-compiler.md)
 是 #291 G1 已接受的长期设计。Identity v1 区分 StableId128
@@ -321,7 +337,7 @@ Frontend）的首个纵向闭环；#291 G1
 迁移顺序为“#291 架构 G1（已完成）→ #308 非生产预算校准完成 G4（已完成）→ #292
 静态契约/编译器基础设施/合成领域专用语言 + 集成专用 LIR→当前态投影完成 G4
 （已完成）→ 恢复 #282–#285”。官方生产前端先由 #315 建立共同受检
-模块接入；#296 几何文档前端/MIR 继续按自身 Gate 推进。#297 已取消当前态包迁移
+模块接入；#296 道路编辑来源前端/MIR 继续按自身 Gate 推进。#297 已取消当前态包迁移
 导入，改为收口 current JSON 退役与编译器原生投影测试边界；它可以与恢复的运行时
 切片并行推进，
 再由 #298 交付可移植规范制品 /
