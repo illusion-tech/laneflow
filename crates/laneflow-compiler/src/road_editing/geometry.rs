@@ -24,6 +24,8 @@ pub(super) enum NumericFreezeError {
     CoordinateOutOfRange,
     ApproximationNotConverged,
     GeometryPointLimit,
+    DegenerateCanonicalSegment,
+    DirectionDiscontinuity,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -96,8 +98,14 @@ impl ApproximationPoint {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ApproximationVertex {
+    pub(super) parameter: f64,
+    pub(super) point: ApproximationPoint,
+}
+
 pub(super) trait ApproximationPointSink {
-    fn push(&mut self, point: ApproximationPoint) -> Result<(), NumericFreezeError>;
+    fn push(&mut self, vertex: ApproximationVertex) -> Result<(), NumericFreezeError>;
 }
 
 #[derive(Clone, Copy)]
@@ -148,15 +156,27 @@ struct ApproximationNode {
     depth: u8,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ApproximationInterval {
+    pub(super) parameter_start: f64,
+    pub(super) parameter_end: f64,
+    pub(super) welded_start: Option<ApproximationPoint>,
+    pub(super) emit_start: bool,
+}
+
 pub(super) fn approximate_interval(
     evaluator: SegmentEvaluator,
-    parameter_start: f64,
-    parameter_end: f64,
-    welded_start: Option<ApproximationPoint>,
+    interval: ApproximationInterval,
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
     sink: &mut impl ApproximationPointSink,
 ) -> Result<(), NumericFreezeError> {
+    let ApproximationInterval {
+        parameter_start,
+        parameter_end,
+        welded_start,
+        emit_start,
+    } = interval;
     if !parameter_start.is_finite()
         || !parameter_end.is_finite()
         || parameter_start >= parameter_end
@@ -168,7 +188,12 @@ pub(super) fn approximate_interval(
         start.point = welded_start;
     }
     let end = CandidateEndpoint::evaluate(evaluator, parameter_end)?;
-    sink.push(start.point)?;
+    if emit_start {
+        sink.push(ApproximationVertex {
+            parameter: parameter_start,
+            point: start.point,
+        })?;
+    }
 
     let mut stack = [None; REGULARITY_STACK_CAPACITY];
     stack[0] = Some(ApproximationNode {
@@ -185,7 +210,10 @@ pub(super) fn approximate_interval(
             .take()
             .expect("fixed approximation stack contains every live node");
         if candidate_accepts(evaluator, node, accuracy, direction)? {
-            sink.push(node.end.point)?;
+            sink.push(ApproximationVertex {
+                parameter: node.parameter_end,
+                point: node.end.point,
+            })?;
             continue;
         }
         if node.depth == MAX_SUBDIVISION_DEPTH {
@@ -296,6 +324,34 @@ pub(super) fn direction_accepts(
     let weighted_left_norm = finite(cosine_squared * left_norm)?;
     let rhs = finite(weighted_left_norm * right_norm)?;
     Ok(dot > 0.0 && lhs >= rhs)
+}
+
+pub(super) fn validate_canonical_polyline(
+    points: &[ApproximationPoint],
+    direction: GeometryDirectionProfile,
+) -> Result<f64, NumericFreezeError> {
+    if points.len() < 2 {
+        return Err(NumericFreezeError::DegenerateCanonicalSegment);
+    }
+    let cosine_squared = full_angle_cosine_squared(direction);
+    let mut previous_chord = None;
+    let mut cumulative_length = 0.0_f64;
+    for pair in points.windows(2) {
+        let chord = point_sub(pair[1].promoted(), pair[0].promoted())?;
+        let chord_norm_squared = norm_squared(chord)?;
+        if chord_norm_squared == 0.0 {
+            return Err(NumericFreezeError::DegenerateCanonicalSegment);
+        }
+        if let Some(previous_chord) = previous_chord
+            && !direction_accepts(previous_chord, chord, cosine_squared)?
+        {
+            return Err(NumericFreezeError::DirectionDiscontinuity);
+        }
+        let chord_length = finite(chord_norm_squared.sqrt())?;
+        cumulative_length = finite(cumulative_length + chord_length)?;
+        previous_chord = Some(chord);
+    }
+    Ok(cumulative_length)
 }
 
 fn dot(left: Point3, right: Point3) -> Result<f64, NumericFreezeError> {
@@ -819,16 +875,16 @@ mod tests {
 
     #[derive(Default)]
     struct TestPointSink {
-        points: Vec<ApproximationPoint>,
+        vertices: Vec<ApproximationVertex>,
         maximum_points: Option<usize>,
     }
 
     impl ApproximationPointSink for TestPointSink {
-        fn push(&mut self, point: ApproximationPoint) -> Result<(), NumericFreezeError> {
-            if self.maximum_points == Some(self.points.len()) {
+        fn push(&mut self, vertex: ApproximationVertex) -> Result<(), NumericFreezeError> {
+            if self.maximum_points == Some(self.vertices.len()) {
                 return Err(NumericFreezeError::GeometryPointLimit);
             }
-            self.points.push(point);
+            self.vertices.push(vertex);
             Ok(())
         }
     }
@@ -927,26 +983,138 @@ mod tests {
                 GeometryDirectionProfile::Compact5Deg,
             ] {
                 let mut sink = TestPointSink::default();
-                approximate_interval(evaluator, 0.0, 1.0, None, accuracy, direction, &mut sink)
-                    .unwrap();
+                approximate_interval(
+                    evaluator,
+                    ApproximationInterval {
+                        parameter_start: 0.0,
+                        parameter_end: 1.0,
+                        welded_start: None,
+                        emit_start: true,
+                    },
+                    accuracy,
+                    direction,
+                    &mut sink,
+                )
+                .unwrap();
                 assert_eq!(
-                    sink.points,
+                    sink.vertices,
                     [
-                        ApproximationPoint {
-                            x: 0.0,
-                            y: 1.25,
-                            z: 0.0,
+                        ApproximationVertex {
+                            parameter: 0.0,
+                            point: ApproximationPoint {
+                                x: 0.0,
+                                y: 1.25,
+                                z: 0.0,
+                            },
                         },
-                        ApproximationPoint {
-                            x: 8.0,
-                            y: 1.25,
-                            z: 4.0,
+                        ApproximationVertex {
+                            parameter: 1.0,
+                            point: ApproximationPoint {
+                                x: 8.0,
+                                y: 1.25,
+                                z: 4.0,
+                            },
                         },
                     ]
                 );
-                assert_eq!(sink.points[0].x.to_bits(), 0);
+                assert_eq!(sink.vertices[0].point.x.to_bits(), 0);
             }
         }
+    }
+
+    #[test]
+    fn adjacent_forced_intervals_emit_the_shared_parameter_once() {
+        let evaluator = SegmentEvaluator::Reference(CurveSegment::Line {
+            start: point(0.0, 0.0, 0.0),
+            end: point(8.0, 0.0, 0.0),
+        });
+        let mut sink = TestPointSink::default();
+        approximate_interval(
+            evaluator,
+            ApproximationInterval {
+                parameter_start: 0.0,
+                parameter_end: 0.5,
+                welded_start: None,
+                emit_start: true,
+            },
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            &mut sink,
+        )
+        .unwrap();
+        approximate_interval(
+            evaluator,
+            ApproximationInterval {
+                parameter_start: 0.5,
+                parameter_end: 1.0,
+                welded_start: None,
+                emit_start: false,
+            },
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            &mut sink,
+        )
+        .unwrap();
+
+        assert_eq!(
+            sink.vertices
+                .iter()
+                .map(|vertex| (vertex.parameter, vertex.point.x))
+                .collect::<Vec<_>>(),
+            [(0.0, 0.0), (0.5, 4.0), (1.0, 8.0)]
+        );
+    }
+
+    #[test]
+    fn canonical_polyline_validation_freezes_length_degeneracy_and_full_angle() {
+        let straight = [
+            ApproximationPoint {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            ApproximationPoint {
+                x: 3.0,
+                y: 0.0,
+                z: 4.0,
+            },
+        ];
+        assert_eq!(
+            validate_canonical_polyline(&straight, GeometryDirectionProfile::Smooth1Deg).unwrap(),
+            5.0
+        );
+
+        let duplicate = [straight[0], straight[0]];
+        assert_eq!(
+            validate_canonical_polyline(&duplicate, GeometryDirectionProfile::Compact5Deg),
+            Err(NumericFreezeError::DegenerateCanonicalSegment)
+        );
+
+        let direction_jump = [
+            ApproximationPoint {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            ApproximationPoint {
+                x: 100.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            ApproximationPoint {
+                x: 200.0,
+                y: 0.0,
+                z: 3.5,
+            },
+        ];
+        assert_eq!(
+            validate_canonical_polyline(&direction_jump, GeometryDirectionProfile::Smooth1Deg),
+            Err(NumericFreezeError::DirectionDiscontinuity)
+        );
+        assert!(
+            validate_canonical_polyline(&direction_jump, GeometryDirectionProfile::Compact5Deg)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -960,30 +1128,39 @@ mod tests {
         let mut sink = TestPointSink::default();
         approximate_interval(
             evaluator,
-            0.0,
-            1.0,
-            None,
+            ApproximationInterval {
+                parameter_start: 0.0,
+                parameter_end: 1.0,
+                welded_start: None,
+                emit_start: true,
+            },
             GeometryAccuracyProfile::Fine2Cm,
             GeometryDirectionProfile::Smooth1Deg,
             &mut sink,
         )
         .unwrap();
 
-        assert_eq!(sink.points.len(), 154);
+        assert_eq!(sink.vertices.len(), 154);
         assert_eq!(
-            sink.points.first(),
-            Some(&ApproximationPoint {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
+            sink.vertices.first(),
+            Some(&ApproximationVertex {
+                parameter: 0.0,
+                point: ApproximationPoint {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
             })
         );
         assert_eq!(
-            sink.points.last(),
-            Some(&ApproximationPoint {
-                x: 189.5,
-                y: 0.0,
-                z: 0.0,
+            sink.vertices.last(),
+            Some(&ApproximationVertex {
+                parameter: 1.0,
+                point: ApproximationPoint {
+                    x: 189.5,
+                    y: 0.0,
+                    z: 0.0,
+                },
             })
         );
     }
@@ -1000,22 +1177,31 @@ mod tests {
             z: 0.0,
         };
         let mut sink = TestPointSink {
-            points: Vec::new(),
+            vertices: Vec::new(),
             maximum_points: Some(1),
         };
         assert_eq!(
             approximate_interval(
                 evaluator,
-                0.0,
-                1.0,
-                Some(welded),
+                ApproximationInterval {
+                    parameter_start: 0.0,
+                    parameter_end: 1.0,
+                    welded_start: Some(welded),
+                    emit_start: true,
+                },
                 GeometryAccuracyProfile::Fine2Cm,
                 GeometryDirectionProfile::Smooth1Deg,
                 &mut sink,
             ),
             Err(NumericFreezeError::GeometryPointLimit)
         );
-        assert_eq!(sink.points, [welded]);
+        assert_eq!(
+            sink.vertices,
+            [ApproximationVertex {
+                parameter: 0.0,
+                point: welded,
+            }]
+        );
     }
 
     #[test]
@@ -1032,16 +1218,19 @@ mod tests {
         assert_eq!(
             approximate_interval(
                 evaluator,
-                0.0,
-                1.0,
-                None,
+                ApproximationInterval {
+                    parameter_start: 0.0,
+                    parameter_end: 1.0,
+                    welded_start: None,
+                    emit_start: true,
+                },
                 GeometryAccuracyProfile::Fine2Cm,
                 GeometryDirectionProfile::Smooth1Deg,
                 &mut sink,
             ),
             Err(NumericFreezeError::CoordinateOutOfRange)
         );
-        assert!(sink.points.is_empty());
+        assert!(sink.vertices.is_empty());
     }
 
     #[test]
