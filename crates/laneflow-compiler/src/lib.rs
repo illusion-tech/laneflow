@@ -68,13 +68,13 @@ pub use module::{
 };
 pub use source::{SourceModuleHeader, SourceModuleHeaderInput};
 pub use source_location::{
-    RoadEditingByteRange, RoadEditingCanvasSelectionOrdinal, RoadEditingDocumentIdentity,
-    RoadEditingInputDocumentIdentity, RoadEditingLocationContext, RoadEditingPropertyPath,
-    RoadEditingPropertyPathOrdinal, RoadEditingPropertyStep, RoadEditingRelationKind,
-    RoadEditingRelationOccurrence, RoadEditingRootVectorKind, RoadEditingSourceAddress,
-    RoadEditingSourceLocation, RoadEditingStringOrdinal, RoadEditingStructKind, RoadEditingSubject,
-    RoadEditingTableKind, RoadEditingUnionKind, RoadEditingVerifiedDocumentIdentity,
-    SourceLocation,
+    RoadEditingAddressKind, RoadEditingByteRange, RoadEditingCanvasSelectionOrdinal,
+    RoadEditingDocumentIdentity, RoadEditingInputDocumentIdentity, RoadEditingLocationContext,
+    RoadEditingOwner, RoadEditingPropertyPath, RoadEditingPropertyPathOrdinal,
+    RoadEditingPropertyStep, RoadEditingRelationKind, RoadEditingRelationOccurrence,
+    RoadEditingRootVectorKind, RoadEditingSourceAddress, RoadEditingSourceLocation,
+    RoadEditingStringOrdinal, RoadEditingStructKind, RoadEditingSubject, RoadEditingTableKind,
+    RoadEditingUnionKind, RoadEditingVerifiedDocumentIdentity, SourceLocation,
 };
 pub use source_map::{
     AccessRelationOwner, AccessRelationSourceView, AccessRuleSourceView, AuthoringLaneSourceView,
