@@ -49,12 +49,39 @@ pub(crate) const TEXT_SOURCE_LOCATION_LOGICAL_BYTES: u64 = 4 + 8 + 8;
 const ROAD_EDITING_SOURCE_LOCATION_LOGICAL_BYTES: u64 =
     4 + ROAD_EDITING_LOCATION_PAYLOAD_LOGICAL_BYTES;
 
-const LANE_EDGE_SOURCE_FIXED_LOGICAL_BYTES: u64 = 4 + 16;
-const LANE_EDGE_SUCCESSOR_SOURCE_FIXED_LOGICAL_BYTES: u64 = 4 + 16 + 2 + 4;
+// 每条 entity/relation 来源记录还保存 4-byte 来源位置 variant tag；位置 payload
+// 本身由 `SourceLocationRecord::logical_bytes` 按 Text/RoadEditing 分别计量。
+const SOURCE_RECORD_LOCATION_VARIANT_LOGICAL_BYTES: u64 = 4;
+const LANE_EDGE_SOURCE_FIXED_LOGICAL_BYTES: u64 =
+    4 + 16 + SOURCE_RECORD_LOCATION_VARIANT_LOGICAL_BYTES;
+const LANE_EDGE_SUCCESSOR_SOURCE_FIXED_LOGICAL_BYTES: u64 =
+    4 + 16 + 2 + 4 + SOURCE_RECORD_LOCATION_VARIANT_LOGICAL_BYTES;
 const STABLE_ENTITY_SOURCE_FIXED_LOGICAL_BYTES: u64 = LANE_EDGE_SOURCE_FIXED_LOGICAL_BYTES;
-const OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES: u64 = 2 + 4 + 16 + 2 + 4;
+const OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES: u64 =
+    2 + 4 + 16 + 2 + 4 + SOURCE_RECORD_LOCATION_VARIANT_LOGICAL_BYTES;
 const ROUTE_RELATION_SOURCE_FIXED_LOGICAL_BYTES: u64 =
     OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES + 1;
+
+#[cfg(test)]
+mod logical_byte_tests {
+    use super::*;
+
+    #[test]
+    fn text_source_records_preserve_the_existing_logical_widths() {
+        assert_eq!(
+            LANE_EDGE_SOURCE_FIXED_LOGICAL_BYTES + TEXT_SOURCE_LOCATION_LOGICAL_BYTES,
+            4 + 16 + 4 + 16 + 4
+        );
+        assert_eq!(
+            LANE_EDGE_SUCCESSOR_SOURCE_FIXED_LOGICAL_BYTES + TEXT_SOURCE_LOCATION_LOGICAL_BYTES,
+            16 + 4 + 2 + 4 + 4 + 16 + 4
+        );
+        assert_eq!(
+            OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES + TEXT_SOURCE_LOCATION_LOGICAL_BYTES,
+            2 + 4 + 16 + 2 + 4 + 4 + 16 + 4
+        );
+    }
+}
 
 /// owner-local 来源记录中登记的有类型语义角色。
 ///

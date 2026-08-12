@@ -1370,82 +1370,90 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             route_counts.route_edges,
         ));
     let hir_lookup_bytes = requested_hash_table_bytes::<Arc<str>, HirModuleKey>(module_count)
-        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirLaneEdgeKey>>(
-            module_count,
-        ))
-        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirRoadSectionKey>>(
-            cross_lookup_module_count,
-        ))
-        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirLaneGroupKey>>(
-            cross_lookup_module_count,
-        ))
-        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirFacilityBandKey>>(
-            cross_lookup_module_count,
-        ))
-        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirLaneEdgeKey>(
-            lane_edge_count,
-        ))
-        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirRoadSectionKey>(
-            cross_section_counts.road_sections,
-        ))
-        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirLaneGroupKey>(
-            cross_section_counts.lane_groups,
-        ))
-        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirFacilityBandKey>(
-            cross_section_counts.facility_bands,
-        ))
-        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirJunctionKey>>(
-            junction_lookup_module_count,
-        ))
-        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirMovementKey>>(
-            junction_lookup_module_count,
-        ))
-        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirJunctionKey>(
-            junction_counts.junctions,
-        ))
-        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirMovementKey>(
-            junction_counts.movements,
-        ))
-        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirManeuverPathKey>>(
-            control_lookup_module_count,
-        ))
-        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirStopLineKey>>(
-            control_lookup_module_count,
-        ))
-        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirManeuverGateKey>>(
-            control_lookup_module_count,
-        ))
-        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirManeuverPathKey>(
-            junction_counts.maneuver_paths,
-        ))
-        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirStopLineKey>(
-            control_counts.stop_lines,
-        ))
-        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirManeuverGateKey>(
-            control_counts.maneuver_gates,
-        ))
-        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirSignalGroupKey>>(
-            signal_lookup_module_count,
-        ))
-        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirSignalGroupKey>(
-            signal_counts.groups,
-        ))
-        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirParkingAreaKey>>(
-            parking_lookup_module_count,
-        ))
-        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirParkingAreaKey>(
-            parking_counts.areas,
-        ))
-        .saturating_add(
-            requested_bytes::<HashMap<Arc<str>, HirParticipantClassKey>>(
-                access_lookup_module_count,
-            ),
-        )
-        .saturating_add(
-            requested_hash_table_bytes::<Arc<str>, HirParticipantClassKey>(
-                access_counts.participant_classes,
-            ),
-        )
+        .saturating_add(requested_bytes::<
+            HashMap<TypedAstEntityAddress, HirLaneEdgeKey>,
+        >(module_count))
+        .saturating_add(requested_bytes::<
+            HashMap<TypedAstEntityAddress, HirRoadSectionKey>,
+        >(cross_lookup_module_count))
+        .saturating_add(requested_bytes::<
+            HashMap<TypedAstEntityAddress, HirLaneGroupKey>,
+        >(cross_lookup_module_count))
+        .saturating_add(requested_bytes::<
+            HashMap<TypedAstEntityAddress, HirFacilityBandKey>,
+        >(cross_lookup_module_count))
+        .saturating_add(requested_hash_table_bytes::<
+            TypedAstEntityAddress,
+            HirLaneEdgeKey,
+        >(lane_edge_count))
+        .saturating_add(requested_hash_table_bytes::<
+            TypedAstEntityAddress,
+            HirRoadSectionKey,
+        >(cross_section_counts.road_sections))
+        .saturating_add(requested_hash_table_bytes::<
+            TypedAstEntityAddress,
+            HirLaneGroupKey,
+        >(cross_section_counts.lane_groups))
+        .saturating_add(requested_hash_table_bytes::<
+            TypedAstEntityAddress,
+            HirFacilityBandKey,
+        >(cross_section_counts.facility_bands))
+        .saturating_add(requested_bytes::<
+            HashMap<TypedAstEntityAddress, HirJunctionKey>,
+        >(junction_lookup_module_count))
+        .saturating_add(requested_bytes::<
+            HashMap<TypedAstEntityAddress, HirMovementKey>,
+        >(junction_lookup_module_count))
+        .saturating_add(requested_hash_table_bytes::<
+            TypedAstEntityAddress,
+            HirJunctionKey,
+        >(junction_counts.junctions))
+        .saturating_add(requested_hash_table_bytes::<
+            TypedAstEntityAddress,
+            HirMovementKey,
+        >(junction_counts.movements))
+        .saturating_add(requested_bytes::<
+            HashMap<TypedAstEntityAddress, HirManeuverPathKey>,
+        >(control_lookup_module_count))
+        .saturating_add(requested_bytes::<
+            HashMap<TypedAstEntityAddress, HirStopLineKey>,
+        >(control_lookup_module_count))
+        .saturating_add(requested_bytes::<
+            HashMap<TypedAstEntityAddress, HirManeuverGateKey>,
+        >(control_lookup_module_count))
+        .saturating_add(requested_hash_table_bytes::<
+            TypedAstEntityAddress,
+            HirManeuverPathKey,
+        >(junction_counts.maneuver_paths))
+        .saturating_add(requested_hash_table_bytes::<
+            TypedAstEntityAddress,
+            HirStopLineKey,
+        >(control_counts.stop_lines))
+        .saturating_add(requested_hash_table_bytes::<
+            TypedAstEntityAddress,
+            HirManeuverGateKey,
+        >(control_counts.maneuver_gates))
+        .saturating_add(requested_bytes::<
+            HashMap<TypedAstEntityAddress, HirSignalGroupKey>,
+        >(signal_lookup_module_count))
+        .saturating_add(requested_hash_table_bytes::<
+            TypedAstEntityAddress,
+            HirSignalGroupKey,
+        >(signal_counts.groups))
+        .saturating_add(requested_bytes::<
+            HashMap<TypedAstEntityAddress, HirParkingAreaKey>,
+        >(parking_lookup_module_count))
+        .saturating_add(requested_hash_table_bytes::<
+            TypedAstEntityAddress,
+            HirParkingAreaKey,
+        >(parking_counts.areas))
+        .saturating_add(requested_bytes::<
+            HashMap<TypedAstEntityAddress, HirParticipantClassKey>,
+        >(access_lookup_module_count))
+        .saturating_add(requested_hash_table_bytes::<
+            TypedAstEntityAddress,
+            HirParticipantClassKey,
+        >(access_counts.participant_classes))
         .saturating_add(requested_hash_table_bytes::<
             StableId128,
             RegisteredCanonicalIdentity,
