@@ -816,8 +816,9 @@ production 依赖或实现。
 - 22 种稳定声明的 identity/reorder/insertion known vectors，确保 vector 顺序不改变
   StableId、LIR 或 #298 规范路网影响差异，并逐 kind 与现有
   `EntityKind::required_tags()` registry known vectors 对齐；
-- programmatic Rust writer → bytes → production reader → LIR，以及 C++ writer → Rust
-  reader、C# writer → Rust reader 两条最小跨语言 fixture；
+- programmatic Rust writer → bytes → production reader → LIR；C++/C# binding 生成继续由固定
+  `flatc` 检查覆盖，跨语言 writer → Rust reader fixture 在 B1 publication 或外部 SDK
+  promotion 前补齐，不阻断内部 #296 Delivery；
 - line/cubic/taper 的 scalar-dual 逐 bit known vectors，覆盖大坐标、九种档位阈值
   `-1/0/+1 ULP`、source-offset canonical weld、水平 cusp/近 cusp、regularity depth/node 上限；
 - 模块独立加载、导入闭包、实体属性诊断、候选失败不污染、失败后恢复和同实例重复编译；
@@ -856,20 +857,20 @@ fixture digest，因此 workload definition 与 G2 measurement evidence 是两�
 `LF-ROAD-EDITING-P100-REGULARITY-v1`：它不修改 semantic seed，只在生成后把
 `p100.m00/corridor-main-road-0/road` 的同端点 line 替换为机器定义中的单 cubic，保留全部
 声明、引用、连接端基准宽度、宽度/taper 与 275 个 segment 总数。该变体每次 compile
-必须得到 3 次 cubic
-regularity node visit，并独立报告完整 compile CPU/scratch/live-byte peak；它与主 P100 在
-不同 fresh process 测量，两个峰值不能相加，也不能互相替代。
+必须得到 3 次 cubic regularity node visit。独立 fresh-process CPU/scratch/live-byte peak、
+与主 P100 的分离测量及正式统计属于 #374；#296 只保留该变体的几何正确性断言。
 
 九种 profile 组合继续作为几何正确性、regularity 与离散误差观测矩阵；#296 另以 P100
 执行一次描述性资源检查，确认观测峰值明显低于 `43_269_120` bytes ceiling。typed-model
 build、encode/save、各阶段 CPU/内存、returned buffer retained capacity、rewrite 共存、
 fresh-process 样本统计和 exact revision 绑定的正式测量协议改由 #374 独立拥有。#296 不再
 为了逐字节 allocator 证明阻塞 Delivery，也不得把一次观测改写为所有合法输入的硬上限。
-结果与旧 JSON 实现做同机测量对照；未选的 Protobuf 不实现第二条 production reader。
-该缺失不允许文档宣称 FB 已实测快于 PB，但也不阻断已完成的产品选择。G2 只需证明
+未选的 Protobuf 不实现第二条 production reader；该缺失不允许文档宣称 FB 已实测快于
+PB，但也不阻断已完成的产品选择。G2 只需证明
 代表性 P100 观测未突破现有 production compile limits；在 #374 取得正式新证据前，
 不复用旧 JSON 的 `3_669_800 B` 等峰值或性能结论，也不声称逐字节硬上限已经闭合。
-墙钟先报告中位数/MAD 和相对旧实现的解释，不在没有产品加载 SLA 时虚构绝对毫秒门槛。
+墙钟中位数/MAD、fresh-process 样本和相对旧实现的正式解释同样属于 #374；#296 不在没有
+产品加载 SLA 时虚构绝对毫秒门槛。
 这些证据只支持 B1 内部产品判断，不得把固定网格最大观测值改写为连续硬保证；B1 schema
 在产品复核前不发布、不承担长期存档兼容。
 
