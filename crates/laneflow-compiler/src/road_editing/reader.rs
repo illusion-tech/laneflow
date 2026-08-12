@@ -152,10 +152,13 @@ pub(crate) fn verify_source<'a>(
     }
     let actual_key = root.module_header().source_document_key();
     if actual_key != expected_key {
+        let bounded_actual_key = (u64::try_from(actual_key.len()).unwrap_or(u64::MAX)
+            <= limits.value(CompileLimitDimension::SingleStringBytes))
+        .then_some(actual_key);
         return Err(source_error(
             RoadEditingSourceViolation::SourceDocumentKeyMismatch,
             expected_key,
-            Some(actual_key),
+            bounded_actual_key,
         ));
     }
 
@@ -308,8 +311,10 @@ fn len_u64<T>(values: laneflow_road_editing_wire::runtime::Vector<'_, T>) -> u64
 mod tests {
     use super::*;
     use crate::road_editing::{
-        CanonicalFrameInput, RoadEditingDeclaration, RoadEditingModuleHeader,
-        RoadEditingProvenance, RoadEditingSourceModuleBuilder, RoadEditingSourceWriter,
+        CanonicalFrameInput, CanonicalFrameReference, RoadAlignmentInput, RoadEditingCurveProgram,
+        RoadEditingCurveSegment, RoadEditingDeclaration, RoadEditingModuleHeader,
+        RoadEditingPoint3, RoadEditingProvenance, RoadEditingSourceModuleBuilder,
+        RoadEditingSourceWriter,
     };
     use crate::{
         DiagnosticCode, DiagnosticPayload, GeometryAccuracyProfile, GeometryDirectionProfile,
@@ -338,6 +343,46 @@ mod tests {
                 CanonicalFrameInput::try_new("frame").expect("frame"),
             ))
             .expect("frame declaration");
+        RoadEditingSourceWriter::new(limits)
+            .write(builder.finish().expect("module"))
+            .expect("buffer")
+    }
+
+    fn source_buffer_with_imported_frame(
+        limits: &CompileLimits,
+    ) -> super::super::OwnedRoadEditingSourceBuffer {
+        let header = RoadEditingModuleHeader::try_new(
+            "city",
+            "roads/main",
+            vec!["base".into()],
+            RoadEditingProvenance::direct("editor save").expect("provenance"),
+        )
+        .expect("header");
+        let mut builder = RoadEditingSourceModuleBuilder::new(
+            header,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            limits,
+        )
+        .expect("builder");
+        let curve = RoadEditingCurveProgram::try_new(
+            RoadEditingPoint3::try_new(0.0, 0.0, 0.0).expect("start"),
+            vec![RoadEditingCurveSegment::line(
+                RoadEditingPoint3::try_new(10.0, 0.0, 0.0).expect("end"),
+            )],
+        )
+        .expect("curve");
+        builder
+            .add_alignment(
+                RoadAlignmentInput::try_new(
+                    "alignment",
+                    CanonicalFrameReference::imported("base", Vec::new(), "frame")
+                        .expect("imported frame"),
+                    curve,
+                )
+                .expect("alignment"),
+            )
+            .expect("add alignment");
         RoadEditingSourceWriter::new(limits)
             .write(builder.finish().expect("module"))
             .expect("buffer")
@@ -571,6 +616,58 @@ mod tests {
                 actual_source_document_key: Some(actual),
                 ..
             } if actual.as_ref() == "roads/actual"
+        ));
+    }
+
+    #[test]
+    fn document_key_mismatch_does_not_copy_an_unbounded_wire_key() {
+        let normal_limits = CompileLimits::p100_initial_v1();
+        let actual_key = "a".repeat(53);
+        let buffer = source_buffer(&normal_limits, &actual_key);
+        let limits = normal_limits.with_test_single_string_limit(8);
+        let input =
+            RoadEditingModuleInput::try_new("roads/x", buffer.as_bytes(), None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("document mismatch");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::SourceDocumentKeyMismatch,
+                actual_source_document_key: None,
+                ..
+            }
+        ));
+        assert!(!error.to_string().contains(&actual_key));
+    }
+
+    #[test]
+    fn semantic_preflight_rejects_a_self_qualified_reference() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer_with_imported_frame(&limits);
+        let mut bytes = buffer.as_bytes().to_vec();
+        let valid = b"base::frame";
+        let invalid = b"city::frame";
+        let positions = bytes
+            .windows(valid.len())
+            .enumerate()
+            .filter_map(|(index, value)| (value == valid).then_some(index))
+            .collect::<Vec<_>>();
+        assert_eq!(positions.len(), 1, "one imported reference spelling");
+        bytes[positions[0]..positions[0] + invalid.len()].copy_from_slice(invalid);
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("self-qualified reference");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::InvalidSemanticValue(
+                    crate::RoadEditingInputViolation::InvalidCombination
+                ),
+                field: Some(field),
+                ..
+            } if field.as_ref() == "roadAlignment.canonicalFrame"
         ));
     }
 
