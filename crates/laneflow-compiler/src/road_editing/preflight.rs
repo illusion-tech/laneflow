@@ -16,9 +16,10 @@ use super::rules::{
     finite_violation, inclusive_range_violation, non_negative_violation, positive_violation,
     token_violation, validate_wire_reference, visible_ascii_violation,
 };
+use crate::declaration::{MAX_PORTABLE_SIGNAL_TIME_MS, facility_kind_category};
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, RoadEditingInputViolation,
-    RoadEditingSourceViolation,
+    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, FacilityKindCategory,
+    RoadEditingInputViolation, RoadEditingSourceViolation, SourceTextViolation,
 };
 
 type StringVector<'a> = Vector<'a, ForwardsUOffset<&'a str>>;
@@ -82,6 +83,34 @@ impl RoadEditingPreflightCounts {
         self.total_string_bytes = self
             .total_string_bytes
             .saturating_add(u64::try_from(value.len()).unwrap_or(u64::MAX));
+        Ok(())
+    }
+
+    fn charge_non_empty_text(
+        &mut self,
+        value: &str,
+        field: &'static str,
+        limits: &CompileLimits,
+        expected_key: &str,
+    ) -> Result<(), DiagnosticBundle> {
+        let limit = limits.value(CompileLimitDimension::SingleStringBytes);
+        let observed = u64::try_from(value.len()).unwrap_or(u64::MAX);
+        let violation = if value.is_empty() {
+            Some(RoadEditingInputViolation::InvalidText(
+                SourceTextViolation::Empty,
+            ))
+        } else if observed > limit {
+            Some(RoadEditingInputViolation::InvalidText(
+                SourceTextViolation::TooLong { limit, observed },
+            ))
+        } else {
+            None
+        };
+        if let Some(violation) = violation {
+            return Err(semantic_error(field, violation, expected_key));
+        }
+        self.string_item_count = self.string_item_count.saturating_add(1);
+        self.total_string_bytes = self.total_string_bytes.saturating_add(observed);
         Ok(())
     }
 
@@ -526,6 +555,30 @@ fn validate_width(
     Ok(())
 }
 
+fn validate_facility_kind_category(
+    value: &str,
+    expected: FacilityKindCategory,
+    field: &'static str,
+    expected_key: &str,
+) -> Result<(), DiagnosticBundle> {
+    if facility_kind_category(value) != Some(expected) {
+        return Err(invalid_combination(field, expected_key));
+    }
+    Ok(())
+}
+
+fn validate_portable_signal_time(
+    value: u64,
+    allow_zero: bool,
+    field: &'static str,
+    expected_key: &str,
+) -> Result<(), DiagnosticBundle> {
+    if (!allow_zero && value == 0) || value > MAX_PORTABLE_SIGNAL_TIME_MS {
+        return Err(invalid_combination(field, expected_key));
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn validate_reference_vector(
     usage: &mut RoadEditingPreflightCounts,
@@ -753,6 +806,12 @@ fn validate_sections(
             expected_key,
         )?;
         usage.charge_token(value.kind_id(), "roadSection.kindId", limits, expected_key)?;
+        validate_facility_kind_category(
+            value.kind_id(),
+            FacilityKindCategory::LaneBearing,
+            "roadSection.kindId",
+            expected_key,
+        )?;
         validate_reference_vector(
             usage,
             value.authoring_lanes(),
@@ -1288,6 +1347,12 @@ fn validate_signal_controllers_and_phases(
             limits,
             expected_key,
         )?;
+        validate_portable_signal_time(
+            value.offset_milliseconds(),
+            true,
+            "signalController.offsetMilliseconds",
+            expected_key,
+        )?;
         validate_reference_vector(
             usage,
             value.signal_groups(),
@@ -1331,12 +1396,12 @@ fn validate_signal_controllers_and_phases(
             limits,
             expected_key,
         )?;
-        if value.duration_milliseconds() == 0 {
-            return Err(invalid_combination(
-                "signalPhase.durationMilliseconds",
-                expected_key,
-            ));
-        }
+        validate_portable_signal_time(
+            value.duration_milliseconds(),
+            false,
+            "signalPhase.durationMilliseconds",
+            expected_key,
+        )?;
         let states = value.states();
         if states.is_empty() {
             return Err(semantic_error(
@@ -1590,6 +1655,12 @@ fn validate_lane_groups_and_facility_bands(
             expected_key,
         )?;
         usage.charge_token(value.kind_id(), "facilityBand.kindId", limits, expected_key)?;
+        validate_facility_kind_category(
+            value.kind_id(),
+            FacilityKindCategory::NonTraversable,
+            "facilityBand.kindId",
+            expected_key,
+        )?;
         validate_width(
             value.width_profile(),
             "facilityBand.widthProfile",
@@ -1699,20 +1770,20 @@ fn validate_access_and_profiles(
         )?;
         if let Some(regulation) = value.regulation() {
             usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
-            usage.charge_visible_ascii(
+            usage.charge_non_empty_text(
                 regulation.jurisdiction(),
                 "accessRegulation.jurisdiction",
                 limits,
                 expected_key,
             )?;
-            usage.charge_visible_ascii(
+            usage.charge_non_empty_text(
                 regulation.version(),
                 "accessRegulation.version",
                 limits,
                 expected_key,
             )?;
             if let Some(source) = regulation.source() {
-                usage.charge_visible_ascii(
+                usage.charge_non_empty_text(
                     source,
                     "accessRegulation.source",
                     limits,
@@ -2023,6 +2094,113 @@ mod tests {
         );
         assert_eq!(usage.string_item_count, 0);
         assert_eq!(usage.total_string_bytes, 0);
+    }
+
+    #[test]
+    fn facility_kind_categories_match_the_first_party_model() {
+        let expected_key = "roads/main";
+
+        validate_facility_kind_category(
+            "motorLane",
+            FacilityKindCategory::LaneBearing,
+            "roadSection.kindId",
+            expected_key,
+        )
+        .expect("lane-bearing section kind");
+        validate_facility_kind_category(
+            "sidewalk",
+            FacilityKindCategory::NonTraversable,
+            "facilityBand.kindId",
+            expected_key,
+        )
+        .expect("non-traversable band kind");
+
+        assert!(
+            validate_facility_kind_category(
+                "sidewalk",
+                FacilityKindCategory::LaneBearing,
+                "roadSection.kindId",
+                expected_key,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_facility_kind_category(
+                "motorLane",
+                FacilityKindCategory::NonTraversable,
+                "facilityBand.kindId",
+                expected_key,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_facility_kind_category(
+                "unknown",
+                FacilityKindCategory::NonTraversable,
+                "facilityBand.kindId",
+                expected_key,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn portable_signal_time_matches_the_first_party_model() {
+        let expected_key = "roads/main";
+
+        validate_portable_signal_time(
+            MAX_PORTABLE_SIGNAL_TIME_MS,
+            true,
+            "signalController.offsetMilliseconds",
+            expected_key,
+        )
+        .expect("maximum controller offset");
+        validate_portable_signal_time(
+            MAX_PORTABLE_SIGNAL_TIME_MS,
+            false,
+            "signalPhase.durationMilliseconds",
+            expected_key,
+        )
+        .expect("maximum phase duration");
+        assert!(
+            validate_portable_signal_time(
+                0,
+                false,
+                "signalPhase.durationMilliseconds",
+                expected_key,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_portable_signal_time(
+                MAX_PORTABLE_SIGNAL_TIME_MS + 1,
+                true,
+                "signalController.offsetMilliseconds",
+                expected_key,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn regulation_text_accepts_bounded_unicode_and_rejects_empty_values() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut usage = RoadEditingPreflightCounts::default();
+
+        usage
+            .charge_non_empty_text(
+                "中国",
+                "accessRegulation.jurisdiction",
+                &limits,
+                "roads/main",
+            )
+            .expect("bounded unicode");
+        assert_eq!(usage.string_item_count(), 1);
+        assert!(
+            usage
+                .charge_non_empty_text("", "accessRegulation.jurisdiction", &limits, "roads/main",)
+                .is_err()
+        );
     }
 
     #[test]
