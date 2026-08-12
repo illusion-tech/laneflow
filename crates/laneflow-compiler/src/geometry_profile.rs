@@ -25,7 +25,7 @@ impl GeometryAccuracyProfile {
 
     /// 返回 authoring/offset evaluator 到最终规范折线的总位置误差目标。
     #[must_use]
-    pub const fn max_position_error_meters(self) -> f64 {
+    pub const fn position_error_target_meters(self) -> f64 {
         match self {
             Self::Fine2Cm => 0.02,
             Self::Balanced5Cm => 0.05,
@@ -76,15 +76,15 @@ mod tests {
             "fine-2cm-v1"
         );
         assert_eq!(
-            GeometryAccuracyProfile::Fine2Cm.max_position_error_meters(),
+            GeometryAccuracyProfile::Fine2Cm.position_error_target_meters(),
             0.02
         );
         assert_eq!(
-            GeometryAccuracyProfile::Balanced5Cm.max_position_error_meters(),
+            GeometryAccuracyProfile::Balanced5Cm.position_error_target_meters(),
             0.05
         );
         assert_eq!(
-            GeometryAccuracyProfile::Compact10Cm.max_position_error_meters(),
+            GeometryAccuracyProfile::Compact10Cm.position_error_target_meters(),
             0.10
         );
 
