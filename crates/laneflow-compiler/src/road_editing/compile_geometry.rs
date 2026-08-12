@@ -17,7 +17,7 @@ use super::geometry::{
     numeric_stack_scratch_bytes, point_distance, quantize_point, validate_canonical_polyline,
 };
 
-const MAX_SOURCE_JOIN_GAP_METERS: f64 = 0.005;
+const MAX_SOURCE_JOIN_GAP_METERS: f32 = 0.005;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ReferenceStationRow {
@@ -1338,8 +1338,7 @@ fn walk_offset_program(
                         .ok_or(NumericFreezeError::DegenerateCanonicalSegment)?;
                     let actual = quantize_point(evaluator.evaluate(parameter_start)?.point)?;
                     if source_boundary {
-                        if canonical_point_distance(previous, actual)? > MAX_SOURCE_JOIN_GAP_METERS
-                        {
+                        if canonical_point_distance(previous, actual) > MAX_SOURCE_JOIN_GAP_METERS {
                             return Err(NumericFreezeError::SourceJoinGapExceeded);
                         }
                         let previous_first = previous_evaluator.evaluate(previous_parameter)?.first;
