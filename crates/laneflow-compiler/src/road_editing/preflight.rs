@@ -671,6 +671,68 @@ fn validate_owner_closure(
     let groups = root.signal_groups();
     let phases = root.signal_phases();
 
+    for movement in root.movements() {
+        if !root.junctions().iter().any(|junction| {
+            local_root_reference_matches(movement.junction(), junction.junction_key())
+        }) {
+            return Err(invalid_combination("movement.junction", expected_key));
+        }
+    }
+    for path in root.maneuver_paths() {
+        if !root.movements().iter().any(|movement| {
+            local_child_reference_matches(
+                path.movement(),
+                movement.junction(),
+                1,
+                movement.movement_key(),
+            )
+        }) {
+            return Err(invalid_combination("maneuverPath.movement", expected_key));
+        }
+    }
+    for gate in root.maneuver_gates() {
+        if !root.maneuver_paths().iter().any(|path| {
+            local_child_reference_matches(
+                gate.maneuver_path(),
+                path.movement(),
+                2,
+                path.maneuver_path_key(),
+            )
+        }) {
+            return Err(invalid_combination(
+                "maneuverGate.maneuverPath",
+                expected_key,
+            ));
+        }
+    }
+    for zone in root.waiting_zones() {
+        if !root.maneuver_paths().iter().any(|path| {
+            local_child_reference_matches(
+                zone.maneuver_path(),
+                path.movement(),
+                2,
+                path.maneuver_path_key(),
+            )
+        }) {
+            return Err(invalid_combination(
+                "waitingZone.maneuverPath",
+                expected_key,
+            ));
+        }
+    }
+    for group in root.lane_groups() {
+        if !sections.iter().any(|section| {
+            local_child_reference_matches(
+                group.road_section(),
+                section.road_corridor(),
+                1,
+                section.road_section_key(),
+            )
+        }) {
+            return Err(invalid_combination("laneGroup.roadSection", expected_key));
+        }
+    }
+
     let section_matches = |corridor: wire::RoadCorridor<'_>,
                            element: wire::CorridorElement<'_>,
                            section: wire::RoadSection<'_>| {
