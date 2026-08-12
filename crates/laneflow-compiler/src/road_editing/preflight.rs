@@ -816,6 +816,18 @@ fn validate_sections(
             limits,
             expected_key,
         )?;
+        if !root.road_corridors().iter().any(|corridor| {
+            references_equal(
+                value.road_corridor(),
+                corridor.road_corridor_key(),
+                namespace,
+            )
+        }) {
+            return Err(invalid_combination(
+                "roadSection.roadCorridor",
+                expected_key,
+            ));
+        }
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
     }
     Ok(())
@@ -2232,5 +2244,12 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn local_reference_matching_distinguishes_missing_section_owners() {
+        assert!(references_equal("corridor-a", "corridor-a", "city"));
+        assert!(!references_equal("corridor-missing", "corridor-a", "city"));
+        assert!(!references_equal("other::corridor-a", "corridor-a", "city"));
     }
 }
