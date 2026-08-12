@@ -1534,6 +1534,10 @@ impl SyntheticModuleBuilder {
                 parking_area,
                 entry,
                 exit,
+                anchor_progress_spans: Box::new([
+                    SourceLocation::Text(span.clone()),
+                    SourceLocation::Text(span.clone()),
+                ]),
                 geometry: input.geometry,
             }));
         self.commit_declaration_resources(state);

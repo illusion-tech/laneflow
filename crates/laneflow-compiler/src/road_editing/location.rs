@@ -28,6 +28,10 @@ pub(super) enum SemanticPreflightSubjectSite {
         vector: RoadEditingRootVectorKind,
         physical_index: u32,
     },
+    Wire {
+        vector: RoadEditingRootVectorKind,
+        physical_index: u32,
+    },
     OwnerLocal {
         owner_vector: RoadEditingRootVectorKind,
         owner_physical_index: u32,
@@ -82,6 +86,16 @@ impl SemanticPreflightSite {
                 physical_index: u32::try_from(physical_index).unwrap_or(u32::MAX),
             },
             property: semantic_root_property_path(vector, field),
+        }
+    }
+
+    pub(super) fn wire(vector: RoadEditingRootVectorKind, physical_index: usize) -> Self {
+        Self {
+            subject: SemanticPreflightSubjectSite::Wire {
+                vector,
+                physical_index: u32::try_from(physical_index).unwrap_or(u32::MAX),
+            },
+            property: SemanticPreflightPropertyPath::None,
         }
     }
 
@@ -270,6 +284,15 @@ impl RoadEditingLocationFactory {
                     steps,
                 ))
             }
+            SemanticPreflightSubjectSite::Wire {
+                vector,
+                physical_index,
+            } => Some(verified_wire_fallback(
+                root,
+                expected_source_document_key,
+                vector,
+                physical_index,
+            )),
             SemanticPreflightSubjectSite::OwnerLocal {
                 owner_vector,
                 owner_physical_index,

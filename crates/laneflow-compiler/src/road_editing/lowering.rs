@@ -1513,6 +1513,28 @@ pub(super) fn lower_aggregate_declarations(
                 ),
                 progress_meters: canonicalize_zero(exit.progress_meters()),
             },
+            anchor_progress_spans: Box::new([
+                nested_property_location(
+                    locations,
+                    EntityKind::ParkingSpace,
+                    key,
+                    RoadEditingTableKind::ParkingSpace,
+                    2,
+                    RoadEditingTableKind::ParkingLaneAnchor,
+                    1,
+                    value.canvas_selection(),
+                ),
+                nested_property_location(
+                    locations,
+                    EntityKind::ParkingSpace,
+                    key,
+                    RoadEditingTableKind::ParkingSpace,
+                    3,
+                    RoadEditingTableKind::ParkingLaneAnchor,
+                    1,
+                    value.canvas_selection(),
+                ),
+            ]),
             geometry: ParkingSpaceGeometryInput {
                 lateral_offset_meters: canonicalize_zero(geometry.lateral_offset_meters()),
                 heading_offset_radians: canonicalize_zero(geometry.heading_offset_radians()),

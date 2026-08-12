@@ -29,6 +29,7 @@ use crate::{
 };
 
 type StringVector<'a> = Vector<'a, ForwardsUOffset<&'a str>>;
+type SignalPhaseStateVector<'a> = Vector<'a, ForwardsUOffset<wire::SignalPhaseState<'a>>>;
 
 #[derive(Clone, Copy)]
 enum ReferenceOccurrenceKind {
@@ -72,6 +73,13 @@ impl RoadEditingPreflightState {
 
     fn set_root_site(&mut self, vector: RoadEditingRootVectorKind, physical_index: usize) {
         self.failure_subject = Some(SemanticPreflightSubjectSite::Root {
+            vector,
+            physical_index: u32::try_from(physical_index).unwrap_or(u32::MAX),
+        });
+    }
+
+    fn set_wire_site(&mut self, vector: RoadEditingRootVectorKind, physical_index: usize) {
+        self.failure_subject = Some(SemanticPreflightSubjectSite::Wire {
             vector,
             physical_index: u32::try_from(physical_index).unwrap_or(u32::MAX),
         });
@@ -362,6 +370,8 @@ pub(crate) fn preflight_source(
         }
         ensure_unique_strings(imports, "moduleHeader.imports", expected_key)?;
         for import in imports {
+            usage.failure_subject = Some(SemanticPreflightSubjectSite::ModuleHeader);
+            usage.charge_token(import, "moduleHeader.imports", limits, expected_key)?;
             let canonical_ordinal = imports
                 .iter()
                 .filter(|other| other.as_bytes() < import.as_bytes())
@@ -372,7 +382,6 @@ pub(crate) fn preflight_source(
                     u32::try_from(canonical_ordinal).unwrap_or(u32::MAX),
                 ),
             });
-            usage.charge_token(import, "moduleHeader.imports", limits, expected_key)?;
             if import == namespace {
                 return Err(semantic_error(
                     "moduleHeader.imports",
@@ -752,11 +761,16 @@ fn validate_reference_vector(
         usage.charge_relation(values.len());
     }
     for (physical_index, value) in values.iter().enumerate() {
+        usage.set_wire_site(owner_vector, owner_physical_index);
         let occurrence = match occurrence_kind {
             ReferenceOccurrenceKind::Ordered => {
-                Some(RoadEditingRelationOccurrence::OrderedProductOrdinal(
-                    u32::try_from(physical_index).unwrap_or(u32::MAX),
-                ))
+                validate_wire_reference(value, component_count, true)
+                    .ok()
+                    .map(|_| {
+                        RoadEditingRelationOccurrence::OrderedProductOrdinal(
+                            u32::try_from(physical_index).unwrap_or(u32::MAX),
+                        )
+                    })
             }
             ReferenceOccurrenceKind::Canonical => {
                 canonical_reference_ordinal(values, value, component_count, namespace)
@@ -822,6 +836,22 @@ fn compare_references(
                     .cmp(right.key_components().map(str::as_bytes))
             }),
     )
+}
+
+fn canonical_signal_phase_state_ordinal(
+    states: SignalPhaseStateVector<'_>,
+    target: &str,
+    namespace: &str,
+) -> Option<u32> {
+    validate_wire_reference(target, 1, true).ok()?;
+    let mut ordinal = 0_u32;
+    for state in states {
+        let ordering = compare_references(state.signal_group(), target, 1, namespace)?;
+        if ordering == Ordering::Less {
+            ordinal = ordinal.saturating_add(1);
+        }
+    }
+    Some(ordinal)
 }
 
 fn validate_corridors(
@@ -1699,21 +1729,17 @@ fn validate_signal_controllers_and_phases(
         }
         usage.charge_relation(states.len());
         for (index, state) in states.iter().enumerate() {
-            let occurrence = states
-                .iter()
-                .filter(|other| {
-                    compare_references(other.signal_group(), state.signal_group(), 1, namespace)
-                        == Some(Ordering::Less)
-                })
-                .count();
-            usage.set_owner_local_site(
-                RoadEditingRootVectorKind::SignalPhase,
-                physical_index,
-                RoadEditingRelationKind::SignalPhaseState,
-                RoadEditingRelationOccurrence::CanonicalSetOrdinal(
-                    u32::try_from(occurrence).unwrap_or(u32::MAX),
-                ),
-            );
+            usage.set_wire_site(RoadEditingRootVectorKind::SignalPhase, physical_index);
+            if let Some(occurrence) =
+                canonical_signal_phase_state_ordinal(states, state.signal_group(), namespace)
+            {
+                usage.set_owner_local_site(
+                    RoadEditingRootVectorKind::SignalPhase,
+                    physical_index,
+                    RoadEditingRelationKind::SignalPhaseState,
+                    RoadEditingRelationOccurrence::CanonicalSetOrdinal(occurrence),
+                );
+            }
             usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
             usage.charge_reference(
                 state.signal_group(),
@@ -2554,6 +2580,13 @@ fn with_semantic_preflight_location(
             vector,
             usize::try_from(physical_index).unwrap_or(usize::MAX),
             Some(field),
+        ),
+        SemanticPreflightSubjectSite::Wire {
+            vector,
+            physical_index,
+        } => SemanticPreflightSite::wire(
+            vector,
+            usize::try_from(physical_index).unwrap_or(usize::MAX),
         ),
         SemanticPreflightSubjectSite::OwnerLocal {
             owner_vector,

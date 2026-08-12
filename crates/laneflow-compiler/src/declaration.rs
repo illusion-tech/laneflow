@@ -1063,6 +1063,7 @@ pub(crate) struct ParkingSpaceDeclaration {
     pub(crate) parking_area: Option<OwnedEntityReference<ParkingAreaKind>>,
     pub(crate) entry: ParkingLaneAnchorDeclaration,
     pub(crate) exit: ParkingLaneAnchorDeclaration,
+    pub(crate) anchor_progress_spans: Box<[SourceLocation; 2]>,
     pub(crate) geometry: ParkingSpaceGeometryInput,
 }
 
@@ -1361,6 +1362,7 @@ impl TypedAstDeclaration {
                 parking_area,
                 entry,
                 exit,
+                anchor_progress_spans,
                 geometry: _,
             }) => {
                 try_visit_declaration_header(header, &mut visit)?;
@@ -1373,6 +1375,9 @@ impl TypedAstDeclaration {
                         progress_meters: _,
                     } = anchor;
                     try_visit_reference(lane_edge, &mut visit)?;
+                }
+                for progress_span in anchor_progress_spans.iter() {
+                    visit(progress_span)?;
                 }
             }
             Self::ParticipantClass(ParticipantClassDeclaration { header, extends }) => {

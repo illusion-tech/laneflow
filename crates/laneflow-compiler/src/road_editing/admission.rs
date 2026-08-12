@@ -880,12 +880,12 @@ mod tests {
     use crate::road_editing::{
         AuthoringLaneInput, AuthoringLaneReference, CanonicalFrameInput, CanonicalFrameReference,
         FacilityBandInput, FacilityBandReference, LaneEdgeInput, LaneEdgeReference,
-        LinearWidthProfile, RoadAlignmentInput, RoadAlignmentReference, RoadCorridorInput,
-        RoadCorridorReference, RoadEditingCorridorElement, RoadEditingCurveProgram,
-        RoadEditingCurveSegment, RoadEditingDeclaration, RoadEditingLaneDirection,
-        RoadEditingModuleHeader, RoadEditingPoint3, RoadEditingProvenance,
-        RoadEditingSourceModuleBuilder, RoadEditingSourceWriter, RoadEditingStationEnd,
-        RoadSectionInput, RoadSectionReference,
+        LinearWidthProfile, ParkingLaneAnchor, ParkingSpaceGeometry, ParkingSpaceInput,
+        RoadAlignmentInput, RoadAlignmentReference, RoadCorridorInput, RoadCorridorReference,
+        RoadEditingCorridorElement, RoadEditingCurveProgram, RoadEditingCurveSegment,
+        RoadEditingDeclaration, RoadEditingLaneDirection, RoadEditingModuleHeader,
+        RoadEditingPoint3, RoadEditingProvenance, RoadEditingSourceModuleBuilder,
+        RoadEditingSourceWriter, RoadEditingStationEnd, RoadSectionInput, RoadSectionReference,
     };
     use crate::{
         RoadEditingDocumentIdentity, RoadEditingPropertyStep, RoadEditingRelationKind,
@@ -1019,6 +1019,14 @@ mod tests {
         limits: &CompileLimits,
         imports: Vec<String>,
     ) -> super::super::OwnedRoadEditingSourceBuffer {
+        complete_geometry_buffer_with_parking(limits, imports, None)
+    }
+
+    fn complete_geometry_buffer_with_parking(
+        limits: &CompileLimits,
+        imports: Vec<String>,
+        parking_progress: Option<(f64, f64)>,
+    ) -> super::super::OwnedRoadEditingSourceBuffer {
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "road-editing",
@@ -1105,6 +1113,21 @@ mod tests {
             ),
         ] {
             builder.add_declaration(declaration).unwrap();
+        }
+        if let Some((entry_progress, exit_progress)) = parking_progress {
+            builder
+                .add_declaration(RoadEditingDeclaration::ParkingSpace(
+                    ParkingSpaceInput::try_new(
+                        "parking",
+                        ParkingLaneAnchor::try_new(edge.clone(), entry_progress).unwrap(),
+                        ParkingLaneAnchor::try_new(edge, exit_progress).unwrap(),
+                        ParkingSpaceGeometry::try_new(1.0, 0.0, 5.0, 2.5).unwrap(),
+                    )
+                    .unwrap()
+                    .with_canvas_selection("canvas/parking")
+                    .unwrap(),
+                ))
+                .unwrap();
         }
         RoadEditingSourceWriter::new(limits)
             .write(builder.finish().unwrap())
@@ -1764,6 +1787,57 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn parking_progress_beyond_compiled_edge_uses_the_progress_property() {
+        let limits = CompileLimits::p100_initial_v1();
+        for (entry, exit, outer_field_id) in [(20.0, 5.0, 2), (5.0, 20.0, 3)] {
+            let buffer =
+                complete_geometry_buffer_with_parking(&limits, Vec::new(), Some((entry, exit)));
+            let mut builder = CompilationUnitBuilder::new(limits.clone());
+            builder
+                .add_road_editing_module(
+                    RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None)
+                        .unwrap(),
+                )
+                .unwrap();
+            let error = match Compiler::new().compile(builder.build().unwrap()) {
+                Ok(_) => panic!("parking progress beyond the compiled edge must fail"),
+                Err(error) => error,
+            };
+            let diagnostic = error
+                .diagnostics()
+                .iter()
+                .find(|diagnostic| {
+                    diagnostic.code() == crate::DiagnosticCode::InvalidParkingAnchorProgress
+                })
+                .expect("parking progress diagnostic");
+            let road = diagnostic
+                .primary_location()
+                .and_then(SourceLocation::road_editing)
+                .expect("road-editing progress location");
+            let RoadEditingSubject::Declaration { address } = road.subject() else {
+                panic!("parking progress must use its declaration subject");
+            };
+            assert_eq!(address.local_key(road.context()), "parking");
+            assert_eq!(road.canvas_selection(), Some("canvas/parking"));
+            assert_eq!(
+                road.property_path()
+                    .expect("parking progress property")
+                    .steps(),
+                &[
+                    RoadEditingPropertyStep::TableField {
+                        table: RoadEditingTableKind::ParkingSpace,
+                        field_id: outer_field_id,
+                    },
+                    RoadEditingPropertyStep::TableField {
+                        table: RoadEditingTableKind::ParkingLaneAnchor,
+                        field_id: 1,
+                    },
+                ]
+            );
+        }
     }
 
     #[test]

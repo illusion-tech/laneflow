@@ -5799,9 +5799,19 @@ fn build_parking_hir(
             &mut diagnostics,
         );
 
-        for (role, anchor, edge) in [
-            (ParkingAnchorRole::Entry, &source.entry, entry_edge),
-            (ParkingAnchorRole::Exit, &source.exit, exit_edge),
+        for (role, anchor, progress_span, edge) in [
+            (
+                ParkingAnchorRole::Entry,
+                &source.entry,
+                &source.anchor_progress_spans[0],
+                entry_edge,
+            ),
+            (
+                ParkingAnchorRole::Exit,
+                &source.exit,
+                &source.anchor_progress_spans[1],
+                exit_edge,
+            ),
         ] {
             let Some(edge) = edge else { continue };
             let edge_length = lane_edges.get(edge).length_meters;
@@ -5817,7 +5827,7 @@ fn build_parking_hir(
                     progress,
                     edge_length,
                     PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS,
-                    anchor.lane_edge.span.clone(),
+                    progress_span.clone(),
                 );
                 diagnostic.set_canonical_module_order(module_order);
                 diagnostics.push(diagnostic);

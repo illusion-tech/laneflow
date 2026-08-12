@@ -614,6 +614,7 @@ mod tests {
         )
         .expect("builder");
         let group = SignalGroupReference::local("signal-group").expect("group");
+        let other_group = SignalGroupReference::local("signal-group-b").expect("other group");
         let controller = SignalControllerReference::local("controller").expect("controller");
         builder
             .add_declaration(RoadEditingDeclaration::SignalGroup(
@@ -621,11 +622,16 @@ mod tests {
             ))
             .expect("group declaration");
         builder
+            .add_declaration(RoadEditingDeclaration::SignalGroup(
+                SignalGroupInput::try_new("signal-group-b").expect("other group"),
+            ))
+            .expect("other group declaration");
+        builder
             .add_declaration(RoadEditingDeclaration::SignalController(
                 SignalControllerInput::try_new(
                     "controller",
                     0,
-                    vec![group.clone()],
+                    vec![group.clone(), other_group.clone()],
                     vec![
                         super::super::SignalPhaseReference::owner_scoped(
                             vec!["controller".into()],
@@ -648,6 +654,11 @@ mod tests {
                             laneflow_static_contract::SignalAspect::Green,
                         )
                         .expect("phase state"),
+                        RoadEditingSignalPhaseState::try_new(
+                            other_group,
+                            laneflow_static_contract::SignalAspect::Red,
+                        )
+                        .expect("other phase state"),
                     ],
                     controller,
                 )
@@ -971,6 +982,74 @@ mod tests {
                 field: Some(field),
                 ..
             } if field.as_ref() == "signalController.signalGroups"
+        ));
+    }
+
+    #[test]
+    fn malformed_canonical_reference_uses_the_root_wire_site() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = signal_source_buffer(&limits);
+        let mut bytes = buffer.as_bytes().to_vec();
+        let (reference_offset, reference_len) = {
+            let input =
+                RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
+            let verified = verify_source(input, &limits, 0, 0).expect("valid source");
+            let phase = verified.root().signal_phases().get(0);
+            let reference = phase.states().get(1).signal_group();
+            (
+                (reference.as_ptr() as usize)
+                    .checked_sub(bytes.as_ptr() as usize)
+                    .expect("reference belongs to source buffer"),
+                reference.len(),
+            )
+        };
+        bytes[reference_offset + reference_len - 1] = b'>';
+        let input = RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("malformed phase-state ref");
+        let location = first_diagnostic(&error)
+            .primary_location()
+            .and_then(SourceLocation::road_editing)
+            .expect("wire fallback location");
+        assert!(matches!(
+            location.subject(),
+            RoadEditingSubject::Wire {
+                root_vector: RoadEditingRootVectorKind::SignalPhase,
+                physical_index: 0,
+                table: RoadEditingTableKind::SignalPhase,
+            }
+        ));
+        assert!(location.property_path().is_none());
+    }
+
+    #[test]
+    fn malformed_import_does_not_claim_a_canonical_occurrence() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = signal_source_buffer(&limits);
+        let mut bytes = buffer.as_bytes().to_vec();
+        let (import_offset, import_len) = {
+            let input =
+                RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
+            let verified = verify_source(input, &limits, 0, 0).expect("valid source");
+            let import = verified.root().module_header().imports().get(0);
+            (
+                (import.as_ptr() as usize)
+                    .checked_sub(bytes.as_ptr() as usize)
+                    .expect("import belongs to source buffer"),
+                import.len(),
+            )
+        };
+        bytes[import_offset + import_len - 1] = b'>';
+        let input = RoadEditingModuleInput::try_new("road-editing", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("malformed import");
+        let location = first_diagnostic(&error)
+            .primary_location()
+            .and_then(SourceLocation::road_editing)
+            .expect("module-header fallback location");
+        assert!(matches!(
+            location.subject(),
+            RoadEditingSubject::ModuleHeader
         ));
     }
 
