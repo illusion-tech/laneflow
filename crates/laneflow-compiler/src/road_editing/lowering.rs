@@ -2374,7 +2374,7 @@ mod tests {
     }
 
     #[test]
-    fn authoring_lane_owner_mismatch_is_a_diagnostic_instead_of_a_lowering_panic() {
+    fn authoring_lane_owner_mismatch_is_rejected_before_lowering() {
         let limits = CompileLimits::p100_initial_v2();
         let module = super::super::writer::tests::module_with_every_declaration(&limits);
         let bytes = RoadEditingSourceWriter::new(&limits).write(module).unwrap();
@@ -2392,13 +2392,18 @@ mod tests {
         }
 
         let input = RoadEditingModuleInput::try_new("road-editing", &malformed, None).unwrap();
-        let verified = super::super::reader::verify_source(input, &limits, 0, 0).unwrap();
-        let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
-        let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
-        assert!(
-            lower_topology_authoring_declarations(verified.root(), &locations, &shared_namespace)
-                .is_err()
-        );
+        let error = super::super::reader::verify_source(input, &limits, 0, 0)
+            .expect_err("the missing section owner must fail during semantic preflight");
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            crate::DiagnosticPayload::InvalidRoadEditingSource {
+                violation: crate::RoadEditingSourceViolation::InvalidSemanticValue(
+                    crate::RoadEditingInputViolation::InvalidCombination
+                ),
+                field: Some(field),
+                ..
+            } if field.as_ref() == "roadSection.authoringLanes"
+        ));
     }
 
     #[test]
