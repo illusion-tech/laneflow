@@ -4,7 +4,7 @@
 //! 模块表与分实体符号表，把 `(module namespace, typed entity address)` 引用解析为阶段私有
 //! `u32` 键，并保留来源位置供后续诊断/源映射使用。声明先全部登记、再统一解析引用，
 //! 因此前向引用和自环合法；横断面子阶段在派生子实体身份前证明唯一所有者树，路口
-//! 子阶段则闭合父子身份、完整机动路径与内部边排他角色。
+//! 子阶段则闭合父子身份、完整机动路径与内部边角色。
 //!
 //! HIR 表顺序是规范顺序：模块沿用编译单元顺序，模块内声明按稳定键排序，导入和连接
 //! 也使用已显式规范化的序列。`HashMap` 仅作查找，绝不能通过迭代哈希表决定诊断或
@@ -572,11 +572,11 @@ pub(crate) struct HirWaitingZone {
     pub(crate) source_span: SourceLocation,
 }
 
-/// 从全部路径派生的路口内部边排他所有者。
+/// 从全部路径派生的路口内部边规范代表声明。
 pub(crate) struct HirJunctionInternalEdge {
     pub(crate) edge: HirLaneEdgeKey,
     pub(crate) junction: HirJunctionKey,
-    /// 首次建立该排他声明的路径，供诊断回链、规范来源选择与路线闭包使用。
+    /// 多条路径共享同一内部边时按 StableId 选择的代表路径，供诊断回链与路线闭包使用。
     pub(crate) source_path: HirManeuverPathKey,
     pub(crate) source_span: SourceLocation,
 }
@@ -6946,8 +6946,8 @@ fn build_route_hir(
             ))
     });
 
-    // 角色索引把路线边界检查和最终覆盖检查降为 O(route edges)。路口 HIR 已证明内部
-    // 边排他，因此每个槽最多只有一个 ManeuverPath 所有者。
+    // 角色索引把路线边界检查和最终覆盖检查降为 O(route edges)。每个内部边槽只保留
+    // 路口 HIR 已按 StableId 选出的规范代表 claim；它不表示该边只能被一条路径使用。
     let mut internal_owner = vec![None; lane_edges.len()];
     for claim in junction_internal_edges {
         internal_owner[claim.edge.index()] = Some(claim.source_path);

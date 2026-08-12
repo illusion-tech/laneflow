@@ -183,17 +183,26 @@ struct GeometryDeclarationIndex<'a> {
 
 struct GeometryScratchBudget {
     limit: u64,
+    /// 已由候选 retained base 预收费、但仍属于本阶段私有暂存区的输入 backing。
+    stage_base: u64,
     live: u64,
     peak: u64,
 }
 
 impl GeometryScratchBudget {
-    fn new(limit: u64) -> Self {
-        Self {
-            limit,
-            live: 0,
-            peak: 0,
+    fn new(limit: u64, stage_base: u64) -> Result<Self, GeometryCompilationError> {
+        if stage_base > limit {
+            return Err(GeometryCompilationError::ScratchLimit {
+                limit,
+                observed: stage_base,
+            });
         }
+        Ok(Self {
+            limit,
+            stage_base,
+            live: stage_base,
+            peak: stage_base,
+        })
     }
 
     fn reserve<T>(&mut self, count: usize) -> Result<(), GeometryCompilationError> {
@@ -234,6 +243,18 @@ impl GeometryScratchBudget {
         debug_assert_ne!(size, 0, "geometry scratch never reserves zero-sized types");
         self.limit.saturating_sub(self.live) / size
     }
+
+    fn dynamic_live(&self) -> u64 {
+        self.live
+            .checked_sub(self.stage_base)
+            .expect("stage base remains live for the whole geometry compilation")
+    }
+
+    fn dynamic_peak(&self) -> u64 {
+        self.peak
+            .checked_sub(self.stage_base)
+            .expect("stage base remains live for the whole geometry compilation")
+    }
 }
 
 fn capacity_bytes<T>(count: usize) -> Option<u64> {
@@ -244,6 +265,17 @@ fn capacity_bytes<T>(count: usize) -> Option<u64> {
                 .ok()
                 .and_then(|count| size.checked_mul(count))
         })
+}
+
+fn alignment_input_scratch_bytes(alignments: &[RoadAlignmentDeclaration]) -> Option<u64> {
+    alignments.iter().try_fold(
+        capacity_bytes::<RoadAlignmentDeclaration>(alignments.len())?,
+        |total, alignment| {
+            total.checked_add(capacity_bytes::<AuthoringCurveSegmentDeclaration>(
+                alignment.reference_line.segments.len(),
+            )?)
+        },
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -409,7 +441,17 @@ pub(super) fn compile_authoring_geometry(
         scratch_limit: geometry_scratch_byte_limit,
         live_headroom,
     } = budget;
-    let mut scratch = GeometryScratchBudget::new(geometry_scratch_byte_limit);
+    // alignment records及其 segment backing 在整个几何阶段存续，属于 StageScratch；
+    // 它们同时已包含在 admission 的候选 retained 上界中，因此 live gate 只叠加
+    // `dynamic_*`，避免在 CompilerControlledLiveBytes 中重复收费。
+    let alignment_input_scratch_bytes = alignment_input_scratch_bytes(&alignments).ok_or(
+        GeometryCompilationError::ScratchLimit {
+            limit: geometry_scratch_byte_limit,
+            observed: u64::MAX,
+        },
+    )?;
+    let mut scratch =
+        GeometryScratchBudget::new(geometry_scratch_byte_limit, alignment_input_scratch_bytes)?;
     let plans = resolve_corridor_plans(
         authoring_namespace_id,
         &alignments,
@@ -417,6 +459,10 @@ pub(super) fn compile_authoring_geometry(
         &mut scratch,
     )?;
     validate_station_partitions(&plans)?;
+    // resolve 会先同时保留 typed index/alignment index/plan，随后释放前两者；live
+    // 证据必须保留已经发生的历史峰值，不能只从后续当前工作集开始计量。
+    let mut peak_output_and_scratch_bytes =
+        check_live_limit(live_headroom, scratch.dynamic_peak(), 0, 0)?;
     let mut referenced_alignment_count = 0_usize;
     let mut regularity_visit_count = 0_usize;
     for (index, plan) in plans.iter().enumerate() {
@@ -462,7 +508,12 @@ pub(super) fn compile_authoring_geometry(
     scratch.reserve::<u32>(regularity_visit_count)?;
     scratch.reserve::<PendingLaneGeometry>(expected_lane_outputs)?;
     scratch.reserve::<PendingFacilityGeometry>(expected_facility_outputs)?;
-    let mut peak_output_and_scratch_bytes = check_live_limit(live_headroom, scratch.live, 0, 0)?;
+    peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
+        live_headroom,
+        scratch.dynamic_live(),
+        0,
+        0,
+    )?);
     let mut compiled_alignments = Vec::with_capacity(referenced_alignment_count);
     let mut lane_outputs = Vec::with_capacity(expected_lane_outputs);
     let mut facility_outputs = Vec::with_capacity(expected_facility_outputs);
@@ -488,8 +539,12 @@ pub(super) fn compile_authoring_geometry(
             (scratch_vertex_limit, NumericFreezeError::GeometryPointLimit)
         };
         scratch.reserve_bytes(numeric_scratch_bytes)?;
-        peak_output_and_scratch_bytes =
-            peak_output_and_scratch_bytes.max(check_live_limit(live_headroom, scratch.live, 0, 0)?);
+        peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
+            live_headroom,
+            scratch.dynamic_live(),
+            0,
+            0,
+        )?);
         let sizing_result = measure_alignment_reference(
             &plan.alignment.reference_line,
             transient_vertex_limit,
@@ -510,8 +565,12 @@ pub(super) fn compile_authoring_geometry(
             Ok(value) => value,
         };
         scratch.reserve::<ReferenceStationRow>(sizing.station_rows)?;
-        peak_output_and_scratch_bytes =
-            peak_output_and_scratch_bytes.max(check_live_limit(live_headroom, scratch.live, 0, 0)?);
+        peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
+            live_headroom,
+            scratch.dynamic_live(),
+            0,
+            0,
+        )?);
         station_row_count = station_row_count.checked_add(sizing.station_rows).ok_or(
             GeometryCompilationError::ScratchLimit {
                 limit: geometry_scratch_byte_limit,
@@ -519,8 +578,12 @@ pub(super) fn compile_authoring_geometry(
             },
         )?;
         scratch.reserve_bytes(numeric_scratch_bytes)?;
-        peak_output_and_scratch_bytes =
-            peak_output_and_scratch_bytes.max(check_live_limit(live_headroom, scratch.live, 0, 0)?);
+        peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
+            live_headroom,
+            scratch.dynamic_live(),
+            0,
+            0,
+        )?);
         let reference_result =
             compile_measured_alignment_reference(&plan.alignment.reference_line, sizing);
         scratch.release_bytes(numeric_scratch_bytes);
@@ -549,7 +612,7 @@ pub(super) fn compile_authoring_geometry(
         scratch.reserve_bytes(numeric_scratch_bytes)?;
         peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
             live_headroom,
-            scratch.live,
+            scratch.dynamic_live(),
             used_points,
             used_source_ranges,
         )?);
@@ -570,7 +633,7 @@ pub(super) fn compile_authoring_geometry(
         scratch.reserve_bytes(numeric_scratch_bytes)?;
         peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
             live_headroom,
-            scratch.live,
+            scratch.dynamic_live(),
             next_used_points,
             next_used_source_ranges,
         )?);
@@ -626,7 +689,7 @@ pub(super) fn compile_authoring_geometry(
         scratch.reserve::<MemberOffsetEndpoints>(plan.member_count)?;
         peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
             live_headroom,
-            scratch.live,
+            scratch.dynamic_live(),
             used_points,
             used_source_ranges,
         )?);
@@ -645,7 +708,7 @@ pub(super) fn compile_authoring_geometry(
             scratch.reserve_bytes(numeric_scratch_bytes)?;
             peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
                 live_headroom,
-                scratch.live,
+                scratch.dynamic_live(),
                 used_points,
                 used_source_ranges,
             )?);
@@ -671,7 +734,7 @@ pub(super) fn compile_authoring_geometry(
             scratch.reserve_bytes(numeric_scratch_bytes)?;
             peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
                 live_headroom,
-                scratch.live,
+                scratch.dynamic_live(),
                 next_used_points,
                 next_used_source_ranges,
             )?);
@@ -825,7 +888,7 @@ pub(super) fn compile_authoring_geometry(
     drop(facility_outputs);
     scratch.release::<PendingLaneGeometry>(expected_lane_outputs);
     scratch.release::<PendingFacilityGeometry>(expected_facility_outputs);
-    debug_assert_eq!(scratch.live, 0);
+    debug_assert_eq!(scratch.live, alignment_input_scratch_bytes);
     Ok(GeometryCompilationUsage {
         output_point_count: used_points,
         output_source_range_count: used_source_ranges,
@@ -3129,6 +3192,70 @@ mod tests {
                 ..
             })
         ));
+
+        fn validate_two_corridors(second_start: f64) -> Result<(), NumericFreezeError> {
+            let (alignments, mut declarations) = lowered_geometry_fixture();
+            let corridor_index = declarations
+                .iter()
+                .position(|declaration| matches!(declaration, TypedAstDeclaration::RoadCorridor(_)))
+                .unwrap();
+            let duplicate = {
+                let TypedAstDeclaration::RoadCorridor(template) = &declarations[corridor_index]
+                else {
+                    unreachable!()
+                };
+                let geometry = template.authoring_geometry.as_ref().unwrap();
+                crate::declaration::RoadCorridorDeclaration {
+                    header: crate::declaration::DeclarationHeader {
+                        entity_kind: template.header.entity_kind,
+                        source_address: template.header.source_address.clone(),
+                        stable_key: Arc::clone(&template.header.stable_key),
+                        span: template.header.span.clone(),
+                    },
+                    reference_section: template.reference_section.clone(),
+                    elements: template
+                        .elements
+                        .iter()
+                        .map(|element| match element {
+                            OwnedCorridorElementReference::RoadSection(reference) => {
+                                OwnedCorridorElementReference::RoadSection(reference.clone())
+                            }
+                            OwnedCorridorElementReference::FacilityBand(reference) => {
+                                OwnedCorridorElementReference::FacilityBand(reference.clone())
+                            }
+                        })
+                        .collect(),
+                    authoring_geometry: Some(crate::declaration::RoadCorridorAuthoringGeometry {
+                        road_alignment_key: Arc::clone(&geometry.road_alignment_key),
+                        start_station_meters: second_start,
+                        end_station: AuthoringStationEnd::AlignmentEnd,
+                        reference_lane: geometry.reference_lane.clone(),
+                    }),
+                }
+            };
+            let TypedAstDeclaration::RoadCorridor(first) = &mut declarations[corridor_index] else {
+                unreachable!()
+            };
+            first.authoring_geometry.as_mut().unwrap().end_station =
+                AuthoringStationEnd::Finite(5.0);
+            declarations.push(TypedAstDeclaration::RoadCorridor(duplicate));
+
+            let input_scratch = alignment_input_scratch_bytes(&alignments).unwrap();
+            let mut scratch = GeometryScratchBudget::new(u64::MAX, input_scratch).unwrap();
+            let plans =
+                resolve_corridor_plans("city", &alignments, &declarations, &mut scratch).unwrap();
+            validate_station_partitions(&plans)
+        }
+
+        assert_eq!(validate_two_corridors(5.0), Ok(()));
+        assert_eq!(
+            validate_two_corridors(6.0),
+            Err(NumericFreezeError::GeometryTopologyMismatch)
+        );
+        assert_eq!(
+            validate_two_corridors(4.0),
+            Err(NumericFreezeError::GeometryTopologyMismatch)
+        );
     }
 
     #[test]
@@ -3208,6 +3335,90 @@ mod tests {
             TypedAstDeclaration::LaneEdge(edge)
                 if matches!(edge.geometry_authority, LaneEdgeGeometryAuthority::Authoring { .. })
         )));
+    }
+
+    #[test]
+    fn alignment_input_backing_counts_toward_stage_scratch() {
+        let (alignments, mut declarations) = lowered_geometry_fixture();
+        let input_scratch = alignment_input_scratch_bytes(&alignments).unwrap();
+        assert!(input_scratch > 0);
+        assert_eq!(
+            compile_authoring_geometry(
+                "city",
+                alignments,
+                &mut declarations,
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+                compilation_budget(station_row_bytes(1), 6, input_scratch - 1),
+            ),
+            Err(GeometryCompilationError::ScratchLimit {
+                limit: input_scratch - 1,
+                observed: input_scratch,
+            })
+        );
+        assert!(declarations.iter().any(|declaration| matches!(
+            declaration,
+            TypedAstDeclaration::LaneEdge(edge)
+                if matches!(edge.geometry_authority, LaneEdgeGeometryAuthority::Authoring { .. })
+        )));
+    }
+
+    #[test]
+    fn topology_history_enters_live_peak_before_released_indexes_disappear() {
+        let (alignments, declarations) = lowered_geometry_fixture();
+        let input_scratch = alignment_input_scratch_bytes(&alignments).unwrap();
+        let mut scratch = GeometryScratchBudget::new(u64::MAX, input_scratch).unwrap();
+        let plans =
+            resolve_corridor_plans("city", &alignments, &declarations, &mut scratch).unwrap();
+        validate_station_partitions(&plans).unwrap();
+        let topology_peak = scratch.dynamic_peak();
+        assert!(
+            topology_peak > scratch.dynamic_live(),
+            "fixture must release topology indexes before numeric geometry starts"
+        );
+        drop(plans);
+
+        let (alignments, mut rejected) = lowered_geometry_fixture();
+        assert_eq!(
+            compile_authoring_geometry(
+                "city",
+                alignments,
+                &mut rejected,
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+                compilation_budget_with_live(station_row_bytes(1), 6, u64::MAX, topology_peak - 1,),
+            ),
+            Err(GeometryCompilationError::LiveLimit {
+                limit: topology_peak - 1,
+                observed: topology_peak,
+            })
+        );
+        assert!(rejected.iter().any(|declaration| matches!(
+            declaration,
+            TypedAstDeclaration::LaneEdge(edge)
+                if matches!(edge.geometry_authority, LaneEdgeGeometryAuthority::Authoring { .. })
+        )));
+    }
+
+    #[test]
+    fn live_limit_formula_counts_source_ranges_at_the_exact_byte_boundary() {
+        let scratch_bytes = 17;
+        let point_count = 3;
+        let source_range_count = 5;
+        let exact = scratch_bytes
+            + size_bytes::<CanonicalPoint3F32Input>(point_count)
+            + size_bytes::<CompiledGeometrySourceRange>(source_range_count);
+        assert_eq!(
+            check_live_limit(exact, scratch_bytes, point_count, source_range_count,),
+            Ok(exact)
+        );
+        assert_eq!(
+            check_live_limit(exact - 1, scratch_bytes, point_count, source_range_count,),
+            Err(GeometryCompilationError::LiveLimit {
+                limit: exact - 1,
+                observed: exact,
+            })
+        );
     }
 
     #[test]
