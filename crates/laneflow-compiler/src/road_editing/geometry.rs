@@ -186,6 +186,11 @@ pub(super) fn approximate_interval(
     let mut start = CandidateEndpoint::evaluate(evaluator, parameter_start)?;
     if let Some(welded_start) = welded_start {
         start.point = welded_start;
+    } else if !emit_start {
+        // An omitted start is already present in the shared output. Require the
+        // caller to pass that exact canonical point so the candidate chord is
+        // validated against the point that the assembled polyline retains.
+        return Err(NumericFreezeError::ApproximationNotConverged);
     }
     let end = CandidateEndpoint::evaluate(evaluator, parameter_end)?;
     if emit_start {
@@ -317,6 +322,12 @@ pub(super) fn direction_accepts(
     right: Point3,
     cosine_squared: f64,
 ) -> Result<bool, NumericFreezeError> {
+    let Some(left) = scale_direction(left)? else {
+        return Ok(false);
+    };
+    let Some(right) = scale_direction(right)? else {
+        return Ok(false);
+    };
     let dot = dot(left, right)?;
     let left_norm = norm_squared(left)?;
     let right_norm = norm_squared(right)?;
@@ -324,6 +335,18 @@ pub(super) fn direction_accepts(
     let weighted_left_norm = finite(cosine_squared * left_norm)?;
     let rhs = finite(weighted_left_norm * right_norm)?;
     Ok(dot > 0.0 && lhs >= rhs)
+}
+
+fn scale_direction(value: Point3) -> Result<Option<Point3>, NumericFreezeError> {
+    let scale = value.x.abs().max(value.y.abs()).max(value.z.abs());
+    if scale == 0.0 {
+        return Ok(None);
+    }
+    Ok(Some(Point3::try_new(
+        finite(value.x / scale)?,
+        finite(value.y / scale)?,
+        finite(value.z / scale)?,
+    )?))
 }
 
 pub(super) fn validate_canonical_polyline(
@@ -1042,12 +1065,13 @@ mod tests {
             &mut sink,
         )
         .unwrap();
+        let retained_boundary = sink.vertices.last().unwrap().point;
         approximate_interval(
             evaluator,
             ApproximationInterval {
                 parameter_start: 0.5,
                 parameter_end: 1.0,
-                welded_start: None,
+                welded_start: Some(retained_boundary),
                 emit_start: false,
             },
             GeometryAccuracyProfile::Fine2Cm,
@@ -1062,6 +1086,76 @@ mod tests {
                 .map(|vertex| (vertex.parameter, vertex.point.x))
                 .collect::<Vec<_>>(),
             [(0.0, 0.0), (0.5, 4.0), (1.0, 8.0)]
+        );
+    }
+
+    #[test]
+    fn omitted_start_requires_the_retained_canonical_point() {
+        let evaluator = SegmentEvaluator::Reference(CurveSegment::Line {
+            start: point(4.01, 0.0, 0.0),
+            end: point(8.0, 0.0, 0.0),
+        });
+        let retained = ApproximationPoint {
+            x: 4.0,
+            y: 0.0,
+            z: 0.0,
+        };
+
+        let mut missing = TestPointSink::default();
+        assert_eq!(
+            approximate_interval(
+                evaluator,
+                ApproximationInterval {
+                    parameter_start: 0.0,
+                    parameter_end: 1.0,
+                    welded_start: None,
+                    emit_start: false,
+                },
+                GeometryAccuracyProfile::Fine2Cm,
+                GeometryDirectionProfile::Smooth1Deg,
+                &mut missing,
+            ),
+            Err(NumericFreezeError::ApproximationNotConverged)
+        );
+        assert!(missing.vertices.is_empty());
+
+        let mut retained_start = TestPointSink::default();
+        approximate_interval(
+            evaluator,
+            ApproximationInterval {
+                parameter_start: 0.0,
+                parameter_end: 1.0,
+                welded_start: Some(retained),
+                emit_start: false,
+            },
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            &mut retained_start,
+        )
+        .unwrap();
+        assert_eq!(retained_start.vertices.last().unwrap().point.x, 8.0);
+    }
+
+    #[test]
+    fn direction_comparison_scales_subnormal_products_before_squaring() {
+        let tiny = 1.0e-160;
+        let cosine_squared = half_angle_cosine_squared(GeometryDirectionProfile::Compact5Deg);
+
+        assert!(
+            direction_accepts(
+                point(tiny, 0.0, 0.0),
+                point(2.0 * tiny, 0.0, 0.0),
+                cosine_squared
+            )
+            .unwrap()
+        );
+        assert!(
+            !direction_accepts(
+                point(tiny, 0.0, 0.0),
+                point(tiny, 0.0, tiny),
+                cosine_squared
+            )
+            .unwrap()
         );
     }
 
