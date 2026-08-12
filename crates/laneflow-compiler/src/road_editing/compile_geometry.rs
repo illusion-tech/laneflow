@@ -10,8 +10,8 @@ use crate::{GeometryAccuracyProfile, GeometryDirectionProfile};
 use super::geometry::{
     ApproximationInterval, ApproximationPoint, ApproximationPointSink, ApproximationVertex,
     CurveSegment, NumericFreezeError, OffsetInterval, Point3, SegmentEvaluator, StationInterval,
-    approximate_interval, canonical_point_distance, point_distance, quantize_point,
-    validate_canonical_polyline,
+    approximate_interval, canonical_point_distance, direction_accepts, full_angle_cosine_squared,
+    point_distance, quantize_point, validate_canonical_polyline,
 };
 
 const MAX_SOURCE_JOIN_GAP_METERS: f64 = 0.005;
@@ -351,7 +351,7 @@ fn walk_offset_program(
 ) -> Result<(), NumericFreezeError> {
     let mut row_index = 0_usize;
     let mut start = point3(program.start)?;
-    let mut emitted_segment = None;
+    let mut emitted_endpoint = None;
     for (segment_index, source) in program.segments.iter().enumerate() {
         let (segment, end) = source_segment(start, source)?;
         let segment_ordinal =
@@ -386,19 +386,34 @@ fn walk_offset_program(
                     parameter,
                     point: quantize_point(evaluator.evaluate(parameter)?.point)?,
                 })?;
-                emitted_segment = Some(segment_ordinal);
+                emitted_endpoint = Some((segment_ordinal, evaluator, parameter));
             }
             if station_start < station_end {
                 let parameter_start = parameter_in_station_row(row, station_start)?;
                 let parameter_end = parameter_in_station_row(row, station_end)?;
-                let source_boundary = emitted_segment.is_some_and(|value| value != segment_ordinal);
-                let welded_start = if source_boundary {
+                let source_boundary =
+                    emitted_endpoint.is_some_and(|(ordinal, _, _)| ordinal != segment_ordinal);
+                let welded_start = if let Some((_, previous_evaluator, previous_parameter)) =
+                    emitted_endpoint
+                {
                     let previous = sink
                         .last_point()
                         .ok_or(NumericFreezeError::DegenerateCanonicalSegment)?;
                     let actual = quantize_point(evaluator.evaluate(parameter_start)?.point)?;
-                    if canonical_point_distance(previous, actual)? > MAX_SOURCE_JOIN_GAP_METERS {
-                        return Err(NumericFreezeError::SourceJoinGapExceeded);
+                    if source_boundary {
+                        if canonical_point_distance(previous, actual)? > MAX_SOURCE_JOIN_GAP_METERS
+                        {
+                            return Err(NumericFreezeError::SourceJoinGapExceeded);
+                        }
+                        let previous_first = previous_evaluator.evaluate(previous_parameter)?.first;
+                        let current_first = evaluator.evaluate(parameter_start)?.first;
+                        if !direction_accepts(
+                            previous_first,
+                            current_first,
+                            full_angle_cosine_squared(direction),
+                        )? {
+                            return Err(NumericFreezeError::DirectionDiscontinuity);
+                        }
                     }
                     Some(previous)
                 } else {
@@ -416,7 +431,7 @@ fn walk_offset_program(
                     direction,
                     sink,
                 )?;
-                emitted_segment = Some(segment_ordinal);
+                emitted_endpoint = Some((segment_ordinal, evaluator, parameter_end));
             }
             row_index += 1;
         }
@@ -1108,6 +1123,47 @@ mod tests {
             )
             .err(),
             Some(NumericFreezeError::SourceJoinGapExceeded)
+        );
+    }
+
+    #[test]
+    fn corridor_start_at_source_boundary_checks_the_preceding_tangent() {
+        let program = AuthoringCurveProgramDeclaration {
+            start: point(0.0, 0.0),
+            start_span: span(1),
+            segments: vec![
+                AuthoringCurveSegmentDeclaration {
+                    geometry: AuthoringCurveSegmentGeometry::Line {
+                        end: point(10.0, 0.0),
+                    },
+                    span: span(2),
+                },
+                AuthoringCurveSegmentDeclaration {
+                    geometry: AuthoringCurveSegmentGeometry::Line {
+                        end: point(10.0, 10.0),
+                    },
+                    span: span(3),
+                },
+            ]
+            .into_boxed_slice(),
+        };
+        let reference = compile_alignment_reference(&program, station_row_bytes(2)).unwrap();
+
+        assert_eq!(
+            compile_offset_curve(
+                &program,
+                &reference,
+                10.0,
+                20.0,
+                0.0,
+                0.0,
+                AuthoringLaneDirection::Forward,
+                GeometryAccuracyProfile::Fine2Cm,
+                GeometryDirectionProfile::Smooth1Deg,
+                3,
+            )
+            .err(),
+            Some(NumericFreezeError::DirectionDiscontinuity)
         );
     }
 
