@@ -679,6 +679,16 @@ impl RoadCorridorInput {
             }
             RoadEditingStationEnd::AlignmentEnd => RoadEditingStationEnd::AlignmentEnd,
         };
+        require_corridor_owned_reference(
+            &reference_section,
+            &road_corridor_key,
+            "roadCorridor.referenceSection",
+        )?;
+        require_corridor_owned_reference(
+            &reference_lane,
+            &road_corridor_key,
+            "roadCorridor.referenceLane",
+        )?;
         require_non_empty(&elements, "roadCorridor.elements")?;
         require_unique(&elements, "roadCorridor.elements")?;
         Ok(Self {
@@ -729,6 +739,21 @@ impl RoadCorridorInput {
     }
 }
 impl_canvas!(RoadCorridorInput);
+
+fn require_corridor_owned_reference<K: EntityKindMarker>(
+    reference: &RoadEditingReference<K>,
+    corridor_key: &str,
+    field: &'static str,
+) -> Result<(), DiagnosticBundle> {
+    if reference.module_namespace().is_some() || reference.owner_keys().next() != Some(corridor_key)
+    {
+        return Err(input_error(
+            field,
+            RoadEditingInputViolation::InvalidCombination,
+        ));
+    }
+    Ok(())
+}
 
 /// 道路区段声明。
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2370,6 +2395,65 @@ mod tests {
             FacilityBandInput::try_new("band-c", "motorLane", width, corridor.clone()).is_err()
         );
         assert!(FacilityBandInput::try_new("band-d", "sidewak", width, corridor).is_err());
+    }
+
+    #[test]
+    fn corridor_reference_section_and_lane_must_share_the_corridor_owner() {
+        let section = RoadSectionReference::owner_scoped(vec!["corridor-a".into()], "section-a")
+            .expect("section");
+        let lane = AuthoringLaneReference::owner_scoped(
+            vec!["corridor-a".into(), "section-a".into()],
+            "lane-a",
+        )
+        .expect("lane");
+        let alignment = || RoadAlignmentReference::try_new("alignment").expect("alignment");
+        let elements = || vec![RoadEditingCorridorElement::RoadSection(section.clone())];
+
+        RoadCorridorInput::try_new(
+            "corridor-a",
+            alignment(),
+            0.0,
+            RoadEditingStationEnd::AlignmentEnd,
+            section.clone(),
+            lane.clone(),
+            elements(),
+        )
+        .expect("matching corridor owner");
+
+        let other_section =
+            RoadSectionReference::owner_scoped(vec!["corridor-b".into()], "section-a")
+                .expect("other section");
+        assert!(
+            RoadCorridorInput::try_new(
+                "corridor-a",
+                alignment(),
+                0.0,
+                RoadEditingStationEnd::AlignmentEnd,
+                other_section,
+                lane.clone(),
+                elements(),
+            )
+            .is_err()
+        );
+
+        let imported_lane = AuthoringLaneReference::imported(
+            "base",
+            vec!["corridor-a".into(), "section-a".into()],
+            "lane-a",
+        )
+        .expect("imported lane");
+        assert!(
+            RoadCorridorInput::try_new(
+                "corridor-a",
+                alignment(),
+                0.0,
+                RoadEditingStationEnd::AlignmentEnd,
+                section.clone(),
+                imported_lane,
+                elements(),
+            )
+            .is_err()
+        );
     }
 
     #[test]
