@@ -1046,41 +1046,46 @@ fn admission_sizing_accounts_for_builder_indexes_wrappers_and_result_modules() {
 
 #[test]
 fn module_vector_growth_is_explicitly_budgeted_before_commit() {
-    let limits = CompileLimits::p100_initial_v2();
-    let mut builder = CompilationUnitBuilder::new(limits);
-    for index in 0..4 {
-        builder
-            .add_synthetic_module(module_with_document(
-                &format!("city/{index}"),
-                &format!("source/{index}"),
-                &[],
-            ))
-            .unwrap();
-    }
+    let fixture = || {
+        let limits = CompileLimits::p100_initial_v2();
+        let mut builder = CompilationUnitBuilder::new(limits);
+        for index in 0..4 {
+            builder
+                .add_synthetic_module(module_with_document(
+                    &format!("city/{index}"),
+                    &format!("source/{index}"),
+                    &[],
+                ))
+                .unwrap();
+        }
+        (builder, module_with_document("city/4", "source/4", &[]))
+    };
+
+    let (mut builder, fifth) = fixture();
     assert_eq!(builder.modules.capacity(), 4);
     assert_eq!(builder.totals.module_slot_capacity, 4);
     let live_before_growth =
         builder.already_admitted(CompileLimitDimension::CompilerControlledLiveBytes);
-
-    let mut fifth = module_with_document("city/4", "source/4", &[]);
     let candidate_retained = fifth.admitted.resource_counts.controlled_live_bytes;
-    fifth.admitted.resource_counts.admission_peak_live_bytes =
-        candidate_retained.saturating_add(size_bytes::<AdmittedOfficialModule>(32));
     let candidate_peak = fifth.admitted.resource_counts.admission_peak_live_bytes;
+    assert_eq!(candidate_peak, candidate_retained);
     let expected_growth_allocation = size_bytes::<AdmittedOfficialModule>(8);
     let next_totals = builder
         .totals
         .candidate_after(1, 0, &fifth.admitted.resource_counts);
-    let expected_peak = builder
-        .totals
-        .admission_peak_live_bytes
-        .max(admission::builder_live_requested_bytes(next_totals))
-        .max(live_before_growth.saturating_add(candidate_peak))
-        .max(
-            live_before_growth
-                .saturating_add(candidate_retained)
-                .saturating_add(expected_growth_allocation),
-        );
+    let frontend_peak = live_before_growth.saturating_add(candidate_peak);
+    let next_builder_live = admission::builder_live_requested_bytes(next_totals);
+    let growth_peak = live_before_growth
+        .saturating_add(candidate_retained)
+        .saturating_add(expected_growth_allocation);
+    assert!(growth_peak > frontend_peak);
+    assert!(growth_peak > next_builder_live);
+    assert!(growth_peak > builder.totals.admission_peak_live_bytes);
+    let expected_peak = growth_peak;
+    builder.set_test_limits(CompileLimits::p100_initial_v2().with_test_admission_limit(
+        CompileLimitDimension::CompilerControlledLiveBytes,
+        u32::try_from(expected_peak).unwrap(),
+    ));
     builder.add_synthetic_module(fifth).unwrap();
 
     assert_eq!(builder.modules.capacity(), 8);
@@ -1089,6 +1094,57 @@ fn module_vector_growth_is_explicitly_budgeted_before_commit() {
         builder.totals.admission_peak_live_bytes, expected_peak,
         "frontend scratch and later module-vector growth are distinct lifetimes"
     );
+
+    let (mut rejected, fifth) = fixture();
+    let old_totals = rejected.totals;
+    rejected.set_test_limits(CompileLimits::p100_initial_v2().with_test_admission_limit(
+        CompileLimitDimension::CompilerControlledLiveBytes,
+        u32::try_from(expected_peak - 1).unwrap(),
+    ));
+    let diagnostics = match rejected.add_synthetic_module(fifth) {
+        Ok(_) => panic!("module-vector growth must fail at one byte below its exact peak"),
+        Err(diagnostics) => diagnostics,
+    };
+    assert!(matches!(
+        diagnostics.diagnostics()[0].payload(),
+        DiagnosticPayload::CompileLimitExceeded {
+            dimension: CompileLimitDimension::CompilerControlledLiveBytes,
+            limit,
+            observed,
+        } if *limit == expected_peak - 1 && *observed == expected_peak
+    ));
+    assert_eq!(rejected.modules.len(), 4);
+    assert_eq!(rejected.modules.capacity(), 4);
+    assert_eq!(rejected.totals, old_totals);
+    rejected.set_test_limits(CompileLimits::p100_initial_v2());
+    rejected
+        .add_synthetic_module(module_with_document("city/4", "source/4", &[]))
+        .unwrap();
+    assert_eq!(rejected.modules.len(), 5);
+    assert_eq!(rejected.modules.capacity(), 8);
+}
+
+#[test]
+fn geometry_source_range_audit_count_commits_and_rolls_back_with_the_module() {
+    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v2());
+    let mut first = module_with_document("city/a", "source/a", &[]);
+    first.admitted.resource_counts.geometry_source_range_count = 3;
+    builder.add_synthetic_module(first).unwrap();
+    assert_eq!(builder.totals.geometry_source_range_count, 3);
+
+    let mut second = module_with_document("city/b", "source/b", &[]);
+    second.admitted.resource_counts.geometry_source_range_count = 5;
+    builder.add_synthetic_module(second).unwrap();
+    assert_eq!(builder.totals.geometry_source_range_count, 8);
+
+    let old_totals = builder.totals;
+    let mut duplicate = module_with_document("city/a", "source/c", &[]);
+    duplicate
+        .admitted
+        .resource_counts
+        .geometry_source_range_count = 7;
+    assert!(builder.add_synthetic_module(duplicate).is_err());
+    assert_eq!(builder.totals, old_totals);
 }
 
 #[test]

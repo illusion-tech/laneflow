@@ -5277,6 +5277,21 @@ mod tests {
             .unwrap();
         assert_eq!(output.lir().maneuver_gates().count(), 1);
         assert_eq!(output.lir().static_routes().count(), 1);
+        let route = output.lir().static_routes().next().unwrap();
+        let maneuvers = route.maneuver_occurrences().collect::<Vec<_>>();
+        let gates = route.gate_occurrences().collect::<Vec<_>>();
+        assert_eq!(maneuvers.len(), 1);
+        assert_eq!(maneuvers[0].entry_route_edge_index(), 0);
+        assert_eq!(maneuvers[0].exit_route_edge_index(), 2);
+        assert_eq!(maneuvers[0].gate_occurrence_range(), 0..1);
+        assert_eq!(gates.len(), 1);
+        assert_eq!(gates[0].maneuver_occurrence_index(), 0);
+        assert_eq!(gates[0].from_route_edge_index(), 1);
+        assert_eq!(gates[0].next_boundary_route_edge_index(), 2);
+        assert_eq!(
+            route.transition_gates().collect::<Vec<_>>(),
+            [None, Some(gates[0].maneuver_gate())]
+        );
     }
 
     #[test]
