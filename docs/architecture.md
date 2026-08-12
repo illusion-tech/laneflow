@@ -171,7 +171,9 @@ Authoring Layer 负责生成或编辑交通数据：
 #291 target 中，唯一逻辑 authoring authority 是显式、可重放的 source module graph。
 ADR 0023 进一步把城市项目/存档中的道路编辑状态定义为 production 编制事实：可视化
 编辑器与可发布程序化生成器共享有类型道路编辑模型；产品负责人已为 #296 选择按模块
-size-prefixed FlatBuffers 作为持久化/交换编码，具体契约仍待当前 G1 exact-head 审阅通过。
+size-prefixed FlatBuffers 作为持久化/交换编码。该具体契约已经 FlatBuffers G1 接受，
+是内部未发布实现契约；在对应 production 实现合入前不构成当前生产入口，也不构成
+已发布存档格式或长期兼容承诺。
 Synthetic DSL source 继续只服务测试、benchmark、示例和
 非发布程序化场景；importer 保存原始 source digest、tool/options/provenance。全部正式
 来源输出 owning module、稳定实体/属性或画布选择位置及 typed AST，不直接构造 current
