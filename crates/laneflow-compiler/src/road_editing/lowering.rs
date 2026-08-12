@@ -1298,12 +1298,13 @@ mod tests {
 
     use super::*;
     use crate::road_editing::{
-        CanonicalFrameInput, IidmVehicleProfileInput as RoadEditingIidmInput, JunctionInput,
-        JunctionReference, LaneEdgeInput, LaneEdgeReference, ManeuverPathInput, MovementInput,
-        MovementReference, ParkingAreaInput, ParticipantClassInput, ParticipantClassReference,
-        RoadEditingDeclaration, RoadEditingModuleHeader, RoadEditingModuleInput,
-        RoadEditingProvenance, RoadEditingSourceModuleBuilder, RoadEditingSourceWriter,
-        StaticRouteInput, StopLineInput, VehicleProfileInput,
+        AccessRegulationInput, CanonicalFrameInput,
+        IidmVehicleProfileInput as RoadEditingIidmInput, JunctionInput, JunctionReference,
+        LaneEdgeInput, LaneEdgeReference, ManeuverPathInput, MovementInput, MovementReference,
+        ParkingAreaInput, ParticipantClassInput, ParticipantClassReference, RoadEditingDeclaration,
+        RoadEditingModuleHeader, RoadEditingModuleInput, RoadEditingProvenance,
+        RoadEditingSourceModuleBuilder, RoadEditingSourceWriter, StaticRouteInput, StopLineInput,
+        VehicleProfileInput,
     };
     use crate::{CompileLimits, GeometryAccuracyProfile, GeometryDirectionProfile, SourceSpan};
 
@@ -1838,5 +1839,58 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn first_party_unicode_access_regulation_round_trips_through_lowering() {
+        let limits = CompileLimits::p100_initial_v2();
+        let source = super::super::writer::tests::module_with_every_declaration(&limits);
+        let mut builder = RoadEditingSourceModuleBuilder::new(
+            source.header().clone(),
+            source.geometry_accuracy_profile(),
+            source.geometry_direction_profile(),
+            &limits,
+        )
+        .expect("builder");
+        for alignment in source.road_alignments() {
+            builder.add_alignment(alignment.clone()).expect("alignment");
+        }
+        for declaration in source.declarations() {
+            let declaration = match declaration.clone() {
+                RoadEditingDeclaration::AccessRule(rule) => RoadEditingDeclaration::AccessRule(
+                    rule.with_regulation(
+                        AccessRegulationInput::try_new("中国", "二〇二六")
+                            .expect("regulation")
+                            .with_source("交通规则")
+                            .expect("source"),
+                    ),
+                ),
+                declaration => declaration,
+            };
+            builder.add_declaration(declaration).expect("declaration");
+        }
+        let bytes = RoadEditingSourceWriter::new(&limits)
+            .write(builder.finish().expect("module"))
+            .expect("buffer");
+        let input =
+            RoadEditingModuleInput::try_new("road-editing", bytes.as_bytes(), None).expect("input");
+        let verified = super::super::reader::verify_source(input, &limits, 0, 0)
+            .expect("first-party Unicode must pass preflight");
+        let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
+        let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
+
+        let declarations =
+            lower_aggregate_declarations(verified.root(), &locations, &shared_namespace);
+        let regulation = declarations
+            .iter()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::AccessRule(rule) => rule.regulation.as_ref(),
+                _ => None,
+            })
+            .expect("lowered regulation");
+
+        assert_eq!(regulation.jurisdiction.as_ref(), "中国");
+        assert_eq!(regulation.version.as_ref(), "二〇二六");
+        assert_eq!(regulation.source.as_deref(), Some("交通规则"));
     }
 }
