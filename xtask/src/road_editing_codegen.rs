@@ -290,15 +290,11 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
         ));
     }
 
-    let mut manifests = Vec::new();
-    for root in ["crates", "research", "tools", "xtask"] {
-        collect_named_files(
-            &repository_root.join(root),
-            OsStr::new("Cargo.toml"),
-            &mut manifests,
-        )?;
-    }
-    let wire_manifest_path = repository_root.join(WIRE_MANIFEST_PATH);
+    let manifests = workspace_manifest_paths(repository_root)?;
+    let wire_manifest_path = repository_root
+        .join(WIRE_MANIFEST_PATH)
+        .canonicalize()
+        .map_err(|error| format!("无法解析 `{WIRE_MANIFEST_PATH}`: {error}"))?;
     for manifest in manifests {
         if manifest == wire_manifest_path {
             continue;
@@ -322,6 +318,61 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
     let generated_path = repository_root.join(CHECKED_RUST_PATH);
     check_wire_rust_sources(&repository_root.join(WIRE_PACKAGE_ROOT), &generated_path)?;
     Ok(())
+}
+
+fn workspace_manifest_paths(repository_root: &Path) -> Result<Vec<PathBuf>, String> {
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let output = Command::new(cargo)
+        .current_dir(repository_root)
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+            "--locked",
+            "--manifest-path",
+            "Cargo.toml",
+        ])
+        .output()
+        .map_err(|error| format!("无法读取 workspace Cargo metadata: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "`cargo metadata --manifest-path Cargo.toml` 失败，exit={}，stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    parse_workspace_manifest_paths(&output.stdout)
+}
+
+fn parse_workspace_manifest_paths(metadata: &[u8]) -> Result<Vec<PathBuf>, String> {
+    let metadata: serde_json::Value = serde_json::from_slice(metadata)
+        .map_err(|error| format!("Cargo metadata 不是有效 JSON: {error}"))?;
+    let members = metadata
+        .get("workspace_members")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "Cargo metadata 缺少 workspace_members 数组".to_string())?;
+    let packages = metadata
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "Cargo metadata 缺少 packages 数组".to_string())?;
+    let mut manifests = Vec::with_capacity(members.len());
+    for member in members {
+        let member = member
+            .as_str()
+            .ok_or_else(|| "Cargo metadata workspace member 不是字符串".to_string())?;
+        let package = packages
+            .iter()
+            .find(|package| package.get("id").and_then(serde_json::Value::as_str) == Some(member))
+            .ok_or_else(|| format!("Cargo metadata 缺少 workspace member package `{member}`"))?;
+        let manifest = package
+            .get("manifest_path")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| format!("workspace package `{member}` 缺少 manifest_path"))?;
+        manifests.push(PathBuf::from(manifest));
+    }
+    manifests.sort_unstable();
+    Ok(manifests)
 }
 
 fn check_wire_rust_sources(package_root: &Path, generated_path: &Path) -> Result<(), String> {
@@ -395,17 +446,6 @@ fn collect_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
-fn collect_named_files(root: &Path, name: &OsStr, files: &mut Vec<PathBuf>) -> Result<(), String> {
-    let mut candidates = Vec::new();
-    collect_files(root, &mut candidates)?;
-    files.extend(
-        candidates
-            .into_iter()
-            .filter(|path| path.file_name() == Some(name)),
-    );
-    Ok(())
-}
-
 fn collect_extension_files(
     root: &Path,
     extension: &OsStr,
@@ -468,6 +508,26 @@ mod tests {
             "unsafe_code",
             "forbid"
         ));
+    }
+
+    #[test]
+    fn derives_every_manifest_from_workspace_membership() {
+        let metadata = br#"{
+            "workspace_members": ["wire 0.0.0", "example 0.0.0"],
+            "packages": [
+                {"id": "wire 0.0.0", "manifest_path": "E:/repo/crates/wire/Cargo.toml"},
+                {"id": "example 0.0.0", "manifest_path": "E:/repo/examples/foo/Cargo.toml"},
+                {"id": "outside 0.0.0", "manifest_path": "E:/outside/Cargo.toml"}
+            ]
+        }"#;
+
+        assert_eq!(
+            parse_workspace_manifest_paths(metadata).unwrap(),
+            [
+                PathBuf::from("E:/repo/crates/wire/Cargo.toml"),
+                PathBuf::from("E:/repo/examples/foo/Cargo.toml"),
+            ]
+        );
     }
 
     #[test]
