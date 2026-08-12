@@ -5518,17 +5518,10 @@ fn validate_spatial_connection(
     }
     let end = points[geometry.points.as_usize_range().end - 1];
     let start = points[successor_geometry.points.as_usize_range().start];
-    let delta_x = f64::from(start.x) - f64::from(end.x);
-    let delta_y = f64::from(start.y) - f64::from(end.y);
-    let delta_z = f64::from(start.z) - f64::from(end.z);
-    let x_squared = delta_x * delta_x;
-    let y_squared = delta_y * delta_y;
-    let xy_squared = x_squared + y_squared;
-    let z_squared = delta_z * delta_z;
-    let distance_squared = xy_squared + z_squared;
-    let distance = distance_squared.sqrt();
-    let tolerance = f64::from(SPATIAL_JOIN_POSITION_TOLERANCE_METERS);
-    if distance > tolerance {
+    let distance = canonical_point_distance(end, start);
+    if distance > SPATIAL_JOIN_POSITION_TOLERANCE_METERS {
+        let distance = f64::from(distance);
+        let tolerance = f64::from(SPATIAL_JOIN_POSITION_TOLERANCE_METERS);
         let mut diagnostic = Diagnostic::invalid_spatial_geometry(
             Some(&frames.get(geometry.canonical_frame).stable_key),
             &edge.stable_key,
@@ -5580,6 +5573,10 @@ fn validate_spatial_connection(
         diagnostic.set_canonical_module_order(edge.module.raw());
         diagnostics.push(diagnostic);
     }
+}
+
+fn canonical_point_distance(a: HirCanonicalPoint3F32, b: HirCanonicalPoint3F32) -> f32 {
+    (b.x - a.x).hypot(b.y - a.y).hypot(b.z - a.z)
 }
 
 fn push_geometry_source_ranges(
@@ -8039,6 +8036,23 @@ mod tests {
             &CompileLimits::p100_initial_v1(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn spatial_join_distance_uses_the_canonical_f32_predicate() {
+        let end = HirCanonicalPoint3F32 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        let start = HirCanonicalPoint3F32 {
+            x: 0.000_528_320_15,
+            y: 0.004_972_009_5,
+            z: 0.0,
+        };
+
+        assert_eq!(canonical_point_distance(end, start), 0.005_f32);
+        assert!(canonical_point_distance(end, start) <= SPATIAL_JOIN_POSITION_TOLERANCE_METERS);
     }
 
     fn module(
