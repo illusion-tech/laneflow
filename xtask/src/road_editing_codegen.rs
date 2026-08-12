@@ -296,6 +296,9 @@ fn check_unsafe_boundary(repository_root: &Path) -> Result<(), String> {
         .canonicalize()
         .map_err(|error| format!("无法解析 `{WIRE_MANIFEST_PATH}`: {error}"))?;
     for manifest in manifests {
+        let manifest = manifest
+            .canonicalize()
+            .map_err(|error| format!("无法解析 `{}`: {error}", manifest.display()))?;
         if manifest == wire_manifest_path {
             continue;
         }
