@@ -344,8 +344,8 @@ format 决定编译器语义。精确退役边界见
 
 曲线在 MIR 中按冻结 B1 规则离散为 canonical f32 polyline；static image 不保存
 authoring curve evaluator。旧严格 UTF-8 JSON Geometry 方案已经归档，不获得来源格式
-兼容承诺；新契约已是接受的内部未发布实现契约，在对应 production 实现合入前不构成
-当前生产入口，B1 也不构成已发布存档格式或长期兼容承诺。
+兼容承诺；新契约已经由当前生产编译器入口实现，但仍属于内部未发布实现契约；B1
+不构成已发布存档格式或长期兼容承诺。
 
 ### 5.4 导入与编辑器编制（Import and Editor Authoring）
 

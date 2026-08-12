@@ -664,6 +664,9 @@ pub(super) fn compile_authoring_geometry(
             .map_err(|error| error.with_numeric_source(edge.header.span.clone()))?;
         used_points = next_used_points;
         used_source_ranges = next_used_source_ranges;
+        if lane_outputs.len() == expected_lane_outputs {
+            return Err(NumericFreezeError::GeometryTopologyMismatch.into());
+        }
         lane_outputs.push(PendingLaneGeometry {
             target: edge.header.source_address.clone(),
             value: Some(CompiledLaneEdgeGeometry {

@@ -953,7 +953,6 @@ impl JunctionInput {
         let junction_key = junction_key.into();
         validate_token(&junction_key, "junction.junctionKey")?;
         require_non_empty(&approach_edges, "junction.approachEdges")?;
-        require_non_empty(&internal_edges, "junction.internalEdges")?;
         require_unique(&approach_edges, "junction.approachEdges")?;
         require_unique(&internal_edges, "junction.internalEdges")?;
         if approach_edges
@@ -2505,6 +2504,19 @@ mod tests {
         assert!(controller(MAX_PORTABLE_SIGNAL_TIME_MS + 1).is_err());
         assert!(signal_phase(MAX_PORTABLE_SIGNAL_TIME_MS).is_ok());
         assert!(signal_phase(MAX_PORTABLE_SIGNAL_TIME_MS + 1).is_err());
+    }
+
+    #[test]
+    fn junction_allows_a_direct_path_without_internal_edges() {
+        let approaches = vec![
+            LaneEdgeReference::local("entry").expect("entry"),
+            LaneEdgeReference::local("exit").expect("exit"),
+        ];
+
+        let junction = JunctionInput::try_new("junction", approaches, Vec::new())
+            .expect("direct path junction");
+
+        assert!(junction.internal_edges().is_empty());
     }
 
     #[test]

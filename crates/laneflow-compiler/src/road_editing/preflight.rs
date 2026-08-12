@@ -1437,7 +1437,7 @@ fn validate_junctions(
             value.internal_edges(),
             1,
             "junction.internalEdges",
-            true,
+            false,
             true,
             true,
             namespace,
@@ -1850,6 +1850,12 @@ fn validate_signal_controllers_and_phases(
         usage.charge_relation(states.len());
         for (index, state) in states.iter().enumerate() {
             usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
+            if state.signal_group().contains("::") {
+                return Err(invalid_combination(
+                    "signalPhase.states.signalGroup",
+                    expected_key,
+                ));
+            }
             usage.charge_reference(
                 state.signal_group(),
                 1,

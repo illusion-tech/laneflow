@@ -461,9 +461,7 @@ Typed AST、身份索引和诊断的逐 allocation 生命周期及 allocator 证
 - 整体工作集采用故意保守、可审计的逻辑上界，不要求等于普通 Rust allocator 的实际
   requested bytes；
 - 全部规模乘加使用 checked arithmetic，无法表示或超过上限时在对应大区块分配前拒绝；
-- 候选失败不提交，builder 可重试；
-- P100 只需提供“观测峰值明显低于 `43_269_120` bytes ceiling”的描述性检查，不作为
-  逐字节硬上限证明。
+- 候选失败不提交，builder 可重试。
 
 普通 Rust allocator 下，逻辑计数器本身不等价于完全精确的实际内存硬上限。`Vec`
 capacity / 扩容共存、`Arc` header 与 DST padding、阶段精确 scratch/live、失败诊断、
@@ -862,15 +860,14 @@ fixture digest，因此 workload definition 与 G2 measurement evidence 是两�
 必须得到 3 次 cubic regularity node visit。独立 fresh-process CPU/scratch/live-byte peak、
 与主 P100 的分离测量及正式统计属于 #374；#296 只保留该变体的几何正确性断言。
 
-九种 profile 组合继续作为几何正确性、regularity 与离散误差观测矩阵；#296 另以 P100
-执行一次描述性资源检查，确认观测峰值明显低于 `43_269_120` bytes ceiling。typed-model
-build、encode/save、各阶段 CPU/内存、returned buffer retained capacity、rewrite 共存、
-fresh-process 样本统计和 exact revision 绑定的正式测量协议改由 #374 独立拥有。#296 不再
-为了逐字节 allocator 证明阻塞 Delivery，也不得把一次观测改写为所有合法输入的硬上限。
+九种 profile 组合继续作为几何正确性、regularity 与离散误差观测矩阵；P100 的执行、
+typed-model build、encode/save、各阶段 CPU/内存、returned buffer retained capacity、
+rewrite 共存、fresh-process 样本统计和 exact revision 绑定统一由 #374 独立拥有。#296
+冻结工作负载和小型正确性 fixture，但不再把 P100 执行或 allocator 证明作为 Delivery
+前置，也不得把历史或单次观测改写为所有合法输入的硬上限。
 未选的 Protobuf 不实现第二条 production reader；该缺失不允许文档宣称 FB 已实测快于
-PB，但也不阻断已完成的产品选择。G2 只需证明
-代表性 P100 观测未突破现有 production compile limits；在 #374 取得正式新证据前，
-不复用旧 JSON 的 `3_669_800 B` 等峰值或性能结论，也不声称逐字节硬上限已经闭合。
+PB，但也不阻断已完成的产品选择。在 #374 取得正式新证据前，不复用旧 JSON 的
+`3_669_800 B` 等峰值或性能结论，也不声称 P100 资源结果或逐字节硬上限已经闭合。
 墙钟中位数/MAD、fresh-process 样本和相对旧实现的正式解释同样属于 #374；#296 不在没有
 产品加载 SLA 时虚构绝对毫秒门槛。
 这些证据只支持 B1 内部产品判断，不得把固定网格最大观测值改写为连续硬保证；B1 schema
