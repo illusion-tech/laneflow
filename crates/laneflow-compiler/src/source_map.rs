@@ -61,6 +61,8 @@ const OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES: u64 =
     2 + 4 + 16 + 2 + 4 + SOURCE_RECORD_LOCATION_VARIANT_LOGICAL_BYTES;
 const ROUTE_RELATION_SOURCE_FIXED_LOGICAL_BYTES: u64 =
     OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES + 1;
+const SPATIAL_GEOMETRY_SOURCE_RANGE_FIXED_LOGICAL_BYTES: u64 =
+    4 + 4 + 4 + SOURCE_RECORD_LOCATION_VARIANT_LOGICAL_BYTES;
 
 #[cfg(test)]
 mod logical_byte_tests {
@@ -79,6 +81,11 @@ mod logical_byte_tests {
         assert_eq!(
             OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES + TEXT_SOURCE_LOCATION_LOGICAL_BYTES,
             2 + 4 + 16 + 2 + 4 + 4 + 16 + 4
+        );
+        assert_eq!(
+            SPATIAL_GEOMETRY_SOURCE_RANGE_FIXED_LOGICAL_BYTES
+                + TEXT_SOURCE_LOCATION_LOGICAL_BYTES,
+            4 + 4 + 4 + 4 + 16 + 4
         );
     }
 }
@@ -273,6 +280,14 @@ struct SpatialRelationSourceRecord {
     role: SourceRelationRole,
     local_index: u32,
     primary: SourceLocationRecord,
+    source_ranges: Box<[SpatialGeometrySourceRangeRecord]>,
+}
+
+struct SpatialGeometrySourceRangeRecord {
+    point_start: u32,
+    point_end_exclusive: u32,
+    source_segment_ordinal: u32,
+    source: SourceLocationRecord,
 }
 
 struct AccessRelationSourceRecord {
@@ -1237,6 +1252,13 @@ pub struct SpatialRelationSourceView<'a> {
     record: &'a SpatialRelationSourceRecord,
 }
 
+/// 一段规范中心线点区间到 authoring source segment 的只读来源映射。
+#[derive(Clone, Copy)]
+pub struct SpatialGeometrySourceRangeView<'a> {
+    source_map: &'a ValidatedSourceMapInput,
+    record: &'a SpatialGeometrySourceRangeRecord,
+}
+
 impl SpatialRelationSourceView<'_> {
     #[must_use]
     pub const fn owner_ordinal(&self) -> CanonicalFrameOrdinal {
@@ -1264,7 +1286,41 @@ impl SpatialRelationSourceView<'_> {
     }
 
     pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
-        core::iter::empty()
+        self.record
+            .source_ranges
+            .iter()
+            .map(|range| self.source_map.location(&range.source))
+    }
+
+    /// 按中心线点顺序返回 authoring source segment 的有类型范围映射。
+    pub fn geometry_source_ranges(
+        &self,
+    ) -> impl ExactSizeIterator<Item = SpatialGeometrySourceRangeView<'_>> {
+        self.record
+            .source_ranges
+            .iter()
+            .map(|record| SpatialGeometrySourceRangeView {
+                source_map: self.source_map,
+                record,
+            })
+    }
+}
+
+impl SpatialGeometrySourceRangeView<'_> {
+    /// 返回相对于该中心线点表的半开点区间。
+    #[must_use]
+    pub const fn point_range(&self) -> core::ops::Range<u32> {
+        self.record.point_start..self.record.point_end_exclusive
+    }
+
+    #[must_use]
+    pub const fn source_segment_ordinal(&self) -> u32 {
+        self.record.source_segment_ordinal
+    }
+
+    #[must_use]
+    pub fn source(&self) -> SourceLocationView<'_> {
+        self.source_map.location(&self.record.source)
     }
 }
 
