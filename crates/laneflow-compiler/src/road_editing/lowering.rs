@@ -831,13 +831,31 @@ pub(super) fn lower_aggregate_declarations(
             .saturating_add(root.access_rules().len()),
     );
 
-    let mut controllers: Vec<_> = root.signal_controllers().iter().collect();
-    controllers.sort_unstable_by(|left, right| {
-        left.signal_controller_key()
+    let controllers = root.signal_controllers();
+    let phases = root.signal_phases();
+    let mut controller_order: Vec<_> = (0..controllers.len()).collect();
+    controller_order.sort_unstable_by(|left, right| {
+        controllers
+            .get(*left)
+            .signal_controller_key()
             .as_bytes()
-            .cmp(right.signal_controller_key().as_bytes())
+            .cmp(controllers.get(*right).signal_controller_key().as_bytes())
     });
-    declarations.extend(controllers.into_iter().map(|controller| {
+    let mut phase_order: Vec<_> = (0..phases.len()).collect();
+    phase_order.sort_unstable_by(|left, right| {
+        let left = phases.get(*left);
+        let right = phases.get(*right);
+        left.signal_controller()
+            .as_bytes()
+            .cmp(right.signal_controller().as_bytes())
+            .then_with(|| {
+                left.signal_phase_key()
+                    .as_bytes()
+                    .cmp(right.signal_phase_key().as_bytes())
+            })
+    });
+    declarations.extend(controller_order.into_iter().map(|controller_index| {
+        let controller = controllers.get(controller_index);
         let controller_key = controller.signal_controller_key();
         let mut group_references: Vec<_> = controller.signal_groups().iter().collect();
         sort_reference_set(&mut group_references, 1, namespace);
@@ -876,14 +894,22 @@ pub(super) fn lower_aggregate_declarations(
                 debug_assert_eq!(phase_reference.module_namespace, namespace);
                 debug_assert_eq!(phase_reference.owner_local_keys(), &[controller_key]);
                 let phase_key = phase_reference.local_key();
-                let phase = root
-                    .signal_phases()
-                    .iter()
-                    .find(|phase| {
-                        phase.signal_controller() == controller_key
-                            && phase.signal_phase_key() == phase_key
+                let phase_position = phase_order
+                    .binary_search_by(|index| {
+                        let phase = phases.get(*index);
+                        phase
+                            .signal_controller()
+                            .as_bytes()
+                            .cmp(controller_key.as_bytes())
+                            .then_with(|| {
+                                phase
+                                    .signal_phase_key()
+                                    .as_bytes()
+                                    .cmp(phase_key.as_bytes())
+                            })
                     })
                     .expect("semantic preflight closed controller/phase ownership");
+                let phase = phases.get(phase_order[phase_position]);
 
                 let mut states: Vec<_> = phase.states().iter().collect();
                 states.sort_unstable_by(|left, right| {
