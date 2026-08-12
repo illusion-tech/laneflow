@@ -355,7 +355,9 @@ pub(crate) fn preflight_source(
     validate_access_and_profiles(&mut usage, root, namespace, imports, limits, expected_key)?;
     validate_routes_and_frames(&mut usage, root, namespace, imports, limits, expected_key)?;
 
-    usage.validate(limits)
+    let usage = usage.validate(limits)?;
+    validate_owner_closure(root, expected_key)?;
+    Ok(usage)
 }
 
 fn validate_provenance(
@@ -621,6 +623,275 @@ fn validate_reference_vector(
             expected_key,
         )?;
     }
+    Ok(())
+}
+
+fn local_root_reference_matches(value: &str, key: &str) -> bool {
+    validate_wire_reference(value, 1, false).is_ok_and(|reference| {
+        reference.namespace().is_none() && reference.key_components().eq([key])
+    })
+}
+
+fn local_child_reference_matches(
+    value: &str,
+    parent: &str,
+    parent_component_count: u8,
+    child_key: &str,
+) -> bool {
+    let Some(child_component_count) = parent_component_count.checked_add(1) else {
+        return false;
+    };
+    let Ok(reference) = validate_wire_reference(value, child_component_count, false) else {
+        return false;
+    };
+    let Ok(parent) = validate_wire_reference(parent, parent_component_count, false) else {
+        return false;
+    };
+    if reference.namespace().is_some() || parent.namespace().is_some() {
+        return false;
+    }
+
+    let mut components = reference.key_components();
+    parent
+        .key_components()
+        .all(|component| components.next() == Some(component))
+        && components.next() == Some(child_key)
+        && components.next().is_none()
+}
+
+fn validate_owner_closure(
+    root: wire::RoadEditingSource<'_>,
+    expected_key: &str,
+) -> Result<(), DiagnosticBundle> {
+    let corridors = root.road_corridors();
+    let sections = root.road_sections();
+    let lanes = root.authoring_lanes();
+    let bands = root.facility_bands();
+    let controllers = root.signal_controllers();
+    let groups = root.signal_groups();
+    let phases = root.signal_phases();
+
+    let section_matches = |corridor: wire::RoadCorridor<'_>,
+                           element: wire::CorridorElement<'_>,
+                           section: wire::RoadSection<'_>| {
+        element.kind() == wire::CorridorElementKind::RoadSection
+            && local_root_reference_matches(section.road_corridor(), corridor.road_corridor_key())
+            && local_child_reference_matches(
+                element.entity_reference(),
+                section.road_corridor(),
+                1,
+                section.road_section_key(),
+            )
+    };
+    for corridor in corridors {
+        for element in corridor.elements() {
+            if element.kind() == wire::CorridorElementKind::RoadSection
+                && !sections
+                    .iter()
+                    .any(|section| section_matches(corridor, element, section))
+            {
+                return Err(invalid_combination("roadCorridor.elements", expected_key));
+            }
+        }
+    }
+    for section in sections {
+        let owner_count = corridors
+            .iter()
+            .flat_map(|corridor| {
+                corridor
+                    .elements()
+                    .iter()
+                    .map(move |element| (corridor, element))
+            })
+            .filter(|(corridor, element)| section_matches(*corridor, *element, section))
+            .count();
+        if owner_count != 1 {
+            return Err(invalid_combination("roadCorridor.elements", expected_key));
+        }
+    }
+
+    let band_matches = |corridor: wire::RoadCorridor<'_>,
+                        element: wire::CorridorElement<'_>,
+                        band: wire::FacilityBand<'_>| {
+        element.kind() == wire::CorridorElementKind::FacilityBand
+            && local_root_reference_matches(band.road_corridor(), corridor.road_corridor_key())
+            && local_child_reference_matches(
+                element.entity_reference(),
+                band.road_corridor(),
+                1,
+                band.facility_band_key(),
+            )
+    };
+    for corridor in corridors {
+        for element in corridor.elements() {
+            if element.kind() == wire::CorridorElementKind::FacilityBand
+                && !bands
+                    .iter()
+                    .any(|band| band_matches(corridor, element, band))
+            {
+                return Err(invalid_combination("roadCorridor.elements", expected_key));
+            }
+        }
+    }
+    for band in bands {
+        let owner_count = corridors
+            .iter()
+            .flat_map(|corridor| {
+                corridor
+                    .elements()
+                    .iter()
+                    .map(move |element| (corridor, element))
+            })
+            .filter(|(corridor, element)| band_matches(*corridor, *element, band))
+            .count();
+        if owner_count != 1 {
+            return Err(invalid_combination("roadCorridor.elements", expected_key));
+        }
+    }
+
+    let lane_matches =
+        |section: wire::RoadSection<'_>, reference: &str, lane: wire::AuthoringLane<'_>| {
+            local_child_reference_matches(
+                lane.road_section(),
+                section.road_corridor(),
+                1,
+                section.road_section_key(),
+            ) && local_child_reference_matches(
+                reference,
+                lane.road_section(),
+                2,
+                lane.authoring_lane_key(),
+            )
+        };
+    for section in sections {
+        for reference in section.authoring_lanes() {
+            if !lanes
+                .iter()
+                .any(|lane| lane_matches(section, reference, lane))
+            {
+                return Err(invalid_combination(
+                    "roadSection.authoringLanes",
+                    expected_key,
+                ));
+            }
+        }
+    }
+    for lane in lanes {
+        let owner_count = sections
+            .iter()
+            .flat_map(|section| {
+                section
+                    .authoring_lanes()
+                    .iter()
+                    .map(move |reference| (section, reference))
+            })
+            .filter(|(section, reference)| lane_matches(*section, reference, lane))
+            .count();
+        if owner_count != 1 {
+            return Err(invalid_combination(
+                "roadSection.authoringLanes",
+                expected_key,
+            ));
+        }
+    }
+
+    for controller in controllers {
+        for reference in controller.signal_groups() {
+            if !groups
+                .iter()
+                .any(|group| local_root_reference_matches(reference, group.signal_group_key()))
+            {
+                return Err(invalid_combination(
+                    "signalController.signalGroups",
+                    expected_key,
+                ));
+            }
+        }
+    }
+    for group in groups {
+        let owner_count = controllers
+            .iter()
+            .flat_map(|controller| controller.signal_groups().iter())
+            .filter(|reference| local_root_reference_matches(reference, group.signal_group_key()))
+            .count();
+        if owner_count != 1 {
+            return Err(invalid_combination(
+                "signalController.signalGroups",
+                expected_key,
+            ));
+        }
+    }
+
+    let phase_matches =
+        |controller: wire::SignalController<'_>, reference: &str, phase: wire::SignalPhase<'_>| {
+            local_root_reference_matches(
+                phase.signal_controller(),
+                controller.signal_controller_key(),
+            ) && local_child_reference_matches(
+                reference,
+                phase.signal_controller(),
+                1,
+                phase.signal_phase_key(),
+            )
+        };
+    for controller in controllers {
+        for reference in controller.signal_phases() {
+            if !phases
+                .iter()
+                .any(|phase| phase_matches(controller, reference, phase))
+            {
+                return Err(invalid_combination(
+                    "signalController.signalPhases",
+                    expected_key,
+                ));
+            }
+        }
+    }
+    for phase in phases {
+        let owner_count = controllers
+            .iter()
+            .flat_map(|controller| {
+                controller
+                    .signal_phases()
+                    .iter()
+                    .map(move |reference| (controller, reference))
+            })
+            .filter(|(controller, reference)| phase_matches(*controller, reference, phase))
+            .count();
+        if owner_count != 1 {
+            return Err(invalid_combination(
+                "signalController.signalPhases",
+                expected_key,
+            ));
+        }
+
+        let Some(controller) = controllers.iter().find(|controller| {
+            local_root_reference_matches(
+                phase.signal_controller(),
+                controller.signal_controller_key(),
+            )
+        }) else {
+            return Err(invalid_combination(
+                "signalPhase.signalController",
+                expected_key,
+            ));
+        };
+        let controller_groups = controller.signal_groups();
+        let states = phase.states();
+        if states.len() != controller_groups.len()
+            || states.iter().any(|state| {
+                !controller_groups
+                    .iter()
+                    .any(|reference| reference == state.signal_group())
+            })
+        {
+            return Err(invalid_combination(
+                "signalPhase.states.signalGroup",
+                expected_key,
+            ));
+        }
+    }
+
     Ok(())
 }
 
@@ -2255,5 +2526,37 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn owner_closure_references_require_local_exact_addresses() {
+        assert!(local_root_reference_matches("group", "group"));
+        assert!(!local_root_reference_matches("base::group", "group"));
+        assert!(!local_root_reference_matches("other", "group"));
+
+        assert!(local_child_reference_matches(
+            "corridor>section",
+            "corridor",
+            1,
+            "section",
+        ));
+        assert!(local_child_reference_matches(
+            "corridor>section>lane",
+            "corridor>section",
+            2,
+            "lane",
+        ));
+        assert!(!local_child_reference_matches(
+            "base::corridor>section",
+            "corridor",
+            1,
+            "section",
+        ));
+        assert!(!local_child_reference_matches(
+            "other>section",
+            "corridor",
+            1,
+            "section",
+        ));
     }
 }
