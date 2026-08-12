@@ -25,6 +25,7 @@ use crate::declaration::{
     SignalGroupStateDeclaration, SignalPhaseDeclaration, SpeedLimit, StaticRouteDeclaration,
     StaticRouteInput, StopLineDeclaration, StopLineInput, TypedAstDeclaration,
     VehicleProfileDeclaration, VehicleProfileInput, WaitingZoneDeclaration, WaitingZoneInput,
+    facility_kind_category,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
@@ -3041,27 +3042,6 @@ fn push_limit_if_exceeded(
     {
         diagnostics.push(diagnostic);
     }
-}
-
-fn facility_kind_category(kind_id: &str) -> Option<FacilityKindCategory> {
-    let seed_category = match kind_id {
-        "motorLane" | "nonMotorLane" => Some(FacilityKindCategory::LaneBearing),
-        "sidewalk" | "median" | "plantingStrip" | "facilityStrip" | "shoulder" => {
-            Some(FacilityKindCategory::NonTraversable)
-        }
-        _ => None,
-    };
-    if seed_category.is_some() {
-        return seed_category;
-    }
-    // `x-lane-` 是 `x-` 的特化前缀，必须先失败关闭；空 lane 后缀不能回退成普通 band。
-    if let Some(suffix) = kind_id.strip_prefix("x-lane-") {
-        return (!suffix.is_empty()).then_some(FacilityKindCategory::LaneBearing);
-    }
-    kind_id
-        .strip_prefix("x-")
-        .filter(|suffix| !suffix.is_empty())
-        .map(|_| FacilityKindCategory::NonTraversable)
 }
 
 fn normalize_spatial_zero(value: f32) -> f32 {

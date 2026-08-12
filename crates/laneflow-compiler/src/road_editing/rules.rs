@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use crate::declaration::{FacilityKindCategory, facility_kind_category};
 use crate::source::external_token_violation;
 use crate::{Diagnostic, DiagnosticBundle, RoadEditingInputViolation, SourceTextViolation};
 
@@ -20,6 +21,20 @@ pub(super) fn validate_token(value: &str, field: &str) -> Result<(), DiagnosticB
             RoadEditingInputViolation::InvalidText(SourceTextViolation::ReservedDelimiter {
                 byte_index: u64::try_from(byte_index).unwrap_or(u64::MAX),
             }),
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn validate_facility_kind(
+    value: &str,
+    expected: FacilityKindCategory,
+    field: &str,
+) -> Result<(), DiagnosticBundle> {
+    if facility_kind_category(value) != Some(expected) {
+        return Err(input_error(
+            field,
+            RoadEditingInputViolation::InvalidCombination,
         ));
     }
     Ok(())
