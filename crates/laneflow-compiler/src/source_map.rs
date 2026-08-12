@@ -83,8 +83,7 @@ mod logical_byte_tests {
             2 + 4 + 16 + 2 + 4 + 4 + 16 + 4
         );
         assert_eq!(
-            SPATIAL_GEOMETRY_SOURCE_RANGE_FIXED_LOGICAL_BYTES
-                + TEXT_SOURCE_LOCATION_LOGICAL_BYTES,
+            SPATIAL_GEOMETRY_SOURCE_RANGE_FIXED_LOGICAL_BYTES + TEXT_SOURCE_LOCATION_LOGICAL_BYTES,
             4 + 4 + 4 + 4 + 16 + 4
         );
     }
