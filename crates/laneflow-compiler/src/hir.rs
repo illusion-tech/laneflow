@@ -29,7 +29,7 @@ use laneflow_static_contract::{
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::declaration::{
-    LaneEdgeDeclaration, OwnedAccessRegulation, OwnedAccessRuleTarget,
+    LaneEdgeDeclaration, MAX_PORTABLE_SIGNAL_TIME_MS, OwnedAccessRegulation, OwnedAccessRuleTarget,
     OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl, TypedAstDeclaration,
 };
 use crate::diagnostic::DiagnosticCollector;
@@ -3792,9 +3792,6 @@ fn build_control_hir(
         stop_line_maneuver_gates: stop_line_maneuver_gates.into_boxed_slice(),
     })
 }
-
-/// JavaScript/JSON 等常见编制前端可以无损表达的最大整数毫秒值。
-const MAX_PORTABLE_SIGNAL_TIME_MS: u64 = 9_007_199_254_740_991;
 
 #[allow(clippy::too_many_lines)]
 fn build_signal_hir(
