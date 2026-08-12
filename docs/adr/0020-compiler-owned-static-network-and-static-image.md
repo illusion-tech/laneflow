@@ -115,11 +115,18 @@ graph，而不是 Geometry 这一种格式。每个 module 必须绑定稳定 na
 language/content digest、frontend version/options、origin/provenance 与 imports。
 下列输入能力是可组合 frontend/source：
 
-- **Synthetic DSL frontend**：测试、benchmark、示例和程序化场景；
-- **Geometry document frontend**：production 的主要 authoring language；
+- **Synthetic DSL frontend**：测试、benchmark、示例和非发布程序化场景；
+- **Road editing / Geometry frontend**：production 道路编辑状态的主要受检前端；可视化
+  编辑器、可发布程序化生成器、SDK 与 importer 共享有类型道路编辑模型，#296 的产品
+  负责人已选择按模块 size-prefixed FlatBuffers 作为物理来源编码；其 exact schema、资源
+  和审计契约仍须通过当前 G1；
 - **Import frontend**：OSM、外部工具和离线 migration；
-- **Editor authoring surface**：默认持久化 Geometry module；只有定义独立可重放
-  source format 时才成为独立 frontend。
+- **Editor authoring surface**：编辑并持久化道路编辑状态，通过画布选择和语义差异消费
+  诊断；不拥有私有编译语义。
+
+ADR 0023 重新打开了“Geometry JSON 文档是 production 主要编制语言”的具体格式选择。
+source module graph 仍是逻辑编制权威，但其可重放物理编码必须服务编辑器、程序化
+生成、局部加载和协作，而不以人工文本编辑或原始 Git diff 为产品前提。
 
 每个 frontend 只负责自己的语法、来源保真和 source span，不得输出
 `InitialTrafficData`、Core registry 或 target runtime object graph。不同 frontend

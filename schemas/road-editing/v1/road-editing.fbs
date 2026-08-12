@@ -1,0 +1,398 @@
+// LaneFlow 道路编辑来源缓冲区 v1。
+//
+// 本 schema 只冻结 portable wire shape。字符串语法、引用闭包、数值范围、所有者
+// 唯一性、曲线误差与资源上限仍由 LaneFlow 语义验证器执行。当前 exact B1 version 的
+// table id / enum / union 判别值固定；未发布的后继 version 可经新 G1 clean-regenerate，
+// 不在 promotion/publication 前承担 append / deprecated / no-reuse 兼容承诺。
+
+namespace LaneFlow.RoadEditing.V1;
+
+/// 32-byte SHA-256 摘要。
+struct Digest256 {
+  bytes:[ubyte:32];
+}
+
+/// 可选的无符号 64-bit 值；table 中缺少本 struct 表示 None。
+struct OptionalU64 {
+  value:ulong;
+}
+
+/// 编制坐标中的 f64 三维点，单位为米。
+struct Vec3F64 {
+  x:double;
+  y:double;
+  z:double;
+}
+
+/// 一个 corridor station 区间内的线性宽度；两端单位均为米。
+struct LinearWidthProfile {
+  start_width_meters:double;
+  end_width_meters:double;
+}
+
+enum ProvenanceKind:ubyte {
+  Unspecified = 0,
+  Direct = 1,
+  Generated = 2
+}
+
+enum GeometryAccuracyProfile:ubyte {
+  Unspecified = 0,
+  Fine2Cm = 1,
+  Balanced5Cm = 2,
+  Compact10Cm = 3
+}
+
+enum GeometryDirectionProfile:ubyte {
+  Unspecified = 0,
+  Smooth1Deg = 1,
+  Balanced2Deg = 2,
+  Compact5Deg = 3
+}
+
+enum StationEndKind:ubyte {
+  Unspecified = 0,
+  Finite = 1,
+  AlignmentEnd = 2
+}
+
+enum CorridorElementKind:ubyte {
+  Unspecified = 0,
+  RoadSection = 1,
+  FacilityBand = 2
+}
+
+enum LaneDirection:ubyte {
+  Unspecified = 0,
+  Forward = 1,
+  Backward = 2
+}
+
+enum SignalAspect:ubyte {
+  Unspecified = 0,
+  Red = 1,
+  Yellow = 2,
+  Green = 3
+}
+
+enum SignalControlKind:ubyte {
+  Unspecified = 0,
+  None = 1,
+  SignalGroup = 2
+}
+
+enum AccessTargetKind:ubyte {
+  Unspecified = 0,
+  LaneEdge = 1,
+  LaneGroup = 2,
+  RoadSection = 3,
+  ManeuverPath = 4
+  // 数值 5 在 v1 中保留且无效；FacilityBand target 由后继格式版本决定。
+}
+
+enum AccessEffect:ubyte {
+  Unspecified = 0,
+  Allow = 1,
+  Deny = 2
+}
+
+/// 一次来源写入的沿袭；摘要字段固定为原始 32 bytes，不使用十六进制文本。
+table Provenance {
+  kind:ProvenanceKind = Unspecified (id: 0);
+  generator_build_id:string (required, id: 1);
+  parameters_and_inputs_digest:Digest256 (required, id: 2);
+  frontend_options_digest:Digest256 (required, id: 3);
+  random_seed:OptionalU64 (id: 4);
+  description:string (required, id: 5);
+}
+
+/// 一个逻辑来源模块恰有一个该头；imports 顺序不进入语义。
+table ModuleHeader {
+  authoring_namespace_id:string (required, id: 0);
+  source_document_key:string (required, id: 1);
+  imports:[string] (required, id: 2);
+  provenance:Provenance (required, id: 3);
+}
+
+table LineSegment {
+  end:Vec3F64 (required, id: 0);
+}
+
+table CubicBezierSegment {
+  control_1:Vec3F64 (required, id: 0);
+  control_2:Vec3F64 (required, id: 1);
+  end:Vec3F64 (required, id: 2);
+}
+
+union CurveSegmentGeometry {
+  LineSegment = 1,
+  CubicBezierSegment = 2
+}
+
+/// 曲线段是道路走向内的 owner-local 值；vector index 只用于来源属性定位。
+table CurveSegment {
+  geometry:CurveSegmentGeometry (required, id: 1);
+  canvas_selection:string (id: 2);
+}
+
+table CurveProgram {
+  start:Vec3F64 (required, id: 0);
+  segments:[CurveSegment] (required, id: 1);
+}
+
+/// 当前道路走向定义；它有稳定编辑键，但不属于 Identity v1，不分配 StableId128。
+table RoadAlignment {
+  road_alignment_key:string (required, id: 0);
+  canonical_frame:string (required, id: 1);
+  reference_line:CurveProgram (required, id: 2);
+  canvas_selection:string (id: 3);
+}
+
+/// 走廊横断面中的一个有序 owner-local 成员引用。
+table CorridorElement {
+  kind:CorridorElementKind = Unspecified (id: 0);
+  entity_reference:string (required, id: 1);
+}
+
+table RoadCorridor {
+  road_corridor_key:string (required, id: 0);
+  road_alignment_key:string (required, id: 1);
+  start_station_meters:double = 0.0 (id: 2);
+  end_station_kind:StationEndKind = Unspecified (id: 3);
+  end_station_meters:double = 0.0 (id: 4);
+  reference_section:string (required, id: 5);
+  reference_lane:string (required, id: 6);
+  elements:[CorridorElement] (required, id: 7);
+  canvas_selection:string (id: 8);
+}
+
+table RoadSection {
+  road_section_key:string (required, id: 0);
+  kind_id:string (required, id: 1);
+  authoring_lanes:[string] (required, id: 2);
+  canvas_selection:string (id: 3);
+  road_corridor:string (required, id: 4);
+}
+
+table AuthoringLane {
+  authoring_lane_key:string (required, id: 0);
+  lane_edge:string (required, id: 1);
+  direction:LaneDirection = Unspecified (id: 2);
+  width_profile:LinearWidthProfile (required, id: 3);
+  lane_group:string (id: 4);
+  canvas_selection:string (id: 5);
+  road_section:string (required, id: 6);
+}
+
+/// explicit_geometry 只用于路口内部边；道路区段车道的中心线由走向与横断面派生。
+table LaneEdge {
+  lane_edge_key:string (required, id: 0);
+  speed_limit_meters_per_second:double = 0.0 (id: 1);
+  successors:[string] (required, id: 2);
+  explicit_geometry:CurveProgram (id: 3);
+  canvas_selection:string (id: 4);
+}
+
+table Junction {
+  junction_key:string (required, id: 0);
+  approach_edges:[string] (required, id: 1);
+  internal_edges:[string] (required, id: 2);
+  canvas_selection:string (id: 3);
+}
+
+table Movement {
+  movement_key:string (required, id: 0);
+  junction:string (required, id: 1);
+  directed_entry_approach_key:string (required, id: 2);
+  directed_exit_approach_key:string (required, id: 3);
+  canvas_selection:string (id: 4);
+}
+
+table ManeuverPath {
+  maneuver_path_key:string (required, id: 0);
+  movement:string (required, id: 1);
+  entry_edge:string (required, id: 2);
+  internal_edges:[string] (required, id: 3);
+  exit_edge:string (required, id: 4);
+  canvas_selection:string (id: 5);
+}
+
+table ManeuverGate {
+  maneuver_gate_key:string (required, id: 0);
+  maneuver_path:string (required, id: 1);
+  transition_index:uint = 0 (id: 2);
+  stop_line:string (required, id: 3);
+  signal_control:SignalControlKind = Unspecified (id: 4);
+  signal_group:string (id: 5);
+  canvas_selection:string (id: 6);
+}
+
+table WaitingZone {
+  waiting_zone_key:string (required, id: 0);
+  maneuver_path:string (required, id: 1);
+  entry_gate:string (required, id: 2);
+  release_gate:string (required, id: 3);
+  max_occupancy:uint = 0 (id: 4);
+  canvas_selection:string (id: 5);
+}
+
+table StopLine {
+  stop_line_key:string (required, id: 0);
+  lane_edge:string (required, id: 1);
+  canvas_selection:string (id: 2);
+}
+
+table SignalGroup {
+  signal_group_key:string (required, id: 0);
+  canvas_selection:string (id: 1);
+}
+
+/// signal_groups 是无序唯一归属集合；该归属不改变 SignalGroup 的 module-scoped identity。
+/// signal_phases 的顺序定义固定时制循环。
+table SignalController {
+  signal_controller_key:string (required, id: 0);
+  offset_milliseconds:ulong = 0 (id: 1);
+  signal_groups:[string] (required, id: 2);
+  signal_phases:[string] (required, id: 3);
+  canvas_selection:string (id: 4);
+}
+
+/// 信号相位是 Identity v1 实体；states 是 owner-local 完备状态集合。
+table SignalPhaseState {
+  signal_group:string (required, id: 0);
+  aspect:SignalAspect = Unspecified (id: 1);
+}
+
+table SignalPhase {
+  signal_phase_key:string (required, id: 0);
+  duration_milliseconds:ulong = 0 (id: 1);
+  states:[SignalPhaseState] (required, id: 2);
+  canvas_selection:string (id: 3);
+  signal_controller:string (required, id: 4);
+}
+
+table ParkingArea {
+  parking_area_key:string (required, id: 0);
+  canvas_selection:string (id: 1);
+}
+
+table ParkingLaneAnchor {
+  lane_edge:string (required, id: 0);
+  progress_meters:double = 0.0 (id: 1);
+}
+
+table ParkingSpaceGeometry {
+  lateral_offset_meters:double = 0.0 (id: 0);
+  heading_offset_radians:double = 0.0 (id: 1);
+  length_meters:double = 0.0 (id: 2);
+  width_meters:double = 0.0 (id: 3);
+}
+
+table ParkingSpace {
+  parking_space_key:string (required, id: 0);
+  parking_area:string (id: 1);
+  entry:ParkingLaneAnchor (required, id: 2);
+  exit:ParkingLaneAnchor (required, id: 3);
+  geometry:ParkingSpaceGeometry (required, id: 4);
+  canvas_selection:string (id: 5);
+}
+
+table LaneGroup {
+  lane_group_key:string (required, id: 0);
+  road_section:string (required, id: 1);
+  canvas_selection:string (id: 2);
+}
+
+table FacilityBand {
+  facility_band_key:string (required, id: 0);
+  kind_id:string (required, id: 1);
+  width_profile:LinearWidthProfile (required, id: 2);
+  canvas_selection:string (id: 3);
+  road_corridor:string (required, id: 4);
+}
+
+table ParticipantClass {
+  participant_class_key:string (required, id: 0);
+  extends:string (id: 1);
+  canvas_selection:string (id: 2);
+}
+
+table AccessRegulation {
+  jurisdiction:string (required, id: 0);
+  version:string (required, id: 1);
+  source:string (id: 2);
+}
+
+table AccessRule {
+  access_rule_key:string (required, id: 0);
+  target_kind:AccessTargetKind = Unspecified (id: 1);
+  target_reference:string (required, id: 2);
+  effect:AccessEffect = Unspecified (id: 3);
+  participant_classes:[string] (required, id: 4);
+  regulation:AccessRegulation (id: 5);
+  priority:int = 0 (id: 6);
+  canvas_selection:string (id: 7);
+}
+
+table IidmVehicleProfile {
+  length_meters:double = 0.0 (id: 0);
+  desired_speed_meters_per_second:double = 0.0 (id: 1);
+  min_gap_meters:double = 0.0 (id: 2);
+  time_headway_seconds:double = 0.0 (id: 3);
+  max_acceleration_meters_per_second_squared:double = 0.0 (id: 4);
+  comfortable_deceleration_meters_per_second_squared:double = 0.0 (id: 5);
+  emergency_deceleration_meters_per_second_squared:double = 0.0 (id: 6);
+}
+
+table VehicleProfile {
+  vehicle_profile_key:string (required, id: 0);
+  participant_class:string (required, id: 1);
+  iidm:IidmVehicleProfile (required, id: 2);
+  canvas_selection:string (id: 3);
+}
+
+table StaticRoute {
+  static_route_key:string (required, id: 0);
+  edge_sequence:[string] (required, id: 1);
+  canvas_selection:string (id: 2);
+}
+
+table CanonicalFrame {
+  canonical_frame_key:string (required, id: 0);
+  canvas_selection:string (id: 1);
+}
+
+/// v1 root。road_alignments 是编辑状态记录；其余 22 个向量与 Identity v1 一一对应。
+table RoadEditingSource {
+  format_version:uint = 0 (id: 0);
+  module_header:ModuleHeader (required, id: 1);
+  geometry_accuracy_profile:GeometryAccuracyProfile = Unspecified (id: 2);
+  geometry_direction_profile:GeometryDirectionProfile = Unspecified (id: 3);
+  road_alignments:[RoadAlignment] (required, id: 4);
+  road_corridors:[RoadCorridor] (required, id: 5);
+  road_sections:[RoadSection] (required, id: 6);
+  authoring_lanes:[AuthoringLane] (required, id: 7);
+  lane_edges:[LaneEdge] (required, id: 8);
+  junctions:[Junction] (required, id: 9);
+  movements:[Movement] (required, id: 10);
+  maneuver_paths:[ManeuverPath] (required, id: 11);
+  maneuver_gates:[ManeuverGate] (required, id: 12);
+  waiting_zones:[WaitingZone] (required, id: 13);
+  stop_lines:[StopLine] (required, id: 14);
+  signal_groups:[SignalGroup] (required, id: 15);
+  signal_controllers:[SignalController] (required, id: 16);
+  signal_phases:[SignalPhase] (required, id: 17);
+  parking_areas:[ParkingArea] (required, id: 18);
+  parking_spaces:[ParkingSpace] (required, id: 19);
+  lane_groups:[LaneGroup] (required, id: 20);
+  facility_bands:[FacilityBand] (required, id: 21);
+  participant_classes:[ParticipantClass] (required, id: 22);
+  access_rules:[AccessRule] (required, id: 23);
+  vehicle_profiles:[VehicleProfile] (required, id: 24);
+  static_routes:[StaticRoute] (required, id: 25);
+  canonical_frames:[CanonicalFrame] (required, id: 26);
+}
+
+root_type RoadEditingSource;
+file_identifier "LFRE";
+file_extension "lfre";

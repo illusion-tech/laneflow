@@ -1,10 +1,14 @@
-# LaneFlow JSON Schema Source and Publication
+# LaneFlow Schema Source and Publication
 
 <!-- schema-publication-contract: public-retrieval -->
 <!-- schema-publication-catalog: schemas/publication.json -->
 <!-- schema-source-current: traffic=0.10;spatial=0.1;scenarioManifest=0.1 -->
 
 本目录同时保存当前 schema source 与已经公开的 immutable schema artifacts。机器可读的 family、current source、canonical URL 与 publication provenance 见 [`publication.json`](publication.json)。
+
+FlatBuffers 等非 JSON schema 可以先作为明确标注的 G1 候选进入子目录；在对应 Gate、
+production reader/writer 和发布来源固定前，它们不进入 `publication.json`，也不得被
+描述成已发布或当前 production contract。
 
 ## 当前 Source Contract
 
@@ -13,6 +17,16 @@
 | Traffic           | [`laneflow-data-v0.10.schema.json`](laneflow-data-v0.10.schema.json)                         | 已发布           |
 | Spatial           | [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)                     | 已发布           |
 | Scenario Manifest | [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json) | 已发布           |
+
+## G1 候选 Source Contract
+
+| Family       | Candidate source                                                       | 状态                             |
+| ------------ | ---------------------------------------------------------------------- | -------------------------------- |
+| Road Editing | [`road-editing/v1/road-editing.fbs`](road-editing/v1/road-editing.fbs) | #296 G1 冻结候选；未实现、未发布 |
+
+字段级领域语义见 [`road-editing/v1/README.md`](road-editing/v1/README.md)。它使用
+size-prefixed FlatBuffers 和 `LFRE` file identifier，不是 JSON Schema，也不由当前
+GitHub Pages JSON schema publication workflow 发布。
 
 `currentFormatVersion` 表示 repository 中由 loader/tests 使用的当前 source；只有列入对应 `publishedSchemas` 且具有固定 `sourceRevision` / `sourceBlobOid` 的文件才属于公共发布集合。新 family 可以先合入 source，再由后续 publication PR 固定 `main` revision 并发布，避免以可变分支提交伪造不可变 provenance。
 

@@ -1,0 +1,21 @@
+{
+  "schema": "laneflow.road-editing-source-calibration-reference-machine",
+  "schemaVersion": 1,
+  "hardwareId": "LF-P100-REF-01",
+  "hardwareIdentitySha256": "be3637be955f6c2c9e9e55b80419794adfac64b709d573602a37da9a8672fd20",
+  "hardwareIdentityScheme": "laneflow-p100-hardware-identity-v2",
+  "hardwareIdentityRule": "laneflow-p100-hardware-identity-v2：采集 Win32_ComputerSystemProduct.UUID、Win32_BIOS.SerialNumber、Win32_BaseBoard.SerialNumber；每个值去除全部空白字符并转为大写；按上述顺序以单个 U+000A 拼接、无尾换行；对拼接结果的 UTF-8 字节计算 SHA-256 并输出 64 位小写十六进制。scheme 自 v1 升级：v1 的冻结规则文本无法复现其自身指纹，v2 冻结本条可复现的精确规则，历史冻结证据不改写",
+  "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+  "physicalCoreCount": 16,
+  "logicalProcessorCount": 32,
+  "physicalMemoryBytes": 66232508416,
+  "operatingSystem": "Microsoft Windows 11 专业版 Insider Preview",
+  "operatingSystemBuild": "29639",
+  "targetTriple": "x86_64-pc-windows-msvc",
+  "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+  "llvm": "22.1.2",
+  "powerSource": "交流电",
+  "powerPlan": "平衡",
+  "biosFirmware": "N.1.09MRO07 (2025-04-08)",
+  "declarationRule": "正式校准运行必须发生在与本声明 hardwareId/hardwareIdentityScheme/hardwareIdentitySha256 完全匹配的物理机器上；本文件的其余字段是 2026-08-09 声明时快照，正式证据独立重报全部环境字段并由 cross-record validator 与 manifest 无关地核对一致性"
+}

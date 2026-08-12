@@ -13,8 +13,10 @@ Runtime）命名、静态执行约束（Static Execution Constraints）、不可
 ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial Registry）；
 #292 已完成编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
 （Synthetic DSL Frontend）G4；#315 已落地私有共同 Typed AST、逻辑模块/来源文档独立登记、
-原子共同接入、文档集摘要与 v2 文档数配置档；#296 具体前端仍按自身 Gate 推进；
-#297 不再建立 current JSON 编译器前端
+原子共同接入、文档集摘要与 v2 文档数配置档；#296 因 production 来源产品前提纠偏
+已取得 FlatBuffers `G1 Pass` 与 `G2 Pass`，新的 FlatBuffers 道路编辑 B1 已成为接受的
+内部未发布实现契约，但在对应 production 实现合入前不构成当前生产入口；旧 Geometry
+JSON 实现只作历史证据；#297 不再建立 current JSON 编译器前端
 
 **关联决策与设计**:
 
@@ -68,10 +70,10 @@ ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial 
 图中英文不能独立改变架构语义。
 
 ```text
-Geometry modules ───────┐
-Synthetic DSL modules ──┼─> authoritative source module graph
-Imported modules ───────┤                 │
-Editor-authored modules ┘                 v
+Road-editing modules ────┐
+Synthetic DSL modules ───┼─> authoritative source module graph
+Imported modules ────────┤                 │
+Other checked modules ───┘                 v
                            typed AST -> HIR -> MIR -> validated canonical LIR
                                                           │
                                                           ├─> portable canonical artifact
@@ -211,12 +213,14 @@ SHA-256；`sourceDocumentSetDigest` 是对模块内按文档键排序的文档�
 `sourceDocumentSetDigest`、稳定标识或 LIR 语义摘要，其条目、字符串与存续字节必须
 纳入资源上限。
 
-- Geometry document 是生产场景的主要 source language，但不是唯一 SSOT；
+- 道路编辑状态是 production 编辑器和程序化生成场景的主要 source language；可视化编辑器、
+  第一方 Rust 构造面与 importer 共享有类型道路编辑模型，使用按模块的
+  `LF-ROAD-EDITING-SOURCE-v1` FlatBuffers 来源缓冲区持久化；
 - Synthetic DSL source 是测试、fixture、benchmark 和示例 module 的权威输入；
 - import module 必须记录原始 source bytes/digest、importer build、选项和 provenance；
-  选择 materialize 为 Geometry module 时，必须显式记录 authority 切换；
-- editor 默认编辑并持久化 Geometry module；只有拥有独立、可重放 source format 时
-  才成为独立 frontend；
+  选择 materialize 为道路编辑来源模块时，必须显式记录 authority 切换；
+- editor 编辑并持久化道路编辑状态，通过稳定实体、属性和画布 selection 关联诊断，
+  不私有化 semantic compiler；
 - programmatic generator 若参与可发布 compilation，必须记录 build ID、参数、
   seed、namespace 和输入 digest；匿名 AST 注入只能用于非发布测试。
 
@@ -298,7 +302,8 @@ compiler、Adapter 或 scenario policy 绕过。
 v1 只以 `ModuleCount` 隐式约束一模块一文档形状，当前 Synthetic 符合该形状；任何多文档模块都
 必须在前端按规模分配和共同接入提交前确认宿主显式选择了 v2 或后继携带
 `SourceDocumentCount` 的版本化配置档。多文档正式前端必须在读取、哈希或解析前拒绝
-不具备 `SourceDocumentCount` 的配置档；Geometry 按 #296 冻结的实际文档基数应用
+不具备 `SourceDocumentCount` 的配置档；#296 道路编辑来源按“一模块一个 source
+buffer/document”应用
 同一规则，不得为 v1 猜测默认值或自动升级。
 
 来源专用封装以移动语义进入接入值，不复制完整 AST、字符串或几何。精确来源载荷
@@ -317,32 +322,39 @@ format 决定编译器语义。精确退役边界见
 [`current-package-import.md`](current-package-import.md)。
 
 这不是第三方前端插件协议。#315 只冻结公开面继续使用 LaneFlow 拥有的具体入口以及它们进入共同
-私有接入的规则，不交付或冻结 Geometry 公共签名。`GeometryModule` 与
-`add_geometry_module` 是 #296 保留入口，其精确类型、签名、实际来源文档基数和 v1/v2 准入行为只由
-#296 G1 冻结。#297 已取消 current JSON 迁移入口，不建立相应特性、输入类型或导入器。
+私有接入的规则，不交付或冻结 Geometry 公共签名。#296 FlatBuffers G1 选择借用完整
+`LF-ROAD-EDITING-SOURCE-v1` bytes 的字段私有 `RoadEditingModuleInput` 和唯一原子
+`add_road_editing_module`；wire DTO、typed module 和 descriptor 均保持私有。
+#297 已取消 current JSON 迁移入口，不建立相应特性、输入类型或导入器。
 通用 `add_module`、公共前端
 特征（trait）、裸 Typed AST 和裸描述符/内容配对继续禁止。
 
-### 5.3 几何文档前端（Geometry Document Frontend）
+### 5.3 道路编辑与几何编制前端（Road Editing and Geometry Frontend）
 
-长期生产 authoring frontend。目标模型包含：
+长期 production authoring frontend。#296 FlatBuffers G1 选择
+`LF-ROAD-EDITING-SOURCE-v1`（按模块的 size-prefixed FlatBuffers 来源缓冲区）；道路编辑
+状态、有类型道路编辑模型、公开 Rust 构造面、generated `unsafe` 审计边界、阶段
+生命周期、曲线细分、stationing、资源/诊断顺序、验证矩阵和性能门槛统一由
+`road-editing-source-and-geometry-frontend.md` 管理。本节只保留综合架构边界。目标模型包含：
 
 1. 参考线：三维 curve segments、弧长与方向；
 2. 横断面：沿参考线分段变化的 lane/facility 结构；
 3. 连接：junction/connection intent、默认生成策略与显式 override；
 4. 规则：signals、Gate/WaitingZone、access、parking 和其他静态 overlay。
 
-曲线在 MIR 中按确定性误差预算离散为 canonical f32 polyline；static image 不保存
-authoring curve evaluator。具体 curve segment 集合由独立 numeric/authoring G1
-和 benchmark 冻结，不在 #291 先选 library。
+曲线在 MIR 中按冻结 B1 规则离散为 canonical f32 polyline；static image 不保存
+authoring curve evaluator。旧严格 UTF-8 JSON Geometry 方案已经归档，不获得来源格式
+兼容承诺；新契约已是接受的内部未发布实现契约，在对应 production 实现合入前不构成
+当前生产入口，B1 也不构成已发布存档格式或长期兼容承诺。
 
 ### 5.4 导入与编辑器编制（Import and Editor Authoring）
 
 - importer 保存来源 provenance，必须显式生成稳定 key；不允许用导入遍历 ordinal
   冒充标识；
-- editor 直接编辑并持久化 source module，诊断以 source span/画布 selection 回传；
+- editor 直接编辑并持久化道路编辑状态；诊断以稳定实体、属性路径、画布 selection 和
+  必要的损坏字节范围回传，不要求虚构文本行列；
 - importer/Editor 不维护私有 semantic compiler，所有 module 都进入共同 HIR；
-- publishable compile 不接收没有 owning module、source span/provenance 或稳定
+- publishable compile 不接收没有 owning module、闭合 `SourceLocation`/provenance 或稳定
   namespace 的匿名 AST。
 
 ## 6. 编译器中间表示与编译遍边界（Compiler IR and Pass Boundaries）
@@ -353,7 +365,7 @@ authoring curve evaluator。具体 curve segment 集合由独立 numeric/authori
 
 - explicit/derived declarations；
 - stable authoring key；
-- source span、file/module provenance；
+- 闭合 `SourceLocation`、file/module provenance；文本来源的位置分支才是 `SourceSpan`；
 - typed number token 与 unit；
 - 尚未解析但已分类的 reference。
 
@@ -369,7 +381,7 @@ AST 不含 Core handle、runtime slot、target ABI 或 compiler 推断出的最�
 - defaults 的显式化；
 - authoring semantic category 与 overlay merge。
 
-HIR 仍能追溯全部 source span。跨 module 重名、引用 cycle、unit/type 错误在此失败。
+HIR 仍能追溯全部 source location。跨 module 重名、引用 cycle、unit/type 错误在此失败。
 
 ### 6.3 中层中间表示（MIR）
 
@@ -684,7 +696,7 @@ StableId128 =
 - **SHA-256**：承担 artifact/image/publication integrity，不与实体标识摘要
   混用。
 
-compiler 维护 `StableId128 -> CanonicalIdentity + owning span` 登记。两个 stable
+compiler 维护 `StableId128 -> CanonicalIdentity + owning source location` 登记。两个 stable
 entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest 对应不同 tuple
 返回 `IdentityDigestCollision`。不得追加 ordinal、salt 或 suffix 静默修复。
 
@@ -990,15 +1002,15 @@ records
 `canonicalArtifactDigest` 绑定本次编译产生的 portable artifact exact bytes，
 `networkRevisionDerivationVersion + networkRevision` 绑定其规范语义，
 envelope 内的 records 绑定权威来源模块图、frontend/import 工具与显式编译选项的
-来源沿袭。即使实体 `StableId128` 与 typed ordinal 都未变化，source span、来源模块
+来源沿袭。即使实体 `StableId128` 与 typed ordinal 都未变化，来源位置、来源模块
 或编译输入变化也必须生成新的 `SourceMapEnvelope` exact bytes。
 
 源映射记录在上述 envelope 内按标识类别选择 key：
 
-- 拥有声明（owning declaration）和贡献来源位置（contributing spans）；
+- 拥有声明（owning declaration）和贡献来源位置（contributing locations）；
 - declaration/addressable-derived 使用
   `(entityKind, StableId128, typed ordinal)` 引用 portable artifact 中的
-  `CanonicalIdentityTable` row，并附加 source span / provenance；可以为诊断展示
+  `CanonicalIdentityTable` row，并附加闭合 `SourceLocation` / provenance；可以为诊断展示
   冗余规范元组，但该副本不是 validator 输入或身份权威；
 - owner-local relation/occurrence 使用 owning StableId128、typed role 和本次
   compilation 的 `localIndex`；
@@ -1048,8 +1060,9 @@ compilerBuildId` 全部精确相等；来源沿袭记录作为 envelope exact by
 不匹配都以 `SourceMapArtifactMismatch` 失败关闭；记录级三元组 key 只能在完成该
 配对后定位行，不能单独证明 source map 属于某份 artifact。
 
-诊断对标 rustc：稳定 code、severity、primary/secondary span、原因和可执行建议。
-authoring error 指向 source/画布；artifact corruption/version mismatch 面向运维，不
+诊断对标 rustc：稳定 code、severity、primary/secondary source location、原因和可执行
+建议；文本来源可把 location 渲染为 span。authoring error 指向 source/画布；artifact
+corruption/version mismatch 面向运维，不
 返回 generated JSON 行号。
 
 ### 8.5 语义差异（Semantic Diff）
@@ -1529,7 +1542,7 @@ descriptor/receipt。
   restore 与 dynamic Route rebuild；
 - source map completeness 与 diagnostic stability；
 - source map descriptor/envelope 的 exact artifact、revision、provenance、digest、
-  length 绑定，以及旧 span、替换 source map、truncated/appended bytes 的拒绝测试；
+  length 绑定，以及旧 source location、替换 source map、truncated/appended bytes 的拒绝测试；
 - semantic diff golden tests，以及 forged/tampered diff、错误 base/target digest、
   未受信任 cutover descriptor、缺失 diff 和 index-only cutover 的拒绝测试；
 - 对保持同一 StableId128 但改变 topology relation、geometry、access/signal policy
@@ -1790,7 +1803,7 @@ normalization authority，也不保留离线兼容入口。
 阶段 2  #292：static-contract + compiler foundation + Synthetic DSL frontend 纵向闭环
 阶段 3  #292 验收：integration-only LIR→current projection 支撑 #282–#285 等价验证
 阶段 4a #315：官方前端共同受检模块接入实现；治理收口边界以动态记录为准
-阶段 4b #296 几何文档前端 + 拓扑/几何 MIR
+阶段 4b #296 道路编辑来源前端 + 拓扑/几何 MIR
         #297 收口 current JSON 测试边界并停止迁移前端
 阶段 5  #298 可移植规范制品/源映射/语义差异 + #299 独立验证器
 阶段 6  #300 目标静态镜像 + #301 交通运行时/空间层共享镜像路径

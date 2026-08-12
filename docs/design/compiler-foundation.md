@@ -51,16 +51,22 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /
 `laneflow-data` / `laneflow-core` / `laneflow-spatial`。#315 已按 G2 授权落地共同私有
 `TypedAstModule` / `TypedAstDeclaration`、逻辑模块与来源文档独立登记、原子共同接入、
-文档集摘要以及 `LF-COMP-P100-INITIAL-v2`。#297 调整后不建立 current JSON 编译器
-前端；精确退役和测试边界见 `current-package-import.md`。#296 的具体前端仍按自身
-Gate 推进
+文档集摘要以及 `LF-COMP-P100-INITIAL-v2`。#296 因 production 来源产品前提纠偏返回
+FlatBuffers `G1 Pass` 与 `G2 Pass` 已记录且 implementation ongoing；#332 草稿中的旧
+Geometry JSON 原型只作历史证据。新的 FlatBuffers 道路编辑来源契约由
+`road-editing-source-and-geometry-frontend.md` 冻结，并已成为接受的内部未发布实现契约；
+在对应 production 实现合入前不构成当前生产入口，B1 也不构成已发布存档格式或长期
+兼容承诺。#297 调整后不建立 current JSON 编译器前端；
+精确退役和测试边界见 `current-package-import.md`。
 
 **关联决策与设计**:
 
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
 - `../adr/0021-city-simulation-game-traffic-foundation.md`
+- `../adr/0023-road-editing-state-and-phased-network-replacement.md`
 - `network-compiler.md`
+- `road-editing-source-and-geometry-frontend.md`
 - `data-format.md`
 - `data-loading.md`
 - `numeric-representation.md`
@@ -177,9 +183,9 @@ HIR 和 MIR 的区块分配键（arena key）则留在编译器内部。这样�
 #292 可以定义后继编译发射器所需的只读已验证规范低层中间表示视图（View），但不得用私有
 临时线格式提前冻结 #298/#300 的公共字节契约。
 
-### 2.3 #315 官方前端共同接入与 #297 调整后边界
+### 2.3 #315 官方前端共同接入、#296 道路编辑与 #297 调整后边界
 
-#315 已实现的共同受检模块接入继续服务 Synthetic、Geometry 和后续正式编制前端，
+#315 已实现的共同受检模块接入继续服务 Synthetic、道路编辑和后续正式编制前端，
 不因 #297 调整而回退。current JSON 不再是编译器前端：
 
 ```text
@@ -193,6 +199,17 @@ laneflow-data --------------------> laneflow-core / laneflow-spatial
 `laneflow-current-source` 只集中当前加载器的 wire DTO、版本、摘要和配对；不提供严格
 导入策略、编译器位置表或资源余额。编译器不建立 `current-v0_10-import` 特性，项目不
 建立 `laneflow-current-import`。编译器原生有类型模块是投影测试的唯一输入。
+
+#296 FlatBuffers G1 已选择字段私有、借用完整 size-prefixed FlatBuffers bytes 的
+`RoadEditingModuleInput`，并由唯一原子
+`CompilationUnitBuilder::add_road_editing_module` 在同一次 builder 可变借用中取得
+剩余预算、执行有界 verifier、语义预检、降阶和共同接入。它不公开预构造
+`GeometryModule`、wire DTO、通用模块特征或第二条接入路径。
+
+道路编辑来源的 owner tree 必须在单模块内闭合：模块级 key 按 kind 唯一，
+owner-scoped key 只在直接 parent 下唯一，来源地址和 writer 顺序携带完整 owner-key
+tuple。#296 同时提供第一方 Rust 字段私有有类型来源构造面和 writer；writer 只生成
+标准 owned bytes，编译器仍把 reader/verifier 作为不受信任字节的唯一准入边界。
 
 ### 2.4 #297 current JSON 退役边界
 
@@ -344,8 +361,10 @@ impl CompileLimits {
 
 ```rust
 pub struct SyntheticModule { /* 字段私有的官方具体模块 */ }
-// #296 后继增加同包具体类型，而不是公开通用模块特征（trait）。
-pub struct GeometryModule { /* 字段私有 */ }
+// #296 的 production 编译输入只公开受检 expected document key + 借用 bytes；
+// 公开编制 model/writer 是独立 authoring API。
+pub struct RoadEditingModuleInput<'a> { /* expected key + 完整 size-prefixed bytes + 可选显示来源 */ }
+// generated wire view 与 verifier 后的 Typed AST/HIR/MIR 保持 compiler-private。
 
 struct AdmittedOfficialModule {
     typed_ast: TypedAstModule,
@@ -367,9 +386,21 @@ struct TypedAstModule {
     declarations: Box<[TypedAstDeclaration]>,
 }
 
+struct TypedAstEntityAddress {
+    /* owner local-key components（module-scoped 为空）+ 原始 sibling-local key */
+}
+
+struct DeclarationHeader {
+    /* entity kind + TypedAstEntityAddress + 独立 identity local key + SourceLocation */
+}
+
+struct OwnedEntityReference<K> {
+    /* target module namespace + TypedAstEntityAddress + SourceLocation */
+}
+
 pub struct CompilationUnitBuilder {
     modules: Vec<AdmittedOfficialModule>,
-    /* 唯一性索引和累计资源状态 */
+    /* 与 admitted module 对齐的来源位置 context、唯一性索引和累计资源状态 */
 }
 
 pub struct CompilationUnit {
@@ -399,15 +430,29 @@ pub struct CompilationUnit {
 #315 G2 已把此前承载共同有类型抽象语法树声明的私有 `SyntheticDeclaration` 改名为
 `TypedAstDeclaration`。HIR 只遍历
 `TypedAstModule` 与 `TypedAstDeclaration`，不能按 `SourceLanguage`、前端种类或公开
-模块封装在记录级分支。#315 不提前增加 `SourceLanguage` 变体；Geometry 的精确来源语言值由 #296 G1 冻结；不增加 current JSON 来源语言。
+模块封装在记录级分支。#315 不提前增加 `SourceLanguage` 变体；#296 FlatBuffers G1 登记未发布
+`RoadEditingSource = 3`，旧未发布 `GeometryDocument = 2` 不形成兼容或数值别名；不增加
+current JSON 来源语言。
 
 `CompilationUnitBuilder` 的公开入口保持具体且封闭：
 
 ```rust
 pub fn add_synthetic_module(&mut self, module: SyntheticModule) -> Result<&mut Self, DiagnosticBundle>;
-// 后继由 #296 增加：
-pub fn add_geometry_module(&mut self, module: GeometryModule) -> Result<&mut Self, DiagnosticBundle>;
+// #296 在同一次 builder 事务中消费借用 bytes：
+pub fn add_road_editing_module(
+    &mut self,
+    input: RoadEditingModuleInput<'_>,
+) -> Result<&mut Self, DiagnosticBundle>;
 ```
+
+#296 的 owner-qualified child 不能继续塞入现有 `module + stable_key` 查找形状。道路编辑
+reader 产出的每个声明/引用必须使用上面的 private `TypedAstEntityAddress`；HIR symbol
+table 以 `(module, typed address)` 查找，并按固定 owner-kind 父先子后顺序解析 owner。
+CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::required_tags()`
+构造；parent StableId 只在适用 kind 中作为其中一项，不能替代 Movement/ManeuverPath
+等实体的其他必需 tag。实际布局可以使用受计量 interner/ordinal 和共享 backing，不能
+拼接 owner path 成伪 key，也不能让 HIR 按来源语言分支；地址 component、索引 capacity
+和解析 scratch 全部进入现有 string/live-byte 账本。
 
 具体方法消费 compiler 自身字段私有封装并进入同一个私有接入函数。不得公开
 `add_module`、`OfficialFrontend` 特征、裸 `TypedAstModule` 或裸描述符/内容配对入口，
@@ -419,14 +464,18 @@ pub fn add_geometry_module(&mut self, module: GeometryModule) -> Result<&mut Sel
    其中任一部分。
    逐文档摘要和精确长度只能由前端对各文档的实际规范来源字节计算；模块文档集摘要只能按本节
    v1 前像从这些受检描述符聚合，二者都不能由调用方自报。
-2. `add_*_module` 按值消费具体封装并把内容移动到私有接入值；不得克隆（clone）完整声明、
+2. `add_*_module` 按值消费具体封装；道路编辑入口只借用原始输入，并在调用内部按值
+   消费验证结果。道路编辑 add 成功后还把该模块的 location context 移入 builder，以
+   不复用的 builder-local context index 与 admitted module record 绑定；内容移动到私有
+   接入值；不得克隆完整声明、
    字符串或几何点，也不得再次编码来源、计算摘要或扫描声明重算资源。
 3. 私有接入函数在修改构建器前一次性计算命名空间、全部 `sourceDocumentKey`、模块数、文档数、
    来源字节、导入、声明、引用、关系、身份字段、符号、字符串、机动门、等待区、路线
    出现项、几何点和编译器控制存续字节数的候选累计值，并执行全部
    `CompileLimits` 检查。任一失败只返回规范诊断；构建器的模块、索引和计数保持不变，
    已消费模块被释放。
-4. 全部检查成功后才移动模块、写入模块/文档索引并提交候选累计值。调用方加入顺序仍不是规范
+4. 全部检查成功后才移动模块及其来源位置 context handle、写入模块/文档索引并提交
+   候选累计值。调用方加入顺序仍不是规范
    顺序；`build` 在全部模块到齐后统一验证未知导入和循环，并冻结依赖优先、命名空间
    字节序打破平局的规范模块拓扑顺序。来源文档序号在逻辑模块顺序之上，再按模块内完整
    `sourceDocumentKey` 的 UTF-8 字节序冻结；它是独立登记，不能从模块序号推导。
@@ -476,7 +525,7 @@ Synthetic 路径。#315 G2 使用新的 `LF-COMP-P100-INITIAL-v2`：除新增
 字符串或几何点循环都不得承担前端变体分支或虚调用。
 
 职责归属保持互补：#315 只拥有共同表示、模块/文档独立登记与源映射不变量、原子接入、
-生命周期和共享测试；#296 只拥有 Geometry 来源契约及专用降阶；#297 调整后只拥有
+生命周期和共享测试；#296 只拥有道路编辑来源契约及专用降阶；#297 调整后只拥有
 current JSON 退役与投影测试边界，不再拥有编译器前端。
 
 ## 4. 阶段表示与内存所有权
@@ -578,12 +627,36 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 **#315 G2 Implemented：**一模块一文档基线已扩展为分离的来源模块描述符表、来源文档描述符表
 与逐文档来源记录：每个文档显式关联所属逻辑模块和一条来源记录，模块级工具/转换沿袭不能
 替代该关联；编译单元按第 3.3 节的独立文档顺序冻结全局来源文档登记。从有类型抽象语法树
-降阶到 HIR 时，每个声明、关系或诊断位置都把自身 `SourceSpan.source_document_key`
+降阶到 HIR 时，每个声明、关系或诊断位置都把自身
+`SourceLocation::source_document_key()`
 解析为已登记文档序号，不能从所属模块序号推断文档。为避免后续记录热循环携带或比较
 `Arc<str>`，共同准入建立并保留文档键到“所属规范模块序号 + 紧凑文档序号”的唯一索引，
 `build` 原位冻结序号，源映射阶段复用该索引而不重新建表。每次解析还必须核对文档所属
 模块；键缺失或跨模块错绑均返回结构化诊断。每条已冻结来源记录只保存解析后的序号和
 区间；HIR/MIR 模块不保留“默认文档”键或序号。该内部序号不构成可持久制品编码承诺。
+
+#296 道路编辑来源为每个模块建立字段私有的 `RoadEditingLocationContext`，统一拥有
+intern 后的来源地址 namespace/key components、闭合属性路径、`canvas_selection` key 和
+必要显示字节；完整 owner-qualified wire reference 不作为第二份字符串驻留。输入先以
+`RoadEditingModuleInput::try_new` 验证 required expected document key；context 在 verifier
+前以该 key 建立 `Input` identity，wire 失败只保留受检 trace。verifier 后 wire document
+key 必须与 expected key 相等，语义 preflight 才补齐 `Verified` module/document identity
+和稳定地址。
+
+context 在进入任何返回对象前冻结为 `Arc` 或等价的共享不可变 owner。add 成功后 builder
+接管 handle；后续 add 失败时 candidate handle 移入 `DiagnosticBundle`，bundle 对已经提交
+module context 只复制 handle，builder 保留原 handle 并可继续使用；build 失败遵守同一
+规则，成功编译时 `ValidatedSourceMapInput` 接管完整 handle 集合。禁止为了诊断深拷贝
+context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 全部预收费并
+进入 `CompilerControlledLiveBytes`。道路编辑位置以不复用的 builder-local context index
++ context-local typed ordinal 寻址；规范模块重排携带 index 而不重编号，也不以 index
+排序。ordinal 不进入 LIR、摘要、持久编码或规范排序；排序必须解析并比较实际来源地址、
+属性 step 与 key bytes。
+
+返回 `DiagnosticBundle` 后，candidate context、bundle handle vector 与 retained capacity
+转为 caller-owned，不计入后续 compiler 调用；builder 仍持有的 admitted context allocation
+继续只在 builder ledger 计一次。G2 必须验证 caller 保留旧 bundle 时同一 builder 重试，
+并把 compiler-controlled 与 caller-retained bytes 分开报告。
 
 后继 #298 只能从同一个已验证编译结果（Validated Compilation Output）中的 LIR 与
 该伴随数据原子发射源映射；不能从已经释放的 AST/HIR/MIR 重新猜测来源，也不能让
@@ -652,7 +725,8 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 v1 的精确语义和构造器。配置档选择也是官方前端准入能力，不只是数值查表：v1 仅以
 `ModuleCount` 隐式约束一模块一文档形状，
 多文档模块要求 v2 或后继显式携带 `SourceDocumentCount` 的配置档。实现不得为 v1 合成默认文档上限、
-自动升级或在提交后补检。Geometry 按 #296 冻结的实际文档基数应用同一规则。v2 及其
+自动升级或在提交后补检。#296 道路编辑来源按“一模块一个 source buffer/document”
+应用同一规则。v2 及其
 `SourceDocumentCount` 已经是当前编译器配置档；#296 的具体入口须按自身设计选择并
 执行该配置档契约。
 
@@ -686,7 +760,7 @@ v1 的精确语义和构造器。配置档选择也是官方前端准入能力�
 | `max_geometry_point_count`            |    22368 | 规范几何点                                       |
 | `max_symbol_count`                    |    11265 | 符号                                             |
 | `max_string_item_count`               |    36894 | 驻留字符串项                                     |
-| `max_single_string_bytes`             |       53 | 单个字符串字节                                   |
+| `max_single_string_bytes`             |       53 | 单个驻留语义字符串 / key token component 字节    |
 | `max_total_string_bytes`              |   991537 | 驻留字符串总字节                                 |
 | `max_diagnostic_count`                |       16 | 规范排序后保留的诊断                             |
 | `max_stage_scratch_bytes`             |   304896 | 单次编译遍暂存请求字节                           |
@@ -706,6 +780,13 @@ v1 的精确语义和构造器。配置档选择也是官方前端准入能力�
 `TypedAstRecordCount` 计数。配置档 v2 在实现中成为生产选择前，必须按第 3.3 与 10.4 节完成五级、
 多文档和边界重新资格验证。
 
+`max_single_string_bytes` 约束进入 Typed AST/HIR/诊断/source-map interner 的单个语义
+字符串或 key component，不约束已经由 source-specific parser 就地拆分且不作为第二份
+字符串驻留的完整 framing/reference spelling。#296 owner-qualified FlatBuffers reference
+先受来源 v1 派生的 270-byte wire 上限，再就地解析为最多一个 namespace 与四个
+53-byte key components；每个 component 分别消费 `StringItemCount`，实际 bytes 消费
+`TotalStringBytes`，完整 wire spelling 只由 `SourceBytes*` 与 reference occurrence 计量。
+
 单模块来源上限与总来源上限同值，是从已资格验证的总来源上限作出的失败关闭收窄；#292 G2
 仍须分别验证单模块与跨模块累计边界。阶段记录数是实现预算而不是公共数据模型：生产 IR
 可以使用不同 Rust 结构，但必须为每个逻辑记录定义可审计计数，且不能用拆分/合并结构
@@ -717,7 +798,8 @@ v1 的精确语义和构造器。配置档选择也是官方前端准入能力�
 - 模块数、导入边数和单模块 / 总来源字节；
 - 各有类型抽象语法树、HIR、MIR 和 LIR 表的记录数；
 - 关系、字段字节、来源位置与诊断数；
-- 单条字符串 / 键长度和已驻留字符串总字节数；
+- 单个驻留字符串 / key component 长度和已驻留字符串总字节数；source-specific 借用
+  framing 的完整长度另由其闭合语法上限约束；
 - 编译期间允许的暂存区峰值字节数；
 - 来源副本、字符串、各阶段表、关系、诊断、暂存区和正在构造的输出共同形成的
   编译器控制总存续内存峰值，以及编译结束后允许保留的内部容量。
@@ -892,11 +974,19 @@ G1 冻结以下两个当前态固定样例的等价迁移：
 错误必须同时指向声明与冲突来源。中文渲染是权威说明；英文辅助渲染不能改变诊断代码
 或有类型载荷语义。
 
-来源位置使用“`sourceDocumentKey`、起始行 / 列、结束行 / 列”四部分，字段宽度使用
-受检的 `u32`。#292 已接受的 `sourceDocumentKey` 是编译单元内显式、稳定、与机器路径无关的 `ASCII`
-键；合成领域专用语言使用该键、调用位置和声明的显式稳定键，未来文本前端使用该键与
-真实文本范围。宿主路径只服务显示和来源沿袭，不参与规范标识、规范排序、可移植规范
-制品或语义差异。
+公共来源位置是闭合和类型 `SourceLocation`：`Text(SourceSpan)` 保留
+“`sourceDocumentKey`、起始行/列、结束行/列”的现有受检 `u32` 表示；
+`RoadEditing(RoadEditingSourceLocation)` 使用 module/document、稳定声明或 owner-local
+subject、由 1..=4 个已知 table field / struct member / union variant step 形成的闭合叶
+property path，以及可选 interned canvas selection。只有 FlatBuffers 结构损坏可以携带
+已证明在输入内的 byte range 和物理 vector fallback；领域诊断不得伪造行列或依赖数组
+位置。精确类型、规范顺序和资源计量由
+`road-editing-source-and-geometry-frontend.md` §9.7 冻结。
+
+#292 已接受的 `sourceDocumentKey` 仍是编译单元内显式、稳定、与机器路径无关的 ASCII
+键；合成领域专用语言使用该键、调用位置和声明的显式稳定键，文本前端使用真实文本
+范围，道路编辑来源使用有类型实体/属性位置。宿主路径只服务显示和来源沿袭，不参与
+规范标识、规范排序、可移植规范制品或语义差异。
 
 **#315 G2 Implemented：**每个位置的文档键必须存在于所属逻辑模块的文档描述符集，并解析
 为独立来源文档序号；来源模块序号不能替代或推导文档序号。该多文档解析规则已经由
@@ -1301,7 +1391,7 @@ Delivery PR 收口是 #296/#297 进入各自 G2 的硬前置；该前置后来�
       均进入分阶段资源账本；专项 admission-only 基准报告 median/MAD、冷来源字符串字节、
       构建器/结果存续、冻结 scratch 与准入控制峰值；完整验证证据见
       [`v0.10-official-module-admission-validation.md`](../reference/v0.10-official-module-admission-validation.md)；
-- [x] #296 几何文档语义明确排除在本切片之外；当时排除的 #297 current 导入设计现已
+- [x] #296 道路编辑来源语义明确排除在本切片之外；当时排除的 #297 current 导入设计现已
       取消，不再是后继实现目标。
 
 本节只记录稳定实现边界，不充当动态治理状态。Delivery PR、required CI、精确头外部审阅、
