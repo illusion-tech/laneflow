@@ -252,6 +252,9 @@ impl ApproximationPointSink for StationRowSink {
             if !cumulative_end.is_finite() {
                 return Err(NumericFreezeError::NonFinite);
             }
+            if cumulative_end <= self.cumulative_meters {
+                return Err(NumericFreezeError::DegenerateCanonicalSegment);
+            }
             self.rows.push(ReferenceStationRow {
                 segment_ordinal: active.ordinal,
                 parameter_start: active.previous_parameter,
@@ -367,6 +370,38 @@ mod tests {
                 cumulative_end_meters: 5.0,
             }
         );
+    }
+
+    #[test]
+    fn station_rows_require_strict_cumulative_progress() {
+        let start = Point3::try_new(0.0, 0.0, 0.0).expect("start");
+        let end = Point3::try_new(1.0, 0.0, 0.0).expect("end");
+        let segment = CurveSegment::Line { start, end };
+        let mut sink = StationRowSink {
+            rows: Vec::with_capacity(1),
+            active_segment: Some(ActiveStationSegment {
+                ordinal: 0,
+                evaluator: segment,
+                previous_parameter: 0.0,
+                previous_point: start,
+            }),
+            cumulative_meters: 1.0e20,
+            seen_first_point: true,
+            expected_rows: 1,
+        };
+
+        assert_eq!(
+            sink.push(ApproximationVertex {
+                parameter: 1.0,
+                point: CanonicalPoint3F32Input {
+                    x: 1.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+            }),
+            Err(NumericFreezeError::DegenerateCanonicalSegment)
+        );
+        assert!(sink.rows.is_empty());
     }
 
     #[test]
