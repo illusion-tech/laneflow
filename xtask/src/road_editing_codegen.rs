@@ -139,21 +139,28 @@ fn require_flatbuffers_runtime_pin(metadata: &[u8]) -> Result<(), String> {
         .get("dependencies")
         .and_then(serde_json::Value::as_array)
         .ok_or_else(|| "wire package metadata 缺少 dependencies 数组".to_string())?;
-    let runtime = dependencies
-        .iter()
-        .find(|dependency| {
-            dependency.get("name").and_then(serde_json::Value::as_str) == Some("flatbuffers")
-        })
-        .ok_or_else(|| "wire package 缺少 flatbuffers runtime 依赖".to_string())?;
-    let actual = runtime
-        .get("req")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "flatbuffers runtime metadata 缺少版本约束".to_string())?;
     let expected = format!("={FLATBUFFERS_VERSION}");
-    if actual != expected {
-        return Err(format!(
-            "flatbuffers runtime 版本不匹配：预期精确约束 `{expected}`，实际 `{actual}`"
-        ));
+    let mut runtime_count = 0;
+    for runtime in dependencies.iter().filter(|dependency| {
+        dependency.get("name").and_then(serde_json::Value::as_str) == Some("flatbuffers")
+    }) {
+        runtime_count += 1;
+        let actual = runtime
+            .get("req")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| "flatbuffers runtime metadata 缺少版本约束".to_string())?;
+        if actual != expected {
+            let target = runtime
+                .get("target")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("all targets");
+            return Err(format!(
+                "flatbuffers runtime 版本不匹配：target `{target}` 预期精确约束 `{expected}`，实际 `{actual}`"
+            ));
+        }
+    }
+    if runtime_count == 0 {
+        return Err("wire package 缺少 flatbuffers runtime 依赖".to_string());
     }
     Ok(())
 }
@@ -550,6 +557,33 @@ mod tests {
             }]
         }"#;
         assert!(require_flatbuffers_runtime_pin(mismatched).is_err());
+    }
+
+    #[test]
+    fn requires_every_target_runtime_version_to_match_flatc() {
+        let matching = br#"{
+            "packages": [{
+                "name": "laneflow-road-editing-wire",
+                "dependencies": [
+                    {"name": "flatbuffers", "req": "=25.12.19", "target": "cfg(not(windows))"},
+                    {"name": "flatbuffers", "req": "=25.12.19", "target": "cfg(windows)"}
+                ]
+            }]
+        }"#;
+        assert_eq!(require_flatbuffers_runtime_pin(matching), Ok(()));
+
+        let mismatched = br#"{
+            "packages": [{
+                "name": "laneflow-road-editing-wire",
+                "dependencies": [
+                    {"name": "flatbuffers", "req": "=25.12.19", "target": "cfg(not(windows))"},
+                    {"name": "flatbuffers", "req": "=25.9.23", "target": "cfg(windows)"}
+                ]
+            }]
+        }"#;
+        let error = require_flatbuffers_runtime_pin(mismatched).unwrap_err();
+        assert!(error.contains("cfg(windows)"));
+        assert!(error.contains("=25.9.23"));
     }
 
     #[test]
