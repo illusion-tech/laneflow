@@ -187,6 +187,7 @@ struct GeometryDeclarationIndex<'a> {
 
 struct GeometryScratchBudget {
     limit: u64,
+    live_headroom: u64,
     /// 已由候选 retained base 预收费、但仍属于本阶段私有暂存区的输入 backing。
     stage_base: u64,
     live: u64,
@@ -194,7 +195,11 @@ struct GeometryScratchBudget {
 }
 
 impl GeometryScratchBudget {
-    fn new(limit: u64, stage_base: u64) -> Result<Self, GeometryCompilationError> {
+    fn new(
+        limit: u64,
+        stage_base: u64,
+        live_headroom: u64,
+    ) -> Result<Self, GeometryCompilationError> {
         if stage_base > limit {
             return Err(GeometryCompilationError::ScratchLimit {
                 limit,
@@ -203,6 +208,7 @@ impl GeometryScratchBudget {
         }
         Ok(Self {
             limit,
+            live_headroom,
             stage_base,
             live: stage_base,
             peak: stage_base,
@@ -223,6 +229,13 @@ impl GeometryScratchBudget {
             return Err(GeometryCompilationError::ScratchLimit {
                 limit: self.limit,
                 observed,
+            });
+        }
+        let observed_live = observed.saturating_sub(self.stage_base);
+        if observed_live > self.live_headroom {
+            return Err(GeometryCompilationError::LiveLimit {
+                limit: self.live_headroom,
+                observed: observed_live,
             });
         }
         self.live = observed;
@@ -454,8 +467,11 @@ pub(super) fn compile_authoring_geometry(
             observed: u64::MAX,
         },
     )?;
-    let mut scratch =
-        GeometryScratchBudget::new(geometry_scratch_byte_limit, alignment_input_scratch_bytes)?;
+    let mut scratch = GeometryScratchBudget::new(
+        geometry_scratch_byte_limit,
+        alignment_input_scratch_bytes,
+        live_headroom,
+    )?;
     let plans = resolve_corridor_plans(
         authoring_namespace_id,
         &alignments,
@@ -3393,7 +3409,8 @@ mod tests {
             declarations.push(TypedAstDeclaration::RoadCorridor(duplicate));
 
             let input_scratch = alignment_input_scratch_bytes(&alignments).unwrap();
-            let mut scratch = GeometryScratchBudget::new(u64::MAX, input_scratch).unwrap();
+            let mut scratch =
+                GeometryScratchBudget::new(u64::MAX, input_scratch, u64::MAX).unwrap();
             let plans =
                 resolve_corridor_plans("city", &alignments, &declarations, &mut scratch).unwrap();
             validate_station_partitions(&plans)
@@ -3519,7 +3536,7 @@ mod tests {
     fn topology_history_enters_live_peak_before_released_indexes_disappear() {
         let (alignments, declarations) = lowered_geometry_fixture();
         let input_scratch = alignment_input_scratch_bytes(&alignments).unwrap();
-        let mut scratch = GeometryScratchBudget::new(u64::MAX, input_scratch).unwrap();
+        let mut scratch = GeometryScratchBudget::new(u64::MAX, input_scratch, u64::MAX).unwrap();
         let plans =
             resolve_corridor_plans("city", &alignments, &declarations, &mut scratch).unwrap();
         validate_station_partitions(&plans).unwrap();
@@ -3550,6 +3567,28 @@ mod tests {
             TypedAstDeclaration::LaneEdge(edge)
                 if matches!(edge.geometry_authority, LaneEdgeGeometryAuthority::Authoring { .. })
         )));
+    }
+
+    #[test]
+    fn dynamic_scratch_reserve_checks_live_before_changing_the_ledger() {
+        let mut scratch = GeometryScratchBudget::new(100, 10, 4).unwrap();
+        scratch.reserve_bytes(4).unwrap();
+        assert_eq!(scratch.dynamic_live(), 4);
+        assert_eq!(scratch.dynamic_peak(), 4);
+
+        assert_eq!(
+            scratch.reserve_bytes(1),
+            Err(GeometryCompilationError::LiveLimit {
+                limit: 4,
+                observed: 5,
+            })
+        );
+        assert_eq!(
+            scratch.dynamic_live(),
+            4,
+            "a rejected reserve must not claim bytes that were never allocated"
+        );
+        assert_eq!(scratch.dynamic_peak(), 4);
     }
 
     #[test]
