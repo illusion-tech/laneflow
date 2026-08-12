@@ -128,6 +128,27 @@ pub enum FacilityKindViolation {
     },
 }
 
+pub(crate) fn facility_kind_category(kind_id: &str) -> Option<FacilityKindCategory> {
+    let seed_category = match kind_id {
+        "motorLane" | "nonMotorLane" => Some(FacilityKindCategory::LaneBearing),
+        "sidewalk" | "median" | "plantingStrip" | "facilityStrip" | "shoulder" => {
+            Some(FacilityKindCategory::NonTraversable)
+        }
+        _ => None,
+    };
+    if seed_category.is_some() {
+        return seed_category;
+    }
+    // `x-lane-` 是 `x-` 的特化前缀，必须先失败关闭；空 lane 后缀不能回退成普通 band。
+    if let Some(suffix) = kind_id.strip_prefix("x-lane-") {
+        return (!suffix.is_empty()).then_some(FacilityKindCategory::LaneBearing);
+    }
+    kind_id
+        .strip_prefix("x-")
+        .filter(|suffix| !suffix.is_empty())
+        .map(|_| FacilityKindCategory::NonTraversable)
+}
+
 /// 道路走廊有序横断面中的一种有类型成员引用。
 ///
 /// 枚举值的切片顺序就是走廊参考方向从左到右的规范顺序，不能排序或去重后再解释。

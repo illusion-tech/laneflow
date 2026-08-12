@@ -15,10 +15,11 @@ use laneflow_static_contract::{
 };
 
 use super::rules::{
-    input_error, require_non_empty, require_unique, validate_finite, validate_non_empty_text,
-    validate_non_negative, validate_positive, validate_token, validate_visible_ascii,
+    input_error, require_non_empty, require_unique, validate_facility_kind, validate_finite,
+    validate_non_empty_text, validate_non_negative, validate_positive, validate_token,
+    validate_visible_ascii,
 };
-use crate::{DiagnosticBundle, RoadEditingInputViolation};
+use crate::{DiagnosticBundle, FacilityKindCategory, RoadEditingInputViolation};
 
 const DIRECT_GENERATOR_BUILD_ID: &str = "laneflow-road-editing-direct-v1";
 const DIRECT_INPUTS_DIGEST: [u8; 32] = [
@@ -760,6 +761,11 @@ impl RoadSectionInput {
         let kind_id = kind_id.into();
         validate_token(&road_section_key, "roadSection.roadSectionKey")?;
         validate_token(&kind_id, "roadSection.kindId")?;
+        validate_facility_kind(
+            &kind_id,
+            FacilityKindCategory::LaneBearing,
+            "roadSection.kindId",
+        )?;
         require_non_empty(&authoring_lanes, "roadSection.authoringLanes")?;
         require_unique(&authoring_lanes, "roadSection.authoringLanes")?;
         Ok(Self {
@@ -1688,6 +1694,11 @@ impl FacilityBandInput {
         let kind_id = kind_id.into();
         validate_token(&facility_band_key, "facilityBand.facilityBandKey")?;
         validate_token(&kind_id, "facilityBand.kindId")?;
+        validate_facility_kind(
+            &kind_id,
+            FacilityKindCategory::NonTraversable,
+            "facilityBand.kindId",
+        )?;
         Ok(Self {
             facility_band_key: facility_band_key.into_boxed_str(),
             kind_id: kind_id.into_boxed_str(),
@@ -2316,6 +2327,56 @@ mod tests {
     }
 
     #[test]
+    fn cross_section_inputs_enforce_facility_kind_categories() {
+        let corridor = RoadCorridorReference::local("corridor-a").expect("corridor");
+        let lane = AuthoringLaneReference::owner_scoped(
+            vec!["corridor-a".into(), "section-a".into()],
+            "lane-a",
+        )
+        .expect("lane");
+        let width = LinearWidthProfile::try_new(1.0, 1.0).expect("width");
+
+        assert!(
+            RoadSectionInput::try_new(
+                "section-a",
+                "motorLane",
+                vec![lane.clone()],
+                corridor.clone(),
+            )
+            .is_ok()
+        );
+        assert!(
+            RoadSectionInput::try_new("section-b", "x-lane-tram", vec![lane], corridor.clone(),)
+                .is_ok()
+        );
+        assert!(
+            RoadSectionInput::try_new(
+                "section-c",
+                "sidewalk",
+                vec![
+                    AuthoringLaneReference::owner_scoped(
+                        vec!["corridor-a".into(), "section-c".into()],
+                        "lane-c",
+                    )
+                    .expect("lane c")
+                ],
+                corridor.clone(),
+            )
+            .is_err()
+        );
+
+        assert!(FacilityBandInput::try_new("band-a", "sidewalk", width, corridor.clone(),).is_ok());
+        assert!(
+            FacilityBandInput::try_new("band-b", "x-snow-storage", width, corridor.clone(),)
+                .is_ok()
+        );
+        assert!(
+            FacilityBandInput::try_new("band-c", "motorLane", width, corridor.clone()).is_err()
+        );
+        assert!(FacilityBandInput::try_new("band-d", "sidewak", width, corridor).is_err());
+    }
+
+    #[test]
     fn collection_and_canvas_rules_fail_closed() {
         let group = SignalGroupReference::local("group-a").expect("group reference");
         assert!(
@@ -2342,7 +2403,7 @@ mod tests {
     fn declaration_address_retains_full_owner_tuple() {
         let section = RoadSectionInput::try_new(
             "section-a",
-            "road",
+            "motorLane",
             vec![
                 AuthoringLaneReference::owner_scoped(
                     vec!["corridor-a".into(), "section-a".into()],

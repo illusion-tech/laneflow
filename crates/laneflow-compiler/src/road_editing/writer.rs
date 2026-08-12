@@ -1228,7 +1228,7 @@ mod tests {
                 .expect("corridor"),
             ),
             RoadEditingDeclaration::RoadSection(
-                RoadSectionInput::try_new("section", "road", vec![lane], corridor.clone())
+                RoadSectionInput::try_new("section", "motorLane", vec![lane], corridor.clone())
                     .expect("section"),
             ),
             RoadEditingDeclaration::AuthoringLane(
