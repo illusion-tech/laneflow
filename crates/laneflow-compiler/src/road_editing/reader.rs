@@ -183,14 +183,14 @@ pub(crate) fn verify_source<'a>(
         )
     };
     let preflight_counts = preflight_source(root, limits, expected_key)
-        .map_err(|bundle| bundle.with_fallback_primary_location(verified_header_location()))?;
+        .map_err(|bundle| bundle.with_fallback_primary_location_with(verified_header_location))?;
     if preflight_counts.typed_ast_record_count() != typed_ast_record_count {
         return Err(semantic_error(
             "roadEditingSource.tableAccounting",
             crate::RoadEditingInputViolation::InvalidCombination,
             expected_key,
         )
-        .with_fallback_primary_location(verified_header_location()));
+        .with_fallback_primary_location_with(verified_header_location));
     }
 
     Ok(VerifiedRoadEditingSource {

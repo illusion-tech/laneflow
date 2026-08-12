@@ -4359,6 +4359,21 @@ impl DiagnosticBundle {
         }
         self
     }
+
+    pub(crate) fn with_fallback_primary_location_with(
+        self,
+        location: impl FnOnce() -> SourceLocation,
+    ) -> Self {
+        if self
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.primary_span.is_some())
+        {
+            self
+        } else {
+            self.with_fallback_primary_location(location())
+        }
+    }
     /// 返回按规范顺序保留的诊断切片。
     #[must_use]
     pub fn diagnostics(&self) -> &[Diagnostic] {

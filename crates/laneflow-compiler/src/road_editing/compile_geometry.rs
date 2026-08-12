@@ -685,7 +685,7 @@ pub(super) fn compile_authoring_geometry(
         declarations,
         &mut scratch,
     )?;
-    validate_station_partitions(&plans)?;
+    validate_station_partitions(&plans, locations)?;
     // resolve 会先同时保留 typed index/alignment index/plan，随后释放前两者；live
     // 证据必须保留已经发生的历史峰值，不能只从后续当前工作集开始计量。
     let mut peak_output_and_scratch_bytes =
@@ -1368,7 +1368,8 @@ fn resolve_corridor_plans<'a>(
 
 fn validate_station_partitions(
     plans: &[ResolvedCorridorPlan<'_>],
-) -> Result<(), NumericFreezeError> {
+    locations: &RoadEditingLocationFactory,
+) -> Result<(), GeometryCompilationError> {
     let mut group_start = 0;
     while group_start < plans.len() {
         let alignment_key = &plans[group_start].alignment.road_alignment_key;
@@ -1385,7 +1386,10 @@ fn validate_station_partitions(
             .as_ref()
             .expect("resolved plan");
         if first.start_station_meters.to_bits() != 0.0_f64.to_bits() {
-            return Err(NumericFreezeError::GeometryTopologyMismatch);
+            return Err(GeometryCompilationError::numeric_at(
+                NumericFreezeError::GeometryTopologyMismatch,
+                corridor_station_source(locations, &group[0].corridor.header, 2),
+            ));
         }
         for (index, plan) in group.iter().enumerate() {
             let authoring = plan
@@ -1402,11 +1406,23 @@ fn validate_station_partitions(
                         .as_ref()
                         .expect("resolved plan");
                     if end.to_bits() != next.start_station_meters.to_bits() {
-                        return Err(NumericFreezeError::GeometryTopologyMismatch);
+                        return Err(GeometryCompilationError::numeric_at(
+                            NumericFreezeError::GeometryTopologyMismatch,
+                            corridor_station_source(
+                                locations,
+                                &group[index + 1].corridor.header,
+                                2,
+                            ),
+                        ));
                     }
                 }
                 AuthoringStationEnd::AlignmentEnd if is_last => {}
-                _ => return Err(NumericFreezeError::GeometryTopologyMismatch),
+                _ => {
+                    return Err(GeometryCompilationError::numeric_at(
+                        NumericFreezeError::GeometryTopologyMismatch,
+                        corridor_station_source(locations, &plan.corridor.header, 3),
+                    ));
+                }
             }
         }
         group_start = group_end;
@@ -3501,21 +3517,35 @@ mod tests {
             .as_mut()
             .unwrap()
             .start_station_meters = 1.0;
-        assert!(matches!(
-            compile_authoring_geometry(
-                "city",
-                &locations,
-                alignments,
-                &mut declarations,
-                GeometryAccuracyProfile::Balanced5Cm,
-                GeometryDirectionProfile::Balanced2Deg,
-                compilation_budget(station_row_bytes(1), 6, u64::MAX),
-            ),
-            Err(GeometryCompilationError::Numeric {
-                error: NumericFreezeError::GeometryTopologyMismatch,
-                ..
-            })
-        ));
+        let error = compile_authoring_geometry(
+            "city",
+            &locations,
+            alignments,
+            &mut declarations,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            compilation_budget(station_row_bytes(1), 6, u64::MAX),
+        )
+        .expect_err("first corridor must start at zero");
+        let GeometryCompilationError::Numeric {
+            error: NumericFreezeError::GeometryTopologyMismatch,
+            source: Some(source),
+        } = error
+        else {
+            panic!("unexpected station partition error: {error:?}")
+        };
+        assert_eq!(
+            source
+                .road_editing()
+                .unwrap()
+                .property_path()
+                .unwrap()
+                .steps(),
+            &[RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::RoadCorridor,
+                field_id: 2,
+            }]
+        );
 
         let (locations, alignments, mut declarations) = lowered_geometry_fixture();
         let corridor = declarations
@@ -3527,24 +3557,38 @@ mod tests {
             .unwrap();
         corridor.authoring_geometry.as_mut().unwrap().end_station =
             AuthoringStationEnd::Finite(10.0);
-        assert!(matches!(
-            compile_authoring_geometry(
-                "city",
-                &locations,
-                alignments,
-                &mut declarations,
-                GeometryAccuracyProfile::Balanced5Cm,
-                GeometryDirectionProfile::Balanced2Deg,
-                compilation_budget(station_row_bytes(1), 6, u64::MAX),
-            ),
-            Err(GeometryCompilationError::Numeric {
-                error: NumericFreezeError::GeometryTopologyMismatch,
-                ..
-            })
-        ));
+        let error = compile_authoring_geometry(
+            "city",
+            &locations,
+            alignments,
+            &mut declarations,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            compilation_budget(station_row_bytes(1), 6, u64::MAX),
+        )
+        .expect_err("last corridor must end at the alignment boundary");
+        let GeometryCompilationError::Numeric {
+            error: NumericFreezeError::GeometryTopologyMismatch,
+            source: Some(source),
+        } = error
+        else {
+            panic!("unexpected station partition error: {error:?}")
+        };
+        assert_eq!(
+            source
+                .road_editing()
+                .unwrap()
+                .property_path()
+                .unwrap()
+                .steps(),
+            &[RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::RoadCorridor,
+                field_id: 3,
+            }]
+        );
 
         fn validate_two_corridors(second_start: f64) -> Result<(), NumericFreezeError> {
-            let (_locations, alignments, mut declarations) = lowered_geometry_fixture();
+            let (locations, alignments, mut declarations) = lowered_geometry_fixture();
             let corridor_index = declarations
                 .iter()
                 .position(|declaration| matches!(declaration, TypedAstDeclaration::RoadCorridor(_)))
@@ -3595,7 +3639,10 @@ mod tests {
                 GeometryScratchBudget::new(u64::MAX, input_scratch, u64::MAX).unwrap();
             let plans =
                 resolve_corridor_plans("city", &alignments, &declarations, &mut scratch).unwrap();
-            validate_station_partitions(&plans)
+            validate_station_partitions(&plans, &locations).map_err(|error| match error {
+                GeometryCompilationError::Numeric { error, .. } => error,
+                other => panic!("unexpected station partition error: {other:?}"),
+            })
         }
 
         assert_eq!(validate_two_corridors(5.0), Ok(()));
@@ -3720,12 +3767,12 @@ mod tests {
 
     #[test]
     fn topology_history_enters_live_peak_before_released_indexes_disappear() {
-        let (_locations, alignments, declarations) = lowered_geometry_fixture();
+        let (locations, alignments, declarations) = lowered_geometry_fixture();
         let input_scratch = alignment_input_scratch_bytes(&alignments).unwrap();
         let mut scratch = GeometryScratchBudget::new(u64::MAX, input_scratch, u64::MAX).unwrap();
         let plans =
             resolve_corridor_plans("city", &alignments, &declarations, &mut scratch).unwrap();
-        validate_station_partitions(&plans).unwrap();
+        validate_station_partitions(&plans, &locations).unwrap();
         let topology_peak = scratch.dynamic_peak();
         assert!(
             topology_peak > scratch.dynamic_live(),

@@ -20,6 +20,10 @@ use super::rules::validate_wire_reference;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum SemanticPreflightSubjectSite {
     ModuleHeader,
+    ModuleOwnerLocal {
+        relation: RoadEditingRelationKind,
+        occurrence: RoadEditingRelationOccurrence,
+    },
     Root {
         vector: RoadEditingRootVectorKind,
         physical_index: u32,
@@ -38,6 +42,7 @@ pub(super) enum SemanticPreflightPropertyPath {
     One([RoadEditingPropertyStep; 1]),
     Two([RoadEditingPropertyStep; 2]),
     Three([RoadEditingPropertyStep; 3]),
+    Four([RoadEditingPropertyStep; 4]),
 }
 
 impl SemanticPreflightPropertyPath {
@@ -47,6 +52,7 @@ impl SemanticPreflightPropertyPath {
             Self::One(value) => value,
             Self::Two(value) => value,
             Self::Three(value) => value,
+            Self::Four(value) => value,
         }
     }
 }
@@ -76,6 +82,20 @@ impl SemanticPreflightSite {
                 physical_index: u32::try_from(physical_index).unwrap_or(u32::MAX),
             },
             property: semantic_root_property_path(vector, field),
+        }
+    }
+
+    pub(super) fn module_owner_local(
+        relation: RoadEditingRelationKind,
+        occurrence: RoadEditingRelationOccurrence,
+        field: Option<&str>,
+    ) -> Self {
+        Self {
+            subject: SemanticPreflightSubjectSite::ModuleOwnerLocal {
+                relation,
+                occurrence,
+            },
+            property: semantic_owner_local_property_path(relation, field),
         }
     }
 
@@ -216,6 +236,20 @@ impl RoadEditingLocationFactory {
                 } else {
                     factory.module_header_property(steps)
                 })
+            }
+            SemanticPreflightSubjectSite::ModuleOwnerLocal {
+                relation,
+                occurrence,
+            } => {
+                let factory = Self::minimal(
+                    root,
+                    expected_source_document_key,
+                    MinimalOwnerKeys::None,
+                    None,
+                    None,
+                    steps,
+                );
+                Some(factory.module_owner_local(relation, occurrence, steps))
             }
             SemanticPreflightSubjectSite::Root {
                 vector,
@@ -1301,8 +1335,147 @@ fn semantic_property_path(field: Option<&str>) -> SemanticPreflightPropertyPath 
         "curveSegment.geometry.cubic.end" => {
             curve_geometry_property(2, RoadEditingTableKind::CubicBezierSegment, 2)
         }
+        "roadAlignment.referenceLine.start.x" => {
+            curve_start_property(RoadEditingTableKind::RoadAlignment, 2, 0)
+        }
+        "roadAlignment.referenceLine.start.y" => {
+            curve_start_property(RoadEditingTableKind::RoadAlignment, 2, 1)
+        }
+        "roadAlignment.referenceLine.start.z" => {
+            curve_start_property(RoadEditingTableKind::RoadAlignment, 2, 2)
+        }
+        "laneEdge.explicitGeometry.start.x" => {
+            curve_start_property(RoadEditingTableKind::LaneEdge, 3, 0)
+        }
+        "laneEdge.explicitGeometry.start.y" => {
+            curve_start_property(RoadEditingTableKind::LaneEdge, 3, 1)
+        }
+        "laneEdge.explicitGeometry.start.z" => {
+            curve_start_property(RoadEditingTableKind::LaneEdge, 3, 2)
+        }
+        "curveSegment.geometry.line.end.x" => {
+            curve_geometry_member_property(1, RoadEditingTableKind::LineSegment, 0, 0)
+        }
+        "curveSegment.geometry.line.end.y" => {
+            curve_geometry_member_property(1, RoadEditingTableKind::LineSegment, 0, 1)
+        }
+        "curveSegment.geometry.line.end.z" => {
+            curve_geometry_member_property(1, RoadEditingTableKind::LineSegment, 0, 2)
+        }
+        "curveSegment.geometry.cubic.control1.x" => {
+            curve_geometry_member_property(2, RoadEditingTableKind::CubicBezierSegment, 0, 0)
+        }
+        "curveSegment.geometry.cubic.control1.y" => {
+            curve_geometry_member_property(2, RoadEditingTableKind::CubicBezierSegment, 0, 1)
+        }
+        "curveSegment.geometry.cubic.control1.z" => {
+            curve_geometry_member_property(2, RoadEditingTableKind::CubicBezierSegment, 0, 2)
+        }
+        "curveSegment.geometry.cubic.control2.x" => {
+            curve_geometry_member_property(2, RoadEditingTableKind::CubicBezierSegment, 1, 0)
+        }
+        "curveSegment.geometry.cubic.control2.y" => {
+            curve_geometry_member_property(2, RoadEditingTableKind::CubicBezierSegment, 1, 1)
+        }
+        "curveSegment.geometry.cubic.control2.z" => {
+            curve_geometry_member_property(2, RoadEditingTableKind::CubicBezierSegment, 1, 2)
+        }
+        "curveSegment.geometry.cubic.end.x" => {
+            curve_geometry_member_property(2, RoadEditingTableKind::CubicBezierSegment, 2, 0)
+        }
+        "curveSegment.geometry.cubic.end.y" => {
+            curve_geometry_member_property(2, RoadEditingTableKind::CubicBezierSegment, 2, 1)
+        }
+        "curveSegment.geometry.cubic.end.z" => {
+            curve_geometry_member_property(2, RoadEditingTableKind::CubicBezierSegment, 2, 2)
+        }
+        "authoringLane.widthProfile.startWidthMeters" => {
+            width_member_property(RoadEditingTableKind::AuthoringLane, 3, 0)
+        }
+        "authoringLane.widthProfile.endWidthMeters" => {
+            width_member_property(RoadEditingTableKind::AuthoringLane, 3, 1)
+        }
+        "facilityBand.widthProfile.startWidthMeters" => {
+            width_member_property(RoadEditingTableKind::FacilityBand, 2, 0)
+        }
+        "facilityBand.widthProfile.endWidthMeters" => {
+            width_member_property(RoadEditingTableKind::FacilityBand, 2, 1)
+        }
+        "parkingSpace.entry.laneEdge" => parking_anchor_property(2, 0),
+        "parkingSpace.entry.progressMeters" => parking_anchor_property(2, 1),
+        "parkingSpace.exit.laneEdge" => parking_anchor_property(3, 0),
+        "parkingSpace.exit.progressMeters" => parking_anchor_property(3, 1),
         _ => SemanticPreflightPropertyPath::None,
     }
+}
+
+fn curve_start_property(
+    owner_table: RoadEditingTableKind,
+    owner_field_id: u16,
+    member_id: u8,
+) -> SemanticPreflightPropertyPath {
+    SemanticPreflightPropertyPath::Three([
+        RoadEditingPropertyStep::TableField {
+            table: owner_table,
+            field_id: owner_field_id,
+        },
+        RoadEditingPropertyStep::TableField {
+            table: RoadEditingTableKind::CurveProgram,
+            field_id: 0,
+        },
+        RoadEditingPropertyStep::StructMember {
+            structure: RoadEditingStructKind::Vec3F64,
+            member_id,
+        },
+    ])
+}
+
+fn curve_geometry_member_property(
+    discriminant: u8,
+    table: RoadEditingTableKind,
+    field_id: u16,
+    member_id: u8,
+) -> SemanticPreflightPropertyPath {
+    let SemanticPreflightPropertyPath::Three(prefix) =
+        curve_geometry_property(discriminant, table, field_id)
+    else {
+        unreachable!("curve geometry property depth is fixed")
+    };
+    SemanticPreflightPropertyPath::Four([
+        prefix[0],
+        prefix[1],
+        prefix[2],
+        RoadEditingPropertyStep::StructMember {
+            structure: RoadEditingStructKind::Vec3F64,
+            member_id,
+        },
+    ])
+}
+
+fn width_member_property(
+    table: RoadEditingTableKind,
+    field_id: u16,
+    member_id: u8,
+) -> SemanticPreflightPropertyPath {
+    SemanticPreflightPropertyPath::Two([
+        RoadEditingPropertyStep::TableField { table, field_id },
+        RoadEditingPropertyStep::StructMember {
+            structure: RoadEditingStructKind::LinearWidthProfile,
+            member_id,
+        },
+    ])
+}
+
+fn parking_anchor_property(
+    outer_field_id: u16,
+    inner_field_id: u16,
+) -> SemanticPreflightPropertyPath {
+    nested_table_field(
+        RoadEditingTableKind::ParkingSpace,
+        outer_field_id,
+        RoadEditingTableKind::ParkingLaneAnchor,
+        inner_field_id,
+    )
 }
 
 fn table_field(table: RoadEditingTableKind, field_id: u16) -> SemanticPreflightPropertyPath {
@@ -1895,6 +2068,57 @@ mod tests {
                 "missing nested path: {expected:?}"
             );
         }
+    }
+
+    #[test]
+    fn semantic_preflight_maps_scalar_leaf_paths_exactly() {
+        assert_eq!(
+            semantic_property_path(Some("curveSegment.geometry.cubic.control2.z")).as_slice(),
+            &[
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::CurveSegment,
+                    field_id: 1,
+                },
+                RoadEditingPropertyStep::UnionVariant {
+                    union: RoadEditingUnionKind::CurveSegmentGeometry,
+                    discriminant: 2,
+                },
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::CubicBezierSegment,
+                    field_id: 1,
+                },
+                RoadEditingPropertyStep::StructMember {
+                    structure: RoadEditingStructKind::Vec3F64,
+                    member_id: 2,
+                },
+            ]
+        );
+        assert_eq!(
+            semantic_property_path(Some("authoringLane.widthProfile.endWidthMeters")).as_slice(),
+            &[
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::AuthoringLane,
+                    field_id: 3,
+                },
+                RoadEditingPropertyStep::StructMember {
+                    structure: RoadEditingStructKind::LinearWidthProfile,
+                    member_id: 1,
+                },
+            ]
+        );
+        assert_eq!(
+            semantic_property_path(Some("parkingSpace.entry.progressMeters")).as_slice(),
+            &[
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::ParkingSpace,
+                    field_id: 2,
+                },
+                RoadEditingPropertyStep::TableField {
+                    table: RoadEditingTableKind::ParkingLaneAnchor,
+                    field_id: 1,
+                },
+            ]
+        );
     }
 
     #[test]

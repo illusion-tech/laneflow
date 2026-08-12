@@ -69,10 +69,16 @@ pub(super) fn lower_road_alignments(
                     value.reference_line(),
                     locations.road_alignment_property(
                         key,
-                        &[RoadEditingPropertyStep::TableField {
-                            table: RoadEditingTableKind::RoadAlignment,
-                            field_id: 2,
-                        }],
+                        &[
+                            RoadEditingPropertyStep::TableField {
+                                table: RoadEditingTableKind::RoadAlignment,
+                                field_id: 2,
+                            },
+                            RoadEditingPropertyStep::TableField {
+                                table: RoadEditingTableKind::CurveProgram,
+                                field_id: 0,
+                            },
+                        ],
                         value.canvas_selection(),
                     ),
                     |index, canvas_selection| {
@@ -973,12 +979,14 @@ pub(super) fn lower_topology_authoring_declarations(
         let explicit_curve = value.explicit_geometry().map(|curve| {
             lower_curve_program(
                 curve,
-                property_location(
+                nested_property_location(
                     locations,
                     EntityKind::LaneEdge,
                     key,
                     RoadEditingTableKind::LaneEdge,
                     3,
+                    RoadEditingTableKind::CurveProgram,
+                    0,
                     value.canvas_selection(),
                 ),
                 |index, canvas_selection| {

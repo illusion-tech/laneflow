@@ -1,5 +1,6 @@
 //! verifier 后、任何领域分配前的道路编辑来源语义预检。
 
+use std::cmp::Ordering;
 use std::ops::{Deref, DerefMut};
 
 use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
@@ -28,6 +29,12 @@ use crate::{
 };
 
 type StringVector<'a> = Vector<'a, ForwardsUOffset<&'a str>>;
+
+#[derive(Clone, Copy)]
+enum ReferenceOccurrenceKind {
+    Ordered,
+    Canonical,
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct RoadEditingPreflightCounts {
@@ -355,6 +362,16 @@ pub(crate) fn preflight_source(
         }
         ensure_unique_strings(imports, "moduleHeader.imports", expected_key)?;
         for import in imports {
+            let canonical_ordinal = imports
+                .iter()
+                .filter(|other| other.as_bytes() < import.as_bytes())
+                .count();
+            usage.failure_subject = Some(SemanticPreflightSubjectSite::ModuleOwnerLocal {
+                relation: RoadEditingRelationKind::Import,
+                occurrence: RoadEditingRelationOccurrence::CanonicalSetOrdinal(
+                    u32::try_from(canonical_ordinal).unwrap_or(u32::MAX),
+                ),
+            });
             usage.charge_token(import, "moduleHeader.imports", limits, expected_key)?;
             if import == namespace {
                 return Err(semantic_error(
@@ -364,6 +381,7 @@ pub(crate) fn preflight_source(
                 ));
             }
         }
+        usage.failure_subject = Some(SemanticPreflightSubjectSite::ModuleHeader);
         validate_provenance(&mut usage, header.provenance(), limits, expected_key)?;
 
         if !matches!(
@@ -510,6 +528,8 @@ fn validate_alignments(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::RoadAlignment,
         root.road_alignments().iter(),
         |value| value.road_alignment_key(),
         "roadAlignments.roadAlignmentKey",
@@ -558,7 +578,20 @@ fn validate_curve(
 ) -> Result<(), DiagnosticBundle> {
     usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
     usage.authoring_point_count = usage.authoring_point_count.saturating_add(1);
-    validate_point(value.start(), "curveProgram.start", expected_key)?;
+    let start_fields = match owner_vector {
+        RoadEditingRootVectorKind::RoadAlignment => [
+            "roadAlignment.referenceLine.start.x",
+            "roadAlignment.referenceLine.start.y",
+            "roadAlignment.referenceLine.start.z",
+        ],
+        RoadEditingRootVectorKind::LaneEdge => [
+            "laneEdge.explicitGeometry.start.x",
+            "laneEdge.explicitGeometry.start.y",
+            "laneEdge.explicitGeometry.start.z",
+        ],
+        _ => unreachable!("only alignment and lane-edge declarations own curve programs"),
+    };
+    validate_point(value.start(), start_fields, expected_key)?;
     if value.segments().is_empty() {
         return Err(semantic_error(
             "curveProgram.segments",
@@ -583,7 +616,11 @@ fn validate_curve(
                     .ok_or_else(|| invalid_combination("curveSegment.geometry", expected_key))?;
                 validate_point(
                     geometry.end(),
-                    "curveSegment.geometry.line.end",
+                    [
+                        "curveSegment.geometry.line.end.x",
+                        "curveSegment.geometry.line.end.y",
+                        "curveSegment.geometry.line.end.z",
+                    ],
                     expected_key,
                 )?;
                 usage.authoring_point_count = usage.authoring_point_count.saturating_add(1);
@@ -594,17 +631,29 @@ fn validate_curve(
                     .ok_or_else(|| invalid_combination("curveSegment.geometry", expected_key))?;
                 validate_point(
                     geometry.control_1(),
-                    "curveSegment.geometry.cubic.control1",
+                    [
+                        "curveSegment.geometry.cubic.control1.x",
+                        "curveSegment.geometry.cubic.control1.y",
+                        "curveSegment.geometry.cubic.control1.z",
+                    ],
                     expected_key,
                 )?;
                 validate_point(
                     geometry.control_2(),
-                    "curveSegment.geometry.cubic.control2",
+                    [
+                        "curveSegment.geometry.cubic.control2.x",
+                        "curveSegment.geometry.cubic.control2.y",
+                        "curveSegment.geometry.cubic.control2.z",
+                    ],
                     expected_key,
                 )?;
                 validate_point(
                     geometry.end(),
-                    "curveSegment.geometry.cubic.end",
+                    [
+                        "curveSegment.geometry.cubic.end.x",
+                        "curveSegment.geometry.cubic.end.y",
+                        "curveSegment.geometry.cubic.end.z",
+                    ],
                     expected_key,
                 )?;
                 usage.authoring_point_count = usage.authoring_point_count.saturating_add(3);
@@ -618,10 +667,10 @@ fn validate_curve(
 
 fn validate_point(
     value: &wire::Vec3F64,
-    field: &'static str,
+    fields: [&'static str; 3],
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
-    for component in [value.x(), value.y(), value.z()] {
+    for (component, field) in [value.x(), value.y(), value.z()].into_iter().zip(fields) {
         let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
         let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
         if let Some(violation) = inclusive_range_violation(component, minimum, maximum) {
@@ -653,17 +702,17 @@ fn validate_corridor_owned_reference(
 
 fn validate_width(
     value: &wire::LinearWidthProfile,
-    field: &'static str,
+    fields: [&'static str; 2],
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     if let Some(violation) = non_negative_violation(value.start_width_meters()) {
-        return Err(semantic_error(field, violation, expected_key));
+        return Err(semantic_error(fields[0], violation, expected_key));
     }
     if let Some(violation) = non_negative_violation(value.end_width_meters()) {
-        return Err(semantic_error(field, violation, expected_key));
+        return Err(semantic_error(fields[1], violation, expected_key));
     }
     if value.start_width_meters() == 0.0 && value.end_width_meters() == 0.0 {
-        return Err(invalid_combination(field, expected_key));
+        return Err(invalid_combination(fields[1], expected_key));
     }
     Ok(())
 }
@@ -677,6 +726,10 @@ fn validate_reference_vector(
     non_empty: bool,
     unique: bool,
     relation: bool,
+    owner_vector: RoadEditingRootVectorKind,
+    owner_physical_index: usize,
+    relation_kind: RoadEditingRelationKind,
+    occurrence_kind: ReferenceOccurrenceKind,
     namespace: &str,
     imports: StringVector<'_>,
     limits: &CompileLimits,
@@ -698,7 +751,26 @@ fn validate_reference_vector(
     if relation {
         usage.charge_relation(values.len());
     }
-    for value in values {
+    for (physical_index, value) in values.iter().enumerate() {
+        let occurrence = match occurrence_kind {
+            ReferenceOccurrenceKind::Ordered => {
+                Some(RoadEditingRelationOccurrence::OrderedProductOrdinal(
+                    u32::try_from(physical_index).unwrap_or(u32::MAX),
+                ))
+            }
+            ReferenceOccurrenceKind::Canonical => {
+                canonical_reference_ordinal(values, value, component_count, namespace)
+                    .map(RoadEditingRelationOccurrence::CanonicalSetOrdinal)
+            }
+        };
+        if let Some(occurrence) = occurrence {
+            usage.set_owner_local_site(
+                owner_vector,
+                owner_physical_index,
+                relation_kind,
+                occurrence,
+            );
+        }
         usage.charge_reference(
             value,
             component_count,
@@ -710,7 +782,46 @@ fn validate_reference_vector(
             expected_key,
         )?;
     }
+    usage.set_root_site(owner_vector, owner_physical_index);
     Ok(())
+}
+
+fn canonical_reference_ordinal(
+    values: StringVector<'_>,
+    target: &str,
+    component_count: u8,
+    namespace: &str,
+) -> Option<u32> {
+    validate_wire_reference(target, component_count, true).ok()?;
+    let mut ordinal = 0_u32;
+    for value in values {
+        let ordering = compare_references(value, target, component_count, namespace)?;
+        if ordering == Ordering::Less {
+            ordinal = ordinal.saturating_add(1);
+        }
+    }
+    Some(ordinal)
+}
+
+fn compare_references(
+    left: &str,
+    right: &str,
+    component_count: u8,
+    namespace: &str,
+) -> Option<Ordering> {
+    let left = validate_wire_reference(left, component_count, true).ok()?;
+    let right = validate_wire_reference(right, component_count, true).ok()?;
+    Some(
+        left.namespace()
+            .unwrap_or(namespace)
+            .as_bytes()
+            .cmp(right.namespace().unwrap_or(namespace).as_bytes())
+            .then_with(|| {
+                left.key_components()
+                    .map(str::as_bytes)
+                    .cmp(right.key_components().map(str::as_bytes))
+            }),
+    )
 }
 
 fn validate_corridors(
@@ -722,6 +833,8 @@ fn validate_corridors(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::RoadCorridor,
         root.road_corridors().iter(),
         |value| value.road_corridor_key(),
         "roadCorridors.roadCorridorKey",
@@ -824,6 +937,14 @@ fn validate_corridors(
         }
         usage.charge_relation(elements.len());
         for (index, element) in elements.iter().enumerate() {
+            usage.set_owner_local_site(
+                RoadEditingRootVectorKind::RoadCorridor,
+                physical_index,
+                RoadEditingRelationKind::CorridorElement,
+                RoadEditingRelationOccurrence::OrderedProductOrdinal(
+                    u32::try_from(index).unwrap_or(u32::MAX),
+                ),
+            );
             usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
             let depth = match element.kind() {
                 wire::CorridorElementKind::RoadSection
@@ -868,6 +989,7 @@ fn validate_corridors(
                 }
             }
         }
+        usage.set_root_site(RoadEditingRootVectorKind::RoadCorridor, physical_index);
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
     }
     Ok(())
@@ -882,6 +1004,8 @@ fn validate_sections(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::RoadSection,
         root.road_sections().iter(),
         |value| (value.road_corridor(), value.road_section_key()),
         "roadSections.address",
@@ -905,6 +1029,10 @@ fn validate_sections(
             true,
             true,
             true,
+            RoadEditingRootVectorKind::RoadSection,
+            physical_index,
+            RoadEditingRelationKind::RoadSectionAuthoringLane,
+            ReferenceOccurrenceKind::Ordered,
             namespace,
             imports,
             limits,
@@ -946,6 +1074,8 @@ fn validate_authoring_lanes(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::AuthoringLane,
         root.authoring_lanes().iter(),
         |value| (value.road_section(), value.authoring_lane_key()),
         "authoringLanes.address",
@@ -978,7 +1108,10 @@ fn validate_authoring_lanes(
         }
         validate_width(
             value.width_profile(),
-            "authoringLane.widthProfile",
+            [
+                "authoringLane.widthProfile.startWidthMeters",
+                "authoringLane.widthProfile.endWidthMeters",
+            ],
             expected_key,
         )?;
         if let Some(group) = value.lane_group() {
@@ -1017,6 +1150,8 @@ fn validate_lane_edges(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::LaneEdge,
         root.lane_edges().iter(),
         |value| value.lane_edge_key(),
         "laneEdges.laneEdgeKey",
@@ -1046,6 +1181,10 @@ fn validate_lane_edges(
             false,
             true,
             true,
+            RoadEditingRootVectorKind::LaneEdge,
+            physical_index,
+            RoadEditingRelationKind::LaneEdgeSuccessor,
+            ReferenceOccurrenceKind::Canonical,
             namespace,
             imports,
             limits,
@@ -1076,6 +1215,8 @@ fn validate_junctions(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::Junction,
         root.junctions().iter(),
         |value| value.junction_key(),
         "junctions.junctionKey",
@@ -1098,6 +1239,10 @@ fn validate_junctions(
             true,
             true,
             true,
+            RoadEditingRootVectorKind::Junction,
+            physical_index,
+            RoadEditingRelationKind::JunctionApproachEdge,
+            ReferenceOccurrenceKind::Canonical,
             namespace,
             imports,
             limits,
@@ -1111,6 +1256,10 @@ fn validate_junctions(
             true,
             true,
             true,
+            RoadEditingRootVectorKind::Junction,
+            physical_index,
+            RoadEditingRelationKind::JunctionInternalEdge,
+            ReferenceOccurrenceKind::Canonical,
             namespace,
             imports,
             limits,
@@ -1139,6 +1288,8 @@ fn validate_movements(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::Movement,
         root.movements().iter(),
         |value| (value.junction(), value.movement_key()),
         "movements.address",
@@ -1189,6 +1340,8 @@ fn validate_maneuver_paths(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::ManeuverPath,
         root.maneuver_paths().iter(),
         |value| (value.movement(), value.maneuver_path_key()),
         "maneuverPaths.address",
@@ -1231,6 +1384,10 @@ fn validate_maneuver_paths(
             false,
             true,
             true,
+            RoadEditingRootVectorKind::ManeuverPath,
+            physical_index,
+            RoadEditingRelationKind::ManeuverPathInternalEdge,
+            ReferenceOccurrenceKind::Ordered,
             namespace,
             imports,
             limits,
@@ -1260,6 +1417,8 @@ fn validate_maneuver_gates(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::ManeuverGate,
         root.maneuver_gates().iter(),
         |value| (value.maneuver_path(), value.maneuver_gate_key()),
         "maneuverGates.address",
@@ -1328,6 +1487,8 @@ fn validate_waiting_zones(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::WaitingZone,
         root.waiting_zones().iter(),
         |value| (value.maneuver_path(), value.waiting_zone_key()),
         "waitingZones.address",
@@ -1393,6 +1554,8 @@ fn validate_stop_lines_and_signal_groups(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::StopLine,
         root.stop_lines().iter(),
         |value| value.stop_line_key(),
         "stopLines.stopLineKey",
@@ -1420,6 +1583,8 @@ fn validate_stop_lines_and_signal_groups(
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
     }
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::SignalGroup,
         root.signal_groups().iter(),
         |value| value.signal_group_key(),
         "signalGroups.signalGroupKey",
@@ -1448,6 +1613,8 @@ fn validate_signal_controllers_and_phases(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::SignalController,
         root.signal_controllers().iter(),
         |value| value.signal_controller_key(),
         "signalControllers.signalControllerKey",
@@ -1470,6 +1637,10 @@ fn validate_signal_controllers_and_phases(
             true,
             true,
             true,
+            RoadEditingRootVectorKind::SignalController,
+            physical_index,
+            RoadEditingRelationKind::SignalControllerGroup,
+            ReferenceOccurrenceKind::Canonical,
             namespace,
             imports,
             limits,
@@ -1483,6 +1654,10 @@ fn validate_signal_controllers_and_phases(
             true,
             true,
             true,
+            RoadEditingRootVectorKind::SignalController,
+            physical_index,
+            RoadEditingRelationKind::SignalControllerPhase,
+            ReferenceOccurrenceKind::Ordered,
             namespace,
             imports,
             limits,
@@ -1492,6 +1667,8 @@ fn validate_signal_controllers_and_phases(
     }
 
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::SignalPhase,
         root.signal_phases().iter(),
         |value| (value.signal_controller(), value.signal_phase_key()),
         "signalPhases.address",
@@ -1522,6 +1699,21 @@ fn validate_signal_controllers_and_phases(
         }
         usage.charge_relation(states.len());
         for (index, state) in states.iter().enumerate() {
+            let occurrence = states
+                .iter()
+                .filter(|other| {
+                    compare_references(other.signal_group(), state.signal_group(), 1, namespace)
+                        == Some(Ordering::Less)
+                })
+                .count();
+            usage.set_owner_local_site(
+                RoadEditingRootVectorKind::SignalPhase,
+                physical_index,
+                RoadEditingRelationKind::SignalPhaseState,
+                RoadEditingRelationOccurrence::CanonicalSetOrdinal(
+                    u32::try_from(occurrence).unwrap_or(u32::MAX),
+                ),
+            );
             usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
             usage.charge_reference(
                 state.signal_group(),
@@ -1552,6 +1744,7 @@ fn validate_signal_controllers_and_phases(
                 }
             }
         }
+        usage.set_root_site(RoadEditingRootVectorKind::SignalPhase, physical_index);
         usage.charge_reference(
             value.signal_controller(),
             1,
@@ -1695,6 +1888,8 @@ fn validate_parking(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::ParkingArea,
         root.parking_areas().iter(),
         |value| value.parking_area_key(),
         "parkingAreas.parkingAreaKey",
@@ -1713,6 +1908,8 @@ fn validate_parking(
     }
 
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::ParkingSpace,
         root.parking_spaces().iter(),
         |value| value.parking_space_key(),
         "parkingSpaces.parkingSpaceKey",
@@ -1743,7 +1940,10 @@ fn validate_parking(
         validate_parking_anchor(
             usage,
             value.entry(),
-            "parkingSpace.entry",
+            [
+                "parkingSpace.entry.laneEdge",
+                "parkingSpace.entry.progressMeters",
+            ],
             namespace,
             imports,
             limits,
@@ -1752,7 +1952,10 @@ fn validate_parking(
         validate_parking_anchor(
             usage,
             value.exit(),
-            "parkingSpace.exit",
+            [
+                "parkingSpace.exit.laneEdge",
+                "parkingSpace.exit.progressMeters",
+            ],
             namespace,
             imports,
             limits,
@@ -1811,7 +2014,7 @@ fn validate_parking(
 fn validate_parking_anchor(
     usage: &mut RoadEditingPreflightState,
     value: wire::ParkingLaneAnchor<'_>,
-    field: &'static str,
+    fields: [&'static str; 2],
     namespace: &str,
     imports: StringVector<'_>,
     limits: &CompileLimits,
@@ -1821,17 +2024,17 @@ fn validate_parking_anchor(
         value.lane_edge(),
         1,
         true,
-        field,
+        fields[0],
         namespace,
         imports,
         limits,
         expected_key,
     )?;
     if let Some(violation) = positive_violation(value.progress_meters()) {
-        return Err(semantic_error(field, violation, expected_key));
+        return Err(semantic_error(fields[1], violation, expected_key));
     }
     if value.progress_meters() <= PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS {
-        return Err(invalid_combination(field, expected_key));
+        return Err(invalid_combination(fields[1], expected_key));
     }
     Ok(())
 }
@@ -1845,6 +2048,8 @@ fn validate_lane_groups_and_facility_bands(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::LaneGroup,
         root.lane_groups().iter(),
         |value| (value.road_section(), value.lane_group_key()),
         "laneGroups.address",
@@ -1873,6 +2078,8 @@ fn validate_lane_groups_and_facility_bands(
     }
 
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::FacilityBand,
         root.facility_bands().iter(),
         |value| (value.road_corridor(), value.facility_band_key()),
         "facilityBands.address",
@@ -1890,7 +2097,10 @@ fn validate_lane_groups_and_facility_bands(
         usage.charge_token(value.kind_id(), "facilityBand.kindId", limits, expected_key)?;
         validate_width(
             value.width_profile(),
-            "facilityBand.widthProfile",
+            [
+                "facilityBand.widthProfile.startWidthMeters",
+                "facilityBand.widthProfile.endWidthMeters",
+            ],
             expected_key,
         )?;
         usage.charge_reference(
@@ -1917,6 +2127,8 @@ fn validate_access_and_profiles(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::ParticipantClass,
         root.participant_classes().iter(),
         |value| value.participant_class_key(),
         "participantClasses.participantClassKey",
@@ -1947,6 +2159,8 @@ fn validate_access_and_profiles(
     }
 
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::AccessRule,
         root.access_rules().iter(),
         |value| value.access_rule_key(),
         "accessRules.accessRuleKey",
@@ -1992,6 +2206,10 @@ fn validate_access_and_profiles(
             true,
             true,
             true,
+            RoadEditingRootVectorKind::AccessRule,
+            physical_index,
+            RoadEditingRelationKind::AccessRuleParticipantClass,
+            ReferenceOccurrenceKind::Canonical,
             namespace,
             imports,
             limits,
@@ -2024,6 +2242,8 @@ fn validate_access_and_profiles(
     }
 
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::VehicleProfile,
         root.vehicle_profiles().iter(),
         |value| value.vehicle_profile_key(),
         "vehicleProfiles.vehicleProfileKey",
@@ -2120,6 +2340,8 @@ fn validate_routes_and_frames(
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::StaticRoute,
         root.static_routes().iter(),
         |value| value.static_route_key(),
         "staticRoutes.staticRouteKey",
@@ -2153,6 +2375,10 @@ fn validate_routes_and_frames(
             false,
             false,
             true,
+            RoadEditingRootVectorKind::StaticRoute,
+            physical_index,
+            RoadEditingRelationKind::StaticRouteEdge,
+            ReferenceOccurrenceKind::Ordered,
             namespace,
             imports,
             limits,
@@ -2162,6 +2388,8 @@ fn validate_routes_and_frames(
     }
 
     ensure_unique_by(
+        usage,
+        RoadEditingRootVectorKind::CanonicalFrame,
         root.canonical_frames().iter(),
         |value| value.canonical_frame_key(),
         "canonicalFrames.canonicalFrameKey",
@@ -2233,6 +2461,8 @@ fn references_equal(left: &str, right: &str, namespace: &str) -> bool {
 }
 
 fn ensure_unique_by<I, T, K, F>(
+    usage: &mut RoadEditingPreflightState,
+    vector: RoadEditingRootVectorKind,
     values: I,
     key: F,
     field: &'static str,
@@ -2244,17 +2474,16 @@ where
     K: PartialEq,
     F: Copy + Fn(T) -> K,
 {
-    for (index, left) in values.clone().enumerate() {
-        if values
-            .clone()
-            .skip(index + 1)
-            .any(|right| key(left) == key(right))
-        {
-            return Err(semantic_error(
-                field,
-                RoadEditingInputViolation::DuplicateValue,
-                expected_key,
-            ));
+    for (left_index, left) in values.clone().enumerate() {
+        for (right_index, right) in values.clone().enumerate().skip(left_index + 1) {
+            if key(left) == key(right) {
+                usage.set_root_site(vector, right_index);
+                return Err(semantic_error(
+                    field,
+                    RoadEditingInputViolation::DuplicateValue,
+                    expected_key,
+                ));
+            }
         }
     }
     Ok(())
@@ -2305,10 +2534,19 @@ fn with_semantic_preflight_location(
     let Some(field) = field else {
         return bundle;
     };
+    if field == "moduleHeader.authoringNamespaceId" {
+        return bundle.with_fallback_primary_location(
+            RoadEditingLocationFactory::input_module_header(expected_key),
+        );
+    }
     let site = match subject {
         SemanticPreflightSubjectSite::ModuleHeader => {
             SemanticPreflightSite::module_header(Some(field))
         }
+        SemanticPreflightSubjectSite::ModuleOwnerLocal {
+            relation,
+            occurrence,
+        } => SemanticPreflightSite::module_owner_local(relation, occurrence, Some(field)),
         SemanticPreflightSubjectSite::Root {
             vector,
             physical_index,
@@ -2382,11 +2620,20 @@ mod tests {
         let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
         let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
         let boundary = wire::Vec3F64::new(minimum, 0.0, maximum);
-        validate_point(&boundary, "curve.control", "roads/main").expect("inclusive bounds");
+        validate_point(
+            &boundary,
+            ["curve.control.x", "curve.control.y", "curve.control.z"],
+            "roads/main",
+        )
+        .expect("inclusive bounds");
 
         let outside = wire::Vec3F64::new(maximum + 0.25, 0.0, 0.0);
-        let error = validate_point(&outside, "curve.control", "roads/main")
-            .expect_err("outside canonical frame");
+        let error = validate_point(
+            &outside,
+            ["curve.control.x", "curve.control.y", "curve.control.z"],
+            "roads/main",
+        )
+        .expect_err("outside canonical frame");
         assert!(matches!(
             error.diagnostics()[0].payload(),
             crate::DiagnosticPayload::InvalidRoadEditingSource {
@@ -2395,7 +2642,7 @@ mod tests {
                 ),
                 field: Some(field),
                 ..
-            } if field.as_ref() == "curve.control"
+            } if field.as_ref() == "curve.control.x"
         ));
     }
 
@@ -2436,5 +2683,44 @@ mod tests {
         assert!(references_equal("corridor-a", "corridor-a", "city"));
         assert!(!references_equal("corridor-missing", "corridor-a", "city"));
         assert!(!references_equal("other::corridor-a", "corridor-a", "city"));
+    }
+
+    #[test]
+    fn duplicate_root_site_and_canonical_reference_rank_are_stable() {
+        let mut usage = RoadEditingPreflightState::new(RoadEditingPreflightCounts::default());
+        let duplicate = ["a", "b", "a"];
+        ensure_unique_by(
+            &mut usage,
+            RoadEditingRootVectorKind::CanonicalFrame,
+            duplicate.into_iter(),
+            |value| value,
+            "canonicalFrames.canonicalFrameKey",
+            "roads/main",
+        )
+        .expect_err("duplicate declaration");
+        assert_eq!(
+            usage.failure_subject,
+            Some(SemanticPreflightSubjectSite::Root {
+                vector: RoadEditingRootVectorKind::CanonicalFrame,
+                physical_index: 2,
+            })
+        );
+
+        let mut references = [
+            "other::corridor>section>lane",
+            "corridor>section>lane-z",
+            "corridor>section>lane-a",
+        ];
+        references.sort_by(|left, right| {
+            compare_references(left, right, 3, "city").expect("valid references")
+        });
+        assert_eq!(
+            references,
+            [
+                "corridor>section>lane-a",
+                "corridor>section>lane-z",
+                "other::corridor>section>lane",
+            ]
+        );
     }
 }
