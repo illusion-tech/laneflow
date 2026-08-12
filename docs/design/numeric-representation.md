@@ -188,22 +188,24 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 
 #### compiler 前端数值权威（#296 / #378）
 
-#296 引入的 compiler 前端（`LFRE wire → typed AST → Spatial HIR → geometry MIR → canonical LIR + source map`）在 Core `f64` 与 Spatial `f32` 之外不再引入新的数值权威；每一域显式归属为：
+#296 引入的 compiler 前端（`LFRE wire → typed AST → Spatial HIR → geometry MIR → canonical LIR + source map`）沿 ADR 0022 五层几何表示计量，不在 Core `f64` 与 Spatial `f32` 之外新增第四种权威；每一域显式归属为：
 
 | 数值域                 | 标量                 | 权威归属             | 规则                                                                 |
 | ---------------------- | -------------------- | -------------------- | -------------------------------------------------------------------- |
-| LFRE wire 几何         | `f32`                | 私有 wire / schema   | 精度档 2/5/10 cm、1/2/5°；受检构造                                   |
-| `SourceLocation` 偏移  | 整数（`u32`/`u64`）  | compiler 来源位置    | 离散计数，不参与几何算术                                             |
-| typed AST 几何量       | `f32`                | compiler             | 与 Spatial 同侧                                                     |
-| Spatial HIR            | `f32`                | Spatial 派生         | 对齐 `CanonicalPoint3F32`                                            |
-| stationing（确定性桩号）| Core `f64` 里程语义  | Core 派生里程         | 沿 edge 序列累计、防溢出；生成几何时经 `ratio` 受检桥映射为 `f32`    |
-| geometry MIR / canonical LIR 几何 | `f32`      | compiler 输出         | 下游 Spatial 是 `f32`                                                |
-| canonical digest       | 字节序列             | compiler 输出         | hash 输入是字节，非数值                                              |
-| Core ↔ LIR 跨边界       | 单一受检桥 + 误差预算 | Core/compiler 边界    | 禁止 lowering 各处散落的隐式 `as`/截断                               |
+| LFRE wire 几何         | `f64`（`Vec3F64`）   | 私有 wire / schema   | FlatBuffers `double`，format v1 权威；`f32` 只在 canonical 输出边界受检产生 |
+| `SourceLocation` 偏移  | `u32`（受检）        | compiler 来源位置    | `RoadEditingByteRange` 为 checked `u32` start+length；越界 fail closed |
+| typed AST 控制点/解析曲线 | `f64`             | compiler             | ADR 0022：编制解析曲线在前端/MIR 以 `f64` 求值                      |
+| Spatial HIR            | `f64`                | compiler             | 解析几何与参考基表在 MIR 前仍为 `f64`；仅 canonical 折线量化          |
+| station reference 基表 | `f64` 累计弦长       | compiler             | 配置档无关、按 source curve segment 组织的累计弦长；不按 edge 序列累计 |
+| geometry MIR / 配置档近似 | `f64`             | compiler             | 位置/方向档的独立细分参考仍为 `f64`                                  |
+| canonical LIR 折线     | `f32`（量化后，唯一）| compiler 输出         | ADR 0022 五层中唯一进入运行时规范权威的几何                           |
+| canonical digest       | 字节序列             | compiler 输出         | hash 输入是字节序列，不参与几何算术                                  |
+| Core ↔ compiler projection | 仅 integration-only | `laneflow-compiler-test-support` | 投影不进入 `laneflow-compiler` 生产功能，#294 cutover 删除        |
 
 - 第 3 节与上表的单一数值域仍以 Core `f64`（当前生产）、Spatial `f32` 与整数为权威；compiler 切片不新增第四种权威。
-- stationing 使用 Core `f64` 里程语义（与 route distance 同原则），但作为生成 `f32` geometry 的中间里程计算；它不是 `EdgeProgress` 本身，也不是独立量化档。
-- canonical LIR 几何固定为 `f32`；所有跨边界换算必须通过唯一的受检转换，且不允许静默饱和或值域外回退（与 ADR 0014/0015 一致）。
+- 编制解析曲线、station 基表与配置档近似参考均以 `f64` 存续；只有 canonical 运行时折线量化到有界 `f32`（ADR 0022 五层表示）。
+- stationing 是 authoring 曲线的配置档无关累计弦长基表，按 source curve segment 组织，不属于运行时 edge 序列里程。
+- 受检的 `f64 → f32` 转换只发生在 canonical 输出边界，不允许在 lowering 各处以隐式 `as`/截断提前量化（与 ADR 0014/0015/0022 一致）。
 
 研究结果解释：
 
