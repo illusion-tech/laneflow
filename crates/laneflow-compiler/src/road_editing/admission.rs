@@ -59,6 +59,7 @@ struct RoadEditingAdmissionSizing {
     frontend_scratch_upper_bound: u64,
     frontend_dynamic_live_upper_bound: u64,
     alignment_input_scratch_bytes: u64,
+    import_sort_bytes: u64,
 }
 
 impl RoadEditingAdmissionSizing {
@@ -78,6 +79,7 @@ impl RoadEditingAdmissionSizing {
                 .max(import_sort),
             frontend_dynamic_live_upper_bound,
             alignment_input_scratch_bytes,
+            import_sort_bytes: import_sort,
         }
     }
 }
@@ -468,6 +470,24 @@ fn lower_verified_source(
     debug_assert!(geometry_usage.peak_scratch_bytes <= geometry_scratch_allowance.stage_limit);
     let geometry_point_count = geometry_usage.output_point_count;
     let geometry_source_range_count = geometry_usage.output_source_range_count;
+    let geometry_output_bytes = size_bytes::<CanonicalPoint3F32Input>(geometry_point_count)
+        .saturating_add(size_bytes::<CompiledGeometrySourceRange>(
+            geometry_source_range_count,
+        ));
+    let post_geometry_import_peak =
+        geometry_output_bytes.saturating_add(admission_sizing.import_sort_bytes);
+    if post_geometry_import_peak > geometry_scratch_allowance.live_headroom {
+        return Err(geometry_compilation_diagnostic(
+            GeometryCompilationError::LiveLimit {
+                limit: geometry_scratch_allowance.live_headroom,
+                observed: post_geometry_import_peak,
+            },
+            &verified,
+            &locations,
+            limits,
+            geometry_scratch_allowance,
+        ));
+    }
 
     let header = root.module_header();
     let namespace = shared_namespace;
@@ -557,6 +577,7 @@ fn lower_verified_source(
                 .frontend_dynamic_live_upper_bound
                 .max(geometry_usage.peak_output_and_scratch_bytes),
         )
+        .max(preallocation_live_bytes.saturating_add(post_geometry_import_peak))
         .max(controlled_live_bytes);
     debug_assert!(
         controlled_live_bytes
@@ -987,10 +1008,17 @@ mod tests {
     fn complete_geometry_buffer(
         limits: &CompileLimits,
     ) -> super::super::OwnedRoadEditingSourceBuffer {
+        complete_geometry_buffer_with_imports(limits, Vec::new())
+    }
+
+    fn complete_geometry_buffer_with_imports(
+        limits: &CompileLimits,
+        imports: Vec<String>,
+    ) -> super::super::OwnedRoadEditingSourceBuffer {
         let header = RoadEditingModuleHeader::try_new(
             "city",
             "road-editing",
-            Vec::new(),
+            imports,
             RoadEditingProvenance::direct("editor save").unwrap(),
         )
         .unwrap();
@@ -1298,6 +1326,108 @@ mod tests {
         assert_eq!(
             rejected_builder.already_admitted(CompileLimitDimension::ModuleCount),
             0
+        );
+    }
+
+    #[test]
+    fn geometry_outputs_and_import_sort_share_one_live_boundary() {
+        let broad = CompileLimits::p100_initial_v1();
+        let imports = (0..1_032).map(|index| format!("dependency-{index:04}"));
+        let buffer = complete_geometry_buffer_with_imports(&broad, imports.collect());
+        let input =
+            || RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap();
+        let verified = verify_source(input(), &broad, 0, 0).unwrap();
+        let display_items = 0;
+        let display_bytes = 0;
+        let import_count = u64::try_from(verified.root().module_header().imports().len()).unwrap();
+        let base = preallocation_live_upper_bound(
+            verified.preflight_counts(),
+            display_items,
+            display_bytes,
+            import_count,
+        );
+        let sizing = RoadEditingAdmissionSizing::from_root(verified.root(), import_count);
+        assert!(sizing.import_sort_bytes > 0);
+
+        let admitted = lower_verified_source(
+            verified,
+            &broad,
+            broad.value(CompileLimitDimension::GeometryPointCount),
+            GeometryScratchAllowance {
+                stage_limit: broad.value(CompileLimitDimension::StageScratchBytes),
+                live_headroom: u64::MAX,
+                live_bytes_before_scratch: base,
+            },
+        )
+        .unwrap();
+        let (point_count, source_range_count) = admitted.typed_ast().declarations.iter().fold(
+            (0_u64, 0_u64),
+            |(points, ranges), declaration| match declaration {
+                TypedAstDeclaration::LaneEdge(edge) => match &edge.geometry_authority {
+                    crate::declaration::LaneEdgeGeometryAuthority::Compiled(geometry) => (
+                        points.saturating_add(
+                            u64::try_from(geometry.centerline_points.len()).unwrap(),
+                        ),
+                        ranges.saturating_add(u64::try_from(geometry.source_ranges.len()).unwrap()),
+                    ),
+                    _ => (points, ranges),
+                },
+                TypedAstDeclaration::FacilityBand(facility) => facility
+                    .compiled_geometry
+                    .as_ref()
+                    .map_or((points, ranges), |geometry| {
+                        (
+                            points.saturating_add(
+                                u64::try_from(geometry.centerline_points.len()).unwrap(),
+                            ),
+                            ranges.saturating_add(
+                                u64::try_from(geometry.source_ranges.len()).unwrap(),
+                            ),
+                        )
+                    }),
+                _ => (points, ranges),
+            },
+        );
+        let output_bytes =
+            size_bytes::<CanonicalPoint3F32Input>(point_count).saturating_add(size_bytes::<
+                CompiledGeometrySourceRange,
+            >(
+                source_range_count
+            ));
+        let exact_headroom = output_bytes.saturating_add(sizing.import_sort_bytes);
+        assert!(output_bytes > 0, "fixture must retain compiled geometry");
+        assert_eq!(
+            admitted.typed_ast().imports.len(),
+            usize::try_from(import_count).unwrap()
+        );
+
+        let verified = verify_source(input(), &broad, 0, 0).unwrap();
+        lower_verified_source(
+            verified,
+            &broad,
+            broad.value(CompileLimitDimension::GeometryPointCount),
+            GeometryScratchAllowance {
+                stage_limit: broad.value(CompileLimitDimension::StageScratchBytes),
+                live_headroom: exact_headroom,
+                live_bytes_before_scratch: base,
+            },
+        )
+        .expect("the exact geometry-output plus import-sort boundary must pass");
+
+        let verified = verify_source(input(), &broad, 0, 0).unwrap();
+        let rejected = lower_verified_source(
+            verified,
+            &broad,
+            broad.value(CompileLimitDimension::GeometryPointCount),
+            GeometryScratchAllowance {
+                stage_limit: broad.value(CompileLimitDimension::StageScratchBytes),
+                live_headroom: exact_headroom - 1,
+                live_bytes_before_scratch: base,
+            },
+        );
+        assert!(
+            rejected.is_err(),
+            "boundary minus one must fail before import sort allocation"
         );
     }
 
