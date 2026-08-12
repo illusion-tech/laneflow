@@ -3544,7 +3544,7 @@ mod tests {
         ));
 
         fn validate_two_corridors(second_start: f64) -> Result<(), NumericFreezeError> {
-            let (alignments, mut declarations) = lowered_geometry_fixture();
+            let (_locations, alignments, mut declarations) = lowered_geometry_fixture();
             let corridor_index = declarations
                 .iter()
                 .position(|declaration| matches!(declaration, TypedAstDeclaration::RoadCorridor(_)))
@@ -3693,12 +3693,13 @@ mod tests {
 
     #[test]
     fn alignment_input_backing_counts_toward_stage_scratch() {
-        let (alignments, mut declarations) = lowered_geometry_fixture();
+        let (locations, alignments, mut declarations) = lowered_geometry_fixture();
         let input_scratch = alignment_input_scratch_bytes(&alignments).unwrap();
         assert!(input_scratch > 0);
         assert_eq!(
             compile_authoring_geometry(
                 "city",
+                &locations,
                 alignments,
                 &mut declarations,
                 GeometryAccuracyProfile::Balanced5Cm,
@@ -3719,7 +3720,7 @@ mod tests {
 
     #[test]
     fn topology_history_enters_live_peak_before_released_indexes_disappear() {
-        let (alignments, declarations) = lowered_geometry_fixture();
+        let (_locations, alignments, declarations) = lowered_geometry_fixture();
         let input_scratch = alignment_input_scratch_bytes(&alignments).unwrap();
         let mut scratch = GeometryScratchBudget::new(u64::MAX, input_scratch, u64::MAX).unwrap();
         let plans =
@@ -3732,10 +3733,11 @@ mod tests {
         );
         drop(plans);
 
-        let (alignments, mut rejected) = lowered_geometry_fixture();
+        let (locations, alignments, mut rejected) = lowered_geometry_fixture();
         assert_eq!(
             compile_authoring_geometry(
                 "city",
+                &locations,
                 alignments,
                 &mut rejected,
                 GeometryAccuracyProfile::Balanced5Cm,
