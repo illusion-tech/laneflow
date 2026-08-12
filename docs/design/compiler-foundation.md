@@ -2,7 +2,7 @@
 
 **文档状态**: #292 已接受并完成 G4；#315 共同受检模块接入契约已实现；
 #297 current JSON 编译器导入设计已取消<br>
-**最后更新**: 2026-08-10<br>
+**最后更新**: 2026-08-12<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
@@ -730,6 +730,16 @@ v1 的精确语义和构造器。配置档选择也是官方前端准入能力�
 `SourceDocumentCount` 已经是当前编译器配置档；#296 的具体入口须按自身设计选择并
 执行该配置档契约。
 
+**#296 最小资源护栏 v1：**道路编辑来源继续执行来源字节、verifier depth/table/
+apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输出和总工作集的主要逻辑
+上限；所有乘加使用 checked arithmetic，候选失败不得提交。`CompilerControlledLiveBytes`
+在该入口首先是故意保守的逻辑工作集 ceiling，不宣称仅凭普通 Rust 计数器即可逐字节
+约束实际 allocator。`Vec` capacity/扩容共存、`Arc` header/DST padding、HIR/MIR/LIR
+阶段精确生命周期、失败诊断与 allocator/P100 正式证据由
+[#374](https://github.com/illusion-tech/laneflow/issues/374) 独立交付；它阻断 #305 的
+最终 cutover Gate，但不阻断 #298、#345、#351–#354。该拆分不放宽 schema、verifier、
+主要规模上限、失败原子性或 canonical LIR 语义。
+
 `LF-COMP-P100-INITIAL-v1` 以 #308 九个压力分层的逐维上包络为来源。来源 / 领域计数
 取原始测量制品 `v0.10-compiler-budget-calibration-raw.json` 中
 `limitQualification.limitPairs[].pair.exactDimensionValue` 的压力规模最大值；总存续
@@ -819,6 +829,9 @@ v1 的精确语义和构造器。配置档选择也是官方前端准入能力�
 库内受控分配以请求容量字节记账；调用方在进入 API 前自行持有的外部内存不计入编译器
 峰值，但复制 / 驻留进编译器后的字节必须计入。各分项均未超限不能替代总存续内存
 核对；所有请求容量和累计字节使用受检加法，平台无法表示请求值时必须在分配前失败。
+该段描述 #292/#315 既有共同编译器会计目标；#296 道路编辑来源在 #374 完成前按上文
+“最小资源护栏 v1”的保守逻辑 ceiling 验收，不把每个 allocator allocation 的精确相等
+关系作为 #296 Delivery 前置。
 
 `max_diagnostic_count` 限制保留的诊断记录数，不限制仍可安全检查的诊断候选数。每个
 已执行编译遍必须检查其输入中全部可安全判定的候选，并用按第 5.2 节全局规范顺序
