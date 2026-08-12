@@ -603,14 +603,16 @@ pub(crate) struct OwnedEntityReference<K: EntityKindMarker> {
 /// 字段，不能单独充当模块内全局键。
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct TypedAstEntityAddress {
-    owner_local_keys: Arc<[Arc<str>]>,
+    // 模块级地址使用 `None`，避免为最常见的空 owner tuple 在每个声明和引用上分别
+    // 分配一份 `Arc` header。
+    owner_local_keys: Option<Arc<[Arc<str>]>>,
     local_key: Arc<str>,
 }
 
 impl TypedAstEntityAddress {
     pub(crate) fn module_scoped(local_key: Arc<str>) -> Self {
         Self {
-            owner_local_keys: Arc::from([]),
+            owner_local_keys: None,
             local_key,
         }
     }
@@ -622,7 +624,7 @@ impl TypedAstEntityAddress {
     pub(crate) fn owner_scoped(owner_local_keys: Arc<[Arc<str>]>, local_key: Arc<str>) -> Self {
         debug_assert!(!owner_local_keys.is_empty());
         Self {
-            owner_local_keys,
+            owner_local_keys: Some(owner_local_keys),
             local_key,
         }
     }
@@ -632,7 +634,7 @@ impl TypedAstEntityAddress {
         reason = "consumed by the following RoadEditingSource shared-admission slice"
     )]
     pub(crate) fn owner_local_keys(&self) -> &[Arc<str>] {
-        &self.owner_local_keys
+        self.owner_local_keys.as_deref().unwrap_or(&[])
     }
 
     pub(crate) fn local_key(&self) -> &Arc<str> {

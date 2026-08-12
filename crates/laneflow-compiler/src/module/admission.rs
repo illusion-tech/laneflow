@@ -1,12 +1,14 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
+#[cfg(test)]
+use crate::SourceSpan;
 use crate::arena::ArenaKey;
 use crate::declaration::TypedAstDeclaration;
 use crate::diagnostic::DiagnosticCollector;
 use crate::{
     CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceLocation,
-    SourcePosition, SourceSpan,
+    SourcePosition,
 };
 
 use super::descriptor::{SourceDocumentDescriptor, SourceModuleDescriptor};
@@ -608,7 +610,7 @@ impl AdmissionSizing {
             .saturating_add(size_bytes::<usize>(module_count))
             .saturating_add(size_bytes::<u32>(module_count))
             .saturating_add(size_bytes::<&str>(module_count))
-            .saturating_add(size_bytes::<SourceSpan>(module_count));
+            .saturating_add(size_bytes::<SourceLocation>(module_count));
 
         let rank_bytes = size_bytes::<usize>(module_count);
         let rank_scratch_bytes = diagnostic_buffer_bytes

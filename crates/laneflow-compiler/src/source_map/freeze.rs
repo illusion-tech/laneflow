@@ -2,13 +2,12 @@
 
 use super::*;
 
-/// 源映射阶段的三个受限资源观察值。
+/// 源映射阶段的两个内存资源观察值。
 ///
-/// 该值对象只执行饱和算术，不扫描额外集合，也不分配内存；观察值顺序与原限额诊断
-/// 顺序一致。
+/// 该值对象只执行饱和算术，不扫描额外集合，也不分配内存。输出逻辑字节需要按实际
+/// 文本/道路编辑位置 variant 累计，在位置记录冻结完成后单独校验。
 #[derive(Clone, Copy)]
 struct SourceMapSizing {
-    output_bytes: u64,
     scratch_bytes: u64,
     controlled_live_bytes: u64,
 }
@@ -19,15 +18,10 @@ impl SourceMapSizing {
         unit: &CompilationUnit,
         mir: &MirUnit,
         frozen_lir: &LirFreezeOutput,
-        source_map_logical_bytes: u64,
         source_map_new_owned_bytes: u64,
         scratch_bytes: u64,
     ) -> Self {
         Self {
-            output_bytes: frozen_lir
-                .lir
-                .output_bytes
-                .saturating_add(source_map_logical_bytes),
             scratch_bytes,
             controlled_live_bytes: unit
                 .controlled_live_bytes
@@ -40,9 +34,8 @@ impl SourceMapSizing {
     }
 
     #[inline]
-    const fn limit_observations(self) -> [(CompileLimitDimension, u64); 3] {
+    const fn limit_observations(self) -> [(CompileLimitDimension, u64); 2] {
         [
-            (CompileLimitDimension::OutputBytes, self.output_bytes),
             (CompileLimitDimension::StageScratchBytes, self.scratch_bytes),
             (
                 CompileLimitDimension::CompilerControlledLiveBytes,
@@ -55,9 +48,17 @@ impl SourceMapSizing {
 /// 将受检来源文档键解析为冻结序号，并核对逻辑模块所有权。
 struct SourceLocationResolver<'a> {
     unit: &'a CompilationUnit,
+    logical_bytes: std::cell::Cell<u64>,
 }
 
 impl SourceLocationResolver<'_> {
+    fn new(unit: &CompilationUnit) -> SourceLocationResolver<'_> {
+        SourceLocationResolver {
+            unit,
+            logical_bytes: std::cell::Cell::new(0),
+        }
+    }
+
     #[inline]
     fn resolve(
         &self,
@@ -66,7 +67,23 @@ impl SourceLocationResolver<'_> {
     ) -> Result<SourceLocationRecord, DiagnosticBundle> {
         self.unit
             .resolve_source_location_for_module(owner_module.raw(), location)
-            .map(Into::into)
+            .map(|location| self.record(location))
+    }
+
+    #[inline]
+    fn record(&self, location: ResolvedSourceLocation) -> SourceLocationRecord {
+        let record = SourceLocationRecord::from(location);
+        self.logical_bytes.set(
+            self.logical_bytes
+                .get()
+                .saturating_add(record.logical_bytes()),
+        );
+        record
+    }
+
+    #[inline]
+    fn logical_bytes(&self) -> u64 {
+        self.logical_bytes.get()
     }
 }
 
@@ -180,16 +197,7 @@ pub(crate) fn freeze_source_map(
     .fold(0_u64, |total, count| {
         total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
     });
-    let route_contributing_source_count = [
-        mir.maneuver_occurrences.len(),
-        mir.gate_occurrences.len(),
-        mir.waiting_zone_occurrences.len(),
-    ]
-    .into_iter()
-    .fold(0_u64, |total, count| {
-        total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
-    });
-    let source_map_logical_bytes = unit
+    let source_map_fixed_logical_bytes = unit
         .modules
         .iter()
         .fold(0_u64, |total, module| {
@@ -206,33 +214,47 @@ pub(crate) fn freeze_source_map(
                 },
             )
         })
-        .saturating_add(module_count.saturating_mul(SOURCE_LOCATION_LOGICAL_BYTES))
-        .saturating_add(lane_edge_count.saturating_mul(LANE_EDGE_SOURCE_LOGICAL_BYTES))
-        .saturating_add(successor_count.saturating_mul(LANE_EDGE_SUCCESSOR_SOURCE_LOGICAL_BYTES))
-        .saturating_add(cross_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
+        .saturating_add(lane_edge_count.saturating_mul(LANE_EDGE_SOURCE_FIXED_LOGICAL_BYTES))
         .saturating_add(
-            cross_relation_count.saturating_mul(CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES),
+            successor_count.saturating_mul(LANE_EDGE_SUCCESSOR_SOURCE_FIXED_LOGICAL_BYTES),
         )
-        .saturating_add(junction_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
+        .saturating_add(cross_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_FIXED_LOGICAL_BYTES))
         .saturating_add(
-            junction_relation_count.saturating_mul(JUNCTION_RELATION_SOURCE_LOGICAL_BYTES),
+            cross_relation_count.saturating_mul(OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES),
         )
-        .saturating_add(signal_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
-        .saturating_add(signal_relation_count.saturating_mul(SIGNAL_RELATION_SOURCE_LOGICAL_BYTES))
-        .saturating_add(parking_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
         .saturating_add(
-            parking_relation_count.saturating_mul(PARKING_RELATION_SOURCE_LOGICAL_BYTES),
+            junction_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_FIXED_LOGICAL_BYTES),
         )
-        .saturating_add(spatial_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
         .saturating_add(
-            spatial_relation_count.saturating_mul(SPATIAL_RELATION_SOURCE_LOGICAL_BYTES),
+            junction_relation_count.saturating_mul(OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES),
         )
-        .saturating_add(access_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
-        .saturating_add(access_relation_count.saturating_mul(ACCESS_RELATION_SOURCE_LOGICAL_BYTES))
-        .saturating_add(static_route_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
-        .saturating_add(route_relation_count.saturating_mul(ROUTE_RELATION_SOURCE_LOGICAL_BYTES))
         .saturating_add(
-            route_contributing_source_count.saturating_mul(SOURCE_LOCATION_LOGICAL_BYTES),
+            signal_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_FIXED_LOGICAL_BYTES),
+        )
+        .saturating_add(
+            signal_relation_count.saturating_mul(OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES),
+        )
+        .saturating_add(
+            parking_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_FIXED_LOGICAL_BYTES),
+        )
+        .saturating_add(
+            parking_relation_count.saturating_mul(OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES),
+        )
+        .saturating_add(
+            spatial_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_FIXED_LOGICAL_BYTES),
+        )
+        .saturating_add(
+            spatial_relation_count.saturating_mul(OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES),
+        )
+        .saturating_add(
+            access_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_FIXED_LOGICAL_BYTES),
+        )
+        .saturating_add(
+            access_relation_count.saturating_mul(OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES),
+        )
+        .saturating_add(static_route_count.saturating_mul(STABLE_ENTITY_SOURCE_FIXED_LOGICAL_BYTES))
+        .saturating_add(
+            route_relation_count.saturating_mul(ROUTE_RELATION_SOURCE_FIXED_LOGICAL_BYTES),
         );
     // 描述符字段与 import backing 已由 CompilationUnit 持有；冻结时新增模块/文档
     // 描述符平坦表、各稳定实体来源表及 owner-local 关系来源表的连续存储。峰值仍保留
@@ -378,7 +400,6 @@ pub(crate) fn freeze_source_map(
         &unit,
         mir,
         frozen_lir,
-        source_map_logical_bytes,
         source_map_new_owned_bytes,
         source_map_scratch_bytes,
     );
@@ -410,7 +431,7 @@ pub(crate) fn freeze_source_map(
     // 真实文档序号由共同准入保留的全局唯一文档键绑定解析，同时核对该文档确实属于
     // 产生语义记录的逻辑模块。缺失键和跨模块错绑都以结构化诊断失败关闭，不能 panic
     // 或借另一个模块的同名/现存文档静默归因。
-    let location = SourceLocationResolver { unit: &unit };
+    let location = SourceLocationResolver::new(&unit);
 
     let module_capacity =
         usize::try_from(module_count).map_err(|_| output_overflow(&unit, primary_span.clone()))?;
@@ -536,7 +557,7 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::RoadCorridorElement,
                 local_index: u32::try_from(local_index)
                     .expect("MIR range precheck proved local index fits u32"),
-                primary: source_location.into(),
+                primary: location.record(source_location),
             });
         }
     }
@@ -613,12 +634,12 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::LaneGroupMember,
                 local_index: u32::try_from(local_index)
                     .expect("MIR range precheck proved local index fits u32"),
-                primary: lane
-                    .lane_group_source_location
-                    .as_ref()
-                    .expect("resolved lane-group member retains its reference source")
-                    .clone()
-                    .into(),
+                primary: location.record(
+                    lane.lane_group_source_location
+                        .as_ref()
+                        .expect("resolved lane-group member retains its reference source")
+                        .clone(),
+                ),
             });
         }
     }
@@ -665,12 +686,13 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::JunctionMovement,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: movement
-                    .junction_source_location
-                    .as_ref()
-                    .expect("resolved junction member retains its reference source")
-                    .clone()
-                    .into(),
+                primary: location.record(
+                    movement
+                        .junction_source_location
+                        .as_ref()
+                        .expect("resolved junction member retains its reference source")
+                        .clone(),
+                ),
             });
         }
     }
@@ -704,12 +726,12 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::MovementManeuverPath,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: path
-                    .movement_source_location
-                    .as_ref()
-                    .expect("resolved movement path retains its parent reference source")
-                    .clone()
-                    .into(),
+                primary: location.record(
+                    path.movement_source_location
+                        .as_ref()
+                        .expect("resolved movement path retains its parent reference source")
+                        .clone(),
+                ),
             });
         }
     }
@@ -755,12 +777,12 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::ManeuverPathGate,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: gate
-                    .maneuver_path_source_location
-                    .as_ref()
-                    .expect("resolved maneuver gate retains its path reference source")
-                    .clone()
-                    .into(),
+                primary: location.record(
+                    gate.maneuver_path_source_location
+                        .as_ref()
+                        .expect("resolved maneuver gate retains its path reference source")
+                        .clone(),
+                ),
             });
         }
         for (local_index, waiting_ordinal) in frozen_lir.lir.maneuver_path_waiting_zones
@@ -778,12 +800,13 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::ManeuverPathWaitingZone,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: waiting
-                    .maneuver_path_source_location
-                    .as_ref()
-                    .expect("resolved waiting zone retains its path reference source")
-                    .clone()
-                    .into(),
+                primary: location.record(
+                    waiting
+                        .maneuver_path_source_location
+                        .as_ref()
+                        .expect("resolved waiting zone retains its path reference source")
+                        .clone(),
+                ),
             });
         }
     }
@@ -817,12 +840,12 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::StopLineManeuverGate,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: gate
-                    .stop_line_source_location
-                    .as_ref()
-                    .expect("resolved maneuver gate retains its stop-line reference source")
-                    .clone()
-                    .into(),
+                primary: location.record(
+                    gate.stop_line_source_location
+                        .as_ref()
+                        .expect("resolved maneuver gate retains its stop-line reference source")
+                        .clone(),
+                ),
             });
         }
     }
@@ -897,7 +920,7 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::SignalControllerGroup,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: group.source_location.clone().into(),
+                primary: location.record(group.source_location.clone()),
             });
         }
         for (local_index, phase_ordinal) in frozen_lir.lir.signal_controller_phases
@@ -949,7 +972,7 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::SignalPhaseState,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: state.source_location.clone().into(),
+                primary: location.record(state.source_location.clone()),
             });
         }
     }
@@ -971,7 +994,7 @@ pub(crate) fn freeze_source_map(
                 ),
                 role: SourceRelationRole::ManeuverGateSignalGroup,
                 local_index: 0,
-                primary: source_location.clone().into(),
+                primary: location.record(source_location.clone()),
             });
         }
     }
@@ -1009,12 +1032,13 @@ pub(crate) fn freeze_source_map(
                 owner_stable_id: space.stable_id,
                 role: SourceRelationRole::ParkingSpaceArea,
                 local_index: 0,
-                primary: space
-                    .parking_area_source_location
-                    .as_ref()
-                    .expect("resolved parking-area member retains its reference source")
-                    .clone()
-                    .into(),
+                primary: location.record(
+                    space
+                        .parking_area_source_location
+                        .as_ref()
+                        .expect("resolved parking-area member retains its reference source")
+                        .clone(),
+                ),
             });
         }
         for (role, source_location) in [
@@ -1032,7 +1056,7 @@ pub(crate) fn freeze_source_map(
                 owner_stable_id: space.stable_id,
                 role,
                 local_index: 0,
-                primary: source_location.into(),
+                primary: location.record(source_location),
             });
         }
     }
@@ -1282,6 +1306,23 @@ pub(crate) fn freeze_source_map(
         spatial_relation_sources.len(),
         usize::try_from(spatial_relation_count).unwrap_or(usize::MAX)
     );
+    let output_bytes = frozen_lir
+        .lir
+        .output_bytes
+        .saturating_add(source_map_fixed_logical_bytes)
+        .saturating_add(location.logical_bytes());
+    let output_limit = unit.limits.value(CompileLimitDimension::OutputBytes);
+    if output_bytes > output_limit {
+        return Err(DiagnosticBundle::single(
+            Diagnostic::compile_limit_exceeded_at(
+                CompileLimitDimension::OutputBytes,
+                output_limit,
+                output_bytes,
+                primary_span,
+                stable_key,
+            ),
+        ));
+    }
     let (source_modules, source_documents) = unit.into_source_descriptors();
     Ok(ValidatedSourceMapInput {
         source_modules,
