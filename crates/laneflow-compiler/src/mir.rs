@@ -394,8 +394,20 @@ pub(crate) struct MirLaneEdgeGeometry {
     pub(crate) lane_edge: MirLaneEdgeKey,
     pub(crate) points: TableRange<MirCanonicalPoint3F32>,
     pub(crate) segments: TableRange<MirSpatialSegment>,
+    pub(crate) source_ranges: TableRange<MirGeometrySourceRange>,
     pub(crate) arc_length_meters: f32,
     pub(crate) source_span: SourceLocation,
+}
+
+#[allow(
+    dead_code,
+    reason = "point ranges and source segment ordinals are consumed by the source-map emitter slice"
+)]
+pub(crate) struct MirGeometrySourceRange {
+    pub(crate) source_module: MirModuleKey,
+    pub(crate) points: TableRange<MirCanonicalPoint3F32>,
+    pub(crate) source_segment_ordinal: u32,
+    pub(crate) source: SourceLocation,
 }
 
 #[derive(Clone, Copy)]
@@ -556,6 +568,7 @@ pub(crate) struct MirUnit {
     pub(crate) vehicle_profiles: Box<[MirVehicleProfile]>,
     pub(crate) canonical_frames: Box<[MirCanonicalFrame]>,
     pub(crate) lane_edge_geometries: Box<[MirLaneEdgeGeometry]>,
+    pub(crate) geometry_source_ranges: Box<[MirGeometrySourceRange]>,
     pub(crate) canonical_points: Box<[MirCanonicalPoint3F32]>,
     pub(crate) spatial_segments: Box<[MirSpatialSegment]>,
     pub(crate) access_rules: Box<[MirAccessRule]>,
@@ -679,6 +692,7 @@ pub(crate) fn lower_to_mir(
         .saturating_add(parking_record_count)
         .saturating_add(u64::try_from(hir.canonical_frames.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.lane_edge_geometries.len()).unwrap_or(u64::MAX))
+        .saturating_add(u64::try_from(hir.geometry_source_ranges.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.canonical_points.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.spatial_segments.len()).unwrap_or(u64::MAX))
         .saturating_add(access_record_count)
@@ -840,6 +854,12 @@ pub(crate) fn lower_to_mir(
         ))
         .saturating_add(requested_bytes::<MirLaneEdgeGeometry>(
             hir.lane_edge_geometries
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirGeometrySourceRange>(
+            hir.geometry_source_ranges
                 .len()
                 .try_into()
                 .unwrap_or(u64::MAX),
@@ -1432,8 +1452,25 @@ pub(crate) fn lower_to_mir(
                 lane_edge: hir_to_mir[geometry.lane_edge.index()],
                 points: remap_range(geometry.points, &unit.limits, &geometry.source_span)?,
                 segments: remap_range(geometry.segments, &unit.limits, &geometry.source_span)?,
+                source_ranges: remap_range(
+                    geometry.source_ranges,
+                    &unit.limits,
+                    &geometry.source_span,
+                )?,
                 arc_length_meters: geometry.arc_length_meters,
                 source_span: geometry.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let geometry_source_ranges = hir
+        .geometry_source_ranges
+        .iter()
+        .map(|range| {
+            Ok(MirGeometrySourceRange {
+                source_module: hir_module_to_mir[range.source_module.index()],
+                points: remap_range(range.points, &unit.limits, &range.source)?,
+                source_segment_ordinal: range.source_segment_ordinal,
+                source: range.source.clone(),
             })
         })
         .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
@@ -1694,6 +1731,7 @@ pub(crate) fn lower_to_mir(
         parking_area_spaces: parking_area_spaces.into_boxed_slice(),
         canonical_frames: canonical_frames.into_boxed_slice(),
         lane_edge_geometries: lane_edge_geometries.into_boxed_slice(),
+        geometry_source_ranges: geometry_source_ranges.into_boxed_slice(),
         canonical_points: canonical_points.into_boxed_slice(),
         spatial_segments: spatial_segments.into_boxed_slice(),
         participant_classes: participant_classes.into_boxed_slice(),
