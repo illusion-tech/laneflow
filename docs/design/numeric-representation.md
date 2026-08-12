@@ -186,6 +186,25 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 | 宿主向量/`Transform`               | 宿主专用                               | Adapter 表现       | 只能出现在 Adapter 末端                                 |
 | `f16` / 量化整数                   | 仅用于显式编码/缓存                    | 非权威             | 独立缩放/原点/范围/溢出/错误契约                        |
 
+#### compiler 前端数值权威（#296 / #378）
+
+#296 引入的 compiler 前端（`LFRE wire → typed AST → Spatial HIR → geometry MIR → canonical LIR + source map`）在 Core `f64` 与 Spatial `f32` 之外不再引入新的数值权威；每一域显式归属为：
+
+| 数值域                 | 标量                 | 权威归属             | 规则                                                                 |
+| ---------------------- | -------------------- | -------------------- | -------------------------------------------------------------------- |
+| LFRE wire 几何         | `f32`                | 私有 wire / schema   | 精度档 2/5/10 cm、1/2/5°；受检构造                                   |
+| `SourceLocation` 偏移  | 整数（`u32`/`u64`）  | compiler 来源位置    | 离散计数，不参与几何算术                                             |
+| typed AST 几何量       | `f32`                | compiler             | 与 Spatial 同侧                                                     |
+| Spatial HIR            | `f32`                | Spatial 派生         | 对齐 `CanonicalPoint3F32`                                            |
+| stationing（确定性桩号）| Core `f64` 里程语义  | Core 派生里程         | 沿 edge 序列累计、防溢出；生成几何时经 `ratio` 受检桥映射为 `f32`    |
+| geometry MIR / canonical LIR 几何 | `f32`      | compiler 输出         | 下游 Spatial 是 `f32`                                                |
+| canonical digest       | 字节序列             | compiler 输出         | hash 输入是字节，非数值                                              |
+| Core ↔ LIR 跨边界       | 单一受检桥 + 误差预算 | Core/compiler 边界    | 禁止 lowering 各处散落的隐式 `as`/截断                               |
+
+- 第 3 节与上表的单一数值域仍以 Core `f64`（当前生产）、Spatial `f32` 与整数为权威；compiler 切片不新增第四种权威。
+- stationing 使用 Core `f64` 里程语义（与 route distance 同原则），但作为生成 `f32` geometry 的中间里程计算；它不是 `EdgeProgress` 本身，也不是独立量化档。
+- canonical LIR 几何固定为 `f32`；所有跨边界换算必须通过唯一的受检转换，且不允许静默饱和或值域外回退（与 ADR 0014/0015 一致）。
+
 研究结果解释：
 
 - 直接 `f32` 的 36,000 tick 进度漂移和密集/走走停停控制误差超过预算；
