@@ -14,9 +14,9 @@ ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial 
 #292 已完成编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
 （Synthetic DSL Frontend）G4；#315 已落地私有共同 Typed AST、逻辑模块/来源文档独立登记、
 原子共同接入、文档集摘要与 v2 文档数配置档；#296 因 production 来源产品前提纠偏
-已取得 FlatBuffers `G1 Pass` 与 `G2 Pass`，旧 Geometry JSON 实现只作历史证据，新的 FlatBuffers 道路编辑
-来源在取得 exact-head G1 Pass 前不构成已接受或当前生产事实；#297 不再建立 current
-JSON 编译器前端
+已取得 FlatBuffers `G1 Pass` 与 `G2 Pass`，新的 FlatBuffers 道路编辑 B1 已成为接受的
+内部未发布实现契约，但在对应 production 实现合入前不构成当前生产入口；旧 Geometry
+JSON 实现只作历史证据；#297 不再建立 current JSON 编译器前端
 
 **关联决策与设计**:
 
