@@ -715,6 +715,11 @@ impl CompilationUnitBuilder {
         self.source_document_index.is_empty()
     }
 
+    #[cfg(test)]
+    pub(super) fn set_test_limits(&mut self, limits: CompileLimits) {
+        self.limits = limits;
+    }
+
     /// 原子加入一个已经由官方前端完成受检构造的模块。
     ///
     /// # Errors
