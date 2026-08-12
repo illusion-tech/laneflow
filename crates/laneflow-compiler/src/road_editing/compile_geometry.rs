@@ -13,8 +13,8 @@ use crate::{GeometryAccuracyProfile, GeometryDirectionProfile};
 use super::geometry::{
     ApproximationInterval, ApproximationPoint, ApproximationPointSink, ApproximationVertex,
     CurveSegment, NumericFreezeError, OffsetInterval, Point3, SegmentEvaluator, StationInterval,
-    approximate_interval, canonical_point_distance, direction_accepts, full_angle_cosine_squared,
-    numeric_stack_scratch_bytes, point_distance, quantize_point, validate_canonical_polyline,
+    approximate_interval, canonical_point_distance, direction_accepts, numeric_stack_scratch_bytes,
+    point_distance, quantize_point, validate_canonical_polyline,
 };
 
 const MAX_SOURCE_JOIN_GAP_METERS: f32 = 0.005;
@@ -1346,7 +1346,7 @@ fn walk_offset_program(
                         if !direction_accepts(
                             previous_first,
                             current_first,
-                            full_angle_cosine_squared(direction),
+                            direction.full_angle_cosine_squared(),
                         )? {
                             return Err(NumericFreezeError::DirectionDiscontinuity);
                         }
