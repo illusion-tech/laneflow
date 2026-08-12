@@ -408,11 +408,10 @@ pub(super) fn point_distance(left: Point3, right: Point3) -> Result<f64, Numeric
     finite(norm_squared(delta)?.sqrt())
 }
 
-pub(super) fn canonical_point_distance(
-    left: ApproximationPoint,
-    right: ApproximationPoint,
-) -> Result<f64, NumericFreezeError> {
-    point_distance(promote_point(left), promote_point(right))
+pub(super) fn canonical_point_distance(left: ApproximationPoint, right: ApproximationPoint) -> f32 {
+    (right.x - left.x)
+        .hypot(right.y - left.y)
+        .hypot(right.z - left.z)
 }
 
 fn point_lerp(start: Point3, end: Point3, parameter: f64) -> Result<Point3, NumericFreezeError> {
@@ -1312,6 +1311,22 @@ mod tests {
                 point: welded,
             }]
         );
+    }
+
+    #[test]
+    fn canonical_join_distance_matches_the_spatial_f32_predicate() {
+        let left = ApproximationPoint {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        let right = ApproximationPoint {
+            x: 0.000_528_320_15,
+            y: 0.004_972_009_5,
+            z: 0.0,
+        };
+
+        assert_eq!(canonical_point_distance(left, right), 0.005_f32);
     }
 
     #[test]
