@@ -1116,22 +1116,22 @@ pub(crate) fn freeze_source_map(
         .enumerate()
         {
             let geometry_point_start = geometry.points.start();
-            let source_ranges = mir.geometry_source_ranges[geometry.source_ranges.as_usize_range()]
-                .iter()
-                .map(|range| {
-                    Ok(SpatialGeometrySourceRangeRecord {
-                        point_start: range.points.start().saturating_sub(geometry_point_start),
-                        point_end_exclusive: range
-                            .points
-                            .start()
-                            .saturating_sub(geometry_point_start)
-                            .saturating_add(range.points.len()),
-                        source_segment_ordinal: range.source_segment_ordinal,
-                        source: location.resolve(range.source_module, &range.source)?,
-                    })
-                })
-                .collect::<Result<Vec<_>, DiagnosticBundle>>()?
-                .into_boxed_slice();
+            let mir_source_ranges =
+                &mir.geometry_source_ranges[geometry.source_ranges.as_usize_range()];
+            let mut source_ranges = Vec::with_capacity(mir_source_ranges.len());
+            for range in mir_source_ranges {
+                source_ranges.push(SpatialGeometrySourceRangeRecord {
+                    point_start: range.points.start().saturating_sub(geometry_point_start),
+                    point_end_exclusive: range
+                        .points
+                        .start()
+                        .saturating_sub(geometry_point_start)
+                        .saturating_add(range.points.len()),
+                    source_segment_ordinal: range.source_segment_ordinal,
+                    source: location.resolve(range.source_module, &range.source)?,
+                });
+            }
+            let source_ranges = source_ranges.into_boxed_slice();
             spatial_relation_sources.push(SpatialRelationSourceRecord {
                 owner_ordinal: ordinal,
                 owner_stable_id: frame.stable_id,
