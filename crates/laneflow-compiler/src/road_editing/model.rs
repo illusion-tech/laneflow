@@ -15,8 +15,8 @@ use laneflow_static_contract::{
 };
 
 use super::rules::{
-    input_error, require_non_empty, require_unique, validate_finite, validate_non_negative,
-    validate_positive, validate_token, validate_visible_ascii,
+    input_error, require_non_empty, require_unique, validate_finite, validate_non_empty_text,
+    validate_non_negative, validate_positive, validate_token, validate_visible_ascii,
 };
 use crate::{DiagnosticBundle, RoadEditingInputViolation};
 
@@ -1783,8 +1783,8 @@ impl AccessRegulationInput {
     ) -> Result<Self, DiagnosticBundle> {
         let jurisdiction = jurisdiction.into();
         let version = version.into();
-        validate_visible_ascii(&jurisdiction, "accessRegulation.jurisdiction")?;
-        validate_visible_ascii(&version, "accessRegulation.version")?;
+        validate_non_empty_text(&jurisdiction, "accessRegulation.jurisdiction")?;
+        validate_non_empty_text(&version, "accessRegulation.version")?;
         Ok(Self {
             jurisdiction: jurisdiction.into_boxed_str(),
             version: version.into_boxed_str(),
@@ -1794,7 +1794,7 @@ impl AccessRegulationInput {
 
     pub fn with_source(mut self, source: impl Into<String>) -> Result<Self, DiagnosticBundle> {
         let source = source.into();
-        validate_visible_ascii(&source, "accessRegulation.source")?;
+        validate_non_empty_text(&source, "accessRegulation.source")?;
         self.source = Some(source.into_boxed_str());
         Ok(self)
     }
@@ -2358,5 +2358,17 @@ mod tests {
         assert_eq!(declaration.entity_kind(), EntityKind::RoadSection);
         assert_eq!(declaration.local_key(), "section-a");
         assert_eq!(&*declaration.owner_key_components(), &["corridor-a"]);
+    }
+
+    #[test]
+    fn access_regulation_provenance_accepts_bounded_unicode_text() {
+        let regulation = AccessRegulationInput::try_new("中国", "二〇二六")
+            .expect("unicode regulation")
+            .with_source("法规库")
+            .expect("unicode source");
+
+        assert_eq!(regulation.jurisdiction(), "中国");
+        assert_eq!(regulation.version(), "二〇二六");
+        assert_eq!(regulation.source(), Some("法规库"));
     }
 }
