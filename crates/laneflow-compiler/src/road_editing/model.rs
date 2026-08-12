@@ -19,6 +19,7 @@ use super::rules::{
     validate_non_empty_text, validate_non_negative, validate_positive, validate_token,
     validate_visible_ascii,
 };
+use crate::declaration::MAX_PORTABLE_SIGNAL_TIME_MS;
 use crate::{DiagnosticBundle, FacilityKindCategory, RoadEditingInputViolation};
 
 const DIRECT_GENERATOR_BUILD_ID: &str = "laneflow-road-editing-direct-v1";
@@ -1341,6 +1342,12 @@ impl SignalControllerInput {
             &signal_controller_key,
             "signalController.signalControllerKey",
         )?;
+        if offset_milliseconds > MAX_PORTABLE_SIGNAL_TIME_MS {
+            return Err(input_error(
+                "signalController.offsetMilliseconds",
+                RoadEditingInputViolation::InvalidCombination,
+            ));
+        }
         require_non_empty(&signal_groups, "signalController.signalGroups")?;
         require_unique(&signal_groups, "signalController.signalGroups")?;
         require_non_empty(&signal_phases, "signalController.signalPhases")?;
@@ -1395,7 +1402,7 @@ impl SignalPhaseInput {
     ) -> Result<Self, DiagnosticBundle> {
         let signal_phase_key = signal_phase_key.into();
         validate_token(&signal_phase_key, "signalPhase.signalPhaseKey")?;
-        if duration_milliseconds == 0 {
+        if duration_milliseconds == 0 || duration_milliseconds > MAX_PORTABLE_SIGNAL_TIME_MS {
             return Err(input_error(
                 "signalPhase.durationMilliseconds",
                 RoadEditingInputViolation::InvalidCombination,
@@ -2397,6 +2404,34 @@ mod tests {
                 .with_canvas_selection("canvas::reserved")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn signal_time_fields_use_the_portable_integer_range() {
+        let group = || SignalGroupReference::local("group-a").expect("group reference");
+        let phase = || {
+            SignalPhaseReference::owner_scoped(vec!["controller-a".into()], "phase-a")
+                .expect("phase reference")
+        };
+        let state = || {
+            RoadEditingSignalPhaseState::try_new(group(), SignalAspect::Green).expect("phase state")
+        };
+        let controller = |offset| {
+            SignalControllerInput::try_new("controller-a", offset, vec![group()], vec![phase()])
+        };
+        let signal_phase = |duration| {
+            SignalPhaseInput::try_new(
+                "phase-a",
+                duration,
+                vec![state()],
+                SignalControllerReference::local("controller-a").expect("controller reference"),
+            )
+        };
+
+        assert!(controller(MAX_PORTABLE_SIGNAL_TIME_MS).is_ok());
+        assert!(controller(MAX_PORTABLE_SIGNAL_TIME_MS + 1).is_err());
+        assert!(signal_phase(MAX_PORTABLE_SIGNAL_TIME_MS).is_ok());
+        assert!(signal_phase(MAX_PORTABLE_SIGNAL_TIME_MS + 1).is_err());
     }
 
     #[test]

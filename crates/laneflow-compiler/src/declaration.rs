@@ -16,6 +16,9 @@ use laneflow_static_contract::{
 
 use crate::SourceSpan;
 
+/// JavaScript/JSON 等常见编制前端可以无损表达的最大整数毫秒值。
+pub(crate) const MAX_PORTABLE_SIGNAL_TIME_MS: u64 = 9_007_199_254_740_991;
+
 /// 指向同一编译单元内某类来源声明的有类型未解析引用。
 ///
 /// 类型参数 `K` 防止把不同实体种类的引用混用。构造引用不会查询目标；加入声明时仅
