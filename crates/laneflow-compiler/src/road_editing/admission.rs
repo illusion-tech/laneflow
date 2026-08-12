@@ -887,15 +887,15 @@ mod tests {
     use crate::Compiler;
     use crate::road_editing::{
         AuthoringLaneInput, AuthoringLaneReference, CanonicalFrameInput, CanonicalFrameReference,
-        FacilityBandInput, FacilityBandReference, LaneEdgeInput, LaneEdgeReference,
-        LinearWidthProfile, RoadAlignmentInput, RoadAlignmentReference, RoadCorridorInput,
-        RoadCorridorReference, RoadEditingCorridorElement, RoadEditingCurveProgram,
-        RoadEditingCurveSegment, RoadEditingDeclaration, RoadEditingLaneDirection,
-        RoadEditingModuleHeader, RoadEditingPoint3, RoadEditingProvenance,
-        RoadEditingSignalPhaseState, RoadEditingSourceModuleBuilder, RoadEditingSourceWriter,
-        RoadEditingStationEnd, RoadSectionInput, RoadSectionReference, SignalControllerInput,
-        SignalControllerReference, SignalGroupInput, SignalGroupReference, SignalPhaseInput,
-        SignalPhaseReference,
+        FacilityBandInput, FacilityBandReference, JunctionInput, JunctionReference, LaneEdgeInput,
+        LaneEdgeReference, LinearWidthProfile, ManeuverPathInput, MovementInput, MovementReference,
+        RoadAlignmentInput, RoadAlignmentReference, RoadCorridorInput, RoadCorridorReference,
+        RoadEditingCorridorElement, RoadEditingCurveProgram, RoadEditingCurveSegment,
+        RoadEditingDeclaration, RoadEditingLaneDirection, RoadEditingModuleHeader,
+        RoadEditingPoint3, RoadEditingProvenance, RoadEditingSignalPhaseState,
+        RoadEditingSourceModuleBuilder, RoadEditingSourceWriter, RoadEditingStationEnd,
+        RoadSectionInput, RoadSectionReference, SignalControllerInput, SignalControllerReference,
+        SignalGroupInput, SignalGroupReference, SignalPhaseInput, SignalPhaseReference,
     };
     use crate::{RoadEditingDocumentIdentity, RoadEditingSubject, SignalAspect, SourceLocation};
 
@@ -1170,6 +1170,136 @@ mod tests {
                     "median",
                     LinearWidthProfile::try_new(1.0, 1.0).unwrap(),
                     corridor,
+                )
+                .unwrap(),
+            ),
+        ] {
+            builder.add_declaration(declaration).unwrap();
+        }
+        RoadEditingSourceWriter::new(limits)
+            .write(builder.finish().unwrap())
+            .unwrap()
+    }
+
+    fn direct_maneuver_buffer(
+        limits: &CompileLimits,
+    ) -> super::super::OwnedRoadEditingSourceBuffer {
+        let header = RoadEditingModuleHeader::try_new(
+            "city",
+            "road-editing/direct-maneuver",
+            Vec::new(),
+            RoadEditingProvenance::direct("editor save").unwrap(),
+        )
+        .unwrap();
+        let mut builder = RoadEditingSourceModuleBuilder::new(
+            header,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            limits,
+        )
+        .unwrap();
+        let entry = LaneEdgeReference::local("entry").unwrap();
+        let exit = LaneEdgeReference::local("exit").unwrap();
+        builder
+            .add_declaration(RoadEditingDeclaration::CanonicalFrame(
+                CanonicalFrameInput::try_new("frame").unwrap(),
+            ))
+            .unwrap();
+        for (ordinal, (edge, successor)) in
+            [(entry.clone(), Some(exit.clone())), (exit.clone(), None)]
+                .into_iter()
+                .enumerate()
+        {
+            let suffix = if ordinal == 0 { "entry" } else { "exit" };
+            let corridor_key = format!("corridor-{suffix}");
+            let alignment_key = format!("alignment-{suffix}");
+            let section =
+                RoadSectionReference::owner_scoped(vec![corridor_key.clone()], "section").unwrap();
+            let lane = AuthoringLaneReference::owner_scoped(
+                vec![corridor_key.clone(), "section".into()],
+                "lane",
+            )
+            .unwrap();
+            let start_x = (ordinal as f64) * 10.0;
+            let curve = RoadEditingCurveProgram::try_new(
+                RoadEditingPoint3::try_new(start_x, 0.0, 0.0).unwrap(),
+                vec![RoadEditingCurveSegment::line(
+                    RoadEditingPoint3::try_new(start_x + 10.0, 0.0, 0.0).unwrap(),
+                )],
+            )
+            .unwrap();
+            builder
+                .add_alignment(
+                    RoadAlignmentInput::try_new(
+                        alignment_key.clone(),
+                        CanonicalFrameReference::local("frame").unwrap(),
+                        curve,
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            for declaration in [
+                RoadEditingDeclaration::RoadCorridor(
+                    RoadCorridorInput::try_new(
+                        corridor_key.clone(),
+                        RoadAlignmentReference::try_new(alignment_key).unwrap(),
+                        0.0,
+                        RoadEditingStationEnd::AlignmentEnd,
+                        section.clone(),
+                        lane.clone(),
+                        vec![RoadEditingCorridorElement::RoadSection(section.clone())],
+                    )
+                    .unwrap(),
+                ),
+                RoadEditingDeclaration::RoadSection(
+                    RoadSectionInput::try_new(
+                        "section",
+                        "motorLane",
+                        vec![lane],
+                        RoadCorridorReference::local(corridor_key).unwrap(),
+                    )
+                    .unwrap(),
+                ),
+                RoadEditingDeclaration::AuthoringLane(
+                    AuthoringLaneInput::try_new(
+                        "lane",
+                        edge.clone(),
+                        RoadEditingLaneDirection::Forward,
+                        LinearWidthProfile::try_new(3.5, 3.5).unwrap(),
+                        None,
+                        section,
+                    )
+                    .unwrap(),
+                ),
+                RoadEditingDeclaration::LaneEdge(
+                    LaneEdgeInput::try_new(suffix, 10.0, successor.into_iter().collect(), None)
+                        .unwrap(),
+                ),
+            ] {
+                builder.add_declaration(declaration).unwrap();
+            }
+        }
+        for declaration in [
+            RoadEditingDeclaration::Junction(
+                JunctionInput::try_new("junction", vec![entry.clone(), exit.clone()], Vec::new())
+                    .unwrap(),
+            ),
+            RoadEditingDeclaration::Movement(
+                MovementInput::try_new(
+                    "movement",
+                    JunctionReference::local("junction").unwrap(),
+                    "entry",
+                    "exit",
+                )
+                .unwrap(),
+            ),
+            RoadEditingDeclaration::ManeuverPath(
+                ManeuverPathInput::try_new(
+                    "path",
+                    MovementReference::owner_scoped(vec!["junction".into()], "movement").unwrap(),
+                    entry,
+                    Vec::new(),
+                    exit,
                 )
                 .unwrap(),
             ),
@@ -1915,6 +2045,29 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn direct_maneuver_without_internal_edges_reaches_the_common_compiler_pipeline() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = direct_maneuver_buffer(&limits);
+        let mut builder = CompilationUnitBuilder::new(limits);
+        builder
+            .add_road_editing_module(
+                RoadEditingModuleInput::try_new(
+                    "road-editing/direct-maneuver",
+                    buffer.as_bytes(),
+                    None,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let output = Compiler::new().compile(builder.build().unwrap()).unwrap();
+        let path = output.lir().maneuver_paths().next().unwrap();
+        assert_eq!(path.edges().len(), 2);
+        assert!(path.internal_edges().is_empty());
+        assert_eq!(output.lir().junction_internal_edges().len(), 0);
     }
 
     #[test]
