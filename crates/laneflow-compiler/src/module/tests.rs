@@ -1046,10 +1046,7 @@ fn admission_sizing_accounts_for_builder_indexes_wrappers_and_result_modules() {
 
     let unit = builder.build().unwrap();
     assert_eq!(unit.controlled_live_bytes, sizing.result_live_bytes);
-    assert_eq!(
-        unit.admission_peak_live_bytes,
-        sizing.build_peak_live_bytes
-    );
+    assert_eq!(unit.admission_peak_live_bytes, sizing.build_peak_live_bytes);
 }
 
 #[test]
@@ -1176,6 +1173,147 @@ fn module_vector_growth_is_explicitly_budgeted_before_commit() {
         .unwrap();
     assert_eq!(rejected.modules.len(), 5);
     assert_eq!(rejected.modules.capacity(), 8);
+}
+
+#[cfg(feature = "road-editing-g3-evidence")]
+#[test]
+fn common_failure_rich_report_has_an_exact_live_gate_and_allocation_free_minus_one_fallback() {
+    let fixture = || {
+        let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v2());
+        builder
+            .add_synthetic_module(module_with_document("city/a", "source/a", &[]))
+            .unwrap();
+        let duplicate = module_with_document("city/a", "source/b", &[]);
+        let previous_builder_live_bytes = admission::builder_live_requested_bytes(builder.totals);
+        let candidate_retained_bytes = duplicate.admitted.resource_counts.controlled_live_bytes;
+        let historical_peak_bytes = builder
+            .totals
+            .admission_peak_live_bytes
+            .max(
+                previous_builder_live_bytes
+                    .saturating_add(duplicate.admitted.resource_counts.admission_peak_live_bytes),
+            )
+            .max(previous_builder_live_bytes.saturating_add(candidate_retained_bytes));
+        let current_live_bytes =
+            previous_builder_live_bytes.saturating_add(candidate_retained_bytes);
+        let exact_gate = historical_peak_bytes
+            .max(current_live_bytes.saturating_add(Diagnostic::failure_owned_bytes_upper_bound()));
+        (
+            builder,
+            duplicate,
+            exact_gate,
+            historical_peak_bytes,
+            current_live_bytes,
+        )
+    };
+
+    let (mut exact_builder, duplicate, exact_gate, _, _) = fixture();
+    exact_builder.set_test_limits(CompileLimits::p100_initial_v2().with_test_admission_limit(
+        CompileLimitDimension::CompilerControlledLiveBytes,
+        u32::try_from(exact_gate).unwrap(),
+    ));
+    let rich = expect_diagnostics(exact_builder.add_synthetic_module(duplicate));
+    assert!(matches!(
+        rich.diagnostics()[0].payload(),
+        DiagnosticPayload::DuplicateModuleNamespace { namespace }
+            if namespace.as_ref() == "city/a"
+    ));
+    assert!(rich.diagnostics()[0].primary_location().is_some());
+    assert_eq!(rich.diagnostics()[0].related_locations().len(), 1);
+    assert!(
+        rich.failure_compiler_controlled_peak_bytes()
+            .is_some_and(|peak| peak <= exact_gate)
+    );
+    assert!(rich.caller_retained_bytes().is_some_and(|bytes| bytes > 0));
+
+    let (mut minus_one_builder, duplicate, exact_gate, historical_peak_bytes, current_live_bytes) =
+        fixture();
+    minus_one_builder.set_test_limits(CompileLimits::p100_initial_v2().with_test_admission_limit(
+        CompileLimitDimension::CompilerControlledLiveBytes,
+        u32::try_from(exact_gate - 1).unwrap(),
+    ));
+    let fallback = expect_diagnostics(minus_one_builder.add_synthetic_module(duplicate));
+    assert!(matches!(
+        fallback.diagnostics()[0].payload(),
+        DiagnosticPayload::CompileLimitExceeded {
+            dimension: CompileLimitDimension::CompilerControlledLiveBytes,
+            limit,
+            observed,
+        } if *limit == exact_gate - 1 && *observed == exact_gate
+    ));
+    assert!(fallback.diagnostics()[0].primary_location().is_none());
+    assert!(fallback.diagnostics()[0].related_locations().is_empty());
+    assert_eq!(
+        fallback.failure_compiler_controlled_peak_bytes(),
+        Some(historical_peak_bytes.max(current_live_bytes))
+    );
+    assert_eq!(fallback.caller_retained_bytes(), Some(0));
+}
+
+#[cfg(feature = "road-editing-g3-evidence")]
+#[test]
+fn common_failure_preserves_a_builder_peak_observed_before_the_failure() {
+    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v2());
+    builder
+        .add_synthetic_module(module_with_document("city/a", "source/a", &[]))
+        .unwrap();
+    let duplicate = module_with_document("city/a", "source/b", &[]);
+    let previous_builder_live_bytes = admission::builder_live_requested_bytes(builder.totals);
+    let current_live_bytes = previous_builder_live_bytes
+        .saturating_add(duplicate.admitted.resource_counts.controlled_live_bytes);
+    // Vector/index growth tests establish how this field is produced. Pin a larger already-observed
+    // value here so this unit test isolates the common failure materialization lifetime.
+    let historical_peak_bytes = current_live_bytes
+        .saturating_add(Diagnostic::failure_owned_bytes_upper_bound())
+        .saturating_add(1);
+    builder.totals.admission_peak_live_bytes = historical_peak_bytes;
+    builder.set_test_limits(CompileLimits::p100_initial_v2().with_test_admission_limit(
+        CompileLimitDimension::CompilerControlledLiveBytes,
+        u32::try_from(historical_peak_bytes).unwrap(),
+    ));
+
+    let rich = expect_diagnostics(builder.add_synthetic_module(duplicate));
+    assert!(matches!(
+        rich.diagnostics()[0].payload(),
+        DiagnosticPayload::DuplicateModuleNamespace { .. }
+    ));
+    assert_eq!(
+        rich.failure_compiler_controlled_peak_bytes(),
+        Some(historical_peak_bytes)
+    );
+    assert!(rich.caller_retained_bytes().is_some_and(|bytes| bytes > 0));
+}
+
+#[test]
+fn synthetic_module_controlled_strings_use_arc_allocation_request_bytes() {
+    let limits = CompileLimits::p100_initial_v1();
+    let header = SourceModuleHeader::new(
+        SourceModuleHeaderInput {
+            authoring_namespace_id: "city/a",
+            source_document_key: "source7",
+            generator_build_id: "12345678",
+            parameters_and_inputs_digest: [0x11; 32],
+            frontend_options_digest: [0x22; 32],
+            random_seed: None,
+            provenance: "123456789",
+        },
+        &limits,
+    )
+    .unwrap();
+    let expected_controlled_live_bytes = ["city/a", "source7", "12345678", "123456789"]
+        .into_iter()
+        .fold(size_bytes::<SourceDocumentDescriptor>(1), |total, value| {
+            total.saturating_add(crate::source_location::arc_str_requested_bytes(value.len()))
+        });
+
+    let module = SyntheticModuleBuilder::new(header, &limits)
+        .unwrap()
+        .finish()
+        .unwrap();
+    assert_eq!(
+        module.admitted.resource_counts.controlled_live_bytes,
+        expected_controlled_live_bytes
+    );
 }
 
 #[test]

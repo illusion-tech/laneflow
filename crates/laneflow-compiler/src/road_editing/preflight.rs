@@ -23,13 +23,61 @@ use super::rules::{
     token_violation, validate_wire_reference, visible_ascii_violation,
 };
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, DiagnosticPayload,
+    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, FailureLiveBudget,
     RoadEditingInputViolation, RoadEditingRelationKind, RoadEditingRelationOccurrence,
     RoadEditingRootVectorKind, RoadEditingSourceViolation,
 };
 
 type StringVector<'a> = Vector<'a, ForwardsUOffset<&'a str>>;
 type SignalPhaseStateVector<'a> = Vector<'a, ForwardsUOffset<wire::SignalPhaseState<'a>>>;
+type PreflightResult<T> = Result<T, SemanticPreflightFailure>;
+
+#[derive(Clone, Copy, Debug)]
+struct SemanticPreflightFailure {
+    kind: SemanticPreflightFailureKind,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum SemanticPreflightFailureKind {
+    Invalid {
+        field: &'static str,
+        violation: RoadEditingInputViolation,
+    },
+    Limit {
+        dimension: CompileLimitDimension,
+        limit: u64,
+        observed: u64,
+    },
+}
+
+impl SemanticPreflightFailure {
+    const fn field(self) -> Option<&'static str> {
+        match self.kind {
+            SemanticPreflightFailureKind::Invalid { field, .. } => Some(field),
+            SemanticPreflightFailureKind::Limit { .. } => None,
+        }
+    }
+
+    fn into_bundle(self, expected_key: &str) -> DiagnosticBundle {
+        match self.kind {
+            SemanticPreflightFailureKind::Invalid { field, violation } => {
+                DiagnosticBundle::single(Diagnostic::invalid_road_editing_source(
+                    RoadEditingSourceViolation::InvalidSemanticValue(violation),
+                    Some(field),
+                    expected_key,
+                    Some(expected_key),
+                ))
+            }
+            SemanticPreflightFailureKind::Limit {
+                dimension,
+                limit,
+                observed,
+            } => DiagnosticBundle::single(Diagnostic::compile_limit_exceeded(
+                dimension, limit, observed,
+            )),
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 enum ReferenceOccurrenceKind {
@@ -170,7 +218,7 @@ impl RoadEditingPreflightCounts {
         field: &'static str,
         limits: &CompileLimits,
         expected_key: &str,
-    ) -> Result<(), DiagnosticBundle> {
+    ) -> PreflightResult<()> {
         let limit = limits.value(CompileLimitDimension::SingleStringBytes);
         if let Some(violation) = token_violation(value, limit, true) {
             return Err(semantic_error(field, violation, expected_key));
@@ -188,7 +236,7 @@ impl RoadEditingPreflightCounts {
         field: &'static str,
         limits: &CompileLimits,
         expected_key: &str,
-    ) -> Result<(), DiagnosticBundle> {
+    ) -> PreflightResult<()> {
         let limit = limits.value(CompileLimitDimension::SingleStringBytes);
         if let Some(violation) = visible_ascii_violation(value, limit) {
             return Err(semantic_error(field, violation, expected_key));
@@ -211,7 +259,7 @@ impl RoadEditingPreflightCounts {
         imports: StringVector<'_>,
         limits: &CompileLimits,
         expected_key: &str,
-    ) -> Result<(), DiagnosticBundle> {
+    ) -> PreflightResult<()> {
         let parsed = validate_wire_reference(value, component_count, allow_qualified)
             .map_err(|violation| semantic_error(field, violation, expected_key))?;
         if let Some(namespace) = parsed.namespace()
@@ -242,7 +290,7 @@ impl RoadEditingPreflightCounts {
         value: Option<&str>,
         limits: &CompileLimits,
         expected_key: &str,
-    ) -> Result<(), DiagnosticBundle> {
+    ) -> PreflightResult<()> {
         if let Some(value) = value {
             self.charge_token(value, "canvasSelection", limits, expected_key)?;
         }
@@ -268,7 +316,7 @@ impl RoadEditingPreflightCounts {
         &self,
         count: usize,
         limits: &CompileLimits,
-    ) -> Result<(), DiagnosticBundle> {
+    ) -> PreflightResult<()> {
         let observed = self
             .relation_occurrence_count
             .saturating_add(u64::try_from(count).unwrap_or(u64::MAX));
@@ -283,7 +331,7 @@ impl RoadEditingPreflightCounts {
         Ok(())
     }
 
-    fn validate(self, limits: &CompileLimits) -> Result<Self, DiagnosticBundle> {
+    fn validate(self, limits: &CompileLimits) -> PreflightResult<Self> {
         for (dimension, observed) in [
             (
                 CompileLimitDimension::DeclarationCount,
@@ -337,6 +385,7 @@ pub(crate) fn preflight_source(
     root: wire::RoadEditingSource<'_>,
     limits: &CompileLimits,
     expected_key: &str,
+    failure_live_budget: FailureLiveBudget,
 ) -> Result<RoadEditingPreflightCounts, DiagnosticBundle> {
     let header = root.module_header();
     let namespace = header.authoring_namespace_id();
@@ -474,9 +523,35 @@ pub(crate) fn preflight_source(
         usage.counts.validate(limits)
     })();
 
-    result.map_err(|bundle| {
-        with_semantic_preflight_location(root, expected_key, usage.failure_subject, bundle)
+    result.map_err(|failure| {
+        failure_live_budget.materialize(
+            semantic_failure_upper_bytes(expected_key, usage.failure_subject, failure),
+            || with_semantic_preflight_location(root, expected_key, usage.failure_subject, failure),
+        )
     })
+}
+
+fn semantic_failure_upper_bytes(
+    expected_key: &str,
+    subject: Option<SemanticPreflightSubjectSite>,
+    failure: SemanticPreflightFailure,
+) -> u64 {
+    // failure-only minimal context 最多复制 namespace、document、三层 owner/local key、canvas
+    // 与四步 property；每个 token 已由 semantic preflight 的 53-byte 前门约束。namespace
+    // 自身失败时只使用 Input identity，不复制未验证 token。
+    let field = failure.field();
+    let semantic_context_upper = if field == Some("moduleHeader.authoringNamespaceId") {
+        2 * core::mem::size_of::<usize>() as u64
+            + core::mem::size_of::<crate::RoadEditingLocationContext>() as u64
+            + u64::try_from(expected_key.len()).unwrap_or(u64::MAX)
+    } else if subject.is_some() {
+        // Full context 的固定 64 KiB 上界也严格覆盖单点 minimal context；这里只在 Err
+        // 分支收费，不进入成功路径。
+        64 * 1024
+    } else {
+        0
+    };
+    semantic_context_upper.saturating_add(Diagnostic::failure_owned_bytes_upper_bound())
 }
 
 fn validate_provenance(
@@ -484,7 +559,7 @@ fn validate_provenance(
     provenance: wire::Provenance<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     usage.charge_token(
         provenance.generator_build_id(),
         "moduleHeader.provenance.generatorBuildId",
@@ -535,7 +610,7 @@ fn validate_alignments(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::RoadAlignment,
@@ -584,7 +659,7 @@ fn validate_curve(
     owner_physical_index: usize,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
     usage.authoring_point_count = usage.authoring_point_count.saturating_add(1);
     let start_fields = match owner_vector {
@@ -678,7 +753,7 @@ fn validate_point(
     value: &wire::Vec3F64,
     fields: [&'static str; 3],
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     for (component, field) in [value.x(), value.y(), value.z()].into_iter().zip(fields) {
         let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
         let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
@@ -695,7 +770,7 @@ fn validate_corridor_owned_reference(
     corridor_key: &str,
     field: &'static str,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     let reference = validate_wire_reference(value, component_count, true)
         .map_err(|violation| semantic_error(field, violation, expected_key))?;
     if reference.namespace().is_some()
@@ -713,7 +788,7 @@ fn validate_width(
     value: &wire::LinearWidthProfile,
     fields: [&'static str; 2],
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     if let Some(violation) = non_negative_violation(value.start_width_meters()) {
         return Err(semantic_error(fields[0], violation, expected_key));
     }
@@ -743,7 +818,7 @@ fn validate_reference_vector(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     if non_empty && values.is_empty() {
         return Err(semantic_error(
             field,
@@ -861,7 +936,7 @@ fn validate_corridors(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::RoadCorridor,
@@ -1032,7 +1107,7 @@ fn validate_sections(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::RoadSection,
@@ -1102,7 +1177,7 @@ fn validate_authoring_lanes(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::AuthoringLane,
@@ -1178,7 +1253,7 @@ fn validate_lane_edges(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::LaneEdge,
@@ -1243,7 +1318,7 @@ fn validate_junctions(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::Junction,
@@ -1316,7 +1391,7 @@ fn validate_movements(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::Movement,
@@ -1368,7 +1443,7 @@ fn validate_maneuver_paths(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::ManeuverPath,
@@ -1445,7 +1520,7 @@ fn validate_maneuver_gates(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::ManeuverGate,
@@ -1515,7 +1590,7 @@ fn validate_waiting_zones(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::WaitingZone,
@@ -1582,7 +1657,7 @@ fn validate_stop_lines_and_signal_groups(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::StopLine,
@@ -1641,7 +1716,7 @@ fn validate_signal_controllers_and_phases(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::SignalController,
@@ -1796,7 +1871,7 @@ fn validate_signal_owner_closure(
     root: wire::RoadEditingSource<'_>,
     namespace: &str,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     for (physical_index, controller) in root.signal_controllers().iter().enumerate() {
         usage.set_root_site(RoadEditingRootVectorKind::SignalController, physical_index);
         for group_reference in controller.signal_groups() {
@@ -1912,7 +1987,7 @@ fn validate_parking(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::ParkingArea,
@@ -2045,7 +2120,7 @@ fn validate_parking_anchor(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     usage.charge_reference(
         value.lane_edge(),
         1,
@@ -2072,7 +2147,7 @@ fn validate_lane_groups_and_facility_bands(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::LaneGroup,
@@ -2151,7 +2226,7 @@ fn validate_access_and_profiles(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::ParticipantClass,
@@ -2301,10 +2376,7 @@ fn validate_access_and_profiles(
     Ok(())
 }
 
-fn validate_iidm(
-    value: wire::IidmVehicleProfile<'_>,
-    expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+fn validate_iidm(value: wire::IidmVehicleProfile<'_>, expected_key: &str) -> PreflightResult<()> {
     let positive = [
         ("vehicleProfile.iidm.lengthMeters", value.length_meters()),
         (
@@ -2364,7 +2436,7 @@ fn validate_routes_and_frames(
     imports: StringVector<'_>,
     limits: &CompileLimits,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     ensure_unique_by(
         usage,
         RoadEditingRootVectorKind::StaticRoute,
@@ -2439,7 +2511,7 @@ fn ensure_unique_strings(
     values: StringVector<'_>,
     field: &'static str,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     for left_index in 0..values.len() {
         let left = values.get(left_index);
         for right_index in left_index + 1..values.len() {
@@ -2460,7 +2532,7 @@ fn ensure_unique_references(
     namespace: &str,
     field: &'static str,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle> {
+) -> PreflightResult<()> {
     for left_index in 0..values.len() {
         let left = values.get(left_index);
         for right_index in left_index + 1..values.len() {
@@ -2493,7 +2565,7 @@ fn ensure_unique_by<I, T, K, F>(
     key: F,
     field: &'static str,
     expected_key: &str,
-) -> Result<(), DiagnosticBundle>
+) -> PreflightResult<()>
 where
     I: Clone + Iterator<Item = T>,
     T: Copy,
@@ -2518,17 +2590,14 @@ where
 fn semantic_error(
     field: &'static str,
     violation: RoadEditingInputViolation,
-    expected_key: &str,
-) -> DiagnosticBundle {
-    DiagnosticBundle::single(Diagnostic::invalid_road_editing_source(
-        RoadEditingSourceViolation::InvalidSemanticValue(violation),
-        Some(field),
-        expected_key,
-        Some(expected_key),
-    ))
+    _expected_key: &str,
+) -> SemanticPreflightFailure {
+    SemanticPreflightFailure {
+        kind: SemanticPreflightFailureKind::Invalid { field, violation },
+    }
 }
 
-pub(super) fn invalid_combination(field: &'static str, expected_key: &str) -> DiagnosticBundle {
+fn invalid_combination(field: &'static str, expected_key: &str) -> SemanticPreflightFailure {
     semantic_error(
         field,
         RoadEditingInputViolation::InvalidCombination,
@@ -2536,35 +2605,56 @@ pub(super) fn invalid_combination(field: &'static str, expected_key: &str) -> Di
     )
 }
 
-fn limit_error(dimension: CompileLimitDimension, limit: u64, observed: u64) -> DiagnosticBundle {
-    DiagnosticBundle::single(Diagnostic::compile_limit_exceeded(
-        dimension, limit, observed,
-    ))
+pub(super) fn invalid_combination_bundle(
+    field: &'static str,
+    expected_key: &str,
+) -> DiagnosticBundle {
+    invalid_combination(field, expected_key).into_bundle(expected_key)
+}
+
+fn limit_error(
+    dimension: CompileLimitDimension,
+    limit: u64,
+    observed: u64,
+) -> SemanticPreflightFailure {
+    SemanticPreflightFailure {
+        kind: SemanticPreflightFailureKind::Limit {
+            dimension,
+            limit,
+            observed,
+        },
+    }
 }
 
 fn with_semantic_preflight_location(
     root: wire::RoadEditingSource<'_>,
     expected_key: &str,
     subject: Option<SemanticPreflightSubjectSite>,
-    bundle: DiagnosticBundle,
+    failure: SemanticPreflightFailure,
 ) -> DiagnosticBundle {
-    let Some(subject) = subject else {
-        return bundle;
-    };
-    let field = bundle.diagnostics().iter().find_map(|diagnostic| {
-        let DiagnosticPayload::InvalidRoadEditingSource { field, .. } = diagnostic.payload() else {
-            return None;
-        };
-        field.as_deref()
-    });
-    let Some(field) = field else {
-        return bundle;
-    };
-    if field == "moduleHeader.authoringNamespaceId" {
+    let field = failure.field();
+    let bundle = failure.into_bundle(expected_key);
+    if field == Some("moduleHeader.authoringNamespaceId") {
         return bundle.with_fallback_primary_location(
             RoadEditingLocationFactory::input_module_header(expected_key),
         );
     }
+    let Some(subject) = subject else {
+        return bundle.with_fallback_primary_location(
+            RoadEditingLocationFactory::verified_module_header(
+                root.module_header().authoring_namespace_id(),
+                expected_key,
+            ),
+        );
+    };
+    let Some(field) = field else {
+        return bundle.with_fallback_primary_location(
+            RoadEditingLocationFactory::verified_module_header(
+                root.module_header().authoring_namespace_id(),
+                expected_key,
+            ),
+        );
+    };
     let site = match subject {
         SemanticPreflightSubjectSite::ModuleHeader => {
             SemanticPreflightSite::module_header(Some(field))
@@ -2603,7 +2693,12 @@ fn with_semantic_preflight_location(
     };
     match RoadEditingLocationFactory::semantic_preflight(root, expected_key, site) {
         Some(location) => bundle.with_fallback_primary_location(location),
-        None => bundle,
+        None => bundle.with_fallback_primary_location(
+            RoadEditingLocationFactory::verified_module_header(
+                root.module_header().authoring_namespace_id(),
+                expected_key,
+            ),
+        ),
     }
 }
 
@@ -2667,6 +2762,7 @@ mod tests {
             "roads/main",
         )
         .expect_err("outside canonical frame");
+        let error = error.into_bundle("roads/main");
         assert!(matches!(
             error.diagnostics()[0].payload(),
             crate::DiagnosticPayload::InvalidRoadEditingSource {

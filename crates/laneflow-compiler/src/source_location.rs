@@ -4,6 +4,7 @@
 //! owner-local 关系与闭合属性路径。道路编辑位置中的 ordinal 只在一次编译内解析共享
 //! context，不参与持久身份、摘要或规范排序。
 
+use std::alloc::Layout;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -11,6 +12,16 @@ use std::sync::Arc;
 use laneflow_static_contract::EntityKind;
 
 use crate::SourceSpan;
+
+pub(crate) fn arc_str_requested_bytes(length: usize) -> u64 {
+    let Ok(payload) = Layout::array::<u8>(length) else {
+        return u64::MAX;
+    };
+    let Ok((allocation, _)) = Layout::new::<[usize; 2]>().extend(payload) else {
+        return u64::MAX;
+    };
+    u64::try_from(allocation.pad_to_align().size()).unwrap_or(u64::MAX)
+}
 
 /// 编译器支持的闭合来源位置。
 #[derive(Clone, Debug)]
@@ -47,6 +58,33 @@ impl SourceLocation {
             Self::Text(_) => None,
             Self::RoadEditing(location) => Some(location),
         }
+    }
+
+    /// 返回失败报告从 candidate 转移并继续拥有的保守请求字节数。
+    ///
+    /// 本口径用于单条道路编辑失败诊断：共享 context 只计一次，文档身份的 Arc 分配按
+    /// 实际 `Input`/`Verified` payload 计入；位置内的 Arc handle 已内联在诊断结构中。
+    pub(crate) fn failure_context_bytes(&self) -> u64 {
+        match self {
+            Self::Text(_) => 0,
+            Self::RoadEditing(location) => location.context.controlled_live_bytes(),
+        }
+    }
+
+    pub(crate) fn failure_identity_allocations(&self) -> [Option<(*const u8, u64)>; 2] {
+        match self {
+            Self::Text(span) => [Some(span.failure_identity_allocation()), None],
+            Self::RoadEditing(location) => location.failure_identity_allocations(),
+        }
+    }
+
+    pub(crate) fn failure_existing_bytes(&self) -> u64 {
+        self.failure_context_bytes().saturating_add(
+            self.failure_identity_allocations()
+                .into_iter()
+                .flatten()
+                .fold(0_u64, |total, (_, bytes)| total.saturating_add(bytes)),
+        )
     }
 }
 
@@ -548,9 +586,7 @@ impl RoadEditingLocationContext {
     pub(crate) fn controlled_live_bytes(&self) -> u64 {
         let usize_bytes = u64::try_from(core::mem::size_of::<usize>()).unwrap_or(u64::MAX);
         let arc_header_bytes = usize_bytes.saturating_mul(2);
-        let arc_string_bytes = |value: &Arc<str>| {
-            arc_header_bytes.saturating_add(u64::try_from(value.len()).unwrap_or(u64::MAX))
-        };
+        let arc_string_bytes = |value: &Arc<str>| arc_str_requested_bytes(value.len());
         let string_slots = u64::try_from(self.strings.len()).unwrap_or(u64::MAX);
         let canvas_slots = u64::try_from(self.canvas_selection_keys.len()).unwrap_or(u64::MAX);
         let path_slots = u64::try_from(self.property_paths.len()).unwrap_or(u64::MAX);
@@ -707,6 +743,20 @@ impl RoadEditingSourceLocation {
     #[must_use]
     pub const fn byte_range(&self) -> Option<RoadEditingByteRange> {
         self.byte_range
+    }
+
+    fn failure_identity_allocations(&self) -> [Option<(*const u8, u64)>; 2] {
+        let allocation =
+            |value: &Arc<str>| Some((value.as_ptr(), arc_str_requested_bytes(value.len())));
+        match &self.document_identity {
+            RoadEditingDocumentIdentity::Input(identity) => {
+                [allocation(&identity.expected_source_document_key), None]
+            }
+            RoadEditingDocumentIdentity::Verified(identity) => [
+                allocation(&identity.module_namespace),
+                allocation(&identity.source_document_key),
+            ],
+        }
     }
 
     pub(crate) fn new(
@@ -1063,5 +1113,15 @@ mod tests {
             context.source_map_logical_bytes(),
             12 + (4 + 1) + (4 + 8) + (4 + 6)
         );
+    }
+}
+#[test]
+fn arc_str_requested_bytes_include_dst_alignment_padding() {
+    let header = core::mem::size_of::<[usize; 2]>();
+    let alignment = core::mem::align_of::<usize>();
+    for length in [1_usize, 7, 8, 9] {
+        let raw = header + length;
+        let expected = raw.div_ceil(alignment) * alignment;
+        assert_eq!(arc_str_requested_bytes(length), expected as u64);
     }
 }

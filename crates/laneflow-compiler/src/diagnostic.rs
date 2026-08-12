@@ -12,7 +12,7 @@ use laneflow_static_contract::{EntityKind, FieldTag, StableId128};
 
 use crate::declaration::{FacilityKindCategory, FacilityKindViolation, ScalarViolation};
 use crate::identity::CanonicalIdentityViolation;
-use crate::{CompileLimitDimension, SourceLocation};
+use crate::{CompileLimitDimension, RoadEditingLocationContext, SourceLocation};
 
 /// 来源文档内受检的一基行列位置。
 ///
@@ -84,6 +84,13 @@ impl SourceSpan {
     #[must_use]
     pub const fn end(&self) -> SourcePosition {
         self.end
+    }
+
+    pub(crate) fn failure_identity_allocation(&self) -> (*const u8, u64) {
+        (
+            self.source_document_key.as_ptr(),
+            crate::source_location::arc_str_requested_bytes(self.source_document_key.len()),
+        )
     }
 }
 
@@ -1319,6 +1326,13 @@ impl<T: Into<SourceLocation>> IntoSourceLocationOption for Option<T> {
 }
 
 impl Diagnostic {
+    pub(crate) const fn failure_owned_bytes_upper_bound() -> u64 {
+        // 一个 failure 只保留一条诊断。闭合字段名最多 256 bytes，此外最多三份受
+        // SingleStringBytes 限制的 payload/stable token 与一条 related location backing。
+        // context/identity allocation 由调用点另计。
+        256 + 53 * 3 + core::mem::size_of::<SourceLocation>() as u64
+    }
+
     pub(crate) fn invalid_road_editing_input(
         field: &str,
         violation: RoadEditingInputViolation,
@@ -3234,6 +3248,39 @@ impl Diagnostic {
     pub fn stable_key(&self) -> Option<&str> {
         self.stable_key.as_deref()
     }
+
+    /// 返回构造该单诊断时新增且由返回对象继续拥有的保守请求字节数。
+    pub(crate) fn failure_owned_bytes(&self) -> u64 {
+        let box_str = |value: &str| u64::try_from(value.len()).unwrap_or(u64::MAX);
+        let payload_bytes = match &self.payload {
+            DiagnosticPayload::InvalidRoadEditingInput { field, .. } => box_str(field),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                field,
+                expected_source_document_key,
+                actual_source_document_key,
+                ..
+            } => field
+                .as_deref()
+                .map_or(0, box_str)
+                .saturating_add(box_str(expected_source_document_key))
+                .saturating_add(actual_source_document_key.as_deref().map_or(0, box_str)),
+            DiagnosticPayload::CompileProfileIncompatible { profile_id, .. } => box_str(profile_id),
+            DiagnosticPayload::DuplicateModuleNamespace { namespace } => box_str(namespace),
+            DiagnosticPayload::DuplicateSourceDocumentKey {
+                source_document_key,
+            } => box_str(source_document_key),
+            _ => 0,
+        };
+        let stable_key_bytes = self.stable_key.as_deref().map_or(0, box_str);
+        let related_backing = u64::try_from(self.related_spans.len())
+            .unwrap_or(u64::MAX)
+            .saturating_mul(
+                u64::try_from(core::mem::size_of::<SourceLocation>()).unwrap_or(u64::MAX),
+            );
+        payload_bytes
+            .saturating_add(stable_key_bytes)
+            .saturating_add(related_backing)
+    }
 }
 
 impl fmt::Display for Diagnostic {
@@ -4337,22 +4384,194 @@ impl fmt::Display for SourceTextViolationDisplay {
 /// `diagnostics` 始终按规范顺序排列。当安全候选数超过配置档上限时只保留该顺序最小
 /// 的前缀，并令 [`DiagnosticBundle::diagnostics_truncated`] 返回 `true`；这不表示编译
 /// 可以继续，也不表示未保留候选未被检查。
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct DiagnosticBundle {
-    diagnostics: Box<[Diagnostic]>,
+    diagnostics: DiagnosticStorage,
     diagnostics_truncated: bool,
+    failure_resource_observation: Option<FailureResourceObservation>,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct FailureResourceObservation {
+    pub(crate) compiler_controlled_peak_bytes: u64,
+    pub(crate) caller_retained_bytes: u64,
+}
+
+/// 只在已经确定失败后使用的 live-byte 物化门。
+///
+/// 成功路径不预留失败空间；rich report 无法在剩余 headroom 内构造时，返回内联、零堆
+/// allocation 的 live-limit 诊断。`existing_context_bytes` 表示 rich bundle 将引用、但已
+/// 包含在 `current_live_bytes` 中的共享 context/identity；其中仅本次 candidate 转移给调用方
+/// 的部分由 `caller_transferred_context_bytes` 重新归入 caller-retained 观测。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FailureLiveBudget {
+    pub(crate) limit: u64,
+    pub(crate) historical_peak_bytes: u64,
+    pub(crate) current_live_bytes: u64,
+    pub(crate) existing_context_bytes: u64,
+    pub(crate) caller_transferred_context_bytes: u64,
+}
+
+impl FailureLiveBudget {
+    #[cfg(test)]
+    pub(crate) const fn unlimited() -> Self {
+        Self {
+            limit: u64::MAX,
+            historical_peak_bytes: 0,
+            current_live_bytes: 0,
+            existing_context_bytes: 0,
+            caller_transferred_context_bytes: 0,
+        }
+    }
+
+    pub(crate) fn materialize(
+        self,
+        rich_increment_upper_bytes: u64,
+        rich: impl FnOnce() -> DiagnosticBundle,
+    ) -> DiagnosticBundle {
+        let upper_observed = self
+            .current_live_bytes
+            .saturating_add(rich_increment_upper_bytes);
+        let rich_peak_upper = self.historical_peak_bytes.max(upper_observed);
+        if rich_peak_upper > self.limit {
+            return DiagnosticBundle::allocation_free_live_limit(
+                self.limit,
+                rich_peak_upper,
+                self.historical_peak_bytes.max(self.current_live_bytes),
+            );
+        }
+
+        let bundle = rich();
+        let retained = bundle.failure_retained_bytes();
+        let actual_increment = retained.saturating_sub(self.existing_context_bytes);
+        debug_assert!(
+            actual_increment <= rich_increment_upper_bytes,
+            "failure report exceeded its precharged rich materialization upper bound"
+        );
+        let compiler_peak = self
+            .historical_peak_bytes
+            .max(self.current_live_bytes.saturating_add(actual_increment));
+        bundle.with_failure_resource_observation(FailureResourceObservation {
+            compiler_controlled_peak_bytes: compiler_peak,
+            caller_retained_bytes: actual_increment
+                .saturating_add(self.caller_transferred_context_bytes),
+        })
+    }
+
+    pub(crate) fn with_transient(
+        self,
+        retained_bytes: u64,
+        peak_bytes: u64,
+    ) -> Result<Self, DiagnosticBundle> {
+        let peak_observed = self.current_live_bytes.saturating_add(peak_bytes);
+        let operation_peak = self.historical_peak_bytes.max(peak_observed);
+        if operation_peak > self.limit {
+            return Err(DiagnosticBundle::allocation_free_live_limit(
+                self.limit,
+                operation_peak,
+                self.historical_peak_bytes.max(self.current_live_bytes),
+            ));
+        }
+        Ok(Self {
+            historical_peak_bytes: self.historical_peak_bytes.max(peak_observed),
+            current_live_bytes: self.current_live_bytes.saturating_add(retained_bytes),
+            ..self
+        })
+    }
+}
+
+/// 单诊断失败是编译器最常见的原子拒绝路径。内联保存该项，使 live-byte 前门本身也能在
+/// 已没有 heap headroom 时返回不带位置/字符串的最小资源诊断；多诊断路径继续使用受界
+/// `Box<[Diagnostic]>`。
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum DiagnosticStorage {
+    Single(Diagnostic),
+    Multiple(Box<[Diagnostic]>),
+}
+
+impl PartialEq for DiagnosticBundle {
+    fn eq(&self, other: &Self) -> bool {
+        self.diagnostics == other.diagnostics
+            && self.diagnostics_truncated == other.diagnostics_truncated
+    }
+}
+
+impl Eq for DiagnosticBundle {}
 
 impl DiagnosticBundle {
     pub(crate) fn single(diagnostic: Diagnostic) -> Self {
         Self {
-            diagnostics: Box::new([diagnostic]),
+            diagnostics: DiagnosticStorage::Single(diagnostic),
             diagnostics_truncated: false,
+            failure_resource_observation: None,
+        }
+    }
+
+    pub(crate) fn with_failure_resource_observation(
+        mut self,
+        observation: FailureResourceObservation,
+    ) -> Self {
+        self.failure_resource_observation = Some(observation);
+        self
+    }
+
+    #[cfg(feature = "road-editing-g3-evidence")]
+    #[must_use]
+    pub fn failure_compiler_controlled_peak_bytes(&self) -> Option<u64> {
+        self.failure_resource_observation
+            .map(|observation| observation.compiler_controlled_peak_bytes)
+    }
+
+    #[cfg(feature = "road-editing-g3-evidence")]
+    #[must_use]
+    pub fn caller_retained_bytes(&self) -> Option<u64> {
+        self.failure_resource_observation
+            .map(|observation| observation.caller_retained_bytes)
+    }
+
+    pub(crate) fn single_failure_owned_bytes(&self) -> u64 {
+        self.diagnostics()
+            .first()
+            .map_or(0, Diagnostic::failure_owned_bytes)
+    }
+
+    pub(crate) fn failure_retained_bytes(&self) -> u64 {
+        self.single_failure_owned_bytes()
+            .saturating_add(failure_locations_retained_bytes(
+                self.diagnostics().iter().flat_map(|diagnostic| {
+                    diagnostic
+                        .primary_location()
+                        .into_iter()
+                        .chain(diagnostic.related_locations())
+                }),
+            ))
+    }
+
+    pub(crate) fn allocation_free_live_limit(
+        limit: u64,
+        observed: u64,
+        compiler_controlled_peak_bytes: u64,
+    ) -> Self {
+        Self::single(Diagnostic::compile_limit_exceeded(
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            limit,
+            observed,
+        ))
+        .with_failure_resource_observation(FailureResourceObservation {
+            compiler_controlled_peak_bytes,
+            caller_retained_bytes: 0,
+        })
+    }
+
+    fn diagnostics_mut(&mut self) -> &mut [Diagnostic] {
+        match &mut self.diagnostics {
+            DiagnosticStorage::Single(diagnostic) => core::slice::from_mut(diagnostic),
+            DiagnosticStorage::Multiple(diagnostics) => diagnostics,
         }
     }
 
     pub(crate) fn with_fallback_primary_location(mut self, location: SourceLocation) -> Self {
-        for diagnostic in &mut self.diagnostics {
+        for diagnostic in self.diagnostics_mut() {
             if diagnostic.primary_span.is_none() {
                 diagnostic.primary_span = Some(location.clone());
             }
@@ -4360,24 +4579,13 @@ impl DiagnosticBundle {
         self
     }
 
-    pub(crate) fn with_fallback_primary_location_with(
-        self,
-        location: impl FnOnce() -> SourceLocation,
-    ) -> Self {
-        if self
-            .diagnostics
-            .iter()
-            .all(|diagnostic| diagnostic.primary_span.is_some())
-        {
-            self
-        } else {
-            self.with_fallback_primary_location(location())
-        }
-    }
     /// 返回按规范顺序保留的诊断切片。
     #[must_use]
     pub fn diagnostics(&self) -> &[Diagnostic] {
-        &self.diagnostics
+        match &self.diagnostics {
+            DiagnosticStorage::Single(diagnostic) => core::slice::from_ref(diagnostic),
+            DiagnosticStorage::Multiple(diagnostics) => diagnostics,
+        }
     }
 
     /// 指示至少还有一个已发现诊断未被保留。
@@ -4389,23 +4597,69 @@ impl DiagnosticBundle {
     /// 判断保留的诊断中是否包含阻止阶段提交的错误。
     #[must_use]
     pub fn has_errors(&self) -> bool {
-        self.diagnostics
+        self.diagnostics()
             .iter()
             .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
     }
 }
 
+pub(crate) fn failure_locations_retained_bytes<'a>(
+    locations: impl IntoIterator<Item = &'a SourceLocation>,
+) -> u64 {
+    let mut contexts: [Option<*const RoadEditingLocationContext>; 3] = [None, None, None];
+    let mut context_count = 0_usize;
+    let mut identities: [Option<*const u8>; 6] = [None; 6];
+    let mut identity_count = 0_usize;
+    let mut retained = 0_u64;
+    for location in locations {
+        if let SourceLocation::RoadEditing(road) = location {
+            let pointer = core::ptr::from_ref(road.context());
+            if !contexts[..context_count].contains(&Some(pointer)) {
+                if context_count < contexts.len() {
+                    contexts[context_count] = Some(pointer);
+                    context_count += 1;
+                }
+                retained = retained.saturating_add(location.failure_context_bytes());
+            }
+        }
+        for (pointer, bytes) in location
+            .failure_identity_allocations()
+            .into_iter()
+            .flatten()
+        {
+            if identities[..identity_count].contains(&Some(pointer)) {
+                continue;
+            }
+            if identity_count < identities.len() {
+                identities[identity_count] = Some(pointer);
+                identity_count += 1;
+            }
+            retained = retained.saturating_add(bytes);
+        }
+    }
+    retained
+}
+
+pub(crate) fn failure_location_retained_bytes_excluding(
+    candidate: &SourceLocation,
+    excluded: Option<&SourceLocation>,
+) -> u64 {
+    let excluded_bytes = failure_locations_retained_bytes(excluded);
+    failure_locations_retained_bytes(core::iter::once(candidate).chain(excluded))
+        .saturating_sub(excluded_bytes)
+}
+
 impl fmt::Display for DiagnosticBundle {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.diagnostics.first() {
-            Some(first) if self.diagnostics.len() == 1 && !self.diagnostics_truncated => {
+        match self.diagnostics().first() {
+            Some(first) if self.diagnostics().len() == 1 && !self.diagnostics_truncated => {
                 first.fmt(formatter)
             }
             Some(first) => write!(
                 formatter,
                 "{}（共保留 {} 项诊断{}）",
                 first,
-                self.diagnostics.len(),
+                self.diagnostics().len(),
                 if self.diagnostics_truncated {
                     "，其余已按规范顺序截断"
                 } else {
@@ -4463,8 +4717,16 @@ impl DiagnosticCollector {
     pub(crate) fn finish(mut self) -> DiagnosticBundle {
         self.retained.sort_unstable();
         DiagnosticBundle {
-            diagnostics: self.retained.into_boxed_slice(),
+            diagnostics: match self.retained.len() {
+                1 => DiagnosticStorage::Single(
+                    self.retained
+                        .pop()
+                        .expect("one retained diagnostic was observed"),
+                ),
+                _ => DiagnosticStorage::Multiple(self.retained.into_boxed_slice()),
+            },
             diagnostics_truncated: self.diagnostics_truncated,
+            failure_resource_observation: None,
         }
     }
 }
@@ -4472,6 +4734,7 @@ impl DiagnosticCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{RoadEditingDocumentIdentity, RoadEditingSourceLocation, RoadEditingSubject};
 
     #[test]
     fn bounded_collector_retains_global_canonical_prefix() {
@@ -4568,5 +4831,107 @@ mod tests {
         assert!(!rendered.contains('\n'));
         assert!(!rendered.contains('\u{1b}'));
         assert!(rendered.contains(r#"wire 文档键 "roads/actual\n\u{1b}[31m""#));
+    }
+
+    #[test]
+    fn failure_observation_does_not_change_diagnostic_semantic_equality() {
+        let plain = DiagnosticBundle::single(Diagnostic::compile_limit_exceeded(
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            10,
+            11,
+        ));
+        let observed =
+            plain
+                .clone()
+                .with_failure_resource_observation(FailureResourceObservation {
+                    compiler_controlled_peak_bytes: 11,
+                    caller_retained_bytes: 0,
+                });
+
+        assert_eq!(plain, observed);
+    }
+
+    #[test]
+    fn failure_live_gate_falls_back_without_bundle_or_location_backing() {
+        let budget = FailureLiveBudget {
+            limit: 10,
+            historical_peak_bytes: 9,
+            current_live_bytes: 10,
+            existing_context_bytes: 0,
+            caller_transferred_context_bytes: 0,
+        };
+        let bundle = budget.materialize(1, || {
+            panic!("rich diagnostic must not materialize past the live limit")
+        });
+
+        assert!(matches!(
+            bundle.diagnostics()[0].payload(),
+            DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::CompilerControlledLiveBytes,
+                limit: 10,
+                observed: 11,
+            }
+        ));
+        assert_eq!(bundle.failure_retained_bytes(), 0);
+    }
+
+    #[test]
+    fn failure_location_transfer_deduplicates_shared_candidate_context_and_identity() {
+        let context = Arc::new(RoadEditingLocationContext::new(
+            Box::default(),
+            Box::default(),
+            Box::default(),
+        ));
+        let namespace: Arc<str> = Arc::from("city/shared");
+        let document: Arc<str> = Arc::from("source/shared");
+        let location = || {
+            SourceLocation::RoadEditing(RoadEditingSourceLocation::new(
+                Arc::clone(&context),
+                RoadEditingDocumentIdentity::verified(
+                    Arc::clone(&namespace),
+                    Arc::clone(&document),
+                ),
+                RoadEditingSubject::ModuleHeader,
+                None,
+                None,
+                None,
+            ))
+        };
+        let existing = location();
+        let candidate = location();
+        let shared_location_bytes = failure_locations_retained_bytes([&existing, &candidate]);
+        assert_eq!(
+            shared_location_bytes,
+            existing.failure_existing_bytes(),
+            "the same context and identity allocations are retained only once"
+        );
+        assert_eq!(
+            failure_location_retained_bytes_excluding(&candidate, Some(&existing)),
+            0,
+            "a candidate that shares every backing allocation transfers no new location bytes"
+        );
+
+        let rich = DiagnosticBundle::single(Diagnostic::duplicate_module_namespace(
+            "city/shared",
+            candidate,
+            existing,
+        ));
+        let rich_owned_bytes = rich.single_failure_owned_bytes();
+        let bundle = FailureLiveBudget {
+            limit: u64::MAX,
+            historical_peak_bytes: shared_location_bytes,
+            current_live_bytes: shared_location_bytes,
+            existing_context_bytes: shared_location_bytes,
+            caller_transferred_context_bytes: 0,
+        }
+        .materialize(Diagnostic::failure_owned_bytes_upper_bound(), || rich);
+        let observation = bundle
+            .failure_resource_observation
+            .expect("materialized failure must retain its resource observation");
+        assert_eq!(observation.caller_retained_bytes, rich_owned_bytes);
+        assert_eq!(
+            bundle.failure_retained_bytes(),
+            shared_location_bytes.saturating_add(rich_owned_bytes)
+        );
     }
 }

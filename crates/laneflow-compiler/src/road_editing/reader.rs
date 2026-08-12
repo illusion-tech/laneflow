@@ -5,14 +5,36 @@ use super::RoadEditingModuleInput;
 use super::location::RoadEditingLocationFactory;
 use super::preflight::{RoadEditingPreflightCounts, preflight_source};
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, RoadEditingByteRange,
-    RoadEditingRootVectorKind, RoadEditingSourceViolation, RoadEditingTableKind, SourceLocation,
+    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, FailureLiveBudget,
+    RoadEditingByteRange, RoadEditingRootVectorKind, RoadEditingSourceViolation,
+    RoadEditingTableKind, SourceLocation,
 };
 
 const FORMAT_VERSION: u32 = 1;
 const MIN_SIZE_PREFIXED_LFRE_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 5;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
+// 单项 reader failure 的保守物化 ceiling：最长闭合字段名、至多三份受 SingleStringBytes
+// 约束的 payload/stable token、一条 related-location handle，以及最小 Input/Verified location。
+// 这是失败路径的窄 headroom 取舍，不从成功输入中预留；下面的最大形状测试防止构造漂移。
+const INPUT_FAILURE_UPPER_BYTES: u64 = 53 * 3 + core::mem::size_of::<SourceLocation>() as u64 + 256;
+// pinned flatbuffers 25.12.19 的 ErrorTrace 使用 Vec。冻结 schema 的唯一最长路径为：
+// RoadEditingSource.road_alignments[i].reference_line.segments[j].geometry(LineSegment).end，
+// 即 4 个 table field、2 个 vector element 和 1 个 union variant，共 7 项。16/24 不是
+// Rust Vec 的语言级保证，而是受支持工具链上由下方 schema-path + capacity-growth 测试锁定的
+// retained/reallocation ceiling；Cargo.lock 的 flatbuffers 与 CI Rust toolchain 变化都必须重跑。
+#[cfg(test)]
+const MAX_VERIFIER_TRACE_DETAILS: usize = 7;
+const VERIFIER_TRACE_RETAINED_UPPER_BYTES: u64 =
+    core::mem::size_of::<ErrorTraceDetail>() as u64 * 16;
+const VERIFIER_TRACE_PEAK_UPPER_BYTES: u64 = core::mem::size_of::<ErrorTraceDetail>() as u64 * 24;
+
+fn materialize_input_failure(
+    budget: FailureLiveBudget,
+    rich: impl FnOnce() -> DiagnosticBundle,
+) -> DiagnosticBundle {
+    budget.materialize(INPUT_FAILURE_UPPER_BYTES, rich)
+}
 
 /// 已通过来源字节、size prefix 与 file identifier 前门的借用输入。
 #[derive(Debug)]
@@ -82,35 +104,42 @@ pub(crate) fn preflight_source_framing<'a>(
     input: RoadEditingModuleInput<'a>,
     limits: &CompileLimits,
     source_bytes_already_admitted: u64,
+    failure_live_budget: FailureLiveBudget,
 ) -> Result<FramedRoadEditingSource<'a>, DiagnosticBundle> {
     let expected_key = input.expected_source_document_key();
     let bytes = input.source_bytes();
     let source_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     let per_module_limit = limits.value(CompileLimitDimension::SourceBytesPerModule);
     if source_len > per_module_limit {
-        return Err(limit_error(
-            CompileLimitDimension::SourceBytesPerModule,
-            per_module_limit,
-            source_len,
-            expected_key,
-        ));
+        return Err(materialize_input_failure(failure_live_budget, || {
+            limit_error(
+                CompileLimitDimension::SourceBytesPerModule,
+                per_module_limit,
+                source_len,
+                expected_key,
+            )
+        }));
     }
     let source_total_limit = limits.value(CompileLimitDimension::SourceBytesTotal);
     let source_total = source_bytes_already_admitted.saturating_add(source_len);
     if source_total > source_total_limit {
-        return Err(limit_error(
-            CompileLimitDimension::SourceBytesTotal,
-            source_total_limit,
-            source_total,
-            expected_key,
-        ));
+        return Err(materialize_input_failure(failure_live_budget, || {
+            limit_error(
+                CompileLimitDimension::SourceBytesTotal,
+                source_total_limit,
+                source_total,
+                expected_key,
+            )
+        }));
     }
     if bytes.len() < MIN_SIZE_PREFIXED_LFRE_BYTES {
-        return Err(source_error(
-            RoadEditingSourceViolation::TruncatedFraming,
-            expected_key,
-            None,
-        ));
+        return Err(materialize_input_failure(failure_live_budget, || {
+            source_error(
+                RoadEditingSourceViolation::TruncatedFraming,
+                expected_key,
+                None,
+            )
+        }));
     }
 
     let declared_len = u32::from_le_bytes(
@@ -120,21 +149,25 @@ pub(crate) fn preflight_source_framing<'a>(
     );
     let actual_len = u64::try_from(bytes.len() - 4).unwrap_or(u64::MAX);
     if u64::from(declared_len) != actual_len {
-        return Err(source_error(
-            RoadEditingSourceViolation::SizePrefixMismatch {
-                declared: u64::from(declared_len),
-                actual: actual_len,
-            },
-            expected_key,
-            None,
-        ));
+        return Err(materialize_input_failure(failure_live_budget, || {
+            source_error(
+                RoadEditingSourceViolation::SizePrefixMismatch {
+                    declared: u64::from(declared_len),
+                    actual: actual_len,
+                },
+                expected_key,
+                None,
+            )
+        }));
     }
     if !wire::road_editing_source_size_prefixed_buffer_has_identifier(bytes) {
-        return Err(source_error(
-            RoadEditingSourceViolation::FileIdentifierMismatch,
-            expected_key,
-            None,
-        ));
+        return Err(materialize_input_failure(failure_live_budget, || {
+            source_error(
+                RoadEditingSourceViolation::FileIdentifierMismatch,
+                expected_key,
+                None,
+            )
+        }));
     }
 
     Ok(FramedRoadEditingSource { input })
@@ -145,36 +178,60 @@ pub(crate) fn verify_source_wire<'a>(
     framed: FramedRoadEditingSource<'a>,
     limits: &CompileLimits,
     typed_ast_records_already_admitted: u64,
+    failure_live_budget: FailureLiveBudget,
 ) -> Result<WireVerifiedRoadEditingSource<'a>, DiagnosticBundle> {
     let input = framed.input();
     let expected_key = input.expected_source_document_key();
     let bytes = input.source_bytes();
+    let verifier_failure_budget = failure_live_budget.with_transient(
+        VERIFIER_TRACE_RETAINED_UPPER_BYTES,
+        VERIFIER_TRACE_PEAK_UPPER_BYTES,
+    )?;
+    let scratch_limit = limits.value(CompileLimitDimension::StageScratchBytes);
+    if VERIFIER_TRACE_PEAK_UPPER_BYTES > scratch_limit {
+        return Err(
+            failure_live_budget.materialize(INPUT_FAILURE_UPPER_BYTES, || {
+                limit_error(
+                    CompileLimitDimension::StageScratchBytes,
+                    scratch_limit,
+                    VERIFIER_TRACE_PEAK_UPPER_BYTES,
+                    expected_key,
+                )
+            }),
+        );
+    }
 
     let typed_ast_limit = limits.value(CompileLimitDimension::TypedAstRecordCount);
     let remaining_records = typed_ast_limit.saturating_sub(typed_ast_records_already_admitted);
     let max_tables_u64 = remaining_records.checked_add(2).ok_or_else(|| {
-        source_error(
-            RoadEditingSourceViolation::VerifierTableBudgetExceeded,
-            expected_key,
-            None,
-        )
+        materialize_input_failure(failure_live_budget, || {
+            source_error(
+                RoadEditingSourceViolation::VerifierTableBudgetExceeded,
+                expected_key,
+                None,
+            )
+        })
     })?;
     let max_tables = usize::try_from(max_tables_u64).map_err(|_| {
-        source_error(
-            RoadEditingSourceViolation::VerifierTableBudgetExceeded,
-            expected_key,
-            None,
-        )
+        materialize_input_failure(failure_live_budget, || {
+            source_error(
+                RoadEditingSourceViolation::VerifierTableBudgetExceeded,
+                expected_key,
+                None,
+            )
+        })
     })?;
     let max_apparent_size = bytes
         .len()
         .checked_mul(APPARENT_SIZE_MULTIPLIER)
         .ok_or_else(|| {
-            source_error(
-                RoadEditingSourceViolation::VerifierApparentSizeExceeded,
-                expected_key,
-                None,
-            )
+            materialize_input_failure(failure_live_budget, || {
+                source_error(
+                    RoadEditingSourceViolation::VerifierApparentSizeExceeded,
+                    expected_key,
+                    None,
+                )
+            })
         })?;
     let options = VerifierOptions {
         max_depth: MAX_SCHEMA_TABLE_DEPTH,
@@ -182,8 +239,13 @@ pub(crate) fn verify_source_wire<'a>(
         max_apparent_size,
         ignore_missing_null_terminator: false,
     };
-    let root = wire::size_prefixed_root_as_road_editing_source_with_opts(&options, bytes)
-        .map_err(|error| verifier_error(error, limits, expected_key, bytes.len()))?;
+    let root = wire::size_prefixed_root_as_road_editing_source_with_opts(&options, bytes).map_err(
+        |error| {
+            materialize_input_failure(verifier_failure_budget, || {
+                verifier_error(error, limits, expected_key, bytes.len())
+            })
+        },
+    )?;
 
     Ok(WireVerifiedRoadEditingSource { input, root })
 }
@@ -193,28 +255,36 @@ pub(crate) fn preflight_verified_source<'a>(
     wire_verified: WireVerifiedRoadEditingSource<'a>,
     limits: &CompileLimits,
     typed_ast_records_already_admitted: u64,
+    failure_live_budget: FailureLiveBudget,
 ) -> Result<VerifiedRoadEditingSource<'a>, DiagnosticBundle> {
     let input = wire_verified.input();
     let expected_key = input.expected_source_document_key();
     let root = wire_verified.root();
 
     if root.format_version() != FORMAT_VERSION {
-        return Err(source_error(
-            RoadEditingSourceViolation::UnsupportedFormatVersion {
-                expected: FORMAT_VERSION,
-                actual: root.format_version(),
-            },
-            expected_key,
-            None,
-        ));
+        return Err(materialize_input_failure(failure_live_budget, || {
+            source_error(
+                RoadEditingSourceViolation::UnsupportedFormatVersion {
+                    expected: FORMAT_VERSION,
+                    actual: root.format_version(),
+                },
+                expected_key,
+                None,
+            )
+        }));
     }
     let actual_key = root.module_header().source_document_key();
     if actual_key != expected_key {
-        return Err(source_error(
-            RoadEditingSourceViolation::SourceDocumentKeyMismatch,
-            expected_key,
-            Some(actual_key),
-        ));
+        let bounded_actual_key = (u64::try_from(actual_key.len()).unwrap_or(u64::MAX)
+            <= limits.value(CompileLimitDimension::SingleStringBytes))
+        .then_some(actual_key);
+        return Err(materialize_input_failure(failure_live_budget, || {
+            source_error(
+                RoadEditingSourceViolation::SourceDocumentKeyMismatch,
+                expected_key,
+                bounded_actual_key,
+            )
+        }));
     }
 
     let table_count = table_count(root);
@@ -222,29 +292,33 @@ pub(crate) fn preflight_verified_source<'a>(
     let typed_ast_limit = limits.value(CompileLimitDimension::TypedAstRecordCount);
     let total_records = typed_ast_records_already_admitted.saturating_add(typed_ast_record_count);
     if total_records > typed_ast_limit {
-        return Err(limit_error(
-            CompileLimitDimension::TypedAstRecordCount,
-            typed_ast_limit,
-            total_records,
-            expected_key,
-        ));
+        return Err(materialize_input_failure(failure_live_budget, || {
+            limit_error(
+                CompileLimitDimension::TypedAstRecordCount,
+                typed_ast_limit,
+                total_records,
+                expected_key,
+            )
+        }));
     }
 
-    let verified_header_location = || {
-        RoadEditingLocationFactory::verified_module_header(
-            root.module_header().authoring_namespace_id(),
-            expected_key,
-        )
-    };
-    let preflight_counts = preflight_source(root, limits, expected_key)
-        .map_err(|bundle| bundle.with_fallback_primary_location_with(verified_header_location))?;
+    let preflight_counts = preflight_source(root, limits, expected_key, failure_live_budget)?;
     if preflight_counts.typed_ast_record_count() != typed_ast_record_count {
-        return Err(semantic_error(
-            "roadEditingSource.tableAccounting",
-            crate::RoadEditingInputViolation::InvalidCombination,
-            expected_key,
-        )
-        .with_fallback_primary_location_with(verified_header_location));
+        return Err(
+            failure_live_budget.materialize(INPUT_FAILURE_UPPER_BYTES, || {
+                semantic_error(
+                    "roadEditingSource.tableAccounting",
+                    crate::RoadEditingInputViolation::InvalidCombination,
+                    expected_key,
+                )
+                .with_fallback_primary_location(
+                    RoadEditingLocationFactory::verified_module_header(
+                        root.module_header().authoring_namespace_id(),
+                        expected_key,
+                    ),
+                )
+            }),
+        );
     }
 
     Ok(VerifiedRoadEditingSource {
@@ -263,9 +337,24 @@ pub(crate) fn verify_source<'a>(
     source_bytes_already_admitted: u64,
     typed_ast_records_already_admitted: u64,
 ) -> Result<VerifiedRoadEditingSource<'a>, DiagnosticBundle> {
-    let framed = preflight_source_framing(input, limits, source_bytes_already_admitted)?;
-    let wire_verified = verify_source_wire(framed, limits, typed_ast_records_already_admitted)?;
-    preflight_verified_source(wire_verified, limits, typed_ast_records_already_admitted)
+    let framed = preflight_source_framing(
+        input,
+        limits,
+        source_bytes_already_admitted,
+        FailureLiveBudget::unlimited(),
+    )?;
+    let wire_verified = verify_source_wire(
+        framed,
+        limits,
+        typed_ast_records_already_admitted,
+        FailureLiveBudget::unlimited(),
+    )?;
+    preflight_verified_source(
+        wire_verified,
+        limits,
+        typed_ast_records_already_admitted,
+        FailureLiveBudget::unlimited(),
+    )
 }
 
 fn verifier_error(
@@ -626,10 +715,11 @@ mod tests {
 
     use super::*;
     use crate::road_editing::{
-        CanonicalFrameInput, RoadEditingDeclaration, RoadEditingModuleHeader,
-        RoadEditingProvenance, RoadEditingSignalPhaseState, RoadEditingSourceModuleBuilder,
-        RoadEditingSourceWriter, SignalControllerInput, SignalControllerReference,
-        SignalGroupInput, SignalGroupReference, SignalPhaseInput,
+        CanonicalFrameInput, CanonicalFrameReference, RoadAlignmentInput, RoadEditingCurveProgram,
+        RoadEditingCurveSegment, RoadEditingDeclaration, RoadEditingModuleHeader,
+        RoadEditingPoint3, RoadEditingProvenance, RoadEditingSignalPhaseState,
+        RoadEditingSourceModuleBuilder, RoadEditingSourceWriter, SignalControllerInput,
+        SignalControllerReference, SignalGroupInput, SignalGroupReference, SignalPhaseInput,
     };
     use crate::{
         DiagnosticCode, DiagnosticPayload, GeometryAccuracyProfile, GeometryDirectionProfile,
@@ -737,6 +827,49 @@ mod tests {
             .expect("buffer")
     }
 
+    fn deepest_trace_source_buffer(
+        limits: &CompileLimits,
+    ) -> super::super::OwnedRoadEditingSourceBuffer {
+        let header = RoadEditingModuleHeader::try_new(
+            "city",
+            "road-editing",
+            Vec::new(),
+            RoadEditingProvenance::direct("trace ceiling").expect("provenance"),
+        )
+        .expect("header");
+        let mut builder = RoadEditingSourceModuleBuilder::new(
+            header,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            limits,
+        )
+        .expect("builder");
+        builder
+            .add_declaration(RoadEditingDeclaration::CanonicalFrame(
+                CanonicalFrameInput::try_new("frame").expect("frame"),
+            ))
+            .expect("frame declaration");
+        builder
+            .add_alignment(
+                RoadAlignmentInput::try_new(
+                    "alignment",
+                    CanonicalFrameReference::local("frame").expect("frame reference"),
+                    RoadEditingCurveProgram::try_new(
+                        RoadEditingPoint3::try_new(0.0, 0.0, 0.0).expect("start"),
+                        vec![RoadEditingCurveSegment::line(
+                            RoadEditingPoint3::try_new(10.0, 0.0, 0.0).expect("end"),
+                        )],
+                    )
+                    .expect("curve"),
+                )
+                .expect("alignment"),
+            )
+            .expect("alignment declaration");
+        RoadEditingSourceWriter::new(limits)
+            .write(builder.finish().expect("module"))
+            .expect("buffer")
+    }
+
     fn first_diagnostic(error: &DiagnosticBundle) -> &crate::Diagnostic {
         error.diagnostics().first().expect("diagnostic")
     }
@@ -827,11 +960,13 @@ mod tests {
         overwrite_root_u8_field(&mut bytes, 2, 0);
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
-        let framed = preflight_source_framing(input, &limits, 0).expect("framing preflight");
-        let wire_verified = verify_source_wire(framed, &limits, 0)
+        let framed = preflight_source_framing(input, &limits, 0, FailureLiveBudget::unlimited())
+            .expect("framing preflight");
+        let wire_verified = verify_source_wire(framed, &limits, 0, FailureLiveBudget::unlimited())
             .expect("unspecified profile remains structurally valid wire");
-        let error = preflight_verified_source(wire_verified, &limits, 0)
-            .expect_err("unspecified profile is a semantic failure");
+        let error =
+            preflight_verified_source(wire_verified, &limits, 0, FailureLiveBudget::unlimited())
+                .expect_err("unspecified profile is a semantic failure");
 
         assert!(matches!(
             first_diagnostic(&error).payload(),
@@ -923,6 +1058,113 @@ mod tests {
             Some("reference_line")
         );
         assert_eq!(verifier_field_hint(&inconsistent, &trace), Some("geometry"));
+    }
+
+    #[test]
+    fn pinned_schema_and_toolchain_bound_the_deepest_verifier_trace() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = deepest_trace_source_buffer(&limits);
+        let mut bytes = buffer.as_bytes().to_vec();
+        let root = wire::size_prefixed_root_as_road_editing_source(&bytes)
+            .expect("writer output is valid before one required vtable slot is cleared");
+        let line = root
+            .road_alignments()
+            .get(0)
+            .reference_line()
+            .segments()
+            .get(0)
+            .geometry_as_line_segment()
+            .expect("line segment");
+        let line_position = line._tab.loc();
+        let vtable_distance = i32::from_le_bytes(
+            bytes[line_position..line_position + 4]
+                .try_into()
+                .expect("line vtable offset"),
+        );
+        let vtable_position = line_position
+            .checked_sub(usize::try_from(vtable_distance).expect("positive vtable distance"))
+            .expect("line vtable position");
+        bytes[vtable_position + 4..vtable_position + 6].copy_from_slice(&0_u16.to_le_bytes());
+
+        let error = wire::size_prefixed_root_as_road_editing_source_with_opts(
+            &VerifierOptions {
+                max_depth: MAX_SCHEMA_TABLE_DEPTH,
+                max_tables: 64,
+                max_apparent_size: bytes.len() * APPARENT_SIZE_MULTIPLIER,
+                ignore_missing_null_terminator: false,
+            },
+            &bytes,
+        )
+        .expect_err("missing LineSegment.end");
+        let (trace, _) = verifier_data_site(&error, bytes.len());
+        assert_eq!(trace.len(), MAX_VERIFIER_TRACE_DETAILS);
+        assert!(matches!(
+            trace,
+            [
+                ErrorTraceDetail::UnionVariant { .. },
+                ErrorTraceDetail::TableField { field_name: geometry, .. },
+                ErrorTraceDetail::VectorElement { index: 0, .. },
+                ErrorTraceDetail::TableField { field_name: segments, .. },
+                ErrorTraceDetail::TableField { field_name: reference_line, .. },
+                ErrorTraceDetail::VectorElement { index: 0, .. },
+                ErrorTraceDetail::TableField { field_name: road_alignments, .. },
+            ] if geometry.as_ref() == "geometry"
+                && segments.as_ref() == "segments"
+                && reference_line.as_ref() == "reference_line"
+                && road_alignments.as_ref() == "road_alignments"
+        ));
+
+        // flatbuffers 25.12.19 uses Vec::new()+push for ErrorTrace. Lock the supported
+        // MSRV/stable capacity-growth ceiling used by the precharge above.
+        let mut capacity_probe = Vec::new();
+        let mut previous_capacity = 0_usize;
+        let mut maximum_coexisting_capacity = 0_usize;
+        for detail in trace.iter().cloned() {
+            capacity_probe.push(detail);
+            let capacity = capacity_probe.capacity();
+            if capacity != previous_capacity {
+                maximum_coexisting_capacity =
+                    maximum_coexisting_capacity.max(previous_capacity.saturating_add(capacity));
+                previous_capacity = capacity;
+            }
+        }
+        assert!(capacity_probe.capacity() <= MAX_VERIFIER_TRACE_DETAILS * 2);
+        assert!(maximum_coexisting_capacity <= MAX_VERIFIER_TRACE_DETAILS * 3);
+    }
+
+    #[test]
+    fn reader_failure_ceiling_preserves_rich_or_falls_back_without_allocation() {
+        let expected = "roads/main";
+        let rich = || source_error(RoadEditingSourceViolation::TruncatedFraming, expected, None);
+        let budget = FailureLiveBudget {
+            limit: u64::MAX,
+            historical_peak_bytes: 0,
+            current_live_bytes: 0,
+            existing_context_bytes: 0,
+            caller_transferred_context_bytes: 0,
+        };
+        let error = materialize_input_failure(budget, rich);
+        assert_eq!(
+            first_diagnostic(&error).code(),
+            DiagnosticCode::InvalidRoadEditingSource
+        );
+        assert!(error.failure_retained_bytes() > 0);
+
+        let rejected = materialize_input_failure(
+            FailureLiveBudget {
+                limit: INPUT_FAILURE_UPPER_BYTES - 1,
+                ..budget
+            },
+            || panic!("rich failure must not be materialized beyond its ceiling"),
+        );
+        assert!(matches!(
+            first_diagnostic(&rejected).payload(),
+            DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::CompilerControlledLiveBytes,
+                ..
+            }
+        ));
+        assert!(first_diagnostic(&rejected).primary_location().is_none());
     }
 
     #[test]

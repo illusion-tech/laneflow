@@ -1,4 +1,9 @@
 #![doc = include_str!("../README.md")]
+// 单诊断必须内联，才能在 CompilerControlledLiveBytes 已无 heap headroom 时返回零分配
+// failure fallback。该有意取舍扩大了所有 Result 的 Err variant；不要为 lint 再引入一次
+// Box allocation，否则会破坏失败关闭前门。
+#![allow(clippy::result_large_err)]
+#![allow(clippy::large_enum_variant)]
 
 // arena/HIR/MIR/LIR 是生产 Compiler 闭环的私有实现层。保持这些模块私有，可防止临时
 // 键、阶段表和未验证中间态被调用方误当作稳定输出；只有 compiler 模块能把完整成功
@@ -51,6 +56,7 @@ pub use declaration::{
     SignalPhaseInput, StaticRouteInput, StopLineInput, StopLineReference, VehicleProfileInput,
     VehicleProfileReference, WaitingZoneInput,
 };
+pub(crate) use diagnostic::FailureLiveBudget;
 pub use diagnostic::{
     AccessCapability, AccessPlane, AccessRegulationField, Diagnostic, DiagnosticBundle,
     DiagnosticCode, DiagnosticPayload, DiagnosticSeverity, JunctionEdgeSetViolation,

@@ -1166,7 +1166,7 @@ pub(super) fn lower_topology_authoring_declarations(
                 if reference.module_namespace != namespace
                     || reference.owner_local_keys() != [corridor_key, key]
                 {
-                    return Err(super::preflight::invalid_combination(
+                    return Err(super::preflight::invalid_combination_bundle(
                         "roadSection.authoringLanes",
                         expected_key,
                     ));
@@ -1182,7 +1182,7 @@ pub(super) fn lower_topology_authoring_declarations(
                         )
                     })
                     .map_err(|_| {
-                        super::preflight::invalid_combination(
+                        super::preflight::invalid_combination_bundle(
                             "roadSection.authoringLanes",
                             expected_key,
                         )
@@ -1281,7 +1281,7 @@ pub(super) fn lower_topology_authoring_declarations(
         }));
     }
     if lowered_lane_count != expected_lane_count {
-        return Err(super::preflight::invalid_combination(
+        return Err(super::preflight::invalid_combination_bundle(
             "authoringLanes.roadSection",
             expected_key,
         ));

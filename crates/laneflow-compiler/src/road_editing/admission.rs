@@ -7,7 +7,8 @@ use sha2::{Digest, Sha256};
 
 use super::RoadEditingModuleInput;
 use super::compile_geometry::{
-    GeometryCompilationBudget, GeometryCompilationError, compile_authoring_geometry,
+    GeometryCompilationBudget, GeometryCompilationError, GeometryCompilationFailure,
+    compile_authoring_geometry_observed,
 };
 use super::geometry::NumericFreezeError;
 use super::location::RoadEditingLocationFactory;
@@ -16,12 +17,12 @@ use super::lowering::{
     lower_road_alignments, lower_topology_authoring_declarations,
 };
 use super::preflight::RoadEditingPreflightCounts;
+#[cfg(test)]
+use super::reader::verify_source;
 use super::reader::{
     VerifiedRoadEditingSource, preflight_source_framing, preflight_verified_source,
     verify_source_wire,
 };
-#[cfg(test)]
-use super::reader::verify_source;
 use crate::declaration::{
     AuthoringCurveSegmentDeclaration, CanonicalPoint3F32Input, CompiledGeometrySourceRange,
     RoadAlignmentDeclaration, TypedAstDeclaration,
@@ -34,9 +35,9 @@ use crate::module::{
 };
 use crate::{
     CompilationUnitBuilder, CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle,
-    GeometryAccuracyProfile, GeometryDirectionProfile, RoadEditingNumericViolation,
-    RoadEditingPropertyStep, RoadEditingRelationKind, RoadEditingRelationOccurrence,
-    RoadEditingSourceViolation, RoadEditingTableKind,
+    FailureLiveBudget, GeometryAccuracyProfile, GeometryDirectionProfile,
+    RoadEditingNumericViolation, RoadEditingPropertyStep, RoadEditingRelationKind,
+    RoadEditingRelationOccurrence, RoadEditingSourceViolation, RoadEditingTableKind,
 };
 
 const ROAD_EDITING_FRONTEND_VERSION: u32 = 1;
@@ -57,6 +58,27 @@ struct GeometryScratchAllowance {
     stage_limit: u64,
     live_headroom: u64,
     live_bytes_before_scratch: u64,
+    historical_peak_before_scratch: u64,
+}
+
+fn failure_live_budget(
+    builder: &CompilationUnitBuilder,
+    limits: &CompileLimits,
+    current_candidate_live_bytes: u64,
+    historical_candidate_peak_bytes: u64,
+    existing_context_bytes: u64,
+    caller_transferred_context_bytes: u64,
+) -> FailureLiveBudget {
+    let builder_live = builder.already_admitted(CompileLimitDimension::CompilerControlledLiveBytes);
+    FailureLiveBudget {
+        limit: limits.value(CompileLimitDimension::CompilerControlledLiveBytes),
+        historical_peak_bytes: builder
+            .admission_peak_already_observed()
+            .max(builder_live.saturating_add(historical_candidate_peak_bytes)),
+        current_live_bytes: builder_live.saturating_add(current_candidate_live_bytes),
+        existing_context_bytes,
+        caller_transferred_context_bytes,
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -279,17 +301,32 @@ impl CompilationUnitBuilder {
             self.road_editing_typed_ast_records_already_admitted();
 
         observer.stage_started(RoadEditingAdmissionStage::SizePrefixAndIdentifierPreflight);
-        let framed = preflight_source_framing(input, &limits, source_bytes_already_admitted)?;
+        let input_failure_budget = failure_live_budget(self, &limits, 0, 0, 0, 0);
+        let framed = preflight_source_framing(
+            input,
+            &limits,
+            source_bytes_already_admitted,
+            input_failure_budget,
+        )?;
         observer.stage_finished(RoadEditingAdmissionStage::SizePrefixAndIdentifierPreflight);
 
         observer.stage_started(RoadEditingAdmissionStage::FlatbuffersVerifier);
-        let wire_verified =
-            verify_source_wire(framed, &limits, typed_ast_records_already_admitted)?;
+        let wire_verified = verify_source_wire(
+            framed,
+            &limits,
+            typed_ast_records_already_admitted,
+            input_failure_budget,
+        )?;
         observer.stage_finished(RoadEditingAdmissionStage::FlatbuffersVerifier);
 
         observer.stage_started(RoadEditingAdmissionStage::SemanticPreflightAndTypedAstLowering);
-        let verified =
-            preflight_verified_source(wire_verified, &limits, typed_ast_records_already_admitted)?;
+        let semantic_failure_budget = failure_live_budget(self, &limits, 0, 0, 0, 0);
+        let verified = preflight_verified_source(
+            wire_verified,
+            &limits,
+            typed_ast_records_already_admitted,
+            semantic_failure_budget,
+        )?;
         precheck_accumulated_counts(self, &limits, &verified)?;
         let remaining_geometry_points = self.road_editing_remaining_geometry_points();
         let scratch_allowance = geometry_scratch_allowance(self, &limits, &verified);
@@ -367,7 +404,7 @@ fn precheck_accumulated_counts(
         let limit = limits.value(dimension);
         if observed > limit {
             return Err(accumulated_limit_error(
-                dimension, limit, observed, verified,
+                builder, limits, dimension, limit, observed, verified,
             ));
         }
     }
@@ -377,6 +414,8 @@ fn precheck_accumulated_counts(
             .saturating_add(1);
         if observed > limit {
             return Err(accumulated_limit_error(
+                builder,
+                limits,
                 CompileLimitDimension::SourceDocumentCount,
                 limit,
                 observed,
@@ -388,6 +427,8 @@ fn precheck_accumulated_counts(
     let scratch_limit = limits.value(CompileLimitDimension::StageScratchBytes);
     if sizing.frontend_scratch_upper_bound > scratch_limit {
         return Err(accumulated_limit_error(
+            builder,
+            limits,
             CompileLimitDimension::StageScratchBytes,
             scratch_limit,
             sizing.frontend_scratch_upper_bound,
@@ -403,6 +444,8 @@ fn precheck_accumulated_counts(
     let live_limit = limits.value(CompileLimitDimension::CompilerControlledLiveBytes);
     if observed_live > live_limit {
         return Err(accumulated_limit_error(
+            builder,
+            limits,
             CompileLimitDimension::CompilerControlledLiveBytes,
             live_limit,
             observed_live,
@@ -432,6 +475,10 @@ fn geometry_scratch_allowance(
     let live_bytes_before_scratch = builder
         .already_admitted(CompileLimitDimension::CompilerControlledLiveBytes)
         .saturating_add(candidate_live_upper);
+    let sizing = RoadEditingAdmissionSizing::from_root(verified.root(), import_count);
+    let historical_peak_before_scratch = builder
+        .admission_peak_already_observed()
+        .max(live_bytes_before_scratch.saturating_add(sizing.frontend_dynamic_live_upper_bound));
     let live_headroom = limits
         .value(CompileLimitDimension::CompilerControlledLiveBytes)
         .saturating_sub(live_bytes_before_scratch);
@@ -439,26 +486,36 @@ fn geometry_scratch_allowance(
         stage_limit: limits.value(CompileLimitDimension::StageScratchBytes),
         live_headroom,
         live_bytes_before_scratch,
+        historical_peak_before_scratch,
     }
 }
 
 fn accumulated_limit_error(
+    builder: &CompilationUnitBuilder,
+    limits: &CompileLimits,
     dimension: CompileLimitDimension,
     limit: u64,
     observed: u64,
     verified: &VerifiedRoadEditingSource<'_>,
 ) -> DiagnosticBundle {
     let header = verified.root().module_header();
-    DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
-        dimension,
-        limit,
-        observed,
-        Some(RoadEditingLocationFactory::verified_module_header(
-            header.authoring_namespace_id(),
-            header.source_document_key(),
-        )),
-        Some(header.authoring_namespace_id().into()),
-    ))
+    let failure_budget = failure_live_budget(builder, limits, 0, 0, 0, 0);
+    failure_budget.materialize(
+        LOCATION_CONTEXT_FIXED_UPPER_BOUND_BYTES
+            .saturating_add(Diagnostic::failure_owned_bytes_upper_bound()),
+        || {
+            DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
+                dimension,
+                limit,
+                observed,
+                Some(RoadEditingLocationFactory::verified_module_header(
+                    header.authoring_namespace_id(),
+                    header.source_document_key(),
+                )),
+                Some(header.authoring_namespace_id().into()),
+            ))
+        },
+    )
 }
 
 fn lower_verified_source(
@@ -493,7 +550,7 @@ fn lower_verified_source(
     debug_assert_eq!(declarations.len(), top_level_declaration_count);
 
     let namespace = root.module_header().authoring_namespace_id();
-    let geometry_usage = compile_authoring_geometry(
+    let geometry_usage = compile_authoring_geometry_observed(
         namespace,
         &locations,
         alignments,
@@ -514,6 +571,7 @@ fn lower_verified_source(
             &locations,
             limits,
             geometry_scratch_allowance,
+            0,
         )
     })?;
     debug_assert!(geometry_usage.peak_scratch_bytes <= geometry_scratch_allowance.stage_limit);
@@ -527,14 +585,18 @@ fn lower_verified_source(
         geometry_output_bytes.saturating_add(admission_sizing.import_sort_bytes);
     if post_geometry_import_peak > geometry_scratch_allowance.live_headroom {
         return Err(geometry_compilation_diagnostic(
-            GeometryCompilationError::LiveLimit {
-                limit: geometry_scratch_allowance.live_headroom,
-                observed: post_geometry_import_peak,
+            GeometryCompilationFailure {
+                error: GeometryCompilationError::LiveLimit {
+                    limit: geometry_scratch_allowance.live_headroom,
+                    observed: post_geometry_import_peak,
+                },
+                peak_output_and_scratch_bytes: geometry_usage.peak_output_and_scratch_bytes,
             },
             &verified,
             &locations,
             limits,
             geometry_scratch_allowance,
+            geometry_output_bytes,
         ));
     }
 
@@ -799,6 +861,53 @@ fn retained_structure_upper_bound(counts: RoadEditingPreflightCounts) -> u64 {
 }
 
 fn geometry_compilation_diagnostic(
+    failure: GeometryCompilationFailure,
+    verified: &VerifiedRoadEditingSource<'_>,
+    locations: &RoadEditingLocationFactory,
+    limits: &CompileLimits,
+    scratch_allowance: GeometryScratchAllowance,
+    current_geometry_output_bytes: u64,
+) -> DiagnosticBundle {
+    let GeometryCompilationFailure {
+        error,
+        peak_output_and_scratch_bytes,
+    } = failure;
+    let primary_existing_context = match &error {
+        GeometryCompilationError::Numeric {
+            source: Some(source),
+            ..
+        } => source.failure_existing_bytes(),
+        GeometryCompilationError::Numeric { source: None, .. }
+        | GeometryCompilationError::ScratchLimit { .. }
+        | GeometryCompilationError::LiveLimit { .. } => {
+            locations.module_header().failure_existing_bytes()
+        }
+    };
+    let failure_budget = FailureLiveBudget {
+        limit: limits.value(CompileLimitDimension::CompilerControlledLiveBytes),
+        historical_peak_bytes: scratch_allowance.historical_peak_before_scratch.max(
+            scratch_allowance
+                .live_bytes_before_scratch
+                .saturating_add(peak_output_and_scratch_bytes),
+        ),
+        current_live_bytes: scratch_allowance
+            .live_bytes_before_scratch
+            .saturating_add(current_geometry_output_bytes),
+        existing_context_bytes: primary_existing_context,
+        caller_transferred_context_bytes: primary_existing_context,
+    };
+    failure_budget.materialize(Diagnostic::failure_owned_bytes_upper_bound(), || {
+        geometry_compilation_diagnostic_unchecked(
+            error,
+            verified,
+            locations,
+            limits,
+            scratch_allowance,
+        )
+    })
+}
+
+fn geometry_compilation_diagnostic_unchecked(
     error: GeometryCompilationError,
     verified: &VerifiedRoadEditingSource<'_>,
     locations: &RoadEditingLocationFactory,
@@ -1355,9 +1464,13 @@ mod tests {
             0,
         )
         .unwrap();
-        let counts =
-            super::super::preflight::preflight_source(verified.root(), &limits, "road-editing")
-                .unwrap();
+        let counts = super::super::preflight::preflight_source(
+            verified.root(),
+            &limits,
+            "road-editing",
+            crate::FailureLiveBudget::unlimited(),
+        )
+        .unwrap();
         let without_ranges = controlled_live_bytes(counts, 6, 0, 0, 0, 0, 0);
         let range_count = 3;
         let with_ranges = controlled_live_bytes(counts, 6, range_count, 0, 0, 0, 0);
@@ -1437,6 +1550,7 @@ mod tests {
                 stage_limit: broad.value(CompileLimitDimension::StageScratchBytes),
                 live_headroom: u64::MAX,
                 live_bytes_before_scratch: base,
+                historical_peak_before_scratch: base,
             },
         )
         .unwrap();
@@ -1490,6 +1604,7 @@ mod tests {
                 stage_limit: broad.value(CompileLimitDimension::StageScratchBytes),
                 live_headroom: exact_headroom,
                 live_bytes_before_scratch: base,
+                historical_peak_before_scratch: base,
             },
         )
         .expect("the exact geometry-output plus import-sort boundary must pass");
@@ -1503,6 +1618,7 @@ mod tests {
                 stage_limit: broad.value(CompileLimitDimension::StageScratchBytes),
                 live_headroom: exact_headroom - 1,
                 live_bytes_before_scratch: base,
+                historical_peak_before_scratch: base,
             },
         );
         assert!(

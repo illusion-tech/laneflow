@@ -3,11 +3,14 @@ use std::sync::Arc;
 
 use crate::arena::ArenaKey;
 use crate::declaration::{RoadAlignmentDeclaration, TypedAstDeclaration};
-use crate::diagnostic::DiagnosticCollector;
+use crate::diagnostic::{
+    DiagnosticCollector, failure_location_retained_bytes_excluding,
+    failure_locations_retained_bytes,
+};
 use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceLocation,
-    SourcePosition, SourceSpan,
+    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, FailureLiveBudget,
+    SourceLocation, SourcePosition, SourceSpan,
 };
 
 use super::descriptor::{SourceDocumentDescriptor, SourceModuleDescriptor};
@@ -695,6 +698,49 @@ struct AdmissionPlan {
     next_totals: AdmissionTotals,
 }
 
+fn common_failure_budget(
+    builder: &CompilationUnitBuilder,
+    module: &AdmittedOfficialModule,
+    related_existing: Option<&SourceLocation>,
+) -> FailureLiveBudget {
+    let previous_builder_live_bytes = builder_live_requested_bytes(builder.totals);
+    let primary = &module.declaration_span;
+    let existing_context_bytes =
+        failure_locations_retained_bytes(core::iter::once(primary).chain(related_existing));
+    let caller_transferred_context_bytes =
+        failure_location_retained_bytes_excluding(primary, related_existing);
+    FailureLiveBudget {
+        limit: builder
+            .limits
+            .value(CompileLimitDimension::CompilerControlledLiveBytes),
+        historical_peak_bytes: builder
+            .totals
+            .admission_peak_live_bytes
+            .max(
+                previous_builder_live_bytes
+                    .saturating_add(module.resource_counts.admission_peak_live_bytes),
+            )
+            .max(
+                previous_builder_live_bytes
+                    .saturating_add(module.resource_counts.controlled_live_bytes),
+            ),
+        current_live_bytes: previous_builder_live_bytes
+            .saturating_add(module.resource_counts.controlled_live_bytes),
+        existing_context_bytes,
+        caller_transferred_context_bytes,
+    }
+}
+
+fn materialize_common_failure(
+    builder: &CompilationUnitBuilder,
+    module: &AdmittedOfficialModule,
+    related_existing: Option<&SourceLocation>,
+    rich: impl FnOnce() -> DiagnosticBundle,
+) -> DiagnosticBundle {
+    common_failure_budget(builder, module, related_existing)
+        .materialize(Diagnostic::failure_owned_bytes_upper_bound(), rich)
+}
+
 impl CompilationUnitBuilder {
     /// 用同一份显式资源配置档建立空编译单元构建器。
     #[must_use]
@@ -716,6 +762,10 @@ impl CompilationUnitBuilder {
     #[cfg(test)]
     pub(super) fn set_test_limits(&mut self, limits: CompileLimits) {
         self.limits = limits;
+    }
+
+    pub(crate) const fn admission_peak_already_observed(&self) -> u64 {
+        self.totals.admission_peak_live_bytes
     }
 
     /// 原子加入一个已经由官方前端完成受检构造的模块。
@@ -811,12 +861,18 @@ impl CompilationUnitBuilder {
     ) -> Result<AdmissionPlan, DiagnosticBundle> {
         let namespace = module.descriptor.authoring_namespace_id.as_ref();
         if let Some(existing_index) = self.module_index.get(namespace).copied() {
-            return Err(DiagnosticBundle::single(
-                Diagnostic::duplicate_module_namespace(
-                    namespace,
-                    module.declaration_span.clone(),
-                    self.modules[existing_index].declaration_span.clone(),
-                ),
+            let related = &self.modules[existing_index].declaration_span;
+            return Err(materialize_common_failure(
+                self,
+                &module,
+                Some(related),
+                || {
+                    DiagnosticBundle::single(Diagnostic::duplicate_module_namespace(
+                        namespace,
+                        module.declaration_span.clone(),
+                        related.clone(),
+                    ))
+                },
             ));
         }
 
@@ -826,37 +882,43 @@ impl CompilationUnitBuilder {
             "official logical module construction guarantees a non-empty document set"
         );
         if document_count > 1 && self.limits.source_document_count_limit().is_none() {
-            return Err(DiagnosticBundle::single(
-                Diagnostic::compile_profile_incompatible(
+            return Err(materialize_common_failure(self, &module, None, || {
+                DiagnosticBundle::single(Diagnostic::compile_profile_incompatible(
                     self.limits.profile_id(),
                     CompileLimitDimension::SourceDocumentCount,
                     module.declaration_span.clone(),
                     namespace,
-                ),
-            ));
+                ))
+            }));
         }
         if let Some(pair) = module.source_documents.windows(2).find(|pair| {
             pair[0].source_document_key.as_ref() == pair[1].source_document_key.as_ref()
         }) {
             let source_document_key = pair[0].source_document_key.as_ref();
-            return Err(DiagnosticBundle::single(
-                Diagnostic::duplicate_source_document_key(
+            return Err(materialize_common_failure(self, &module, None, || {
+                DiagnosticBundle::single(Diagnostic::duplicate_source_document_key(
                     source_document_key,
                     module.declaration_span.clone(),
                     module.declaration_span.clone(),
-                ),
-            ));
+                ))
+            }));
         }
         for document in &module.source_documents {
             let source_document_key = document.source_document_key.as_ref();
             if let Some(existing_binding) = self.source_document_index.get(source_document_key) {
                 let existing_index = existing_binding.pending_owner_module_index();
-                return Err(DiagnosticBundle::single(
-                    Diagnostic::duplicate_source_document_key(
-                        source_document_key,
-                        module.declaration_span.clone(),
-                        self.modules[existing_index].declaration_span.clone(),
-                    ),
+                let related = &self.modules[existing_index].declaration_span;
+                return Err(materialize_common_failure(
+                    self,
+                    &module,
+                    Some(related),
+                    || {
+                        DiagnosticBundle::single(Diagnostic::duplicate_source_document_key(
+                            source_document_key,
+                            module.declaration_span.clone(),
+                            related.clone(),
+                        ))
+                    },
                 ));
             }
         }
@@ -895,29 +957,29 @@ impl CompilationUnitBuilder {
         for (dimension, observed) in next_totals.limit_observations(admission_observed_live_bytes) {
             let limit = self.limits.value(dimension);
             if observed > limit {
-                return Err(DiagnosticBundle::single(
-                    Diagnostic::compile_limit_exceeded_at(
+                return Err(materialize_common_failure(self, &module, None, || {
+                    DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
                         dimension,
                         limit,
                         observed,
                         Some(module.declaration_span.clone()),
                         Some(namespace.into()),
-                    ),
-                ));
+                    ))
+                }));
             }
         }
         if let Some(limit) = self.limits.source_document_count_limit()
             && next_totals.source_document_count > limit
         {
-            return Err(DiagnosticBundle::single(
-                Diagnostic::compile_limit_exceeded_at(
+            return Err(materialize_common_failure(self, &module, None, || {
+                DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
                     CompileLimitDimension::SourceDocumentCount,
                     limit,
                     next_totals.source_document_count,
                     Some(module.declaration_span.clone()),
                     Some(namespace.into()),
-                ),
-            ));
+                ))
+            }));
         }
 
         Ok(AdmissionPlan {

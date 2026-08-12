@@ -1,5 +1,7 @@
 //! RoadEditingSource authoring curve 到共同规范几何的有界两遍编译。
 
+use std::cell::Cell;
+
 use crate::declaration::{
     AuthoringCurveProgramDeclaration, AuthoringCurveSegmentDeclaration,
     AuthoringCurveSegmentGeometry, AuthoringLaneDirection, AuthoringPoint3F64, AuthoringStationEnd,
@@ -374,20 +376,31 @@ struct GeometryDeclarationIndex<'a> {
     facility_bands: Box<[&'a FacilityBandDeclaration]>,
 }
 
-struct GeometryScratchBudget {
+struct GeometryScratchBudget<'a> {
     limit: u64,
     live_headroom: u64,
     /// 已由候选 retained base 预收费、但仍属于本阶段私有暂存区的输入 backing。
     stage_base: u64,
     live: u64,
     peak: u64,
+    observed_dynamic_peak: Option<&'a Cell<u64>>,
 }
 
-impl GeometryScratchBudget {
+impl<'a> GeometryScratchBudget<'a> {
+    #[cfg(test)]
     fn new(
         limit: u64,
         stage_base: u64,
         live_headroom: u64,
+    ) -> Result<Self, GeometryCompilationError> {
+        Self::new_observed(limit, stage_base, live_headroom, None)
+    }
+
+    fn new_observed(
+        limit: u64,
+        stage_base: u64,
+        live_headroom: u64,
+        observed_dynamic_peak: Option<&'a Cell<u64>>,
     ) -> Result<Self, GeometryCompilationError> {
         if stage_base > limit {
             return Err(GeometryCompilationError::ScratchLimit {
@@ -401,6 +414,7 @@ impl GeometryScratchBudget {
             stage_base,
             live: stage_base,
             peak: stage_base,
+            observed_dynamic_peak,
         })
     }
 
@@ -429,6 +443,9 @@ impl GeometryScratchBudget {
         }
         self.live = observed;
         self.peak = self.peak.max(self.live);
+        if let Some(peak) = self.observed_dynamic_peak {
+            peak.set(peak.get().max(observed_live));
+        }
         Ok(())
     }
 
@@ -493,6 +510,13 @@ pub(super) struct GeometryCompilationUsage {
     pub(super) peak_output_and_scratch_bytes: u64,
     pub(super) total_horizontal_regularity_node_visits: u64,
     pub(super) maximum_horizontal_regularity_node_visits: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct GeometryCompilationFailure {
+    pub(super) error: GeometryCompilationError,
+    /// 不含候选 retained base 的、错误发生前已真实存活过的最大动态工作集。
+    pub(super) peak_output_and_scratch_bytes: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -652,6 +676,7 @@ struct PendingFacilityGeometry {
     clippy::too_many_lines,
     reason = "the closed geometry budgets remain distinct resource dimensions at this boundary"
 )]
+#[cfg(test)]
 pub(super) fn compile_authoring_geometry(
     authoring_namespace_id: &str,
     locations: &RoadEditingLocationFactory,
@@ -660,6 +685,57 @@ pub(super) fn compile_authoring_geometry(
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
     budget: GeometryCompilationBudget,
+) -> Result<GeometryCompilationUsage, GeometryCompilationError> {
+    compile_authoring_geometry_observed(
+        authoring_namespace_id,
+        locations,
+        alignments,
+        declarations,
+        accuracy,
+        direction,
+        budget,
+    )
+    .map_err(|failure| failure.error)
+}
+
+#[allow(clippy::too_many_lines)]
+pub(super) fn compile_authoring_geometry_observed(
+    authoring_namespace_id: &str,
+    locations: &RoadEditingLocationFactory,
+    alignments: Box<[RoadAlignmentDeclaration]>,
+    declarations: &mut [TypedAstDeclaration],
+    accuracy: GeometryAccuracyProfile,
+    direction: GeometryDirectionProfile,
+    budget: GeometryCompilationBudget,
+) -> Result<GeometryCompilationUsage, GeometryCompilationFailure> {
+    let observed_peak = Cell::new(0_u64);
+    compile_authoring_geometry_inner(
+        authoring_namespace_id,
+        locations,
+        alignments,
+        declarations,
+        accuracy,
+        direction,
+        budget,
+        &observed_peak,
+    )
+    .map_err(|error| GeometryCompilationFailure {
+        error,
+        peak_output_and_scratch_bytes: observed_peak.get(),
+    })
+}
+
+#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments)]
+fn compile_authoring_geometry_inner(
+    authoring_namespace_id: &str,
+    locations: &RoadEditingLocationFactory,
+    alignments: Box<[RoadAlignmentDeclaration]>,
+    declarations: &mut [TypedAstDeclaration],
+    accuracy: GeometryAccuracyProfile,
+    direction: GeometryDirectionProfile,
+    budget: GeometryCompilationBudget,
+    observed_peak: &Cell<u64>,
 ) -> Result<GeometryCompilationUsage, GeometryCompilationError> {
     let GeometryCompilationBudget {
         station_row_byte_limit,
@@ -676,10 +752,11 @@ pub(super) fn compile_authoring_geometry(
             observed: u64::MAX,
         },
     )?;
-    let mut scratch = GeometryScratchBudget::new(
+    let mut scratch = GeometryScratchBudget::new_observed(
         geometry_scratch_byte_limit,
         alignment_input_scratch_bytes,
         live_headroom,
+        Some(observed_peak),
     )?;
     let plans = resolve_corridor_plans(
         authoring_namespace_id,
@@ -692,6 +769,7 @@ pub(super) fn compile_authoring_geometry(
     // 证据必须保留已经发生的历史峰值，不能只从后续当前工作集开始计量。
     let mut peak_output_and_scratch_bytes =
         check_live_limit(live_headroom, scratch.dynamic_peak(), 0, 0)?;
+    observed_peak.set(observed_peak.get().max(peak_output_and_scratch_bytes));
     let mut referenced_alignment_count = 0_usize;
     let mut regularity_visit_count = 0_usize;
     for (index, plan) in plans.iter().enumerate() {
@@ -743,6 +821,7 @@ pub(super) fn compile_authoring_geometry(
         0,
         0,
     )?);
+    observed_peak.set(observed_peak.get().max(peak_output_and_scratch_bytes));
     let mut compiled_alignments = Vec::with_capacity(referenced_alignment_count);
     let mut lane_outputs = Vec::with_capacity(expected_lane_outputs);
     let mut facility_outputs = Vec::with_capacity(expected_facility_outputs);
@@ -776,6 +855,7 @@ pub(super) fn compile_authoring_geometry(
             0,
             0,
         )?);
+        observed_peak.set(observed_peak.get().max(peak_output_and_scratch_bytes));
         let sizing_result = measure_alignment_reference(
             &plan.alignment.reference_line,
             transient_vertex_limit,
@@ -804,6 +884,7 @@ pub(super) fn compile_authoring_geometry(
             0,
             0,
         )?);
+        observed_peak.set(observed_peak.get().max(peak_output_and_scratch_bytes));
         station_row_count = station_row_count.checked_add(sizing.station_rows).ok_or(
             GeometryCompilationError::ScratchLimit {
                 limit: geometry_scratch_byte_limit,
@@ -817,6 +898,7 @@ pub(super) fn compile_authoring_geometry(
             0,
             0,
         )?);
+        observed_peak.set(observed_peak.get().max(peak_output_and_scratch_bytes));
         let reference_result =
             compile_measured_alignment_reference(&plan.alignment.reference_line, sizing);
         scratch.release_bytes(numeric_scratch_bytes);
@@ -854,6 +936,7 @@ pub(super) fn compile_authoring_geometry(
             used_points,
             used_source_ranges,
         )?);
+        observed_peak.set(observed_peak.get().max(peak_output_and_scratch_bytes));
         let expected_result = measure_explicit_curve(
             curve,
             accuracy,
@@ -874,6 +957,7 @@ pub(super) fn compile_authoring_geometry(
             next_used_points,
             next_used_source_ranges,
         )?);
+        observed_peak.set(observed_peak.get().max(peak_output_and_scratch_bytes));
         let compiled_result = compile_explicit_curve_exact(curve, accuracy, direction, sizing);
         scratch.release_bytes(numeric_scratch_bytes);
         let compiled =
@@ -940,7 +1024,21 @@ pub(super) fn compile_authoring_geometry(
         }
 
         scratch.reserve::<CorridorMember<'_>>(plan.member_count)?;
+        peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
+            live_headroom,
+            scratch.dynamic_live(),
+            used_points,
+            used_source_ranges,
+        )?);
+        observed_peak.set(observed_peak.get().max(peak_output_and_scratch_bytes));
         scratch.reserve::<AuthoringWidthProfile>(plan.member_count)?;
+        peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
+            live_headroom,
+            scratch.dynamic_live(),
+            used_points,
+            used_source_ranges,
+        )?);
+        observed_peak.set(observed_peak.get().max(peak_output_and_scratch_bytes));
         scratch.reserve::<MemberOffsetEndpoints>(plan.member_count)?;
         peak_output_and_scratch_bytes = peak_output_and_scratch_bytes.max(check_live_limit(
             live_headroom,
@@ -948,6 +1046,7 @@ pub(super) fn compile_authoring_geometry(
             used_points,
             used_source_ranges,
         )?);
+        observed_peak.set(observed_peak.get().max(peak_output_and_scratch_bytes));
         let mut members = Vec::with_capacity(plan.member_count);
         expand_corridor_members(&mut members, &plan.elements);
         debug_assert_eq!(members.len(), plan.member_count);
@@ -981,6 +1080,7 @@ pub(super) fn compile_authoring_geometry(
                 used_points,
                 used_source_ranges,
             )?);
+            observed_peak.set(observed_peak.get().max(peak_output_and_scratch_bytes));
             let sizing_result = measure_offset_curve(
                 &alignment.declaration.reference_line,
                 &alignment.reference,
@@ -1006,6 +1106,7 @@ pub(super) fn compile_authoring_geometry(
                 next_used_points,
                 next_used_source_ranges,
             )?);
+            observed_peak.set(observed_peak.get().max(peak_output_and_scratch_bytes));
             let compiled_result = compile_offset_curve_exact(
                 &alignment.declaration.reference_line,
                 &alignment.reference,

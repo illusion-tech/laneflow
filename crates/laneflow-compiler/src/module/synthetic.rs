@@ -28,6 +28,7 @@ use crate::declaration::{
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
+use crate::source_location::arc_str_requested_bytes;
 use crate::{
     CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceLocation,
     SourceModuleHeader, SourceSpan, SpatialAxis, SpatialGeometryViolation,
@@ -3038,7 +3039,7 @@ fn header_controlled_string_bytes(header: &SourceModuleHeader) -> u64 {
     ]
     .into_iter()
     .try_fold(0_u64, |total, value| {
-        total.checked_add(u64::try_from(value).ok()?)
+        total.checked_add(arc_str_requested_bytes(value))
     })
     .unwrap_or(u64::MAX)
 }

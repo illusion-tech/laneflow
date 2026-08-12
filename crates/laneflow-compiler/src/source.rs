@@ -5,6 +5,7 @@
 //! `SyntheticModuleBuilder::finish` 派生，因此头不能与任意内容摘要自行配对。
 
 use crate::diagnostic::DiagnosticCollector;
+use crate::source_location::arc_str_requested_bytes;
 use crate::{
     CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceHeaderField,
     SourceTextViolation,
@@ -132,7 +133,7 @@ impl SourceModuleHeader {
         ]
         .into_iter()
         .try_fold(0_u64, |total, value| {
-            total.checked_add(u64::try_from(value.len()).ok()?)
+            total.checked_add(arc_str_requested_bytes(value.len()))
         })
         .unwrap_or(u64::MAX);
         check_limit(
