@@ -1022,11 +1022,12 @@ fn validate_owner_tree(
                     else {
                         return owner_tree_error();
                     };
-                    let actual_phase_groups = phase
-                        .states()
-                        .iter()
-                        .map(|state| DeclarationAddress::from_reference(state.signal_group()))
-                        .collect::<BTreeSet<_>>();
+                    let mut actual_phase_groups = BTreeSet::new();
+                    for state in phase.states() {
+                        require_local_reference_namespace(state.signal_group().module_namespace())?;
+                        actual_phase_groups
+                            .insert(DeclarationAddress::from_reference(state.signal_group()));
+                    }
                     if actual_phase_groups != expected_phase_groups {
                         return owner_tree_error();
                     }
@@ -1294,6 +1295,59 @@ mod tests {
                     vec![
                         RoadEditingSignalPhaseState::try_new(
                             group_a,
+                            laneflow_static_contract::SignalAspect::Green,
+                        )
+                        .expect("phase state"),
+                    ],
+                    SignalControllerReference::local("controller-a").expect("controller reference"),
+                )
+                .expect("phase declaration"),
+            ),
+        ] {
+            builder.add_declaration(declaration).expect("declaration");
+        }
+
+        assert!(builder.finish().is_err());
+    }
+
+    #[test]
+    fn finish_does_not_treat_an_imported_phase_group_as_the_local_owned_group() {
+        let limits = CompileLimits::p100_initial_v1();
+        let header = RoadEditingModuleHeader::try_new(
+            "city",
+            "road-editing",
+            vec!["other".into()],
+            RoadEditingProvenance::direct("editor save").expect("provenance"),
+        )
+        .expect("header");
+        let mut builder = RoadEditingSourceModuleBuilder::new(
+            header,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &limits,
+        )
+        .expect("builder");
+        let local_group = SignalGroupReference::local("group-a").expect("local group");
+        let imported_group =
+            SignalGroupReference::imported("other", Vec::new(), "group-a").expect("imported group");
+        let phase = SignalPhaseReference::owner_scoped(vec!["controller-a".into()], "phase-a")
+            .expect("phase");
+
+        for declaration in [
+            RoadEditingDeclaration::SignalGroup(
+                SignalGroupInput::try_new("group-a").expect("group declaration"),
+            ),
+            RoadEditingDeclaration::SignalController(
+                SignalControllerInput::try_new("controller-a", 0, vec![local_group], vec![phase])
+                    .expect("controller"),
+            ),
+            RoadEditingDeclaration::SignalPhase(
+                SignalPhaseInput::try_new(
+                    "phase-a",
+                    1_000,
+                    vec![
+                        RoadEditingSignalPhaseState::try_new(
+                            imported_group,
                             laneflow_static_contract::SignalAspect::Green,
                         )
                         .expect("phase state"),

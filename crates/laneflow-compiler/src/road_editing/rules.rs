@@ -55,6 +55,16 @@ pub(super) fn validate_visible_ascii(value: &str, field: &str) -> Result<(), Dia
     Ok(())
 }
 
+pub(super) fn validate_non_empty_text(value: &str, field: &str) -> Result<(), DiagnosticBundle> {
+    if value.is_empty() {
+        return Err(input_error(
+            field,
+            RoadEditingInputViolation::InvalidText(SourceTextViolation::Empty),
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn validate_finite(value: f64, field: &str) -> Result<f64, DiagnosticBundle> {
     if !value.is_finite() {
         return Err(input_error(
