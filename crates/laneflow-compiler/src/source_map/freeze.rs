@@ -153,6 +153,8 @@ pub(crate) fn freeze_source_map(
         .saturating_add(u64::try_from(mir.parking_area_spaces.len()).unwrap_or(u64::MAX));
     let spatial_entity_count = u64::try_from(mir.canonical_frames.len()).unwrap_or(u64::MAX);
     let spatial_relation_count = u64::try_from(mir.lane_edge_geometries.len()).unwrap_or(u64::MAX);
+    let spatial_contributing_source_count =
+        u64::try_from(mir.geometry_source_ranges.len()).unwrap_or(u64::MAX);
     let access_entity_count = u64::try_from(mir.participant_classes.len())
         .unwrap_or(u64::MAX)
         .saturating_add(u64::try_from(mir.vehicle_profiles.len()).unwrap_or(u64::MAX))
@@ -226,6 +228,10 @@ pub(crate) fn freeze_source_map(
         .saturating_add(spatial_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
         .saturating_add(
             spatial_relation_count.saturating_mul(SPATIAL_RELATION_SOURCE_LOGICAL_BYTES),
+        )
+        .saturating_add(
+            spatial_contributing_source_count
+                .saturating_mul(SPATIAL_GEOMETRY_SOURCE_RANGE_LOGICAL_BYTES),
         )
         .saturating_add(access_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
         .saturating_add(access_relation_count.saturating_mul(ACCESS_RELATION_SOURCE_LOGICAL_BYTES))
@@ -339,6 +345,9 @@ pub(crate) fn freeze_source_map(
         >(spatial_entity_count))
         .saturating_add(requested_bytes::<SpatialRelationSourceRecord>(
             spatial_relation_count,
+        ))
+        .saturating_add(requested_bytes::<SpatialGeometrySourceRangeRecord>(
+            spatial_contributing_source_count,
         ))
         .saturating_add(requested_bytes::<
             StableEntitySourceRecord<ParticipantClassOrdinal, ParticipantClassId>,
@@ -1106,6 +1115,23 @@ pub(crate) fn freeze_source_map(
         .iter()
         .enumerate()
         {
+            let geometry_point_start = geometry.points.start();
+            let source_ranges = mir.geometry_source_ranges[geometry.source_ranges.as_usize_range()]
+                .iter()
+                .map(|range| {
+                    Ok(SpatialGeometrySourceRangeRecord {
+                        point_start: range.points.start().saturating_sub(geometry_point_start),
+                        point_end_exclusive: range
+                            .points
+                            .start()
+                            .saturating_sub(geometry_point_start)
+                            .saturating_add(range.points.len()),
+                        source_segment_ordinal: range.source_segment_ordinal,
+                        source: location.resolve(range.source_module, &range.source)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, DiagnosticBundle>>()?
+                .into_boxed_slice();
             spatial_relation_sources.push(SpatialRelationSourceRecord {
                 owner_ordinal: ordinal,
                 owner_stable_id: frame.stable_id,
@@ -1113,6 +1139,7 @@ pub(crate) fn freeze_source_map(
                 local_index: u32::try_from(local_index)
                     .expect("MIR range precheck proved local index fits u32"),
                 primary: location.resolve(geometry.source_module, &geometry.source_span)?,
+                source_ranges,
             });
         }
     }

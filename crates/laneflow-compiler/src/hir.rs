@@ -486,6 +486,7 @@ pub(crate) struct HirLaneEdgeGeometry {
     pub(crate) lane_edge: HirLaneEdgeKey,
     pub(crate) points: TableRange<HirCanonicalPoint3F32>,
     pub(crate) segments: TableRange<HirSpatialSegment>,
+    pub(crate) source_ranges: TableRange<HirGeometrySourceRange>,
     pub(crate) arc_length_meters: f32,
     pub(crate) source_span: SourceLocation,
 }
@@ -499,7 +500,16 @@ pub(crate) struct HirFacilityBandGeometry {
     pub(crate) canonical_frame: HirCanonicalFrameKey,
     pub(crate) facility_band: HirFacilityBandKey,
     pub(crate) points: TableRange<HirCanonicalPoint3F32>,
+    pub(crate) source_ranges: TableRange<HirGeometrySourceRange>,
     pub(crate) source_span: SourceLocation,
+}
+
+/// 共享规范点表中一段连续点范围到 authoring source segment 的阶段私有来源映射。
+pub(crate) struct HirGeometrySourceRange {
+    pub(crate) source_module: HirModuleKey,
+    pub(crate) points: TableRange<HirCanonicalPoint3F32>,
+    pub(crate) source_segment_ordinal: u32,
+    pub(crate) source: SourceLocation,
 }
 
 #[derive(Clone, Copy)]
@@ -680,6 +690,7 @@ pub(crate) struct HirUnit {
         reason = "consumed by the following FacilityBand MIR/LIR slice"
     )]
     pub(crate) facility_band_geometries: Box<[HirFacilityBandGeometry]>,
+    pub(crate) geometry_source_ranges: Box<[HirGeometrySourceRange]>,
     pub(crate) canonical_points: Box<[HirCanonicalPoint3F32]>,
     pub(crate) spatial_segments: Box<[HirSpatialSegment]>,
     pub(crate) access_rules: Box<[HirAccessRule]>,
@@ -878,6 +889,7 @@ struct SpatialHir {
     canonical_frames: Box<[HirCanonicalFrame]>,
     lane_edge_geometries: Box<[HirLaneEdgeGeometry]>,
     facility_band_geometries: Box<[HirFacilityBandGeometry]>,
+    geometry_source_ranges: Box<[HirGeometrySourceRange]>,
     canonical_points: Box<[HirCanonicalPoint3F32]>,
     spatial_segments: Box<[HirSpatialSegment]>,
 }
@@ -887,6 +899,7 @@ struct SpatialCounts {
     canonical_frames: u64,
     lane_edge_geometries: u64,
     facility_band_geometries: u64,
+    geometry_source_ranges: u64,
     canonical_points: u64,
     spatial_segments: u64,
 }
@@ -895,6 +908,7 @@ struct PendingSpatialGeometry<'a> {
     source_module: HirModuleKey,
     centerline_points: &'a [CanonicalPoint3F32Input],
     expected_length_meters: f64,
+    source_ranges: &'a [crate::declaration::CompiledGeometrySourceRange],
     source_span: SourceLocation,
 }
 
@@ -1091,6 +1105,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         // 控制点计数；细分可能让两者显著不同。
         .saturating_add(spatial_counts.lane_edge_geometries)
         .saturating_add(spatial_counts.facility_band_geometries)
+        .saturating_add(spatial_counts.geometry_source_ranges)
         .saturating_add(spatial_counts.canonical_points)
         .saturating_add(spatial_counts.spatial_segments)
         // 信号组到机动门的反向使用关系由 HIR 派生，Typed AST 只计正向绑定。
@@ -1453,6 +1468,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         ))
         .saturating_add(requested_bytes::<HirFacilityBandGeometry>(
             spatial_counts.facility_band_geometries,
+        ))
+        .saturating_add(requested_bytes::<HirGeometrySourceRange>(
+            spatial_counts.geometry_source_ranges,
         ))
         .saturating_add(requested_bytes::<HirCanonicalPoint3F32>(
             spatial_counts.canonical_points,
@@ -1942,6 +1960,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         canonical_frames: spatial.canonical_frames,
         lane_edge_geometries: spatial.lane_edge_geometries,
         facility_band_geometries: spatial.facility_band_geometries,
+        geometry_source_ranges: spatial.geometry_source_ranges,
         canonical_points: spatial.canonical_points,
         spatial_segments: spatial.spatial_segments,
         participant_classes: access.participant_classes,
@@ -4762,6 +4781,8 @@ fn build_spatial_hir(
         counts.facility_band_geometries,
         &unit.limits,
     )?);
+    let mut geometry_source_ranges =
+        Vec::with_capacity(count_to_usize(counts.geometry_source_ranges, &unit.limits)?);
     let mut points = Vec::with_capacity(count_to_usize(counts.canonical_points, &unit.limits)?);
     let mut segments = Vec::with_capacity(count_to_usize(counts.spatial_segments, &unit.limits)?);
     let mut pending_geometries: Vec<Option<PendingSpatialGeometry<'_>>> =
@@ -4898,6 +4919,7 @@ fn build_spatial_hir(
                     source_module: module_key,
                     centerline_points: &geometry.centerline_points,
                     expected_length_meters: lane_edges.get(lane_edge).length_meters,
+                    source_ranges: &[],
                     source_span: geometry.lane_edge.span.clone(),
                 });
                 frame_assignments[lane_edge.index()] = Some(SpatialFrameAssignment {
@@ -5008,6 +5030,7 @@ fn build_spatial_hir(
                 source_module: module_key,
                 centerline_points: &compiled.centerline_points,
                 expected_length_meters: compiled.length.value(),
+                source_ranges: &compiled.source_ranges,
                 source_span: source.header.span.clone(),
             });
             if compiled.canonical_frame.is_none() && internal_edge_flags[lane_edge.index()] == 0 {
@@ -5063,6 +5086,7 @@ fn build_spatial_hir(
                 source_module: module_key,
                 centerline_points: &compiled.centerline_points,
                 expected_length_meters: compiled.length.value(),
+                source_ranges: &compiled.source_ranges,
                 source_span: source.header.span.clone(),
             });
             if let Some(frame) = resolve_reference(
@@ -5290,6 +5314,13 @@ fn build_spatial_hir(
                 }
             };
             let geometry_index = geometries.len();
+            let source_range_start = geometry_source_ranges.len();
+            push_geometry_source_ranges(
+                pending,
+                frozen.point_start,
+                &mut geometry_source_ranges,
+                &unit.limits,
+            )?;
             geometries.push(HirLaneEdgeGeometry {
                 source_module: pending.source_module,
                 canonical_frame: frame_key,
@@ -5302,6 +5333,15 @@ fn build_spatial_hir(
                     .map_err(|overflow| {
                         arena_overflow(overflow, &unit.limits, Some(pending.source_span.clone()))
                     })?,
+                source_ranges: TableRange::try_from_usize(
+                    source_range_start,
+                    geometry_source_ranges
+                        .len()
+                        .saturating_sub(source_range_start),
+                )
+                .map_err(|overflow| {
+                    arena_overflow(overflow, &unit.limits, Some(pending.source_span.clone()))
+                })?,
                 arc_length_meters: frozen.arc_length_meters,
                 source_span: pending.source_span.clone(),
             });
@@ -5346,6 +5386,13 @@ fn build_spatial_hir(
                     continue;
                 }
             };
+            let source_range_start = geometry_source_ranges.len();
+            push_geometry_source_ranges(
+                pending,
+                frozen.point_start,
+                &mut geometry_source_ranges,
+                &unit.limits,
+            )?;
             facility_geometries.push(HirFacilityBandGeometry {
                 canonical_frame: frame_key,
                 facility_band: band,
@@ -5353,6 +5400,15 @@ fn build_spatial_hir(
                     .map_err(|overflow| {
                         arena_overflow(overflow, &unit.limits, Some(pending.source_span.clone()))
                     })?,
+                source_ranges: TableRange::try_from_usize(
+                    source_range_start,
+                    geometry_source_ranges
+                        .len()
+                        .saturating_sub(source_range_start),
+                )
+                .map_err(|overflow| {
+                    arena_overflow(overflow, &unit.limits, Some(pending.source_span.clone()))
+                })?,
                 source_span: pending.source_span.clone(),
             });
             facility_order_cursor = facility_order_cursor.saturating_add(1);
@@ -5422,6 +5478,7 @@ fn build_spatial_hir(
         canonical_frames: frames.into_boxed_slice(),
         lane_edge_geometries: geometries.into_boxed_slice(),
         facility_band_geometries: facility_geometries.into_boxed_slice(),
+        geometry_source_ranges: geometry_source_ranges.into_boxed_slice(),
         canonical_points: points.into_boxed_slice(),
         spatial_segments: segments.into_boxed_slice(),
     })
@@ -5523,6 +5580,32 @@ fn validate_spatial_connection(
         diagnostic.set_canonical_module_order(edge.module.raw());
         diagnostics.push(diagnostic);
     }
+}
+
+fn push_geometry_source_ranges(
+    pending: &PendingSpatialGeometry<'_>,
+    point_start: usize,
+    output: &mut Vec<HirGeometrySourceRange>,
+    limits: &crate::CompileLimits,
+) -> Result<(), DiagnosticBundle> {
+    for range in pending.source_ranges {
+        let local_start = usize::try_from(range.point_start)
+            .expect("u32 source point offset fits usize on supported targets");
+        let local_end = usize::try_from(range.point_end_exclusive)
+            .expect("u32 source point end fits usize on supported targets");
+        let points = TableRange::try_from_usize(
+            point_start.saturating_add(local_start),
+            local_end.saturating_sub(local_start),
+        )
+        .map_err(|overflow| arena_overflow(overflow, limits, Some(range.source.clone())))?;
+        output.push(HirGeometrySourceRange {
+            source_module: pending.source_module,
+            points,
+            source_segment_ordinal: range.source_segment_ordinal,
+            source: range.source.clone(),
+        });
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_lines)]
@@ -7744,6 +7827,9 @@ fn spatial_counts(unit: &CompilationUnit) -> SpatialCounts {
                 ..
             }) => {
                 counts.lane_edge_geometries = counts.lane_edge_geometries.saturating_add(1);
+                counts.geometry_source_ranges = counts.geometry_source_ranges.saturating_add(
+                    u64::try_from(geometry.source_ranges.len()).unwrap_or(u64::MAX),
+                );
                 let points = u64::try_from(geometry.centerline_points.len()).unwrap_or(u64::MAX);
                 counts.canonical_points = counts.canonical_points.saturating_add(points);
                 counts.spatial_segments = counts
@@ -7754,6 +7840,9 @@ fn spatial_counts(unit: &CompilationUnit) -> SpatialCounts {
                 if let Some(geometry) = &band.compiled_geometry {
                     counts.facility_band_geometries =
                         counts.facility_band_geometries.saturating_add(1);
+                    counts.geometry_source_ranges = counts.geometry_source_ranges.saturating_add(
+                        u64::try_from(geometry.source_ranges.len()).unwrap_or(u64::MAX),
+                    );
                     counts.canonical_points = counts.canonical_points.saturating_add(
                         u64::try_from(geometry.centerline_points.len()).unwrap_or(u64::MAX),
                     );
@@ -7919,7 +8008,9 @@ fn arena_overflow(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::declaration::{CompiledFacilityBandGeometry, EdgeLength};
+    use crate::declaration::{
+        CompiledFacilityBandGeometry, CompiledGeometrySourceRange, EdgeLength,
+    };
     use crate::lir::freeze_lir;
     use crate::mir::lower_to_mir;
     use crate::{
@@ -8017,8 +8108,13 @@ mod tests {
                             edge.header.span.clone(),
                         )
                     }),
+                    source_ranges: Box::new([CompiledGeometrySourceRange {
+                        point_start: 0,
+                        point_end_exclusive: u32::try_from(points.len()).unwrap(),
+                        source_segment_ordinal: 0,
+                        source: edge.header.span.clone(),
+                    }]),
                     centerline_points: points.into_boxed_slice(),
-                    source_ranges: Box::new([]),
                 });
         }
     }
@@ -8064,8 +8160,13 @@ mod tests {
                 Arc::from(frame_key),
                 band.header.span.clone(),
             ),
+            source_ranges: Box::new([CompiledGeometrySourceRange {
+                point_start: 0,
+                point_end_exclusive: u32::try_from(points.len()).unwrap(),
+                source_segment_ordinal: 0,
+                source: band.header.span.clone(),
+            }]),
             centerline_points: points.into_boxed_slice(),
-            source_ranges: Box::new([]),
         });
     }
 
@@ -8326,7 +8427,104 @@ mod tests {
         let geometry = &hir.facility_band_geometries[0];
         assert_eq!(geometry.canonical_frame.raw(), 0);
         assert_eq!(geometry.points.len(), 2);
+        let source_range = &hir.geometry_source_ranges[geometry.source_ranges.as_usize_range()][0];
+        assert_eq!(source_range.points.as_usize_range(), 2..4);
+        assert_eq!(source_range.source_segment_ordinal, 0);
         assert_eq!(hir.canonical_frames[0].facility_band_geometries.len(), 1);
+    }
+
+    #[test]
+    fn compiled_geometry_source_ranges_rebase_and_retain_imported_module_sources() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut base = SyntheticModuleBuilder::new(header("city/base"), &limits).unwrap();
+        base.add_canonical_frame(CanonicalFrameInput {
+            canonical_frame_key: "world",
+            lane_edge_geometries: &[],
+        })
+        .unwrap();
+        let mut roads = SyntheticModuleBuilder::new(header("city/roads"), &limits).unwrap();
+        roads
+            .add_import("city/base")
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap();
+        let mut unit = unit([roads.finish().unwrap(), base.finish().unwrap()]);
+        install_compiled_lane_geometries(
+            &mut unit,
+            "city/roads",
+            GeometryCompilationProfiles {
+                accuracy: GeometryAccuracyProfile::Balanced5Cm,
+                direction: GeometryDirectionProfile::Balanced2Deg,
+            },
+            |_| {
+                (
+                    Some(("city/base", "world")),
+                    vec![
+                        point(0.0, 0.0, 0.0),
+                        point(5.0, 0.0, 0.0),
+                        point(10.0, 0.0, 0.0),
+                    ],
+                )
+            },
+        );
+        let roads = unit
+            .modules
+            .iter_mut()
+            .find(|module| module.descriptor().authoring_namespace_id() == "city/roads")
+            .unwrap();
+        let TypedAstDeclaration::LaneEdge(edge) = &mut roads.declarations[0] else {
+            panic!("test expected LaneEdge")
+        };
+        let LaneEdgeGeometryAuthority::Compiled(compiled) = &mut edge.geometry_authority else {
+            panic!("test installed compiled geometry")
+        };
+        compiled.source_ranges = Box::new([
+            CompiledGeometrySourceRange {
+                point_start: 0,
+                point_end_exclusive: 1,
+                source_segment_ordinal: 1,
+                source: SourceSpan::point(Arc::from("city/roads"), 7, 1).into(),
+            },
+            CompiledGeometrySourceRange {
+                point_start: 1,
+                point_end_exclusive: 3,
+                source_segment_ordinal: 0,
+                source: SourceSpan::point(Arc::from("city/roads"), 8, 1).into(),
+            },
+        ]);
+
+        let hir = build_hir(&unit).unwrap();
+        let geometry = &hir.lane_edge_geometries[0];
+        let ranges = &hir.geometry_source_ranges[geometry.source_ranges.as_usize_range()];
+        assert_eq!(ranges[0].points.as_usize_range(), 0..1);
+        assert_eq!(ranges[0].source_segment_ordinal, 1);
+        assert_eq!(ranges[1].points.as_usize_range(), 1..3);
+        assert_eq!(ranges[1].source_segment_ordinal, 0);
+
+        let output = crate::Compiler::new().compile(unit).unwrap();
+        let relation = output
+            .source_map_input()
+            .spatial_relation_sources()
+            .next()
+            .unwrap();
+        let source_ranges = relation.geometry_source_ranges().collect::<Vec<_>>();
+        assert_eq!(source_ranges[0].point_range(), 0..1);
+        assert_eq!(source_ranges[0].source_segment_ordinal(), 1);
+        assert_eq!(
+            source_ranges[0].source().source_document_key(),
+            "city/roads"
+        );
+        assert_eq!(source_ranges[1].point_range(), 1..3);
+        assert_eq!(source_ranges[1].source_segment_ordinal(), 0);
+        assert_eq!(
+            source_ranges[1].source().source_document_key(),
+            "city/roads"
+        );
     }
 
     #[test]
