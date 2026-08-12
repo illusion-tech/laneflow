@@ -415,9 +415,9 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
    前拒绝；
 4. 对借用 view 执行第一遍语义预检：必需值、enum/union、字符串、22 类声明与
    owner-local 集合基数、有限数值、引用键字节和 checked 总量；
-5. 只有第一遍证明预算可容纳后才精确预分配并构造字段私有 Typed AST、身份索引和后续
-   IR。source bytes 与 FlatBuffers view 都是调用方借用，不产生整模块 wire decode heap；
-   verifier 的错误 trace 和后续诊断分配仍须计入失败路径峰值；
+5. 只有第一遍证明主要规模和保守工作集上界可容纳后，才构造字段私有 Typed AST、身份
+   索引和后续 IR。source bytes 与 FlatBuffers view 都是调用方借用，不产生整模块 wire
+   decode heap；v1 不以逐个 `Vec` / `Box` / `Arc` 的 allocator 精确会计作为接入前提；
 6. 任一失败不修改 `CompilationUnitBuilder`，后续合法模块仍可使用同一 builder/Compiler
    实例。
 
@@ -447,8 +447,29 @@ verifier 访问的其余每个 table occurrence（包括 curve/union payload、o
 不同逻辑字段 occurrence 之间主动复用 table/vector/string offset，FlatBuffers 自身的
 vtable dedup 例外；第三方 writer 可使用同一 schema，但超出 16 倍的高度共享 DAG 作为
 资源不兼容输入拒绝。G2 必须用正常 Rust/C++/C# writer fixture、边界与边界加一证明该
-公式，并把第一遍计数、错误 trace、Typed AST 与身份索引的实际所有权纳入私有资源
-账本；不能绕过 verifier，也不能新增第二套 FlatBuffers offset parser。
+公式；不能绕过 verifier，也不能新增第二套 FlatBuffers offset parser。错误 trace、
+Typed AST、身份索引和诊断的逐 allocation 生命周期及 allocator 证据由 [#374] 独立闭合，
+不阻断本契约的 canonical LIR 下游消费。
+
+#### 9.6.1 最小资源护栏 v1
+
+#296 的生产验收只要求以下最小资源护栏：
+
+- `SourceBytesPerModule` / `SourceBytesTotal` 在 verifier 和领域分配前失败关闭；
+- verifier 固定 depth、table 与 apparent-size 上限；
+- 声明、引用、关系、字符串、几何点和主要 IR 记录使用既有 `CompileLimits` 上限；
+- 整体工作集采用故意保守、可审计的逻辑上界，不要求等于普通 Rust allocator 的实际
+  requested bytes；
+- 全部规模乘加使用 checked arithmetic，无法表示或超过上限时在对应大区块分配前拒绝；
+- 候选失败不提交，builder 可重试；
+- P100 只需提供“观测峰值明显低于 `43_269_120` bytes ceiling”的描述性检查，不作为
+  逐字节硬上限证明。
+
+普通 Rust allocator 下，逻辑计数器本身不等价于完全精确的实际内存硬上限。`Vec`
+capacity / 扩容共存、`Arc` header 与 DST padding、阶段精确 scratch/live、失败诊断、
+exact-minus-one 和正式 allocator/P100 协议统一由 [#374] 交付；若产品最终需要实际内存
+硬隔离，#374 还须评估受控 arena、专用 allocator 或进程隔离。#374 阻断最终外部开放与
+总体生产切换 Gate，不阻断 #298、#345 或 compiler-private HIR/LIR 结构收敛。
 
 官方 FlatBuffers Rust 生成代码中的 `unsafe` 不作为淘汰条件，但必须隔离为可审计的生成
 绑定边界：
@@ -677,21 +698,20 @@ width/profile 和模块内集合规则，保证同一字段值域只有一份实
 唯一权威。身份 owner tree 已由模块自身闭合，不允许延后到跨模块绑定。writer
 不尝试验证尚未加载的导入目标，也不能让“writer 生成”成为可信绕过条件。
 
-构造模型、排序 scratch、FlatBuffers storage、错误诊断和返回 buffer 全部纳入
-`CompilerControlledLiveBytes`。builder 按实际元素/string 逐次计量；writer 在分配前以
+构造模型、排序 scratch、FlatBuffers storage、错误诊断和返回 buffer 受同一保守工作集
+护栏约束。writer 在分配前以
 schema table/vector/string、每一次 schema emission `push/align` 最多 8-byte padding 和
 vtable 上界，以及 `finish_size_prefixed` 的 root offset、`LFRE` identifier、size prefix 和
 final minimum alignment 逐项计算
 checked wire upper bound，超过 `SourceBytesPerModule` 或 live-byte 余额即失败。storage
 只按该上界预分配一次；实际 size prefix 必须等于 `as_bytes().len() - 4`。G2 边界测试
-必须分别报告 write 峰值、返回 buffer retained capacity，以及该 buffer 随后进入 reader
-时的组合峰值。
+必须覆盖 wire upper、来源字节和候选失败原子性；write 峰值、返回 buffer retained
+capacity 和该 buffer 随后进入 reader 时的精确组合峰值由 #374 继续校准。
 
 固定 FlatBuffers runtime 在 output storage 之外还持有 field-location 与 vtable-dedup 等
-私有容量。G2 必须按 pinned runtime 源码为这些容器建立 checked 保守上界，并在创建
-`FlatBufferBuilder` 前与 output storage 一次性预收费；allocator instrumentation 必须证明
-实际 private capacity 不超过该预收费。只计 `collapse()` 返回 buffer、只按逻辑 len 计量，
-或在私有 Vec 已经增长后再补账都不合格。runtime 版本变化必须重新推导该上界。
+私有容量。#296 v1 只要求 pinned runtime、来源字节上限和保守工作集上界；这些容器的
+capacity、扩容瞬间和 allocator instrumentation 证明由 #374 统一拥有。runtime 版本变化
+仍须重新审计其 verifier/writer 安全边界，并由 #374 决定是否重测精确资源证据。
 
 ### 9.8 未选候选 B：有界记录流 + Protocol Buffers payload
 
@@ -840,22 +860,15 @@ fixture digest，因此 workload definition 与 G2 measurement evidence 是两�
 regularity node visit，并独立报告完整 compile CPU/scratch/live-byte peak；它与主 P100 在
 不同 fresh process 测量，两个峰值不能相加，也不能互相替代。
 
-每个组合分别测量 typed-model build、encode/save、size/identifier 预检、verifier、语义
-预检 + Typed AST lowering、完整 compile、来源字节、阶段峰值、总峰值和 returned buffer
-retained capacity，并记录 horizontal-regularity node visits、evaluator interval/sample
-完整性计数，以及位置误差 P50/P95/P99/最大观测值及其来源。单模块改写必须在旧
-五模块 accepted revision 仍存续时构造/编码候选，
-编译 import closure，成功后才原子替换并释放旧 blob；不能只测释放旧模块后的理想峰值。
-正式测量在 `LF-P100-REF-01` 上以 release/locked、单进程单线程执行；每个 profile 组合先
-1 次不计时预热，再运行 7 次独立正式样本，不删异常值，以中位数为主值并保留全部样本、
-MAD、阶段计时和峰值账本。语义种子读取与工作负载对象构造在计时区外，但 typed model
-build 本身是独立受测阶段；测量时不得并发运行其他 benchmark，也不得改写 CPU affinity
-或参考机电源策略。完整 argv、Rust/toolchain、操作系统、硬件身份文件摘要和 exact commit
-都写入 evidence。
+九种 profile 组合继续作为几何正确性、regularity 与离散误差观测矩阵；#296 另以 P100
+执行一次描述性资源检查，确认观测峰值明显低于 `43_269_120` bytes ceiling。typed-model
+build、encode/save、各阶段 CPU/内存、returned buffer retained capacity、rewrite 共存、
+fresh-process 样本统计和 exact revision 绑定的正式测量协议改由 #374 独立拥有。#296 不再
+为了逐字节 allocator 证明阻塞 Delivery，也不得把一次观测改写为所有合法输入的硬上限。
 结果与旧 JSON 实现做同机测量对照；未选的 Protobuf 不实现第二条 production reader。
-该缺失不允许文档宣称 FB 已实测快于 PB，但也不阻断已完成的产品选择。G2 必须证明
-现有 production compile limits（包括 `43_269_120` bytes 的 compiler-controlled live
-ceiling）未被突破；在取得新证据前，不复用旧 JSON 的 `3_669_800 B` 等峰值或性能结论。
+该缺失不允许文档宣称 FB 已实测快于 PB，但也不阻断已完成的产品选择。G2 只需证明
+代表性 P100 观测未突破现有 production compile limits；在 #374 取得正式新证据前，
+不复用旧 JSON 的 `3_669_800 B` 等峰值或性能结论，也不声称逐字节硬上限已经闭合。
 墙钟先报告中位数/MAD 和相对旧实现的解释，不在没有产品加载 SLA 时虚构绝对毫秒门槛。
 这些证据只支持 B1 内部产品判断，不得把固定网格最大观测值改写为连续硬保证；B1 schema
 在产品复核前不发布、不承担长期存档兼容。
@@ -892,8 +905,10 @@ ceiling）未被突破；在取得新证据前，不复用旧 JSON 的 `3_669_80
 5. A 阶段的候选替换失败原子性、身份边界和与 #302 的职责分离已冻结；
 6. C 阶段 authoring-only `RoadEditingSourceDiff` 已登记为后继 Delivery Issue [#345]，且与
    #298 的规范 LIR 影响差异边界明确；
-7. 兼容/删除清单、verifier 公式、测试矩阵、资源上限和机器可读新 workload 已冻结；
+7. 兼容/删除清单、verifier 公式、测试矩阵、最小资源护栏和机器可读新 workload 已冻结；
+   逐 allocation 资源账本与 allocator 正式证据已独立登记为 [#374]；
 8. `14cdbdaa9a6a2c9fbb070354ff1d52fd4e88504f` 已取得 external clean review，并在
    #296 记录 FlatBuffers `G1 Pass`；后续拆分只改变交付单元，不延续旧 JSON 权威。
 
 [#345]: https://github.com/illusion-tech/laneflow/issues/345
+[#374]: https://github.com/illusion-tech/laneflow/issues/374

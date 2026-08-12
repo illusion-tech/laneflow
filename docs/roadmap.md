@@ -290,6 +290,13 @@ Bézier，常见 taper 使用线性
 [#345](https://github.com/illusion-tech/laneflow/issues/345)。完整 C++/C# SDK 与引擎事务封装
 属于后继交付。
 
+#296 的资源验收只保留面向不可信输入的最小护栏：来源字节、verifier、主要规模、checked
+arithmetic、保守整体工作集和失败原子性。逐 `Vec` / `Box` / `Arc` 的精确资源账本、阶段
+共存峰值、失败诊断 allocator 证据与正式 P100 协议已拆至
+[#374](https://github.com/illusion-tech/laneflow/issues/374)。#374 阻断 #305 及最终总体生产
+切换，但不阻断 portable artifact、authoring diff 或 #351–#354 的 compiler-private 结构
+收敛；后两者先完成还可以减少精确账本对即将变化布局的重复证明。
+
 ADR 0020、ADR 0021 与 [`design/network-compiler.md`](design/network-compiler.md)
 是 #291 G1 已接受的长期设计。Identity v1 区分 StableId128
 declaration/addressable-derived、
