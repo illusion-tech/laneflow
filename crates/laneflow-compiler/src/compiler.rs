@@ -2058,7 +2058,7 @@ mod tests {
         RoadSectionInput, RoadSectionReference, SignalControlInput, SignalControllerInput,
         SignalGroupInput, SignalGroupReference, SignalGroupStateInput, SignalPhaseInput,
         SourceModuleDescriptor, SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole,
-        StaticRouteInput, StopLineInput, StopLineReference, SyntheticModule,
+        SourceSpan, StaticRouteInput, StopLineInput, StopLineReference, SyntheticModule,
         SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
     };
     use laneflow_static_contract::CanonicalFrameKind;
@@ -5598,9 +5598,31 @@ mod tests {
 
     #[test]
     fn compiler_freezes_non_traversable_facility_geometry_in_canonical_band_order() {
-        let baseline = Compiler::new()
-            .compile(spatial_cross_section_unit(false, 2.0, true))
-            .unwrap();
+        let mut baseline_unit = spatial_cross_section_unit(false, 2.0, true);
+        let baseline_module = &mut baseline_unit.modules[0];
+        let mut band_a_index = None;
+        let mut band_z_index = None;
+        for (index, declaration) in baseline_module.declarations.iter_mut().enumerate() {
+            let TypedAstDeclaration::FacilityBand(band) = declaration else {
+                continue;
+            };
+            let (line, target) = if band.header.stable_key.as_ref() == "band-a" {
+                (10, &mut band_a_index)
+            } else {
+                (20, &mut band_z_index)
+            };
+            band.header.span =
+                SourceSpan::point(Arc::from("spatial-cross-section.document"), line, 1).into();
+            *target = Some(index);
+        }
+        let band_a_index = band_a_index.expect("fixture contains band-a");
+        let band_z_index = band_z_index.expect("fixture contains band-z");
+        if band_a_index < band_z_index {
+            baseline_module
+                .declarations
+                .swap(band_a_index, band_z_index);
+        }
+        let baseline = Compiler::new().compile(baseline_unit).unwrap();
         let permuted = Compiler::new()
             .compile(spatial_cross_section_unit(true, 2.0, true))
             .unwrap();
@@ -5723,14 +5745,33 @@ mod tests {
         let spatial_relations = baseline
             .source_map_input()
             .spatial_relation_sources()
-            .map(|relation| (relation.role(), relation.local_index()))
+            .filter(|relation| {
+                relation.role() == SourceRelationRole::CanonicalFrameFacilityBandGeometry
+            })
+            .map(|relation| {
+                (
+                    relation.role(),
+                    relation.local_index(),
+                    relation
+                        .primary_source()
+                        .text_range()
+                        .map(|(start, _)| start.line()),
+                )
+            })
             .collect::<Vec<_>>();
         assert_eq!(
             spatial_relations,
             [
-                (SourceRelationRole::CanonicalFrameLaneEdgeGeometry, 0),
-                (SourceRelationRole::CanonicalFrameFacilityBandGeometry, 0,),
-                (SourceRelationRole::CanonicalFrameFacilityBandGeometry, 1,),
+                (
+                    SourceRelationRole::CanonicalFrameFacilityBandGeometry,
+                    0,
+                    Some(10),
+                ),
+                (
+                    SourceRelationRole::CanonicalFrameFacilityBandGeometry,
+                    1,
+                    Some(20),
+                ),
             ]
         );
 

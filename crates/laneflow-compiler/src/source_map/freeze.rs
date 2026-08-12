@@ -1147,12 +1147,38 @@ pub(crate) fn freeze_source_map(
                 source_ranges,
             });
         }
-        for (local_index, geometry) in mir.facility_band_geometries
-            [frame.facility_band_geometries.as_usize_range()]
-        .iter()
-        .enumerate()
+        // FacilityBand 的 LIR 几何是按完整规范身份排序的稀疏表；来源关系的
+        // frame-local index 必须复用同一顺序，不能沿用 HIR/MIR 的阶段局部 key
+        // 顺序。否则不同 owner 下的 band 在两种顺序分歧时会互换来源。
+        for (local_index, geometry) in frozen_lir
+            .facility_bands
+            .stage_keys_in_lir_order()
+            .iter()
+            .filter_map(|mir_band| {
+                mir.facility_band_geometries[frame.facility_band_geometries.as_usize_range()]
+                    .iter()
+                    .find(|geometry| geometry.facility_band == *mir_band)
+            })
+            .enumerate()
         {
             let source_module = mir.facility_bands[geometry.facility_band.index()].module;
+            let geometry_point_start = geometry.points.start();
+            let source_ranges = mir.geometry_source_ranges[geometry.source_ranges.as_usize_range()]
+                .iter()
+                .map(|range| {
+                    Ok(SpatialGeometrySourceRangeRecord {
+                        point_start: range.points.start().saturating_sub(geometry_point_start),
+                        point_end_exclusive: range
+                            .points
+                            .start()
+                            .saturating_sub(geometry_point_start)
+                            .saturating_add(range.points.len()),
+                        source_segment_ordinal: range.source_segment_ordinal,
+                        source: location.resolve(range.source_module, &range.source)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, DiagnosticBundle>>()?
+                .into_boxed_slice();
             spatial_relation_sources.push(SpatialRelationSourceRecord {
                 owner_ordinal: ordinal,
                 owner_stable_id: frame.stable_id,
@@ -1160,6 +1186,7 @@ pub(crate) fn freeze_source_map(
                 local_index: u32::try_from(local_index)
                     .expect("MIR range precheck proved local index fits u32"),
                 primary: location.resolve(source_module, &geometry.source_span)?,
+                source_ranges,
             });
         }
     }
