@@ -698,12 +698,13 @@ width/profile 和模块内集合规则，保证同一字段值域只有一份实
 唯一权威。身份 owner tree 已由模块自身闭合，不允许延后到跨模块绑定。writer
 不尝试验证尚未加载的导入目标，也不能让“writer 生成”成为可信绕过条件。
 
-构造模型、排序 scratch、FlatBuffers storage、错误诊断和返回 buffer 受同一保守工作集
-护栏约束。writer 在分配前以
+第一方 writer 以 `SourceBytesPerModule` 和主要计数上限约束输出规模，但不在 #296 内宣称
+其 model、排序 scratch、FlatBuffers runtime 私有容量与返回 buffer 已共享一个逐分配硬上限。
+writer 在分配 output storage 前以
 schema table/vector/string、每一次 schema emission `push/align` 最多 8-byte padding 和
 vtable 上界，以及 `finish_size_prefixed` 的 root offset、`LFRE` identifier、size prefix 和
 final minimum alignment 逐项计算
-checked wire upper bound，超过 `SourceBytesPerModule` 或 live-byte 余额即失败。storage
+checked wire upper bound，超过 `SourceBytesPerModule` 即失败。storage
 只按该上界预分配一次；实际 size prefix 必须等于 `as_bytes().len() - 4`。G2 边界测试
 必须覆盖 wire upper、来源字节和候选失败原子性；write 峰值、返回 buffer retained
 capacity 和该 buffer 随后进入 reader 时的精确组合峰值由 #374 继续校准。
@@ -828,8 +829,9 @@ production 依赖或实现。
   `canvas_selection` 的生命周期测试；
 - 无序 relation 物理排列不改变 canonical occurrence/诊断/source-map，以及 caller 保留旧
   `DiagnosticBundle` 后同一 builder 重试的计量/生命周期测试；
-- fuzz / differential：只从安全 size-prefixed root 进入，verifier/accessor 不 panic，旧
-  JSON bytes 和任意新版本均失败关闭；CI 证明 production 调用图没有 `_unchecked`；
+- 任意字节 fuzz / differential harness 在 B1 publication 或外部输入开放前补齐；内部 #296
+  Delivery 保留 verifier limits、known corrupt vectors 和 production 调用图无 `_unchecked` 的
+  确定性检查，旧 JSON bytes 和任意新版本仍失败关闭；
 - 固定 `flatc` 的 Rust 生成物 clean-diff、C++/C# probe、生成路径外无 `unsafe` /
   `allow(unsafe_code)`；跨版本 `--conform` 只在后续 promotion/publication 决策已经建立
   兼容承诺时成为门禁；
