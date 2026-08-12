@@ -18,7 +18,8 @@ use super::lowering::{
 use super::preflight::RoadEditingPreflightCounts;
 use super::reader::{VerifiedRoadEditingSource, verify_source};
 use crate::declaration::{
-    CanonicalPoint3F32Input, CompiledGeometrySourceRange, TypedAstDeclaration,
+    AuthoringCurveSegmentDeclaration, CanonicalPoint3F32Input, CompiledGeometrySourceRange,
+    RoadAlignmentDeclaration, TypedAstDeclaration,
 };
 use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::module::{
@@ -56,6 +57,8 @@ struct GeometryScratchAllowance {
 #[derive(Clone, Copy)]
 struct RoadEditingAdmissionSizing {
     frontend_scratch_upper_bound: u64,
+    frontend_dynamic_live_upper_bound: u64,
+    alignment_input_scratch_bytes: u64,
 }
 
 impl RoadEditingAdmissionSizing {
@@ -64,11 +67,44 @@ impl RoadEditingAdmissionSizing {
         // owner-local 排序 view。按实际 wire view 类型和具体集合最大长度精确推导，避免
         // 用全模块引用总数制造不必要的提前拒绝。
         let lowering = lowering_sort_scratch_bytes(root);
+        let alignment_input_scratch_bytes = alignment_input_scratch_bytes_from_root(root);
         let import_sort = size_bytes::<&str>(import_count);
+        let frontend_dynamic_live_upper_bound = lowering.max(import_sort);
         Self {
-            frontend_scratch_upper_bound: lowering.max(import_sort),
+            // alignment 临时树从本阶段第一次 lowering 一直存续到几何编译结束；它与
+            // 每个后续 lowering sort view 共存，但已在 geometry live 的候选 base 中预收费。
+            frontend_scratch_upper_bound: alignment_input_scratch_bytes
+                .saturating_add(lowering)
+                .max(import_sort),
+            frontend_dynamic_live_upper_bound,
+            alignment_input_scratch_bytes,
         }
     }
+}
+
+fn alignment_input_scratch_bytes_from_root(root: wire::RoadEditingSource<'_>) -> u64 {
+    let alignments = root.road_alignments();
+    let segment_count = alignments.iter().fold(0_u64, |total, alignment| {
+        total.saturating_add(
+            u64::try_from(alignment.reference_line().segments().len()).unwrap_or(u64::MAX),
+        )
+    });
+    size_bytes::<RoadAlignmentDeclaration>(u64::try_from(alignments.len()).unwrap_or(u64::MAX))
+        .saturating_add(size_bytes::<AuthoringCurveSegmentDeclaration>(
+            segment_count,
+        ))
+}
+
+fn alignment_input_scratch_bytes_from_lowered(alignments: &[RoadAlignmentDeclaration]) -> u64 {
+    let segment_count = alignments.iter().fold(0_u64, |total, alignment| {
+        total.saturating_add(
+            u64::try_from(alignment.reference_line.segments.len()).unwrap_or(u64::MAX),
+        )
+    });
+    size_bytes::<RoadAlignmentDeclaration>(u64::try_from(alignments.len()).unwrap_or(u64::MAX))
+        .saturating_add(size_bytes::<AuthoringCurveSegmentDeclaration>(
+            segment_count,
+        ))
 }
 
 fn lowering_sort_scratch_bytes(root: wire::RoadEditingSource<'_>) -> u64 {
@@ -313,7 +349,7 @@ fn precheck_accumulated_counts(
     let observed_live = builder
         .already_admitted(CompileLimitDimension::CompilerControlledLiveBytes)
         .saturating_add(candidate_live_upper)
-        .saturating_add(sizing.frontend_scratch_upper_bound);
+        .saturating_add(sizing.frontend_dynamic_live_upper_bound);
     let live_limit = limits.value(CompileLimitDimension::CompilerControlledLiveBytes);
     if observed_live > live_limit {
         return Err(accumulated_limit_error(
@@ -383,11 +419,18 @@ fn lower_verified_source(
 ) -> Result<AdmittedOfficialModule, DiagnosticBundle> {
     let root = verified.root();
     let counts = verified.preflight_counts();
+    let import_count = u64::try_from(root.module_header().imports().len()).unwrap_or(u64::MAX);
+    let admission_sizing = RoadEditingAdmissionSizing::from_root(root, import_count);
     let locations = RoadEditingLocationFactory::from_verified_root(root);
     let profiles = geometry_profiles(root);
     let shared_namespace: Arc<str> = Arc::from(root.module_header().authoring_namespace_id());
 
     let alignments = lower_road_alignments(root, &locations, &shared_namespace).into_boxed_slice();
+    debug_assert_eq!(
+        alignment_input_scratch_bytes_from_lowered(&alignments),
+        admission_sizing.alignment_input_scratch_bytes,
+        "wire-derived alignment scratch sizing must match the lowered temporary tree"
+    );
     let top_level_declaration_count = usize::try_from(counts.declaration_count())
         .unwrap_or(usize::MAX)
         .saturating_sub(root.authoring_lanes().len())
@@ -498,17 +541,20 @@ fn lower_verified_source(
         u64::try_from(imports.len()).unwrap_or(u64::MAX),
     );
     let import_count = u64::try_from(imports.len()).unwrap_or(u64::MAX);
+    debug_assert_eq!(
+        import_count,
+        u64::try_from(header.imports().len()).unwrap_or(u64::MAX)
+    );
     let preallocation_live_bytes = preallocation_live_upper_bound(
         counts,
         display_string_items,
         display_string_bytes,
         import_count,
     );
-    let admission_sizing = RoadEditingAdmissionSizing::from_root(root, import_count);
     let admission_peak_live_bytes = preallocation_live_bytes
         .saturating_add(
             admission_sizing
-                .frontend_scratch_upper_bound
+                .frontend_dynamic_live_upper_bound
                 .max(geometry_usage.peak_output_and_scratch_bytes),
         )
         .max(controlled_live_bytes);
@@ -1322,6 +1368,50 @@ mod tests {
             lowering_sort_scratch_bytes(root),
             expected,
             "section lowering retains the authoring-lane sort view"
+        );
+    }
+
+    #[test]
+    fn alignment_backing_and_later_lowering_views_are_gated_before_lowering() {
+        let broad = CompileLimits::p100_initial_v1();
+        let buffer = complete_geometry_buffer(&broad);
+        let verified = verify_source(
+            RoadEditingModuleInput::try_new("road-editing", buffer.as_bytes(), None).unwrap(),
+            &broad,
+            0,
+            0,
+        )
+        .unwrap();
+        let root = verified.root();
+        let sizing = RoadEditingAdmissionSizing::from_root(root, 0);
+        let expected = alignment_input_scratch_bytes_from_root(root)
+            .saturating_add(lowering_sort_scratch_bytes(root));
+        assert_eq!(sizing.frontend_scratch_upper_bound, expected);
+        assert!(sizing.alignment_input_scratch_bytes > 0);
+
+        let exact = broad.clone().with_test_admission_limit(
+            CompileLimitDimension::StageScratchBytes,
+            u32::try_from(expected).unwrap(),
+        );
+        precheck_accumulated_counts(
+            &CompilationUnitBuilder::new(exact.clone()),
+            &exact,
+            &verified,
+        )
+        .expect("the exact alignment-plus-lowering boundary must pass before lowering");
+
+        let rejected = broad.with_test_admission_limit(
+            CompileLimitDimension::StageScratchBytes,
+            u32::try_from(expected - 1).unwrap(),
+        );
+        let builder = CompilationUnitBuilder::new(rejected.clone());
+        assert!(
+            precheck_accumulated_counts(&builder, &rejected, &verified).is_err(),
+            "boundary minus one must fail before the alignment tree is allocated"
+        );
+        assert_eq!(
+            builder.already_admitted(CompileLimitDimension::ModuleCount),
+            0
         );
     }
 
