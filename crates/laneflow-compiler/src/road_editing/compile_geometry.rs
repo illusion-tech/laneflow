@@ -347,8 +347,11 @@ struct PendingFacilityGeometry {
     value: Option<CompiledFacilityBandGeometry>,
 }
 
-#[allow(clippy::too_many_lines)]
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "the closed geometry budgets remain distinct resource dimensions at this boundary"
+)]
 pub(super) fn compile_authoring_geometry(
     authoring_namespace_id: &str,
     alignments: Box<[RoadAlignmentDeclaration]>,

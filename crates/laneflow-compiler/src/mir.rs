@@ -1462,18 +1462,15 @@ pub(crate) fn lower_to_mir(
             })
         })
         .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
-    let geometry_source_ranges = hir
-        .geometry_source_ranges
-        .iter()
-        .map(|range| {
-            Ok(MirGeometrySourceRange {
-                source_module: hir_module_to_mir[range.source_module.index()],
-                points: remap_range(range.points, &unit.limits, &range.source)?,
-                source_segment_ordinal: range.source_segment_ordinal,
-                source: range.source.clone(),
-            })
-        })
-        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let mut geometry_source_ranges = Vec::with_capacity(hir.geometry_source_ranges.len());
+    for range in &hir.geometry_source_ranges {
+        geometry_source_ranges.push(MirGeometrySourceRange {
+            source_module: hir_module_to_mir[range.source_module.index()],
+            points: remap_range(range.points, &unit.limits, &range.source)?,
+            source_segment_ordinal: range.source_segment_ordinal,
+            source: range.source.clone(),
+        });
+    }
     let canonical_points = hir
         .canonical_points
         .iter()
