@@ -105,9 +105,12 @@ impl ModuleUsage {
         &mut self,
         value: &RoadEditingReference<K>,
         current_namespace: &str,
+        import_namespaces: &BTreeSet<Box<str>>,
         limits: &CompileLimits,
     ) -> Result<(), DiagnosticBundle> {
-        if value.module_namespace() == Some(current_namespace) {
+        if let Some(namespace) = value.module_namespace()
+            && (namespace == current_namespace || !import_namespaces.contains(namespace))
+        {
             return Err(input_error(
                 "roadEditingSource.reference.moduleNamespace",
                 RoadEditingInputViolation::InvalidCombination,
@@ -314,6 +317,7 @@ pub struct RoadEditingSourceModuleBuilder<'limits> {
     declarations: Vec<RoadEditingDeclaration>,
     alignment_keys: BTreeSet<Box<str>>,
     declaration_addresses: BTreeSet<DeclarationAddress>,
+    import_namespaces: BTreeSet<Box<str>>,
     usage: ModuleUsage,
 }
 
@@ -356,6 +360,7 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
             ));
         }
         usage.validate(limits)?;
+        let import_namespaces = header.imports().map(Box::<str>::from).collect();
         Ok(Self {
             header,
             geometry_accuracy_profile,
@@ -365,6 +370,7 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
             declarations: Vec::new(),
             alignment_keys: BTreeSet::new(),
             declaration_addresses: BTreeSet::new(),
+            import_namespaces,
             usage,
         })
     }
@@ -387,6 +393,7 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
         usage.charge_reference(
             value.canonical_frame(),
             self.header.authoring_namespace_id(),
+            &self.import_namespaces,
             self.limits,
         )?;
         usage.charge_curve(value.reference_line(), self.limits)?;
@@ -418,6 +425,7 @@ impl<'limits> RoadEditingSourceModuleBuilder<'limits> {
             &mut usage,
             &value,
             self.header.authoring_namespace_id(),
+            &self.import_namespaces,
             self.limits,
         )?;
         usage.validate(self.limits)?;
@@ -494,11 +502,12 @@ fn charge_references<K: EntityKindMarker>(
     usage: &mut ModuleUsage,
     values: &[RoadEditingReference<K>],
     current_namespace: &str,
+    import_namespaces: &BTreeSet<Box<str>>,
     limits: &CompileLimits,
 ) -> Result<(), DiagnosticBundle> {
     charge_relation(usage, values.len());
     for value in values {
-        usage.charge_reference(value, current_namespace, limits)?;
+        usage.charge_reference(value, current_namespace, import_namespaces, limits)?;
     }
     Ok(())
 }
@@ -507,6 +516,7 @@ fn charge_declaration(
     usage: &mut ModuleUsage,
     value: &RoadEditingDeclaration,
     current_namespace: &str,
+    import_namespaces: &BTreeSet<Box<str>>,
     limits: &CompileLimits,
 ) -> Result<(), DiagnosticBundle> {
     usage.declaration_count = usage.declaration_count.saturating_add(1);
@@ -522,19 +532,35 @@ fn charge_declaration(
             usage.charge_table(9, 41);
             usage.charge_vector(value.elements().len(), 4);
             usage.charge_token(value.road_alignment().key(), limits)?;
-            usage.charge_reference(value.reference_section(), current_namespace, limits)?;
-            usage.charge_reference(value.reference_lane(), current_namespace, limits)?;
+            usage.charge_reference(
+                value.reference_section(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            usage.charge_reference(
+                value.reference_lane(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             charge_relation(usage, value.elements().len());
             for element in value.elements() {
                 usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
                 usage.charge_table(2, 5);
                 match element {
-                    RoadEditingCorridorElement::RoadSection(reference) => {
-                        usage.charge_reference(reference, current_namespace, limits)?
-                    }
-                    RoadEditingCorridorElement::FacilityBand(reference) => {
-                        usage.charge_reference(reference, current_namespace, limits)?
-                    }
+                    RoadEditingCorridorElement::RoadSection(reference) => usage.charge_reference(
+                        reference,
+                        current_namespace,
+                        import_namespaces,
+                        limits,
+                    )?,
+                    RoadEditingCorridorElement::FacilityBand(reference) => usage.charge_reference(
+                        reference,
+                        current_namespace,
+                        import_namespaces,
+                        limits,
+                    )?,
                 }
             }
             usage.charge_canvas(value.canvas_selection(), limits)?;
@@ -543,23 +569,50 @@ fn charge_declaration(
             usage.charge_table(5, 20);
             usage.charge_vector(value.authoring_lanes().len(), 4);
             usage.charge_token(value.kind_id(), limits)?;
-            charge_references(usage, value.authoring_lanes(), current_namespace, limits)?;
-            usage.charge_reference(value.road_corridor(), current_namespace, limits)?;
+            charge_references(
+                usage,
+                value.authoring_lanes(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            usage.charge_reference(
+                value.road_corridor(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::AuthoringLane(value) => {
             usage.charge_table(7, 37);
-            usage.charge_reference(value.lane_edge(), current_namespace, limits)?;
+            usage.charge_reference(
+                value.lane_edge(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             if let Some(reference) = value.lane_group() {
-                usage.charge_reference(reference, current_namespace, limits)?;
+                usage.charge_reference(reference, current_namespace, import_namespaces, limits)?;
             }
-            usage.charge_reference(value.road_section(), current_namespace, limits)?;
+            usage.charge_reference(
+                value.road_section(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::LaneEdge(value) => {
             usage.charge_table(5, 24);
             usage.charge_vector(value.successors().len(), 4);
-            charge_references(usage, value.successors(), current_namespace, limits)?;
+            charge_references(
+                usage,
+                value.successors(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             if let Some(curve) = value.explicit_geometry() {
                 usage.charge_curve(curve, limits)?;
             }
@@ -569,13 +622,30 @@ fn charge_declaration(
             usage.charge_table(4, 16);
             usage.charge_vector(value.approach_edges().len(), 4);
             usage.charge_vector(value.internal_edges().len(), 4);
-            charge_references(usage, value.approach_edges(), current_namespace, limits)?;
-            charge_references(usage, value.internal_edges(), current_namespace, limits)?;
+            charge_references(
+                usage,
+                value.approach_edges(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            charge_references(
+                usage,
+                value.internal_edges(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::Movement(value) => {
             usage.charge_table(5, 20);
-            usage.charge_reference(value.junction(), current_namespace, limits)?;
+            usage.charge_reference(
+                value.junction(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_token(value.directed_entry_approach_key(), limits)?;
             usage.charge_token(value.directed_exit_approach_key(), limits)?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
@@ -583,33 +653,84 @@ fn charge_declaration(
         RoadEditingDeclaration::ManeuverPath(value) => {
             usage.charge_table(6, 24);
             usage.charge_vector(value.internal_edges().len(), 4);
-            usage.charge_reference(value.movement(), current_namespace, limits)?;
-            usage.charge_reference(value.entry_edge(), current_namespace, limits)?;
-            charge_references(usage, value.internal_edges(), current_namespace, limits)?;
-            usage.charge_reference(value.exit_edge(), current_namespace, limits)?;
+            usage.charge_reference(
+                value.movement(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            usage.charge_reference(
+                value.entry_edge(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            charge_references(
+                usage,
+                value.internal_edges(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            usage.charge_reference(
+                value.exit_edge(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::ManeuverGate(value) => {
             usage.charge_table(7, 25);
             usage.maneuver_gate_count = usage.maneuver_gate_count.saturating_add(1);
-            usage.charge_reference(value.maneuver_path(), current_namespace, limits)?;
-            usage.charge_reference(value.stop_line(), current_namespace, limits)?;
+            usage.charge_reference(
+                value.maneuver_path(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            usage.charge_reference(
+                value.stop_line(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             if let RoadEditingSignalControl::SignalGroup(reference) = value.signal_control() {
-                usage.charge_reference(reference, current_namespace, limits)?;
+                usage.charge_reference(reference, current_namespace, import_namespaces, limits)?;
             }
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::WaitingZone(value) => {
             usage.charge_table(6, 24);
             usage.waiting_zone_count = usage.waiting_zone_count.saturating_add(1);
-            usage.charge_reference(value.maneuver_path(), current_namespace, limits)?;
-            usage.charge_reference(value.entry_gate(), current_namespace, limits)?;
-            usage.charge_reference(value.release_gate(), current_namespace, limits)?;
+            usage.charge_reference(
+                value.maneuver_path(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            usage.charge_reference(
+                value.entry_gate(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            usage.charge_reference(
+                value.release_gate(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::StopLine(value) => {
             usage.charge_table(3, 12);
-            usage.charge_reference(value.lane_edge(), current_namespace, limits)?;
+            usage.charge_reference(
+                value.lane_edge(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::SignalGroup(value) => {
@@ -620,19 +741,41 @@ fn charge_declaration(
             usage.charge_table(5, 24);
             usage.charge_vector(value.signal_groups().len(), 4);
             usage.charge_vector(value.signal_phases().len(), 4);
-            charge_references(usage, value.signal_groups(), current_namespace, limits)?;
-            charge_references(usage, value.signal_phases(), current_namespace, limits)?;
+            charge_references(
+                usage,
+                value.signal_groups(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            charge_references(
+                usage,
+                value.signal_phases(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::SignalPhase(value) => {
             usage.charge_table(5, 24);
             usage.charge_vector(value.states().len(), 4);
-            usage.charge_reference(value.signal_controller(), current_namespace, limits)?;
+            usage.charge_reference(
+                value.signal_controller(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             charge_relation(usage, value.states().len());
             for state in value.states() {
                 usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
                 usage.charge_table(2, 5);
-                usage.charge_reference(state.signal_group(), current_namespace, limits)?;
+                usage.charge_reference(
+                    state.signal_group(),
+                    current_namespace,
+                    import_namespaces,
+                    limits,
+                )?;
             }
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
@@ -646,28 +789,48 @@ fn charge_declaration(
             usage.charge_table(2, 12);
             usage.charge_table(4, 32);
             if let Some(reference) = value.parking_area() {
-                usage.charge_reference(reference, current_namespace, limits)?;
+                usage.charge_reference(reference, current_namespace, import_namespaces, limits)?;
             }
             usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(3);
-            usage.charge_reference(value.entry().lane_edge(), current_namespace, limits)?;
-            usage.charge_reference(value.exit().lane_edge(), current_namespace, limits)?;
+            usage.charge_reference(
+                value.entry().lane_edge(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
+            usage.charge_reference(
+                value.exit().lane_edge(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::LaneGroup(value) => {
             usage.charge_table(3, 12);
-            usage.charge_reference(value.road_section(), current_namespace, limits)?;
+            usage.charge_reference(
+                value.road_section(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::FacilityBand(value) => {
             usage.charge_table(5, 32);
             usage.charge_token(value.kind_id(), limits)?;
-            usage.charge_reference(value.road_corridor(), current_namespace, limits)?;
+            usage.charge_reference(
+                value.road_corridor(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::ParticipantClass(value) => {
             usage.charge_table(3, 12);
             if let Some(reference) = value.extends() {
-                usage.charge_reference(reference, current_namespace, limits)?;
+                usage.charge_reference(reference, current_namespace, import_namespaces, limits)?;
             }
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
@@ -675,23 +838,36 @@ fn charge_declaration(
             usage.charge_table(8, 26);
             usage.charge_vector(value.participant_classes().len(), 4);
             match value.target() {
-                RoadEditingAccessTarget::LaneEdge(reference) => {
-                    usage.charge_reference(reference, current_namespace, limits)?
-                }
-                RoadEditingAccessTarget::LaneGroup(reference) => {
-                    usage.charge_reference(reference, current_namespace, limits)?
-                }
-                RoadEditingAccessTarget::RoadSection(reference) => {
-                    usage.charge_reference(reference, current_namespace, limits)?
-                }
-                RoadEditingAccessTarget::ManeuverPath(reference) => {
-                    usage.charge_reference(reference, current_namespace, limits)?
-                }
+                RoadEditingAccessTarget::LaneEdge(reference) => usage.charge_reference(
+                    reference,
+                    current_namespace,
+                    import_namespaces,
+                    limits,
+                )?,
+                RoadEditingAccessTarget::LaneGroup(reference) => usage.charge_reference(
+                    reference,
+                    current_namespace,
+                    import_namespaces,
+                    limits,
+                )?,
+                RoadEditingAccessTarget::RoadSection(reference) => usage.charge_reference(
+                    reference,
+                    current_namespace,
+                    import_namespaces,
+                    limits,
+                )?,
+                RoadEditingAccessTarget::ManeuverPath(reference) => usage.charge_reference(
+                    reference,
+                    current_namespace,
+                    import_namespaces,
+                    limits,
+                )?,
             }
             charge_references(
                 usage,
                 value.participant_classes(),
                 current_namespace,
+                import_namespaces,
                 limits,
             )?;
             if let Some(regulation) = value.regulation() {
@@ -709,7 +885,12 @@ fn charge_declaration(
             usage.charge_table(4, 16);
             usage.charge_table(7, 56);
             usage.typed_ast_record_count = usage.typed_ast_record_count.saturating_add(1);
-            usage.charge_reference(value.participant_class(), current_namespace, limits)?;
+            usage.charge_reference(
+                value.participant_class(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::StaticRoute(value) => {
@@ -718,7 +899,13 @@ fn charge_declaration(
             usage.route_occurrence_count = usage
                 .route_occurrence_count
                 .saturating_add(u64::try_from(value.edge_sequence().len()).unwrap_or(u64::MAX));
-            charge_references(usage, value.edge_sequence(), current_namespace, limits)?;
+            charge_references(
+                usage,
+                value.edge_sequence(),
+                current_namespace,
+                import_namespaces,
+                limits,
+            )?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
         RoadEditingDeclaration::CanonicalFrame(value) => {
@@ -822,8 +1009,27 @@ fn validate_owner_tree(
                 }
             }
             RoadEditingDeclaration::SignalController(controller) => {
+                let expected_phase_groups = controller
+                    .signal_groups()
+                    .iter()
+                    .map(DeclarationAddress::from_reference)
+                    .collect::<BTreeSet<_>>();
                 for reference in controller.signal_phases() {
                     register_owned_child(reference, &owner, &by_address, &mut owned_signal_phases)?;
+                    let phase_address = DeclarationAddress::from_reference(reference);
+                    let Some(RoadEditingDeclaration::SignalPhase(phase)) =
+                        by_address.get(&phase_address).copied()
+                    else {
+                        return owner_tree_error();
+                    };
+                    let actual_phase_groups = phase
+                        .states()
+                        .iter()
+                        .map(|state| DeclarationAddress::from_reference(state.signal_group()))
+                        .collect::<BTreeSet<_>>();
+                    if actual_phase_groups != expected_phase_groups {
+                        return owner_tree_error();
+                    }
                 }
                 for reference in controller.signal_groups() {
                     require_local_reference_namespace(reference.module_namespace())?;
@@ -1020,6 +1226,87 @@ mod tests {
 
         assert!(builder.add_alignment(alignment).is_err());
         assert!(builder.finish().is_ok());
+    }
+
+    #[test]
+    fn add_rejects_a_reference_outside_declared_imports() {
+        let limits = CompileLimits::p100_initial_v1();
+        let header = RoadEditingModuleHeader::try_new(
+            "city",
+            "road-editing",
+            vec!["declared".into()],
+            RoadEditingProvenance::direct("editor save").expect("provenance"),
+        )
+        .expect("header");
+        let mut builder = RoadEditingSourceModuleBuilder::new(
+            header,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &limits,
+        )
+        .expect("builder");
+        let alignment = RoadAlignmentInput::try_new(
+            "alignment-a",
+            CanonicalFrameReference::imported("undeclared", Vec::new(), "frame-a")
+                .expect("imported frame reference"),
+            RoadEditingCurveProgram::try_new(
+                RoadEditingPoint3::try_new(0.0, 0.0, 0.0).expect("start"),
+                vec![RoadEditingCurveSegment::line(
+                    RoadEditingPoint3::try_new(1.0, 0.0, 0.0).expect("end"),
+                )],
+            )
+            .expect("curve"),
+        )
+        .expect("alignment");
+
+        assert!(builder.add_alignment(alignment).is_err());
+        assert!(builder.finish().is_ok());
+    }
+
+    #[test]
+    fn finish_requires_every_phase_to_cover_its_controllers_groups() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut builder = builder(&limits);
+        let group_a = SignalGroupReference::local("group-a").expect("group a");
+        let group_b = SignalGroupReference::local("group-b").expect("group b");
+        let phase = SignalPhaseReference::owner_scoped(vec!["controller-a".into()], "phase-a")
+            .expect("phase");
+        for declaration in [
+            RoadEditingDeclaration::SignalGroup(
+                SignalGroupInput::try_new("group-a").expect("group a declaration"),
+            ),
+            RoadEditingDeclaration::SignalGroup(
+                SignalGroupInput::try_new("group-b").expect("group b declaration"),
+            ),
+            RoadEditingDeclaration::SignalController(
+                SignalControllerInput::try_new(
+                    "controller-a",
+                    0,
+                    vec![group_a.clone(), group_b],
+                    vec![phase],
+                )
+                .expect("controller"),
+            ),
+            RoadEditingDeclaration::SignalPhase(
+                SignalPhaseInput::try_new(
+                    "phase-a",
+                    1_000,
+                    vec![
+                        RoadEditingSignalPhaseState::try_new(
+                            group_a,
+                            laneflow_static_contract::SignalAspect::Green,
+                        )
+                        .expect("phase state"),
+                    ],
+                    SignalControllerReference::local("controller-a").expect("controller reference"),
+                )
+                .expect("phase declaration"),
+            ),
+        ] {
+            builder.add_declaration(declaration).expect("declaration");
+        }
+
+        assert!(builder.finish().is_err());
     }
 
     #[test]

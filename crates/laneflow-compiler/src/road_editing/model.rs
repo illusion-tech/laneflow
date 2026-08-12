@@ -2,8 +2,9 @@ use std::cmp::Ordering;
 use std::marker::PhantomData;
 
 use laneflow_static_contract::{
-    AccessEffect, AccessRuleKind, AuthoringLaneKind, CanonicalFrameKind, EntityKind,
-    EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind,
+    AccessEffect, AccessRuleKind, AuthoringLaneKind, CANONICAL_POINT_COMPONENT_MAX_METERS,
+    CANONICAL_POINT_COMPONENT_MIN_METERS, CanonicalFrameKind, EntityKind, EntityKindMarker,
+    FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind,
     MIN_PARKING_EXTENT_EXCLUSIVE_METERS, MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS,
     MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS, ManeuverGateKind, ManeuverPathKind, MovementKind,
     PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS, PARKING_HEADING_OFFSET_MAXIMUM_RADIANS,
@@ -379,9 +380,9 @@ pub struct RoadEditingPoint3 {
 impl RoadEditingPoint3 {
     pub fn try_new(x: f64, y: f64, z: f64) -> Result<Self, DiagnosticBundle> {
         Ok(Self {
-            x: validate_finite(x, "point.x")?,
-            y: validate_finite(y, "point.y")?,
-            z: validate_finite(z, "point.z")?,
+            x: validate_point_component(x, "point.x")?,
+            y: validate_point_component(y, "point.y")?,
+            z: validate_point_component(z, "point.z")?,
         })
     }
 
@@ -399,6 +400,19 @@ impl RoadEditingPoint3 {
     pub const fn z(self) -> f64 {
         self.z
     }
+}
+
+fn validate_point_component(value: f64, field: &str) -> Result<f64, DiagnosticBundle> {
+    let value = validate_finite(value, field)?;
+    let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
+    let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
+    if !(minimum..=maximum).contains(&value) {
+        return Err(input_error(
+            field,
+            RoadEditingInputViolation::InvalidCombination,
+        ));
+    }
+    Ok(value)
 }
 
 /// corridor station 区间内的线性非负宽度。
@@ -2284,6 +2298,14 @@ mod tests {
     #[test]
     fn scalar_constructors_reject_invalid_values_and_canonicalize_zero() {
         assert!(RoadEditingPoint3::try_new(f64::NAN, 0.0, 0.0).is_err());
+        assert!(
+            RoadEditingPoint3::try_new(
+                f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS) + 1.0,
+                0.0,
+                0.0,
+            )
+            .is_err()
+        );
         assert!(LinearWidthProfile::try_new(0.0, 0.0).is_err());
         assert!(LaneEdgeInput::try_new("edge", 0.0, Vec::new(), None).is_err());
 
