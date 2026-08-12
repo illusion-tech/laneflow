@@ -83,7 +83,7 @@ pub struct AllocatorProbe {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreloadedRevisionObservation {
     pub source_buffer_retained_capacity_bytes: u64,
-    pub output_logical_bytes: u64,
+    pub output_retained_bytes: u64,
     pub candidate_source_buffer_retained_capacity_bytes: u64,
     pub conservative_coexisting_bytes: u64,
 }
@@ -189,10 +189,13 @@ fn run_rewrite_build_encode_probe(
     let accepted_modules =
         build_base_modules_from_seed(accepted_seed, accuracy, direction, &limits)?;
     let accepted_encoded = encode_modules(accepted_modules, &limits)?;
+    let retained_profiler = heap_profiler();
     let accepted_output = compile_encoded_modules(&accepted_encoded, limits.clone())?;
+    black_box(&accepted_output);
+    let output_retained = heap_observation().end_live_bytes;
+    drop(retained_profiler);
     let source_retained = retained_capacity_sum(&accepted_encoded)?;
-    let output_logical = accepted_output.metrics().output_logical_bytes();
-    let preloaded = preloaded_revision(source_retained, output_logical, 0)?;
+    let preloaded = preloaded_revision(source_retained, output_retained, 0)?;
 
     let profiler = heap_profiler();
     let candidate_module = build_rewrite_candidate_module_from_seed(candidate_seed, &limits)?;
@@ -232,13 +235,16 @@ fn run_rewrite_compile_probe(
     let accepted_modules =
         build_base_modules_from_seed(accepted_seed, accuracy, direction, &limits)?;
     let accepted_encoded = encode_modules(accepted_modules, &limits)?;
+    let retained_profiler = heap_profiler();
     let accepted_output = compile_encoded_modules(&accepted_encoded, limits.clone())?;
+    black_box(&accepted_output);
+    let output_retained = heap_observation().end_live_bytes;
+    drop(retained_profiler);
     let candidate_module = build_rewrite_candidate_module_from_seed(candidate_seed, &limits)?;
     let candidate_encoded = encode_module(candidate_module, &limits)?;
     let source_retained = retained_capacity_sum(&accepted_encoded)?;
-    let output_logical = accepted_output.metrics().output_logical_bytes();
     let candidate_retained = usize_u64(candidate_encoded.retained_capacity_bytes());
-    let preloaded = preloaded_revision(source_retained, output_logical, candidate_retained)?;
+    let preloaded = preloaded_revision(source_retained, output_retained, candidate_retained)?;
 
     let profiler = heap_profiler();
     let candidate_output =
@@ -307,16 +313,16 @@ fn retained_capacity_sum(modules: &[crate::EncodedP100Module]) -> Result<u64, Ge
 
 fn preloaded_revision(
     source_buffer_retained_capacity_bytes: u64,
-    output_logical_bytes: u64,
+    output_retained_bytes: u64,
     candidate_source_buffer_retained_capacity_bytes: u64,
 ) -> Result<PreloadedRevisionObservation, GeneratorError> {
     let conservative_coexisting_bytes = source_buffer_retained_capacity_bytes
-        .checked_add(output_logical_bytes)
+        .checked_add(output_retained_bytes)
         .and_then(|value| value.checked_add(candidate_source_buffer_retained_capacity_bytes))
         .ok_or_else(|| contract("preloaded revision byte sum overflow"))?;
     Ok(PreloadedRevisionObservation {
         source_buffer_retained_capacity_bytes,
-        output_logical_bytes,
+        output_retained_bytes,
         candidate_source_buffer_retained_capacity_bytes,
         conservative_coexisting_bytes,
     })

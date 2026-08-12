@@ -27,6 +27,7 @@ const SEED_SHA256: &str = "05a32c19f3fe4ab8f7ea176d996a505688f875197433ab7f83d62
 const SEED_WORKLOAD_ID: &str = "LF-COMP-GEOMETRY-P100-v1";
 const WORKLOAD_RELATIVE_PATH: &str =
     "docs/reference/road-editing-source-workload-definition-v1.json";
+const WORKLOAD_SHA256: &str = "0b7ef419af05e0eac08b67d551f207bed510b7bdaca079184cef12c386672f5a";
 const SERDE_JSON_CHECKSUM: &str =
     "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14";
 
@@ -179,6 +180,13 @@ fn validate_workload_binding(repository_root: &Path) -> Result<WorkloadBinding, 
         path: path.clone(),
         source,
     })?;
+    let actual_digest = hex_digest(&Sha256::digest(&bytes));
+    if actual_digest != WORKLOAD_SHA256 {
+        return Err(SeedError::Digest {
+            expected: WORKLOAD_SHA256,
+            actual: actual_digest,
+        });
+    }
     let workload: WorkloadBinding =
         serde_json::from_slice(&bytes).map_err(|source| SeedError::Json {
             context: "RoadEditingSource workload definition".into(),
@@ -572,55 +580,96 @@ impl RelationCounts {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct WorkloadBinding {
     schema_version: u32,
     workload_id: String,
+    status: String,
+    source_format: String,
+    product_maturity: String,
+    source_format_schema: serde_json::Value,
     semantic_seed: WorkloadSeedBinding,
     generator_contract: GeneratorContractBinding,
     exact_counts: WorkloadExactCounts,
+    per_module_counts: serde_json::Value,
+    table_occurrence_accounting: serde_json::Value,
+    profile_matrix: serde_json::Value,
+    horizontal_regularity_resource_probe: serde_json::Value,
+    required_measurements: serde_json::Value,
+    offline_geometry_observation: serde_json::Value,
+    single_module_rewrite_scenario: serde_json::Value,
+    measurement_protocol: serde_json::Value,
+    g2_evidence_binding: serde_json::Value,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct WorkloadSeedBinding {
     path: String,
     sha256: String,
     source_workload_id: String,
+    role: String,
+    production_compatibility: String,
+    parser_boundary: String,
     test_parser: TestParserBinding,
+    module_selection: String,
+    embedded_document_rule: String,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TestParserBinding {
     #[serde(rename = "crate")]
     crate_name: String,
     version: String,
     cargo_lock_checksum: String,
+    number_rule: String,
+    duplicate_and_unknown_rule: String,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct GeneratorContractBinding {
     id: String,
     randomness: String,
+    reference_implementation_binding: String,
     module_keys: Vec<String>,
     source_document_keys: Vec<String>,
     import_edges: Vec<[String; 2]>,
+    module_header_rule: serde_json::Value,
+    semantic_mapping: serde_json::Value,
+    width_profile_rule: serde_json::Value,
+    optional_field_rule: serde_json::Value,
+    profile_generation_rule: String,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct WorkloadExactCounts {
     module_count: u64,
+    source_document_count: u64,
     road_alignment_count: u64,
     stable_declaration_count: u64,
     stable_declarations: BTreeMap<String, u64>,
     curve_program_count: u64,
+    alignment_curve_program_count: u64,
+    junction_internal_curve_program_count: u64,
     curve_segment_count: u64,
     line_segment_count: u64,
     cubic_bezier_segment_count: u64,
     cubic_control_point_count: u64,
+    section_derived_lane_edge_count: u64,
+    junction_internal_lane_edge_count: u64,
+    facility_offset_curve_count: u64,
+    lane_offset_curve_count: u64,
+    total_offset_curve_count: u64,
+    access_regulation_table_count: u64,
+    canvas_selection_string_occurrence_count: u64,
+    identity_owner_reference_occurrence_count: u64,
+    signal_phase_cross_owner_same_local_key_pair_count: u64,
+    owner_qualified_reference_max_utf8_bytes: u64,
+    flatbuffers_table_occurrence_count: u64,
+    linear_width_profiles: serde_json::Value,
     relation_occurrences: BTreeMap<String, u64>,
 }
 
@@ -1048,5 +1097,21 @@ mod tests {
         assert!(serde_json::from_str::<Frame>(duplicate).is_err());
         let unknown = r#"{"frameKey":"frame","legacy":true}"#;
         assert!(serde_json::from_str::<Frame>(unknown).is_err());
+    }
+
+    #[test]
+    fn workload_manifest_rejects_unreviewed_rule_changes() {
+        let path = repository_root().join(WORKLOAD_RELATIVE_PATH);
+        let bytes = fs::read(path).unwrap();
+        assert_eq!(hex_digest(&Sha256::digest(&bytes)), WORKLOAD_SHA256);
+
+        let mut changed = bytes;
+        let marker = b"Fine2Cm";
+        let start = changed
+            .windows(marker.len())
+            .position(|window| window == marker)
+            .expect("frozen workload contains the profile name");
+        changed[start] = b'X';
+        assert_ne!(hex_digest(&Sha256::digest(&changed)), WORKLOAD_SHA256);
     }
 }

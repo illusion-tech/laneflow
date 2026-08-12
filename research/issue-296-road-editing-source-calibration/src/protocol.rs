@@ -30,7 +30,7 @@ const EXPECTED_SEED_SHA256: &str =
 const EXPECTED_WORKLOAD_SHA256: &str =
     "0b7ef419af05e0eac08b67d551f207bed510b7bdaca079184cef12c386672f5a";
 const EXPECTED_COMPACT_EVIDENCE_SCHEMA_SHA256: &str =
-    "d741b2235de123fc3466d6917a0942472ade03cddd39b17740b1d59437f6240a";
+    "2e44b7f7254e619e7b0781d5d8cbd238fa198005654a623aae62654303bb3d6e";
 const BALANCED_POWER_PLAN_GUID: &str = "381b4222-f694-41f0-9685-ff5bb260df2e";
 const SAMPLE_OUTPUT_ROOT: &str = "target/road-editing-evidence";
 const PACKAGE: &str = "issue-296-road-editing-source-calibration";
@@ -351,13 +351,17 @@ pub fn validate_raw_evidence(repository_root: &Path, evidence: &RawEvidence) -> 
                 .get(ordinal)
                 .ok_or_else(|| "raw evidence sample is missing".to_owned())?;
             validate_sample(sample, profile, sample_kind, sample_index)?;
+            let expected_invocation_argv =
+                sample_invocation_argv(profile, sample_kind, sample_index, &invocation.output_path);
+            let expected_sample_argv =
+                sample_process_argv(profile, sample_kind, sample_index, &invocation.output_path);
             if invocation.workload != profile.workload.id()
                 || invocation.accuracy_profile_code != profile.accuracy as u8
                 || invocation.direction_profile_code != profile.direction as u8
                 || invocation.sample_kind != sample_kind
                 || invocation.sample_index != sample_index
-                || invocation.argv.last() != Some(&invocation.output_path)
-                || sample.argv.last() != Some(&invocation.output_path)
+                || invocation.argv != expected_invocation_argv
+                || sample.argv.get(1..) != Some(expected_sample_argv.as_slice())
                 || !output_paths.insert(invocation.output_path.clone())
             {
                 return Err("raw invocation does not bind its unique fresh sample".to_owned());
@@ -381,8 +385,9 @@ pub fn validate_raw_evidence(repository_root: &Path, evidence: &RawEvidence) -> 
         .zip(roles)
     {
         if invocation.role != role
-            || invocation.argv.last() != Some(&invocation.output_path)
-            || probe.argv.last() != Some(&invocation.output_path)
+            || invocation.argv != allocator_invocation_argv(role, &invocation.output_path)
+            || probe.argv.get(1..)
+                != Some(allocator_process_argv(role, &invocation.output_path).as_slice())
             || !output_paths.insert(invocation.output_path.clone())
         {
             return Err("allocator invocation does not bind its unique fresh probe".to_owned());
@@ -395,6 +400,97 @@ pub fn validate_raw_evidence(repository_root: &Path, evidence: &RawEvidence) -> 
         return Err("raw evidence summaries do not match independent recomputation".to_owned());
     }
     Ok(())
+}
+
+fn sample_invocation_argv(
+    profile: &WorkloadProfile,
+    sample_kind: EvidenceSampleKind,
+    sample_index: u8,
+    output_path: &str,
+) -> Vec<String> {
+    let mut argv = vec![RUSTUP.to_owned()];
+    argv.extend(sample_command_arguments(
+        profile,
+        sample_kind,
+        sample_index,
+        output_path,
+    ));
+    argv
+}
+
+fn sample_process_argv(
+    profile: &WorkloadProfile,
+    sample_kind: EvidenceSampleKind,
+    sample_index: u8,
+    output_path: &str,
+) -> Vec<String> {
+    let arguments = sample_command_arguments(profile, sample_kind, sample_index, output_path);
+    arguments[11..].to_vec()
+}
+
+fn sample_command_arguments(
+    profile: &WorkloadProfile,
+    sample_kind: EvidenceSampleKind,
+    sample_index: u8,
+    output_path: &str,
+) -> Vec<String> {
+    let workload = match profile.workload {
+        EvidenceWorkload::Base => "base",
+        EvidenceWorkload::Regularity => "regularity",
+    };
+    let kind = match sample_kind {
+        EvidenceSampleKind::Warmup => "warmup",
+        EvidenceSampleKind::Formal => "formal",
+    };
+    vec![
+        "run".to_owned(),
+        RUST_TOOLCHAIN.to_owned(),
+        "cargo".to_owned(),
+        "run".to_owned(),
+        "--release".to_owned(),
+        "--locked".to_owned(),
+        "-p".to_owned(),
+        PACKAGE.to_owned(),
+        "--bin".to_owned(),
+        "calibrate".to_owned(),
+        "--".to_owned(),
+        "road-editing-evidence-sample".to_owned(),
+        workload.to_owned(),
+        (profile.accuracy as u8).to_string(),
+        (profile.direction as u8).to_string(),
+        kind.to_owned(),
+        sample_index.to_string(),
+        output_path.to_owned(),
+    ]
+}
+
+fn allocator_invocation_argv(role: AllocatorProbeRole, output_path: &str) -> Vec<String> {
+    let mut argv = vec![RUSTUP.to_owned()];
+    argv.extend(allocator_command_arguments(role, output_path));
+    argv
+}
+
+fn allocator_process_argv(role: AllocatorProbeRole, output_path: &str) -> Vec<String> {
+    let arguments = allocator_command_arguments(role, output_path);
+    arguments[11..].to_vec()
+}
+
+fn allocator_command_arguments(role: AllocatorProbeRole, output_path: &str) -> Vec<String> {
+    vec![
+        "run".to_owned(),
+        RUST_TOOLCHAIN.to_owned(),
+        "cargo".to_owned(),
+        "run".to_owned(),
+        "--release".to_owned(),
+        "--locked".to_owned(),
+        "-p".to_owned(),
+        PACKAGE.to_owned(),
+        "--bin".to_owned(),
+        "calibrate-alloc".to_owned(),
+        "--".to_owned(),
+        role.id().to_owned(),
+        output_path.to_owned(),
+    ]
 }
 
 fn validate_bindings_at_commit(
@@ -692,7 +788,7 @@ fn validate_allocator_probe(
     let expected_preloaded = probe
         .preloaded_revision
         .source_buffer_retained_capacity_bytes
-        .checked_add(probe.preloaded_revision.output_logical_bytes)
+        .checked_add(probe.preloaded_revision.output_retained_bytes)
         .and_then(|value| {
             value.checked_add(
                 probe
@@ -726,7 +822,7 @@ fn validate_allocator_probe(
     }
     match role {
         AllocatorProbeRole::BaseCompleteCompile | AllocatorProbeRole::RegularityCompleteCompile => {
-            if probe.preloaded_revision.output_logical_bytes != 0
+            if probe.preloaded_revision.output_retained_bytes != 0
                 || probe
                     .preloaded_revision
                     .candidate_source_buffer_retained_capacity_bytes
@@ -737,7 +833,7 @@ fn validate_allocator_probe(
             }
         }
         AllocatorProbeRole::RewriteCandidateBuildEncode => {
-            if probe.preloaded_revision.output_logical_bytes == 0
+            if probe.preloaded_revision.output_retained_bytes == 0
                 || probe
                     .preloaded_revision
                     .candidate_source_buffer_retained_capacity_bytes
@@ -748,7 +844,7 @@ fn validate_allocator_probe(
             }
         }
         AllocatorProbeRole::RewriteCandidateCompleteCompile => {
-            if probe.preloaded_revision.output_logical_bytes == 0
+            if probe.preloaded_revision.output_retained_bytes == 0
                 || probe
                     .preloaded_revision
                     .candidate_source_buffer_retained_capacity_bytes
@@ -1299,6 +1395,29 @@ mod tests {
             9
         );
         assert_eq!(profiles[9].workload, EvidenceWorkload::Regularity);
+    }
+
+    #[test]
+    fn fresh_process_argv_is_reconstructed_in_full() {
+        let profile = &workload_profiles()[0];
+        let output = "target/road-editing-evidence/example/sample.json";
+        let invocation = sample_invocation_argv(profile, EvidenceSampleKind::Formal, 3, output);
+        assert_eq!(invocation[0], "rustup");
+        assert_eq!(invocation[1], "run");
+        assert_eq!(invocation[2], RUST_TOOLCHAIN);
+        assert_eq!(invocation[5], "--release");
+        assert_eq!(invocation[6], "--locked");
+        assert_eq!(invocation.last().map(String::as_str), Some(output));
+        assert_ne!(
+            invocation,
+            sample_invocation_argv(profile, EvidenceSampleKind::Formal, 4, output)
+        );
+
+        let allocator =
+            allocator_invocation_argv(AllocatorProbeRole::RewriteCandidateCompleteCompile, output);
+        assert_eq!(allocator[10], "calibrate-alloc");
+        assert_eq!(allocator[12], "rewrite-candidate-complete-compile");
+        assert_eq!(allocator.last().map(String::as_str), Some(output));
     }
 
     #[test]

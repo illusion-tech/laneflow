@@ -652,7 +652,7 @@
       "additionalProperties": false,
       "required": [
         "sourceBufferRetainedCapacityBytes",
-        "outputLogicalBytes",
+        "outputRetainedBytes",
         "candidateSourceBufferRetainedCapacityBytes",
         "conservativeCoexistingBytes"
       ],
@@ -661,7 +661,7 @@
           "type": "integer",
           "minimum": 1
         },
-        "outputLogicalBytes": {
+        "outputRetainedBytes": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "candidateSourceBufferRetainedCapacityBytes": {
