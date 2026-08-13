@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-08-13（#296 compiler 前端数值权威按 delivery 权威实现校准：canonical `f32` 折线自 geometry compile 贯穿 Spatial HIR/MIR/LIR，`f64` 仅保留 analytic/reference 子表示与非几何标量）
+**最后更新**: 2026-08-14（#296 compiler 前端数值权威按 delivery 权威实现校准：canonical `f32` 折线自 geometry compile 贯穿 HIR 内部 `SpatialHir` 子表示、MIR 与 LIR，`f64` 仅保留 analytic/reference 子表示与非几何标量）
 
 **适用范围**: v0.6 数值与空间基础（Numeric & Spatial Foundation）的 Core 数值表示、精度分层、公开表面和跨层转换边界（#122、#126、#140、#141），以及 #296/#378 冻结的 compiler 前端数值权威边界
 
@@ -191,34 +191,36 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 
 #### compiler 前端数值权威（#296 / #378）
 
-#296 引入的 compiler 前端（`LFRE wire → typed AST → Spatial HIR → topology/geometry MIR → canonical LIR + validated source-map input`）沿 ADR 0022 五层几何表示计量，不在 Core `f64` 与 Spatial `f32` 之外新增第四种权威；canonical 折线自 geometry compile 起以有界 `f32` 贯穿 Spatial HIR/MIR/LIR，`f64` 只保留在 road-editing analytic/reference 子表示与非几何交通/静态标量。每一域显式归属为：
+#296 引入的 compiler 前端遵循已注册管线 `LFRE wire → typed AST → HIR → topology/geometry MIR → validated canonical LIR + validated source-map input`，沿 ADR 0022 五层几何表示计量，不在 Core `f64` 与 Spatial `f32` 之外新增第四种权威；canonical 折线自 geometry compile 起以有界 `f32` 贯穿 HIR 内部 `SpatialHir` 子表示、MIR 与 LIR，`f64` 只保留在 road-editing analytic/reference 子表示与非几何交通/静态标量。每一域显式归属为：
 
-| 数值域                 | 标量                 | 权威归属             | 规则                                                                 |
-| ---------------------- | -------------------- | -------------------- | -------------------------------------------------------------------- |
-| LFRE wire 几何         | `f64`（`Vec3F64` + corridor station/宽度标量）   | 私有 wire / schema   | FlatBuffers `double`（含 `RoadCorridor` `start/end_station_meters`、`LinearWidthProfile` `start/end_width_meters`），format v1 权威；`f32` 量化发生在 geometry compile 边界，不在 wire/lowering 层 |
-| LFRE 非几何交通/静态标量 | `f64`              | 私有 wire / schema   | `speed_limit`、Parking 标量、`VehicleProfile` 等；经 typed AST/HIR/MIR 直到 canonical LIR 仍保持 `f64`，禁用后端窄化          |
-| `SourceLocation` 偏移  | `u32`（受检）        | compiler 来源位置    | `RoadEditingByteRange` 为 checked `u32` start+length；越界 fail closed |
-| LFRE format_version    | `u32`（wire `uint`） | 私有 wire / schema   | `RoadEditingSource.format_version` 为 FlatBuffers `uint`；reader 以精确 `u32` 比对 `FORMAT_VERSION` |
-| 信号 offset/duration 计时器 | `u64`（wire `ulong`）| 私有 wire / schema   | `offset_milliseconds` / `duration_milliseconds`                       |
-| provenance 随机种子    | `u64`（wire `ulong`）| 私有 wire / schema   | `OptionalU64.value` / `Provenance.random_seed` 为精确 `u64`，compiler 模型保留为 `Option<u64>`；不得收窄到 `u32` 或拒绝 |
-| transition index / occupancy 计数 | `u32`（wire `uint`）| 私有 wire / schema   | `transition_index` / `max_occupancy`                                  |
-| access priority        | `i32`（wire `int`）  | 私有 wire / schema   | `priority` 带符号                                                    |
-| compiler/LIR ordinal   | `u32`（受检）        | compiler             | `RoadEditingStringOrdinal` 等有类型 ordinal 冻结为 `u32`              |
-| typed AST 解析曲线控制点 | `f64`（`AuthoringPoint3F64`）| compiler | ADR 0022：编制解析曲线（Line/Cubic Bézier）控制点在前端以 `f64` 求值 |
-| canonical 折线几何     | `f32`（`CanonicalPoint3F32Input`）| compiler | geometry compile 经 `quantize_point` 把 `f64` evaluator 输出受检量化为有界 `f32` |
-| station reference 基表 | `f64` 累计弦长       | compiler             | 配置档无关、按 source curve segment 组织的累计弦长；不按 edge 序列累计 |
-| 配置档阈值             | `f64`                | compiler             | `position_error_target_meters` / `max_runtime_direction_jump_degrees` / `cos²` 阈值为精确 binary64 |
-| Spatial HIR            | canonical 折线 `f32` | compiler（owned）     | `HirCanonicalPoint3F32`/`HirSpatialSegment` 经 `freeze_spatial_polyline` 冻结；长度校验参考 `expected_length_meters: f64` |
-| geometry MIR           | canonical 折线 `f32` | compiler             | `MirCanonicalPoint3F32`/`MirSpatialSegment` 保留 Spatial HIR canonical 折线 |
-| canonical LIR 折线     | `f32`（`LirCanonicalPoint3F32`/`LirSpatialSegment`）| compiler 输出 | 运行时规范权威几何；非几何标量（`EdgeLength`/`SpeedLimit`/Parking/`VehicleProfile`）保持 `f64` |
-| LIR semantic fingerprint | 字节序列           | compiler 输出         | 同版本 LIR 语义指纹；#298 的 portable artifact 字节完整性 digest 归 #298 |
-| Core ↔ compiler projection | 仅 integration-only | `laneflow-compiler-test-support` | 投影不进入 `laneflow-compiler` 生产功能，#294 cutover 删除        |
+| 数值域                            | 标量                                                 | 权威归属                         | 规则                                                                                                                                                                                               |
+| --------------------------------- | ---------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LFRE wire 几何                    | `f64`（`Vec3F64` + corridor station/宽度标量）       | 私有 wire / schema               | FlatBuffers `double`（含 `RoadCorridor` `start/end_station_meters`、`LinearWidthProfile` `start/end_width_meters`），format v1 权威；`f32` 量化发生在 geometry compile 边界，不在 wire/lowering 层 |
+| LFRE 非几何交通/静态标量          | `f64`                                                | 私有 wire / schema               | `speed_limit`、Parking 标量、`VehicleProfile` 等；经 typed AST/HIR/MIR 直到 canonical LIR 仍保持 `f64`，禁用后端窄化                                                                               |
+| LFRE enum 判别值                  | `u8`（wire `ubyte`）                                 | 私有 wire / schema               | v1 的 `ProvenanceKind`、几何配置档、station/corridor/lane/signal/access 等十个 enum 固定使用 8-bit 无符号判别值；不得改宽或改作有符号                                                              |
+| provenance `Digest256`            | `[u8; 32]`（wire `[ubyte:32]`）                      | 私有 wire / schema               | `parameters_and_inputs_digest` / `frontend_options_digest` 固定为原始 32 bytes；compiler 模型保持 `[u8; 32]`，不得改为文本或可变长字节列                                                           |
+| `SourceLocation` 偏移             | `u32`（受检）                                        | compiler 来源位置                | `RoadEditingByteRange` 为 checked `u32` start+length；越界 fail closed                                                                                                                             |
+| LFRE format_version               | `u32`（wire `uint`）                                 | 私有 wire / schema               | `RoadEditingSource.format_version` 为 FlatBuffers `uint`；reader 以精确 `u32` 比对 `FORMAT_VERSION`                                                                                                |
+| 信号 offset/duration 计时器       | `u64`（wire `ulong`）                                | 私有 wire / schema               | `offset_milliseconds` / `duration_milliseconds`                                                                                                                                                    |
+| provenance 随机种子               | `u64`（wire `ulong`）                                | 私有 wire / schema               | `OptionalU64.value` / `Provenance.random_seed` 为精确 `u64`，compiler 模型保留为 `Option<u64>`；不得收窄到 `u32` 或拒绝                                                                            |
+| transition index / occupancy 计数 | `u32`（wire `uint`）                                 | 私有 wire / schema               | `transition_index` / `max_occupancy`                                                                                                                                                               |
+| access priority                   | `i32`（wire `int`）                                  | 私有 wire / schema               | `priority` 带符号                                                                                                                                                                                  |
+| compiler/LIR ordinal              | `u32`（受检）                                        | compiler                         | `RoadEditingStringOrdinal` 等有类型 ordinal 冻结为 `u32`                                                                                                                                           |
+| typed AST 解析曲线控制点          | `f64`（`AuthoringPoint3F64`）                        | compiler                         | ADR 0022：编制解析曲线（Line/Cubic Bézier）控制点在前端以 `f64` 求值                                                                                                                               |
+| canonical 折线几何                | `f32`（`CanonicalPoint3F32Input`）                   | compiler                         | geometry compile 经 `quantize_point` 把 `f64` evaluator 输出受检量化为有界 `f32`                                                                                                                   |
+| station reference 基表            | `f64` 累计弦长                                       | compiler                         | 配置档无关、按 source curve segment 组织的累计弦长；不按 edge 序列累计                                                                                                                             |
+| 配置档阈值                        | `f64`                                                | compiler                         | `position_error_target_meters` / `max_runtime_direction_jump_degrees` / `cos²` 阈值为精确 binary64                                                                                                 |
+| HIR 内部 `SpatialHir` 子表示      | canonical 折线 `f32`                                 | compiler（owned）                | 私有 `SpatialHir` 由 `build_spatial_hir` 在 HIR 构造期间建立；`HirCanonicalPoint3F32`/`HirSpatialSegment` 经 `freeze_spatial_polyline` 冻结，长度校验参考 `expected_length_meters: f64`            |
+| geometry MIR                      | canonical 折线 `f32`                                 | compiler                         | `MirCanonicalPoint3F32`/`MirSpatialSegment` 保留 Spatial HIR canonical 折线                                                                                                                        |
+| canonical LIR 折线                | `f32`（`LirCanonicalPoint3F32`/`LirSpatialSegment`） | compiler 输出                    | 运行时规范权威几何；非几何标量（`EdgeLength`/`SpeedLimit`/Parking/`VehicleProfile`）保持 `f64`                                                                                                     |
+| LIR semantic fingerprint          | 字节序列                                             | compiler 输出                    | 同版本 LIR 语义指纹；#298 的 portable artifact 字节完整性 digest 归 #298                                                                                                                           |
+| Core ↔ compiler projection        | 仅 integration-only                                  | `laneflow-compiler-test-support` | 投影不进入 `laneflow-compiler` 生产功能，#294 cutover 删除                                                                                                                                         |
 
 - 当前生产 Core 交通连续量仍为 `f64`（production）；ADR 0014 的已接受目标契约（`EdgeLength`/`Speed`/`Acceleration` 为 `f32`、`EdgeProgress` 为补偿 `f32`）仍是目标且经 #144 no-go 后未切换；compiler authoring 侧保持 `f64` 不改变这两者之一。
-- 管线存在注册的 `Spatial HIR` 阶段（`build_spatial_hir`）；其 canonical 折线（`HirCanonicalPoint3F32`/`HirSpatialSegment`）为 `f32`，由共享 `freeze_spatial_polyline` 冻结；官方来源不直接构造 Spatial 对象。
-- road-editing analytic/reference 子表示（编制解析曲线、station 基表、配置档阈值）与非几何交通/静态标量均以 `f64` 存续；canonical 折线自 geometry compile 起量化到有界 `f32` 并贯穿 Spatial HIR/MIR/LIR（ADR 0022 五层表示）。
+- 注册管线只有 typed AST、HIR、MIR 与 validated canonical LIR；私有 `SpatialHir` 是 `build_spatial_hir` 在 HIR 构造期间使用的内部子表示，不是第二个已注册阶段。其 canonical 折线（`HirCanonicalPoint3F32`/`HirSpatialSegment`）为 `f32`，由共享 `freeze_spatial_polyline` 冻结；官方来源不直接构造 Spatial 对象。
+- road-editing analytic/reference 子表示（编制解析曲线、station 基表、配置档阈值）与非几何交通/静态标量均以 `f64` 存续；canonical 折线自 geometry compile 起量化到有界 `f32` 并贯穿 HIR 内部 `SpatialHir` 子表示、MIR 与 LIR（ADR 0022 五层表示）。
 - stationing 是 authoring 曲线的配置档无关累计弦长基表，按 source curve segment 组织，不属于运行时 edge 序列里程。
-- 受检的 `f64 → f32` 量化只发生在 geometry compile 的 `quantize_point`（`geometry.rs`）：对 evaluator 输出分量做 canonical 范围检查后再 `as f32`；不允许在 wire/lowering 以隐式 `as`/截断提前量化，也不允许在 Spatial HIR/MIR/LIR 之后二次量化（与 ADR 0014/0015/0022 一致）。
+- 受检的 `f64 → f32` 量化只发生在 geometry compile 的 `quantize_point`（`geometry.rs`）：对 evaluator 输出分量做 canonical 范围检查后再 `as f32`；不允许在 wire/lowering 以隐式 `as`/截断提前量化，也不允许在 HIR 内部 `SpatialHir` 子表示、MIR 或 LIR 中二次量化（与 ADR 0014/0015/0022 一致）。
 - subdivision/regularity 判定把已量化的 `f32` 弦端点经 `promote_point` 无损提升回 `f64` 后做 distance/direction test（ADR 0022 251–257），保证判定阈值与 authoring numeric freeze 共享同一 binary64 `cos²`；这不授权在 road-editing analytic 子表示之外使用 `f32` 权威或未受检窄化。
 - corridor station 端点（`s0/s1`）与宽度端点（`w_i`）从 wire 到 typed AST 全程保持 `f64`（ADR 0022 166–190）；offset 求值 `O(t) = B(t) + d(s(t))·L(t)` 在 `f64` 完成后才经 `quantize_point` 量化，不在 offset 中间量提前窄化。
 
