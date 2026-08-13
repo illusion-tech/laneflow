@@ -5436,6 +5436,7 @@ fn build_spatial_hir(
     for (edge_key, edge) in lane_edges.iter() {
         for successor in &lane_edge_references[edge.successors.as_usize_range()] {
             validate_spatial_connection(
+                unit,
                 &frames,
                 lane_edges,
                 &geometries,
@@ -5462,6 +5463,7 @@ fn build_spatial_hir(
                 continue;
             }
             validate_spatial_connection(
+                unit,
                 &frames,
                 lane_edges,
                 &geometries,
@@ -5492,6 +5494,7 @@ fn build_spatial_hir(
 
 #[allow(clippy::too_many_arguments)]
 fn validate_spatial_connection(
+    unit: &CompilationUnit,
     frames: &TypedArena<HirCanonicalFrameTag, HirCanonicalFrame>,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     geometries: &[HirLaneEdgeGeometry],
@@ -5543,7 +5546,14 @@ fn validate_spatial_connection(
         diagnostics.push(diagnostic);
         return;
     }
-    let Some(profiles) = profiles else {
+    let Some(profiles) = profiles.filter(|_| {
+        unit.modules[geometry.source_module.index()]
+            .geometry_profiles
+            .is_some()
+            || unit.modules[successor_geometry.source_module.index()]
+                .geometry_profiles
+                .is_some()
+    }) else {
         return;
     };
     let predecessor_points = geometry.points.as_usize_range();
@@ -8020,11 +8030,11 @@ mod tests {
         AuthoringLaneInput, CanonicalFrameInput, CompilationUnitBuilder, CompileLimits,
         CorridorElementReference, DiagnosticCode, DiagnosticPayload, FacilityBandInput,
         FacilityBandReference, GeometryAccuracyProfile, GeometryDirectionProfile, JunctionInput,
-        JunctionReference, LaneEdgeInput, LaneEdgeReference, ManeuverGateInput, ManeuverPathInput,
-        ManeuverPathReference, MovementInput, MovementReference, RoadCorridorInput,
-        RoadSectionInput, RoadSectionReference, SignalControlInput, SourceModuleHeader,
-        SourceModuleHeaderInput, SourceSpan, StopLineInput, StopLineReference, SyntheticModule,
-        SyntheticModuleBuilder,
+        JunctionReference, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
+        ManeuverGateInput, ManeuverPathInput, ManeuverPathReference, MovementInput,
+        MovementReference, RoadCorridorInput, RoadSectionInput, RoadSectionReference,
+        SignalControlInput, SourceModuleHeader, SourceModuleHeaderInput, SourceSpan, StopLineInput,
+        StopLineReference, SyntheticModule, SyntheticModuleBuilder,
     };
     use laneflow_static_contract::{CanonicalFrameKind, LaneEdgeKind};
 
@@ -8846,6 +8856,76 @@ mod tests {
         assert_eq!(
             [second_start.x, second_start.y, second_start.z],
             [10.004, 0.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn unrelated_road_editing_profiles_do_not_restrict_synthetic_connections() {
+        let limits = CompileLimits::p100_initial_v1();
+        let successors = [LaneEdgeReference::local("edge-b")];
+        let edge_a_points = [point(0.0, 0.0, 0.0), point(10.0, 0.0, 0.0)];
+        let edge_b_points = [point(10.004, 0.0, 0.0), point(20.0, 0.0, 0.5)];
+        let synthetic_geometries = [
+            LaneEdgeGeometryInput {
+                lane_edge: LaneEdgeReference::local("edge-a"),
+                centerline_points: &edge_a_points,
+            },
+            LaneEdgeGeometryInput {
+                lane_edge: LaneEdgeReference::local("edge-b"),
+                centerline_points: &edge_b_points,
+            },
+        ];
+        let mut synthetic = SyntheticModuleBuilder::new(header("city/synthetic"), &limits).unwrap();
+        synthetic
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-a",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &successors,
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-b",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame",
+                lane_edge_geometries: &synthetic_geometries,
+            })
+            .unwrap();
+        let mut road_editing =
+            SyntheticModuleBuilder::new(header("city/road-editing"), &limits).unwrap();
+        road_editing
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame",
+                lane_edge_geometries: &[],
+            })
+            .unwrap();
+
+        let mut unit = unit([synthetic.finish().unwrap(), road_editing.finish().unwrap()]);
+        let profiles = GeometryCompilationProfiles {
+            accuracy: GeometryAccuracyProfile::Balanced5Cm,
+            direction: GeometryDirectionProfile::Smooth1Deg,
+        };
+        install_compiled_lane_geometries(&mut unit, "city/road-editing", profiles, |_| {
+            (
+                Some(("city/road-editing", "frame")),
+                vec![point(0.0, 0.0, 0.0), point(10.0, 0.0, 0.0)],
+            )
+        });
+
+        build_hir(&unit).expect(
+            "an unrelated RoadEditing profile must not reject the Synthetic-to-Synthetic join",
         );
     }
 
