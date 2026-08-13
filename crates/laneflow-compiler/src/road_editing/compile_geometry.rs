@@ -348,6 +348,7 @@ struct PendingFacilityGeometry {
 }
 
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments)]
 pub(super) fn compile_authoring_geometry(
     authoring_namespace_id: &str,
     alignments: Box<[RoadAlignmentDeclaration]>,
