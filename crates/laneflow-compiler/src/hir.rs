@@ -3371,12 +3371,15 @@ fn build_junction_hir(
     // successor, preserving the non-junction lane graph contract.
     for (_, path) in paths.iter() {
         let edges = &path_edges[path.edges.as_usize_range()];
+        let junction = movements.get(path.movement).junction;
         for pair in edges.windows(2) {
             let [predecessor, successor] = pair else {
                 unreachable!("windows(2) always yields two elements")
             };
-            if internal_claims[predecessor.target.index()].is_some()
-                || internal_claims[successor.target.index()].is_some()
+            if find_declared_junction_edge(&declared_internal_edges, junction, predecessor.target)
+                .is_some()
+                || find_declared_junction_edge(&declared_internal_edges, junction, successor.target)
+                    .is_some()
             {
                 continue;
             }
@@ -8226,26 +8229,31 @@ mod tests {
     fn compiled_junction_unit(conflicting_frames: bool) -> CompilationUnit {
         let limits = CompileLimits::p100_initial_v1();
         let mut builder = SyntheticModuleBuilder::new(header("city/junction"), &limits).unwrap();
+        let entry_successors = [LaneEdgeReference::local("internal")];
+        let internal_successors = [
+            LaneEdgeReference::local("exit-a"),
+            LaneEdgeReference::local("exit-b"),
+        ];
         builder
             .add_lane_edge(LaneEdgeInput {
                 lane_edge_key: "entry-a",
                 length_meters: 10.0,
                 speed_limit_meters_per_second: 10.0,
-                successors: &[],
+                successors: &entry_successors,
             })
             .unwrap()
             .add_lane_edge(LaneEdgeInput {
                 lane_edge_key: "entry-b",
                 length_meters: 10.0,
                 speed_limit_meters_per_second: 10.0,
-                successors: &[],
+                successors: &entry_successors,
             })
             .unwrap()
             .add_lane_edge(LaneEdgeInput {
                 lane_edge_key: "internal",
                 length_meters: 8.0,
                 speed_limit_meters_per_second: 8.0,
-                successors: &[],
+                successors: &internal_successors,
             })
             .unwrap()
             .add_lane_edge(LaneEdgeInput {
@@ -9401,11 +9409,11 @@ mod tests {
         )));
     }
 
-    #[test]
-    fn explicit_junction_internal_edge_rejects_successors() {
+    fn explicit_junction_internal_unit(internal_has_successor: bool) -> CompilationUnit {
         let limits = CompileLimits::p100_initial_v1();
         let mut builder =
             SyntheticModuleBuilder::new(header("city/junction-successors"), &limits).unwrap();
+        let internal_successors = [LaneEdgeReference::local("exit")];
         builder
             .add_lane_edge(LaneEdgeInput {
                 lane_edge_key: "entry",
@@ -9418,7 +9426,11 @@ mod tests {
                 lane_edge_key: "internal",
                 length_meters: 5.0,
                 speed_limit_meters_per_second: 5.0,
-                successors: &[LaneEdgeReference::local("exit")],
+                successors: if internal_has_successor {
+                    &internal_successors
+                } else {
+                    &[]
+                },
             })
             .unwrap()
             .add_lane_edge(LaneEdgeInput {
@@ -9488,6 +9500,24 @@ mod tests {
             Arc::from("internal"),
             location(3),
         )]);
+
+        unit
+    }
+
+    #[test]
+    fn explicit_junction_internal_edge_without_successors_uses_path_authority() {
+        let hir = build_hir(&explicit_junction_internal_unit(false)).unwrap();
+        assert_eq!(hir.junction_internal_edges.len(), 1);
+        let internal = &hir.junction_internal_edges[0];
+        assert_eq!(
+            hir.lane_edges[internal.edge.index()].stable_key.as_ref(),
+            "internal"
+        );
+    }
+
+    #[test]
+    fn explicit_junction_internal_edge_rejects_successors() {
+        let unit = explicit_junction_internal_unit(true);
 
         let diagnostics = match build_hir(&unit) {
             Ok(_) => panic!("junction-internal successors must fail"),
