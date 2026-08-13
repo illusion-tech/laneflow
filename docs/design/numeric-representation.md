@@ -195,10 +195,11 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 
 | 数值域                 | 标量                 | 权威归属             | 规则                                                                 |
 | ---------------------- | -------------------- | -------------------- | -------------------------------------------------------------------- |
-| LFRE wire 几何         | `f64`（`Vec3F64`）   | 私有 wire / schema   | FlatBuffers `double`，format v1 权威；`f32` 只在 canonical 输出边界受检产生 |
+| LFRE wire 几何         | `f64`（`Vec3F64` + corridor station/宽度标量）   | 私有 wire / schema   | FlatBuffers `double`（含 `RoadCorridor` `start/end_station_meters`、`LinearWidthProfile` `start/end_width_meters`），format v1 权威；`f32` 只在 canonical 输出边界受检产生 |
 | LFRE 非几何交通/静态标量 | `f64`              | 私有 wire / schema   | `speed_limit`、Parking 标量、`VehicleProfile` 等；禁用后端窄化          |
 | `SourceLocation` 偏移  | `u32`（受检）        | compiler 来源位置    | `RoadEditingByteRange` 为 checked `u32` start+length；越界 fail closed |
 | 信号 offset/duration 计时器 | `u64`（wire `ulong`）| 私有 wire / schema   | `offset_milliseconds` / `duration_milliseconds`                       |
+| provenance 随机种子    | `u64`（wire `ulong`）| 私有 wire / schema   | `OptionalU64.value` / `Provenance.random_seed` 为精确 `u64`，compiler 模型保留为 `Option<u64>`；不得收窄到 `u32` 或拒绝 |
 | transition index / occupancy 计数 | `u32`（wire `uint`）| 私有 wire / schema   | `transition_index` / `max_occupancy`                                  |
 | access priority        | `i32`（wire `int`）  | 私有 wire / schema   | `priority` 带符号                                                    |
 | compiler/LIR ordinal   | `u32`（受检）        | compiler             | `RoadEditingStringOrdinal` 等有类型 ordinal 冻结为 `u32`              |
@@ -216,6 +217,7 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 - stationing 是 authoring 曲线的配置档无关累计弦长基表，按 source curve segment 组织，不属于运行时 edge 序列里程。
 - 受检的 `f64 → f32` 转换只发生在 canonical 输出边界，不允许在 lowering 各处以隐式 `as`/截断提前量化（与 ADR 0014/0015/0022 一致）。
 - 唯一例外：subdivision 的候选弦端点必须先把 evaluator point value 量化为最终 `f32` 再无损提升回 `f64`（作为 `Qa/Qb`），随后才做 distance test（ADR 0022 251–257）；这不授权在 AST/HIR/MIR authority 使用 `f32` 或未受检窄化。
+- corridor station 端点（`s0/s1`）与宽度端点（`w_i`）从 wire 到 typed AST → HIR → geometry MIR 全程保持 `f64`（ADR 0022 166–190），仅 canonical 折线在输出边界量化。
 
 研究结果解释：
 
