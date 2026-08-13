@@ -4897,7 +4897,7 @@ mod tests {
     }
 
     #[test]
-    fn static_route_accepts_path_owned_internal_transitions_without_successors() {
+    fn synthetic_maneuver_path_requires_successors_for_internal_sequence() {
         let mut builder = junction_builder("internal-route.document");
         builder
             .add_lane_edge(LaneEdgeInput {
@@ -4950,16 +4950,15 @@ mod tests {
             })
             .unwrap();
 
-        let output = Compiler::new()
-            .compile(unit([builder.finish().unwrap()]))
-            .unwrap();
-        assert_eq!(output.lir().maneuver_paths().count(), 1);
-        assert_eq!(output.lir().static_routes().count(), 1);
-        let route = output.lir().static_routes().next().unwrap();
-        let maneuvers = route.maneuver_occurrences().collect::<Vec<_>>();
-        assert_eq!(maneuvers.len(), 1);
-        assert_eq!(maneuvers[0].entry_route_edge_index(), 0);
-        assert_eq!(maneuvers[0].exit_route_edge_index(), 2);
+        let diagnostics = match Compiler::new().compile(unit([builder.finish().unwrap()])) {
+            Ok(_) => panic!("Synthetic maneuver paths require explicit successor connectivity"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert!(
+            diagnostics.diagnostics().iter().any(|diagnostic| {
+                diagnostic.code() == DiagnosticCode::DisconnectedManeuverPath
+            })
+        );
     }
 
     #[test]
