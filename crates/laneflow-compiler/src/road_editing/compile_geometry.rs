@@ -67,6 +67,10 @@ pub(super) struct MemberOffsetEndpoints {
     pub(super) end_meters: f64,
 }
 
+fn canonicalize_zero(value: f64) -> f64 {
+    if value == 0.0 { 0.0 } else { value }
+}
+
 pub(super) fn derive_member_offset_endpoints(
     width_profiles: &[AuthoringWidthProfile],
     reference_ordinal: usize,
@@ -91,15 +95,15 @@ pub(super) fn derive_member_offset_endpoints(
         width_profiles.len()
     ];
     let reference = width_profiles[reference_ordinal];
-    let mut left_start = 0.5 * reference.start_width_meters;
-    let mut left_end = 0.5 * reference.end_width_meters;
+    let mut left_start = canonicalize_zero(0.5 * reference.start_width_meters);
+    let mut left_end = canonicalize_zero(0.5 * reference.end_width_meters);
     if !left_start.is_finite() || !left_end.is_finite() {
         return Err(NumericFreezeError::NonFinite);
     }
     for ordinal in (0..reference_ordinal).rev() {
         let width = width_profiles[ordinal];
-        let target_start = left_start + 0.5 * width.start_width_meters;
-        let target_end = left_end + 0.5 * width.end_width_meters;
+        let target_start = canonicalize_zero(left_start + 0.5 * width.start_width_meters);
+        let target_end = canonicalize_zero(left_end + 0.5 * width.end_width_meters);
         if !target_start.is_finite() || !target_end.is_finite() {
             return Err(NumericFreezeError::NonFinite);
         }
@@ -107,22 +111,22 @@ pub(super) fn derive_member_offset_endpoints(
             start_meters: target_start,
             end_meters: target_end,
         };
-        left_start += width.start_width_meters;
-        left_end += width.end_width_meters;
+        left_start = canonicalize_zero(left_start + width.start_width_meters);
+        left_end = canonicalize_zero(left_end + width.end_width_meters);
         if !left_start.is_finite() || !left_end.is_finite() {
             return Err(NumericFreezeError::NonFinite);
         }
     }
 
-    let mut right_start = -(0.5 * reference.start_width_meters);
-    let mut right_end = -(0.5 * reference.end_width_meters);
+    let mut right_start = canonicalize_zero(-(0.5 * reference.start_width_meters));
+    let mut right_end = canonicalize_zero(-(0.5 * reference.end_width_meters));
     if !right_start.is_finite() || !right_end.is_finite() {
         return Err(NumericFreezeError::NonFinite);
     }
     for ordinal in (reference_ordinal + 1)..width_profiles.len() {
         let width = width_profiles[ordinal];
-        let target_start = right_start - 0.5 * width.start_width_meters;
-        let target_end = right_end - 0.5 * width.end_width_meters;
+        let target_start = canonicalize_zero(right_start - 0.5 * width.start_width_meters);
+        let target_end = canonicalize_zero(right_end - 0.5 * width.end_width_meters);
         if !target_start.is_finite() || !target_end.is_finite() {
             return Err(NumericFreezeError::NonFinite);
         }
@@ -130,8 +134,8 @@ pub(super) fn derive_member_offset_endpoints(
             start_meters: target_start,
             end_meters: target_end,
         };
-        right_start -= width.start_width_meters;
-        right_end -= width.end_width_meters;
+        right_start = canonicalize_zero(right_start - width.start_width_meters);
+        right_end = canonicalize_zero(right_end - width.end_width_meters);
         if !right_start.is_finite() || !right_end.is_finite() {
             return Err(NumericFreezeError::NonFinite);
         }
@@ -1248,5 +1252,22 @@ mod tests {
             ((-reference_half - 0.5 * intermediate) - 0.5 * intermediate) - 0.5 * outer;
         assert_ne!(expected_right.to_bits(), split_right.to_bits());
         assert_eq!(right[2].start_meters.to_bits(), expected_right.to_bits());
+    }
+
+    #[test]
+    fn zero_width_right_offset_is_canonical_positive_zero() {
+        let profiles = [
+            AuthoringWidthProfile {
+                start_width_meters: 0.0,
+                end_width_meters: 1.0,
+            },
+            AuthoringWidthProfile {
+                start_width_meters: 0.0,
+                end_width_meters: 1.0,
+            },
+        ];
+
+        let offsets = derive_member_offset_endpoints(&profiles, 0).unwrap();
+        assert_eq!(offsets[1].start_meters.to_bits(), 0.0_f64.to_bits());
     }
 }
