@@ -3361,6 +3361,42 @@ fn build_junction_hir(
         diagnostic.set_canonical_module_order(edge.module.raw());
         diagnostics.push(diagnostic);
     }
+    for (edge_key, edge) in lane_edges.iter() {
+        let owner_is_explicit_internal =
+            internal_claims[edge_key.index()]
+                .as_ref()
+                .is_some_and(|claim| {
+                    find_declared_junction_edge(&declared_internal_edges, claim.junction, edge_key)
+                        .is_some()
+                });
+        if owner_is_explicit_internal {
+            // The owner-side check above already rejects every successor on an explicit internal
+            // edge. Avoid producing a second diagnostic when its target is also internal.
+            continue;
+        }
+        for successor in &lane_edge_references[edge.successors.as_usize_range()] {
+            let Some(claim) = internal_claims[successor.target.index()].as_ref() else {
+                continue;
+            };
+            let Some(declared) = find_declared_junction_edge(
+                &declared_internal_edges,
+                claim.junction,
+                successor.target,
+            ) else {
+                continue;
+            };
+            let mut diagnostic = Diagnostic::junction_edge_set_mismatch(
+                &junctions.get(claim.junction).stable_key,
+                &lane_edges.get(successor.target).stable_key,
+                Some(&paths.get(claim.source_path).stable_key),
+                JunctionEdgeSetViolation::InternalReferencedBySuccessor,
+                successor.source_span.clone(),
+                Some(declared.source_span.clone()),
+            );
+            diagnostic.set_canonical_module_order(edge.module.raw());
+            diagnostics.push(diagnostic);
+        }
+    }
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
     }
@@ -8585,6 +8621,82 @@ mod tests {
     }
 
     #[test]
+    fn geometry_sources_follow_lir_edge_order_across_dependency_order() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut base = SyntheticModuleBuilder::new(header("city/base"), &limits).unwrap();
+        base.add_canonical_frame(CanonicalFrameInput {
+            canonical_frame_key: "world",
+            lane_edge_geometries: &[],
+        })
+        .unwrap();
+        let z = module("city/z", &["city/base"], &[("edge", &[])]);
+        // The otherwise-unused z import forces HIR dependency order z -> a, while the final
+        // Identity v1 order remains city/a -> city/z.
+        let a = module("city/a", &["city/base", "city/z"], &[("edge", &[])]);
+        let mut unit = unit([a, z, base.finish().unwrap()]);
+        let profiles = GeometryCompilationProfiles {
+            accuracy: GeometryAccuracyProfile::Balanced5Cm,
+            direction: GeometryDirectionProfile::Balanced2Deg,
+        };
+        for namespace in ["city/z", "city/a"] {
+            install_compiled_lane_geometries(&mut unit, namespace, profiles, |_| {
+                (
+                    Some(("city/base", "world")),
+                    vec![point(0.0, 0.0, 0.0), point(12.5, 0.0, 0.0)],
+                )
+            });
+        }
+
+        let hir = build_hir(&unit).unwrap();
+        let hir_geometry_namespaces = hir
+            .lane_edge_geometries
+            .iter()
+            .map(|geometry| {
+                let edge = &hir.lane_edges[geometry.lane_edge.index()];
+                hir.modules[edge.module.index()]
+                    .authoring_namespace_id
+                    .as_ref()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(hir_geometry_namespaces, ["city/z", "city/a"]);
+
+        let output = crate::Compiler::new().compile(unit).unwrap();
+        let relations = output
+            .source_map_input()
+            .spatial_relation_sources()
+            .collect::<Vec<_>>();
+        assert_eq!(relations.len(), 2);
+        assert_eq!(relations[0].local_index(), 0);
+        assert_eq!(relations[1].local_index(), 1);
+        assert_eq!(
+            relations[0].primary_source().source_document_key(),
+            "city/a"
+        );
+        assert_eq!(
+            relations[1].primary_source().source_document_key(),
+            "city/z"
+        );
+        assert_eq!(
+            relations[0]
+                .geometry_source_ranges()
+                .next()
+                .unwrap()
+                .source()
+                .source_document_key(),
+            "city/a"
+        );
+        assert_eq!(
+            relations[1]
+                .geometry_source_ranges()
+                .next()
+                .unwrap()
+                .source()
+                .source_document_key(),
+            "city/z"
+        );
+    }
+
+    #[test]
     fn hir_limits_the_actual_compiled_canonical_point_count() {
         let limits = CompileLimits::p100_initial_v1();
         let mut builder = SyntheticModuleBuilder::new(header("city/roads"), &limits).unwrap();
@@ -9409,17 +9521,40 @@ mod tests {
         )));
     }
 
-    fn explicit_junction_internal_unit(internal_has_successor: bool) -> CompilationUnit {
+    fn explicit_junction_internal_unit(
+        internal_has_successor: bool,
+        entry_targets_internal: bool,
+    ) -> CompilationUnit {
         let limits = CompileLimits::p100_initial_v1();
         let mut builder =
             SyntheticModuleBuilder::new(header("city/junction-successors"), &limits).unwrap();
         let internal_successors = [LaneEdgeReference::local("exit")];
+        let entry_to_exit = [LaneEdgeReference::local("exit")];
+        let entry_to_internal = [LaneEdgeReference::local("internal")];
+        let entry_chain = [LaneEdgeReference::local("entry")];
+        let exit_chain = [LaneEdgeReference::local("exit")];
+        let approach_lanes = [
+            AuthoringLaneInput {
+                authoring_lane_key: "lane-entry",
+                edge_chain: &entry_chain,
+                lane_group: None,
+            },
+            AuthoringLaneInput {
+                authoring_lane_key: "lane-exit",
+                edge_chain: &exit_chain,
+                lane_group: None,
+            },
+        ];
         builder
             .add_lane_edge(LaneEdgeInput {
                 lane_edge_key: "entry",
                 length_meters: 10.0,
                 speed_limit_meters_per_second: 10.0,
-                successors: &[LaneEdgeReference::local("exit")],
+                successors: if entry_targets_internal {
+                    &entry_to_internal
+                } else {
+                    &entry_to_exit
+                },
             })
             .unwrap()
             .add_lane_edge(LaneEdgeInput {
@@ -9443,14 +9578,7 @@ mod tests {
             .add_road_section(RoadSectionInput {
                 road_section_key: "section",
                 kind_id: "motorLane",
-                lanes: &[AuthoringLaneInput {
-                    authoring_lane_key: "lane",
-                    edge_chain: &[
-                        LaneEdgeReference::local("entry"),
-                        LaneEdgeReference::local("exit"),
-                    ],
-                    lane_group: None,
-                }],
+                lanes: &approach_lanes,
             })
             .unwrap()
             .add_road_corridor(RoadCorridorInput {
@@ -9506,7 +9634,7 @@ mod tests {
 
     #[test]
     fn explicit_junction_internal_edge_without_successors_uses_path_authority() {
-        let hir = build_hir(&explicit_junction_internal_unit(false)).unwrap();
+        let hir = build_hir(&explicit_junction_internal_unit(false, false)).unwrap();
         assert_eq!(hir.junction_internal_edges.len(), 1);
         let internal = &hir.junction_internal_edges[0];
         assert_eq!(
@@ -9517,7 +9645,7 @@ mod tests {
 
     #[test]
     fn explicit_junction_internal_edge_rejects_successors() {
-        let unit = explicit_junction_internal_unit(true);
+        let unit = explicit_junction_internal_unit(true, false);
 
         let diagnostics = match build_hir(&unit) {
             Ok(_) => panic!("junction-internal successors must fail"),
@@ -9531,6 +9659,32 @@ mod tests {
                 ..
             } if edge_key.as_ref() == "internal"
         )));
+    }
+
+    #[test]
+    fn explicit_junction_internal_edge_rejects_inbound_successor_authority() {
+        let unit = explicit_junction_internal_unit(false, true);
+
+        let diagnostics = match build_hir(&unit) {
+            Ok(_) => panic!("successor references into junction-internal edges must fail"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert!(
+            diagnostics.diagnostics().iter().any(|diagnostic| matches!(
+                diagnostic.payload(),
+                DiagnosticPayload::JunctionEdgeSetMismatch {
+                    edge_key,
+                    violation: JunctionEdgeSetViolation::InternalReferencedBySuccessor,
+                    ..
+                } if edge_key.as_ref() == "internal"
+            )),
+            "unexpected diagnostics: {:?}",
+            diagnostics
+                .diagnostics()
+                .iter()
+                .map(crate::Diagnostic::payload)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

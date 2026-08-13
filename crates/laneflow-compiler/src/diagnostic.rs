@@ -462,6 +462,7 @@ pub enum JunctionEdgeSetViolation {
     DeclaredInternalUnused,
     ApproachClaimedInternal,
     InternalHasSuccessors,
+    InternalReferencedBySuccessor,
 }
 
 /// 诊断严重程度。数值顺序同时是规范排序顺序。
@@ -3567,6 +3568,9 @@ impl fmt::Display for Diagnostic {
                     }
                     JunctionEdgeSetViolation::InternalHasSuccessors => {
                         "声明了 successors，但 junction-internal 转换只能由 ManeuverPath 派生"
+                    }
+                    JunctionEdgeSetViolation::InternalReferencedBySuccessor => {
+                        "被显式 successor 引用，但 junction-internal 转换只能由 ManeuverPath 派生"
                     }
                 })
             }

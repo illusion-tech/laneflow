@@ -395,16 +395,25 @@ pub(crate) fn freeze_source_map(
         .saturating_add(requested_bytes::<RouteRelationSourceRecord>(
             route_relation_count,
         ));
-    // 派生内部边需要按 owner 生成稠密 local index；计数器只活到源映射冻结完成。
+    // 派生内部边需要按 owner 生成稠密 local index；空间关系还需要把 MIR 几何按最终
+    // LaneEdgeOrdinal 重排，并为每个 frame 生成独立 local index。两张空间 scratch 表
+    // 同时存续；其余 scratch 与该阶段不重叠，取峰值即可。
+    let spatial_order_scratch_bytes =
+        requested_bytes::<Option<usize>>(mir.lane_edges.len().try_into().unwrap_or(u64::MAX))
+            .saturating_add(requested_bytes::<u32>(
+                mir.canonical_frames.len().try_into().unwrap_or(u64::MAX),
+            ));
     let source_map_scratch_bytes =
-        requested_bytes::<u32>(mir.junctions.len().try_into().unwrap_or(u64::MAX)).max(
-            requested_bytes::<(ParticipantClassOrdinal, SourceLocation)>(
-                mir.access_rule_participant_classes
-                    .len()
-                    .try_into()
-                    .unwrap_or(u64::MAX),
-            ),
-        );
+        requested_bytes::<u32>(mir.junctions.len().try_into().unwrap_or(u64::MAX))
+            .max(
+                requested_bytes::<(ParticipantClassOrdinal, SourceLocation)>(
+                    mir.access_rule_participant_classes
+                        .len()
+                        .try_into()
+                        .unwrap_or(u64::MAX),
+                ),
+            )
+            .max(spatial_order_scratch_bytes);
     let sizing = SourceMapSizing::from_components(
         &unit,
         mir,
@@ -1134,39 +1143,65 @@ pub(crate) fn freeze_source_map(
             stable_id: frame.stable_id,
             primary: location.resolve(frame.module, &frame.source_span)?,
         });
-        for (local_index, geometry) in mir.lane_edge_geometries
-            [frame.lane_edge_geometries.as_usize_range()]
+    }
+    let mut mir_edge_to_geometry = vec![None; mir.lane_edges.len()];
+    for (geometry_index, geometry) in mir.lane_edge_geometries.iter().enumerate() {
+        debug_assert!(mir_edge_to_geometry[geometry.lane_edge.index()].is_none());
+        mir_edge_to_geometry[geometry.lane_edge.index()] = Some(geometry_index);
+    }
+    let mut next_local_index_by_frame = vec![0_u32; mir.canonical_frames.len()];
+    for mir_edge in frozen_lir
+        .lane_edges
+        .stage_keys_in_lir_order()
         .iter()
-        .enumerate()
-        {
-            let geometry_point_start = geometry.points.start();
-            let mir_source_ranges =
-                &mir.geometry_source_ranges[geometry.source_ranges.as_usize_range()];
-            let mut source_ranges = Vec::with_capacity(mir_source_ranges.len());
-            for range in mir_source_ranges {
-                source_ranges.push(SpatialGeometrySourceRangeRecord {
-                    point_start: range.points.start().saturating_sub(geometry_point_start),
-                    point_end_exclusive: range
-                        .points
-                        .start()
-                        .saturating_sub(geometry_point_start)
-                        .saturating_add(range.points.len()),
-                    source_segment_ordinal: range.source_segment_ordinal,
-                    source: location.resolve(range.source_module, &range.source)?,
-                });
-            }
-            let source_ranges = source_ranges.into_boxed_slice();
-            spatial_relation_sources.push(SpatialRelationSourceRecord {
-                owner_ordinal: ordinal,
-                owner_stable_id: frame.stable_id,
-                role: SourceRelationRole::CanonicalFrameLaneEdgeGeometry,
-                local_index: u32::try_from(local_index)
-                    .expect("MIR range precheck proved local index fits u32"),
-                primary: location.resolve(geometry.source_module, &geometry.source_span)?,
-                source_ranges,
+        .copied()
+    {
+        let Some(geometry_index) = mir_edge_to_geometry[mir_edge.index()] else {
+            debug_assert!(mir.lane_edge_geometries.is_empty());
+            continue;
+        };
+        let geometry = &mir.lane_edge_geometries[geometry_index];
+        let frame = &mir.canonical_frames[geometry.canonical_frame.index()];
+        let owner_ordinal = frozen_lir
+            .canonical_frames
+            .ordinal(geometry.canonical_frame);
+        let local_index = next_local_index_by_frame[geometry.canonical_frame.index()];
+        next_local_index_by_frame[geometry.canonical_frame.index()] = local_index
+            .checked_add(1)
+            .expect("MIR range precheck proved local index fits u32");
+        let geometry_point_start = geometry.points.start();
+        let mir_source_ranges =
+            &mir.geometry_source_ranges[geometry.source_ranges.as_usize_range()];
+        let mut source_ranges = Vec::with_capacity(mir_source_ranges.len());
+        for range in mir_source_ranges {
+            source_ranges.push(SpatialGeometrySourceRangeRecord {
+                point_start: range.points.start().saturating_sub(geometry_point_start),
+                point_end_exclusive: range
+                    .points
+                    .start()
+                    .saturating_sub(geometry_point_start)
+                    .saturating_add(range.points.len()),
+                source_segment_ordinal: range.source_segment_ordinal,
+                source: location.resolve(range.source_module, &range.source)?,
             });
         }
+        spatial_relation_sources.push(SpatialRelationSourceRecord {
+            owner_ordinal,
+            owner_stable_id: frame.stable_id,
+            role: SourceRelationRole::CanonicalFrameLaneEdgeGeometry,
+            local_index,
+            primary: location.resolve(geometry.source_module, &geometry.source_span)?,
+            source_ranges: source_ranges.into_boxed_slice(),
+        });
     }
+    for (frame_index, frame) in mir.canonical_frames.iter().enumerate() {
+        debug_assert_eq!(
+            next_local_index_by_frame[frame_index],
+            frame.lane_edge_geometries.len(),
+        );
+    }
+    spatial_relation_sources
+        .sort_unstable_by_key(|source| (source.owner_ordinal, source.role, source.local_index));
     for mir_key in frozen_lir
         .access_rules
         .stage_keys_in_lir_order()
