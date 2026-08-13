@@ -207,7 +207,7 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 | station reference 基表 | `f64` 累计弦长       | compiler             | 配置档无关、按 source curve segment 组织的累计弦长；不按 edge 序列累计 |
 | geometry MIR / 配置档近似 | `f64`             | compiler             | 位置/方向档的独立细分参考仍为 `f64`                                  |
 | canonical LIR 折线     | `f32`（量化后，唯一）| compiler 输出         | ADR 0022 五层中唯一进入运行时规范权威的几何                           |
-| canonical digest       | 字节序列             | compiler 输出         | hash 输入是字节序列，不参与几何算术                                  |
+| LIR semantic fingerprint | 字节序列           | compiler 输出         | 同版本 LIR 语义指纹；#298 的 portable artifact 字节完整性 digest 归 #298 |
 | Core ↔ compiler projection | 仅 integration-only | `laneflow-compiler-test-support` | 投影不进入 `laneflow-compiler` 生产功能，#294 cutover 删除        |
 
 - 当前生产 Core 交通连续量仍为 `f64`（production）；ADR 0014 的已接受目标契约（`EdgeLength`/`Speed`/`Acceleration` 为 `f32`、`EdgeProgress` 为补偿 `f32`）仍是目标且经 #144 no-go 后未切换；compiler authoring 侧保持 `f64` 不改变这两者之一。
@@ -215,6 +215,7 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 - 编制解析曲线、station 基表与配置档近似参考均以 `f64` 存续；只有 canonical 运行时折线量化到有界 `f32`（ADR 0022 五层表示）。
 - stationing 是 authoring 曲线的配置档无关累计弦长基表，按 source curve segment 组织，不属于运行时 edge 序列里程。
 - 受检的 `f64 → f32` 转换只发生在 canonical 输出边界，不允许在 lowering 各处以隐式 `as`/截断提前量化（与 ADR 0014/0015/0022 一致）。
+- 唯一例外：subdivision 的候选弦端点必须先把 evaluator point value 量化为最终 `f32` 再无损提升回 `f64`（作为 `Qa/Qb`），随后才做 distance test（ADR 0022 251–257）；这不授权在 AST/HIR/MIR authority 使用 `f32` 或未受检窄化。
 
 研究结果解释：
 
