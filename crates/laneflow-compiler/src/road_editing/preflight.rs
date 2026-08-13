@@ -169,9 +169,7 @@ impl RoadEditingPreflightCounts {
         let parsed = validate_wire_reference(value, component_count, allow_qualified)
             .map_err(|violation| semantic_error(field, violation, expected_key))?;
         if let Some(namespace) = parsed.namespace() {
-            if namespace == current_namespace
-                || !imports.iter().any(|import| import == namespace)
-            {
+            if namespace == current_namespace || !imports.iter().any(|import| import == namespace) {
                 return Err(semantic_error(
                     field,
                     RoadEditingInputViolation::InvalidCombination,
