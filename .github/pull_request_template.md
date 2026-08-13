@@ -33,7 +33,7 @@
 - 示例或演示影响：`无` / 说明：
 - 依赖 / 许可证影响：`无` / 说明依赖名称、用途、来源、许可证和分发影响：
 - 破坏性变更：`否` / `是`，说明：
-- 数值权威：本 PR 引入或修改的数值域（几何/桩号/偏移/字面量/来源位置）各采用什么标量、允许范围与转换边界？只有完全未触及数值域及其转换边界时才可填写 `N/A`，原因： / 逐域声明：`域：标量（f32/f64/整数/字节），范围与转换边界：，依据：`；整数域必须写明确切 signedness 与宽度（`u64`/`u32`/`i32` 等），不得只写 `整数`；注明 `f64 → f32` 量化是否仅发生在 geometry compile 的 `quantize_point` 边界（受检且不可在 wire/lowering 提前窄化、不在 HIR 内部 SpatialHir 子表示、MIR 或 LIR 中二次量化）；offset horizontal-regularity proof 是否在细分前对 binary64 derivative controls 做独立 interval walk（不产生 canonical point），subdivision acceptance 与最终 canonical direction 检查是否仅把已量化 `f32` 弦端点经 `promote_point` 无损提升回 `f64` 后做 distance/direction test（ADR 0022 220–280）；若触及 Core ↔ compiler 投影，是否仅为 integration-only（`laneflow-compiler-test-support`，#294 删除）：
+- 数值权威：本 PR 引入或修改的数值域（几何/桩号/偏移/字面量/来源位置）各采用什么标量、允许范围与转换边界？只有完全未触及数值域及其转换边界时才可填写 `N/A`，原因： / 逐域声明：`域：标量（f32/f64/整数/字节数组），范围与转换边界：，依据：`；整数域必须写明确切 signedness 与宽度（`u64`/`u32`/`i32` 等），不得只写 `整数`；字节数组必须写明元素 signedness/宽度与固定长度（例如 `[u8; 32]`），不得只写 `字节` 或 `字节序列`；注明 `f64 → f32` 量化是否仅发生在 geometry compile 的 `quantize_point` 边界（受检且不可在 wire/lowering 提前窄化、不在 HIR 内部 SpatialHir 子表示、MIR 或 LIR 中二次量化）；offset horizontal-regularity proof 是否在细分前对 binary64 derivative controls 做独立 interval walk（不产生 canonical point），subdivision acceptance 与最终 canonical direction 检查是否仅把已量化 `f32` 弦端点经 `promote_point` 无损提升回 `f64` 后做 distance/direction test（ADR 0022 220–280）；若触及 Core ↔ compiler 投影，是否仅为 integration-only（`laneflow-compiler-test-support`，#294 删除）：
 
 ## 设计依据
 
