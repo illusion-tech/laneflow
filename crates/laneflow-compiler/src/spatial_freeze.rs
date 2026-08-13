@@ -199,6 +199,8 @@ pub(crate) fn check_spatial_direction(
     right: [f64; 3],
     profile: GeometryDirectionProfile,
 ) -> SpatialDirectionCheck {
+    let left = scale_spatial_direction(left);
+    let right = scale_spatial_direction(right);
     let x = left[0] * right[0];
     let y = left[1] * right[1];
     let xy = x + y;
@@ -226,6 +228,15 @@ pub(crate) fn check_spatial_direction(
         lhs_bits: lhs.to_bits(),
         rhs_bits: rhs.to_bits(),
     }
+}
+
+fn scale_spatial_direction(vector: [f64; 3]) -> [f64; 3] {
+    let scale = vector[0].abs().max(vector[1].abs()).max(vector[2].abs());
+    debug_assert!(
+        scale.is_finite() && scale > 0.0,
+        "validated spatial chord must have a finite non-zero scale"
+    );
+    [vector[0] / scale, vector[1] / scale, vector[2] / scale]
 }
 
 fn normalize_spatial_vector(vector: [f32; 3]) -> [f32; 3] {
@@ -306,5 +317,18 @@ mod tests {
             )
             .accepted
         );
+    }
+
+    #[test]
+    fn direction_check_scales_each_chord_before_the_frozen_operation_graph() {
+        let check = check_spatial_direction(
+            [2.0, 1.0, 0.0],
+            [4.0, 1.0, 0.0],
+            GeometryDirectionProfile::Compact5Deg,
+        );
+
+        assert_eq!(f64::from_bits(check.dot_bits), 1.125);
+        assert_eq!(f64::from_bits(check.lhs_bits), 1.265_625);
+        assert_ne!(f64::from_bits(check.dot_bits), 9.0);
     }
 }
