@@ -33,7 +33,7 @@
 - 示例或演示影响：`无` / 说明：
 - 依赖 / 许可证影响：`无` / 说明依赖名称、用途、来源、许可证和分发影响：
 - 破坏性变更：`否` / `是`，说明：
-- 数值权威：本 PR 引入的数值域（几何/桩号/偏移/字面量/来源位置）各采用什么标量？`N/A`，原因： / 逐域声明：`域：标量（f32/f64/整数/字节），依据：`；整数域必须写明确切 signedness 与宽度（`u64`/`u32`/`i32` 等），不得只写 `整数`；注明 `f64 → f32` 是否仅发生在 canonical 输出边界（受检且不可在 lowering 中提前量化），唯一的 subdivision 候选弦端点量化例外见 ADR 0022；若触及 Core ↔ compiler 投影，是否仅为 integration-only（`laneflow-compiler-test-support`，#294 删除）：
+- 数值权威：本 PR 引入的数值域（几何/桩号/偏移/字面量/来源位置）各采用什么标量？`N/A`，原因： / 逐域声明：`域：标量（f32/f64/整数/字节），依据：`；整数域必须写明确切 signedness 与宽度（`u64`/`u32`/`i32` 等），不得只写 `整数`；注明 `f64 → f32` 量化是否仅发生在 geometry compile 的 `quantize_point` 边界（受检且不可在 wire/lowering 提前窄化、不在 Spatial HIR/MIR/LIR 之后二次量化），subdivision/regularity 判定把已量化 `f32` 经 `promote_point` 无损提升回 `f64` 后做 distance/direction test（ADR 0022 251–257）；若触及 Core ↔ compiler 投影，是否仅为 integration-only（`laneflow-compiler-test-support`，#294 删除）：
 
 ## 设计依据
 
