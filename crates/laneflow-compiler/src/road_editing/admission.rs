@@ -1073,8 +1073,13 @@ mod tests {
                 .unwrap(),
             ),
             RoadEditingDeclaration::RoadSection(
-                RoadSectionInput::try_new("section", "road", vec![lane.clone()], corridor.clone())
-                    .unwrap(),
+                RoadSectionInput::try_new(
+                    "section",
+                    "motorLane",
+                    vec![lane.clone()],
+                    corridor.clone(),
+                )
+                .unwrap(),
             ),
             RoadEditingDeclaration::AuthoringLane(
                 AuthoringLaneInput::try_new(

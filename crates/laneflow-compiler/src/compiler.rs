@@ -5208,12 +5208,26 @@ mod tests {
     #[test]
     fn path_owned_internal_transition_accepts_release_stop_without_explicit_successor() {
         let mut builder = junction_builder("internal-release-stop.document");
+        let entry_chain = [LaneEdgeReference::local("entry")];
+        let exit_chain = [LaneEdgeReference::local("exit")];
+        let approach_lanes = [
+            AuthoringLaneInput {
+                authoring_lane_key: "lane-entry",
+                edge_chain: &entry_chain,
+                lane_group: None,
+            },
+            AuthoringLaneInput {
+                authoring_lane_key: "lane-exit",
+                edge_chain: &exit_chain,
+                lane_group: None,
+            },
+        ];
         builder
             .add_lane_edge(LaneEdgeInput {
                 lane_edge_key: "entry",
                 length_meters: 10.0,
                 speed_limit_meters_per_second: 10.0,
-                successors: &[LaneEdgeReference::local("middle")],
+                successors: &[LaneEdgeReference::local("exit")],
             })
             .unwrap()
             .add_lane_edge(LaneEdgeInput {
@@ -5228,6 +5242,20 @@ mod tests {
                 length_meters: 12.0,
                 speed_limit_meters_per_second: 10.0,
                 successors: &[],
+            })
+            .unwrap()
+            .add_road_section(RoadSectionInput {
+                road_section_key: "section-main",
+                kind_id: "motorLane",
+                lanes: &approach_lanes,
+            })
+            .unwrap()
+            .add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor-main",
+                reference_section: RoadSectionReference::local("section-main"),
+                elements: &[CorridorElementReference::road_section(
+                    RoadSectionReference::local("section-main"),
+                )],
             })
             .unwrap()
             .add_junction(JunctionInput {
@@ -5272,9 +5300,29 @@ mod tests {
             })
             .unwrap();
 
-        let output = Compiler::new()
-            .compile(unit([builder.finish().unwrap()]))
+        let mut input = unit([builder.finish().unwrap()]);
+        let junction = input.modules[0]
+            .declarations
+            .iter_mut()
+            .find_map(|declaration| match declaration {
+                TypedAstDeclaration::Junction(junction) => Some(junction),
+                _ => None,
+            })
             .unwrap();
+        let namespace = Arc::<str>::from("city/junction");
+        let document = Arc::<str>::from("internal-release-stop.document");
+        let location = |column| SourceSpan::point(Arc::clone(&document), 1, column);
+        junction.approach_edges = Box::new([
+            OwnedEntityReference::new(Arc::clone(&namespace), Arc::from("entry"), location(1)),
+            OwnedEntityReference::new(Arc::clone(&namespace), Arc::from("exit"), location(2)),
+        ]);
+        junction.internal_edges = Box::new([OwnedEntityReference::new(
+            Arc::clone(&namespace),
+            Arc::from("middle"),
+            location(3),
+        )]);
+
+        let output = Compiler::new().compile(input).unwrap();
         assert_eq!(output.lir().maneuver_gates().count(), 1);
         assert_eq!(output.lir().static_routes().count(), 1);
         let route = output.lir().static_routes().next().unwrap();

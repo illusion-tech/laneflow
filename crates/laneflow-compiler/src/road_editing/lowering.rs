@@ -2568,8 +2568,13 @@ mod tests {
         let locations = RoadEditingLocationFactory::from_verified_root(verified.root());
         let shared_namespace = Arc::from(verified.root().module_header().authoring_namespace_id());
 
-        let declarations =
-            lower_aggregate_declarations(verified.root(), &locations, &shared_namespace);
+        let mut declarations = Vec::new();
+        lower_aggregate_declarations(
+            verified.root(),
+            &locations,
+            &shared_namespace,
+            &mut declarations,
+        );
         let regulation = declarations
             .iter()
             .find_map(|declaration| match declaration {
