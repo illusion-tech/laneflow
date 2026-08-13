@@ -493,6 +493,9 @@ pub(super) fn compile_authoring_geometry(
         scratch.release_bytes(numeric_scratch_bytes);
         let compiled = compiled_result?;
         used_points = charge_points(geometry_point_limit, used_points, compiled.points.len())?;
+        if lane_outputs.len() == expected_lane_outputs {
+            return Err(NumericFreezeError::GeometryTopologyMismatch.into());
+        }
         lane_outputs.push(PendingLaneGeometry {
             target: edge.header.source_address.clone(),
             value: Some(CompiledLaneEdgeGeometry {
@@ -566,6 +569,9 @@ pub(super) fn compile_authoring_geometry(
             used_points = charge_points(geometry_point_limit, used_points, compiled.points.len())?;
             match &member.target {
                 CorridorMemberTarget::LaneEdge { target, .. } => {
+                    if lane_outputs.len() == expected_lane_outputs {
+                        return Err(NumericFreezeError::GeometryTopologyMismatch.into());
+                    }
                     lane_outputs.push(PendingLaneGeometry {
                         target: (*target).clone(),
                         value: Some(CompiledLaneEdgeGeometry {
@@ -577,6 +583,9 @@ pub(super) fn compile_authoring_geometry(
                     });
                 }
                 CorridorMemberTarget::FacilityBand { target } => {
+                    if facility_outputs.len() == expected_facility_outputs {
+                        return Err(NumericFreezeError::GeometryTopologyMismatch.into());
+                    }
                     facility_outputs.push(PendingFacilityGeometry {
                         target: (*target).clone(),
                         value: Some(CompiledFacilityBandGeometry {
@@ -1315,6 +1324,10 @@ fn walk_offset_program(
                 && station_start == corridor_start_meters
                 && station_start == station_end
             {
+                if !began_source_segment {
+                    sink.begin_source_segment(segment_ordinal, &source.span)?;
+                    began_source_segment = true;
+                }
                 let parameter = parameter_in_station_row(row, corridor_start_meters)?;
                 sink.push(ApproximationVertex {
                     parameter,
@@ -2195,6 +2208,50 @@ mod tests {
                 .source_ranges
                 .iter()
                 .all(|range| range.source_segment_ordinal != 2 && range.source != span(4))
+        );
+    }
+
+    #[test]
+    fn corridor_start_at_source_boundary_keeps_the_first_point_in_a_source_range() {
+        let program = AuthoringCurveProgramDeclaration {
+            start: point(0.0, 0.0),
+            start_span: span(1),
+            segments: vec![
+                AuthoringCurveSegmentDeclaration {
+                    geometry: AuthoringCurveSegmentGeometry::Line {
+                        end: point(1.0, 0.0),
+                    },
+                    span: span(2),
+                },
+                AuthoringCurveSegmentDeclaration {
+                    geometry: AuthoringCurveSegmentGeometry::Line {
+                        end: point(2.0, 0.0),
+                    },
+                    span: span(3),
+                },
+            ]
+            .into_boxed_slice(),
+        };
+        let reference = compile_alignment_reference(&program, station_row_bytes(2)).unwrap();
+
+        let compiled = compile_offset_curve(
+            &program,
+            &reference,
+            1.0,
+            2.0,
+            0.0,
+            0.0,
+            AuthoringLaneDirection::Forward,
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            2,
+        )
+        .unwrap();
+
+        assert_eq!(compiled.source_ranges[0].point_start, 0);
+        assert_eq!(
+            compiled.source_ranges.last().unwrap().point_end_exclusive,
+            u32::try_from(compiled.points.len()).unwrap()
         );
     }
 
