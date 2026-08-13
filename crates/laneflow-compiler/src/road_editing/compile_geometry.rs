@@ -8,7 +8,7 @@ use crate::{GeometryAccuracyProfile, GeometryDirectionProfile};
 
 use super::geometry::{
     ApproximationInterval, ApproximationPointSink, ApproximationVertex, CurveSegment,
-    NumericFreezeError, Point3, SegmentEvaluator, approximate_interval, quantize_point,
+    NumericFreezeError, Point3, SegmentEvaluator, approximate_interval,
     validate_canonical_polyline,
 };
 
@@ -78,7 +78,7 @@ fn walk_reference_program(
                 )
             }
         };
-        approximate_interval(
+        welded_start = Some(approximate_interval(
             SegmentEvaluator::Reference(segment),
             ApproximationInterval {
                 parameter_start: 0.0,
@@ -89,8 +89,7 @@ fn walk_reference_program(
             accuracy,
             direction,
             sink,
-        )?;
-        welded_start = Some(quantize_point(end)?);
+        )?);
         start = end;
     }
     Ok(())
@@ -243,5 +242,44 @@ mod tests {
         assert_eq!(compiled.points[1].x, 3.0);
         assert_eq!(compiled.points[2].x, 6.0);
         assert_eq!(compiled.length.value(), 6.0);
+    }
+
+    #[test]
+    fn adjacent_segments_reuse_the_endpoint_bits_emitted_by_the_evaluator() {
+        let source_endpoint = 1.000_000_048_045_901_5e-10;
+        let program = AuthoringCurveProgramDeclaration {
+            start: point(16_384.0, 0.0),
+            start_span: span(1),
+            segments: vec![
+                AuthoringCurveSegmentDeclaration {
+                    geometry: AuthoringCurveSegmentGeometry::Line {
+                        end: point(source_endpoint, 0.0),
+                    },
+                    span: span(2),
+                },
+                AuthoringCurveSegmentDeclaration {
+                    geometry: AuthoringCurveSegmentGeometry::Line {
+                        end: point(-1.0, 0.0),
+                    },
+                    span: span(3),
+                },
+            ]
+            .into_boxed_slice(),
+        };
+
+        let compiled = compile_explicit_curve(
+            &program,
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            3,
+        )
+        .expect("the second segment must weld to the endpoint actually emitted by the first");
+
+        assert_eq!(compiled.points.len(), 3);
+        assert_eq!(compiled.points[1].x.to_bits(), 0x2edc_0000);
+        assert_ne!(
+            compiled.points[1].x.to_bits(),
+            (source_endpoint as f32).to_bits()
+        );
     }
 }
