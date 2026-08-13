@@ -68,7 +68,7 @@ pub(super) struct CurveSample {
 
 pub(super) type ApproximationPoint = CanonicalPoint3F32Input;
 
-pub(super) fn quantize_point(value: Point3) -> Result<ApproximationPoint, NumericFreezeError> {
+fn quantize_point(value: Point3) -> Result<ApproximationPoint, NumericFreezeError> {
     let minimum = f64::from(CANONICAL_POINT_COMPONENT_MIN_METERS);
     let maximum = f64::from(CANONICAL_POINT_COMPONENT_MAX_METERS);
     if [value.x, value.y, value.z]
@@ -164,7 +164,7 @@ pub(super) fn approximate_interval(
     accuracy: GeometryAccuracyProfile,
     direction: GeometryDirectionProfile,
     sink: &mut impl ApproximationPointSink,
-) -> Result<(), NumericFreezeError> {
+) -> Result<ApproximationPoint, NumericFreezeError> {
     let ApproximationInterval {
         parameter_start,
         parameter_end,
@@ -242,7 +242,7 @@ pub(super) fn approximate_interval(
         });
         stack_len += 2;
     }
-    Ok(())
+    Ok(end.point)
 }
 
 fn candidate_accepts(
