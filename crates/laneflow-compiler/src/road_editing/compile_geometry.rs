@@ -8,7 +8,7 @@ use crate::{GeometryAccuracyProfile, GeometryDirectionProfile};
 
 use super::geometry::{
     ApproximationInterval, ApproximationPointSink, ApproximationVertex, CurveSegment,
-    NumericFreezeError, Point3, SegmentEvaluator, approximate_interval,
+    NumericFreezeError, Point3, SegmentEvaluator, approximate_interval, quantize_point,
     validate_canonical_polyline,
 };
 
@@ -52,6 +52,7 @@ fn walk_reference_program(
     sink: &mut impl ApproximationPointSink,
 ) -> Result<(), NumericFreezeError> {
     let mut start = point3(program.start)?;
+    let mut welded_start = None;
     for (segment_index, source) in program.segments.iter().enumerate() {
         let (segment, end) = match source.geometry {
             AuthoringCurveSegmentGeometry::Line { end } => {
@@ -82,13 +83,14 @@ fn walk_reference_program(
             ApproximationInterval {
                 parameter_start: 0.0,
                 parameter_end: 1.0,
-                welded_start: None,
+                welded_start,
                 emit_start: segment_index == 0,
             },
             accuracy,
             direction,
             sink,
         )?;
+        welded_start = Some(quantize_point(end)?);
         start = end;
     }
     Ok(())
@@ -204,5 +206,42 @@ mod tests {
             .err(),
             Some(NumericFreezeError::GeometryPointLimit)
         );
+    }
+
+    #[test]
+    fn adjacent_segments_reuse_the_retained_canonical_endpoint() {
+        let program = AuthoringCurveProgramDeclaration {
+            start: point(0.0, 0.0),
+            start_span: span(1),
+            segments: vec![
+                AuthoringCurveSegmentDeclaration {
+                    geometry: AuthoringCurveSegmentGeometry::Line {
+                        end: point(3.0, 0.0),
+                    },
+                    span: span(2),
+                },
+                AuthoringCurveSegmentDeclaration {
+                    geometry: AuthoringCurveSegmentGeometry::Line {
+                        end: point(6.0, 0.0),
+                    },
+                    span: span(3),
+                },
+            ]
+            .into_boxed_slice(),
+        };
+
+        let compiled = compile_explicit_curve(
+            &program,
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            3,
+        )
+        .expect("adjacent segments share one retained endpoint");
+
+        assert_eq!(compiled.points.len(), 3);
+        assert_eq!(compiled.points[0].x, 0.0);
+        assert_eq!(compiled.points[1].x, 3.0);
+        assert_eq!(compiled.points[2].x, 6.0);
+        assert_eq!(compiled.length.value(), 6.0);
     }
 }
