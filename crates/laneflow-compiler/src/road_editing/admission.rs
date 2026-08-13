@@ -186,23 +186,23 @@ fn lowering_sort_scratch_bytes(root: wire::RoadEditingSource<'_>) -> u64 {
         })
         .max()
         .unwrap_or(0);
-    let controller_nested = root
+    let maximum_controller_groups = root
         .signal_controllers()
         .iter()
         .map(|controller| {
-            let groups = size_bytes::<&str>(
-                u64::try_from(controller.signal_groups().len()).unwrap_or(u64::MAX),
-            );
-            groups.max(maximum_phase_states)
+            size_bytes::<&str>(u64::try_from(controller.signal_groups().len()).unwrap_or(u64::MAX))
         })
         .max()
         .unwrap_or(0);
-    maximum = maximum.max(
-        size_bytes::<wire::SignalController<'_>>(
-            u64::try_from(root.signal_controllers().len()).unwrap_or(u64::MAX),
-        )
-        .saturating_add(controller_nested),
-    );
+    // controller_order 与 phase_order 在整个 signal lowering 期间同时存续；处理一个
+    // controller/phase 时，还会临时保留其 group/state 规范排序 view。
+    let signal_order =
+        size_bytes::<usize>(u64::try_from(root.signal_controllers().len()).unwrap_or(u64::MAX))
+            .saturating_add(size_bytes::<usize>(
+                u64::try_from(root.signal_phases().len()).unwrap_or(u64::MAX),
+            ));
+    maximum = maximum
+        .max(signal_order.saturating_add(maximum_controller_groups.max(maximum_phase_states)));
 
     let access_rule_nested = root
         .access_rules()
@@ -883,10 +883,12 @@ mod tests {
         RoadCorridorReference, RoadEditingCorridorElement, RoadEditingCurveProgram,
         RoadEditingCurveSegment, RoadEditingDeclaration, RoadEditingLaneDirection,
         RoadEditingModuleHeader, RoadEditingPoint3, RoadEditingProvenance,
-        RoadEditingSourceModuleBuilder, RoadEditingSourceWriter, RoadEditingStationEnd,
-        RoadSectionInput, RoadSectionReference,
+        RoadEditingSignalPhaseState, RoadEditingSourceModuleBuilder, RoadEditingSourceWriter,
+        RoadEditingStationEnd, RoadSectionInput, RoadSectionReference, SignalControllerInput,
+        SignalControllerReference, SignalGroupInput, SignalGroupReference, SignalPhaseInput,
+        SignalPhaseReference,
     };
-    use crate::{RoadEditingDocumentIdentity, RoadEditingSubject, SourceLocation};
+    use crate::{RoadEditingDocumentIdentity, RoadEditingSubject, SignalAspect, SourceLocation};
 
     fn source_buffer(
         limits: &CompileLimits,
@@ -964,6 +966,64 @@ mod tests {
                 LaneEdgeInput::try_new("edge-b", 10.0, Vec::new(), None).unwrap(),
             ))
             .unwrap();
+        RoadEditingSourceWriter::new(limits)
+            .write(builder.finish().unwrap())
+            .unwrap()
+    }
+
+    fn signal_sort_buffer(limits: &CompileLimits) -> super::super::OwnedRoadEditingSourceBuffer {
+        let header = RoadEditingModuleHeader::try_new(
+            "city",
+            "roads/signal-sort",
+            Vec::new(),
+            RoadEditingProvenance::direct("editor save").unwrap(),
+        )
+        .unwrap();
+        let mut builder = RoadEditingSourceModuleBuilder::new(
+            header,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            limits,
+        )
+        .unwrap();
+        let group = SignalGroupReference::local("group").unwrap();
+        let controller = SignalControllerReference::local("controller").unwrap();
+        let mut phase_references = Vec::new();
+        let mut phases = Vec::new();
+        for ordinal in 0..8 {
+            let key = format!("phase-{ordinal}");
+            phase_references.push(
+                SignalPhaseReference::owner_scoped(vec!["controller".into()], key.clone()).unwrap(),
+            );
+            phases.push(
+                SignalPhaseInput::try_new(
+                    key,
+                    1_000,
+                    vec![
+                        RoadEditingSignalPhaseState::try_new(group.clone(), SignalAspect::Green)
+                            .unwrap(),
+                    ],
+                    controller.clone(),
+                )
+                .unwrap(),
+            );
+        }
+        builder
+            .add_declaration(RoadEditingDeclaration::SignalGroup(
+                SignalGroupInput::try_new("group").unwrap(),
+            ))
+            .unwrap();
+        builder
+            .add_declaration(RoadEditingDeclaration::SignalController(
+                SignalControllerInput::try_new("controller", 0, vec![group], phase_references)
+                    .unwrap(),
+            ))
+            .unwrap();
+        for phase in phases {
+            builder
+                .add_declaration(RoadEditingDeclaration::SignalPhase(phase))
+                .unwrap();
+        }
         RoadEditingSourceWriter::new(limits)
             .write(builder.finish().unwrap())
             .unwrap()
@@ -1473,6 +1533,54 @@ mod tests {
         assert!(
             precheck_accumulated_counts(&builder, &limits, &verified).is_err(),
             "boundary minus one must fail before candidate commit"
+        );
+        assert_eq!(
+            builder.already_admitted(CompileLimitDimension::ModuleCount),
+            0
+        );
+    }
+
+    #[test]
+    fn lowering_scratch_counts_both_signal_orders_and_nested_view() {
+        let broad = CompileLimits::p100_initial_v1();
+        let buffer = signal_sort_buffer(&broad);
+        let verified = verify_source(
+            RoadEditingModuleInput::try_new("roads/signal-sort", buffer.as_bytes(), None).unwrap(),
+            &broad,
+            0,
+            0,
+        )
+        .unwrap();
+        let root = verified.root();
+        let nested = size_bytes::<&str>(1).max(size_bytes::<wire::SignalPhaseState<'_>>(1));
+        let expected = size_bytes::<usize>(1)
+            .saturating_add(size_bytes::<usize>(8))
+            .saturating_add(nested);
+        assert_eq!(
+            lowering_sort_scratch_bytes(root),
+            expected,
+            "signal lowering retains controller and phase order tables beside one nested view"
+        );
+        let expected = u32::try_from(expected).expect("small signal scratch fixture");
+
+        let limits = broad
+            .clone()
+            .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, expected);
+        precheck_accumulated_counts(
+            &CompilationUnitBuilder::new(limits.clone()),
+            &limits,
+            &verified,
+        )
+        .expect("the exact signal order-plus-nested scratch boundary must pass");
+
+        let limits = broad.with_test_admission_limit(
+            CompileLimitDimension::StageScratchBytes,
+            expected.saturating_sub(1),
+        );
+        let builder = CompilationUnitBuilder::new(limits.clone());
+        assert!(
+            precheck_accumulated_counts(&builder, &limits, &verified).is_err(),
+            "boundary minus one must fail before signal lowering"
         );
         assert_eq!(
             builder.already_admitted(CompileLimitDimension::ModuleCount),
