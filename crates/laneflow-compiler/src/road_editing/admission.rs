@@ -266,6 +266,15 @@ fn precheck_accumulated_counts(
     let display_items = u64::from(display_source.is_some());
     let display_bytes =
         display_source.map_or(0, |value| u64::try_from(value.len()).unwrap_or(u64::MAX));
+    let single_string_limit = limits.value(CompileLimitDimension::SingleStringBytes);
+    if display_bytes > single_string_limit {
+        return Err(accumulated_limit_error(
+            CompileLimitDimension::SingleStringBytes,
+            single_string_limit,
+            display_bytes,
+            verified,
+        ));
+    }
     let import_count =
         u64::try_from(verified.root().module_header().imports().len()).unwrap_or(u64::MAX);
     let sizing = RoadEditingAdmissionSizing::from_root(verified.root(), import_count);
@@ -1256,7 +1265,7 @@ mod tests {
     }
 
     #[test]
-    fn authoring_control_points_do_not_consume_canonical_output_point_budget() {
+    fn authoring_control_points_do_not_consume_the_canonical_precheck_budget() {
         let normal_limits = CompileLimits::p100_initial_v1();
         let header = RoadEditingModuleHeader::try_new(
             "city",
@@ -1301,15 +1310,62 @@ mod tests {
             .unwrap();
         let limits =
             normal_limits.with_test_admission_limit(CompileLimitDimension::GeometryPointCount, 1);
-        let mut builder = CompilationUnitBuilder::new(limits);
+        let mut builder = CompilationUnitBuilder::new(limits.clone());
 
-        builder
-            .add_road_editing_module(
-                RoadEditingModuleInput::try_new("roads/curves", buffer.as_bytes(), None).unwrap(),
-            )
-            .expect("authoring-only station points must not consume the canonical output budget");
+        let input =
+            RoadEditingModuleInput::try_new("roads/curves", buffer.as_bytes(), None).unwrap();
+        let verified = verify_source(input, &limits, 0, 0).unwrap();
+        precheck_accumulated_counts(&builder, &limits, &verified)
+            .expect("authoring control points must not consume the canonical output budget");
+        assert!(
+            builder.add_road_editing_module(input).is_err(),
+            "an alignment without a corridor must still fail the topology closure"
+        );
         assert_eq!(
             builder.already_admitted(CompileLimitDimension::GeometryPointCount),
+            0
+        );
+        assert_eq!(
+            builder.already_admitted(CompileLimitDimension::ModuleCount),
+            0
+        );
+    }
+
+    #[test]
+    fn display_source_obeys_the_single_string_limit_before_retention() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer(&limits, "city", "roads/display-source");
+        let exact = "x".repeat(
+            usize::try_from(limits.value(CompileLimitDimension::SingleStringBytes)).unwrap(),
+        );
+        CompilationUnitBuilder::new(limits.clone())
+            .add_road_editing_module(
+                RoadEditingModuleInput::try_new(
+                    "roads/display-source",
+                    buffer.as_bytes(),
+                    Some(&exact),
+                )
+                .unwrap(),
+            )
+            .expect("the inclusive display-source boundary must pass");
+
+        let over_limit = format!("{exact}x");
+        let mut rejected = CompilationUnitBuilder::new(limits);
+        assert!(
+            rejected
+                .add_road_editing_module(
+                    RoadEditingModuleInput::try_new(
+                        "roads/display-source",
+                        buffer.as_bytes(),
+                        Some(&over_limit),
+                    )
+                    .unwrap(),
+                )
+                .is_err(),
+            "boundary plus one must fail before display-source retention"
+        );
+        assert_eq!(
+            rejected.already_admitted(CompileLimitDimension::ModuleCount),
             0
         );
     }

@@ -1125,6 +1125,18 @@ fn resolve_corridor_plans<'a>(
                     .cmp(&right.corridor.header.source_address)
             })
     });
+    let referenced_alignment_count = plans
+        .iter()
+        .enumerate()
+        .filter(|(index, plan)| {
+            *index == 0
+                || plans[*index - 1].alignment.road_alignment_key
+                    != plan.alignment.road_alignment_key
+        })
+        .count();
+    if referenced_alignment_count != alignments.len() {
+        return Err(NumericFreezeError::GeometryTopologyMismatch.into());
+    }
     let section_count = index.sections.len();
     let facility_count = index.facility_bands.len();
     drop(index);
@@ -3428,7 +3440,7 @@ mod tests {
     }
 
     #[test]
-    fn unused_alignments_do_not_consume_station_compilation_resources() {
+    fn every_alignment_must_have_a_complete_corridor_partition() {
         let (alignments, mut declarations) = lowered_geometry_fixture();
         let mut alignments = alignments.into_vec();
         alignments.push(RoadAlignmentDeclaration {
@@ -3450,7 +3462,7 @@ mod tests {
             span: span(9),
         });
 
-        assert_eq!(
+        assert!(matches!(
             compile_authoring_geometry(
                 "city",
                 alignments.into_boxed_slice(),
@@ -3458,10 +3470,17 @@ mod tests {
                 GeometryAccuracyProfile::Balanced5Cm,
                 GeometryDirectionProfile::Balanced2Deg,
                 compilation_budget(station_row_bytes(1), 6, u64::MAX),
-            )
-            .map(|usage| usage.output_point_count),
-            Ok(6)
-        );
+            ),
+            Err(GeometryCompilationError::Numeric {
+                error: NumericFreezeError::GeometryTopologyMismatch,
+                ..
+            })
+        ));
+        assert!(declarations.iter().any(|declaration| matches!(
+            declaration,
+            TypedAstDeclaration::LaneEdge(edge)
+                if matches!(edge.geometry_authority, LaneEdgeGeometryAuthority::Authoring { .. })
+        )));
     }
 
     #[test]
