@@ -26,8 +26,8 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 11. 推进 #298 Gate、审阅 portable canonical artifact、source map、semantic diff、
     canonical publication descriptor 或原子发布治理时，额外读取
     `docs/design/portable-canonical-artifact.md` 与
-    `docs/reference/v0.10-portable-artifact-validation.md`；Draft 阻断项未闭合前不得
-    记录 G1 Pass 或 G2 开工
+    `docs/reference/v0.10-portable-artifact-validation.md`；G1 内容阻断项未闭合前不得
+    记录 G1 Pass，正式 G2 开工判断前不得启动实现
 
 ## 工作流
 
