@@ -51,7 +51,7 @@ G1 冻结方案，冻结生效以 #381 Gate Ledger 的 G1 记录为准。本文�
 
 目标（对齐 #381 验收标准）：
 
-- `world.rs` 按命令域拆为子模块结构，不再存在单一 7k 行文件；
+- `world.rs` 按命令域（command domain）拆为子模块结构，不再存在单一 7k 行文件；
 - `step()` 双分支复制收敛；
 - `CoreWorld` 公开 API 签名与语义不变；`lib.rs` re-export 面不变；
 - `cargo test --workspace --locked` 全量通过，测试断言零改动；
@@ -227,8 +227,9 @@ G1/AC 变更评审后才可实施。
 - 依据：`error.rs` 独立于 `world.rs` 结构，拆分与命令域正交；单枚举集中当前
   全部错误模型，保持 crate 内 match 完整性与 Display 文案一致性（`CoreError`
   仅 derive `Clone, Debug, thiserror::Error`，无序列化面；`#[non_exhaustive]`
-  已阻止下游 exhaustive match，拆分与否不影响外部兼容）；是否拆分需独立设计
-  判断。
+  已阻止下游 exhaustive match）；公开 variant 路径（`CoreError::Variant`）是
+  公共 API 面，拆分将改变该路径——是否保留路径兼容（re-export 别名或接受
+  clean break）由 #389 设计判断；本切片不拆分。
 
 ## 6. 文档与术语
 
