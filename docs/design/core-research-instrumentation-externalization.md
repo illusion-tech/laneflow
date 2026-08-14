@@ -40,10 +40,10 @@ Issue 核心指控成立，事实细节按当前代码修正：
 
 | 类别 | 内容 | 目的 | 证据链 / 契约 | 生命周期 |
 | --- | --- | --- | --- | --- |
-| A 语义研究原型 | 4 个 `*_research_tests.rs` 模块（#204/#207/#210/#212）、`CoreWorld.reduced_rate_research` 字段、`reduced_rate_motion_for_research` Active 分叉、`longitudinal.rs` / `occupancy.rs` 的 `*_for_research` seam | 验证替代架构（事件归并、分区 occupancy、选择性读取、降频更新）能否与单线程 production oracle 逐 bit 精确等价 | `core-runtime-scalability-audit.md` §6 P1–P4 证据档案 | 全部 G4 收官，结论均为"采纳为研究证据，拒绝为生产架构"；已登记为未来工作的证据根（#220 merge contract ← P1，halo/dependency 约束 ← P2，#218 semantic oracle ← P4） |
+| A 语义研究原型 | 4 个 `*_research_tests.rs` 模块（#204/#207/#210/#212）、`CoreWorld.reduced_rate_research` 字段、`reduced_rate_motion_for_research` Active 分叉、`longitudinal.rs` / `occupancy.rs` 的 `*_for_research` seam | 验证替代架构（事件归并、分区 occupancy、选择性读取、降频更新）能否与单线程 production oracle 精确等价、或在显式保真度预算内有界等价（P4 降频采用后者） | `core-runtime-scalability-audit.md` §6 P1–P4 证据档案 | 全部 G4 收官，结论均为"采纳为研究证据，拒绝为生产架构"；已登记为未来工作的证据根（#220 merge contract ← P1，halo/dependency 约束 ← P2，#218 semantic oracle ← P4） |
 | B 性能归因计时 | 六段纳秒计时（occupancy、longitudinal 总计、longitudinal proposal、projection、post-longitudinal、research-commit）与 Criterion release 取证 | whole-step 机制归因，产出 audit D5 归因表 | baseline §10.1 优化队列（#216–#219 靶点数字来源）；baseline §8.4 契约"coarse stage timing 只用于机制归因" | 活跃：#216–#218 的取证入口；audit §6 已记录一次内嵌计时生命周期 bug 导致整轮归因作废重跑 |
 | C 故障注入 | `step_failure_after_vehicle`、`replace_failure_after_prepare` | failed-step 失败原子性产品护栏 | baseline §7.1 零容忍硬不变量、§4.3 逐字点名、W3/W4 产品 Gate 指定仪器；#186 原子 replace 契约 | 长期产品门禁，非研究遗留 |
-| D retained memory 账本 | `retained_bytes` 系列、`CompleteRetainedComponents` 20 组件穷尽解构账本 | 产品认证容量证据 + 常规 PR 回归门禁 | baseline §5/§8.3/§11；`../reference/rust-code-style.md` §5 常规 PR smoke | 长期测试基础设施，非研究遗留 |
+| D 保留内存账本 | `retained_bytes` 系列、`CompleteRetainedComponents` 20 组件穷尽解构账本 | 产品认证容量证据 + 常规 PR 回归门禁 | baseline §5/§8.3/§11；`../reference/rust-code-style.md` §5 常规 PR smoke | 长期测试基础设施，非研究遗留 |
 
 另有一项组织问题：benches → `tests/support/` 的单向 `#[path]` 耦合（夹具共享
 没有正式落点）。
@@ -52,17 +52,17 @@ Issue 核心指控成立，事实细节按当前代码修正：
 
 原则：生产路径与生产类型只保留两类正式接缝——仪器探针边界（instrumentation
 probe boundary，承接 B 类）与测试支持接缝（test-support seam，承接 C/D 类及
-research 访问）；研究原型代码一律移出生产 crate。
+研究访问）；研究原型代码一律移出生产 crate。
 
 - **A 类 → 归档 `research/`**。四个研究模块迁移为 `research/issue-<n>-*` 独立
   workspace 成员包，沿用 #123/#308 既有惯例：`publish = false`、生产 crate 不得
   依赖、复现命令入包 README、研究结论继续以 `docs/design` 档案为准。生产模块树
   摘除全部 `#[path]` 挂载；移除 `CoreWorld.reduced_rate_research` 字段、
   `reduced_rate_motion_for_research` Active 分叉与全部 `*_for_research` seam。
-  未来 #218 / #216 重启时在 research 包内重建 oracle，不得再次嵌回生产路径。
-  归档的可编译性由 **research 访问边界**承接：编译期门控的只读公共表面，提供
-  occupancy/leader oracle 快照、运动浮点位模式快照与 scratch 元数据等价物
-  （属测试支持接缝的一部分，具体形状由 G2 定稿）。逐研究的访问需求与处置：
+  #216 / #218 重启时在 research 包内重建 oracle，不得再次嵌回生产路径。
+  归档的可编译性由**研究访问边界**（research access boundary）承接：编译期
+  门控的只读公共表面，提供 occupancy/leader oracle 快照、运动浮点位模式快照
+  与 scratch 元数据等价物（属测试支持接缝的一部分）。逐研究的访问需求与处置：
   P1（#204 事件归并）所需顺序与信号状态基本可从公开 API 派生，迁移成本最低；
   P3（#210 选择性读取）依赖公开接口、C 类故障注入接缝与位模式快照；P2（#207
   分区 occupancy）需要 oracle 快照表面；P4（#212 降频）的实验本质是替换生产
@@ -70,19 +70,19 @@ research 访问）；研究原型代码一律移出生产 crate。
   允许的降级路径归档为 provenance——保留源码、证据与最后可运行 commit 记录，
   其语义 oracle 由 #218 未来在新边界上重建。该降级项须在 #380 记录并拆后续
   Issue。
-- **B 类 → 仪器探针边界**。生产路径持有空操作（no-op）默认的探针：为让默认
-  发布构建与无仪器构建等价，探针采用静态分发（泛型 / unit 类型），空操作实现
-  整体编译消除；不采用在热路径保留运行期分支的 `Option<&mut dyn …>` 形态——
-  这是 G1 冻结约束，不留待 G2 取舍。六段计时与 `ReducedRateMetrics` 指标收集
-  收敛为探针方法；Criterion 取证迁移为探针实现。默认发布构建零成本、零行为
-  变更；audit D5 归因能力与其复现命令等价物完整保留并回写
-  `core-runtime-scalability-audit.md`。探针边界同时消除已发生过的内嵌计时
-  生命周期 bug 事故面。
+- **B 类 → 仪器探针边界**。生产路径持有空操作（no-op）默认的探针，六段计时
+  与 `ReducedRateMetrics` 指标收集收敛为探针方法；Criterion 取证迁移为探针
+  实现。默认发布构建零成本、零行为变更；audit D5 归因能力与其复现命令等价物
+  完整保留并回写 `core-runtime-scalability-audit.md`。探针边界同时消除已发生
+  过的内嵌计时生命周期 bug 事故面。探针的形状级决策在此冻结：以
+  method-generic 入口承载（泛型 / unit 空操作类型，空操作实现整体编译消除），
+  不参数化 `CoreWorld`，现有 `CoreWorld` 与 `step` 公开签名保持不变；不采用在
+  热路径保留运行期分支的 `Option<&mut dyn …>` 形态。
 - **C 类 → 正式测试支持接缝**。故障注入检查点必须编译期门控（crate feature /
   `cfg`），不得进入默认发布构建——这是 G1 冻结约束，不留待 G2 取舍；
   `#[doc(hidden)]` 只允许用于公共 setter 的文档可见性控制，不构成构建排除。
   baseline §4.3/§7.1 点名的 W3/W4 产品 Gate 验证路径保持不变。
-- **D 类 → 同 C 类**。retained 账本经编译期门控的测试支持接缝获得正式身份；
+- **D 类 → 同 C 类**。保留内存账本经编译期门控的测试支持接缝获得正式身份；
   穷尽解构设计（新增字段编译失败强制分类）与常规 PR smoke、一万/十万 matrix
   验证语义不变。
 - **benches 解耦**。`tests/support/` 抽为独立 support 包（workspace 私有成员包
@@ -92,12 +92,15 @@ research 访问）；研究原型代码一律移出生产 crate。
 ## 4. Core API 影响评估
 
 - 零公开行为变更；tick 确定性语义与全部硬不变量不受影响（#380 非目标保持）。
-- 预期新增三类公共表面，均为编译期门控的 API 新增（新增而非既有行为变更）：
-  仪器探针边界（探针 trait 与空操作类型）、测试支持接缝（故障注入 setter 与
-  retained 账本入口）、research 访问边界（oracle / 位模式 / scratch 元数据
-  快照）。在此冻结记录；属实现组织调整，不新增 ADR。
-- 三类表面的精确类型清单由 G2 定稿并回本节追加记录（append-only）；超出上述
-  范围的公共类型不得静默引入。
+- 冻结 crate feature 集合：`instrumentation`（B 类探针的研究态实现）与
+  `test-support`（C/D 类接缝与研究访问边界）；默认构建均不启用。
+- 冻结形状级 API 决策：探针为 method-generic 入口、不参数化 `CoreWorld`；
+  `CoreWorld` / `step` 现有公开签名不变；三类公共表面（仪器探针边界、测试
+  支持接缝、研究访问边界）的可见性最小化，接缝与访问边界建议
+  `#[doc(hidden)]`。
+- 三类表面的精确类型名与签名清单由 G2 在上述冻结包络内定稿，回本节
+  append-only 追加；超出包络的变更（参数化 `CoreWorld`、新增第三类 feature、
+  默认启用任一 feature）属设计变更，须重新 G1，不得静默引入。
 
 ## 5. 确定性与验证不变量
 
@@ -106,14 +109,26 @@ research 访问）；研究原型代码一律移出生产 crate。
   在归档包内保持可运行（P4 按 §3 降级路径除外，已在 #380 记录）。
 - 既有性能基线与 benches 不因外移失效；tick 路径行为不变，确定性不变量不受
   影响。
+- 构建级验收（实施 Gate，§3 冻结的两个构建属性由此证明）：
+  - 隔离的 `cargo build -p laneflow-core --release`（默认 feature）+ 符号缺席
+    检查，证明测试支持接缝与研究访问边界不编译进发布二进制；
+  - no-op 探针的 codegen 检查（符号 / 反汇编对比），证明空操作实现整体编译
+    消除；
+  - feature matrix（默认 / `instrumentation` / `test-support` / 全启用）逐一
+    构建并测试。
+  - 上述验证必须在隔离包上下文进行：`--workspace` 统一构建的 Cargo feature
+    统一可能让默认构建实际启用接缝 feature，从而掩盖违背。
 
-## 6. 与后续研究 Issue 的关系
+## 6. 与后续研究 Issue 的协调契约
 
-- **#216（occupancy/leader exact path）**：将重新开工（2026-08-14 用户决策）。
-  其当前在制品不纳入本方案协调范围；A/B 类外移时直接清理旧挂载点与计时钩子，
-  新仪器探针边界由 #216 重启时沿用。
-- **#217 / #218**：尚未开工。其未来仪器需求（同类阶段归因计时、#212 semantic
-  oracle）由本方案的仪器探针边界与 research 归档包覆盖，不得再次嵌入生产路径。
+本节只记录稳定的依赖与协调契约；各 Issue 的开工 / 重启状态以其 GitHub Issue
+为准，不在本文镜像。
+
+- **#216（occupancy/leader exact path）**：其 G2 指名的在制研究模块沿用旧嵌合
+  模式；本方案外移 A/B 类时有权直接清理这些挂载点与计时钩子。#216 重启后的
+  研究 harness 须沿用仪器探针边界与研究访问边界，不得再次嵌入生产路径。
+- **#217 / #218**：其仪器需求（同类阶段归因计时、#212 semantic oracle）由本
+  方案的仪器探针边界与 research 归档包覆盖，不得再次嵌入生产路径。
 - **#220**：消费 P1/P2 已冻结的语义约束，不直接使用仪器，不受本方案影响。
 
 ## 7. 交付切片建议
@@ -121,9 +136,9 @@ research 访问）；研究原型代码一律移出生产 crate。
 按风险递增排列为四个 Related PR 切片（③ 依赖 ② 的探针替代先就位，否则
 reduced-rate 证据链断裂）：
 
-1. C/D 类测试支持接缝化：移除 2 个故障注入字段，retained 账本正式化。
+1. C/D 类测试支持接缝化：移除 2 个故障注入字段，保留内存账本正式化。
 2. B 类仪器探针边界：移除 5 处热路径计时钩子与 `ReducedRateMetrics` 内嵌收集。
-3. A 类归档 `research/`：先建 research 访问边界，再摘除 `#[path]` 挂载并迁移
+3. A 类归档 `research/`：先建研究访问边界，再摘除 `#[path]` 挂载并迁移
    四模块（P4 按 §3 降级路径归档为 provenance），移除 reduced-rate Active 分叉
    与 `*_for_research` seam。
 4. `tests/support/` 抽离与 benches 解耦。
