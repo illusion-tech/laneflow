@@ -217,7 +217,8 @@ core_step --locked`（及 `core_commands`）前后对比；bench 不进 CI（`co
 ## 6. 文档与术语
 
 - `docs/design/core-runtime.md`：在 §3 Core 边界后新增"world 模块结构"小节，
-  记录 §3 冻结模块布局（本切片实施时同步）。
+  记录 §3 冻结模块布局，并注明 `tick_*` 子模块是 `CoreWorld` 方法宿主而非领域
+  逻辑所有者（领域逻辑仍在 crate 级同名模块）（本切片实施时同步）。
 - `docs/design/core-runtime-scalability-audit.md` §4.1：step 阶段语义不变，
   无需改写。
 - `docs/reference/v0.5-*`、`v0.6-*` 中引用 `world.rs` 的历史验证证据按
