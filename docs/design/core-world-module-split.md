@@ -19,12 +19,12 @@ G1 冻结方案，冻结生效以 #381 Gate Ledger 的 G1 记录为准。本文�
 经当前 main（`8f3de846`）核实成立，事实细节按当前代码修正：
 
 - `crates/laneflow-core/src/world.rs` 共 7,434 行：生产实现与私有 helper 约
-  4,669 行（1-4651），内联 `mod tests` 约 2,765 行（4669-7434，含
+  4,651 行（1-4651），内联 `mod tests` 2,766 行（4669-7434，含
   `retained_memory` 子模块）。
-- `CoreWorld` 28 个字段（`world.rs:350-383`），含 2 个
+- `CoreWorld` 共 30 个字段（`world.rs:350-383`）：28 个无条件字段 + 2 个
   `#[cfg(any(test, feature = "test-support"))]` 故障注入钩子；#380 已完成研究
   字段与仪器外移，无遗留 `#[cfg(test)]` 研究状态。
-- 单一主 `impl CoreWorld`（385-4593）与故障注入小 `impl`（4639-4651）。
+- 单一主 `impl CoreWorld`（385-4590）与故障注入小 `impl`（4639-4651）。
 - 函数族区间（按当前 main 行号）：
   - parking 命令族 554-1300（`reserve_parking_space` / `cancel_parking_reservation` /
     `commit_parking` / `spawn_parked_vehicle` / `rebind_reserved_vehicle_route` /
@@ -38,7 +38,7 @@ G1 冻结方案，冻结生效以 #381 Gate Ledger 的 G1 记录为准。本文�
   - tick 推进 2516-2826（`step` / `step_with_probe`）；
   - spatial/overlap 校验 2827-3429；
   - occupancy/leader/longitudinal 重建与 horizon 计算 3430-4156；
-  - 输入规范化 4157-4299、`advance_vehicle` 4300-4592。
+  - 输入规范化 4157-4299、`advance_vehicle` 4300-4590。
 - `step_with_probe` 双分支复制确认（2590-2640 无保留停车 / 2647-2762 保留停车）：
   除 `advance_vehicle::<false|true>` 与停车特有处理外，车辆迭代骨架整体重复。
 - 研究/测试仪器：#380 外移后 `world/` 目录下 5 个 `#[cfg(test)]` 模块
@@ -96,7 +96,7 @@ G1 冻结方案，冻结生效以 #381 Gate Ledger 的 G1 记录为准。本文�
 | `tick_spatial.rs`      | command spatial index 重建/同步                                                                                                                                                                       | 2827-2874                       | ~48    |
 | `tick_overlap.rs`      | candidate overlap 校验族 + parking leave follower 校验                                                                                                                                                | 2925-3429                       | ~505   |
 | `tick_longitudinal.rs` | occupancy/leader/longitudinal 重建族 + horizon/leader 计算                                                                                                                                            | 3430-4156                       | ~727   |
-| `tick_advance.rs`      | `advance_vehicle` + `append_signal_events` + route_slot/vehicle_slot                                                                                                                                  | 4300-4592                       | ~293   |
+| `tick_advance.rs`      | `advance_vehicle` + `append_signal_events` + route_slot/vehicle_slot                                                                                                                                  | 4300-4590                       | ~291   |
 | `tests.rs`             | 内联 `mod tests`（含 retained_memory 子模块）纯文件搬迁                                                                                                                                               | 4669-7434                       | ~2,766 |
 | `mod.rs`               | 模块声明 + 5 个 `#[cfg(test)] mod <研究测试>;`                                                                                                                                                        | —                               | ~40    |
 
@@ -111,7 +111,7 @@ laneflow-core crate  (A)
 ┌────────────────────────────────────────────────────────────────────────┐
 │ world module  (world/mod.rs)                                           │  (D)
 │                                                                        │
-│ state.rs                 CoreWorld struct: 28 fields                   │  (E)
+│ state.rs                 CoreWorld struct: 30 fields (2 cfg hooks)     │  (E)
 │                           new / with_traffic_data / basic accessors    │
 │                                                                        │
 │ support.rs               file-level internal structs                   │  (F)
@@ -148,7 +148,7 @@ Where：
 - (B) **lib.rs**：公开导出面保持不变（`pub mod world` 与 `pub use world::CoreWorld` 原样保留），`CoreWorld` 签名、语义与确定性语义不变。
 - (C) **external consumers**：外部消费者路径不变、零影响（laneflow-bevy、laneflow-core-test-support、laneflow-compiler-test-support 与全部 benches），均经 crate 根或 `world::CoreWorld` 访问。
 - (D) **world module**：`world.rs` 迁为 `world/mod.rs`（`world/` 目录已存在，无命名冲突）；`#[cfg(test)]` 研究测试模块声明集中于此。
-- (E) **state.rs**：`CoreWorld` 结构定义（28 字段，含 2 个 `#[cfg(any(test, feature = "test-support"))]` 故障注入钩子）、构造（`new` / `with_traffic_data`）与基础车辆访问器；各子模块经 `use super::*` 私有访问，不扩大可见性。
+- (E) **state.rs**：`CoreWorld` 结构定义（共 30 字段：28 个无条件字段 + 2 个 `#[cfg(any(test, feature = "test-support"))]` 故障注入钩子）、构造（`new` / `with_traffic_data`）与基础车辆访问器；各子模块经 `use super::*` 私有访问，不扩大可见性。
 - (F) **support.rs**：文件级内部结构（`RouteReferenceIndex`、`RouteSlot`、`VehicleSlot`、`StableVehicleOrder`、`CandidateStateScratch`、`VehicleAdvanceContext`、`NormalizedVehicleInput`、`CandidateVehicleOverlap`、`ParkingStepRelease` 等），被命令域与 tick 系列共享。
 - (G) **parking_commands.rs**：parking 命令族（`reserve_parking_space` / `cancel_parking_reservation` / `commit_parking` / `spawn_parked_vehicle` / `rebind_reserved_vehicle_route` / `leave_parking` 及私有 helper）；跨域调用 (N) 的 `validate_parking_leave_followers`。
 - (H) **signal_queries.rs**：signal 查询族（controller / group / maneuver-gate 快照查询）。
