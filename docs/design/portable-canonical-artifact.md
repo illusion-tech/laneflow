@@ -55,12 +55,12 @@ laneflow-validator ------> laneflow-static-contract # #299
 
 职责冻结为：
 
-| 包                           | 拥有职责                                                                                    | 禁止拥有                                           |
-| ---------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `laneflow-static-contract`   | 版本轴、摘要/长度值、`NetworkRevisionId`、实体/字段/记录种类登记、有类型序号和描述符值类型  | 文件系统、序列化器、编译器语义遍、Runtime、Spatial |
-| `laneflow-format`            | 四类对象的精确线格式、受限写入器、结构预检、只读受检视图、格式错误                          | 编译器语义闭包、独立语义验证、Runtime/Spatial 构造 |
+| 包                           | 拥有职责                                                                                                          | 禁止拥有                                           |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `laneflow-static-contract`   | 版本轴、摘要/长度值、`NetworkRevisionId`、实体/字段/记录种类登记、有类型序号和描述符值类型                        | 文件系统、序列化器、编译器语义遍、Runtime、Spatial |
+| `laneflow-format`            | 四类对象的精确线格式、受限写入器、结构预检、只读受检视图、格式错误                                                | 编译器语义闭包、独立语义验证、Runtime/Spatial 构造 |
 | `laneflow-compiler`          | 从同一个 `CompilationOutput` 和显式规范 provenance 发射制品/源映射/差异候选，建立来源沿袭，执行失败原子的暂存事务 | 独立验证权威、可信发布签名、运行时迁移授权         |
-| `laneflow-validator`（#299） | 不复用编译器语义实现的身份、关系、规则、修订、源映射和语义差异验证，以及验证收据            | 调用 compiler emitter 重建“验证”结果               |
+| `laneflow-validator`（#299） | 不复用编译器语义实现的身份、关系、规则、修订、源映射和语义差异验证，以及验证收据                                  | 调用 compiler emitter 重建“验证”结果               |
 
 `laneflow-format` 的结构预检只证明字节边界、版本、封闭种类、排序、计数、偏移和基本值域安全；
 它不能把 `CheckedPortableArtifactView` 命名为 trusted/validated，也不能证明实体语义闭合。
@@ -506,7 +506,7 @@ NetworkRevisionIdV1 =
 | `0x0001`      | `SourceMapBindings`      | 修订派生版本/值、artifact digest/length、compiler build 与来源集合摘要 |
 | `0x0002`      | `SourceModules`          | 依赖优先模块、来源文档、闭合位置池、frontend/import provenance         |
 | `0x0003`      | `StableEntitySources`    | `(entityKind, StableId128, typedOrdinal)` 与 owning/contributing 位置  |
-| `0x0004`      | `OwnerLocalSources`      | owner StableId128、typed role、`localIndex`、来源位置与空间点范围     |
+| `0x0004`      | `OwnerLocalSources`      | owner StableId128、typed role、`localIndex`、来源位置与空间点范围      |
 | `0x0005`      | `DerivedRelationSources` | generated relation 推导链、pass/constraint version                     |
 
 LFSM v1 的组合视图如下。该图只展开已由 §3.3 定义的公共前导、目录和变长节，不引入
@@ -594,15 +594,15 @@ exact bytes，但在规范语义未变时不得改变 `NetworkRevisionId`。
 
 `magic = "LFSD"`，`semanticDiffFormatVersion = 1`。v1 精确包含：
 
-| `sectionKind` | 名称                     | 内容                                                       |
-| ------------- | ------------------------ | ---------------------------------------------------------- |
-| `0x0001`      | `SemanticDiffBindings`   | base/genesis 与 target 的 revision、artifact digest/length |
-| `0x0002`      | `EntityChanges`          | 稳定实体 add/remove 与规范字段语义变化                     |
-| `0x0003`      | `RelationChanges`        | owner/member、topology reconnect、出现项和 localIndex 变化 |
-| `0x0004`      | `GeometryChanges`        | 规范几何、长度和容差显著变化                               |
-| `0x0005`      | `StaticRuleChanges`      | Gate/Waiting/Signal/Access 等行为变化                      |
-| `0x0006`      | `IdentityClosureChanges` | 稳定标识改变及其父锚/字段原因                              |
-| `0x0007`      | `SpatialConfigurationChanges` | headless/spatial presence 与闭合几何配置档变化        |
+| `sectionKind` | 名称                          | 内容                                                       |
+| ------------- | ----------------------------- | ---------------------------------------------------------- |
+| `0x0001`      | `SemanticDiffBindings`        | base/genesis 与 target 的 revision、artifact digest/length |
+| `0x0002`      | `EntityChanges`               | 稳定实体 add/remove 与规范字段语义变化                     |
+| `0x0003`      | `RelationChanges`             | owner/member、topology reconnect、出现项和 localIndex 变化 |
+| `0x0004`      | `GeometryChanges`             | 规范几何、长度和容差显著变化                               |
+| `0x0005`      | `StaticRuleChanges`           | Gate/Waiting/Signal/Access 等行为变化                      |
+| `0x0006`      | `IdentityClosureChanges`      | 稳定标识改变及其父锚/字段原因                              |
+| `0x0007`      | `SpatialConfigurationChanges` | headless/spatial presence 与闭合几何配置档变化             |
 
 LFSD v1 的组合视图如下。该图只展开已由 §3.3 定义的公共前导、目录和变长节，不引入
 第二种容器；第一节 wire offset 固定为 `0x00c8`（`32 + 7 * 24`）。
@@ -866,20 +866,20 @@ source map 失败后仍可取出 artifact”的中间成功状态。
 3. 性能验收门槛与格式安全上限分别登记。G2 测量 production emitter 的成本并与既有
    产品预算比较；测量结果不能修改同一 wire version 的安全上限。
 
-| v1 格式硬上限                            | 精确值                       | 适用检查点                                    |
-| ---------------------------------------- | ---------------------------- | --------------------------------------------- |
-| 单对象 exact bytes                       | `16,777,216` bytes           | transport/hash/read 前                        |
-| 单节或单表 exact bytes                   | `16,777,216` bytes           | offset/length checked 后、建立 slice 前       |
+| v1 格式硬上限                            | 精确值                                  | 适用检查点                                    |
+| ---------------------------------------- | --------------------------------------- | --------------------------------------------- |
+| 单对象 exact bytes                       | `16,777,216` bytes                      | transport/hash/read 前                        |
+| 单节或单表 exact bytes                   | `16,777,216` bytes                      | offset/length checked 后、建立 slice 前       |
 | 单对象 TableV1 总数                      | LFCA `35`、LFSM `8`、LFSD `7`、LFCP `4` | 读取任一 TableV1 前；必须精确等于对象登记形状 |
-| 单 TableV1 RowV1 数                      | `65,536`                     | `count * 16` 检查前                           |
-| 单 RowV1 FieldV1 数                      | `17`                         | `count * 12` 检查前；具体 row registry 更严格 |
-| 单 UTF-8 field bytes                     | `1,048,576` bytes            | UTF-8 验证和分配前                            |
-| 单对象全部 UTF-8 value 累计 bytes        | `8,388,608` bytes            | checked 累加、驻留/复制前                     |
-| 单向量 item 数                           | `65,536`                     | 内部 count 与 VBL 核对前                      |
-| 单对象全部 vector value 累计 bytes       | `8,388,608` bytes            | checked 累加、分配前                          |
-| `RecordVector` 内嵌深度                  | `1`                          | 读取 nested field type 前                     |
-| 单 LFSM 来源位置记录数                   | `65,536`                     | 建立位置索引前                                |
-| 单次 LFCA+LFSM+LFSD 候选暂存 exact bytes | `50,331,648` bytes（48 MiB） | 开始写入前保留总预算；每次增长前 checked 累加 |
+| 单 TableV1 RowV1 数                      | `65,536`                                | `count * 16` 检查前                           |
+| 单 RowV1 FieldV1 数                      | `17`                                    | `count * 12` 检查前；具体 row registry 更严格 |
+| 单 UTF-8 field bytes                     | `1,048,576` bytes                       | UTF-8 验证和分配前                            |
+| 单对象全部 UTF-8 value 累计 bytes        | `8,388,608` bytes                       | checked 累加、驻留/复制前                     |
+| 单向量 item 数                           | `65,536`                                | 内部 count 与 VBL 核对前                      |
+| 单对象全部 vector value 累计 bytes       | `8,388,608` bytes                       | checked 累加、分配前                          |
+| `RecordVector` 内嵌深度                  | `1`                                     | 读取 nested field type 前                     |
+| 单 LFSM 来源位置记录数                   | `65,536`                                | 建立位置索引前                                |
+| 单次 LFCA+LFSM+LFSD 候选暂存 exact bytes | `50,331,648` bytes（48 MiB）            | 开始写入前保留总预算；每次增长前 checked 累加 |
 
 固定节数同时给出精确形状：LFCA `8`、LFSM `5`、LFSD `7`、LFCP `4`。Table 总数也是
 按附录 A 求和得到的精确形状，不是可由未知表填满的通用容量；`17` 是 RoadEditing
@@ -1151,7 +1151,7 @@ StaticRoute [1,30]                    CanonicalFrame [1,31]
 
 | tableKind | 表名                 | 字段                                                                                                                    | 行键           |
 | --------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `0x0001`  | SpatialPresence      | `1:spatialPresent:u8:R, 2:geometryAccuracyProfile:u8:R, 3:geometryDirectionProfile:u8:R`                               | singleton      |
+| `0x0001`  | SpatialPresence      | `1:spatialPresent:u8:R, 2:geometryAccuracyProfile:u8:R, 3:geometryDirectionProfile:u8:R`                                | singleton      |
 | `0x0002`  | LaneEdgeGeometry     | `1:laneEdge:u32:R, 2:canonicalFrame:u32:R, 3:arcLengthMeters:f32:R, 4:points:RecordVector:R, 5:segments:RecordVector:R` | `laneEdge`     |
 | `0x0003`  | FacilityBandGeometry | `1:facilityBand:u32:R, 2:canonicalFrame:u32:R, 3:points:RecordVector:R`                                                 | `facilityBand` |
 
@@ -1295,9 +1295,9 @@ SignalPhase 为 1，AuthoringLane/ManeuverPath/LaneGroup 为 2，ManeuverGate/Wa
 
 `OwnerLocalSources(0x0004)` 精确包含：
 
-| tableKind | 表名                       | 字段                                                                                                                                                                                                                                                                            | 行键                                                                           |
-| --------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `0x0001`  | OwnerLocalSource           | `1:ownerEntityKind:u16:R, 2:ownerStableId:StableId128:R, 3:sourceRelationRole:u8:R, 4:localIndex:u32:R, 5:primaryLocation:u32:R, 6:contributingLocations:OrdinalVectorU32:R`                                                                                                    | `(ownerEntityKind, ownerStableId, sourceRelationRole, localIndex)`              |
+| tableKind | 表名                       | 字段                                                                                                                                                                                                         | 行键                                                                           |
+| --------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| `0x0001`  | OwnerLocalSource           | `1:ownerEntityKind:u16:R, 2:ownerStableId:StableId128:R, 3:sourceRelationRole:u8:R, 4:localIndex:u32:R, 5:primaryLocation:u32:R, 6:contributingLocations:OrdinalVectorU32:R`                                 | `(ownerEntityKind, ownerStableId, sourceRelationRole, localIndex)`             |
 | `0x0002`  | SpatialGeometrySourceRange | `1:ownerEntityKind:u16:R, 2:ownerStableId:StableId128:R, 3:sourceRelationRole:u8:R, 4:localIndex:u32:R, 5:pointStart:u32:R, 6:pointEndExclusive:u32:R, 7:sourceSegmentOrdinal:u32:R, 8:sourceLocation:u32:R` | `(ownerEntityKind, ownerStableId, sourceRelationRole, localIndex, pointStart)` |
 
 `SpatialGeometrySourceRange` 只允许 `ownerEntityKind=CanonicalFrame` 以及
@@ -1339,22 +1339,22 @@ segment 的原始 ordinal，不得由 point range 次序替代或重编号。这
 下面是 tag 3..12 的完整存在性矩阵；`R` 表示该 change kind 必须存在，`F` 表示必须缺失。
 未在相应行列出的 optional tag 同样视为 `F`，不存在实现者自选字段：
 
-| 表/change kind                | 必需 common tags                                  | 禁止 common tags                         | payload 必需/禁止                                                |
-| ----------------------------- | ------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------- |
-| Entity `Add`                  | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `afterValue:R, beforeValue:F`（完整目标 RowV1）                 |
-| Entity `Remove`               | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `beforeValue:R, afterValue:F`（完整 base RowV1）                 |
-| Entity `Modify`               | `subjectStableId, fieldTag`                       | `owner, role, before/afterIndex`          | `beforeValue/afterValue` 至少一个存在                            |
-| Relation `Add`                | `ownerStableId, subjectStableId, role, afterIndex` | `fieldTag, beforeIndex`                   | `beforeTarget:F, afterTarget:F`                                  |
-| Relation `Remove`             | `ownerStableId, subjectStableId, role, beforeIndex` | `fieldTag, afterIndex`                    | `beforeTarget:F, afterTarget:F`                                  |
-| Relation `Move`               | `ownerStableId, subjectStableId, role, before/afterIndex` | `fieldTag`                         | `beforeTarget:F, afterTarget:F`                                  |
-| Relation `Reconnect`          | `ownerStableId, role, before/afterIndex`          | `subjectStableId, fieldTag`               | `beforeTarget:R, afterTarget:R`                                  |
-| Geometry `Add`                | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `afterCanonicalValue:R, beforeCanonicalValue:F`                 |
-| Geometry `Remove`             | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `beforeCanonicalValue:R, afterCanonicalValue:F`                 |
-| Geometry `Modify`             | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `beforeCanonicalValue:R, afterCanonicalValue:R`                 |
-| StaticRule `Add`              | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `afterCanonicalValue:R, beforeCanonicalValue:F`（完整目标 RowV1） |
-| StaticRule `Remove`           | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `beforeCanonicalValue:R, afterCanonicalValue:F`（完整 base RowV1） |
-| StaticRule `Modify`           | `subjectStableId, fieldTag`                       | `owner, role, before/afterIndex`          | `beforeCanonicalValue/afterCanonicalValue` 至少一个存在          |
-| Identity `Changed/TransitivelyChanged` | 无 tag 3..8                             | `owner, subject, role, fieldTag, before/afterIndex` | `beforeStableId:R, afterStableId:R, reasonKind:R, causalFieldTag:R` |
+| 表/change kind                         | 必需 common tags                                          | 禁止 common tags                                    | payload 必需/禁止                                                   |
+| -------------------------------------- | --------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------- |
+| Entity `Add`                           | `subjectStableId`                                         | `owner, role, fieldTag, before/afterIndex`          | `afterValue:R, beforeValue:F`（完整目标 RowV1）                     |
+| Entity `Remove`                        | `subjectStableId`                                         | `owner, role, fieldTag, before/afterIndex`          | `beforeValue:R, afterValue:F`（完整 base RowV1）                    |
+| Entity `Modify`                        | `subjectStableId, fieldTag`                               | `owner, role, before/afterIndex`                    | `beforeValue/afterValue` 至少一个存在                               |
+| Relation `Add`                         | `ownerStableId, subjectStableId, role, afterIndex`        | `fieldTag, beforeIndex`                             | `beforeTarget:F, afterTarget:F`                                     |
+| Relation `Remove`                      | `ownerStableId, subjectStableId, role, beforeIndex`       | `fieldTag, afterIndex`                              | `beforeTarget:F, afterTarget:F`                                     |
+| Relation `Move`                        | `ownerStableId, subjectStableId, role, before/afterIndex` | `fieldTag`                                          | `beforeTarget:F, afterTarget:F`                                     |
+| Relation `Reconnect`                   | `ownerStableId, role, before/afterIndex`                  | `subjectStableId, fieldTag`                         | `beforeTarget:R, afterTarget:R`                                     |
+| Geometry `Add`                         | `subjectStableId`                                         | `owner, role, fieldTag, before/afterIndex`          | `afterCanonicalValue:R, beforeCanonicalValue:F`                     |
+| Geometry `Remove`                      | `subjectStableId`                                         | `owner, role, fieldTag, before/afterIndex`          | `beforeCanonicalValue:R, afterCanonicalValue:F`                     |
+| Geometry `Modify`                      | `subjectStableId`                                         | `owner, role, fieldTag, before/afterIndex`          | `beforeCanonicalValue:R, afterCanonicalValue:R`                     |
+| StaticRule `Add`                       | `subjectStableId`                                         | `owner, role, fieldTag, before/afterIndex`          | `afterCanonicalValue:R, beforeCanonicalValue:F`（完整目标 RowV1）   |
+| StaticRule `Remove`                    | `subjectStableId`                                         | `owner, role, fieldTag, before/afterIndex`          | `beforeCanonicalValue:R, afterCanonicalValue:F`（完整 base RowV1）  |
+| StaticRule `Modify`                    | `subjectStableId, fieldTag`                               | `owner, role, before/afterIndex`                    | `beforeCanonicalValue/afterCanonicalValue` 至少一个存在             |
+| Identity `Changed/TransitivelyChanged` | 无 tag 3..8                                               | `owner, subject, role, fieldTag, before/afterIndex` | `beforeStableId:R, afterStableId:R, reasonKind:R, causalFieldTag:R` |
 
 这里 `owner`、`role`、`beforeIndex`、`afterIndex` 是对应完整字段名的表内短写。所有行仍要求
 公共 tag 1 `changeKind` 和 tag 2 `entityKind`；Relation 行的 `entityKind` 是 owner kind，其他
@@ -1378,18 +1378,18 @@ tag。
 规范排序键如下；StableId128/Bytes 使用无符号逐字节字典序，整数使用无符号数值序。表中
 斜线分支由 change kind 唯一选择，因此没有 absent-value ordering：
 
-| 表/change kind              | tag 1 `changeKind` 之后的规范排序键                                                                                     |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Entity Add/Remove           | `(entityKind, subjectStableId)`                                                                                          |
-| Entity Modify               | `(entityKind, subjectStableId, fieldTag)`                                                                                |
-| Relation Add                | `(entityKind, ownerStableId, role, afterLocalIndex, subjectStableId)`                                                    |
-| Relation Remove             | `(entityKind, ownerStableId, role, beforeLocalIndex, subjectStableId)`                                                   |
-| Relation Move               | `(entityKind, ownerStableId, role, beforeLocalIndex, afterLocalIndex, subjectStableId)`                                  |
-| Relation Reconnect          | `(entityKind, ownerStableId, role, beforeLocalIndex, afterLocalIndex, beforeTarget, afterTarget)`                        |
-| Geometry Add/Remove/Modify  | `(entityKind, subjectStableId)`                                                                                          |
-| StaticRule Add/Remove       | `(entityKind, subjectStableId)`                                                                                          |
-| StaticRule Modify           | `(entityKind, subjectStableId, fieldTag)`                                                                                |
-| Identity 两种 kind          | `(entityKind, beforeStableId, afterStableId, reasonKind, causalFieldTag)`                                                |
+| 表/change kind             | tag 1 `changeKind` 之后的规范排序键                                                               |
+| -------------------------- | ------------------------------------------------------------------------------------------------- |
+| Entity Add/Remove          | `(entityKind, subjectStableId)`                                                                   |
+| Entity Modify              | `(entityKind, subjectStableId, fieldTag)`                                                         |
+| Relation Add               | `(entityKind, ownerStableId, role, afterLocalIndex, subjectStableId)`                             |
+| Relation Remove            | `(entityKind, ownerStableId, role, beforeLocalIndex, subjectStableId)`                            |
+| Relation Move              | `(entityKind, ownerStableId, role, beforeLocalIndex, afterLocalIndex, subjectStableId)`           |
+| Relation Reconnect         | `(entityKind, ownerStableId, role, beforeLocalIndex, afterLocalIndex, beforeTarget, afterTarget)` |
+| Geometry Add/Remove/Modify | `(entityKind, subjectStableId)`                                                                   |
+| StaticRule Add/Remove      | `(entityKind, subjectStableId)`                                                                   |
+| StaticRule Modify          | `(entityKind, subjectStableId, fieldTag)`                                                         |
+| Identity 两种 kind         | `(entityKind, beforeStableId, afterStableId, reasonKind, causalFieldTag)`                         |
 
 每张 change table 先按 `changeKind` 数值，再按本表对应 tuple 严格递增；完全相同的键、矩阵外
 字段、错误 payload 形状或不能与两端 LFCA 独立重算结果一一对应的行都失败关闭。
