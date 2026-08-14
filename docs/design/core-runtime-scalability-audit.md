@@ -391,7 +391,7 @@ Manifest 绑定；只有后续 G1 显式授予 Traffic Runtime 的自有随机�
 
 **状态**：测试专用原型通过；结论是继续把 canonical phase/key 作为 production scheduler 的候选输入，但不接受为 production architecture 或 public event contract。
 
-原型位于 `crates/laneflow-core/src/world_event_merge_research_tests.rs`，仅由 `world` 下的 `#[cfg(test)]` 私有模块编译。production `CoreWorld::step`、`CoreEvent`、handle、Core/Data/Adapter API、data format、runtime dependency 和 runtime allocation 均未改变。原型采用以下六元组：
+原型位于 `crates/laneflow-core/src/world/event_merge_research_tests.rs`，仅由 `world` 下的 `#[cfg(test)]` 私有模块编译。production `CoreWorld::step`、`CoreEvent`、handle、Core/Data/Adapter API、data format、runtime dependency 和 runtime allocation 均未改变。原型采用以下六元组：
 
 ```text
 (tick_index, phase_rank, primary_stable_sequence, local_sequence, secondary_sequence, domain_tiebreaker)
@@ -431,7 +431,7 @@ Manifest 绑定；只有后续 G1 显式授予 Traffic Runtime 的自有随机�
 
 **状态**：测试专用原型通过。结论是 route/horizon-driven read-only halo 与跨分区 logical dependency component 可以在当前强个体语义下精确复现 production oracle；该结果支持继续 P3 selective snapshot/batch，并保留 individual-first / exact-only 为一等候选，但不接受为 production partition、集中式 scheduler 或固定 halo architecture。
 
-原型位于 `crates/laneflow-core/src/world_partitioned_occupancy_research_tests.rs`，仅由 `world` 下的 `#[cfg(test)]` 私有模块编译。`occupancy.rs` 与 `longitudinal.rs` 只增加 test-only research helper；production `CoreWorld::step`、occupancy/leader/projection 算法、handle、Core/Data/Adapter API、data format、runtime dependency 和发布构建均未改变。
+原型位于 `crates/laneflow-core/src/world/partitioned_occupancy_research_tests.rs`，仅由 `world` 下的 `#[cfg(test)]` 私有模块编译。`occupancy.rs` 与 `longitudinal.rs` 只增加 test-only research helper；production `CoreWorld::step`、occupancy/leader/projection 算法、handle、Core/Data/Adapter API、data format、runtime dependency 和发布构建均未改变。
 
 原型冻结并验证了以下研究语义：
 
