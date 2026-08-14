@@ -32,7 +32,7 @@ Runtime 已经实现
 - `../adr/0021-city-simulation-game-traffic-foundation.md`
 - `core-id-handles.md`
 - `compiler-foundation.md`
-- `portable-canonical-artifact.md`（#298 G1 Accepted 实现输入；正式 G2 开工判断 Pass 前不得启动实现）
+- `portable-canonical-artifact.md`（#298 G1 已重开、内容修正后待重新接受；正式 G2 Pass 前不得启动实现）
 - `current-package-import.md`
 - `cross-section-access.md`
 - `data-format.md`
