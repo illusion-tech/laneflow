@@ -692,6 +692,13 @@ derivation version 与 byte length 必须非零，两个 32-byte 值必须是实
 任一实体 change class 隐藏无法表示的 contract 迁移；Genesis 没有 base，因此只要求
 target 的两行是 v1 支持值。
 
+通过上述 contract 兼容性检查后、执行任何 retained/change 分类前，Artifact diff 必须从
+两端已经独立通过 A.1 的 `CanonicalIdentity` 重建以 `StableId128` 为键的全局身份表。每个
+两端共有的 ID 必须具有相同 `entityKind` 和逐字节相同的完整
+`identityCanonicalBytesV1`；否则以 `CrossRevisionStableIdCollision` 拒绝整个 base/target
+对，且不得产生 LFSD 候选。该检查不能因实体 Row、关系或 geometry 投影相同而省略，也不能
+把截断碰撞降级成空变化集、`Modify` 或 `Remove` + `Add`。
+
 四张 entity-scoped change table 分别按附录 A.3 的每-kind 规范键严格排序；该键只使用该
 kind 必需字段，不定义“缺失 optional 值如何排序”。完全相同的键失败关闭。重复关系值由
 required before/after `localIndex` 进入相应键来破同值；全局空间配置由独立 singleton
@@ -1836,8 +1843,13 @@ kind、版本值、遗漏/额外行或不能与绑定 LFCA 行一一对应的 lo
 这唯一表达 optional field 的出现/消失。Geometry `Modify` 两端都必须存在且不同；Relation
 `Move` 的两个 index 必须不同，`Reconnect` 的两个 target 必须不同，但其 index 可以相等。
 
-同一 `StableId128` 在 base/target 都存在时，字段差异的 change class 由下表排他决定；`—`
-表示该类没有合法字段，范围和集合以 LFCA 字段 tag 表示：
+Artifact diff 在读取任何 change table 前，必须从两端 `CanonicalIdentity` 重建以
+`StableId128` 为键的全局身份表；每个交集项的 `entityKind` 和完整
+`identityCanonicalBytesV1` 必须逐字节相同。任一不等都是
+`CrossRevisionStableIdCollision`，必须在 retained、字段、关系和 geometry 分类前拒绝整个
+base/target 对，不产生 LFSD 候选。只有通过该检查后，相同 `(entityKind, StableId128)` 才是
+retained identity，其字段差异的 change class 由下表排他决定；`—` 表示该类没有合法字段，
+范围和集合以 LFCA 字段 tag 表示：
 
 | entity table     | Entity `Modify` | 只投影 Relation，不生成字段 `Modify` | StaticRule `Modify` | Identity 语义锚 / derived cache；不生成 `Modify` |
 | ---------------- | --------------- | ------------------------------------ | ------------------- | ------------------------------------------------ |
@@ -1883,9 +1895,10 @@ Relation `Move`，不得用该位置替代或吞掉 transitionIndex 的 before/a
 artifact-local ordinal
 的数值可以因其他实体插入而重编号，不能单独构成身份变化或字段 `Modify`。ManeuverPath tag 4
 的 entry/exit 元素也必须继续解析到已验证前像中的相同 StableId，但不妨碍中间 edge 变化
-投影为 Relation。任一 Identity v1 前像变化导致 StableId 改变时，只允许旧实体完整 RowV1
-的 Entity `Remove` 与新实体完整 RowV1 的 Entity `Add`，不建立旧、新 ID 配对；相应规范
-关系 tuple 的 Add/Remove 仍由关系集合差独立且唯一地产生。
+投影为 Relation。任一 Identity v1 前像变化且正常得到不同 StableId 时，只允许旧实体完整
+RowV1 的 Entity `Remove` 与新实体完整 RowV1 的 Entity `Add`，不建立旧、新 ID 配对；如果
+变化后的前像碰撞到相同截断 StableId，则必须由上述跨修订检查拒绝，不能按 retained 或
+Remove/Add 处理。相应规范关系 tuple 的 Add/Remove 仍由关系集合差独立且唯一地产生。
 
 字段级 before/after `Bytes` 使用闭合的 `SemanticFieldValueV1`，不得直接比较会因表内插入而
 漂移的 raw ordinal。`StableRefV1` 精确为
