@@ -17,7 +17,7 @@
   批处理、命令、确定性阶段/事件合并的无悔约束（No-regret Constraints）、个体优先/
   仅精确/聚合优先（Individual-first/Exact-only/Aggregate-first）候选矩阵与 Stable
   Runtime API G1 待决项，不实现生产分区。
-- `core-research-instrumentation-externalization.md`：#380 G1 冻结方案的 Review 版本；
+- `core-research-instrumentation-externalization.md`：#380 Accepted 的 Core 研究/测试仪器外移方案（已实施完成）；
   把 Core 生产路径内嵌的研究/测试仪器分为语义研究原型、性能归因计时、故障注入与
   保留内存账本四类分治；按访问需求冻结逐项落点（P1/P2/P3 保留 crate 内常规
   `#[cfg(test)]` 模块、P4 降级 provenance）、仪器探针边界、测试支持接缝与
