@@ -59,7 +59,7 @@ laneflow-validator ------> laneflow-static-contract # #299
 | ---------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | `laneflow-static-contract`   | 版本轴、摘要/长度值、`NetworkRevisionId`、实体/字段/记录种类登记、有类型序号和描述符值类型  | 文件系统、序列化器、编译器语义遍、Runtime、Spatial |
 | `laneflow-format`            | 四类对象的精确线格式、受限写入器、结构预检、只读受检视图、格式错误                          | 编译器语义闭包、独立语义验证、Runtime/Spatial 构造 |
-| `laneflow-compiler`          | 从同一个 `CompilationOutput` 发射制品/源映射/差异候选，建立来源沿袭，执行失败原子的暂存事务 | 独立验证权威、可信发布签名、运行时迁移授权         |
+| `laneflow-compiler`          | 从同一个 `CompilationOutput` 和显式规范 provenance 发射制品/源映射/差异候选，建立来源沿袭，执行失败原子的暂存事务 | 独立验证权威、可信发布签名、运行时迁移授权         |
 | `laneflow-validator`（#299） | 不复用编译器语义实现的身份、关系、规则、修订、源映射和语义差异验证，以及验证收据            | 调用 compiler emitter 重建“验证”结果               |
 
 `laneflow-format` 的结构预检只证明字节边界、版本、封闭种类、排序、计数、偏移和基本值域安全；
@@ -506,7 +506,7 @@ NetworkRevisionIdV1 =
 | `0x0001`      | `SourceMapBindings`      | 修订派生版本/值、artifact digest/length、compiler build 与来源集合摘要 |
 | `0x0002`      | `SourceModules`          | 依赖优先模块、来源文档、闭合位置池、frontend/import provenance         |
 | `0x0003`      | `StableEntitySources`    | `(entityKind, StableId128, typedOrdinal)` 与 owning/contributing 位置  |
-| `0x0004`      | `OwnerLocalSources`      | owner StableId128、typed role、`localIndex` 与来源位置                 |
+| `0x0004`      | `OwnerLocalSources`      | owner StableId128、typed role、`localIndex`、来源位置与空间点范围     |
 | `0x0005`      | `DerivedRelationSources` | generated relation 推导链、pass/constraint version                     |
 
 LFSM v1 的组合视图如下。该图只展开已由 §3.3 定义的公共前导、目录和变长节，不引入
@@ -602,15 +602,16 @@ exact bytes，但在规范语义未变时不得改变 `NetworkRevisionId`。
 | `0x0004`      | `GeometryChanges`        | 规范几何、长度和容差显著变化                               |
 | `0x0005`      | `StaticRuleChanges`      | Gate/Waiting/Signal/Access 等行为变化                      |
 | `0x0006`      | `IdentityClosureChanges` | 稳定标识改变及其父锚/字段原因                              |
+| `0x0007`      | `SpatialConfigurationChanges` | headless/spatial presence 与闭合几何配置档变化        |
 
 LFSD v1 的组合视图如下。该图只展开已由 §3.3 定义的公共前导、目录和变长节，不引入
-第二种容器；第一节 wire offset 固定为 `0x00b0`（`32 + 6 * 24`）。
+第二种容器；第一节 wire offset 固定为 `0x00c8`（`32 + 7 * 24`）。
 
 ```text
     +---------------------------------------------------------------+
-    |           LFSD ObjectPreambleV1 (32 bytes; SC == 6)           |
+    |           LFSD ObjectPreambleV1 (32 bytes; SC == 7)           |
     +---------------------------------------------------------------+
-    |            SectionDirectoryEntryV1[6] (144 bytes)             |
+    |            SectionDirectoryEntryV1[7] (168 bytes)             |
     +===============================================================+
     |                                                               :
     :         SemanticDiffBindings (0x0001; variable bytes)         :
@@ -636,11 +637,16 @@ LFSD v1 的组合视图如下。该图只展开已由 §3.3 定义的公共前�
     :        IdentityClosureChanges (0x0006; variable bytes)        :
     :                                                               |
     +---------------------------------------------------------------+
+    |                                                               :
+    :      SpatialConfigurationChanges (0x0007; variable bytes)     :
+    :                                                               |
+    +---------------------------------------------------------------+
 ```
 
 `baseBindingKind` 是封闭枚举：`0=Genesis`、`1=Artifact`。Genesis 必须把所有 base
 版本、修订、digest 和 length 字节规范为零，并把目标的所有稳定实体和 owner-local
-序列报告为新增；`Artifact` 禁止任何零占位。target 永远必须是具体 artifact。
+序列报告为新增，同时生成一条空间配置初始化记录；`Artifact` 禁止任何零占位。target
+永远必须是具体 artifact。
 
 `networkRevisionDerivationVersion + networkRevision + canonicalArtifactDigest +
 canonicalArtifactByteLength` 四元组称为修订—制品绑定（`RevisionArtifactBindingV1`）；
@@ -666,10 +672,18 @@ derivation version 与 byte length 必须非零，两个 32-byte 值必须是实
 绑定值。结构预检先验证该闭合形状；#299 再从 base/target 六个语义节重算 revision，
 并对 exact artifact bytes 重算 digest/length 后逐项比较。
 
-记录按 change class、entity kind、owner StableId128、subject StableId128、typed role、
-field tag、before localIndex、after localIndex 严格排序。重复关系值按最低 before/after
-`localIndex` 破同值。相同 base/target 允许产生合法的空变化集合，但仍保留完整绑定。
-目标静态镜像的 layout/profile-only 变化不进入 LFSD，也不得伪装成语义变化。
+`baseBindingKind=Artifact` 时，base 与 target 的 `ContractVersions` singleton 和
+`ExecutionContract` singleton 必须分别逐字段相等；任一语义 contract/version 轴变化都以
+`UnsupportedSemanticContractTransition` 拒绝，且不得产生 LFSD 候选。v1 不用空变化集或
+任一实体 change class 隐藏无法表示的 contract 迁移；Genesis 没有 base，因此只要求
+target 的两行是 v1 支持值。
+
+五张 entity-scoped change table 分别按附录 A.3 的每-kind 规范键严格排序；该键只使用该
+kind 必需字段，不定义“缺失 optional 值如何排序”。完全相同的键失败关闭。重复关系值由
+required before/after `localIndex` 进入相应键来破同值；全局空间配置由独立 singleton
+change table 表达。相同 base/target 允许产生合法的空变化集合，但仍保留完整绑定。目标
+静态镜像的 `staticImageLayoutVersion/staticImageProfileId`-only 变化不进入 LFSD，也不得
+伪装成语义变化；这不包括已经进入 LFCA 语义的几何配置档。
 
 编译器可以从受结构预检的 base view 生成诊断性差异，但 #299 必须从两份独立通过语义
 验证的 artifact 重算或逐项验证 LFSD；#302 的可信切换描述符再绑定 LFSD digest/length。
@@ -729,64 +743,68 @@ artifact、source map 和 genesis/base diff 候选，避免后续错误配对。
 
 ### 8.1 唯一输入与候选结果
 
-发射器只能同时借用同一个 `CompilationOutput` 的 LIR 和来源映射输入：
+发射器只能同时借用同一个 `CompilationOutput` 的 LIR 和来源映射输入，并接收一份显式、
+已规范化的 `PortableEmissionProvenanceV1`。后者是 exact-byte 确定性输入的一部分，不能由
+发射器读取工作目录、目标平台或时钟临时拼装：
 
 ```text
-    +---------------------------------------+
-    | CompilationOutput                     |
-    | ValidatedCanonicalLir                 |
-    | + ValidatedSourceMapInput             |
-    +-------------------+-------------------+
-                        | one atomic borrow
-                        |
-    +-------------------v-------------------+     +--------------------------+
-    | emitPortableCandidate(limits, base)   |<----| optional checked base    |
-    +-------------------+-------------------+     | artifact view            |
-                        |                         +--------------------------+
-            +-----------+-----------+
-            |           |           |
-            v           v           v
-       +---------+  +---------+  +---------+
-       |  LFCA   |  |  LFSM   |  |  LFSD   |
-       |  bytes  |  |  bytes  |  |  bytes  |
-       +----+----+  +----+----+  +----+----+
-            |           |           |
-            +-----------+-----------+
-                        |
-                        v
-    +---------------------------------------+
-    | close -> digest/length -> structural  |
-    | preflight -> internal binding checks  |
-    +-------------------+-------------------+
-                        |
-                        v
-    +---------------------------------------+
-    | PortablePublicationCandidate          |
-    | exact bytes + computed bindings       |
-    +-------------------+-------------------+
-                        |
-                        v
-    +---------------------------------------+
-    | immutable object installation         |
-    | create_new + existing-byte comparison |
-    +-------------------+-------------------+
-                        |
-                        v
-    +---------------------------------------+
-    | #299 independent validation           |
-    | canonical-publication-v1 receipt      |
-    +-------------------+-------------------+
-                        |
-                        v
-    +---------------------------------------+
-    | LFCP exact bytes                      |
-    +-------------------+-------------------+
-                        |
-                        v
-    +---------------------------------------+
-    | authenticated manifest/pointer commit |
-    |          PUBLISHED                    |
-    +---------------------------------------+
+    +----------------------------------+     +------------------------------+
+    | CompilationOutput                |     | PortableEmissionProvenanceV1 |
+    | ValidatedCanonicalLir            |     | canonical compilerBuildId    |
+    | + ValidatedSourceMapInput        |     +---------------+--------------+
+    +----------------+-----------------+                     |
+                     | one atomic borrow                      | canonical input
+                     +-------------------+--------------------+
+                                         |
+    +--------------------------+     +----v----------------------------------+
+    | optional checked base    |---->| emitPortableCandidate(output,        |
+    | artifact view            |     |   provenance, limits, base)          |
+    +--------------------------+     +-------------------+-------------------+
+                                                        |
+                                        +---------------+---------------+
+                                        |               |               |
+                                        v               v               v
+                                   +---------+      +---------+      +---------+
+                                   |  LFCA   |      |  LFSM   |      |  LFSD   |
+                                   |  bytes  |      |  bytes  |      |  bytes  |
+                                   +----+----+      +----+----+      +----+----+
+                                        |               |               |
+                                        +---------------+---------------+
+                                                        |
+                                                        v
+                                   +---------------------------------------+
+                                   | close -> digest/length -> structural  |
+                                   | preflight -> internal binding checks  |
+                                   +-------------------+-------------------+
+                                                       |
+                                                       v
+                                   +---------------------------------------+
+                                   | PortablePublicationCandidate          |
+                                   | exact bytes + computed bindings       |
+                                   +-------------------+-------------------+
+                                                       |
+                                                       v
+                                   +---------------------------------------+
+                                   | immutable object installation         |
+                                   | create_new + existing-byte comparison |
+                                   +-------------------+-------------------+
+                                                       |
+                                                       v
+                                   +---------------------------------------+
+                                   | #299 independent validation           |
+                                   | canonical-publication-v1 receipt      |
+                                   +-------------------+-------------------+
+                                                       |
+                                                       v
+                                   +---------------------------------------+
+                                   | LFCP exact bytes                      |
+                                   +-------------------+-------------------+
+                                                       |
+                                                       v
+                                   +---------------------------------------+
+                                   | authenticated manifest/pointer commit |
+                                   |              PUBLISHED                |
+                                   +---------------------------------------+
 
     any failure before the final commit
         -> discard staging references
@@ -794,9 +812,13 @@ artifact、source map 和 genesis/base diff 候选，避免后续错误配对。
         -> no partial publication
 ```
 
-调用方不能分别构造或重新配对 LIR/source-map input。`laneflow-format` 提供写入器与
-结构视图；对私有编译器 LIR 的字段投影和差异生成继续在 `laneflow-compiler`。G2 API
-不得暴露“写 artifact 成功、source map 失败后仍可取出 artifact”的中间成功状态。
+调用方不能分别构造或重新配对 LIR/source-map input。一次确定性比较的完整规范输入是
+`CompilationOutput + PortableEmissionProvenanceV1 + base binding`；`limits` 和 worker 数只
+控制资源，不进入 bytes。相同完整规范输入在所有支持平台必须产生相同 bytes；显式改变
+build provenance 可以改变 LFCA/LFSM/LFCP binding 和 artifact digest，但不得改变规范语义
+未变时的 `NetworkRevisionId`。`laneflow-format` 提供写入器与结构视图；对私有编译器 LIR
+的字段投影和差异生成继续在 `laneflow-compiler`。G2 API 不得暴露“写 artifact 成功、
+source map 失败后仍可取出 artifact”的中间成功状态。
 
 ### 8.2 发布提交点
 
@@ -848,9 +870,9 @@ artifact、source map 和 genesis/base diff 候选，避免后续错误配对。
 | ---------------------------------------- | ---------------------------- | --------------------------------------------- |
 | 单对象 exact bytes                       | `16,777,216` bytes           | transport/hash/read 前                        |
 | 单节或单表 exact bytes                   | `16,777,216` bytes           | offset/length checked 后、建立 slice 前       |
-| 单对象 TableV1 总数                      | `64`                         | 读取任一 TableV1 前                           |
+| 单对象 TableV1 总数                      | LFCA `35`、LFSM `8`、LFSD `7`、LFCP `4` | 读取任一 TableV1 前；必须精确等于对象登记形状 |
 | 单 TableV1 RowV1 数                      | `65,536`                     | `count * 16` 检查前                           |
-| 单 RowV1 FieldV1 数                      | `32`                         | `count * 12` 检查前                           |
+| 单 RowV1 FieldV1 数                      | `17`                         | `count * 12` 检查前；具体 row registry 更严格 |
 | 单 UTF-8 field bytes                     | `1,048,576` bytes            | UTF-8 验证和分配前                            |
 | 单对象全部 UTF-8 value 累计 bytes        | `8,388,608` bytes            | checked 累加、驻留/复制前                     |
 | 单向量 item 数                           | `65,536`                     | 内部 count 与 VBL 核对前                      |
@@ -859,18 +881,30 @@ artifact、source map 和 genesis/base diff 候选，避免后续错误配对。
 | 单 LFSM 来源位置记录数                   | `65,536`                     | 建立位置索引前                                |
 | 单次 LFCA+LFSM+LFSD 候选暂存 exact bytes | `50,331,648` bytes（48 MiB） | 开始写入前保留总预算；每次增长前 checked 累加 |
 
-固定节数同时给出更紧上限：LFCA `8`、LFSM `5`、LFSD `6`、LFCP `4`。一个对象中的
-`rowsByteLength`、全部 `rowByteLength`、全部 `valueByteLength` 仍必须受外层 exact
-length 逐层约束；上表不是允许 padding、截断或只验证其中一份冗余计数的理由。
+固定节数同时给出精确形状：LFCA `8`、LFSM `5`、LFSD `7`、LFCP `4`。Table 总数也是
+按附录 A 求和得到的精确形状，不是可由未知表填满的通用容量；`17` 是 RoadEditing
+OwnerLocal SourceLocation 同时携带完整 address、三层 owner key、property 与 canvas 时可
+达到的 v1 最大字段数，具体表仍必须满足自身 tag/presence matrix。一个对象中的
+`rowsByteLength`、全部
+`rowByteLength`、全部 `valueByteLength` 仍必须受外层 exact length 逐层约束；上表不是允许
+padding、截断或只验证其中一份冗余计数的理由。
+
+“安全天花板”与“合法对象可达到的最大值”必须分开记录。单对象、节/表 bytes 和候选暂存
+等通用资源天花板是拒绝上界，并不承诺附录 A 中存在恰好等于每个数值的合法对象；尤其节/
+表 bytes 还受对象前导、目录和其他必需节约束。G2 必须对每个天花板验证 `limit+1` 在其值
+被用于分配/hash/view 前失败，并在独立 reachability 表中验证该维度的最大可构造合法值
+被接受；只有 reachability 表证明 `limit` 本身可构造时才要求 boundary 接受。精确节数、
+精确 Table 总数、每表登记字段形状则必须直接验证合法精确值接受，任意 `+1/-1` 失败。
 
 这些安全天花板有意高于当前 `LF-COMP-P100-INITIAL-v2` 的 `38,112` 条 LIR 记录、
 `2,782,758` bytes 逻辑输出、`991,537` bytes 累计字符串和 `22,368` 个几何点，同时
 把恶意预分配限制在固定数量级。后继若合法产品输入需要更大值，必须提升对象或相关节的
 格式版本并重新审阅，不能原地改常量；这是一项有界协议决策，不触发新的性能研究议题。
 
-G2 必须验证每个冻结维度的边界/边界加一、P100、算术溢出、截断和失败恢复。若 G2
-证据证明 G1 限制不可实现或安全边界不充分，必须暂停实现并返回 G1 修订 constraints；
-不能把该发现登记为“G2 后冻结”，也不能自动扩展为新的 benchmark/schema/tooling 工作流。
+G2 必须验证每个冻结维度的 `limit+1`、最大可达合法值、P100、算术溢出、截断和失败
+恢复；可达边界另验证 `limit`。若 G2 证据证明 G1 限制不可实现或安全边界不充分，必须
+暂停实现并返回 G1 修订 constraints；不能把该发现登记为“G2 后冻结”，也不能自动扩展为
+新的 benchmark/schema/tooling 工作流。
 
 ## 10. 确定性、known vectors 与验收矩阵
 
@@ -881,7 +915,7 @@ production emitter 自己生成 expected：
 | 类别        | 向量/锚点 ID                 | 证明内容                                                           |
 | ----------- | ---------------------------- | ------------------------------------------------------------------ |
 | G1 摘要向量 | `REV-V1-MIN-HEADLESS`        | 六个合法最小语义节的 framing、domain separation 与 SHA-256         |
-| G1 摘要向量 | `REV-V1-MIN-SPATIAL-EMPTY`   | 只改变 `spatialPresent` 一个 byte 时 revision 必须变化             |
+| G1 摘要向量 | `REV-V1-MIN-SPATIAL-EMPTY`   | 启用空间并写入闭合 profile code 时 revision 必须变化               |
 | G1 结构锚点 | `LFCA-V1-MIN-HEADLESS`       | 最小合法无空间 artifact 的前导、八节目录和首节 offset 推导         |
 | G1 结构锚点 | `LFSM-V1-MIXED-LOCATION`     | Text、无 property 的 Declaration、OwnerLocal 和可选 canvas 形状    |
 | G1 结构锚点 | `LFSD-V1-GENESIS-BINDING`    | Genesis 四个 base 零值和完整 target binding                        |
@@ -891,13 +925,14 @@ production emitter 自己生成 expected：
 | G2 固定对象 | `LFCA-V1-CLAIM-MISMATCH`     | 只篡改非语义 revision claim：结构预检成功、独立 revision 比较失败  |
 | G2 固定对象 | `LFCA-V1-REORDER-EQUIVALENT` | 声明/集合/hash iteration 重排仍产生完全相同 bytes                  |
 | G2 固定对象 | `LFCA-V1-SIGNED-ZERO`        | 合法输入 `-0.0` 在编译边界变为 `+0.0`；负零 wire 被读取器拒绝      |
-| G2 固定对象 | `LFSD-V1-CHANGE-SET`         | add/remove/reconnect/geometry/rule/identity closure 和重复值破同值 |
+| G2 固定对象 | `LFSD-V1-CHANGE-SET`         | add/remove/reconnect/geometry/global spatial/rule/identity closure |
 | G2 固定对象 | `LFSD-V1-NOOP`               | 相同 base/target 的空记录但完整 binding                            |
 
 两个 G1 revision 向量使用 §4.2 的 exact framing 和附录 A 的 section/table/row/field
 编码。`REV-V1-MIN-HEADLESS` 的六节依次是：所有版本值为 `1` 的 ContractVersions；
-空 CanonicalIdentity；22 张空实体表；5 张空关系表；`spatialPresent=0` 且两张空几何表；
-两个版本值为 `1` 的 ExecutionContract。各节 exact length 与 SHA-256 为：
+空 CanonicalIdentity；22 张空实体表；5 张空关系表；`spatialPresent=0`、两个 profile code
+均为 `0` 且两张空几何表；两个版本值为 `1` 的 ExecutionContract。各节 exact length 与
+SHA-256 为：
 
 | sectionKind | exact bytes | section SHA-256                                                    |
 | ----------- | ----------- | ------------------------------------------------------------------ |
@@ -905,22 +940,24 @@ production emitter 自己生成 expected：
 | `0x0002`    | `20`        | `3a85cd4b4d295cdd6cfe6ea3cb119b7c59f1addcc36faf58c33809f958191c7e` |
 | `0x0003`    | `356`       | `54975e3435099f8ac2f6b6ec53e3bf68104d236da4a840318e9d0486a46e0f6e` |
 | `0x0004`    | `84`        | `041fb436600f0bd293d9a9a78bb1367144e03e51ecfafca712bbc4dedb67dc19` |
-| `0x0005`    | `81`        | `3a606d50bd1f3357d1b451369a3ebdcff3011ff1a1e69bbc4d50a12b47c7a210` |
+| `0x0005`    | `107`       | `a7a3e939e0b7b1f32c5746beee7ae7c2e5fcbab23252cc16ae4568dc8b168eff` |
 | `0x0006`    | `64`        | `79e8acf6943d876fd8ee1f45f6856c3b8285562f0c30e4d9de559317316f025f` |
 
-加入六个 12-byte section frame 后，semantic payload 为 `797` bytes；复核算法精确为
+加入六个 12-byte section frame 后，semantic payload 为 `823` bytes；复核算法精确为
 `SHA-256("laneflow.network-revision.v1\0" || payload)`，字符串末尾包含一个 NUL byte，
-得到 `5fc597d6e2811744f1f01158cfbc1f016964880fa0ba0bf71cd89da899c176ac`。
+得到 `2ae15313569a65ee1ed9db1b69434a34bfbf92e41884ae7cf8ba17e6dc8fbb4d`。
 
-`REV-V1-MIN-SPATIAL-EMPTY` 只把 semantic payload 零基 offset `688` 的
-`spatialPresent` 从 `00` 改为 `01`；第 `0x0005` 节 SHA-256 变为
-`866dd08795826193668422ea6ef295df2e3476f5d25551f595319a503a57aaf9`，payload 仍为
-`797` bytes，NetworkRevisionId 变为
-`84f848c9a5a760d55b6d7788a3163a3e2c1395ce36f4371521920179be229e88`。
+`REV-V1-MIN-SPATIAL-EMPTY` 保持两张几何表为空，但把 semantic payload 零基 offset
+`688` 的 `spatialPresent` 从 `00` 改为 `01`，并把 offset `701` 的
+`geometryAccuracyProfile` 与 offset `714` 的 `geometryDirectionProfile` 从 `00` 改为
+`02`（两个 Balanced 档）。第 `0x0005` 节 SHA-256 变为
+`79d6c423ffda12dc180fe721cdac0a1a7a2d055e366ee1c22d0c4ceaed555200`，payload 仍为
+`823` bytes，NetworkRevisionId 变为
+`e28eb7535bc8ac9a86f64f1209c39598acef0ee827079c80f2e36397d2944241`。
 
 `LFCA-V1-MIN-HEADLESS` 的公共布局人工锚点为：前导 `32` bytes，
 八项目录 `192` bytes，第一节 offset `0x00e0`；LFSM/LFSD/LFCP 的对应锚点分别为
-`0x0098`、`0x00b0`、`0x0080`。完整对象 fixture 在 G2 从附录 A materialize 后固定，
+`0x0098`、`0x00c8`、`0x0080`。完整对象 fixture 在 G2 从附录 A materialize 后固定，
 不把整段二进制十六进制复制进规范正文。
 
 确定性矩阵至少覆盖：
@@ -950,7 +987,8 @@ production emitter 自己生成 expected：
 - [ ] 冻结 Text/RoadEditing 来源位置的判别值、字段 registry、规范排序和混合来源结构
       审阅锚点；
 - [ ] 冻结 artifact/source-map/receipt 与 base/target 的摘要+精确长度绑定；
-- [ ] 冻结 `CompilationOutput` 单一输入、候选对象不可拆分成功和发布提交点；
+- [ ] 冻结 `CompilationOutput + PortableEmissionProvenanceV1` 完整输入、候选对象不可拆分
+      成功和发布提交点；
 - [ ] 冻结 pre-hash 上限、结构计数上限、硬格式上限和失败原子性；
 - [ ] 由非作者审阅者仅依据本文人工重建两个 revision 向量和最小对象关键 offset；
 - [ ] 记录编码库/自有格式选择的安全与维护证据；
@@ -967,7 +1005,8 @@ production emitter 自己生成 expected：
 `tag:name:type:presence` 中 `presence` 为 `R`（必需）或 `O`（可选且缺失即 `None`）；
 未列出的 tag 不合法。每个表按“行键”严格递增，重复键失败关闭。`OrdinalVectorU32`
 保持领域顺序时不得排序；标为集合时按数值严格递增且不得重复。所有 ordinal 必须解析到
-同一对象相应有类型表，稳定实体表的 ordinal 必须从零连续。
+同一对象相应有类型表。稳定实体的 ordinal 不仅必须从零连续，还必须按下述完整 Identity
+v1 前像 bytes 排序得到；一致重编号全部引用不能把非规范顺序变成合法编码。
 
 ### A.1 LFCA table registry
 
@@ -994,7 +1033,31 @@ production emitter 自己生成 expected：
 
 `identityFields` 按 Identity v1 registry 顺序保存非空内嵌行
 `1:identityFieldTag:u16:R, 2:value:Bytes:R`；不得排序或去重。`stableId` 必须等于该完整
-Identity v1 前像的 BLAKE3 结果。`identityFieldTag` 的闭合代码、名称与 value 编码为：
+Identity v1 前像按下式带域分离计算的 BLAKE3 摘要前 16 bytes：
+
+```text
+identityCanonicalBytesV1 :=
+  "LFID"
+  || identityEncodingVersion:u16 (=1)
+  || entityKind:u16
+  || identityFieldCount:u16
+  || for each identity field in required-tag order:
+       identityFieldTag:u16
+       valueByteLength:u32
+       valueBytes[valueByteLength]
+
+StableId128 := first-16-bytes(
+  BLAKE3("laneflow.stable-id.v1\0" || identityCanonicalBytesV1)
+)
+```
+
+全部整数为小端。对每个 `entityKind`，发射器必须按完整
+`identityCanonicalBytesV1` 的无符号逐字节字典序严格排序，再从 `0` 连续分配
+`typedOrdinal`。`CanonicalIdentity` 行、对应实体表行与所有 ordinal 引用必须对
+`(entityKind, typedOrdinal, stableId)` 一一对应；独立验证器必须重建前像、重算 ID、重排并
+核对该映射。前像相同、排序重复、映射缺失或引用解析到不同 StableId 均失败关闭。
+
+`identityFieldTag` 的闭合代码、名称与 value 编码为：
 
 ```text
  1 authoringNamespaceId Ascii        2 corridorKey Ascii
@@ -1088,12 +1151,17 @@ StaticRoute [1,30]                    CanonicalFrame [1,31]
 
 | tableKind | 表名                 | 字段                                                                                                                    | 行键           |
 | --------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `0x0001`  | SpatialPresence      | `1:spatialPresent:u8:R`                                                                                                 | singleton      |
+| `0x0001`  | SpatialPresence      | `1:spatialPresent:u8:R, 2:geometryAccuracyProfile:u8:R, 3:geometryDirectionProfile:u8:R`                               | singleton      |
 | `0x0002`  | LaneEdgeGeometry     | `1:laneEdge:u32:R, 2:canonicalFrame:u32:R, 3:arcLengthMeters:f32:R, 4:points:RecordVector:R, 5:segments:RecordVector:R` | `laneEdge`     |
 | `0x0003`  | FacilityBandGeometry | `1:facilityBand:u32:R, 2:canonicalFrame:u32:R, 3:points:RecordVector:R`                                                 | `facilityBand` |
 
-`spatialPresent` 只允许 `0/1`。为 `0` 时后两表必须为空；为 `1` 时 LaneEdgeGeometry 必须与
-LaneEdge 表同基数同 ordinal。`points` 内嵌行为 `1:x:f32:R, 2:y:f32:R, 3:z:f32:R`；
+`spatialPresent` 只允许 `0/1`。为 `0` 时两个 profile code 必须均为 `0=None`，且后两表
+必须为空；为 `1` 时两个 code 都必须非零，LaneEdgeGeometry 必须与 LaneEdge 表同基数同
+ordinal。`geometryAccuracyProfile` 的闭合代码为 `1=Fine2Cm, 2=Balanced5Cm,
+3=Compact10Cm`；`geometryDirectionProfile` 的闭合代码为 `1=Smooth1Deg,
+2=Balanced2Deg, 3=Compact5Deg`。两者必须逐值等于同次编译 LIR 的冻结配置，独立验证器
+必须用它们核对空间约束；即使两种配置偶然产生相同 points/segments bytes，profile code
+变化仍是规范语义变化。`points` 内嵌行为 `1:x:f32:R, 2:y:f32:R, 3:z:f32:R`；
 `segments` 内嵌行为 `1:lengthMeters:f32:R, 2:cumulativeEndMeters:f32:R,
 3:tangentX:f32:R, 4:tangentY:f32:R, 5:tangentZ:f32:R, 6:upX:f32:R, 7:upY:f32:R,
 8:upZ:f32:R`。
@@ -1107,6 +1175,28 @@ LaneEdge 表同基数同 ordinal。`points` 内嵌行为 `1:x:f32:R, 2:y:f32:R, 
 3:sourceCollectionDigest:Sha256:R, 4:compileOptionsDigest:Sha256:R, 5:emitterVersion:u16:R`。
 `ArtifactClaims(0x0008)` 只有 `ArtifactClaims(0x0001)` singleton：
 `1:declaredNetworkRevisionId:Sha256:R`。
+
+`PortableEmissionProvenanceV1` 精确提供 `compilerBuildId`，其余字段由 v1 规则派生：
+
+- `compilerBuildId` 是构建系统一次提供的 1..=128-byte ASCII 标识，必须匹配
+  `[A-Za-z0-9][A-Za-z0-9._+@-]{0,127}`；同一 compiler build 的所有支持 target 必须提供
+  完全相同的 bytes。路径、target triple、时间戳、worker 数、进程/机器标识、随机 nonce
+  和环境变量展开结果不得进入该值；
+- `sourceCollectionDigestVersion=1`，`sourceCollectionDigest` 必须由同一个
+  `CompilationOutput.ValidatedSourceMapInput` 按 A.2 的精确前像重算；调用方不得覆盖；
+- `emitterVersion=1`；
+- v1 没有会改变 portable bytes 的外部编译选项，因而
+  `compileOptionsDigest = SHA-256("laneflow.portable-compile-options.v1\0" ||
+  optionCount:u32=0)`，其中 `u32` 为小端；固定结果为
+  `322682f455d06b36e9e3719f341db38f3ecda61d52c53d9d6fe3dca540eef445`。几何配置档
+  属于规范 LIR/LFCA 语义，base 只影响 LFSD，limits/worker 数只控制资源，均不得另外
+  塞入该摘要。
+
+LFCA `CompilerProvenance`、LFSM `SourceMapBindings` 和 LFCP `SourceMapBinding` 中重复的
+`compilerBuildId/sourceCollectionDigestVersion/sourceCollectionDigest` 必须逐字节相等；
+LFCP 通过 `canonicalArtifactDigest` 间接绑定 LFCA 独有的
+`compileOptionsDigest/emitterVersion`。任一不一致都是 binding mismatch；不得把这些字段
+当作对象内信任锚。
 
 ### A.2 LFSM table registry
 
@@ -1203,10 +1293,23 @@ SignalPhase 为 1，AuthoringLane/ManeuverPath/LaneGroup 为 2，ManeuverGate/Wa
 4:primaryLocation:u32:R, 5:contributingLocations:OrdinalVectorU32:R`，行键为
 `(entityKind, stableId, typedOrdinal)`。
 
-`OwnerLocalSources(0x0004)` 只有 `OwnerLocalSource(0x0001)`：
-`1:ownerEntityKind:u16:R, 2:ownerStableId:StableId128:R, 3:sourceRelationRole:u8:R,
-4:localIndex:u32:R, 5:primaryLocation:u32:R, 6:contributingLocations:OrdinalVectorU32:R`，
-行键为 `(ownerEntityKind, ownerStableId, sourceRelationRole, localIndex)`。
+`OwnerLocalSources(0x0004)` 精确包含：
+
+| tableKind | 表名                       | 字段                                                                                                                                                                                                                                                                            | 行键                                                                           |
+| --------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `0x0001`  | OwnerLocalSource           | `1:ownerEntityKind:u16:R, 2:ownerStableId:StableId128:R, 3:sourceRelationRole:u8:R, 4:localIndex:u32:R, 5:primaryLocation:u32:R, 6:contributingLocations:OrdinalVectorU32:R`                                                                                                    | `(ownerEntityKind, ownerStableId, sourceRelationRole, localIndex)`              |
+| `0x0002`  | SpatialGeometrySourceRange | `1:ownerEntityKind:u16:R, 2:ownerStableId:StableId128:R, 3:sourceRelationRole:u8:R, 4:localIndex:u32:R, 5:pointStart:u32:R, 6:pointEndExclusive:u32:R, 7:sourceSegmentOrdinal:u32:R, 8:sourceLocation:u32:R` | `(ownerEntityKind, ownerStableId, sourceRelationRole, localIndex, pointStart)` |
+
+`SpatialGeometrySourceRange` 只允许 `ownerEntityKind=CanonicalFrame` 以及
+`sourceRelationRole=28(CanonicalFrameLaneEdgeGeometry)` 或
+`29(CanonicalFrameFacilityBandGeometry)`。每行必须有同 owner/role/localIndex 的
+`OwnerLocalSource` 父行；`sourceLocation` 必须解析到 SourceLocation。对每个父行，范围必须
+从 `pointStart=0` 开始，按行键严格相邻、非空且无重叠，最后一个 `pointEndExclusive` 必须
+等于对应 LFCA geometry `points` 的 item 数；localIndex 在该 frame/role 下按相应 LFCA
+geometry 表行顺序从零编号。父行 `contributingLocations` 必须逐字节等于所有范围
+`sourceLocation` 按位置语义值排序去重后的 ordinal 投影；`sourceSegmentOrdinal` 保留 authoring
+segment 的原始 ordinal，不得由 point range 次序替代或重编号。这样 LFSM 能无损恢复每段
+规范点区间的来源，而不是只保存扁平位置集合。
 
 `DerivedRelationSources(0x0005)` 只有 `DerivedRelationSource(0x0001)`：
 `1:ownerEntityKind:u16:R, 2:ownerStableId:StableId128:R, 3:sourceRelationRole:u8:R,
@@ -1233,13 +1336,78 @@ SignalPhase 为 1，AuthoringLane/ManeuverPath/LaneGroup 为 2，ManeuverGate/Wa
 | `0x0005`    | StaticRuleChange      | `9:beforeCanonicalValue:Bytes:O, 10:afterCanonicalValue:Bytes:O`                                              | `0=Add, 1=Remove, 2=Modify`            |
 | `0x0006`    | IdentityClosureChange | `9:beforeStableId:StableId128:O, 10:afterStableId:StableId128:O, 11:reasonKind:u8:R, 12:causalFieldTag:u16:O` | `0=Changed, 1=TransitivelyChanged`     |
 
-`before*` 当且仅当 base 有值时存在，`after*` 当且仅当 target 有值时存在；Add/Remove 的
-存在性必须相反。Modify/Move/Reconnect 必须同时有 before/after。对字段级变化，
-`fieldTag` 必需，`*CanonicalValue/*Value` 的 Bytes 是附录 A 对应 LFCA field type 的
-exact value bytes，不含 12-byte FieldV1 header；对整行 Add/Remove，`fieldTag` 缺失，
-Bytes 是完整 LFCA RowV1。`reasonKind` 为 `0=IdentityFieldChanged, 1=ParentAnchorChanged,
-2=ReferencedIdentityChanged`。规范排序键是 §6 已列 tuple；完全相同的键或不满足 before/
-after 存在性矩阵的行失败关闭。
+下面是 tag 3..12 的完整存在性矩阵；`R` 表示该 change kind 必须存在，`F` 表示必须缺失。
+未在相应行列出的 optional tag 同样视为 `F`，不存在实现者自选字段：
+
+| 表/change kind                | 必需 common tags                                  | 禁止 common tags                         | payload 必需/禁止                                                |
+| ----------------------------- | ------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------- |
+| Entity `Add`                  | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `afterValue:R, beforeValue:F`（完整目标 RowV1）                 |
+| Entity `Remove`               | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `beforeValue:R, afterValue:F`（完整 base RowV1）                 |
+| Entity `Modify`               | `subjectStableId, fieldTag`                       | `owner, role, before/afterIndex`          | `beforeValue/afterValue` 至少一个存在                            |
+| Relation `Add`                | `ownerStableId, subjectStableId, role, afterIndex` | `fieldTag, beforeIndex`                   | `beforeTarget:F, afterTarget:F`                                  |
+| Relation `Remove`             | `ownerStableId, subjectStableId, role, beforeIndex` | `fieldTag, afterIndex`                    | `beforeTarget:F, afterTarget:F`                                  |
+| Relation `Move`               | `ownerStableId, subjectStableId, role, before/afterIndex` | `fieldTag`                         | `beforeTarget:F, afterTarget:F`                                  |
+| Relation `Reconnect`          | `ownerStableId, role, before/afterIndex`          | `subjectStableId, fieldTag`               | `beforeTarget:R, afterTarget:R`                                  |
+| Geometry `Add`                | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `afterCanonicalValue:R, beforeCanonicalValue:F`                 |
+| Geometry `Remove`             | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `beforeCanonicalValue:R, afterCanonicalValue:F`                 |
+| Geometry `Modify`             | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `beforeCanonicalValue:R, afterCanonicalValue:R`                 |
+| StaticRule `Add`              | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `afterCanonicalValue:R, beforeCanonicalValue:F`（完整目标 RowV1） |
+| StaticRule `Remove`           | `subjectStableId`                                 | `owner, role, fieldTag, before/afterIndex` | `beforeCanonicalValue:R, afterCanonicalValue:F`（完整 base RowV1） |
+| StaticRule `Modify`           | `subjectStableId, fieldTag`                       | `owner, role, before/afterIndex`          | `beforeCanonicalValue/afterCanonicalValue` 至少一个存在          |
+| Identity `Changed/TransitivelyChanged` | 无 tag 3..8                             | `owner, subject, role, fieldTag, before/afterIndex` | `beforeStableId:R, afterStableId:R, reasonKind:R, causalFieldTag:R` |
+
+这里 `owner`、`role`、`beforeIndex`、`afterIndex` 是对应完整字段名的表内短写。所有行仍要求
+公共 tag 1 `changeKind` 和 tag 2 `entityKind`；Relation 行的 `entityKind` 是 owner kind，其他
+实体级行是 subject kind，且都只允许 LFCA `1..22`。Entity/StaticRule 的字段级 `Modify` 中，
+`before*` 当且仅当 base field 存在，`after*` 当且仅当 target field 存在；二者至少一个存在，
+若都存在则 bytes 必须不同。
+这唯一表达 optional field 的出现/消失。Geometry `Modify` 两端都必须存在且不同；Relation
+`Move` 的两个 index 必须不同，`Reconnect` 的两个 target 必须不同，但其 index 可以相等。
+Entity `Modify.fieldTag` 只允许对应实体表 tag `3+` 的规范语义字段；`typedOrdinal/stableId`
+不得伪装成普通字段变化，身份变化必须由 add/remove 与 `IdentityClosureChange` 闭合表达。
+StaticRule `Modify.fieldTag` 必须是相应规则 RowV1 登记的语义字段。
+
+字段级 Bytes 是附录 A 对应 LFCA field type 的 exact value bytes，不含 12-byte FieldV1
+header；整行 Add/Remove 的 Bytes 是完整 LFCA RowV1；Geometry 实体 Bytes 是完整相应
+geometry RowV1。所有 before bytes 必须逐字节等于 base 中的值，after bytes
+必须逐字节等于 target 中的值。`reasonKind` 为
+`0=IdentityFieldChanged, 1=ParentAnchorChanged,
+2=ReferencedIdentityChanged`，`causalFieldTag` 必须是该 entity kind 的 Identity v1 required
+tag。
+
+规范排序键如下；StableId128/Bytes 使用无符号逐字节字典序，整数使用无符号数值序。表中
+斜线分支由 change kind 唯一选择，因此没有 absent-value ordering：
+
+| 表/change kind              | tag 1 `changeKind` 之后的规范排序键                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Entity Add/Remove           | `(entityKind, subjectStableId)`                                                                                          |
+| Entity Modify               | `(entityKind, subjectStableId, fieldTag)`                                                                                |
+| Relation Add                | `(entityKind, ownerStableId, role, afterLocalIndex, subjectStableId)`                                                    |
+| Relation Remove             | `(entityKind, ownerStableId, role, beforeLocalIndex, subjectStableId)`                                                   |
+| Relation Move               | `(entityKind, ownerStableId, role, beforeLocalIndex, afterLocalIndex, subjectStableId)`                                  |
+| Relation Reconnect          | `(entityKind, ownerStableId, role, beforeLocalIndex, afterLocalIndex, beforeTarget, afterTarget)`                        |
+| Geometry Add/Remove/Modify  | `(entityKind, subjectStableId)`                                                                                          |
+| StaticRule Add/Remove       | `(entityKind, subjectStableId)`                                                                                          |
+| StaticRule Modify           | `(entityKind, subjectStableId, fieldTag)`                                                                                |
+| Identity 两种 kind          | `(entityKind, beforeStableId, afterStableId, reasonKind, causalFieldTag)`                                                |
+
+每张 change table 先按 `changeKind` 数值，再按本表对应 tuple 严格递增；完全相同的键、矩阵外
+字段、错误 payload 形状或不能与两端 LFCA 独立重算结果一一对应的行都失败关闭。
+
+`SpatialConfigurationChanges(0x0007)` 只有
+`SpatialConfigurationChange(tableKind=0x0001)`，字段为
+`1:changeKind:u8:R, 2:beforeSpatialPresence:Bytes:O,
+3:afterSpatialPresence:Bytes:R`。`changeKind` 是闭合枚举：`0=Initialize, 1=Modify`：
+
+- Genesis 必须且只能有一行 `Initialize`，before 缺失，after 是目标 LFCA 的完整
+  `SpatialPresence` RowV1；
+- Artifact 两端 `SpatialPresence` RowV1 相同则该表必须为空；不同时必须且只能有一行
+  `Modify`，before/after 分别是 base/target 的完整 RowV1 且逐字节不同；
+- 其他 change kind、before presence 组合、额外字段、重复行或与绑定 artifact 独立重算
+  不一致都失败关闭。
+
+该表的排序键是 singleton，不使用或伪造 `entityKind`；它唯一表达
+headless/spatial presence 与两个闭合 geometry profile code 的全局变化。
 
 ### A.4 LFCP table registry
 
@@ -1273,6 +1441,62 @@ LFCP exact bytes 外部的认证 manifest/指针提供。
   SignalPhase, ParkingArea, ParkingLaneAnchor, ParkingSpaceGeometry, ParkingSpace,
   LaneGroup, FacilityBand, ParticipantClass, AccessRegulation, AccessRule,
   IidmVehicleProfile, VehicleProfile, StaticRoute, CanonicalFrame`。
+
+每个 table container 的合法 `TableField.memberCode` 是下列闭区间；区间外的值失败关闭：
+
+```text
+ 0 RoadEditingSource       0..26    18 StopLine             0..2
+ 1 ModuleHeader            0..3     19 SignalGroup          0..1
+ 2 Provenance              0..5     20 SignalController     0..4
+ 3 LineSegment             0..0     21 SignalPhaseState     0..1
+ 4 CubicBezierSegment      0..2     22 SignalPhase          0..4
+ 5 CurveSegment            0..2     23 ParkingArea          0..1
+ 6 CurveProgram            0..1     24 ParkingLaneAnchor    0..1
+ 7 RoadAlignment           0..3     25 ParkingSpaceGeometry 0..3
+ 8 CorridorElement         0..1     26 ParkingSpace         0..5
+ 9 RoadCorridor            0..8     27 LaneGroup            0..2
+10 RoadSection             0..4     28 FacilityBand         0..4
+11 AuthoringLane           0..6     29 ParticipantClass     0..2
+12 LaneEdge                0..4     30 AccessRegulation     0..2
+13 Junction                0..3     31 AccessRule           0..7
+14 Movement                0..4     32 IidmVehicleProfile   0..6
+15 ManeuverPath            0..5     33 VehicleProfile       0..3
+16 ManeuverGate            0..6     34 StaticRoute          0..2
+17 WaitingZone             0..5     35 CanonicalFrame       0..1
+```
+
+`StructMember` 的闭合成员表为：`Digest256(0): member 0`、
+`OptionalU64(1): member 0`、`Vec3F64(2): members 0..2`、
+`LinearWidthProfile(3): members 0..1`。`UnionVariant` 只有
+`CurveSegmentGeometry(0)` 的 `1=LineSegment` 与 `2=CubicBezierSegment`；判别值 `0` 或其他
+值不构成 property step。
+
+合法 property path 不是任意合法 step 的笛卡尔积，而精确由下列闭合形状构成：
+
+1. 任一上表登记的单步 `TableField(table, field)`；
+2. 下列直接 table-to-struct 边，后接该 struct 的任一登记成员：
+   `Provenance.2->Digest256`、`Provenance.3->Digest256`、
+   `Provenance.4->OptionalU64`、`CurveProgram.0->Vec3F64`、
+   `LineSegment.0->Vec3F64`、`AuthoringLane.3->LinearWidthProfile`、
+   `FacilityBand.2->LinearWidthProfile`，以及
+   `CubicBezierSegment.{0,1,2}->Vec3F64`；
+3. 下列 table-to-table 边，后接目标 table 的任一登记 field：
+   `ModuleHeader.3->Provenance`、`RoadAlignment.2->CurveProgram`、
+   `LaneEdge.3->CurveProgram`、`RoadCorridor.7->CorridorElement`、
+   `SignalPhase.2->SignalPhaseState`、
+   `ParkingSpace.{2,3}->ParkingLaneAnchor`、
+   `ParkingSpace.4->ParkingSpaceGeometry`、
+   `AccessRule.5->AccessRegulation`、`VehicleProfile.2->IidmVehicleProfile`；
+4. 第 3 项中 `RoadAlignment/LaneEdge -> CurveProgram.0` 可以再接
+   `Vec3F64` 任一成员；`ModuleHeader -> Provenance.{2,3,4}` 可以再接其第 2 项登记的
+   struct member；
+5. 唯一四步形状为 `CurveSegment.1 ->
+   UnionVariant(CurveSegmentGeometry, 1) -> LineSegment.0 -> Vec3F64.member`，或把判别值
+   换成 `2`，再接 `CubicBezierSegment.{0,1,2} -> Vec3F64.member`。
+
+除上述 1..=4 步完整序列外，任何未被条目自身登记为完整序列的前缀、拼接、
+container/member 不匹配或未知值都失败关闭；验证只依赖本登记，不读取 FlatBuffers schema、
+生成代码或 Rust 枚举布局。
 
 编译后来源关系使用另一张闭合表：`sourceRelationRole 1..29` 依次为
 `LaneEdgeSuccessor, RoadCorridorElement, RoadSectionLane, AuthoringLaneEdge,
