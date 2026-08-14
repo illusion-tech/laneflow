@@ -19,7 +19,8 @@
   Runtime API G1 待决项，不实现生产分区。
 - `core-research-instrumentation-externalization.md`：#380 G1 冻结方案的 Review 版本；
   把 Core 生产路径内嵌的研究/测试仪器分为语义研究原型、性能归因计时、故障注入与
-  保留内存账本四类分治；冻结 research/ 归档、仪器探针边界、测试支持接缝与
+  保留内存账本四类分治；按访问需求冻结逐项落点（P1/P2/P3 保留 crate 内常规
+  `#[cfg(test)]` 模块、P4 降级 provenance）、仪器探针边界、测试支持接缝与
   benches 解耦落点。
 - `core-id-handles.md`：Core external ID、typed handle、registry / resolver、动态 lifecycle 和事件 payload 边界。
 - `numeric-representation.md`：v0.6 数值表示、精度分层、误差预算、确定性与 Core/Data/Spatial/Adapter 转换边界。
