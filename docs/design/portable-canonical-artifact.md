@@ -1,6 +1,6 @@
 # 可移植规范制品与辅助制品格式
 
-**文档状态**: 待重新接受（Ready for Re-acceptance；#298 G1 已重开；尚未开始 G2）<br>
+**文档状态**: Accepted（#298 G1 Pass；尚未开始 G2）<br>
 **最后更新**: 2026-08-15<br>
 **适用范围**: `laneflow-format`、`laneflow-static-contract`、
 `laneflow-compiler` 的可移植规范制品（Portable Canonical Artifact）、源映射封套
@@ -17,12 +17,11 @@
 
 ## 1. 状态、目标与非目标
 
-本文把 `network-compiler.md` 第 8 节和 ADR 0020 已接受的长期边界收窄为 #298 的
-实现级格式候选。此前 G1 已因 facility-only spatial output 无法表示的 finding 重开；Ready for
-Re-acceptance 只表示该内容缺口已在仓库内修正，不是新的 G1 Pass。#298 仍须对当前语义最终提交
-取得职责中立 clean review 并重新发布正式 `## G1 设计判断`。G1 Pass 也只授权准备独立 G2
-开工判断，不表示格式已经实现、通过验证或可供产品发布；任何实现 PR 都必须等待 #298 的正式
-`## G2 开工判断` 为 Pass。
+本文把 `network-compiler.md` 第 8 节和 ADR 0020 已接受的长期边界收窄为 #298 已接受的
+实现级格式输入。此前 G1 曾因 facility-only spatial output 无法表示而重开；该缺口与后续发现的
+跨修订身份前像碰撞现已闭合，并由 #298 Gate Ledger 中新的正式 `## G1 设计判断` 重新接受。
+G1 Pass 只授权准备独立 G2 开工判断，不表示格式已经实现、通过验证或可供产品发布；任何实现
+PR 都必须等待 #298 的正式 `## G2 开工判断` 为 Pass。
 
 #298 必须同时闭合四类对象：
 
