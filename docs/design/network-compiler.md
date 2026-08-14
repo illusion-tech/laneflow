@@ -32,6 +32,7 @@ Runtime 已经实现
 - `../adr/0021-city-simulation-game-traffic-foundation.md`
 - `core-id-handles.md`
 - `compiler-foundation.md`
+- `portable-canonical-artifact.md`（#298 G1 Draft 实现级格式候选；未 Accepted 前不得作为 G2 授权）
 - `current-package-import.md`
 - `cross-section-access.md`
 - `data-format.md`
@@ -723,6 +724,10 @@ entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest �
 ## 8. 制品与源映射（Artifact and Source Map）
 
 ### 8.1 可移植规范制品（Portable Canonical Artifact）
+
+本节保存 Accepted 的长期边界；LFCA/LFSM/LFSD/LFCP 的实现级线格式候选、原子发布
+协议和当前 G1 阻断项集中在 `portable-canonical-artifact.md`。后者在 #298 G1 正式
+Pass 前保持 Draft，不能用来推导已经存在的公共格式或实现授权。
 
 平台无关、确定性、closed shape，并包含：
 

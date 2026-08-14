@@ -61,6 +61,9 @@
 - `v0.10-compiler-foundation-validation.md`：#292 G2 生产纵向切片的实现、依赖方向、
   迁移等价、本地验证与性能门槛适用性结论；记录 G1 修订、生产基线和进入 Delivery PR
   审阅前的剩余边界。
+- `v0.10-portable-artifact-validation.md`：#298 LFCA/LFSM/LFSD/LFCP 的 G1 规范闭合、
+  known vectors、跨平台逐字节确定性、损坏/上限、失败原子性与 P100 资源证据计划；
+  当前只保存 Draft 计划和显式阻断项，不是已执行结果。
 - `v0.10-official-module-admission-validation.md`：#315 官方前端共同受检模块接入 G2
   的编译器私有共同 Typed AST、逐文档描述符、v1/v2 配置档版本边界、原子准入、来源映射、同机配对性能
   与进入 Delivery PR 前的本地验证事实。
