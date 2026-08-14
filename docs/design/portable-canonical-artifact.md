@@ -1,6 +1,6 @@
 # 可移植规范制品与辅助制品格式
 
-**文档状态**: 已接受（Accepted；#298 G1；尚未开始 G2 实现）<br>
+**文档状态**: 待接受（Ready for Acceptance；#298 G1 内容已闭合；尚未开始 G2）<br>
 **最后更新**: 2026-08-14<br>
 **适用范围**: `laneflow-format`、`laneflow-static-contract`、
 `laneflow-compiler` 的可移植规范制品（Portable Canonical Artifact）、源映射封套
@@ -18,9 +18,10 @@
 ## 1. 状态、目标与非目标
 
 本文把 `network-compiler.md` 第 8 节和 ADR 0020 已接受的长期边界收窄为 #298 的
-实现级格式输入。Accepted 只表示 G1 冻结字段、常量、限制值和职责边界，不表示格式已经
-实现、通过 G2 验证或可供产品发布；任何实现 PR 都必须等待 #298 发布正式
-`## G2 开工判断` 且结论为 Pass。
+实现级格式候选。Ready for Acceptance 只表示仓库内 G1 内容项已经闭合，不是 G1 Pass；#298
+仍须对当前精确提交取得职责中立 clean review 并发布正式 `## G1 设计判断`。G1 Pass 也只
+授权准备独立 G2 开工判断，不表示格式已经实现、通过验证或可供产品发布；任何实现 PR 都必须
+等待 #298 的正式 `## G2 开工判断` 为 Pass。
 
 #298 必须同时闭合四类对象：
 
@@ -1026,7 +1027,7 @@ profile 只进入非语义 CompilerProvenance，不进入这两个 revision 向�
 完整计划和 G2 证据占位见
 `../reference/v0.10-portable-artifact-validation.md`。
 
-## 11. G1 接受结果与 G2 前置
+## 11. G1 内容闭合与接受前置
 
 本文按下列条件闭合 G1 实现输入；动态 Gate、精确提交、外部审阅和 Project 状态仍以
 #298 Gate Ledger 为准：
@@ -1044,13 +1045,14 @@ profile 只进入非语义 CompilerProvenance，不进入这两个 revision 向�
 - [x] 冻结 pre-hash 上限、结构计数上限、硬格式上限和失败原子性；
 - [x] 由非作者审阅者仅依据本文人工重建两个 revision 向量和最小对象关键 offset；
 - [x] 记录编码库/自有格式选择的安全与维护证据；
-- [x] #298 Gate Ledger 绑定当前精确提交并取得职责中立的外部 clean review，且
+- [ ] #298 Gate Ledger 绑定当前精确提交并取得职责中立的外部 clean review，且
       Project/Issue 元数据完整。
 
-G1 Pass 只冻结实现输入，不声明 LFCA/LFSM/LFSD/LFCP 已实现、通过产品验证或获得独立
-语义授信。G2 开工前仍须重新核验 GitHub 元数据、原生依赖、当前 Accepted 文档和实现切片，
-并在 #298 追加独立 `## G2 开工判断`；任何字段 tag、限制值、排序破同值、publication
-原子性或职责边界变化都必须返回 G1。
+最后一项只能在事实已经成立后由 #298 Gate Ledger 记录，不在仓库内预先勾选动态审阅结果。
+它满足并正式记录 G1 Pass 后，本文才转为 Accepted；该 Pass 只冻结实现输入，不声明
+LFCA/LFSM/LFSD/LFCP 已实现、通过产品验证或获得独立语义授信。G2 开工前仍须重新核验 GitHub
+元数据、原生依赖、Accepted 文档和实现切片，并在 #298 追加独立 `## G2 开工判断`；任何字段
+tag、限制值、排序破同值、publication 原子性或职责边界变化都必须返回 G1。
 
 ## 附录 A：线格式登记表（规范）
 
@@ -1292,15 +1294,20 @@ transition 领域顺序，行数精确为 `max(edges.count-1, 0)`。这些 Recor
 | `VehicleProfile.minGapMeters`                                             | `>= 0 m`                                                          |
 | `VehicleProfile.timeHeadwaySeconds` 与三项 acceleration/deceleration 标量 | 各自 `> 0`；且 `emergencyDeceleration >= comfortableDeceleration` |
 
-AuthoringLane 的每条 LaneEdge 最多属于一个 `edgeChain`，链内每对相邻 edge 必须由前项的
-`successors` 显式连接。ManeuverPath 的完整 edge StableId occurrence 序列必须全局唯一；同一
+ManeuverPath 的完整 edge StableId occurrence 序列必须全局唯一；同一
 edge 可以在一个序列中重复出现，每个位置分别参与 transition、gate、diff 与来源映射。首末
 occurrence 是 boundary，中间 occurrence 的去重集合必须与 `JunctionInternalEdge` 精确闭合。
 boundary edge 不得同时是任何 internal edge；同一 internal edge 可在一条 path 中重复、或被
-同一路口的多条 path 共享，但不得归属不同路口。
+同一路口的多条 path 共享，但不得归属不同路口。记全部中间 occurrence 的去重集合为 `I`。
+
+AuthoringLane 的每条 LaneEdge 最多属于一个 `edgeChain`。链内每对相邻 edge 若两端都不在
+`I`，前项的规范 `successors` 必须显式包含后项；若任一端在 `I`，该有向 pair 必须作为相邻
+occurrence 出现在至少一条 ManeuverPath 中，且涉及的 internal edge 必须归属该 path 的同一
+路口。此时 edgeChain 只表达有序覆盖，ManeuverPath 仍是 internal transition 的 portable
+拓扑权威。
 
 LFCA 对 `LaneEdge.successors` 使用单一、source-model-neutral 的规范投影。发射器先从所有
-ManeuverPath 的中间 occurrence 重建全局 internal-edge 集合 `I`，再把 validated LIR successor
+ManeuverPath 的中间 occurrence 重建并核对 `I`，再把 validated LIR successor
 集合中 `owner in I || target in I` 的 pair 全部过滤；剩余 pair 仍按 target typed ordinal 严格
 递增写入。该 total projection 不读取 LFSM/source language，不因 Synthetic 或 RoadEditing
 分叉，也不接受调用方 override。path 内相邻 edge 若都不在 `I`，过滤后的 LFCA successor 必须
@@ -1449,16 +1456,18 @@ path-only transition 不能因未出现在 successors 中而跳过。每个 `(pr
 `HypotRteF32(HypotRteF32(dx,dy),dz)` 重算 gap；只接受
 `gap <= 0.005f32`（bits `0x3ba3d70a`，等号有效），不得吸附、焊接或移动端点。
 
-当 `geometryDirectionProfile` 非零时，同一 pair 的 predecessor 末弦和 successor 首弦还必须
-通过所选 direction profile：先把两弦
-的 binary32 点分量无损提升为 binary64 后分别做末点减首点，再各除以自身绝对分量最大值；
+当 `geometryDirectionProfile` 非零时，任意受检相邻弦对都必须通过同一个 direction profile
+谓词：先把两弦的 binary32 点分量无损提升为 binary64 后分别做末点减首点，再各除以自身
+绝对分量最大值；
 按 `dot=(x*x'+y*y')+z*z'`、`norm2=(x*x+y*y)+z*z`、
 `lhs=dot*dot`、`rhs=(C*norm2(left))*norm2(right)` 的写出顺序逐运算舍入到 binary64，只接受
 `dot > 0 && lhs >= rhs`。`C` 的 binary64 bits 对 Smooth/Balanced/Compact 依次为
 `0x3feffd813c5f82b4`、`0x3feff605b8b87ffc`、`0x3fefc1c5c6408e0c`；禁止 FMA、重结合、
-`acos/cos`、额外精度或实现自选 epsilon。code 为 `0=None` 时跳过且只能跳过本方向谓词，
-不能跳过 frame、gap、点表、段表或 arc-length 验证。任何适用检查失败都在建立 spatial view
-前失败关闭。
+`acos/cos`、额外精度或实现自选 epsilon。受检集合必须同时包含每张 LaneEdgeGeometry 内
+相邻 segment 弦对、每张 FacilityBandGeometry 内相邻点弦对，以及上述每个有向连接 pair 的
+predecessor 末弦和 successor 首弦；任一 polyline 不能只检查首尾或跨 edge join。code 为
+`0=None` 时跳过且只能跳过本方向谓词，不能跳过 frame、gap、点表、段表或 arc-length 验证。
+任何适用检查失败都在建立 spatial view 前失败关闭。
 
 `FacilityBandGeometry.points` 同样必须至少两项，并逐点、逐弦执行上述分量范围、正零、
 `length>0.1 m` 和有限严格递增累计；direction code 非零时再执行所选 profile 检查。它不保存
