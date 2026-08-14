@@ -1,7 +1,7 @@
 # Core Runtime 可扩展性前置审计
 
 **文档状态**: Review<br>
-**最后更新**: 2026-07-29<br>
+**最后更新**: 2026-08-14<br>
 **适用范围**: #199 对 #72 的前置 Core API、道路机动车车辆特化证据，以及目标
 Traffic Runtime 的多执行域身份（Identity）、批处理（Batch）、命令（Command）、
 确定性调度（Deterministic Scheduling）与事件合并（Event Merge）审计<br>
@@ -697,6 +697,8 @@ C4 使用相同十万 workload 与 Criterion 参数重新配对 P0/H1/C2/C3，`m
 
 1. coarse stage timing（粗粒度阶段计时）：每个 tick、每个阶段只取一次 `Instant`，把 whole-step 拆为 occupancy/leader rebuild、longitudinal proposal/store、global projection、advance/events/authority commit 和 research cache commit；这组数据按同一 tick 采样，可以用于阶段占比和近似加和。
 2. independent Criterion kernels（独立内核基准）：对 IIDM intent、post-intent safe motion、scratch begin、motion store 和 global projection 分别测十万 batch；它们用于解释机制，但因输入布局、cache 状态和循环边界不同，**不得把独立数字简单相加当成 whole-step 分解**。
+
+**探针替代边界回写（2026-08-14，#380 切片 ②）**：本节 coarse stage timing 原由深嵌生产路径的 5 处 `#[cfg(test)] Instant::now()` 钩子采集（occupancy、longitudinal 总计、proposal/store、global projection、advance/events/authority commit），research cache commit 由 P4 研究状态内嵌记录。该内嵌形态已按 `core-research-instrumentation-externalization.md` §3 B 类冻结收敛为 method-generic 仪器探针边界：`CoreWorld::step_with_probe<P: StepProbe>` + 默认 `NoOpProbe`（`ENABLED = false`，发布构建不读取时钟、空操作整体编译消除），研究态记录实现 `StageTimingProbe`（六段 `Duration` 快照，含 research-commit）由 `instrumentation` feature 或 crate 内测试启用，Criterion 取证（`criterion_100k_three_round_*`）已迁移为探针实现。D5 下表 H1/C4 行全部列与 kernel 诊断命令（`reduced-rate-ablation` controller-only 与 motion benchmark 输入）的可运行复现随 P4 provenance 降级整体暂停（降级记录见 #380 评论，P4 状态机移除在切片 ③ 落地）；已记录数值按历史证据语义保留，不作为可重跑基线。生产路径探针在 P0 workload 上的五段计时（occupancy、longitudinal 总计 / proposal / projection、post-longitudinal）复现能力完整保留：对任意 workload 以 `StageTimingProbe` 运行 `step_with_probe` 即可按 tick 采样六段计时。
 
 外部 sampled profile 使用 Windows Performance Recorder（WPR）采集 CPU sampling ETL。非提权进程首次执行 `wpr -start CPU` 返回 `0xc5585011: Failed to enable the policy to profile system performance`；随后通过 UAC 启动一次性 elevated helper，确认令牌包含 `SeSystemProfilePrivilege` 后，WPR start、十万 H1 workload 和 WPR stop 的退出码均为 0，不需要修改本地安全策略。第一次 coarse run 还暴露了 instrumentation lifecycle 问题：`begin_step` 会清零刚记录的 occupancy duration；该轮已判无效、不计入结果，修正后从干净 workload 重跑。
 

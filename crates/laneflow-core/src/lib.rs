@@ -18,6 +18,7 @@ pub mod profile;
 pub mod route;
 mod route_distance;
 pub mod signal;
+mod step_probe;
 #[cfg(test)]
 mod test_support;
 pub mod time;
@@ -68,6 +69,11 @@ pub use signal::{
     SignalControllerState, SignalGroup, SignalGroupSnapshot, SignalGroupState,
     SignalLayerPermission, SignalPhase, SignalRegistry, StopLine, StopLineLocation,
 };
+#[doc(hidden)]
+pub use step_probe::{NoOpProbe, StepProbe};
+#[cfg(any(test, feature = "instrumentation"))]
+#[doc(hidden)]
+pub use step_probe::{StageTimingProbe, StepStageTimings};
 pub use time::{StepResult, TickInput};
 pub use traffic::{GateOccurrence, InitialTrafficData, ManeuverOccurrence, WaitingZoneOccurrence};
 pub use vehicle::{

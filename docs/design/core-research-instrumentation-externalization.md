@@ -125,6 +125,33 @@ crate 外迁出研究模块，不新增面向研究访问的公共表面。
   append-only 追加；超出包络的变更（参数化 `CoreWorld`、新增 feature、默认
   启用任一 feature、保留内存账本改公开）属设计变更，须重新 G1，不得静默引入。
 
+### G2 定稿追加（2026-08-14，切片 ②：B 类仪器探针边界）
+
+切片 ② 的 G2 开工判断（#380 评论 5290374480）在上述冻结包络内定稿以下
+精确类型名与签名：
+
+- `#[doc(hidden)] pub trait StepProbe`（`step_probe.rs`，始终编译）：关联常量
+  `const ENABLED: bool` + 5 个默认空方法 `note_occupancy_duration(Duration)` /
+  `note_longitudinal_duration(Duration)` /
+  `note_longitudinal_breakdown(proposal: Duration, projection: Duration)` /
+  `note_post_longitudinal_duration(Duration)` /
+  `note_research_commit_duration(Duration)`。六段中的 proposal / projection 由
+  breakdown 方法承载，与既有钩子形状一致；`ENABLED = false` 时调用点不构造
+  `Instant`，空操作经 monomorphization 与常量折叠整体编译消除。
+- `#[doc(hidden)] pub struct NoOpProbe`（unit，`ENABLED = false`，始终编译）：
+  生产路径默认探针。
+- `#[doc(hidden)] pub fn CoreWorld::step_with_probe<P: StepProbe>(
+  &mut self, input: TickInput, probe: &mut P) -> Result<StepResult, CoreError>`；
+  `CoreWorld::step` 公开签名不变，内部以 `NoOpProbe` 委托。不参数化
+  `CoreWorld`，不引入 `Option<&mut dyn …>` 运行期分支。
+- `instrumentation` feature（接缝实现 `cfg(any(test, feature = "instrumentation"))`，
+  默认构建不启用）：`#[doc(hidden)] pub struct StageTimingProbe`（研究态记录
+  探针，`ENABLED = true`）与 `#[doc(hidden)] pub struct StepStageTimings`（六段
+  `std::time::Duration` 字段 + `StageTimingProbe::last_step()` 访问器）。
+
+切片 ① 已定稿的 C 类接缝（`test-support` feature 与两个 `#[doc(hidden)]` setter）
+已在该切片 PR #384 中登记，本节不再重复。
+
 ## 5. 确定性与验证不变量
 
 - `cargo test --workspace --locked` 全量通过。
