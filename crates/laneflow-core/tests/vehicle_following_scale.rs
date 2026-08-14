@@ -1,8 +1,6 @@
 use laneflow_core::{CoreEvent, CoreWorld, TickInput, VehicleHandle, VehicleStatus};
 
-#[allow(dead_code)]
-#[path = "support/vehicle_following_scenarios.rs"]
-mod scenarios;
+use laneflow_core_test_support::vehicle_following_scenarios as scenarios;
 
 use scenarios::{
     FIXED_DELTA_TIME_MS, LOCALITY_EDGE_LENGTH, SCALING_VEHICLE_COUNT, SPEED_LIMIT_EDGE_LENGTH,

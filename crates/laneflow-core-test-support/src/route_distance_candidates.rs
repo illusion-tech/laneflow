@@ -434,10 +434,6 @@ pub fn collection_retained_bytes<T>(indices: &Vec<T>, nested: impl Fn(&T) -> usi
 
 #[cfg(test)]
 mod tests {
-    #[allow(
-        unused_imports,
-        reason = "Criterion 以 cfg(test) 编译共享模块但不收集测试"
-    )]
     use super::*;
 
     #[test]

@@ -2,9 +2,7 @@ use std::mem::size_of;
 
 use laneflow_core::CoreEvent;
 
-#[allow(dead_code)]
-#[path = "support/minimum_edge_research.rs"]
-mod research;
+use laneflow_core_test_support::minimum_edge_research as research;
 
 use research::{
     MIN_EDGE_CANDIDATES_METERS, SELECTED_MIN_EDGE_EXCLUSIVE_METERS, compact_transition_kernel,

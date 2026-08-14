@@ -2,8 +2,7 @@ use std::collections::HashMap;
 
 use laneflow_core::{CoreEvent, CoreWorld, EdgeHandle, TickInput, VehicleState};
 
-#[path = "support/signals_validation_scenarios.rs"]
-mod scenarios;
+use laneflow_core_test_support::signals_validation_scenarios as scenarios;
 
 use scenarios::{
     GROUPS_PER_CONTROLLER, SIGNAL_FIXED_DELTA_TIME_MS, SIGNAL_SCALING_VEHICLE_COUNT,

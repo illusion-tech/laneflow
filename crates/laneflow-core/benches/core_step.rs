@@ -10,16 +10,9 @@ use std::{hint::black_box, time::Duration};
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use laneflow_core::{CoreWorld, TickInput};
 
-#[path = "../tests/support/parking_runtime_scenarios.rs"]
-#[allow(
-    dead_code,
-    reason = "shared parking helper also exposes command scenarios"
-)]
-mod parking_scenarios;
-#[path = "../tests/support/signals_validation_scenarios.rs"]
-mod signal_scenarios;
-#[path = "../tests/support/vehicle_following_scenarios.rs"]
-mod vehicle_scenarios;
+use laneflow_core_test_support::parking_runtime_scenarios as parking_scenarios;
+use laneflow_core_test_support::signals_validation_scenarios as signal_scenarios;
+use laneflow_core_test_support::vehicle_following_scenarios as vehicle_scenarios;
 
 use parking_scenarios::occupied_parking_world;
 use signal_scenarios::{

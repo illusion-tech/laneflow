@@ -4,12 +4,8 @@ use std::{hint::black_box, time::Duration};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 
-#[allow(dead_code)]
-#[path = "../tests/support/numeric_precision_research.rs"]
-mod candidates;
-#[allow(dead_code)]
-#[path = "../tests/support/numeric_contract_calibration.rs"]
-mod contract;
+use laneflow_core_test_support::numeric_contract_calibration as contract;
+use laneflow_core_test_support::numeric_precision_research as candidates;
 
 use candidates::{
     CandidateLayout, CandidateScenario, CandidateWorld, CompensatedF32Mode, F64Mode, MixedF32Mode,

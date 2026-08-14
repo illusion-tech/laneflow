@@ -1,6 +1,4 @@
-#[allow(dead_code)]
-#[path = "support/route_distance_candidates.rs"]
-mod candidates;
+use laneflow_core_test_support::route_distance_candidates as candidates;
 
 use candidates::{
     CHUNK_OCCURRENCES, ChunkedLocalF32Index, F64PrefixIndex, QueryResult,

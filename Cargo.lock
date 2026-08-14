@@ -3214,9 +3214,17 @@ dependencies = [
  "criterion",
  "half",
  "indexmap",
+ "laneflow-core-test-support",
  "proptest",
  "stats_alloc",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "laneflow-core-test-support"
+version = "0.0.0"
+dependencies = [
+ "laneflow-core",
 ]
 
 [[package]]

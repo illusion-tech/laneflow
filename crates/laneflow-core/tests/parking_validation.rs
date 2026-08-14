@@ -1,6 +1,4 @@
-#[path = "support/parking_runtime_scenarios.rs"]
-#[allow(dead_code, reason = "shared helper also exposes benchmark scenarios")]
-mod parking_scenarios;
+use laneflow_core_test_support::parking_runtime_scenarios as parking_scenarios;
 
 use parking_scenarios::{
     parking_six_command_scenario, run_six_command_batch, warm_six_command_batch,

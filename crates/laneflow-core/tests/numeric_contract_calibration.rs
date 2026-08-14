@@ -1,9 +1,5 @@
-#[allow(dead_code)]
-#[path = "support/numeric_contract_calibration.rs"]
-mod calibration;
-#[allow(dead_code)]
-#[path = "support/numeric_precision_research.rs"]
-mod runtime_candidates;
+use laneflow_core_test_support::numeric_contract_calibration as calibration;
+use laneflow_core_test_support::numeric_precision_research as runtime_candidates;
 
 use calibration::{
     COMPUTED_SPEED_TOLERANCE_CANDIDATE_METERS_PER_SECOND, ConstraintWorkload, ConversionDomain,

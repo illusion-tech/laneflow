@@ -9,21 +9,8 @@ use std::{hint::black_box, time::Duration};
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use laneflow_core::{CoreWorld, TickInput};
 
-#[path = "../tests/support/parking_runtime_scenarios.rs"]
-#[allow(dead_code, reason = "共享 Parking helper 还提供本矩阵不使用的命令场景")]
-mod parking_scenarios;
-#[path = "../tests/support/signals_validation_scenarios.rs"]
-#[allow(
-    dead_code,
-    reason = "共享 Signals helper 还提供本矩阵不使用的模式和计数"
-)]
-mod signal_scenarios;
-#[path = "../tests/support/vehicle_following_scenarios.rs"]
-#[allow(
-    dead_code,
-    reason = "共享 Vehicle Following helper 还提供其他基准与测试入口"
-)]
-mod vehicle_scenarios;
+use laneflow_core_test_support::signals_validation_scenarios as signal_scenarios;
+use laneflow_core_test_support::vehicle_following_scenarios as vehicle_scenarios;
 
 use signal_scenarios::{SignalScenarioMode, reserved_parking_scenario, signal_scenario};
 use vehicle_scenarios::{

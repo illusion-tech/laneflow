@@ -3,12 +3,7 @@ use std::{alloc::System, hint::black_box};
 use laneflow_core::TickInput;
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, Stats, StatsAlloc};
 
-#[path = "support/command_validation_scenarios.rs"]
-#[allow(
-    dead_code,
-    reason = "shared benchmark helper exposes scenarios unused by this binary"
-)]
-mod command_scenarios;
+use laneflow_core_test_support::command_validation_scenarios as command_scenarios;
 
 use command_scenarios::{
     FIXED_COMMAND_COUNT, command_scenario, run_in_use_route_failure_batch,

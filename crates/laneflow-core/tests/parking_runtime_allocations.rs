@@ -3,9 +3,7 @@ use std::{alloc::System, hint::black_box, sync::Mutex};
 use laneflow_core::{ParkingCommandEffect, TickInput};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, Stats, StatsAlloc};
 
-#[path = "support/parking_runtime_scenarios.rs"]
-#[allow(dead_code, reason = "shared benchmark helper exposes scale scenarios")]
-mod parking_scenarios;
+use laneflow_core_test_support::parking_runtime_scenarios as parking_scenarios;
 
 use parking_scenarios::single_parking_world;
 

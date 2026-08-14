@@ -23,6 +23,7 @@ test-support = []
 [dev-dependencies]
 criterion = "0.8"
 half = "2.7.1"
+laneflow-core-test-support = { version = "0.0.0", path = "../laneflow-core-test-support" }
 proptest = { version = "1.11", default-features = false, features = ["std"] }
 stats_alloc = "=0.1.10"
 
