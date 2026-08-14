@@ -15,7 +15,7 @@ G1 冻结方案，冻结生效以 #381 Gate Ledger 的 G1 记录为准。本文�
 
 ## 1. 背景与事实修正
 
-#381 架构审查指控（`CoreWorld` god object、单一超大文件、`step()` 双分支复制）
+#381 架构审查指控（`CoreWorld` 巨型对象（god object）、单一超大文件、`step()` 双分支复制）
 经当前 main（`8f3de846`）核实成立，事实细节按当前代码修正：
 
 - `crates/laneflow-core/src/world.rs` 共 7,434 行：生产实现与私有 helper 约
@@ -72,33 +72,37 @@ G1 冻结方案，冻结生效以 #381 Gate Ledger 的 G1 记录为准。本文�
 
 - `world.rs` 迁为 `world/mod.rs`，`pub mod world` 路径与
   `world::CoreWorld` 导出不变；
-- 子模块只搬移 `impl CoreWorld` 成员与文件级私有 helper，不改变任何函数签名、
-  调用关系与可见性（不新增 `pub` / `pub(crate)` 表面）；
-- 跨域私有访问沿用 Rust 子模块对父模块私有项的可见性（`use super::*`），不引入
-  新 trait、新状态共享或新抽象；
-- 内联 `mod tests` 纯文件搬迁为 `world/tests.rs`（零断言改动）；5 个研究测试
-  模块保持原文件与 `#[cfg(test)]` 声明，仅把 mod 声明移入 `mod.rs`；
+- 子模块只搬移 `impl CoreWorld` 成员与文件级私有 helper，不改变任何函数签名与
+  调用关系；不新增 **crate 外**公开表面——Rust 私有项只对定义模块及其后代可见、
+  兄弟模块互不可见，因此 world 模块树内跨域共享的方法与字段以 `pub(super)`
+  标注（对 `world` 及其全部后代含 `tests` 可见），`pub mod world` 与
+  `pub use world::CoreWorld` 导出面不变；
+- `use super::*` 仅承担名字导入（world.rs 无宏，无宏坑），不引入新 trait、新
+  状态共享或新抽象；
+- 内联 `mod tests` 纯文件搬迁为 `world/tests.rs`（零断言改动）；5 个
+  `#[cfg(test)]` 测试模块（3 个 A 类研究原型 + occupancy 行为白盒 + retained_memory
+  保留内存账本）保持原文件与 `#[cfg(test)]` 声明，仅把 mod 声明移入 `mod.rs`；
 - tick 系列子模块使用 `tick_*` 前缀命名，避免与 crate 级模块
   （`occupancy` / `longitudinal` / `signal` / `parking` / `route`）同名混淆。
 
 冻结模块表（区间以当前 main `8f3de846` 为准，实施时以函数归属为准）：
 
-| 子模块                 | 内容                                                                                                                                                                                                  | 现区间（world.rs）              | 约行数 |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ------ |
-| `state.rs`             | `CoreWorld` 结构 + `new`/`with_traffic_data` + 基础车辆访问                                                                                                                                           | 350-554                         | ~205   |
-| `support.rs`           | 文件级内部结构：RouteReferenceIndex、RouteSlot、VehicleSlot、StableVehicleOrder、CandidateStateScratch、VehicleAdvanceContext、NormalizedVehicleInput、CandidateVehicleOverlap、ParkingStepRelease 等 | 70-349、4593-4638               | ~330   |
-| `parking_commands.rs`  | parking 命令族 + 私有 helper（first_reachable_parking_entry、parking_arrived）                                                                                                                        | 554-1300                        | ~747   |
-| `signal_queries.rs`    | signal 查询族                                                                                                                                                                                         | 1301-1340                       | ~40    |
-| `route_queries.rs`     | profile/edge/route 查询族                                                                                                                                                                             | 1341-1428                       | ~88    |
-| `route_lifecycle.rs`   | register/remove route + 静态校验 helper                                                                                                                                                               | 1429-1869                       | ~441   |
-| `vehicle_lifecycle.rs` | spawn/replace/despawn + route reference index 维护 + 输入规范化                                                                                                                                       | 1870-2515、4157-4299            | ~790   |
-| `tick.rs`              | step/step_with_probe + 收敛后 advance 循环 + 提交阶段 + 故障注入 impl                                                                                                                                 | 2516-2826、2875-2924、4639-4651 | ~374   |
-| `tick_spatial.rs`      | command spatial index 重建/同步                                                                                                                                                                       | 2827-2874                       | ~48    |
-| `tick_overlap.rs`      | candidate overlap 校验族 + parking leave follower 校验                                                                                                                                                | 2925-3429                       | ~505   |
-| `tick_longitudinal.rs` | occupancy/leader/longitudinal 重建族 + horizon/leader 计算                                                                                                                                            | 3430-4156                       | ~727   |
-| `tick_advance.rs`      | `advance_vehicle` + `append_signal_events` + route_slot/vehicle_slot                                                                                                                                  | 4300-4590                       | ~291   |
-| `tests.rs`             | 内联 `mod tests`（含 retained_memory 子模块）纯文件搬迁                                                                                                                                               | 4669-7434                       | ~2,766 |
-| `mod.rs`               | 模块声明 + 5 个 `#[cfg(test)] mod <研究测试>;`                                                                                                                                                        | —                               | ~40    |
+| 子模块                 | 内容                                                                                                                                                                                                                                                                                                                   | 现区间（world.rs）              | 约行数 |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ------ |
+| `state.rs`             | `CoreWorld` 结构（字段以 `pub(super)` 供兄弟模块 impl 访问）+ `new`/`with_traffic_data` + 基础车辆访问 + route_slot/vehicle_slot 通用访问器                                                                                                                                                                            | 350-554、4579-4590              | ~217   |
+| `support.rs`           | 文件级内部结构（项一律 `pub(super)` 含字段，不持有 `impl CoreWorld` 成员）：RouteReferenceIndex、RouteSlot、VehicleSlot、StableVehicleOrder、CandidateStateScratch、VehicleAdvanceContext、NormalizedVehicleInput、CandidateVehicleOverlap、ParkingStepRelease、PreparedVehicleReplaceIds、parking_emergency_travel 等 | 70-349、4593-4638               | ~330   |
+| `parking_commands.rs`  | parking 命令族 + 私有 helper（first_reachable_parking_entry、parking_arrived）                                                                                                                                                                                                                                         | 554-1300                        | ~747   |
+| `signal_queries.rs`    | signal 查询族                                                                                                                                                                                                                                                                                                          | 1301-1340                       | ~40    |
+| `route_queries.rs`     | profile/edge/route 查询族                                                                                                                                                                                                                                                                                              | 1341-1428                       | ~88    |
+| `route_lifecycle.rs`   | register/remove route + 静态校验 helper                                                                                                                                                                                                                                                                                | 1429-1869                       | ~441   |
+| `vehicle_lifecycle.rs` | spawn/replace/despawn + route reference index 维护 + 输入规范化                                                                                                                                                                                                                                                        | 1870-2515、4157-4299            | ~790   |
+| `tick.rs`              | step/step_with_probe + 收敛后 advance 循环 + 提交阶段 + 故障注入 impl                                                                                                                                                                                                                                                  | 2516-2826、2875-2924、4639-4651 | ~374   |
+| `tick_spatial.rs`      | command spatial index 重建/同步                                                                                                                                                                                                                                                                                        | 2827-2874                       | ~48    |
+| `tick_overlap.rs`      | candidate overlap 校验族 + parking leave follower 校验                                                                                                                                                                                                                                                                 | 2925-3429                       | ~505   |
+| `tick_longitudinal.rs` | occupancy/leader/longitudinal 重建族 + horizon/leader 计算                                                                                                                                                                                                                                                             | 3430-4156                       | ~727   |
+| `tick_advance.rs`      | `advance_vehicle` + `append_signal_events`                                                                                                                                                                                                                                                                             | 4300-4578                       | ~278   |
+| `tests.rs`             | 内联 `mod tests`（含 retained_memory 子模块）纯文件搬迁                                                                                                                                                                                                                                                                | 4669-7434                       | ~2,766 |
+| `mod.rs`               | 文件头 doc/use 导入（1-69）+ 模块声明 + re-export（`pub use state::CoreWorld`、`pub(super) use support::*` 等）+ 5 个 `#[cfg(test)] mod <研究测试>;`                                                                                                                                                                   | —                               | ~120   |
 
 拆分后的模块结构总览（AAD 标记见下方 Where）：
 
@@ -135,7 +139,7 @@ laneflow-core crate  (A)
 │   tick_advance.rs           advance_vehicle                            │  (P)
 │                                                                        │
 │ tests.rs                 inline mod tests, moved verbatim              │  (Q)
-│ *_research_tests         occupancy / retained_memory /                 │  (R)
+│ *_tests                 occupancy / retained_memory /                  │  (R)
 │                           event_merge_research /                       │
 │                           partitioned_occupancy_research /             │
 │                           selective_read_research                      │
@@ -147,9 +151,9 @@ Where：
 - (A) **laneflow-core crate**：拆分范围仅限本 crate 内部，不涉及 Data/Spatial/Scenario/Bevy crate。
 - (B) **lib.rs**：公开导出面保持不变（`pub mod world` 与 `pub use world::CoreWorld` 原样保留），`CoreWorld` 签名、语义与确定性语义不变。
 - (C) **external consumers**：外部消费者路径不变、零影响（laneflow-bevy、laneflow-core-test-support、laneflow-compiler-test-support 与全部 benches），均经 crate 根或 `world::CoreWorld` 访问。
-- (D) **world module**：`world.rs` 迁为 `world/mod.rs`（`world/` 目录已存在，无命名冲突）；`#[cfg(test)]` 研究测试模块声明集中于此。
-- (E) **state.rs**：`CoreWorld` 结构定义（共 30 字段：28 个无条件字段 + 2 个 `#[cfg(any(test, feature = "test-support"))]` 故障注入钩子）、构造（`new` / `with_traffic_data`）与基础车辆访问器；各子模块经 `use super::*` 私有访问，不扩大可见性。
-- (F) **support.rs**：文件级内部结构（`RouteReferenceIndex`、`RouteSlot`、`VehicleSlot`、`StableVehicleOrder`、`CandidateStateScratch`、`VehicleAdvanceContext`、`NormalizedVehicleInput`、`CandidateVehicleOverlap`、`ParkingStepRelease` 等），被命令域与 tick 系列共享。
+- (D) **world module**：`world.rs` 迁为 `world/mod.rs`（`world/` 目录已存在，无命名冲突）；`mod.rs` 承载文件头 doc/use 导入、`pub use state::CoreWorld` 与 `pub(super) use support::*` 等 re-export、5 个 `#[cfg(test)]` 测试模块声明。
+- (E) **state.rs**：`CoreWorld` 结构定义（共 30 字段：28 个无条件字段 + 2 个 `#[cfg(any(test, feature = "test-support"))]` 故障注入钩子）、构造（`new` / `with_traffic_data`）、基础车辆访问与 route_slot/vehicle_slot 通用访问器；字段以 `pub(super)` 供兄弟模块 impl 访问，不扩大 crate 外表面。
+- (F) **support.rs**：文件级内部结构（`RouteReferenceIndex`、`RouteSlot`、`VehicleSlot`、`StableVehicleOrder`、`CandidateStateScratch`、`VehicleAdvanceContext`、`NormalizedVehicleInput`、`CandidateVehicleOverlap`、`ParkingStepRelease`、`PreparedVehicleReplaceIds`、`parking_emergency_travel` 等），项一律 `pub(super)`（含字段）且不持有 `impl CoreWorld` 成员，被命令域与 tick 系列共享。
 - (G) **parking_commands.rs**：parking 命令族（`reserve_parking_space` / `cancel_parking_reservation` / `commit_parking` / `spawn_parked_vehicle` / `rebind_reserved_vehicle_route` / `leave_parking` 及私有 helper）；跨域调用 (N) 的 `validate_parking_leave_followers`。
 - (H) **signal_queries.rs**：signal 查询族（controller / group / maneuver-gate 快照查询）。
 - (I) **route_queries.rs**：profile / edge / route 句柄、外部 ID 与出现项（maneuver / gate / waiting-zone）查询。
@@ -159,9 +163,9 @@ Where：
 - (M) **tick_spatial.rs**：command spatial index 重建（`rebuild_command_spatial_index`，被 (E) 构造路径调用）与成员同步（`sync_changed_command_spatial_memberships`，被 (L) 调用）。
 - (N) **tick_overlap.rs**：候选重叠校验族（`validate_candidate_overlap`、`validate_candidate_overlap_excluding`、`find_candidate_overlap` 等）、`validate_initial_vehicle_overlaps` 与 parking leave follower 校验；被 (E)/(G)/(K)/(L) 共用。
 - (O) **tick_longitudinal.rs**：occupancy / leader 重建（`rebuild_occupancy_and_leaders`、`rebuild_longitudinal_motions`）与 horizon / leader 计算（speed-limit / parking-stop / signal-stop horizon、`find_leader`、`braking_distance` 等）。
-- (P) **tick_advance.rs**：`advance_vehicle`（const generic `PARKING_ACTIVE`）、`route_slot` / `vehicle_slot` 访问器。
+- (P) **tick_advance.rs**：`advance_vehicle`（const generic `PARKING_ACTIVE`）与 `append_signal_events`。
 - (Q) **tests.rs**：原内联 `mod tests`（含 `retained_memory` 子模块）纯文件搬迁，断言零改动（约 2,766 行）。
-- (R) **\*_research_tests**：5 个研究测试模块（#380 外移完成）保持原文件位置与内容，仅 `#[cfg(test)] mod` 声明移入 `mod.rs`，不重复搬移。
+- (R) **\*_tests**：5 个 `#[cfg(test)]` 测试模块（3 个 A 类研究原型 + occupancy 行为白盒 + retained_memory 保留内存账本，#380 外移完成）保持原文件位置与内容，仅 `#[cfg(test)] mod` 声明移入 `mod.rs`，不重复搬移。
 
 大小预算：生产单文件不超过约 800 行；`tests.rs` 约 2.8k 行为纯测试文件，不增加
 生产评审导航成本。
@@ -182,6 +186,15 @@ Where：
   `if PARKING_ACTIVE { ... }` 内，由编译期折叠消除；
 - 行为保持：first-error 语义、事件顺序、失败原子性与
   `#[cfg(any(test, feature = "test-support"))]` 故障注入语义不变。
+
+收敛核对清单（实施时逐条对照）：
+
+- 事件顺序：reserved 完成先 `ParkingReservationReleased` 后 `VehicleCompletedRoute`（现 2722-2730）；
+- 故障注入 `space` 参数：false 分支为 `None`、true 分支为 `reserved_space`（现 2631 vs 2755）；
+- `parking_stops` 构造与排空 `debug_assert` 仅存在于 PARKING_ACTIVE 实例（现 2641/2763）；
+- first-error 与 scratch 回滚在循环外共享（现 2767-2769）；
+- `step_reachable_target_completed` invariant 触发条件保持（现 2711-2717）；
+- 停车上下文解析无副作用、重排安全。
 
 备选方案（冻结为否决）：
 
@@ -228,6 +241,6 @@ core_step --locked`（及 `core_commands`）前后对比；bench 不进 CI（`co
 
 ## 8. 术语
 
-| 中文规范术语 | 英文辅助名（English Alias） | 精确标识符 / 缩写 | 中文规范含义                                                                                                                |
-| ------------ | --------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| 命令域       | command domain              | —                 | 按领域命令与查询入口划分的 `CoreWorld` 实现组织单位；#381 把 parking、route、vehicle、signal 与 tick 推进各自收敛为子模块。 |
+| 中文规范术语 | 英文辅助名（English Alias） | 精确标识符 / 缩写 | 中文规范含义                                                                                                                                              |
+| ------------ | --------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 命令域       | command domain              | —                 | 提案中（Proposed；#381）：按领域命令与查询入口划分的 `CoreWorld` 实现组织单位；#381 拆分把 parking、route、vehicle、signal 与 tick 推进各自收敛为子模块。 |
