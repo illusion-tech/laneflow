@@ -715,59 +715,6 @@ impl AccessRegistry {
         }
         plane.cell(unit_index, class.index())
     }
-
-    #[cfg(test)]
-    pub(crate) fn retained_bytes(&self) -> usize {
-        let Self {
-            rules,
-            rule_handles,
-            edge_plane,
-            path_plane,
-            class_count: _,
-        } = self;
-
-        let rule_bytes = rules.capacity() * std::mem::size_of::<ResolvedAccessRule>()
-            + rules
-                .iter()
-                .map(|rule| {
-                    let definition = &rule.definition;
-                    definition.id.capacity()
-                        + match &definition.target {
-                            AccessTargetId::LaneEdge(id)
-                            | AccessTargetId::LaneGroup(id)
-                            | AccessTargetId::RoadSection(id)
-                            | AccessTargetId::ManeuverPath(id)
-                            | AccessTargetId::FacilityBand(id) => id.capacity(),
-                        }
-                        + definition.participant_class_ids.capacity()
-                            * std::mem::size_of::<String>()
-                        + definition
-                            .participant_class_ids
-                            .iter()
-                            .map(String::capacity)
-                            .sum::<usize>()
-                        + definition.regulation.as_ref().map_or(0, |regulation| {
-                            regulation.jurisdiction.capacity()
-                                + regulation.version.capacity()
-                                + regulation.source.as_ref().map_or(0, String::capacity)
-                        })
-                        + definition.priority.capacity()
-                        + rule.classes.capacity() * std::mem::size_of::<ParticipantClassHandle>()
-                })
-                .sum::<usize>();
-        let resolver_bytes = rule_handles.capacity()
-            * std::mem::size_of::<(String, AccessRuleHandle)>()
-            + rule_handles.keys().map(String::capacity).sum::<usize>();
-        let cell_bytes = [edge_plane, path_plane]
-            .into_iter()
-            .map(|plane| {
-                plane.row_starts.capacity() * std::mem::size_of::<u32>()
-                    + plane.cells.capacity() * std::mem::size_of::<AccessCell>()
-            })
-            .sum::<usize>();
-
-        rule_bytes + resolver_bytes + cell_bytes
-    }
 }
 
 /// 校验 priority 字面量：必须是 i32 范围内的整数（JSON Schema `integer` 语义，
@@ -1637,5 +1584,65 @@ mod tests {
                 ..
             }
         ));
+    }
+}
+
+#[cfg(test)]
+mod retained_memory {
+    use super::*;
+
+    impl AccessRegistry {
+        pub(crate) fn retained_bytes(&self) -> usize {
+            let Self {
+                rules,
+                rule_handles,
+                edge_plane,
+                path_plane,
+                class_count: _,
+            } = self;
+
+            let rule_bytes = rules.capacity() * std::mem::size_of::<ResolvedAccessRule>()
+                + rules
+                    .iter()
+                    .map(|rule| {
+                        let definition = &rule.definition;
+                        definition.id.capacity()
+                            + match &definition.target {
+                                AccessTargetId::LaneEdge(id)
+                                | AccessTargetId::LaneGroup(id)
+                                | AccessTargetId::RoadSection(id)
+                                | AccessTargetId::ManeuverPath(id)
+                                | AccessTargetId::FacilityBand(id) => id.capacity(),
+                            }
+                            + definition.participant_class_ids.capacity()
+                                * std::mem::size_of::<String>()
+                            + definition
+                                .participant_class_ids
+                                .iter()
+                                .map(String::capacity)
+                                .sum::<usize>()
+                            + definition.regulation.as_ref().map_or(0, |regulation| {
+                                regulation.jurisdiction.capacity()
+                                    + regulation.version.capacity()
+                                    + regulation.source.as_ref().map_or(0, String::capacity)
+                            })
+                            + definition.priority.capacity()
+                            + rule.classes.capacity()
+                                * std::mem::size_of::<ParticipantClassHandle>()
+                    })
+                    .sum::<usize>();
+            let resolver_bytes = rule_handles.capacity()
+                * std::mem::size_of::<(String, AccessRuleHandle)>()
+                + rule_handles.keys().map(String::capacity).sum::<usize>();
+            let cell_bytes = [edge_plane, path_plane]
+                .into_iter()
+                .map(|plane| {
+                    plane.row_starts.capacity() * std::mem::size_of::<u32>()
+                        + plane.cells.capacity() * std::mem::size_of::<AccessCell>()
+                })
+                .sum::<usize>();
+
+            rule_bytes + resolver_bytes + cell_bytes
+        }
     }
 }

@@ -1,3 +1,4 @@
+use super::retained_memory::LifecycleRetainedStats;
 use super::*;
 use crate::{
     EdgeLength, IidmProfileSpec, Junction, JunctionRegistry, LaneEdge, ManeuverGate, ManeuverPath,

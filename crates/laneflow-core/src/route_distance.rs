@@ -128,18 +128,6 @@ impl RouteDistanceIndex {
         self.distance_to_end.clear();
     }
 
-    #[cfg(test)]
-    pub(crate) fn retained_bytes(&self) -> usize {
-        let Self {
-            occurrences,
-            segment_totals,
-            distance_to_end,
-        } = self;
-        occurrences.capacity() * std::mem::size_of::<OccurrenceCoordinate>()
-            + segment_totals.capacity() * std::mem::size_of::<f64>()
-            + distance_to_end.capacity() * std::mem::size_of::<BoundedDistance>()
-    }
-
     pub(crate) fn distance_to_end_within(
         &self,
         from_occurrence: usize,
@@ -371,5 +359,23 @@ mod tests {
             index.finite_distance(0, 0.0, 1, f64::MAX),
             Some(BoundedDistance::BeyondFinite)
         );
+    }
+}
+
+#[cfg(test)]
+mod retained_memory {
+    use super::*;
+
+    impl RouteDistanceIndex {
+        pub(crate) fn retained_bytes(&self) -> usize {
+            let Self {
+                occurrences,
+                segment_totals,
+                distance_to_end,
+            } = self;
+            occurrences.capacity() * std::mem::size_of::<OccurrenceCoordinate>()
+                + segment_totals.capacity() * std::mem::size_of::<f64>()
+                + distance_to_end.capacity() * std::mem::size_of::<BoundedDistance>()
+        }
     }
 }

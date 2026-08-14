@@ -181,34 +181,6 @@ impl ParticipantClassRegistry {
         };
         ancestor_enter <= descendant_enter && descendant_enter < ancestor_exit
     }
-
-    #[cfg(test)]
-    pub(crate) fn retained_bytes(&self) -> usize {
-        let Self {
-            classes,
-            handles,
-            subtree_intervals,
-        } = self;
-
-        let class_bytes = classes.capacity() * std::mem::size_of::<ResolvedParticipantClass>()
-            + classes
-                .iter()
-                .map(|class| {
-                    class.definition.id.capacity()
-                        + class
-                            .definition
-                            .extends_id
-                            .as_ref()
-                            .map_or(0, String::capacity)
-                })
-                .sum::<usize>();
-        let resolver_bytes = handles.capacity()
-            * std::mem::size_of::<(String, ParticipantClassHandle)>()
-            + handles.keys().map(String::capacity).sum::<usize>();
-        let interval_bytes = subtree_intervals.capacity() * std::mem::size_of::<(u32, u32)>();
-
-        class_bytes + resolver_bytes + interval_bytes
-    }
 }
 
 fn detect_inheritance_cycle(
@@ -359,5 +331,39 @@ mod tests {
             ParticipantClassHandle::new(u32::MAX as usize),
             handle("motorVehicle")
         ));
+    }
+}
+
+#[cfg(test)]
+mod retained_memory {
+    use super::*;
+
+    impl ParticipantClassRegistry {
+        pub(crate) fn retained_bytes(&self) -> usize {
+            let Self {
+                classes,
+                handles,
+                subtree_intervals,
+            } = self;
+
+            let class_bytes = classes.capacity() * std::mem::size_of::<ResolvedParticipantClass>()
+                + classes
+                    .iter()
+                    .map(|class| {
+                        class.definition.id.capacity()
+                            + class
+                                .definition
+                                .extends_id
+                                .as_ref()
+                                .map_or(0, String::capacity)
+                    })
+                    .sum::<usize>();
+            let resolver_bytes = handles.capacity()
+                * std::mem::size_of::<(String, ParticipantClassHandle)>()
+                + handles.keys().map(String::capacity).sum::<usize>();
+            let interval_bytes = subtree_intervals.capacity() * std::mem::size_of::<(u32, u32)>();
+
+            class_bytes + resolver_bytes + interval_bytes
+        }
     }
 }

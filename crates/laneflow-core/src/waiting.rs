@@ -316,33 +316,6 @@ impl WaitingRegistry {
         let range = self.waiting_zone_ranges.get(path.index())?.clone();
         Some(self.waiting_zones_by_path[range].iter().copied())
     }
-
-    #[cfg(test)]
-    pub(crate) fn retained_bytes(&self) -> usize {
-        let Self {
-            waiting_zones,
-            waiting_zone_handles,
-            waiting_zone_ranges,
-            waiting_zones_by_path,
-        } = self;
-        waiting_zones.capacity() * std::mem::size_of::<ResolvedWaitingZone>()
-            + waiting_zones
-                .iter()
-                .map(|zone| {
-                    zone.definition.id.capacity()
-                        + zone.definition.maneuver_path_id.capacity()
-                        + zone.definition.entry_gate_id.capacity()
-                        + zone.definition.release_gate_id.capacity()
-                })
-                .sum::<usize>()
-            + waiting_zone_handles.capacity() * std::mem::size_of::<(String, WaitingZoneHandle)>()
-            + waiting_zone_handles
-                .keys()
-                .map(String::capacity)
-                .sum::<usize>()
-            + waiting_zone_ranges.capacity() * std::mem::size_of::<Range<usize>>()
-            + waiting_zones_by_path.capacity() * std::mem::size_of::<WaitingZoneHandle>()
-    }
 }
 
 fn first_overlapping_declaration_pair(
@@ -492,5 +465,39 @@ mod tests {
             first_overlapping_declaration_pair(&shared_boundary_only),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod retained_memory {
+    use super::*;
+
+    impl WaitingRegistry {
+        pub(crate) fn retained_bytes(&self) -> usize {
+            let Self {
+                waiting_zones,
+                waiting_zone_handles,
+                waiting_zone_ranges,
+                waiting_zones_by_path,
+            } = self;
+            waiting_zones.capacity() * std::mem::size_of::<ResolvedWaitingZone>()
+                + waiting_zones
+                    .iter()
+                    .map(|zone| {
+                        zone.definition.id.capacity()
+                            + zone.definition.maneuver_path_id.capacity()
+                            + zone.definition.entry_gate_id.capacity()
+                            + zone.definition.release_gate_id.capacity()
+                    })
+                    .sum::<usize>()
+                + waiting_zone_handles.capacity()
+                    * std::mem::size_of::<(String, WaitingZoneHandle)>()
+                + waiting_zone_handles
+                    .keys()
+                    .map(String::capacity)
+                    .sum::<usize>()
+                + waiting_zone_ranges.capacity() * std::mem::size_of::<Range<usize>>()
+                + waiting_zones_by_path.capacity() * std::mem::size_of::<WaitingZoneHandle>()
+        }
     }
 }
