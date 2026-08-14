@@ -65,8 +65,9 @@
 - `portable-canonical-artifact.md`：#298 G1 Draft 设计载体；把上述长期架构收窄为
   LFCA/LFSM/LFSD/LFCP 四类对象的封闭节目录候选、规范记录编码、路网修订派生、
   artifact/source-map/receipt 与 base/target exact digest + length 绑定、受限读取、
-  `CompilationOutput` 单一输入和不可变发布提交点。当前完整 table/field registry、
-  硬上限与 known vectors 仍是显式 G1 阻断项；不得据此启动格式实现或声称 G1 Pass。
+  `CompilationOutput` 单一输入和不可变发布提交点。附录 A 的完整 table/field registry、§9
+  硬上限与 §10 known vectors 已作为 G1 候选内容冻结；剩余阻断是 exact-head 独立 clean review、
+  #298 Gate Ledger 与正式 G1 标记，不得据此启动格式实现或声称 G1 Pass。
 - `road-editing-source-and-geometry-frontend.md`：#296 已实现的内部 FlatBuffers B1
   production compiler 入口；冻结可视化编辑器为主、程序化生成器为辅、道路编辑按 A → C
   演进、有类型道路编辑模型、来源位置/协作，以及按模块 size-prefixed FlatBuffers source。
