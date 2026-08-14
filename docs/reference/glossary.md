@@ -390,6 +390,8 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 信任锚             | trust anchor                    | —                              | 位于待验证对象之外、由签名、认证资产链或固定摘要提供的可信依据。                                                  |
 | 未验证镜像字节     | unverified image bytes          | `UnverifiedImageBytes`         | 尚未完成结构与外部信任绑定的任意输入字节。                                                                        |
 | 已结构验证镜像     | structurally verified image     | `StructurallyVerifiedImage`    | 目标节的有界结构检查通过，只证明内存安全和运行时前置条件成立、尚未证明发布来源或内容绑定可信的镜像。              |
+| 已结构验证规范制品 | checked canonical artifact      | `CheckedPortableArtifactView`  | 通过有界结构检查、尚未证明语义或来源可信的可移植规范制品只读视图。                                                |
+| 规范发布候选       | canonical publication candidate | `PortablePublicationCandidate` | 同次成功编译原子产生的制品、源映射、差异与绑定；尚未独立验证或发布。                                              |
 | 可信静态镜像       | trusted static image            | `TrustedStaticImage`           | 与认证外部描述符、完整性清单及验证收据匹配，且只暴露已完成分块/结构验证目标节的能力对象。                         |
 | 已验证规范制品视图 | validated artifact view         | —                              | 独立验证器完成语义和标识重算后建立、供后续独立重建消费的只读能力；不是最终收据。                                  |
 | 编译器语义验证     | compiler semantic validation    | —                              | 编译器对来源和 IR 执行的主语义检查。                                                                              |
