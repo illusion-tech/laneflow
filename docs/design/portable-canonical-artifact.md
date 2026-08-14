@@ -101,9 +101,70 @@ G1 内补齐规范，不能把某个 Rust 库版本提升为隐式事实源。
 - 所有计数、`offset + length`、`count * stride` 和宿主地址宽度转换必须 checked；
 - 线格式没有隐式对齐、填充、尾随字节或对象间共享指针。
 
-### 3.2 对象前导与节目录
+### 3.2 ASCII 线格式图约定
 
-四类对象共用 32 字节 `ObjectPreambleV1`：
+本文的线格式图参考 [RFC 2360 第 3.1 节][rfc2360-packet-diagrams] 与
+[Augmented Packet Header Diagrams draft-13][augmented-packet-diagrams]。采用规则如下：
+
+- 固定宽字段使用每行 32 bit、顶部标出 bit slot 的横向图；强字节对齐的变长字段使用
+  破边框 `:`，重复子结构使用方括号；
+- 结构使用唯一英文名并由 “A/An ... is formatted as follows:” 引入，图后以
+  “where:” 给出与图中完全相同的字段全名、短名、宽度与值约束；
+- 图内从左到右、从上到下表示递增 wire byte offset。RFC 2360 示例采用网络字节序，
+  但 LaneFlow v1 按 §3.1 的既定裁决使用**小端序**；顶部 `0..31` 是 4-byte 行内
+  wire bit slot，不表示多字节整数的数值高低位；
+- 跨两行的 64-bit field 是一个连续 8-byte little-endian value，中间的 `+` 只表示
+  同一字段继续，不是字段边界；
+- 图冻结字段顺序与宽度，紧随的 offset/constraint 表冻结字节偏移和失败关闭条件。
+  二者构成同一规范单元；任何不一致都是 G1 blocker，不允许实现者任选其一；
+- 本文只参考 draft-13 的可读、结构化绘图约定，不声明该已过期 Internet-Draft 是
+  LaneFlow 的外部协议依赖，也不声称当前 Markdown 可由其原型工具直接生成 parser。
+
+### 3.3 对象前导与节目录
+
+四类对象共用 32 字节 `ObjectPreambleV1`。
+
+An ObjectPreambleV1 is formatted as follows:
+
+```text
+     0                   1                   2                   3
+     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                             Magic                             |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |      Format Version (FV)      |      Header Length (HL)       |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                             Flags                             |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                      Section Count (SC)                       |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                                                               |
+    +                Section Directory Offset (SDO)                 +
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                                                               |
+    +                   Object Byte Length (OBL)                    +
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+where:
+
+Magic: 4 bytes.
+
+Format Version (FV): 2 bytes; FV == 1. 每类对象拥有独立版本轴。
+
+Header Byte Length (HL): 2 bytes; HL == 32.
+
+Flags: 4 bytes; Flags == 0.
+
+Section Count (SC): 4 bytes. 必须等于该对象 v1 的封闭节数。
+
+Section Directory Offset (SDO): 8 bytes; SDO == 32.
+
+Object Byte Length (OBL): 8 bytes. 必须等于受限读取器观察到的 exact byte length。
+
+约束索引如下：
 
 | 偏移   | 宽度 | 字段                     | v1 约束                                    |
 | ------ | ---- | ------------------------ | ------------------------------------------ |
@@ -115,7 +176,41 @@ G1 内补齐规范，不能把某个 Rust 库版本提升为隐式事实源。
 | `0x10` | 8    | `sectionDirectoryOffset` | v1 固定为 `32`                             |
 | `0x18` | 8    | `objectByteLength`       | 必须等于外部受限读取器观察到的精确字节长度 |
 
-每个目录项是 24 字节 `SectionDirectoryEntryV1`：
+每个目录项是 24 字节 `SectionDirectoryEntryV1`。
+
+A SectionDirectoryEntryV1 is formatted as follows:
+
+```text
+     0                   1                   2                   3
+     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |       Section Kind (SK)       | Section Format Version (SFV)  |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                             Flags                             |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                                                               |
+    +                       Byte Offset (BO)                        +
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                                                               |
+    +                       Byte Length (BL)                        +
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+where:
+
+Section Kind (SK): 2 bytes. 对象专用封闭枚举，按 wire order 严格递增且不得重复。
+
+Section Format Version (SFV): 2 bytes; SFV == 1.
+
+Flags: 4 bytes; Flags == 0.
+
+Byte Offset (BO): 8 bytes. 第一节紧随目录，后续节紧随前一节。
+
+Byte Length (BL): 8 bytes. 允许对象专用规则定义的空节，但不得越界。
+
+约束索引如下：
 
 | 偏移（相对目录项） | 宽度 | 字段                   | v1 约束                              |
 | ------------------ | ---- | ---------------------- | ------------------------------------ |
@@ -129,9 +224,103 @@ G1 内补齐规范，不能把某个 Rust 库版本提升为隐式事实源。
 无重叠、无填充地覆盖到 `objectByteLength`。因此不同写入器不能通过改变对齐或目录顺序
 制造另一份合法字节。未知/缺失/额外/重复节、非最小偏移或尾随字节一律失败关闭。
 
-### 3.3 规范记录编码
+### 3.4 规范记录编码
 
-实体、关系、来源和差异表使用同一显式记录框架：
+实体、关系、来源和差异表使用同一显式记录框架。
+
+A TableV1 is formatted as follows:
+
+```text
+     0                   1                   2                   3
+     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |        Table Kind (TK)        |  Table Schema Version (TSV)   |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                        Row Count (RC)                         |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                                                               |
+    +                    Rows Byte Length (RBL)                     +
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                                                               :
+    :                            [Rows]                             :
+    :                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+where:
+
+Table Kind (TK): 2 bytes.
+
+Table Schema Version (TSV): 2 bytes; TSV == 1.
+
+Row Count (RC): 4 bytes.
+
+Rows Byte Length (RBL): 8 bytes. 必须等于 `Rows` 的 exact byte length。
+
+Rows: [RowV1]; count(Rows) == RC. 这是由 RC 和 RBL 双重约束的连续 RowV1 序列。
+
+A RowV1 is formatted as follows:
+
+```text
+     0                   1                   2                   3
+     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                                                               |
+    +                     Row Byte Length (RBL)                     +
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                       Field Count (FC)                        |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                           Reserved                            |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                                                               :
+    :                           [Fields]                            :
+    :                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+where:
+
+Row Byte Length (RBL): 8 bytes. 包含 16-byte Row header 与全部 Fields。
+
+Field Count (FC): 4 bytes.
+
+Reserved: 4 bytes; Reserved == 0.
+
+Fields: [FieldV1]; count(Fields) == FC. Field Tag 必须严格递增且不得重复。
+
+A FieldV1 is formatted as follows:
+
+```text
+     0                   1                   2                   3
+     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |        Field Tag (FT)         |Field Type (T) |     Flags     |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                                                               |
+    +                    Value Byte Length (VBL)                    +
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                                                               :
+    :                             Value                             :
+    :                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+where:
+
+Field Tag (FT): 2 bytes.
+
+Field Type (T): 1 byte. 必须是下文登记的封闭枚举。
+
+Flags: 1 byte; Flags == 0.
+
+Value Byte Length (VBL): 8 bytes. 只计算紧随 12-byte Field header 的 Value。
+
+Value: VBL bytes. 编码由 Field Type 和 table/field registry 共同约束。
+
+下面的等价伪码用于核对组合关系，不建立第二套字段名或宽度：
 
 ```text
 TableV1 :=
@@ -173,6 +362,9 @@ FieldV1 :=
 > owner-local 关系、静态规则、几何和执行约束逐表登记精确 `tableKind/fieldTag`，并由
 > 独立 oracle known vectors 证明。该项完成前本文不能转为 Accepted。
 
+[rfc2360-packet-diagrams]: https://www.rfc-editor.org/rfc/rfc2360.html#section-3.1
+[augmented-packet-diagrams]: https://www.ietf.org/archive/id/draft-mcquistin-augmented-ascii-diagrams-13.html
+
 ## 4. 可移植规范制品 `LFCA` v1
 
 ### 4.1 封闭节
@@ -188,6 +380,45 @@ FieldV1 :=
 | `0x0005`      | `CanonicalSpatialTables`     | 是                   | 空间存在标记、规范 f32 折线与派生采样；headless 时为规范空表 |
 | `0x0006`      | `StaticExecutionConstraints` | 是                   | worker 数无关的静态执行约束                                  |
 | `0x0007`      | `CompilerProvenance`         | 否                   | compiler build、来源集合摘要、显式编译选项与发射器版本       |
+
+LFCA v1 的组合视图如下。该图只展开已由 §3.3 定义的公共前导、目录和变长节，不引入
+第二种容器；第一节 wire offset 固定为 `0x00c8`（`32 + 7 * 24`）。
+
+```text
+    +---------------------------------------------------------------+
+    |           LFCA ObjectPreambleV1 (32 bytes; SC == 7)           |
+    +---------------------------------------------------------------+
+    |            SectionDirectoryEntryV1[7] (168 bytes)             |
+    +===============================================================+
+    |                                                               :
+    :           ContractVersions (0x0001; variable bytes)           :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :        CanonicalIdentityTable (0x0002; variable bytes)        :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :        CanonicalEntityTables (0x0003; variable bytes)         :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :       CanonicalRelationTables (0x0004; variable bytes)        :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :        CanonicalSpatialTables (0x0005; variable bytes)        :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :      StaticExecutionConstraints (0x0006; variable bytes)      :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :          CompilerProvenance (0x0007; variable bytes)          :
+    :                                                               |
+    +---------------------------------------------------------------+
+```
 
 所有节都必须存在；“无空间”用 `CanonicalSpatialTables` 内登记的显式 `spatialPresent=0`
 表示，不能通过删节表示。`CompilerProvenance` 会改变 artifact exact bytes 和
@@ -235,6 +466,37 @@ NetworkRevisionIdV1 =
 | `0x0004`      | `OwnerLocalSources`      | owner StableId128、typed role、`localIndex` 与来源位置                 |
 | `0x0005`      | `DerivedRelationSources` | generated relation 推导链、pass/constraint version                     |
 
+LFSM v1 的组合视图如下。该图只展开已由 §3.3 定义的公共前导、目录和变长节，不引入
+第二种容器；第一节 wire offset 固定为 `0x0098`（`32 + 5 * 24`）。
+
+```text
+    +---------------------------------------------------------------+
+    |           LFSM ObjectPreambleV1 (32 bytes; SC == 5)           |
+    +---------------------------------------------------------------+
+    |            SectionDirectoryEntryV1[5] (120 bytes)             |
+    +===============================================================+
+    |                                                               :
+    :          SourceMapBindings (0x0001; variable bytes)           :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :            SourceModules (0x0002; variable bytes)             :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :         StableEntitySources (0x0003; variable bytes)          :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :          OwnerLocalSources (0x0004; variable bytes)           :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :        DerivedRelationSources (0x0005; variable bytes)        :
+    :                                                               |
+    +---------------------------------------------------------------+
+```
+
 来源位置使用来源文档键和 UTF-8 byte offset/length；line/column 只可作为显示冗余，不能
 替代字节范围。记录排序先按来源模块/文档的规范顺序，再按实体种类、StableId128、typed
 ordinal、role、localIndex 和位置字节范围破同值。
@@ -255,6 +517,41 @@ exact bytes，但在规范语义未变时不得改变 `NetworkRevisionId`。
 | `0x0004`      | `GeometryChanges`        | 规范几何、长度和容差显著变化                               |
 | `0x0005`      | `StaticRuleChanges`      | Gate/Waiting/Signal/Access 等行为变化                      |
 | `0x0006`      | `IdentityClosureChanges` | 稳定标识改变及其父锚/字段原因                              |
+
+LFSD v1 的组合视图如下。该图只展开已由 §3.3 定义的公共前导、目录和变长节，不引入
+第二种容器；第一节 wire offset 固定为 `0x00b0`（`32 + 6 * 24`）。
+
+```text
+    +---------------------------------------------------------------+
+    |           LFSD ObjectPreambleV1 (32 bytes; SC == 6)           |
+    +---------------------------------------------------------------+
+    |            SectionDirectoryEntryV1[6] (144 bytes)             |
+    +===============================================================+
+    |                                                               :
+    :         SemanticDiffBindings (0x0001; variable bytes)         :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :            EntityChanges (0x0002; variable bytes)             :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :           RelationChanges (0x0003; variable bytes)            :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :           GeometryChanges (0x0004; variable bytes)            :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :          StaticRuleChanges (0x0005; variable bytes)           :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :        IdentityClosureChanges (0x0006; variable bytes)        :
+    :                                                               |
+    +---------------------------------------------------------------+
+```
 
 `baseBindingKind` 是封闭枚举：`0=Genesis`、`1=Artifact`。Genesis 必须把所有 base
 版本、修订、digest 和 length 字节规范为零，并把目标的所有稳定实体和 owner-local
@@ -280,6 +577,33 @@ LFSD 自身永远不授予迁移权限。
 | `0x0003`      | `ValidationReceiptBinding` | receipt format、`canonical-publication-v1`、validator build、digest/length |
 | `0x0004`      | `PublicationProvenance`    | publisher kind/build、immutable object keys、受控时间/CI provenance        |
 
+LFCP v1 的组合视图如下。该图只展开已由 §3.3 定义的公共前导、目录和变长节，不引入
+第二种容器；第一节 wire offset 固定为 `0x0080`（`32 + 4 * 24`）。
+
+```text
+    +---------------------------------------------------------------+
+    |           LFCP ObjectPreambleV1 (32 bytes; SC == 4)           |
+    +---------------------------------------------------------------+
+    |             SectionDirectoryEntryV1[4] (96 bytes)             |
+    +===============================================================+
+    |                                                               :
+    :       CanonicalArtifactBinding (0x0001; variable bytes)       :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :           SourceMapBinding (0x0002; variable bytes)           :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :       ValidationReceiptBinding (0x0003; variable bytes)       :
+    :                                                               |
+    +---------------------------------------------------------------+
+    |                                                               :
+    :        PublicationProvenance (0x0004; variable bytes)         :
+    :                                                               |
+    +---------------------------------------------------------------+
+```
+
 描述符不得包含自身摘要或签名。真实性来自描述符 exact bytes 之外的签名 publication
 manifest、宿主已认证 asset/package manifest 或 pinned digest。对象内自报的修订、摘要、
 长度、compiler/validator build 或 provenance 都不能自证可信。
@@ -299,13 +623,66 @@ artifact、source map 和 genesis/base diff 候选，避免后续错误配对。
 发射器只能同时借用同一个 `CompilationOutput` 的 LIR 和来源映射输入：
 
 ```text
-CompilationOutput
-  -> emitPortableCandidate(base: Optional<CheckedPortableArtifactView>, limits)
-  -> PortablePublicationCandidate
-       canonicalArtifactExactBytes
-       sourceMapEnvelopeExactBytes
-       semanticDiffEnvelopeExactBytes
-       computedBindings
+    +---------------------------------------+
+    | CompilationOutput                     |
+    | ValidatedCanonicalLir                 |
+    | + ValidatedSourceMapInput             |
+    +-------------------+-------------------+
+                        | one atomic borrow
+                        |
+    +-------------------v-------------------+     +--------------------------+
+    | emitPortableCandidate(limits, base)   |<----| optional checked base    |
+    +-------------------+-------------------+     | artifact view            |
+                        |                         +--------------------------+
+            +-----------+-----------+
+            |           |           |
+            v           v           v
+       +---------+  +---------+  +---------+
+       |  LFCA   |  |  LFSM   |  |  LFSD   |
+       |  bytes  |  |  bytes  |  |  bytes  |
+       +----+----+  +----+----+  +----+----+
+            |           |           |
+            +-----------+-----------+
+                        |
+                        v
+    +---------------------------------------+
+    | close -> digest/length -> structural  |
+    | preflight -> internal binding checks  |
+    +-------------------+-------------------+
+                        |
+                        v
+    +---------------------------------------+
+    | PortablePublicationCandidate          |
+    | exact bytes + computed bindings       |
+    +-------------------+-------------------+
+                        |
+                        v
+    +---------------------------------------+
+    | immutable object installation         |
+    | create_new + existing-byte comparison |
+    +-------------------+-------------------+
+                        |
+                        v
+    +---------------------------------------+
+    | #299 independent validation           |
+    | canonical-publication-v1 receipt      |
+    +-------------------+-------------------+
+                        |
+                        v
+    +---------------------------------------+
+    | LFCP exact bytes                      |
+    +-------------------+-------------------+
+                        |
+                        v
+    +---------------------------------------+
+    | authenticated manifest/pointer commit |
+    |          PUBLISHED                    |
+    +---------------------------------------+
+
+    any failure before the final commit
+        -> discard staging references
+        -> no LFCP/manifest commit
+        -> no partial publication
 ```
 
 调用方不能分别构造或重新配对 LIR/source-map input。`laneflow-format` 提供写入器与
