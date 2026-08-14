@@ -707,6 +707,12 @@ base 时必须表达为 `Entity Remove`，只存在于 target 时必须表达为
 验证的 artifact 重算或逐项验证 LFSD；#302 的可信切换描述符再绑定 LFSD digest/length。
 LFSD 自身永远不授予迁移权限。
 
+`semanticDiffDigest` 是完整 LFSD exact bytes 的 SHA-256，`semanticDiffByteLength` 是同一
+字节序列的精确 `u64` 长度；LFSD 不嵌入自身摘要。候选关闭 LFSD 后还必须唯一派生
+`semanticDiffObjectKey = "sha256/" || hexLower(semanticDiffDigest)`，总长 71-byte ASCII。
+这三个值是 `PortablePublicationCandidate` 的计算绑定，不进入 LFCP；#302 必须逐值绑定它们，
+不得从 base/target artifact binding 猜测 diff 对象或接受调用方自报 locator。
+
 ## 7. 规范发布描述符 `LFCP` v1
 
 `magic = "LFCP"`，`canonicalPublicationDescriptorVersion = 1`。v1 精确包含：
@@ -798,7 +804,7 @@ artifact、source map 和 genesis/base diff 候选，避免后续错误配对。
                                                        v
                                    +---------------------------------------+
                                    | PortablePublicationCandidate          |
-                                   | exact bytes + computed bindings       |
+                                   | bytes + digest/length/object keys     |
                                    +-------------------+-------------------+
                                                        |
                                                        v
@@ -844,18 +850,25 @@ build provenance 可以改变 LFCA/LFSM/LFCP binding 和 artifact digest，但�
 的字段投影和差异生成继续在 `laneflow-compiler`。G2 API 不得暴露“写 artifact 成功、
 source map 失败后仍可取出 artifact”的中间成功状态。
 
+`PortablePublicationCandidate` 原子拥有 LFCA/LFSM/LFSD 三份 exact bytes，以及分别从这些
+bytes 重算的 digest、`u64` exact length 和 `sha256/<64 lowercase hex>` object key。调用方
+不能覆盖、遗漏或重新配对任一计算绑定；只有三份对象全部关闭、结构预检和内部 binding
+检查成功后才能取得候选。LFSD binding 保留给 #302，不因 LFCP 当前不引用 diff 而丢弃。
+
 ### 8.2 发布提交点
 
 发布协议不依赖普通覆盖式 rename 或边写边暴露最终 digest 路径恰好原子：
 
 1. 在目标发布根目录同一文件系统内创建唯一暂存目录；
 2. 以受限写入器在唯一暂存文件中完成三个对象，对文件数据执行平台持久化 flush，关闭
-   写入并从最终 exact bytes 计算 digest/length；
+   写入并从每份最终 exact bytes 计算 digest/length，再按上一节为 LFCA/LFSM/LFSD 分别派生
+   唯一 content-addressed object key；
 3. 重新执行结构预检和候选内部 binding 核对，并在安装前完成暂存文件长度/bytes 复核；
 4. 使用同一文件系统、具有原子可见和 no-replace 保证的平台安装原语，把已经完成且关闭的
-   暂存文件一次性安装到附录 A.4 的 `sha256/<lowercase-hex>` 逻辑键；该键必须从刚重算的 digest
-   派生且只能安全映射到已配置发布根下。禁止调用方覆盖 key，也禁止先创建最终文件再复制、
-   流式写入或截断。平台 adapter 无法证明该语义时必须返回
+   三份暂存文件分别一次性安装到候选中刚重算的 `sha256/<lowercase-hex>` 逻辑键；LFCA/LFSM
+   两个键还必须分别等于附录 A.4 的 `artifactObjectKey/sourceMapObjectKey`，LFSD 键必须等于
+   §6 的 `semanticDiffObjectKey`。这些键只能安全映射到已配置发布根下。禁止调用方覆盖 key，
+   也禁止先创建最终文件再复制、流式写入或截断。平台 adapter 无法证明该语义时必须返回
    `AtomicInstallUnsupported`，不得退化；
 5. 安装原语报告目标已存在时，只能读取已经由同一协议完成安装的 winner，并核对精确长度
    和 bytes；相同则复用，不同则以 collision/mismatch 失败，始终不能覆盖。成功新装后必须
@@ -1489,6 +1502,16 @@ mismatch；不得把这些字段当作对象内信任锚。
 
 ### A.2 LFSM table registry
 
+本节严格区分两种检查主体。凡规则引用 compiler-private `ValidatedSourceMapInput`、
+`primary_source()`、`contributing_sources()` 或 `geometry_source_ranges()`，都只属于
+`laneflow-compiler` 在返回 `PortablePublicationCandidate` 前的候选发射闭合；这些 API 不进入
+LFSM wire，也不成为 `laneflow-validator` 的依赖。#299 独立验证器只依据 LFSM exact bytes、
+digest-bound LFCA、显式提供的受限外部对象和本 registry 执行可重算的结构、排序、双射、地址、
+摘要与跨对象 binding 检查。其 receipt 绑定受检 LFSM exact digest/length，但不声称重建过
+compiler-private view，也不证明未认证来源沿袭与原始编译输入完全一致；后者依赖对象外的可信
+compiler/emission 环境、来源资产链或认证发布清单。不得为了让 #299 复演私有 API 而把第二份
+view 或自报 witness 塞入 LFSM。
+
 `SourceMapBindings(0x0001)` 的 `SourceMapBindings(0x0001)` singleton 为：
 
 ```text
@@ -1564,7 +1587,8 @@ SHA-256(
 )
 ```
 
-SourceModule 行本身也必须与同一个 `ValidatedSourceMapInput.source_module_sources()` 形成按
+候选发射时，SourceModule 行本身也必须与同一个
+`ValidatedSourceMapInput.source_module_sources()` 形成按
 iterator 位置的一一投影，而不是仅让文档集闭合。iterator 位置精确等于 tag 1；其
 `descriptor()` 的 authoring namespace、source language、document-set digest/version、frontend
 version/options digest、generator build、parameters-and-inputs digest、optional random seed、
@@ -1634,13 +1658,15 @@ SignalPhase 为 1，AuthoringLane/ManeuverPath/LaneGroup 为 2，ManeuverGate/Wa
 该表必须与绑定 LFCA 的 `CanonicalIdentity` 和 22 张实体表形成严格双射：每个
 `(entityKind, typedOrdinal, stableId)` 恰有一行且逐值相等，LFSM 不得遗漏实体、添加没有
 绑定实体的来源行或把 ordinal/stableId 重新配对。`primaryLocation` 必须解析；
-`contributingLocations` 是允许为空、按完整位置语义值严格递增且去重的集合。定义
+`contributingLocations` 是允许为空、按完整位置语义值严格递增且去重的集合。候选发射时定义
 `C(view)` 为把同一 `ValidatedSourceMapInput` view 的 `contributing_sources()` 按完整位置语义
 值排序、去重后映射成最终 SourceLocation ordinal 的唯一向量。每行 `primaryLocation` 必须
 逐值等于对应 stable-entity view 的 `primary_source()`，`contributingLocations` 必须逐字节
 等于 `C(view)`；当前 22 类 stable-entity view 的贡献迭代器都为空，因此 v1 该字段必须为空，
-writer 不得添加另一合法位置作为“补充 provenance”。独立验证器在接受任何实体定位前必须
-先核对 artifact binding、该 API 投影和双射。
+writer 不得添加另一合法位置作为“补充 provenance”。独立验证器不调用或模拟该私有 API；
+它在接受任何实体定位前核对 artifact binding、上述双射、位置解析、v1 空贡献字段和下列
+identity/address 线格式投影。一个内部自洽但由不可信 emitter 替换的合法 Synthetic Text
+位置不由 LFSM 自证为原始 `primary_source()`，#299 receipt 也不得作出该真实性声明。
 
 双射还必须绑定“实体是谁”与“主位置声明了谁”。每行 primaryLocation 所属 SourceModule 的
 `authoringNamespaceId` 必须逐字节等于绑定 CanonicalIdentity 的 tag 1。RoadEditingSource
@@ -1665,7 +1691,8 @@ parent StableId anchor:
 entity-local key；不得直接把 StableId hex、raw ordinal 或来源 address 自报值当作 owner key。
 SyntheticDsl 没有结构化 declaration address，只执行 module namespace 绑定。任一 entity
 kind、namespace、local key、owner 深度或 owner key 不等都在建立来源视图前失败关闭；
-contributingLocations 只允许保存前述 `C(view)` 的精确投影，不要求贡献位置伪装成主声明。
+候选发射器还要求 contributingLocations 是前述 `C(view)` 的精确投影；独立 wire 接受对
+StableEntitySource v1 直接要求该向量为空，不要求贡献位置伪装成主声明。
 
 `OwnerLocalSources(0x0004)` 精确包含：
 
@@ -1678,12 +1705,13 @@ contributingLocations 只允许保存前述 `C(view)` 的精确投影，不要�
 registry。对绑定 LFCA 按该表投影出的每个 tuple，LFSM 必须恰有一行相同
 `(ownerEntityKind, ownerStableId, role, localIndex)` 的 `OwnerLocalSource`；optional scalar
 缺失时恰无行。任何遗漏、额外行、错误 owner/role/index，或同一键不能反解到表中唯一 LFCA
-tuple 都失败关闭。每个 tuple 必须选择同一 `ValidatedSourceMapInput` 中由 A.5 role 对应的
+tuple 都失败关闭。候选发射时，每个 tuple 必须选择同一 `ValidatedSourceMapInput` 中由 A.5 role 对应的
 owner-local view；`primaryLocation` 必须逐值等于其 `primary_source()`，
 `contributingLocations` 必须逐字节等于 `C(view)`，不能只是任意合法且有序的位置集合。
 当前普通显式关系贡献集为空，role 14..16 的 route-derived view 则精确保留各自
 ManeuverPath/ManeuverGate/WaitingZone 声明贡献位置。OwnerLocalSource 不重复保存 subject，
-但验证器必须从绑定 LFCA 和 A.5 一一反解 subject 后才暴露该来源视图。若
+独立验证器不复演该私有 view 比较，而是从绑定 LFCA 和 A.5 一一反解 subject，核对位置引用、
+集合排序、DerivedRelationSources 联合关系和下列 RoadEditing 地址投影后才暴露来源视图。若
 `primaryLocation` 属于
 RoadEditingSource，还必须按 A.5 的 `RoadEditing primary-source projection` 把该位置的
 Declaration/OwnerLocal subject、identity address、property path 和 occurrence 逐值绑定回同一
@@ -1692,19 +1720,22 @@ LFCA tuple；只证明位置在全局上合法，或把另一关系行的合法�
 `SpatialGeometrySourceRange` 只允许 `ownerEntityKind=CanonicalFrame` 以及
 `sourceRelationRole=28(CanonicalFrameLaneEdgeGeometry)` 或
 `29(CanonicalFrameFacilityBandGeometry)`。每行必须有同 owner/role/localIndex 的
-`OwnerLocalSource` 父行；`sourceLocation` 必须解析到 SourceLocation。每个父行先与对应
-spatial relation view 的 `geometry_source_ranges()` 做精确投影：每个迭代项的 point range、
+`OwnerLocalSource` 父行；`sourceLocation` 必须解析到 SourceLocation。候选发射时，每个父行
+先与对应 spatial relation view 的 `geometry_source_ranges()` 做精确投影：每个迭代项的 point range、
 `sourceSegmentOrdinal` 和 source location 必须逐值生成恰好一行，不能遗漏、添加、重排或
 合成 segment ordinal。若迭代器为空，则 `SpatialGeometrySourceRange` 必须恰无子行，父行
 `contributingLocations` 也必须为空；这是显式 Synthetic `CanonicalFrame` geometry 的合法
 profile-free/source-range-free 状态，不要求伪造 segment。
 
-若迭代器非空，范围必须从 `pointStart=0` 开始，按行键严格相邻、非空且无重叠，最后一个
+独立验证器不持有该迭代器：候选中范围为空时只核对父行贡献集为空；范围非空时，范围必须从
+`pointStart=0` 开始，按行键严格相邻、非空且无重叠，最后一个
 `pointEndExclusive` 必须等于对应 LFCA geometry `points` 的 item 数；localIndex 在该
-frame/role 下按相应 LFCA geometry 表行顺序从零编号。父行 `contributingLocations` 在两种
-状态下都必须逐字节等于 `C(view)`；非空状态也等于所有子行 `sourceLocation` 按位置语义值
-排序去重后的 ordinal 投影。这样 LFSM 在输入确有 segment range 时无损恢复每段规范点区间
-来源，又不会为没有 segment authority 的 frontend 发明来源。
+frame/role 下按相应 LFCA geometry 表行顺序从零编号；非空状态的父行
+`contributingLocations` 必须等于所有子行 `sourceLocation` 按位置语义值排序去重后的 ordinal
+投影。候选发射器在两种状态下另外要求父行贡献集逐字节等于 `C(view)`。这样 trusted emitter
+在输入确有 segment range 时无损恢复每段规范点区间来源，又不会为没有 segment authority 的
+frontend 发明来源；#299 receipt 只证明已序列化范围的闭合一致性，不证明私有输入中不存在被
+emitter 遗漏的 range。
 
 `DerivedRelationSources(0x0005)` 只有 `DerivedRelationSource(0x0001)`：
 `1:ownerEntityKind:u16:R, 2:ownerStableId:StableId128:R, 3:sourceRelationRole:u8:R,
