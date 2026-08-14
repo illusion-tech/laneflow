@@ -57,6 +57,11 @@
   compiler foundation、Synthetic DSL frontend、集成专用 LIR→current projection 及 G4，
   #282–#285 关于 #292 的稳定开工前置已经满足。该完成事实不表示整个目标路网编译器、
   静态镜像或 Traffic Runtime 已经实现；当前 Project 状态与原生依赖关系以 GitHub 为准。
+- `portable-canonical-artifact.md`：#298 G1 Draft 设计载体；把上述长期架构收窄为
+  LFCA/LFSM/LFSD/LFCP 四类对象的封闭节目录候选、规范记录编码、路网修订派生、
+  artifact/source-map/receipt 与 base/target exact digest + length 绑定、受限读取、
+  `CompilationOutput` 单一输入和不可变发布提交点。当前完整 table/field registry、
+  硬上限与 known vectors 仍是显式 G1 阻断项；不得据此启动格式实现或声称 G1 Pass。
 - `road-editing-source-and-geometry-frontend.md`：#296 已实现的内部 FlatBuffers B1
   production compiler 入口；冻结可视化编辑器为主、程序化生成器为辅、道路编辑按 A → C
   演进、有类型道路编辑模型、来源位置/协作，以及按模块 size-prefixed FlatBuffers source。
