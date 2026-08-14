@@ -64,6 +64,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 逐文档来源记录          | per-document source origin record                         | `SourceDocumentOrigin`                  | 目标态已接受（#315 G1），冷显示/审计元数据；区分文档角色，Traffic/Spatial 另绑定清单制品引用。宿主来源未认证；不证明内容或发布真实性，不进入标识、LIR 语义或文档集摘要。                          |
 | 来源文档摘要            | source document digest                                    | `sourceDocumentDigest`                  | 目标态已接受（#315 G1），由官方前端对一份版本化规范来源记录的精确原始字节计算一次所得的 SHA-256；它不由调用方自报，也不参与实体稳定标识。                                                         |
 | 来源文档集摘要          | source document-set digest                                | `sourceDocumentSetDigest`               | 目标态已接受（#315 G1），对一个逻辑模块内按文档键规范排序的文档键、精确长度和逐文档摘要进行版本化、域分隔聚合所得的 SHA-256；它用于模块级重放/缓存比较，不替代逐文档身份。                        |
+| 来源集合摘要            | source collection digest                                  | `sourceCollectionDigest`                | 提案中（Proposed；#298），按依赖优先模块顺序对命名空间及每模块来源文档集摘要进行版本化、域分隔聚合所得的 SHA-256；它绑定一次 LFSM 的完整来源模块集合，不替代逐文档摘要，也不进入路网修订标识。    |
 | 来源语言                | source language                                           | —                                       | 定义来源模块语法和来源保真的输入语言。                                                                                                                                                            |
 | 编制命名空间标识        | authoring namespace ID                                    | `authoringNamespaceId`                  | 隔离稳定标识域、且不依赖文件路径或遍历顺序的持久标识。                                                                                                                                            |
 | 编译单元                | compilation unit                                          | —                                       | 由一个权威来源模块图及其显式选项共同构成的原子编译输入。                                                                                                                                          |
@@ -358,50 +359,53 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 
 ## 6. 制品、镜像、信任与验证
 
-| 中文规范术语       | 英文辅助名（English Alias）     | 精确标识符 / 缩写              | 中文规范含义                                                                                                      |
-| ------------------ | ------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| 可移植规范制品     | portable canonical artifact     | —                              | 平台无关、确定性、可发布、可长期审计并可供独立验证器读取的静态路网制品。                                          |
-| 目标静态镜像       | target static image             | `StaticNetworkImage`           | 按目标、布局、封闭配置档与分区提示版本生成的可重建运行时性能制品。                                                |
-| 静态镜像           | static image                    | —                              | 上下文已明确时对目标静态镜像的允许简称；不表示另一种制品或可原地修改的运行时对象。                                |
-| 分节容器           | sectioned container             | —                              | 通过头部和节目录组织多个有界数据节的镜像容器。                                                                    |
-| 静态交通镜像节     | static traffic image section    | `StaticTrafficImage`           | 所有配置档都必须包含的交通静态表。                                                                                |
-| 静态空间镜像节     | static spatial image section    | `StaticSpatialImage`           | 仅空间配置档包含的几何和采样静态表。                                                                              |
-| 稳定身份索引       | static identity index           | `StaticIdentityIndex`          | 所有生产配置档都必须包含、在稳定标识与镜像局部 ordinal 之间双向映射的冷数据索引；它不证明跨修订语义兼容。         |
-| 镜像字节长度       | static image byte length        | `staticImageByteLength`        | 外部可信描述符认证的原始未压缩镜像 exact bytes 长度；必须在读取、解压、分配和摘要前用于有界预检。                 |
-| 完整性分块         | integrity chunk                 | chunk                          | 按认证方案从镜像精确字节切出的连续区间；其摘要只在加载或首次挂载边界验证。                                        |
-| 平面分块表         | flat chunk table                | —                              | 由外部描述符认证、按偏移量顺序列出全部完整性分块及摘要，不依赖递归树节点的版本化结构。                            |
-| 默克尔树           | Merkle tree                     | —                              | 通过分层摘要路径证明局部内容属于受认证根的结构；v1 静态镜像完整性方案不采用。                                     |
-| 静态镜像完整性清单 | static image integrity manifest | `StaticImageIntegrityManifest` | 位于镜像外、由描述符认证，以连续分块摘要和节覆盖证明目标镜像字节完整性的版本化清单。                              |
-| 完整审计           | full audit                      | —                              | 显式读取并核对完整镜像摘要的发布、重建或运维审计路径；不是生产启动建立局部可信视图的默认前置。                    |
-| 预先验证           | eager verification              | —                              | 在创建任何目标视图前主动完成全部所需分块与结构检查的加载策略。                                                    |
-| 延迟验证           | lazy verification               | —                              | 只在首次请求某节或能力时才完成对应分块与结构检查的加载策略。                                                      |
-| 后台验证           | background verification         | —                              | 在不暴露未验证字节的前提下，由后台任务提前完成尚未请求节检查的加载策略。                                          |
-| 不可变字节背板     | immutable byte backing          | —                              | 从分块验证完成到有类型视图释放期间保持同一精确字节、且不存在可写别名的资产或拥有存储。                            |
-| 静态交通视图       | static traffic view             | `StaticTrafficView`            | 从可信静态镜像拆出的只读交通视图。                                                                                |
-| 静态空间视图       | static spatial view             | `StaticSpatialView`            | 从可信且含空间节的静态镜像拆出的只读空间视图。                                                                    |
-| 镜像配置档         | image profile                   | `staticImageProfileId`         | 冻结镜像节集合和用途的版本化配置。                                                                                |
-| 封闭配置档         | closed profile                  | —                              | 只能选择登记值、不能由调用方任意拼特性位的配置档。                                                                |
-| 无图形配置         | headless profile                | `traffic-headless-v1`          | 不携带空间几何、面向服务器和无图形宿主的交通配置档。                                                              |
-| 镜像节掩码         | image section mask              | `sectionMask`                  | 必须与所选封闭配置档的节集合精确一致的位集合。                                                                    |
-| 静态镜像描述符     | static image descriptor         | `StaticImageDescriptor`        | 位于镜像字节外、绑定路网修订标识、规范制品/镜像/完整性清单/收据各自摘要与精确长度、版本、目标、配置档和工具的值。 |
-| 可信描述符         | trusted descriptor              | —                              | 经认证且与路网修订标识、每个目标对象的摘要和精确长度、版本、目标平台、配置档及验证收据绑定的外部描述符。          |
-| 验证收据           | validation receipt              | `ValidationReceiptEnvelope`    | 以独立格式版本和封闭种类绑定受检对象与必需成功证据的可审计制品。                                                  |
-| 发布清单           | publication manifest            | —                              | 对制品集合、外部描述符、摘要和真实性进行发布级绑定的清单。                                                        |
-| 信任锚             | trust anchor                    | —                              | 位于待验证对象之外、由签名、认证资产链或固定摘要提供的可信依据。                                                  |
-| 未验证镜像字节     | unverified image bytes          | `UnverifiedImageBytes`         | 尚未完成结构与外部信任绑定的任意输入字节。                                                                        |
-| 已结构验证镜像     | structurally verified image     | `StructurallyVerifiedImage`    | 目标节的有界结构检查通过，只证明内存安全和运行时前置条件成立、尚未证明发布来源或内容绑定可信的镜像。              |
-| 已结构验证规范制品 | checked canonical artifact      | `CheckedPortableArtifactView`  | 通过有界结构检查、尚未证明语义或来源可信的可移植规范制品只读视图。                                                |
-| 规范发布候选       | canonical publication candidate | `PortablePublicationCandidate` | 同次成功编译原子产生的制品、源映射、差异与绑定；尚未独立验证或发布。                                              |
-| 可信静态镜像       | trusted static image            | `TrustedStaticImage`           | 与认证外部描述符、完整性清单及验证收据匹配，且只暴露已完成分块/结构验证目标节的能力对象。                         |
-| 已验证规范制品视图 | validated artifact view         | —                              | 独立验证器完成语义和标识重算后建立、供后续独立重建消费的只读能力；不是最终收据。                                  |
-| 编译器语义验证     | compiler semantic validation    | —                              | 编译器对来源和 IR 执行的主语义检查。                                                                              |
-| 独立验证器         | independent validator           | `laneflow-validator`           | 不复用编译器语义实现，独立检查可移植规范制品、路网修订标识和语义差异的验证器。                                    |
-| 独立镜像重建器     | independent image builder       | —                              | 不复用编译发射器的布局填充实现，从已验证制品重建镜像的独立实现。                                                  |
-| 有界结构校验器     | bounded structural verifier     | —                              | 对不可信镜像字节执行偏移量、区间、数值、基数和资源上限检查的校验器。                                              |
-| 精确字节摘要       | exact-bytes digest              | —                              | 对目标对象完整字节序列计算的 SHA-256；目标对象不得嵌入自身摘要。                                                  |
-| 内存映射           | memory mapping                  | mmap                           | 让文件字节映射到地址空间、供只读视图按偏移量访问的加载方式。                                                      |
-| 应用二进制接口     | application binary interface    | ABI                            | 镜像布局、对齐、字节序和调用边界共同形成的二进制兼容契约。                                                        |
-| 目标三元组         | target triple                   | `targetTriple`                 | 冻结 CPU 架构、供应商、操作系统和 ABI 环境的目标标识。                                                            |
+| 中文规范术语       | 英文辅助名（English Alias）     | 精确标识符 / 缩写              | 中文规范含义                                                                                                                                                                         |
+| ------------------ | ------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 可移植规范制品     | portable canonical artifact     | —                              | 平台无关、确定性、可发布、可长期审计并可供独立验证器读取的静态路网制品。                                                                                                             |
+| 修订—制品绑定      | revision–artifact binding       | `RevisionArtifactBindingV1`    | 以路网修订派生版本、路网修订标识、目标制品精确字节摘要和精确字节长度四项共同标识一份制品；只比较 revision 不能证明 exact bytes 相同，只比较 digest/length 不能证明语义修订声明正确。 |
+| 格式硬上限         | format hard limit               | —                              | 由格式版本冻结、任何读取器都不得提高或禁用的安全天花板；用于在 hash、分配和建立受检视图前限制对象、计数、字符串、向量和累计暂存规模，不是性能目标。                                  |
+| 调用方运行上限     | caller runtime limit            | —                              | 调用方针对一次读取或发射显式提供、可以低于但不得高于格式硬上限的资源预算；改变它不改变 wire version，也不授权扩大格式安全边界。                                                      |
+| 目标静态镜像       | target static image             | `StaticNetworkImage`           | 按目标、布局、封闭配置档与分区提示版本生成的可重建运行时性能制品。                                                                                                                   |
+| 静态镜像           | static image                    | —                              | 上下文已明确时对目标静态镜像的允许简称；不表示另一种制品或可原地修改的运行时对象。                                                                                                   |
+| 分节容器           | sectioned container             | —                              | 通过头部和节目录组织多个有界数据节的镜像容器。                                                                                                                                       |
+| 静态交通镜像节     | static traffic image section    | `StaticTrafficImage`           | 所有配置档都必须包含的交通静态表。                                                                                                                                                   |
+| 静态空间镜像节     | static spatial image section    | `StaticSpatialImage`           | 仅空间配置档包含的几何和采样静态表。                                                                                                                                                 |
+| 稳定身份索引       | static identity index           | `StaticIdentityIndex`          | 所有生产配置档都必须包含、在稳定标识与镜像局部 ordinal 之间双向映射的冷数据索引；它不证明跨修订语义兼容。                                                                            |
+| 镜像字节长度       | static image byte length        | `staticImageByteLength`        | 外部可信描述符认证的原始未压缩镜像 exact bytes 长度；必须在读取、解压、分配和摘要前用于有界预检。                                                                                    |
+| 完整性分块         | integrity chunk                 | chunk                          | 按认证方案从镜像精确字节切出的连续区间；其摘要只在加载或首次挂载边界验证。                                                                                                           |
+| 平面分块表         | flat chunk table                | —                              | 由外部描述符认证、按偏移量顺序列出全部完整性分块及摘要，不依赖递归树节点的版本化结构。                                                                                               |
+| 默克尔树           | Merkle tree                     | —                              | 通过分层摘要路径证明局部内容属于受认证根的结构；v1 静态镜像完整性方案不采用。                                                                                                        |
+| 静态镜像完整性清单 | static image integrity manifest | `StaticImageIntegrityManifest` | 位于镜像外、由描述符认证，以连续分块摘要和节覆盖证明目标镜像字节完整性的版本化清单。                                                                                                 |
+| 完整审计           | full audit                      | —                              | 显式读取并核对完整镜像摘要的发布、重建或运维审计路径；不是生产启动建立局部可信视图的默认前置。                                                                                       |
+| 预先验证           | eager verification              | —                              | 在创建任何目标视图前主动完成全部所需分块与结构检查的加载策略。                                                                                                                       |
+| 延迟验证           | lazy verification               | —                              | 只在首次请求某节或能力时才完成对应分块与结构检查的加载策略。                                                                                                                         |
+| 后台验证           | background verification         | —                              | 在不暴露未验证字节的前提下，由后台任务提前完成尚未请求节检查的加载策略。                                                                                                             |
+| 不可变字节背板     | immutable byte backing          | —                              | 从分块验证完成到有类型视图释放期间保持同一精确字节、且不存在可写别名的资产或拥有存储。                                                                                               |
+| 静态交通视图       | static traffic view             | `StaticTrafficView`            | 从可信静态镜像拆出的只读交通视图。                                                                                                                                                   |
+| 静态空间视图       | static spatial view             | `StaticSpatialView`            | 从可信且含空间节的静态镜像拆出的只读空间视图。                                                                                                                                       |
+| 镜像配置档         | image profile                   | `staticImageProfileId`         | 冻结镜像节集合和用途的版本化配置。                                                                                                                                                   |
+| 封闭配置档         | closed profile                  | —                              | 只能选择登记值、不能由调用方任意拼特性位的配置档。                                                                                                                                   |
+| 无图形配置         | headless profile                | `traffic-headless-v1`          | 不携带空间几何、面向服务器和无图形宿主的交通配置档。                                                                                                                                 |
+| 镜像节掩码         | image section mask              | `sectionMask`                  | 必须与所选封闭配置档的节集合精确一致的位集合。                                                                                                                                       |
+| 静态镜像描述符     | static image descriptor         | `StaticImageDescriptor`        | 位于镜像字节外、绑定路网修订标识、规范制品/镜像/完整性清单/收据各自摘要与精确长度、版本、目标、配置档和工具的值。                                                                    |
+| 可信描述符         | trusted descriptor              | —                              | 经认证且与路网修订标识、每个目标对象的摘要和精确长度、版本、目标平台、配置档及验证收据绑定的外部描述符。                                                                             |
+| 验证收据           | validation receipt              | `ValidationReceiptEnvelope`    | 以独立格式版本和封闭种类绑定受检对象与必需成功证据的可审计制品。                                                                                                                     |
+| 发布清单           | publication manifest            | —                              | 对制品集合、外部描述符、摘要和真实性进行发布级绑定的清单。                                                                                                                           |
+| 信任锚             | trust anchor                    | —                              | 位于待验证对象之外、由签名、认证资产链或固定摘要提供的可信依据。                                                                                                                     |
+| 未验证镜像字节     | unverified image bytes          | `UnverifiedImageBytes`         | 尚未完成结构与外部信任绑定的任意输入字节。                                                                                                                                           |
+| 已结构验证镜像     | structurally verified image     | `StructurallyVerifiedImage`    | 目标节的有界结构检查通过，只证明内存安全和运行时前置条件成立、尚未证明发布来源或内容绑定可信的镜像。                                                                                 |
+| 已结构验证规范制品 | checked canonical artifact      | `CheckedPortableArtifactView`  | 提案中（Proposed；#298），通过有界结构检查、尚未证明语义或来源可信的可移植规范制品只读视图。                                                                                         |
+| 规范发布候选       | canonical publication candidate | `PortablePublicationCandidate` | 提案中（Proposed；#298），同次成功编译原子产生的制品、源映射、差异与绑定；尚未独立验证或发布。                                                                                       |
+| 可信静态镜像       | trusted static image            | `TrustedStaticImage`           | 与认证外部描述符、完整性清单及验证收据匹配，且只暴露已完成分块/结构验证目标节的能力对象。                                                                                            |
+| 已验证规范制品视图 | validated artifact view         | —                              | 独立验证器完成语义和标识重算后建立、供后续独立重建消费的只读能力；不是最终收据。                                                                                                     |
+| 编译器语义验证     | compiler semantic validation    | —                              | 编译器对来源和 IR 执行的主语义检查。                                                                                                                                                 |
+| 独立验证器         | independent validator           | `laneflow-validator`           | 不复用编译器语义实现，独立检查可移植规范制品、路网修订标识和语义差异的验证器。                                                                                                       |
+| 独立镜像重建器     | independent image builder       | —                              | 不复用编译发射器的布局填充实现，从已验证制品重建镜像的独立实现。                                                                                                                     |
+| 有界结构校验器     | bounded structural verifier     | —                              | 对不可信镜像字节执行偏移量、区间、数值、基数和资源上限检查的校验器。                                                                                                                 |
+| 精确字节摘要       | exact-bytes digest              | —                              | 对目标对象完整字节序列计算的 SHA-256；目标对象不得嵌入自身摘要。                                                                                                                     |
+| 内存映射           | memory mapping                  | mmap                           | 让文件字节映射到地址空间、供只读视图按偏移量访问的加载方式。                                                                                                                         |
+| 应用二进制接口     | application binary interface    | ABI                            | 镜像布局、对齐、字节序和调用边界共同形成的二进制兼容契约。                                                                                                                           |
+| 目标三元组         | target triple                   | `targetTriple`                 | 冻结 CPU 架构、供应商、操作系统和 ABI 环境的目标标识。                                                                                                                               |
 
 ## 7. 运行时、空间层与适配器
 
