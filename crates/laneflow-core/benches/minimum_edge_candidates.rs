@@ -4,9 +4,7 @@ use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 
-#[allow(dead_code)]
-#[path = "../tests/support/minimum_edge_research.rs"]
-mod research;
+use laneflow_core_test_support::minimum_edge_research as research;
 
 use research::{compact_transition_kernel, transition_pressure_estimate};
 

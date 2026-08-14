@@ -1,12 +1,8 @@
 use half::f16;
 use laneflow_core::{CoreEvent, CoreWorld, TickInput, VehicleStatus};
 
-#[allow(dead_code)]
-#[path = "support/numeric_precision_research.rs"]
-mod candidates;
-#[allow(dead_code)]
-#[path = "support/vehicle_following_scenarios.rs"]
-mod scenarios;
+use laneflow_core_test_support::numeric_precision_research as candidates;
+use laneflow_core_test_support::vehicle_following_scenarios as scenarios;
 
 use candidates::{
     CandidateLayout, CandidateScenario, CandidateStatus, CandidateWorld, CompensatedF32Mode,

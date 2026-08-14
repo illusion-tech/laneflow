@@ -5,9 +5,7 @@ use std::{hint::black_box, time::Duration};
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use laneflow_core::{CoreEvent, CoreWorld, TickInput};
 
-#[allow(dead_code)]
-#[path = "../tests/support/vehicle_following_scenarios.rs"]
-mod scenarios;
+use laneflow_core_test_support::vehicle_following_scenarios as scenarios;
 
 use scenarios::{
     FIXED_DELTA_TIME_MS, SCALING_VEHICLE_COUNT, STEP_COUNT, VEHICLE_COUNT, dense_platoon_world,

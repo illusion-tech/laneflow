@@ -152,6 +152,23 @@ crate 外迁出研究模块，不新增面向研究访问的公共表面。
 切片 ① 已定稿的 C 类接缝（`test-support` feature 与两个 `#[doc(hidden)]` setter）
 已在该切片 PR #384 中登记，本节不再重复。
 
+### G2 定稿追加（2026-08-14，切片 ④：tests/support 抽离与 benches 解耦）
+
+切片 ④ 的 G2 开工判断（#380 评论 5291472541）在上述冻结包络内定稿以下精确包名与模块清单：
+
+- 包名 `laneflow-core-test-support`：workspace 私有成员包、`publish = false`、
+  `[lib] name = "laneflow_core_test_support"`。
+- 8 个 `pub` 模块（按字母序）：`command_validation_scenarios`、
+  `minimum_edge_research`、`numeric_contract_calibration`、
+  `numeric_precision_research`、`parking_runtime_scenarios`、
+  `route_distance_candidates`、`signals_validation_scenarios`、
+  `vehicle_following_scenarios`。
+- 本包仅以 path 依赖 `laneflow-core`，不启用其任何 feature；`laneflow-core`
+  经 dev-dependencies 依赖本包（dev-dependency 环为 Cargo 正式支持形态），
+  tests 与 benches 目标经正常 `use` 引用，交叉 `#[path]` 挂载清零。
+- 模块内既有 `pub` 项零改名、零签名变更；不改变 `laneflow-core` 的任何
+  feature 集合与公开表面。
+
 ## 5. 确定性与验证不变量
 
 - `cargo test --workspace --locked` 全量通过。

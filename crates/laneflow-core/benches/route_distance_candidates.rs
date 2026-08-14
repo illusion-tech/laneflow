@@ -4,9 +4,7 @@ use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 
-#[allow(dead_code)]
-#[path = "../tests/support/route_distance_candidates.rs"]
-mod candidates;
+use laneflow_core_test_support::route_distance_candidates as candidates;
 
 use candidates::{ChunkedLocalF32Index, F64PrefixIndex, QueryResult};
 

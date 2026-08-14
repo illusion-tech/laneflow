@@ -1,19 +1,11 @@
 use laneflow_core::TickInput;
 
-#[path = "support/parking_runtime_scenarios.rs"]
-#[allow(
-    dead_code,
-    reason = "shared parking helper exposes allocation scenarios"
-)]
-mod parking_scenarios;
-
+use laneflow_core_test_support::parking_runtime_scenarios as parking_scenarios;
+use laneflow_core_test_support::signals_validation_scenarios as signal_scenarios;
 use parking_scenarios::{
     FIXED_PARKING_COMMAND_COUNT, occupied_parking_world, parking_command_scenario,
     parking_six_command_scenario, run_reserve_cancel_batch, run_six_command_batch,
 };
-#[path = "support/signals_validation_scenarios.rs"]
-#[allow(dead_code, reason = "shared helper also exposes signal scenarios")]
-mod signal_scenarios;
 
 use signal_scenarios::reserved_parking_scenario;
 

@@ -3,12 +3,7 @@ use std::{alloc::System, hint::black_box};
 use laneflow_core::{CoreWorld, TickInput, VehicleState};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, Stats, StatsAlloc};
 
-#[path = "support/signals_validation_scenarios.rs"]
-#[allow(
-    dead_code,
-    reason = "shared benchmark helper exposes Signals modes unused by this binary"
-)]
-mod scenarios;
+use laneflow_core_test_support::signals_validation_scenarios as scenarios;
 
 use scenarios::{
     SIGNAL_FIXED_DELTA_TIME_MS, SIGNAL_STEP_COUNT, SIGNAL_VEHICLE_COUNT, SignalScenarioMode,

@@ -3,9 +3,7 @@ use std::{alloc::System, hint::black_box, sync::Mutex};
 use laneflow_core::TickInput;
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
-#[path = "support/vehicle_following_scenarios.rs"]
-#[allow(dead_code, reason = "shared benchmark helper exposes other scenarios")]
-mod scenarios;
+use laneflow_core_test_support::vehicle_following_scenarios as scenarios;
 
 use scenarios::{FIXED_DELTA_TIME_MS, VEHICLE_COUNT, dense_platoon_world};
 

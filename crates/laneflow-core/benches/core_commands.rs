@@ -8,14 +8,8 @@ use std::{hint::black_box, time::Duration};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 
-#[path = "../tests/support/command_validation_scenarios.rs"]
-mod command_scenarios;
-#[path = "../tests/support/parking_runtime_scenarios.rs"]
-#[allow(
-    dead_code,
-    reason = "shared parking helper also exposes step scenarios"
-)]
-mod parking_scenarios;
+use laneflow_core_test_support::command_validation_scenarios as command_scenarios;
+use laneflow_core_test_support::parking_runtime_scenarios as parking_scenarios;
 
 use command_scenarios::{
     COMMAND_SCALING_VEHICLE_COUNT, COMMAND_VEHICLE_COUNT, CommandScenario, DEFAULT_ROUTE_LENGTH,
