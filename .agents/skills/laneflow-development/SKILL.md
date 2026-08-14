@@ -37,8 +37,8 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 11. 涉及 #298、`laneflow-format`、可移植规范制品、源映射封套、语义差异封套、
     规范发布描述符、逐字节确定性或原子发布时，额外读取
     `docs/design/portable-canonical-artifact.md` 与
-    `docs/reference/v0.10-portable-artifact-validation.md`；该设计在 #298 G1 Pass 前
-    保持 Draft，不能据此启动 G2 实现
+    `docs/reference/v0.10-portable-artifact-validation.md`；#298 G1 Pass 只冻结实现输入，
+    在独立 G2 开工判断 Pass 前不能启动格式实现
 12. 涉及城市模拟游戏范围、Routing、路网修订、存档/回放、并行或 fidelity 时读取
    `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 

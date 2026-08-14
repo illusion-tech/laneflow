@@ -1,6 +1,6 @@
 # 可移植规范制品与辅助制品格式
 
-**文档状态**: Draft；#298 G1 可审阅候选，不构成 G1 Pass 或 G2 开工授权<br>
+**文档状态**: 已接受（Accepted；#298 G1；尚未开始 G2 实现）<br>
 **最后更新**: 2026-08-14<br>
 **适用范围**: `laneflow-format`、`laneflow-static-contract`、
 `laneflow-compiler` 的可移植规范制品（Portable Canonical Artifact）、源映射封套
@@ -18,8 +18,9 @@
 ## 1. 状态、目标与非目标
 
 本文把 `network-compiler.md` 第 8 节和 ADR 0020 已接受的长期边界收窄为 #298 的
-实现级格式候选。本文的 Draft 状态表示字段、常量和限制值仍在 G1 审阅中；任何实现
-PR 都必须等待 #298 发布正式 `## G1 设计判断` 且结论为 Pass。
+实现级格式输入。Accepted 只表示 G1 冻结字段、常量、限制值和职责边界，不表示格式已经
+实现、通过 G2 验证或可供产品发布；任何实现 PR 都必须等待 #298 发布正式
+`## G2 开工判断` 且结论为 Pass。
 
 #298 必须同时闭合四类对象：
 
@@ -1012,29 +1013,31 @@ profile 只进入非语义 CompilerProvenance，不进入这两个 revision 向�
 完整计划和 G2 证据占位见
 `../reference/v0.10-portable-artifact-validation.md`。
 
-## 11. G1 封闭条件与当前阻断项
+## 11. G1 接受结果与 G2 前置
 
-本文只有在下列条件全部满足后才可转为 Accepted 并发布 #298 `G1 = Pass`：
+本文按下列条件闭合 G1 实现输入；动态 Gate、精确提交、外部审阅和 Project 状态仍以
+#298 Gate Ledger 为准：
 
-- [ ] 附录 A 登记全部 artifact/source-map/diff/descriptor table kind、field tag、类型、
+- [x] 附录 A 登记全部 artifact/source-map/diff/descriptor table kind、field tag、类型、
       必需性、排序键与 closed enum；
-- [ ] 冻结四类对象的 magic、版本、节集合、目录、数值/文本/浮点编码和错误分类；
-- [ ] 冻结 NetworkRevisionId exact payload、非语义 `ArtifactClaims` 比较规则和至少两个
+- [x] 冻结四类对象的 magic、版本、节集合、目录、数值/文本/浮点编码和错误分类；
+- [x] 冻结 NetworkRevisionId exact payload、非语义 `ArtifactClaims` 比较规则和至少两个
       可人工复核的已知摘要；
-- [ ] 冻结 Text/RoadEditing 来源位置的判别值、字段 registry、规范排序和混合来源结构
+- [x] 冻结 Text/RoadEditing 来源位置的判别值、字段 registry、规范排序和混合来源结构
       审阅锚点；
-- [ ] 冻结 artifact/source-map/receipt 与 base/target 的摘要+精确长度绑定；
-- [ ] 冻结 `CompilationOutput + PortableEmissionProvenanceV1` 完整输入、候选对象不可拆分
+- [x] 冻结 artifact/source-map/receipt 与 base/target 的摘要+精确长度绑定；
+- [x] 冻结 `CompilationOutput + PortableEmissionProvenanceV1` 完整输入、候选对象不可拆分
       成功和发布提交点；
-- [ ] 冻结 pre-hash 上限、结构计数上限、硬格式上限和失败原子性；
-- [ ] 由非作者审阅者仅依据本文人工重建两个 revision 向量和最小对象关键 offset；
-- [ ] 记录编码库/自有格式选择的安全与维护证据；
-- [ ] #298 Gate Ledger 绑定当前精确提交并取得职责中立的外部 clean review，且
+- [x] 冻结 pre-hash 上限、结构计数上限、硬格式上限和失败原子性；
+- [x] 由非作者审阅者仅依据本文人工重建两个 revision 向量和最小对象关键 offset；
+- [x] 记录编码库/自有格式选择的安全与维护证据；
+- [x] #298 Gate Ledger 绑定当前精确提交并取得职责中立的外部 clean review，且
       Project/Issue 元数据完整。
 
-当前 Draft 表示上述内容尚未在绑定精确提交的 #298 Gate Ledger 上全部通过职责中立审阅，
-不是把字段 tag、限制值、排序破同值或 publication 原子性留给实现者选择。任一 checklist
-项目未取得证据时都不得进入 G2。
+G1 Pass 只冻结实现输入，不声明 LFCA/LFSM/LFSD/LFCP 已实现、通过产品验证或获得独立
+语义授信。G2 开工前仍须重新核验 GitHub 元数据、原生依赖、当前 Accepted 文档和实现切片，
+并在 #298 追加独立 `## G2 开工判断`；任何字段 tag、限制值、排序破同值、publication
+原子性或职责边界变化都必须返回 G1。
 
 ## 附录 A：线格式登记表（规范）
 
