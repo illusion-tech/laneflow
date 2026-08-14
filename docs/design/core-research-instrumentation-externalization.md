@@ -51,8 +51,9 @@ Issue 核心指控成立，事实细节按当前代码修正：
 ## 3. 冻结决策
 
 原则：生产路径与生产类型只保留两类正式接缝——仪器探针边界（instrumentation
-probe boundary，承接 B 类）与测试支持接缝（test-support seam，承接 C/D 类及
-研究访问）；研究原型代码一律移出生产 crate。
+probe boundary，承接 B 类）与测试支持接缝（test-support seam，承接 C 类故障
+注入与研究访问边界）；保留内存账本保持 crate-private 内聚；研究原型代码一律
+移出生产 crate。
 
 - **A 类 → 归档 `research/`**。四个研究模块迁移为 `research/issue-<n>-*` 独立
   workspace 成员包，沿用 #123/#308 既有惯例：`publish = false`、生产 crate 不得
@@ -68,23 +69,31 @@ probe boundary，承接 B 类）与测试支持接缝（test-support seam，承�
   分区 occupancy）需要 oracle 快照表面；P4（#212 降频）的实验本质是替换生产
   运动路径并内嵌事务 cache，无法外置为独立 crate 的等价可运行形态，按 #380
   允许的降级路径归档为 provenance——保留源码、证据与最后可运行 commit 记录，
-  其语义 oracle 由 #218 未来在新边界上重建。该降级项须在 #380 记录并拆后续
-  Issue。
+  其语义 oracle 由 #218 未来在新边界上重建。该降级同时覆盖 D5 归因表
+  research-commit 列的可运行复现：该列只测量研究态 cache 提交工作，P4 不可
+  运行后无对应工作可测。降级项须在 #380 记录并拆后续 Issue。
 - **B 类 → 仪器探针边界**。生产路径持有空操作（no-op）默认的探针，六段计时
   与 `ReducedRateMetrics` 指标收集收敛为探针方法；Criterion 取证迁移为探针
-  实现。默认发布构建零成本、零行为变更；audit D5 归因能力与其复现命令等价物
-  完整保留并回写 `core-runtime-scalability-audit.md`。探针边界同时消除已发生
-  过的内嵌计时生命周期 bug 事故面。探针的形状级决策在此冻结：以
-  method-generic 入口承载（泛型 / unit 空操作类型，空操作实现整体编译消除），
-  不参数化 `CoreWorld`，现有 `CoreWorld` 与 `step` 公开签名保持不变；不采用在
-  热路径保留运行期分支的 `Option<&mut dyn …>` 形态。
+  实现。探针契约完整保留六段方法（含 research-commit，供未来 #218 等研究
+  harness 注入探针实现时恢复测量）；其中 research-commit 的可运行复现随 P4
+  降级暂停（见 A 类降级记录），五段生产侧计时（occupancy、longitudinal 总计
+  / proposal / projection、post-longitudinal）的复现能力完整保留。默认发布
+  构建零成本、零行为变更；audit D5 归因能力与其复现命令等价物保留并回写
+  `core-runtime-scalability-audit.md`。探针边界同时消除已发生过的内嵌计时
+  生命周期 bug 事故面。探针的形状级决策在此冻结：以 method-generic 入口承载
+  （泛型 / unit 空操作类型，空操作实现整体编译消除），不参数化 `CoreWorld`，
+  现有 `CoreWorld` 与 `step` 公开签名保持不变；不采用在热路径保留运行期分支
+  的 `Option<&mut dyn …>` 形态。
 - **C 类 → 正式测试支持接缝**。故障注入检查点必须编译期门控（crate feature /
   `cfg`），不得进入默认发布构建——这是 G1 冻结约束，不留待 G2 取舍；
   `#[doc(hidden)]` 只允许用于公共 setter 的文档可见性控制，不构成构建排除。
   baseline §4.3/§7.1 点名的 W3/W4 产品 Gate 验证路径保持不变。
-- **D 类 → 同 C 类**。保留内存账本经编译期门控的测试支持接缝获得正式身份；
-  穷尽解构设计（新增字段编译失败强制分类）与常规 PR smoke、一万/十万 matrix
-  验证语义不变。
+- **D 类 → 内聚为常规 `cfg(test)` 模块**。保留内存账本维持 crate-private、
+  `cfg(test)`（`../reference/rust-code-style.md` §5 规则保持不变），不新增任何
+  公共表面或 crate feature；外移收敛为去 `#[path]` 化——`retained_bytes` 计账
+  方法、`CompleteRetainedComponents` 与对应测试迁入按常规模块声明的
+  `#[cfg(test)]` 子模块，生产函数与热路径不再持有这些定义。穷尽解构设计
+  （新增字段编译失败强制分类）与常规 PR smoke、一万/十万 matrix 验证语义不变。
 - **benches 解耦**。`tests/support/` 抽为独立 support 包（workspace 私有成员包
   或既有 `tests/common` 模式的推广，由 G2 定稿），benches 与 tests 各自正常
   依赖，消除交叉 `#[path]`。
@@ -93,20 +102,21 @@ probe boundary，承接 B 类）与测试支持接缝（test-support seam，承�
 
 - 零公开行为变更；tick 确定性语义与全部硬不变量不受影响（#380 非目标保持）。
 - 冻结 crate feature 集合：`instrumentation`（B 类探针的研究态实现）与
-  `test-support`（C/D 类接缝与研究访问边界）；默认构建均不启用。
+  `test-support`（C 类故障注入与研究访问边界）；默认构建均不启用。D 类保留
+  内存账本保持 crate-private `cfg(test)`，不占用任何 feature 或公共表面。
 - 冻结形状级 API 决策：探针为 method-generic 入口、不参数化 `CoreWorld`；
-  `CoreWorld` / `step` 现有公开签名不变；三类公共表面（仪器探针边界、测试
-  支持接缝、研究访问边界）的可见性最小化，接缝与访问边界建议
-  `#[doc(hidden)]`。
-- 三类表面的精确类型名与签名清单由 G2 在上述冻结包络内定稿，回本节
-  append-only 追加；超出包络的变更（参数化 `CoreWorld`、新增第三类 feature、
-  默认启用任一 feature）属设计变更，须重新 G1，不得静默引入。
+  `CoreWorld` / `step` 现有公开签名不变；两类公共表面（仪器探针边界与测试
+  支持接缝，后者含研究访问边界）的可见性最小化，建议 `#[doc(hidden)]`。
+- 两类表面的精确类型名与签名清单由 G2 在上述冻结包络内定稿，回本节
+  append-only 追加；超出包络的变更（参数化 `CoreWorld`、新增 feature、默认
+  启用任一 feature、保留内存账本改公开）属设计变更，须重新 G1，不得静默引入。
 
 ## 5. 确定性与验证不变量
 
 - `cargo test --workspace --locked` 全量通过。
 - 迁移后的研究测试保留等价断言与可复现证据；`--release --ignored` 取证入口
-  在归档包内保持可运行（P4 按 §3 降级路径除外，已在 #380 记录）。
+  在归档包内保持可运行（P4 按 §3 降级路径除外——含 D5 research-commit 列的
+  可运行复现，已在 #380 记录）。
 - 既有性能基线与 benches 不因外移失效；tick 路径行为不变，确定性不变量不受
   影响。
 - 构建级验收（实施 Gate，§3 冻结的两个构建属性由此证明）：
@@ -136,7 +146,8 @@ probe boundary，承接 B 类）与测试支持接缝（test-support seam，承�
 按风险递增排列为四个 Related PR 切片（③ 依赖 ② 的探针替代先就位，否则
 reduced-rate 证据链断裂）：
 
-1. C/D 类测试支持接缝化：移除 2 个故障注入字段，保留内存账本正式化。
+1. C 类测试支持接缝化 + D 类内聚：移除 2 个故障注入字段（迁入编译期门控
+   接缝），保留内存账本迁入常规 `#[cfg(test)]` 模块并去 `#[path]`。
 2. B 类仪器探针边界：移除 5 处热路径计时钩子与 `ReducedRateMetrics` 内嵌收集。
 3. A 类归档 `research/`：先建研究访问边界，再摘除 `#[path]` 挂载并迁移
    四模块（P4 按 §3 降级路径归档为 provenance），移除 reduced-rate Active 分叉
