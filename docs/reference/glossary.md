@@ -471,7 +471,6 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 保留内存账本 | retained memory ledger | — | 提案中（Proposed；#380），按所有权穷尽枚举组件的保留内存核算结构；新增字段必须触发编译失败以强制分类。 |
 | 仪器探针边界 | instrumentation probe boundary | — | 提案中（Proposed；#380），生产路径持有空操作默认探针、研究态注入测量实现的显式接缝；默认发布构建必须与无仪器构建等价。 |
 | 测试支持接缝 | test-support seam | — | 提案中（Proposed；#380），以编译期门控向测试与研究暴露非生产能力的正式边界；`#[doc(hidden)]` 只控制文档可见性，不构成构建排除。 |
-| 研究访问边界 | research access boundary | — | 提案中（Proposed；#380），测试支持接缝中面向归档研究包的只读公共表面，提供 occupancy/leader 预言机快照、运动浮点位模式快照与 scratch 元数据等价物；编译期门控，不进入默认发布构建。 |
 
 ## 8. 静态路网领域标识符
 

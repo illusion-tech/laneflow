@@ -52,10 +52,10 @@ Issue 核心指控成立，事实细节按当前代码修正：
 
 原则：生产路径与生产类型只保留两类正式接缝——仪器探针边界（instrumentation
 probe boundary，承接 B 类）与测试支持接缝（test-support seam，承接 C 类故障
-注入与研究访问边界）；保留内存账本保持 crate-private 内聚；研究原型按访问
-需求分流——能经公开或门控表面验证的迁出生产 crate，依赖私有可变访问或同
-crate 编译期守卫的保留为 crate 内常规 `#[cfg(test)]` 模块，不可外置的降级为
-provenance。
+注入）；保留内存账本保持 crate-private 内聚；研究原型按访问需求分流——四项
+研究均依赖 crate-private 访问或同 crate 编译期守卫，保留为 crate 内常规
+`#[cfg(test)]` 模块（P1/P2/P3）或降级为 provenance（P4）；本切片不向生产
+crate 外迁出研究模块，不新增面向研究访问的公共表面。
 
 - **A 类 → 按访问需求逐项冻结落点**。四项研究的落点由访问需求决定，全部摘除
   `#[path]` 挂载，生产模块树只保留常规模块声明：
@@ -64,17 +64,24 @@ provenance。
   | --- | --- | --- |
   | P1 事件归并（#204） | 顺序与信号状态可从公开 API 派生，但穷尽映射守卫依赖同 crate match：`CoreEvent` 为 `#[non_exhaustive]`，外置会迫使研究映射加通配臂而静默吞掉新 variant | crate 内常规 `#[cfg(test)]` 模块，穷尽守卫原样保留 |
   | P2 分区 occupancy（#207） | 构造与变更 crate-private `OccupancyScratch` / `Occupant` 候选（`begin` / `insert` / `sort_edges`），并调用私有 oracle 方法（`leader_horizon` / `find_leader`）；只读快照不覆盖这些候选构建操作 | crate 内常规 `#[cfg(test)]` 模块，等价断言零损失、零新公共表面 |
-  | P3 选择性读取（#210） | 公开接口 + C 类故障注入接缝 + 位模式快照即可满足 | 迁出至 `research/issue-210-*` 独立 workspace 包（沿用 #123/#308 惯例：`publish = false`、生产 crate 不得依赖、复现命令入包 README、结论继续以 `docs/design` 档案为准） |
+  | P3 选择性读取（#210） | stable-hash 候选选择与 slot 索引 delta 追踪依赖 crate-private `VehicleHandle::index` / `generation`；pose 映射对 `#[non_exhaustive] VehicleStatus` 的穷尽匹配守卫依赖同 crate 编译，外置会迫使替换候选算法并加通配臂，改变已记录证据语义并静默吞掉新 variant | crate 内常规 `#[cfg(test)]` 模块，等价断言与穷尽守卫零损失、零新公共表面 |
   | P4 降频（#212） | 替换生产运动路径并内嵌事务 cache，无法外置为独立 crate 的等价可运行形态 | provenance 降级：保留源码、证据与最后可运行 commit 记录；语义 oracle 由 #218 在新边界重建；降级同时覆盖 D5 research-commit 列的可运行复现（该列只测量研究态 cache 提交工作，P4 不可运行后无对应工作可测）。降级已记录于 #380 评论，后续由既有 Issue #218 承担 |
 
-  crate 内保留的研究/白盒模块（P1、P2，以及行为白盒 `occupancy_tests` 与 D 类
-  `retained_memory_tests`）一律改为常规 `#[cfg(test)]` 模块声明，不再经
+  crate 内保留的研究/白盒模块（P1、P2、P3，以及行为白盒 `occupancy_tests` 与
+  D 类 `retained_memory_tests`）一律改为常规 `#[cfg(test)]` 模块声明，不再经
   `#[path]` 挂入；生产类型与热路径不含其任何字段、分支或签名引用。
-  `CoreWorld` 的 `reduced_rate_research` 字段、`reduced_rate_motion_for_research`
-  Active 分叉与全部 `*_for_research` seam 随之移除。#216 / #218 重启时的
-  oracle 重建不得再次嵌回生产路径。研究访问边界的服务对象相应收窄为 P3 等
-  可外置研究：编译期门控的只读公共表面，提供运动浮点位模式快照与 scratch
-  元数据等价物（属测试支持接缝的一部分）。
+  `CoreWorld` 的 `reduced_rate_research` 字段与 `reduced_rate_motion_for_research`
+  Active 分叉随之移除。`*_for_research` seam 按使用者分流：仅服务 P4 的
+  `evaluate_controller_intent_for_research` 与
+  `compute_motion_from_controller_intent_for_research` 随降级移除；P2 依赖的
+  4 个 `#[cfg(test)] pub(crate)` seam（`LongitudinalMotion::leader_for_research`
+  / `float_bits_for_research`、`LongitudinalScratch::reset_geometry_projection_for_research`、
+  `OccupancyScratch::set_max_vehicle_length_for_research`）保留——其底层字段为
+  兄弟模块私有，crate 内任何单一测试落点都无法直接访问，移除将使 P2 等价
+  断言不可运行；这 4 个 seam 本身即编译期排除、crate-private、零公共表面的
+  测试支持形态，不违背本节任何冻结约束。#216 / #218 重启时的 oracle 重建
+  不得再次嵌回生产路径；未来确需外置的研究 harness 所需访问边界在各自
+  Issue 的 G1 冻结，本方案不预设。
 - **B 类 → 仪器探针边界**。生产路径持有空操作（no-op）默认的探针，六段计时
   与 `ReducedRateMetrics` 指标收集收敛为探针方法；Criterion 取证迁移为探针
   实现。探针契约完整保留六段方法（含 research-commit，供未来 #218 等研究
@@ -97,20 +104,22 @@ provenance。
   方法、`CompleteRetainedComponents` 与对应测试迁入按常规模块声明的
   `#[cfg(test)]` 子模块，生产函数与热路径不再持有这些定义。穷尽解构设计
   （新增字段编译失败强制分类）与常规 PR smoke、一万/十万 matrix 验证语义不变。
-- **benches 解耦**。`tests/support/` 抽为独立 support 包（workspace 私有成员包
-  或既有 `tests/common` 模式的推广，由 G2 定稿），benches 与 tests 各自正常
-  依赖，消除交叉 `#[path]`。
+- **benches 解耦**。`tests/support/` 抽为独立 support 包（workspace 私有成员包，
+  `publish = false`），benches 与 tests 经 dev-dependencies 正常依赖，消除交叉
+  `#[path]`。不采用推广既有 `tests/common` 模式的备选：每个 integration test
+  与 bench 都是独立 crate，bench 中的 `mod common` 解析到 `benches/` 下而非
+  `tests/common/`，该模式只能重新引入 `#[path]` 或复制夹具，无法兑现正常
+  依赖。包名与 API 签名由 G2 在上述冻结包络内定稿。
 
 ## 4. Core API 影响评估
 
 - 零公开行为变更；tick 确定性语义与全部硬不变量不受影响（#380 非目标保持）。
 - 冻结 crate feature 集合：`instrumentation`（B 类探针的研究态实现）与
-  `test-support`（C 类故障注入与研究访问边界）；默认构建均不启用。D 类保留
-  内存账本保持 crate-private `cfg(test)`，不占用任何 feature 或公共表面。
+  `test-support`（C 类故障注入）；默认构建均不启用。D 类保留内存账本保持
+  crate-private `cfg(test)`，不占用任何 feature 或公共表面。
 - 冻结形状级 API 决策：探针为 method-generic 入口、不参数化 `CoreWorld`；
   `CoreWorld` / `step` 现有公开签名不变；两类公共表面（仪器探针边界与测试
-  支持接缝，后者含研究访问边界，服务对象为 P3 等可外置研究）的可见性最小化，
-  建议 `#[doc(hidden)]`。
+  支持接缝）的可见性最小化，建议 `#[doc(hidden)]`。
 - 两类表面的精确类型名与签名清单由 G2 在上述冻结包络内定稿，回本节
   append-only 追加；超出包络的变更（参数化 `CoreWorld`、新增 feature、默认
   启用任一 feature、保留内存账本改公开）属设计变更，须重新 G1，不得静默引入。
@@ -118,15 +127,15 @@ provenance。
 ## 5. 确定性与验证不变量
 
 - `cargo test --workspace --locked` 全量通过。
-- 迁移与内聚后的研究/白盒测试保留等价断言与可复现证据：P1/P2 在 crate 内
-  `#[cfg(test)]` 模块中原样可运行；P3 的 `--release --ignored` 取证入口在
-  归档包内保持可运行（P4 按 §3 降级路径除外——含 D5 research-commit 列的
-  可运行复现，已记录于 #380 评论）。
+- 迁移与内聚后的研究/白盒测试保留等价断言与可复现证据：P1/P2/P3 在 crate 内
+  `#[cfg(test)]` 模块中原样可运行（含 P3 的 `--release --ignored` 取证入口）；
+  P4 按 §3 降级路径除外——含 D5 research-commit 列的可运行复现，已记录于
+  #380 评论。
 - 既有性能基线与 benches 不因外移失效；tick 路径行为不变，确定性不变量不受
   影响。
 - 构建级验收（实施 Gate，§3 冻结的两个构建属性由此证明）：
   - 隔离的 `cargo build -p laneflow-core --release`（默认 feature）+ 符号缺席
-    检查，证明测试支持接缝与研究访问边界不编译进发布二进制；
+    检查，证明测试支持接缝不编译进发布二进制；
   - no-op 探针的 codegen 检查（符号 / 反汇编对比），证明空操作实现整体编译
     消除；
   - feature matrix（默认 / `instrumentation` / `test-support` / 全启用）逐一
@@ -141,10 +150,10 @@ provenance。
 
 - **#216（occupancy/leader exact path）**：其 G2 指名的在制研究模块沿用旧嵌合
   模式；本方案外移 A/B 类时有权直接清理这些挂载点与计时钩子。#216 重启后的
-  研究 harness 须沿用仪器探针边界与研究访问边界，不得再次嵌入生产路径。
+  研究 harness 须沿用仪器探针边界，不得再次嵌入生产路径；如需 crate 外访问
+  表面，在其自身 G1 冻结。
 - **#217 / #218**：其仪器需求（同类阶段归因计时、#212 semantic oracle 重建）
-  由本方案的仪器探针边界、研究访问边界与 P3 归档包模式覆盖，不得再次嵌入
-  生产路径。
+  由本方案的仪器探针边界与 crate 内研究模块模式覆盖，不得再次嵌入生产路径。
 - **#220**：消费 P1/P2 已冻结的语义约束，不直接使用仪器，不受本方案影响。
 
 ## 7. 交付切片建议
@@ -155,10 +164,10 @@ reduced-rate 证据链断裂）：
 1. C 类测试支持接缝化 + D 类内聚：移除 2 个故障注入字段（迁入编译期门控
    接缝），保留内存账本迁入常规 `#[cfg(test)]` 模块并去 `#[path]`。
 2. B 类仪器探针边界：移除 5 处热路径计时钩子与 `ReducedRateMetrics` 内嵌收集。
-3. A 类逐项落点：摘除全部 `#[path]` 挂载；P1/P2 与两个白盒模块
+3. A 类逐项落点：摘除全部 `#[path]` 挂载；P1/P2/P3 与两个白盒模块
    （`occupancy_tests`、`retained_memory_tests`）改为常规 `#[cfg(test)]` 声明；
-   P3 迁出 `research/`（先建研究访问边界）；P4 降级为 provenance；移除
-   reduced-rate Active 分叉与 `*_for_research` seam。
+   P4 降级为 provenance；移除 reduced-rate Active 分叉与 P4 独占的
+   `*_for_research` seam（P2 依赖的 4 个 `#[cfg(test)] pub(crate)` seam 保留）。
 4. `tests/support/` 抽离与 benches 解耦。
 
 ## 8. 非目标
