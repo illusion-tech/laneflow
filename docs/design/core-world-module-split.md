@@ -18,9 +18,9 @@ G1 冻结方案，冻结生效以 #381 Gate Ledger 的 G1 记录为准。本文�
 #381 架构审查指控（`CoreWorld` 巨型对象（god object）、单一超大文件、`step()` 双分支复制）
 经当前 main（`8f3de846`）核实成立，事实细节按当前代码修正：
 
-- `crates/laneflow-core/src/world.rs` 共 7,434 行：生产实现与私有 helper 约
-  4,651 行（1-4651），内联 `mod tests` 2,766 行（4669-7434，含
-  `retained_memory` 子模块）。
+- `crates/laneflow-core/src/world.rs` 共 7,434 行（含空行的总行数口径；非空行
+  7,039）：生产实现与私有 helper 约 4,651 行（1-4651），内联 `mod tests`
+  2,766 行（4669-7434，含 `retained_memory` 子模块）。
 - `CoreWorld` 共 30 个字段（`world.rs:350-383`）：28 个无条件字段 + 2 个
   `#[cfg(any(test, feature = "test-support"))]` 故障注入钩子；#380 已完成研究
   字段与仪器外移，无遗留 `#[cfg(test)]` 研究状态。
@@ -44,8 +44,8 @@ G1 冻结方案，冻结生效以 #381 Gate Ledger 的 G1 记录为准。本文�
 - 研究/测试仪器：#380 外移后 `world/` 目录下 5 个 `#[cfg(test)]` 模块
   （occupancy / retained_memory / event_merge_research / partitioned_occupancy_research /
   selective_read_research），经 `world.rs:4653-4666` 声明。
-- `CoreError` 单枚举现为 160 variant（`error.rs` 1,309 行；#381 正文"95"已过时），
-  拆分决策拆出 #389。
+- `CoreError` 单枚举现为 160 variant（`error.rs` 1,309 行含空行；#381 正文"95"
+  已过时），拆分决策拆出 #389。
 
 ## 2. 目标与非目标
 
@@ -100,7 +100,7 @@ G1 冻结方案，冻结生效以 #381 Gate Ledger 的 G1 记录为准。本文�
 | `tick_spatial.rs`      | command spatial index 重建/同步                                                                                                                                                                                                                                                                                        | 2827-2874                       | ~48    |
 | `tick_overlap.rs`      | candidate overlap 校验族 + parking leave follower 校验                                                                                                                                                                                                                                                                 | 2925-3429                       | ~505   |
 | `tick_longitudinal.rs` | occupancy/leader/longitudinal 重建族 + horizon/leader 计算                                                                                                                                                                                                                                                             | 3430-4156                       | ~727   |
-| `tick_advance.rs`      | `advance_vehicle` + `append_signal_events`                                                                                                                                                                                                                                                                             | 4300-4578                       | ~278   |
+| `tick_advance.rs`      | `advance_vehicle`（const generic `PARKING_ACTIVE`）                                                                                                                                                                                                                                                                    | 4300-4578                       | ~278   |
 | `tests.rs`             | 内联 `mod tests`（含 retained_memory 子模块）纯文件搬迁                                                                                                                                                                                                                                                                | 4669-7434                       | ~2,766 |
 | `mod.rs`               | 文件头 doc/use 导入（1-69）+ 模块声明 + re-export（`pub use state::CoreWorld`、`pub(super) use support::*` 等）+ 5 个 `#[cfg(test)] mod <研究测试>;`                                                                                                                                                                   | —                               | ~120   |
 
@@ -159,11 +159,11 @@ Where：
 - (I) **route_queries.rs**：profile / edge / route 句柄、外部 ID 与出现项（maneuver / gate / waiting-zone）查询。
 - (J) **route_lifecycle.rs**：路线注册/删除与静态校验（`register_route`、`register_compiled_route`、`build_route_metadata`、`remove_route` 及 `validate_*`）。
 - (K) **vehicle_lifecycle.rs**：车辆生命周期（`spawn_vehicle` / `replace_completed_vehicle` / `despawn_vehicle`）、route reference index 维护与输入规范化；跨域调用 (N) 的 `validate_candidate_overlap`。
-- (L) **tick.rs**：`step` / `step_with_probe` 编排（tick/time 溢出检查 → 信号候选快照 → occupancy/longitudinal 重建 → 车辆推进 → 事件生成 → 一次原子提交）；`step()` 双分支复制收敛为单一 `advance_all_vehicles<const PARKING_ACTIVE: bool>` 循环；`append_signal_events` 与故障注入 impl 亦归此。
+- (L) **tick.rs**：`step` / `step_with_probe` 编排（对齐 `core-runtime-scalability-audit.md` §4.1 七阶段：tick/time 与 Signal 候选快照 → occupancy/leader 重建 → longitudinal 重建 → 车辆推进 → Parking release 等跨域 invariant 批校验 → 事件与派生 index → 一次原子提交）；`step()` 双分支复制收敛为单一 `advance_all_vehicles<const PARKING_ACTIVE: bool>` 循环；`append_signal_events` 与故障注入 impl 亦归此。
 - (M) **tick_spatial.rs**：command spatial index 重建（`rebuild_command_spatial_index`，被 (E) 构造路径调用）与成员同步（`sync_changed_command_spatial_memberships`，被 (L) 调用）。
 - (N) **tick_overlap.rs**：候选重叠校验族（`validate_candidate_overlap`、`validate_candidate_overlap_excluding`、`find_candidate_overlap` 等）、`validate_initial_vehicle_overlaps` 与 parking leave follower 校验；被 (E)/(G)/(K)/(L) 共用。
 - (O) **tick_longitudinal.rs**：occupancy / leader 重建（`rebuild_occupancy_and_leaders`、`rebuild_longitudinal_motions`）与 horizon / leader 计算（speed-limit / parking-stop / signal-stop horizon、`find_leader`、`braking_distance` 等）。
-- (P) **tick_advance.rs**：`advance_vehicle`（const generic `PARKING_ACTIVE`）与 `append_signal_events`。
+- (P) **tick_advance.rs**：`advance_vehicle`（const generic `PARKING_ACTIVE`）。
 - (Q) **tests.rs**：原内联 `mod tests`（含 `retained_memory` 子模块）纯文件搬迁，断言零改动（约 2,766 行）。
 - (R) **\*_tests**：5 个 `#[cfg(test)]` 测试模块（3 个 A 类研究原型 + occupancy 行为白盒 + retained_memory 保留内存账本，#380 外移完成）保持原文件位置与内容，仅 `#[cfg(test)] mod` 声明移入 `mod.rs`，不重复搬移。
 
@@ -186,6 +186,10 @@ Where：
   `if PARKING_ACTIVE { ... }` 内，由编译期折叠消除；
 - 行为保持：first-error 语义、事件顺序、失败原子性与
   `#[cfg(any(test, feature = "test-support"))]` 故障注入语义不变。
+- **release 批校验落点**：`validate_reserved_pair` 批校验（现 2774-2792）保持为
+  advance 循环完成之后、事件生成与提交之前的独立阶段，不折入逐车循环——折入
+  会改变"早车辆非法 release、晚车辆 advance 报错"组合下的 first-error 优先级
+  （现语义：advance 错误优先）。
 
 收敛核对清单（实施时逐条对照）：
 
