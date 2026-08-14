@@ -1223,7 +1223,7 @@ Identity 前像中重复表达规范所有权或边界语义的字段必须与�
 | `LaneEdge.successors`           | 集合；按 target typed ordinal 严格递增               | 禁止       | 允许             |
 | `Junction.movements`            | 集合；按 member typed ordinal 严格递增               | 禁止       | 禁止             |
 | `Movement.maneuverPaths`        | 集合；按 member typed ordinal 严格递增               | 禁止       | 禁止             |
-| `ManeuverPath.edges`            | 领域顺序；完整 entry、internal、exit 序列            | 禁止       | 禁止，且至少两项 |
+| `ManeuverPath.edges`            | 领域顺序；完整 entry、internal、exit occurrence 序列 | 允许重复项 | 禁止，且至少两项 |
 | `ManeuverPath.maneuverGates`    | 领域顺序；按 `transitionIndex` 严格递增              | 禁止       | 允许             |
 | `ManeuverPath.waitingZones`     | 领域顺序；按 entry/release transition tuple 严格递增 | 禁止       | 允许             |
 | `StopLine.maneuverGates`        | 集合；按 member typed ordinal 严格递增               | 禁止       | 禁止             |
@@ -1293,14 +1293,21 @@ transition 领域顺序，行数精确为 `max(edges.count-1, 0)`。这些 Recor
 | `VehicleProfile.timeHeadwaySeconds` 与三项 acceleration/deceleration 标量 | 各自 `> 0`；且 `emergencyDeceleration >= comfortableDeceleration` |
 
 AuthoringLane 的每条 LaneEdge 最多属于一个 `edgeChain`，链内每对相邻 edge 必须由前项的
-`successors` 显式连接。ManeuverPath 的完整 edge StableId 序列必须全局唯一；首末项是 boundary，
-中间项集合必须与 `JunctionInternalEdge` 精确闭合。boundary 不得同时是任何 internal edge；同一
-internal edge 可被同一路口的多条 path 共享，但不得归属不同路口。path 内相邻 edge 若都不是该
-路口的 internal edge，则前项必须显式 successor 到后项；internal transition 只以完整 path 为
-拓扑权威。独立验证器必须先从全部 `JunctionInternalEdge` 行重建全局 internal-edge 集合；任一
-`LaneEdge.successors` 关系的 owner 或 target 落入该集合都失败关闭。这样内部边既不能声明
-outgoing successor，也不能被另一 edge 的 successor 指向，不会与 ManeuverPath 形成第二套
-拓扑权威。
+`successors` 显式连接。ManeuverPath 的完整 edge StableId occurrence 序列必须全局唯一；同一
+edge 可以在一个序列中重复出现，每个位置分别参与 transition、gate、diff 与来源映射。首末
+occurrence 是 boundary，中间 occurrence 的去重集合必须与 `JunctionInternalEdge` 精确闭合。
+boundary edge 不得同时是任何 internal edge；同一 internal edge 可在一条 path 中重复、或被
+同一路口的多条 path 共享，但不得归属不同路口。
+
+LFCA 对 `LaneEdge.successors` 使用单一、source-model-neutral 的规范投影。发射器先从所有
+ManeuverPath 的中间 occurrence 重建全局 internal-edge 集合 `I`，再把 validated LIR successor
+集合中 `owner in I || target in I` 的 pair 全部过滤；剩余 pair 仍按 target typed ordinal 严格
+递增写入。该 total projection 不读取 LFSM/source language，不因 Synthetic 或 RoadEditing
+分叉，也不接受调用方 override。path 内相邻 edge 若都不在 `I`，过滤后的 LFCA successor 必须
+仍包含该 pair；只要任一端在 `I`，完整 ManeuverPath occurrence 序列就是 portable 拓扑权威。
+独立验证器从 `JunctionInternalEdge` 重建 `I`，并拒绝 wire 中任一 owner 或 target 落入 `I` 的
+successor。这样当前 Synthetic LIR 的显式 internal connectivity 可以无损归一为与 RoadEditing
+一致的 path-only portable 语义，不会形成第二套 portable 拓扑权威或来源相关 revision。
 
 每个 ManeuverGate 必须满足
 `transitionIndex < maneuverPath.edges.count - 1`，其 StopLine 的 `laneEdge` 必须逐值等于
@@ -2121,6 +2128,11 @@ registry 就接受不可达拼接。
 | `28 CanonicalFrameLaneEdgeGeometry`     | CanonicalFrame   | LaneEdge                      | `LaneEdgeGeometry` owner rows           | filtered row / set  | Geometry only      |
 | `29 CanonicalFrameFacilityBandGeometry` | CanonicalFrame   | FacilityBand                  | `FacilityBandGeometry` owner rows       | filtered row / set  | Geometry only      |
 
+role 1 只投影 A.1 过滤后的 `LaneEdge.successors`；compiler-private source view 中对应被过滤
+internal-touching pair 的来源行不得进入 LFSM，也不得占用 localIndex。保留项在过滤后按 target
+typed ordinal 重新从零编号并与 LFCA tuple 一致；两种 frontend 都不得为被过滤 pair 产生
+role 1 行，但其余合法来源位置仍可按 LFSM 语义不同。
+
 RoadEditing primary-source projection 使用以下两个闭合算子，不解析或复制 frontend schema：
 
 - `D(E, path)` 要求 `Declaration` subject；它的 namespace、entity kind、owner key chain 与
@@ -2148,8 +2160,8 @@ RoadEditing primary-source projection by sourceRelationRole:
    localIndex == edgeCount(owner) - 1:
        D(owner, ManeuverPath.4)
  9 let P be the lowest-StableId ManeuverPath under owner whose internal-edge
-     sequence contains subject, and j be subject's zero-based index in that
-     internal-edge sequence:
+     sequence contains subject, and j be subject's first zero-based index in that
+     internal-edge sequence when the same edge repeats:
        O(P, ManeuverPathInternalEdge, OrderedProductOrdinal(j), ManeuverPath.3)
 10 D(subject, ManeuverGate.1)
 11 D(subject, WaitingZone.1)
