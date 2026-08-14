@@ -1,6 +1,6 @@
 # Core 研究/测试仪器外移设计
 
-**文档状态**: Review<br>
+**文档状态**: Accepted（#380 实施完成）<br>
 **最后更新**: 2026-08-14<br>
 **适用范围**: `laneflow-core` 生产路径中内嵌的研究/测试仪器（Research/Test
 Instrumentation）的分类定界、外移落点与仪器边界设计；本文是 #380 的
