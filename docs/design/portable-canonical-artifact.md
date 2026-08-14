@@ -909,6 +909,7 @@ source map 失败后仍可取出 artifact”的中间成功状态。
 | 单对象 TableV1 总数                      | LFCA `35`、LFSM `8`、LFSD `6`、LFCP `4` | 读取任一 TableV1 前；必须精确等于对象登记形状 |
 | 单 TableV1 RowV1 数                      | `65,536`                                | `count * 16` 检查前                           |
 | 单 RowV1 FieldV1 数                      | `17`                                    | `count * 12` 检查前；具体 row registry 更严格 |
+| 单 Identity v1 `Ascii` value bytes       | `53`                                    | token 文法检查和 StableId 重算前              |
 | 单 UTF-8 field bytes                     | `1,048,576` bytes                       | UTF-8 验证和分配前                            |
 | 单对象全部 UTF-8 value 累计 bytes        | `8,388,608` bytes                       | checked 累加、驻留/复制前                     |
 | 单向量 item 数                           | `65,536`                                | 内部 count 与 VBL 核对前                      |
@@ -1123,8 +1124,12 @@ StableId128 := first-16-bytes(
 33 roadCorridorStableId StableId128 34 junctionStableId StableId128
 ```
 
-`Ascii` value 必须是 Identity v1 已准入的原始 ASCII bytes，不含长度；`StableId128` 必须
-恰为 16 bytes。`entityKind 1..22` 与下列实体表同序；每种实体要求的 tag 序列精确为：
+`Ascii` value 必须是 Identity v1 已准入的原始 ASCII bytes，不含长度，其 portable v1
+接受域精确为 `1..=53` bytes、首 byte 属于 `[A-Za-z0-9]`、其余 byte 只属于
+`[A-Za-z0-9._:/-]`。空值、控制字符、非 ASCII、标点开头、未登记标点或 54 bytes 及以上
+一律在 StableId 重算前失败；读取器不得从调用方 limits 选择另一套 token 文法或放宽该
+格式级上限。`StableId128` 必须恰为 16 bytes。`entityKind 1..22` 与下列实体表同序；每种
+实体要求的 tag 序列精确为：
 
 ```text
 RoadCorridor [1,2]                    RoadSection [1,3,33]
@@ -1371,10 +1376,13 @@ occurrence；不同匹配的 internal route-edge 区间不得重叠，route 中�
 | `0x0003`  | FacilityBandGeometry | `1:facilityBand:u32:R, 2:canonicalFrame:u32:R, 3:points:RecordVector:R`                                                 | `facilityBand` |
 
 `spatialPresent` 只允许 `0/1`。为 `0` 时 direction profile code 必须为 `0=None`，且后两表
-必须为空；为 `1` 时 code 必须非零，LaneEdgeGeometry 必须与 LaneEdge 表同基数同 ordinal。
-`geometryDirectionProfile` 的闭合代码为 `1=Smooth1Deg, 2=Balanced2Deg,
-3=Compact5Deg`，并必须逐值等于同次编译 LIR 的冻结配置；独立验证器用它核对最终折线和
-跨 edge full-angle 约束。来源曲线到最终折线的 accuracy profile 无法从最终点表独立重算，
+必须为空；为 `1` 时 LaneEdgeGeometry 必须与 LaneEdge 表同基数同 ordinal，direction code
+则严格投影同次编译 LIR 的 `geometry_profiles`：`None` 写 `0=None`，`Some` 写对应非零值。
+`geometryDirectionProfile` 的闭合代码为 `0=None, 1=Smooth1Deg, 2=Balanced2Deg,
+3=Compact5Deg`。`0` 只表示显式 Synthetic 几何没有 frontend direction policy，不表示空间
+缺失，也不得由 writer 替换成自选 profile；独立验证器仍核对全部点、段、frame 和 join gap，
+但只在 code 非零时核对最终折线和跨 edge full-angle 约束。来源曲线到最终折线的 accuracy
+profile 无法从最终点表独立重算，
 因此不在本语义表中，也不构成 LFCA 对 `2/5/10 cm` 最大误差的自证声明；它只按下文进入
 非语义 CompilerProvenance，并由受认证的 compiler/receipt 链承担来源策略真实性。不得为
 补回该不可验证声明而向 LFCA 增加 reference curve、误差证书或第二套 oracle。
@@ -1406,8 +1414,9 @@ FMA、运算重排或额外精度；结果为零时规范成 `+0.0f32`。平台 
 `left=normalize([tangent.z,0,-tangent.x])`，
 `up=normalize([tangent.y*left.z, tangent.z*left.x-tangent.x*left.z,
 -tangent.y*left.x])`。存储的 length/cumulative/tangent/up 必须与该顺序重算的 f32 位模式逐项
-相同，并继续通过所选 `geometryDirectionProfile` 在 `numeric-representation.md`/ADR 0022
-冻结的最终弦方向谓词；不得把任一预计算字段当作点表之外的第二权威。
+相同；`geometryDirectionProfile` 非零时还必须继续通过 `numeric-representation.md`/ADR 0022
+冻结的最终弦方向谓词，等于零时不得暗中选择默认 profile。不得把任一预计算字段当作点表
+之外的第二权威。
 
 `spatialPresent=1` 时还必须从对象自身建立有向连接对集合：先加入全部
 `LaneEdge.successors`，再加入每条 ManeuverPath 的每对相邻 edge；重复 pair 只检查一次，
@@ -1417,18 +1426,20 @@ path-only transition 不能因未出现在 successors 中而跳过。每个 `(pr
 `HypotRteF32(HypotRteF32(dx,dy),dz)` 重算 gap；只接受
 `gap <= 0.005f32`（bits `0x3ba3d70a`，等号有效），不得吸附、焊接或移动端点。
 
-同一 pair 的 predecessor 末弦和 successor 首弦还必须通过所选 direction profile：先把两弦
+当 `geometryDirectionProfile` 非零时，同一 pair 的 predecessor 末弦和 successor 首弦还必须
+通过所选 direction profile：先把两弦
 的 binary32 点分量无损提升为 binary64 后分别做末点减首点，再各除以自身绝对分量最大值；
 按 `dot=(x*x'+y*y')+z*z'`、`norm2=(x*x+y*y)+z*z`、
 `lhs=dot*dot`、`rhs=(C*norm2(left))*norm2(right)` 的写出顺序逐运算舍入到 binary64，只接受
 `dot > 0 && lhs >= rhs`。`C` 的 binary64 bits 对 Smooth/Balanced/Compact 依次为
 `0x3feffd813c5f82b4`、`0x3feff605b8b87ffc`、`0x3fefc1c5c6408e0c`；禁止 FMA、重结合、
-`acos/cos`、额外精度或实现自选 epsilon。frame、gap 或方向任一失败都在建立 spatial view 前
-失败关闭。
+`acos/cos`、额外精度或实现自选 epsilon。code 为 `0=None` 时跳过且只能跳过本方向谓词，
+不能跳过 frame、gap、点表、段表或 arc-length 验证。任何适用检查失败都在建立 spatial view
+前失败关闭。
 
 `FacilityBandGeometry.points` 同样必须至少两项，并逐点、逐弦执行上述分量范围、正零、
-`length>0.1 m`、有限严格递增累计和所选 direction profile 检查；它不保存 segments 或
-arcLength，验证器只使用 points 重算，不得为其接受额外预计算值。
+`length>0.1 m` 和有限严格递增累计；direction code 非零时再执行所选 profile 检查。它不保存
+segments 或 arcLength，验证器只使用 points 重算，不得为其接受额外预计算值。
 
 `StaticExecutionConstraints(0x0006)` 只有 `ExecutionContract(0x0001)` singleton：
 `1:staticExecutionContractVersion:u16:R, 2:constraintContractVersion:u16:R`。具体约束已由
@@ -1455,10 +1466,11 @@ LFCA v1 的 `ContractVersions` 六个字段都只接受值 `1`；`ExecutionContr
 - `sourceCollectionDigestVersion=1`，`sourceCollectionDigest` 必须由同一个
   `CompilationOutput.ValidatedSourceMapInput` 按 A.2 的精确前像重算；调用方不得覆盖；
 - `emitterVersion=1`；
-- `geometryAccuracyProfile` 在 `spatialPresent=0` 时必须为 `0=None`；存在空间时闭合代码为
-  `1=Fine2Cm, 2=Balanced5Cm, 3=Compact10Cm`，逐值等于同次编译 LIR 的来源近似策略。
-  独立验证器只核对枚举、presence 与 object binding，不得把它报告为已独立证明的最大位置
-  误差；
+- `geometryAccuracyProfile` 严格投影同次编译 LIR 的 `geometry_profiles`：`None` 写
+  `0=None`，`Some` 按闭合代码 `1=Fine2Cm, 2=Balanced5Cm, 3=Compact10Cm` 写入；因此
+  `spatialPresent=1` 的显式 Synthetic 几何也允许且只允许 `0`，`spatialPresent=0` 仍必须为
+  `0`。独立验证器只核对该投影、枚举与 object binding，不得把它报告为已独立证明的最大
+  位置误差；
 - v1 没有会改变 portable bytes 的外部编译选项，因而
   `compileOptionsDigest = SHA-256("laneflow.portable-compile-options.v1\0" ||
   optionCount:u32=0)`，其中 `u32` 为小端；固定结果为
@@ -1619,8 +1631,13 @@ SignalPhase 为 1，AuthoringLane/ManeuverPath/LaneGroup 为 2，ManeuverGate/Wa
 该表必须与绑定 LFCA 的 `CanonicalIdentity` 和 22 张实体表形成严格双射：每个
 `(entityKind, typedOrdinal, stableId)` 恰有一行且逐值相等，LFSM 不得遗漏实体、添加没有
 绑定实体的来源行或把 ordinal/stableId 重新配对。`primaryLocation` 必须解析；
-`contributingLocations` 是允许为空、按完整位置语义值严格递增且去重的集合。独立验证器在
-接受任何实体定位前必须先核对 artifact binding 和该双射。
+`contributingLocations` 是允许为空、按完整位置语义值严格递增且去重的集合。定义
+`C(view)` 为把同一 `ValidatedSourceMapInput` view 的 `contributing_sources()` 按完整位置语义
+值排序、去重后映射成最终 SourceLocation ordinal 的唯一向量。每行 `primaryLocation` 必须
+逐值等于对应 stable-entity view 的 `primary_source()`，`contributingLocations` 必须逐字节
+等于 `C(view)`；当前 22 类 stable-entity view 的贡献迭代器都为空，因此 v1 该字段必须为空，
+writer 不得添加另一合法位置作为“补充 provenance”。独立验证器在接受任何实体定位前必须
+先核对 artifact binding、该 API 投影和双射。
 
 双射还必须绑定“实体是谁”与“主位置声明了谁”。每行 primaryLocation 所属 SourceModule 的
 `authoringNamespaceId` 必须逐字节等于绑定 CanonicalIdentity 的 tag 1。RoadEditingSource
@@ -1645,7 +1662,7 @@ parent StableId anchor:
 entity-local key；不得直接把 StableId hex、raw ordinal 或来源 address 自报值当作 owner key。
 SyntheticDsl 没有结构化 declaration address，只执行 module namespace 绑定。任一 entity
 kind、namespace、local key、owner 深度或 owner key 不等都在建立来源视图前失败关闭；
-contributingLocations 仍允许指向合法的引用/派生位置，不要求伪装成主声明。
+contributingLocations 只允许保存前述 `C(view)` 的精确投影，不要求贡献位置伪装成主声明。
 
 `OwnerLocalSources(0x0004)` 精确包含：
 
@@ -1658,9 +1675,13 @@ contributingLocations 仍允许指向合法的引用/派生位置，不要求伪
 registry。对绑定 LFCA 按该表投影出的每个 tuple，LFSM 必须恰有一行相同
 `(ownerEntityKind, ownerStableId, role, localIndex)` 的 `OwnerLocalSource`；optional scalar
 缺失时恰无行。任何遗漏、额外行、错误 owner/role/index，或同一键不能反解到表中唯一 LFCA
-tuple 都失败关闭。`primaryLocation` 必须存在；`contributingLocations` 是允许为空、按完整
-位置语义值严格递增且去重的集合。OwnerLocalSource 不重复保存 subject，但验证器必须从
-绑定 LFCA 和 A.5 一一反解 subject 后才暴露该来源视图。若 `primaryLocation` 属于
+tuple 都失败关闭。每个 tuple 必须选择同一 `ValidatedSourceMapInput` 中由 A.5 role 对应的
+owner-local view；`primaryLocation` 必须逐值等于其 `primary_source()`，
+`contributingLocations` 必须逐字节等于 `C(view)`，不能只是任意合法且有序的位置集合。
+当前普通显式关系贡献集为空，role 14..16 的 route-derived view 则精确保留各自
+ManeuverPath/ManeuverGate/WaitingZone 声明贡献位置。OwnerLocalSource 不重复保存 subject，
+但验证器必须从绑定 LFCA 和 A.5 一一反解 subject 后才暴露该来源视图。若
+`primaryLocation` 属于
 RoadEditingSource，还必须按 A.5 的 `RoadEditing primary-source projection` 把该位置的
 Declaration/OwnerLocal subject、identity address、property path 和 occurrence 逐值绑定回同一
 LFCA tuple；只证明位置在全局上合法，或把另一关系行的合法位置互换过来，都必须失败关闭。
@@ -1668,13 +1689,19 @@ LFCA tuple；只证明位置在全局上合法，或把另一关系行的合法�
 `SpatialGeometrySourceRange` 只允许 `ownerEntityKind=CanonicalFrame` 以及
 `sourceRelationRole=28(CanonicalFrameLaneEdgeGeometry)` 或
 `29(CanonicalFrameFacilityBandGeometry)`。每行必须有同 owner/role/localIndex 的
-`OwnerLocalSource` 父行；`sourceLocation` 必须解析到 SourceLocation。对每个父行，范围必须
-从 `pointStart=0` 开始，按行键严格相邻、非空且无重叠，最后一个 `pointEndExclusive` 必须
-等于对应 LFCA geometry `points` 的 item 数；localIndex 在该 frame/role 下按相应 LFCA
-geometry 表行顺序从零编号。父行 `contributingLocations` 必须逐字节等于所有范围
-`sourceLocation` 按位置语义值排序去重后的 ordinal 投影；`sourceSegmentOrdinal` 保留 authoring
-segment 的原始 ordinal，不得由 point range 次序替代或重编号。这样 LFSM 能无损恢复每段
-规范点区间的来源，而不是只保存扁平位置集合。
+`OwnerLocalSource` 父行；`sourceLocation` 必须解析到 SourceLocation。每个父行先与对应
+spatial relation view 的 `geometry_source_ranges()` 做精确投影：每个迭代项的 point range、
+`sourceSegmentOrdinal` 和 source location 必须逐值生成恰好一行，不能遗漏、添加、重排或
+合成 segment ordinal。若迭代器为空，则 `SpatialGeometrySourceRange` 必须恰无子行，父行
+`contributingLocations` 也必须为空；这是显式 Synthetic `CanonicalFrame` geometry 的合法
+profile-free/source-range-free 状态，不要求伪造 segment。
+
+若迭代器非空，范围必须从 `pointStart=0` 开始，按行键严格相邻、非空且无重叠，最后一个
+`pointEndExclusive` 必须等于对应 LFCA geometry `points` 的 item 数；localIndex 在该
+frame/role 下按相应 LFCA geometry 表行顺序从零编号。父行 `contributingLocations` 在两种
+状态下都必须逐字节等于 `C(view)`；非空状态也等于所有子行 `sourceLocation` 按位置语义值
+排序去重后的 ordinal 投影。这样 LFSM 在输入确有 segment range 时无损恢复每段规范点区间
+来源，又不会为没有 segment authority 的 frontend 发明来源。
 
 `DerivedRelationSources(0x0005)` 只有 `DerivedRelationSource(0x0001)`：
 `1:ownerEntityKind:u16:R, 2:ownerStableId:StableId128:R, 3:sourceRelationRole:u8:R,
@@ -1752,7 +1779,7 @@ kind、版本值、遗漏/额外行或不能与绑定 LFCA 行一一对应的 lo
 | Junction         | —               | `3`                                  | —                   | —                                                |
 | Movement         | —               | `6`                                  | —                   | `3..5`                                           |
 | ManeuverPath     | —               | `4..6`                               | —                   | `3`                                              |
-| ManeuverGate     | —               | `4,5,7`                              | `6`                 | `3`                                              |
+| ManeuverGate     | `4`             | `5,7`                                | `6`                 | `3`                                              |
 | WaitingZone      | —               | —                                    | `4..6`              | `3`                                              |
 | StopLine         | `3`             | `4`                                  | —                   | —                                                |
 | SignalGroup      | —               | `3,4`                                | —                   | —                                                |
@@ -1777,6 +1804,11 @@ role 14..16 occurrence 闭合。`SignalPhase.states` 整个 tag 5 只属于 Stat
 19 RelationChange；role 28/29 只由 GeometryChange 覆盖。没有 LFSD role 的
 `RoadCorridor.referenceSection` 和 `StopLine.laneEdge` 只能按
 `SemanticFieldValueV1::StableRefV1` 报告，不得伪造未知 role 或比较 raw ordinal。
+
+`ManeuverGate.transitionIndex`（tag 4）是字段级规范标量，不是 role 10 的 localIndex：它变化时
+必须产生一个 Entity `Modify`，即使该 gate 在 `ManeuverPath.maneuverGates` 中的零基位置没有
+改变。role 10 仍只投影 vector membership/order；只有规范 vector 位置变化才另外产生
+Relation `Move`，不得用该位置替代或吞掉 transitionIndex 的 before/after 值。
 
 本表末列中的 Identity 语义锚项必须解析为同一 StableId 已验证前像中的相同语义值；
 artifact-local ordinal
@@ -2121,7 +2153,8 @@ Text 位置没有结构化 declaration address，因此只执行 A.2 的模块/�
 `(ownerEntityKind, ownerStableId, role, localIndex, subjectEntityKind, subjectStableId)`；subject
 ordinal 必须先经绑定 LFCA `CanonicalIdentity` 解析为全局唯一 StableId，不能进入 tuple。LFSM
 按全部 29 role 执行 A.2 的 OwnerLocal 双射；role 9/14/15/16 再执行 derived 行双射，role
-28/29 再执行 point-range 全覆盖。LFSD 只接受表中标为 Relation 的 role：
+28/29 再执行 source-range exact projection，且仅在迭代器非空时执行 point-range 全覆盖。
+LFSD 只接受表中标为 Relation 的 role：
 
 - `set` 按 `(subjectKind, subjectStableId)` 比较成员；保留成员仅因另一成员插入导致 canonical
   position 改变时不产生 Move，Add/Remove 仍携带所在一侧重算出的 localIndex；
