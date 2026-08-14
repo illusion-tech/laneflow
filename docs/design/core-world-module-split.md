@@ -100,6 +100,69 @@ G1 冻结方案，冻结生效以 #381 Gate Ledger 的 G1 记录为准。本文�
 | `tests.rs`             | 内联 `mod tests`（含 retained_memory 子模块）纯文件搬迁                                                                                                                                               | 4669-7434                       | ~2,766 |
 | `mod.rs`               | 模块声明 + 5 个 `#[cfg(test)] mod <研究测试>;`                                                                                                                                                        | —                               | ~40    |
 
+拆分后的模块结构总览（AAD 标记见下方 Where）：
+
+```text
+laneflow-core crate  (A)
+  lib.rs:     pub mod world;  pub use world::CoreWorld  (B)
+  consumers:  laneflow-bevy, laneflow-core-test-support,  (C)
+              laneflow-compiler-test-support, benches
+
+┌────────────────────────────────────────────────────────────────────────┐
+│ world module  (world/mod.rs)                                           │  (D)
+│                                                                        │
+│ state.rs                 CoreWorld struct: 28 fields                   │  (E)
+│                           new / with_traffic_data / basic accessors    │
+│                                                                        │
+│ support.rs               file-level internal structs                   │  (F)
+│                           RouteReferenceIndex, RouteSlot, VehicleSlot, │
+│                           StableVehicleOrder, CandidateStateScratch,   │
+│                           VehicleAdvanceContext, ...                   │
+│                                                                        │
+│ parking_commands.rs      parking command family                        │  (G)
+│ signal_queries.rs        signal query family                           │  (H)
+│ route_queries.rs         profile/edge/route queries                    │  (I)
+│ route_lifecycle.rs       route register / remove                       │  (J)
+│ vehicle_lifecycle.rs     spawn / replace / despawn                     │  (K)
+│                           + route-reference index                      │
+│                                                                        │
+│ tick.rs                  step / step_with_probe                        │  (L)
+│                           single converged advance loop                │
+│                           (const PARKING_ACTIVE)                       │
+│   tick_spatial.rs           command spatial index                      │  (M)
+│   tick_overlap.rs           candidate overlap checks                   │  (N)
+│   tick_longitudinal.rs      occupancy / longitudinal                   │  (O)
+│   tick_advance.rs           advance_vehicle                            │  (P)
+│                                                                        │
+│ tests.rs                 inline mod tests, moved verbatim              │  (Q)
+│ *_research_tests         occupancy / retained_memory /                 │  (R)
+│                           event_merge_research /                       │
+│                           partitioned_occupancy_research /             │
+│                           selective_read_research                      │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+Where：
+
+- (A) **laneflow-core crate**：拆分范围仅限本 crate 内部，不涉及 Data/Spatial/Scenario/Bevy crate。
+- (B) **lib.rs**：公开导出面保持不变（`pub mod world` 与 `pub use world::CoreWorld` 原样保留），`CoreWorld` 签名、语义与确定性语义不变。
+- (C) **external consumers**：外部消费者路径不变、零影响（laneflow-bevy、laneflow-core-test-support、laneflow-compiler-test-support 与全部 benches），均经 crate 根或 `world::CoreWorld` 访问。
+- (D) **world module**：`world.rs` 迁为 `world/mod.rs`（`world/` 目录已存在，无命名冲突）；`#[cfg(test)]` 研究测试模块声明集中于此。
+- (E) **state.rs**：`CoreWorld` 结构定义（28 字段，含 2 个 `#[cfg(any(test, feature = "test-support"))]` 故障注入钩子）、构造（`new` / `with_traffic_data`）与基础车辆访问器；各子模块经 `use super::*` 私有访问，不扩大可见性。
+- (F) **support.rs**：文件级内部结构（`RouteReferenceIndex`、`RouteSlot`、`VehicleSlot`、`StableVehicleOrder`、`CandidateStateScratch`、`VehicleAdvanceContext`、`NormalizedVehicleInput`、`CandidateVehicleOverlap`、`ParkingStepRelease` 等），被命令域与 tick 系列共享。
+- (G) **parking_commands.rs**：parking 命令族（`reserve_parking_space` / `cancel_parking_reservation` / `commit_parking` / `spawn_parked_vehicle` / `rebind_reserved_vehicle_route` / `leave_parking` 及私有 helper）；跨域调用 (N) 的 `validate_parking_leave_followers`。
+- (H) **signal_queries.rs**：signal 查询族（controller / group / maneuver-gate 快照查询）。
+- (I) **route_queries.rs**：profile / edge / route 句柄、外部 ID 与出现项（maneuver / gate / waiting-zone）查询。
+- (J) **route_lifecycle.rs**：路线注册/删除与静态校验（`register_route`、`register_compiled_route`、`build_route_metadata`、`remove_route` 及 `validate_*`）。
+- (K) **vehicle_lifecycle.rs**：车辆生命周期（`spawn_vehicle` / `replace_completed_vehicle` / `despawn_vehicle`）、route reference index 维护与输入规范化；跨域调用 (N) 的 `validate_candidate_overlap`。
+- (L) **tick.rs**：`step` / `step_with_probe` 编排（tick/time 溢出检查 → 信号候选快照 → occupancy/longitudinal 重建 → 车辆推进 → 事件生成 → 一次原子提交）；`step()` 双分支复制收敛为单一 `advance_all_vehicles<const PARKING_ACTIVE: bool>` 循环；`append_signal_events` 与故障注入 impl 亦归此。
+- (M) **tick_spatial.rs**：command spatial index 重建（`rebuild_command_spatial_index`，被 (E) 构造路径调用）与成员同步（`sync_changed_command_spatial_memberships`，被 (L) 调用）。
+- (N) **tick_overlap.rs**：候选重叠校验族（`validate_candidate_overlap`、`validate_candidate_overlap_excluding`、`find_candidate_overlap` 等）、`validate_initial_vehicle_overlaps` 与 parking leave follower 校验；被 (E)/(G)/(K)/(L) 共用。
+- (O) **tick_longitudinal.rs**：occupancy / leader 重建（`rebuild_occupancy_and_leaders`、`rebuild_longitudinal_motions`）与 horizon / leader 计算（speed-limit / parking-stop / signal-stop horizon、`find_leader`、`braking_distance` 等）。
+- (P) **tick_advance.rs**：`advance_vehicle`（const generic `PARKING_ACTIVE`）、`route_slot` / `vehicle_slot` 访问器。
+- (Q) **tests.rs**：原内联 `mod tests`（含 `retained_memory` 子模块）纯文件搬迁，断言零改动（约 2,766 行）。
+- (R) **\*_research_tests**：5 个研究测试模块（#380 外移完成）保持原文件位置与内容，仅 `#[cfg(test)] mod` 声明移入 `mod.rs`，不重复搬移。
+
 大小预算：生产单文件不超过约 800 行；`tests.rs` 约 2.8k 行为纯测试文件，不增加
 生产评审导航成本。
 
