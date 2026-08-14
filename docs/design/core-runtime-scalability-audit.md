@@ -547,7 +547,9 @@ Manifest 绑定；只有后续 G1 显式授予 Traffic Runtime 的自有随机�
 
 **状态**：测试专用语义原型通过，当前全量双缓冲事务 cache 的性能 Gate 未通过。ablation 已证明 IIDM controller-intent 降频本身有可测收益，因此保留 individual-first reduced-rate semantics 及其缓存事务优化作为研究候选；当前实现仍不是 production 候选，不新增 Core/Adapter API、runtime dependency、data format、默认行为或 ADR，也不启动 production G1。
 
-原型位于 `crates/laneflow-core/src/world_reduced_rate_research_tests.rs`，由 `world` 下的 `#[cfg(test)]` 私有模块编译；`longitudinal.rs` 只增加 test-only controller-intent seam。生产路径仍每个 base tick 重建 occupancy/leader、safe-speed、当前 edge/route speed limit、route end、SignalStop、ParkingStop、全局 leader chain/cycle projection、最终 motion/events，并原子提交全部 vehicle state。跨 tick 只允许缓存 finite signed comfort acceleration 及 cadence/失效元数据；leader observation、constraint、projection、candidate/final motion 和 applied acceleration 均不缓存。
+**provenance 降级落地（2026-08-14，#380 切片 ③）**：按 `core-research-instrumentation-externalization.md` §3 A 类冻结与 #380 降级记录（comment-5288562896 / comment-5289304629），P4 harness 的可运行形态已从 main 移除：`world_reduced_rate_research_tests.rs` 模块、`CoreWorld.reduced_rate_research` 字段、reduced-rate Active 分叉与 P4 独占的 `evaluate_controller_intent_for_research` / `compute_motion_from_controller_intent_for_research` seam 随切片 ③ 删除。源码经 git 历史保留，最后可运行 commit 为 `879343a5`（切片 ③ 合并的父 commit，以合并时 #380 记录为准）。本节及以下 P4 证据按历史证据语义保留，不作为可重跑基线；语义 oracle 与 research-commit 复现由 #218 在仪器探针边界（`StepProbe` / `StageTimingProbe`）上重建。
+
+原型原位于 `crates/laneflow-core/src/world_reduced_rate_research_tests.rs`（已随上条 provenance 降级移除），由 `world` 下的 `#[cfg(test)]` 私有模块编译；`longitudinal.rs` 只增加 test-only controller-intent seam。生产路径仍每个 base tick 重建 occupancy/leader、safe-speed、当前 edge/route speed limit、route end、SignalStop、ParkingStop、全局 leader chain/cycle projection、最终 motion/events，并原子提交全部 vehicle state。跨 tick 只允许缓存 finite signed comfort acceleration 及 cadence/失效元数据；leader observation、constraint、projection、candidate/final motion 和 applied acceleration 均不缓存。
 
 研究矩阵冻结并验证了以下行为：
 

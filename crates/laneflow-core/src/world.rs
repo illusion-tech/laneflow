@@ -2,10 +2,6 @@
 
 use indexmap::IndexMap;
 
-#[cfg(test)]
-use crate::longitudinal::{
-    ResearchMotionInput, compute_motion_from_controller_intent_for_research,
-};
 use crate::{
     access::{AccessCell, AccessEffect, AccessRegistry},
     command_spatial::{CommandOccupant, CommandSpatialIndex},
@@ -380,8 +376,6 @@ pub struct CoreWorld {
     occupancy_scratch: OccupancyScratch,
     longitudinal_scratch: LongitudinalScratch,
     command_spatial_index: CommandSpatialIndex,
-    #[cfg(test)]
-    reduced_rate_research: Option<reduced_rate_research_tests::ReducedRateResearchState>,
     #[cfg(any(test, feature = "test-support"))]
     step_failure_after_vehicle: Option<VehicleHandle>,
     #[cfg(any(test, feature = "test-support"))]
@@ -452,8 +446,6 @@ impl CoreWorld {
             occupancy_scratch: OccupancyScratch::default(),
             longitudinal_scratch: LongitudinalScratch::default(),
             command_spatial_index,
-            #[cfg(test)]
-            reduced_rate_research: None,
             #[cfg(any(test, feature = "test-support"))]
             step_failure_after_vehicle: None,
             #[cfg(any(test, feature = "test-support"))]
@@ -796,10 +788,6 @@ impl CoreWorld {
         state.applied_acceleration = Acceleration::ZERO;
         state.status = VehicleStatus::Parked;
         self.parking_runtime.commit(&self.parking, vehicle, space);
-        #[cfg(test)]
-        if let Some(research) = &mut self.reduced_rate_research {
-            research.discard(vehicle);
-        }
         Ok(ParkingCommitRecord {
             vehicle,
             space,
@@ -1244,10 +1232,6 @@ impl CoreWorld {
         };
         spatial.insert(exit.edge(), occupant, &mut resolve_progress);
         self.command_spatial_index = spatial;
-        #[cfg(test)]
-        if let Some(research) = &mut self.reduced_rate_research {
-            research.discard(input.vehicle);
-        }
         Ok(ParkingLeaveRecord {
             vehicle: input.vehicle,
             space: input.space,
@@ -2373,10 +2357,6 @@ impl CoreWorld {
             .tombstone(update_order_position, handle);
         self.route_reference_indices[route.index()].detach(handle, update_order_position);
         self.compact_update_order_if_needed();
-        #[cfg(test)]
-        if let Some(research) = &mut self.reduced_rate_research {
-            research.discard(handle);
-        }
 
         Ok(VehicleDespawnRecord {
             handle,
@@ -2835,14 +2815,6 @@ impl CoreWorld {
         self.signal_candidate_scratch = signal_candidate_scratch;
         if let Some(started) = post_longitudinal_started {
             probe.note_post_longitudinal_duration(started.elapsed());
-        }
-        #[cfg(test)]
-        if let Some(research) = &mut self.reduced_rate_research {
-            let commit_started = P::ENABLED.then(std::time::Instant::now);
-            research.commit_step(&self.vehicles, &events);
-            if let Some(started) = commit_started {
-                probe.note_research_commit_duration(started.elapsed());
-            }
         }
 
         Ok(StepResult {
@@ -3507,21 +3479,10 @@ impl CoreWorld {
         probe: &mut P,
     ) -> Result<(), CoreError> {
         let mut scratch = std::mem::take(&mut self.longitudinal_scratch);
-        #[cfg(test)]
-        let mut reduced_rate_research = self.reduced_rate_research.take();
         let result = (|| {
             let proposal_started = P::ENABLED.then(std::time::Instant::now);
             scratch.begin(self.vehicles.len());
             let delta_time = self.fixed_delta_time_ms as f64 / 1_000.0;
-            #[cfg(test)]
-            if let Some(research) = &mut reduced_rate_research {
-                research.begin_step(
-                    self.vehicles.len(),
-                    self.tick_index
-                        .checked_add(1)
-                        .expect("step validates next tick before longitudinal rebuild"),
-                );
-            }
 
             for (update_sequence, handle) in self.vehicle_update_order.iter().enumerate() {
                 let Some(vehicle) = self.vehicle(handle) else {
@@ -3532,36 +3493,12 @@ impl CoreWorld {
 
                 match vehicle.status {
                     VehicleStatus::Completed | VehicleStatus::Parked => {
-                        #[cfg(test)]
-                        if let Some(research) = &mut reduced_rate_research {
-                            research.invalidate(handle);
-                        }
                         continue;
                     }
                     VehicleStatus::Stopped => {
-                        #[cfg(test)]
-                        if let Some(research) = &mut reduced_rate_research {
-                            research.invalidate(handle);
-                        }
                         scratch.set(LongitudinalMotion::stationary(handle, update_sequence));
                     }
                     VehicleStatus::Active => {
-                        #[cfg(test)]
-                        if let Some(research) = &mut reduced_rate_research {
-                            let (motion, parking_stop) = self
-                                .reduced_rate_motion_for_research::<PARKING_ACTIVE>(
-                                    research,
-                                    vehicle,
-                                    update_sequence,
-                                    delta_time,
-                                )?;
-                            if let Some(constraint) = parking_stop {
-                                scratch.push_parking_stop(handle, constraint);
-                            }
-                            scratch.set(motion);
-                            continue;
-                        }
-
                         let profile = self
                             .vehicle_profile(vehicle.profile)
                             .expect("live vehicle profile must exist")
@@ -3644,113 +3581,8 @@ impl CoreWorld {
             }
             projection_result
         })();
-        #[cfg(test)]
-        {
-            self.reduced_rate_research = reduced_rate_research;
-        }
         self.longitudinal_scratch = scratch;
         result
-    }
-
-    #[cfg(test)]
-    fn reduced_rate_motion_for_research<const PARKING_ACTIVE: bool>(
-        &self,
-        research: &mut reduced_rate_research_tests::ReducedRateResearchState,
-        vehicle: &VehicleState,
-        update_sequence: u64,
-        delta_time: f64,
-    ) -> Result<(LongitudinalMotion, Option<ParkingStopConstraint>), CoreError> {
-        let profile = self
-            .vehicle_profile(vehicle.profile)
-            .expect("live vehicle profile must exist")
-            .iidm();
-        let signal_stop = if !self.signal_state.has_restrictive_group() {
-            None
-        } else {
-            let horizon = self.signal_stop_horizon(vehicle, profile)?;
-            self.nearest_denied_signal_stop(vehicle, horizon)?
-        };
-        let leader = self
-            .occupancy_scratch
-            .leader(vehicle.handle)
-            .map(|observation| {
-                let leader = self
-                    .vehicle(observation.leader)
-                    .expect("occupancy leader must be live");
-                let leader_profile = self
-                    .vehicle_profile(leader.profile)
-                    .expect("leader profile must exist")
-                    .iidm();
-                LeaderKinematics {
-                    observation,
-                    current_speed: leader.current_speed.value(),
-                    emergency_deceleration: leader_profile.emergency_deceleration,
-                }
-            });
-        let effective_speed_ceiling = self
-            .lane_graph
-            .edge_speed_limit(self.vehicle_edge(vehicle))
-            .expect("live vehicle edge must exist")
-            .value();
-        let early_parking_stop = if PARKING_ACTIVE && research.tracks_semantic_stop_identity() {
-            self.parking_stop_within(vehicle, profile)?
-        } else {
-            None
-        };
-        let context = reduced_rate_research_tests::ResearchControllerContext {
-            vehicle: vehicle.handle,
-            update_sequence,
-            next_tick_index: self
-                .tick_index
-                .checked_add(1)
-                .expect("step validates next tick before controller evaluation"),
-            profile_handle: vehicle.profile,
-            route: vehicle.route,
-            route_edge_index: vehicle.route_edge_index,
-            current_speed: vehicle.current_speed.value(),
-            profile,
-            effective_speed_ceiling,
-            leader,
-            signal_stop,
-            parking_stop: early_parking_stop,
-        };
-        let comfort_acceleration = research.controller_intent(context)?;
-        let mut motion = compute_motion_from_controller_intent_for_research(ResearchMotionInput {
-            vehicle: vehicle.handle,
-            update_sequence,
-            current_speed: vehicle.current_speed.value(),
-            profile,
-            effective_speed_ceiling,
-            leader,
-            comfort_acceleration,
-            delta_time,
-        })?;
-        let speed_limit_constrained =
-            self.apply_speed_limit_constraints(vehicle, profile, &mut motion, delta_time)?;
-        let route_end_distance = self.route_end_distance_within(vehicle, motion.final_travel());
-        let parking_stop = if PARKING_ACTIVE {
-            match early_parking_stop {
-                Some(constraint) => Some(constraint),
-                None if research.tracks_semantic_stop_identity() => None,
-                None => self.parking_stop_within(vehicle, profile)?,
-            }
-        } else {
-            None
-        };
-        if route_end_distance.is_some()
-            || signal_stop.is_some()
-            || parking_stop.is_some()
-            || speed_limit_constrained
-        {
-            motion.apply_spatial_stops(
-                route_end_distance,
-                signal_stop,
-                parking_stop,
-                (signal_stop.is_some() || parking_stop.is_some()).then_some(profile),
-                delta_time,
-            )?;
-        }
-        Ok((motion, parking_stop))
     }
 
     fn apply_speed_limit_constraints(
@@ -4819,27 +4651,19 @@ impl CoreWorld {
 }
 
 #[cfg(test)]
-#[path = "world_occupancy_tests.rs"]
 mod occupancy_tests;
 
 #[cfg(test)]
 mod retained_memory_tests;
 
 #[cfg(test)]
-#[path = "world_event_merge_research_tests.rs"]
 mod event_merge_research_tests;
 
 #[cfg(test)]
-#[path = "world_partitioned_occupancy_research_tests.rs"]
 mod partitioned_occupancy_research_tests;
 
 #[cfg(test)]
-#[path = "world_selective_read_research_tests.rs"]
 mod selective_read_research_tests;
-
-#[cfg(test)]
-#[path = "world_reduced_rate_research_tests.rs"]
-mod reduced_rate_research_tests;
 
 #[cfg(test)]
 mod tests {
@@ -7450,7 +7274,6 @@ mod retained_memory {
                 occupancy_scratch,
                 longitudinal_scratch,
                 command_spatial_index,
-                reduced_rate_research: _,
                 step_failure_after_vehicle: _,
                 replace_failure_after_prepare: _,
             } = self;
