@@ -657,9 +657,9 @@ LFSD v1 的组合视图如下。该图只展开已由 §3.3 定义的公共前�
 ```
 
 `baseBindingKind` 是封闭枚举：`0=Genesis`、`1=Artifact`。Genesis 必须把所有 base
-版本、修订、digest 和 length 字节规范为零，并把目标的所有稳定实体和 owner-local
-序列报告为新增，同时生成一条空间配置初始化记录；`Artifact` 禁止任何零占位。target
-永远必须是具体 artifact。
+版本、修订、digest 和 length 字节规范为零，并把目标的所有稳定实体、owner-local 序列和
+LaneEdge/FacilityBand geometry 行报告为新增，同时生成一条空间配置初始化记录；`Artifact`
+禁止任何零占位。target 永远必须是具体 artifact。
 
 `networkRevisionDerivationVersion + networkRevision + canonicalArtifactDigest +
 canonicalArtifactByteLength` 四元组称为修订—制品绑定（`RevisionArtifactBindingV1`）；
@@ -1748,10 +1748,18 @@ profile-free/source-range-free 状态，不要求伪造 segment。
 `pointEndExclusive` 必须等于对应 LFCA geometry `points` 的 item 数；localIndex 在该
 frame/role 下按相应 LFCA geometry 表行顺序从零编号；非空状态的父行
 `contributingLocations` 必须等于所有子行 `sourceLocation` 按位置语义值排序去重后的 ordinal
-投影。候选发射器在两种状态下另外要求父行贡献集逐字节等于 `C(view)`。这样 trusted emitter
-在输入确有 segment range 时无损恢复每段规范点区间来源，又不会为没有 segment authority 的
-frontend 发明来源；#299 receipt 只证明已序列化范围的闭合一致性，不证明私有输入中不存在被
-emitter 遗漏的 range。
+投影。每个非空范围的 `sourceLocation` 还必须是 RoadEditing `OwnerLocal`：全部同父行范围的
+module/document 与 Address owner 必须完全相同；relation 必须为 `CurveSegment`；occurrence
+必须为 `OrderedProductOrdinal(sourceSegmentOrdinal)`；property path 必须精确为单步
+`TableField(CurveSegment, 1)`，并按 A.5 的 OwnerLocal 可达性规则属于该 owner。Text、
+Declaration、另一 owner、ordinal/occurrence 不等或错误 property path 都失败关闭。
+
+候选发射器在两种状态下另外要求父行贡献集逐字节等于 `C(view)`，并把上述共同 owner、segment
+ordinal 与完整 source location 逐项纳入私有迭代器 exact projection；因此协调替换为另一条
+合法 segment 也不能形成候选。独立验证器只证明 wire 内 owner/occurrence/property 闭合，不读取
+未认证来源文档，也不把该闭合提升为来源真实性。这样 trusted emitter 在输入确有 segment range
+时无损恢复每段规范点区间来源，又不会为没有 segment authority 的 frontend 发明来源；#299
+receipt 不证明私有输入中不存在被 emitter 遗漏的 range。
 
 `DerivedRelationSources(0x0005)` 只有 `DerivedRelationSource(0x0001)`：
 `1:ownerEntityKind:u16:R, 2:ownerStableId:StableId128:R, 3:sourceRelationRole:u8:R,
@@ -1894,6 +1902,14 @@ StaticRule 只有 `Modify`；实体出现/消失始终只由 Entity Add/Remove �
 Add/Remove 只用于两张 geometry 表。除上述 tag 5/6 derived cache 外，相同 StableId 的每个
 变化字段必须按上表恰好报告一次；Relation tuple 集合也必须完整投影。把字段放入另一
 class、重复字段记录、遗漏字段记录或遗漏/额外关系 tuple 都失败关闭。
+
+Genesis 把 base 的实体、关系和 geometry 集合都视为空：`EntityChanges` 必须对目标每个稳定
+实体恰有一行 `Add`，`RelationChanges` 必须对目标每个可 diff 的 A.5 relation tuple 恰有一行
+`Add`，`GeometryChanges` 必须对目标每个 LaneEdgeGeometry 和 FacilityBandGeometry 恰有一行
+`Add`。Genesis 禁止任何 Remove/Modify/Move/Reconnect，`StaticRuleChanges` 必须为空，因为完整
+目标 entity RowV1 已携带其规则字段；`SpatialConfigurationChanges` 仍按下文恰有一行
+`Initialize`。独立验证器必须从 target LFCA 重建这三个目标集合并逐行双射，不能只核对存在的
+change 行；headless target 的两张 geometry 表和 `GeometryChanges` 才同时为空。
 
 GeometryChange 的 before/after `Bytes` 使用下列 `CanonicalGeometryValueV1`，不能放入完整
 LFCA geometry RowV1：
