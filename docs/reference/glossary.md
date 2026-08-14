@@ -460,6 +460,18 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 聚合交通记录数     | aggregate traffic record count         | `N_aggregate_records[d]`    | 目标态已接受 | 执行域 `d` 中由运行时实际存储、调度或更新的聚合流、包、单元格等记录数，用于衡量计算与内存成本。 |
 | 聚合等价参与单元数 | aggregate-equivalent participant count | `N_aggregate_equivalent[d]` | 目标态已接受 | 执行域 `d` 中聚合表示所代表的交通参与单元数，用于描述保真度与覆盖规模；不能替代聚合交通记录数。 |
 
+以下词条与 Core 研究/测试仪器外移（#380）相关：
+
+| 中文规范术语 | 英文辅助名（English Alias） | 精确标识符 / 缩写 | 中文规范含义 |
+| --- | --- | --- | --- |
+| 研究/测试仪器 | research/test instrumentation | — | 提案中（Proposed；#380），为研究取证或测试门禁目的嵌入或接入运行时执行路径的测量、观察与注入机制的总称；不是生产语义的一部分。 |
+| 语义研究原型 | semantic research prototype | — | 提案中（Proposed；#380），以单线程生产执行为精确预言机、验证候选架构逐位等价性的非生产研究执行器；结论可登记为研究证据，不自动成为生产架构。 |
+| 性能归因计时 | performance attribution timing | — | 提案中（Proposed；#380），在生产步进路径的具名阶段边界采集、只用于机制归因的耗时测量；不构成产品延迟取证。 |
+| 故障注入 | fault injection | — | 提案中（Proposed；#380），在受检点强制返回受控失败以验证失败原子性等硬不变量的测试机制；注入检查点不得进入默认发布构建。 |
+| 保留内存账本 | retained memory ledger | — | 提案中（Proposed；#380），按所有权穷尽枚举组件的保留内存核算结构；新增字段必须触发编译失败以强制分类。 |
+| 仪器探针边界 | instrumentation probe boundary | — | 提案中（Proposed；#380），生产路径持有空操作默认探针、研究态注入测量实现的显式接缝；默认发布构建必须与无仪器构建等价。 |
+| 测试支持接缝 | test-support seam | — | 提案中（Proposed；#380），以编译期门控向测试与研究暴露非生产能力的正式边界；`#[doc(hidden)]` 只控制文档可见性，不构成构建排除。 |
+
 ## 8. 静态路网领域标识符
 
 下表给出标识 v1（Identity v1）及其候选扩展中精确类型名的中文语义。代码和制品继续使用精确
