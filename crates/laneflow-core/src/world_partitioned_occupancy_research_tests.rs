@@ -565,7 +565,7 @@ fn assert_component_projection_exact(
         .rebuild_occupancy_and_leaders()
         .expect("scenario occupancy must be valid");
     oracle
-        .rebuild_longitudinal_motions()
+        .rebuild_longitudinal_motions(&mut NoOpProbe)
         .expect("scenario motions must be valid");
     let global = oracle.longitudinal_scratch.clone();
     let mut component_projection = global.clone();

@@ -17,6 +17,7 @@ indexmap = "2.14"
 thiserror = "2.0"
 [features]
 default = []
+instrumentation = []
 test-support = []
 
 [dev-dependencies]

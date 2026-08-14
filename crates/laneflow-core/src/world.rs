@@ -55,6 +55,7 @@ use crate::{
         SignalLayerPermission, SignalRegistry, SignalRuntimeScratch, SignalRuntimeState,
         SignalStopConstraint,
     },
+    step_probe::{NoOpProbe, StepProbe},
     time::{StepResult, TickInput},
     traffic::{
         CompiledRoute, GateOccurrence, InitialTrafficData, ManeuverOccurrence,
@@ -2533,6 +2534,22 @@ impl CoreWorld {
     /// 成功时，`StepResult` 使用 post-step tick/time。失败时权威 tick/time、vehicle state
     /// 与 events 保持不变；私有派生 scratch 可以重建，且不参与 `CoreWorld` 语义相等。
     pub fn step(&mut self, input: TickInput) -> Result<StepResult, CoreError> {
+        self.step_with_probe(input, &mut NoOpProbe)
+    }
+
+    /// 推进一个 fixed-step tick，并经由仪器探针边界上报六段计时。
+    ///
+    /// 生产路径的默认探针为 [`NoOpProbe`]（`StepProbe::ENABLED = false`），空操作实现
+    /// 经 monomorphization 与常量折叠整体编译消除；`step` 的行为与签名不变。研究态
+    /// 探针实现（如 `instrumentation` feature 或 crate 内测试的记录探针）经此入口注入。
+    /// `inline(always)` 保证 `step` 的 `NoOpProbe` 委托在发布构建不引入调用间接。
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn step_with_probe<P: StepProbe>(
+        &mut self,
+        input: TickInput,
+        probe: &mut P,
+    ) -> Result<StepResult, CoreError> {
         if input.delta_time_ms != self.fixed_delta_time_ms {
             return Err(CoreError::TickDeltaMismatch {
                 expected_delta_time_ms: self.fixed_delta_time_ms,
@@ -2557,30 +2574,19 @@ impl CoreWorld {
         self.signals
             .populate_runtime_state(next_time_ms, signal_candidate_scratch.state_mut());
 
-        #[cfg(test)]
-        let occupancy_started = self
-            .reduced_rate_research
-            .as_ref()
-            .map(|_| std::time::Instant::now());
+        let occupancy_started = P::ENABLED.then(std::time::Instant::now);
         if let Err(error) = self.rebuild_occupancy_and_leaders() {
             self.signal_candidate_scratch = signal_candidate_scratch;
             return Err(error);
         }
-        #[cfg(test)]
-        if let (Some(started), Some(research)) =
-            (occupancy_started, &mut self.reduced_rate_research)
-        {
-            research.note_occupancy_duration(started.elapsed());
+        if let Some(started) = occupancy_started {
+            probe.note_occupancy_duration(started.elapsed());
         }
-        if let Err(error) = self.rebuild_longitudinal_motions() {
+        if let Err(error) = self.rebuild_longitudinal_motions(probe) {
             self.signal_candidate_scratch = signal_candidate_scratch;
             return Err(error);
         }
-        #[cfg(test)]
-        let post_longitudinal_started = self
-            .reduced_rate_research
-            .as_ref()
-            .map(|_| std::time::Instant::now());
+        let post_longitudinal_started = P::ENABLED.then(std::time::Instant::now);
 
         let mut candidate_states = std::mem::take(&mut self.candidate_state_scratch);
         candidate_states.begin(&self.vehicles);
@@ -2827,12 +2833,16 @@ impl CoreWorld {
         self.time_ms = next_time_ms;
         self.candidate_state_scratch = candidate_states;
         self.signal_candidate_scratch = signal_candidate_scratch;
+        if let Some(started) = post_longitudinal_started {
+            probe.note_post_longitudinal_duration(started.elapsed());
+        }
         #[cfg(test)]
         if let Some(research) = &mut self.reduced_rate_research {
-            if let Some(started) = post_longitudinal_started {
-                research.note_post_longitudinal_duration(started.elapsed());
-            }
+            let commit_started = P::ENABLED.then(std::time::Instant::now);
             research.commit_step(&self.vehicles, &events);
+            if let Some(started) = commit_started {
+                probe.note_research_commit_duration(started.elapsed());
+            }
         }
 
         Ok(StepResult {
@@ -3476,36 +3486,31 @@ impl CoreWorld {
         result
     }
 
-    fn rebuild_longitudinal_motions(&mut self) -> Result<(), CoreError> {
-        #[cfg(test)]
-        let research_started = self
-            .reduced_rate_research
-            .as_ref()
-            .map(|_| std::time::Instant::now());
+    fn rebuild_longitudinal_motions<P: StepProbe>(
+        &mut self,
+        probe: &mut P,
+    ) -> Result<(), CoreError> {
+        let longitudinal_started = P::ENABLED.then(std::time::Instant::now);
         let result = if self.parking_runtime.reserved_count() == 0 {
-            self.rebuild_longitudinal_motions_for_parking::<false>()
+            self.rebuild_longitudinal_motions_for_parking::<false, P>(probe)
         } else {
-            self.rebuild_longitudinal_motions_for_parking::<true>()
+            self.rebuild_longitudinal_motions_for_parking::<true, P>(probe)
         };
-        #[cfg(test)]
-        if let (Some(started), Some(research)) = (research_started, &mut self.reduced_rate_research)
-        {
-            research.note_longitudinal_duration(started.elapsed());
+        if let Some(started) = longitudinal_started {
+            probe.note_longitudinal_duration(started.elapsed());
         }
         result
     }
 
-    fn rebuild_longitudinal_motions_for_parking<const PARKING_ACTIVE: bool>(
+    fn rebuild_longitudinal_motions_for_parking<const PARKING_ACTIVE: bool, P: StepProbe>(
         &mut self,
+        probe: &mut P,
     ) -> Result<(), CoreError> {
         let mut scratch = std::mem::take(&mut self.longitudinal_scratch);
         #[cfg(test)]
         let mut reduced_rate_research = self.reduced_rate_research.take();
         let result = (|| {
-            #[cfg(test)]
-            let proposal_started = reduced_rate_research
-                .as_ref()
-                .map(|_| std::time::Instant::now());
+            let proposal_started = P::ENABLED.then(std::time::Instant::now);
             scratch.begin(self.vehicles.len());
             let delta_time = self.fixed_delta_time_ms as f64 / 1_000.0;
             #[cfg(test)]
@@ -3629,20 +3634,13 @@ impl CoreWorld {
                 }
             }
 
-            #[cfg(test)]
             let proposal_duration = proposal_started.map(|started| started.elapsed());
-            #[cfg(test)]
-            let projection_started = reduced_rate_research
-                .as_ref()
-                .map(|_| std::time::Instant::now());
+            let projection_started = P::ENABLED.then(std::time::Instant::now);
             let projection_result = scratch.project(self.vehicle_update_order.iter(), delta_time);
-            #[cfg(test)]
-            if let (Some(proposal), Some(projection_started), Some(research)) = (
-                proposal_duration,
-                projection_started,
-                &mut reduced_rate_research,
-            ) {
-                research.note_longitudinal_breakdown(proposal, projection_started.elapsed());
+            if let (Some(proposal), Some(projection_started)) =
+                (proposal_duration, projection_started)
+            {
+                probe.note_longitudinal_breakdown(proposal, projection_started.elapsed());
             }
             projection_result
         })();

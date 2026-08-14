@@ -17,8 +17,8 @@ use crate::{
     EdgeLength, IidmProfileSpec, InitialTrafficData, LaneEdge, ManeuverGate, ParkingRegistry,
     ParkingReleaseReason, ParkingSpace, ParkingSpaceGeometry, Route, SignalAspect,
     SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
-    SignalRegistry, SpeedLimit, StopLine, StopLineLocation, VehicleProfileRegistry,
-    VehicleSpawnInput,
+    SignalRegistry, SpeedLimit, StageTimingProbe, StopLine, StopLineLocation,
+    VehicleProfileRegistry, VehicleSpawnInput,
     longitudinal::{
         ResearchMotionInput, compute_motion_from_controller_intent_for_research,
         evaluate_controller_intent_for_research,
@@ -145,12 +145,6 @@ struct ReducedRateStepMetrics {
     common_invalidations: usize,
     semantic_invalidations: usize,
     maximum_age: u64,
-    occupancy_nanoseconds: u64,
-    longitudinal_proposal_nanoseconds: u64,
-    longitudinal_projection_nanoseconds: u64,
-    longitudinal_nanoseconds: u64,
-    post_longitudinal_nanoseconds: u64,
-    research_commit_nanoseconds: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -212,9 +206,7 @@ impl ReducedRateResearchState {
     }
 
     pub(super) fn begin_step(&mut self, vehicle_slot_count: usize, next_tick_index: u64) {
-        let occupancy_nanoseconds = self.candidate_metrics.occupancy_nanoseconds;
         self.candidate_metrics = ReducedRateStepMetrics::default();
-        self.candidate_metrics.occupancy_nanoseconds = occupancy_nanoseconds;
         self.active_tick = Some(next_tick_index);
         if !self.uses_cache() {
             return;
@@ -297,28 +289,6 @@ impl ReducedRateResearchState {
 
     pub(super) fn tracks_semantic_stop_identity(&self) -> bool {
         self.config.invalidation == ResearchInvalidation::SemanticReactive
-    }
-
-    pub(super) fn note_longitudinal_duration(&mut self, duration: Duration) {
-        self.candidate_metrics.longitudinal_nanoseconds =
-            u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX);
-    }
-
-    pub(super) fn note_occupancy_duration(&mut self, duration: Duration) {
-        self.candidate_metrics.occupancy_nanoseconds =
-            u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX);
-    }
-
-    pub(super) fn note_longitudinal_breakdown(&mut self, proposal: Duration, projection: Duration) {
-        self.candidate_metrics.longitudinal_proposal_nanoseconds =
-            u64::try_from(proposal.as_nanos()).unwrap_or(u64::MAX);
-        self.candidate_metrics.longitudinal_projection_nanoseconds =
-            u64::try_from(projection.as_nanos()).unwrap_or(u64::MAX);
-    }
-
-    pub(super) fn note_post_longitudinal_duration(&mut self, duration: Duration) {
-        self.candidate_metrics.post_longitudinal_nanoseconds =
-            u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX);
     }
 
     fn cadence_due(&self, next_tick_index: u64, update_sequence: u64) -> bool {
@@ -427,7 +397,6 @@ impl ReducedRateResearchState {
     }
 
     pub(super) fn commit_step(&mut self, vehicles: &[VehicleSlot], events: &[CoreEvent]) {
-        let commit_started = Instant::now();
         let Some(_tick) = self.active_tick.take() else {
             return;
         };
@@ -445,8 +414,6 @@ impl ReducedRateResearchState {
                 }
             }
         }
-        self.candidate_metrics.research_commit_nanoseconds =
-            u64::try_from(commit_started.elapsed().as_nanos()).unwrap_or(u64::MAX);
         self.last_committed_step = self.candidate_metrics;
         self.metrics.commit(self.candidate_metrics);
         self.candidate_metrics = ReducedRateStepMetrics::default();
@@ -2140,6 +2107,10 @@ fn percentile(sorted: &[u64], numerator: usize, denominator: usize) -> u64 {
     sorted[index]
 }
 
+fn nanos(duration: Duration) -> u64 {
+    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
+}
+
 #[derive(Clone, Copy, Debug)]
 struct PerformanceObservation {
     whole_step: LatencySummary,
@@ -2155,12 +2126,17 @@ fn observe_tail(world: &mut CoreWorld, ticks: usize) -> PerformanceObservation {
         .reduced_rate_research
         .as_ref()
         .map(|_| Vec::with_capacity(ticks));
+    let mut probe = StageTimingProbe::default();
     for _ in 0..ticks {
         let started = Instant::now();
-        black_box(world.step(TickInput::new(16)).expect("observed step"));
-        whole_step.push(u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX));
-        if let (Some(samples), Some(research)) = (&mut longitudinal, &world.reduced_rate_research) {
-            samples.push(research.last_committed_step.longitudinal_nanoseconds);
+        black_box(
+            world
+                .step_with_probe(TickInput::new(16), &mut probe)
+                .expect("observed step"),
+        );
+        whole_step.push(nanos(started.elapsed()));
+        if let Some(samples) = &mut longitudinal {
+            samples.push(nanos(probe.last_step().longitudinal));
         }
     }
     PerformanceObservation {
@@ -2196,37 +2172,39 @@ fn observe_step_stage_diagnostics(
     }
     let mut samples: [Vec<u64>; DIAGNOSTIC_STAGE_NAMES.len()] =
         std::array::from_fn(|_| Vec::with_capacity(ticks));
+    let mut probe = StageTimingProbe::default();
     for _ in 0..ticks {
         let whole_started = Instant::now();
         black_box(
             world
-                .step(TickInput::new(16))
+                .step_with_probe(TickInput::new(16), &mut probe)
                 .expect("diagnostic observed step"),
         );
-        let whole = u64::try_from(whole_started.elapsed().as_nanos()).unwrap_or(u64::MAX);
-        let metrics = world
-            .reduced_rate_research
-            .as_ref()
-            .expect("diagnostic research state")
-            .last_committed_step;
-        let longitudinal_unattributed = metrics
-            .longitudinal_nanoseconds
-            .saturating_sub(metrics.longitudinal_proposal_nanoseconds)
-            .saturating_sub(metrics.longitudinal_projection_nanoseconds);
+        let whole = nanos(whole_started.elapsed());
+        let metrics = probe.last_step();
+        let occupancy = nanos(metrics.occupancy);
+        let proposal = nanos(metrics.longitudinal_proposal);
+        let projection = nanos(metrics.longitudinal_projection);
+        let longitudinal = nanos(metrics.longitudinal);
+        let post_longitudinal = nanos(metrics.post_longitudinal);
+        let research_commit = nanos(metrics.research_commit);
+        let longitudinal_unattributed = longitudinal
+            .saturating_sub(proposal)
+            .saturating_sub(projection);
         let whole_unattributed = whole
-            .saturating_sub(metrics.occupancy_nanoseconds)
-            .saturating_sub(metrics.longitudinal_nanoseconds)
-            .saturating_sub(metrics.post_longitudinal_nanoseconds)
-            .saturating_sub(metrics.research_commit_nanoseconds);
+            .saturating_sub(occupancy)
+            .saturating_sub(longitudinal)
+            .saturating_sub(post_longitudinal)
+            .saturating_sub(research_commit);
         for (index, value) in [
             whole,
-            metrics.occupancy_nanoseconds,
-            metrics.longitudinal_proposal_nanoseconds,
-            metrics.longitudinal_projection_nanoseconds,
+            occupancy,
+            proposal,
+            projection,
             longitudinal_unattributed,
-            metrics.longitudinal_nanoseconds,
-            metrics.post_longitudinal_nanoseconds,
-            metrics.research_commit_nanoseconds,
+            longitudinal,
+            post_longitudinal,
+            research_commit,
             whole_unattributed,
         ]
         .into_iter()
@@ -2602,15 +2580,14 @@ fn criterion_100k_three_round_whole_step_and_longitudinal_matrix() {
             longitudinal_group.bench_function(case.name(), |bencher| {
                 bencher.iter_custom(|iterations| {
                     let mut measured = Duration::ZERO;
+                    let mut probe = StageTimingProbe::default();
                     for _ in 0..iterations {
-                        black_box(world.step(TickInput::new(16)).expect("Criterion step"));
-                        let research = world
-                            .reduced_rate_research
-                            .as_ref()
-                            .expect("Criterion research state");
-                        measured = measured.saturating_add(Duration::from_nanos(
-                            research.last_committed_step.longitudinal_nanoseconds,
-                        ));
+                        black_box(
+                            world
+                                .step_with_probe(TickInput::new(16), &mut probe)
+                                .expect("Criterion step"),
+                        );
+                        measured = measured.saturating_add(probe.last_step().longitudinal);
                     }
                     measured
                 });
@@ -2736,15 +2713,14 @@ fn criterion_100k_three_round_cache_and_downrate_ablation() {
             longitudinal_group.bench_function(case.name(), |bencher| {
                 bencher.iter_custom(|iterations| {
                     let mut measured = Duration::ZERO;
+                    let mut probe = StageTimingProbe::default();
                     for _ in 0..iterations {
-                        black_box(world.step(TickInput::new(16)).expect("Criterion step"));
-                        let research = world
-                            .reduced_rate_research
-                            .as_ref()
-                            .expect("Criterion research state");
-                        measured = measured.saturating_add(Duration::from_nanos(
-                            research.last_committed_step.longitudinal_nanoseconds,
-                        ));
+                        black_box(
+                            world
+                                .step_with_probe(TickInput::new(16), &mut probe)
+                                .expect("Criterion step"),
+                        );
+                        measured = measured.saturating_add(probe.last_step().longitudinal);
                     }
                     measured
                 });
@@ -2826,15 +2802,14 @@ fn criterion_100k_three_round_sparse_transaction_ablation() {
             longitudinal_group.bench_function(case.name(), |bencher| {
                 bencher.iter_custom(|iterations| {
                     let mut measured = Duration::ZERO;
+                    let mut probe = StageTimingProbe::default();
                     for _ in 0..iterations {
-                        black_box(world.step(TickInput::new(16)).expect("Criterion step"));
-                        let research = world
-                            .reduced_rate_research
-                            .as_ref()
-                            .expect("Criterion research state");
-                        measured = measured.saturating_add(Duration::from_nanos(
-                            research.last_committed_step.longitudinal_nanoseconds,
-                        ));
+                        black_box(
+                            world
+                                .step_with_probe(TickInput::new(16), &mut probe)
+                                .expect("Criterion step"),
+                        );
+                        measured = measured.saturating_add(probe.last_step().longitudinal);
                     }
                     measured
                 });
