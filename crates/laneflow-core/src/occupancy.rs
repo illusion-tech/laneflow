@@ -37,23 +37,6 @@ impl PartialEq for OccupancyScratch {
 }
 
 impl OccupancyScratch {
-    #[cfg(test)]
-    pub(crate) fn retained_bytes(&self) -> usize {
-        let Self {
-            counts,
-            offsets,
-            write_positions,
-            occupants,
-            leaders,
-            max_vehicle_length: _,
-        } = self;
-        counts.capacity() * std::mem::size_of::<usize>()
-            + offsets.capacity() * std::mem::size_of::<usize>()
-            + write_positions.capacity() * std::mem::size_of::<usize>()
-            + occupants.capacity() * std::mem::size_of::<Occupant>()
-            + leaders.capacity() * std::mem::size_of::<Option<LeaderObservation>>()
-    }
-
     pub(crate) fn begin(&mut self, edge_count: usize, vehicle_slot_count: usize) {
         self.counts.clear();
         self.counts.resize(edge_count, 0);
@@ -138,5 +121,28 @@ impl OccupancyScratch {
 
     pub(crate) fn leader(&self, vehicle: VehicleHandle) -> Option<LeaderObservation> {
         self.leaders.get(vehicle.index()).copied().flatten()
+    }
+}
+
+#[cfg(test)]
+mod retained_memory {
+    use super::*;
+
+    impl OccupancyScratch {
+        pub(crate) fn retained_bytes(&self) -> usize {
+            let Self {
+                counts,
+                offsets,
+                write_positions,
+                occupants,
+                leaders,
+                max_vehicle_length: _,
+            } = self;
+            counts.capacity() * std::mem::size_of::<usize>()
+                + offsets.capacity() * std::mem::size_of::<usize>()
+                + write_positions.capacity() * std::mem::size_of::<usize>()
+                + occupants.capacity() * std::mem::size_of::<Occupant>()
+                + leaders.capacity() * std::mem::size_of::<Option<LeaderObservation>>()
+        }
     }
 }

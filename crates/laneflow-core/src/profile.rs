@@ -245,29 +245,6 @@ impl VehicleProfileRegistry {
     pub fn profiles(&self) -> impl ExactSizeIterator<Item = &VehicleProfile> {
         self.profiles.iter()
     }
-
-    #[cfg(test)]
-    pub(crate) fn retained_bytes(&self) -> usize {
-        let Self {
-            profiles,
-            handles,
-            class_external_ids,
-        } = self;
-        let profile_bytes = profiles.capacity() * std::mem::size_of::<VehicleProfile>()
-            + profiles
-                .iter()
-                .map(|profile| profile.external_id.capacity())
-                .sum::<usize>();
-        let handle_bytes = handles.capacity()
-            * std::mem::size_of::<(String, VehicleProfileHandle)>()
-            + handles.keys().map(String::capacity).sum::<usize>();
-        let retained_class_bytes = class_external_ids.capacity() * std::mem::size_of::<String>()
-            + class_external_ids
-                .iter()
-                .map(String::capacity)
-                .sum::<usize>();
-        profile_bytes + handle_bytes + retained_class_bytes
-    }
 }
 
 impl Default for VehicleProfileRegistry {
@@ -308,4 +285,34 @@ fn validate_nonnegative_profile_value(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod retained_memory {
+    use super::*;
+
+    impl VehicleProfileRegistry {
+        pub(crate) fn retained_bytes(&self) -> usize {
+            let Self {
+                profiles,
+                handles,
+                class_external_ids,
+            } = self;
+            let profile_bytes = profiles.capacity() * std::mem::size_of::<VehicleProfile>()
+                + profiles
+                    .iter()
+                    .map(|profile| profile.external_id.capacity())
+                    .sum::<usize>();
+            let handle_bytes = handles.capacity()
+                * std::mem::size_of::<(String, VehicleProfileHandle)>()
+                + handles.keys().map(String::capacity).sum::<usize>();
+            let retained_class_bytes = class_external_ids.capacity()
+                * std::mem::size_of::<String>()
+                + class_external_ids
+                    .iter()
+                    .map(String::capacity)
+                    .sum::<usize>();
+            profile_bytes + handle_bytes + retained_class_bytes
+        }
+    }
 }

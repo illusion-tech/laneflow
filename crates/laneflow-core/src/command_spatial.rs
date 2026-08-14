@@ -69,14 +69,6 @@ struct SpatialChunk {
     occupants: Vec<CommandOccupant>,
 }
 
-#[cfg(test)]
-impl SpatialChunk {
-    fn retained_bytes(&self) -> usize {
-        let Self { occupants } = self;
-        occupants.capacity() * std::mem::size_of::<CommandOccupant>()
-    }
-}
-
 #[derive(Clone, Debug, Default)]
 struct SpatialBucket {
     chunks: Vec<SpatialChunk>,
@@ -84,19 +76,6 @@ struct SpatialBucket {
 }
 
 impl SpatialBucket {
-    #[cfg(test)]
-    fn retained_bytes(&self) -> usize {
-        let Self {
-            chunks,
-            active_chunks: _,
-        } = self;
-        chunks.capacity() * std::mem::size_of::<SpatialChunk>()
-            + chunks
-                .iter()
-                .map(SpatialChunk::retained_bytes)
-                .sum::<usize>()
-    }
-
     fn active(&self) -> &[SpatialChunk] {
         &self.chunks[..self.active_chunks]
     }
@@ -858,60 +837,6 @@ impl CommandSpatialIndex {
         self.speed_heap_rebuilds
     }
 
-    #[cfg(test)]
-    pub(crate) fn retained_bytes(&self) -> usize {
-        let Self {
-            buckets,
-            incoming_edges,
-            edge_lengths,
-            max_vehicle_length: _,
-            staging,
-            front_progress,
-            membership_edges,
-            membership_vehicles,
-            candidate_marks,
-            candidate_epoch: _,
-            candidates,
-            reverse_best,
-            reverse_touched,
-            reverse_queue,
-            max_vehicle_speed: _,
-            speed_heap,
-            speed_heap_valid: _,
-            min_emergency_deceleration: _,
-            query_stats: _,
-            speed_heap_rebuilds: _,
-        } = self;
-        let bucket_bytes = buckets.capacity() * std::mem::size_of::<SpatialBucket>()
-            + buckets
-                .iter()
-                .map(SpatialBucket::retained_bytes)
-                .sum::<usize>();
-        let incoming_bytes = incoming_edges.capacity() * std::mem::size_of::<Vec<EdgeHandle>>()
-            + incoming_edges
-                .iter()
-                .map(|incoming| incoming.capacity() * std::mem::size_of::<EdgeHandle>())
-                .sum::<usize>();
-        let staging_bytes = staging.capacity() * std::mem::size_of::<Vec<CommandOccupant>>()
-            + staging
-                .iter()
-                .map(|staging| staging.capacity() * std::mem::size_of::<CommandOccupant>())
-                .sum::<usize>();
-        bucket_bytes
-            + incoming_bytes
-            + staging_bytes
-            + edge_lengths.capacity() * std::mem::size_of::<f64>()
-            + front_progress.capacity() * std::mem::size_of::<f64>()
-            + membership_edges.capacity() * std::mem::size_of::<Option<EdgeHandle>>()
-            + membership_vehicles.capacity() * std::mem::size_of::<Option<VehicleHandle>>()
-            + candidate_marks.capacity() * std::mem::size_of::<u32>()
-            + candidates.capacity() * std::mem::size_of::<VehicleHandle>()
-            + reverse_best.capacity() * std::mem::size_of::<f64>()
-            + reverse_touched.capacity() * std::mem::size_of::<EdgeHandle>()
-            + reverse_queue.capacity() * std::mem::size_of::<(EdgeHandle, f64)>()
-            + speed_heap.capacity() * std::mem::size_of::<CommandSpeedEntry>()
-    }
-
     fn begin_candidates(&mut self, vehicle_slot_count: usize) {
         self.candidate_marks
             .resize(self.candidate_marks.len().max(vehicle_slot_count), 0);
@@ -1048,6 +973,87 @@ impl CommandSpatialIndex {
                     self.reverse_queue.push((predecessor, next_available));
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod retained_memory {
+    use super::*;
+
+    impl SpatialChunk {
+        fn retained_bytes(&self) -> usize {
+            let Self { occupants } = self;
+            occupants.capacity() * std::mem::size_of::<CommandOccupant>()
+        }
+    }
+
+    impl SpatialBucket {
+        fn retained_bytes(&self) -> usize {
+            let Self {
+                chunks,
+                active_chunks: _,
+            } = self;
+            chunks.capacity() * std::mem::size_of::<SpatialChunk>()
+                + chunks
+                    .iter()
+                    .map(SpatialChunk::retained_bytes)
+                    .sum::<usize>()
+        }
+    }
+
+    impl CommandSpatialIndex {
+        pub(crate) fn retained_bytes(&self) -> usize {
+            let Self {
+                buckets,
+                incoming_edges,
+                edge_lengths,
+                max_vehicle_length: _,
+                staging,
+                front_progress,
+                membership_edges,
+                membership_vehicles,
+                candidate_marks,
+                candidate_epoch: _,
+                candidates,
+                reverse_best,
+                reverse_touched,
+                reverse_queue,
+                max_vehicle_speed: _,
+                speed_heap,
+                speed_heap_valid: _,
+                min_emergency_deceleration: _,
+                query_stats: _,
+                speed_heap_rebuilds: _,
+            } = self;
+            let bucket_bytes = buckets.capacity() * std::mem::size_of::<SpatialBucket>()
+                + buckets
+                    .iter()
+                    .map(SpatialBucket::retained_bytes)
+                    .sum::<usize>();
+            let incoming_bytes = incoming_edges.capacity() * std::mem::size_of::<Vec<EdgeHandle>>()
+                + incoming_edges
+                    .iter()
+                    .map(|incoming| incoming.capacity() * std::mem::size_of::<EdgeHandle>())
+                    .sum::<usize>();
+            let staging_bytes = staging.capacity() * std::mem::size_of::<Vec<CommandOccupant>>()
+                + staging
+                    .iter()
+                    .map(|staging| staging.capacity() * std::mem::size_of::<CommandOccupant>())
+                    .sum::<usize>();
+            bucket_bytes
+                + incoming_bytes
+                + staging_bytes
+                + edge_lengths.capacity() * std::mem::size_of::<f64>()
+                + front_progress.capacity() * std::mem::size_of::<f64>()
+                + membership_edges.capacity() * std::mem::size_of::<Option<EdgeHandle>>()
+                + membership_vehicles.capacity() * std::mem::size_of::<Option<VehicleHandle>>()
+                + candidate_marks.capacity() * std::mem::size_of::<u32>()
+                + candidates.capacity() * std::mem::size_of::<VehicleHandle>()
+                + reverse_best.capacity() * std::mem::size_of::<f64>()
+                + reverse_touched.capacity() * std::mem::size_of::<EdgeHandle>()
+                + reverse_queue.capacity() * std::mem::size_of::<(EdgeHandle, f64)>()
+                + speed_heap.capacity() * std::mem::size_of::<CommandSpeedEntry>()
         }
     }
 }

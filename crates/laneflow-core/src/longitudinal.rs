@@ -596,31 +596,6 @@ impl PartialEq for LongitudinalScratch {
 }
 
 impl LongitudinalScratch {
-    #[cfg(test)]
-    pub(crate) fn parking_retained_bytes(&self) -> usize {
-        let Self {
-            motions: _,
-            visit_state: _,
-            path: _,
-            parking_stops,
-        } = self;
-        parking_stops.capacity() * std::mem::size_of::<SparseParkingStop>()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn retained_bytes(&self) -> usize {
-        let Self {
-            motions,
-            visit_state,
-            path,
-            parking_stops,
-        } = self;
-        motions.capacity() * std::mem::size_of::<Option<LongitudinalMotion>>()
-            + visit_state.capacity() * std::mem::size_of::<u8>()
-            + path.capacity() * std::mem::size_of::<usize>()
-            + parking_stops.capacity() * std::mem::size_of::<SparseParkingStop>()
-    }
-
     pub(crate) fn begin(&mut self, vehicle_slot_count: usize) {
         self.motions.clear();
         self.motions.resize(vehicle_slot_count, None);
@@ -1806,5 +1781,35 @@ mod tests {
             .unwrap();
         assert!(parking_and_end.parking_stop_projection());
         assert_eq!(parking_and_end.signal_stop_projection(), None);
+    }
+}
+
+#[cfg(test)]
+mod retained_memory {
+    use super::*;
+
+    impl LongitudinalScratch {
+        pub(crate) fn parking_retained_bytes(&self) -> usize {
+            let Self {
+                motions: _,
+                visit_state: _,
+                path: _,
+                parking_stops,
+            } = self;
+            parking_stops.capacity() * std::mem::size_of::<SparseParkingStop>()
+        }
+
+        pub(crate) fn retained_bytes(&self) -> usize {
+            let Self {
+                motions,
+                visit_state,
+                path,
+                parking_stops,
+            } = self;
+            motions.capacity() * std::mem::size_of::<Option<LongitudinalMotion>>()
+                + visit_state.capacity() * std::mem::size_of::<u8>()
+                + path.capacity() * std::mem::size_of::<usize>()
+                + parking_stops.capacity() * std::mem::size_of::<SparseParkingStop>()
+        }
     }
 }

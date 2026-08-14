@@ -1148,112 +1148,6 @@ impl CrossSectionRegistry {
             }
         }
     }
-
-    #[cfg(test)]
-    pub(crate) fn retained_bytes(&self) -> usize {
-        fn string_key_map_bytes<V>(map: &IndexMap<String, V>) -> usize {
-            map.capacity() * std::mem::size_of::<(String, V)>()
-                + map.keys().map(String::capacity).sum::<usize>()
-        }
-
-        let Self {
-            bands,
-            sections,
-            groups,
-            corridors,
-            band_handles,
-            section_handles,
-            group_handles,
-            corridor_handles,
-            corridor_elements,
-            section_lanes,
-            lane_edges,
-            group_lanes,
-            edge_to_lane,
-        } = self;
-
-        let band_bytes = bands.capacity() * std::mem::size_of::<ResolvedFacilityBand>()
-            + bands
-                .iter()
-                .map(|band| {
-                    band.definition.id.capacity()
-                        + band.definition.kind_id.capacity()
-                        + match &band.kind {
-                            FacilityKind::CustomLaneBearing(token)
-                            | FacilityKind::CustomBand(token) => token.capacity(),
-                            _ => 0,
-                        }
-                })
-                .sum::<usize>();
-        let section_bytes = sections.capacity() * std::mem::size_of::<ResolvedRoadSection>()
-            + sections
-                .iter()
-                .map(|section| {
-                    section.definition.id.capacity()
-                        + section.definition.kind_id.capacity()
-                        + match &section.kind {
-                            FacilityKind::CustomLaneBearing(token)
-                            | FacilityKind::CustomBand(token) => token.capacity(),
-                            _ => 0,
-                        }
-                        + section.definition.lanes.capacity() * std::mem::size_of::<SectionLane>()
-                        + section
-                            .definition
-                            .lanes
-                            .iter()
-                            .map(|lane| {
-                                lane.edge_ids.capacity() * std::mem::size_of::<String>()
-                                    + lane.edge_ids.iter().map(String::capacity).sum::<usize>()
-                                    + lane.lane_group_id.as_ref().map_or(0, String::capacity)
-                            })
-                            .sum::<usize>()
-                })
-                .sum::<usize>();
-        let group_bytes = groups.capacity() * std::mem::size_of::<ResolvedLaneGroup>()
-            + groups
-                .iter()
-                .map(|group| {
-                    group.definition.id.capacity() + group.definition.road_section_id.capacity()
-                })
-                .sum::<usize>();
-        let corridor_bytes = corridors.capacity() * std::mem::size_of::<ResolvedRoadCorridor>()
-            + corridors
-                .iter()
-                .map(|corridor| {
-                    corridor.definition.id.capacity()
-                        + corridor.definition.reference_section_id.capacity()
-                        + corridor.definition.elements.capacity()
-                            * std::mem::size_of::<CorridorElementId>()
-                        + corridor
-                            .definition
-                            .elements
-                            .iter()
-                            .map(|element| match element {
-                                CorridorElementId::Section(id) | CorridorElementId::Band(id) => {
-                                    id.capacity()
-                                }
-                            })
-                            .sum::<usize>()
-                })
-                .sum::<usize>();
-        let resolver_bytes = string_key_map_bytes(band_handles)
-            + string_key_map_bytes(section_handles)
-            + string_key_map_bytes(group_handles)
-            + string_key_map_bytes(corridor_handles);
-        let flat_index_bytes = corridor_elements.capacity()
-            * std::mem::size_of::<CorridorElement>()
-            + section_lanes.capacity() * std::mem::size_of::<SectionLaneEntry>()
-            + lane_edges.capacity() * std::mem::size_of::<EdgeHandle>()
-            + group_lanes.capacity() * std::mem::size_of::<usize>()
-            + edge_to_lane.capacity() * std::mem::size_of::<Option<(RoadSectionHandle, usize)>>();
-
-        band_bytes
-            + section_bytes
-            + group_bytes
-            + corridor_bytes
-            + resolver_bytes
-            + flat_index_bytes
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1322,5 +1216,118 @@ mod tests {
 
         assert_eq!(empty.retained_bytes(), 0);
         assert!(registry.retained_bytes() > 0);
+    }
+}
+
+#[cfg(test)]
+mod retained_memory {
+    use super::*;
+
+    impl CrossSectionRegistry {
+        pub(crate) fn retained_bytes(&self) -> usize {
+            fn string_key_map_bytes<V>(map: &IndexMap<String, V>) -> usize {
+                map.capacity() * std::mem::size_of::<(String, V)>()
+                    + map.keys().map(String::capacity).sum::<usize>()
+            }
+
+            let Self {
+                bands,
+                sections,
+                groups,
+                corridors,
+                band_handles,
+                section_handles,
+                group_handles,
+                corridor_handles,
+                corridor_elements,
+                section_lanes,
+                lane_edges,
+                group_lanes,
+                edge_to_lane,
+            } = self;
+
+            let band_bytes = bands.capacity() * std::mem::size_of::<ResolvedFacilityBand>()
+                + bands
+                    .iter()
+                    .map(|band| {
+                        band.definition.id.capacity()
+                            + band.definition.kind_id.capacity()
+                            + match &band.kind {
+                                FacilityKind::CustomLaneBearing(token)
+                                | FacilityKind::CustomBand(token) => token.capacity(),
+                                _ => 0,
+                            }
+                    })
+                    .sum::<usize>();
+            let section_bytes = sections.capacity() * std::mem::size_of::<ResolvedRoadSection>()
+                + sections
+                    .iter()
+                    .map(|section| {
+                        section.definition.id.capacity()
+                            + section.definition.kind_id.capacity()
+                            + match &section.kind {
+                                FacilityKind::CustomLaneBearing(token)
+                                | FacilityKind::CustomBand(token) => token.capacity(),
+                                _ => 0,
+                            }
+                            + section.definition.lanes.capacity()
+                                * std::mem::size_of::<SectionLane>()
+                            + section
+                                .definition
+                                .lanes
+                                .iter()
+                                .map(|lane| {
+                                    lane.edge_ids.capacity() * std::mem::size_of::<String>()
+                                        + lane.edge_ids.iter().map(String::capacity).sum::<usize>()
+                                        + lane.lane_group_id.as_ref().map_or(0, String::capacity)
+                                })
+                                .sum::<usize>()
+                    })
+                    .sum::<usize>();
+            let group_bytes = groups.capacity() * std::mem::size_of::<ResolvedLaneGroup>()
+                + groups
+                    .iter()
+                    .map(|group| {
+                        group.definition.id.capacity() + group.definition.road_section_id.capacity()
+                    })
+                    .sum::<usize>();
+            let corridor_bytes = corridors.capacity() * std::mem::size_of::<ResolvedRoadCorridor>()
+                + corridors
+                    .iter()
+                    .map(|corridor| {
+                        corridor.definition.id.capacity()
+                            + corridor.definition.reference_section_id.capacity()
+                            + corridor.definition.elements.capacity()
+                                * std::mem::size_of::<CorridorElementId>()
+                            + corridor
+                                .definition
+                                .elements
+                                .iter()
+                                .map(|element| match element {
+                                    CorridorElementId::Section(id)
+                                    | CorridorElementId::Band(id) => id.capacity(),
+                                })
+                                .sum::<usize>()
+                    })
+                    .sum::<usize>();
+            let resolver_bytes = string_key_map_bytes(band_handles)
+                + string_key_map_bytes(section_handles)
+                + string_key_map_bytes(group_handles)
+                + string_key_map_bytes(corridor_handles);
+            let flat_index_bytes = corridor_elements.capacity()
+                * std::mem::size_of::<CorridorElement>()
+                + section_lanes.capacity() * std::mem::size_of::<SectionLaneEntry>()
+                + lane_edges.capacity() * std::mem::size_of::<EdgeHandle>()
+                + group_lanes.capacity() * std::mem::size_of::<usize>()
+                + edge_to_lane.capacity()
+                    * std::mem::size_of::<Option<(RoadSectionHandle, usize)>>();
+
+            band_bytes
+                + section_bytes
+                + group_bytes
+                + corridor_bytes
+                + resolver_bytes
+                + flat_index_bytes
+        }
     }
 }

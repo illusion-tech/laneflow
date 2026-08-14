@@ -663,74 +663,6 @@ impl JunctionRegistry {
         };
         &self.entry_candidates[range.candidates.clone()]
     }
-
-    #[cfg(test)]
-    pub(crate) fn retained_bytes(&self) -> usize {
-        fn string_key_map_bytes<V>(map: &IndexMap<String, V>) -> usize {
-            map.capacity() * std::mem::size_of::<(String, V)>()
-                + map.keys().map(String::capacity).sum::<usize>()
-        }
-
-        let Self {
-            junctions,
-            movements,
-            maneuver_paths,
-            junction_handles,
-            movement_handles,
-            maneuver_path_handles,
-            junction_movements,
-            movement_maneuver_paths,
-            maneuver_path_edges,
-            internal_edge_owners,
-            entry_candidate_ranges,
-            entry_candidates,
-        } = self;
-
-        let junction_bytes = junctions.capacity() * std::mem::size_of::<ResolvedJunction>()
-            + junctions
-                .iter()
-                .map(|junction| junction.definition.id.capacity())
-                .sum::<usize>();
-        let movement_bytes = movements.capacity() * std::mem::size_of::<ResolvedMovement>()
-            + movements
-                .iter()
-                .map(|movement| {
-                    movement.definition.id.capacity() + movement.definition.junction_id.capacity()
-                })
-                .sum::<usize>();
-        let maneuver_path_bytes = maneuver_paths.capacity()
-            * std::mem::size_of::<ResolvedManeuverPath>()
-            + maneuver_paths
-                .iter()
-                .map(|path| {
-                    path.definition.id.capacity()
-                        + path.definition.movement_id.capacity()
-                        + path.definition.entry_edge_id.capacity()
-                        + path.definition.exit_edge_id.capacity()
-                        + path.definition.internal_edge_ids.capacity()
-                            * std::mem::size_of::<String>()
-                        + path
-                            .definition
-                            .internal_edge_ids
-                            .iter()
-                            .map(String::capacity)
-                            .sum::<usize>()
-                })
-                .sum::<usize>();
-        let resolver_bytes = string_key_map_bytes(junction_handles)
-            + string_key_map_bytes(movement_handles)
-            + string_key_map_bytes(maneuver_path_handles);
-        let flat_index_bytes = junction_movements.capacity()
-            * std::mem::size_of::<MovementHandle>()
-            + movement_maneuver_paths.capacity() * std::mem::size_of::<ManeuverPathHandle>()
-            + maneuver_path_edges.capacity() * std::mem::size_of::<EdgeHandle>()
-            + internal_edge_owners.capacity() * std::mem::size_of::<Option<JunctionHandle>>()
-            + entry_candidate_ranges.capacity()
-                * std::mem::size_of::<((EdgeHandle, EdgeHandle), EntryCandidateRange)>()
-            + entry_candidates.capacity() * std::mem::size_of::<ManeuverPathHandle>();
-
-        junction_bytes + movement_bytes + maneuver_path_bytes + resolver_bytes + flat_index_bytes
-    }
 }
 
 pub(crate) fn validate_capacity(domain: &'static str, count: usize) -> Result<(), CoreError> {
@@ -818,5 +750,84 @@ impl IntoParentIndex for JunctionHandle {
 impl IntoParentIndex for MovementHandle {
     fn parent_index(self) -> usize {
         self.index()
+    }
+}
+
+#[cfg(test)]
+mod retained_memory {
+    use super::*;
+
+    impl JunctionRegistry {
+        pub(crate) fn retained_bytes(&self) -> usize {
+            fn string_key_map_bytes<V>(map: &IndexMap<String, V>) -> usize {
+                map.capacity() * std::mem::size_of::<(String, V)>()
+                    + map.keys().map(String::capacity).sum::<usize>()
+            }
+
+            let Self {
+                junctions,
+                movements,
+                maneuver_paths,
+                junction_handles,
+                movement_handles,
+                maneuver_path_handles,
+                junction_movements,
+                movement_maneuver_paths,
+                maneuver_path_edges,
+                internal_edge_owners,
+                entry_candidate_ranges,
+                entry_candidates,
+            } = self;
+
+            let junction_bytes = junctions.capacity() * std::mem::size_of::<ResolvedJunction>()
+                + junctions
+                    .iter()
+                    .map(|junction| junction.definition.id.capacity())
+                    .sum::<usize>();
+            let movement_bytes = movements.capacity() * std::mem::size_of::<ResolvedMovement>()
+                + movements
+                    .iter()
+                    .map(|movement| {
+                        movement.definition.id.capacity()
+                            + movement.definition.junction_id.capacity()
+                    })
+                    .sum::<usize>();
+            let maneuver_path_bytes = maneuver_paths.capacity()
+                * std::mem::size_of::<ResolvedManeuverPath>()
+                + maneuver_paths
+                    .iter()
+                    .map(|path| {
+                        path.definition.id.capacity()
+                            + path.definition.movement_id.capacity()
+                            + path.definition.entry_edge_id.capacity()
+                            + path.definition.exit_edge_id.capacity()
+                            + path.definition.internal_edge_ids.capacity()
+                                * std::mem::size_of::<String>()
+                            + path
+                                .definition
+                                .internal_edge_ids
+                                .iter()
+                                .map(String::capacity)
+                                .sum::<usize>()
+                    })
+                    .sum::<usize>();
+            let resolver_bytes = string_key_map_bytes(junction_handles)
+                + string_key_map_bytes(movement_handles)
+                + string_key_map_bytes(maneuver_path_handles);
+            let flat_index_bytes = junction_movements.capacity()
+                * std::mem::size_of::<MovementHandle>()
+                + movement_maneuver_paths.capacity() * std::mem::size_of::<ManeuverPathHandle>()
+                + maneuver_path_edges.capacity() * std::mem::size_of::<EdgeHandle>()
+                + internal_edge_owners.capacity() * std::mem::size_of::<Option<JunctionHandle>>()
+                + entry_candidate_ranges.capacity()
+                    * std::mem::size_of::<((EdgeHandle, EdgeHandle), EntryCandidateRange)>()
+                + entry_candidates.capacity() * std::mem::size_of::<ManeuverPathHandle>();
+
+            junction_bytes
+                + movement_bytes
+                + maneuver_path_bytes
+                + resolver_bytes
+                + flat_index_bytes
+        }
     }
 }

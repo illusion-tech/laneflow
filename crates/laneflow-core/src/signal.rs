@@ -468,17 +468,6 @@ impl SignalRuntimeState {
     pub(crate) const fn has_restrictive_group(&self) -> bool {
         self.has_restrictive_group
     }
-
-    #[cfg(test)]
-    pub(crate) fn retained_bytes(&self) -> usize {
-        let Self {
-            controllers,
-            groups,
-            has_restrictive_group: _,
-        } = self;
-        controllers.capacity() * std::mem::size_of::<SignalControllerState>()
-            + groups.capacity() * std::mem::size_of::<SignalGroupSnapshot>()
-    }
 }
 
 /// 可跨 tick 复用、但不属于 Core authority state 的 signal candidate scratch。
@@ -512,12 +501,6 @@ impl SignalRuntimeScratch {
 
     pub(crate) fn state_mut(&mut self) -> &mut SignalRuntimeState {
         &mut self.state
-    }
-
-    #[cfg(test)]
-    pub(crate) fn retained_bytes(&self) -> usize {
-        let Self { state } = self;
-        state.retained_bytes()
     }
 }
 
@@ -1420,146 +1403,6 @@ impl SignalRegistry {
         }
         Ok(())
     }
-
-    #[cfg(test)]
-    pub(crate) fn retained_bytes(&self) -> usize {
-        fn phase_heap_bytes(phase: &SignalPhase) -> usize {
-            phase.id.capacity()
-                + phase.states.capacity() * std::mem::size_of::<SignalGroupState>()
-                + phase
-                    .states
-                    .iter()
-                    .map(|state| state.group_id.capacity())
-                    .sum::<usize>()
-        }
-
-        fn controller_definition_heap_bytes(controller: &SignalController) -> usize {
-            controller.id.capacity()
-                + controller.group_ids.capacity() * std::mem::size_of::<String>()
-                + controller
-                    .group_ids
-                    .iter()
-                    .map(String::capacity)
-                    .sum::<usize>()
-                + controller.phases.capacity() * std::mem::size_of::<SignalPhase>()
-                + controller
-                    .phases
-                    .iter()
-                    .map(phase_heap_bytes)
-                    .sum::<usize>()
-        }
-
-        fn maneuver_gate_heap_bytes(gate: &ManeuverGate) -> usize {
-            gate.id.capacity()
-                + gate.maneuver_path_id.capacity()
-                + gate.stop_line_id.capacity()
-                + match &gate.signal_control {
-                    SignalControlInput::Group(group_id) => group_id.capacity(),
-                    SignalControlInput::None => 0,
-                }
-        }
-
-        let Self {
-            stop_lines,
-            stop_line_handles,
-            stop_lines_by_edge,
-            groups,
-            group_handles,
-            controllers,
-            controller_handles,
-            maneuver_gates,
-            maneuver_gate_handles,
-            maneuver_gate_by_path_transition,
-            maneuver_gate_ranges,
-            maneuver_gates_by_path,
-        } = self;
-
-        let stop_line_bytes = stop_lines.capacity() * std::mem::size_of::<ResolvedStopLine>()
-            + stop_lines
-                .iter()
-                .map(|stop_line| {
-                    stop_line.definition.id.capacity() + stop_line.definition.edge_id.capacity()
-                })
-                .sum::<usize>();
-        let stop_line_handle_bytes = stop_line_handles.capacity()
-            * std::mem::size_of::<(String, StopLineHandle)>()
-            + stop_line_handles
-                .keys()
-                .map(String::capacity)
-                .sum::<usize>();
-        let stop_line_edge_bytes =
-            stop_lines_by_edge.capacity() * std::mem::size_of::<(EdgeHandle, StopLineHandle)>();
-
-        let group_bytes = groups.capacity() * std::mem::size_of::<ResolvedSignalGroup>()
-            + groups
-                .iter()
-                .map(|group| group.definition.id.capacity())
-                .sum::<usize>();
-        let group_handle_bytes = group_handles.capacity()
-            * std::mem::size_of::<(String, SignalGroupHandle)>()
-            + group_handles.keys().map(String::capacity).sum::<usize>();
-
-        let controller_bytes = controllers.capacity()
-            * std::mem::size_of::<ResolvedSignalController>()
-            + controllers
-                .iter()
-                .map(|controller| {
-                    controller_definition_heap_bytes(&controller.definition)
-                        + controller.groups.capacity() * std::mem::size_of::<SignalGroupHandle>()
-                        + controller.phases.capacity() * std::mem::size_of::<ResolvedSignalPhase>()
-                        + controller
-                            .phases
-                            .iter()
-                            .map(|phase| {
-                                phase_heap_bytes(&phase.definition)
-                                    + phase.aspects_by_group.capacity()
-                                        * std::mem::size_of::<SignalAspect>()
-                            })
-                            .sum::<usize>()
-                        + controller.phase_handles.capacity()
-                            * std::mem::size_of::<(String, SignalPhaseRef)>()
-                        + controller
-                            .phase_handles
-                            .keys()
-                            .map(String::capacity)
-                            .sum::<usize>()
-                })
-                .sum::<usize>();
-        let controller_handle_bytes = controller_handles.capacity()
-            * std::mem::size_of::<(String, SignalControllerHandle)>()
-            + controller_handles
-                .keys()
-                .map(String::capacity)
-                .sum::<usize>();
-
-        let maneuver_gate_bytes = maneuver_gates.capacity()
-            * std::mem::size_of::<ResolvedManeuverGate>()
-            + maneuver_gates
-                .iter()
-                .map(|gate| maneuver_gate_heap_bytes(&gate.definition))
-                .sum::<usize>();
-        let maneuver_gate_handle_bytes = maneuver_gate_handles.capacity()
-            * std::mem::size_of::<(String, ManeuverGateHandle)>()
-            + maneuver_gate_handles
-                .keys()
-                .map(String::capacity)
-                .sum::<usize>();
-        let maneuver_gate_lookup_bytes = maneuver_gate_by_path_transition.capacity()
-            * std::mem::size_of::<((ManeuverPathHandle, u32), ManeuverGateHandle)>()
-            + maneuver_gate_ranges.capacity() * std::mem::size_of::<Range<usize>>()
-            + maneuver_gates_by_path.capacity() * std::mem::size_of::<ManeuverGateHandle>();
-
-        stop_line_bytes
-            + stop_line_handle_bytes
-            + stop_line_edge_bytes
-            + group_bytes
-            + group_handle_bytes
-            + controller_bytes
-            + controller_handle_bytes
-            + maneuver_gate_bytes
-            + maneuver_gate_handle_bytes
-            + maneuver_gate_lookup_bytes
-    }
 }
 
 impl Default for SignalRegistry {
@@ -1832,5 +1675,172 @@ mod tests {
                 .expect("second phase")
         };
         assert_eq!(actual.current_phase(), expected_phase);
+    }
+}
+
+#[cfg(test)]
+mod retained_memory {
+    use super::*;
+
+    impl SignalRuntimeState {
+        pub(crate) fn retained_bytes(&self) -> usize {
+            let Self {
+                controllers,
+                groups,
+                has_restrictive_group: _,
+            } = self;
+            controllers.capacity() * std::mem::size_of::<SignalControllerState>()
+                + groups.capacity() * std::mem::size_of::<SignalGroupSnapshot>()
+        }
+    }
+
+    impl SignalRuntimeScratch {
+        pub(crate) fn retained_bytes(&self) -> usize {
+            let Self { state } = self;
+            state.retained_bytes()
+        }
+    }
+
+    impl SignalRegistry {
+        pub(crate) fn retained_bytes(&self) -> usize {
+            fn phase_heap_bytes(phase: &SignalPhase) -> usize {
+                phase.id.capacity()
+                    + phase.states.capacity() * std::mem::size_of::<SignalGroupState>()
+                    + phase
+                        .states
+                        .iter()
+                        .map(|state| state.group_id.capacity())
+                        .sum::<usize>()
+            }
+
+            fn controller_definition_heap_bytes(controller: &SignalController) -> usize {
+                controller.id.capacity()
+                    + controller.group_ids.capacity() * std::mem::size_of::<String>()
+                    + controller
+                        .group_ids
+                        .iter()
+                        .map(String::capacity)
+                        .sum::<usize>()
+                    + controller.phases.capacity() * std::mem::size_of::<SignalPhase>()
+                    + controller
+                        .phases
+                        .iter()
+                        .map(phase_heap_bytes)
+                        .sum::<usize>()
+            }
+
+            fn maneuver_gate_heap_bytes(gate: &ManeuverGate) -> usize {
+                gate.id.capacity()
+                    + gate.maneuver_path_id.capacity()
+                    + gate.stop_line_id.capacity()
+                    + match &gate.signal_control {
+                        SignalControlInput::Group(group_id) => group_id.capacity(),
+                        SignalControlInput::None => 0,
+                    }
+            }
+
+            let Self {
+                stop_lines,
+                stop_line_handles,
+                stop_lines_by_edge,
+                groups,
+                group_handles,
+                controllers,
+                controller_handles,
+                maneuver_gates,
+                maneuver_gate_handles,
+                maneuver_gate_by_path_transition,
+                maneuver_gate_ranges,
+                maneuver_gates_by_path,
+            } = self;
+
+            let stop_line_bytes = stop_lines.capacity() * std::mem::size_of::<ResolvedStopLine>()
+                + stop_lines
+                    .iter()
+                    .map(|stop_line| {
+                        stop_line.definition.id.capacity() + stop_line.definition.edge_id.capacity()
+                    })
+                    .sum::<usize>();
+            let stop_line_handle_bytes = stop_line_handles.capacity()
+                * std::mem::size_of::<(String, StopLineHandle)>()
+                + stop_line_handles
+                    .keys()
+                    .map(String::capacity)
+                    .sum::<usize>();
+            let stop_line_edge_bytes =
+                stop_lines_by_edge.capacity() * std::mem::size_of::<(EdgeHandle, StopLineHandle)>();
+
+            let group_bytes = groups.capacity() * std::mem::size_of::<ResolvedSignalGroup>()
+                + groups
+                    .iter()
+                    .map(|group| group.definition.id.capacity())
+                    .sum::<usize>();
+            let group_handle_bytes = group_handles.capacity()
+                * std::mem::size_of::<(String, SignalGroupHandle)>()
+                + group_handles.keys().map(String::capacity).sum::<usize>();
+
+            let controller_bytes = controllers.capacity()
+                * std::mem::size_of::<ResolvedSignalController>()
+                + controllers
+                    .iter()
+                    .map(|controller| {
+                        controller_definition_heap_bytes(&controller.definition)
+                            + controller.groups.capacity()
+                                * std::mem::size_of::<SignalGroupHandle>()
+                            + controller.phases.capacity()
+                                * std::mem::size_of::<ResolvedSignalPhase>()
+                            + controller
+                                .phases
+                                .iter()
+                                .map(|phase| {
+                                    phase_heap_bytes(&phase.definition)
+                                        + phase.aspects_by_group.capacity()
+                                            * std::mem::size_of::<SignalAspect>()
+                                })
+                                .sum::<usize>()
+                            + controller.phase_handles.capacity()
+                                * std::mem::size_of::<(String, SignalPhaseRef)>()
+                            + controller
+                                .phase_handles
+                                .keys()
+                                .map(String::capacity)
+                                .sum::<usize>()
+                    })
+                    .sum::<usize>();
+            let controller_handle_bytes = controller_handles.capacity()
+                * std::mem::size_of::<(String, SignalControllerHandle)>()
+                + controller_handles
+                    .keys()
+                    .map(String::capacity)
+                    .sum::<usize>();
+
+            let maneuver_gate_bytes = maneuver_gates.capacity()
+                * std::mem::size_of::<ResolvedManeuverGate>()
+                + maneuver_gates
+                    .iter()
+                    .map(|gate| maneuver_gate_heap_bytes(&gate.definition))
+                    .sum::<usize>();
+            let maneuver_gate_handle_bytes = maneuver_gate_handles.capacity()
+                * std::mem::size_of::<(String, ManeuverGateHandle)>()
+                + maneuver_gate_handles
+                    .keys()
+                    .map(String::capacity)
+                    .sum::<usize>();
+            let maneuver_gate_lookup_bytes = maneuver_gate_by_path_transition.capacity()
+                * std::mem::size_of::<((ManeuverPathHandle, u32), ManeuverGateHandle)>()
+                + maneuver_gate_ranges.capacity() * std::mem::size_of::<Range<usize>>()
+                + maneuver_gates_by_path.capacity() * std::mem::size_of::<ManeuverGateHandle>();
+
+            stop_line_bytes
+                + stop_line_handle_bytes
+                + stop_line_edge_bytes
+                + group_bytes
+                + group_handle_bytes
+                + controller_bytes
+                + controller_handle_bytes
+                + maneuver_gate_bytes
+                + maneuver_gate_handle_bytes
+                + maneuver_gate_lookup_bytes
+        }
     }
 }
