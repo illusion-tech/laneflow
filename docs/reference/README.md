@@ -63,7 +63,7 @@
   审阅前的剩余边界。
 - `v0.10-portable-artifact-validation.md`：#298 LFCA/LFSM/LFSD/LFCP 的 G1 规范闭合、
   known vectors、跨平台逐字节确定性、损坏/上限、失败原子性与 P100 资源证据计划；
-  当前矩阵与向量已补齐混合几何档位适用性，仍待职责中立 exact-head clean review 与正式 G1 判断；
+  当前矩阵与向量已补齐混合几何档位适用性，并完成职责中立 exact-head clean review 与正式 G1 判断；
   所有 G2 执行结果仍须登记实际命令、精确提交和原始证据，不能把本计划追认为产品通过。
 - `v0.10-official-module-admission-validation.md`：#315 官方前端共同受检模块接入 G2
   的编译器私有共同 Typed AST、逐文档描述符、v1/v2 配置档版本边界、原子准入、来源映射、同机配对性能
