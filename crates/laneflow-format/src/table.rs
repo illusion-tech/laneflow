@@ -1,10 +1,13 @@
 //! TableV1 / RowV1 / FieldV1 的通用结构预检。
 //!
-//! 本模块只执行所有 registry 都共同遵守的线格式约束。对象专用 table kind、必需字段、
-//! tag/type/presence matrix、行键和跨表语义必须由后继 registry 预检补齐；在那之前本函数
-//! 的成功结果不能升级为对象级 typed checked view。
+//! 公共入口只执行所有 registry 都共同遵守的线格式约束。对象级入口另外传入附录 A 静态
+//! registry，补齐 table kind、字段 tag/type/presence 和内嵌行形状；行键与跨表语义仍属于
+//! 后继验证层。
 
-use laneflow_static_contract::PortableFieldType;
+use laneflow_static_contract::{
+    PortableFieldPresence, PortableFieldSchema, PortableFieldType, PortableRowCardinality,
+    PortableRowSchema, PortableRowShape, PortableTableSchema, portable_field_mask,
+};
 
 use crate::{
     FormatError, FormatLimits, FormatStructure, LimitDimension,
@@ -66,7 +69,7 @@ impl TableStructureSummary {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct Budget {
+pub(crate) struct PreflightBudget {
     total_rows: u64,
     total_fields: u64,
     total_utf8_bytes: u64,
@@ -79,6 +82,32 @@ pub fn preflight_table_structure_v1(
     bytes: &[u8],
     expected_table_kind: u16,
     limits: FormatLimits,
+) -> Result<TableStructureSummary, FormatError> {
+    let mut budget = PreflightBudget::default();
+    preflight_table_structure_with_registry_v1(
+        bytes,
+        expected_table_kind,
+        None,
+        limits,
+        &mut budget,
+    )
+}
+
+pub(crate) fn preflight_table_with_registry_v1(
+    bytes: &[u8],
+    schema: &'static PortableTableSchema,
+    limits: FormatLimits,
+    budget: &mut PreflightBudget,
+) -> Result<TableStructureSummary, FormatError> {
+    preflight_table_structure_with_registry_v1(bytes, schema.kind, Some(schema), limits, budget)
+}
+
+fn preflight_table_structure_with_registry_v1(
+    bytes: &[u8],
+    expected_table_kind: u16,
+    schema: Option<&'static PortableTableSchema>,
+    limits: FormatLimits,
+    budget: &mut PreflightBudget,
 ) -> Result<TableStructureSummary, FormatError> {
     let config = limits.config();
     let table_length = bytes.len() as u64;
@@ -116,6 +145,18 @@ pub fn preflight_table_structure_v1(
         u64::from(row_count),
         u64::from(config.max_rows_per_table),
     )?;
+    if let Some(schema) = schema {
+        let cardinality_matches = match schema.cardinality {
+            PortableRowCardinality::Any => true,
+            PortableRowCardinality::AtMostOne => row_count <= 1,
+            PortableRowCardinality::ExactlyOne => row_count == 1,
+        };
+        if !cardinality_matches {
+            return Err(FormatError::BindingMismatch {
+                structure: FormatStructure::TableRows,
+            });
+        }
+    }
     let rows_byte_length = read_u64(bytes, 8, FormatStructure::Table)?;
     let actual_rows_byte_length =
         table_length
@@ -146,7 +187,7 @@ pub fn preflight_table_structure_v1(
         });
     }
 
-    let mut budget = Budget::default();
+    let budget_before = *budget;
     let end = TABLE_HEADER_BYTES.checked_add(rows_byte_length).ok_or(
         FormatError::ArithmeticOverflow {
             structure: FormatStructure::Table,
@@ -158,8 +199,9 @@ pub fn preflight_table_structure_v1(
         end,
         row_count,
         0,
+        schema.map(|schema| schema.row),
         limits,
-        &mut budget,
+        budget,
     )?;
     if cursor != end {
         return Err(FormatError::LengthMismatch {
@@ -172,10 +214,10 @@ pub fn preflight_table_structure_v1(
     Ok(TableStructureSummary {
         table_kind,
         top_level_rows: row_count,
-        total_rows: budget.total_rows,
-        total_fields: budget.total_fields,
-        total_utf8_bytes: budget.total_utf8_bytes,
-        total_vector_bytes: budget.total_vector_bytes,
+        total_rows: budget.total_rows - budget_before.total_rows,
+        total_fields: budget.total_fields - budget_before.total_fields,
+        total_utf8_bytes: budget.total_utf8_bytes - budget_before.total_utf8_bytes,
+        total_vector_bytes: budget.total_vector_bytes - budget_before.total_vector_bytes,
         maximum_record_vector_depth: budget.maximum_record_vector_depth,
     })
 }
@@ -189,14 +231,16 @@ fn preflight_table_v1(
     preflight_table_structure_v1(bytes, expected_table_kind, limits)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_rows(
     bytes: &[u8],
     mut cursor: u64,
     end: u64,
     row_count: u32,
     depth: u8,
+    row_schema: Option<&'static PortableRowSchema>,
     limits: FormatLimits,
-    budget: &mut Budget,
+    budget: &mut PreflightBudget,
 ) -> Result<u64, FormatError> {
     let available = end
         .checked_sub(cursor)
@@ -217,7 +261,7 @@ fn parse_rows(
     }
 
     for _ in 0..row_count {
-        cursor = parse_row(bytes, cursor, end, depth, limits, budget)?;
+        cursor = parse_row(bytes, cursor, end, depth, row_schema, limits, budget)?;
     }
     Ok(cursor)
 }
@@ -227,8 +271,9 @@ fn parse_row(
     row_offset: u64,
     container_end: u64,
     depth: u8,
+    row_schema: Option<&'static PortableRowSchema>,
     limits: FormatLimits,
-    budget: &mut Budget,
+    budget: &mut PreflightBudget,
 ) -> Result<u64, FormatError> {
     let config = limits.config();
     checked_slice(bytes, row_offset, ROW_HEADER_BYTES, FormatStructure::Row)?;
@@ -296,16 +341,54 @@ fn parse_row(
 
     let mut cursor = row_offset + ROW_HEADER_BYTES;
     let mut previous_tag = None;
+    let mut schema_index = 0_usize;
+    let mut seen_fields = 0_u32;
+    let mut discriminant = None;
     for _ in 0..field_count {
-        cursor = parse_field(
+        let actual_tag = read_u16(bytes, cursor, FormatStructure::Field)?;
+        let expected_field = if let Some(schema) = row_schema {
+            while schema_index < schema.fields.len() && schema.fields[schema_index].tag < actual_tag
+            {
+                schema_index += 1;
+            }
+            let expected =
+                schema
+                    .fields
+                    .get(schema_index)
+                    .copied()
+                    .ok_or(FormatError::UnknownKind {
+                        structure: FormatStructure::Field,
+                        code: u64::from(actual_tag),
+                    })?;
+            if expected.tag != actual_tag {
+                return Err(FormatError::UnknownKind {
+                    structure: FormatStructure::Field,
+                    code: u64::from(actual_tag),
+                });
+            }
+            schema_index += 1;
+            seen_fields |= portable_field_mask(actual_tag);
+            Some(expected)
+        } else {
+            None
+        };
+        let parsed = parse_field(
             bytes,
             cursor,
             row_end,
             depth,
+            expected_field,
             limits,
             budget,
             &mut previous_tag,
         )?;
+        if let Some(schema) = row_schema
+            && let PortableRowShape::DiscriminatedU8 { tag, .. } = schema.shape
+            && actual_tag == tag
+        {
+            discriminant = parsed.u8_value;
+        }
+        cursor = parsed.end;
     }
     if cursor != row_end {
         return Err(FormatError::LengthMismatch {
@@ -314,7 +397,16 @@ fn parse_row(
             actual: cursor - row_offset - ROW_HEADER_BYTES,
         });
     }
+    if let Some(schema) = row_schema {
+        validate_row_shape(schema, seen_fields, discriminant)?;
+    }
     Ok(row_end)
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ParsedField {
+    end: u64,
+    u8_value: Option<u8>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -323,10 +415,11 @@ fn parse_field(
     field_offset: u64,
     row_end: u64,
     depth: u8,
+    expected_field: Option<PortableFieldSchema>,
     limits: FormatLimits,
-    budget: &mut Budget,
+    budget: &mut PreflightBudget,
     previous_tag: &mut Option<u16>,
-) -> Result<u64, FormatError> {
+) -> Result<ParsedField, FormatError> {
     checked_slice(
         bytes,
         field_offset,
@@ -357,6 +450,13 @@ fn parse_field(
             structure: FormatStructure::Field,
             code: u64::from(field_type_code),
         })?;
+    if let Some(expected) = expected_field
+        && field_type != expected.field_type
+    {
+        return Err(FormatError::BindingMismatch {
+            structure: FormatStructure::Field,
+        });
+    }
     let flags = read_u8(bytes, field_offset + 3, FormatStructure::Field)?;
     if flags != 0 {
         return Err(FormatError::NonCanonicalValue {
@@ -422,6 +522,7 @@ fn parse_field(
                 value_offset,
                 value_byte_length,
                 depth,
+                expected_field.and_then(|field| field.nested_row),
                 limits,
                 budget,
             )?;
@@ -436,7 +537,10 @@ fn parse_field(
         | PortableFieldType::I32 => {}
     }
 
-    Ok(field_end)
+    Ok(ParsedField {
+        end: field_end,
+        u8_value: (field_type == PortableFieldType::U8).then(|| value[0]),
+    })
 }
 
 fn precheck_variable_limits(
@@ -444,7 +548,7 @@ fn precheck_variable_limits(
     value_byte_length: u64,
     depth: u8,
     limits: FormatLimits,
-    budget: &mut Budget,
+    budget: &mut PreflightBudget,
 ) -> Result<(), FormatError> {
     let config = limits.config();
     match field_type {
@@ -571,8 +675,9 @@ fn validate_record_vector(
     value_offset: u64,
     value_byte_length: u64,
     depth: u8,
+    nested_row: Option<&'static PortableRowSchema>,
     limits: FormatLimits,
-    budget: &mut Budget,
+    budget: &mut PreflightBudget,
 ) -> Result<(), FormatError> {
     if value_byte_length < 4 {
         return Err(FormatError::LengthMismatch {
@@ -600,6 +705,7 @@ fn validate_record_vector(
         rows_end,
         count,
         depth + 1,
+        nested_row,
         limits,
         budget,
     )?;
@@ -609,6 +715,48 @@ fn validate_record_vector(
             declared: value_byte_length - 4,
             actual: cursor - rows_offset,
         });
+    }
+    Ok(())
+}
+
+fn validate_row_shape(
+    schema: &PortableRowSchema,
+    seen_fields: u32,
+    discriminant: Option<u8>,
+) -> Result<(), FormatError> {
+    match schema.shape {
+        PortableRowShape::Uniform => {
+            for field in schema.fields {
+                if field.presence == PortableFieldPresence::Required
+                    && seen_fields & portable_field_mask(field.tag) == 0
+                {
+                    return Err(FormatError::BindingMismatch {
+                        structure: FormatStructure::RowFields,
+                    });
+                }
+            }
+        }
+        PortableRowShape::DiscriminatedU8 { variants, .. } => {
+            let discriminant = discriminant.ok_or(FormatError::BindingMismatch {
+                structure: FormatStructure::RowFields,
+            })?;
+            let variant = variants
+                .iter()
+                .find(|variant| variant.discriminant == discriminant)
+                .ok_or(FormatError::UnknownKind {
+                    structure: FormatStructure::FieldValue,
+                    code: u64::from(discriminant),
+                })?;
+            if seen_fields & variant.required_fields != variant.required_fields
+                || seen_fields & !variant.allowed_fields != 0
+                || (variant.at_least_one_field != 0
+                    && seen_fields & variant.at_least_one_field == 0)
+            {
+                return Err(FormatError::BindingMismatch {
+                    structure: FormatStructure::RowFields,
+                });
+            }
+        }
     }
     Ok(())
 }
