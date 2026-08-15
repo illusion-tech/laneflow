@@ -1,7 +1,7 @@
 # CoreWorld 命令域拆分设计
 
-**文档状态**: Review<br>
-**最后更新**: 2026-08-14<br>
+**文档状态**: Accepted（#381 实施完成）<br>
+**最后更新**: 2026-08-15<br>
 **适用范围**: `laneflow-core` 的 `CoreWorld` 与 `world.rs` 内部组织；本文是 #381 的
 G1 冻结方案，冻结生效以 #381 Gate Ledger 的 G1 记录为准。本文引入的组织术语以
 `../reference/glossary.md` 的中文定义为权威<br>

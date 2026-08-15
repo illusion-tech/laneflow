@@ -22,7 +22,7 @@
   保留内存账本四类分治；按访问需求冻结逐项落点（P1/P2/P3 保留 crate 内常规
   `#[cfg(test)]` 模块、P4 降级 provenance）、仪器探针边界、测试支持接缝与
   benches 解耦落点。
-- `core-world-module-split.md`：#381 Review 的 CoreWorld 命令域拆分方案；冻结
+- `core-world-module-split.md`：#381 Accepted 的 CoreWorld 命令域拆分方案（已实施完成）；冻结
   `world.rs` → `world/mod.rs` 命令域子模块划分（state/support/parking_commands/
   signal_queries/route_queries/route_lifecycle/vehicle_lifecycle/tick 系列/tests）、
   `step()` 双分支收敛（const generic 单一 advance 循环）、测试纯搬迁与
