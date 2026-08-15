@@ -3268,6 +3268,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-format"
+version = "0.0.0"
+dependencies = [
+ "laneflow-static-contract",
+]
+
+[[package]]
 name = "laneflow-road-editing-wire"
 version = "0.0.0"
 dependencies = [
