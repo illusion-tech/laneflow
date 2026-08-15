@@ -1035,7 +1035,7 @@ profile 只进入非语义 CompilerProvenance，不进入这两个 revision 向�
 完整计划和 G2 证据占位见
 `../reference/v0.10-portable-artifact-validation.md`。
 
-## 11. G1 重开内容闭合与重新接受前置
+## 11. G1 重开内容闭合与重新接受结果
 
 本文按下列条件闭合 G1 实现输入；动态 Gate、精确提交、外部审阅和 Project 状态仍以
 #298 Gate Ledger 为准：
@@ -1053,12 +1053,13 @@ profile 只进入非语义 CompilerProvenance，不进入这两个 revision 向�
 - [x] 冻结 pre-hash 上限、结构计数上限、硬格式上限和失败原子性；
 - [x] 由非作者审阅者仅依据本文人工重建两个 revision 向量和最小对象关键 offset；
 - [x] 记录编码库/自有格式选择的安全与维护证据；
-- [ ] #298 Gate Ledger 绑定本次 G1 重开的语义最终提交并取得职责中立的外部 clean review，且
+- [x] #298 Gate Ledger 已绑定本次 G1 重开的语义最终提交并取得职责中立的外部 clean review，且
       Project/Issue 元数据完整。
 
 此前绑定 `0a1a8bcf38b513e09e6a0d2c3a3f936301a93cf1` 的 G1 Pass 只保留为历史记录，不能覆盖
-本次 spatial coverage 语义变化。最后一项只能在新事实成立后由 #298 Gate Ledger 重新记录；新
-G1 Pass 仍只冻结实现输入，不声明 LFCA/LFSM/LFSD/LFCP 已实现、通过产品验证或获得独立语义授信。
+本次 spatial coverage 与跨修订身份前像碰撞语义变化。#298 Gate Ledger 已在上述新事实成立后
+重新记录正式 G1 判断；新 G1 Pass 仍只冻结实现输入，不声明 LFCA/LFSM/LFSD/LFCP 已实现、
+通过产品验证或获得独立语义授信。
 G2 开工前仍须重新核验 GitHub 元数据、原生依赖、Accepted 文档和实现切片，并在 #298 追加独立
 `## G2 开工判断`；任何字段 tag、限制值、排序破同值、publication 原子性或职责边界变化都必须
 返回 G1。
