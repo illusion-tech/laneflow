@@ -232,6 +232,12 @@ impl<T> Clone for TableRange<T> {
 
 impl<T> Copy for TableRange<T> {}
 
+impl<T> PartialEq for TableRange<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.start == other.start && self.len == other.len
+    }
+}
+
 impl<T> fmt::Debug for TableRange<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
