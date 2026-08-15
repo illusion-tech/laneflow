@@ -13,7 +13,9 @@ LaneFlow 编译器、独立验证器与目标 Traffic Runtime 共享的静态契
   连接连续性的共享空间数值边界；
 - Identity v1 的版本常量、实体种类和字段标签元数据。
 - LFCA/LFSM/LFSD/LFCP v1 的 magic、版本、封闭字段类型、结构安全天花板，以及
-  SHA-256、路网修订标识和 exact-byte 长度值类型。
+  SHA-256、路网修订标识和 exact-byte 长度值类型；
+- 附录 A.1-A.4 的 section/table/field 名称、kind/tag/type/presence、singleton 行数、
+  field-specific RecordVector 行和按 `u8` 判别值选择的字段存在性矩阵。
 
 本 crate 不负责规范字节 envelope 的构造、BLAKE3 派生、来源数据解析、语义校验、
 制品读写或运行时状态。编译器与独立验证器必须各自实现身份编码与验证，避免共享实现

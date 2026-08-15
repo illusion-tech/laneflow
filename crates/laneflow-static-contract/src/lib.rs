@@ -5,6 +5,7 @@
 extern crate std;
 
 mod portable;
+mod portable_registry;
 mod registry;
 mod typed;
 mod values;
@@ -21,6 +22,11 @@ pub use portable::{
     OBJECT_PREAMBLE_V1_BYTE_LENGTH, PortableFieldType, PortableObjectKind,
     SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH, SECTION_FORMAT_VERSION_V1,
     SEMANTIC_DIFF_FORMAT_VERSION, SOURCE_MAP_FORMAT_VERSION, Sha256Digest,
+};
+pub use portable_registry::{
+    PortableFieldPresence, PortableFieldSchema, PortableObjectSchema, PortableRowCardinality,
+    PortableRowSchema, PortableRowShape, PortableRowVariant, PortableSectionSchema,
+    PortableTableSchema, portable_field_mask, portable_object_schema,
 };
 
 pub use registry::{
