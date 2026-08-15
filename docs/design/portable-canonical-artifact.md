@@ -1,13 +1,15 @@
 # 可移植规范制品与辅助制品格式
 
-**文档状态**: Accepted（#298 G1 Pass；尚未开始 G2）<br>
+**文档状态**: Accepted（#298 G1 Pass；G2 进度以 Issue Gate Ledger 为准）<br>
 **最后更新**: 2026-08-15<br>
 **适用范围**: `laneflow-format`、`laneflow-static-contract`、
 `laneflow-compiler` 的可移植规范制品（Portable Canonical Artifact）、源映射封套
 （Source Map Envelope）、语义差异封套（Semantic Diff Envelope）、规范发布描述符
 （Canonical Publication Descriptor）与原子发布边界<br>
-**实现状态**: 尚未实现；当前生产编译器只原子返回配对的
-`ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`<br>
+**实现状态**: G2 进行中；当前已建立共享 magic/version/field type/硬上限值与
+framing、Table/Row/Field 通用结构预检，尚未完成附录 A typed view、编译器发射、固定
+对象 fixture 或发布事务；当前生产编译器仍只原子返回配对的 `ValidatedCanonicalLir`
+与 `ValidatedSourceMapInput`<br>
 **关联 Issue**: #298；依赖 #292、#296；阻断 #299、#300<br>
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
 `numeric-representation.md`、
