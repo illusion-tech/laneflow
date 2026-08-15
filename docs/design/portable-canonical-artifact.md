@@ -1,6 +1,6 @@
 # 可移植规范制品与辅助制品格式
 
-**文档状态**: Accepted（#298 G1 Pass；尚未开始 G2）<br>
+**文档状态**: In Review（#298 G1 因混合几何档位适用性重开；尚未开始 G2）<br>
 **最后更新**: 2026-08-15<br>
 **适用范围**: `laneflow-format`、`laneflow-static-contract`、
 `laneflow-compiler` 的可移植规范制品（Portable Canonical Artifact）、源映射封套
@@ -17,11 +17,13 @@
 
 ## 1. 状态、目标与非目标
 
-本文把 `network-compiler.md` 第 8 节和 ADR 0020 已接受的长期边界收窄为 #298 已接受的
+本文把 `network-compiler.md` 第 8 节和 ADR 0020 已接受的长期边界收窄为 #298 正在重新审阅的
 实现级格式输入。此前 G1 曾因 facility-only spatial output 无法表示而重开；该缺口与后续发现的
-跨修订身份前像碰撞现已闭合，并由 #298 Gate Ledger 中新的正式 `## G1 设计判断` 重新接受。
-G1 Pass 只授权准备独立 G2 开工判断，不表示格式已经实现、通过验证或可供产品发布；任何实现
-PR 都必须等待 #298 的正式 `## G2 开工判断` 为 Pass。
+跨修订身份前像碰撞虽已闭合，但本轮审阅又发现全局 direction profile 会误约束同次编译中
+profile-free Synthetic geometry。本文已增加逐 geometry 的适用性表达并等待 exact-head clean
+review 与 #298 Gate Ledger 新的正式 `## G1 设计判断`。G1 重新接受后也只授权准备独立 G2
+开工判断，不表示格式已经实现、通过验证或可供产品发布；任何实现 PR 都必须等待 #298 的正式
+`## G2 开工判断` 为 Pass。
 
 #298 必须同时闭合四类对象：
 
@@ -1035,7 +1037,7 @@ profile 只进入非语义 CompilerProvenance，不进入这两个 revision 向�
 完整计划和 G2 证据占位见
 `../reference/v0.10-portable-artifact-validation.md`。
 
-## 11. G1 重开内容闭合与重新接受结果
+## 11. G1 再次重开内容闭合与待重新接受条件
 
 本文按下列条件闭合 G1 实现输入；动态 Gate、精确提交、外部审阅和 Project 状态仍以
 #298 Gate Ledger 为准：
@@ -1053,13 +1055,15 @@ profile 只进入非语义 CompilerProvenance，不进入这两个 revision 向�
 - [x] 冻结 pre-hash 上限、结构计数上限、硬格式上限和失败原子性；
 - [x] 由非作者审阅者仅依据本文人工重建两个 revision 向量和最小对象关键 offset；
 - [x] 记录编码库/自有格式选择的安全与维护证据；
-- [x] #298 Gate Ledger 已绑定本次 G1 重开的语义最终提交并取得职责中立的外部 clean review，且
-      Project/Issue 元数据完整。
+- [x] 冻结混合 RoadEditing/Synthetic 编译的逐 geometry direction profile 适用标记、连接端点
+      OR 规则、LFSM range binding 与 LFSD GeometryChange 投影；
+- [ ] #298 Gate Ledger 绑定本次再次重开的语义最终提交并取得职责中立的 exact-head clean
+      review，且 Project/Issue 元数据完整。
 
-此前绑定 `0a1a8bcf38b513e09e6a0d2c3a3f936301a93cf1` 的 G1 Pass 只保留为历史记录，不能覆盖
-本次 spatial coverage 与跨修订身份前像碰撞语义变化。#298 Gate Ledger 已在上述新事实成立后
-重新记录正式 G1 判断；新 G1 Pass 仍只冻结实现输入，不声明 LFCA/LFSM/LFSD/LFCP 已实现、
-通过产品验证或获得独立语义授信。
+此前的 G1 Pass 都只保留为历史记录，不能覆盖本次逐 geometry direction profile 适用性语义
+变化。本文在上述未勾选条件闭合前保持 In Review；#298 Gate Ledger 重新记录正式 G1 判断后才
+恢复 Accepted。新的 G1 Pass 仍只冻结实现输入，不声明 LFCA/LFSM/LFSD/LFCP 已实现、通过
+产品验证或获得独立语义授信。
 G2 开工前仍须重新核验 GitHub 元数据、原生依赖、Accepted 文档和实现切片，并在 #298 追加独立
 `## G2 开工判断`；任何字段 tag、限制值、排序破同值、publication 原子性或职责边界变化都必须
 返回 G1。
@@ -1409,11 +1413,11 @@ occurrence；不同匹配的 internal route-edge 区间不得重叠，route 中�
 
 `CanonicalSpatialTables(0x0005)` 精确包含：
 
-| tableKind | 表名                 | 字段                                                                                                                    | 行键           |
-| --------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `0x0001`  | SpatialPresence      | `1:spatialPresent:u8:R, 2:geometryDirectionProfile:u8:R`                                                                | singleton      |
-| `0x0002`  | LaneEdgeGeometry     | `1:laneEdge:u32:R, 2:canonicalFrame:u32:R, 3:arcLengthMeters:f32:R, 4:points:RecordVector:R, 5:segments:RecordVector:R` | `laneEdge`     |
-| `0x0003`  | FacilityBandGeometry | `1:facilityBand:u32:R, 2:canonicalFrame:u32:R, 3:points:RecordVector:R`                                                 | `facilityBand` |
+| tableKind | 表名                 | 字段                                                                                                                                                    | 行键           |
+| --------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `0x0001`  | SpatialPresence      | `1:spatialPresent:u8:R, 2:geometryDirectionProfile:u8:R`                                                                                                | singleton      |
+| `0x0002`  | LaneEdgeGeometry     | `1:laneEdge:u32:R, 2:canonicalFrame:u32:R, 3:arcLengthMeters:f32:R, 4:points:RecordVector:R, 5:segments:RecordVector:R, 6:directionProfileApplies:u8:R` | `laneEdge`     |
+| `0x0003`  | FacilityBandGeometry | `1:facilityBand:u32:R, 2:canonicalFrame:u32:R, 3:points:RecordVector:R, 4:directionProfileApplies:u8:R`                                                 | `facilityBand` |
 
 `spatialPresent` 只允许 `0/1`。发射器从同次 LIR 重建四个布尔量：`hasProfile` 当且仅当
 `geometry_profiles` 为 `Some`，`hasFrame` 当且仅当 CanonicalFrame 实体表非空，另两个量分别
@@ -1426,10 +1430,13 @@ direction code 始终严格投影 `geometry_profiles`：`None` 写 `0=None`，`S
 独立验证器以 direction code 非零重建 wire `hasProfile`，再与其余三项执行同一逻辑或；下文
 CompilerProvenance 的 accuracy code 必须与 direction code 具有相同的零/非零 presence。
 `geometryDirectionProfile` 的闭合代码为 `0=None, 1=Smooth1Deg, 2=Balanced2Deg,
-3=Compact5Deg`。`0` 只表示显式 Synthetic 几何没有 frontend direction policy，不表示空间
-缺失，也不得由 writer 替换成自选 profile；独立验证器仍核对全部点、段、frame 和 join gap，
-但只在 code 非零时核对最终折线和跨 edge full-angle 约束。来源曲线到最终折线的 accuracy
-profile 无法从最终点表独立重算，
+3=Compact5Deg`。每张 geometry 的 `directionProfileApplies` 只允许 `0/1`：`1` 表示该行的最终
+折线受上述唯一全局 direction profile 约束，`0` 表示该行没有 frontend direction policy。
+全局 code 为 `0` 时全部行的适用标记必须为 `0`；任一行标记为 `1` 时全局 code 必须非零。
+全局 code 非零但某行标记为 `0` 是混合 RoadEditing/Synthetic 编译的合法状态，不得把该 code
+无条件套到该行，也不得为它另选默认或逐行 profile。独立验证器无论标记为何仍核对全部点、段、
+frame 和 join gap，只按下文的适用规则核对最终折线和跨 edge full-angle。来源曲线到最终折线的
+accuracy profile 无法从最终点表独立重算，
 因此不在本语义表中，也不构成 LFCA 对 `2/5/10 cm` 最大误差的自证声明；它只按下文进入
 非语义 CompilerProvenance，并由受认证的 compiler/receipt 链承担来源策略真实性。不得为
 补回该不可验证声明而向 LFCA 增加 reference curve、误差证书或第二套 oracle。
@@ -1461,9 +1468,9 @@ FMA、运算重排或额外精度；结果为零时规范成 `+0.0f32`。平台 
 `left=normalize([tangent.z,0,-tangent.x])`，
 `up=normalize([tangent.y*left.z, tangent.z*left.x-tangent.x*left.z,
 -tangent.y*left.x])`。存储的 length/cumulative/tangent/up 必须与该顺序重算的 f32 位模式逐项
-相同；`geometryDirectionProfile` 非零时还必须继续通过 `numeric-representation.md`/ADR 0022
-冻结的最终弦方向谓词，等于零时不得暗中选择默认 profile。不得把任一预计算字段当作点表
-之外的第二权威。
+相同；该行 `directionProfileApplies=1` 时还必须使用非零 `geometryDirectionProfile` 继续通过
+`numeric-representation.md`/ADR 0022 冻结的最终弦方向谓词，等于 `0` 时不得暗中选择默认
+profile。不得把任一预计算字段当作点表之外的第二权威。
 
 LaneEdgeGeometry 非空时还必须从对象自身建立有向连接对集合：先加入全部
 `LaneEdge.successors`，再加入每条 ManeuverPath 的每对相邻 edge；重复 pair 只检查一次，
@@ -1473,22 +1480,24 @@ path-only transition 不能因未出现在 successors 中而跳过。每个 `(pr
 `HypotRteF32(HypotRteF32(dx,dy),dz)` 重算 gap；只接受
 `gap <= 0.005f32`（bits `0x3ba3d70a`，等号有效），不得吸附、焊接或移动端点。
 
-当 `geometryDirectionProfile` 非零时，任意受检相邻弦对都必须通过同一个 direction profile
-谓词：先把两弦的 binary32 点分量无损提升为 binary64 后分别做末点减首点，再各除以自身
+方向谓词的适用集合按 geometry 行闭合：一张 geometry 内的相邻弦对只在该行
+`directionProfileApplies=1` 时受检；有向连接 pair 的 predecessor 末弦和 successor 首弦在
+任一端适用标记为 `1` 时受检。所有受检弦对必须通过同一个非零
+`geometryDirectionProfile` 谓词：先把两弦的 binary32 点分量无损提升为 binary64 后分别做
+末点减首点，再各除以自身
 绝对分量最大值；
 按 `dot=(x*x'+y*y')+z*z'`、`norm2=(x*x+y*y)+z*z`、
 `lhs=dot*dot`、`rhs=(C*norm2(left))*norm2(right)` 的写出顺序逐运算舍入到 binary64，只接受
 `dot > 0 && lhs >= rhs`。`C` 的 binary64 bits 对 Smooth/Balanced/Compact 依次为
 `0x3feffd813c5f82b4`、`0x3feff605b8b87ffc`、`0x3fefc1c5c6408e0c`；禁止 FMA、重结合、
-`acos/cos`、额外精度或实现自选 epsilon。受检集合必须同时包含每张 LaneEdgeGeometry 内
-相邻 segment 弦对、每张 FacilityBandGeometry 内相邻点弦对，以及上述每个有向连接 pair 的
-predecessor 末弦和 successor 首弦；任一 polyline 不能只检查首尾或跨 edge join。code 为
-`0=None` 时跳过且只能跳过本方向谓词，不能跳过 frame、gap、点表、段表或 arc-length 验证。
-任何适用检查失败都在建立 spatial view 前失败关闭。
+`acos/cos`、额外精度或实现自选 epsilon。适用行必须覆盖其全部内部相邻弦对，适用连接必须覆盖
+两端 join；任一 polyline 不能只检查首尾或只检查跨 edge join。行标记为 `0`、连接两端标记都为
+`0`，或全局 code 为 `0=None` 时，只跳过对应方向谓词，不能跳过 frame、gap、点表、段表或
+arc-length 验证。任何适用检查失败都在建立 spatial view 前失败关闭。
 
 `FacilityBandGeometry.points` 同样必须至少两项，并逐点、逐弦执行上述分量范围、正零、
-`length>0.1 m` 和有限严格递增累计；direction code 非零时再执行所选 profile 检查。它不保存
-segments 或 arcLength，验证器只使用 points 重算，不得为其接受额外预计算值。
+`length>0.1 m` 和有限严格递增累计；该行 `directionProfileApplies=1` 时再执行所选非零 profile
+检查。它不保存 segments 或 arcLength，验证器只使用 points 重算，不得为其接受额外预计算值。
 
 `StaticExecutionConstraints(0x0006)` 只有 `ExecutionContract(0x0001)` singleton：
 `1:staticExecutionContractVersion:u16:R, 2:constraintContractVersion:u16:R`。具体约束已由
@@ -1517,10 +1526,12 @@ LFCA v1 的 `ContractVersions` 六个字段都只接受值 `1`；`ExecutionContr
 - `emitterVersion=1`；
 - `geometryAccuracyProfile` 严格投影同次编译 LIR 的 `geometry_profiles`：`None` 写
   `0=None`，`Some` 按闭合代码 `1=Fine2Cm, 2=Balanced5Cm, 3=Compact10Cm` 写入；因此
-  `spatialPresent=1` 的显式 Synthetic 或 facility-only geometry 也允许且只允许 `0`，
-  `spatialPresent=0` 仍必须为 `0`。独立验证器只核对该投影、枚举与 object binding，不得把它
-  报告为已独立证明的最大位置误差；accuracy 与 semantic direction code 必须同时为零或同时
-  非零，单边伪造 profile presence 失败关闭；
+  `spatialPresent=0` 必须为 `0`，全局 profile 缺失的显式 Synthetic 或 facility-only geometry
+  也必须为 `0`；混合编译中它可因其他 RoadEditing geometry 而非零。独立验证器只核对该投影、
+  枚举与 object binding，不得把它报告为已独立证明的最大位置误差；accuracy 与 semantic
+  direction code 必须同时为零或同时非零，单边伪造 profile presence 失败关闭。逐 geometry
+  `directionProfileApplies` 只控制方向谓词，不建立第二个 accuracy profile，也不改变该全局
+  presence 一致性；
 - v1 没有会改变 portable bytes 的外部编译选项，因而
   `compileOptionsDigest = SHA-256("laneflow.portable-compile-options.v1\0" ||
   optionCount:u32=0)`，其中 `u32` 为小端；固定结果为
@@ -1757,16 +1768,20 @@ LFCA tuple；只证明位置在全局上合法，或把另一关系行的合法�
 `OwnerLocalSource` 父行；`sourceLocation` 必须解析到 SourceLocation。候选发射时，每个父行
 先与对应 spatial relation view 的 `geometry_source_ranges()` 做精确投影：每个迭代项的 point range、
 `sourceSegmentOrdinal` 和 source location 必须逐值生成恰好一行，不能遗漏、添加、重排或
-合成 segment ordinal。若迭代器为空，则 `SpatialGeometrySourceRange` 必须恰无子行，父行
-`contributingLocations` 也必须为空；这是显式 Synthetic `CanonicalFrame` geometry 的合法
-profile-free/source-range-free 状态，不要求伪造 segment。
+合成 segment ordinal。候选发射器还必须把该迭代器是否非空精确投影为对应 LFCA geometry 行的
+`directionProfileApplies`：非空写 `1`，空写 `0`。若迭代器为空，则
+`SpatialGeometrySourceRange` 必须恰无子行，父行 `contributingLocations` 也必须为空；这是显式
+Synthetic `CanonicalFrame` geometry 的合法 profile-free/source-range-free 状态，不要求伪造
+segment。
 
 独立验证器不持有该迭代器：候选中范围为空时只核对父行贡献集为空；范围非空时，范围必须从
 `pointStart=0` 开始，按行键严格相邻、非空且无重叠，最后一个
 `pointEndExclusive` 必须等于对应 LFCA geometry `points` 的 item 数；localIndex 在该
 frame/role 下按相应 LFCA geometry 表行顺序从零编号；非空状态的父行
 `contributingLocations` 必须等于所有子行 `sourceLocation` 按位置语义值排序去重后的 ordinal
-投影。每个非空范围的 `sourceLocation` 还必须是 RoadEditing `OwnerLocal`：全部同父行范围的
+投影。独立 LFCA/LFSM 交叉验证还必须要求每个父行的范围非空性与绑定 LFCA geometry 行的
+`directionProfileApplies` 精确相等；只改 flag、只增删范围或把另一 geometry 的合法范围换入都
+失败关闭。每个非空范围的 `sourceLocation` 还必须是 RoadEditing `OwnerLocal`：全部同父行范围的
 module/document 与 Address owner 必须完全相同；relation 必须为 `CurveSegment`；occurrence
 必须为 `OrderedProductOrdinal(sourceSegmentOrdinal)`；property path 必须精确为单步
 `TableField(CurveSegment, 1)`，并按 A.5 的 OwnerLocal 可达性规则属于该 owner。Text、
@@ -1947,8 +1962,8 @@ for each projected field in required-tag order:
   valueBytes[valueByteLength]
 ```
 
-LaneEdgeGeometry 的 projected fields 精确为 tag `3,4,5`，FacilityBandGeometry 精确为 tag
-`3`；valueBytes 是对应 LFCA field value 的 exact bytes。GeometryChange 已在共同字段携带
+LaneEdgeGeometry 的 projected fields 精确为 tag `3,4,5,6`，FacilityBandGeometry 精确为 tag
+`3,4`；valueBytes 是对应 LFCA field value 的 exact bytes。GeometryChange 已在共同字段携带
 subject kind/StableId，因此 geometry row tag 1 subject ordinal 必须排除；tag 2 frame ordinal
 必须替换为所引 CanonicalFrame 的 `StableRefV1`。这样 subject/frame 仅因表内重编号而变化时
 投影保持相同，真实 frame 或几何值变化仍唯一可见。Add/Remove/Modify 三种 change kind 都按
@@ -1992,8 +2007,9 @@ Entity Add/Remove 的 `subjectStableId`、完整 RowV1 与两端 `CanonicalIdent
   不一致都失败关闭。
 
 该表的排序键是 singleton，不使用或伪造 `entityKind`；它唯一表达
-headless/spatial presence 与闭合 direction profile code 的全局变化。accuracy profile
-只改变非语义 CompilerProvenance 和 artifact exact binding，不得产生空间语义变化记录。
+headless/spatial presence 与闭合 direction profile code 的全局变化。逐 geometry
+`directionProfileApplies` 的变化由 `GeometryChange` 表达；accuracy profile 只改变非语义
+CompilerProvenance 和 artifact exact binding，不得产生空间语义变化记录。
 
 ### A.4 LFCP table registry
 
