@@ -67,28 +67,28 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct RouteTransition {
-    to_edge: EdgeHandle,
-    gate: Option<ManeuverGateHandle>,
+pub(super) struct RouteTransition {
+    pub(super) to_edge: EdgeHandle,
+    pub(super) gate: Option<ManeuverGateHandle>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct NextControlledRouteTransition {
-    from_route_edge_index: usize,
-    gate: ManeuverGateHandle,
-    distance_from_edge_start: BoundedDistance,
+pub(super) struct NextControlledRouteTransition {
+    pub(super) from_route_edge_index: usize,
+    pub(super) gate: ManeuverGateHandle,
+    pub(super) distance_from_edge_start: BoundedDistance,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct SpeedLimitRouteTransition {
-    from_route_edge_index: usize,
-    to_edge: EdgeHandle,
-    target_speed: f64,
+pub(super) struct SpeedLimitRouteTransition {
+    pub(super) from_route_edge_index: usize,
+    pub(super) to_edge: EdgeHandle,
+    pub(super) target_speed: f64,
 }
 
 #[derive(Clone, Debug, Default)]
-struct RouteReferenceIndex {
-    by_update_position: IndexMap<usize, VehicleHandle>,
+pub(super) struct RouteReferenceIndex {
+    pub(super) by_update_position: IndexMap<usize, VehicleHandle>,
 }
 
 impl PartialEq for RouteReferenceIndex {
@@ -99,15 +99,15 @@ impl PartialEq for RouteReferenceIndex {
 }
 
 impl RouteReferenceIndex {
-    fn live_count(&self) -> usize {
+    pub(super) fn live_count(&self) -> usize {
         self.by_update_position.len()
     }
 
-    fn reserve_for_attach(&mut self) {
+    pub(super) fn reserve_for_attach(&mut self) {
         self.by_update_position.reserve(1);
     }
 
-    fn attach(&mut self, vehicle: VehicleHandle, position: usize) {
+    pub(super) fn attach(&mut self, vehicle: VehicleHandle, position: usize) {
         assert_eq!(
             self.by_update_position.insert(position, vehicle),
             None,
@@ -115,7 +115,7 @@ impl RouteReferenceIndex {
         );
     }
 
-    fn detach(&mut self, vehicle: VehicleHandle, position: usize) {
+    pub(super) fn detach(&mut self, vehicle: VehicleHandle, position: usize) {
         assert_eq!(
             self.by_update_position.swap_remove(&position),
             Some(vehicle),
@@ -123,7 +123,7 @@ impl RouteReferenceIndex {
         );
     }
 
-    fn replace(&mut self, old: VehicleHandle, new: VehicleHandle, update_order_position: usize) {
+    pub(super) fn replace(&mut self, old: VehicleHandle, new: VehicleHandle, update_order_position: usize) {
         let vehicle = self
             .by_update_position
             .get_mut(&update_order_position)
@@ -132,11 +132,11 @@ impl RouteReferenceIndex {
         *vehicle = new;
     }
 
-    fn clear(&mut self) {
+    pub(super) fn clear(&mut self) {
         self.by_update_position.clear();
     }
 
-    fn first(&self) -> Option<VehicleHandle> {
+    pub(super) fn first(&self) -> Option<VehicleHandle> {
         self.by_update_position
             .iter()
             .min_by_key(|(position, _)| *position)
@@ -145,35 +145,35 @@ impl RouteReferenceIndex {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct RouteSlot {
-    generation: u32,
-    external_id: String,
-    edge_handles: Vec<EdgeHandle>,
-    transitions: Vec<RouteTransition>,
-    maneuver_occurrences: Vec<ManeuverOccurrence>,
-    gate_occurrences: Vec<GateOccurrence>,
-    waiting_zone_occurrences: Vec<WaitingZoneOccurrence>,
-    next_controlled_transition: Vec<Option<NextControlledRouteTransition>>,
-    speed_limit_transitions: Vec<SpeedLimitRouteTransition>,
-    active: bool,
+pub(super) struct RouteSlot {
+    pub(super) generation: u32,
+    pub(super) external_id: String,
+    pub(super) edge_handles: Vec<EdgeHandle>,
+    pub(super) transitions: Vec<RouteTransition>,
+    pub(super) maneuver_occurrences: Vec<ManeuverOccurrence>,
+    pub(super) gate_occurrences: Vec<GateOccurrence>,
+    pub(super) waiting_zone_occurrences: Vec<WaitingZoneOccurrence>,
+    pub(super) next_controlled_transition: Vec<Option<NextControlledRouteTransition>>,
+    pub(super) speed_limit_transitions: Vec<SpeedLimitRouteTransition>,
+    pub(super) active: bool,
 }
 
 #[derive(Clone, Copy)]
-struct VehicleAdvanceContext<'a> {
-    lane_graph: &'a LaneGraph,
-    signals: &'a SignalRegistry,
-    signal_state: &'a SignalRuntimeState,
-    routes: &'a [RouteSlot],
-    fixed_delta_time_ms: u64,
-    tick_index: u64,
+pub(super) struct VehicleAdvanceContext<'a> {
+    pub(super) lane_graph: &'a LaneGraph,
+    pub(super) signals: &'a SignalRegistry,
+    pub(super) signal_state: &'a SignalRuntimeState,
+    pub(super) routes: &'a [RouteSlot],
+    pub(super) fixed_delta_time_ms: u64,
+    pub(super) tick_index: u64,
 }
 
 #[derive(Clone, Debug)]
-struct VehicleSlot {
-    generation: u32,
-    external_id: String,
-    state: Option<VehicleState>,
-    update_order_position: Option<usize>,
+pub(super) struct VehicleSlot {
+    pub(super) generation: u32,
+    pub(super) external_id: String,
+    pub(super) state: Option<VehicleState>,
+    pub(super) update_order_position: Option<usize>,
 }
 
 impl PartialEq for VehicleSlot {
@@ -185,9 +185,9 @@ impl PartialEq for VehicleSlot {
 }
 
 #[derive(Clone, Debug, Default)]
-struct StableVehicleOrder {
-    entries: Vec<Option<VehicleHandle>>,
-    tombstones: usize,
+pub(super) struct StableVehicleOrder {
+    pub(super) entries: Vec<Option<VehicleHandle>>,
+    pub(super) tombstones: usize,
 }
 
 impl PartialEq for StableVehicleOrder {
@@ -197,21 +197,21 @@ impl PartialEq for StableVehicleOrder {
 }
 
 impl StableVehicleOrder {
-    fn iter(&self) -> impl Iterator<Item = VehicleHandle> + '_ {
+    pub(super) fn iter(&self) -> impl Iterator<Item = VehicleHandle> + '_ {
         self.entries.iter().filter_map(|entry| *entry)
     }
 
-    fn reserve_for_append(&mut self) {
+    pub(super) fn reserve_for_append(&mut self) {
         self.entries.reserve(1);
     }
 
-    fn append(&mut self, handle: VehicleHandle) -> usize {
+    pub(super) fn append(&mut self, handle: VehicleHandle) -> usize {
         let position = self.entries.len();
         self.entries.push(Some(handle));
         position
     }
 
-    fn replace(&mut self, position: usize, old: VehicleHandle, new: VehicleHandle) {
+    pub(super) fn replace(&mut self, position: usize, old: VehicleHandle, new: VehicleHandle) {
         let entry = self
             .entries
             .get_mut(position)
@@ -220,7 +220,7 @@ impl StableVehicleOrder {
         *entry = Some(new);
     }
 
-    fn tombstone(&mut self, position: usize, handle: VehicleHandle) {
+    pub(super) fn tombstone(&mut self, position: usize, handle: VehicleHandle) {
         let entry = self
             .entries
             .get_mut(position)
@@ -234,12 +234,12 @@ impl StableVehicleOrder {
         self.tombstones += 1;
     }
 
-    fn should_compact(&self) -> bool {
+    pub(super) fn should_compact(&self) -> bool {
         let live = self.entries.len() - self.tombstones;
         live == 0 || self.tombstones >= live.max(64)
     }
 
-    fn compact(&mut self, vehicles: &mut [VehicleSlot]) -> bool {
+    pub(super) fn compact(&mut self, vehicles: &mut [VehicleSlot]) -> bool {
         if !self.should_compact() {
             return false;
         }
@@ -258,19 +258,19 @@ impl StableVehicleOrder {
 
 /// 可跨 tick 复用、但不属于 Core authority state 的候选车辆状态。
 #[derive(Debug, Default)]
-struct CandidateStateScratch {
-    states: Vec<Option<VehicleState>>,
-    spatial_changes: Vec<VehicleHandle>,
-    parking_releases: Vec<ParkingStepRelease>,
+pub(super) struct CandidateStateScratch {
+    pub(super) states: Vec<Option<VehicleState>>,
+    pub(super) spatial_changes: Vec<VehicleHandle>,
+    pub(super) parking_releases: Vec<ParkingStepRelease>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct ParkingStepRelease {
-    vehicle: VehicleHandle,
-    space: crate::ParkingSpaceHandle,
+pub(super) struct ParkingStepRelease {
+    pub(super) vehicle: VehicleHandle,
+    pub(super) space: crate::ParkingSpaceHandle,
 }
 
-fn parking_arrived_state(
+pub(super) fn parking_arrived_state(
     vehicle: &VehicleState,
     target: Option<ParkingApproachTarget>,
     entry_progress: Option<f64>,
@@ -309,13 +309,13 @@ impl PartialEq for CandidateStateScratch {
 }
 
 impl CandidateStateScratch {
-    fn reserve_for_slots(&mut self, vehicle_slot_count: usize) {
+    pub(super) fn reserve_for_slots(&mut self, vehicle_slot_count: usize) {
         let additional = vehicle_slot_count.saturating_sub(self.states.len());
         self.states.reserve(additional);
         self.spatial_changes.reserve(additional);
     }
 
-    fn begin(&mut self, vehicles: &[VehicleSlot]) {
+    pub(super) fn begin(&mut self, vehicles: &[VehicleSlot]) {
         self.states.clear();
         self.spatial_changes.clear();
         self.parking_releases.clear();
@@ -323,11 +323,11 @@ impl CandidateStateScratch {
             .extend(vehicles.iter().map(|slot| slot.state.clone()));
     }
 
-    fn state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
+    pub(super) fn state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
         self.states.get(handle.index()).and_then(Option::as_ref)
     }
 
-    fn commit_into(&mut self, vehicles: &mut [VehicleSlot]) {
+    pub(super) fn commit_into(&mut self, vehicles: &mut [VehicleSlot]) {
         assert_eq!(
             self.states.len(),
             vehicles.len(),
@@ -338,7 +338,7 @@ impl CandidateStateScratch {
         }
     }
 
-    fn clear(&mut self) {
+    pub(super) fn clear(&mut self) {
         self.states.clear();
         self.spatial_changes.clear();
         self.parking_releases.clear();
@@ -348,38 +348,38 @@ impl CandidateStateScratch {
 /// LaneFlow Core 的最小 runtime state。
 #[derive(Clone, Debug, PartialEq)]
 pub struct CoreWorld {
-    fixed_delta_time_ms: u64,
-    tick_index: u64,
-    time_ms: u64,
-    lane_graph: LaneGraph,
-    vehicle_profiles: VehicleProfileRegistry,
-    junctions: JunctionRegistry,
-    signals: SignalRegistry,
-    parking: ParkingRegistry,
-    participant_classes: ParticipantClassRegistry,
-    cross_section: CrossSectionRegistry,
-    access: AccessRegistry,
-    waiting: WaitingRegistry,
+    pub(super) fixed_delta_time_ms: u64,
+    pub(super) tick_index: u64,
+    pub(super) time_ms: u64,
+    pub(super) lane_graph: LaneGraph,
+    pub(super) vehicle_profiles: VehicleProfileRegistry,
+    pub(super) junctions: JunctionRegistry,
+    pub(super) signals: SignalRegistry,
+    pub(super) parking: ParkingRegistry,
+    pub(super) participant_classes: ParticipantClassRegistry,
+    pub(super) cross_section: CrossSectionRegistry,
+    pub(super) access: AccessRegistry,
+    pub(super) waiting: WaitingRegistry,
     pub(crate) parking_runtime: ParkingRuntimeState,
-    signal_state: SignalRuntimeState,
-    signal_candidate_scratch: SignalRuntimeScratch,
-    routes: Vec<RouteSlot>,
-    route_distance_indices: Vec<RouteDistanceIndex>,
-    route_reference_indices: Vec<RouteReferenceIndex>,
-    route_handles: IndexMap<String, RouteHandle>,
-    free_route_indices: Vec<usize>,
-    vehicles: Vec<VehicleSlot>,
-    vehicle_handles: IndexMap<String, VehicleHandle>,
-    free_vehicle_indices: Vec<usize>,
-    vehicle_update_order: StableVehicleOrder,
-    candidate_state_scratch: CandidateStateScratch,
-    occupancy_scratch: OccupancyScratch,
-    longitudinal_scratch: LongitudinalScratch,
-    command_spatial_index: CommandSpatialIndex,
+    pub(super) signal_state: SignalRuntimeState,
+    pub(super) signal_candidate_scratch: SignalRuntimeScratch,
+    pub(super) routes: Vec<RouteSlot>,
+    pub(super) route_distance_indices: Vec<RouteDistanceIndex>,
+    pub(super) route_reference_indices: Vec<RouteReferenceIndex>,
+    pub(super) route_handles: IndexMap<String, RouteHandle>,
+    pub(super) free_route_indices: Vec<usize>,
+    pub(super) vehicles: Vec<VehicleSlot>,
+    pub(super) vehicle_handles: IndexMap<String, VehicleHandle>,
+    pub(super) free_vehicle_indices: Vec<usize>,
+    pub(super) vehicle_update_order: StableVehicleOrder,
+    pub(super) candidate_state_scratch: CandidateStateScratch,
+    pub(super) occupancy_scratch: OccupancyScratch,
+    pub(super) longitudinal_scratch: LongitudinalScratch,
+    pub(super) command_spatial_index: CommandSpatialIndex,
     #[cfg(any(test, feature = "test-support"))]
-    step_failure_after_vehicle: Option<VehicleHandle>,
+    pub(super) step_failure_after_vehicle: Option<VehicleHandle>,
     #[cfg(any(test, feature = "test-support"))]
-    replace_failure_after_prepare: bool,
+    pub(super) replace_failure_after_prepare: bool,
 }
 
 impl CoreWorld {
@@ -1241,7 +1241,7 @@ impl CoreWorld {
         })
     }
 
-    fn first_reachable_parking_entry(
+    pub(super) fn first_reachable_parking_entry(
         &self,
         route: RouteHandle,
         from_route_edge_index: usize,
@@ -1274,7 +1274,7 @@ impl CoreWorld {
         })
     }
 
-    fn parking_arrived(
+    pub(super) fn parking_arrived(
         &self,
         vehicle: VehicleHandle,
         space: crate::ParkingSpaceHandle,
@@ -1443,7 +1443,7 @@ impl CoreWorld {
         self.register_compiled_route(route)
     }
 
-    fn register_compiled_route(&mut self, route: CompiledRoute) -> Result<RouteHandle, CoreError> {
+    pub(super) fn register_compiled_route(&mut self, route: CompiledRoute) -> Result<RouteHandle, CoreError> {
         if self.route_handles.contains_key(route.definition().id()) {
             return Err(CoreError::DuplicateRouteId {
                 route_id: route.definition().id().to_owned(),
@@ -1513,7 +1513,7 @@ impl CoreWorld {
         Ok(handle)
     }
 
-    fn build_route_metadata(
+    pub(super) fn build_route_metadata(
         &self,
         edge_handles: &[EdgeHandle],
         edge_lengths: &[f64],
@@ -1637,7 +1637,7 @@ impl CoreWorld {
     /// `cursor == exit` 时 traversal 已完成，exit edge 准入由 edge 平面覆盖）。两平面
     /// 合取：任一平面命中 deny 即原子拒绝，allow 不跨平面解除 deny。成功路径只做
     /// O(1) 查表，不做字符串匹配、层级匹配、组合裁决或 per-vehicle allocation。
-    fn validate_route_access(
+    pub(super) fn validate_route_access(
         &self,
         profile: VehicleProfileHandle,
         route: RouteHandle,
@@ -1717,7 +1717,7 @@ impl CoreWorld {
         Ok(())
     }
 
-    fn validate_route_assignment(
+    pub(super) fn validate_route_assignment(
         &self,
         profile: VehicleProfileHandle,
         route: RouteHandle,
@@ -1731,14 +1731,14 @@ impl CoreWorld {
         self.validate_waiting_zone_runtime_capability(route, cursor)
     }
 
-    fn waiting_zone_occurrence_is_pending(
+    pub(super) fn waiting_zone_occurrence_is_pending(
         occurrence: WaitingZoneOccurrence,
         cursor: usize,
     ) -> bool {
         cursor <= occurrence.release_route_edge_index()
     }
 
-    fn validate_waiting_zone_static_feasibility(
+    pub(super) fn validate_waiting_zone_static_feasibility(
         &self,
         profile: VehicleProfileHandle,
         route: RouteHandle,
@@ -1805,7 +1805,7 @@ impl CoreWorld {
         Ok(())
     }
 
-    fn validate_stateful_maneuver_bootstrap(
+    pub(super) fn validate_stateful_maneuver_bootstrap(
         &self,
         route: RouteHandle,
         cursor: usize,
@@ -1840,7 +1840,7 @@ impl CoreWorld {
         Ok(())
     }
 
-    fn validate_waiting_zone_runtime_capability(
+    pub(super) fn validate_waiting_zone_runtime_capability(
         &self,
         route: RouteHandle,
         cursor: usize,
@@ -2104,14 +2104,14 @@ impl CoreWorld {
         }))
     }
 
-    fn spawn_vehicle_without_overlap_validation(
+    pub(super) fn spawn_vehicle_without_overlap_validation(
         &mut self,
         input: VehicleSpawnInput,
     ) -> Result<VehicleHandle, CoreError> {
         self.spawn_vehicle_with_overlap_validation(input, false)
     }
 
-    fn spawn_vehicle_with_overlap_validation(
+    pub(super) fn spawn_vehicle_with_overlap_validation(
         &mut self,
         input: VehicleSpawnInput,
         validate_overlap: bool,
@@ -2368,11 +2368,11 @@ impl CoreWorld {
         })
     }
 
-    fn first_route_reference(&mut self, route: RouteHandle) -> Option<VehicleHandle> {
+    pub(super) fn first_route_reference(&mut self, route: RouteHandle) -> Option<VehicleHandle> {
         self.route_reference_indices[route.index()].first()
     }
 
-    fn rebuild_route_reference_index(&mut self, route: RouteHandle) {
+    pub(super) fn rebuild_route_reference_index(&mut self, route: RouteHandle) {
         let order = &self.vehicle_update_order;
         let vehicles = &self.vehicles;
         let index = &mut self.route_reference_indices[route.index()];
@@ -2396,7 +2396,7 @@ impl CoreWorld {
         }
     }
 
-    fn rebuild_all_route_reference_indices(&mut self) {
+    pub(super) fn rebuild_all_route_reference_indices(&mut self) {
         for index in &mut self.route_reference_indices {
             index.clear();
         }
@@ -2415,14 +2415,14 @@ impl CoreWorld {
         }
     }
 
-    fn compact_update_order_if_needed(&mut self) {
+    pub(super) fn compact_update_order_if_needed(&mut self) {
         if self.vehicle_update_order.compact(&mut self.vehicles) {
             self.rebuild_all_route_reference_indices();
         }
     }
 
     #[cfg(test)]
-    fn assert_lifecycle_indices_consistent(&mut self) {
+    pub(super) fn assert_lifecycle_indices_consistent(&mut self) {
         let mut seen = vec![false; self.vehicles.len()];
         let mut expected_route_counts = vec![0_usize; self.routes.len()];
         let mut expected_route_first = vec![None; self.routes.len()];
@@ -2824,7 +2824,7 @@ impl CoreWorld {
         })
     }
 
-    fn rebuild_command_spatial_index(&mut self) {
+    pub(super) fn rebuild_command_spatial_index(&mut self) {
         let mut spatial = std::mem::take(&mut self.command_spatial_index);
         spatial.begin_rebuild(self.vehicles.len());
         for vehicle in self.vehicles() {
@@ -2846,7 +2846,7 @@ impl CoreWorld {
         self.command_spatial_index = spatial;
     }
 
-    fn sync_changed_command_spatial_memberships(&mut self, candidate: &CandidateStateScratch) {
+    pub(super) fn sync_changed_command_spatial_memberships(&mut self, candidate: &CandidateStateScratch) {
         let routes = &self.routes;
         let vehicles = &self.vehicles;
         let spatial = &mut self.command_spatial_index;
@@ -2872,7 +2872,7 @@ impl CoreWorld {
         }
     }
 
-    fn append_signal_events(
+    pub(super) fn append_signal_events(
         &self,
         tick_index: u64,
         candidate: &SignalRuntimeState,
@@ -2922,7 +2922,7 @@ impl CoreWorld {
         }
     }
 
-    fn validate_candidate_overlap(
+    pub(super) fn validate_candidate_overlap(
         &mut self,
         route: RouteHandle,
         candidate_id: &str,
@@ -2934,7 +2934,7 @@ impl CoreWorld {
         Err(self.candidate_overlap_error(candidate_id, overlap))
     }
 
-    fn validate_candidate_overlap_excluding(
+    pub(super) fn validate_candidate_overlap_excluding(
         &mut self,
         excluded: VehicleHandle,
         route: RouteHandle,
@@ -2949,7 +2949,7 @@ impl CoreWorld {
         Err(self.candidate_overlap_error(candidate_id, overlap))
     }
 
-    fn find_candidate_overlap_excluding(
+    pub(super) fn find_candidate_overlap_excluding(
         &mut self,
         excluded: VehicleHandle,
         route: RouteHandle,
@@ -2958,7 +2958,7 @@ impl CoreWorld {
         self.find_candidate_overlap(Some(excluded), route, candidate)
     }
 
-    fn find_candidate_overlap(
+    pub(super) fn find_candidate_overlap(
         &mut self,
         excluded: Option<VehicleHandle>,
         route: RouteHandle,
@@ -3012,7 +3012,7 @@ impl CoreWorld {
         result
     }
 
-    fn validate_parking_leave_followers(
+    pub(super) fn validate_parking_leave_followers(
         &mut self,
         leaving_vehicle: VehicleHandle,
         space: crate::ParkingSpaceHandle,
@@ -3070,7 +3070,7 @@ impl CoreWorld {
         result
     }
 
-    fn validate_parking_leave_followers_for_handles(
+    pub(super) fn validate_parking_leave_followers_for_handles(
         &self,
         leaving_vehicle: VehicleHandle,
         space: crate::ParkingSpaceHandle,
@@ -3157,7 +3157,7 @@ impl CoreWorld {
     }
 
     #[cfg(test)]
-    fn validate_parking_leave_followers_full_scan(
+    pub(super) fn validate_parking_leave_followers_full_scan(
         &self,
         leaving_vehicle: VehicleHandle,
         space: crate::ParkingSpaceHandle,
@@ -3183,7 +3183,7 @@ impl CoreWorld {
     }
 
     #[cfg(test)]
-    fn validate_candidate_overlap_full_scan(
+    pub(super) fn validate_candidate_overlap_full_scan(
         &self,
         route: RouteHandle,
         candidate_id: &str,
@@ -3198,7 +3198,7 @@ impl CoreWorld {
     }
 
     #[cfg(test)]
-    fn validate_candidate_overlap_for_handles<I>(
+    pub(super) fn validate_candidate_overlap_for_handles<I>(
         &self,
         route: RouteHandle,
         candidate_id: &str,
@@ -3216,7 +3216,7 @@ impl CoreWorld {
         Err(self.candidate_overlap_error(candidate_id, overlap))
     }
 
-    fn find_candidate_overlap_for_handles<I>(
+    pub(super) fn find_candidate_overlap_for_handles<I>(
         &self,
         route: RouteHandle,
         candidate: &NormalizedVehicleInput,
@@ -3298,7 +3298,7 @@ impl CoreWorld {
         None
     }
 
-    fn candidate_overlap_error(
+    pub(super) fn candidate_overlap_error(
         &self,
         candidate_id: &str,
         overlap: CandidateVehicleOverlap,
@@ -3321,7 +3321,7 @@ impl CoreWorld {
         }
     }
 
-    fn route_front_distance_within(
+    pub(super) fn route_front_distance_within(
         &self,
         route: RouteHandle,
         route_edge_index: usize,
@@ -3358,7 +3358,7 @@ impl CoreWorld {
         }
     }
 
-    fn validate_initial_vehicle_overlaps(&mut self) -> Result<(), CoreError> {
+    pub(super) fn validate_initial_vehicle_overlaps(&mut self) -> Result<(), CoreError> {
         let mut scratch = std::mem::take(&mut self.occupancy_scratch);
         self.build_occupancy(&mut scratch);
         let result = self.validate_occupancy_overlaps(&scratch);
@@ -3366,7 +3366,7 @@ impl CoreWorld {
         result
     }
 
-    fn validate_occupancy_overlaps(&self, scratch: &OccupancyScratch) -> Result<(), CoreError> {
+    pub(super) fn validate_occupancy_overlaps(&self, scratch: &OccupancyScratch) -> Result<(), CoreError> {
         for edge_index in 0..self.lane_graph.edges().len() {
             for pair in scratch.edge(EdgeHandle::new(edge_index)).windows(2) {
                 let follower = pair[0];
@@ -3408,7 +3408,7 @@ impl CoreWorld {
         Ok(())
     }
 
-    fn vehicle_overlap_error(
+    pub(super) fn vehicle_overlap_error(
         &self,
         follower: VehicleHandle,
         leader: VehicleHandle,
@@ -3427,7 +3427,7 @@ impl CoreWorld {
         }
     }
 
-    fn rebuild_occupancy_and_leaders(&mut self) -> Result<(), CoreError> {
+    pub(super) fn rebuild_occupancy_and_leaders(&mut self) -> Result<(), CoreError> {
         let mut scratch = std::mem::take(&mut self.occupancy_scratch);
         let result = (|| {
             self.build_occupancy(&mut scratch);
@@ -3458,7 +3458,7 @@ impl CoreWorld {
         result
     }
 
-    fn rebuild_longitudinal_motions<P: StepProbe>(
+    pub(super) fn rebuild_longitudinal_motions<P: StepProbe>(
         &mut self,
         probe: &mut P,
     ) -> Result<(), CoreError> {
@@ -3474,7 +3474,7 @@ impl CoreWorld {
         result
     }
 
-    fn rebuild_longitudinal_motions_for_parking<const PARKING_ACTIVE: bool, P: StepProbe>(
+    pub(super) fn rebuild_longitudinal_motions_for_parking<const PARKING_ACTIVE: bool, P: StepProbe>(
         &mut self,
         probe: &mut P,
     ) -> Result<(), CoreError> {
@@ -3585,7 +3585,7 @@ impl CoreWorld {
         result
     }
 
-    fn apply_speed_limit_constraints(
+    pub(super) fn apply_speed_limit_constraints(
         &self,
         vehicle: &VehicleState,
         profile: crate::IidmProfileSpec,
@@ -3640,7 +3640,7 @@ impl CoreWorld {
         Ok(constrained)
     }
 
-    fn speed_limit_horizon(
+    pub(super) fn speed_limit_horizon(
         &self,
         vehicle: &VehicleState,
         profile: crate::IidmProfileSpec,
@@ -3669,7 +3669,7 @@ impl CoreWorld {
         )
     }
 
-    fn parking_stop_within(
+    pub(super) fn parking_stop_within(
         &self,
         vehicle: &VehicleState,
         profile: crate::IidmProfileSpec,
@@ -3733,7 +3733,7 @@ impl CoreWorld {
         }
     }
 
-    fn route_end_distance_within(&self, vehicle: &VehicleState, max_travel: f64) -> Option<f64> {
+    pub(super) fn route_end_distance_within(&self, vehicle: &VehicleState, max_travel: f64) -> Option<f64> {
         let horizon = if max_travel <= f64::MAX - LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS {
             max_travel + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS
         } else {
@@ -3772,7 +3772,7 @@ impl CoreWorld {
         }
     }
 
-    fn build_occupancy(&self, scratch: &mut OccupancyScratch) {
+    pub(super) fn build_occupancy(&self, scratch: &mut OccupancyScratch) {
         scratch.begin(self.lane_graph.edges().len(), self.vehicles.len());
 
         for handle in self.vehicle_update_order.iter() {
@@ -3827,13 +3827,13 @@ impl CoreWorld {
         scratch.sort_edges();
     }
 
-    fn vehicle_edge(&self, vehicle: &VehicleState) -> EdgeHandle {
+    pub(super) fn vehicle_edge(&self, vehicle: &VehicleState) -> EdgeHandle {
         self.route_slot(vehicle.route)
             .expect("live vehicle route must exist")
             .edge_handles[vehicle.route_edge_index]
     }
 
-    fn leader_horizon(&self, vehicle: &VehicleState) -> Result<f64, CoreError> {
+    pub(super) fn leader_horizon(&self, vehicle: &VehicleState) -> Result<f64, CoreError> {
         let profile = self
             .vehicle_profile(vehicle.profile)
             .expect("live vehicle profile must exist")
@@ -3863,7 +3863,7 @@ impl CoreWorld {
         Ok(hard_horizon.max(comfort_horizon).max(minimum_gap_horizon))
     }
 
-    fn signal_stop_horizon(
+    pub(super) fn signal_stop_horizon(
         &self,
         vehicle: &VehicleState,
         profile: crate::IidmProfileSpec,
@@ -3893,7 +3893,7 @@ impl CoreWorld {
         Ok(comfortable_horizon.max(self.leader_horizon(vehicle)?))
     }
 
-    fn parking_stop_horizon(
+    pub(super) fn parking_stop_horizon(
         &self,
         vehicle: &VehicleState,
         profile: crate::IidmProfileSpec,
@@ -3931,7 +3931,7 @@ impl CoreWorld {
         )
     }
 
-    fn nearest_denied_signal_stop(
+    pub(super) fn nearest_denied_signal_stop(
         &self,
         vehicle: &VehicleState,
         horizon: f64,
@@ -3998,7 +3998,7 @@ impl CoreWorld {
         Ok(None)
     }
 
-    fn find_leader(
+    pub(super) fn find_leader(
         &self,
         scratch: &OccupancyScratch,
         follower: &VehicleState,
@@ -4085,7 +4085,7 @@ impl CoreWorld {
         Ok(None)
     }
 
-    fn finite_leader_value(
+    pub(super) fn finite_leader_value(
         vehicle: VehicleHandle,
         stage: &'static str,
         value: f64,
@@ -4100,7 +4100,7 @@ impl CoreWorld {
         Ok(value)
     }
 
-    fn finite_signal_stop_value(
+    pub(super) fn finite_signal_stop_value(
         vehicle: VehicleHandle,
         stage: &'static str,
         value: f64,
@@ -4115,7 +4115,7 @@ impl CoreWorld {
         Ok(if value == 0.0 { 0.0 } else { value })
     }
 
-    fn finite_speed_limit_value(
+    pub(super) fn finite_speed_limit_value(
         vehicle: VehicleHandle,
         stage: &'static str,
         value: f64,
@@ -4130,7 +4130,7 @@ impl CoreWorld {
         Ok(if value == 0.0 { 0.0 } else { value })
     }
 
-    fn braking_distance(speed: f64, deceleration: f64) -> f64 {
+    pub(super) fn braking_distance(speed: f64, deceleration: f64) -> f64 {
         if speed == 0.0 {
             return 0.0;
         }
@@ -4146,7 +4146,7 @@ impl CoreWorld {
         }
     }
 
-    fn half_product(left: f64, right: f64) -> f64 {
+    pub(super) fn half_product(left: f64, right: f64) -> f64 {
         if left >= right {
             (0.5 * left) * right
         } else {
@@ -4154,7 +4154,7 @@ impl CoreWorld {
         }
     }
 
-    fn normalize_vehicle_replace_input(
+    pub(super) fn normalize_vehicle_replace_input(
         &self,
         old: VehicleHandle,
         input: &VehicleReplaceInput,
@@ -4206,7 +4206,7 @@ impl CoreWorld {
         })
     }
 
-    fn normalize_vehicle_input(
+    pub(super) fn normalize_vehicle_input(
         &self,
         route: RouteHandle,
         input: &VehicleSpawnInput,
@@ -4297,7 +4297,7 @@ impl CoreWorld {
         })
     }
 
-    fn advance_vehicle<const PARKING_ACTIVE: bool>(
+    pub(super) fn advance_vehicle<const PARKING_ACTIVE: bool>(
         context: VehicleAdvanceContext<'_>,
         vehicle: &mut VehicleState,
         motion: LongitudinalMotion,
@@ -4576,13 +4576,13 @@ impl CoreWorld {
         Ok(completed_event)
     }
 
-    fn route_slot(&self, handle: RouteHandle) -> Option<&RouteSlot> {
+    pub(super) fn route_slot(&self, handle: RouteHandle) -> Option<&RouteSlot> {
         self.routes
             .get(handle.index())
             .filter(|route| route.active && route.generation == handle.generation())
     }
 
-    fn vehicle_slot(&self, handle: VehicleHandle) -> Option<&VehicleSlot> {
+    pub(super) fn vehicle_slot(&self, handle: VehicleHandle) -> Option<&VehicleSlot> {
         self.vehicles
             .get(handle.index())
             .filter(|vehicle| vehicle.generation == handle.generation() && vehicle.state.is_some())
@@ -4590,19 +4590,19 @@ impl CoreWorld {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct NormalizedVehicleInput {
-    profile: VehicleProfileHandle,
-    route_edge_index: usize,
-    edge_progress: EdgeProgress,
-    current_speed: Speed,
-    status: VehicleStatus,
+pub(super) struct NormalizedVehicleInput {
+    pub(super) profile: VehicleProfileHandle,
+    pub(super) route_edge_index: usize,
+    pub(super) edge_progress: EdgeProgress,
+    pub(super) current_speed: Speed,
+    pub(super) status: VehicleStatus,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct CandidateVehicleOverlap {
-    blocker: VehicleHandle,
-    blocker_position: VehicleReplaceBlockerPosition,
-    bumper_gap: f64,
+pub(super) struct CandidateVehicleOverlap {
+    pub(super) blocker: VehicleHandle,
+    pub(super) blocker_position: VehicleReplaceBlockerPosition,
+    pub(super) bumper_gap: f64,
 }
 
 enum PreparedVehicleReplaceIds {
@@ -4610,7 +4610,7 @@ enum PreparedVehicleReplaceIds {
     Replace { slot: String, resolver: String },
 }
 
-fn parking_emergency_travel(
+pub(super) fn parking_emergency_travel(
     stage: &'static str,
     vehicle: VehicleHandle,
     space: crate::ParkingSpaceHandle,
