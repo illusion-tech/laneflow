@@ -85,6 +85,29 @@ Core 不负责：
 
 Adapter 负责把引擎帧循环转换为 Core tick 调用，并把 Core 输出映射到具体引擎对象。
 
+### 3.1 world 模块结构（#381）
+
+`laneflow-core` 的 `world` 模块（`src/world/`）按命令域组织 `CoreWorld` 实现
+（#381 拆分，结构与可见性详见 `core-world-module-split.md`）：
+
+- `state.rs`：`CoreWorld` 结构与构造、基础车辆访问、`route_slot`/`vehicle_slot` 通用访问器；
+- `support.rs`：文件级内部结构（`RouteReferenceIndex`、`CandidateStateScratch` 等），
+  以 `pub(super)` 在 world 模块树内共享，不持有 `impl CoreWorld` 成员；
+- `parking_commands.rs` / `signal_queries.rs` / `route_queries.rs` /
+  `route_lifecycle.rs` / `vehicle_lifecycle.rs`：parking 命令族、signal 查询族、
+  profile/edge/route 查询族、route 生命周期与车辆生命周期入口；
+- `tick.rs` 及 `tick_spatial.rs` / `tick_overlap.rs` / `tick_longitudinal.rs` /
+  `tick_advance.rs`：`step` 编排（无保留停车与保留停车两分支收敛为单一
+  `advance_all_vehicles<const PARKING_ACTIVE>` 车辆推进循环）与 tick 内部
+  spatial/overlap/longitudinal 校验重建、`advance_vehicle` 推进 helper；
+  `tick_*` 是 `CoreWorld` 方法宿主而非领域逻辑所有者（领域逻辑仍在 crate 级
+  同名模块）；
+- `tests.rs` / `retained_memory.rs` / `*_tests.rs`：`#[cfg(test)]` 测试模块。
+
+可见性：world 模块树内跨域共享的方法与字段以 `pub(super)` 标注；`parking_runtime`
+保持既有 `pub(crate)`（crate 级 `parking.rs` 仍跨模块读取）；`pub mod world` 与
+`pub use world::CoreWorld` 导出面不变。
+
 ## 4. 设计决策
 
 ### D1. Core 使用显式 tick，不读取 wall clock
