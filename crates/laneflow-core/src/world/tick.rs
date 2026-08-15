@@ -63,198 +63,22 @@ impl CoreWorld {
         let mut candidate_states = std::mem::take(&mut self.candidate_state_scratch);
         candidate_states.begin(&self.vehicles);
         let mut events = Vec::new();
-        let advance_context = VehicleAdvanceContext {
-            lane_graph: &self.lane_graph,
-            signals: &self.signals,
-            signal_state: &self.signal_state,
-            routes: &self.routes,
-            fixed_delta_time_ms: self.fixed_delta_time_ms,
-            tick_index: next_tick_index,
-        };
         let mut candidate_max_vehicle_speed = 0.0_f64;
-        let advance_result = (|| {
-            let CandidateStateScratch {
-                states,
-                spatial_changes,
-                parking_releases,
-            } = &mut candidate_states;
-            let has_reserved_parking = self.parking_runtime.reserved_count() > 0;
-            if !has_reserved_parking {
-                for vehicle_handle in self.vehicle_update_order.iter() {
-                    let Some(current_slot) = self
-                        .vehicles
-                        .get(vehicle_handle.index())
-                        .filter(|slot| slot.generation == vehicle_handle.generation())
-                    else {
-                        continue;
-                    };
-                    if current_slot.state.is_none() {
-                        continue;
-                    }
-                    let Some(motion) = self.longitudinal_scratch.motion(vehicle_handle) else {
-                        debug_assert!(matches!(
-                            current_slot.state.as_ref().map(|state| state.status),
-                            Some(VehicleStatus::Completed | VehicleStatus::Parked)
-                        ));
-                        continue;
-                    };
-                    let Some(vehicle) = states
-                        .get_mut(vehicle_handle.index())
-                        .and_then(Option::as_mut)
-                    else {
-                        continue;
-                    };
-
-                    if let Some(completed_event) = Self::advance_vehicle::<false>(
-                        advance_context,
-                        vehicle,
-                        motion,
-                        None,
-                        &mut events,
-                        spatial_changes,
-                    )? {
-                        events.push(CoreEvent::VehicleCompletedRoute(completed_event));
-                    }
-                    #[cfg(any(test, feature = "test-support"))]
-                    if self.step_failure_after_vehicle == Some(vehicle_handle) {
-                        return Err(CoreError::ParkingBindingInvariantViolation {
-                            stage: "test_after_vehicle_advance",
-                            vehicle: Some(vehicle_handle),
-                            space: None,
-                        });
-                    }
-                    if vehicle.status == VehicleStatus::Active {
-                        candidate_max_vehicle_speed =
-                            candidate_max_vehicle_speed.max(vehicle.current_speed.value());
-                    }
-                }
-                return Ok(());
-            }
-            let mut parking_stops = self
-                .longitudinal_scratch
-                .parking_stops()
-                .iter()
-                .copied()
-                .peekable();
-            for vehicle_handle in self.vehicle_update_order.iter() {
-                let Some(current_slot) = self
-                    .vehicles
-                    .get(vehicle_handle.index())
-                    .filter(|slot| slot.generation == vehicle_handle.generation())
-                else {
-                    continue;
-                };
-                if current_slot.state.is_none() {
-                    continue;
-                }
-                let Some(motion) = self.longitudinal_scratch.motion(vehicle_handle) else {
-                    debug_assert!(matches!(
-                        current_slot.state.as_ref().map(|state| state.status),
-                        Some(VehicleStatus::Completed | VehicleStatus::Parked)
-                    ));
-                    continue;
-                };
-                let parking_stop = parking_stops
-                    .peek()
-                    .filter(|stop| stop.vehicle == vehicle_handle)
-                    .map(|stop| stop.constraint);
-                if parking_stop.is_some() {
-                    parking_stops.next();
-                }
-                let parking_binding = self.parking_runtime.vehicle_binding(vehicle_handle);
-                let reaches_parking_stop =
-                    parking_stop.is_some_and(|constraint| motion.reaches_parking_stop(constraint));
-                let (reserved_space, reserved_target, entry_progress, was_arrived) =
-                    match parking_binding {
-                        Some(RuntimeVehicleParkingBinding::Reserved { space, target, .. }) => {
-                            let entry_progress = reaches_parking_stop.then(|| {
-                                self.parking
-                                    .space_entry(space)
-                                    .expect("reserved ParkingSpace must have entry")
-                                    .progress()
-                            });
-                            let was_arrived = current_slot.state.as_ref().is_some_and(|state| {
-                                parking_arrived_state(state, target, entry_progress)
-                            });
-                            (Some(space), target, entry_progress, was_arrived)
-                        }
-                        Some(RuntimeVehicleParkingBinding::Occupied { .. }) | None => {
-                            (None, None, None, false)
-                        }
-                    };
-
-                let Some(vehicle) = states
-                    .get_mut(vehicle_handle.index())
-                    .and_then(Option::as_mut)
-                else {
-                    continue;
-                };
-
-                let completed_event = Self::advance_vehicle::<true>(
-                    advance_context,
-                    vehicle,
-                    motion,
-                    parking_stop,
-                    &mut events,
-                    spatial_changes,
-                )?;
-                if let Some(space) = reserved_space {
-                    if let Some(completed_event) = completed_event {
-                        if reserved_target.is_some() {
-                            return Err(CoreError::ParkingBindingInvariantViolation {
-                                stage: "step_reachable_target_completed",
-                                vehicle: Some(vehicle_handle),
-                                space: Some(space),
-                            });
-                        }
-                        parking_releases.push(ParkingStepRelease {
-                            vehicle: vehicle_handle,
-                            space,
-                        });
-                        events.push(CoreEvent::ParkingReservationReleased(
-                            ParkingReservationReleasedEvent {
-                                tick_index: next_tick_index,
-                                vehicle: vehicle_handle,
-                                space,
-                                reason: ParkingReleaseReason::RouteCompleted,
-                            },
-                        ));
-                        events.push(CoreEvent::VehicleCompletedRoute(completed_event));
-                    } else if reaches_parking_stop
-                        && !was_arrived
-                        && parking_arrived_state(vehicle, reserved_target, entry_progress)
-                    {
-                        let target = reserved_target
-                            .expect("arrived reservation must have an approach target");
-                        events.push(CoreEvent::VehicleParkingArrivalReached(
-                            VehicleParkingArrivalReachedEvent {
-                                tick_index: next_tick_index,
-                                vehicle: vehicle_handle,
-                                space,
-                                route: target.route,
-                                route_edge_index: target.route_edge_index,
-                            },
-                        ));
-                    }
-                } else if let Some(completed_event) = completed_event {
-                    events.push(CoreEvent::VehicleCompletedRoute(completed_event));
-                }
-                #[cfg(any(test, feature = "test-support"))]
-                if self.step_failure_after_vehicle == Some(vehicle_handle) {
-                    return Err(CoreError::ParkingBindingInvariantViolation {
-                        stage: "test_after_vehicle_advance",
-                        vehicle: Some(vehicle_handle),
-                        space: reserved_space,
-                    });
-                }
-                if vehicle.status == VehicleStatus::Active {
-                    candidate_max_vehicle_speed =
-                        candidate_max_vehicle_speed.max(vehicle.current_speed.value());
-                }
-            }
-            debug_assert!(parking_stops.next().is_none());
-            Ok(())
-        })();
+        let advance_result = if self.parking_runtime.reserved_count() > 0 {
+            self.advance_all_vehicles::<true>(
+                &mut candidate_states,
+                &mut events,
+                next_tick_index,
+                &mut candidate_max_vehicle_speed,
+            )
+        } else {
+            self.advance_all_vehicles::<false>(
+                &mut candidate_states,
+                &mut events,
+                next_tick_index,
+                &mut candidate_max_vehicle_speed,
+            )
+        };
 
         if let Err(error) = advance_result {
             candidate_states.clear();
@@ -315,6 +139,198 @@ impl CoreWorld {
             events,
         })
     }
+
+    /// 单一车辆推进循环：无保留停车与保留停车两分支的收敛实现。
+    ///
+    /// `PARKING_ACTIVE` 为编译期常量泛型：`false` 实例（无保留停车热路径）经
+    /// monomorphization 折叠全部停车分支，不引入运行时开销；`true` 实例承载
+    /// parking_stops 解析、Reserved binding 上下文与 release/arrival 事件。
+    /// first-error 语义、事件顺序、失败原子性与故障注入语义与收敛前一致。
+    fn advance_all_vehicles<const PARKING_ACTIVE: bool>(
+        &mut self,
+        candidate_states: &mut CandidateStateScratch,
+        events: &mut Vec<CoreEvent>,
+        next_tick_index: u64,
+        candidate_max_vehicle_speed: &mut f64,
+    ) -> Result<(), CoreError> {
+        let advance_context = VehicleAdvanceContext {
+            lane_graph: &self.lane_graph,
+            signals: &self.signals,
+            signal_state: &self.signal_state,
+            routes: &self.routes,
+            fixed_delta_time_ms: self.fixed_delta_time_ms,
+            tick_index: next_tick_index,
+        };
+        let CandidateStateScratch {
+            states,
+            spatial_changes,
+            parking_releases,
+        } = candidate_states;
+        let mut parking_stops = PARKING_ACTIVE.then(|| {
+            self.longitudinal_scratch
+                .parking_stops()
+                .iter()
+                .copied()
+                .peekable()
+        });
+        for vehicle_handle in self.vehicle_update_order.iter() {
+            let Some(current_slot) = self
+                .vehicles
+                .get(vehicle_handle.index())
+                .filter(|slot| slot.generation == vehicle_handle.generation())
+            else {
+                continue;
+            };
+            if current_slot.state.is_none() {
+                continue;
+            }
+            let Some(motion) = self.longitudinal_scratch.motion(vehicle_handle) else {
+                debug_assert!(matches!(
+                    current_slot.state.as_ref().map(|state| state.status),
+                    Some(VehicleStatus::Completed | VehicleStatus::Parked)
+                ));
+                continue;
+            };
+            let parking_stop = if PARKING_ACTIVE {
+                parking_stops
+                    .as_mut()
+                    .expect("PARKING_ACTIVE keeps parking_stops")
+                    .peek()
+                    .filter(|stop| stop.vehicle == vehicle_handle)
+                    .map(|stop| stop.constraint)
+            } else {
+                None
+            };
+            if PARKING_ACTIVE && parking_stop.is_some() {
+                parking_stops
+                    .as_mut()
+                    .expect("PARKING_ACTIVE keeps parking_stops")
+                    .next();
+            }
+            let parking_binding = PARKING_ACTIVE
+                .then(|| self.parking_runtime.vehicle_binding(vehicle_handle))
+                .flatten();
+            let reaches_parking_stop =
+                parking_stop.is_some_and(|constraint| motion.reaches_parking_stop(constraint));
+            let (reserved_space, reserved_target, entry_progress, was_arrived) = if PARKING_ACTIVE
+            {
+                match parking_binding {
+                    Some(RuntimeVehicleParkingBinding::Reserved { space, target, .. }) => {
+                        let entry_progress = reaches_parking_stop.then(|| {
+                            self.parking
+                                .space_entry(space)
+                                .expect("reserved ParkingSpace must have entry")
+                                .progress()
+                        });
+                        let was_arrived = current_slot.state.as_ref().is_some_and(|state| {
+                            parking_arrived_state(state, target, entry_progress)
+                        });
+                        (Some(space), target, entry_progress, was_arrived)
+                    }
+                    Some(RuntimeVehicleParkingBinding::Occupied { .. }) | None => {
+                        (None, None, None, false)
+                    }
+                }
+            } else {
+                (None, None, None, false)
+            };
+
+            let Some(vehicle) = states
+                .get_mut(vehicle_handle.index())
+                .and_then(Option::as_mut)
+            else {
+                continue;
+            };
+
+            let completed_event = if PARKING_ACTIVE {
+                Self::advance_vehicle::<true>(
+                    advance_context,
+                    vehicle,
+                    motion,
+                    parking_stop,
+                    events,
+                    spatial_changes,
+                )?
+            } else {
+                Self::advance_vehicle::<false>(
+                    advance_context,
+                    vehicle,
+                    motion,
+                    None,
+                    events,
+                    spatial_changes,
+                )?
+            };
+            if PARKING_ACTIVE {
+                if let Some(space) = reserved_space {
+                    if let Some(completed_event) = completed_event {
+                        if reserved_target.is_some() {
+                            return Err(CoreError::ParkingBindingInvariantViolation {
+                                stage: "step_reachable_target_completed",
+                                vehicle: Some(vehicle_handle),
+                                space: Some(space),
+                            });
+                        }
+                        parking_releases.push(ParkingStepRelease {
+                            vehicle: vehicle_handle,
+                            space,
+                        });
+                        events.push(CoreEvent::ParkingReservationReleased(
+                            ParkingReservationReleasedEvent {
+                                tick_index: next_tick_index,
+                                vehicle: vehicle_handle,
+                                space,
+                                reason: ParkingReleaseReason::RouteCompleted,
+                            },
+                        ));
+                        events.push(CoreEvent::VehicleCompletedRoute(completed_event));
+                    } else if reaches_parking_stop
+                        && !was_arrived
+                        && parking_arrived_state(vehicle, reserved_target, entry_progress)
+                    {
+                        let target = reserved_target
+                            .expect("arrived reservation must have an approach target");
+                        events.push(CoreEvent::VehicleParkingArrivalReached(
+                            VehicleParkingArrivalReachedEvent {
+                                tick_index: next_tick_index,
+                                vehicle: vehicle_handle,
+                                space,
+                                route: target.route,
+                                route_edge_index: target.route_edge_index,
+                            },
+                        ));
+                    }
+                } else if let Some(completed_event) = completed_event {
+                    events.push(CoreEvent::VehicleCompletedRoute(completed_event));
+                }
+            } else if let Some(completed_event) = completed_event {
+                events.push(CoreEvent::VehicleCompletedRoute(completed_event));
+            }
+            #[cfg(any(test, feature = "test-support"))]
+            if self.step_failure_after_vehicle == Some(vehicle_handle) {
+                return Err(CoreError::ParkingBindingInvariantViolation {
+                    stage: "test_after_vehicle_advance",
+                    vehicle: Some(vehicle_handle),
+                    space: if PARKING_ACTIVE { reserved_space } else { None },
+                });
+            }
+            if vehicle.status == VehicleStatus::Active {
+                *candidate_max_vehicle_speed =
+                    candidate_max_vehicle_speed.max(vehicle.current_speed.value());
+            }
+        }
+        if PARKING_ACTIVE {
+            debug_assert!(
+                parking_stops
+                    .as_mut()
+                    .expect("PARKING_ACTIVE keeps parking_stops")
+                    .next()
+                    .is_none()
+            );
+        }
+        Ok(())
+    }
+
 }
 
 impl CoreWorld {
