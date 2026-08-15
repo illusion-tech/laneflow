@@ -40,5 +40,4 @@ impl CoreWorld {
                 .expect("normalized ManeuverGate must have runtime state")
         })
     }
-
 }

@@ -212,8 +212,7 @@ impl CoreWorld {
                 .flatten();
             let reaches_parking_stop =
                 parking_stop.is_some_and(|constraint| motion.reaches_parking_stop(constraint));
-            let (reserved_space, reserved_target, entry_progress, was_arrived) = if PARKING_ACTIVE
-            {
+            let (reserved_space, reserved_target, entry_progress, was_arrived) = if PARKING_ACTIVE {
                 match parking_binding {
                     Some(RuntimeVehicleParkingBinding::Reserved { space, target, .. }) => {
                         let entry_progress = reaches_parking_stop.then(|| {
@@ -330,11 +329,9 @@ impl CoreWorld {
         }
         Ok(())
     }
-
 }
 
 impl CoreWorld {
-
     pub(super) fn append_signal_events(
         &self,
         tick_index: u64,
@@ -385,7 +382,6 @@ impl CoreWorld {
         }
     }
 }
-
 
 /// 测试支持接缝（C 类故障注入）：编译期门控，不进入默认发布构建。
 /// 见 `docs/design/core-research-instrumentation-externalization.md` §3。
