@@ -100,6 +100,7 @@ pub(crate) type HirCanonicalFrameKey = ArenaKey<HirCanonicalFrameTag>;
 pub(crate) type HirAccessRuleKey = ArenaKey<HirAccessRuleTag>;
 
 /// 已解析为 HIR 模块键的显式导入边。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirImport {
     /// 被导入模块；目标在规范模块顺序中位于当前模块之前。
     #[cfg_attr(not(test), allow(dead_code))]
@@ -110,6 +111,7 @@ pub(crate) struct HirImport {
 }
 
 /// HIR 模块记录及其在平坦导入表中的连续区间。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirModule {
     /// 声明身份与跨模块解析使用的稳定命名空间。
     pub(crate) authoring_namespace_id: Arc<str>,
@@ -120,6 +122,7 @@ pub(crate) struct HirModule {
 }
 
 /// 已解析为 HIR 车道图边键的下游引用。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirLaneEdgeReference {
     /// 当前 `HirUnit::lane_edges` 中的目标键。
     pub(crate) target: HirLaneEdgeKey,
@@ -128,6 +131,7 @@ pub(crate) struct HirLaneEdgeReference {
 }
 
 /// 完成模块归属和下游符号解析的车道图边 HIR 记录。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirLaneEdge {
     /// 拥有此声明的 HIR 模块。
     pub(crate) module: HirModuleKey,
@@ -147,6 +151,7 @@ pub(crate) struct HirLaneEdge {
 }
 
 /// 道路走廊有序横断面中的已解析异构成员。
+#[derive(Debug, PartialEq)]
 pub(crate) enum HirCorridorElement {
     RoadSection {
         road_section: HirRoadSectionKey,
@@ -159,6 +164,7 @@ pub(crate) enum HirCorridorElement {
 }
 
 /// 已证明参考区段成员性与成员唯一所有权的道路走廊。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirRoadCorridor {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -169,6 +175,7 @@ pub(crate) struct HirRoadCorridor {
 }
 
 /// 已闭合到唯一道路走廊父项的道路区段。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirRoadSection {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -181,12 +188,14 @@ pub(crate) struct HirRoadSection {
 }
 
 /// 编制车道覆盖链中的一项已解析车道图边及其来源位置。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirAuthoringLaneEdge {
     pub(crate) target: HirLaneEdgeKey,
     pub(crate) source_span: SourceLocation,
 }
 
 /// 已解析父区段、覆盖链和可选车道组的编制车道。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirAuthoringLane {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -199,12 +208,13 @@ pub(crate) struct HirAuthoringLane {
 }
 
 /// 车道组成员表中的一条编制车道引用。
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirLaneGroupMember {
     pub(crate) lane: HirAuthoringLaneKey,
 }
 
 /// 已证明所有成员与父区段一致且非空的车道组。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirLaneGroup {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -216,6 +226,7 @@ pub(crate) struct HirLaneGroup {
 }
 
 /// 已闭合到唯一道路走廊父项的非遍历设施带。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirFacilityBand {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -227,6 +238,7 @@ pub(crate) struct HirFacilityBand {
 }
 
 /// 已解析出非空通行流向成员区间的路口。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirJunction {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -236,6 +248,7 @@ pub(crate) struct HirJunction {
 }
 
 /// 已闭合到唯一路口父项并保留 Identity v1 有向引道键的通行流向。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirMovement {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -248,23 +261,25 @@ pub(crate) struct HirMovement {
     pub(crate) source_span: SourceLocation,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirJunctionMovement {
     pub(crate) movement: HirMovementKey,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirMovementManeuverPath {
     pub(crate) maneuver_path: HirManeuverPathKey,
 }
 
 /// 一条机动路径完整遍历序列中的已解析车道图边。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirManeuverPathEdge {
     pub(crate) target: HirLaneEdgeKey,
     pub(crate) source_span: SourceLocation,
 }
 
 /// 已解析父项、入口/内部/出口边和全局唯一遍历序列的机动路径。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirManeuverPath {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -282,24 +297,25 @@ pub(crate) struct HirManeuverPath {
 }
 
 /// 机动路径规范门序列中的一项。
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirManeuverPathGate {
     pub(crate) maneuver_gate: HirManeuverGateKey,
 }
 
 /// 机动路径规范等待区序列中的一项。
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirManeuverPathWaitingZone {
     pub(crate) waiting_zone: HirWaitingZoneKey,
 }
 
 /// 停止线到引用它的机动门的反向关系项。
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirStopLineManeuverGate {
     pub(crate) maneuver_gate: HirManeuverGateKey,
 }
 
 /// 已解析边位置并证明至少被一个机动门使用的停止线。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirStopLine {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -310,6 +326,7 @@ pub(crate) struct HirStopLine {
 }
 
 /// 已闭合到合法路径转换和同边停止线的机动门。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirManeuverGate {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -325,7 +342,7 @@ pub(crate) struct HirManeuverGate {
     pub(crate) source_span: SourceLocation,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum HirSignalControl {
     Group {
         signal_group: HirSignalGroupKey,
@@ -335,6 +352,7 @@ pub(crate) enum HirSignalControl {
 }
 
 /// 由一个固定时制控制器唯一拥有、并至少控制一个机动门的信号组。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirSignalGroup {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -345,19 +363,20 @@ pub(crate) struct HirSignalGroup {
 }
 
 /// 一个信号组控制的机动门反向关系项。
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirSignalGroupManeuverGate {
     pub(crate) maneuver_gate: HirManeuverGateKey,
 }
 
 /// 控制器有序信号组列表中的一项。
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct HirSignalControllerGroup {
     pub(crate) signal_group: HirSignalGroupKey,
     pub(crate) source_location: ResolvedSourceLocation,
 }
 
 /// 固定时制控制器的不可变循环程序。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirSignalController {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -370,6 +389,7 @@ pub(crate) struct HirSignalController {
 }
 
 /// 控制器所有者局部（owner-local）的一个有序固定时制相位。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirSignalPhase {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -383,7 +403,7 @@ pub(crate) struct HirSignalPhase {
 }
 
 /// 一个相位对其控制器信号组的完整灯色赋值。
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct HirSignalPhaseState {
     pub(crate) signal_group: HirSignalGroupKey,
     pub(crate) aspect: SignalAspect,
@@ -391,12 +411,13 @@ pub(crate) struct HirSignalPhaseState {
 }
 
 /// 停车区域的一个规范停车位成员。
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirParkingAreaSpace {
     pub(crate) parking_space: HirParkingSpaceKey,
 }
 
 /// 已证明至少拥有一个停车位成员的停车区域。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirParkingArea {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -406,7 +427,7 @@ pub(crate) struct HirParkingArea {
 }
 
 /// 已解析到车道图边严格内部位置的停车锚点。
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct HirParkingLaneAnchor {
     pub(crate) lane_edge: HirLaneEdgeKey,
     pub(crate) progress_meters: f64,
@@ -414,7 +435,7 @@ pub(crate) struct HirParkingLaneAnchor {
 }
 
 /// 已验证的停车位矩形几何；数值保持来源 `f64` 精度。
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirParkingSpaceGeometry {
     pub(crate) lateral_offset_meters: f64,
     pub(crate) heading_offset_radians: f64,
@@ -423,6 +444,7 @@ pub(crate) struct HirParkingSpaceGeometry {
 }
 
 /// 已闭合可选区域归属、入口/出口锚点和矩形几何的停车位。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirParkingSpace {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -436,6 +458,7 @@ pub(crate) struct HirParkingSpace {
 }
 
 /// 已解析父类并编译单继承层级信息的参与者类别。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirParticipantClass {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -451,6 +474,7 @@ pub(crate) struct HirParticipantClass {
 }
 
 /// 已解析唯一参与者类别、并保持 current Core IIDM `f64` 语义的车辆配置。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirVehicleProfile {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -471,6 +495,7 @@ pub(crate) struct HirVehicleProfile {
 ///
 /// 该记录故意不保存轴向、单位或宿主放置：这些语义分别由全局 canonical frame
 /// 契约和 Adapter 边界拥有，不能成为同一 `frameId` 下的可变配置。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirCanonicalFrame {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -481,6 +506,7 @@ pub(crate) struct HirCanonicalFrame {
 }
 
 /// 规范坐标框架内的一条中心线；点与线段区间均按行驶方向排列。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirLaneEdgeGeometry {
     pub(crate) source_module: HirModuleKey,
     pub(crate) canonical_frame: HirCanonicalFrameKey,
@@ -493,6 +519,7 @@ pub(crate) struct HirLaneEdgeGeometry {
 }
 
 /// 不可遍历 FacilityBand 的规范中心线；与 LaneEdge 几何共享规范点表。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirFacilityBandGeometry {
     pub(crate) canonical_frame: HirCanonicalFrameKey,
     pub(crate) facility_band: HirFacilityBandKey,
@@ -502,6 +529,7 @@ pub(crate) struct HirFacilityBandGeometry {
 }
 
 /// 共享规范点表中一段连续点范围到 authoring source segment 的阶段私有来源映射。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirGeometrySourceRange {
     pub(crate) source_module: HirModuleKey,
     pub(crate) points: TableRange<HirCanonicalPoint3F32>,
@@ -509,14 +537,14 @@ pub(crate) struct HirGeometrySourceRange {
     pub(crate) source: SourceLocation,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirCanonicalPoint3F32 {
     pub(crate) x: f32,
     pub(crate) y: f32,
     pub(crate) z: f32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HirSpatialSegment {
     pub(crate) length_meters: f32,
     pub(crate) cumulative_end_meters: f32,
@@ -534,6 +562,7 @@ pub(crate) enum HirAccessTarget {
 }
 
 /// 已验证的法规来源信息；该值参与规范 LIR，但不参与准入组合键。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirAccessRegulation {
     pub(crate) jurisdiction: Arc<str>,
     pub(crate) version: Arc<str>,
@@ -541,12 +570,14 @@ pub(crate) struct HirAccessRegulation {
 }
 
 /// 一条准入规则引用的参与者类别。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirAccessRuleParticipantClass {
     pub(crate) participant_class: HirParticipantClassKey,
     pub(crate) source_span: SourceLocation,
 }
 
 /// 完成静态引用解析和组合歧义验证的准入规则。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirAccessRule {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -561,6 +592,7 @@ pub(crate) struct HirAccessRule {
 }
 
 /// 已证明门所有权、严格正向区间和同路径内部不重叠的等待区。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirWaitingZone {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -574,6 +606,7 @@ pub(crate) struct HirWaitingZone {
 }
 
 /// 从全部路径派生的路口内部边规范代表声明。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirJunctionInternalEdge {
     pub(crate) edge: HirLaneEdgeKey,
     pub(crate) junction: HirJunctionKey,
@@ -583,17 +616,20 @@ pub(crate) struct HirJunctionInternalEdge {
 }
 
 /// 静态路线有序边序列中的一次出现；同一 `LaneEdge` 可以出现多次。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirStaticRouteEdge {
     pub(crate) target: HirLaneEdgeKey,
     pub(crate) source_span: SourceLocation,
 }
 
 /// 静态路线相邻边转换上预编译的可选机动门。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirStaticRouteTransition {
     pub(crate) maneuver_gate: Option<HirManeuverGateKey>,
 }
 
 /// 一条完整机动路径在静态路线中的一次匹配。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirManeuverOccurrence {
     pub(crate) maneuver_path: HirManeuverPathKey,
     pub(crate) entry_route_edge_index: u32,
@@ -603,6 +639,7 @@ pub(crate) struct HirManeuverOccurrence {
 }
 
 /// 一个 `ManeuverGate` 在某次路线机动中的预编译出现项。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirGateOccurrence {
     pub(crate) maneuver_gate: HirManeuverGateKey,
     pub(crate) maneuver_occurrence_index: u32,
@@ -613,6 +650,7 @@ pub(crate) struct HirGateOccurrence {
 }
 
 /// 一个 `WaitingZone` 在某次路线机动中的预编译出现项。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirWaitingZoneOccurrence {
     pub(crate) waiting_zone: HirWaitingZoneKey,
     pub(crate) maneuver_occurrence_index: u32,
@@ -623,6 +661,7 @@ pub(crate) struct HirWaitingZoneOccurrence {
 }
 
 /// 已解析边序列并闭合全部路口控制出现项的静态路线。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirStaticRoute {
     pub(crate) module: HirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -640,6 +679,7 @@ pub(crate) struct HirStaticRoute {
 /// 构造完成时所有引用均已解析，所有 `TableRange` 都落在对应平坦表内。字段中的键只对
 /// 本实例有效。`controlled_live_bytes` 统计成功返回后由 HIR 自身持有的阶段字节；
 /// `peak_controlled_live_bytes` 另保存资源预检已经计算的输入、查找表和暂存区共存峰值。
+#[derive(Debug, PartialEq)]
 pub(crate) struct HirUnit {
     /// 全编译单元唯一的道路几何编译档；无 RoadEditing 规范几何时为 `None`。
     pub(crate) geometry_profiles: Option<GeometryCompilationProfiles>,
@@ -8087,14 +8127,19 @@ mod tests {
     use crate::lir::freeze_lir;
     use crate::mir::lower_to_mir;
     use crate::{
-        AuthoringLaneInput, CanonicalFrameInput, CompilationUnitBuilder, CompileLimits,
-        CorridorElementReference, DiagnosticCode, DiagnosticPayload, FacilityBandInput,
-        FacilityBandReference, GeometryAccuracyProfile, GeometryDirectionProfile, JunctionInput,
-        JunctionReference, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
-        ManeuverGateInput, ManeuverPathInput, ManeuverPathReference, MovementInput,
-        MovementReference, RoadCorridorInput, RoadSectionInput, RoadSectionReference,
-        SignalControlInput, SourceModuleHeader, SourceModuleHeaderInput, SourceSpan, StopLineInput,
-        StopLineReference, SyntheticModule, SyntheticModuleBuilder,
+        AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput,
+        CanonicalFrameInput, CompilationUnitBuilder, CompileLimits, CorridorElementReference,
+        DiagnosticCode, DiagnosticPayload, FacilityBandInput, FacilityBandReference,
+        GeometryAccuracyProfile, GeometryDirectionProfile, IidmVehicleProfileInput, JunctionInput,
+        JunctionReference, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference, LaneGroupInput,
+        LaneGroupReference, ManeuverGateInput, ManeuverGateReference, ManeuverPathInput,
+        ManeuverPathReference, MovementInput, MovementReference, ParkingAreaInput,
+        ParkingAreaReference, ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput,
+        ParticipantClassInput, ParticipantClassReference, RoadCorridorInput, RoadSectionInput,
+        RoadSectionReference, SignalControlInput, SignalControllerInput, SignalGroupInput,
+        SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, SourceModuleHeader,
+        SourceModuleHeaderInput, SourceSpan, StaticRouteInput, StopLineInput, StopLineReference,
+        SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
     };
     use laneflow_static_contract::{CanonicalFrameKind, LaneEdgeKind};
 
@@ -9257,6 +9302,380 @@ mod tests {
                 ("edge-c".into(), vec![]),
             ]
         );
+    }
+
+    /// 覆盖全部静态语义领域的成功输入：横断面、路口、控制、信号、停车、空间、准入与路线。
+    ///
+    /// 几何档与编译几何的安装方式沿用 `compiled_junction_unit`；共享内部边由两条路径
+    /// 推导规范代表，停车位与准入规则引用各自独立的边，静态路线完整匹配 `path-a`。
+    fn full_domain_unit() -> CompilationUnit {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut builder = SyntheticModuleBuilder::new(header("city/full"), &limits).unwrap();
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "entry-a",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("internal")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "entry-b",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("internal")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "internal",
+                length_meters: 8.0,
+                speed_limit_meters_per_second: 8.0,
+                successors: &[
+                    LaneEdgeReference::local("exit-a"),
+                    LaneEdgeReference::local("exit-b"),
+                ],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit-a",
+                length_meters: 12.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit-b",
+                length_meters: 12.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-a",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 12.0,
+                successors: &[LaneEdgeReference::local("edge-b")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-b",
+                length_meters: 12.0,
+                speed_limit_meters_per_second: 12.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "parking-entry",
+                length_meters: 20.0,
+                speed_limit_meters_per_second: 8.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "parking-exit",
+                length_meters: 20.0,
+                speed_limit_meters_per_second: 8.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame-a",
+                lane_edge_geometries: &[],
+            })
+            .unwrap()
+            .add_facility_band(FacilityBandInput {
+                facility_band_key: "sidewalk-left",
+                kind_id: "sidewalk",
+            })
+            .unwrap()
+            .add_lane_group(LaneGroupInput {
+                lane_group_key: "through",
+                road_section: RoadSectionReference::local("carriageway"),
+            })
+            .unwrap()
+            .add_road_section(RoadSectionInput {
+                road_section_key: "carriageway",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-main",
+                    edge_chain: &[
+                        LaneEdgeReference::local("edge-a"),
+                        LaneEdgeReference::local("edge-b"),
+                    ],
+                    lane_group: Some(LaneGroupReference::local("through")),
+                }],
+            })
+            .unwrap()
+            .add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "main-road",
+                reference_section: RoadSectionReference::local("carriageway"),
+                elements: &[
+                    CorridorElementReference::facility_band(FacilityBandReference::local(
+                        "sidewalk-left",
+                    )),
+                    CorridorElementReference::road_section(RoadSectionReference::local(
+                        "carriageway",
+                    )),
+                ],
+            })
+            .unwrap()
+            .add_junction(JunctionInput {
+                junction_key: "junction-main",
+            })
+            .unwrap()
+            .add_movement(MovementInput {
+                movement_key: "movement-through",
+                junction: JunctionReference::local("junction-main"),
+                directed_entry_approach_key: "approach-westbound",
+                directed_exit_approach_key: "approach-eastbound",
+            })
+            .unwrap()
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path-a",
+                movement: MovementReference::local("movement-through"),
+                entry_edge: LaneEdgeReference::local("entry-a"),
+                internal_edges: &[LaneEdgeReference::local("internal")],
+                exit_edge: LaneEdgeReference::local("exit-a"),
+            })
+            .unwrap()
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path-b",
+                movement: MovementReference::local("movement-through"),
+                entry_edge: LaneEdgeReference::local("entry-b"),
+                internal_edges: &[LaneEdgeReference::local("internal")],
+                exit_edge: LaneEdgeReference::local("exit-b"),
+            })
+            .unwrap()
+            .add_stop_line(StopLineInput {
+                stop_line_key: "stop-entry",
+                lane_edge: LaneEdgeReference::local("entry-a"),
+            })
+            .unwrap()
+            .add_stop_line(StopLineInput {
+                stop_line_key: "stop-middle",
+                lane_edge: LaneEdgeReference::local("internal"),
+            })
+            .unwrap()
+            .add_maneuver_gate(ManeuverGateInput {
+                maneuver_gate_key: "gate-a",
+                maneuver_path: ManeuverPathReference::local("path-a"),
+                transition_index: 0,
+                stop_line: StopLineReference::local("stop-entry"),
+                signal_control: SignalControlInput::Group(SignalGroupReference::local(
+                    "group-entry",
+                )),
+            })
+            .unwrap()
+            .add_maneuver_gate(ManeuverGateInput {
+                maneuver_gate_key: "gate-b",
+                maneuver_path: ManeuverPathReference::local("path-a"),
+                transition_index: 1,
+                stop_line: StopLineReference::local("stop-middle"),
+                signal_control: SignalControlInput::Group(SignalGroupReference::local(
+                    "group-release",
+                )),
+            })
+            .unwrap()
+            .add_waiting_zone(WaitingZoneInput {
+                waiting_zone_key: "waiting-main",
+                maneuver_path: ManeuverPathReference::local("path-a"),
+                entry_gate: ManeuverGateReference::local("gate-a"),
+                release_gate: ManeuverGateReference::local("gate-b"),
+                max_occupancy: 3,
+            })
+            .unwrap()
+            .add_signal_group(SignalGroupInput {
+                signal_group_key: "group-entry",
+            })
+            .unwrap()
+            .add_signal_group(SignalGroupInput {
+                signal_group_key: "group-release",
+            })
+            .unwrap()
+            .add_signal_controller(SignalControllerInput {
+                signal_controller_key: "controller-main",
+                offset_ms: 1_000,
+                signal_groups: &[
+                    SignalGroupReference::local("group-entry"),
+                    SignalGroupReference::local("group-release"),
+                ],
+                phases: &[
+                    SignalPhaseInput {
+                        signal_phase_key: "phase-go",
+                        duration_ms: 30_000,
+                        states: &[
+                            SignalGroupStateInput {
+                                signal_group: SignalGroupReference::local("group-entry"),
+                                aspect: SignalAspect::Green,
+                            },
+                            SignalGroupStateInput {
+                                signal_group: SignalGroupReference::local("group-release"),
+                                aspect: SignalAspect::Red,
+                            },
+                        ],
+                    },
+                    SignalPhaseInput {
+                        signal_phase_key: "phase-clear",
+                        duration_ms: 5_000,
+                        states: &[
+                            SignalGroupStateInput {
+                                signal_group: SignalGroupReference::local("group-entry"),
+                                aspect: SignalAspect::Yellow,
+                            },
+                            SignalGroupStateInput {
+                                signal_group: SignalGroupReference::local("group-release"),
+                                aspect: SignalAspect::Green,
+                            },
+                        ],
+                    },
+                ],
+            })
+            .unwrap()
+            .add_parking_area(ParkingAreaInput {
+                parking_area_key: "area-main",
+            })
+            .unwrap();
+        let parking_geometry = ParkingSpaceGeometryInput {
+            lateral_offset_meters: -3.0,
+            heading_offset_radians: 0.25,
+            length_meters: 5.5,
+            width_meters: 2.6,
+        };
+        builder
+            .add_parking_space(ParkingSpaceInput {
+                parking_space_key: "space-owned",
+                parking_area: Some(ParkingAreaReference::local("area-main")),
+                entry: ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-entry"),
+                    progress_meters: 4.0,
+                },
+                exit: ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-exit"),
+                    progress_meters: 6.0,
+                },
+                geometry: parking_geometry,
+            })
+            .unwrap()
+            .add_parking_space(ParkingSpaceInput {
+                parking_space_key: "space-independent",
+                parking_area: None,
+                entry: ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-entry"),
+                    progress_meters: 4.0,
+                },
+                exit: ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-exit"),
+                    progress_meters: 6.0,
+                },
+                geometry: parking_geometry,
+            })
+            .unwrap()
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "road-user",
+                extends: None,
+            })
+            .unwrap()
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "car",
+                extends: Some(ParticipantClassReference::local("road-user")),
+            })
+            .unwrap()
+            .add_vehicle_profile(VehicleProfileInput {
+                vehicle_profile_key: "standard-car",
+                participant_class: ParticipantClassReference::local("car"),
+                iidm: IidmVehicleProfileInput {
+                    length_meters: 4.5,
+                    desired_speed_meters_per_second: 13.75,
+                    min_gap_meters: 2.0,
+                    time_headway_seconds: 1.4,
+                    max_acceleration_meters_per_second_squared: 1.8,
+                    comfortable_deceleration_meters_per_second_squared: 2.0,
+                    emergency_deceleration_meters_per_second_squared: 4.5,
+                },
+            })
+            .unwrap()
+            .add_access_rule(AccessRuleInput {
+                access_rule_key: "allow-road-users",
+                target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-a")),
+                effect: AccessEffect::Allow,
+                participant_classes: &[ParticipantClassReference::local("road-user")],
+                regulation: Some(AccessRegulationInput {
+                    jurisdiction: "CN-test",
+                    version: "2026-01",
+                    source: Some("fixture"),
+                }),
+                priority: 0,
+            })
+            .unwrap()
+            .add_access_rule(AccessRuleInput {
+                access_rule_key: "deny-cars",
+                target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-a")),
+                effect: AccessEffect::Deny,
+                participant_classes: &[ParticipantClassReference::local("car")],
+                regulation: None,
+                priority: 0,
+            })
+            .unwrap()
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route-main",
+                edge_sequence: &[
+                    LaneEdgeReference::local("entry-a"),
+                    LaneEdgeReference::local("internal"),
+                    LaneEdgeReference::local("exit-a"),
+                ],
+            })
+            .unwrap();
+        let mut unit = unit([builder.finish().unwrap()]);
+        install_compiled_lane_geometries(
+            &mut unit,
+            "city/full",
+            GeometryCompilationProfiles {
+                accuracy: GeometryAccuracyProfile::Balanced5Cm,
+                direction: GeometryDirectionProfile::Balanced2Deg,
+            },
+            |key| {
+                let frame = match key {
+                    "internal" => None,
+                    _ => Some(("city/full", "frame-a")),
+                };
+                let points = match key {
+                    "entry-a" | "entry-b" => vec![point(-10.0, 0.0, 0.0), point(0.0, 0.0, 0.0)],
+                    "internal" => vec![point(0.0, 0.0, 0.0), point(8.0, 0.0, 0.0)],
+                    "exit-a" | "exit-b" => vec![point(8.0, 0.0, 0.0), point(20.0, 0.0, 0.0)],
+                    "edge-a" => vec![point(0.0, 10.0, 0.0), point(10.0, 10.0, 0.0)],
+                    "edge-b" => vec![point(10.0, 10.0, 0.0), point(22.0, 10.0, 0.0)],
+                    "parking-entry" => vec![point(0.0, 20.0, 0.0), point(20.0, 20.0, 0.0)],
+                    "parking-exit" => vec![point(0.0, 30.0, 0.0), point(20.0, 30.0, 0.0)],
+                    _ => unreachable!("unexpected fixture edge"),
+                };
+                (frame, points)
+            },
+        );
+        unit
+    }
+
+    #[test]
+    fn hir_full_tables_are_deterministic_across_rebuilds() {
+        let app_successors = [
+            LaneEdgeReference::imported("city/base", "edge-b"),
+            LaneEdgeReference::local("edge-c"),
+        ];
+        let simple = unit([
+            module("city/base", &[], &[("edge-b", &[])]),
+            module(
+                "city/app",
+                &["city/base"],
+                &[("edge-c", &[]), ("edge-a", &app_successors)],
+            ),
+        ]);
+        let full = full_domain_unit();
+
+        // 全表对比覆盖 StableId、规范表顺序与来源位置；浮点字段按值比较。
+        for candidate in [simple, full] {
+            let first = build_hir(&candidate).unwrap();
+            let second = build_hir(&candidate).unwrap();
+            assert_eq!(first, second);
+        }
     }
 
     #[test]
