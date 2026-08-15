@@ -173,7 +173,7 @@ Rust API 方向可接近：
 fn step(world: &mut CoreWorld, input: TickInput) -> Result<StepResult, CoreError>
 ```
 
-具体类型命名和错误模型由后续实现 issue 固化，但不得引入隐藏 clock、随机数或引擎全局状态。ADR 0003 中的 `step(world, input) -> stepResult` 是概念表达，不要求 Rust API 使用纯函数形态。v0.1 Rust API 若采用 `&mut CoreWorld`，成功返回后的 `world` 即为更新后状态；`StepResult` 应保留 `tickIndex`、`timeMs` 和 `events` 等观察结果，避免为了返回 world 克隆完整 runtime state。
+具体类型命名和错误模型由后续实现 issue 固化，但不得引入隐藏 clock、随机数或引擎全局状态。错误模型组织已由 #389 固化：`CoreError` 维持单枚举（含 `WaitingZoneError` 子枚举先例），`error/` 目录按域分区组织，公开变体路径保持不变；热/冷路径错误拆分为独立性能卫生切片 #288，不改变本约定。ADR 0003 中的 `step(world, input) -> stepResult` 是概念表达，不要求 Rust API 使用纯函数形态。v0.1 Rust API 若采用 `&mut CoreWorld`，成功返回后的 `world` 即为更新后状态；`StepResult` 应保留 `tickIndex`、`timeMs` 和 `events` 等观察结果，避免为了返回 world 克隆完整 runtime state。
 
 ### D5. v0.1 只定义最小内部 lane graph / route 输入
 
