@@ -1,6 +1,6 @@
 # 可移植规范制品与辅助制品格式
 
-**文档状态**: In Review（#298 G1 因混合几何档位适用性重开；尚未开始 G2）<br>
+**文档状态**: Accepted（#298 G1 Pass；尚未开始 G2）<br>
 **最后更新**: 2026-08-15<br>
 **适用范围**: `laneflow-format`、`laneflow-static-contract`、
 `laneflow-compiler` 的可移植规范制品（Portable Canonical Artifact）、源映射封套
@@ -17,13 +17,12 @@
 
 ## 1. 状态、目标与非目标
 
-本文把 `network-compiler.md` 第 8 节和 ADR 0020 已接受的长期边界收窄为 #298 正在重新审阅的
-实现级格式输入。此前 G1 曾因 facility-only spatial output 无法表示而重开；该缺口与后续发现的
-跨修订身份前像碰撞虽已闭合，但本轮审阅又发现全局 direction profile 会误约束同次编译中
-profile-free Synthetic geometry。本文已增加逐 geometry 的适用性表达并等待 exact-head clean
-review 与 #298 Gate Ledger 新的正式 `## G1 设计判断`。G1 重新接受后也只授权准备独立 G2
-开工判断，不表示格式已经实现、通过验证或可供产品发布；任何实现 PR 都必须等待 #298 的正式
-`## G2 开工判断` 为 Pass。
+本文把 `network-compiler.md` 第 8 节和 ADR 0020 已接受的长期边界收窄为 #298 已重新接受的
+实现级格式输入。此前 G1 曾因 facility-only spatial output 无法表示、跨修订身份前像碰撞和混合
+RoadEditing/Synthetic geometry 的方向配置档适用性而重开；这些缺口现已闭合，并由 #298 Gate
+Ledger 中新的正式 `## G1 设计判断` 重新接受。G1 Pass 只授权准备独立 G2 开工判断，不表示格式
+已经实现、通过验证或可供产品发布；任何实现 PR 都必须等待 #298 的正式 `## G2 开工判断` 为
+Pass。
 
 #298 必须同时闭合四类对象：
 
@@ -1037,7 +1036,7 @@ profile 只进入非语义 CompilerProvenance，不进入这两个 revision 向�
 完整计划和 G2 证据占位见
 `../reference/v0.10-portable-artifact-validation.md`。
 
-## 11. G1 再次重开内容闭合与待重新接受条件
+## 11. G1 再次重开内容闭合与重新接受结果
 
 本文按下列条件闭合 G1 实现输入；动态 Gate、精确提交、外部审阅和 Project 状态仍以
 #298 Gate Ledger 为准：
@@ -1057,13 +1056,12 @@ profile 只进入非语义 CompilerProvenance，不进入这两个 revision 向�
 - [x] 记录编码库/自有格式选择的安全与维护证据；
 - [x] 冻结混合 RoadEditing/Synthetic 编译的逐 geometry direction profile 适用标记、连接端点
       OR 规则、LFSM range binding 与 LFSD GeometryChange 投影；
-- [ ] #298 Gate Ledger 绑定本次再次重开的语义最终提交并取得职责中立的 exact-head clean
+- [x] #298 Gate Ledger 已绑定本次再次重开的语义最终提交并取得职责中立的 exact-head clean
       review，且 Project/Issue 元数据完整。
 
 此前的 G1 Pass 都只保留为历史记录，不能覆盖本次逐 geometry direction profile 适用性语义
-变化。本文在上述未勾选条件闭合前保持 In Review；#298 Gate Ledger 重新记录正式 G1 判断后才
-恢复 Accepted。新的 G1 Pass 仍只冻结实现输入，不声明 LFCA/LFSM/LFSD/LFCP 已实现、通过
-产品验证或获得独立语义授信。
+变化。#298 Gate Ledger 已在上述新事实成立后重新记录正式 G1 判断；新的 G1 Pass 仍只冻结
+实现输入，不声明 LFCA/LFSM/LFSD/LFCP 已实现、通过产品验证或获得独立语义授信。
 G2 开工前仍须重新核验 GitHub 元数据、原生依赖、Accepted 文档和实现切片，并在 #298 追加独立
 `## G2 开工判断`；任何字段 tag、限制值、排序破同值、publication 原子性或职责边界变化都必须
 返回 G1。
