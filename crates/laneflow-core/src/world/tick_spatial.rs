@@ -1,7 +1,6 @@
 use super::*;
 
 impl CoreWorld {
-
     pub(super) fn rebuild_command_spatial_index(&mut self) {
         let mut spatial = std::mem::take(&mut self.command_spatial_index);
         spatial.begin_rebuild(self.vehicles.len());
@@ -24,7 +23,10 @@ impl CoreWorld {
         self.command_spatial_index = spatial;
     }
 
-    pub(super) fn sync_changed_command_spatial_memberships(&mut self, candidate: &CandidateStateScratch) {
+    pub(super) fn sync_changed_command_spatial_memberships(
+        &mut self,
+        candidate: &CandidateStateScratch,
+    ) {
         let routes = &self.routes;
         let vehicles = &self.vehicles;
         let spatial = &mut self.command_spatial_index;

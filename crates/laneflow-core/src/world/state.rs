@@ -205,8 +205,6 @@ impl CoreWorld {
         ParkingSnapshot::new(self)
     }
 
-
-
     pub(super) fn route_slot(&self, handle: RouteHandle) -> Option<&RouteSlot> {
         self.routes
             .get(handle.index())

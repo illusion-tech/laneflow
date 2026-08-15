@@ -643,11 +643,9 @@ impl CoreWorld {
                 self.vehicle(vehicle).map(|state| state.status)
             });
     }
-
 }
 
 impl CoreWorld {
-
     pub(super) fn normalize_vehicle_replace_input(
         &self,
         old: VehicleHandle,

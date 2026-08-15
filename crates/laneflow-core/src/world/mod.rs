@@ -66,19 +66,18 @@ use crate::{
     waiting::WaitingRegistry,
 };
 
-
+mod parking_commands;
+mod route_lifecycle;
+mod route_queries;
+mod signal_queries;
 mod state;
 mod support;
-mod parking_commands;
-mod signal_queries;
-mod route_queries;
-mod route_lifecycle;
-mod vehicle_lifecycle;
 mod tick;
-mod tick_spatial;
-mod tick_overlap;
-mod tick_longitudinal;
 mod tick_advance;
+mod tick_longitudinal;
+mod tick_overlap;
+mod tick_spatial;
+mod vehicle_lifecycle;
 
 pub use state::CoreWorld;
 use support::*;

@@ -19,7 +19,10 @@ impl CoreWorld {
         self.register_compiled_route(route)
     }
 
-    pub(super) fn register_compiled_route(&mut self, route: CompiledRoute) -> Result<RouteHandle, CoreError> {
+    pub(super) fn register_compiled_route(
+        &mut self,
+        route: CompiledRoute,
+    ) -> Result<RouteHandle, CoreError> {
         if self.route_handles.contains_key(route.definition().id()) {
             return Err(CoreError::DuplicateRouteId {
                 route_id: route.definition().id().to_owned(),
@@ -441,5 +444,4 @@ impl CoreWorld {
         }
         Ok(())
     }
-
 }

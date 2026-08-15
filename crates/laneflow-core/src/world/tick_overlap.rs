@@ -1,7 +1,6 @@
 use super::*;
 
 impl CoreWorld {
-
     pub(super) fn validate_candidate_overlap(
         &mut self,
         route: RouteHandle,
@@ -446,7 +445,10 @@ impl CoreWorld {
         result
     }
 
-    pub(super) fn validate_occupancy_overlaps(&self, scratch: &OccupancyScratch) -> Result<(), CoreError> {
+    pub(super) fn validate_occupancy_overlaps(
+        &self,
+        scratch: &OccupancyScratch,
+    ) -> Result<(), CoreError> {
         for edge_index in 0..self.lane_graph.edges().len() {
             for pair in scratch.edge(EdgeHandle::new(edge_index)).windows(2) {
                 let follower = pair[0];

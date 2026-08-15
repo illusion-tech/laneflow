@@ -1,7 +1,6 @@
 use super::*;
 
 impl CoreWorld {
-
     pub(super) fn advance_vehicle<const PARKING_ACTIVE: bool>(
         context: VehicleAdvanceContext<'_>,
         vehicle: &mut VehicleState,

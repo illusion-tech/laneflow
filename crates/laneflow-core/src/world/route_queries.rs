@@ -88,5 +88,4 @@ impl CoreWorld {
             .filter(|(_, route)| route.active)
             .map(|(index, route)| RouteHandle::new(index, route.generation))
     }
-
 }

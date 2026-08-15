@@ -57,7 +57,12 @@ impl RouteReferenceIndex {
         );
     }
 
-    pub(super) fn replace(&mut self, old: VehicleHandle, new: VehicleHandle, update_order_position: usize) {
+    pub(super) fn replace(
+        &mut self,
+        old: VehicleHandle,
+        new: VehicleHandle,
+        update_order_position: usize,
+    ) {
         let vehicle = self
             .by_update_position
             .get_mut(&update_order_position)

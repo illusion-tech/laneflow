@@ -747,5 +747,4 @@ impl CoreWorld {
             && longitudinal_positions_match(state.edge_progress.value(), entry.progress())
             && state.current_speed == Speed::ZERO
     }
-
 }

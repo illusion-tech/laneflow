@@ -1,7 +1,6 @@
 use super::*;
 
 impl CoreWorld {
-
     pub(super) fn rebuild_occupancy_and_leaders(&mut self) -> Result<(), CoreError> {
         let mut scratch = std::mem::take(&mut self.occupancy_scratch);
         let result = (|| {
@@ -49,7 +48,10 @@ impl CoreWorld {
         result
     }
 
-    pub(super) fn rebuild_longitudinal_motions_for_parking<const PARKING_ACTIVE: bool, P: StepProbe>(
+    pub(super) fn rebuild_longitudinal_motions_for_parking<
+        const PARKING_ACTIVE: bool,
+        P: StepProbe,
+    >(
         &mut self,
         probe: &mut P,
     ) -> Result<(), CoreError> {
@@ -308,7 +310,11 @@ impl CoreWorld {
         }
     }
 
-    pub(super) fn route_end_distance_within(&self, vehicle: &VehicleState, max_travel: f64) -> Option<f64> {
+    pub(super) fn route_end_distance_within(
+        &self,
+        vehicle: &VehicleState,
+        max_travel: f64,
+    ) -> Option<f64> {
         let horizon = if max_travel <= f64::MAX - LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS {
             max_travel + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS
         } else {
