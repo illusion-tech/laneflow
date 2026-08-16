@@ -76,8 +76,8 @@ pub fn preflight_object_registry_v1(
 ) -> Result<RegistryCheckedObjectView<'_>, FormatError> {
     let framing = preflight_object_framing(bytes, expected_kind, limits)?;
     let schema = portable_object_schema(expected_kind);
-    let mut budget = PreflightBudget::default();
 
+    let mut declared_table_count = 0_u64;
     for (ordinal, section_schema) in schema.sections.iter().enumerate() {
         let ordinal = u32::try_from(ordinal).map_err(|_| FormatError::ArithmeticOverflow {
             structure: FormatStructure::SectionDirectory,
@@ -89,13 +89,44 @@ pub fn preflight_object_registry_v1(
             })?;
         let section_bytes = section.bytes();
         let table_count = read_u32(section_bytes, 0, FormatStructure::Section)?;
-        if table_count as usize != section_schema.tables.len() {
+        let expected_table_count = u64::try_from(section_schema.tables.len()).map_err(|_| {
+            FormatError::ArithmeticOverflow {
+                structure: FormatStructure::Section,
+            }
+        })?;
+        if u64::from(table_count) != expected_table_count {
             return Err(FormatError::LengthMismatch {
                 structure: FormatStructure::Section,
                 declared: u64::from(table_count),
-                actual: section_schema.tables.len() as u64,
+                actual: expected_table_count,
             });
         }
+        declared_table_count = declared_table_count
+            .checked_add(u64::from(table_count))
+            .ok_or(FormatError::ArithmeticOverflow {
+                structure: FormatStructure::Section,
+            })?;
+    }
+    let expected_table_count = u64::from(expected_kind.table_count());
+    if declared_table_count != expected_table_count {
+        return Err(FormatError::LengthMismatch {
+            structure: FormatStructure::Section,
+            declared: declared_table_count,
+            actual: expected_table_count,
+        });
+    }
+
+    let mut budget = PreflightBudget::default();
+    for (ordinal, section_schema) in schema.sections.iter().enumerate() {
+        let ordinal = u32::try_from(ordinal).map_err(|_| FormatError::ArithmeticOverflow {
+            structure: FormatStructure::SectionDirectory,
+        })?;
+        let section = framing
+            .section(ordinal)
+            .ok_or(FormatError::BindingMismatch {
+                structure: FormatStructure::Section,
+            })?;
+        let section_bytes = section.bytes();
 
         let mut cursor = SECTION_HEADER_BYTES;
         for table_schema in section_schema.tables {
@@ -404,6 +435,27 @@ mod tests {
     }
 
     #[test]
+    fn object_preflight_checks_all_table_counts_before_reading_any_table() {
+        let kind = PortableObjectKind::CanonicalArtifact;
+        let mut bytes = encoded_object(kind);
+        let first_section = kind.first_section_offset() as usize;
+        bytes[first_section + 6..first_section + 8].copy_from_slice(&2_u16.to_le_bytes());
+
+        let last_entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
+            + (kind.section_count() as usize - 1) * SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH as usize;
+        let last_section =
+            u64::from_le_bytes(bytes[last_entry + 8..last_entry + 16].try_into().unwrap()) as usize;
+        bytes[last_section..last_section + 4].copy_from_slice(&0_u32.to_le_bytes());
+
+        assert_eq!(
+            preflight_object_registry_v1(&bytes, kind, FormatLimits::V1_HARD)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::LengthMismatch
+        );
+    }
+
+    #[test]
     fn registry_table_preflight_rejects_missing_unknown_and_wrong_type_fields() {
         let table_schema =
             &portable_object_schema(PortableObjectKind::CanonicalPublicationDescriptor).sections[0]
@@ -477,6 +529,22 @@ mod tests {
             .class(),
             FormatErrorClass::UnknownKind
         );
+
+        for tags in [[1, 1], [2, 1]] {
+            let noncanonical_row = encoded_variant_row(table_schema.row, &tags, 0, 0);
+            let noncanonical = table_with_rows(table_schema, &[noncanonical_row]);
+            assert_eq!(
+                preflight_table_with_registry_v1(
+                    &noncanonical,
+                    table_schema,
+                    FormatLimits::V1_HARD,
+                    &mut PreflightBudget::default(),
+                )
+                .unwrap_err()
+                .class(),
+                FormatErrorClass::NonCanonicalOrder
+            );
+        }
     }
 
     #[test]
