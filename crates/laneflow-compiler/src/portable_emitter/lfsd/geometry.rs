@@ -207,3 +207,102 @@ pub(super) fn genesis_geometry_changes(
         })
         .collect())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Range;
+
+    use super::*;
+
+    const FULL_SPATIAL_LFCA: &[u8] =
+        include_bytes!("../../../tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca");
+
+    fn field_value_range(
+        bytes: &[u8],
+        section: u32,
+        table: u32,
+        row: u32,
+        tag: u16,
+    ) -> Range<usize> {
+        let view = laneflow_format::preflight_object_registry_v1(
+            bytes,
+            PortableObjectKind::CanonicalArtifact,
+            FormatLimits::V1_HARD,
+        )
+        .unwrap();
+        let value = view
+            .section(section)
+            .and_then(|section| section.table(table))
+            .and_then(|table| table.row(row))
+            .and_then(|row| row.field_by_tag(tag))
+            .unwrap()
+            .value_bytes();
+        let start = value.as_ptr() as usize - bytes.as_ptr() as usize;
+        start..start + value.len()
+    }
+
+    fn owned_value(row: &OwnedRow, tag: u16) -> &OwnedValue {
+        &row.fields
+            .iter()
+            .find(|field| field.tag == tag)
+            .unwrap()
+            .value
+    }
+
+    #[test]
+    fn direction_profile_applies_only_is_geometry_modify_not_spatial_configuration_modify() {
+        for (table, subject_kind, applies_tag) in [
+            (1_u32, EntityKind::LaneEdge, 6_u16),
+            (2_u32, EntityKind::FacilityBand, 4_u16),
+        ] {
+            let mut base_bytes = FULL_SPATIAL_LFCA.to_vec();
+            let mut target_bytes = FULL_SPATIAL_LFCA.to_vec();
+            let direction_profile = field_value_range(&base_bytes, 4, 0, 0, 2);
+            let accuracy_profile = field_value_range(&base_bytes, 6, 0, 0, 6);
+            let applies = field_value_range(&base_bytes, 4, table, 0, applies_tag);
+            for bytes in [&mut base_bytes, &mut target_bytes] {
+                bytes[direction_profile.clone()].copy_from_slice(&[1]);
+                bytes[accuracy_profile.clone()].copy_from_slice(&[1]);
+            }
+            base_bytes[applies.clone()].copy_from_slice(&[0]);
+            target_bytes[applies].copy_from_slice(&[1]);
+
+            let base_view = preflight_object_values_v1(
+                &base_bytes,
+                PortableObjectKind::CanonicalArtifact,
+                FormatLimits::V1_HARD,
+            )
+            .unwrap()
+            .registry_view();
+            let target_view = preflight_object_values_v1(
+                &target_bytes,
+                PortableObjectKind::CanonicalArtifact,
+                FormatLimits::V1_HARD,
+            )
+            .unwrap()
+            .registry_view();
+            let base =
+                ArtifactIndex::build(base_view, PortableEmissionError::DiffBaseSemanticMismatch)
+                    .unwrap();
+            let target =
+                ArtifactIndex::build(target_view, PortableEmissionError::InternalBindingMismatch)
+                    .unwrap();
+
+            let changes = artifact_geometry_changes(&base, &target).unwrap();
+            assert_eq!(changes.len(), 1, "{subject_kind:?}");
+            let change = &changes[0];
+            assert_eq!(owned_value(change, 1), &OwnedValue::U8(2));
+            assert_eq!(
+                owned_value(change, 2),
+                &OwnedValue::U16(subject_kind.code())
+            );
+            assert!(matches!(owned_value(change, 9), OwnedValue::Bytes(_)));
+            assert!(matches!(owned_value(change, 10), OwnedValue::Bytes(_)));
+            assert!(
+                artifact_spatial_configuration_changes(&base, &target)
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+    }
+}

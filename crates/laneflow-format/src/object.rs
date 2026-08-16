@@ -883,8 +883,8 @@ mod tests {
 
     use laneflow_static_contract::{
         OBJECT_PREAMBLE_V1_BYTE_LENGTH, PortableFieldSchema, PortableFieldType,
-        PortableRowCardinality, PortableRowSchema, SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH,
-        SECTION_FORMAT_VERSION_V1,
+        PortableRowCardinality, PortableRowSchema, PortableRowShape,
+        SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH, SECTION_FORMAT_VERSION_V1,
     };
 
     use super::*;
@@ -1402,6 +1402,192 @@ mod tests {
             .class(),
             FormatErrorClass::BindingMismatch
         );
+    }
+
+    #[test]
+    fn every_discriminated_registry_variant_rejects_missing_forbidden_and_unknown_shapes() {
+        for object_kind in PortableObjectKind::ALL {
+            for section in portable_object_schema(object_kind).sections {
+                for table_schema in section.tables {
+                    let PortableRowShape::DiscriminatedU8 { tag, variants } =
+                        table_schema.row.shape
+                    else {
+                        continue;
+                    };
+
+                    for variant in variants {
+                        let at_least_one = (variant.at_least_one_field != 0)
+                            .then(|| variant.at_least_one_field.trailing_zeros() as u16);
+                        let valid_mask = variant.required_fields
+                            | at_least_one.map_or(0, |field| 1_u32 << field);
+                        let valid_tags = table_schema
+                            .row
+                            .fields
+                            .iter()
+                            .filter(|field| valid_mask & (1_u32 << field.tag) != 0)
+                            .map(|field| field.tag)
+                            .collect::<Vec<_>>();
+                        let valid = encoded_variant_row(
+                            table_schema.row,
+                            &valid_tags,
+                            tag,
+                            variant.discriminant,
+                        );
+                        let table = table_with_rows(table_schema, &[valid]);
+                        preflight_table_with_registry_v1(
+                            &table,
+                            table_schema,
+                            FormatLimits::V1_HARD,
+                            &mut PreflightBudget::default(),
+                        )
+                        .unwrap_or_else(|error| {
+                            panic!(
+                                "{object_kind:?} section {} table {} variant {} rejected: {error:?}",
+                                section.kind, table_schema.kind, variant.discriminant
+                            )
+                        });
+
+                        for missing in table_schema.row.fields.iter().filter(|field| {
+                            field.tag != tag && variant.required_fields & (1_u32 << field.tag) != 0
+                        }) {
+                            let tags = valid_tags
+                                .iter()
+                                .copied()
+                                .filter(|field| *field != missing.tag)
+                                .collect::<Vec<_>>();
+                            let row = encoded_variant_row(
+                                table_schema.row,
+                                &tags,
+                                tag,
+                                variant.discriminant,
+                            );
+                            let table = table_with_rows(table_schema, &[row]);
+                            assert_eq!(
+                                preflight_table_with_registry_v1(
+                                    &table,
+                                    table_schema,
+                                    FormatLimits::V1_HARD,
+                                    &mut PreflightBudget::default(),
+                                )
+                                .unwrap_err()
+                                .class(),
+                                FormatErrorClass::BindingMismatch,
+                                "{object_kind:?} section {} table {} variant {} accepted missing tag {}",
+                                section.kind,
+                                table_schema.kind,
+                                variant.discriminant,
+                                missing.tag
+                            );
+                        }
+
+                        for forbidden in table_schema
+                            .row
+                            .fields
+                            .iter()
+                            .filter(|field| variant.allowed_fields & (1_u32 << field.tag) == 0)
+                        {
+                            let mut tags = valid_tags.clone();
+                            tags.push(forbidden.tag);
+                            tags.sort_unstable();
+                            let row = encoded_variant_row(
+                                table_schema.row,
+                                &tags,
+                                tag,
+                                variant.discriminant,
+                            );
+                            let table = table_with_rows(table_schema, &[row]);
+                            assert_eq!(
+                                preflight_table_with_registry_v1(
+                                    &table,
+                                    table_schema,
+                                    FormatLimits::V1_HARD,
+                                    &mut PreflightBudget::default(),
+                                )
+                                .unwrap_err()
+                                .class(),
+                                FormatErrorClass::BindingMismatch,
+                                "{object_kind:?} section {} table {} variant {} accepted forbidden tag {}",
+                                section.kind,
+                                table_schema.kind,
+                                variant.discriminant,
+                                forbidden.tag
+                            );
+                        }
+
+                        if variant.at_least_one_field != 0
+                            && variant.required_fields & variant.at_least_one_field == 0
+                        {
+                            let tags = table_schema
+                                .row
+                                .fields
+                                .iter()
+                                .filter(|field| variant.required_fields & (1_u32 << field.tag) != 0)
+                                .map(|field| field.tag)
+                                .collect::<Vec<_>>();
+                            let row = encoded_variant_row(
+                                table_schema.row,
+                                &tags,
+                                tag,
+                                variant.discriminant,
+                            );
+                            let table = table_with_rows(table_schema, &[row]);
+                            assert_eq!(
+                                preflight_table_with_registry_v1(
+                                    &table,
+                                    table_schema,
+                                    FormatLimits::V1_HARD,
+                                    &mut PreflightBudget::default(),
+                                )
+                                .unwrap_err()
+                                .class(),
+                                FormatErrorClass::BindingMismatch,
+                                "{object_kind:?} section {} table {} variant {} accepted an empty alternative set",
+                                section.kind,
+                                table_schema.kind,
+                                variant.discriminant
+                            );
+                        }
+                    }
+
+                    let unknown = (0_u8..=u8::MAX)
+                        .find(|candidate| {
+                            variants
+                                .iter()
+                                .all(|variant| variant.discriminant != *candidate)
+                        })
+                        .expect("a u8 discriminant registry cannot occupy every value");
+                    let mut tags = table_schema
+                        .row
+                        .fields
+                        .iter()
+                        .filter(|field| variants[0].required_fields & (1_u32 << field.tag) != 0)
+                        .map(|field| field.tag)
+                        .collect::<Vec<_>>();
+                    if variants[0].at_least_one_field != 0
+                        && variants[0].required_fields & variants[0].at_least_one_field == 0
+                    {
+                        tags.push(variants[0].at_least_one_field.trailing_zeros() as u16);
+                        tags.sort_unstable();
+                    }
+                    let row = encoded_variant_row(table_schema.row, &tags, tag, unknown);
+                    let table = table_with_rows(table_schema, &[row]);
+                    assert_eq!(
+                        preflight_table_with_registry_v1(
+                            &table,
+                            table_schema,
+                            FormatLimits::V1_HARD,
+                            &mut PreflightBudget::default(),
+                        )
+                        .unwrap_err()
+                        .class(),
+                        FormatErrorClass::UnknownKind,
+                        "{object_kind:?} section {} table {} accepted unknown discriminant {unknown}",
+                        section.kind,
+                        table_schema.kind
+                    );
+                }
+            }
+        }
     }
 
     #[test]

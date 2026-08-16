@@ -3426,14 +3426,32 @@ mod tests {
     fn portable_emitter_closes_every_current_relation_family_and_spatial_projection() {
         let provenance =
             crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap();
-        let emit = |output: &CompilationOutput| {
-            crate::emit_portable_candidate(
+        let mut emitted_roles = std::collections::BTreeSet::new();
+        let mut emit = |output: &CompilationOutput| {
+            let candidate = crate::emit_portable_candidate(
                 output,
                 &provenance,
                 laneflow_format::FormatLimits::V1_HARD,
                 crate::PortableDiffBase::Genesis,
             )
+            .unwrap();
+            let source_map = laneflow_format::preflight_object_values_v1(
+                candidate.source_map().bytes(),
+                laneflow_static_contract::PortableObjectKind::SourceMap,
+                laneflow_format::FormatLimits::V1_HARD,
+            )
             .unwrap()
+            .registry_view();
+            let owner_local = source_map.section(3).unwrap().table(0).unwrap();
+            for ordinal in 0..owner_local.row_count() {
+                let row = owner_local.row(ordinal).unwrap();
+                let role = match row.field_by_tag(3).unwrap().value().unwrap() {
+                    laneflow_format::RegistryCheckedFieldValue::U8(role) => role,
+                    value => panic!("expected owner-local role, got {value:?}"),
+                };
+                emitted_roles.insert(role);
+            }
+            candidate
         };
 
         let rich_relations = Compiler::new()
@@ -3490,6 +3508,8 @@ mod tests {
             .compile(spatial_cross_section_unit(false, 1.0, true))
             .unwrap();
         emit(&spatial);
+
+        assert_eq!(emitted_roles, (1_u8..=29).collect());
     }
 
     #[test]

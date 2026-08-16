@@ -323,3 +323,56 @@ pub(super) fn genesis_entity_changes(
         })
         .collect())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_entity_kind_has_one_frozen_entity_and_static_rule_field_partition() {
+        let expected = [
+            (EntityKind::RoadCorridor, &[3_u16][..], &[][..]),
+            (EntityKind::RoadSection, &[4][..], &[][..]),
+            (EntityKind::AuthoringLane, &[][..], &[][..]),
+            (EntityKind::LaneEdge, &[3, 4][..], &[][..]),
+            (EntityKind::Junction, &[][..], &[][..]),
+            (EntityKind::Movement, &[][..], &[][..]),
+            (EntityKind::ManeuverPath, &[][..], &[][..]),
+            (EntityKind::ManeuverGate, &[4][..], &[6][..]),
+            (EntityKind::WaitingZone, &[][..], &[4, 5, 6][..]),
+            (EntityKind::StopLine, &[3][..], &[][..]),
+            (EntityKind::SignalGroup, &[][..], &[][..]),
+            (EntityKind::SignalController, &[][..], &[3, 4][..]),
+            (EntityKind::SignalPhase, &[][..], &[4, 5][..]),
+            (EntityKind::ParkingArea, &[][..], &[][..]),
+            (EntityKind::ParkingSpace, &[5, 7, 8, 9, 10, 11][..], &[][..]),
+            (EntityKind::LaneGroup, &[][..], &[][..]),
+            (EntityKind::FacilityBand, &[4][..], &[][..]),
+            (EntityKind::ParticipantClass, &[4][..], &[][..]),
+            (EntityKind::AccessRule, &[][..], &[5, 7, 8][..]),
+            (
+                EntityKind::VehicleProfile,
+                &[4, 5, 6, 7, 8, 9, 10][..],
+                &[][..],
+            ),
+            (EntityKind::StaticRoute, &[][..], &[][..]),
+            (EntityKind::CanonicalFrame, &[][..], &[][..]),
+        ];
+        assert_eq!(expected.len(), EntityKind::ALL.len());
+        for (actual, (kind, entity_tags, static_rule_tags)) in
+            EntityKind::ALL.into_iter().zip(expected)
+        {
+            assert_eq!(actual, kind);
+            assert_eq!(
+                entity_modify_tags(kind),
+                entity_tags,
+                "{kind:?} entity fields"
+            );
+            assert_eq!(
+                static_rule_modify_tags(kind),
+                static_rule_tags,
+                "{kind:?} static-rule fields"
+            );
+        }
+    }
+}
