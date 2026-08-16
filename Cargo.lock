@@ -3191,6 +3191,7 @@ name = "laneflow-compiler"
 version = "0.0.0"
 dependencies = [
  "blake3",
+ "laneflow-format",
  "laneflow-road-editing-wire",
  "laneflow-static-contract",
  "sha2",

@@ -1,7 +1,7 @@
 # 可移植规范制品与辅助制品格式
 
 **文档状态**: Accepted（#298 G1 Pass；G2 进度以 Issue Gate Ledger 为准）<br>
-**最后更新**: 2026-08-15<br>
+**最后更新**: 2026-08-16<br>
 **适用范围**: `laneflow-format`、`laneflow-static-contract`、
 `laneflow-compiler` 的可移植规范制品（Portable Canonical Artifact）、源映射封套
 （Source Map Envelope）、语义差异封套（Semantic Diff Envelope）、规范发布描述符
@@ -9,8 +9,10 @@
 **实现状态**: G2 进行中；当前已建立共享 magic/version/field type/硬上限值、
 framing、Table/Row/Field 通用结构预检、附录 A registry 零拷贝有类型遍历、对象内直接
 值域检查，以及先完整计量、再写调用方提供的精确长度缓冲区且失败不改变输出的无分配
-受限写入器；尚未完成编译器发射、固定对象 fixture 或发布事务，当前生产编译器仍只原子
-返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`<br>
+受限写入器。`laneflow-compiler` 已从同一个 `CompilationOutput` 原子发射 LFCA/LFSM 以及
+Genesis 或 checked-base LFSD 的内存候选，并关闭 exact bytes、digest、length、object key、
+revision 和跨对象 binding；固定对象 fixture、文件系统 no-replace 安装、LFCP、独立验证收据与
+发布事务仍未完成，候选不得解释为 validated/trusted artifact<br>
 **关联 Issue**: #298；依赖 #292、#296；阻断 #299、#300<br>
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
 `numeric-representation.md`、
