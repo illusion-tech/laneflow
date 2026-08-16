@@ -221,19 +221,19 @@ const SEGMENT_ROW: PortableRowSchema = PortableRowSchema {
 // LFCA section 0x0001..0x0002.
 
 const CONTRACT_VERSIONS_FIELDS: &[PortableFieldSchema] = &[
-    field(1, "staticCoreContractVersion", PortableFieldType::U16, R),
-    field(2, "canonicalIdentityVersion", PortableFieldType::U16, R),
-    field(3, "canonicalSpatialVersion", PortableFieldType::U16, R),
+    field(1, "canonicalFormatVersion", PortableFieldType::U16, R),
+    field(2, "identityEncodingVersion", PortableFieldType::U16, R),
+    field(3, "identityRegistryRevision", PortableFieldType::U16, R),
     field(
         4,
-        "staticExecutionContractVersion",
+        "networkRevisionDerivationVersion",
         PortableFieldType::U16,
         R,
     ),
     field(5, "constraintContractVersion", PortableFieldType::U16, R),
     field(
         6,
-        "networkRevisionDerivationVersion",
+        "staticExecutionContractVersion",
         PortableFieldType::U16,
         R,
     ),
@@ -1600,6 +1600,41 @@ pub const fn portable_object_schema(kind: PortableObjectKind) -> &'static Portab
 mod tests {
     use super::*;
 
+    const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    #[test]
+    fn contract_versions_match_appendix_a1_literal_registry() {
+        let fields = portable_object_schema(PortableObjectKind::CanonicalArtifact).sections[0]
+            .tables[0]
+            .row
+            .fields;
+        let expected = [
+            (1, "canonicalFormatVersion"),
+            (2, "identityEncodingVersion"),
+            (3, "identityRegistryRevision"),
+            (4, "networkRevisionDerivationVersion"),
+            (5, "constraintContractVersion"),
+            (6, "staticExecutionContractVersion"),
+        ];
+
+        assert_eq!(fields.len(), expected.len());
+        for (field, (tag, name)) in fields.iter().zip(expected) {
+            assert_eq!(field.tag, tag);
+            assert_eq!(field.name, name);
+            assert_eq!(field.field_type, PortableFieldType::U16);
+            assert_eq!(field.presence, PortableFieldPresence::Required);
+            assert!(field.nested_row.is_none());
+        }
+    }
+
+    #[test]
+    fn appendix_registry_matches_reviewed_literal_fingerprint() {
+        // 这只是对已依据附录 A 人工复核过的 Rust 登记做防漂移固定，不是独立格式 oracle。
+        // 更新该值必须先逐项审阅附录；不得从测试失败输出自动追认新的 production registry。
+        assert_eq!(appendix_registry_fingerprint(), 0x271d_ff6e_0176_2f74);
+    }
+
     #[test]
     fn appendix_registry_has_exact_section_and_table_counts() {
         for kind in PortableObjectKind::ALL {
@@ -1679,5 +1714,15 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn appendix_registry_fingerprint() -> u64 {
+        let mut hash = FNV_OFFSET_BASIS;
+        for kind in PortableObjectKind::ALL {
+            for byte in std::format!("{:?}", portable_object_schema(kind)).bytes() {
+                hash = (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME);
+            }
+        }
+        hash
     }
 }

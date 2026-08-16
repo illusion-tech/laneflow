@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
-description = "LaneFlow 可移植规范制品的受限线格式读写与结构预检。"
+description = "LaneFlow 可移植规范制品的受限线格式读取与结构预检。"
 publish = false
 
 [lib]
