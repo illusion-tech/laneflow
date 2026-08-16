@@ -124,7 +124,8 @@ pub fn measure_object_v1(
             ordinal,
             schema.sections.len(),
         )?;
-        let section_length = measure_section(*section, section_schema, limits, &mut budget)?;
+        let section_length =
+            measure_section(input.kind, *section, section_schema, limits, &mut budget)?;
         check_limit(
             LimitDimension::SectionOrTableBytes,
             section_length,
@@ -171,6 +172,7 @@ pub fn encode_object_v1(
 }
 
 fn measure_section(
+    object_kind: PortableObjectKind,
     section: SectionWriteInputV1<'_>,
     schema: &'static PortableSectionSchema,
     limits: FormatLimits,
@@ -190,7 +192,9 @@ fn measure_section(
             ordinal,
             schema.tables.len(),
         )?;
-        let table_length = measure_table(*table, table_schema, limits, budget)?;
+        let is_source_location =
+            object_kind == PortableObjectKind::SourceMap && section.kind == 2 && table.kind == 3;
+        let table_length = measure_table(*table, table_schema, is_source_location, limits, budget)?;
         check_limit(
             LimitDimension::SectionOrTableBytes,
             table_length,
@@ -209,6 +213,7 @@ fn measure_section(
 fn measure_table(
     table: TableWriteInputV1<'_>,
     schema: &'static PortableTableSchema,
+    is_source_location: bool,
     limits: FormatLimits,
     budget: &mut WriteBudget,
 ) -> Result<u64, FormatError> {
@@ -218,6 +223,13 @@ fn measure_table(
         u64::from(row_count),
         u64::from(limits.config().max_rows_per_table),
     )?;
+    if is_source_location {
+        check_limit(
+            LimitDimension::SourceLocationRows,
+            u64::from(row_count),
+            u64::from(limits.max_source_location_rows()),
+        )?;
+    }
     let cardinality_matches = match schema.cardinality {
         PortableRowCardinality::Any => true,
         PortableRowCardinality::AtMostOne => row_count <= 1,
@@ -718,13 +730,14 @@ mod tests {
     use std::{boxed::Box, vec, vec::Vec};
 
     use laneflow_static_contract::{
-        PortableFieldPresence, PortableRowCardinality, PortableRowShape, portable_object_schema,
+        FORMAT_HARD_MAX_OBJECT_BYTES, PortableFieldPresence, PortableRowCardinality,
+        PortableRowShape, portable_object_schema,
     };
 
     use super::*;
     use crate::{
         FormatErrorClass, FormatLimitConfig, RegistryCheckedFieldValue,
-        preflight_object_registry_v1,
+        preflight_object_registry_v1, preflight_object_values_v1,
     };
 
     fn leak<T>(values: Vec<T>) -> &'static [T] {
@@ -851,6 +864,47 @@ mod tests {
         assert!(!populate_first_record_vector || record_populated);
         ObjectWriteInputV1 {
             kind,
+            sections: leak(sections),
+        }
+    }
+
+    fn lfsd_with_entity_add_payload(payload: &'static [u8]) -> ObjectWriteInputV1<'static> {
+        let input = fixture_object(PortableObjectKind::SemanticDiff, false);
+        let mut sections = input.sections.to_vec();
+
+        let mut binding_tables = sections[0].tables.to_vec();
+        let mut binding_rows = binding_tables[0].rows.to_vec();
+        let mut binding_fields = binding_rows[0].fields.to_vec();
+        for field in &mut binding_fields {
+            field.value = match field.tag {
+                6 => FieldWriteValueV1::U16(1),
+                7 => FieldWriteValueV1::Sha256([1; 32]),
+                8 => FieldWriteValueV1::Sha256([2; 32]),
+                9 => FieldWriteValueV1::U64(1),
+                _ => field.value,
+            };
+        }
+        binding_rows[0].fields = leak(binding_fields);
+        binding_tables[0].rows = leak(binding_rows);
+        sections[0].tables = leak(binding_tables);
+
+        let schema = portable_object_schema(PortableObjectKind::SemanticDiff);
+        let mut entity_row = default_row(schema.sections[1].tables[0].row, false);
+        let mut entity_fields = entity_row.fields.to_vec();
+        for field in &mut entity_fields {
+            field.value = match field.tag {
+                2 => FieldWriteValueV1::U16(1),
+                10 => FieldWriteValueV1::Bytes(payload),
+                _ => field.value,
+            };
+        }
+        entity_row.fields = leak(entity_fields);
+        let mut entity_tables = sections[1].tables.to_vec();
+        entity_tables[0].rows = leak(vec![entity_row]);
+        sections[1].tables = leak(entity_tables);
+
+        ObjectWriteInputV1 {
+            kind: input.kind,
             sections: leak(sections),
         }
     }
@@ -1010,6 +1064,34 @@ mod tests {
             expected_section.extend_from_slice(value);
         }
         assert_eq!(&output[128..300], expected_section);
+    }
+
+    #[test]
+    fn value_checked_lfsd_reaches_the_exact_object_byte_limit() {
+        let with_empty_payload = lfsd_with_entity_add_payload(&[]);
+        let base_length = measure_object_v1(with_empty_payload, FormatLimits::V1_HARD).unwrap();
+        let payload_length = FORMAT_HARD_MAX_OBJECT_BYTES - base_length;
+        let payload = leak(vec![0; usize::try_from(payload_length).unwrap()]);
+        let exact = lfsd_with_entity_add_payload(payload);
+        assert_eq!(
+            measure_object_v1(exact, FormatLimits::V1_HARD).unwrap(),
+            FORMAT_HARD_MAX_OBJECT_BYTES
+        );
+        let mut bytes = vec![0; usize::try_from(FORMAT_HARD_MAX_OBJECT_BYTES).unwrap()];
+        encode_object_v1(exact, FormatLimits::V1_HARD, &mut bytes).unwrap();
+        let framing = crate::preflight_object_framing(
+            &bytes,
+            PortableObjectKind::SemanticDiff,
+            FormatLimits::V1_HARD,
+        )
+        .unwrap();
+        assert_eq!(framing.section(1).unwrap().bytes().len(), 16_776_667);
+        preflight_object_values_v1(
+            &bytes,
+            PortableObjectKind::SemanticDiff,
+            FormatLimits::V1_HARD,
+        )
+        .unwrap();
     }
 
     #[test]

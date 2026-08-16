@@ -8,6 +8,8 @@ mod error;
 mod framing;
 mod limits;
 mod object;
+#[cfg(test)]
+mod security_tests;
 mod table;
 mod value;
 mod wire;

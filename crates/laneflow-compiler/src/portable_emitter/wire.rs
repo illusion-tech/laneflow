@@ -217,10 +217,11 @@ pub(super) fn encode_owned_object(
     let candidate_length = already_staged_bytes
         .checked_add(length)
         .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-    if candidate_length > FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES {
+    let staging_limit = limits.max_candidate_staging_bytes();
+    if candidate_length > staging_limit {
         return Err(PortableEmissionError::CandidateStagingLimitExceeded {
             actual: candidate_length,
-            limit: FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES,
+            limit: staging_limit,
         });
     }
     let output_length =
@@ -228,4 +229,122 @@ pub(super) fn encode_owned_object(
     let mut bytes = vec![0_u8; output_length];
     encode_object_v1(input, limits, &mut bytes)?;
     Ok(bytes.into_boxed_slice())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use laneflow_static_contract::FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES;
+
+    fn minimal_lfcp_shape() -> OwnedObject {
+        OwnedObject {
+            kind: PortableObjectKind::CanonicalPublicationDescriptor,
+            sections: vec![
+                section(
+                    1,
+                    [table(
+                        1,
+                        [row([
+                            field(1, OwnedValue::U16(1)),
+                            field(2, OwnedValue::U16(1)),
+                            field(3, OwnedValue::Sha256([1; 32])),
+                            field(4, OwnedValue::Sha256([2; 32])),
+                            field(5, OwnedValue::U64(1)),
+                        ])],
+                    )],
+                ),
+                section(
+                    2,
+                    [table(
+                        1,
+                        [row([
+                            field(1, OwnedValue::U16(1)),
+                            field(2, OwnedValue::Sha256([3; 32])),
+                            field(3, OwnedValue::U64(1)),
+                            field(4, OwnedValue::Utf8("compiler".into())),
+                            field(5, OwnedValue::U16(1)),
+                            field(6, OwnedValue::Sha256([4; 32])),
+                        ])],
+                    )],
+                ),
+                section(
+                    3,
+                    [table(
+                        1,
+                        [row([
+                            field(1, OwnedValue::U16(1)),
+                            field(2, OwnedValue::Utf8("canonical-publication-v1".into())),
+                            field(3, OwnedValue::Utf8("validator".into())),
+                            field(4, OwnedValue::Sha256([5; 32])),
+                            field(5, OwnedValue::U64(1)),
+                        ])],
+                    )],
+                ),
+                section(
+                    4,
+                    [table(
+                        1,
+                        [row([
+                            field(1, OwnedValue::U8(1)),
+                            field(2, OwnedValue::Utf8("publisher".into())),
+                            field(3, OwnedValue::Utf8("artifact-key".into())),
+                            field(4, OwnedValue::Utf8("source-map-key".into())),
+                            field(5, OwnedValue::Utf8("receipt-key".into())),
+                        ])],
+                    )],
+                ),
+            ]
+            .into_boxed_slice(),
+        }
+    }
+
+    #[test]
+    fn candidate_staging_accepts_exact_boundary_and_rejects_limit_plus_one() {
+        let object = minimal_lfcp_shape();
+        let length = encode_owned_object(&object, FormatLimits::V1_HARD, 0)
+            .unwrap()
+            .len() as u64;
+        encode_owned_object(
+            &object,
+            FormatLimits::V1_HARD,
+            FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES - length,
+        )
+        .unwrap();
+        assert_eq!(
+            encode_owned_object(
+                &object,
+                FormatLimits::V1_HARD,
+                FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES - length + 1,
+            ),
+            Err(PortableEmissionError::CandidateStagingLimitExceeded {
+                actual: FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES + 1,
+                limit: FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES,
+            })
+        );
+    }
+
+    #[test]
+    fn candidate_staging_accumulation_reports_arithmetic_overflow() {
+        assert_eq!(
+            encode_owned_object(&minimal_lfcp_shape(), FormatLimits::V1_HARD, u64::MAX),
+            Err(PortableEmissionError::ArithmeticOverflow)
+        );
+    }
+
+    #[test]
+    fn caller_can_reduce_candidate_staging_budget() {
+        let object = minimal_lfcp_shape();
+        let length = encode_owned_object(&object, FormatLimits::V1_HARD, 0)
+            .unwrap()
+            .len() as u64;
+        let mut config = laneflow_format::FormatLimitConfig::V1_HARD;
+        config.max_candidate_staging_bytes = length - 1;
+        assert_eq!(
+            encode_owned_object(&object, FormatLimits::try_new(config).unwrap(), 0),
+            Err(PortableEmissionError::CandidateStagingLimitExceeded {
+                actual: length,
+                limit: length - 1,
+            })
+        );
+    }
 }

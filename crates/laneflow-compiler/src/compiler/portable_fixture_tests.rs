@@ -468,3 +468,4 @@ mod lfca_variants;
 mod lfsd_change_set;
 mod lfsd_noop;
 mod portable_matrix_tests;
+mod portable_security_tests;

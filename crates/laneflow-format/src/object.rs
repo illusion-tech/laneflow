@@ -6,7 +6,8 @@ use laneflow_static_contract::{
 };
 
 use crate::{
-    FormatError, FormatLimits, FormatStructure, ObjectFramingView, SectionFramingView,
+    FormatError, FormatLimits, FormatStructure, LimitDimension, ObjectFramingView,
+    SectionFramingView,
     framing::preflight_object_framing,
     table::{PreflightBudget, preflight_table_with_registry_v1},
     wire::{checked_slice, read_u8, read_u16, read_u32, read_u64},
@@ -25,6 +26,7 @@ const FIELD_HEADER_BYTES: u64 = 12;
 #[derive(Clone, Copy, Debug)]
 pub struct RegistryCheckedObjectView<'a> {
     framing: ObjectFramingView<'a>,
+    limits: FormatLimits,
 }
 
 impl<'a> RegistryCheckedObjectView<'a> {
@@ -38,6 +40,10 @@ impl<'a> RegistryCheckedObjectView<'a> {
     #[must_use]
     pub const fn bytes(self) -> &'a [u8] {
         self.framing.bytes()
+    }
+
+    pub(crate) const fn limits(self) -> FormatLimits {
+        self.limits
     }
 
     /// 附录 A 冻结的精确 section 数量。
@@ -506,6 +512,22 @@ pub fn preflight_object_registry_v1(
                     })?,
                 FormatStructure::Table,
             )?;
+            let row_count = read_u32(
+                section_bytes,
+                cursor
+                    .checked_add(4)
+                    .ok_or(FormatError::ArithmeticOverflow {
+                        structure: FormatStructure::Table,
+                    })?,
+                FormatStructure::Table,
+            )?;
+            check_source_location_rows(
+                expected_kind,
+                section_schema.kind,
+                table_schema.kind,
+                row_count,
+                limits,
+            )?;
             let table_byte_length = TABLE_HEADER_BYTES.checked_add(rows_byte_length).ok_or(
                 FormatError::ArithmeticOverflow {
                     structure: FormatStructure::Table,
@@ -534,7 +556,28 @@ pub fn preflight_object_registry_v1(
         }
     }
 
-    Ok(RegistryCheckedObjectView { framing })
+    Ok(RegistryCheckedObjectView { framing, limits })
+}
+
+fn check_source_location_rows(
+    object_kind: PortableObjectKind,
+    section_kind: u16,
+    table_kind: u16,
+    row_count: u32,
+    limits: FormatLimits,
+) -> Result<(), FormatError> {
+    if object_kind != PortableObjectKind::SourceMap || section_kind != 2 || table_kind != 3 {
+        return Ok(());
+    }
+    let limit = limits.max_source_location_rows();
+    if row_count > limit {
+        return Err(FormatError::LimitExceeded {
+            dimension: LimitDimension::SourceLocationRows,
+            actual: u64::from(row_count),
+            limit: u64::from(limit),
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -543,8 +586,8 @@ mod tests {
     use std::vec::Vec;
 
     use laneflow_static_contract::{
-        OBJECT_PREAMBLE_V1_BYTE_LENGTH, PortableFieldSchema, PortableFieldType,
-        PortableRowCardinality, PortableRowSchema, PortableRowShape,
+        FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS, OBJECT_PREAMBLE_V1_BYTE_LENGTH, PortableFieldSchema,
+        PortableFieldType, PortableRowCardinality, PortableRowSchema, PortableRowShape,
         SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH, SECTION_FORMAT_VERSION_V1,
     };
 
@@ -719,6 +762,177 @@ mod tests {
             assert_eq!(checked.bytes(), bytes);
             assert_eq!(checked.section_count(), kind.section_count());
             assert_eq!(checked.section(0).unwrap().kind(), 1);
+        }
+    }
+
+    #[test]
+    fn every_object_byte_boundary_truncates_before_a_checked_view_exists() {
+        for kind in PortableObjectKind::ALL {
+            let original = encoded_object(kind);
+            for boundary in 0..original.len() {
+                let mut truncated = original[..boundary].to_vec();
+                if boundary >= usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH) {
+                    truncated[24..32]
+                        .copy_from_slice(&u64::try_from(boundary).unwrap().to_le_bytes());
+                }
+                let class = preflight_object_registry_v1(&truncated, kind, FormatLimits::V1_HARD)
+                    .unwrap_err()
+                    .class();
+                assert!(
+                    matches!(
+                        class,
+                        FormatErrorClass::Truncated | FormatErrorClass::LengthMismatch
+                    ),
+                    "{kind:?} boundary {boundary} returned {class:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn one_bit_corruption_in_every_object_section_fails_registry_preflight() {
+        for kind in PortableObjectKind::ALL {
+            let original = encoded_object(kind);
+            let framing = preflight_object_framing(&original, kind, FormatLimits::V1_HARD).unwrap();
+            for ordinal in 0..framing.section_count() {
+                let section = framing.section(ordinal).unwrap();
+                let offset = section.bytes().as_ptr() as usize - original.as_ptr() as usize;
+                let mut corrupted = original.clone();
+                corrupted[offset] ^= 1;
+                assert!(
+                    preflight_object_registry_v1(&corrupted, kind, FormatLimits::V1_HARD).is_err(),
+                    "{kind:?} section {} accepted a one-bit table-count corruption",
+                    ordinal + 1
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_object_rejects_section_count_minus_and_plus_one() {
+        for kind in PortableObjectKind::ALL {
+            let original = encoded_object(kind);
+            for count in [kind.section_count() - 1, kind.section_count() + 1] {
+                let mut bytes = original.clone();
+                bytes[12..16].copy_from_slice(&count.to_le_bytes());
+                assert_eq!(
+                    preflight_object_registry_v1(&bytes, kind, FormatLimits::V1_HARD)
+                        .unwrap_err()
+                        .class(),
+                    FormatErrorClass::LengthMismatch,
+                    "{kind:?} accepted sectionCount={count}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_section_rejects_table_count_minus_or_plus_one_before_table_walk() {
+        for kind in PortableObjectKind::ALL {
+            let original = encoded_object(kind);
+            for (section_ordinal, section_schema) in
+                portable_object_schema(kind).sections.iter().enumerate()
+            {
+                let entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
+                    + section_ordinal
+                        * usize::try_from(SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH).unwrap();
+                let section_offset =
+                    u64::from_le_bytes(original[entry + 8..entry + 16].try_into().unwrap())
+                        as usize;
+                let exact = u32::try_from(section_schema.tables.len()).unwrap();
+                for count in [exact - 1, exact + 1] {
+                    let mut bytes = original.clone();
+                    bytes[section_offset..section_offset + 4].copy_from_slice(&count.to_le_bytes());
+                    assert_eq!(
+                        preflight_object_registry_v1(&bytes, kind, FormatLimits::V1_HARD)
+                            .unwrap_err()
+                            .class(),
+                        FormatErrorClass::LengthMismatch,
+                        "{kind:?} section {} accepted tableCount={count}",
+                        section_schema.kind
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_uniform_row_registry_rejects_each_missing_required_and_unknown_field() {
+        for kind in PortableObjectKind::ALL {
+            for section in portable_object_schema(kind).sections {
+                for table_schema in section.tables {
+                    if table_schema.row.shape != PortableRowShape::Uniform {
+                        continue;
+                    }
+
+                    let valid = encoded_row(table_schema.row, None);
+                    let table = table_with_rows(table_schema, core::slice::from_ref(&valid));
+                    preflight_table_with_registry_v1(
+                        &table,
+                        table_schema,
+                        FormatLimits::V1_HARD,
+                        &mut PreflightBudget::default(),
+                    )
+                    .unwrap_or_else(|error| {
+                        panic!(
+                            "{kind:?} section {} table {} rejected its exact uniform row: {error:?}",
+                            section.kind, table_schema.kind
+                        )
+                    });
+
+                    for required in table_schema.row.fields.iter().filter(|field| {
+                        field.presence == laneflow_static_contract::PortableFieldPresence::Required
+                    }) {
+                        let missing = encoded_row(table_schema.row, Some(required.tag));
+                        let table = table_with_rows(table_schema, &[missing]);
+                        assert_eq!(
+                            preflight_table_with_registry_v1(
+                                &table,
+                                table_schema,
+                                FormatLimits::V1_HARD,
+                                &mut PreflightBudget::default(),
+                            )
+                            .unwrap_err()
+                            .class(),
+                            FormatErrorClass::BindingMismatch,
+                            "{kind:?} section {} table {} accepted missing tag {}",
+                            section.kind,
+                            table_schema.kind,
+                            required.tag
+                        );
+                    }
+
+                    let last_field_offset = valid.len()
+                        - table_schema
+                            .row
+                            .fields
+                            .iter()
+                            .rfind(|field| {
+                                field.presence
+                                    == laneflow_static_contract::PortableFieldPresence::Required
+                            })
+                            .map_or(0, |field| 12 + default_value(field).len());
+                    let mut unknown = valid;
+                    let unknown_tag = table_schema.row.fields.last().unwrap().tag + 1;
+                    unknown[last_field_offset..last_field_offset + 2]
+                        .copy_from_slice(&unknown_tag.to_le_bytes());
+                    let table = table_with_rows(table_schema, &[unknown]);
+                    assert_eq!(
+                        preflight_table_with_registry_v1(
+                            &table,
+                            table_schema,
+                            FormatLimits::V1_HARD,
+                            &mut PreflightBudget::default(),
+                        )
+                        .unwrap_err()
+                        .class(),
+                        FormatErrorClass::UnknownKind,
+                        "{kind:?} section {} table {} accepted unknown tag {unknown_tag}",
+                        section.kind,
+                        table_schema.kind
+                    );
+                }
+            }
         }
     }
 
@@ -1280,6 +1494,77 @@ mod tests {
                 dimension: LimitDimension::TotalUtf8Bytes,
                 actual: 2,
                 limit: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn caller_can_reduce_lfsm_source_location_rows_independently() {
+        let mut config = FormatLimitConfig::V1_HARD;
+        config.max_source_location_rows = 4;
+        let limits = FormatLimits::try_new(config).unwrap();
+        assert_eq!(
+            check_source_location_rows(PortableObjectKind::SourceMap, 2, 3, 5, limits),
+            Err(FormatError::LimitExceeded {
+                dimension: LimitDimension::SourceLocationRows,
+                actual: 5,
+                limit: 4,
+            })
+        );
+        check_source_location_rows(PortableObjectKind::SourceMap, 2, 2, 5, limits).unwrap();
+    }
+
+    #[test]
+    fn lfsm_source_location_wire_count_uses_its_independent_limit_before_row_walk() {
+        let kind = PortableObjectKind::SourceMap;
+        let original = encoded_object(kind);
+        let section_entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
+            + usize::try_from(SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH).unwrap();
+        let section_offset = u64::from_le_bytes(
+            original[section_entry + 8..section_entry + 16]
+                .try_into()
+                .unwrap(),
+        ) as usize;
+        let section_bytes = &original[section_offset..];
+        let mut table_offset = 4_usize;
+        for _ in 0..2 {
+            let rows_length = u64::from_le_bytes(
+                section_bytes[table_offset + 8..table_offset + 16]
+                    .try_into()
+                    .unwrap(),
+            );
+            table_offset += 16 + usize::try_from(rows_length).unwrap();
+        }
+        let source_location_count_offset = section_offset + table_offset + 4;
+
+        let mut hard_plus_one = original.clone();
+        hard_plus_one[source_location_count_offset..source_location_count_offset + 4]
+            .copy_from_slice(&(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS + 1).to_le_bytes());
+        assert_eq!(
+            preflight_object_registry_v1(&hard_plus_one, kind, FormatLimits::V1_HARD).unwrap_err(),
+            FormatError::LimitExceeded {
+                dimension: LimitDimension::SourceLocationRows,
+                actual: u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS) + 1,
+                limit: u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS),
+            }
+        );
+
+        let mut config = FormatLimitConfig::V1_HARD;
+        config.max_source_location_rows = 4;
+        let mut caller_plus_one = original;
+        caller_plus_one[source_location_count_offset..source_location_count_offset + 4]
+            .copy_from_slice(&5_u32.to_le_bytes());
+        assert_eq!(
+            preflight_object_registry_v1(
+                &caller_plus_one,
+                kind,
+                FormatLimits::try_new(config).unwrap(),
+            )
+            .unwrap_err(),
+            FormatError::LimitExceeded {
+                dimension: LimitDimension::SourceLocationRows,
+                actual: 5,
+                limit: 4,
             }
         );
     }

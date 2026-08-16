@@ -952,9 +952,11 @@ bytes 重算的 digest、`u64` exact length 和 `sha256/<64 lowercase hex>` obje
 | 单次 LFCA+LFSM+LFSD 候选暂存 exact bytes | `50,331,648` bytes（48 MiB）            | 开始写入前保留总预算；每次增长前 checked 累加 |
 
 固定节数同时给出精确形状：LFCA `8`、LFSM `5`、LFSD `6`、LFCP `4`。Table 总数也是
-按附录 A 求和得到的精确形状，不是可由未知表填满的通用容量；`17` 是 RoadEditing
-OwnerLocal SourceLocation 同时携带完整 address、三层 owner key、property 与 canvas 时可
-达到的 v1 最大字段数，具体表仍必须满足自身 tag/presence matrix。一个对象中的
+按附录 A 求和得到的精确形状，不是可由未知表填满的通用容量。`17` 是通用 RowV1 parser
+的安全天花板，并可由通用 TableV1 达到；按 A.2 已冻结的 OwnerLocal owner/relation 矩阵，
+需要 address 的 relation owner 最大深度为二，因此同时携带完整 address、property 与 canvas
+且通过直接值域检查的 SourceLocation 当前最多 `16` 个字段。第 17 个字段只会构成不匹配的
+三层 owner address 并失败关闭；具体表始终必须满足自身 tag/presence/value matrix。一个对象中的
 `rowsByteLength`、全部
 `rowByteLength`、全部 `valueByteLength` 仍必须受外层 exact length 逐层约束；上表不是允许
 padding、截断或只验证其中一份冗余计数的理由。

@@ -6,13 +6,15 @@
 
 use core::str;
 
+#[cfg(test)]
+use laneflow_static_contract::FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES;
 use laneflow_static_contract::{
-    EntityKind, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES, FieldEncoding, FieldTag, PortableObjectKind,
-    PortableTableSchema, portable_object_schema,
+    EntityKind, FieldEncoding, FieldTag, PortableObjectKind, PortableTableSchema,
+    portable_object_schema,
 };
 
 use crate::{
-    FormatError, FormatLimits, FormatStructure, RegistryCheckedObjectView,
+    FormatError, FormatLimits, FormatStructure, LimitDimension, RegistryCheckedObjectView,
     object::preflight_object_registry_v1,
     wire::{checked_slice, read_u8, read_u16, read_u32, read_u64},
 };
@@ -64,7 +66,7 @@ impl<'a> ValueCheckedObjectView<'a> {
 impl<'a> RegistryCheckedObjectView<'a> {
     /// 在既有完整 registry 结构证明之上检查对象种类专用的直接值域。
     pub fn check_value_domains_v1(self) -> Result<ValueCheckedObjectView<'a>, FormatError> {
-        validate_object_values(self)?;
+        validate_object_values(self, self.limits())?;
         Ok(ValueCheckedObjectView { registry: self })
     }
 }
@@ -152,7 +154,10 @@ struct DirectBindings {
     lfcp_receipt_digest: Option<[u8; 32]>,
 }
 
-fn validate_object_values(view: RegistryCheckedObjectView<'_>) -> Result<(), FormatError> {
+fn validate_object_values(
+    view: RegistryCheckedObjectView<'_>,
+    limits: FormatLimits,
+) -> Result<(), FormatError> {
     let object_schema = portable_object_schema(view.kind());
     let mut bindings = DirectBindings::default();
     for (section_index, section_schema) in object_schema.sections.iter().enumerate() {
@@ -179,6 +184,7 @@ fn validate_object_values(view: RegistryCheckedObjectView<'_>) -> Result<(), For
                 section_schema.kind,
                 table_schema,
                 table_bytes,
+                limits,
                 &mut bindings,
             )?;
             cursor =
@@ -197,6 +203,7 @@ fn validate_table_values(
     section_kind: u16,
     table_schema: &PortableTableSchema,
     bytes: &[u8],
+    limits: FormatLimits,
     bindings: &mut DirectBindings,
 ) -> Result<(), FormatError> {
     let row_count = read_u32(bytes, 4, FormatStructure::Table)?;
@@ -205,10 +212,21 @@ fn validate_table_values(
         let (row, end) = parse_row(bytes, cursor)?;
         match object_kind {
             PortableObjectKind::CanonicalArtifact => {
-                validate_lfca_row(section_kind, table_schema.kind, row, bindings)?;
+                validate_lfca_row(
+                    section_kind,
+                    table_schema.kind,
+                    row,
+                    limits.max_identity_ascii_bytes(),
+                    bindings,
+                )?;
             }
             PortableObjectKind::SourceMap => {
-                validate_lfsm_row(section_kind, table_schema.kind, row)?;
+                validate_lfsm_row(
+                    section_kind,
+                    table_schema.kind,
+                    row,
+                    limits.max_identity_ascii_bytes(),
+                )?;
             }
             PortableObjectKind::SemanticDiff => {
                 validate_lfsd_row(section_kind, table_schema.kind, row)?;
@@ -312,6 +330,7 @@ fn validate_lfca_row(
     section: u16,
     table: u16,
     row: RowRef<'_>,
+    max_identity_ascii_bytes: u64,
     bindings: &mut DirectBindings,
 ) -> Result<(), FormatError> {
     match (section, table) {
@@ -322,14 +341,14 @@ fn validate_lfca_row(
         }
         (2, 1) => {
             let entity = require_entity_kind(row.required(1)?)?;
-            validate_identity_fields(entity, row.required(4)?)?;
+            validate_identity_fields(entity, row.required(4)?, max_identity_ascii_bytes)?;
         }
         (3, 1) => {
             visit_record_rows(row.required(4)?, |nested| {
                 require_u8_range(nested.required(1)?, 0, 1).map(|_| ())
             })?;
         }
-        (3, 2) => validate_kind_id(row.required(4)?, true)?,
+        (3, 2) => validate_kind_id(row.required(4)?, true, max_identity_ascii_bytes)?,
         (3, 4) => {
             require_f64_greater(row.required(3)?, 1.0e-9)?;
             require_f64_greater(row.required(4)?, 0.0)?;
@@ -362,7 +381,7 @@ fn validate_lfca_row(
             })?;
         }
         (3, 15) => validate_parking_space(row)?,
-        (3, 17) => validate_kind_id(row.required(4)?, false)?,
+        (3, 17) => validate_kind_id(row.required(4)?, false, max_identity_ascii_bytes)?,
         (3, 19) => {
             require_u8_range(row.required(3)?, 0, 3)?;
             require_u8_range(row.required(5)?, 0, 1)?;
@@ -428,11 +447,15 @@ fn validate_lfca_row(
     Ok(())
 }
 
-fn validate_identity_fields(entity: EntityKind, field: FieldRef<'_>) -> Result<(), FormatError> {
+fn validate_identity_fields(
+    entity: EntityKind,
+    field: FieldRef<'_>,
+    max_identity_ascii_bytes: u64,
+) -> Result<(), FormatError> {
     let required_tags = entity.required_tags();
     let mut index = 0_usize;
     visit_record_rows(field, |row| {
-        let actual = validate_identity_field(row)?;
+        let actual = validate_identity_field(row, max_identity_ascii_bytes)?;
         if required_tags.get(index) != Some(&actual) {
             return Err(row_binding_mismatch());
         }
@@ -445,7 +468,10 @@ fn validate_identity_fields(entity: EntityKind, field: FieldRef<'_>) -> Result<(
     Ok(())
 }
 
-fn validate_identity_field(row: RowRef<'_>) -> Result<FieldTag, FormatError> {
+fn validate_identity_field(
+    row: RowRef<'_>,
+    max_identity_ascii_bytes: u64,
+) -> Result<FieldTag, FormatError> {
     let tag_field = row.required(1)?;
     let tag_code = tag_field.u16()?;
     let tag =
@@ -453,7 +479,7 @@ fn validate_identity_field(row: RowRef<'_>) -> Result<FieldTag, FormatError> {
     let value = row.required(2)?;
     match tag.encoding() {
         FieldEncoding::Ascii => {
-            validate_ascii_token(value, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES)?;
+            validate_ascii_token(value, max_identity_ascii_bytes)?;
         }
         FieldEncoding::StableId128 if value.value.len() == 16 => {}
         FieldEncoding::StableId128 => {
@@ -467,8 +493,12 @@ fn validate_identity_field(row: RowRef<'_>) -> Result<FieldTag, FormatError> {
     Ok(tag)
 }
 
-fn validate_kind_id(field: FieldRef<'_>, road_section: bool) -> Result<(), FormatError> {
-    validate_ascii_token(field, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES)?;
+fn validate_kind_id(
+    field: FieldRef<'_>,
+    road_section: bool,
+    max_identity_ascii_bytes: u64,
+) -> Result<(), FormatError> {
+    validate_ascii_token(field, max_identity_ascii_bytes)?;
     let value = field.value;
     let valid = if road_section {
         value == b"motorLane"
@@ -548,7 +578,12 @@ fn validate_geometry_rows(
     Ok(())
 }
 
-fn validate_lfsm_row(section: u16, table: u16, row: RowRef<'_>) -> Result<(), FormatError> {
+fn validate_lfsm_row(
+    section: u16,
+    table: u16,
+    row: RowRef<'_>,
+    max_identity_ascii_bytes: u64,
+) -> Result<(), FormatError> {
     match (section, table) {
         (1, 1) => {
             require_exact_u16(row.required(1)?, 1)?;
@@ -558,7 +593,7 @@ fn validate_lfsm_row(section: u16, table: u16, row: RowRef<'_>) -> Result<(), Fo
             validate_compiler_build_id(row.required(6)?)?;
         }
         (2, 1) => {
-            validate_ascii_token(row.required(2)?, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES)?;
+            validate_ascii_token(row.required(2)?, max_identity_ascii_bytes)?;
             let language_field = row.required(3)?;
             let language = language_field.u16()?;
             if !matches!(language, 1 | 3) {
@@ -569,14 +604,14 @@ fn validate_lfsm_row(section: u16, table: u16, row: RowRef<'_>) -> Result<(), Fo
             let expected_frontend = if language == 1 { 2 } else { 1 };
             require_exact_u32(frontend, expected_frontend)?;
             visit_record_rows(row.required(12)?, |import| {
-                validate_ascii_token(import.required(1)?, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES)
+                validate_ascii_token(import.required(1)?, max_identity_ascii_bytes)
             })?;
         }
         (2, 2) => {
-            validate_ascii_token(row.required(3)?, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES)?;
+            validate_ascii_token(row.required(3)?, max_identity_ascii_bytes)?;
             require_u32_greater(row.required(5)?, 0)?;
         }
-        (2, 3) => validate_source_location(row)?,
+        (2, 3) => validate_source_location(row, max_identity_ascii_bytes)?,
         (3, 1) => {
             require_entity_kind(row.required(1)?)?;
             if read_u32(row.required(5)?.value, 0, FormatStructure::OrdinalVector)? != 0 {
@@ -650,11 +685,14 @@ fn owner_kind_for_source_role(role: u8) -> Option<EntityKind> {
     }
 }
 
-fn validate_source_location(row: RowRef<'_>) -> Result<(), FormatError> {
+fn validate_source_location(
+    row: RowRef<'_>,
+    max_identity_ascii_bytes: u64,
+) -> Result<(), FormatError> {
     let kind = row.required(2)?.u8()?;
     match kind {
         0 => validate_text_location(row),
-        1 => validate_road_editing_location(row),
+        1 => validate_road_editing_location(row, max_identity_ascii_bytes),
         _ => Err(unknown(row.required(2)?, u64::from(kind))),
     }
 }
@@ -675,10 +713,13 @@ fn validate_text_location(row: RowRef<'_>) -> Result<(), FormatError> {
     Ok(())
 }
 
-fn validate_road_editing_location(row: RowRef<'_>) -> Result<(), FormatError> {
+fn validate_road_editing_location(
+    row: RowRef<'_>,
+    max_identity_ascii_bytes: u64,
+) -> Result<(), FormatError> {
     for tag in [10, 12, 13, 14, 15] {
         if let Some(field) = row.field(tag) {
-            validate_ascii_token(field, FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES)?;
+            validate_ascii_token(field, max_identity_ascii_bytes)?;
         }
     }
 
@@ -1183,7 +1224,14 @@ fn require_entity_kind(field: FieldRef<'_>) -> Result<EntityKind, FormatError> {
 
 fn validate_ascii_token(field: FieldRef<'_>, max_bytes: u64) -> Result<(), FormatError> {
     let value = field.value;
-    if value.is_empty() || value.len() as u64 > max_bytes || !value.is_ascii() {
+    if value.len() as u64 > max_bytes {
+        return Err(FormatError::LimitExceeded {
+            dimension: LimitDimension::IdentityAsciiBytes,
+            actual: value.len() as u64,
+            limit: max_bytes,
+        });
+    }
+    if value.is_empty() || !value.is_ascii() {
         return Err(noncanonical(field));
     }
     if !value[0].is_ascii_alphanumeric()
@@ -1579,16 +1627,20 @@ mod tests {
             field_bytes(1, PortableFieldType::U16, &5_u16.to_le_bytes()),
             field_bytes(2, PortableFieldType::Bytes, b"edge-a"),
         ]);
-        validate_identity_field(parse_test_row(&valid)).unwrap();
+        validate_identity_field(parse_test_row(&valid), FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES)
+            .unwrap();
 
         let unknown_tag = row_bytes(&[
             field_bytes(1, PortableFieldType::U16, &23_u16.to_le_bytes()),
             field_bytes(2, PortableFieldType::Bytes, b"edge-a"),
         ]);
         assert_eq!(
-            validate_identity_field(parse_test_row(&unknown_tag))
-                .unwrap_err()
-                .class(),
+            validate_identity_field(
+                parse_test_row(&unknown_tag),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            )
+            .unwrap_err()
+            .class(),
             FormatErrorClass::UnknownKind
         );
 
@@ -1597,9 +1649,12 @@ mod tests {
             field_bytes(2, PortableFieldType::Bytes, &[0x11; 15]),
         ]);
         assert_eq!(
-            validate_identity_field(parse_test_row(&wrong_stable_id))
-                .unwrap_err()
-                .class(),
+            validate_identity_field(
+                parse_test_row(&wrong_stable_id),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            )
+            .unwrap_err()
+            .class(),
             FormatErrorClass::LengthMismatch
         );
 
@@ -1608,10 +1663,44 @@ mod tests {
             field_bytes(2, PortableFieldType::Bytes, b"-edge"),
         ]);
         assert_eq!(
-            validate_identity_field(parse_test_row(&invalid_token))
-                .unwrap_err()
-                .class(),
+            validate_identity_field(
+                parse_test_row(&invalid_token),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            )
+            .unwrap_err()
+            .class(),
             FormatErrorClass::NonCanonicalValue
+        );
+
+        let at_ascii_limit = row_bytes(&[
+            field_bytes(1, PortableFieldType::U16, &5_u16.to_le_bytes()),
+            field_bytes(2, PortableFieldType::Bytes, &[b'a'; 53]),
+        ]);
+        validate_identity_field(
+            parse_test_row(&at_ascii_limit),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+        )
+        .unwrap();
+        let over_ascii_limit = row_bytes(&[
+            field_bytes(1, PortableFieldType::U16, &5_u16.to_le_bytes()),
+            field_bytes(2, PortableFieldType::Bytes, &[b'a'; 54]),
+        ]);
+        assert_eq!(
+            validate_identity_field(
+                parse_test_row(&over_ascii_limit),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            )
+            .unwrap_err()
+            .class(),
+            FormatErrorClass::LimitExceeded
+        );
+        assert_eq!(
+            validate_identity_field(parse_test_row(&at_ascii_limit), 52),
+            Err(FormatError::LimitExceeded {
+                dimension: LimitDimension::IdentityAsciiBytes,
+                actual: 53,
+                limit: 52,
+            })
         );
 
         let identity_field = |tags: &[u16]| {
@@ -1634,6 +1723,7 @@ mod tests {
         validate_identity_fields(
             EntityKind::LaneEdge,
             parse_test_row(&exact).required(4).unwrap(),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
         )
         .unwrap();
         for tags in [&[1_u16][..], &[5, 1][..], &[1, 5, 5][..]] {
@@ -1641,7 +1731,8 @@ mod tests {
             assert_eq!(
                 validate_identity_fields(
                     EntityKind::LaneEdge,
-                    parse_test_row(&invalid).required(4).unwrap()
+                    parse_test_row(&invalid).required(4).unwrap(),
+                    FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
                 )
                 .unwrap_err()
                 .class(),
@@ -1687,7 +1778,14 @@ mod tests {
             field_bytes(1, PortableFieldType::U8, &[1]),
             field_bytes(2, PortableFieldType::U8, &[1]),
         ]);
-        validate_lfca_row(5, 1, parse_test_row(&spatial), &mut bindings).unwrap();
+        validate_lfca_row(
+            5,
+            1,
+            parse_test_row(&spatial),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            &mut bindings,
+        )
+        .unwrap();
         let provenance = row_bytes(&[
             field_bytes(1, PortableFieldType::Utf8, b"compiler-v1"),
             field_bytes(2, PortableFieldType::U16, &1_u16.to_le_bytes()),
@@ -1701,9 +1799,15 @@ mod tests {
             field_bytes(6, PortableFieldType::U8, &[0]),
         ]);
         assert_eq!(
-            validate_lfca_row(7, 1, parse_test_row(&provenance), &mut bindings)
-                .unwrap_err()
-                .class(),
+            validate_lfca_row(
+                7,
+                1,
+                parse_test_row(&provenance),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+                &mut bindings,
+            )
+            .unwrap_err()
+            .class(),
             FormatErrorClass::BindingMismatch
         );
     }
@@ -1726,7 +1830,13 @@ mod tests {
             field_bytes(15, PortableFieldType::Utf8, b"edge-a"),
             field_bytes(20, PortableFieldType::RecordVector, &valid_property),
         ]);
-        validate_lfsm_row(2, 3, parse_test_row(&valid)).unwrap();
+        validate_lfsm_row(
+            2,
+            3,
+            parse_test_row(&valid),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+        )
+        .unwrap();
 
         let wrong_depth = row_bytes(&[
             field_bytes(1, PortableFieldType::U32, &0_u32.to_le_bytes()),
@@ -1744,9 +1854,14 @@ mod tests {
             field_bytes(15, PortableFieldType::Utf8, b"gate-a"),
         ]);
         assert_eq!(
-            validate_lfsm_row(2, 3, parse_test_row(&wrong_depth))
-                .unwrap_err()
-                .class(),
+            validate_lfsm_row(
+                2,
+                3,
+                parse_test_row(&wrong_depth),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            )
+            .unwrap_err()
+            .class(),
             FormatErrorClass::BindingMismatch
         );
 
@@ -1769,9 +1884,14 @@ mod tests {
         fields.sort_by_key(|field| u16::from_le_bytes([field[0], field[1]]));
         let wrong_property_row = row_bytes(&fields);
         assert_eq!(
-            validate_lfsm_row(2, 3, parse_test_row(&wrong_property_row))
-                .unwrap_err()
-                .class(),
+            validate_lfsm_row(
+                2,
+                3,
+                parse_test_row(&wrong_property_row),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            )
+            .unwrap_err()
+            .class(),
             FormatErrorClass::BindingMismatch
         );
     }
@@ -1803,7 +1923,13 @@ mod tests {
             }
             fields.sort_by_key(|field| u16::from_le_bytes([field[0], field[1]]));
             let bytes = row_bytes(&fields);
-            validate_lfsm_row(2, 3, parse_test_row(&bytes)).unwrap();
+            validate_lfsm_row(
+                2,
+                3,
+                parse_test_row(&bytes),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            )
+            .unwrap();
         }
 
         let property = property_value(&[(0, 5, 1)]);
@@ -1827,9 +1953,67 @@ mod tests {
             field_bytes(20, PortableFieldType::RecordVector, &property),
         ]);
         assert_eq!(
-            validate_lfsm_row(2, 3, parse_test_row(&invalid))
-                .unwrap_err()
-                .class(),
+            validate_lfsm_row(
+                2,
+                3,
+                parse_test_row(&invalid),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            )
+            .unwrap_err()
+            .class(),
+            FormatErrorClass::BindingMismatch
+        );
+    }
+
+    #[test]
+    fn owner_local_value_matrix_reaches_sixteen_fields_but_not_seventeen() {
+        let property = property_value(&[(0, 15, 0)]);
+        let mut fields = vec![
+            field_bytes(1, PortableFieldType::U32, &0_u32.to_le_bytes()),
+            field_bytes(2, PortableFieldType::U8, &[1]),
+            field_bytes(3, PortableFieldType::U32, &0_u32.to_le_bytes()),
+            field_bytes(4, PortableFieldType::U32, &0_u32.to_le_bytes()),
+            field_bytes(9, PortableFieldType::U8, &[3]),
+            field_bytes(10, PortableFieldType::Utf8, b"city/main"),
+            field_bytes(
+                11,
+                PortableFieldType::U16,
+                &EntityKind::ManeuverPath.code().to_le_bytes(),
+            ),
+            field_bytes(12, PortableFieldType::Utf8, b"movement-a"),
+            field_bytes(13, PortableFieldType::Utf8, b"path-a"),
+            field_bytes(15, PortableFieldType::Utf8, b"edge-a"),
+            field_bytes(16, PortableFieldType::U8, &[1]),
+            field_bytes(17, PortableFieldType::U8, &[7]),
+            field_bytes(18, PortableFieldType::U8, &[0]),
+            field_bytes(19, PortableFieldType::U32, &0_u32.to_le_bytes()),
+            field_bytes(20, PortableFieldType::RecordVector, &property),
+            field_bytes(21, PortableFieldType::Utf8, b"canvas-a"),
+        ];
+        fields.sort_by_key(|field| u16::from_le_bytes([field[0], field[1]]));
+        let exact = row_bytes(&fields);
+        assert_eq!(parse_test_row(&exact).field_count, 16);
+        validate_lfsm_row(
+            2,
+            3,
+            parse_test_row(&exact),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+        )
+        .unwrap();
+
+        fields.push(field_bytes(14, PortableFieldType::Utf8, b"extra-depth"));
+        fields.sort_by_key(|field| u16::from_le_bytes([field[0], field[1]]));
+        let unreachable_seventeen = row_bytes(&fields);
+        assert_eq!(parse_test_row(&unreachable_seventeen).field_count, 17);
+        assert_eq!(
+            validate_lfsm_row(
+                2,
+                3,
+                parse_test_row(&unreachable_seventeen),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            )
+            .unwrap_err()
+            .class(),
             FormatErrorClass::BindingMismatch
         );
     }
