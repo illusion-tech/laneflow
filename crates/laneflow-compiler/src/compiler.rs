@@ -42,6 +42,10 @@ pub struct ValidatedCanonicalLir {
 }
 
 impl ValidatedCanonicalLir {
+    pub(crate) const fn unit(&self) -> &LirUnit {
+        &self.inner
+    }
+
     /// 按完整 Identity v1 前像规范顺序遍历全部车道图边。
     pub fn lane_edges(&self) -> impl ExactSizeIterator<Item = CanonicalLaneEdgeView<'_>> {
         self.inner
@@ -3148,8 +3152,76 @@ mod tests {
         ]);
         let mut compiler = Compiler::new();
         let output = compiler.compile(input).unwrap();
+        let candidate = crate::emit_portable_candidate(
+            &output,
+            &crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap(),
+            laneflow_format::FormatLimits::V1_HARD,
+            crate::PortableDiffBase::Genesis,
+        )
+        .unwrap();
 
         assert!(output.diagnostics().is_empty());
+        assert_eq!(&candidate.canonical_artifact().bytes()[..4], b"LFCA");
+        assert_eq!(&candidate.source_map().bytes()[..4], b"LFSM");
+        assert_eq!(&candidate.semantic_diff().bytes()[..4], b"LFSD");
+        let wrong_base = laneflow_format::preflight_object_values_v1(
+            candidate.source_map().bytes(),
+            laneflow_static_contract::PortableObjectKind::SourceMap,
+            laneflow_format::FormatLimits::V1_HARD,
+        )
+        .unwrap();
+        assert_eq!(
+            crate::emit_portable_candidate(
+                &output,
+                &crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap(),
+                laneflow_format::FormatLimits::V1_HARD,
+                crate::PortableDiffBase::Artifact(wrong_base),
+            ),
+            Err(crate::PortableEmissionError::InvalidDiffBaseKind)
+        );
+        let base = laneflow_format::preflight_object_values_v1(
+            candidate.canonical_artifact().bytes(),
+            laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
+            laneflow_format::FormatLimits::V1_HARD,
+        )
+        .unwrap();
+        let same_artifact_diff = crate::emit_portable_candidate(
+            &output,
+            &crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap(),
+            laneflow_format::FormatLimits::V1_HARD,
+            crate::PortableDiffBase::Artifact(base),
+        )
+        .unwrap();
+        let diff = laneflow_format::preflight_object_values_v1(
+            same_artifact_diff.semantic_diff().bytes(),
+            laneflow_static_contract::PortableObjectKind::SemanticDiff,
+            laneflow_format::FormatLimits::V1_HARD,
+        )
+        .unwrap()
+        .registry_view();
+        assert!(matches!(
+            diff.section(0)
+                .unwrap()
+                .table(0)
+                .unwrap()
+                .row(0)
+                .unwrap()
+                .field_by_tag(1)
+                .unwrap()
+                .value()
+                .unwrap(),
+            laneflow_format::RegistryCheckedFieldValue::U8(1)
+        ));
+        for section_ordinal in 1..6 {
+            assert_eq!(
+                diff.section(section_ordinal)
+                    .unwrap()
+                    .table(0)
+                    .unwrap()
+                    .row_count(),
+                0
+            );
+        }
         let metrics = output.metrics();
         assert_eq!(
             metrics.lir_record_count(),
@@ -3222,6 +3294,199 @@ mod tests {
                 "app.document".to_owned(),
             )]
         );
+    }
+
+    #[test]
+    fn portable_artifact_diff_classifies_retained_fields_and_relations() {
+        let base_output = Compiler::new()
+            .compile(unit([
+                module(
+                    "city/app",
+                    "app.document",
+                    &["city/base"],
+                    &[("edge-a", 10.0, &[])],
+                ),
+                module("city/base", "base.document", &[], &[("edge-b", 20.0, &[])]),
+            ]))
+            .unwrap();
+        let provenance =
+            crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap();
+        let base_candidate = crate::emit_portable_candidate(
+            &base_output,
+            &provenance,
+            laneflow_format::FormatLimits::V1_HARD,
+            crate::PortableDiffBase::Genesis,
+        )
+        .unwrap();
+        let base = laneflow_format::preflight_object_values_v1(
+            base_candidate.canonical_artifact().bytes(),
+            laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
+            laneflow_format::FormatLimits::V1_HARD,
+        )
+        .unwrap();
+
+        let successors = [LaneEdgeReference::imported("city/base", "edge-b")];
+        let target_output = Compiler::new()
+            .compile(unit([
+                module(
+                    "city/app",
+                    "app.document",
+                    &["city/base"],
+                    &[("edge-a", 11.0, &successors)],
+                ),
+                module("city/base", "base.document", &[], &[("edge-b", 20.0, &[])]),
+            ]))
+            .unwrap();
+        let candidate = crate::emit_portable_candidate(
+            &target_output,
+            &provenance,
+            laneflow_format::FormatLimits::V1_HARD,
+            crate::PortableDiffBase::Artifact(base),
+        )
+        .unwrap();
+        let diff = laneflow_format::preflight_object_values_v1(
+            candidate.semantic_diff().bytes(),
+            laneflow_static_contract::PortableObjectKind::SemanticDiff,
+            laneflow_format::FormatLimits::V1_HARD,
+        )
+        .unwrap()
+        .registry_view();
+        let entity_changes = diff.section(1).unwrap().table(0).unwrap();
+        let relation_changes = diff.section(2).unwrap().table(0).unwrap();
+        assert_eq!(entity_changes.row_count(), 1);
+        assert_eq!(relation_changes.row_count(), 1);
+        assert!(matches!(
+            entity_changes
+                .row(0)
+                .unwrap()
+                .field_by_tag(1)
+                .unwrap()
+                .value()
+                .unwrap(),
+            laneflow_format::RegistryCheckedFieldValue::U8(2)
+        ));
+        let relation = relation_changes.row(0).unwrap();
+        assert!(matches!(
+            relation.field_by_tag(1).unwrap().value().unwrap(),
+            laneflow_format::RegistryCheckedFieldValue::U8(0)
+        ));
+        assert!(matches!(
+            relation.field_by_tag(5).unwrap().value().unwrap(),
+            laneflow_format::RegistryCheckedFieldValue::U8(1)
+        ));
+    }
+
+    #[test]
+    fn portable_artifact_diff_rejects_cross_revision_stable_id_collisions() {
+        let output = Compiler::new()
+            .compile(unit([module(
+                "city/collision",
+                "collision.document",
+                &[],
+                &[("edge-a", 10.0, &[])],
+            )]))
+            .unwrap();
+        let provenance =
+            crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap();
+        let candidate = crate::emit_portable_candidate(
+            &output,
+            &provenance,
+            laneflow_format::FormatLimits::V1_HARD,
+            crate::PortableDiffBase::Genesis,
+        )
+        .unwrap();
+        let mut colliding_base = candidate.canonical_artifact().bytes().to_vec();
+        let key_offset = colliding_base
+            .windows(b"edge-a".len())
+            .position(|window| window == b"edge-a")
+            .unwrap();
+        colliding_base[key_offset + b"edge-".len()] = b'z';
+        let base = laneflow_format::preflight_object_values_v1(
+            &colliding_base,
+            laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
+            laneflow_format::FormatLimits::V1_HARD,
+        )
+        .unwrap();
+
+        assert_eq!(
+            crate::emit_portable_candidate(
+                &output,
+                &provenance,
+                laneflow_format::FormatLimits::V1_HARD,
+                crate::PortableDiffBase::Artifact(base),
+            ),
+            Err(crate::PortableEmissionError::CrossRevisionStableIdCollision)
+        );
+    }
+
+    #[test]
+    fn portable_emitter_closes_every_current_relation_family_and_spatial_projection() {
+        let provenance =
+            crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap();
+        let emit = |output: &CompilationOutput| {
+            crate::emit_portable_candidate(
+                output,
+                &provenance,
+                laneflow_format::FormatLimits::V1_HARD,
+                crate::PortableDiffBase::Genesis,
+            )
+            .unwrap()
+        };
+
+        let rich_relations = Compiler::new()
+            .compile(unit([
+                cross_section_module(false),
+                junction_module(false, "internal-a"),
+                parking_module("portable-parking.document", "area-main", false),
+                access_semantics_module(false),
+            ]))
+            .unwrap();
+        emit(&rich_relations);
+
+        let signal = Compiler::new()
+            .compile(unit([signal_module(false)]))
+            .unwrap();
+        emit(&signal);
+
+        let mut route_builder = control_builder("portable-route.document");
+        add_valid_control(&mut route_builder, false);
+        route_builder
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route-main",
+                edge_sequence: &[
+                    LaneEdgeReference::local("entry"),
+                    LaneEdgeReference::local("middle"),
+                    LaneEdgeReference::local("exit"),
+                ],
+            })
+            .unwrap();
+        let route = Compiler::new()
+            .compile(unit([route_builder.finish().unwrap()]))
+            .unwrap();
+        emit(&route);
+
+        let mut vehicle_builder = access_builder("portable-vehicle.document");
+        vehicle_builder
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "passenger-car",
+                extends: None,
+            })
+            .unwrap()
+            .add_vehicle_profile(VehicleProfileInput {
+                vehicle_profile_key: "standard-car",
+                participant_class: ParticipantClassReference::local("passenger-car"),
+                iidm: canonical_iidm_profile(),
+            })
+            .unwrap();
+        let vehicle = Compiler::new()
+            .compile(unit([vehicle_builder.finish().unwrap()]))
+            .unwrap();
+        emit(&vehicle);
+
+        let spatial = Compiler::new()
+            .compile(spatial_cross_section_unit(false, 1.0, true))
+            .unwrap();
+        emit(&spatial);
     }
 
     #[test]

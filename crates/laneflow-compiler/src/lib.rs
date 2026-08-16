@@ -15,6 +15,7 @@ mod limits;
 mod lir;
 mod mir;
 mod module;
+mod portable_emitter;
 pub mod road_editing;
 mod source;
 mod source_location;
@@ -66,6 +67,10 @@ pub use module::{
     CompilationUnit, CompilationUnitBuilder, SOURCE_DOCUMENT_SET_DIGEST_VERSION,
     SYNTHETIC_FRONTEND_VERSION, SourceDocumentDescriptor, SourceDocumentOrigin, SourceLanguage,
     SourceModuleDescriptor, SyntheticModule, SyntheticModuleBuilder,
+};
+pub use portable_emitter::{
+    PortableDiffBase, PortableEmissionError, PortableEmissionProvenanceV1, PortableObjectCandidate,
+    PortablePublicationCandidate, emit_portable_candidate,
 };
 pub use source::{SourceModuleHeader, SourceModuleHeaderInput};
 pub use source_location::{
