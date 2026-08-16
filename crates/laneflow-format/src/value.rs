@@ -1919,6 +1919,37 @@ mod tests {
             })
         );
 
+        let at_ascii_limit = row_bytes(&[
+            field_bytes(1, PortableFieldType::U16, &5_u16.to_le_bytes()),
+            field_bytes(2, PortableFieldType::Bytes, &[b'a'; 53]),
+        ]);
+        validate_identity_field(
+            parse_test_row(&at_ascii_limit),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+        )
+        .unwrap();
+        let over_ascii_limit = row_bytes(&[
+            field_bytes(1, PortableFieldType::U16, &5_u16.to_le_bytes()),
+            field_bytes(2, PortableFieldType::Bytes, &[b'a'; 54]),
+        ]);
+        assert_eq!(
+            validate_identity_field(
+                parse_test_row(&over_ascii_limit),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            )
+            .unwrap_err()
+            .class(),
+            FormatErrorClass::LimitExceeded
+        );
+        assert_eq!(
+            validate_identity_field(parse_test_row(&at_ascii_limit), 52),
+            Err(FormatError::LimitExceeded {
+                dimension: LimitDimension::IdentityAsciiBytes,
+                actual: 53,
+                limit: 52,
+            })
+        );
+
         let identity_field = |tags: &[u16]| {
             let rows = tags
                 .iter()
@@ -2406,6 +2437,59 @@ mod tests {
                 2,
                 3,
                 parse_test_row(&invalid),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            )
+            .unwrap_err()
+            .class(),
+            FormatErrorClass::BindingMismatch
+        );
+    }
+
+    #[test]
+    fn owner_local_value_matrix_reaches_sixteen_fields_but_not_seventeen() {
+        let property = property_value(&[(0, 15, 0)]);
+        let mut fields = vec![
+            field_bytes(1, PortableFieldType::U32, &0_u32.to_le_bytes()),
+            field_bytes(2, PortableFieldType::U8, &[1]),
+            field_bytes(3, PortableFieldType::U32, &0_u32.to_le_bytes()),
+            field_bytes(4, PortableFieldType::U32, &0_u32.to_le_bytes()),
+            field_bytes(9, PortableFieldType::U8, &[3]),
+            field_bytes(10, PortableFieldType::Utf8, b"city/main"),
+            field_bytes(
+                11,
+                PortableFieldType::U16,
+                &EntityKind::ManeuverPath.code().to_le_bytes(),
+            ),
+            field_bytes(12, PortableFieldType::Utf8, b"movement-a"),
+            field_bytes(13, PortableFieldType::Utf8, b"path-a"),
+            field_bytes(15, PortableFieldType::Utf8, b"edge-a"),
+            field_bytes(16, PortableFieldType::U8, &[1]),
+            field_bytes(17, PortableFieldType::U8, &[7]),
+            field_bytes(18, PortableFieldType::U8, &[0]),
+            field_bytes(19, PortableFieldType::U32, &0_u32.to_le_bytes()),
+            field_bytes(20, PortableFieldType::RecordVector, &property),
+            field_bytes(21, PortableFieldType::Utf8, b"canvas-a"),
+        ];
+        fields.sort_by_key(|field| u16::from_le_bytes([field[0], field[1]]));
+        let exact = row_bytes(&fields);
+        assert_eq!(parse_test_row(&exact).field_count, 16);
+        validate_lfsm_row(
+            2,
+            3,
+            parse_test_row(&exact),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+        )
+        .unwrap();
+
+        fields.push(field_bytes(14, PortableFieldType::Utf8, b"extra-depth"));
+        fields.sort_by_key(|field| u16::from_le_bytes([field[0], field[1]]));
+        let unreachable_seventeen = row_bytes(&fields);
+        assert_eq!(parse_test_row(&unreachable_seventeen).field_count, 17);
+        assert_eq!(
+            validate_lfsm_row(
+                2,
+                3,
+                parse_test_row(&unreachable_seventeen),
                 FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
             )
             .unwrap_err()

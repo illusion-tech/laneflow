@@ -471,6 +471,7 @@ mod lfca_variants;
 mod lfsd_change_set;
 mod lfsd_noop;
 mod portable_matrix_tests;
+mod portable_security_tests;
 
 fn sha256_digest(bytes: [u8; 32]) -> laneflow_static_contract::Sha256Digest {
     laneflow_static_contract::Sha256Digest::from_bytes(bytes)
