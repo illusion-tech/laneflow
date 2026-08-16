@@ -16,6 +16,7 @@ mod lir;
 mod mir;
 mod module;
 mod portable_emitter;
+mod portable_store;
 mod portable_transport;
 pub mod road_editing;
 mod source;
@@ -72,6 +73,10 @@ pub use module::{
 pub use portable_emitter::{
     PortableDiffBase, PortableEmissionError, PortableEmissionProvenanceV1, PortableObjectCandidate,
     PortablePublicationCandidate, emit_portable_candidate,
+};
+pub use portable_store::{
+    PortableInstallDisposition, PortableInstallError, PortableInstallOperation,
+    PortableObjectInstallation, PortableObjectStore,
 };
 pub use portable_transport::{
     PortableReadError, read_portable_object_known_length, read_portable_object_to_end,
