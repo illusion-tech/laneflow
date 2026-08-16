@@ -7,9 +7,10 @@
 （Source Map Envelope）、语义差异封套（Semantic Diff Envelope）、规范发布描述符
 （Canonical Publication Descriptor）与原子发布边界<br>
 **实现状态**: G2 进行中；当前已建立共享 magic/version/field type/硬上限值、
-framing、Table/Row/Field 通用结构预检、附录 A registry 零拷贝有类型遍历和对象内直接
-值域检查，尚未完成受限写入器、编译器发射、固定对象 fixture 或发布事务；当前生产编译器
-仍只原子返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`<br>
+framing、Table/Row/Field 通用结构预检、附录 A registry 零拷贝有类型遍历、对象内直接
+值域检查，以及先完整计量、再写调用方提供的精确长度缓冲区且失败不改变输出的无分配
+受限写入器；尚未完成编译器发射、固定对象 fixture 或发布事务，当前生产编译器仍只原子
+返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`<br>
 **关联 Issue**: #298；依赖 #292、#296；阻断 #299、#300<br>
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
 `numeric-representation.md`、

@@ -11,6 +11,7 @@ mod object;
 mod table;
 mod value;
 mod wire;
+mod writer;
 
 pub use error::{FormatError, FormatErrorClass, FormatStructure, LimitDimension};
 pub use framing::{ObjectFramingView, SectionFramingView, preflight_object_framing};
@@ -22,3 +23,7 @@ pub use object::{
 };
 pub use table::{TableStructureSummary, preflight_table_structure_v1};
 pub use value::{ValueCheckedObjectView, preflight_object_values_v1};
+pub use writer::{
+    FieldWriteInputV1, FieldWriteValueV1, ObjectWriteInputV1, RowWriteInputV1, SectionWriteInputV1,
+    TableWriteInputV1, encode_object_v1, measure_object_v1,
+};
