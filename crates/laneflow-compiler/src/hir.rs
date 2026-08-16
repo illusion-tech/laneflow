@@ -10,6 +10,8 @@
 //! 也使用已显式规范化的序列。`HashMap` 仅作查找，绝不能通过迭代哈希表决定诊断或
 //! 后续布局。所有键、区间和类型均为 crate 私有，不能跨阶段或进入持久制品。
 
+mod plan;
+
 use core::hash::{Hash, Hasher};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -35,8 +37,7 @@ use crate::declaration::{
 use crate::diagnostic::{DiagnosticCollector, JunctionEdgeSetViolation};
 use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::identity::{
-    IdentityFieldInput, IdentityRegistrationError, IdentityRegistry, RegisteredCanonicalIdentity,
-    encode_canonical_identity,
+    IdentityFieldInput, IdentityRegistrationError, IdentityRegistry, encode_canonical_identity,
 };
 use crate::module::ResolvedSourceLocation;
 use crate::spatial_freeze::{
@@ -46,6 +47,11 @@ use crate::{
     AccessCapability, AccessPlane, AccessRegulationField, CompilationUnit, CompileLimitDimension,
     Diagnostic, DiagnosticBundle, ParkingAnchorRole, ParkingGeometryField,
     ParkingGeometryViolation, SourceLocation, SpatialGeometryViolation, WaitingZoneGateRole,
+};
+
+use plan::{
+    CrossSectionCounts, HirBuildPlan, access_counts, control_counts, cross_section_counts,
+    junction_counts, parking_counts, route_counts, signal_counts, spatial_counts,
 };
 
 /// 区分 HIR 模块表键的零尺寸阶段标记。
@@ -806,27 +812,6 @@ struct CrossSectionHir {
 }
 
 #[derive(Default)]
-struct CrossSectionCounts {
-    road_corridors: u64,
-    corridor_elements: u64,
-    road_sections: u64,
-    authoring_lanes: u64,
-    authoring_lane_edges: u64,
-    lane_groups: u64,
-    facility_bands: u64,
-}
-
-impl CrossSectionCounts {
-    fn entity_count(&self) -> u64 {
-        self.road_corridors
-            .saturating_add(self.road_sections)
-            .saturating_add(self.authoring_lanes)
-            .saturating_add(self.lane_groups)
-            .saturating_add(self.facility_bands)
-    }
-}
-
-#[derive(Default)]
 struct JunctionHir {
     junctions: Box<[HirJunction]>,
     movements: Box<[HirMovement]>,
@@ -835,16 +820,6 @@ struct JunctionHir {
     movement_maneuver_paths: Box<[HirMovementManeuverPath]>,
     maneuver_path_edges: Box<[HirManeuverPathEdge]>,
     junction_internal_edges: Box<[HirJunctionInternalEdge]>,
-}
-
-#[derive(Default)]
-struct JunctionCounts {
-    junctions: u64,
-    movements: u64,
-    maneuver_paths: u64,
-    maneuver_path_edges: u64,
-    declared_approach_edges: u64,
-    declared_internal_edges: u64,
 }
 
 #[derive(Clone)]
@@ -876,13 +851,6 @@ struct ControlHir {
 }
 
 #[derive(Default)]
-struct ControlCounts {
-    stop_lines: u64,
-    maneuver_gates: u64,
-    waiting_zones: u64,
-}
-
-#[derive(Default)]
 struct SignalHir {
     signal_groups: Box<[HirSignalGroup]>,
     signal_controllers: Box<[HirSignalController]>,
@@ -893,27 +861,10 @@ struct SignalHir {
 }
 
 #[derive(Default)]
-struct SignalCounts {
-    groups: u64,
-    controllers: u64,
-    controller_groups: u64,
-    phases: u64,
-    phase_states: u64,
-    controlled_gates: u64,
-}
-
-#[derive(Default)]
 struct ParkingHir {
     parking_areas: Box<[HirParkingArea]>,
     parking_spaces: Box<[HirParkingSpace]>,
     parking_area_spaces: Box<[HirParkingAreaSpace]>,
-}
-
-#[derive(Default)]
-struct ParkingCounts {
-    areas: u64,
-    spaces: u64,
-    memberships: u64,
 }
 
 #[derive(Default)]
@@ -925,16 +876,6 @@ struct SpatialHir {
     geometry_source_ranges: Box<[HirGeometrySourceRange]>,
     canonical_points: Box<[HirCanonicalPoint3F32]>,
     spatial_segments: Box<[HirSpatialSegment]>,
-}
-
-#[derive(Default)]
-struct SpatialCounts {
-    canonical_frames: u64,
-    lane_edge_geometries: u64,
-    facility_band_geometries: u64,
-    geometry_source_ranges: u64,
-    canonical_points: u64,
-    spatial_segments: u64,
 }
 
 struct PendingSpatialGeometry<'a> {
@@ -969,14 +910,6 @@ struct AccessHir {
     access_rule_participant_classes: Box<[HirAccessRuleParticipantClass]>,
 }
 
-#[derive(Default)]
-struct AccessCounts {
-    participant_classes: u64,
-    vehicle_profiles: u64,
-    access_rules: u64,
-    rule_class_references: u64,
-}
-
 #[derive(Clone, Copy)]
 struct AccessCandidate {
     plane: AccessPlane,
@@ -996,28 +929,6 @@ struct FirstAccessRegulation {
     source_span: SourceLocation,
 }
 
-impl AccessCounts {
-    fn entity_count(&self) -> u64 {
-        self.participant_classes
-            .saturating_add(self.access_rules)
-            .saturating_add(self.vehicle_profiles)
-    }
-}
-
-impl ParkingCounts {
-    fn entity_count(&self) -> u64 {
-        self.areas.saturating_add(self.spaces)
-    }
-}
-
-impl SignalCounts {
-    fn entity_count(&self) -> u64 {
-        self.groups
-            .saturating_add(self.controllers)
-            .saturating_add(self.phases)
-    }
-}
-
 #[derive(Default)]
 struct RouteHir {
     static_routes: Box<[HirStaticRoute]>,
@@ -1026,30 +937,6 @@ struct RouteHir {
     maneuver_occurrences: Box<[HirManeuverOccurrence]>,
     gate_occurrences: Box<[HirGateOccurrence]>,
     waiting_zone_occurrences: Box<[HirWaitingZoneOccurrence]>,
-}
-
-#[derive(Default)]
-struct RouteCounts {
-    static_routes: u64,
-    route_edges: u64,
-    route_transitions: u64,
-    largest_route_edges: u64,
-}
-
-impl ControlCounts {
-    fn entity_count(&self) -> u64 {
-        self.stop_lines
-            .saturating_add(self.maneuver_gates)
-            .saturating_add(self.waiting_zones)
-    }
-}
-
-impl JunctionCounts {
-    fn entity_count(&self) -> u64 {
-        self.junctions
-            .saturating_add(self.movements)
-            .saturating_add(self.maneuver_paths)
-    }
 }
 
 /// 只在完成路径表后借用的序列查找键；来源位置不参与遍历签名。
@@ -1087,598 +974,17 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
 
     // 在任何与记录数成正比的阶段分配前，同时预检持久表、lookup 预算和阶段最大暂存区。
     // scratch 取互斥工作集的最大值而非总和，live peak 则包含输入与当时存续的全部集合。
-    let module_count = u64::try_from(unit.modules.len()).unwrap_or(u64::MAX);
-    let lane_edge_count = lane_edge_count(unit);
-    let lane_edge_reference_count = lane_edge_reference_count(unit);
-    let cross_section_counts = cross_section_counts(unit);
-    let junction_counts = junction_counts(unit);
-    let control_counts = control_counts(unit);
-    let signal_counts = signal_counts(unit);
-    let parking_counts = parking_counts(unit);
-    let spatial_counts = spatial_counts(unit);
-    let access_counts = access_counts(unit);
-    let route_counts = route_counts(unit);
-    let cross_lookup_module_count = if cross_section_counts.entity_count() == 0 {
-        0
-    } else {
-        module_count
-    };
-    let junction_lookup_module_count = if junction_counts.entity_count() == 0 {
-        0
-    } else {
-        module_count
-    };
-    let control_lookup_module_count = if control_counts.entity_count() == 0 {
-        0
-    } else {
-        module_count
-    };
-    let signal_lookup_module_count = if signal_counts.entity_count() == 0 {
-        0
-    } else {
-        module_count
-    };
-    let parking_lookup_module_count = if parking_counts.entity_count() == 0 {
-        0
-    } else {
-        module_count
-    };
-    let access_lookup_module_count = if access_counts.entity_count() == 0 {
-        0
-    } else {
-        module_count
-    };
-    let hir_record_count = module_count
-        .saturating_add(unit.import_edge_count)
-        .saturating_add(unit.symbol_count)
-        .saturating_add(unit.identity_field_occurrence_count)
-        .saturating_add(unit.reference_count)
-        .saturating_add(unit.relation_occurrence_count)
-        // HIR 记录数必须使用实际冻结后的规范点，而不是 RoadEditing source curve 的
-        // 控制点计数；细分可能让两者显著不同。
-        .saturating_add(spatial_counts.lane_edge_geometries)
-        .saturating_add(spatial_counts.facility_band_geometries)
-        .saturating_add(spatial_counts.geometry_source_ranges)
-        .saturating_add(spatial_counts.canonical_points)
-        .saturating_add(spatial_counts.spatial_segments)
-        // 信号组到机动门的反向使用关系由 HIR 派生，Typed AST 只计正向绑定。
-        .saturating_add(signal_counts.controlled_gates)
-        // 区域归属在 Typed AST 中按停车位正向引用计数；区域成员表是 HIR 派生反向关系。
-        .saturating_add(parking_counts.memberships)
-        // 路线边引用已计入 CompilationUnit 关系数；转换以及三类派生出现项只在 HIR
-        // 中产生，按单条边至多各生成一项的上界纳入预检。
-        .saturating_add(route_counts.route_transitions)
-        .saturating_add(route_counts.route_edges.saturating_mul(3));
-    let canonical_source_scratch = requested_bytes::<CanonicalLaneEdgeSource>(lane_edge_count)
-        .saturating_add(requested_bytes::<usize>(unit.declaration_count));
-    let cross_section_scratch = if cross_section_counts.entity_count() == 0 {
-        0
-    } else {
-        requested_bytes::<CanonicalDeclarationSource<HirRoadCorridorKey>>(
-            cross_section_counts.road_corridors,
-        )
-        .saturating_add(requested_bytes::<
-            CanonicalDeclarationSource<HirRoadSectionKey>,
-        >(cross_section_counts.road_sections))
-        .saturating_add(requested_bytes::<CanonicalAuthoringLaneSource>(
-            cross_section_counts.authoring_lanes,
-        ))
-        .saturating_add(
-            requested_bytes::<CanonicalDeclarationSource<HirLaneGroupKey>>(
-                cross_section_counts.lane_groups,
-            ),
-        )
-        .saturating_add(requested_bytes::<
-            CanonicalDeclarationSource<HirFacilityBandKey>,
-        >(cross_section_counts.facility_bands))
-        .saturating_add(requested_bytes::<
-            Option<(HirRoadCorridorKey, SourceLocation)>,
-        >(
-            cross_section_counts
-                .road_sections
-                .saturating_add(cross_section_counts.facility_bands),
-        ))
-        .saturating_add(requested_bytes::<Option<HirAuthoringLaneKey>>(
-            lane_edge_count,
-        ))
-        .saturating_add(requested_bytes::<usize>(
-            cross_section_counts.lane_groups.saturating_mul(2),
-        ))
-        .saturating_add(requested_bytes::<usize>(unit.declaration_count))
-    };
-    let import_sort_scratch = requested_bytes::<(&str, &SourceLocation)>(unit.import_edge_count);
-    let junction_scratch = if junction_counts.entity_count() == 0 {
-        0
-    } else {
-        requested_bytes::<CanonicalDeclarationSource<HirMovementKey>>(junction_counts.movements)
-            .saturating_add(requested_bytes::<
-                CanonicalDeclarationSource<HirManeuverPathKey>,
-            >(junction_counts.maneuver_paths))
-            .saturating_add(requested_bytes::<HirDeclaredJunctionEdge>(
-                junction_counts
-                    .declared_approach_edges
-                    .saturating_add(junction_counts.declared_internal_edges),
-            ))
-            .saturating_add(requested_bytes::<u8>(lane_edge_count))
-            .saturating_add(requested_bytes::<usize>(
-                junction_counts
-                    .junctions
-                    .saturating_add(junction_counts.movements)
-                    .saturating_mul(2),
-            ))
-            .saturating_add(requested_hash_table_bytes::<
-                ManeuverPathSequence<'static>,
-                HirManeuverPathKey,
-            >(junction_counts.maneuver_paths))
-            .saturating_add(requested_bytes::<Option<HirJunctionInternalEdge>>(
-                lane_edge_count,
-            ))
-            .saturating_add(requested_bytes::<
-                Option<(HirManeuverPathKey, SourceLocation)>,
-            >(lane_edge_count))
-            .saturating_add(requested_bytes::<usize>(unit.declaration_count))
-    };
-    let control_scratch = if control_counts.entity_count() == 0 {
-        0
-    } else {
-        requested_bytes::<CanonicalDeclarationSource<HirStopLineKey>>(control_counts.stop_lines)
-            .saturating_add(requested_bytes::<
-                CanonicalDeclarationSource<HirManeuverGateKey>,
-            >(control_counts.maneuver_gates))
-            .saturating_add(requested_bytes::<
-                CanonicalDeclarationSource<HirWaitingZoneKey>,
-            >(control_counts.waiting_zones))
-            .saturating_add(requested_bytes::<usize>(
-                control_counts
-                    .stop_lines
-                    .saturating_add(junction_counts.maneuver_paths)
-                    .saturating_mul(2),
-            ))
-            .saturating_add(requested_bytes::<Option<HirStopLineKey>>(lane_edge_count))
-            .saturating_add(requested_bytes::<u8>(
-                control_counts
-                    .stop_lines
-                    .saturating_add(junction_counts.maneuver_paths)
-                    .saturating_add(lane_edge_reference_count)
-                    .saturating_add(lane_edge_count),
-            ))
-            .saturating_add(requested_bytes::<HirManeuverGateKey>(
-                control_counts.maneuver_gates.saturating_mul(2),
-            ))
-            .saturating_add(requested_bytes::<HirWaitingZoneKey>(
-                control_counts.waiting_zones,
-            ))
-    };
-    let route_scratch = if route_counts.static_routes == 0 {
-        0
-    } else {
-        // 路线编译同时持有全局候选索引、按全部 LaneEdge 建立的角色索引，以及当前
-        // 单条路线的局部输出；这里按这些集合真实的同时存续关系计算峰值。
-        requested_bytes::<CanonicalDeclarationSource<HirStaticRouteKey>>(route_counts.static_routes)
-            .saturating_add(requested_bytes::<Option<HirManeuverPathKey>>(
-                lane_edge_count,
-            ))
-            .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
-            .saturating_add(requested_bytes::<(
-                HirLaneEdgeKey,
-                HirLaneEdgeKey,
-                HirManeuverPathKey,
-            )>(junction_counts.maneuver_paths))
-            .saturating_add(requested_bytes::<HirStaticRouteEdge>(
-                route_counts.largest_route_edges,
-            ))
-            .saturating_add(requested_bytes::<HirStaticRouteTransition>(
-                route_counts.largest_route_edges.saturating_sub(1),
-            ))
-            .saturating_add(requested_bytes::<HirManeuverOccurrence>(
-                route_counts.largest_route_edges,
-            ))
-            .saturating_add(requested_bytes::<HirGateOccurrence>(
-                route_counts.largest_route_edges,
-            ))
-            .saturating_add(requested_bytes::<HirWaitingZoneOccurrence>(
-                route_counts.largest_route_edges,
-            ))
-            .saturating_add(requested_bytes::<Option<HirManeuverPathKey>>(
-                route_counts.largest_route_edges,
-            ))
-    };
-    let signal_scratch = if signal_counts.entity_count() == 0 {
-        0
-    } else {
-        requested_bytes::<CanonicalDeclarationSource<HirSignalGroupKey>>(signal_counts.groups)
-            .saturating_add(requested_bytes::<
-                CanonicalDeclarationSource<HirSignalControllerKey>,
-            >(signal_counts.controllers))
-            .saturating_add(requested_bytes::<
-                Option<(HirSignalControllerKey, SourceLocation)>,
-            >(signal_counts.groups))
-            .saturating_add(requested_bytes::<Option<(SignalAspect, SourceLocation)>>(
-                signal_counts.groups,
-            ))
-            .saturating_add(requested_bytes::<usize>(
-                signal_counts.groups.saturating_mul(3),
-            ))
-            .saturating_add(requested_bytes::<HirSignalGroupKey>(
-                signal_counts.controller_groups,
-            ))
-            .saturating_add(requested_bytes::<(HirSignalGroupKey, HirManeuverGateKey)>(
-                signal_counts.controlled_gates,
-            ))
-            .saturating_add(requested_hash_table_bytes::<
-                HirSignalGroupKey,
-                SourceLocation,
-            >(signal_counts.controller_groups))
-            .saturating_add(requested_hash_table_bytes::<HirSignalGroupKey, usize>(
-                signal_counts.controller_groups,
-            ))
-            .saturating_add(requested_hash_table_bytes::<Arc<str>, SourceLocation>(
-                signal_counts.phases,
-            ))
-            .saturating_add(requested_bytes::<usize>(unit.declaration_count))
-    };
-    let parking_scratch = if parking_counts.entity_count() == 0 {
-        0
-    } else {
-        requested_bytes::<CanonicalDeclarationSource<HirParkingAreaKey>>(parking_counts.areas)
-            .saturating_add(requested_bytes::<
-                CanonicalDeclarationSource<HirParkingSpaceKey>,
-            >(parking_counts.spaces))
-            .saturating_add(requested_bytes::<bool>(parking_counts.areas))
-            .saturating_add(requested_bytes::<(HirParkingAreaKey, HirParkingSpaceKey)>(
-                parking_counts.memberships,
-            ))
-            .saturating_add(requested_bytes::<usize>(unit.declaration_count))
-    };
-    let spatial_scratch = if spatial_counts.canonical_frames == 0
-        && spatial_counts.lane_edge_geometries == 0
-        && spatial_counts.facility_band_geometries == 0
-    {
-        0
-    } else {
-        requested_bytes::<usize>(unit.declaration_count)
-            .saturating_add(requested_bytes::<Option<PendingSpatialGeometry<'static>>>(
-                lane_edge_count,
-            ))
-            .saturating_add(requested_bytes::<Option<PendingSpatialGeometry<'static>>>(
-                cross_section_counts.facility_bands,
-            ))
-            .saturating_add(requested_bytes::<Option<SpatialFrameAssignment>>(
-                lane_edge_count,
-            ))
-            .saturating_add(requested_bytes::<Option<SpatialFrameAssignment>>(
-                cross_section_counts.facility_bands,
-            ))
-            .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
-            .saturating_add(requested_bytes::<u8>(lane_edge_count))
-            .saturating_add(requested_bytes::<HirLaneEdgeKey>(
-                spatial_counts.lane_edge_geometries,
-            ))
-            .saturating_add(requested_bytes::<HirFacilityBandKey>(
-                spatial_counts.facility_band_geometries,
-            ))
-            .saturating_add(requested_bytes::<
-                HashMap<TypedAstEntityAddress, HirCanonicalFrameKey>,
-            >(module_count))
-            .saturating_add(requested_bytes::<
-                HashMap<TypedAstEntityAddress, HirFacilityBandKey>,
-            >(module_count))
-            .saturating_add(requested_hash_table_bytes::<
-                TypedAstEntityAddress,
-                HirCanonicalFrameKey,
-            >(spatial_counts.canonical_frames))
-            .saturating_add(requested_hash_table_bytes::<
-                TypedAstEntityAddress,
-                HirFacilityBandKey,
-            >(cross_section_counts.facility_bands))
-    };
-    let access_scratch = if access_counts.entity_count() == 0 {
-        0
-    } else {
-        requested_bytes::<CanonicalDeclarationSource<HirParticipantClassKey>>(
-            access_counts.participant_classes,
-        )
-        .saturating_add(requested_bytes::<
-            CanonicalDeclarationSource<HirVehicleProfileKey>,
-        >(access_counts.vehicle_profiles))
-        .saturating_add(requested_bytes::<
-            CanonicalDeclarationSource<HirAccessRuleKey>,
-        >(access_counts.access_rules))
-        .saturating_add(requested_bytes::<Option<HirParticipantClassKey>>(
-            access_counts.participant_classes.saturating_mul(2),
-        ))
-        .saturating_add(requested_bytes::<u8>(access_counts.participant_classes))
-        .saturating_add(requested_bytes::<(HirParticipantClassKey, bool)>(
-            access_counts.participant_classes.saturating_mul(2),
-        ))
-        .saturating_add(requested_bytes::<HirAccessRuleParticipantClass>(
-            access_counts.rule_class_references,
-        ))
-        .saturating_add(requested_bytes::<AccessCandidate>(
-            access_counts.rule_class_references,
-        ))
-        .saturating_add(requested_bytes::<usize>(unit.declaration_count))
-    };
-    let (canonical_identity_bytes, largest_canonical_identity_bytes) = identity_byte_counts(unit);
-    let stage_scratch_bytes = canonical_source_scratch
-        .max(cross_section_scratch)
-        .max(junction_scratch)
-        .max(control_scratch)
-        .max(signal_scratch)
-        .max(parking_scratch)
-        .max(spatial_scratch)
-        .max(access_scratch)
-        .max(route_scratch)
-        .max(import_sort_scratch)
-        .max(largest_canonical_identity_bytes);
-    let hir_persistent_bytes = requested_bytes::<HirModule>(module_count)
-        .saturating_add(requested_bytes::<HirImport>(unit.import_edge_count))
-        .saturating_add(requested_bytes::<HirLaneEdge>(lane_edge_count))
-        .saturating_add(requested_bytes::<HirLaneEdgeReference>(
-            lane_edge_reference_count,
-        ))
-        .saturating_add(requested_bytes::<HirRoadCorridor>(
-            cross_section_counts.road_corridors,
-        ))
-        .saturating_add(requested_bytes::<HirCorridorElement>(
-            cross_section_counts.corridor_elements,
-        ))
-        .saturating_add(requested_bytes::<HirRoadSection>(
-            cross_section_counts.road_sections,
-        ))
-        .saturating_add(requested_bytes::<HirAuthoringLane>(
-            cross_section_counts.authoring_lanes,
-        ))
-        .saturating_add(requested_bytes::<HirAuthoringLaneEdge>(
-            cross_section_counts.authoring_lane_edges,
-        ))
-        .saturating_add(requested_bytes::<HirLaneGroup>(
-            cross_section_counts.lane_groups,
-        ))
-        .saturating_add(requested_bytes::<HirLaneGroupMember>(
-            cross_section_counts.authoring_lanes,
-        ))
-        .saturating_add(requested_bytes::<HirFacilityBand>(
-            cross_section_counts.facility_bands,
-        ))
-        .saturating_add(requested_bytes::<HirJunction>(junction_counts.junctions))
-        .saturating_add(requested_bytes::<HirMovement>(junction_counts.movements))
-        .saturating_add(requested_bytes::<HirJunctionMovement>(
-            junction_counts.movements,
-        ))
-        .saturating_add(requested_bytes::<HirManeuverPath>(
-            junction_counts.maneuver_paths,
-        ))
-        .saturating_add(requested_bytes::<HirMovementManeuverPath>(
-            junction_counts.maneuver_paths,
-        ))
-        .saturating_add(requested_bytes::<HirManeuverPathEdge>(
-            junction_counts.maneuver_path_edges,
-        ))
-        .saturating_add(requested_bytes::<HirJunctionInternalEdge>(
-            lane_edge_count.min(junction_counts.maneuver_path_edges),
-        ))
-        .saturating_add(requested_bytes::<HirStopLine>(control_counts.stop_lines))
-        .saturating_add(requested_bytes::<HirManeuverGate>(
-            control_counts.maneuver_gates,
-        ))
-        .saturating_add(requested_bytes::<HirWaitingZone>(
-            control_counts.waiting_zones,
-        ))
-        .saturating_add(requested_bytes::<HirManeuverPathGate>(
-            control_counts.maneuver_gates,
-        ))
-        .saturating_add(requested_bytes::<HirManeuverPathWaitingZone>(
-            control_counts.waiting_zones,
-        ))
-        .saturating_add(requested_bytes::<HirStopLineManeuverGate>(
-            control_counts.maneuver_gates,
-        ))
-        .saturating_add(requested_bytes::<HirSignalGroup>(signal_counts.groups))
-        .saturating_add(requested_bytes::<HirSignalController>(
-            signal_counts.controllers,
-        ))
-        .saturating_add(requested_bytes::<HirSignalControllerGroup>(
-            signal_counts.controller_groups,
-        ))
-        .saturating_add(requested_bytes::<HirSignalPhase>(signal_counts.phases))
-        .saturating_add(requested_bytes::<HirSignalPhaseState>(
-            signal_counts.phase_states,
-        ))
-        .saturating_add(requested_bytes::<HirSignalGroupManeuverGate>(
-            signal_counts.controlled_gates,
-        ))
-        .saturating_add(requested_bytes::<HirParkingArea>(parking_counts.areas))
-        .saturating_add(requested_bytes::<HirParkingSpace>(parking_counts.spaces))
-        .saturating_add(requested_bytes::<HirParkingAreaSpace>(
-            parking_counts.memberships,
-        ))
-        .saturating_add(requested_bytes::<HirCanonicalFrame>(
-            spatial_counts.canonical_frames,
-        ))
-        .saturating_add(requested_bytes::<HirLaneEdgeGeometry>(
-            spatial_counts.lane_edge_geometries,
-        ))
-        .saturating_add(requested_bytes::<HirFacilityBandGeometry>(
-            spatial_counts.facility_band_geometries,
-        ))
-        .saturating_add(requested_bytes::<HirGeometrySourceRange>(
-            spatial_counts.geometry_source_ranges,
-        ))
-        .saturating_add(requested_bytes::<HirCanonicalPoint3F32>(
-            spatial_counts.canonical_points,
-        ))
-        .saturating_add(requested_bytes::<HirSpatialSegment>(
-            spatial_counts.spatial_segments,
-        ))
-        .saturating_add(requested_bytes::<HirParticipantClass>(
-            access_counts.participant_classes,
-        ))
-        .saturating_add(requested_bytes::<HirVehicleProfile>(
-            access_counts.vehicle_profiles,
-        ))
-        .saturating_add(requested_bytes::<HirAccessRule>(access_counts.access_rules))
-        .saturating_add(requested_bytes::<HirAccessRuleParticipantClass>(
-            access_counts.rule_class_references,
-        ))
-        .saturating_add(requested_bytes::<HirStaticRoute>(
-            route_counts.static_routes,
-        ))
-        .saturating_add(requested_bytes::<HirStaticRouteEdge>(
-            route_counts.route_edges,
-        ))
-        .saturating_add(requested_bytes::<HirStaticRouteTransition>(
-            route_counts.route_transitions,
-        ))
-        .saturating_add(requested_bytes::<HirManeuverOccurrence>(
-            route_counts.route_edges,
-        ))
-        .saturating_add(requested_bytes::<HirGateOccurrence>(
-            route_counts.route_edges,
-        ))
-        .saturating_add(requested_bytes::<HirWaitingZoneOccurrence>(
-            route_counts.route_edges,
-        ));
-    let hir_lookup_bytes = requested_hash_table_bytes::<Arc<str>, HirModuleKey>(module_count)
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirLaneEdgeKey>,
-        >(module_count))
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirRoadSectionKey>,
-        >(cross_lookup_module_count))
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirLaneGroupKey>,
-        >(cross_lookup_module_count))
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirFacilityBandKey>,
-        >(cross_lookup_module_count))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirLaneEdgeKey,
-        >(lane_edge_count))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirRoadSectionKey,
-        >(cross_section_counts.road_sections))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirLaneGroupKey,
-        >(cross_section_counts.lane_groups))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirFacilityBandKey,
-        >(cross_section_counts.facility_bands))
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirJunctionKey>,
-        >(junction_lookup_module_count))
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirMovementKey>,
-        >(junction_lookup_module_count))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirJunctionKey,
-        >(junction_counts.junctions))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirMovementKey,
-        >(junction_counts.movements))
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirManeuverPathKey>,
-        >(control_lookup_module_count))
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirStopLineKey>,
-        >(control_lookup_module_count))
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirManeuverGateKey>,
-        >(control_lookup_module_count))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirManeuverPathKey,
-        >(junction_counts.maneuver_paths))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirStopLineKey,
-        >(control_counts.stop_lines))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirManeuverGateKey,
-        >(control_counts.maneuver_gates))
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirSignalGroupKey>,
-        >(signal_lookup_module_count))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirSignalGroupKey,
-        >(signal_counts.groups))
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirParkingAreaKey>,
-        >(parking_lookup_module_count))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirParkingAreaKey,
-        >(parking_counts.areas))
-        .saturating_add(requested_bytes::<
-            HashMap<TypedAstEntityAddress, HirParticipantClassKey>,
-        >(access_lookup_module_count))
-        .saturating_add(requested_hash_table_bytes::<
-            TypedAstEntityAddress,
-            HirParticipantClassKey,
-        >(access_counts.participant_classes))
-        .saturating_add(requested_hash_table_bytes::<
-            StableId128,
-            RegisteredCanonicalIdentity,
-        >(unit.declaration_count))
-        .saturating_add(canonical_identity_bytes);
-    let controlled_live_bytes = unit
-        .controlled_live_bytes
-        .saturating_add(hir_persistent_bytes)
-        .saturating_add(hir_lookup_bytes)
-        .saturating_add(stage_scratch_bytes)
-        .max(unit.admission_peak_live_bytes);
+    let plan = HirBuildPlan::analyze(unit);
+    plan.check_limits(unit)?;
 
     let primary_span = unit
         .modules
         .first()
         .map(|module| module.declaration_span().clone());
-    let stable_key = unit
-        .modules
-        .first()
-        .map(|module| module.descriptor().authoring_namespace_id().into());
-    let mut limit_diagnostics =
-        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
-    for (dimension, observed) in [
-        (
-            CompileLimitDimension::GeometryPointCount,
-            spatial_counts.canonical_points,
-        ),
-        (CompileLimitDimension::HirRecordCount, hir_record_count),
-        (
-            CompileLimitDimension::StageScratchBytes,
-            stage_scratch_bytes,
-        ),
-        (
-            CompileLimitDimension::CompilerControlledLiveBytes,
-            controlled_live_bytes,
-        ),
-    ] {
-        if observed > unit.limits.value(dimension) {
-            limit_diagnostics.push(Diagnostic::compile_limit_exceeded_at(
-                dimension,
-                unit.limits.value(dimension),
-                observed,
-                primary_span.clone(),
-                stable_key.clone(),
-            ));
-        }
-    }
-    if !limit_diagnostics.is_empty() {
-        return Err(limit_diagnostics.finish());
-    }
-
     let module_capacity = unit.modules.len();
     let import_capacity = count_to_usize(unit.import_edge_count, &unit.limits)?;
-    let lane_edge_capacity = count_to_usize(lane_edge_count, &unit.limits)?;
-    let reference_capacity = count_to_usize(lane_edge_reference_count, &unit.limits)?;
+    let lane_edge_capacity = count_to_usize(plan.lane_edge_count, &unit.limits)?;
+    let reference_capacity = count_to_usize(plan.lane_edge_reference_count, &unit.limits)?;
     // 第一阶段冻结模块键。CompilationUnit 已按依赖优先排序，因此 raw key 顺序可直接
     // 作为后续规范模块轴；module_lookup 只用于解析，不参与任何输出遍历。
     let mut modules = TypedArena::<HirModuleTag, HirModule>::with_capacity(module_capacity);
@@ -2015,9 +1321,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         maneuver_occurrences: route.maneuver_occurrences,
         gate_occurrences: route.gate_occurrences,
         waiting_zone_occurrences: route.waiting_zone_occurrences,
-        hir_record_count,
-        controlled_live_bytes: hir_persistent_bytes,
-        peak_controlled_live_bytes: controlled_live_bytes,
+        hir_record_count: plan.memory.hir_record_count,
+        controlled_live_bytes: plan.memory.persistent_bytes,
+        peak_controlled_live_bytes: plan.memory.controlled_live_bytes,
     })
 }
 
@@ -7673,300 +6979,6 @@ fn declaration_header(declaration: &TypedAstDeclaration) -> &crate::declaration:
     }
 }
 
-fn lane_edge_count(unit: &CompilationUnit) -> u64 {
-    unit.modules
-        .iter()
-        .flat_map(|module| module.declarations.iter())
-        .filter(|declaration| matches!(declaration, TypedAstDeclaration::LaneEdge(_)))
-        .count()
-        .try_into()
-        .unwrap_or(u64::MAX)
-}
-
-fn lane_edge_reference_count(unit: &CompilationUnit) -> u64 {
-    unit.modules
-        .iter()
-        .flat_map(|module| module.declarations.iter())
-        .filter_map(lane_edge_declaration)
-        .fold(0_u64, |total, declaration| {
-            total.saturating_add(u64::try_from(declaration.successors.len()).unwrap_or(u64::MAX))
-        })
-}
-
-fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts {
-    let mut counts = CrossSectionCounts::default();
-    for declaration in unit
-        .modules
-        .iter()
-        .flat_map(|module| module.declarations.iter())
-    {
-        match declaration {
-            TypedAstDeclaration::LaneEdge(_) => {}
-            TypedAstDeclaration::RoadCorridor(corridor) => {
-                counts.road_corridors = counts.road_corridors.saturating_add(1);
-                counts.corridor_elements = counts
-                    .corridor_elements
-                    .saturating_add(u64::try_from(corridor.elements.len()).unwrap_or(u64::MAX));
-            }
-            TypedAstDeclaration::RoadSection(section) => {
-                counts.road_sections = counts.road_sections.saturating_add(1);
-                counts.authoring_lanes = counts
-                    .authoring_lanes
-                    .saturating_add(u64::try_from(section.lanes.len()).unwrap_or(u64::MAX));
-                counts.authoring_lane_edges =
-                    counts
-                        .authoring_lane_edges
-                        .saturating_add(section.lanes.iter().fold(0_u64, |total, lane| {
-                            total.saturating_add(
-                                u64::try_from(lane.edge_chain.len()).unwrap_or(u64::MAX),
-                            )
-                        }));
-            }
-            TypedAstDeclaration::LaneGroup(_) => {
-                counts.lane_groups = counts.lane_groups.saturating_add(1);
-            }
-            TypedAstDeclaration::FacilityBand(_) => {
-                counts.facility_bands = counts.facility_bands.saturating_add(1);
-            }
-            TypedAstDeclaration::Junction(_)
-            | TypedAstDeclaration::Movement(_)
-            | TypedAstDeclaration::ManeuverPath(_)
-            | TypedAstDeclaration::StopLine(_)
-            | TypedAstDeclaration::ManeuverGate(_)
-            | TypedAstDeclaration::WaitingZone(_)
-            | TypedAstDeclaration::StaticRoute(_)
-            | TypedAstDeclaration::SignalGroup(_)
-            | TypedAstDeclaration::SignalController(_)
-            | TypedAstDeclaration::ParkingArea(_)
-            | TypedAstDeclaration::ParkingSpace(_)
-            | TypedAstDeclaration::ParticipantClass(_)
-            | TypedAstDeclaration::VehicleProfile(_)
-            | TypedAstDeclaration::CanonicalFrame(_)
-            | TypedAstDeclaration::AccessRule(_) => {}
-        }
-    }
-    counts
-}
-
-fn junction_counts(unit: &CompilationUnit) -> JunctionCounts {
-    let mut counts = JunctionCounts::default();
-    for declaration in unit
-        .modules
-        .iter()
-        .flat_map(|module| module.declarations.iter())
-    {
-        match declaration {
-            TypedAstDeclaration::Junction(junction) => {
-                counts.junctions = counts.junctions.saturating_add(1);
-                counts.declared_approach_edges = counts.declared_approach_edges.saturating_add(
-                    u64::try_from(junction.approach_edges.len()).unwrap_or(u64::MAX),
-                );
-                counts.declared_internal_edges = counts.declared_internal_edges.saturating_add(
-                    u64::try_from(junction.internal_edges.len()).unwrap_or(u64::MAX),
-                );
-            }
-            TypedAstDeclaration::Movement(_) => {
-                counts.movements = counts.movements.saturating_add(1);
-            }
-            TypedAstDeclaration::ManeuverPath(path) => {
-                counts.maneuver_paths = counts.maneuver_paths.saturating_add(1);
-                counts.maneuver_path_edges = counts.maneuver_path_edges.saturating_add(
-                    u64::try_from(path.internal_edges.len())
-                        .unwrap_or(u64::MAX)
-                        .saturating_add(2),
-                );
-            }
-            _ => {}
-        }
-    }
-    counts
-}
-
-fn control_counts(unit: &CompilationUnit) -> ControlCounts {
-    let mut counts = ControlCounts {
-        maneuver_gates: unit.maneuver_gate_count,
-        waiting_zones: unit.waiting_zone_count,
-        ..ControlCounts::default()
-    };
-    for declaration in unit
-        .modules
-        .iter()
-        .flat_map(|module| module.declarations.iter())
-    {
-        match declaration {
-            TypedAstDeclaration::StopLine(_) => {
-                counts.stop_lines = counts.stop_lines.saturating_add(1);
-            }
-            TypedAstDeclaration::ManeuverGate(_) | TypedAstDeclaration::WaitingZone(_) => {}
-            _ => {}
-        }
-    }
-    counts
-}
-
-fn route_counts(unit: &CompilationUnit) -> RouteCounts {
-    let mut counts = RouteCounts::default();
-    for declaration in unit
-        .modules
-        .iter()
-        .flat_map(|module| module.declarations.iter())
-    {
-        if let TypedAstDeclaration::StaticRoute(route) = declaration {
-            let edge_count = u64::try_from(route.edge_sequence.len()).unwrap_or(u64::MAX);
-            counts.static_routes = counts.static_routes.saturating_add(1);
-            counts.route_edges = counts.route_edges.saturating_add(edge_count);
-            counts.route_transitions = counts
-                .route_transitions
-                .saturating_add(edge_count.saturating_sub(1));
-            counts.largest_route_edges = counts.largest_route_edges.max(edge_count);
-        }
-    }
-    debug_assert_eq!(counts.route_edges, unit.route_occurrence_count);
-    counts
-}
-
-fn signal_counts(unit: &CompilationUnit) -> SignalCounts {
-    let mut counts = SignalCounts::default();
-    for declaration in unit
-        .modules
-        .iter()
-        .flat_map(|module| module.declarations.iter())
-    {
-        match declaration {
-            TypedAstDeclaration::SignalGroup(_) => {
-                counts.groups = counts.groups.saturating_add(1);
-            }
-            TypedAstDeclaration::SignalController(controller) => {
-                counts.controllers = counts.controllers.saturating_add(1);
-                counts.controller_groups = counts.controller_groups.saturating_add(
-                    u64::try_from(controller.signal_groups.len()).unwrap_or(u64::MAX),
-                );
-                counts.phases = counts
-                    .phases
-                    .saturating_add(u64::try_from(controller.phases.len()).unwrap_or(u64::MAX));
-                counts.phase_states =
-                    counts
-                        .phase_states
-                        .saturating_add(controller.phases.iter().fold(0_u64, |total, phase| {
-                            total.saturating_add(
-                                u64::try_from(phase.states.len()).unwrap_or(u64::MAX),
-                            )
-                        }));
-            }
-            TypedAstDeclaration::ManeuverGate(gate)
-                if matches!(gate.signal_control, OwnedSignalControl::Group(_)) =>
-            {
-                counts.controlled_gates = counts.controlled_gates.saturating_add(1);
-            }
-            _ => {}
-        }
-    }
-    counts
-}
-
-fn parking_counts(unit: &CompilationUnit) -> ParkingCounts {
-    let mut counts = ParkingCounts::default();
-    for declaration in unit
-        .modules
-        .iter()
-        .flat_map(|module| module.declarations.iter())
-    {
-        match declaration {
-            TypedAstDeclaration::ParkingArea(_) => {
-                counts.areas = counts.areas.saturating_add(1);
-            }
-            TypedAstDeclaration::ParkingSpace(space) => {
-                counts.spaces = counts.spaces.saturating_add(1);
-                if space.parking_area.is_some() {
-                    counts.memberships = counts.memberships.saturating_add(1);
-                }
-            }
-            _ => {}
-        }
-    }
-    counts
-}
-
-fn access_counts(unit: &CompilationUnit) -> AccessCounts {
-    let mut counts = AccessCounts::default();
-    for declaration in unit
-        .modules
-        .iter()
-        .flat_map(|module| module.declarations.iter())
-    {
-        match declaration {
-            TypedAstDeclaration::ParticipantClass(_) => {
-                counts.participant_classes = counts.participant_classes.saturating_add(1);
-            }
-            TypedAstDeclaration::VehicleProfile(_) => {
-                counts.vehicle_profiles = counts.vehicle_profiles.saturating_add(1);
-            }
-            TypedAstDeclaration::AccessRule(rule) => {
-                counts.access_rules = counts.access_rules.saturating_add(1);
-                counts.rule_class_references = counts.rule_class_references.saturating_add(
-                    u64::try_from(rule.participant_classes.len()).unwrap_or(u64::MAX),
-                );
-            }
-            _ => {}
-        }
-    }
-    counts
-}
-
-fn spatial_counts(unit: &CompilationUnit) -> SpatialCounts {
-    let mut counts = SpatialCounts::default();
-    for declaration in unit
-        .modules
-        .iter()
-        .flat_map(|module| module.declarations.iter())
-    {
-        match declaration {
-            TypedAstDeclaration::CanonicalFrame(frame) => {
-                counts.canonical_frames = counts.canonical_frames.saturating_add(1);
-                counts.lane_edge_geometries = counts.lane_edge_geometries.saturating_add(
-                    u64::try_from(frame.lane_edge_geometries.len()).unwrap_or(u64::MAX),
-                );
-                for geometry in &frame.lane_edge_geometries {
-                    let points =
-                        u64::try_from(geometry.centerline_points.len()).unwrap_or(u64::MAX);
-                    counts.canonical_points = counts.canonical_points.saturating_add(points);
-                    counts.spatial_segments = counts
-                        .spatial_segments
-                        .saturating_add(points.saturating_sub(1));
-                }
-            }
-            TypedAstDeclaration::LaneEdge(LaneEdgeDeclaration {
-                geometry_authority: LaneEdgeGeometryAuthority::Compiled(geometry),
-                ..
-            }) => {
-                counts.lane_edge_geometries = counts.lane_edge_geometries.saturating_add(1);
-                counts.geometry_source_ranges = counts.geometry_source_ranges.saturating_add(
-                    u64::try_from(geometry.source_ranges.len()).unwrap_or(u64::MAX),
-                );
-                let points = u64::try_from(geometry.centerline_points.len()).unwrap_or(u64::MAX);
-                counts.canonical_points = counts.canonical_points.saturating_add(points);
-                counts.spatial_segments = counts
-                    .spatial_segments
-                    .saturating_add(points.saturating_sub(1));
-            }
-            TypedAstDeclaration::FacilityBand(band) => {
-                if let Some(geometry) = &band.compiled_geometry {
-                    counts.facility_band_geometries =
-                        counts.facility_band_geometries.saturating_add(1);
-                    counts.geometry_source_ranges = counts.geometry_source_ranges.saturating_add(
-                        u64::try_from(geometry.source_ranges.len()).unwrap_or(u64::MAX),
-                    );
-                    counts.canonical_points = counts.canonical_points.saturating_add(
-                        u64::try_from(geometry.centerline_points.len()).unwrap_or(u64::MAX),
-                    );
-                }
-            }
-            _ => {}
-        }
-    }
-    counts
-}
-
 fn corridors_capacity(
     counts: &CrossSectionCounts,
     limits: &crate::CompileLimits,
@@ -8000,104 +7012,6 @@ fn bands_capacity(
     limits: &crate::CompileLimits,
 ) -> Result<usize, DiagnosticBundle> {
     count_to_usize(counts.facility_bands, limits)
-}
-
-fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
-    let mut total = 0_u64;
-    let mut largest = 0_u64;
-    for module in &unit.modules {
-        let namespace_bytes =
-            u64::try_from(module.descriptor().authoring_namespace_id().len()).unwrap_or(u64::MAX);
-        for source_declaration in &module.declarations {
-            let header = declaration_header(source_declaration);
-            let bytes = match source_declaration {
-                TypedAstDeclaration::LaneEdge(_)
-                | TypedAstDeclaration::RoadCorridor(_)
-                | TypedAstDeclaration::Junction(_)
-                | TypedAstDeclaration::StaticRoute(_) => 22_u64
-                    .saturating_add(namespace_bytes)
-                    .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
-                TypedAstDeclaration::RoadSection(_)
-                | TypedAstDeclaration::LaneGroup(_)
-                | TypedAstDeclaration::FacilityBand(_) => 44_u64
-                    .saturating_add(namespace_bytes)
-                    .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
-                TypedAstDeclaration::Movement(movement) => 56_u64
-                    .saturating_add(namespace_bytes)
-                    .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX))
-                    .saturating_add(
-                        u64::try_from(movement.directed_entry_approach_key.len())
-                            .unwrap_or(u64::MAX),
-                    )
-                    .saturating_add(
-                        u64::try_from(movement.directed_exit_approach_key.len())
-                            .unwrap_or(u64::MAX),
-                    ),
-                TypedAstDeclaration::ManeuverPath(_) => 88_u64
-                    .saturating_add(namespace_bytes)
-                    .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
-                TypedAstDeclaration::StopLine(_) => 22_u64
-                    .saturating_add(namespace_bytes)
-                    .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
-                TypedAstDeclaration::ManeuverGate(_) | TypedAstDeclaration::WaitingZone(_) => {
-                    44_u64
-                        .saturating_add(namespace_bytes)
-                        .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX))
-                }
-                TypedAstDeclaration::SignalGroup(_)
-                | TypedAstDeclaration::SignalController(_)
-                | TypedAstDeclaration::ParkingArea(_)
-                | TypedAstDeclaration::ParkingSpace(_)
-                | TypedAstDeclaration::ParticipantClass(_)
-                | TypedAstDeclaration::VehicleProfile(_)
-                | TypedAstDeclaration::CanonicalFrame(_)
-                | TypedAstDeclaration::AccessRule(_) => 22_u64
-                    .saturating_add(namespace_bytes)
-                    .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
-            };
-            total = total.saturating_add(bytes);
-            largest = largest.max(bytes);
-            if let TypedAstDeclaration::RoadSection(section) = source_declaration {
-                for lane in &section.lanes {
-                    let lane_bytes = 44_u64.saturating_add(namespace_bytes).saturating_add(
-                        u64::try_from(lane.header.stable_key.len()).unwrap_or(u64::MAX),
-                    );
-                    total = total.saturating_add(lane_bytes);
-                    largest = largest.max(lane_bytes);
-                }
-            }
-            if let TypedAstDeclaration::SignalController(controller) = source_declaration {
-                for phase in &controller.phases {
-                    let phase_bytes = 44_u64.saturating_add(namespace_bytes).saturating_add(
-                        u64::try_from(phase.header.stable_key.len()).unwrap_or(u64::MAX),
-                    );
-                    total = total.saturating_add(phase_bytes);
-                    largest = largest.max(phase_bytes);
-                }
-            }
-        }
-    }
-    (total, largest)
-}
-
-fn requested_bytes<T>(count: u64) -> u64 {
-    count.saturating_mul(u64::try_from(size_of::<T>()).unwrap_or(u64::MAX))
-}
-
-fn requested_hash_table_bytes<K, V>(entry_count: u64) -> u64 {
-    if entry_count == 0 {
-        return 0;
-    }
-    // 标准库不公开桶分配布局。预检为每个请求项预留八个桶，并额外计入每桶控制字节
-    // 与一组尾部控制区，覆盖小表最小桶数和负载因子取整，而不依赖哈希表迭代顺序。
-    // 真实生产基准仍须另报实际容量和进程内存，不能用本预算冒充测量。
-    let bucket_bytes = u64::try_from(size_of::<(K, V)>())
-        .unwrap_or(u64::MAX)
-        .saturating_add(1);
-    entry_count
-        .saturating_mul(8)
-        .saturating_mul(bucket_bytes)
-        .saturating_add(16)
 }
 
 fn count_to_usize(count: u64, limits: &crate::CompileLimits) -> Result<usize, DiagnosticBundle> {
