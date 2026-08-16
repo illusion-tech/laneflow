@@ -233,6 +233,31 @@ impl TestOfficialModule {
             SourceSpan::point(Arc::from(source_document_key), 43, 9).into();
     }
 
+    pub(super) fn move_first_lane_edge_successor_spans_to(
+        &mut self,
+        source_document_keys: &[&str],
+    ) {
+        let TypedAstDeclaration::LaneEdge(declaration) =
+            &mut self.admitted.typed_ast.declarations[0]
+        else {
+            panic!("test wrapper expected first declaration to be LaneEdge");
+        };
+        assert_eq!(declaration.successors.len(), source_document_keys.len());
+        for (index, (successor, source_document_key)) in declaration
+            .successors
+            .iter_mut()
+            .zip(source_document_keys)
+            .enumerate()
+        {
+            successor.span = SourceSpan::point(
+                Arc::from(*source_document_key),
+                43 + u32::try_from(index).unwrap(),
+                9,
+            )
+            .into();
+        }
+    }
+
     pub(super) fn move_signal_relation_spans_to(
         &mut self,
         controller_group_document: &str,

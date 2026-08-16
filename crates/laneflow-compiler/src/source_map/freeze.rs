@@ -484,11 +484,20 @@ pub(crate) fn freeze_source_map(
             stable_id: edge.stable_id,
             primary: location.resolve(edge.module, &edge.source_span)?,
         });
-        for (local_index, connection) in mir.lane_edge_connections
-            [edge.connections.as_usize_range()]
-        .iter()
-        .enumerate()
+        let lir_edge = &frozen_lir.lir.lane_edges[ordinal.index()];
+        let lir_successors =
+            &frozen_lir.lir.lane_edge_successors[lir_edge.successors.as_usize_range()];
+        let mir_rows = &frozen_lir.lane_edge_successors.mir_rows_in_lir_order()
+            [lir_edge.successors.as_usize_range()];
+        debug_assert_eq!(mir_rows.len(), lir_successors.len());
+        for (local_index, (mir_row, lir_successor)) in
+            mir_rows.iter().zip(lir_successors).enumerate()
         {
+            let connection = &mir.lane_edge_connections[mir_row.index()];
+            debug_assert_eq!(
+                frozen_lir.lane_edges.ordinal(connection.target),
+                *lir_successor
+            );
             lane_edge_successor_sources.push(LaneEdgeSuccessorSourceRecord {
                 owner_ordinal: ordinal,
                 owner_stable_id: edge.stable_id,
