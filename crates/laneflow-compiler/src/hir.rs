@@ -10,6 +10,7 @@
 //! 也使用已显式规范化的序列。`HashMap` 仅作查找，绝不能通过迭代哈希表决定诊断或
 //! 后续布局。所有键、区间和类型均为 crate 私有，不能跨阶段或进入持久制品。
 
+mod base;
 mod plan;
 
 use core::hash::{Hash, Hasher};
@@ -18,7 +19,7 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     AccessEffect, AccessRuleId, AuthoringLaneId, CanonicalFrameId, EntityKind, FacilityBandId,
-    FieldTag, JunctionId, LaneEdgeId, LaneGroupId, MIN_PARKING_EXTENT_EXCLUSIVE_METERS,
+    FieldTag, JunctionId, LaneGroupId, MIN_PARKING_EXTENT_EXCLUSIVE_METERS,
     MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS, ManeuverGateId, ManeuverPathId, MovementId,
     PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS, PARKING_HEADING_OFFSET_MAXIMUM_RADIANS,
     PARKING_HEADING_OFFSET_MINIMUM_RADIANS, ParkingAreaId, ParkingSpaceId, ParticipantClassId,
@@ -31,14 +32,11 @@ use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::declaration::{
     CanonicalPoint3F32Input, LaneEdgeDeclaration, LaneEdgeGeometryAuthority,
     MAX_PORTABLE_SIGNAL_TIME_MS, OwnedAccessRegulation, OwnedAccessRuleTarget,
-    OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl, TypedAstDeclaration,
-    TypedAstEntityAddress,
+    OwnedCorridorElementReference, OwnedSignalControl, TypedAstDeclaration, TypedAstEntityAddress,
 };
 use crate::diagnostic::{DiagnosticCollector, JunctionEdgeSetViolation};
 use crate::geometry_profile::GeometryCompilationProfiles;
-use crate::identity::{
-    IdentityFieldInput, IdentityRegistrationError, IdentityRegistry, encode_canonical_identity,
-};
+use crate::identity::{IdentityFieldInput, IdentityRegistry};
 use crate::module::ResolvedSourceLocation;
 use crate::spatial_freeze::{
     check_spatial_direction, freeze_canonical_polyline, freeze_spatial_polyline,
@@ -49,6 +47,11 @@ use crate::{
     ParkingGeometryViolation, SourceLocation, SpatialGeometryViolation, WaitingZoneGateRole,
 };
 
+use base::{
+    CanonicalLaneEdgeSource, HirBase, SymbolTable, derive_identity, register_owner,
+    resolve_reference,
+};
+pub(crate) use base::{HirImport, HirLaneEdge, HirLaneEdgeReference, HirModule};
 use plan::{
     AccessCounts, ControlCounts, CrossSectionCounts, HirBuildPlan, JunctionCounts, ParkingCounts,
     RouteCounts, SignalCounts, SpatialCounts,
@@ -104,57 +107,6 @@ pub(crate) type HirParticipantClassKey = ArenaKey<HirParticipantClassTag>;
 pub(crate) type HirVehicleProfileKey = ArenaKey<HirVehicleProfileTag>;
 pub(crate) type HirCanonicalFrameKey = ArenaKey<HirCanonicalFrameTag>;
 pub(crate) type HirAccessRuleKey = ArenaKey<HirAccessRuleTag>;
-
-/// 已解析为 HIR 模块键的显式导入边。
-#[derive(Debug, PartialEq)]
-pub(crate) struct HirImport {
-    /// 被导入模块；目标在规范模块顺序中位于当前模块之前。
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) target: HirModuleKey,
-    /// 原始导入声明位置。
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) source_span: SourceLocation,
-}
-
-/// HIR 模块记录及其在平坦导入表中的连续区间。
-#[derive(Debug, PartialEq)]
-pub(crate) struct HirModule {
-    /// 声明身份与跨模块解析使用的稳定命名空间。
-    pub(crate) authoring_namespace_id: Arc<str>,
-    /// 此模块在 `HirUnit::imports` 中的半开区间。
-    pub(crate) imports: TableRange<HirImport>,
-    /// 模块声明位置。
-    pub(crate) source_span: SourceLocation,
-}
-
-/// 已解析为 HIR 车道图边键的下游引用。
-#[derive(Debug, PartialEq)]
-pub(crate) struct HirLaneEdgeReference {
-    /// 当前 `HirUnit::lane_edges` 中的目标键。
-    pub(crate) target: HirLaneEdgeKey,
-    /// 原始引用位置。
-    pub(crate) source_span: SourceLocation,
-}
-
-/// 完成模块归属和下游符号解析的车道图边 HIR 记录。
-#[derive(Debug, PartialEq)]
-pub(crate) struct HirLaneEdge {
-    /// 拥有此声明的 HIR 模块。
-    pub(crate) module: HirModuleKey,
-    /// 模块内稳定键；不是 HIR 致密下标。
-    pub(crate) stable_key: Arc<str>,
-    pub(crate) source_address: TypedAstEntityAddress,
-    /// 由 `(authoringNamespaceId, laneEdgeKey)` 的完整 Identity v1 前像派生。
-    pub(crate) stable_id: LaneEdgeId,
-    /// 交通权威长度，单位为米并保留来源 `f64` 精度。
-    pub(crate) length_meters: f64,
-    /// 基础道路限速，单位为米每秒并保留来源 `f64` 精度。
-    pub(crate) speed_limit_meters_per_second: f64,
-    /// 此边在 `HirUnit::lane_edge_references` 中的连续下游引用区间。
-    pub(crate) successors: TableRange<HirLaneEdgeReference>,
-    /// 原始声明位置。
-    pub(crate) source_span: SourceLocation,
-}
 
 /// 道路走廊有序横断面中的已解析异构成员。
 #[derive(Debug, PartialEq)]
@@ -746,44 +698,6 @@ pub(crate) struct HirUnit {
     pub(crate) peak_controlled_live_bytes: u64,
 }
 
-/// 按 HIR 模块隔离的有类型符号查找索引；不提供规范遍历能力。
-struct SymbolTable<K> {
-    by_module: Vec<HashMap<TypedAstEntityAddress, K>>,
-}
-
-impl<K: Copy> SymbolTable<K> {
-    fn new(module_declaration_counts: impl IntoIterator<Item = usize>) -> Self {
-        Self {
-            by_module: module_declaration_counts
-                .into_iter()
-                .map(HashMap::with_capacity)
-                .collect(),
-        }
-    }
-
-    fn insert(&mut self, module: HirModuleKey, source_address: TypedAstEntityAddress, key: K) {
-        let previous = self.by_module[module.index()].insert(source_address, key);
-        debug_assert!(
-            previous.is_none(),
-            "Typed AST rejected duplicate declarations"
-        );
-    }
-
-    fn get(&self, module: HirModuleKey, source_address: &TypedAstEntityAddress) -> Option<K> {
-        self.by_module[module.index()].get(source_address).copied()
-    }
-}
-
-#[derive(Clone, Copy)]
-/// 把规范 HIR 键映回 Typed AST 物理位置的阶段暂存记录。
-///
-/// HIR 键不能冒充来源模块/声明下标；显式保存两者可在声明排序后仍准确读取来源记录。
-struct CanonicalLaneEdgeSource {
-    source_module_index: u32,
-    declaration_index: u32,
-    hir_key: HirLaneEdgeKey,
-}
-
 #[derive(Clone, Copy)]
 struct CanonicalDeclarationSource<K> {
     source_module_index: u32,
@@ -939,6 +853,85 @@ struct RouteHir {
     waiting_zone_occurrences: Box<[HirWaitingZoneOccurrence]>,
 }
 
+/// 部件装配（parts/finish）：基础构造与八领域部件在零错误后的聚合输入。
+///
+/// 任一阶段返回 Err 时整体放弃，不产生部分 `HirUnit`；只有全部部件就绪才调用
+/// `finish` 原子装配。
+struct HirParts {
+    base: HirBase,
+    cross_section: CrossSectionHir,
+    junction: JunctionHir,
+    control: ControlHir,
+    signal: SignalHir,
+    parking: ParkingHir,
+    spatial: SpatialHir,
+    access: AccessHir,
+    route: RouteHir,
+}
+
+impl HirParts {
+    /// 原子装配 `HirUnit`：消费全部部件并转为平坦 boxed 表；全部可失败阶段在此之前
+    /// 已经完成，本函数不再引入新的失败点。
+    fn finish(self, plan: &HirBuildPlan) -> HirUnit {
+        HirUnit {
+            geometry_profiles: self.spatial.geometry_profiles,
+            modules: self.base.modules.into_boxed_slice(),
+            imports: self.base.imports.into_boxed_slice(),
+            lane_edges: self.base.lane_edges.into_boxed_slice(),
+            lane_edge_references: self.base.lane_edge_references.into_boxed_slice(),
+            road_corridors: self.cross_section.road_corridors,
+            corridor_elements: self.cross_section.corridor_elements,
+            road_sections: self.cross_section.road_sections,
+            authoring_lanes: self.cross_section.authoring_lanes,
+            authoring_lane_edges: self.cross_section.authoring_lane_edges,
+            lane_groups: self.cross_section.lane_groups,
+            lane_group_members: self.cross_section.lane_group_members,
+            facility_bands: self.cross_section.facility_bands,
+            junctions: self.junction.junctions,
+            movements: self.junction.movements,
+            junction_movements: self.junction.junction_movements,
+            maneuver_paths: self.junction.maneuver_paths,
+            movement_maneuver_paths: self.junction.movement_maneuver_paths,
+            maneuver_path_edges: self.junction.maneuver_path_edges,
+            junction_internal_edges: self.junction.junction_internal_edges,
+            stop_lines: self.control.stop_lines,
+            maneuver_gates: self.control.maneuver_gates,
+            waiting_zones: self.control.waiting_zones,
+            maneuver_path_gates: self.control.maneuver_path_gates,
+            maneuver_path_waiting_zones: self.control.maneuver_path_waiting_zones,
+            stop_line_maneuver_gates: self.control.stop_line_maneuver_gates,
+            signal_groups: self.signal.signal_groups,
+            signal_controllers: self.signal.signal_controllers,
+            signal_controller_groups: self.signal.signal_controller_groups,
+            signal_phases: self.signal.signal_phases,
+            signal_phase_states: self.signal.signal_phase_states,
+            signal_group_maneuver_gates: self.signal.signal_group_maneuver_gates,
+            parking_areas: self.parking.parking_areas,
+            parking_spaces: self.parking.parking_spaces,
+            parking_area_spaces: self.parking.parking_area_spaces,
+            canonical_frames: self.spatial.canonical_frames,
+            lane_edge_geometries: self.spatial.lane_edge_geometries,
+            facility_band_geometries: self.spatial.facility_band_geometries,
+            geometry_source_ranges: self.spatial.geometry_source_ranges,
+            canonical_points: self.spatial.canonical_points,
+            spatial_segments: self.spatial.spatial_segments,
+            participant_classes: self.access.participant_classes,
+            vehicle_profiles: self.access.vehicle_profiles,
+            access_rules: self.access.access_rules,
+            access_rule_participant_classes: self.access.access_rule_participant_classes,
+            static_routes: self.route.static_routes,
+            static_route_edges: self.route.static_route_edges,
+            static_route_transitions: self.route.static_route_transitions,
+            maneuver_occurrences: self.route.maneuver_occurrences,
+            gate_occurrences: self.route.gate_occurrences,
+            waiting_zone_occurrences: self.route.waiting_zone_occurrences,
+            hir_record_count: plan.memory.hir_record_count,
+            controlled_live_bytes: plan.memory.persistent_bytes,
+            peak_controlled_live_bytes: plan.memory.controlled_live_bytes,
+        }
+    }
+}
+
 /// 只在完成路径表后借用的序列查找键；来源位置不参与遍历签名。
 struct ManeuverPathSequence<'a>(&'a [HirManeuverPathEdge]);
 
@@ -977,273 +970,64 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let plan = HirBuildPlan::analyze(unit);
     plan.check_limits(unit)?;
 
-    let primary_span = unit
-        .modules
-        .first()
-        .map(|module| module.declaration_span().clone());
-    let module_capacity = unit.modules.len();
-    let import_capacity = count_to_usize(unit.import_edge_count, &unit.limits)?;
-    let lane_edge_capacity = count_to_usize(plan.lane_edge_count, &unit.limits)?;
-    let reference_capacity = count_to_usize(plan.lane_edge_reference_count, &unit.limits)?;
-    // 第一阶段冻结模块键。CompilationUnit 已按依赖优先排序，因此 raw key 顺序可直接
-    // 作为后续规范模块轴；module_lookup 只用于解析，不参与任何输出遍历。
-    let mut modules = TypedArena::<HirModuleTag, HirModule>::with_capacity(module_capacity);
-    let mut module_lookup = HashMap::with_capacity(module_capacity);
-    for source_module in &unit.modules {
-        let key = modules
-            .push(HirModule {
-                authoring_namespace_id: source_module.descriptor().authoring_namespace_arc(),
-                imports: TableRange::empty(),
-                source_span: source_module.declaration_span().clone(),
-            })
-            .map_err(|overflow| arena_overflow(overflow, &unit.limits, primary_span.clone()))?;
-        module_lookup.insert(source_module.descriptor().authoring_namespace_arc(), key);
-    }
-
-    // 每个模块的导入单独按目标命名空间排序后追加到一个平坦表，TableRange 保留模块
-    // 边界并避免每模块 Vec 的额外分配。
-    let mut imports = Vec::with_capacity(import_capacity);
-    for (module_index, source_module) in unit.modules.iter().enumerate() {
-        let module_key =
-            HirModuleKey::from_raw(u32::try_from(module_index).map_err(|_| {
-                arena_overflow(ArenaKeyOverflow, &unit.limits, primary_span.clone())
-            })?);
-        let start = imports.len();
-        let mut canonical_imports: Vec<_> = source_module.import_records().collect();
-        canonical_imports.sort_unstable_by(|left, right| left.0.cmp(right.0));
-        for (target_namespace, source_span) in canonical_imports {
-            let target = module_lookup[target_namespace];
-            imports.push(HirImport {
-                target,
-                source_span: source_span.clone(),
-            });
-        }
-        modules.get_mut(module_key).imports =
-            TableRange::try_from_usize(start, imports.len().saturating_sub(start))
-                .map_err(|overflow| arena_overflow(overflow, &unit.limits, primary_span.clone()))?;
-    }
-
-    // 先按 `(canonical module order, stable key)` 为全部声明分配键并建立完整符号表。
-    // 这一步必须先于连接解析，才能让前向引用、自环和跨模块引用具有相同语义。
-    let mut lane_edges =
-        TypedArena::<HirLaneEdgeTag, HirLaneEdge>::with_capacity(lane_edge_capacity);
-    let mut symbols = SymbolTable::new(unit.modules.iter().map(|module| {
-        module
-            .declarations
-            .iter()
-            .filter(|declaration| matches!(declaration, TypedAstDeclaration::LaneEdge(_)))
-            .count()
-    }));
-    let mut identities =
-        IdentityRegistry::with_capacity(count_to_usize(unit.declaration_count, &unit.limits)?);
-    let mut canonical_sources = Vec::with_capacity(lane_edge_capacity);
-    for (module_index, source_module) in unit.modules.iter().enumerate() {
-        let module_key =
-            HirModuleKey::from_raw(u32::try_from(module_index).map_err(|_| {
-                arena_overflow(ArenaKeyOverflow, &unit.limits, primary_span.clone())
-            })?);
-        let mut declaration_indices: Vec<usize> = (0..source_module.declarations.len()).collect();
-        declaration_indices.retain(|index| {
-            matches!(
-                source_module.declarations[*index],
-                TypedAstDeclaration::LaneEdge(_)
-            )
-        });
-        declaration_indices.sort_unstable_by_key(|index| {
-            &lane_edge_declaration(&source_module.declarations[*index])
-                .expect("filtered declaration must be LaneEdge")
-                .header
-                .source_address
-        });
-        for declaration_index in declaration_indices {
-            let source = lane_edge_declaration(&source_module.declarations[declaration_index])
-                .expect("filtered declaration must be LaneEdge");
-            let fields = [
-                IdentityFieldInput::new(
-                    FieldTag::AuthoringNamespaceId,
-                    source_module
-                        .descriptor()
-                        .authoring_namespace_id()
-                        .as_bytes(),
-                ),
-                IdentityFieldInput::new(FieldTag::LaneEdgeKey, source.header.stable_key.as_bytes()),
-            ];
-            let identity = encode_canonical_identity(
-                EntityKind::LaneEdge,
-                &fields,
-                unit.limits.value(CompileLimitDimension::SingleStringBytes),
-            )
-            .map_err(|violation| {
-                let mut diagnostic = Diagnostic::invalid_canonical_identity(
-                    EntityKind::LaneEdge,
-                    &source.header.stable_key,
-                    violation,
-                    source.header.span.clone(),
-                );
-                diagnostic
-                    .set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
-                DiagnosticBundle::single(diagnostic)
-            })?;
-            if let Err(error) = identities.register(&identity, &source.header.span) {
-                let mut diagnostic = match error {
-                    IdentityRegistrationError::Duplicate { existing_span } => {
-                        Diagnostic::duplicate_canonical_identity(
-                            identity.kind(),
-                            &source.header.stable_key,
-                            identity.stable_id(),
-                            source.header.span.clone(),
-                            existing_span,
-                        )
-                    }
-                    IdentityRegistrationError::DigestCollision { existing_span } => {
-                        Diagnostic::identity_digest_collision(
-                            identity.kind(),
-                            &source.header.stable_key,
-                            identity.stable_id(),
-                            source.header.span.clone(),
-                            existing_span,
-                        )
-                    }
-                };
-                diagnostic
-                    .set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
-                return Err(DiagnosticBundle::single(diagnostic));
-            }
-            let key = lane_edges
-                .push(HirLaneEdge {
-                    module: module_key,
-                    stable_key: Arc::clone(&source.header.stable_key),
-                    source_address: source.header.source_address.clone(),
-                    stable_id: LaneEdgeId::from_untyped(identity.stable_id()),
-                    length_meters: source
-                        .geometry_authority
-                        .direct_length()
-                        .expect("authoring geometry is compiled before HIR lane construction")
-                        .value(),
-                    speed_limit_meters_per_second: source.speed_limit.value(),
-                    successors: TableRange::empty(),
-                    source_span: source.header.span.clone(),
-                })
-                .map_err(|overflow| {
-                    arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
-                })?;
-            symbols.insert(module_key, source.header.source_address.clone(), key);
-            canonical_sources.push(CanonicalLaneEdgeSource {
-                source_module_index: u32::try_from(module_index).map_err(|_| {
-                    arena_overflow(
-                        ArenaKeyOverflow,
-                        &unit.limits,
-                        Some(source.header.span.clone()),
-                    )
-                })?,
-                declaration_index: u32::try_from(declaration_index).map_err(|_| {
-                    arena_overflow(
-                        ArenaKeyOverflow,
-                        &unit.limits,
-                        Some(source.header.span.clone()),
-                    )
-                })?,
-                hir_key: key,
-            });
-        }
-    }
-    // 第二遍只解析已经规范化的引用序列。未知目标继续收集到有界诊断集合中；该边的
-    // 临时区间不会在失败时泄漏，因为整个 HirUnit 仅在零错误后提交。
-    let mut references = Vec::with_capacity(reference_capacity);
-    let mut diagnostics =
-        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
-    for source_location in canonical_sources {
-        let module_index = usize::try_from(source_location.source_module_index)
-            .expect("u32 module index must fit usize on supported targets");
-        let source_module = &unit.modules[module_index];
-        let source = lane_edge_declaration(
-            &source_module.declarations[usize::try_from(source_location.declaration_index)
-                .expect("u32 declaration index must fit usize on supported targets")],
-        )
-        .expect("canonical LaneEdge source must still name a LaneEdge");
-        let start = references.len();
-        for successor in &source.successors {
-            let target_module = module_lookup[successor.module_namespace.as_ref()];
-            let Some(target) = symbols.get(target_module, &successor.target_address) else {
-                let mut diagnostic = Diagnostic::unknown_reference_target(
-                    EntityKind::LaneEdge,
-                    &source.header.stable_key,
-                    &successor.module_namespace,
-                    successor.declaration_key(),
-                    successor.span.clone(),
-                    source.header.span.clone(),
-                );
-                diagnostic.set_canonical_module_order(source_location.source_module_index);
-                diagnostics.push(diagnostic);
-                continue;
-            };
-            references.push(HirLaneEdgeReference {
-                target,
-                source_span: successor.span.clone(),
-            });
-        }
-        lane_edges.get_mut(source_location.hir_key).successors =
-            TableRange::try_from_usize(start, references.len().saturating_sub(start)).map_err(
-                |overflow| arena_overflow(overflow, &unit.limits, Some(source.header.span.clone())),
-            )?;
-    }
-    if !diagnostics.is_empty() {
-        return Err(diagnostics.finish());
-    }
+    let (base, mut identities) = HirBase::build(unit, &plan)?;
 
     let cross_section = build_cross_section_hir(
         unit,
         &plan.cross_section,
-        &module_lookup,
-        &lane_edges,
-        &references,
-        &symbols,
+        &base.module_lookup,
+        &base.lane_edges,
+        &base.lane_edge_references,
+        &base.lane_edge_symbols,
         &mut identities,
     )?;
     let mut junction = build_junction_hir(
         unit,
         &plan.junction,
-        &module_lookup,
-        &lane_edges,
-        &references,
-        &symbols,
+        &base.module_lookup,
+        &base.lane_edges,
+        &base.lane_edge_references,
+        &base.lane_edge_symbols,
         &cross_section.authoring_lane_edges,
         &mut identities,
     )?;
+    // 仅有的两条跨领域写边之一：control 回写 junction 机动路径的 maneuver_gates /
+    // waiting_zones 区间；读者仅 route 与 MIR。
     let mut control = build_control_hir(
         unit,
         &plan.control,
-        &module_lookup,
-        &lane_edges,
-        &references,
-        &symbols,
+        &base.module_lookup,
+        &base.lane_edges,
+        &base.lane_edge_references,
+        &base.lane_edge_symbols,
         &mut junction.maneuver_paths,
         &junction.maneuver_path_edges,
         &mut identities,
     )?;
+    // 仅有的两条跨领域写边之二：signal 回写 control 机动门的 signal_control；读者仅 MIR。
     let signal = build_signal_hir(
         unit,
         &plan.signal,
-        &module_lookup,
+        &base.module_lookup,
         &mut control.maneuver_gates,
         &mut identities,
     )?;
     let parking = build_parking_hir(
         unit,
         &plan.parking,
-        &module_lookup,
-        &lane_edges,
-        &symbols,
+        &base.module_lookup,
+        &base.lane_edges,
+        &base.lane_edge_symbols,
         &mut identities,
     )?;
     let spatial = build_spatial_hir(
         unit,
         &plan.spatial,
-        &module_lookup,
+        &base.module_lookup,
         SpatialHirContext {
-            lane_edges: &lane_edges,
-            lane_edge_references: &references,
-            lane_edge_symbols: &symbols,
+            lane_edges: &base.lane_edges,
+            lane_edge_references: &base.lane_edge_references,
+            lane_edge_symbols: &base.lane_edge_symbols,
             facility_bands: &cross_section.facility_bands,
             maneuver_paths: &junction.maneuver_paths,
             maneuver_path_edges: &junction.maneuver_path_edges,
@@ -1254,8 +1038,8 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let access = build_access_hir(
         unit,
         &plan.access,
-        &module_lookup,
-        &lane_edges,
+        &base.module_lookup,
+        &base.lane_edges,
         &cross_section,
         &junction.maneuver_paths,
         &mut identities,
@@ -1263,10 +1047,10 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let route = build_route_hir(
         unit,
         &plan.route,
-        &module_lookup,
-        &lane_edges,
-        &references,
-        &symbols,
+        &base.module_lookup,
+        &base.lane_edges,
+        &base.lane_edge_references,
+        &base.lane_edge_symbols,
         &junction.maneuver_paths,
         &junction.maneuver_path_edges,
         &junction.junction_internal_edges,
@@ -1281,64 +1065,18 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     // 避免在 HIR 与 MIR 中复制可由稳定键和父项重建的 identity envelope。
     drop(identities);
 
-    debug_assert_eq!(modules.len(), module_capacity);
-    debug_assert_eq!(lane_edges.len(), lane_edge_capacity);
-    Ok(HirUnit {
-        geometry_profiles: spatial.geometry_profiles,
-        modules: modules.into_boxed_slice(),
-        imports: imports.into_boxed_slice(),
-        lane_edges: lane_edges.into_boxed_slice(),
-        lane_edge_references: references.into_boxed_slice(),
-        road_corridors: cross_section.road_corridors,
-        corridor_elements: cross_section.corridor_elements,
-        road_sections: cross_section.road_sections,
-        authoring_lanes: cross_section.authoring_lanes,
-        authoring_lane_edges: cross_section.authoring_lane_edges,
-        lane_groups: cross_section.lane_groups,
-        lane_group_members: cross_section.lane_group_members,
-        facility_bands: cross_section.facility_bands,
-        junctions: junction.junctions,
-        movements: junction.movements,
-        junction_movements: junction.junction_movements,
-        maneuver_paths: junction.maneuver_paths,
-        movement_maneuver_paths: junction.movement_maneuver_paths,
-        maneuver_path_edges: junction.maneuver_path_edges,
-        junction_internal_edges: junction.junction_internal_edges,
-        stop_lines: control.stop_lines,
-        maneuver_gates: control.maneuver_gates,
-        waiting_zones: control.waiting_zones,
-        maneuver_path_gates: control.maneuver_path_gates,
-        maneuver_path_waiting_zones: control.maneuver_path_waiting_zones,
-        stop_line_maneuver_gates: control.stop_line_maneuver_gates,
-        signal_groups: signal.signal_groups,
-        signal_controllers: signal.signal_controllers,
-        signal_controller_groups: signal.signal_controller_groups,
-        signal_phases: signal.signal_phases,
-        signal_phase_states: signal.signal_phase_states,
-        signal_group_maneuver_gates: signal.signal_group_maneuver_gates,
-        parking_areas: parking.parking_areas,
-        parking_spaces: parking.parking_spaces,
-        parking_area_spaces: parking.parking_area_spaces,
-        canonical_frames: spatial.canonical_frames,
-        lane_edge_geometries: spatial.lane_edge_geometries,
-        facility_band_geometries: spatial.facility_band_geometries,
-        geometry_source_ranges: spatial.geometry_source_ranges,
-        canonical_points: spatial.canonical_points,
-        spatial_segments: spatial.spatial_segments,
-        participant_classes: access.participant_classes,
-        vehicle_profiles: access.vehicle_profiles,
-        access_rules: access.access_rules,
-        access_rule_participant_classes: access.access_rule_participant_classes,
-        static_routes: route.static_routes,
-        static_route_edges: route.static_route_edges,
-        static_route_transitions: route.static_route_transitions,
-        maneuver_occurrences: route.maneuver_occurrences,
-        gate_occurrences: route.gate_occurrences,
-        waiting_zone_occurrences: route.waiting_zone_occurrences,
-        hir_record_count: plan.memory.hir_record_count,
-        controlled_live_bytes: plan.memory.persistent_bytes,
-        peak_controlled_live_bytes: plan.memory.controlled_live_bytes,
-    })
+    Ok(HirParts {
+        base,
+        cross_section,
+        junction,
+        control,
+        signal,
+        parking,
+        spatial,
+        access,
+        route,
+    }
+    .finish(&plan))
 }
 
 /// 在任何 HIR 语义诊断产生前，核对全部模块、导入、声明与关系位置的文档所有权。
@@ -6834,116 +6572,6 @@ fn build_route_hir(
     })
 }
 
-fn derive_identity(
-    unit: &CompilationUnit,
-    identities: &mut IdentityRegistry,
-    module_index: usize,
-    entity_kind: EntityKind,
-    stable_key: &str,
-    source_span: &SourceLocation,
-    fields: &[IdentityFieldInput<'_>],
-) -> Result<StableId128, DiagnosticBundle> {
-    let identity = encode_canonical_identity(
-        entity_kind,
-        fields,
-        unit.limits.value(CompileLimitDimension::SingleStringBytes),
-    )
-    .map_err(|violation| {
-        let mut diagnostic = Diagnostic::invalid_canonical_identity(
-            entity_kind,
-            stable_key,
-            violation,
-            source_span.clone(),
-        );
-        diagnostic.set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
-        DiagnosticBundle::single(diagnostic)
-    })?;
-    if let Err(error) = identities.register(&identity, source_span) {
-        let mut diagnostic = match error {
-            IdentityRegistrationError::Duplicate { existing_span } => {
-                Diagnostic::duplicate_canonical_identity(
-                    entity_kind,
-                    stable_key,
-                    identity.stable_id(),
-                    source_span.clone(),
-                    existing_span,
-                )
-            }
-            IdentityRegistrationError::DigestCollision { existing_span } => {
-                Diagnostic::identity_digest_collision(
-                    entity_kind,
-                    stable_key,
-                    identity.stable_id(),
-                    source_span.clone(),
-                    existing_span,
-                )
-            }
-        };
-        diagnostic.set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
-        return Err(DiagnosticBundle::single(diagnostic));
-    }
-    Ok(identity.stable_id())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn register_owner(
-    entity_kind: EntityKind,
-    target_index: usize,
-    target_key: &str,
-    owner: HirRoadCorridorKey,
-    owner_header: &crate::declaration::DeclarationHeader,
-    owners: &mut [Option<(HirRoadCorridorKey, SourceLocation)>],
-    corridors: &TypedArena<HirRoadCorridorTag, HirRoadCorridor>,
-    module_order: u32,
-    diagnostics: &mut DiagnosticCollector,
-) {
-    if let Some((first_owner, first_span)) = &owners[target_index] {
-        let mut diagnostic = Diagnostic::multiple_cross_section_owners(
-            entity_kind,
-            target_key,
-            &corridors.get(*first_owner).stable_key,
-            &owner_header.stable_key,
-            owner_header.span.clone(),
-            first_span.clone(),
-        );
-        diagnostic.set_canonical_module_order(module_order);
-        diagnostics.push(diagnostic);
-    } else {
-        owners[target_index] = Some((owner, owner_header.span.clone()));
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn resolve_reference<M, K: Copy>(
-    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
-    symbols: &SymbolTable<K>,
-    reference: &OwnedEntityReference<M>,
-    source_kind: EntityKind,
-    source_header: &crate::declaration::DeclarationHeader,
-    module_order: u32,
-    diagnostics: &mut DiagnosticCollector,
-) -> Option<K>
-where
-    M: laneflow_static_contract::EntityKindMarker,
-{
-    let target_module = module_lookup[reference.module_namespace.as_ref()];
-    let Some(target) = symbols.get(target_module, &reference.target_address) else {
-        let mut diagnostic = Diagnostic::unknown_owner_qualified_reference_target(
-            source_kind,
-            &source_header.stable_key,
-            &reference.module_namespace,
-            reference.target_address.owner_local_keys(),
-            reference.declaration_key(),
-            reference.span.clone(),
-            source_header.span.clone(),
-        );
-        diagnostic.set_canonical_module_order(module_order);
-        diagnostics.push(diagnostic);
-        return None;
-    };
-    Some(target)
-}
-
 fn lane_edge_declaration(declaration: &TypedAstDeclaration) -> Option<&LaneEdgeDeclaration> {
     match declaration {
         TypedAstDeclaration::LaneEdge(declaration) => Some(declaration),
@@ -7051,7 +6679,7 @@ fn arena_overflow(
 mod tests {
     use super::*;
     use crate::declaration::{
-        CompiledFacilityBandGeometry, CompiledGeometrySourceRange, EdgeLength,
+        CompiledFacilityBandGeometry, CompiledGeometrySourceRange, EdgeLength, OwnedEntityReference,
     };
     use crate::lir::freeze_lir;
     use crate::mir::lower_to_mir;
