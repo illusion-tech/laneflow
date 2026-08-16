@@ -29,12 +29,12 @@ use crate::diagnostic::DiagnosticCollector;
 use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::mir::{
     MirAccessRuleKey, MirAccessTarget, MirAuthoringLaneKey, MirCanonicalFrameKey,
-    MirCorridorElement, MirFacilityBandKey, MirJunctionKey, MirLaneEdgeKey, MirLaneGroupKey,
-    MirManeuverGateKey, MirManeuverPathKey, MirMovementKey, MirParkingAreaKey, MirParkingSpaceKey,
-    MirParticipantClassKey, MirRoadCorridorKey, MirRoadSectionKey, MirSignalControl,
-    MirSignalControllerGroup, MirSignalControllerKey, MirSignalGroupKey, MirSignalPhaseKey,
-    MirSignalPhaseState, MirStaticRouteKey, MirStopLineKey, MirUnit, MirVehicleProfileKey,
-    MirWaitingZoneKey,
+    MirCorridorElement, MirFacilityBandKey, MirJunctionKey, MirLaneEdgeConnection, MirLaneEdgeKey,
+    MirLaneGroupKey, MirManeuverGateKey, MirManeuverPathKey, MirMovementKey, MirParkingAreaKey,
+    MirParkingSpaceKey, MirParticipantClassKey, MirRoadCorridorKey, MirRoadSectionKey,
+    MirSignalControl, MirSignalControllerGroup, MirSignalControllerKey, MirSignalGroupKey,
+    MirSignalPhaseKey, MirSignalPhaseState, MirStaticRouteKey, MirStopLineKey, MirUnit,
+    MirVehicleProfileKey, MirWaitingZoneKey,
 };
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
 
@@ -589,6 +589,7 @@ impl<Row> OwnerLocalPermutation<Row> {
 pub(crate) struct LirFreezeOutput {
     pub(crate) lir: LirUnit,
     pub(crate) lane_edges: LirEntityOrder<MirLaneEdgeKey, LaneEdgeOrdinal>,
+    pub(crate) lane_edge_successors: OwnerLocalPermutation<MirLaneEdgeConnection>,
     pub(crate) road_corridors: LirEntityOrder<MirRoadCorridorKey, RoadCorridorOrdinal>,
     pub(crate) road_sections: LirEntityOrder<MirRoadSectionKey, RoadSectionOrdinal>,
     pub(crate) authoring_lanes: LirEntityOrder<MirAuthoringLaneKey, AuthoringLaneOrdinal>,
@@ -616,10 +617,11 @@ pub(crate) struct LirFreezeOutput {
 }
 
 impl LirFreezeOutput {
-    /// 返回两个临时有类型映射的真实请求容量字节。
+    /// 返回临时有类型实体映射与 owner-local 行排列的真实请求容量字节。
     pub(crate) fn mapping_bytes(&self) -> u64 {
         self.lane_edges
             .mapping_bytes()
+            .saturating_add(self.lane_edge_successors.mapping_bytes())
             .saturating_add(self.road_corridors.mapping_bytes())
             .saturating_add(self.road_sections.mapping_bytes())
             .saturating_add(self.authoring_lanes.mapping_bytes())
@@ -876,6 +878,9 @@ pub(crate) fn freeze_lir(
         .saturating_add(requested_bytes::<ArenaKey<MirSignalPhaseState>>(
             signal_phase_state_count,
         ))
+        .saturating_add(requested_bytes::<ArenaKey<MirLaneEdgeConnection>>(
+            successor_count,
+        ))
         .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
         .saturating_add(requested_bytes::<Option<usize>>(band_count))
         // 四类反向索引先以 `(targetOrdinal, occurrence)` 排序，再复制进最终连续表；
@@ -1119,6 +1124,8 @@ pub(crate) fn freeze_lir(
 
     let mut lane_edges = Vec::with_capacity(edge_capacity);
     let mut successors = Vec::with_capacity(successor_capacity);
+    let mut lane_edge_successor_mir_rows =
+        Vec::<ArenaKey<MirLaneEdgeConnection>>::with_capacity(successor_capacity);
     let mut identity_fields = Vec::with_capacity(identity_field_capacity);
     let mut identity_field_bytes = Vec::with_capacity(identity_byte_capacity);
     for mir_key in canonical_order.iter().copied() {
@@ -1143,10 +1150,26 @@ pub(crate) fn freeze_lir(
         )?;
 
         let successor_start = successors.len();
+        let successor_row_start = lane_edge_successor_mir_rows.len();
+        lane_edge_successor_mir_rows.extend(edge.connections.as_usize_range().map(|index| {
+            ArenaKey::from_raw(
+                u32::try_from(index)
+                    .expect("MIR relation range precheck proved row index fits u32"),
+            )
+        }));
+        lane_edge_successor_mir_rows[successor_row_start..].sort_unstable_by_key(|row| {
+            mir_to_lir[mir.lane_edge_connections[row.index()].target.index()]
+        });
         successors.extend(
-            mir.lane_edge_connections[edge.connections.as_usize_range()]
+            lane_edge_successor_mir_rows[successor_row_start..]
                 .iter()
-                .map(|connection| mir_to_lir[connection.target.index()]),
+                .map(|row| mir_to_lir[mir.lane_edge_connections[row.index()].target.index()]),
+        );
+        debug_assert!(
+            successors[successor_start..]
+                .windows(2)
+                .all(|pair| pair[0] < pair[1]),
+            "LaneEdge successor sets must be strictly ordered by target typed ordinal"
         );
         let ordinal = mir_to_lir[mir_key.index()];
         lane_edges.push(LirLaneEdge {
@@ -3110,6 +3133,7 @@ pub(crate) fn freeze_lir(
             peak_controlled_live_bytes: controlled_live_bytes,
         },
         lane_edges: LirEntityOrder::from_parts(canonical_order, mir_to_lir),
+        lane_edge_successors: OwnerLocalPermutation::from_rows(lane_edge_successor_mir_rows),
         road_corridors: LirEntityOrder::from_parts(
             canonical_mir_corridor_order,
             mir_corridor_to_lir,
