@@ -464,4 +464,5 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
 }
 
 // 后续向量放在子模块中，使本文件的语义输入构造保持原位稳定。
+mod lfsd_change_set;
 mod lfsd_noop;

@@ -1,0 +1,309 @@
+use super::*;
+
+const FIXTURE_PROVENANCE: &str = "laneflow-fixture-298-change-set-v1";
+const EXPECTED_LFSD: &[u8] =
+    include_bytes!("../../../tests/fixtures/portable-v1/lfsd-v1-change-set/expected.lfsd");
+
+fn module(target: bool) -> SyntheticModule {
+    let retained_points = [
+        CanonicalPoint3F32Input {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        },
+        CanonicalPoint3F32Input {
+            x: 10.0,
+            y: 0.0,
+            z: 0.0,
+        },
+    ];
+    let identity_points = [
+        CanonicalPoint3F32Input {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+        CanonicalPoint3F32Input {
+            x: 5.0,
+            y: 1.0,
+            z: 0.0,
+        },
+    ];
+    let geometries = [
+        LaneEdgeGeometryInput {
+            lane_edge: LaneEdgeReference::local("retained-edge"),
+            centerline_points: &retained_points,
+        },
+        LaneEdgeGeometryInput {
+            lane_edge: LaneEdgeReference::local("identity-new"),
+            centerline_points: &identity_points,
+        },
+    ];
+    let participant_classes = [ParticipantClassReference::local("child-class")];
+    let mut builder =
+        portable_fixture_builder("city/portable-change-set", "portable-change-set.document");
+    builder
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "retained-edge",
+            length_meters: 10.0,
+            speed_limit_meters_per_second: if target { 12.0 } else { 10.0 },
+            successors: &[],
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: if target {
+                "identity-new"
+            } else {
+                "identity-old"
+            },
+            length_meters: 5.0,
+            speed_limit_meters_per_second: 5.0,
+            successors: &[],
+        })
+        .unwrap()
+        .add_participant_class(ParticipantClassInput {
+            participant_class_key: "parent-a",
+            extends: None,
+        })
+        .unwrap()
+        .add_participant_class(ParticipantClassInput {
+            participant_class_key: "parent-b",
+            extends: None,
+        })
+        .unwrap()
+        .add_participant_class(ParticipantClassInput {
+            participant_class_key: "child-class",
+            extends: Some(ParticipantClassReference::local(if target {
+                "parent-b"
+            } else {
+                "parent-a"
+            })),
+        })
+        .unwrap()
+        .add_access_rule(AccessRuleInput {
+            access_rule_key: "controlled-access",
+            target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("retained-edge")),
+            effect: if target {
+                AccessEffect::Deny
+            } else {
+                AccessEffect::Allow
+            },
+            participant_classes: &participant_classes,
+            regulation: None,
+            priority: 10,
+        })
+        .unwrap();
+    if target {
+        builder
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame-main",
+                lane_edge_geometries: &geometries,
+            })
+            .unwrap();
+    }
+    builder.finish().unwrap()
+}
+
+fn output(target: bool) -> CompilationOutput {
+    Compiler::new().compile(unit([module(target)])).unwrap()
+}
+
+fn candidate() -> (
+    crate::PortablePublicationCandidate,
+    crate::PortablePublicationCandidate,
+) {
+    let provenance = crate::PortableEmissionProvenanceV1::try_new(FIXTURE_PROVENANCE).unwrap();
+    let base_output = output(false);
+    let base_candidate = crate::emit_portable_candidate(
+        &base_output,
+        &provenance,
+        laneflow_format::FormatLimits::V1_HARD,
+        crate::PortableDiffBase::Genesis,
+    )
+    .unwrap();
+    let base = laneflow_format::preflight_object_values_v1(
+        base_candidate.canonical_artifact().bytes(),
+        laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
+        laneflow_format::FormatLimits::V1_HARD,
+    )
+    .unwrap();
+    let target_output = output(true);
+    let target_candidate = crate::emit_portable_candidate(
+        &target_output,
+        &provenance,
+        laneflow_format::FormatLimits::V1_HARD,
+        crate::PortableDiffBase::Artifact(base),
+    )
+    .unwrap();
+    (base_candidate, target_candidate)
+}
+
+fn row_tags(row: laneflow_format::RegistryCheckedRowView<'_>) -> Vec<u16> {
+    (0..row.field_count())
+        .map(|ordinal| row.field(ordinal).unwrap().tag())
+        .collect()
+}
+
+#[test]
+fn portable_change_set_diff_matches_frozen_exact_bytes() {
+    let (base, target) = candidate();
+    assert_eq!(target.semantic_diff().bytes(), EXPECTED_LFSD);
+    assert_eq!(target.semantic_diff().byte_length(), 2_479);
+    assert_eq!(
+        target.semantic_diff().object_key(),
+        "sha256/9839be5aa5c2a37535769ddd49d6822f5a14798c484d6276df85903e102a4f72"
+    );
+    assert_eq!(
+        base.canonical_artifact().object_key(),
+        "sha256/9006828d6105e970a1c98246baf7a4008aba39bf12ecd83e3dd6c013ef4569b0"
+    );
+    assert_eq!(base.canonical_artifact().byte_length(), 3_220);
+    assert_eq!(
+        target.canonical_artifact().object_key(),
+        "sha256/58995d30d5be9fe0d440dd90e1d73b531514ee2e8eb50bfdb0c8dcc80899626d"
+    );
+    assert_eq!(target.canonical_artifact().byte_length(), 4_250);
+
+    let diff = laneflow_format::preflight_object_values_v1(
+        EXPECTED_LFSD,
+        laneflow_static_contract::PortableObjectKind::SemanticDiff,
+        laneflow_format::FormatLimits::V1_HARD,
+    )
+    .unwrap()
+    .registry_view();
+
+    let binding = diff.section(0).unwrap().table(0).unwrap().row(0).unwrap();
+    assert!(matches!(
+        binding.field_by_tag(1).unwrap().value().unwrap(),
+        laneflow_format::RegistryCheckedFieldValue::U8(1)
+    ));
+    assert_eq!(
+        binding.field_by_tag(3).unwrap().value_bytes(),
+        base.network_revision()
+    );
+    assert_eq!(
+        binding.field_by_tag(4).unwrap().value_bytes(),
+        base.canonical_artifact().digest()
+    );
+    assert!(matches!(
+        binding.field_by_tag(5).unwrap().value().unwrap(),
+        laneflow_format::RegistryCheckedFieldValue::U64(3_220)
+    ));
+    assert_eq!(
+        binding.field_by_tag(7).unwrap().value_bytes(),
+        target.network_revision()
+    );
+    assert_eq!(
+        binding.field_by_tag(8).unwrap().value_bytes(),
+        target.canonical_artifact().digest()
+    );
+    assert!(matches!(
+        binding.field_by_tag(9).unwrap().value().unwrap(),
+        laneflow_format::RegistryCheckedFieldValue::U64(4_250)
+    ));
+
+    let entity_changes = diff.section(1).unwrap().table(0).unwrap();
+    assert_eq!(entity_changes.row_count(), 4);
+    let identity_add = entity_changes.row(0).unwrap();
+    let frame_add = entity_changes.row(1).unwrap();
+    let identity_remove = entity_changes.row(2).unwrap();
+    let retained_modify = entity_changes.row(3).unwrap();
+    assert_eq!(row_tags(identity_add), [1, 2, 4, 10]);
+    assert_eq!(row_tags(frame_add), [1, 2, 4, 10]);
+    assert_eq!(row_tags(identity_remove), [1, 2, 4, 9]);
+    assert_eq!(row_tags(retained_modify), [1, 2, 4, 6, 9, 10]);
+    assert!(matches!(
+        identity_add.field_by_tag(1).unwrap().value().unwrap(),
+        laneflow_format::RegistryCheckedFieldValue::U8(0)
+    ));
+    assert!(matches!(
+        identity_remove.field_by_tag(1).unwrap().value().unwrap(),
+        laneflow_format::RegistryCheckedFieldValue::U8(1)
+    ));
+    assert_eq!(
+        identity_add.field_by_tag(4).unwrap().value_bytes(),
+        [
+            0x96, 0x3f, 0xfe, 0x80, 0xb6, 0x94, 0x38, 0xa4, 0xbc, 0xee, 0x1b, 0x50, 0xe4, 0x55,
+            0xe6, 0x10,
+        ]
+    );
+    assert_eq!(
+        identity_remove.field_by_tag(4).unwrap().value_bytes(),
+        [
+            0xa5, 0xf9, 0x0a, 0x50, 0x6f, 0x44, 0x46, 0xb0, 0x60, 0x12, 0xf6, 0xae, 0x8e, 0xb2,
+            0xdc, 0x8f,
+        ]
+    );
+    assert_ne!(
+        identity_add.field_by_tag(4).unwrap().value_bytes(),
+        identity_remove.field_by_tag(4).unwrap().value_bytes()
+    );
+    assert!(matches!(
+        retained_modify.field_by_tag(1).unwrap().value().unwrap(),
+        laneflow_format::RegistryCheckedFieldValue::U8(2)
+    ));
+    assert!(matches!(
+        retained_modify.field_by_tag(6).unwrap().value().unwrap(),
+        laneflow_format::RegistryCheckedFieldValue::U16(4)
+    ));
+    assert_eq!(
+        retained_modify.field_by_tag(9).unwrap().value_bytes(),
+        10.0_f64.to_le_bytes()
+    );
+    assert_eq!(
+        retained_modify.field_by_tag(10).unwrap().value_bytes(),
+        12.0_f64.to_le_bytes()
+    );
+
+    let relation_changes = diff.section(2).unwrap().table(0).unwrap();
+    assert_eq!(relation_changes.row_count(), 1);
+    let reconnect = relation_changes.row(0).unwrap();
+    assert_eq!(row_tags(reconnect), [1, 2, 3, 5, 7, 8, 9, 10]);
+    assert!(matches!(
+        reconnect.field_by_tag(1).unwrap().value().unwrap(),
+        laneflow_format::RegistryCheckedFieldValue::U8(3)
+    ));
+    assert!(matches!(
+        reconnect.field_by_tag(5).unwrap().value().unwrap(),
+        laneflow_format::RegistryCheckedFieldValue::U8(24)
+    ));
+    assert_ne!(
+        reconnect.field_by_tag(9).unwrap().value_bytes(),
+        reconnect.field_by_tag(10).unwrap().value_bytes()
+    );
+
+    let geometry_changes = diff.section(3).unwrap().table(0).unwrap();
+    assert_eq!(geometry_changes.row_count(), 2);
+    for ordinal in 0..geometry_changes.row_count() {
+        let add = geometry_changes.row(ordinal).unwrap();
+        assert_eq!(row_tags(add), [1, 2, 4, 10]);
+        assert!(matches!(
+            add.field_by_tag(1).unwrap().value().unwrap(),
+            laneflow_format::RegistryCheckedFieldValue::U8(0)
+        ));
+    }
+
+    let rule_changes = diff.section(4).unwrap().table(0).unwrap();
+    assert_eq!(rule_changes.row_count(), 1);
+    let rule_modify = rule_changes.row(0).unwrap();
+    assert_eq!(row_tags(rule_modify), [1, 2, 4, 6, 9, 10]);
+    assert!(matches!(
+        rule_modify.field_by_tag(6).unwrap().value().unwrap(),
+        laneflow_format::RegistryCheckedFieldValue::U16(5)
+    ));
+    assert_eq!(rule_modify.field_by_tag(9).unwrap().value_bytes(), [1]);
+    assert_eq!(rule_modify.field_by_tag(10).unwrap().value_bytes(), [0]);
+
+    let spatial_changes = diff.section(5).unwrap().table(0).unwrap();
+    assert_eq!(spatial_changes.row_count(), 1);
+    let spatial_modify = spatial_changes.row(0).unwrap();
+    assert_eq!(row_tags(spatial_modify), [1, 2, 3]);
+    assert!(matches!(
+        spatial_modify.field_by_tag(1).unwrap().value().unwrap(),
+        laneflow_format::RegistryCheckedFieldValue::U8(1)
+    ));
+    assert_ne!(
+        spatial_modify.field_by_tag(2).unwrap().value_bytes(),
+        spatial_modify.field_by_tag(3).unwrap().value_bytes()
+    );
+}
