@@ -1,4 +1,4 @@
-//! 通行权控制（control）领域 HIR：停止线、机动门与等待区的记录与构建。
+//! 通行权控制领域 HIR：停止线、机动门与等待区的记录与构建。
 
 use std::collections::HashMap;
 use std::sync::Arc;

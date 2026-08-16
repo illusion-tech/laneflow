@@ -1,4 +1,4 @@
-//! 信号（signal）领域 HIR：固定时制信号控制器、信号组与相位的记录与构建。
+//! 信号领域 HIR：固定时制信号控制器、信号组与相位的记录与构建。
 
 use std::collections::HashMap;
 use std::sync::Arc;

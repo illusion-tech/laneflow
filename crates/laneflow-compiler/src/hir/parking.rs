@@ -1,4 +1,4 @@
-//! 停车（parking）领域 HIR：停车区域、停车位、车道锚点与矩形几何的记录与构建。
+//! 停车领域 HIR：停车区域、停车位、车道锚点与矩形几何的记录与构建。
 
 use std::collections::HashMap;
 use std::sync::Arc;
