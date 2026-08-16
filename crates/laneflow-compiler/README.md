@@ -61,7 +61,20 @@ regularity visit cache、待提交几何包装与单 corridor 临时集合使用
 文档序号，再在 AST/HIR/MIR 释放前按 LIR 稳定实体与 owner-local 关系冻结；
 共同准入分别核算构建器存续量、模块图冻结 scratch、构建峰值和成功结果存续量，模块索引、
 文档索引及模块包装均不能游离于 `CompileLimits`；
-动态路线生命周期、后继编译遍和制品发射仍未实现。
+动态路线生命周期与后继编译遍仍未实现。
+
+可移植候选发射由 `emit_portable_candidate` 提供。它只能原子借用同一个
+`CompilationOutput` 中已配对的 LIR/source-map input，并接收规范化
+`PortableEmissionProvenanceV1`、显式 `PortableDiffBase::{Genesis, Artifact}` 和格式上限。
+成功结果 `PortablePublicationCandidate` 同时拥有 LFCA、LFSM、LFSD 的 exact bytes、
+SHA-256、精确长度、`sha256/<lowercase-hex>` object key 与 NetworkRevision。Artifact base
+必须先取得 `ValueCheckedObjectView`；emitter 在变化分类前拒绝不兼容 contract、base 内部
+身份/实体错配和跨修订 StableId 前像冲突，并按 A.3/A.5 的字段、set/scalar/domain/occurrence、
+geometry、static rule 与全局 spatial 规则产生诊断性 LFSD。
+
+该返回值仍是未受信内存候选：checked base 只证明格式结构和直接值域，不证明完整 artifact
+语义；候选也不授予发布、迁移或运行时加载权限。固定对象 fixture、文件系统 no-replace 安装、
+LFCP、#299 独立验证收据与 #302 可信切换描述符仍属于后继切片。
 
 成功输出还通过 `CompilationMetrics` 暴露 LIR 逻辑记录数、逻辑输出字节、编译器控制
 峰值字节和同版本语义指纹；`Compiler::retained_capacity_bytes()` 单独报告跨编译保留
