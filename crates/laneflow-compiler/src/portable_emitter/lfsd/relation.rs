@@ -790,4 +790,153 @@ mod tests {
         assert_eq!(changes[0].before_local_index, Some(0));
         assert_eq!(changes[0].after_local_index, Some(1));
     }
+
+    #[test]
+    fn every_lfsd_relation_role_uses_the_frozen_pairing_family() {
+        for role in [1, 6, 7, 9, 12, 17, 26] {
+            assert_eq!(relation_pairing(role), Some(RelationPairing::Set));
+        }
+        for role in [20, 21, 22, 23, 24, 25, 27] {
+            assert_eq!(relation_pairing(role), Some(RelationPairing::Scalar));
+        }
+        for role in [2, 3, 4, 5, 8, 10, 11, 13, 14, 15, 16, 18] {
+            assert_eq!(
+                relation_pairing(role),
+                Some(RelationPairing::DomainOccurrence)
+            );
+        }
+        for role in [0, 19, 28, 29, 30, u8::MAX] {
+            assert_eq!(relation_pairing(role), None);
+        }
+    }
+
+    #[test]
+    fn set_pairing_rejects_duplicates_and_reports_only_membership_changes() {
+        let mut changes = Vec::new();
+        pair_set_relations(
+            &[relation(1, 0, 7), relation(1, 1, 8)],
+            &[relation(1, 0, 8), relation(1, 1, 9)],
+            &mut changes,
+        )
+        .unwrap();
+        assert_eq!(
+            changes
+                .iter()
+                .map(|change| (change.change_kind, change.subject_stable_id))
+                .collect::<Vec<_>>(),
+            [
+                (1, Some(relation(1, 0, 7).subject_stable_id)),
+                (0, Some(relation(1, 0, 9).subject_stable_id)),
+            ]
+        );
+
+        for (base, target, expected) in [
+            (
+                vec![relation(1, 0, 7), relation(1, 1, 7)],
+                vec![],
+                PortableEmissionError::DiffBaseSemanticMismatch,
+            ),
+            (
+                vec![],
+                vec![relation(1, 0, 7), relation(1, 1, 7)],
+                PortableEmissionError::InternalBindingMismatch,
+            ),
+        ] {
+            assert_eq!(
+                pair_set_relations(&base, &target, &mut Vec::new()),
+                Err(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn scalar_pairing_closes_absence_cardinality_and_reconnect() {
+        for (base, target, expected_kind) in [
+            (vec![], vec![relation(20, 0, 7)], Some(0)),
+            (vec![relation(20, 0, 7)], vec![], Some(1)),
+            (vec![relation(20, 0, 7)], vec![relation(20, 0, 7)], None),
+            (vec![relation(20, 0, 7)], vec![relation(20, 0, 8)], Some(3)),
+        ] {
+            let mut changes = Vec::new();
+            pair_scalar_relations(&base, &target, &mut changes).unwrap();
+            assert_eq!(
+                changes.first().map(|change| change.change_kind),
+                expected_kind
+            );
+            assert_eq!(changes.len(), usize::from(expected_kind.is_some()));
+        }
+        assert_eq!(
+            pair_scalar_relations(
+                &[relation(20, 0, 7), relation(20, 1, 8)],
+                &[],
+                &mut Vec::new()
+            ),
+            Err(PortableEmissionError::DiffBaseSemanticMismatch)
+        );
+        assert_eq!(
+            pair_scalar_relations(
+                &[],
+                &[relation(20, 0, 7), relation(20, 1, 8)],
+                &mut Vec::new()
+            ),
+            Err(PortableEmissionError::InternalBindingMismatch)
+        );
+    }
+
+    #[test]
+    fn domain_occurrence_pairing_closes_moves_and_unpaired_ranks() {
+        let mut changes = Vec::new();
+        pair_domain_relations(
+            &[relation(13, 0, 7), relation(13, 1, 8), relation(13, 2, 7)],
+            &[relation(13, 0, 8), relation(13, 1, 7), relation(13, 2, 8)],
+            &mut changes,
+        );
+        assert_eq!(changes.len(), 4);
+        assert_eq!(
+            changes
+                .iter()
+                .map(|change| (
+                    change.change_kind,
+                    change.before_local_index,
+                    change.after_local_index,
+                    change.subject_stable_id,
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    2,
+                    Some(0),
+                    Some(1),
+                    Some(relation(13, 0, 7).subject_stable_id),
+                ),
+                (1, Some(2), None, Some(relation(13, 0, 7).subject_stable_id),),
+                (
+                    2,
+                    Some(1),
+                    Some(0),
+                    Some(relation(13, 0, 8).subject_stable_id),
+                ),
+                (0, None, Some(2), Some(relation(13, 0, 8).subject_stable_id),),
+            ]
+        );
+    }
+
+    #[test]
+    fn relation_groups_reject_non_contiguous_local_indexes_before_pairing() {
+        assert!(
+            group_relations(
+                vec![relation(13, 0, 7)],
+                PortableEmissionError::DiffBaseSemanticMismatch
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            group_relations(
+                vec![relation(13, 1, 7)],
+                PortableEmissionError::DiffBaseSemanticMismatch,
+            )
+            .unwrap_err(),
+            PortableEmissionError::DiffBaseSemanticMismatch
+        );
+    }
 }
