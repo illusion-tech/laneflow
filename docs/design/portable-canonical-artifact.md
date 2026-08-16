@@ -14,8 +14,10 @@ Genesis 或 checked-base LFSD 的内存候选，并关闭 exact bytes、digest�
 revision 和跨对象 binding；`LFCA-V1-FULL-SPATIAL` LFCA/LFSM/Genesis LFSD、复用同一 LFCA
 作为 base/target 的 `LFSD-V1-NOOP`，以及闭合实体 add/remove/modify、关系 reconnect、
 geometry add、静态规则 modify 和全局空间 modify 的 `LFSD-V1-CHANGE-SET` 固定对象已提交，
-并由只读 exact-byte 测试约束。其余固定对象矩阵、文件系统 no-replace 安装、LFCP、独立验证
-收据与发布事务仍未完成，候选不得解释为 validated/trusted artifact<br>
+最小 headless 锚点与 `PROVENANCE-ONLY`、`CLAIM-MISMATCH`、`REORDER-EQUIVALENT`、
+`SIGNED-ZERO` LFCA 变体包也已提交，并由只读 exact-byte 测试约束。其余 ART/MAP/DIFF/SEC
+矩阵、文件系统 no-replace 安装、LFCP、独立验证收据与发布事务仍未完成，候选不得解释为
+validated/trusted artifact<br>
 **关联 Issue**: #298；依赖 #292、#296；阻断 #299、#300<br>
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
 `numeric-representation.md`、

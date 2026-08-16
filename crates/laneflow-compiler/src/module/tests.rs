@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::declaration::TypedAstDeclaration;
 use crate::*;
+use laneflow_static_contract::FieldTag;
 
 use super::*;
 use crate::{DiagnosticCode, DiagnosticPayload, LaneEdgeReference, SourceModuleHeaderInput};
@@ -550,6 +551,83 @@ fn lane_edge_successor_order_is_not_source_identity() {
             .next()
             .unwrap()
             .source_document_digest()
+    );
+}
+
+#[test]
+fn lane_edge_successor_set_and_sources_follow_target_typed_ordinal() {
+    let limits = CompileLimits::p100_initial_v1();
+    let mut builder =
+        SyntheticModuleBuilder::new(header("city/successor-order", "source-primary"), &limits)
+            .unwrap();
+    builder
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "root",
+            length_meters: 10.0,
+            speed_limit_meters_per_second: 10.0,
+            successors: &[
+                LaneEdgeReference::local("z"),
+                LaneEdgeReference::local("aa"),
+            ],
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "z",
+            length_meters: 20.0,
+            speed_limit_meters_per_second: 10.0,
+            successors: &[],
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "aa",
+            length_meters: 30.0,
+            speed_limit_meters_per_second: 10.0,
+            successors: &[],
+        })
+        .unwrap();
+    let mut module = TestOfficialModule::from_synthetic_with_documents(
+        builder.finish().unwrap(),
+        &[
+            ("source-aa", b"aa".as_slice()),
+            ("source-z", b"z".as_slice()),
+        ],
+    );
+    // Synthetic admission has already normalized the reference spelling order to `aa, z`.
+    // Distinct documents prove that the source rows follow the later typed-ordinal permutation.
+    module.move_first_lane_edge_successor_spans_to(&["source-aa", "source-z"]);
+    let mut unit = CompilationUnitBuilder::new(CompileLimits::p100_initial_v2());
+    unit.add_test_official_module(module).unwrap();
+    let output = Compiler::new().compile(unit.build().unwrap()).unwrap();
+    let edge_key = |edge: crate::CanonicalLaneEdgeView<'_>| {
+        edge.identity_fields()
+            .find(|field| field.tag() == FieldTag::LaneEdgeKey)
+            .map(|field| String::from_utf8(field.value_bytes().to_vec()).unwrap())
+            .unwrap()
+    };
+    let root = output
+        .lir()
+        .lane_edges()
+        .find(|edge| edge_key(*edge) == "root")
+        .unwrap();
+
+    assert_eq!(
+        root.successors()
+            .iter()
+            .map(|ordinal| edge_key(output.lir().lane_edge(*ordinal).unwrap()))
+            .collect::<Vec<_>>(),
+        ["z", "aa"]
+    );
+    assert_eq!(
+        output
+            .source_map_input()
+            .lane_edge_successor_sources()
+            .filter(|source| source.owner_ordinal() == root.ordinal())
+            .map(|source| (
+                source.local_index(),
+                source.primary_source().source_document_key().to_owned(),
+            ))
+            .collect::<Vec<_>>(),
+        [(0, "source-z".to_owned()), (1, "source-aa".to_owned())]
     );
 }
 
