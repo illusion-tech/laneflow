@@ -1346,6 +1346,7 @@ const fn row_binding_mismatch() -> FormatError {
 
 #[cfg(test)]
 mod tests {
+    use std::boxed::Box;
     use std::vec;
     use std::vec::Vec;
 
@@ -1831,6 +1832,210 @@ mod tests {
                 .class(),
             FormatErrorClass::BindingMismatch
         );
+    }
+
+    fn property_field(steps: &[(u8, u16, u16)]) -> FieldRef<'_> {
+        let value = property_value(steps);
+        let row = row_bytes(&[field_bytes(20, PortableFieldType::RecordVector, &value)]);
+        let row = Box::leak(row.into_boxed_slice());
+        parse_test_row(row).required(20).unwrap()
+    }
+
+    #[test]
+    fn every_registered_property_path_shape_accepts_and_invalid_compositions_fail_closed() {
+        const TABLE_FIELD_MAX: [u16; 36] = [
+            26, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 4, 5, 6, 5, 2, 1, 4, 1, 4, 1, 1, 3, 5, 2, 4,
+            2, 2, 7, 6, 3, 2, 1,
+        ];
+        const STRUCT_MEMBER_MAX: [u16; 4] = [0, 0, 2, 1];
+        const STRUCT_EDGES: &[(u16, u16, u16)] = &[
+            (2, 2, 0),
+            (2, 3, 0),
+            (2, 4, 1),
+            (3, 0, 2),
+            (4, 0, 2),
+            (4, 1, 2),
+            (4, 2, 2),
+            (6, 0, 2),
+            (11, 3, 3),
+            (28, 2, 3),
+        ];
+        const TABLE_EDGES: &[(u16, u16, u16)] = &[
+            (1, 3, 2),
+            (7, 2, 6),
+            (9, 7, 8),
+            (12, 3, 6),
+            (22, 2, 21),
+            (26, 2, 24),
+            (26, 3, 24),
+            (26, 4, 25),
+            (31, 5, 30),
+            (33, 2, 32),
+        ];
+
+        for (table, max_field) in TABLE_FIELD_MAX.into_iter().enumerate() {
+            let table = u16::try_from(table).unwrap();
+            for field in 0..=max_field {
+                validate_property_path(property_field(&[(0, table, field)]), table).unwrap();
+            }
+            assert_eq!(
+                validate_property_path(property_field(&[(0, table, max_field + 1)]), table)
+                    .unwrap_err()
+                    .class(),
+                FormatErrorClass::UnknownKind
+            );
+        }
+
+        for (table, field, structure) in STRUCT_EDGES {
+            for member in 0..=STRUCT_MEMBER_MAX[usize::from(*structure)] {
+                validate_property_path(
+                    property_field(&[(0, *table, *field), (1, *structure, member)]),
+                    *table,
+                )
+                .unwrap();
+            }
+        }
+
+        for (table, field, target) in TABLE_EDGES {
+            for target_field in 0..=TABLE_FIELD_MAX[usize::from(*target)] {
+                validate_property_path(
+                    property_field(&[(0, *table, *field), (0, *target, target_field)]),
+                    *table,
+                )
+                .unwrap();
+            }
+            for (target_table, target_field, structure) in STRUCT_EDGES
+                .iter()
+                .filter(|(target_table, _, _)| target_table == target)
+            {
+                for member in 0..=STRUCT_MEMBER_MAX[usize::from(*structure)] {
+                    validate_property_path(
+                        property_field(&[
+                            (0, *table, *field),
+                            (0, *target_table, *target_field),
+                            (1, *structure, member),
+                        ]),
+                        *table,
+                    )
+                    .unwrap();
+                }
+            }
+        }
+
+        for (variant, table, max_field) in [(1, 3, 0), (2, 4, 2)] {
+            for field in 0..=max_field {
+                for member in 0..=STRUCT_MEMBER_MAX[2] {
+                    validate_property_path(
+                        property_field(&[
+                            (0, 5, 1),
+                            (2, 0, variant),
+                            (0, table, field),
+                            (1, 2, member),
+                        ]),
+                        5,
+                    )
+                    .unwrap();
+                }
+            }
+        }
+
+        for invalid in [
+            Vec::new(),
+            vec![(0, 12, 3), (0, 31, 5)],
+            vec![(0, 5, 1), (2, 0, 1)],
+            vec![(0, 5, 1), (2, 0, 1), (0, 3, 0), (1, 2, 0), (1, 2, 1)],
+        ] {
+            assert_eq!(
+                validate_property_path(
+                    property_field(&invalid),
+                    invalid.first().map_or(0, |step| step.1)
+                )
+                .unwrap_err()
+                .class(),
+                FormatErrorClass::BindingMismatch
+            );
+        }
+        assert_eq!(
+            validate_property_path(property_field(&[(3, 0, 0)]), 0)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::UnknownKind
+        );
+        assert_eq!(
+            validate_property_path(property_field(&[(0, 12, 2)]), 31)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::BindingMismatch
+        );
+    }
+
+    #[test]
+    fn every_owner_local_role_has_one_closed_owner_kind() {
+        let expected = [
+            EntityKind::LaneEdge,
+            EntityKind::RoadCorridor,
+            EntityKind::RoadSection,
+            EntityKind::AuthoringLane,
+            EntityKind::LaneGroup,
+            EntityKind::Junction,
+            EntityKind::Movement,
+            EntityKind::ManeuverPath,
+            EntityKind::Junction,
+            EntityKind::ManeuverPath,
+            EntityKind::ManeuverPath,
+            EntityKind::StopLine,
+            EntityKind::StaticRoute,
+            EntityKind::StaticRoute,
+            EntityKind::StaticRoute,
+            EntityKind::StaticRoute,
+            EntityKind::SignalController,
+            EntityKind::SignalController,
+            EntityKind::SignalPhase,
+            EntityKind::ManeuverGate,
+            EntityKind::ParkingSpace,
+            EntityKind::ParkingSpace,
+            EntityKind::ParkingSpace,
+            EntityKind::ParticipantClass,
+            EntityKind::AccessRule,
+            EntityKind::AccessRule,
+            EntityKind::VehicleProfile,
+            EntityKind::CanonicalFrame,
+            EntityKind::CanonicalFrame,
+        ];
+        assert_eq!(owner_kind_for_source_role(0), None);
+        assert_eq!(owner_kind_for_source_role(30), None);
+        for (index, owner) in expected.into_iter().enumerate() {
+            let role = u8::try_from(index + 1).unwrap();
+            assert_eq!(owner_kind_for_source_role(role), Some(owner));
+            let valid = row_bytes(&[
+                field_bytes(1, PortableFieldType::U16, &owner.code().to_le_bytes()),
+                field_bytes(2, PortableFieldType::StableId128, &[1; 16]),
+                field_bytes(3, PortableFieldType::U8, &[role]),
+                field_bytes(4, PortableFieldType::U32, &0_u32.to_le_bytes()),
+                field_bytes(5, PortableFieldType::U32, &0_u32.to_le_bytes()),
+                field_bytes(6, PortableFieldType::OrdinalVectorU32, &0_u32.to_le_bytes()),
+            ]);
+            validate_owner_local_source(parse_test_row(&valid)).unwrap();
+
+            let wrong_owner = EntityKind::ALL
+                .into_iter()
+                .find(|candidate| *candidate != owner)
+                .unwrap();
+            let invalid = row_bytes(&[
+                field_bytes(1, PortableFieldType::U16, &wrong_owner.code().to_le_bytes()),
+                field_bytes(2, PortableFieldType::StableId128, &[1; 16]),
+                field_bytes(3, PortableFieldType::U8, &[role]),
+                field_bytes(4, PortableFieldType::U32, &0_u32.to_le_bytes()),
+                field_bytes(5, PortableFieldType::U32, &0_u32.to_le_bytes()),
+                field_bytes(6, PortableFieldType::OrdinalVectorU32, &0_u32.to_le_bytes()),
+            ]);
+            assert_eq!(
+                validate_owner_local_source(parse_test_row(&invalid))
+                    .unwrap_err()
+                    .class(),
+                FormatErrorClass::BindingMismatch
+            );
+        }
     }
 
     #[test]

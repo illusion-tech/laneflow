@@ -404,6 +404,8 @@ fn portable_reorder_equivalent_inputs_match_one_frozen_artifact() {
         REORDER_EQUIVALENT_KEY,
     );
     assert_eq!(forward.network_revision(), reverse.network_revision());
+    assert_eq!(forward.source_map(), reverse.source_map());
+    assert_eq!(forward.semantic_diff(), reverse.semantic_diff());
 }
 
 #[test]

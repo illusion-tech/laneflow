@@ -467,3 +467,4 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
 mod lfca_variants;
 mod lfsd_change_set;
 mod lfsd_noop;
+mod portable_matrix_tests;
