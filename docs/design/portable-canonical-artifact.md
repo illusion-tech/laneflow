@@ -1,7 +1,7 @@
 # 可移植规范制品与辅助制品格式
 
 **文档状态**: Accepted（#298 G1 Pass；G2 进度以 Issue Gate Ledger 为准）<br>
-**最后更新**: 2026-08-16<br>
+**最后更新**: 2026-08-17<br>
 **适用范围**: `laneflow-format`、`laneflow-static-contract`、
 `laneflow-compiler` 的可移植规范制品（Portable Canonical Artifact）、源映射封套
 （Source Map Envelope）、语义差异封套（Semantic Diff Envelope）、规范发布描述符
@@ -15,9 +15,11 @@ revision 和跨对象 binding；`LFCA-V1-FULL-SPATIAL` LFCA/LFSM/Genesis LFSD、
 作为 base/target 的 `LFSD-V1-NOOP`，以及闭合实体 add/remove/modify、关系 reconnect、
 geometry add、静态规则 modify 和全局空间 modify 的 `LFSD-V1-CHANGE-SET` 固定对象已提交，
 最小 headless 锚点与 `PROVENANCE-ONLY`、`CLAIM-MISMATCH`、`REORDER-EQUIVALENT`、
-`SIGNED-ZERO` LFCA 变体包也已提交，并由只读 exact-byte 测试约束。其余 ART/MAP/DIFF/SEC
-矩阵、文件系统 no-replace 安装、LFCP、独立验证收据与发布事务仍未完成，候选不得解释为
-validated/trusted artifact<br>
+`SIGNED-ZERO` LFCA 变体包也已提交，并由只读 exact-byte 测试约束。#298-owned
+ART/MAP/DIFF 与 `SEC-001..015` 已闭合；独立 `portable_store` 已实现同文件系统 staging、
+flush/sync/close、digest key、hard-link atomic no-replace、并发 winner exact-byte 复用/冲突和
+unsupported fail-closed。LFCP、独立验证收据、认证 manifest 单提交点、跨平台 CI 与 P100
+证据仍未完成，候选或已安装对象均不得解释为 validated/trusted/published artifact<br>
 **关联 Issue**: #298；依赖 #292、#296；阻断 #299、#300<br>
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
 `numeric-representation.md`、

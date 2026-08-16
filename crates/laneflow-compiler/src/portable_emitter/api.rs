@@ -139,11 +139,11 @@ impl From<FormatError> for PortableEmissionError {
     }
 }
 
-pub(super) fn sha256(bytes: &[u8]) -> [u8; 32] {
+pub(crate) fn sha256(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
-fn object_key(digest: [u8; 32]) -> Box<str> {
+pub(crate) fn object_key(digest: [u8; 32]) -> Box<str> {
     let mut key = String::with_capacity(71);
     key.push_str("sha256/");
     for byte in digest {
@@ -152,7 +152,7 @@ fn object_key(digest: [u8; 32]) -> Box<str> {
     key.into_boxed_str()
 }
 
-pub(super) fn close_object(bytes: Box<[u8]>) -> PortableObjectCandidate {
+pub(crate) fn close_object(bytes: Box<[u8]>) -> PortableObjectCandidate {
     let digest = sha256(&bytes);
     PortableObjectCandidate {
         bytes,

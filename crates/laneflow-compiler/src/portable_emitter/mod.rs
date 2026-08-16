@@ -1,8 +1,8 @@
 //! `CompilationOutput` 到 LFCA/LFSM/LFSD 的原子可移植候选发射。
 //!
 //! 本模块拥有编译器私有 LIR/source-map 语义投影、摘要和跨对象绑定。线格式的结构、
-//! 编码和值域预检仍只由 `laneflow-format` 提供；文件系统安装、LFCP 与独立验证收据不在
-//! 本切片内。
+//! 编码和值域预检仍只由 `laneflow-format` 提供；文件系统安装由独立 `portable_store`
+//! 模块负责，LFCP 与独立验证收据不属于 emitter。
 
 mod api;
 mod lfca;
@@ -16,7 +16,7 @@ pub use api::{
     PortableDiffBase, PortableEmissionError, PortableEmissionProvenanceV1, PortableObjectCandidate,
     PortablePublicationCandidate,
 };
-use api::{close_object, sha256};
+pub(crate) use api::{close_object, object_key, sha256};
 use lfca::build_lfca;
 use lfsd::{build_lfsd, verify_target_relation_projection};
 use lfsm::build_lfsm;
