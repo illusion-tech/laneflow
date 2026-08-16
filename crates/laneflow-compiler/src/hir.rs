@@ -50,8 +50,8 @@ use crate::{
 };
 
 use plan::{
-    CrossSectionCounts, HirBuildPlan, access_counts, control_counts, cross_section_counts,
-    junction_counts, parking_counts, route_counts, signal_counts, spatial_counts,
+    AccessCounts, ControlCounts, CrossSectionCounts, HirBuildPlan, JunctionCounts, ParkingCounts,
+    RouteCounts, SignalCounts, SpatialCounts,
 };
 
 /// 区分 HIR 模块表键的零尺寸阶段标记。
@@ -1193,6 +1193,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
 
     let cross_section = build_cross_section_hir(
         unit,
+        &plan.cross_section,
         &module_lookup,
         &lane_edges,
         &references,
@@ -1201,6 +1202,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     )?;
     let mut junction = build_junction_hir(
         unit,
+        &plan.junction,
         &module_lookup,
         &lane_edges,
         &references,
@@ -1210,6 +1212,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     )?;
     let mut control = build_control_hir(
         unit,
+        &plan.control,
         &module_lookup,
         &lane_edges,
         &references,
@@ -1220,13 +1223,22 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     )?;
     let signal = build_signal_hir(
         unit,
+        &plan.signal,
         &module_lookup,
         &mut control.maneuver_gates,
         &mut identities,
     )?;
-    let parking = build_parking_hir(unit, &module_lookup, &lane_edges, &symbols, &mut identities)?;
+    let parking = build_parking_hir(
+        unit,
+        &plan.parking,
+        &module_lookup,
+        &lane_edges,
+        &symbols,
+        &mut identities,
+    )?;
     let spatial = build_spatial_hir(
         unit,
+        &plan.spatial,
         &module_lookup,
         SpatialHirContext {
             lane_edges: &lane_edges,
@@ -1241,6 +1253,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     )?;
     let access = build_access_hir(
         unit,
+        &plan.access,
         &module_lookup,
         &lane_edges,
         &cross_section,
@@ -1249,6 +1262,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     )?;
     let route = build_route_hir(
         unit,
+        &plan.route,
         &module_lookup,
         &lane_edges,
         &references,
@@ -1358,13 +1372,13 @@ fn validate_source_document_ownership(unit: &CompilationUnit) -> Result<(), Diag
 #[allow(clippy::too_many_lines)]
 fn build_cross_section_hir(
     unit: &CompilationUnit,
+    counts: &CrossSectionCounts,
     module_lookup: &HashMap<Arc<str>, HirModuleKey>,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     lane_edge_references: &[HirLaneEdgeReference],
     lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
     identities: &mut IdentityRegistry,
 ) -> Result<CrossSectionHir, DiagnosticBundle> {
-    let counts = cross_section_counts(unit);
     if counts.entity_count() == 0 {
         return Ok(CrossSectionHir::default());
     }
@@ -1408,11 +1422,11 @@ fn build_cross_section_hir(
     let mut bands = TypedArena::<HirFacilityBandTag, HirFacilityBand>::with_capacity(
         count_to_usize(counts.facility_bands, &unit.limits)?,
     );
-    let mut corridor_sources = Vec::with_capacity(corridors_capacity(&counts, &unit.limits)?);
-    let mut section_sources = Vec::with_capacity(sections_capacity(&counts, &unit.limits)?);
-    let mut lane_sources = Vec::with_capacity(lanes_capacity(&counts, &unit.limits)?);
-    let mut group_sources = Vec::with_capacity(groups_capacity(&counts, &unit.limits)?);
-    let mut band_sources = Vec::with_capacity(bands_capacity(&counts, &unit.limits)?);
+    let mut corridor_sources = Vec::with_capacity(corridors_capacity(counts, &unit.limits)?);
+    let mut section_sources = Vec::with_capacity(sections_capacity(counts, &unit.limits)?);
+    let mut lane_sources = Vec::with_capacity(lanes_capacity(counts, &unit.limits)?);
+    let mut group_sources = Vec::with_capacity(groups_capacity(counts, &unit.limits)?);
+    let mut band_sources = Vec::with_capacity(bands_capacity(counts, &unit.limits)?);
 
     // 首遍只登记符号与不依赖父项的 RoadCorridor identity。其余实体先保留零值占位，
     // 但在所有者/引用错误存在时不会逃逸出本函数；父项闭合后才写入真实 ID。
@@ -2102,6 +2116,7 @@ fn build_cross_section_hir(
 #[allow(clippy::too_many_lines)]
 fn build_junction_hir(
     unit: &CompilationUnit,
+    counts: &JunctionCounts,
     module_lookup: &HashMap<Arc<str>, HirModuleKey>,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     lane_edge_references: &[HirLaneEdgeReference],
@@ -2109,7 +2124,6 @@ fn build_junction_hir(
     authoring_lane_edges: &[HirAuthoringLaneEdge],
     identities: &mut IdentityRegistry,
 ) -> Result<JunctionHir, DiagnosticBundle> {
-    let counts = junction_counts(unit);
     if counts.entity_count() == 0 {
         return Ok(JunctionHir::default());
     }
@@ -2882,6 +2896,7 @@ fn build_junction_hir(
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn build_control_hir(
     unit: &CompilationUnit,
+    counts: &ControlCounts,
     module_lookup: &HashMap<Arc<str>, HirModuleKey>,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     lane_edge_references: &[HirLaneEdgeReference],
@@ -2890,7 +2905,6 @@ fn build_control_hir(
     maneuver_path_edges: &[HirManeuverPathEdge],
     identities: &mut IdentityRegistry,
 ) -> Result<ControlHir, DiagnosticBundle> {
-    let counts = control_counts(unit);
     if counts.entity_count() == 0 {
         return Ok(ControlHir::default());
     }
@@ -3570,11 +3584,11 @@ fn build_control_hir(
 #[allow(clippy::too_many_lines)]
 fn build_signal_hir(
     unit: &CompilationUnit,
+    counts: &SignalCounts,
     module_lookup: &HashMap<Arc<str>, HirModuleKey>,
     maneuver_gates: &mut [HirManeuverGate],
     identities: &mut IdentityRegistry,
 ) -> Result<SignalHir, DiagnosticBundle> {
-    let counts = signal_counts(unit);
     if counts.entity_count() == 0 && counts.controlled_gates == 0 {
         return Ok(SignalHir::default());
     }
@@ -4163,6 +4177,7 @@ fn build_signal_hir(
 
 fn build_spatial_hir(
     unit: &CompilationUnit,
+    counts: &SpatialCounts,
     module_lookup: &HashMap<Arc<str>, HirModuleKey>,
     context: SpatialHirContext<'_>,
     identities: &mut IdentityRegistry,
@@ -4176,7 +4191,6 @@ fn build_spatial_hir(
         maneuver_path_edges,
         junction_internal_edges,
     } = context;
-    let counts = spatial_counts(unit);
     if counts.canonical_frames == 0
         && counts.lane_edge_geometries == 0
         && counts.facility_band_geometries == 0
@@ -5030,12 +5044,12 @@ fn push_geometry_source_ranges(
 #[allow(clippy::too_many_lines)]
 fn build_parking_hir(
     unit: &CompilationUnit,
+    counts: &ParkingCounts,
     module_lookup: &HashMap<Arc<str>, HirModuleKey>,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
     identities: &mut IdentityRegistry,
 ) -> Result<ParkingHir, DiagnosticBundle> {
-    let counts = parking_counts(unit);
     if counts.entity_count() == 0 {
         return Ok(ParkingHir::default());
     }
@@ -5417,13 +5431,13 @@ fn parking_extent_violation(value: f64) -> Option<ParkingGeometryViolation> {
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn build_access_hir(
     unit: &CompilationUnit,
+    counts: &AccessCounts,
     module_lookup: &HashMap<Arc<str>, HirModuleKey>,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     cross_section: &CrossSectionHir,
     maneuver_paths: &[HirManeuverPath],
     identities: &mut IdentityRegistry,
 ) -> Result<AccessHir, DiagnosticBundle> {
-    let counts = access_counts(unit);
     if counts.entity_count() == 0 {
         return Ok(AccessHir::default());
     }
@@ -6015,6 +6029,7 @@ fn build_access_hir(
 
     validate_access_ambiguity(
         unit,
+        counts,
         lane_edges,
         cross_section,
         maneuver_paths,
@@ -6170,6 +6185,7 @@ fn validate_access_regulation(
 #[allow(clippy::too_many_arguments)]
 fn validate_access_ambiguity(
     unit: &CompilationUnit,
+    counts: &AccessCounts,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     cross_section: &CrossSectionHir,
     maneuver_paths: &[HirManeuverPath],
@@ -6178,7 +6194,6 @@ fn validate_access_ambiguity(
     rule_classes: &[HirAccessRuleParticipantClass],
     diagnostics: &mut DiagnosticCollector,
 ) -> Result<(), DiagnosticBundle> {
-    let counts = access_counts(unit);
     let mut candidates =
         Vec::with_capacity(count_to_usize(counts.rule_class_references, &unit.limits)?);
     for (rule_key, rule) in rules.iter() {
@@ -6319,6 +6334,7 @@ fn validate_access_ambiguity(
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn build_route_hir(
     unit: &CompilationUnit,
+    counts: &RouteCounts,
     module_lookup: &HashMap<Arc<str>, HirModuleKey>,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     lane_edge_references: &[HirLaneEdgeReference],
@@ -6333,7 +6349,6 @@ fn build_route_hir(
     maneuver_path_waiting_zones: &[HirManeuverPathWaitingZone],
     identities: &mut IdentityRegistry,
 ) -> Result<RouteHir, DiagnosticBundle> {
-    let counts = route_counts(unit);
     if counts.static_routes == 0 {
         return Ok(RouteHir::default());
     }
