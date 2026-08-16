@@ -2044,6 +2044,9 @@ impl Compiler {
 }
 
 #[cfg(test)]
+mod portable_fixture_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::declaration::{
