@@ -12,8 +12,9 @@ framing、Table/Row/Field 通用结构预检、附录 A registry 零拷贝有类
 受限写入器。`laneflow-compiler` 已从同一个 `CompilationOutput` 原子发射 LFCA/LFSM 以及
 Genesis 或 checked-base LFSD 的内存候选，并关闭 exact bytes、digest、length、object key、
 revision 和跨对象 binding；首组 `LFCA-V1-FULL-SPATIAL` LFCA/LFSM/Genesis LFSD 固定对象
-fixture 已提交并由只读 exact-byte 测试约束。其余固定对象矩阵、文件系统 no-replace 安装、
-LFCP、独立验证收据与发布事务仍未完成，候选不得解释为 validated/trusted artifact<br>
+fixture 以及复用该 LFCA 作为 base/target 的 `LFSD-V1-NOOP` 固定对象已提交，并由只读
+exact-byte 测试约束。其余固定对象矩阵、文件系统 no-replace 安装、LFCP、独立验证收据与
+发布事务仍未完成，候选不得解释为 validated/trusted artifact<br>
 **关联 Issue**: #298；依赖 #292、#296；阻断 #299、#300<br>
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
 `numeric-representation.md`、

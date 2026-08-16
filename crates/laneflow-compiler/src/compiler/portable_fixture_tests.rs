@@ -386,13 +386,19 @@ fn full_spatial_portable_fixture_unit() -> CompilationUnit {
     fixture
 }
 
-fn full_spatial_portable_fixture_candidate() -> crate::PortablePublicationCandidate {
-    let output = Compiler::new()
+fn full_spatial_portable_fixture_output() -> CompilationOutput {
+    Compiler::new()
         .compile(full_spatial_portable_fixture_unit())
-        .unwrap();
-    let provenance =
-        crate::PortableEmissionProvenanceV1::try_new("laneflow-fixture-298-full-spatial-v1")
-            .unwrap();
+        .unwrap()
+}
+
+fn full_spatial_portable_fixture_provenance() -> crate::PortableEmissionProvenanceV1 {
+    crate::PortableEmissionProvenanceV1::try_new("laneflow-fixture-298-full-spatial-v1").unwrap()
+}
+
+fn full_spatial_portable_fixture_candidate() -> crate::PortablePublicationCandidate {
+    let output = full_spatial_portable_fixture_output();
+    let provenance = full_spatial_portable_fixture_provenance();
     crate::emit_portable_candidate(
         &output,
         &provenance,
@@ -408,6 +414,10 @@ const FULL_SPATIAL_EXPECTED_LFSM: &[u8] =
     include_bytes!("../../tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsm");
 const FULL_SPATIAL_EXPECTED_LFSD: &[u8] =
     include_bytes!("../../tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsd");
+const FULL_SPATIAL_NETWORK_REVISION: [u8; 32] = [
+    0xdc, 0x1f, 0x3d, 0x54, 0x43, 0x8d, 0x8a, 0xe4, 0x92, 0x1d, 0xc0, 0x45, 0xfd, 0x8a, 0x0c, 0x0d,
+    0x1a, 0x1b, 0x54, 0x36, 0x3e, 0x41, 0x51, 0x60, 0x44, 0x5b, 0x27, 0xd4, 0x27, 0xdc, 0xe9, 0x01,
+];
 
 #[test]
 fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
@@ -433,14 +443,7 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
         candidate.semantic_diff().object_key(),
         "sha256/60d65447df655a68c6bda464b1dda6e9c5772fb6c674f76964e16066106543c5"
     );
-    assert_eq!(
-        candidate.network_revision(),
-        [
-            0xdc, 0x1f, 0x3d, 0x54, 0x43, 0x8d, 0x8a, 0xe4, 0x92, 0x1d, 0xc0, 0x45, 0xfd, 0x8a,
-            0x0c, 0x0d, 0x1a, 0x1b, 0x54, 0x36, 0x3e, 0x41, 0x51, 0x60, 0x44, 0x5b, 0x27, 0xd4,
-            0x27, 0xdc, 0xe9, 0x01,
-        ]
-    );
+    assert_eq!(candidate.network_revision(), FULL_SPATIAL_NETWORK_REVISION);
 
     let artifact = laneflow_format::preflight_object_values_v1(
         FULL_SPATIAL_EXPECTED_LFCA,
@@ -459,3 +462,6 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     assert!(spatial_tables.table(1).unwrap().row_count() > 0);
     assert!(spatial_tables.table(2).unwrap().row_count() > 0);
 }
+
+// 后续向量放在子模块中，使本文件的语义输入构造保持原位稳定。
+mod lfsd_noop;
