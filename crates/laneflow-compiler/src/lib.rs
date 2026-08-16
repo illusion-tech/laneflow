@@ -16,6 +16,7 @@ mod lir;
 mod mir;
 mod module;
 mod portable_emitter;
+mod portable_publication;
 mod portable_store;
 mod portable_transport;
 pub mod road_editing;
@@ -73,6 +74,12 @@ pub use module::{
 pub use portable_emitter::{
     PortableDiffBase, PortableEmissionError, PortableEmissionProvenanceV1, PortableObjectCandidate,
     PortablePublicationCandidate, emit_portable_candidate,
+};
+pub use portable_publication::{
+    CanonicalPublicationReceiptViewV1, ManifestCommittedPortablePublication,
+    PortableArtifactSubjectBindingV1, PortableManifestCommitCandidate, PortableManifestCommitError,
+    PortableManifestCommitter, PortablePublicationError, PortablePublicationProvenanceV1,
+    PortablePublisherKindV1, PortableSourceMapSubjectBindingV1, commit_portable_publication_v1,
 };
 pub use portable_store::{
     PortableInstallDisposition, PortableInstallError, PortableInstallOperation,

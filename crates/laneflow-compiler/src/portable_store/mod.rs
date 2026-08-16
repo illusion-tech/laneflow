@@ -1,6 +1,6 @@
 //! 内容寻址可移植对象的文件系统原子安装。
 //!
-//! 本模块只安装已经关闭的 emitter 候选或 format 值域受检对象。它不会生成 LFCP、验证收据
+//! 本模块只安装上层能力已经关闭的 exact bytes。它不会生成 LFCP、验证收据
 //! 或认证 manifest，也不会把“对象已安装”包装成“已发布”。最终路径永远由 exact bytes 的
 //! SHA-256 派生；最终文件只通过同文件系统 hard-link no-replace 原语一次性出现。
 
@@ -14,7 +14,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use laneflow_format::ValueCheckedObjectView;
 use sha2::{Digest, Sha256};
 
 use crate::portable_emitter::{PortableObjectCandidate, object_key, sha256};
@@ -36,6 +35,7 @@ pub enum PortableInstallOperation {
     CreateStagingFile,
     WriteStagingFile,
     FlushStagingFile,
+    CloseStagingFile,
     ReadStagingFile,
     InstallNoReplace,
     ReadWinner,
@@ -177,19 +177,19 @@ impl PortableObjectStore {
         )
     }
 
-    /// 原子安装一份已完成 registry 和直接值域预检的对象。
+    /// 原子安装一份由 crate 内上层能力已经关闭的 exact bytes。
     ///
-    /// 此入口供后继 receipt/LFCP 阶段复用；它从 view 的 exact bytes 内部计算 digest/key，
-    /// 不接受调用方覆盖绑定。
+    /// 内容存储不解释对象格式，也不把任意 bytes 包装成 validated/trusted view；它只从 bytes
+    /// 内部计算 digest/key 并提供 immutable winner。receipt/LFCP 等结构证明继续由各自上层
+    /// 能力拥有。
     ///
     /// # Errors
     ///
     /// 暂存复核、平台安装、winner 比较或持久化失败时返回错误。
-    pub fn install_value_checked(
+    pub(crate) fn install_exact_bytes(
         &self,
-        object: ValueCheckedObjectView<'_>,
+        bytes: &[u8],
     ) -> Result<PortableObjectInstallation, PortableInstallError> {
-        let bytes = object.bytes();
         let digest = sha256(bytes);
         let key = object_key(digest);
         self.install_bound_object(bytes, digest, &key, &NativeAtomicInstall)
@@ -325,7 +325,9 @@ fn write_closed_staging_file(path: &Path, bytes: &[u8]) -> Result<(), PortableIn
         kind: error.kind(),
     })?;
     file.sync_all().map_err(|error| PortableInstallError::Io {
-        operation: PortableInstallOperation::FlushStagingFile,
+        // Safe `File` has no separate fallible close. `sync_all` is the
+        // durable close barrier; only after it succeeds is the handle dropped.
+        operation: PortableInstallOperation::CloseStagingFile,
         kind: error.kind(),
     })?;
     drop(file);

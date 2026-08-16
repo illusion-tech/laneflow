@@ -172,6 +172,9 @@ pub fn emit_portable_candidate(
         source_map,
         semantic_diff,
         network_revision,
+        compiler_build_id: provenance.compiler_build_id.clone(),
+        source_collection_digest_version: SOURCE_COLLECTION_DIGEST_VERSION_V1,
+        source_collection_digest,
     })
 }
 
