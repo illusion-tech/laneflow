@@ -345,7 +345,24 @@ fn parse_row(
     let mut seen_fields = 0_u32;
     let mut discriminant = None;
     for _ in 0..field_count {
+        checked_slice(bytes, cursor, FIELD_HEADER_BYTES, FormatStructure::Field)?;
         let actual_tag = read_u16(bytes, cursor, FormatStructure::Field)?;
+        if actual_tag == 0 {
+            return Err(FormatError::UnknownKind {
+                structure: FormatStructure::Field,
+                code: 0,
+            });
+        }
+        if let Some(previous) = previous_tag
+            && previous >= actual_tag
+        {
+            return Err(FormatError::NonCanonicalOrder {
+                structure: FormatStructure::RowFields,
+                previous: u64::from(previous),
+                current: u64::from(actual_tag),
+            });
+        }
+        previous_tag = Some(actual_tag);
         let expected_field = if let Some(schema) = row_schema {
             while schema_index < schema.fields.len() && schema.fields[schema_index].tag < actual_tag
             {
@@ -380,7 +397,6 @@ fn parse_row(
             expected_field,
             limits,
             budget,
-            &mut previous_tag,
         )?;
         if let Some(schema) = row_schema
             && let PortableRowShape::DiscriminatedU8 { tag, .. } = schema.shape
@@ -418,32 +434,7 @@ fn parse_field(
     expected_field: Option<PortableFieldSchema>,
     limits: FormatLimits,
     budget: &mut PreflightBudget,
-    previous_tag: &mut Option<u16>,
 ) -> Result<ParsedField, FormatError> {
-    checked_slice(
-        bytes,
-        field_offset,
-        FIELD_HEADER_BYTES,
-        FormatStructure::Field,
-    )?;
-    let field_tag = read_u16(bytes, field_offset, FormatStructure::Field)?;
-    if field_tag == 0 {
-        return Err(FormatError::UnknownKind {
-            structure: FormatStructure::Field,
-            code: 0,
-        });
-    }
-    if let Some(previous) = *previous_tag
-        && previous >= field_tag
-    {
-        return Err(FormatError::NonCanonicalOrder {
-            structure: FormatStructure::RowFields,
-            previous: u64::from(previous),
-            current: u64::from(field_tag),
-        });
-    }
-    *previous_tag = Some(field_tag);
-
     let field_type_code = read_u8(bytes, field_offset + 2, FormatStructure::Field)?;
     let field_type =
         PortableFieldType::from_code(field_type_code).ok_or(FormatError::UnknownKind {
