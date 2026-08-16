@@ -1,4 +1,4 @@
-//! 路线（route）领域 HIR：静态路线、边序列与预编译路口控制出现项的记录与构建。
+//! 路线领域 HIR：静态路线、边序列与预编译路口控制出现项的记录与构建。
 
 use std::collections::HashMap;
 use std::sync::Arc;

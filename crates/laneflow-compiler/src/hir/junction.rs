@@ -1,4 +1,4 @@
-//! 路口（junction）领域 HIR：路口、通行流向、机动路径与路口内部边的记录与构建。
+//! 路口领域 HIR：路口、通行流向、机动路径与路口内部边的记录与构建。
 
 use core::hash::{Hash, Hasher};
 use std::collections::HashMap;

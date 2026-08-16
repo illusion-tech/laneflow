@@ -1,4 +1,4 @@
-//! 空间（spatial）领域 HIR：规范坐标框架、车道边几何与几何来源映射的记录与构建。
+//! 空间领域 HIR：规范坐标框架、车道边几何与几何来源映射的记录与构建。
 
 use std::collections::HashMap;
 use std::sync::Arc;

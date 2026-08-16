@@ -1,4 +1,4 @@
-//! 准入（access）领域 HIR：参与者类别、车辆配置与准入规则的记录、构建与验证。
+//! 准入领域 HIR：参与者类别、车辆配置与准入规则的记录、构建与验证。
 
 use std::collections::HashMap;
 use std::sync::Arc;

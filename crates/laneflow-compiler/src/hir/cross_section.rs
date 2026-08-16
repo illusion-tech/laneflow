@@ -1,5 +1,4 @@
-//! 横断面（cross section）领域 HIR：道路走廊、道路区段、编制车道、车道组与设施带的
-//! 记录与构建。
+//! 横断面领域 HIR：道路走廊、道路区段、编制车道、车道组与设施带的记录与构建。
 
 use std::collections::HashMap;
 use std::sync::Arc;
