@@ -2,7 +2,12 @@
 
 LaneFlow LFCA/LFSM/LFSD/LFCP v1 的受限线格式 crate。
 
-当前 G2 受检读取层包括：
+当前 G2 线格式层包括：
+
+- 无分配的 `measure_object_v1` / `encode_object_v1` 受限精确编码：接收借用的
+  对象/节/表/行/字段（object/section/table/row/field）输入，复用附录 A registry，先完成
+  全对象计量、形状和预算
+  检查；只有调用方缓冲区长度精确匹配后才写入，任何返回错误都保持输出逐字节不变；
 
 - `ObjectPreambleV1` 与 `SectionDirectoryEntryV1` 的零拷贝 framing 预检；
 - `TableV1` / `RowV1` / `FieldV1` 的冗余长度、计数、字段类型、向量、UTF-8、浮点和
@@ -21,6 +26,10 @@ LaneFlow LFCA/LFSM/LFSD/LFCP v1 的受限线格式 crate。
 语义已验证或可信视图。`RegistryCheckedObjectView` 进一步证明附录登记形状；
 `ValueCheckedObjectView` 再证明不需要外部对象或全局语义重算的直接值域与同对象绑定。两者仍不证明行排序键、
 跨表引用、StableId/NetworkRevision 重算、跨对象摘要绑定、语义差异完备性或发布真实性。
+
+写入输入只表达线格式值，不是 compiler LIR 或 `ValueCheckedObjectView`。writer 保证输出满足
+framing、registry、冗余长度/计数、UTF-8/向量预算和通用浮点位模式约束；field-specific
+直接值域、跨表闭包和跨对象绑定仍由 compiler emitter 的已验证输入与后继验证层负责。
 
 本 crate 不拥有编译器语义闭包、独立语义验证、Runtime/Spatial 构造、文件系统发布事务
 或信任判定。
