@@ -6,10 +6,10 @@
 `laneflow-compiler` 的可移植规范制品（Portable Canonical Artifact）、源映射封套
 （Source Map Envelope）、语义差异封套（Semantic Diff Envelope）、规范发布描述符
 （Canonical Publication Descriptor）与原子发布边界<br>
-**实现状态**: G2 进行中；当前已建立共享 magic/version/field type/硬上限值与
-framing、Table/Row/Field 通用结构预检，尚未完成附录 A typed view、编译器发射、固定
-对象 fixture 或发布事务；当前生产编译器仍只原子返回配对的 `ValidatedCanonicalLir`
-与 `ValidatedSourceMapInput`<br>
+**实现状态**: G2 进行中；当前已建立共享 magic/version/field type/硬上限值、
+framing、Table/Row/Field 通用结构预检、附录 A registry 零拷贝有类型遍历和对象内直接
+值域检查，尚未完成受限写入器、编译器发射、固定对象 fixture 或发布事务；当前生产编译器
+仍只原子返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`<br>
 **关联 Issue**: #298；依赖 #292、#296；阻断 #299、#300<br>
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
 `numeric-representation.md`、

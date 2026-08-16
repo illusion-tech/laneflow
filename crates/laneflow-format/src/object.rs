@@ -1,16 +1,21 @@
 //! 完整对象的附录 A registry 结构预检。
 
-use laneflow_static_contract::{PortableObjectKind, portable_object_schema};
+use laneflow_static_contract::{
+    PortableFieldSchema, PortableFieldType, PortableObjectKind, PortableRowSchema,
+    PortableSectionSchema, PortableTableSchema, Sha256Digest, StableId128, portable_object_schema,
+};
 
 use crate::{
     FormatError, FormatLimits, FormatStructure, ObjectFramingView, SectionFramingView,
     framing::preflight_object_framing,
     table::{PreflightBudget, preflight_table_with_registry_v1},
-    wire::{checked_slice, read_u16, read_u32, read_u64},
+    wire::{checked_slice, read_u8, read_u16, read_u32, read_u64},
 };
 
 const SECTION_HEADER_BYTES: u64 = 4;
 const TABLE_HEADER_BYTES: u64 = 16;
+const ROW_HEADER_BYTES: u64 = 16;
+const FIELD_HEADER_BYTES: u64 = 12;
 
 /// 已完成前导、目录和附录 A section/table/field registry 结构预检的对象借用。
 ///
@@ -44,9 +49,16 @@ impl<'a> RegistryCheckedObjectView<'a> {
     /// 取得一个已经完成节内 registry 结构预检的 section。
     #[must_use]
     pub fn section(self, ordinal: u32) -> Option<RegistryCheckedSectionView<'a>> {
-        self.framing
-            .section(ordinal)
-            .map(|framing| RegistryCheckedSectionView { framing })
+        let schema = portable_object_schema(self.kind())
+            .sections
+            .get(usize::try_from(ordinal).ok()?)?;
+        let framing = self.framing.section(ordinal)?;
+        let table_count = read_u32(framing.bytes(), 0, FormatStructure::Section).ok()?;
+        Some(RegistryCheckedSectionView {
+            framing,
+            schema,
+            table_count,
+        })
     }
 }
 
@@ -54,6 +66,8 @@ impl<'a> RegistryCheckedObjectView<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct RegistryCheckedSectionView<'a> {
     framing: SectionFramingView<'a>,
+    schema: &'static PortableSectionSchema,
+    table_count: u32,
 }
 
 impl<'a> RegistryCheckedSectionView<'a> {
@@ -66,6 +80,343 @@ impl<'a> RegistryCheckedSectionView<'a> {
     pub const fn bytes(self) -> &'a [u8] {
         self.framing.bytes()
     }
+
+    /// 附录 A 为该节冻结的 table 数量。
+    #[must_use]
+    pub const fn table_count(self) -> u32 {
+        self.table_count
+    }
+
+    /// 按附录 A 顺序取得一张已完成 registry 预检的 table。
+    #[must_use]
+    pub fn table(self, ordinal: u32) -> Option<RegistryCheckedTableView<'a>> {
+        let ordinal = usize::try_from(ordinal).ok()?;
+        let schema = self.schema.tables.get(ordinal)?;
+        let mut cursor = SECTION_HEADER_BYTES;
+        for current in 0..=ordinal {
+            let rows_byte_length =
+                read_u64(self.bytes(), cursor + 8, FormatStructure::Table).ok()?;
+            let table_byte_length = TABLE_HEADER_BYTES.checked_add(rows_byte_length)?;
+            if current == ordinal {
+                let bytes = checked_slice(
+                    self.bytes(),
+                    cursor,
+                    table_byte_length,
+                    FormatStructure::Table,
+                )
+                .ok()?;
+                let row_count = read_u32(bytes, 4, FormatStructure::Table).ok()?;
+                return Some(RegistryCheckedTableView {
+                    bytes,
+                    schema,
+                    row_count,
+                });
+            }
+            cursor = cursor.checked_add(table_byte_length)?;
+        }
+        None
+    }
+}
+
+/// 已按附录 A table schema 完成结构预检的零拷贝借用。
+#[derive(Clone, Copy, Debug)]
+pub struct RegistryCheckedTableView<'a> {
+    bytes: &'a [u8],
+    schema: &'static PortableTableSchema,
+    row_count: u32,
+}
+
+impl<'a> RegistryCheckedTableView<'a> {
+    #[must_use]
+    pub const fn kind(self) -> u16 {
+        self.schema.kind
+    }
+
+    #[must_use]
+    pub const fn bytes(self) -> &'a [u8] {
+        self.bytes
+    }
+
+    #[must_use]
+    pub const fn row_count(self) -> u32 {
+        self.row_count
+    }
+
+    /// 按线顺序取得一行。越过已受检的 row count 时返回 `None`。
+    #[must_use]
+    pub fn row(self, ordinal: u32) -> Option<RegistryCheckedRowView<'a>> {
+        if ordinal >= self.row_count() {
+            return None;
+        }
+        let mut cursor = TABLE_HEADER_BYTES;
+        for current in 0..=ordinal {
+            let row_byte_length = read_u64(self.bytes, cursor, FormatStructure::Row).ok()?;
+            if current == ordinal {
+                let bytes =
+                    checked_slice(self.bytes, cursor, row_byte_length, FormatStructure::Row)
+                        .ok()?;
+                let field_count = read_u32(bytes, 8, FormatStructure::Row).ok()?;
+                return Some(RegistryCheckedRowView {
+                    bytes,
+                    schema: self.schema.row,
+                    field_count,
+                });
+            }
+            cursor = cursor.checked_add(row_byte_length)?;
+        }
+        None
+    }
+}
+
+/// 已按 field tag/type/presence schema 完成结构预检的一行。
+#[derive(Clone, Copy, Debug)]
+pub struct RegistryCheckedRowView<'a> {
+    bytes: &'a [u8],
+    schema: &'static PortableRowSchema,
+    field_count: u32,
+}
+
+impl<'a> RegistryCheckedRowView<'a> {
+    #[must_use]
+    pub const fn bytes(self) -> &'a [u8] {
+        self.bytes
+    }
+
+    #[must_use]
+    pub const fn field_count(self) -> u32 {
+        self.field_count
+    }
+
+    /// 按线顺序取得一个已登记字段。
+    #[must_use]
+    pub fn field(self, ordinal: u32) -> Option<RegistryCheckedFieldView<'a>> {
+        if ordinal >= self.field_count() {
+            return None;
+        }
+        let mut cursor = ROW_HEADER_BYTES;
+        for current in 0..=ordinal {
+            let tag = read_u16(self.bytes, cursor, FormatStructure::Field).ok()?;
+            let schema = self.schema.fields.iter().find(|field| field.tag == tag)?;
+            let value_byte_length =
+                read_u64(self.bytes, cursor + 4, FormatStructure::Field).ok()?;
+            let field_byte_length = FIELD_HEADER_BYTES.checked_add(value_byte_length)?;
+            if current == ordinal {
+                let bytes = checked_slice(
+                    self.bytes,
+                    cursor,
+                    field_byte_length,
+                    FormatStructure::Field,
+                )
+                .ok()?;
+                let value = checked_slice(
+                    bytes,
+                    FIELD_HEADER_BYTES,
+                    value_byte_length,
+                    FormatStructure::FieldValue,
+                )
+                .ok()?;
+                return Some(RegistryCheckedFieldView { value, schema });
+            }
+            cursor = cursor.checked_add(field_byte_length)?;
+        }
+        None
+    }
+
+    /// 按稳定 field tag 查找字段；缺失 optional 字段时返回 `None`。
+    #[must_use]
+    pub fn field_by_tag(self, tag: u16) -> Option<RegistryCheckedFieldView<'a>> {
+        (0..self.field_count()).find_map(|ordinal| {
+            let field = self.field(ordinal)?;
+            (field.tag() == tag).then_some(field)
+        })
+    }
+}
+
+/// 已按登记 field type 完成通用编码预检的字段。
+#[derive(Clone, Copy, Debug)]
+pub struct RegistryCheckedFieldView<'a> {
+    value: &'a [u8],
+    schema: &'static PortableFieldSchema,
+}
+
+impl<'a> RegistryCheckedFieldView<'a> {
+    #[must_use]
+    pub const fn tag(self) -> u16 {
+        self.schema.tag
+    }
+
+    #[must_use]
+    pub const fn field_type(self) -> PortableFieldType {
+        self.schema.field_type
+    }
+
+    #[must_use]
+    pub const fn value_bytes(self) -> &'a [u8] {
+        self.value
+    }
+
+    /// 按 registry 中已经证明的 field type 解码零拷贝值。
+    pub fn value(self) -> Result<RegistryCheckedFieldValue<'a>, FormatError> {
+        let value = self.value_bytes();
+        Ok(match self.field_type() {
+            PortableFieldType::U8 => {
+                RegistryCheckedFieldValue::U8(read_u8(value, 0, FormatStructure::FieldValue)?)
+            }
+            PortableFieldType::U16 => {
+                RegistryCheckedFieldValue::U16(read_u16(value, 0, FormatStructure::FieldValue)?)
+            }
+            PortableFieldType::U32 => {
+                RegistryCheckedFieldValue::U32(read_u32(value, 0, FormatStructure::FieldValue)?)
+            }
+            PortableFieldType::U64 => {
+                RegistryCheckedFieldValue::U64(read_u64(value, 0, FormatStructure::FieldValue)?)
+            }
+            PortableFieldType::F32 => RegistryCheckedFieldValue::F32(f32::from_bits(read_u32(
+                value,
+                0,
+                FormatStructure::FieldValue,
+            )?)),
+            PortableFieldType::F64 => RegistryCheckedFieldValue::F64(f64::from_bits(read_u64(
+                value,
+                0,
+                FormatStructure::FieldValue,
+            )?)),
+            PortableFieldType::StableId128 => RegistryCheckedFieldValue::StableId128(
+                StableId128::from_bytes(read_array_value(value)?),
+            ),
+            PortableFieldType::Sha256 => RegistryCheckedFieldValue::Sha256(
+                Sha256Digest::from_bytes(read_array_value(value)?),
+            ),
+            PortableFieldType::Utf8 => {
+                RegistryCheckedFieldValue::Utf8(core::str::from_utf8(value).map_err(|_| {
+                    FormatError::NonCanonicalValue {
+                        structure: FormatStructure::FieldValue,
+                        offset: 0,
+                    }
+                })?)
+            }
+            PortableFieldType::Bytes => RegistryCheckedFieldValue::Bytes(value),
+            PortableFieldType::OrdinalVectorU32 => {
+                let count = read_u32(value, 0, FormatStructure::OrdinalVector)?;
+                RegistryCheckedFieldValue::OrdinalVectorU32(RegistryCheckedOrdinalVectorView {
+                    bytes: value,
+                    count,
+                })
+            }
+            PortableFieldType::RecordVector => {
+                let row_schema = self.schema.nested_row.ok_or(FormatError::BindingMismatch {
+                    structure: FormatStructure::RecordVector,
+                })?;
+                let count = read_u32(value, 0, FormatStructure::RecordVector)?;
+                RegistryCheckedFieldValue::RecordVector(RegistryCheckedRecordVectorView {
+                    bytes: value,
+                    row_schema,
+                    count,
+                })
+            }
+            PortableFieldType::I32 => {
+                RegistryCheckedFieldValue::I32(i32::from_le_bytes(read_array_value(value)?))
+            }
+        })
+    }
+}
+
+/// registry-checked 字段的零拷贝有类型值。
+#[derive(Clone, Copy, Debug)]
+pub enum RegistryCheckedFieldValue<'a> {
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    F32(f32),
+    F64(f64),
+    StableId128(StableId128),
+    Sha256(Sha256Digest),
+    Utf8(&'a str),
+    Bytes(&'a [u8]),
+    OrdinalVectorU32(RegistryCheckedOrdinalVectorView<'a>),
+    RecordVector(RegistryCheckedRecordVectorView<'a>),
+    I32(i32),
+}
+
+/// 已完成 count/length/limit 预检的 `OrdinalVectorU32`。
+#[derive(Clone, Copy, Debug)]
+pub struct RegistryCheckedOrdinalVectorView<'a> {
+    bytes: &'a [u8],
+    count: u32,
+}
+
+impl RegistryCheckedOrdinalVectorView<'_> {
+    #[must_use]
+    pub const fn len(self) -> u32 {
+        self.count
+    }
+
+    #[must_use]
+    pub fn is_empty(self) -> bool {
+        self.len() == 0
+    }
+
+    #[must_use]
+    pub fn get(self, index: u32) -> Option<u32> {
+        if index >= self.len() {
+            return None;
+        }
+        let offset = 4_u64.checked_add(u64::from(index).checked_mul(4)?)?;
+        read_u32(self.bytes, offset, FormatStructure::OrdinalVector).ok()
+    }
+}
+
+/// 已完成 count/row/field registry 预检的一层 `RecordVector`。
+#[derive(Clone, Copy, Debug)]
+pub struct RegistryCheckedRecordVectorView<'a> {
+    bytes: &'a [u8],
+    row_schema: &'static PortableRowSchema,
+    count: u32,
+}
+
+impl<'a> RegistryCheckedRecordVectorView<'a> {
+    #[must_use]
+    pub const fn len(self) -> u32 {
+        self.count
+    }
+
+    #[must_use]
+    pub fn is_empty(self) -> bool {
+        self.len() == 0
+    }
+
+    #[must_use]
+    pub fn row(self, ordinal: u32) -> Option<RegistryCheckedRowView<'a>> {
+        if ordinal >= self.len() {
+            return None;
+        }
+        let mut cursor = 4;
+        for current in 0..=ordinal {
+            let row_byte_length = read_u64(self.bytes, cursor, FormatStructure::Row).ok()?;
+            if current == ordinal {
+                let bytes =
+                    checked_slice(self.bytes, cursor, row_byte_length, FormatStructure::Row)
+                        .ok()?;
+                let field_count = read_u32(bytes, 8, FormatStructure::Row).ok()?;
+                return Some(RegistryCheckedRowView {
+                    bytes,
+                    schema: self.row_schema,
+                    field_count,
+                });
+            }
+            cursor = cursor.checked_add(row_byte_length)?;
+        }
+        None
+    }
+}
+
+fn read_array_value<const N: usize>(value: &[u8]) -> Result<[u8; N], FormatError> {
+    value.try_into().map_err(|_| FormatError::LengthMismatch {
+        structure: FormatStructure::FieldValue,
+        declared: value.len() as u64,
+        actual: N as u64,
+    })
 }
 
 /// 对完整 v1 对象执行前导、目录与附录 A 静态 registry 的 fail-closed 结构预检。
@@ -369,6 +720,29 @@ mod tests {
             assert_eq!(checked.section_count(), kind.section_count());
             assert_eq!(checked.section(0).unwrap().kind(), 1);
         }
+    }
+
+    #[test]
+    fn registry_checked_view_exposes_only_registered_typed_values() {
+        let kind = PortableObjectKind::CanonicalArtifact;
+        let bytes = encoded_object(kind);
+        let checked = preflight_object_registry_v1(&bytes, kind, FormatLimits::V1_HARD).unwrap();
+        let section = checked.section(0).unwrap();
+        assert_eq!(section.table_count(), 1);
+        let table = section.table(0).unwrap();
+        assert_eq!(table.kind(), 1);
+        assert_eq!(table.row_count(), 1);
+        let row = table.row(0).unwrap();
+        assert_eq!(row.field_count(), 6);
+        let field = row.field_by_tag(1).unwrap();
+        assert_eq!(field.field_type(), PortableFieldType::U16);
+        assert!(matches!(
+            field.value().unwrap(),
+            RegistryCheckedFieldValue::U16(0)
+        ));
+        assert!(row.field_by_tag(7).is_none());
+        assert!(table.row(1).is_none());
+        assert!(section.table(1).is_none());
     }
 
     #[test]
