@@ -962,7 +962,8 @@ fn g3_evidence_shadow_workflow_preserves_trusted_ref_boundary() {
     );
     assert!(workflow.contains("workflow_run:\n    workflows:\n      - External Review Signal"));
     assert!(workflow.contains("workflow_dispatch:"));
-    assert!(workflow.contains("g3-evidence-gate-event-${{"));
+    assert!(workflow.contains("g3-evidence-gate-${{\n      ("));
+    assert!(workflow.contains("github.run_attempt\n    }}-${{\n"));
     assert!(workflow.contains("github.event.workflow_run.pull_requests[0].number"));
     assert!(workflow.contains("github.event.comment.body == 'g3-evidence: changed'"));
     assert!(workflow.contains("github.run_attempt == 1"));

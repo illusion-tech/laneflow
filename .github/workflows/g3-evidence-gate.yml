@@ -36,7 +36,14 @@ on:
 
 concurrency:
   group: >-
-    g3-evidence-gate-event-${{
+    g3-evidence-gate-${{
+      (
+        (github.event_name == 'issue_comment' && github.event.action == 'created' && github.event.comment.body == 'g3-evidence: changed') ||
+        (github.event_name == 'pull_request_target' && github.event.action == 'edited' && github.event.changes.body.from != null && github.event.changes.base == null && contains(fromJSON('["dependabot", "dependabot[bot]", "app/dependabot"]'), github.event.sender.login) && contains(fromJSON('["dependabot", "dependabot[bot]", "app/dependabot"]'), github.event.pull_request.user.login))
+      )
+    }}-${{
+      github.run_attempt
+    }}-${{
       github.event.pull_request.number ||
       github.event.issue.number ||
       github.event.workflow_run.pull_requests[0].number ||
@@ -55,12 +62,28 @@ jobs:
   resolve-targets:
     name: Resolve direct and dependent PR targets
     if: >-
-      github.event_name != 'issue_comment' ||
-      github.event.issue.pull_request != null
+      (github.event_name != 'issue_comment' || github.event.issue.pull_request != null) &&
+      github.run_attempt == 1 &&
+      (
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.action == 'created' &&
+          github.event.comment.body == 'g3-evidence: changed'
+        ) ||
+        (
+          github.event_name == 'pull_request_target' &&
+          github.event.action == 'edited' &&
+          github.event.changes.body.from != null &&
+          github.event.changes.base == null &&
+          contains(fromJSON('["dependabot", "dependabot[bot]", "app/dependabot"]'), github.event.sender.login) &&
+          contains(fromJSON('["dependabot", "dependabot[bot]", "app/dependabot"]'), github.event.pull_request.user.login)
+        )
+      )
     runs-on: ubuntu-latest
     outputs:
       count: ${{ steps.targets.outputs.count }}
       matrix: ${{ steps.targets.outputs.matrix }}
+      publish: ${{ steps.targets.outputs.publish }}
     steps:
       - name: Resolve direct PR numbers from trusted event metadata
         id: direct
@@ -187,6 +210,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          publish_check_event="$([[ "$MARKER_SUCCESS_EVENT" == "true" || "$REUSE_MARKER_EVENT" == "true" ]] && echo true || echo false)"
+
           all_open_prs() {
             local open_prs
             open_prs="$(gh api --paginate \
@@ -285,12 +310,15 @@ jobs:
           count="$(jq -r '.include | length' <<<"$matrix")"
           echo "count=$count" >>"$GITHUB_OUTPUT"
           echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
+          echo "publish=$publish_check_event" >>"$GITHUB_OUTPUT"
 
   publish-shadow-check:
     name: Publish G3 evidence shadow Check for PR #${{ matrix.pr }}
     needs:
       - resolve-targets
-    if: needs.resolve-targets.outputs.count != '0'
+    if: >-
+      needs.resolve-targets.outputs.count != '0' &&
+      needs.resolve-targets.outputs.publish == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve-targets.outputs.matrix) }}
@@ -426,8 +454,8 @@ jobs:
 
             evaluate_evidence
           else
-            validation_output="PR #${PR_NUMBER} is not eligible for G3 evidence: ${initial_eligibility}"
-            validation_exit=1
+            echo "::notice::PR #${PR_NUMBER} is not eligible for G3 evidence: ${initial_eligibility}; no G3 evidence shadow Check is published"
+            exit 0
           fi
 
           final_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
@@ -447,6 +475,10 @@ jobs:
           if [[ "$initial_head" != "$final_head" || "$initial_base" != "$final_base" || "$final_head_repo" != "$REPOSITORY" ]]; then
             validation_output="${validation_output}\n\nPR identity changed while G3 evidence was being evaluated; publishing failure on the originally evaluated head."
             validation_exit=1
+          fi
+          if [[ "$final_eligibility" != "eligible" ]]; then
+            echo "::notice::PR #${PR_NUMBER} left the eligible set during evaluation: ${initial_eligibility} -> ${final_eligibility}; no shadow Check is published for this race"
+            exit 0
           fi
           if [[ "$initial_eligibility" != "$final_eligibility" ]]; then
             validation_output="${validation_output}\n\nPR eligibility changed during evaluation: ${initial_eligibility} -> ${final_eligibility}"
@@ -475,6 +507,10 @@ jobs:
             if [[ "$final_head" != "$publish_head" || "$final_base" != "$publish_base" || "$final_head_repo" != "$publish_head_repo" ]]; then
               validation_output="${validation_output}\n\nPR identity changed during final trusted revalidation."
               validation_exit=1
+            fi
+            if [[ "$publish_eligibility" != "eligible" ]]; then
+              echo "::notice::PR #${PR_NUMBER} left the eligible set during final trusted revalidation: ${final_eligibility} -> ${publish_eligibility}; no shadow Check is published for this race"
+              exit 0
             fi
             if [[ "$final_eligibility" != "$publish_eligibility" ]]; then
               validation_output="${validation_output}\n\nPR eligibility changed during final trusted revalidation: ${final_eligibility} -> ${publish_eligibility}"
