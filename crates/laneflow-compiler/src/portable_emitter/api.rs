@@ -86,6 +86,9 @@ pub struct PortablePublicationCandidate {
     pub(super) source_map: PortableObjectCandidate,
     pub(super) semantic_diff: PortableObjectCandidate,
     pub(super) network_revision: NetworkRevisionId,
+    pub(super) compiler_build_id: Box<str>,
+    pub(super) source_collection_digest_version: u16,
+    pub(super) source_collection_digest: [u8; 32],
 }
 
 /// LFSD 的显式 base 选择。
@@ -118,6 +121,24 @@ impl PortablePublicationCandidate {
     #[must_use]
     pub const fn network_revision(&self) -> NetworkRevisionId {
         self.network_revision
+    }
+
+    /// 返回与 LFCA/LFSM exact bytes 绑定的 canonical compiler build ID。
+    #[must_use]
+    pub fn compiler_build_id(&self) -> &str {
+        &self.compiler_build_id
+    }
+
+    /// 返回 LFSM SourceMapBindings 中的来源集合摘要版本。
+    #[must_use]
+    pub const fn source_collection_digest_version(&self) -> u16 {
+        self.source_collection_digest_version
+    }
+
+    /// 返回 LFSM SourceMapBindings 中的来源集合摘要。
+    #[must_use]
+    pub const fn source_collection_digest(&self) -> [u8; 32] {
+        self.source_collection_digest
     }
 }
 
