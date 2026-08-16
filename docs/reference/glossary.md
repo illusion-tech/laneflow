@@ -48,6 +48,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 集成专用桥           | integration-only bridge                  | —                 | 只服务迁移验证、不属于生产 API，并在切换后删除的桥接实现。                                 |
 | 迁移预言机           | migration oracle                         | —                 | 用于对照目标实现语义、行为或字节结果的独立基准实现。                                       |
 | 开发闸口             | development gate                         | `G0`–`G4`         | LaneFlow 从立项、设计、开工、合并到完成的治理状态。                                        |
+| 仅遥测               | telemetry-only                           | —                 | 只记录或观察状态、不发布 required 结论也不更新既有门禁结论的运行方式。                     |
 | 城市模拟游戏交通基础 | city simulation game traffic foundation  | —                 | 面向中国特色城市模拟游戏、但不拥有城市经济与出行需求的可嵌入、确定性、可扩展交通基础设施。 |
 | 城市模拟游戏层       | city simulation game layer               | —                 | 拥有人口、经济、土地利用、建筑、工作/居住、物流任务与游戏规则的宿主上层。                  |
 | 出行与交通编排层     | mobility and traffic orchestration layer | —                 | 拥有出行需求、出发时刻、交通参与单元生成、目的地、人口生命周期与路线选择策略的上层。       |
