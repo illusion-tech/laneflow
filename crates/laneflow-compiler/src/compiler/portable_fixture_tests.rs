@@ -396,7 +396,7 @@ fn full_spatial_portable_fixture_provenance() -> crate::PortableEmissionProvenan
     crate::PortableEmissionProvenanceV1::try_new("laneflow-fixture-298-full-spatial-v1").unwrap()
 }
 
-fn full_spatial_portable_fixture_candidate() -> crate::PortablePublicationCandidate {
+pub(crate) fn full_spatial_portable_fixture_candidate() -> crate::PortablePublicationCandidate {
     let output = full_spatial_portable_fixture_output();
     let provenance = full_spatial_portable_fixture_provenance();
     crate::emit_portable_candidate(

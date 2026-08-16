@@ -2044,7 +2044,7 @@ impl Compiler {
 }
 
 #[cfg(test)]
-mod portable_fixture_tests;
+pub(crate) mod portable_fixture_tests;
 
 #[cfg(test)]
 mod tests {

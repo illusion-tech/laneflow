@@ -6,8 +6,6 @@ use std::{
 };
 
 use super::*;
-use laneflow_format::{FormatLimits, preflight_object_values_v1};
-use laneflow_static_contract::PortableObjectKind;
 
 static NEXT_TEST_ROOT: AtomicU64 = AtomicU64::new(0);
 
@@ -73,19 +71,12 @@ fn installs_closed_bytes_only_at_digest_path_and_reuses_exact_winner() {
 }
 
 #[test]
-fn installs_value_checked_object_without_accepting_caller_binding() {
-    let root = TestRoot::new("value-checked");
+fn installs_closed_exact_bytes_without_accepting_caller_binding() {
+    let root = TestRoot::new("exact-bytes");
     let store = PortableObjectStore::try_open(root.path()).unwrap();
     let bytes =
         include_bytes!("../../tests/fixtures/portable-v1/lfca-v1-variants/min-headless.lfca");
-    let view = preflight_object_values_v1(
-        bytes,
-        PortableObjectKind::CanonicalArtifact,
-        FormatLimits::V1_HARD,
-    )
-    .unwrap();
-
-    let installed = store.install_value_checked(view).unwrap();
+    let installed = store.install_exact_bytes(bytes).unwrap();
     assert_eq!(
         installed.disposition(),
         PortableInstallDisposition::Installed

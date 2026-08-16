@@ -82,12 +82,16 @@ nested/top fields、rows、tables、sections 降低到少量连续 arena，并�
 该返回值仍是未受信内存候选：checked base 只证明格式结构和直接值域，不证明完整 artifact
 语义；候选也不授予发布、迁移或运行时加载权限。`read_portable_object_known_length` 和
 `read_portable_object_to_end` 只在任何 hash/view 前关闭已知长度 O(1) 与未知流 `max+1`
-transport 边界，读取成功仍须进入 format preflight。`PortableObjectStore` 把 emitter 候选或
-`ValueCheckedObjectView` 写入发布根内的唯一 staging 目录，flush/sync/close 后流式复核
+transport 边界，读取成功仍须进入 format preflight。`PortableObjectStore` 把上层能力关闭的
+exact bytes 写入发布根内的唯一 staging 目录，flush/sync/close 后流式复核
 exact bytes，再以同文件系统 hard-link no-replace 原子安装到内部重算的
 `sha256/<64 lowercase hex>` 路径；已存在 winner 只允许 exact bytes 相同复用，平台不能证明
-该原语时明确返回 `AtomicInstallUnsupported`。对象安装结果仍不是“已发布”；LFCP、#299
-独立验证收据、认证 manifest 单提交点与 #302 可信切换描述符仍属于后继切片。
+该原语时明确返回 `AtomicInstallUnsupported`。`commit_portable_publication_v1` 只接受未来 #299
+实现的 `CanonicalPublicationReceiptViewV1`：一次性快照其 opaque exact bytes、metadata 和恰好
+两个 subject bindings，依次安装 LFCA/LFSM/LFSD/receipt 后才构造并安装 LFCP，最后恰好调用
+一次外部 `PortableManifestCommitter`。#298 不定义或解析 receipt wire，也不自证 manifest
+adapter 的签名/信任根；任意已安装对象在该 adapter 返回成功前仍只是未引用对象。#299 独立
+验证收据实现和 #302 可信切换描述符仍属于后继 Issue。
 
 成功输出还通过 `CompilationMetrics` 暴露 LIR 逻辑记录数、逻辑输出字节、编译器控制
 峰值字节和同版本语义指纹；`Compiler::retained_capacity_bytes()` 单独报告跨编译保留
