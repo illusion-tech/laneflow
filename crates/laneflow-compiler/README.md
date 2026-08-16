@@ -80,8 +80,10 @@ nested/top fields、rows、tables、sections 降低到少量连续 arena，并�
 定位读取，不得用于全表顺序扫描。
 
 该返回值仍是未受信内存候选：checked base 只证明格式结构和直接值域，不证明完整 artifact
-语义；候选也不授予发布、迁移或运行时加载权限。固定对象 fixture、文件系统 no-replace 安装、
-LFCP、#299 独立验证收据与 #302 可信切换描述符仍属于后继切片。
+语义；候选也不授予发布、迁移或运行时加载权限。`read_portable_object_known_length` 和
+`read_portable_object_to_end` 只在任何 hash/view 前关闭已知长度 O(1) 与未知流 `max+1`
+transport 边界，读取成功仍须进入 format preflight。文件系统 no-replace 安装、LFCP、#299
+独立验证收据与 #302 可信切换描述符仍属于后继切片。
 
 成功输出还通过 `CompilationMetrics` 暴露 LIR 逻辑记录数、逻辑输出字节、编译器控制
 峰值字节和同版本语义指纹；`Compiler::retained_capacity_bytes()` 单独报告跨编译保留
