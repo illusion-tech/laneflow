@@ -258,7 +258,17 @@ pub(super) fn validate_gate_evidence_target_pr(
         .comments
         .iter()
         .find(|comment| comment.url == permalink)
-        .ok_or("PR G3 permalink 未指向当前 PR comment")?;
+        .ok_or_else(|| {
+            let actual = pr
+                .comments
+                .iter()
+                .map(|comment| comment.url.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "PR G3 permalink 未指向当前 PR comment：预期 `{permalink}`；实际 comment URLs [{actual}]"
+            )
+        })?;
     if phase == GateEvidencePhase::G3
         && g3_comment_effective_at(comment, "PR G3 comment")? >= G3_EVIDENCE_SHADOW_ACTIVATION
     {
