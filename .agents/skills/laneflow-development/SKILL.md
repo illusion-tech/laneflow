@@ -55,6 +55,17 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 6. 记录验证结果、文档状态与剩余风险。
 7. PR 准备合并时，默认使用 **Rebase and merge**（`gh pr merge <number> --rebase`），除非 PR 中已说明例外。
 
+### Rust 语义导航
+
+修改 Rust 前，按需使用下列方式缩小源码阅读范围：
+
+- 可用时，先使用基于 `rust-analyzer` 的只读语义工具定位定义、活动配置引用、类型、
+  符号与诊断；使用 mcpls 时读取 `docs/reference/mcpls.md`。
+- 使用 mcpls 时，确认返回路径属于当前 worktree。冷启动、空结果或错误不得解释为
+  “没有定义/引用”；等待已知工作区符号可返回，否则回退到 `rg` 与源码阅读。
+- 继续使用 `rg` 覆盖字面量、配置、注释、未启用 feature 和其他文本搜索。
+- 使用 `cargo check/test` 判断最终的编译与测试正确性；语义诊断只作快速反馈。
+
 ## 规则
 
 - 不要把引擎相关依赖引入当前 Core 或目标 Traffic Runtime。
