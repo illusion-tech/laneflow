@@ -148,7 +148,10 @@ fn row_tags(row: laneflow_format::RegistryCheckedRowView<'_>) -> Vec<u16> {
 fn portable_change_set_diff_matches_frozen_exact_bytes() {
     let (base, target) = candidate();
     assert_eq!(target.semantic_diff().bytes(), EXPECTED_LFSD);
-    assert_eq!(target.semantic_diff().byte_length(), 2_479);
+    assert_eq!(
+        target.semantic_diff().byte_length(),
+        exact_byte_length(2_479)
+    );
     assert_eq!(
         target.semantic_diff().object_key(),
         "sha256/9839be5aa5c2a37535769ddd49d6822f5a14798c484d6276df85903e102a4f72"
@@ -157,12 +160,18 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
         base.canonical_artifact().object_key(),
         "sha256/9006828d6105e970a1c98246baf7a4008aba39bf12ecd83e3dd6c013ef4569b0"
     );
-    assert_eq!(base.canonical_artifact().byte_length(), 3_220);
+    assert_eq!(
+        base.canonical_artifact().byte_length(),
+        exact_byte_length(3_220)
+    );
     assert_eq!(
         target.canonical_artifact().object_key(),
         "sha256/58995d30d5be9fe0d440dd90e1d73b531514ee2e8eb50bfdb0c8dcc80899626d"
     );
-    assert_eq!(target.canonical_artifact().byte_length(), 4_250);
+    assert_eq!(
+        target.canonical_artifact().byte_length(),
+        exact_byte_length(4_250)
+    );
 
     let diff = laneflow_format::preflight_object_values_v1(
         EXPECTED_LFSD,
@@ -179,11 +188,11 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     ));
     assert_eq!(
         binding.field_by_tag(3).unwrap().value_bytes(),
-        base.network_revision()
+        base.network_revision().as_digest().as_bytes()
     );
     assert_eq!(
         binding.field_by_tag(4).unwrap().value_bytes(),
-        base.canonical_artifact().digest()
+        base.canonical_artifact().digest().as_bytes()
     );
     assert!(matches!(
         binding.field_by_tag(5).unwrap().value().unwrap(),
@@ -191,11 +200,11 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     ));
     assert_eq!(
         binding.field_by_tag(7).unwrap().value_bytes(),
-        target.network_revision()
+        target.network_revision().as_digest().as_bytes()
     );
     assert_eq!(
         binding.field_by_tag(8).unwrap().value_bytes(),
-        target.canonical_artifact().digest()
+        target.canonical_artifact().digest().as_bytes()
     );
     assert!(matches!(
         binding.field_by_tag(9).unwrap().value().unwrap(),

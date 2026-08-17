@@ -234,7 +234,7 @@ fn assert_exact_candidate(
     assert_eq!(candidate.canonical_artifact().bytes(), expected);
     assert_eq!(
         candidate.canonical_artifact().byte_length(),
-        expected_length
+        exact_byte_length(expected_length)
     );
     assert_eq!(candidate.canonical_artifact().object_key(), expected_key);
 }
@@ -260,7 +260,10 @@ fn portable_min_headless_matches_g1_anchor_and_frozen_exact_bytes() {
         MIN_HEADLESS_LENGTH,
         MIN_HEADLESS_KEY,
     );
-    assert_eq!(candidate.network_revision(), MIN_HEADLESS_REVISION);
+    assert_eq!(
+        candidate.network_revision(),
+        network_revision(MIN_HEADLESS_REVISION)
+    );
 
     let view = artifact_view(MIN_HEADLESS_EXPECTED);
     let first_section_offset =
@@ -321,9 +324,10 @@ fn portable_provenance_only_variants_preserve_revision_and_fix_distinct_bytes() 
         PROVENANCE_BUILD_LENGTH,
         PROVENANCE_BUILD_KEY,
     );
-    assert_eq!(base.network_revision(), MIN_HEADLESS_REVISION);
-    assert_eq!(source.network_revision(), MIN_HEADLESS_REVISION);
-    assert_eq!(build.network_revision(), MIN_HEADLESS_REVISION);
+    let expected_revision = network_revision(MIN_HEADLESS_REVISION);
+    assert_eq!(base.network_revision(), expected_revision);
+    assert_eq!(source.network_revision(), expected_revision);
+    assert_eq!(build.network_revision(), expected_revision);
     assert_ne!(
         base.canonical_artifact().bytes(),
         source.canonical_artifact().bytes()

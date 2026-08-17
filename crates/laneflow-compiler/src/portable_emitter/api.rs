@@ -44,7 +44,7 @@ impl PortableEmissionProvenanceV1 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PortableObjectCandidate {
     bytes: Box<[u8]>,
-    digest: [u8; 32],
+    digest: Sha256Digest,
     object_key: Box<str>,
 }
 
@@ -57,14 +57,16 @@ impl PortableObjectCandidate {
 
     /// 返回从 exact bytes 重算的 SHA-256。
     #[must_use]
-    pub const fn digest(&self) -> [u8; 32] {
+    pub const fn digest(&self) -> Sha256Digest {
         self.digest
     }
 
-    /// 返回 exact `u64` byte length。
+    /// 返回与摘要共同绑定 exact bytes 的强类型长度。
     #[must_use]
-    pub fn byte_length(&self) -> u64 {
-        u64::try_from(self.bytes.len()).expect("supported targets have at most 64-bit usize")
+    pub fn byte_length(&self) -> ExactByteLength {
+        ExactByteLength::new(
+            u64::try_from(self.bytes.len()).expect("supported targets have at most 64-bit usize"),
+        )
     }
 
     /// 返回唯一 `sha256/<64 lowercase hex>` object key。
@@ -83,7 +85,7 @@ pub struct PortablePublicationCandidate {
     pub(super) canonical_artifact: PortableObjectCandidate,
     pub(super) source_map: PortableObjectCandidate,
     pub(super) semantic_diff: PortableObjectCandidate,
-    pub(super) network_revision: [u8; 32],
+    pub(super) network_revision: NetworkRevisionId,
 }
 
 /// LFSD 的显式 base 选择。
@@ -114,7 +116,7 @@ impl PortablePublicationCandidate {
     }
 
     #[must_use]
-    pub const fn network_revision(&self) -> [u8; 32] {
+    pub const fn network_revision(&self) -> NetworkRevisionId {
         self.network_revision
     }
 }
@@ -139,16 +141,14 @@ impl From<FormatError> for PortableEmissionError {
     }
 }
 
-pub(super) fn sha256(bytes: &[u8]) -> [u8; 32] {
-    Sha256::digest(bytes).into()
+pub(super) fn sha256(bytes: &[u8]) -> Sha256Digest {
+    Sha256Digest::from_bytes(Sha256::digest(bytes).into())
 }
 
-fn object_key(digest: [u8; 32]) -> Box<str> {
+fn object_key(digest: Sha256Digest) -> Box<str> {
     let mut key = String::with_capacity(71);
     key.push_str("sha256/");
-    for byte in digest {
-        write!(&mut key, "{byte:02x}").expect("writing to String is infallible");
-    }
+    write!(&mut key, "{digest:x}").expect("writing to String is infallible");
     key.into_boxed_str()
 }
 
@@ -158,5 +158,28 @@ pub(super) fn close_object(bytes: Box<[u8]>) -> PortableObjectCandidate {
         bytes,
         digest,
         object_key: object_key(digest),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn portable_candidate_bindings_keep_static_contract_types() {
+        let object = close_object(vec![1, 2, 3].into_boxed_slice());
+        let digest: Sha256Digest = object.digest();
+        let byte_length: ExactByteLength = object.byte_length();
+        assert_eq!(digest, sha256(object.bytes()));
+        assert_eq!(byte_length, ExactByteLength::new(3));
+
+        let publication = PortablePublicationCandidate {
+            canonical_artifact: object.clone(),
+            source_map: object.clone(),
+            semantic_diff: object,
+            network_revision: NetworkRevisionId::from_digest(digest),
+        };
+        let network_revision: NetworkRevisionId = publication.network_revision();
+        assert_eq!(network_revision.into_digest(), digest);
     }
 }

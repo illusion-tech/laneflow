@@ -67,7 +67,9 @@ regularity visit cache、待提交几何包装与单 corridor 临时集合使用
 `CompilationOutput` 中已配对的 LIR/source-map input，并接收规范化
 `PortableEmissionProvenanceV1`、显式 `PortableDiffBase::{Genesis, Artifact}` 和格式上限。
 成功结果 `PortablePublicationCandidate` 同时拥有 LFCA、LFSM、LFSD 的 exact bytes、
-SHA-256、精确长度、`sha256/<lowercase-hex>` object key 与 NetworkRevision。Artifact base
+`Sha256Digest`、`ExactByteLength`、`sha256/<lowercase-hex>` object key 与
+`NetworkRevisionId`。这些计算绑定在公开 API 中保持 `laneflow-static-contract` 的强类型，
+只在线格式边界转换为原始字节/整数。Artifact base
 必须先取得 `ValueCheckedObjectView`；emitter 在变化分类前拒绝不兼容 contract、base 内部
 身份/实体错配和跨修订 StableId 前像冲突，并按 A.3/A.5 的字段、set/scalar/domain/occurrence、
 geometry、static rule 与全局 spatial 规则产生诊断性 LFSD。
