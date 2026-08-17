@@ -205,8 +205,14 @@ fn network_revision(
     bytes: &[u8],
     limits: FormatLimits,
 ) -> Result<NetworkRevisionId, PortableEmissionError> {
-    let view = preflight_object_values_v1(bytes, PortableObjectKind::CanonicalArtifact, limits)?
-        .registry_view();
+    let view = preflight_object_values_v1(bytes, PortableObjectKind::CanonicalArtifact, limits)?;
+    network_revision_from_checked(view)
+}
+
+fn network_revision_from_checked(
+    view: ValueCheckedObjectView<'_>,
+) -> Result<NetworkRevisionId, PortableEmissionError> {
+    let view = view.registry_view();
     let mut hasher = Sha256::new();
     hasher.update(NETWORK_REVISION_DOMAIN_PREFIX);
     for ordinal in 0..6 {

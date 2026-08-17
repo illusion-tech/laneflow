@@ -118,6 +118,8 @@ fn build_artifact_lfsd(
     if base.kind() != PortableObjectKind::CanonicalArtifact {
         return Err(PortableEmissionError::InvalidDiffBaseKind);
     }
+    let base =
+        preflight_object_values_v1(base.bytes(), PortableObjectKind::CanonicalArtifact, limits)?;
     let base_view = base.registry_view();
     let target_view = preflight_object_values_v1(
         target_artifact.bytes(),
@@ -131,7 +133,7 @@ fn build_artifact_lfsd(
         ArtifactIndex::build(target_view, PortableEmissionError::InternalBindingMismatch)?;
     verify_artifact_diff_compatibility(base_view, target_view, &base_index, &target_index)?;
 
-    let base_network_revision = network_revision(base.bytes(), limits)?;
+    let base_network_revision = network_revision_from_checked(base)?;
     let base_digest = sha256(base.bytes());
     let base_length = ExactByteLength::new(
         u64::try_from(base.bytes().len()).map_err(|_| PortableEmissionError::ArithmeticOverflow)?,
@@ -176,4 +178,66 @@ fn build_artifact_lfsd(
         ]
         .into_boxed_slice(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use laneflow_format::{FormatError, FormatLimitConfig, LimitDimension};
+
+    const EXPECTED_LFCA: &[u8] =
+        include_bytes!("../../tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca");
+
+    #[test]
+    fn artifact_diff_reapplies_caller_limits_before_building_base_index() {
+        let mut duplicate_stable_id = EXPECTED_LFCA.to_vec();
+        let (first_stable_id, second_stable_id) = {
+            let view = preflight_object_values_v1(
+                &duplicate_stable_id,
+                PortableObjectKind::CanonicalArtifact,
+                FormatLimits::V1_HARD,
+            )
+            .unwrap()
+            .registry_view();
+            let identities = view.section(1).unwrap().table(0).unwrap();
+            let value_range = |row_ordinal| {
+                let value = identities
+                    .row(row_ordinal)
+                    .unwrap()
+                    .field_by_tag(3)
+                    .unwrap()
+                    .value_bytes();
+                let start = value.as_ptr() as usize - duplicate_stable_id.as_ptr() as usize;
+                start..start + value.len()
+            };
+            (value_range(0), value_range(1))
+        };
+        let value = duplicate_stable_id[first_stable_id].to_vec();
+        duplicate_stable_id[second_stable_id].copy_from_slice(&value);
+        let base = preflight_object_values_v1(
+            &duplicate_stable_id,
+            PortableObjectKind::CanonicalArtifact,
+            FormatLimits::V1_HARD,
+        )
+        .unwrap();
+        let target = close_object(EXPECTED_LFCA.to_vec().into_boxed_slice());
+        let mut config = FormatLimitConfig::V1_HARD;
+        config.max_object_bytes = duplicate_stable_id.len() as u64 - 1;
+        let limits = FormatLimits::try_new(config).unwrap();
+
+        assert_eq!(
+            build_artifact_lfsd(
+                base,
+                NetworkRevisionId::from_digest(Sha256Digest::ZERO),
+                &target,
+                limits,
+            ),
+            Err(PortableEmissionError::Format(FormatError::LimitExceeded {
+                dimension: LimitDimension::ObjectBytes,
+                actual: duplicate_stable_id.len() as u64,
+                limit: duplicate_stable_id.len() as u64 - 1,
+            }))
+        );
+    }
 }
