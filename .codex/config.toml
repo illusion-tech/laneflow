@@ -1,0 +1,17 @@
+[mcp_servers.mcpls]
+command = "mcpls"
+args = ["--trust-project-config"]
+cwd = "."
+enabled = true
+required = false
+enabled_tools = [
+  "get_hover",
+  "get_definition",
+  "get_references",
+  "get_document_symbols",
+  "workspace_symbol_search",
+  "get_diagnostics",
+]
+default_tools_approval_mode = "approve"
+startup_timeout_sec = 60
+tool_timeout_sec = 60
