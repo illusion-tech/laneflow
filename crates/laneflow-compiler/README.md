@@ -86,6 +86,11 @@ exact bytes，再以同文件系统 hard-link no-replace 原子安装到内部�
 adapter 的签名/信任根；任意已安装对象在该 adapter 返回成功前仍只是未引用对象。#299 独立
 验证收据实现和 #302 可信切换描述符仍属于后继 Issue。
 
+跨平台确定性由 `.github/workflows/portable-exact-bytes.yml` 直接导出 production emitter 的
+LFCA/LFSM/LFSD bytes：Windows/Ubuntu 各两个 fresh process、每个进程内重复发射，最后在单一
+汇总 job 中逐文件比较 exact bytes、length、SHA-256 和冻结 fixture。当前正式 worker 集合为
+`{1}`；该工作流不把未实现的并行环境变量解释为 worker 覆盖。
+
 成功输出还通过 `CompilationMetrics` 暴露 LIR 逻辑记录数、逻辑输出字节、编译器控制
 峰值字节和同版本语义指纹；`Compiler::retained_capacity_bytes()` 单独报告跨编译保留
 容量。它们只服务宿主预算观测和确定性核对，不暴露私有阶段布局，也不能替代版本化
