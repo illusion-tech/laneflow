@@ -540,11 +540,12 @@ fn len_u64<T>(values: laneflow_road_editing_wire::runtime::Vector<'_, T>) -> u64
 mod tests {
     use super::*;
     use crate::road_editing::{
-        CanonicalFrameInput, CanonicalFrameReference, RoadAlignmentInput, RoadEditingCurveProgram,
-        RoadEditingCurveSegment, RoadEditingDeclaration, RoadEditingModuleHeader,
-        RoadEditingPoint3, RoadEditingProvenance, RoadEditingSignalPhaseState,
-        RoadEditingSourceModuleBuilder, RoadEditingSourceWriter, SignalControllerInput,
-        SignalControllerReference, SignalGroupInput, SignalGroupReference, SignalPhaseInput,
+        CanonicalFrameInput, CanonicalFrameReference, LaneEdgeInput, LaneEdgeReference,
+        RoadAlignmentInput, RoadEditingCurveProgram, RoadEditingCurveSegment,
+        RoadEditingDeclaration, RoadEditingModuleHeader, RoadEditingPoint3, RoadEditingProvenance,
+        RoadEditingSignalPhaseState, RoadEditingSourceModuleBuilder, RoadEditingSourceWriter,
+        SignalControllerInput, SignalControllerReference, SignalGroupInput, SignalGroupReference,
+        SignalPhaseInput,
     };
     use crate::{
         DiagnosticCode, DiagnosticPayload, GeometryAccuracyProfile, GeometryDirectionProfile,
@@ -614,6 +615,49 @@ mod tests {
                 .expect("alignment"),
             )
             .expect("add alignment");
+        RoadEditingSourceWriter::new(limits)
+            .write(builder.finish().expect("module"))
+            .expect("buffer")
+    }
+
+    fn source_buffer_with_lane_successors(
+        limits: &CompileLimits,
+    ) -> super::super::OwnedRoadEditingSourceBuffer {
+        let header = RoadEditingModuleHeader::try_new(
+            "city",
+            "roads/main",
+            Vec::new(),
+            RoadEditingProvenance::direct("editor save").expect("provenance"),
+        )
+        .expect("header");
+        let mut builder = RoadEditingSourceModuleBuilder::new(
+            header,
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            limits,
+        )
+        .expect("builder");
+        builder
+            .add_declaration(RoadEditingDeclaration::LaneEdge(
+                LaneEdgeInput::try_new(
+                    "edge-a",
+                    10.0,
+                    vec![
+                        LaneEdgeReference::local("edge-b").expect("successor"),
+                        LaneEdgeReference::local("edge-c").expect("successor"),
+                    ],
+                    None,
+                )
+                .expect("edge"),
+            ))
+            .expect("edge declaration");
+        for key in ["edge-b", "edge-c"] {
+            builder
+                .add_declaration(RoadEditingDeclaration::LaneEdge(
+                    LaneEdgeInput::try_new(key, 10.0, Vec::new(), None).expect("edge"),
+                ))
+                .expect("edge declaration");
+        }
         RoadEditingSourceWriter::new(limits)
             .write(builder.finish().expect("module"))
             .expect("buffer")
@@ -1089,6 +1133,42 @@ mod tests {
                 field: Some(field),
                 ..
             } if field.as_ref() == "roadAlignment.canonicalFrame"
+        ));
+    }
+
+    #[test]
+    fn semantic_preflight_rejects_duplicate_lane_edge_successors() {
+        let limits = CompileLimits::p100_initial_v1();
+        let buffer = source_buffer_with_lane_successors(&limits);
+        let mut bytes = buffer.as_bytes().to_vec();
+        let successor_offset = {
+            let root = wire::size_prefixed_root_as_road_editing_source(&bytes)
+                .expect("writer output must be structurally valid");
+            let edge = root
+                .lane_edges()
+                .iter()
+                .find(|value| value.lane_edge_key() == "edge-a")
+                .expect("fixture edge");
+            let successor = edge.successors().get(1);
+            assert_eq!(successor, "edge-c");
+            (successor.as_ptr() as usize)
+                .checked_sub(bytes.as_ptr() as usize)
+                .expect("successor belongs to source buffer")
+        };
+        bytes[successor_offset..successor_offset + "edge-c".len()].copy_from_slice(b"edge-b");
+        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
+
+        let error = verify_source(input, &limits, 0, 0).expect_err("duplicate successors");
+
+        assert!(matches!(
+            first_diagnostic(&error).payload(),
+            DiagnosticPayload::InvalidRoadEditingSource {
+                violation: RoadEditingSourceViolation::InvalidSemanticValue(
+                    crate::RoadEditingInputViolation::DuplicateValue
+                ),
+                field: Some(field),
+                ..
+            } if field.as_ref() == "laneEdge.successors"
         ));
     }
 
