@@ -150,6 +150,7 @@ where
     FI: FnMut(&str, u64, GateEvidencePhase) -> Result<GitHubIssue, String>,
     FP: FnMut(&str, u64, GateEvidencePhase) -> Result<GitHubPullRequest, String>,
 {
+    let (selected_role, selected_pr_number) = selected_gate_evidence_pr(args)?;
     if let Some(cached) = cached {
         if cached.issue_number != args.issue {
             return Err(format!(
@@ -157,14 +158,10 @@ where
                 cached.issue_number, args.issue
             ));
         }
-        let expected_pr = args
-            .delivery_pr
-            .or_else(|| args.related_prs.first().copied())
-            .ok_or("缓存的 Gate evidence 命令缺少 Delivery / Related PR 参数")?;
-        if cached.pr_number != expected_pr {
+        if cached.pr_number != selected_pr_number {
             return Err(format!(
                 "缓存的 PR snapshot 与命令不一致：缓存 #{}；命令 #{}",
-                cached.pr_number, expected_pr
+                cached.pr_number, selected_pr_number
             ));
         }
     }
@@ -178,7 +175,8 @@ where
     };
     validate_current_g3_issue(args.phase, issue)?;
 
-    if let Some(delivery_number) = args.delivery_pr {
+    if selected_role == GateEvidencePrRole::Delivery {
+        let delivery_number = selected_pr_number;
         let loaded_delivery_pr;
         let delivery_pr = if let Some(cached) = cached {
             cached.pr
@@ -223,7 +221,7 @@ where
             validate_g4_evidence(args, issue, delivery_pr, &related_prs)?;
         }
     } else {
-        let related_number = args.related_prs[0];
+        let related_number = selected_pr_number;
         let loaded_related_pr;
         let related_pr = if let Some(cached) = cached {
             cached.pr
@@ -279,10 +277,10 @@ fn resolve_and_validate_g3_target(
 pub(crate) fn check_gate_evidence(args: &[String]) -> Result<(), String> {
     let args = parse_gate_evidence_args(args)?;
     if args.phase == GateEvidencePhase::G3 {
-        let (mode, pr_number) = if let Some(delivery_pr) = args.delivery_pr {
-            (G3ValidationMode::DeliveryFullSet, delivery_pr)
-        } else {
-            (G3ValidationMode::RelatedOnly, args.related_prs[0])
+        let (role, pr_number) = selected_gate_evidence_pr(&args)?;
+        let mode = match role {
+            GateEvidencePrRole::Delivery => G3ValidationMode::DeliveryFullSet,
+            GateEvidencePrRole::Related => G3ValidationMode::RelatedOnly,
         };
         let target = resolve_and_validate_g3_target(&args.repo, pr_number, mode, args.phase)?;
         if !target.resolved_args.contains(&args) {
@@ -298,7 +296,7 @@ pub(crate) fn check_gate_evidence(args: &[String]) -> Result<(), String> {
     } else {
         check_gate_evidence_with_args(&args)?;
     }
-    print_gate_evidence_success(&args);
+    print_gate_evidence_success(&args)?;
     Ok(())
 }
 
@@ -328,7 +326,7 @@ pub(crate) fn check_gate_evidence_target(args: &[String]) -> Result<(), String> 
     }
     for args in &final_target.resolved_args {
         check_gate_evidence_with_target(args, &final_target)?;
-        print_gate_evidence_success(args);
+        print_gate_evidence_success(args)?;
     }
     Ok(())
 }

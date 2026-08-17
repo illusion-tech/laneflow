@@ -563,18 +563,52 @@ pub(super) fn validate_gate_evidence_args(args: &GateEvidenceArgs) -> Result<(),
     Ok(())
 }
 
+pub(super) fn selected_gate_evidence_pr(
+    args: &GateEvidenceArgs,
+) -> Result<(GateEvidencePrRole, u64), String> {
+    validate_gate_evidence_args(args)?;
+    match (args.delivery_pr, args.related_prs.as_slice()) {
+        (Some(number), _) => Ok((GateEvidencePrRole::Delivery, number)),
+        (None, [number]) => Ok((GateEvidencePrRole::Related, *number)),
+        _ => Err("Gate evidence 命令缺少唯一可校验的 Delivery / Related PR".to_string()),
+    }
+}
+
+pub(super) fn validate_related_pr_snapshot_count(
+    args: &GateEvidenceArgs,
+    related_prs: &[GitHubPullRequest],
+) -> Result<(), String> {
+    if args.related_prs.len() != related_prs.len() {
+        return Err(format!(
+            "Related PR 参数数量 ({}) 与已读取 snapshot 数量 ({}) 不一致",
+            args.related_prs.len(),
+            related_prs.len()
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn validate_current_g3_target(
     args: &GateEvidenceArgs,
     delivery_pr: Option<&GitHubPullRequest>,
     related_prs: &[GitHubPullRequest],
 ) -> Result<(), String> {
+    validate_related_pr_snapshot_count(args, related_prs)?;
     if args.phase != GateEvidencePhase::G3 {
         return Ok(());
     }
-    let (label, target) = if let Some(delivery_pr) = delivery_pr {
-        ("Delivery PR", delivery_pr)
-    } else {
-        ("Related PR", &related_prs[0])
+    let (role, _) = selected_gate_evidence_pr(args)?;
+    let (label, target) = match role {
+        GateEvidencePrRole::Delivery => (
+            "Delivery PR",
+            delivery_pr.ok_or("标准 G3 Delivery 模式缺少已读取的 Delivery PR snapshot")?,
+        ),
+        GateEvidencePrRole::Related => (
+            "Related PR",
+            related_prs
+                .first()
+                .ok_or("标准 G3 Related-only 模式缺少已读取的 Related PR snapshot")?,
+        ),
     };
     if target.state != "OPEN" || target.is_draft || target.merged_at.is_some() {
         return Err(format!(

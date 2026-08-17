@@ -318,23 +318,24 @@ pub(super) fn validate_related_full_set_member_metadata(
     Ok(issue_numbers)
 }
 
-pub(super) fn print_gate_evidence_success(args: &GateEvidenceArgs) {
-    if let Some(delivery_number) = args.delivery_pr {
-        println!(
+pub(super) fn print_gate_evidence_success(args: &GateEvidenceArgs) -> Result<(), String> {
+    let (role, pr_number) = selected_gate_evidence_pr(args)?;
+    match role {
+        GateEvidencePrRole::Delivery => println!(
             "已校验 Gate {} 远端证据：Issue #{}，Delivery PR #{}",
             match args.phase {
                 GateEvidencePhase::G3 => "G3",
                 GateEvidencePhase::G4 => "G4",
             },
             args.issue,
-            delivery_number
-        );
-    } else {
-        println!(
+            pr_number
+        ),
+        GateEvidencePrRole::Related => println!(
             "已校验 Gate G3 远端证据：Issue #{}，Related PR #{}",
-            args.issue, args.related_prs[0]
-        );
+            args.issue, pr_number
+        ),
     }
+    Ok(())
 }
 
 pub(super) fn validate_g3_evidence(
@@ -343,9 +344,10 @@ pub(super) fn validate_g3_evidence(
     delivery_pr: &GitHubPullRequest,
     related_prs: &[GitHubPullRequest],
 ) -> Result<(), String> {
+    validate_related_pr_snapshot_count(args, related_prs)?;
     let delivery_number = args
         .delivery_pr
-        .expect("full-set G3 validation requires a Delivery PR");
+        .ok_or("Delivery full-set G3 validation 缺少 Delivery PR 参数")?;
     let issue_g3_line = completed_gate_line(&issue.body, "G3")?;
     let delivery_pr_line = metadata_line(&issue.body, "Delivery PR")?;
     if !delivery_pr_line.contains(&format!("#{delivery_number}")) {

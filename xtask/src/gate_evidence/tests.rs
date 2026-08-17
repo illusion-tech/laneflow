@@ -1116,6 +1116,109 @@ fn accepts_related_g3_before_delivery_pr_exists() {
 }
 
 #[test]
+fn selects_delivery_and_related_targets_across_supported_role_phase_matrix() {
+    let mut delivery_with_related = gate_args(GateEvidencePhase::G4);
+    delivery_with_related.related_prs = vec![62, 63];
+
+    assert_eq!(
+        selected_gate_evidence_pr(&gate_args(GateEvidencePhase::G3)),
+        Ok((GateEvidencePrRole::Delivery, 61))
+    );
+    assert_eq!(
+        selected_gate_evidence_pr(&delivery_with_related),
+        Ok((GateEvidencePrRole::Delivery, 61))
+    );
+    assert_eq!(
+        selected_gate_evidence_pr(&related_only_g3_args()),
+        Ok((GateEvidencePrRole::Related, 62))
+    );
+}
+
+#[test]
+fn invalid_role_phase_selection_fails_closed_before_cached_or_remote_access() {
+    let cases = [
+        (
+            GateEvidenceArgs {
+                delivery_pr: None,
+                related_prs: Vec::new(),
+                ..gate_args(GateEvidencePhase::G3)
+            },
+            "G3 必须指定 Delivery PR",
+        ),
+        (
+            GateEvidenceArgs {
+                delivery_pr: None,
+                related_prs: vec![62, 63],
+                ..gate_args(GateEvidencePhase::G3)
+            },
+            "只能指定一个 Related PR",
+        ),
+        (
+            GateEvidenceArgs {
+                delivery_pr: None,
+                related_prs: vec![62],
+                ..gate_args(GateEvidencePhase::G4)
+            },
+            "G4 必须指定",
+        ),
+    ];
+    let issue = issue("OPEN", "In Review");
+    let pr = delivery_pr(None);
+
+    for (args, expected_error) in cases {
+        let mut issue_fetches = 0;
+        let mut pr_fetches = 0;
+        let error = check_gate_evidence_with_loaders(
+            &args,
+            Some(CachedGateEvidence {
+                issue_number: 60,
+                issue: &issue,
+                pr_number: 61,
+                pr: &pr,
+            }),
+            |_, _, _| {
+                issue_fetches += 1;
+                Err("unexpected Issue fetch".to_string())
+            },
+            |_, _, _| {
+                pr_fetches += 1;
+                Err("unexpected PR fetch".to_string())
+            },
+        )
+        .expect_err("invalid role/phase selection must fail closed");
+
+        assert!(error.contains(expected_error), "{error}");
+        assert_eq!(issue_fetches, 0);
+        assert_eq!(pr_fetches, 0);
+        assert!(print_gate_evidence_success(&args).is_err());
+    }
+}
+
+#[test]
+fn missing_internal_pr_snapshots_fail_closed() {
+    let delivery_args = gate_args(GateEvidencePhase::G3);
+    let delivery_error = validate_current_g3_target(&delivery_args, None, &[])
+        .expect_err("missing Delivery snapshot must be rejected");
+    assert!(delivery_error.contains("缺少已读取的 Delivery PR snapshot"));
+
+    let related_args = related_only_g3_args();
+    let related_error = validate_current_g3_target(&related_args, None, &[])
+        .expect_err("missing Related snapshot must be rejected");
+    assert!(related_error.contains("snapshot 数量"));
+
+    let issue = issue_with_pending_delivery_and_related_g3();
+    let related_pr = related_pr_for_args(false, &related_args);
+    let full_set_error = validate_g3_evidence(
+        &related_args,
+        &issue,
+        &related_pr,
+        std::slice::from_ref(&related_pr),
+    )
+    .expect_err("full-set validation without Delivery args must be rejected");
+    assert!(full_set_error.contains("缺少 Delivery PR 参数"));
+}
+
+#[test]
 fn cached_g3_target_avoids_duplicate_issue_and_pr_fetches() {
     let args = related_only_g3_args();
     let issue = issue_with_pending_delivery_and_related_g3();
@@ -1185,6 +1288,99 @@ fn cached_delivery_target_without_related_prs_avoids_duplicate_fetches_in_g3_and
         assert!(result.is_ok(), "{result:?}");
         assert_eq!(issue_fetches, 0);
         assert_eq!(pr_fetches, 0);
+    }
+}
+
+#[test]
+fn cached_delivery_target_with_multiple_related_prs_loads_only_related_members_in_g3_and_g4() {
+    for phase in [GateEvidencePhase::G3, GateEvidencePhase::G4] {
+        let related_numbers = vec![62, 63];
+        let mut args = gate_args(phase);
+        args.related_prs = related_numbers.clone();
+        let mut g3_args = args.clone();
+        g3_args.phase = GateEvidencePhase::G3;
+
+        let project_status = if phase == GateEvidencePhase::G3 {
+            "In Review"
+        } else {
+            "Done"
+        };
+        let mut issue = issue("OPEN", project_status);
+        issue.body = issue
+            .body
+            .replace("Related PRs：N/A，原因：无部分交付。", "Related PRs：#62、#63")
+            .replace(
+                &format!(
+                    "- [x] G3 合并判断已记录：[Delivery G3 评论]({DELIVERY_G3_URL})"
+                ),
+                &format!(
+                    "- [x] G3 合并判断已记录：[Delivery G3 评论]({DELIVERY_G3_URL})；[Related #62 G3 评论](https://github.com/illusion-tech/laneflow/pull/62#issuecomment-620)；[Related #63 G3 评论](https://github.com/illusion-tech/laneflow/pull/63#issuecomment-630)"
+                ),
+            );
+        if phase == GateEvidencePhase::G4 {
+            issue.comments[0] = g4_comment_for_args(ISSUE_G4_URL, "2026-07-10T06:00:00Z", &args);
+        }
+
+        let mut delivery_pr =
+            delivery_pr((phase == GateEvidencePhase::G4).then_some("2026-07-10T05:30:00Z"));
+        delivery_pr.comments[0] =
+            g3_comment_for_args(DELIVERY_G3_URL, "2026-07-10T05:00:00Z", &g3_args);
+
+        let mut related_prs = std::collections::BTreeMap::new();
+        for number in related_numbers {
+            let related_args = GateEvidenceArgs {
+                phase: GateEvidencePhase::G3,
+                repo: args.repo.clone(),
+                issue: args.issue,
+                delivery_pr: None,
+                related_prs: vec![number],
+            };
+            let permalink = format!(
+                "https://github.com/illusion-tech/laneflow/pull/{number}#issuecomment-{number}0"
+            );
+            let mut related_pr = related_pr_for_args(false, &related_args);
+            related_pr.body = related_pr.body.replace(RELATED_G3_URL, &permalink);
+            related_pr.comments[0].url = permalink;
+            if phase == GateEvidencePhase::G4 {
+                related_pr.state = "MERGED".to_string();
+                related_pr.merged_at = Some(if number == 62 {
+                    "2026-07-10T05:10:00Z".to_string()
+                } else {
+                    "2026-07-10T05:20:00Z".to_string()
+                });
+                related_pr.project_items[0].status = Some(ProjectStatus {
+                    name: "Done".to_string(),
+                });
+            }
+            related_prs.insert(number, related_pr);
+        }
+
+        let mut issue_fetches = 0;
+        let mut pr_fetches = 0;
+        let result = check_gate_evidence_with_loaders(
+            &args,
+            Some(CachedGateEvidence {
+                issue_number: 60,
+                issue: &issue,
+                pr_number: 61,
+                pr: &delivery_pr,
+            }),
+            |_, _, _| {
+                issue_fetches += 1;
+                Err("unexpected Issue fetch".to_string())
+            },
+            |_, number, _| {
+                pr_fetches += 1;
+                related_prs
+                    .remove(&number)
+                    .ok_or_else(|| format!("unexpected PR fetch #{number}"))
+            },
+        );
+
+        assert!(result.is_ok(), "phase={phase:?}: {result:?}");
+        assert_eq!(issue_fetches, 0);
+        assert_eq!(pr_fetches, 2);
+        assert!(related_prs.is_empty());
     }
 }
 
