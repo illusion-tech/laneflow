@@ -11,7 +11,7 @@ use laneflow_static_contract::{
 
 use crate::{
     FormatError, FormatLimits, FormatStructure, LimitDimension,
-    wire::{checked_slice, read_u8, read_u16, read_u32, read_u64},
+    wire::{checked_slice, checked_slice_within, read_u8, read_u16, read_u32, read_u64},
 };
 
 const TABLE_HEADER_BYTES: u64 = 16;
@@ -196,7 +196,10 @@ fn preflight_table_structure_with_registry_v1(
     let cursor = parse_rows(
         bytes,
         TABLE_HEADER_BYTES,
-        end,
+        ContainerBoundary {
+            end,
+            structure: FormatStructure::TableRows,
+        },
         row_count,
         0,
         schema.map(|schema| schema.row),
@@ -235,14 +238,15 @@ fn preflight_table_v1(
 fn parse_rows(
     bytes: &[u8],
     mut cursor: u64,
-    end: u64,
+    boundary: ContainerBoundary,
     row_count: u32,
     depth: u8,
     row_schema: Option<&'static PortableRowSchema>,
     limits: FormatLimits,
     budget: &mut PreflightBudget,
 ) -> Result<u64, FormatError> {
-    let available = end
+    let available = boundary
+        .end
         .checked_sub(cursor)
         .ok_or(FormatError::ArithmeticOverflow {
             structure: FormatStructure::Row,
@@ -254,29 +258,41 @@ fn parse_rows(
     )?;
     if minimum > available {
         return Err(FormatError::LengthMismatch {
-            structure: FormatStructure::TableRows,
+            structure: boundary.structure,
             declared: u64::from(row_count),
             actual: available / ROW_HEADER_BYTES,
         });
     }
 
     for _ in 0..row_count {
-        cursor = parse_row(bytes, cursor, end, depth, row_schema, limits, budget)?;
+        cursor = parse_row(bytes, cursor, boundary, depth, row_schema, limits, budget)?;
     }
     Ok(cursor)
+}
+
+#[derive(Clone, Copy)]
+struct ContainerBoundary {
+    end: u64,
+    structure: FormatStructure,
 }
 
 fn parse_row(
     bytes: &[u8],
     row_offset: u64,
-    container_end: u64,
+    boundary: ContainerBoundary,
     depth: u8,
     row_schema: Option<&'static PortableRowSchema>,
     limits: FormatLimits,
     budget: &mut PreflightBudget,
 ) -> Result<u64, FormatError> {
     let config = limits.config();
-    checked_slice(bytes, row_offset, ROW_HEADER_BYTES, FormatStructure::Row)?;
+    checked_slice_within(
+        bytes,
+        row_offset,
+        ROW_HEADER_BYTES,
+        boundary.end,
+        boundary.structure,
+    )?;
     let row_byte_length = read_u64(bytes, row_offset, FormatStructure::Row)?;
     if row_byte_length < ROW_HEADER_BYTES {
         return Err(FormatError::LengthMismatch {
@@ -291,11 +307,11 @@ fn parse_row(
             .ok_or(FormatError::ArithmeticOverflow {
                 structure: FormatStructure::Row,
             })?;
-    if row_end > container_end {
+    if row_end > boundary.end {
         return Err(FormatError::LengthMismatch {
             structure: FormatStructure::Row,
             declared: row_byte_length,
-            actual: container_end.saturating_sub(row_offset),
+            actual: boundary.end.saturating_sub(row_offset),
         });
     }
 
@@ -345,7 +361,13 @@ fn parse_row(
     let mut seen_fields = 0_u32;
     let mut discriminant = None;
     for _ in 0..field_count {
-        checked_slice(bytes, cursor, FIELD_HEADER_BYTES, FormatStructure::Field)?;
+        checked_slice_within(
+            bytes,
+            cursor,
+            FIELD_HEADER_BYTES,
+            row_end,
+            FormatStructure::RowFields,
+        )?;
         let actual_tag = read_u16(bytes, cursor, FormatStructure::Field)?;
         if actual_tag == 0 {
             return Err(FormatError::UnknownKind {
@@ -693,7 +715,10 @@ fn validate_record_vector(
     let cursor = parse_rows(
         bytes,
         rows_offset,
-        rows_end,
+        ContainerBoundary {
+            end: rows_end,
+            structure: FormatStructure::RecordVector,
+        },
         count,
         depth + 1,
         nested_row,
@@ -878,6 +903,38 @@ mod tests {
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
+        );
+    }
+
+    #[test]
+    fn row_and_record_vector_headers_cannot_cross_their_declared_containers() {
+        let mut first = row(&[field(1, PortableFieldType::Bytes, &[0; 12])]);
+        first[8..12].copy_from_slice(&2_u32.to_le_bytes());
+        let bytes = table(1, &[first, row(&[])]);
+        assert_eq!(
+            preflight_table_v1(&bytes, 1, FormatLimits::V1_HARD),
+            Err(FormatError::LengthMismatch {
+                structure: FormatStructure::RowFields,
+                declared: FIELD_HEADER_BYTES,
+                actual: 0,
+            })
+        );
+
+        let nested = row(&[field(1, PortableFieldType::Bytes, &[0; 4])]);
+        let mut vector = record_vector(&[nested]);
+        vector[0..4].copy_from_slice(&2_u32.to_le_bytes());
+        let outer = row(&[
+            field(1, PortableFieldType::RecordVector, &vector),
+            field(2, PortableFieldType::U8, &[0]),
+        ]);
+        let bytes = table(1, &[outer]);
+        assert_eq!(
+            preflight_table_v1(&bytes, 1, FormatLimits::V1_HARD),
+            Err(FormatError::LengthMismatch {
+                structure: FormatStructure::RecordVector,
+                declared: ROW_HEADER_BYTES,
+                actual: 0,
+            })
         );
     }
 
