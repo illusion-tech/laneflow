@@ -9,8 +9,8 @@ use core::str;
 #[cfg(test)]
 use laneflow_static_contract::FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES;
 use laneflow_static_contract::{
-    EntityKind, FieldEncoding, FieldTag, PortableObjectKind, PortableTableSchema,
-    portable_object_schema,
+    EntityKind, FORMAT_HARD_MAX_FIELDS_PER_ROW, FieldEncoding, FieldTag, PortableObjectKind,
+    PortableTableSchema, portable_object_schema,
 };
 
 use crate::{
@@ -23,7 +23,7 @@ const SECTION_HEADER_BYTES: u64 = 4;
 const TABLE_HEADER_BYTES: u64 = 16;
 const ROW_HEADER_BYTES: u64 = 16;
 const FIELD_HEADER_BYTES: u64 = 12;
-const MAX_FIELDS_PER_ROW: usize = 17;
+const MAX_FIELDS_PER_ROW: usize = FORMAT_HARD_MAX_FIELDS_PER_ROW as usize;
 const MAX_PROPERTY_STEPS: usize = 4;
 const MAX_SAFE_INTEGER_U64: u64 = 9_007_199_254_740_991;
 const MAX_COMPILER_BUILD_ID_BYTES: usize = 128;
@@ -146,9 +146,20 @@ struct PropertyStep {
     member: u16,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SemanticDiffBaseKind {
+    Genesis,
+    Artifact,
+}
+
 #[derive(Default)]
 struct DirectBindings {
+    lfca_spatial_present: Option<u8>,
     lfca_direction_profile: Option<u8>,
+    lfca_has_canonical_frame: bool,
+    lfca_has_lane_edge_geometry: bool,
+    lfca_has_facility_band_geometry: bool,
+    lfsd_base_kind: Option<SemanticDiffBaseKind>,
     lfcp_artifact_digest: Option<[u8; 32]>,
     lfcp_source_map_digest: Option<[u8; 32]>,
     lfcp_receipt_digest: Option<[u8; 32]>,
@@ -195,7 +206,7 @@ fn validate_object_values(
                     })?;
         }
     }
-    Ok(())
+    validate_object_bindings(view.kind(), &bindings)
 }
 
 fn validate_table_values(
@@ -207,6 +218,13 @@ fn validate_table_values(
     bindings: &mut DirectBindings,
 ) -> Result<(), FormatError> {
     let row_count = read_u32(bytes, 4, FormatStructure::Table)?;
+    record_table_bindings(
+        object_kind,
+        section_kind,
+        table_schema.kind,
+        row_count,
+        bindings,
+    )?;
     let mut cursor = TABLE_HEADER_BYTES;
     for _ in 0..row_count {
         let (row, end) = parse_row(bytes, cursor)?;
@@ -229,13 +247,69 @@ fn validate_table_values(
                 )?;
             }
             PortableObjectKind::SemanticDiff => {
-                validate_lfsd_row(section_kind, table_schema.kind, row)?;
+                validate_lfsd_row(section_kind, table_schema.kind, row, bindings)?;
             }
             PortableObjectKind::CanonicalPublicationDescriptor => {
                 validate_lfcp_row(section_kind, row, bindings)?;
             }
         }
         cursor = end;
+    }
+    Ok(())
+}
+
+fn record_table_bindings(
+    object_kind: PortableObjectKind,
+    section_kind: u16,
+    table_kind: u16,
+    row_count: u32,
+    bindings: &mut DirectBindings,
+) -> Result<(), FormatError> {
+    match (object_kind, section_kind, table_kind) {
+        (PortableObjectKind::CanonicalArtifact, 3, 35) => {
+            bindings.lfca_has_canonical_frame = row_count != 0;
+        }
+        (PortableObjectKind::CanonicalArtifact, 5, 2) => {
+            bindings.lfca_has_lane_edge_geometry = row_count != 0;
+        }
+        (PortableObjectKind::CanonicalArtifact, 5, 3) => {
+            bindings.lfca_has_facility_band_geometry = row_count != 0;
+        }
+        (PortableObjectKind::SemanticDiff, 5, 1)
+            if bindings.lfsd_base_kind == Some(SemanticDiffBaseKind::Genesis) && row_count != 0 =>
+        {
+            return Err(table_binding_mismatch());
+        }
+        (PortableObjectKind::SemanticDiff, 6, 1) => {
+            let base_kind = bindings.lfsd_base_kind.ok_or_else(table_binding_mismatch)?;
+            if base_kind == SemanticDiffBaseKind::Genesis && row_count != 1 {
+                return Err(table_binding_mismatch());
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn validate_object_bindings(
+    object_kind: PortableObjectKind,
+    bindings: &DirectBindings,
+) -> Result<(), FormatError> {
+    if object_kind != PortableObjectKind::CanonicalArtifact {
+        return Ok(());
+    }
+    let spatial_present = bindings
+        .lfca_spatial_present
+        .ok_or_else(table_binding_mismatch)?;
+    let direction_profile = bindings
+        .lfca_direction_profile
+        .ok_or_else(table_binding_mismatch)?;
+    let derived_spatial_present = direction_profile != 0
+        || bindings.lfca_has_canonical_frame
+        || bindings.lfca_has_lane_edge_geometry
+        || bindings.lfca_has_facility_band_geometry;
+    if (spatial_present != 0) != derived_spatial_present {
+        return Err(table_binding_mismatch());
     }
     Ok(())
 }
@@ -412,16 +486,17 @@ fn validate_lfca_row(
             if present == 0 && profile != 0 {
                 return Err(row_binding_mismatch());
             }
+            bindings.lfca_spatial_present = Some(present);
             bindings.lfca_direction_profile = Some(profile);
         }
         (5, 2) => {
             require_f32_greater(row.required(3)?, 0.1)?;
             validate_geometry_rows(row.required(4)?, Some(row.required(5)?))?;
-            require_u8_range(row.required(6)?, 0, 1)?;
+            validate_direction_profile_applies(row.required(6)?, bindings)?;
         }
         (5, 3) => {
             validate_geometry_rows(row.required(3)?, None)?;
-            require_u8_range(row.required(4)?, 0, 1)?;
+            validate_direction_profile_applies(row.required(4)?, bindings)?;
         }
         (6, 1) => {
             require_exact_u16(row.required(1)?, 1)?;
@@ -560,7 +635,7 @@ fn validate_geometry_rows(
     points: FieldRef<'_>,
     segments: Option<FieldRef<'_>>,
 ) -> Result<(), FormatError> {
-    visit_record_rows(points, |point| {
+    let point_count = visit_record_rows(points, |point| {
         for tag in 1..=3 {
             let field = point.required(tag)?;
             if !(-16_384.0..=16_384.0).contains(&field.f32()?) {
@@ -569,11 +644,31 @@ fn validate_geometry_rows(
         }
         Ok(())
     })?;
+    if point_count < 2 {
+        return Err(row_binding_mismatch());
+    }
     if let Some(segments) = segments {
-        visit_record_rows(segments, |segment| {
+        let segment_count = visit_record_rows(segments, |segment| {
             require_f32_greater(segment.required(1)?, 0.1)?;
             require_f32_greater(segment.required(2)?, 0.1)
         })?;
+        if segment_count != point_count - 1 {
+            return Err(row_binding_mismatch());
+        }
+    }
+    Ok(())
+}
+
+fn validate_direction_profile_applies(
+    field: FieldRef<'_>,
+    bindings: &DirectBindings,
+) -> Result<(), FormatError> {
+    let applies = require_u8_range(field, 0, 1)?;
+    let direction_profile = bindings
+        .lfca_direction_profile
+        .ok_or_else(row_binding_mismatch)?;
+    if applies != 0 && direction_profile == 0 {
+        return Err(row_binding_mismatch());
     }
     Ok(())
 }
@@ -1016,14 +1111,30 @@ fn struct_member_max(container: u16) -> Option<u16> {
     [0, 0, 2, 1].get(usize::from(container)).copied()
 }
 
-fn validate_lfsd_row(section: u16, _table: u16, row: RowRef<'_>) -> Result<(), FormatError> {
+fn validate_lfsd_row(
+    section: u16,
+    _table: u16,
+    row: RowRef<'_>,
+    bindings: &mut DirectBindings,
+) -> Result<(), FormatError> {
     match section {
-        1 => validate_diff_bindings(row)?,
-        2..=5 => validate_change_row(section, row)?,
+        1 => bindings.lfsd_base_kind = Some(validate_diff_bindings(row)?),
+        2..=5 => validate_change_row(
+            section,
+            row,
+            bindings.lfsd_base_kind.ok_or_else(row_binding_mismatch)?,
+        )?,
         6 => {
             let kind = row.required(1)?.u8()?;
             if !matches!(kind, 0 | 1) {
                 return Err(unknown(row.required(1)?, u64::from(kind)));
+            }
+            let base_kind = bindings.lfsd_base_kind.ok_or_else(row_binding_mismatch)?;
+            if matches!(
+                (base_kind, kind),
+                (SemanticDiffBaseKind::Genesis, 1) | (SemanticDiffBaseKind::Artifact, 0)
+            ) {
+                return Err(row_binding_mismatch());
             }
             if kind == 1 && row.required(2)?.value == row.required(3)?.value {
                 return Err(row_binding_mismatch());
@@ -1034,7 +1145,7 @@ fn validate_lfsd_row(section: u16, _table: u16, row: RowRef<'_>) -> Result<(), F
     Ok(())
 }
 
-fn validate_diff_bindings(row: RowRef<'_>) -> Result<(), FormatError> {
+fn validate_diff_bindings(row: RowRef<'_>) -> Result<SemanticDiffBaseKind, FormatError> {
     let base_kind_field = row.required(1)?;
     let base_kind = require_u8_range(base_kind_field, 0, 1)?;
     if base_kind == 0 {
@@ -1051,12 +1162,27 @@ fn validate_diff_bindings(row: RowRef<'_>) -> Result<(), FormatError> {
     require_exact_u16(row.required(6)?, 1)?;
     require_not_all_zero(row.required(7)?)?;
     require_not_all_zero(row.required(8)?)?;
-    require_u64_greater(row.required(9)?, 0)
+    require_u64_greater(row.required(9)?, 0)?;
+    Ok(if base_kind == 0 {
+        SemanticDiffBaseKind::Genesis
+    } else {
+        SemanticDiffBaseKind::Artifact
+    })
 }
 
-fn validate_change_row(section: u16, row: RowRef<'_>) -> Result<(), FormatError> {
+fn validate_change_row(
+    section: u16,
+    row: RowRef<'_>,
+    base_kind: SemanticDiffBaseKind,
+) -> Result<(), FormatError> {
     let change = row.required(1)?.u8()?;
     let entity = require_entity_kind(row.required(2)?)?;
+    if base_kind == SemanticDiffBaseKind::Genesis && (section == 5 || change != 0) {
+        return Err(row_binding_mismatch());
+    }
+    if section == 4 && !matches!(entity, EntityKind::LaneEdge | EntityKind::FacilityBand) {
+        return Err(row_binding_mismatch());
+    }
     if section == 3 {
         let role = row.required(5)?;
         let role_value = role.u8()?;
@@ -1392,6 +1518,12 @@ const fn row_binding_mismatch() -> FormatError {
     }
 }
 
+const fn table_binding_mismatch() -> FormatError {
+    FormatError::BindingMismatch {
+        structure: FormatStructure::TableRows,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::vec;
@@ -1545,6 +1677,15 @@ mod tests {
         row_bytes(&fields)
     }
 
+    fn spatial_configuration_change_row(change_kind: u8) -> Vec<u8> {
+        let mut fields = vec![field_bytes(1, PortableFieldType::U8, &[change_kind])];
+        if change_kind == 1 {
+            fields.push(field_bytes(2, PortableFieldType::Bytes, &[0]));
+        }
+        fields.push(field_bytes(3, PortableFieldType::Bytes, &[1]));
+        row_bytes(&fields)
+    }
+
     fn encoded_value_object(kind: PortableObjectKind) -> Vec<u8> {
         let schema = portable_object_schema(kind);
         let sections = schema
@@ -1556,6 +1697,11 @@ mod tests {
                 for table in section.tables {
                     let rows = if table.cardinality == PortableRowCardinality::ExactlyOne {
                         vec![schema_row_bytes(kind, section.kind, table.kind, table.row)]
+                    } else if kind == PortableObjectKind::SemanticDiff
+                        && section.kind == 6
+                        && table.kind == 1
+                    {
+                        vec![spatial_configuration_change_row(0)]
                     } else {
                         Vec::new()
                     };
@@ -1801,6 +1947,110 @@ mod tests {
     }
 
     #[test]
+    fn spatial_presence_and_geometry_cardinality_fail_closed() {
+        let point = || {
+            row_bytes(&[
+                field_bytes(1, PortableFieldType::F32, &0.0_f32.to_bits().to_le_bytes()),
+                field_bytes(2, PortableFieldType::F32, &0.0_f32.to_bits().to_le_bytes()),
+                field_bytes(3, PortableFieldType::F32, &0.0_f32.to_bits().to_le_bytes()),
+            ])
+        };
+        let segment = || {
+            row_bytes(&[
+                field_bytes(1, PortableFieldType::F32, &0.2_f32.to_bits().to_le_bytes()),
+                field_bytes(2, PortableFieldType::F32, &0.2_f32.to_bits().to_le_bytes()),
+            ])
+        };
+        let geometry = |points: &[Vec<u8>], segments: &[Vec<u8>], applies: u8| {
+            row_bytes(&[
+                field_bytes(3, PortableFieldType::F32, &0.2_f32.to_bits().to_le_bytes()),
+                field_bytes(4, PortableFieldType::RecordVector, &record_value(points)),
+                field_bytes(5, PortableFieldType::RecordVector, &record_value(segments)),
+                field_bytes(6, PortableFieldType::U8, &[applies]),
+            ])
+        };
+
+        for invalid in [
+            geometry(&[], &[], 0),
+            geometry(&[point()], &[], 0),
+            geometry(&[point(), point()], &[], 0),
+        ] {
+            let row = parse_test_row(&invalid);
+            assert_eq!(
+                validate_geometry_rows(row.required(4).unwrap(), Some(row.required(5).unwrap()))
+                    .unwrap_err()
+                    .class(),
+                FormatErrorClass::BindingMismatch
+            );
+        }
+        let valid = geometry(&[point(), point()], &[segment()], 0);
+        let valid = parse_test_row(&valid);
+        validate_geometry_rows(valid.required(4).unwrap(), Some(valid.required(5).unwrap()))
+            .unwrap();
+
+        let facility = row_bytes(&[field_bytes(
+            3,
+            PortableFieldType::RecordVector,
+            &record_value(&[point()]),
+        )]);
+        assert_eq!(
+            validate_geometry_rows(parse_test_row(&facility).required(3).unwrap(), None)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::BindingMismatch
+        );
+
+        let mut bindings = DirectBindings::default();
+        let spatial = row_bytes(&[
+            field_bytes(1, PortableFieldType::U8, &[1]),
+            field_bytes(2, PortableFieldType::U8, &[0]),
+        ]);
+        validate_lfca_row(
+            5,
+            1,
+            parse_test_row(&spatial),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            &mut bindings,
+        )
+        .unwrap();
+        assert_eq!(
+            validate_lfca_row(
+                5,
+                2,
+                parse_test_row(&geometry(&[point(), point()], &[segment()], 1)),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+                &mut bindings,
+            )
+            .unwrap_err()
+            .class(),
+            FormatErrorClass::BindingMismatch
+        );
+        assert_eq!(
+            validate_object_bindings(PortableObjectKind::CanonicalArtifact, &bindings)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::BindingMismatch
+        );
+        bindings.lfca_has_canonical_frame = true;
+        validate_object_bindings(PortableObjectKind::CanonicalArtifact, &bindings).unwrap();
+
+        let mut headless = DirectBindings {
+            lfca_spatial_present: Some(0),
+            lfca_direction_profile: Some(0),
+            lfca_has_facility_band_geometry: true,
+            ..DirectBindings::default()
+        };
+        assert_eq!(
+            validate_object_bindings(PortableObjectKind::CanonicalArtifact, &headless)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::BindingMismatch
+        );
+        headless.lfca_has_facility_band_geometry = false;
+        validate_object_bindings(PortableObjectKind::CanonicalArtifact, &headless).unwrap();
+    }
+
+    #[test]
     fn source_location_closes_subject_address_depth_and_property_path() {
         let valid_property = property_value(&[(0, 12, 2)]);
         let valid = row_bytes(&[
@@ -1966,7 +2216,10 @@ mod tests {
             field_bytes(8, PortableFieldType::Sha256, &[2; 32]),
             field_bytes(9, PortableFieldType::U64, &1_u64.to_le_bytes()),
         ]);
-        validate_diff_bindings(parse_test_row(&genesis)).unwrap();
+        assert_eq!(
+            validate_diff_bindings(parse_test_row(&genesis)).unwrap(),
+            SemanticDiffBaseKind::Genesis
+        );
 
         let target_zero = row_bytes(&[
             field_bytes(1, PortableFieldType::U8, &[0]),
@@ -2000,9 +2253,13 @@ mod tests {
             field_bytes(8, PortableFieldType::U32, &3_u32.to_le_bytes()),
         ]);
         assert_eq!(
-            validate_change_row(3, parse_test_row(&move_same_index))
-                .unwrap_err()
-                .class(),
+            validate_change_row(
+                3,
+                parse_test_row(&move_same_index),
+                SemanticDiffBaseKind::Artifact,
+            )
+            .unwrap_err()
+            .class(),
             FormatErrorClass::BindingMismatch
         );
 
@@ -2019,11 +2276,106 @@ mod tests {
             field_bytes(10, PortableFieldType::Bytes, &[1]),
         ]);
         assert_eq!(
-            validate_change_row(2, parse_test_row(&invalid_entity_field))
-                .unwrap_err()
-                .class(),
+            validate_change_row(
+                2,
+                parse_test_row(&invalid_entity_field),
+                SemanticDiffBaseKind::Artifact,
+            )
+            .unwrap_err()
+            .class(),
             FormatErrorClass::UnknownKind
         );
+    }
+
+    #[test]
+    fn semantic_diff_base_kind_closes_change_and_spatial_shapes() {
+        let mut genesis = DirectBindings {
+            lfsd_base_kind: Some(SemanticDiffBaseKind::Genesis),
+            ..DirectBindings::default()
+        };
+        assert_eq!(
+            record_table_bindings(PortableObjectKind::SemanticDiff, 6, 1, 0, &mut genesis,)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::BindingMismatch
+        );
+        record_table_bindings(PortableObjectKind::SemanticDiff, 6, 1, 1, &mut genesis).unwrap();
+        assert_eq!(
+            record_table_bindings(PortableObjectKind::SemanticDiff, 5, 1, 1, &mut genesis,)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::BindingMismatch
+        );
+
+        let remove = row_bytes(&[
+            field_bytes(1, PortableFieldType::U8, &[1]),
+            field_bytes(
+                2,
+                PortableFieldType::U16,
+                &EntityKind::LaneEdge.code().to_le_bytes(),
+            ),
+        ]);
+        assert_eq!(
+            validate_change_row(2, parse_test_row(&remove), SemanticDiffBaseKind::Genesis,)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::BindingMismatch
+        );
+
+        let modify_spatial = spatial_configuration_change_row(1);
+        assert_eq!(
+            validate_lfsd_row(6, 1, parse_test_row(&modify_spatial), &mut genesis)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::BindingMismatch
+        );
+        let mut artifact = DirectBindings {
+            lfsd_base_kind: Some(SemanticDiffBaseKind::Artifact),
+            ..DirectBindings::default()
+        };
+        let initialize_spatial = spatial_configuration_change_row(0);
+        assert_eq!(
+            validate_lfsd_row(6, 1, parse_test_row(&initialize_spatial), &mut artifact)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::BindingMismatch
+        );
+    }
+
+    #[test]
+    fn geometry_changes_accept_only_geometry_entity_kinds() {
+        for change in 0..=2 {
+            let mut fields = vec![
+                field_bytes(1, PortableFieldType::U8, &[change]),
+                field_bytes(
+                    2,
+                    PortableFieldType::U16,
+                    &EntityKind::Junction.code().to_le_bytes(),
+                ),
+            ];
+            if change == 2 {
+                fields.push(field_bytes(9, PortableFieldType::Bytes, &[0]));
+                fields.push(field_bytes(10, PortableFieldType::Bytes, &[1]));
+            }
+            assert_eq!(
+                validate_change_row(
+                    4,
+                    parse_test_row(&row_bytes(&fields)),
+                    SemanticDiffBaseKind::Artifact,
+                )
+                .unwrap_err()
+                .class(),
+                FormatErrorClass::BindingMismatch
+            );
+        }
+
+        for entity in [EntityKind::LaneEdge, EntityKind::FacilityBand] {
+            let add = row_bytes(&[
+                field_bytes(1, PortableFieldType::U8, &[0]),
+                field_bytes(2, PortableFieldType::U16, &entity.code().to_le_bytes()),
+            ]);
+            validate_change_row(4, parse_test_row(&add), SemanticDiffBaseKind::Artifact).unwrap();
+        }
     }
 
     #[test]

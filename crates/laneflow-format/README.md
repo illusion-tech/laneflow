@@ -1,11 +1,12 @@
 # laneflow_format
 
-LaneFlow LFCA/LFSM/LFSD/LFCP v1 的受限线格式 crate。
+LaneFlow 可移植规范制品 `LFCA`、源映射封套 `LFSM`、语义差异封套 `LFSD` 与规范发布描述符
+`LFCP` v1 的受限线格式 crate；规范术语见 [`docs/reference/glossary.md`](../../docs/reference/glossary.md)。
 
 当前 G2 线格式层包括：
 
 - 无分配的 `measure_object_v1` / `prepare_object_v1` / `encode_object_v1` 受限精确编码：接收借用的
-  对象/节/表/行/字段（object/section/table/row/field）输入，复用附录 A registry，先完成
+  对象、节、表、行和字段输入，复用附录 A registry，先完成
   全对象计量、形状和预算检查；`PreparedObjectV1` 可把这一次预检和 exact length 带入
   `encode_prepared_object_v1`，避免精确分配后重复预检；只有调用方缓冲区长度精确匹配后
   才写入，任何返回错误都保持输出逐字节不变；
