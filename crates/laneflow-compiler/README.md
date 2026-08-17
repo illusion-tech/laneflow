@@ -72,6 +72,11 @@ SHA-256、精确长度、`sha256/<lowercase-hex>` object key 与 NetworkRevision
 身份/实体错配和跨修订 StableId 前像冲突，并按 A.3/A.5 的字段、set/scalar/domain/occurrence、
 geometry、static rule 与全局 spatial 规则产生诊断性 LFSD。
 
+发射器对受检 table/RecordVector 的顺序消费使用单游标零拷贝迭代器；writer 适配层把
+nested/top fields、rows、tables、sections 降低到少量连续 arena，并通过
+`PreparedObjectV1` 只执行一次完整计量/预检。ordinal 随机访问只保留给 singleton 或真正的
+定位读取，不得用于全表顺序扫描。
+
 该返回值仍是未受信内存候选：checked base 只证明格式结构和直接值域，不证明完整 artifact
 语义；候选也不授予发布、迁移或运行时加载权限。固定对象 fixture、文件系统 no-replace 安装、
 LFCP、#299 独立验证收据与 #302 可信切换描述符仍属于后继切片。

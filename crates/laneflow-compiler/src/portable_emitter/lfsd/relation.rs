@@ -71,8 +71,9 @@ pub(super) fn artifact_relation_tuples(
         match owner_kind {
             EntityKind::RoadCorridor => {
                 let elements = checked_record_vector_with(owner.row, 4, mismatch)?;
-                for local_index in 0..elements.len() {
-                    let element = elements.row(local_index).ok_or(mismatch)?;
+                for (local_index, element) in elements.rows().enumerate() {
+                    let local_index = u32::try_from(local_index)
+                        .map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
                     let subject_kind = match checked_u8_with(element, 1, mismatch)? {
                         0 => EntityKind::RoadSection,
                         1 => EntityKind::FacilityBand,
@@ -339,8 +340,7 @@ pub(super) fn artifact_relation_tuples(
     let relation_section = index.view.section(3).ok_or(mismatch)?;
     let internal_edges = relation_section.table(0).ok_or(mismatch)?;
     let mut next_internal_index = BTreeMap::<[u8; 16], u32>::new();
-    for ordinal in 0..internal_edges.row_count() {
-        let relation = internal_edges.row(ordinal).ok_or(mismatch)?;
+    for relation in internal_edges.rows() {
         let owner_stable_id = index.stable_id(
             EntityKind::Junction,
             checked_u32_with(relation, 2, mismatch)?,
@@ -368,8 +368,7 @@ pub(super) fn artifact_relation_tuples(
         (3, 16, EntityKind::WaitingZone),
     ] {
         let occurrences = relation_section.table(table_ordinal).ok_or(mismatch)?;
-        for ordinal in 0..occurrences.row_count() {
-            let occurrence = occurrences.row(ordinal).ok_or(mismatch)?;
+        for occurrence in occurrences.rows() {
             let owner_stable_id = index.stable_id(
                 EntityKind::StaticRoute,
                 checked_u32_with(occurrence, 1, mismatch)?,

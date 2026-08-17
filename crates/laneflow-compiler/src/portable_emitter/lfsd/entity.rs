@@ -99,8 +99,7 @@ fn semantic_field_value(
             .ok_or(PortableEmissionError::ArithmeticOverflow)?;
         let mut value = Vec::with_capacity(capacity);
         value.extend_from_slice(&states.len().to_le_bytes());
-        for ordinal in 0..states.len() {
-            let state = states.row(ordinal).ok_or(mismatch)?;
+        for state in states.rows() {
             value.extend_from_slice(&stable_ref_value(
                 index,
                 EntityKind::SignalGroup,
@@ -292,23 +291,21 @@ pub(super) fn genesis_entity_changes(
         .section(2)
         .ok_or(PortableEmissionError::InternalBindingMismatch)?;
     let mut changes = Vec::new();
-    for (table_index, entity_kind) in EntityKind::ALL.into_iter().enumerate() {
-        let table = section
-            .table(
-                u32::try_from(table_index)
-                    .expect("the canonical entity registry contains only 22 tables"),
-            )
+    let mut tables = section.tables();
+    for entity_kind in EntityKind::ALL {
+        let table = tables
+            .next()
             .ok_or(PortableEmissionError::InternalBindingMismatch)?;
-        for row_index in 0..table.row_count() {
-            let entity = table
-                .row(row_index)
-                .ok_or(PortableEmissionError::InternalBindingMismatch)?;
+        for entity in table.rows() {
             changes.push((
                 entity_kind,
                 checked_stable_id(entity, 2)?,
                 entity.bytes().to_vec().into_boxed_slice(),
             ));
         }
+    }
+    if tables.next().is_some() {
+        return Err(PortableEmissionError::InternalBindingMismatch);
     }
     changes.sort_unstable_by_key(|(kind, stable_id, _)| (*kind, *stable_id));
     Ok(changes

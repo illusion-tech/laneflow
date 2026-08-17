@@ -27,8 +27,8 @@ use laneflow_format::{
     FieldWriteInputV1, FieldWriteValueV1, FormatError, FormatLimits, ObjectWriteInputV1,
     RegistryCheckedFieldValue, RegistryCheckedObjectView, RegistryCheckedOrdinalVectorView,
     RegistryCheckedRecordVectorView, RegistryCheckedRowView, RowWriteInputV1, SectionWriteInputV1,
-    TableWriteInputV1, ValueCheckedObjectView, encode_object_v1, measure_object_v1,
-    preflight_object_values_v1,
+    TableWriteInputV1, ValueCheckedObjectView, encode_prepared_object_v1,
+    preflight_object_values_v1, prepare_object_v1,
 };
 use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, EntityKind, EntityKindMarker,
