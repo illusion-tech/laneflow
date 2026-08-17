@@ -241,6 +241,7 @@ pub(super) fn validate_g4_evidence(
     delivery_pr: &GitHubPullRequest,
     related_prs: &[GitHubPullRequest],
 ) -> Result<(), String> {
+    validate_related_pr_snapshot_count(args, related_prs)?;
     if issue.state != "OPEN" {
         return Err("G4 断言必须在手动关闭 Issue 前运行".to_string());
     }
