@@ -20,8 +20,9 @@ ART/MAP/DIFF 与 `SEC-001..015` 已闭合；独立 `portable_store` 已实现同
 flush/sync/close、digest key、hard-link atomic no-replace、并发 winner exact-byte 复用/冲突和
 unsupported fail-closed。LFCP exact-byte 构造、receipt 安装前置条件、`ATOM-001..012` 与外部
 认证 manifest 单提交 adapter 也已闭合；#298 只消费 #299 未来提供的 receipt view，不定义或
-伪造 receipt wire。Windows/Ubuntu exact-byte CI 已对独立进程输出完成集中逐字节比较；独立
-验证收据实现与 P100 资源证据仍未完成，候选或已安装对象均不得解释为
+伪造 receipt wire。Windows/Ubuntu exact-byte CI 已对独立进程输出完成集中逐字节比较；
+#292 合法 production workload 上的 P100 emitter 时延、候选暂存和三类输出大小也已登记。
+独立验证收据实现仍未完成，候选或已安装对象均不得解释为
 validated/trusted/published artifact<br>
 **关联 Issue**: #298；依赖 #292、#296；阻断 #299、#300<br>
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
