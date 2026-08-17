@@ -21,8 +21,8 @@ LaneFlow 可移植规范制品 `LFCA`、源映射封套 `LFSM`、语义差异封
   以单游标零拷贝遍历 section/table/row/field 并按登记类型读取值的只读视图；保留的
   ordinal 随机访问 API 为 O(n)，不用于顺序扫描；
 - 在 registry 能力之上建立的 `ValueCheckedObjectView`：检查 Identity v1 字段编码与 token、
-  LFCA 的版本/封闭枚举/局部标量、LFSM 的来源种类/address/property path、LFSD 的
-  Genesis/Artifact 直接绑定和同行 change 约束，以及 LFCP 的版本、receipt/publisher kind 与
+  LFCA 的版本/封闭枚举/实体内部向量基数/局部标量、LFSM 的来源种类/address/property path、
+  LFSD 的 Genesis/Artifact 直接绑定和同行 change 约束，以及 LFCP 的版本、receipt/publisher kind 与
   `sha256/<64 lowercase hex>` 同对象摘要绑定。
 - `FormatLimits` 同时覆盖对象/节/表、行/字段、Identity ASCII、UTF-8、向量、嵌套、LFSM
   来源位置与候选暂存预算；任一调用方值只能收紧。registry capability 保留产生它的同一

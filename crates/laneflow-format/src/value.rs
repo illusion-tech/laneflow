@@ -35,7 +35,7 @@ const PORTABLE_COMPILE_OPTIONS_DIGEST_V1: [u8; 32] = [
 /// 已完成 registry 结构预检和附录 A 直接值域检查的对象借用。
 ///
 /// 该能力值证明字段已按登记类型解码，并且对象种类专用的封闭枚举、版本、token、
-/// 同行存在性矩阵、局部数值关系和 LFCP 对象键直接绑定有效。它不证明跨行/跨表引用、
+/// 同行存在性矩阵、局部向量基数、局部数值关系和 LFCP 对象键直接绑定有效。它不证明跨行/跨表引用、
 /// 行排序键、StableId/NetworkRevision 重算、LFSD 完备性、跨对象摘要绑定或真实性，因而
 /// 不是 `validated` 或 `trusted` view。
 #[derive(Clone, Copy, Debug)]
@@ -407,6 +407,9 @@ fn validate_lfca_row(
     max_identity_ascii_bytes: u64,
     bindings: &mut DirectBindings,
 ) -> Result<(), FormatError> {
+    if section == 3 {
+        validate_lfca_entity_vector_cardinalities(table, row)?;
+    }
     match (section, table) {
         (1, 1) => {
             for tag in 1..=6 {
@@ -422,7 +425,7 @@ fn validate_lfca_row(
                 require_u8_range(nested.required(1)?, 0, 1).map(|_| ())
             })?;
         }
-        (3, 2) => validate_kind_id(row.required(4)?, true, max_identity_ascii_bytes)?,
+        (3, 2) => validate_kind_id(row.required(4)?, true)?,
         (3, 4) => {
             require_f64_greater(row.required(3)?, 1.0e-9)?;
             require_f64_greater(row.required(4)?, 0.0)?;
@@ -455,7 +458,7 @@ fn validate_lfca_row(
             })?;
         }
         (3, 15) => validate_parking_space(row)?,
-        (3, 17) => validate_kind_id(row.required(4)?, false, max_identity_ascii_bytes)?,
+        (3, 17) => validate_kind_id(row.required(4)?, false)?,
         (3, 19) => {
             require_u8_range(row.required(3)?, 0, 3)?;
             require_u8_range(row.required(5)?, 0, 1)?;
@@ -522,6 +525,74 @@ fn validate_lfca_row(
     Ok(())
 }
 
+fn validate_lfca_entity_vector_cardinalities(
+    table: u16,
+    row: RowRef<'_>,
+) -> Result<(), FormatError> {
+    match table {
+        1 => {
+            require_vector_count(row.required(4)?, FormatStructure::RecordVector, 1)?;
+        }
+        2 => {
+            require_vector_count(row.required(5)?, FormatStructure::OrdinalVector, 1)?;
+        }
+        3 => {
+            require_vector_count(row.required(4)?, FormatStructure::OrdinalVector, 1)?;
+        }
+        5 => {
+            require_vector_count(row.required(3)?, FormatStructure::OrdinalVector, 1)?;
+        }
+        6 => {
+            require_vector_count(row.required(6)?, FormatStructure::OrdinalVector, 1)?;
+        }
+        7 => {
+            require_vector_count(row.required(4)?, FormatStructure::OrdinalVector, 2)?;
+        }
+        10 | 11 | 16 => {
+            require_vector_count(row.required(4)?, FormatStructure::OrdinalVector, 1)?;
+        }
+        12 => {
+            require_vector_count(row.required(5)?, FormatStructure::OrdinalVector, 1)?;
+            require_vector_count(row.required(6)?, FormatStructure::OrdinalVector, 1)?;
+        }
+        13 => {
+            require_vector_count(row.required(5)?, FormatStructure::RecordVector, 1)?;
+        }
+        14 => {
+            require_vector_count(row.required(3)?, FormatStructure::OrdinalVector, 1)?;
+        }
+        19 => {
+            require_vector_count(row.required(6)?, FormatStructure::OrdinalVector, 1)?;
+        }
+        21 => {
+            let edge_count =
+                require_vector_count(row.required(3)?, FormatStructure::OrdinalVector, 1)?;
+            let transition_count = vector_count(row.required(4)?, FormatStructure::RecordVector)?;
+            if transition_count != edge_count - 1 {
+                return Err(row_binding_mismatch());
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn require_vector_count(
+    field: FieldRef<'_>,
+    structure: FormatStructure,
+    minimum: u32,
+) -> Result<u32, FormatError> {
+    let count = vector_count(field, structure)?;
+    if count < minimum {
+        return Err(row_binding_mismatch());
+    }
+    Ok(count)
+}
+
+fn vector_count(field: FieldRef<'_>, structure: FormatStructure) -> Result<u32, FormatError> {
+    read_u32(field.value, 0, structure)
+}
+
 fn validate_identity_fields(
     entity: EntityKind,
     field: FieldRef<'_>,
@@ -554,7 +625,7 @@ fn validate_identity_field(
     let value = row.required(2)?;
     match tag.encoding() {
         FieldEncoding::Ascii => {
-            validate_ascii_token(value, max_identity_ascii_bytes)?;
+            validate_identity_ascii_token(value, max_identity_ascii_bytes)?;
         }
         FieldEncoding::StableId128 if value.value.len() == 16 => {}
         FieldEncoding::StableId128 => {
@@ -568,12 +639,8 @@ fn validate_identity_field(
     Ok(tag)
 }
 
-fn validate_kind_id(
-    field: FieldRef<'_>,
-    road_section: bool,
-    max_identity_ascii_bytes: u64,
-) -> Result<(), FormatError> {
-    validate_ascii_token(field, max_identity_ascii_bytes)?;
+fn validate_kind_id(field: FieldRef<'_>, road_section: bool) -> Result<(), FormatError> {
+    validate_ascii_token_grammar(field)?;
     let value = field.value;
     let valid = if road_section {
         value == b"motorLane"
@@ -688,7 +755,7 @@ fn validate_lfsm_row(
             validate_compiler_build_id(row.required(6)?)?;
         }
         (2, 1) => {
-            validate_ascii_token(row.required(2)?, max_identity_ascii_bytes)?;
+            validate_identity_ascii_token(row.required(2)?, max_identity_ascii_bytes)?;
             let language_field = row.required(3)?;
             let language = language_field.u16()?;
             if !matches!(language, 1 | 3) {
@@ -699,11 +766,11 @@ fn validate_lfsm_row(
             let expected_frontend = if language == 1 { 2 } else { 1 };
             require_exact_u32(frontend, expected_frontend)?;
             visit_record_rows(row.required(12)?, |import| {
-                validate_ascii_token(import.required(1)?, max_identity_ascii_bytes)
+                validate_identity_ascii_token(import.required(1)?, max_identity_ascii_bytes)
             })?;
         }
         (2, 2) => {
-            validate_ascii_token(row.required(3)?, max_identity_ascii_bytes)?;
+            validate_ascii_token_grammar(row.required(3)?)?;
             require_u32_greater(row.required(5)?, 0)?;
         }
         (2, 3) => validate_source_location(row, max_identity_ascii_bytes)?,
@@ -814,7 +881,7 @@ fn validate_road_editing_location(
 ) -> Result<(), FormatError> {
     for tag in [10, 12, 13, 14, 15] {
         if let Some(field) = row.field(tag) {
-            validate_ascii_token(field, max_identity_ascii_bytes)?;
+            validate_identity_ascii_token(field, max_identity_ascii_bytes)?;
         }
     }
 
@@ -1348,7 +1415,7 @@ fn require_entity_kind(field: FieldRef<'_>) -> Result<EntityKind, FormatError> {
     EntityKind::from_code(code).ok_or_else(|| unknown(field, u64::from(code)))
 }
 
-fn validate_ascii_token(field: FieldRef<'_>, max_bytes: u64) -> Result<(), FormatError> {
+fn validate_identity_ascii_token(field: FieldRef<'_>, max_bytes: u64) -> Result<(), FormatError> {
     let value = field.value;
     if value.len() as u64 > max_bytes {
         return Err(FormatError::LimitExceeded {
@@ -1357,6 +1424,11 @@ fn validate_ascii_token(field: FieldRef<'_>, max_bytes: u64) -> Result<(), Forma
             limit: max_bytes,
         });
     }
+    validate_ascii_token_grammar(field)
+}
+
+fn validate_ascii_token_grammar(field: FieldRef<'_>) -> Result<(), FormatError> {
+    let value = field.value;
     if value.is_empty() || !value.is_ascii() {
         return Err(noncanonical(field));
     }
@@ -1565,6 +1637,15 @@ mod tests {
         bytes.extend_from_slice(&(rows.len() as u32).to_le_bytes());
         for row in rows {
             bytes.extend_from_slice(row);
+        }
+        bytes
+    }
+
+    fn ordinal_value(items: &[u32]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(items.len() as u32).to_le_bytes());
+        for item in items {
+            bytes.extend_from_slice(&item.to_le_bytes());
         }
         bytes
     }
@@ -1873,6 +1954,135 @@ mod tests {
                 FormatErrorClass::BindingMismatch
             );
         }
+    }
+
+    #[test]
+    fn identity_ascii_limit_is_scoped_to_identity_values() {
+        let facility_band = row_bytes(&[field_bytes(4, PortableFieldType::Utf8, b"plantingStrip")]);
+        validate_lfca_row(
+            3,
+            17,
+            parse_test_row(&facility_band),
+            1,
+            &mut DirectBindings::default(),
+        )
+        .unwrap();
+
+        let source_document = row_bytes(&[
+            field_bytes(3, PortableFieldType::Utf8, b"document-key"),
+            field_bytes(5, PortableFieldType::U32, &1_u32.to_le_bytes()),
+        ]);
+        validate_lfsm_row(2, 2, parse_test_row(&source_document), 1).unwrap();
+
+        let identity = row_bytes(&[
+            field_bytes(1, PortableFieldType::U16, &5_u16.to_le_bytes()),
+            field_bytes(2, PortableFieldType::Bytes, b"edge-a"),
+        ]);
+        assert_eq!(
+            validate_identity_field(parse_test_row(&identity), 1),
+            Err(FormatError::LimitExceeded {
+                dimension: LimitDimension::IdentityAsciiBytes,
+                actual: 6,
+                limit: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn canonical_entity_vector_cardinalities_fail_closed() {
+        let road_section = |lanes: &[u32]| {
+            row_bytes(&[
+                field_bytes(4, PortableFieldType::Utf8, b"motorLane"),
+                field_bytes(
+                    5,
+                    PortableFieldType::OrdinalVectorU32,
+                    &ordinal_value(lanes),
+                ),
+            ])
+        };
+        assert_eq!(
+            validate_lfca_row(
+                3,
+                2,
+                parse_test_row(&road_section(&[])),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+                &mut DirectBindings::default(),
+            )
+            .unwrap_err()
+            .class(),
+            FormatErrorClass::BindingMismatch
+        );
+        validate_lfca_row(
+            3,
+            2,
+            parse_test_row(&road_section(&[0])),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            &mut DirectBindings::default(),
+        )
+        .unwrap();
+
+        let maneuver_path = |edges: &[u32]| {
+            row_bytes(&[field_bytes(
+                4,
+                PortableFieldType::OrdinalVectorU32,
+                &ordinal_value(edges),
+            )])
+        };
+        assert_eq!(
+            validate_lfca_row(
+                3,
+                7,
+                parse_test_row(&maneuver_path(&[0])),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+                &mut DirectBindings::default(),
+            )
+            .unwrap_err()
+            .class(),
+            FormatErrorClass::BindingMismatch
+        );
+        validate_lfca_row(
+            3,
+            7,
+            parse_test_row(&maneuver_path(&[0, 1])),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            &mut DirectBindings::default(),
+        )
+        .unwrap();
+
+        let static_route = |edges: &[u32], transitions: &[Vec<u8>]| {
+            row_bytes(&[
+                field_bytes(
+                    3,
+                    PortableFieldType::OrdinalVectorU32,
+                    &ordinal_value(edges),
+                ),
+                field_bytes(
+                    4,
+                    PortableFieldType::RecordVector,
+                    &record_value(transitions),
+                ),
+            ])
+        };
+        assert_eq!(
+            validate_lfca_row(
+                3,
+                21,
+                parse_test_row(&static_route(&[0, 1], &[])),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+                &mut DirectBindings::default(),
+            )
+            .unwrap_err()
+            .class(),
+            FormatErrorClass::BindingMismatch
+        );
+        validate_lfca_row(
+            3,
+            21,
+            parse_test_row(&static_route(&[0, 1], &[row_bytes(&[])])),
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            &mut DirectBindings::default(),
+        )
+        .unwrap();
     }
 
     #[test]
