@@ -7,7 +7,7 @@
 
 LaneFlow 把 mcpls 作为可选的本地开发工具，用于通过 `rust-analyzer` 提供 hover、
 定义跳转、引用查找、文档符号、工作区符号搜索和诊断。它不属于 LaneFlow 运行时、
-Cargo 依赖或 CI 门禁，也不替代 `cargo check/test`、`rg` 和源码阅读。
+Cargo 依赖或 CI 门禁，也不替代 `cargo check`、`cargo test`、`rg` 和源码阅读。
 
 仓库只保存可移植配置，不保存 mcpls 或 `rust-analyzer` 二进制。每台开发电脑独立
 安装工具，并显式信任本地 LaneFlow checkout 后，Codex 才加载项目级
@@ -63,10 +63,11 @@ codex mcp get mcpls
 - `enabled_tools` 只包含六个只读工具，且这些工具无需逐次批准。
 
 `cwd: -` 不表示 mcpls 进程没有工作目录，也不能单独证明它位于正确的 checkout。
-实际目录应通过已知符号的语义查询返回路径验证；排查目录问题时，再检查 mcpls 与
-`rust-analyzer` 进程的工作目录，并确认都指向当前 worktree。切换 worktree，或修改
-`.codex/config.toml`、`mcpls.toml`、PATH 后，重新启动 Codex Desktop；CLI 验证则启动
-新的 `codex` 进程，避免沿用已经启动的 MCP server。
+实际目录应通过工作区自有的已知符号查询返回路径验证；标准库、工具链或依赖的合法
+定义路径可以位于当前 worktree 外，不应用它们判断 server 工作目录。排查目录问题时，
+再检查 mcpls 与 `rust-analyzer` 进程的工作目录，并确认都指向当前 worktree。切换
+worktree，或修改 `.codex/config.toml`、`mcpls.toml`、PATH 后，重新启动 Codex Desktop；
+CLI 验证则启动新的 `codex` 进程，避免沿用已经启动的 MCP server。
 
 首次 Rust 语义查询需要等待 `rust-analyzer` 完成 workspace 初始化。冷启动期间的
 “仍在初始化”或空结果不能解释为“没有定义/引用”；应等待一个已知 workspace symbol
@@ -76,7 +77,7 @@ codex mcp get mcpls
 
 - mcpls：类型感知的 hover、定义、活动配置引用、符号和诊断；
 - `rg`：字面量、配置、注释、未启用 feature 和快速文本搜索；
-- `cargo check/test`：编译、测试与最终正确性依据。
+- `cargo check`、`cargo test`：编译、测试与最终正确性依据。
 
 ## 4. 回退与卸载
 
