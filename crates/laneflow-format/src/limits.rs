@@ -1,11 +1,12 @@
 //! 调用方可收紧的格式资源限制。
 
 use laneflow_static_contract::{
-    FORMAT_HARD_MAX_FIELDS_PER_ROW, FORMAT_HARD_MAX_OBJECT_BYTES,
+    FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES, FORMAT_HARD_MAX_FIELDS_PER_ROW,
+    FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES, FORMAT_HARD_MAX_OBJECT_BYTES,
     FORMAT_HARD_MAX_RECORD_VECTOR_DEPTH, FORMAT_HARD_MAX_ROWS_PER_TABLE,
-    FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES, FORMAT_HARD_MAX_TOTAL_UTF8_BYTES,
-    FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES, FORMAT_HARD_MAX_UTF8_FIELD_BYTES,
-    FORMAT_HARD_MAX_VECTOR_ITEMS,
+    FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES, FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS,
+    FORMAT_HARD_MAX_TOTAL_UTF8_BYTES, FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES,
+    FORMAT_HARD_MAX_UTF8_FIELD_BYTES, FORMAT_HARD_MAX_VECTOR_ITEMS,
 };
 
 use crate::{FormatError, LimitDimension};
@@ -17,11 +18,14 @@ pub struct FormatLimitConfig {
     pub max_section_or_table_bytes: u64,
     pub max_rows_per_table: u32,
     pub max_fields_per_row: u32,
+    pub max_identity_ascii_bytes: u64,
     pub max_utf8_field_bytes: u64,
     pub max_total_utf8_bytes: u64,
     pub max_vector_items: u32,
     pub max_total_vector_bytes: u64,
     pub max_record_vector_depth: u8,
+    pub max_source_location_rows: u32,
+    pub max_candidate_staging_bytes: u64,
 }
 
 impl FormatLimitConfig {
@@ -31,11 +35,14 @@ impl FormatLimitConfig {
         max_section_or_table_bytes: FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES,
         max_rows_per_table: FORMAT_HARD_MAX_ROWS_PER_TABLE,
         max_fields_per_row: FORMAT_HARD_MAX_FIELDS_PER_ROW,
+        max_identity_ascii_bytes: FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
         max_utf8_field_bytes: FORMAT_HARD_MAX_UTF8_FIELD_BYTES,
         max_total_utf8_bytes: FORMAT_HARD_MAX_TOTAL_UTF8_BYTES,
         max_vector_items: FORMAT_HARD_MAX_VECTOR_ITEMS,
         max_total_vector_bytes: FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES,
         max_record_vector_depth: FORMAT_HARD_MAX_RECORD_VECTOR_DEPTH,
+        max_source_location_rows: FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS,
+        max_candidate_staging_bytes: FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES,
     };
 }
 
@@ -76,6 +83,11 @@ impl FormatLimits {
             u64::from(FORMAT_HARD_MAX_FIELDS_PER_ROW),
         )?;
         check_limit(
+            LimitDimension::IdentityAsciiBytes,
+            config.max_identity_ascii_bytes,
+            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+        )?;
+        check_limit(
             LimitDimension::Utf8FieldBytes,
             config.max_utf8_field_bytes,
             FORMAT_HARD_MAX_UTF8_FIELD_BYTES,
@@ -100,7 +112,41 @@ impl FormatLimits {
             u64::from(config.max_record_vector_depth),
             u64::from(FORMAT_HARD_MAX_RECORD_VECTOR_DEPTH),
         )?;
+        check_limit(
+            LimitDimension::SourceLocationRows,
+            u64::from(config.max_source_location_rows),
+            u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS),
+        )?;
+        check_limit(
+            LimitDimension::CandidateStagingBytes,
+            config.max_candidate_staging_bytes,
+            FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES,
+        )?;
         Ok(Self(config))
+    }
+
+    /// 返回调用方已经证明不高于 v1 天花板的单对象读取上限。
+    #[must_use]
+    pub const fn max_object_bytes(self) -> u64 {
+        self.0.max_object_bytes
+    }
+
+    /// 返回 Identity v1 ASCII 值的有效上限。
+    #[must_use]
+    pub const fn max_identity_ascii_bytes(self) -> u64 {
+        self.0.max_identity_ascii_bytes
+    }
+
+    /// 返回单 LFSM 来源位置记录的有效上限。
+    #[must_use]
+    pub const fn max_source_location_rows(self) -> u32 {
+        self.0.max_source_location_rows
+    }
+
+    /// 返回一次候选暂存 exact bytes 的有效上限。
+    #[must_use]
+    pub const fn max_candidate_staging_bytes(self) -> u64 {
+        self.0.max_candidate_staging_bytes
     }
 
     pub(crate) const fn config(self) -> FormatLimitConfig {
@@ -163,6 +209,11 @@ mod tests {
                 u64::from(FORMAT_HARD_MAX_FIELDS_PER_ROW),
             ),
             (
+                LimitDimension::IdentityAsciiBytes,
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES + 1,
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            ),
+            (
                 LimitDimension::Utf8FieldBytes,
                 FORMAT_HARD_MAX_UTF8_FIELD_BYTES + 1,
                 FORMAT_HARD_MAX_UTF8_FIELD_BYTES,
@@ -187,6 +238,16 @@ mod tests {
                 u64::from(FORMAT_HARD_MAX_RECORD_VECTOR_DEPTH) + 1,
                 u64::from(FORMAT_HARD_MAX_RECORD_VECTOR_DEPTH),
             ),
+            (
+                LimitDimension::SourceLocationRows,
+                u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS) + 1,
+                u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS),
+            ),
+            (
+                LimitDimension::CandidateStagingBytes,
+                FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES + 1,
+                FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES,
+            ),
         ];
 
         for (dimension, requested, hard_limit) in cases {
@@ -201,6 +262,9 @@ mod tests {
                 LimitDimension::FieldsPerRow => {
                     config.max_fields_per_row = u32::try_from(requested).unwrap();
                 }
+                LimitDimension::IdentityAsciiBytes => {
+                    config.max_identity_ascii_bytes = requested;
+                }
                 LimitDimension::Utf8FieldBytes => config.max_utf8_field_bytes = requested,
                 LimitDimension::TotalUtf8Bytes => config.max_total_utf8_bytes = requested,
                 LimitDimension::VectorItems => {
@@ -209,6 +273,12 @@ mod tests {
                 LimitDimension::TotalVectorBytes => config.max_total_vector_bytes = requested,
                 LimitDimension::RecordVectorDepth => {
                     config.max_record_vector_depth = u8::try_from(requested).unwrap();
+                }
+                LimitDimension::SourceLocationRows => {
+                    config.max_source_location_rows = u32::try_from(requested).unwrap();
+                }
+                LimitDimension::CandidateStagingBytes => {
+                    config.max_candidate_staging_bytes = requested;
                 }
                 LimitDimension::ObjectBytes => unreachable!(),
             }

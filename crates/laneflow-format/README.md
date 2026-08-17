@@ -23,6 +23,9 @@ LaneFlow LFCA/LFSM/LFSD/LFCP v1 的受限线格式 crate。
   LFCA 的版本/封闭枚举/局部标量、LFSM 的来源种类/address/property path、LFSD 的
   Genesis/Artifact 直接绑定和同行 change 约束，以及 LFCP 的版本、receipt/publisher kind 与
   `sha256/<64 lowercase hex>` 同对象摘要绑定。
+- `FormatLimits` 同时覆盖对象/节/表、行/字段、Identity ASCII、UTF-8、向量、嵌套、LFSM
+  来源位置与候选暂存预算；任一调用方值只能收紧。registry capability 保留产生它的同一
+  limits，后续直接值域检查不能通过换回较大 limits 绕过调用方预算。
 
 `ObjectFramingView` 只证明对象前导、目录、连续节范围和格式上限，不把节内字节暴露为
 语义已验证或可信视图。`RegistryCheckedObjectView` 进一步证明附录登记形状；

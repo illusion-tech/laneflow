@@ -6,7 +6,8 @@ use laneflow_static_contract::{
 };
 
 use crate::{
-    FormatError, FormatLimits, FormatStructure, ObjectFramingView, SectionFramingView,
+    FormatError, FormatLimits, FormatStructure, LimitDimension, ObjectFramingView,
+    SectionFramingView,
     framing::preflight_object_framing,
     table::{PreflightBudget, preflight_table_with_registry_v1},
     wire::{checked_slice, read_u8, read_u16, read_u32, read_u64},
@@ -25,6 +26,7 @@ const FIELD_HEADER_BYTES: u64 = 12;
 #[derive(Clone, Copy, Debug)]
 pub struct RegistryCheckedObjectView<'a> {
     framing: ObjectFramingView<'a>,
+    limits: FormatLimits,
 }
 
 impl<'a> RegistryCheckedObjectView<'a> {
@@ -38,6 +40,10 @@ impl<'a> RegistryCheckedObjectView<'a> {
     #[must_use]
     pub const fn bytes(self) -> &'a [u8] {
         self.framing.bytes()
+    }
+
+    pub(crate) const fn limits(self) -> FormatLimits {
+        self.limits
     }
 
     /// 附录 A 冻结的精确 section 数量。
@@ -802,6 +808,22 @@ pub fn preflight_object_registry_v1(
                     })?,
                 FormatStructure::Table,
             )?;
+            let row_count = read_u32(
+                section_bytes,
+                cursor
+                    .checked_add(4)
+                    .ok_or(FormatError::ArithmeticOverflow {
+                        structure: FormatStructure::Table,
+                    })?,
+                FormatStructure::Table,
+            )?;
+            check_source_location_rows(
+                expected_kind,
+                section_schema.kind,
+                table_schema.kind,
+                row_count,
+                limits,
+            )?;
             let table_byte_length = TABLE_HEADER_BYTES.checked_add(rows_byte_length).ok_or(
                 FormatError::ArithmeticOverflow {
                     structure: FormatStructure::Table,
@@ -830,7 +852,28 @@ pub fn preflight_object_registry_v1(
         }
     }
 
-    Ok(RegistryCheckedObjectView { framing })
+    Ok(RegistryCheckedObjectView { framing, limits })
+}
+
+fn check_source_location_rows(
+    object_kind: PortableObjectKind,
+    section_kind: u16,
+    table_kind: u16,
+    row_count: u32,
+    limits: FormatLimits,
+) -> Result<(), FormatError> {
+    if object_kind != PortableObjectKind::SourceMap || section_kind != 2 || table_kind != 3 {
+        return Ok(());
+    }
+    let limit = limits.max_source_location_rows();
+    if row_count > limit {
+        return Err(FormatError::LimitExceeded {
+            dimension: LimitDimension::SourceLocationRows,
+            actual: u64::from(row_count),
+            limit: u64::from(limit),
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1450,5 +1493,22 @@ mod tests {
                 limit: 1,
             }
         );
+    }
+
+    #[test]
+    fn caller_can_reduce_lfsm_source_location_rows_independently() {
+        let mut config = FormatLimitConfig::V1_HARD;
+        config.max_source_location_rows = 4;
+        let limits = FormatLimits::try_new(config).unwrap();
+        assert_eq!(
+            check_source_location_rows(PortableObjectKind::SourceMap, 2, 3, 5, limits),
+            Err(FormatError::LimitExceeded {
+                dimension: LimitDimension::SourceLocationRows,
+                actual: 5,
+                limit: 4,
+            })
+        );
+
+        check_source_location_rows(PortableObjectKind::SourceMap, 2, 2, 5, limits).unwrap();
     }
 }

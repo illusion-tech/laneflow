@@ -142,7 +142,8 @@ pub fn measure_object_v1(
             ordinal,
             schema.sections.len(),
         )?;
-        let section_length = measure_section(*section, section_schema, limits, &mut budget)?;
+        let section_length =
+            measure_section(input.kind, *section, section_schema, limits, &mut budget)?;
         check_limit(
             LimitDimension::SectionOrTableBytes,
             section_length,
@@ -207,6 +208,7 @@ pub fn encode_object_v1(
 }
 
 fn measure_section(
+    object_kind: PortableObjectKind,
     section: SectionWriteInputV1<'_>,
     schema: &'static PortableSectionSchema,
     limits: FormatLimits,
@@ -226,7 +228,9 @@ fn measure_section(
             ordinal,
             schema.tables.len(),
         )?;
-        let table_length = measure_table(*table, table_schema, limits, budget)?;
+        let is_source_location =
+            object_kind == PortableObjectKind::SourceMap && section.kind == 2 && table.kind == 3;
+        let table_length = measure_table(*table, table_schema, is_source_location, limits, budget)?;
         check_limit(
             LimitDimension::SectionOrTableBytes,
             table_length,
@@ -245,6 +249,7 @@ fn measure_section(
 fn measure_table(
     table: TableWriteInputV1<'_>,
     schema: &'static PortableTableSchema,
+    is_source_location: bool,
     limits: FormatLimits,
     budget: &mut WriteBudget,
 ) -> Result<u64, FormatError> {
@@ -254,6 +259,13 @@ fn measure_table(
         u64::from(row_count),
         u64::from(limits.config().max_rows_per_table),
     )?;
+    if is_source_location {
+        check_limit(
+            LimitDimension::SourceLocationRows,
+            u64::from(row_count),
+            u64::from(limits.max_source_location_rows()),
+        )?;
+    }
     let cardinality_matches = match schema.cardinality {
         PortableRowCardinality::Any => true,
         PortableRowCardinality::AtMostOne => row_count <= 1,
