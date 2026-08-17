@@ -145,6 +145,83 @@ fn target_requires_exact_closing_issue_associations() {
 }
 
 #[test]
+fn all_g3_modes_share_the_same_target_contract() {
+    let (args, related_pr) = current_related_g3_target();
+    for mode in [
+        G3ValidationMode::RelatedOnly,
+        G3ValidationMode::DeliveryFullSet,
+        G3ValidationMode::ShadowTarget,
+    ] {
+        assert_eq!(
+            validate_g3_target(
+                mode,
+                "illusion-tech/laneflow",
+                62,
+                GateEvidencePhase::G3,
+                &related_pr,
+                std::slice::from_ref(&args),
+            ),
+            Ok((GateEvidencePrRole::Related, vec![60])),
+            "mode={} should use the shared target contract",
+            mode.label()
+        );
+    }
+}
+
+#[test]
+fn all_g3_modes_reject_missing_shadow_target_evidence() {
+    let (args, mut related_pr) = current_related_g3_target();
+    related_pr.comments[0].body = related_pr.comments[0]
+        .body
+        .replace(
+            &format!(
+                "\n{G3_EVIDENCE_SHADOW_COMMENT_FIELD}R1 non-required：source App 仍为 github-actions，仅作 telemetry"
+            ),
+            "",
+        );
+
+    for mode in [
+        G3ValidationMode::RelatedOnly,
+        G3ValidationMode::DeliveryFullSet,
+        G3ValidationMode::ShadowTarget,
+    ] {
+        let error = validate_g3_target(
+            mode,
+            "illusion-tech/laneflow",
+            62,
+            GateEvidencePhase::G3,
+            &related_pr,
+            std::slice::from_ref(&args),
+        )
+        .expect_err("every G3 mode must reject the #351 missing-shadow failure");
+        assert!(error.contains(&format!("mode={}", mode.label())));
+        assert!(error.contains("G3 Evidence Gate Shadow"));
+    }
+}
+
+#[test]
+fn shared_g3_target_errors_report_expected_and_actual_sets() {
+    let (_, related_pr) = current_related_g3_target();
+    let actual_args = GateEvidenceArgs {
+        issue: 61,
+        ..related_only_g3_args()
+    };
+    let error = validate_g3_target(
+        G3ValidationMode::RelatedOnly,
+        "illusion-tech/laneflow",
+        62,
+        GateEvidencePhase::G3,
+        &related_pr,
+        &[actual_args],
+    )
+    .expect_err("declared and resolved Issue sets must match");
+
+    assert!(error.contains("预期声明 [#60]"));
+    assert!(error.contains("实际解析 [#61]"));
+    assert!(error.contains("--issue 61"));
+}
+
+#[test]
 fn delivery_full_set_validates_each_related_target_metadata() {
     let related = related_pr(false);
     assert_eq!(

@@ -37,6 +37,23 @@ pub(super) enum GateEvidencePrRole {
     Related,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum G3ValidationMode {
+    RelatedOnly,
+    DeliveryFullSet,
+    ShadowTarget,
+}
+
+impl G3ValidationMode {
+    pub(super) const fn label(self) -> &'static str {
+        match self {
+            Self::RelatedOnly => "related-only",
+            Self::DeliveryFullSet => "delivery-full-set",
+            Self::ShadowTarget => "shadow-target",
+        }
+    }
+}
+
 #[derive(Debug, serde::Deserialize)]
 pub(super) struct GitHubIssue {
     pub(super) body: String,

@@ -23,6 +23,13 @@ use g4::*;
 use github::*;
 use model::*;
 
+struct G3TargetContext {
+    pr: GitHubPullRequest,
+    role: GateEvidencePrRole,
+    issue_numbers: Vec<u64>,
+    resolved_args: Vec<GateEvidenceArgs>,
+}
+
 fn gh_pr_view_for_gate_evidence(
     repo: &str,
     number: u64,
@@ -153,8 +160,44 @@ fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> 
     Ok(())
 }
 
+fn resolve_and_validate_g3_target(
+    repo: &str,
+    pr_number: u64,
+    mode: G3ValidationMode,
+    issue_phase: GateEvidencePhase,
+) -> Result<G3TargetContext, String> {
+    let pr = gh_pr_view_for_gate_evidence(repo, pr_number, issue_phase)?;
+    let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
+    let resolved_args =
+        resolve_gate_evidence_targets(repo, pr_number, role, &issue_numbers, issue_phase)?;
+    validate_g3_target(mode, repo, pr_number, issue_phase, &pr, &resolved_args)?;
+    Ok(G3TargetContext {
+        pr,
+        role,
+        issue_numbers,
+        resolved_args,
+    })
+}
+
 pub(crate) fn check_gate_evidence(args: &[String]) -> Result<(), String> {
     let args = parse_gate_evidence_args(args)?;
+    if args.phase == GateEvidencePhase::G3 {
+        let (mode, pr_number) = if let Some(delivery_pr) = args.delivery_pr {
+            (G3ValidationMode::DeliveryFullSet, delivery_pr)
+        } else {
+            (G3ValidationMode::RelatedOnly, args.related_prs[0])
+        };
+        let target = resolve_and_validate_g3_target(&args.repo, pr_number, mode, args.phase)?;
+        if !target.resolved_args.contains(&args) {
+            return Err(format!(
+                "G3 target 参数不一致：mode={}；PR #{}；预期 target 命令 [{}]；实际调用 [{}]",
+                mode.label(),
+                pr_number,
+                format_g3_target_commands(&target.resolved_args),
+                expected_gate_command(&args, GateEvidencePhase::G3)
+            ));
+        }
+    }
     check_gate_evidence_with_args(&args)?;
     print_gate_evidence_success(&args);
     Ok(())
@@ -162,42 +205,29 @@ pub(crate) fn check_gate_evidence(args: &[String]) -> Result<(), String> {
 
 pub(crate) fn check_gate_evidence_target(args: &[String]) -> Result<(), String> {
     let (repo, pr_number) = parse_gate_evidence_target_args(args)?;
-    let pr = gh_pr_view_for_gate_evidence(&repo, pr_number, GateEvidencePhase::G3)?;
-    let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
-    validate_gate_evidence_target_pr(&repo, GateEvidencePhase::G3, &pr, role, &issue_numbers)?;
-    let resolved_args = resolve_gate_evidence_targets(
+    let target = resolve_and_validate_g3_target(
         &repo,
         pr_number,
-        role,
-        &issue_numbers,
+        G3ValidationMode::ShadowTarget,
         GateEvidencePhase::G3,
     )?;
-    validate_gate_evidence_target_assertions(&pr, &resolved_args)?;
-    for args in &resolved_args {
+    for args in &target.resolved_args {
         check_gate_evidence_with_args(args)?;
     }
 
-    let final_pr = gh_pr_view_for_gate_evidence(&repo, pr_number, GateEvidencePhase::G3)?;
-    let (final_role, final_issue_numbers) = parse_gate_evidence_target_metadata(&final_pr.body)?;
-    validate_gate_evidence_target_pr(
-        &repo,
-        GateEvidencePhase::G3,
-        &final_pr,
-        final_role,
-        &final_issue_numbers,
-    )?;
-    let final_args = resolve_gate_evidence_targets(
+    let final_target = resolve_and_validate_g3_target(
         &repo,
         pr_number,
-        final_role,
-        &final_issue_numbers,
+        G3ValidationMode::ShadowTarget,
         GateEvidencePhase::G3,
     )?;
-    if final_role != role || final_issue_numbers != issue_numbers || final_args != resolved_args {
+    if final_target.role != target.role
+        || final_target.issue_numbers != target.issue_numbers
+        || final_target.resolved_args != target.resolved_args
+    {
         return Err("PR / Issue Gate 元数据在 target 校验期间发生变化；请重新运行".to_string());
     }
-    validate_gate_evidence_target_assertions(&final_pr, &final_args)?;
-    for args in &final_args {
+    for args in &final_target.resolved_args {
         check_gate_evidence_with_args(args)?;
         print_gate_evidence_success(args);
     }
@@ -206,21 +236,16 @@ pub(crate) fn check_gate_evidence_target(args: &[String]) -> Result<(), String> 
 
 pub(crate) fn check_g3_shadow_success_eligibility(args: &[String]) -> Result<(), String> {
     let (repo, pr_number) = parse_gate_evidence_target_args(args)?;
-    let pr = gh_pr_view_for_gate_evidence(&repo, pr_number, GateEvidencePhase::G3)?;
-    let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
-    validate_gate_evidence_target_pr(&repo, GateEvidencePhase::G3, &pr, role, &issue_numbers)?;
-    let resolved_args = resolve_gate_evidence_targets(
+    let target = resolve_and_validate_g3_target(
         &repo,
         pr_number,
-        role,
-        &issue_numbers,
+        G3ValidationMode::ShadowTarget,
         GateEvidencePhase::G3,
     )?;
-    validate_gate_evidence_target_assertions(&pr, &resolved_args)?;
-    validate_g3_shadow_success_pr(&pr, &format!("PR #{pr_number}"))?;
+    validate_g3_shadow_success_pr(&target.pr, &format!("PR #{pr_number}"))?;
 
     let mut checked_related_prs = BTreeSet::new();
-    for resolved in &resolved_args {
+    for resolved in &target.resolved_args {
         for related_number in &resolved.related_prs {
             if *related_number == pr_number {
                 continue;
@@ -255,16 +280,18 @@ pub(crate) fn check_g3_evidence_marker(args: &[String]) -> Result<(), String> {
     let marker_before = gh_issue_comment(&repo, comment_id)?;
     validate_g3_evidence_marker_comment(&marker_before, &repo, pr_number)?;
 
-    let pr = gh_pr_view_for_gate_evidence(&repo, pr_number, GateEvidencePhase::G3)?;
-    let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
-    validate_gate_evidence_target_pr(&repo, GateEvidencePhase::G3, &pr, role, &issue_numbers)?;
-    let resolved_args = resolve_gate_evidence_targets(
+    let target = resolve_and_validate_g3_target(
         &repo,
         pr_number,
-        role,
-        &issue_numbers,
+        G3ValidationMode::ShadowTarget,
         GateEvidencePhase::G3,
     )?;
+    let G3TargetContext {
+        pr,
+        issue_numbers,
+        resolved_args,
+        ..
+    } = target;
     let g3_permalink = completed_gate_permalink(&pr.body, "G3")?;
     let g3_comment = pr
         .comments

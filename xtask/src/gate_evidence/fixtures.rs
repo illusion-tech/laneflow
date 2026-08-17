@@ -196,6 +196,17 @@ pub(super) fn related_pr_for_args(
     }
 }
 
+pub(super) fn current_related_g3_target() -> (GateEvidenceArgs, GitHubPullRequest) {
+    let args = related_only_g3_args();
+    let mut pr = related_pr_for_args(false, &args);
+    pr.comments[0].created_at = G3_EVIDENCE_SHADOW_ACTIVATION.to_string();
+    pr.comments[0].body = format!(
+        "{}\n{G3_EVIDENCE_SHADOW_COMMENT_FIELD}R1 non-required：source App 仍为 github-actions，仅作 telemetry",
+        gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args)
+    );
+    (args, pr)
+}
+
 pub(super) fn gate_args(phase: GateEvidencePhase) -> GateEvidenceArgs {
     GateEvidenceArgs {
         phase,

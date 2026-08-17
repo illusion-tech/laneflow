@@ -142,6 +142,116 @@ pub(super) fn resolve_gate_evidence_targets(
         .collect()
 }
 
+pub(super) fn validate_g3_target(
+    mode: G3ValidationMode,
+    repo: &str,
+    pr_number: u64,
+    issue_phase: GateEvidencePhase,
+    pr: &GitHubPullRequest,
+    resolved_args: &[GateEvidenceArgs],
+) -> Result<(GateEvidencePrRole, Vec<u64>), String> {
+    let validation = || {
+        let (declared_role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
+        if mode == G3ValidationMode::RelatedOnly && declared_role != GateEvidencePrRole::Related {
+            return Err(format!(
+                "Related-only 的预期 PR 角色为 Related PR；实际声明为 {}",
+                format_pr_role(declared_role)
+            ));
+        }
+        if resolved_args.is_empty() {
+            return Err("预期至少一个解析后的 G3 target 命令；实际为 []".to_string());
+        }
+        if let Some(args) = resolved_args.iter().find(|args| args.repo != repo) {
+            return Err(format!(
+                "解析后的 G3 target 仓库不一致：预期 `{repo}`；实际 `{}`",
+                args.repo
+            ));
+        }
+        if let Some(args) = resolved_args
+            .iter()
+            .find(|args| args.phase != GateEvidencePhase::G3)
+        {
+            return Err(format!(
+                "解析后的 target 命令阶段不一致：预期 G3；实际 {:?}",
+                args.phase
+            ));
+        }
+
+        let resolved_issue_numbers = resolved_args
+            .iter()
+            .map(|args| args.issue)
+            .collect::<BTreeSet<_>>();
+        let declared_issue_numbers = issue_numbers.iter().copied().collect::<BTreeSet<_>>();
+        if resolved_issue_numbers.len() != resolved_args.len()
+            || resolved_issue_numbers != declared_issue_numbers
+        {
+            return Err(format!(
+                "G3 target Issue 集合不一致：预期声明 [{}]；实际解析 [{}]；实际命令 [{}]",
+                format_issue_numbers(&declared_issue_numbers),
+                format_issue_numbers(&resolved_issue_numbers),
+                format_g3_target_commands(resolved_args)
+            ));
+        }
+
+        let resolved_role = resolve_g3_target_role(pr_number, resolved_args)?;
+        if resolved_role != declared_role {
+            return Err(format!(
+                "G3 target PR 角色不一致：预期声明 {}；实际命令解析为 {}；实际命令 [{}]",
+                format_pr_role(declared_role),
+                format_pr_role(resolved_role),
+                format_g3_target_commands(resolved_args)
+            ));
+        }
+
+        validate_gate_evidence_target_pr(repo, issue_phase, pr, declared_role, &issue_numbers)?;
+        validate_gate_evidence_target_assertions(pr, resolved_args)?;
+        Ok((declared_role, issue_numbers))
+    };
+
+    validation().map_err(|error| {
+        format!(
+            "G3 target 校验失败：mode={}；PR #{}；{error}",
+            mode.label(),
+            pr_number
+        )
+    })
+}
+
+fn resolve_g3_target_role(
+    pr_number: u64,
+    resolved_args: &[GateEvidenceArgs],
+) -> Result<GateEvidencePrRole, String> {
+    let all_delivery = resolved_args
+        .iter()
+        .all(|args| args.delivery_pr == Some(pr_number));
+    let all_related = resolved_args
+        .iter()
+        .all(|args| args.delivery_pr.is_none() && args.related_prs.as_slice() == [pr_number]);
+    match (all_delivery, all_related) {
+        (true, false) => Ok(GateEvidencePrRole::Delivery),
+        (false, true) => Ok(GateEvidencePrRole::Related),
+        _ => Err(format!(
+            "无法从解析后的命令唯一确认当前 PR 角色：预期所有命令都以 PR #{pr_number} 作为 Delivery 或唯一 Related；实际命令 [{}]",
+            format_g3_target_commands(resolved_args)
+        )),
+    }
+}
+
+fn format_pr_role(role: GateEvidencePrRole) -> &'static str {
+    match role {
+        GateEvidencePrRole::Delivery => "Delivery PR",
+        GateEvidencePrRole::Related => "Related PR",
+    }
+}
+
+pub(super) fn format_g3_target_commands(resolved_args: &[GateEvidenceArgs]) -> String {
+    resolved_args
+        .iter()
+        .map(|args| expected_gate_command(args, GateEvidencePhase::G3))
+        .collect::<Vec<_>>()
+        .join("；")
+}
+
 pub(super) fn validate_related_full_set_member(
     repo: &str,
     pr_number: u64,
@@ -149,18 +259,29 @@ pub(super) fn validate_related_full_set_member(
     issue_phase: GateEvidencePhase,
     pr: &GitHubPullRequest,
 ) -> Result<(), String> {
-    let issue_numbers =
-        validate_related_full_set_member_metadata(repo, issue_phase, current_issue, pr)?;
-    let resolved_args = resolve_gate_evidence_targets(
+    let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
+    if role != GateEvidencePrRole::Related {
+        return Err("Delivery full-set 成员的 `PR 角色` 必须精确为 `Related PR`".to_string());
+    }
+    if !issue_numbers.contains(&current_issue) {
+        return Err(format!(
+            "Delivery full-set 的 Related PR `关联 Issue` 未包含当前 Issue #{current_issue}"
+        ));
+    }
+    let resolved_args =
+        resolve_gate_evidence_targets(repo, pr_number, role, &issue_numbers, issue_phase)?;
+    validate_g3_target(
+        G3ValidationMode::DeliveryFullSet,
         repo,
         pr_number,
-        GateEvidencePrRole::Related,
-        &issue_numbers,
         issue_phase,
-    )?;
-    validate_gate_evidence_target_assertions(pr, &resolved_args)
+        pr,
+        &resolved_args,
+    )
+    .map(|_| ())
 }
 
+#[cfg(test)]
 pub(super) fn validate_related_full_set_member_metadata(
     repo: &str,
     issue_phase: GateEvidencePhase,
@@ -228,7 +349,9 @@ pub(super) fn validate_g3_evidence(
     }
     let delivery_permalink = completed_gate_permalink(&delivery_pr.body, "G3")?;
     if !line_links_to_comment_permalink(&issue.body, issue_g3_line, &delivery_permalink) {
-        return Err("Issue 的 G3 checkbox 未回链 Delivery PR 的 G3 comment permalink".to_string());
+        return Err(format!(
+            "Issue 的 G3 checkbox 未回链 Delivery PR 的 G3 comment permalink：预期 `{delivery_permalink}`；实际 Gate Ledger `{issue_g3_line}`"
+        ));
     }
     validate_comment(
         delivery_pr,
@@ -311,7 +434,7 @@ pub(super) fn validate_related_pr_g3(
     let permalink = completed_gate_permalink(&related_pr.body, "G3")?;
     if !line_links_to_comment_permalink(issue_body, issue_g3_line, &permalink) {
         return Err(format!(
-            "Issue 的 G3 Gate Ledger 未回链 Related PR #{number} 的 G3 comment permalink"
+            "Issue 的 G3 Gate Ledger 未回链 Related PR #{number} 的 G3 comment permalink：预期 `{permalink}`；实际 Gate Ledger `{issue_g3_line}`"
         ));
     }
     let label = format!("Related PR #{number} G3");
