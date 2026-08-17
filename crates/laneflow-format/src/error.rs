@@ -7,11 +7,14 @@ pub enum LimitDimension {
     SectionOrTableBytes,
     RowsPerTable,
     FieldsPerRow,
+    IdentityAsciiBytes,
     Utf8FieldBytes,
     TotalUtf8Bytes,
     VectorItems,
     TotalVectorBytes,
     RecordVectorDepth,
+    SourceLocationRows,
+    CandidateStagingBytes,
 }
 
 /// 用于定位错误的线格式结构。
