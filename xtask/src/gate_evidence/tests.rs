@@ -1116,6 +1116,37 @@ fn accepts_related_g3_before_delivery_pr_exists() {
 }
 
 #[test]
+fn cached_g3_target_avoids_duplicate_issue_and_pr_fetches() {
+    let args = related_only_g3_args();
+    let issue = issue_with_pending_delivery_and_related_g3();
+    let related_pr = related_pr_for_args(false, &args);
+    let mut issue_fetches = 0;
+    let mut pr_fetches = 0;
+
+    let result = check_gate_evidence_with_loaders(
+        &args,
+        Some(CachedGateEvidence {
+            issue_number: 60,
+            issue: &issue,
+            pr_number: 62,
+            pr: &related_pr,
+        }),
+        |_, _, _| {
+            issue_fetches += 1;
+            Err("unexpected Issue fetch".to_string())
+        },
+        |_, _, _| {
+            pr_fetches += 1;
+            Err("unexpected PR fetch".to_string())
+        },
+    );
+
+    assert!(result.is_ok());
+    assert_eq!(issue_fetches, 0);
+    assert_eq!(pr_fetches, 0);
+}
+
+#[test]
 fn accepts_current_g3_fields_at_external_review_activation() {
     let args = related_only_g3_args();
     let issue = issue_with_pending_delivery_and_related_g3();

@@ -11,7 +11,7 @@ mod model;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
 use args::*;
@@ -24,10 +24,20 @@ use github::*;
 use model::*;
 
 struct G3TargetContext {
+    pr_number: u64,
     pr: GitHubPullRequest,
     role: GateEvidencePrRole,
     issue_numbers: Vec<u64>,
     resolved_args: Vec<GateEvidenceArgs>,
+    issues: BTreeMap<u64, GitHubIssue>,
+}
+
+#[derive(Clone, Copy)]
+struct CachedGateEvidence<'a> {
+    issue_number: u64,
+    issue: &'a GitHubIssue,
+    pr_number: u64,
+    pr: &'a GitHubPullRequest,
 }
 
 fn gh_pr_view_for_gate_evidence(
@@ -99,22 +109,88 @@ fn recovered_gate_evidence_target_body(
 }
 
 fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> {
-    let issue = gh_issue_view_for_phase(&args.repo, args.issue, args.phase)?;
-    validate_current_g3_issue(args.phase, &issue)?;
-    let delivery_pr = args
-        .delivery_pr
-        .map(|number| gh_pr_view_for_gate_evidence(&args.repo, number, args.phase))
-        .transpose()?;
-    let related_prs = args
-        .related_prs
-        .iter()
-        .map(|number| gh_pr_view_for_gate_evidence(&args.repo, *number, args.phase))
-        .collect::<Result<Vec<_>, _>>()?;
+    check_gate_evidence_with_loaders(
+        args,
+        None,
+        gh_issue_view_for_phase,
+        gh_pr_view_for_gate_evidence,
+    )
+}
 
-    validate_current_g3_target(args, delivery_pr.as_ref(), &related_prs)?;
+fn check_gate_evidence_with_target(
+    args: &GateEvidenceArgs,
+    target: &G3TargetContext,
+) -> Result<(), String> {
+    let issue = target.issues.get(&args.issue).ok_or_else(|| {
+        format!(
+            "G3 target 缺少已解析的 Issue #{} snapshot；拒绝退回重复远端读取",
+            args.issue
+        )
+    })?;
+    check_gate_evidence_with_loaders(
+        args,
+        Some(CachedGateEvidence {
+            issue_number: args.issue,
+            issue,
+            pr_number: target.pr_number,
+            pr: &target.pr,
+        }),
+        gh_issue_view_for_phase,
+        gh_pr_view_for_gate_evidence,
+    )
+}
 
-    if let (Some(delivery_number), Some(delivery_pr)) = (args.delivery_pr, delivery_pr.as_ref()) {
-        validate_gate_g3_evidence(args, &issue, delivery_pr, &related_prs)?;
+fn check_gate_evidence_with_loaders<FI, FP>(
+    args: &GateEvidenceArgs,
+    cached: Option<CachedGateEvidence<'_>>,
+    mut load_issue: FI,
+    mut load_pr: FP,
+) -> Result<(), String>
+where
+    FI: FnMut(&str, u64, GateEvidencePhase) -> Result<GitHubIssue, String>,
+    FP: FnMut(&str, u64, GateEvidencePhase) -> Result<GitHubPullRequest, String>,
+{
+    if let Some(cached) = cached {
+        if cached.issue_number != args.issue {
+            return Err(format!(
+                "缓存的 Issue snapshot 与命令不一致：缓存 #{}；命令 #{}",
+                cached.issue_number, args.issue
+            ));
+        }
+        let expected_pr = args.delivery_pr.unwrap_or(args.related_prs[0]);
+        if cached.pr_number != expected_pr {
+            return Err(format!(
+                "缓存的 PR snapshot 与命令不一致：缓存 #{}；命令 #{}",
+                cached.pr_number, expected_pr
+            ));
+        }
+    }
+
+    let loaded_issue;
+    let issue = if let Some(cached) = cached {
+        cached.issue
+    } else {
+        loaded_issue = load_issue(&args.repo, args.issue, args.phase)?;
+        &loaded_issue
+    };
+    validate_current_g3_issue(args.phase, issue)?;
+
+    if let Some(delivery_number) = args.delivery_pr {
+        let loaded_delivery_pr;
+        let delivery_pr = if let Some(cached) = cached {
+            cached.pr
+        } else {
+            loaded_delivery_pr = load_pr(&args.repo, delivery_number, args.phase)?;
+            &loaded_delivery_pr
+        };
+        let related_prs = args
+            .related_prs
+            .iter()
+            .map(|number| load_pr(&args.repo, *number, args.phase))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        validate_current_g3_target(args, Some(delivery_pr), &related_prs)?;
+        validate_gate_g3_evidence(args, issue, delivery_pr, &related_prs)?;
         if g3_requires_external_review(delivery_pr)? {
             validate_external_review_g3(
                 &args.repo,
@@ -141,17 +217,25 @@ fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> 
             }
         }
         if args.phase == GateEvidencePhase::G4 {
-            validate_g4_evidence(args, &issue, delivery_pr, &related_prs)?;
+            validate_g4_evidence(args, issue, delivery_pr, &related_prs)?;
         }
     } else {
         let related_number = args.related_prs[0];
-        validate_related_g3_evidence(args, &issue, related_number, &related_prs[0])?;
-        if g3_requires_external_review(&related_prs[0])? {
+        let loaded_related_pr;
+        let related_pr = if let Some(cached) = cached {
+            cached.pr
+        } else {
+            loaded_related_pr = load_pr(&args.repo, related_number, args.phase)?;
+            &loaded_related_pr
+        };
+        validate_current_g3_target(args, None, std::slice::from_ref(related_pr))?;
+        validate_related_g3_evidence(args, issue, related_number, related_pr)?;
+        if g3_requires_external_review(related_pr)? {
             validate_external_review_g3(
                 &args.repo,
                 args.issue,
                 related_number,
-                &related_prs[0],
+                related_pr,
                 &format!("Related PR #{related_number}"),
                 None,
             )?;
@@ -168,14 +252,24 @@ fn resolve_and_validate_g3_target(
 ) -> Result<G3TargetContext, String> {
     let pr = gh_pr_view_for_gate_evidence(repo, pr_number, issue_phase)?;
     let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
-    let resolved_args =
-        resolve_gate_evidence_targets(repo, pr_number, role, &issue_numbers, issue_phase)?;
+    let resolved_issues =
+        resolve_gate_evidence_target_issues(repo, pr_number, role, &issue_numbers, issue_phase)?;
+    let resolved_args = resolved_issues
+        .iter()
+        .map(|resolved| resolved.args.clone())
+        .collect::<Vec<_>>();
     validate_g3_target(mode, repo, pr_number, issue_phase, &pr, &resolved_args)?;
+    let issues = resolved_issues
+        .into_iter()
+        .map(|resolved| (resolved.args.issue, resolved.issue))
+        .collect();
     Ok(G3TargetContext {
+        pr_number,
         pr,
         role,
         issue_numbers,
         resolved_args,
+        issues,
     })
 }
 
@@ -197,8 +291,10 @@ pub(crate) fn check_gate_evidence(args: &[String]) -> Result<(), String> {
                 expected_gate_command(&args, GateEvidencePhase::G3)
             ));
         }
+        check_gate_evidence_with_target(&args, &target)?;
+    } else {
+        check_gate_evidence_with_args(&args)?;
     }
-    check_gate_evidence_with_args(&args)?;
     print_gate_evidence_success(&args);
     Ok(())
 }
@@ -212,7 +308,7 @@ pub(crate) fn check_gate_evidence_target(args: &[String]) -> Result<(), String> 
         GateEvidencePhase::G3,
     )?;
     for args in &target.resolved_args {
-        check_gate_evidence_with_args(args)?;
+        check_gate_evidence_with_target(args, &target)?;
     }
 
     let final_target = resolve_and_validate_g3_target(
@@ -228,7 +324,7 @@ pub(crate) fn check_gate_evidence_target(args: &[String]) -> Result<(), String> 
         return Err("PR / Issue Gate 元数据在 target 校验期间发生变化；请重新运行".to_string());
     }
     for args in &final_target.resolved_args {
-        check_gate_evidence_with_args(args)?;
+        check_gate_evidence_with_target(args, &final_target)?;
         print_gate_evidence_success(args);
     }
     Ok(())
