@@ -1,0 +1,23 @@
+[workspace]
+roots = []
+position_encodings = ["utf-8", "utf-16"]
+heuristics_max_depth = 10
+max_documents = 100
+max_file_size = 10485760
+
+[[workspace.language_extensions]]
+extensions = ["rs"]
+language_id = "rust"
+
+[[lsp_servers]]
+language_id = "rust"
+command = "rust-analyzer"
+args = []
+file_patterns = ["**/*.rs"]
+timeout_seconds = 30
+request_timeout_seconds = 30
+
+[lsp_servers.env]
+
+[lsp_servers.heuristics]
+project_markers = ["Cargo.toml", "rust-toolchain.toml"]
