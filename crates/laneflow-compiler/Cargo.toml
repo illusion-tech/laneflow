@@ -19,5 +19,8 @@ laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contr
 laneflow-road-editing-wire = { version = "0.0.0", path = "../laneflow-road-editing-wire" }
 sha2 = { version = "0.11", default-features = false }
 
+[dev-dependencies]
+stats_alloc = "=0.1.10"
+
 [lints]
 workspace = true

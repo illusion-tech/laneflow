@@ -1,7 +1,7 @@
 use laneflow_format::{
     FieldWriteInputV1, FieldWriteValueV1, FormatLimits, ObjectWriteInputV1, RowWriteInputV1,
-    SectionWriteInputV1, TableWriteInputV1, encode_object_v1, measure_object_v1,
-    preflight_object_values_v1,
+    SectionWriteInputV1, TableWriteInputV1, encode_prepared_object_v1, preflight_object_values_v1,
+    prepare_object_v1,
 };
 use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, NETWORK_REVISION_DERIVATION_VERSION, PortableObjectKind,
@@ -117,11 +117,11 @@ pub(super) fn build_lfcp_v1(
         kind: PortableObjectKind::CanonicalPublicationDescriptor,
         sections: &sections,
     };
-    let length = measure_object_v1(input, limits)?;
-    let output_length =
-        usize::try_from(length).map_err(|_| PortablePublicationError::ArithmeticOverflow)?;
+    let prepared = prepare_object_v1(input, limits)?;
+    let output_length = usize::try_from(prepared.byte_len())
+        .map_err(|_| PortablePublicationError::ArithmeticOverflow)?;
     let mut bytes = vec![0_u8; output_length];
-    encode_object_v1(input, limits, &mut bytes)?;
+    encode_prepared_object_v1(prepared, &mut bytes)?;
     preflight_object_values_v1(
         &bytes,
         PortableObjectKind::CanonicalPublicationDescriptor,
