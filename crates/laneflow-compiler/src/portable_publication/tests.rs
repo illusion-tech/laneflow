@@ -285,14 +285,17 @@ fn success_installs_all_objects_then_commits_exactly_one_manifest() {
     );
 
     let descriptor = committed.descriptor().bytes();
-    assert_eq!(field_bytes(descriptor, 0, 3), candidate.network_revision());
+    assert_eq!(
+        field_bytes(descriptor, 0, 3),
+        candidate.network_revision().as_digest().as_bytes()
+    );
     assert_eq!(
         field_bytes(descriptor, 0, 4),
-        candidate.canonical_artifact().digest()
+        candidate.canonical_artifact().digest().as_bytes()
     );
     assert_eq!(
         field_bytes(descriptor, 1, 2),
-        candidate.source_map().digest()
+        candidate.source_map().digest().as_bytes()
     );
     assert_eq!(field_utf8(descriptor, 2, 2), "canonical-publication-v1");
     assert_eq!(
@@ -315,7 +318,10 @@ fn success_installs_all_objects_then_commits_exactly_one_manifest() {
         "../../tests/fixtures/portable-v1/lfcp-v1-min-bindings/expected.lfcp.hex"
     ));
     assert_eq!(committed.descriptor().bytes(), expected.as_ref());
-    assert_eq!(committed.descriptor().byte_length(), 1_050);
+    assert_eq!(
+        committed.descriptor().byte_length(),
+        ExactByteLength::new(1_050)
+    );
     assert_eq!(
         committed.descriptor().object_key(),
         "sha256/7cbe21a42bca1f50f30e34de91db310e8d550e64f87a761cd1bec516010c4e05"
@@ -481,15 +487,15 @@ fn receipt_metadata_shape_and_every_subject_binding_fail_before_install() {
             ..valid.artifact.unwrap()
         },
         PortableArtifactSubjectBindingV1 {
-            network_revision: [7; 32],
+            network_revision: NetworkRevisionId::from_digest(Sha256Digest::from_bytes([7; 32])),
             ..valid.artifact.unwrap()
         },
         PortableArtifactSubjectBindingV1 {
-            digest: [8; 32],
+            digest: Sha256Digest::from_bytes([8; 32]),
             ..valid.artifact.unwrap()
         },
         PortableArtifactSubjectBindingV1 {
-            byte_length: valid.artifact.unwrap().byte_length + 1,
+            byte_length: ExactByteLength::new(valid.artifact.unwrap().byte_length.get() + 1),
             ..valid.artifact.unwrap()
         },
     ];
@@ -507,11 +513,11 @@ fn receipt_metadata_shape_and_every_subject_binding_fail_before_install() {
             ..valid.source_map.unwrap()
         },
         PortableSourceMapSubjectBindingV1 {
-            digest: [9; 32],
+            digest: Sha256Digest::from_bytes([9; 32]),
             ..valid.source_map.unwrap()
         },
         PortableSourceMapSubjectBindingV1 {
-            byte_length: valid.source_map.unwrap().byte_length + 1,
+            byte_length: ExactByteLength::new(valid.source_map.unwrap().byte_length.get() + 1),
             ..valid.source_map.unwrap()
         },
     ];

@@ -50,12 +50,12 @@ fn portable_exact_bytes_ci_evidence() {
 
     let bindings = format!(
         "supported-worker-count=1\nnetwork-revision={}\nLFCA length={} {}\nLFSM length={} {}\nLFSD length={} {}\n",
-        hex_lower(first.network_revision()),
-        first.canonical_artifact().byte_length(),
+        hex_lower(first.network_revision().into_digest().into_bytes()),
+        first.canonical_artifact().byte_length().get(),
         first.canonical_artifact().object_key(),
-        first.source_map().byte_length(),
+        first.source_map().byte_length().get(),
         first.source_map().object_key(),
-        first.semantic_diff().byte_length(),
+        first.semantic_diff().byte_length().get(),
         first.semantic_diff().object_key(),
     );
     write_new(&output_directory.join("bindings.txt"), bindings.as_bytes());

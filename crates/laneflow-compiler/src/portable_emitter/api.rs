@@ -199,6 +199,9 @@ mod tests {
             source_map: object.clone(),
             semantic_diff: object,
             network_revision: NetworkRevisionId::from_digest(digest),
+            compiler_build_id: Box::from("test-compiler"),
+            source_collection_digest_version: 1,
+            source_collection_digest: [0; 32],
         };
         let network_revision: NetworkRevisionId = publication.network_revision();
         assert_eq!(network_revision.into_digest(), digest);

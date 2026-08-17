@@ -14,6 +14,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use laneflow_static_contract::{ExactByteLength, Sha256Digest};
 use sha2::{Digest, Sha256};
 
 use crate::portable_emitter::{PortableObjectCandidate, object_key, sha256};
@@ -82,20 +83,20 @@ pub enum PortableInstallDisposition {
 /// 也不表示 LFCP 或认证 manifest 已提交。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PortableObjectInstallation {
-    digest: [u8; 32],
-    byte_length: u64,
+    digest: Sha256Digest,
+    byte_length: ExactByteLength,
     object_key: Box<str>,
     disposition: PortableInstallDisposition,
 }
 
 impl PortableObjectInstallation {
     #[must_use]
-    pub const fn digest(&self) -> [u8; 32] {
+    pub const fn digest(&self) -> Sha256Digest {
         self.digest
     }
 
     #[must_use]
-    pub const fn byte_length(&self) -> u64 {
+    pub const fn byte_length(&self) -> ExactByteLength {
         self.byte_length
     }
 
@@ -198,7 +199,7 @@ impl PortableObjectStore {
     fn install_bound_object<P: AtomicInstallPlatform>(
         &self,
         bytes: &[u8],
-        digest: [u8; 32],
+        digest: Sha256Digest,
         supplied_key: &str,
         platform: &P,
     ) -> Result<PortableObjectInstallation, PortableInstallError> {
@@ -210,8 +211,9 @@ impl PortableObjectStore {
             return Err(PortableInstallError::ObjectDigestMismatch);
         }
 
-        let byte_length =
-            u64::try_from(bytes.len()).map_err(|_| PortableInstallError::ArithmeticOverflow)?;
+        let byte_length = ExactByteLength::new(
+            u64::try_from(bytes.len()).map_err(|_| PortableInstallError::ArithmeticOverflow)?,
+        );
         let object_path = self.object_path(supplied_key)?;
         let mut staging = StagingGuard::create(&self.staging_directory)?;
         write_closed_staging_file(staging.file_path(), bytes)?;
@@ -337,7 +339,7 @@ fn write_closed_staging_file(path: &Path, bytes: &[u8]) -> Result<(), PortableIn
 fn verify_file(
     path: &Path,
     expected: &[u8],
-    expected_digest: [u8; 32],
+    expected_digest: Sha256Digest,
     operation: PortableInstallOperation,
     mismatch: PortableInstallError,
 ) -> Result<(), PortableInstallError> {
@@ -380,7 +382,7 @@ fn verify_file(
         operation,
         kind: error.kind(),
     })? != 0
-        || <[u8; 32]>::from(hasher.finalize()) != expected_digest
+        || Sha256Digest::from_bytes(hasher.finalize().into()) != expected_digest
     {
         return Err(mismatch);
     }

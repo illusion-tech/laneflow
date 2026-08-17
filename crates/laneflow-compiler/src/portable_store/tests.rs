@@ -82,7 +82,10 @@ fn installs_closed_exact_bytes_without_accepting_caller_binding() {
         PortableInstallDisposition::Installed
     );
     assert_eq!(installed.digest(), sha256(bytes));
-    assert_eq!(installed.byte_length(), bytes.len() as u64);
+    assert_eq!(
+        installed.byte_length(),
+        ExactByteLength::new(bytes.len() as u64)
+    );
     assert_eq!(
         fs::read(store.object_path(installed.object_key()).unwrap()).unwrap(),
         bytes
@@ -146,8 +149,9 @@ fn binding_checks_precede_all_staging_and_path_mapping() {
         Err(PortableInstallError::NonCanonicalObjectKey)
     );
     let key = object_key(digest);
-    let mut wrong_digest = digest;
-    wrong_digest[0] ^= 1;
+    let mut wrong_digest_bytes = digest.into_bytes();
+    wrong_digest_bytes[0] ^= 1;
+    let wrong_digest = Sha256Digest::from_bytes(wrong_digest_bytes);
     assert_eq!(
         store.install_bound_object(
             bytes,
