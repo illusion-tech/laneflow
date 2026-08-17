@@ -36,6 +36,7 @@ jobs:
             ".github/workflows/external-review-gate.yml"
             ".github/workflows/external-review-signal.yml"
             ".github/workflows/g3-evidence-gate.yml"
+            ".github/workflows/portable-exact-bytes.yml"
             ".github/workflows/road-editing-codegen.yml"
             ".github/pull_request_template.md"
             ".github/ISSUE_TEMPLATE/config.yml"
