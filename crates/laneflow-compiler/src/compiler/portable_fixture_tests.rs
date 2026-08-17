@@ -443,7 +443,10 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
         candidate.semantic_diff().object_key(),
         "sha256/60d65447df655a68c6bda464b1dda6e9c5772fb6c674f76964e16066106543c5"
     );
-    assert_eq!(candidate.network_revision(), FULL_SPATIAL_NETWORK_REVISION);
+    assert_eq!(
+        candidate.network_revision(),
+        network_revision(FULL_SPATIAL_NETWORK_REVISION)
+    );
 
     let artifact = laneflow_format::preflight_object_values_v1(
         FULL_SPATIAL_EXPECTED_LFCA,
@@ -468,3 +471,15 @@ mod lfca_variants;
 mod lfsd_change_set;
 mod lfsd_noop;
 mod portable_matrix_tests;
+
+fn sha256_digest(bytes: [u8; 32]) -> laneflow_static_contract::Sha256Digest {
+    laneflow_static_contract::Sha256Digest::from_bytes(bytes)
+}
+
+fn network_revision(bytes: [u8; 32]) -> laneflow_static_contract::NetworkRevisionId {
+    laneflow_static_contract::NetworkRevisionId::from_digest(sha256_digest(bytes))
+}
+
+fn exact_byte_length(value: u64) -> laneflow_static_contract::ExactByteLength {
+    laneflow_static_contract::ExactByteLength::new(value)
+}

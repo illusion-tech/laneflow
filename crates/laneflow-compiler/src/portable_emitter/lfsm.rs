@@ -434,7 +434,7 @@ pub(super) fn build_lfsm(
     output: &CompilationOutput,
     provenance: &PortableEmissionProvenanceV1,
     source_collection_digest: [u8; 32],
-    network_revision: [u8; 32],
+    network_revision: NetworkRevisionId,
     artifact: &PortableObjectCandidate,
 ) -> Result<OwnedObject, PortableEmissionError> {
     let source_map = output.source_map_input();
@@ -937,10 +937,13 @@ pub(super) fn build_lfsm(
                     1,
                     [row([
                         field(1, OwnedValue::U16(NETWORK_REVISION_DERIVATION_VERSION)),
-                        field(2, OwnedValue::Sha256(network_revision)),
+                        field(
+                            2,
+                            OwnedValue::Sha256(network_revision.into_digest().into_bytes()),
+                        ),
                         field(3, OwnedValue::U16(CANONICAL_ARTIFACT_FORMAT_VERSION)),
-                        field(4, OwnedValue::Sha256(artifact.digest())),
-                        field(5, OwnedValue::U64(artifact.byte_length())),
+                        field(4, OwnedValue::Sha256(artifact.digest().into_bytes())),
+                        field(5, OwnedValue::U64(artifact.byte_length().get())),
                         field(6, OwnedValue::Utf8(provenance.compiler_build_id.clone())),
                         field(7, OwnedValue::U16(SOURCE_COLLECTION_DIGEST_VERSION_V1)),
                         field(8, OwnedValue::Sha256(source_collection_digest)),

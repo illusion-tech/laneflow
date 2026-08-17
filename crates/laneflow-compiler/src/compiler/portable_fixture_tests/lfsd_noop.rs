@@ -30,12 +30,18 @@ fn portable_full_spatial_noop_diff_matches_frozen_exact_bytes() {
     );
     assert_eq!(candidate.source_map().bytes(), FULL_SPATIAL_EXPECTED_LFSM);
     assert_eq!(candidate.semantic_diff().bytes(), EXPECTED_LFSD);
-    assert_eq!(candidate.semantic_diff().byte_length(), 569);
+    assert_eq!(
+        candidate.semantic_diff().byte_length(),
+        exact_byte_length(569)
+    );
     assert_eq!(
         candidate.semantic_diff().object_key(),
         "sha256/5d72d97e935aa2ecddf2cc1c3cc6af033b7c115166d78de9e95526bc78d7f818"
     );
-    assert_eq!(candidate.network_revision(), FULL_SPATIAL_NETWORK_REVISION);
+    assert_eq!(
+        candidate.network_revision(),
+        network_revision(FULL_SPATIAL_NETWORK_REVISION)
+    );
 
     let diff = laneflow_format::preflight_object_values_v1(
         EXPECTED_LFSD,
@@ -65,7 +71,7 @@ fn portable_full_spatial_noop_diff_matches_frozen_exact_bytes() {
     for tag in [4, 8] {
         assert_eq!(
             binding.field_by_tag(tag).unwrap().value_bytes(),
-            artifact_digest
+            artifact_digest.as_bytes()
         );
     }
     for tag in [5, 9] {

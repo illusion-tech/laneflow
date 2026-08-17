@@ -31,10 +31,10 @@ use laneflow_format::{
     preflight_object_values_v1, prepare_object_v1,
 };
 use laneflow_static_contract::{
-    CANONICAL_ARTIFACT_FORMAT_VERSION, EntityKind, EntityKindMarker, IDENTITY_ENCODING_VERSION,
-    IDENTITY_REGISTRY_REVISION, NETWORK_REVISION_DERIVATION_VERSION,
-    NETWORK_REVISION_DOMAIN_PREFIX, Ordinal, OrdinalKind, PortableObjectKind,
-    SECTION_FORMAT_VERSION_V1, StableId,
+    CANONICAL_ARTIFACT_FORMAT_VERSION, EntityKind, EntityKindMarker, ExactByteLength,
+    IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION, NETWORK_REVISION_DERIVATION_VERSION,
+    NETWORK_REVISION_DOMAIN_PREFIX, NetworkRevisionId, Ordinal, OrdinalKind, PortableObjectKind,
+    SECTION_FORMAT_VERSION_V1, Sha256Digest, StableId,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -114,7 +114,12 @@ pub fn emit_portable_candidate(
     base: PortableDiffBase<'_>,
 ) -> Result<PortablePublicationCandidate, PortableEmissionError> {
     let source_collection_digest = source_collection_digest(output)?;
-    let mut lfca = build_lfca(output, provenance, source_collection_digest, [0; 32]);
+    let mut lfca = build_lfca(
+        output,
+        provenance,
+        source_collection_digest,
+        NetworkRevisionId::from_digest(Sha256Digest::ZERO),
+    );
     let preliminary_lfca = encode_owned_object(&lfca, limits, 0)?;
     let network_revision = network_revision(&preliminary_lfca, limits)?;
     drop(preliminary_lfca);
@@ -138,14 +143,15 @@ pub fn emit_portable_candidate(
     let source_map = close_object(encode_owned_object(
         &lfsm,
         limits,
-        canonical_artifact.byte_length(),
+        canonical_artifact.byte_length().get(),
     )?);
     preflight_object_values_v1(source_map.bytes(), PortableObjectKind::SourceMap, limits)?;
 
     let lfsd = build_lfsd(output, base, network_revision, &canonical_artifact, limits)?;
     let staged_before_diff = canonical_artifact
         .byte_length()
-        .checked_add(source_map.byte_length())
+        .get()
+        .checked_add(source_map.byte_length().get())
         .ok_or(PortableEmissionError::ArithmeticOverflow)?;
     let semantic_diff = close_object(encode_owned_object(&lfsd, limits, staged_before_diff)?);
     preflight_object_values_v1(
@@ -156,8 +162,9 @@ pub fn emit_portable_candidate(
 
     let total = canonical_artifact
         .byte_length()
-        .checked_add(source_map.byte_length())
-        .and_then(|value| value.checked_add(semantic_diff.byte_length()))
+        .get()
+        .checked_add(source_map.byte_length().get())
+        .and_then(|value| value.checked_add(semantic_diff.byte_length().get()))
         .ok_or(PortableEmissionError::ArithmeticOverflow)?;
     let staging_limit = limits.max_candidate_staging_bytes();
     if total > staging_limit {
@@ -194,7 +201,10 @@ fn source_collection_digest(output: &CompilationOutput) -> Result<[u8; 32], Port
     Ok(hasher.finalize().into())
 }
 
-fn network_revision(bytes: &[u8], limits: FormatLimits) -> Result<[u8; 32], PortableEmissionError> {
+fn network_revision(
+    bytes: &[u8],
+    limits: FormatLimits,
+) -> Result<NetworkRevisionId, PortableEmissionError> {
     let view = preflight_object_values_v1(bytes, PortableObjectKind::CanonicalArtifact, limits)?
         .registry_view();
     let mut hasher = Sha256::new();
@@ -214,12 +224,14 @@ fn network_revision(bytes: &[u8], limits: FormatLimits) -> Result<[u8; 32], Port
         );
         hasher.update(section.bytes());
     }
-    Ok(hasher.finalize().into())
+    Ok(NetworkRevisionId::from_digest(Sha256Digest::from_bytes(
+        hasher.finalize().into(),
+    )))
 }
 
 fn set_lfca_network_revision(
     object: &mut OwnedObject,
-    revision: [u8; 32],
+    revision: NetworkRevisionId,
 ) -> Result<(), PortableEmissionError> {
     let value = object
         .sections
@@ -228,6 +240,6 @@ fn set_lfca_network_revision(
         .and_then(|table| table.rows.get_mut(0))
         .and_then(|row| row.fields.get_mut(0))
         .ok_or(PortableEmissionError::InternalBindingMismatch)?;
-    value.value = OwnedValue::Sha256(revision);
+    value.value = OwnedValue::Sha256(revision.into_digest().into_bytes());
     Ok(())
 }

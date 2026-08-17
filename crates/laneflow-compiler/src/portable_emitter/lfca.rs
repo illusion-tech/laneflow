@@ -4,7 +4,7 @@ pub(super) fn build_lfca(
     output: &CompilationOutput,
     provenance: &PortableEmissionProvenanceV1,
     source_collection_digest: [u8; 32],
-    declared_network_revision: [u8; 32],
+    declared_network_revision: NetworkRevisionId,
 ) -> OwnedObject {
     let lir = output.lir().unit();
     let direction_profile = lir.geometry_profiles.map_or(0, |profiles| {
@@ -84,7 +84,7 @@ pub(super) fn build_lfca(
                     1,
                     [row([field(
                         1,
-                        OwnedValue::Sha256(declared_network_revision),
+                        OwnedValue::Sha256(declared_network_revision.into_digest().into_bytes()),
                     )])],
                 )],
             ),

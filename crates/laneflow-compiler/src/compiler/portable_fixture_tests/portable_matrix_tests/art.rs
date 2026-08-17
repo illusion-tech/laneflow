@@ -64,7 +64,10 @@ fn art_candidate_closes_identity_tables_and_all_computed_bindings() {
         .unwrap()
         .row(0)
         .unwrap();
-    assert_eq!(field_sha256(claim, 1), candidate.network_revision());
+    assert_eq!(
+        field_sha256(claim, 1),
+        candidate.network_revision().into_digest().into_bytes()
+    );
     let source_binding = source_map
         .section(0)
         .unwrap()
@@ -75,29 +78,32 @@ fn art_candidate_closes_identity_tables_and_all_computed_bindings() {
     assert_eq!(field_u16(source_binding, 1), 1);
     assert_eq!(
         field_sha256(source_binding, 2),
-        candidate.network_revision()
+        candidate.network_revision().into_digest().into_bytes()
     );
     assert_eq!(field_u16(source_binding, 3), 1);
     assert_eq!(
         field_sha256(source_binding, 4),
-        candidate.canonical_artifact().digest()
+        candidate.canonical_artifact().digest().into_bytes()
     );
     assert_eq!(
         field_u64(source_binding, 5),
-        candidate.canonical_artifact().byte_length()
+        candidate.canonical_artifact().byte_length().get()
     );
 
     let diff_binding = diff.section(0).unwrap().table(0).unwrap().row(0).unwrap();
     assert_eq!(field_u8(diff_binding, 1), 0);
     assert_eq!(field_u16(diff_binding, 6), 1);
-    assert_eq!(field_sha256(diff_binding, 7), candidate.network_revision());
+    assert_eq!(
+        field_sha256(diff_binding, 7),
+        candidate.network_revision().into_digest().into_bytes()
+    );
     assert_eq!(
         field_sha256(diff_binding, 8),
-        candidate.canonical_artifact().digest()
+        candidate.canonical_artifact().digest().into_bytes()
     );
     assert_eq!(
         field_u64(diff_binding, 9),
-        candidate.canonical_artifact().byte_length()
+        candidate.canonical_artifact().byte_length().get()
     );
 
     for object in [
@@ -107,14 +113,14 @@ fn art_candidate_closes_identity_tables_and_all_computed_bindings() {
     ] {
         assert_eq!(
             object.digest(),
-            <[u8; 32]>::from(Sha256::digest(object.bytes()))
+            sha256_digest(Sha256::digest(object.bytes()).into())
         );
         assert_eq!(
             object.byte_length(),
-            u64::try_from(object.bytes().len()).unwrap()
+            exact_byte_length(u64::try_from(object.bytes().len()).unwrap())
         );
         let mut expected_key = String::from("sha256/");
-        for byte in object.digest() {
+        for byte in object.digest().into_bytes() {
             use std::fmt::Write as _;
             write!(&mut expected_key, "{byte:02x}").unwrap();
         }

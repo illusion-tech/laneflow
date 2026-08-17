@@ -15,7 +15,7 @@ use super::*;
 
 fn build_genesis_lfsd(
     output: &CompilationOutput,
-    network_revision: [u8; 32],
+    network_revision: NetworkRevisionId,
     artifact: &PortableObjectCandidate,
     limits: FormatLimits,
 ) -> Result<OwnedObject, PortableEmissionError> {
@@ -50,9 +50,12 @@ fn build_genesis_lfsd(
                         field(4, OwnedValue::Sha256([0; 32])),
                         field(5, OwnedValue::U64(0)),
                         field(6, OwnedValue::U16(NETWORK_REVISION_DERIVATION_VERSION)),
-                        field(7, OwnedValue::Sha256(network_revision)),
-                        field(8, OwnedValue::Sha256(artifact.digest())),
-                        field(9, OwnedValue::U64(artifact.byte_length())),
+                        field(
+                            7,
+                            OwnedValue::Sha256(network_revision.into_digest().into_bytes()),
+                        ),
+                        field(8, OwnedValue::Sha256(artifact.digest().into_bytes())),
+                        field(9, OwnedValue::U64(artifact.byte_length().get())),
                     ])],
                 )],
             ),
@@ -78,7 +81,7 @@ fn build_genesis_lfsd(
 pub(super) fn build_lfsd(
     output: &CompilationOutput,
     base: PortableDiffBase<'_>,
-    network_revision: [u8; 32],
+    network_revision: NetworkRevisionId,
     artifact: &PortableObjectCandidate,
     limits: FormatLimits,
 ) -> Result<OwnedObject, PortableEmissionError> {
@@ -108,7 +111,7 @@ pub(super) fn verify_target_relation_projection(
 
 fn build_artifact_lfsd(
     base: ValueCheckedObjectView<'_>,
-    target_network_revision: [u8; 32],
+    target_network_revision: NetworkRevisionId,
     target_artifact: &PortableObjectCandidate,
     limits: FormatLimits,
 ) -> Result<OwnedObject, PortableEmissionError> {
@@ -130,8 +133,9 @@ fn build_artifact_lfsd(
 
     let base_network_revision = network_revision(base.bytes(), limits)?;
     let base_digest = sha256(base.bytes());
-    let base_length =
-        u64::try_from(base.bytes().len()).map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
+    let base_length = ExactByteLength::new(
+        u64::try_from(base.bytes().len()).map_err(|_| PortableEmissionError::ArithmeticOverflow)?,
+    );
     let entity_changes = artifact_entity_changes(&base_index, &target_index)?;
     let relation_changes = artifact_relation_changes(&base_index, &target_index)?;
     let geometry_changes = artifact_geometry_changes(&base_index, &target_index)?;
@@ -148,13 +152,19 @@ fn build_artifact_lfsd(
                     [row([
                         field(1, OwnedValue::U8(1)),
                         field(2, OwnedValue::U16(NETWORK_REVISION_DERIVATION_VERSION)),
-                        field(3, OwnedValue::Sha256(base_network_revision)),
-                        field(4, OwnedValue::Sha256(base_digest)),
-                        field(5, OwnedValue::U64(base_length)),
+                        field(
+                            3,
+                            OwnedValue::Sha256(base_network_revision.into_digest().into_bytes()),
+                        ),
+                        field(4, OwnedValue::Sha256(base_digest.into_bytes())),
+                        field(5, OwnedValue::U64(base_length.get())),
                         field(6, OwnedValue::U16(NETWORK_REVISION_DERIVATION_VERSION)),
-                        field(7, OwnedValue::Sha256(target_network_revision)),
-                        field(8, OwnedValue::Sha256(target_artifact.digest())),
-                        field(9, OwnedValue::U64(target_artifact.byte_length())),
+                        field(
+                            7,
+                            OwnedValue::Sha256(target_network_revision.into_digest().into_bytes()),
+                        ),
+                        field(8, OwnedValue::Sha256(target_artifact.digest().into_bytes())),
+                        field(9, OwnedValue::U64(target_artifact.byte_length().get())),
                     ])],
                 )],
             ),
