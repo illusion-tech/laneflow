@@ -6,8 +6,8 @@
 use laneflow_static_contract::{
     OBJECT_PREAMBLE_V1_BYTE_LENGTH, PortableFieldPresence, PortableFieldSchema, PortableFieldType,
     PortableObjectKind, PortableRowCardinality, PortableRowSchema, PortableRowShape,
-    PortableSectionSchema, PortableTableSchema, SECTION_FORMAT_VERSION_V1, portable_field_mask,
-    portable_object_schema,
+    PortableSectionSchema, PortableTableSchema, SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH,
+    SECTION_FORMAT_VERSION_V1, portable_field_mask, portable_object_schema,
 };
 
 use crate::{FormatError, FormatLimits, FormatStructure, LimitDimension};
@@ -439,15 +439,21 @@ fn measure_value(
             let nested_schema = schema.nested_row.ok_or(FormatError::BindingMismatch {
                 structure: FormatStructure::RecordVector,
             })?;
+            let mut pending = *budget;
             let mut length = 4_u64;
+            checked_total_vector_bytes(pending.total_vector_bytes, length, limits)?;
             for row in rows {
                 length = checked_add(
                     length,
-                    measure_row(*row, nested_schema, next_depth, limits, budget)?,
+                    measure_row(*row, nested_schema, next_depth, limits, &mut pending)?,
                     FormatStructure::RecordVector,
                 )?;
+                checked_total_vector_bytes(pending.total_vector_bytes, length, limits)?;
             }
-            length
+            pending.total_vector_bytes =
+                checked_total_vector_bytes(pending.total_vector_bytes, length, limits)?;
+            *budget = pending;
+            return Ok(length);
         }
     };
 
@@ -461,22 +467,25 @@ fn measure_value(
         _ => {}
     }
 
-    if matches!(
-        value,
-        FieldWriteValueV1::OrdinalVectorU32(_) | FieldWriteValueV1::RecordVector(_)
-    ) {
-        budget.total_vector_bytes = checked_add(
-            budget.total_vector_bytes,
-            value_length,
-            FormatStructure::FieldValue,
-        )?;
-        check_limit(
-            LimitDimension::TotalVectorBytes,
-            budget.total_vector_bytes,
-            limits.config().max_total_vector_bytes,
-        )?;
+    if matches!(value, FieldWriteValueV1::OrdinalVectorU32(_)) {
+        budget.total_vector_bytes =
+            checked_total_vector_bytes(budget.total_vector_bytes, value_length, limits)?;
     }
     Ok(value_length)
+}
+
+fn checked_total_vector_bytes(
+    current: u64,
+    additional: u64,
+    limits: FormatLimits,
+) -> Result<u64, FormatError> {
+    let total = checked_add(current, additional, FormatStructure::FieldValue)?;
+    check_limit(
+        LimitDimension::TotalVectorBytes,
+        total,
+        limits.config().max_total_vector_bytes,
+    )?;
+    Ok(total)
 }
 
 fn validate_row_shape(
@@ -598,46 +607,6 @@ fn check_limit(dimension: LimitDimension, actual: u64, limit: u64) -> Result<(),
     Ok(())
 }
 
-fn raw_section_length(section: SectionWriteInputV1<'_>) -> u64 {
-    SECTION_HEADER_BYTES
-        + section
-            .tables
-            .iter()
-            .copied()
-            .map(raw_table_length)
-            .sum::<u64>()
-}
-
-fn raw_table_length(table: TableWriteInputV1<'_>) -> u64 {
-    TABLE_HEADER_BYTES + table.rows.iter().copied().map(raw_row_length).sum::<u64>()
-}
-
-fn raw_row_length(row: RowWriteInputV1<'_>) -> u64 {
-    ROW_HEADER_BYTES
-        + row
-            .fields
-            .iter()
-            .map(|field| FIELD_HEADER_BYTES + raw_value_length(field.value))
-            .sum::<u64>()
-}
-
-fn raw_value_length(value: FieldWriteValueV1<'_>) -> u64 {
-    match value {
-        FieldWriteValueV1::U8(_) => 1,
-        FieldWriteValueV1::U16(_) => 2,
-        FieldWriteValueV1::U32(_) | FieldWriteValueV1::F32(_) | FieldWriteValueV1::I32(_) => 4,
-        FieldWriteValueV1::U64(_) | FieldWriteValueV1::F64(_) => 8,
-        FieldWriteValueV1::StableId128(_) => 16,
-        FieldWriteValueV1::Sha256(_) => 32,
-        FieldWriteValueV1::Utf8(value) => value.len() as u64,
-        FieldWriteValueV1::Bytes(value) => value.len() as u64,
-        FieldWriteValueV1::OrdinalVectorU32(items) => 4 + items.len() as u64 * 4,
-        FieldWriteValueV1::RecordVector(rows) => {
-            4 + rows.iter().copied().map(raw_row_length).sum::<u64>()
-        }
-    }
-}
-
 fn write_object(cursor: &mut WriteCursor<'_>, input: ObjectWriteInputV1<'_>, object_length: u64) {
     cursor.put(&input.kind.magic());
     cursor.u16(input.kind.format_version());
@@ -647,18 +616,24 @@ fn write_object(cursor: &mut WriteCursor<'_>, input: ObjectWriteInputV1<'_>, obj
     cursor.u64(u64::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH));
     cursor.u64(object_length);
 
-    let mut section_offset = input.kind.first_section_offset();
     for section in input.sections {
-        let section_length = raw_section_length(*section);
         cursor.u16(section.kind);
         cursor.u16(SECTION_FORMAT_VERSION_V1);
         cursor.u32(0);
-        cursor.u64(section_offset);
-        cursor.u64(section_length);
-        section_offset += section_length;
+        cursor.u64(0);
+        cursor.u64(0);
     }
-    for section in input.sections {
+
+    for (ordinal, section) in input.sections.iter().enumerate() {
+        let section_offset = cursor.position();
         write_section(cursor, *section);
+        let section_length = cursor.position() - section_offset;
+        let directory_entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
+            + ordinal
+                * usize::try_from(SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH)
+                    .expect("the frozen directory entry width fits usize");
+        cursor.patch_u64(directory_entry + 8, section_offset);
+        cursor.patch_u64(directory_entry + 16, section_length);
     }
 }
 
@@ -670,27 +645,32 @@ fn write_section(cursor: &mut WriteCursor<'_>, section: SectionWriteInputV1<'_>)
 }
 
 fn write_table(cursor: &mut WriteCursor<'_>, table: TableWriteInputV1<'_>) {
-    let table_length = raw_table_length(table);
     cursor.u16(table.kind);
     cursor.u16(TABLE_SCHEMA_VERSION_V1);
     cursor.u32(table.rows.len() as u32);
-    cursor.u64(table_length - TABLE_HEADER_BYTES);
+    let rows_length_offset = cursor.reserve_u64();
+    let rows_offset = cursor.position();
     for row in table.rows {
         write_row(cursor, *row);
     }
+    cursor.patch_u64(rows_length_offset, cursor.position() - rows_offset);
 }
 
 fn write_row(cursor: &mut WriteCursor<'_>, row: RowWriteInputV1<'_>) {
-    cursor.u64(raw_row_length(row));
+    let row_offset = cursor.position();
+    let row_length_offset = cursor.reserve_u64();
     cursor.u32(row.fields.len() as u32);
     cursor.u32(0);
     for field in row.fields {
         cursor.u16(field.tag);
         cursor.u8(field.value.field_type() as u8);
         cursor.u8(0);
-        cursor.u64(raw_value_length(field.value));
+        let value_length_offset = cursor.reserve_u64();
+        let value_offset = cursor.position();
         write_value(cursor, field.value);
+        cursor.patch_u64(value_length_offset, cursor.position() - value_offset);
     }
+    cursor.patch_u64(row_length_offset, cursor.position() - row_offset);
 }
 
 fn write_value(cursor: &mut WriteCursor<'_>, value: FieldWriteValueV1<'_>) {
@@ -758,6 +738,16 @@ impl<'a> WriteCursor<'a> {
 
     fn u64(&mut self, value: u64) {
         self.put(&value.to_le_bytes());
+    }
+
+    fn reserve_u64(&mut self) -> usize {
+        let offset = self.position;
+        self.u64(0);
+        offset
+    }
+
+    fn patch_u64(&mut self, offset: usize, value: u64) {
+        self.output[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
     }
 }
 
@@ -978,7 +968,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(length, expected.len() as u64);
-        assert_eq!(raw_value_length(value), length);
         let mut output = vec![0; expected.len()];
         let mut cursor = WriteCursor::new(&mut output);
         write_value(&mut cursor, value);
@@ -1262,6 +1251,50 @@ mod tests {
             .unwrap_err()
             .class(),
             FormatErrorClass::LimitExceeded
+        );
+    }
+
+    #[test]
+    fn record_vector_budget_fails_before_visiting_later_rows() {
+        const NESTED_FIELDS: &[PortableFieldSchema] = &[];
+        const NESTED_ROW: PortableRowSchema = PortableRowSchema {
+            fields: NESTED_FIELDS,
+            shape: PortableRowShape::Uniform,
+        };
+        let schema = PortableFieldSchema {
+            tag: 1,
+            name: "records",
+            field_type: PortableFieldType::RecordVector,
+            presence: PortableFieldPresence::Required,
+            nested_row: Some(&NESTED_ROW),
+        };
+        let invalid_fields = [FieldWriteInputV1 {
+            tag: 1,
+            value: FieldWriteValueV1::U8(0),
+        }];
+        let rows = [
+            RowWriteInputV1 { fields: &[] },
+            RowWriteInputV1 {
+                fields: &invalid_fields,
+            },
+        ];
+        let mut config = FormatLimitConfig::V1_HARD;
+        config.max_total_vector_bytes = 4;
+        let limits = FormatLimits::try_new(config).unwrap();
+
+        assert_eq!(
+            measure_value(
+                FieldWriteValueV1::RecordVector(&rows),
+                schema,
+                0,
+                limits,
+                &mut WriteBudget::default(),
+            ),
+            Err(FormatError::LimitExceeded {
+                dimension: LimitDimension::TotalVectorBytes,
+                actual: 20,
+                limit: 4,
+            })
         );
     }
 
