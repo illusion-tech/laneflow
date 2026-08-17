@@ -119,6 +119,35 @@ pub(super) fn discover_g3_evidence_shadow_issue_event_targets(
     Ok(targets.into_iter().collect())
 }
 
+pub(super) struct ResolvedGateEvidenceIssue {
+    pub(super) args: GateEvidenceArgs,
+    pub(super) issue: GitHubIssue,
+}
+
+pub(super) fn resolve_gate_evidence_target_issues(
+    repo: &str,
+    pr_number: u64,
+    role: GateEvidencePrRole,
+    issue_numbers: &[u64],
+    issue_phase: GateEvidencePhase,
+) -> Result<Vec<ResolvedGateEvidenceIssue>, String> {
+    issue_numbers
+        .iter()
+        .map(|issue_number| {
+            let issue = gh_issue_view_for_phase(repo, *issue_number, issue_phase)?;
+            validate_current_g3_issue(issue_phase, &issue)?;
+            let args = resolve_gate_evidence_target_args(
+                repo.to_string(),
+                pr_number,
+                role,
+                *issue_number,
+                &issue.body,
+            )?;
+            Ok(ResolvedGateEvidenceIssue { args, issue })
+        })
+        .collect()
+}
+
 pub(super) fn resolve_gate_evidence_targets(
     repo: &str,
     pr_number: u64,
@@ -126,20 +155,8 @@ pub(super) fn resolve_gate_evidence_targets(
     issue_numbers: &[u64],
     issue_phase: GateEvidencePhase,
 ) -> Result<Vec<GateEvidenceArgs>, String> {
-    issue_numbers
-        .iter()
-        .map(|issue_number| {
-            let issue = gh_issue_view_for_phase(repo, *issue_number, issue_phase)?;
-            validate_current_g3_issue(issue_phase, &issue)?;
-            resolve_gate_evidence_target_args(
-                repo.to_string(),
-                pr_number,
-                role,
-                *issue_number,
-                &issue.body,
-            )
-        })
-        .collect()
+    resolve_gate_evidence_target_issues(repo, pr_number, role, issue_numbers, issue_phase)
+        .map(|resolved| resolved.into_iter().map(|resolved| resolved.args).collect())
 }
 
 pub(super) fn validate_g3_target(
