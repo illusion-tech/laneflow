@@ -11,8 +11,8 @@ use std::io;
 
 use laneflow_format::{FormatError, FormatLimits};
 use laneflow_static_contract::{
-    CANONICAL_ARTIFACT_FORMAT_VERSION, NETWORK_REVISION_DERIVATION_VERSION,
-    SOURCE_MAP_FORMAT_VERSION,
+    CANONICAL_ARTIFACT_FORMAT_VERSION, ExactByteLength, NETWORK_REVISION_DERIVATION_VERSION,
+    NetworkRevisionId, SOURCE_MAP_FORMAT_VERSION, Sha256Digest,
 };
 
 use crate::{
@@ -38,17 +38,17 @@ struct CheckedReceiptBindingV1<'a> {
 pub struct PortableArtifactSubjectBindingV1 {
     pub canonical_artifact_format_version: u16,
     pub network_revision_derivation_version: u16,
-    pub network_revision: [u8; 32],
-    pub digest: [u8; 32],
-    pub byte_length: u64,
+    pub network_revision: NetworkRevisionId,
+    pub digest: Sha256Digest,
+    pub byte_length: ExactByteLength,
 }
 
 /// #299 receipt 中唯一的 source-map subject binding 投影。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PortableSourceMapSubjectBindingV1 {
     pub source_map_format_version: u16,
-    pub digest: [u8; 32],
-    pub byte_length: u64,
+    pub digest: Sha256Digest,
+    pub byte_length: ExactByteLength,
 }
 
 /// #299 独立验证视图必须提供给 #298 发布事务的最小接口。
@@ -449,8 +449,9 @@ fn verify_exact_installation(
     bytes: &[u8],
 ) -> Result<(), PortablePublicationError> {
     let digest = sha256(bytes);
-    let length =
-        u64::try_from(bytes.len()).map_err(|_| PortablePublicationError::ArithmeticOverflow)?;
+    let length = ExactByteLength::new(
+        u64::try_from(bytes.len()).map_err(|_| PortablePublicationError::ArithmeticOverflow)?,
+    );
     if installation.digest() != digest
         || installation.byte_length() != length
         || installation.object_key() != object_key(digest).as_ref()

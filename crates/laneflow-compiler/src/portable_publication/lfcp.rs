@@ -33,14 +33,20 @@ pub(super) fn build_lfcp_v1(
             2,
             FieldWriteValueV1::U16(NETWORK_REVISION_DERIVATION_VERSION),
         ),
-        field(3, FieldWriteValueV1::Sha256(candidate.network_revision())),
-        field(4, FieldWriteValueV1::Sha256(artifact.digest())),
-        field(5, FieldWriteValueV1::U64(artifact.byte_length())),
+        field(
+            3,
+            FieldWriteValueV1::Sha256(candidate.network_revision().into_digest().into_bytes()),
+        ),
+        field(4, FieldWriteValueV1::Sha256(artifact.digest().into_bytes())),
+        field(5, FieldWriteValueV1::U64(artifact.byte_length().get())),
     ];
     let source_map_fields = [
         field(1, FieldWriteValueV1::U16(SOURCE_MAP_FORMAT_VERSION)),
-        field(2, FieldWriteValueV1::Sha256(source_map.digest())),
-        field(3, FieldWriteValueV1::U64(source_map.byte_length())),
+        field(
+            2,
+            FieldWriteValueV1::Sha256(source_map.digest().into_bytes()),
+        ),
+        field(3, FieldWriteValueV1::U64(source_map.byte_length().get())),
         field(4, FieldWriteValueV1::Utf8(candidate.compiler_build_id())),
         field(
             5,
@@ -55,10 +61,13 @@ pub(super) fn build_lfcp_v1(
         field(1, FieldWriteValueV1::U16(receipt.format_version)),
         field(2, FieldWriteValueV1::Utf8(receipt.kind)),
         field(3, FieldWriteValueV1::Utf8(receipt.validator_build_id)),
-        field(4, FieldWriteValueV1::Sha256(receipt_installation.digest())),
+        field(
+            4,
+            FieldWriteValueV1::Sha256(receipt_installation.digest().into_bytes()),
+        ),
         field(
             5,
-            FieldWriteValueV1::U64(receipt_installation.byte_length()),
+            FieldWriteValueV1::U64(receipt_installation.byte_length().get()),
         ),
     ];
     let mut publication_fields = Vec::with_capacity(7);

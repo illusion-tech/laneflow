@@ -38,17 +38,17 @@ fn every_candidate_section_single_bit_corruption_breaks_its_digest_binding() {
     let candidate = full_spatial_portable_fixture_candidate();
     assert_each_section_bit_change_breaks_digest(
         FULL_SPATIAL_EXPECTED_LFCA,
-        candidate.canonical_artifact().digest(),
+        candidate.canonical_artifact().digest().into_bytes(),
         PortableObjectKind::CanonicalArtifact,
     );
     assert_each_section_bit_change_breaks_digest(
         FULL_SPATIAL_EXPECTED_LFSM,
-        candidate.source_map().digest(),
+        candidate.source_map().digest().into_bytes(),
         PortableObjectKind::SourceMap,
     );
     assert_each_section_bit_change_breaks_digest(
         FULL_SPATIAL_EXPECTED_LFSD,
-        candidate.semantic_diff().digest(),
+        candidate.semantic_diff().digest().into_bytes(),
         PortableObjectKind::SemanticDiff,
     );
 }

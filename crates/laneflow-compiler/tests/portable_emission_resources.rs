@@ -83,9 +83,9 @@ fn measure<T>(operation: impl FnOnce() -> T) -> (T, Measurement) {
 }
 
 fn staging_bytes(candidate: &laneflow_compiler::PortablePublicationCandidate) -> u64 {
-    candidate.canonical_artifact().byte_length()
-        + candidate.source_map().byte_length()
-        + candidate.semantic_diff().byte_length()
+    candidate.canonical_artifact().byte_length().get()
+        + candidate.source_map().byte_length().get()
+        + candidate.semantic_diff().byte_length().get()
 }
 
 fn print_measurement(mode: &str, measurement: Measurement, staging_bytes: u64) {

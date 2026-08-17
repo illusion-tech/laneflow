@@ -86,7 +86,9 @@ transport 边界，读取成功仍须进入 format preflight。`PortableObjectSt
 exact bytes 写入发布根内的唯一 staging 目录，flush/sync/close 后流式复核
 exact bytes，再以同文件系统 hard-link no-replace 原子安装到内部重算的
 `sha256/<64 lowercase hex>` 路径；已存在 winner 只允许 exact bytes 相同复用，平台不能证明
-该原语时明确返回 `AtomicInstallUnsupported`。`commit_portable_publication_v1` 只接受未来 #299
+该原语时明确返回 `AtomicInstallUnsupported`。安装结果与 receipt subject projection 继续使用
+`Sha256Digest`、`ExactByteLength`、`NetworkRevisionId`，只有 LFCP wire writer 解包这些值。
+`commit_portable_publication_v1` 只接受未来 #299
 实现的 `CanonicalPublicationReceiptViewV1`：一次性快照其 opaque exact bytes、metadata 和恰好
 两个 subject bindings，依次安装 LFCA/LFSM/LFSD/receipt 后才构造并安装 LFCP，最后恰好调用
 一次外部 `PortableManifestCommitter`。#298 不定义或解析 receipt wire，也不自证 manifest

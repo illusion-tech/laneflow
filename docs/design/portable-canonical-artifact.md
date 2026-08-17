@@ -878,7 +878,8 @@ source map 失败后仍可取出 artifact”的中间成功状态。
 `PortablePublicationCandidate` 原子拥有 LFCA/LFSM/LFSD 三份 exact bytes，以及分别从这些
 bytes 重算的 `Sha256Digest`、`ExactByteLength` 和 `sha256/<64 lowercase hex>` object key，
 并以 `NetworkRevisionId` 暴露修订绑定；这些值只在线格式边界转换为原始 32-byte/`u64`。
-调用方
+同一强类型边界延续到内容寻址安装结果和 receipt subject projection；只有 LFCP 字段编码等
+明确 wire writer 才解包为原始值。调用方
 不能覆盖、遗漏或重新配对任一计算绑定；只有三份对象全部关闭、结构预检和内部 binding
 检查成功后才能取得候选。LFSD binding 保留给 #302，不因 LFCP 当前不引用 diff 而丢弃。
 
