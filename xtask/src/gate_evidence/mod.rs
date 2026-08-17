@@ -157,7 +157,10 @@ where
                 cached.issue_number, args.issue
             ));
         }
-        let expected_pr = args.delivery_pr.unwrap_or(args.related_prs[0]);
+        let expected_pr = args
+            .delivery_pr
+            .or_else(|| args.related_prs.first().copied())
+            .ok_or("缓存的 Gate evidence 命令缺少 Delivery / Related PR 参数")?;
         if cached.pr_number != expected_pr {
             return Err(format!(
                 "缓存的 PR snapshot 与命令不一致：缓存 #{}；命令 #{}",
