@@ -1,0 +1,150 @@
+name: Portable exact bytes
+
+on:
+  pull_request:
+    paths:
+      - "crates/laneflow-compiler/**"
+      - "crates/laneflow-format/**"
+      - "crates/laneflow-static-contract/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/portable-exact-bytes.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "crates/laneflow-compiler/**"
+      - "crates/laneflow-format/**"
+      - "crates/laneflow-static-contract/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/portable-exact-bytes.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  produce:
+    name: Produce (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: ubuntu
+            os: ubuntu-latest
+          - label: windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust MSRV toolchain
+        shell: pwsh
+        run: rustup toolchain install 1.96.0 --profile minimal
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: laneflow-msrv-1.96.0-portable-exact-${{ matrix.label }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-targets: true
+
+      - name: Export two independent process runs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $evidenceRoot = Join-Path $env:RUNNER_TEMP 'portable-exact'
+          New-Item -ItemType Directory -Path $evidenceRoot | Out-Null
+
+          $runs = @(
+            @{ Name = 'run-a'; Perturbation = '4096' },
+            @{ Name = 'run-b'; Perturbation = '1048576' }
+          )
+          foreach ($run in $runs) {
+            $env:LANEFLOW_PORTABLE_EVIDENCE_DIR = Join-Path $evidenceRoot $run.Name
+            $env:LANEFLOW_PORTABLE_ALLOCATION_PERTURBATION_BYTES = $run.Perturbation
+            cargo +1.96.0 test -p laneflow-compiler `
+              compiler::portable_fixture_tests::ci_evidence::portable_exact_bytes_ci_evidence `
+              --locked -- --ignored --exact --test-threads=1
+          }
+
+      - name: Upload exact-byte evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: portable-exact-${{ matrix.label }}
+          path: ${{ runner.temp }}/portable-exact
+          if-no-files-found: error
+          retention-days: 7
+
+  compare:
+    name: Cross-compare exact bytes
+    needs: produce
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download Ubuntu evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: portable-exact-ubuntu
+          path: target/portable-exact-ci/ubuntu
+
+      - name: Download Windows evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: portable-exact-windows
+          path: target/portable-exact-ci/windows
+
+      - name: Compare exact bytes, length, digest, and perturbations
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          evidence_root="target/portable-exact-ci"
+          baseline="${evidence_root}/ubuntu/run-a"
+          files=(actual.lfca actual.lfsm actual.lfsd bindings.txt)
+          runs=(ubuntu/run-b windows/run-a windows/run-b)
+          for run in "${runs[@]}"; do
+            for file in "${files[@]}"; do
+              cmp --silent "${baseline}/${file}" "${evidence_root}/${run}/${file}"
+            done
+          done
+
+          cmp --silent "${baseline}/actual.lfca" \
+            crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca
+          cmp --silent "${baseline}/actual.lfsm" \
+            crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsm
+          cmp --silent "${baseline}/actual.lfsd" \
+            crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsd
+
+          for platform in ubuntu windows; do
+            first_hash="$(sed -n 's/^hash-sample=//p' "${evidence_root}/${platform}/run-a/process-canary.txt")"
+            repeated_hash="$(sed -n 's/^hash-sample=//p' "${evidence_root}/${platform}/run-b/process-canary.txt")"
+            first_allocation="$(sed -n 's/^allocation-canary=//p' "${evidence_root}/${platform}/run-a/process-canary.txt")"
+            repeated_allocation="$(sed -n 's/^allocation-canary=//p' "${evidence_root}/${platform}/run-b/process-canary.txt")"
+            first_perturbation="$(sed -n 's/^allocation-perturbation-bytes=//p' "${evidence_root}/${platform}/run-a/process-canary.txt")"
+            repeated_perturbation="$(sed -n 's/^allocation-perturbation-bytes=//p' "${evidence_root}/${platform}/run-b/process-canary.txt")"
+            test -n "${first_hash}"
+            test -n "${repeated_hash}"
+            test "${first_hash}" != "${repeated_hash}"
+            test -n "${first_allocation}"
+            test -n "${repeated_allocation}"
+            test "${first_allocation}" != "${repeated_allocation}"
+            test "${first_perturbation}" = "4096"
+            test "${repeated_perturbation}" = "1048576"
+          done
+
+          for entry in LFCA:actual.lfca LFSM:actual.lfsm LFSD:actual.lfsd; do
+            kind="${entry%%:*}"
+            file="${entry#*:}"
+            length="$(wc -c < "${baseline}/${file}" | tr -d ' ')"
+            digest="$(sha256sum "${baseline}/${file}" | cut -d ' ' -f 1)"
+            grep --fixed-strings --line-regexp \
+              "${kind} length=${length} sha256/${digest}" "${baseline}/bindings.txt"
+            printf '%s length=%s sha256=%s\n' "${kind}" "${length}" "${digest}" \
+              | tee -a "${GITHUB_STEP_SUMMARY}"
+          done
