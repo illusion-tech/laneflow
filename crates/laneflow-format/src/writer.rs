@@ -929,6 +929,10 @@ mod tests {
         entity_tables[0].rows = leak(vec![entity_row]);
         sections[1].tables = leak(entity_tables);
 
+        let mut spatial_tables = sections[5].tables.to_vec();
+        spatial_tables[0].rows = leak(vec![default_row(schema.sections[5].tables[0].row, false)]);
+        sections[5].tables = leak(spatial_tables);
+
         ObjectWriteInputV1 {
             kind: input.kind,
             sections: leak(sections),
@@ -1139,7 +1143,7 @@ mod tests {
             FormatLimits::V1_HARD,
         )
         .unwrap();
-        assert_eq!(framing.section(1).unwrap().bytes().len(), 16_776_667);
+        assert_eq!(framing.section(1).unwrap().bytes().len(), 16_776_626);
         preflight_object_values_v1(
             &bytes,
             PortableObjectKind::SemanticDiff,
