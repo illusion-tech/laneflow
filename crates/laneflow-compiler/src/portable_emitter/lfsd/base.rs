@@ -30,8 +30,7 @@ impl<'a> ArtifactIndex<'a> {
             .ok_or(mismatch)?;
         let mut identities = BTreeMap::new();
         let mut identity_ordinals = BTreeMap::new();
-        for ordinal in 0..identity_table.row_count() {
-            let identity = identity_table.row(ordinal).ok_or(mismatch)?;
+        for identity in identity_table.rows() {
             let entity_kind =
                 EntityKind::from_code(checked_u16_with(identity, 1, mismatch)?).ok_or(mismatch)?;
             let typed_ordinal = checked_u32_with(identity, 2, mismatch)?;
@@ -63,12 +62,10 @@ impl<'a> ArtifactIndex<'a> {
         let entity_section = view.section(2).ok_or(mismatch)?;
         let mut entities = BTreeMap::new();
         let mut ordinal_stable_ids = BTreeMap::new();
-        for (table_ordinal, entity_kind) in EntityKind::ALL.into_iter().enumerate() {
-            let table_ordinal = u32::try_from(table_ordinal)
-                .map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
-            let entity_table = entity_section.table(table_ordinal).ok_or(mismatch)?;
-            for row_ordinal in 0..entity_table.row_count() {
-                let entity = entity_table.row(row_ordinal).ok_or(mismatch)?;
+        let mut entity_tables = entity_section.tables();
+        for entity_kind in EntityKind::ALL {
+            let entity_table = entity_tables.next().ok_or(mismatch)?;
+            for entity in entity_table.rows() {
                 let typed_ordinal = checked_u32_with(entity, 1, mismatch)?;
                 let stable_id = checked_stable_id_with(entity, 2, mismatch)?;
                 if entities
@@ -81,6 +78,9 @@ impl<'a> ArtifactIndex<'a> {
                     return Err(mismatch);
                 }
             }
+        }
+        if entity_tables.next().is_some() {
+            return Err(mismatch);
         }
         if identities.len() != entities.len() {
             return Err(mismatch);

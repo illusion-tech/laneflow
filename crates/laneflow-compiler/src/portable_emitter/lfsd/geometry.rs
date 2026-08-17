@@ -13,8 +13,7 @@ fn artifact_geometry_values(
         (2, EntityKind::FacilityBand, &[3_u16, 4][..]),
     ] {
         let table = spatial.table(table_ordinal).ok_or(mismatch)?;
-        for ordinal in 0..table.row_count() {
-            let geometry = table.row(ordinal).ok_or(mismatch)?;
+        for geometry in table.rows() {
             let subject_stable_id = index.stable_id(
                 subject_kind,
                 checked_u32_with(geometry, 1, mismatch)?,
@@ -177,10 +176,7 @@ pub(super) fn genesis_geometry_changes(
                     .expect("the canonical spatial registry contains only three tables"),
             )
             .ok_or(PortableEmissionError::InternalBindingMismatch)?;
-        for row_index in 0..table.row_count() {
-            let geometry = table
-                .row(row_index)
-                .ok_or(PortableEmissionError::InternalBindingMismatch)?;
+        for geometry in table.rows() {
             let subject_ordinal = checked_u32(geometry, 1)?;
             let frame_ordinal = checked_u32(geometry, 2)?;
             changes.push((
