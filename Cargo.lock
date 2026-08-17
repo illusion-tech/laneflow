@@ -3195,6 +3195,7 @@ dependencies = [
  "laneflow-road-editing-wire",
  "laneflow-static-contract",
  "sha2",
+ "stats_alloc",
 ]
 
 [[package]]
