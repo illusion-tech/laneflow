@@ -15,6 +15,10 @@ Cargo 依赖或 CI 门禁，也不替代 `cargo check/test`、`rg` 和源码阅�
 的 `mcpls.toml`；该文件可以决定要启动的语言服务器，因此只应信任自己已审阅的
 checkout。
 
+项目配置不设置 `mcp_servers.mcpls.cwd`，由 Codex 使用当前任务或 CLI 会话的工作目录
+启动 mcpls。`mcpls.toml` 同样保持 `workspace.roots = []`，让 mcpls 从进程工作目录发现
+当前 LaneFlow workspace；两处都不得写入用户名、盘符或某个 worktree 的绝对路径。
+
 当前验证版本为 mcpls `0.3.9`，其 crates.io 元数据声明最低 Rust 版本 `1.88`、
 许可证 `MIT OR Apache-2.0`。仓库通过 PATH 解析 `mcpls` 与 `rust-analyzer`，不保存用户名、
 盘符或其他机器绝对路径。
@@ -54,9 +58,15 @@ codex mcp get mcpls
 应确认：
 
 - `command` 为 `mcpls`，而不是某台电脑的绝对路径；
-- `cwd` 为当前 LaneFlow checkout；
+- `cwd` 显示为 `-`，表示项目配置没有显式覆盖工作目录；
 - `required` 为 `false`；
 - `enabled_tools` 只包含六个只读工具，且这些工具无需逐次批准。
+
+`cwd: -` 不表示 mcpls 进程没有工作目录，也不能单独证明它位于正确的 checkout。
+实际目录应通过已知符号的语义查询返回路径验证；排查目录问题时，再检查 mcpls 与
+`rust-analyzer` 进程的工作目录，并确认都指向当前 worktree。切换 worktree，或修改
+`.codex/config.toml`、`mcpls.toml`、PATH 后，重新启动 Codex Desktop；CLI 验证则启动
+新的 `codex` 进程，避免沿用已经启动的 MCP server。
 
 首次 Rust 语义查询需要等待 `rust-analyzer` 完成 workspace 初始化。冷启动期间的
 “仍在初始化”或空结果不能解释为“没有定义/引用”；应等待一个已知 workspace symbol

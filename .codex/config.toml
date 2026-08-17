@@ -1,7 +1,6 @@
 [mcp_servers.mcpls]
 command = "mcpls"
 args = ["--trust-project-config"]
-cwd = "."
 enabled = true
 required = false
 enabled_tools = [
