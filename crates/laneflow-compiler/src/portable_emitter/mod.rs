@@ -31,10 +31,10 @@ use laneflow_format::{
     preflight_object_values_v1, prepare_object_v1,
 };
 use laneflow_static_contract::{
-    CANONICAL_ARTIFACT_FORMAT_VERSION, EntityKind, EntityKindMarker,
-    FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES, IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION,
-    NETWORK_REVISION_DERIVATION_VERSION, NETWORK_REVISION_DOMAIN_PREFIX, Ordinal, OrdinalKind,
-    PortableObjectKind, SECTION_FORMAT_VERSION_V1, StableId,
+    CANONICAL_ARTIFACT_FORMAT_VERSION, EntityKind, EntityKindMarker, IDENTITY_ENCODING_VERSION,
+    IDENTITY_REGISTRY_REVISION, NETWORK_REVISION_DERIVATION_VERSION,
+    NETWORK_REVISION_DOMAIN_PREFIX, Ordinal, OrdinalKind, PortableObjectKind,
+    SECTION_FORMAT_VERSION_V1, StableId,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -159,10 +159,11 @@ pub fn emit_portable_candidate(
         .checked_add(source_map.byte_length())
         .and_then(|value| value.checked_add(semantic_diff.byte_length()))
         .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-    if total > FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES {
+    let staging_limit = limits.max_candidate_staging_bytes();
+    if total > staging_limit {
         return Err(PortableEmissionError::CandidateStagingLimitExceeded {
             actual: total,
-            limit: FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES,
+            limit: staging_limit,
         });
     }
 
