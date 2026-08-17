@@ -46,6 +46,15 @@ impl<'a> RegistryCheckedObjectView<'a> {
         self.framing.section_count()
     }
 
+    /// 按 wire 顺序遍历全部已受检 section。
+    #[must_use]
+    pub fn sections(self) -> RegistryCheckedSectionIter<'a> {
+        RegistryCheckedSectionIter {
+            object: self,
+            ordinal: 0,
+        }
+    }
+
     /// 取得一个已经完成节内 registry 结构预检的 section。
     #[must_use]
     pub fn section(self, ordinal: u32) -> Option<RegistryCheckedSectionView<'a>> {
@@ -87,7 +96,21 @@ impl<'a> RegistryCheckedSectionView<'a> {
         self.table_count
     }
 
+    /// 按 wire 顺序遍历全部已受检 table；每张 table 只推进一次游标。
+    #[must_use]
+    pub fn tables(self) -> RegistryCheckedTableIter<'a> {
+        RegistryCheckedTableIter {
+            bytes: self.bytes(),
+            schemas: self.schema.tables.iter(),
+            cursor: SECTION_HEADER_BYTES,
+            remaining: self.table_count(),
+        }
+    }
+
     /// 按附录 A 顺序取得一张已完成 registry 预检的 table。
+    ///
+    /// 本随机访问兼容 API 从 section 起点扫描，复杂度为 O(`ordinal`)；顺序消费应使用
+    /// [`Self::tables`]。
     #[must_use]
     pub fn table(self, ordinal: u32) -> Option<RegistryCheckedTableView<'a>> {
         let ordinal = usize::try_from(ordinal).ok()?;
@@ -142,7 +165,21 @@ impl<'a> RegistryCheckedTableView<'a> {
         self.row_count
     }
 
+    /// 按 wire 顺序遍历全部已受检 row；每行只推进一次游标。
+    #[must_use]
+    pub fn rows(self) -> RegistryCheckedRowIter<'a> {
+        RegistryCheckedRowIter {
+            bytes: self.bytes,
+            schema: self.schema.row,
+            cursor: TABLE_HEADER_BYTES,
+            remaining: self.row_count(),
+        }
+    }
+
     /// 按线顺序取得一行。越过已受检的 row count 时返回 `None`。
+    ///
+    /// 本随机访问兼容 API 从 table 起点扫描，复杂度为 O(`ordinal`)；顺序消费应使用
+    /// [`Self::rows`]。
     #[must_use]
     pub fn row(self, ordinal: u32) -> Option<RegistryCheckedRowView<'a>> {
         if ordinal >= self.row_count() {
@@ -187,7 +224,22 @@ impl<'a> RegistryCheckedRowView<'a> {
         self.field_count
     }
 
+    /// 按 wire 顺序遍历全部已登记 field；每个字段只推进一次游标。
+    #[must_use]
+    pub fn fields(self) -> RegistryCheckedFieldIter<'a> {
+        RegistryCheckedFieldIter {
+            bytes: self.bytes,
+            schemas: self.schema.fields,
+            schema_index: 0,
+            cursor: ROW_HEADER_BYTES,
+            remaining: self.field_count(),
+        }
+    }
+
     /// 按线顺序取得一个已登记字段。
+    ///
+    /// 本随机访问兼容 API 从 row 起点扫描，复杂度为 O(`ordinal`)；顺序消费应使用
+    /// [`Self::fields`]。
     #[must_use]
     pub fn field(self, ordinal: u32) -> Option<RegistryCheckedFieldView<'a>> {
         if ordinal >= self.field_count() {
@@ -225,10 +277,7 @@ impl<'a> RegistryCheckedRowView<'a> {
     /// 按稳定 field tag 查找字段；缺失 optional 字段时返回 `None`。
     #[must_use]
     pub fn field_by_tag(self, tag: u16) -> Option<RegistryCheckedFieldView<'a>> {
-        (0..self.field_count()).find_map(|ordinal| {
-            let field = self.field(ordinal)?;
-            (field.tag() == tag).then_some(field)
-        })
+        self.fields().find(|field| field.tag() == tag)
     }
 }
 
@@ -386,6 +435,21 @@ impl<'a> RegistryCheckedRecordVectorView<'a> {
         self.len() == 0
     }
 
+    /// 按 wire 顺序遍历全部已受检 nested row；每行只推进一次游标。
+    #[must_use]
+    pub fn rows(self) -> RegistryCheckedRowIter<'a> {
+        RegistryCheckedRowIter {
+            bytes: self.bytes,
+            schema: self.row_schema,
+            cursor: 4,
+            remaining: self.len(),
+        }
+    }
+
+    /// 按序号取得一行。
+    ///
+    /// 本随机访问兼容 API 从 vector 起点扫描，复杂度为 O(`ordinal`)；顺序消费应使用
+    /// [`Self::rows`]。
     #[must_use]
     pub fn row(self, ordinal: u32) -> Option<RegistryCheckedRowView<'a>> {
         if ordinal >= self.len() {
@@ -408,6 +472,238 @@ impl<'a> RegistryCheckedRecordVectorView<'a> {
             cursor = cursor.checked_add(row_byte_length)?;
         }
         None
+    }
+}
+
+/// [`RegistryCheckedObjectView`] 的 wire-order section 迭代器。
+#[derive(Clone, Debug)]
+pub struct RegistryCheckedSectionIter<'a> {
+    object: RegistryCheckedObjectView<'a>,
+    ordinal: u32,
+}
+
+impl<'a> Iterator for RegistryCheckedSectionIter<'a> {
+    type Item = RegistryCheckedSectionView<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let section = self.object.section(self.ordinal)?;
+        self.ordinal = self.ordinal.checked_add(1)?;
+        Some(section)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        remaining_size_hint(self.object.section_count().saturating_sub(self.ordinal))
+    }
+}
+
+impl core::iter::FusedIterator for RegistryCheckedSectionIter<'_> {}
+
+/// [`RegistryCheckedSectionView`] 的单游标 wire-order table 迭代器。
+#[derive(Clone, Debug)]
+pub struct RegistryCheckedTableIter<'a> {
+    bytes: &'a [u8],
+    schemas: core::slice::Iter<'static, PortableTableSchema>,
+    cursor: u64,
+    remaining: u32,
+}
+
+impl<'a> Iterator for RegistryCheckedTableIter<'a> {
+    type Item = RegistryCheckedTableView<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+        let Some(schema) = self.schemas.next() else {
+            self.remaining = 0;
+            return None;
+        };
+        let Some(rows_byte_length) =
+            read_u64(self.bytes, self.cursor + 8, FormatStructure::Table).ok()
+        else {
+            self.remaining = 0;
+            return None;
+        };
+        let Some(table_byte_length) = TABLE_HEADER_BYTES.checked_add(rows_byte_length) else {
+            self.remaining = 0;
+            return None;
+        };
+        let Some(bytes) = checked_slice(
+            self.bytes,
+            self.cursor,
+            table_byte_length,
+            FormatStructure::Table,
+        )
+        .ok() else {
+            self.remaining = 0;
+            return None;
+        };
+        let Some(row_count) = read_u32(bytes, 4, FormatStructure::Table).ok() else {
+            self.remaining = 0;
+            return None;
+        };
+        let Some(next_cursor) = self.cursor.checked_add(table_byte_length) else {
+            self.remaining = 0;
+            return None;
+        };
+        self.cursor = next_cursor;
+        self.remaining -= 1;
+        Some(RegistryCheckedTableView {
+            bytes,
+            schema,
+            row_count,
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        remaining_size_hint(self.remaining)
+    }
+}
+
+impl core::iter::FusedIterator for RegistryCheckedTableIter<'_> {}
+
+/// table 或一层 `RecordVector` 的单游标 wire-order row 迭代器。
+#[derive(Clone, Debug)]
+pub struct RegistryCheckedRowIter<'a> {
+    bytes: &'a [u8],
+    schema: &'static PortableRowSchema,
+    cursor: u64,
+    remaining: u32,
+}
+
+impl<'a> Iterator for RegistryCheckedRowIter<'a> {
+    type Item = RegistryCheckedRowView<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+        let Some(row_byte_length) = read_u64(self.bytes, self.cursor, FormatStructure::Row).ok()
+        else {
+            self.remaining = 0;
+            return None;
+        };
+        let Some(bytes) = checked_slice(
+            self.bytes,
+            self.cursor,
+            row_byte_length,
+            FormatStructure::Row,
+        )
+        .ok() else {
+            self.remaining = 0;
+            return None;
+        };
+        let Some(field_count) = read_u32(bytes, 8, FormatStructure::Row).ok() else {
+            self.remaining = 0;
+            return None;
+        };
+        let Some(next_cursor) = self.cursor.checked_add(row_byte_length) else {
+            self.remaining = 0;
+            return None;
+        };
+        self.cursor = next_cursor;
+        self.remaining -= 1;
+        Some(RegistryCheckedRowView {
+            bytes,
+            schema: self.schema,
+            field_count,
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        remaining_size_hint(self.remaining)
+    }
+}
+
+impl core::iter::FusedIterator for RegistryCheckedRowIter<'_> {}
+
+/// [`RegistryCheckedRowView`] 的单游标 wire-order field 迭代器。
+#[derive(Clone, Debug)]
+pub struct RegistryCheckedFieldIter<'a> {
+    bytes: &'a [u8],
+    schemas: &'static [PortableFieldSchema],
+    schema_index: usize,
+    cursor: u64,
+    remaining: u32,
+}
+
+impl<'a> Iterator for RegistryCheckedFieldIter<'a> {
+    type Item = RegistryCheckedFieldView<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+        let Some(tag) = read_u16(self.bytes, self.cursor, FormatStructure::Field).ok() else {
+            self.remaining = 0;
+            return None;
+        };
+        while self
+            .schemas
+            .get(self.schema_index)
+            .is_some_and(|field| field.tag < tag)
+        {
+            self.schema_index += 1;
+        }
+        let Some(schema) = self.schemas.get(self.schema_index) else {
+            self.remaining = 0;
+            return None;
+        };
+        if schema.tag != tag {
+            self.remaining = 0;
+            return None;
+        }
+        let Some(value_byte_length) =
+            read_u64(self.bytes, self.cursor + 4, FormatStructure::Field).ok()
+        else {
+            self.remaining = 0;
+            return None;
+        };
+        let Some(field_byte_length) = FIELD_HEADER_BYTES.checked_add(value_byte_length) else {
+            self.remaining = 0;
+            return None;
+        };
+        let Some(bytes) = checked_slice(
+            self.bytes,
+            self.cursor,
+            field_byte_length,
+            FormatStructure::Field,
+        )
+        .ok() else {
+            self.remaining = 0;
+            return None;
+        };
+        let Some(value) = checked_slice(
+            bytes,
+            FIELD_HEADER_BYTES,
+            value_byte_length,
+            FormatStructure::FieldValue,
+        )
+        .ok() else {
+            self.remaining = 0;
+            return None;
+        };
+        let Some(next_cursor) = self.cursor.checked_add(field_byte_length) else {
+            self.remaining = 0;
+            return None;
+        };
+        self.schema_index += 1;
+        self.cursor = next_cursor;
+        self.remaining -= 1;
+        Some(RegistryCheckedFieldView { value, schema })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        remaining_size_hint(self.remaining)
+    }
+}
+
+impl core::iter::FusedIterator for RegistryCheckedFieldIter<'_> {}
+
+fn remaining_size_hint(remaining: u32) -> (usize, Option<usize>) {
+    match usize::try_from(remaining) {
+        Ok(remaining) => (remaining, Some(remaining)),
+        Err(_) => (usize::MAX, None),
     }
 }
 
@@ -656,6 +952,25 @@ mod tests {
         bytes
     }
 
+    fn table_with_repeated_row(
+        schema: &laneflow_static_contract::PortableTableSchema,
+        row: &[u8],
+        row_count: u32,
+    ) -> Vec<u8> {
+        let rows_length = u64::from(row_count) * row.len() as u64;
+        let mut bytes = Vec::with_capacity(
+            usize::try_from(TABLE_HEADER_BYTES + rows_length).expect("test table length"),
+        );
+        bytes.extend_from_slice(&schema.kind.to_le_bytes());
+        bytes.extend_from_slice(&1_u16.to_le_bytes());
+        bytes.extend_from_slice(&row_count.to_le_bytes());
+        bytes.extend_from_slice(&rows_length.to_le_bytes());
+        for _ in 0..row_count {
+            bytes.extend_from_slice(row);
+        }
+        bytes
+    }
+
     fn encoded_table(schema: &laneflow_static_contract::PortableTableSchema) -> Vec<u8> {
         let rows = if schema.cardinality == PortableRowCardinality::ExactlyOne {
             vec![encoded_row(schema.row, None)]
@@ -743,6 +1058,45 @@ mod tests {
         assert!(row.field_by_tag(7).is_none());
         assert!(table.row(1).is_none());
         assert!(section.table(1).is_none());
+
+        assert_eq!(checked.sections().count(), checked.section_count() as usize);
+        assert_eq!(section.tables().count(), section.table_count() as usize);
+        assert_eq!(table.rows().count(), table.row_count() as usize);
+        assert_eq!(
+            row.fields()
+                .map(RegistryCheckedFieldView::tag)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3, 4, 5, 6]
+        );
+    }
+
+    #[test]
+    fn registry_row_iterator_stays_linear_at_the_frozen_hard_limit() {
+        let schema =
+            &portable_object_schema(PortableObjectKind::CanonicalArtifact).sections[2].tables[0];
+        assert_eq!(schema.cardinality, PortableRowCardinality::Any);
+        let encoded = encoded_row(schema.row, None);
+        let row_count = FormatLimitConfig::V1_HARD.max_rows_per_table;
+        let table_bytes = table_with_repeated_row(schema, &encoded, row_count);
+        preflight_table_with_registry_v1(
+            &table_bytes,
+            schema,
+            FormatLimits::V1_HARD,
+            &mut PreflightBudget::default(),
+        )
+        .unwrap();
+
+        let table = RegistryCheckedTableView {
+            bytes: &table_bytes,
+            schema,
+            row_count,
+        };
+        let mut observed = 0_u32;
+        for row in table.rows() {
+            assert_eq!(row.field_count(), schema.row.fields.len() as u32);
+            observed = observed.checked_add(1).unwrap();
+        }
+        assert_eq!(observed, row_count);
     }
 
     #[test]

@@ -52,6 +52,24 @@ pub struct FieldWriteInputV1<'a> {
     pub value: FieldWriteValueV1<'a>,
 }
 
+/// 已完成完整 registry、规范值与资源限制预检的借用写入 capability。
+///
+/// 该值绑定原始不可变输入和唯一 exact byte length，使调用方可以精确分配后编码，而不再
+/// 对同一输入执行第二次全对象预检。它不授予编译器语义或发布真实性。
+#[derive(Clone, Copy, Debug)]
+pub struct PreparedObjectV1<'a> {
+    input: ObjectWriteInputV1<'a>,
+    byte_length: u64,
+}
+
+impl PreparedObjectV1<'_> {
+    /// 编码所需的唯一 exact output length。
+    #[must_use]
+    pub const fn byte_len(self) -> u64 {
+        self.byte_length
+    }
+}
+
 /// v1 封闭 field type 的有类型写入值。
 #[derive(Clone, Copy, Debug)]
 pub enum FieldWriteValueV1<'a> {
@@ -144,6 +162,37 @@ pub fn measure_object_v1(
     Ok(object_length)
 }
 
+/// 完成一次全对象预检，并返回可重复使用的 exact-length 编码 capability。
+pub fn prepare_object_v1<'a>(
+    input: ObjectWriteInputV1<'a>,
+    limits: FormatLimits,
+) -> Result<PreparedObjectV1<'a>, FormatError> {
+    let byte_length = measure_object_v1(input, limits)?;
+    Ok(PreparedObjectV1 { input, byte_length })
+}
+
+/// 把已经预检的输入精确编码到调用方提供的缓冲区。
+///
+/// 缓冲区长度不精确时在写入前失败；成功时不重复执行 registry、规范值或资源限制预检。
+pub fn encode_prepared_object_v1(
+    prepared: PreparedObjectV1<'_>,
+    output: &mut [u8],
+) -> Result<(), FormatError> {
+    let output_length = output.len() as u64;
+    if output_length != prepared.byte_len() {
+        return Err(FormatError::LengthMismatch {
+            structure: FormatStructure::ObjectPreamble,
+            declared: output_length,
+            actual: prepared.byte_len(),
+        });
+    }
+
+    let mut cursor = WriteCursor::new(output);
+    write_object(&mut cursor, prepared.input, prepared.byte_len());
+    debug_assert_eq!(cursor.position(), output_length);
+    Ok(())
+}
+
 /// 把完整输入精确编码到调用方提供的缓冲区。
 ///
 /// 编码器先完成与 [`measure_object_v1`] 相同的全对象预检，并在缓冲区长度不精确时直接
@@ -154,20 +203,7 @@ pub fn encode_object_v1(
     limits: FormatLimits,
     output: &mut [u8],
 ) -> Result<(), FormatError> {
-    let object_length = measure_object_v1(input, limits)?;
-    let output_length = output.len() as u64;
-    if output_length != object_length {
-        return Err(FormatError::LengthMismatch {
-            structure: FormatStructure::ObjectPreamble,
-            declared: output_length,
-            actual: object_length,
-        });
-    }
-
-    let mut cursor = WriteCursor::new(output);
-    write_object(&mut cursor, input, object_length);
-    debug_assert_eq!(cursor.position(), output_length);
-    Ok(())
+    encode_prepared_object_v1(prepare_object_v1(input, limits)?, output)
 }
 
 fn measure_section(
@@ -955,6 +991,35 @@ mod tests {
             let view = preflight_object_registry_v1(&output, kind, FormatLimits::V1_HARD).unwrap();
             assert_eq!(view.kind(), kind);
         }
+    }
+
+    #[test]
+    fn prepared_object_reuses_one_preflight_and_preserves_atomic_length_failure() {
+        let input = fixture_object(PortableObjectKind::CanonicalArtifact, true);
+        let prepared = prepare_object_v1(input, FormatLimits::V1_HARD).unwrap();
+        assert_eq!(
+            prepared.byte_len(),
+            measure_object_v1(input, FormatLimits::V1_HARD).unwrap()
+        );
+
+        let mut output = vec![0; usize::try_from(prepared.byte_len()).unwrap()];
+        encode_prepared_object_v1(prepared, &mut output).unwrap();
+        preflight_object_registry_v1(
+            &output,
+            PortableObjectKind::CanonicalArtifact,
+            FormatLimits::V1_HARD,
+        )
+        .unwrap();
+
+        let mut short = vec![0x5a; output.len() - 1];
+        let before = short.clone();
+        assert_eq!(
+            encode_prepared_object_v1(prepared, &mut short)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::LengthMismatch
+        );
+        assert_eq!(short, before);
     }
 
     #[test]
