@@ -6,7 +6,12 @@ use std::{
     path::Path,
 };
 
-use crate::{PortableObjectCandidate, PortablePublicationCandidate};
+use laneflow_format::{FormatLimits, check_post_emission_bundle_v1};
+
+use crate::{
+    PortableObjectCandidate, PortablePublicationCandidate, PortablePublicationProvenanceV2,
+    PortablePublisherKindV2,
+};
 
 use super::{
     full_spatial_portable_fixture_candidate, lfca_variants::min_headless_portable_fixture_candidate,
@@ -76,6 +81,9 @@ fn export_workload(output_directory: &Path, workload: PortableExactByteWorkload)
     let first = (workload.build)();
     let repeated = (workload.build)();
     assert_same_candidate(&first, &repeated);
+    let first_lfcp = build_lfcp(&first);
+    let repeated_lfcp = build_lfcp(&repeated);
+    assert_same_object(&first_lfcp, &repeated_lfcp);
 
     write_new(
         &workload_directory.join("actual.lfca"),
@@ -89,9 +97,10 @@ fn export_workload(output_directory: &Path, workload: PortableExactByteWorkload)
         &workload_directory.join("actual.lfsd"),
         first.semantic_diff().bytes(),
     );
+    write_new(&workload_directory.join("actual.lfcp"), first_lfcp.bytes());
 
     let bindings = format!(
-        "workload={}\nsupported-worker-count=1\nnetwork-revision={}\nLFCA length={} {}\nLFSM length={} {}\nLFSD length={} {}\n",
+        "workload={}\nsupported-worker-count=1\nnetwork-revision={}\nLFCA length={} {}\nLFSM length={} {}\nLFSD length={} {}\nLFCP length={} {}\n",
         workload.id,
         hex_lower(first.network_revision().into_digest().into_bytes()),
         first.canonical_artifact().byte_length().get(),
@@ -100,11 +109,31 @@ fn export_workload(output_directory: &Path, workload: PortableExactByteWorkload)
         first.source_map().object_key(),
         first.semantic_diff().byte_length().get(),
         first.semantic_diff().object_key(),
+        first_lfcp.byte_length().get(),
+        first_lfcp.object_key(),
     );
     write_new(
         &workload_directory.join("bindings.txt"),
         bindings.as_bytes(),
     );
+}
+
+fn build_lfcp(candidate: &PortablePublicationCandidate) -> PortableObjectCandidate {
+    let checked = check_post_emission_bundle_v1(
+        candidate.canonical_artifact().bytes(),
+        candidate.source_map().bytes(),
+        candidate.semantic_diff().bytes(),
+        candidate.expected_semantic_diff_base(),
+        FormatLimits::V1_HARD,
+    )
+    .unwrap();
+    let provenance = PortablePublicationProvenanceV2::new(
+        PortablePublisherKindV2::ReleaseService,
+        "laneflow-publisher-fixture-v2",
+        Some("controlled-build".into()),
+        Some("2026-08-18T00:00:00Z".into()),
+    );
+    crate::portable_publication::build_lfcp_v2(checked, &provenance, FormatLimits::V1_HARD).unwrap()
 }
 
 fn assert_same_candidate(

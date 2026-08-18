@@ -408,6 +408,26 @@ pub(crate) fn full_spatial_portable_fixture_candidate() -> crate::PortablePublic
     .unwrap()
 }
 
+pub(crate) fn full_spatial_portable_artifact_base_fixture_candidate()
+-> crate::PortablePublicationCandidate {
+    let output = full_spatial_portable_fixture_output();
+    let provenance = full_spatial_portable_fixture_provenance();
+    let genesis = full_spatial_portable_fixture_candidate();
+    let base = laneflow_format::preflight_object_values_v1(
+        genesis.canonical_artifact().bytes(),
+        laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
+        laneflow_format::FormatLimits::V1_HARD,
+    )
+    .unwrap();
+    crate::emit_portable_candidate(
+        &output,
+        &provenance,
+        laneflow_format::FormatLimits::V1_HARD,
+        crate::PortableDiffBase::Artifact(base),
+    )
+    .unwrap()
+}
+
 const FULL_SPATIAL_EXPECTED_LFCA: &[u8] =
     include_bytes!("../../tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca");
 const FULL_SPATIAL_EXPECTED_LFSM: &[u8] =

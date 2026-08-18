@@ -125,6 +125,11 @@ jobs:
             crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsm
           cmp --silent "${baseline_objects}/full-spatial/actual.lfsd" \
             crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsd
+          xxd -r -p \
+            crates/laneflow-compiler/tests/fixtures/portable-v2/lfcp-v2-min-bindings/expected.lfcp.hex \
+            > "${RUNNER_TEMP}/expected.lfcp"
+          cmp --silent "${baseline_objects}/full-spatial/actual.lfcp" \
+            "${RUNNER_TEMP}/expected.lfcp"
 
           for platform in ubuntu windows; do
             first_hash="$(sed -n 's/^hash-sample=//p' "${evidence_root}/${platform}/run-a/process-canary.txt")"
@@ -147,7 +152,7 @@ jobs:
             workload="$(basename "${workload_directory}")"
             grep --fixed-strings --line-regexp \
               "workload=${workload}" "${workload_directory}/bindings.txt"
-            for entry in LFCA:actual.lfca LFSM:actual.lfsm LFSD:actual.lfsd; do
+            for entry in LFCA:actual.lfca LFSM:actual.lfsm LFSD:actual.lfsd LFCP:actual.lfcp; do
               kind="${entry%%:*}"
               file="${entry#*:}"
               length="$(wc -c < "${workload_directory}/${file}" | tr -d ' ')"

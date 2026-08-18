@@ -1,7 +1,7 @@
-//! 可移植规范制品 v1 的 section/table/field 静态登记。
+//! 可移植规范制品的 section/table/field 静态登记。
 //!
-//! 本模块逐项转录 `docs/design/portable-canonical-artifact.md` 附录 A.1-A.4 的线格式
-//! 形状。它是可供 emitter 与结构预检共享的只读数据，不包含序列化器、文件系统发布、
+//! 本模块逐项转录 LFCA/LFSM/LFSD v1 与 LFCP v2 的线格式形状。它是可供 emitter 与
+//! 结构预检共享的只读数据，不包含序列化器、文件系统发布、
 //! 跨表语义验证或摘要信任判断。
 
 use crate::{PortableFieldType, PortableObjectKind};
@@ -1496,30 +1496,13 @@ const SOURCE_MAP_BINDING_ROW: PortableRowSchema = PortableRowSchema {
     fields: SOURCE_MAP_BINDING_FIELDS,
     shape: PortableRowShape::Uniform,
 };
-const VALIDATION_RECEIPT_BINDING_FIELDS: &[PortableFieldSchema] = &[
-    field(
-        1,
-        "validationReceiptFormatVersion",
-        PortableFieldType::U16,
-        R,
-    ),
-    field(2, "receiptKind", PortableFieldType::Utf8, R),
-    field(3, "validatorBuildId", PortableFieldType::Utf8, R),
-    field(4, "validationReceiptDigest", PortableFieldType::Sha256, R),
-    field(5, "validationReceiptByteLength", PortableFieldType::U64, R),
-];
-const VALIDATION_RECEIPT_BINDING_ROW: PortableRowSchema = PortableRowSchema {
-    fields: VALIDATION_RECEIPT_BINDING_FIELDS,
-    shape: PortableRowShape::Uniform,
-};
 const PUBLICATION_PROVENANCE_FIELDS: &[PortableFieldSchema] = &[
     field(1, "publisherKind", PortableFieldType::U8, R),
     field(2, "publisherBuildId", PortableFieldType::Utf8, R),
     field(3, "artifactObjectKey", PortableFieldType::Utf8, R),
     field(4, "sourceMapObjectKey", PortableFieldType::Utf8, R),
-    field(5, "receiptObjectKey", PortableFieldType::Utf8, R),
-    field(6, "controlledBuildProvenance", PortableFieldType::Utf8, O),
-    field(7, "controlledTimestamp", PortableFieldType::Utf8, O),
+    field(5, "controlledBuildProvenance", PortableFieldType::Utf8, O),
+    field(6, "controlledTimestamp", PortableFieldType::Utf8, O),
 ];
 const PUBLICATION_PROVENANCE_ROW: PortableRowSchema = PortableRowSchema {
     fields: PUBLICATION_PROVENANCE_FIELDS,
@@ -1534,12 +1517,6 @@ const LFCP_SECTION_1_TABLES: &[PortableTableSchema] = &[table(
 const LFCP_SECTION_2_TABLES: &[PortableTableSchema] =
     &[table(1, "SourceMapBinding", &SOURCE_MAP_BINDING_ROW, ONE)];
 const LFCP_SECTION_3_TABLES: &[PortableTableSchema] = &[table(
-    1,
-    "ValidationReceiptBinding",
-    &VALIDATION_RECEIPT_BINDING_ROW,
-    ONE,
-)];
-const LFCP_SECTION_4_TABLES: &[PortableTableSchema] = &[table(
     1,
     "PublicationProvenance",
     &PUBLICATION_PROVENANCE_ROW,
@@ -1558,13 +1535,8 @@ const LFCP_SECTIONS: &[PortableSectionSchema] = &[
     },
     PortableSectionSchema {
         kind: 3,
-        name: "ValidationReceiptBinding",
-        tables: LFCP_SECTION_3_TABLES,
-    },
-    PortableSectionSchema {
-        kind: 4,
         name: "PublicationProvenance",
-        tables: LFCP_SECTION_4_TABLES,
+        tables: LFCP_SECTION_3_TABLES,
     },
 ];
 
@@ -1585,7 +1557,7 @@ const LFCP_SCHEMA: PortableObjectSchema = PortableObjectSchema {
     sections: LFCP_SECTIONS,
 };
 
-/// 返回指定对象种类的附录 A v1 静态登记。
+/// 返回指定对象种类的当前静态登记。
 #[must_use]
 pub const fn portable_object_schema(kind: PortableObjectKind) -> &'static PortableObjectSchema {
     match kind {
@@ -1632,7 +1604,7 @@ mod tests {
     fn appendix_registry_matches_reviewed_literal_fingerprint() {
         // 这只是对已依据附录 A 人工复核过的 Rust 登记做防漂移固定，不是独立格式 oracle。
         // 更新该值必须先逐项审阅附录；不得从测试失败输出自动追认新的 production registry。
-        assert_eq!(appendix_registry_fingerprint(), 0x271d_ff6e_0176_2f74);
+        assert_eq!(appendix_registry_fingerprint(), 0x3947_9d51_5818_dbd1);
     }
 
     #[test]

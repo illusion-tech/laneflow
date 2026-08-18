@@ -1073,31 +1073,28 @@ mod tests {
     fn lfcp_minimal_structural_input_has_frozen_exact_header_and_first_section_bytes() {
         let input = fixture_object(PortableObjectKind::CanonicalPublicationDescriptor, false);
         let length = measure_object_v1(input, FormatLimits::V1_HARD).unwrap();
-        assert_eq!(length, 719);
+        assert_eq!(length, 545);
         let mut output = vec![0; usize::try_from(length).unwrap()];
         encode_object_v1(input, FormatLimits::V1_HARD, &mut output).unwrap();
 
         let mut expected_header = Vec::new();
         expected_header.extend_from_slice(b"LFCP");
-        expected_header.extend_from_slice(&1_u16.to_le_bytes());
+        expected_header.extend_from_slice(&2_u16.to_le_bytes());
         expected_header.extend_from_slice(&32_u16.to_le_bytes());
         expected_header.extend_from_slice(&0_u32.to_le_bytes());
-        expected_header.extend_from_slice(&4_u32.to_le_bytes());
+        expected_header.extend_from_slice(&3_u32.to_le_bytes());
         expected_header.extend_from_slice(&32_u64.to_le_bytes());
-        expected_header.extend_from_slice(&719_u64.to_le_bytes());
-        for (kind, offset, section_length) in [
-            (1_u16, 128_u64, 172_u64),
-            (2, 300, 184),
-            (3, 484, 138),
-            (4, 622, 97),
-        ] {
+        expected_header.extend_from_slice(&545_u64.to_le_bytes());
+        for (kind, offset, section_length) in
+            [(1_u16, 104_u64, 172_u64), (2, 276, 184), (3, 460, 85)]
+        {
             expected_header.extend_from_slice(&kind.to_le_bytes());
             expected_header.extend_from_slice(&1_u16.to_le_bytes());
             expected_header.extend_from_slice(&0_u32.to_le_bytes());
             expected_header.extend_from_slice(&offset.to_le_bytes());
             expected_header.extend_from_slice(&section_length.to_le_bytes());
         }
-        assert_eq!(&output[..128], expected_header);
+        assert_eq!(&output[..104], expected_header);
 
         let mut expected_section = Vec::new();
         expected_section.extend_from_slice(&1_u32.to_le_bytes());
@@ -1121,7 +1118,7 @@ mod tests {
             expected_section.extend_from_slice(&(value.len() as u64).to_le_bytes());
             expected_section.extend_from_slice(value);
         }
-        assert_eq!(&output[128..300], expected_section);
+        assert_eq!(&output[104..276], expected_section);
     }
 
     #[test]

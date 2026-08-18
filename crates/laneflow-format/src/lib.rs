@@ -8,6 +8,7 @@ mod error;
 mod framing;
 mod limits;
 mod object;
+mod post_emission;
 #[cfg(test)]
 mod security_tests;
 mod table;
@@ -24,6 +25,10 @@ pub use object::{
     RegistryCheckedRowIter, RegistryCheckedRowView, RegistryCheckedSectionIter,
     RegistryCheckedSectionView, RegistryCheckedTableIter, RegistryCheckedTableView,
     preflight_object_registry_v1,
+};
+pub use post_emission::{
+    ExpectedSemanticDiffBaseV1, PostEmissionCheckError, PostEmissionCheckedBundleV1,
+    check_post_emission_bundle_v1,
 };
 pub use table::{TableStructureSummary, preflight_table_structure_v1};
 pub use value::{ValueCheckedObjectView, preflight_object_values_v1};

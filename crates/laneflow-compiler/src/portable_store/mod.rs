@@ -1,6 +1,6 @@
 //! LaneFlow 可移植发布对象的本地文件系统安装。
 //!
-//! 本模块只安装上层能力已经关闭的 exact bytes。它不会生成 LFCP、验证收据
+//! 本模块只安装上层能力已经关闭的 exact bytes。它不会生成 LFCP、执行后发射检查
 //! 或认证 manifest，也不会把“对象已安装”包装成“已发布”。最终路径永远由 exact bytes 的
 //! SHA-256 派生；最终文件只通过同文件系统 hard-link no-replace 原语一次性出现。
 //!
@@ -23,7 +23,9 @@ use std::{
 use laneflow_static_contract::{ExactByteLength, Sha256Digest};
 use sha2::{Digest, Sha256};
 
-use crate::portable_emitter::{PortableObjectCandidate, object_key, sha256};
+#[cfg(test)]
+use crate::portable_emitter::PortableObjectCandidate;
+use crate::portable_emitter::{object_key, sha256};
 
 use self::platform::{AtomicInstallPlatform, AtomicLinkOutcome, NativeAtomicInstall};
 
@@ -86,7 +88,7 @@ pub enum PortableInstallDisposition {
 
 /// 一份已安装内容寻址对象的计算绑定。
 ///
-/// 该值只证明 content-addressed object winner 的 exact bytes；它不是 #299 独立验证收据，
+/// 该值只证明 content-addressed object winner 的 exact bytes；它不是 #299 发布证明，
 /// 也不表示 LFCP 或认证 manifest 已提交。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PortableObjectInstallation {
@@ -97,6 +99,20 @@ pub struct PortableObjectInstallation {
 }
 
 impl PortableObjectInstallation {
+    #[cfg(test)]
+    pub(crate) fn test_only(
+        digest: Sha256Digest,
+        byte_length: ExactByteLength,
+        object_key: Box<str>,
+    ) -> Self {
+        Self {
+            digest,
+            byte_length,
+            object_key,
+            disposition: PortableInstallDisposition::Installed,
+        }
+    }
+
     #[must_use]
     pub const fn digest(&self) -> Sha256Digest {
         self.digest
@@ -120,7 +136,7 @@ impl PortableObjectInstallation {
 
 /// 由调用方独占管理并信任的 LaneFlow 本地可移植对象安装器。
 ///
-/// 该类型只作为 [`crate::commit_portable_publication_v1`] 的本地发布目标，不是通用对象
+/// 该类型只作为 [`crate::commit_portable_publication_v2`] 的本地发布目标，不是通用对象
 /// 存储 API。操作系统访问控制和存储介质安全继续由调用方部署负责。
 #[derive(Clone, Debug)]
 pub struct LocalPortableObjectInstaller {
@@ -171,6 +187,7 @@ impl LocalPortableObjectInstaller {
     ///
     /// 计算绑定、暂存复核、平台安装、winner 比较或持久化失败时返回错误。最终路径绝不
     /// 被覆盖或流式写入。
+    #[cfg(test)]
     pub(crate) fn install_candidate(
         &self,
         candidate: &PortableObjectCandidate,
@@ -186,8 +203,8 @@ impl LocalPortableObjectInstaller {
     /// 原子安装一份由 crate 内上层能力已经关闭的 exact bytes。
     ///
     /// 内容存储不解释对象格式，也不把任意 bytes 包装成 validated/trusted view；它只从 bytes
-    /// 内部计算 digest/key 并提供 content-addressed no-replace winner。receipt/LFCP 等结构
-    /// 证明继续由各自上层能力拥有。
+    /// 内部计算 digest/key 并提供 content-addressed no-replace winner。LFCP 与发布提交语义
+    /// 继续由上层能力拥有。
     ///
     /// # Errors
     ///

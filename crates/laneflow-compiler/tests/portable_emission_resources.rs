@@ -5,7 +5,7 @@ use laneflow_compiler::{
     PortableDiffBase, PortableEmissionProvenanceV1, SourceModuleHeader, SourceModuleHeaderInput,
     SyntheticModuleBuilder, emit_portable_candidate,
 };
-use laneflow_format::{FormatLimits, preflight_object_values_v1};
+use laneflow_format::{FormatLimits, check_post_emission_bundle_v1, preflight_object_values_v1};
 use laneflow_static_contract::PortableObjectKind;
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, Stats, StatsAlloc};
 
@@ -143,4 +143,37 @@ fn portable_emitter_reports_genesis_and_artifact_resource_metrics() {
     );
     assert!(artifact.semantic_diff().byte_length() < genesis.semantic_diff().byte_length());
     print_measurement("artifact-noop", artifact_measurement, artifact_staging);
+}
+
+#[test]
+#[ignore = "manual single-thread release allocation and wall-clock evidence"]
+fn post_emission_checker_is_allocation_free_and_reports_wall_clock() {
+    let output = compile_native_chain();
+    let provenance = PortableEmissionProvenanceV1::try_new("laneflow-resource-probe-v1").unwrap();
+    let candidate = emit_portable_candidate(
+        &output,
+        &provenance,
+        FormatLimits::V1_HARD,
+        PortableDiffBase::Genesis,
+    )
+    .unwrap();
+
+    let (_, measurement) = measure(|| {
+        check_post_emission_bundle_v1(
+            candidate.canonical_artifact().bytes(),
+            candidate.source_map().bytes(),
+            candidate.semantic_diff().bytes(),
+            candidate.expected_semantic_diff_base(),
+            FormatLimits::V1_HARD,
+        )
+        .unwrap()
+    });
+    assert_eq!(measurement.stats.allocations, 0);
+    assert_eq!(measurement.stats.reallocations, 0);
+    assert_eq!(measurement.stats.bytes_allocated, 0);
+    print_measurement(
+        "post-emission-check",
+        measurement,
+        staging_bytes(&candidate),
+    );
 }

@@ -2,7 +2,7 @@
 //!
 //! 本模块拥有编译器私有 LIR/source-map 语义投影、摘要和跨对象绑定。线格式的结构、
 //! 编码和值域预检仍只由 `laneflow-format` 提供；文件系统安装由独立 `portable_store`
-//! 模块负责，LFCP 与独立验证收据不属于 emitter。
+//! 模块负责；后发射检查、LFCP 与 manifest 提交不属于 emitter。
 
 mod api;
 mod lfca;
@@ -24,11 +24,11 @@ use model::*;
 use wire::*;
 
 use laneflow_format::{
-    FieldWriteInputV1, FieldWriteValueV1, FormatError, FormatLimits, ObjectWriteInputV1,
-    RegistryCheckedFieldValue, RegistryCheckedObjectView, RegistryCheckedOrdinalVectorView,
-    RegistryCheckedRecordVectorView, RegistryCheckedRowView, RowWriteInputV1, SectionWriteInputV1,
-    TableWriteInputV1, ValueCheckedObjectView, encode_prepared_object_v1,
-    preflight_object_values_v1, prepare_object_v1,
+    ExpectedSemanticDiffBaseV1, FieldWriteInputV1, FieldWriteValueV1, FormatError, FormatLimits,
+    ObjectWriteInputV1, RegistryCheckedFieldValue, RegistryCheckedObjectView,
+    RegistryCheckedOrdinalVectorView, RegistryCheckedRecordVectorView, RegistryCheckedRowView,
+    RowWriteInputV1, SectionWriteInputV1, TableWriteInputV1, ValueCheckedObjectView,
+    encode_prepared_object_v1, preflight_object_values_v1, prepare_object_v1,
 };
 use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, EntityKind, EntityKindMarker, ExactByteLength,
@@ -147,7 +147,8 @@ pub fn emit_portable_candidate(
     )?);
     preflight_object_values_v1(source_map.bytes(), PortableObjectKind::SourceMap, limits)?;
 
-    let lfsd = build_lfsd(output, base, network_revision, &canonical_artifact, limits)?;
+    let (lfsd, expected_semantic_diff_base) =
+        build_lfsd(output, base, network_revision, &canonical_artifact, limits)?;
     let staged_before_diff = canonical_artifact
         .byte_length()
         .get()
@@ -182,6 +183,7 @@ pub fn emit_portable_candidate(
         compiler_build_id: provenance.compiler_build_id.clone(),
         source_collection_digest_version: SOURCE_COLLECTION_DIGEST_VERSION_V1,
         source_collection_digest,
+        expected_semantic_diff_base,
     })
 }
 

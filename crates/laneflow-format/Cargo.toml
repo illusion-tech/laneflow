@@ -14,6 +14,7 @@ path = "src/lib.rs"
 
 [dependencies]
 laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
+sha2 = { version = "0.11", default-features = false }
 
 [lints]
 workspace = true

@@ -79,7 +79,7 @@ impl PortableObjectCandidate {
 /// 同一次发射原子拥有的三对象未受信发布候选。
 ///
 /// 取得本类型只证明 compiler emitter 已关闭三份 bytes、完成格式预检和内部绑定核对；
-/// 它不是独立验证收据，也不授予发布或迁移权限。
+/// 它不是发布能力，也不授予发布或迁移权限。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PortablePublicationCandidate {
     pub(super) canonical_artifact: PortableObjectCandidate,
@@ -89,6 +89,7 @@ pub struct PortablePublicationCandidate {
     pub(super) compiler_build_id: Box<str>,
     pub(super) source_collection_digest_version: u16,
     pub(super) source_collection_digest: [u8; 32],
+    pub(super) expected_semantic_diff_base: ExpectedSemanticDiffBaseV1,
 }
 
 /// LFSD 的显式 base 选择。
@@ -139,6 +140,12 @@ impl PortablePublicationCandidate {
     #[must_use]
     pub const fn source_collection_digest(&self) -> [u8; 32] {
         self.source_collection_digest
+    }
+
+    /// 返回从实际 `PortableDiffBase` 保存、供后发射检查使用的显式 base binding。
+    #[must_use]
+    pub const fn expected_semantic_diff_base(&self) -> ExpectedSemanticDiffBaseV1 {
+        self.expected_semantic_diff_base
     }
 }
 
@@ -202,6 +209,7 @@ mod tests {
             compiler_build_id: Box::from("test-compiler"),
             source_collection_digest_version: 1,
             source_collection_digest: [0; 32],
+            expected_semantic_diff_base: ExpectedSemanticDiffBaseV1::Genesis,
         };
         let network_revision: NetworkRevisionId = publication.network_revision();
         assert_eq!(network_revision.into_digest(), digest);

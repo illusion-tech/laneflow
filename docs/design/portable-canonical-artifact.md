@@ -1,8 +1,8 @@
 # 可移植规范制品与辅助制品格式
 
-> **后继覆盖（2026-08-18）**：Accepted ADR 0024 / #299 G1 已决定不交付独立
+> **后继覆盖（2026-08-18）**：Accepted ADR 0024 / #299 G2 已交付且不再交付独立
 > `laneflow-validator` 或验证收据，并以 `laneflow-format` 的后发射检查和最小发布
-> 闭合替代。本文 LFCP v1、
+> 闭合替代。生产代码现只支持不含 receipt 的 LFCP v2。本文 LFCP v1、
 > `ValidationReceiptBinding` 与 receipt 安装步骤只保留为 #298 历史设计、实现和验证
 > 证据，LFCP v2、API、检查深度和性能边界改以
 > `compiler-post-emission-check-and-minimal-publication-closure.md` 为准。无论后继实现是否
@@ -27,13 +27,13 @@ geometry add、静态规则 modify 和全局空间 modify 的 `LFSD-V1-CHANGE-SE
 `SIGNED-ZERO` LFCA 变体包也已提交，并由只读 exact-byte 测试约束。#298-owned
 ART/MAP/DIFF 与 `SEC-001..015` 已闭合；本地 `LocalPortableObjectInstaller` 已实现同文件系统 staging、
 flush/sync/close、digest key、hard-link atomic no-replace、并发 winner exact-byte 复用/冲突和
-unsupported fail-closed。LFCP exact-byte 构造、receipt 安装前置条件、`ATOM-001..012` 与外部
-认证 manifest 单提交 adapter 也已闭合；#298 只消费 #299 未来提供的 receipt view，不定义或
-伪造 receipt wire。Windows/Ubuntu exact-byte CI 已对独立进程输出完成集中逐字节比较；
+unsupported fail-closed。#298 的 LFCP v1/receipt 发布路径只保留为历史证据；#299 G2 已以
+最终字节后发射检查、LFCP v2 与外部认证 manifest 单提交 adapter 取代该生产路径。
+Windows/Ubuntu exact-byte CI 已对独立进程输出完成集中逐字节比较；
 #292 合法 production workload 上的 P100 emitter 时延、候选暂存和三类输出大小也已登记。
-独立验证收据实现仍未完成，候选或已安装对象均不得解释为
-validated/trusted/published artifact<br>
-**关联 Issue**: #298；依赖 #292、#296；阻断 #299、#300<br>
+当前检查只闭合发布所需的 digest/length/revision 与 LFSM/LFSD binding，不重跑完整路网语义；
+候选或已安装对象仍不得解释为 trusted/published artifact<br>
+**关联 Issue**: #298（历史主议题）、#299（后继闭合）；依赖 #292、#296<br>
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
 `numeric-representation.md`、
 `../adr/0020-compiler-owned-static-network-and-static-image.md`、
@@ -54,11 +54,12 @@ Ledger 中新的正式 `## G1 设计判断` 重新接受。当时的 G1 Pass 只
 1. 可移植规范制品：完整、目标无关的规范静态路网语义；
 2. 源映射封套：同次成功编译的来源位置和来源沿袭；
 3. 语义差异封套：一份基线制品与目标制品之间的结构化变化；
-4. 规范发布描述符：位于上述对象字节之外的摘要、精确长度、修订和验证收据绑定。
+4. 规范发布描述符：#298 历史版本绑定验证收据；当前 LFCP v2 只绑定 LFCA/LFSM 与发布
+   provenance。
 
 本文不实现或授予下列权威：
 
-- 独立验证器、验证收据签发或语义信任属于 #299；
+- 本文不授权完整语义信任；#299 当前后发射检查也不承担第二套完整语义验证；
 - 目标静态镜像、镜像完整性清单和有界结构校验器属于 #300；
 - Traffic Runtime / Spatial 共享镜像消费路径属于 #301；
 - 可信路网切换描述符、运行时快照、迁移授权与在线切换属于 #302；
@@ -77,18 +78,15 @@ Ledger 中新的正式 `## G1 设计判断` 重新接受。当时的 G1 Pass 只
 laneflow-format ---------> laneflow-static-contract
 laneflow-compiler -------> laneflow-format
 laneflow-compiler -------> laneflow-static-contract
-laneflow-validator ------> laneflow-format          # #299
-laneflow-validator ------> laneflow-static-contract # #299
 ```
 
 职责冻结为：
 
-| 包                           | 拥有职责                                                                                                          | 禁止拥有                                           |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `laneflow-static-contract`   | 版本轴、摘要/长度值、`NetworkRevisionId`、实体/字段/记录种类登记、有类型序号和描述符值类型                        | 文件系统、序列化器、编译器语义遍、Runtime、Spatial |
-| `laneflow-format`            | 四类对象的精确线格式、受限写入器、结构预检、只读受检视图、格式错误                                                | 编译器语义闭包、独立语义验证、Runtime/Spatial 构造 |
-| `laneflow-compiler`          | 从同一个 `CompilationOutput` 和显式规范 provenance 发射制品/源映射/差异候选，建立来源沿袭，执行失败原子的暂存事务 | 独立验证权威、可信发布签名、运行时迁移授权         |
-| `laneflow-validator`（#299） | 不复用编译器语义实现的身份、关系、规则、修订、源映射和语义差异验证，以及验证收据                                  | 调用 compiler emitter 重建“验证”结果               |
+| 包                         | 拥有职责                                                                                   | 禁止拥有                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| `laneflow-static-contract` | 版本轴、摘要/长度值、`NetworkRevisionId`、实体/字段/记录种类登记、有类型序号和描述符值类型 | 文件系统、序列化器、完整编译器语义遍、Runtime、Spatial  |
+| `laneflow-format`          | 四类对象的精确线格式、受限写入器、结构/直接值域预检，以及最终字节的最小后发射闭合检查      | 完整路网语义重建、LFSD 完备性验证、Runtime/Spatial 构造 |
+| `laneflow-compiler`        | 发射 LFCA/LFSM/LFSD，调用后发射检查，构造 LFCP v2，并执行失败原子的安装与 manifest 单提交  | 第二套语义后端、可信发布签名、运行时迁移授权            |
 
 `laneflow-format` 的结构预检只证明字节边界、版本、封闭种类、排序、计数、偏移和基本值域安全；
 它不能把 `CheckedPortableArtifactView` 命名为 trusted/validated，也不能证明实体语义闭合。
@@ -107,7 +105,7 @@ v1 候选采用 LaneFlow 自有的封闭、节目录二进制格式，不采用 
 
 G1 必须让审阅者只依据本文的字段登记、偏移公式和少量已知向量人工重建关键字节与摘要；
 若做不到，必须在 G1 内补齐规范，不能把某个 Rust 库版本、生成器或自举脚本提升为隐式
-事实源。production emitter 的逐字节实现与 #299 独立验证器属于 G2 及后继议题，不为 G1
+事实源。production emitter 的逐字节实现属于 G2；#299 不再建立独立验证器，也不为 G1
 另建 JSON registry、JSON Schema、代码生成器或第三套通用 oracle。
 
 ## 3. 统一线格式规则
@@ -519,9 +517,9 @@ NetworkRevisionIdV1 =
 
 `ContractVersions` 只保存 `networkRevisionDerivationVersion` 等派生契约版本，不保存
 摘要结果自身。编译器从六个语义节计算 `NetworkRevisionId`，再把结果写入非语义的
-`ArtifactClaims.declaredNetworkRevisionId`。该声明始终是不受信任输入；#299 独立
-验证器必须从六个语义节独立重算并逐字节比较。相同修订对应不同规范语义载荷时以
-`NetworkRevisionDigestCollision` 失败关闭；不得追加随机数、ordinal 或 suffix。
+`ArtifactClaims.declaredNetworkRevisionId`。该声明始终是不受信任输入；#299 后发射检查从
+最终 LFCA 的六个语义节重算并逐字节比较。当前检查不另建身份、拓扑或规则语义后端。
+相同修订对应不同规范语义载荷时不得追加随机数、ordinal 或 suffix。
 
 完整 artifact exact bytes 另由 SHA-256 得到 `canonicalArtifactDigest`，长度是同一字节
 序列的 `u64` 精确长度。摘要与长度不嵌回自身字节；二者由外部描述符绑定。
@@ -709,8 +707,10 @@ targetCanonicalArtifactByteLength:u64
 `Genesis` 时四个 base 值分别为 `0`、32 个零字节、32 个零字节、`0`；`Artifact` 时
 derivation version 与 byte length 必须非零，两个 32-byte 值必须是实际绑定值而非零
 占位。target derivation version 与 byte length 必须非零，两个 32-byte 值必须是实际
-绑定值。结构预检先验证该闭合形状；#299 再从 base/target 六个语义节重算 revision，
-并对 exact artifact bytes 重算 digest/length 后逐项比较。
+绑定值。结构预检先验证该闭合形状；#299 后发射检查对当前 target LFCA 重算
+revision/digest/length，并把 LFSD target binding 与调用方从实际 `PortableDiffBase` 保存的
+显式 base binding 逐项比较。它不加载或重验一份外部 base artifact，也不验证 change set
+完备性。
 
 `baseBindingKind=Artifact` 时，base 与 target 的 `ContractVersions` singleton 和
 `ExecutionContract` singleton 必须分别逐字段相等；任一语义 contract/version 轴变化都以
@@ -738,9 +738,9 @@ base 时必须表达为 `Entity Remove`，只存在于 target 时必须表达为
 对应。重命名提示属于非权威展示，真实跨修订状态连续性必须由未来受认证的 cutover 映射
 显式授权；来源沿袭不能补充 LFSD 的 artifact 语义。
 
-编译器可以从受结构预检的 base view 生成诊断性差异，但 #299 必须从两份独立通过语义
-验证的 artifact 重算或逐项验证 LFSD；#302 的可信切换描述符再绑定 LFSD digest/length。
-LFSD 自身永远不授予迁移权限。
+编译器可以从受结构/直接值域预检的 base view 生成诊断性差异。#299 只闭合上述显式
+base/target binding，不重算或逐项验证 LFSD change set；如 #302 需要以 LFSD 授权切换，必须
+在其自身设计中重新冻结更强的迁移输入与信任边界。LFSD 自身永远不授予迁移权限。
 
 `semanticDiffDigest` 是完整 LFSD exact bytes 的 SHA-256，`semanticDiffByteLength` 是同一
 字节序列的精确 `u64` 长度；LFSD 不嵌入自身摘要。候选关闭 LFSD 后还必须唯一派生
@@ -1063,8 +1063,9 @@ profile 只进入非语义 CompilerProvenance，不进入这两个 revision 向�
 `hasProfile=true` 单独使四项逻辑或为真，明确覆盖 profile-only spatial 状态。
 
 `LFCA-V1-MIN-HEADLESS` 的公共布局人工锚点为：前导 `32` bytes，
-八项目录 `192` bytes，第一节 offset `0x00e0`；LFSM/LFSD/LFCP 的对应锚点分别为
-`0x0098`、`0x00b0`、`0x0080`。完整对象 fixture 在 G2 从附录 A materialize 后固定，
+八项目录 `192` bytes，第一节 offset `0x00e0`；LFSM/LFSD 的对应锚点分别为
+`0x0098`、`0x00b0`。当前 LFCP v2 的锚点为 `0x0068`；历史 LFCP v1 锚点为 `0x0080`。
+完整对象 fixture 在 G2 从附录 A materialize 后固定，
 不把整段二进制十六进制复制进规范正文。
 
 确定性矩阵至少覆盖：
@@ -1072,7 +1073,7 @@ profile 只进入非语义 CompilerProvenance，不进入这两个 revision 向�
 - Windows `x86_64-pc-windows-msvc` 本机与 Ubuntu `x86_64-unknown-linux-gnu` CI；
 - single-thread 和编译器支持的所有 worker 数；
 - clean process、重复运行、不同 hash seed/分配地址；
-- production emitter 与 #299 独立验证器；G1 人工推导值作为不调用 emitter 的固定期望；
+- production emitter 与 #299 后发射检查；G1 人工推导值作为不调用 emitter 的固定期望；
 - 截断每个边界、单 bit 损坏、未知版本/节/表/字段、重复/乱序、gap/overlap、超限、
   length/digest/revision/source-map/base-target 错配；
 - 暂存写入、flush/close、对象安装和 manifest 提交各失败点的无部分发布测试；
@@ -1133,9 +1134,11 @@ v1 前像 bytes 排序得到；一致重编号全部引用不能把非规范顺�
 是否能生成该对象”的来源可达性证明。只有会改变线格式唯一性、目标无关静态语义或安全消费
 前置条件，且能从本对象闭合字段重算的规则进入本 registry；只存在于某种来源声明、诊断
 spelling、调用方 CompileLimits 或 frontend 能力中的准入规则继续由 compiler 拥有，不得暗中
-继承为 wire 规则。官方 emitter 仍只接受 `CompilationOutput`，而 #299 独立验证器只依据本
-附录，不读取 compiler 代码来发现新约束。后继若要收紧已接受 wire 语义，必须提升相应 contract
-版本并回到 G1，不能用“当前 compiler 会拒绝”原地改变 v1。
+继承为 wire 规则。官方 emitter 仍只接受 `CompilationOutput`。#298 曾把下文全部跨表语义
+规则设想为独立 validator 的接受职责；Accepted ADR 0024 已取消该交付。#299 G2 只实现设计文档
+明确列出的 revision/digest/length 与 LFSM/LFSD binding 闭合，不执行下文完整身份、拓扑、几何、
+规则或 diff 双射复验。未来若要接收不受信任 LFCA/LFSM/LFSD 并提升为完整语义能力，必须另行
+设计、回到 G1，不能把这些历史条款自动计入当前 checker 或发布前置条件。
 
 ### A.1 LFCA table registry
 
@@ -1183,8 +1186,8 @@ StableId128 := first-16-bytes(
 全部整数为小端。对每个 `entityKind`，发射器必须按完整
 `identityCanonicalBytesV1` 的无符号逐字节字典序严格排序，再从 `0` 连续分配
 `typedOrdinal`。`CanonicalIdentity` 行、对应实体表行与所有 ordinal 引用必须对
-`(entityKind, typedOrdinal, stableId)` 一一对应；独立验证器必须重建前像、重算 ID、重排并
-核对该映射。前像相同、排序重复、映射缺失或引用解析到不同 StableId 均失败关闭。
+`(entityKind, typedOrdinal, stableId)` 一一对应。#298 历史完整接受域要求重建前像、重算 ID、
+重排并核对该映射；该要求不属于 #299 当前后发射检查。
 
 `identityFieldTag` 的闭合代码、名称与 value 编码为：
 
@@ -1229,7 +1232,8 @@ AccessRule [1,28]                     VehicleProfile [1,29]
 StaticRoute [1,30]                    CanonicalFrame [1,31]
 ```
 
-重算全部前像后，验证器必须在 22 种实体的联合域建立一张全局 `StableId128` 唯一性表。
+#298 历史完整接受域还要求在重算全部前像后，为 22 种实体的联合域建立一张全局
+`StableId128` 唯一性表；该全量检查不属于 #299 当前后发射检查。
 任何相同 `StableId128` 的第二行都失败关闭：完整前像相同表示重复实体，完整前像不同表示
 BLAKE3-128 截断碰撞；二者都不得继续建立 ordinal、关系或辅助对象引用。该检查与逐行摘要
 重算同属身份验证前置条件，不能因引用中另有 `entityKind` 而省略。
@@ -1303,8 +1307,8 @@ Identity 前像中重复表达规范所有权或边界语义的字段必须与�
 | `AccessRule.participantClasses` | 集合；按 member typed ordinal 严格递增               | 禁止       | 禁止             |
 | `StaticRoute.edges`             | 领域顺序；路线出现序                                 | 允许重复项 | 禁止             |
 
-领域顺序向量不得为了得到较小 ordinal 而重排；集合向量不得保留声明顺序。独立验证器必须逐字段
-执行本表，不得只检查 ordinal 可解析。下列跨表关系进一步闭合重复保存的 ownership：
+领域顺序向量不得为了得到较小 ordinal 而重排；集合向量不得保留声明顺序。下列跨表关系是
+#298 历史完整接受域对重复 ownership 的闭合规则，不是 #299 当前 checker 的逐字段复验项：
 
 | owner 侧                        | member/back-reference 侧                         | 必需不变量                                                                              |
 | ------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------- |
@@ -1378,8 +1382,8 @@ ManeuverPath 的中间 occurrence 重建并核对 `I`，再把 validated LIR suc
 递增写入。该 total projection 不读取 LFSM/source language，不因 Synthetic 或 RoadEditing
 分叉，也不接受调用方 override。path 内相邻 edge 若都不在 `I`，过滤后的 LFCA successor 必须
 仍包含该 pair；只要任一端在 `I`，完整 ManeuverPath occurrence 序列就是 portable 拓扑权威。
-独立验证器从 `JunctionInternalEdge` 重建 `I`，并拒绝 wire 中任一 owner 或 target 落入 `I` 的
-successor。这样当前 Synthetic LIR 的显式 internal connectivity 可以无损归一为与 RoadEditing
+#298 历史完整接受域要求从 `JunctionInternalEdge` 重建 `I`，并拒绝 wire 中任一 owner 或
+target 落入 `I` 的 successor；#299 当前 checker 不执行该拓扑重建。这样当前 Synthetic LIR 的显式 internal connectivity 可以无损归一为与 RoadEditing
 一致的 path-only portable 语义，不会形成第二套 portable 拓扑权威或来源相关 revision。
 
 每个 ManeuverGate 必须满足
@@ -1479,14 +1483,14 @@ occurrence；不同匹配的 internal route-edge 区间不得重叠，route 中�
 ordinal，禁止部分覆盖。FacilityBandGeometry 按 `facilityBand` 行键保持唯一规范子集，不要求与
 FacilityBand 表同基数；因此已有 LaneEdge 而只有 FacilityBand geometry 的成功输出可表示。
 direction code 始终严格投影 `geometry_profiles`：`None` 写 `0=None`，`Some` 写对应非零值。
-独立验证器以 direction code 非零重建 wire `hasProfile`，再与其余三项执行同一逻辑或；下文
+#298 历史完整接受域以 direction code 非零重建 wire `hasProfile`，再与其余三项执行同一逻辑或；下文
 CompilerProvenance 的 accuracy code 必须与 direction code 具有相同的零/非零 presence。
 `geometryDirectionProfile` 的闭合代码为 `0=None, 1=Smooth1Deg, 2=Balanced2Deg,
 3=Compact5Deg`。每张 geometry 的 `directionProfileApplies` 只允许 `0/1`：`1` 表示该行的最终
 折线受上述唯一全局 direction profile 约束，`0` 表示该行没有 frontend direction policy。
 全局 code 为 `0` 时全部行的适用标记必须为 `0`；任一行标记为 `1` 时全局 code 必须非零。
 全局 code 非零但某行标记为 `0` 是混合 RoadEditing/Synthetic 编译的合法状态，不得把该 code
-无条件套到该行，也不得为它另选默认或逐行 profile。独立验证器无论标记为何仍核对全部点、段、
+无条件套到该行，也不得为它另选默认或逐行 profile。#298 历史完整接受域无论标记为何仍核对全部点、段、
 frame 和 join gap，只按下文的适用规则核对最终折线和跨 edge full-angle。来源曲线到最终折线的
 accuracy profile 无法从最终点表独立重算，
 因此不在本语义表中，也不构成 LFCA 对 `2/5/10 cm` 最大误差的自证声明；它只按下文进入
@@ -1579,7 +1583,7 @@ LFCA v1 的 `ContractVersions` 六个字段都只接受值 `1`；`ExecutionContr
 - `geometryAccuracyProfile` 严格投影同次编译 LIR 的 `geometry_profiles`：`None` 写
   `0=None`，`Some` 按闭合代码 `1=Fine2Cm, 2=Balanced5Cm, 3=Compact10Cm` 写入；因此
   `spatialPresent=0` 必须为 `0`，全局 profile 缺失的显式 Synthetic 或 facility-only geometry
-  也必须为 `0`；混合编译中它可因其他 RoadEditing geometry 而非零。独立验证器只核对该投影、
+  也必须为 `0`；混合编译中它可因其他 RoadEditing geometry 而非零。#298 历史完整接受域只核对该投影、
   枚举与 object binding，不得把它报告为已独立证明的最大位置误差；accuracy 与 semantic
   direction code 必须同时为零或同时非零，单边伪造 profile presence 失败关闭。逐 geometry
   `directionProfileApplies` 只控制方向谓词，不建立第二个 accuracy profile，也不改变该全局
@@ -1602,12 +1606,11 @@ mismatch；不得把这些字段当作对象内信任锚。
 本节严格区分两种检查主体。凡规则引用 compiler-private `ValidatedSourceMapInput`、
 `primary_source()`、`contributing_sources()` 或 `geometry_source_ranges()`，都只属于
 `laneflow-compiler` 在返回 `PortablePublicationCandidate` 前的候选发射闭合；这些 API 不进入
-LFSM wire，也不成为 `laneflow-validator` 的依赖。#299 独立验证器只依据 LFSM exact bytes、
-digest-bound LFCA、显式提供的受限外部对象和本 registry 执行可重算的结构、排序、双射、地址、
-摘要与跨对象 binding 检查。其 receipt 绑定受检 LFSM exact digest/length，但不声称重建过
-compiler-private view，也不证明未认证来源沿袭与原始编译输入完全一致；后者依赖对象外的可信
-compiler/emission 环境、来源资产链或认证发布清单。不得为了让 #299 复演私有 API 而把第二份
-view 或自报 witness 塞入 LFSM。
+LFSM wire。#298 历史完整接受域曾要求依据 LFSM exact bytes、digest-bound LFCA、受限外部对象
+与本 registry 执行全量结构、排序、双射、地址和摘要复验；Accepted ADR 0024 已明确不把它
+交付为 #299 独立 validator。当前后发射检查只核对 LFSM 的 LFCA/provenance binding，不重建
+compiler-private view，也不证明来源沿袭与原始编译输入完全一致；后者依赖对象外的可信
+compiler/emission 环境、来源资产链或认证发布清单。
 
 `SourceMapBindings(0x0001)` 的 `SourceMapBindings(0x0001)` singleton 为：
 
@@ -1698,7 +1701,8 @@ primary location 的调用方 override；任何遗漏、额外 module、重新�
 
 `sourceRecordByteLength/sourceContentDigest` 必须分别等于该文档完整来源记录的精确长度与
 SHA-256；重算结果必须逐字节等于 module 行的 `sourceDocumentSetDigest`，再进入上层
-`sourceCollectionDigest`。独立验证器能证明 emitted set 内部闭合及外部摘要绑定；未认证的
+`sourceCollectionDigest`。这些全量闭合属于 #298 历史接受域；当前 checker 只绑定已发射的
+`sourceCollectionDigest`，不重新枚举外部来源。未认证的
 LFSM 自身不能证明一个完全未出现的外部文档曾经存在，该真实性仍由 LFCP/发布清单的外部
 trust anchor 承担。
 
@@ -1760,10 +1764,10 @@ SignalPhase 为 1，AuthoringLane/ManeuverPath/LaneGroup 为 2，ManeuverGate/Wa
 值排序、去重后映射成最终 SourceLocation ordinal 的唯一向量。每行 `primaryLocation` 必须
 逐值等于对应 stable-entity view 的 `primary_source()`，`contributingLocations` 必须逐字节
 等于 `C(view)`；当前 22 类 stable-entity view 的贡献迭代器都为空，因此 v1 该字段必须为空，
-writer 不得添加另一合法位置作为“补充 provenance”。独立验证器不调用或模拟该私有 API；
-它在接受任何实体定位前核对 artifact binding、上述双射、位置解析、v1 空贡献字段和下列
-identity/address 线格式投影。一个内部自洽但由不可信 emitter 替换的合法 Synthetic Text
-位置不由 LFSM 自证为原始 `primary_source()`，#299 receipt 也不得作出该真实性声明。
+writer 不得添加另一合法位置作为“补充 provenance”。#298 历史完整接受域曾核对 artifact
+binding、上述双射、位置解析、v1 空贡献字段和下列 identity/address 线格式投影；#299 当前
+checker 不执行该全量复验。一个内部自洽但由不可信 emitter 替换的合法 Synthetic Text 位置
+不由 LFSM 自证为原始 `primary_source()`。
 
 双射还必须绑定“实体是谁”与“主位置声明了谁”。每行 primaryLocation 所属 SourceModule 的
 `authoringNamespaceId` 必须逐字节等于绑定 CanonicalIdentity 的 tag 1。RoadEditingSource
@@ -1807,8 +1811,9 @@ owner-local view；`primaryLocation` 必须逐值等于其 `primary_source()`，
 `contributingLocations` 必须逐字节等于 `C(view)`，不能只是任意合法且有序的位置集合。
 当前普通显式关系贡献集为空，role 14..16 的 route-derived view 则精确保留各自
 ManeuverPath/ManeuverGate/WaitingZone 声明贡献位置。OwnerLocalSource 不重复保存 subject，
-独立验证器不复演该私有 view 比较，而是从绑定 LFCA 和 A.5 一一反解 subject，核对位置引用、
-集合排序、DerivedRelationSources 联合关系和下列 RoadEditing 地址投影后才暴露来源视图。若
+#298 历史完整接受域不复演该私有 view 比较，而是从绑定 LFCA 和 A.5 一一反解 subject，核对位置引用、
+集合排序、DerivedRelationSources 联合关系和下列 RoadEditing 地址投影；#299 当前 checker
+不执行该全量来源视图复验。若
 `primaryLocation` 属于
 RoadEditingSource，还必须按 A.5 的 `RoadEditing primary-source projection` 把该位置的
 Declaration/OwnerLocal subject、identity address、property path 和 occurrence 逐值绑定回同一
@@ -1826,12 +1831,12 @@ LFCA tuple；只证明位置在全局上合法，或把另一关系行的合法�
 Synthetic `CanonicalFrame` geometry 的合法 profile-free/source-range-free 状态，不要求伪造
 segment。
 
-独立验证器不持有该迭代器：候选中范围为空时只核对父行贡献集为空；范围非空时，范围必须从
+#298 历史完整接受域不持有该迭代器：候选中范围为空时只核对父行贡献集为空；范围非空时，范围必须从
 `pointStart=0` 开始，按行键严格相邻、非空且无重叠，最后一个
 `pointEndExclusive` 必须等于对应 LFCA geometry `points` 的 item 数；localIndex 在该
 frame/role 下按相应 LFCA geometry 表行顺序从零编号；非空状态的父行
 `contributingLocations` 必须等于所有子行 `sourceLocation` 按位置语义值排序去重后的 ordinal
-投影。独立 LFCA/LFSM 交叉验证还必须要求每个父行的范围非空性与绑定 LFCA geometry 行的
+投影。#298 历史 LFCA/LFSM 交叉接受规则还要求每个父行的范围非空性与绑定 LFCA geometry 行的
 `directionProfileApplies` 精确相等；只改 flag、只增删范围或把另一 geometry 的合法范围换入都
 失败关闭。每个非空范围的 `sourceLocation` 还必须是 RoadEditing `OwnerLocal`：全部同父行范围的
 module/document 与 Address owner 必须完全相同；relation 必须为 `CurveSegment`；occurrence
@@ -1841,10 +1846,9 @@ Declaration、另一 owner、ordinal/occurrence 不等或错误 property path �
 
 候选发射器在两种状态下另外要求父行贡献集逐字节等于 `C(view)`，并把上述共同 owner、segment
 ordinal 与完整 source location 逐项纳入私有迭代器 exact projection；因此协调替换为另一条
-合法 segment 也不能形成候选。独立验证器只证明 wire 内 owner/occurrence/property 闭合，不读取
-未认证来源文档，也不把该闭合提升为来源真实性。这样 trusted emitter 在输入确有 segment range
-时无损恢复每段规范点区间来源，又不会为没有 segment authority 的 frontend 发明来源；#299
-receipt 不证明私有输入中不存在被 emitter 遗漏的 range。
+合法 segment 也不能形成候选。#298 历史完整接受域只覆盖 wire 内
+owner/occurrence/property 闭合，不读取未认证来源文档，也不把该闭合提升为来源真实性。
+这些全量规则不属于 #299 当前 checker。
 
 `DerivedRelationSources(0x0005)` 只有 `DerivedRelationSource(0x0001)`：
 `1:ownerEntityKind:u16:R, 2:ownerStableId:StableId128:R, 3:sourceRelationRole:u8:R,
@@ -1999,8 +2003,9 @@ Genesis 把 base 的实体、关系和 geometry 集合都视为空：`EntityChan
 `Add`，`GeometryChanges` 必须对目标每个 LaneEdgeGeometry 和 FacilityBandGeometry 恰有一行
 `Add`。Genesis 禁止任何 Remove/Modify/Move/Reconnect，`StaticRuleChanges` 必须为空，因为完整
 目标 entity RowV1 已携带其规则字段；`SpatialConfigurationChanges` 仍按下文恰有一行
-`Initialize`。独立验证器必须从 target LFCA 重建这三个目标集合并逐行双射，不能只核对存在的
-change 行；headless target 的两张 geometry 表和 `GeometryChanges` 才同时为空。
+`Initialize`。#298 历史完整接受域要求从 target LFCA 重建这三个目标集合并逐行双射；#299
+当前 checker 明确不执行该 diff 完备性复验。headless target 的两张 geometry 表和
+`GeometryChanges` 才同时为空。
 
 GeometryChange 的 before/after `Bytes` 使用下列 `CanonicalGeometryValueV1`，不能放入完整
 LFCA geometry RowV1：

@@ -1,8 +1,8 @@
-//! 可移植规范制品 v1 的共享线格式登记值。
+//! 可移植规范制品的共享线格式登记值。
 //!
 //! 本模块只保存已经由 #298 G1 冻结的版本、magic、封闭字段类型、安全天花板和无分配
-//! 值类型。字节读写、结构预检、编译器语义投影与独立语义验证分别属于它们自己的
-//! crate；不得把本模块扩张成第二套 emitter 或验证算法。
+//! 值类型。字节读写、结构预检、编译器语义投影与后发射闭合检查分别属于它们自己的
+//! crate；不得把本模块扩张成第二套 emitter 或语义验证算法。
 
 use core::fmt;
 
@@ -15,8 +15,8 @@ pub const SOURCE_MAP_FORMAT_VERSION: u16 = 1;
 /// LFSD 的对象格式版本。
 pub const SEMANTIC_DIFF_FORMAT_VERSION: u16 = 1;
 
-/// LFCP 的对象格式版本。
-pub const CANONICAL_PUBLICATION_DESCRIPTOR_VERSION: u16 = 1;
+/// LFCP 的对象格式版本；生产代码只接受无 receipt 的 v2。
+pub const CANONICAL_PUBLICATION_DESCRIPTOR_VERSION: u16 = 2;
 
 /// 六个 LFCA 语义节派生 [`NetworkRevisionId`] 的算法版本。
 pub const NETWORK_REVISION_DERIVATION_VERSION: u16 = 1;
@@ -83,7 +83,7 @@ pub enum PortableObjectKind {
 }
 
 impl PortableObjectKind {
-    /// 按 wire magic 排列的四种 v1 对象。
+    /// 按 wire magic 排列的四种当前对象。
     pub const ALL: [Self; 4] = [
         Self::CanonicalArtifact,
         Self::SourceMap,
@@ -102,7 +102,7 @@ impl PortableObjectKind {
         }
     }
 
-    /// 对象自己的 v1 格式版本。
+    /// 对象自己的当前格式版本。
     #[must_use]
     pub const fn format_version(self) -> u16 {
         match self {
@@ -113,25 +113,25 @@ impl PortableObjectKind {
         }
     }
 
-    /// v1 对象必须拥有的精确节数。
+    /// 当前对象必须拥有的精确节数。
     #[must_use]
     pub const fn section_count(self) -> u32 {
         match self {
             Self::CanonicalArtifact => 8,
             Self::SourceMap => 5,
             Self::SemanticDiff => 6,
-            Self::CanonicalPublicationDescriptor => 4,
+            Self::CanonicalPublicationDescriptor => 3,
         }
     }
 
-    /// v1 对象附录登记的精确 TableV1 总数。
+    /// 当前对象登记的精确 TableV1 总数。
     #[must_use]
     pub const fn table_count(self) -> u32 {
         match self {
             Self::CanonicalArtifact => 35,
             Self::SourceMap => 8,
             Self::SemanticDiff => 6,
-            Self::CanonicalPublicationDescriptor => 4,
+            Self::CanonicalPublicationDescriptor => 3,
         }
     }
 
@@ -340,9 +340,9 @@ mod tests {
             (
                 PortableObjectKind::CanonicalPublicationDescriptor,
                 *b"LFCP",
-                4,
-                4,
-                0x0080,
+                3,
+                3,
+                0x0068,
             ),
         ];
 
@@ -353,7 +353,12 @@ mod tests {
             assert_eq!(actual, kind);
             assert_eq!(kind.magic(), magic);
             assert_eq!(PortableObjectKind::from_magic(magic), Some(kind));
-            assert_eq!(kind.format_version(), 1);
+            let expected_version = if kind == PortableObjectKind::CanonicalPublicationDescriptor {
+                2
+            } else {
+                1
+            };
+            assert_eq!(kind.format_version(), expected_version);
             assert_eq!(kind.section_count(), sections);
             assert_eq!(kind.table_count(), tables);
             assert_eq!(kind.first_section_offset(), first_offset);

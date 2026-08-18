@@ -76,10 +76,9 @@ pub use portable_emitter::{
     PortablePublicationCandidate, emit_portable_candidate,
 };
 pub use portable_publication::{
-    CanonicalPublicationReceiptViewV1, ManifestCommittedPortablePublication,
-    PortableArtifactSubjectBindingV1, PortableManifestCommitCandidate, PortableManifestCommitError,
-    PortableManifestCommitter, PortablePublicationError, PortablePublicationProvenanceV1,
-    PortablePublisherKindV1, PortableSourceMapSubjectBindingV1, commit_portable_publication_v1,
+    ManifestCommittedPortablePublication, PortableManifestCommitCandidate,
+    PortableManifestCommitError, PortableManifestCommitter, PortablePublicationError,
+    PortablePublicationProvenanceV2, PortablePublisherKindV2, commit_portable_publication_v2,
 };
 pub use portable_store::{
     LocalPortableObjectInstaller, PortableInstallDisposition, PortableInstallError,

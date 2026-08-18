@@ -1,6 +1,6 @@
 # ADR 0024：编译器后发射检查与最小发布闭合
 
-**状态**: Accepted（#299 G1 Pass；2026-08-18）<br>
+**状态**: Accepted（#299 G2 已实现；2026-08-18）<br>
 **日期**: 2026-08-18<br>
 **适用范围**: LFCA/LFSM/LFSD 最终字节检查、`laneflow-format` 职责、LFCP、
 compiler 发布事务、#300/#302 的上游输入边界<br>

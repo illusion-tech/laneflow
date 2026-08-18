@@ -72,7 +72,7 @@
   `CompilationOutput` 单一输入和不可变发布提交点。附录 A 的完整 table/field registry、§9
   硬上限与 §10 known vectors 已闭合。Accepted ADR 0024 已取代其独立
   validator、receipt 和 LFCP v1 当前语义；历史证据不回写为新设计。
-- `compiler-post-emission-check-and-minimal-publication-closure.md`：#299 Accepted 的
+- `compiler-post-emission-check-and-minimal-publication-closure.md`：#299 Accepted 且 G2 已实现的
   compiler 后发射检查与最小发布闭合；扩展 `laneflow-format` 复核最终
   LFCA/LFSM/LFSD 字节与跨对象 binding，以借用型 capability 守卫发布副作用，
   LFCP v2 一次性移除 receipt 且不兼容读取 v1；不复验完整路网语义，不建设证明平台。
