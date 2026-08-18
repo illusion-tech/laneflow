@@ -178,7 +178,7 @@ pub(super) fn validate_g3_target(
         issue_phase,
         pr,
         resolved_args,
-        false,
+        None,
     )
 }
 
@@ -189,7 +189,7 @@ fn validate_g3_target_with_legacy_exception(
     issue_phase: GateEvidencePhase,
     pr: &GitHubPullRequest,
     resolved_args: &[GateEvidenceArgs],
-    allow_legacy_exception: bool,
+    result_scope: Option<(u64, bool)>,
 ) -> Result<(GateEvidencePrRole, Vec<u64>), String> {
     let validation = || {
         let (declared_role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
@@ -248,7 +248,7 @@ fn validate_g3_target_with_legacy_exception(
         validate_gate_evidence_target_assertions_with_legacy_exception(
             pr,
             resolved_args,
-            allow_legacy_exception,
+            result_scope,
         )?;
         Ok((declared_role, issue_numbers))
     };
@@ -323,7 +323,7 @@ pub(super) fn validate_related_full_set_member(
         issue_phase,
         pr,
         &resolved_args,
-        allow_legacy_exception,
+        Some((current_issue, allow_legacy_exception)),
     )
     .map(|_| ())
 }

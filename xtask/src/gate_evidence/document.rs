@@ -277,7 +277,7 @@ pub(super) fn validate_gate_assertion_with_legacy_exception(
         body,
         label,
         phase,
-        allow_legacy_exception,
+        Some((args.issue, allow_legacy_exception)),
     ) {
         Ok(commands) => commands,
         Err(_)
@@ -319,7 +319,7 @@ pub(super) fn validate_gate_assertion_set(
     args: &[GateEvidenceArgs],
     phase: GateEvidencePhase,
 ) -> Result<(), String> {
-    validate_gate_assertion_set_with_legacy_exception(body, label, args, phase, false)
+    validate_gate_assertion_set_with_legacy_exception(body, label, args, phase, None)
 }
 
 pub(super) fn validate_gate_assertion_set_with_legacy_exception(
@@ -327,14 +327,8 @@ pub(super) fn validate_gate_assertion_set_with_legacy_exception(
     label: &str,
     args: &[GateEvidenceArgs],
     phase: GateEvidencePhase,
-    allow_legacy_exception: bool,
+    result_scope: Option<(u64, bool)>,
 ) -> Result<(), String> {
-    let actual_commands = semantic_gate_assertion_commands_with_legacy_exception(
-        body,
-        label,
-        phase,
-        allow_legacy_exception,
-    )?;
     let expected_commands = args
         .iter()
         .map(|args| expected_gate_command(args, phase))
@@ -342,6 +336,22 @@ pub(super) fn validate_gate_assertion_set_with_legacy_exception(
     if expected_commands.len() != args.len() {
         return Err(format!("{label} target 解析出了重复的 `Gate 断言` 命令"));
     }
+    let actual_commands = match semantic_gate_assertion_commands_with_legacy_exception(
+        body,
+        label,
+        phase,
+        result_scope,
+    ) {
+        Ok(commands) => commands,
+        Err(_)
+            if args.len() == 1
+                && result_scope == Some((args[0].issue, true))
+                && legacy_failed_gate_assertion_without_command(body, phase) =>
+        {
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
     if actual_commands != expected_commands {
         return Err(format!(
             "{label} comment 的完整 `Gate 断言` 命令集合与全部声明 Issue target 不一致：期望 [{}]；实际 [{}]",
@@ -357,14 +367,14 @@ pub(super) fn gate_assertion_commands(
     label: &str,
     phase: GateEvidencePhase,
 ) -> Result<BTreeSet<String>, String> {
-    gate_assertion_commands_with_legacy_exception(body, label, phase, false)
+    gate_assertion_commands_with_legacy_exception(body, label, phase, None)
 }
 
 pub(super) fn gate_assertion_commands_with_legacy_exception(
     body: &str,
     label: &str,
     phase: GateEvidencePhase,
-    allow_legacy_exception: bool,
+    result_scope: Option<(u64, bool)>,
 ) -> Result<BTreeSet<String>, String> {
     let assertion_lines = body
         .lines()
@@ -395,6 +405,15 @@ pub(super) fn gate_assertion_commands_with_legacy_exception(
                 "{label} comment 的 `Gate 断言` 不得重复同一规范命令：`{actual_command}`"
             ));
         }
+        let scoped_legacy_exception =
+            if let Some((scope_issue, allow_legacy_exception)) = result_scope {
+                let command_args = parse_gate_assertion_command(actual_command, phase)
+                    .map_err(|error| format!("{label} comment 的 `Gate 断言` 命令无效：{error}"))?;
+                (command_args.issue == scope_issue).then_some(allow_legacy_exception)
+            } else {
+                None
+            };
+        let allow_legacy_exception = scoped_legacy_exception == Some(true);
         let expects_failed_assertion = allow_legacy_exception
             || match phase {
                 GateEvidencePhase::G3 => {
@@ -407,19 +426,27 @@ pub(super) fn gate_assertion_commands_with_legacy_exception(
                 }
                 GateEvidencePhase::G4 => false,
             };
-        let accepted_result =
-            if allow_legacy_exception && phase == GateEvidencePhase::G3 && expects_failed_assertion
-            {
-                result.contains("未通过") && !result.contains("已通过")
-            } else if expects_failed_assertion {
-                matches!(result.trim(), "未通过" | "未通过。")
-            } else {
-                matches!(result.trim(), "已通过" | "已通过。")
-            };
+        let accepted_result = if scoped_legacy_exception.is_none() && result_scope.is_some() {
+            matches!(result.trim(), "已通过" | "已通过。")
+                || (phase == GateEvidencePhase::G3
+                    && result.contains("未通过")
+                    && !result.contains("已通过"))
+        } else if allow_legacy_exception
+            && phase == GateEvidencePhase::G3
+            && expects_failed_assertion
+        {
+            result.contains("未通过") && !result.contains("已通过")
+        } else if expects_failed_assertion {
+            matches!(result.trim(), "未通过" | "未通过。")
+        } else {
+            matches!(result.trim(), "已通过" | "已通过。")
+        };
         if !accepted_result {
             return Err(format!(
                 "{label} comment 的 `Gate 断言` 必须在规范命令后明确记录 `{}`",
-                if expects_failed_assertion {
+                if scoped_legacy_exception.is_none() && result_scope.is_some() {
+                    "已通过` 或 `未通过"
+                } else if expects_failed_assertion {
                     "未通过"
                 } else {
                     "已通过"
@@ -434,10 +461,10 @@ pub(super) fn semantic_gate_assertion_commands_with_legacy_exception(
     body: &str,
     label: &str,
     phase: GateEvidencePhase,
-    allow_legacy_exception: bool,
+    result_scope: Option<(u64, bool)>,
 ) -> Result<BTreeSet<String>, String> {
     let raw_commands =
-        gate_assertion_commands_with_legacy_exception(body, label, phase, allow_legacy_exception)?;
+        gate_assertion_commands_with_legacy_exception(body, label, phase, result_scope)?;
     let raw_count = raw_commands.len();
     let semantic_commands = raw_commands
         .into_iter()
@@ -737,7 +764,10 @@ pub(super) fn validate_g3_comment_correction(
     let candidates = pr
         .comments
         .iter()
-        .filter(|comment| comment.body.contains(G3_COMMENT_CORRECTION_START))
+        .filter(|comment| {
+            comment.body.contains(G3_COMMENT_CORRECTION_START)
+                && is_trusted_g3_owner_comment(comment)
+        })
         .map(|comment| parse_g3_comment_correction_record(comment).map(|record| (comment, record)))
         .collect::<Result<Vec<_>, _>>()?;
     let mut matching = candidates.into_iter().filter(|(_, record)| {
@@ -1341,6 +1371,9 @@ fn exception_record_for_target<'a>(
 ) -> Result<Option<(&'a GitHubComment, G3ExceptionRecord)>, String> {
     let mut matching = Vec::new();
     for appendix in appendices {
+        if !is_trusted_g3_owner_comment(appendix) {
+            continue;
+        }
         for record in parse_g3_exception_records(appendix)? {
             if record.issue == issue
                 && record.pull_request == pr_number
@@ -1357,6 +1390,14 @@ fn exception_record_for_target<'a>(
             "Issue #{issue} / PR #{pr_number} 的 G3 comment 只能绑定一条 g3-exception 记录"
         )),
     }
+}
+
+fn is_trusted_g3_owner_comment(comment: &GitHubComment) -> bool {
+    comment.author.as_ref().is_some_and(|author| {
+        G3_OWNER_ACTORS
+            .iter()
+            .any(|owner| owner.eq_ignore_ascii_case(&author.login))
+    })
 }
 
 pub(super) fn historical_exception_applies_to_target(
