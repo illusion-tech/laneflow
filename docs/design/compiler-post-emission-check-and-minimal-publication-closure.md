@@ -76,6 +76,7 @@ G2 实现应保持下列语义形状；精确 Rust 字段布局可以在不扩�
 pub enum ExpectedSemanticDiffBaseV1 {
     Genesis,
     Artifact {
+        network_revision_derivation_version: u16,
         network_revision: NetworkRevisionId,
         digest: Sha256Digest,
         byte_length: ExactByteLength,
@@ -153,7 +154,9 @@ LFSD 的 `targetNetworkRevisionDerivationVersion`、`targetNetworkRevision`、
 `networkRevisionDerivationVersion`、revision、digest 和 exact length 相等。
 
 `ExpectedSemanticDiffBaseV1::Genesis` 要求 LFSD 使用规范 Genesis 零绑定；
-`Artifact` 要求 LFSD base 的 revision、digest 和 exact length 与显式输入相等。
+`Artifact` 要求 LFSD 的 `baseNetworkRevisionDerivationVersion`、`baseNetworkRevision`、
+`baseCanonicalArtifactDigest` 和 `baseCanonicalArtifactByteLength` 分别与显式输入中的派生版本、
+revision、digest 和 exact length 相等。
 expected base 必须由 compiler 发射调用保存的实际 base binding 或后继调用方的受信上下文
 提供，禁止从 LFSD 自报字段反向构造。
 
@@ -307,18 +310,18 @@ G2 一次性复用 #298 `LF-COMP-PRODUCTION-CORRIDOR-v1`：
 
 G2 最小测试集合：
 
-| 类别       | 必需证据                                                                  |
-| ---------- | ------------------------------------------------------------------------- |
-| 成功       | Genesis 与 Artifact base 的完整 emit→check→install→LFCP v2→manifest       |
-| 单对象     | LFCA/LFSM/LFSD 截断、追加、错误 kind/version、caller limit                |
-| revision   | LFCA declared revision 单独篡改后稳定失败                                 |
-| source map | LFCA digest/length/revision/compiler/source binding 任一错配              |
-| diff       | Genesis 非零 base、Artifact base 错配、target digest/length/revision 错配 |
-| 原子性     | 任一 check failure 时 installer 与 manifest 调用次数均为零                |
-| LFCP v2    | 固定 exact bytes/digest/offset；receipt 字段不存在                        |
-| installer  | 每个对象和 LFCP v2 的 write/flush/close/install/winner/manifest fault     |
-| 资源       | checker allocation 为零；P100 两进程均满足 30% 门槛                       |
-| 平台       | Windows/Ubuntu 对现有 LFCA/LFSM/LFSD 与新 LFCP v2 fixed vector 一致       |
+| 类别       | 必需证据                                                                              |
+| ---------- | ------------------------------------------------------------------------------------- |
+| 成功       | Genesis 与 Artifact base 的完整 emit→check→install→LFCP v2→manifest                   |
+| 单对象     | LFCA/LFSM/LFSD 截断、追加、错误 kind/version、caller limit                            |
+| revision   | LFCA declared revision 单独篡改后稳定失败                                             |
+| source map | LFCA digest/length/revision/compiler/source binding 任一错配                          |
+| diff       | Genesis 非零 base；Artifact base 或 target 的派生版本/revision/digest/length 任一错配 |
+| 原子性     | 任一 check failure 时 installer 与 manifest 调用次数均为零                            |
+| LFCP v2    | 固定 exact bytes/digest/offset；receipt 字段不存在                                    |
+| installer  | 每个对象和 LFCP v2 的 write/flush/close/install/winner/manifest fault                 |
+| 资源       | checker allocation 为零；P100 两进程均满足 30% 门槛                                   |
+| 平台       | Windows/Ubuntu 对现有 LFCA/LFSM/LFSD 与新 LFCP v2 fixed vector 一致                   |
 
 不新增独立 fuzz service、证明 oracle 或测试 DSL。现有格式 mutation/property 测试可以
 继续复用，但不成为新的产品层。
