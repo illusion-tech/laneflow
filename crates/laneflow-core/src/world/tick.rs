@@ -38,6 +38,16 @@ impl CoreWorld {
             .checked_add(self.fixed_delta_time_ms)
             .ok_or(CoreError::TimeOverflow)?;
 
+        self.step_inner(next_tick_index, next_time_ms, probe)
+            .map_err(|error| self.expand_tick_invariant_error(error))
+    }
+
+    fn step_inner<P: StepProbe>(
+        &mut self,
+        next_tick_index: u64,
+        next_time_ms: u64,
+        probe: &mut P,
+    ) -> Result<StepResult, TickInvariantError> {
         self.parking_runtime.validate_step_sentinel(&self.parking)?;
         // `ParkingVehicleCapabilityUnavailable` 是 #108 过渡期保留的 public variant。
         // #109 的完整 ParkingStop/arrival/release pipeline 激活后，合法 world 不再返回它。
@@ -100,7 +110,7 @@ impl CoreWorld {
             candidate_states.clear();
             self.candidate_state_scratch = candidate_states;
             self.signal_candidate_scratch = signal_candidate_scratch;
-            return Err(CoreError::ParkingBindingInvariantViolation {
+            return Err(TickInvariantError::ParkingBindingInvariantViolation {
                 stage: "step_completion_release_validate",
                 vehicle: Some(release.vehicle),
                 space: Some(release.space),
@@ -140,6 +150,156 @@ impl CoreWorld {
         })
     }
 
+    #[cold]
+    #[inline(never)]
+    pub(super) fn expand_tick_invariant_error(&self, error: TickInvariantError) -> CoreError {
+        match error {
+            TickInvariantError::NonFiniteParkingComputation {
+                stage,
+                vehicle,
+                space,
+                value,
+            } => CoreError::NonFiniteParkingComputation {
+                stage,
+                vehicle,
+                space,
+                value,
+            },
+            TickInvariantError::NonFiniteLeaderComputation {
+                vehicle,
+                stage,
+                value,
+            } => CoreError::NonFiniteLeaderComputation {
+                vehicle,
+                stage,
+                value,
+            },
+            TickInvariantError::NonFiniteLongitudinalComputation {
+                vehicle,
+                stage,
+                value,
+            } => CoreError::NonFiniteLongitudinalComputation {
+                vehicle,
+                stage,
+                value,
+            },
+            TickInvariantError::NonFiniteSpeedLimitComputation {
+                vehicle,
+                stage,
+                value,
+            } => CoreError::NonFiniteSpeedLimitComputation {
+                vehicle,
+                stage,
+                value,
+            },
+            TickInvariantError::SpeedLimitTraversalInvariant {
+                vehicle,
+                route,
+                from_route_edge_index,
+                to_route_edge_index,
+                final_speed,
+                target_limit,
+            } => {
+                let edges = self
+                    .route_edges(route)
+                    .expect("tick route must remain live");
+                CoreError::SpeedLimitTraversalInvariant {
+                    vehicle,
+                    route,
+                    from_route_edge_index,
+                    to_route_edge_index,
+                    from_edge: edges[from_route_edge_index],
+                    to_edge: edges[to_route_edge_index],
+                    final_speed,
+                    target_limit,
+                }
+            }
+            TickInvariantError::NonFiniteSignalStopComputation {
+                vehicle,
+                stage,
+                value,
+            } => CoreError::NonFiniteSignalStopComputation {
+                vehicle,
+                stage,
+                value,
+            },
+            TickInvariantError::NonFiniteRouteTravel {
+                vehicle,
+                speed,
+                delta_time_ms,
+            } => CoreError::NonFiniteRouteTravel {
+                vehicle,
+                speed,
+                delta_time_ms,
+            },
+            TickInvariantError::SignalTraversalDeniedInvariant {
+                vehicle,
+                route,
+                from_route_edge_index,
+                to_route_edge_index,
+                gate,
+                remaining_travel,
+                final_speed,
+            } => CoreError::SignalTraversalDeniedInvariant {
+                vehicle,
+                route,
+                from_route_edge_index,
+                to_route_edge_index,
+                gate,
+                remaining_travel,
+                final_speed,
+            },
+            TickInvariantError::ParkingLeaveUnsafeFollower {
+                vehicle,
+                space,
+                follower,
+            } => CoreError::ParkingLeaveUnsafeFollower {
+                vehicle,
+                space,
+                follower,
+            },
+            TickInvariantError::ParkingBindingInvariantViolation {
+                stage,
+                vehicle,
+                space,
+            } => CoreError::ParkingBindingInvariantViolation {
+                stage,
+                vehicle,
+                space,
+            },
+            TickInvariantError::ParkingTraversalBoundaryInvariant {
+                vehicle,
+                space,
+                route,
+                route_edge_index,
+                remaining_travel,
+                final_speed,
+            } => CoreError::ParkingTraversalBoundaryInvariant {
+                vehicle,
+                space,
+                route,
+                route_edge_index,
+                remaining_travel,
+                final_speed,
+            },
+            TickInvariantError::VehiclePhysicalOverlap {
+                follower,
+                leader,
+                bumper_gap,
+            } => CoreError::VehiclePhysicalOverlap {
+                follower_id: self
+                    .vehicle_external_id(follower)
+                    .expect("overlap follower must remain live")
+                    .to_owned(),
+                leader_id: self
+                    .vehicle_external_id(leader)
+                    .expect("overlap leader must remain live")
+                    .to_owned(),
+                bumper_gap,
+            },
+        }
+    }
+
     /// 单一车辆推进循环：无保留停车与保留停车两分支的收敛实现。
     ///
     /// `PARKING_ACTIVE` 为编译期常量泛型：`false` 实例（无保留停车热路径）经
@@ -152,7 +312,7 @@ impl CoreWorld {
         events: &mut Vec<CoreEvent>,
         next_tick_index: u64,
         candidate_max_vehicle_speed: &mut f64,
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), TickInvariantError> {
         let advance_context = VehicleAdvanceContext {
             lane_graph: &self.lane_graph,
             signals: &self.signals,
@@ -264,7 +424,7 @@ impl CoreWorld {
                 if let Some(space) = reserved_space {
                     if let Some(completed_event) = completed_event {
                         if reserved_target.is_some() {
-                            return Err(CoreError::ParkingBindingInvariantViolation {
+                            return Err(TickInvariantError::ParkingBindingInvariantViolation {
                                 stage: "step_reachable_target_completed",
                                 vehicle: Some(vehicle_handle),
                                 space: Some(space),
@@ -307,7 +467,7 @@ impl CoreWorld {
             }
             #[cfg(any(test, feature = "test-support"))]
             if self.step_failure_after_vehicle == Some(vehicle_handle) {
-                return Err(CoreError::ParkingBindingInvariantViolation {
+                return Err(TickInvariantError::ParkingBindingInvariantViolation {
                     stage: "test_after_vehicle_advance",
                     vehicle: Some(vehicle_handle),
                     space: if PARKING_ACTIVE { reserved_space } else { None },

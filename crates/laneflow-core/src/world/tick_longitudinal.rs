@@ -1,7 +1,7 @@
 use super::*;
 
 impl CoreWorld {
-    pub(super) fn rebuild_occupancy_and_leaders(&mut self) -> Result<(), CoreError> {
+    pub(super) fn rebuild_occupancy_and_leaders(&mut self) -> Result<(), TickInvariantError> {
         let mut scratch = std::mem::take(&mut self.occupancy_scratch);
         let result = (|| {
             self.build_occupancy(&mut scratch);
@@ -35,7 +35,7 @@ impl CoreWorld {
     pub(super) fn rebuild_longitudinal_motions<P: StepProbe>(
         &mut self,
         probe: &mut P,
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), TickInvariantError> {
         let longitudinal_started = P::ENABLED.then(std::time::Instant::now);
         let result = if self.parking_runtime.reserved_count() == 0 {
             self.rebuild_longitudinal_motions_for_parking::<false, P>(probe)
@@ -54,7 +54,7 @@ impl CoreWorld {
     >(
         &mut self,
         probe: &mut P,
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), TickInvariantError> {
         let mut scratch = std::mem::take(&mut self.longitudinal_scratch);
         let result = (|| {
             let proposal_started = P::ENABLED.then(std::time::Instant::now);
@@ -168,7 +168,7 @@ impl CoreWorld {
         profile: crate::IidmProfileSpec,
         motion: &mut LongitudinalMotion,
         delta_time: f64,
-    ) -> Result<bool, CoreError> {
+    ) -> Result<bool, TickInvariantError> {
         let route = self
             .route_slot(vehicle.route)
             .expect("live vehicle route must exist");
@@ -221,7 +221,7 @@ impl CoreWorld {
         &self,
         vehicle: &VehicleState,
         profile: crate::IidmProfileSpec,
-    ) -> Result<f64, CoreError> {
+    ) -> Result<f64, TickInvariantError> {
         let speed = vehicle.current_speed.value();
         let delta_time = self.fixed_delta_time_ms as f64 / 1_000.0;
         let upper_speed = Self::finite_speed_limit_value(
@@ -250,7 +250,7 @@ impl CoreWorld {
         &self,
         vehicle: &VehicleState,
         profile: crate::IidmProfileSpec,
-    ) -> Result<Option<ParkingStopConstraint>, CoreError> {
+    ) -> Result<Option<ParkingStopConstraint>, TickInvariantError> {
         let Some(RuntimeVehicleParkingBinding::Reserved {
             vehicle: bound_vehicle,
             space,
@@ -265,7 +265,7 @@ impl CoreWorld {
                     vehicle: vehicle.handle,
                 })
         {
-            return Err(CoreError::ParkingBindingInvariantViolation {
+            return Err(TickInvariantError::ParkingBindingInvariantViolation {
                 stage: "step_parking_target_pair",
                 vehicle: Some(vehicle.handle),
                 space: Some(space),
@@ -275,7 +275,7 @@ impl CoreWorld {
             return Ok(None);
         };
         if target.route != vehicle.route {
-            return Err(CoreError::ParkingBindingInvariantViolation {
+            return Err(TickInvariantError::ParkingBindingInvariantViolation {
                 stage: "step_parking_target_route",
                 vehicle: Some(vehicle.handle),
                 space: Some(space),
@@ -302,11 +302,13 @@ impl CoreWorld {
                 route_distance,
             })),
             RouteDistanceQuery::BeyondHorizon => Ok(None),
-            RouteDistanceQuery::Passed => Err(CoreError::ParkingBindingInvariantViolation {
-                stage: "step_parking_target_passed",
-                vehicle: Some(vehicle.handle),
-                space: Some(space),
-            }),
+            RouteDistanceQuery::Passed => {
+                Err(TickInvariantError::ParkingBindingInvariantViolation {
+                    stage: "step_parking_target_passed",
+                    vehicle: Some(vehicle.handle),
+                    space: Some(space),
+                })
+            }
         }
     }
 
@@ -414,7 +416,7 @@ impl CoreWorld {
             .edge_handles[vehicle.route_edge_index]
     }
 
-    pub(super) fn leader_horizon(&self, vehicle: &VehicleState) -> Result<f64, CoreError> {
+    pub(super) fn leader_horizon(&self, vehicle: &VehicleState) -> Result<f64, TickInvariantError> {
         let profile = self
             .vehicle_profile(vehicle.profile)
             .expect("live vehicle profile must exist")
@@ -448,7 +450,7 @@ impl CoreWorld {
         &self,
         vehicle: &VehicleState,
         profile: crate::IidmProfileSpec,
-    ) -> Result<f64, CoreError> {
+    ) -> Result<f64, TickInvariantError> {
         let speed = vehicle.current_speed.value();
         let delta_time = self.fixed_delta_time_ms as f64 / 1_000.0;
         let upper_speed = Self::finite_signal_stop_value(
@@ -479,12 +481,12 @@ impl CoreWorld {
         vehicle: &VehicleState,
         profile: crate::IidmProfileSpec,
         space: crate::ParkingSpaceHandle,
-    ) -> Result<f64, CoreError> {
+    ) -> Result<f64, TickInvariantError> {
         let finite = |stage, value: f64| {
             if value.is_finite() {
                 Ok(value)
             } else {
-                Err(CoreError::NonFiniteParkingComputation {
+                Err(TickInvariantError::NonFiniteParkingComputation {
                     stage,
                     vehicle: vehicle.handle,
                     space,
@@ -516,7 +518,7 @@ impl CoreWorld {
         &self,
         vehicle: &VehicleState,
         horizon: f64,
-    ) -> Result<Option<SignalStopConstraint>, CoreError> {
+    ) -> Result<Option<SignalStopConstraint>, TickInvariantError> {
         let route = self
             .route_slot(vehicle.route)
             .expect("live vehicle route must exist");
@@ -584,7 +586,7 @@ impl CoreWorld {
         scratch: &OccupancyScratch,
         follower: &VehicleState,
         bumper_gap_horizon: f64,
-    ) -> Result<Option<LeaderObservation>, CoreError> {
+    ) -> Result<Option<LeaderObservation>, TickInvariantError> {
         Self::finite_leader_value(follower.handle, "bumper_gap_horizon", bumper_gap_horizon)?;
         let front_horizon = bumper_gap_horizon + scratch.max_vehicle_length();
         Self::finite_leader_value(follower.handle, "front_horizon", front_horizon)?;
@@ -670,9 +672,9 @@ impl CoreWorld {
         vehicle: VehicleHandle,
         stage: &'static str,
         value: f64,
-    ) -> Result<f64, CoreError> {
+    ) -> Result<f64, TickInvariantError> {
         if !value.is_finite() {
-            return Err(CoreError::NonFiniteLeaderComputation {
+            return Err(TickInvariantError::NonFiniteLeaderComputation {
                 vehicle,
                 stage,
                 value,
@@ -685,9 +687,9 @@ impl CoreWorld {
         vehicle: VehicleHandle,
         stage: &'static str,
         value: f64,
-    ) -> Result<f64, CoreError> {
+    ) -> Result<f64, TickInvariantError> {
         if !value.is_finite() {
-            return Err(CoreError::NonFiniteSignalStopComputation {
+            return Err(TickInvariantError::NonFiniteSignalStopComputation {
                 vehicle,
                 stage,
                 value,
@@ -700,9 +702,9 @@ impl CoreWorld {
         vehicle: VehicleHandle,
         stage: &'static str,
         value: f64,
-    ) -> Result<f64, CoreError> {
+    ) -> Result<f64, TickInvariantError> {
         if !value.is_finite() {
-            return Err(CoreError::NonFiniteSpeedLimitComputation {
+            return Err(TickInvariantError::NonFiniteSpeedLimitComputation {
                 vehicle,
                 stage,
                 value,

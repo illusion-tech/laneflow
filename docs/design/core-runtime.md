@@ -2,7 +2,7 @@
 
 **文档状态**: Review
 
-**最后更新**: 2026-07-22
+**最后更新**: 2026-08-18
 
 **适用范围**: v0.1 Core Prototype 的 runtime、tick、vehicle state、最小 lane graph traversal 与 simple route following
 
@@ -173,7 +173,7 @@ Rust API 方向可接近：
 fn step(world: &mut CoreWorld, input: TickInput) -> Result<StepResult, CoreError>
 ```
 
-具体类型命名和错误模型由后续实现 issue 固化，但不得引入隐藏 clock、随机数或引擎全局状态。错误模型组织已由 #389 固化：`CoreError` 维持单枚举（含 `WaitingZoneError` 子枚举先例），`error/` 目录按域分区组织，公开变体路径保持不变；热/冷路径错误拆分为独立性能卫生切片 #288，不改变本约定。ADR 0003 中的 `step(world, input) -> stepResult` 是概念表达，不要求 Rust API 使用纯函数形态。v0.1 Rust API 若采用 `&mut CoreWorld`，成功返回后的 `world` 即为更新后状态；`StepResult` 应保留 `tickIndex`、`timeMs` 和 `events` 等观察结果，避免为了返回 world 克隆完整 runtime state。
+具体类型命名和错误模型由后续实现 issue 固化，但不得引入隐藏 clock、随机数或引擎全局状态。错误模型组织已由 #389 固化：`CoreError` 维持单枚举（含 `WaitingZoneError` 子枚举先例），`error/` 目录按域分区组织，公开变体路径保持不变；#288 固化的全局错误布局与私有 Tick 错误边界见第 7.1 节，不改变本约定。ADR 0003 中的 `step(world, input) -> stepResult` 是概念表达，不要求 Rust API 使用纯函数形态。v0.1 Rust API 若采用 `&mut CoreWorld`，成功返回后的 `world` 即为更新后状态；`StepResult` 应保留 `tickIndex`、`timeMs` 和 `events` 等观察结果，避免为了返回 world 克隆完整 runtime state。
 
 ### D5. v0.1 只定义最小内部 lane graph / route 输入
 
@@ -430,6 +430,28 @@ v0.1 应把校验分为两个阶段：`CoreWorld` 初始化校验静态 graph / 
 v0.1 Rust 实现中，带 traffic data 和 vehicles 的 world 必须通过 `CoreWorld::with_traffic_data(fixed_delta_time_ms, lane_graph, routes, vehicles)` 创建并完成上述静态校验；不得保留绕过 graph / route / vehicle 一致性校验的非空 vehicles 构造入口。`CoreWorld::new(fixed_delta_time_ms)` 仅用于创建空 graph、空 routes 和空 vehicles 的基础 tick world。
 
 step validation error 必须保持原子性：返回错误时不得部分推进 `tickIndex`、`timeMs`、vehicle state 或 events。实现可以通过预校验、临时结果或 compute-then-apply 达成该语义。初始化校验失败同样不得返回可部分使用的 `CoreWorld`。
+
+### 7.1 当前错误布局与 Tick 热路径边界（#288）
+
+公开错误继续使用单一 `CoreError`，但其编译期尺寸上限为 128 bytes。唯一超过该上限的
+`AccessRegulationMismatch` 将六个诊断字符串收纳在公开
+`AccessRegulationMismatchDetails` 中，并只对该 details 使用 `Box`。这次窄形状变化不改变
+字段值、Display、错误触发条件、data format 或 Adapter API；堆分配只发生在该冷失败路径。
+
+公开 `step` / `step_with_probe` 的签名仍返回 `CoreError`。从公开步进实际可达的私有每车
+Tick 调用链改用 crate-private `TickInvariantError`：该类型只保存 typed handle、数值和
+`&'static str`，必须满足 `Copy`、无需 drop、尺寸不超过 64 bytes；代表性的
+`Result<(), TickInvariantError>` 与 `Result<f64, TickInvariantError>` 不超过 72 bytes。
+成功 Tick 不得因错误边界产生新分配。
+
+`step_with_probe` 先在公开边界处理 `TickDeltaMismatch` 与 `TimeOverflow`，其余工作进入单一
+私有 `step_inner`。私有错误只在返回公开 API 时通过 `#[cold]`、`#[inline(never)]` 的单一
+转换边界展开为 `CoreError`；需要 external ID 的 physical-overlap 诊断也只在这里由 vehicle
+handle 解析并构造 `String`。该布局不得改变 first-error 顺序、事件总序、确定性、数值结果、
+失败原子性或 scratch 恢复顺序。
+
+目标运行时 #294 在生产切换时必须继承等价的私有热错误边界；若新执行管线取代当前 Tick
+闭包，则应显式记录取代依据与等价的尺寸、分配和行为证据。
 
 v0.2 应把这些规则提升为正式 validation 设计。
 

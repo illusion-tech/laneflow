@@ -324,6 +324,51 @@ fn reserved_parking_world() -> CoreWorld {
     world
 }
 
+fn tick_error_expansion_world() -> CoreWorld {
+    let lane_graph = LaneGraph::try_new([
+        LaneEdge::new(
+            "A",
+            EdgeLength::try_new(100.0).expect("tick error edge length"),
+            crate::graph::SpeedLimit::try_new(20.0).expect("tick error speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            EdgeLength::try_new(100.0).expect("tick error edge length"),
+            crate::graph::SpeedLimit::try_new(10.0).expect("tick error speed limit"),
+            Vec::<String>::new(),
+        ),
+    ])
+    .expect("tick error graph");
+    let (traffic_data, profile) = traffic_data(
+        lane_graph,
+        [Route::try_new("R", ["A", "B"]).expect("tick error route")],
+    );
+    CoreWorld::with_traffic_data(
+        20,
+        traffic_data,
+        vec![
+            VehicleSpawnInput::active(
+                "follower",
+                profile,
+                "R",
+                0,
+                EdgeProgress::try_new(10.0).expect("tick error follower progress"),
+                Speed::ZERO,
+            ),
+            VehicleSpawnInput::active(
+                "leader",
+                profile,
+                "R",
+                0,
+                EdgeProgress::try_new(30.0).expect("tick error leader progress"),
+                Speed::ZERO,
+            ),
+        ],
+    )
+    .expect("tick error world")
+}
+
 #[test]
 fn first_reachable_parking_target_matches_independent_route_scan_oracle() {
     let world = repeated_parking_target_world();
@@ -368,6 +413,201 @@ fn unit_step_advances_post_step_time() {
     assert_eq!(world.time_ms(), 20);
     assert_eq!(result.tick_index, 1);
     assert_eq!(result.time_ms, 20);
+}
+
+#[test]
+fn compact_tick_errors_expand_to_equivalent_public_fields() {
+    let world = tick_error_expansion_world();
+    let follower = world
+        .vehicle_handle("follower")
+        .expect("tick error follower handle");
+    let leader = world
+        .vehicle_handle("leader")
+        .expect("tick error leader handle");
+    let route = world.route_handle("R").expect("tick error route handle");
+    let route_edges = world.route_edges(route).expect("tick error route edges");
+    let from_edge = route_edges[0];
+    let to_edge = route_edges[1];
+    let space = crate::ParkingSpaceHandle::new(7);
+    let gate = ManeuverGateHandle::new(11);
+
+    macro_rules! assert_expands {
+        ($error:expr, $($pattern:tt)+) => {
+            std::assert_matches!(world.expand_tick_invariant_error($error), $($pattern)+);
+        };
+    }
+
+    assert_expands!(
+        TickInvariantError::NonFiniteParkingComputation {
+            stage: "parking",
+            vehicle: follower,
+            space,
+            value: 1.25,
+        },
+        CoreError::NonFiniteParkingComputation {
+            stage: "parking",
+            vehicle,
+            space: actual_space,
+            value: 1.25,
+        } if vehicle == follower && actual_space == space
+    );
+    assert_expands!(
+        TickInvariantError::NonFiniteLeaderComputation {
+            vehicle: follower,
+            stage: "leader",
+            value: 2.5,
+        },
+        CoreError::NonFiniteLeaderComputation {
+            vehicle,
+            stage: "leader",
+            value: 2.5,
+        } if vehicle == follower
+    );
+    assert_expands!(
+        TickInvariantError::NonFiniteLongitudinalComputation {
+            vehicle: follower,
+            stage: "longitudinal",
+            value: 3.75,
+        },
+        CoreError::NonFiniteLongitudinalComputation {
+            vehicle,
+            stage: "longitudinal",
+            value: 3.75,
+        } if vehicle == follower
+    );
+    assert_expands!(
+        TickInvariantError::NonFiniteSpeedLimitComputation {
+            vehicle: follower,
+            stage: "speed-limit",
+            value: 5.0,
+        },
+        CoreError::NonFiniteSpeedLimitComputation {
+            vehicle,
+            stage: "speed-limit",
+            value: 5.0,
+        } if vehicle == follower
+    );
+    assert_expands!(
+        TickInvariantError::SpeedLimitTraversalInvariant {
+            vehicle: follower,
+            route,
+            from_route_edge_index: 0,
+            to_route_edge_index: 1,
+            final_speed: 12.0,
+            target_limit: 10.0,
+        },
+        CoreError::SpeedLimitTraversalInvariant {
+            vehicle,
+            route: actual_route,
+            from_route_edge_index: 0,
+            to_route_edge_index: 1,
+            from_edge: actual_from_edge,
+            to_edge: actual_to_edge,
+            final_speed: 12.0,
+            target_limit: 10.0,
+        } if vehicle == follower
+            && actual_route == route
+            && actual_from_edge == from_edge
+            && actual_to_edge == to_edge
+    );
+    assert_expands!(
+        TickInvariantError::NonFiniteSignalStopComputation {
+            vehicle: follower,
+            stage: "signal-stop",
+            value: 6.25,
+        },
+        CoreError::NonFiniteSignalStopComputation {
+            vehicle,
+            stage: "signal-stop",
+            value: 6.25,
+        } if vehicle == follower
+    );
+    assert_expands!(
+        TickInvariantError::NonFiniteRouteTravel {
+            vehicle: follower,
+            speed: 7.5,
+            delta_time_ms: 20,
+        },
+        CoreError::NonFiniteRouteTravel {
+            vehicle,
+            speed: 7.5,
+            delta_time_ms: 20,
+        } if vehicle == follower
+    );
+    assert_expands!(
+        TickInvariantError::SignalTraversalDeniedInvariant {
+            vehicle: follower,
+            route,
+            from_route_edge_index: 0,
+            to_route_edge_index: 1,
+            gate,
+            remaining_travel: 8.75,
+            final_speed: 9.0,
+        },
+        CoreError::SignalTraversalDeniedInvariant {
+            vehicle,
+            route: actual_route,
+            from_route_edge_index: 0,
+            to_route_edge_index: 1,
+            gate: actual_gate,
+            remaining_travel: 8.75,
+            final_speed: 9.0,
+        } if vehicle == follower && actual_route == route && actual_gate == gate
+    );
+    assert_expands!(
+        TickInvariantError::ParkingLeaveUnsafeFollower {
+            vehicle: leader,
+            space,
+            follower,
+        },
+        CoreError::ParkingLeaveUnsafeFollower {
+            vehicle,
+            space: actual_space,
+            follower: actual_follower,
+        } if vehicle == leader && actual_space == space && actual_follower == follower
+    );
+    assert_expands!(
+        TickInvariantError::ParkingBindingInvariantViolation {
+            stage: "parking-binding",
+            vehicle: Some(follower),
+            space: Some(space),
+        },
+        CoreError::ParkingBindingInvariantViolation {
+            stage: "parking-binding",
+            vehicle: Some(actual_vehicle),
+            space: Some(actual_space),
+        } if actual_vehicle == follower && actual_space == space
+    );
+    assert_expands!(
+        TickInvariantError::ParkingTraversalBoundaryInvariant {
+            vehicle: follower,
+            space,
+            route,
+            route_edge_index: 1,
+            remaining_travel: 10.25,
+            final_speed: 11.5,
+        },
+        CoreError::ParkingTraversalBoundaryInvariant {
+            vehicle,
+            space: actual_space,
+            route: actual_route,
+            route_edge_index: 1,
+            remaining_travel: 10.25,
+            final_speed: 11.5,
+        } if vehicle == follower && actual_space == space && actual_route == route
+    );
+    assert_expands!(
+        TickInvariantError::VehiclePhysicalOverlap {
+            follower,
+            leader,
+            bumper_gap: -0.5,
+        },
+        CoreError::VehiclePhysicalOverlap {
+            follower_id,
+            leader_id,
+            bumper_gap: -0.5,
+        } if follower_id == "follower" && leader_id == "leader"
+    );
 }
 
 #[test]

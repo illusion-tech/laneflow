@@ -6,7 +6,7 @@ use crate::{
     access::{AccessCell, AccessEffect, AccessRegistry},
     command_spatial::{CommandOccupant, CommandSpatialIndex},
     cross_section::CrossSectionRegistry,
-    error::{CoreError, WaitingZoneError},
+    error::{CoreError, TickInvariantError, WaitingZoneError},
     event::{
         CoreEvent, ParkingReservationReleasedEvent, SignalGroupAspectChangedEvent,
         SignalPhaseChangedEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,

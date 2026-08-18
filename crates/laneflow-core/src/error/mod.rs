@@ -7,8 +7,10 @@ use crate::{
     ParkingSpaceHandle, RouteHandle, VehicleHandle, VehicleProfileHandle, VehicleStatus,
 };
 
+mod tick;
 mod waiting_zone;
 
+pub(crate) use tick::TickInvariantError;
 pub use waiting_zone::WaitingZoneError;
 
 #[cfg(test)]

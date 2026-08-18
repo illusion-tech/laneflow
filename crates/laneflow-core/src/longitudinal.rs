@@ -3,7 +3,8 @@
 use std::borrow::Borrow;
 
 use crate::{
-    CoreError, EdgeHandle, IidmProfileSpec, RouteHandle, VehicleHandle,
+    EdgeHandle, IidmProfileSpec, RouteHandle, VehicleHandle,
+    error::TickInvariantError,
     numeric_policy::{
         LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS, computed_speed_is_near_zero,
         longitudinal_constraint_reached, normalize_minimum_gap_slack,
@@ -157,7 +158,7 @@ impl LongitudinalMotion {
         &mut self,
         distance: f64,
         delta_time: f64,
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), TickInvariantError> {
         self.apply_spatial_stops(Some(distance), None, None, None, delta_time)
     }
 
@@ -168,7 +169,7 @@ impl LongitudinalMotion {
         parking_stop: Option<ParkingStopConstraint>,
         profile: Option<IidmProfileSpec>,
         delta_time: f64,
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), TickInvariantError> {
         self.route_end_distance = route_end_distance;
         self.signal_stop = signal_stop;
 
@@ -253,7 +254,7 @@ impl LongitudinalMotion {
         constraint: SpeedLimitConstraint,
         profile: IidmProfileSpec,
         delta_time: f64,
-    ) -> Result<bool, CoreError> {
+    ) -> Result<bool, TickInvariantError> {
         let candidate = self
             .speed_limit_candidate(constraint, profile, delta_time)
             .map_err(speed_limit_error)?;
@@ -286,7 +287,7 @@ impl LongitudinalMotion {
         constraint: SpeedLimitConstraint,
         profile: IidmProfileSpec,
         delta_time: f64,
-    ) -> Result<SpatialMotionCandidate, CoreError> {
+    ) -> Result<SpatialMotionCandidate, TickInvariantError> {
         let comfort_ceiling = safe_speed(
             self.vehicle,
             self.current_speed,
@@ -387,7 +388,7 @@ impl LongitudinalMotion {
         profile: IidmProfileSpec,
         attribution: SpatialCandidateAttribution,
         delta_time: f64,
-    ) -> Result<SpatialMotionCandidate, CoreError> {
+    ) -> Result<SpatialMotionCandidate, TickInvariantError> {
         let speed_ceiling = safe_speed(
             self.vehicle,
             self.current_speed,
@@ -490,7 +491,7 @@ impl LongitudinalMotion {
         ]
     }
 
-    pub(crate) fn applied_acceleration(self, delta_time: f64) -> Result<f64, CoreError> {
+    pub(crate) fn applied_acceleration(self, delta_time: f64) -> Result<f64, TickInvariantError> {
         finite(
             self.vehicle,
             "applied_acceleration",
@@ -548,7 +549,7 @@ impl LongitudinalMotion {
         &mut self,
         leader_final_travel: f64,
         delta_time: f64,
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), TickInvariantError> {
         let Some(leader) = self.leader else {
             return Ok(());
         };
@@ -655,7 +656,11 @@ impl LongitudinalScratch {
         self.path.clear();
     }
 
-    pub(crate) fn project<I>(&mut self, update_order: I, delta_time: f64) -> Result<(), CoreError>
+    pub(crate) fn project<I>(
+        &mut self,
+        update_order: I,
+        delta_time: f64,
+    ) -> Result<(), TickInvariantError>
     where
         I: IntoIterator,
         I::Item: std::borrow::Borrow<VehicleHandle>,
@@ -712,7 +717,7 @@ impl LongitudinalScratch {
         self.motion(leader).map(|_| leader.index())
     }
 
-    fn resolve_node(&mut self, index: usize, delta_time: f64) -> Result<(), CoreError> {
+    fn resolve_node(&mut self, index: usize, delta_time: f64) -> Result<(), TickInvariantError> {
         if self.visit_state[index] == RESOLVED {
             return Ok(());
         }
@@ -732,7 +737,11 @@ impl LongitudinalScratch {
         Ok(())
     }
 
-    fn resolve_cycle(&mut self, cycle: &[usize], delta_time: f64) -> Result<(), CoreError> {
+    fn resolve_cycle(
+        &mut self,
+        cycle: &[usize],
+        delta_time: f64,
+    ) -> Result<(), TickInvariantError> {
         debug_assert!(
             cycle.len() >= 2,
             "self leader is excluded by occupancy query"
@@ -800,7 +809,7 @@ pub(crate) fn compute_motion(
     effective_speed_ceiling: f64,
     leader: Option<LeaderKinematics>,
     delta_time: f64,
-) -> Result<LongitudinalMotion, CoreError> {
+) -> Result<LongitudinalMotion, TickInvariantError> {
     let mut effective_profile = profile;
     effective_profile.desired_speed = profile.desired_speed.min(effective_speed_ceiling);
     let comfort_acceleration =
@@ -875,13 +884,13 @@ pub(crate) fn compute_motion(
     })
 }
 
-fn speed_limit_error(error: CoreError) -> CoreError {
+fn speed_limit_error(error: TickInvariantError) -> TickInvariantError {
     match error {
-        CoreError::NonFiniteLongitudinalComputation {
+        TickInvariantError::NonFiniteLongitudinalComputation {
             vehicle,
             stage,
             value,
-        } => CoreError::NonFiniteSpeedLimitComputation {
+        } => TickInvariantError::NonFiniteSpeedLimitComputation {
             vehicle,
             stage,
             value,
@@ -890,13 +899,13 @@ fn speed_limit_error(error: CoreError) -> CoreError {
     }
 }
 
-fn signal_stop_error(error: CoreError) -> CoreError {
+fn signal_stop_error(error: TickInvariantError) -> TickInvariantError {
     match error {
-        CoreError::NonFiniteLongitudinalComputation {
+        TickInvariantError::NonFiniteLongitudinalComputation {
             vehicle,
             stage,
             value,
-        } => CoreError::NonFiniteSignalStopComputation {
+        } => TickInvariantError::NonFiniteSignalStopComputation {
             vehicle,
             stage,
             value,
@@ -905,13 +914,16 @@ fn signal_stop_error(error: CoreError) -> CoreError {
     }
 }
 
-fn parking_stop_error(error: CoreError, constraint: ParkingStopConstraint) -> CoreError {
+fn parking_stop_error(
+    error: TickInvariantError,
+    constraint: ParkingStopConstraint,
+) -> TickInvariantError {
     match error {
-        CoreError::NonFiniteLongitudinalComputation {
+        TickInvariantError::NonFiniteLongitudinalComputation {
             vehicle,
             stage,
             value,
-        } => CoreError::NonFiniteParkingComputation {
+        } => TickInvariantError::NonFiniteParkingComputation {
             stage,
             vehicle,
             space: constraint.space,
@@ -932,7 +944,7 @@ fn iidm_acceleration(
     current_speed: f64,
     profile: IidmProfileSpec,
     leader: Option<LeaderKinematics>,
-) -> Result<f64, CoreError> {
+) -> Result<f64, TickInvariantError> {
     let free_acceleration = if current_speed <= profile.desired_speed {
         let ratio = current_speed / profile.desired_speed;
         let speed_term = finite(vehicle, "iidm_free_speed_term", ratio.powi(4))?;
@@ -1029,7 +1041,7 @@ fn safe_speed(
     leader_deceleration: f64,
     bumper_gap: f64,
     delta_time: f64,
-) -> Result<f64, CoreError> {
+) -> Result<f64, TickInvariantError> {
     let gap_term = finite(
         vehicle,
         "safe_speed_gap_term",
@@ -1074,7 +1086,7 @@ fn ballistic_motion(
     current_speed: f64,
     acceleration: f64,
     delta_time: f64,
-) -> Result<BallisticMotion, CoreError> {
+) -> Result<BallisticMotion, TickInvariantError> {
     if acceleration < 0.0 {
         let stop_time = finite(
             vehicle,
@@ -1107,7 +1119,7 @@ pub(crate) fn emergency_min_travel(
     current_speed: f64,
     emergency_deceleration: f64,
     delta_time: f64,
-) -> Result<f64, CoreError> {
+) -> Result<f64, TickInvariantError> {
     let speed_step = finite(
         vehicle,
         "emergency_speed_step",
@@ -1128,7 +1140,7 @@ fn braking_distance(
     vehicle: VehicleHandle,
     speed: f64,
     deceleration: f64,
-) -> Result<f64, CoreError> {
+) -> Result<f64, TickInvariantError> {
     if speed == 0.0 {
         return Ok(0.0);
     }
@@ -1151,7 +1163,7 @@ fn speed_after_travel_cap(
     candidate_travel: f64,
     final_travel: f64,
     delta_time: f64,
-) -> Result<f64, CoreError> {
+) -> Result<f64, TickInvariantError> {
     if candidate_speed == 0.0 {
         return Ok(0.0);
     }
@@ -1172,7 +1184,7 @@ fn speed_at_travel(
     final_speed: f64,
     travel: f64,
     delta_time: f64,
-) -> Result<f64, CoreError> {
+) -> Result<f64, TickInvariantError> {
     let acceleration = finite(
         vehicle,
         "speed_limit_crossing_acceleration",
@@ -1190,9 +1202,13 @@ fn speed_at_travel(
     )
 }
 
-fn finite(vehicle: VehicleHandle, stage: &'static str, value: f64) -> Result<f64, CoreError> {
+fn finite(
+    vehicle: VehicleHandle,
+    stage: &'static str,
+    value: f64,
+) -> Result<f64, TickInvariantError> {
     if !value.is_finite() {
-        return Err(CoreError::NonFiniteLongitudinalComputation {
+        return Err(TickInvariantError::NonFiniteLongitudinalComputation {
             vehicle,
             stage,
             value,

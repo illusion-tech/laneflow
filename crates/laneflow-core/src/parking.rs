@@ -5,7 +5,7 @@ use std::f64::consts::PI;
 use indexmap::IndexMap;
 
 use crate::{
-    error::CoreError,
+    error::{CoreError, TickInvariantError},
     graph::LaneGraph,
     handle::{
         EdgeHandle, ParkingAreaHandle, ParkingSpaceHandle, RouteHandle, VehicleHandle,
@@ -751,7 +751,7 @@ impl ParkingRuntimeState {
     pub(crate) fn validate_step_sentinel(
         &self,
         registry: &ParkingRegistry,
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), TickInvariantError> {
         let valid = self.spaces.len() == registry.spaces.len()
             && self.area_counts.len() == registry.areas.len()
             && self.global_counts.capacity == self.spaces.len()
@@ -762,7 +762,7 @@ impl ParkingRuntimeState {
         if valid {
             Ok(())
         } else {
-            Err(CoreError::ParkingBindingInvariantViolation {
+            Err(TickInvariantError::ParkingBindingInvariantViolation {
                 stage: "step_sentinel",
                 vehicle: None,
                 space: None,

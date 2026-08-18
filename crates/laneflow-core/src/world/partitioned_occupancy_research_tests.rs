@@ -244,7 +244,7 @@ fn add_route_halo(
     follower: &VehicleState,
     bumper_gap_horizon: f64,
     entries: &mut [Vec<Vec<PartitionEntry>>],
-) -> Result<(), CoreError> {
+) -> Result<(), TickInvariantError> {
     let partition = mapping.vehicle_owner(world, follower);
     let front_horizon = bumper_gap_horizon + oracle.max_vehicle_length();
     CoreWorld::finite_leader_value(follower.handle, "front_horizon", front_horizon)?;
@@ -304,7 +304,7 @@ fn build_partition_views(
     oracle: &OccupancyScratch,
     mapping: &TestPartitionMap,
     permutation: CompletionPermutation,
-) -> Result<(Vec<OccupancyScratch>, Vec<usize>), CoreError> {
+) -> Result<(Vec<OccupancyScratch>, Vec<usize>), TickInvariantError> {
     let edge_count = world.lane_graph.edges().len();
     let mut entries = vec![vec![Vec::<PartitionEntry>::new(); edge_count]; mapping.partition_count];
     let mut owned_counts = vec![0; mapping.partition_count];
@@ -395,7 +395,7 @@ fn occupancy_edges(scratch: &OccupancyScratch, edge_count: usize) -> Vec<Vec<Occ
         .collect()
 }
 
-fn oracle_occupancy(world: &CoreWorld) -> Result<OccupancyOracle, CoreError> {
+fn oracle_occupancy(world: &CoreWorld) -> Result<OccupancyOracle, TickInvariantError> {
     let mut scratch = OccupancyScratch::default();
     world.build_occupancy(&mut scratch);
     let mut leaders = Vec::new();
@@ -602,7 +602,7 @@ fn partitioned_observation(
     world: &CoreWorld,
     mapping: &TestPartitionMap,
     permutation: CompletionPermutation,
-) -> Result<PartitionedObservation, CoreError> {
+) -> Result<PartitionedObservation, TickInvariantError> {
     let edge_count = world.lane_graph.edges().len();
     let mut oracle = OccupancyScratch::default();
     world.build_occupancy(&mut oracle);
@@ -1295,7 +1295,7 @@ fn first_error_is_canonical_and_non_finite_failure_is_atomic() {
                     .expect_err("partitioned observation must preserve the oracle error");
                 std::assert_matches!(
                     error,
-                    CoreError::NonFiniteLeaderComputation {
+                    TickInvariantError::NonFiniteLeaderComputation {
                         vehicle,
                         stage: "travel_upper",
                         value
