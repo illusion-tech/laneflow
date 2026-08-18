@@ -10,13 +10,13 @@
 > 生效，本文 LFCA/LFSM/LFSD v1 wire、已完成 emitter/format/安装证据及对象外信任锚
 > 均保持有效。
 
-**文档状态**: Accepted（#298 G1 Pass；G2 进度以 Issue Gate Ledger 为准）<br>
-**最后更新**: 2026-08-17<br>
+**文档状态**: Accepted（#298 G1 Pass；G4 已完成，动态记录以 Issue Gate Ledger 为准）<br>
+**最后更新**: 2026-08-18<br>
 **适用范围**: `laneflow-format`、`laneflow-static-contract`、
 `laneflow-compiler` 的可移植规范制品（Portable Canonical Artifact）、源映射封套
 （Source Map Envelope）、语义差异封套（Semantic Diff Envelope）、规范发布描述符
 （Canonical Publication Descriptor）与原子发布边界<br>
-**实现状态**: G2 进行中；当前已建立共享 magic/version/field type/硬上限值、
+**实现状态**: G4 已完成；当前已建立共享 magic/version/field type/硬上限值、
 framing、Table/Row/Field 通用结构预检、附录 A registry 零拷贝有类型遍历、对象内直接
 值域检查，以及先完整计量、再写调用方提供的精确长度缓冲区且失败不改变输出的无分配
 受限写入器。`laneflow-compiler` 已从同一个 `CompilationOutput` 原子发射 LFCA/LFSM 以及
@@ -46,9 +46,9 @@ validated/trusted/published artifact<br>
 本文把 `network-compiler.md` 第 8 节和 ADR 0020 已接受的长期边界收窄为 #298 已重新接受的
 实现级格式输入。此前 G1 曾因 facility-only spatial output 无法表示、跨修订身份前像碰撞和混合
 RoadEditing/Synthetic geometry 的方向配置档适用性而重开；这些缺口现已闭合，并由 #298 Gate
-Ledger 中新的正式 `## G1 设计判断` 重新接受。G1 Pass 只授权准备独立 G2 开工判断，不表示格式
-已经实现、通过验证或可供产品发布；任何实现 PR 都必须等待 #298 的正式 `## G2 开工判断` 为
-Pass。
+Ledger 中新的正式 `## G1 设计判断` 重新接受。当时的 G1 Pass 只授权准备独立 G2 开工判断，
+不表示格式已经实现、通过验证或可供产品发布；此后 #298 已依次通过 G2、G3 与 G4，精确记录
+以其 Gate Ledger 为准。
 
 #298 必须同时闭合四类对象：
 

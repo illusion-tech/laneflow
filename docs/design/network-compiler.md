@@ -41,7 +41,7 @@ Runtime 已经实现
 - `../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md`
 - `core-id-handles.md`
 - `compiler-foundation.md`
-- `portable-canonical-artifact.md`（#298 G1 已重新接受；正式 G2 Pass 前不得启动实现）
+- `portable-canonical-artifact.md`（#298 G1 已重新接受并完成 G4；动态记录以 Issue Gate Ledger 为准）
 - `compiler-post-emission-check-and-minimal-publication-closure.md`
 - `current-package-import.md`
 - `cross-section-access.md`
