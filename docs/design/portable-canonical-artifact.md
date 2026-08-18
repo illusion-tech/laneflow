@@ -417,6 +417,7 @@ value 精确为 `count:u32 || RowV1[count]`，VBL 必须等于 `4 + sum(rowByteL
 
 [rfc2360-packet-diagrams]: https://www.rfc-editor.org/rfc/rfc2360.html#section-3.1
 [augmented-packet-diagrams]: https://www.ietf.org/archive/id/draft-mcquistin-augmented-ascii-diagrams-13.html
+[g1-evidence-lanes-correction]: https://github.com/illusion-tech/laneflow/issues/298#issuecomment-5322639700
 
 ## 4. 可移植规范制品 `LFCA` v1
 
@@ -1068,6 +1069,14 @@ profile 只进入非语义 CompilerProvenance，不进入这两个 revision 向�
 - 暂存写入、flush/close、对象安装和 manifest 提交各失败点的无部分发布测试；
 - 最小、P100 正式最高级和代表性大输入的发射时延、峰值暂存内存与输出大小；格式硬
   上限边界只属于安全/正确性矩阵，不作为性能 workload。
+
+上述条目按风险职责组合证据，不形成所有轴的自动笛卡尔积。跨平台 exact-byte 通道固定
+发射 `min headless` 与 `full spatial`，覆盖没有/具有空间语义的两个生产分支，并在 Windows、
+Ubuntu 和两个 fresh process 之间比较三对象 exact bytes 与全部计算绑定。P100 正式最高级
+继续只在具名 P100 参考机证明规模、时延和资源成本；格式 hard-limit/reachability 继续由
+安全/正确性测试在支持 OS 上证明接受与失败点。后继 workload 必须先分类为新语义分支、规模
+证据或安全边界；只有新语义分支默认扩展跨平台 exact-byte 集合，不能因新增一个规模或边界
+样本而无序扩张整个矩阵。该职责分配由 [#298 G1 窄纠正][g1-evidence-lanes-correction] 接受。
 
 完整计划和 G2 证据占位见
 `../reference/v0.10-portable-artifact-validation.md`。

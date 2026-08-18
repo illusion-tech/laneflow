@@ -8,10 +8,28 @@ use std::{
 
 use crate::{PortableObjectCandidate, PortablePublicationCandidate};
 
-use super::full_spatial_portable_fixture_candidate;
+use super::{
+    full_spatial_portable_fixture_candidate, lfca_variants::min_headless_portable_fixture_candidate,
+};
 
 const EVIDENCE_DIRECTORY_ENV: &str = "LANEFLOW_PORTABLE_EVIDENCE_DIR";
 const ALLOCATION_PERTURBATION_ENV: &str = "LANEFLOW_PORTABLE_ALLOCATION_PERTURBATION_BYTES";
+const WORKLOADS: [PortableExactByteWorkload; 2] = [
+    PortableExactByteWorkload {
+        id: "min-headless",
+        build: min_headless_portable_fixture_candidate,
+    },
+    PortableExactByteWorkload {
+        id: "full-spatial",
+        build: full_spatial_portable_fixture_candidate,
+    },
+];
+
+#[derive(Clone, Copy)]
+struct PortableExactByteWorkload {
+    id: &'static str,
+    build: fn() -> PortablePublicationCandidate,
+}
 
 /// 只由跨平台 CI 显式调用；普通测试不会写出证据文件。
 #[test]
@@ -29,36 +47,11 @@ fn portable_exact_bytes_ci_evidence() {
     assert!((4_096..=1_048_576).contains(&perturbation_bytes));
     let allocation_perturbation = vec![0xa5_u8; perturbation_bytes].into_boxed_slice();
 
-    // 两次完整编译各自创建新的标准库 HashMap random state。相同进程内先证明 exact bytes
-    // 不依赖这些随机查找表，再由 workflow 在两个独立进程和两个 OS 之间比较实际文件。
-    let first = full_spatial_portable_fixture_candidate();
-    let repeated = full_spatial_portable_fixture_candidate();
-    assert_same_candidate(&first, &repeated);
-
-    write_new(
-        &output_directory.join("actual.lfca"),
-        first.canonical_artifact().bytes(),
-    );
-    write_new(
-        &output_directory.join("actual.lfsm"),
-        first.source_map().bytes(),
-    );
-    write_new(
-        &output_directory.join("actual.lfsd"),
-        first.semantic_diff().bytes(),
-    );
-
-    let bindings = format!(
-        "supported-worker-count=1\nnetwork-revision={}\nLFCA length={} {}\nLFSM length={} {}\nLFSD length={} {}\n",
-        hex_lower(first.network_revision().into_digest().into_bytes()),
-        first.canonical_artifact().byte_length().get(),
-        first.canonical_artifact().object_key(),
-        first.source_map().byte_length().get(),
-        first.source_map().object_key(),
-        first.semantic_diff().byte_length().get(),
-        first.semantic_diff().object_key(),
-    );
-    write_new(&output_directory.join("bindings.txt"), bindings.as_bytes());
+    let objects_directory = output_directory.join("objects");
+    fs::create_dir(&objects_directory).expect("objects evidence directory must be new");
+    for workload in WORKLOADS {
+        export_workload(&objects_directory, workload);
+    }
 
     let random_state = RandomState::new();
     let mut hash_canary = random_state.build_hasher();
@@ -71,6 +64,46 @@ fn portable_exact_bytes_ci_evidence() {
     write_new(
         &output_directory.join("process-canary.txt"),
         process_canary.as_bytes(),
+    );
+}
+
+fn export_workload(output_directory: &Path, workload: PortableExactByteWorkload) {
+    let workload_directory = output_directory.join(workload.id);
+    fs::create_dir(&workload_directory).expect("workload evidence directory must be new");
+
+    // 两次完整编译各自创建新的标准库 HashMap random state。相同进程内先证明 exact bytes
+    // 不依赖这些随机查找表，再由 workflow 在两个独立进程和两个 OS 之间比较实际文件。
+    let first = (workload.build)();
+    let repeated = (workload.build)();
+    assert_same_candidate(&first, &repeated);
+
+    write_new(
+        &workload_directory.join("actual.lfca"),
+        first.canonical_artifact().bytes(),
+    );
+    write_new(
+        &workload_directory.join("actual.lfsm"),
+        first.source_map().bytes(),
+    );
+    write_new(
+        &workload_directory.join("actual.lfsd"),
+        first.semantic_diff().bytes(),
+    );
+
+    let bindings = format!(
+        "workload={}\nsupported-worker-count=1\nnetwork-revision={}\nLFCA length={} {}\nLFSM length={} {}\nLFSD length={} {}\n",
+        workload.id,
+        hex_lower(first.network_revision().into_digest().into_bytes()),
+        first.canonical_artifact().byte_length().get(),
+        first.canonical_artifact().object_key(),
+        first.source_map().byte_length().get(),
+        first.source_map().object_key(),
+        first.semantic_diff().byte_length().get(),
+        first.semantic_diff().object_key(),
+    );
+    write_new(
+        &workload_directory.join("bindings.txt"),
+        bindings.as_bytes(),
     );
 }
 

@@ -51,6 +51,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
+      - name: Exercise portable format safety boundaries
+        shell: pwsh
+        run: cargo +1.96.0 test -p laneflow-format --locked
+
       - name: Export two independent process runs
         shell: pwsh
         run: |
@@ -106,19 +110,20 @@ jobs:
 
           evidence_root="target/portable-exact-ci"
           baseline="${evidence_root}/ubuntu/run-a"
-          files=(actual.lfca actual.lfsm actual.lfsd bindings.txt)
+          baseline_objects="${baseline}/objects"
           runs=(ubuntu/run-b windows/run-a windows/run-b)
           for run in "${runs[@]}"; do
-            for file in "${files[@]}"; do
-              cmp --silent "${baseline}/${file}" "${evidence_root}/${run}/${file}"
-            done
+            diff --no-dereference --recursive --brief \
+              "${baseline_objects}" "${evidence_root}/${run}/objects"
           done
 
-          cmp --silent "${baseline}/actual.lfca" \
+          cmp --silent "${baseline_objects}/min-headless/actual.lfca" \
+            crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-variants/min-headless.lfca
+          cmp --silent "${baseline_objects}/full-spatial/actual.lfca" \
             crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca
-          cmp --silent "${baseline}/actual.lfsm" \
+          cmp --silent "${baseline_objects}/full-spatial/actual.lfsm" \
             crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsm
-          cmp --silent "${baseline}/actual.lfsd" \
+          cmp --silent "${baseline_objects}/full-spatial/actual.lfsd" \
             crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsd
 
           for platform in ubuntu windows; do
@@ -138,13 +143,20 @@ jobs:
             test "${repeated_perturbation}" = "1048576"
           done
 
-          for entry in LFCA:actual.lfca LFSM:actual.lfsm LFSD:actual.lfsd; do
-            kind="${entry%%:*}"
-            file="${entry#*:}"
-            length="$(wc -c < "${baseline}/${file}" | tr -d ' ')"
-            digest="$(sha256sum "${baseline}/${file}" | cut -d ' ' -f 1)"
+          for workload_directory in "${baseline_objects}"/*; do
+            workload="$(basename "${workload_directory}")"
             grep --fixed-strings --line-regexp \
-              "${kind} length=${length} sha256/${digest}" "${baseline}/bindings.txt"
-            printf '%s length=%s sha256=%s\n' "${kind}" "${length}" "${digest}" \
-              | tee -a "${GITHUB_STEP_SUMMARY}"
+              "workload=${workload}" "${workload_directory}/bindings.txt"
+            for entry in LFCA:actual.lfca LFSM:actual.lfsm LFSD:actual.lfsd; do
+              kind="${entry%%:*}"
+              file="${entry#*:}"
+              length="$(wc -c < "${workload_directory}/${file}" | tr -d ' ')"
+              digest="$(sha256sum "${workload_directory}/${file}" | cut -d ' ' -f 1)"
+              grep --fixed-strings --line-regexp \
+                "${kind} length=${length} sha256/${digest}" \
+                "${workload_directory}/bindings.txt"
+              printf '%s %s length=%s sha256=%s\n' \
+                "${workload}" "${kind}" "${length}" "${digest}" \
+                | tee -a "${GITHUB_STEP_SUMMARY}"
+            done
           done

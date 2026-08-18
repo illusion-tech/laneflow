@@ -10,10 +10,10 @@ mod lfcp;
 
 use std::io;
 
-use laneflow_format::{FormatError, FormatLimits};
+use laneflow_format::{FormatError, FormatLimits, LimitDimension, preflight_object_values_v1};
 use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, ExactByteLength, NETWORK_REVISION_DERIVATION_VERSION,
-    NetworkRevisionId, SOURCE_MAP_FORMAT_VERSION, Sha256Digest,
+    NetworkRevisionId, PortableObjectKind, SOURCE_MAP_FORMAT_VERSION, Sha256Digest,
 };
 
 use crate::{
@@ -325,6 +325,7 @@ fn commit_with_installer<
     limits: FormatLimits,
     manifest: &mut M,
 ) -> Result<ManifestCommittedPortablePublication, PortablePublicationError> {
+    validate_candidate_limits(candidate, limits)?;
     let receipt = validate_receipt(candidate, receipt, limits)?;
 
     let canonical_artifact_installation =
@@ -366,6 +367,54 @@ fn commit_with_installer<
         source_map_installation,
         receipt_installation,
     })
+}
+
+fn validate_candidate_limits(
+    candidate: &PortablePublicationCandidate,
+    limits: FormatLimits,
+) -> Result<(), PortablePublicationError> {
+    let objects = [
+        (
+            candidate.canonical_artifact(),
+            PortableObjectKind::CanonicalArtifact,
+        ),
+        (candidate.source_map(), PortableObjectKind::SourceMap),
+        (candidate.semantic_diff(), PortableObjectKind::SemanticDiff),
+    ];
+
+    let object_limit = limits.max_object_bytes();
+    for (object, _) in objects {
+        let actual = object.byte_length().get();
+        if actual > object_limit {
+            return Err(FormatError::LimitExceeded {
+                dimension: LimitDimension::ObjectBytes,
+                actual,
+                limit: object_limit,
+            }
+            .into());
+        }
+    }
+
+    let total = objects
+        .into_iter()
+        .try_fold(0_u64, |total, (object, _)| {
+            total.checked_add(object.byte_length().get())
+        })
+        .ok_or(PortablePublicationError::ArithmeticOverflow)?;
+    let staging_limit = limits.max_candidate_staging_bytes();
+    if total > staging_limit {
+        return Err(FormatError::LimitExceeded {
+            dimension: LimitDimension::CandidateStagingBytes,
+            actual: total,
+            limit: staging_limit,
+        }
+        .into());
+    }
+
+    for (object, kind) in objects {
+        preflight_object_values_v1(object.bytes(), kind, limits)?;
+    }
+    Ok(())
 }
 
 fn validate_receipt<'a, R: CanonicalPublicationReceiptViewV1 + ?Sized>(

@@ -1,14 +1,16 @@
 use std::{
+    cell::Cell,
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
 
 #[cfg(unix)]
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 
 use laneflow_format::{
-    FormatLimitConfig, FormatLimits, RegistryCheckedObjectView, preflight_object_values_v1,
+    FormatLimitConfig, FormatLimits, LimitDimension, RegistryCheckedObjectView,
+    preflight_object_values_v1,
 };
 use laneflow_static_contract::PortableObjectKind;
 
@@ -215,6 +217,29 @@ impl PortableManifestCommitter for RecordingManifest {
     }
 }
 
+#[derive(Default)]
+struct CountingInstaller {
+    calls: Cell<usize>,
+}
+
+impl PublicationObjectInstaller for CountingInstaller {
+    fn install_candidate(
+        &self,
+        _candidate: &PortableObjectCandidate,
+    ) -> Result<PortableObjectInstallation, PortableInstallError> {
+        self.calls.set(self.calls.get() + 1);
+        Err(PortableInstallError::AtomicInstallUnsupported)
+    }
+
+    fn install_exact_bytes(
+        &self,
+        _bytes: &[u8],
+    ) -> Result<PortableObjectInstallation, PortableInstallError> {
+        self.calls.set(self.calls.get() + 1);
+        Err(PortableInstallError::AtomicInstallUnsupported)
+    }
+}
+
 fn descriptor_view(bytes: &[u8]) -> RegistryCheckedObjectView<'_> {
     preflight_object_values_v1(
         bytes,
@@ -223,6 +248,20 @@ fn descriptor_view(bytes: &[u8]) -> RegistryCheckedObjectView<'_> {
     )
     .unwrap()
     .registry_view()
+}
+
+fn candidate_byte_limits(candidate: &PortablePublicationCandidate) -> (u64, u64) {
+    let lengths = [
+        candidate.canonical_artifact().byte_length().get(),
+        candidate.source_map().byte_length().get(),
+        candidate.semantic_diff().byte_length().get(),
+    ];
+    let largest = lengths.into_iter().max().unwrap();
+    let total = lengths
+        .into_iter()
+        .try_fold(0_u64, u64::checked_add)
+        .unwrap();
+    (largest, total)
 }
 
 fn field_bytes(bytes: &[u8], section: u32, tag: u16) -> &[u8] {
@@ -436,22 +475,25 @@ fn receipt_metadata_shape_and_every_subject_binding_fail_before_install() {
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
     let valid = TestReceipt::valid(&candidate);
 
+    let (candidate_max, _) = candidate_byte_limits(&candidate);
+    let mut oversized_receipt = valid.clone();
+    oversized_receipt.bytes = vec![b'r'; usize::try_from(candidate_max + 1).unwrap()].into();
     let mut limit_config = FormatLimitConfig::V1_HARD;
-    limit_config.max_object_bytes = RECEIPT_BYTES.len() as u64 - 1;
+    limit_config.max_object_bytes = candidate_max;
     let reduced_limits = FormatLimits::try_new(limit_config).unwrap();
     let mut manifest = RecordingManifest::succeeds();
     assert_eq!(
         commit_portable_publication_v1(
             &store,
             &candidate,
-            &valid,
+            &oversized_receipt,
             &provenance(),
             reduced_limits,
             &mut manifest,
         ),
         Err(PortablePublicationError::ReceiptLimitExceeded {
-            actual: RECEIPT_BYTES.len() as u64,
-            limit: RECEIPT_BYTES.len() as u64 - 1,
+            actual: candidate_max + 1,
+            limit: candidate_max,
         })
     );
     assert_eq!(manifest.calls, 0);
@@ -564,6 +606,71 @@ fn receipt_metadata_shape_and_every_subject_binding_fail_before_install() {
                 .exists()
         );
     }
+}
+
+#[test]
+fn publication_limits_cover_candidate_objects_and_aggregate_before_install() {
+    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
+    let receipt = TestReceipt::valid(&candidate);
+    let (largest_object, total) = candidate_byte_limits(&candidate);
+
+    let cases = [
+        (
+            {
+                let mut config = FormatLimitConfig::V1_HARD;
+                config.max_object_bytes = largest_object - 1;
+                config
+            },
+            LimitDimension::ObjectBytes,
+        ),
+        (
+            {
+                let mut config = FormatLimitConfig::V1_HARD;
+                config.max_candidate_staging_bytes = total - 1;
+                config
+            },
+            LimitDimension::CandidateStagingBytes,
+        ),
+        (
+            {
+                let mut config = FormatLimitConfig::V1_HARD;
+                config.max_source_location_rows = 0;
+                config
+            },
+            LimitDimension::SourceLocationRows,
+        ),
+    ];
+
+    for (config, expected_dimension) in cases {
+        let installer = CountingInstaller::default();
+        let mut manifest = RecordingManifest::succeeds();
+        assert!(matches!(
+            commit_with_installer(
+                &installer,
+                &candidate,
+                &receipt,
+                &provenance(),
+                FormatLimits::try_new(config).unwrap(),
+                &mut manifest,
+            ),
+            Err(PortablePublicationError::Format(
+                FormatError::LimitExceeded { dimension, .. }
+            )) if dimension == expected_dimension
+        ));
+        assert_eq!(installer.calls.get(), 0);
+        assert_eq!(manifest.calls, 0);
+    }
+}
+
+#[test]
+fn publication_candidate_limits_accept_exact_object_and_staging_boundaries() {
+    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
+    let (largest_object, total) = candidate_byte_limits(&candidate);
+    let mut config = FormatLimitConfig::V1_HARD;
+    config.max_object_bytes = largest_object;
+    config.max_candidate_staging_bytes = total;
+
+    validate_candidate_limits(&candidate, FormatLimits::try_new(config).unwrap()).unwrap();
 }
 
 #[cfg(unix)]
