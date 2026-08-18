@@ -835,15 +835,17 @@ artifact、source map 和 genesis/base diff 候选，避免后续错误配对。
                                                        v
                                    +---------------------------------------+
                                    | immutable object installation         |
-                                   | atomic no-replace + winner comparison |
+                                   | LFCA + LFSM + LFSD; durable winner    |
                                    +-------------------+-------------------+
                                                        |
-                                                       v
-                                   +---------------------------------------+
-                                   | #299 independent validation           |
-                                   | canonical-publication-v1 receipt      |
-                                   +-------------------+-------------------+
-                                                       |
+                                                       +------------------------------------------+
+                                                       |                                          |
+                                                       v                                          v
+                                   +---------------------------------------+  +---------------------------------------+
+                                   | #299 independent LFCA/LFSM validation |  | LFSD installed diagnostic object      |
+                                   | canonical-publication-v1 receipt      |  | NOT authenticated / NOT published     |
+                                   +-------------------+-------------------+  | future #302 binding only              |
+                                                       |                      +---------------------------------------+
                                                        v
                                    +---------------------------------------+
                                    | receipt close -> digest/length ->     |
@@ -887,7 +889,9 @@ bytes 重算的 `Sha256Digest`、`ExactByteLength` 和 `sha256/<64 lowercase hex
 
 发布协议不依赖普通覆盖式 rename 或边写边暴露最终 digest 路径恰好原子：
 
-1. 在目标发布根目录同一文件系统内创建唯一暂存目录；
+1. 调用方必须预配置并持久化目标发布根及其祖先目录；发布实现不得递归创建或接管该
+   外部目录树，只在该根下创建、验证并持久化固定的对象与 staging 直接子目录，再在同一
+   文件系统内创建唯一暂存目录；
 2. 以受限写入器在唯一暂存文件中完成三个对象，对文件数据执行平台持久化 flush，关闭
    写入并从每份最终 exact bytes 计算 digest/length，再按上一节为 LFCA/LFSM/LFSD 分别派生
    唯一 content-addressed object key；
@@ -899,8 +903,10 @@ bytes 重算的 `Sha256Digest`、`ExactByteLength` 和 `sha256/<64 lowercase hex
    也禁止先创建最终文件再复制、流式写入或截断。平台 adapter 无法证明该语义时必须返回
    `AtomicInstallUnsupported`，不得退化；
 5. 安装原语报告目标已存在时，只能读取已经由同一协议完成安装的 winner，并核对精确长度
-   和 bytes；相同则复用，不同则以 collision/mismatch 失败，始终不能覆盖。成功新装后必须
-   按平台能力持久化对象目录元数据，使崩溃恢复不会把已提交 key 退回为部分文件；
+   和 bytes；相同则复用，不同则以 collision/mismatch 失败，始终不能覆盖。`Installed` 与
+   `Reused` 必须经过同一对象目录耐久屏障后才能返回安装 capability；另一发布者已经让目录项
+   可见不能替代本次调用在 manifest 提交前建立持久化顺序。平台只能证明原子可见而不能证明
+   目录元数据持久化时必须返回 `AtomicInstallUnsupported`；
 6. #299 独立验证成功后，把 receipt exact bytes 写入新的唯一暂存文件，执行与前三个对象
    相同的受限写入、持久化 flush、close、digest/length 重算和结构预检，再以附录 A.4 的
    `receiptObjectKey` 执行同样的 atomic + no-replace 安装、winner exact bytes 比较和目录
@@ -908,8 +914,9 @@ bytes 重算的 `Sha256Digest`、`ExactByteLength` 和 `sha256/<64 lowercase hex
 7. 只有已安装的 receipt winner 存在，且 LFCA/LFSM/receipt 的 digest、exact length 与三个
    object key 全部按附录 A.4 重算、解析并指向相同 winner 时，才构造 LFCP exact bytes，
    再由外部发布链认证；
-8. 只有外部认证 manifest/指针的单次提交才使候选变为“已发布”；暂存对象或未引用的
-   content-addressed objects 不构成发布；
+8. 只有外部认证 manifest/指针的单次提交才使 LFCP 实际引用的 descriptor、artifact、source
+   map 与 receipt 绑定变为“已发布”；暂存对象、LFSD 或其他未引用的 content-addressed
+   objects 不构成发布，current committed capability 也不得把 LFSD 安装结果提升为受认证绑定；
 9. 任一步失败都删除暂存引用，不产生 LFCP/manifest 提交点。已经存在的不可变共享对象
    可以保留，但不得被当作部分发布成功。
 

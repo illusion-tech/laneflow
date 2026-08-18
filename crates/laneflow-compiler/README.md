@@ -83,17 +83,22 @@ nested/top fields、rows、tables、sections 降低到少量连续 arena，并�
 语义；候选也不授予发布、迁移或运行时加载权限。`read_portable_object_known_length` 和
 `read_portable_object_to_end` 只在任何 hash/view 前关闭已知长度 O(1) 与未知流 `max+1`
 transport 边界，读取成功仍须进入 format preflight。`PortableObjectStore` 把上层能力关闭的
-exact bytes 写入发布根内的唯一 staging 目录，flush/sync/close 后流式复核
+exact bytes 写入调用方预配置发布根内的唯一 staging 目录，flush/sync/close 后流式复核
 exact bytes，再以同文件系统 hard-link no-replace 原子安装到内部重算的
-`sha256/<64 lowercase hex>` 路径；已存在 winner 只允许 exact bytes 相同复用，平台不能证明
-该原语时明确返回 `AtomicInstallUnsupported`。安装结果与 receipt subject projection 继续使用
+`sha256/<64 lowercase hex>` 路径；LaneFlow 只创建并持久化配置根下的固定直接子目录，不递归
+创建或接管其祖先目录。新装与已存在的相同 winner 都必须在对象目录耐久屏障后才能返回；
+平台不能证明 atomic no-replace 与目录元数据持久化时明确返回
+`AtomicInstallUnsupported`。当前 Unix 原生后端提供该能力；Windows 仍支持 exact-byte
+发射与读取，但原生 durable publication 后端在取得可审计保证前失败关闭。安装结果与 receipt subject projection 继续使用
 `Sha256Digest`、`ExactByteLength`、`NetworkRevisionId`，只有 LFCP wire writer 解包这些值。
 `commit_portable_publication_v1` 只接受未来 #299
 实现的 `CanonicalPublicationReceiptViewV1`：一次性快照其 opaque exact bytes、metadata 和恰好
 两个 subject bindings，依次安装 LFCA/LFSM/LFSD/receipt 后才构造并安装 LFCP，最后恰好调用
-一次外部 `PortableManifestCommitter`。#298 不定义或解析 receipt wire，也不自证 manifest
-adapter 的签名/信任根；任意已安装对象在该 adapter 返回成功前仍只是未引用对象。#299 独立
-验证收据实现和 #302 可信切换描述符仍属于后继 Issue。
+一次外部 `PortableManifestCommitter`。当前 committed capability 只返回 LFCP 实际认证的
+descriptor/artifact/source-map/receipt 绑定；已安装 LFSD 仍是未引用诊断对象，不会因同一事务
+完成而提前取得信任。#298 不定义或解析 receipt wire，也不自证 manifest adapter 的签名/信任根；
+任意已安装对象在该 adapter 返回成功前仍只是未引用对象。#299 独立验证收据实现和 #302
+可信切换描述符仍属于后继 Issue。
 
 跨平台确定性由 `.github/workflows/portable-exact-bytes.yml` 直接导出 production emitter 的
 LFCA/LFSM/LFSD bytes：Windows/Ubuntu 各两个 fresh process、每个进程内重复发射，最后在单一

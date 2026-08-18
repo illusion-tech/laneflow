@@ -223,16 +223,17 @@ impl From<PortableManifestCommitError> for PortablePublicationError {
     }
 }
 
-/// manifest adapter 已报告单提交成功后的完整对象绑定。
+/// manifest adapter 已报告单提交成功后的受认证对象绑定。
 ///
 /// 该类型不内置签名或 trust anchor；调用方必须从实际 adapter 保存的外部认证状态判断真实性。
+/// 诊断性 LFSD 虽在提交前安装，但不进入 LFCP 或此 capability；#299 独立验证后，才由
+/// #302 的可信切换描述符绑定。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ManifestCommittedPortablePublication {
     descriptor: PortableObjectCandidate,
     descriptor_installation: PortableObjectInstallation,
     canonical_artifact_installation: PortableObjectInstallation,
     source_map_installation: PortableObjectInstallation,
-    semantic_diff_installation: PortableObjectInstallation,
     receipt_installation: PortableObjectInstallation,
 }
 
@@ -255,11 +256,6 @@ impl ManifestCommittedPortablePublication {
     #[must_use]
     pub const fn source_map_installation(&self) -> &PortableObjectInstallation {
         &self.source_map_installation
-    }
-
-    #[must_use]
-    pub const fn semantic_diff_installation(&self) -> &PortableObjectInstallation {
-        &self.semantic_diff_installation
     }
 
     #[must_use]
@@ -367,7 +363,6 @@ fn commit_with_installer<
         descriptor_installation,
         canonical_artifact_installation,
         source_map_installation,
-        semantic_diff_installation,
         receipt_installation,
     })
 }

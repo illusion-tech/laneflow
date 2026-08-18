@@ -7,6 +7,52 @@ use std::io::{self, Read};
 
 use laneflow_format::FormatLimits;
 
+const UNKNOWN_LENGTH_READ_BUFFER_BYTES: usize = 64 * 1024;
+
+struct BoundedReadBuffer {
+    bytes: Vec<u8>,
+    max_capacity: usize,
+}
+
+impl BoundedReadBuffer {
+    fn new(max_capacity: usize) -> Self {
+        Self {
+            bytes: Vec::with_capacity(max_capacity.min(UNKNOWN_LENGTH_READ_BUFFER_BYTES)),
+            max_capacity,
+        }
+    }
+
+    fn extend_from_slice(&mut self, chunk: &[u8]) -> Result<(), PortableReadError> {
+        let required = self
+            .bytes
+            .len()
+            .checked_add(chunk.len())
+            .ok_or(PortableReadError::ArithmeticOverflow)?;
+        if required > self.max_capacity {
+            return Err(PortableReadError::ArithmeticOverflow);
+        }
+        if required > self.bytes.capacity() {
+            let doubled = self
+                .bytes
+                .capacity()
+                .checked_mul(2)
+                .unwrap_or(self.max_capacity);
+            let target = doubled.max(required).min(self.max_capacity);
+            self.bytes.reserve_exact(target - self.bytes.len());
+        }
+        self.bytes.extend_from_slice(chunk);
+        Ok(())
+    }
+
+    fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    fn into_boxed_slice(self) -> Box<[u8]> {
+        self.bytes.into_boxed_slice()
+    }
+}
+
 /// 有界 transport 读取失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortableReadError {
@@ -86,10 +132,25 @@ pub fn read_portable_object_to_end<R: Read>(
     let bounded_length = limit
         .checked_add(1)
         .ok_or(PortableReadError::ArithmeticOverflow)?;
-    usize::try_from(bounded_length).map_err(|_| PortableReadError::ArithmeticOverflow)?;
-    let mut bounded = reader.take(bounded_length);
-    let mut bytes = Vec::new();
-    bounded.read_to_end(&mut bytes)?;
+    let bounded_capacity =
+        usize::try_from(bounded_length).map_err(|_| PortableReadError::ArithmeticOverflow)?;
+    let mut bytes = BoundedReadBuffer::new(bounded_capacity);
+    let mut read_buffer = [0_u8; UNKNOWN_LENGTH_READ_BUFFER_BYTES];
+    loop {
+        let remaining = bounded_capacity
+            .checked_sub(bytes.len())
+            .ok_or(PortableReadError::ArithmeticOverflow)?;
+        if remaining == 0 {
+            break;
+        }
+        let read_length = remaining.min(read_buffer.len());
+        match reader.read(&mut read_buffer[..read_length]) {
+            Ok(0) => break,
+            Ok(read) => bytes.extend_from_slice(&read_buffer[..read])?,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
     let actual = u64::try_from(bytes.len()).map_err(|_| PortableReadError::ArithmeticOverflow)?;
     if actual > limit {
         return Err(PortableReadError::LimitExceeded { actual, limit });
@@ -207,5 +268,20 @@ mod tests {
             })
         );
         assert_eq!(bytes_read.get(), 5);
+    }
+
+    #[test]
+    fn unknown_length_growth_never_reserves_past_the_checked_boundary() {
+        let max_capacity = 1_048_577;
+        let mut bytes = BoundedReadBuffer::new(max_capacity);
+        let chunk = [0_u8; 16 * 1024];
+        while bytes.len() < max_capacity {
+            let remaining = max_capacity - bytes.len();
+            bytes
+                .extend_from_slice(&chunk[..remaining.min(chunk.len())])
+                .unwrap();
+            assert!(bytes.bytes.capacity() <= max_capacity);
+        }
+        assert_eq!(bytes.len(), max_capacity);
     }
 }

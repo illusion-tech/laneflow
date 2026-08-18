@@ -32,6 +32,7 @@ pub enum PortableInstallOperation {
     PrepareStoreRoot,
     PrepareObjectDirectory,
     PrepareStagingDirectory,
+    SyncStoreRoot,
     CreateUniqueStagingDirectory,
     CreateStagingFile,
     WriteStagingFile,
@@ -120,11 +121,12 @@ pub struct PortableObjectStore {
 }
 
 impl PortableObjectStore {
-    /// 建立或打开一份发布根，并验证固定子目录不会解析到根外。
+    /// 打开一份调用方预配置的发布根，并验证固定子目录不会解析到根外。
     ///
     /// # Errors
     ///
-    /// 目录不能创建/规范化，或 `sha256`/`.staging` 被重定向到根外时失败。
+    /// 发布根不存在、目录不能创建/规范化，或 `sha256`/`.staging` 被重定向到根外时失败。
+    /// 调用方负责发布根及其祖先目录的持久化；本类型只拥有两个固定直接子目录。
     pub fn try_open(root: impl AsRef<Path>) -> Result<Self, PortableInstallError> {
         let root = prepare_root(root.as_ref())?;
         let object_directory = prepare_child_directory(
@@ -137,6 +139,8 @@ impl PortableObjectStore {
             ".staging",
             PortableInstallOperation::PrepareStagingDirectory,
         )?;
+        #[cfg(unix)]
+        NativeAtomicInstall.sync_directory(&root, PortableInstallOperation::SyncStoreRoot)?;
         Ok(Self {
             root,
             object_directory,
@@ -226,28 +230,20 @@ impl PortableObjectStore {
         )?;
 
         let disposition = match platform.link_no_replace(staging.file_path(), &object_path)? {
-            AtomicLinkOutcome::Installed => {
-                platform.sync_object_directory(&self.object_directory)?;
-                verify_file(
-                    &object_path,
-                    bytes,
-                    digest,
-                    PortableInstallOperation::ReadWinner,
-                    PortableInstallError::ExistingObjectMismatch,
-                )?;
-                PortableInstallDisposition::Installed
-            }
-            AtomicLinkOutcome::AlreadyExists => {
-                verify_file(
-                    &object_path,
-                    bytes,
-                    digest,
-                    PortableInstallOperation::ReadWinner,
-                    PortableInstallError::ExistingObjectMismatch,
-                )?;
-                PortableInstallDisposition::Reused
-            }
+            AtomicLinkOutcome::Installed => PortableInstallDisposition::Installed,
+            AtomicLinkOutcome::AlreadyExists => PortableInstallDisposition::Reused,
         };
+        verify_file(
+            &object_path,
+            bytes,
+            digest,
+            PortableInstallOperation::ReadWinner,
+            PortableInstallError::ExistingObjectMismatch,
+        )?;
+        platform.sync_directory(
+            &self.object_directory,
+            PortableInstallOperation::SyncObjectDirectory,
+        )?;
 
         staging.cleanup()?;
         Ok(PortableObjectInstallation {
@@ -260,10 +256,6 @@ impl PortableObjectStore {
 }
 
 fn prepare_root(root: &Path) -> Result<PathBuf, PortableInstallError> {
-    fs::create_dir_all(root).map_err(|error| PortableInstallError::Io {
-        operation: PortableInstallOperation::PrepareStoreRoot,
-        kind: error.kind(),
-    })?;
     let canonical = fs::canonicalize(root).map_err(|error| PortableInstallError::Io {
         operation: PortableInstallOperation::PrepareStoreRoot,
         kind: error.kind(),
@@ -280,10 +272,16 @@ fn prepare_child_directory(
     operation: PortableInstallOperation,
 ) -> Result<PathBuf, PortableInstallError> {
     let child = root.join(name);
-    fs::create_dir_all(&child).map_err(|error| PortableInstallError::Io {
-        operation,
-        kind: error.kind(),
-    })?;
+    match fs::create_dir(&child) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => {
+            return Err(PortableInstallError::Io {
+                operation,
+                kind: error.kind(),
+            });
+        }
+    }
     let canonical = fs::canonicalize(&child).map_err(|error| PortableInstallError::Io {
         operation,
         kind: error.kind(),

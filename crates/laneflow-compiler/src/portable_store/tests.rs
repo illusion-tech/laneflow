@@ -1,6 +1,11 @@
 use std::{
+    cell::Cell,
     fs,
     path::{Path, PathBuf},
+};
+
+#[cfg(unix)]
+use std::{
     sync::{Arc, Barrier},
     thread,
 };
@@ -19,12 +24,28 @@ impl TestRoot {
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&path);
+        fs::create_dir(&path).unwrap();
         Self(path)
     }
 
     fn path(&self) -> &Path {
         &self.0
     }
+}
+
+#[test]
+fn configured_root_must_exist_and_is_never_created_recursively() {
+    let root = TestRoot::new("missing-root");
+    fs::remove_dir(root.path()).unwrap();
+
+    assert_eq!(
+        PortableObjectStore::try_open(root.path()).unwrap_err(),
+        PortableInstallError::Io {
+            operation: PortableInstallOperation::PrepareStoreRoot,
+            kind: io::ErrorKind::NotFound,
+        }
+    );
+    assert!(!root.path().exists());
 }
 
 impl Drop for TestRoot {
@@ -44,6 +65,7 @@ fn staging_is_empty(store: &PortableObjectStore) -> bool {
         .is_none()
 }
 
+#[cfg(unix)]
 #[test]
 fn installs_closed_bytes_only_at_digest_path_and_reuses_exact_winner() {
     let root = TestRoot::new("install-reuse");
@@ -70,6 +92,7 @@ fn installs_closed_bytes_only_at_digest_path_and_reuses_exact_winner() {
     assert!(staging_is_empty(&store));
 }
 
+#[cfg(unix)]
 #[test]
 fn installs_closed_exact_bytes_without_accepting_caller_binding() {
     let root = TestRoot::new("exact-bytes");
@@ -93,6 +116,7 @@ fn installs_closed_exact_bytes_without_accepting_caller_binding() {
     assert!(staging_is_empty(&store));
 }
 
+#[cfg(unix)]
 #[test]
 fn existing_different_bytes_never_overwrite_winner() {
     let root = TestRoot::new("different-winner");
@@ -109,6 +133,7 @@ fn existing_different_bytes_never_overwrite_winner() {
     assert!(staging_is_empty(&store));
 }
 
+#[cfg(unix)]
 #[test]
 fn stale_partial_staging_is_never_observed_or_reused() {
     let root = TestRoot::new("stale-staging");
@@ -165,6 +190,7 @@ fn binding_checks_precede_all_staging_and_path_mapping() {
     assert!(staging_is_empty(&store));
 }
 
+#[cfg(unix)]
 #[test]
 fn concurrent_same_bytes_have_one_winner_and_only_safe_reuse() {
     let root = TestRoot::new("concurrent-same");
@@ -218,7 +244,11 @@ impl AtomicInstallPlatform for UnsupportedPlatform {
         Err(PortableInstallError::AtomicInstallUnsupported)
     }
 
-    fn sync_object_directory(&self, _object_directory: &Path) -> Result<(), PortableInstallError> {
+    fn sync_directory(
+        &self,
+        _directory: &Path,
+        _operation: PortableInstallOperation,
+    ) -> Result<(), PortableInstallError> {
         panic!("directory sync must not run after unsupported install")
     }
 }
@@ -254,9 +284,63 @@ impl AtomicInstallPlatform for DifferentWinnerPlatform {
         Ok(AtomicLinkOutcome::AlreadyExists)
     }
 
-    fn sync_object_directory(&self, _object_directory: &Path) -> Result<(), PortableInstallError> {
+    fn sync_directory(
+        &self,
+        _directory: &Path,
+        _operation: PortableInstallOperation,
+    ) -> Result<(), PortableInstallError> {
         panic!("loser must not sync winner directory")
     }
+}
+
+struct ReusedWinnerPlatform {
+    sync_calls: Cell<usize>,
+}
+
+impl AtomicInstallPlatform for ReusedWinnerPlatform {
+    fn link_no_replace(
+        &self,
+        staging_file: &Path,
+        object_path: &Path,
+    ) -> Result<AtomicLinkOutcome, PortableInstallError> {
+        fs::hard_link(staging_file, object_path).unwrap();
+        Ok(AtomicLinkOutcome::AlreadyExists)
+    }
+
+    fn sync_directory(
+        &self,
+        _directory: &Path,
+        operation: PortableInstallOperation,
+    ) -> Result<(), PortableInstallError> {
+        assert_eq!(operation, PortableInstallOperation::SyncObjectDirectory);
+        self.sync_calls.set(self.sync_calls.get() + 1);
+        Ok(())
+    }
+}
+
+#[test]
+fn reused_winner_passes_the_same_directory_durability_barrier() {
+    let root = TestRoot::new("reused-sync");
+    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let object = candidate(b"winner visible before another publisher syncs it");
+    let platform = ReusedWinnerPlatform {
+        sync_calls: Cell::new(0),
+    };
+
+    let installation = store
+        .install_bound_object(
+            object.bytes(),
+            object.digest(),
+            object.object_key(),
+            &platform,
+        )
+        .unwrap();
+
+    assert_eq!(
+        installation.disposition(),
+        PortableInstallDisposition::Reused
+    );
+    assert_eq!(platform.sync_calls.get(), 1);
 }
 
 #[test]
@@ -293,9 +377,13 @@ impl AtomicInstallPlatform for SyncFailurePlatform {
         Ok(AtomicLinkOutcome::Installed)
     }
 
-    fn sync_object_directory(&self, _object_directory: &Path) -> Result<(), PortableInstallError> {
+    fn sync_directory(
+        &self,
+        _directory: &Path,
+        operation: PortableInstallOperation,
+    ) -> Result<(), PortableInstallError> {
         Err(PortableInstallError::Io {
-            operation: PortableInstallOperation::SyncObjectDirectory,
+            operation,
             kind: io::ErrorKind::Other,
         })
     }
@@ -323,5 +411,20 @@ fn directory_sync_failure_reports_error_but_can_only_leave_complete_object() {
         fs::read(store.object_path(object.object_key()).unwrap()).unwrap(),
         object.bytes()
     );
+    assert!(staging_is_empty(&store));
+}
+
+#[cfg(windows)]
+#[test]
+fn native_windows_install_fails_closed_before_exposing_a_final_path() {
+    let root = TestRoot::new("windows-unsupported");
+    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let object = candidate(b"durability must be established before publication");
+
+    assert_eq!(
+        store.install_candidate(&object),
+        Err(PortableInstallError::AtomicInstallUnsupported)
+    );
+    assert!(!store.object_path(object.object_key()).unwrap().exists());
     assert!(staging_is_empty(&store));
 }

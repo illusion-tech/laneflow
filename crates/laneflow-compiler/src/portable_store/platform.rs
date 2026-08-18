@@ -1,7 +1,11 @@
-use std::{fs, io, path::Path};
+use std::path::Path;
+
+#[cfg(unix)]
+use std::{fs, io};
 
 use super::{PortableInstallError, PortableInstallOperation};
 
+#[cfg_attr(not(unix), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum AtomicLinkOutcome {
     Installed,
@@ -15,12 +19,16 @@ pub(super) trait AtomicInstallPlatform {
         object_path: &Path,
     ) -> Result<AtomicLinkOutcome, PortableInstallError>;
 
-    fn sync_object_directory(&self, object_directory: &Path) -> Result<(), PortableInstallError>;
+    fn sync_directory(
+        &self,
+        directory: &Path,
+        operation: PortableInstallOperation,
+    ) -> Result<(), PortableInstallError>;
 }
 
 pub(super) struct NativeAtomicInstall;
 
-#[cfg(any(unix, windows))]
+#[cfg(unix)]
 impl AtomicInstallPlatform for NativeAtomicInstall {
     fn link_no_replace(
         &self,
@@ -42,8 +50,35 @@ impl AtomicInstallPlatform for NativeAtomicInstall {
         }
     }
 
-    fn sync_object_directory(&self, object_directory: &Path) -> Result<(), PortableInstallError> {
-        sync_object_directory(object_directory)
+    fn sync_directory(
+        &self,
+        directory: &Path,
+        operation: PortableInstallOperation,
+    ) -> Result<(), PortableInstallError> {
+        sync_directory(directory, operation)
+    }
+}
+
+#[cfg(windows)]
+impl AtomicInstallPlatform for NativeAtomicInstall {
+    fn link_no_replace(
+        &self,
+        _staging_file: &Path,
+        _object_path: &Path,
+    ) -> Result<AtomicLinkOutcome, PortableInstallError> {
+        // `CreateHardLinkW` proves atomic visibility, not persistence of the
+        // directory entry. Until a reviewed safe backend can establish that
+        // durability boundary, Windows publication must fail before exposing
+        // a final object path.
+        Err(PortableInstallError::AtomicInstallUnsupported)
+    }
+
+    fn sync_directory(
+        &self,
+        _directory: &Path,
+        _operation: PortableInstallOperation,
+    ) -> Result<(), PortableInstallError> {
+        Err(PortableInstallError::AtomicInstallUnsupported)
     }
 }
 
@@ -57,12 +92,16 @@ impl AtomicInstallPlatform for NativeAtomicInstall {
         Err(PortableInstallError::AtomicInstallUnsupported)
     }
 
-    fn sync_object_directory(&self, _object_directory: &Path) -> Result<(), PortableInstallError> {
+    fn sync_directory(
+        &self,
+        _directory: &Path,
+        _operation: PortableInstallOperation,
+    ) -> Result<(), PortableInstallError> {
         Err(PortableInstallError::AtomicInstallUnsupported)
     }
 }
 
-#[cfg(any(unix, windows))]
+#[cfg(unix)]
 fn atomic_link_is_unsupported(error: &io::Error) -> bool {
     if matches!(
         error.kind(),
@@ -71,36 +110,18 @@ fn atomic_link_is_unsupported(error: &io::Error) -> bool {
         return true;
     }
 
-    #[cfg(windows)]
-    {
-        // Win32: ERROR_INVALID_FUNCTION / ERROR_NOT_SUPPORTED are the stable
-        // signals for filesystems that cannot create hard links. A staging
-        // junction that crosses volumes can surface ERROR_NOT_SAME_DEVICE.
-        matches!(error.raw_os_error(), Some(1 | 17 | 50))
-    }
-    #[cfg(not(windows))]
-    {
-        false
-    }
+    false
 }
 
 #[cfg(unix)]
-fn sync_object_directory(object_directory: &Path) -> Result<(), PortableInstallError> {
-    fs::File::open(object_directory)
+fn sync_directory(
+    directory: &Path,
+    operation: PortableInstallOperation,
+) -> Result<(), PortableInstallError> {
+    fs::File::open(directory)
         .and_then(|directory| directory.sync_all())
         .map_err(|error| PortableInstallError::Io {
-            operation: PortableInstallOperation::SyncObjectDirectory,
+            operation,
             kind: error.kind(),
         })
-}
-
-#[cfg(windows)]
-fn sync_object_directory(_object_directory: &Path) -> Result<(), PortableInstallError> {
-    // `CreateHardLinkW` is available only on filesystems whose link operation
-    // publishes one complete directory entry. The staged file data was synced
-    // before linking; after a crash the journal can therefore expose the
-    // complete link or no link, never a streamed/partial destination. Rust's
-    // safe standard library has no portable directory-fsync contract on
-    // Windows, so there is no additional fallible operation at this point.
-    Ok(())
 }
