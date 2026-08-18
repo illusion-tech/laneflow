@@ -84,6 +84,8 @@ cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
 | Delivery closing set 含未声明 Issue，或 Related closing set 非空                               | Fail；target 的完整 closing set 必须与 PR 角色和全部 `关联 Issue` 精确一致                         |
 | PR body 缺少明确 `关联 Issue` 列表、仍保留角色模板占位或角色与任一 Issue 元数据不一致          | `G3 Evidence Gate Shadow` Fail；多 Issue 必须逐个校验，不得猜测 target 参数                        |
 | 多 Issue PR 的 G3 断言有缺失、重复或未声明 Issue / 参数的额外成功命令                          | Fail；完整断言命令集合必须与全部解析 target 精确相等                                               |
+| 多 Issue PR 仅一个 Issue 使用 current `G3 Exception`                                           | 只允许该 Issue 的精确断言为“未通过”；其他 Issue 保持“已通过”并独立验证 exact-head 外部审阅         |
+| historical exception 接受事件晚于 merge、但在实际 G4 evaluation time 已过期                    | Fail；merge 只判断事后接受顺序，不替代 G4 运行时的 freshness 判断                                  |
 | Delivery target 的 Related 成员角色/Issue 元数据错误、closing set 非空或断言集不闭合           | Fail；每个 current-policy Related 成员必须按自身 target 规则独立校验                               |
 | Issue 的具体 PR 字段仍含 `pending / #61 / N/A`、`#<number>` 或空 `N/A` 原因                    | Fail；具体编号只接受明确 `#<number>` 列表，互斥模板选项必须清理                                    |
 | G3 comment / body / Issue permalink 或关联 PR/Issue timeline 活动后未新增严格更晚的精确 marker | Fail；marker 须晚于 G3 effective time 和最终 evidence；同秒撤销 success                            |

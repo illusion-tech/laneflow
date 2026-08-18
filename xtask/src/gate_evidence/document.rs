@@ -215,6 +215,38 @@ pub(super) fn validate_comment(
         required_fields
     };
     validate_comment_body(&comment.body, required_fields, label)?;
+    let current_gate_result = comment
+        .body
+        .lines()
+        .any(|line| line.trim_start().starts_with("- Gate 结果："))
+        .then(|| parse_g3_result(&comment.body))
+        .transpose()?;
+    if !allow_legacy_exception && current_gate_result == Some(G3Result::Exception) {
+        let associated_issues = pr
+            .body
+            .lines()
+            .find(|line| line.starts_with("- 关联 Issue："))
+            .map(metadata_issue_numbers)
+            .unwrap_or_else(|| BTreeSet::from([args.issue]));
+        let current_exception_issues = current_exception_issues_for_targets(
+            pr,
+            args.delivery_pr
+                .or_else(|| args.related_prs.first().copied())
+                .ok_or("G3 comment 缺少可用于 current exception scope 的 PR 参数")?,
+            permalink,
+            &associated_issues,
+        )?;
+        if !current_exception_issues.is_empty() {
+            return validate_gate_assertion_with_result_scope(
+                &comment.body,
+                label,
+                args,
+                GateEvidencePhase::G3,
+                Some((args.issue, current_exception_issues.contains(&args.issue))),
+                false,
+            );
+        }
+    }
     validate_gate_assertion_with_legacy_exception(
         &comment.body,
         label,
@@ -273,15 +305,42 @@ pub(super) fn validate_gate_assertion_with_legacy_exception(
     phase: GateEvidencePhase,
     allow_legacy_exception: bool,
 ) -> Result<(), String> {
+    let expects_failed_assertion = allow_legacy_exception
+        || (phase == GateEvidencePhase::G3
+            && body
+                .lines()
+                .any(|line| line.trim_start().starts_with("- Gate 结果："))
+            && matches!(
+                parse_g3_result(body)?,
+                G3Result::Exception | G3Result::LegacyBlock
+            ));
+    validate_gate_assertion_with_result_scope(
+        body,
+        label,
+        args,
+        phase,
+        Some((args.issue, expects_failed_assertion)),
+        allow_legacy_exception,
+    )
+}
+
+fn validate_gate_assertion_with_result_scope(
+    body: &str,
+    label: &str,
+    args: &GateEvidenceArgs,
+    phase: GateEvidencePhase,
+    result_scope: Option<(u64, bool)>,
+    allow_legacy_assertion_without_command: bool,
+) -> Result<(), String> {
     let actual_commands = match semantic_gate_assertion_commands_with_legacy_exception(
         body,
         label,
         phase,
-        Some((args.issue, allow_legacy_exception)),
+        result_scope,
     ) {
         Ok(commands) => commands,
         Err(_)
-            if allow_legacy_exception
+            if allow_legacy_assertion_without_command
                 && legacy_failed_gate_assertion_without_command(body, phase) =>
         {
             return Ok(());
@@ -414,8 +473,9 @@ pub(super) fn gate_assertion_commands_with_legacy_exception(
                 None
             };
         let allow_legacy_exception = scoped_legacy_exception == Some(true);
-        let expects_failed_assertion = allow_legacy_exception
-            || match phase {
+        let expects_failed_assertion = match scoped_legacy_exception {
+            Some(expects_failed) => expects_failed,
+            None => match phase {
                 GateEvidencePhase::G3 => {
                     body.lines()
                         .any(|line| line.trim_start().starts_with("- Gate 结果："))
@@ -425,7 +485,8 @@ pub(super) fn gate_assertion_commands_with_legacy_exception(
                         )
                 }
                 GateEvidencePhase::G4 => false,
-            };
+            },
+        };
         let accepted_result = if scoped_legacy_exception.is_none() && result_scope.is_some() {
             matches!(result.trim(), "已通过" | "已通过。")
                 || (phase == GateEvidencePhase::G3
@@ -990,26 +1051,49 @@ pub(super) fn validate_external_review_g3(
         .ok_or_else(|| format!("{label} G3 permalink 未指向该 PR 的 comment"))?;
     let effective_at = g3_comment_effective_at(comment, label)?;
     let gate_result = parse_g3_result(&comment.body)?;
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("系统时间早于 Unix epoch：{error}"))?
+        .as_secs();
+    let associated_issues = metadata_issue_numbers(metadata_line(&pr.body, "关联 Issue")?);
+    let current_exception_issues =
+        current_exception_issues_for_targets(pr, number, &permalink, &associated_issues)?;
+    if (historical_appendix.is_none() || current_exception_issues.contains(&issue_number))
+        && !comment.body.contains(&pr.head_ref_oid)
+    {
+        return Err(format!(
+            "{label} G3 comment 未记录 GitHub PR identity 对应的完整 current head `{}`",
+            pr.head_ref_oid
+        ));
+    }
+    let scoped_gate_result = if historical_appendix.is_none()
+        && gate_result == G3Result::Exception
+        && !current_exception_issues.is_empty()
+        && !current_exception_issues.contains(&issue_number)
+    {
+        G3Result::Pass
+    } else {
+        gate_result
+    };
     if validate_g3_exception(
         issue_number,
         number,
         pr,
         comment,
-        gate_result,
+        scoped_gate_result,
         historical_appendix,
-        validation_time,
+        G3ExceptionValidationTimes {
+            gate_time: validation_time,
+            evaluation_time: Some(current_time),
+        },
     )? {
         println!(
             "G3 Gate 状态：accepted_exception；Issue #{issue_number}，PR #{number}；未映射为 pass"
         );
         return Ok(());
     }
-    let result = match gate_result {
+    let result = match scoped_gate_result {
         G3Result::Waived => {
-            let current_time = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|error| format!("系统时间早于 Unix epoch：{error}"))?
-                .as_secs();
             let validation_time = waiver_validation_time(validation_time, current_time)?;
             let waiver = parse_gate_waiver(comment, issue_number, validation_time)?;
             external_review::evaluate_live_with_waiver(repo, number, waiver)?
@@ -1019,14 +1103,14 @@ pub(super) fn validate_external_review_g3(
             return Err("G3 exception 状态未形成有效 accepted_exception".to_string());
         }
     };
-    let expected_state = match gate_result {
+    let expected_state = match scoped_gate_result {
         G3Result::Waived => external_review::ExternalReviewState::Waived,
         G3Result::Pass | G3Result::Bootstrap => external_review::ExternalReviewState::Pass,
         G3Result::Exception | G3Result::LegacyBlock => unreachable!("handled above"),
     };
     if result.state != expected_state {
         return Err(format!(
-            "{label} 的 G3 结果与 External Review Gate 不一致：G3={gate_result:?}，期望 {expected_state:?}，实际 {:?}",
+            "{label} 的 G3 结果与 External Review Gate 不一致：G3={scoped_gate_result:?}，期望 {expected_state:?}，实际 {:?}",
             result.state
         ));
     }
@@ -1036,7 +1120,7 @@ pub(super) fn validate_external_review_g3(
             result.current_head_oid()
         ));
     }
-    if gate_result != G3Result::Waived {
+    if scoped_gate_result != G3Result::Waived {
         let completion_time = result
             .completion_time()
             .ok_or_else(|| format!("{label} pass 结果缺少 completion time"))?;
@@ -1426,6 +1510,36 @@ pub(super) fn historical_exception_applies_to_target(
     }
 }
 
+pub(super) fn current_exception_issues_for_targets(
+    pr: &GitHubPullRequest,
+    pr_number: u64,
+    g3_permalink: &str,
+    issue_numbers: &BTreeSet<u64>,
+) -> Result<BTreeSet<u64>, String> {
+    let mut exception_issues = BTreeSet::new();
+    for issue in issue_numbers {
+        match exception_record_for_target(
+            pr.comments
+                .iter()
+                .filter(|comment| comment.url != g3_permalink),
+            *issue,
+            pr_number,
+            g3_permalink,
+        )? {
+            Some((_, record)) if record.exception_type == "confirmed_gate_defect" => {
+                exception_issues.insert(*issue);
+            }
+            Some(_) => {
+                return Err(format!(
+                    "Issue #{issue} / PR #{pr_number} 的 current exception 只能使用 `confirmed_gate_defect`"
+                ));
+            }
+            None => {}
+        }
+    }
+    Ok(exception_issues)
+}
+
 fn validate_g3_exception_record(
     appendix: &GitHubComment,
     record: &G3ExceptionRecord,
@@ -1433,6 +1547,7 @@ fn validate_g3_exception_record(
     g3_comment: &GitHubComment,
     gate_result: G3Result,
     validation_time: Option<&str>,
+    evaluation_time: Option<u64>,
 ) -> Result<(), String> {
     for (field, value) in [
         ("id", record.id.as_str()),
@@ -1581,7 +1696,9 @@ fn validate_g3_exception_record(
             }
         }
         "legacy_evidence_reconstruction" => {
-            let merged_at = validation_time
+            let merged_at = pr
+                .merged_at
+                .as_deref()
                 .and_then(parse_utc_timestamp_seconds)
                 .ok_or("legacy_evidence_reconstruction 只允许历史 G4 replay")?;
             if !matches!(gate_result, G3Result::Pass | G3Result::LegacyBlock) {
@@ -1594,6 +1711,13 @@ fn validate_g3_exception_record(
                 return Err(
                     "legacy_evidence_reconstruction 必须明确发生在原 PR merge 后，且不追授原 merge 合规"
                         .to_string(),
+                );
+            }
+            let evaluation_time =
+                evaluation_time.ok_or("legacy_evidence_reconstruction 缺少 G4 evaluation time")?;
+            if expires_at <= evaluation_time {
+                return Err(
+                    "legacy_evidence_reconstruction 在 G4 evaluation time 已过期".to_string(),
                 );
             }
         }
@@ -1609,7 +1733,7 @@ pub(super) fn validate_g3_exception(
     g3_comment: &GitHubComment,
     gate_result: G3Result,
     historical_appendix: Option<&GitHubComment>,
-    validation_time: Option<&str>,
+    validation_times: G3ExceptionValidationTimes<'_>,
 ) -> Result<bool, String> {
     let current_record = exception_record_for_target(
         pr.comments
@@ -1671,11 +1795,18 @@ pub(super) fn validate_g3_exception(
                 pr,
                 g3_comment,
                 result,
-                validation_time,
+                validation_times.gate_time,
+                validation_times.evaluation_time,
             )?;
             Ok(true)
         }
     }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct G3ExceptionValidationTimes<'a> {
+    pub(super) gate_time: Option<&'a str>,
+    pub(super) evaluation_time: Option<u64>,
 }
 
 pub(super) fn gate_waiver_follow_up_issue_number(record: &GateWaiverRecord) -> Result<u64, String> {

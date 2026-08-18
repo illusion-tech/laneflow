@@ -245,11 +245,36 @@ fn validate_g3_target_with_legacy_exception(
         }
 
         validate_gate_evidence_target_pr(repo, issue_phase, pr, declared_role, &issue_numbers)?;
-        validate_gate_evidence_target_assertions_with_legacy_exception(
-            pr,
-            resolved_args,
-            result_scope,
-        )?;
+        if result_scope.is_some() {
+            validate_gate_evidence_target_assertions_with_legacy_exception(
+                pr,
+                resolved_args,
+                result_scope,
+            )?;
+        } else {
+            let g3_permalink = completed_gate_permalink(&pr.body, "G3")?;
+            let current_exception_issues = current_exception_issues_for_targets(
+                pr,
+                pr_number,
+                &g3_permalink,
+                &resolved_issue_numbers,
+            )?;
+            if current_exception_issues.is_empty() {
+                validate_gate_evidence_target_assertions_with_legacy_exception(
+                    pr,
+                    resolved_args,
+                    None,
+                )?;
+            } else {
+                for args in resolved_args {
+                    validate_gate_evidence_target_assertions_with_legacy_exception(
+                        pr,
+                        resolved_args,
+                        Some((args.issue, current_exception_issues.contains(&args.issue))),
+                    )?;
+                }
+            }
+        }
         Ok((declared_role, issue_numbers))
     };
 
