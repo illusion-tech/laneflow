@@ -8,10 +8,11 @@
 **扩展**: ADR 0001；本 ADR 不让 LaneFlow 自身拥有城市经济、市民出行需求或完整
 交通工程仿真职责<br>
 
-> **后继决策（2026-08-18）**：ADR 0024 已取代本文对独立
-> `laneflow-validator` 与 validation receipt 的依赖假设。本文相关段落保留为 #291
-> G1 的历史决策背景；现行边界是 compiler 后发射检查、LFCP v2 最小发布闭合，以及由
-> #300/#302 分别重新冻结镜像与切换信任输入。
+> **候选后继决策（2026-08-18）**：Proposed ADR 0024 拟取代本文对独立
+> `laneflow-validator` 与 validation receipt 的依赖假设；该关系只在 ADR 0024 正式
+> Accepted 后生效。在此之前本文仍是 Accepted 历史输入，#300/#302 则不得跳过自身 G1
+> 而直接沿用或取消 receipt。候选边界是 compiler 后发射检查、LFCP v2 最小发布闭合，
+> 以及由 #300/#302 分别重新冻结镜像与切换信任输入。
 
 **关联文档**:
 

@@ -147,13 +147,13 @@ Journal）记录已提交动态状态/生命周期变化及命令/事件游标�
 输入、独立推进未来时间线或产生第二份已提交事件；失败时不发布切换事件并继续旧修订。
 语义差异不能自行授予迁移决定，必须由对象外可信的
 路网修订切换描述符（Network Revision Cutover Descriptor）绑定，并用切换前后的
-稳定身份索引完成引用翻译。compiler 后发射检查从目标无关规范路网语义载荷
+稳定身份索引完成引用翻译。Proposed ADR 0024 的候选 compiler 后发射检查从目标无关规范路网语义载荷
 （Canonical Network Semantic Payload）重算路网修订标识（Network Revision ID）
 `NetworkRevisionId`；LFCP/manifest、静态镜像描述符及切换描述符按各自职责绑定该
 标识，Runtime 不接受调用方、LFSD 或镜像头自报修订。#300/#302 分别冻结镜像和切换
-信任输入。目标职责、上层边界与历史 ADR 的关系见 ADR 0020/0021/0024；
-在二者 Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，本文其余 current 章节
-继续有效。
+信任输入。ADR 0024 正式 Accepted 前，LFCP v1 仍是当前已实现契约。目标职责、上层
+边界与历史 ADR 的关系见 ADR 0020/0021 及 Proposed ADR 0024；阶段 8 生产切换 Issue
+#294 完成 G4 前，本文其余 current 章节继续有效。
 
 ## 3. Authoring Layer
 

@@ -1,12 +1,12 @@
 # 路网编译器与目标静态镜像
 
-> **后继架构修订（2026-08-18）**：ADR 0024 / #299 G1 已把独立
+> **候选后继架构修订（2026-08-18）**：Proposed ADR 0024 / #299 G1 拟把独立
 > `laneflow-validator`、规范发布 receipt 和三类 receipt 统一交付方案替换为
 > `laneflow-format` 共享后发射检查与最小发布闭合。canonical publication 使用
-> LFCP v2 且不再包含 receipt；#300/#302 必须分别重新冻结镜像与切换信任边界。
-> 本文中与该决定冲突的独立 validator/receipt 叙述只保留为 #291 当时的历史设计，
-> 当前规范以
-> `compiler-post-emission-check-and-minimal-publication-closure.md` 为准。
+> LFCP v2 且不再包含 receipt；#300/#302 必须分别重新冻结镜像与切换信任边界。该
+> 替换只在 ADR 0024 正式 Accepted 后生效；此前本文 Accepted 的 v1/receipt 条款仍是
+> 当前设计事实。候选规范见
+> `compiler-post-emission-check-and-minimal-publication-closure.md`。
 
 **文档状态**: Accepted（#291 target design）；#315 共同受检模块接入契约已实现；
 #297 current JSON 编译器导入设计已取消<br>
@@ -903,7 +903,7 @@ Image header 必须声明 `networkRevisionDerivationVersion` 与
 
 ### 8.3 外部镜像描述符（External Image Descriptor）
 
-> ADR 0024 已取消由 #299 统一交付的 `static-image-v1` receipt。下文镜像
+> Proposed ADR 0024 拟取消由 #299 统一交付的 `static-image-v1` receipt。下文镜像
 > digest/length、profile、target、完整性清单和对象外 trust-anchor 原则继续有效；
 > `validatorBuildId`、`validationReceipt*` 和 receipt envelope 字段只保留为 #291
 > 历史候选，#300 必须在自身 G1 决定当前描述符，不得直接实现这些旧字段。
@@ -1321,7 +1321,7 @@ Reference Oracle），不能未经工作量/跨度证据直接成为 production 
 
 ### 9.6 不可变路网修订与镜像切换
 
-> ADR 0024 已取消 #299 交付 `revision-cutover-v1` receipt 的前提。下文 base/target、
+> Proposed ADR 0024 拟取消 #299 交付 `revision-cutover-v1` receipt 的前提。下文 base/target、
 > LFSD、镜像、迁移策略、对象外认证和失败原子性要求仍是 #302 输入；具体 descriptor
 > 和验证形态必须由 #302 G1 重新冻结。
 
@@ -1747,14 +1747,16 @@ ScenarioManifest 配对；它不提供编译器严格导入能力。current JSON
 
 职责与禁止依赖：
 
-| 包（Crate）                | 拥有职责（Owns）                                                                       | 禁止依赖（Must Not Depend On）                                      |
-| -------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `laneflow-static-contract` | 稳定标识、路网修订标识、种类 / 标签登记表、有类型序号、版本 / 摘要 / 配置档 / 描述符值 | Serde、文件系统、核心 / 运行时（Core / Runtime）、空间层（Spatial） |
-| `laneflow-format`          | 可移植制品线格式/视图、无分配后发射检查、revision/digest/跨对象 binding                | 编译器来源/IR 语义、文件系统、运行时（Runtime）、空间层（Spatial）  |
-| `laneflow-static-image`    | 镜像 ABI、节 / 配置档、有界结构校验器（Bounded Verifier）、借用视图（Borrowed Views）  | 编译器、运行时（Runtime）、空间层（Spatial）                        |
-| `laneflow-compiler`        | 前端、中间表示、编译遍、主发射器、源映射 / 语义差异、LFCP v2 与发布编排                | 当前态数据 / 核心对象图（Current Data / Core Object Graph）         |
-| `laneflow-runtime`         | 固定步进、已实现执行域的交通参与单元、动态通行定义、可变交通状态                       | 编译器、Serde、文件系统、空间层（Spatial）                          |
-| `laneflow-spatial`         | 规范几何采样（Canonical Geometry Sampling）、位姿批次（Pose Batch）                    | 编译器、引擎                                                        |
+中文术语与英文辅助名统一见 `../reference/glossary.md`；下表不重复定义双语映射。
+
+| 包                         | 拥有职责                                                                               | 禁止依赖                                     |
+| -------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `laneflow-static-contract` | 稳定标识、路网修订标识、种类 / 标签登记表、有类型序号、版本 / 摘要 / 配置档 / 描述符值 | Serde、文件系统、核心 / 运行时、空间层       |
+| `laneflow-format`          | 可移植制品线格式/视图、无分配后发射检查、revision/digest/跨对象 binding                | 编译器来源/IR 语义、文件系统、运行时、空间层 |
+| `laneflow-static-image`    | 镜像 ABI、节 / 配置档、有界结构校验器、借用视图                                        | 编译器、运行时、空间层                       |
+| `laneflow-compiler`        | 前端、中间表示、编译遍、主发射器、源映射 / 语义差异、LFCP v2 与发布编排                | 当前态数据 / 核心对象图                      |
+| `laneflow-runtime`         | 固定步进、已实现执行域的交通参与单元、动态通行定义、可变交通状态                       | 编译器、Serde、文件系统、空间层              |
+| `laneflow-spatial`         | 规范几何采样、位姿批次                                                                 | 编译器、引擎                                 |
 
 `laneflow-runtime` 是 current `laneflow-core` 的 target 名称；
 `laneflow-static-image` 取代含混的 `laneflow-runtime-image` 名称。共享 static
@@ -1814,34 +1816,34 @@ Cutover 前必须证明：
 
 ## 15. 风险登记
 
-| 风险                                                                         | 结果                                                                       | 控制                                                                                                               |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| 编译器系统性缺陷（Compiler Systemic Bug）                                    | 批量污染全部资产                                                           | 人工可复核 fixed vectors、compiler 语义测试、真实场景回归、历史缺陷断言；#299 明确接受共享后端不能独立发现此类缺陷 |
-| 二进制校验器漏洞（Binary Verifier Vulnerability）                            | 不可信字节破坏内存安全                                                     | 基于偏移量的格式、加载限制、模糊测试 / `unsafe` 审计                                                               |
-| 镜像头声明被误当作信任（Header-as-Trust）                                    | 恶意但结构合法的镜像绕过语义闸口                                           | 对象外认证描述符/manifest、bounded verifier；#300 冻结精确镜像信任输入                                             |
-| 哈希前输入无界（Unbounded Input Before Hash）                                | 超大替换资产制造无界读取、解压、分配或摘要工作                             | 所有 exact-byte 对象绑定 digest + length；有界 reader 预检                                                         |
-| 未认证路网修订（Unauthenticated Network Revision）                           | 快照/路由绕过修订检查或兼容恢复误拒绝                                      | 语义载荷派生标识、LFCP v2/外部 manifest 与 #302 可信切换输入                                                       |
-| 中间表示泄漏运行时类型（IR Leaks Runtime Types）                             | 后端 / 目标被当前核心对象图锁死                                            | 静态契约、目标中立 LIR、无环包依赖图                                                                               |
-| 标识漂移（Identity Drift）                                                   | 引用、语义差异、缓存和存档失效                                             | 制品内规范身份表、compiler known vectors/碰撞测试、变形测试                                                        |
-| 源映射错配（Source Map Mispairing）                                          | 审阅或诊断静默指向旧来源文件 / 位置                                        | 版本化封套；发布描述符绑定 exact artifact、revision、digest                                                        |
-| 边身份耦合可选角色（Edge Identity Coupled to Optional Role）                 | 未覆盖边无身份，或调整 overlay 造成伪删除 / 新增                           | `LaneEdge` 独立稳定键；RoadSection/Junction 只保存关系                                                             |
-| 增量 / 并行非确定性（Incremental / Parallel Nondeterminism）                 | CI / 发布字节漂移                                                          | 干净单线程预言机、稳定合并                                                                                         |
-| 配置档边界错误（Profile Boundary Error）                                     | 无图形配置档携带几何，或交叉索引漂移                                       | 交通必需 / 空间可选矩阵、配置档测试                                                                                |
-| 当前态 / 目标态双路径长期化（Current / Target Dual-path Permanence）         | 测试矩阵和语义漂移                                                         | 集成专用桥、明确移除责任人 / 切换闸口                                                                              |
-| 来源 / 生成物双重事实源（Source / Generated Dual SSOT）                      | 手工修改与漂移                                                             | 来源模块图权威、生成摘要、后发射检查与发布 manifest                                                                |
-| 过早选择归档库（Premature Archive-library Choice）                           | ABI、安全或 MSRV 锁定                                                      | 先冻结契约，再做基准 / 审计                                                                                        |
-| 最终分区进入共享镜像（Final Partition in Shared Image）                      | 地图与硬件/世界耦合，存档不可移植                                          | 静态约束 + 可重建提示 + 每世界执行计划                                                                             |
-| 分区诱发行为延迟（Partition-induced Behavioral Delay）                       | 结果随 cut 改变                                                            | 同 tick committed-state barrier 与置换等价测试                                                                     |
-| 依赖连通导致归约跨度膨胀（Dependency Connectivity Expands Reduction Span）   | 巨型 SCC 或长凝聚 DAG 成为单大型 world 的阿姆达尔瓶颈（Amdahl Bottleneck） | SCC/DAG 分解；归约工作量/跨度指标；#220 production 研究                                                            |
-| 精确路径脚手架成本（Exact-path Scaffolding Cost）                            | 单 worker 相对当前直接路径显著回退                                         | 融合精确执行器；四路径分项基准；语义等价 Gate                                                                      |
-| 原地修改静态镜像（In-place Static-image Mutation）                           | 摘要、共享、信任和确定性失效                                               | 不可变路网修订 + 失败关闭镜像切换事务                                                                              |
-| 在线迁移候选过期（Online Migration Candidate Staleness）                     | 切换遗漏准备期间的 tick/命令或重复事件                                     | 有界增量日志、追赶、静默提交、切换事件批次恰一次                                                                   |
-| 迁移准备干扰正常步进（Migration Prepare Interferes with Tick）               | 玩家改路导致持续抖动或延迟尖峰                                             | 后台预算、落后量/干扰 Gate、显式维护暂停模式                                                                       |
-| 每次启动全镜像串行摘要（Whole-image Serial Hash on Every Startup）           | 城市级镜像加载受固定串行读取限制                                           | 认证分块清单；必需节预先验证；冷/Spatial 延迟验证                                                                  |
-| 生产配置档裁掉稳定身份索引（Production Profile Drops Stable Identity Index） | 快照、动态路线与跨修订映射无法恢复                                         | 全配置档必需冷索引；双向 round-trip；按需映射                                                                      |
-| 稳定身份索引替代语义证据（Identity Index Replaces Semantic Evidence）        | 同 StableId128 的新语义错误继承旧占用、路线、预约或控制器状态              | 受信任 semantic diff；索引只复核映射；index-only 失败关闭                                                          |
-| 未受信任语义差异驱动迁移（Untrusted Semantic Diff Drives Migration）         | 篡改迁移、错误终止或状态错配                                               | 外部切换描述符、双制品独立验证、身份索引复核                                                                       |
-| 通行权运行时交付延期（Right-of-way Runtime Delivery Deferral）               | 静态契约与运行时执行能力长期不对称                                         | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环                                                          |
+| 风险                        | 结果                                                          | 控制                                                                                                         |
+| --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 编译器系统性缺陷            | 批量污染全部资产                                              | 人工可复核固定向量、compiler 语义测试、真实场景回归、历史缺陷断言；#299 明确接受共享后端不能独立发现此类缺陷 |
+| 二进制校验器漏洞            | 不可信字节破坏内存安全                                        | 基于偏移量的格式、加载限制、模糊测试 / `unsafe` 审计                                                         |
+| 镜像头声明被误当作信任      | 恶意但结构合法的镜像绕过语义闸口                              | 对象外认证描述符/manifest、有界结构校验器；#300 冻结精确镜像信任输入                                         |
+| 哈希前输入无界              | 超大替换资产制造无界读取、解压、分配或摘要工作                | 所有 exact-byte 对象绑定 digest + length；有界 reader 预检                                                   |
+| 未认证路网修订              | 快照/路由绕过修订检查或兼容恢复误拒绝                         | 语义载荷派生标识、LFCP v2/外部 manifest 与 #302 可信切换输入                                                 |
+| 中间表示泄漏运行时类型      | 后端 / 目标被当前核心对象图锁死                               | 静态契约、目标中立 LIR、无环包依赖图                                                                         |
+| 标识漂移                    | 引用、语义差异、缓存和存档失效                                | 制品内规范身份表、compiler 固定向量/碰撞测试、变形测试                                                       |
+| 源映射错配                  | 审阅或诊断静默指向旧来源文件 / 位置                           | 版本化封套；发布描述符绑定 exact artifact、revision、digest                                                  |
+| 边身份耦合可选角色          | 未覆盖边无身份，或调整 overlay 造成伪删除 / 新增              | `LaneEdge` 独立稳定键；RoadSection/Junction 只保存关系                                                       |
+| 增量 / 并行非确定性         | CI / 发布字节漂移                                             | 干净单线程预言机、稳定合并                                                                                   |
+| 配置档边界错误              | 无图形配置档携带几何，或交叉索引漂移                          | 交通必需 / 空间可选矩阵、配置档测试                                                                          |
+| 当前态 / 目标态双路径长期化 | 测试矩阵和语义漂移                                            | 集成专用桥、明确移除责任人 / 切换闸口                                                                        |
+| 来源 / 生成物双重事实源     | 手工修改与漂移                                                | 来源模块图权威、生成摘要、后发射检查与发布 manifest                                                          |
+| 过早选择归档库              | ABI、安全或 MSRV 锁定                                         | 先冻结契约，再做基准 / 审计                                                                                  |
+| 最终分区进入共享镜像        | 地图与硬件/世界耦合，存档不可移植                             | 静态约束 + 可重建提示 + 每世界执行计划                                                                       |
+| 分区诱发行为延迟            | 结果随 cut 改变                                               | 同 tick committed-state barrier 与置换等价测试                                                               |
+| 依赖连通导致归约跨度膨胀    | 巨型 SCC 或长凝聚 DAG 成为单大型 world 的阿姆达尔瓶颈         | SCC/DAG 分解；归约工作量/跨度指标；#220 production 研究                                                      |
+| 精确路径脚手架成本          | 单 worker 相对当前直接路径显著回退                            | 融合精确执行器；四路径分项基准；语义等价 Gate                                                                |
+| 原地修改静态镜像            | 摘要、共享、信任和确定性失效                                  | 不可变路网修订 + 失败关闭镜像切换事务                                                                        |
+| 在线迁移候选过期            | 切换遗漏准备期间的 tick/命令或重复事件                        | 有界增量日志、追赶、静默提交、切换事件批次恰一次                                                             |
+| 迁移准备干扰正常步进        | 玩家改路导致持续抖动或延迟尖峰                                | 后台预算、落后量/干扰 Gate、显式维护暂停模式                                                                 |
+| 每次启动全镜像串行摘要      | 城市级镜像加载受固定串行读取限制                              | 认证分块清单；必需节预先验证；冷/Spatial 延迟验证                                                            |
+| 生产配置档裁掉稳定身份索引  | 快照、动态路线与跨修订映射无法恢复                            | 全配置档必需冷索引；双向 round-trip；按需映射                                                                |
+| 稳定身份索引替代语义证据    | 同 StableId128 的新语义错误继承旧占用、路线、预约或控制器状态 | 受信任 semantic diff；索引只复核映射；index-only 失败关闭                                                    |
+| 未受信任语义差异驱动迁移    | 篡改迁移、错误终止或状态错配                                  | 外部切换描述符、双制品独立验证、身份索引复核                                                                 |
+| 通行权运行时交付延期        | 静态契约与运行时执行能力长期不对称                            | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环                                                    |
 
 ## 16. 已接受边界与后继实施条件
 

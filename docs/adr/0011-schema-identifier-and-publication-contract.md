@@ -4,9 +4,10 @@
 **日期**: 2026-07-17
 **适用范围**: LaneFlow 多 family JSON Schema `$id`、source/publication 分层、immutable version、历史保留、网络与 CI/CD 边界
 **目标态取代登记**: Accepted ADR 0020 将把发布目录从仅描述 JSON Schema 系列扩展
-为同时描述可移植规范制品与静态镜像变体；ADR 0024 已取消 #299 的验证收据，并把
-规范发布描述符收缩为不含 receipt 的 LFCP v2。不可变发布、规范 URL、来源沿袭和
-运行时不联网继续有效。#294 完成 G4 前，本文 current 契约继续生效。
+为同时描述可移植规范制品与静态镜像变体；Proposed ADR 0024 拟取消 #299 的验证收据，
+并把规范发布描述符收缩为不含 receipt 的 LFCP v2。该候选边界只在 ADR 0024 正式
+Accepted 后生效；在此之前 LFCP v1 仍是当前已实现契约。不可变发布、规范 URL、来源
+沿袭和运行时不联网继续有效。#294 完成 G4 前，本文 current 契约继续生效。
 
 **关联文档**:
 
