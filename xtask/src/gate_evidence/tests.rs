@@ -1888,8 +1888,20 @@ fn historical_g3_block_replay_is_explicitly_non_retroactive() {
         "2026-07-10T06:00:00Z",
         "2026-07-10T07:00:00Z",
     );
-    pr.comments.truncate(1);
     pr.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+    let pr_side_error = validate_g3_exception(
+        60,
+        61,
+        &pr,
+        &pr.comments[0],
+        G3Result::LegacyBlock,
+        None,
+        pr.merged_at.as_deref(),
+    )
+    .expect_err("historical reconstruction must be attached to the Issue G4 appendix");
+    assert!(pr_side_error.contains("Issue G4 historical appendix"));
+
+    pr.comments.truncate(1);
     appendix.url = ISSUE_G4_URL.to_string();
     assert_eq!(
         validate_g3_exception(
@@ -2437,6 +2449,7 @@ fn gate_commands_fail_closed_outside_the_v1_version_and_argument_boundary() {
     for command in [
         base.replace("+1.96.0", "+1.95.9"),
         base.replace("+1.96.0", "+1.98.0"),
+        base.replace("+1.96.0", "+1.96.999"),
         base.replace("+1.96.0", "+1.96.0-beta.1"),
         base.replace("--locked", "--frozen"),
     ] {
