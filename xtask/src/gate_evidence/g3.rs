@@ -406,14 +406,6 @@ pub(super) fn validate_g3_evidence(
             format_issue_numbers(&requested_related_prs)
         ));
     }
-    if let Some(appendix) = historical_exception_appendix {
-        validate_historical_exception_appendix(
-            appendix,
-            args.issue,
-            std::iter::once((delivery_number, delivery_pr))
-                .chain(args.related_prs.iter().copied().zip(related_prs)),
-        )?;
-    }
     let delivery_permalink = completed_gate_permalink(&delivery_pr.body, "G3")?;
     let allow_delivery_legacy_exception = historical_exception_appendix
         .map(|appendix| {

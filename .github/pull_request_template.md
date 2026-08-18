@@ -62,7 +62,7 @@
 - Findings disposition / clean re-review：
 - Review threads：`unresolved = <count>`，证据：
 - External Review Gate：Check URL；R0/R1 尚未启用时写明 bootstrap 状态和缺失项：
-- G3 Evidence Gate Shadow：R1 non-required：<原因>
+- G3 Evidence Gate Shadow：按 Rollout phase 只保留一项且不包裹整个值：R0 = 候选 workflow bootstrap：<边界>；R1 = R1 non-required：<原因>；R2 = Check URL：https://github.com/...
 
 ## 风险与例外
 
@@ -86,7 +86,7 @@ G3 comment 模板（合并前发表）：
 - Current head：
 - Checks：
 - External Review Gate：
-- G3 Evidence Gate Shadow：R1 non-required：<原因>
+- G3 Evidence Gate Shadow：按 Rollout phase 只保留一项且不包裹整个值：R0 = 候选 workflow bootstrap：<边界>；R1 = R1 non-required：<原因>；R2 = Check URL：https://github.com/...
 - 审阅：provider、actor、reviewed head、outcome、completion、evidence URL：
 - Findings disposition / clean re-review：
 - Review threads：`unresolved = <count>`，证据：

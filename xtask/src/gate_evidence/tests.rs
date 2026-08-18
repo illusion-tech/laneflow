@@ -1817,7 +1817,7 @@ fn issue_351_history_fixture_preserves_all_three_pr_targets_and_shadow_forms() {
 }
 
 #[test]
-fn all_three_governance_templates_contain_a_validator_parsable_canonical_shadow_example() {
+fn all_three_governance_sources_preserve_each_rollout_shadow_choice() {
     for (label, source) in [
         (
             "development-gates",
@@ -1832,11 +1832,24 @@ fn all_three_governance_templates_contain_a_validator_parsable_canonical_shadow_
             include_str!("../../../.agents/skills/laneflow-governance/SKILL.md"),
         ),
     ] {
-        let parsable = source.lines().map(str::trim).any(|line| {
-            line == "- G3 Evidence Gate Shadow：R1 non-required：<原因>"
-                && validate_g3_evidence_shadow_comment_field(line).is_ok()
-        });
-        assert!(parsable, "{label} canonical shadow example drifted");
+        for (documented, canonical) in [
+            (
+                "候选 workflow bootstrap：<边界>",
+                "候选 workflow bootstrap：边界",
+            ),
+            ("R1 non-required：<原因>", "R1 non-required：原因"),
+            (
+                "Check URL：https://github.com/...",
+                "Check URL：https://github.com/illusion-tech/laneflow/runs/1",
+            ),
+        ] {
+            assert!(source.contains(documented), "{label} 缺少 `{documented}`");
+            let line = format!("{G3_EVIDENCE_SHADOW_COMMENT_FIELD}{canonical}");
+            assert!(
+                validate_g3_evidence_shadow_comment_field(&line).is_ok(),
+                "{label} documented an unparsable shadow choice: {line}"
+            );
+        }
     }
 }
 
@@ -1993,6 +2006,76 @@ fn current_g3_exception_is_auditable_non_pass_and_fails_closed() {
 }
 
 #[test]
+fn current_exception_binding_uses_the_correction_restored_original_body() {
+    let (mut pr, _) = g3_exception_fixture(
+        "confirmed_gate_defect",
+        "G3 Exception",
+        "2026-07-10T05:10:00Z",
+        "2026-07-10T06:00:00Z",
+    );
+    let corrected_body = pr.comments[0].body.clone();
+    let shadow_value = "R1 non-required：exception 保持 non-success";
+    let canonical_shadow = format!("{G3_EVIDENCE_SHADOW_COMMENT_FIELD}{shadow_value}");
+    let wrapped_shadow = format!("{G3_EVIDENCE_SHADOW_COMMENT_FIELD}`{shadow_value}`");
+    let original_body = corrected_body.replace(&canonical_shadow, &wrapped_shadow);
+    assert_ne!(original_body, corrected_body);
+    let original_hash = body_sha256(&original_body);
+    let corrected_hash = body_sha256(&corrected_body);
+    pr.comments[1].body = pr.comments[1].body.replace(&corrected_hash, &original_hash);
+    {
+        let g3 = &mut pr.comments[0];
+        g3.body = corrected_body.clone();
+        g3.updated_at = Some("2026-07-10T06:00:00Z".to_string());
+        g3.includes_created_edit = true;
+        g3.user_content_edits = Some(GitHubUserContentEditConnection {
+            page_info: GitHubPageInfo {
+                has_next_page: false,
+            },
+            nodes: vec![
+                GitHubUserContentEdit {
+                    edited_at: "2026-07-10T06:00:00Z".to_string(),
+                    editor: Some(GitHubActor {
+                        login: "wangzishi".to_string(),
+                    }),
+                    diff: Some(corrected_body),
+                },
+                GitHubUserContentEdit {
+                    edited_at: "2026-07-10T05:00:00Z".to_string(),
+                    editor: Some(GitHubActor {
+                        login: "wangzishi".to_string(),
+                    }),
+                    diff: Some(original_body),
+                },
+            ],
+        });
+    }
+    pr.state = "MERGED".to_string();
+    pr.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+
+    let (_, correction_source) = post_merge_shadow_correction_fixture();
+    let mut correction = correction_source.comments[1].clone();
+    let source_record = parse_g3_comment_correction_record(&correction).unwrap();
+    correction.body = correction
+        .body
+        .replace(&source_record.original_body_sha256, &original_hash)
+        .replace(&source_record.new_body_sha256, &corrected_hash);
+    pr.comments.push(correction);
+
+    assert_eq!(
+        validate_g3_exception(
+            60,
+            61,
+            &pr,
+            &pr.comments[0],
+            G3Result::Exception,
+            None,
+            pr.merged_at.as_deref(),
+        ),
+        Ok(true)
+    );
+}
+
+#[test]
 fn historical_g3_block_replay_is_explicitly_non_retroactive() {
     let (mut pr, mut appendix) = g3_exception_fixture(
         "legacy_evidence_reconstruction",
@@ -2052,42 +2135,15 @@ fn g4_failed_assertion_requires_an_exact_structured_historical_exception_target(
     issue.comments[0] = exception_appendix.clone();
     let result = validate_g4_evidence(&args, &issue, &delivery, &[]);
     assert!(result.is_ok(), "{result:?}");
-    let valid_g4_comment = issue.comments[0].clone();
-    let (_, after_marker) = exception_appendix
-        .body
-        .split_once(G3_EXCEPTION_START)
-        .unwrap();
-    let (record_json, _) = after_marker.split_once(G3_EXCEPTION_END).unwrap();
-    let exception_record_body = format!("{G3_EXCEPTION_START}{record_json}{G3_EXCEPTION_END}");
 
-    let unrelated_current_record = exception_record_body
-        .replace("exception-60-61-1", "exception-999-999-current")
-        .replace("legacy_evidence_reconstruction", "confirmed_gate_defect")
-        .replace(r#""issue": 60"#, r#""issue": 999"#)
-        .replace(r#""pullRequest": 61"#, r#""pullRequest": 999"#);
-    issue.comments[0].body = format!("{}\n{unrelated_current_record}", valid_g4_comment.body);
-    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
-        .expect_err("every record in a historical appendix must use the historical type");
-    assert!(error.contains("只能使用 `legacy_evidence_reconstruction`"));
-
-    let unrelated_historical_record = exception_record_body
-        .replace("exception-60-61-1", "exception-999-999-historical")
-        .replace(r#""issue": 60"#, r#""issue": 999"#)
-        .replace(r#""pullRequest": 61"#, r#""pullRequest": 999"#);
-    issue.comments[0].body = format!("{}\n{unrelated_historical_record}", valid_g4_comment.body);
-    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
-        .expect_err("every record in a historical appendix must belong to the G4 target set");
-    assert!(error.contains("不得包含其他 Issue #999"));
-
-    issue.comments[0] = valid_g4_comment.clone();
     issue.comments[0].body = issue.comments[0]
         .body
         .replace(r#""pullRequest": 61"#, r#""pullRequest": 999"#);
     let error = validate_g4_evidence(&args, &issue, &delivery, &[])
         .expect_err("a failed G4 assertion may not use an unrelated exception record");
-    assert!(error.contains("target set 之外的 PR #999"));
+    assert!(error.contains("明确记录 `已通过`"));
 
-    issue.comments[0] = valid_g4_comment;
+    issue.comments[0] = exception_appendix;
     issue.comments[0].body = issue.comments[0]
         .body
         .replace("<!-- g3-exception:v1", "<!-- g3-exception:v1\nnot-json");

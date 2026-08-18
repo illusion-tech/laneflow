@@ -77,10 +77,12 @@ Gate Ledger 必须按任务阶段增量记录，不得等到 G4 清场时一次�
 - 开始实现、文档修改或开 PR 前，Issue 必须已有 G0/G1/G2 记录；小型 `docs-only` 或 `governance` 任务可用一条开工记录覆盖 G0-G2，但必须发生在实现前。
 - 任务不需要 G1 时，也必须记录不适用原因。
 - 准备合并 PR 前，必须取得当前 head 上一个有效外部 reviewer 的完成态审阅；有 findings 时，完成处置后还必须取得新的当前 head clean re-review。PR author 的自审是 G3 owner 职责，但不计入外部 reviewer。
-- PR 必须有一条 current `## G3 合并判断` comment，包含当前 head、rollout phase、Checks、External Review Gate、结构化审阅证据、review threads、验证、风险、例外、合并方式和 Gate 断言。canonical shadow 行写作 `- G3 Evidence Gate Shadow：R1 non-required：<原因>`，不包裹整个值；历史完整值的一层反引号只作兼容。允许在 PR 合并前纠错编辑：未编辑时以 `createdAt`、编辑后以 REST 核验的 `updatedAt` 作为生效时间，重新验证全部当前证据并新增严格更晚的 marker。合并后仅可用 append-only `g3-comment-correction:v1` 恢复经 UserContentEdit.diff 证明的完整 shadow 包裹格式差异；它不能改变 Gate 结果。PR body 与 Issue Ledger 必须回链 current comment。
+- PR 必须有一条 current `## G3 合并判断` comment，包含当前 head、rollout phase、Checks、External Review Gate、结构化审阅证据、review threads、验证、风险、例外、合并方式和 Gate 断言。canonical shadow 行按 rollout phase 从下列 R0/R1/R2 三种值中只保留一项，且不包裹整个值；历史完整值的一层反引号只作兼容。允许在 PR 合并前纠错编辑：未编辑时以 `createdAt`、编辑后以 REST 核验的 `updatedAt` 作为生效时间，重新验证全部当前证据并新增严格更晚的 marker。合并后仅可用 append-only `g3-comment-correction:v1` 恢复经 UserContentEdit.diff 证明的完整 shadow 包裹格式差异；它不能改变 Gate 结果。PR body 与 Issue Ledger 必须回链 current comment。
 
 ```text
+- G3 Evidence Gate Shadow：候选 workflow bootstrap：<边界>
 - G3 Evidence Gate Shadow：R1 non-required：<原因>
+- G3 Evidence Gate Shadow：Check URL：https://github.com/...
 ```
 - 清场时只补 G4；如果发现 G0-G3 缺失，必须标记为补救记录，并说明这是流程遗漏，不能当作标准流程。
 - 任一 Gate 记录缺失且没有显式例外时，不得声称任务完成。

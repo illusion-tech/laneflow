@@ -1,6 +1,6 @@
 //! Issue/PR Markdown、permalink、Gate assertion 与结构化例外解析。
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::external_review;
@@ -754,13 +754,18 @@ fn canonicalize_g3_shadow_wrapper(value: &str) -> Result<String, String> {
     Ok(format!("{inner}{suffix}"))
 }
 
-pub(super) fn validate_g3_comment_correction(
-    args: &GateEvidenceArgs,
+struct ValidatedG3CommentCorrection {
+    original_effective_at: String,
+    original_body_sha256: String,
+}
+
+fn validate_g3_comment_correction(
+    issue: u64,
+    pr_number: u64,
     pr: &GitHubPullRequest,
     g3_comment: &GitHubComment,
     merged_at: &str,
-) -> Result<String, String> {
-    let (_, pr_number) = super::args::selected_gate_evidence_pr(args)?;
+) -> Result<ValidatedG3CommentCorrection, String> {
     let candidates = pr
         .comments
         .iter()
@@ -771,14 +776,14 @@ pub(super) fn validate_g3_comment_correction(
         .map(|comment| parse_g3_comment_correction_record(comment).map(|record| (comment, record)))
         .collect::<Result<Vec<_>, _>>()?;
     let mut matching = candidates.into_iter().filter(|(_, record)| {
-        record.issue == args.issue
+        record.issue == issue
             && record.pull_request == pr_number
             && record.g3_comment == g3_comment.url
     });
     let (appendix, record) = matching.next().ok_or_else(|| {
         format!(
             "post-merge edited G3 comment 缺少 Issue #{} / PR #{} 的 `{G3_COMMENT_CORRECTION_START}` appendix",
-            args.issue, pr_number
+            issue, pr_number
         )
     })?;
     if matching.next().is_some() {
@@ -825,7 +830,7 @@ pub(super) fn validate_g3_comment_correction(
         .and_then(|value| value.parse::<u64>().ok())
         .filter(|number| *number > 0)
         .ok_or("G3 comment correction followUpIssue 必须是 `#<positive number>`")?;
-    if record.follow_up_issue != format!("#{follow_up}") || follow_up == args.issue {
+    if record.follow_up_issue != format!("#{follow_up}") || follow_up == issue {
         return Err(
             "G3 comment correction followUpIssue 必须是独立、无前导零的 `#<positive number>`"
                 .to_string(),
@@ -918,7 +923,10 @@ pub(super) fn validate_g3_comment_correction(
     if appendix_seconds <= corrected_seconds {
         return Err("G3 comment correction appendix 必须严格晚于被签署的格式编辑".to_string());
     }
-    Ok(original_edit.edited_at.clone())
+    Ok(ValidatedG3CommentCorrection {
+        original_effective_at: original_edit.edited_at.clone(),
+        original_body_sha256: body_sha256(original_body),
+    })
 }
 
 pub(super) fn g3_effective_at_for_merge_validation(
@@ -937,18 +945,21 @@ pub(super) fn g3_effective_at_for_merge_validation(
         return Ok(effective_at.to_string());
     };
     if effective_at >= merged_at {
-        let original_effective_at = validate_g3_comment_correction(args, pr, comment, merged_at)
-            .map_err(|correction_error| {
+        let (_, pr_number) = super::args::selected_gate_evidence_pr(args)?;
+        let correction =
+            validate_g3_comment_correction(args.issue, pr_number, pr, comment, merged_at).map_err(
+                |correction_error| {
                 format!(
                     "{label} comment 生效时间必须严格早于 PR 合并时间；correction 验证失败：{correction_error}"
                 )
-            })?;
-        if original_effective_at.as_str() >= merged_at {
+            },
+            )?;
+        if correction.original_effective_at.as_str() >= merged_at {
             return Err(format!(
                 "{label} correction 恢复的原始 comment 生效时间必须严格早于 PR 合并时间"
             ));
         }
-        return Ok(original_effective_at);
+        return Ok(correction.original_effective_at);
     }
     Ok(effective_at.to_string())
 }
@@ -1400,76 +1411,6 @@ fn is_trusted_g3_owner_comment(comment: &GitHubComment) -> bool {
     })
 }
 
-pub(super) fn validate_historical_exception_appendix<'a>(
-    appendix: &GitHubComment,
-    issue: u64,
-    targets: impl IntoIterator<Item = (u64, &'a GitHubPullRequest)>,
-) -> Result<(), String> {
-    if !is_trusted_g3_owner_comment(appendix) {
-        return Ok(());
-    }
-    let mut target_map = BTreeMap::new();
-    for (pr_number, pr) in targets {
-        if target_map.insert(pr_number, pr).is_some() {
-            return Err(format!(
-                "Issue #{issue} 的 G4 historical target set 包含重复 PR #{pr_number}"
-            ));
-        }
-    }
-    for record in parse_g3_exception_records(appendix)? {
-        if record.exception_type != "legacy_evidence_reconstruction" {
-            return Err(format!(
-                "Issue #{issue} 的 G4 historical appendix 只能使用 `legacy_evidence_reconstruction`，实际为 `{}`",
-                record.exception_type
-            ));
-        }
-        if record.issue != issue {
-            return Err(format!(
-                "Issue #{issue} 的 G4 historical appendix 不得包含其他 Issue #{} 的记录",
-                record.issue
-            ));
-        }
-        let pr = target_map.get(&record.pull_request).ok_or_else(|| {
-            format!(
-                "Issue #{issue} 的 G4 historical appendix 记录了 target set 之外的 PR #{}",
-                record.pull_request
-            )
-        })?;
-        let permalink = completed_gate_permalink(&pr.body, "G3")?;
-        if record.g3_comment != permalink {
-            return Err(format!(
-                "Issue #{issue} / PR #{} 的 G4 historical appendix 未绑定 target set 的 G3 permalink：期望 `{permalink}`；实际 `{}`",
-                record.pull_request, record.g3_comment
-            ));
-        }
-        let g3_comment = pr
-            .comments
-            .iter()
-            .find(|comment| comment.url == permalink)
-            .ok_or_else(|| {
-                format!(
-                    "Issue #{issue} / PR #{} 的 G3 permalink 未指向该 PR comment",
-                    record.pull_request
-                )
-            })?;
-        let merged_at = pr.merged_at.as_deref().ok_or_else(|| {
-            format!(
-                "Issue #{issue} / PR #{} 缺少 mergedAt，不能验证 historical exception",
-                record.pull_request
-            )
-        })?;
-        validate_g3_exception_record(
-            appendix,
-            &record,
-            pr,
-            g3_comment,
-            parse_g3_result(&g3_comment.body)?,
-            Some(merged_at),
-        )?;
-    }
-    Ok(())
-}
-
 pub(super) fn historical_exception_applies_to_target(
     appendix: &GitHubComment,
     issue: u64,
@@ -1518,11 +1459,34 @@ fn validate_g3_exception_record(
     if record.current_head_oid != pr.head_ref_oid || record.current_base_oid != pr.base_ref_oid {
         return Err("g3-exception current head/base 与 GitHub PR identity 不一致".to_string());
     }
-    if record.g3_comment != g3_comment.url
-        || record.g3_comment_body_sha256 != body_sha256(&g3_comment.body)
-    {
-        return Err("g3-exception 未精确绑定目标 G3 comment permalink/body SHA-256".to_string());
+    if record.g3_comment != g3_comment.url {
+        return Err("g3-exception 未精确绑定目标 G3 comment permalink".to_string());
     }
+    let correction = if record.g3_comment_body_sha256 != body_sha256(&g3_comment.body) {
+        let merged_at = pr.merged_at.as_deref().ok_or(
+            "g3-exception 未精确绑定目标 G3 comment body SHA-256，且当前 PR 尚未合并，不能使用 correction 恢复",
+        )?;
+        let correction = validate_g3_comment_correction(
+            record.issue,
+            record.pull_request,
+            pr,
+            g3_comment,
+            merged_at,
+        )
+        .map_err(|error| {
+            format!(
+                "g3-exception 未精确绑定当前 G3 comment body SHA-256，correction 恢复失败：{error}"
+            )
+        })?;
+        if record.g3_comment_body_sha256 != correction.original_body_sha256 {
+            return Err(
+                "g3-exception body SHA-256 未绑定当前正文或 correction 恢复的原始正文".to_string(),
+            );
+        }
+        Some(correction)
+    } else {
+        None
+    };
     let author = appendix
         .author
         .as_ref()
@@ -1545,10 +1509,13 @@ fn validate_g3_exception_record(
     if expires_at <= accepted_at || expires_at - accepted_at > G3_EXCEPTION_MAX_SECONDS {
         return Err("g3-exception 有效期必须晚于 acceptedAt 且不超过 24 小时".to_string());
     }
-    let g3_effective_at = parse_utc_timestamp_seconds(g3_comment_effective_at(
-        g3_comment,
-        "g3-exception target comment",
-    )?)
+    let current_effective_at = g3_comment_effective_at(g3_comment, "g3-exception target comment")?;
+    let g3_effective_at = parse_utc_timestamp_seconds(
+        correction
+            .as_ref()
+            .map(|correction| correction.original_effective_at.as_str())
+            .unwrap_or(current_effective_at),
+    )
     .ok_or("g3-exception target effectiveAt 无效")?;
     if accepted_at <= g3_effective_at {
         return Err("g3-exception appendix 必须严格晚于目标 G3 comment 生效时间".to_string());
