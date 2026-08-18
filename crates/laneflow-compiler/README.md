@@ -82,7 +82,7 @@ nested/top fields、rows、tables、sections 降低到少量连续 arena，并�
 该返回值仍是未受信内存候选：checked base 只证明格式结构和直接值域，不证明完整 artifact
 语义；候选也不授予发布、迁移或运行时加载权限。`read_portable_object_known_length` 和
 `read_portable_object_to_end` 只在任何 hash/view 前关闭已知长度 O(1) 与未知流 `max+1`
-transport 边界，读取成功仍须进入 format preflight。`PortableObjectStore` 把上层能力关闭的
+transport 边界，读取成功仍须进入 format preflight。`LocalPortableObjectInstaller` 把上层能力关闭的
 exact bytes 写入调用方预配置发布根内的唯一 staging 目录，flush/sync/close 后流式复核
 exact bytes，再以同文件系统 hard-link no-replace 原子安装到内部重算的
 `sha256/<64 lowercase hex>` 路径；LaneFlow 只创建并持久化配置根下的固定直接子目录，不递归
@@ -91,6 +91,11 @@ exact bytes，再以同文件系统 hard-link no-replace 原子安装到内部�
 `AtomicInstallUnsupported`。当前 Unix 原生后端提供该能力；Windows 仍支持 exact-byte
 发射与读取，但原生 durable publication 后端在取得可审计保证前失败关闭。安装结果与 receipt subject projection 继续使用
 `Sha256Digest`、`ExactByteLength`、`NetworkRevisionId`，只有 LFCP wire writer 解包这些值。
+该安装器假定调用方独占管理并信任预配置发布根；协议内 writer 不覆盖、截断或原地修改
+最终摘要路径。直接拥有文件系统写权限的进程与 ACL、账户隔离、只读挂载、WORM 策略属于
+部署边界，消费者仍须按认证 binding 重新计算摘要并在不匹配时失败关闭。该类型不是通用
+对象存储：不公开任意 bytes 写入，不提供枚举、删除、GC、远程 backend、压缩、加密、配额
+或通用存储生命周期。
 `commit_portable_publication_v1` 只接受未来 #299
 实现的 `CanonicalPublicationReceiptViewV1`：一次性快照其 opaque exact bytes、metadata 和恰好
 两个 subject bindings，依次安装 LFCA/LFSM/LFSD/receipt 后才构造并安装 LFCP，最后恰好调用

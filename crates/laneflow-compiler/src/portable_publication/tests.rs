@@ -243,7 +243,7 @@ fn field_utf8(bytes: &[u8], section: u32, tag: u16) -> &str {
 }
 
 #[cfg(unix)]
-fn read_installed(store: &PortableObjectStore, object_key: &str) -> Vec<u8> {
+fn read_installed(store: &LocalPortableObjectInstaller, object_key: &str) -> Vec<u8> {
     fs::read(store.object_path(object_key).unwrap()).unwrap()
 }
 
@@ -251,7 +251,7 @@ fn read_installed(store: &PortableObjectStore, object_key: &str) -> Vec<u8> {
 #[test]
 fn success_installs_all_objects_then_commits_exactly_one_manifest() {
     let root = TestRoot::new("success");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
     let receipt = TestReceipt::valid(&candidate);
     let mut manifest = RecordingManifest::succeeds();
@@ -341,7 +341,7 @@ fn success_installs_all_objects_then_commits_exactly_one_manifest() {
 #[test]
 fn publisher_kind_and_optional_controlled_provenance_are_exact_inputs() {
     let root = TestRoot::new("publisher-provenance");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
     let receipt = TestReceipt::valid(&candidate);
     for (kind, code) in [
@@ -378,7 +378,7 @@ fn publisher_kind_and_optional_controlled_provenance_are_exact_inputs() {
 #[test]
 fn receipt_view_is_snapshotted_once_before_any_installation() {
     let root = TestRoot::new("receipt-snapshot");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
     let receipt = AlternatingReceipt {
         inner: TestReceipt::valid(&candidate),
@@ -432,7 +432,7 @@ fn hex_nibble(byte: u8) -> u8 {
 #[test]
 fn receipt_metadata_shape_and_every_subject_binding_fail_before_install() {
     let root = TestRoot::new("receipt-negative");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
     let valid = TestReceipt::valid(&candidate);
 
@@ -568,7 +568,7 @@ fn receipt_metadata_shape_and_every_subject_binding_fail_before_install() {
 
 #[cfg(unix)]
 struct FaultingInstaller<'a> {
-    store: &'a PortableObjectStore,
+    store: &'a LocalPortableObjectInstaller,
     fail_on_call: Option<usize>,
     error: PortableInstallError,
     calls: Cell<usize>,
@@ -578,7 +578,7 @@ struct FaultingInstaller<'a> {
 #[cfg(unix)]
 impl<'a> FaultingInstaller<'a> {
     fn new(
-        store: &'a PortableObjectStore,
+        store: &'a LocalPortableObjectInstaller,
         fail_on_call: Option<usize>,
         error: PortableInstallError,
     ) -> Self {
@@ -637,7 +637,7 @@ fn run_install_failure(
     error: PortableInstallError,
 ) -> (Vec<&'static str>, usize) {
     let root = TestRoot::new(name);
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
     let receipt = TestReceipt::valid(&candidate);
     let installer = FaultingInstaller::new(&store, Some(fail_on_call), error);
@@ -747,7 +747,7 @@ fn every_receipt_storage_failure_prevents_lfcp_and_manifest() {
 #[test]
 fn manifest_failure_keeps_complete_objects_unreferenced_without_commit_capability() {
     let root = TestRoot::new("manifest-failure");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
     let receipt = TestReceipt::valid(&candidate);
     let mut manifest = RecordingManifest {

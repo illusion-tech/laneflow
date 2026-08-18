@@ -82,8 +82,8 @@ pub use portable_publication::{
     PortablePublisherKindV1, PortableSourceMapSubjectBindingV1, commit_portable_publication_v1,
 };
 pub use portable_store::{
-    PortableInstallDisposition, PortableInstallError, PortableInstallOperation,
-    PortableObjectInstallation, PortableObjectStore,
+    LocalPortableObjectInstaller, PortableInstallDisposition, PortableInstallError,
+    PortableInstallOperation, PortableObjectInstallation,
 };
 pub use portable_transport::{
     PortableReadError, read_portable_object_known_length, read_portable_object_to_end,
