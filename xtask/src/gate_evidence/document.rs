@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::external_review;
+use sha2::{Digest, Sha256};
 
 use super::model::*;
 
@@ -200,6 +201,7 @@ pub(super) fn validate_comment(
     required_fields: &[&str],
     label: &str,
     args: &GateEvidenceArgs,
+    allow_legacy_exception: bool,
 ) -> Result<(), String> {
     let comment = pr
         .comments
@@ -213,7 +215,13 @@ pub(super) fn validate_comment(
         required_fields
     };
     validate_comment_body(&comment.body, required_fields, label)?;
-    validate_gate_assertion(&comment.body, label, args, GateEvidencePhase::G3)
+    validate_gate_assertion_with_legacy_exception(
+        &comment.body,
+        label,
+        args,
+        GateEvidencePhase::G3,
+        allow_legacy_exception,
+    )
 }
 
 pub(super) fn comment_for_permalink<'a>(
@@ -248,13 +256,38 @@ pub(super) fn validate_comment_body(
     }
 }
 
+#[cfg(test)]
 pub(super) fn validate_gate_assertion(
     body: &str,
     label: &str,
     args: &GateEvidenceArgs,
     phase: GateEvidencePhase,
 ) -> Result<(), String> {
-    let actual_commands = gate_assertion_commands(body, label, phase)?;
+    validate_gate_assertion_with_legacy_exception(body, label, args, phase, false)
+}
+
+pub(super) fn validate_gate_assertion_with_legacy_exception(
+    body: &str,
+    label: &str,
+    args: &GateEvidenceArgs,
+    phase: GateEvidencePhase,
+    allow_legacy_exception: bool,
+) -> Result<(), String> {
+    let actual_commands = match semantic_gate_assertion_commands_with_legacy_exception(
+        body,
+        label,
+        phase,
+        allow_legacy_exception,
+    ) {
+        Ok(commands) => commands,
+        Err(_)
+            if allow_legacy_exception
+                && legacy_failed_gate_assertion_without_command(body, phase) =>
+        {
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
     let expected_command = expected_gate_command(args, phase);
     if !actual_commands.contains(&expected_command) {
         return Err(format!(
@@ -265,13 +298,27 @@ pub(super) fn validate_gate_assertion(
     Ok(())
 }
 
+fn legacy_failed_gate_assertion_without_command(body: &str, phase: GateEvidencePhase) -> bool {
+    if phase != GateEvidencePhase::G3 {
+        return false;
+    }
+    let lines = body
+        .lines()
+        .filter(|line| line.starts_with(GATE_ASSERTION_PREFIX))
+        .collect::<Vec<_>>();
+    lines.len() == 1
+        && !lines[0].contains('`')
+        && lines[0].contains("未通过")
+        && !lines[0].contains("已通过")
+}
+
 pub(super) fn validate_gate_assertion_set(
     body: &str,
     label: &str,
     args: &[GateEvidenceArgs],
     phase: GateEvidencePhase,
 ) -> Result<(), String> {
-    let actual_commands = gate_assertion_commands(body, label, phase)?;
+    let actual_commands = semantic_gate_assertion_commands(body, label, phase)?;
     let expected_commands = args
         .iter()
         .map(|args| expected_gate_command(args, phase))
@@ -293,6 +340,15 @@ pub(super) fn gate_assertion_commands(
     body: &str,
     label: &str,
     phase: GateEvidencePhase,
+) -> Result<BTreeSet<String>, String> {
+    gate_assertion_commands_with_legacy_exception(body, label, phase, false)
+}
+
+pub(super) fn gate_assertion_commands_with_legacy_exception(
+    body: &str,
+    label: &str,
+    phase: GateEvidencePhase,
+    allow_legacy_exception: bool,
 ) -> Result<BTreeSet<String>, String> {
     let assertion_lines = body
         .lines()
@@ -323,23 +379,92 @@ pub(super) fn gate_assertion_commands(
                 "{label} comment 的 `Gate 断言` 不得重复同一规范命令：`{actual_command}`"
             ));
         }
-        if !matches!(result.trim(), "已通过" | "已通过。") {
+        let expects_failed_assertion = allow_legacy_exception
+            || match phase {
+                GateEvidencePhase::G3 => {
+                    body.lines()
+                        .any(|line| line.trim_start().starts_with("- Gate 结果："))
+                        && matches!(
+                            parse_g3_result(body)?,
+                            G3Result::Exception | G3Result::LegacyBlock
+                        )
+                }
+                GateEvidencePhase::G4 => body.contains(G3_EXCEPTION_START),
+            };
+        let accepted_result = if allow_legacy_exception && expects_failed_assertion {
+            result.contains("未通过") && !result.contains("已通过")
+        } else if expects_failed_assertion {
+            matches!(result.trim(), "未通过" | "未通过。")
+        } else {
+            matches!(result.trim(), "已通过" | "已通过。")
+        };
+        if !accepted_result {
             return Err(format!(
-                "{label} comment 的 `Gate 断言` 必须在规范命令后明确记录 `已通过`"
+                "{label} comment 的 `Gate 断言` 必须在规范命令后明确记录 `{}`",
+                if expects_failed_assertion {
+                    "未通过"
+                } else {
+                    "已通过"
+                }
             ));
         }
     }
     Ok(unique_commands)
 }
 
+pub(super) fn semantic_gate_assertion_commands(
+    body: &str,
+    label: &str,
+    phase: GateEvidencePhase,
+) -> Result<BTreeSet<String>, String> {
+    semantic_gate_assertion_commands_with_legacy_exception(body, label, phase, false)
+}
+
+pub(super) fn semantic_gate_assertion_commands_with_legacy_exception(
+    body: &str,
+    label: &str,
+    phase: GateEvidencePhase,
+    allow_legacy_exception: bool,
+) -> Result<BTreeSet<String>, String> {
+    let raw_commands =
+        gate_assertion_commands_with_legacy_exception(body, label, phase, allow_legacy_exception)?;
+    let raw_count = raw_commands.len();
+    let semantic_commands = raw_commands
+        .into_iter()
+        .map(|command| {
+            parse_gate_assertion_command(&command, phase)
+                .map(|args| expected_gate_command(&args, phase))
+                .map_err(|error| format!("{label} comment 的 `Gate 断言` 命令无效：{error}"))
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    if semantic_commands.len() != raw_count {
+        return Err(format!(
+            "{label} comment 的 `Gate 断言` 不得用不同参数顺序重复同一语义命令"
+        ));
+    }
+    Ok(semantic_commands)
+}
+
 pub(super) fn expected_gate_command(args: &GateEvidenceArgs, phase: GateEvidencePhase) -> String {
+    expected_gate_command_with_rust_version(args, phase, env!("CARGO_PKG_RUST_VERSION"))
+        .expect("CARGO_PKG_RUST_VERSION must be a stable Rust version")
+}
+
+pub(super) fn expected_gate_command_with_rust_version(
+    args: &GateEvidenceArgs,
+    phase: GateEvidencePhase,
+    rust_version: &str,
+) -> Result<String, String> {
+    let rust_version = StableRustVersion::parse(rust_version)?;
     let phase = match phase {
         GateEvidencePhase::G3 => "g3",
         GateEvidencePhase::G4 => "g4",
     };
     let mut command = format!(
-        "cargo +1.96.0 run --locked -p xtask -- check-gate-evidence {phase} --repo {} --issue {}",
-        args.repo, args.issue
+        "cargo +{} run --locked -p xtask -- check-gate-evidence {phase} --repo {} --issue {}",
+        rust_version.canonical(),
+        args.repo,
+        args.issue
     );
     if let Some(delivery_pr) = args.delivery_pr {
         command.push_str(&format!(" --delivery-pr {delivery_pr}"));
@@ -347,13 +472,370 @@ pub(super) fn expected_gate_command(args: &GateEvidenceArgs, phase: GateEvidence
     for related_pr in &args.related_prs {
         command.push_str(&format!(" --related-pr {related_pr}"));
     }
-    command
+    Ok(command)
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) struct StableRustVersion {
+    major: u64,
+    minor: u64,
+    patch: u64,
+}
+
+impl StableRustVersion {
+    pub(super) fn parse(value: &str) -> Result<Self, String> {
+        let parts = value.split('.').collect::<Vec<_>>();
+        if !matches!(parts.len(), 2 | 3)
+            || parts.iter().any(|part| {
+                part.is_empty()
+                    || !part.bytes().all(|byte| byte.is_ascii_digit())
+                    || (part.len() > 1 && part.starts_with('0'))
+            })
+        {
+            return Err(format!(
+                "Rust toolchain `{value}` 必须是无前导零的稳定 `major.minor[.patch]` 版本"
+            ));
+        }
+        let parse = |part: &str| {
+            part.parse::<u64>()
+                .map_err(|_| format!("Rust toolchain 版本分量超出范围：{value}"))
+        };
+        Ok(Self {
+            major: parse(parts[0])?,
+            minor: parse(parts[1])?,
+            patch: parts.get(2).map_or(Ok(0), |part| parse(part))?,
+        })
+    }
+
+    pub(super) fn canonical(self) -> String {
+        format!("{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
+pub(super) fn parse_gate_assertion_command(
+    command: &str,
+    expected_phase: GateEvidencePhase,
+) -> Result<GateEvidenceArgs, String> {
+    parse_gate_assertion_command_with_current_version(
+        command,
+        expected_phase,
+        env!("CARGO_PKG_RUST_VERSION"),
+    )
+}
+
+pub(super) fn parse_gate_assertion_command_with_current_version(
+    command: &str,
+    expected_phase: GateEvidencePhase,
+    current_rust_version: &str,
+) -> Result<GateEvidenceArgs, String> {
+    let tokens = command.split_ascii_whitespace().collect::<Vec<_>>();
+    if tokens.len() < 8 || tokens.first() != Some(&"cargo") || tokens.get(2) != Some(&"run") {
+        return Err("规范命令必须以 `cargo +<stable> run` 开始".to_string());
+    }
+    let toolchain = tokens
+        .get(1)
+        .and_then(|token| token.strip_prefix('+'))
+        .ok_or("规范命令必须显式记录 `+<stable toolchain>`")?;
+    let actual_version = StableRustVersion::parse(toolchain)?;
+    let minimum_version = StableRustVersion::parse("1.96.0")?;
+    let current_version = StableRustVersion::parse(current_rust_version)?;
+    if actual_version < minimum_version || actual_version > current_version {
+        return Err(format!(
+            "Rust toolchain `{}` 超出 gate-command v1 历史兼容边界 `{}..={}`",
+            actual_version.canonical(),
+            minimum_version.canonical(),
+            current_version.canonical()
+        ));
+    }
+
+    let separator = tokens
+        .iter()
+        .position(|token| *token == "--")
+        .ok_or("规范命令缺少 cargo/xtask 参数分隔符 `--`")?;
+    let mut locked = false;
+    let mut package = None;
+    let mut index = 3;
+    while index < separator {
+        match tokens[index] {
+            "--locked" => {
+                if locked {
+                    return Err("cargo `--locked` 只能指定一次".to_string());
+                }
+                locked = true;
+                index += 1;
+            }
+            "-p" | "--package" => {
+                let value = tokens
+                    .get(index + 1)
+                    .filter(|_| index + 1 < separator)
+                    .ok_or("cargo package 参数缺少值")?;
+                if package.replace(*value).is_some() {
+                    return Err("cargo package 只能指定一次".to_string());
+                }
+                index += 2;
+            }
+            flag => return Err(format!("规范命令包含未知 cargo 参数：{flag}")),
+        }
+    }
+    if !locked || package != Some("xtask") {
+        return Err("规范命令必须包含唯一的 `--locked` 与 `-p xtask`".to_string());
+    }
+    if tokens.get(separator + 1) != Some(&"check-gate-evidence") {
+        return Err("规范命令的 xtask 子命令必须是 `check-gate-evidence`".to_string());
+    }
+    let args = tokens[separator + 2..]
+        .iter()
+        .map(|token| (*token).to_string())
+        .collect::<Vec<_>>();
+    let args = super::args::parse_gate_evidence_args(&args)?;
+    if args.phase != expected_phase {
+        return Err(format!(
+            "规范命令阶段与 comment 不一致：预期 {expected_phase:?}，实际 {:?}",
+            args.phase
+        ));
+    }
+    Ok(args)
+}
+
+pub(super) fn body_sha256(body: &str) -> String {
+    let digest = Sha256::digest(body.as_bytes());
+    let mut encoded = String::with_capacity("sha256:".len() + digest.len() * 2);
+    encoded.push_str("sha256:");
+    for byte in digest {
+        use std::fmt::Write as _;
+        write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    encoded
+}
+
+pub(super) fn parse_g3_comment_correction_record(
+    comment: &GitHubComment,
+) -> Result<G3CommentCorrectionRecord, String> {
+    if comment.includes_created_edit {
+        return Err("G3 comment correction appendix 在创建后被编辑".to_string());
+    }
+    if comment.body.matches(G3_COMMENT_CORRECTION_START).count() != 1 {
+        return Err(format!(
+            "G3 comment correction appendix 必须包含且只包含一个 `{G3_COMMENT_CORRECTION_START}` 记录"
+        ));
+    }
+    let (_, after_start) = comment
+        .body
+        .split_once(G3_COMMENT_CORRECTION_START)
+        .ok_or("G3 comment correction appendix 缺少起始标记")?;
+    let (json, _) = after_start
+        .split_once(G3_COMMENT_CORRECTION_END)
+        .ok_or("G3 comment correction appendix 缺少结束标记")?;
+    let record = serde_json::from_str::<G3CommentCorrectionRecord>(json.trim())
+        .map_err(|error| format!("G3 comment correction 不是 schema v1 JSON：{error}"))?;
+    if record.schema_version != 1 {
+        return Err(format!(
+            "G3 comment correction schemaVersion 必须为 1，实际为 {}",
+            record.schema_version
+        ));
+    }
+    Ok(record)
+}
+
+fn canonicalize_g3_shadow_field(body: &str) -> Result<String, String> {
+    let mut found = false;
+    let mut canonical = String::with_capacity(body.len());
+    for segment in body.split_inclusive('\n') {
+        let (line, newline) = segment
+            .strip_suffix('\n')
+            .map_or((segment, ""), |line| (line, "\n"));
+        if line.starts_with(G3_EVIDENCE_SHADOW_COMMENT_FIELD) {
+            if found {
+                return Err("G3 Evidence Gate Shadow 字段不能重复".to_string());
+            }
+            found = true;
+            let value = line
+                .strip_prefix(G3_EVIDENCE_SHADOW_COMMENT_FIELD)
+                .expect("checked prefix")
+                .trim();
+            let value = parse_optional_backtick_value(value, "G3 Evidence Gate Shadow")?;
+            canonical.push_str(G3_EVIDENCE_SHADOW_COMMENT_FIELD);
+            canonical.push_str(value);
+            canonical.push_str(newline);
+        } else {
+            canonical.push_str(segment);
+        }
+    }
+    if !found {
+        return Err("G3 comment correction 的正文缺少 G3 Evidence Gate Shadow 字段".to_string());
+    }
+    Ok(canonical)
+}
+
+pub(super) fn validate_g3_comment_correction(
+    args: &GateEvidenceArgs,
+    pr: &GitHubPullRequest,
+    g3_comment: &GitHubComment,
+    merged_at: &str,
+) -> Result<String, String> {
+    let (_, pr_number) = super::args::selected_gate_evidence_pr(args)?;
+    let candidates = pr
+        .comments
+        .iter()
+        .filter(|comment| comment.body.contains(G3_COMMENT_CORRECTION_START))
+        .map(|comment| parse_g3_comment_correction_record(comment).map(|record| (comment, record)))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut matching = candidates.into_iter().filter(|(_, record)| {
+        record.issue == args.issue
+            && record.pull_request == pr_number
+            && record.g3_comment == g3_comment.url
+    });
+    let (appendix, record) = matching.next().ok_or_else(|| {
+        format!(
+            "post-merge edited G3 comment 缺少 Issue #{} / PR #{} 的 `{G3_COMMENT_CORRECTION_START}` appendix",
+            args.issue, pr_number
+        )
+    })?;
+    if matching.next().is_some() {
+        return Err("同一 G3 comment 只能有一条 correction appendix".to_string());
+    }
+    for (field, value) in [
+        ("id", record.id.as_str()),
+        ("currentHeadOid", record.current_head_oid.as_str()),
+        ("originalBodySha256", record.original_body_sha256.as_str()),
+        ("newBodySha256", record.new_body_sha256.as_str()),
+        ("editedAt", record.edited_at.as_str()),
+        ("editor", record.editor.as_str()),
+        ("reason", record.reason.as_str()),
+        ("risk", record.risk.as_str()),
+        ("acceptanceBoundary", record.acceptance_boundary.as_str()),
+        ("followUpIssue", record.follow_up_issue.as_str()),
+        ("cleanupOwner", record.cleanup_owner.as_str()),
+        ("authorizedBy", record.authorized_by.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            return Err(format!("G3 comment correction `{field}` 不能为空"));
+        }
+    }
+    if record.current_head_oid != pr.head_ref_oid {
+        return Err("G3 comment correction currentHeadOid 与 PR headRefOid 不一致".to_string());
+    }
+    let author = appendix
+        .author
+        .as_ref()
+        .map(|author| author.login.as_str())
+        .ok_or("G3 comment correction appendix 缺少 author")?;
+    if !author.eq_ignore_ascii_case(&record.authorized_by)
+        || !G3_OWNER_ACTORS
+            .iter()
+            .any(|owner| owner.eq_ignore_ascii_case(author))
+    {
+        return Err(
+            "G3 comment correction 必须由 trusted G3 Owner 以 authorizedBy 签署".to_string(),
+        );
+    }
+    let follow_up = record
+        .follow_up_issue
+        .strip_prefix('#')
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|number| *number > 0)
+        .ok_or("G3 comment correction followUpIssue 必须是 `#<positive number>`")?;
+    if record.follow_up_issue != format!("#{follow_up}") || follow_up == args.issue {
+        return Err(
+            "G3 comment correction followUpIssue 必须是独立、无前导零的 `#<positive number>`"
+                .to_string(),
+        );
+    }
+
+    let edits = g3_comment
+        .user_content_edits
+        .as_ref()
+        .ok_or("edited G3 comment 缺少 hydrated userContentEdits")?;
+    if edits.page_info.has_next_page {
+        return Err(
+            "edited G3 comment 的 userContentEdits 超过 100 条，correction 失败关闭".to_string(),
+        );
+    }
+    let updated_at = g3_comment
+        .updated_at
+        .as_deref()
+        .ok_or("edited G3 comment 缺少 hydrated updatedAt")?;
+    if record.edited_at != updated_at {
+        return Err("G3 comment correction editedAt 与 REST updatedAt 不一致".to_string());
+    }
+    let mut ordered = edits
+        .nodes
+        .iter()
+        .map(|edit| {
+            parse_utc_timestamp_seconds(&edit.edited_at)
+                .ok_or("G3 comment correction userContentEdit.editedAt 无效")
+                .map(|timestamp| (timestamp, edit))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    ordered.sort_by_key(|(timestamp, _)| *timestamp);
+    let current_index = ordered
+        .iter()
+        .position(|(_, edit)| edit.edited_at == record.edited_at)
+        .ok_or("G3 comment correction editedAt 未命中 userContentEdits")?;
+    if current_index + 1 != ordered.len() || current_index == 0 {
+        return Err("G3 comment correction 必须绑定最新编辑及其紧邻前一版正文".to_string());
+    }
+    let (original_seconds, original_edit) = ordered[current_index - 1];
+    let (corrected_seconds, corrected_edit) = ordered[current_index];
+    let original_body = original_edit
+        .diff
+        .as_deref()
+        .ok_or("G3 comment correction 原始 UserContentEdit 缺少 diff snapshot")?;
+    let corrected_body = corrected_edit
+        .diff
+        .as_deref()
+        .ok_or("G3 comment correction 最新 UserContentEdit 缺少 diff snapshot")?;
+    if corrected_body != g3_comment.body {
+        return Err("G3 comment correction 最新 diff snapshot 与当前正文不一致".to_string());
+    }
+    let editor = corrected_edit
+        .editor
+        .as_ref()
+        .map(|editor| editor.login.as_str())
+        .ok_or("G3 comment correction 最新 edit 缺少 editor")?;
+    if !editor.eq_ignore_ascii_case(&record.editor)
+        || !G3_OWNER_ACTORS
+            .iter()
+            .any(|owner| owner.eq_ignore_ascii_case(editor))
+    {
+        return Err(
+            "G3 comment correction editor 必须与记录一致且属于 trusted G3 Owner".to_string(),
+        );
+    }
+    if body_sha256(original_body) != record.original_body_sha256
+        || body_sha256(corrected_body) != record.new_body_sha256
+    {
+        return Err(
+            "G3 comment correction 原始/新正文 SHA-256 与 GitHub edit history 不一致".to_string(),
+        );
+    }
+    if original_body == corrected_body
+        || canonicalize_g3_shadow_field(original_body)?
+            != canonicalize_g3_shadow_field(corrected_body)?
+    {
+        return Err("G3 comment correction 只允许完整 shadow 字段的一层反引号包裹差异".to_string());
+    }
+    let merged_seconds = parse_utc_timestamp_seconds(merged_at)
+        .ok_or("G3 comment correction 的 PR mergedAt 无效")?;
+    if original_seconds >= merged_seconds || corrected_seconds <= merged_seconds {
+        return Err(
+            "G3 comment correction 必须证明原始版严格早于 merge、格式编辑严格晚于 merge"
+                .to_string(),
+        );
+    }
+    let appendix_seconds = parse_utc_timestamp_seconds(&appendix.created_at)
+        .ok_or("G3 comment correction appendix createdAt 无效")?;
+    if appendix_seconds <= corrected_seconds {
+        return Err("G3 comment correction appendix 必须严格晚于被签署的格式编辑".to_string());
+    }
+    Ok(original_edit.edited_at.clone())
 }
 
 pub(super) fn validate_g3_timing(
     pr: &GitHubPullRequest,
     permalink: &str,
     label: &str,
+    args: &GateEvidenceArgs,
 ) -> Result<(), String> {
     let Some(merged_at) = pr.merged_at.as_deref() else {
         return Ok(());
@@ -365,9 +847,17 @@ pub(super) fn validate_g3_timing(
         .ok_or_else(|| format!("{label} permalink 未指向该 PR 的 comment"))?;
     let effective_at = g3_comment_effective_at(comment, label)?;
     if effective_at >= merged_at {
-        return Err(format!(
-            "{label} comment 生效时间必须严格早于 PR 合并时间；GitHub 同秒无法证明编辑发生在合并前"
-        ));
+        let original_effective_at = validate_g3_comment_correction(args, pr, comment, merged_at)
+            .map_err(|correction_error| {
+                format!(
+                    "{label} comment 生效时间必须严格早于 PR 合并时间；correction 验证失败：{correction_error}"
+                )
+            })?;
+        if original_effective_at.as_str() >= merged_at {
+            return Err(format!(
+                "{label} correction 恢复的原始 comment 生效时间必须严格早于 PR 合并时间"
+            ));
+        }
     }
     Ok(())
 }
@@ -378,7 +868,8 @@ pub(super) fn validate_external_review_g3(
     number: u64,
     pr: &GitHubPullRequest,
     label: &str,
-    historical_related_merged_at: Option<&str>,
+    historical_appendix: Option<&GitHubComment>,
+    validation_time: Option<&str>,
 ) -> Result<(), String> {
     let permalink = completed_gate_permalink(&pr.body, "G3")?;
     let comment = pr
@@ -388,22 +879,39 @@ pub(super) fn validate_external_review_g3(
         .ok_or_else(|| format!("{label} G3 permalink 未指向该 PR 的 comment"))?;
     let effective_at = g3_comment_effective_at(comment, label)?;
     let gate_result = parse_g3_result(&comment.body)?;
+    if validate_g3_exception(
+        issue_number,
+        number,
+        pr,
+        comment,
+        gate_result,
+        historical_appendix,
+        validation_time,
+    )? {
+        println!(
+            "G3 Gate 状态：accepted_exception；Issue #{issue_number}，PR #{number}；未映射为 pass"
+        );
+        return Ok(());
+    }
     let result = match gate_result {
         G3Result::Waived => {
             let current_time = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_err(|error| format!("系统时间早于 Unix epoch：{error}"))?
                 .as_secs();
-            let validation_time =
-                waiver_validation_time(historical_related_merged_at, current_time)?;
+            let validation_time = waiver_validation_time(validation_time, current_time)?;
             let waiver = parse_gate_waiver(comment, issue_number, validation_time)?;
             external_review::evaluate_live_with_waiver(repo, number, waiver)?
         }
         G3Result::Pass | G3Result::Bootstrap => external_review::evaluate_live(repo, number)?,
+        G3Result::Exception | G3Result::LegacyBlock => {
+            return Err("G3 exception 状态未形成有效 accepted_exception".to_string());
+        }
     };
     let expected_state = match gate_result {
         G3Result::Waived => external_review::ExternalReviewState::Waived,
         G3Result::Pass | G3Result::Bootstrap => external_review::ExternalReviewState::Pass,
+        G3Result::Exception | G3Result::LegacyBlock => unreachable!("handled above"),
     };
     if result.state != expected_state {
         return Err(format!(
@@ -472,17 +980,44 @@ pub(super) fn parse_g3_result(body: &str) -> Result<G3Result, String> {
         .trim()
         .trim_end_matches('。')
         .trim();
-    let value = value
-        .strip_prefix('`')
-        .and_then(|value| value.strip_suffix('`'))
-        .unwrap_or(value);
+    let value = parse_optional_backtick_value(value, "Gate 结果")?;
     match value {
         "G3 Pass" => Ok(G3Result::Pass),
         "G3 Waived" => Ok(G3Result::Waived),
         "R0-R1 bootstrap" => Ok(G3Result::Bootstrap),
+        "G3 Exception" => Ok(G3Result::Exception),
+        "G3 Block" => Ok(G3Result::LegacyBlock),
+        value
+            if value
+                .strip_prefix("G3 Block（")
+                .and_then(|reason| reason.strip_suffix('）'))
+                .is_some_and(|reason| !reason.trim().is_empty()) =>
+        {
+            Ok(G3Result::LegacyBlock)
+        }
         _ => Err(format!(
-            "current G3 comment 的 Gate 结果无效：`{value}`；应为 `G3 Pass`、`G3 Waived` 或 `R0-R1 bootstrap`"
+            "current G3 comment 的 Gate 结果无效：`{value}`；应为 `G3 Pass`、`G3 Waived`、`G3 Exception`、legacy `G3 Block` 或 `R0-R1 bootstrap`"
         )),
+    }
+}
+
+pub(super) fn parse_optional_backtick_value<'a>(
+    value: &'a str,
+    field: &str,
+) -> Result<&'a str, String> {
+    let value = value.trim().trim_end_matches('。').trim();
+    let starts = value.starts_with('`');
+    let ends = value.ends_with('`');
+    match (starts, ends) {
+        (true, true) => {
+            let inner = &value[1..value.len() - 1];
+            if inner.is_empty() || inner.contains('`') {
+                return Err(format!("`{field}` 的完整反引号包裹必须非空且只能使用一层"));
+            }
+            Ok(inner)
+        }
+        (false, false) => Ok(value),
+        _ => Err(format!("`{field}` 只能不加包裹，或使用一层完整反引号包裹")),
     }
 }
 
@@ -673,6 +1208,293 @@ pub(super) fn parse_gate_waiver_records(
     Ok(records)
 }
 
+pub(super) fn parse_g3_exception_records(
+    appendix: &GitHubComment,
+) -> Result<Vec<G3ExceptionRecord>, String> {
+    let marker_count = appendix.body.matches(G3_EXCEPTION_START).count();
+    if marker_count == 0 {
+        return Ok(Vec::new());
+    }
+    if appendix.includes_created_edit {
+        return Err("g3-exception appendix 在创建后被编辑".to_string());
+    }
+    let mut records = Vec::with_capacity(marker_count);
+    let mut ids = BTreeSet::new();
+    let mut targets = BTreeSet::new();
+    for (index, after_start) in appendix.body.split(G3_EXCEPTION_START).skip(1).enumerate() {
+        let (json, _) = after_start
+            .split_once(G3_EXCEPTION_END)
+            .ok_or_else(|| format!("g3-exception 第 {} 个记录缺少结束标记", index + 1))?;
+        let record = serde_json::from_str::<G3ExceptionRecord>(json.trim()).map_err(|error| {
+            format!(
+                "g3-exception 第 {} 个记录不是 schema v1 JSON：{error}",
+                index + 1
+            )
+        })?;
+        if record.schema_version != 1 {
+            return Err(format!(
+                "g3-exception schemaVersion 必须为 1，实际为 {}",
+                record.schema_version
+            ));
+        }
+        if !matches!(
+            record.exception_type.as_str(),
+            "confirmed_gate_defect" | "legacy_evidence_reconstruction"
+        ) {
+            return Err(format!(
+                "g3-exception exceptionType 不在首版 allowlist：{}",
+                record.exception_type
+            ));
+        }
+        if !ids.insert(record.id.clone()) {
+            return Err(format!("g3-exception id 不能重复：{}", record.id));
+        }
+        if !targets.insert((record.issue, record.pull_request)) {
+            return Err(format!(
+                "g3-exception 每个 Issue/PR target 只能有一条记录：Issue #{} / PR #{}",
+                record.issue, record.pull_request
+            ));
+        }
+        records.push(record);
+    }
+    Ok(records)
+}
+
+fn exception_record_for_target<'a>(
+    appendices: impl IntoIterator<Item = &'a GitHubComment>,
+    issue: u64,
+    pr_number: u64,
+    g3_permalink: &str,
+) -> Result<Option<(&'a GitHubComment, G3ExceptionRecord)>, String> {
+    let mut matching = Vec::new();
+    for appendix in appendices {
+        for record in parse_g3_exception_records(appendix)? {
+            if record.issue == issue
+                && record.pull_request == pr_number
+                && record.g3_comment == g3_permalink
+            {
+                matching.push((appendix, record));
+            }
+        }
+    }
+    match matching.len() {
+        0 => Ok(None),
+        1 => Ok(matching.pop()),
+        _ => Err(format!(
+            "Issue #{issue} / PR #{pr_number} 的 G3 comment 只能绑定一条 g3-exception 记录"
+        )),
+    }
+}
+
+fn validate_g3_exception_record(
+    appendix: &GitHubComment,
+    record: &G3ExceptionRecord,
+    pr: &GitHubPullRequest,
+    g3_comment: &GitHubComment,
+    gate_result: G3Result,
+    validation_time: Option<&str>,
+) -> Result<(), String> {
+    for (field, value) in [
+        ("id", record.id.as_str()),
+        ("currentHeadOid", record.current_head_oid.as_str()),
+        ("currentBaseOid", record.current_base_oid.as_str()),
+        ("g3Comment", record.g3_comment.as_str()),
+        (
+            "g3CommentBodySha256",
+            record.g3_comment_body_sha256.as_str(),
+        ),
+        ("reason", record.reason.as_str()),
+        ("risk", record.risk.as_str()),
+        ("acceptanceBoundary", record.acceptance_boundary.as_str()),
+        ("acceptedAt", record.accepted_at.as_str()),
+        ("expiresAt", record.expires_at.as_str()),
+        ("followUpIssue", record.follow_up_issue.as_str()),
+        ("cleanupOwner", record.cleanup_owner.as_str()),
+        ("authorizedBy", record.authorized_by.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            return Err(format!("g3-exception `{field}` 不能为空"));
+        }
+    }
+    if record.current_head_oid != pr.head_ref_oid || record.current_base_oid != pr.base_ref_oid {
+        return Err("g3-exception current head/base 与 GitHub PR identity 不一致".to_string());
+    }
+    if record.g3_comment != g3_comment.url
+        || record.g3_comment_body_sha256 != body_sha256(&g3_comment.body)
+    {
+        return Err("g3-exception 未精确绑定目标 G3 comment permalink/body SHA-256".to_string());
+    }
+    let author = appendix
+        .author
+        .as_ref()
+        .map(|author| author.login.as_str())
+        .ok_or("g3-exception appendix 缺少 author")?;
+    if !author.eq_ignore_ascii_case(&record.authorized_by)
+        || !G3_OWNER_ACTORS
+            .iter()
+            .any(|owner| owner.eq_ignore_ascii_case(author))
+    {
+        return Err("g3-exception 必须由 trusted G3 Owner 以 authorizedBy 签署".to_string());
+    }
+    if record.accepted_at != appendix.created_at {
+        return Err("g3-exception acceptedAt 必须等于未编辑 appendix 的 createdAt".to_string());
+    }
+    let accepted_at = parse_utc_timestamp_seconds(&record.accepted_at)
+        .ok_or("g3-exception acceptedAt 必须是 UTC RFC3339 秒级时间")?;
+    let expires_at = parse_utc_timestamp_seconds(&record.expires_at)
+        .ok_or("g3-exception expiresAt 必须是 UTC RFC3339 秒级时间")?;
+    if expires_at <= accepted_at || expires_at - accepted_at > G3_EXCEPTION_MAX_SECONDS {
+        return Err("g3-exception 有效期必须晚于 acceptedAt 且不超过 24 小时".to_string());
+    }
+    let g3_effective_at = parse_utc_timestamp_seconds(g3_comment_effective_at(
+        g3_comment,
+        "g3-exception target comment",
+    )?)
+    .ok_or("g3-exception target effectiveAt 无效")?;
+    if accepted_at <= g3_effective_at {
+        return Err("g3-exception appendix 必须严格晚于目标 G3 comment 生效时间".to_string());
+    }
+    let follow_up = record
+        .follow_up_issue
+        .strip_prefix('#')
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|number| *number > 0)
+        .ok_or("g3-exception followUpIssue 必须是 `#<positive number>`")?;
+    if record.follow_up_issue != format!("#{follow_up}") || follow_up == record.issue {
+        return Err(
+            "g3-exception followUpIssue 必须是独立、无前导零的 `#<positive number>`".to_string(),
+        );
+    }
+    let exception_line = appendix
+        .body
+        .lines()
+        .find(|line| line.trim_start().starts_with("- 例外："))
+        .ok_or("g3-exception appendix 缺少可见的 `- 例外：` 行")?;
+    let visible_refs = markdown_reference_labels(exception_line)
+        .into_iter()
+        .map(str::to_ascii_lowercase)
+        .collect::<BTreeSet<_>>();
+    if record.evidence_refs.is_empty() {
+        return Err("g3-exception evidenceRefs 不能为空".to_string());
+    }
+    let mut evidence_refs = BTreeSet::new();
+    for evidence_ref in &record.evidence_refs {
+        let normalized = evidence_ref.to_ascii_lowercase();
+        if !evidence_refs.insert(normalized.clone()) {
+            return Err(format!("g3-exception evidenceRefs 重复：{evidence_ref}"));
+        }
+        if !visible_refs.contains(&normalized)
+            || reference_github_url(&appendix.body, evidence_ref).is_none()
+        {
+            return Err(format!(
+                "g3-exception evidence ref `{evidence_ref}` 必须由 `- 例外：` 可见引用并解析为 GitHub HTTPS URL"
+            ));
+        }
+    }
+
+    match record.exception_type.as_str() {
+        "confirmed_gate_defect" => {
+            if gate_result != G3Result::Exception {
+                return Err(
+                    "confirmed_gate_defect 只能与 canonical `G3 Exception` 配对".to_string()
+                );
+            }
+            let validation_time = match validation_time {
+                Some(value) => {
+                    parse_utc_timestamp_seconds(value).ok_or("g3-exception validation time 无效")?
+                }
+                None => SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|error| format!("系统时间早于 Unix epoch：{error}"))?
+                    .as_secs(),
+            };
+            if accepted_at >= validation_time || expires_at <= validation_time {
+                return Err(
+                    "confirmed_gate_defect 必须在验证/merge 时点前被接受且当时未过期".to_string(),
+                );
+            }
+        }
+        "legacy_evidence_reconstruction" => {
+            let merged_at = validation_time
+                .and_then(parse_utc_timestamp_seconds)
+                .ok_or("legacy_evidence_reconstruction 只允许历史 G4 replay")?;
+            if !matches!(gate_result, G3Result::Pass | G3Result::LegacyBlock) {
+                return Err(
+                    "legacy_evidence_reconstruction 只兼容历史 `G3 Pass + 未通过` 或 `G3 Block`"
+                        .to_string(),
+                );
+            }
+            if accepted_at <= merged_at {
+                return Err(
+                    "legacy_evidence_reconstruction 必须明确发生在原 PR merge 后，且不追授原 merge 合规"
+                        .to_string(),
+                );
+            }
+        }
+        _ => unreachable!("exception type checked while parsing"),
+    }
+    Ok(())
+}
+
+pub(super) fn validate_g3_exception(
+    issue_number: u64,
+    pr_number: u64,
+    pr: &GitHubPullRequest,
+    g3_comment: &GitHubComment,
+    gate_result: G3Result,
+    historical_appendix: Option<&GitHubComment>,
+    validation_time: Option<&str>,
+) -> Result<bool, String> {
+    let current_record = exception_record_for_target(
+        pr.comments
+            .iter()
+            .filter(|comment| comment.url != g3_comment.url),
+        issue_number,
+        pr_number,
+        &g3_comment.url,
+    )?;
+    let historical_record = match historical_appendix {
+        Some(appendix) => exception_record_for_target(
+            std::iter::once(appendix),
+            issue_number,
+            pr_number,
+            &g3_comment.url,
+        )?,
+        None => None,
+    };
+    let selected = match (current_record, historical_record) {
+        (Some(_), Some(_)) => {
+            return Err("同一 G3 target 不得同时声明 current 与 historical exception".to_string());
+        }
+        (Some(record), None) => Some(record),
+        (None, Some(record)) => Some(record),
+        (None, None) => None,
+    };
+    match (gate_result, selected) {
+        (G3Result::Exception | G3Result::LegacyBlock, None) => Err(format!(
+            "{} 缺少匹配的 `{G3_EXCEPTION_START}` 结构化记录",
+            gate_result.machine_state()
+        )),
+        (G3Result::Pass, None) | (G3Result::Bootstrap, None) | (G3Result::Waived, None) => {
+            Ok(false)
+        }
+        (G3Result::Waived | G3Result::Bootstrap, Some(_)) => {
+            Err("G3 Waived/bootstrap 不得夹带 g3-exception 结构化记录".to_string())
+        }
+        (result, Some((appendix, record))) => {
+            validate_g3_exception_record(
+                appendix,
+                &record,
+                pr,
+                g3_comment,
+                result,
+                validation_time,
+            )?;
+            Ok(true)
+        }
+    }
+}
+
 pub(super) fn gate_waiver_follow_up_issue_number(record: &GateWaiverRecord) -> Result<u64, String> {
     let number = record
         .follow_up_issue
@@ -716,7 +1538,7 @@ pub(super) fn validate_gate_waiver_record_set(
                 ));
             }
         }
-        G3Result::Pass | G3Result::Bootstrap => {
+        G3Result::Pass | G3Result::Bootstrap | G3Result::Exception | G3Result::LegacyBlock => {
             if comment.body.contains(EXTERNAL_REVIEW_WAIVER_START) {
                 return Err(
                     "非 G3 Waived comment 不得夹带 `external-review-waiver:v1` 结构化记录"
@@ -923,4 +1745,25 @@ pub(super) fn g3_requires_external_review(pr: &GitHubPullRequest) -> Result<bool
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| "G3 permalink 未指向该 PR 的 comment".to_string())?;
     Ok(g3_comment_effective_at(comment, "G3 comment")? >= EXTERNAL_REVIEW_G3_ACTIVATION)
+}
+
+pub(super) fn g3_requires_result_validation(
+    pr: &GitHubPullRequest,
+    historical_appendix: Option<&GitHubComment>,
+) -> Result<bool, String> {
+    let permalink = completed_gate_permalink(&pr.body, "G3")?;
+    let comment = pr
+        .comments
+        .iter()
+        .find(|comment| comment.url == permalink)
+        .ok_or_else(|| "G3 permalink 未指向该 PR 的 comment".to_string())?;
+    Ok(
+        g3_comment_effective_at(comment, "G3 comment")? >= EXTERNAL_REVIEW_G3_ACTIVATION
+            || matches!(
+                parse_g3_result(&comment.body),
+                Ok(G3Result::Exception | G3Result::LegacyBlock)
+            )
+            || historical_appendix
+                .is_some_and(|appendix| appendix.body.contains(G3_EXCEPTION_START)),
+    )
 }

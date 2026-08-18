@@ -34,6 +34,7 @@ pub(super) fn g3_comment_for_args(
     args: &GateEvidenceArgs,
 ) -> GitHubComment {
     GitHubComment {
+        id: String::new(),
         url: url.to_string(),
         body: gate_comment_body(G3_COMMENT_FIELDS, args),
         author: Some(GitHubActor {
@@ -41,6 +42,7 @@ pub(super) fn g3_comment_for_args(
         }),
         created_at: created_at.to_string(),
         updated_at: None,
+        user_content_edits: None,
         includes_created_edit: false,
     }
 }
@@ -55,6 +57,7 @@ pub(super) fn g4_comment_for_args(
     args: &GateEvidenceArgs,
 ) -> GitHubComment {
     GitHubComment {
+        id: String::new(),
         url: url.to_string(),
         body: gate_comment_body(G4_COMMENT_FIELDS, args),
         author: Some(GitHubActor {
@@ -62,6 +65,7 @@ pub(super) fn g4_comment_for_args(
         }),
         created_at: created_at.to_string(),
         updated_at: None,
+        user_content_edits: None,
         includes_created_edit: false,
     }
 }
@@ -128,6 +132,8 @@ pub(super) fn delivery_pr(merged_at: Option<&str>) -> GitHubPullRequest {
             "OPEN".to_string()
         },
         is_draft: false,
+        head_ref_oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        base_ref_oid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
         created_at: "2026-07-10T04:00:00Z".to_string(),
         merged_at: merged_at.map(ToOwned::to_owned),
         closing_issues_references: vec![issue_reference("illusion-tech/laneflow", 60)],
@@ -177,6 +183,8 @@ pub(super) fn related_pr_for_args(
         ),
         state: "OPEN".to_string(),
         is_draft: false,
+        head_ref_oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        base_ref_oid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
         created_at: "2026-07-10T04:30:00Z".to_string(),
         merged_at: None,
         closing_issues_references: closes_issue

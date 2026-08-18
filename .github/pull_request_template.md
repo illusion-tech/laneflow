@@ -62,7 +62,7 @@
 - Findings disposition / clean re-review：
 - Review threads：`unresolved = <count>`，证据：
 - External Review Gate：Check URL；R0/R1 尚未启用时写明 bootstrap 状态和缺失项：
-- G3 Evidence Gate Shadow：使用唯一且非空的规范值：`Check URL：https://github.com/...` / `R1 non-required：<原因>` / `候选 workflow bootstrap：<边界>`：
+- G3 Evidence Gate Shadow：R1 non-required：<原因>
 
 ## 风险与例外
 
@@ -81,12 +81,12 @@ G3 comment 模板（合并前发表）：
 
 ## G3 合并判断
 
-- Gate 结果：`G3 Pass` / `G3 Waived` / `R0-R1 bootstrap`
+- Gate 结果：`G3 Pass` / `G3 Waived` / `G3 Exception` / `R0-R1 bootstrap`
 - Rollout phase：`R0` / `R1` / `R2`
 - Current head：
 - Checks：
 - External Review Gate：
-- G3 Evidence Gate Shadow：`Check URL：https://github.com/...` / `R1 non-required：<原因>` / `候选 workflow bootstrap：<边界>`：
+- G3 Evidence Gate Shadow：R1 non-required：<原因>
 - 审阅：provider、actor、reviewed head、outcome、completion、evidence URL：
 - Findings disposition / clean re-review：
 - Review threads：`unresolved = <count>`，证据：
@@ -98,9 +98,11 @@ G3 comment 模板（合并前发表）：
 - 合并方式：
 - Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` 已通过。
 
-每个 Related PR 都使用 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 并永久保留该 Related-only 断言；Delivery PR / full-set 使用 `--delivery-pr <number>` 并传入全部 Related PR，不要求把历史 Related comment 改写为 full-set 命令。一个 PR 关联多个 Issue 时，在同一 current G3 comment 中为每个 Issue 分别写一条精确 `Gate 断言`；完整断言命令集合必须与全部声明 Issue target 精确相等，不得夹带未验证的额外命令。填写与实际参数完全一致的命令后立即逐条运行；若失败，必须移除对应“已通过”并修复证据。Related PR B 合入前，该命令只校验 legacy comment 结构、permalink、PR 关系和时序，不能替代对 current head 与外部审阅字段的人工核验。
+每个 Related PR 都使用 `cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 并永久保留该 Related-only 断言；版本由 `xtask` package `rust-version` 生成，历史稳定版本按 development-gates.md 的 gate-command v1 窗口语义解析。Delivery PR / full-set 使用 `--delivery-pr <number>` 并传入全部 Related PR，不要求把历史 Related comment 改写为 full-set 命令。一个 PR 关联多个 Issue 时，在同一 current G3 comment 中为每个 Issue 分别写一条精确 `Gate 断言`。`G3 Pass` 必须实际成功并写“已通过”；`G3 Exception` 必须写“未通过”并另发合格的 `g3-exception:v1` appendix，机器状态保持 `accepted_exception`。
 
 如 Gate 结果为 `G3 Waived`，还必须按 `docs/governance/development-gates.md` 写入 `external-review-waiver:v1` 结构化记录；单 Issue 使用一条，多 Issue 为每个关联 Issue 分别写入一条具有唯一 `followUpIssue` 的记录，完整 record set 与 `关联 Issue` 精确一致。evidence 使用可见 `- 例外：` 行和文末 reference-style 定义，不在 JSON 中直接写 URL；当前 target 或其 Delivery full-set 任一成员使用有期限 waiver 时，Shadow 只发布 non-success。
+
+如 Gate 结果为 `G3 Exception`，在目标 comment 之后另发未编辑 appendix：可见 `- 例外：` 行引用 GitHub evidence，随后写 `g3-exception:v1` JSON。字段为 schemaVersion/id/exceptionType/issue/pullRequest/currentHeadOid/currentBaseOid/g3Comment/g3CommentBodySha256/reason/evidenceRefs/risk/acceptanceBoundary/acceptedAt/expiresAt/followUpIssue/cleanupOwner/authorizedBy；current 仅允许 confirmed_gate_defect、最长 24 小时。不要把 correction、waiver 或一般例外混入该记录。
 -->
 
 ## 完成边界

@@ -561,12 +561,14 @@ fn only_dependabot_body_edits_may_reuse_an_older_marker() {
                 editor: Some(GitHubActor {
                     login: "wangzishi".to_string(),
                 }),
+                diff: None,
             },
             GitHubUserContentEdit {
                 edited_at: "2026-08-06T03:31:00Z".to_string(),
                 editor: Some(GitHubActor {
                     login: "dependabot".to_string(),
                 }),
+                diff: None,
             },
         ],
     };
@@ -659,7 +661,9 @@ fn recovered_dependabot_metadata_preserves_g4_related_replay_inputs() {
         ..g3_args
     };
 
-    assert!(validate_related_pr_g3(&g4_args, &issue_body, &issue_body, 313, &related,).is_ok());
+    assert!(
+        validate_related_pr_g3(&g4_args, &issue_body, &issue_body, 313, &related, false).is_ok()
+    );
 }
 
 #[test]
@@ -987,8 +991,13 @@ fn rejects_merged_related_g3_effective_at_merge_second() {
     related_pr.comments[0].includes_created_edit = true;
     related_pr.comments[0].updated_at = Some("2026-07-10T05:30:00Z".to_string());
 
-    let error = validate_g3_timing(&related_pr, RELATED_G3_URL, "Related PR #62")
-        .expect_err("the merge second cannot prove that an edit happened before merge");
+    let error = validate_g3_timing(
+        &related_pr,
+        RELATED_G3_URL,
+        "Related PR #62",
+        &related_only_g3_args(),
+    )
+    .expect_err("the merge second cannot prove that an edit happened before merge");
 
     assert!(error.contains("生效时间必须严格早于 PR 合并时间"));
 }
@@ -1450,6 +1459,7 @@ fn accepts_only_unique_populated_shadow_evidence_choices() {
         "Check URL：https://github.com/illusion-tech/laneflow/actions/runs/1",
         "R1 non-required：source App 仍为 github-actions，仅作 telemetry",
         "候选 workflow bootstrap：尚未合入 main，不能用于本 PR 自批",
+        "`R1 non-required：source App 仍为 github-actions，仅作 telemetry`",
     ] {
         assert!(
             validate_g3_evidence_shadow_comment_field(&format!(
@@ -1466,6 +1476,12 @@ fn accepts_only_unique_populated_shadow_evidence_choices() {
         ),
         format!("{G3_EVIDENCE_SHADOW_COMMENT_FIELD}Check URL：https://github.com/example"),
         format!("{G3_EVIDENCE_SHADOW_COMMENT_FIELD}稍后补充"),
+        format!(
+            "{G3_EVIDENCE_SHADOW_COMMENT_FIELD}Check URL：`https://github.com/illusion-tech/laneflow/actions/runs/1`"
+        ),
+        format!(
+            "{G3_EVIDENCE_SHADOW_COMMENT_FIELD}`Check URL：https://github.com/illusion-tech/laneflow/actions/runs/1` trailing"
+        ),
         format!(
             "{G3_EVIDENCE_SHADOW_COMMENT_FIELD}R1 non-required：原因一\n{G3_EVIDENCE_SHADOW_COMMENT_FIELD}R1 non-required：原因二"
         ),
@@ -1505,6 +1521,357 @@ fn edited_g3_uses_effective_time_for_policy_activation() {
     assert!(error.contains("- Current head："));
 }
 
+fn post_merge_shadow_correction_fixture() -> (GateEvidenceArgs, GitHubPullRequest) {
+    let args = gate_args(GateEvidencePhase::G4);
+    let shadow_value = "R1 non-required：source App 仍为 github-actions，仅作 telemetry";
+    let corrected_body = format!(
+        "{}\n{G3_EVIDENCE_SHADOW_COMMENT_FIELD}{shadow_value}",
+        gate_comment_body(
+            CURRENT_G3_COMMENT_FIELDS,
+            &GateEvidenceArgs {
+                phase: GateEvidencePhase::G3,
+                ..args.clone()
+            }
+        )
+    );
+    let original_body = corrected_body.replace(
+        &format!("{G3_EVIDENCE_SHADOW_COMMENT_FIELD}{shadow_value}"),
+        &format!("{G3_EVIDENCE_SHADOW_COMMENT_FIELD}`{shadow_value}`"),
+    );
+    let edited_at = "2026-07-10T06:00:00Z";
+    let mut target_comment = g3_comment(DELIVERY_G3_URL, "2026-07-10T04:50:00Z");
+    target_comment.id = "IC_correction_target".to_string();
+    target_comment.body = corrected_body.clone();
+    target_comment.updated_at = Some(edited_at.to_string());
+    target_comment.includes_created_edit = true;
+    target_comment.user_content_edits = Some(GitHubUserContentEditConnection {
+        page_info: GitHubPageInfo {
+            has_next_page: false,
+        },
+        nodes: vec![
+            GitHubUserContentEdit {
+                edited_at: "2026-07-10T05:00:00Z".to_string(),
+                editor: Some(GitHubActor {
+                    login: "wangzishi".to_string(),
+                }),
+                diff: Some(original_body.clone()),
+            },
+            GitHubUserContentEdit {
+                edited_at: edited_at.to_string(),
+                editor: Some(GitHubActor {
+                    login: "wangzishi".to_string(),
+                }),
+                diff: Some(corrected_body.clone()),
+            },
+        ],
+    });
+    let mut correction = g3_comment(
+        "https://github.com/illusion-tech/laneflow/pull/61#issuecomment-401",
+        "2026-07-10T06:30:00Z",
+    );
+    correction.body = format!(
+        r##"<!-- g3-comment-correction:v1
+{{
+  "schemaVersion": 1,
+  "id": "correction-60-61-1",
+  "issue": 60,
+  "pullRequest": 61,
+  "currentHeadOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "g3Comment": "{DELIVERY_G3_URL}",
+  "originalBodySha256": "{}",
+  "newBodySha256": "{}",
+  "editedAt": "{edited_at}",
+  "editor": "wangzishi",
+  "reason": "remove one whole-field backtick wrapper",
+  "risk": "post-merge user content edit",
+  "acceptanceBoundary": "format-only shadow wrapper correction; never changes Gate result",
+  "followUpIssue": "#398",
+  "cleanupOwner": "wangzishi",
+  "authorizedBy": "wangzishi"
+}}
+-->"##,
+        body_sha256(&original_body),
+        body_sha256(&corrected_body),
+    );
+    let mut pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+    pr.comments = vec![target_comment, correction];
+    (args, pr)
+}
+
+#[test]
+fn accepts_only_signed_post_merge_shadow_wrapper_corrections() {
+    let (args, pr) = post_merge_shadow_correction_fixture();
+    assert!(validate_g3_timing(&pr, DELIVERY_G3_URL, "Delivery G3", &args).is_ok());
+
+    let (args, mut wrong_hash) = post_merge_shadow_correction_fixture();
+    wrong_hash.comments[1].body = wrong_hash.comments[1].body.replace(
+        "sha256:",
+        "sha256:0000000000000000000000000000000000000000000000000000000000000000-invalid-",
+    );
+    assert!(validate_g3_timing(&wrong_hash, DELIVERY_G3_URL, "Delivery G3", &args).is_err());
+
+    let (args, mut wrong_editor) = post_merge_shadow_correction_fixture();
+    wrong_editor.comments[0]
+        .user_content_edits
+        .as_mut()
+        .unwrap()
+        .nodes[1]
+        .editor = Some(GitHubActor {
+        login: "untrusted-user".to_string(),
+    });
+    assert!(validate_g3_timing(&wrong_editor, DELIVERY_G3_URL, "Delivery G3", &args).is_err());
+
+    let (args, mut extra_delta) = post_merge_shadow_correction_fixture();
+    let edits = extra_delta.comments[0].user_content_edits.as_mut().unwrap();
+    let original = edits.nodes[0].diff.clone().unwrap();
+    let changed = format!("{original}\n- unrelated semantic change");
+    edits.nodes[0].diff = Some(changed.clone());
+    extra_delta.comments[1].body = extra_delta.comments[1]
+        .body
+        .replace(&body_sha256(&original), &body_sha256(&changed));
+    let error = validate_g3_timing(&extra_delta, DELIVERY_G3_URL, "Delivery G3", &args)
+        .expect_err("correction may not hide any non-shadow delta");
+    assert!(error.contains("只允许完整 shadow 字段"));
+}
+
+#[test]
+fn issue_351_history_fixture_preserves_all_three_pr_targets_and_shadow_forms() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../fixtures/gate-evidence/issue-351-shadow-edit-v1.json"
+    ))
+    .expect("#351 regression fixture must remain valid JSON");
+    assert_eq!(fixture["issue"], 351);
+    assert_eq!(fixture["deliveryPr"], 397);
+    assert_eq!(fixture["relatedPrs"], serde_json::json!([395, 396]));
+    for record in fixture["g3Comments"].as_array().unwrap() {
+        for field in ["historicalShadowLine", "canonicalShadowLine"] {
+            assert!(
+                validate_g3_evidence_shadow_comment_field(record[field].as_str().unwrap()).is_ok(),
+                "fixture PR {} {field} must parse",
+                record["pr"]
+            );
+        }
+    }
+}
+
+#[test]
+fn all_three_governance_templates_contain_a_validator_parsable_canonical_shadow_example() {
+    for (label, source) in [
+        (
+            "development-gates",
+            include_str!("../../../docs/governance/development-gates.md"),
+        ),
+        (
+            "pull-request-template",
+            include_str!("../../../.github/pull_request_template.md"),
+        ),
+        (
+            "governance-skill",
+            include_str!("../../../.agents/skills/laneflow-governance/SKILL.md"),
+        ),
+    ] {
+        let parsable = source.lines().map(str::trim).any(|line| {
+            line == "- G3 Evidence Gate Shadow：R1 non-required：<原因>"
+                && validate_g3_evidence_shadow_comment_field(line).is_ok()
+        });
+        assert!(parsable, "{label} canonical shadow example drifted");
+    }
+}
+
+fn g3_exception_fixture(
+    exception_type: &str,
+    gate_result: &str,
+    accepted_at: &str,
+    expires_at: &str,
+) -> (GitHubPullRequest, GitHubComment) {
+    let args = gate_args(GateEvidencePhase::G3);
+    let mut g3 = g3_comment(DELIVERY_G3_URL, "2026-07-10T05:00:00Z");
+    g3.body = format!(
+        "{}\n{G3_EVIDENCE_SHADOW_COMMENT_FIELD}R1 non-required：exception 保持 non-success",
+        gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args)
+            .replace("`R0-R1 bootstrap`", &format!("`{gate_result}`"))
+            .replace("` 已通过。", "` 未通过。")
+    );
+    let mut appendix = g3_comment(
+        "https://github.com/illusion-tech/laneflow/pull/61#issuecomment-402",
+        accepted_at,
+    );
+    appendix.body = format!(
+        r##"- 例外：结构化记录，证据见 [gate defect][defect-evidence]。
+<!-- g3-exception:v1
+{{
+  "schemaVersion": 1,
+  "id": "exception-60-61-1",
+  "exceptionType": "{exception_type}",
+  "issue": 60,
+  "pullRequest": 61,
+  "currentHeadOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "currentBaseOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "g3Comment": "{DELIVERY_G3_URL}",
+  "g3CommentBodySha256": "{}",
+  "reason": "the validator has a confirmed false negative",
+  "evidenceRefs": ["defect-evidence"],
+  "risk": "the automated assertion remains failed",
+  "acceptanceBoundary": "audit only; never maps to pass",
+  "acceptedAt": "{accepted_at}",
+  "expiresAt": "{expires_at}",
+  "followUpIssue": "#405",
+  "cleanupOwner": "wangzishi",
+  "authorizedBy": "wangzishi"
+}}
+-->
+
+[defect-evidence]: https://github.com/illusion-tech/laneflow/issues/405"##,
+        body_sha256(&g3.body),
+    );
+    let mut pr = delivery_pr(None);
+    pr.comments = vec![g3, appendix.clone()];
+    (pr, appendix)
+}
+
+#[test]
+fn current_g3_exception_is_auditable_non_pass_and_fails_closed() {
+    let (pr, _) = g3_exception_fixture(
+        "confirmed_gate_defect",
+        "G3 Exception",
+        "2026-07-10T05:10:00Z",
+        "2026-07-10T06:00:00Z",
+    );
+    let args = gate_args(GateEvidencePhase::G3);
+    assert!(
+        validate_gate_assertion(
+            &pr.comments[0].body,
+            "G3 Exception",
+            &args,
+            GateEvidencePhase::G3
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        validate_g3_exception(
+            60,
+            61,
+            &pr,
+            &pr.comments[0],
+            G3Result::Exception,
+            None,
+            Some("2026-07-10T05:30:00Z"),
+        ),
+        Ok(true)
+    );
+
+    let (expired, _) = g3_exception_fixture(
+        "confirmed_gate_defect",
+        "G3 Exception",
+        "2026-07-10T05:10:00Z",
+        "2026-07-10T05:30:00Z",
+    );
+    assert!(
+        validate_g3_exception(
+            60,
+            61,
+            &expired,
+            &expired.comments[0],
+            G3Result::Exception,
+            None,
+            Some("2026-07-10T05:30:00Z"),
+        )
+        .is_err()
+    );
+
+    let (mut untrusted, _) = g3_exception_fixture(
+        "confirmed_gate_defect",
+        "G3 Exception",
+        "2026-07-10T05:10:00Z",
+        "2026-07-10T06:00:00Z",
+    );
+    untrusted.comments[1].author = Some(GitHubActor {
+        login: "untrusted-user".to_string(),
+    });
+    assert!(
+        validate_g3_exception(
+            60,
+            61,
+            &untrusted,
+            &untrusted.comments[0],
+            G3Result::Exception,
+            None,
+            Some("2026-07-10T05:30:00Z"),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn historical_g3_block_replay_is_explicitly_non_retroactive() {
+    let (mut pr, mut appendix) = g3_exception_fixture(
+        "legacy_evidence_reconstruction",
+        "G3 Block",
+        "2026-07-10T06:00:00Z",
+        "2026-07-10T07:00:00Z",
+    );
+    pr.comments.truncate(1);
+    pr.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+    appendix.url = ISSUE_G4_URL.to_string();
+    assert_eq!(
+        validate_g3_exception(
+            60,
+            61,
+            &pr,
+            &pr.comments[0],
+            G3Result::LegacyBlock,
+            Some(&appendix),
+            pr.merged_at.as_deref(),
+        ),
+        Ok(true)
+    );
+}
+
+#[test]
+fn historical_exception_fixture_accepts_real_block_and_failed_assertion_shapes_only_in_replay() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../fixtures/gate-evidence/historical-g3-exceptions-v1.json"
+    ))
+    .expect("historical exception fixture must remain valid JSON");
+    let args = gate_args(GateEvidencePhase::G3);
+
+    let block = fixture["records"][0]["gateCommentBody"].as_str().unwrap();
+    assert_eq!(parse_g3_result(block), Ok(G3Result::LegacyBlock));
+    assert!(
+        validate_gate_assertion_with_legacy_exception(
+            block,
+            "legacy #372 G3",
+            &args,
+            GateEvidencePhase::G3,
+            true,
+        )
+        .is_ok()
+    );
+    assert!(
+        validate_gate_assertion_with_legacy_exception(
+            block,
+            "legacy #372 G3",
+            &args,
+            GateEvidencePhase::G3,
+            false,
+        )
+        .is_err()
+    );
+
+    let failed_pass = fixture["records"][1]["gateCommentBody"].as_str().unwrap();
+    assert_eq!(parse_g3_result(failed_pass), Ok(G3Result::Pass));
+    assert!(
+        validate_gate_assertion_with_legacy_exception(
+            failed_pass,
+            "legacy #397 G3",
+            &args,
+            GateEvidencePhase::G3,
+            true,
+        )
+        .is_ok()
+    );
+}
+
 #[test]
 fn parses_explicit_current_g3_results() {
     assert_eq!(
@@ -1519,11 +1886,23 @@ fn parses_explicit_current_g3_results() {
         parse_g3_result("- Gate 结果：`R0-R1 bootstrap`").unwrap(),
         G3Result::Bootstrap
     );
+    assert_eq!(
+        parse_g3_result("- Gate 结果：`G3 Exception`").unwrap(),
+        G3Result::Exception
+    );
+    assert_eq!(
+        parse_g3_result("- Gate 结果：`G3 Block`").unwrap(),
+        G3Result::LegacyBlock
+    );
     assert!(parse_g3_result("- Gate 结果：pending").is_err());
     assert!(parse_g3_result("- Gate 结果：`G3 Pass`\n- Gate 结果：`G3 Waived`").is_err());
     assert!(validate_g3_shadow_success_result(G3Result::Pass).is_ok());
     assert!(validate_g3_shadow_success_result(G3Result::Bootstrap).is_ok());
     assert!(validate_g3_shadow_success_result(G3Result::Waived).is_err());
+    assert!(validate_g3_shadow_success_result(G3Result::Exception).is_err());
+    assert!(validate_g3_shadow_success_result(G3Result::LegacyBlock).is_err());
+    assert_eq!(G3Result::Exception.machine_state(), "accepted_exception");
+    assert_eq!(G3Result::LegacyBlock.machine_state(), "accepted_exception");
 }
 
 #[test]
@@ -1543,6 +1922,7 @@ fn waived_full_set_member_cannot_receive_shadow_success() {
 #[test]
 fn parses_reference_style_structured_gate_waiver() {
     let mut comment = GitHubComment {
+        id: String::new(),
         url: RELATED_G3_URL.to_string(),
         body: r##"- Gate 结果：`G3 Waived`
 - 例外：`G3 Waived`；结构化 waiver `waiver-60-1`；证据：[批准记录][waiver-evidence]。
@@ -1571,6 +1951,7 @@ fn parses_reference_style_structured_gate_waiver() {
         }),
         created_at: "2026-07-24T16:00:00Z".to_string(),
         updated_at: None,
+        user_content_edits: None,
         includes_created_edit: false,
     };
     let now = parse_utc_timestamp_seconds("2026-07-24T16:30:00Z").unwrap();
@@ -1631,6 +2012,7 @@ fn parses_one_structured_gate_waiver_per_associated_issue() {
 }
 -->"##;
     let mut comment = GitHubComment {
+        id: String::new(),
         url: RELATED_G3_URL.to_string(),
         body: format!(
             r##"- Gate 结果：`G3 Waived`
@@ -1646,6 +2028,7 @@ fn parses_one_structured_gate_waiver_per_associated_issue() {
         }),
         created_at: "2026-07-24T16:00:00Z".to_string(),
         updated_at: None,
+        user_content_edits: None,
         includes_created_edit: false,
     };
     let now = parse_utc_timestamp_seconds("2026-07-24T16:30:00Z").unwrap();
@@ -1685,6 +2068,7 @@ fn parses_one_structured_gate_waiver_per_associated_issue() {
 #[test]
 fn rejects_expired_structured_gate_waiver() {
     let comment = GitHubComment {
+        id: String::new(),
         url: RELATED_G3_URL.to_string(),
         body: r##"- Gate 结果：`G3 Waived`
 - 例外：`G3 Waived`；证据：[批准记录][waiver-evidence]。
@@ -1713,6 +2097,7 @@ fn rejects_expired_structured_gate_waiver() {
         }),
         created_at: "2026-07-24T16:00:00Z".to_string(),
         updated_at: None,
+        user_content_edits: None,
         includes_created_edit: false,
     };
     let after_expiry = parse_utc_timestamp_seconds("2026-07-24T17:00:01Z").unwrap();
@@ -1910,6 +2295,60 @@ fn accepts_one_g3_assertion_per_associated_issue() {
     )
     .expect_err("undeclared or mismatched assertion commands must fail closed");
     assert!(error.contains("完整 `Gate 断言` 命令集合"));
+}
+
+#[test]
+fn gate_commands_follow_current_msrv_and_accept_historical_versions_semantically() {
+    let args = related_only_g3_args();
+    let generated = expected_gate_command_with_rust_version(&args, GateEvidencePhase::G3, "1.97")
+        .expect("stable workspace rust-version must generate a command");
+    assert!(generated.starts_with("cargo +1.97.0 run "));
+
+    let historical_reordered = "cargo +1.96 run --package xtask --locked -- check-gate-evidence g3 --related-pr 62 --issue 60 --repo illusion-tech/laneflow";
+    assert_eq!(
+        parse_gate_assertion_command_with_current_version(
+            historical_reordered,
+            GateEvidencePhase::G3,
+            "1.97.0",
+        ),
+        Ok(args)
+    );
+}
+
+#[test]
+fn gate_commands_fail_closed_outside_the_v1_version_and_argument_boundary() {
+    let base = "cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo illusion-tech/laneflow --issue 60 --related-pr 62";
+    for command in [
+        base.replace("+1.96.0", "+1.95.9"),
+        base.replace("+1.96.0", "+1.98.0"),
+        base.replace("+1.96.0", "+1.96.0-beta.1"),
+        base.replace("--locked", "--frozen"),
+    ] {
+        assert!(
+            parse_gate_assertion_command_with_current_version(
+                &command,
+                GateEvidencePhase::G3,
+                "1.97.0",
+            )
+            .is_err(),
+            "unexpectedly accepted {command}"
+        );
+    }
+}
+
+#[test]
+fn semantic_gate_assertions_accept_reordering_but_reject_semantic_duplicates() {
+    let args = related_only_g3_args();
+    let canonical = expected_gate_command(&args, GateEvidencePhase::G3);
+    let reordered = "cargo +1.96 run --package xtask --locked -- check-gate-evidence g3 --related-pr 62 --issue 60 --repo illusion-tech/laneflow";
+    let body = format!("{GATE_ASSERTION_PREFIX}`{reordered}` 已通过。");
+    assert!(validate_gate_assertion(&body, "semantic G3", &args, GateEvidencePhase::G3).is_ok());
+
+    let duplicate = format!("{body}\n{GATE_ASSERTION_PREFIX}`{canonical}` 已通过。");
+    let error =
+        validate_gate_assertion_set(&duplicate, "semantic G3", &[args], GateEvidencePhase::G3)
+            .expect_err("equivalent commands with different ordering must still be duplicates");
+    assert!(error.contains("同一语义命令"));
 }
 
 #[test]

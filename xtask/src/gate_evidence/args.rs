@@ -158,20 +158,8 @@ pub(super) fn parse_gate_evidence_target_metadata_from_g3_comment(
     let mut issues = BTreeSet::new();
 
     for command in commands {
-        let tokens = command.split_ascii_whitespace().collect::<Vec<_>>();
-        let command_index = tokens
-            .iter()
-            .position(|token| *token == "check-gate-evidence")
-            .ok_or("PR G3 comment 的 `Gate 断言` 缺少 `check-gate-evidence`")?;
-        let parsed_tokens = tokens[command_index + 1..]
-            .iter()
-            .map(|token| (*token).to_string())
-            .collect::<Vec<_>>();
-        let args = parse_gate_evidence_args(&parsed_tokens)?;
-        if args.phase != GateEvidencePhase::G3
-            || args.repo != repo
-            || expected_gate_command(&args, GateEvidencePhase::G3) != command
-        {
+        let args = parse_gate_assertion_command(&command, GateEvidencePhase::G3)?;
+        if args.repo != repo {
             return Err(
                 "PR G3 comment 的 `Gate 断言` 不是当前 repository 的规范 G3 命令".to_string(),
             );
@@ -279,9 +267,12 @@ pub(super) fn validate_gate_evidence_target_pr(
 
 pub(super) fn validate_g3_evidence_shadow_comment_field(body: &str) -> Result<(), String> {
     let line = unique_metadata_line(body, "G3 Evidence Gate Shadow")?;
-    let value = metadata_value(line, "G3 Evidence Gate Shadow")?;
+    let value = parse_optional_backtick_value(
+        metadata_value(line, "G3 Evidence Gate Shadow")?,
+        "G3 Evidence Gate Shadow",
+    )?;
     let supported = if let Some(url) = value.strip_prefix("Check URL：") {
-        let url = url.trim().trim_end_matches('。').trim_matches('`');
+        let url = url.trim();
         url.starts_with("https://github.com/")
             && (url.contains("/actions/runs/") || url.contains("/runs/"))
             && !url.chars().any(char::is_whitespace)

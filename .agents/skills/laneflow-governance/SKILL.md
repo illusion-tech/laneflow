@@ -77,7 +77,11 @@ Gate Ledger 必须按任务阶段增量记录，不得等到 G4 清场时一次�
 - 开始实现、文档修改或开 PR 前，Issue 必须已有 G0/G1/G2 记录；小型 `docs-only` 或 `governance` 任务可用一条开工记录覆盖 G0-G2，但必须发生在实现前。
 - 任务不需要 G1 时，也必须记录不适用原因。
 - 准备合并 PR 前，必须取得当前 head 上一个有效外部 reviewer 的完成态审阅；有 findings 时，完成处置后还必须取得新的当前 head clean re-review。PR author 的自审是 G3 owner 职责，但不计入外部 reviewer。
-- PR 必须有一条 current `## G3 合并判断` comment，包含当前 head、rollout phase、Checks、External Review Gate、结构化审阅证据、review threads、验证、风险、例外、合并方式和 Gate 断言。允许在 PR 合并前纠错编辑：未编辑时以 `createdAt`、编辑后以 REST 核验的 `updatedAt` 作为生效时间，重新验证全部当前证据并新增严格更晚的 marker；合并后不得编辑历史 G3。PR body 的 G3 checkbox 必须回链 current comment；Issue body 的 G3 Gate Ledger 对 Related PR 增量回链但保持未勾选，直到 Delivery PR 与全部 Related PR 均完成。`Gate 断言` 行必须包含与实际参数完全一致的反引号命令并明确写 `已通过`，且 `check-gate-evidence g3` 必须成功。
+- PR 必须有一条 current `## G3 合并判断` comment，包含当前 head、rollout phase、Checks、External Review Gate、结构化审阅证据、review threads、验证、风险、例外、合并方式和 Gate 断言。canonical shadow 行写作 `- G3 Evidence Gate Shadow：R1 non-required：<原因>`，不包裹整个值；历史完整值的一层反引号只作兼容。允许在 PR 合并前纠错编辑：未编辑时以 `createdAt`、编辑后以 REST 核验的 `updatedAt` 作为生效时间，重新验证全部当前证据并新增严格更晚的 marker。合并后仅可用 append-only `g3-comment-correction:v1` 恢复经 UserContentEdit.diff 证明的完整 shadow 包裹格式差异；它不能改变 Gate 结果。PR body 与 Issue Ledger 必须回链 current comment。
+
+```text
+- G3 Evidence Gate Shadow：R1 non-required：<原因>
+```
 - 清场时只补 G4；如果发现 G0-G3 缺失，必须标记为补救记录，并说明这是流程遗漏，不能当作标准流程。
 - 任一 Gate 记录缺失且没有显式例外时，不得声称任务完成。
 
@@ -113,7 +117,7 @@ Issue Gate Ledger 模板：
 - 开 PR 前必须复核关联 Issue 的 G0/G1/G2 与元数据审计状态。
 - 创建 Delivery PR 后，PR body 应使用 `Closes #<issue>` / `Resolves #<issue>` 建立 GitHub Development 关联；Related PR 使用 `Refs: #<issue>` 且不得误用 closing keyword。仓库关闭了 linked PR 自动关闭 Issue，Issue 仍由 G4 手动关闭。
 - 常规 PR commit message 仍使用 `Refs: #<issue>`；不要为了 Development 关联把 commit footer 改成 `Closes`。
-- G3 前默认必须用 `gh pr view <delivery-pr> --json closingIssuesReferences` 复核目标 Issue 是否被覆盖。每个 Related PR 都用 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 独立验证，把 comment permalink 增量写入仍未勾选的 Issue G3 Gate Ledger，并永久保留 Related-only 断言；Delivery PR 用 `--delivery-pr <number>` 加 Issue 已记录的全部 `--related-pr` 做整组复核，不改写历史 Related comment。`Gate 断言` 使用与实际调用完全一致的完整命令并在反引号后写 `已通过`；若运行失败，立即移除成功标记并修复证据。GitHub Development 面板只作人工辅助证据。若只能手动关联 Development 面板，必须记录显式例外原因、风险、后续收口方式和 Cleanup owner；缺失且无显式例外时不得进入 `G3 = Pass`。
+- G3 前默认必须用 `gh pr view <delivery-pr> --json closingIssuesReferences` 复核目标 Issue 是否被覆盖。每个 Related PR 都用 `cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 独立验证；命令版本由 `xtask` package `rust-version` 生成，gate-command v1 语义兼容 `1.96.0..=当前 MSRV`。Delivery PR 用 `--delivery-pr` 加完整 Related set。普通 `G3 Pass` 断言必须写 `已通过`；确认 gate 缺陷只能写 `G3 Exception` + `未通过`，另发未编辑的 `g3-exception:v1`，机器状态保持 `accepted_exception`、最长 24 小时、Shadow non-success。历史 `G3 Block` / `Pass + 未通过` 只能由 G4 `legacy_evidence_reconstruction` 事件重放，不能追授原 merge 合规。waiver、correction 与 exception 三种记录不可互换。
 - 清场时只补 G4：在 Issue 发表 G4 comment，body 回链 permalink，Delivery PR 回链该 Issue G4；G4 `Gate 断言` 同样必须记录完整命令和 `已通过` 结果，运行 `check-gate-evidence g4` 成功后才可关闭 Issue。若发现元数据或依赖关系漏项，必须标记为补救记录并说明流程遗漏原因。
 - 若 Delivery 合并后才创建 late Related PR，禁止编辑历史 Delivery G3 或补发 post-merge G3；只有在 `development-gates.md` 的严格条件全部满足时，才可在新的 append-only G4 comment 使用 `g3-full-set-recovery:v1`。该结构化记录必须绑定原/新增 Related 集合、Delivery merge 时间、逐 PR G3 permalinks、风险、接受边界、follow-up Issue、Cleanup owner 和 trusted G3 Owner 授权；normal G3 行为不变。
 - 本地分支不是长期 Development 关系证据；实施 PR 创建后必须关联 PR，或记录不适用原因。

@@ -174,6 +174,16 @@ where
         &loaded_issue
     };
     validate_current_g3_issue(args.phase, issue)?;
+    let historical_exception_appendix = if args.phase == GateEvidencePhase::G4 {
+        let permalink = completed_gate_permalink(&issue.body, "G4")?;
+        Some(comment_for_permalink(
+            issue,
+            &permalink,
+            "Issue G4 exception appendix",
+        )?)
+    } else {
+        None
+    };
 
     if selected_role == GateEvidencePrRole::Delivery {
         let delivery_number = selected_pr_number;
@@ -192,18 +202,21 @@ where
 
         validate_current_g3_target(args, Some(delivery_pr), &related_prs)?;
         validate_gate_g3_evidence(args, issue, delivery_pr, &related_prs)?;
-        if g3_requires_external_review(delivery_pr)? {
+        if g3_requires_result_validation(delivery_pr, historical_exception_appendix)? {
             validate_external_review_g3(
                 &args.repo,
                 args.issue,
                 delivery_number,
                 delivery_pr,
                 "Delivery PR",
-                None,
+                historical_exception_appendix,
+                (args.phase == GateEvidencePhase::G4)
+                    .then_some(delivery_pr.merged_at.as_deref())
+                    .flatten(),
             )?;
         }
         for (number, related_pr) in args.related_prs.iter().zip(&related_prs) {
-            if g3_requires_external_review(related_pr)? {
+            if g3_requires_result_validation(related_pr, historical_exception_appendix)? {
                 validate_related_full_set_member(
                     &args.repo, *number, args.issue, args.phase, related_pr,
                 )?;
@@ -213,6 +226,7 @@ where
                     *number,
                     related_pr,
                     &format!("Related PR #{number}"),
+                    historical_exception_appendix,
                     related_pr.merged_at.as_deref(),
                 )?;
             }
@@ -231,13 +245,14 @@ where
         };
         validate_current_g3_target(args, None, std::slice::from_ref(related_pr))?;
         validate_related_g3_evidence(args, issue, related_number, related_pr)?;
-        if g3_requires_external_review(related_pr)? {
+        if g3_requires_result_validation(related_pr, historical_exception_appendix)? {
             validate_external_review_g3(
                 &args.repo,
                 args.issue,
                 related_number,
                 related_pr,
                 &format!("Related PR #{related_number}"),
+                historical_exception_appendix,
                 None,
             )?;
         }
