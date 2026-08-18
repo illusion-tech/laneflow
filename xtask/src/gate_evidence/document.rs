@@ -458,6 +458,12 @@ pub(super) fn expected_gate_command_with_rust_version(
     rust_version: &str,
 ) -> Result<String, String> {
     let rust_version = StableRustVersion::parse(rust_version)?;
+    if !rust_version.is_gate_command_v1_release() {
+        return Err(format!(
+            "gate-command v1 只生成已纳入策略的 Rust `1.<minor>.0` stable toolchain，不接受 `{}`",
+            rust_version.canonical()
+        ));
+    }
     let phase = match phase {
         GateEvidencePhase::G3 => "g3",
         GateEvidencePhase::G4 => "g4",
@@ -512,6 +518,10 @@ impl StableRustVersion {
     pub(super) fn canonical(self) -> String {
         format!("{}.{}.{}", self.major, self.minor, self.patch)
     }
+
+    fn is_gate_command_v1_release(self) -> bool {
+        self.major == 1 && self.patch == 0
+    }
 }
 
 pub(super) fn parse_gate_assertion_command(
@@ -541,6 +551,18 @@ pub(super) fn parse_gate_assertion_command_with_current_version(
     let actual_version = StableRustVersion::parse(toolchain)?;
     let minimum_version = StableRustVersion::parse("1.96.0")?;
     let current_version = StableRustVersion::parse(current_rust_version)?;
+    if !current_version.is_gate_command_v1_release() {
+        return Err(format!(
+            "workspace Rust version `{}` 尚未纳入 gate-command v1 stable release 策略",
+            current_version.canonical()
+        ));
+    }
+    if !actual_version.is_gate_command_v1_release() {
+        return Err(format!(
+            "Rust toolchain `{}` 不是 gate-command v1 支持的 `1.<minor>.0` stable release",
+            actual_version.canonical()
+        ));
+    }
     if actual_version < minimum_version || actual_version > current_version {
         return Err(format!(
             "Rust toolchain `{}` 超出 gate-command v1 历史兼容边界 `{}..={}`",
@@ -1510,6 +1532,23 @@ pub(super) fn validate_g3_exception(
         )?,
         None => None,
     };
+    if current_record
+        .as_ref()
+        .is_some_and(|(_, record)| record.exception_type == "legacy_evidence_reconstruction")
+    {
+        return Err(
+            "legacy_evidence_reconstruction 只能来自 Issue G4 historical appendix，不能来自 PR comment"
+                .to_string(),
+        );
+    }
+    if historical_record
+        .as_ref()
+        .is_some_and(|(_, record)| record.exception_type != "legacy_evidence_reconstruction")
+    {
+        return Err(
+            "Issue G4 historical appendix 只能承载 legacy_evidence_reconstruction".to_string(),
+        );
+    }
     let selected = match (current_record, historical_record) {
         (Some(_), Some(_)) => {
             return Err("同一 G3 target 不得同时声明 current 与 historical exception".to_string());
