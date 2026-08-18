@@ -1708,6 +1708,24 @@ fn a_historical_exception_applies_only_to_its_exact_full_set_target() {
 }
 
 #[test]
+fn target_assertion_set_honors_a_validated_legacy_exception_result() {
+    let args = related_only_g3_args();
+    let mut related = related_pr(false);
+    related.comments[0].body = related.comments[0]
+        .body
+        .replace("`R0-R1 bootstrap`", "`G3 Pass`")
+        .replace("` 已通过。", "` 未通过。");
+
+    assert!(
+        validate_gate_evidence_target_assertions(&related, std::slice::from_ref(&args)).is_err()
+    );
+    assert!(
+        validate_gate_evidence_target_assertions_with_legacy_exception(&related, &[args], true,)
+            .is_ok()
+    );
+}
+
+#[test]
 fn a_lone_backtick_fails_closed_without_panicking() {
     assert!(parse_optional_backtick_value("`", "Gate 结果").is_err());
 }
@@ -2607,6 +2625,16 @@ fn accepts_structured_g4_recovery_for_late_related_pr() {
 }
 
 #[test]
+fn accepts_signed_post_merge_shadow_correction_during_full_set_recovery() {
+    let (args, mut issue, _, related_pr) = late_related_recovery_fixture();
+    let (_, delivery_pr) = post_merge_shadow_correction_fixture();
+    issue.comments[0].created_at = "2026-07-10T07:00:00Z".to_string();
+
+    let result = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr]);
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
 fn rejects_g4_recovery_when_related_pr_predates_delivery_merge() {
     let (args, issue, delivery_pr, mut related_pr) = late_related_recovery_fixture();
     related_pr.created_at = "2026-07-10T05:29:59Z".to_string();
@@ -2646,7 +2674,7 @@ fn rejects_delivery_g3_edited_after_merge_during_recovery() {
     let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
         .expect_err("an edit after merge is still retroactive evidence");
 
-    assert!(error.contains("生效时间必须严格早于 Delivery merge"));
+    assert!(error.contains("生效时间必须严格早于 PR 合并时间"));
 }
 
 #[test]
@@ -2657,7 +2685,7 @@ fn rejects_timestamp_equal_delivery_g3_during_recovery() {
     let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
         .expect_err("the original Delivery G3 must strictly predate its merge");
 
-    assert!(error.contains("必须严格早于 Delivery merge"));
+    assert!(error.contains("必须严格早于 PR 合并时间"));
 }
 
 #[test]

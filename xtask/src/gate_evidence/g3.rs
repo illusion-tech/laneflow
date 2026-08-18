@@ -171,6 +171,26 @@ pub(super) fn validate_g3_target(
     pr: &GitHubPullRequest,
     resolved_args: &[GateEvidenceArgs],
 ) -> Result<(GateEvidencePrRole, Vec<u64>), String> {
+    validate_g3_target_with_legacy_exception(
+        mode,
+        repo,
+        pr_number,
+        issue_phase,
+        pr,
+        resolved_args,
+        false,
+    )
+}
+
+fn validate_g3_target_with_legacy_exception(
+    mode: G3ValidationMode,
+    repo: &str,
+    pr_number: u64,
+    issue_phase: GateEvidencePhase,
+    pr: &GitHubPullRequest,
+    resolved_args: &[GateEvidenceArgs],
+    allow_legacy_exception: bool,
+) -> Result<(GateEvidencePrRole, Vec<u64>), String> {
     let validation = || {
         let (declared_role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
         if mode == G3ValidationMode::RelatedOnly && declared_role != GateEvidencePrRole::Related {
@@ -225,7 +245,11 @@ pub(super) fn validate_g3_target(
         }
 
         validate_gate_evidence_target_pr(repo, issue_phase, pr, declared_role, &issue_numbers)?;
-        validate_gate_evidence_target_assertions(pr, resolved_args)?;
+        validate_gate_evidence_target_assertions_with_legacy_exception(
+            pr,
+            resolved_args,
+            allow_legacy_exception,
+        )?;
         Ok((declared_role, issue_numbers))
     };
 
@@ -279,6 +303,7 @@ pub(super) fn validate_related_full_set_member(
     current_issue: u64,
     issue_phase: GateEvidencePhase,
     pr: &GitHubPullRequest,
+    allow_legacy_exception: bool,
 ) -> Result<(), String> {
     let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
     if role != GateEvidencePrRole::Related {
@@ -291,13 +316,14 @@ pub(super) fn validate_related_full_set_member(
     }
     let resolved_args =
         resolve_gate_evidence_targets(repo, pr_number, role, &issue_numbers, issue_phase)?;
-    validate_g3_target(
+    validate_g3_target_with_legacy_exception(
         G3ValidationMode::DeliveryFullSet,
         repo,
         pr_number,
         issue_phase,
         pr,
         &resolved_args,
+        allow_legacy_exception,
     )
     .map(|_| ())
 }
