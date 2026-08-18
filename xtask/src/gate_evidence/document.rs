@@ -651,11 +651,10 @@ fn canonicalize_g3_shadow_field(body: &str) -> Result<String, String> {
             found = true;
             let value = line
                 .strip_prefix(G3_EVIDENCE_SHADOW_COMMENT_FIELD)
-                .expect("checked prefix")
-                .trim();
-            let value = parse_optional_backtick_value(value, "G3 Evidence Gate Shadow")?;
+                .expect("checked prefix");
+            let value = canonicalize_g3_shadow_wrapper(value)?;
             canonical.push_str(G3_EVIDENCE_SHADOW_COMMENT_FIELD);
-            canonical.push_str(value);
+            canonical.push_str(&value);
             canonical.push_str(newline);
         } else {
             canonical.push_str(segment);
@@ -665,6 +664,35 @@ fn canonicalize_g3_shadow_field(body: &str) -> Result<String, String> {
         return Err("G3 comment correction 的正文缺少 G3 Evidence Gate Shadow 字段".to_string());
     }
     Ok(canonical)
+}
+
+fn canonicalize_g3_shadow_wrapper(value: &str) -> Result<String, String> {
+    if !value.starts_with('`') {
+        return Ok(value.to_string());
+    }
+
+    let (wrapped, suffix) = if value.ends_with('`') {
+        (value, "")
+    } else if let Some(wrapped) = value
+        .strip_suffix('。')
+        .filter(|wrapped| wrapped.ends_with('`'))
+    {
+        (wrapped, "。")
+    } else {
+        return Err(
+            "G3 Evidence Gate Shadow correction 只能移除完整值的一层反引号包裹".to_string(),
+        );
+    };
+    if wrapped.len() < 2 {
+        return Err("G3 Evidence Gate Shadow correction 的反引号包裹不能为空".to_string());
+    }
+    let inner = &wrapped[1..wrapped.len() - 1];
+    if inner.is_empty() || inner.contains('`') {
+        return Err(
+            "G3 Evidence Gate Shadow correction 的完整反引号包裹必须非空且只能使用一层".to_string(),
+        );
+    }
+    Ok(format!("{inner}{suffix}"))
 }
 
 pub(super) fn validate_g3_comment_correction(
@@ -1010,6 +1038,9 @@ pub(super) fn parse_optional_backtick_value<'a>(
     let ends = value.ends_with('`');
     match (starts, ends) {
         (true, true) => {
+            if value.len() < 2 {
+                return Err(format!("`{field}` 的完整反引号包裹必须包含起止反引号"));
+            }
             let inner = &value[1..value.len() - 1];
             if inner.is_empty() || inner.contains('`') {
                 return Err(format!("`{field}` 的完整反引号包裹必须非空且只能使用一层"));
@@ -1284,6 +1315,18 @@ fn exception_record_for_target<'a>(
             "Issue #{issue} / PR #{pr_number} 的 G3 comment 只能绑定一条 g3-exception 记录"
         )),
     }
+}
+
+pub(super) fn historical_exception_applies_to_target(
+    appendix: &GitHubComment,
+    issue: u64,
+    pr_number: u64,
+    g3_permalink: &str,
+) -> Result<bool, String> {
+    Ok(
+        exception_record_for_target(std::iter::once(appendix), issue, pr_number, g3_permalink)?
+            .is_some(),
+    )
 }
 
 fn validate_g3_exception_record(
