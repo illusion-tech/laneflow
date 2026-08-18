@@ -341,6 +341,13 @@ pub(super) fn validate_related_full_set_member(
     }
     let resolved_args =
         resolve_gate_evidence_targets(repo, pr_number, role, &issue_numbers, issue_phase)?;
+    let result_scope = related_full_set_result_scope(
+        pr,
+        pr_number,
+        current_issue,
+        &issue_numbers.iter().copied().collect(),
+        allow_legacy_exception,
+    )?;
     validate_g3_target_with_legacy_exception(
         G3ValidationMode::DeliveryFullSet,
         repo,
@@ -348,9 +355,25 @@ pub(super) fn validate_related_full_set_member(
         issue_phase,
         pr,
         &resolved_args,
-        Some((current_issue, allow_legacy_exception)),
+        Some(result_scope),
     )
     .map(|_| ())
+}
+
+pub(super) fn related_full_set_result_scope(
+    pr: &GitHubPullRequest,
+    pr_number: u64,
+    current_issue: u64,
+    issue_numbers: &BTreeSet<u64>,
+    allow_legacy_exception: bool,
+) -> Result<(u64, bool), String> {
+    let permalink = completed_gate_permalink(&pr.body, "G3")?;
+    let current_exception_issues =
+        current_exception_issues_for_targets(pr, pr_number, &permalink, issue_numbers)?;
+    Ok((
+        current_issue,
+        allow_legacy_exception || current_exception_issues.contains(&current_issue),
+    ))
 }
 
 #[cfg(test)]
