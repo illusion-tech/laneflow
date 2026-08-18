@@ -1066,15 +1066,8 @@ pub(super) fn validate_external_review_g3(
             pr.head_ref_oid
         ));
     }
-    let scoped_gate_result = if historical_appendix.is_none()
-        && gate_result == G3Result::Exception
-        && !current_exception_issues.is_empty()
-        && !current_exception_issues.contains(&issue_number)
-    {
-        G3Result::Pass
-    } else {
-        gate_result
-    };
+    let scoped_gate_result =
+        scoped_current_g3_result(gate_result, issue_number, &current_exception_issues);
     if validate_g3_exception(
         issue_number,
         number,
@@ -1127,6 +1120,21 @@ pub(super) fn validate_external_review_g3(
         validate_g3_comment_after_external_review_completion(effective_at, completion_time, label)?;
     }
     Ok(())
+}
+
+pub(super) fn scoped_current_g3_result(
+    gate_result: G3Result,
+    issue_number: u64,
+    current_exception_issues: &BTreeSet<u64>,
+) -> G3Result {
+    if gate_result == G3Result::Exception
+        && !current_exception_issues.is_empty()
+        && !current_exception_issues.contains(&issue_number)
+    {
+        G3Result::Pass
+    } else {
+        gate_result
+    }
 }
 
 pub(super) fn waiver_validation_time(

@@ -1983,7 +1983,6 @@ fn current_exception_scopes_multi_issue_assertions_without_forcing_other_issues_
         )
         .is_ok()
     );
-
     pr.comments[0].body = pr.comments[0].body.replace(
         &format!("- Gate 断言：`{second_command}` 已通过。"),
         &format!("- Gate 断言：`{second_command}` 未通过。"),
@@ -1998,6 +1997,19 @@ fn current_exception_scopes_multi_issue_assertions_without_forcing_other_issues_
     )
     .expect_err("the non-exception Issue must retain a passing assertion");
     assert!(error.contains("必须在规范命令后明确记录 `已通过`"));
+}
+
+#[test]
+fn current_exception_scope_is_independent_of_g4_appendix_presence() {
+    let current_exception_issues = BTreeSet::from([60]);
+    assert_eq!(
+        scoped_current_g3_result(G3Result::Exception, 60, &current_exception_issues),
+        G3Result::Exception
+    );
+    assert_eq!(
+        scoped_current_g3_result(G3Result::Exception, 61, &current_exception_issues),
+        G3Result::Pass
+    );
 }
 
 #[test]
