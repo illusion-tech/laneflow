@@ -1695,6 +1695,14 @@ fn a_historical_exception_applies_only_to_its_exact_full_set_target() {
     exception_appendix.url = ISSUE_G4_URL.to_string();
     issue.comments[0] = exception_appendix;
 
+    assert_eq!(
+        g3_requires_result_validation(60, 61, &delivery, Some(&issue.comments[0])),
+        Ok(true)
+    );
+    assert_eq!(
+        g3_requires_result_validation(60, 62, &related, Some(&issue.comments[0])),
+        Ok(false)
+    );
     let result = validate_g3_evidence(&args, &issue, &delivery, &[related]);
     assert!(result.is_ok(), "{result:?}");
 }
@@ -1895,6 +1903,44 @@ fn historical_g3_block_replay_is_explicitly_non_retroactive() {
         ),
         Ok(true)
     );
+}
+
+#[test]
+fn g4_failed_assertion_requires_an_exact_structured_historical_exception_target() {
+    let args = gate_args(GateEvidencePhase::G4);
+    let (mut delivery, mut exception_appendix) = g3_exception_fixture(
+        "legacy_evidence_reconstruction",
+        "G3 Block",
+        "2026-07-10T06:00:00Z",
+        "2026-07-10T07:00:00Z",
+    );
+    delivery.comments.truncate(1);
+    delivery.state = "MERGED".to_string();
+    delivery.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+    delivery.project_items[0].status = Some(ProjectStatus {
+        name: "Done".to_string(),
+    });
+
+    let mut issue = issue("OPEN", "Done");
+    let g4_fields = issue.comments[0].body.replace("` 已通过。", "` 未通过。");
+    exception_appendix.url = ISSUE_G4_URL.to_string();
+    exception_appendix.body = format!("{g4_fields}\n{}", exception_appendix.body);
+    issue.comments[0] = exception_appendix.clone();
+    let result = validate_g4_evidence(&args, &issue, &delivery, &[]);
+    assert!(result.is_ok(), "{result:?}");
+
+    issue.comments[0].body = issue.comments[0]
+        .body
+        .replace(r#""pullRequest": 61"#, r#""pullRequest": 999"#);
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
+        .expect_err("a failed G4 assertion may not use an unrelated exception record");
+    assert!(error.contains("明确记录 `已通过`"));
+
+    issue.comments[0] = exception_appendix;
+    issue.comments[0].body = issue.comments[0]
+        .body
+        .replace("<!-- g3-exception:v1", "<!-- g3-exception:v1\nnot-json");
+    assert!(validate_g4_evidence(&args, &issue, &delivery, &[]).is_err());
 }
 
 #[test]

@@ -132,13 +132,19 @@ pub(super) fn validate_g4_g3_full_set_recovery(
         delivery_pr: Some(delivery_number),
         related_prs: record.original_related_prs.clone(),
     };
+    let allow_delivery_legacy_exception = historical_exception_applies_to_target(
+        g4_comment,
+        args.issue,
+        delivery_number,
+        &delivery_permalink,
+    )?;
     validate_comment(
         delivery_pr,
         &delivery_permalink,
         G3_COMMENT_FIELDS,
         "Delivery PR original G3",
         &original_args,
-        g4_comment.body.contains(G3_EXCEPTION_START),
+        allow_delivery_legacy_exception,
     )?;
     validate_g3_timing(
         delivery_pr,
@@ -188,15 +194,21 @@ pub(super) fn validate_g4_g3_full_set_recovery(
             delivery_pr: None,
             related_prs: vec![*number],
         };
+        let related_permalink = completed_gate_permalink(&related_pr.body, "G3")?;
+        let allow_related_legacy_exception = historical_exception_applies_to_target(
+            g4_comment,
+            args.issue,
+            *number,
+            &related_permalink,
+        )?;
         validate_related_pr_g3(
             &related_args,
             &issue.body,
             issue_g3_line,
             *number,
             related_pr,
-            g4_comment.body.contains(G3_EXCEPTION_START),
+            allow_related_legacy_exception,
         )?;
-        let related_permalink = completed_gate_permalink(&related_pr.body, "G3")?;
         if !evidence_urls.contains(&related_permalink) {
             return Err(format!(
                 "G3 full-set recovery evidenceRefs 未覆盖 Related PR #{number} G3 permalink"
@@ -276,12 +288,31 @@ pub(super) fn validate_g4_evidence(
     let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
     let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
     validate_comment_body(&g4_comment.body, G4_COMMENT_FIELDS, "Issue G4")?;
+    let delivery_number = args
+        .delivery_pr
+        .ok_or("G4 validation 缺少 Delivery PR 参数")?;
+    let delivery_permalink = completed_gate_permalink(&delivery_pr.body, "G3")?;
+    let mut allow_g4_legacy_exception = historical_exception_applies_to_target(
+        g4_comment,
+        args.issue,
+        delivery_number,
+        &delivery_permalink,
+    )?;
+    for (number, related_pr) in args.related_prs.iter().zip(related_prs) {
+        let related_permalink = completed_gate_permalink(&related_pr.body, "G3")?;
+        allow_g4_legacy_exception |= historical_exception_applies_to_target(
+            g4_comment,
+            args.issue,
+            *number,
+            &related_permalink,
+        )?;
+    }
     validate_gate_assertion_with_legacy_exception(
         &g4_comment.body,
         "Issue G4",
         args,
         GateEvidencePhase::G4,
-        g4_comment.body.contains(G3_EXCEPTION_START),
+        allow_g4_legacy_exception,
     )?;
     if g4_comment.created_at.as_str() < latest_merge {
         return Err("Issue G4 comment 早于最后一个关联 PR 的合并时间".to_string());
