@@ -1605,6 +1605,19 @@ fn accepts_only_signed_post_merge_shadow_wrapper_corrections() {
     let result = validate_g3_timing(&pr, DELIVERY_G3_URL, "Delivery G3", &args);
     assert!(result.is_ok(), "{result:?}");
 
+    let (args, mut untrusted_marker) = post_merge_shadow_correction_fixture();
+    let mut malformed = untrusted_marker.comments[1].clone();
+    malformed.url =
+        "https://github.com/illusion-tech/laneflow/pull/61#issuecomment-untrusted-correction"
+            .to_string();
+    malformed.author = Some(GitHubActor {
+        login: "untrusted-user".to_string(),
+    });
+    malformed.body = "<!-- g3-comment-correction:v1\nnot-json".to_string();
+    untrusted_marker.comments.insert(1, malformed);
+    let result = validate_g3_timing(&untrusted_marker, DELIVERY_G3_URL, "Delivery G3", &args);
+    assert!(result.is_ok(), "{result:?}");
+
     let (args, mut wrong_hash) = post_merge_shadow_correction_fixture();
     wrong_hash.comments[1].body = wrong_hash.comments[1].body.replace(
         "sha256:",
@@ -1710,6 +1723,7 @@ fn a_historical_exception_applies_only_to_its_exact_full_set_target() {
 #[test]
 fn target_assertion_set_honors_a_validated_legacy_exception_result() {
     let args = related_only_g3_args();
+    let issue = args.issue;
     let mut related = related_pr(false);
     related.comments[0].body = related.comments[0]
         .body
@@ -1720,8 +1734,60 @@ fn target_assertion_set_honors_a_validated_legacy_exception_result() {
         validate_gate_evidence_target_assertions(&related, std::slice::from_ref(&args)).is_err()
     );
     assert!(
-        validate_gate_evidence_target_assertions_with_legacy_exception(&related, &[args], true,)
-            .is_ok()
+        validate_gate_evidence_target_assertions_with_legacy_exception(
+            &related,
+            &[args],
+            Some((issue, true)),
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn target_assertion_set_scopes_a_legacy_exception_to_the_matching_issue() {
+    let first = related_only_g3_args();
+    let second = GateEvidenceArgs {
+        phase: GateEvidencePhase::G3,
+        repo: first.repo.clone(),
+        issue: 61,
+        delivery_pr: None,
+        related_prs: first.related_prs.clone(),
+    };
+    let first_command = expected_gate_command(&first, GateEvidencePhase::G3);
+    let second_command = expected_gate_command(&second, GateEvidencePhase::G3);
+    let mut related = related_pr(false);
+    let original_assertion = related.comments[0]
+        .body
+        .lines()
+        .find(|line| line.starts_with(GATE_ASSERTION_PREFIX))
+        .unwrap()
+        .to_string();
+    related.comments[0].body = related.comments[0].body.replace(
+        &original_assertion,
+        &format!(
+            "- Gate 断言：`{first_command}` 未通过。\n- Gate 断言：`{second_command}` 已通过。"
+        ),
+    );
+
+    assert!(
+        validate_gate_evidence_target_assertions_with_legacy_exception(
+            &related,
+            &[first.clone(), second.clone()],
+            Some((first.issue, true)),
+        )
+        .is_ok()
+    );
+    assert!(
+        validate_gate_evidence_target_assertions(&related, &[first.clone(), second.clone()])
+            .is_err()
+    );
+    assert!(
+        validate_gate_evidence_target_assertions_with_legacy_exception(
+            &related,
+            &[first, second.clone()],
+            Some((second.issue, false)),
+        )
+        .is_ok()
     );
 }
 
@@ -1849,6 +1915,34 @@ fn current_g3_exception_is_auditable_non_pass_and_fails_closed() {
             61,
             &pr,
             &pr.comments[0],
+            G3Result::Exception,
+            None,
+            Some("2026-07-10T05:30:00Z"),
+        ),
+        Ok(true)
+    );
+
+    let (mut untrusted_marker, _) = g3_exception_fixture(
+        "confirmed_gate_defect",
+        "G3 Exception",
+        "2026-07-10T05:10:00Z",
+        "2026-07-10T06:00:00Z",
+    );
+    let mut malformed = untrusted_marker.comments[1].clone();
+    malformed.url =
+        "https://github.com/illusion-tech/laneflow/pull/61#issuecomment-untrusted-exception"
+            .to_string();
+    malformed.author = Some(GitHubActor {
+        login: "untrusted-user".to_string(),
+    });
+    malformed.body = "<!-- g3-exception:v1\nnot-json".to_string();
+    untrusted_marker.comments.insert(1, malformed);
+    assert_eq!(
+        validate_g3_exception(
+            60,
+            61,
+            &untrusted_marker,
+            &untrusted_marker.comments[0],
             G3Result::Exception,
             None,
             Some("2026-07-10T05:30:00Z"),
@@ -2000,6 +2094,25 @@ fn historical_exception_fixture_accepts_real_block_and_failed_assertion_shapes_o
             &args,
             GateEvidencePhase::G3,
             false,
+        )
+        .is_err()
+    );
+    assert!(
+        validate_gate_assertion_set_with_legacy_exception(
+            block,
+            "legacy #372 G3 set",
+            std::slice::from_ref(&args),
+            GateEvidencePhase::G3,
+            Some((args.issue, true)),
+        )
+        .is_ok()
+    );
+    assert!(
+        validate_gate_assertion_set(
+            block,
+            "legacy #372 G3 set",
+            std::slice::from_ref(&args),
+            GateEvidencePhase::G3
         )
         .is_err()
     );

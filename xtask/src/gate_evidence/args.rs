@@ -315,13 +315,13 @@ pub(super) fn validate_gate_evidence_target_assertions(
     pr: &GitHubPullRequest,
     resolved_args: &[GateEvidenceArgs],
 ) -> Result<(), String> {
-    validate_gate_evidence_target_assertions_with_legacy_exception(pr, resolved_args, false)
+    validate_gate_evidence_target_assertions_with_legacy_exception(pr, resolved_args, None)
 }
 
 pub(super) fn validate_gate_evidence_target_assertions_with_legacy_exception(
     pr: &GitHubPullRequest,
     resolved_args: &[GateEvidenceArgs],
-    allow_legacy_exception: bool,
+    result_scope: Option<(u64, bool)>,
 ) -> Result<(), String> {
     let permalink = completed_gate_permalink(&pr.body, "G3")?;
     let comment = pr
@@ -334,7 +334,7 @@ pub(super) fn validate_gate_evidence_target_assertions_with_legacy_exception(
         "PR G3",
         resolved_args,
         GateEvidencePhase::G3,
-        allow_legacy_exception,
+        result_scope,
     )
 }
 

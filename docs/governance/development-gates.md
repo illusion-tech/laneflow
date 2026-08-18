@@ -43,7 +43,7 @@ Gate Ledger 是 Issue 和 PR 上的增量闸口记录，用来说明任务何时
 - G4 的完整事件证据记录在 Issue 的 `## G4 完成判断` comment，且必须在所有关联 PR 合并后、Issue 关闭前创建；Issue body 的 G4 checkbox 保存直接 comment permalink。Delivery PR 的 body 只回链该 Issue G4 comment，Related PR 不承担 Issue G4。
 - GitHub comment 是带时间和作者的过程证据，不是不可变审计日志；长期规则仍由仓库文档和 Git 历史保存。
 - 每个 Related PR 独立 G3 都必须运行 `cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>`；`<workspace-rust-version>` 由 `xtask` 的 `CARGO_PKG_RUST_VERSION` 生成（当前为 `1.96.0`），不得在生成器中另写常量。该 comment 永久保留 Related-only 断言，只验证当前 Related PR 的 comment、仍未勾选的 Issue G3 增量 permalink 与关系，不声明 Issue 整体 G3 已完成。若 Issue G3 已提前勾选，Related-only 校验必须失败。
-- Delivery PR G3、整组关系复核与 G4 使用 `cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence <g3|g4> --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...`，并传入 Issue 已记录的全部 Related PR。整组复核按各 Related PR 原有的 Related-only 断言验证其 current G3 comment，不要求改写为 full-set 命令；Delivery PR comment 和 Issue 最终断言使用 full-set 命令。gate-command v1 对从 `1.96.0` 到当前 workspace MSRV 的 `1.<minor>.0` stable release 保持历史兼容；未显式纳入策略的补丁版本失败关闭。比较解析后的 phase、repo、Issue、角色与有序 Related 集合，并忽略空白及 Cargo/xtask 独立参数的等价顺序。未知、缺失、超出版本窗或语义重复的参数继续失败关闭。`G3 Pass` / bootstrap 的 `Gate 断言` 明确写 `已通过`；`G3 Exception` 及历史重放明确写 `未通过`，且必须有下文定义的结构化记录，绝不映射为 Pass。一个 PR 关联多个 Issue 时，同一 current G3 comment 必须为每个 Issue 分别保留一条精确断言。命令或远端读取失败同样是 Gate 失败。
+- Delivery PR G3、整组关系复核与 G4 使用 `cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence <g3|g4> --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...`，并传入 Issue 已记录的全部 Related PR。整组复核按各 Related PR 原有的 Related-only 断言验证其 current G3 comment，不要求改写为 full-set 命令；Delivery PR comment 和 Issue 最终断言使用 full-set 命令。gate-command v1 对从 `1.96.0` 到当前 workspace MSRV 的 `1.<minor>.0` stable release 保持历史兼容；未显式纳入策略的补丁版本失败关闭。比较解析后的 phase、repo、Issue、角色与有序 Related 集合，并忽略空白及 Cargo/xtask 独立参数的等价顺序。未知、缺失、超出版本窗或语义重复的参数继续失败关闭。`G3 Pass` / bootstrap 的 `Gate 断言` 明确写 `已通过`；`G3 Exception` 及历史重放明确写 `未通过`，且必须有下文定义的结构化记录，绝不映射为 Pass。一个 PR 关联多个 Issue 时，同一 current G3 comment 必须为每个 Issue 分别保留一条精确断言；historical replay 按当前 Issue 只裁决匹配断言的结果，其他 Issue 仍须保留可解析命令和显式结果，并由各自 G4 记录独立裁决。命令或远端读取失败同样是 Gate 失败。
 - 小型 `docs-only` 或 `governance` 任务可以把 G0-G2 合并为一条开工记录，但该记录必须发生在实现或开 PR 之前。
 - 如果 G4 阶段才发现 G0-G3 缺失，只能标记为补救记录，并说明流程遗漏原因。
 - Agent 不得在缺少当前 Gate 记录时继续推进下一 Gate，除非用户明确接受例外并留下原因、风险和 Cleanup owner。
@@ -350,7 +350,7 @@ G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 cur
 - 风险：
 - 例外：N/A / exception type、风险、到期、follow-up、Cleanup owner
 - 合并方式：Rebase and merge / 例外原因
-- Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` 已通过。
+- Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` <按 Gate 结果填写：`G3 Exception` 写“未通过”，其他结果写“已通过”>。
 ```
 
 `xtask scaffold-g3-comment` 目前只冻结输入/输出草案，不在本切片实现 GitHub 写入：输入为 `--repo`、一个或多个 `--issue`、当前 PR 及其 Delivery/Related role、完整 Related set 和 current head；工具读取远端 Issue/PR identity 后，输出 canonical comment、每个 Issue 的语义规范命令及本地预检结果。任一 identity、关系、head 或预检失败时不输出可发布结论；操作者审阅后自行发表 comment、更新 permalink 并运行正式远端校验。
