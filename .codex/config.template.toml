@@ -1,0 +1,20 @@
+# LaneFlow mcpls project configuration template.
+# laneflow-mcpls-template-schema: 1
+# The setup script replaces only the two placeholders below and writes the
+# generated, worktree-local result to the ignored .codex/config.toml file.
+
+[mcp_servers.mcpls]
+url = "__LANEFLOW_MCPLS_ENDPOINT__"
+enabled = "__LANEFLOW_MCPLS_ENABLED__"
+required = false
+enabled_tools = [
+  "get_hover",
+  "get_definition",
+  "get_references",
+  "get_document_symbols",
+  "workspace_symbol_search",
+  "get_diagnostics",
+]
+default_tools_approval_mode = "approve"
+startup_timeout_sec = 60
+tool_timeout_sec = 60
