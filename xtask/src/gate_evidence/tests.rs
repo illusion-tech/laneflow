@@ -2605,7 +2605,7 @@ fn parses_reference_style_structured_gate_waiver() {
         includes_created_edit: false,
     };
     let now = parse_utc_timestamp_seconds("2026-07-24T16:30:00Z").unwrap();
-    let waiver = parse_gate_waiver(&comment, 60, now, false).unwrap();
+    let waiver = parse_gate_waiver(&comment, 60, now, false, false).unwrap();
 
     assert_eq!(waiver.id, "waiver-60-1");
     assert_eq!(waiver.exception_type, "provider_platform_outage");
@@ -2620,7 +2620,7 @@ fn parses_reference_style_structured_gate_waiver() {
         r#""authorizedBy": "wangzishi""#,
         r#""authorizedBy": "untrusted-contributor""#,
     );
-    let error = parse_gate_waiver(&comment, 60, now, false)
+    let error = parse_gate_waiver(&comment, 60, now, false, false)
         .expect_err("waiver author must be a trusted G3 Owner");
     assert!(error.contains("不在 trusted G3 Owner allowlist"));
 }
@@ -2684,11 +2684,15 @@ fn parses_one_structured_gate_waiver_per_associated_issue() {
     let now = parse_utc_timestamp_seconds("2026-07-24T16:30:00Z").unwrap();
 
     assert_eq!(
-        parse_gate_waiver(&comment, 60, now, false).unwrap().id,
+        parse_gate_waiver(&comment, 60, now, false, false)
+            .unwrap()
+            .id,
         "waiver-60-1"
     );
     assert_eq!(
-        parse_gate_waiver(&comment, 61, now, false).unwrap().id,
+        parse_gate_waiver(&comment, 61, now, false, false)
+            .unwrap()
+            .id,
         "waiver-61-1"
     );
     let declared_issues = [60, 61].into_iter().collect::<BTreeSet<_>>();
@@ -2702,7 +2706,7 @@ fn parses_one_structured_gate_waiver_per_associated_issue() {
         r##""followUpIssue": "#61""##,
         r##""followUpIssue": "#060""##,
     );
-    let noncanonical_error = parse_gate_waiver(&comment, 60, now, false)
+    let noncanonical_error = parse_gate_waiver(&comment, 60, now, false, false)
         .expect_err("non-canonical per-Issue waiver numbers must fail closed");
     assert!(noncanonical_error.contains("无前导零"));
 
@@ -2710,7 +2714,7 @@ fn parses_one_structured_gate_waiver_per_associated_issue() {
         r##""followUpIssue": "#060""##,
         r##""followUpIssue": "#60""##,
     );
-    let error = parse_gate_waiver(&comment, 60, now, false)
+    let error = parse_gate_waiver(&comment, 60, now, false, false)
         .expect_err("duplicate per-Issue waiver records must fail closed");
     assert!(error.contains("每个 Issue 只能包含一个"));
 }
@@ -2752,14 +2756,14 @@ fn rejects_expired_structured_gate_waiver() {
     };
     let after_expiry = parse_utc_timestamp_seconds("2026-07-24T17:00:01Z").unwrap();
     let current_time = waiver_validation_time(None, after_expiry).unwrap();
-    let error = parse_gate_waiver(&comment, 60, current_time, false)
+    let error = parse_gate_waiver(&comment, 60, current_time, false, false)
         .expect_err("current PR must reject an expired waiver");
 
     assert!(error.contains("已过期"));
 
     let merged_at = waiver_validation_time(Some("2026-07-24T16:30:00Z"), after_expiry)
         .expect("historical Related PR must use its merge time");
-    assert!(parse_gate_waiver(&comment, 60, merged_at, true).is_ok());
+    assert!(parse_gate_waiver(&comment, 60, merged_at, true, false).is_ok());
 
     let invalid_merged_at = waiver_validation_time(Some("not-a-timestamp"), after_expiry)
         .expect_err("invalid historical mergedAt must fail closed");
@@ -2771,21 +2775,33 @@ fn confirmed_defect_waiver_grandfathering_requires_pre_policy_g4_replay() {
     let before_policy = "2026-08-18T04:20:54Z";
     assert_eq!(
         historical_waiver_replay(GateEvidencePhase::G3, Some(before_policy)),
-        Ok(false),
+        Ok(HistoricalWaiverReplay {
+            base_identity: false,
+            grandfathered_confirmed_gate_defect: false,
+        }),
         "a merged Related PR inspected during G3 is not a G4 replay"
     );
     assert_eq!(
         historical_waiver_replay(GateEvidencePhase::G4, Some(before_policy)),
-        Ok(true)
+        Ok(HistoricalWaiverReplay {
+            base_identity: true,
+            grandfathered_confirmed_gate_defect: true,
+        })
     );
     assert_eq!(
         historical_waiver_replay(GateEvidencePhase::G4, Some(G3_EXCEPTION_POLICY_ACTIVATION),),
-        Ok(false),
-        "the grandfather ends exactly at the policy activation"
+        Ok(HistoricalWaiverReplay {
+            base_identity: true,
+            grandfathered_confirmed_gate_defect: false,
+        }),
+        "the retired-type grandfather ends at activation without disabling historical base replay"
     );
     assert_eq!(
         historical_waiver_replay(GateEvidencePhase::G4, Some("2026-08-18T04:20:56Z")),
-        Ok(false)
+        Ok(HistoricalWaiverReplay {
+            base_identity: true,
+            grandfathered_confirmed_gate_defect: false,
+        })
     );
     assert!(historical_waiver_replay(GateEvidencePhase::G4, None).is_err());
 }
@@ -2801,7 +2817,7 @@ fn delivery_ordinary_waiver_uses_g4_evaluation_time() {
             "provider_platform_outage",
             current_time,
             None,
-            true,
+            false,
             Some(merged_at),
         ),
         Ok(current_time),
