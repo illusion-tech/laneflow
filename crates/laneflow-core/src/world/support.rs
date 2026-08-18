@@ -312,11 +312,11 @@ pub(super) fn parking_emergency_travel(
     speed: f64,
     emergency_deceleration: f64,
     delta_time: f64,
-) -> Result<f64, CoreError> {
+) -> Result<f64, TickInvariantError> {
     emergency_min_travel(vehicle, speed, emergency_deceleration, delta_time).map_err(|error| {
         match error {
-            CoreError::NonFiniteLongitudinalComputation { value, .. } => {
-                CoreError::NonFiniteParkingComputation {
+            TickInvariantError::NonFiniteLongitudinalComputation { value, .. } => {
+                TickInvariantError::NonFiniteParkingComputation {
                     stage,
                     vehicle,
                     space,

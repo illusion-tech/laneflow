@@ -99,6 +99,24 @@ impl CoreWorld {
         route_edge_index: usize,
         candidate: &NormalizedVehicleInput,
     ) -> Result<(), CoreError> {
+        self.validate_parking_leave_followers_compact(
+            leaving_vehicle,
+            space,
+            route,
+            route_edge_index,
+            candidate,
+        )
+        .map_err(|error| self.expand_tick_invariant_error(error))
+    }
+
+    fn validate_parking_leave_followers_compact(
+        &mut self,
+        leaving_vehicle: VehicleHandle,
+        space: crate::ParkingSpaceHandle,
+        route: RouteHandle,
+        route_edge_index: usize,
+        candidate: &NormalizedVehicleInput,
+    ) -> Result<(), TickInvariantError> {
         let candidate_edge = self.routes[route.index()].edge_handles[route_edge_index];
         let candidate_length = self
             .vehicle_profile(candidate.profile)
@@ -157,7 +175,7 @@ impl CoreWorld {
         candidate_progress: f64,
         candidate_length: f64,
         handles: &[VehicleHandle],
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), TickInvariantError> {
         for follower_handle in handles.iter().copied() {
             if follower_handle == leaving_vehicle {
                 continue;
@@ -225,7 +243,7 @@ impl CoreWorld {
 
             let bumper_gap = candidate_front_distance - candidate_length;
             if bumper_gap + PHYSICAL_GAP_TOLERANCE_METERS < emergency_travel {
-                return Err(CoreError::ParkingLeaveUnsafeFollower {
+                return Err(TickInvariantError::ParkingLeaveUnsafeFollower {
                     vehicle: leaving_vehicle,
                     space,
                     follower: follower_handle,
@@ -259,6 +277,7 @@ impl CoreWorld {
             candidate_length,
             &handles,
         )
+        .map_err(|error| self.expand_tick_invariant_error(error))
     }
 
     #[cfg(test)]
@@ -442,13 +461,13 @@ impl CoreWorld {
         self.build_occupancy(&mut scratch);
         let result = self.validate_occupancy_overlaps(&scratch);
         self.occupancy_scratch = scratch;
-        result
+        result.map_err(|error| self.expand_tick_invariant_error(error))
     }
 
     pub(super) fn validate_occupancy_overlaps(
         &self,
         scratch: &OccupancyScratch,
-    ) -> Result<(), CoreError> {
+    ) -> Result<(), TickInvariantError> {
         for edge_index in 0..self.lane_graph.edges().len() {
             for pair in scratch.edge(EdgeHandle::new(edge_index)).windows(2) {
                 let follower = pair[0];
@@ -456,7 +475,7 @@ impl CoreWorld {
                 let bumper_gap =
                     leader.front_progress - follower.front_progress - leader.vehicle_length;
                 if physical_gap_is_overlap(bumper_gap) {
-                    return Err(self.vehicle_overlap_error(
+                    return Err(Self::vehicle_overlap_error(
                         follower.vehicle,
                         leader.vehicle,
                         bumper_gap,
@@ -479,7 +498,7 @@ impl CoreWorld {
             if let Some(observation) = self.find_leader(scratch, vehicle, 0.0)?
                 && physical_gap_is_overlap(observation.bumper_gap)
             {
-                return Err(self.vehicle_overlap_error(
+                return Err(Self::vehicle_overlap_error(
                     handle,
                     observation.leader,
                     observation.bumper_gap,
@@ -491,20 +510,13 @@ impl CoreWorld {
     }
 
     pub(super) fn vehicle_overlap_error(
-        &self,
         follower: VehicleHandle,
         leader: VehicleHandle,
         bumper_gap: f64,
-    ) -> CoreError {
-        CoreError::VehiclePhysicalOverlap {
-            follower_id: self
-                .vehicle_external_id(follower)
-                .expect("occupant vehicle ID must exist")
-                .to_owned(),
-            leader_id: self
-                .vehicle_external_id(leader)
-                .expect("occupant vehicle ID must exist")
-                .to_owned(),
+    ) -> TickInvariantError {
+        TickInvariantError::VehiclePhysicalOverlap {
+            follower,
+            leader,
             bumper_gap,
         }
     }

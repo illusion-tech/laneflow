@@ -8,7 +8,7 @@ impl CoreWorld {
         parking_stop: Option<ParkingStopConstraint>,
         events: &mut Vec<CoreEvent>,
         spatial_changes: &mut Vec<VehicleHandle>,
-    ) -> Result<Option<VehicleCompletedRouteEvent>, CoreError> {
+    ) -> Result<Option<VehicleCompletedRouteEvent>, TickInvariantError> {
         if vehicle.status != VehicleStatus::Active {
             return Ok(None);
         }
@@ -127,7 +127,7 @@ impl CoreWorld {
                 .value();
             let next_progress = vehicle.edge_progress.value() + remaining;
             if !next_progress.is_finite() {
-                return Err(CoreError::NonFiniteRouteTravel {
+                return Err(TickInvariantError::NonFiniteRouteTravel {
                     vehicle: vehicle.handle,
                     speed: motion.final_speed(),
                     delta_time_ms: context.fixed_delta_time_ms,
@@ -147,7 +147,7 @@ impl CoreWorld {
                     || (reaches_boundary
                         && computed_speed_is_above_near_zero(vehicle.current_speed.value()))
                 {
-                    return Err(CoreError::ParkingTraversalBoundaryInvariant {
+                    return Err(TickInvariantError::ParkingTraversalBoundaryInvariant {
                         vehicle: vehicle.handle,
                         space: stop.space,
                         route: stop.route,
@@ -194,13 +194,11 @@ impl CoreWorld {
                     .expect("validated route edge must exist")
                     .value();
                 if vehicle.current_speed.value() > target_limit {
-                    return Err(CoreError::SpeedLimitTraversalInvariant {
+                    return Err(TickInvariantError::SpeedLimitTraversalInvariant {
                         vehicle: vehicle.handle,
                         route: vehicle.route,
                         from_route_edge_index,
                         to_route_edge_index,
-                        from_edge: current_edge,
-                        to_edge,
                         final_speed: vehicle.current_speed.value(),
                         target_limit,
                     });
@@ -224,7 +222,7 @@ impl CoreWorld {
                     if remaining > EDGE_BOUNDARY_TOLERANCE_METERS
                         || computed_speed_is_above_near_zero(vehicle.current_speed.value())
                     {
-                        return Err(CoreError::SignalTraversalDeniedInvariant {
+                        return Err(TickInvariantError::SignalTraversalDeniedInvariant {
                             vehicle: vehicle.handle,
                             route: vehicle.route,
                             from_route_edge_index,
