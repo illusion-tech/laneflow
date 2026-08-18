@@ -218,6 +218,18 @@ LFCP v2 保持 magic `LFCP`，设置
 | `0x0002` | `SourceMapBinding`         | `1:sourceMapFormatVersion:u16:R`, `2:sourceMapDigest:Sha256:R`, `3:sourceMapByteLength:u64:R`, `4:compilerBuildId:Utf8:R`, `5:sourceCollectionDigestVersion:u16:R`, `6:sourceCollectionDigest:Sha256:R` |
 | `0x0003` | `PublicationProvenance`    | `1:publisherKind:u8:R`, `2:publisherBuildId:Utf8:R`, `3:artifactObjectKey:Utf8:R`, `4:sourceMapObjectKey:Utf8:R`, `5:controlledBuildProvenance:Utf8:O`, `6:controlledTimestamp:Utf8:O`                  |
 
+LFCP v2 独立冻结 `PortablePublisherKindV2` 的封闭编码，数值与 v1 保持一致但不依赖 v1
+parser 或 registry：
+
+| Wire 值 | `PortablePublisherKindV2` | 含义         |
+| ------- | ------------------------- | ------------ |
+| `0`     | `LocalTool`               | 本地发布工具 |
+| `1`     | `Ci`                      | CI 发布流程  |
+| `2`     | `ReleaseService`          | 受控发布服务 |
+
+任何其他 `u8` 值都必须由 LFCP v2 直接值域预检以 `Format` 类错误拒绝，不能映射为
+unknown/future 值，也不能由 `publisherBuildId` 推断种类。
+
 因此：
 
 - object preamble section count 为 `3`；

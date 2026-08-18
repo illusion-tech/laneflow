@@ -1,12 +1,14 @@
 # 可移植规范制品与辅助制品格式
 
-> **后继覆盖（2026-08-18）**：ADR 0024 / #299 G1 已决定不交付独立
+> **候选后继覆盖（2026-08-18）**：Proposed ADR 0024 / #299 G1 拟不交付独立
 > `laneflow-validator` 或验证收据，并以 `laneflow-format` 的后发射检查和最小发布
-> 闭合替代。LFCP v1、`ValidationReceiptBinding`、receipt 安装步骤以及本文所有
-> “#299 独立重算完整语义/签发 receipt”的要求只保留为 #298 当时的历史设计和验证证据，
-> 不再是当前生产要求。当前 LFCP v2、API、检查深度和性能边界以
-> `compiler-post-emission-check-and-minimal-publication-closure.md` 为准；本文
-> LFCA/LFSM/LFSD v1 wire、已完成 emitter/format/安装证据及对象外信任锚仍有效。
+> 闭合替代。ADR 0024 正式 Accepted 前，本文 LFCP v1、
+> `ValidationReceiptBinding` 与 receipt 安装步骤仍是当前已实现契约；不得提前把候选
+> LFCP v2 写成生产事实。ADR 0024 Accepted 后，上述 v1 要求转为 #298 历史设计和验证
+> 证据，LFCP v2、API、检查深度和性能边界改以
+> `compiler-post-emission-check-and-minimal-publication-closure.md` 为准。无论候选是否
+> 生效，本文 LFCA/LFSM/LFSD v1 wire、已完成 emitter/format/安装证据及对象外信任锚
+> 均保持有效。
 
 **文档状态**: Accepted（#298 G1 Pass；G2 进度以 Issue Gate Ledger 为准）<br>
 **最后更新**: 2026-08-17<br>
@@ -747,7 +749,7 @@ LFSD 自身永远不授予迁移权限。
 这三个值是 `PortablePublicationCandidate` 的计算绑定，不进入 LFCP；#302 必须逐值绑定它们，
 不得从 base/target artifact binding 猜测 diff 对象或接受调用方自报 locator。
 
-## 7. 规范发布描述符 `LFCP` v1（历史；已由 ADR 0024 取代）
+## 7. 规范发布描述符 `LFCP` v1（当前已实现；ADR 0024 候选取代）
 
 `magic = "LFCP"`，`canonicalPublicationDescriptorVersion = 1`。v1 精确包含：
 
@@ -2062,7 +2064,7 @@ headless/spatial presence 与闭合 direction profile code 的全局变化。逐
 `directionProfileApplies` 的变化由 `GeometryChange` 表达；accuracy profile 只改变非语义
 CompilerProvenance 和 artifact exact binding，不得产生空间语义变化记录。
 
-### A.4 LFCP v1 table registry（历史；已由 ADR 0024 取代）
+### A.4 LFCP v1 table registry（当前已实现；ADR 0024 候选取代）
 
 四个节各只有一张 `tableKind=0x0001`、一行 singleton 表：
 

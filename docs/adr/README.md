@@ -48,7 +48,7 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   编译器中间表示（Compiler IR）、完整标识登记表（Identity Registry）、可移植规范
   制品（Portable Canonical Artifact）、可信配置档控制的静态镜像，以及目标态
   交通运行时（Traffic Runtime）边界（Accepted；#291 G1；独立 validator、规范发布
-  receipt 与 #299 统一收据职责已由 0024 部分取代）
+  receipt 与 #299 统一收据职责拟在 Proposed 0024 正式 Accepted 后被部分取代）
 - `0021`: 面向中国特色城市模拟游戏的交通基础产品北极星、城市游戏/出行编排/
   路径规划/交通运行时权威分层、不可变路网修订、镜像切换事务、运行时快照与确定性
   降级边界（Accepted；#291 G1）

@@ -9,12 +9,13 @@
 交通运行时（Traffic Runtime）、Data、Spatial 初始化边界<br>
 **目标取代范围**: ADR 0005、0007、0008、0011、0013、0015、0017 中与静态数据 normalization、制品配对和运行时 registry 构建位置冲突的条款，并在目标态以 `LaneFlow Traffic Runtime`/`laneflow-runtime` 一次性不兼容替代当前 `LaneFlow Core`/`laneflow-core`；在本 ADR Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，当前生产实现继续由原 ADR 约束<br>
 
-**后继决策**: ADR 0024（Proposed；#299 G1 In Progress）部分取代本文关于独立
+**候选后继决策**: ADR 0024（Proposed；#299 G1 In Progress）拟部分取代本文关于独立
 `laneflow-validator`、`canonical-publication-v1` receipt、由 #299 统一交付三类
-验证收据，以及 compiler/validator 必须维护两套完整语义实现的决定。本文关于编译器
+验证收据，以及 compiler/validator 必须维护两套完整语义实现的决定；只有 ADR 0024
+正式 Accepted 后该取代关系才生效。本文关于编译器
 拥有静态路网、Canonical LIR、可移植规范制品、目标静态镜像、对象外信任锚和
-Runtime/Spatial 分层的其余决定保持有效。#300/#302 不得把被取代的 receipt 方案当作
-已冻结输入，精确当前边界见
+Runtime/Spatial 分层的其余决定保持有效。#300/#302 在自身 G1 不得把该候选取消的
+receipt 方案直接当作冻结输入，精确候选边界见
 `../design/compiler-post-emission-check-and-minimal-publication-closure.md`。<br>
 
 **2026-08-10 范围澄清**：current Traffic/Spatial/Scenario JSON 从未作为外部资产发布，
