@@ -349,6 +349,41 @@ fn checker_closes_all_variable_source_and_diff_digest_length_bindings() {
 }
 
 #[test]
+fn checker_rejects_every_fixed_binding_version_during_value_preflight() {
+    let genesis = portable_fixture_tests::full_spatial_portable_fixture_candidate();
+    for tag in [1, 3, 7] {
+        let mut lfsm = genesis.source_map().bytes().to_vec();
+        mutate_field(&mut lfsm, PortableObjectKind::SourceMap, 0, tag);
+        assert!(matches!(
+            check_post_emission_bundle_v1(
+                genesis.canonical_artifact().bytes(),
+                &lfsm,
+                genesis.semantic_diff().bytes(),
+                genesis.expected_semantic_diff_base(),
+                FormatLimits::V1_HARD,
+            ),
+            Err(PostEmissionCheckError::Format(_))
+        ));
+    }
+
+    let artifact = portable_fixture_tests::full_spatial_portable_artifact_base_fixture_candidate();
+    for tag in [2, 6] {
+        let mut lfsd = artifact.semantic_diff().bytes().to_vec();
+        mutate_field(&mut lfsd, PortableObjectKind::SemanticDiff, 0, tag);
+        assert!(matches!(
+            check_post_emission_bundle_v1(
+                artifact.canonical_artifact().bytes(),
+                artifact.source_map().bytes(),
+                &lfsd,
+                artifact.expected_semantic_diff_base(),
+                FormatLimits::V1_HARD,
+            ),
+            Err(PostEmissionCheckError::Format(_))
+        ));
+    }
+}
+
+#[test]
 fn lfcp_v2_contains_only_artifact_source_and_publication_bindings() {
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
     for (kind, code) in [
