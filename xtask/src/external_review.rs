@@ -403,7 +403,9 @@ pub(crate) struct WaiverInput {
     pub(crate) cleanup_owner: String,
     pub(crate) authorized_by: String,
     #[serde(skip)]
-    pub(crate) historical_replay: bool,
+    pub(crate) historical_base_replay: bool,
+    #[serde(skip)]
+    pub(crate) grandfathered_confirmed_gate_defect: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1449,8 +1451,8 @@ fn validate_waiver(waiver: &WaiverInput, pr: &PullRequestSnapshot, diagnostics: 
         "provider_platform_outage",
         "security_emergency_hotfix",
     ];
-    let grandfathered_confirmed_gate_defect =
-        waiver.historical_replay && waiver.exception_type == "confirmed_gate_defect";
+    let grandfathered_confirmed_gate_defect = waiver.grandfathered_confirmed_gate_defect
+        && waiver.exception_type == "confirmed_gate_defect";
     if !ALLOWED_TYPES.contains(&waiver.exception_type.as_str())
         && !grandfathered_confirmed_gate_defect
     {
@@ -1476,7 +1478,7 @@ fn validate_waiver(waiver: &WaiverInput, pr: &PullRequestSnapshot, diagnostics: 
     if waiver.current_head_oid != pr.head_ref_oid {
         diagnostics.push("waiver currentHeadOid 与 PR current head 不一致".to_string());
     }
-    if waiver.historical_replay {
+    if waiver.historical_base_replay {
         if !valid_full_oid(&waiver.current_base_oid) {
             diagnostics.push("historical waiver currentBaseOid 必须是完整 Git OID".to_string());
         }
@@ -3046,7 +3048,8 @@ mod tests {
             follow_up_issue: "#230".to_string(),
             cleanup_owner: "wangzishi".to_string(),
             authorized_by: "wangzishi".to_string(),
-            historical_replay: false,
+            historical_base_replay: false,
+            grandfathered_confirmed_gate_defect: false,
         });
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
@@ -3055,7 +3058,35 @@ mod tests {
     }
 
     #[test]
-    fn confirmed_gate_defect_cannot_use_external_review_waiver() {
+    fn historical_ordinary_waiver_preserves_recorded_pre_merge_base() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/stale-old-head.json"
+        ));
+        snapshot.waiver = Some(WaiverInput {
+            id: "waiver-230-historical-outage".to_string(),
+            exception_type: "provider_platform_outage".to_string(),
+            current_head_oid: snapshot.pull_request.head_ref_oid.clone(),
+            current_base_oid: "cccccccccccccccccccccccccccccccccccccccc".to_string(),
+            reason: "the provider was unavailable before merge".to_string(),
+            evidence_urls: vec!["https://github.com/illusion-tech/laneflow/issues/230".to_string()],
+            risk: "review coverage was unavailable at merge".to_string(),
+            acceptance_boundary: "historical G4 replay only".to_string(),
+            expires_at: "2026-07-25T00:00:00Z".to_string(),
+            follow_up_issue: "#230".to_string(),
+            cleanup_owner: "wangzishi".to_string(),
+            authorized_by: "wangzishi".to_string(),
+            historical_base_replay: true,
+            grandfathered_confirmed_gate_defect: false,
+        });
+
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::Waived
+        );
+    }
+
+    #[test]
+    fn post_policy_replay_does_not_grandfather_confirmed_gate_defect() {
         let mut snapshot = fixture(include_str!(
             "../fixtures/external-review/stale-old-head.json"
         ));
@@ -3063,7 +3094,7 @@ mod tests {
             id: "waiver-230-confirmed-defect".to_string(),
             exception_type: "confirmed_gate_defect".to_string(),
             current_head_oid: snapshot.pull_request.head_ref_oid.clone(),
-            current_base_oid: snapshot.pull_request.base_ref_oid.clone(),
+            current_base_oid: "cccccccccccccccccccccccccccccccccccccccc".to_string(),
             reason: "the Gate has a confirmed false block".to_string(),
             evidence_urls: vec!["https://github.com/illusion-tech/laneflow/issues/405".to_string()],
             risk: "the automated assertion remains failed".to_string(),
@@ -3072,7 +3103,8 @@ mod tests {
             follow_up_issue: "#405".to_string(),
             cleanup_owner: "wangzishi".to_string(),
             authorized_by: "wangzishi".to_string(),
-            historical_replay: false,
+            historical_base_replay: true,
+            grandfathered_confirmed_gate_defect: false,
         });
 
         let result = evaluate_snapshot(&snapshot);
@@ -3103,7 +3135,8 @@ mod tests {
             follow_up_issue: "#405".to_string(),
             cleanup_owner: "wangzishi".to_string(),
             authorized_by: "wangzishi".to_string(),
-            historical_replay: true,
+            historical_base_replay: true,
+            grandfathered_confirmed_gate_defect: true,
         });
 
         assert_eq!(
@@ -3130,14 +3163,19 @@ mod tests {
             follow_up_issue: "#405".to_string(),
             cleanup_owner: "wangzishi".to_string(),
             authorized_by: "wangzishi".to_string(),
-            historical_replay: true,
+            historical_base_replay: true,
+            grandfathered_confirmed_gate_defect: true,
         });
 
         let schema_v1 = serde_json::to_string(&snapshot).expect("snapshot must serialize");
         assert!(!schema_v1.contains("historicalReplay"));
+        assert!(!schema_v1.contains("historicalBaseReplay"));
+        assert!(!schema_v1.contains("grandfatheredConfirmedGateDefect"));
         let restored: ExternalReviewSnapshot =
             serde_json::from_str(&schema_v1).expect("schema-v1 waiver must remain readable");
-        assert!(!restored.waiver.unwrap().historical_replay);
+        let restored_waiver = restored.waiver.unwrap();
+        assert!(!restored_waiver.historical_base_replay);
+        assert!(!restored_waiver.grandfathered_confirmed_gate_defect);
     }
 
     #[test]
@@ -3159,7 +3197,8 @@ mod tests {
             follow_up_issue: "#230".to_string(),
             cleanup_owner: "wangzishi".to_string(),
             authorized_by: "wangzishi".to_string(),
-            historical_replay: false,
+            historical_base_replay: false,
+            grandfathered_confirmed_gate_defect: false,
         });
 
         assert_eq!(

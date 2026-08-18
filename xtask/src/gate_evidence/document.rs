@@ -1100,11 +1100,16 @@ pub(super) fn validate_external_review_g3(
                 &exception_type,
                 current_time,
                 validation.ordinary_waiver_merged_at,
-                historical_replay,
+                historical_replay.grandfathered_confirmed_gate_defect,
                 pr.merged_at.as_deref(),
             )?;
-            let waiver =
-                parse_gate_waiver(comment, issue_number, validation_time, historical_replay)?;
+            let waiver = parse_gate_waiver(
+                comment,
+                issue_number,
+                validation_time,
+                historical_replay.base_identity,
+                historical_replay.grandfathered_confirmed_gate_defect,
+            )?;
             external_review::evaluate_live_with_waiver(repo, number, waiver)?
         }
         G3Result::Pass | G3Result::Bootstrap => external_review::evaluate_live(repo, number)?,
@@ -1171,31 +1176,43 @@ pub(super) fn waiver_validation_time(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct HistoricalWaiverReplay {
+    pub(super) base_identity: bool,
+    pub(super) grandfathered_confirmed_gate_defect: bool,
+}
+
 pub(super) fn historical_waiver_replay(
     phase: GateEvidencePhase,
     merged_at: Option<&str>,
-) -> Result<bool, String> {
+) -> Result<HistoricalWaiverReplay, String> {
     if phase != GateEvidencePhase::G4 {
-        return Ok(false);
+        return Ok(HistoricalWaiverReplay {
+            base_identity: false,
+            grandfathered_confirmed_gate_defect: false,
+        });
     }
     let merged_at = merged_at.ok_or("G4 waiver replay 缺少 PR mergedAt")?;
     let merged_at = parse_utc_timestamp_seconds(merged_at)
         .ok_or("G4 waiver replay 的 PR mergedAt 不是 UTC RFC3339 时间")?;
     let policy_activation = parse_utc_timestamp_seconds(G3_EXCEPTION_POLICY_ACTIVATION)
         .expect("G3 exception policy activation must be a valid UTC timestamp");
-    Ok(merged_at < policy_activation)
+    Ok(HistoricalWaiverReplay {
+        base_identity: true,
+        grandfathered_confirmed_gate_defect: merged_at < policy_activation,
+    })
 }
 
 pub(super) fn gate_waiver_evaluation_time(
     exception_type: &str,
     current_time: u64,
     ordinary_waiver_merged_at: Option<&str>,
-    historical_replay: bool,
+    grandfathered_confirmed_gate_defect: bool,
     pr_merged_at: Option<&str>,
 ) -> Result<u64, String> {
     let merged_at = if ordinary_waiver_merged_at.is_some() {
         ordinary_waiver_merged_at
-    } else if historical_replay && exception_type == "confirmed_gate_defect" {
+    } else if grandfathered_confirmed_gate_defect && exception_type == "confirmed_gate_defect" {
         Some(pr_merged_at.ok_or("历史 confirmed_gate_defect waiver 缺少 PR mergedAt")?)
     } else {
         None
@@ -1946,7 +1963,8 @@ pub(super) fn parse_gate_waiver(
     comment: &GitHubComment,
     issue_number: u64,
     now: u64,
-    historical_replay: bool,
+    historical_base_replay: bool,
+    grandfathered_confirmed_gate_defect: bool,
 ) -> Result<external_review::WaiverInput, String> {
     let records = parse_gate_waiver_records(comment)?;
     let expected_follow_up_issue = format!("#{issue_number}");
@@ -2036,7 +2054,8 @@ pub(super) fn parse_gate_waiver(
         follow_up_issue: record.follow_up_issue,
         cleanup_owner: record.cleanup_owner,
         authorized_by: record.authorized_by,
-        historical_replay,
+        historical_base_replay,
+        grandfathered_confirmed_gate_defect,
     })
 }
 
