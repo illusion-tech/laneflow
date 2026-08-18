@@ -1,9 +1,11 @@
 use std::{
-    cell::{Cell, RefCell},
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
+
+#[cfg(unix)]
+use std::cell::{Cell, RefCell};
 
 use laneflow_format::{
     FormatLimitConfig, FormatLimits, RegistryCheckedObjectView, preflight_object_values_v1,
@@ -11,7 +13,9 @@ use laneflow_format::{
 use laneflow_static_contract::PortableObjectKind;
 
 use super::*;
-use crate::{PortableInstallOperation, compiler::portable_fixture_tests};
+#[cfg(unix)]
+use crate::PortableInstallOperation;
+use crate::compiler::portable_fixture_tests;
 
 const RECEIPT_BYTES: &[u8] = b"test-only opaque #299 receipt bytes for LFCP binding v1";
 static NEXT_TEST_ROOT: AtomicU64 = AtomicU64::new(0);
@@ -26,6 +30,7 @@ impl TestRoot {
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&path);
+        fs::create_dir(&path).unwrap();
         Self(path)
     }
 
@@ -105,11 +110,13 @@ impl CanonicalPublicationReceiptViewV1 for TestReceipt {
     }
 }
 
+#[cfg(unix)]
 struct AlternatingReceipt {
     inner: TestReceipt,
     exact_calls: Cell<u32>,
 }
 
+#[cfg(unix)]
 impl CanonicalPublicationReceiptViewV1 for AlternatingReceipt {
     fn exact_bytes(&self) -> &[u8] {
         let call = self.exact_calls.get();
@@ -235,10 +242,12 @@ fn field_utf8(bytes: &[u8], section: u32, tag: u16) -> &str {
     std::str::from_utf8(field_bytes(bytes, section, tag)).unwrap()
 }
 
+#[cfg(unix)]
 fn read_installed(store: &PortableObjectStore, object_key: &str) -> Vec<u8> {
     fs::read(store.object_path(object_key).unwrap()).unwrap()
 }
 
+#[cfg(unix)]
 #[test]
 fn success_installs_all_objects_then_commits_exactly_one_manifest() {
     let root = TestRoot::new("success");
@@ -328,6 +337,7 @@ fn success_installs_all_objects_then_commits_exactly_one_manifest() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn publisher_kind_and_optional_controlled_provenance_are_exact_inputs() {
     let root = TestRoot::new("publisher-provenance");
@@ -364,6 +374,7 @@ fn publisher_kind_and_optional_controlled_provenance_are_exact_inputs() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn receipt_view_is_snapshotted_once_before_any_installation() {
     let root = TestRoot::new("receipt-snapshot");
@@ -392,6 +403,7 @@ fn receipt_view_is_snapshotted_once_before_any_installation() {
     );
 }
 
+#[cfg(unix)]
 fn decode_hex(input: &str) -> Box<[u8]> {
     let mut digits = Vec::new();
     for byte in input.bytes() {
@@ -408,6 +420,7 @@ fn decode_hex(input: &str) -> Box<[u8]> {
         .collect()
 }
 
+#[cfg(unix)]
 fn hex_nibble(byte: u8) -> u8 {
     match byte {
         b'0'..=b'9' => byte - b'0',
@@ -553,6 +566,7 @@ fn receipt_metadata_shape_and_every_subject_binding_fail_before_install() {
     }
 }
 
+#[cfg(unix)]
 struct FaultingInstaller<'a> {
     store: &'a PortableObjectStore,
     fail_on_call: Option<usize>,
@@ -561,6 +575,7 @@ struct FaultingInstaller<'a> {
     order: RefCell<Vec<&'static str>>,
 }
 
+#[cfg(unix)]
 impl<'a> FaultingInstaller<'a> {
     fn new(
         store: &'a PortableObjectStore,
@@ -588,6 +603,7 @@ impl<'a> FaultingInstaller<'a> {
     }
 }
 
+#[cfg(unix)]
 impl PublicationObjectInstaller for FaultingInstaller<'_> {
     fn install_candidate(
         &self,
@@ -614,6 +630,7 @@ impl PublicationObjectInstaller for FaultingInstaller<'_> {
     }
 }
 
+#[cfg(unix)]
 fn run_install_failure(
     name: &str,
     fail_on_call: usize,
@@ -639,6 +656,7 @@ fn run_install_failure(
     (installer.order.into_inner(), manifest.calls)
 }
 
+#[cfg(unix)]
 #[test]
 fn artifact_source_map_diff_and_lfcp_failures_expose_no_partial_success() {
     let cases = [
@@ -689,6 +707,7 @@ fn artifact_source_map_diff_and_lfcp_failures_expose_no_partial_success() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn every_receipt_storage_failure_prevents_lfcp_and_manifest() {
     let failures = [
@@ -724,6 +743,7 @@ fn every_receipt_storage_failure_prevents_lfcp_and_manifest() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn manifest_failure_keeps_complete_objects_unreferenced_without_commit_capability() {
     let root = TestRoot::new("manifest-failure");
