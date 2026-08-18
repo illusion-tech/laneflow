@@ -1,8 +1,8 @@
 # 架构
 
-**文档状态**: Accepted（current + #291 target design；目标实现尚未交付）<br>
-**最后更新**: 2026-07-29<br>
-**适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Core/Adapter 边界，以及 #291/ADR 0020/0021 的城市模拟游戏交通基础与目标静态编译架构
+**文档状态**: Accepted（current + #291 target design + ADR 0025 / #300 G1 修订）<br>
+**最后更新**: 2026-08-19<br>
+**适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Core/Adapter 边界，以及 #291/ADR 0020/0021 和 Accepted ADR 0025 的城市模拟游戏交通基础与目标静态编译架构
 
 ## 1. 架构目标
 
@@ -27,7 +27,7 @@ LaneFlow 当前是一个引擎无关、可嵌入的交通运行时。Accepted AD
 城市模拟游戏层
   -> 出行与交通编排层
   -> 路径规划服务
-  -> LaneFlow 编译器 / 静态镜像 + LaneFlow 交通运行时
+  -> LaneFlow 编译器 / 共享静态路网 + LaneFlow 交通运行时
   -> 引擎适配器 / 表现层
 ```
 
@@ -84,7 +84,8 @@ Core 继续拥有拓扑、长度、进度与交通行为的权威职责；Spatia
 ### 2.1 #291 目标静态编译分层
 
 Accepted ADR 0020 的目标态不在上述 current 链条旁增加 L1/L2，而是把全部静态
-路网编译前移：
+路网编译前移。Accepted ADR 0025（#300 G1 Pass）进一步取消独立静态镜像文件/ABI，
+改为以受检 LFCA 构建进程内共享静态路网：
 
 本节术语以 [`reference/glossary.md`](reference/glossary.md) 的中文定义为权威，
 英文只作辅助理解；代码和制品标识符保留精确拼写。
@@ -93,14 +94,16 @@ Accepted ADR 0020 的目标态不在上述 current 链条旁增加 L1/L2，而�
 Road Editing / Synthetic DSL / imported / other checked source modules
   -> authoritative source module graph
   -> typed AST -> HIR -> MIR -> validated canonical LIR
-  -> portable canonical artifact + target StaticNetworkImage + source map + semantic diff
+  -> LFCA + LFSM + LFSD
+  -> laneflow-format checked LFCA capability
+  -> laneflow-static-network -> SharedNetworkRevision
 
-StaticNetworkImage
-  -> required cold StaticIdentityIndex for Runtime Snapshot / Image Cutover identity translation
-  -> laneflow-runtime: required StaticTrafficView + per-world mutable state
+SharedNetworkRevision
+  -> required SharedTrafficNetwork + SharedIdentityIndex + PartitionPlanningHints
+  -> laneflow-runtime: shared immutable Traffic data + per-world mutable state
      + per-world RuntimeExecutionPlan
-  -> laneflow-spatial: optional StaticSpatialView + pose scratch/output
-  -> Adapter: trusted image descriptor + committed snapshot + pose batch
+  -> laneflow-spatial: optional SharedSpatialNetwork; lane_pose capability + pose scratch/output
+  -> Adapter: Runtime/Spatial public API + committed snapshot + pose batch
 ```
 
 这里的 `semantic diff` 是 #298 基于规范 LIR 的路网影响差异；C 阶段道路编辑控制点等
@@ -112,24 +115,26 @@ initial/static occurrence 与 dense layout；target `LaneFlow Traffic Runtime`
 （`laneflow-runtime`）继续拥有 tick、已实现执行域的交通参与单元、动态通行定义
 （Dynamic Traversal Definition）和其他可变交通权威（Mutable Traffic
 Authority），Spatial 继续拥有位姿采样（Pose Sampling）。
-Accepted ADR 0024 已冻结以下启动信任边界：生产启动只从对象外认证
-描述符/manifest 认证版本化静态镜像完整性清单（Static Image Integrity Manifest），再对目标节完成
-分块（Chunk）完整性和有界结构验证；不解析 JSON、不按外部标识（External ID）重绑定、
-重建登记表或重复 Traffic/Spatial 联结。全镜像 SHA-256 保留为发布身份、独立重建与
-显式完整审计（Full Audit），不强制每次启动先串行读取未消费节。交通节、冷稳定
-身份索引（Static Identity Index，`StaticIdentityIndex`）与分区规划提示
-（Partition Planning Hints，`PartitionPlanningHints`）必选；Spatial section 由
-closed profile 控制，headless
-Runtime 不携带 geometry。稳定身份索引不进入 steady tick，可由共享映射、压缩或按需
-分页控制内存成本，但任何 production profile 都不得删除它。目标职责和历史 ADR 的
-取代范围见 ADR 0020。
-分块验证和有类型视图必须共享不可变字节背板（Immutable Byte Backing）；宿主不能
-保证资产在视图生命周期内不可替换/改写时，必须复制封存已验证分块或拒绝建立可信视图。
+Accepted ADR 0024 已冻结 LFCA 后发射检查和最小发布闭合。Accepted ADR 0025 让发布加载和
+玩家确认建造在 admission 之后共用同一条构建路径：宿主发布加载先认证 LFCP v2/
+manifest 绑定，本地玩家编辑则直接消费 `PostEmissionCheckedBundleV1`；两者都由
+`laneflow-format` 提供受检 LFCA capability，再由 `laneflow-static-network` 完成
+跨表引用、身份双射、Traffic/Spatial 对齐和执行约束闭合。目标 Runtime 不解析 JSON、
+LFCA 或 compiler-private LIR，也不按 external ID 重建登记表。
 
-目标静态镜像必须保存编译器派生的静态执行约束图（Static Execution Constraint
-Graph）；v1 `PartitionPlanningHints` 节保存运行时可忽略或重建的分区规划提示
-（Partition Planning Hints），但不得保存最终分区/工作线程分配
-（Partition/Worker Assignment）。每个世界依据这些约束、硬件与动态负载建立自己的
+`SharedNetworkRevision` 的 Traffic、冷稳定身份索引和分区规划提示必选，Spatial
+component 可选。headless 构建不保留 geometry；稳定身份索引不进入 steady tick，
+但任何构建模式都不得删除它。Spatial component 可以是 facility/profile/frame-only；只有
+非空 LaneEdge geometry 才形成完整 lane-pose sampling capability。共享结果拥有自己的连续
+数组且不借用 LFCA backing。runtime-only 世界可以在构建后释放 LFCA；可编辑 session 为
+后续 LFSD 保留的 exact base LFCA 由 editor/#302 独立拥有，不进入共享根。#300 v1 不定义
+静态镜像 descriptor、integrity manifest、chunk、mmap、磁盘 cache 或 target/profile 文件变体。
+
+LFCA 的规范关系保存编译器派生的静态执行约束事实（Static Execution Constraint
+Facts）；LFCA v1 不保存提示 payload。`laneflow-static-network` 按显式非语义 derivation
+version 确定性派生 `PartitionPlanningHints` component，Runtime 可以忽略或重建，但不得保存
+最终分区/工作线程分配（Partition/Worker Assignment）。每个世界依据这些约束、硬件与
+动态负载建立自己的
 运行时执行计划（Runtime Execution Plan）。精确执行的所有分区只读取已提交状态
 `T`，在同一逻辑边界原子提交 `T + Δ`；不能因跨分区而额外延迟一 tick。互不相交的
 资源依赖组件可以并行归约，但每个连接资源组件必须有唯一、规范的归约权威。该权威
@@ -139,19 +144,19 @@ Graph，Condensation DAG）与稳定合并证明归约工作量/跨度（Reducti
 并以集中式组件归约作为精确参考预言机。
 
 静态也不等于城市永不变化：编译器每次产生不可变路网修订（Network Revision），
-运行世界通过失败关闭的镜像切换事务（Image Cutover Transaction）迁移。默认在线
+运行世界通过失败关闭的路网修订切换事务（Network Revision Cutover Transaction）迁移。默认在线
 流程在旧世界继续固定步进时准备候选，以有界迁移增量日志（Migration Delta
 Journal）记录已提交动态状态/生命周期变化及命令/事件游标，并让候选重解释这条
 已提交变更流；最后在安全边界的静默提交窗口（Quiescent Commit Window）排空日志尾
-并把新镜像/状态绑定与规范排序的切换事件批次原子地只发布一次。候选不得重新执行
+并把新共享修订/状态绑定与规范排序的切换事件批次原子地只发布一次。候选不得重新执行
 输入、独立推进未来时间线或产生第二份已提交事件；失败时不发布切换事件并继续旧修订。
 语义差异不能自行授予迁移决定，必须由对象外可信的
 路网修订切换描述符（Network Revision Cutover Descriptor）绑定，并用切换前后的
 稳定身份索引完成引用翻译。Accepted ADR 0024 的 compiler 后发射检查从目标无关规范路网语义载荷
 （Canonical Network Semantic Payload）重算路网修订标识（Network Revision ID）
-`NetworkRevisionId`；LFCP/manifest、静态镜像描述符及切换描述符按各自职责绑定该
-标识，Runtime 不接受调用方、LFSD 或镜像头自报修订。#300/#302 分别冻结镜像和切换
-信任输入。当前 production descriptor 是不含 receipt 的 LFCP v2；LFCP v1 只保留为
+`NetworkRevisionId`；LFCP/manifest、共享修订 origin 及切换描述符按各自职责绑定该
+标识，Runtime 不接受调用方或 LFSD 自报修订。#300/#302 分别冻结共享静态路网和切换
+输入。当前 production descriptor 是不含 receipt 的 LFCP v2；LFCP v1 只保留为
 #298 已实现的历史契约。目标职责、上层
 边界与历史 ADR 的关系见 ADR 0020/0021 及 Accepted ADR 0024；阶段 8 生产切换 Issue
 #294 完成 G4 前，本文其余 current 章节继续有效。
@@ -181,7 +186,14 @@ Core、target Runtime 或 Spatial 对象。
 
 道路建成后仍可修改。近期产品通过候选道路的整体编译/验证和新路网修订替换实现；长期
 在同一事务上增加直接调整与影响预览。道路编辑状态保存重建当前走向所需的编制定义，
-运行时镜像只保留规范折线和静态表，不保存控制点或交互历史。
+共享静态路网只保留规范折线和静态表，不保存控制点或交互历史。鼠标拖动与预览不触发
+完整编译；用户确认建造后才构建候选。城市存档只保存活动 Runtime 修订的 committed
+network source：可编辑世界保存道路编辑状态，只从发布 LFCA 启动的 runtime-only 世界
+保存绑定 LFCA digest/length/revision 的持久 asset reference；working/candidate 不进入
+存档。发布资产要进入道路编辑流程，必须同时提供可重编译并核对到同一修订的 committed
+道路编辑状态，不能从 LFCA 逆向恢复 authoring-only 曲线；#302 先用重编译 exact LFCA 原子
+rebase root/source/diff-base binding，再启用编辑。可编辑 session 内存保留当前 exact base
+LFCA 供下一次 `PortableDiffBase::Artifact`，但存档仍只保存 committed 道路状态。
 
 ## 4. Traffic Data Layer
 
@@ -207,11 +219,11 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 `laneflow-data` 不拥有 fixed tick、runtime entity、world lifecycle 或 Engine asset I/O。初始 loader 接收内存 bytes/string，不直接读取文件或创建 `CoreWorld`。
 
-ADR 0020 target 中，`laneflow-data` 只作为 current JSON 临时内部加载实现；
+ADR 0020/0025 target 中，`laneflow-data` 只作为 current JSON 临时内部加载实现；
 portable canonical artifact 由 `laneflow-format`/compiler contract 描述，生产
-Runtime 由 `laneflow-static-image` 的 trusted descriptor + bounded verifier/view
-挂载。静态 semantic normalization 从 Data/Core constructors 前移到 compiler，
-static image 不取代 public publication/provenance 和对象外 trust-anchor 契约。current JSON
+Runtime 由 `laneflow-static-network` 从受检 LFCA 构建并挂载
+`SharedNetworkRevision`。静态 semantic normalization 从 Data/Core constructors 前移到
+compiler；共享静态路网不取代 LFCA publication/provenance 与宿主 admission 契约。current JSON
 未曾作为外部资产发布，不接入 compiler，也不形成长期兼容或迁移工具承诺。
 
 current v0.10 在保持相同依赖方向的前提下包含 per-edge 基础道路限速、
@@ -268,27 +280,25 @@ Rust workspace 中，Core 由 `laneflow-core` 表达。Core 拥有 `InitialTraff
 这句话描述 current。ADR 0020 target 把动态执行层 clean-break 重命名为
 `LaneFlow Traffic Runtime` / `laneflow-runtime`，target public world 为
 `TrafficWorld`。Static/shared contract 移入 `laneflow-static-contract` 与
-`laneflow-static-image`；Runtime 不再从 `InitialTrafficData` 构建静态 registries，
-而是共享 `StaticTrafficView`。每个 `TrafficWorld` 只拥有已实现执行域的交通参与
+`laneflow-static-network`；Runtime 不再从 `InitialTrafficData` 构建静态 registries，
+而是共享 `SharedTrafficNetwork`。每个 `TrafficWorld` 只拥有已实现执行域的交通参与
 单元、动态通行定义、控制器/预约/停驻状态（Stationary State）等可变数组，
 以及世界 identity、输入命令游标、运行时执行计划和当前路网修订绑定。当前
 投影仍是车辆/动态路线/控制器/预约/停车特化；人口、
 Routing 和游戏规则 seed 仍由 caller/出行编排层拥有；Runtime 只有在后续 G1 显式
 授予随机权威时才拥有相应随机流。
 Initial/static occurrence 由 compiler
-预编译，dynamic Route occurrence 仍由 Runtime 按 image index 编译，steady tick
+预编译，dynamic Route occurrence 仍由 Runtime 按 typed dense handle 编译，steady tick
 继续只使用 typed dense handle。
 
-运行时快照（Runtime Snapshot）是与镜像字节分离的版本化制品，必须绑定原规范制品
-摘要与精确长度、版本化路网修订标识、原始静态镜像摘要与精确长度、运行时/约束
-版本、world identity、tick、输入命令游标和全部每世界可变状态；同一修订可以在
-runtime/snapshot 契约兼容、identity/constraint/execution-constraint versions
-精确相等且 `StaticIdentityIndex` 能完整重建引用时恢复到另一个可信
-target/profile image，即使后者因 compiler provenance 或 artifact envelope 重发布而
-规范制品摘要不同。原规范制品/镜像摘要只作为审计绑定与同字节快速路径。dense
-ordinal 不能跨路网修订直接复用。
-任何保留旧状态的跨修订切换/恢复都必须消费经独立验证、由可信切换描述符绑定的语义
-差异；`StaticIdentityIndex` 只复核 StableId128 ↔ typed ordinal 映射，不能证明
+运行时快照（Runtime Snapshot）是与共享静态数组分离的版本化制品。Accepted ADR 0025 要求
+#302 使用版本化路网修订标识、LFCA origin digest/length、静态契约版本、world identity、
+tick、输入命令游标和全部每世界可变状态完成绑定；内部 dense ordinal、地址、布局和
+partition plan 不进入快照。只要 snapshot/runtime contract 与身份/执行约束版本兼容，
+加载时可以从已提交道路编辑状态重新编译 LFCA、构建同一修订并借助
+`SharedIdentityIndex` 完整重建引用。dense ordinal 不能跨路网修订直接复用。
+任何保留旧状态的跨修订切换/恢复都必须消费经 #302 接受的可信切换输入绑定的语义
+差异；`SharedIdentityIndex` 只复核 StableId128 ↔ typed ordinal 映射，不能证明
 语义兼容，缺失该证据时迁移失败关闭。
 回放使用显式输入命令流、checkpoint 与确定性状态摘要，调试构建可通过冷诊断和源映射
 生成失同步诊断制品。交通运行时按观测导出节奏（Observation Export Cadence）导出
@@ -352,10 +362,12 @@ Adapter 不应把引擎依赖引入 Core。
 
 Adapter 可以按需调用 `laneflow-data` 解析自身 asset pipeline 已读取的内存数据，但不得要求 Core 理解引擎路径、asset handle 或异步加载协议。
 
-ADR 0020/0024 target 中，Adapter/宿主 asset pipeline 提供 static image bytes 与 image
-外部的认证 descriptor/manifest，经 bounded verifier 后把 Traffic
-view 交给 Runtime，并在 profile 含 Spatial 时把对齐 Spatial view 交给 Spatial。
-Adapter 不读取 compiler IR、portable artifact 语义，也不拥有 image 内静态规则。
+ADR 0025 target 中，Adapter/宿主 asset pipeline 负责认证发布资产或提供已提交道路编辑
+状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
+`Arc<SharedNetworkRevision>`。Runtime 安装完整根；Spatial/Adapter 只从同一根或 Runtime
+发布的 revision-bound snapshot/facade 借用对应只读 component，不存在独立 component
+安装或重新组合 API。Adapter 不读取 compiler IR、LFCA 表语义，也不拥有共享静态规则或
+单独替换 component。
 它也不得把细节层次、可见性或帧预算转换为交通 fidelity：宿主可以暂停、慢放或
 统一改变模拟时间推进速度，但不能静默丢 fixed tick、丢事件或让不同分区读取不同
 逻辑时点。任何多频率或 aggregate 降级必须由独立 fidelity contract 和 G1 冻结。

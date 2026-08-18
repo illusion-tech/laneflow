@@ -14,12 +14,13 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 5. `docs/reference/glossary.md`
 6. 修改 Rust 时读取 `docs/reference/rust-code-style.md`
 7. 相关的 `docs/design/` 与 `docs/adr/` 文档
-8. 涉及 #291 目标静态路网编译、静态镜像（Static Image）、静态执行约束/分区规划
+8. 涉及 #291 目标静态路网编译、#300 共享静态路网、静态执行约束/分区规划
    提示/运行时执行计划（Static Execution Constraint / Partition Planning Hints /
    Runtime Execution Plan），或 `laneflow-core/CoreWorld` →
    `laneflow-runtime/TrafficWorld` 的 #294 生产切换时，读取
-   `docs/adr/0020-compiler-owned-static-network-and-static-image.md` 与
-   `docs/design/network-compiler.md`
+   `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、
+   `docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、
+   `docs/design/network-compiler.md` 与 `docs/design/shared-static-network.md`
 9. 涉及 #308 编译器工作负载、资源/性能预算校准、研究停止护栏或私有容器候选时，
    读取 `docs/design/compiler-budget-calibration.md`、
    `docs/reference/compiler-calibration-workloads-v1.json` 与
@@ -88,7 +89,8 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
   协议标识符保持原文并用代码格式标明。
 - 不要把无关重构与功能开发混在同一 PR。
 - 不要把城市经济、出行需求或路线选择策略隐藏进 Traffic Runtime；不要把最终
-  partition/worker、world seed 或 runtime snapshot 写入共享静态镜像。
+  partition/worker、world seed、runtime snapshot 或 working/candidate 道路编辑状态
+  写入共享静态路网。共享静态路网不是文件 ABI、磁盘缓存或存档对象。
 - 精确并行路径不得用分区导致的额外一 tick 延迟（Partition-induced Extra-tick
   Delay）换吞吐；Adapter LOD 和多世界吞吐也不能冒充 Traffic Runtime 保真度或
   单世界扩展。

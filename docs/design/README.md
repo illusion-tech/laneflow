@@ -48,23 +48,32 @@
 - `network-compiler.md`：#291 G1 综合架构修订；采用权威来源模块图
   （Authoritative Source Module Graph）、有类型抽象语法树（Typed AST）→高层中间
   表示（HIR）→中层中间表示（MIR）→已验证规范低层中间表示（Canonical LIR）、
-  完整 Identity registry、可移植规范制品（Portable Canonical Artifact）、目标静态
-  镜像（Target Static Image）、源映射（Source Map）与语义差异（Semantic Diff）。
+  完整 Identity registry、可移植规范制品（Portable Canonical Artifact）、源映射
+  （Source Map）与语义差异（Semantic Diff）。Accepted ADR 0025 / #300 G1 已冻结从受检
+  LFCA 构建进程内共享静态路网、取消独立静态镜像文件/ABI 的修订。
   Accepted ADR 0024 已把 #299 收缩为共享后发射检查和最小发布闭合，不再交付独立
-  validator/receipt。#300/#302 必须分别冻结自身镜像
+  validator/receipt。#300/#302 必须分别冻结共享静态路网构建
   与切换信任边界。目标态把当前
   `laneflow-core/CoreWorld` 一次性
-  不兼容切换为 `laneflow-runtime/TrafficWorld`；Traffic、`StaticIdentityIndex` 与
-  `PartitionPlanningHints` section 必选，Spatial section 由 closed profile 控制，
-  无图形配置不携带 geometry；编译器拥有 worker 数无关的静态执行
-  约束，最终分区属于每世界运行时执行计划；不可变路网修订通过失败关闭镜像切换事务
+  不兼容切换为 `laneflow-runtime/TrafficWorld`；Traffic、`SharedIdentityIndex` 与
+  `PartitionPlanningHints` component 必选，Spatial component 可选，
+  无图形配置不携带 geometry；facility/profile/frame-only Spatial 不冒充 lane-pose
+  capability。编译器拥有 worker 数无关的静态执行约束事实，
+  `laneflow-static-network` 从 LFCA 关系 versioned 派生非语义规划提示，最终分区属于每世界
+  运行时执行计划；不可变路网修订通过失败关闭切换事务
   进入运行世界，并保留 runtime snapshot/replay 与 routing 接入边界。该架构服务
   Accepted ADR 0021 的中国特色城市模拟游戏交通基础长期目标；目标设计被接受不表示
   已经实现，也不把城市经济或出行需求放入 Traffic Runtime。双语术语以
   `../reference/glossary.md` 的中文定义为权威。#291 G1 前置条件已经满足；#292 已完成
   compiler foundation、Synthetic DSL frontend、集成专用 LIR→current projection 及 G4，
   #282–#285 关于 #292 的稳定开工前置已经满足。该完成事实不表示整个目标路网编译器、
-  静态镜像或 Traffic Runtime 已经实现；当前 Project 状态与原生依赖关系以 GitHub 为准。
+  共享静态路网或 Traffic Runtime 已经实现；当前 Project 状态与原生依赖关系以 GitHub 为准。
+- `shared-static-network.md`：#300 G1 Accepted 的实现级设计；从
+  `laneflow-format` 受检 LFCA capability 有界构建 `SharedNetworkRevision`，冻结
+  Traffic/Identity/Hints/可选 Spatial component、性能优先 SoA/CSR 默认布局、共享所有权、
+  构建闭合、玩家确认建造、`CommittedNetworkSource` 与 session-only exact LFCA
+  `EditableDiffBase`、只保存已提交道路状态和一次性交付测量；不定义静态镜像文件/ABI、
+  mmap、cache 或第二套证明平台。
 - `portable-canonical-artifact.md`：#298 G1 已重新接受并完成 G4 的实现级格式与历史
   验证事实源；把上述长期架构收窄为
   LFCA/LFSM/LFSD/LFCP 四类对象的封闭节目录、规范记录编码、路网修订派生、

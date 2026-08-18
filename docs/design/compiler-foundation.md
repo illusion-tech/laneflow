@@ -65,6 +65,7 @@ GitHub Issue / PR 为准。#297 调整后不建立 current JSON 编译器前端�
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
 - `../adr/0021-city-simulation-game-traffic-foundation.md`
 - `../adr/0023-road-editing-state-and-phased-network-replacement.md`
+- `../adr/0025-checked-canonical-network-and-shared-static-network.md`
 - `network-compiler.md`
 - `road-editing-source-and-geometry-frontend.md`
 - `data-format.md`
@@ -163,7 +164,7 @@ BLAKE3 派生或碰撞登记。
 共享有类型逻辑序号的封闭标记类型（sealed marker）、`Ordinal<K>` 与稳定实体种类
 标记类型（kind marker）也由 `laneflow-static-contract` 拥有；有类型抽象语法树、
 HIR 和 MIR 的区块分配键（arena key）则留在编译器内部。这样后继
-`laneflow-format`、`laneflow-static-image` 和 `laneflow-runtime` 可以共享零成本
+`laneflow-format`、`laneflow-static-network` 和 `laneflow-runtime` 可以共享零成本
 类型，而编译器临时表不会被误写成长期公共契约。
 
 `laneflow-compiler-test-support` 设置 `publish = false`。它只在测试开发依赖中使用
@@ -177,10 +178,10 @@ HIR 和 MIR 的区块分配键（arena key）则留在编译器内部。这样�
   交付；
 - `laneflow-format` 的后发射检查与 LFCP v2 最小发布闭合由 #299 交付；不创建
   `laneflow-validator`；
-- `laneflow-static-image` 的镜像应用二进制接口、配置档与有界结构校验器由 #300
-  交付；
-- `laneflow-runtime` 与空间层共享镜像消费路径由 #301 交付；不可变路网修订、
-  运行时快照（Runtime Snapshot）与在线镜像切换由 #302 交付；
+- `laneflow-static-network` 的受检 LFCA 构建闭合、performance-first layout 与共享
+  生命周期由 #300 交付；
+- `laneflow-runtime` 与空间层共享静态路网消费路径由 #301 交付；不可变路网修订、
+  运行时快照（Runtime Snapshot）与在线路网修订切换由 #302 交付；
 - 当前态 `laneflow-core` 到目标态 `laneflow-runtime` 的一次性不兼容切换由 #294
   独占。
 
@@ -584,7 +585,7 @@ MIR 可以使用临时哈希与缓存（Hash and Cache），但所有规范遍�
 （no-go）”结论的当前核心 `f32` 生产迁移：ADR 0014 本身仍是已接受的目标数值
 契约，但首次生产迁移未通过百分之五性能门槛并完整回退，当前生产交通数值权威继续
 使用 `f64`。未来若通过新的数值 G1 改变交通权威表示，必须原子修订编译器中间
-表示、可移植规范制品、目标静态镜像（Target Static Image）、目标交通运行时和
+表示、可移植规范制品、共享静态路网（Shared Static Network）、目标交通运行时和
 迁移预言机，不能由编译发射器在后端私自窄化。
 
 ### 4.4 已验证规范低层中间表示
@@ -694,7 +695,7 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
 
 本顺序是 `network-compiler.md` 推荐顺序在 #292 首个纵向切片内的收窄，不是对上游
 顺序的修订：来源格式升级由后继几何文档 / 导入前端接入；静态执行约束与分区规划
-提示在对应后继 G1 加入同一 MIR/LIR 管线；规范制品、源映射 / 语义差异和静态镜像的
+提示在对应后继 G1 加入同一 MIR/LIR 管线；规范制品、源映射 / 语义差异和共享静态路网的
 原子发射分别由 #298/#300 交付。后继阶段只能在相应位置增加编译遍或发射器，不得在
 后端补语义。
 
@@ -1245,7 +1246,7 @@ G2/G3 在 P100 上执行生产干净单工作线程编译时必须遵循以下�
 完整进程私有内存包络为 `1241/559`，不得再次乘包络。#308 没有保留可用于决策的增长
 斜率，因此 #292 不伪造斜率预算；三级日常回归与五级原因分析已经给出足够的非线性
 监测边界。玩家在线编辑停顿、最低/替代硬件、中国特色城市工作负载、增量/并行编译、
-可移植制品发射和静态镜像构建仍不在本门槛内。
+可移植制品发射和共享静态路网构建仍不在本门槛内。
 
 研究停止护栏只保护研究机器，不进入生产门槛。不得把运行时交通参与单元规模、多世界
 吞吐或研究替身的进程数量换算成编译器产品容量。预算来源、计数对象、单位、P100

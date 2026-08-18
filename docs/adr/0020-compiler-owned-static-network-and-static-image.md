@@ -12,10 +12,13 @@
 **后继决策**: ADR 0024（Accepted；#299 G1 Pass）已部分取代本文关于独立
 `laneflow-validator`、`canonical-publication-v1` receipt、由 #299 统一交付三类
 验证收据，以及 compiler/validator 必须维护两套完整语义实现的决定。本文关于编译器
-拥有静态路网、Canonical LIR、可移植规范制品、目标静态镜像、对象外信任锚和
-Runtime/Spatial 分层的其余决定保持有效。#300/#302 必须按 ADR 0024 刷新各自 G1
-输入，不得继续沿用本文 receipt 前提。精确后继边界见
-`../design/compiler-post-emission-check-and-minimal-publication-closure.md`。<br>
+拥有静态路网、Canonical LIR、可移植规范制品、对象外信任锚和 Runtime/Spatial 分层的
+其余决定保持有效。ADR 0025（Accepted；#300 G1 Pass）进一步以进程内
+`SharedNetworkRevision` 取代本文 target/profile-specific 静态镜像文件、稳定 ABI、
+descriptor/完整性清单、mmap/chunk 和镜像摘要/长度决定；该设计已接受但尚未实现。精确
+后继边界见
+`../design/compiler-post-emission-check-and-minimal-publication-closure.md` 与
+`../design/shared-static-network.md`。<br>
 
 **2026-08-10 范围澄清**：current Traffic/Spatial/Scenario JSON 从未作为外部资产发布，
 只属于当前仓库加载器和夹具；它不建立 compiler import frontend、批量迁移工具或长期
@@ -34,6 +37,7 @@ Runtime/Spatial 分层的其余决定保持有效。#300/#302 必须按 ADR 0024
   - `0011-schema-identifier-and-publication-contract.md`
   - `0013-engine-neutral-spatial-geometry-and-length-authority.md`
   - `0015-bounded-f32-canonical-spatial-frames.md`
+  - `0025-checked-canonical-network-and-shared-static-network.md`
   - `0017-static-road-junction-maneuver-and-gate-identity.md`
 - 配套决策:
   - `0021-city-simulation-game-traffic-foundation.md`

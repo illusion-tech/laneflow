@@ -12,6 +12,7 @@
 - `0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `0015-bounded-f32-canonical-spatial-frames.md`
 - `0020-compiler-owned-static-network-and-static-image.md`
+- `0025-checked-canonical-network-and-shared-static-network.md`
 - `../design/road-editing-source-and-geometry-frontend.md`
 - `../design/network-compiler.md`
 - `../design/spatial-geometry.md`
@@ -33,7 +34,7 @@ ADR 0013/0015 冻结的是调用方已经提供一条高保真折线后，LaneFl
 定义解析曲线如何离散为该折线。
 
 #296 的道路编辑前端把 cubic Bézier 作为首批生产编制候选。编译器必须离线把
-解析曲线细分为唯一的规范折线，因为 LIR、静态镜像和 Traffic/Spatial 只保留折线，
+解析曲线细分为唯一的规范折线，因为 LIR、共享静态路网和 Traffic/Spatial 只保留折线，
 不保留 authoring evaluator 或引擎样条权威。若继续把 ADR 0015 的 `1 cm` 直接当成
 全部曲线细分预算，会混淆两个误差来源，并为游戏道路生成远超视觉和运动需要的点数；
 若只冻结一个 `10 cm` 停止阈值，又会没有余量覆盖量化、station 插点和连接检查，且
@@ -405,5 +406,5 @@ FlatBuffers G1 冻结非权威表现载荷，不能让每个引擎从粗折线�
    长期道路编辑存档兼容或写成 production hard-bound capability。若实际证据要求 A，必须
    新开 G1、提升来源/几何语义版本并重新生成 fixture、摘要和资源证据；若证据表明 B1
    已满足产品，也仍需显式产品决定后才能把它提升为正式存档语义。
-5. #294 G4 生产切换前，target static image/Traffic Runtime/Spatial shared-image path
+5. #294 G4 生产切换前，target shared static network/Traffic Runtime/Spatial consumption path
    必须消费同一规范折线，不得恢复独立引擎样条权威。

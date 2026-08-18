@@ -16,6 +16,7 @@
 - `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
 - `../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md`
+- `../adr/0025-checked-canonical-network-and-shared-static-network.md`
 - `../reference/glossary.md`
 - `core-runtime.md`
 - `spatial-geometry.md`
@@ -41,16 +42,15 @@
 
 适配器不得把宿主变换（Transform）反写为 Core 进度，也不得用引擎样条曲线长度覆盖 Core/Spatial 的长度绑定。
 
-ADR 0020 target 不改变表内 authority；以下去 receipt 边界已由 Accepted ADR 0024 冻结。current
+ADR 0020/0025 target 不改变表内 authority。current
 `LaneFlow Core` clean-break 为 `LaneFlow Traffic Runtime` / `laneflow-runtime`。
-宿主 asset pipeline 提供 target `StaticNetworkImage` bytes，以及由 #300 冻结的
-image 外部认证描述符/manifest 输入；它不得假设 #299 会提供 validation receipt。
-`laneflow-static-image` bounded verifier 检查后把 required `StaticTrafficView` 交给
-Runtime；profile 含 Spatial 时才把对齐
-`StaticSpatialView` 交给 Spatial。Adapter 不解析 compiler IR 或 portable artifact
-语义，不重建 Traffic/Spatial binding，也不读取 image 中的静态交通规则来自行裁决
-行为。本文后续 JSON/registry 生命周期仍描述 current，直到 shared-image cutover
-G4。
+宿主 asset pipeline 为发布加载认证 LFCP v2 / manifest，或为本地编辑提供已提交道路
+状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
+`Arc<SharedNetworkRevision>`。Runtime 安装完整根；Spatial 只从同一根或 Runtime 发布的
+revision-bound snapshot/facade 借用 optional `SharedSpatialNetwork`，不存在独立的 Traffic
+或 Spatial component 安装入口。Adapter 不解析 compiler IR 或 LFCA table，不重建
+Traffic/Spatial binding，也不读取共享数组中的静态规则来自行裁决行为或单独替换
+component。本文后续 JSON/registry 生命周期仍描述 current，直到 shared-network cutover G4。
 
 ## 3. 生命周期顺序
 

@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Accepted（长期路线；当前执行状态以 GitHub 为准）<br>
-**最后更新**: 2026-07-29
+**最后更新**: 2026-08-19
 **适用范围**: LaneFlow 版本路线图与中国特色城市模拟游戏交通基础的长期演进
 
 本文记录 LaneFlow 的稳定路线图和已接受长期目标。GitHub Project 负责当前执行
@@ -298,36 +298,44 @@ arithmetic、保守整体工作集和失败原子性。逐 `Vec` / `Box` / `Arc`
 收敛；后两者先完成还可以减少精确账本对即将变化布局的重复证明。
 
 ADR 0020、ADR 0021 与 [`design/network-compiler.md`](design/network-compiler.md)
-是 #291 G1 已接受的长期设计。Identity v1 区分 StableId128
+是 #291 G1 已接受的长期设计；Accepted ADR 0025 / #300 G1 已进一步以共享静态路网取代
+独立静态镜像文件/ABI。Identity v1 区分 StableId128
 declaration/addressable-derived、
 owner-local occurrence 与全部 table row 的 typed `u32` ordinal，冻结完整
 kind/tag registry、严格 field order、known vectors、BLAKE3-128 持久 identity 和
 XXH3 compiler-only 加速。基础 `LaneEdge` 使用独立稳定边键；RoadSection 覆盖与
-Junction internal role 不参与边身份，合法未覆盖边同样进入身份索引。Static image
+Junction internal role 不参与边身份，合法未覆盖边同样进入身份索引。共享静态路网
 只保留 ID/ordinal 冷索引；完整规范身份表（Canonical Identity Table）
 `CanonicalIdentityTable` 进入 portable artifact，供审计、诊断和后继工具读取；
-Accepted ADR 0024 的 #299 后发射检查不重新执行逐实体身份派生。Static image 采用 Traffic、冷稳定身份索引（Static Identity Index，
-`StaticIdentityIndex`）与分区规划提示（Partition Planning Hints，
-`PartitionPlanningHints`）必选，Spatial 由封闭配置档控制；稳定
-身份索引服务快照恢复（Snapshot Restore）、dynamic Route 重建与修订切换
+Accepted ADR 0024 的 #299 后发射检查不重新执行逐实体身份派生。`SharedNetworkRevision`
+采用 Traffic、冷稳定身份索引（Shared Identity Index，`SharedIdentityIndex`）与分区
+规划提示（Partition Planning Hints，`PartitionPlanningHints`）必选，Spatial component
+可选；facility/profile/frame-only Spatial 不冒充 lane-pose capability。稳定身份索引服务
+快照恢复（Snapshot Restore）、dynamic Route 重建与修订切换
 （Revision Cutover），不进入 steady tick，也不能被 headless/production profile
 删除。target 把 current
 `laneflow-core/CoreWorld` clean-break 为 `laneflow-runtime/TrafficWorld`，并通过
-中立 `laneflow-static-contract`/`laneflow-static-image` 保持无环依赖。
+中立 `laneflow-static-contract`/`laneflow-static-network` 保持无环依赖。
 
-编译器从 LIR 派生 worker 数无关的静态执行约束图，并可发射可丢弃的分区规划提示；
-每个 `TrafficWorld` 再依据硬件、容量和动态负载建立自己的运行时执行计划。最终
-partition/worker assignment 不进入共享镜像。精确路径的所有 partition 读取同一
+编译器从 LIR 派生 worker 数无关的静态执行约束事实并规范发射到 LFCA 关系；LFCA v1
+不保存提示 payload，`laneflow-static-network` 按显式非语义 derivation version 确定性派生
+可丢弃的分区规划提示。每个 `TrafficWorld` 再依据硬件、容量和动态负载建立自己的运行时
+执行计划。最终
+partition/worker assignment 不进入共享静态路网。精确路径的所有 partition 读取同一
 committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延迟；连接资源
 组件各有唯一规范归约权威，互不相交组件可并行归约。
 
-静态镜像表示不可变路网修订，不表示城市永不变化。玩家道路编辑通过新修订和失败关闭
-镜像切换事务进入运行世界；语义差异（Semantic Diff）必须由外部可信的
-路网修订切换描述符（Network Revision Cutover Descriptor，
-`NetworkRevisionCutoverDescriptor`）绑定，不能自行授予迁移权限；稳定身份索引只
+共享静态路网表示不可变路网修订，不表示城市永不变化。玩家拖动/预览只修改 working
+道路编辑状态；确认建造后才全量构建候选，新修订通过失败关闭切换事务进入运行世界。
+只有已进入 Runtime 活动修订的 committed network source 进入存档：可编辑世界保存道路
+编辑状态，runtime-only 发布世界保存已认证 LFCA asset reference；working/candidate 不保存。
+发布来源转为 editable 前先用重编译 exact LFCA 原子 rebase root/source/diff-base binding；
+可编辑 session 在内存保留当前 exact base LFCA 供下一 LFSD 发射，但不写入存档。
+语义差异（Semantic Diff）必须由外部可信的路网修订切换描述符（Network Revision
+Cutover Descriptor，`NetworkRevisionCutoverDescriptor`）绑定，不能自行授予迁移权限；稳定身份索引只
 复核身份映射，不能替代语义兼容证据。每世界 identity、
 调用方拥有的 seed/随机流（Caller-owned Seed / Random Stream）、动态路线、执行计划
-与运行时快照不进入共享 image。路径规划读取静态路网和已提交动态成本快照；出行需求
+与运行时快照不进入共享静态路网。路径规划读取静态路网和已提交动态成本快照；出行需求
 与路线选择策略仍由城市游戏/出行编排层拥有。
 
 当前 Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1、
@@ -349,9 +357,9 @@ Frontend）的首个纵向闭环；#291 G1
 导入，改为收口 current JSON 退役与编译器原生投影测试边界；它可以与恢复的运行时
 切片并行推进。#298 已完成 G4，并交付可移植规范制品 /
 源映射 / 语义差异；#299 按 Accepted ADR 0024 交付 compiler 后发射检查/LFCP v2/最小发布闭合、
-#300 交付目标静态镜像、#301 交付交通
-运行时 / 空间层共享镜像路径、#302 交付不可变路网修订 / 运行时快照（Runtime
-Snapshot）/ 在线镜像切换，随后进入行为 / 性能 / 安全生产切换闸口。
+#300 交付从受检 LFCA 构建的性能优先共享静态路网、#301 交付交通
+运行时 / 空间层共享消费路径、#302 交付不可变路网修订 / 运行时快照（Runtime
+Snapshot）/ 在线修订切换，随后进入行为 / 性能 / 安全生产切换闸口。
 最后由 #294 独占阶段 8 production cutover、core→runtime 原子改名与 projection/
 旧路径移除；#294 G4 前不得提前满足切换条件。Projection 不进入 compiler production
 dependency。编译器性能工作负载及其规模计数由对应实现 G1 依据编制 / 中间表示证据
@@ -366,7 +374,7 @@ dependency。编译器性能工作负载及其规模计数由对应实现 G1 依
 
 #72 是独立研究入口，不属于 v0.6–v0.9 的完成边界。v0.6 的 geometry 与
 #72 的交通参与单元空间分区是不同层次；v0.7 的 presentation LOD 与 #72 的
-Traffic Runtime fidelity 也不得混同。多世界共享静态镜像可以验证内存复用、回放
+Traffic Runtime fidelity 也不得混同。多世界共享静态路网可以验证内存复用、回放
 和参数探索，但不能代替单个大型城市世界的 barrier、边界交换、负载偏斜与迁移性能。
 
 #72 何时进入版本范围仍留待对应 Milestone 规划时决策；但在未来 Stable Runtime API Milestone 的 G1 前，必须完成 #199 对 Core API、partition、multi-rate、batch access、commands 和 deterministic event merge 的可扩展性审计，并关闭或显式接受其待决项。该审计不阻塞 v0.8/v0.9，也不代表已选择生产架构；完整并行、多层级或分布式实施只有在证据和产品目标明确后才建立 Milestone。
@@ -374,7 +382,7 @@ Traffic Runtime fidelity 也不得混同。多世界共享静态镜像可以验�
 后继城市级工作至少拆分为四个独立 G1：
 
 1. 保持个体身份的单世界确定性并行执行；
-2. 不可变路网修订、运行时快照、存档/回放与镜像切换；
+2. 不可变路网修订、运行时快照、存档/回放与修订切换；
 3. 路径规划服务、动态成本快照和出行编排接入；
 4. 中国特色城市拓扑/需求/运行时工作负载（Chinese-style City Workload），覆盖
    多阶段信号、左转待转区、干支路与小区出口、方向性高峰、公交/出租/路侧摩擦，

@@ -19,7 +19,7 @@
 - 来源或 compiler IR 的第二次语义编译；
 - 全量身份、所有权、拓扑、几何或规则复验；
 - 独立认证、签名、审计服务或通用证明协议；
-- 静态镜像构建和真实性判断；
+- 共享静态路网构建与 Runtime/Spatial 闭合；
 - LFSD 的迁移授权或 Runtime 修订切换。
 
 ## 2. 当前实现基线
@@ -50,7 +50,7 @@ receipt 路径与 LFCP v1 生产 API。
 ```text
 laneflow-compiler ───────────────┐
                                  ├──> laneflow-format
-future laneflow-static-image ────┘              │
+future laneflow-static-network ──┘              │
                                                 └──> laneflow-static-contract
 ```
 
@@ -59,7 +59,7 @@ future laneflow-static-image ────┘              │
 | `laneflow-static-contract` | 版本、格式硬上限、`NetworkRevisionId`、`Sha256Digest`、对象/字段登记                      | 读取字节、hash、发布                       |
 | `laneflow-format`          | 单对象预检、bundle 后发射检查、对象摘要、revision 重算、跨对象 binding、借用型 capability | 来源/LIR、文件系统、manifest、完整路网语义 |
 | `laneflow-compiler`        | 来源和 IR 语义、发射、候选拥有、LFCP v2、安装编排、manifest 提交                          | 第二套验证语义、对象内真实性               |
-| #300                       | 复用 public checked view 构造目标静态镜像                                                 | 反向依赖 compiler-private LIR/emitter      |
+| #300                       | 复用 public checked view 构造进程内 `SharedNetworkRevision`                               | 反向依赖 compiler-private LIR/emitter      |
 
 新增依赖：
 
@@ -340,7 +340,7 @@ G2 最小测试集合：
 - portable exact-byte fixtures/workflow；
 - #300/#302 的依赖说明。
 
-本 Issue 不新建 crate，不修改 Runtime/Adapter API，不实现静态镜像或修订切换。
+本 Issue 不新建 crate，不修改 Runtime/Adapter API，不实现共享静态路网或修订切换。
 
 ## 13. G1/G2 停止条件
 

@@ -344,7 +344,7 @@ partition、SoA、event merge 或 multi-rate 的实验优先放在 research/benc
 
 编译器可以保存 worker 数无关的资源依赖、可切分边界和规范合并键，也可以提供
 可丢弃的性能提示；实际 partition/worker/边界缓冲、迁移和动态负载状态属于每世界
-运行时执行计划，不得进入稳定标识、共享镜像或 public handle。
+运行时执行计划，不得进入稳定标识、共享静态路网或 public handle。
 
 ### C12. 精确分区不得增加逻辑延迟
 
@@ -365,12 +365,12 @@ halo delay；互不相交资源组件可以并行归约，不能把“single red
 
 ### C13. 路网修订、快照和执行布局各自版本化
 
-共享静态路网按不可变修订发布；运行时世界通过失败关闭的镜像切换事务迁移。运行时
-快照绑定 canonical artifact、origin image、revision、runtime、constraint、world、
-tick 与全部每世界可变交通状态，但不把 worker/partition assignment 当作跨硬件恢复
-权威。人口、出行、Routing 与游戏规则的 caller-owned seed/随机流由上层 Save
-Manifest 绑定；只有后续 G1 显式授予 Traffic Runtime 的自有随机流才进入运行时
-快照。dense ordinal 不得跨修订直接复用。
+共享静态路网按不可变修订构建；运行时世界通过失败关闭的路网修订切换事务迁移。运行时
+快照绑定 canonical LFCA origin、`CommittedNetworkSource`、revision、runtime、constraint、
+world、tick 与全部每世界可变交通状态；已取消的 `originStaticImage*` 来源字段不再存在，
+worker/partition assignment 也不作为跨硬件恢复权威。人口、出行、Routing 与游戏规则的
+caller-owned seed/随机流由上层 Save Manifest 绑定；只有后续 G1 显式授予 Traffic Runtime
+的自有随机流才进入运行时快照。dense ordinal 不得跨修订直接复用。
 
 默认在线切换在旧世界继续固定步进时从基准已提交状态准备候选，并以有界迁移增量
 日志记录已提交动态状态/生命周期变化及命令/事件游标。候选只重解释该已提交变更流，

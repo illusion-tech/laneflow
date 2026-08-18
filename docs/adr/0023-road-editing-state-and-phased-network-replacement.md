@@ -8,11 +8,20 @@
 编制语言、编辑器默认持久化 Geometry 文档”的具体格式选择，不改变权威来源模块图、
 编译器中间表示或不可变路网修订决策<br>
 
+> **后继决策（2026-08-18）**：ADR 0025（Accepted；#300 G1 Pass）保留本文
+> 道路编辑状态权威和 A → C 候选替换，但把目标静态镜像改为进程内
+> `SharedNetworkRevision`。working/candidate 状态不进入存档；可编辑世界只保存已成功进入
+> Runtime 的 committed `RoadEditingState`。没有对应道路编辑状态的发布 LFCA 世界只能作为
+> runtime-only 来源，以已认证 asset reference 重载；其晋升与 Runtime 修订切换由 #302 原子
+> 提交。
+
 **关联文档**:
 
 - `0020-compiler-owned-static-network-and-static-image.md`
 - `0021-city-simulation-game-traffic-foundation.md`
 - `0022-authoring-curve-and-canonical-polyline-error-budgets.md`
+- `0025-checked-canonical-network-and-shared-static-network.md`
+- `../design/shared-static-network.md`
 - `../design/road-editing-source-and-geometry-frontend.md`
 - `../design/network-compiler.md`
 
@@ -51,7 +60,7 @@ LaneFlow 的实际生产入口首先是可视化编辑器，同时需要游戏�
 道路编辑状态不保存：
 
 - 全部鼠标点击、拖拽轨迹或无限撤销历史；
-- 目标静态镜像、运行时 ordinal、车辆或其他每世界可变状态；
+- 共享静态路网内存布局、运行时 ordinal、车辆或其他每世界可变状态；
 - Adapter 路面网格、三角形、材质、碰撞体或细节层次；
 - 只为编译中间步骤生成、可以重算的 HIR/MIR/LIR 临时值。
 
@@ -159,7 +168,7 @@ fixture 只 clean-regenerate。保存走向定义不
 中心线横向位置继续由横断面顺序和宽度前缀唯一派生，不增加自由 offset 曲线或第二份
 几何权威。
 
-编译器继续把走向定义离散为规范 `f32` 折线。LIR、目标静态镜像、Traffic Runtime 和
+编译器继续把走向定义离散为规范 `f32` 折线。LIR、共享静态路网、Traffic Runtime 和
 Spatial 不保存或重建编制控制点；Adapter 的网格细分和车辆物理也不能反向成为道路
 长度、station 或拓扑权威。
 

@@ -34,21 +34,21 @@
 
 ADR 0020 target 保留 external stable identity / typed dense handle / hot-path 无字符串
 原则，但把静态路网的 handle 分配和 registry/index 构建从 `CoreWorld` 初始化前移到
-compiler/static image。Target 动态执行层 clean-break 命名为
+compiler/shared static network。Target 动态执行层 clean-break 命名为
 `laneflow-runtime`/`TrafficWorld`；static/shared identity contract 移到
-`laneflow-static-contract`，不能继续由 Runtime 拥有。所有 image table row 使用
-image-scoped typed `u32` ordinal，只有稳定 declaration/addressable-derived 另有
+`laneflow-static-contract`，不能继续由 Runtime 拥有。所有 shared-static table row 使用
+revision-scoped typed `u32` ordinal，只有稳定 declaration/addressable-derived 另有
 StableId128；owner-local occurrence 使用仅对当前 owning sequence snapshot 有效的
 typed `(ownerOrdinal, role, localIndex)` key。每 world 的 Vehicle、dynamic Route 与
-generation handle 继续由 Runtime 管理。所有 production profile 都必须保留冷稳定
-身份索引（Static Identity Index，`StaticIdentityIndex`），为快照恢复（Snapshot
+generation handle 继续由 Runtime 管理。所有共享修订都必须保留冷稳定
+身份索引（Shared Identity Index，`SharedIdentityIndex`），为快照恢复（Snapshot
 Restore）、dynamic Route 重建和修订切换（Revision Cutover）提供 StableId128 ↔
 typed ordinal 双向翻译；它不进入 steady tick，也不能证明同一 StableId128 在两个
-路网修订间语义兼容。跨修订状态迁移仍必须使用经独立验证并由可信切换描述符绑定的
+路网修订间语义兼容。跨修订状态迁移仍必须使用由 #302 可信切换输入绑定的
 语义差异（Semantic Diff），不能采用仅凭索引的回退。显示名、来源位置和完整规范元组等
-诊断数据由可移植制品、源映射或独立诊断制品外置提供，不进入 v1 production
-image。本文后续“Core 初始化阶段 normalization”继续描述 current，直到阶段 8
-生产切换 Issue #294 完成 image cutover G4。
+诊断数据由可移植制品、源映射或独立诊断制品外置提供，不进入 v1 shared static
+network。本文后续“Core 初始化阶段 normalization”继续描述 current，直到阶段 8
+生产切换 Issue #294 完成 runtime cutover G4。
 
 ## 2. 背景
 
