@@ -1252,9 +1252,9 @@ fn access_error_path(wire: &WirePackage, source: &CoreError) -> String {
                 })
                 .unwrap_or_else(|| "accessRules".to_owned())
         }
-        CoreError::AccessRegulationMismatch {
-            duplicate_rule_id, ..
-        } => access_rule_path(wire, duplicate_rule_id, ".regulation"),
+        CoreError::AccessRegulationMismatch { details } => {
+            access_rule_path(wire, &details.duplicate_rule_id, ".regulation")
+        }
         CoreError::AccessRuleAmbiguity { second_rule_id, .. } => {
             access_rule_path(wire, second_rule_id, "")
         }

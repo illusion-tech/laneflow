@@ -770,16 +770,13 @@ fn regulation_provenance_must_be_uniform() {
     .expect_err("mixed regulation provenance must fail");
     std::assert_matches!(
         error,
-        CoreError::AccessRegulationMismatch {
-            first_rule_id,
-            jurisdiction,
-            version,
-            duplicate_rule_id,
-            duplicate_jurisdiction,
-            duplicate_version,
-        } if first_rule_id == "rule-1" && jurisdiction == "CN" && version == "2026"
-            && duplicate_rule_id == "rule-2" && duplicate_jurisdiction == "CN"
-            && duplicate_version == "2027"
+        CoreError::AccessRegulationMismatch { details }
+            if details.first_rule_id == "rule-1"
+                && details.jurisdiction == "CN"
+                && details.version == "2026"
+                && details.duplicate_rule_id == "rule-2"
+                && details.duplicate_jurisdiction == "CN"
+                && details.duplicate_version == "2027"
     );
 
     // 同一 (jurisdiction, version) 不同 source → 合法；未声明者不参与约束。
