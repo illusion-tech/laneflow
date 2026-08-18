@@ -112,7 +112,7 @@ initial/static occurrence 与 dense layout；target `LaneFlow Traffic Runtime`
 （`laneflow-runtime`）继续拥有 tick、已实现执行域的交通参与单元、动态通行定义
 （Dynamic Traversal Definition）和其他可变交通权威（Mutable Traffic
 Authority），Spatial 继续拥有位姿采样（Pose Sampling）。
-以下启动信任边界只在 ADR 0024 正式 Accepted 后生效：生产启动只从对象外认证
+Accepted ADR 0024 已冻结以下启动信任边界：生产启动只从对象外认证
 描述符/manifest 认证版本化静态镜像完整性清单（Static Image Integrity Manifest），再对目标节完成
 分块（Chunk）完整性和有界结构验证；不解析 JSON、不按外部标识（External ID）重绑定、
 重建登记表或重复 Traffic/Spatial 联结。全镜像 SHA-256 保留为发布身份、独立重建与
@@ -147,12 +147,12 @@ Journal）记录已提交动态状态/生命周期变化及命令/事件游标�
 输入、独立推进未来时间线或产生第二份已提交事件；失败时不发布切换事件并继续旧修订。
 语义差异不能自行授予迁移决定，必须由对象外可信的
 路网修订切换描述符（Network Revision Cutover Descriptor）绑定，并用切换前后的
-稳定身份索引完成引用翻译。Proposed ADR 0024 的候选 compiler 后发射检查从目标无关规范路网语义载荷
+稳定身份索引完成引用翻译。Accepted ADR 0024 的 compiler 后发射检查从目标无关规范路网语义载荷
 （Canonical Network Semantic Payload）重算路网修订标识（Network Revision ID）
 `NetworkRevisionId`；LFCP/manifest、静态镜像描述符及切换描述符按各自职责绑定该
 标识，Runtime 不接受调用方、LFSD 或镜像头自报修订。#300/#302 分别冻结镜像和切换
-信任输入。ADR 0024 正式 Accepted 前，LFCP v1 仍是当前已实现契约。目标职责、上层
-边界与历史 ADR 的关系见 ADR 0020/0021 及 Proposed ADR 0024；阶段 8 生产切换 Issue
+信任输入。LFCP v1 只保留为 #298 已实现的历史契约。目标职责、上层
+边界与历史 ADR 的关系见 ADR 0020/0021 及 Accepted ADR 0024；阶段 8 生产切换 Issue
 #294 完成 G4 前，本文其余 current 章节继续有效。
 
 ## 3. Authoring Layer

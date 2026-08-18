@@ -306,7 +306,7 @@ XXH3 compiler-only 加速。基础 `LaneEdge` 使用独立稳定边键；RoadSec
 Junction internal role 不参与边身份，合法未覆盖边同样进入身份索引。Static image
 只保留 ID/ordinal 冷索引；完整规范身份表（Canonical Identity Table）
 `CanonicalIdentityTable` 进入 portable artifact，供审计、诊断和后继工具读取；
-Proposed ADR 0024 的候选 #299 后发射检查不重新执行逐实体身份派生。Static image 采用 Traffic、冷稳定身份索引（Static Identity Index，
+Accepted ADR 0024 的 #299 后发射检查不重新执行逐实体身份派生。Static image 采用 Traffic、冷稳定身份索引（Static Identity Index，
 `StaticIdentityIndex`）与分区规划提示（Partition Planning Hints，
 `PartitionPlanningHints`）必选，Spatial 由封闭配置档控制；稳定
 身份索引服务快照恢复（Snapshot Restore）、dynamic Route 重建与修订切换
@@ -348,7 +348,7 @@ Frontend）的首个纵向闭环；#291 G1
 模块接入；#296 道路编辑来源前端/MIR 继续按自身 Gate 推进。#297 已取消当前态包迁移
 导入，改为收口 current JSON 退役与编译器原生投影测试边界；它可以与恢复的运行时
 切片并行推进。#298 已完成 G4，并交付可移植规范制品 /
-源映射 / 语义差异；#299 在 ADR 0024 Accepted 后交付 compiler 后发射检查/LFCP v2/最小发布闭合、
+源映射 / 语义差异；#299 按 Accepted ADR 0024 交付 compiler 后发射检查/LFCP v2/最小发布闭合、
 #300 交付目标静态镜像、#301 交付交通
 运行时 / 空间层共享镜像路径、#302 交付不可变路网修订 / 运行时快照（Runtime
 Snapshot）/ 在线镜像切换，随后进入行为 / 性能 / 安全生产切换闸口。

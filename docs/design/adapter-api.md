@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）
 
-**最后更新**: 2026-08-18（#187 current；#291/ADR 0020 target；Proposed ADR 0024 候选边界）
+**最后更新**: 2026-08-18（#187 current；#291/ADR 0020 target；Accepted ADR 0024 后继边界）
 
 **适用范围**: Core、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与 typed lifecycle 契约；具体 Bevy 0.19 specialization 见 `bevy-reference-adapter.md`
 
@@ -41,8 +41,7 @@
 
 适配器不得把宿主变换（Transform）反写为 Core 进度，也不得用引擎样条曲线长度覆盖 Core/Spatial 的长度绑定。
 
-ADR 0020 target 不改变表内 authority；以下去 receipt 边界是 Proposed ADR 0024 的
-候选输入，只在正式 Accepted 后生效。current
+ADR 0020 target 不改变表内 authority；以下去 receipt 边界已由 Accepted ADR 0024 冻结。current
 `LaneFlow Core` clean-break 为 `LaneFlow Traffic Runtime` / `laneflow-runtime`。
 宿主 asset pipeline 提供 target `StaticNetworkImage` bytes，以及由 #300 冻结的
 image 外部认证描述符/manifest 输入；它不得假设 #299 会提供 validation receipt。

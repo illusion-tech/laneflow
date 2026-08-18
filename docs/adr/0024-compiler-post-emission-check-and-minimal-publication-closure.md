@@ -1,6 +1,6 @@
 # ADR 0024：编译器后发射检查与最小发布闭合
 
-**状态**: Proposed（#299 G1 In Progress）<br>
+**状态**: Accepted（#299 G1 Pass；2026-08-18）<br>
 **日期**: 2026-08-18<br>
 **适用范围**: LFCA/LFSM/LFSD 最终字节检查、`laneflow-format` 职责、LFCP、
 compiler 发布事务、#300/#302 的上游输入边界<br>
@@ -209,12 +209,13 @@ LFSD 通过 #299 后发射检查只说明最终差异对象的直接值域和 ba
 
 这会重新扩大 #299，并越过 #300/#302 的产品与实现决策。
 
-## G1 接受条件
+## G1 接受记录
 
-在本 ADR 进入 Accepted 前，#299 必须完成：
+本 ADR 已于 2026-08-18 通过 #299 G1：
 
-- 本 ADR 与详细设计的一致性审阅；
-- ADR 0020、综合架构、portable artifact、roadmap 和 glossary 的 supersede 更新；
+- 本 ADR 与详细设计已完成一致性审阅；
+- ADR 0020、综合架构、portable artifact、roadmap 和 glossary 已完成 supersede 更新；
 - LFCP v2 精确登记、API、错误、性能和迁移边界无未决产品问题；
-- 当前 exact head 的有效外部 clean review；
-- #299 G1 Gate Ledger 回链正式判断。
+- Codex 返回 clean 摘要但缺少 reviewed SHA，标准 evaluator 保持 `provider_error`；产品负责人
+  仅对 #299 G1 冻结 head 接受显式 provider 证据例外，长期修复由 #430 跟踪；
+- 正式判断与例外边界记录在 #299 G1 Gate Ledger 回链的 G1 comment 中。
