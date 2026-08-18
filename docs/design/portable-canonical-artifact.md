@@ -16,7 +16,7 @@ revision 和跨对象 binding；`LFCA-V1-FULL-SPATIAL` LFCA/LFSM/Genesis LFSD、
 geometry add、静态规则 modify 和全局空间 modify 的 `LFSD-V1-CHANGE-SET` 固定对象已提交，
 最小 headless 锚点与 `PROVENANCE-ONLY`、`CLAIM-MISMATCH`、`REORDER-EQUIVALENT`、
 `SIGNED-ZERO` LFCA 变体包也已提交，并由只读 exact-byte 测试约束。#298-owned
-ART/MAP/DIFF 与 `SEC-001..015` 已闭合；独立 `portable_store` 已实现同文件系统 staging、
+ART/MAP/DIFF 与 `SEC-001..015` 已闭合；本地 `LocalPortableObjectInstaller` 已实现同文件系统 staging、
 flush/sync/close、digest key、hard-link atomic no-replace、并发 winner exact-byte 复用/冲突和
 unsupported fail-closed。LFCP exact-byte 构造、receipt 安装前置条件、`ATOM-001..012` 与外部
 认证 manifest 单提交 adapter 也已闭合；#298 只消费 #299 未来提供的 receipt view，不定义或
@@ -742,12 +742,12 @@ LFSD 自身永远不授予迁移权限。
 
 `magic = "LFCP"`，`canonicalPublicationDescriptorVersion = 1`。v1 精确包含：
 
-| `sectionKind` | 名称                       | 内容                                                                       |
-| ------------- | -------------------------- | -------------------------------------------------------------------------- |
-| `0x0001`      | `CanonicalArtifactBinding` | format/revision 版本、revision、artifact digest/length                     |
-| `0x0002`      | `SourceMapBinding`         | source-map version、digest/length、compiler build、来源集合摘要            |
-| `0x0003`      | `ValidationReceiptBinding` | receipt format、`canonical-publication-v1`、validator build、digest/length |
-| `0x0004`      | `PublicationProvenance`    | publisher kind/build、immutable object keys、受控时间/CI provenance        |
+| `sectionKind` | 名称                       | 内容                                                                        |
+| ------------- | -------------------------- | --------------------------------------------------------------------------- |
+| `0x0001`      | `CanonicalArtifactBinding` | format/revision 版本、revision、artifact digest/length                      |
+| `0x0002`      | `SourceMapBinding`         | source-map version、digest/length、compiler build、来源集合摘要             |
+| `0x0003`      | `ValidationReceiptBinding` | receipt format、`canonical-publication-v1`、validator build、digest/length  |
+| `0x0004`      | `PublicationProvenance`    | publisher kind/build、content-addressed object keys、受控时间/CI provenance |
 
 LFCP v1 的组合视图如下。该图只展开已由 §3.3 定义的公共前导、目录和变长节，不引入
 第二种容器；第一节 wire offset 固定为 `0x0080`（`32 + 4 * 24`）。
@@ -834,7 +834,7 @@ artifact、source map 和 genesis/base diff 候选，避免后续错误配对。
                                                        |
                                                        v
                                    +---------------------------------------+
-                                   | immutable object installation         |
+                                   | no-replace object installation        |
                                    | LFCA + LFSM + LFSD; durable winner    |
                                    +-------------------+-------------------+
                                                        |
@@ -917,11 +917,19 @@ bytes 重算的 `Sha256Digest`、`ExactByteLength` 和 `sha256/<64 lowercase hex
 8. 只有外部认证 manifest/指针的单次提交才使 LFCP 实际引用的 descriptor、artifact、source
    map 与 receipt 绑定变为“已发布”；暂存对象、LFSD 或其他未引用的 content-addressed
    objects 不构成发布，current committed capability 也不得把 LFSD 安装结果提升为受认证绑定；
-9. 任一步失败都删除暂存引用，不产生 LFCP/manifest 提交点。已经存在的不可变共享对象
+9. 任一步失败都删除暂存引用，不产生 LFCP/manifest 提交点。已经存在的完整内容寻址共享对象
    可以保留，但不得被当作部分发布成功。
 
-同一逻辑对象键不得覆盖不同 bytes。发布后对象不可原地修改；新 compiler provenance
-即使语义相同也产生新的 artifact exact digest，但可以保持同一 `NetworkRevisionId`。
+同一逻辑对象键不得覆盖不同 bytes。协议参与者不得覆盖、截断或原地修改最终对象；新
+compiler provenance 即使语义相同也产生新的 artifact exact digest，但可以保持同一
+`NetworkRevisionId`。
+
+该协议不把本地安装器提升为操作系统安全边界。调用方必须独占管理并信任预配置发布根；
+直接拥有该根文件系统写权限的进程、ACL、账户隔离、只读挂载和 WORM 策略属于部署责任，
+不由 `laneflow-compiler` 配置或证明。消费者从磁盘、网络或宿主包取得对象后仍须根据认证
+binding 重新计算摘要，不匹配时失败关闭。`LocalPortableObjectInstaller` 只服务本节冻结的
+LaneFlow 发布事务，不提供任意 bytes 公共写入、对象枚举/删除、GC、远程 backend、压缩、
+加密、配额或通用存储生命周期。
 
 ## 9. 受限读取与安全失败
 
@@ -2077,8 +2085,9 @@ receiptObjectKey   = "sha256/" || hexLower(validationReceiptDigest)
 ```
 
 空值、大写 hex、额外 separator、`..`、绝对路径、另一摘要或解析后 length/bytes 不等都在
-认证 manifest 提交前失败。存储 adapter 只把该逻辑键映射到已配置发布根下的 immutable
-winner，不得让 key 选择根目录或重解释路径。对象 key 和 provenance 仍不构成信任锚；
+认证 manifest 提交前失败。本地安装器只把该逻辑键映射到已配置发布根下的
+content-addressed no-replace winner，不得让 key 选择根目录或重解释路径。对象 key 和
+provenance 仍不构成信任锚；
 真实性由 LFCP exact bytes 外部的认证 manifest/指针提供。
 
 ### A.5 RoadEditing 与来源关系闭合代码

@@ -39,7 +39,7 @@ fn configured_root_must_exist_and_is_never_created_recursively() {
     fs::remove_dir(root.path()).unwrap();
 
     assert_eq!(
-        PortableObjectStore::try_open(root.path()).unwrap_err(),
+        LocalPortableObjectInstaller::try_open(root.path()).unwrap_err(),
         PortableInstallError::Io {
             operation: PortableInstallOperation::PrepareStoreRoot,
             kind: io::ErrorKind::NotFound,
@@ -58,7 +58,7 @@ fn candidate(bytes: &[u8]) -> PortableObjectCandidate {
     crate::portable_emitter::close_object(bytes.into())
 }
 
-fn staging_is_empty(store: &PortableObjectStore) -> bool {
+fn staging_is_empty(store: &LocalPortableObjectInstaller) -> bool {
     fs::read_dir(&store.staging_directory)
         .unwrap()
         .next()
@@ -69,7 +69,7 @@ fn staging_is_empty(store: &PortableObjectStore) -> bool {
 #[test]
 fn installs_closed_bytes_only_at_digest_path_and_reuses_exact_winner() {
     let root = TestRoot::new("install-reuse");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let object = candidate(b"complete portable object");
 
     let installed = store.install_candidate(&object).unwrap();
@@ -96,7 +96,7 @@ fn installs_closed_bytes_only_at_digest_path_and_reuses_exact_winner() {
 #[test]
 fn installs_closed_exact_bytes_without_accepting_caller_binding() {
     let root = TestRoot::new("exact-bytes");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let bytes =
         include_bytes!("../../tests/fixtures/portable-v1/lfca-v1-variants/min-headless.lfca");
     let installed = store.install_exact_bytes(bytes).unwrap();
@@ -120,7 +120,7 @@ fn installs_closed_exact_bytes_without_accepting_caller_binding() {
 #[test]
 fn existing_different_bytes_never_overwrite_winner() {
     let root = TestRoot::new("different-winner");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let object = candidate(b"expected complete object");
     let path = store.object_path(object.object_key()).unwrap();
     fs::write(&path, b"different winner").unwrap();
@@ -137,7 +137,7 @@ fn existing_different_bytes_never_overwrite_winner() {
 #[test]
 fn stale_partial_staging_is_never_observed_or_reused() {
     let root = TestRoot::new("stale-staging");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let stale_directory = store.staging_directory.join("crashed-publisher");
     fs::create_dir(&stale_directory).unwrap();
     let stale_file = stale_directory.join("object.closed");
@@ -160,7 +160,7 @@ fn stale_partial_staging_is_never_observed_or_reused() {
 #[test]
 fn binding_checks_precede_all_staging_and_path_mapping() {
     let root = TestRoot::new("binding");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let bytes = b"bound object";
     let digest = sha256(bytes);
 
@@ -194,7 +194,7 @@ fn binding_checks_precede_all_staging_and_path_mapping() {
 #[test]
 fn concurrent_same_bytes_have_one_winner_and_only_safe_reuse() {
     let root = TestRoot::new("concurrent-same");
-    let store = Arc::new(PortableObjectStore::try_open(root.path()).unwrap());
+    let store = Arc::new(LocalPortableObjectInstaller::try_open(root.path()).unwrap());
     let object = Arc::new(candidate(b"same complete object from every publisher"));
     let barrier = Arc::new(Barrier::new(8));
     let mut threads = Vec::new();
@@ -256,7 +256,7 @@ impl AtomicInstallPlatform for UnsupportedPlatform {
 #[test]
 fn unsupported_atomic_primitive_never_streams_to_final_path() {
     let root = TestRoot::new("unsupported");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let object = candidate(b"must remain staged only");
 
     assert_eq!(
@@ -321,7 +321,7 @@ impl AtomicInstallPlatform for ReusedWinnerPlatform {
 #[test]
 fn reused_winner_passes_the_same_directory_durability_barrier() {
     let root = TestRoot::new("reused-sync");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let object = candidate(b"winner visible before another publisher syncs it");
     let platform = ReusedWinnerPlatform {
         sync_calls: Cell::new(0),
@@ -346,7 +346,7 @@ fn reused_winner_passes_the_same_directory_durability_barrier() {
 #[test]
 fn concurrent_different_winner_is_compared_and_never_replaced() {
     let root = TestRoot::new("concurrent-different");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let object = candidate(b"losing complete object");
 
     assert_eq!(
@@ -392,7 +392,7 @@ impl AtomicInstallPlatform for SyncFailurePlatform {
 #[test]
 fn directory_sync_failure_reports_error_but_can_only_leave_complete_object() {
     let root = TestRoot::new("sync-failure");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let object = candidate(b"fully synced before atomic install");
 
     assert_eq!(
@@ -418,7 +418,7 @@ fn directory_sync_failure_reports_error_but_can_only_leave_complete_object() {
 #[test]
 fn native_windows_install_fails_closed_before_exposing_a_final_path() {
     let root = TestRoot::new("windows-unsupported");
-    let store = PortableObjectStore::try_open(root.path()).unwrap();
+    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
     let object = candidate(b"durability must be established before publication");
 
     assert_eq!(

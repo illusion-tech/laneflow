@@ -1,8 +1,14 @@
-//! 内容寻址可移植对象的文件系统原子安装。
+//! LaneFlow 可移植发布对象的本地文件系统安装。
 //!
 //! 本模块只安装上层能力已经关闭的 exact bytes。它不会生成 LFCP、验证收据
 //! 或认证 manifest，也不会把“对象已安装”包装成“已发布”。最终路径永远由 exact bytes 的
 //! SHA-256 派生；最终文件只通过同文件系统 hard-link no-replace 原语一次性出现。
+//!
+//! 调用方必须独占管理并信任预配置的发布根。这里的协议不可变性只约束本安装器和其他
+//! 合规 writer：它们不得覆盖、截断或原地修改最终摘要路径。直接拥有文件系统写权限的
+//! 进程、ACL、账户隔离、只读挂载或 WORM 策略属于部署边界；消费者仍须根据认证 binding
+//! 重新计算摘要并在不匹配时失败关闭。本模块不提供任意 bytes 公共写入、对象枚举/删除、
+//! GC、远程 backend、压缩、加密、配额或通用存储生命周期。
 
 mod platform;
 
@@ -78,7 +84,7 @@ pub enum PortableInstallDisposition {
     Reused,
 }
 
-/// 一份已安装不可变对象的计算绑定。
+/// 一份已安装内容寻址对象的计算绑定。
 ///
 /// 该值只证明 content-addressed object winner 的 exact bytes；它不是 #299 独立验证收据，
 /// 也不表示 LFCP 或认证 manifest 已提交。
@@ -112,15 +118,17 @@ impl PortableObjectInstallation {
     }
 }
 
-/// 由调用方独占管理的内容寻址对象根。
+/// 由调用方独占管理并信任的 LaneFlow 本地可移植对象安装器。
+///
+/// 该类型只作为 [`crate::commit_portable_publication_v1`] 的本地发布目标，不是通用对象
+/// 存储 API。操作系统访问控制和存储介质安全继续由调用方部署负责。
 #[derive(Clone, Debug)]
-pub struct PortableObjectStore {
-    root: PathBuf,
+pub struct LocalPortableObjectInstaller {
     object_directory: PathBuf,
     staging_directory: PathBuf,
 }
 
-impl PortableObjectStore {
+impl LocalPortableObjectInstaller {
     /// 打开一份调用方预配置的发布根，并验证固定子目录不会解析到根外。
     ///
     /// # Errors
@@ -142,16 +150,9 @@ impl PortableObjectStore {
         #[cfg(unix)]
         NativeAtomicInstall.sync_directory(&root, PortableInstallOperation::SyncStoreRoot)?;
         Ok(Self {
-            root,
             object_directory,
             staging_directory,
         })
-    }
-
-    /// 已配置发布根的规范绝对路径。
-    #[must_use]
-    pub fn root(&self) -> &Path {
-        &self.root
     }
 
     /// 把 canonical object key 安全映射到配置根下。
@@ -159,7 +160,7 @@ impl PortableObjectStore {
     /// # Errors
     ///
     /// key 不是 `sha256/<64 lowercase hex>` 时失败。
-    pub fn object_path(&self, object_key: &str) -> Result<PathBuf, PortableInstallError> {
+    pub(crate) fn object_path(&self, object_key: &str) -> Result<PathBuf, PortableInstallError> {
         let hex = parse_object_key(object_key)?;
         Ok(self.object_directory.join(hex))
     }
@@ -170,7 +171,7 @@ impl PortableObjectStore {
     ///
     /// 计算绑定、暂存复核、平台安装、winner 比较或持久化失败时返回错误。最终路径绝不
     /// 被覆盖或流式写入。
-    pub fn install_candidate(
+    pub(crate) fn install_candidate(
         &self,
         candidate: &PortableObjectCandidate,
     ) -> Result<PortableObjectInstallation, PortableInstallError> {
@@ -185,8 +186,8 @@ impl PortableObjectStore {
     /// 原子安装一份由 crate 内上层能力已经关闭的 exact bytes。
     ///
     /// 内容存储不解释对象格式，也不把任意 bytes 包装成 validated/trusted view；它只从 bytes
-    /// 内部计算 digest/key 并提供 immutable winner。receipt/LFCP 等结构证明继续由各自上层
-    /// 能力拥有。
+    /// 内部计算 digest/key 并提供 content-addressed no-replace winner。receipt/LFCP 等结构
+    /// 证明继续由各自上层能力拥有。
     ///
     /// # Errors
     ///

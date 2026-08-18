@@ -2,8 +2,9 @@
 //!
 //! #298 不定义或解析 #299 的验证收据 wire。未来独立验证器通过
 //! [`CanonicalPublicationReceiptViewV1`] 暴露它已经验证的 exact bytes、metadata 与精确两个
-//! subject bindings；本层只比较这些绑定、按顺序安装 immutable objects、构造/安装 LFCP，
-//! 并恰好一次调用外部认证 manifest adapter。任何成功对象在提交点前都只是未引用对象。
+//! subject bindings；本层只比较这些绑定、按顺序安装 content-addressed no-replace objects、
+//! 构造/安装 LFCP，并恰好一次调用外部认证 manifest adapter。任何成功对象在提交点前都只是
+//! 未引用对象。
 
 mod lfcp;
 
@@ -16,8 +17,8 @@ use laneflow_static_contract::{
 };
 
 use crate::{
-    PortableInstallError, PortableObjectCandidate, PortableObjectInstallation, PortableObjectStore,
-    PortablePublicationCandidate,
+    LocalPortableObjectInstaller, PortableInstallError, PortableObjectCandidate,
+    PortableObjectInstallation, PortablePublicationCandidate,
     portable_emitter::{object_key, sha256},
 };
 
@@ -269,19 +270,19 @@ impl ManifestCommittedPortablePublication {
 /// # Errors
 ///
 /// receipt metadata/subject 不匹配、任一对象安装、LFCP 编码/预检或 manifest 提交失败时，
-/// 返回错误且不返回部分成功状态。已安装 immutable objects 可以作为未引用对象保留。
+/// 返回错误且不返回部分成功状态。已安装 content-addressed objects 可以作为未引用对象保留。
 pub fn commit_portable_publication_v1<
     R: CanonicalPublicationReceiptViewV1 + ?Sized,
     M: PortableManifestCommitter + ?Sized,
 >(
-    store: &PortableObjectStore,
+    installer: &LocalPortableObjectInstaller,
     candidate: &PortablePublicationCandidate,
     receipt: &R,
     provenance: &PortablePublicationProvenanceV1,
     limits: FormatLimits,
     manifest: &mut M,
 ) -> Result<ManifestCommittedPortablePublication, PortablePublicationError> {
-    commit_with_installer(store, candidate, receipt, provenance, limits, manifest)
+    commit_with_installer(installer, candidate, receipt, provenance, limits, manifest)
 }
 
 trait PublicationObjectInstaller {
@@ -296,19 +297,19 @@ trait PublicationObjectInstaller {
     ) -> Result<PortableObjectInstallation, PortableInstallError>;
 }
 
-impl PublicationObjectInstaller for PortableObjectStore {
+impl PublicationObjectInstaller for LocalPortableObjectInstaller {
     fn install_candidate(
         &self,
         candidate: &PortableObjectCandidate,
     ) -> Result<PortableObjectInstallation, PortableInstallError> {
-        PortableObjectStore::install_candidate(self, candidate)
+        LocalPortableObjectInstaller::install_candidate(self, candidate)
     }
 
     fn install_exact_bytes(
         &self,
         bytes: &[u8],
     ) -> Result<PortableObjectInstallation, PortableInstallError> {
-        PortableObjectStore::install_exact_bytes(self, bytes)
+        LocalPortableObjectInstaller::install_exact_bytes(self, bytes)
     }
 }
 
