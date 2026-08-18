@@ -1,9 +1,9 @@
 # 编译器后发射检查与最小发布闭合
 
-> **状态**：Accepted（#299 G1 Pass；2026-08-18）<br>
+> **状态**：Accepted（#299 G2 实现；2026-08-18）<br>
 > **日期**：2026-08-18<br>
 > **权威决策**：ADR 0024<br>
-> **实现前提**：G1 已通过；G2 生产实现仍须 #299 G2 开工判断
+> **实现状态**：G2 生产实现与本地验证已完成；G3/G4 证据和治理闭合仍按 Issue Gate Ledger 推进
 
 ## 1. 目标与非目标
 
@@ -29,19 +29,21 @@
 - 对象 framing、registry 和直接值域预检；
 - 借用型 `ValueCheckedObjectView`；
 - 有界 writer；
-- `no_std` 且不依赖 heap。
+- `no_std` 且不依赖 heap；
+- 无分配的 `check_post_emission_bundle_v1` 与字段私有的
+  `PostEmissionCheckedBundleV1`。
 
 `laneflow-compiler` 当前已经：
 
 - 从一个 `CompilationOutput` 产生 LFCA/LFSM/LFSD；
 - 在 emitter 和 publication 中逐对象调用
-  `preflight_object_values_v1`；
+  `preflight_object_values_v1`，并在发布路径调用 bundle 后发射检查；
 - 在 compiler-private 代码中计算 `NetworkRevisionId`；
 - 用 `PortablePublicationCandidate` 拥有三份 exact bytes 及缓存绑定；
-- 安装 LFCA/LFSM/LFSD、未来 receipt 和 LFCP v1，随后调用 manifest adapter。
+- 按 LFCA/LFSM/LFSD/LFCP v2 顺序安装，随后恰好一次调用 manifest adapter。
 
-#299 不重写这些基础设施。它把 bundle 级计算和比较下沉到 `laneflow-format`，并删除
-receipt 路径。
+#299 没有重写这些基础设施；它把 bundle 级计算和比较下沉到 `laneflow-format`，并已删除
+receipt 路径与 LFCP v1 生产 API。
 
 ## 3. 包与职责
 
@@ -70,7 +72,7 @@ sha2 = { version = "0.11", default-features = false }
 
 ## 4. 公共检查 API
 
-G2 实现应保持下列语义形状；精确 Rust 字段布局可以在不扩大能力的前提下调整。
+G2 实现保持下列语义形状；精确 Rust 字段布局可以在不扩大能力的前提下调整。
 
 ```rust
 pub enum ExpectedSemanticDiffBaseV1 {
@@ -244,14 +246,16 @@ unknown/future 值，也不能由 `publisherBuildId` 推断种类。
   `"sha256/" + hexLower(digest)`；
 - 不存在 `ValidationReceiptBinding`、`receiptObjectKey` 或 LFSD binding。
 
-LFCP v2 exact bytes 必须由新的 `LFCP-V2-MIN-BINDINGS` 固定向量覆盖。
+LFCP v2 exact bytes 由新的
+[`LFCP-V2-MIN-BINDINGS`](../../crates/laneflow-compiler/tests/fixtures/portable-v2/lfcp-v2-min-bindings/README.md)
+固定向量覆盖。
 
 ### 8.1 v1 处置
 
 生产实现直接把 `CANONICAL_PUBLICATION_DESCRIPTOR_VERSION` 提升为 `2`，registry 只
 接受 v2。不保留 v1 parser/schema/branch。
 
-G2 删除：
+G2 已删除：
 
 - `CanonicalPublicationReceiptViewV1`；
 - receipt subject/binding structs；
@@ -328,7 +332,7 @@ G2 最小测试集合：
 
 ## 12. G2 修改范围
 
-预期修改集中在：
+实际修改集中在：
 
 - `crates/laneflow-format`：bundle checker、hash、capability、错误和测试；
 - `crates/laneflow-static-contract`：LFCP 当前版本与 v2 registry；

@@ -84,9 +84,12 @@ pub(super) fn build_lfsd(
     network_revision: NetworkRevisionId,
     artifact: &PortableObjectCandidate,
     limits: FormatLimits,
-) -> Result<OwnedObject, PortableEmissionError> {
+) -> Result<(OwnedObject, ExpectedSemanticDiffBaseV1), PortableEmissionError> {
     match base {
-        PortableDiffBase::Genesis => build_genesis_lfsd(output, network_revision, artifact, limits),
+        PortableDiffBase::Genesis => Ok((
+            build_genesis_lfsd(output, network_revision, artifact, limits)?,
+            ExpectedSemanticDiffBaseV1::Genesis,
+        )),
         PortableDiffBase::Artifact(base) => {
             build_artifact_lfsd(base, network_revision, artifact, limits)
         }
@@ -114,7 +117,7 @@ fn build_artifact_lfsd(
     target_network_revision: NetworkRevisionId,
     target_artifact: &PortableObjectCandidate,
     limits: FormatLimits,
-) -> Result<OwnedObject, PortableEmissionError> {
+) -> Result<(OwnedObject, ExpectedSemanticDiffBaseV1), PortableEmissionError> {
     if base.kind() != PortableObjectKind::CanonicalArtifact {
         return Err(PortableEmissionError::InvalidDiffBaseKind);
     }
@@ -144,40 +147,54 @@ fn build_artifact_lfsd(
     let static_rule_changes = artifact_static_rule_changes(&base_index, &target_index)?;
     let spatial_changes = artifact_spatial_configuration_changes(&base_index, &target_index)?;
 
-    Ok(OwnedObject {
-        kind: PortableObjectKind::SemanticDiff,
-        sections: vec![
-            section(
-                1,
-                [table(
+    let expected_base = ExpectedSemanticDiffBaseV1::Artifact {
+        network_revision_derivation_version: NETWORK_REVISION_DERIVATION_VERSION,
+        network_revision: base_network_revision,
+        digest: base_digest,
+        byte_length: base_length,
+    };
+
+    Ok((
+        OwnedObject {
+            kind: PortableObjectKind::SemanticDiff,
+            sections: vec![
+                section(
                     1,
-                    [row([
-                        field(1, OwnedValue::U8(1)),
-                        field(2, OwnedValue::U16(NETWORK_REVISION_DERIVATION_VERSION)),
-                        field(
-                            3,
-                            OwnedValue::Sha256(base_network_revision.into_digest().into_bytes()),
-                        ),
-                        field(4, OwnedValue::Sha256(base_digest.into_bytes())),
-                        field(5, OwnedValue::U64(base_length.get())),
-                        field(6, OwnedValue::U16(NETWORK_REVISION_DERIVATION_VERSION)),
-                        field(
-                            7,
-                            OwnedValue::Sha256(target_network_revision.into_digest().into_bytes()),
-                        ),
-                        field(8, OwnedValue::Sha256(target_artifact.digest().into_bytes())),
-                        field(9, OwnedValue::U64(target_artifact.byte_length().get())),
-                    ])],
-                )],
-            ),
-            section(2, [table(1, entity_changes)]),
-            section(3, [table(1, relation_changes)]),
-            section(4, [table(1, geometry_changes)]),
-            section(5, [table(1, static_rule_changes)]),
-            section(6, [table(1, spatial_changes)]),
-        ]
-        .into_boxed_slice(),
-    })
+                    [table(
+                        1,
+                        [row([
+                            field(1, OwnedValue::U8(1)),
+                            field(2, OwnedValue::U16(NETWORK_REVISION_DERIVATION_VERSION)),
+                            field(
+                                3,
+                                OwnedValue::Sha256(
+                                    base_network_revision.into_digest().into_bytes(),
+                                ),
+                            ),
+                            field(4, OwnedValue::Sha256(base_digest.into_bytes())),
+                            field(5, OwnedValue::U64(base_length.get())),
+                            field(6, OwnedValue::U16(NETWORK_REVISION_DERIVATION_VERSION)),
+                            field(
+                                7,
+                                OwnedValue::Sha256(
+                                    target_network_revision.into_digest().into_bytes(),
+                                ),
+                            ),
+                            field(8, OwnedValue::Sha256(target_artifact.digest().into_bytes())),
+                            field(9, OwnedValue::U64(target_artifact.byte_length().get())),
+                        ])],
+                    )],
+                ),
+                section(2, [table(1, entity_changes)]),
+                section(3, [table(1, relation_changes)]),
+                section(4, [table(1, geometry_changes)]),
+                section(5, [table(1, static_rule_changes)]),
+                section(6, [table(1, spatial_changes)]),
+            ]
+            .into_boxed_slice(),
+        },
+        expected_base,
+    ))
 }
 
 #[cfg(test)]

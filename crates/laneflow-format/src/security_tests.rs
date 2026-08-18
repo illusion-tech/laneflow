@@ -213,7 +213,7 @@ fn all_fixed_widths_and_both_vector_counts_reject_redundant_mismatch() {
 #[test]
 fn every_redundant_outer_length_layer_fails_closed() {
     let kind = PortableObjectKind::CanonicalPublicationDescriptor;
-    let original_object = object_with_section_lengths(kind, &[4, 4, 4, 4]);
+    let original_object = object_with_section_lengths(kind, &[4, 4, 4]);
 
     let mut object_length = original_object.clone();
     let wrong_object_length = object_length.len() as u64 + 1;
@@ -279,7 +279,7 @@ fn every_table_byte_boundary_truncates_with_a_stable_length_class() {
 fn object_and_table_byte_boundaries_have_explicit_reachability() {
     let kind = PortableObjectKind::CanonicalPublicationDescriptor;
     let first_section_length = FORMAT_HARD_MAX_OBJECT_BYTES - kind.first_section_offset();
-    let mut object = object_with_section_lengths(kind, &[first_section_length, 0, 0, 0]);
+    let mut object = object_with_section_lengths(kind, &[first_section_length, 0, 0]);
     assert_eq!(object.len() as u64, FORMAT_HARD_MAX_OBJECT_BYTES);
     preflight_object_framing(&object, kind, FormatLimits::V1_HARD).unwrap();
     object.push(0);

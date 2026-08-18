@@ -1,32 +1,22 @@
 use laneflow_format::{
-    FieldWriteInputV1, FieldWriteValueV1, FormatLimits, ObjectWriteInputV1, RowWriteInputV1,
-    SectionWriteInputV1, TableWriteInputV1, encode_prepared_object_v1, preflight_object_values_v1,
-    prepare_object_v1,
+    FieldWriteInputV1, FieldWriteValueV1, FormatLimits, ObjectWriteInputV1,
+    PostEmissionCheckedBundleV1, RowWriteInputV1, SectionWriteInputV1, TableWriteInputV1,
+    encode_prepared_object_v1, preflight_object_values_v1, prepare_object_v1,
 };
 use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, NETWORK_REVISION_DERIVATION_VERSION, PortableObjectKind,
     SOURCE_MAP_FORMAT_VERSION,
 };
 
-use crate::portable_emitter::{
-    PortableObjectCandidate, PortablePublicationCandidate, close_object,
-};
+use crate::portable_emitter::{PortableObjectCandidate, close_object, object_key};
 
-use super::{
-    CheckedReceiptBindingV1, PortableObjectInstallation, PortablePublicationError,
-    PortablePublicationProvenanceV1,
-};
+use super::{PortablePublicationError, PortablePublicationProvenanceV2};
 
-pub(super) fn build_lfcp_v1(
-    candidate: &PortablePublicationCandidate,
-    receipt: &CheckedReceiptBindingV1<'_>,
-    receipt_installation: &PortableObjectInstallation,
-    provenance: &PortablePublicationProvenanceV1,
+pub(crate) fn build_lfcp_v2(
+    checked: PostEmissionCheckedBundleV1<'_>,
+    provenance: &PortablePublicationProvenanceV2,
     limits: FormatLimits,
 ) -> Result<PortableObjectCandidate, PortablePublicationError> {
-    let artifact = candidate.canonical_artifact();
-    let source_map = candidate.source_map();
-
     let artifact_fields = [
         field(1, FieldWriteValueV1::U16(CANONICAL_ARTIFACT_FORMAT_VERSION)),
         field(
@@ -35,57 +25,51 @@ pub(super) fn build_lfcp_v1(
         ),
         field(
             3,
-            FieldWriteValueV1::Sha256(candidate.network_revision().into_digest().into_bytes()),
+            FieldWriteValueV1::Sha256(checked.network_revision().into_digest().into_bytes()),
         ),
-        field(4, FieldWriteValueV1::Sha256(artifact.digest().into_bytes())),
-        field(5, FieldWriteValueV1::U64(artifact.byte_length().get())),
+        field(
+            4,
+            FieldWriteValueV1::Sha256(checked.canonical_artifact_digest().into_bytes()),
+        ),
+        field(
+            5,
+            FieldWriteValueV1::U64(checked.canonical_artifact_byte_length().get()),
+        ),
     ];
     let source_map_fields = [
         field(1, FieldWriteValueV1::U16(SOURCE_MAP_FORMAT_VERSION)),
         field(
             2,
-            FieldWriteValueV1::Sha256(source_map.digest().into_bytes()),
+            FieldWriteValueV1::Sha256(checked.source_map_digest().into_bytes()),
         ),
-        field(3, FieldWriteValueV1::U64(source_map.byte_length().get())),
-        field(4, FieldWriteValueV1::Utf8(candidate.compiler_build_id())),
+        field(
+            3,
+            FieldWriteValueV1::U64(checked.source_map_byte_length().get()),
+        ),
+        field(4, FieldWriteValueV1::Utf8(checked.compiler_build_id())),
         field(
             5,
-            FieldWriteValueV1::U16(candidate.source_collection_digest_version()),
+            FieldWriteValueV1::U16(checked.source_collection_digest_version()),
         ),
         field(
             6,
-            FieldWriteValueV1::Sha256(candidate.source_collection_digest()),
+            FieldWriteValueV1::Sha256(checked.source_collection_digest().into_bytes()),
         ),
     ];
-    let receipt_fields = [
-        field(1, FieldWriteValueV1::U16(receipt.format_version)),
-        field(2, FieldWriteValueV1::Utf8(receipt.kind)),
-        field(3, FieldWriteValueV1::Utf8(receipt.validator_build_id)),
-        field(
-            4,
-            FieldWriteValueV1::Sha256(receipt_installation.digest().into_bytes()),
-        ),
-        field(
-            5,
-            FieldWriteValueV1::U64(receipt_installation.byte_length().get()),
-        ),
-    ];
-    let mut publication_fields = Vec::with_capacity(7);
+    let artifact_object_key = object_key(checked.canonical_artifact_digest());
+    let source_map_object_key = object_key(checked.source_map_digest());
+    let mut publication_fields = Vec::with_capacity(6);
     publication_fields.extend([
         field(1, FieldWriteValueV1::U8(provenance.publisher_kind.code())),
         field(2, FieldWriteValueV1::Utf8(&provenance.publisher_build_id)),
-        field(3, FieldWriteValueV1::Utf8(artifact.object_key())),
-        field(4, FieldWriteValueV1::Utf8(source_map.object_key())),
-        field(
-            5,
-            FieldWriteValueV1::Utf8(receipt_installation.object_key()),
-        ),
+        field(3, FieldWriteValueV1::Utf8(&artifact_object_key)),
+        field(4, FieldWriteValueV1::Utf8(&source_map_object_key)),
     ]);
     if let Some(value) = provenance.controlled_build_provenance.as_deref() {
-        publication_fields.push(field(6, FieldWriteValueV1::Utf8(value)));
+        publication_fields.push(field(5, FieldWriteValueV1::Utf8(value)));
     }
     if let Some(value) = provenance.controlled_timestamp.as_deref() {
-        publication_fields.push(field(7, FieldWriteValueV1::Utf8(value)));
+        publication_fields.push(field(6, FieldWriteValueV1::Utf8(value)));
     }
 
     let artifact_rows = [RowWriteInputV1 {
@@ -94,15 +78,11 @@ pub(super) fn build_lfcp_v1(
     let source_map_rows = [RowWriteInputV1 {
         fields: &source_map_fields,
     }];
-    let receipt_rows = [RowWriteInputV1 {
-        fields: &receipt_fields,
-    }];
     let publication_rows = [RowWriteInputV1 {
         fields: &publication_fields,
     }];
     let artifact_tables = [table(&artifact_rows)];
     let source_map_tables = [table(&source_map_rows)];
-    let receipt_tables = [table(&receipt_rows)];
     let publication_tables = [table(&publication_rows)];
     let sections = [
         SectionWriteInputV1 {
@@ -115,10 +95,6 @@ pub(super) fn build_lfcp_v1(
         },
         SectionWriteInputV1 {
             kind: 3,
-            tables: &receipt_tables,
-        },
-        SectionWriteInputV1 {
-            kind: 4,
             tables: &publication_tables,
         },
     ];

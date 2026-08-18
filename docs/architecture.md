@@ -151,7 +151,8 @@ Journal）记录已提交动态状态/生命周期变化及命令/事件游标�
 （Canonical Network Semantic Payload）重算路网修订标识（Network Revision ID）
 `NetworkRevisionId`；LFCP/manifest、静态镜像描述符及切换描述符按各自职责绑定该
 标识，Runtime 不接受调用方、LFSD 或镜像头自报修订。#300/#302 分别冻结镜像和切换
-信任输入。LFCP v1 只保留为 #298 已实现的历史契约。目标职责、上层
+信任输入。当前 production descriptor 是不含 receipt 的 LFCP v2；LFCP v1 只保留为
+#298 已实现的历史契约。目标职责、上层
 边界与历史 ADR 的关系见 ADR 0020/0021 及 Accepted ADR 0024；阶段 8 生产切换 Issue
 #294 完成 G4 前，本文其余 current 章节继续有效。
 

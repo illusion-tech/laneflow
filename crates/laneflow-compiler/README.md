@@ -89,21 +89,22 @@ exact bytes，再以同文件系统 hard-link no-replace 原子安装到内部�
 创建或接管其祖先目录。新装与已存在的相同 winner 都必须在对象目录耐久屏障后才能返回；
 平台不能证明 atomic no-replace 与目录元数据持久化时明确返回
 `AtomicInstallUnsupported`。当前 Unix 原生后端提供该能力；Windows 仍支持 exact-byte
-发射与读取，但原生 durable publication 后端在取得可审计保证前失败关闭。安装结果与 receipt subject projection 继续使用
-`Sha256Digest`、`ExactByteLength`、`NetworkRevisionId`，只有 LFCP wire writer 解包这些值。
+发射与读取，但原生 durable publication 后端在取得可审计保证前失败关闭。安装结果和
+后发射检查能力继续使用 `Sha256Digest`、`ExactByteLength`、`NetworkRevisionId`，只有
+LFCP wire writer 解包这些值。
 该安装器假定调用方独占管理并信任预配置发布根；协议内 writer 不覆盖、截断或原地修改
 最终摘要路径。直接拥有文件系统写权限的进程与 ACL、账户隔离、只读挂载、WORM 策略属于
 部署边界，消费者仍须按认证 binding 重新计算摘要并在不匹配时失败关闭。该类型不是通用
 对象存储：不公开任意 bytes 写入，不提供枚举、删除、GC、远程 backend、压缩、加密、配额
 或通用存储生命周期。
-`commit_portable_publication_v1` 只接受未来 #299
-实现的 `CanonicalPublicationReceiptViewV1`：一次性快照其 opaque exact bytes、metadata 和恰好
-两个 subject bindings，依次安装 LFCA/LFSM/LFSD/receipt 后才构造并安装 LFCP，最后恰好调用
-一次外部 `PortableManifestCommitter`。当前 committed capability 只返回 LFCP 实际认证的
-descriptor/artifact/source-map/receipt 绑定；已安装 LFSD 仍是未引用诊断对象，不会因同一事务
-完成而提前取得信任。#298 不定义或解析 receipt wire，也不自证 manifest adapter 的签名/信任根；
-任意已安装对象在该 adapter 返回成功前仍只是未引用对象。#299 独立验证收据实现和 #302
-可信切换描述符仍属于后继 Issue。
+`commit_portable_publication_v2` 在任何安装前调用 `laneflow-format` 的无分配后发射检查：
+从 LFCA/LFSM/LFSD 最终字节重算 digest、length 与路网修订，并闭合 LFSM 和 LFSD 的必要
+跨对象 binding。成功后发布路径只消费字段私有的借用型能力，依次安装
+LFCA/LFSM/LFSD，构造并安装不含 receipt/LFSD binding 的 LFCP v2，最后恰好调用一次外部
+`PortableManifestCommitter`。committed capability 只返回 LFCP 实际认证的
+descriptor/artifact/source-map 绑定；LFSD 仍是未引用诊断对象。检查不重跑完整 compiler
+语义，也不验证 LFSD change set 完备性；任意已安装对象在 manifest adapter 返回成功前仍
+只是未引用对象。
 
 跨平台确定性由 `.github/workflows/portable-exact-bytes.yml` 直接导出 production emitter 的
 LFCA/LFSM/LFSD bytes：Windows/Ubuntu 各两个 fresh process、每个进程内重复发射，最后在单一

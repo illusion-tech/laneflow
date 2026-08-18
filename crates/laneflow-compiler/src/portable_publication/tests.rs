@@ -1,185 +1,25 @@
-use std::{
-    cell::Cell,
-    fs,
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-};
-
-#[cfg(unix)]
-use std::cell::RefCell;
+use std::{cell::Cell, cell::RefCell, ops::Range};
 
 use laneflow_format::{
-    FormatLimitConfig, FormatLimits, LimitDimension, RegistryCheckedObjectView,
+    ExpectedSemanticDiffBaseV1, FormatLimitConfig, FormatLimits, LimitDimension,
+    PostEmissionCheckError, RegistryCheckedObjectView, check_post_emission_bundle_v1,
     preflight_object_values_v1,
 };
-use laneflow_static_contract::PortableObjectKind;
+use laneflow_static_contract::{ExactByteLength, PortableObjectKind};
 
 use super::*;
-#[cfg(unix)]
-use crate::PortableInstallOperation;
-use crate::compiler::portable_fixture_tests;
+use crate::{PortableInstallOperation, compiler::portable_fixture_tests};
 
-const RECEIPT_BYTES: &[u8] = b"test-only opaque #299 receipt bytes for LFCP binding v1";
-static NEXT_TEST_ROOT: AtomicU64 = AtomicU64::new(0);
-
-struct TestRoot(PathBuf);
-
-impl TestRoot {
-    fn new(name: &str) -> Self {
-        let ordinal = NEXT_TEST_ROOT.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "laneflow-portable-publication-{name}-{:08x}-{ordinal:016x}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir(&path).unwrap();
-        Self(path)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
+fn provenance(kind: PortablePublisherKindV2) -> PortablePublicationProvenanceV2 {
+    PortablePublicationProvenanceV2::new(kind, "laneflow-publisher-fixture-v2", None, None)
 }
 
-impl Drop for TestRoot {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-#[derive(Clone)]
-struct TestReceipt {
-    bytes: Box<[u8]>,
-    format_version: u16,
-    kind: Box<str>,
-    validator_build_id: Box<str>,
-    subject_count: u32,
-    artifact: Option<PortableArtifactSubjectBindingV1>,
-    source_map: Option<PortableSourceMapSubjectBindingV1>,
-}
-
-impl TestReceipt {
-    fn valid(candidate: &PortablePublicationCandidate) -> Self {
-        Self {
-            bytes: RECEIPT_BYTES.into(),
-            format_version: 1,
-            kind: "canonical-publication-v1".into(),
-            validator_build_id: "laneflow-validator-fixture-v1".into(),
-            subject_count: 2,
-            artifact: Some(PortableArtifactSubjectBindingV1 {
-                canonical_artifact_format_version: 1,
-                network_revision_derivation_version: 1,
-                network_revision: candidate.network_revision(),
-                digest: candidate.canonical_artifact().digest(),
-                byte_length: candidate.canonical_artifact().byte_length(),
-            }),
-            source_map: Some(PortableSourceMapSubjectBindingV1 {
-                source_map_format_version: 1,
-                digest: candidate.source_map().digest(),
-                byte_length: candidate.source_map().byte_length(),
-            }),
-        }
-    }
-}
-
-impl CanonicalPublicationReceiptViewV1 for TestReceipt {
-    fn exact_bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    fn validation_receipt_format_version(&self) -> u16 {
-        self.format_version
-    }
-
-    fn receipt_kind(&self) -> &str {
-        &self.kind
-    }
-
-    fn validator_build_id(&self) -> &str {
-        &self.validator_build_id
-    }
-
-    fn subject_count(&self) -> u32 {
-        self.subject_count
-    }
-
-    fn canonical_artifact_subject(&self) -> Option<PortableArtifactSubjectBindingV1> {
-        self.artifact
-    }
-
-    fn source_map_subject(&self) -> Option<PortableSourceMapSubjectBindingV1> {
-        self.source_map
-    }
-}
-
-#[cfg(unix)]
-struct AlternatingReceipt {
-    inner: TestReceipt,
-    exact_calls: Cell<u32>,
-}
-
-#[cfg(unix)]
-impl CanonicalPublicationReceiptViewV1 for AlternatingReceipt {
-    fn exact_bytes(&self) -> &[u8] {
-        let call = self.exact_calls.get();
-        self.exact_calls.set(call + 1);
-        if call == 0 {
-            self.inner.exact_bytes()
-        } else {
-            b"different bytes returned by an unstable trait implementation"
-        }
-    }
-
-    fn validation_receipt_format_version(&self) -> u16 {
-        self.inner.validation_receipt_format_version()
-    }
-
-    fn receipt_kind(&self) -> &str {
-        self.inner.receipt_kind()
-    }
-
-    fn validator_build_id(&self) -> &str {
-        self.inner.validator_build_id()
-    }
-
-    fn subject_count(&self) -> u32 {
-        self.inner.subject_count()
-    }
-
-    fn canonical_artifact_subject(&self) -> Option<PortableArtifactSubjectBindingV1> {
-        self.inner.canonical_artifact_subject()
-    }
-
-    fn source_map_subject(&self) -> Option<PortableSourceMapSubjectBindingV1> {
-        self.inner.source_map_subject()
-    }
-}
-
-fn provenance() -> PortablePublicationProvenanceV1 {
-    PortablePublicationProvenanceV1::new(
-        PortablePublisherKindV1::LocalTool,
-        "laneflow-publisher-fixture-v1",
-        None,
-        None,
-    )
-}
-
+#[derive(Default)]
 struct RecordingManifest {
     calls: usize,
     failure: Option<PortableManifestCommitError>,
     descriptor_bytes: Option<Box<[u8]>>,
     descriptor_key: Option<Box<str>>,
-}
-
-impl RecordingManifest {
-    fn succeeds() -> Self {
-        Self {
-            calls: 0,
-            failure: None,
-            descriptor_bytes: None,
-            descriptor_key: None,
-        }
-    }
 }
 
 impl PortableManifestCommitter for RecordingManifest {
@@ -193,20 +33,12 @@ impl PortableManifestCommitter for RecordingManifest {
             candidate.descriptor_installation().digest()
         );
         assert_eq!(
-            candidate.descriptor().object_key(),
-            candidate.descriptor_installation().object_key()
-        );
-        assert_eq!(
             candidate.canonical_artifact_installation().object_key(),
-            field_utf8(candidate.descriptor().bytes(), 3, 3)
+            field_utf8(candidate.descriptor().bytes(), 2, 3)
         );
         assert_eq!(
             candidate.source_map_installation().object_key(),
-            field_utf8(candidate.descriptor().bytes(), 3, 4)
-        );
-        assert_eq!(
-            candidate.receipt_installation().object_key(),
-            field_utf8(candidate.descriptor().bytes(), 3, 5)
+            field_utf8(candidate.descriptor().bytes(), 2, 4)
         );
         self.descriptor_bytes = Some(candidate.descriptor().bytes().into());
         self.descriptor_key = Some(candidate.descriptor().object_key().into());
@@ -217,26 +49,50 @@ impl PortableManifestCommitter for RecordingManifest {
     }
 }
 
-#[derive(Default)]
-struct CountingInstaller {
+struct RecordingInstaller {
     calls: Cell<usize>,
+    order: RefCell<Vec<[u8; 4]>>,
+    fail_on_call: Option<usize>,
+    error: PortableInstallError,
 }
 
-impl PublicationObjectInstaller for CountingInstaller {
-    fn install_candidate(
-        &self,
-        _candidate: &PortableObjectCandidate,
-    ) -> Result<PortableObjectInstallation, PortableInstallError> {
-        self.calls.set(self.calls.get() + 1);
-        Err(PortableInstallError::AtomicInstallUnsupported)
+impl RecordingInstaller {
+    fn succeeds() -> Self {
+        Self {
+            calls: Cell::new(0),
+            order: RefCell::new(Vec::new()),
+            fail_on_call: None,
+            error: PortableInstallError::AtomicInstallUnsupported,
+        }
     }
 
+    fn fails_on(call: usize, error: PortableInstallError) -> Self {
+        Self {
+            fail_on_call: Some(call),
+            error,
+            ..Self::succeeds()
+        }
+    }
+}
+
+impl PublicationObjectInstaller for RecordingInstaller {
     fn install_exact_bytes(
         &self,
-        _bytes: &[u8],
+        bytes: &[u8],
     ) -> Result<PortableObjectInstallation, PortableInstallError> {
-        self.calls.set(self.calls.get() + 1);
-        Err(PortableInstallError::AtomicInstallUnsupported)
+        let call = self.calls.get();
+        self.calls.set(call + 1);
+        self.order.borrow_mut().push(bytes[..4].try_into().unwrap());
+        if self.fail_on_call == Some(call) {
+            return Err(self.error);
+        }
+        let digest = crate::portable_emitter::sha256(bytes);
+        let byte_length = ExactByteLength::new(u64::try_from(bytes.len()).unwrap());
+        Ok(PortableObjectInstallation::test_only(
+            digest,
+            byte_length,
+            crate::portable_emitter::object_key(digest),
+        ))
     }
 }
 
@@ -248,20 +104,6 @@ fn descriptor_view(bytes: &[u8]) -> RegistryCheckedObjectView<'_> {
     )
     .unwrap()
     .registry_view()
-}
-
-fn candidate_byte_limits(candidate: &PortablePublicationCandidate) -> (u64, u64) {
-    let lengths = [
-        candidate.canonical_artifact().byte_length().get(),
-        candidate.source_map().byte_length().get(),
-        candidate.semantic_diff().byte_length().get(),
-    ];
-    let largest = lengths.into_iter().max().unwrap();
-    let total = lengths
-        .into_iter()
-        .try_fold(0_u64, u64::checked_add)
-        .unwrap();
-    (largest, total)
 }
 
 fn field_bytes(bytes: &[u8], section: u32, tag: u16) -> &[u8] {
@@ -281,593 +123,415 @@ fn field_utf8(bytes: &[u8], section: u32, tag: u16) -> &str {
     std::str::from_utf8(field_bytes(bytes, section, tag)).unwrap()
 }
 
-#[cfg(unix)]
-fn read_installed(store: &LocalPortableObjectInstaller, object_key: &str) -> Vec<u8> {
-    fs::read(store.object_path(object_key).unwrap()).unwrap()
+fn checked_bundle<'a>(
+    candidate: &'a PortablePublicationCandidate,
+) -> laneflow_format::PostEmissionCheckedBundleV1<'a> {
+    check_post_emission_bundle_v1(
+        candidate.canonical_artifact().bytes(),
+        candidate.source_map().bytes(),
+        candidate.semantic_diff().bytes(),
+        candidate.expected_semantic_diff_base(),
+        FormatLimits::V1_HARD,
+    )
+    .unwrap()
 }
 
-#[cfg(unix)]
-#[test]
-fn success_installs_all_objects_then_commits_exactly_one_manifest() {
-    let root = TestRoot::new("success");
-    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
-    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
-    let receipt = TestReceipt::valid(&candidate);
-    let mut manifest = RecordingManifest::succeeds();
+fn field_range(bytes: &[u8], kind: PortableObjectKind, section: u32, tag: u16) -> Range<usize> {
+    let value = preflight_object_values_v1(bytes, kind, FormatLimits::V1_HARD)
+        .unwrap()
+        .registry_view()
+        .section(section)
+        .unwrap()
+        .table(0)
+        .unwrap()
+        .row(0)
+        .unwrap()
+        .field_by_tag(tag)
+        .unwrap()
+        .value_bytes();
+    let start = (value.as_ptr() as usize)
+        .checked_sub(bytes.as_ptr() as usize)
+        .unwrap();
+    start..start + value.len()
+}
 
-    let committed = commit_portable_publication_v1(
-        &store,
+fn mutate_field(bytes: &mut [u8], kind: PortableObjectKind, section: u32, tag: u16) {
+    let range = field_range(bytes, kind, section, tag);
+    bytes[range.start] ^= 1;
+}
+
+#[test]
+fn checker_accepts_genesis_and_artifact_base_bundles() {
+    let genesis = portable_fixture_tests::full_spatial_portable_fixture_candidate();
+    let genesis_checked = checked_bundle(&genesis);
+    assert_eq!(
+        genesis_checked.network_revision(),
+        genesis.network_revision()
+    );
+    assert_eq!(
+        genesis_checked.canonical_artifact_digest(),
+        genesis.canonical_artifact().digest()
+    );
+
+    let artifact = portable_fixture_tests::full_spatial_portable_artifact_base_fixture_candidate();
+    assert!(matches!(
+        artifact.expected_semantic_diff_base(),
+        ExpectedSemanticDiffBaseV1::Artifact { .. }
+    ));
+    let artifact_checked = checked_bundle(&artifact);
+    assert_eq!(
+        artifact_checked.network_revision(),
+        artifact.network_revision()
+    );
+}
+
+#[test]
+fn checker_reports_each_cross_object_binding_failure() {
+    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
+
+    let mut lfca = candidate.canonical_artifact().bytes().to_vec();
+    mutate_field(&mut lfca, PortableObjectKind::CanonicalArtifact, 7, 1);
+    assert_eq!(
+        check_post_emission_bundle_v1(
+            &lfca,
+            candidate.source_map().bytes(),
+            candidate.semantic_diff().bytes(),
+            candidate.expected_semantic_diff_base(),
+            FormatLimits::V1_HARD,
+        )
+        .unwrap_err(),
+        PostEmissionCheckError::NetworkRevisionMismatch
+    );
+
+    let mut lfsm = candidate.source_map().bytes().to_vec();
+    mutate_field(&mut lfsm, PortableObjectKind::SourceMap, 0, 4);
+    assert_eq!(
+        check_post_emission_bundle_v1(
+            candidate.canonical_artifact().bytes(),
+            &lfsm,
+            candidate.semantic_diff().bytes(),
+            candidate.expected_semantic_diff_base(),
+            FormatLimits::V1_HARD,
+        )
+        .unwrap_err(),
+        PostEmissionCheckError::SourceMapBindingMismatch
+    );
+
+    let mut target_lfsd = candidate.semantic_diff().bytes().to_vec();
+    mutate_field(&mut target_lfsd, PortableObjectKind::SemanticDiff, 0, 8);
+    assert_eq!(
+        check_post_emission_bundle_v1(
+            candidate.canonical_artifact().bytes(),
+            candidate.source_map().bytes(),
+            &target_lfsd,
+            candidate.expected_semantic_diff_base(),
+            FormatLimits::V1_HARD,
+        )
+        .unwrap_err(),
+        PostEmissionCheckError::SemanticDiffTargetBindingMismatch
+    );
+
+    assert_eq!(
+        check_post_emission_bundle_v1(
+            candidate.canonical_artifact().bytes(),
+            candidate.source_map().bytes(),
+            candidate.semantic_diff().bytes(),
+            ExpectedSemanticDiffBaseV1::Artifact {
+                network_revision_derivation_version: 1,
+                network_revision: candidate.network_revision(),
+                digest: candidate.canonical_artifact().digest(),
+                byte_length: candidate.canonical_artifact().byte_length(),
+            },
+            FormatLimits::V1_HARD,
+        )
+        .unwrap_err(),
+        PostEmissionCheckError::SemanticDiffBaseBindingMismatch
+    );
+}
+
+#[test]
+fn checker_rejects_truncated_appended_wrong_kind_and_wrong_version_objects() {
+    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
+    let originals = [
+        candidate.canonical_artifact().bytes(),
+        candidate.source_map().bytes(),
+        candidate.semantic_diff().bytes(),
+    ];
+
+    for object_index in 0..3 {
+        for mutation in 0..3 {
+            let mut changed = originals[object_index].to_vec();
+            match mutation {
+                0 => {
+                    changed.pop();
+                }
+                1 => changed.push(0),
+                2 => changed[4..6].copy_from_slice(&9_u16.to_le_bytes()),
+                _ => unreachable!(),
+            }
+            let mut objects = originals;
+            objects[object_index] = &changed;
+            assert!(matches!(
+                check_post_emission_bundle_v1(
+                    objects[0],
+                    objects[1],
+                    objects[2],
+                    candidate.expected_semantic_diff_base(),
+                    FormatLimits::V1_HARD,
+                ),
+                Err(PostEmissionCheckError::Format(_))
+            ));
+        }
+    }
+
+    assert!(matches!(
+        check_post_emission_bundle_v1(
+            candidate.source_map().bytes(),
+            candidate.canonical_artifact().bytes(),
+            candidate.semantic_diff().bytes(),
+            candidate.expected_semantic_diff_base(),
+            FormatLimits::V1_HARD,
+        ),
+        Err(PostEmissionCheckError::Format(_))
+    ));
+}
+
+#[test]
+fn checker_closes_all_variable_source_and_diff_digest_length_bindings() {
+    let genesis = portable_fixture_tests::full_spatial_portable_fixture_candidate();
+    for tag in [2, 4, 5, 6, 8] {
+        let mut lfsm = genesis.source_map().bytes().to_vec();
+        mutate_field(&mut lfsm, PortableObjectKind::SourceMap, 0, tag);
+        assert_eq!(
+            check_post_emission_bundle_v1(
+                genesis.canonical_artifact().bytes(),
+                &lfsm,
+                genesis.semantic_diff().bytes(),
+                genesis.expected_semantic_diff_base(),
+                FormatLimits::V1_HARD,
+            )
+            .unwrap_err(),
+            PostEmissionCheckError::SourceMapBindingMismatch
+        );
+    }
+
+    let artifact = portable_fixture_tests::full_spatial_portable_artifact_base_fixture_candidate();
+    for tag in [3, 4, 5] {
+        let mut lfsd = artifact.semantic_diff().bytes().to_vec();
+        mutate_field(&mut lfsd, PortableObjectKind::SemanticDiff, 0, tag);
+        assert_eq!(
+            check_post_emission_bundle_v1(
+                artifact.canonical_artifact().bytes(),
+                artifact.source_map().bytes(),
+                &lfsd,
+                artifact.expected_semantic_diff_base(),
+                FormatLimits::V1_HARD,
+            )
+            .unwrap_err(),
+            PostEmissionCheckError::SemanticDiffBaseBindingMismatch
+        );
+    }
+    for tag in [7, 8, 9] {
+        let mut lfsd = artifact.semantic_diff().bytes().to_vec();
+        mutate_field(&mut lfsd, PortableObjectKind::SemanticDiff, 0, tag);
+        assert_eq!(
+            check_post_emission_bundle_v1(
+                artifact.canonical_artifact().bytes(),
+                artifact.source_map().bytes(),
+                &lfsd,
+                artifact.expected_semantic_diff_base(),
+                FormatLimits::V1_HARD,
+            )
+            .unwrap_err(),
+            PostEmissionCheckError::SemanticDiffTargetBindingMismatch
+        );
+    }
+}
+
+#[test]
+fn lfcp_v2_contains_only_artifact_source_and_publication_bindings() {
+    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
+    for (kind, code) in [
+        (PortablePublisherKindV2::LocalTool, 0_u8),
+        (PortablePublisherKindV2::Ci, 1),
+        (PortablePublisherKindV2::ReleaseService, 2),
+    ] {
+        let descriptor = build_lfcp_v2(
+            checked_bundle(&candidate),
+            &PortablePublicationProvenanceV2::new(
+                kind,
+                "laneflow-publisher-fixture-v2",
+                Some("controlled-build".into()),
+                Some("2026-08-18T00:00:00Z".into()),
+            ),
+            FormatLimits::V1_HARD,
+        )
+        .unwrap();
+        let view = descriptor_view(descriptor.bytes());
+        assert_eq!(view.section_count(), 3);
+        assert_eq!(field_bytes(descriptor.bytes(), 2, 1), [code]);
+        assert_eq!(
+            field_utf8(descriptor.bytes(), 2, 3),
+            candidate.canonical_artifact().object_key()
+        );
+        assert_eq!(
+            field_utf8(descriptor.bytes(), 2, 4),
+            candidate.source_map().object_key()
+        );
+        assert_eq!(field_utf8(descriptor.bytes(), 2, 5), "controlled-build");
+        assert_eq!(field_utf8(descriptor.bytes(), 2, 6), "2026-08-18T00:00:00Z");
+    }
+}
+
+#[test]
+fn publication_checks_before_installing_and_commits_once_in_order() {
+    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
+    let installer = RecordingInstaller::succeeds();
+    let mut manifest = RecordingManifest::default();
+
+    let committed = commit_with_installer(
+        &installer,
         &candidate,
-        &receipt,
-        &provenance(),
+        &provenance(PortablePublisherKindV2::LocalTool),
         FormatLimits::V1_HARD,
         &mut manifest,
     )
     .unwrap();
 
+    assert_eq!(
+        installer.order.into_inner(),
+        [*b"LFCA", *b"LFSM", *b"LFSD", *b"LFCP"]
+    );
     assert_eq!(manifest.calls, 1);
     assert_eq!(
         committed.descriptor().bytes(),
         manifest.descriptor_bytes.as_deref().unwrap()
     );
-    assert_eq!(&committed.descriptor().bytes()[..4], b"LFCP");
-    assert_eq!(
-        read_installed(&store, candidate.canonical_artifact().object_key()),
-        candidate.canonical_artifact().bytes()
-    );
-    assert_eq!(
-        read_installed(&store, candidate.source_map().object_key()),
-        candidate.source_map().bytes()
-    );
-    assert_eq!(
-        read_installed(&store, candidate.semantic_diff().object_key()),
-        candidate.semantic_diff().bytes()
-    );
-    assert_eq!(
-        read_installed(&store, committed.receipt_installation().object_key()),
-        RECEIPT_BYTES
-    );
-    assert_eq!(
-        read_installed(&store, committed.descriptor().object_key()),
-        committed.descriptor().bytes()
-    );
-
-    let descriptor = committed.descriptor().bytes();
-    assert_eq!(
-        field_bytes(descriptor, 0, 3),
-        candidate.network_revision().as_digest().as_bytes()
-    );
-    assert_eq!(
-        field_bytes(descriptor, 0, 4),
-        candidate.canonical_artifact().digest().as_bytes()
-    );
-    assert_eq!(
-        field_bytes(descriptor, 1, 2),
-        candidate.source_map().digest().as_bytes()
-    );
-    assert_eq!(field_utf8(descriptor, 2, 2), "canonical-publication-v1");
-    assert_eq!(
-        field_utf8(descriptor, 2, 3),
-        "laneflow-validator-fixture-v1"
-    );
-    assert_eq!(
-        field_utf8(descriptor, 3, 3),
-        candidate.canonical_artifact().object_key()
-    );
-    assert_eq!(
-        field_utf8(descriptor, 3, 4),
-        candidate.source_map().object_key()
-    );
-    assert_eq!(
-        field_utf8(descriptor, 3, 5),
-        committed.receipt_installation().object_key()
-    );
-    let expected = decode_hex(include_str!(
-        "../../tests/fixtures/portable-v1/lfcp-v1-min-bindings/expected.lfcp.hex"
-    ));
-    assert_eq!(committed.descriptor().bytes(), expected.as_ref());
-    assert_eq!(
-        committed.descriptor().byte_length(),
-        ExactByteLength::new(1_050)
-    );
-    assert_eq!(
-        committed.descriptor().object_key(),
-        "sha256/7cbe21a42bca1f50f30e34de91db310e8d550e64f87a761cd1bec516010c4e05"
-    );
+    assert_eq!(committed.descriptor().bytes()[4..6], 2_u16.to_le_bytes());
 }
 
-#[cfg(unix)]
 #[test]
-fn publisher_kind_and_optional_controlled_provenance_are_exact_inputs() {
-    let root = TestRoot::new("publisher-provenance");
-    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
+fn checker_limit_failure_has_zero_installer_and_manifest_side_effects() {
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
-    let receipt = TestReceipt::valid(&candidate);
-    for (kind, code) in [
-        (PortablePublisherKindV1::LocalTool, 0_u8),
-        (PortablePublisherKindV1::Ci, 1),
-        (PortablePublisherKindV1::ReleaseService, 2),
-    ] {
-        let provenance = PortablePublicationProvenanceV1::new(
-            kind,
-            "publisher-build",
-            Some("ci-run-42".into()),
-            Some("2026-08-17T00:00:00Z".into()),
-        );
-        let mut manifest = RecordingManifest::succeeds();
-        let committed = commit_portable_publication_v1(
-            &store,
+    let largest = [
+        candidate.canonical_artifact().byte_length().get(),
+        candidate.source_map().byte_length().get(),
+        candidate.semantic_diff().byte_length().get(),
+    ]
+    .into_iter()
+    .max()
+    .unwrap();
+    let mut config = FormatLimitConfig::V1_HARD;
+    config.max_object_bytes = largest - 1;
+    let installer = RecordingInstaller::succeeds();
+    let mut manifest = RecordingManifest::default();
+
+    assert!(matches!(
+        commit_with_installer(
+            &installer,
             &candidate,
-            &receipt,
-            &provenance,
-            FormatLimits::V1_HARD,
+            &provenance(PortablePublisherKindV2::LocalTool),
+            FormatLimits::try_new(config).unwrap(),
             &mut manifest,
-        )
-        .unwrap();
-        assert_eq!(manifest.calls, 1);
-        let descriptor = committed.descriptor().bytes();
-        assert_eq!(field_bytes(descriptor, 3, 1), [code]);
-        assert_eq!(field_utf8(descriptor, 3, 2), "publisher-build");
-        assert_eq!(field_utf8(descriptor, 3, 6), "ci-run-42");
-        assert_eq!(field_utf8(descriptor, 3, 7), "2026-08-17T00:00:00Z");
-    }
+        ),
+        Err(PortablePublicationError::PostEmission(
+            PostEmissionCheckError::LimitExceeded {
+                dimension: LimitDimension::ObjectBytes,
+                ..
+            }
+        ))
+    ));
+    assert_eq!(installer.calls.get(), 0);
+    assert_eq!(manifest.calls, 0);
 }
 
-#[cfg(unix)]
 #[test]
-fn receipt_view_is_snapshotted_once_before_any_installation() {
-    let root = TestRoot::new("receipt-snapshot");
-    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
+fn checker_closes_exact_candidate_staging_boundary_before_side_effects() {
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
-    let receipt = AlternatingReceipt {
-        inner: TestReceipt::valid(&candidate),
-        exact_calls: Cell::new(0),
-    };
-    let mut manifest = RecordingManifest::succeeds();
+    let total = candidate
+        .canonical_artifact()
+        .byte_length()
+        .get()
+        .checked_add(candidate.source_map().byte_length().get())
+        .and_then(|value| value.checked_add(candidate.semantic_diff().byte_length().get()))
+        .unwrap();
 
-    let committed = commit_portable_publication_v1(
-        &store,
-        &candidate,
-        &receipt,
-        &provenance(),
-        FormatLimits::V1_HARD,
-        &mut manifest,
+    let mut exact_config = FormatLimitConfig::V1_HARD;
+    exact_config.max_candidate_staging_bytes = total;
+    check_post_emission_bundle_v1(
+        candidate.canonical_artifact().bytes(),
+        candidate.source_map().bytes(),
+        candidate.semantic_diff().bytes(),
+        candidate.expected_semantic_diff_base(),
+        FormatLimits::try_new(exact_config).unwrap(),
     )
     .unwrap();
 
-    assert_eq!(receipt.exact_calls.get(), 1);
-    assert_eq!(
-        read_installed(&store, committed.receipt_installation().object_key()),
-        RECEIPT_BYTES
-    );
-}
-
-#[cfg(unix)]
-fn decode_hex(input: &str) -> Box<[u8]> {
-    let mut digits = Vec::new();
-    for byte in input.bytes() {
-        match byte {
-            b'0'..=b'9' | b'a'..=b'f' => digits.push(byte),
-            b' ' | b'\t' | b'\r' | b'\n' => {}
-            _ => panic!("expected lowercase hex fixture"),
-        }
-    }
-    assert_eq!(digits.len() % 2, 0);
-    digits
-        .chunks_exact(2)
-        .map(|pair| (hex_nibble(pair[0]) << 4) | hex_nibble(pair[1]))
-        .collect()
-}
-
-#[cfg(unix)]
-fn hex_nibble(byte: u8) -> u8 {
-    match byte {
-        b'0'..=b'9' => byte - b'0',
-        b'a'..=b'f' => byte - b'a' + 10,
-        _ => unreachable!("validated lowercase ASCII hex"),
-    }
-}
-
-#[test]
-fn receipt_metadata_shape_and_every_subject_binding_fail_before_install() {
-    let root = TestRoot::new("receipt-negative");
-    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
-    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
-    let valid = TestReceipt::valid(&candidate);
-
-    let (candidate_max, _) = candidate_byte_limits(&candidate);
-    let mut oversized_receipt = valid.clone();
-    oversized_receipt.bytes = vec![b'r'; usize::try_from(candidate_max + 1).unwrap()].into();
-    let mut limit_config = FormatLimitConfig::V1_HARD;
-    limit_config.max_object_bytes = candidate_max;
-    let reduced_limits = FormatLimits::try_new(limit_config).unwrap();
-    let mut manifest = RecordingManifest::succeeds();
-    assert_eq!(
-        commit_portable_publication_v1(
-            &store,
-            &candidate,
-            &oversized_receipt,
-            &provenance(),
-            reduced_limits,
-            &mut manifest,
-        ),
-        Err(PortablePublicationError::ReceiptLimitExceeded {
-            actual: candidate_max + 1,
-            limit: candidate_max,
-        })
-    );
-    assert_eq!(manifest.calls, 0);
-
-    let mut invalid = Vec::new();
-    let mut receipt = valid.clone();
-    receipt.format_version = 2;
-    invalid.push((
-        receipt,
-        PortablePublicationError::InvalidReceiptFormatVersion,
-    ));
-    let mut receipt = valid.clone();
-    receipt.kind = "another-kind".into();
-    invalid.push((receipt, PortablePublicationError::InvalidReceiptKind));
-    let mut receipt = valid.clone();
-    receipt.bytes = Box::new([]);
-    invalid.push((receipt, PortablePublicationError::EmptyReceipt));
-    for count in [0, 1, 3] {
-        let mut receipt = valid.clone();
-        receipt.subject_count = count;
-        invalid.push((
-            receipt,
-            PortablePublicationError::ReceiptSubjectShapeMismatch,
-        ));
-    }
-    let mut receipt = valid.clone();
-    receipt.artifact = None;
-    invalid.push((
-        receipt,
-        PortablePublicationError::ReceiptSubjectShapeMismatch,
-    ));
-    let mut receipt = valid.clone();
-    receipt.source_map = None;
-    invalid.push((
-        receipt,
-        PortablePublicationError::ReceiptSubjectShapeMismatch,
-    ));
-
-    let artifact_mutations = [
-        PortableArtifactSubjectBindingV1 {
-            canonical_artifact_format_version: 2,
-            ..valid.artifact.unwrap()
-        },
-        PortableArtifactSubjectBindingV1 {
-            network_revision_derivation_version: 2,
-            ..valid.artifact.unwrap()
-        },
-        PortableArtifactSubjectBindingV1 {
-            network_revision: NetworkRevisionId::from_digest(Sha256Digest::from_bytes([7; 32])),
-            ..valid.artifact.unwrap()
-        },
-        PortableArtifactSubjectBindingV1 {
-            digest: Sha256Digest::from_bytes([8; 32]),
-            ..valid.artifact.unwrap()
-        },
-        PortableArtifactSubjectBindingV1 {
-            byte_length: ExactByteLength::new(valid.artifact.unwrap().byte_length.get() + 1),
-            ..valid.artifact.unwrap()
-        },
-    ];
-    for artifact in artifact_mutations {
-        let mut receipt = valid.clone();
-        receipt.artifact = Some(artifact);
-        invalid.push((
-            receipt,
-            PortablePublicationError::ReceiptSubjectBindingMismatch,
-        ));
-    }
-    let source_map_mutations = [
-        PortableSourceMapSubjectBindingV1 {
-            source_map_format_version: 2,
-            ..valid.source_map.unwrap()
-        },
-        PortableSourceMapSubjectBindingV1 {
-            digest: Sha256Digest::from_bytes([9; 32]),
-            ..valid.source_map.unwrap()
-        },
-        PortableSourceMapSubjectBindingV1 {
-            byte_length: ExactByteLength::new(valid.source_map.unwrap().byte_length.get() + 1),
-            ..valid.source_map.unwrap()
-        },
-    ];
-    for source_map in source_map_mutations {
-        let mut receipt = valid.clone();
-        receipt.source_map = Some(source_map);
-        invalid.push((
-            receipt,
-            PortablePublicationError::ReceiptSubjectBindingMismatch,
-        ));
-    }
-
-    for (receipt, expected) in invalid {
-        let mut manifest = RecordingManifest::succeeds();
-        assert_eq!(
-            commit_portable_publication_v1(
-                &store,
-                &candidate,
-                &receipt,
-                &provenance(),
-                FormatLimits::V1_HARD,
-                &mut manifest,
-            ),
-            Err(expected)
-        );
-        assert_eq!(manifest.calls, 0);
-        assert!(
-            !store
-                .object_path(candidate.canonical_artifact().object_key())
-                .unwrap()
-                .exists()
-        );
-    }
-}
-
-#[test]
-fn publication_limits_cover_candidate_objects_and_aggregate_before_install() {
-    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
-    let receipt = TestReceipt::valid(&candidate);
-    let (largest_object, total) = candidate_byte_limits(&candidate);
-
-    let cases = [
-        (
-            {
-                let mut config = FormatLimitConfig::V1_HARD;
-                config.max_object_bytes = largest_object - 1;
-                config
-            },
-            LimitDimension::ObjectBytes,
-        ),
-        (
-            {
-                let mut config = FormatLimitConfig::V1_HARD;
-                config.max_candidate_staging_bytes = total - 1;
-                config
-            },
-            LimitDimension::CandidateStagingBytes,
-        ),
-        (
-            {
-                let mut config = FormatLimitConfig::V1_HARD;
-                config.max_source_location_rows = 0;
-                config
-            },
-            LimitDimension::SourceLocationRows,
-        ),
-    ];
-
-    for (config, expected_dimension) in cases {
-        let installer = CountingInstaller::default();
-        let mut manifest = RecordingManifest::succeeds();
-        assert!(matches!(
-            commit_with_installer(
-                &installer,
-                &candidate,
-                &receipt,
-                &provenance(),
-                FormatLimits::try_new(config).unwrap(),
-                &mut manifest,
-            ),
-            Err(PortablePublicationError::Format(
-                FormatError::LimitExceeded { dimension, .. }
-            )) if dimension == expected_dimension
-        ));
-        assert_eq!(installer.calls.get(), 0);
-        assert_eq!(manifest.calls, 0);
-    }
-}
-
-#[test]
-fn publication_candidate_limits_accept_exact_object_and_staging_boundaries() {
-    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
-    let (largest_object, total) = candidate_byte_limits(&candidate);
-    let mut config = FormatLimitConfig::V1_HARD;
-    config.max_object_bytes = largest_object;
-    config.max_candidate_staging_bytes = total;
-
-    validate_candidate_limits(&candidate, FormatLimits::try_new(config).unwrap()).unwrap();
-}
-
-#[cfg(unix)]
-struct FaultingInstaller<'a> {
-    store: &'a LocalPortableObjectInstaller,
-    fail_on_call: Option<usize>,
-    error: PortableInstallError,
-    calls: Cell<usize>,
-    order: RefCell<Vec<&'static str>>,
-}
-
-#[cfg(unix)]
-impl<'a> FaultingInstaller<'a> {
-    fn new(
-        store: &'a LocalPortableObjectInstaller,
-        fail_on_call: Option<usize>,
-        error: PortableInstallError,
-    ) -> Self {
-        Self {
-            store,
-            fail_on_call,
-            error,
-            calls: Cell::new(0),
-            order: RefCell::new(Vec::new()),
-        }
-    }
-
-    fn before(&self, label: &'static str) -> Result<(), PortableInstallError> {
-        let call = self.calls.get();
-        self.calls.set(call + 1);
-        self.order.borrow_mut().push(label);
-        if self.fail_on_call == Some(call) {
-            Err(self.error)
-        } else {
-            Ok(())
-        }
-    }
-}
-
-#[cfg(unix)]
-impl PublicationObjectInstaller for FaultingInstaller<'_> {
-    fn install_candidate(
-        &self,
-        candidate: &PortableObjectCandidate,
-    ) -> Result<PortableObjectInstallation, PortableInstallError> {
-        let label = match &candidate.bytes()[..4] {
-            b"LFCA" => "LFCA",
-            b"LFSM" => "LFSM",
-            b"LFSD" => "LFSD",
-            b"LFCP" => "LFCP",
-            _ => panic!("unexpected candidate kind"),
-        };
-        self.before(label)?;
-        self.store.install_candidate(candidate)
-    }
-
-    fn install_exact_bytes(
-        &self,
-        bytes: &[u8],
-    ) -> Result<PortableObjectInstallation, PortableInstallError> {
-        assert_eq!(bytes, RECEIPT_BYTES);
-        self.before("receipt")?;
-        self.store.install_exact_bytes(bytes)
-    }
-}
-
-#[cfg(unix)]
-fn run_install_failure(
-    name: &str,
-    fail_on_call: usize,
-    error: PortableInstallError,
-) -> (Vec<&'static str>, usize) {
-    let root = TestRoot::new(name);
-    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
-    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
-    let receipt = TestReceipt::valid(&candidate);
-    let installer = FaultingInstaller::new(&store, Some(fail_on_call), error);
-    let mut manifest = RecordingManifest::succeeds();
+    let mut rejected_config = exact_config;
+    rejected_config.max_candidate_staging_bytes = total - 1;
+    let installer = RecordingInstaller::succeeds();
+    let mut manifest = RecordingManifest::default();
     assert_eq!(
         commit_with_installer(
             &installer,
             &candidate,
-            &receipt,
-            &provenance(),
-            FormatLimits::V1_HARD,
+            &provenance(PortablePublisherKindV2::LocalTool),
+            FormatLimits::try_new(rejected_config).unwrap(),
             &mut manifest,
         ),
-        Err(PortablePublicationError::Install(error))
+        Err(PortablePublicationError::PostEmission(
+            PostEmissionCheckError::LimitExceeded {
+                dimension: LimitDimension::CandidateStagingBytes,
+                actual: total,
+                limit: total - 1,
+            }
+        ))
     );
-    (installer.order.into_inner(), manifest.calls)
+    assert_eq!(installer.calls.get(), 0);
+    assert_eq!(manifest.calls, 0);
 }
 
-#[cfg(unix)]
 #[test]
-fn artifact_source_map_diff_and_lfcp_failures_expose_no_partial_success() {
-    let cases = [
-        (
-            "artifact-write",
-            0,
-            PortableInstallError::Io {
-                operation: PortableInstallOperation::WriteStagingFile,
-                kind: io::ErrorKind::WriteZero,
-            },
-            vec!["LFCA"],
-        ),
-        (
-            "source-map-flush",
-            1,
-            PortableInstallError::Io {
-                operation: PortableInstallOperation::FlushStagingFile,
-                kind: io::ErrorKind::Other,
-            },
-            vec!["LFCA", "LFSM"],
-        ),
-        (
-            "source-map-close",
-            1,
-            PortableInstallError::Io {
-                operation: PortableInstallOperation::CloseStagingFile,
-                kind: io::ErrorKind::Other,
-            },
-            vec!["LFCA", "LFSM"],
-        ),
-        (
-            "semantic-diff-install",
-            2,
-            PortableInstallError::AtomicInstallUnsupported,
-            vec!["LFCA", "LFSM", "LFSD"],
-        ),
-        (
-            "lfcp-install",
-            4,
-            PortableInstallError::ExistingObjectMismatch,
-            vec!["LFCA", "LFSM", "LFSD", "receipt", "LFCP"],
-        ),
-    ];
-    for (name, call, error, expected_order) in cases {
-        let (order, manifest_calls) = run_install_failure(name, call, error);
-        assert_eq!(order, expected_order);
-        assert_eq!(manifest_calls, 0);
-    }
-}
-
-#[cfg(unix)]
-#[test]
-fn every_receipt_storage_failure_prevents_lfcp_and_manifest() {
-    let failures = [
-        PortableInstallError::Io {
-            operation: PortableInstallOperation::CreateStagingFile,
-            kind: io::ErrorKind::PermissionDenied,
-        },
-        PortableInstallError::Io {
-            operation: PortableInstallOperation::WriteStagingFile,
-            kind: io::ErrorKind::WriteZero,
-        },
-        PortableInstallError::Io {
-            operation: PortableInstallOperation::FlushStagingFile,
-            kind: io::ErrorKind::Other,
-        },
-        PortableInstallError::Io {
-            operation: PortableInstallOperation::CloseStagingFile,
-            kind: io::ErrorKind::Other,
-        },
-        PortableInstallError::StagedObjectMismatch,
-        PortableInstallError::AtomicInstallUnsupported,
-        PortableInstallError::ExistingObjectMismatch,
-        PortableInstallError::Io {
-            operation: PortableInstallOperation::SyncObjectDirectory,
-            kind: io::ErrorKind::Other,
-        },
-    ];
-    for (index, error) in failures.into_iter().enumerate() {
-        let name = format!("receipt-failure-{index}");
-        let (order, manifest_calls) = run_install_failure(&name, 3, error);
-        assert_eq!(order, ["LFCA", "LFSM", "LFSD", "receipt"]);
-        assert_eq!(manifest_calls, 0);
-    }
-}
-
-#[cfg(unix)]
-#[test]
-fn manifest_failure_keeps_complete_objects_unreferenced_without_commit_capability() {
-    let root = TestRoot::new("manifest-failure");
-    let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
+fn each_object_install_failure_prevents_manifest_commit() {
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
-    let receipt = TestReceipt::valid(&candidate);
+    let error = PortableInstallError::Io {
+        operation: PortableInstallOperation::WriteStagingFile,
+        kind: std::io::ErrorKind::WriteZero,
+    };
+    let expected = [*b"LFCA", *b"LFSM", *b"LFSD", *b"LFCP"];
+
+    for fail_on in 0..4 {
+        let installer = RecordingInstaller::fails_on(fail_on, error);
+        let mut manifest = RecordingManifest::default();
+        assert_eq!(
+            commit_with_installer(
+                &installer,
+                &candidate,
+                &provenance(PortablePublisherKindV2::LocalTool),
+                FormatLimits::V1_HARD,
+                &mut manifest,
+            ),
+            Err(PortablePublicationError::Install(error))
+        );
+        assert_eq!(installer.order.into_inner(), expected[..=fail_on]);
+        assert_eq!(manifest.calls, 0);
+    }
+}
+
+#[test]
+fn manifest_failure_returns_no_committed_capability() {
+    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
+    let installer = RecordingInstaller::succeeds();
     let mut manifest = RecordingManifest {
         failure: Some(PortableManifestCommitError::Rejected),
-        ..RecordingManifest::succeeds()
+        ..RecordingManifest::default()
     };
 
     assert_eq!(
-        commit_portable_publication_v1(
-            &store,
+        commit_with_installer(
+            &installer,
             &candidate,
-            &receipt,
-            &provenance(),
+            &provenance(PortablePublisherKindV2::Ci),
             FormatLimits::V1_HARD,
             &mut manifest,
         ),
@@ -875,15 +539,46 @@ fn manifest_failure_keeps_complete_objects_unreferenced_without_commit_capabilit
             PortableManifestCommitError::Rejected
         ))
     );
+    assert_eq!(
+        installer.order.into_inner(),
+        [*b"LFCA", *b"LFSM", *b"LFSD", *b"LFCP"]
+    );
     assert_eq!(manifest.calls, 1);
-    let descriptor_key = manifest.descriptor_key.unwrap();
-    let descriptor_bytes = manifest.descriptor_bytes.unwrap();
-    assert_eq!(
-        read_installed(&store, &descriptor_key).as_slice(),
-        descriptor_bytes.as_ref()
+    assert!(manifest.descriptor_key.is_some());
+}
+
+#[test]
+fn lfcp_v2_exact_bytes_are_deterministic() {
+    let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
+    let checked = checked_bundle(&candidate);
+    let provenance = PortablePublicationProvenanceV2::new(
+        PortablePublisherKindV2::ReleaseService,
+        "laneflow-publisher-fixture-v2",
+        Some("controlled-build".into()),
+        Some("2026-08-18T00:00:00Z".into()),
     );
+    let first = build_lfcp_v2(checked, &provenance, FormatLimits::V1_HARD).unwrap();
+    let second = build_lfcp_v2(checked, &provenance, FormatLimits::V1_HARD).unwrap();
+    let expected_hex =
+        include_str!("../../tests/fixtures/portable-v2/lfcp-v2-min-bindings/expected.lfcp.hex");
+    let digits = expected_hex
+        .bytes()
+        .filter(|byte| !byte.is_ascii_whitespace())
+        .collect::<Vec<_>>();
+    let expected = digits
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = (pair[0] as char).to_digit(16).unwrap();
+            let low = (pair[1] as char).to_digit(16).unwrap();
+            u8::try_from((high << 4) | low).unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(first.bytes(), expected);
+    assert_eq!(first.byte_length(), ExactByteLength::new(812));
     assert_eq!(
-        read_installed(&store, candidate.canonical_artifact().object_key()),
-        candidate.canonical_artifact().bytes()
+        first.object_key(),
+        "sha256/54f6ffd55c7f08f20a2f04bf273bb1b98e96ad38155f7bd027136a347ab3e763"
     );
+    assert_eq!(first.bytes(), second.bytes());
+    assert_eq!(first.digest(), second.digest());
 }

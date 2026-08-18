@@ -1806,7 +1806,7 @@ mod tests {
     fn registry_tables_share_the_object_wide_utf8_budget() {
         let schema = portable_object_schema(PortableObjectKind::CanonicalPublicationDescriptor);
         let first = &schema.sections[1].tables[0];
-        let second = &schema.sections[3].tables[0];
+        let second = &schema.sections[2].tables[0];
         let row_with_utf8 = |row_schema: &PortableRowSchema| {
             let fields = row_schema
                 .fields

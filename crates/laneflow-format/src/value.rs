@@ -2,7 +2,7 @@
 //!
 //! 本层只消费已经完成 registry 结构预检的对象借用。它检查不需要外部对象或全局语义重算
 //! 即可判定的闭合值域与同对象直接绑定；跨表排序/引用、Identity/NetworkRevision 重算、
-//! diff 完备性和来源真实性仍由独立验证器负责。
+//! diff 完备性和来源真实性不属于本层。
 
 use core::str;
 
@@ -35,7 +35,7 @@ const PORTABLE_COMPILE_OPTIONS_DIGEST_V1: [u8; 32] = [
 /// 已完成 registry 结构预检和附录 A 直接值域检查的对象借用。
 ///
 /// 该能力值证明字段已按登记类型解码，并且对象种类专用的封闭枚举、版本、token、
-/// 同行存在性矩阵、局部向量基数、局部数值关系和 LFCP 对象键直接绑定有效。它不证明跨行/跨表引用、
+/// 同行存在性矩阵、局部向量基数、局部数值关系和 LFCP v2 对象键直接绑定有效。它不证明跨行/跨表引用、
 /// 行排序键、StableId/NetworkRevision 重算、LFSD 完备性、跨对象摘要绑定或真实性，因而
 /// 不是 `validated` 或 `trusted` view。
 #[derive(Clone, Copy, Debug)]
@@ -162,7 +162,6 @@ struct DirectBindings {
     lfsd_base_kind: Option<SemanticDiffBaseKind>,
     lfcp_artifact_digest: Option<[u8; 32]>,
     lfcp_source_map_digest: Option<[u8; 32]>,
-    lfcp_receipt_digest: Option<[u8; 32]>,
 }
 
 fn validate_object_values(
@@ -1337,15 +1336,6 @@ fn validate_lfcp_row(
             bindings.lfcp_source_map_digest = Some(copy_digest(row.required(2)?)?);
         }
         3 => {
-            require_exact_u16(row.required(1)?, 1)?;
-            let receipt_kind = row.required(2)?;
-            if receipt_kind.value != b"canonical-publication-v1" {
-                return Err(noncanonical(receipt_kind));
-            }
-            require_u64_greater(row.required(5)?, 0)?;
-            bindings.lfcp_receipt_digest = Some(copy_digest(row.required(4)?)?);
-        }
-        4 => {
             require_u8_range(row.required(1)?, 0, 2)?;
             validate_object_key(
                 row.required(3)?,
@@ -1357,12 +1347,6 @@ fn validate_lfcp_row(
                 row.required(4)?,
                 bindings
                     .lfcp_source_map_digest
-                    .ok_or_else(row_binding_mismatch)?,
-            )?;
-            validate_object_key(
-                row.required(5)?,
-                bindings
-                    .lfcp_receipt_digest
                     .ok_or_else(row_binding_mismatch)?,
             )?;
         }
@@ -1687,8 +1671,7 @@ mod tests {
                     | (PortableObjectKind::SourceMap, 1, 1, 1 | 3 | 7)
                     | (PortableObjectKind::SemanticDiff, 1, 1, 6)
                     | (PortableObjectKind::CanonicalPublicationDescriptor, 1, 1, 1 | 2)
-                    | (PortableObjectKind::CanonicalPublicationDescriptor, 2, 1, 1 | 5)
-                    | (PortableObjectKind::CanonicalPublicationDescriptor, 3, 1, 1) => 1,
+                    | (PortableObjectKind::CanonicalPublicationDescriptor, 2, 1, 1 | 5) => 1,
                     _ => 0,
                 };
                 value.to_le_bytes().to_vec()
@@ -1701,8 +1684,7 @@ mod tests {
                     (PortableObjectKind::SourceMap, 1, 1, 5)
                     | (PortableObjectKind::SemanticDiff, 1, 1, 9)
                     | (PortableObjectKind::CanonicalPublicationDescriptor, 1, 1, 5)
-                    | (PortableObjectKind::CanonicalPublicationDescriptor, 2, 1, 3)
-                    | (PortableObjectKind::CanonicalPublicationDescriptor, 3, 1, 5) => 1_u64,
+                    | (PortableObjectKind::CanonicalPublicationDescriptor, 2, 1, 3) => 1_u64,
                     _ => 0,
                 };
                 value.to_le_bytes().to_vec()
@@ -1715,7 +1697,7 @@ mod tests {
                     && section == 1
                     && matches!(field.tag, 7 | 8)
                     || kind == PortableObjectKind::CanonicalPublicationDescriptor
-                        && matches!((section, field.tag), (1, 4) | (2, 2) | (3, 4))
+                        && matches!((section, field.tag), (1, 4) | (2, 2))
                 {
                     vec![0x11; 32]
                 } else {
@@ -1723,10 +1705,7 @@ mod tests {
                 }
             }
             PortableFieldType::Utf8 => match (kind, section, table, field.tag) {
-                (PortableObjectKind::CanonicalPublicationDescriptor, 3, 1, 2) => {
-                    b"canonical-publication-v1".to_vec()
-                }
-                (PortableObjectKind::CanonicalPublicationDescriptor, 4, 1, 3..=5) => {
+                (PortableObjectKind::CanonicalPublicationDescriptor, 3, 1, 3..=4) => {
                     object_key([0x11; 32])
                 }
                 _ => b"build-v1".to_vec(),
@@ -2135,18 +2114,16 @@ mod tests {
             );
         }
 
-        let receipt = row_bytes(&[
-            field_bytes(1, PortableFieldType::U16, &2_u16.to_le_bytes()),
-            field_bytes(2, PortableFieldType::Utf8, b"canonical-publication-v1"),
-            field_bytes(3, PortableFieldType::Utf8, b"validator"),
-            field_bytes(4, PortableFieldType::Sha256, &[1; 32]),
-            field_bytes(5, PortableFieldType::U64, &1_u64.to_le_bytes()),
-        ]);
+        let invalid_publisher = row_bytes(&[field_bytes(1, PortableFieldType::U8, &[3])]);
         assert_eq!(
-            validate_lfcp_row(3, parse_test_row(&receipt), &mut DirectBindings::default())
-                .unwrap_err()
-                .class(),
-            FormatErrorClass::NonCanonicalValue
+            validate_lfcp_row(
+                3,
+                parse_test_row(&invalid_publisher),
+                &mut DirectBindings::default()
+            )
+            .unwrap_err()
+            .class(),
+            FormatErrorClass::UnknownKind
         );
 
         let mut bindings = DirectBindings::default();
@@ -2883,7 +2860,6 @@ mod tests {
         let mut bindings = DirectBindings {
             lfcp_artifact_digest: Some(digest),
             lfcp_source_map_digest: Some(digest),
-            lfcp_receipt_digest: Some(digest),
             ..DirectBindings::default()
         };
         let valid_key = object_key(digest);
@@ -2892,9 +2868,8 @@ mod tests {
             field_bytes(2, PortableFieldType::Utf8, b"publisher"),
             field_bytes(3, PortableFieldType::Utf8, &valid_key),
             field_bytes(4, PortableFieldType::Utf8, &valid_key),
-            field_bytes(5, PortableFieldType::Utf8, &valid_key),
         ]);
-        validate_lfcp_row(4, parse_test_row(&valid), &mut bindings).unwrap();
+        validate_lfcp_row(3, parse_test_row(&valid), &mut bindings).unwrap();
 
         let mut uppercase = valid_key.clone();
         uppercase[7] = b'A';
@@ -2903,10 +2878,9 @@ mod tests {
             field_bytes(2, PortableFieldType::Utf8, b"publisher"),
             field_bytes(3, PortableFieldType::Utf8, &uppercase),
             field_bytes(4, PortableFieldType::Utf8, &valid_key),
-            field_bytes(5, PortableFieldType::Utf8, &valid_key),
         ]);
         assert_eq!(
-            validate_lfcp_row(4, parse_test_row(&invalid_syntax), &mut bindings)
+            validate_lfcp_row(3, parse_test_row(&invalid_syntax), &mut bindings)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::NonCanonicalValue
@@ -2918,10 +2892,9 @@ mod tests {
             field_bytes(2, PortableFieldType::Utf8, b"publisher"),
             field_bytes(3, PortableFieldType::Utf8, &wrong_key),
             field_bytes(4, PortableFieldType::Utf8, &valid_key),
-            field_bytes(5, PortableFieldType::Utf8, &valid_key),
         ]);
         assert_eq!(
-            validate_lfcp_row(4, parse_test_row(&invalid_binding), &mut bindings)
+            validate_lfcp_row(3, parse_test_row(&invalid_binding), &mut bindings)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::BindingMismatch

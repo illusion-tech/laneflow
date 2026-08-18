@@ -1,7 +1,8 @@
 # laneflow_format
 
 LaneFlow 可移植规范制品 `LFCA`、源映射封套 `LFSM`、语义差异封套 `LFSD` 与规范发布描述符
-`LFCP` v1 的受限线格式 crate；规范术语见 [`docs/reference/glossary.md`](../../docs/reference/glossary.md)。
+`LFCP` v2 的受限线格式 crate；前三类对象保持 v1。规范术语见
+[`docs/reference/glossary.md`](../../docs/reference/glossary.md)。
 
 当前 G2 线格式层包括：
 
@@ -22,8 +23,12 @@ LaneFlow 可移植规范制品 `LFCA`、源映射封套 `LFSM`、语义差异封
   ordinal 随机访问 API 为 O(n)，不用于顺序扫描；
 - 在 registry 能力之上建立的 `ValueCheckedObjectView`：检查 Identity v1 字段编码与 token、
   LFCA 的版本/封闭枚举/实体内部向量基数/局部标量、LFSM 的来源种类/address/property path、
-  LFSD 的 Genesis/Artifact 直接绑定和同行 change 约束，以及 LFCP 的版本、receipt/publisher kind 与
+  LFSD 的 Genesis/Artifact 直接绑定和同行 change 约束，以及 LFCP v2 的版本、publisher kind 与
   `sha256/<64 lowercase hex>` 同对象摘要绑定。
+- 无分配的 `check_post_emission_bundle_v1`：从三份最终字节重算 digest、length 与 LFCA
+  `NetworkRevisionId`，并闭合 LFSM provenance/artifact binding 以及 LFSD 显式 base/target
+  binding；成功后只返回字段私有的借用型发布能力。它不重跑完整路网语义或验证 LFSD
+  change set 完备性。
 - `FormatLimits` 同时覆盖对象/节/表、行/字段、Identity ASCII、UTF-8、向量、嵌套、LFSM
   来源位置与候选暂存预算；任一调用方值只能收紧。registry capability 保留产生它的同一
   limits，后续直接值域检查不能通过换回较大 limits 绕过调用方预算。
@@ -37,5 +42,5 @@ LaneFlow 可移植规范制品 `LFCA`、源映射封套 `LFSM`、语义差异封
 framing、registry、冗余长度/计数、UTF-8/向量预算和通用浮点位模式约束；field-specific
 直接值域、跨表闭包和跨对象绑定仍由 compiler emitter 的已验证输入与后继验证层负责。
 
-本 crate 不拥有编译器语义闭包、独立语义验证、Runtime/Spatial 构造、文件系统发布事务
+本 crate 不拥有编译器完整语义闭包、Runtime/Spatial 构造、文件系统发布事务
 或信任判定。

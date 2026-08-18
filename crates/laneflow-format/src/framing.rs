@@ -340,7 +340,7 @@ mod tests {
     #[test]
     fn framing_rejects_length_count_gap_and_kind_mismatches() {
         let kind = PortableObjectKind::CanonicalPublicationDescriptor;
-        let original = object_bytes(kind, &[4, 4, 4, 4]);
+        let original = object_bytes(kind, &[4, 4, 4]);
 
         let mut bytes = original.clone();
         let wrong_length = bytes.len() as u64 + 1;
@@ -353,7 +353,7 @@ mod tests {
         );
 
         let mut bytes = original.clone();
-        bytes[12..16].copy_from_slice(&3_u32.to_le_bytes());
+        bytes[12..16].copy_from_slice(&2_u32.to_le_bytes());
         assert_eq!(
             preflight_object_framing(&bytes, kind, FormatLimits::V1_HARD)
                 .unwrap_err()
@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn framing_applies_caller_limit_before_parsing() {
         let kind = PortableObjectKind::CanonicalPublicationDescriptor;
-        let bytes = object_bytes(kind, &[4, 4, 4, 4]);
+        let bytes = object_bytes(kind, &[4, 4, 4]);
         let mut config = FormatLimitConfig::V1_HARD;
         config.max_object_bytes = bytes.len() as u64 - 1;
         let limits = FormatLimits::try_new(config).unwrap();
@@ -406,11 +406,11 @@ mod tests {
     #[test]
     fn framing_distinguishes_unknown_section_kind_from_noncanonical_order() {
         let kind = PortableObjectKind::CanonicalPublicationDescriptor;
-        let original = object_bytes(kind, &[4, 4, 4, 4]);
+        let original = object_bytes(kind, &[4, 4, 4]);
         let first_entry_offset = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH);
 
         let mut unknown = original.clone();
-        unknown[first_entry_offset..first_entry_offset + 2].copy_from_slice(&5_u16.to_le_bytes());
+        unknown[first_entry_offset..first_entry_offset + 2].copy_from_slice(&4_u16.to_le_bytes());
         assert_eq!(
             preflight_object_framing(&unknown, kind, FormatLimits::V1_HARD)
                 .unwrap_err()

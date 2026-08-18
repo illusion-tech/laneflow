@@ -338,24 +338,10 @@ mod tests {
                     [table(
                         1,
                         [row([
-                            field(1, OwnedValue::U16(1)),
-                            field(2, OwnedValue::Utf8("canonical-publication-v1".into())),
-                            field(3, OwnedValue::Utf8("validator".into())),
-                            field(4, OwnedValue::Sha256([5; 32])),
-                            field(5, OwnedValue::U64(1)),
-                        ])],
-                    )],
-                ),
-                section(
-                    4,
-                    [table(
-                        1,
-                        [row([
                             field(1, OwnedValue::U8(1)),
                             field(2, OwnedValue::Utf8("publisher".into())),
                             field(3, OwnedValue::Utf8("artifact-key".into())),
                             field(4, OwnedValue::Utf8("source-map-key".into())),
-                            field(5, OwnedValue::Utf8("receipt-key".into())),
                         ])],
                     )],
                 ),
