@@ -265,8 +265,8 @@ fn compile_subtree_intervals(parents: &[Option<ParticipantClassHandle>]) -> Vec<
     let mut next_enter: u32 = 0;
     // 栈元素为 (节点, 下一个待访问子节点下标)；enter 在首次访问赋值，
     // exit 在子树遍历完赋值为当前 next_enter（= enter + 子树大小）。
-    for root in 0..parents.len() {
-        if parents[root].is_some() {
+    for (root, parent) in parents.iter().enumerate() {
+        if parent.is_some() {
             continue;
         }
         let mut stack = vec![(

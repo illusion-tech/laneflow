@@ -73,14 +73,14 @@ impl FacilityKind {
             _ => {}
         }
 
-        if let Some(rest) = token.strip_prefix("x-lane-") {
-            if !rest.is_empty() {
-                return Ok(Self::CustomLaneBearing(token.to_owned()));
-            }
-        } else if let Some(rest) = token.strip_prefix("x-") {
-            if !rest.is_empty() {
-                return Ok(Self::CustomBand(token.to_owned()));
-            }
+        if let Some(rest) = token.strip_prefix("x-lane-")
+            && !rest.is_empty()
+        {
+            return Ok(Self::CustomLaneBearing(token.to_owned()));
+        } else if let Some(rest) = token.strip_prefix("x-")
+            && !rest.is_empty()
+        {
+            return Ok(Self::CustomBand(token.to_owned()));
         }
 
         Err(CoreError::UnknownFacilityKind {
