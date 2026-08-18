@@ -1047,7 +1047,7 @@ pub(super) fn validate_external_review_g3(
     pr: &GitHubPullRequest,
     label: &str,
     historical_appendix: Option<&GitHubComment>,
-    validation_time: Option<&str>,
+    validation: ExternalReviewG3Validation<'_>,
 ) -> Result<(), String> {
     let permalink = completed_gate_permalink(&pr.body, "G3")?;
     let comment = pr
@@ -1082,7 +1082,7 @@ pub(super) fn validate_external_review_g3(
         scoped_gate_result,
         historical_appendix,
         G3ExceptionValidationTimes {
-            gate_time: validation_time,
+            gate_time: validation.gate_time,
             evaluation_time: Some(current_time),
         },
     )? {
@@ -1093,13 +1093,11 @@ pub(super) fn validate_external_review_g3(
     }
     let result = match scoped_gate_result {
         G3Result::Waived => {
-            let validation_time = waiver_validation_time(validation_time, current_time)?;
-            let waiver = parse_gate_waiver(
-                comment,
-                issue_number,
-                validation_time,
-                pr.merged_at.is_some(),
-            )?;
+            let validation_time = waiver_validation_time(validation.gate_time, current_time)?;
+            let historical_replay =
+                historical_waiver_replay(validation.phase, pr.merged_at.as_deref())?;
+            let waiver =
+                parse_gate_waiver(comment, issue_number, validation_time, historical_replay)?;
             external_review::evaluate_live_with_waiver(repo, number, waiver)?
         }
         G3Result::Pass | G3Result::Bootstrap => external_review::evaluate_live(repo, number)?,
@@ -1133,6 +1131,12 @@ pub(super) fn validate_external_review_g3(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct ExternalReviewG3Validation<'a> {
+    pub(super) phase: GateEvidencePhase,
+    pub(super) gate_time: Option<&'a str>,
+}
+
 pub(super) fn scoped_current_g3_result(
     gate_result: G3Result,
     issue_number: u64,
@@ -1157,6 +1161,21 @@ pub(super) fn waiver_validation_time(
             .ok_or_else(|| "历史 Related PR mergedAt 不是 UTC RFC3339 时间".to_string()),
         None => Ok(current_time),
     }
+}
+
+pub(super) fn historical_waiver_replay(
+    phase: GateEvidencePhase,
+    merged_at: Option<&str>,
+) -> Result<bool, String> {
+    if phase != GateEvidencePhase::G4 {
+        return Ok(false);
+    }
+    let merged_at = merged_at.ok_or("G4 waiver replay 缺少 PR mergedAt")?;
+    let merged_at = parse_utc_timestamp_seconds(merged_at)
+        .ok_or("G4 waiver replay 的 PR mergedAt 不是 UTC RFC3339 时间")?;
+    let policy_activation = parse_utc_timestamp_seconds(G3_EXCEPTION_POLICY_ACTIVATION)
+        .expect("G3 exception policy activation must be a valid UTC timestamp");
+    Ok(merged_at < policy_activation)
 }
 
 pub(super) fn validate_g3_comment_after_external_review_completion(

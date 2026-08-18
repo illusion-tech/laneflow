@@ -215,9 +215,12 @@ where
                 delivery_pr,
                 "Delivery PR",
                 historical_exception_appendix,
-                (args.phase == GateEvidencePhase::G4)
-                    .then_some(delivery_pr.merged_at.as_deref())
-                    .flatten(),
+                ExternalReviewG3Validation {
+                    phase: args.phase,
+                    gate_time: (args.phase == GateEvidencePhase::G4)
+                        .then_some(delivery_pr.merged_at.as_deref())
+                        .flatten(),
+                },
             )?;
         }
         for (number, related_pr) in args.related_prs.iter().zip(&related_prs) {
@@ -254,7 +257,10 @@ where
                     related_pr,
                     &format!("Related PR #{number}"),
                     historical_exception_appendix,
-                    related_pr.merged_at.as_deref(),
+                    ExternalReviewG3Validation {
+                        phase: args.phase,
+                        gate_time: related_pr.merged_at.as_deref(),
+                    },
                 )?;
             }
         }
@@ -285,7 +291,10 @@ where
                 related_pr,
                 &format!("Related PR #{related_number}"),
                 historical_exception_appendix,
-                None,
+                ExternalReviewG3Validation {
+                    phase: args.phase,
+                    gate_time: None,
+                },
             )?;
         }
     }

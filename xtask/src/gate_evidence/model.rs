@@ -4,6 +4,9 @@
 pub(super) const EXTERNAL_REVIEW_G3_ACTIVATION: &str = "2026-07-24T15:16:21Z";
 // PR #324 merge time. Earlier G3 comments cannot be retroactively required to carry this field.
 pub(super) const G3_EVIDENCE_SHADOW_ACTIVATION: &str = "2026-08-06T10:49:21Z";
+// Issue #405 G1 decision time. Only PRs merged before this policy switch may replay the
+// retired `G3 Waived + confirmed_gate_defect` form during G4.
+pub(super) const G3_EXCEPTION_POLICY_ACTIVATION: &str = "2026-08-18T04:20:55Z";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum GateEvidencePhase {
     G3,

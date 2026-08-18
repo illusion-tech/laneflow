@@ -88,7 +88,7 @@ cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
 | historical exception 接受事件晚于 merge、但在实际 G4 evaluation time 已过期                    | Fail；merge 只判断事后接受顺序，不替代 G4 运行时的 freshness 判断                                  |
 | G4 重放 pre-merge current exception 时 live base 已随 main 前移                                | 保留记录中的完整 pre-merge base OID；head 仍精确匹配，不与 post-merge live base 比较               |
 | Dependabot 多 Issue metadata recovery 含一个 Exception 与其他 Pass                             | 先只恢复完整命令集；随后用 PR comment 记录按 Issue 复核各自结果                                    |
-| 已合并历史 PR 使用旧 `G3 Waived + confirmed_gate_defect`                                       | 仅按原 merge 时点 grandfather G4 replay；OPEN/current target 仍拒绝该 waiver type                  |
+| 策略切换前已合并历史 PR 使用旧 `G3 Waived + confirmed_gate_defect`                             | 仅当 merge 早于 #405 G1 cutoff `2026-08-18T04:20:55Z` 时 grandfather G4 replay；G3/current 拒绝    |
 | Delivery target 的 Related 成员角色/Issue 元数据错误、closing set 非空或断言集不闭合           | Fail；每个 current-policy Related 成员必须按自身 target 规则独立校验                               |
 | Issue 的具体 PR 字段仍含 `pending / #61 / N/A`、`#<number>` 或空 `N/A` 原因                    | Fail；具体编号只接受明确 `#<number>` 列表，互斥模板选项必须清理                                    |
 | G3 comment / body / Issue permalink 或关联 PR/Issue timeline 活动后未新增严格更晚的精确 marker | Fail；marker 须晚于 G3 effective time 和最终 evidence；同秒撤销 success                            |
