@@ -1,5 +1,7 @@
 //! Core runtime 的错误类型。
 
+use std::fmt;
+
 use crate::{
     EdgeHandle, ManeuverGateHandle, ParkingAnchorKind, ParkingBindingKind, ParkingCommandKind,
     ParkingSpaceHandle, RouteHandle, VehicleHandle, VehicleProfileHandle, VehicleStatus,
@@ -11,6 +13,35 @@ pub use waiting_zone::WaitingZoneError;
 
 #[cfg(test)]
 mod tests;
+
+/// 同一 package 内 AccessRule regulation provenance 不一致时的诊断明细。
+///
+/// 该独立明细对象只在对应冷失败路径分配，用于把 [`CoreError`] 的公开布局限制在
+/// 128 bytes，同时逐字段保留原有诊断契约。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AccessRegulationMismatchDetails {
+    pub first_rule_id: String,
+    pub jurisdiction: String,
+    pub version: String,
+    pub duplicate_rule_id: String,
+    pub duplicate_jurisdiction: String,
+    pub duplicate_version: String,
+}
+
+impl fmt::Display for AccessRegulationMismatchDetails {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "first=`{}` ({}, {}), duplicate=`{}` ({}, {})",
+            self.first_rule_id,
+            self.jurisdiction,
+            self.version,
+            self.duplicate_rule_id,
+            self.duplicate_jurisdiction,
+            self.duplicate_version,
+        )
+    }
+}
 
 /// Core runtime 暴露给调用方的错误。
 #[derive(Clone, Debug, thiserror::Error)]
@@ -246,16 +277,9 @@ pub enum CoreError {
     },
 
     /// 同一 package 内声明了 regulation 的规则必须共享同一 (jurisdiction, version)。
-    #[error(
-        "AccessRule regulation provenance 不一致：first=`{first_rule_id}` ({jurisdiction}, {version}), duplicate=`{duplicate_rule_id}` ({duplicate_jurisdiction}, {duplicate_version})"
-    )]
+    #[error("AccessRule regulation provenance 不一致：{details}")]
     AccessRegulationMismatch {
-        first_rule_id: String,
-        jurisdiction: String,
-        version: String,
-        duplicate_rule_id: String,
-        duplicate_jurisdiction: String,
-        duplicate_version: String,
+        details: Box<AccessRegulationMismatchDetails>,
     },
 
     /// 经参与者/target/priority 裁决仍在 allow/deny 间并列的规则属于 authoring 歧义。
@@ -1257,3 +1281,5 @@ pub enum CoreError {
         speed_limit: f64,
     },
 }
+
+const _: () = assert!(std::mem::size_of::<CoreError>() <= 128);

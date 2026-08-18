@@ -511,12 +511,14 @@ impl AccessRegistry {
                     if (regulation.jurisdiction(), regulation.version()) != (jurisdiction, version)
                     {
                         return Err(CoreError::AccessRegulationMismatch {
-                            first_rule_id: first_rule_id.to_owned(),
-                            jurisdiction: jurisdiction.to_owned(),
-                            version: version.to_owned(),
-                            duplicate_rule_id: rule.id().to_owned(),
-                            duplicate_jurisdiction: regulation.jurisdiction().to_owned(),
-                            duplicate_version: regulation.version().to_owned(),
+                            details: Box::new(crate::AccessRegulationMismatchDetails {
+                                first_rule_id: first_rule_id.to_owned(),
+                                jurisdiction: jurisdiction.to_owned(),
+                                version: version.to_owned(),
+                                duplicate_rule_id: rule.id().to_owned(),
+                                duplicate_jurisdiction: regulation.jurisdiction().to_owned(),
+                                duplicate_version: regulation.version().to_owned(),
+                            }),
                         });
                     }
                 }

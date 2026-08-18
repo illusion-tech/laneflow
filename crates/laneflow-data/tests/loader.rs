@@ -1610,8 +1610,9 @@ fn access_rule_errors_use_narrowest_paths() {
         into_core_domain(
             load_value(regulation_mismatch).expect_err("regulation provenance must be uniform")
         ),
-        (path, CoreError::AccessRegulationMismatch { duplicate_rule_id, .. })
-            if path == "accessRules[1].regulation" && duplicate_rule_id == "rule-2"
+        (path, CoreError::AccessRegulationMismatch { details })
+            if path == "accessRules[1].regulation"
+                && details.duplicate_rule_id == "rule-2"
     );
 
     let mut duplicate_rule = signals_value();

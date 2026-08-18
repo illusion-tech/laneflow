@@ -34,7 +34,7 @@ pub use cross_section::{
     CorridorElement, CorridorElementId, CrossSectionRegistry, FacilityBand, FacilityKind,
     FacilityKindCategory, LaneGroup, RoadCorridor, RoadSection, SeamNeighbor, SectionLane,
 };
-pub use error::{CoreError, WaitingZoneError};
+pub use error::{AccessRegulationMismatchDetails, CoreError, WaitingZoneError};
 pub use event::{
     CoreEvent, ParkingReservationReleasedEvent, SignalGroupAspectChangedEvent,
     SignalPhaseChangedEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
