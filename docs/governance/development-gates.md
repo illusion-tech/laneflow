@@ -292,12 +292,14 @@ G3 Owner 可以在 PR 合并前纠正 current G3 comment，也可以新增 super
 
 `G3 Evidence Gate Shadow` 使用同样的 R1 安全与准确性口径，但其 R2 强制身份单独选择：优先使用 organization ruleset 的 required workflow，把 trusted workflow 本身作为必需来源；若当前 plan / API 不支持，则由独立 GitHub App 发布专用 Check，并让 ruleset 绑定 Check name 与 expected source App。两条路径都必须先通过同名 Actions spoof canary、对全部 open PR 重新触发校验、保存 ruleset 前后快照，并移除 standing `always` bypass；能力 API 的 `403` / `404` 只能记为不可验证或不可用，不能解释为已经启用或没有配置。
 
-首版只允许四类 `G3 Waived`：
+首版只允许三类 `G3 Waived`：
 
 - content-equivalent rebase；
 - 所有已配置 provider / Gate platform 不可用且存在明确时间边界；
 - security / emergency hotfix；
-- 已确认且无法及时修复的 Gate false-block。
+
+已确认且无法及时修复的 Gate false-block 不再进入 waiver 路径；它只能使用上文定义的
+`G3 Exception` + `confirmed_gate_defect`，保持 `accepted_exception` 非成功状态。
 
 普通审阅延迟、作者不同意 finding、`docs-only`、赶进度和减少步骤均不是 waiver 理由。waiver 必须记录 exception type、PR/current head、已有证据、风险、临时接受边界、默认不超过 24 小时的到期时间、follow-up Issue、Cleanup owner，以及临时 bypass 的添加/撤回时间。Check 与 G3 comment 必须显示 `G3 Waived`，不得伪装成标准 `G3 Pass`。
 
@@ -388,7 +390,7 @@ G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必�
 - 关系：
 - 分支：
 - 权限 / bypass：N/A，原因：/ 保留原因、风险、Cleanup owner：
-- Gate 断言：`cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence g4 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...` 已通过。
+- Gate 断言：`cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence g4 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...` <正常 G4 写“已通过”；仅精确匹配 `legacy_evidence_reconstruction` 的 historical replay 写“未通过”>。
 ```
 
 ### 7.1 Delivery 合并后新增 Related PR 的 G4 recovery
