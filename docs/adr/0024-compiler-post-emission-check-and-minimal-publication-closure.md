@@ -1,0 +1,220 @@
+# ADR 0024：编译器后发射检查与最小发布闭合
+
+**状态**: Proposed（#299 G1 In Progress）<br>
+**日期**: 2026-08-18<br>
+**适用范围**: LFCA/LFSM/LFSD 最终字节检查、`laneflow-format` 职责、LFCP、
+compiler 发布事务、#300/#302 的上游输入边界<br>
+**部分取代**: ADR 0020 中独立 `laneflow-validator`、规范发布验证收据、
+`canonical-publication-v1` receipt 及由 #299 统一交付三类 receipt 的决定；同时取代
+ADR 0021 对独立 validator/receipt 的依赖假设；不改变编译器拥有静态路网、Canonical
+LIR、可移植规范制品、目标静态镜像或对象外信任锚决定<br>
+
+**关联文档**:
+
+- `0020-compiler-owned-static-network-and-static-image.md`
+- `../design/compiler-post-emission-check-and-minimal-publication-closure.md`
+- `../design/network-compiler.md`
+- `../design/portable-canonical-artifact.md`
+- `../reference/v0.10-portable-artifact-validation.md`
+
+## 背景
+
+ADR 0020 原计划让独立 `laneflow-validator` 不复用 compiler 语义实现，重新计算身份、
+所有权、拓扑、几何、规则、路网修订和三类验证收据。#298 随后交付了
+`laneflow-format`、LFCA/LFSM/LFSD、LFCP v1、内容寻址安装和认证 manifest 单提交点，
+并为未来 receipt 保留了接口与线格式槽位。
+
+在 pre-1.0 阶段继续建设第二套完整语义实现，会同时增加算法漂移、crate/API 冻结、
+验证线格式和长期兼容负担。即使独立 validator 与 compiler 共享同一语义后端，它也不能
+发现二者共同存在的系统性缺陷；此时保留独立产品和 receipt 只增加形式分层，不增加相应
+信任价值。
+
+当前更优先的产品目标是让完整编译、制品发布、目标静态镜像和 Traffic Runtime 链路
+落地，并控制性能、架构复杂度和维护成本。#299 因而收缩为 compiler 发布前对最终字节
+执行不可绕过的后发射检查，并复用现有认证 manifest 完成最小发布闭合。
+
+## 决策
+
+### 1. 不交付独立 validator 或第二套语义实现
+
+#299 不创建 `laneflow-validator` crate、独立可执行程序、验证服务或通用证明平台，
+也不重新实现 compiler 已拥有的身份、所有权、拓扑、几何、规则和差异语义。
+
+compiler 继续是来源、IR 和静态路网语义的唯一编译权威。其单一语义实现的系统性缺陷
+风险由人工可复核固定向量、compiler 测试、真实场景回归和历史缺陷断言控制，不通过
+复制完整生产语义来控制。
+
+### 2. 共享后端扩展现有 `laneflow-format`
+
+`laneflow-format` 在既有结构、登记和值域预检之上增加 bundle 级后发射检查。
+`laneflow-format` 继续依赖 `laneflow-static-contract`；compiler 和后继消费者依赖
+`laneflow-format`。不新增中间检查 crate，也不让 #300 为消费受检视图而反向依赖
+整个 compiler。
+
+依赖方向固定为：
+
+```text
+laneflow-compiler ──┐
+                    ├──> laneflow-format ──> laneflow-static-contract
+#300 static-image ──┘
+```
+
+如果未来检查必须依赖 `std`、文件系统或内部并行，或者出现第二种独立规范制品生产者，
+应重新进入 ADR，而不是在本决定中预建抽象。
+
+### 3. 检查最终字节与跨对象绑定，不复验完整路网语义
+
+公共后发射入口只接受：
+
+- 最终关闭的 LFCA/LFSM/LFSD exact bytes；
+- 显式 `ExpectedSemanticDiffBaseV1`；
+- 调用方 `FormatLimits`。
+
+它负责：
+
+- 既有结构、登记和直接值域预检；
+- 三个对象的摘要和精确长度；
+- 从 LFCA exact bytes 重算 `NetworkRevisionId` 并比较声明值；
+- LFSM 到 LFCA 的修订、摘要和长度绑定；
+- LFSD target 到 LFCA、LFSD base 到显式 expected base 的绑定；
+- 候选累计发布限制。
+
+它不负责：
+
+- 从来源、AST、HIR、MIR 或 LIR 重建预期制品；
+- 逐实体重新执行 BLAKE3 身份派生或建立第二份碰撞登记表；
+- 重新裁决完整所有权、拓扑、几何或规则语义；
+- 重新生成 LFSD 并证明差异完整无遗漏；
+- 证明来源、发布者或 manifest 的真实性；
+- 证明运行时迁移安全。
+
+### 4. 使用借用型能力守卫发布副作用
+
+`laneflow-format` 提供字段私有、无公共构造器的
+`PostEmissionCheckedBundleV1<'a>`。该能力借用三个输入对象，只暴露受检视图和
+重新计算的绑定；它不可序列化，不表示对象已经发布、认证或可信。
+
+compiler 继续使用拥有字节的 `PortablePublicationCandidate`，避免自引用拥有类型。
+`commit_portable_publication_v2` 必须在第一次 installer 或 manifest 副作用之前建立
+借用型受检能力；LFCP v2 builder 和 manifest commit candidate 的私有构造只能消费该
+局部受检状态。
+
+### 5. LFCP v2 一次性移除 receipt
+
+LFCP v2 只保存：
+
+1. LFCA 的版本、路网修订、摘要和精确长度；
+2. LFSM 的版本、摘要、精确长度与 compiler/source provenance；
+3. publisher provenance 及 LFCA/LFSM 内容寻址对象键。
+
+LFCP v2 不保存 receipt、LFSD、检查清单、证明版本、策略、签名或认证字段。LFSD 在
+发布前接受最终字节检查并可作为未引用内容寻址对象安装，但 LFCP 对它没有发布或切换
+语义。
+
+LFCP v1 和 `CanonicalPublicationReceiptViewV1` 退出生产实现。不提供 v1/v2 双版本
+读取，不把 v1 字段静默解释为 v2。历史固定向量和 #298 证据保留其原始含义，并明确由
+本 ADR 取代。
+
+### 6. “发布证明”只指最小发布闭合
+
+本决定不引入新的证明制品。LFCP v2 是内容寻址发布描述符，不自行证明已经发布；
+`PostEmissionCheckedBundleV1` 是进程内检查能力，也不自行证明真实性。
+
+只有以下条件共同成立时，compiler 才返回 committed publication capability：
+
+1. 后发射检查成功；
+2. LFCA/LFSM/LFSD 内容寻址安装成功并与计算绑定一致；
+3. LFCP v2 构造和安装成功；
+4. 外部认证 manifest 恰好一次提交成功。
+
+对象外的认证 manifest、宿主认证包或 pinned digest 继续是真实性来源。
+
+### 7. SHA-256 由 `laneflow-format` 直接计算
+
+`laneflow-format` 使用既有 `sha2 0.11` 且关闭默认 features，自行计算对象摘要和
+`NetworkRevisionId`。不接受调用方 hash callback 或可替换算法 trait。
+
+这不会引入新的第三方包；compiler 可继续直接使用同一依赖计算 compiler-private
+来源集合摘要。
+
+### 8. 资源和性能保持有界
+
+后发射检查必须：
+
+- 保持 `no_std`；
+- 不发生堆分配；
+- 不复制 LFCA/LFSM/LFSD；
+- 按候选总 exact bytes 线性执行；
+- 不创建线程或内部并行任务；
+- 在解析或 hash 前用 O(1) 长度检查拒绝超限输入；
+- 每次发布只执行一次完整 bundle 检查。
+
+文件安装器为核对磁盘实际 winner 而执行的流式重新读取/hash 继续保留。
+
+G2 复用 #298 P100 工作负载、`LF-P100-REF-01` 和两次 fresh process。P100 最高级
+checker 中位数在两个进程中均不得超过同进程 emitter 中位数的 `30%`。该证据是一次性
+交付证据，不创建新的 benchmark crate、JSON 协议或常驻性能平台。
+
+### 9. #300 与 #302 必须重新确认自身信任边界
+
+本 ADR 只决定 canonical publication。#300 的目标静态镜像构造/检查和 #302 的跨修订
+切换仍属于各自 Issue；它们不得继续假设 #299 会交付独立 validator 或
+`static-image-v1`/`revision-cutover-v1` receipt。
+
+LFSD 通过 #299 后发射检查只说明最终差异对象的直接值域和 base/target binding 闭合，
+不构成目标修订的激活决定、迁移可行性证明或切换提交点。
+
+## 后果
+
+正面后果：
+
+- 只维护一套生产语义实现；
+- #299 成为小而可测的发布硬化切片；
+- #300 可以复用中立格式能力而不依赖 compiler；
+- 删除未实现 receipt 的 wire、安装步骤和错误面；
+- 性能成本可直接与既有 P100 emitter 基线比较。
+
+代价与接受风险：
+
+- 后发射检查不能发现 compiler 与共享格式契约共同存在、且不破坏字节闭合约束的系统性
+  语义缺陷；
+- LFCP v1 内部固定向量发生一次明确的不兼容替换；
+- #300/#302 必须重新打开旧 receipt 假设；
+- `laneflow-format` 的职责从单对象格式预检扩展到小范围跨对象制品闭合。
+
+## 被拒绝的替代方案
+
+### 保留独立 `laneflow-validator`
+
+当前需要复制完整语义实现，维护成本与实际 pre-1.0 风险不成比例。
+
+### 新建 `laneflow-artifact-check`
+
+它可以形成更纯粹的分层，但当前检查规模和依赖不足以证明新增 crate/API 的长期价值。
+
+### 把检查全部留在 compiler
+
+这会迫使 #300 反向依赖 compiler，或只能信任 compiler 自报的结果。
+
+### 保留 receipt 并由 compiler 签发
+
+同一进程、同一共享后端生成的 receipt 不增加独立信任，只重复绑定并扩大线格式和安装
+事务。
+
+### 原地修改 LFCP v1
+
+这会让相同版本号表达不同结构和语义，破坏 #298 固定向量与版本纪律。
+
+### 在本 ADR 同时决定静态镜像和修订切换证明
+
+这会重新扩大 #299，并越过 #300/#302 的产品与实现决策。
+
+## G1 接受条件
+
+在本 ADR 进入 Accepted 前，#299 必须完成：
+
+- 本 ADR 与详细设计的一致性审阅；
+- ADR 0020、综合架构、portable artifact、roadmap 和 glossary 的 supersede 更新；
+- LFCP v2 精确登记、API、错误、性能和迁移边界无未决产品问题；
+- 当前 exact head 的有效外部 clean review；
+- #299 G1 Gate Ledger 回链正式判断。

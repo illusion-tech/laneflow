@@ -269,7 +269,7 @@ authoritative source module graph，再进入
 `laneflow-runtime`/Spatial 消费同一不可变镜像（Immutable Image）中的交通 /
 可选空间视图（Traffic / Optional Spatial View），静态数据与每个世界可变状态
 物理分离。生产启动通过
-image 外部 trusted descriptor/validation receipt 与 bounded verifier 建立 view，
+image 外部认证 descriptor/manifest 与 bounded verifier 建立 view，
 不再解析 JSON、按字符串 rebind、重建 registry、重复 Traffic/Spatial join 或重编译
 static occurrences。
 
@@ -305,8 +305,8 @@ kind/tag registry、严格 field order、known vectors、BLAKE3-128 持久 ident
 XXH3 compiler-only 加速。基础 `LaneEdge` 使用独立稳定边键；RoadSection 覆盖与
 Junction internal role 不参与边身份，合法未覆盖边同样进入身份索引。Static image
 只保留 ID/ordinal 冷索引；完整规范身份表（Canonical Identity Table）
-`CanonicalIdentityTable` 进入 portable artifact，供 independent validator 从前像
-独立重算身份。Static image 采用 Traffic、冷稳定身份索引（Static Identity Index，
+`CanonicalIdentityTable` 进入 portable artifact，供审计、诊断和后继工具读取；
+#299 后发射检查不重新执行逐实体身份派生。Static image 采用 Traffic、冷稳定身份索引（Static Identity Index，
 `StaticIdentityIndex`）与分区规划提示（Partition Planning Hints，
 `PartitionPlanningHints`）必选，Spatial 由封闭配置档控制；稳定
 身份索引服务快照恢复（Snapshot Restore）、dynamic Route 重建与修订切换
@@ -321,9 +321,9 @@ partition/worker assignment 不进入共享镜像。精确路径的所有 partit
 committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延迟；连接资源
 组件各有唯一规范归约权威，互不相交组件可并行归约。
 
-静态镜像表示不可变路网修订，不表示城市永不变化。玩家道路编辑通过新修订、独立
-验证和失败关闭镜像切换事务进入运行世界；语义差异（Semantic Diff）必须由独立验证
-或外部可信的路网修订切换描述符（Network Revision Cutover Descriptor，
+静态镜像表示不可变路网修订，不表示城市永不变化。玩家道路编辑通过新修订和失败关闭
+镜像切换事务进入运行世界；语义差异（Semantic Diff）必须由外部可信的
+路网修订切换描述符（Network Revision Cutover Descriptor，
 `NetworkRevisionCutoverDescriptor`）绑定，不能自行授予迁移权限；稳定身份索引只
 复核身份映射，不能替代语义兼容证据。每世界 identity、
 调用方拥有的 seed/随机流（Caller-owned Seed / Random Stream）、动态路线、执行计划
@@ -349,7 +349,8 @@ Frontend）的首个纵向闭环；#291 G1
 导入，改为收口 current JSON 退役与编译器原生投影测试边界；它可以与恢复的运行时
 切片并行推进，
 再由 #298 交付可移植规范制品 /
-源映射 / 语义差异、#299 交付独立验证器、#300 交付目标静态镜像、#301 交付交通
+源映射 / 语义差异、#299 交付 compiler 后发射检查/LFCP v2/最小发布闭合、
+#300 交付目标静态镜像、#301 交付交通
 运行时 / 空间层共享镜像路径、#302 交付不可变路网修订 / 运行时快照（Runtime
 Snapshot）/ 在线镜像切换，随后进入行为 / 性能 / 安全生产切换闸口。
 最后由 #294 独占阶段 8 production cutover、core→runtime 原子改名与 projection/

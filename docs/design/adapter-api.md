@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）
 
-**最后更新**: 2026-07-29（#187 current；#291/ADR 0020 target）
+**最后更新**: 2026-08-18（#187 current；#291/ADR 0020 target；ADR 0024 后继边界）
 
 **适用范围**: Core、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与 typed lifecycle 契约；具体 Bevy 0.19 specialization 见 `bevy-reference-adapter.md`
 
@@ -15,6 +15,7 @@
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
 - `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
+- `../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md`
 - `../reference/glossary.md`
 - `core-runtime.md`
 - `spatial-geometry.md`
@@ -42,9 +43,10 @@
 
 ADR 0020 target 不改变表内 authority，只改变命名与静态初始化输入：current
 `LaneFlow Core` clean-break 为 `LaneFlow Traffic Runtime` / `laneflow-runtime`。
-宿主 asset pipeline 提供 target `StaticNetworkImage` bytes 与 image 外部 trusted
-descriptor/validation receipt，经 `laneflow-static-image` bounded verifier 后把
-required `StaticTrafficView` 交给 Runtime；profile 含 Spatial 时才把对齐
+宿主 asset pipeline 提供 target `StaticNetworkImage` bytes，以及由 #300 冻结的
+image 外部认证描述符/manifest 输入；它不得假设 #299 会提供 validation receipt。
+`laneflow-static-image` bounded verifier 检查后把 required `StaticTrafficView` 交给
+Runtime；profile 含 Spatial 时才把对齐
 `StaticSpatialView` 交给 Spatial。Adapter 不解析 compiler IR 或 portable artifact
 语义，不重建 Traffic/Spatial binding，也不读取 image 中的静态交通规则来自行裁决
 行为。本文后续 JSON/registry 生命周期仍描述 current，直到 shared-image cutover

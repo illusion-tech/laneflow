@@ -47,7 +47,8 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 - `0020`: 权威来源模块图（Authoritative Source Module Graph）、编译器拥有的静态路网、
   编译器中间表示（Compiler IR）、完整标识登记表（Identity Registry）、可移植规范
   制品（Portable Canonical Artifact）、可信配置档控制的静态镜像，以及目标态
-  交通运行时（Traffic Runtime）边界（Accepted；#291 G1）
+  交通运行时（Traffic Runtime）边界（Accepted；#291 G1；独立 validator、规范发布
+  receipt 与 #299 统一收据职责已由 0024 部分取代）
 - `0021`: 面向中国特色城市模拟游戏的交通基础产品北极星、城市游戏/出行编排/
   路径规划/交通运行时权威分层、不可变路网修订、镜像切换事务、运行时快照与确定性
   降级边界（Accepted；#291 G1）
@@ -59,6 +60,9 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   编辑模型，以及道路修改按整体替换 A 阶段演进到候选调整/原子替换 C 阶段；产品负责人
   已选择按模块 size-prefixed FlatBuffers 作为 production source 编码，并冻结 A → C 演进、
   未发布兼容边界和后继差异职责（Accepted；#296 FlatBuffers G1）
+- `0024`: compiler 对最终 LFCA/LFSM/LFSD exact bytes 执行共享、无分配的后发射检查，
+  以借用型能力守卫最小发布闭合；不交付独立 validator/receipt，LFCP v2 一次性移除
+  receipt 且不兼容读取 v1（Proposed；#299 G1 In Progress）
 
 ## 命名规则
 
