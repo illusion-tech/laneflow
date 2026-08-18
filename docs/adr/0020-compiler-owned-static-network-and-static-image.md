@@ -14,8 +14,9 @@
 验证收据，以及 compiler/validator 必须维护两套完整语义实现的决定；只有 ADR 0024
 正式 Accepted 后该取代关系才生效。本文关于编译器
 拥有静态路网、Canonical LIR、可移植规范制品、目标静态镜像、对象外信任锚和
-Runtime/Spatial 分层的其余决定保持有效。#300/#302 在自身 G1 不得把该候选取消的
-receipt 方案直接当作冻结输入，精确候选边界见
+Runtime/Spatial 分层的其余决定保持有效。ADR 0024 Accepted 前，#300/#302 仍受本文
+receipt 输入约束；#299 G1 形成正式结论后，它们再按该结论刷新各自 G1 输入。精确
+候选边界见
 `../design/compiler-post-emission-check-and-minimal-publication-closure.md`。<br>
 
 **2026-08-10 范围澄清**：current Traffic/Spatial/Scenario JSON 从未作为外部资产发布，
