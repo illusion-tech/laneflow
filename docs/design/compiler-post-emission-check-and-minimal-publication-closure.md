@@ -148,7 +148,9 @@ compiler-private `SourceMapInput` 或证明外部来源真实性。
 
 ### 5.3 LFSD
 
-target binding 必须与本次 LFCA 的格式版本、revision、digest 和 exact length相等。
+LFSD 的 `targetNetworkRevisionDerivationVersion`、`targetNetworkRevision`、
+`targetCanonicalArtifactDigest` 和 `targetCanonicalArtifactByteLength` 必须分别与本次 LFCA 的
+`networkRevisionDerivationVersion`、revision、digest 和 exact length 相等。
 
 `ExpectedSemanticDiffBaseV1::Genesis` 要求 LFSD 使用规范 Genesis 零绑定；
 `Artifact` 要求 LFSD base 的 revision、digest 和 exact length 与显式输入相等。
