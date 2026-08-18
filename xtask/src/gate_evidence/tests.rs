@@ -2052,15 +2052,42 @@ fn g4_failed_assertion_requires_an_exact_structured_historical_exception_target(
     issue.comments[0] = exception_appendix.clone();
     let result = validate_g4_evidence(&args, &issue, &delivery, &[]);
     assert!(result.is_ok(), "{result:?}");
+    let valid_g4_comment = issue.comments[0].clone();
+    let (_, after_marker) = exception_appendix
+        .body
+        .split_once(G3_EXCEPTION_START)
+        .unwrap();
+    let (record_json, _) = after_marker.split_once(G3_EXCEPTION_END).unwrap();
+    let exception_record_body = format!("{G3_EXCEPTION_START}{record_json}{G3_EXCEPTION_END}");
 
+    let unrelated_current_record = exception_record_body
+        .replace("exception-60-61-1", "exception-999-999-current")
+        .replace("legacy_evidence_reconstruction", "confirmed_gate_defect")
+        .replace(r#""issue": 60"#, r#""issue": 999"#)
+        .replace(r#""pullRequest": 61"#, r#""pullRequest": 999"#);
+    issue.comments[0].body = format!("{}\n{unrelated_current_record}", valid_g4_comment.body);
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
+        .expect_err("every record in a historical appendix must use the historical type");
+    assert!(error.contains("只能使用 `legacy_evidence_reconstruction`"));
+
+    let unrelated_historical_record = exception_record_body
+        .replace("exception-60-61-1", "exception-999-999-historical")
+        .replace(r#""issue": 60"#, r#""issue": 999"#)
+        .replace(r#""pullRequest": 61"#, r#""pullRequest": 999"#);
+    issue.comments[0].body = format!("{}\n{unrelated_historical_record}", valid_g4_comment.body);
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
+        .expect_err("every record in a historical appendix must belong to the G4 target set");
+    assert!(error.contains("不得包含其他 Issue #999"));
+
+    issue.comments[0] = valid_g4_comment.clone();
     issue.comments[0].body = issue.comments[0]
         .body
         .replace(r#""pullRequest": 61"#, r#""pullRequest": 999"#);
     let error = validate_g4_evidence(&args, &issue, &delivery, &[])
         .expect_err("a failed G4 assertion may not use an unrelated exception record");
-    assert!(error.contains("明确记录 `已通过`"));
+    assert!(error.contains("target set 之外的 PR #999"));
 
-    issue.comments[0] = exception_appendix;
+    issue.comments[0] = valid_g4_comment;
     issue.comments[0].body = issue.comments[0]
         .body
         .replace("<!-- g3-exception:v1", "<!-- g3-exception:v1\nnot-json");

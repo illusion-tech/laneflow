@@ -90,6 +90,12 @@ pub(super) fn validate_g4_g3_full_set_recovery(
 
     let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
     let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
+    validate_historical_exception_appendix(
+        g4_comment,
+        args.issue,
+        std::iter::once((delivery_number, delivery_pr))
+            .chain(args.related_prs.iter().copied().zip(related_prs)),
+    )?;
     let (record, evidence_urls) = parse_g3_full_set_recovery(g4_comment, args, delivery_merged_at)?;
     let mut reconstructed_related_prs = record.original_related_prs.clone();
     reconstructed_related_prs.extend(record.late_related_prs.iter().copied());
@@ -281,6 +287,12 @@ pub(super) fn validate_g4_evidence(
     let delivery_number = args
         .delivery_pr
         .ok_or("G4 validation 缺少 Delivery PR 参数")?;
+    validate_historical_exception_appendix(
+        g4_comment,
+        args.issue,
+        std::iter::once((delivery_number, delivery_pr))
+            .chain(args.related_prs.iter().copied().zip(related_prs)),
+    )?;
     let delivery_permalink = completed_gate_permalink(&delivery_pr.body, "G3")?;
     let mut allow_g4_legacy_exception = historical_exception_applies_to_target(
         g4_comment,

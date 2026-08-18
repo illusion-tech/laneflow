@@ -1,6 +1,6 @@
 //! Issue/PR Markdown、permalink、Gate assertion 与结构化例外解析。
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::external_review;
@@ -1398,6 +1398,76 @@ fn is_trusted_g3_owner_comment(comment: &GitHubComment) -> bool {
             .iter()
             .any(|owner| owner.eq_ignore_ascii_case(&author.login))
     })
+}
+
+pub(super) fn validate_historical_exception_appendix<'a>(
+    appendix: &GitHubComment,
+    issue: u64,
+    targets: impl IntoIterator<Item = (u64, &'a GitHubPullRequest)>,
+) -> Result<(), String> {
+    if !is_trusted_g3_owner_comment(appendix) {
+        return Ok(());
+    }
+    let mut target_map = BTreeMap::new();
+    for (pr_number, pr) in targets {
+        if target_map.insert(pr_number, pr).is_some() {
+            return Err(format!(
+                "Issue #{issue} 的 G4 historical target set 包含重复 PR #{pr_number}"
+            ));
+        }
+    }
+    for record in parse_g3_exception_records(appendix)? {
+        if record.exception_type != "legacy_evidence_reconstruction" {
+            return Err(format!(
+                "Issue #{issue} 的 G4 historical appendix 只能使用 `legacy_evidence_reconstruction`，实际为 `{}`",
+                record.exception_type
+            ));
+        }
+        if record.issue != issue {
+            return Err(format!(
+                "Issue #{issue} 的 G4 historical appendix 不得包含其他 Issue #{} 的记录",
+                record.issue
+            ));
+        }
+        let pr = target_map.get(&record.pull_request).ok_or_else(|| {
+            format!(
+                "Issue #{issue} 的 G4 historical appendix 记录了 target set 之外的 PR #{}",
+                record.pull_request
+            )
+        })?;
+        let permalink = completed_gate_permalink(&pr.body, "G3")?;
+        if record.g3_comment != permalink {
+            return Err(format!(
+                "Issue #{issue} / PR #{} 的 G4 historical appendix 未绑定 target set 的 G3 permalink：期望 `{permalink}`；实际 `{}`",
+                record.pull_request, record.g3_comment
+            ));
+        }
+        let g3_comment = pr
+            .comments
+            .iter()
+            .find(|comment| comment.url == permalink)
+            .ok_or_else(|| {
+                format!(
+                    "Issue #{issue} / PR #{} 的 G3 permalink 未指向该 PR comment",
+                    record.pull_request
+                )
+            })?;
+        let merged_at = pr.merged_at.as_deref().ok_or_else(|| {
+            format!(
+                "Issue #{issue} / PR #{} 缺少 mergedAt，不能验证 historical exception",
+                record.pull_request
+            )
+        })?;
+        validate_g3_exception_record(
+            appendix,
+            &record,
+            pr,
+            g3_comment,
+            parse_g3_result(&g3_comment.body)?,
+            Some(merged_at),
+        )?;
+    }
+    Ok(())
 }
 
 pub(super) fn historical_exception_applies_to_target(
