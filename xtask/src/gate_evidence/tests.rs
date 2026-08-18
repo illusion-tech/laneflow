@@ -1525,7 +1525,7 @@ fn post_merge_shadow_correction_fixture() -> (GateEvidenceArgs, GitHubPullReques
     let args = gate_args(GateEvidencePhase::G4);
     let shadow_value = "R1 non-required：source App 仍为 github-actions，仅作 telemetry";
     let corrected_body = format!(
-        "{}\n{G3_EVIDENCE_SHADOW_COMMENT_FIELD}{shadow_value}",
+        "{}\n{G3_EVIDENCE_SHADOW_COMMENT_FIELD}{shadow_value}。",
         gate_comment_body(
             CURRENT_G3_COMMENT_FIELDS,
             &GateEvidenceArgs {
@@ -1535,8 +1535,8 @@ fn post_merge_shadow_correction_fixture() -> (GateEvidenceArgs, GitHubPullReques
         )
     );
     let original_body = corrected_body.replace(
-        &format!("{G3_EVIDENCE_SHADOW_COMMENT_FIELD}{shadow_value}"),
-        &format!("{G3_EVIDENCE_SHADOW_COMMENT_FIELD}`{shadow_value}`"),
+        &format!("{G3_EVIDENCE_SHADOW_COMMENT_FIELD}{shadow_value}。"),
+        &format!("{G3_EVIDENCE_SHADOW_COMMENT_FIELD}`{shadow_value}`。"),
     );
     let edited_at = "2026-07-10T06:00:00Z";
     let mut target_comment = g3_comment(DELIVERY_G3_URL, "2026-07-10T04:50:00Z");
@@ -1549,19 +1549,20 @@ fn post_merge_shadow_correction_fixture() -> (GateEvidenceArgs, GitHubPullReques
             has_next_page: false,
         },
         nodes: vec![
-            GitHubUserContentEdit {
-                edited_at: "2026-07-10T05:00:00Z".to_string(),
-                editor: Some(GitHubActor {
-                    login: "wangzishi".to_string(),
-                }),
-                diff: Some(original_body.clone()),
-            },
+            // GitHub returns userContentEdits newest-first; each `diff` is a full body snapshot.
             GitHubUserContentEdit {
                 edited_at: edited_at.to_string(),
                 editor: Some(GitHubActor {
                     login: "wangzishi".to_string(),
                 }),
                 diff: Some(corrected_body.clone()),
+            },
+            GitHubUserContentEdit {
+                edited_at: "2026-07-10T05:00:00Z".to_string(),
+                editor: Some(GitHubActor {
+                    login: "wangzishi".to_string(),
+                }),
+                diff: Some(original_body.clone()),
             },
         ],
     });
@@ -1601,7 +1602,8 @@ fn post_merge_shadow_correction_fixture() -> (GateEvidenceArgs, GitHubPullReques
 #[test]
 fn accepts_only_signed_post_merge_shadow_wrapper_corrections() {
     let (args, pr) = post_merge_shadow_correction_fixture();
-    assert!(validate_g3_timing(&pr, DELIVERY_G3_URL, "Delivery G3", &args).is_ok());
+    let result = validate_g3_timing(&pr, DELIVERY_G3_URL, "Delivery G3", &args);
+    assert!(result.is_ok(), "{result:?}");
 
     let (args, mut wrong_hash) = post_merge_shadow_correction_fixture();
     wrong_hash.comments[1].body = wrong_hash.comments[1].body.replace(
@@ -1615,7 +1617,7 @@ fn accepts_only_signed_post_merge_shadow_wrapper_corrections() {
         .user_content_edits
         .as_mut()
         .unwrap()
-        .nodes[1]
+        .nodes[0]
         .editor = Some(GitHubActor {
         login: "untrusted-user".to_string(),
     });
@@ -1623,15 +1625,83 @@ fn accepts_only_signed_post_merge_shadow_wrapper_corrections() {
 
     let (args, mut extra_delta) = post_merge_shadow_correction_fixture();
     let edits = extra_delta.comments[0].user_content_edits.as_mut().unwrap();
-    let original = edits.nodes[0].diff.clone().unwrap();
+    let original = edits.nodes[1].diff.clone().unwrap();
     let changed = format!("{original}\n- unrelated semantic change");
-    edits.nodes[0].diff = Some(changed.clone());
+    edits.nodes[1].diff = Some(changed.clone());
     extra_delta.comments[1].body = extra_delta.comments[1]
         .body
         .replace(&body_sha256(&original), &body_sha256(&changed));
     let error = validate_g3_timing(&extra_delta, DELIVERY_G3_URL, "Delivery G3", &args)
         .expect_err("correction may not hide any non-shadow delta");
     assert!(error.contains("只允许完整 shadow 字段"));
+
+    let (args, mut punctuation_delta) = post_merge_shadow_correction_fixture();
+    let edits = punctuation_delta.comments[0]
+        .user_content_edits
+        .as_mut()
+        .unwrap();
+    let original = edits.nodes[1].diff.clone().unwrap();
+    let changed = original.replace("`。", "`");
+    edits.nodes[1].diff = Some(changed.clone());
+    punctuation_delta.comments[1].body = punctuation_delta.comments[1]
+        .body
+        .replace(&body_sha256(&original), &body_sha256(&changed));
+    let error = validate_g3_timing(&punctuation_delta, DELIVERY_G3_URL, "Delivery G3", &args)
+        .expect_err("correction may not hide punctuation changes");
+    assert!(error.contains("只允许完整 shadow 字段"));
+}
+
+#[test]
+fn a_historical_exception_applies_only_to_its_exact_full_set_target() {
+    let mut args = gate_args(GateEvidencePhase::G4);
+    args.related_prs = vec![62];
+
+    let (mut delivery, mut exception_appendix) = g3_exception_fixture(
+        "legacy_evidence_reconstruction",
+        "G3 Block",
+        "2026-07-10T06:00:00Z",
+        "2026-07-10T07:00:00Z",
+    );
+    let original_delivery_body = delivery.comments[0].body.clone();
+    let original_command =
+        expected_gate_command(&gate_args(GateEvidencePhase::G3), GateEvidencePhase::G3);
+    let full_set_command = expected_gate_command(&args, GateEvidencePhase::G3);
+    delivery.comments[0].body =
+        original_delivery_body.replace(&original_command, &full_set_command);
+    exception_appendix.body = exception_appendix.body.replace(
+        &body_sha256(&original_delivery_body),
+        &body_sha256(&delivery.comments[0].body),
+    );
+    delivery.comments.truncate(1);
+    delivery.state = "MERGED".to_string();
+    delivery.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+
+    let mut related = related_pr(false);
+    related.state = "MERGED".to_string();
+    related.merged_at = Some("2026-07-10T05:40:00Z".to_string());
+
+    let mut issue = issue("OPEN", "Done");
+    issue.body = issue
+        .body
+        .replace("Related PRs：N/A，原因：无部分交付。", "Related PRs：#62")
+        .replace(
+            &format!(
+                "- [x] G3 合并判断已记录：[Delivery G3 评论]({DELIVERY_G3_URL})"
+            ),
+            &format!(
+                "- [x] G3 合并判断已记录：[Delivery G3 评论]({DELIVERY_G3_URL})；[Related G3 评论]({RELATED_G3_URL})"
+            ),
+        );
+    exception_appendix.url = ISSUE_G4_URL.to_string();
+    issue.comments[0] = exception_appendix;
+
+    let result = validate_g3_evidence(&args, &issue, &delivery, &[related]);
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
+fn a_lone_backtick_fails_closed_without_panicking() {
+    assert!(parse_optional_backtick_value("`", "Gate 结果").is_err());
 }
 
 #[test]

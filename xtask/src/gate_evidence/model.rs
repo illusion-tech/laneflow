@@ -195,6 +195,8 @@ pub(super) struct GitHubUserContentEdit {
     #[serde(rename = "editedAt")]
     pub(super) edited_at: String,
     pub(super) editor: Option<GitHubActor>,
+    // GitHub's GraphQL field name is `diff`, but IssueComment userContentEdits returns the
+    // complete body snapshot for that revision rather than a textual patch.
     pub(super) diff: Option<String>,
 }
 

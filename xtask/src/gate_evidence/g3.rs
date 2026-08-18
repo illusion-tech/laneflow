@@ -349,13 +349,15 @@ pub(super) fn validate_g3_evidence(
     related_prs: &[GitHubPullRequest],
 ) -> Result<(), String> {
     validate_related_pr_snapshot_count(args, related_prs)?;
-    let allow_legacy_exception = if args.phase == GateEvidencePhase::G4 {
+    let historical_exception_appendix = if args.phase == GateEvidencePhase::G4 {
         let g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
-        comment_for_permalink(issue, &g4_permalink, "Issue G4 exception appendix")?
-            .body
-            .contains(G3_EXCEPTION_START)
+        Some(comment_for_permalink(
+            issue,
+            &g4_permalink,
+            "Issue G4 exception appendix",
+        )?)
     } else {
-        false
+        None
     };
     let delivery_number = args
         .delivery_pr
@@ -379,6 +381,17 @@ pub(super) fn validate_g3_evidence(
         ));
     }
     let delivery_permalink = completed_gate_permalink(&delivery_pr.body, "G3")?;
+    let allow_delivery_legacy_exception = historical_exception_appendix
+        .map(|appendix| {
+            historical_exception_applies_to_target(
+                appendix,
+                args.issue,
+                delivery_number,
+                &delivery_permalink,
+            )
+        })
+        .transpose()?
+        .unwrap_or(false);
     if !line_links_to_comment_permalink(&issue.body, issue_g3_line, &delivery_permalink) {
         return Err(format!(
             "Issue 的 G3 checkbox 未回链 Delivery PR 的 G3 comment permalink：预期 `{delivery_permalink}`；实际 Gate Ledger `{issue_g3_line}`"
@@ -390,7 +403,7 @@ pub(super) fn validate_g3_evidence(
         G3_COMMENT_FIELDS,
         "Delivery PR G3",
         args,
-        allow_legacy_exception,
+        allow_delivery_legacy_exception,
     )?;
     validate_g3_timing(delivery_pr, &delivery_permalink, "Delivery PR", args)?;
     if !delivery_pr
@@ -412,13 +425,25 @@ pub(super) fn validate_g3_evidence(
             delivery_pr: None,
             related_prs: vec![*number],
         };
+        let related_permalink = completed_gate_permalink(&related_pr.body, "G3")?;
+        let allow_related_legacy_exception = historical_exception_appendix
+            .map(|appendix| {
+                historical_exception_applies_to_target(
+                    appendix,
+                    args.issue,
+                    *number,
+                    &related_permalink,
+                )
+            })
+            .transpose()?
+            .unwrap_or(false);
         validate_related_pr_g3(
             &related_args,
             &issue.body,
             issue_g3_line,
             *number,
             related_pr,
-            allow_legacy_exception,
+            allow_related_legacy_exception,
         )?;
     }
     Ok(())
