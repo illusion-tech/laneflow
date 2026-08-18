@@ -1,7 +1,7 @@
 # Data Loading 设计
 
 **文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）<br>
-**最后更新**: 2026-08-18（#281 current；#291/ADR 0020 target；Proposed ADR 0024 候选边界）
+**最后更新**: 2026-08-18（#281 current；#291/ADR 0020 target；Accepted ADR 0024 后继边界）
 **适用范围**: Traffic v0.10、SpatialPackage/ScenarioManifest v0.1 production loader、保留的 Data v0.6 数值迁移边界，以及 target static-image trust/verifier
 
 **关联文档**:
@@ -47,8 +47,8 @@
 
 ### 1.1 #291 target loader（未实现）
 
-ADR 0020 target 把完整静态 semantic normalization 前移到 compiler。Proposed ADR 0024
-候选规定：#299 只在发布提交前检查 LFCA/LFSM/LFSD 最终字节的摘要、长度、路网修订
+ADR 0020 target 把完整静态 semantic normalization 前移到 compiler。Accepted ADR 0024
+规定：#299 只在发布提交前检查 LFCA/LFSM/LFSD 最终字节的摘要、长度、路网修订
 与跨对象闭合，并发布不含 receipt/LFSD 的 LFCP v2；它不建立独立 validator，也不替
 #300 决定镜像启动的信任输入。#300 必须重新冻结 `StaticNetworkImage` 与 image 外部
 认证描述符/manifest 的绑定，再由 `laneflow-static-image` bounded verifier 检查

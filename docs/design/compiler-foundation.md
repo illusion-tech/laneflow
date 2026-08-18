@@ -1,7 +1,7 @@
 # 编译器基础设施与合成领域专用语言前端
 
 **文档状态**: #292 已接受并完成 G4；#315 共同受检模块接入契约已实现；
-#297 current JSON 编译器导入设计已取消；#299 候选后继边界见 Proposed ADR 0024<br>
+#297 current JSON 编译器导入设计已取消；#299 后继边界见 Accepted ADR 0024<br>
 **最后更新**: 2026-08-18<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，

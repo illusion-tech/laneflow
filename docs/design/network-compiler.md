@@ -1,11 +1,10 @@
 # 路网编译器与目标静态镜像
 
-> **候选后继架构修订（2026-08-18）**：Proposed ADR 0024 / #299 G1 拟把独立
+> **后继架构修订（2026-08-18）**：Accepted ADR 0024 / #299 G1 已把独立
 > `laneflow-validator`、规范发布 receipt 和三类 receipt 统一交付方案替换为
 > `laneflow-format` 共享后发射检查与最小发布闭合。canonical publication 使用
 > LFCP v2 且不再包含 receipt；#300/#302 必须分别重新冻结镜像与切换信任边界。该
-> 替换只在 ADR 0024 正式 Accepted 后生效；此前本文 Accepted 的 v1/receipt 条款仍是
-> 当前设计事实。候选规范见
+> 替换已经生效；本文 v1/receipt 条款只保留为 #291/#298 历史设计事实。当前规范见
 > `compiler-post-emission-check-and-minimal-publication-closure.md`。
 
 **文档状态**: Accepted（#291 target design）；#315 共同受检模块接入契约已实现；
@@ -903,7 +902,7 @@ Image header 必须声明 `networkRevisionDerivationVersion` 与
 
 ### 8.3 外部镜像描述符（External Image Descriptor）
 
-> Proposed ADR 0024 拟取消由 #299 统一交付的 `static-image-v1` receipt。下文镜像
+> Accepted ADR 0024 已取消由 #299 统一交付的 `static-image-v1` receipt。下文镜像
 > digest/length、profile、target、完整性清单和对象外 trust-anchor 原则继续有效；
 > `validatorBuildId`、`validationReceipt*` 和 receipt envelope 字段只保留为 #291
 > 历史候选，#300 必须在自身 G1 决定当前描述符，不得直接实现这些旧字段。
@@ -1321,7 +1320,7 @@ Reference Oracle），不能未经工作量/跨度证据直接成为 production 
 
 ### 9.6 不可变路网修订与镜像切换
 
-> Proposed ADR 0024 拟取消 #299 交付 `revision-cutover-v1` receipt 的前提。下文 base/target、
+> Accepted ADR 0024 已取消 #299 交付 `revision-cutover-v1` receipt 的前提。下文 base/target、
 > LFSD、镜像、迁移策略、对象外认证和失败原子性要求仍是 #302 输入；具体 descriptor
 > 和验证形态必须由 #302 G1 重新冻结。
 
