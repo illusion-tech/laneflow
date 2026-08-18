@@ -402,6 +402,7 @@ pub(crate) struct WaiverInput {
     pub(crate) follow_up_issue: String,
     pub(crate) cleanup_owner: String,
     pub(crate) authorized_by: String,
+    #[serde(skip)]
     pub(crate) historical_replay: bool,
 }
 
@@ -3109,6 +3110,34 @@ mod tests {
             evaluate_snapshot(&snapshot).state,
             ExternalReviewState::Waived
         );
+    }
+
+    #[test]
+    fn historical_replay_context_is_not_part_of_snapshot_schema_v1() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/stale-old-head.json"
+        ));
+        snapshot.waiver = Some(WaiverInput {
+            id: "waiver-230-historical-confirmed-defect".to_string(),
+            exception_type: "confirmed_gate_defect".to_string(),
+            current_head_oid: snapshot.pull_request.head_ref_oid.clone(),
+            current_base_oid: "cccccccccccccccccccccccccccccccccccccccc".to_string(),
+            reason: "the Gate had a confirmed false block before the policy change".to_string(),
+            evidence_urls: vec!["https://github.com/illusion-tech/laneflow/issues/405".to_string()],
+            risk: "the automated assertion remained failed at merge".to_string(),
+            acceptance_boundary: "historical G4 replay only".to_string(),
+            expires_at: "2026-07-25T00:00:00Z".to_string(),
+            follow_up_issue: "#405".to_string(),
+            cleanup_owner: "wangzishi".to_string(),
+            authorized_by: "wangzishi".to_string(),
+            historical_replay: true,
+        });
+
+        let schema_v1 = serde_json::to_string(&snapshot).expect("snapshot must serialize");
+        assert!(!schema_v1.contains("historicalReplay"));
+        let restored: ExternalReviewSnapshot =
+            serde_json::from_str(&schema_v1).expect("schema-v1 waiver must remain readable");
+        assert!(!restored.waiver.unwrap().historical_replay);
     }
 
     #[test]

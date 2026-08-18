@@ -2058,7 +2058,10 @@ fn current_exception_requires_a_visible_current_head_before_early_acceptance() {
         &pr,
         "Delivery PR",
         None,
-        None,
+        ExternalReviewG3Validation {
+            phase: GateEvidencePhase::G3,
+            gate_time: None,
+        },
     )
     .expect_err("a current exception must not bypass visible current-head validation");
     assert!(error.contains("GitHub PR identity 对应的完整 current head"));
@@ -2071,7 +2074,10 @@ fn current_exception_requires_a_visible_current_head_before_early_acceptance() {
         &pr,
         "Delivery PR",
         Some(&g4_appendix),
-        pr.merged_at.as_deref(),
+        ExternalReviewG3Validation {
+            phase: GateEvidencePhase::G4,
+            gate_time: pr.merged_at.as_deref(),
+        },
     )
     .expect_err(
         "G4 replay must not let a current exception bypass visible current-head validation",
@@ -2712,6 +2718,30 @@ fn rejects_expired_structured_gate_waiver() {
     let invalid_merged_at = waiver_validation_time(Some("not-a-timestamp"), after_expiry)
         .expect_err("invalid historical mergedAt must fail closed");
     assert!(invalid_merged_at.contains("mergedAt 不是 UTC RFC3339 时间"));
+}
+
+#[test]
+fn confirmed_defect_waiver_grandfathering_requires_pre_policy_g4_replay() {
+    let before_policy = "2026-08-18T04:20:54Z";
+    assert_eq!(
+        historical_waiver_replay(GateEvidencePhase::G3, Some(before_policy)),
+        Ok(false),
+        "a merged Related PR inspected during G3 is not a G4 replay"
+    );
+    assert_eq!(
+        historical_waiver_replay(GateEvidencePhase::G4, Some(before_policy)),
+        Ok(true)
+    );
+    assert_eq!(
+        historical_waiver_replay(GateEvidencePhase::G4, Some(G3_EXCEPTION_POLICY_ACTIVATION),),
+        Ok(false),
+        "the grandfather ends exactly at the policy activation"
+    );
+    assert_eq!(
+        historical_waiver_replay(GateEvidencePhase::G4, Some("2026-08-18T04:20:56Z")),
+        Ok(false)
+    );
+    assert!(historical_waiver_replay(GateEvidencePhase::G4, None).is_err());
 }
 
 #[test]

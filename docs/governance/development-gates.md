@@ -299,7 +299,8 @@ G3 Owner 可以在 PR 合并前纠正 current G3 comment，也可以新增 super
 - security / emergency hotfix；
 
 已确认且无法及时修复的 Gate false-block 不再进入 current waiver 路径；它只能使用上文定义的
-`G3 Exception` + `confirmed_gate_defect`，保持 `accepted_exception` 非成功状态。策略切换前已用旧规则合并的
+`G3 Exception` + `confirmed_gate_defect`，保持 `accepted_exception` 非成功状态。策略切换以 Issue #405 G1
+决策记录的创建时间 `2026-08-18T04:20:55Z` 为明确边界；在该时点前已用旧规则合并的
 `G3 Waived + confirmed_gate_defect` 只允许在 G4 以原 merge 时点重放；这项 grandfather 不接受 OPEN/current PR，也不恢复日常 bypass。
 
 普通审阅延迟、作者不同意 finding、`docs-only`、赶进度和减少步骤均不是 waiver 理由。waiver 必须记录 exception type、PR/current head、已有证据、风险、临时接受边界、默认不超过 24 小时的到期时间、follow-up Issue、Cleanup owner，以及临时 bypass 的添加/撤回时间。Check 与 G3 comment 必须显示 `G3 Waived`，不得伪装成标准 `G3 Pass`。
