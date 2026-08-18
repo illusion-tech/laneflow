@@ -1873,6 +1873,10 @@ fn g3_exception_fixture(
         "{}\n{G3_EVIDENCE_SHADOW_COMMENT_FIELD}R1 non-required：exception 保持 non-success",
         gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args)
             .replace("`R0-R1 bootstrap`", &format!("`{gate_result}`"))
+            .replace(
+                "- Current head：",
+                "- Current head：`aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`",
+            )
             .replace("` 已通过。", "` 未通过。")
     );
     let mut appendix = g3_comment(
@@ -1913,6 +1917,132 @@ fn g3_exception_fixture(
 }
 
 #[test]
+fn current_exception_scopes_multi_issue_assertions_without_forcing_other_issues_to_fail() {
+    let (mut pr, _) = g3_exception_fixture(
+        "confirmed_gate_defect",
+        "G3 Exception",
+        "2026-07-10T05:10:00Z",
+        "2026-07-10T06:00:00Z",
+    );
+    pr.body = format!(
+        "- 关联 Issue：#60、#61\n- PR 角色：Delivery PR\n{}",
+        pr.body
+    );
+    pr.closing_issues_references
+        .push(issue_reference("illusion-tech/laneflow", 61));
+    let first = gate_args(GateEvidencePhase::G3);
+    let second = GateEvidenceArgs {
+        issue: 61,
+        ..first.clone()
+    };
+    let first_command = expected_gate_command(&first, GateEvidencePhase::G3);
+    let second_command = expected_gate_command(&second, GateEvidencePhase::G3);
+    let original_assertion = pr.comments[0]
+        .body
+        .lines()
+        .find(|line| line.starts_with(GATE_ASSERTION_PREFIX))
+        .unwrap()
+        .to_string();
+    pr.comments[0].body = pr.comments[0].body.replace(
+        &original_assertion,
+        &format!(
+            "- Gate 断言：`{first_command}` 未通过。\n- Gate 断言：`{second_command}` 已通过。"
+        ),
+    );
+
+    assert_eq!(
+        validate_g3_target(
+            G3ValidationMode::ShadowTarget,
+            "illusion-tech/laneflow",
+            61,
+            GateEvidencePhase::G3,
+            &pr,
+            &[first.clone(), second.clone()],
+        ),
+        Ok((GateEvidencePrRole::Delivery, vec![60, 61]))
+    );
+    assert!(
+        validate_comment(
+            &pr,
+            DELIVERY_G3_URL,
+            G3_COMMENT_FIELDS,
+            "Issue #60 G3",
+            &first,
+            false,
+        )
+        .is_ok()
+    );
+    assert!(
+        validate_comment(
+            &pr,
+            DELIVERY_G3_URL,
+            G3_COMMENT_FIELDS,
+            "Issue #61 G3",
+            &second,
+            false,
+        )
+        .is_ok()
+    );
+
+    pr.comments[0].body = pr.comments[0].body.replace(
+        &format!("- Gate 断言：`{second_command}` 已通过。"),
+        &format!("- Gate 断言：`{second_command}` 未通过。"),
+    );
+    let error = validate_g3_target(
+        G3ValidationMode::ShadowTarget,
+        "illusion-tech/laneflow",
+        61,
+        GateEvidencePhase::G3,
+        &pr,
+        &[first, second],
+    )
+    .expect_err("the non-exception Issue must retain a passing assertion");
+    assert!(error.contains("必须在规范命令后明确记录 `已通过`"));
+}
+
+#[test]
+fn current_exception_requires_a_visible_current_head_before_early_acceptance() {
+    let (mut pr, _) = g3_exception_fixture(
+        "confirmed_gate_defect",
+        "G3 Exception",
+        "2026-07-10T05:10:00Z",
+        "2026-07-10T06:00:00Z",
+    );
+    pr.body = format!("- 关联 Issue：#60\n- PR 角色：Delivery PR\n{}", pr.body);
+    pr.comments[0].body = pr.comments[0].body.replace(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "head-not-recorded",
+    );
+
+    let error = validate_external_review_g3(
+        "illusion-tech/laneflow",
+        60,
+        61,
+        &pr,
+        "Delivery PR",
+        None,
+        None,
+    )
+    .expect_err("a current exception must not bypass visible current-head validation");
+    assert!(error.contains("GitHub PR identity 对应的完整 current head"));
+
+    let g4_appendix = g4_comment(ISSUE_G4_URL, "2026-07-10T05:20:00Z");
+    let g4_error = validate_external_review_g3(
+        "illusion-tech/laneflow",
+        60,
+        61,
+        &pr,
+        "Delivery PR",
+        Some(&g4_appendix),
+        pr.merged_at.as_deref(),
+    )
+    .expect_err(
+        "G4 replay must not let a current exception bypass visible current-head validation",
+    );
+    assert!(g4_error.contains("GitHub PR identity 对应的完整 current head"));
+}
+
+#[test]
 fn current_g3_exception_is_auditable_non_pass_and_fails_closed() {
     let (pr, _) = g3_exception_fixture(
         "confirmed_gate_defect",
@@ -1938,7 +2068,10 @@ fn current_g3_exception_is_auditable_non_pass_and_fails_closed() {
             &pr.comments[0],
             G3Result::Exception,
             None,
-            Some("2026-07-10T05:30:00Z"),
+            G3ExceptionValidationTimes {
+                gate_time: Some("2026-07-10T05:30:00Z"),
+                evaluation_time: None,
+            },
         ),
         Ok(true)
     );
@@ -1966,7 +2099,10 @@ fn current_g3_exception_is_auditable_non_pass_and_fails_closed() {
             &untrusted_marker.comments[0],
             G3Result::Exception,
             None,
-            Some("2026-07-10T05:30:00Z"),
+            G3ExceptionValidationTimes {
+                gate_time: Some("2026-07-10T05:30:00Z"),
+                evaluation_time: None,
+            },
         ),
         Ok(true)
     );
@@ -1985,7 +2121,10 @@ fn current_g3_exception_is_auditable_non_pass_and_fails_closed() {
             &expired.comments[0],
             G3Result::Exception,
             None,
-            Some("2026-07-10T05:30:00Z"),
+            G3ExceptionValidationTimes {
+                gate_time: Some("2026-07-10T05:30:00Z"),
+                evaluation_time: None,
+            },
         )
         .is_err()
     );
@@ -2007,7 +2146,10 @@ fn current_g3_exception_is_auditable_non_pass_and_fails_closed() {
             &untrusted.comments[0],
             G3Result::Exception,
             None,
-            Some("2026-07-10T05:30:00Z"),
+            G3ExceptionValidationTimes {
+                gate_time: Some("2026-07-10T05:30:00Z"),
+                evaluation_time: None,
+            },
         )
         .is_err()
     );
@@ -2077,7 +2219,10 @@ fn current_exception_binding_uses_the_correction_restored_original_body() {
             &pr.comments[0],
             G3Result::Exception,
             None,
-            pr.merged_at.as_deref(),
+            G3ExceptionValidationTimes {
+                gate_time: pr.merged_at.as_deref(),
+                evaluation_time: None,
+            },
         ),
         Ok(true)
     );
@@ -2099,7 +2244,10 @@ fn historical_g3_block_replay_is_explicitly_non_retroactive() {
         &pr.comments[0],
         G3Result::LegacyBlock,
         None,
-        pr.merged_at.as_deref(),
+        G3ExceptionValidationTimes {
+            gate_time: pr.merged_at.as_deref(),
+            evaluation_time: None,
+        },
     )
     .expect_err("historical reconstruction must be attached to the Issue G4 appendix");
     assert!(pr_side_error.contains("Issue G4 historical appendix"));
@@ -2114,10 +2262,28 @@ fn historical_g3_block_replay_is_explicitly_non_retroactive() {
             &pr.comments[0],
             G3Result::LegacyBlock,
             Some(&appendix),
-            pr.merged_at.as_deref(),
+            G3ExceptionValidationTimes {
+                gate_time: pr.merged_at.as_deref(),
+                evaluation_time: parse_utc_timestamp_seconds("2026-07-10T06:30:00Z"),
+            },
         ),
         Ok(true)
     );
+
+    let expired_error = validate_g3_exception(
+        60,
+        61,
+        &pr,
+        &pr.comments[0],
+        G3Result::LegacyBlock,
+        Some(&appendix),
+        G3ExceptionValidationTimes {
+            gate_time: pr.merged_at.as_deref(),
+            evaluation_time: parse_utc_timestamp_seconds("2026-07-10T07:00:00Z"),
+        },
+    )
+    .expect_err("historical reconstruction must remain fresh at G4 evaluation time");
+    assert!(expired_error.contains("G4 evaluation time 已过期"));
 }
 
 #[test]
