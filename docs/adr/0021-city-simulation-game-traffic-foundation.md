@@ -8,6 +8,11 @@
 **扩展**: ADR 0001；本 ADR 不让 LaneFlow 自身拥有城市经济、市民出行需求或完整
 交通工程仿真职责<br>
 
+> **后继决策（2026-08-18）**：ADR 0024 已取代本文对独立
+> `laneflow-validator` 与 validation receipt 的依赖假设。本文相关段落保留为 #291
+> G1 的历史决策背景；现行边界是 compiler 后发射检查、LFCP v2 最小发布闭合，以及由
+> #300/#302 分别重新冻结镜像与切换信任输入。
+
 **关联文档**:
 
 - 上游决策:
@@ -16,6 +21,7 @@
   - `0016-scenario-population-and-recycle-lifecycle-authority.md`
 - 配套决策:
   - `0020-compiler-owned-static-network-and-static-image.md`
+  - `0024-compiler-post-emission-check-and-minimal-publication-closure.md`
 - 详细设计:
   - `../architecture.md`
   - `../design/network-compiler.md`

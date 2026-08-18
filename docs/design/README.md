@@ -48,9 +48,11 @@
 - `network-compiler.md`：#291 G1 综合架构修订；采用权威来源模块图
   （Authoritative Source Module Graph）、有类型抽象语法树（Typed AST）→高层中间
   表示（HIR）→中层中间表示（MIR）→已验证规范低层中间表示（Canonical LIR）、
-  完整 Identity registry、可移植规范制品（Portable Canonical Artifact）、外部信任
-  收据绑定的目标静态镜像（Target Static Image）、源映射（Source Map）、语义差异
-  （Semantic Diff）与独立验证器。目标态把当前 `laneflow-core/CoreWorld` 一次性
+  完整 Identity registry、可移植规范制品（Portable Canonical Artifact）、目标静态
+  镜像（Target Static Image）、源映射（Source Map）与语义差异（Semantic Diff）。
+  #299 已由 ADR 0024 收缩为共享后发射检查和最小发布闭合，不再交付独立 validator/
+  receipt；#300/#302 必须分别冻结自身镜像与切换信任边界。目标态把当前
+  `laneflow-core/CoreWorld` 一次性
   不兼容切换为 `laneflow-runtime/TrafficWorld`；Traffic、`StaticIdentityIndex` 与
   `PartitionPlanningHints` section 必选，Spatial section 由 closed profile 控制，
   无图形配置不携带 geometry；编译器拥有 worker 数无关的静态执行
@@ -62,14 +64,17 @@
   compiler foundation、Synthetic DSL frontend、集成专用 LIR→current projection 及 G4，
   #282–#285 关于 #292 的稳定开工前置已经满足。该完成事实不表示整个目标路网编译器、
   静态镜像或 Traffic Runtime 已经实现；当前 Project 状态与原生依赖关系以 GitHub 为准。
-- `portable-canonical-artifact.md`：#298 G1 已重新接受的实现级格式输入；把上述长期架构收窄为
+- `portable-canonical-artifact.md`：#298 G1 已重新接受并完成 G4 的实现级格式与历史
+  验证事实源；把上述长期架构收窄为
   LFCA/LFSM/LFSD/LFCP 四类对象的封闭节目录、规范记录编码、路网修订派生、
-  artifact/source-map/receipt 与 base/target exact digest + length 绑定、受限读取、
+  artifact/source-map/历史 receipt 与 base/target exact digest + length 绑定、受限读取、
   `CompilationOutput` 单一输入和不可变发布提交点。附录 A 的完整 table/field registry、§9
-  硬上限与 §10 known vectors 已闭合；逐 geometry direction profile 适用标记、连接端点 OR、
-  LFSM range binding 与 LFSD 投影已经补齐，职责中立 exact-head clean review、正式 G1 判断与
-  Project/Issue 元数据已经闭合。G1 Pass 只授权准备独立 G2 开工判断，在 #298 正式记录
-  G2 Pass 前不得启动格式实现。
+  硬上限与 §10 known vectors 已闭合。其独立 validator、receipt 和 LFCP v1 当前语义已由
+  ADR 0024 部分取代；历史证据不回写为新设计。
+- `compiler-post-emission-check-and-minimal-publication-closure.md`：#299 Proposed 的
+  compiler 后发射检查与最小发布闭合；扩展 `laneflow-format` 复核最终
+  LFCA/LFSM/LFSD 字节与跨对象 binding，以借用型 capability 守卫发布副作用，
+  LFCP v2 一次性移除 receipt 且不兼容读取 v1；不复验完整路网语义，不建设证明平台。
 - `road-editing-source-and-geometry-frontend.md`：#296 已实现的内部 FlatBuffers B1
   production compiler 入口；冻结可视化编辑器为主、程序化生成器为辅、道路编辑按 A → C
   演进、有类型道路编辑模型、来源位置/协作，以及按模块 size-prefixed FlatBuffers source。

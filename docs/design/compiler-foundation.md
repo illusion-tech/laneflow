@@ -1,8 +1,8 @@
 # 编译器基础设施与合成领域专用语言前端
 
 **文档状态**: #292 已接受并完成 G4；#315 共同受检模块接入契约已实现；
-#297 current JSON 编译器导入设计已取消<br>
-**最后更新**: 2026-08-12<br>
+#297 current JSON 编译器导入设计已取消；#299 后继边界由 ADR 0024 覆盖<br>
+**最后更新**: 2026-08-18<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
@@ -147,15 +147,16 @@ laneflow-compiler-test-support - - -> laneflow-data
 实线箭头表示左侧的正常库依赖右侧，虚线只表示测试开发依赖；正常库依赖形成包依赖图
 （Crate Dependency Graph，crate DAG）。
 
-| 包                               | 本议题拥有职责                                                                                                                     | 禁止职责 / 依赖                                                                                                                                  |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `laneflow-static-contract`       | `StableId128`、实体种类（Entity Kind）/ 字段标签（Field Tag）登记、标识版本、有类型逻辑序号（Typed Logical Ordinal）和值级公共常量 | `Serde`、文件系统、编译遍、当前核心、目标交通运行时（Target Traffic Runtime）、空间层、编译器标识实现                                            |
-| `laneflow-compiler`              | 权威来源模块图、编译器中间表示、合成领域专用语言前端、编译遍（Compiler Pass）、诊断、编译器侧标识实现                              | 当前数据层 / 核心 / 空间层对象图、公共制品格式、镜像应用二进制接口（Application Binary Interface，ABI）、独立验证器（Independent Validator）语义 |
-| `laneflow-compiler-test-support` | 已验证规范低层中间表示到当前核心 / 空间层的投影、等价测试辅助                                                                      | 生产后端（Backend）、反向补语义、从当前对象图派生标识、被编译器依赖                                                                              |
+| 包                               | 本议题拥有职责                                                                                                                     | 禁止职责 / 依赖                                                                                         |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `laneflow-static-contract`       | `StableId128`、实体种类（Entity Kind）/ 字段标签（Field Tag）登记、标识版本、有类型逻辑序号（Typed Logical Ordinal）和值级公共常量 | `Serde`、文件系统、编译遍、当前核心、目标交通运行时（Target Traffic Runtime）、空间层、编译器标识实现   |
+| `laneflow-compiler`              | 权威来源模块图、编译器中间表示、合成领域专用语言前端、编译遍（Compiler Pass）、诊断、编译器侧标识实现                              | 当前数据层 / 核心 / 空间层对象图、公共制品格式、镜像应用二进制接口（Application Binary Interface，ABI） |
+| `laneflow-compiler-test-support` | 已验证规范低层中间表示到当前核心 / 空间层的投影、等价测试辅助                                                                      | 生产后端（Backend）、反向补语义、从当前对象图派生标识、被编译器依赖                                     |
 
-`laneflow-static-contract` 使用 `#![no_std]`，只保存跨编译器、格式、镜像、验证器与
-运行时的小型值类型和机器可读登记常量。它不提供编译器与未来独立验证器共用的完整标识
-编码函数：二者必须分别实现规范字节编码和重算路径，避免把同一实现缺陷伪装成独立验证。
+`laneflow-static-contract` 使用 `#![no_std]`，只保存跨编译器、格式、镜像与运行时的
+小型值类型和机器可读登记常量。它不提供完整标识编码函数；标识生成仍由 compiler
+实现，#299 在 `laneflow-format` 中增加的后发射检查也不重新实现 StableId 编码、
+BLAKE3 派生或碰撞登记。
 
 共享有类型逻辑序号的封闭标记类型（sealed marker）、`Ordinal<K>` 与稳定实体种类
 标记类型（kind marker）也由 `laneflow-static-contract` 拥有；有类型抽象语法树、
@@ -172,7 +173,8 @@ HIR 和 MIR 的区块分配键（arena key）则留在编译器内部。这样�
 
 - `laneflow-format` 的公共可移植规范制品（Portable Canonical Artifact）格式由 #298
   交付；
-- `laneflow-validator` 的独立语义实现由 #299 交付；
+- `laneflow-format` 的后发射检查与 LFCP v2 最小发布闭合由 #299 交付；不创建
+  `laneflow-validator`；
 - `laneflow-static-image` 的镜像应用二进制接口、配置档与有界结构校验器由 #300
   交付；
 - `laneflow-runtime` 与空间层共享镜像消费路径由 #301 交付；不可变路网修订、
@@ -946,9 +948,9 @@ G1 冻结以下两个当前态固定样例的等价迁移：
 - `StableId128` 到完整 `CanonicalIdentity` 及其所有者来源位置的登记；
 - 父项先于子项的标识闭包。
 
-未来 `laneflow-validator` 只能复用登记常量和值类型，不能调用编译器编码器或语义
-编译遍。#292 另提供不复用编译器编码器的 `xtask` / 测试预言机生成和校验已知向量；
-`BLAKE3` 库作为密码摘要原语可以相同，规范字节组装代码必须独立。
+#292 已提供不复用编译器编码器的 `xtask` / 测试预言机生成和校验已知向量；该
+测试 oracle 继续保护标识规范，但不构成 production validator。#299 后发射检查只消费
+最终 LFCA/LFSM/LFSD 字节并执行 ADR 0024 冻结的摘要、长度、路网修订和跨对象绑定检查。
 
 ### 7.2 碰撞与重复
 

@@ -112,7 +112,7 @@ initial/static occurrence 与 dense layout；target `LaneFlow Traffic Runtime`
 （`laneflow-runtime`）继续拥有 tick、已实现执行域的交通参与单元、动态通行定义
 （Dynamic Traversal Definition）和其他可变交通权威（Mutable Traffic
 Authority），Spatial 继续拥有位姿采样（Pose Sampling）。
-生产启动只从外部可信描述符（Trusted Descriptor）/验证收据（Validation Receipt）
+生产启动只从对象外认证描述符/manifest
 认证版本化静态镜像完整性清单（Static Image Integrity Manifest），再对目标节完成
 分块（Chunk）完整性和有界结构验证；不解析 JSON、不按外部标识（External ID）重绑定、
 重建登记表或重复 Traffic/Spatial 联结。全镜像 SHA-256 保留为发布身份、独立重建与
@@ -145,13 +145,13 @@ Journal）记录已提交动态状态/生命周期变化及命令/事件游标�
 已提交变更流；最后在安全边界的静默提交窗口（Quiescent Commit Window）排空日志尾
 并把新镜像/状态绑定与规范排序的切换事件批次原子地只发布一次。候选不得重新执行
 输入、独立推进未来时间线或产生第二份已提交事件；失败时不发布切换事件并继续旧修订。
-语义差异不能自行授予迁移权限，必须由独立验证或外部可信的
+语义差异不能自行授予迁移决定，必须由对象外可信的
 路网修订切换描述符（Network Revision Cutover Descriptor）绑定，并用切换前后的
-稳定身份索引完成引用翻译。每个修订由 independent validator 从目标无关规范路网
-语义载荷（Canonical Network Semantic Payload）重算的路网修订标识（Network
-Revision ID）`NetworkRevisionId` 认证；验证收据、静态镜像描述符及切换描述符分别
-绑定该标识，Runtime 不接受调用方或镜像头自报修订。
-目标职责、上层边界与历史 ADR 的关系见 ADR 0020/0021；
+稳定身份索引完成引用翻译。compiler 后发射检查从目标无关规范路网语义载荷
+（Canonical Network Semantic Payload）重算路网修订标识（Network Revision ID）
+`NetworkRevisionId`；LFCP/manifest、静态镜像描述符及切换描述符按各自职责绑定该
+标识，Runtime 不接受调用方、LFSD 或镜像头自报修订。#300/#302 分别冻结镜像和切换
+信任输入。目标职责、上层边界与历史 ADR 的关系见 ADR 0020/0021/0024；
 在二者 Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，本文其余 current 章节
 继续有效。
 
@@ -210,7 +210,7 @@ ADR 0020 target 中，`laneflow-data` 只作为 current JSON 临时内部加载�
 portable canonical artifact 由 `laneflow-format`/compiler contract 描述，生产
 Runtime 由 `laneflow-static-image` 的 trusted descriptor + bounded verifier/view
 挂载。静态 semantic normalization 从 Data/Core constructors 前移到 compiler，
-static image 不取代 public publication/provenance/validation-receipt 契约。current JSON
+static image 不取代 public publication/provenance 和对象外 trust-anchor 契约。current JSON
 未曾作为外部资产发布，不接入 compiler，也不形成长期兼容或迁移工具承诺。
 
 current v0.10 在保持相同依赖方向的前提下包含 per-edge 基础道路限速、
@@ -351,8 +351,8 @@ Adapter 不应把引擎依赖引入 Core。
 
 Adapter 可以按需调用 `laneflow-data` 解析自身 asset pipeline 已读取的内存数据，但不得要求 Core 理解引擎路径、asset handle 或异步加载协议。
 
-ADR 0020 target 中，Adapter/宿主 asset pipeline 提供 static image bytes 与 image
-外部的 trusted descriptor/validation receipt，经 bounded verifier 后把 Traffic
+ADR 0020/0024 target 中，Adapter/宿主 asset pipeline 提供 static image bytes 与 image
+外部的认证 descriptor/manifest，经 bounded verifier 后把 Traffic
 view 交给 Runtime，并在 profile 含 Spatial 时把对齐 Spatial view 交给 Spatial。
 Adapter 不读取 compiler IR、portable artifact 语义，也不拥有 image 内静态规则。
 它也不得把细节层次、可见性或帧预算转换为交通 fidelity：宿主可以暂停、慢放或
