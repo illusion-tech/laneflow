@@ -1446,7 +1446,6 @@ fn validate_waiver(waiver: &WaiverInput, pr: &PullRequestSnapshot, diagnostics: 
         "content_equivalent_rebase",
         "provider_platform_outage",
         "security_emergency_hotfix",
-        "confirmed_gate_defect",
     ];
     if !ALLOWED_TYPES.contains(&waiver.exception_type.as_str()) {
         diagnostics.push(format!(
@@ -3041,6 +3040,36 @@ mod tests {
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
             ExternalReviewState::Waived
+        );
+    }
+
+    #[test]
+    fn confirmed_gate_defect_cannot_use_external_review_waiver() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/stale-old-head.json"
+        ));
+        snapshot.waiver = Some(WaiverInput {
+            id: "waiver-230-confirmed-defect".to_string(),
+            exception_type: "confirmed_gate_defect".to_string(),
+            current_head_oid: snapshot.pull_request.head_ref_oid.clone(),
+            current_base_oid: snapshot.pull_request.base_ref_oid.clone(),
+            reason: "the Gate has a confirmed false block".to_string(),
+            evidence_urls: vec!["https://github.com/illusion-tech/laneflow/issues/405".to_string()],
+            risk: "the automated assertion remains failed".to_string(),
+            acceptance_boundary: "must use G3 Exception instead".to_string(),
+            expires_at: "2026-07-25T00:00:00Z".to_string(),
+            follow_up_issue: "#405".to_string(),
+            cleanup_owner: "wangzishi".to_string(),
+            authorized_by: "wangzishi".to_string(),
+        });
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("confirmed_gate_defect"))
         );
     }
 

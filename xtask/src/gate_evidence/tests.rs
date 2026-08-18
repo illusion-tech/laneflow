@@ -1853,6 +1853,14 @@ fn all_three_governance_sources_preserve_each_rollout_shadow_choice() {
     }
 }
 
+#[test]
+fn authoritative_g4_template_preserves_historical_non_success() {
+    let source = include_str!("../../../docs/governance/development-gates.md");
+    assert!(source.contains(
+        "正常 G4 写“已通过”；仅精确匹配 `legacy_evidence_reconstruction` 的 historical replay 写“未通过”"
+    ));
+}
+
 fn g3_exception_fixture(
     exception_type: &str,
     gate_result: &str,
