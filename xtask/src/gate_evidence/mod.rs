@@ -227,8 +227,25 @@ where
                 related_pr,
                 historical_exception_appendix,
             )? {
+                let related_permalink = completed_gate_permalink(&related_pr.body, "G3")?;
+                let allow_legacy_exception = historical_exception_appendix
+                    .map(|appendix| {
+                        historical_exception_applies_to_target(
+                            appendix,
+                            args.issue,
+                            *number,
+                            &related_permalink,
+                        )
+                    })
+                    .transpose()?
+                    .unwrap_or(false);
                 validate_related_full_set_member(
-                    &args.repo, *number, args.issue, args.phase, related_pr,
+                    &args.repo,
+                    *number,
+                    args.issue,
+                    args.phase,
+                    related_pr,
+                    allow_legacy_exception,
                 )?;
                 validate_external_review_g3(
                     &args.repo,
@@ -386,6 +403,7 @@ pub(crate) fn check_g3_shadow_success_eligibility(args: &[String]) -> Result<(),
                     resolved.issue,
                     GateEvidencePhase::G3,
                     &related_pr,
+                    false,
                 )?;
                 if checked_related_prs.insert(*related_number) {
                     validate_g3_shadow_success_pr(

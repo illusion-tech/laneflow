@@ -96,7 +96,7 @@ G3 comment 模板（合并前发表）：
 - 风险：
 - 例外：
 - 合并方式：
-- Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` 已通过。
+- Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` <按 Gate 结果填写：`G3 Exception` 写“未通过”，其他结果写“已通过”>。
 
 每个 Related PR 都使用 `cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 并永久保留该 Related-only 断言；版本由 `xtask` package `rust-version` 生成，历史稳定版本按 development-gates.md 的 gate-command v1 窗口语义解析。Delivery PR / full-set 使用 `--delivery-pr <number>` 并传入全部 Related PR，不要求把历史 Related comment 改写为 full-set 命令。一个 PR 关联多个 Issue 时，在同一 current G3 comment 中为每个 Issue 分别写一条精确 `Gate 断言`。`G3 Pass` 必须实际成功并写“已通过”；`G3 Exception` 必须写“未通过”并另发合格的 `g3-exception:v1` appendix，机器状态保持 `accepted_exception`。
 

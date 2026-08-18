@@ -312,13 +312,29 @@ fn legacy_failed_gate_assertion_without_command(body: &str, phase: GateEvidenceP
         && !lines[0].contains("已通过")
 }
 
+#[cfg(test)]
 pub(super) fn validate_gate_assertion_set(
     body: &str,
     label: &str,
     args: &[GateEvidenceArgs],
     phase: GateEvidencePhase,
 ) -> Result<(), String> {
-    let actual_commands = semantic_gate_assertion_commands(body, label, phase)?;
+    validate_gate_assertion_set_with_legacy_exception(body, label, args, phase, false)
+}
+
+pub(super) fn validate_gate_assertion_set_with_legacy_exception(
+    body: &str,
+    label: &str,
+    args: &[GateEvidenceArgs],
+    phase: GateEvidencePhase,
+    allow_legacy_exception: bool,
+) -> Result<(), String> {
+    let actual_commands = semantic_gate_assertion_commands_with_legacy_exception(
+        body,
+        label,
+        phase,
+        allow_legacy_exception,
+    )?;
     let expected_commands = args
         .iter()
         .map(|args| expected_gate_command(args, phase))
@@ -412,14 +428,6 @@ pub(super) fn gate_assertion_commands_with_legacy_exception(
         }
     }
     Ok(unique_commands)
-}
-
-pub(super) fn semantic_gate_assertion_commands(
-    body: &str,
-    label: &str,
-    phase: GateEvidencePhase,
-) -> Result<BTreeSet<String>, String> {
-    semantic_gate_assertion_commands_with_legacy_exception(body, label, phase, false)
 }
 
 pub(super) fn semantic_gate_assertion_commands_with_legacy_exception(
@@ -883,21 +891,21 @@ pub(super) fn validate_g3_comment_correction(
     Ok(original_edit.edited_at.clone())
 }
 
-pub(super) fn validate_g3_timing(
+pub(super) fn g3_effective_at_for_merge_validation(
     pr: &GitHubPullRequest,
     permalink: &str,
     label: &str,
     args: &GateEvidenceArgs,
-) -> Result<(), String> {
-    let Some(merged_at) = pr.merged_at.as_deref() else {
-        return Ok(());
-    };
+) -> Result<String, String> {
     let comment = pr
         .comments
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} permalink 未指向该 PR 的 comment"))?;
     let effective_at = g3_comment_effective_at(comment, label)?;
+    let Some(merged_at) = pr.merged_at.as_deref() else {
+        return Ok(effective_at.to_string());
+    };
     if effective_at >= merged_at {
         let original_effective_at = validate_g3_comment_correction(args, pr, comment, merged_at)
             .map_err(|correction_error| {
@@ -910,8 +918,18 @@ pub(super) fn validate_g3_timing(
                 "{label} correction 恢复的原始 comment 生效时间必须严格早于 PR 合并时间"
             ));
         }
+        return Ok(original_effective_at);
     }
-    Ok(())
+    Ok(effective_at.to_string())
+}
+
+pub(super) fn validate_g3_timing(
+    pr: &GitHubPullRequest,
+    permalink: &str,
+    label: &str,
+    args: &GateEvidenceArgs,
+) -> Result<(), String> {
+    g3_effective_at_for_merge_validation(pr, permalink, label, args).map(|_| ())
 }
 
 pub(super) fn validate_external_review_g3(

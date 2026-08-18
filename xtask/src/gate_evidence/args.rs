@@ -310,9 +310,18 @@ pub(super) fn format_issue_reference(reference: &IssueReference) -> String {
     )
 }
 
+#[cfg(test)]
 pub(super) fn validate_gate_evidence_target_assertions(
     pr: &GitHubPullRequest,
     resolved_args: &[GateEvidenceArgs],
+) -> Result<(), String> {
+    validate_gate_evidence_target_assertions_with_legacy_exception(pr, resolved_args, false)
+}
+
+pub(super) fn validate_gate_evidence_target_assertions_with_legacy_exception(
+    pr: &GitHubPullRequest,
+    resolved_args: &[GateEvidenceArgs],
+    allow_legacy_exception: bool,
 ) -> Result<(), String> {
     let permalink = completed_gate_permalink(&pr.body, "G3")?;
     let comment = pr
@@ -320,7 +329,13 @@ pub(super) fn validate_gate_evidence_target_assertions(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or("PR G3 permalink 未指向当前 PR comment")?;
-    validate_gate_assertion_set(&comment.body, "PR G3", resolved_args, GateEvidencePhase::G3)
+    validate_gate_assertion_set_with_legacy_exception(
+        &comment.body,
+        "PR G3",
+        resolved_args,
+        GateEvidencePhase::G3,
+        allow_legacy_exception,
+    )
 }
 
 pub(super) fn resolve_gate_evidence_target_args(
