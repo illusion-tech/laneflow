@@ -17,10 +17,11 @@ Runtime）的兼容发现入口；它不表示目标态继续命名为 Core。
 4. `docs/governance/development-gates.md`
 5. `docs/reference/glossary.md`
 6. 已存在的相关 Core / Traffic Runtime design 文档
-7. 涉及 #291 静态路网编译、静态镜像（Static Image）或 #294 core→runtime
+7. 涉及 #291 静态路网编译、#300 共享静态路网或 #294 core→runtime
    生产切换时，读取
-   `docs/adr/0020-compiler-owned-static-network-and-static-image.md` 与
-   `docs/design/network-compiler.md`
+   `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、
+   `docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、
+   `docs/design/network-compiler.md` 与 `docs/design/shared-static-network.md`
 8. 涉及 #308 编译器工作负载、资源/性能预算校准、研究停止护栏或私有容器候选时，
    读取 `docs/design/compiler-budget-calibration.md`、
    `docs/reference/compiler-calibration-workloads-v1.json` 与
@@ -87,7 +88,7 @@ Runtime）的兼容发现入口；它不表示目标态继续命名为 Core。
 - 是否把城市经济、出行需求、路线选择策略或游戏规则错误放进 Traffic Runtime？
 - 是否把当前 `VehicleState`、Route、道路 occupancy 或 Parking 特化错误提升为
   所有交通参与单元的终态公共基类，或把 `ParticipantClass` 当成执行域/行为能力？
-- 是否把最终分区/工作线程（Partition/Worker）写入共享镜像，或让分区切分
+- 是否把最终分区/工作线程（Partition/Worker）写入共享静态路网，或让分区切分
   （Partition Cut）增加一 tick 延迟、改变已提交状态/事件？
 - 是否区分不可变路网修订、每世界 runtime snapshot 与可重建执行计划？
 - 是否把 multi-world 吞吐、Presentation LOD 或未冻结 aggregate 当成单城市世界

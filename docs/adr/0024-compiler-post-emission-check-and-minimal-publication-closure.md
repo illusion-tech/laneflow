@@ -9,9 +9,16 @@ compiler 发布事务、#300/#302 的上游输入边界<br>
 ADR 0021 对独立 validator/receipt 的依赖假设；不改变编译器拥有静态路网、Canonical
 LIR、可移植规范制品、目标静态镜像或对象外信任锚决定<br>
 
+> **后继决策（2026-08-18）**：ADR 0025（Accepted；#300 G1 Pass）不改变本文
+> LFCA/LFSM/LFSD、LFCP v2 或后发射检查；它把本文面向 #300 的“构造目标静态镜像”
+> 下游改为“从同一受检 LFCA capability 构建进程内 `SharedNetworkRevision`”，并取消
+> 独立镜像发布对象。
+
 **关联文档**:
 
 - `0020-compiler-owned-static-network-and-static-image.md`
+- `0025-checked-canonical-network-and-shared-static-network.md`
+- `../design/shared-static-network.md`
 - `../design/compiler-post-emission-check-and-minimal-publication-closure.md`
 - `../design/network-compiler.md`
 - `../design/portable-canonical-artifact.md`

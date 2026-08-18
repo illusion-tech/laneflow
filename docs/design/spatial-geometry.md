@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）
 
-**最后更新**: 2026-08-11（current Traffic v0.10；#291/ADR 0020 target；#296/ADR 0022 FlatBuffers G1）
+**最后更新**: 2026-08-18（current Traffic v0.10；ADR 0025 / #300 G1 target 修订；#296/ADR 0022 FlatBuffers G1）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -14,6 +14,7 @@
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
+- `../adr/0025-checked-canonical-network-and-shared-static-network.md`
 - `../reference/glossary.md`
 - `numeric-representation.md`
 - `data-format.md`
@@ -46,25 +47,26 @@
 
 Core 可以在没有 Spatial 数据包时以无图形宿主方式运行；需要车辆空间位姿的调用方必须提供已经通过配对和绑定的 Spatial 注册表。
 
-### 1.1 #291 target 静态空间镜像（未实现）
+### 1.1 #291/#300 target 共享空间路网（未实现）
 
 ADR 0020 保留本章的 Spatial authority、bounded canonical f32、length/pose、
 batch ordering、placement token 与失败原子性，但改变静态数据形成位置：
 
 - compiler 在同一 MIR/LIR 中联合生成 Traffic length、canonical geometry 和绑定；
-- target `StaticNetworkImage` 的 Traffic、`StaticIdentityIndex` 与
-  `PartitionPlanningHints` section 必选，Spatial section profile-controlled；
-  `traffic-headless-v1` 不携带 geometry；
-- Spatial section 存在时，`StaticSpatialView` 与 `StaticTrafficView` 共享 logical
-  edge ordinal/cross-table index，v1 保持完整 edge coverage；
+- `SharedNetworkRevision` 的 Traffic、`SharedIdentityIndex` 与
+  `PartitionPlanningHints` component 必选，`SharedSpatialNetwork` 可选；headless
+  构建不保留 geometry；
+- Spatial component 可以只有 facility/profile/frame；只有 LaneEdge geometry 非空时才
+  与 `SharedTrafficNetwork` 共享 logical edge ordinal/cross-table index，并保持完整 edge
+  coverage。缺少 lane geometry 时 lane-pose capability 明确不可用；
 - Spatial 直接读取 immutable geometry/sampling tables，不再按 external edge ID
   join 两个 JSON package，也不重建 `HashMap<EdgeHandle, slot>`；
-- 多个 world/Adapter session 可共享静态 image，只保留各自 pose scratch/output 和
-  placement lifecycle。
+- 多个 world/Adapter session 可共享同一根 `Arc<SharedNetworkRevision>`，只保留各自 pose
+  scratch/output 和 placement lifecycle；Spatial 不独立安装 component。
 
 本章 §3 的 Traffic/Spatial/Manifest 三制品与 §3.2 加载顺序继续描述 current，
-直到 target image 路径完成 G4。Target `laneflow-runtime` 是 current
-`laneflow-core` 的 clean-break 名称；static image 的可选 Spatial section 不改变
+直到 target shared-network 路径完成 G4。Target `laneflow-runtime` 是 current
+`laneflow-core` 的 clean-break 名称；共享修订的可选 Spatial component 不改变
 Traffic Runtime/Spatial/Adapter 的语义 authority，也不取代 current
 Core-without-Spatial / target Traffic-Runtime-without-Spatial 边界。
 

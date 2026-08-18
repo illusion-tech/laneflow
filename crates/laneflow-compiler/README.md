@@ -117,4 +117,4 @@ LFCA/LFSM/LFSD bytes：Windows/Ubuntu 各两个 fresh process、每个进程内�
 制品摘要或操作系统进程内存。
 
 公共静态值契约来自 `laneflow-static-contract`。本 crate 不依赖当前核心、空间层、
-数据加载器或引擎适配器，也不提前冻结可移植制品、静态镜像或第三方前端插件接口。
+数据加载器或引擎适配器，也不提前冻结可移植制品、共享静态路网布局或第三方前端插件接口。

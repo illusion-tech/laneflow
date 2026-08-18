@@ -1,7 +1,7 @@
 # Data Format 设计
 
 **文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）<br>
-**最后更新**: 2026-07-29（#281 current；#291/ADR 0020 target）<br>
+**最后更新**: 2026-08-18（#281 current；ADR 0025 / #300 G1 target 修订）<br>
 **适用范围**: 当前 Traffic v0.10、SpatialPackage v0.1、ScenarioManifest v0.1、保留的 Data v0.6 数值研究输入，以及 compiler target 的格式边界
 
 **关联文档**:
@@ -20,6 +20,7 @@
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `../adr/0018-multimodal-cross-section-and-access-overlay.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
+- `../adr/0025-checked-canonical-network-and-shared-static-network.md`
 - `../reference/glossary.md`
 - `../../schemas/laneflow-data-v0.10.schema.json`
 - `../../schemas/laneflow-spatial-v0.1.schema.json`
@@ -66,23 +67,19 @@ ADR 0020 不把当前 Traffic JSON 直接改名为编译器中间表示（Compil
   编辑来源缓冲区是编辑器与程序化生成的主要 production 来源语言，合成领域专用语言
   （Synthetic DSL）、导入模块和其他受检模块可以共同组成编译单元（Compilation Unit）；
 - 可移植规范制品（Portable Canonical Artifact）：平台无关、可发布、可独立校验；
-- 目标静态镜像（Target Static Image）：按目标、布局、封闭配置档（Closed
-  Profile）和分区提示版本生成且可重建；v1 所有生产配置档都必须包含
-  `StaticTrafficImage`、冷稳定身份索引（Static Identity Index，
-  `StaticIdentityIndex`）和分区规划提示（Partition Planning Hints，
-  `PartitionPlanningHints`），只有 `StaticSpatialImage` 由封闭配置档控制；“冷”
-  只表示不进入稳态步进（Steady-state Tick），不表示可从生产配置档裁剪；v1 不定义
-  泛型冷数据/调试节，诊断内容由独立制品外置；
+- 共享静态路网（Shared Static Network）：从受检 LFCA 构建、进程内不可变且性能优先
+  的 Runtime/Spatial 连续数据；`SharedTrafficNetwork`、`SharedIdentityIndex` 与
+  `PartitionPlanningHints` 必选，`SharedSpatialNetwork` 可选；它不是第二种持久格式；
 - 源映射（Source Map）与语义差异（Semantic Diff）：治理与诊断制品。
 
-编译器从已验证规范低层中间表示（Validated Canonical LIR）同时生成这些产物；目标态
-交通运行时（Traffic Runtime）与空间层（Spatial）直接消费静态镜像的对齐视图。目标
-动态层一次性不兼容命名为 `laneflow-runtime`/`TrafficWorld`，并通过
-`laneflow-static-image` 的静态镜像描述符（Static Image Descriptor）与有界结构校验器
-（Bounded Structural Verifier）挂载视图。`formatVersion: "0.10"`、本章数据包模型
+编译器从已验证规范低层中间表示（Validated Canonical LIR）发射 LFCA/LFSM/LFSD；
+`laneflow-static-network` 再从受检 LFCA 构建共享修订。目标态交通运行时（Traffic
+Runtime）安装完整根，空间层（Spatial）只从同一根或 revision-bound snapshot 借用对齐
+component。目标动态层一次性
+不兼容命名为 `laneflow-runtime`/`TrafficWorld`。`formatVersion: "0.10"`、本章数据包模型
 （Package Model）和 §7–§8 的 JSON→Core 规范化在阶段 8 生产切换 Issue #294 完成
-G4 前继续是当前契约，但不再约束目标编译器中间表示或镜像布局。目标版本轴、发布
-与迁移规则见 ADR 0020 和 `network-compiler.md`。
+G4 前继续是当前契约，但不再约束目标编译器中间表示或共享内存布局。目标版本轴、发布
+与迁移规则见 ADR 0020、ADR 0025 和 `network-compiler.md`。
 
 ## 2. 当前 Package Model
 

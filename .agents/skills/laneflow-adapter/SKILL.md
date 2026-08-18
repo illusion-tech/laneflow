@@ -13,9 +13,10 @@ description: 处理 LaneFlow 引擎适配器（Engine Adapter）工作。适用�
 4. `docs/governance/agent-development-guide.md`
 5. `docs/design/adapter-api.md`（若已存在）
 6. `docs/reference/glossary.md`
-7. 涉及 #291 目标静态镜像或交通运行时（Traffic Runtime）时，读取
-   `docs/adr/0020-compiler-owned-static-network-and-static-image.md` 与
-   `docs/design/network-compiler.md`
+7. 涉及 #291/#300 共享静态路网或交通运行时（Traffic Runtime）时，读取
+   `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、
+   `docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、
+   `docs/design/network-compiler.md` 与 `docs/design/shared-static-network.md`
 8. 涉及城市模拟游戏集成、存档/回放、路网切换或 fidelity 时，读取
    `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 
@@ -55,7 +56,8 @@ Adapter 不得：
 - 用 LOD、可见性或帧预算静默改变 Traffic Runtime safety、通行权、fixed tick 或
   event；宿主只能显式暂停、慢放或统一改变模拟时间推进。
 - 拥有出行需求、Routing、静态规则、运行时分区（Runtime Partition），或把宿主
-  Entity/seed 写入共享静态镜像/运行时快照权威。
+  Entity/seed 写入共享静态路网/运行时快照权威；也不得单独替换 Traffic/Spatial
+  component 或把内部连续数组当作稳定 Adapter ABI。
 
 ## 验证
 

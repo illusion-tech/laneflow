@@ -11,7 +11,11 @@
 > **后继决策（2026-08-18）**：Accepted ADR 0024 已取代本文对独立
 > `laneflow-validator` 与 validation receipt 的依赖假设。本文其余 Accepted 决定继续
 > 有效，#300/#302 仍不得跳过自身 G1 而直接决定信任输入。后继边界是 compiler 后发射检查、LFCP v2 最小发布闭合，
-> 以及由 #300/#302 分别重新冻结镜像与切换信任输入。
+> 以及由 #300/#302 分别重新冻结静态 Runtime 数据与切换信任输入。ADR 0025
+> （Accepted；#300 G1 Pass）已决定以受检 LFCA 构建的进程内
+> `SharedNetworkRevision` 取代本文静态镜像文件、`TrustedStaticImage`、镜像摘要绑定和
+> “镜像切换”命名；不可变路网修订、Traffic/Spatial 分层、稳定身份索引、失败关闭切换与
+> 每世界状态分离继续有效。
 
 **关联文档**:
 
@@ -22,9 +26,11 @@
 - 配套决策:
   - `0020-compiler-owned-static-network-and-static-image.md`
   - `0024-compiler-post-emission-check-and-minimal-publication-closure.md`
+  - `0025-checked-canonical-network-and-shared-static-network.md`
 - 详细设计:
   - `../architecture.md`
   - `../design/network-compiler.md`
+  - `../design/shared-static-network.md`
   - `../design/core-runtime-scalability-audit.md`
   - `../design/core-runtime-performance-baseline.md`
   - `../reference/glossary.md`

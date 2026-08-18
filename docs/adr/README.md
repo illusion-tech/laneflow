@@ -46,11 +46,12 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 - `0019`: WaitingZone/ConflictZone identity、多阶段 Gate occurrence、车辆级 right-of-way authority 与 grant/reservation（已接受）
 - `0020`: 权威来源模块图（Authoritative Source Module Graph）、编译器拥有的静态路网、
   编译器中间表示（Compiler IR）、完整标识登记表（Identity Registry）、可移植规范
-  制品（Portable Canonical Artifact）、可信配置档控制的静态镜像，以及目标态
+  制品（Portable Canonical Artifact）、历史目标静态镜像方案，以及目标态
   交通运行时（Traffic Runtime）边界（Accepted；#291 G1；独立 validator、规范发布
-  receipt 与 #299 统一收据职责已由 Accepted ADR 0024 部分取代）
+  receipt 与 #299 统一收据职责已由 Accepted ADR 0024 部分取代；镜像文件/ABI 已由
+  Accepted ADR 0025 继续取代）
 - `0021`: 面向中国特色城市模拟游戏的交通基础产品北极星、城市游戏/出行编排/
-  路径规划/交通运行时权威分层、不可变路网修订、镜像切换事务、运行时快照与确定性
+  路径规划/交通运行时权威分层、不可变路网修订、修订切换事务、运行时快照与确定性
   降级边界（Accepted；#291 G1）
 - `0022`: Geometry 编制解析曲线、编译期参考折线、规范 `f32` 运行时折线与 Adapter
   表现几何的误差预算分层；冻结 `Fine2Cm`、`Balanced5Cm`、`Compact10Cm` 三个封闭
@@ -63,6 +64,11 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 - `0024`: compiler 对最终 LFCA/LFSM/LFSD exact bytes 执行共享、无分配的后发射检查，
   以借用型能力守卫最小发布闭合；不交付独立 validator/receipt，LFCP v2 一次性移除
   receipt 且不兼容读取 v1（Accepted；#299 G1 Pass）
+- `0025`: 从受检 LFCA 构建性能优先、不可变、进程内共享的
+  `SharedNetworkRevision`；Traffic/Identity/Spatial 物理拆分并绑定同一修订，不交付
+  静态镜像文件/ABI、descriptor/完整性清单、mmap 或磁盘缓存，保存只接受已进入
+  Runtime 的 committed 道路状态或已认证 LFCA asset reference；可编辑 session 在共享根外
+  保留 exact LFCA diff base，但不把它写入存档（Accepted；#300 G1 Pass）
 
 ## 命名规则
 

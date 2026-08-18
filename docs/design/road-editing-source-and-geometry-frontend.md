@@ -7,7 +7,9 @@
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
 `../adr/0020-compiler-owned-static-network-and-static-image.md`、
 `../adr/0021-city-simulation-game-traffic-foundation.md`、
-`../adr/0023-road-editing-state-and-phased-network-replacement.md`
+`../adr/0023-road-editing-state-and-phased-network-replacement.md`、
+`../adr/0025-checked-canonical-network-and-shared-static-network.md`、
+`shared-static-network.md`
 
 ## 1. 当前状态
 
@@ -37,8 +39,15 @@ JSON 读取、别名、迁移器或隐藏 fallback。当前任务与 Gate 状态
 
 - 已建道路始终允许后续修改；
 - 用户编辑的是候选道路编辑状态，当前路网在候选通过前保持不变；
-- 提交前执行完整编译和验证；失败不产生部分道路或半更新关系；
+- 鼠标拖动、曲线调整和预览不触发完整编译；用户“确认建造”后执行一次完整编译、
+  LFCA 后发射检查和共享静态路网候选构建；失败不产生部分道路或半更新关系；
 - 成功结果是新的不可变路网修订；首版可在宿主明确维护暂停时切换；
+- 可编辑城市存档只保存已经与 Runtime 修订共同提交的道路编辑状态；working/candidate
+  不保存。只从发布 LFCA 启动且没有对应道路编辑状态的世界是 runtime-only，可通过已认证
+  LFCA asset reference 重载但不能进入道路编辑；发布资产要允许编辑，必须同时提供可重新
+  编译并核对到同一修订的 committed 道路编辑状态，并先由 #302 用重编译 exact LFCA 原子
+  rebase root/source/diff-base binding。可编辑 session 在内存保留当前 exact base LFCA 供后续
+  LFSD 发射，存档仍不保存该临时 base；
 - “修改现有道路”和“删除后新建道路”是两个显式操作，前者可保持逻辑道路稳定键，
   后者必须获得新键；
 - UI 不要求在已建道路上暴露原始控制柄，允许以整体替换交互完成修改。
@@ -58,6 +67,11 @@ LIR 未改变）由已登记的后继 Delivery Issue [#345] 拥有；不能把
 
 ## 4. 道路编辑状态的最小内容
 
+本节描述可持久化内容的形状，不授予任意工作副本进入城市存档。ADR 0025 / #300 G1
+接受的保存入口只读取活动 Runtime 的 `CommittedNetworkSource`；本节只约束其中可编辑的
+committed `RoadEditingState` 变体。runtime-only 的 `PublishedLfcaReference` 同样是合法来源，
+但不携带 authoring payload，因此不适用下列 `RoadEditingState` 必须保存内容。
+
 必须保存：
 
 - 模块、命名空间、稳定道路/区段/声明键和显式导入；
@@ -68,7 +82,7 @@ LIR 未改变）由已登记的后继 Delivery Issue [#345] 拥有；不能把
 
 不得保存为来源权威：
 
-- HIR/MIR/LIR ordinal、静态镜像布局或运行时 handle；
+- HIR/MIR/LIR ordinal、共享静态路网内部布局或运行时 handle；
 - 车辆、信号时钟、停车占用等每世界状态；
 - Adapter mesh、材质、碰撞体和物理表现；
 - 全部交互历史或无限 undo 日志。

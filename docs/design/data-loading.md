@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）<br>
 **最后更新**: 2026-08-18（#281 current；#291/ADR 0020 target；Accepted ADR 0024 后继边界）
-**适用范围**: Traffic v0.10、SpatialPackage/ScenarioManifest v0.1 production loader、保留的 Data v0.6 数值迁移边界，以及 target static-image trust/verifier
+**适用范围**: Traffic v0.10、SpatialPackage/ScenarioManifest v0.1 production loader、保留的 Data v0.6 数值迁移边界，以及 target LFCA admission/shared-network builder
 
 **关联文档**:
 
@@ -18,6 +18,7 @@
 - `../adr/0018-multimodal-cross-section-and-access-overlay.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
 - `../adr/0024-compiler-post-emission-check-and-minimal-publication-closure.md`
+- `../adr/0025-checked-canonical-network-and-shared-static-network.md`
 - `../reference/glossary.md`
 - `data-format.md`
 - `cross-section-access.md`
@@ -50,25 +51,20 @@
 ADR 0020 target 把完整静态 semantic normalization 前移到 compiler。Accepted ADR 0024
 规定：#299 只在发布提交前检查 LFCA/LFSM/LFSD 最终字节的摘要、长度、路网修订
 与跨对象闭合，并发布不含 receipt/LFSD 的 LFCP v2；它不建立独立 validator，也不替
-#300 决定镜像启动的信任输入。#300 必须重新冻结 `StaticNetworkImage` 与 image 外部
-认证描述符/manifest 的绑定，再由 `laneflow-static-image` bounded verifier 检查
-magic/version/target/profile、offset/alignment、section bounds、cardinality、
-numeric/runtime precondition、cross-index、`StaticIdentityIndex` 双向完整性与 load
-limits。Traffic section、冷 `StaticIdentityIndex` 和 `PartitionPlanningHints`
-必选；Spatial section 只在 profile 要求时存在。Runtime 可以忽略或重建分区规划
-提示，但 verifier 仍须验证该必选节的 closed shape。Verifier 随后建立
-`StaticTrafficView` / optional `StaticSpatialView`，不解析 JSON、不按 external
-string rebind、不重建 static registry、不重新 join Traffic/Spatial，也不重跑
-authoring topology/coverage/geometry derivation。
+#300 决定共享静态路网构建输入。Accepted ADR 0025 / #300 G1 让发布加载先认证 LFCP v2 /
+manifest 的 exact LFCA binding，再由 `laneflow-format` 建立受检 capability，并由
+`laneflow-static-network` 构建闭合的 `SharedNetworkRevision`。Traffic、Identity 与
+Hints component 必选，Spatial component 可选；Runtime 安装完整根，Spatial 从同一根或
+revision-bound snapshot 借用实际 capability。两者不解析 JSON 或 LFCA、不按 external
+string rebind，也不重跑 authoring topology/geometry derivation。
 
-若 ADR 0024 正式 Accepted，完整静态语义由 compiler 在发射前裁决，#299 不重复该
+Accepted ADR 0024 规定完整静态语义由 compiler 在发射前裁决，#299 不重复该
 语义实现。路网修订切换
-（Network Revision Cutover）的认证输入、旧/新制品与镜像绑定、语义差异（Semantic
+（Network Revision Cutover）的认证输入、旧/新 LFCA origin 与共享修订绑定、语义差异（Semantic
 Diff）摘要和迁移策略由 #302 重新冻结，不得继续假设 `revision-cutover-v1` receipt
 存在。LFSD 只记录变更事实，不构成激活授权或迁移权威。
-Image header 的 canonical artifact digest/provenance 声明不能独立建立信任，image
-也不把自己的 `staticImageDigest` 嵌回自身 bytes。本文其余 `LoadedPackage` /
-`InitialTrafficData` 路径仍是 current production contract，直到 shared-image
+共享根的 origin metadata 不是发布信任锚。本文其余 `LoadedPackage` /
+`InitialTrafficData` 路径仍是 current production contract，直到 shared-network
 cutover 完成 G4；target `laneflow-runtime` 不复用 private current DTO 作为 IR。
 
 ## 2. Crate 与 API 边界

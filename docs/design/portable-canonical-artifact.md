@@ -37,6 +37,7 @@ Windows/Ubuntu exact-byte CI 已对独立进程输出完成集中逐字节比较
 **关联文档**: `network-compiler.md`、`compiler-foundation.md`、
 `numeric-representation.md`、
 `../adr/0020-compiler-owned-static-network-and-static-image.md`、
+`../adr/0025-checked-canonical-network-and-shared-static-network.md`、
 `../reference/v0.10-portable-artifact-validation.md`、
 `../reference/glossary.md`
 
@@ -60,8 +61,8 @@ Ledger 中新的正式 `## G1 设计判断` 重新接受。当时的 G1 Pass 只
 本文不实现或授予下列权威：
 
 - 本文不授权完整语义信任；#299 当前后发射检查也不承担第二套完整语义验证；
-- 目标静态镜像、镜像完整性清单和有界结构校验器属于 #300；
-- Traffic Runtime / Spatial 共享镜像消费路径属于 #301；
+- 受检 LFCA → `SharedNetworkRevision` 的构建闭合与性能布局属于 #300；
+- Traffic Runtime / Spatial 共享静态路网消费路径属于 #301；
 - 可信路网切换描述符、运行时快照、迁移授权与在线切换属于 #302；
 - 编译器产生的语义差异只供审阅和诊断，不能自行授权运行时迁移；
 - `compilerBuildId`、来源位置和发布元数据不进入路网修订语义摘要；
@@ -729,7 +730,7 @@ target 的两行是 v1 支持值。
 kind 必需字段，不定义“缺失 optional 值如何排序”。完全相同的键失败关闭。重复关系值由
 required before/after `localIndex` 进入相应键来破同值；全局空间配置由独立 singleton
 change table 表达。相同 base/target 允许产生合法的空变化集合，但仍保留完整绑定。目标
-静态镜像的 `staticImageLayoutVersion/staticImageProfileId`-only 变化不进入 LFSD，也不得
+共享静态路网内部 layout-only 变化不进入 LFSD，也不得
 伪装成语义变化；这不包括已经进入 LFCA 语义的最终方向配置档。
 
 LFSD v1 只表达能够从两份 artifact 独立重算的集合和字段差异。`StableId128` 只存在于
