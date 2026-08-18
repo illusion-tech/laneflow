@@ -80,7 +80,46 @@ pub(super) fn hydrate_current_g3_comment_effective_time(
     comment.updated_at = Some(validate_edited_g3_comment_snapshot(
         repo, pr_number, comment, &snapshot,
     )?);
+    comment.user_content_edits = Some(gh_issue_comment_user_content_edits(comment)?);
     Ok(())
+}
+
+pub(super) fn gh_issue_comment_user_content_edits(
+    comment: &GitHubComment,
+) -> Result<GitHubUserContentEditConnection, String> {
+    if comment.id.is_empty() {
+        return Err(
+            "edited G3 comment 缺少 GraphQL node id，无法读取 userContentEdits".to_string(),
+        );
+    }
+    let query = r#"query($id: ID!) {
+  node(id: $id) {
+    ... on IssueComment {
+      id
+      url
+      userContentEdits(first: 100) {
+        pageInfo { hasNextPage }
+        nodes { editedAt editor { login } diff }
+      }
+    }
+  }
+}"#;
+    let response: GitHubIssueCommentEditsResponse = gh_json(&[
+        "api".to_string(),
+        "graphql".to_string(),
+        "-f".to_string(),
+        format!("query={query}"),
+        "-F".to_string(),
+        format!("id={}", comment.id),
+    ])?;
+    let node = response
+        .data
+        .node
+        .ok_or("GitHub GraphQL 未返回 edited G3 IssueComment node")?;
+    if node.id != comment.id || node.url != comment.url {
+        return Err("edited G3 comment 的 GraphQL node identity 与当前 comment 不一致".to_string());
+    }
+    Ok(node.user_content_edits)
 }
 
 pub(super) fn gh_edit_timestamps(
@@ -142,7 +181,7 @@ pub(super) fn gh_pr_user_content_edits(
     pullRequest(number: $number) {
       userContentEdits(first: 100) {
         pageInfo { hasNextPage }
-        nodes { editedAt editor { login } }
+        nodes { editedAt editor { login } diff }
       }
     }
   }
@@ -515,10 +554,10 @@ pub(super) fn gh_issue_fields(phase: GateEvidencePhase) -> &'static str {
 pub(super) fn gh_pr_fields(phase: GateEvidencePhase) -> &'static str {
     match phase {
         GateEvidencePhase::G3 => {
-            "body,state,isDraft,createdAt,mergedAt,closingIssuesReferences,comments"
+            "body,state,isDraft,headRefOid,baseRefOid,createdAt,mergedAt,closingIssuesReferences,comments"
         }
         GateEvidencePhase::G4 => {
-            "body,state,isDraft,createdAt,mergedAt,closingIssuesReferences,projectItems,comments"
+            "body,state,isDraft,headRefOid,baseRefOid,createdAt,mergedAt,closingIssuesReferences,projectItems,comments"
         }
     }
 }

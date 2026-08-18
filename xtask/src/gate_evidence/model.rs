@@ -154,29 +154,48 @@ pub(super) struct GitHubUserContentEditsRepository {
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub(super) struct GitHubUserContentEditsPullRequest {
+pub(super) struct GitHubIssueCommentEditsResponse {
+    pub(super) data: GitHubIssueCommentEditsData,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubIssueCommentEditsData {
+    pub(super) node: Option<GitHubIssueCommentEditsNode>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubIssueCommentEditsNode {
+    pub(super) id: String,
+    pub(super) url: String,
     #[serde(rename = "userContentEdits")]
     pub(super) user_content_edits: GitHubUserContentEditConnection,
 }
 
 #[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubUserContentEditsPullRequest {
+    #[serde(rename = "userContentEdits")]
+    pub(super) user_content_edits: GitHubUserContentEditConnection,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
 pub(super) struct GitHubUserContentEditConnection {
     #[serde(rename = "pageInfo")]
     pub(super) page_info: GitHubPageInfo,
     pub(super) nodes: Vec<GitHubUserContentEdit>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub(super) struct GitHubPageInfo {
     #[serde(rename = "hasNextPage")]
     pub(super) has_next_page: bool,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub(super) struct GitHubUserContentEdit {
     #[serde(rename = "editedAt")]
     pub(super) edited_at: String,
     pub(super) editor: Option<GitHubActor>,
+    pub(super) diff: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -217,6 +236,12 @@ pub(super) struct GitHubPullRequest {
     pub(super) state: String,
     #[serde(rename = "isDraft")]
     pub(super) is_draft: bool,
+    #[serde(rename = "headRefOid")]
+    #[serde(default)]
+    pub(super) head_ref_oid: String,
+    #[serde(rename = "baseRefOid")]
+    #[serde(default)]
+    pub(super) base_ref_oid: String,
     #[serde(rename = "createdAt")]
     pub(super) created_at: String,
     #[serde(rename = "mergedAt")]
@@ -251,8 +276,10 @@ pub(super) struct IssueReferenceRepository {
     pub(super) owner: GitHubActor,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub(super) struct GitHubComment {
+    #[serde(default)]
+    pub(super) id: String,
     pub(super) url: String,
     pub(super) body: String,
     #[serde(default)]
@@ -261,11 +288,13 @@ pub(super) struct GitHubComment {
     pub(super) created_at: String,
     #[serde(skip)]
     pub(super) updated_at: Option<String>,
+    #[serde(skip)]
+    pub(super) user_content_edits: Option<GitHubUserContentEditConnection>,
     #[serde(rename = "includesCreatedEdit", default)]
     pub(super) includes_created_edit: bool,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 pub(super) struct GitHubActor {
     pub(super) login: String,
 }
@@ -303,6 +332,11 @@ pub(super) const G3_EVIDENCE_SHADOW_COMMENT_FIELD: &str = "- G3 Evidence Gate Sh
 pub(super) const EXTERNAL_REVIEW_WAIVER_START: &str = "<!-- external-review-waiver:v1";
 pub(super) const EXTERNAL_REVIEW_WAIVER_END: &str = "-->";
 pub(super) const EXTERNAL_REVIEW_WAIVER_MAX_SECONDS: u64 = 24 * 60 * 60;
+pub(super) const G3_COMMENT_CORRECTION_START: &str = "<!-- g3-comment-correction:v1";
+pub(super) const G3_COMMENT_CORRECTION_END: &str = "-->";
+pub(super) const G3_EXCEPTION_START: &str = "<!-- g3-exception:v1";
+pub(super) const G3_EXCEPTION_END: &str = "-->";
+pub(super) const G3_EXCEPTION_MAX_SECONDS: u64 = 24 * 60 * 60;
 pub(super) const G3_FULL_SET_RECOVERY_START: &str = "<!-- g3-full-set-recovery:v1";
 pub(super) const G3_FULL_SET_RECOVERY_END: &str = "-->";
 pub(super) const G3_OWNER_ACTORS: &[&str] = &["wangzishi"];
@@ -331,6 +365,62 @@ pub(super) enum G3Result {
     Pass,
     Waived,
     Bootstrap,
+    Exception,
+    LegacyBlock,
+}
+
+impl G3Result {
+    pub(super) const fn machine_state(self) -> &'static str {
+        match self {
+            Self::Pass | Self::Bootstrap => "pass",
+            Self::Waived => "waived",
+            Self::Exception | Self::LegacyBlock => "accepted_exception",
+        }
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct G3CommentCorrectionRecord {
+    pub(super) schema_version: u64,
+    pub(super) id: String,
+    pub(super) issue: u64,
+    pub(super) pull_request: u64,
+    pub(super) current_head_oid: String,
+    pub(super) g3_comment: String,
+    pub(super) original_body_sha256: String,
+    pub(super) new_body_sha256: String,
+    pub(super) edited_at: String,
+    pub(super) editor: String,
+    pub(super) reason: String,
+    pub(super) risk: String,
+    pub(super) acceptance_boundary: String,
+    pub(super) follow_up_issue: String,
+    pub(super) cleanup_owner: String,
+    pub(super) authorized_by: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct G3ExceptionRecord {
+    pub(super) schema_version: u64,
+    pub(super) id: String,
+    pub(super) exception_type: String,
+    pub(super) issue: u64,
+    pub(super) pull_request: u64,
+    pub(super) current_head_oid: String,
+    pub(super) current_base_oid: String,
+    pub(super) g3_comment: String,
+    pub(super) g3_comment_body_sha256: String,
+    pub(super) reason: String,
+    pub(super) evidence_refs: Vec<String>,
+    pub(super) risk: String,
+    pub(super) acceptance_boundary: String,
+    pub(super) accepted_at: String,
+    pub(super) expires_at: String,
+    pub(super) follow_up_issue: String,
+    pub(super) cleanup_owner: String,
+    pub(super) authorized_by: String,
 }
 
 #[derive(Debug, serde::Deserialize)]

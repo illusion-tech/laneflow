@@ -28,6 +28,10 @@ pub(super) fn validate_g3_shadow_success_result(result: G3Result) -> Result<(), 
             "G3 Waived 是有到期时间的 action-required 证据，G3 Evidence Gate Shadow 不得发布 success"
                 .to_string(),
         ),
+        G3Result::Exception | G3Result::LegacyBlock => Err(
+            "accepted_exception 诚实保留 Gate failure，G3 Evidence Gate Shadow 不得发布 success"
+                .to_string(),
+        ),
     }
 }
 
@@ -345,6 +349,14 @@ pub(super) fn validate_g3_evidence(
     related_prs: &[GitHubPullRequest],
 ) -> Result<(), String> {
     validate_related_pr_snapshot_count(args, related_prs)?;
+    let allow_legacy_exception = if args.phase == GateEvidencePhase::G4 {
+        let g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
+        comment_for_permalink(issue, &g4_permalink, "Issue G4 exception appendix")?
+            .body
+            .contains(G3_EXCEPTION_START)
+    } else {
+        false
+    };
     let delivery_number = args
         .delivery_pr
         .ok_or("Delivery full-set G3 validation 缺少 Delivery PR 参数")?;
@@ -378,8 +390,9 @@ pub(super) fn validate_g3_evidence(
         G3_COMMENT_FIELDS,
         "Delivery PR G3",
         args,
+        allow_legacy_exception,
     )?;
-    validate_g3_timing(delivery_pr, &delivery_permalink, "Delivery PR")?;
+    validate_g3_timing(delivery_pr, &delivery_permalink, "Delivery PR", args)?;
     if !delivery_pr
         .closing_issues_references
         .iter()
@@ -405,6 +418,7 @@ pub(super) fn validate_g3_evidence(
             issue_g3_line,
             *number,
             related_pr,
+            allow_legacy_exception,
         )?;
     }
     Ok(())
@@ -440,7 +454,14 @@ pub(super) fn validate_related_g3_evidence(
         ));
     }
     let issue_g3_line = pending_gate_line(&issue.body, "G3")?;
-    validate_related_pr_g3(args, &issue.body, issue_g3_line, related_number, related_pr)
+    validate_related_pr_g3(
+        args,
+        &issue.body,
+        issue_g3_line,
+        related_number,
+        related_pr,
+        false,
+    )
 }
 
 pub(super) fn validate_related_pr_g3(
@@ -449,6 +470,7 @@ pub(super) fn validate_related_pr_g3(
     issue_g3_line: &str,
     number: u64,
     related_pr: &GitHubPullRequest,
+    allow_legacy_exception: bool,
 ) -> Result<(), String> {
     let permalink = completed_gate_permalink(&related_pr.body, "G3")?;
     if !line_links_to_comment_permalink(issue_body, issue_g3_line, &permalink) {
@@ -457,8 +479,15 @@ pub(super) fn validate_related_pr_g3(
         ));
     }
     let label = format!("Related PR #{number} G3");
-    validate_comment(related_pr, &permalink, G3_COMMENT_FIELDS, &label, args)?;
-    validate_g3_timing(related_pr, &permalink, &label)?;
+    validate_comment(
+        related_pr,
+        &permalink,
+        G3_COMMENT_FIELDS,
+        &label,
+        args,
+        allow_legacy_exception,
+    )?;
+    validate_g3_timing(related_pr, &permalink, &label, args)?;
     if related_pr
         .closing_issues_references
         .iter()

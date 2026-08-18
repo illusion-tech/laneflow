@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "records": [
+    {
+      "source": "https://github.com/illusion-tech/laneflow/pull/372#issuecomment-5279602577",
+      "issue": 296,
+      "pullRequest": 372,
+      "shape": "legacy G3 Block with prose assertion",
+      "gateCommentBody": "## G3 合并判断\n- Gate 结果：G3 Block（Delivery current-head 自身已通过；full-set 历史证据缺失）\n- Gate 断言：规范 full-set 命令已运行但未通过：历史 Related PR 缺少 G3 证据"
+    },
+    {
+      "source": "https://github.com/illusion-tech/laneflow/pull/397#issuecomment-5306573616",
+      "issue": 351,
+      "pullRequest": 397,
+      "shape": "legacy G3 Pass with explicit failed command",
+      "gateCommentBody": "## G3 合并判断\n- Gate 结果：`G3 Pass`\n- Gate 断言：`cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo illusion-tech/laneflow --issue 60 --delivery-pr 61` **未通过**（历史工具缺陷；未追授 Pass）"
+    }
+  ]
+}

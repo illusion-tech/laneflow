@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "issue": 351,
+  "deliveryPr": 397,
+  "relatedPrs": [395, 396],
+  "g4Comment": "https://github.com/illusion-tech/laneflow/issues/351#issuecomment-5306718474",
+  "g3Comments": [
+    {
+      "pr": 395,
+      "comment": "https://github.com/illusion-tech/laneflow/pull/395#issuecomment-5305630057",
+      "mergedAt": "2026-08-16T04:15:01Z",
+      "historicalShadowLine": "- G3 Evidence Gate Shadow：`R1 non-required：候选 shadow workflow 尚未成为 required Check，本 PR 以 xtask check-gate-evidence g3 --related-pr 395 的人工核验断言为准。`",
+      "canonicalShadowLine": "- G3 Evidence Gate Shadow：R1 non-required：候选 shadow workflow 尚未成为 required Check，本 PR 以 xtask check-gate-evidence g3 --related-pr 395 的人工核验断言为准。"
+    },
+    {
+      "pr": 396,
+      "comment": "https://github.com/illusion-tech/laneflow/pull/396#issuecomment-5306063990",
+      "mergedAt": "2026-08-16T06:17:29Z",
+      "historicalShadowLine": "- G3 Evidence Gate Shadow：`R1 non-required：候选 shadow workflow 尚未成为 required Check，本 PR 以 xtask check-gate-evidence g3 --related-pr 396 的人工核验断言为准。`",
+      "canonicalShadowLine": "- G3 Evidence Gate Shadow：R1 non-required：候选 shadow workflow 尚未成为 required Check，本 PR 以 xtask check-gate-evidence g3 --related-pr 396 的人工核验断言为准。"
+    },
+    {
+      "pr": 397,
+      "comment": "https://github.com/illusion-tech/laneflow/pull/397#issuecomment-5306573616",
+      "mergedAt": "2026-08-16T09:11:59Z",
+      "historicalShadowLine": "- G3 Evidence Gate Shadow：`R1 non-required：候选 shadow workflow 尚未成为 required Check，本 PR 为 Delivery PR，以整组人工核验断言为准。`",
+      "canonicalShadowLine": "- G3 Evidence Gate Shadow：R1 non-required：候选 shadow workflow 尚未成为 required Check，本 PR 为 Delivery PR，以整组人工核验断言为准。"
+    }
+  ]
+}

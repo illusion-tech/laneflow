@@ -42,8 +42,8 @@ Gate Ledger 是 Issue 和 PR 上的增量闸口记录，用来说明任务何时
 - PR / Issue body 与 comment 中的 GitHub URL 使用文末 reference-style 定义，并在正文与引用定义之间保留空行；Gate validator 同时解析既有 inline permalink 和 reference-style permalink，引用定义存在但 Gate 行未实际引用时不得通过。
 - G4 的完整事件证据记录在 Issue 的 `## G4 完成判断` comment，且必须在所有关联 PR 合并后、Issue 关闭前创建；Issue body 的 G4 checkbox 保存直接 comment permalink。Delivery PR 的 body 只回链该 Issue G4 comment，Related PR 不承担 Issue G4。
 - GitHub comment 是带时间和作者的过程证据，不是不可变审计日志；长期规则仍由仓库文档和 Git 历史保存。
-- 每个 Related PR 独立 G3 都必须运行 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>`；该 comment 永久保留 Related-only 断言，只验证当前 Related PR 的 comment、仍未勾选的 Issue G3 增量 permalink 与关系，不声明 Issue 整体 G3 已完成。若 Issue G3 已提前勾选，Related-only 校验必须失败。
-- Delivery PR G3、整组关系复核与 G4 使用 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence <g3|g4> --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...`，并传入 Issue 已记录的全部 Related PR。整组复核按各 Related PR 原有的 Related-only 断言验证其 current G3 comment，不要求改写为 full-set 命令；Delivery PR comment 和 Issue 最终断言使用 full-set 命令。`Gate 断言` 行必须用反引号记录与本次参数完全一致的规范命令并明确写 `已通过`；一个 PR 关联多个 Issue 时，同一 current G3 comment 必须为每个 Issue 分别保留一条精确断言，不能让单一 Issue 命令冒充整组通过。`待运行`、缺少成功标记、重复命令或参数不匹配均视为 Gate 失败。命令或远端读取失败同样是 Gate 失败。
+- 每个 Related PR 独立 G3 都必须运行 `cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>`；`<workspace-rust-version>` 由 `xtask` 的 `CARGO_PKG_RUST_VERSION` 生成（当前为 `1.96.0`），不得在生成器中另写常量。该 comment 永久保留 Related-only 断言，只验证当前 Related PR 的 comment、仍未勾选的 Issue G3 增量 permalink 与关系，不声明 Issue 整体 G3 已完成。若 Issue G3 已提前勾选，Related-only 校验必须失败。
+- Delivery PR G3、整组关系复核与 G4 使用 `cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence <g3|g4> --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...`，并传入 Issue 已记录的全部 Related PR。整组复核按各 Related PR 原有的 Related-only 断言验证其 current G3 comment，不要求改写为 full-set 命令；Delivery PR comment 和 Issue 最终断言使用 full-set 命令。gate-command v1 对从 `1.96.0` 到当前 workspace MSRV 的稳定版本保持历史兼容；比较解析后的 phase、repo、Issue、角色与有序 Related 集合，并忽略空白及 Cargo/xtask 独立参数的等价顺序。未知、缺失、超出版本窗或语义重复的参数继续失败关闭。`G3 Pass` / bootstrap 的 `Gate 断言` 明确写 `已通过`；`G3 Exception` 及历史重放明确写 `未通过`，且必须有下文定义的结构化记录，绝不映射为 Pass。一个 PR 关联多个 Issue 时，同一 current G3 comment 必须为每个 Issue 分别保留一条精确断言。命令或远端读取失败同样是 Gate 失败。
 - 小型 `docs-only` 或 `governance` 任务可以把 G0-G2 合并为一条开工记录，但该记录必须发生在实现或开 PR 之前。
 - 如果 G4 阶段才发现 G0-G3 缺失，只能标记为补救记录，并说明流程遗漏原因。
 - Agent 不得在缺少当前 Gate 记录时继续推进下一 Gate，除非用户明确接受例外并留下原因、风险和 Cleanup owner。
@@ -261,13 +261,15 @@ R1 的 `External Review Gate Shadow` 由 `github-actions` 发布，只用于 non
 
 唯一 marker 复用例外是已经精确满足 `dependabot-cargo-lock-only-v1` 的 PR 在 marker 后发生 Dependabot 自主 body edit：trusted workflow 可为该 PR 及受其影响的 Delivery target 重用各自最近的未编辑 marker，但必须分页确认 marker 后的全部 body edit editor 均为 Dependabot、`lastEditedAt` 与 `updatedAt` 没有显示其他证据相关 PR activity，并重新运行完整 target、closing set、Issue Ledger、external review、timeline 与 identity 校验；任何人工 edit、分页截断、同秒歧义或证据相关的额外 activity（例如 base change）都仍要求新增 marker。同一 Dependabot `edited` event 中不参与 G3 证据的 title change 不单独使 marker 失效。validator 还分页读取关联 Issue / PR timeline：关联 Issue 的 close/reopen，以及 full-set 全部 PR 的 comment（含 edit 时间）、review、commit、close/reopen、Draft/ready、review request 与 head/base 生命周期活动都必须严格早于 marker；GitHub 同秒无法证明顺序、timeline 分页或事件时间缺失时继续失败关闭。其他 PR/body/Issue body、conversation comment、review/thread、marker edit/delete 与 workflow dispatch 等非 marker 事件不发布新 Check，也不复用旧 marker 恢复 success；它们如需撤销或更新结论，由后续 marker 事件、标准 `check-gate-evidence g3/g4` 命令或 G4 复核显式重新评估。publishable marker 的直接 PR 与 Dependabot reuse run 从 resolver 前按目标 PR 串行，publisher 对级联 target 继续按 PR 串行；review-signal、普通 PR/Issue event 为仅遥测，不进入 publisher。success 前再次完整运行 target 与 marker validator，并复核 PR identity/eligibility。即使旧 marker run 较晚到达 publisher，body 与 timeline freshness 也会拒绝在后发 Related 编辑或状态往返之前创建的 marker。
 
-`G3 Evidence Gate Shadow` 字段以 PR #324 的 `mergedAt = 2026-08-06T10:49:21Z` 为激活边界；effective time 更早的 G3 comment 保留历史语义，不追溯补写该字段，effective time 在激活时点及之后的 comment 必须唯一、非空，并精确使用 `Check URL：https://github.com/...`、`R1 non-required：<原因>` 或 `候选 workflow bootstrap：<边界>` 之一。Issue event resolver 只取 event 中变更前后 body 明确记录的 Delivery / Related PR 并取并集；完全没有治理元数据的无关 Issue 返回空目标，只有字段不完整或歧义时才保守刷新全部 open main PR。`G3 Waived` 是有期限的 action-required 证据；当前 target 或其 Delivery full-set 任一 current-policy PR 为 `G3 Waived` 时，marker 评估发布 non-success，不让成员 waiver 在到期后遗留 Delivery success；只有完整集合均为 `G3 Pass` / `R0-R1 bootstrap` 才可进入 marker success eligibility。review signal 与 Related PR 普通变化属于仅遥测；下一次 publishable marker 事件重读当前 evidence，并级联刷新对应 Issue 已记录的 Delivery PR，级联目标只能使用其自身最近的有效 marker。该 marker 只是唤醒信号，不能携带结论。`pull_request_target` 不使用 base branch 事件过滤器；non-marker 事件在 resolve-targets 入口跳过，retarget 离开 `main` 不再向旧 head 补发 failure，后续 marker 或显式命令复核时仍按当前 base 失败关闭。`G3 Evidence Gate Shadow` 由 `github-actions` 发布且当前不在 ruleset 中，只能证明 trusted-ref replay 的 telemetry 结果，不能声称已经阻止合并；修改该 workflow / validator 的候选 PR 也不能用尚未合入 `main` 的实现自批。
+`G3 Evidence Gate Shadow` 字段以 PR #324 的 `mergedAt = 2026-08-06T10:49:21Z` 为激活边界；effective time 更早的 G3 comment 保留历史语义，不追溯补写该字段，effective time 在激活时点及之后的 comment 必须唯一、非空，并精确使用 `Check URL：https://github.com/...`、`R1 non-required：<原因>` 或 `候选 workflow bootstrap：<边界>` 之一。canonical 形态不包裹整个值，例如 `- G3 Evidence Gate Shadow：R1 non-required：<原因>`；validator 仅为历史证据兼容同一完整值的一层反引号包裹，拒绝只包 URL、部分包裹、空值、重复或其他第三种写法。Issue event resolver 只取 event 中变更前后 body 明确记录的 Delivery / Related PR 并取并集；完全没有治理元数据的无关 Issue 返回空目标，只有字段不完整或歧义时才保守刷新全部 open main PR。`G3 Waived` 是有期限的 action-required 证据；当前 target 或其 Delivery full-set 任一 current-policy PR 为 `G3 Waived`、`G3 Exception` 或历史 `G3 Block` 时，marker 评估发布 non-success；只有完整集合均为 `G3 Pass` / `R0-R1 bootstrap` 才可进入 marker success eligibility。review signal 与 Related PR 普通变化属于仅遥测；下一次 publishable marker 事件重读当前 evidence，并级联刷新对应 Issue 已记录的 Delivery PR，级联目标只能使用其自身最近的有效 marker。该 marker 只是唤醒信号，不能携带结论。`pull_request_target` 不使用 base branch 事件过滤器；non-marker 事件在 resolve-targets 入口跳过，retarget 离开 `main` 不再向旧 head 补发 failure，后续 marker 或显式命令复核时仍按当前 base 失败关闭。`G3 Evidence Gate Shadow` 由 `github-actions` 发布且当前不在 ruleset 中，只能证明 trusted-ref replay 的 telemetry 结果，不能声称已经阻止合并；修改该 workflow / validator 的候选 PR 也不能用尚未合入 `main` 的实现自批。
 
 标准 `check-gate-evidence g3` 和 target 模式只接受仍为 `OPEN` 的关联 Issue，以及仍为 `OPEN`、非 Draft 且尚未合并的当前 Delivery / Related PR。target 模式在确认 PR / Issue 角色元数据稳定后必须重跑完整远端证据校验，不能只比较数字参数。Draft、closed 或其他不再 eligible 的同仓 PR 不发布新的 Check，保留其 eligible 时最后一次有效评估结论；合并后补写、编辑或重放标准 G3 在标准 `check-gate-evidence g3/g4` 与 G4 历史复核中继续失败关闭。`check-gate-evidence g4` 继续允许读取合并前 effective time 已形成的 G3 证据做历史复核。
 
 fork / cross-repository PR 的 head commit 不保证存在于 base repository，base repository 的 `GITHUB_TOKEN` 因而不能可靠创建关联 Check。此类 PR 不计入 R1 eligible sample；R2 不把缺失 Check 当作成功，必须把最终 patchset 迁移为 same-repository PR，并在新 PR 的 exact head 重新完成外部审阅与 G3。只有 security / emergency hotfix 等既有显式例外可以使用临时 ruleset bypass，不能形成 fork 的 standing bypass。
 
-G3 Owner 可以在 PR 合并前纠正 current G3 comment，也可以新增 superseding comment。new push、review dismissal 或 Gate 状态变化后，旧 review、旧 Check 与旧 G3 内容对新 head 全部 stale；无论选择编辑还是新增，都必须绑定 current head、重新满足 completion / Check、按新的 effective time 重验，并新增严格更晚的 marker。合并后不得编辑 G3 形成或改变历史证据。
+G3 Owner 可以在 PR 合并前纠正 current G3 comment，也可以新增 superseding comment。new push、review dismissal 或 Gate 状态变化后，旧 review、旧 Check 与旧 G3 内容对新 head 全部 stale；无论选择编辑还是新增，都必须绑定 current head、重新满足 completion / Check、按新的 effective time 重验，并新增严格更晚的 marker。合并后不得编辑 G3 形成或改变历史证据。唯一可恢复的既成事实是：合并前正文语义有效，合并后只去除或增加 `G3 Evidence Gate Shadow` 完整值的一层反引号。G4 replay 必须从 GitHub `UserContentEdit.diff` 相邻快照验证 original/new SHA-256、editor、`editedAt`、原版早于 merge、新版晚于 merge，并由 trusted G3 Owner 在编辑后新增未编辑的 `g3-comment-correction:v1` appendix。记录字段固定为 `schemaVersion`、唯一 `id`、`issue`、`pullRequest`、`currentHeadOid`、`g3Comment`、`originalBodySha256`、`newBodySha256`、`editedAt`、`editor`、`reason`、`risk`、`acceptanceBoundary`、独立 `followUpIssue`、`cleanupOwner`、`authorizedBy`。该记录不是 exception，不能改变 Gate 结果、断言结果或合并合法性；任一其他正文差异、哈希/actor/head/时序不符、编辑历史分页或 appendix 自身被编辑都失败关闭。
+
+`G3 Exception` 是“断言未通过但由 G3 Owner 接受风险”的一等审计状态，机器状态固定为 `accepted_exception`，绝不等于 `pass`。current 路径只允许 `confirmed_gate_defect`，必须在目标 G3 comment 之后另发未编辑的 `g3-exception:v1` appendix，并在验证/merge 时未过期（最长 24 小时）；historical G4 replay 只允许 `legacy_evidence_reconstruction`，用于既有 `G3 Block` 或历史 `G3 Pass + 未通过`，且接受事件必须晚于原 merge，明确不追授原 merge 合规。记录字段固定为 `schemaVersion`、唯一 `id`、`exceptionType`、`issue`、`pullRequest`、`currentHeadOid`、`currentBaseOid`、`g3Comment`、`g3CommentBodySha256`、`reason`、非空 `evidenceRefs`、`risk`、`acceptanceBoundary`、`acceptedAt`、`expiresAt`、独立 `followUpIssue`、`cleanupOwner`、`authorizedBy`；可见 `- 例外：` 行必须引用同一 GitHub evidence。未授权、过期、重复、未知类型、正文/identity/hash 不符均失败关闭。它与 `external-review-waiver:v1`、`g3-comment-correction:v1` 分离，不可互换。
 
 在 #230 的 R0 / R1 bootstrap 阶段，required `External Review Gate` 尚未启用：
 
@@ -331,16 +333,17 @@ content-equivalent rebase 还必须记录 reviewed/new head、old/new base、cha
 
 PR 合入 `main` 默认使用 **Rebase and merge**；若使用 Squash 或 Merge commit，须在 PR 中说明原因。详见 `github-workflow.md` 第 7 节。
 
-G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 current head、rollout phase、`Checks`、`External Review Gate`、`G3 Evidence Gate Shadow`、审阅、验证、风险、例外、合并方式和 `Gate 断言`。PR body 的 G3 checkbox 必须勾选并回链当前 PR comment；Issue body 的 G3 Gate Ledger 必须增量回链该 comment，只有 Delivery PR 与全部 Related PR 均完成时才勾选。`Gate 断言` 必须使用当前角色对应的 Related-only 或 full-set 规范命令，参数与实际调用完全一致；一个 PR 关联多个 Issue 时，在同一 comment 中为每个 Issue 分别写一条。填写后立即逐条运行，若任一失败必须移除对应 `已通过` 并修复证据。全部运行成功前不得合并。
+G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 current head、rollout phase、`Checks`、`External Review Gate`、`G3 Evidence Gate Shadow`、审阅、验证、风险、例外、合并方式和 `Gate 断言`。PR body 的 G3 checkbox 必须勾选并回链当前 PR comment；Issue body 的 G3 Gate Ledger 必须增量回链该 comment，只有 Delivery PR 与全部 Related PR 均完成时才勾选。`Gate 断言` 必须使用当前角色对应的 Related-only 或 full-set 规范命令，一个 PR 关联多个 Issue 时分别写一条。`G3 Pass` 填写后必须逐条运行成功；`G3 Exception` 必须如实保留 `未通过` 并满足结构化记录，不得改写成成功。
 
 ```text
 ## G3 合并判断
 
-- Gate 结果：G3 Pass / G3 Waived / R0-R1 bootstrap
+- Gate 结果：G3 Pass / G3 Waived / G3 Exception / R0-R1 bootstrap
 - Rollout phase：R0 / R1 / R2
 - Current head：
 - Checks：
 - External Review Gate：Check URL / R0-R1 non-required 原因
+- G3 Evidence Gate Shadow：R1 non-required：<原因>
 - 审阅：provider、actor、reviewed head、outcome、completion time、evidence URL
 - Review threads：actionable / unresolved / disposition / re-review
 - 验证：
@@ -349,6 +352,8 @@ G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 cur
 - 合并方式：Rebase and merge / 例外原因
 - Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` 已通过。
 ```
+
+`xtask scaffold-g3-comment` 目前只冻结输入/输出草案，不在本切片实现 GitHub 写入：输入为 `--repo`、一个或多个 `--issue`、当前 PR 及其 Delivery/Related role、完整 Related set 和 current head；工具读取远端 Issue/PR identity 后，输出 canonical comment、每个 Issue 的语义规范命令及本地预检结果。任一 identity、关系、head 或预检失败时不输出可发布结论；操作者审阅后自行发表 comment、更新 permalink 并运行正式远端校验。
 
 ## 7. G4 完成闸口
 
@@ -369,7 +374,7 @@ Issue 关闭前必须满足：
 - 本地和远端 PR 分支已清理，或说明保留原因。
 - 临时权限、ruleset bypass 或 admin override 已撤回，或说明保留原因、风险和 Cleanup owner。
 - 已在所有关联 PR 合并后、Issue 关闭前发表 `## G4 完成判断` comment；Issue body G4 checkbox 已回链该 comment，Delivery PR body 已回链该 Issue G4 comment。
-- `check-gate-evidence g4` 已成功运行；G4 comment 的 `Gate 断言` 行以规范格式记录与实际调用完全一致的命令和 `已通过` 结果。`待运行`、缺少成功标记或参数不匹配不得通过 G4。
+- `check-gate-evidence g4` 已成功运行；正常 G4 comment 的 `Gate 断言` 行以规范格式记录语义一致的命令和 `已通过` 结果。只有合格的 `g3-exception:v1` historical replay 才保留 `未通过` 并输出 `accepted_exception`，且不得描述为 Pass。`待运行`、无结构化记录的失败、缺少成功标记或参数不匹配不得通过 G4。
 
 G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必须补写，应标记为补救记录。
 
@@ -383,7 +388,7 @@ G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必�
 - 关系：
 - 分支：
 - 权限 / bypass：N/A，原因：/ 保留原因、风险、Cleanup owner：
-- Gate 断言：`cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g4 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...` 已通过。
+- Gate 断言：`cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence g4 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...` 已通过。
 ```
 
 ### 7.1 Delivery 合并后新增 Related PR 的 G4 recovery
