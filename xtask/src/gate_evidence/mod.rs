@@ -217,9 +217,10 @@ where
                 historical_exception_appendix,
                 ExternalReviewG3Validation {
                     phase: args.phase,
-                    gate_time: (args.phase == GateEvidencePhase::G4)
+                    exception_gate_time: (args.phase == GateEvidencePhase::G4)
                         .then_some(delivery_pr.merged_at.as_deref())
                         .flatten(),
+                    ordinary_waiver_merged_at: None,
                 },
             )?;
         }
@@ -259,7 +260,8 @@ where
                     historical_exception_appendix,
                     ExternalReviewG3Validation {
                         phase: args.phase,
-                        gate_time: related_pr.merged_at.as_deref(),
+                        exception_gate_time: related_pr.merged_at.as_deref(),
+                        ordinary_waiver_merged_at: related_pr.merged_at.as_deref(),
                     },
                 )?;
             }
@@ -293,7 +295,8 @@ where
                 historical_exception_appendix,
                 ExternalReviewG3Validation {
                     phase: args.phase,
-                    gate_time: None,
+                    exception_gate_time: None,
+                    ordinary_waiver_merged_at: None,
                 },
             )?;
         }

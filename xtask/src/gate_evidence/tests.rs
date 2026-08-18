@@ -2025,6 +2025,50 @@ fn current_exception_scopes_multi_issue_assertions_without_forcing_other_issues_
 }
 
 #[test]
+fn related_full_set_preserves_current_exception_scope() {
+    let (mut pr, _) = g3_exception_fixture(
+        "confirmed_gate_defect",
+        "G3 Exception",
+        "2026-07-10T05:10:00Z",
+        "2026-07-10T06:00:00Z",
+    );
+    let args = related_only_g3_args();
+    let original_body = pr.comments[0].body.clone();
+    let related_body = original_body
+        .replace(DELIVERY_G3_URL, RELATED_G3_URL)
+        .replace(
+            &expected_gate_command(&gate_args(GateEvidencePhase::G3), GateEvidencePhase::G3),
+            &expected_gate_command(&args, GateEvidencePhase::G3),
+        );
+    let original_hash = body_sha256(&original_body);
+    let related_hash = body_sha256(&related_body);
+    pr.comments[0].url = RELATED_G3_URL.to_string();
+    pr.comments[0].body = related_body;
+    pr.comments[1].url = pr.comments[1].url.replace("/pull/61", "/pull/62");
+    pr.comments[1].body = pr.comments[1]
+        .body
+        .replace(r#""pullRequest": 61"#, r#""pullRequest": 62"#)
+        .replace(DELIVERY_G3_URL, RELATED_G3_URL)
+        .replace(&original_hash, &related_hash);
+    pr.body = format!(
+        "- 关联 Issue：#60\n- PR 角色：Related PR\n- [x] G3 合并判断已记录：[G3 评论]({RELATED_G3_URL})\nRefs: #60"
+    );
+    pr.closing_issues_references.clear();
+
+    let scope = related_full_set_result_scope(&pr, 62, 60, &BTreeSet::from([60]), false)
+        .expect("current exception scope must be derived without a historical G4 record");
+    assert_eq!(scope, (60, true));
+    assert!(
+        validate_gate_evidence_target_assertions_with_legacy_exception(
+            &pr,
+            std::slice::from_ref(&args),
+            Some(scope),
+        )
+        .is_ok()
+    );
+}
+
+#[test]
 fn current_exception_scope_is_independent_of_g4_appendix_presence() {
     let current_exception_issues = BTreeSet::from([60]);
     assert_eq!(
@@ -2060,7 +2104,8 @@ fn current_exception_requires_a_visible_current_head_before_early_acceptance() {
         None,
         ExternalReviewG3Validation {
             phase: GateEvidencePhase::G3,
-            gate_time: None,
+            exception_gate_time: None,
+            ordinary_waiver_merged_at: None,
         },
     )
     .expect_err("a current exception must not bypass visible current-head validation");
@@ -2076,7 +2121,8 @@ fn current_exception_requires_a_visible_current_head_before_early_acceptance() {
         Some(&g4_appendix),
         ExternalReviewG3Validation {
             phase: GateEvidencePhase::G4,
-            gate_time: pr.merged_at.as_deref(),
+            exception_gate_time: pr.merged_at.as_deref(),
+            ordinary_waiver_merged_at: None,
         },
     )
     .expect_err(
@@ -2742,6 +2788,47 @@ fn confirmed_defect_waiver_grandfathering_requires_pre_policy_g4_replay() {
         Ok(false)
     );
     assert!(historical_waiver_replay(GateEvidencePhase::G4, None).is_err());
+}
+
+#[test]
+fn delivery_ordinary_waiver_uses_g4_evaluation_time() {
+    let current_time = parse_utc_timestamp_seconds("2026-08-18T10:00:00Z").unwrap();
+    let merged_at = "2026-08-18T04:00:00Z";
+    let merged_time = parse_utc_timestamp_seconds(merged_at).unwrap();
+
+    assert_eq!(
+        gate_waiver_evaluation_time(
+            "provider_platform_outage",
+            current_time,
+            None,
+            true,
+            Some(merged_at),
+        ),
+        Ok(current_time),
+        "an ordinary Delivery waiver must remain fresh at the G4 evaluation time"
+    );
+    assert_eq!(
+        gate_waiver_evaluation_time(
+            "confirmed_gate_defect",
+            current_time,
+            None,
+            true,
+            Some(merged_at),
+        ),
+        Ok(merged_time),
+        "the explicit pre-policy confirmed-defect grandfather replays at merge"
+    );
+    assert_eq!(
+        gate_waiver_evaluation_time(
+            "provider_platform_outage",
+            current_time,
+            Some(merged_at),
+            false,
+            Some(merged_at),
+        ),
+        Ok(merged_time),
+        "a merged Related member keeps its established merge-time validation"
+    );
 }
 
 #[test]

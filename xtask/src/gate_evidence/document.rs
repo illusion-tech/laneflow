@@ -1082,7 +1082,7 @@ pub(super) fn validate_external_review_g3(
         scoped_gate_result,
         historical_appendix,
         G3ExceptionValidationTimes {
-            gate_time: validation.gate_time,
+            gate_time: validation.exception_gate_time,
             evaluation_time: Some(current_time),
         },
     )? {
@@ -1093,9 +1093,16 @@ pub(super) fn validate_external_review_g3(
     }
     let result = match scoped_gate_result {
         G3Result::Waived => {
-            let validation_time = waiver_validation_time(validation.gate_time, current_time)?;
             let historical_replay =
                 historical_waiver_replay(validation.phase, pr.merged_at.as_deref())?;
+            let exception_type = gate_waiver_exception_type(comment, issue_number)?;
+            let validation_time = gate_waiver_evaluation_time(
+                &exception_type,
+                current_time,
+                validation.ordinary_waiver_merged_at,
+                historical_replay,
+                pr.merged_at.as_deref(),
+            )?;
             let waiver =
                 parse_gate_waiver(comment, issue_number, validation_time, historical_replay)?;
             external_review::evaluate_live_with_waiver(repo, number, waiver)?
@@ -1134,7 +1141,8 @@ pub(super) fn validate_external_review_g3(
 #[derive(Clone, Copy)]
 pub(super) struct ExternalReviewG3Validation<'a> {
     pub(super) phase: GateEvidencePhase,
-    pub(super) gate_time: Option<&'a str>,
+    pub(super) exception_gate_time: Option<&'a str>,
+    pub(super) ordinary_waiver_merged_at: Option<&'a str>,
 }
 
 pub(super) fn scoped_current_g3_result(
@@ -1176,6 +1184,23 @@ pub(super) fn historical_waiver_replay(
     let policy_activation = parse_utc_timestamp_seconds(G3_EXCEPTION_POLICY_ACTIVATION)
         .expect("G3 exception policy activation must be a valid UTC timestamp");
     Ok(merged_at < policy_activation)
+}
+
+pub(super) fn gate_waiver_evaluation_time(
+    exception_type: &str,
+    current_time: u64,
+    ordinary_waiver_merged_at: Option<&str>,
+    historical_replay: bool,
+    pr_merged_at: Option<&str>,
+) -> Result<u64, String> {
+    let merged_at = if ordinary_waiver_merged_at.is_some() {
+        ordinary_waiver_merged_at
+    } else if historical_replay && exception_type == "confirmed_gate_defect" {
+        Some(pr_merged_at.ok_or("历史 confirmed_gate_defect waiver 缺少 PR mergedAt")?)
+    } else {
+        None
+    };
+    waiver_validation_time(merged_at, current_time)
 }
 
 pub(super) fn validate_g3_comment_after_external_review_completion(
@@ -2013,6 +2038,22 @@ pub(super) fn parse_gate_waiver(
         authorized_by: record.authorized_by,
         historical_replay,
     })
+}
+
+fn gate_waiver_exception_type(
+    comment: &GitHubComment,
+    issue_number: u64,
+) -> Result<String, String> {
+    let expected_follow_up_issue = format!("#{issue_number}");
+    parse_gate_waiver_records(comment)?
+        .into_iter()
+        .find(|record| record.follow_up_issue == expected_follow_up_issue)
+        .map(|record| record.exception_type)
+        .ok_or_else(|| {
+            format!(
+                "G3 Waived multi-Issue comment 缺少当前 Issue `{expected_follow_up_issue}` 的唯一结构化记录"
+            )
+        })
 }
 
 pub(super) fn reference_github_url(body: &str, label: &str) -> Option<String> {
