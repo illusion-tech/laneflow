@@ -253,7 +253,7 @@ fn digest_hex(bytes: &[u8]) -> String {
 
 #[test]
 fn portable_min_headless_matches_g1_anchor_and_frozen_exact_bytes() {
-    let candidate = emit(&empty_output(), MIN_HEADLESS_BUILD_ID);
+    let candidate = min_headless_portable_fixture_candidate();
     assert_exact_candidate(
         &candidate,
         MIN_HEADLESS_EXPECTED,
@@ -453,7 +453,7 @@ fn portable_signed_zero_input_matches_positive_zero_and_wire_negative_zero_fails
 
 #[test]
 fn portable_claim_mismatch_is_structurally_valid_but_not_the_frozen_revision() {
-    let candidate = emit(&empty_output(), MIN_HEADLESS_BUILD_ID);
+    let candidate = min_headless_portable_fixture_candidate();
     assert_eq!(
         claim_mismatch_bytes(candidate.canonical_artifact().bytes()).as_ref(),
         CLAIM_MISMATCH_EXPECTED
@@ -472,4 +472,10 @@ fn portable_claim_mismatch_is_structurally_valid_but_not_the_frozen_revision() {
             mismatch.section(ordinal).unwrap().bytes()
         );
     }
+}
+
+// Keep shared factories below the fixture-producing call sites: SyntheticModuleBuilder captures
+// caller locations, so inserting lines above those sites would intentionally change exact bytes.
+pub(super) fn min_headless_portable_fixture_candidate() -> crate::PortablePublicationCandidate {
+    emit(&empty_output(), MIN_HEADLESS_BUILD_ID)
 }
