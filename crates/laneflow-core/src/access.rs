@@ -864,10 +864,6 @@ fn opt_min(a: Option<usize>, b: Option<usize>) -> Option<usize> {
 /// 把一组候选规则按 class 折叠进 verdict 向量（len = class_count）。
 /// 字典序 key：①参与者 specificity（使匹配成功的最深 class 深度）②target
 /// specificity（仅 edge 平面）③priority 数值高者。
-#[expect(
-    clippy::too_many_arguments,
-    reason = "normalization 期一次性裁决需要全部上下文"
-)]
 fn fold_rules_into(
     verdicts: &mut [Option<ClassVerdict>],
     rule_indices: &[usize],
@@ -1125,8 +1121,7 @@ fn resolve_edge_cells(
     let mut signature_rows: IndexMap<(Option<u32>, Box<[usize]>), u32> = IndexMap::new();
     let mut row_starts: Vec<u32> = Vec::with_capacity(edge_count);
     let mut cells: Vec<AccessCell> = Vec::new();
-    for edge_index in 0..edge_count {
-        let direct = &edge_target_rules[edge_index];
+    for (edge_index, direct) in edge_target_rules.iter().enumerate() {
         let context_id = match cross_section.edge_lane_membership(EdgeHandle::new(edge_index)) {
             Some((section, lane_index)) => *lane_contexts
                 .entry((section.index(), lane_index))
