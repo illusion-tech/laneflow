@@ -153,7 +153,7 @@ pub(super) fn parse_gate_evidence_target_metadata_from_g3_comment(
     pr_number: u64,
     body: &str,
 ) -> Result<(GateEvidencePrRole, Vec<u64>), String> {
-    let commands = gate_assertion_commands(body, "PR G3", GateEvidencePhase::G3)?;
+    let commands = gate_assertion_commands_for_metadata_recovery(body, "PR G3")?;
     let mut role = None;
     let mut issues = BTreeSet::new();
 

@@ -103,6 +103,31 @@ fn recovers_dependabot_target_metadata_from_canonical_g3_assertions() {
 }
 
 #[test]
+fn dependabot_metadata_recovery_accepts_mixed_current_exception_results() {
+    let first = GateEvidenceArgs {
+        phase: GateEvidencePhase::G3,
+        repo: "illusion-tech/laneflow".to_string(),
+        issue: 325,
+        delivery_pr: None,
+        related_prs: vec![313],
+    };
+    let second = GateEvidenceArgs {
+        issue: 326,
+        ..first.clone()
+    };
+    let body = format!(
+        "## G3 合并判断\n- Gate 结果：`G3 Exception`\n- Gate 断言：`{}` 未通过。\n- Gate 断言：`{}` 已通过。",
+        expected_gate_command(&first, GateEvidencePhase::G3),
+        expected_gate_command(&second, GateEvidencePhase::G3),
+    );
+
+    assert_eq!(
+        parse_gate_evidence_target_metadata_from_g3_comment("illusion-tech/laneflow", 313, &body,),
+        Ok((GateEvidencePrRole::Related, vec![325, 326]))
+    );
+}
+
+#[test]
 fn target_requires_exact_closing_issue_associations() {
     let mut delivery_target = delivery_pr(None);
     delivery_target
@@ -2241,6 +2266,51 @@ fn current_exception_binding_uses_the_correction_restored_original_body() {
 }
 
 #[test]
+fn merged_current_exception_replay_preserves_the_recorded_pre_merge_base() {
+    let (mut pr, _) = g3_exception_fixture(
+        "confirmed_gate_defect",
+        "G3 Exception",
+        "2026-07-10T05:10:00Z",
+        "2026-07-10T06:00:00Z",
+    );
+    pr.base_ref_oid = "cccccccccccccccccccccccccccccccccccccccc".to_string();
+    assert!(
+        validate_g3_exception(
+            60,
+            61,
+            &pr,
+            &pr.comments[0],
+            G3Result::Exception,
+            None,
+            G3ExceptionValidationTimes {
+                gate_time: Some("2026-07-10T05:30:00Z"),
+                evaluation_time: None,
+            },
+        )
+        .is_err(),
+        "an open current target must still match the live base"
+    );
+
+    pr.state = "MERGED".to_string();
+    pr.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+    assert_eq!(
+        validate_g3_exception(
+            60,
+            61,
+            &pr,
+            &pr.comments[0],
+            G3Result::Exception,
+            None,
+            G3ExceptionValidationTimes {
+                gate_time: pr.merged_at.as_deref(),
+                evaluation_time: None,
+            },
+        ),
+        Ok(true)
+    );
+}
+
+#[test]
 fn historical_g3_block_replay_is_explicitly_non_retroactive() {
     let (mut pr, mut appendix) = g3_exception_fixture(
         "legacy_evidence_reconstruction",
@@ -2483,7 +2553,7 @@ fn parses_reference_style_structured_gate_waiver() {
         includes_created_edit: false,
     };
     let now = parse_utc_timestamp_seconds("2026-07-24T16:30:00Z").unwrap();
-    let waiver = parse_gate_waiver(&comment, 60, now).unwrap();
+    let waiver = parse_gate_waiver(&comment, 60, now, false).unwrap();
 
     assert_eq!(waiver.id, "waiver-60-1");
     assert_eq!(waiver.exception_type, "provider_platform_outage");
@@ -2498,8 +2568,8 @@ fn parses_reference_style_structured_gate_waiver() {
         r#""authorizedBy": "wangzishi""#,
         r#""authorizedBy": "untrusted-contributor""#,
     );
-    let error =
-        parse_gate_waiver(&comment, 60, now).expect_err("waiver author must be a trusted G3 Owner");
+    let error = parse_gate_waiver(&comment, 60, now, false)
+        .expect_err("waiver author must be a trusted G3 Owner");
     assert!(error.contains("不在 trusted G3 Owner allowlist"));
 }
 
@@ -2562,11 +2632,11 @@ fn parses_one_structured_gate_waiver_per_associated_issue() {
     let now = parse_utc_timestamp_seconds("2026-07-24T16:30:00Z").unwrap();
 
     assert_eq!(
-        parse_gate_waiver(&comment, 60, now).unwrap().id,
+        parse_gate_waiver(&comment, 60, now, false).unwrap().id,
         "waiver-60-1"
     );
     assert_eq!(
-        parse_gate_waiver(&comment, 61, now).unwrap().id,
+        parse_gate_waiver(&comment, 61, now, false).unwrap().id,
         "waiver-61-1"
     );
     let declared_issues = [60, 61].into_iter().collect::<BTreeSet<_>>();
@@ -2580,7 +2650,7 @@ fn parses_one_structured_gate_waiver_per_associated_issue() {
         r##""followUpIssue": "#61""##,
         r##""followUpIssue": "#060""##,
     );
-    let noncanonical_error = parse_gate_waiver(&comment, 60, now)
+    let noncanonical_error = parse_gate_waiver(&comment, 60, now, false)
         .expect_err("non-canonical per-Issue waiver numbers must fail closed");
     assert!(noncanonical_error.contains("无前导零"));
 
@@ -2588,7 +2658,7 @@ fn parses_one_structured_gate_waiver_per_associated_issue() {
         r##""followUpIssue": "#060""##,
         r##""followUpIssue": "#60""##,
     );
-    let error = parse_gate_waiver(&comment, 60, now)
+    let error = parse_gate_waiver(&comment, 60, now, false)
         .expect_err("duplicate per-Issue waiver records must fail closed");
     assert!(error.contains("每个 Issue 只能包含一个"));
 }
@@ -2630,14 +2700,14 @@ fn rejects_expired_structured_gate_waiver() {
     };
     let after_expiry = parse_utc_timestamp_seconds("2026-07-24T17:00:01Z").unwrap();
     let current_time = waiver_validation_time(None, after_expiry).unwrap();
-    let error = parse_gate_waiver(&comment, 60, current_time)
+    let error = parse_gate_waiver(&comment, 60, current_time, false)
         .expect_err("current PR must reject an expired waiver");
 
     assert!(error.contains("已过期"));
 
     let merged_at = waiver_validation_time(Some("2026-07-24T16:30:00Z"), after_expiry)
         .expect("historical Related PR must use its merge time");
-    assert!(parse_gate_waiver(&comment, 60, merged_at).is_ok());
+    assert!(parse_gate_waiver(&comment, 60, merged_at, true).is_ok());
 
     let invalid_merged_at = waiver_validation_time(Some("not-a-timestamp"), after_expiry)
         .expect_err("invalid historical mergedAt must fail closed");

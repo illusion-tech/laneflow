@@ -269,7 +269,7 @@ fork / cross-repository PR 的 head commit 不保证存在于 base repository，
 
 G3 Owner 可以在 PR 合并前纠正 current G3 comment，也可以新增 superseding comment。new push、review dismissal 或 Gate 状态变化后，旧 review、旧 Check 与旧 G3 内容对新 head 全部 stale；无论选择编辑还是新增，都必须绑定 current head、重新满足 completion / Check、按新的 effective time 重验，并新增严格更晚的 marker。合并后不得编辑 G3 形成或改变历史证据。唯一可恢复的既成事实是：合并前正文语义有效，合并后只去除或增加 `G3 Evidence Gate Shadow` 完整值的一层反引号。G4 replay 必须从 GitHub `UserContentEdit.diff` 相邻快照验证 original/new SHA-256、editor、`editedAt`、原版早于 merge、新版晚于 merge，并由 trusted G3 Owner 在编辑后新增未编辑的 `g3-comment-correction:v1` appendix。记录字段固定为 `schemaVersion`、唯一 `id`、`issue`、`pullRequest`、`currentHeadOid`、`g3Comment`、`originalBodySha256`、`newBodySha256`、`editedAt`、`editor`、`reason`、`risk`、`acceptanceBoundary`、独立 `followUpIssue`、`cleanupOwner`、`authorizedBy`。该记录不是 exception，不能改变 Gate 结果、断言结果或合并合法性；与 pre-merge `confirmed_gate_defect` 组合回放时，exception 的正文哈希与 acceptedAt 必须绑定 correction 已验证恢复的 original snapshot，而不是格式编辑后的当前正文。任一其他正文差异、哈希/actor/head/时序不符、编辑历史分页或 appendix 自身被编辑都失败关闭。
 
-`G3 Exception` 是“断言未通过但由 G3 Owner 接受风险”的一等审计状态，机器状态固定为 `accepted_exception`，绝不等于 `pass`。current 路径只允许 `confirmed_gate_defect`，必须在目标 G3 comment 之后另发未编辑的 `g3-exception:v1` appendix，并在验证/merge 时未过期（最长 24 小时）；多 Issue PR 按记录中的 `issue` 精确限定 exception 作用域，只有匹配 Issue 的 Gate 断言写“未通过”，其余 Issue 仍可独立写“已通过”并走正常 exact-head 外部审阅。historical G4 replay 只允许 `legacy_evidence_reconstruction`，用于既有 `G3 Block` 或历史 `G3 Pass + 未通过`，且接受事件必须晚于原 merge、在实际 G4 evaluation time 仍未过期，明确不追授原 merge 合规。记录字段固定为 `schemaVersion`、唯一 `id`、`exceptionType`、`issue`、`pullRequest`、`currentHeadOid`、`currentBaseOid`、`g3Comment`、`g3CommentBodySha256`、`reason`、非空 `evidenceRefs`、`risk`、`acceptanceBoundary`、`acceptedAt`、`expiresAt`、独立 `followUpIssue`、`cleanupOwner`、`authorizedBy`；current comment 还必须可见记录与 GitHub PR identity 一致的完整 current head。可见 `- 例外：` 行必须引用同一 GitHub evidence。未授权、过期、重复、未知类型、正文/identity/hash 不符均失败关闭。它与 `external-review-waiver:v1`、`g3-comment-correction:v1` 分离，不可互换。
+`G3 Exception` 是“断言未通过但由 G3 Owner 接受风险”的一等审计状态，机器状态固定为 `accepted_exception`，绝不等于 `pass`。current 路径只允许 `confirmed_gate_defect`，必须在目标 G3 comment 之后另发未编辑的 `g3-exception:v1` appendix，并在验证/merge 时未过期（最长 24 小时）；多 Issue PR 按记录中的 `issue` 精确限定 exception 作用域，只有匹配 Issue 的 Gate 断言写“未通过”，其余 Issue 仍可独立写“已通过”并走正常 exact-head 外部审阅。historical G4 replay 只允许 `legacy_evidence_reconstruction`，用于既有 `G3 Block` 或历史 `G3 Pass + 未通过`，且接受事件必须晚于原 merge、在实际 G4 evaluation time 仍未过期，明确不追授原 merge 合规。记录字段固定为 `schemaVersion`、唯一 `id`、`exceptionType`、`issue`、`pullRequest`、`currentHeadOid`、`currentBaseOid`、`g3Comment`、`g3CommentBodySha256`、`reason`、非空 `evidenceRefs`、`risk`、`acceptanceBoundary`、`acceptedAt`、`expiresAt`、独立 `followUpIssue`、`cleanupOwner`、`authorizedBy`；current comment 还必须可见记录与 GitHub PR identity 一致的完整 current head。合并前 current 校验继续要求 live head/base 精确一致；G4 重放 pre-merge `confirmed_gate_defect` 时，head 仍精确匹配，而记录中的完整 base OID 保留为 merge 边界审计值，不与已经前移的 live post-merge base ref 比较。可见 `- 例外：` 行必须引用同一 GitHub evidence。未授权、过期、重复、未知类型、正文/identity/hash 不符均失败关闭。它与 `external-review-waiver:v1`、`g3-comment-correction:v1` 分离，不可互换。
 
 在 #230 的 R0 / R1 bootstrap 阶段，required `External Review Gate` 尚未启用：
 
@@ -298,8 +298,9 @@ G3 Owner 可以在 PR 合并前纠正 current G3 comment，也可以新增 super
 - 所有已配置 provider / Gate platform 不可用且存在明确时间边界；
 - security / emergency hotfix；
 
-已确认且无法及时修复的 Gate false-block 不再进入 waiver 路径；它只能使用上文定义的
-`G3 Exception` + `confirmed_gate_defect`，保持 `accepted_exception` 非成功状态。
+已确认且无法及时修复的 Gate false-block 不再进入 current waiver 路径；它只能使用上文定义的
+`G3 Exception` + `confirmed_gate_defect`，保持 `accepted_exception` 非成功状态。策略切换前已用旧规则合并的
+`G3 Waived + confirmed_gate_defect` 只允许在 G4 以原 merge 时点重放；这项 grandfather 不接受 OPEN/current PR，也不恢复日常 bypass。
 
 普通审阅延迟、作者不同意 finding、`docs-only`、赶进度和减少步骤均不是 waiver 理由。waiver 必须记录 exception type、PR/current head、已有证据、风险、临时接受边界、默认不超过 24 小时的到期时间、follow-up Issue、Cleanup owner，以及临时 bypass 的添加/撤回时间。Check 与 G3 comment 必须显示 `G3 Waived`，不得伪装成标准 `G3 Pass`。
 

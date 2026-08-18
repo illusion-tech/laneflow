@@ -421,12 +421,18 @@ pub(super) fn validate_gate_assertion_set_with_legacy_exception(
     Ok(())
 }
 
-pub(super) fn gate_assertion_commands(
+pub(super) fn gate_assertion_commands_for_metadata_recovery(
     body: &str,
     label: &str,
-    phase: GateEvidencePhase,
 ) -> Result<BTreeSet<String>, String> {
-    gate_assertion_commands_with_legacy_exception(body, label, phase, None)
+    // Issue numbers are positive, so scope 0 intentionally leaves every assertion out of scope.
+    // This recovery step extracts commands only; validate_g3_target later applies per-Issue results.
+    gate_assertion_commands_with_legacy_exception(
+        body,
+        label,
+        GateEvidencePhase::G3,
+        Some((0, false)),
+    )
 }
 
 pub(super) fn gate_assertion_commands_with_legacy_exception(
@@ -1088,7 +1094,12 @@ pub(super) fn validate_external_review_g3(
     let result = match scoped_gate_result {
         G3Result::Waived => {
             let validation_time = waiver_validation_time(validation_time, current_time)?;
-            let waiver = parse_gate_waiver(comment, issue_number, validation_time)?;
+            let waiver = parse_gate_waiver(
+                comment,
+                issue_number,
+                validation_time,
+                pr.merged_at.is_some(),
+            )?;
             external_review::evaluate_live_with_waiver(repo, number, waiver)?
         }
         G3Result::Pass | G3Result::Bootstrap => external_review::evaluate_live(repo, number)?,
@@ -1579,8 +1590,23 @@ fn validate_g3_exception_record(
             return Err(format!("g3-exception `{field}` 不能为空"));
         }
     }
-    if record.current_head_oid != pr.head_ref_oid || record.current_base_oid != pr.base_ref_oid {
-        return Err("g3-exception current head/base 与 GitHub PR identity 不一致".to_string());
+    if record.current_head_oid != pr.head_ref_oid {
+        return Err("g3-exception current head 与 GitHub PR identity 不一致".to_string());
+    }
+    let replays_current_exception_at_merge = record.exception_type == "confirmed_gate_defect"
+        && validation_time.is_some()
+        && pr.merged_at.as_deref() == validation_time;
+    if replays_current_exception_at_merge {
+        if record.current_base_oid.len() != 40
+            || !record
+                .current_base_oid
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err("g3-exception recorded current base 必须是完整 Git OID".to_string());
+        }
+    } else if record.current_base_oid != pr.base_ref_oid {
+        return Err("g3-exception current base 与 GitHub PR identity 不一致".to_string());
     }
     if record.g3_comment != g3_comment.url {
         return Err("g3-exception 未精确绑定目标 G3 comment permalink".to_string());
@@ -1876,6 +1902,7 @@ pub(super) fn parse_gate_waiver(
     comment: &GitHubComment,
     issue_number: u64,
     now: u64,
+    historical_replay: bool,
 ) -> Result<external_review::WaiverInput, String> {
     let records = parse_gate_waiver_records(comment)?;
     let expected_follow_up_issue = format!("#{issue_number}");
@@ -1965,6 +1992,7 @@ pub(super) fn parse_gate_waiver(
         follow_up_issue: record.follow_up_issue,
         cleanup_owner: record.cleanup_owner,
         authorized_by: record.authorized_by,
+        historical_replay,
     })
 }
 

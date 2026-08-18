@@ -402,6 +402,7 @@ pub(crate) struct WaiverInput {
     pub(crate) follow_up_issue: String,
     pub(crate) cleanup_owner: String,
     pub(crate) authorized_by: String,
+    pub(crate) historical_replay: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1447,7 +1448,11 @@ fn validate_waiver(waiver: &WaiverInput, pr: &PullRequestSnapshot, diagnostics: 
         "provider_platform_outage",
         "security_emergency_hotfix",
     ];
-    if !ALLOWED_TYPES.contains(&waiver.exception_type.as_str()) {
+    let grandfathered_confirmed_gate_defect =
+        waiver.historical_replay && waiver.exception_type == "confirmed_gate_defect";
+    if !ALLOWED_TYPES.contains(&waiver.exception_type.as_str())
+        && !grandfathered_confirmed_gate_defect
+    {
         diagnostics.push(format!(
             "waiver exceptionType 不在 allowlist：{}",
             waiver.exception_type
@@ -1470,7 +1475,11 @@ fn validate_waiver(waiver: &WaiverInput, pr: &PullRequestSnapshot, diagnostics: 
     if waiver.current_head_oid != pr.head_ref_oid {
         diagnostics.push("waiver currentHeadOid 与 PR current head 不一致".to_string());
     }
-    if waiver.current_base_oid != pr.base_ref_oid {
+    if waiver.historical_replay {
+        if !valid_full_oid(&waiver.current_base_oid) {
+            diagnostics.push("historical waiver currentBaseOid 必须是完整 Git OID".to_string());
+        }
+    } else if waiver.current_base_oid != pr.base_ref_oid {
         diagnostics.push("waiver currentBaseOid 与 PR current base 不一致".to_string());
     }
     if waiver.evidence_urls.is_empty()
@@ -3036,6 +3045,7 @@ mod tests {
             follow_up_issue: "#230".to_string(),
             cleanup_owner: "wangzishi".to_string(),
             authorized_by: "wangzishi".to_string(),
+            historical_replay: false,
         });
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
@@ -3061,6 +3071,7 @@ mod tests {
             follow_up_issue: "#405".to_string(),
             cleanup_owner: "wangzishi".to_string(),
             authorized_by: "wangzishi".to_string(),
+            historical_replay: false,
         });
 
         let result = evaluate_snapshot(&snapshot);
@@ -3070,6 +3081,33 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.contains("confirmed_gate_defect"))
+        );
+    }
+
+    #[test]
+    fn historical_confirmed_gate_defect_waiver_remains_replayable() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/stale-old-head.json"
+        ));
+        snapshot.waiver = Some(WaiverInput {
+            id: "waiver-230-historical-confirmed-defect".to_string(),
+            exception_type: "confirmed_gate_defect".to_string(),
+            current_head_oid: snapshot.pull_request.head_ref_oid.clone(),
+            current_base_oid: "cccccccccccccccccccccccccccccccccccccccc".to_string(),
+            reason: "the Gate had a confirmed false block before the policy change".to_string(),
+            evidence_urls: vec!["https://github.com/illusion-tech/laneflow/issues/405".to_string()],
+            risk: "the automated assertion remained failed at merge".to_string(),
+            acceptance_boundary: "historical G4 replay only".to_string(),
+            expires_at: "2026-07-25T00:00:00Z".to_string(),
+            follow_up_issue: "#405".to_string(),
+            cleanup_owner: "wangzishi".to_string(),
+            authorized_by: "wangzishi".to_string(),
+            historical_replay: true,
+        });
+
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::Waived
         );
     }
 
@@ -3092,6 +3130,7 @@ mod tests {
             follow_up_issue: "#230".to_string(),
             cleanup_owner: "wangzishi".to_string(),
             authorized_by: "wangzishi".to_string(),
+            historical_replay: false,
         });
 
         assert_eq!(
