@@ -389,15 +389,17 @@ pub(super) fn gate_assertion_commands_with_legacy_exception(
                             G3Result::Exception | G3Result::LegacyBlock
                         )
                 }
-                GateEvidencePhase::G4 => body.contains(G3_EXCEPTION_START),
+                GateEvidencePhase::G4 => false,
             };
-        let accepted_result = if allow_legacy_exception && expects_failed_assertion {
-            result.contains("未通过") && !result.contains("已通过")
-        } else if expects_failed_assertion {
-            matches!(result.trim(), "未通过" | "未通过。")
-        } else {
-            matches!(result.trim(), "已通过" | "已通过。")
-        };
+        let accepted_result =
+            if allow_legacy_exception && phase == GateEvidencePhase::G3 && expects_failed_assertion
+            {
+                result.contains("未通过") && !result.contains("已通过")
+            } else if expects_failed_assertion {
+                matches!(result.trim(), "未通过" | "未通过。")
+            } else {
+                matches!(result.trim(), "已通过" | "已通过。")
+            };
         if !accepted_result {
             return Err(format!(
                 "{label} comment 的 `Gate 断言` 必须在规范命令后明确记录 `{}`",
@@ -1323,10 +1325,13 @@ pub(super) fn historical_exception_applies_to_target(
     pr_number: u64,
     g3_permalink: &str,
 ) -> Result<bool, String> {
-    Ok(
-        exception_record_for_target(std::iter::once(appendix), issue, pr_number, g3_permalink)?
-            .is_some(),
-    )
+    match exception_record_for_target(std::iter::once(appendix), issue, pr_number, g3_permalink)? {
+        Some((_, record)) if record.exception_type == "legacy_evidence_reconstruction" => Ok(true),
+        Some(_) => Err(format!(
+            "Issue #{issue} / PR #{pr_number} 的 G4 historical appendix 只能使用 `legacy_evidence_reconstruction`"
+        )),
+        None => Ok(false),
+    }
 }
 
 fn validate_g3_exception_record(
@@ -1791,6 +1796,8 @@ pub(super) fn g3_requires_external_review(pr: &GitHubPullRequest) -> Result<bool
 }
 
 pub(super) fn g3_requires_result_validation(
+    issue_number: u64,
+    pr_number: u64,
     pr: &GitHubPullRequest,
     historical_appendix: Option<&GitHubComment>,
 ) -> Result<bool, String> {
@@ -1800,13 +1807,18 @@ pub(super) fn g3_requires_result_validation(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| "G3 permalink 未指向该 PR 的 comment".to_string())?;
+    let matching_historical_exception = historical_appendix
+        .map(|appendix| {
+            historical_exception_applies_to_target(appendix, issue_number, pr_number, &permalink)
+        })
+        .transpose()?
+        .unwrap_or(false);
     Ok(
         g3_comment_effective_at(comment, "G3 comment")? >= EXTERNAL_REVIEW_G3_ACTIVATION
             || matches!(
                 parse_g3_result(&comment.body),
                 Ok(G3Result::Exception | G3Result::LegacyBlock)
             )
-            || historical_appendix
-                .is_some_and(|appendix| appendix.body.contains(G3_EXCEPTION_START)),
+            || matching_historical_exception,
     )
 }

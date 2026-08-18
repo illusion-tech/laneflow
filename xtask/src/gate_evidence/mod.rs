@@ -202,7 +202,12 @@ where
 
         validate_current_g3_target(args, Some(delivery_pr), &related_prs)?;
         validate_gate_g3_evidence(args, issue, delivery_pr, &related_prs)?;
-        if g3_requires_result_validation(delivery_pr, historical_exception_appendix)? {
+        if g3_requires_result_validation(
+            args.issue,
+            delivery_number,
+            delivery_pr,
+            historical_exception_appendix,
+        )? {
             validate_external_review_g3(
                 &args.repo,
                 args.issue,
@@ -216,7 +221,12 @@ where
             )?;
         }
         for (number, related_pr) in args.related_prs.iter().zip(&related_prs) {
-            if g3_requires_result_validation(related_pr, historical_exception_appendix)? {
+            if g3_requires_result_validation(
+                args.issue,
+                *number,
+                related_pr,
+                historical_exception_appendix,
+            )? {
                 validate_related_full_set_member(
                     &args.repo, *number, args.issue, args.phase, related_pr,
                 )?;
@@ -245,7 +255,12 @@ where
         };
         validate_current_g3_target(args, None, std::slice::from_ref(related_pr))?;
         validate_related_g3_evidence(args, issue, related_number, related_pr)?;
-        if g3_requires_result_validation(related_pr, historical_exception_appendix)? {
+        if g3_requires_result_validation(
+            args.issue,
+            related_number,
+            related_pr,
+            historical_exception_appendix,
+        )? {
             validate_external_review_g3(
                 &args.repo,
                 args.issue,
