@@ -1098,15 +1098,17 @@ fn seam_neighbors_are_pure_index_semantics_regardless_of_travel_direction() {
 
 // ---------- permutation / rebind ----------
 
+type CrossSectionSemanticsSnapshot = (
+    Vec<(String, Vec<Vec<String>>)>,
+    Vec<(String, Option<(String, usize)>)>,
+    Vec<(String, Vec<String>)>,
+);
+
 /// 以 external ID 对齐提取 registry 语义快照，用于 permutation/rebind 等价比较。
 fn semantics_snapshot(
     registry: &CrossSectionRegistry,
     graph: &LaneGraph,
-) -> (
-    Vec<(String, Vec<Vec<String>>)>,
-    Vec<(String, Option<(String, usize)>)>,
-    Vec<(String, Vec<String>)>,
-) {
+) -> CrossSectionSemanticsSnapshot {
     let sections = registry
         .sections()
         .map(|section| {

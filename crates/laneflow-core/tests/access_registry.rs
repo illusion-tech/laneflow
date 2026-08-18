@@ -1297,12 +1297,14 @@ fn bus_lane_rules() -> Vec<AccessRule> {
     ]
 }
 
+type AccessSnapshot = Vec<(String, String, Option<(String, AccessEffect)>)>;
+
 /// 以 (edge/path external ID, class external ID) 对齐提取裁决语义快照。
 fn access_snapshot(
     registry: &AccessRegistry,
     classes: &ParticipantClassRegistry,
     junctions: &JunctionRegistry,
-) -> Vec<(String, String, Option<(String, AccessEffect)>)> {
+) -> AccessSnapshot {
     let mut snapshot = Vec::new();
     for edge_id in ["e1", "e2", "e3", "je-entry-a", "je-internal"] {
         for class_id in ["motorVehicle", "car", "bus", "truck", "largeBus"] {

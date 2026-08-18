@@ -687,6 +687,10 @@ impl<M: PrecisionMode> CandidateWorld<M> {
         self.vehicles.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.vehicles.is_empty()
+    }
+
     pub fn memory_stats(&self) -> CandidateMemoryStats {
         CandidateMemoryStats {
             vehicle_size: size_of::<CandidateVehicle<M>>(),
