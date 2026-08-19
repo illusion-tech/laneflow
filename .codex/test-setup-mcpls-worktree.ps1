@@ -53,10 +53,13 @@ try {
         -Message 'template hash is lowercase SHA-256'
 
     $firstId = Get-WorktreeId -CanonicalRoot $repositoryRoot
-    $sameId = Get-WorktreeId -CanonicalRoot $repositoryRoot.ToUpperInvariant()
     $secondId = Get-WorktreeId -CanonicalRoot "$repositoryRoot-other"
-    Assert-True -Condition ($firstId -eq $sameId) `
-        -Message 'existing Windows paths canonicalize to their on-disk casing'
+    $caseAlias = $repositoryRoot.ToUpperInvariant()
+    if (Test-Path -LiteralPath $caseAlias -PathType Container) {
+        $sameId = Get-WorktreeId -CanonicalRoot $caseAlias
+        Assert-True -Condition ($firstId -eq $sameId) `
+            -Message 'existing Windows path aliases canonicalize to their on-disk casing'
+    }
     Assert-True -Condition ($firstId -ne $secondId) `
         -Message 'different worktree roots have different identities'
     $caseSensitiveUpper = Get-WorktreeId -CanonicalRoot (
@@ -409,6 +412,11 @@ try {
     $identity = Test-ServiceProcessIdentity -State $fakeState -ExpectedRoot $repositoryRoot
     Assert-True -Condition (-not $identity.Matched) `
         -Message 'PID, start time, and executable alone cannot impersonate the service command line'
+    Assert-Throws -Operation {
+        Stop-VerifiedServiceProcessTree -State $fakeState -ExpectedRoot $repositoryRoot
+    } -Message 'verified stop revalidates full process identity on its held handle'
+    Assert-True -Condition ($null -ne (Get-Process -Id $PID -ErrorAction SilentlyContinue)) `
+        -Message 'verified stop leaves an identity-mismatched PID running'
     Write-AtomicUtf8File -Path $testContext.StatePath `
         -Content (($fakeState | ConvertTo-Json -Depth 6) + "`n")
     Assert-Throws -Operation {

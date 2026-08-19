@@ -612,21 +612,13 @@ function Test-McplsExecutable {
     }
 }
 
-function Get-ProcessSnapshot {
+function Get-ProcessSnapshotFromHandle {
     param(
-        [Parameter(Mandatory)][int]$ProcessId,
+        [Parameter(Mandatory)][System.Diagnostics.Process]$Process,
         [DateTimeOffset]$Deadline = [DateTimeOffset]::MinValue
     )
 
-    try {
-        $process = Get-Process -Id $ProcessId -ErrorAction Stop
-    }
-    catch {
-        if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*') {
-            return $null
-        }
-        throw "Unable to determine whether PID ${ProcessId} exists: $($_.Exception.Message)"
-    }
+    $processId = [int]$Process.Id
     try {
         $operationTimeoutSeconds = 3
         if ($Deadline -ne [DateTimeOffset]::MinValue) {
@@ -647,24 +639,44 @@ function Get-ProcessSnapshot {
             ProcessId = $ProcessId
             ParentProcessId = [int]$cim.ParentProcessId
             Name = [string]$cim.Name
-            ExecutablePath = Get-NormalizedPath -Path ([string]$process.Path)
+            ExecutablePath = Get-NormalizedPath -Path ([string]$Process.Path)
             CommandLine = [string]$cim.CommandLine
-            StartedAtUtc = $process.StartTime.ToUniversalTime()
+            StartedAtUtc = $Process.StartTime.ToUniversalTime()
         }
     }
     catch {
         throw "Unable to inspect live PID ${ProcessId}: $($_.Exception.Message)"
+    }
+}
+
+function Get-ProcessSnapshot {
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [DateTimeOffset]$Deadline = [DateTimeOffset]::MinValue
+    )
+
+    try {
+        $process = Get-Process -Id $ProcessId -ErrorAction Stop
+    }
+    catch {
+        if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*') {
+            return $null
+        }
+        throw "Unable to determine whether PID ${ProcessId} exists: $($_.Exception.Message)"
+    }
+    try {
+        return Get-ProcessSnapshotFromHandle -Process $process -Deadline $Deadline
     }
     finally {
         $process.Dispose()
     }
 }
 
-function Test-ServiceProcessIdentity {
+function Test-ServiceProcessSnapshotIdentity {
     param(
         [Parameter(Mandatory)]$State,
         [Parameter(Mandatory)][string]$ExpectedRoot,
-        [DateTimeOffset]$Deadline = [DateTimeOffset]::MinValue
+        [Parameter(Mandatory)]$Snapshot
     )
 
     try {
@@ -685,13 +697,10 @@ function Test-ServiceProcessIdentity {
         if ([int]$State.process_id -le 0) {
             throw 'state has no running PID'
         }
-
-        $snapshot = Get-ProcessSnapshot -ProcessId ([int]$State.process_id) `
-            -Deadline $Deadline
-        if ($null -eq $snapshot) {
-            throw 'recorded process is not running'
+        if ([int]$Snapshot.ProcessId -ne [int]$State.process_id) {
+            throw 'process ID mismatch'
         }
-        if (-not (Test-PathEqual -Left $snapshot.ExecutablePath -Right ([string]$State.executable_path))) {
+        if (-not (Test-PathEqual -Left $Snapshot.ExecutablePath -Right ([string]$State.executable_path))) {
             throw 'executable path mismatch'
         }
 
@@ -710,7 +719,7 @@ function Test-ServiceProcessIdentity {
                 [System.Globalization.DateTimeStyles]::RoundtripKind
             ).UtcDateTime
         }
-        $actualStartedAt = $snapshot.StartedAtUtc.ToUniversalTime()
+        $actualStartedAt = $Snapshot.StartedAtUtc.ToUniversalTime()
         $startDeltaSeconds = [Math]::Abs(
             ($actualStartedAt.Ticks - $expectedStartedAtUtc.Ticks) /
             [double][TimeSpan]::TicksPerSecond
@@ -721,22 +730,47 @@ function Test-ServiceProcessIdentity {
 
         $configPath = Get-NormalizedPath -Path ([string]$State.mcpls_config_path)
         $listen = "127.0.0.1:$([int]$State.port)"
-        if ($snapshot.CommandLine.IndexOf($configPath, [StringComparison]::Ordinal) -lt 0) {
+        if ($Snapshot.CommandLine.IndexOf($configPath, [StringComparison]::Ordinal) -lt 0) {
             throw 'command line does not contain the worktree mcpls.toml path'
         }
-        if ($snapshot.CommandLine.IndexOf($listen, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        if ($Snapshot.CommandLine.IndexOf($listen, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
             throw 'command line does not contain the recorded loopback endpoint'
         }
-        if ($snapshot.CommandLine.IndexOf('--http-path', [StringComparison]::OrdinalIgnoreCase) -lt 0 -or
-            $snapshot.CommandLine.IndexOf($script:HttpPath, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        if ($Snapshot.CommandLine.IndexOf('--http-path', [StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+            $Snapshot.CommandLine.IndexOf($script:HttpPath, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
             throw 'command line does not contain the HTTP path'
         }
 
         return [pscustomobject]@{
             Matched = $true
             Reason = $null
-            Snapshot = $snapshot
+            Snapshot = $Snapshot
         }
+    }
+    catch {
+        return [pscustomobject]@{
+            Matched = $false
+            Reason = $_.Exception.Message
+            Snapshot = $null
+        }
+    }
+}
+
+function Test-ServiceProcessIdentity {
+    param(
+        [Parameter(Mandatory)]$State,
+        [Parameter(Mandatory)][string]$ExpectedRoot,
+        [DateTimeOffset]$Deadline = [DateTimeOffset]::MinValue
+    )
+
+    try {
+        $snapshot = Get-ProcessSnapshot -ProcessId ([int]$State.process_id) `
+            -Deadline $Deadline
+        if ($null -eq $snapshot) {
+            throw 'recorded process is not running'
+        }
+        return Test-ServiceProcessSnapshotIdentity -State $State `
+            -ExpectedRoot $ExpectedRoot -Snapshot $snapshot
     }
     catch {
         return [pscustomobject]@{
@@ -1062,6 +1096,53 @@ function Stop-OwnedProcessTree {
         if (-not $process.WaitForExit($exitWait)) {
             throw (
                 "Process tree rooted at PID $ProcessId did not exit within " +
+                "$exitWait milliseconds."
+            )
+        }
+    }
+    finally {
+        $process.Dispose()
+    }
+}
+
+function Stop-VerifiedServiceProcessTree {
+    param(
+        [Parameter(Mandatory)]$State,
+        [Parameter(Mandatory)][string]$ExpectedRoot,
+        [ValidateRange(0, 10000)][int]$TimeoutMilliseconds = 10000,
+        [DateTimeOffset]$Deadline = [DateTimeOffset]::MinValue
+    )
+
+    $processId = [int]$State.process_id
+    try {
+        $process = Get-Process -Id $processId -ErrorAction Stop
+    }
+    catch {
+        if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*') {
+            return
+        }
+        throw "Unable to determine whether PID ${processId} exists before stop: $($_.Exception.Message)"
+    }
+
+    try {
+        $snapshot = Get-ProcessSnapshotFromHandle -Process $process -Deadline $Deadline
+        $identity = Test-ServiceProcessSnapshotIdentity -State $State `
+            -ExpectedRoot $ExpectedRoot -Snapshot $snapshot
+        if (-not $identity.Matched) {
+            throw "Refusing to stop a revalidated identity-mismatched process: $($identity.Reason)"
+        }
+
+        $process.Kill($true)
+        $exitWait = if ($Deadline -eq [DateTimeOffset]::MinValue) {
+            $TimeoutMilliseconds
+        }
+        else {
+            Get-RemainingMillisecondsOrZero -Deadline $Deadline `
+                -Maximum $TimeoutMilliseconds
+        }
+        if (-not $process.WaitForExit($exitWait)) {
+            throw (
+                "Verified process tree rooted at PID $processId did not exit within " +
                 "$exitWait milliseconds."
             )
         }
@@ -1406,8 +1487,8 @@ function Invoke-StartOrReuse {
 
                 Write-LifecycleLog -Context $Context `
                     -Message "replacing-owned pid=$($existingState.process_id) healthy=$($health.Healthy) same_tool=$($reuseInputs.SameTool) same_config=$($reuseInputs.SameConfig) same_version=$($reuseInputs.SameVersion)"
-                Stop-OwnedProcessTree -ProcessId ([int]$existingState.process_id) `
-                    -Deadline $deadline
+                Stop-VerifiedServiceProcessTree -State $existingState `
+                    -ExpectedRoot $Context.Root -Deadline $deadline
             }
             elseif ([int]$existingState.process_id -gt 0) {
                 $recordedProcess = Get-ProcessSnapshot `
@@ -1752,7 +1833,8 @@ function Invoke-PruneStates {
 
             if ($identity.Matched) {
                 $stopTimeout = Get-RemainingMilliseconds -Deadline $deadline -Maximum 10000
-                Stop-OwnedProcessTree -ProcessId ([int]$state.process_id) `
+                Stop-VerifiedServiceProcessTree -State $state `
+                    -ExpectedRoot ([string]$state.worktree_root) `
                     -TimeoutMilliseconds $stopTimeout -Deadline $deadline
             }
             elseif ([int]$state.process_id -gt 0 -and
@@ -1959,7 +2041,7 @@ function Invoke-StopAction {
             throw "Refusing normal Stop because MCP initialize failed: $($health.Reason). Use Prune only after reviewing Status."
         }
 
-        Stop-OwnedProcessTree -ProcessId ([int]$state.process_id)
+        Stop-VerifiedServiceProcessTree -State $state -ExpectedRoot $Context.Root
         $state.status = 'stopped'
         $state.last_error = $null
         Write-ServiceState -Context $Context -State $state
