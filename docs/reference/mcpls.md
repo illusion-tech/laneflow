@@ -54,7 +54,8 @@ setup 也会执行相同检查，避免把没有 HTTP feature 的同版本二进
 setup 脚本不会联网、安装、升级或下载任何工具。mcpls 缺失、版本不符、没有 HTTP
 feature，或 Git worktree / `%LOCALAPPDATA%` context 无法构造时，`Ensure` 都会给出警告并
 成功结束；能安全定位受管模板时同时生成禁用配置。LaneFlow 的其他开发工作不受影响。
-人工 `Start` 则以非零状态严格失败。
+若 context 失败且无法安全定位/验证受管配置，结果会把 `config_enabled` 报为 `null` 并
+明确说明禁用未完成，不能声称旧 endpoint 已禁用。人工 `Start` 则以非零状态严格失败。
 
 当前固定工具的来源为 crates.io，上游为 `bug-ops/mcpls`，许可证表达式为
 `MIT OR Apache-2.0`。该本机工具不进入仓库依赖图或分发物；如果未来需要自动下载、
@@ -78,7 +79,8 @@ Codex 为新任务创建 worktree 时会运行 setup。`Ensure` 会：
    共用本次 setup 的启动截止时间；
 3. 在 `%LOCALAPPDATA%\LaneFlow\mcpls\worktrees\.locks\` 下，以禁止共享打开的锁文件
    实现跨 Windows 会话的同 worktree 串行化和全局端口分配串行化；
-4. 从 `41000..48999` 按 worktree ID 确定性选择 loopback 端口并线性探测冲突；
+4. 从 `41000..48999` 按 worktree ID 确定性选择 loopback 端口，并在共享截止时间内线性
+   探测完整 8000 端口范围；
 5. 同时验证 PID、进程启动时间、可执行路径、命令行中的 `mcpls.toml`/endpoint、
    `mcpls.toml` 内容 SHA-256 以及 HTTP MCP `initialize`；配置内容变化会停止已归属的旧
    服务并启动新服务，不复用旧 `rust-analyzer`；健康探测会携带协商得到的
