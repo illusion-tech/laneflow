@@ -4083,7 +4083,7 @@ mod tests {
             )
         }));
         assert!(binding.contains(
-            "permissions:\n  contents: read\n  pull-requests: read\n  issues: write\n  checks: write"
+            "permissions:\n  contents: read\n  pull-requests: write\n  issues: write\n  checks: write"
         ));
         assert!(binding.contains("ref: refs/heads/main"));
         assert!(binding.contains("persist-credentials: false"));
