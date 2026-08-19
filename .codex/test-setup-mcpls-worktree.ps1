@@ -367,6 +367,7 @@ try {
         worktree_id = $repositoryContext.WorktreeId
         worktree_root = $repositoryRoot
         status = 'ready'
+        last_error = $null
         process_id = $PID
         process_started_at_utc = $currentSnapshot.StartedAtUtc.ToString('O')
         executable_path = $currentSnapshot.ExecutablePath
@@ -377,6 +378,16 @@ try {
         endpoint = "http://127.0.0.1:$identityPort/mcp"
         template_sha256 = $template.Hash
     }
+    $stoppedState = (($fakeState | ConvertTo-Json -Depth 6) | ConvertFrom-Json)
+    $stoppedState.status = 'stopped'
+    $stoppedState.process_id = 0
+    Write-AtomicUtf8File -Path $testContext.StatePath `
+        -Content (($stoppedState | ConvertTo-Json -Depth 6) + "`n")
+    $readStoppedState = Read-ServiceState -Path $testContext.StatePath
+    Assert-True -Condition (
+        $readStoppedState.status -eq 'stopped' -and
+        [int]$readStoppedState.process_id -eq 0
+    ) -Message 'stopped state uses zero to represent the absence of an active PID'
     $nullPidState = (($fakeState | ConvertTo-Json -Depth 6) | ConvertFrom-Json)
     $nullPidState.process_id = $null
     Write-AtomicUtf8File -Path $testContext.StatePath `
@@ -434,6 +445,63 @@ try {
     Assert-True -Condition ($null -ne (Get-Process -Id $PID -ErrorAction SilentlyContinue)) `
         -Message 'identity-mismatched Prune leaves the unrelated process running'
 
+    $originalIdentity = (Get-Command Test-ServiceProcessIdentity).ScriptBlock
+    $originalHealth = (Get-Command Test-McpInitialize).ScriptBlock
+    $originalVerifiedStop = (Get-Command Stop-VerifiedServiceProcessTree).ScriptBlock
+    $originalStopWriteState = (Get-Command Write-ServiceState).ScriptBlock
+    $originalDisableConfig = (Get-Command Write-DisabledGeneratedConfig).ScriptBlock
+    $originalLifecycleLog = (Get-Command Write-LifecycleLog).ScriptBlock
+    $script:StopDisableAttempted = $false
+    $script:StopPersistedPid = -1
+    try {
+        Set-Item -Path Function:Test-ServiceProcessIdentity -Value {
+            param($State, $ExpectedRoot, $Deadline)
+            [pscustomobject]@{ Matched = $true; Reason = $null; Snapshot = $null }
+        }
+        Set-Item -Path Function:Test-McpInitialize -Value {
+            param($Endpoint, $TimeoutMilliseconds)
+            [pscustomobject]@{ Healthy = $true; Reason = $null }
+        }
+        Set-Item -Path Function:Stop-VerifiedServiceProcessTree -Value {
+            param($State, $ExpectedRoot, $TimeoutMilliseconds, $Deadline)
+        }
+        Set-Item -Path Function:Write-DisabledGeneratedConfig -Value {
+            param($Context, $Endpoint)
+            $script:StopDisableAttempted = $true
+        }
+        Set-Item -Path Function:Write-ServiceState -Value {
+            param($Context, $State)
+            $script:StopPersistedPid = [int]$State.process_id
+            throw 'injected stopped-state persistence failure'
+        }
+        Set-Item -Path Function:Write-LifecycleLog -Value {
+            param($Context, $Message)
+        }
+        Write-AtomicUtf8File -Path $testContext.StatePath `
+            -Content (($fakeState | ConvertTo-Json -Depth 6) + "`n")
+        $stopFailure = $null
+        try {
+            Invoke-StopAction -Context $testContext
+        }
+        catch {
+            $stopFailure = $_.Exception.Message
+        }
+        Assert-True -Condition (-not [string]::IsNullOrWhiteSpace($stopFailure)) `
+            -Message 'Stop reports post-termination state persistence failure'
+        Assert-True -Condition $script:StopDisableAttempted `
+            -Message "Stop still disables generated config when state persistence fails: $stopFailure"
+        Assert-True -Condition ($script:StopPersistedPid -eq 0) `
+            -Message 'Stop clears the active PID before persisting terminal state'
+    }
+    finally {
+        Set-Item -Path Function:Test-ServiceProcessIdentity -Value $originalIdentity
+        Set-Item -Path Function:Test-McpInitialize -Value $originalHealth
+        Set-Item -Path Function:Stop-VerifiedServiceProcessTree -Value $originalVerifiedStop
+        Set-Item -Path Function:Write-ServiceState -Value $originalStopWriteState
+        Set-Item -Path Function:Write-DisabledGeneratedConfig -Value $originalDisableConfig
+        Set-Item -Path Function:Write-LifecycleLog -Value $originalLifecycleLog
+    }
+
     $ownershipStateRoot = Join-Path $temporaryRoot 'ownership-state'
     $ownershipDirectory = Join-Path $ownershipStateRoot ('b' * 64)
     [System.IO.Directory]::CreateDirectory($ownershipDirectory) | Out-Null
@@ -464,6 +532,25 @@ try {
         $secondRotation.Count -eq 1 -and
         $secondRotation[0].worktree_id -ne $firstRotation[0].worktree_id
     ) -Message 'bounded Prune rotates past an earlier preserved directory'
+
+    $redirectProbe = Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
+        -Context $testContext -Port $identityPort
+    try {
+        $redirectProbe.WaitForExit(5000) | Out-Null
+    }
+    finally {
+        if (-not $redirectProbe.HasExited) {
+            $redirectProbe.Kill($true)
+            $redirectProbe.WaitForExit(5000) | Out-Null
+        }
+        $redirectProbe.Dispose()
+    }
+    Assert-True -Condition (
+        (Test-Path -LiteralPath (Join-Path $testContext.StateDirectory 'mcpls.stdout.log') `
+            -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $testContext.StateDirectory 'mcpls.stderr.log') `
+            -PathType Leaf)
+    ) -Message 'long-lived service streams redirect to managed files'
 
     $originalStartProcess = (Get-Command Start-McplsProcess).ScriptBlock
     $originalPortAvailable = (Get-Command Test-LoopbackPortAvailable).ScriptBlock

@@ -462,8 +462,14 @@ function Read-ServiceState {
         if ($state.process_id -isnot [int] -and $state.process_id -isnot [long]) {
             throw 'process_id must be an integer'
         }
-        if ([long]$state.process_id -le 0 -or [long]$state.process_id -gt [int]::MaxValue) {
-            throw 'process_id must be a positive System.Int32 value'
+        $terminalWithoutProcess = (
+            [string]$state.status -eq 'stopped' -and [long]$state.process_id -eq 0
+        )
+        if (-not $terminalWithoutProcess -and (
+            [long]$state.process_id -le 0 -or
+            [long]$state.process_id -gt [int]::MaxValue
+        )) {
+            throw 'process_id must be positive, or zero only when status is stopped'
         }
         if ($state.port -isnot [int] -and $state.port -isnot [long]) {
             throw 'port must be an integer'
@@ -1052,21 +1058,20 @@ function Start-McplsProcess {
         [Parameter(Mandatory)][int]$Port
     )
 
-    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $Executable
-    $startInfo.WorkingDirectory = $Context.Root
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
-    foreach ($argument in @(
-        '--config', $Context.McplsConfigPath,
+    [System.IO.Directory]::CreateDirectory($Context.StateDirectory) | Out-Null
+    $standardOutputPath = Join-Path $Context.StateDirectory 'mcpls.stdout.log'
+    $standardErrorPath = Join-Path $Context.StateDirectory 'mcpls.stderr.log'
+    $quotedConfigPath = '"' + $Context.McplsConfigPath + '"'
+    $arguments = @(
+        '--config', $quotedConfigPath,
         '--listen', "127.0.0.1:$Port",
         '--http-path', $script:HttpPath
-    )) {
-        $startInfo.ArgumentList.Add($argument)
-    }
+    )
 
-    $process = [System.Diagnostics.Process]::Start($startInfo)
+    $process = Start-Process -FilePath $Executable -ArgumentList $arguments `
+        -WorkingDirectory $Context.Root -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput $standardOutputPath `
+        -RedirectStandardError $standardErrorPath
     if ($null -eq $process) {
         throw 'Failed to create the mcpls process.'
     }
@@ -2041,16 +2046,42 @@ function Invoke-StopAction {
             throw "Refusing normal Stop because MCP initialize failed: $($health.Reason). Use Prune only after reviewing Status."
         }
 
+        $stoppedProcessId = [int]$state.process_id
         Stop-VerifiedServiceProcessTree -State $state -ExpectedRoot $Context.Root
         $state.status = 'stopped'
+        $state.process_id = 0
         $state.last_error = $null
-        Write-ServiceState -Context $Context -State $state
-        Write-DisabledGeneratedConfig -Context $Context -Endpoint ([string]$state.endpoint)
-        Write-LifecycleLog -Context $Context -Message "stopped pid=$($state.process_id)"
+        $bookkeepingErrors = [System.Collections.Generic.List[string]]::new()
+        try {
+            Write-DisabledGeneratedConfig -Context $Context `
+                -Endpoint ([string]$state.endpoint)
+        }
+        catch {
+            $bookkeepingErrors.Add("config disable failed: $($_.Exception.Message)")
+            $state.last_error = $bookkeepingErrors[0]
+        }
+        try {
+            Write-ServiceState -Context $Context -State $state
+        }
+        catch {
+            $bookkeepingErrors.Add("state persistence failed: $($_.Exception.Message)")
+        }
+        try {
+            Write-LifecycleLog -Context $Context -Message "stopped pid=$stoppedProcessId"
+        }
+        catch {
+            $bookkeepingErrors.Add("lifecycle log failed: $($_.Exception.Message)")
+        }
+        if ($bookkeepingErrors.Count -gt 0) {
+            throw (
+                "mcpls process $stoppedProcessId stopped, but post-stop bookkeeping failed: " +
+                ($bookkeepingErrors -join '; ')
+            )
+        }
         return [pscustomobject]@{
             action = 'stopped'
             worktree_id = $Context.WorktreeId
-            process_id = [int]$state.process_id
+            process_id = $stoppedProcessId
             endpoint = [string]$state.endpoint
             config_enabled = $false
         }
