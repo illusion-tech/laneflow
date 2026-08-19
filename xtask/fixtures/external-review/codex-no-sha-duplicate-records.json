@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 430,
+    "author": {
+      "login": "wangzishi"
+    },
+    "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "comments": {
+      "nodes": [
+        {
+          "id": "IC-marker-1",
+          "author": {
+            "login": "github-actions[bot]"
+          },
+          "body": "@codex review\n\n<!-- codex-review-request:v1 {\"schemaVersion\":1,\"id\":\"codex-review-request-430-1\",\"pr\":430,\"requestHeadOid\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"requestBaseOid\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"} -->",
+          "createdAt": "2026-08-19T01:00:00Z",
+          "updatedAt": "2026-08-19T01:00:00Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/430#issuecomment-100"
+        },
+        {
+          "id": "IC-codex-clean-nosha-1",
+          "author": {
+            "login": "chatgpt-codex-connector"
+          },
+          "body": "Codex Review: Didn't find any major issues. Hooray!",
+          "createdAt": "2026-08-19T01:10:00Z",
+          "updatedAt": "2026-08-19T01:10:00Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/430#issuecomment-101"
+        },
+        {
+          "id": "IC-binding-1",
+          "author": {
+            "login": "github-actions[bot]"
+          },
+          "body": "external-review: codex clean bound to `aaaaaaaaaaaa` via controlled request marker\n\n<!-- codex-clean-binding:v1 {\"schemaVersion\":1,\"id\":\"codex-clean-binding-abc123\",\"pr\":430,\"cleanCommentId\":\"IC-codex-clean-nosha-1\",\"cleanCommentCreatedAt\":\"2026-08-19T01:10:00Z\",\"cleanCommentUrl\":\"https://github.com/illusion-tech/laneflow/pull/430#issuecomment-101\",\"requestMarkerId\":\"IC-marker-1\",\"boundHeadOid\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"boundBaseOid\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"verifiedAt\":\"2026-08-19T01:11:30Z\",\"runUrl\":\"https://github.com/illusion-tech/laneflow/actions/runs/1\"} -->",
+          "createdAt": "2026-08-19T01:11:00Z",
+          "updatedAt": "2026-08-19T01:11:00Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/430#issuecomment-102"
+        },
+        {
+          "id": "IC-binding-2",
+          "author": {
+            "login": "github-actions[bot]"
+          },
+          "body": "external-review: codex clean bound to `aaaaaaaaaaaa` via controlled request marker\n\n<!-- codex-clean-binding:v1 {\"schemaVersion\":1,\"id\":\"codex-clean-binding-def456\",\"pr\":430,\"cleanCommentId\":\"IC-codex-clean-nosha-1\",\"cleanCommentCreatedAt\":\"2026-08-19T01:10:00Z\",\"cleanCommentUrl\":\"https://github.com/illusion-tech/laneflow/pull/430#issuecomment-101\",\"requestMarkerId\":\"IC-marker-1\",\"boundHeadOid\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"boundBaseOid\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"verifiedAt\":\"2026-08-19T01:11:45Z\",\"runUrl\":\"https://github.com/illusion-tech/laneflow/actions/runs/2\"} -->",
+          "createdAt": "2026-08-19T01:11:30Z",
+          "updatedAt": "2026-08-19T01:11:30Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/430#issuecomment-103"
+        }
+      ]
+    }
+  }
+}
