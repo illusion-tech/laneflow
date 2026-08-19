@@ -31,10 +31,11 @@ use laneflow_format::{
     encode_prepared_object_v1, preflight_object_values_v1, prepare_object_v1,
 };
 use laneflow_static_contract::{
-    CANONICAL_ARTIFACT_FORMAT_VERSION, EntityKind, EntityKindMarker, ExactByteLength,
-    IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION, NETWORK_REVISION_DERIVATION_VERSION,
-    NETWORK_REVISION_DOMAIN_PREFIX, NetworkRevisionId, Ordinal, OrdinalKind, PortableObjectKind,
-    SECTION_FORMAT_VERSION_V1, Sha256Digest, StableId,
+    CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION_V1, EntityKind,
+    EntityKindMarker, ExactByteLength, IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION,
+    NETWORK_REVISION_DERIVATION_VERSION, NETWORK_REVISION_DOMAIN_PREFIX, NetworkRevisionId,
+    Ordinal, OrdinalKind, PortableObjectKind, SECTION_FORMAT_VERSION_V1,
+    STATIC_EXECUTION_CONTRACT_VERSION_V1, Sha256Digest, StableId,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -43,8 +44,6 @@ use crate::CompilationOutput;
 
 const SOURCE_COLLECTION_DIGEST_VERSION_V1: u16 = 1;
 const EMITTER_VERSION_V1: u16 = 1;
-const CONSTRAINT_CONTRACT_VERSION_V1: u16 = 1;
-const STATIC_EXECUTION_CONTRACT_VERSION_V1: u16 = 1;
 const SOURCE_COLLECTION_DOMAIN_V1: &[u8] = b"laneflow.source-collection.v1\0";
 const PORTABLE_COMPILE_OPTIONS_DIGEST_V1: [u8; 32] = [
     0x32, 0x26, 0x82, 0xf4, 0x55, 0xd0, 0x6b, 0x36, 0xe9, 0xe3, 0x71, 0x9f, 0x34, 0x1d, 0xb3, 0x8f,

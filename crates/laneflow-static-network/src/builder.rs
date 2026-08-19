@@ -9,10 +9,11 @@ use laneflow_format::{
     RegistryCheckedRecordVectorView, RegistryCheckedRowView, ValueCheckedObjectView,
 };
 use laneflow_static_contract::{
-    CanonicalFrameOrdinal, EntityKind, FacilityBandOrdinal, IDENTITY_ENCODING_VERSION,
-    IDENTITY_REGISTRY_REVISION, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
-    MovementOrdinal, NETWORK_REVISION_DERIVATION_VERSION, SPATIAL_JOIN_POSITION_TOLERANCE_METERS,
-    StableId128, WaitingZoneOrdinal,
+    CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION_V1, CanonicalFrameOrdinal,
+    EntityKind, FacilityBandOrdinal, IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION,
+    LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, MovementOrdinal,
+    NETWORK_REVISION_DERIVATION_VERSION, SPATIAL_JOIN_POSITION_TOLERANCE_METERS,
+    STATIC_EXECUTION_CONTRACT_VERSION_V1, StableId128, WaitingZoneOrdinal,
 };
 
 use crate::{
@@ -24,6 +25,7 @@ use crate::{
         IdentityReverseEntry, allocate_forward_identity, kind_index, radix_sort_reverse_identity,
         reverse_entry_bytes, seal_forward_identity,
     },
+    numeric::hypot_rte_f32,
     spatial::FacilityGeometryEntry,
 };
 
@@ -269,14 +271,7 @@ fn count_and_preflight(
         checked_u16(contract_row, 5, BuildStructure::ContractVersions)?,
         checked_u16(contract_row, 6, BuildStructure::ContractVersions)?,
     );
-    if contracts.identity_encoding_version() != IDENTITY_ENCODING_VERSION
-        || contracts.identity_registry_revision() != IDENTITY_REGISTRY_REVISION
-        || contracts.network_revision_derivation_version() != NETWORK_REVISION_DERIVATION_VERSION
-    {
-        return Err(BuildError::ContractMismatch {
-            structure: BuildStructure::ContractVersions,
-        });
-    }
+    validate_supported_contract_versions(contracts)?;
 
     let entity_section = registry.section(2).ok_or(BuildError::InputInvariant {
         structure: BuildStructure::CanonicalEntityTable,
@@ -2850,7 +2845,24 @@ fn canonical_point_distance(left: CanonicalPoint, right: CanonicalPoint) -> f32 
     let dx = normalized_delta(left.x, right.x);
     let dy = normalized_delta(left.y, right.y);
     let dz = normalized_delta(left.z, right.z);
-    dx.hypot(dy).hypot(dz)
+    hypot_rte_f32(hypot_rte_f32(dx, dy), dz)
+}
+
+fn validate_supported_contract_versions(
+    contracts: StaticContractVersions,
+) -> Result<(), BuildError> {
+    if contracts.canonical_format_version() != CANONICAL_ARTIFACT_FORMAT_VERSION
+        || contracts.identity_encoding_version() != IDENTITY_ENCODING_VERSION
+        || contracts.identity_registry_revision() != IDENTITY_REGISTRY_REVISION
+        || contracts.network_revision_derivation_version() != NETWORK_REVISION_DERIVATION_VERSION
+        || contracts.constraint_contract_version() != CONSTRAINT_CONTRACT_VERSION_V1
+        || contracts.static_execution_contract_version() != STATIC_EXECUTION_CONTRACT_VERSION_V1
+    {
+        return Err(BuildError::ContractMismatch {
+            structure: BuildStructure::ContractVersions,
+        });
+    }
+    Ok(())
 }
 
 fn fill_segments(
@@ -3091,6 +3103,78 @@ mod tests {
         SpatialBuildOption::Omit,
         SharedNetworkBuildLimits::new(u64::MAX, u64::MAX),
     );
+
+    #[test]
+    fn all_six_contract_versions_must_be_supported() {
+        let supported = StaticContractVersions::new(
+            CANONICAL_ARTIFACT_FORMAT_VERSION,
+            IDENTITY_ENCODING_VERSION,
+            IDENTITY_REGISTRY_REVISION,
+            NETWORK_REVISION_DERIVATION_VERSION,
+            CONSTRAINT_CONTRACT_VERSION_V1,
+            STATIC_EXECUTION_CONTRACT_VERSION_V1,
+        );
+        assert!(validate_supported_contract_versions(supported).is_ok());
+
+        let unsupported = [
+            StaticContractVersions::new(
+                2,
+                IDENTITY_ENCODING_VERSION,
+                IDENTITY_REGISTRY_REVISION,
+                NETWORK_REVISION_DERIVATION_VERSION,
+                CONSTRAINT_CONTRACT_VERSION_V1,
+                STATIC_EXECUTION_CONTRACT_VERSION_V1,
+            ),
+            StaticContractVersions::new(
+                CANONICAL_ARTIFACT_FORMAT_VERSION,
+                2,
+                IDENTITY_REGISTRY_REVISION,
+                NETWORK_REVISION_DERIVATION_VERSION,
+                CONSTRAINT_CONTRACT_VERSION_V1,
+                STATIC_EXECUTION_CONTRACT_VERSION_V1,
+            ),
+            StaticContractVersions::new(
+                CANONICAL_ARTIFACT_FORMAT_VERSION,
+                IDENTITY_ENCODING_VERSION,
+                2,
+                NETWORK_REVISION_DERIVATION_VERSION,
+                CONSTRAINT_CONTRACT_VERSION_V1,
+                STATIC_EXECUTION_CONTRACT_VERSION_V1,
+            ),
+            StaticContractVersions::new(
+                CANONICAL_ARTIFACT_FORMAT_VERSION,
+                IDENTITY_ENCODING_VERSION,
+                IDENTITY_REGISTRY_REVISION,
+                2,
+                CONSTRAINT_CONTRACT_VERSION_V1,
+                STATIC_EXECUTION_CONTRACT_VERSION_V1,
+            ),
+            StaticContractVersions::new(
+                CANONICAL_ARTIFACT_FORMAT_VERSION,
+                IDENTITY_ENCODING_VERSION,
+                IDENTITY_REGISTRY_REVISION,
+                NETWORK_REVISION_DERIVATION_VERSION,
+                2,
+                STATIC_EXECUTION_CONTRACT_VERSION_V1,
+            ),
+            StaticContractVersions::new(
+                CANONICAL_ARTIFACT_FORMAT_VERSION,
+                IDENTITY_ENCODING_VERSION,
+                IDENTITY_REGISTRY_REVISION,
+                NETWORK_REVISION_DERIVATION_VERSION,
+                CONSTRAINT_CONTRACT_VERSION_V1,
+                2,
+            ),
+        ];
+        for contracts in unsupported {
+            assert_eq!(
+                validate_supported_contract_versions(contracts),
+                Err(BuildError::ContractMismatch {
+                    structure: BuildStructure::ContractVersions,
+                })
+            );
+        }
+    }
 
     fn maneuver_path_fixture(
         sequences: &[&[u32]],
