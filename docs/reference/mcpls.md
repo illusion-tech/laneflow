@@ -142,7 +142,10 @@ PID 已确认不存在且状态所有权一致时，才清理失效状态。CIM/
 启动、复用、失败、停止与清理事件。两者都不提交到仓库。状态、轮转游标和生成配置都
 通过同目录临时文件原子替换。旧 schema 或不完整状态会被明确报告为 `invalid-state`，
 不会被当作“无状态”而启动第二个服务。必填值还会校验非空、类型、范围、绝对路径、
-哈希格式以及 endpoint/端口一致性；需在核对对应 PID 后人工处理无效状态目录。
+哈希格式以及 endpoint/端口一致性；成功停止后 `status=stopped` 且 `process_id=0`，明确
+表示没有活动 PID，避免系统复用旧 PID 后阻断下次启动。需在核对对应 PID 后人工处理
+无效状态目录。mcpls 的 stdout/stderr 分别重定向到状态目录下的 `mcpls.stdout.log` 与
+`mcpls.stderr.log`，不会继承 Codex setup runner 的捕获管道。
 
 ## 5. 验证
 
