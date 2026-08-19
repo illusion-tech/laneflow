@@ -275,7 +275,7 @@ parking、StaticRoute/occurrence 等 Runtime 必需关系由 #440 逐项盘点�
 - forward/reverse indexes round-trip；
 - StaticRoute/occurrence/range 无 gap、overlap 或跨 owner 错配；
 - execution contract versions 与派生 constraint graph 一致；
-- Spatial presence、edge coverage、frame、长度和 Traffic cross-index 一致；
+- Spatial presence、edge coverage、frame、可执行连接端点 gap、长度和 Traffic cross-index 一致；
 - 输出 logical/retained budget 没有 checked overflow。
 
 这些检查保护 Runtime 数据结构，不重新执行来源、HIR/MIR/LIR 的编译语义，也不建立

@@ -312,6 +312,40 @@ fn scratch_limit_fails_before_a_root_exists_and_exact_boundary_succeeds() {
 }
 
 #[test]
+fn omit_spatial_endpoint_scratch_is_budgeted_exactly() {
+    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+        .expect("checked input");
+    let result = build_shared_network_revision(
+        input,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::Omit,
+            SharedNetworkBuildLimits::new(u64::MAX, 1),
+        ),
+    );
+    let required = match result {
+        Err(BuildError::BudgetExceeded {
+            structure: BuildStructure::BuilderScratch,
+            required,
+            ..
+        }) => required,
+        _ => panic!("omit scratch budget should include spatial join endpoints"),
+    };
+
+    let exact = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+        .expect("checked input");
+    assert!(
+        build_shared_network_revision(
+            exact,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::Omit,
+                SharedNetworkBuildLimits::new(u64::MAX, required),
+            ),
+        )
+        .is_ok()
+    );
+}
+
+#[test]
 fn pre_cancelled_build_returns_no_root() {
     let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
         .expect("checked input");
