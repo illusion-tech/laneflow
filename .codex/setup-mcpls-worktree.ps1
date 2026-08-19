@@ -1184,7 +1184,14 @@ function Stop-VerifiedServiceProcessTree {
             throw "Refusing to stop a revalidated identity-mismatched process: $($identity.Reason)"
         }
 
-        $process.Kill($true)
+        try {
+            $process.Kill($true)
+        }
+        catch {
+            if (-not $process.HasExited) {
+                throw
+            }
+        }
         $exitWait = if ($Deadline -eq [DateTimeOffset]::MinValue) {
             $TimeoutMilliseconds
         }
