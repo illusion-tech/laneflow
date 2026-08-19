@@ -22,13 +22,13 @@ Traffic v0.10 / SpatialPackage v0.1 / Data / Core。
 
 ## 2. 职责与依赖
 
-| 组件                      | 拥有                                                                                                   | 不拥有                                          |
-| ------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------- |
-| `laneflow-format`         | LFCA framing/registry/value checks、后发射 digest/length/revision binding、字段私有受检输入 capability | Runtime layout、每世界状态                      |
-| `laneflow-static-network` | LFCA closure、typed dense data、identity、planning hints、可选 Spatial、共享生命周期                   | 来源/LIR 语义、文件发布、cutover、动态状态      |
-| `laneflow-runtime`        | fixed tick、参与单元、动态通行定义、每世界状态与执行计划                                               | LFCA 解析、静态 normalization、Spatial geometry |
-| `laneflow-spatial`        | 规范位姿采样和 Spatial session scratch/output                                                          | Traffic authority、道路编制状态                 |
-| Adapter/宿主              | LFCP/manifest 认证、资产/存档 I/O、引擎生命周期和表现                                                  | 静态路网语义、tick authority                    |
+| 组件                      | 拥有                                                                                                   | 不拥有                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| `laneflow-format`         | LFCA framing/registry/value checks、后发射 digest/length/revision binding、字段私有受检输入 capability | Runtime layout、每世界状态                                    |
+| `laneflow-static-network` | Runtime 结构闭合、typed dense data、identity 索引、planning hints、可选 Spatial、共享生命周期          | compiler 派生复验、来源/LIR 语义、文件发布、cutover、动态状态 |
+| `laneflow-runtime`        | fixed tick、参与单元、动态通行定义、每世界状态与执行计划                                               | LFCA 解析、静态 normalization、Spatial geometry               |
+| `laneflow-spatial`        | 规范位姿采样和 Spatial session scratch/output                                                          | Traffic authority、道路编制状态                               |
+| Adapter/宿主              | LFCP/manifest 认证、资产/存档 I/O、引擎生命周期和表现                                                  | 静态路网语义、tick authority                                  |
 
 依赖箭头表示左侧依赖右侧：
 
@@ -89,6 +89,13 @@ impl<'a> PostEmissionCheckedBundleV1<'a> {
 `ValueCheckedObjectView` 本身不证明跨表引用、row ordering 或真实性，因此不能直接作为
 共享静态路网成功结果。`laneflow-static-network` 必须继续完成 §7 的构建闭合；发布内容
 是否被产品/宿主接受，则由 LFCP/manifest admission 在调用前决定。
+
+该构建闭合是 Runtime 结构闭合，不是独立 compiler 语义复验。compiler 拥有
+`identityFields -> StableId128` 和规范 points -> segment 派生值；builder 接受受检 LFCA
+中已声明的 StableId、length/cumulative/tangent/up，只检查 Runtime 索引、引用、范围和
+component 结构所需的不变量。它不重新哈希 Identity 前像，也不从 points 重演完整几何
+冻结。发布路径以先行 LFCP/manifest admission 为前提，本地编辑路径以同进程
+`PostEmissionCheckedBundleV1` 为前提。
 
 ### 3.2 两类来源，同一 builder
 
@@ -189,6 +196,11 @@ memory 代价。
 - 按 `(EntityKind, StableId128)` 严格排序的反向表；
 - round-trip 双射。
 
+这里的双射以 LFCA 中由 compiler 声明的 `StableId128` 为键。builder 必须核对
+`CanonicalIdentity` 与对应实体行的 kind/typed ordinal/StableId 一致，但不消费
+`identityFields` 重新编码或哈希；Identity v1 派生算法由 compiler known vectors 与
+后发射/端到端测试负责。
+
 反向查找允许 binary search 或经证据支持的紧凑索引；不得默认使用每 world `HashMap`。
 身份索引不进入 steady tick，但不能从 headless 或 Spatial 构建模式裁掉。
 
@@ -260,8 +272,12 @@ O(n²) 构建。实现可以融合不影响精确预算或错误语义的子 pas
 - Spatial presence、edge coverage、frame、长度和 Traffic cross-index 一致；
 - 输出 logical/retained budget 没有 checked overflow。
 
-这些检查保护 Runtime 数据结构，不重新执行来源、HIR/MIR/LIR 的完整编译语义，也不建立
-第二套 validator/receipt/证明平台。
+这些检查保护 Runtime 数据结构，不重新执行来源、HIR/MIR/LIR 的编译语义，也不建立
+第二套 validator/receipt/证明平台。特别地，builder 不从 `identityFields` 重算 StableId，
+不从 points 重算每个 segment 的 length/cumulative/tangent/up；compiler 对这些声明值的
+派生正确性由 known vectors、后发射检查和 compiler -> LFCA -> shared-network 端到端测试
+覆盖。builder 仍须拒绝会让已构建 Runtime 索引、范围、CSR、Traffic/Spatial component
+内部自相矛盾的输入。
 
 ### 7.3 失败与取消
 
@@ -382,8 +398,8 @@ requested capacity、累计分配、returned retained bytes 和进程 RSS，不�
 | 输入能力     | 非 LFCA、版本/contract/revision/digest/length 错配；单对象与 bundle 两种构造内容等价；字段私有能力不可伪造                                   |
 | headless     | Traffic/Identity/Hints 存在，Spatial 为 `None`，geometry retained 为零                                                                       |
 | Spatial 变体 | facility-only、profile/frame-only 成功且 `lane_pose=None`；非空 lane geometry 才完整覆盖并可批量采样；长度差处于容差内、恰等于容差和超出容差 |
-| 引用安全     | typed domain 越界、错误 owner、range overflow/gap/overlap、重复 row/key                                                                      |
-| Identity     | 22 种稳定实体与派生实体双射、正反 round-trip、同名不同 owner                                                                                 |
+| 引用合法性   | typed domain 越界、错误 owner、range overflow/gap/overlap、重复 row/key                                                                      |
+| Identity     | 22 种稳定实体与派生实体的声明 StableId 双射、正反 round-trip、同名不同 owner；派生 known vectors 由 compiler 覆盖                            |
 | 确定性       | 同一 LFCA + hints derivation version fresh build 内容相等；不比较 Rust padding/地址/字节                                                     |
 | 资源         | caller limit、失败无 retained、三对象真实 lifetime、editable base + target bundle + 双 root 峰值                                             |
 | 共享         | 2/8/32 worlds 不复制 component payload；per-world mutable arrays 仍独立                                                                      |
@@ -394,7 +410,8 @@ requested capacity、累计分配、returned retained bytes 和进程 RSS，不�
 | 性能         | SoA/CSR baseline 与 #301 production access kernel；AoS/AoSoA 变更需比较证据                                                                  |
 
 任意原始字节、截断、错位、oversized 和 FieldV1 结构 fuzz 继续由 `laneflow-format` 覆盖；
-#300 只补充能够通过格式直接值域但不能构成安全 Runtime 关系的 cross-table mutation。
+#300 只补充能够通过格式直接值域但不能构成功能正确 Runtime 结构的 cross-table mutation，
+不把自洽伪造输入或独立 compiler 复验扩展为当前产品目标。
 
 ## 12. G1 非目标与返回条件
 

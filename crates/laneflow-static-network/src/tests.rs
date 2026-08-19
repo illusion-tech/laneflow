@@ -14,6 +14,9 @@ const MIN_HEADLESS: &[u8] = include_bytes!(
 const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
 );
+const REORDER_EQUIVALENT: &[u8] = include_bytes!(
+    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-variants/reorder-equivalent.lfca"
+);
 
 const BUILD_LIMITS: SharedNetworkBuildLimits =
     SharedNetworkBuildLimits::new(64 * 1024 * 1024, 16 * 1024 * 1024);
@@ -53,17 +56,69 @@ fn full_spatial_build_closes_identity_lane_csr_and_lane_pose() {
         usize::try_from(lane_count).expect("lane count")
     );
 
-    let first = LaneEdgeOrdinal::from_raw(0);
+    let ordinal_for_length = |length| {
+        let index = revision
+            .traffic()
+            .lane_lengths_meters()
+            .iter()
+            .position(|actual| *actual == length)
+            .expect("fixture lane length");
+        LaneEdgeOrdinal::try_from_usize(index).expect("fixture lane ordinal")
+    };
+    let first = ordinal_for_length(10.0);
+    let middle = ordinal_for_length(8.0);
+    let last = ordinal_for_length(12.0);
     let stable_id = revision
         .identity()
         .stable_id::<LaneEdgeKind>(first)
         .expect("lane identity");
+    assert_eq!(revision.identity().ordinal(stable_id), Some(first));
     assert_eq!(
-        revision.identity().ordinal(stable_id),
-        Some(LaneEdgeOrdinal::from_raw(0))
+        revision
+            .traffic()
+            .successors(first)
+            .expect("first successors"),
+        &[]
     );
-    assert!(revision.traffic().successors(first).is_some());
-    assert!(revision.traffic().predecessors(first).is_some());
+    assert_eq!(
+        revision
+            .traffic()
+            .predecessors(first)
+            .expect("first predecessors"),
+        &[]
+    );
+    assert_eq!(
+        revision
+            .traffic()
+            .successors(middle)
+            .expect("middle successors"),
+        &[]
+    );
+    assert_eq!(
+        revision
+            .traffic()
+            .predecessors(middle)
+            .expect("middle predecessors"),
+        &[]
+    );
+    assert_eq!(
+        revision
+            .traffic()
+            .successors(last)
+            .expect("last successors"),
+        &[]
+    );
+    assert_eq!(
+        revision
+            .traffic()
+            .predecessors(last)
+            .expect("last predecessors"),
+        &[]
+    );
+    let weights = revision.planning_hints().edge_boundary_weights();
+    assert_eq!(weights[first.index()], 0);
+    assert_eq!(weights[middle.index()], 0);
+    assert_eq!(weights[last.index()], 0);
 
     let spatial = revision.spatial().expect("spatial component");
     let lane_pose = spatial.lane_pose().expect("lane pose capability");
@@ -71,6 +126,47 @@ fn full_spatial_build_closes_identity_lane_csr_and_lane_pose() {
     let geometry = lane_pose.lane_geometry(first).expect("first lane geometry");
     assert!(geometry.points().len() >= 2);
     assert_eq!(geometry.segments().len() + 1, geometry.points().len());
+}
+
+#[test]
+fn headless_lane_csr_retains_non_internal_successors_and_predecessors() {
+    let revision = build(REORDER_EQUIVALENT, SpatialBuildOption::Omit);
+    let lane_count = revision.traffic().lane_edge_count();
+    let csr: Vec<(Vec<u32>, Vec<u32>)> = (0..lane_count)
+        .map(|raw| {
+            let edge = LaneEdgeOrdinal::from_raw(raw);
+            let successors = revision
+                .traffic()
+                .successors(edge)
+                .expect("successor range")
+                .iter()
+                .map(|ordinal| ordinal.raw())
+                .collect();
+            let predecessors = revision
+                .traffic()
+                .predecessors(edge)
+                .expect("predecessor range")
+                .iter()
+                .map(|ordinal| ordinal.raw())
+                .collect();
+            (successors, predecessors)
+        })
+        .collect();
+    assert_eq!(
+        csr,
+        [
+            (vec![1, 2], vec![]),
+            (vec![], vec![0]),
+            (vec![], vec![0]),
+            (vec![4, 5], vec![]),
+            (vec![], vec![3]),
+            (vec![], vec![3]),
+        ]
+    );
+    assert_eq!(
+        revision.planning_hints().edge_boundary_weights(),
+        &[2, 1, 1, 2, 1, 1]
+    );
 }
 
 #[test]
@@ -92,23 +188,71 @@ fn successful_root_outlives_input_bytes_and_arc_clones_share_components() {
 }
 
 #[test]
-fn retained_and_scratch_limits_fail_before_a_root_exists() {
+fn retained_limit_fails_before_a_root_exists_and_exact_boundary_succeeds() {
     let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
         .expect("checked input");
     let result = build_shared_network_revision(
         input,
         SharedNetworkBuildOptions::new(
             SpatialBuildOption::RetainAvailable,
-            SharedNetworkBuildLimits::new(1, 1),
+            SharedNetworkBuildLimits::new(1, u64::MAX),
         ),
     );
-    assert!(matches!(
-        result,
+    let required = match result {
         Err(BuildError::BudgetExceeded {
             structure: BuildStructure::RetainedOutput,
+            required,
             ..
-        })
-    ));
+        }) => required,
+        _ => panic!("retained budget should fail first"),
+    };
+
+    let exact = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+        .expect("checked input");
+    assert!(
+        build_shared_network_revision(
+            exact,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::RetainAvailable,
+                SharedNetworkBuildLimits::new(required, u64::MAX),
+            ),
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn scratch_limit_fails_before_a_root_exists_and_exact_boundary_succeeds() {
+    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+        .expect("checked input");
+    let result = build_shared_network_revision(
+        input,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(u64::MAX, 1),
+        ),
+    );
+    let required = match result {
+        Err(BuildError::BudgetExceeded {
+            structure: BuildStructure::BuilderScratch,
+            required,
+            ..
+        }) => required,
+        _ => panic!("scratch budget should fail after retained budget passes"),
+    };
+
+    let exact = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+        .expect("checked input");
+    assert!(
+        build_shared_network_revision(
+            exact,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::RetainAvailable,
+                SharedNetworkBuildLimits::new(u64::MAX, required),
+            ),
+        )
+        .is_ok()
+    );
 }
 
 #[test]
