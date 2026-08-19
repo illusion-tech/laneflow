@@ -9,6 +9,8 @@ pub enum BuildStructure {
     LaneEdge,
     LaneSuccessors,
     LanePredecessors,
+    ManeuverPath,
+    ManeuverCandidates,
     PlanningHints,
     ExecutionContract,
     SpatialPresence,
