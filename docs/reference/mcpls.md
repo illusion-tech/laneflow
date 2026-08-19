@@ -85,10 +85,11 @@ Codex 为新任务创建 worktree 时会运行 setup。`Ensure` 会：
    `mcpls.toml` 内容 SHA-256 以及 HTTP MCP `initialize`；配置内容变化会停止已归属的旧
    服务并启动新服务，不复用旧 `rust-analyzer`；健康探测会携带协商得到的
    `MCP-Protocol-Version` 删除临时 session，并把删除失败视为不健康；
-6. 用 `StartupTimeoutSeconds` 的单一截止时间约束自动清理、二进制校验、锁等待、端口
-   绑定和 HTTP 健康检查；
-7. 只有状态、健康检查、启用配置与生命周期日志全部提交成功后才保留新进程；任一记账
-   步骤失败都会回收该进程并保持配置禁用。
+6. 用 `StartupTimeoutSeconds` 的单一截止时间约束初始 Git worktree discovery、自动清理、
+   二进制校验、锁等待、端口绑定和 HTTP 健康检查；
+7. 子进程创建后立即原子持久化 `starting` 状态，再等待端口绑定；只有健康检查、启用配置
+   与生命周期日志全部提交成功后才保留新进程。任一记账步骤失败都会回收该进程，且失败
+   路径只在持有同 worktree 锁时改写禁用配置。
 
 Codex 官方文档没有保证 Local Environment setup 一定早于当前任务的 MCP 配置读取。
 因此首次生成配置后，如果当前任务没有加载 mcpls，应 Restart Codex 或新建任务；不要
