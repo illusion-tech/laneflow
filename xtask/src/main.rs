@@ -43,6 +43,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
         Some("publish-external-review-check") => {
             external_review::run_publish_check(&args[1..])
         }
+        Some("request-codex-review") => external_review::run_request_codex_review(&args[1..]),
+        Some("publish-codex-clean-binding") => {
+            external_review::run_publish_codex_clean_binding(&args[1..])
+        }
         Some("format-md-tables") => markdown_tables::run(&args[1..]),
         Some("check-road-editing-codegen") => road_editing_codegen::run(&args[1..]),
         Some("check-schema-publication-contract") => schema_publication::check_schema_publication_contract(),
@@ -55,7 +59,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         },
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-gate-evidence-target, check-g3-shadow-success-eligibility, check-g3-evidence-marker, resolve-g3-evidence-shadow-targets, resolve-g3-evidence-shadow-issue-event-targets, check-external-review, publish-external-review-check, format-md-tables, check-road-editing-codegen, check-schema-publication-contract, build-schema-publication"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-gate-evidence-target, check-g3-shadow-success-eligibility, check-g3-evidence-marker, resolve-g3-evidence-shadow-targets, resolve-g3-evidence-shadow-issue-event-targets, check-external-review, publish-external-review-check, request-codex-review, publish-codex-clean-binding, format-md-tables, check-road-editing-codegen, check-schema-publication-contract, build-schema-publication"
                 .to_string(),
         ),
     }

@@ -3,8 +3,10 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
 const RESULT_SCHEMA_VERSION: u64 = 1;
@@ -16,6 +18,11 @@ const CODEX_ACTOR: &str = "chatgpt-codex-connector";
 const DEPENDABOT_AUTHOR_NAME: &str = "dependabot[bot]";
 const DEPENDABOT_AUTHOR_EMAIL: &str = "49699333+dependabot[bot]@users.noreply.github.com";
 const TRUSTED_HUMAN_ACTORS: &[&str] = &["wangzishi"];
+const GITHUB_ACTIONS_ACTOR: &str = "github-actions";
+const CODEX_REVIEW_REQUEST_MARKER: &str = "<!-- codex-review-request:v1 ";
+const CODEX_CLEAN_BINDING_MARKER: &str = "<!-- codex-clean-binding:v1 ";
+const HIDDEN_RECORD_SUFFIX: &str = " -->";
+const BINDING_RECORD_SCHEMA_VERSION: u64 = 1;
 
 const EXTERNAL_REVIEW_QUERY: &str = r#"
 query($owner:String!, $name:String!, $number:Int!) {
@@ -113,6 +120,7 @@ query($owner:String!, $name:String!, $number:Int!) {
       headRefOid
       baseRefOid
       baseRefName
+      headRefName
       isCrossRepository
       isDraft
       state
@@ -408,6 +416,32 @@ pub(crate) struct WaiverInput {
     pub(crate) grandfathered_confirmed_gate_defect: bool,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CodexReviewRequestRecord {
+    schema_version: u64,
+    id: String,
+    pr: u64,
+    request_head_oid: String,
+    request_base_oid: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CodexCleanBindingRecord {
+    schema_version: u64,
+    id: String,
+    pr: u64,
+    clean_comment_id: String,
+    clean_comment_created_at: String,
+    clean_comment_url: String,
+    request_marker_id: String,
+    bound_head_oid: String,
+    bound_base_oid: String,
+    verified_at: String,
+    run_url: String,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExternalReviewResult {
@@ -543,6 +577,94 @@ struct PublishCheckArgs {
     run_id: u64,
     run_attempt: u64,
     trusted_ref_oid: String,
+}
+
+#[derive(Debug)]
+struct RequestCodexReviewArgs {
+    repository: String,
+    pr: u64,
+    dry_run: bool,
+}
+
+#[derive(Debug)]
+struct PublishCodexCleanBindingArgs {
+    repository: String,
+    pr: u64,
+    clean_comment_id: String,
+    run_url: String,
+    dry_run: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexReviewRequestResult {
+    schema_version: u64,
+    repository: String,
+    pull_request: u64,
+    request_id: String,
+    request_head_oid: String,
+    request_base_oid: String,
+    comment_url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexCleanBindingResult {
+    schema_version: u64,
+    repository: String,
+    pull_request: u64,
+    skipped: bool,
+    reason: Option<String>,
+    binding_id: Option<String>,
+    bound_head_oid: Option<String>,
+    comment_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RepoEvent {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    payload: RepoEventPayload,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RepoEventPayload {
+    #[serde(rename = "ref")]
+    ref_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TimelineEvent {
+    #[serde(default)]
+    event: Option<String>,
+    #[serde(default)]
+    created_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BranchInfo {
+    commit: BranchCommit,
+}
+
+#[derive(Debug, Deserialize)]
+struct BranchCommit {
+    sha: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PostedComment {
+    node_id: String,
+    body: Option<String>,
+    user: Option<RestUser>,
+    html_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RestUser {
+    login: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -978,6 +1100,8 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         );
     }
 
+    let binding_records = collect_codex_clean_binding_records(pr, &mut diagnostics);
+    let mut consumed_binding_records = BTreeSet::<String>::new();
     for comment in &pr.comments.nodes {
         let Some(actor) = comment.author.as_ref() else {
             continue;
@@ -992,10 +1116,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         if comment.body.contains("To use Codex here") {
             continue;
         }
-        if !comment.body.contains("Codex Review:") {
-            continue;
-        }
-        if !comment.body.contains("Didn't find any major issues") {
+        if !codex_clean_comment_shape(&comment.body) {
             continue;
         }
         if comment.updated_at != comment.created_at {
@@ -1006,7 +1127,33 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             continue;
         }
         let Some(reviewed_head) = parse_reviewed_commit(&comment.body) else {
-            push_unbound_clean_ambiguity(&mut unbound_clean_ambiguities, &mut diagnostics, comment);
+            match bind_codex_clean_comment(comment, &binding_records, pr, &mut diagnostics) {
+                CodexCleanBinding::Bound(bound) => {
+                    consumed_binding_records.insert(bound.record.id.clone());
+                    push_evidence(
+                        &mut evidence,
+                        &mut diagnostics,
+                        EvidenceInput {
+                            provider: "codex",
+                            actor: CODEX_ACTOR,
+                            source_kind: "binding_record",
+                            reviewed_head: &bound.record.bound_head_oid,
+                            reviewed_base: &bound.record.bound_base_oid,
+                            outcome: EvidenceOutcome::Clean,
+                            submitted_at: &bound.created_at,
+                            evidence_url: &bound.url,
+                        },
+                    );
+                }
+                CodexCleanBinding::NoRecord => {
+                    push_unbound_clean_ambiguity(
+                        &mut unbound_clean_ambiguities,
+                        &mut diagnostics,
+                        comment,
+                    );
+                }
+                CodexCleanBinding::Invalid => {}
+            }
             continue;
         };
         push_evidence(
@@ -1023,6 +1170,15 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 evidence_url: &comment.url,
             },
         );
+    }
+
+    for bound in &binding_records {
+        if !consumed_binding_records.contains(&bound.record.id) {
+            diagnostics.push(format!(
+                "Codex clean binding record `{}` 未绑定到任何无 SHA clean comment",
+                bound.record.id
+            ));
+        }
     }
 
     if let (Some(completion), Some((completion_time, completion_url))) = (
@@ -1201,6 +1357,566 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     }
 }
 
+pub fn run_request_codex_review(args: &[String]) -> Result<(), String> {
+    let args = parse_request_codex_review_args(args)?;
+    let identity = load_live_identity(&args.repository, args.pr)?;
+    ensure_requestable_identity(&identity, args.pr)?;
+    let record = CodexReviewRequestRecord {
+        schema_version: BINDING_RECORD_SCHEMA_VERSION,
+        id: format!("codex-review-request-{}-{}", args.pr, now_epoch_seconds()?),
+        pr: args.pr,
+        request_head_oid: identity.head_ref_oid.clone(),
+        request_base_oid: identity.base_ref_oid.clone(),
+    };
+    let json = serde_json::to_string(&record)
+        .map_err(|error| format!("无法序列化 codex-review-request 记录：{error}"))?;
+    let body =
+        format!("@codex review\n\n{CODEX_REVIEW_REQUEST_MARKER}{json}{HIDDEN_RECORD_SUFFIX}\n");
+    if args.dry_run {
+        println!("{body}");
+        return Ok(());
+    }
+    let posted = post_issue_comment(&args.repository, args.pr, &body)?;
+    ensure_trusted_comment_echo(&posted, &body)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&CodexReviewRequestResult {
+            schema_version: BINDING_RECORD_SCHEMA_VERSION,
+            repository: args.repository,
+            pull_request: args.pr,
+            request_id: record.id,
+            request_head_oid: identity.head_ref_oid,
+            request_base_oid: identity.base_ref_oid,
+            comment_url: posted.html_url,
+        })
+        .map_err(|error| format!("无法序列化 codex-review-request 发布结果：{error}"))?
+    );
+    Ok(())
+}
+
+pub fn run_publish_codex_clean_binding(args: &[String]) -> Result<(), String> {
+    let args = parse_publish_codex_clean_binding_args(args)?;
+    let initial = load_live_identity(&args.repository, args.pr)?;
+    ensure_requestable_identity(&initial, args.pr)?;
+    let snapshot = load_live_snapshot(&args.repository, args.pr)?;
+    if snapshot.pull_request.head_ref_oid != initial.head_ref_oid
+        || snapshot.pull_request.base_ref_oid != initial.base_ref_oid
+    {
+        return Err(format!(
+            "head/base 竞态：identity 读取 {}/{}，snapshot 读取 {}/{}",
+            initial.head_ref_oid,
+            initial.base_ref_oid,
+            snapshot.pull_request.head_ref_oid,
+            snapshot.pull_request.base_ref_oid
+        ));
+    }
+    let pr = &snapshot.pull_request;
+    let clean = pr
+        .comments
+        .nodes
+        .iter()
+        .find(|comment| comment.id == args.clean_comment_id)
+        .ok_or_else(|| {
+            format!(
+                "clean comment `{}` 不在 PR #{} 的 comments connection 中",
+                args.clean_comment_id, args.pr
+            )
+        })?;
+    let clean_actor = clean
+        .author
+        .as_ref()
+        .map_or("", |actor| actor.login.as_str());
+    if normalize_actor(clean_actor) != CODEX_ACTOR {
+        return Err(format!(
+            "comment `{}` 的 actor `{clean_actor}` 不是受信 Codex provider",
+            clean.id
+        ));
+    }
+    if !codex_clean_comment_shape(&clean.body) {
+        return Err(format!(
+            "comment `{}` 不匹配封闭 clean grammar，拒绝绑定",
+            clean.id
+        ));
+    }
+    if clean.updated_at != clean.created_at {
+        return Err(format!(
+            "clean comment `{}` 在创建后被编辑，拒绝绑定",
+            clean.id
+        ));
+    }
+    if !valid_timestamp(&clean.created_at) || !valid_github_url(&clean.url) {
+        return Err(format!(
+            "clean comment `{}` 的 createdAt/URL 无效，拒绝绑定",
+            clean.id
+        ));
+    }
+    if parse_reviewed_commit(&clean.body).is_some() {
+        print_codex_clean_binding_skip(
+            &args,
+            "clean comment 已携带 Reviewed commit marker，走标准路径",
+        )?;
+        return Ok(());
+    }
+
+    let mut record_diagnostics = Vec::new();
+    let existing_records = collect_codex_clean_binding_records(pr, &mut record_diagnostics);
+    if !record_diagnostics.is_empty() {
+        return Err(format!(
+            "PR #{} 已存在 malformed binding record：{}",
+            args.pr,
+            record_diagnostics.join("；")
+        ));
+    }
+    if let Some(bound) = existing_records
+        .iter()
+        .find(|bound| bound.record.clean_comment_id == clean.id)
+    {
+        print_codex_clean_binding_skip(
+            &args,
+            &format!("clean comment 已被 record `{}` 绑定", bound.record.id),
+        )?;
+        return Ok(());
+    }
+
+    let (marker_comment, marker) = select_request_marker(pr, clean)?;
+    if marker.request_head_oid != initial.head_ref_oid
+        || marker.request_base_oid != initial.base_ref_oid
+    {
+        return Err(format!(
+            "受控 request marker `{}` 的 request head/base 与 current head/base 不一致，拒绝绑定",
+            marker_comment.id
+        ));
+    }
+    ensure_no_push_in_window(
+        &args.repository,
+        args.pr,
+        &initial.head_ref_name,
+        &initial.head_ref_oid,
+        &marker_comment.created_at,
+    )?;
+    let final_identity = load_live_identity(&args.repository, args.pr)?;
+    if final_identity.head_ref_oid != initial.head_ref_oid
+        || final_identity.base_ref_oid != initial.base_ref_oid
+    {
+        return Err(format!(
+            "head/base 竞态：绑定判定前读取 {}/{}，发布前复核 {}/{}",
+            initial.head_ref_oid,
+            initial.base_ref_oid,
+            final_identity.head_ref_oid,
+            final_identity.base_ref_oid
+        ));
+    }
+
+    let record = CodexCleanBindingRecord {
+        schema_version: BINDING_RECORD_SCHEMA_VERSION,
+        id: format!("codex-clean-binding-{}", short_digest(&clean.id)),
+        pr: args.pr,
+        clean_comment_id: clean.id.clone(),
+        clean_comment_created_at: clean.created_at.clone(),
+        clean_comment_url: clean.url.clone(),
+        request_marker_id: marker_comment.id.clone(),
+        bound_head_oid: initial.head_ref_oid.clone(),
+        bound_base_oid: initial.base_ref_oid.clone(),
+        verified_at: now_rfc3339()?,
+        run_url: args.run_url.clone(),
+    };
+    let json = serde_json::to_string(&record)
+        .map_err(|error| format!("无法序列化 codex-clean-binding 记录：{error}"))?;
+    let body = format!(
+        "external-review: codex clean bound to `{}` via controlled request marker\n\n{CODEX_CLEAN_BINDING_MARKER}{json}{HIDDEN_RECORD_SUFFIX}\n",
+        &initial.head_ref_oid[..12]
+    );
+    if args.dry_run {
+        println!("{body}");
+        return Ok(());
+    }
+    let posted = post_issue_comment(&args.repository, args.pr, &body)?;
+    ensure_trusted_comment_echo(&posted, &body)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&CodexCleanBindingResult {
+            schema_version: BINDING_RECORD_SCHEMA_VERSION,
+            repository: args.repository,
+            pull_request: args.pr,
+            skipped: false,
+            reason: None,
+            binding_id: Some(record.id),
+            bound_head_oid: Some(initial.head_ref_oid),
+            comment_url: Some(posted.html_url),
+        })
+        .map_err(|error| format!("无法序列化 codex-clean-binding 发布结果：{error}"))?
+    );
+    Ok(())
+}
+
+fn print_codex_clean_binding_skip(
+    args: &PublishCodexCleanBindingArgs,
+    reason: &str,
+) -> Result<(), String> {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&CodexCleanBindingResult {
+            schema_version: BINDING_RECORD_SCHEMA_VERSION,
+            repository: args.repository.clone(),
+            pull_request: args.pr,
+            skipped: true,
+            reason: Some(reason.to_string()),
+            binding_id: None,
+            bound_head_oid: None,
+            comment_url: None,
+        })
+        .map_err(|error| format!("无法序列化 codex-clean-binding skip 结果：{error}"))?
+    );
+    Ok(())
+}
+
+fn select_request_marker<'a>(
+    pr: &'a PullRequestSnapshot,
+    clean: &IssueComment,
+) -> Result<(&'a IssueComment, CodexReviewRequestRecord), String> {
+    let mut candidates = Vec::new();
+    for comment in &pr.comments.nodes {
+        if !comment.body.contains(CODEX_REVIEW_REQUEST_MARKER) {
+            continue;
+        }
+        let actor = comment
+            .author
+            .as_ref()
+            .map_or("", |actor| actor.login.as_str());
+        if normalize_actor(actor) != GITHUB_ACTIONS_ACTOR {
+            return Err(format!(
+                "comment `{}` 含受控 marker 标记但 actor `{actor}` 不是受信 publisher",
+                comment.id
+            ));
+        }
+        if comment.updated_at != comment.created_at {
+            return Err(format!(
+                "受控 request marker `{}` 在创建后被编辑",
+                comment.id
+            ));
+        }
+        if !valid_timestamp(&comment.created_at) {
+            return Err(format!(
+                "受控 request marker `{}` 的 createdAt 不是 UTC RFC3339：{}",
+                comment.id, comment.created_at
+            ));
+        }
+        let marker = match parse_hidden_record(&comment.body, CODEX_REVIEW_REQUEST_MARKER) {
+            Some(Ok(marker)) => marker,
+            Some(Err(error)) => {
+                return Err(format!("受控 request marker `{}`：{error}", comment.id));
+            }
+            None => {
+                return Err(format!(
+                    "受控 request marker `{}` 不包含合法 `{CODEX_REVIEW_REQUEST_MARKER}` 记录",
+                    comment.id
+                ));
+            }
+        };
+        let marker: CodexReviewRequestRecord = marker;
+        if marker.schema_version != BINDING_RECORD_SCHEMA_VERSION || marker.pr != pr.number {
+            return Err(format!(
+                "受控 request marker `{}` 的 schemaVersion/pr 与当前 PR #{} 不一致",
+                comment.id, pr.number
+            ));
+        }
+        if !valid_full_oid(&marker.request_head_oid) || !valid_full_oid(&marker.request_base_oid) {
+            return Err(format!(
+                "受控 request marker `{}` 的 request head/base 不是完整 OID",
+                comment.id
+            ));
+        }
+        candidates.push((comment, marker));
+    }
+    let clean_second = timestamp_second(&clean.created_at);
+    if candidates
+        .iter()
+        .any(|(comment, _)| timestamp_second(&comment.created_at) == clean_second)
+    {
+        return Err("受控 request marker 与 clean comment 同秒，无法证明先后".to_string());
+    }
+    candidates.retain(|(comment, _)| timestamp_second(&comment.created_at) < clean_second);
+    candidates.sort_by(|left, right| right.0.created_at.cmp(&left.0.created_at));
+    candidates.into_iter().next().ok_or_else(|| {
+        format!(
+            "clean comment `{}` 之前不存在受控 request marker，拒绝绑定",
+            clean.id
+        )
+    })
+}
+
+fn ensure_no_push_in_window(
+    repository: &str,
+    pr: u64,
+    head_branch: &str,
+    expected_head: &str,
+    marker_created_at: &str,
+) -> Result<(), String> {
+    let marker_second = timestamp_second(marker_created_at);
+    let events: Vec<RepoEvent> =
+        fetch_paginated(&format!("repos/{repository}/events?per_page=100"))?;
+    let window_uncovered = events.len() >= 300
+        && events
+            .last()
+            .and_then(|event| event.created_at.as_deref())
+            .is_none_or(|oldest| {
+                !valid_timestamp(oldest) || timestamp_second(oldest) >= marker_second
+            });
+    if window_uncovered {
+        return Err(
+            "Events API 无法覆盖完整窗口（feed 截断或最旧事件仍在窗口内），放弃绑定".to_string(),
+        );
+    }
+    let head_ref = format!("refs/heads/{head_branch}");
+    for event in &events {
+        if event.kind != "PushEvent" || event.payload.ref_name.as_deref() != Some(head_ref.as_str())
+        {
+            continue;
+        }
+        let Some(created) = event.created_at.as_deref() else {
+            return Err(format!(
+                "head 分支 `{head_branch}` 的 PushEvent 缺少 created_at，放弃绑定"
+            ));
+        };
+        if !valid_timestamp(created) {
+            return Err(format!(
+                "head 分支 `{head_branch}` 的 PushEvent created_at 不是 UTC RFC3339：{created}"
+            ));
+        }
+        if timestamp_second(created) >= marker_second {
+            return Err(format!(
+                "窗口内检测到 head 分支 `{head_branch}` 的 push（{created}），放弃绑定"
+            ));
+        }
+    }
+    let timeline: Vec<TimelineEvent> = fetch_paginated(&format!(
+        "repos/{repository}/issues/{pr}/timeline?per_page=100"
+    ))?;
+    for event in &timeline {
+        if event.event.as_deref() != Some("head_ref_force_pushed") {
+            continue;
+        }
+        let Some(created) = event.created_at.as_deref() else {
+            return Err("head_ref_force_pushed 事件缺少 created_at，放弃绑定".to_string());
+        };
+        if !valid_timestamp(created) {
+            return Err(format!(
+                "head_ref_force_pushed 事件 created_at 不是 UTC RFC3339：{created}"
+            ));
+        }
+        if timestamp_second(created) >= marker_second {
+            return Err(format!(
+                "窗口内检测到 PR #{pr} 的 head_ref_force_pushed（{created}），放弃绑定"
+            ));
+        }
+    }
+    let branch_head = fetch_branch_head(repository, head_branch)?;
+    if branch_head != expected_head {
+        return Err(format!(
+            "head 分支 `{head_branch}` 当前指向 {branch_head}，与 PR head {expected_head} 不一致，放弃绑定"
+        ));
+    }
+    Ok(())
+}
+
+fn fetch_paginated<T: for<'de> Deserialize<'de>>(endpoint: &str) -> Result<Vec<T>, String> {
+    let output = Command::new("gh")
+        .args([
+            "api",
+            endpoint,
+            "--paginate",
+            "--slurp",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            "X-GitHub-Api-Version: 2022-11-28",
+        ])
+        .output()
+        .map_err(|error| format!("无法运行 gh REST API：{error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "gh REST API `{endpoint}` 失败：{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let pages = serde_json::from_slice::<Vec<Vec<T>>>(&output.stdout).map_err(|error| {
+        format!(
+            "gh REST API `{endpoint}` 输出不是分页 JSON：{error}；原始输出：{}",
+            String::from_utf8_lossy(&output.stdout).trim()
+        )
+    })?;
+    Ok(pages.into_iter().flatten().collect())
+}
+
+fn fetch_branch_head(repository: &str, branch: &str) -> Result<String, String> {
+    let output = Command::new("gh")
+        .args([
+            "api",
+            &format!("repos/{repository}/branches/{branch}"),
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            "X-GitHub-Api-Version: 2022-11-28",
+        ])
+        .output()
+        .map_err(|error| format!("无法运行 gh branch API：{error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "gh branch API 失败：{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let info = serde_json::from_slice::<BranchInfo>(&output.stdout).map_err(|error| {
+        format!(
+            "gh branch API 输出不是预期 JSON：{error}；原始输出：{}",
+            String::from_utf8_lossy(&output.stdout).trim()
+        )
+    })?;
+    if !valid_full_oid(&info.commit.sha) {
+        return Err(format!(
+            "分支 `{branch}` 的 head 不是 40 位十六进制 OID：{}",
+            info.commit.sha
+        ));
+    }
+    Ok(info.commit.sha)
+}
+
+fn post_issue_comment(repository: &str, pr: u64, body: &str) -> Result<PostedComment, String> {
+    let payload = serde_json::to_vec(&serde_json::json!({ "body": body }))
+        .map_err(|error| format!("无法序列化 comment payload：{error}"))?;
+    let endpoint = format!("repos/{repository}/issues/{pr}/comments");
+    let mut child = Command::new("gh")
+        .args([
+            "api",
+            "--method",
+            "POST",
+            &endpoint,
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            "X-GitHub-Api-Version: 2022-11-28",
+            "--input",
+            "-",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("无法启动 gh comment API：{error}"))?;
+    child
+        .stdin
+        .as_mut()
+        .ok_or("无法打开 gh comment API stdin")?
+        .write_all(&payload)
+        .map_err(|error| format!("无法写入 gh comment payload：{error}"))?;
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("无法等待 gh comment API：{error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "gh comment API 失败：{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    serde_json::from_slice(&output.stdout).map_err(|error| {
+        format!(
+            "gh comment API 输出不是预期 JSON：{error}；原始输出：{}",
+            String::from_utf8_lossy(&output.stdout).trim()
+        )
+    })
+}
+
+fn ensure_trusted_comment_echo(posted: &PostedComment, expected_body: &str) -> Result<(), String> {
+    let login = posted.user.as_ref().map_or("", |user| user.login.as_str());
+    if normalize_actor(login) != GITHUB_ACTIONS_ACTOR {
+        return Err(format!(
+            "comment 发布者 `{login}` 不是受信 publisher github-actions[bot]；拒绝承认该记录"
+        ));
+    }
+    if posted.body.as_deref() != Some(expected_body) {
+        return Err("comment echo body 与发布内容不一致".to_string());
+    }
+    if posted.node_id.is_empty() || !valid_github_url(&posted.html_url) {
+        return Err("comment 响应缺少 node_id 或 GitHub HTTPS URL".to_string());
+    }
+    Ok(())
+}
+
+fn ensure_requestable_identity(identity: &PullRequestIdentity, pr: u64) -> Result<(), String> {
+    if identity.number != pr {
+        return Err(format!(
+            "GitHub PR identity number 不一致：请求 #{pr}，返回 #{}",
+            identity.number
+        ));
+    }
+    if identity.state != "OPEN" {
+        return Err(format!("PR #{pr} 已不是 OPEN 状态"));
+    }
+    if identity.is_draft {
+        return Err(format!("PR #{pr} 是 Draft，不进入 Codex clean 绑定路径"));
+    }
+    if identity.is_cross_repository {
+        return Err(format!(
+            "PR #{pr} 是 fork / cross-repository PR，Codex clean 绑定只支持 same-repository head"
+        ));
+    }
+    if identity.base_ref_name != "main" {
+        return Err(format!("PR #{pr} 不以 main 为 base，不属于本绑定路径范围"));
+    }
+    if identity.head_ref_name.is_empty() {
+        return Err(format!("PR #{pr} 缺少 headRefName"));
+    }
+    if !valid_full_oid(&identity.head_ref_oid) || !valid_full_oid(&identity.base_ref_oid) {
+        return Err(format!("PR #{pr} 的 head/base OID 无效"));
+    }
+    Ok(())
+}
+
+fn now_epoch_seconds() -> Result<u64, String> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("系统时间早于 Unix epoch：{error}"))
+        .map(|duration| duration.as_secs())
+}
+
+fn now_rfc3339() -> Result<String, String> {
+    Ok(epoch_seconds_to_rfc3339(now_epoch_seconds()?))
+}
+
+fn epoch_seconds_to_rfc3339(seconds: u64) -> String {
+    let days = seconds / 86_400;
+    let remaining = seconds % 86_400;
+    let hour = remaining / 3_600;
+    let minute = remaining % 3_600 / 60;
+    let second = remaining % 60;
+    let shifted = days + 719_468;
+    let era = shifted / 146_097;
+    let day_of_era = shifted - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = if month_prime < 10 {
+        month_prime + 3
+    } else {
+        month_prime - 9
+    };
+    if month <= 2 {
+        year += 1;
+    }
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
+fn short_digest(value: &str) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    digest[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 struct EvidenceInput<'a> {
     provider: &'a str,
     actor: &'a str,
@@ -1278,6 +1994,294 @@ fn push_evidence(
         submitted_at: input.submitted_at.to_string(),
         evidence_url: input.evidence_url.to_string(),
     });
+}
+
+struct BoundCleanRecord {
+    record: CodexCleanBindingRecord,
+    created_at: String,
+    url: String,
+}
+
+enum CodexCleanBinding<'a> {
+    Bound(&'a BoundCleanRecord),
+    NoRecord,
+    Invalid,
+}
+
+fn codex_clean_comment_shape(body: &str) -> bool {
+    body.contains("Codex Review:") && body.contains("Didn't find any major issues")
+}
+
+fn parse_hidden_record<T: for<'de> Deserialize<'de>>(
+    body: &str,
+    marker: &str,
+) -> Option<Result<T, String>> {
+    let start = body.find(marker)?;
+    let rest = &body[start + marker.len()..];
+    if rest.contains(marker) {
+        return Some(Err(format!("包含多个 `{marker}` 记录起始标记")));
+    }
+    let Some(end) = rest.find(HIDDEN_RECORD_SUFFIX) else {
+        return Some(Err("隐藏记录缺少 ` -->` 结束标记".to_string()));
+    };
+    Some(
+        serde_json::from_str(rest[..end].trim())
+            .map_err(|error| format!("隐藏记录不是合法 JSON：{error}")),
+    )
+}
+
+fn collect_codex_clean_binding_records(
+    pr: &PullRequestSnapshot,
+    diagnostics: &mut Vec<String>,
+) -> Vec<BoundCleanRecord> {
+    let mut records = Vec::new();
+    for comment in &pr.comments.nodes {
+        if !comment.body.contains(CODEX_CLEAN_BINDING_MARKER) {
+            continue;
+        }
+        let record = match parse_hidden_record(&comment.body, CODEX_CLEAN_BINDING_MARKER) {
+            Some(Ok(record)) => record,
+            Some(Err(error)) => {
+                diagnostics.push(format!(
+                    "Codex clean binding comment `{}`：{error}",
+                    comment.id
+                ));
+                continue;
+            }
+            None => continue,
+        };
+        let Some(record) = validate_codex_clean_binding_record(comment, record, pr, diagnostics)
+        else {
+            continue;
+        };
+        records.push(record);
+    }
+    let mut seen_ids = BTreeSet::new();
+    let mut seen_clean = BTreeSet::new();
+    for bound in &records {
+        if !seen_ids.insert(bound.record.id.as_str()) {
+            diagnostics.push(format!(
+                "重复 Codex clean binding record id：`{}`",
+                bound.record.id
+            ));
+        }
+        if !seen_clean.insert(bound.record.clean_comment_id.as_str()) {
+            diagnostics.push(format!(
+                "多个 Codex clean binding record 引用同一 clean comment `{}`",
+                bound.record.clean_comment_id
+            ));
+        }
+    }
+    records
+}
+
+fn validate_codex_clean_binding_record(
+    comment: &IssueComment,
+    record: CodexCleanBindingRecord,
+    pr: &PullRequestSnapshot,
+    diagnostics: &mut Vec<String>,
+) -> Option<BoundCleanRecord> {
+    let actor = comment
+        .author
+        .as_ref()
+        .map_or("", |actor| actor.login.as_str());
+    if normalize_actor(actor) != GITHUB_ACTIONS_ACTOR {
+        diagnostics.push(format!(
+            "Codex clean binding comment `{}` 的 actor `{actor}` 不是受信 publisher",
+            comment.id
+        ));
+        return None;
+    }
+    if comment.updated_at != comment.created_at {
+        diagnostics.push(format!(
+            "Codex clean binding comment `{}` 在创建后被编辑，不能作为 append-only 记录",
+            comment.id
+        ));
+        return None;
+    }
+    if !valid_timestamp(&comment.created_at) {
+        diagnostics.push(format!(
+            "Codex clean binding comment `{}` 的 createdAt 不是 UTC RFC3339：{}",
+            comment.id, comment.created_at
+        ));
+        return None;
+    }
+    if !valid_github_url(&comment.url) {
+        diagnostics.push(format!(
+            "Codex clean binding comment `{}` 的 URL 不是 GitHub HTTPS URL：{}",
+            comment.id, comment.url
+        ));
+        return None;
+    }
+    let invalid = if record.schema_version != BINDING_RECORD_SCHEMA_VERSION {
+        Some(format!(
+            "schemaVersion 必须为 {BINDING_RECORD_SCHEMA_VERSION}"
+        ))
+    } else if record.id.is_empty() {
+        Some("id 不能为空".to_string())
+    } else if record.pr != pr.number {
+        Some(format!("pr 与当前 PR #{} 不一致", pr.number))
+    } else if !valid_full_oid(&record.bound_head_oid) {
+        Some("boundHeadOid 必须是 40 位十六进制 OID".to_string())
+    } else if !valid_full_oid(&record.bound_base_oid) {
+        Some("boundBaseOid 必须是 40 位十六进制 OID".to_string())
+    } else if !valid_timestamp(&record.clean_comment_created_at) {
+        Some("cleanCommentCreatedAt 必须是 UTC RFC3339".to_string())
+    } else if !valid_timestamp(&record.verified_at) {
+        Some("verifiedAt 必须是 UTC RFC3339".to_string())
+    } else if !valid_github_url(&record.clean_comment_url) {
+        Some("cleanCommentUrl 必须是 GitHub HTTPS URL".to_string())
+    } else if !valid_github_url(&record.run_url) {
+        Some("runUrl 必须是 GitHub HTTPS URL".to_string())
+    } else if record.request_marker_id.is_empty() {
+        Some("requestMarkerId 不能为空".to_string())
+    } else {
+        None
+    };
+    if let Some(reason) = invalid {
+        diagnostics.push(format!(
+            "Codex clean binding record `{}` 字段无效：{reason}",
+            record.id
+        ));
+        return None;
+    }
+    Some(BoundCleanRecord {
+        record,
+        created_at: comment.created_at.clone(),
+        url: comment.url.clone(),
+    })
+}
+
+fn bind_codex_clean_comment<'a>(
+    comment: &IssueComment,
+    records: &'a [BoundCleanRecord],
+    pr: &PullRequestSnapshot,
+    diagnostics: &mut Vec<String>,
+) -> CodexCleanBinding<'a> {
+    let matching = records
+        .iter()
+        .filter(|bound| bound.record.clean_comment_id == comment.id)
+        .collect::<Vec<_>>();
+    let [bound] = matching.as_slice() else {
+        return if matching.is_empty() {
+            CodexCleanBinding::NoRecord
+        } else {
+            CodexCleanBinding::Invalid
+        };
+    };
+    let record = &bound.record;
+    if record.clean_comment_created_at != comment.created_at {
+        diagnostics.push(format!(
+            "Codex clean binding record `{}` 的 cleanCommentCreatedAt 与 clean comment `{}` 不一致",
+            record.id, comment.id
+        ));
+        return CodexCleanBinding::Invalid;
+    }
+    if record.clean_comment_url != comment.url {
+        diagnostics.push(format!(
+            "Codex clean binding record `{}` 的 cleanCommentUrl 与 clean comment `{}` 不一致",
+            record.id, comment.id
+        ));
+        return CodexCleanBinding::Invalid;
+    }
+    if !resolve_request_marker(record, pr, comment, diagnostics) {
+        return CodexCleanBinding::Invalid;
+    }
+    if record.bound_head_oid == pr.head_ref_oid && record.bound_base_oid != pr.base_ref_oid {
+        diagnostics.push(format!(
+            "Codex clean binding record `{}` 绑定 current head 但 base 与 current base 不一致",
+            record.id
+        ));
+        return CodexCleanBinding::Invalid;
+    }
+    CodexCleanBinding::Bound(bound)
+}
+
+fn resolve_request_marker(
+    record: &CodexCleanBindingRecord,
+    pr: &PullRequestSnapshot,
+    clean: &IssueComment,
+    diagnostics: &mut Vec<String>,
+) -> bool {
+    let marker_comment = pr
+        .comments
+        .nodes
+        .iter()
+        .find(|comment| comment.id == record.request_marker_id);
+    let Some(marker_comment) = marker_comment else {
+        diagnostics.push(format!(
+            "Codex clean binding record `{}` 引用的受控 request marker `{}` 不存在",
+            record.id, record.request_marker_id
+        ));
+        return false;
+    };
+    let actor = marker_comment
+        .author
+        .as_ref()
+        .map_or("", |actor| actor.login.as_str());
+    if normalize_actor(actor) != GITHUB_ACTIONS_ACTOR {
+        diagnostics.push(format!(
+            "受控 request marker `{}` 的 actor `{actor}` 不是受信 publisher",
+            marker_comment.id
+        ));
+        return false;
+    }
+    if marker_comment.updated_at != marker_comment.created_at {
+        diagnostics.push(format!(
+            "受控 request marker `{}` 在创建后被编辑",
+            marker_comment.id
+        ));
+        return false;
+    }
+    if !valid_timestamp(&marker_comment.created_at) {
+        diagnostics.push(format!(
+            "受控 request marker `{}` 的 createdAt 不是 UTC RFC3339：{}",
+            marker_comment.id, marker_comment.created_at
+        ));
+        return false;
+    }
+    let marker = match parse_hidden_record(&marker_comment.body, CODEX_REVIEW_REQUEST_MARKER) {
+        Some(Ok(marker)) => marker,
+        Some(Err(error)) => {
+            diagnostics.push(format!(
+                "受控 request marker `{}`：{error}",
+                marker_comment.id
+            ));
+            return false;
+        }
+        None => {
+            diagnostics.push(format!(
+                "受控 request marker `{}` 不包含 `{CODEX_REVIEW_REQUEST_MARKER}` 记录",
+                marker_comment.id
+            ));
+            return false;
+        }
+    };
+    let marker: CodexReviewRequestRecord = marker;
+    if marker.schema_version != BINDING_RECORD_SCHEMA_VERSION || marker.pr != pr.number {
+        diagnostics.push(format!(
+            "受控 request marker `{}` 的 schemaVersion/pr 与当前 PR #{} 不一致",
+            marker_comment.id, pr.number
+        ));
+        return false;
+    }
+    if marker.request_head_oid != record.bound_head_oid
+        || marker.request_base_oid != record.bound_base_oid
+    {
+        diagnostics.push(format!(
+            "Codex clean binding record `{}` 的 bound head/base 与受控 marker `{}` 的 request head/base 不一致",
+            record.id, marker_comment.id
+        ));
+        return false;
+    }
+    if timestamp_second(&marker_comment.created_at) >= timestamp_second(&clean.created_at) {
+        diagnostics.push(format!(
+            "受控 request marker `{}` 必须严格早于（秒粒度）clean comment `{}`",
+            marker_comment.id, clean.id
+        ));
+        return false;
+    }
+    true
 }
 
 fn dependabot_lockfile_completion(pr: &PullRequestSnapshot) -> Option<&CommitMetadata> {
@@ -1788,6 +2792,102 @@ fn parse_publish_check_args(args: &[String]) -> Result<PublishCheckArgs, String>
     })
 }
 
+fn parse_request_codex_review_args(args: &[String]) -> Result<RequestCodexReviewArgs, String> {
+    let mut repository = None;
+    let mut pr = None;
+    let mut dry_run = false;
+    let mut index = 0;
+    while index < args.len() {
+        let flag = &args[index];
+        if flag == "--dry-run" {
+            if dry_run {
+                return Err("`--dry-run` 只能指定一次".to_string());
+            }
+            dry_run = true;
+            index += 1;
+            continue;
+        }
+        let value = args
+            .get(index + 1)
+            .ok_or_else(|| format!("`{flag}` 缺少值"))?;
+        match flag.as_str() {
+            "--repo" => set_once(&mut repository, value.clone(), flag)?,
+            "--pr" => set_once(&mut pr, parse_pr_number(value)?, flag)?,
+            _ => return Err(format!("未知 request-codex-review 参数：{flag}")),
+        }
+        index += 2;
+    }
+    let repository = repository.ok_or_else(|| {
+        "用法：request-codex-review --repo <owner/repo> --pr <number> [--dry-run]".to_string()
+    })?;
+    if !valid_repository_name(&repository) {
+        return Err(format!("`--repo` 格式不正确：{repository}"));
+    }
+    Ok(RequestCodexReviewArgs {
+        repository,
+        pr: pr.ok_or("缺少 `--pr`")?,
+        dry_run,
+    })
+}
+
+fn parse_publish_codex_clean_binding_args(
+    args: &[String],
+) -> Result<PublishCodexCleanBindingArgs, String> {
+    let mut repository = None;
+    let mut pr = None;
+    let mut clean_comment_id = None;
+    let mut run_url = None;
+    let mut dry_run = false;
+    let mut index = 0;
+    while index < args.len() {
+        let flag = &args[index];
+        if flag == "--dry-run" {
+            if dry_run {
+                return Err("`--dry-run` 只能指定一次".to_string());
+            }
+            dry_run = true;
+            index += 1;
+            continue;
+        }
+        let value = args
+            .get(index + 1)
+            .ok_or_else(|| format!("`{flag}` 缺少值"))?;
+        match flag.as_str() {
+            "--repo" => set_once(&mut repository, value.clone(), flag)?,
+            "--pr" => set_once(&mut pr, parse_pr_number(value)?, flag)?,
+            "--clean-comment-id" => set_once(&mut clean_comment_id, value.clone(), flag)?,
+            "--run-url" => set_once(&mut run_url, value.clone(), flag)?,
+            _ => return Err(format!("未知 publish-codex-clean-binding 参数：{flag}")),
+        }
+        index += 2;
+    }
+    let repository = repository.ok_or_else(|| {
+        "用法：publish-codex-clean-binding --repo <owner/repo> --pr <number> --clean-comment-id <graphql-node-id> --run-url <workflow-run-url> [--dry-run]"
+            .to_string()
+    })?;
+    if !valid_repository_name(&repository) {
+        return Err(format!("`--repo` 格式不正确：{repository}"));
+    }
+    let clean_comment_id = clean_comment_id.ok_or("缺少 `--clean-comment-id`")?;
+    if clean_comment_id.is_empty() || clean_comment_id.chars().any(char::is_whitespace) {
+        return Err("`--clean-comment-id` 必须是非空且不含空白的 GraphQL node id".to_string());
+    }
+    let run_url = run_url.ok_or("缺少 `--run-url`")?;
+    let expected_run_prefix = format!("https://github.com/{repository}/actions/runs/");
+    if !run_url.starts_with(&expected_run_prefix) {
+        return Err(format!(
+            "`--run-url` 必须指向当前 repository 的 GitHub Actions run：{expected_run_prefix}..."
+        ));
+    }
+    Ok(PublishCodexCleanBindingArgs {
+        repository,
+        pr: pr.ok_or("缺少 `--pr`")?,
+        clean_comment_id,
+        run_url,
+        dry_run,
+    })
+}
+
 fn set_once<T>(slot: &mut Option<T>, value: T, flag: &str) -> Result<(), String> {
     if slot.replace(value).is_some() {
         return Err(format!("参数 `{flag}` 不能重复"));
@@ -1820,16 +2920,18 @@ fn ensure_identity_unchanged(
         || initial.head_ref_oid != final_identity.head_ref_oid
         || initial.base_ref_oid != final_identity.base_ref_oid
         || initial.base_ref_name != final_identity.base_ref_name
+        || initial.head_ref_name != final_identity.head_ref_name
         || initial.is_cross_repository != final_identity.is_cross_repository
         || initial.is_draft != final_identity.is_draft
         || initial.state != final_identity.state
     {
         return Err(format!(
-            "PR identity 在 shadow Gate 运行期间发生变化：initial=({}, {}, {}, {}, {}, {}, {}) final=({}, {}, {}, {}, {}, {}, {})",
+            "PR identity 在 shadow Gate 运行期间发生变化：initial=({}, {}, {}, {}, {}, {}, {}, {}) final=({}, {}, {}, {}, {}, {}, {}, {})",
             initial.number,
             initial.head_ref_oid,
             initial.base_ref_oid,
             initial.base_ref_name,
+            initial.head_ref_name,
             initial.is_cross_repository,
             initial.is_draft,
             initial.state,
@@ -1837,6 +2939,7 @@ fn ensure_identity_unchanged(
             final_identity.head_ref_oid,
             final_identity.base_ref_oid,
             final_identity.base_ref_name,
+            final_identity.head_ref_name,
             final_identity.is_cross_repository,
             final_identity.is_draft,
             final_identity.state
@@ -2200,6 +3303,7 @@ struct PullRequestIdentity {
     head_ref_oid: String,
     base_ref_oid: String,
     base_ref_name: String,
+    head_ref_name: String,
     is_cross_repository: bool,
     is_draft: bool,
     state: String,
@@ -2222,6 +3326,7 @@ mod tests {
             head_ref_oid: head.to_string(),
             base_ref_oid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
             base_ref_name: "main".to_string(),
+            head_ref_name: "feature-x".to_string(),
             is_cross_repository: false,
             is_draft: false,
             state: "OPEN".to_string(),
@@ -2565,6 +3670,60 @@ mod tests {
             (
                 include_str!(
                     "../fixtures/external-review/codex-old-no-sha-same-second-current-clean.json"
+                ),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-bound-clean.json"),
+                ExternalReviewState::Pass,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-bound-old-head.json"),
+                ExternalReviewState::Stale,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-binding-edited-clean.json"),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-edited-record.json"),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-wrong-actor-record.json"),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-duplicate-records.json"),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-record-missing-clean.json"),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-record-missing-marker.json"),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-clean-with-marker-and-record.json"),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-bound-clean-then-unbound.json"
+                ),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-record-marker-head-mismatch.json"
+                ),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-record-marker-same-second.json"
                 ),
                 ExternalReviewState::ProviderError,
             ),
@@ -3234,5 +4393,208 @@ mod tests {
         let parsed = parse_args(&args).expect("live args should parse");
         assert_eq!(parsed.expected_state, Some(ExternalReviewState::Pass));
         assert!(matches!(parsed.source, InputSource::Live { pr: 232, .. }));
+    }
+
+    #[test]
+    fn binds_codex_clean_comment_via_trusted_binding_record() {
+        let result = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-bound-clean.json"
+        )));
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert_eq!(result.provider.as_deref(), Some("codex"));
+        assert_eq!(
+            result.reviewed_head_oid.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        assert_eq!(
+            result.completion_time.as_deref(),
+            Some("2026-08-19T01:11:00Z")
+        );
+        let binding = result
+            .evidence
+            .iter()
+            .find(|item| item.source_kind == "binding_record")
+            .expect("binding_record evidence");
+        assert_eq!(
+            binding.reviewed_head_oid,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
+        assert_eq!(
+            binding.evidence_url,
+            "https://github.com/illusion-tech/laneflow/pull/430#issuecomment-102"
+        );
+    }
+
+    #[test]
+    fn rejects_binding_record_fail_closed_variants() {
+        let cases = [
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-binding-edited-clean.json"),
+                "不能作为 append-only completion",
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-edited-record.json"),
+                "在创建后被编辑，不能作为 append-only 记录",
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-wrong-actor-record.json"),
+                "不是受信 publisher",
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-duplicate-records.json"),
+                "引用同一 clean comment",
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-record-missing-clean.json"),
+                "未绑定到任何无 SHA clean comment",
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-record-missing-marker.json"),
+                "受控 request marker `IC-marker-missing` 不存在",
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-clean-with-marker-and-record.json"),
+                "未绑定到任何无 SHA clean comment",
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-bound-clean-then-unbound.json"
+                ),
+                "缺少可解析的 Reviewed commit",
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-record-marker-head-mismatch.json"
+                ),
+                "request head/base 不一致",
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-record-marker-same-second.json"
+                ),
+                "必须严格早于",
+            ),
+        ];
+        for (contents, expected_diagnostic) in cases {
+            let result = evaluate_snapshot(&fixture(contents));
+            assert_eq!(result.state, ExternalReviewState::ProviderError);
+            assert!(
+                result
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.contains(expected_diagnostic)),
+                "诊断应包含 `{expected_diagnostic}`，实际：{:?}",
+                result.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn bound_old_head_clean_goes_stale_without_ambiguity() {
+        let result = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-bound-old-head.json"
+        )));
+        assert_eq!(result.state, ExternalReviewState::Stale);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.contains("未绑定到任何无 SHA clean comment"))
+        );
+    }
+
+    #[test]
+    fn parses_hidden_records_strictly() {
+        let body = "prefix\n\n<!-- codex-review-request:v1 {\"schemaVersion\":1,\"id\":\"req-1\",\"pr\":430,\"requestHeadOid\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"requestBaseOid\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"} -->\n";
+        let record: CodexReviewRequestRecord =
+            parse_hidden_record(body, CODEX_REVIEW_REQUEST_MARKER)
+                .expect("marker present")
+                .expect("valid record");
+        assert_eq!(record.id, "req-1");
+        assert!(
+            parse_hidden_record::<CodexReviewRequestRecord>(
+                "no marker here",
+                CODEX_REVIEW_REQUEST_MARKER
+            )
+            .is_none()
+        );
+        assert!(parse_hidden_record::<CodexReviewRequestRecord>(
+            "<!-- codex-review-request:v1 {\"schemaVersion\":1} --> tail <!-- codex-review-request:v1 {} -->",
+            CODEX_REVIEW_REQUEST_MARKER
+        )
+        .expect("marker present")
+        .is_err());
+        assert!(
+            parse_hidden_record::<CodexReviewRequestRecord>(
+                "<!-- codex-review-request:v1 {\"schemaVersion\":1}",
+                CODEX_REVIEW_REQUEST_MARKER
+            )
+            .expect("marker present")
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn formats_epoch_seconds_as_rfc3339() {
+        assert_eq!(epoch_seconds_to_rfc3339(0), "1970-01-01T00:00:00Z");
+        assert_eq!(
+            epoch_seconds_to_rfc3339(1_704_067_200),
+            "2024-01-01T00:00:00Z"
+        );
+        assert_eq!(
+            epoch_seconds_to_rfc3339(1_787_101_240),
+            "2026-08-19T01:00:40Z"
+        );
+        assert_eq!(
+            epoch_seconds_to_rfc3339(4_102_444_799),
+            "2099-12-31T23:59:59Z"
+        );
+    }
+
+    #[test]
+    fn parses_codex_binding_subcommand_arguments() {
+        let request_args = [
+            "--repo".to_string(),
+            "illusion-tech/laneflow".to_string(),
+            "--pr".to_string(),
+            "430".to_string(),
+            "--dry-run".to_string(),
+        ];
+        let parsed = parse_request_codex_review_args(&request_args).expect("valid request args");
+        assert_eq!(parsed.pr, 430);
+        assert!(parsed.dry_run);
+        assert!(
+            parse_request_codex_review_args(&request_args[..request_args.len() - 1])
+                .is_ok_and(|parsed| !parsed.dry_run)
+        );
+        assert!(
+            parse_request_codex_review_args(&[
+                "--repo".to_string(),
+                "illusion-tech/laneflow".to_string(),
+            ])
+            .is_err()
+        );
+
+        let binding_args = [
+            "--repo".to_string(),
+            "illusion-tech/laneflow".to_string(),
+            "--pr".to_string(),
+            "430".to_string(),
+            "--clean-comment-id".to_string(),
+            "IC_kwDOtest".to_string(),
+            "--run-url".to_string(),
+            "https://github.com/illusion-tech/laneflow/actions/runs/1".to_string(),
+        ];
+        let parsed = parse_publish_codex_clean_binding_args(&binding_args).expect("valid args");
+        assert_eq!(parsed.clean_comment_id, "IC_kwDOtest");
+        assert!(!parsed.dry_run);
+
+        let mut wrong_run_url = binding_args.clone();
+        wrong_run_url[7] = "https://example.com/actions/runs/1".to_string();
+        assert!(parse_publish_codex_clean_binding_args(&wrong_run_url).is_err());
+
+        let mut whitespace_id = binding_args.clone();
+        whitespace_id[5] = "IC_kwDO test".to_string();
+        assert!(parse_publish_codex_clean_binding_args(&whitespace_id).is_err());
     }
 }
