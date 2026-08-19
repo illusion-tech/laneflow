@@ -11,7 +11,8 @@ use laneflow_format::{
 use laneflow_static_contract::{
     CanonicalFrameOrdinal, EntityKind, FacilityBandOrdinal, IDENTITY_ENCODING_VERSION,
     IDENTITY_REGISTRY_REVISION, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
-    MovementOrdinal, NETWORK_REVISION_DERIVATION_VERSION, StableId128, WaitingZoneOrdinal,
+    MovementOrdinal, NETWORK_REVISION_DERIVATION_VERSION, SPATIAL_JOIN_POSITION_TOLERANCE_METERS,
+    StableId128, WaitingZoneOrdinal,
 };
 
 use crate::{
@@ -127,6 +128,12 @@ struct BuildCounts {
 struct TransitionPair {
     predecessor: u32,
     successor: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct LaneGeometryEndpoints {
+    first: CanonicalPoint,
+    last: CanonicalPoint,
 }
 
 #[derive(Clone, Copy)]
@@ -662,15 +669,22 @@ fn check_scratch_budget(
         .ok_or(BuildError::ArithmeticOverflow {
             structure: BuildStructure::BuilderScratch,
         })?;
-    let spatial_frame_scratch = if options.spatial == SpatialBuildOption::Omit {
+    let spatial_join_scratch = if options.spatial == SpatialBuildOption::Omit {
         structure_bytes::<CanonicalFrameOrdinal>(
             counts.lane_geometry_count,
             BuildStructure::BuilderScratch,
         )?
+        .checked_add(structure_bytes::<LaneGeometryEndpoints>(
+            counts.lane_geometry_count,
+            BuildStructure::BuilderScratch,
+        )?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?
     } else {
         0
     };
-    let scratch = scratch.max(spatial_frame_scratch);
+    let scratch = scratch.max(spatial_join_scratch);
     if scratch > options.limits.max_scratch_bytes {
         return Err(BuildError::BudgetExceeded {
             structure: BuildStructure::BuilderScratch,
@@ -758,7 +772,6 @@ fn build_topology_plan(
         }
     }
     let explicit_pair_count = pairs.len();
-
     let gate_table = entity_section.table(7).ok_or(BuildError::InputInvariant {
         structure: BuildStructure::ManeuverCandidates,
     })?;
@@ -1184,12 +1197,9 @@ fn build_topology_plan(
     drop(waiting_zone_topology);
     drop(stop_line_topology);
     validate_unique_maneuver_path_edge_sequences(&maneuver_paths, &candidates, options)?;
-    validate_entry_gate_coverage(
-        pairs
-            .get(..explicit_pair_count)
-            .ok_or(BuildError::InputInvariant {
-                structure: BuildStructure::ManeuverCandidates,
-            })?,
+    let pairs = close_executable_transition_pairs(
+        pairs,
+        explicit_pair_count,
         &stop_line_lane_owners,
         &maneuver_paths,
         &candidates,
@@ -1197,7 +1207,6 @@ fn build_topology_plan(
         options,
     )?;
     drop(stop_line_lane_owners);
-    let pairs = radix_sort_transition_pairs(pairs, lane_count, options)?;
     Ok(TopologyPlan {
         pairs,
         candidates,
@@ -1578,6 +1587,30 @@ fn stable_count_sequence_rank_entries(
     Ok(())
 }
 
+fn close_executable_transition_pairs(
+    pairs: Vec<TransitionPair>,
+    explicit_pair_count: usize,
+    stop_line_lane_owners: &[u8],
+    paths: &[ManeuverPathBuildEntry],
+    candidates: &[CandidateBuildEntry],
+    lane_count: u32,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<Vec<TransitionPair>, BuildError> {
+    validate_entry_gate_coverage(
+        pairs
+            .get(..explicit_pair_count)
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverCandidates,
+            })?,
+        stop_line_lane_owners,
+        paths,
+        candidates,
+        lane_count,
+        options,
+    )?;
+    radix_sort_transition_pairs(pairs, lane_count, options)
+}
+
 fn validate_entry_gate_coverage(
     explicit_pairs: &[TransitionPair],
     stop_line_lane_owners: &[u8],
@@ -1635,8 +1668,9 @@ fn validate_entry_gate_coverage(
         }
     }
 
-    // 显式 successors 已按 (predecessor, successor) 排序；保留 path pair 重复后线性合并，
-    // 才能同时证明覆盖存在、唯一且该唯一 path 自带 transition-0 gate。
+    // 显式 successors 已排序；path entry pairs 保留重复后排序。先闭合全部显式 successor，
+    // 再闭合每个唯一 path entry，才能覆盖只由 ManeuverPath 引入的 outgoing transition，
+    // 同时不把 path 内部的后续 transition 误当成该 edge 的 entry coverage。
     let entry_pairs =
         radix_sort_transition_pairs_preserving_duplicates(entry_pairs, lane_count, options)?;
     let gated_entry_pairs =
@@ -1645,20 +1679,61 @@ fn validate_entry_gate_coverage(
     let mut gated_cursor = 0_usize;
     for (index, pair) in explicit_pairs.iter().copied().enumerate() {
         poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
-        let entry_gated = stop_line_lane_owners
-            .get(usize::try_from(pair.predecessor).expect("checked lane ordinal fits usize"))
-            .is_some_and(|owner| *owner == ENTRY_GATED_STOP_LINE);
-        if !entry_gated {
+        validate_entry_gate_pair(
+            pair,
+            stop_line_lane_owners,
+            &entry_pairs,
+            &gated_entry_pairs,
+            &mut entry_cursor,
+            &mut gated_cursor,
+            options,
+        )?;
+    }
+
+    entry_cursor = 0;
+    gated_cursor = 0;
+    let mut previous = None;
+    for (index, pair) in entry_pairs.iter().copied().enumerate() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
+        if previous == Some(pair) {
             continue;
         }
-        let path_count = count_sorted_pair(&entry_pairs, &mut entry_cursor, pair, options)?;
-        let gated_path_count =
-            count_sorted_pair(&gated_entry_pairs, &mut gated_cursor, pair, options)?;
-        if path_count != 1 || gated_path_count != 1 {
-            return Err(BuildError::InputInvariant {
-                structure: BuildStructure::ManeuverCandidates,
-            });
-        }
+        previous = Some(pair);
+        validate_entry_gate_pair(
+            pair,
+            stop_line_lane_owners,
+            &entry_pairs,
+            &gated_entry_pairs,
+            &mut entry_cursor,
+            &mut gated_cursor,
+            options,
+        )?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_entry_gate_pair(
+    pair: TransitionPair,
+    stop_line_lane_owners: &[u8],
+    entry_pairs: &[TransitionPair],
+    gated_entry_pairs: &[TransitionPair],
+    entry_cursor: &mut usize,
+    gated_cursor: &mut usize,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<(), BuildError> {
+    let entry_gated = stop_line_lane_owners
+        .get(usize::try_from(pair.predecessor).expect("checked lane ordinal fits usize"))
+        .is_some_and(|owner| *owner == ENTRY_GATED_STOP_LINE);
+    if !entry_gated {
+        return Ok(());
+    }
+    let path_count = count_sorted_pair(entry_pairs, entry_cursor, pair, options)?;
+    let gated_path_count = count_sorted_pair(gated_entry_pairs, gated_cursor, pair, options)?;
+    if path_count != 1 || gated_path_count != 1 {
+        return Err(BuildError::InputInvariant {
+            structure: BuildStructure::ManeuverCandidates,
+        });
     }
     Ok(())
 }
@@ -1731,9 +1806,36 @@ fn radix_sort_transition_pairs(
     lane_count: u32,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<Vec<TransitionPair>, BuildError> {
-    let mut pairs = radix_sort_transition_pairs_preserving_duplicates(pairs, lane_count, options)?;
+    let pairs = radix_sort_transition_pairs_preserving_duplicates(pairs, lane_count, options)?;
+    deduplicate_sorted_transition_pairs(pairs, options)
+}
+
+fn deduplicate_sorted_transition_pairs(
+    pairs: Vec<TransitionPair>,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<Vec<TransitionPair>, BuildError> {
     check_cancelled(options)?;
-    pairs.dedup();
+    deduplicate_sorted_transition_pairs_with_poll(pairs, |index| poll_cancelled(options, index))
+}
+
+fn deduplicate_sorted_transition_pairs_with_poll(
+    mut pairs: Vec<TransitionPair>,
+    mut poll: impl FnMut(u32) -> Result<(), BuildError>,
+) -> Result<Vec<TransitionPair>, BuildError> {
+    if pairs.len() < 2 {
+        return Ok(pairs);
+    }
+
+    let mut write_index = 1_usize;
+    for read_index in 1..pairs.len() {
+        poll(u32::try_from(read_index).unwrap_or(u32::MAX))?;
+        let pair = pairs[read_index];
+        if pair != pairs[write_index - 1] {
+            pairs[write_index] = pair;
+            write_index += 1;
+        }
+    }
+    pairs.truncate(write_index);
     Ok(pairs)
 }
 
@@ -2365,6 +2467,11 @@ fn build_spatial(
         BuildStructure::BuilderScratch
     };
     let mut lane_frames = allocate_vec(counts.lane_geometry_count, lane_frame_structure)?;
+    let mut lane_endpoints = allocate_if_retained(
+        !retain,
+        counts.lane_geometry_count,
+        BuildStructure::BuilderScratch,
+    )?;
     let mut lane_arc_lengths = allocate_if_retained(
         retain,
         counts.lane_geometry_count,
@@ -2466,10 +2573,28 @@ fn build_spatial(
                 })?;
             fill_segments(segments, &mut lane_segments, options)?;
             lane_segment_ranges.push(RangeU32::new(segment_start, segments.len()));
+        } else {
+            lane_endpoints.push(read_lane_geometry_endpoints(points, options)?);
         }
     }
     if counts.lane_geometry_count != 0 {
-        validate_connected_lane_frames(traffic, &lane_frames, options)?;
+        if retain {
+            validate_connected_lane_geometry(
+                traffic,
+                &lane_frames,
+                |lane_edge| {
+                    retained_lane_geometry_endpoints(lane_edge, &lane_point_ranges, &lane_points)
+                },
+                options,
+            )?;
+        } else {
+            validate_connected_lane_geometry(
+                traffic,
+                &lane_frames,
+                |lane_edge| scratch_lane_geometry_endpoints(lane_edge, &lane_endpoints),
+                options,
+            )?;
+        }
     }
 
     let mut facility_entries = allocate_if_retained(
@@ -2566,18 +2691,88 @@ fn fill_points(
 ) -> Result<(), BuildError> {
     for (index, row) in records.rows().enumerate() {
         poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
-        output.push(CanonicalPoint {
-            x: checked_f32(row, 1, structure)?,
-            y: checked_f32(row, 2, structure)?,
-            z: checked_f32(row, 3, structure)?,
-        });
+        output.push(checked_canonical_point(row, structure)?);
     }
     Ok(())
 }
 
-fn validate_connected_lane_frames(
+fn checked_canonical_point(
+    row: RegistryCheckedRowView<'_>,
+    structure: BuildStructure,
+) -> Result<CanonicalPoint, BuildError> {
+    Ok(CanonicalPoint {
+        x: checked_f32(row, 1, structure)?,
+        y: checked_f32(row, 2, structure)?,
+        z: checked_f32(row, 3, structure)?,
+    })
+}
+
+fn read_lane_geometry_endpoints(
+    records: RegistryCheckedRecordVectorView<'_>,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<LaneGeometryEndpoints, BuildError> {
+    let mut first = None;
+    let mut last_row = None;
+    for (index, row) in records.rows().enumerate() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
+        if first.is_none() {
+            first = Some(checked_canonical_point(
+                row,
+                BuildStructure::LaneEdgeGeometry,
+            )?);
+        }
+        last_row = Some(row);
+    }
+    Ok(LaneGeometryEndpoints {
+        first: first.ok_or(BuildError::InputInvariant {
+            structure: BuildStructure::LaneEdgeGeometry,
+        })?,
+        last: checked_canonical_point(
+            last_row.ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::LaneEdgeGeometry,
+            })?,
+            BuildStructure::LaneEdgeGeometry,
+        )?,
+    })
+}
+
+fn retained_lane_geometry_endpoints(
+    lane_edge: LaneEdgeOrdinal,
+    point_ranges: &[RangeU32],
+    points: &[CanonicalPoint],
+) -> Result<LaneGeometryEndpoints, BuildError> {
+    let range = *point_ranges
+        .get(lane_edge.index())
+        .ok_or(BuildError::InputInvariant {
+            structure: BuildStructure::LaneEdgeGeometry,
+        })?;
+    let lane_points = range.slice(points);
+    Ok(LaneGeometryEndpoints {
+        first: *lane_points.first().ok_or(BuildError::InputInvariant {
+            structure: BuildStructure::LaneEdgeGeometry,
+        })?,
+        last: *lane_points.last().ok_or(BuildError::InputInvariant {
+            structure: BuildStructure::LaneEdgeGeometry,
+        })?,
+    })
+}
+
+fn scratch_lane_geometry_endpoints(
+    lane_edge: LaneEdgeOrdinal,
+    endpoints: &[LaneGeometryEndpoints],
+) -> Result<LaneGeometryEndpoints, BuildError> {
+    endpoints
+        .get(lane_edge.index())
+        .copied()
+        .ok_or(BuildError::InputInvariant {
+            structure: BuildStructure::LaneEdgeGeometry,
+        })
+}
+
+fn validate_connected_lane_geometry(
     traffic: &SharedTrafficNetwork,
     lane_frames: &[CanonicalFrameOrdinal],
+    endpoints: impl Fn(LaneEdgeOrdinal) -> Result<LaneGeometryEndpoints, BuildError>,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<(), BuildError> {
     for predecessor_raw in 0..traffic.lane_edge_count() {
@@ -2588,18 +2783,30 @@ fn validate_connected_lane_frames(
             .ok_or(BuildError::InputInvariant {
                 structure: BuildStructure::LaneEdgeGeometry,
             })?;
+        if successors.is_empty() {
+            continue;
+        }
+        let predecessor_endpoints = endpoints(predecessor)?;
         for (index, successor) in successors.iter().enumerate() {
             poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
-            validate_lane_frame_pair(lane_frames, predecessor, *successor)?;
+            validate_lane_geometry_pair(
+                lane_frames,
+                predecessor,
+                *successor,
+                predecessor_endpoints,
+                endpoints(*successor)?,
+            )?;
         }
     }
     Ok(())
 }
 
-fn validate_lane_frame_pair(
+fn validate_lane_geometry_pair(
     lane_frames: &[CanonicalFrameOrdinal],
     predecessor: LaneEdgeOrdinal,
     successor: LaneEdgeOrdinal,
+    predecessor_endpoints: LaneGeometryEndpoints,
+    successor_endpoints: LaneGeometryEndpoints,
 ) -> Result<(), BuildError> {
     let predecessor_frame =
         *lane_frames
@@ -2621,7 +2828,29 @@ fn validate_lane_frame_pair(
             successor_frame: successor_frame.raw(),
         });
     }
+    let gap_meters =
+        canonical_point_distance(predecessor_endpoints.last, successor_endpoints.first);
+    if gap_meters > SPATIAL_JOIN_POSITION_TOLERANCE_METERS {
+        return Err(BuildError::SpatialJoinGapMismatch {
+            predecessor: predecessor.raw(),
+            successor: successor.raw(),
+            gap_meters,
+            tolerance_meters: SPATIAL_JOIN_POSITION_TOLERANCE_METERS,
+        });
+    }
     Ok(())
+}
+
+fn canonical_point_distance(left: CanonicalPoint, right: CanonicalPoint) -> f32 {
+    fn normalized_delta(left: f32, right: f32) -> f32 {
+        let delta = right - left;
+        if delta == 0.0 { 0.0 } else { delta }
+    }
+
+    let dx = normalized_delta(left.x, right.x);
+    let dy = normalized_delta(left.y, right.y);
+    let dz = normalized_delta(left.z, right.z);
+    dx.hypot(dy).hypot(dz)
 }
 
 fn fill_segments(
@@ -3066,8 +3295,8 @@ mod tests {
     }
 
     #[test]
-    fn entry_gated_lane_requires_one_gated_path_per_explicit_successor() {
-        let explicit_pairs = [
+    fn entry_gated_lane_requires_one_gated_path_per_executable_successor() {
+        let executable_pairs = [
             TransitionPair {
                 predecessor: 0,
                 successor: 1,
@@ -3082,7 +3311,7 @@ mod tests {
             maneuver_path_fixture_with_entry_gates(&[&[0, 1], &[0, 2]], &[true, true]);
         assert!(
             validate_entry_gate_coverage(
-                &explicit_pairs,
+                &executable_pairs,
                 &stop_line_lane_owners,
                 &covered_paths,
                 &covered_candidates,
@@ -3096,7 +3325,7 @@ mod tests {
             maneuver_path_fixture_with_entry_gates(&[&[0, 1], &[0, 2]], &[true, false]);
         assert!(matches!(
             validate_entry_gate_coverage(
-                &explicit_pairs,
+                &executable_pairs,
                 &stop_line_lane_owners,
                 &ungated_paths,
                 &ungated_candidates,
@@ -3112,10 +3341,45 @@ mod tests {
             maneuver_path_fixture_with_entry_gates(&[&[0, 1, 3], &[0, 1, 4]], &[true, true]);
         assert!(matches!(
             validate_entry_gate_coverage(
-                &explicit_pairs[..1],
+                &executable_pairs[..1],
                 &stop_line_lane_owners,
                 &ambiguous_paths,
                 &ambiguous_candidates,
+                5,
+                TEST_OPTIONS,
+            ),
+            Err(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverCandidates,
+            })
+        ));
+
+        let (path_only_ungated_paths, path_only_ungated_candidates) =
+            maneuver_path_fixture_with_entry_gates(&[&[0, 1], &[0, 2]], &[true, false]);
+        // 第一项模拟显式 successor，后两项模拟两条 path entry；0 -> 2 只来自 path。
+        let combined_pairs = vec![
+            executable_pairs[0],
+            executable_pairs[0],
+            executable_pairs[1],
+        ];
+        assert!(
+            close_executable_transition_pairs(
+                combined_pairs.clone(),
+                1,
+                &stop_line_lane_owners,
+                &covered_paths,
+                &covered_candidates,
+                5,
+                TEST_OPTIONS,
+            )
+            .is_ok()
+        );
+        assert!(matches!(
+            close_executable_transition_pairs(
+                combined_pairs,
+                1,
+                &stop_line_lane_owners,
+                &path_only_ungated_paths,
+                &path_only_ungated_candidates,
                 5,
                 TEST_OPTIONS,
             ),
@@ -3144,32 +3408,56 @@ mod tests {
     }
 
     #[test]
-    fn executable_lane_connections_must_share_a_canonical_frame() {
+    fn executable_lane_connections_must_share_frame_and_close_endpoint_gap() {
         let frames = [
             CanonicalFrameOrdinal::from_raw(0),
             CanonicalFrameOrdinal::from_raw(0),
             CanonicalFrameOrdinal::from_raw(1),
         ];
+        let endpoint = |x| LaneGeometryEndpoints {
+            first: CanonicalPoint { x, y: 0.0, z: 0.0 },
+            last: CanonicalPoint { x, y: 0.0, z: 0.0 },
+        };
 
         assert!(
-            validate_lane_frame_pair(
+            validate_lane_geometry_pair(
                 &frames,
                 LaneEdgeOrdinal::from_raw(0),
                 LaneEdgeOrdinal::from_raw(1),
+                endpoint(0.0),
+                endpoint(SPATIAL_JOIN_POSITION_TOLERANCE_METERS),
             )
             .is_ok()
         );
         assert_eq!(
-            validate_lane_frame_pair(
+            validate_lane_geometry_pair(
                 &frames,
                 LaneEdgeOrdinal::from_raw(0),
                 LaneEdgeOrdinal::from_raw(2),
+                endpoint(0.0),
+                endpoint(0.0),
             ),
             Err(BuildError::SpatialFrameMismatch {
                 predecessor: 0,
                 successor: 2,
                 predecessor_frame: 0,
                 successor_frame: 1,
+            })
+        );
+        let above_tolerance = f32::from_bits(SPATIAL_JOIN_POSITION_TOLERANCE_METERS.to_bits() + 1);
+        assert_eq!(
+            validate_lane_geometry_pair(
+                &frames,
+                LaneEdgeOrdinal::from_raw(0),
+                LaneEdgeOrdinal::from_raw(1),
+                endpoint(0.0),
+                endpoint(above_tolerance),
+            ),
+            Err(BuildError::SpatialJoinGapMismatch {
+                predecessor: 0,
+                successor: 1,
+                gap_meters: above_tolerance,
+                tolerance_meters: SPATIAL_JOIN_POSITION_TOLERANCE_METERS,
             })
         );
     }
@@ -3249,6 +3537,30 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn transition_pair_deduplication_polls_in_bounded_batches() {
+        let pairs = vec![
+            TransitionPair {
+                predecessor: 0,
+                successor: 1,
+            };
+            2_048
+        ];
+        let mut last_polled = 0_u32;
+
+        let result = deduplicate_sorted_transition_pairs_with_poll(pairs, |index| {
+            last_polled = index;
+            if index == 1_024 {
+                Err(BuildError::Cancelled)
+            } else {
+                Ok(())
+            }
+        });
+
+        assert_eq!(result, Err(BuildError::Cancelled));
+        assert_eq!(last_polled, 1_024);
     }
 
     #[test]

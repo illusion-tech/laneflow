@@ -91,6 +91,12 @@ pub enum BuildError {
         predecessor_frame: u32,
         successor_frame: u32,
     },
+    SpatialJoinGapMismatch {
+        predecessor: u32,
+        successor: u32,
+        gap_meters: f32,
+        tolerance_meters: f32,
+    },
     BudgetExceeded {
         structure: BuildStructure,
         required: u64,
@@ -121,7 +127,8 @@ impl BuildError {
             Self::SpatialPresenceMismatch
             | Self::SpatialCoverageMismatch { .. }
             | Self::SpatialLengthMismatch { .. }
-            | Self::SpatialFrameMismatch { .. } => BuildErrorClass::Spatial,
+            | Self::SpatialFrameMismatch { .. }
+            | Self::SpatialJoinGapMismatch { .. } => BuildErrorClass::Spatial,
             Self::BudgetExceeded { .. } => BuildErrorClass::Budget,
             Self::ArithmeticOverflow { .. } => BuildErrorClass::Arithmetic,
             Self::AllocationFailure { .. } => BuildErrorClass::Allocation,

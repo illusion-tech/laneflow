@@ -238,7 +238,7 @@ impl EntityCounts {
 /// 面向 Traffic Runtime 的必选共享静态数据。
 ///
 /// 当前基线冻结所有实体基数、LaneEdge 热列/完整可执行 CSR，以及携带路径、transition、
-/// gate/waiting 引用的路口机动候选；后继 #300 实现切片继续加入其余静态关系，但不会改变
+/// gate/waiting 引用的路口机动候选；后继 #440 实现切片继续加入其余静态关系，但不会改变
 /// 根唯一共享所有权。
 pub struct SharedTrafficNetwork {
     entity_counts: EntityCounts,
