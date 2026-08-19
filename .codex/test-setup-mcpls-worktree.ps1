@@ -83,7 +83,7 @@ try {
         -Endpoint "http://127.0.0.1:$renderPort/mcp" -Enabled $true
     Assert-True -Condition ($enabledConfig -match '(?m)^# laneflow-mcpls-generated-schema: 1$') `
         -Message 'generated config carries the managed marker'
-    Assert-True -Condition ($enabledConfig -match '(?m)^enabled = true$') `
+    Assert-True -Condition ($enabledConfig -match '(?m)^enabled = true\r?$') `
         -Message 'ready config is enabled'
     Assert-True -Condition ($enabledConfig -notmatch '__LANEFLOW_MCPLS_') `
         -Message 'generated config contains no unresolved placeholders'
@@ -165,7 +165,7 @@ try {
     Write-GeneratedConfig -Context $testContext -TemplateInfo $template `
         -Endpoint "http://127.0.0.1:$disabledPort/mcp" -Enabled $false
     $disabledConfig = [System.IO.File]::ReadAllText($testContext.GeneratedConfigPath)
-    Assert-True -Condition ($disabledConfig -match '(?m)^enabled = false$') `
+    Assert-True -Condition ($disabledConfig -match '(?m)^enabled = false\r?$') `
         -Message 'managed config can be atomically disabled'
     Assert-True -Condition ($disabledConfig -match "# template-sha256: $($template.Hash)") `
         -Message 'generated config records the current template hash'
@@ -193,71 +193,68 @@ try {
             -StateRootOverride $testContext.AllStateRoot -TimeoutSeconds 5
     } -Message 'strict Start still rejects a context discovery failure'
 
-    $featurelessExecutable = Join-Path $temporaryRoot 'featureless-mcpls.cmd'
-    $featurelessBody = @'
-@echo off
-if "%~1"=="--version" (
-  echo mcpls 0.3.9
-  exit /b 0
-)
-if "%~1"=="--help" (
-  echo   --config ^<FILE^>
-  exit /b 0
-)
-exit /b 1
-'@
+    $featurelessExecutable = Join-Path $temporaryRoot 'featureless-mcpls.exe'
+    $wrongVersionExecutable = Join-Path $temporaryRoot 'wrong-version-mcpls.exe'
     [System.IO.File]::WriteAllText(
         $featurelessExecutable,
-        $featurelessBody,
+        'capability fixture; execution is mocked',
         [System.Text.UTF8Encoding]::new($false)
     )
-    $featurelessTool = Test-McplsExecutable -ExecutableOverride $featurelessExecutable
-    Assert-True -Condition (
-        -not $featurelessTool.Valid -and
-        $featurelessTool.Reason -match 'transport-http'
-    ) -Message 'same-version mcpls without HTTP feature is rejected'
-
-    $wrongVersionExecutable = Join-Path $temporaryRoot 'wrong-version-mcpls.cmd'
-    $wrongVersionBody = @'
-@echo off
-if "%~1"=="--version" (
-  echo mcpls 0.3.8
-  exit /b 0
-)
-if "%~1"=="--help" (
-  echo   --listen ^<ADDR^>
-  echo   --http-path ^<PATH^>
-  exit /b 0
-)
-exit /b 1
-'@
     [System.IO.File]::WriteAllText(
         $wrongVersionExecutable,
-        $wrongVersionBody,
+        'version fixture; execution is mocked',
         [System.Text.UTF8Encoding]::new($false)
     )
-    $wrongVersionTool = Test-McplsExecutable -ExecutableOverride $wrongVersionExecutable
-    Assert-True -Condition (
-        -not $wrongVersionTool.Valid -and
-        $wrongVersionTool.Reason -match 'Expected mcpls 0.3.9'
-    ) -Message 'unexpected mcpls version is rejected'
+    $originalApplicationCapture = (Get-Command Invoke-ApplicationCapture).ScriptBlock
+    try {
+        Set-Item -Path Function:Invoke-ApplicationCapture -Value {
+            param($Executable, $Arguments, $Deadline)
+            $isFeatureless = (Split-Path -Leaf $Executable) -eq 'featureless-mcpls.exe'
+            if ($Arguments[0] -eq '--version') {
+                return [pscustomobject]@{
+                    ExitCode = 0
+                    Output = if ($isFeatureless) { 'mcpls 0.3.9' } else { 'mcpls 0.3.8' }
+                }
+            }
+            return [pscustomobject]@{
+                ExitCode = 0
+                Output = if ($isFeatureless) {
+                    "  --config <FILE>`n"
+                }
+                else {
+                    "  --listen <ADDR>`n  --http-path <PATH>`n"
+                }
+            }
+        }
+        $featurelessTool = Test-McplsExecutable `
+            -ExecutableOverride $featurelessExecutable
+        Assert-True -Condition (
+            -not $featurelessTool.Valid -and
+            $featurelessTool.Reason -match 'transport-http'
+        ) -Message 'same-version mcpls without HTTP feature is rejected'
 
-    $hangingExecutable = Join-Path $temporaryRoot 'hanging-mcpls.cmd'
-    $hangingBody = @'
-@echo off
-ping -n 60 127.0.0.1 >nul
-exit /b 0
-'@
-    [System.IO.File]::WriteAllText(
-        $hangingExecutable,
-        $hangingBody,
-        [System.Text.UTF8Encoding]::new($false)
-    )
-    $hangingTool = Test-McplsExecutable -ExecutableOverride $hangingExecutable `
-        -Deadline ([DateTimeOffset]::UtcNow.AddMilliseconds(250))
-    Assert-True -Condition (
-        -not $hangingTool.Valid -and $hangingTool.Reason -match 'Timed out'
-    ) -Message 'the shared startup deadline bounds executable capability checks'
+        $wrongVersionTool = Test-McplsExecutable `
+            -ExecutableOverride $wrongVersionExecutable
+        Assert-True -Condition (
+            -not $wrongVersionTool.Valid -and
+            $wrongVersionTool.Reason -match 'Expected mcpls 0.3.9'
+        ) -Message 'unexpected mcpls version is rejected'
+    }
+    finally {
+        Set-Item -Path Function:Invoke-ApplicationCapture `
+            -Value $originalApplicationCapture
+    }
+
+    $currentPowerShell = (Get-Process -Id $PID).Path
+    Assert-Throws -Operation {
+        Invoke-ApplicationCapture -Executable $currentPowerShell `
+            -Arguments @('-NoLogo', '-NoProfile', '-Command', 'Start-Sleep -Seconds 60') `
+            -Deadline ([DateTimeOffset]::UtcNow.AddMilliseconds(250))
+    } -Message 'the shared startup deadline terminates a real hanging executable'
+    Assert-Throws -Operation {
+        Get-RemainingProbeMilliseconds `
+            -Deadline ([DateTimeOffset]::UtcNow.AddMilliseconds(10)) -Maximum 3000
+    } -Message 'reuse health probing fails as timeout before the 50ms minimum'
 
     Write-GeneratedConfig -Context $testContext -TemplateInfo $template `
         -Endpoint "http://127.0.0.1:$renderPort/mcp" -Enabled $true
@@ -266,7 +263,7 @@ exit /b 0
             -ExecutableOverride $missingExecutable -TimeoutSeconds 5
     } -Message 'strict Start returns an error when mcpls is unavailable'
     $strictFailureConfig = [System.IO.File]::ReadAllText($testContext.GeneratedConfigPath)
-    Assert-True -Condition ($strictFailureConfig -match '(?m)^enabled = false$') `
+    Assert-True -Condition ($strictFailureConfig -match '(?m)^enabled = false\r?$') `
         -Message 'strict Start failure leaves the generated config disabled'
 
     [System.IO.Directory]::CreateDirectory($testContext.StateDirectory) | Out-Null
