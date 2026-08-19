@@ -1,0 +1,75 @@
+name: Codex Clean Binding
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  dispatch:
+    name: Dispatch binding action for PR #${{ github.event.issue.number }}
+    if: >-
+      github.event.issue.pull_request != null && (
+        (github.event.comment.user.login == 'wangzishi' &&
+         github.event.comment.body == 'external-review: request-codex-review') ||
+        github.event.comment.user.login == 'chatgpt-codex-connector[bot]'
+      )
+    concurrency:
+      group: codex-clean-binding-pr-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted validator from main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify trusted checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "main"
+          git diff --exit-code
+
+      - name: Install Rust MSRV toolchain for trusted validator
+        shell: bash
+        run: rustup toolchain install 1.96.0 --profile minimal
+
+      - name: Publish controlled Codex review request marker
+        if: github.event.comment.user.login == 'wangzishi'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          cargo +1.96.0 run --locked -p xtask -- \
+            request-codex-review \
+            --repo "$REPOSITORY" \
+            --pr "$PR_NUMBER"
+
+      - name: Publish Codex clean binding record
+        if: github.event.comment.user.login == 'chatgpt-codex-connector[bot]'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          CLEAN_COMMENT_ID: ${{ github.event.comment.id }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cargo +1.96.0 run --locked -p xtask -- \
+            publish-codex-clean-binding \
+            --repo "$REPOSITORY" \
+            --pr "$PR_NUMBER" \
+            --clean-comment-id "$CLEAN_COMMENT_ID" \
+            --run-url "$RUN_URL"

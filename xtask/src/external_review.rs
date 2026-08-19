@@ -3973,6 +3973,55 @@ mod tests {
     }
 
     #[test]
+    fn binding_workflow_preserves_the_trusted_ref_boundary() {
+        let binding = include_str!("../../.github/workflows/codex-clean-binding.yml");
+
+        assert!(binding.contains("issue_comment:\n    types:\n      - created"));
+        assert!(!binding.lines().any(|line| {
+            matches!(
+                line.trim_start(),
+                "pull_request:"
+                    | "pull_request_target:"
+                    | "pull_request_review:"
+                    | "pull_request_review_comment:"
+                    | "schedule:"
+                    | "workflow_run:"
+                    | "workflow_dispatch:"
+                    | "push:"
+            )
+        }));
+        assert!(
+            binding
+                .contains("permissions:\n  contents: read\n  pull-requests: read\n  issues: write")
+        );
+        assert!(binding.contains("ref: refs/heads/main"));
+        assert!(binding.contains("persist-credentials: false"));
+        assert!(binding.contains("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"));
+        assert!(binding.contains("Verify trusted checkout"));
+        assert!(binding.contains("group: codex-clean-binding-pr-${{ github.event.issue.number }}"));
+        assert!(binding.contains("cancel-in-progress: false"));
+        assert!(binding.contains("github.event.issue.pull_request != null"));
+        assert!(binding.contains("github.event.comment.user.login == 'wangzishi'"));
+        assert!(
+            binding
+                .contains("github.event.comment.body == 'external-review: request-codex-review'")
+        );
+        assert!(
+            binding.contains("github.event.comment.user.login == 'chatgpt-codex-connector[bot]'")
+        );
+        assert!(binding.contains("request-codex-review"));
+        assert!(binding.contains("publish-codex-clean-binding"));
+        assert!(binding.contains("--pr \"$PR_NUMBER\""));
+        assert!(binding.contains("--clean-comment-id \"$CLEAN_COMMENT_ID\""));
+        assert!(binding.contains("--run-url \"$RUN_URL\""));
+        assert!(binding.contains("rustup toolchain install 1.96.0"));
+        assert!(!binding.contains("secrets."));
+        assert!(!binding.contains("refs/pull/"));
+        assert!(!binding.contains("github.event.pull_request.head.sha"));
+        assert!(!binding.contains("pull_request.head"));
+    }
+
+    #[test]
     fn shadow_check_contract_requires_a_dedicated_app_before_r2() {
         let workflow_contract = include_str!("../../docs/governance/github-workflow.md");
 
