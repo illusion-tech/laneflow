@@ -239,7 +239,7 @@ function Exit-FileLock {
 function Get-RemainingMilliseconds {
     param(
         [Parameter(Mandatory)][DateTimeOffset]$Deadline,
-        [ValidateRange(1, 30000)][int]$Maximum = 30000
+        [ValidateRange(1, 300000)][int]$Maximum = 30000
     )
 
     $remaining = [int][Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)
@@ -594,14 +594,34 @@ function Test-McplsExecutable {
 }
 
 function Get-ProcessSnapshot {
-    param([Parameter(Mandatory)][int]$ProcessId)
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [DateTimeOffset]$Deadline = [DateTimeOffset]::MinValue
+    )
 
     try {
         $process = Get-Process -Id $ProcessId -ErrorAction Stop
-        $cim = Get-CimInstance -ClassName Win32_Process `
-            -Filter "ProcessId = $ProcessId" -ErrorAction Stop
-        if ($null -eq $cim) {
+    }
+    catch {
+        if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*') {
             return $null
+        }
+        throw "Unable to determine whether PID ${ProcessId} exists: $($_.Exception.Message)"
+    }
+    try {
+        $operationTimeoutSeconds = 3
+        if ($Deadline -ne [DateTimeOffset]::MinValue) {
+            $remaining = Get-RemainingMilliseconds -Deadline $Deadline -Maximum 3000
+            $operationTimeoutSeconds = [Math]::Max(
+                1,
+                [int][Math]::Ceiling($remaining / 1000.0)
+            )
+        }
+        $cim = Get-CimInstance -ClassName Win32_Process `
+            -Filter "ProcessId = $ProcessId" `
+            -OperationTimeoutSec $operationTimeoutSeconds -ErrorAction Stop
+        if ($null -eq $cim) {
+            throw 'Win32_Process returned no row for a PID that was live before inspection'
         }
 
         return [pscustomobject]@{
@@ -614,14 +634,18 @@ function Get-ProcessSnapshot {
         }
     }
     catch {
-        return $null
+        throw "Unable to inspect live PID ${ProcessId}: $($_.Exception.Message)"
+    }
+    finally {
+        $process.Dispose()
     }
 }
 
 function Test-ServiceProcessIdentity {
     param(
         [Parameter(Mandatory)]$State,
-        [Parameter(Mandatory)][string]$ExpectedRoot
+        [Parameter(Mandatory)][string]$ExpectedRoot,
+        [DateTimeOffset]$Deadline = [DateTimeOffset]::MinValue
     )
 
     try {
@@ -643,7 +667,8 @@ function Test-ServiceProcessIdentity {
             throw 'state has no running PID'
         }
 
-        $snapshot = Get-ProcessSnapshot -ProcessId ([int]$State.process_id)
+        $snapshot = Get-ProcessSnapshot -ProcessId ([int]$State.process_id) `
+            -Deadline $Deadline
         if ($null -eq $snapshot) {
             throw 'recorded process is not running'
         }
@@ -731,7 +756,8 @@ function Remove-McpProbeSession {
         [Parameter(Mandatory)][System.Net.Http.HttpClient]$Client,
         [Parameter(Mandatory)][string]$Endpoint,
         [Parameter(Mandatory)][string]$SessionId,
-        [Parameter(Mandatory)][string]$ProtocolVersion
+        [Parameter(Mandatory)][string]$ProtocolVersion,
+        [Parameter(Mandatory)][System.Threading.CancellationToken]$CancellationToken
     )
 
     $request = $null
@@ -746,7 +772,10 @@ function Remove-McpProbeSession {
             'MCP-Protocol-Version',
             $ProtocolVersion
         ) | Out-Null
-        $response = $Client.SendAsync($request).GetAwaiter().GetResult()
+        $response = $Client.SendAsync(
+            $request,
+            $CancellationToken
+        ).GetAwaiter().GetResult()
         if (-not $response.IsSuccessStatusCode) {
             $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
             return [pscustomobject]@{
@@ -776,7 +805,8 @@ function Test-McpInitialize {
     )
 
     $client = [System.Net.Http.HttpClient]::new()
-    $client.Timeout = [TimeSpan]::FromMilliseconds($TimeoutMilliseconds)
+    $client.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
+    $timeout = [System.Threading.CancellationTokenSource]::new($TimeoutMilliseconds)
     $sessionId = $null
     $protocolVersion = $null
     try {
@@ -808,7 +838,10 @@ function Test-McpInitialize {
             'application/json'
         )
 
-        $response = $client.SendAsync($request).GetAwaiter().GetResult()
+        $response = $client.SendAsync(
+            $request,
+            $timeout.Token
+        ).GetAwaiter().GetResult()
         try {
             $responseBody = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
             if (-not $response.IsSuccessStatusCode) {
@@ -851,7 +884,8 @@ function Test-McpInitialize {
                     throw 'MCP initialize returned a session ID without a protocol version.'
                 }
                 $cleanup = Remove-McpProbeSession -Client $client -Endpoint $Endpoint `
-                    -SessionId $sessionId -ProtocolVersion $protocolVersion
+                    -SessionId $sessionId -ProtocolVersion $protocolVersion `
+                    -CancellationToken $timeout.Token
                 if (-not $cleanup.Succeeded) {
                     throw "MCP probe session cleanup failed: $($cleanup.Reason)"
                 }
@@ -882,8 +916,10 @@ function Test-McpInitialize {
         if (-not [string]::IsNullOrWhiteSpace($sessionId) -and
             -not [string]::IsNullOrWhiteSpace($protocolVersion)) {
             $null = Remove-McpProbeSession -Client $client -Endpoint $Endpoint `
-                -SessionId $sessionId -ProtocolVersion $protocolVersion
+                -SessionId $sessionId -ProtocolVersion $protocolVersion `
+                -CancellationToken $timeout.Token
         }
+        $timeout.Dispose()
         $client.Dispose()
     }
 }
@@ -985,7 +1021,10 @@ function Start-McplsProcess {
 }
 
 function Stop-OwnedProcessTree {
-    param([Parameter(Mandatory)][int]$ProcessId)
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [ValidateRange(1, 10000)][int]$TimeoutMilliseconds = 10000
+    )
 
     $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
     if ($null -eq $process) {
@@ -993,8 +1032,11 @@ function Stop-OwnedProcessTree {
     }
     try {
         $process.Kill($true)
-        if (-not $process.WaitForExit(10000)) {
-            throw "Process tree rooted at PID $ProcessId did not exit within 10 seconds."
+        if (-not $process.WaitForExit($TimeoutMilliseconds)) {
+            throw (
+                "Process tree rooted at PID $ProcessId did not exit within " +
+                "$TimeoutMilliseconds milliseconds."
+            )
         }
     }
     finally {
@@ -1263,10 +1305,17 @@ function Invoke-StartOrReuse {
     param(
         [Parameter(Mandatory)]$Context,
         [string]$ExecutableOverride,
-        [Parameter(Mandatory)][int]$TimeoutSeconds
+        [Parameter(Mandatory)][int]$TimeoutSeconds,
+        [DateTimeOffset]$OperationDeadline = [DateTimeOffset]::MinValue
     )
 
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    $deadline = if ($OperationDeadline -eq [DateTimeOffset]::MinValue) {
+        [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    }
+    else {
+        $OperationDeadline
+    }
+    $null = Get-RemainingMilliseconds -Deadline $deadline
     Assert-GeneratedConfigOwnership -Context $Context
     $template = Get-TemplateInfo -Context $Context
     $tool = Test-McplsExecutable -ExecutableOverride $ExecutableOverride `
@@ -1294,7 +1343,7 @@ function Invoke-StartOrReuse {
             }
 
             $identity = Test-ServiceProcessIdentity -State $existingState `
-                -ExpectedRoot $Context.Root
+                -ExpectedRoot $Context.Root -Deadline $deadline
             if ($identity.Matched) {
                 $healthTimeout = Get-RemainingProbeMilliseconds -Deadline $deadline `
                     -Maximum 3000
@@ -1327,7 +1376,7 @@ function Invoke-StartOrReuse {
             }
             elseif ([int]$existingState.process_id -gt 0) {
                 $recordedProcess = Get-ProcessSnapshot `
-                    -ProcessId ([int]$existingState.process_id)
+                    -ProcessId ([int]$existingState.process_id) -Deadline $deadline
                 if ($null -ne $recordedProcess) {
                     Write-LifecycleLog -Context $Context `
                         -Message "refused-live-identity-mismatch pid=$($existingState.process_id) reason=$($identity.Reason)"
@@ -1372,18 +1421,33 @@ function Write-DisabledGeneratedConfig {
 }
 
 function Test-ValidRecordedWorktree {
-    param([Parameter(Mandatory)][string]$Root)
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [DateTimeOffset]$Deadline = [DateTimeOffset]::UtcNow.AddSeconds(30)
+    )
 
-    if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+    $git = Get-ApplicationPath -Name 'git'
+    $result = Invoke-ApplicationCapture -Executable $git `
+        -Arguments @('-C', $Root, 'rev-parse', '--show-toplevel') `
+        -Deadline $Deadline
+    if ($result.ExitCode -ne 0) {
         return $false
     }
-    try {
-        $canonical = Get-CanonicalWorktreeRoot -RootHint $Root
-        return Test-PathEqual -Left $canonical -Right $Root
-    }
-    catch {
+    $canonical = ([string]$result.Output).Trim()
+    if ([string]::IsNullOrWhiteSpace($canonical)) {
         return $false
     }
+    $canonical = [System.IO.Path]::TrimEndingDirectorySeparator(
+        [System.IO.Path]::GetFullPath($canonical)
+    )
+    $recorded = [System.IO.Path]::TrimEndingDirectorySeparator(
+        [System.IO.Path]::GetFullPath($Root)
+    )
+    return [string]::Equals(
+        $canonical,
+        $recorded,
+        [System.StringComparison]::Ordinal
+    )
 }
 
 function Test-StateDirectoryOwnership {
@@ -1503,23 +1567,42 @@ function Invoke-PruneStates {
         [Parameter(Mandatory)][string]$AllStateRoot,
         [string]$ExcludeWorktreeId,
         [ValidateRange(1, 256)][int]$Limit = 64,
-        [switch]$Automatic
+        [switch]$Automatic,
+        [DateTimeOffset]$OperationDeadline = [DateTimeOffset]::MinValue
     )
 
     if (-not (Test-Path -LiteralPath $AllStateRoot -PathType Container)) {
         return @()
     }
 
+    $deadline = if ($OperationDeadline -eq [DateTimeOffset]::MinValue) {
+        [DateTimeOffset]::UtcNow.AddMinutes(2)
+    }
+    else {
+        $OperationDeadline
+    }
+    $null = Get-RemainingMilliseconds -Deadline $deadline
     $results = [System.Collections.Generic.List[object]]::new()
-    $selectionLockTimeout = if ($Automatic) { 100 } else { 120000 }
+    $selectionLockTimeout = if ($Automatic) {
+        Get-RemainingProbeMilliseconds -Deadline $deadline -Maximum 100
+    }
+    else {
+        Get-RemainingMilliseconds -Deadline $deadline -Maximum 120000
+    }
     $directories = @(Get-RotatingStateDirectories -AllStateRoot $AllStateRoot `
         -ExcludeWorktreeId $ExcludeWorktreeId -Limit $Limit `
         -LockTimeoutMilliseconds $selectionLockTimeout)
     foreach ($directory in $directories) {
+        $null = Get-RemainingMilliseconds -Deadline $deadline
         $lease = $null
         try {
             try {
-                $lockTimeout = if ($Automatic) { 100 } else { 120000 }
+                $lockTimeout = if ($Automatic) {
+                    Get-RemainingProbeMilliseconds -Deadline $deadline -Maximum 100
+                }
+                else {
+                    Get-RemainingMilliseconds -Deadline $deadline -Maximum 120000
+                }
                 $lease = Enter-FileLock `
                     -Path (Get-WorktreeLockPath -AllStateRoot $AllStateRoot `
                         -WorktreeId $directory.Name) `
@@ -1562,23 +1645,30 @@ function Invoke-PruneStates {
                 continue
             }
 
-            $rootValid = Test-ValidRecordedWorktree -Root ([string]$state.worktree_root)
+            $rootValid = Test-ValidRecordedWorktree `
+                -Root ([string]$state.worktree_root) -Deadline $deadline
             $identity = Test-ServiceProcessIdentity -State $state `
-                -ExpectedRoot ([string]$state.worktree_root)
+                -ExpectedRoot ([string]$state.worktree_root) -Deadline $deadline
             $health = if ($identity.Matched) {
-                if ($Automatic -and $rootValid) {
+                if ($Automatic) {
                     [pscustomobject]@{
-                        Healthy = $true
-                        Reason = 'automatic prune preserves an owned live service without probing'
+                        Healthy = $rootValid
+                        Reason = 'automatic prune does not perform HTTP health probes'
                     }
                 }
                 else {
-                    $firstHealth = Test-McpInitialize -Endpoint ([string]$state.endpoint) `
-                        -TimeoutMilliseconds 1000
+                    $firstHealthTimeout = Get-RemainingProbeMilliseconds `
+                        -Deadline $deadline -Maximum 1000
+                    $firstHealth = Test-McpInitialize `
+                        -Endpoint ([string]$state.endpoint) `
+                        -TimeoutMilliseconds $firstHealthTimeout
                     if (-not $firstHealth.Healthy -and $rootValid) {
                         Start-Sleep -Milliseconds 250
-                        Test-McpInitialize -Endpoint ([string]$state.endpoint) `
-                            -TimeoutMilliseconds 1000
+                        $secondHealthTimeout = Get-RemainingProbeMilliseconds `
+                            -Deadline $deadline -Maximum 1000
+                        Test-McpInitialize `
+                            -Endpoint ([string]$state.endpoint) `
+                            -TimeoutMilliseconds $secondHealthTimeout
                     }
                     else {
                         $firstHealth
@@ -1593,10 +1683,13 @@ function Invoke-PruneStates {
             }
 
             if ($identity.Matched) {
-                Stop-OwnedProcessTree -ProcessId ([int]$state.process_id)
+                $stopTimeout = Get-RemainingMilliseconds -Deadline $deadline -Maximum 10000
+                Stop-OwnedProcessTree -ProcessId ([int]$state.process_id) `
+                    -TimeoutMilliseconds $stopTimeout
             }
             elseif ([int]$state.process_id -gt 0 -and
-                $null -ne (Get-ProcessSnapshot -ProcessId ([int]$state.process_id))) {
+                $null -ne (Get-ProcessSnapshot -ProcessId ([int]$state.process_id) `
+                    -Deadline $deadline)) {
                 $results.Add([pscustomobject]@{
                     worktree_id = $directory.Name
                     action = 'refused-live-identity-mismatch'
@@ -1642,10 +1735,12 @@ function Invoke-EnsureAction {
         [Parameter(Mandatory)][int]$TimeoutSeconds
     )
 
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
     try {
         try {
             $null = @(Invoke-PruneStates -AllStateRoot $Context.AllStateRoot `
-                -ExcludeWorktreeId $Context.WorktreeId -Limit 16 -Automatic)
+                -ExcludeWorktreeId $Context.WorktreeId -Limit 16 -Automatic `
+                -OperationDeadline $deadline)
         }
         catch {
             try {
@@ -1657,7 +1752,8 @@ function Invoke-EnsureAction {
             }
         }
         return Invoke-StartOrReuse -Context $Context `
-            -ExecutableOverride $ExecutableOverride -TimeoutSeconds $TimeoutSeconds
+            -ExecutableOverride $ExecutableOverride -TimeoutSeconds $TimeoutSeconds `
+            -OperationDeadline $deadline
     }
     catch {
         $reason = $_.Exception.Message

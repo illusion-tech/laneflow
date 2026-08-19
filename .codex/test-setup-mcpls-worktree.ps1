@@ -178,6 +178,32 @@ try {
     Assert-True -Condition (-not $ensureResult.config_enabled) `
         -Message 'Ensure reports unavailable mcpls as disabled'
 
+    $originalPruneStates = (Get-Command Invoke-PruneStates).ScriptBlock
+    $script:CapturedPruneDeadline = [DateTimeOffset]::MinValue
+    $deadlineCaptureStarted = [DateTimeOffset]::UtcNow
+    try {
+        Set-Item -Path Function:Invoke-PruneStates -Value {
+            param(
+                $AllStateRoot,
+                $ExcludeWorktreeId,
+                $Limit,
+                [switch]$Automatic,
+                [DateTimeOffset]$OperationDeadline
+            )
+            $script:CapturedPruneDeadline = $OperationDeadline
+            return @()
+        }
+        $null = Invoke-EnsureAction -Context $testContext `
+            -ExecutableOverride $missingExecutable -TimeoutSeconds 5
+    }
+    finally {
+        Set-Item -Path Function:Invoke-PruneStates -Value $originalPruneStates
+    }
+    Assert-True -Condition (
+        $script:CapturedPruneDeadline -gt $deadlineCaptureStarted -and
+        $script:CapturedPruneDeadline -le $deadlineCaptureStarted.AddSeconds(6)
+    ) -Message 'Ensure creates and passes its startup deadline before automatic pruning'
+
     $missingWorktreeRoot = Join-Path $temporaryRoot 'not-a-worktree'
     $contextFailureResult = Invoke-LaneFlowMcpls -RequestedAction 'Ensure' `
         -RootHint $missingWorktreeRoot -StateRootOverride $testContext.AllStateRoot `
@@ -282,6 +308,18 @@ try {
     $currentSnapshot = Get-ProcessSnapshot -ProcessId $PID
     Assert-True -Condition ($null -ne $currentSnapshot) `
         -Message 'current process snapshot is available for identity testing'
+    Assert-True -Condition (
+        $null -eq (Get-ProcessSnapshot -ProcessId ([int]::MaxValue))
+    ) -Message 'a confirmed missing PID remains distinct from inspection failure'
+    Set-Item -Path Function:Get-CimInstance -Value { throw 'injected CIM failure' }
+    try {
+        Assert-Throws -Operation {
+            Get-ProcessSnapshot -ProcessId $PID
+        } -Message 'CIM failure for a live PID fails closed instead of reporting it dead'
+    }
+    finally {
+        Remove-Item -Path Function:Get-CimInstance -Force
+    }
     $fakeState = [pscustomobject]@{
         schema_version = $script:StateSchemaVersion
         worktree_id = $repositoryContext.WorktreeId

@@ -74,7 +74,8 @@ Codex 为新任务创建 worktree 时会运行 setup。`Ensure` 会：
 1. 规范化 `git rev-parse --show-toplevel` 结果，保留文件系统返回的真实大小写，并派生
    SHA-256 worktree ID；
 2. 按持久游标轮转、有界检查历史状态；自动清理不会因为单次 HTTP 探测失败而停止有效
-   worktree 的已归属服务；
+   worktree 的已归属服务，也不会执行 HTTP 探测；Git 与 CIM 检查、锁等待和进程终止
+   共用本次 setup 的启动截止时间；
 3. 在 `%LOCALAPPDATA%\LaneFlow\mcpls\worktrees\.locks\` 下，以禁止共享打开的锁文件
    实现跨 Windows 会话的同 worktree 串行化和全局端口分配串行化；
 4. 从 `41000..48999` 按 worktree ID 确定性选择 loopback 端口并线性探测冲突；
@@ -82,8 +83,8 @@ Codex 为新任务创建 worktree 时会运行 setup。`Ensure` 会：
    `mcpls.toml` 内容 SHA-256 以及 HTTP MCP `initialize`；配置内容变化会停止已归属的旧
    服务并启动新服务，不复用旧 `rust-analyzer`；健康探测会携带协商得到的
    `MCP-Protocol-Version` 删除临时 session，并把删除失败视为不健康；
-6. 用 `StartupTimeoutSeconds` 的单一截止时间约束二进制校验、锁等待、端口绑定和 HTTP
-   健康检查；
+6. 用 `StartupTimeoutSeconds` 的单一截止时间约束自动清理、二进制校验、锁等待、端口
+   绑定和 HTTP 健康检查；
 7. 只有状态、健康检查、启用配置与生命周期日志全部提交成功后才保留新进程；任一记账
    步骤失败都会回收该进程并保持配置禁用。
 
@@ -125,7 +126,8 @@ endpoint；锁文件采用 `FileShare.None`，因此不同桌面会话或终端�
 再判断进程身份；三者不一致、状态损坏或 schema 不支持时都拒绝停止和删除并保留证据。
 人工 `Prune` 对有效 worktree 的失效服务做两次 HTTP 探测后才可停止；`Ensure` 内部的
 自动清理不探测、不停止有效 worktree 的已归属存活服务。只有结构化身份仍匹配，或记录
-PID 已不存在且状态所有权一致时，才清理失效状态。
+PID 已确认不存在且状态所有权一致时，才清理失效状态。CIM/WMI 或元数据检查失败与 PID
+不存在是不同状态：前者失败关闭并保留记录，不能触发替换或清理。
 
 本地状态位于：
 
