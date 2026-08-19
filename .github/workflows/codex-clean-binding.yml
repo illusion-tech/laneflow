@@ -9,6 +9,7 @@ permissions:
   contents: read
   pull-requests: read
   issues: write
+  checks: write
 
 jobs:
   dispatch:
@@ -19,9 +20,6 @@ jobs:
          github.event.comment.body == 'external-review: request-codex-review') ||
         github.event.comment.user.login == 'chatgpt-codex-connector[bot]'
       )
-    concurrency:
-      group: codex-clean-binding-pr-${{ github.event.issue.number }}
-      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout trusted validator from main
@@ -73,3 +71,27 @@ jobs:
             --pr "$PR_NUMBER" \
             --clean-comment-id "$CLEAN_COMMENT_NODE_ID" \
             --run-url "$RUN_URL"
+
+      # GITHUB_TOKEN 发布的 record 评论不会再触发 Gate workflow（GitHub 递归
+      # 防护），绑定发布后必须在同一 run 内自行刷新 shadow check。
+      - name: Refresh External Review Gate Shadow
+        if: github.event.comment.user.login == 'chatgpt-codex-connector[bot]'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          trusted_ref_oid="$(git rev-parse HEAD)"
+          cargo +1.96.0 run --locked -p xtask -- \
+            publish-external-review-check \
+            --repo "$REPOSITORY" \
+            --pr "$PR_NUMBER" \
+            --details-url "$RUN_URL" \
+            --run-id "$RUN_ID" \
+            --run-attempt "$RUN_ATTEMPT" \
+            --trusted-ref-oid "$trusted_ref_oid"

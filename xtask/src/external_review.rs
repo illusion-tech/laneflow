@@ -3990,16 +3990,17 @@ mod tests {
                     | "push:"
             )
         }));
-        assert!(
-            binding
-                .contains("permissions:\n  contents: read\n  pull-requests: read\n  issues: write")
-        );
+        assert!(binding.contains(
+            "permissions:\n  contents: read\n  pull-requests: read\n  issues: write\n  checks: write"
+        ));
         assert!(binding.contains("ref: refs/heads/main"));
         assert!(binding.contains("persist-credentials: false"));
         assert!(binding.contains("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"));
         assert!(binding.contains("Verify trusted checkout"));
-        assert!(binding.contains("group: codex-clean-binding-pr-${{ github.event.issue.number }}"));
-        assert!(binding.contains("cancel-in-progress: false"));
+        // 不保留 concurrency 组：同组 pending 事件会被 GitHub 丢弃，导致 clean
+        // 事件丢失、绑定永久停滞。发布（record id 确定性去重）与 shadow 刷新
+        // 均幂等，并发安全；极端竞态最坏落 fail-closed，可重新请求审阅恢复。
+        assert!(!binding.contains("concurrency:"));
         assert!(binding.contains("github.event.issue.pull_request != null"));
         assert!(binding.contains("github.event.comment.user.login == 'wangzishi'"));
         assert!(
@@ -4016,6 +4017,13 @@ mod tests {
         assert!(binding.contains("--clean-comment-id \"$CLEAN_COMMENT_NODE_ID\""));
         assert!(!binding.contains("github.event.comment.id"));
         assert!(binding.contains("--run-url \"$RUN_URL\""));
+        // GITHUB_TOKEN 发布的 record 评论不会再触发 Gate workflow（GitHub 递归
+        // 防护），绑定发布后必须由本 workflow 在同一 run 内自行刷新 shadow check。
+        assert!(binding.contains("Refresh External Review Gate Shadow"));
+        assert!(binding.contains("publish-external-review-check"));
+        assert!(binding.contains("--trusted-ref-oid \"$trusted_ref_oid\""));
+        assert!(binding.contains("RUN_ATTEMPT: ${{ github.run_attempt }}"));
+        assert!(binding.contains("RUN_ID: ${{ github.run_id }}"));
         assert!(binding.contains("rustup toolchain install 1.96.0"));
         assert!(!binding.contains("secrets."));
         assert!(!binding.contains("refs/pull/"));
