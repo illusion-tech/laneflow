@@ -2007,10 +2007,22 @@ function Invoke-PruneStates {
                 })
                 continue
             }
-            if ($rootValid) {
+            $rootStillExists = Test-Path -LiteralPath ([string]$state.worktree_root) `
+                -PathType Container
+            if ($rootValid -or $rootStillExists) {
                 try {
-                    $context = Get-WorktreeContext -RootHint ([string]$state.worktree_root) `
-                        -StateRootOverride $AllStateRoot -Deadline $deadline
+                    $context = if ($rootValid) {
+                        Get-WorktreeContext -RootHint ([string]$state.worktree_root) `
+                            -StateRootOverride $AllStateRoot -Deadline $deadline
+                    }
+                    else {
+                        [pscustomobject]@{
+                            TemplatePath = Join-Path ([string]$state.worktree_root) `
+                                '.codex\config.template.toml'
+                            GeneratedConfigPath = Join-Path ([string]$state.worktree_root) `
+                                '.codex\config.toml'
+                        }
+                    }
                     Write-DisabledGeneratedConfig -Context $context `
                         -Endpoint ([string]$state.endpoint)
                 }
