@@ -51,9 +51,10 @@ rust-analyzer --version
 `mcpls --version` 必须返回 `0.3.9`，帮助中必须同时出现 `--listen` 和 `--http-path`。
 setup 也会执行相同检查，避免把没有 HTTP feature 的同版本二进制误判为可用。
 
-setup 脚本不会联网、安装、升级或下载任何工具。mcpls 缺失、版本不符或没有 HTTP
-feature 时，`Ensure` 会给出警告、生成禁用配置并成功结束；LaneFlow 的其他开发工作
-不受影响。人工 `Start` 则以非零状态严格失败。
+setup 脚本不会联网、安装、升级或下载任何工具。mcpls 缺失、版本不符、没有 HTTP
+feature，或 Git worktree / `%LOCALAPPDATA%` context 无法构造时，`Ensure` 都会给出警告并
+成功结束；能安全定位受管模板时同时生成禁用配置。LaneFlow 的其他开发工作不受影响。
+人工 `Start` 则以非零状态严格失败。
 
 当前固定工具的来源为 crates.io，上游为 `bug-ops/mcpls`，许可证表达式为
 `MIT OR Apache-2.0`。该本机工具不进入仓库依赖图或分发物；如果未来需要自动下载、
@@ -134,7 +135,8 @@ PID 已不存在且状态所有权一致时，才清理失效状态。
 端口、endpoint、模板哈希、`mcpls.toml` 内容哈希和状态；`lifecycle.log` 记录本脚本的
 启动、复用、失败、停止与清理事件。两者都不提交到仓库。状态、轮转游标和生成配置都
 通过同目录临时文件原子替换。旧 schema 或不完整状态会被明确报告为 `invalid-state`，
-不会被当作“无状态”而启动第二个服务；需在核对对应 PID 后人工处理该状态目录。
+不会被当作“无状态”而启动第二个服务。必填值还会校验非空、类型、范围、绝对路径、
+哈希格式以及 endpoint/端口一致性；需在核对对应 PID 后人工处理无效状态目录。
 
 ## 5. 验证
 
