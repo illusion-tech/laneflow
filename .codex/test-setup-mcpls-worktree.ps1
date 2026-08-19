@@ -56,9 +56,17 @@ try {
     $sameId = Get-WorktreeId -CanonicalRoot $repositoryRoot.ToUpperInvariant()
     $secondId = Get-WorktreeId -CanonicalRoot "$repositoryRoot-other"
     Assert-True -Condition ($firstId -eq $sameId) `
-        -Message 'Windows worktree identity is case-insensitive'
+        -Message 'existing Windows paths canonicalize to their on-disk casing'
     Assert-True -Condition ($firstId -ne $secondId) `
         -Message 'different worktree roots have different identities'
+    $caseSensitiveUpper = Get-WorktreeId -CanonicalRoot (
+        Join-Path $temporaryRoot 'Synthetic-Case-Path'
+    )
+    $caseSensitiveLower = Get-WorktreeId -CanonicalRoot (
+        Join-Path $temporaryRoot 'synthetic-case-path'
+    )
+    Assert-True -Condition ($caseSensitiveUpper -ne $caseSensitiveLower) `
+        -Message 'non-existing case-distinct roots retain distinct identities'
 
     $firstPort = Get-PreferredPort -WorktreeId $firstId
     $samePort = Get-PreferredPort -WorktreeId $firstId
@@ -106,6 +114,38 @@ try {
         StateDirectory = Join-Path (Join-Path $temporaryRoot 'state') $repositoryContext.WorktreeId
         StatePath = Join-Path (Join-Path (Join-Path $temporaryRoot 'state') $repositoryContext.WorktreeId) 'state.json'
         LogPath = Join-Path (Join-Path (Join-Path $temporaryRoot 'state') $repositoryContext.WorktreeId) 'lifecycle.log'
+        LockDirectory = Join-Path (Join-Path $temporaryRoot 'state') '.locks'
+        WorktreeLockPath = Join-Path (Join-Path (Join-Path $temporaryRoot 'state') '.locks') "$($repositoryContext.WorktreeId).lock"
+        PortLockPath = Join-Path (Join-Path (Join-Path $temporaryRoot 'state') '.locks') 'port-allocation.lock'
+    }
+
+    $configHashPath = Join-Path $temporaryRoot 'hash-input.toml'
+    [System.IO.File]::WriteAllText(
+        $configHashPath,
+        "[workspace]`nroot = 'first'`n",
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $firstConfigHash = Get-FileSha256Hex -Path $configHashPath
+    [System.IO.File]::WriteAllText(
+        $configHashPath,
+        "[workspace]`nroot = 'second'`n",
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $secondConfigHash = Get-FileSha256Hex -Path $configHashPath
+    Assert-True -Condition ($firstConfigHash -ne $secondConfigHash) `
+        -Message 'mcpls.toml content changes alter the persisted service hash'
+
+    $testLockPath = Join-Path $testContext.LockDirectory 'exclusive-test.lock'
+    $firstLease = Enter-FileLock -Path $testLockPath `
+        -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(1))
+    try {
+        Assert-Throws -Operation {
+            Enter-FileLock -Path $testLockPath `
+                -Deadline ([DateTimeOffset]::UtcNow.AddMilliseconds(100))
+        } -Message 'filesystem locks serialize callers across independent handles'
+    }
+    finally {
+        Exit-FileLock -Lease $firstLease
     }
 
     [System.IO.File]::WriteAllText(
@@ -187,6 +227,23 @@ exit /b 1
         $wrongVersionTool.Reason -match 'Expected mcpls 0.3.9'
     ) -Message 'unexpected mcpls version is rejected'
 
+    $hangingExecutable = Join-Path $temporaryRoot 'hanging-mcpls.cmd'
+    $hangingBody = @'
+@echo off
+ping -n 60 127.0.0.1 >nul
+exit /b 0
+'@
+    [System.IO.File]::WriteAllText(
+        $hangingExecutable,
+        $hangingBody,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $hangingTool = Test-McplsExecutable -ExecutableOverride $hangingExecutable `
+        -Deadline ([DateTimeOffset]::UtcNow.AddMilliseconds(250))
+    Assert-True -Condition (
+        -not $hangingTool.Valid -and $hangingTool.Reason -match 'Timed out'
+    ) -Message 'the shared startup deadline bounds executable capability checks'
+
     Write-GeneratedConfig -Context $testContext -TemplateInfo $template `
         -Endpoint "http://127.0.0.1:$renderPort/mcp" -Enabled $true
     Assert-Throws -Operation {
@@ -203,8 +260,12 @@ exit /b 1
         '{"schema_version":1}',
         [System.Text.UTF8Encoding]::new($false)
     )
-    Assert-True -Condition ($null -eq (Read-ServiceState -Path $testContext.StatePath)) `
-        -Message 'incomplete state records fail closed'
+    Assert-Throws -Operation {
+        Read-ServiceState -Path $testContext.StatePath
+    } -Message 'incomplete state records fail closed instead of appearing absent'
+    $invalidStatus = Invoke-StatusAction -Context $testContext
+    Assert-True -Condition ($invalidStatus.status -eq 'invalid-state') `
+        -Message 'Status reports corrupt state explicitly without process action'
 
     $currentSnapshot = Get-ProcessSnapshot -ProcessId $PID
     Assert-True -Condition ($null -ne $currentSnapshot) `
@@ -219,10 +280,22 @@ exit /b 1
         executable_path = $currentSnapshot.ExecutablePath
         mcpls_version = $script:McplsVersion
         mcpls_config_path = $repositoryContext.McplsConfigPath
+        mcpls_config_sha256 = Get-FileSha256Hex -Path $repositoryContext.McplsConfigPath
         port = $identityPort
         endpoint = "http://127.0.0.1:$identityPort/mcp"
         template_sha256 = $template.Hash
     }
+    $matchingReuseInputs = Get-ServiceReuseInputs -State $fakeState `
+        -ExecutablePath $currentSnapshot.ExecutablePath `
+        -McplsConfigHash ([string]$fakeState.mcpls_config_sha256)
+    $changedReuseInputs = Get-ServiceReuseInputs -State $fakeState `
+        -ExecutablePath $currentSnapshot.ExecutablePath `
+        -McplsConfigHash ('0' * 64)
+    Assert-True -Condition $matchingReuseInputs.Reusable `
+        -Message 'matching executable, version, and mcpls.toml hash permit reuse'
+    Assert-True -Condition (
+        -not $changedReuseInputs.Reusable -and -not $changedReuseInputs.SameConfig
+    ) -Message 'a changed mcpls.toml hash forces service replacement'
     $identity = Test-ServiceProcessIdentity -State $fakeState -ExpectedRoot $repositoryRoot
     Assert-True -Condition (-not $identity.Matched) `
         -Message 'PID, start time, and executable alone cannot impersonate the service command line'
@@ -243,7 +316,84 @@ exit /b 1
     Assert-True -Condition ($null -ne (Get-Process -Id $PID -ErrorAction SilentlyContinue)) `
         -Message 'identity-mismatched Prune leaves the unrelated process running'
 
-    $health = Test-McpInitialize -Endpoint 'http://127.0.0.1:1/mcp' -TimeoutSeconds 1
+    $ownershipStateRoot = Join-Path $temporaryRoot 'ownership-state'
+    $ownershipDirectory = Join-Path $ownershipStateRoot ('b' * 64)
+    [System.IO.Directory]::CreateDirectory($ownershipDirectory) | Out-Null
+    Write-AtomicUtf8File -Path (Join-Path $ownershipDirectory 'state.json') `
+        -Content (($fakeState | ConvertTo-Json -Depth 6) + "`n")
+    $ownershipResult = @(Invoke-PruneStates -AllStateRoot $ownershipStateRoot)
+    Assert-True -Condition (
+        $ownershipResult.Count -eq 1 -and
+        $ownershipResult[0].action -eq 'refused-state-ownership-mismatch'
+    ) -Message 'Prune refuses state whose directory, ID, and root hash disagree'
+    Assert-True -Condition (Test-Path -LiteralPath $ownershipDirectory -PathType Container) `
+        -Message 'ownership-mismatched state remains available for manual review'
+
+    $rotationStateRoot = Join-Path $temporaryRoot 'rotation-state'
+    foreach ($name in @(('c' * 64), ('d' * 64), ('e' * 64))) {
+        $directory = Join-Path $rotationStateRoot $name
+        [System.IO.Directory]::CreateDirectory($directory) | Out-Null
+        Write-AtomicUtf8File -Path (Join-Path $directory 'state.json') `
+            -Content '{"schema_version":0}'
+    }
+    $firstRotation = @(Invoke-PruneStates -AllStateRoot $rotationStateRoot -Limit 1)
+    $secondRotation = @(Invoke-PruneStates -AllStateRoot $rotationStateRoot -Limit 1)
+    Assert-True -Condition (
+        $firstRotation.Count -eq 1 -and
+        $firstRotation[0].action -eq 'refused-invalid-state'
+    ) -Message 'Prune preserves and reports corrupt state'
+    Assert-True -Condition (
+        $secondRotation.Count -eq 1 -and
+        $secondRotation[0].worktree_id -ne $firstRotation[0].worktree_id
+    ) -Message 'bounded Prune rotates past an earlier preserved directory'
+
+    $originalStartProcess = (Get-Command Start-McplsProcess).ScriptBlock
+    $originalPortAvailable = (Get-Command Test-LoopbackPortAvailable).ScriptBlock
+    $originalPortListening = (Get-Command Test-LoopbackPortListening).ScriptBlock
+    $originalWriteState = (Get-Command Write-ServiceState).ScriptBlock
+    $script:StartupTestPid = 0
+    $script:StartupTestExecutable = (Get-Process -Id $PID).Path
+    try {
+        Set-Item -Path Function:Start-McplsProcess -Value {
+            param($Executable, $Context, $Port)
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = $script:StartupTestExecutable
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $startInfo.ArgumentList.Add('-NoLogo')
+            $startInfo.ArgumentList.Add('-NoProfile')
+            $startInfo.ArgumentList.Add('-Command')
+            $startInfo.ArgumentList.Add('Start-Sleep -Seconds 60')
+            $child = [System.Diagnostics.Process]::Start($startInfo)
+            $script:StartupTestPid = $child.Id
+            return $child
+        }
+        Set-Item -Path Function:Test-LoopbackPortAvailable -Value { return $true }
+        Set-Item -Path Function:Test-LoopbackPortListening -Value { return $true }
+        Set-Item -Path Function:Write-ServiceState -Value { throw 'injected state persistence failure' }
+        $startupTool = [pscustomobject]@{ Path = $script:StartupTestExecutable }
+        Assert-Throws -Operation {
+            Start-NewMcplsService -Context $testContext -Tool $startupTool `
+                -TemplateInfo $template -McplsConfigHash $secondConfigHash `
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
+        } -Message 'startup reports a bookkeeping failure instead of orphaning the child'
+        Assert-True -Condition (
+            $script:StartupTestPid -gt 0 -and
+            $null -eq (Get-Process -Id $script:StartupTestPid -ErrorAction SilentlyContinue)
+        ) -Message 'startup transaction kills its child when state persistence fails'
+    }
+    finally {
+        Set-Item -Path Function:Start-McplsProcess -Value $originalStartProcess
+        Set-Item -Path Function:Test-LoopbackPortAvailable -Value $originalPortAvailable
+        Set-Item -Path Function:Test-LoopbackPortListening -Value $originalPortListening
+        Set-Item -Path Function:Write-ServiceState -Value $originalWriteState
+        if ($script:StartupTestPid -gt 0) {
+            Stop-Process -Id $script:StartupTestPid -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $health = Test-McpInitialize -Endpoint 'http://127.0.0.1:1/mcp' `
+        -TimeoutMilliseconds 1000
     Assert-True -Condition (-not $health.Healthy) `
         -Message 'a closed TCP endpoint does not pass MCP initialize health'
 

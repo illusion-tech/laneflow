@@ -30,7 +30,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $script:McplsVersion = '0.3.9'
-$script:StateSchemaVersion = 1
+$script:StateSchemaVersion = 2
 $script:TemplateSchemaVersion = 1
 $script:GeneratedConfigSchemaVersion = 1
 $script:PortMinimum = 41000
@@ -42,6 +42,9 @@ function Get-NormalizedPath {
     param([Parameter(Mandatory)][string]$Path)
 
     $fullPath = [System.IO.Path]::GetFullPath($Path)
+    if (Test-Path -LiteralPath $fullPath) {
+        $fullPath = [string](Get-Item -LiteralPath $fullPath -Force -ErrorAction Stop).FullName
+    }
     return [System.IO.Path]::TrimEndingDirectorySeparator($fullPath)
 }
 
@@ -55,7 +58,7 @@ function Test-PathEqual {
         return [string]::Equals(
             (Get-NormalizedPath -Path $Left),
             (Get-NormalizedPath -Path $Right),
-            [System.StringComparison]::OrdinalIgnoreCase
+            [System.StringComparison]::Ordinal
         )
     }
     catch {
@@ -103,10 +106,21 @@ function Get-Sha256Hex {
     return [System.Convert]::ToHexString($hash).ToLowerInvariant()
 }
 
+function Get-FileSha256Hex {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Cannot hash missing file: $Path"
+    }
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    $hash = [System.Security.Cryptography.SHA256]::HashData($bytes)
+    return [System.Convert]::ToHexString($hash).ToLowerInvariant()
+}
+
 function Get-WorktreeId {
     param([Parameter(Mandatory)][string]$CanonicalRoot)
 
-    $identity = (Get-NormalizedPath -Path $CanonicalRoot).ToUpperInvariant()
+    $identity = Get-NormalizedPath -Path $CanonicalRoot
     return Get-Sha256Hex -Value $identity
 }
 
@@ -135,6 +149,7 @@ function Get-WorktreeContext {
     $worktreeId = Get-WorktreeId -CanonicalRoot $root
     $allStateRoot = Get-LaneFlowMcplsStateRoot -Override $StateRootOverride
     $stateDirectory = Join-Path $allStateRoot $worktreeId
+    $lockDirectory = Join-Path $allStateRoot '.locks'
 
     return [pscustomobject]@{
         Root = $root
@@ -146,6 +161,9 @@ function Get-WorktreeContext {
         StateDirectory = $stateDirectory
         StatePath = Join-Path $stateDirectory 'state.json'
         LogPath = Join-Path $stateDirectory 'lifecycle.log'
+        LockDirectory = $lockDirectory
+        WorktreeLockPath = Join-Path $lockDirectory "$worktreeId.lock"
+        PortLockPath = Join-Path $lockDirectory 'port-allocation.lock'
     }
 }
 
@@ -184,47 +202,72 @@ function Write-LifecycleLog {
     [System.IO.File]::AppendAllText($Context.LogPath, $line, $encoding)
 }
 
-function Enter-NamedMutex {
+function Enter-FileLock {
     param(
-        [Parameter(Mandatory)][string]$Name,
-        [Parameter(Mandatory)][TimeSpan]$Timeout
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][DateTimeOffset]$Deadline
     )
 
-    $mutex = [System.Threading.Mutex]::new($false, $Name)
-    $acquired = $false
-    try {
+    $directory = Split-Path -Parent $Path
+    [System.IO.Directory]::CreateDirectory($directory) | Out-Null
+    while ([DateTimeOffset]::UtcNow -lt $Deadline) {
         try {
-            $acquired = $mutex.WaitOne($Timeout)
+            $stream = [System.IO.File]::Open(
+                $Path,
+                [System.IO.FileMode]::OpenOrCreate,
+                [System.IO.FileAccess]::ReadWrite,
+                [System.IO.FileShare]::None
+            )
+            return [pscustomobject]@{ Stream = $stream; Path = $Path }
         }
-        catch [System.Threading.AbandonedMutexException] {
-            $acquired = $true
+        catch [System.IO.IOException] {
+            Start-Sleep -Milliseconds 50
         }
-        if (-not $acquired) {
-            throw "Timed out waiting for mutex $Name"
-        }
-
-        return [pscustomobject]@{ Mutex = $mutex; Acquired = $true }
     }
-    catch {
-        $mutex.Dispose()
-        throw
-    }
+    throw "Timed out waiting for cross-session lock $Path"
 }
 
-function Exit-NamedMutex {
+function Exit-FileLock {
     param($Lease)
 
     if ($null -eq $Lease) {
         return
     }
-    try {
-        if ($Lease.Acquired) {
-            $Lease.Mutex.ReleaseMutex()
-        }
+    $Lease.Stream.Dispose()
+}
+
+function Get-RemainingMilliseconds {
+    param(
+        [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+        [ValidateRange(1, 30000)][int]$Maximum = 30000
+    )
+
+    $remaining = [int][Math]::Floor(($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)
+    if ($remaining -le 0) {
+        throw 'mcpls startup timeout expired.'
     }
-    finally {
-        $Lease.Mutex.Dispose()
-    }
+    return [Math]::Min($remaining, $Maximum)
+}
+
+function Get-WorktreeLockPath {
+    param(
+        [Parameter(Mandatory)][string]$AllStateRoot,
+        [Parameter(Mandatory)][string]$WorktreeId
+    )
+
+    return Join-Path (Join-Path $AllStateRoot '.locks') "$WorktreeId.lock"
+}
+
+function Get-PruneLockPath {
+    param([Parameter(Mandatory)][string]$AllStateRoot)
+
+    return Join-Path (Join-Path $AllStateRoot '.locks') 'prune.lock'
+}
+
+function Get-PruneCursorPath {
+    param([Parameter(Mandatory)][string]$AllStateRoot)
+
+    return Join-Path (Join-Path $AllStateRoot '.locks') 'prune.cursor'
 }
 
 function Get-TemplateInfo {
@@ -322,7 +365,7 @@ function Read-ServiceState {
     try {
         $state = [System.IO.File]::ReadAllText($Path) | ConvertFrom-Json
         if ([int]$state.schema_version -ne $script:StateSchemaVersion) {
-            return $null
+            throw "unsupported schema version $($state.schema_version)"
         }
         $requiredProperties = @(
             'worktree_id',
@@ -333,19 +376,20 @@ function Read-ServiceState {
             'executable_path',
             'mcpls_version',
             'mcpls_config_path',
+            'mcpls_config_sha256',
             'port',
             'endpoint',
             'template_sha256'
         )
         foreach ($property in $requiredProperties) {
             if ($null -eq $state.PSObject.Properties[$property]) {
-                return $null
+                throw "missing required property $property"
             }
         }
         return $state
     }
     catch {
-        return $null
+        throw "Invalid mcpls service state at ${Path}: $($_.Exception.Message)"
     }
 }
 
@@ -360,8 +404,65 @@ function Write-ServiceState {
     Write-AtomicUtf8File -Path $Context.StatePath -Content $content
 }
 
+function Invoke-ApplicationCapture {
+    param(
+        [Parameter(Mandatory)][string]$Executable,
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [Parameter(Mandatory)][DateTimeOffset]$Deadline
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $Executable
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $Arguments) {
+        $startInfo.ArgumentList.Add($argument)
+    }
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    $started = $false
+    try {
+        if (-not $process.Start()) {
+            throw "Failed to start $Executable."
+        }
+        $started = $true
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        $remaining = Get-RemainingMilliseconds -Deadline $Deadline
+        if (-not $process.WaitForExit($remaining)) {
+            $process.Kill($true)
+            $process.WaitForExit(5000) | Out-Null
+            throw "Timed out running $Executable $($Arguments -join ' ')"
+        }
+        return [pscustomobject]@{
+            ExitCode = $process.ExitCode
+            Output = (($stdout.GetAwaiter().GetResult()) +
+                ($stderr.GetAwaiter().GetResult()))
+        }
+    }
+    finally {
+        if ($started -and -not $process.HasExited) {
+            try {
+                $process.Kill($true)
+                $process.WaitForExit(5000) | Out-Null
+            }
+            catch {
+                # The primary validation failure remains authoritative.
+            }
+        }
+        $process.Dispose()
+    }
+}
+
 function Test-McplsExecutable {
-    param([string]$ExecutableOverride)
+    param(
+        [string]$ExecutableOverride,
+        [DateTimeOffset]$Deadline = [DateTimeOffset]::UtcNow.AddSeconds(30)
+    )
 
     try {
         $executable = if ([string]::IsNullOrWhiteSpace($ExecutableOverride)) {
@@ -374,15 +475,17 @@ function Test-McplsExecutable {
             throw "mcpls executable does not exist: $executable"
         }
 
-        $versionOutput = (& $executable '--version' 2>&1 | Out-String).Trim()
-        $versionExitCode = $LASTEXITCODE
-        $helpOutput = (& $executable '--help' 2>&1 | Out-String)
-        $helpExitCode = $LASTEXITCODE
-        if ($versionExitCode -ne 0) {
-            throw "mcpls --version failed with exit code $versionExitCode"
+        $versionResult = Invoke-ApplicationCapture -Executable $executable `
+            -Arguments @('--version') -Deadline $Deadline
+        $helpResult = Invoke-ApplicationCapture -Executable $executable `
+            -Arguments @('--help') -Deadline $Deadline
+        $versionOutput = ([string]$versionResult.Output).Trim()
+        $helpOutput = [string]$helpResult.Output
+        if ($versionResult.ExitCode -ne 0) {
+            throw "mcpls --version failed with exit code $($versionResult.ExitCode)"
         }
-        if ($helpExitCode -ne 0) {
-            throw "mcpls --help failed with exit code $helpExitCode"
+        if ($helpResult.ExitCode -ne 0) {
+            throw "mcpls --help failed with exit code $($helpResult.ExitCode)"
         }
         if ($versionOutput -notmatch '(?m)^mcpls 0\.3\.9(?:\s|$)') {
             throw "Expected mcpls $($script:McplsVersion), got: $versionOutput"
@@ -444,6 +547,14 @@ function Test-ServiceProcessIdentity {
         if ([int]$State.schema_version -ne $script:StateSchemaVersion) {
             throw 'state schema mismatch'
         }
+        $expectedWorktreeId = Get-WorktreeId -CanonicalRoot $ExpectedRoot
+        if (-not [string]::Equals(
+            [string]$State.worktree_id,
+            $expectedWorktreeId,
+            [System.StringComparison]::Ordinal
+        )) {
+            throw 'worktree ID mismatch'
+        }
         if (-not (Test-PathEqual -Left ([string]$State.worktree_root) -Right $ExpectedRoot)) {
             throw 'worktree root mismatch'
         }
@@ -485,7 +596,7 @@ function Test-ServiceProcessIdentity {
 
         $configPath = Get-NormalizedPath -Path ([string]$State.mcpls_config_path)
         $listen = "127.0.0.1:$([int]$State.port)"
-        if ($snapshot.CommandLine.IndexOf($configPath, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        if ($snapshot.CommandLine.IndexOf($configPath, [StringComparison]::Ordinal) -lt 0) {
             throw 'command line does not contain the worktree mcpls.toml path'
         }
         if ($snapshot.CommandLine.IndexOf($listen, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
@@ -511,14 +622,37 @@ function Test-ServiceProcessIdentity {
     }
 }
 
+function Get-ServiceReuseInputs {
+    param(
+        [Parameter(Mandatory)]$State,
+        [Parameter(Mandatory)][string]$ExecutablePath,
+        [Parameter(Mandatory)][string]$McplsConfigHash
+    )
+
+    $sameTool = Test-PathEqual -Left ([string]$State.executable_path) `
+        -Right $ExecutablePath
+    $sameConfig = [string]::Equals(
+        [string]$State.mcpls_config_sha256,
+        $McplsConfigHash,
+        [System.StringComparison]::Ordinal
+    )
+    $sameVersion = [string]$State.mcpls_version -eq $script:McplsVersion
+    return [pscustomobject]@{
+        Reusable = $sameTool -and $sameConfig -and $sameVersion
+        SameTool = $sameTool
+        SameConfig = $sameConfig
+        SameVersion = $sameVersion
+    }
+}
+
 function Test-McpInitialize {
     param(
         [Parameter(Mandatory)][string]$Endpoint,
-        [ValidateRange(1, 30)][int]$TimeoutSeconds = 3
+        [ValidateRange(50, 30000)][int]$TimeoutMilliseconds = 3000
     )
 
     $client = [System.Net.Http.HttpClient]::new()
-    $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
+    $client.Timeout = [TimeSpan]::FromMilliseconds($TimeoutMilliseconds)
     $sessionId = $null
     try {
         $payload = [ordered]@{
@@ -762,6 +896,7 @@ function New-ServiceState {
         [Parameter(Mandatory)][int]$Port,
         [Parameter(Mandatory)]$Process,
         [Parameter(Mandatory)]$TemplateInfo,
+        [Parameter(Mandatory)][string]$McplsConfigHash,
         [Parameter(Mandatory)][string]$Status
     )
 
@@ -776,6 +911,7 @@ function New-ServiceState {
         executable_path = $Tool.Path
         mcpls_version = $script:McplsVersion
         mcpls_config_path = $Context.McplsConfigPath
+        mcpls_config_sha256 = $McplsConfigHash
         command_summary = @(
             '--config', $Context.McplsConfigPath,
             '--listen', "127.0.0.1:$Port",
@@ -806,7 +942,14 @@ function Wait-McplsReady {
             }
         }
 
-        $health = Test-McpInitialize -Endpoint $Endpoint -TimeoutSeconds 3
+        $remainingMilliseconds = [int][Math]::Floor(
+            ($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds
+        )
+        if ($remainingMilliseconds -lt 50) {
+            break
+        }
+        $health = Test-McpInitialize -Endpoint $Endpoint `
+            -TimeoutMilliseconds ([Math]::Min(3000, $remainingMilliseconds))
         if ($health.Healthy) {
             return $health
         }
@@ -825,7 +968,8 @@ function Start-NewMcplsService {
         [Parameter(Mandatory)]$Context,
         [Parameter(Mandatory)]$Tool,
         [Parameter(Mandatory)]$TemplateInfo,
-        [Parameter(Mandatory)][int]$TimeoutSeconds,
+        [Parameter(Mandatory)][string]$McplsConfigHash,
+        [Parameter(Mandatory)][DateTimeOffset]$Deadline,
         [int]$PreferredPort = 0
     )
 
@@ -833,30 +977,46 @@ function Start-NewMcplsService {
         throw "Missing worktree mcpls.toml: $($Context.McplsConfigPath)"
     }
 
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
     $lastFailure = $null
     for ($offset = 0; $offset -lt 32; $offset++) {
+        $null = Get-RemainingMilliseconds -Deadline $Deadline
         $allocationLease = $null
         $process = $null
+        $state = $null
+        $committed = $false
         $port = Get-PortCandidate -WorktreeId $Context.WorktreeId `
             -Offset $offset -PreferredPort $PreferredPort
         try {
-            $allocationLease = Enter-NamedMutex `
-                -Name 'Local\LaneFlow-mcpls-port-allocation-v1' `
-                -Timeout ([TimeSpan]::FromMinutes(2))
+            $allocationLease = Enter-FileLock -Path $Context.PortLockPath `
+                -Deadline $Deadline
             if (-not (Test-LoopbackPortAvailable -Port $port)) {
+                $lastFailure = "loopback port $port is already occupied"
                 continue
             }
 
+            $null = Get-RemainingMilliseconds -Deadline $Deadline
             $process = Start-McplsProcess -Executable $Tool.Path `
                 -Context $Context -Port $port
             $listenDeadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
-            while ([DateTimeOffset]::UtcNow -lt $listenDeadline -and
-                -not $process.HasExited -and
-                -not (Test-LoopbackPortListening -Port $port)) {
+            if ($listenDeadline -gt $Deadline) {
+                $listenDeadline = $Deadline
+            }
+            $bound = $false
+            while ([DateTimeOffset]::UtcNow -lt $listenDeadline -and -not $process.HasExited) {
+                $remainingMilliseconds = [int][Math]::Floor(
+                    ($listenDeadline - [DateTimeOffset]::UtcNow).TotalMilliseconds
+                )
+                if ($remainingMilliseconds -lt 50) {
+                    break
+                }
+                if (Test-LoopbackPortListening -Port $port `
+                    -TimeoutMilliseconds ([Math]::Min(250, $remainingMilliseconds))) {
+                    $bound = $true
+                    break
+                }
                 Start-Sleep -Milliseconds 100
             }
-            if ($process.HasExited -or -not (Test-LoopbackPortListening -Port $port)) {
+            if ($process.HasExited -or -not $bound) {
                 $lastFailure = "mcpls did not bind 127.0.0.1:$port"
                 if (-not $process.HasExited) {
                     $process.Kill($true)
@@ -868,36 +1028,82 @@ function Start-NewMcplsService {
             }
         }
         finally {
-            Exit-NamedMutex -Lease $allocationLease
+            Exit-FileLock -Lease $allocationLease
         }
 
-        $state = New-ServiceState -Context $Context -Tool $Tool -Port $port `
-            -Process $process -TemplateInfo $TemplateInfo -Status 'starting'
-        Write-ServiceState -Context $Context -State $state
-        Write-LifecycleLog -Context $Context `
-            -Message "started pid=$($process.Id) endpoint=$($state.endpoint)"
-
-        $health = Wait-McplsReady -Process $process -Endpoint $state.endpoint `
-            -Deadline $deadline
-        if (-not $health.Healthy) {
-            $state.status = 'failed'
-            $state.last_error = $health.Reason
+        try {
+            $state = New-ServiceState -Context $Context -Tool $Tool -Port $port `
+                -Process $process -TemplateInfo $TemplateInfo `
+                -McplsConfigHash $McplsConfigHash -Status 'starting'
             Write-ServiceState -Context $Context -State $state
             Write-LifecycleLog -Context $Context `
-                -Message "startup-failed pid=$($process.Id) reason=$($health.Reason)"
-            if (-not $process.HasExited) {
-                $process.Kill($true)
-                $process.WaitForExit(10000) | Out-Null
-            }
-            $process.Dispose()
-            throw "mcpls failed HTTP initialize: $($health.Reason)"
-        }
+                -Message "started pid=$($process.Id) endpoint=$($state.endpoint)"
 
-        $state.status = 'ready'
-        $state.last_error = $null
-        Write-ServiceState -Context $Context -State $state
-        $process.Dispose()
-        return $state
+            $health = Wait-McplsReady -Process $process -Endpoint $state.endpoint `
+                -Deadline $Deadline
+            if (-not $health.Healthy) {
+                throw "mcpls failed HTTP initialize: $($health.Reason)"
+            }
+
+            $state.status = 'ready'
+            $state.last_error = $null
+            Write-ServiceState -Context $Context -State $state
+            Write-GeneratedConfig -Context $Context -TemplateInfo $TemplateInfo `
+                -Endpoint ([string]$state.endpoint) -Enabled $true
+            Write-LifecycleLog -Context $Context `
+                -Message "ready pid=$($state.process_id) endpoint=$($state.endpoint)"
+            $committed = $true
+            return $state
+        }
+        catch {
+            $failureReason = $_.Exception.Message
+            if ($null -ne $process -and -not $process.HasExited) {
+                try {
+                    Stop-OwnedProcessTree -ProcessId ([int]$process.Id)
+                }
+                catch {
+                    $failureReason = "$failureReason Cleanup failed: $($_.Exception.Message)"
+                }
+            }
+            if ($null -ne $state) {
+                $state.status = 'failed'
+                $state.last_error = $failureReason
+                try {
+                    Write-ServiceState -Context $Context -State $state
+                }
+                catch {
+                    # The original persistence failure remains authoritative.
+                }
+                try {
+                    Write-DisabledGeneratedConfig -Context $Context `
+                        -Endpoint ([string]$state.endpoint)
+                }
+                catch {
+                    # Ensure/Start will report any remaining config failure to the caller.
+                }
+                try {
+                    Write-LifecycleLog -Context $Context `
+                        -Message "startup-failed pid=$($process.Id) reason=$failureReason"
+                }
+                catch {
+                    # Cleanup must not be bypassed by bookkeeping failure.
+                }
+            }
+            throw "mcpls startup transaction failed: $failureReason"
+        }
+        finally {
+            if ($null -ne $process) {
+                if (-not $committed -and -not $process.HasExited) {
+                    try {
+                        Stop-OwnedProcessTree -ProcessId ([int]$process.Id)
+                    }
+                    catch {
+                        # The primary failure already records the cleanup attempt.
+                    }
+                }
+                $process.Dispose()
+            }
+        }
     }
 
     throw "No mcpls port could be started in the bounded probe window. Last failure: $lastFailure"
@@ -910,18 +1116,21 @@ function Invoke-StartOrReuse {
         [Parameter(Mandatory)][int]$TimeoutSeconds
     )
 
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
     Assert-GeneratedConfigOwnership -Context $Context
     $template = Get-TemplateInfo -Context $Context
-    $tool = Test-McplsExecutable -ExecutableOverride $ExecutableOverride
+    $tool = Test-McplsExecutable -ExecutableOverride $ExecutableOverride `
+        -Deadline $deadline
     if (-not $tool.Valid) {
         throw $tool.Reason
     }
-
+    if (-not (Test-Path -LiteralPath $Context.McplsConfigPath -PathType Leaf)) {
+        throw "Missing worktree mcpls.toml: $($Context.McplsConfigPath)"
+    }
+    $mcplsConfigHash = Get-FileSha256Hex -Path $Context.McplsConfigPath
     $lease = $null
     try {
-        $lease = Enter-NamedMutex `
-            -Name "Local\LaneFlow-mcpls-worktree-$($Context.WorktreeId)" `
-            -Timeout ([TimeSpan]::FromMinutes(2))
+        $lease = Enter-FileLock -Path $Context.WorktreeLockPath -Deadline $deadline
         [System.IO.Directory]::CreateDirectory($Context.StateDirectory) | Out-Null
 
         $existingState = Read-ServiceState -Path $Context.StatePath
@@ -937,11 +1146,11 @@ function Invoke-StartOrReuse {
             $identity = Test-ServiceProcessIdentity -State $existingState `
                 -ExpectedRoot $Context.Root
             if ($identity.Matched) {
-                $health = Test-McpInitialize -Endpoint ([string]$existingState.endpoint)
-                $sameTool = Test-PathEqual -Left ([string]$existingState.executable_path) `
-                    -Right $tool.Path
-                if ($health.Healthy -and $sameTool -and
-                    [string]$existingState.mcpls_version -eq $script:McplsVersion) {
+                $health = Test-McpInitialize -Endpoint ([string]$existingState.endpoint) `
+                    -TimeoutMilliseconds (Get-RemainingMilliseconds -Deadline $deadline -Maximum 3000)
+                $reuseInputs = Get-ServiceReuseInputs -State $existingState `
+                    -ExecutablePath $tool.Path -McplsConfigHash $mcplsConfigHash
+                if ($health.Healthy -and $reuseInputs.Reusable) {
                     $existingState.status = 'ready'
                     $existingState.template_sha256 = $template.Hash
                     $existingState.last_error = $null
@@ -961,7 +1170,7 @@ function Invoke-StartOrReuse {
                 }
 
                 Write-LifecycleLog -Context $Context `
-                    -Message "replacing-owned pid=$($existingState.process_id) healthy=$($health.Healthy) same_tool=$sameTool"
+                    -Message "replacing-owned pid=$($existingState.process_id) healthy=$($health.Healthy) same_tool=$($reuseInputs.SameTool) same_config=$($reuseInputs.SameConfig) same_version=$($reuseInputs.SameVersion)"
                 Stop-OwnedProcessTree -ProcessId ([int]$existingState.process_id)
             }
             elseif ([int]$existingState.process_id -gt 0) {
@@ -982,12 +1191,9 @@ function Invoke-StartOrReuse {
         }
 
         $state = Start-NewMcplsService -Context $Context -Tool $tool `
-            -TemplateInfo $template -TimeoutSeconds $TimeoutSeconds `
+            -TemplateInfo $template -McplsConfigHash $mcplsConfigHash `
+            -Deadline $deadline `
             -PreferredPort $preferredPort
-        Write-GeneratedConfig -Context $Context -TemplateInfo $template `
-            -Endpoint ([string]$state.endpoint) -Enabled $true
-        Write-LifecycleLog -Context $Context `
-            -Message "ready pid=$($state.process_id) endpoint=$($state.endpoint)"
         return [pscustomobject]@{
             action = 'started'
             worktree_id = $Context.WorktreeId
@@ -998,7 +1204,7 @@ function Invoke-StartOrReuse {
         }
     }
     finally {
-        Exit-NamedMutex -Lease $lease
+        Exit-FileLock -Lease $lease
     }
 }
 
@@ -1028,6 +1234,99 @@ function Test-ValidRecordedWorktree {
     }
 }
 
+function Test-StateDirectoryOwnership {
+    param(
+        [Parameter(Mandatory)]$State,
+        [Parameter(Mandatory)][string]$DirectoryName
+    )
+
+    try {
+        if (-not [string]::Equals(
+            [string]$State.worktree_id,
+            $DirectoryName,
+            [System.StringComparison]::Ordinal
+        )) {
+            throw 'state worktree_id does not match the state directory'
+        }
+        $expectedId = Get-WorktreeId -CanonicalRoot ([string]$State.worktree_root)
+        if (-not [string]::Equals(
+            $expectedId,
+            $DirectoryName,
+            [System.StringComparison]::Ordinal
+        )) {
+            throw 'recorded worktree root does not hash to the state directory'
+        }
+        return [pscustomobject]@{ Matched = $true; Reason = $null }
+    }
+    catch {
+        return [pscustomobject]@{ Matched = $false; Reason = $_.Exception.Message }
+    }
+}
+
+function Get-RotatingStateDirectories {
+    param(
+        [Parameter(Mandatory)][string]$AllStateRoot,
+        [string]$ExcludeWorktreeId,
+        [Parameter(Mandatory)][ValidateRange(1, 256)][int]$Limit,
+        [ValidateRange(50, 120000)][int]$LockTimeoutMilliseconds = 2000
+    )
+
+    $directories = @(Get-ChildItem -LiteralPath $AllStateRoot -Directory |
+        Where-Object { $_.Name -match '^[0-9a-f]{64}$' } |
+        Sort-Object -Property Name)
+    if ($directories.Count -eq 0) {
+        return @()
+    }
+
+    $lease = $null
+    try {
+        $deadline = [DateTimeOffset]::UtcNow.AddMilliseconds($LockTimeoutMilliseconds)
+        $lease = Enter-FileLock -Path (Get-PruneLockPath -AllStateRoot $AllStateRoot) `
+            -Deadline $deadline
+        $cursorPath = Get-PruneCursorPath -AllStateRoot $AllStateRoot
+        $cursor = if (Test-Path -LiteralPath $cursorPath -PathType Leaf) {
+            ([System.IO.File]::ReadAllText($cursorPath)).Trim()
+        }
+        else {
+            $null
+        }
+        $startIndex = 0
+        if (-not [string]::IsNullOrWhiteSpace($cursor)) {
+            for ($index = 0; $index -lt $directories.Count; $index++) {
+                if ([string]::Equals(
+                    $directories[$index].Name,
+                    $cursor,
+                    [System.StringComparison]::Ordinal
+                )) {
+                    $startIndex = ($index + 1) % $directories.Count
+                    break
+                }
+            }
+        }
+
+        $selected = [System.Collections.Generic.List[object]]::new()
+        for ($offset = 0; $offset -lt $directories.Count -and
+            $selected.Count -lt $Limit; $offset++) {
+            $directory = $directories[($startIndex + $offset) % $directories.Count]
+            if (-not [string]::Equals(
+                $directory.Name,
+                $ExcludeWorktreeId,
+                [System.StringComparison]::Ordinal
+            )) {
+                $selected.Add($directory)
+            }
+        }
+        if ($selected.Count -gt 0) {
+            Write-AtomicUtf8File -Path $cursorPath `
+                -Content ([string]$selected[$selected.Count - 1].Name)
+        }
+        return @($selected)
+    }
+    finally {
+        Exit-FileLock -Lease $lease
+    }
+}
+
 function Remove-ValidatedStateDirectory {
     param(
         [Parameter(Mandatory)][string]$AllStateRoot,
@@ -1051,7 +1350,8 @@ function Invoke-PruneStates {
     param(
         [Parameter(Mandatory)][string]$AllStateRoot,
         [string]$ExcludeWorktreeId,
-        [ValidateRange(1, 256)][int]$Limit = 64
+        [ValidateRange(1, 256)][int]$Limit = 64,
+        [switch]$Automatic
     )
 
     if (-not (Test-Path -LiteralPath $AllStateRoot -PathType Container)) {
@@ -1059,30 +1359,54 @@ function Invoke-PruneStates {
     }
 
     $results = [System.Collections.Generic.List[object]]::new()
-    $directories = @(Get-ChildItem -LiteralPath $AllStateRoot -Directory |
-        Where-Object { $_.Name -match '^[0-9a-f]{64}$' } |
-        Select-Object -First $Limit)
+    $selectionLockTimeout = if ($Automatic) { 100 } else { 120000 }
+    $directories = @(Get-RotatingStateDirectories -AllStateRoot $AllStateRoot `
+        -ExcludeWorktreeId $ExcludeWorktreeId -Limit $Limit `
+        -LockTimeoutMilliseconds $selectionLockTimeout)
     foreach ($directory in $directories) {
-        if ($directory.Name -eq $ExcludeWorktreeId) {
-            continue
-        }
         $lease = $null
         try {
             try {
-                $lease = Enter-NamedMutex `
-                    -Name "Local\LaneFlow-mcpls-worktree-$($directory.Name)" `
-                    -Timeout ([TimeSpan]::FromMilliseconds(100))
+                $lockTimeout = if ($Automatic) { 100 } else { 120000 }
+                $lease = Enter-FileLock `
+                    -Path (Get-WorktreeLockPath -AllStateRoot $AllStateRoot `
+                        -WorktreeId $directory.Name) `
+                    -Deadline ([DateTimeOffset]::UtcNow.AddMilliseconds($lockTimeout))
             }
             catch {
                 continue
             }
 
             $statePath = Join-Path $directory.FullName 'state.json'
-            $state = Read-ServiceState -Path $statePath
+            try {
+                $state = Read-ServiceState -Path $statePath
+            }
+            catch {
+                $results.Add([pscustomobject]@{
+                    worktree_id = $directory.Name
+                    action = 'refused-invalid-state'
+                    reason = $_.Exception.Message
+                })
+                continue
+            }
             if ($null -eq $state) {
                 Remove-ValidatedStateDirectory -AllStateRoot $AllStateRoot `
                     -StateDirectory $directory.FullName
-                $results.Add([pscustomobject]@{ worktree_id = $directory.Name; action = 'removed-invalid-state' })
+                $results.Add([pscustomobject]@{
+                    worktree_id = $directory.Name
+                    action = 'removed-empty-state'
+                })
+                continue
+            }
+
+            $ownership = Test-StateDirectoryOwnership -State $state `
+                -DirectoryName $directory.Name
+            if (-not $ownership.Matched) {
+                $results.Add([pscustomobject]@{
+                    worktree_id = $directory.Name
+                    action = 'refused-state-ownership-mismatch'
+                    reason = $ownership.Reason
+                })
                 continue
             }
 
@@ -1090,7 +1414,24 @@ function Invoke-PruneStates {
             $identity = Test-ServiceProcessIdentity -State $state `
                 -ExpectedRoot ([string]$state.worktree_root)
             $health = if ($identity.Matched) {
-                Test-McpInitialize -Endpoint ([string]$state.endpoint)
+                if ($Automatic -and $rootValid) {
+                    [pscustomobject]@{
+                        Healthy = $true
+                        Reason = 'automatic prune preserves an owned live service without probing'
+                    }
+                }
+                else {
+                    $firstHealth = Test-McpInitialize -Endpoint ([string]$state.endpoint) `
+                        -TimeoutMilliseconds 1000
+                    if (-not $firstHealth.Healthy -and $rootValid) {
+                        Start-Sleep -Milliseconds 250
+                        Test-McpInitialize -Endpoint ([string]$state.endpoint) `
+                            -TimeoutMilliseconds 1000
+                    }
+                    else {
+                        $firstHealth
+                    }
+                }
             }
             else {
                 [pscustomobject]@{ Healthy = $false; Reason = $identity.Reason }
@@ -1136,7 +1477,7 @@ function Invoke-PruneStates {
             })
         }
         finally {
-            Exit-NamedMutex -Lease $lease
+            Exit-FileLock -Lease $lease
         }
     }
     return @($results)
@@ -1150,8 +1491,19 @@ function Invoke-EnsureAction {
     )
 
     try {
-        $null = @(Invoke-PruneStates -AllStateRoot $Context.AllStateRoot `
-            -ExcludeWorktreeId $Context.WorktreeId -Limit 16)
+        try {
+            $null = @(Invoke-PruneStates -AllStateRoot $Context.AllStateRoot `
+                -ExcludeWorktreeId $Context.WorktreeId -Limit 16 -Automatic)
+        }
+        catch {
+            try {
+                Write-LifecycleLog -Context $Context `
+                    -Message "automatic-prune-skipped reason=$($_.Exception.Message)"
+            }
+            catch {
+                # Optional housekeeping cannot disable the current worktree service.
+            }
+        }
         return Invoke-StartOrReuse -Context $Context `
             -ExecutableOverride $ExecutableOverride -TimeoutSeconds $TimeoutSeconds
     }
@@ -1208,7 +1560,22 @@ function Invoke-StartAction {
 function Invoke-StatusAction {
     param([Parameter(Mandatory)]$Context)
 
-    $state = Read-ServiceState -Path $Context.StatePath
+    try {
+        $state = Read-ServiceState -Path $Context.StatePath
+    }
+    catch {
+        return [pscustomobject]@{
+            worktree_id = $Context.WorktreeId
+            worktree_root = $Context.Root
+            status = 'invalid-state'
+            state_reason = $_.Exception.Message
+            process_id = $null
+            endpoint = $null
+            identity_matched = $false
+            healthy = $false
+            rust_analyzer_descendants = 0
+        }
+    }
     if ($null -eq $state) {
         return [pscustomobject]@{
             worktree_id = $Context.WorktreeId
@@ -1259,9 +1626,8 @@ function Invoke-StopAction {
 
     $lease = $null
     try {
-        $lease = Enter-NamedMutex `
-            -Name "Local\LaneFlow-mcpls-worktree-$($Context.WorktreeId)" `
-            -Timeout ([TimeSpan]::FromMinutes(2))
+        $lease = Enter-FileLock -Path $Context.WorktreeLockPath `
+            -Deadline ([DateTimeOffset]::UtcNow.AddMinutes(2))
         $state = Read-ServiceState -Path $Context.StatePath
         if ($null -eq $state) {
             throw 'No mcpls state is recorded for this worktree.'
@@ -1271,7 +1637,8 @@ function Invoke-StopAction {
         if (-not $identity.Matched) {
             throw "Refusing to stop an identity-mismatched process: $($identity.Reason)"
         }
-        $health = Test-McpInitialize -Endpoint ([string]$state.endpoint)
+        $health = Test-McpInitialize -Endpoint ([string]$state.endpoint) `
+            -TimeoutMilliseconds 3000
         if (-not $health.Healthy) {
             throw "Refusing normal Stop because MCP initialize failed: $($health.Reason). Use Prune only after reviewing Status."
         }
@@ -1291,7 +1658,7 @@ function Invoke-StopAction {
         }
     }
     finally {
-        Exit-NamedMutex -Lease $lease
+        Exit-FileLock -Lease $lease
     }
 }
 
