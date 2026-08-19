@@ -63,7 +63,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.issue.number }}
-          CLEAN_COMMENT_ID: ${{ github.event.comment.id }}
+          CLEAN_COMMENT_NODE_ID: ${{ github.event.comment.node_id }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
         run: |
           set -euo pipefail
@@ -71,5 +71,5 @@ jobs:
             publish-codex-clean-binding \
             --repo "$REPOSITORY" \
             --pr "$PR_NUMBER" \
-            --clean-comment-id "$CLEAN_COMMENT_ID" \
+            --clean-comment-id "$CLEAN_COMMENT_NODE_ID" \
             --run-url "$RUN_URL"
