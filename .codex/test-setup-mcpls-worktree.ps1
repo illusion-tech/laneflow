@@ -210,14 +210,39 @@ try {
         -TimeoutSeconds 5
     Assert-True -Condition (
         $contextFailureResult.action -eq 'disabled' -and
-        -not $contextFailureResult.config_enabled -and
-        $contextFailureResult.reason -match 'context discovery failed'
-    ) -Message 'Ensure remains fail-open when worktree context discovery fails'
+        $null -eq $contextFailureResult.config_enabled -and
+        $contextFailureResult.reason -match 'disabling was not completed'
+    ) -Message 'context failure reports an unknown prior config state when disabling is unsafe'
     Assert-Throws -Operation {
         Invoke-LaneFlowMcpls -RequestedAction 'Start' `
             -RootHint $missingWorktreeRoot `
             -StateRootOverride $testContext.AllStateRoot -TimeoutSeconds 5
     } -Message 'strict Start still rejects a context discovery failure'
+
+    $fallbackRoot = Join-Path $temporaryRoot 'fallback-root'
+    $fallbackCodexDirectory = Join-Path $fallbackRoot '.codex'
+    [System.IO.Directory]::CreateDirectory($fallbackCodexDirectory) | Out-Null
+    $fallbackTemplatePath = Join-Path $fallbackCodexDirectory 'config.template.toml'
+    $fallbackGeneratedPath = Join-Path $fallbackCodexDirectory 'config.toml'
+    [System.IO.File]::WriteAllText(
+        $fallbackTemplatePath,
+        $template.Content,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $fallbackContext = [pscustomobject]@{
+        TemplatePath = $fallbackTemplatePath
+        GeneratedConfigPath = $fallbackGeneratedPath
+    }
+    Write-GeneratedConfig -Context $fallbackContext -TemplateInfo $template `
+        -Endpoint "http://127.0.0.1:$renderPort/mcp" -Enabled $true
+    $fallbackDisable = Try-DisableGeneratedConfigWithoutWorktreeContext `
+        -RootHint $fallbackRoot
+    $fallbackContent = [System.IO.File]::ReadAllText($fallbackGeneratedPath)
+    Assert-True -Condition (
+        $fallbackDisable.Succeeded -and -not $fallbackDisable.ConfigEnabled
+    ) -Message 'context-free fallback can disable a safely located managed config'
+    Assert-True -Condition ($fallbackContent -match '(?m)^enabled = false\r?$') `
+        -Message 'context-free fallback atomically renders the managed config disabled'
 
     $featurelessExecutable = Join-Path $temporaryRoot 'featureless-mcpls.exe'
     $wrongVersionExecutable = Join-Path $temporaryRoot 'wrong-version-mcpls.exe'
@@ -272,11 +297,25 @@ try {
     }
 
     $currentPowerShell = (Get-Process -Id $PID).Path
+    $captureStarted = [DateTimeOffset]::UtcNow
     Assert-Throws -Operation {
         Invoke-ApplicationCapture -Executable $currentPowerShell `
             -Arguments @('-NoLogo', '-NoProfile', '-Command', 'Start-Sleep -Seconds 60') `
             -Deadline ([DateTimeOffset]::UtcNow.AddMilliseconds(250))
     } -Message 'the shared startup deadline terminates a real hanging executable'
+    Assert-True -Condition (
+        ([DateTimeOffset]::UtcNow - $captureStarted).TotalSeconds -lt 2
+    ) -Message 'hanging executable cleanup does not add fixed post-deadline waits'
+    $streamCapture = Invoke-ApplicationCapture -Executable $currentPowerShell `
+        -Arguments @(
+            '-NoLogo',
+            '-NoProfile',
+            '-Command',
+            "[Console]::Out.Write('root'); [Console]::Error.Write('warning')"
+        ) -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
+    Assert-True -Condition (
+        $streamCapture.StdOut -eq 'root' -and $streamCapture.StdErr -eq 'warning'
+    ) -Message 'application capture preserves stdout separately from stderr warnings'
     Assert-Throws -Operation {
         Get-RemainingProbeMilliseconds `
             -Deadline ([DateTimeOffset]::UtcNow.AddMilliseconds(10)) -Maximum 3000

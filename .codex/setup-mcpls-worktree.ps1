@@ -249,6 +249,18 @@ function Get-RemainingMilliseconds {
     return [Math]::Min($remaining, $Maximum)
 }
 
+function Get-RemainingMillisecondsOrZero {
+    param(
+        [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+        [ValidateRange(0, 300000)][int]$Maximum = 30000
+    )
+
+    $remaining = [int][Math]::Floor(
+        ($Deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds
+    )
+    return [Math]::Max(0, [Math]::Min($remaining, $Maximum))
+}
+
 function Get-RemainingProbeMilliseconds {
     param(
         [Parameter(Mandatory)][DateTimeOffset]$Deadline,
@@ -516,20 +528,27 @@ function Invoke-ApplicationCapture {
         $remaining = Get-RemainingMilliseconds -Deadline $Deadline
         if (-not $process.WaitForExit($remaining)) {
             $process.Kill($true)
-            $process.WaitForExit(5000) | Out-Null
+            $cleanupWait = Get-RemainingMillisecondsOrZero `
+                -Deadline $Deadline -Maximum 5000
+            $null = $process.WaitForExit($cleanupWait)
             throw "Timed out running $Executable $($Arguments -join ' ')"
         }
+        $stdoutText = $stdout.GetAwaiter().GetResult()
+        $stderrText = $stderr.GetAwaiter().GetResult()
         return [pscustomobject]@{
             ExitCode = $process.ExitCode
-            Output = (($stdout.GetAwaiter().GetResult()) +
-                ($stderr.GetAwaiter().GetResult()))
+            StdOut = $stdoutText
+            StdErr = $stderrText
+            Output = $stdoutText + $stderrText
         }
     }
     finally {
         if ($started -and -not $process.HasExited) {
             try {
                 $process.Kill($true)
-                $process.WaitForExit(5000) | Out-Null
+                $cleanupWait = Get-RemainingMillisecondsOrZero `
+                    -Deadline $Deadline -Maximum 5000
+                $null = $process.WaitForExit($cleanupWait)
             }
             catch {
                 # The primary validation failure remains authoritative.
@@ -1023,7 +1042,8 @@ function Start-McplsProcess {
 function Stop-OwnedProcessTree {
     param(
         [Parameter(Mandatory)][int]$ProcessId,
-        [ValidateRange(1, 10000)][int]$TimeoutMilliseconds = 10000
+        [ValidateRange(0, 10000)][int]$TimeoutMilliseconds = 10000,
+        [DateTimeOffset]$Deadline = [DateTimeOffset]::MinValue
     )
 
     $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
@@ -1032,10 +1052,17 @@ function Stop-OwnedProcessTree {
     }
     try {
         $process.Kill($true)
-        if (-not $process.WaitForExit($TimeoutMilliseconds)) {
+        $exitWait = if ($Deadline -eq [DateTimeOffset]::MinValue) {
+            $TimeoutMilliseconds
+        }
+        else {
+            Get-RemainingMillisecondsOrZero -Deadline $Deadline `
+                -Maximum $TimeoutMilliseconds
+        }
+        if (-not $process.WaitForExit($exitWait)) {
             throw (
                 "Process tree rooted at PID $ProcessId did not exit within " +
-                "$TimeoutMilliseconds milliseconds."
+                "$exitWait milliseconds."
             )
         }
     }
@@ -1170,7 +1197,8 @@ function Start-NewMcplsService {
     }
 
     $lastFailure = $null
-    for ($offset = 0; $offset -lt 32; $offset++) {
+    $portRangeSize = $script:PortMaximum - $script:PortMinimum + 1
+    for ($offset = 0; $offset -lt $portRangeSize; $offset++) {
         $null = Get-RemainingMilliseconds -Deadline $Deadline
         $allocationLease = $null
         $process = $null
@@ -1210,12 +1238,16 @@ function Start-NewMcplsService {
             }
             if ($process.HasExited -or -not $bound) {
                 $lastFailure = "mcpls did not bind 127.0.0.1:$port"
-                if (-not $process.HasExited) {
-                    $process.Kill($true)
-                    $process.WaitForExit(5000) | Out-Null
+                try {
+                    if (-not $process.HasExited) {
+                        Stop-OwnedProcessTree -ProcessId ([int]$process.Id) `
+                            -TimeoutMilliseconds 5000 -Deadline $Deadline
+                    }
                 }
-                $process.Dispose()
-                $process = $null
+                finally {
+                    $process.Dispose()
+                    $process = $null
+                }
                 continue
             }
         }
@@ -1251,7 +1283,8 @@ function Start-NewMcplsService {
             $failureReason = $_.Exception.Message
             if ($null -ne $process -and -not $process.HasExited) {
                 try {
-                    Stop-OwnedProcessTree -ProcessId ([int]$process.Id)
+                    Stop-OwnedProcessTree -ProcessId ([int]$process.Id) `
+                        -Deadline $Deadline
                 }
                 catch {
                     $failureReason = "$failureReason Cleanup failed: $($_.Exception.Message)"
@@ -1287,7 +1320,8 @@ function Start-NewMcplsService {
             if ($null -ne $process) {
                 if (-not $committed -and -not $process.HasExited) {
                     try {
-                        Stop-OwnedProcessTree -ProcessId ([int]$process.Id)
+                        Stop-OwnedProcessTree -ProcessId ([int]$process.Id) `
+                            -Deadline $Deadline
                     }
                     catch {
                         # The primary failure already records the cleanup attempt.
@@ -1298,7 +1332,7 @@ function Start-NewMcplsService {
         }
     }
 
-    throw "No mcpls port could be started in the bounded probe window. Last failure: $lastFailure"
+    throw "No mcpls port could be started in the bounded full-range probe. Last failure: $lastFailure"
 }
 
 function Invoke-StartOrReuse {
@@ -1372,7 +1406,8 @@ function Invoke-StartOrReuse {
 
                 Write-LifecycleLog -Context $Context `
                     -Message "replacing-owned pid=$($existingState.process_id) healthy=$($health.Healthy) same_tool=$($reuseInputs.SameTool) same_config=$($reuseInputs.SameConfig) same_version=$($reuseInputs.SameVersion)"
-                Stop-OwnedProcessTree -ProcessId ([int]$existingState.process_id)
+                Stop-OwnedProcessTree -ProcessId ([int]$existingState.process_id) `
+                    -Deadline $deadline
             }
             elseif ([int]$existingState.process_id -gt 0) {
                 $recordedProcess = Get-ProcessSnapshot `
@@ -1420,6 +1455,39 @@ function Write-DisabledGeneratedConfig {
         -Endpoint $Endpoint -Enabled $false
 }
 
+function Try-DisableGeneratedConfigWithoutWorktreeContext {
+    param([string]$RootHint)
+
+    $candidate = if ([string]::IsNullOrWhiteSpace($RootHint)) {
+        Split-Path -Parent $PSScriptRoot
+    }
+    else {
+        $RootHint
+    }
+    try {
+        $root = [System.IO.Path]::TrimEndingDirectorySeparator(
+            [System.IO.Path]::GetFullPath($candidate)
+        )
+        $fallbackContext = [pscustomobject]@{
+            TemplatePath = Join-Path $root '.codex\config.template.toml'
+            GeneratedConfigPath = Join-Path $root '.codex\config.toml'
+        }
+        Write-DisabledGeneratedConfig -Context $fallbackContext
+        return [pscustomobject]@{
+            Succeeded = $true
+            ConfigEnabled = $false
+            Reason = $null
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Succeeded = $false
+            ConfigEnabled = $null
+            Reason = $_.Exception.Message
+        }
+    }
+}
+
 function Test-ValidRecordedWorktree {
     param(
         [Parameter(Mandatory)][string]$Root,
@@ -1433,7 +1501,7 @@ function Test-ValidRecordedWorktree {
     if ($result.ExitCode -ne 0) {
         return $false
     }
-    $canonical = ([string]$result.Output).Trim()
+    $canonical = ([string]$result.StdOut).Trim()
     if ([string]::IsNullOrWhiteSpace($canonical)) {
         return $false
     }
@@ -1685,7 +1753,7 @@ function Invoke-PruneStates {
             if ($identity.Matched) {
                 $stopTimeout = Get-RemainingMilliseconds -Deadline $deadline -Maximum 10000
                 Stop-OwnedProcessTree -ProcessId ([int]$state.process_id) `
-                    -TimeoutMilliseconds $stopTimeout
+                    -TimeoutMilliseconds $stopTimeout -Deadline $deadline
             }
             elseif ([int]$state.process_id -gt 0 -and
                 $null -ne (Get-ProcessSnapshot -ProcessId ([int]$state.process_id) `
@@ -1934,14 +2002,28 @@ function Invoke-LaneFlowMcpls {
     catch {
         if ($RequestedAction -eq 'Ensure') {
             $reason = "context discovery failed: $($_.Exception.Message)"
-            Write-Warning "mcpls remains disabled: $reason"
+            $disable = Try-DisableGeneratedConfigWithoutWorktreeContext `
+                -RootHint $RootHint
+            if (-not $disable.Succeeded) {
+                $reason = (
+                    "$reason Managed config disabling was not completed: " +
+                    $disable.Reason
+                )
+            }
+            $warningPrefix = if ($disable.Succeeded) {
+                'mcpls remains disabled'
+            }
+            else {
+                'mcpls setup is unavailable and the prior config state is unknown'
+            }
+            Write-Warning "${warningPrefix}: $reason"
             return [pscustomobject]@{
                 action = 'disabled'
                 worktree_id = $null
                 worktree_root = $RootHint
                 process_id = $null
                 endpoint = $null
-                config_enabled = $false
+                config_enabled = $disable.ConfigEnabled
                 reason = $reason
             }
         }
