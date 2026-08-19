@@ -209,7 +209,8 @@ pub fn build_shared_network_revision(
         seal_forward_identity(forward_identity),
         reverse_identity.into_boxed_slice(),
     );
-    let planning_hints = PartitionPlanningHints::from_traffic(&traffic)?;
+    let planning_hints =
+        PartitionPlanningHints::from_traffic(&traffic, |ordinal| poll_cancelled(options, ordinal))?;
     let spatial = build_spatial(input.value_checked_view(), &counts, &traffic, options)?;
 
     check_cancelled(options)?;
@@ -923,7 +924,7 @@ fn build_topology_plan(
                 structure: BuildStructure::ManeuverPath,
             }
         })?;
-        let mut previous_waiting_transitions = None;
+        let mut previous_waiting_release = None;
         for waiting_index in 0..waiting_zones.len() {
             let waiting_zone =
                 waiting_zones
@@ -945,16 +946,12 @@ fn build_topology_plan(
                     structure: BuildStructure::ManeuverPath,
                 });
             }
-            let transitions = (
+            validate_waiting_zone_interval(
+                previous_waiting_release,
                 topology.entry_transition_index,
                 topology.release_transition_index,
-            );
-            if previous_waiting_transitions.is_some_and(|previous| transitions <= previous) {
-                return Err(BuildError::InputInvariant {
-                    structure: BuildStructure::ManeuverPath,
-                });
-            }
-            previous_waiting_transitions = Some(transitions);
+            )?;
+            previous_waiting_release = Some(topology.release_transition_index);
             path_waiting_zones.push(WaitingZoneOrdinal::from_raw(waiting_zone));
         }
 
@@ -2077,6 +2074,19 @@ fn poll_cancelled(options: SharedNetworkBuildOptions<'_>, ordinal: u32) -> Resul
     Ok(())
 }
 
+fn validate_waiting_zone_interval(
+    previous_release: Option<u32>,
+    entry: u32,
+    release: u32,
+) -> Result<(), BuildError> {
+    if entry >= release || previous_release.is_some_and(|previous| entry < previous) {
+        return Err(BuildError::InputInvariant {
+            structure: BuildStructure::ManeuverPath,
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2100,6 +2110,24 @@ mod tests {
             validate_gate_stop_line_edge(gate, &stop_lines, 3, 1),
             Err(BuildError::InputInvariant {
                 structure: BuildStructure::ManeuverCandidates,
+            })
+        ));
+    }
+
+    #[test]
+    fn waiting_zone_intervals_may_touch_but_not_overlap() {
+        assert!(validate_waiting_zone_interval(None, 0, 3).is_ok());
+        assert!(validate_waiting_zone_interval(Some(3), 3, 4).is_ok());
+        assert!(matches!(
+            validate_waiting_zone_interval(Some(3), 1, 4),
+            Err(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverPath,
+            })
+        ));
+        assert!(matches!(
+            validate_waiting_zone_interval(None, 2, 2),
+            Err(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverPath,
             })
         ));
     }
