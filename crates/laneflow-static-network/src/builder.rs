@@ -642,12 +642,12 @@ fn check_scratch_budget(
         BuildStructure::BuilderScratch,
     )?;
     let dense_cursors = structure_bytes::<u32>(lane_count, BuildStructure::BuilderScratch)?;
-    let radix_sort =
-        radix_pairs
-            .checked_add(dense_cursors)
-            .ok_or(BuildError::ArithmeticOverflow {
-                structure: BuildStructure::BuilderScratch,
-            })?;
+    let radix_sort = stop_line_lane_owners
+        .checked_add(radix_pairs)
+        .and_then(|bytes| bytes.checked_add(dense_cursors))
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
     let identity_scratch = structure_bytes::<IdentityReverseEntry>(
         counts.identity_count,
         BuildStructure::BuilderScratch,
@@ -3733,6 +3733,59 @@ mod tests {
                 structure: BuildStructure::RetainedOutput,
                 ..
             })
+        ));
+    }
+
+    #[test]
+    fn scratch_budget_counts_live_stop_line_bitmap_during_pair_sort() {
+        let lane_count = 1_024;
+        let pair_count = 4_096;
+        let mut entity_counts = [0; ENTITY_KIND_COUNT];
+        entity_counts[kind_index(EntityKind::LaneEdge)] = lane_count;
+        entity_counts[kind_index(EntityKind::StopLine)] = 1;
+        let counts = BuildCounts {
+            contracts: StaticContractVersions::new(0, 0, 0, 0, 0, 0),
+            entity_counts: EntityCounts::new(entity_counts),
+            entity_count_total: lane_count + 1,
+            identity_count: 0,
+            topology_pair_capacity: pair_count,
+            maneuver_path_edge_count: 0,
+            maneuver_path_gate_count: 0,
+            maneuver_path_waiting_zone_count: 0,
+            maneuver_transition_count: 0,
+            spatial_present: false,
+            direction_profile: 0,
+            lane_geometry_count: 0,
+            lane_point_count: 0,
+            lane_segment_count: 0,
+            facility_geometry_count: 0,
+            facility_point_count: 0,
+        };
+        let options = SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(u64::MAX, 0),
+        );
+        let topology_pairs =
+            structure_bytes::<TransitionPair>(pair_count, BuildStructure::BuilderScratch)
+                .expect("topology pair bytes");
+        let dense_cursors = structure_bytes::<u32>(lane_count, BuildStructure::BuilderScratch)
+            .expect("dense cursor bytes");
+        let stop_line_lane_owners =
+            structure_bytes::<u8>(lane_count, BuildStructure::BuilderScratch)
+                .expect("stop-line owner bytes");
+        let expected = topology_pairs
+            .checked_add(topology_pairs)
+            .and_then(|bytes| bytes.checked_add(dense_cursors))
+            .and_then(|bytes| bytes.checked_add(stop_line_lane_owners))
+            .expect("scratch peak");
+
+        assert!(matches!(
+            check_scratch_budget(counts, options),
+            Err(BuildError::BudgetExceeded {
+                structure: BuildStructure::BuilderScratch,
+                required,
+                limit: 0,
+            }) if required == expected
         ));
     }
 }
