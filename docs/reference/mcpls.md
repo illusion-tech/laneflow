@@ -80,7 +80,8 @@ Codex 为新任务创建 worktree 时会运行 setup。`Ensure` 会：
 4. 从 `41000..48999` 按 worktree ID 确定性选择 loopback 端口并线性探测冲突；
 5. 同时验证 PID、进程启动时间、可执行路径、命令行中的 `mcpls.toml`/endpoint、
    `mcpls.toml` 内容 SHA-256 以及 HTTP MCP `initialize`；配置内容变化会停止已归属的旧
-   服务并启动新服务，不复用旧 `rust-analyzer`；
+   服务并启动新服务，不复用旧 `rust-analyzer`；健康探测会携带协商得到的
+   `MCP-Protocol-Version` 删除临时 session，并把删除失败视为不健康；
 6. 用 `StartupTimeoutSeconds` 的单一截止时间约束二进制校验、锁等待、端口绑定和 HTTP
    健康检查；
 7. 只有状态、健康检查、启用配置与生命周期日志全部提交成功后才保留新进程；任一记账
@@ -119,7 +120,8 @@ pwsh -NoLogo -NoProfile -File .codex/setup-mcpls-worktree.ps1 -Action Prune
 `Ensure` 和 `Start` 在同一 worktree 中串行或并发调用都必须复用同一个健康 PID 和
 endpoint；锁文件采用 `FileShare.None`，因此不同桌面会话或终端也进入同一临界区。
 `Stop` 不按进程名批量停止；PID、启动时间、可执行路径、命令行或 HTTP 健康任一不满足
-时都会拒绝普通停止。`Prune` 先校验“状态目录名 = `worktree_id` = 规范化 root 哈希”，
+时都会拒绝普通停止，进程树未在期限内确认退出时也不会写入已停止状态。`Prune` 先校验
+“状态目录名 = `worktree_id` = 规范化 root 哈希”，
 再判断进程身份；三者不一致、状态损坏或 schema 不支持时都拒绝停止和删除并保留证据。
 人工 `Prune` 对有效 worktree 的失效服务做两次 HTTP 探测后才可停止；`Ensure` 内部的
 自动清理不探测、不停止有效 worktree 的已归属存活服务。只有结构化身份仍匹配，或记录

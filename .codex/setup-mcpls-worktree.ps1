@@ -249,6 +249,19 @@ function Get-RemainingMilliseconds {
     return [Math]::Min($remaining, $Maximum)
 }
 
+function Get-RemainingProbeMilliseconds {
+    param(
+        [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+        [ValidateRange(50, 30000)][int]$Maximum = 30000
+    )
+
+    $remaining = Get-RemainingMilliseconds -Deadline $Deadline -Maximum $Maximum
+    if ($remaining -lt 50) {
+        throw 'mcpls startup timeout expired before a bounded health probe could start.'
+    }
+    return $remaining
+}
+
 function Get-WorktreeLockPath {
     param(
         [Parameter(Mandatory)][string]$AllStateRoot,
@@ -713,6 +726,49 @@ function Get-ServiceReuseInputs {
     }
 }
 
+function Remove-McpProbeSession {
+    param(
+        [Parameter(Mandatory)][System.Net.Http.HttpClient]$Client,
+        [Parameter(Mandatory)][string]$Endpoint,
+        [Parameter(Mandatory)][string]$SessionId,
+        [Parameter(Mandatory)][string]$ProtocolVersion
+    )
+
+    $request = $null
+    $response = $null
+    try {
+        $request = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Delete,
+            $Endpoint
+        )
+        $request.Headers.TryAddWithoutValidation('Mcp-Session-Id', $SessionId) | Out-Null
+        $request.Headers.TryAddWithoutValidation(
+            'MCP-Protocol-Version',
+            $ProtocolVersion
+        ) | Out-Null
+        $response = $Client.SendAsync($request).GetAwaiter().GetResult()
+        if (-not $response.IsSuccessStatusCode) {
+            $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            return [pscustomobject]@{
+                Succeeded = $false
+                Reason = "HTTP session DELETE returned $([int]$response.StatusCode): $body"
+            }
+        }
+        return [pscustomobject]@{ Succeeded = $true; Reason = $null }
+    }
+    catch {
+        return [pscustomobject]@{ Succeeded = $false; Reason = $_.Exception.Message }
+    }
+    finally {
+        if ($null -ne $response) {
+            $response.Dispose()
+        }
+        if ($null -ne $request) {
+            $request.Dispose()
+        }
+    }
+}
+
 function Test-McpInitialize {
     param(
         [Parameter(Mandatory)][string]$Endpoint,
@@ -722,6 +778,7 @@ function Test-McpInitialize {
     $client = [System.Net.Http.HttpClient]::new()
     $client.Timeout = [TimeSpan]::FromMilliseconds($TimeoutMilliseconds)
     $sessionId = $null
+    $protocolVersion = $null
     try {
         $payload = [ordered]@{
             jsonrpc = '2.0'
@@ -780,6 +837,7 @@ function Test-McpInitialize {
                 throw "MCP initialize returned an error: $jsonText"
             }
             $result = $resultProperty.Value
+            $protocolVersion = [string]$result.protocolVersion
             $serverInfo = $result.PSObject.Properties['serverInfo']
             $serverName = if ($null -ne $serverInfo -and $null -ne $serverInfo.Value) {
                 [string]$serverInfo.Value.name
@@ -788,11 +846,23 @@ function Test-McpInitialize {
                 $null
             }
 
+            if (-not [string]::IsNullOrWhiteSpace($sessionId)) {
+                if ([string]::IsNullOrWhiteSpace($protocolVersion)) {
+                    throw 'MCP initialize returned a session ID without a protocol version.'
+                }
+                $cleanup = Remove-McpProbeSession -Client $client -Endpoint $Endpoint `
+                    -SessionId $sessionId -ProtocolVersion $protocolVersion
+                if (-not $cleanup.Succeeded) {
+                    throw "MCP probe session cleanup failed: $($cleanup.Reason)"
+                }
+                $sessionId = $null
+            }
+
             return [pscustomobject]@{
                 Healthy = $true
                 Reason = $null
                 ServerName = $serverName
-                ProtocolVersion = [string]$result.protocolVersion
+                ProtocolVersion = $protocolVersion
             }
         }
         finally {
@@ -809,20 +879,10 @@ function Test-McpInitialize {
         }
     }
     finally {
-        if (-not [string]::IsNullOrWhiteSpace($sessionId)) {
-            try {
-                $delete = [System.Net.Http.HttpRequestMessage]::new(
-                    [System.Net.Http.HttpMethod]::Delete,
-                    $Endpoint
-                )
-                $delete.Headers.TryAddWithoutValidation('Mcp-Session-Id', $sessionId) | Out-Null
-                $deleteResponse = $client.SendAsync($delete).GetAwaiter().GetResult()
-                $deleteResponse.Dispose()
-                $delete.Dispose()
-            }
-            catch {
-                # Session cleanup is best effort; initialize success remains authoritative.
-            }
+        if (-not [string]::IsNullOrWhiteSpace($sessionId) -and
+            -not [string]::IsNullOrWhiteSpace($protocolVersion)) {
+            $null = Remove-McpProbeSession -Client $client -Endpoint $Endpoint `
+                -SessionId $sessionId -ProtocolVersion $protocolVersion
         }
         $client.Dispose()
     }
@@ -931,8 +991,15 @@ function Stop-OwnedProcessTree {
     if ($null -eq $process) {
         return
     }
-    $process.Kill($true)
-    $process.WaitForExit(10000) | Out-Null
+    try {
+        $process.Kill($true)
+        if (-not $process.WaitForExit(10000)) {
+            throw "Process tree rooted at PID $ProcessId did not exit within 10 seconds."
+        }
+    }
+    finally {
+        $process.Dispose()
+    }
 }
 
 function Get-DescendantProcessesFromSnapshot {
@@ -1229,8 +1296,10 @@ function Invoke-StartOrReuse {
             $identity = Test-ServiceProcessIdentity -State $existingState `
                 -ExpectedRoot $Context.Root
             if ($identity.Matched) {
+                $healthTimeout = Get-RemainingProbeMilliseconds -Deadline $deadline `
+                    -Maximum 3000
                 $health = Test-McpInitialize -Endpoint ([string]$existingState.endpoint) `
-                    -TimeoutMilliseconds (Get-RemainingMilliseconds -Deadline $deadline -Maximum 3000)
+                    -TimeoutMilliseconds $healthTimeout
                 $reuseInputs = Get-ServiceReuseInputs -State $existingState `
                     -ExecutablePath $tool.Path -McplsConfigHash $mcplsConfigHash
                 if ($health.Healthy -and $reuseInputs.Reusable) {
