@@ -75,7 +75,10 @@ function Get-ApplicationPath {
 }
 
 function Get-CanonicalWorktreeRoot {
-    param([string]$RootHint)
+    param(
+        [string]$RootHint,
+        [DateTimeOffset]$Deadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
+    )
 
     $git = Get-ApplicationPath -Name 'git'
     $candidate = if ([string]::IsNullOrWhiteSpace($RootHint)) {
@@ -85,12 +88,15 @@ function Get-CanonicalWorktreeRoot {
         $RootHint
     }
 
-    $output = & $git '-C' $candidate 'rev-parse' '--show-toplevel' 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Not a Git worktree: $candidate"
+    $result = Invoke-ApplicationCapture -Executable $git `
+        -Arguments @('-C', $candidate, 'rev-parse', '--show-toplevel') `
+        -Deadline $Deadline
+    if ($result.ExitCode -ne 0) {
+        $detail = ([string]$result.StdErr).Trim()
+        throw "Not a Git worktree: $candidate ($detail)"
     }
 
-    $root = (($output | Out-String).Trim())
+    $root = ([string]$result.StdOut).Trim()
     if ([string]::IsNullOrWhiteSpace($root)) {
         throw "git rev-parse returned an empty worktree root for $candidate"
     }
@@ -142,10 +148,11 @@ function Get-LaneFlowMcplsStateRoot {
 function Get-WorktreeContext {
     param(
         [string]$RootHint,
-        [string]$StateRootOverride
+        [string]$StateRootOverride,
+        [DateTimeOffset]$Deadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
     )
 
-    $root = Get-CanonicalWorktreeRoot -RootHint $RootHint
+    $root = Get-CanonicalWorktreeRoot -RootHint $RootHint -Deadline $Deadline
     $worktreeId = Get-WorktreeId -CanonicalRoot $root
     $allStateRoot = Get-LaneFlowMcplsStateRoot -Override $StateRootOverride
     $stateDirectory = Join-Path $allStateRoot $worktreeId
@@ -1303,6 +1310,12 @@ function Start-NewMcplsService {
             $null = Get-RemainingMilliseconds -Deadline $Deadline
             $process = Start-McplsProcess -Executable $Tool.Path `
                 -Context $Context -Port $port
+            $state = New-ServiceState -Context $Context -Tool $Tool -Port $port `
+                -Process $process -TemplateInfo $TemplateInfo `
+                -McplsConfigHash $McplsConfigHash -Status 'starting'
+            Write-ServiceState -Context $Context -State $state
+            Write-LifecycleLog -Context $Context `
+                -Message "launched pid=$($process.Id) endpoint=$($state.endpoint)"
             $listenDeadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
             if ($listenDeadline -gt $Deadline) {
                 $listenDeadline = $Deadline
@@ -1324,10 +1337,22 @@ function Start-NewMcplsService {
             }
             if ($process.HasExited -or -not $bound) {
                 $lastFailure = "mcpls did not bind 127.0.0.1:$port"
+                $launchedProcessId = [int]$process.Id
                 try {
                     if (-not $process.HasExited) {
                         Stop-OwnedProcessTree -ProcessId ([int]$process.Id) `
                             -TimeoutMilliseconds 5000 -Deadline $Deadline
+                    }
+                    $state.status = 'failed'
+                    $state.process_id = 0
+                    $state.last_error = $lastFailure
+                    try {
+                        Write-ServiceState -Context $Context -State $state
+                        Write-LifecycleLog -Context $Context `
+                            -Message "bind-failed pid=$launchedProcessId reason=$lastFailure"
+                    }
+                    catch {
+                        # The child is already confirmed stopped; a later attempt can repair state.
                     }
                 }
                 finally {
@@ -1337,18 +1362,45 @@ function Start-NewMcplsService {
                 continue
             }
         }
+        catch {
+            $preReadyFailure = $_.Exception.Message
+            $launchedProcessId = if ($null -ne $process) { [int]$process.Id } else { 0 }
+            $stopped = $null -eq $process -or $process.HasExited
+            if ($null -ne $process -and -not $stopped) {
+                try {
+                    Stop-OwnedProcessTree -ProcessId $launchedProcessId -Deadline $Deadline
+                    $stopped = $true
+                }
+                catch {
+                    $preReadyFailure = "$preReadyFailure Cleanup failed: $($_.Exception.Message)"
+                }
+            }
+            if ($null -ne $state) {
+                $state.status = 'failed'
+                if ($stopped) {
+                    $state.process_id = 0
+                }
+                $state.last_error = $preReadyFailure
+                try {
+                    Write-ServiceState -Context $Context -State $state
+                    Write-LifecycleLog -Context $Context `
+                        -Message "pre-ready-failed pid=$launchedProcessId reason=$preReadyFailure"
+                }
+                catch {
+                    # Preserve the original failure after best-effort recovery evidence.
+                }
+            }
+            if ($null -ne $process) {
+                $process.Dispose()
+                $process = $null
+            }
+            throw "mcpls pre-readiness transaction failed: $preReadyFailure"
+        }
         finally {
             Exit-FileLock -Lease $allocationLease
         }
 
         try {
-            $state = New-ServiceState -Context $Context -Tool $Tool -Port $port `
-                -Process $process -TemplateInfo $TemplateInfo `
-                -McplsConfigHash $McplsConfigHash -Status 'starting'
-            Write-ServiceState -Context $Context -State $state
-            Write-LifecycleLog -Context $Context `
-                -Message "started pid=$($process.Id) endpoint=$($state.endpoint)"
-
             $health = Wait-McplsReady -Process $process -Endpoint $state.endpoint `
                 -Deadline $Deadline
             if (-not $health.Healthy) {
@@ -1378,6 +1430,9 @@ function Start-NewMcplsService {
             }
             if ($null -ne $state) {
                 $state.status = 'failed'
+                if ($null -eq $process -or $process.HasExited) {
+                    $state.process_id = 0
+                }
                 $state.last_error = $failureReason
                 try {
                     Write-ServiceState -Context $Context -State $state
@@ -1436,21 +1491,21 @@ function Invoke-StartOrReuse {
         $OperationDeadline
     }
     $null = Get-RemainingMilliseconds -Deadline $deadline
-    Assert-GeneratedConfigOwnership -Context $Context
-    $template = Get-TemplateInfo -Context $Context
-    $tool = Test-McplsExecutable -ExecutableOverride $ExecutableOverride `
-        -Deadline $deadline
-    if (-not $tool.Valid) {
-        throw $tool.Reason
-    }
-    if (-not (Test-Path -LiteralPath $Context.McplsConfigPath -PathType Leaf)) {
-        throw "Missing worktree mcpls.toml: $($Context.McplsConfigPath)"
-    }
-    $mcplsConfigHash = Get-FileSha256Hex -Path $Context.McplsConfigPath
     $lease = $null
     try {
         $lease = Enter-FileLock -Path $Context.WorktreeLockPath -Deadline $deadline
         [System.IO.Directory]::CreateDirectory($Context.StateDirectory) | Out-Null
+        Assert-GeneratedConfigOwnership -Context $Context
+        $template = Get-TemplateInfo -Context $Context
+        $tool = Test-McplsExecutable -ExecutableOverride $ExecutableOverride `
+            -Deadline $deadline
+        if (-not $tool.Valid) {
+            throw $tool.Reason
+        }
+        if (-not (Test-Path -LiteralPath $Context.McplsConfigPath -PathType Leaf)) {
+            throw "Missing worktree mcpls.toml: $($Context.McplsConfigPath)"
+        }
+        $mcplsConfigHash = Get-FileSha256Hex -Path $Context.McplsConfigPath
 
         $existingState = Read-ServiceState -Path $Context.StatePath
         $preferredPort = 0
@@ -1525,6 +1580,32 @@ function Invoke-StartOrReuse {
             config_enabled = $true
         }
     }
+    catch {
+        $originalException = $_.Exception
+        $reason = $_.Exception.Message
+        $configState = 'unknown'
+        if ($null -ne $lease) {
+            try {
+                Write-DisabledGeneratedConfig -Context $Context
+                $configState = 'disabled'
+            }
+            catch {
+                $reason = "$reason Disabled config was not written: $($_.Exception.Message)"
+            }
+            try {
+                Write-LifecycleLog -Context $Context -Message "operation-disabled reason=$reason"
+            }
+            catch {
+                # The primary lifecycle failure remains authoritative.
+            }
+        }
+        else {
+            $reason = "$reason Config was not changed because the worktree lock was not acquired."
+        }
+        $failure = [System.InvalidOperationException]::new($reason, $originalException)
+        $failure.Data['laneflow_config_state'] = $configState
+        throw $failure
+    }
     finally {
         Exit-FileLock -Lease $lease
     }
@@ -1542,7 +1623,11 @@ function Write-DisabledGeneratedConfig {
 }
 
 function Try-DisableGeneratedConfigWithoutWorktreeContext {
-    param([string]$RootHint)
+    param(
+        [string]$RootHint,
+        [string]$StateRootOverride,
+        [DateTimeOffset]$Deadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
+    )
 
     $candidate = if ([string]::IsNullOrWhiteSpace($RootHint)) {
         Split-Path -Parent $PSScriptRoot
@@ -1550,10 +1635,15 @@ function Try-DisableGeneratedConfigWithoutWorktreeContext {
     else {
         $RootHint
     }
+    $lease = $null
     try {
         $root = [System.IO.Path]::TrimEndingDirectorySeparator(
             [System.IO.Path]::GetFullPath($candidate)
         )
+        $worktreeId = Get-WorktreeId -CanonicalRoot $root
+        $allStateRoot = Get-LaneFlowMcplsStateRoot -Override $StateRootOverride
+        $lockPath = Join-Path (Join-Path $allStateRoot '.locks') "$worktreeId.lock"
+        $lease = Enter-FileLock -Path $lockPath -Deadline $Deadline
         $fallbackContext = [pscustomobject]@{
             TemplatePath = Join-Path $root '.codex\config.template.toml'
             GeneratedConfigPath = Join-Path $root '.codex\config.toml'
@@ -1571,6 +1661,9 @@ function Try-DisableGeneratedConfigWithoutWorktreeContext {
             ConfigEnabled = $null
             Reason = $_.Exception.Message
         }
+    }
+    finally {
+        Exit-FileLock -Lease $lease
     }
 }
 
@@ -1887,10 +1980,16 @@ function Invoke-EnsureAction {
     param(
         [Parameter(Mandatory)]$Context,
         [string]$ExecutableOverride,
-        [Parameter(Mandatory)][int]$TimeoutSeconds
+        [Parameter(Mandatory)][int]$TimeoutSeconds,
+        [DateTimeOffset]$OperationDeadline = [DateTimeOffset]::MinValue
     )
 
-    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    $deadline = if ($OperationDeadline -eq [DateTimeOffset]::MinValue) {
+        [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    }
+    else {
+        $OperationDeadline
+    }
     try {
         try {
             $null = @(Invoke-PruneStates -AllStateRoot $Context.AllStateRoot `
@@ -1912,26 +2011,29 @@ function Invoke-EnsureAction {
     }
     catch {
         $reason = $_.Exception.Message
-        try {
-            Write-DisabledGeneratedConfig -Context $Context
+        $configEnabled = if (
+            $_.Exception.Data.Contains('laneflow_config_state') -and
+            $_.Exception.Data['laneflow_config_state'] -eq 'disabled'
+        ) {
+            $false
         }
-        catch {
-            $reason = "$reason Disabled config was not written: $($_.Exception.Message)"
+        else {
+            $null
         }
-        try {
-            Write-LifecycleLog -Context $Context -Message "ensure-disabled reason=$reason"
+        $warningPrefix = if ($configEnabled -eq $false) {
+            'mcpls remains disabled'
         }
-        catch {
-            # Ensure is deliberately fail-open for an optional developer tool.
+        else {
+            'mcpls setup failed and the prior config state is unknown'
         }
-        Write-Warning "mcpls remains disabled: $reason"
+        Write-Warning "${warningPrefix}: $reason"
         return [pscustomobject]@{
             action = 'disabled'
             worktree_id = $Context.WorktreeId
             worktree_root = $Context.Root
             process_id = $null
             endpoint = $null
-            config_enabled = $false
+            config_enabled = $configEnabled
             reason = $reason
         }
     }
@@ -1941,22 +2043,17 @@ function Invoke-StartAction {
     param(
         [Parameter(Mandatory)]$Context,
         [string]$ExecutableOverride,
-        [Parameter(Mandatory)][int]$TimeoutSeconds
+        [Parameter(Mandatory)][int]$TimeoutSeconds,
+        [DateTimeOffset]$OperationDeadline = [DateTimeOffset]::MinValue
     )
 
     try {
         return Invoke-StartOrReuse -Context $Context `
-            -ExecutableOverride $ExecutableOverride -TimeoutSeconds $TimeoutSeconds
+            -ExecutableOverride $ExecutableOverride -TimeoutSeconds $TimeoutSeconds `
+            -OperationDeadline $OperationDeadline
     }
     catch {
-        $reason = $_.Exception.Message
-        try {
-            Write-DisabledGeneratedConfig -Context $Context
-        }
-        catch {
-            $reason = "$reason Disabled config was not written: $($_.Exception.Message)"
-        }
-        throw $reason
+        throw $_.Exception.Message
     }
 }
 
@@ -2108,15 +2205,17 @@ function Invoke-LaneFlowMcpls {
         throw 'The managed HTTP lifecycle is currently supported on Windows only.'
     }
 
+    $operationDeadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
     try {
         $context = Get-WorktreeContext -RootHint $RootHint `
-            -StateRootOverride $StateRootOverride
+            -StateRootOverride $StateRootOverride -Deadline $operationDeadline
     }
     catch {
         if ($RequestedAction -eq 'Ensure') {
             $reason = "context discovery failed: $($_.Exception.Message)"
             $disable = Try-DisableGeneratedConfigWithoutWorktreeContext `
-                -RootHint $RootHint
+                -RootHint $RootHint -StateRootOverride $StateRootOverride `
+                -Deadline $operationDeadline
             if (-not $disable.Succeeded) {
                 $reason = (
                     "$reason Managed config disabling was not completed: " +
@@ -2145,11 +2244,13 @@ function Invoke-LaneFlowMcpls {
     switch ($RequestedAction) {
         'Ensure' {
             Invoke-EnsureAction -Context $context `
-                -ExecutableOverride $ExecutableOverride -TimeoutSeconds $TimeoutSeconds
+                -ExecutableOverride $ExecutableOverride -TimeoutSeconds $TimeoutSeconds `
+                -OperationDeadline $operationDeadline
         }
         'Start' {
             Invoke-StartAction -Context $context `
-                -ExecutableOverride $ExecutableOverride -TimeoutSeconds $TimeoutSeconds
+                -ExecutableOverride $ExecutableOverride -TimeoutSeconds $TimeoutSeconds `
+                -OperationDeadline $operationDeadline
         }
         'Status' {
             Invoke-StatusAction -Context $context

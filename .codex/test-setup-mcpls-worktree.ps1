@@ -181,6 +181,45 @@ try {
     Assert-True -Condition (-not $ensureResult.config_enabled) `
         -Message 'Ensure reports unavailable mcpls as disabled'
 
+    $originalFailureDisable = (Get-Command Write-DisabledGeneratedConfig).ScriptBlock
+    $script:FailureDisableHeldLock = $false
+    try {
+        Set-Item -Path Function:Write-DisabledGeneratedConfig -Value {
+            param($Context, $Endpoint)
+            $probe = $null
+            try {
+                $probe = [System.IO.File]::Open(
+                    $Context.WorktreeLockPath,
+                    [System.IO.FileMode]::OpenOrCreate,
+                    [System.IO.FileAccess]::ReadWrite,
+                    [System.IO.FileShare]::None
+                )
+            }
+            catch [System.IO.IOException] {
+                $script:FailureDisableHeldLock = $true
+            }
+            finally {
+                if ($null -ne $probe) {
+                    $probe.Dispose()
+                }
+            }
+            if ([string]::IsNullOrWhiteSpace([string]$Endpoint)) {
+                & $originalFailureDisable -Context $Context
+            }
+            else {
+                & $originalFailureDisable -Context $Context -Endpoint $Endpoint
+            }
+        }
+        $null = Invoke-EnsureAction -Context $testContext `
+            -ExecutableOverride $missingExecutable -TimeoutSeconds 5
+    }
+    finally {
+        Set-Item -Path Function:Write-DisabledGeneratedConfig `
+            -Value $originalFailureDisable
+    }
+    Assert-True -Condition $script:FailureDisableHeldLock `
+        -Message 'failure-path config disabling occurs while the worktree lock is held'
+
     $originalPruneStates = (Get-Command Invoke-PruneStates).ScriptBlock
     $script:CapturedPruneDeadline = [DateTimeOffset]::MinValue
     $deadlineCaptureStarted = [DateTimeOffset]::UtcNow
@@ -239,13 +278,39 @@ try {
     Write-GeneratedConfig -Context $fallbackContext -TemplateInfo $template `
         -Endpoint "http://127.0.0.1:$renderPort/mcp" -Enabled $true
     $fallbackDisable = Try-DisableGeneratedConfigWithoutWorktreeContext `
-        -RootHint $fallbackRoot
+        -RootHint $fallbackRoot -StateRootOverride $testContext.AllStateRoot
     $fallbackContent = [System.IO.File]::ReadAllText($fallbackGeneratedPath)
     Assert-True -Condition (
         $fallbackDisable.Succeeded -and -not $fallbackDisable.ConfigEnabled
     ) -Message 'context-free fallback can disable a safely located managed config'
     Assert-True -Condition ($fallbackContent -match '(?m)^enabled = false\r?$') `
         -Message 'context-free fallback atomically renders the managed config disabled'
+
+    $originalDiscoveryCapture = (Get-Command Invoke-ApplicationCapture).ScriptBlock
+    $script:CapturedDiscoveryDeadline = [DateTimeOffset]::MinValue
+    try {
+        Set-Item -Path Function:Invoke-ApplicationCapture -Value {
+            param($Executable, $Arguments, $Deadline)
+            $script:CapturedDiscoveryDeadline = $Deadline
+            [pscustomobject]@{
+                ExitCode = 0
+                StdOut = $repositoryRoot
+                StdErr = ''
+                Output = $repositoryRoot
+            }
+        }
+        $discoveryDeadline = [DateTimeOffset]::UtcNow.AddSeconds(3)
+        $discoveredRoot = Get-CanonicalWorktreeRoot -RootHint $repositoryRoot `
+            -Deadline $discoveryDeadline
+    }
+    finally {
+        Set-Item -Path Function:Invoke-ApplicationCapture `
+            -Value $originalDiscoveryCapture
+    }
+    Assert-True -Condition (
+        (Test-PathEqual -Left $discoveredRoot -Right $repositoryRoot) -and
+        $script:CapturedDiscoveryDeadline -eq $discoveryDeadline
+    ) -Message 'worktree discovery propagates the shared startup deadline to Git'
 
     $featurelessExecutable = Join-Path $temporaryRoot 'featureless-mcpls.exe'
     $wrongVersionExecutable = Join-Path $temporaryRoot 'wrong-version-mcpls.exe'
@@ -557,6 +622,7 @@ try {
     $originalPortListening = (Get-Command Test-LoopbackPortListening).ScriptBlock
     $originalWriteState = (Get-Command Write-ServiceState).ScriptBlock
     $script:StartupTestPid = 0
+    $script:StartupPortListeningCalls = 0
     $script:StartupTestExecutable = (Get-Process -Id $PID).Path
     try {
         Set-Item -Path Function:Start-McplsProcess -Value {
@@ -574,7 +640,10 @@ try {
             return $child
         }
         Set-Item -Path Function:Test-LoopbackPortAvailable -Value { return $true }
-        Set-Item -Path Function:Test-LoopbackPortListening -Value { return $true }
+        Set-Item -Path Function:Test-LoopbackPortListening -Value {
+            $script:StartupPortListeningCalls++
+            return $true
+        }
         Set-Item -Path Function:Write-ServiceState -Value { throw 'injected state persistence failure' }
         $startupTool = [pscustomobject]@{ Path = $script:StartupTestExecutable }
         Assert-Throws -Operation {
@@ -586,6 +655,8 @@ try {
             $script:StartupTestPid -gt 0 -and
             $null -eq (Get-Process -Id $script:StartupTestPid -ErrorAction SilentlyContinue)
         ) -Message 'startup transaction kills its child when state persistence fails'
+        Assert-True -Condition ($script:StartupPortListeningCalls -eq 0) `
+            -Message 'starting state persistence precedes the bind-wait loop'
     }
     finally {
         Set-Item -Path Function:Start-McplsProcess -Value $originalStartProcess
