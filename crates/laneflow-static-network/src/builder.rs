@@ -29,6 +29,7 @@ use crate::{
 const ENTITY_KIND_COUNT: usize = EntityKind::ALL.len();
 const CANCELLATION_POLL_MASK: u32 = 1_023;
 type PredecessorIndex = (Box<[RangeU32]>, Box<[LaneEdgeOrdinal]>);
+type ManeuverCandidateIndex = (Box<[RangeU32]>, Box<[ManeuverTransitionCandidate]>);
 
 /// Spatial retained-data 构建选择；它不进入 LFCA 或持久化配置档。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -119,7 +120,7 @@ struct BuildCounts {
     facility_point_count: u32,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct TransitionPair {
     predecessor: u32,
     successor: u32,
@@ -135,6 +136,7 @@ struct CandidateBuildEntry {
 struct GateTopology {
     maneuver_path: u32,
     transition_index: u32,
+    stop_line: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -144,9 +146,23 @@ struct WaitingZoneTopology {
     release_transition_index: u32,
 }
 
+#[derive(Clone, Copy)]
+struct StopLineTopology {
+    lane_edge: u32,
+}
+
+#[derive(Clone, Copy)]
+struct ManeuverPathBuildEntry {
+    movement: MovementOrdinal,
+    transition_range: RangeU32,
+    waiting_zone_range: RangeU32,
+}
+
 struct TopologyPlan {
     pairs: Vec<TransitionPair>,
     candidates: Vec<CandidateBuildEntry>,
+    maneuver_paths: Vec<ManeuverPathBuildEntry>,
+    waiting_zones: Vec<WaitingZoneOrdinal>,
 }
 
 impl TopologyPlan {
@@ -519,12 +535,21 @@ fn check_scratch_budget(
         counts.maneuver_transition_count,
         BuildStructure::BuilderScratch,
     )?;
-    let topology_base =
-        topology_pairs
-            .checked_add(candidate_entries)
-            .ok_or(BuildError::ArithmeticOverflow {
-                structure: BuildStructure::BuilderScratch,
-            })?;
+    let maneuver_path_entries = structure_bytes::<ManeuverPathBuildEntry>(
+        counts.entity_counts.count(EntityKind::ManeuverPath),
+        BuildStructure::BuilderScratch,
+    )?;
+    let waiting_zone_entries = structure_bytes::<WaitingZoneOrdinal>(
+        counts.maneuver_path_waiting_zone_count,
+        BuildStructure::BuilderScratch,
+    )?;
+    let topology_base = topology_pairs
+        .checked_add(candidate_entries)
+        .and_then(|bytes| bytes.checked_add(maneuver_path_entries))
+        .and_then(|bytes| bytes.checked_add(waiting_zone_entries))
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
     let gate_lookup = structure_bytes::<GateTopology>(
         counts.entity_counts.count(EntityKind::ManeuverGate),
         BuildStructure::BuilderScratch,
@@ -533,9 +558,24 @@ fn check_scratch_budget(
         counts.entity_counts.count(EntityKind::WaitingZone),
         BuildStructure::BuilderScratch,
     )?;
-    let maneuver_lookup =
-        gate_lookup
-            .checked_add(waiting_zone_lookup)
+    let stop_line_lookup = structure_bytes::<StopLineTopology>(
+        counts.entity_counts.count(EntityKind::StopLine),
+        BuildStructure::BuilderScratch,
+    )?;
+    let maneuver_lookup = gate_lookup
+        .checked_add(waiting_zone_lookup)
+        .and_then(|bytes| bytes.checked_add(stop_line_lookup))
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let radix_pairs = structure_bytes::<TransitionPair>(
+        counts.topology_pair_capacity,
+        BuildStructure::BuilderScratch,
+    )?;
+    let dense_cursors = structure_bytes::<u32>(lane_count, BuildStructure::BuilderScratch)?;
+    let radix_sort =
+        radix_pairs
+            .checked_add(dense_cursors)
             .ok_or(BuildError::ArithmeticOverflow {
                 structure: BuildStructure::BuilderScratch,
             })?;
@@ -547,6 +587,7 @@ fn check_scratch_budget(
     let scratch = topology_base
         .checked_add(
             maneuver_lookup
+                .max(radix_sort)
                 .max(identity_scratch)
                 .max(predecessor_scratch),
         )
@@ -578,6 +619,7 @@ fn build_topology_plan(
     let maneuver_path_count = counts.entity_counts.count(EntityKind::ManeuverPath);
     let maneuver_gate_count = counts.entity_counts.count(EntityKind::ManeuverGate);
     let waiting_zone_count = counts.entity_counts.count(EntityKind::WaitingZone);
+    let stop_line_count = counts.entity_counts.count(EntityKind::StopLine);
     if counts.maneuver_path_gate_count != maneuver_gate_count
         || counts.maneuver_path_waiting_zone_count != waiting_zone_count
     {
@@ -638,6 +680,33 @@ fn build_topology_plan(
         }
     }
 
+    let stop_line_table = entity_section.table(9).ok_or(BuildError::InputInvariant {
+        structure: BuildStructure::ManeuverCandidates,
+    })?;
+    let mut stop_line_topology = allocate_vec(stop_line_count, BuildStructure::BuilderScratch)?;
+    for (index, row) in stop_line_table.rows().enumerate() {
+        let expected = u32::try_from(index).map_err(|_| BuildError::ArithmeticOverflow {
+            structure: BuildStructure::ManeuverCandidates,
+        })?;
+        let actual = checked_u32(row, 1, BuildStructure::ManeuverCandidates)?;
+        if actual != expected {
+            return Err(BuildError::UnexpectedOrdinal {
+                structure: BuildStructure::ManeuverCandidates,
+                expected,
+                actual,
+            });
+        }
+        let lane_edge = checked_u32(row, 3, BuildStructure::ManeuverCandidates)?;
+        if lane_edge >= lane_count {
+            return Err(BuildError::ReferenceOutOfBounds {
+                structure: BuildStructure::ManeuverCandidates,
+                ordinal: lane_edge,
+                limit: lane_count,
+            });
+        }
+        stop_line_topology.push(StopLineTopology { lane_edge });
+    }
+
     let gate_table = entity_section.table(7).ok_or(BuildError::InputInvariant {
         structure: BuildStructure::ManeuverCandidates,
     })?;
@@ -662,9 +731,18 @@ fn build_topology_plan(
                 limit: maneuver_path_count,
             });
         }
+        let stop_line = checked_u32(row, 5, BuildStructure::ManeuverCandidates)?;
+        if stop_line >= stop_line_count {
+            return Err(BuildError::ReferenceOutOfBounds {
+                structure: BuildStructure::ManeuverCandidates,
+                ordinal: stop_line,
+                limit: stop_line_count,
+            });
+        }
         gate_topology.push(GateTopology {
             maneuver_path,
             transition_index: checked_u32(row, 4, BuildStructure::ManeuverCandidates)?,
+            stop_line,
         });
     }
 
@@ -743,6 +821,11 @@ fn build_topology_plan(
         counts.maneuver_transition_count,
         BuildStructure::BuilderScratch,
     )?;
+    let mut maneuver_paths = allocate_vec(maneuver_path_count, BuildStructure::BuilderScratch)?;
+    let mut path_waiting_zones = allocate_vec(
+        counts.maneuver_path_waiting_zone_count,
+        BuildStructure::BuilderScratch,
+    )?;
     let movement_count = counts.entity_counts.count(EntityKind::Movement);
     for (index, row) in path_table.rows().enumerate() {
         let path = u32::try_from(index).map_err(|_| BuildError::ArithmeticOverflow {
@@ -810,6 +893,18 @@ fn build_topology_plan(
                     structure: BuildStructure::ManeuverCandidates,
                 });
             }
+            let expected_lane_edge =
+                edges
+                    .get(topology.transition_index)
+                    .ok_or(BuildError::InputInvariant {
+                        structure: BuildStructure::ManeuverCandidates,
+                    })?;
+            validate_gate_stop_line_edge(
+                topology,
+                &stop_line_topology,
+                expected_lane_edge,
+                stop_line_count,
+            )?;
             if let Some(previous) = previous_gate_transition
                 && topology.transition_index <= previous
             {
@@ -823,6 +918,11 @@ fn build_topology_plan(
         }
 
         let waiting_zones = checked_ordinal_vector(row, 6, BuildStructure::ManeuverPath)?;
+        let waiting_zone_start = u32::try_from(path_waiting_zones.len()).map_err(|_| {
+            BuildError::ArithmeticOverflow {
+                structure: BuildStructure::ManeuverPath,
+            }
+        })?;
         let mut previous_waiting_transitions = None;
         for waiting_index in 0..waiting_zones.len() {
             let waiting_zone =
@@ -855,8 +955,13 @@ fn build_topology_plan(
                 });
             }
             previous_waiting_transitions = Some(transitions);
+            path_waiting_zones.push(WaitingZoneOrdinal::from_raw(waiting_zone));
         }
 
+        let transition_start =
+            u32::try_from(candidates.len()).map_err(|_| BuildError::ArithmeticOverflow {
+                structure: BuildStructure::ManeuverCandidates,
+            })?;
         let mut gate_index = 0_u32;
         for transition_index in 0..transition_count {
             let predecessor = edges
@@ -903,18 +1008,159 @@ fn build_topology_plan(
                 structure: BuildStructure::ManeuverCandidates,
             });
         }
+        maneuver_paths.push(ManeuverPathBuildEntry {
+            movement: MovementOrdinal::from_raw(movement),
+            transition_range: RangeU32::new(transition_start, transition_count),
+            waiting_zone_range: RangeU32::new(waiting_zone_start, waiting_zones.len()),
+        });
     }
 
-    pairs.sort_unstable();
-    pairs.dedup();
-    candidates.sort_unstable_by_key(|entry| {
-        (
-            entry.predecessor,
-            entry.candidate.maneuver_path().raw(),
-            entry.candidate.transition_index(),
+    drop(gate_topology);
+    drop(waiting_zone_topology);
+    drop(stop_line_topology);
+    let pairs = radix_sort_transition_pairs(pairs, lane_count, options)?;
+    Ok(TopologyPlan {
+        pairs,
+        candidates,
+        maneuver_paths,
+        waiting_zones: path_waiting_zones,
+    })
+}
+
+fn validate_gate_stop_line_edge(
+    gate: GateTopology,
+    stop_lines: &[StopLineTopology],
+    expected_lane_edge: u32,
+    stop_line_count: u32,
+) -> Result<(), BuildError> {
+    let stop_line = stop_lines
+        .get(
+            usize::try_from(gate.stop_line).map_err(|_| BuildError::ReferenceOutOfBounds {
+                structure: BuildStructure::ManeuverCandidates,
+                ordinal: gate.stop_line,
+                limit: stop_line_count,
+            })?,
         )
-    });
-    Ok(TopologyPlan { pairs, candidates })
+        .ok_or(BuildError::ReferenceOutOfBounds {
+            structure: BuildStructure::ManeuverCandidates,
+            ordinal: gate.stop_line,
+            limit: stop_line_count,
+        })?;
+    if stop_line.lane_edge != expected_lane_edge {
+        return Err(BuildError::InputInvariant {
+            structure: BuildStructure::ManeuverCandidates,
+        });
+    }
+    Ok(())
+}
+
+fn radix_sort_transition_pairs(
+    mut pairs: Vec<TransitionPair>,
+    lane_count: u32,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<Vec<TransitionPair>, BuildError> {
+    if pairs.len() < 2 {
+        return Ok(pairs);
+    }
+    let pair_count = u32::try_from(pairs.len()).map_err(|_| BuildError::ArithmeticOverflow {
+        structure: BuildStructure::LaneSuccessors,
+    })?;
+    let mut scratch = allocate_vec(pair_count, BuildStructure::BuilderScratch)?;
+    scratch.resize(
+        pairs.len(),
+        TransitionPair {
+            predecessor: 0,
+            successor: 0,
+        },
+    );
+    let mut cursors = allocate_vec(lane_count, BuildStructure::BuilderScratch)?;
+    cursors.resize(
+        usize::try_from(lane_count).expect("u32 lane count fits usize"),
+        0_u32,
+    );
+
+    stable_count_transition_pairs(
+        &pairs,
+        &mut scratch,
+        &mut cursors,
+        |pair| pair.successor,
+        options,
+    )?;
+    cursors.fill(0);
+    stable_count_transition_pairs(
+        &scratch,
+        &mut pairs,
+        &mut cursors,
+        |pair| pair.predecessor,
+        options,
+    )?;
+    check_cancelled(options)?;
+    pairs.dedup();
+    Ok(pairs)
+}
+
+fn stable_count_transition_pairs(
+    input: &[TransitionPair],
+    output: &mut [TransitionPair],
+    cursors: &mut [u32],
+    key: impl Fn(TransitionPair) -> u32,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<(), BuildError> {
+    if input.len() != output.len() {
+        return Err(BuildError::InputInvariant {
+            structure: BuildStructure::LaneSuccessors,
+        });
+    }
+    for (index, pair) in input.iter().copied().enumerate() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
+        let raw = key(pair);
+        let count = cursors
+            .get_mut(usize::try_from(raw).expect("checked lane ordinal fits usize"))
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::LaneSuccessors,
+            })?;
+        *count = count.checked_add(1).ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::LaneSuccessors,
+        })?;
+    }
+
+    let mut start = 0_u32;
+    for count in cursors.iter_mut() {
+        let len = *count;
+        *count = start;
+        start = start
+            .checked_add(len)
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::LaneSuccessors,
+            })?;
+    }
+    if usize::try_from(start).ok() != Some(input.len()) {
+        return Err(BuildError::InputInvariant {
+            structure: BuildStructure::LaneSuccessors,
+        });
+    }
+
+    for (index, pair) in input.iter().copied().enumerate() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
+        let raw = key(pair);
+        let cursor = cursors
+            .get_mut(usize::try_from(raw).expect("checked lane ordinal fits usize"))
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::LaneSuccessors,
+            })?;
+        let slot = output
+            .get_mut(usize::try_from(*cursor).expect("u32 cursor fits usize"))
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::LaneSuccessors,
+            })?;
+        *slot = pair;
+        *cursor = cursor
+            .checked_add(1)
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::LaneSuccessors,
+            })?;
+    }
+    Ok(())
 }
 
 fn fill_identity(
@@ -1056,11 +1302,17 @@ fn build_traffic(
         }
     }
 
-    let TopologyPlan { pairs, candidates } = topology;
+    let TopologyPlan {
+        pairs,
+        candidates,
+        maneuver_paths,
+        waiting_zones,
+    } = topology;
     let (successor_ranges, successors) = build_successors(lane_count, pairs)?;
     let (predecessor_ranges, predecessors) =
         build_predecessors(lane_count, &successor_ranges, &successors)?;
-    let maneuvers = build_maneuver_network(view, counts, candidates)?;
+    let maneuvers =
+        build_maneuver_network(counts, maneuver_paths, waiting_zones, candidates, options)?;
     Ok(SharedTrafficNetwork::new(
         counts.entity_counts,
         lane_lengths.into_boxed_slice(),
@@ -1110,19 +1362,26 @@ fn build_successors(
 }
 
 fn build_maneuver_network(
-    view: ValueCheckedObjectView<'_>,
     counts: &BuildCounts,
+    path_entries: Vec<ManeuverPathBuildEntry>,
+    path_waiting_zones: Vec<WaitingZoneOrdinal>,
     candidate_entries: Vec<CandidateBuildEntry>,
+    options: SharedNetworkBuildOptions<'_>,
 ) -> Result<SharedManeuverNetwork, BuildError> {
     let path_count = counts.entity_counts.count(EntityKind::ManeuverPath);
     let lane_count = counts.entity_counts.count(EntityKind::LaneEdge);
-    let path_table = view
-        .registry_view()
-        .section(2)
-        .and_then(|section| section.table(6))
-        .ok_or(BuildError::InputInvariant {
+    if path_entries.len() != usize::try_from(path_count).expect("u32 path count fits usize")
+        || path_waiting_zones.len()
+            != usize::try_from(counts.maneuver_path_waiting_zone_count)
+                .expect("u32 waiting-zone count fits usize")
+        || candidate_entries.len()
+            != usize::try_from(counts.maneuver_transition_count)
+                .expect("u32 transition count fits usize")
+    {
+        return Err(BuildError::InputInvariant {
             structure: BuildStructure::ManeuverPath,
-        })?;
+        });
+    }
     let mut movements = allocate_vec(path_count, BuildStructure::ManeuverPath)?;
     let mut edge_ranges = allocate_vec(path_count, BuildStructure::ManeuverPath)?;
     let mut edges = allocate_vec(
@@ -1135,95 +1394,87 @@ fn build_maneuver_network(
         BuildStructure::ManeuverPath,
     )?;
     let mut waiting_ranges = allocate_vec(path_count, BuildStructure::ManeuverPath)?;
-    let mut waiting_zones = allocate_vec(
-        counts.maneuver_path_waiting_zone_count,
-        BuildStructure::ManeuverPath,
-    )?;
 
-    for row in path_table.rows() {
-        movements.push(MovementOrdinal::from_raw(checked_u32(
-            row,
-            3,
-            BuildStructure::ManeuverPath,
-        )?));
+    for (path_index, path) in path_entries.iter().copied().enumerate() {
+        poll_cancelled(options, u32::try_from(path_index).unwrap_or(u32::MAX))?;
+        movements.push(path.movement);
 
-        let edge_vector = checked_ordinal_vector(row, 4, BuildStructure::ManeuverPath)?;
+        let transition_entries = path.transition_range.slice(&candidate_entries);
+        let first = transition_entries
+            .first()
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverPath,
+            })?;
+        let expected_path =
+            u32::try_from(path_index).map_err(|_| BuildError::ArithmeticOverflow {
+                structure: BuildStructure::ManeuverPath,
+            })?;
         let edge_start =
             u32::try_from(edges.len()).map_err(|_| BuildError::ArithmeticOverflow {
                 structure: BuildStructure::ManeuverPath,
             })?;
-        for index in 0..edge_vector.len() {
-            edges.push(LaneEdgeOrdinal::from_raw(edge_vector.get(index).ok_or(
-                BuildError::InputInvariant {
-                    structure: BuildStructure::ManeuverPath,
-                },
-            )?));
+        edges.push(LaneEdgeOrdinal::from_raw(first.predecessor));
+        let mut previous_successor = None;
+        for (transition_index, entry) in transition_entries.iter().copied().enumerate() {
+            if entry.candidate.maneuver_path().raw() != expected_path
+                || entry.candidate.transition_index()
+                    != u32::try_from(transition_index).map_err(|_| {
+                        BuildError::ArithmeticOverflow {
+                            structure: BuildStructure::ManeuverCandidates,
+                        }
+                    })?
+                || previous_successor.is_some_and(|edge| edge != entry.predecessor)
+            {
+                return Err(BuildError::InputInvariant {
+                    structure: BuildStructure::ManeuverCandidates,
+                });
+            }
+            let successor = entry.candidate.successor();
+            edges.push(successor);
+            previous_successor = Some(successor.raw());
         }
-        edge_ranges.push(RangeU32::new(edge_start, edge_vector.len()));
+        edge_ranges.push(RangeU32::new(
+            edge_start,
+            path.transition_range
+                .len()
+                .checked_add(1)
+                .ok_or(BuildError::ArithmeticOverflow {
+                    structure: BuildStructure::ManeuverPath,
+                })?,
+        ));
 
-        let gate_vector = checked_ordinal_vector(row, 5, BuildStructure::ManeuverPath)?;
         let gate_start =
             u32::try_from(gates.len()).map_err(|_| BuildError::ArithmeticOverflow {
                 structure: BuildStructure::ManeuverPath,
             })?;
-        for index in 0..gate_vector.len() {
-            gates.push(ManeuverGateOrdinal::from_raw(
-                gate_vector.get(index).ok_or(BuildError::InputInvariant {
-                    structure: BuildStructure::ManeuverPath,
-                })?,
-            ));
+        for entry in transition_entries {
+            if let Some(gate) = entry.candidate.maneuver_gate() {
+                gates.push(gate);
+            }
         }
-        gate_ranges.push(RangeU32::new(gate_start, gate_vector.len()));
-
-        let waiting_vector = checked_ordinal_vector(row, 6, BuildStructure::ManeuverPath)?;
-        let waiting_start =
-            u32::try_from(waiting_zones.len()).map_err(|_| BuildError::ArithmeticOverflow {
-                structure: BuildStructure::ManeuverPath,
-            })?;
-        for index in 0..waiting_vector.len() {
-            waiting_zones.push(WaitingZoneOrdinal::from_raw(
-                waiting_vector
-                    .get(index)
-                    .ok_or(BuildError::InputInvariant {
-                        structure: BuildStructure::ManeuverPath,
-                    })?,
-            ));
-        }
-        waiting_ranges.push(RangeU32::new(waiting_start, waiting_vector.len()));
-    }
-
-    let mut candidate_ranges = allocate_vec(lane_count, BuildStructure::ManeuverCandidates)?;
-    let mut candidates = allocate_vec(
-        counts.maneuver_transition_count,
-        BuildStructure::ManeuverCandidates,
-    )?;
-    let mut candidate_entries = candidate_entries.into_iter().peekable();
-    for predecessor in 0..lane_count {
-        let start =
-            u32::try_from(candidates.len()).map_err(|_| BuildError::ArithmeticOverflow {
-                structure: BuildStructure::ManeuverCandidates,
-            })?;
-        while candidate_entries
-            .peek()
-            .is_some_and(|entry| entry.predecessor == predecessor)
-        {
-            candidates.push(
-                candidate_entries
-                    .next()
-                    .expect("peeked maneuver candidate")
-                    .candidate,
-            );
-        }
-        let end = u32::try_from(candidates.len()).map_err(|_| BuildError::ArithmeticOverflow {
-            structure: BuildStructure::ManeuverCandidates,
+        let gate_end = u32::try_from(gates.len()).map_err(|_| BuildError::ArithmeticOverflow {
+            structure: BuildStructure::ManeuverPath,
         })?;
-        candidate_ranges.push(RangeU32::new(start, end - start));
+        gate_ranges.push(RangeU32::new(gate_start, gate_end - gate_start));
+
+        let _ = path.waiting_zone_range.slice(&path_waiting_zones);
+        waiting_ranges.push(path.waiting_zone_range);
     }
-    if candidate_entries.next().is_some() {
+
+    if edges.len()
+        != usize::try_from(counts.maneuver_path_edge_count)
+            .expect("u32 maneuver path edge count fits usize")
+        || gates.len()
+            != usize::try_from(counts.maneuver_path_gate_count)
+                .expect("u32 maneuver path gate count fits usize")
+    {
         return Err(BuildError::InputInvariant {
-            structure: BuildStructure::ManeuverCandidates,
+            structure: BuildStructure::ManeuverPath,
         });
     }
+
+    let (candidate_ranges, candidates) =
+        build_maneuver_candidates(lane_count, candidate_entries, options)?;
 
     Ok(SharedManeuverNetwork::new(
         movements.into_boxed_slice(),
@@ -1232,10 +1483,86 @@ fn build_maneuver_network(
         gate_ranges.into_boxed_slice(),
         gates.into_boxed_slice(),
         waiting_ranges.into_boxed_slice(),
-        waiting_zones.into_boxed_slice(),
-        candidate_ranges.into_boxed_slice(),
-        candidates.into_boxed_slice(),
+        path_waiting_zones.into_boxed_slice(),
+        candidate_ranges,
+        candidates,
     ))
+}
+
+fn build_maneuver_candidates(
+    lane_count: u32,
+    entries: Vec<CandidateBuildEntry>,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<ManeuverCandidateIndex, BuildError> {
+    let candidate_count =
+        u32::try_from(entries.len()).map_err(|_| BuildError::ArithmeticOverflow {
+            structure: BuildStructure::ManeuverCandidates,
+        })?;
+    let mut cursors = allocate_vec(lane_count, BuildStructure::BuilderScratch)?;
+    cursors.resize(
+        usize::try_from(lane_count).expect("u32 lane count fits usize"),
+        0_u32,
+    );
+    for (index, entry) in entries.iter().copied().enumerate() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
+        let count = cursors
+            .get_mut(usize::try_from(entry.predecessor).expect("checked lane ordinal fits usize"))
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverCandidates,
+            })?;
+        *count = count.checked_add(1).ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::ManeuverCandidates,
+        })?;
+    }
+
+    let mut ranges = allocate_vec(lane_count, BuildStructure::ManeuverCandidates)?;
+    let mut start = 0_u32;
+    for count in &mut cursors {
+        ranges.push(RangeU32::new(start, *count));
+        let next = start
+            .checked_add(*count)
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::ManeuverCandidates,
+            })?;
+        *count = start;
+        start = next;
+    }
+    if start != candidate_count {
+        return Err(BuildError::InputInvariant {
+            structure: BuildStructure::ManeuverCandidates,
+        });
+    }
+
+    let mut candidates = allocate_vec(candidate_count, BuildStructure::ManeuverCandidates)?;
+    candidates.resize(
+        entries.len(),
+        ManeuverTransitionCandidate::new(
+            LaneEdgeOrdinal::from_raw(0),
+            ManeuverPathOrdinal::from_raw(0),
+            0,
+            None,
+        ),
+    );
+    for (index, entry) in entries.into_iter().enumerate() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
+        let cursor = cursors
+            .get_mut(usize::try_from(entry.predecessor).expect("checked lane ordinal fits usize"))
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverCandidates,
+            })?;
+        let slot = candidates
+            .get_mut(usize::try_from(*cursor).expect("u32 cursor fits usize"))
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverCandidates,
+            })?;
+        *slot = entry.candidate;
+        *cursor = cursor
+            .checked_add(1)
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::ManeuverCandidates,
+            })?;
+    }
+    Ok((ranges.into_boxed_slice(), candidates.into_boxed_slice()))
 }
 
 fn build_predecessors(
@@ -1753,6 +2080,97 @@ fn poll_cancelled(options: SharedNetworkBuildOptions<'_>, ordinal: u32) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const TEST_OPTIONS: SharedNetworkBuildOptions<'static> = SharedNetworkBuildOptions::new(
+        SpatialBuildOption::Omit,
+        SharedNetworkBuildLimits::new(u64::MAX, u64::MAX),
+    );
+
+    #[test]
+    fn gate_stop_line_must_cover_transition_predecessor() {
+        let gate = GateTopology {
+            maneuver_path: 0,
+            transition_index: 0,
+            stop_line: 0,
+        };
+        let stop_lines = [StopLineTopology { lane_edge: 4 }];
+
+        assert!(validate_gate_stop_line_edge(gate, &stop_lines, 4, 1).is_ok());
+        assert!(matches!(
+            validate_gate_stop_line_edge(gate, &stop_lines, 3, 1),
+            Err(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverCandidates,
+            })
+        ));
+    }
+
+    #[test]
+    fn dense_pair_sort_is_lexicographic_and_deduplicates() {
+        let pairs = vec![
+            TransitionPair {
+                predecessor: 2,
+                successor: 1,
+            },
+            TransitionPair {
+                predecessor: 0,
+                successor: 2,
+            },
+            TransitionPair {
+                predecessor: 2,
+                successor: 0,
+            },
+            TransitionPair {
+                predecessor: 0,
+                successor: 2,
+            },
+        ];
+
+        let actual = radix_sort_transition_pairs(pairs, 3, TEST_OPTIONS).expect("dense pair sort");
+        assert_eq!(
+            actual,
+            [
+                TransitionPair {
+                    predecessor: 0,
+                    successor: 2,
+                },
+                TransitionPair {
+                    predecessor: 2,
+                    successor: 0,
+                },
+                TransitionPair {
+                    predecessor: 2,
+                    successor: 1,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn candidate_csr_groups_predecessors_and_preserves_path_order() {
+        let candidate = |predecessor, successor, path, transition_index| CandidateBuildEntry {
+            predecessor,
+            candidate: ManeuverTransitionCandidate::new(
+                LaneEdgeOrdinal::from_raw(successor),
+                ManeuverPathOrdinal::from_raw(path),
+                transition_index,
+                None,
+            ),
+        };
+        let entries = vec![
+            candidate(2, 1, 0, 0),
+            candidate(0, 2, 0, 1),
+            candidate(2, 0, 1, 0),
+        ];
+
+        let (ranges, candidates) =
+            build_maneuver_candidates(3, entries, TEST_OPTIONS).expect("candidate CSR");
+        assert_eq!(ranges[0].slice(&candidates).len(), 1);
+        assert!(ranges[1].slice(&candidates).is_empty());
+        let predecessor_two = ranges[2].slice(&candidates);
+        assert_eq!(predecessor_two.len(), 2);
+        assert_eq!(predecessor_two[0].maneuver_path().raw(), 0);
+        assert_eq!(predecessor_two[1].maneuver_path().raw(), 1);
+    }
 
     #[test]
     fn retained_budget_counts_forward_identity_by_entity_rows() {
