@@ -28,6 +28,7 @@ use crate::{
 
 const ENTITY_KIND_COUNT: usize = EntityKind::ALL.len();
 const CANCELLATION_POLL_MASK: u32 = 1_023;
+const UNASSIGNED_MOVEMENT: u32 = u32::MAX;
 type PredecessorIndex = (Box<[RangeU32]>, Box<[LaneEdgeOrdinal]>);
 type ManeuverCandidateIndex = (Box<[RangeU32]>, Box<[ManeuverTransitionCandidate]>);
 
@@ -156,6 +157,14 @@ struct ManeuverPathBuildEntry {
     movement: MovementOrdinal,
     transition_range: RangeU32,
     waiting_zone_range: RangeU32,
+}
+
+impl ManeuverPathBuildEntry {
+    const UNASSIGNED: Self = Self {
+        movement: MovementOrdinal::from_raw(UNASSIGNED_MOVEMENT),
+        transition_range: RangeU32::new(0, 0),
+        waiting_zone_range: RangeU32::new(0, 0),
+    };
 }
 
 struct TopologyPlan {
@@ -823,11 +832,41 @@ fn build_topology_plan(
         BuildStructure::BuilderScratch,
     )?;
     let mut maneuver_paths = allocate_vec(maneuver_path_count, BuildStructure::BuilderScratch)?;
+    maneuver_paths.resize(
+        usize::try_from(maneuver_path_count).expect("u32 maneuver-path count fits usize"),
+        ManeuverPathBuildEntry::UNASSIGNED,
+    );
     let mut path_waiting_zones = allocate_vec(
         counts.maneuver_path_waiting_zone_count,
         BuildStructure::BuilderScratch,
     )?;
     let movement_count = counts.entity_counts.count(EntityKind::Movement);
+    let movement_table = entity_section.table(5).ok_or(BuildError::InputInvariant {
+        structure: BuildStructure::ManeuverPath,
+    })?;
+    for (index, row) in movement_table.rows().enumerate() {
+        let movement = u32::try_from(index).map_err(|_| BuildError::ArithmeticOverflow {
+            structure: BuildStructure::ManeuverPath,
+        })?;
+        poll_cancelled(options, movement)?;
+        let actual = checked_u32(row, 1, BuildStructure::ManeuverPath)?;
+        if actual != movement {
+            return Err(BuildError::UnexpectedOrdinal {
+                structure: BuildStructure::ManeuverPath,
+                expected: movement,
+                actual,
+            });
+        }
+        let members = checked_ordinal_vector(row, 6, BuildStructure::ManeuverPath)?;
+        for member_index in 0..members.len() {
+            let path = members
+                .get(member_index)
+                .ok_or(BuildError::InputInvariant {
+                    structure: BuildStructure::ManeuverPath,
+                })?;
+            assign_maneuver_path_owner(&mut maneuver_paths, path, movement)?;
+        }
+    }
     for (index, row) in path_table.rows().enumerate() {
         let path = u32::try_from(index).map_err(|_| BuildError::ArithmeticOverflow {
             structure: BuildStructure::ManeuverPath,
@@ -849,6 +888,12 @@ fn build_topology_plan(
                 limit: movement_count,
             });
         }
+        let path_entry = maneuver_paths
+            .get_mut(usize::try_from(path).expect("u32 maneuver-path ordinal fits usize"))
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverPath,
+            })?;
+        validate_maneuver_path_owner(*path_entry, movement)?;
 
         let edges = checked_ordinal_vector(row, 4, BuildStructure::ManeuverPath)?;
         let transition_count = edges
@@ -1005,11 +1050,8 @@ fn build_topology_plan(
                 structure: BuildStructure::ManeuverCandidates,
             });
         }
-        maneuver_paths.push(ManeuverPathBuildEntry {
-            movement: MovementOrdinal::from_raw(movement),
-            transition_range: RangeU32::new(transition_start, transition_count),
-            waiting_zone_range: RangeU32::new(waiting_zone_start, waiting_zones.len()),
-        });
+        path_entry.transition_range = RangeU32::new(transition_start, transition_count);
+        path_entry.waiting_zone_range = RangeU32::new(waiting_zone_start, waiting_zones.len());
     }
 
     drop(gate_topology);
@@ -1046,6 +1088,49 @@ fn validate_gate_stop_line_edge(
     if stop_line.lane_edge != expected_lane_edge {
         return Err(BuildError::InputInvariant {
             structure: BuildStructure::ManeuverCandidates,
+        });
+    }
+    Ok(())
+}
+
+fn assign_maneuver_path_owner(
+    maneuver_paths: &mut [ManeuverPathBuildEntry],
+    path: u32,
+    movement: u32,
+) -> Result<(), BuildError> {
+    let path_count =
+        u32::try_from(maneuver_paths.len()).map_err(|_| BuildError::ArithmeticOverflow {
+            structure: BuildStructure::ManeuverPath,
+        })?;
+    let entry = maneuver_paths
+        .get_mut(
+            usize::try_from(path).map_err(|_| BuildError::ReferenceOutOfBounds {
+                structure: BuildStructure::ManeuverPath,
+                ordinal: path,
+                limit: path_count,
+            })?,
+        )
+        .ok_or(BuildError::ReferenceOutOfBounds {
+            structure: BuildStructure::ManeuverPath,
+            ordinal: path,
+            limit: path_count,
+        })?;
+    if entry.movement.raw() != UNASSIGNED_MOVEMENT {
+        return Err(BuildError::InputInvariant {
+            structure: BuildStructure::ManeuverPath,
+        });
+    }
+    entry.movement = MovementOrdinal::from_raw(movement);
+    Ok(())
+}
+
+fn validate_maneuver_path_owner(
+    entry: ManeuverPathBuildEntry,
+    movement: u32,
+) -> Result<(), BuildError> {
+    if entry.movement.raw() != movement {
+        return Err(BuildError::InputInvariant {
+            structure: BuildStructure::ManeuverPath,
         });
     }
     Ok(())
@@ -2126,6 +2211,42 @@ mod tests {
         ));
         assert!(matches!(
             validate_waiting_zone_interval(None, 2, 2),
+            Err(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverPath,
+            })
+        ));
+    }
+
+    #[test]
+    fn maneuver_path_owner_membership_is_exact() {
+        let mut paths = [ManeuverPathBuildEntry::UNASSIGNED; 2];
+        assign_maneuver_path_owner(&mut paths, 0, 1).expect("first owner assignment");
+        assign_maneuver_path_owner(&mut paths, 1, 0).expect("second owner assignment");
+
+        assert!(validate_maneuver_path_owner(paths[0], 1).is_ok());
+        assert!(validate_maneuver_path_owner(paths[1], 0).is_ok());
+        assert!(matches!(
+            assign_maneuver_path_owner(&mut paths, 0, 0),
+            Err(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverPath,
+            })
+        ));
+        assert!(matches!(
+            validate_maneuver_path_owner(paths[0], 0),
+            Err(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverPath,
+            })
+        ));
+        assert!(matches!(
+            assign_maneuver_path_owner(&mut paths, 2, 0),
+            Err(BuildError::ReferenceOutOfBounds {
+                structure: BuildStructure::ManeuverPath,
+                ordinal: 2,
+                limit: 2,
+            })
+        ));
+        assert!(matches!(
+            validate_maneuver_path_owner(ManeuverPathBuildEntry::UNASSIGNED, 0),
             Err(BuildError::InputInvariant {
                 structure: BuildStructure::ManeuverPath,
             })
