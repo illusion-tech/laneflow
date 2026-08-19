@@ -4012,7 +4012,9 @@ mod tests {
         assert!(binding.contains("request-codex-review"));
         assert!(binding.contains("publish-codex-clean-binding"));
         assert!(binding.contains("--pr \"$PR_NUMBER\""));
-        assert!(binding.contains("--clean-comment-id \"$CLEAN_COMMENT_ID\""));
+        assert!(binding.contains("CLEAN_COMMENT_NODE_ID: ${{ github.event.comment.node_id }}"));
+        assert!(binding.contains("--clean-comment-id \"$CLEAN_COMMENT_NODE_ID\""));
+        assert!(!binding.contains("github.event.comment.id"));
         assert!(binding.contains("--run-url \"$RUN_URL\""));
         assert!(binding.contains("rustup toolchain install 1.96.0"));
         assert!(!binding.contains("secrets."));
