@@ -676,6 +676,7 @@ struct BranchCommit {
 
 #[derive(Debug, Deserialize)]
 struct PostedComment {
+    id: u64,
     node_id: String,
     body: Option<String>,
     user: Option<RestUser>,
@@ -1400,7 +1401,9 @@ pub fn run_request_codex_review(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
     let posted = post_issue_comment(&args.repository, args.pr, &body)?;
-    ensure_trusted_comment_echo(&posted, &body)?;
+    ensure_trusted_comment_echo_or_delete(&posted, &body, |comment_id| {
+        delete_issue_comment(&args.repository, comment_id)
+    })?;
     println!(
         "{}",
         serde_json::to_string_pretty(&CodexReviewRequestResult {
@@ -1553,7 +1556,9 @@ pub fn run_publish_codex_clean_binding(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
     let posted = post_issue_comment(&args.repository, args.pr, &body)?;
-    ensure_trusted_comment_echo(&posted, &body)?;
+    ensure_trusted_comment_echo_or_delete(&posted, &body, |comment_id| {
+        delete_issue_comment(&args.repository, comment_id)
+    })?;
     println!(
         "{}",
         serde_json::to_string_pretty(&CodexCleanBindingResult {
@@ -1592,8 +1597,10 @@ fn print_codex_clean_binding_skip(
     Ok(())
 }
 
-/// publisher 与 evaluator 镜像同一确定性规则：绑定「clean 之前最早未被消费的
-/// 受控 request marker」。marker 被消费 = 存在合法 binding record 引用它。
+/// publisher 与 evaluator 镜像同一确定性规则：候选 = clean 之前（秒粒度严格
+/// 更早）未被既有合法 binding record 消费的受控 request marker。候选 head/base
+/// 不全相同时无法证明 clean 归属，拒绝发布任何 record；全同（含只有一条）时
+/// 绑定最早者，record 携带该 head/base。
 fn select_request_marker<'a>(
     pr: &'a PullRequestSnapshot,
     clean: &IssueComment,
@@ -1632,22 +1639,34 @@ fn select_request_marker<'a>(
         .map(|bound| bound.record.request_marker_id.as_str())
         .collect();
     let had_candidates = !candidates.is_empty();
-    candidates
+    let unconsumed: Vec<(&IssueComment, CodexReviewRequestRecord)> = candidates
         .into_iter()
-        .find(|(comment, _)| !consumed.contains(comment.id.as_str()))
-        .ok_or_else(|| {
-            if had_candidates {
-                format!(
-                    "clean comment `{}` 之前的受控 request marker 均已被既有 binding record 消费，拒绝绑定",
-                    clean.id
-                )
-            } else {
-                format!(
-                    "clean comment `{}` 之前不存在受控 request marker，拒绝绑定",
-                    clean.id
-                )
-            }
-        })
+        .filter(|(comment, _)| !consumed.contains(comment.id.as_str()))
+        .collect();
+    let Some((first_comment, first_marker)) = unconsumed.first() else {
+        return Err(if had_candidates {
+            format!(
+                "clean comment `{}` 之前的受控 request marker 均已被既有 binding record 消费，拒绝绑定",
+                clean.id
+            )
+        } else {
+            format!(
+                "clean comment `{}` 之前不存在受控 request marker，拒绝绑定",
+                clean.id
+            )
+        });
+    };
+    let mixed_head_base = unconsumed.iter().any(|(_, marker)| {
+        marker.request_head_oid != first_marker.request_head_oid
+            || marker.request_base_oid != first_marker.request_base_oid
+    });
+    if mixed_head_base {
+        return Err(format!(
+            "clean comment `{}` 之前存在多个 head/base 不同的未消费受控 request marker，无法证明 clean 归属，拒绝绑定",
+            clean.id
+        ));
+    }
+    Ok((*first_comment, first_marker.clone()))
 }
 
 fn ensure_no_push_in_window(
@@ -1753,11 +1772,34 @@ fn fetch_paginated<T: for<'de> Deserialize<'de>>(endpoint: &str) -> Result<Vec<T
     Ok(pages.into_iter().flatten().collect())
 }
 
+/// 分支名作为 URL path 参数时逐 segment percent-encode：`#`/`?` 等字符否则会被
+/// 当作 fragment/query 截断；保留 `/` 以维持 GitHub branches endpoint 对多级
+/// 分支名的匹配。
+fn encode_path_segment_preserving_slashes(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
+                encoded.push(char::from(byte))
+            }
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
+}
+
+fn branch_endpoint(repository: &str, branch: &str) -> String {
+    format!(
+        "repos/{repository}/branches/{}",
+        encode_path_segment_preserving_slashes(branch)
+    )
+}
+
 fn fetch_branch_head(repository: &str, branch: &str) -> Result<String, String> {
     let output = Command::new("gh")
         .args([
             "api",
-            &format!("repos/{repository}/branches/{branch}"),
+            &branch_endpoint(repository, branch),
             "-H",
             "Accept: application/vnd.github+json",
             "-H",
@@ -1843,6 +1885,55 @@ fn ensure_trusted_comment_echo(posted: &PostedComment, expected_body: &str) -> R
     }
     if posted.node_id.is_empty() || !valid_github_url(&posted.html_url) {
         return Err("comment 响应缺少 node_id 或 GitHub HTTPS URL".to_string());
+    }
+    Ok(())
+}
+
+/// post→verify→delete：echo 校验失败时删除刚发布的 comment，避免不可信
+/// marker/record 残留导致后续受信发布者 fail-closed；删除结果写进错误信息，
+/// 命令仍然返回错误。
+fn ensure_trusted_comment_echo_or_delete(
+    posted: &PostedComment,
+    expected_body: &str,
+    mut delete_comment: impl FnMut(u64) -> Result<(), String>,
+) -> Result<(), String> {
+    if let Err(error) = ensure_trusted_comment_echo(posted, expected_body) {
+        let cleanup = match delete_comment(posted.id) {
+            Ok(()) => format!("已删除不可信 comment {}", posted.id),
+            Err(delete_error) => format!(
+                "删除不可信 comment {} 失败：{delete_error}；需人工删除 {}",
+                posted.id, posted.html_url
+            ),
+        };
+        return Err(format!("{error}；{cleanup}"));
+    }
+    Ok(())
+}
+
+fn issue_comment_endpoint(repository: &str, comment_id: u64) -> String {
+    format!("repos/{repository}/issues/comments/{comment_id}")
+}
+
+fn delete_issue_comment(repository: &str, comment_id: u64) -> Result<(), String> {
+    let endpoint = issue_comment_endpoint(repository, comment_id);
+    let output = Command::new("gh")
+        .args([
+            "api",
+            "--method",
+            "DELETE",
+            &endpoint,
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            "X-GitHub-Api-Version: 2022-11-28",
+        ])
+        .output()
+        .map_err(|error| format!("无法运行 gh comment DELETE API：{error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "gh comment DELETE API 失败：{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
     }
     Ok(())
 }
@@ -2056,17 +2147,20 @@ fn collect_codex_clean_binding_records(
         else {
             continue;
         };
-        // 发布重试/并发可能产生同 id 且关键字段完全一致的重复 record，去重为一条；
-        // 关键字段之外的 verifiedAt/runUrl 等随重试 run 变化，不参与判重。
-        // 创建者身份已由 validate 固定为受信 publisher，无需纳入 key。
+        // 发布重试/并发可能产生内容一致的重复 record，去重为一条；key 覆盖全部
+        // 不可变 evidence 字段，仅排除随重试 run 变化的 verifiedAt/runUrl。
+        // 创建者身份已由 validate 固定为受信 publisher，无需纳入 key；
+        // schemaVersion 已由 validate 固定为 BINDING_RECORD_SCHEMA_VERSION。
         let record = &bound.record;
         let key = (
             record.id.clone(),
             record.pr,
+            record.clean_comment_id.clone(),
+            record.clean_comment_created_at.clone(),
+            record.clean_comment_url.clone(),
+            record.request_marker_id.clone(),
             record.bound_head_oid.clone(),
             record.bound_base_oid.clone(),
-            record.clean_comment_id.clone(),
-            record.request_marker_id.clone(),
         );
         let record_id = record.id.clone();
         let clean_comment_id = record.clean_comment_id.clone();
@@ -2259,11 +2353,14 @@ fn resolve_request_marker(
 enum EarliestMarkerSelection<'a> {
     Selected(&'a IssueComment),
     Exhausted,
+    Ambiguous,
     Invalid,
 }
 
-/// 返回 clean 之前（秒粒度严格更早）最早未被既有合法 binding record 消费的
-/// 受控 request marker；候选 malformed 时记诊断并返回 Invalid。
+/// 返回 clean 之前（秒粒度严格更早）未被既有合法 binding record 消费的受控
+/// request marker 候选；候选 malformed 时记诊断并返回 Invalid。无 SHA clean 与
+/// 请求之间没有 provider 可验证的关联，候选集合的 head/base 不全相同时任何
+/// 分配规则在乱序响应下都不安全，返回 Ambiguous 按歧义 fail-closed。
 fn select_earliest_unconsumed_marker<'a>(
     pr: &'a PullRequestSnapshot,
     clean: &IssueComment,
@@ -2293,18 +2390,29 @@ fn select_earliest_unconsumed_marker<'a>(
         if timestamp_second(&comment.created_at) >= clean_second {
             continue;
         }
-        candidates.push(comment);
+        candidates.push((comment, marker));
     }
     candidates.sort_by(|left, right| {
-        left.created_at
-            .cmp(&right.created_at)
-            .then_with(|| left.id.cmp(&right.id))
+        left.0
+            .created_at
+            .cmp(&right.0.created_at)
+            .then_with(|| left.0.id.cmp(&right.0.id))
     });
-    candidates
+    let unconsumed: Vec<(&IssueComment, CodexReviewRequestRecord)> = candidates
         .into_iter()
-        .find(|comment| !consumed_markers.contains(comment.id.as_str()))
-        .map(EarliestMarkerSelection::Selected)
-        .unwrap_or(EarliestMarkerSelection::Exhausted)
+        .filter(|(comment, _)| !consumed_markers.contains(comment.id.as_str()))
+        .collect();
+    let Some((first_comment, first_marker)) = unconsumed.first() else {
+        return EarliestMarkerSelection::Exhausted;
+    };
+    let mixed_head_base = unconsumed.iter().any(|(_, marker)| {
+        marker.request_head_oid != first_marker.request_head_oid
+            || marker.request_base_oid != first_marker.request_base_oid
+    });
+    if mixed_head_base {
+        return EarliestMarkerSelection::Ambiguous;
+    }
+    EarliestMarkerSelection::Selected(first_comment)
 }
 
 /// 与 evaluate_snapshot 的 comment 闸门一致：只有未编辑、Codex 发表、匹配封闭
@@ -2394,6 +2502,15 @@ fn adjudicate_binding_record<'a>(
             diagnostics.push(format!(
                 "Codex clean binding record `{}` 引用的受控 request marker `{}` 已被更早的合法 binding record 消费",
                 record.id, record.request_marker_id
+            ));
+            return None;
+        }
+        EarliestMarkerSelection::Ambiguous => {
+            // 歧义不消费任何 marker；该 PR 的 SHA-less 路径 fail-closed，
+            // 标准带 SHA 路径不受影响
+            diagnostics.push(format!(
+                "clean comment `{}` 之前存在多个 head/base 不同的未消费受控 request marker，无法证明 clean 归属，按歧义 fail-closed",
+                clean.id
             ));
             return None;
         }
@@ -4006,6 +4123,18 @@ mod tests {
             ),
             (
                 include_str!(
+                    "../fixtures/external-review/codex-no-sha-overlapping-markers-two-cleans.json"
+                ),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-same-head-overlap-sequential.json"
+                ),
+                ExternalReviewState::Pass,
+            ),
+            (
+                include_str!(
                     "../fixtures/external-review/codex-no-sha-duplicate-records-identical.json"
                 ),
                 ExternalReviewState::Pass,
@@ -4013,6 +4142,12 @@ mod tests {
             (
                 include_str!(
                     "../fixtures/external-review/codex-no-sha-duplicate-records-conflict.json"
+                ),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-duplicate-records-url-conflict.json"
                 ),
                 ExternalReviewState::ProviderError,
             ),
@@ -4765,17 +4900,29 @@ mod tests {
             ),
             (
                 include_str!("../fixtures/external-review/codex-no-sha-cross-push-late-clean.json"),
-                "最早未被消费的 marker",
+                "无法证明 clean 归属",
             ),
             (
                 include_str!(
                     "../fixtures/external-review/codex-no-sha-marker-consumed-out-of-order.json"
                 ),
-                "最早未被消费的 marker",
+                "无法证明 clean 归属",
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-overlapping-markers-two-cleans.json"
+                ),
+                "无法证明 clean 归属",
             ),
             (
                 include_str!(
                     "../fixtures/external-review/codex-no-sha-duplicate-records-conflict.json"
+                ),
+                "重复 Codex clean binding record id",
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-duplicate-records-url-conflict.json"
                 ),
                 "重复 Codex clean binding record id",
             ),
@@ -4862,6 +5009,96 @@ mod tests {
                 .filter(|item| item.source_kind == "binding_record")
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn same_head_overlapping_markers_are_consumed_in_order() {
+        let result = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-same-head-overlap-sequential.json"
+        )));
+        // 未消费候选 head/base 全同（M1、M2 均为 current head）：无歧义，
+        // C1 绑最早的 M1，M1 消费后 C2 绑 M2
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert_eq!(
+            result.completion_time.as_deref(),
+            Some("2026-08-19T01:15:00Z")
+        );
+        assert_eq!(
+            result
+                .evidence
+                .iter()
+                .filter(|item| item.source_kind == "binding_record")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn untrusted_comment_echo_deletes_the_posted_comment() {
+        let posted = |login: &str| PostedComment {
+            id: 42,
+            node_id: "IC_node".to_string(),
+            body: Some("expected body".to_string()),
+            user: Some(RestUser {
+                login: login.to_string(),
+            }),
+            html_url: "https://github.com/illusion-tech/laneflow/pull/430#issuecomment-42"
+                .to_string(),
+        };
+
+        // 受信 echo：不触发删除
+        let mut deleted = Vec::new();
+        ensure_trusted_comment_echo_or_delete(
+            &posted("github-actions[bot]"),
+            "expected body",
+            |id| {
+                deleted.push(id);
+                Ok(())
+            },
+        )
+        .expect("trusted echo");
+        assert!(deleted.is_empty());
+
+        // 不可信 echo：删除成功，错误信息包含删除结果
+        let mut deleted = Vec::new();
+        let error =
+            ensure_trusted_comment_echo_or_delete(&posted("some-dev"), "expected body", |id| {
+                deleted.push(id);
+                Ok(())
+            })
+            .expect_err("untrusted echo must fail");
+        assert_eq!(deleted, vec![42]);
+        assert!(error.contains("不是受信 publisher"));
+        assert!(error.contains("已删除不可信 comment 42"));
+
+        // 不可信 echo 且删除失败：错误信息要求人工删除
+        let error =
+            ensure_trusted_comment_echo_or_delete(&posted("some-dev"), "expected body", |_| {
+                Err("permission denied".to_string())
+            })
+            .expect_err("untrusted echo must fail");
+        assert!(error.contains("删除不可信 comment 42 失败：permission denied"));
+        assert!(error.contains("需人工删除"));
+    }
+
+    #[test]
+    fn branch_endpoint_encodes_special_characters() {
+        assert_eq!(
+            branch_endpoint("illusion-tech/laneflow", "feature/#430"),
+            "repos/illusion-tech/laneflow/branches/feature/%23430"
+        );
+        assert_eq!(
+            branch_endpoint("illusion-tech/laneflow", "430-codex-clean-binding"),
+            "repos/illusion-tech/laneflow/branches/430-codex-clean-binding"
+        );
+        assert_eq!(
+            branch_endpoint("illusion-tech/laneflow", "feature/100%?x"),
+            "repos/illusion-tech/laneflow/branches/feature/100%25%3Fx"
+        );
+        assert_eq!(
+            issue_comment_endpoint("illusion-tech/laneflow", 42),
+            "repos/illusion-tech/laneflow/issues/comments/42"
         );
     }
 
