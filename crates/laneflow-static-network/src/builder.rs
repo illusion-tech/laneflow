@@ -943,12 +943,16 @@ fn build_topology_plan(
             });
         }
         let members = checked_ordinal_vector(row, 6, BuildStructure::ManeuverPath)?;
+        let mut previous_path = None;
         for member_index in 0..members.len() {
+            poll_cancelled(options, member_index)?;
             let path = members
                 .get(member_index)
                 .ok_or(BuildError::InputInvariant {
                     structure: BuildStructure::ManeuverPath,
                 })?;
+            validate_strictly_increasing_member(previous_path, path, BuildStructure::ManeuverPath)?;
+            previous_path = Some(path);
             assign_maneuver_path_owner(&mut maneuver_paths, path, movement)?;
         }
     }
@@ -2279,14 +2283,19 @@ fn build_spatial(
                 u32::try_from(lane_points.len()).map_err(|_| BuildError::ArithmeticOverflow {
                     structure: BuildStructure::LaneEdgeGeometry,
                 })?;
-            fill_points(points, &mut lane_points, BuildStructure::LaneEdgeGeometry)?;
+            fill_points(
+                points,
+                &mut lane_points,
+                BuildStructure::LaneEdgeGeometry,
+                options,
+            )?;
             lane_point_ranges.push(RangeU32::new(point_start, points.len()));
 
             let segment_start =
                 u32::try_from(lane_segments.len()).map_err(|_| BuildError::ArithmeticOverflow {
                     structure: BuildStructure::LaneEdgeGeometry,
                 })?;
-            fill_segments(segments, &mut lane_segments)?;
+            fill_segments(segments, &mut lane_segments, options)?;
             lane_segment_ranges.push(RangeU32::new(segment_start, segments.len()));
         }
     }
@@ -2347,6 +2356,7 @@ fn build_spatial(
                 points,
                 &mut facility_points,
                 BuildStructure::FacilityBandGeometry,
+                options,
             )?;
             facility_entries.push(FacilityGeometryEntry {
                 facility_band: FacilityBandOrdinal::from_raw(facility),
@@ -2383,8 +2393,10 @@ fn fill_points(
     records: RegistryCheckedRecordVectorView<'_>,
     output: &mut Vec<CanonicalPoint>,
     structure: BuildStructure,
+    options: SharedNetworkBuildOptions<'_>,
 ) -> Result<(), BuildError> {
-    for row in records.rows() {
+    for (index, row) in records.rows().enumerate() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
         output.push(CanonicalPoint {
             x: checked_f32(row, 1, structure)?,
             y: checked_f32(row, 2, structure)?,
@@ -2445,8 +2457,10 @@ fn validate_lane_frame_pair(
 fn fill_segments(
     records: RegistryCheckedRecordVectorView<'_>,
     output: &mut Vec<SegmentGeometry>,
+    options: SharedNetworkBuildOptions<'_>,
 ) -> Result<(), BuildError> {
-    for row in records.rows() {
+    for (index, row) in records.rows().enumerate() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
         output.push(SegmentGeometry {
             length_meters: checked_f32(row, 1, BuildStructure::LaneEdgeGeometry)?,
             cumulative_end_meters: checked_f32(row, 2, BuildStructure::LaneEdgeGeometry)?,
@@ -2772,6 +2786,14 @@ mod tests {
             Err(BuildError::NonCanonicalOrder {
                 structure: BuildStructure::ManeuverCandidates,
                 previous: 1,
+                actual: 1,
+            })
+        ));
+        assert!(matches!(
+            validate_strictly_increasing_member(Some(2), 1, BuildStructure::ManeuverPath,),
+            Err(BuildError::NonCanonicalOrder {
+                structure: BuildStructure::ManeuverPath,
+                previous: 2,
                 actual: 1,
             })
         ));
