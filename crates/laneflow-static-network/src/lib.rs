@@ -25,7 +25,10 @@ pub use spatial::{
     CanonicalPoint, FacilityGeometryView, LaneGeometryView, LanePoseNetwork, SegmentGeometry,
     SharedSpatialNetwork,
 };
-pub use traffic::{EntityCounts, PartitionPlanningHints, RangeU32, SharedTrafficNetwork};
+pub use traffic::{
+    EntityCounts, ManeuverPathView, ManeuverTransitionCandidate, PartitionPlanningHints, RangeU32,
+    SharedManeuverNetwork, SharedTrafficNetwork,
+};
 
 /// 一个不可变、同修订绑定的共享静态路网根。
 ///

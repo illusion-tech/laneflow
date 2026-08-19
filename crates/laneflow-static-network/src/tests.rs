@@ -1,7 +1,7 @@
 use std::sync::{Arc, atomic::AtomicBool};
 
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
-use laneflow_static_contract::{EntityKind, LaneEdgeKind, LaneEdgeOrdinal};
+use laneflow_static_contract::{EntityKind, LaneEdgeKind, LaneEdgeOrdinal, ManeuverPathOrdinal};
 
 use crate::{
     BuildError, BuildStructure, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
@@ -78,7 +78,7 @@ fn full_spatial_build_closes_identity_lane_csr_and_lane_pose() {
             .traffic()
             .successors(first)
             .expect("first successors"),
-        &[]
+        &[middle]
     );
     assert_eq!(
         revision
@@ -92,14 +92,14 @@ fn full_spatial_build_closes_identity_lane_csr_and_lane_pose() {
             .traffic()
             .successors(middle)
             .expect("middle successors"),
-        &[]
+        &[last]
     );
     assert_eq!(
         revision
             .traffic()
             .predecessors(middle)
             .expect("middle predecessors"),
-        &[]
+        &[first]
     );
     assert_eq!(
         revision
@@ -113,12 +113,52 @@ fn full_spatial_build_closes_identity_lane_csr_and_lane_pose() {
             .traffic()
             .predecessors(last)
             .expect("last predecessors"),
-        &[]
+        &[middle]
     );
     let weights = revision.planning_hints().edge_boundary_weights();
-    assert_eq!(weights[first.index()], 0);
-    assert_eq!(weights[middle.index()], 0);
-    assert_eq!(weights[last.index()], 0);
+    assert_eq!(weights[first.index()], 1);
+    assert_eq!(weights[middle.index()], 2);
+    assert_eq!(weights[last.index()], 1);
+
+    let maneuvers = revision.traffic().maneuvers();
+    assert_eq!(maneuvers.maneuver_path_count(), 1);
+    let path_ordinal = ManeuverPathOrdinal::from_raw(0);
+    let path = maneuvers
+        .maneuver_path(path_ordinal)
+        .expect("fixture maneuver path");
+    assert_eq!(path.edges(), &[first, middle, last]);
+    assert_eq!(path.maneuver_gates().len(), 2);
+    assert_eq!(path.waiting_zones().len(), 1);
+
+    let first_candidates = maneuvers
+        .transition_candidates(first)
+        .expect("first transition candidates");
+    assert_eq!(first_candidates.len(), 1);
+    assert_eq!(first_candidates[0].successor(), middle);
+    assert_eq!(first_candidates[0].maneuver_path(), path_ordinal);
+    assert_eq!(first_candidates[0].transition_index(), 0);
+    assert_eq!(
+        first_candidates[0].maneuver_gate(),
+        Some(path.maneuver_gates()[0])
+    );
+
+    let middle_candidates = maneuvers
+        .transition_candidates(middle)
+        .expect("middle transition candidates");
+    assert_eq!(middle_candidates.len(), 1);
+    assert_eq!(middle_candidates[0].successor(), last);
+    assert_eq!(middle_candidates[0].maneuver_path(), path_ordinal);
+    assert_eq!(middle_candidates[0].transition_index(), 1);
+    assert_eq!(
+        middle_candidates[0].maneuver_gate(),
+        Some(path.maneuver_gates()[1])
+    );
+    assert_eq!(
+        maneuvers
+            .transition_candidates(last)
+            .expect("last transition candidates"),
+        &[]
+    );
 
     let spatial = revision.spatial().expect("spatial component");
     let lane_pose = spatial.lane_pose().expect("lane pose capability");
@@ -207,18 +247,34 @@ fn retained_limit_fails_before_a_root_exists_and_exact_boundary_succeeds() {
         _ => panic!("retained budget should fail first"),
     };
 
-    let exact = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let below_exact = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
         .expect("checked input");
-    assert!(
+    assert!(matches!(
         build_shared_network_revision(
-            exact,
+            below_exact,
             SharedNetworkBuildOptions::new(
                 SpatialBuildOption::RetainAvailable,
-                SharedNetworkBuildLimits::new(required, u64::MAX),
+                SharedNetworkBuildLimits::new(required - 1, u64::MAX),
             ),
-        )
-        .is_ok()
+        ),
+        Err(BuildError::BudgetExceeded {
+            structure: BuildStructure::RetainedOutput,
+            required: actual,
+            ..
+        }) if actual == required
+    ));
+
+    let exact = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+        .expect("checked input");
+    let root = build_shared_network_revision(
+        exact,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(required, u64::MAX),
+        ),
     );
+    let root = root.expect("exact retained limit");
+    assert_eq!(root.retained_logical_bytes(), required);
 }
 
 #[test]

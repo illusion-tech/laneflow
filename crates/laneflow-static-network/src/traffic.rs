@@ -1,6 +1,9 @@
 use core::mem::size_of;
 
-use laneflow_static_contract::{EntityKind, LaneEdgeOrdinal};
+use laneflow_static_contract::{
+    EntityKind, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, MovementOrdinal,
+    WaitingZoneOrdinal,
+};
 
 use crate::{BuildError, BuildStructure};
 
@@ -51,6 +54,166 @@ pub struct EntityCounts {
     counts: [u32; ENTITY_KIND_COUNT],
 }
 
+/// 一条 Runtime 可执行 transition 对应的机动路径上下文。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ManeuverTransitionCandidate {
+    successor: LaneEdgeOrdinal,
+    maneuver_path: ManeuverPathOrdinal,
+    transition_index: u32,
+    maneuver_gate: Option<ManeuverGateOrdinal>,
+}
+
+impl ManeuverTransitionCandidate {
+    pub(crate) const fn new(
+        successor: LaneEdgeOrdinal,
+        maneuver_path: ManeuverPathOrdinal,
+        transition_index: u32,
+        maneuver_gate: Option<ManeuverGateOrdinal>,
+    ) -> Self {
+        Self {
+            successor,
+            maneuver_path,
+            transition_index,
+            maneuver_gate,
+        }
+    }
+
+    #[must_use]
+    pub const fn successor(self) -> LaneEdgeOrdinal {
+        self.successor
+    }
+
+    #[must_use]
+    pub const fn maneuver_path(self) -> ManeuverPathOrdinal {
+        self.maneuver_path
+    }
+
+    #[must_use]
+    pub const fn transition_index(self) -> u32 {
+        self.transition_index
+    }
+
+    #[must_use]
+    pub const fn maneuver_gate(self) -> Option<ManeuverGateOrdinal> {
+        self.maneuver_gate
+    }
+}
+
+/// 一条规范机动路径的连续 Runtime 借用。
+#[derive(Clone, Copy, Debug)]
+pub struct ManeuverPathView<'a> {
+    movement: MovementOrdinal,
+    edges: &'a [LaneEdgeOrdinal],
+    maneuver_gates: &'a [ManeuverGateOrdinal],
+    waiting_zones: &'a [WaitingZoneOrdinal],
+}
+
+impl<'a> ManeuverPathView<'a> {
+    #[must_use]
+    pub const fn movement(self) -> MovementOrdinal {
+        self.movement
+    }
+
+    #[must_use]
+    pub const fn edges(self) -> &'a [LaneEdgeOrdinal] {
+        self.edges
+    }
+
+    #[must_use]
+    pub const fn maneuver_gates(self) -> &'a [ManeuverGateOrdinal] {
+        self.maneuver_gates
+    }
+
+    #[must_use]
+    pub const fn waiting_zones(self) -> &'a [WaitingZoneOrdinal] {
+        self.waiting_zones
+    }
+}
+
+/// 路口机动路径、transition candidate 与 gate/waiting 引用的共享静态数据。
+pub struct SharedManeuverNetwork {
+    movements: Box<[MovementOrdinal]>,
+    edge_ranges: Box<[RangeU32]>,
+    edges: Box<[LaneEdgeOrdinal]>,
+    maneuver_gate_ranges: Box<[RangeU32]>,
+    maneuver_gates: Box<[ManeuverGateOrdinal]>,
+    waiting_zone_ranges: Box<[RangeU32]>,
+    waiting_zones: Box<[WaitingZoneOrdinal]>,
+    candidate_ranges: Box<[RangeU32]>,
+    candidates: Box<[ManeuverTransitionCandidate]>,
+}
+
+impl SharedManeuverNetwork {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        movements: Box<[MovementOrdinal]>,
+        edge_ranges: Box<[RangeU32]>,
+        edges: Box<[LaneEdgeOrdinal]>,
+        maneuver_gate_ranges: Box<[RangeU32]>,
+        maneuver_gates: Box<[ManeuverGateOrdinal]>,
+        waiting_zone_ranges: Box<[RangeU32]>,
+        waiting_zones: Box<[WaitingZoneOrdinal]>,
+        candidate_ranges: Box<[RangeU32]>,
+        candidates: Box<[ManeuverTransitionCandidate]>,
+    ) -> Self {
+        Self {
+            movements,
+            edge_ranges,
+            edges,
+            maneuver_gate_ranges,
+            maneuver_gates,
+            waiting_zone_ranges,
+            waiting_zones,
+            candidate_ranges,
+            candidates,
+        }
+    }
+
+    #[must_use]
+    pub fn maneuver_path_count(&self) -> u32 {
+        u32::try_from(self.movements.len()).expect("format-bounded maneuver path count fits u32")
+    }
+
+    #[must_use]
+    pub fn maneuver_path(&self, path: ManeuverPathOrdinal) -> Option<ManeuverPathView<'_>> {
+        let index = path.index();
+        Some(ManeuverPathView {
+            movement: *self.movements.get(index)?,
+            edges: self.edge_ranges.get(index)?.slice(&self.edges),
+            maneuver_gates: self
+                .maneuver_gate_ranges
+                .get(index)?
+                .slice(&self.maneuver_gates),
+            waiting_zones: self
+                .waiting_zone_ranges
+                .get(index)?
+                .slice(&self.waiting_zones),
+        })
+    }
+
+    #[must_use]
+    pub fn transition_candidates(
+        &self,
+        predecessor: LaneEdgeOrdinal,
+    ) -> Option<&[ManeuverTransitionCandidate]> {
+        let range = *self.candidate_ranges.get(predecessor.index())?;
+        Some(range.slice(&self.candidates))
+    }
+
+    #[must_use]
+    pub fn retained_logical_bytes(&self) -> u64 {
+        logical_bytes::<MovementOrdinal>(self.movements.len())
+            + logical_bytes::<RangeU32>(self.edge_ranges.len())
+            + logical_bytes::<LaneEdgeOrdinal>(self.edges.len())
+            + logical_bytes::<RangeU32>(self.maneuver_gate_ranges.len())
+            + logical_bytes::<ManeuverGateOrdinal>(self.maneuver_gates.len())
+            + logical_bytes::<RangeU32>(self.waiting_zone_ranges.len())
+            + logical_bytes::<WaitingZoneOrdinal>(self.waiting_zones.len())
+            + logical_bytes::<RangeU32>(self.candidate_ranges.len())
+            + logical_bytes::<ManeuverTransitionCandidate>(self.candidates.len())
+    }
+}
+
 impl EntityCounts {
     pub(crate) const fn new(counts: [u32; ENTITY_KIND_COUNT]) -> Self {
         Self { counts }
@@ -74,8 +237,9 @@ impl EntityCounts {
 
 /// 面向 Traffic Runtime 的必选共享静态数据。
 ///
-/// 当前基线先冻结所有实体基数和 LaneEdge 热列/CSR；后继 #300 实现切片继续加入其余
-/// 已冻结静态关系，但不会改变根唯一共享所有权。
+/// 当前基线冻结所有实体基数、LaneEdge 热列/完整可执行 CSR，以及携带路径、transition、
+/// gate/waiting 引用的路口机动候选；后继 #300 实现切片继续加入其余静态关系，但不会改变
+/// 根唯一共享所有权。
 pub struct SharedTrafficNetwork {
     entity_counts: EntityCounts,
     lane_lengths_meters: Box<[f64]>,
@@ -84,9 +248,11 @@ pub struct SharedTrafficNetwork {
     successors: Box<[LaneEdgeOrdinal]>,
     predecessor_ranges: Box<[RangeU32]>,
     predecessors: Box<[LaneEdgeOrdinal]>,
+    maneuvers: SharedManeuverNetwork,
 }
 
 impl SharedTrafficNetwork {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         entity_counts: EntityCounts,
         lane_lengths_meters: Box<[f64]>,
@@ -95,6 +261,7 @@ impl SharedTrafficNetwork {
         successors: Box<[LaneEdgeOrdinal]>,
         predecessor_ranges: Box<[RangeU32]>,
         predecessors: Box<[LaneEdgeOrdinal]>,
+        maneuvers: SharedManeuverNetwork,
     ) -> Self {
         Self {
             entity_counts,
@@ -104,6 +271,7 @@ impl SharedTrafficNetwork {
             successors,
             predecessor_ranges,
             predecessors,
+            maneuvers,
         }
     }
 
@@ -140,6 +308,11 @@ impl SharedTrafficNetwork {
     }
 
     #[must_use]
+    pub const fn maneuvers(&self) -> &SharedManeuverNetwork {
+        &self.maneuvers
+    }
+
+    #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         logical_bytes::<f64>(self.lane_lengths_meters.len())
             + logical_bytes::<f64>(self.lane_speed_limits_meters_per_second.len())
@@ -147,6 +320,7 @@ impl SharedTrafficNetwork {
             + logical_bytes::<LaneEdgeOrdinal>(self.successors.len())
             + logical_bytes::<RangeU32>(self.predecessor_ranges.len())
             + logical_bytes::<LaneEdgeOrdinal>(self.predecessors.len())
+            + self.maneuvers.retained_logical_bytes()
     }
 }
 

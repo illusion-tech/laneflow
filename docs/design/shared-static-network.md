@@ -16,9 +16,10 @@ Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验
 共享的 `SharedNetworkRevision`。
 
 本文是已接受的 G1 实现输入。#300 G2 已开始建立 `laneflow-static-network` 与受检 LFCA
-输入能力；当前只完成根唯一所有权、Identity/LaneEdge/Spatial 的首段构建基线，完整关系闭合、
-资源/性能证据和 Delivery G3/G4 尚未完成。目标 Runtime 仍不存在，当前生产路径仍是
-Traffic v0.10 / SpatialPackage v0.1 / Data / Core。
+输入能力；当前已完成根唯一所有权、Identity、LaneEdge、Spatial，以及把普通后继与
+`ManeuverPath.edges` 合并成完整可执行 CSR 和带 path/transition/gate 上下文的机动候选。
+其余静态关系闭合、资源/性能证据和 Delivery G3/G4 尚未完成。目标 Runtime 仍不存在，
+当前生产路径仍是 Traffic v0.10 / SpatialPackage v0.1 / Data / Core。
 
 ## 2. 职责与依赖
 

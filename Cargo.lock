@@ -3194,6 +3194,7 @@ dependencies = [
  "laneflow-format",
  "laneflow-road-editing-wire",
  "laneflow-static-contract",
+ "laneflow-static-network",
  "sha2",
  "stats_alloc",
 ]
