@@ -85,6 +85,12 @@ pub enum BuildError {
         traffic_length_meters: f64,
         spatial_length_meters: f32,
     },
+    SpatialFrameMismatch {
+        predecessor: u32,
+        successor: u32,
+        predecessor_frame: u32,
+        successor_frame: u32,
+    },
     BudgetExceeded {
         structure: BuildStructure,
         required: u64,
@@ -114,7 +120,8 @@ impl BuildError {
             Self::ContractMismatch { .. } => BuildErrorClass::Contract,
             Self::SpatialPresenceMismatch
             | Self::SpatialCoverageMismatch { .. }
-            | Self::SpatialLengthMismatch { .. } => BuildErrorClass::Spatial,
+            | Self::SpatialLengthMismatch { .. }
+            | Self::SpatialFrameMismatch { .. } => BuildErrorClass::Spatial,
             Self::BudgetExceeded { .. } => BuildErrorClass::Budget,
             Self::ArithmeticOverflow { .. } => BuildErrorClass::Arithmetic,
             Self::AllocationFailure { .. } => BuildErrorClass::Allocation,

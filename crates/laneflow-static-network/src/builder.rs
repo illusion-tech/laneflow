@@ -204,7 +204,8 @@ pub fn build_shared_network_revision(
         &mut reverse_identity,
         options,
     )?;
-    let reverse_identity = radix_sort_reverse_identity(reverse_identity)?;
+    let reverse_identity =
+        radix_sort_reverse_identity(reverse_identity, || check_cancelled(options))?;
 
     check_cancelled(options)?;
     let traffic = build_traffic(
@@ -604,6 +605,15 @@ fn check_scratch_budget(
         .ok_or(BuildError::ArithmeticOverflow {
             structure: BuildStructure::BuilderScratch,
         })?;
+    let spatial_frame_scratch = if options.spatial == SpatialBuildOption::Omit {
+        structure_bytes::<CanonicalFrameOrdinal>(
+            counts.lane_geometry_count,
+            BuildStructure::BuilderScratch,
+        )?
+    } else {
+        0
+    };
+    let scratch = scratch.max(spatial_frame_scratch);
     if scratch > options.limits.max_scratch_bytes {
         return Err(BuildError::BudgetExceeded {
             structure: BuildStructure::BuilderScratch,
@@ -690,33 +700,6 @@ fn build_topology_plan(
         }
     }
 
-    let stop_line_table = entity_section.table(9).ok_or(BuildError::InputInvariant {
-        structure: BuildStructure::ManeuverCandidates,
-    })?;
-    let mut stop_line_topology = allocate_vec(stop_line_count, BuildStructure::BuilderScratch)?;
-    for (index, row) in stop_line_table.rows().enumerate() {
-        let expected = u32::try_from(index).map_err(|_| BuildError::ArithmeticOverflow {
-            structure: BuildStructure::ManeuverCandidates,
-        })?;
-        let actual = checked_u32(row, 1, BuildStructure::ManeuverCandidates)?;
-        if actual != expected {
-            return Err(BuildError::UnexpectedOrdinal {
-                structure: BuildStructure::ManeuverCandidates,
-                expected,
-                actual,
-            });
-        }
-        let lane_edge = checked_u32(row, 3, BuildStructure::ManeuverCandidates)?;
-        if lane_edge >= lane_count {
-            return Err(BuildError::ReferenceOutOfBounds {
-                structure: BuildStructure::ManeuverCandidates,
-                ordinal: lane_edge,
-                limit: lane_count,
-            });
-        }
-        stop_line_topology.push(StopLineTopology { lane_edge });
-    }
-
     let gate_table = entity_section.table(7).ok_or(BuildError::InputInvariant {
         structure: BuildStructure::ManeuverCandidates,
     })?;
@@ -753,6 +736,53 @@ fn build_topology_plan(
             maneuver_path,
             transition_index: checked_u32(row, 4, BuildStructure::ManeuverCandidates)?,
             stop_line,
+        });
+    }
+
+    let stop_line_table = entity_section.table(9).ok_or(BuildError::InputInvariant {
+        structure: BuildStructure::ManeuverCandidates,
+    })?;
+    let mut stop_line_topology = allocate_vec(stop_line_count, BuildStructure::BuilderScratch)?;
+    let mut stop_line_gate_member_count = 0_u32;
+    for (index, row) in stop_line_table.rows().enumerate() {
+        let expected = u32::try_from(index).map_err(|_| BuildError::ArithmeticOverflow {
+            structure: BuildStructure::ManeuverCandidates,
+        })?;
+        let actual = checked_u32(row, 1, BuildStructure::ManeuverCandidates)?;
+        if actual != expected {
+            return Err(BuildError::UnexpectedOrdinal {
+                structure: BuildStructure::ManeuverCandidates,
+                expected,
+                actual,
+            });
+        }
+        let lane_edge = checked_u32(row, 3, BuildStructure::ManeuverCandidates)?;
+        if lane_edge >= lane_count {
+            return Err(BuildError::ReferenceOutOfBounds {
+                structure: BuildStructure::ManeuverCandidates,
+                ordinal: lane_edge,
+                limit: lane_count,
+            });
+        }
+        let gate_members = checked_ordinal_vector(row, 4, BuildStructure::ManeuverCandidates)?;
+        for member_index in 0..gate_members.len() {
+            let gate = gate_members
+                .get(member_index)
+                .ok_or(BuildError::InputInvariant {
+                    structure: BuildStructure::ManeuverCandidates,
+                })?;
+            validate_stop_line_gate_owner(&gate_topology, gate, expected, maneuver_gate_count)?;
+            stop_line_gate_member_count = checked_add_count(
+                stop_line_gate_member_count,
+                1,
+                BuildStructure::ManeuverCandidates,
+            )?;
+        }
+        stop_line_topology.push(StopLineTopology { lane_edge });
+    }
+    if stop_line_gate_member_count != maneuver_gate_count {
+        return Err(BuildError::InputInvariant {
+            structure: BuildStructure::ManeuverCandidates,
         });
     }
 
@@ -1086,6 +1116,33 @@ fn validate_gate_stop_line_edge(
             limit: stop_line_count,
         })?;
     if stop_line.lane_edge != expected_lane_edge {
+        return Err(BuildError::InputInvariant {
+            structure: BuildStructure::ManeuverCandidates,
+        });
+    }
+    Ok(())
+}
+
+fn validate_stop_line_gate_owner(
+    gate_topology: &[GateTopology],
+    gate: u32,
+    stop_line: u32,
+    gate_count: u32,
+) -> Result<(), BuildError> {
+    let topology = gate_topology
+        .get(
+            usize::try_from(gate).map_err(|_| BuildError::ReferenceOutOfBounds {
+                structure: BuildStructure::ManeuverCandidates,
+                ordinal: gate,
+                limit: gate_count,
+            })?,
+        )
+        .ok_or(BuildError::ReferenceOutOfBounds {
+            structure: BuildStructure::ManeuverCandidates,
+            ordinal: gate,
+            limit: gate_count,
+        })?;
+    if topology.stop_line != stop_line {
         return Err(BuildError::InputInvariant {
             structure: BuildStructure::ManeuverCandidates,
         });
@@ -1740,11 +1797,12 @@ fn build_spatial(
         });
     }
 
-    let mut lane_frames = allocate_if_retained(
-        retain,
-        counts.lane_geometry_count,
-        BuildStructure::LaneEdgeGeometry,
-    )?;
+    let lane_frame_structure = if retain {
+        BuildStructure::LaneEdgeGeometry
+    } else {
+        BuildStructure::BuilderScratch
+    };
+    let mut lane_frames = allocate_vec(counts.lane_geometry_count, lane_frame_structure)?;
     let mut lane_arc_lengths = allocate_if_retained(
         retain,
         counts.lane_geometry_count,
@@ -1825,8 +1883,8 @@ fn build_spatial(
 
         let points = checked_record_vector(row, 4, BuildStructure::LaneEdgeGeometry)?;
         let segments = checked_record_vector(row, 5, BuildStructure::LaneEdgeGeometry)?;
+        lane_frames.push(CanonicalFrameOrdinal::from_raw(frame));
         if retain {
-            lane_frames.push(CanonicalFrameOrdinal::from_raw(frame));
             lane_arc_lengths.push(arc_length);
             let point_start =
                 u32::try_from(lane_points.len()).map_err(|_| BuildError::ArithmeticOverflow {
@@ -1842,6 +1900,9 @@ fn build_spatial(
             fill_segments(segments, &mut lane_segments)?;
             lane_segment_ranges.push(RangeU32::new(segment_start, segments.len()));
         }
+    }
+    if counts.lane_geometry_count != 0 {
+        validate_connected_lane_frames(traffic, &lane_frames, options)?;
     }
 
     let mut facility_entries = allocate_if_retained(
@@ -1939,6 +2000,54 @@ fn fill_points(
             x: checked_f32(row, 1, structure)?,
             y: checked_f32(row, 2, structure)?,
             z: checked_f32(row, 3, structure)?,
+        });
+    }
+    Ok(())
+}
+
+fn validate_connected_lane_frames(
+    traffic: &SharedTrafficNetwork,
+    lane_frames: &[CanonicalFrameOrdinal],
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<(), BuildError> {
+    for predecessor_raw in 0..traffic.lane_edge_count() {
+        poll_cancelled(options, predecessor_raw)?;
+        let predecessor = LaneEdgeOrdinal::from_raw(predecessor_raw);
+        let successors = traffic
+            .successors(predecessor)
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::LaneEdgeGeometry,
+            })?;
+        for successor in successors {
+            validate_lane_frame_pair(lane_frames, predecessor, *successor)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_lane_frame_pair(
+    lane_frames: &[CanonicalFrameOrdinal],
+    predecessor: LaneEdgeOrdinal,
+    successor: LaneEdgeOrdinal,
+) -> Result<(), BuildError> {
+    let predecessor_frame =
+        *lane_frames
+            .get(predecessor.index())
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::LaneEdgeGeometry,
+            })?;
+    let successor_frame =
+        *lane_frames
+            .get(successor.index())
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::LaneEdgeGeometry,
+            })?;
+    if predecessor_frame != successor_frame {
+        return Err(BuildError::SpatialFrameMismatch {
+            predecessor: predecessor.raw(),
+            successor: successor.raw(),
+            predecessor_frame: predecessor_frame.raw(),
+            successor_frame: successor_frame.raw(),
         });
     }
     Ok(())
@@ -2200,6 +2309,38 @@ mod tests {
     }
 
     #[test]
+    fn stop_line_gate_membership_must_round_trip() {
+        let gates = [
+            GateTopology {
+                maneuver_path: 0,
+                transition_index: 0,
+                stop_line: 0,
+            },
+            GateTopology {
+                maneuver_path: 0,
+                transition_index: 1,
+                stop_line: 1,
+            },
+        ];
+
+        assert!(validate_stop_line_gate_owner(&gates, 0, 0, 2).is_ok());
+        assert!(matches!(
+            validate_stop_line_gate_owner(&gates, 1, 0, 2),
+            Err(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverCandidates,
+            })
+        ));
+        assert!(matches!(
+            validate_stop_line_gate_owner(&gates, 2, 0, 2),
+            Err(BuildError::ReferenceOutOfBounds {
+                structure: BuildStructure::ManeuverCandidates,
+                ordinal: 2,
+                limit: 2,
+            })
+        ));
+    }
+
+    #[test]
     fn waiting_zone_intervals_may_touch_but_not_overlap() {
         assert!(validate_waiting_zone_interval(None, 0, 3).is_ok());
         assert!(validate_waiting_zone_interval(Some(3), 3, 4).is_ok());
@@ -2215,6 +2356,37 @@ mod tests {
                 structure: BuildStructure::ManeuverPath,
             })
         ));
+    }
+
+    #[test]
+    fn executable_lane_connections_must_share_a_canonical_frame() {
+        let frames = [
+            CanonicalFrameOrdinal::from_raw(0),
+            CanonicalFrameOrdinal::from_raw(0),
+            CanonicalFrameOrdinal::from_raw(1),
+        ];
+
+        assert!(
+            validate_lane_frame_pair(
+                &frames,
+                LaneEdgeOrdinal::from_raw(0),
+                LaneEdgeOrdinal::from_raw(1),
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            validate_lane_frame_pair(
+                &frames,
+                LaneEdgeOrdinal::from_raw(0),
+                LaneEdgeOrdinal::from_raw(2),
+            ),
+            Err(BuildError::SpatialFrameMismatch {
+                predecessor: 0,
+                successor: 2,
+                predecessor_frame: 0,
+                successor_frame: 1,
+            })
+        );
     }
 
     #[test]

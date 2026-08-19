@@ -96,7 +96,9 @@ pub(crate) fn allocate_forward_identity(
 
 pub(crate) fn radix_sort_reverse_identity(
     entries: Vec<IdentityReverseEntry>,
+    mut check_cancelled: impl FnMut() -> Result<(), BuildError>,
 ) -> Result<Vec<IdentityReverseEntry>, BuildError> {
+    check_cancelled()?;
     let mut source = entries;
     let mut target = Vec::new();
     target
@@ -107,6 +109,7 @@ pub(crate) fn radix_sort_reverse_identity(
     target.resize(source.len(), IdentityReverseEntry::DUMMY);
 
     for pass in 0..18_usize {
+        check_cancelled()?;
         let mut counts = [0_usize; 256];
         for entry in &source {
             counts[usize::from(identity_key_byte(*entry, pass))] += 1;
@@ -125,7 +128,10 @@ pub(crate) fn radix_sort_reverse_identity(
         core::mem::swap(&mut source, &mut target);
 
         if pass == 15 {
-            for pair in source.windows(2) {
+            for (index, pair) in source.windows(2).enumerate() {
+                if index & 1_023 == 0 {
+                    check_cancelled()?;
+                }
                 if pair[0].stable_id == pair[1].stable_id {
                     return Err(BuildError::DuplicateStableId {
                         stable_id: pair[0].stable_id,
@@ -167,4 +173,28 @@ fn logical_bytes<T>(len: usize) -> u64 {
             .expect("retained size fits usize"),
     )
     .expect("retained size fits u64")
+}
+
+#[cfg(test)]
+mod tests {
+    use core::cell::Cell;
+
+    use super::*;
+
+    #[test]
+    fn reverse_identity_sort_propagates_cancellation_between_passes() {
+        let checks = Cell::new(0_u32);
+        let result = radix_sort_reverse_identity(Vec::new(), || {
+            let next = checks.get() + 1;
+            checks.set(next);
+            if next == 2 {
+                Err(BuildError::Cancelled)
+            } else {
+                Ok(())
+            }
+        });
+
+        assert!(matches!(result, Err(BuildError::Cancelled)));
+        assert_eq!(checks.get(), 2);
+    }
 }
