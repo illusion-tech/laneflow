@@ -49,7 +49,8 @@ rust-analyzer --version
 ```
 
 `mcpls --version` 必须返回 `0.3.9`，帮助中必须同时出现 `--listen` 和 `--http-path`。
-setup 也会执行相同检查，避免把没有 HTTP feature 的同版本二进制误判为可用。
+setup 也会执行相同检查，并验证 `rust-analyzer --version` 可执行，避免启用无法提供 Rust
+语义能力的服务。
 
 setup 脚本不会联网、安装、升级或下载任何工具。mcpls 缺失、版本不符、没有 HTTP
 feature，或 Git worktree / `%LOCALAPPDATA%` context 无法构造时，`Ensure` 都会给出警告并
@@ -83,8 +84,8 @@ Codex 为新任务创建 worktree 时会运行 setup。`Ensure` 会：
    探测完整 8000 端口范围；
 5. 同时验证 PID、进程启动时间、可执行路径、命令行中的 `mcpls.toml`/endpoint、
    `mcpls.toml` 内容 SHA-256 以及 HTTP MCP `initialize`；配置内容变化会停止已归属的旧
-   服务并启动新服务，不复用旧 `rust-analyzer`；健康探测会携带协商得到的
-   `MCP-Protocol-Version` 删除临时 session，并把删除失败视为不健康；
+   服务并启动新服务；解析到的 `rust-analyzer` 路径变化也会阻止复用旧服务；健康探测会
+   携带协商得到的 `MCP-Protocol-Version` 删除临时 session，并把删除失败视为不健康；
 6. 用 `StartupTimeoutSeconds` 的单一截止时间约束初始 Git worktree discovery、自动清理、
    二进制校验、锁等待、端口绑定和 HTTP 健康检查；
 7. 子进程创建后立即原子持久化 `starting` 状态，再等待端口绑定；只有健康检查、启用配置
@@ -141,8 +142,9 @@ PID 已确认不存在且状态所有权一致时，才清理失效状态。CIM/
 ```
 
 `state.json` 当前为 schema 2，记录规范化 root、PID、启动时间、可执行路径、命令摘要、
-端口、endpoint、模板哈希、`mcpls.toml` 内容哈希和状态；`lifecycle.log` 记录本脚本的
-启动、复用、失败、停止与清理事件。两者都不提交到仓库。状态、轮转游标和生成配置都
+端口、endpoint、模板哈希、`mcpls.toml` 内容哈希、解析到的 `rust-analyzer` 路径和状态；
+`lifecycle.log` 记录本脚本的启动、复用、失败、停止与清理事件。两者都不提交到仓库。
+状态、轮转游标和生成配置都
 通过同目录临时文件原子替换。旧 schema 或不完整状态会被明确报告为 `invalid-state`，
 不会被当作“无状态”而启动第二个服务。必填值还会校验非空、类型、范围、绝对路径、
 哈希格式以及 endpoint/端口一致性；成功停止或已确认回收的启动失败分别使用

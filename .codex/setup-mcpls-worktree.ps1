@@ -626,6 +626,35 @@ function Test-McplsExecutable {
     }
 }
 
+function Test-RustAnalyzerExecutable {
+    param([DateTimeOffset]$Deadline = [DateTimeOffset]::UtcNow.AddSeconds(30))
+
+    try {
+        $executable = Get-ApplicationPath -Name 'rust-analyzer'
+        $versionResult = Invoke-ApplicationCapture -Executable $executable `
+            -Arguments @('--version') -Deadline $Deadline
+        $versionOutput = ([string]$versionResult.Output).Trim()
+        if ($versionResult.ExitCode -ne 0) {
+            throw "rust-analyzer --version failed with exit code $($versionResult.ExitCode)"
+        }
+        if ($versionOutput -notmatch '(?m)^rust-analyzer(?:\s|$)') {
+            throw "Unexpected rust-analyzer version output: $versionOutput"
+        }
+        return [pscustomobject]@{
+            Valid = $true
+            Path = Get-NormalizedPath -Path $executable
+            Reason = $null
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Valid = $false
+            Path = $null
+            Reason = $_.Exception.Message
+        }
+    }
+}
+
 function Get-ProcessSnapshotFromHandle {
     param(
         [Parameter(Mandatory)][System.Diagnostics.Process]$Process,
@@ -799,6 +828,7 @@ function Get-ServiceReuseInputs {
     param(
         [Parameter(Mandatory)]$State,
         [Parameter(Mandatory)][string]$ExecutablePath,
+        [Parameter(Mandatory)][string]$RustAnalyzerPath,
         [Parameter(Mandatory)][string]$McplsConfigHash
     )
 
@@ -810,11 +840,17 @@ function Get-ServiceReuseInputs {
         [System.StringComparison]::Ordinal
     )
     $sameVersion = [string]$State.mcpls_version -eq $script:McplsVersion
+    $rustAnalyzerProperty = $State.PSObject.Properties['rust_analyzer_path']
+    $sameRustAnalyzer = $null -ne $rustAnalyzerProperty -and
+        -not [string]::IsNullOrWhiteSpace([string]$rustAnalyzerProperty.Value) -and
+        (Test-PathEqual -Left ([string]$rustAnalyzerProperty.Value) `
+            -Right $RustAnalyzerPath)
     return [pscustomobject]@{
-        Reusable = $sameTool -and $sameConfig -and $sameVersion
+        Reusable = $sameTool -and $sameConfig -and $sameVersion -and $sameRustAnalyzer
         SameTool = $sameTool
         SameConfig = $sameConfig
         SameVersion = $sameVersion
+        SameRustAnalyzer = $sameRustAnalyzer
     }
 }
 
@@ -1088,33 +1124,36 @@ function Start-McplsProcess {
 
 function Stop-OwnedProcessTree {
     param(
-        [Parameter(Mandatory)][int]$ProcessId,
+        [Parameter(Mandatory)][System.Diagnostics.Process]$Process,
         [ValidateRange(0, 10000)][int]$TimeoutMilliseconds = 10000,
         [DateTimeOffset]$Deadline = [DateTimeOffset]::MinValue
     )
 
-    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
-    if ($null -eq $process) {
+    if ($Process.HasExited) {
         return
     }
+    $processId = [int]$Process.Id
     try {
-        $process.Kill($true)
-        $exitWait = if ($Deadline -eq [DateTimeOffset]::MinValue) {
-            $TimeoutMilliseconds
-        }
-        else {
-            Get-RemainingMillisecondsOrZero -Deadline $Deadline `
-                -Maximum $TimeoutMilliseconds
-        }
-        if (-not $process.WaitForExit($exitWait)) {
-            throw (
-                "Process tree rooted at PID $ProcessId did not exit within " +
-                "$exitWait milliseconds."
-            )
-        }
+        $Process.Kill($true)
     }
-    finally {
-        $process.Dispose()
+    catch {
+        if ($Process.HasExited) {
+            return
+        }
+        throw
+    }
+    $exitWait = if ($Deadline -eq [DateTimeOffset]::MinValue) {
+        $TimeoutMilliseconds
+    }
+    else {
+        Get-RemainingMillisecondsOrZero -Deadline $Deadline `
+            -Maximum $TimeoutMilliseconds
+    }
+    if (-not $Process.WaitForExit($exitWait)) {
+        throw (
+            "Process tree rooted at PID $processId did not exit within " +
+            "$exitWait milliseconds."
+        )
     }
 }
 
@@ -1206,6 +1245,7 @@ function New-ServiceState {
     param(
         [Parameter(Mandatory)]$Context,
         [Parameter(Mandatory)]$Tool,
+        [Parameter(Mandatory)]$RustAnalyzer,
         [Parameter(Mandatory)][int]$Port,
         [Parameter(Mandatory)]$Process,
         [Parameter(Mandatory)]$TemplateInfo,
@@ -1223,6 +1263,7 @@ function New-ServiceState {
         process_started_at_utc = $Process.StartTime.ToUniversalTime().ToString('O')
         executable_path = $Tool.Path
         mcpls_version = $script:McplsVersion
+        rust_analyzer_path = $RustAnalyzer.Path
         mcpls_config_path = $Context.McplsConfigPath
         mcpls_config_sha256 = $McplsConfigHash
         command_summary = @(
@@ -1280,6 +1321,7 @@ function Start-NewMcplsService {
     param(
         [Parameter(Mandatory)]$Context,
         [Parameter(Mandatory)]$Tool,
+        [Parameter(Mandatory)]$RustAnalyzer,
         [Parameter(Mandatory)]$TemplateInfo,
         [Parameter(Mandatory)][string]$McplsConfigHash,
         [Parameter(Mandatory)][DateTimeOffset]$Deadline,
@@ -1311,7 +1353,8 @@ function Start-NewMcplsService {
             $null = Get-RemainingMilliseconds -Deadline $Deadline
             $process = Start-McplsProcess -Executable $Tool.Path `
                 -Context $Context -Port $port
-            $state = New-ServiceState -Context $Context -Tool $Tool -Port $port `
+            $state = New-ServiceState -Context $Context -Tool $Tool `
+                -RustAnalyzer $RustAnalyzer -Port $port `
                 -Process $process -TemplateInfo $TemplateInfo `
                 -McplsConfigHash $McplsConfigHash -Status 'starting'
             Write-ServiceState -Context $Context -State $state
@@ -1347,7 +1390,7 @@ function Start-NewMcplsService {
                 $launchedProcessId = [int]$process.Id
                 try {
                     if (-not $process.HasExited) {
-                        Stop-OwnedProcessTree -ProcessId ([int]$process.Id) `
+                        Stop-OwnedProcessTree -Process $process `
                             -TimeoutMilliseconds 5000 -Deadline $Deadline
                     }
                     $state.status = 'failed'
@@ -1378,7 +1421,7 @@ function Start-NewMcplsService {
             $stopped = $null -eq $process -or $process.HasExited
             if ($null -ne $process -and -not $stopped) {
                 try {
-                    Stop-OwnedProcessTree -ProcessId $launchedProcessId -Deadline $Deadline
+                    Stop-OwnedProcessTree -Process $process -Deadline $Deadline
                     $stopped = $true
                 }
                 catch {
@@ -1431,7 +1474,7 @@ function Start-NewMcplsService {
             $failureReason = $_.Exception.Message
             if ($null -ne $process -and -not $process.HasExited) {
                 try {
-                    Stop-OwnedProcessTree -ProcessId ([int]$process.Id) `
+                    Stop-OwnedProcessTree -Process $process `
                         -Deadline $Deadline
                 }
                 catch {
@@ -1471,7 +1514,7 @@ function Start-NewMcplsService {
             if ($null -ne $process) {
                 if (-not $committed -and -not $process.HasExited) {
                     try {
-                        Stop-OwnedProcessTree -ProcessId ([int]$process.Id) `
+                        Stop-OwnedProcessTree -Process $process `
                             -Deadline $Deadline
                     }
                     catch {
@@ -1512,6 +1555,10 @@ function Invoke-StartOrReuse {
         if (-not $tool.Valid) {
             throw $tool.Reason
         }
+        $rustAnalyzer = Test-RustAnalyzerExecutable -Deadline $deadline
+        if (-not $rustAnalyzer.Valid) {
+            throw $rustAnalyzer.Reason
+        }
         if (-not (Test-Path -LiteralPath $Context.McplsConfigPath -PathType Leaf)) {
             throw "Missing worktree mcpls.toml: $($Context.McplsConfigPath)"
         }
@@ -1535,7 +1582,8 @@ function Invoke-StartOrReuse {
                 $health = Test-McpInitialize -Endpoint ([string]$existingState.endpoint) `
                     -TimeoutMilliseconds $healthTimeout
                 $reuseInputs = Get-ServiceReuseInputs -State $existingState `
-                    -ExecutablePath $tool.Path -McplsConfigHash $mcplsConfigHash
+                    -ExecutablePath $tool.Path -RustAnalyzerPath $rustAnalyzer.Path `
+                    -McplsConfigHash $mcplsConfigHash
                 if ($health.Healthy -and $reuseInputs.Reusable) {
                     $existingState.status = 'ready'
                     $existingState.template_sha256 = $template.Hash
@@ -1556,7 +1604,7 @@ function Invoke-StartOrReuse {
                 }
 
                 Write-LifecycleLog -Context $Context `
-                    -Message "replacing-owned pid=$($existingState.process_id) healthy=$($health.Healthy) same_tool=$($reuseInputs.SameTool) same_config=$($reuseInputs.SameConfig) same_version=$($reuseInputs.SameVersion)"
+                    -Message "replacing-owned pid=$($existingState.process_id) healthy=$($health.Healthy) same_tool=$($reuseInputs.SameTool) same_config=$($reuseInputs.SameConfig) same_version=$($reuseInputs.SameVersion) same_rust_analyzer=$($reuseInputs.SameRustAnalyzer)"
                 Stop-VerifiedServiceProcessTree -State $existingState `
                     -ExpectedRoot $Context.Root -Deadline $deadline
             }
@@ -1578,6 +1626,7 @@ function Invoke-StartOrReuse {
         }
 
         $state = Start-NewMcplsService -Context $Context -Tool $tool `
+            -RustAnalyzer $rustAnalyzer `
             -TemplateInfo $template -McplsConfigHash $mcplsConfigHash `
             -Deadline $deadline `
             -PreferredPort $preferredPort

@@ -364,6 +364,30 @@ try {
             -Value $originalApplicationCapture
     }
 
+    $originalApplicationPath = (Get-Command Get-ApplicationPath).ScriptBlock
+    try {
+        Set-Item -Path Function:Get-ApplicationPath -Value {
+            return $featurelessExecutable
+        }
+        Set-Item -Path Function:Invoke-ApplicationCapture -Value {
+            [pscustomobject]@{ ExitCode = 0; Output = 'rust-analyzer 1.96.0' }
+        }
+        $validRustAnalyzer = Test-RustAnalyzerExecutable
+        Assert-True -Condition $validRustAnalyzer.Valid `
+            -Message 'an executable rust-analyzer command is accepted'
+        Set-Item -Path Function:Invoke-ApplicationCapture -Value {
+            [pscustomobject]@{ ExitCode = 1; Output = 'broken rust-analyzer' }
+        }
+        $invalidRustAnalyzer = Test-RustAnalyzerExecutable
+        Assert-True -Condition (-not $invalidRustAnalyzer.Valid) `
+            -Message 'a broken rust-analyzer command is rejected before enabling mcpls'
+    }
+    finally {
+        Set-Item -Path Function:Get-ApplicationPath -Value $originalApplicationPath
+        Set-Item -Path Function:Invoke-ApplicationCapture `
+            -Value $originalApplicationCapture
+    }
+
     $currentPowerShell = (Get-Process -Id $PID).Path
     $captureStarted = [DateTimeOffset]::UtcNow
     Assert-Throws -Operation {
@@ -437,6 +461,7 @@ try {
         process_started_at_utc = $currentSnapshot.StartedAtUtc.ToString('O')
         executable_path = $currentSnapshot.ExecutablePath
         mcpls_version = $script:McplsVersion
+        rust_analyzer_path = $currentSnapshot.ExecutablePath
         mcpls_config_path = $repositoryContext.McplsConfigPath
         mcpls_config_sha256 = Get-FileSha256Hex -Path $repositoryContext.McplsConfigPath
         port = $identityPort
@@ -474,15 +499,25 @@ try {
         -Message 'Status reports null-valued state as invalid'
     $matchingReuseInputs = Get-ServiceReuseInputs -State $fakeState `
         -ExecutablePath $currentSnapshot.ExecutablePath `
+        -RustAnalyzerPath $currentSnapshot.ExecutablePath `
         -McplsConfigHash ([string]$fakeState.mcpls_config_sha256)
     $changedReuseInputs = Get-ServiceReuseInputs -State $fakeState `
         -ExecutablePath $currentSnapshot.ExecutablePath `
+        -RustAnalyzerPath $currentSnapshot.ExecutablePath `
         -McplsConfigHash ('0' * 64)
+    $changedRustAnalyzerInputs = Get-ServiceReuseInputs -State $fakeState `
+        -ExecutablePath $currentSnapshot.ExecutablePath `
+        -RustAnalyzerPath $repositoryContext.McplsConfigPath `
+        -McplsConfigHash ([string]$fakeState.mcpls_config_sha256)
     Assert-True -Condition $matchingReuseInputs.Reusable `
         -Message 'matching executable, version, and mcpls.toml hash permit reuse'
     Assert-True -Condition (
         -not $changedReuseInputs.Reusable -and -not $changedReuseInputs.SameConfig
     ) -Message 'a changed mcpls.toml hash forces service replacement'
+    Assert-True -Condition (
+        -not $changedRustAnalyzerInputs.Reusable -and
+        -not $changedRustAnalyzerInputs.SameRustAnalyzer
+    ) -Message 'a changed rust-analyzer path forces service replacement'
 
     $cycleSnapshot = @(
         [pscustomobject]@{ ProcessId = 9001; ParentProcessId = 9002; Name = 'cycle-a' },
@@ -685,8 +720,10 @@ try {
         }
         Set-Item -Path Function:Write-ServiceState -Value { throw 'injected state persistence failure' }
         $startupTool = [pscustomobject]@{ Path = $script:StartupTestExecutable }
+        $startupRustAnalyzer = [pscustomobject]@{ Path = $script:StartupTestExecutable }
         Assert-Throws -Operation {
             Start-NewMcplsService -Context $testContext -Tool $startupTool `
+                -RustAnalyzer $startupRustAnalyzer `
                 -TemplateInfo $template -McplsConfigHash $secondConfigHash `
                 -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
         } -Message 'startup reports a bookkeeping failure instead of orphaning the child'
@@ -727,8 +764,10 @@ try {
         Set-Item -Path Function:Test-LoopbackPortAvailable -Value { return $true }
         Set-Item -Path Function:Test-LoopbackPortListening -Value { return $false }
         $startupTool = [pscustomobject]@{ Path = $script:StartupTestExecutable }
+        $startupRustAnalyzer = [pscustomobject]@{ Path = $script:StartupTestExecutable }
         Assert-Throws -Operation {
             Start-NewMcplsService -Context $testContext -Tool $startupTool `
+                -RustAnalyzer $startupRustAnalyzer `
                 -TemplateInfo $template -McplsConfigHash $secondConfigHash `
                 -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
         } -Message 'port-independent immediate process exit aborts startup'
