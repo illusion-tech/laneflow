@@ -99,6 +99,16 @@ normalization。
 从 Validated Canonical LIR 直接建立第二个 Runtime backend；如果 LFCA 中转经真实城市
 测量成为阻断，必须重新进入 G1 决定融合实现如何保持单一投影。
 
+`laneflow-static-network` 是官方受检 LFCA 的性能型 Runtime loader，不是 compiler 的
+独立语义验证器。compiler 继续唯一拥有 `identityFields -> StableId128`、规范点列到
+segment length/cumulative/tangent/up 等派生语义；发布 LFCA 的产品接受还必须先经过
+LFCP/manifest admission，玩家编辑 LFCA 则来自同进程
+`PostEmissionCheckedBundleV1`。builder 使用已经受检并绑定修订的声明值建立连续 Runtime
+数据，只闭合 Runtime 会直接依赖的计数、顺序、引用、范围、双射、Traffic/Spatial
+结构关系和调用方预算。它不重新编码 Identity v1 前像、不重新执行 BLAKE3，也不从 points
+逐值重演 compiler 的 segment 冻结算法；这些派生的功能正确性由 compiler known vectors、
+后发射检查和 compiler -> LFCA -> shared-network 端到端测试负责。
+
 ### 4. `SharedNetworkRevision` 物理拆分、逻辑绑定
 
 根对象至少包含：
@@ -164,8 +174,8 @@ aggregate 发布绑定同一根的只读 snapshot/facade，避免旧 Traffic 与
 2. 顺序统计各 typed column、CSR payload、identity 和 hint 的精确逻辑数量；
 3. 在分配最终数组前用 checked arithmetic 计算调用方可见预算；
 4. 为每个最终数组最多保留一次容量并顺序填充；
-5. 检查 row key/ordinal、跨表引用、range、identity 双射、Traffic/Spatial edge 对齐和
-   execution-constraint closure；
+5. 检查 row key/ordinal、跨表引用、range、声明 StableId 双射、Traffic/Spatial edge
+   结构对齐和 execution-constraint closure；
 6. 成功后封存为字段私有的 owned slices，并返回根修订。
 
 失败、取消或预算不足不返回部分 component、不修改现有 world、不写磁盘，也不保留
@@ -176,6 +186,11 @@ builder registry。成功结果不借用 LFCA/LFSM/LFSD backing；runtime-only �
 构建期允许同时存在输入 LFCA、最终 component arrays 和有界 scratch，不建立第二棵完整
 owned LFCA/LIR 对象图。安全 Rust 实现不得为了“精确一次分配”引入手写 `unsafe`；容量、
 累计分配和返回时 retained bytes 必须按实际 allocator/API 行为记录。
+
+上述闭合不增加第二套 compiler 派生实现。尤其不得为了把 Runtime loader 提升为独立
+validator，在每次加载或确认建造时重新哈希全部 Identity 前像、重新计算全部 segment
+向量或保留验证专用对象图。若未来产品允许未经官方 compiler/admission 的第三方 LFCA，
+其额外验证策略由独立 G1 决定，不能无证据进入当前玩家建造延迟。
 
 ### 7. 道路编辑只在确认建造后构建候选
 
@@ -247,6 +262,8 @@ Runtime 性能通过。
 - 字段分组和 SIMD 可以随真实 kernel 优化，不受已发布 ABI 锁定；
 - headless 不构建 Spatial，Traffic/Spatial 又不能错配修订；
 - 玩家本地编辑不执行内容存储或磁盘发布事务。
+- loader 不重复 compiler 的 Identity/几何派生工作，确认建造后的候选延迟保持线性、
+  数据搬运和 Runtime 结构闭合优先。
 
 成本与风险：
 
@@ -254,6 +271,8 @@ Runtime 性能通过。
 - 构建期会短暂同时持有 LFCA 与最终 typed arrays；道路切换还会同时持有当前和候选修订；
 - 不提供跨进程 mmap 页共享；
 - Runtime 真实访问模式未实现前，具体最佳 SoA/AoSoA 分组仍需要 #301 验证；
+- Runtime loader 信任官方受检 LFCA 中已经由 compiler 派生的 StableId 与 segment 数值；
+  compiler known vectors、后发射检查和端到端测试若缺失，会形成产品正确性回归风险；
 - 如果未来最低产品硬件证明重建成本不可接受，需要以非权威缓存的新 G1 重新引入持久化，
   不能把本实现的 Rust 内存布局直接写盘。
 

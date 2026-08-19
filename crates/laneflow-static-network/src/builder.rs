@@ -101,6 +101,7 @@ impl<'a> SharedNetworkBuildOptions<'a> {
 struct BuildCounts {
     contracts: StaticContractVersions,
     entity_counts: EntityCounts,
+    entity_count_total: u32,
     identity_count: u32,
     lane_successor_count: u32,
     spatial_present: bool,
@@ -191,6 +192,7 @@ fn count_and_preflight(
         structure: BuildStructure::CanonicalEntityTable,
     })?;
     let mut entity_counts = [0_u32; ENTITY_KIND_COUNT];
+    let mut entity_count_total = 0_u32;
     for (index, table) in entity_section.tables().enumerate() {
         let Some(slot) = entity_counts.get_mut(index) else {
             return Err(BuildError::InputInvariant {
@@ -198,6 +200,11 @@ fn count_and_preflight(
             });
         };
         *slot = table.row_count();
+        entity_count_total = checked_add_count(
+            entity_count_total,
+            table.row_count(),
+            BuildStructure::CanonicalEntityTable,
+        )?;
     }
     let entity_counts = EntityCounts::new(entity_counts);
 
@@ -290,6 +297,7 @@ fn count_and_preflight(
     Ok(BuildCounts {
         contracts,
         entity_counts,
+        entity_count_total,
         identity_count,
         lane_successor_count,
         spatial_present,
@@ -312,7 +320,7 @@ fn check_budgets(
             structure: BuildStructure::RetainedOutput,
         }
     })?;
-    retained = add_retained::<StableId128>(retained, counts.identity_count)?;
+    retained = add_retained::<StableId128>(retained, counts.entity_count_total)?;
     retained = add_retained_bytes(
         retained,
         counts
@@ -447,6 +455,7 @@ fn fill_identity(
                 limit: counts.entity_counts.count(entity_kind),
             });
         }
+        // StableId 的前像派生由 compiler 拥有；这里闭合声明 ID 与 typed ordinal 的双射。
         let stable_id = checked_stable_id(row, 3, BuildStructure::CanonicalIdentity)?;
         forward[kind_index].push(stable_id);
         reverse.push(IdentityReverseEntry {
@@ -1085,4 +1094,43 @@ fn poll_cancelled(options: SharedNetworkBuildOptions<'_>, ordinal: u32) -> Resul
         check_cancelled(options)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retained_budget_counts_forward_identity_by_entity_rows() {
+        let mut entity_counts = [0; ENTITY_KIND_COUNT];
+        entity_counts[kind_index(EntityKind::Junction)] = 2;
+        let base = u64::try_from(size_of::<SharedNetworkRevision>()).expect("root size");
+        let one_id = u64::try_from(size_of::<StableId128>()).expect("stable ID size");
+        let counts = BuildCounts {
+            contracts: StaticContractVersions::new(0, 0, 0, 0, 0, 0),
+            entity_counts: EntityCounts::new(entity_counts),
+            entity_count_total: 2,
+            identity_count: 0,
+            lane_successor_count: 0,
+            spatial_present: false,
+            direction_profile: 0,
+            lane_geometry_count: 0,
+            lane_point_count: 0,
+            lane_segment_count: 0,
+            facility_geometry_count: 0,
+            facility_point_count: 0,
+        };
+        let options = SharedNetworkBuildOptions::new(
+            SpatialBuildOption::Omit,
+            SharedNetworkBuildLimits::new(base + one_id, u64::MAX),
+        );
+
+        assert!(matches!(
+            check_budgets(counts, options),
+            Err(BuildError::BudgetExceeded {
+                structure: BuildStructure::RetainedOutput,
+                ..
+            })
+        ));
+    }
 }
