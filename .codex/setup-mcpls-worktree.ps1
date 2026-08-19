@@ -382,9 +382,77 @@ function Read-ServiceState {
             'template_sha256'
         )
         foreach ($property in $requiredProperties) {
-            if ($null -eq $state.PSObject.Properties[$property]) {
+            $stateProperty = $state.PSObject.Properties[$property]
+            if ($null -eq $stateProperty) {
                 throw "missing required property $property"
             }
+            if ($null -eq $stateProperty.Value) {
+                throw "required property $property is null"
+            }
+        }
+
+        foreach ($property in @(
+            'worktree_id',
+            'worktree_root',
+            'status',
+            'executable_path',
+            'mcpls_version',
+            'mcpls_config_path',
+            'mcpls_config_sha256',
+            'endpoint',
+            'template_sha256'
+        )) {
+            if ($state.$property -isnot [string] -or
+                [string]::IsNullOrWhiteSpace([string]$state.$property)) {
+                throw "required property $property must be a non-empty string"
+            }
+        }
+        if ($state.process_started_at_utc -isnot [DateTime] -and
+            $state.process_started_at_utc -isnot [DateTimeOffset] -and
+            $state.process_started_at_utc -isnot [string]) {
+            throw 'process_started_at_utc must be an ISO-8601 timestamp'
+        }
+        try {
+            [void][DateTimeOffset]::Parse(
+                [string]$state.process_started_at_utc,
+                [System.Globalization.CultureInfo]::InvariantCulture,
+                [System.Globalization.DateTimeStyles]::RoundtripKind
+            )
+        }
+        catch {
+            throw 'process_started_at_utc must be an ISO-8601 timestamp'
+        }
+        if ([string]$state.worktree_id -notmatch '^[0-9a-f]{64}$') {
+            throw 'worktree_id must be a lowercase SHA-256 hex string'
+        }
+        if ([string]$state.mcpls_config_sha256 -notmatch '^[0-9a-f]{64}$' -or
+            [string]$state.template_sha256 -notmatch '^[0-9a-f]{64}$') {
+            throw 'state hashes must be lowercase SHA-256 hex strings'
+        }
+        foreach ($property in @('worktree_root', 'executable_path', 'mcpls_config_path')) {
+            if (-not [System.IO.Path]::IsPathFullyQualified([string]$state.$property)) {
+                throw "required property $property must be an absolute path"
+            }
+        }
+        if ($state.process_id -isnot [int] -and $state.process_id -isnot [long]) {
+            throw 'process_id must be an integer'
+        }
+        if ([long]$state.process_id -le 0 -or [long]$state.process_id -gt [int]::MaxValue) {
+            throw 'process_id must be a positive System.Int32 value'
+        }
+        if ($state.port -isnot [int] -and $state.port -isnot [long]) {
+            throw 'port must be an integer'
+        }
+        if ([long]$state.port -lt 1 -or [long]$state.port -gt 65535) {
+            throw 'port must be within 1..65535'
+        }
+        $expectedEndpoint = "http://127.0.0.1:$([int]$state.port)$($script:HttpPath)"
+        if (-not [string]::Equals(
+            [string]$state.endpoint,
+            $expectedEndpoint,
+            [System.StringComparison]::Ordinal
+        )) {
+            throw 'endpoint must match the recorded loopback port and MCP path'
         }
         return $state
     }
@@ -867,6 +935,30 @@ function Stop-OwnedProcessTree {
     $process.WaitForExit(10000) | Out-Null
 }
 
+function Get-DescendantProcessesFromSnapshot {
+    param(
+        [Parameter(Mandatory)][object[]]$Processes,
+        [Parameter(Mandatory)][int]$RootProcessId
+    )
+
+    $result = [System.Collections.Generic.List[object]]::new()
+    $frontier = [System.Collections.Generic.Queue[int]]::new()
+    $visited = [System.Collections.Generic.HashSet[int]]::new()
+    $visited.Add($RootProcessId) | Out-Null
+    $frontier.Enqueue($RootProcessId)
+    while ($frontier.Count -gt 0) {
+        $parent = $frontier.Dequeue()
+        foreach ($child in $Processes | Where-Object { [int]$_.ParentProcessId -eq $parent }) {
+            $childProcessId = [int]$child.ProcessId
+            if ($visited.Add($childProcessId)) {
+                $result.Add($child)
+                $frontier.Enqueue($childProcessId)
+            }
+        }
+    }
+    return @($result)
+}
+
 function Get-DescendantProcesses {
     param([Parameter(Mandatory)][int]$RootProcessId)
 
@@ -876,17 +968,8 @@ function Get-DescendantProcesses {
     catch {
         return @()
     }
-    $result = [System.Collections.Generic.List[object]]::new()
-    $frontier = [System.Collections.Generic.Queue[int]]::new()
-    $frontier.Enqueue($RootProcessId)
-    while ($frontier.Count -gt 0) {
-        $parent = $frontier.Dequeue()
-        foreach ($child in $all | Where-Object { [int]$_.ParentProcessId -eq $parent }) {
-            $result.Add($child)
-            $frontier.Enqueue([int]$child.ProcessId)
-        }
-    }
-    return @($result)
+    return @(Get-DescendantProcessesFromSnapshot -Processes $all `
+        -RootProcessId $RootProcessId)
 }
 
 function New-ServiceState {
@@ -1679,8 +1762,26 @@ function Invoke-LaneFlowMcpls {
         throw 'The managed HTTP lifecycle is currently supported on Windows only.'
     }
 
-    $context = Get-WorktreeContext -RootHint $RootHint `
-        -StateRootOverride $StateRootOverride
+    try {
+        $context = Get-WorktreeContext -RootHint $RootHint `
+            -StateRootOverride $StateRootOverride
+    }
+    catch {
+        if ($RequestedAction -eq 'Ensure') {
+            $reason = "context discovery failed: $($_.Exception.Message)"
+            Write-Warning "mcpls remains disabled: $reason"
+            return [pscustomobject]@{
+                action = 'disabled'
+                worktree_id = $null
+                worktree_root = $RootHint
+                process_id = $null
+                endpoint = $null
+                config_enabled = $false
+                reason = $reason
+            }
+        }
+        throw
+    }
     switch ($RequestedAction) {
         'Ensure' {
             Invoke-EnsureAction -Context $context `

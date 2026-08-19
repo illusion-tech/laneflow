@@ -178,6 +178,21 @@ try {
     Assert-True -Condition (-not $ensureResult.config_enabled) `
         -Message 'Ensure reports unavailable mcpls as disabled'
 
+    $missingWorktreeRoot = Join-Path $temporaryRoot 'not-a-worktree'
+    $contextFailureResult = Invoke-LaneFlowMcpls -RequestedAction 'Ensure' `
+        -RootHint $missingWorktreeRoot -StateRootOverride $testContext.AllStateRoot `
+        -TimeoutSeconds 5
+    Assert-True -Condition (
+        $contextFailureResult.action -eq 'disabled' -and
+        -not $contextFailureResult.config_enabled -and
+        $contextFailureResult.reason -match 'context discovery failed'
+    ) -Message 'Ensure remains fail-open when worktree context discovery fails'
+    Assert-Throws -Operation {
+        Invoke-LaneFlowMcpls -RequestedAction 'Start' `
+            -RootHint $missingWorktreeRoot `
+            -StateRootOverride $testContext.AllStateRoot -TimeoutSeconds 5
+    } -Message 'strict Start still rejects a context discovery failure'
+
     $featurelessExecutable = Join-Path $temporaryRoot 'featureless-mcpls.cmd'
     $featurelessBody = @'
 @echo off
@@ -285,6 +300,16 @@ exit /b 0
         endpoint = "http://127.0.0.1:$identityPort/mcp"
         template_sha256 = $template.Hash
     }
+    $nullPidState = (($fakeState | ConvertTo-Json -Depth 6) | ConvertFrom-Json)
+    $nullPidState.process_id = $null
+    Write-AtomicUtf8File -Path $testContext.StatePath `
+        -Content (($nullPidState | ConvertTo-Json -Depth 6) + "`n")
+    Assert-Throws -Operation {
+        Read-ServiceState -Path $testContext.StatePath
+    } -Message 'a null required state value is rejected before PID conversion'
+    $nullPidStatus = Invoke-StatusAction -Context $testContext
+    Assert-True -Condition ($nullPidStatus.status -eq 'invalid-state') `
+        -Message 'Status reports null-valued state as invalid'
     $matchingReuseInputs = Get-ServiceReuseInputs -State $fakeState `
         -ExecutablePath $currentSnapshot.ExecutablePath `
         -McplsConfigHash ([string]$fakeState.mcpls_config_sha256)
@@ -296,6 +321,17 @@ exit /b 0
     Assert-True -Condition (
         -not $changedReuseInputs.Reusable -and -not $changedReuseInputs.SameConfig
     ) -Message 'a changed mcpls.toml hash forces service replacement'
+
+    $cycleSnapshot = @(
+        [pscustomobject]@{ ProcessId = 9001; ParentProcessId = 9002; Name = 'cycle-a' },
+        [pscustomobject]@{ ProcessId = 9002; ParentProcessId = 9001; Name = 'cycle-b' }
+    )
+    $cycleDescendants = @(Get-DescendantProcessesFromSnapshot `
+        -Processes $cycleSnapshot -RootProcessId 9001)
+    Assert-True -Condition (
+        $cycleDescendants.Count -eq 1 -and
+        [int]$cycleDescendants[0].ProcessId -eq 9002
+    ) -Message 'descendant traversal terminates when a static PID snapshot contains a cycle'
     $identity = Test-ServiceProcessIdentity -State $fakeState -ExpectedRoot $repositoryRoot
     Assert-True -Condition (-not $identity.Matched) `
         -Message 'PID, start time, and executable alone cannot impersonate the service command line'
