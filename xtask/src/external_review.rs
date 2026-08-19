@@ -1476,16 +1476,8 @@ pub fn run_publish_codex_clean_binding(args: &[String]) -> Result<(), String> {
             clean.id
         ));
     }
-    if parse_reviewed_commit(&clean.body).is_some() {
-        print_codex_clean_binding_skip(
-            &args,
-            "clean comment 已携带 Reviewed commit marker，走标准路径",
-        )?;
-        return Ok(());
-    }
-
     let mut record_diagnostics = Vec::new();
-    let existing_records = collect_codex_clean_binding_records(pr, &mut record_diagnostics);
+    let mut records = collect_codex_clean_binding_records(pr, &mut record_diagnostics);
     if !record_diagnostics.is_empty() {
         return Err(format!(
             "PR #{} 已存在 malformed binding record：{}",
@@ -1493,7 +1485,12 @@ pub fn run_publish_codex_clean_binding(args: &[String]) -> Result<(), String> {
             record_diagnostics.join("；")
         ));
     }
-    if let Some(bound) = existing_records
+    if parse_reviewed_commit(&clean.body).is_some() {
+        print_codex_clean_binding_skip(
+            &args,
+            "clean comment 已携带 Reviewed commit marker，走标准路径",
+        )?;
+    } else if let Some(bound) = records
         .iter()
         .find(|bound| bound.record.clean_comment_id == clean.id)
     {
@@ -1501,10 +1498,52 @@ pub fn run_publish_codex_clean_binding(args: &[String]) -> Result<(), String> {
             &args,
             &format!("clean comment 已被 record `{}` 绑定", bound.record.id),
         )?;
-        return Ok(());
+    } else {
+        let (marker_comment, marker) = select_request_marker(pr, clean, &records)?;
+        publish_single_binding(
+            &args,
+            &initial,
+            clean,
+            marker_comment,
+            &marker,
+            &mut records,
+        )?;
     }
 
-    let (marker_comment, marker) = select_request_marker(pr, clean, &existing_records)?;
+    // 与 workflow concurrency 组配对：串行化保证同一 PR 任意时刻只有一个
+    // publisher run（消除并发读-选-发竞态）；同组只允许一个 pending run，
+    // 被挤掉的中间 issue_comment 事件由此处 sweep 补齐——每个 run 在处理完
+    // 触发事件后，为其余所有未绑定的 SHA-less clean 补发 record。
+    let mut sweep_diagnostics = Vec::new();
+    while let Some((sweep_clean, marker_comment, marker)) =
+        plan_next_sweep_binding(pr, &records, &mut sweep_diagnostics)
+    {
+        publish_single_binding(
+            &args,
+            &initial,
+            sweep_clean,
+            marker_comment,
+            &marker,
+            &mut records,
+        )?;
+    }
+    for diagnostic in &sweep_diagnostics {
+        eprintln!("sweep diagnostic: {diagnostic}");
+    }
+    Ok(())
+}
+
+/// 发布单条绑定 record：binds current head 时先做 no-push 窗口检查与发布前
+/// identity 复核，然后发布（dry-run 仅打印）；无论哪条路径都把 record 记入
+/// records，供同一次 run 内后续 clean 的 marker 消费判定使用。
+fn publish_single_binding(
+    args: &PublishCodexCleanBindingArgs,
+    initial: &PullRequestIdentity,
+    clean: &IssueComment,
+    marker_comment: &IssueComment,
+    marker: &CodexReviewRequestRecord,
+    records: &mut Vec<BoundCleanRecord>,
+) -> Result<(), String> {
     let binds_current_head = marker.request_head_oid == initial.head_ref_oid
         && marker.request_base_oid == initial.base_ref_oid;
     if binds_current_head {
@@ -1553,27 +1592,75 @@ pub fn run_publish_codex_clean_binding(args: &[String]) -> Result<(), String> {
     );
     if args.dry_run {
         println!("{body}");
+        records.push(BoundCleanRecord {
+            created_at: record.verified_at.clone(),
+            url: String::new(),
+            record,
+        });
         return Ok(());
     }
     let posted = post_issue_comment(&args.repository, args.pr, &body)?;
     ensure_trusted_comment_echo_or_delete(&posted, &body, |comment_id| {
         delete_issue_comment(&args.repository, comment_id)
     })?;
+    let comment_url = posted.html_url;
     println!(
         "{}",
         serde_json::to_string_pretty(&CodexCleanBindingResult {
             schema_version: BINDING_RECORD_SCHEMA_VERSION,
-            repository: args.repository,
+            repository: args.repository.clone(),
             pull_request: args.pr,
             skipped: false,
             reason: None,
-            binding_id: Some(record.id),
-            bound_head_oid: Some(marker.request_head_oid),
-            comment_url: Some(posted.html_url),
+            binding_id: Some(record.id.clone()),
+            bound_head_oid: Some(record.bound_head_oid.clone()),
+            comment_url: Some(comment_url.clone()),
         })
         .map_err(|error| format!("无法序列化 codex-clean-binding 发布结果：{error}"))?
     );
+    records.push(BoundCleanRecord {
+        created_at: record.verified_at.clone(),
+        url: comment_url,
+        record,
+    });
     Ok(())
+}
+
+/// 为 sweep 计划下一条绑定：在 records 视角下按 created_at 升序找到第一个
+/// 可绑定（与 evaluate_snapshot 的 comment 闸门同规则）且尚未绑定的 SHA-less
+/// clean，并为其选择受控 request marker。无可绑定对象时返回 None；marker
+/// 缺失/歧义的 clean 记入 diagnostics 并跳过（evaluator 会独立对其
+/// fail-closed 诊断，publisher 不在此不完整证据下发布任何 record）。
+fn plan_next_sweep_binding<'a>(
+    pr: &'a PullRequestSnapshot,
+    records: &[BoundCleanRecord],
+    diagnostics: &mut Vec<String>,
+) -> Option<(&'a IssueComment, &'a IssueComment, CodexReviewRequestRecord)> {
+    let mut candidates: Vec<&IssueComment> = pr
+        .comments
+        .nodes
+        .iter()
+        .filter(|comment| sha_less_bindable_clean(comment))
+        .filter(|comment| {
+            !records
+                .iter()
+                .any(|bound| bound.record.clean_comment_id == comment.id)
+        })
+        .collect();
+    candidates.sort_by(|left, right| {
+        left.created_at
+            .cmp(&right.created_at)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    for clean in candidates {
+        match select_request_marker(pr, clean, records) {
+            Ok((marker_comment, marker)) => return Some((clean, marker_comment, marker)),
+            Err(error) => {
+                diagnostics.push(format!("sweep 跳过 clean `{}`：{error}", clean.id));
+            }
+        }
+    }
+    None
 }
 
 fn print_codex_clean_binding_skip(
@@ -3997,10 +4084,11 @@ mod tests {
         assert!(binding.contains("persist-credentials: false"));
         assert!(binding.contains("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"));
         assert!(binding.contains("Verify trusted checkout"));
-        // 不保留 concurrency 组：同组 pending 事件会被 GitHub 丢弃，导致 clean
-        // 事件丢失、绑定永久停滞。发布（record id 确定性去重）与 shadow 刷新
-        // 均幂等，并发安全；极端竞态最坏落 fail-closed，可重新请求审阅恢复。
-        assert!(!binding.contains("concurrency:"));
+        // 串行化 + sweep 配对：concurrency 组保证同一 PR 任意时刻只有一个
+        // publisher run（消除并发读-选-发竞态）；同组只允许一个 pending run，
+        // 被挤掉的中间事件由 publisher 的 unbound sweep 补齐，二者缺一不可。
+        assert!(binding.contains("group: codex-clean-binding-pr-${{ github.event.issue.number }}"));
+        assert!(binding.contains("cancel-in-progress: false"));
         assert!(binding.contains("github.event.issue.pull_request != null"));
         assert!(binding.contains("github.event.comment.user.login == 'wangzishi'"));
         assert!(
@@ -4020,6 +4108,10 @@ mod tests {
         // GITHUB_TOKEN 发布的 record 评论不会再触发 Gate workflow（GitHub 递归
         // 防护），绑定发布后必须由本 workflow 在同一 run 内自行刷新 shadow check。
         assert!(binding.contains("Refresh External Review Gate Shadow"));
+        // 绑定命令对不可绑定 comment fail-closed 退出非零时刷新仍须执行。
+        assert!(binding.contains(
+            "if: always() && github.event.comment.user.login == 'chatgpt-codex-connector[bot]'"
+        ));
         assert!(binding.contains("publish-external-review-check"));
         assert!(binding.contains("--trusted-ref-oid \"$trusted_ref_oid\""));
         assert!(binding.contains("RUN_ATTEMPT: ${{ github.run_attempt }}"));
@@ -5091,6 +5183,53 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn sweep_plans_unbound_clean_against_records_from_the_same_run() {
+        let snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-same-head-overlap-sequential.json"
+        ));
+        let pr = &snapshot.pull_request;
+        let mut diagnostics = Vec::new();
+        let records = collect_codex_clean_binding_records(pr, &mut diagnostics);
+        assert!(diagnostics.is_empty());
+        assert_eq!(records.len(), 2);
+
+        // 模拟 C2 的 issue_comment 事件被同组 pending 挤掉：records 里只有
+        // C1 的绑定时，sweep 应为 C2 计划绑定 M2（与 evaluator 消费语义一致）。
+        let mut sweep_diagnostics = Vec::new();
+        let (clean, marker_comment, _) =
+            plan_next_sweep_binding(pr, &records[..1], &mut sweep_diagnostics)
+                .expect("C2 待 sweep 补绑");
+        assert_eq!(clean.id, "IC-codex-clean-nosha-2");
+        assert_eq!(marker_comment.id, "IC-marker-2");
+        assert!(sweep_diagnostics.is_empty());
+
+        // 两条 clean 均已绑定后 sweep 无剩余工作。
+        let mut sweep_diagnostics = Vec::new();
+        assert!(plan_next_sweep_binding(pr, &records, &mut sweep_diagnostics).is_none());
+        assert!(sweep_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn sweep_skips_clean_without_consumable_marker_with_diagnostic() {
+        let snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-bound-clean-then-unbound.json"
+        ));
+        let pr = &snapshot.pull_request;
+        let mut diagnostics = Vec::new();
+        let records = collect_codex_clean_binding_records(pr, &mut diagnostics);
+        assert!(diagnostics.is_empty());
+        assert_eq!(records.len(), 1);
+
+        // C2 之前唯一的 marker 已被 C1 的 record 消费：sweep 跳过并记诊断，
+        // 不发布任何 record（evaluator 会独立对 C2 fail-closed 诊断）。
+        let mut sweep_diagnostics = Vec::new();
+        assert!(plan_next_sweep_binding(pr, &records, &mut sweep_diagnostics).is_none());
+        assert_eq!(sweep_diagnostics.len(), 1);
+        assert!(sweep_diagnostics[0].contains("IC-codex-clean-nosha-2"));
+        assert!(sweep_diagnostics[0].contains("均已被既有 binding record 消费"));
     }
 
     #[test]
