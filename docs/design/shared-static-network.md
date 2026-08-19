@@ -15,11 +15,12 @@ Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验
 `laneflow-static-network`，把受检 LFCA 顺序转换为性能优先、不可变、可由多个 world
 共享的 `SharedNetworkRevision`。
 
-本文是已接受的 G1 实现输入。#300 G2 已开始建立 `laneflow-static-network` 与受检 LFCA
-输入能力；当前已完成根唯一所有权、Identity、LaneEdge、Spatial，以及把普通后继与
-`ManeuverPath.edges` 合并成完整可执行 CSR 和带 path/transition/gate 上下文的机动候选。
-其余静态关系闭合、资源/性能证据和 Delivery G3/G4 尚未完成。目标 Runtime 仍不存在，
-当前生产路径仍是 Traffic v0.10 / SpatialPackage v0.1 / Data / Core。
+本文是已接受的 G1 实现输入。#439 / PR #436 已形成受检 LFCA 到共享路网的基础投影：
+根唯一所有权、Identity、LaneEdge、Spatial，以及把普通后继与 `ManeuverPath.edges`
+合并成完整可执行 CSR 和带 path/transition/gate/waiting 上下文的机动候选。#440 单独闭合
+剩余 Runtime 静态关系，#441 在最终字段集合与 #301 production kernel 上单独记录资源/
+性能证据；#300 保持父级跟踪项，不由 #436 自动关闭。目标 Runtime 仍不存在，当前生产
+路径仍是 Traffic v0.10 / SpatialPackage v0.1 / Data / Core。
 
 ## 2. 职责与依赖
 
@@ -260,6 +261,10 @@ O(n²) 构建。实现可以融合不影响精确预算或错误语义的子 pas
 
 ### 7.2 必需闭合
 
+#439 只完成其 Issue 明列的基础投影；下列尚未投影的 owner/member、access/profile、signal、
+parking、StaticRoute/occurrence 等 Runtime 必需关系由 #440 逐项盘点并闭合。实体计数存在不
+等于字段或关系已经进入 Runtime。
+
 成功前至少检查：
 
 - section/table/row kind 与 expected LFCA registry 一致；
@@ -374,6 +379,9 @@ CommittedRoadNetwork {
 requested capacity、累计分配、returned retained bytes 和进程 RSS，不能互相冒充。
 
 ### 10.2 一次性交付测量
+
+本节由 #441 独立验收；它不得反向扩大 #439 的功能范围，也不得在 #440 的最终静态字段集合
+或 #301 production traversal kernel 就绪前用临时布局冒充最终证据。
 
 最小 headless、facility-only、profile/frame-only、full lane Spatial 和当前最大合法产品场景
 分别记录：

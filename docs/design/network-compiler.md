@@ -26,8 +26,9 @@ ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial 
 原子共同接入、文档集摘要与 v2 文档数配置档；#296 已实现内部、未发布的 FlatBuffers B1
 道路编辑 production compiler 入口，旧 Geometry JSON 实现只作历史证据；#297 不再建立
 current JSON 编译器前端。该入口的实现不表示整个目标路网编译器、共享静态路网或 Traffic
-Runtime 已经实现；#300 G2 已开始交付受检 LFCA 输入能力与 `laneflow-static-network`
-首段根/Identity/LaneEdge/Spatial 构建基线，但完整 shared-network 验收尚未完成<br>
+Runtime 已经实现；#439 / PR #436 已形成受检 LFCA 输入能力与
+`laneflow-static-network` 的根/Identity/LaneEdge/机动拓扑/Spatial 基础投影，#440 与
+#441 分别承担剩余 Runtime 静态关系闭包和资源/性能证据，父级 #300 尚未完成<br>
 
 **关联决策与设计**:
 

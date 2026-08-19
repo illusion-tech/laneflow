@@ -236,7 +236,8 @@ committed 道路状态重编译后，只要 `NetworkRevisionId` 与 #302 冻结�
 
 ### 9. 性能证据不建设第二套证明平台
 
-#300 G2 至少记录：
+#300 的该项 G2 验收由 #441 在 #440 的最终静态字段集合和 #301 production kernel
+就绪后单独记录：
 
 - LFCA/LFSM/LFSD candidate exact bytes、各 component logical/retained bytes；
 - count/build/closure 墙钟与累计分配；
