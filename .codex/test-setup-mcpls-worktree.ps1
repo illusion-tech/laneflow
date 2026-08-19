@@ -453,6 +453,15 @@ try {
         $readStoppedState.status -eq 'stopped' -and
         [int]$readStoppedState.process_id -eq 0
     ) -Message 'stopped state uses zero to represent the absence of an active PID'
+    $failedState = (($stoppedState | ConvertTo-Json -Depth 6) | ConvertFrom-Json)
+    $failedState.status = 'failed'
+    Write-AtomicUtf8File -Path $testContext.StatePath `
+        -Content (($failedState | ConvertTo-Json -Depth 6) + "`n")
+    $readFailedState = Read-ServiceState -Path $testContext.StatePath
+    Assert-True -Condition (
+        $readFailedState.status -eq 'failed' -and
+        [int]$readFailedState.process_id -eq 0
+    ) -Message 'terminated startup failure remains a readable zero-PID terminal state'
     $nullPidState = (($fakeState | ConvertTo-Json -Depth 6) | ConvertFrom-Json)
     $nullPidState.process_id = $null
     Write-AtomicUtf8File -Path $testContext.StatePath `
@@ -567,6 +576,36 @@ try {
         Set-Item -Path Function:Write-LifecycleLog -Value $originalLifecycleLog
     }
 
+    $originalPruneContext = (Get-Command Get-WorktreeContext).ScriptBlock
+    $originalPruneDisable = (Get-Command Write-DisabledGeneratedConfig).ScriptBlock
+    $script:CapturedPruneContextDeadline = [DateTimeOffset]::MinValue
+    try {
+        Set-Item -Path Function:Get-WorktreeContext -Value {
+            param($RootHint, $StateRootOverride, $Deadline)
+            $script:CapturedPruneContextDeadline = $Deadline
+            return $testContext
+        }
+        Set-Item -Path Function:Write-DisabledGeneratedConfig -Value {
+            throw 'injected prune config disable failure'
+        }
+        Write-AtomicUtf8File -Path $testContext.StatePath `
+            -Content (($failedState | ConvertTo-Json -Depth 6) + "`n")
+        $pruneDeadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
+        $pruneDisableFailure = @(Invoke-PruneStates `
+            -AllStateRoot $testContext.AllStateRoot -OperationDeadline $pruneDeadline)
+    }
+    finally {
+        Set-Item -Path Function:Get-WorktreeContext -Value $originalPruneContext
+        Set-Item -Path Function:Write-DisabledGeneratedConfig -Value $originalPruneDisable
+    }
+    Assert-True -Condition (
+        $pruneDisableFailure.Count -eq 1 -and
+        $pruneDisableFailure[0].action -eq 'refused-config-disable-failed' -and
+        (Test-Path -LiteralPath $testContext.StateDirectory -PathType Container)
+    ) -Message 'Prune preserves state when a valid worktree config cannot be disabled'
+    Assert-True -Condition ($script:CapturedPruneContextDeadline -eq $pruneDeadline) `
+        -Message 'Prune context reconstruction reuses the shared operation deadline'
+
     $ownershipStateRoot = Join-Path $temporaryRoot 'ownership-state'
     $ownershipDirectory = Join-Path $ownershipStateRoot ('b' * 64)
     [System.IO.Directory]::CreateDirectory($ownershipDirectory) | Out-Null
@@ -666,6 +705,40 @@ try {
         if ($script:StartupTestPid -gt 0) {
             Stop-Process -Id $script:StartupTestPid -Force -ErrorAction SilentlyContinue
         }
+    }
+
+    $script:ImmediateExitStarts = 0
+    try {
+        Set-Item -Path Function:Start-McplsProcess -Value {
+            param($Executable, $Context, $Port)
+            $script:ImmediateExitStarts++
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = $script:StartupTestExecutable
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $startInfo.ArgumentList.Add('-NoLogo')
+            $startInfo.ArgumentList.Add('-NoProfile')
+            $startInfo.ArgumentList.Add('-Command')
+            $startInfo.ArgumentList.Add('exit 17')
+            $child = [System.Diagnostics.Process]::Start($startInfo)
+            $child.WaitForExit(5000) | Out-Null
+            return $child
+        }
+        Set-Item -Path Function:Test-LoopbackPortAvailable -Value { return $true }
+        Set-Item -Path Function:Test-LoopbackPortListening -Value { return $false }
+        $startupTool = [pscustomobject]@{ Path = $script:StartupTestExecutable }
+        Assert-Throws -Operation {
+            Start-NewMcplsService -Context $testContext -Tool $startupTool `
+                -TemplateInfo $template -McplsConfigHash $secondConfigHash `
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
+        } -Message 'port-independent immediate process exit aborts startup'
+        Assert-True -Condition ($script:ImmediateExitStarts -eq 1) `
+            -Message 'immediate process exit does not retry the remaining port range'
+    }
+    finally {
+        Set-Item -Path Function:Start-McplsProcess -Value $originalStartProcess
+        Set-Item -Path Function:Test-LoopbackPortAvailable -Value $originalPortAvailable
+        Set-Item -Path Function:Test-LoopbackPortListening -Value $originalPortListening
     }
 
     $health = Test-McpInitialize -Endpoint 'http://127.0.0.1:1/mcp' `

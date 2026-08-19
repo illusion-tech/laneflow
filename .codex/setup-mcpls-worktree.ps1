@@ -470,13 +470,14 @@ function Read-ServiceState {
             throw 'process_id must be an integer'
         }
         $terminalWithoutProcess = (
-            [string]$state.status -eq 'stopped' -and [long]$state.process_id -eq 0
+            [string]$state.status -in @('failed', 'stopped') -and
+            [long]$state.process_id -eq 0
         )
         if (-not $terminalWithoutProcess -and (
             [long]$state.process_id -le 0 -or
             [long]$state.process_id -gt [int]::MaxValue
         )) {
-            throw 'process_id must be positive, or zero only when status is stopped'
+            throw 'process_id must be positive, or zero only when status is failed or stopped'
         }
         if ($state.port -isnot [int] -and $state.port -isnot [long]) {
             throw 'port must be an integer'
@@ -1336,7 +1337,13 @@ function Start-NewMcplsService {
                 Start-Sleep -Milliseconds 100
             }
             if ($process.HasExited -or -not $bound) {
-                $lastFailure = "mcpls did not bind 127.0.0.1:$port"
+                $exitedBeforeBind = $process.HasExited
+                $lastFailure = if ($exitedBeforeBind) {
+                    "mcpls exited with code $($process.ExitCode) before binding 127.0.0.1:$port"
+                }
+                else {
+                    "mcpls did not bind 127.0.0.1:$port"
+                }
                 $launchedProcessId = [int]$process.Id
                 try {
                     if (-not $process.HasExited) {
@@ -1358,6 +1365,9 @@ function Start-NewMcplsService {
                 finally {
                     $process.Dispose()
                     $process = $null
+                }
+                if ($exitedBeforeBind) {
+                    throw $lastFailure
                 }
                 continue
             }
@@ -1951,12 +1961,20 @@ function Invoke-PruneStates {
             if ($rootValid) {
                 try {
                     $context = Get-WorktreeContext -RootHint ([string]$state.worktree_root) `
-                        -StateRootOverride $AllStateRoot
+                        -StateRootOverride $AllStateRoot -Deadline $deadline
                     Write-DisabledGeneratedConfig -Context $context `
                         -Endpoint ([string]$state.endpoint)
                 }
                 catch {
-                    # Prune never overwrites an unmanaged config and remains bounded.
+                    $results.Add([pscustomobject]@{
+                        worktree_id = $directory.Name
+                        action = 'refused-config-disable-failed'
+                        root_valid = $rootValid
+                        identity_matched = $identity.Matched
+                        healthy = $health.Healthy
+                        reason = $_.Exception.Message
+                    })
+                    continue
                 }
             }
             Remove-ValidatedStateDirectory -AllStateRoot $AllStateRoot `
