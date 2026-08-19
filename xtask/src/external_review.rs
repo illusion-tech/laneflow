@@ -129,6 +129,26 @@ query($owner:String!, $name:String!, $number:Int!) {
 }
 "#;
 
+const PULL_REQUEST_COMMENTS_QUERY: &str = r#"
+query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$number) {
+      comments(first:100, after:$cursor) {
+        nodes {
+          id
+          author { login }
+          body
+          createdAt
+          updatedAt
+          url
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}
+"#;
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExternalReviewState {
@@ -1101,6 +1121,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     }
 
     let binding_records = collect_codex_clean_binding_records(pr, &mut diagnostics);
+    let bindings = adjudicate_codex_clean_bindings(pr, &binding_records, &mut diagnostics);
     let mut consumed_binding_records = BTreeSet::<String>::new();
     for comment in &pr.comments.nodes {
         let Some(actor) = comment.author.as_ref() else {
@@ -1127,8 +1148,8 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             continue;
         }
         let Some(reviewed_head) = parse_reviewed_commit(&comment.body) else {
-            match bind_codex_clean_comment(comment, &binding_records, pr, &mut diagnostics) {
-                CodexCleanBinding::Bound(bound) => {
+            match bindings.get(comment.id.as_str()) {
+                Some(Some(bound)) => {
                     consumed_binding_records.insert(bound.record.id.clone());
                     push_evidence(
                         &mut evidence,
@@ -1140,19 +1161,21 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                             reviewed_head: &bound.record.bound_head_oid,
                             reviewed_base: &bound.record.bound_base_oid,
                             outcome: EvidenceOutcome::Clean,
-                            submitted_at: &bound.created_at,
+                            // completion 排序使用被引用 clean comment 的创建时间；
+                            // record 的创建时间只证明 head 关联与 record 自身合法性。
+                            submitted_at: &comment.created_at,
                             evidence_url: &bound.url,
                         },
                     );
                 }
-                CodexCleanBinding::NoRecord => {
+                Some(None) => {}
+                None => {
                     push_unbound_clean_ambiguity(
                         &mut unbound_clean_ambiguities,
                         &mut diagnostics,
                         comment,
                     );
                 }
-                CodexCleanBinding::Invalid => {}
             }
             continue;
         };
@@ -1478,34 +1501,33 @@ pub fn run_publish_codex_clean_binding(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
-    let (marker_comment, marker) = select_request_marker(pr, clean)?;
-    if marker.request_head_oid != initial.head_ref_oid
-        || marker.request_base_oid != initial.base_ref_oid
-    {
-        return Err(format!(
-            "受控 request marker `{}` 的 request head/base 与 current head/base 不一致，拒绝绑定",
-            marker_comment.id
-        ));
+    let (marker_comment, marker) = select_request_marker(pr, clean, &existing_records)?;
+    let binds_current_head = marker.request_head_oid == initial.head_ref_oid
+        && marker.request_base_oid == initial.base_ref_oid;
+    if binds_current_head {
+        ensure_no_push_in_window(
+            &args.repository,
+            args.pr,
+            &initial.head_ref_name,
+            &initial.head_ref_oid,
+            &marker_comment.created_at,
+        )?;
+        let final_identity = load_live_identity(&args.repository, args.pr)?;
+        if final_identity.head_ref_oid != initial.head_ref_oid
+            || final_identity.base_ref_oid != initial.base_ref_oid
+        {
+            return Err(format!(
+                "head/base 竞态：绑定判定前读取 {}/{}，发布前复核 {}/{}",
+                initial.head_ref_oid,
+                initial.base_ref_oid,
+                final_identity.head_ref_oid,
+                final_identity.base_ref_oid
+            ));
+        }
     }
-    ensure_no_push_in_window(
-        &args.repository,
-        args.pr,
-        &initial.head_ref_name,
-        &initial.head_ref_oid,
-        &marker_comment.created_at,
-    )?;
-    let final_identity = load_live_identity(&args.repository, args.pr)?;
-    if final_identity.head_ref_oid != initial.head_ref_oid
-        || final_identity.base_ref_oid != initial.base_ref_oid
-    {
-        return Err(format!(
-            "head/base 竞态：绑定判定前读取 {}/{}，发布前复核 {}/{}",
-            initial.head_ref_oid,
-            initial.base_ref_oid,
-            final_identity.head_ref_oid,
-            final_identity.base_ref_oid
-        ));
-    }
+    // marker head 落后于 current head（跨 push 迟到的旧 head 响应）时仍发布：
+    // record 携带 marker 的 head/base，evaluator 会落 stale；
+    // 这消费掉迟到的旧 head 响应，避免后续 clean 永久卡死，无需 no-push 窗口检查。
 
     let record = CodexCleanBindingRecord {
         schema_version: BINDING_RECORD_SCHEMA_VERSION,
@@ -1515,8 +1537,8 @@ pub fn run_publish_codex_clean_binding(args: &[String]) -> Result<(), String> {
         clean_comment_created_at: clean.created_at.clone(),
         clean_comment_url: clean.url.clone(),
         request_marker_id: marker_comment.id.clone(),
-        bound_head_oid: initial.head_ref_oid.clone(),
-        bound_base_oid: initial.base_ref_oid.clone(),
+        bound_head_oid: marker.request_head_oid.clone(),
+        bound_base_oid: marker.request_base_oid.clone(),
         verified_at: now_rfc3339()?,
         run_url: args.run_url.clone(),
     };
@@ -1524,7 +1546,7 @@ pub fn run_publish_codex_clean_binding(args: &[String]) -> Result<(), String> {
         .map_err(|error| format!("无法序列化 codex-clean-binding 记录：{error}"))?;
     let body = format!(
         "external-review: codex clean bound to `{}` via controlled request marker\n\n{CODEX_CLEAN_BINDING_MARKER}{json}{HIDDEN_RECORD_SUFFIX}\n",
-        &initial.head_ref_oid[..12]
+        &marker.request_head_oid[..12]
     );
     if args.dry_run {
         println!("{body}");
@@ -1541,7 +1563,7 @@ pub fn run_publish_codex_clean_binding(args: &[String]) -> Result<(), String> {
             skipped: false,
             reason: None,
             binding_id: Some(record.id),
-            bound_head_oid: Some(initial.head_ref_oid),
+            bound_head_oid: Some(marker.request_head_oid),
             comment_url: Some(posted.html_url),
         })
         .map_err(|error| format!("无法序列化 codex-clean-binding 发布结果：{error}"))?
@@ -1570,56 +1592,19 @@ fn print_codex_clean_binding_skip(
     Ok(())
 }
 
+/// publisher 与 evaluator 镜像同一确定性规则：绑定「clean 之前最早未被消费的
+/// 受控 request marker」。marker 被消费 = 存在合法 binding record 引用它。
 fn select_request_marker<'a>(
     pr: &'a PullRequestSnapshot,
     clean: &IssueComment,
+    existing_records: &[BoundCleanRecord],
 ) -> Result<(&'a IssueComment, CodexReviewRequestRecord), String> {
     let mut candidates = Vec::new();
     for comment in &pr.comments.nodes {
         if !comment.body.contains(CODEX_REVIEW_REQUEST_MARKER) {
             continue;
         }
-        let actor = comment
-            .author
-            .as_ref()
-            .map_or("", |actor| actor.login.as_str());
-        if normalize_actor(actor) != GITHUB_ACTIONS_ACTOR {
-            return Err(format!(
-                "comment `{}` 含受控 marker 标记但 actor `{actor}` 不是受信 publisher",
-                comment.id
-            ));
-        }
-        if comment.updated_at != comment.created_at {
-            return Err(format!(
-                "受控 request marker `{}` 在创建后被编辑",
-                comment.id
-            ));
-        }
-        if !valid_timestamp(&comment.created_at) {
-            return Err(format!(
-                "受控 request marker `{}` 的 createdAt 不是 UTC RFC3339：{}",
-                comment.id, comment.created_at
-            ));
-        }
-        let marker = match parse_hidden_record(&comment.body, CODEX_REVIEW_REQUEST_MARKER) {
-            Some(Ok(marker)) => marker,
-            Some(Err(error)) => {
-                return Err(format!("受控 request marker `{}`：{error}", comment.id));
-            }
-            None => {
-                return Err(format!(
-                    "受控 request marker `{}` 不包含合法 `{CODEX_REVIEW_REQUEST_MARKER}` 记录",
-                    comment.id
-                ));
-            }
-        };
-        let marker: CodexReviewRequestRecord = marker;
-        if marker.schema_version != BINDING_RECORD_SCHEMA_VERSION || marker.pr != pr.number {
-            return Err(format!(
-                "受控 request marker `{}` 的 schemaVersion/pr 与当前 PR #{} 不一致",
-                comment.id, pr.number
-            ));
-        }
+        let marker = parse_request_marker_comment(comment, pr.number)?;
         if !valid_full_oid(&marker.request_head_oid) || !valid_full_oid(&marker.request_base_oid) {
             return Err(format!(
                 "受控 request marker `{}` 的 request head/base 不是完整 OID",
@@ -1636,13 +1621,33 @@ fn select_request_marker<'a>(
         return Err("受控 request marker 与 clean comment 同秒，无法证明先后".to_string());
     }
     candidates.retain(|(comment, _)| timestamp_second(&comment.created_at) < clean_second);
-    candidates.sort_by(|left, right| right.0.created_at.cmp(&left.0.created_at));
-    candidates.into_iter().next().ok_or_else(|| {
-        format!(
-            "clean comment `{}` 之前不存在受控 request marker，拒绝绑定",
-            clean.id
-        )
-    })
+    candidates.sort_by(|left, right| {
+        left.0
+            .created_at
+            .cmp(&right.0.created_at)
+            .then_with(|| left.0.id.cmp(&right.0.id))
+    });
+    let consumed: BTreeSet<&str> = existing_records
+        .iter()
+        .map(|bound| bound.record.request_marker_id.as_str())
+        .collect();
+    let had_candidates = !candidates.is_empty();
+    candidates
+        .into_iter()
+        .find(|(comment, _)| !consumed.contains(comment.id.as_str()))
+        .ok_or_else(|| {
+            if had_candidates {
+                format!(
+                    "clean comment `{}` 之前的受控 request marker 均已被既有 binding record 消费，拒绝绑定",
+                    clean.id
+                )
+            } else {
+                format!(
+                    "clean comment `{}` 之前不存在受控 request marker，拒绝绑定",
+                    clean.id
+                )
+            }
+        })
 }
 
 fn ensure_no_push_in_window(
@@ -2002,12 +2007,6 @@ struct BoundCleanRecord {
     url: String,
 }
 
-enum CodexCleanBinding<'a> {
-    Bound(&'a BoundCleanRecord),
-    NoRecord,
-    Invalid,
-}
-
 fn codex_clean_comment_shape(body: &str) -> bool {
     body.contains("Codex Review:") && body.contains("Didn't find any major issues")
 }
@@ -2034,7 +2033,10 @@ fn collect_codex_clean_binding_records(
     pr: &PullRequestSnapshot,
     diagnostics: &mut Vec<String>,
 ) -> Vec<BoundCleanRecord> {
-    let mut records = Vec::new();
+    let mut records: Vec<BoundCleanRecord> = Vec::new();
+    let mut seen_keys = BTreeSet::new();
+    let mut seen_ids = BTreeSet::new();
+    let mut seen_clean = BTreeSet::new();
     for comment in &pr.comments.nodes {
         if !comment.body.contains(CODEX_CLEAN_BINDING_MARKER) {
             continue;
@@ -2050,27 +2052,36 @@ fn collect_codex_clean_binding_records(
             }
             None => continue,
         };
-        let Some(record) = validate_codex_clean_binding_record(comment, record, pr, diagnostics)
+        let Some(bound) = validate_codex_clean_binding_record(comment, record, pr, diagnostics)
         else {
             continue;
         };
-        records.push(record);
-    }
-    let mut seen_ids = BTreeSet::new();
-    let mut seen_clean = BTreeSet::new();
-    for bound in &records {
-        if !seen_ids.insert(bound.record.id.as_str()) {
+        // 发布重试/并发可能产生同 id 且关键字段完全一致的重复 record，去重为一条；
+        // 关键字段之外的 verifiedAt/runUrl 等随重试 run 变化，不参与判重。
+        // 创建者身份已由 validate 固定为受信 publisher，无需纳入 key。
+        let record = &bound.record;
+        let key = (
+            record.id.clone(),
+            record.pr,
+            record.bound_head_oid.clone(),
+            record.bound_base_oid.clone(),
+            record.clean_comment_id.clone(),
+            record.request_marker_id.clone(),
+        );
+        let record_id = record.id.clone();
+        let clean_comment_id = record.clean_comment_id.clone();
+        if !seen_keys.insert(key) {
+            continue;
+        }
+        if !seen_ids.insert(record_id.clone()) {
+            diagnostics.push(format!("重复 Codex clean binding record id：`{record_id}`"));
+        }
+        if !seen_clean.insert(clean_comment_id.clone()) {
             diagnostics.push(format!(
-                "重复 Codex clean binding record id：`{}`",
-                bound.record.id
+                "多个 Codex clean binding record 引用同一 clean comment `{clean_comment_id}`"
             ));
         }
-        if !seen_clean.insert(bound.record.clean_comment_id.as_str()) {
-            diagnostics.push(format!(
-                "多个 Codex clean binding record 引用同一 clean comment `{}`",
-                bound.record.clean_comment_id
-            ));
-        }
+        records.push(bound);
     }
     records
 }
@@ -2152,49 +2163,53 @@ fn validate_codex_clean_binding_record(
     })
 }
 
-fn bind_codex_clean_comment<'a>(
+/// 校验并解析受控 request marker comment 的隐藏记录；publisher 与 evaluator 共用。
+fn parse_request_marker_comment(
     comment: &IssueComment,
-    records: &'a [BoundCleanRecord],
-    pr: &PullRequestSnapshot,
-    diagnostics: &mut Vec<String>,
-) -> CodexCleanBinding<'a> {
-    let matching = records
-        .iter()
-        .filter(|bound| bound.record.clean_comment_id == comment.id)
-        .collect::<Vec<_>>();
-    let [bound] = matching.as_slice() else {
-        return if matching.is_empty() {
-            CodexCleanBinding::NoRecord
-        } else {
-            CodexCleanBinding::Invalid
-        };
+    pr_number: u64,
+) -> Result<CodexReviewRequestRecord, String> {
+    let actor = comment
+        .author
+        .as_ref()
+        .map_or("", |actor| actor.login.as_str());
+    if normalize_actor(actor) != GITHUB_ACTIONS_ACTOR {
+        return Err(format!(
+            "受控 request marker `{}` 的 actor `{actor}` 不是受信 publisher",
+            comment.id
+        ));
+    }
+    if comment.updated_at != comment.created_at {
+        return Err(format!(
+            "受控 request marker `{}` 在创建后被编辑",
+            comment.id
+        ));
+    }
+    if !valid_timestamp(&comment.created_at) {
+        return Err(format!(
+            "受控 request marker `{}` 的 createdAt 不是 UTC RFC3339：{}",
+            comment.id, comment.created_at
+        ));
+    }
+    let marker = match parse_hidden_record(&comment.body, CODEX_REVIEW_REQUEST_MARKER) {
+        Some(Ok(marker)) => marker,
+        Some(Err(error)) => {
+            return Err(format!("受控 request marker `{}`：{error}", comment.id));
+        }
+        None => {
+            return Err(format!(
+                "受控 request marker `{}` 不包含 `{CODEX_REVIEW_REQUEST_MARKER}` 记录",
+                comment.id
+            ));
+        }
     };
-    let record = &bound.record;
-    if record.clean_comment_created_at != comment.created_at {
-        diagnostics.push(format!(
-            "Codex clean binding record `{}` 的 cleanCommentCreatedAt 与 clean comment `{}` 不一致",
-            record.id, comment.id
+    let marker: CodexReviewRequestRecord = marker;
+    if marker.schema_version != BINDING_RECORD_SCHEMA_VERSION || marker.pr != pr_number {
+        return Err(format!(
+            "受控 request marker `{}` 的 schemaVersion/pr 与当前 PR #{} 不一致",
+            comment.id, pr_number
         ));
-        return CodexCleanBinding::Invalid;
     }
-    if record.clean_comment_url != comment.url {
-        diagnostics.push(format!(
-            "Codex clean binding record `{}` 的 cleanCommentUrl 与 clean comment `{}` 不一致",
-            record.id, comment.id
-        ));
-        return CodexCleanBinding::Invalid;
-    }
-    if !resolve_request_marker(record, pr, comment, diagnostics) {
-        return CodexCleanBinding::Invalid;
-    }
-    if record.bound_head_oid == pr.head_ref_oid && record.bound_base_oid != pr.base_ref_oid {
-        diagnostics.push(format!(
-            "Codex clean binding record `{}` 绑定 current head 但 base 与 current base 不一致",
-            record.id
-        ));
-        return CodexCleanBinding::Invalid;
-    }
-    CodexCleanBinding::Bound(bound)
+    Ok(marker)
 }
 
 fn resolve_request_marker(
@@ -2215,56 +2230,13 @@ fn resolve_request_marker(
         ));
         return false;
     };
-    let actor = marker_comment
-        .author
-        .as_ref()
-        .map_or("", |actor| actor.login.as_str());
-    if normalize_actor(actor) != GITHUB_ACTIONS_ACTOR {
-        diagnostics.push(format!(
-            "受控 request marker `{}` 的 actor `{actor}` 不是受信 publisher",
-            marker_comment.id
-        ));
-        return false;
-    }
-    if marker_comment.updated_at != marker_comment.created_at {
-        diagnostics.push(format!(
-            "受控 request marker `{}` 在创建后被编辑",
-            marker_comment.id
-        ));
-        return false;
-    }
-    if !valid_timestamp(&marker_comment.created_at) {
-        diagnostics.push(format!(
-            "受控 request marker `{}` 的 createdAt 不是 UTC RFC3339：{}",
-            marker_comment.id, marker_comment.created_at
-        ));
-        return false;
-    }
-    let marker = match parse_hidden_record(&marker_comment.body, CODEX_REVIEW_REQUEST_MARKER) {
-        Some(Ok(marker)) => marker,
-        Some(Err(error)) => {
-            diagnostics.push(format!(
-                "受控 request marker `{}`：{error}",
-                marker_comment.id
-            ));
-            return false;
-        }
-        None => {
-            diagnostics.push(format!(
-                "受控 request marker `{}` 不包含 `{CODEX_REVIEW_REQUEST_MARKER}` 记录",
-                marker_comment.id
-            ));
+    let marker = match parse_request_marker_comment(marker_comment, pr.number) {
+        Ok(marker) => marker,
+        Err(error) => {
+            diagnostics.push(error);
             return false;
         }
     };
-    let marker: CodexReviewRequestRecord = marker;
-    if marker.schema_version != BINDING_RECORD_SCHEMA_VERSION || marker.pr != pr.number {
-        diagnostics.push(format!(
-            "受控 request marker `{}` 的 schemaVersion/pr 与当前 PR #{} 不一致",
-            marker_comment.id, pr.number
-        ));
-        return false;
-    }
     if marker.request_head_oid != record.bound_head_oid
         || marker.request_base_oid != record.bound_base_oid
     {
@@ -2282,6 +2254,166 @@ fn resolve_request_marker(
         return false;
     }
     true
+}
+
+enum EarliestMarkerSelection<'a> {
+    Selected(&'a IssueComment),
+    Exhausted,
+    Invalid,
+}
+
+/// 返回 clean 之前（秒粒度严格更早）最早未被既有合法 binding record 消费的
+/// 受控 request marker；候选 malformed 时记诊断并返回 Invalid。
+fn select_earliest_unconsumed_marker<'a>(
+    pr: &'a PullRequestSnapshot,
+    clean: &IssueComment,
+    consumed_markers: &BTreeSet<&str>,
+    diagnostics: &mut Vec<String>,
+) -> EarliestMarkerSelection<'a> {
+    let clean_second = timestamp_second(&clean.created_at);
+    let mut candidates = Vec::new();
+    for comment in &pr.comments.nodes {
+        if !comment.body.contains(CODEX_REVIEW_REQUEST_MARKER) {
+            continue;
+        }
+        let marker = match parse_request_marker_comment(comment, pr.number) {
+            Ok(marker) => marker,
+            Err(error) => {
+                diagnostics.push(error);
+                return EarliestMarkerSelection::Invalid;
+            }
+        };
+        if !valid_full_oid(&marker.request_head_oid) || !valid_full_oid(&marker.request_base_oid) {
+            diagnostics.push(format!(
+                "受控 request marker `{}` 的 request head/base 不是完整 OID",
+                comment.id
+            ));
+            return EarliestMarkerSelection::Invalid;
+        }
+        if timestamp_second(&comment.created_at) >= clean_second {
+            continue;
+        }
+        candidates.push(comment);
+    }
+    candidates.sort_by(|left, right| {
+        left.created_at
+            .cmp(&right.created_at)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    candidates
+        .into_iter()
+        .find(|comment| !consumed_markers.contains(comment.id.as_str()))
+        .map(EarliestMarkerSelection::Selected)
+        .unwrap_or(EarliestMarkerSelection::Exhausted)
+}
+
+/// 与 evaluate_snapshot 的 comment 闸门一致：只有未编辑、Codex 发表、匹配封闭
+/// clean grammar 且无 Reviewed commit marker 的 comment 才进入 record 绑定判定。
+fn sha_less_bindable_clean(comment: &IssueComment) -> bool {
+    comment
+        .author
+        .as_ref()
+        .is_some_and(|actor| normalize_actor(&actor.login) == CODEX_ACTOR)
+        && !comment.body.contains("To use Codex here")
+        && codex_clean_comment_shape(&comment.body)
+        && comment.updated_at == comment.created_at
+        && parse_reviewed_commit(&comment.body).is_none()
+}
+
+/// 按 record 创建时间升序逐条判定无 SHA clean 的绑定，返回 clean comment id →
+/// 判定结果（None 表示对应 record 不合法）。stale record 同样消费其 marker；
+/// 未被任何 record 成功绑定的 clean 与未被消费的 record 由调用方分别诊断。
+fn adjudicate_codex_clean_bindings<'a>(
+    pr: &'a PullRequestSnapshot,
+    records: &'a [BoundCleanRecord],
+    diagnostics: &mut Vec<String>,
+) -> BTreeMap<&'a str, Option<&'a BoundCleanRecord>> {
+    let mut bindings = BTreeMap::new();
+    let mut consumed_markers = BTreeSet::<&str>::new();
+    let mut ordered: Vec<&BoundCleanRecord> = records.iter().collect();
+    ordered.sort_by(|left, right| {
+        left.created_at
+            .cmp(&right.created_at)
+            .then_with(|| left.record.id.cmp(&right.record.id))
+    });
+    for bound in ordered {
+        let record = &bound.record;
+        let Some(clean) = pr
+            .comments
+            .nodes
+            .iter()
+            .find(|comment| comment.id == record.clean_comment_id)
+        else {
+            continue;
+        };
+        if !sha_less_bindable_clean(clean) {
+            continue;
+        }
+        if bindings.contains_key(clean.id.as_str()) {
+            // 一个 clean 只被一条 record 引用；重复引用已在 collect 阶段诊断
+            bindings.insert(clean.id.as_str(), None);
+            continue;
+        }
+        let verdict = adjudicate_binding_record(bound, clean, pr, &consumed_markers, diagnostics);
+        if verdict.is_some() {
+            consumed_markers.insert(record.request_marker_id.as_str());
+        }
+        bindings.insert(clean.id.as_str(), verdict);
+    }
+    bindings
+}
+
+fn adjudicate_binding_record<'a>(
+    bound: &'a BoundCleanRecord,
+    clean: &IssueComment,
+    pr: &PullRequestSnapshot,
+    consumed_markers: &BTreeSet<&str>,
+    diagnostics: &mut Vec<String>,
+) -> Option<&'a BoundCleanRecord> {
+    let record = &bound.record;
+    if record.clean_comment_created_at != clean.created_at {
+        diagnostics.push(format!(
+            "Codex clean binding record `{}` 的 cleanCommentCreatedAt 与 clean comment `{}` 不一致",
+            record.id, clean.id
+        ));
+        return None;
+    }
+    if record.clean_comment_url != clean.url {
+        diagnostics.push(format!(
+            "Codex clean binding record `{}` 的 cleanCommentUrl 与 clean comment `{}` 不一致",
+            record.id, clean.id
+        ));
+        return None;
+    }
+    if !resolve_request_marker(record, pr, clean, diagnostics) {
+        return None;
+    }
+    match select_earliest_unconsumed_marker(pr, clean, consumed_markers, diagnostics) {
+        EarliestMarkerSelection::Invalid => return None,
+        EarliestMarkerSelection::Exhausted => {
+            diagnostics.push(format!(
+                "Codex clean binding record `{}` 引用的受控 request marker `{}` 已被更早的合法 binding record 消费",
+                record.id, record.request_marker_id
+            ));
+            return None;
+        }
+        EarliestMarkerSelection::Selected(expected) if expected.id != record.request_marker_id => {
+            diagnostics.push(format!(
+                "Codex clean binding record `{}` 引用的受控 request marker `{}` 不是 clean comment `{}` 之前最早未被消费的 marker（应为 `{}`）",
+                record.id, record.request_marker_id, clean.id, expected.id
+            ));
+            return None;
+        }
+        EarliestMarkerSelection::Selected(_) => {}
+    }
+    if record.bound_head_oid == pr.head_ref_oid && record.bound_base_oid != pr.base_ref_oid {
+        diagnostics.push(format!(
+            "Codex clean binding record `{}` 绑定 current head 但 base 与 current base 不一致",
+            record.id
+        ));
+        return None;
+    }
+    Some(bound)
 }
 
 fn dependabot_lockfile_completion(pr: &PullRequestSnapshot) -> Option<&CommitMetadata> {
@@ -3154,9 +3286,17 @@ fn load_live_snapshot(repository: &str, pr: u64) -> Result<ExternalReviewSnapsho
     let repository_data = response
         .repository
         .ok_or_else(|| format!("GitHub repository 不存在或不可读：{repository}"))?;
-    let pull_request = repository_data
+    let mut pull_request = repository_data
         .pull_request
         .ok_or_else(|| format!("GitHub PR 不存在或不可读：{repository}#{pr}"))?;
+    if pull_request.comments.page_info.has_next_page {
+        // 绑定判定需要完整的 clean/marker/record 视图：截断时补齐全量分页；
+        // 分页无法完成时 fail-closed，不得静默当作不存在。
+        pull_request.comments = Connection {
+            nodes: fetch_all_issue_comments(repository, pr)?,
+            page_info: PageInfo::default(),
+        };
+    }
     Ok(ExternalReviewSnapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
         repository: repository.to_string(),
@@ -3164,6 +3304,74 @@ fn load_live_snapshot(repository: &str, pr: u64) -> Result<ExternalReviewSnapsho
         provider_errors: Vec::new(),
         waiver: None,
     })
+}
+
+fn fetch_all_issue_comments(repository: &str, pr: u64) -> Result<Vec<IssueComment>, String> {
+    let (owner, name) = repository
+        .split_once('/')
+        .ok_or_else(|| format!("repository 格式不正确：{repository}"))?;
+    fetch_comment_pages(|cursor| load_issue_comments_page(owner, name, pr, cursor))
+}
+
+fn fetch_comment_pages(
+    mut load_page: impl FnMut(Option<&str>) -> Result<CommentsConnection, String>,
+) -> Result<Vec<IssueComment>, String> {
+    let mut comments = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let page = load_page(cursor.as_deref())?;
+        let fetched = page.nodes.len();
+        comments.extend(page.nodes);
+        let Some(next) = next_comment_page_cursor(&page.page_info, fetched)? else {
+            break;
+        };
+        if cursor.as_deref() == Some(next.as_str()) {
+            return Err(
+                "issue comments 分页 cursor 未推进，无法完成分页，按 fail-closed 处理".to_string(),
+            );
+        }
+        cursor = Some(next);
+    }
+    Ok(comments)
+}
+
+fn next_comment_page_cursor(
+    page_info: &CommentsPageInfo,
+    fetched: usize,
+) -> Result<Option<String>, String> {
+    if !page_info.has_next_page {
+        return Ok(None);
+    }
+    if fetched == 0 {
+        return Err(
+            "issue comments 分页返回空页但 hasNextPage 为 true，无法完成分页，按 fail-closed 处理"
+                .to_string(),
+        );
+    }
+    match page_info
+        .end_cursor
+        .as_deref()
+        .filter(|cursor| !cursor.is_empty())
+    {
+        Some(cursor) => Ok(Some(cursor.to_string())),
+        None => {
+            Err("issue comments 分页缺少 endCursor，无法完成分页，按 fail-closed 处理".to_string())
+        }
+    }
+}
+
+fn load_issue_comments_page(
+    owner: &str,
+    name: &str,
+    pr: u64,
+    cursor: Option<&str>,
+) -> Result<CommentsConnection, String> {
+    let data: CommentsPageData =
+        gh_graphql_with_cursor(PULL_REQUEST_COMMENTS_QUERY, owner, name, pr, cursor)?;
+    data.repository
+        .and_then(|repository| repository.pull_request)
+        .map(|pull_request| pull_request.comments)
+        .ok_or_else(|| format!("GitHub PR 不存在或不可读：{owner}/{name}#{pr}"))
 }
 
 fn load_live_waiver_snapshot(
@@ -3217,19 +3425,32 @@ fn gh_graphql<T: for<'de> Deserialize<'de>>(
     name: &str,
     pr: u64,
 ) -> Result<T, String> {
-    let output = Command::new("gh")
-        .args([
-            "api",
-            "graphql",
-            "-F",
-            &format!("owner={owner}"),
-            "-F",
-            &format!("name={name}"),
-            "-F",
-            &format!("number={pr}"),
-            "-f",
-            &format!("query={query}"),
-        ])
+    gh_graphql_with_cursor(query, owner, name, pr, None)
+}
+
+fn gh_graphql_with_cursor<T: for<'de> Deserialize<'de>>(
+    query: &str,
+    owner: &str,
+    name: &str,
+    pr: u64,
+    cursor: Option<&str>,
+) -> Result<T, String> {
+    let mut command = Command::new("gh");
+    command
+        .arg("api")
+        .arg("graphql")
+        .arg("-F")
+        .arg(format!("owner={owner}"))
+        .arg("-F")
+        .arg(format!("name={name}"))
+        .arg("-F")
+        .arg(format!("number={pr}"))
+        .arg("-f")
+        .arg(format!("query={query}"));
+    if let Some(cursor) = cursor {
+        command.arg("-f").arg(format!("cursor={cursor}"));
+    }
+    let output = command
         .output()
         .map_err(|error| format!("无法运行 gh GraphQL：{error}"))?;
     if !output.status.success() {
@@ -3282,6 +3503,40 @@ struct ExternalReviewData {
 #[serde(rename_all = "camelCase")]
 struct ExternalReviewRepository {
     pull_request: Option<PullRequestSnapshot>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CommentsPageData {
+    repository: Option<CommentsPageRepository>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommentsPageRepository {
+    pull_request: Option<CommentsPagePullRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CommentsPagePullRequest {
+    comments: CommentsConnection,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommentsConnection {
+    #[serde(default)]
+    nodes: Vec<IssueComment>,
+    #[serde(default)]
+    page_info: CommentsPageInfo,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommentsPageInfo {
+    #[serde(default)]
+    has_next_page: bool,
+    #[serde(default)]
+    end_cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3724,6 +3979,40 @@ mod tests {
             (
                 include_str!(
                     "../fixtures/external-review/codex-no-sha-record-marker-same-second.json"
+                ),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-bound-clean-finding-before-record.json"
+                ),
+                ExternalReviewState::AwaitingRereview,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-cross-push-late-clean.json"),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-cross-push-stale-then-current.json"
+                ),
+                ExternalReviewState::Pass,
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-marker-consumed-out-of-order.json"
+                ),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-duplicate-records-identical.json"
+                ),
+                ExternalReviewState::Pass,
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-duplicate-records-conflict.json"
                 ),
                 ExternalReviewState::ProviderError,
             ),
@@ -4408,7 +4697,7 @@ mod tests {
         );
         assert_eq!(
             result.completion_time.as_deref(),
-            Some("2026-08-19T01:11:00Z")
+            Some("2026-08-19T01:10:00Z")
         );
         let binding = result
             .evidence
@@ -4474,6 +4763,22 @@ mod tests {
                 ),
                 "必须严格早于",
             ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha-cross-push-late-clean.json"),
+                "最早未被消费的 marker",
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-marker-consumed-out-of-order.json"
+                ),
+                "最早未被消费的 marker",
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-no-sha-duplicate-records-conflict.json"
+                ),
+                "重复 Codex clean binding record id",
+            ),
         ];
         for (contents, expected_diagnostic) in cases {
             let result = evaluate_snapshot(&fixture(contents));
@@ -4501,6 +4806,128 @@ mod tests {
                 .iter()
                 .all(|diagnostic| !diagnostic.contains("未绑定到任何无 SHA clean comment"))
         );
+    }
+
+    #[test]
+    fn binding_record_evidence_keeps_clean_comment_completion_time() {
+        let result = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-bound-clean-finding-before-record.json"
+        )));
+        // finding 落在 clean comment 与 binding record 之间：completion 排序必须用
+        // clean comment 的创建时间（01:10），否则旧 clean 会错误覆盖新 finding 变成 Pass
+        assert_eq!(result.state, ExternalReviewState::AwaitingRereview);
+        assert!(result.requires_rereview);
+        let binding = result
+            .evidence
+            .iter()
+            .find(|item| item.source_kind == "binding_record")
+            .expect("binding_record evidence");
+        assert_eq!(binding.submitted_at, "2026-08-19T01:10:00Z");
+    }
+
+    #[test]
+    fn stale_binding_consumes_marker_so_late_clean_can_bind_current_head() {
+        let result = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-cross-push-stale-then-current.json"
+        )));
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert_eq!(
+            result.reviewed_head_oid.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        assert_eq!(
+            result.completion_time.as_deref(),
+            Some("2026-08-19T01:25:00Z")
+        );
+        assert_eq!(
+            result
+                .evidence
+                .iter()
+                .filter(|item| item.source_kind == "binding_record")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn identical_duplicate_binding_records_dedupe_to_one() {
+        let result = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-duplicate-records-identical.json"
+        )));
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert_eq!(
+            result
+                .evidence
+                .iter()
+                .filter(|item| item.source_kind == "binding_record")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn truncated_comments_connection_fails_closed_in_snapshot_replay() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-bound-clean.json"
+        ));
+        snapshot.pull_request.comments.page_info.has_next_page = true;
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("issue comments 超过 100 条"))
+        );
+    }
+
+    #[test]
+    fn comment_pagination_accumulates_pages_and_fails_closed() {
+        let comment = |id: &str| IssueComment {
+            id: id.to_string(),
+            author: None,
+            body: String::new(),
+            created_at: "2026-08-19T01:00:00Z".to_string(),
+            updated_at: "2026-08-19T01:00:00Z".to_string(),
+            url: format!("https://github.com/illusion-tech/laneflow/pull/430#issuecomment-{id}"),
+        };
+        let page =
+            |nodes: Vec<IssueComment>, has_next: bool, cursor: Option<&str>| CommentsConnection {
+                nodes,
+                page_info: CommentsPageInfo {
+                    has_next_page: has_next,
+                    end_cursor: cursor.map(str::to_string),
+                },
+            };
+
+        let mut pages = vec![
+            page(vec![comment("1")], true, Some("cursor-1")),
+            page(vec![comment("2"), comment("3")], false, None),
+        ]
+        .into_iter();
+        let collected =
+            fetch_comment_pages(|_| Ok(pages.next().expect("page"))).expect("paginated comments");
+        assert_eq!(collected.len(), 3);
+        assert_eq!(collected[2].id, "3");
+
+        let mut missing_cursor = vec![page(vec![comment("1")], true, None)].into_iter();
+        let error = fetch_comment_pages(|_| Ok(missing_cursor.next().expect("page")))
+            .expect_err("missing endCursor must fail closed");
+        assert!(error.contains("缺少 endCursor"));
+
+        let mut empty_page = vec![page(Vec::new(), true, Some("cursor-1"))].into_iter();
+        let error = fetch_comment_pages(|_| Ok(empty_page.next().expect("page")))
+            .expect_err("empty page with hasNextPage must fail closed");
+        assert!(error.contains("空页"));
+
+        let mut stuck_cursor = vec![
+            page(vec![comment("1")], true, Some("cursor-1")),
+            page(vec![comment("2")], true, Some("cursor-1")),
+        ]
+        .into_iter();
+        let error = fetch_comment_pages(|_| Ok(stuck_cursor.next().expect("page")))
+            .expect_err("non-advancing cursor must fail closed");
+        assert!(error.contains("未推进"));
     }
 
     #[test]
