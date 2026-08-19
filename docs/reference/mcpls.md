@@ -70,17 +70,25 @@ pwsh -NoLogo -NoProfile -File .codex/setup-mcpls-worktree.ps1 -Action Ensure
 
 Codex 为新任务创建 worktree 时会运行 setup。`Ensure` 会：
 
-1. 规范化 `git rev-parse --show-toplevel` 结果并派生 SHA-256 worktree ID；
-2. 有界清理已失效的历史状态；
-3. 在同 worktree 互斥锁和全局端口分配锁下复用或启动服务；
+1. 规范化 `git rev-parse --show-toplevel` 结果，保留文件系统返回的真实大小写，并派生
+   SHA-256 worktree ID；
+2. 按持久游标轮转、有界检查历史状态；自动清理不会因为单次 HTTP 探测失败而停止有效
+   worktree 的已归属服务；
+3. 在 `%LOCALAPPDATA%\LaneFlow\mcpls\worktrees\.locks\` 下，以禁止共享打开的锁文件
+   实现跨 Windows 会话的同 worktree 串行化和全局端口分配串行化；
 4. 从 `41000..48999` 按 worktree ID 确定性选择 loopback 端口并线性探测冲突；
-5. 同时验证 PID、进程启动时间、可执行路径、命令行中的 `mcpls.toml`/endpoint，
-   以及 HTTP MCP `initialize`；
-6. 只有完整 MCP 健康检查成功后，才原子写入启用的 `.codex/config.toml`。
+5. 同时验证 PID、进程启动时间、可执行路径、命令行中的 `mcpls.toml`/endpoint、
+   `mcpls.toml` 内容 SHA-256 以及 HTTP MCP `initialize`；配置内容变化会停止已归属的旧
+   服务并启动新服务，不复用旧 `rust-analyzer`；
+6. 用 `StartupTimeoutSeconds` 的单一截止时间约束二进制校验、锁等待、端口绑定和 HTTP
+   健康检查；
+7. 只有状态、健康检查、启用配置与生命周期日志全部提交成功后才保留新进程；任一记账
+   步骤失败都会回收该进程并保持配置禁用。
 
 Codex 官方文档没有保证 Local Environment setup 一定早于当前任务的 MCP 配置读取。
 因此首次生成配置后，如果当前任务没有加载 mcpls，应 Restart Codex 或新建任务；不要
-把当前任务热重载当作保证。修改模板、`mcpls.toml` 或 PATH 后也采用相同处理。
+把当前任务热重载当作保证。修改模板后也采用相同处理；修改 `mcpls.toml` 后，下次
+`Ensure`/`Start` 会重启 worktree 服务，但当前任务是否重新读取生成配置仍遵循上述边界。
 
 Local Environment 的 UI 设置属于用户本机配置，不是仓库单一事实源。仓库只维护脚本、
 模板和本文档。只应对自己已经审阅并信任的 checkout 启用项目配置和 setup；
@@ -108,10 +116,13 @@ pwsh -NoLogo -NoProfile -File .codex/setup-mcpls-worktree.ps1 -Action Prune
 ```
 
 `Ensure` 和 `Start` 在同一 worktree 中串行或并发调用都必须复用同一个健康 PID 和
-endpoint。`Stop` 不按进程名批量停止；PID、启动时间、可执行路径、命令行或 HTTP
-健康任一不满足时都会拒绝普通停止。`Prune` 只在状态记录仍能证明结构化进程身份时
-停止失效服务；身份不匹配且记录的 PID 仍存活时会同时拒绝停止和删除状态，保留证据
-供人工审阅。只有记录的 PID 已不存在时才清除 dead stale 状态。
+endpoint；锁文件采用 `FileShare.None`，因此不同桌面会话或终端也进入同一临界区。
+`Stop` 不按进程名批量停止；PID、启动时间、可执行路径、命令行或 HTTP 健康任一不满足
+时都会拒绝普通停止。`Prune` 先校验“状态目录名 = `worktree_id` = 规范化 root 哈希”，
+再判断进程身份；三者不一致、状态损坏或 schema 不支持时都拒绝停止和删除并保留证据。
+人工 `Prune` 对有效 worktree 的失效服务做两次 HTTP 探测后才可停止；`Ensure` 内部的
+自动清理不探测、不停止有效 worktree 的已归属存活服务。只有结构化身份仍匹配，或记录
+PID 已不存在且状态所有权一致时，才清理失效状态。
 
 本地状态位于：
 
@@ -119,9 +130,11 @@ endpoint。`Stop` 不按进程名批量停止；PID、启动时间、可执行�
 %LOCALAPPDATA%\LaneFlow\mcpls\worktrees\<worktree_id>\
 ```
 
-`state.json` 记录 schema、规范化 root、PID、启动时间、可执行路径、命令摘要、端口、
-endpoint、模板哈希和状态；`lifecycle.log` 记录本脚本的启动、复用、失败、停止与清理
-事件。两者都不提交到仓库。状态和生成配置都通过同目录临时文件原子替换。
+`state.json` 当前为 schema 2，记录规范化 root、PID、启动时间、可执行路径、命令摘要、
+端口、endpoint、模板哈希、`mcpls.toml` 内容哈希和状态；`lifecycle.log` 记录本脚本的
+启动、复用、失败、停止与清理事件。两者都不提交到仓库。状态、轮转游标和生成配置都
+通过同目录临时文件原子替换。旧 schema 或不完整状态会被明确报告为 `invalid-state`，
+不会被当作“无状态”而启动第二个服务；需在核对对应 PID 后人工处理该状态目录。
 
 ## 5. 验证
 
