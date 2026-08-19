@@ -641,6 +641,34 @@ try {
     Assert-True -Condition ($script:CapturedPruneContextDeadline -eq $pruneDeadline) `
         -Message 'Prune context reconstruction reuses the shared operation deadline'
 
+    $originalWorktreeValidity = (Get-Command Test-ValidRecordedWorktree).ScriptBlock
+    $script:CapturedFallbackConfigPath = $null
+    try {
+        Set-Item -Path Function:Test-ValidRecordedWorktree -Value {
+            param($Root, $Deadline)
+            return $false
+        }
+        Set-Item -Path Function:Write-DisabledGeneratedConfig -Value {
+            param($Context, $Endpoint)
+            $script:CapturedFallbackConfigPath = $Context.GeneratedConfigPath
+            throw 'injected detached-root config disable failure'
+        }
+        $detachedPruneFailure = @(Invoke-PruneStates `
+            -AllStateRoot $testContext.AllStateRoot `
+            -OperationDeadline ([DateTimeOffset]::UtcNow.AddSeconds(5)))
+    }
+    finally {
+        Set-Item -Path Function:Test-ValidRecordedWorktree `
+            -Value $originalWorktreeValidity
+        Set-Item -Path Function:Write-DisabledGeneratedConfig -Value $originalPruneDisable
+    }
+    Assert-True -Condition (
+        $detachedPruneFailure.Count -eq 1 -and
+        $detachedPruneFailure[0].action -eq 'refused-config-disable-failed' -and
+        $script:CapturedFallbackConfigPath -eq $repositoryContext.GeneratedConfigPath -and
+        (Test-Path -LiteralPath $testContext.StateDirectory -PathType Container)
+    ) -Message 'Prune disables existing invalid-root config and preserves state on failure'
+
     $ownershipStateRoot = Join-Path $temporaryRoot 'ownership-state'
     $ownershipDirectory = Join-Path $ownershipStateRoot ('b' * 64)
     [System.IO.Directory]::CreateDirectory($ownershipDirectory) | Out-Null
@@ -785,13 +813,13 @@ try {
     Assert-True -Condition (-not $health.Healthy) `
         -Message 'a closed TCP endpoint does not pass MCP initialize health'
 
-    $listenerPort = Get-PortCandidate -WorktreeId $firstId -Offset 4
     $listener = [System.Net.Sockets.TcpListener]::new(
         [System.Net.IPAddress]::Loopback,
-        $listenerPort
+        0
     )
     try {
         $listener.Start()
+        $listenerPort = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
         Assert-True -Condition (-not (Test-LoopbackPortAvailable -Port $listenerPort)) `
             -Message 'port allocation rejects a port already bound by another process'
     }
