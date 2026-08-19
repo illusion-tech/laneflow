@@ -131,6 +131,7 @@ Issue Gate Ledger 模板：
 
 - 标准路径只接受 trusted reviewer 对 PR 当前 exact head 的完成态审阅；`unresolved review threads = 0` 只是必要条件，不能替代外部审阅证据。
 - reviewer 报告 findings 后，author 必须记录每项 disposition，并在修复后的当前 head 请求新的 clean re-review；旧 head 的 approval、无新评论或仅解决线程都不能沿用。
+- 受信任 Codex provider 的 clean completion 缺少可解析 `Reviewed commit` SHA 时走受控绑定路径：G3 Owner 在 PR 新增正文精确为 `external-review: request-codex-review` 的 comment，由 trusted `Codex Clean Binding` workflow 发布受控请求 marker 并在 clean 到达后发布绑定记录；任何人不得手工伪造 marker 或绑定记录，缺失或歧义均失败关闭。
 - 单维护者场景不降低门槛：维护者可以且应当自审、处置 findings 并发表 G3 comment，但必须另有一个有效外部 reviewer。
 - R0/R1 尚未具备 required check 时，按文档中的 bootstrap 规则显式记录阶段和缺失项。Related PR B 自身不能用候选 validator 自批，仍由 G3 Owner 人工核验新增外部审阅字段；PR B 合入后，后续 PR 的 `check-gate-evidence g3` 还必须取得 live `check-external-review` exact-head `pass`。进入 R2 后，`External Review Gate` Check success 与 current G3 Owner comment 构成双钥匙；comment 编辑后以 `updatedAt` 重新生效并要求新 marker。
 - Related PR C 自身不能使用尚未合入 default branch 的候选 shadow workflow 自批；使用 main 上的 live validator 完成 exact-head 判断，并在 G3 comment 记录 Check 尚未发布 / required 的 R0 bootstrap 边界。PR C 合入、首次 trusted-ref Check 验证与 R1 起点 comment 完成前，不开始 14 天 / 10 eligible PR 计时。
