@@ -1,0 +1,20 @@
+[package]
+name = "laneflow-static-network"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "从受检 LFCA 构建 LaneFlow 进程内共享静态路网修订。"
+publish = false
+
+[lib]
+name = "laneflow_static_network"
+path = "src/lib.rs"
+
+[dependencies]
+laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
+laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
+
+[lints]
+workspace = true
