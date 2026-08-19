@@ -467,6 +467,7 @@ try {
         port = $identityPort
         endpoint = "http://127.0.0.1:$identityPort/mcp"
         template_sha256 = $template.Hash
+        updated_at_utc = [DateTimeOffset]::UtcNow.ToString('O')
     }
     $stoppedState = (($fakeState | ConvertTo-Json -Depth 6) | ConvertFrom-Json)
     $stoppedState.status = 'stopped'
@@ -615,6 +616,17 @@ try {
     $originalPruneDisable = (Get-Command Write-DisabledGeneratedConfig).ScriptBlock
     $script:CapturedPruneContextDeadline = [DateTimeOffset]::MinValue
     try {
+        Set-Item -Path Function:Test-ServiceProcessIdentity -Value {
+            param($State, $ExpectedRoot, $Deadline)
+            [pscustomobject]@{ Matched = $true; Reason = $null; Snapshot = $null }
+        }
+        Set-Item -Path Function:Test-McpInitialize -Value {
+            param($Endpoint, $TimeoutMilliseconds)
+            [pscustomobject]@{ Healthy = $false; Reason = 'injected unhealthy service' }
+        }
+        Set-Item -Path Function:Stop-VerifiedServiceProcessTree -Value {
+            param($State, $ExpectedRoot, $TimeoutMilliseconds, $Deadline)
+        }
         Set-Item -Path Function:Get-WorktreeContext -Value {
             param($RootHint, $StateRootOverride, $Deadline)
             $script:CapturedPruneContextDeadline = $Deadline
@@ -624,20 +636,26 @@ try {
             throw 'injected prune config disable failure'
         }
         Write-AtomicUtf8File -Path $testContext.StatePath `
-            -Content (($failedState | ConvertTo-Json -Depth 6) + "`n")
+            -Content (($fakeState | ConvertTo-Json -Depth 6) + "`n")
         $pruneDeadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
         $pruneDisableFailure = @(Invoke-PruneStates `
             -AllStateRoot $testContext.AllStateRoot -OperationDeadline $pruneDeadline)
     }
     finally {
+        Set-Item -Path Function:Test-ServiceProcessIdentity -Value $originalIdentity
+        Set-Item -Path Function:Test-McpInitialize -Value $originalHealth
+        Set-Item -Path Function:Stop-VerifiedServiceProcessTree -Value $originalVerifiedStop
         Set-Item -Path Function:Get-WorktreeContext -Value $originalPruneContext
         Set-Item -Path Function:Write-DisabledGeneratedConfig -Value $originalPruneDisable
     }
+    $retainedPruneState = Read-ServiceState -Path $testContext.StatePath
     Assert-True -Condition (
         $pruneDisableFailure.Count -eq 1 -and
         $pruneDisableFailure[0].action -eq 'refused-config-disable-failed' -and
+        $retainedPruneState.status -eq 'stopped' -and
+        [int]$retainedPruneState.process_id -eq 0 -and
         (Test-Path -LiteralPath $testContext.StateDirectory -PathType Container)
-    ) -Message 'Prune preserves state when a valid worktree config cannot be disabled'
+    ) -Message 'Prune clears the stopped PID before preserving a config-disable failure'
     Assert-True -Condition ($script:CapturedPruneContextDeadline -eq $pruneDeadline) `
         -Message 'Prune context reconstruction reuses the shared operation deadline'
 

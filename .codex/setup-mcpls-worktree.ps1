@@ -1607,6 +1607,9 @@ function Invoke-StartOrReuse {
                     -Message "replacing-owned pid=$($existingState.process_id) healthy=$($health.Healthy) same_tool=$($reuseInputs.SameTool) same_config=$($reuseInputs.SameConfig) same_version=$($reuseInputs.SameVersion) same_rust_analyzer=$($reuseInputs.SameRustAnalyzer)"
                 Stop-VerifiedServiceProcessTree -State $existingState `
                     -ExpectedRoot $Context.Root -Deadline $deadline
+                $existingState.status = 'stopped'
+                $existingState.process_id = 0
+                Write-ServiceState -Context $Context -State $existingState
             }
             elseif ([int]$existingState.process_id -gt 0) {
                 $recordedProcess = Get-ProcessSnapshot `
@@ -1988,24 +1991,35 @@ function Invoke-PruneStates {
                 continue
             }
 
+            $processConfirmedAbsent = $false
             if ($identity.Matched) {
                 $stopTimeout = Get-RemainingMilliseconds -Deadline $deadline -Maximum 10000
                 Stop-VerifiedServiceProcessTree -State $state `
                     -ExpectedRoot ([string]$state.worktree_root) `
                     -TimeoutMilliseconds $stopTimeout -Deadline $deadline
+                $processConfirmedAbsent = $true
             }
-            elseif ([int]$state.process_id -gt 0 -and
-                $null -ne (Get-ProcessSnapshot -ProcessId ([int]$state.process_id) `
-                    -Deadline $deadline)) {
-                $results.Add([pscustomobject]@{
-                    worktree_id = $directory.Name
-                    action = 'refused-live-identity-mismatch'
-                    root_valid = $rootValid
-                    identity_matched = $false
-                    healthy = $false
-                    reason = $identity.Reason
-                })
-                continue
+            elseif ([int]$state.process_id -gt 0) {
+                $recordedProcess = Get-ProcessSnapshot `
+                    -ProcessId ([int]$state.process_id) -Deadline $deadline
+                if ($null -ne $recordedProcess) {
+                    $results.Add([pscustomobject]@{
+                        worktree_id = $directory.Name
+                        action = 'refused-live-identity-mismatch'
+                        root_valid = $rootValid
+                        identity_matched = $false
+                        healthy = $false
+                        reason = $identity.Reason
+                    })
+                    continue
+                }
+                $processConfirmedAbsent = $true
+            }
+            if ($processConfirmedAbsent) {
+                $state.status = 'stopped'
+                $state.process_id = 0
+                Write-ServiceState -Context ([pscustomobject]@{ StatePath = $statePath }) `
+                    -State $state
             }
             $rootStillExists = Test-Path -LiteralPath ([string]$state.worktree_root) `
                 -PathType Container
