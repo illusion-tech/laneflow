@@ -15,7 +15,9 @@ Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验
 `laneflow-static-network`，把受检 LFCA 顺序转换为性能优先、不可变、可由多个 world
 共享的 `SharedNetworkRevision`。
 
-本文是已接受的 G1 实现输入，不表示 crate 或目标 Runtime 已经存在。当前生产路径仍是
+本文是已接受的 G1 实现输入。#300 G2 已开始建立 `laneflow-static-network` 与受检 LFCA
+输入能力；当前只完成根唯一所有权、Identity/LaneEdge/Spatial 的首段构建基线，完整关系闭合、
+资源/性能证据和 Delivery G3/G4 尚未完成。目标 Runtime 仍不存在，当前生产路径仍是
 Traffic v0.10 / SpatialPackage v0.1 / Data / Core。
 
 ## 2. 职责与依赖

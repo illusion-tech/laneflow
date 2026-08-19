@@ -3320,6 +3320,14 @@ name = "laneflow-static-contract"
 version = "0.0.0"
 
 [[package]]
+name = "laneflow-static-network"
+version = "0.0.0"
+dependencies = [
+ "laneflow-format",
+ "laneflow-static-contract",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -2,14 +2,15 @@
 
 use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, ExactByteLength, NETWORK_REVISION_DERIVATION_VERSION,
-    NETWORK_REVISION_DOMAIN_PREFIX, NetworkRevisionId, PortableObjectKind,
-    SECTION_FORMAT_VERSION_V1, Sha256Digest,
+    NetworkRevisionId, PortableObjectKind, Sha256Digest,
 };
 use sha2::{Digest, Sha256};
 
 use crate::{
-    FormatError, FormatLimits, FormatStructure, LimitDimension, RegistryCheckedFieldValue,
-    RegistryCheckedRowView, ValueCheckedObjectView, preflight_object_values_v1,
+    CanonicalNetworkInputError, CheckedCanonicalNetworkInputV1, FormatError, FormatLimits,
+    FormatStructure, LimitDimension, RegistryCheckedFieldValue, RegistryCheckedRowView,
+    ValueCheckedObjectView, canonical_network::checked_canonical_network_input_from_parts,
+    preflight_object_values_v1,
 };
 
 /// 调用方从实际 LFSD base 输入保存的预期绑定。
@@ -46,6 +47,25 @@ impl From<FormatError> for PostEmissionCheckError {
     }
 }
 
+impl From<CanonicalNetworkInputError> for PostEmissionCheckError {
+    fn from(value: CanonicalNetworkInputError) -> Self {
+        match value {
+            CanonicalNetworkInputError::Format(error) => Self::Format(error),
+            CanonicalNetworkInputError::LimitExceeded {
+                dimension,
+                actual,
+                limit,
+            } => Self::LimitExceeded {
+                dimension,
+                actual,
+                limit,
+            },
+            CanonicalNetworkInputError::NetworkRevisionMismatch => Self::NetworkRevisionMismatch,
+            CanonicalNetworkInputError::ArithmeticOverflow => Self::ArithmeticOverflow,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct CheckedObject<'a> {
     view: ValueCheckedObjectView<'a>,
@@ -59,7 +79,7 @@ struct CheckedObject<'a> {
 /// 发布真实性或迁移授权。
 #[derive(Clone, Copy, Debug)]
 pub struct PostEmissionCheckedBundleV1<'a> {
-    canonical_artifact: CheckedObject<'a>,
+    canonical_network: CheckedCanonicalNetworkInputV1<'a>,
     source_map: CheckedObject<'a>,
     semantic_diff: CheckedObject<'a>,
     network_revision: NetworkRevisionId,
@@ -71,17 +91,23 @@ pub struct PostEmissionCheckedBundleV1<'a> {
 impl<'a> PostEmissionCheckedBundleV1<'a> {
     #[must_use]
     pub const fn canonical_artifact_view(self) -> ValueCheckedObjectView<'a> {
-        self.canonical_artifact.view
+        self.canonical_network.value_checked_view()
     }
 
     #[must_use]
     pub const fn canonical_artifact_digest(self) -> Sha256Digest {
-        self.canonical_artifact.digest
+        self.canonical_network.canonical_artifact_digest()
     }
 
     #[must_use]
     pub const fn canonical_artifact_byte_length(self) -> ExactByteLength {
-        self.canonical_artifact.byte_length
+        self.canonical_network.canonical_artifact_byte_length()
+    }
+
+    /// 直接取得与单 LFCA 检查入口相同的共享静态路网构建能力。
+    #[must_use]
+    pub const fn canonical_network_input(self) -> CheckedCanonicalNetworkInputV1<'a> {
+        self.canonical_network
     }
 
     #[must_use]
@@ -164,11 +190,11 @@ pub fn check_post_emission_bundle_v1<'a>(
     let lfsm_view = preflight_object_values_v1(lfsm, PortableObjectKind::SourceMap, limits)?;
     let lfsd_view = preflight_object_values_v1(lfsd, PortableObjectKind::SemanticDiff, limits)?;
 
-    let canonical_artifact = CheckedObject {
-        view: lfca_view,
-        digest: sha256(lfca),
-        byte_length: ExactByteLength::new(lfca_length),
-    };
+    let canonical_network = checked_canonical_network_input_from_parts(
+        lfca_view,
+        sha256(lfca),
+        ExactByteLength::new(lfca_length),
+    )?;
     let source_map = CheckedObject {
         view: lfsm_view,
         digest: sha256(lfsm),
@@ -180,12 +206,7 @@ pub fn check_post_emission_bundle_v1<'a>(
         byte_length: ExactByteLength::new(lfsd_length),
     };
 
-    let network_revision = recompute_network_revision(lfca_view)?;
-    if checked_sha256(singleton_row(lfca_view, 7)?.field_by_tag(1))?
-        != network_revision.into_digest()
-    {
-        return Err(PostEmissionCheckError::NetworkRevisionMismatch);
-    }
+    let network_revision = canonical_network.network_revision();
 
     let lfca_provenance = singleton_row(lfca_view, 6)?;
     let compiler_build_id = checked_utf8(lfca_provenance.field_by_tag(1))?;
@@ -197,8 +218,10 @@ pub fn check_post_emission_bundle_v1<'a>(
         == NETWORK_REVISION_DERIVATION_VERSION
         && checked_sha256(source_map_binding.field_by_tag(2))? == network_revision.into_digest()
         && checked_u16(source_map_binding.field_by_tag(3))? == CANONICAL_ARTIFACT_FORMAT_VERSION
-        && checked_sha256(source_map_binding.field_by_tag(4))? == canonical_artifact.digest
-        && checked_u64(source_map_binding.field_by_tag(5))? == canonical_artifact.byte_length.get()
+        && checked_sha256(source_map_binding.field_by_tag(4))?
+            == canonical_network.canonical_artifact_digest()
+        && checked_u64(source_map_binding.field_by_tag(5))?
+            == canonical_network.canonical_artifact_byte_length().get()
         && checked_utf8(source_map_binding.field_by_tag(6))? == compiler_build_id
         && checked_u16(source_map_binding.field_by_tag(7))? == source_collection_digest_version
         && checked_sha256(source_map_binding.field_by_tag(8))? == source_collection_digest;
@@ -210,8 +233,10 @@ pub fn check_post_emission_bundle_v1<'a>(
     let target_matches = checked_u16(diff_binding.field_by_tag(6))?
         == NETWORK_REVISION_DERIVATION_VERSION
         && checked_sha256(diff_binding.field_by_tag(7))? == network_revision.into_digest()
-        && checked_sha256(diff_binding.field_by_tag(8))? == canonical_artifact.digest
-        && checked_u64(diff_binding.field_by_tag(9))? == canonical_artifact.byte_length.get();
+        && checked_sha256(diff_binding.field_by_tag(8))?
+            == canonical_network.canonical_artifact_digest()
+        && checked_u64(diff_binding.field_by_tag(9))?
+            == canonical_network.canonical_artifact_byte_length().get();
     if !target_matches {
         return Err(PostEmissionCheckError::SemanticDiffTargetBindingMismatch);
     }
@@ -242,7 +267,7 @@ pub fn check_post_emission_bundle_v1<'a>(
     }
 
     Ok(PostEmissionCheckedBundleV1 {
-        canonical_artifact,
+        canonical_network,
         source_map,
         semantic_diff,
         network_revision,
@@ -271,26 +296,6 @@ fn checked_object_length(
 
 fn sha256(bytes: &[u8]) -> Sha256Digest {
     Sha256Digest::from_bytes(Sha256::digest(bytes).into())
-}
-
-fn recompute_network_revision(
-    view: ValueCheckedObjectView<'_>,
-) -> Result<NetworkRevisionId, PostEmissionCheckError> {
-    let registry = view.registry_view();
-    let mut hasher = Sha256::new();
-    hasher.update(NETWORK_REVISION_DOMAIN_PREFIX);
-    for ordinal in 0..6_u32 {
-        let section = registry.section(ordinal).ok_or_else(binding_format_error)?;
-        let section_length = u64::try_from(section.bytes().len())
-            .map_err(|_| PostEmissionCheckError::ArithmeticOverflow)?;
-        hasher.update(section.kind().to_le_bytes());
-        hasher.update(SECTION_FORMAT_VERSION_V1.to_le_bytes());
-        hasher.update(section_length.to_le_bytes());
-        hasher.update(section.bytes());
-    }
-    Ok(NetworkRevisionId::from_digest(Sha256Digest::from_bytes(
-        hasher.finalize().into(),
-    )))
 }
 
 fn singleton_row<'a>(
