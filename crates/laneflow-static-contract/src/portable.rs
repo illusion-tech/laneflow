@@ -9,6 +9,12 @@ use core::fmt;
 /// LFCA 的对象格式版本。
 pub const CANONICAL_ARTIFACT_FORMAT_VERSION: u16 = 1;
 
+/// LFCA v1 的约束契约版本。
+pub const CONSTRAINT_CONTRACT_VERSION_V1: u16 = 1;
+
+/// LFCA v1 的静态执行契约版本。
+pub const STATIC_EXECUTION_CONTRACT_VERSION_V1: u16 = 1;
+
 /// LFSM 的对象格式版本。
 pub const SOURCE_MAP_FORMAT_VERSION: u16 = 1;
 
@@ -324,6 +330,14 @@ mod tests {
     use core::mem::size_of;
 
     use super::*;
+
+    #[test]
+    fn lfca_contract_versions_match_v1() {
+        assert_eq!(CANONICAL_ARTIFACT_FORMAT_VERSION, 1);
+        assert_eq!(CONSTRAINT_CONTRACT_VERSION_V1, 1);
+        assert_eq!(STATIC_EXECUTION_CONTRACT_VERSION_V1, 1);
+        assert_eq!(NETWORK_REVISION_DERIVATION_VERSION, 1);
+    }
 
     #[test]
     fn object_registry_matches_g1_offsets_and_shapes() {

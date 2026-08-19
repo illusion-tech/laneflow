@@ -3,6 +3,7 @@
 mod builder;
 mod error;
 mod identity;
+mod numeric;
 mod origin;
 mod spatial;
 mod traffic;
