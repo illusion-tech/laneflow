@@ -1498,22 +1498,16 @@ pub fn run_publish_codex_clean_binding(args: &[String]) -> Result<(), String> {
             &args,
             &format!("clean comment 已被 record `{}` 绑定", bound.record.id),
         )?;
-    } else {
-        let (marker_comment, marker) = select_request_marker(pr, clean, &records)?;
-        publish_single_binding(
-            &args,
-            &initial,
-            clean,
-            marker_comment,
-            &marker,
-            &mut records,
-        )?;
     }
 
     // 与 workflow concurrency 组配对：串行化保证同一 PR 任意时刻只有一个
     // publisher run（消除并发读-选-发竞态）；同组只允许一个 pending run，
-    // 被挤掉的中间 issue_comment 事件由此处 sweep 补齐——每个 run 在处理完
-    // 触发事件后，为其余所有未绑定的 SHA-less clean 补发 record。
+    // 被挤掉的中间 issue_comment 事件由此处 sweep 补齐。所有未绑定 clean
+    // （含触发 comment）统一按 created_at 时间序处理：旧 head clean 事件被
+    // 挤掉后若先绑新 clean，新 clean 会同时看到新旧 head 的未消费 marker
+    // 而歧义 fail-closed；时间序先为旧 clean 消费旧 marker，新 clean 才能
+    // 确定性绑定新 marker。marker 缺失/歧义的 clean 记诊断跳过，evaluator
+    // 会独立对其 fail-closed 诊断并由 shadow 刷新发布。
     let mut sweep_diagnostics = Vec::new();
     while let Some((sweep_clean, marker_comment, marker)) =
         plan_next_sweep_binding(pr, &records, &mut sweep_diagnostics)
@@ -2516,8 +2510,10 @@ fn sha_less_bindable_clean(comment: &IssueComment) -> bool {
 }
 
 /// 按 record 创建时间升序逐条判定无 SHA clean 的绑定，返回 clean comment id →
-/// 判定结果（None 表示对应 record 不合法）。stale record 同样消费其 marker；
-/// 未被任何 record 成功绑定的 clean 与未被消费的 record 由调用方分别诊断。
+/// 判定结果（None 表示对应 record 不合法）。同秒发布的 record 以引用 clean 的
+/// (created_at, id) 恢复 publisher sweep 的真实分配顺序，hash 派生的 record id
+/// 仅作最终稳定 tie-break。stale record 同样消费其 marker；未被任何 record
+/// 成功绑定的 clean 与未被消费的 record 由调用方分别诊断。
 fn adjudicate_codex_clean_bindings<'a>(
     pr: &'a PullRequestSnapshot,
     records: &'a [BoundCleanRecord],
@@ -2526,9 +2522,18 @@ fn adjudicate_codex_clean_bindings<'a>(
     let mut bindings = BTreeMap::new();
     let mut consumed_markers = BTreeSet::<&str>::new();
     let mut ordered: Vec<&BoundCleanRecord> = records.iter().collect();
+    let clean_order_key = |bound: &BoundCleanRecord| {
+        pr.comments
+            .nodes
+            .iter()
+            .find(|comment| comment.id == bound.record.clean_comment_id)
+            .map(|comment| (comment.created_at.as_str(), comment.id.as_str()))
+            .unwrap_or(("", ""))
+    };
     ordered.sort_by(|left, right| {
         left.created_at
             .cmp(&right.created_at)
+            .then_with(|| clean_order_key(left).cmp(&clean_order_key(right)))
             .then_with(|| left.record.id.cmp(&right.record.id))
     });
     for bound in ordered {
@@ -5230,6 +5235,72 @@ mod tests {
         assert_eq!(sweep_diagnostics.len(), 1);
         assert!(sweep_diagnostics[0].contains("IC-codex-clean-nosha-2"));
         assert!(sweep_diagnostics[0].contains("均已被既有 binding record 消费"));
+    }
+
+    #[test]
+    fn sweep_processes_displaced_old_head_clean_before_the_triggering_clean() {
+        let snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-cross-push-displaced-then-current.json"
+        ));
+        let pr = &snapshot.pull_request;
+        let records: Vec<BoundCleanRecord> = Vec::new();
+
+        // 触发 comment 是 C2（new head），但 sweep 必须先为 C1 绑定旧 marker：
+        // 否则 C2 会同时看到新旧 head 的未消费 marker 而歧义 fail-closed。
+        let mut sweep_diagnostics = Vec::new();
+        let (clean, marker_comment, marker) =
+            plan_next_sweep_binding(pr, &records, &mut sweep_diagnostics).expect("C1 应先被计划");
+        assert_eq!(clean.id, "IC-codex-clean-nosha-1");
+        assert_eq!(marker_comment.id, "IC-marker-1");
+        assert!(sweep_diagnostics.is_empty());
+
+        // C1 绑定后，C2 确定性绑定新 head 的 M2。
+        let records = vec![BoundCleanRecord {
+            record: CodexCleanBindingRecord {
+                schema_version: BINDING_RECORD_SCHEMA_VERSION,
+                id: "codex-clean-binding-test".to_string(),
+                pr: 430,
+                clean_comment_id: clean.id.clone(),
+                clean_comment_created_at: clean.created_at.clone(),
+                clean_comment_url: clean.url.clone(),
+                request_marker_id: marker_comment.id.clone(),
+                bound_head_oid: marker.request_head_oid.clone(),
+                bound_base_oid: marker.request_base_oid.clone(),
+                verified_at: "2026-08-19T01:16:00Z".to_string(),
+                run_url: "https://github.com/illusion-tech/laneflow/actions/runs/1".to_string(),
+            },
+            created_at: "2026-08-19T01:16:00Z".to_string(),
+            url: "https://github.com/illusion-tech/laneflow/pull/430#issuecomment-110".to_string(),
+        }];
+        let mut sweep_diagnostics = Vec::new();
+        let (clean, marker_comment, _) =
+            plan_next_sweep_binding(pr, &records, &mut sweep_diagnostics).expect("C2 应绑定 M2");
+        assert_eq!(clean.id, "IC-codex-clean-nosha-2");
+        assert_eq!(marker_comment.id, "IC-marker-2");
+        assert!(sweep_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn same_second_binding_records_follow_clean_chronology() {
+        let result = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-same-second-records.json"
+        )));
+        // 两条 record 同秒发布：次序键必须落到引用 clean 的 (created_at, id)，
+        // 而非 hash 派生的 record id——fixture 对抗性构造为 R2 的 record id
+        // 字典序更小且 comment 顺序更靠前，旧 tie-break 会反转分配顺序。
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert_eq!(
+            result.completion_time.as_deref(),
+            Some("2026-08-19T01:15:00Z")
+        );
+        assert_eq!(
+            result
+                .evidence
+                .iter()
+                .filter(|item| item.source_kind == "binding_record")
+                .count(),
+            2
+        );
     }
 
     #[test]
