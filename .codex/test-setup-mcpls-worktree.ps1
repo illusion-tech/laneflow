@@ -741,6 +741,7 @@ try {
     $originalPortAvailable = (Get-Command Test-LoopbackPortAvailable).ScriptBlock
     $originalPortListening = (Get-Command Test-LoopbackPortListening).ScriptBlock
     $originalWriteState = (Get-Command Write-ServiceState).ScriptBlock
+    $originalStopOwned = (Get-Command Stop-OwnedProcessTree).ScriptBlock
     $script:StartupTestPid = 0
     $script:StartupPortListeningCalls = 0
     $script:StartupTestExecutable = (Get-Process -Id $PID).Path
@@ -785,6 +786,55 @@ try {
         Set-Item -Path Function:Test-LoopbackPortAvailable -Value $originalPortAvailable
         Set-Item -Path Function:Test-LoopbackPortListening -Value $originalPortListening
         Set-Item -Path Function:Write-ServiceState -Value $originalWriteState
+        if ($script:StartupTestPid -gt 0) {
+            Stop-Process -Id $script:StartupTestPid -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $script:BindFailurePersistedPid = 0
+    $script:StartupTestPid = 0
+    try {
+        Set-Item -Path Function:Start-McplsProcess -Value {
+            param($Executable, $Context, $Port)
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = $script:StartupTestExecutable
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $startInfo.ArgumentList.Add('-NoLogo')
+            $startInfo.ArgumentList.Add('-NoProfile')
+            $startInfo.ArgumentList.Add('-Command')
+            $startInfo.ArgumentList.Add('Start-Sleep -Seconds 60')
+            $child = [System.Diagnostics.Process]::Start($startInfo)
+            $script:StartupTestPid = $child.Id
+            return $child
+        }
+        Set-Item -Path Function:Test-LoopbackPortAvailable -Value { return $true }
+        Set-Item -Path Function:Test-LoopbackPortListening -Value { return $false }
+        Set-Item -Path Function:Stop-OwnedProcessTree -Value {
+            throw 'injected unconfirmed cleanup failure'
+        }
+        Set-Item -Path Function:Write-ServiceState -Value {
+            param($Context, $State)
+            $script:BindFailurePersistedPid = [int]$State.process_id
+        }
+        Assert-Throws -Operation {
+            Start-NewMcplsService -Context $testContext -Tool $startupTool `
+                -RustAnalyzer $startupRustAnalyzer `
+                -TemplateInfo $template -McplsConfigHash $secondConfigHash `
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(1))
+        } -Message 'unconfirmed bind-failure cleanup aborts startup'
+        Assert-True -Condition (
+            $script:StartupTestPid -gt 0 -and
+            $script:BindFailurePersistedPid -eq $script:StartupTestPid -and
+            $null -ne (Get-Process -Id $script:StartupTestPid -ErrorAction SilentlyContinue)
+        ) -Message 'unconfirmed cleanup retains the live child PID in failed state'
+    }
+    finally {
+        Set-Item -Path Function:Start-McplsProcess -Value $originalStartProcess
+        Set-Item -Path Function:Test-LoopbackPortAvailable -Value $originalPortAvailable
+        Set-Item -Path Function:Test-LoopbackPortListening -Value $originalPortListening
+        Set-Item -Path Function:Write-ServiceState -Value $originalWriteState
+        Set-Item -Path Function:Stop-OwnedProcessTree -Value $originalStopOwned
         if ($script:StartupTestPid -gt 0) {
             Stop-Process -Id $script:StartupTestPid -Force -ErrorAction SilentlyContinue
         }
