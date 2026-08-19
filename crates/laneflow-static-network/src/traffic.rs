@@ -330,7 +330,11 @@ pub struct PartitionPlanningHints {
 }
 
 impl PartitionPlanningHints {
-    pub(crate) fn from_traffic(traffic: &SharedTrafficNetwork) -> Result<Self, BuildError> {
+    pub(crate) fn from_traffic(
+        traffic: &SharedTrafficNetwork,
+        mut poll_cancelled: impl FnMut(u32) -> Result<(), BuildError>,
+    ) -> Result<Self, BuildError> {
+        poll_cancelled(0)?;
         let capacity =
             usize::try_from(traffic.lane_edge_count()).expect("u32 lane count fits usize");
         let mut edge_boundary_weights = Vec::new();
@@ -340,6 +344,9 @@ impl PartitionPlanningHints {
                 structure: BuildStructure::PlanningHints,
             })?;
         for raw in 0..traffic.lane_edge_count() {
+            if raw != 0 {
+                poll_cancelled(raw)?;
+            }
             let edge = LaneEdgeOrdinal::from_raw(raw);
             let successors = traffic.successors(edge).map_or(0, <[LaneEdgeOrdinal]>::len);
             let predecessors = traffic
@@ -371,4 +378,53 @@ pub(crate) fn logical_bytes<T>(len: usize) -> u64 {
         .checked_mul(size_of::<T>())
         .expect("format-bounded retained length must fit usize");
     u64::try_from(bytes).expect("retained length must fit u64")
+}
+
+#[cfg(test)]
+mod tests {
+    use core::cell::Cell;
+
+    use super::*;
+
+    #[test]
+    fn planning_hints_propagate_cancellation_from_lane_scan() {
+        let lane_count = 2_u32;
+        let mut entity_counts = [0; ENTITY_KIND_COUNT];
+        entity_counts[(EntityKind::LaneEdge.code() - 1) as usize] = lane_count;
+        let empty_ranges = || vec![RangeU32::new(0, 0); lane_count as usize].into_boxed_slice();
+        let maneuvers = SharedManeuverNetwork::new(
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            empty_ranges(),
+            Box::new([]),
+        );
+        let traffic = SharedTrafficNetwork::new(
+            EntityCounts::new(entity_counts),
+            vec![1.0; lane_count as usize].into_boxed_slice(),
+            vec![1.0; lane_count as usize].into_boxed_slice(),
+            empty_ranges(),
+            Box::new([]),
+            empty_ranges(),
+            Box::new([]),
+            maneuvers,
+        );
+        let last_polled = Cell::new(None);
+
+        let result = PartitionPlanningHints::from_traffic(&traffic, |raw| {
+            last_polled.set(Some(raw));
+            if raw == 1 {
+                Err(BuildError::Cancelled)
+            } else {
+                Ok(())
+            }
+        });
+
+        assert!(matches!(result, Err(BuildError::Cancelled)));
+        assert_eq!(last_polled.get(), Some(1));
+    }
 }
