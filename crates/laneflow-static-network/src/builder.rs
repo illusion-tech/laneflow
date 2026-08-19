@@ -619,7 +619,7 @@ fn check_scratch_budget(
     } else {
         let pair_count =
             maneuver_path_count
-                .checked_mul(3)
+                .checked_mul(2)
                 .ok_or(BuildError::ArithmeticOverflow {
                     structure: BuildStructure::BuilderScratch,
                 })?;
@@ -1632,7 +1632,6 @@ fn validate_entry_gate_coverage(
         structure: BuildStructure::ManeuverPath,
     })?;
     let mut entry_pairs = allocate_vec(path_count, BuildStructure::BuilderScratch)?;
-    let mut gated_entry_pairs = allocate_vec(path_count, BuildStructure::BuilderScratch)?;
     for (path_index, path) in paths.iter().copied().enumerate() {
         let path_ordinal =
             u32::try_from(path_index).map_err(|_| BuildError::ArithmeticOverflow {
@@ -1658,77 +1657,40 @@ fn validate_entry_gate_coverage(
             successor: first.candidate.successor().raw(),
         };
         entry_pairs.push(pair);
-        if first.candidate.maneuver_gate().is_some() {
-            gated_entry_pairs.push(pair);
+    }
+
+    // 官方 compiler 会拒绝同一 edge 同时充当 path boundary 与 internal edge；builder 在
+    // #440 完整消费该关系前，仍需直接保证入口门控 edge 的每个可执行候选都不能绕过 Gate。
+    for (index, entry) in candidates.iter().copied().enumerate() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
+        let entry_gated = stop_line_lane_owners
+            .get(usize::try_from(entry.predecessor).expect("checked lane ordinal fits usize"))
+            .is_some_and(|owner| *owner == ENTRY_GATED_STOP_LINE);
+        if entry_gated && entry.candidate.maneuver_gate().is_none() {
+            return Err(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverCandidates,
+            });
         }
     }
 
-    // 显式 successors 已排序；path entry pairs 保留重复后排序。先闭合全部显式 successor，
-    // 再闭合每个唯一 path entry，才能覆盖只由 ManeuverPath 引入的 outgoing transition，
-    // 同时不把 path 内部的后续 transition 误当成该 edge 的 entry coverage。
+    // 显式 successors 已排序；path entry pairs 保留重复后排序。每个入口门控显式
+    // successor 至少需要一条 path 覆盖；多条 path 可以合法共享同一 entry pair。
     let entry_pairs =
         radix_sort_transition_pairs_preserving_duplicates(entry_pairs, lane_count, options)?;
-    let gated_entry_pairs =
-        radix_sort_transition_pairs_preserving_duplicates(gated_entry_pairs, lane_count, options)?;
     let mut entry_cursor = 0_usize;
-    let mut gated_cursor = 0_usize;
     for (index, pair) in explicit_pairs.iter().copied().enumerate() {
         poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
-        validate_entry_gate_pair(
-            pair,
-            stop_line_lane_owners,
-            &entry_pairs,
-            &gated_entry_pairs,
-            &mut entry_cursor,
-            &mut gated_cursor,
-            options,
-        )?;
-    }
-
-    entry_cursor = 0;
-    gated_cursor = 0;
-    let mut previous = None;
-    for (index, pair) in entry_pairs.iter().copied().enumerate() {
-        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
-        if previous == Some(pair) {
+        let entry_gated = stop_line_lane_owners
+            .get(usize::try_from(pair.predecessor).expect("checked lane ordinal fits usize"))
+            .is_some_and(|owner| *owner == ENTRY_GATED_STOP_LINE);
+        if !entry_gated {
             continue;
         }
-        previous = Some(pair);
-        validate_entry_gate_pair(
-            pair,
-            stop_line_lane_owners,
-            &entry_pairs,
-            &gated_entry_pairs,
-            &mut entry_cursor,
-            &mut gated_cursor,
-            options,
-        )?;
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn validate_entry_gate_pair(
-    pair: TransitionPair,
-    stop_line_lane_owners: &[u8],
-    entry_pairs: &[TransitionPair],
-    gated_entry_pairs: &[TransitionPair],
-    entry_cursor: &mut usize,
-    gated_cursor: &mut usize,
-    options: SharedNetworkBuildOptions<'_>,
-) -> Result<(), BuildError> {
-    let entry_gated = stop_line_lane_owners
-        .get(usize::try_from(pair.predecessor).expect("checked lane ordinal fits usize"))
-        .is_some_and(|owner| *owner == ENTRY_GATED_STOP_LINE);
-    if !entry_gated {
-        return Ok(());
-    }
-    let path_count = count_sorted_pair(entry_pairs, entry_cursor, pair, options)?;
-    let gated_path_count = count_sorted_pair(gated_entry_pairs, gated_cursor, pair, options)?;
-    if path_count != 1 || gated_path_count != 1 {
-        return Err(BuildError::InputInvariant {
-            structure: BuildStructure::ManeuverCandidates,
-        });
+        if count_sorted_pair(&entry_pairs, &mut entry_cursor, pair, options)? == 0 {
+            return Err(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverCandidates,
+            });
+        }
     }
     Ok(())
 }
@@ -3379,7 +3341,7 @@ mod tests {
     }
 
     #[test]
-    fn entry_gated_lane_requires_one_gated_path_per_executable_successor() {
+    fn entry_gated_lane_requires_candidate_gates_and_explicit_path_coverage() {
         let executable_pairs = [
             TransitionPair {
                 predecessor: 0,
@@ -3421,14 +3383,14 @@ mod tests {
             })
         ));
 
-        let (ambiguous_paths, ambiguous_candidates) =
-            maneuver_path_fixture_with_entry_gates(&[&[0, 1, 3], &[0, 1, 4]], &[true, true]);
+        let (missing_path, missing_path_candidates) =
+            maneuver_path_fixture_with_entry_gates(&[&[0, 1]], &[true]);
         assert!(matches!(
             validate_entry_gate_coverage(
-                &executable_pairs[..1],
+                &executable_pairs,
                 &stop_line_lane_owners,
-                &ambiguous_paths,
-                &ambiguous_candidates,
+                &missing_path,
+                &missing_path_candidates,
                 5,
                 TEST_OPTIONS,
             ),
@@ -3436,6 +3398,54 @@ mod tests {
                 structure: BuildStructure::ManeuverCandidates,
             })
         ));
+
+        let (shared_entry_paths, shared_entry_candidates) =
+            maneuver_path_fixture_with_entry_gates(&[&[0, 1, 3], &[0, 1, 4]], &[true, true]);
+        assert!(
+            validate_entry_gate_coverage(
+                &executable_pairs[..1],
+                &stop_line_lane_owners,
+                &shared_entry_paths,
+                &shared_entry_candidates,
+                5,
+                TEST_OPTIONS,
+            )
+            .is_ok()
+        );
+
+        let (later_predecessor_paths, mut later_predecessor_candidates) =
+            maneuver_path_fixture_with_entry_gates(&[&[0, 1], &[2, 0, 3]], &[true, false]);
+        assert!(matches!(
+            validate_entry_gate_coverage(
+                &executable_pairs[..1],
+                &stop_line_lane_owners,
+                &later_predecessor_paths,
+                &later_predecessor_candidates,
+                5,
+                TEST_OPTIONS,
+            ),
+            Err(BuildError::InputInvariant {
+                structure: BuildStructure::ManeuverCandidates,
+            })
+        ));
+        let candidate = later_predecessor_candidates[2].candidate;
+        later_predecessor_candidates[2].candidate = ManeuverTransitionCandidate::new(
+            candidate.successor(),
+            candidate.maneuver_path(),
+            candidate.transition_index(),
+            Some(ManeuverGateOrdinal::from_raw(1)),
+        );
+        assert!(
+            validate_entry_gate_coverage(
+                &executable_pairs[..1],
+                &stop_line_lane_owners,
+                &later_predecessor_paths,
+                &later_predecessor_candidates,
+                5,
+                TEST_OPTIONS,
+            )
+            .is_ok()
+        );
 
         let (path_only_ungated_paths, path_only_ungated_candidates) =
             maneuver_path_fixture_with_entry_gates(&[&[0, 1], &[0, 2]], &[true, false]);
