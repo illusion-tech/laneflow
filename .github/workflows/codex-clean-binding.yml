@@ -20,6 +20,11 @@ jobs:
          github.event.comment.body == 'external-review: request-codex-review') ||
         github.event.comment.user.login == 'chatgpt-codex-connector[bot]'
       )
+    # 与 publisher 的 unbound sweep 配对：串行化消除并发读-选-发竞态；同组只允许
+    # 一个 pending run 而被挤掉的中间事件，由后续 run 的 sweep 统一补绑。
+    concurrency:
+      group: codex-clean-binding-pr-${{ github.event.issue.number }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout trusted validator from main
@@ -74,8 +79,10 @@ jobs:
 
       # GITHUB_TOKEN 发布的 record 评论不会再触发 Gate workflow（GitHub 递归
       # 防护），绑定发布后必须在同一 run 内自行刷新 shadow check。
+      # always()：绑定命令对不可绑定的 Codex comment（如 provider 不可用提示）
+      # fail-closed 退出非零，此时仍须刷新，让 shadow 及时反映 evaluator 结论。
       - name: Refresh External Review Gate Shadow
-        if: github.event.comment.user.login == 'chatgpt-codex-connector[bot]'
+        if: always() && github.event.comment.user.login == 'chatgpt-codex-connector[bot]'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
