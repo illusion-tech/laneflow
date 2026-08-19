@@ -1406,8 +1406,10 @@ function Start-NewMcplsService {
                     }
                 }
                 finally {
-                    $process.Dispose()
-                    $process = $null
+                    if ($process.HasExited) {
+                        $process.Dispose()
+                        $process = $null
+                    }
                 }
                 if ($exitedBeforeBind) {
                     throw $lastFailure
