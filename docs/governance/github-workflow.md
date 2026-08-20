@@ -394,6 +394,10 @@ G4 清场必须完成：
   的 trusted merge metadata、对应 PR 的 GitHub `merge_group` run、merge 前最后一个 queue timeline event、
   仍生效的 live `merge_queue` rule、同次入队的最后一代 queue head，以及 live Ruleset 全部分页结果中 required checks 在 merge 前的最后完成结论；不能用旧 queue run、一个 Delivery
   record 代替 Related PR 证据，也不要求本地形式化 replay。
+- #451 Related PR #452 是唯一一次性 `activation_bootstrap`：它按 #451 G1/G2 在 live queue transaction 前
+  部署 advanced CodeQL workflow。G4 record 只保存 `H_pr/H_main`、冻结 reason 与精确
+  `bootstrapEvidenceUrl`，不得补造 `H_mg`；validator 固定 #451/#452 identity、`mergedAt` 与未编辑授权 comment，
+  不把该迁移扩为其他 boundary 后直合例外。
 - 勾选 Issue 验收 checklist。
 - 在 Issue comment 发表 `## G4 完成判断`，并在 Issue Gate Ledger 勾选 G4、回链该 comment；Delivery PR body 只回链该 Issue G4 comment。
 - 将 Project 中关联 Issue 和 PR 移动到 `Done`。
