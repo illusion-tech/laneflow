@@ -18,13 +18,28 @@ Windows 正式拓扑为“每个 Git worktree 一个原生 Streamable HTTP mcpls
   `rust-analyzer`，不共享每进程全局的 LSP 状态；
 - mcpls 只监听 `127.0.0.1`，不绑定局域网或公网地址，也不提供远程服务；
 - mcpls 以对应 worktree 为工作目录，并显式读取该 worktree 的 `mcpls.toml`；其中
-  `workspace.roots = []` 继续从当前工作目录发现 workspace。
+  `workspace.roots = []` 继续从当前工作目录发现 workspace；
+- Codex setup 通过 Windows 内置 CIM/WMI `Win32_Process.Create` 创建直接 mcpls PID，
+  使常驻服务不再属于 Codex 的 `KILL_ON_JOB_CLOSE` 进程树。该路径不注册计划任务或
+  Windows Service，也不需要提权或自研 supervisor。
 
 仓库跟踪 `.codex/config.template.toml`，不跟踪动态 endpoint。Windows setup 在每个
 worktree 本地生成被 `.gitignore` 忽略的 `.codex/config.toml`。生成文件包含管理标记、
 schema version 和模板 SHA-256；模板变化会在下次 setup 时可见地重新生成。脚本拒绝
 覆盖没有管理标记的既有配置，也不使用 `skip-worktree`、`assume-unchanged` 或其他隐藏
 Git 变更的机制。
+
+当前开发 Agent 宿主边界如下：
+
+| 宿主              | 状态        | 边界                                                                                                     |
+| ----------------- | ----------- | -------------------------------------------------------------------------------------------------------- |
+| Windows Codex App | `supported` | Local Environment setup 调用受管 `Ensure`；首次生成配置后，当前任务未加载 mcpls 时仍需新建任务或 Restart |
+| Grok Build        | `deferred`  | 已确认能读取项目级 HTTP MCP，但没有进入本轮 Delivery 的可靠阻塞 setup 生命周期                           |
+| Kimi Code         | `deferred`  | 已确认能读取项目级 HTTP MCP，但项目配置只在新 session 生效，且生命周期入口未进入本轮验收                 |
+
+`deferred` 表示保留未来薄适配接缝，不表示当前已支持。未来适配必须读取同一个 worktree
+状态和 endpoint，不能为同一 worktree 再启动第二个 mcpls。本轮不跟踪
+`.grok/config.toml` 或 `.kimi-code/mcp.json`。
 
 ## 2. 每台 Windows 电脑的一次性安装
 
@@ -53,8 +68,9 @@ setup 也会执行相同检查，并验证 `rust-analyzer --version` 可执行�
 语义能力的服务。
 
 setup 脚本不会联网、安装、升级或下载任何工具。mcpls 缺失、版本不符、没有 HTTP
-feature，或 Git worktree / `%LOCALAPPDATA%` context 无法构造时，`Ensure` 都会给出警告并
-成功结束；能安全定位受管模板时同时生成禁用配置。LaneFlow 的其他开发工作不受影响。
+feature，Windows CIM/WMI 创建被策略拒绝，或 Git worktree / `%LOCALAPPDATA%` context
+无法构造时，`Ensure` 都会给出警告并成功结束；能安全定位受管模板时同时生成禁用配置。
+LaneFlow 的其他开发工作不受影响。
 若 context 失败且无法安全定位/验证受管配置，结果会把 `config_enabled` 报为 `null` 并
 明确说明禁用未完成，不能声称旧 endpoint 已禁用。人工 `Start` 则以非零状态严格失败。
 
@@ -87,11 +103,17 @@ Codex 为新任务创建 worktree 时会运行 setup。`Ensure` 会：
    服务并启动新服务；解析到的 `rust-analyzer` 路径变化也会阻止复用旧服务；健康探测会
    携带协商得到的 `MCP-Protocol-Version` 删除临时 session，并把删除失败视为不健康；
 6. 用 `StartupTimeoutSeconds` 的单一截止时间约束初始 Git worktree discovery、自动清理、
-   二进制校验、锁等待、端口绑定和 HTTP 健康检查；
-7. 子进程创建后立即原子持久化 `starting` 状态，再等待端口绑定；只有健康检查、启用配置
+   二进制校验、锁等待、CIM 创建、端口绑定和 HTTP 健康检查；
+7. 使用 `Win32_Process.Create` 和 `CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW` 以当前用户、
+   目标 worktree 为工作目录创建直接 mcpls PID；不再用普通 `Start-Process` 启动常驻后代；
+8. 进程创建后立即原子持久化 `starting` 状态，再等待端口绑定；只有健康检查、启用配置
    与生命周期日志全部提交成功后才保留新进程。任一记账步骤失败都会回收该进程，且失败
-   路径只在持有同 worktree 锁时改写禁用配置。子进程在 bind 前自行退出会直接中止启动，
+   路径只在持有同 worktree 锁时改写禁用配置。进程在 bind 前自行退出会直接中止启动，
    不会遍历其余端口；只有仍存活但未绑定时才尝试下一候选端口。
+
+直接在 Codex setup 中给 `CreateProcess` 增加 breakaway flag 的实机探针仍被外层嵌套 Job
+捕获，因此不是支持路径。Windows Task Scheduler 虽能异步托管进程，但会增加持久系统
+注册和卸载面；在 CIM/WMI 创建路径已通过真实 mcpls HTTP 初始化后，本轮不采用它。
 
 Codex 官方文档没有保证 Local Environment setup 一定早于当前任务的 MCP 配置读取。
 因此首次生成配置后，如果当前任务没有加载 mcpls，应 Restart Codex 或新建任务；不要
@@ -143,17 +165,20 @@ PID 已确认不存在且状态所有权一致时，才清理失效状态。CIM/
 %LOCALAPPDATA%\LaneFlow\mcpls\worktrees\<worktree_id>\
 ```
 
-`state.json` 当前为 schema 2，记录规范化 root、PID、启动时间、可执行路径、命令摘要、
-端口、endpoint、模板哈希、`mcpls.toml` 内容哈希、解析到的 `rust-analyzer` 路径和状态；
+`state.json` 当前为 schema 2，记录 `launch_method=win32_process_create`、规范化 root、PID、
+启动时间、可执行路径、命令摘要、端口、endpoint、模板哈希、`mcpls.toml` 内容哈希、
+解析到的 `rust-analyzer` 路径和状态；
 `lifecycle.log` 记录本脚本的启动、复用、失败、停止与清理事件。两者都不提交到仓库。
 状态、轮转游标和生成配置都
 通过同目录临时文件原子替换。旧 schema 或不完整状态会被明确报告为 `invalid-state`，
 不会被当作“无状态”而启动第二个服务。必填值还会校验非空、类型、范围、绝对路径、
 哈希格式以及 endpoint/端口一致性；成功停止或已确认回收的启动失败分别使用
 `status=stopped|failed` 与 `process_id=0`，明确表示没有活动 PID，避免系统复用旧 PID
-后阻断下次启动。需在核对对应 PID 后人工处理
-无效状态目录。mcpls 的 stdout/stderr 分别重定向到状态目录下的 `mcpls.stdout.log` 与
-`mcpls.stderr.log`，不会继承 Codex setup runner 的捕获管道。
+后阻断下次启动。需在核对对应 PID 后人工处理无效状态目录。
+
+外部创建路径不继承 Codex setup runner 的输出管道，也不为 stdout/stderr 增加常驻
+wrapper。支持的可观察事实源是 `state.json`、`lifecycle.log`、进程身份和 HTTP MCP 健康；
+如果这些证据不足以定位新问题，应另行扩展诊断，不在本脚本中引入生产级监管器。
 
 ## 5. 验证
 
@@ -203,6 +228,11 @@ git ls-files -v -- .codex/config.toml
 没有管理标记的配置。不要重新设置 `skip-worktree`；共享变化应通过
 `.codex/config.template.toml` 的正常 Git diff/review 进入每个 worktree。
 
+PR #435 生成的 schema 2 状态没有 `launch_method` 时仍可读取，但只视为
+`start_process_legacy`，不能复用。下一次 `Ensure` 会先按完整 PID、启动时间、可执行路径、
+命令行和 HTTP 身份停止旧服务，再以 `win32_process_create` 重建；若旧 PID 已不存在则直接
+恢复，若仍存活但身份不匹配则失败关闭并拒绝启动第二个实例。
+
 需要临时停用 HTTP 服务时运行 `Stop`；生成配置会保留但标记为 `enabled = false`。
 mcpls 完全不可用时，继续使用 `rg`、源码阅读和 Cargo 检查。卸载本机工具前应先逐个
 worktree 执行 `Stop` 或在审阅 `Status` 后执行 `Prune`，再运行：
@@ -221,5 +251,10 @@ cargo uninstall mcpls
 - [OpenAI Docs：Codex Config basics](https://learn.chatgpt.com/docs/config-file/config-basic)
 - [OpenAI Docs：Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
 - [OpenAI Docs：Codex Local environments](https://learn.chatgpt.com/docs/environments/local-environment)
+- [OpenAI Docs：Codex Hooks](https://learn.chatgpt.com/docs/hooks)
+- [Microsoft：Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+- [Microsoft：Win32_Process.Create](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/create-method-in-class-win32-process)
+- [Grok Build：MCP Servers](https://docs.x.ai/build/features/mcp-servers)
+- [Kimi Code：MCP](https://github.com/MoonshotAI/kimi-code/blob/main/docs/en/customization/mcp.md)
 - [mcpls 0.3.9 文档与元数据](https://docs.rs/crate/mcpls/0.3.9)
 - [mcpls source](https://github.com/bug-ops/mcpls)

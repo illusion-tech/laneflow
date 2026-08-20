@@ -31,6 +31,8 @@ Set-StrictMode -Version Latest
 
 $script:McplsVersion = '0.3.9'
 $script:StateSchemaVersion = 2
+$script:LaunchMethod = 'win32_process_create'
+$script:ExternalProcessCreateFlags = [uint32]0x09000000
 $script:TemplateSchemaVersion = 1
 $script:GeneratedConfigSchemaVersion = 1
 $script:PortMinimum = 41000
@@ -439,6 +441,16 @@ function Read-ServiceState {
                 throw "required property $property must be a non-empty string"
             }
         }
+        $launchMethodProperty = $state.PSObject.Properties['launch_method']
+        if ($null -ne $launchMethodProperty) {
+            if ($launchMethodProperty.Value -isnot [string] -or
+                [string]::IsNullOrWhiteSpace([string]$launchMethodProperty.Value)) {
+                throw 'launch_method must be a non-empty string when present'
+            }
+            if ([string]$launchMethodProperty.Value -ne $script:LaunchMethod) {
+                throw "unsupported launch_method $($launchMethodProperty.Value)"
+            }
+        }
         if ($state.process_started_at_utc -isnot [DateTime] -and
             $state.process_started_at_utc -isnot [DateTimeOffset] -and
             $state.process_started_at_utc -isnot [string]) {
@@ -832,6 +844,7 @@ function Get-ServiceReuseInputs {
         [Parameter(Mandatory)][string]$McplsConfigHash
     )
 
+    $sameLaunchMethod = (Get-StateLaunchMethod -State $State) -eq $script:LaunchMethod
     $sameTool = Test-PathEqual -Left ([string]$State.executable_path) `
         -Right $ExecutablePath
     $sameConfig = [string]::Equals(
@@ -846,12 +859,25 @@ function Get-ServiceReuseInputs {
         (Test-PathEqual -Left ([string]$rustAnalyzerProperty.Value) `
             -Right $RustAnalyzerPath)
     return [pscustomobject]@{
-        Reusable = $sameTool -and $sameConfig -and $sameVersion -and $sameRustAnalyzer
+        Reusable = $sameLaunchMethod -and $sameTool -and $sameConfig -and
+            $sameVersion -and $sameRustAnalyzer
+        SameLaunchMethod = $sameLaunchMethod
         SameTool = $sameTool
         SameConfig = $sameConfig
         SameVersion = $sameVersion
         SameRustAnalyzer = $sameRustAnalyzer
     }
+}
+
+function Get-StateLaunchMethod {
+    param([Parameter(Mandatory)]$State)
+
+    $property = $State.PSObject.Properties['launch_method']
+    if ($null -eq $property -or
+        [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+        return 'start_process_legacy'
+    }
+    return [string]$property.Value
 }
 
 function Remove-McpProbeSession {
@@ -1099,27 +1125,53 @@ function Start-McplsProcess {
     param(
         [Parameter(Mandatory)][string]$Executable,
         [Parameter(Mandatory)]$Context,
-        [Parameter(Mandatory)][int]$Port
+        [Parameter(Mandatory)][int]$Port,
+        [Parameter(Mandatory)][DateTimeOffset]$Deadline
     )
 
     [System.IO.Directory]::CreateDirectory($Context.StateDirectory) | Out-Null
-    $standardOutputPath = Join-Path $Context.StateDirectory 'mcpls.stdout.log'
-    $standardErrorPath = Join-Path $Context.StateDirectory 'mcpls.stderr.log'
-    $quotedConfigPath = '"' + $Context.McplsConfigPath + '"'
-    $arguments = @(
-        '--config', $quotedConfigPath,
-        '--listen', "127.0.0.1:$Port",
-        '--http-path', $script:HttpPath
-    )
-
-    $process = Start-Process -FilePath $Executable -ArgumentList $arguments `
-        -WorkingDirectory $Context.Root -WindowStyle Hidden -PassThru `
-        -RedirectStandardOutput $standardOutputPath `
-        -RedirectStandardError $standardErrorPath
-    if ($null -eq $process) {
-        throw 'Failed to create the mcpls process.'
+    foreach ($value in @($Executable, $Context.McplsConfigPath, $Context.Root)) {
+        if ($value.IndexOf('"', [System.StringComparison]::Ordinal) -ge 0) {
+            throw 'Windows process launch paths must not contain a double quote.'
+        }
     }
-    return $process
+    $commandLine = (
+        '"' + $Executable + '"' +
+        ' --config "' + $Context.McplsConfigPath + '"' +
+        " --listen 127.0.0.1:$Port" +
+        " --http-path $($script:HttpPath)"
+    )
+    $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly `
+        -Property @{
+            CreateFlags = $script:ExternalProcessCreateFlags
+            ShowWindow = [uint16]0
+        }
+    $remainingMilliseconds = Get-RemainingMilliseconds -Deadline $Deadline
+    $operationTimeoutSeconds = [int][Math]::Max(
+        1,
+        [Math]::Ceiling($remainingMilliseconds / 1000.0)
+    )
+    $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
+        -Arguments @{
+            CommandLine = $commandLine
+            CurrentDirectory = $Context.Root
+            ProcessStartupInformation = $startup
+        } `
+        -OperationTimeoutSec $operationTimeoutSeconds
+    if ($null -eq $created -or [uint32]$created.ReturnValue -ne 0) {
+        $returnValue = if ($null -eq $created) { 'no result' } else { $created.ReturnValue }
+        throw "Win32_Process.Create failed with return value $returnValue."
+    }
+    $processId = [int]$created.ProcessId
+    if ($processId -le 0) {
+        throw 'Win32_Process.Create returned an invalid process ID.'
+    }
+    try {
+        return Get-Process -Id $processId -ErrorAction Stop
+    }
+    catch {
+        throw "Win32_Process.Create returned PID $processId, but it exited before inspection."
+    }
 }
 
 function Stop-OwnedProcessTree {
@@ -1263,6 +1315,7 @@ function New-ServiceState {
     $endpoint = "http://127.0.0.1:$Port$($script:HttpPath)"
     return [pscustomobject][ordered]@{
         schema_version = $script:StateSchemaVersion
+        launch_method = $script:LaunchMethod
         worktree_id = $Context.WorktreeId
         worktree_root = $Context.Root
         status = $Status
@@ -1359,7 +1412,7 @@ function Start-NewMcplsService {
 
             $null = Get-RemainingMilliseconds -Deadline $Deadline
             $process = Start-McplsProcess -Executable $Tool.Path `
-                -Context $Context -Port $port
+                -Context $Context -Port $port -Deadline $Deadline
             $state = New-ServiceState -Context $Context -Tool $Tool `
                 -RustAnalyzer $RustAnalyzer -Port $port `
                 -Process $process -TemplateInfo $TemplateInfo `
@@ -1613,7 +1666,7 @@ function Invoke-StartOrReuse {
                 }
 
                 Write-LifecycleLog -Context $Context `
-                    -Message "replacing-owned pid=$($existingState.process_id) healthy=$($health.Healthy) same_tool=$($reuseInputs.SameTool) same_config=$($reuseInputs.SameConfig) same_version=$($reuseInputs.SameVersion) same_rust_analyzer=$($reuseInputs.SameRustAnalyzer)"
+                    -Message "replacing-owned pid=$($existingState.process_id) healthy=$($health.Healthy) same_launch_method=$($reuseInputs.SameLaunchMethod) same_tool=$($reuseInputs.SameTool) same_config=$($reuseInputs.SameConfig) same_version=$($reuseInputs.SameVersion) same_rust_analyzer=$($reuseInputs.SameRustAnalyzer)"
                 Stop-VerifiedServiceProcessTree -State $existingState `
                     -ExpectedRoot $Context.Root -Deadline $deadline
                 $existingState.status = 'stopped'
@@ -2212,6 +2265,7 @@ function Invoke-StatusAction {
         worktree_id = $Context.WorktreeId
         worktree_root = $Context.Root
         status = [string]$state.status
+        launch_method = Get-StateLaunchMethod -State $state
         process_id = [int]$state.process_id
         endpoint = [string]$state.endpoint
         identity_matched = $identity.Matched

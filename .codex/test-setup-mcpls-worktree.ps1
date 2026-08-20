@@ -453,6 +453,7 @@ try {
     }
     $fakeState = [pscustomobject]@{
         schema_version = $script:StateSchemaVersion
+        launch_method = $script:LaunchMethod
         worktree_id = $repositoryContext.WorktreeId
         worktree_root = $repositoryRoot
         status = 'ready'
@@ -510,6 +511,12 @@ try {
         -ExecutablePath $currentSnapshot.ExecutablePath `
         -RustAnalyzerPath $repositoryContext.McplsConfigPath `
         -McplsConfigHash ([string]$fakeState.mcpls_config_sha256)
+    $legacyState = (($fakeState | ConvertTo-Json -Depth 6) | ConvertFrom-Json)
+    $legacyState.PSObject.Properties.Remove('launch_method')
+    $legacyReuseInputs = Get-ServiceReuseInputs -State $legacyState `
+        -ExecutablePath $currentSnapshot.ExecutablePath `
+        -RustAnalyzerPath $currentSnapshot.ExecutablePath `
+        -McplsConfigHash ([string]$fakeState.mcpls_config_sha256)
     Assert-True -Condition $matchingReuseInputs.Reusable `
         -Message 'matching executable, version, and mcpls.toml hash permit reuse'
     Assert-True -Condition (
@@ -519,6 +526,11 @@ try {
         -not $changedRustAnalyzerInputs.Reusable -and
         -not $changedRustAnalyzerInputs.SameRustAnalyzer
     ) -Message 'a changed rust-analyzer path forces service replacement'
+    Assert-True -Condition (
+        (Get-StateLaunchMethod -State $legacyState) -eq 'start_process_legacy' -and
+        -not $legacyReuseInputs.Reusable -and
+        -not $legacyReuseInputs.SameLaunchMethod
+    ) -Message 'legacy Start-Process state remains readable but forces safe replacement'
 
     $cycleSnapshot = @(
         [pscustomobject]@{ ProcessId = 9001; ParentProcessId = 9002; Name = 'cycle-a' },
@@ -718,24 +730,49 @@ try {
         $secondRotation[0].worktree_id -ne $firstRotation[0].worktree_id
     ) -Message 'bounded Prune rotates past an earlier preserved directory'
 
-    $redirectProbe = Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
-        -Context $testContext -Port $identityPort
+    $script:CapturedCreateArguments = $null
+    $script:CapturedCreateTimeout = 0
     try {
-        $redirectProbe.WaitForExit(5000) | Out-Null
+        Set-Item -Path Function:New-CimInstance -Value {
+            param($ClassName, [switch]$ClientOnly, $Property)
+            return [pscustomobject]@{
+                ClassName = $ClassName
+                ClientOnly = $ClientOnly.IsPresent
+                Property = $Property
+            }
+        }
+        Set-Item -Path Function:Invoke-CimMethod -Value {
+            param($ClassName, $MethodName, $Arguments, $OperationTimeoutSec)
+            $script:CapturedCreateArguments = $Arguments
+            $script:CapturedCreateTimeout = $OperationTimeoutSec
+            return [pscustomobject]@{ ReturnValue = [uint32]0; ProcessId = $PID }
+        }
+        $externalProbe = Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
+            -Context $testContext -Port $identityPort `
+            -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
+        $externalProbe.Dispose()
+        Assert-True -Condition (
+            $script:CapturedCreateArguments.CommandLine -match '--config' -and
+            $script:CapturedCreateArguments.CommandLine -match '--listen' -and
+            $script:CapturedCreateArguments.CurrentDirectory -eq $testContext.Root -and
+            [uint32]$script:CapturedCreateArguments.ProcessStartupInformation.Property.CreateFlags -eq
+                $script:ExternalProcessCreateFlags -and
+            $script:CapturedCreateTimeout -ge 1
+        ) -Message 'long-lived service uses bounded Win32_Process.Create outside the setup child tree'
+        Set-Item -Path Function:Invoke-CimMethod -Value {
+            param($ClassName, $MethodName, $Arguments, $OperationTimeoutSec)
+            return [pscustomobject]@{ ReturnValue = [uint32]2; ProcessId = 0 }
+        }
+        Assert-Throws -Operation {
+            Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
+                -Context $testContext -Port $identityPort `
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
+        } -Message 'Win32_Process.Create failures remain visible to fail-open Ensure handling'
     }
     finally {
-        if (-not $redirectProbe.HasExited) {
-            $redirectProbe.Kill($true)
-            $redirectProbe.WaitForExit(5000) | Out-Null
-        }
-        $redirectProbe.Dispose()
+        Remove-Item -Path Function:New-CimInstance -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path Function:Invoke-CimMethod -Force -ErrorAction SilentlyContinue
     }
-    Assert-True -Condition (
-        (Test-Path -LiteralPath (Join-Path $testContext.StateDirectory 'mcpls.stdout.log') `
-            -PathType Leaf) -and
-        (Test-Path -LiteralPath (Join-Path $testContext.StateDirectory 'mcpls.stderr.log') `
-            -PathType Leaf)
-    ) -Message 'long-lived service streams redirect to managed files'
 
     $originalStartProcess = (Get-Command Start-McplsProcess).ScriptBlock
     $originalPortAvailable = (Get-Command Test-LoopbackPortAvailable).ScriptBlock
@@ -747,7 +784,7 @@ try {
     $script:StartupTestExecutable = (Get-Process -Id $PID).Path
     try {
         Set-Item -Path Function:Start-McplsProcess -Value {
-            param($Executable, $Context, $Port)
+            param($Executable, $Context, $Port, $Deadline)
             $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
             $startInfo.FileName = $script:StartupTestExecutable
             $startInfo.UseShellExecute = $false
@@ -795,7 +832,7 @@ try {
     $script:StartupTestPid = 0
     try {
         Set-Item -Path Function:Start-McplsProcess -Value {
-            param($Executable, $Context, $Port)
+            param($Executable, $Context, $Port, $Deadline)
             $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
             $startInfo.FileName = $script:StartupTestExecutable
             $startInfo.UseShellExecute = $false
@@ -843,7 +880,7 @@ try {
     $script:ImmediateExitStarts = 0
     try {
         Set-Item -Path Function:Start-McplsProcess -Value {
-            param($Executable, $Context, $Port)
+            param($Executable, $Context, $Port, $Deadline)
             $script:ImmediateExitStarts++
             $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
             $startInfo.FileName = $script:StartupTestExecutable
