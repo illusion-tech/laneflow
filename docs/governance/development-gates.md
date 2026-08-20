@@ -399,6 +399,7 @@ Issue 关闭前必须满足：
 - 临时权限、ruleset bypass 或 admin override 已撤回，或说明保留原因、风险和 Cleanup owner。
 - 已在所有关联 PR 合并后、Issue 关闭前发表 `## G4 完成判断` comment；Issue body G4 checkbox 已回链该 comment，Delivery PR body 已回链该 Issue G4 comment。
 - `check-gate-evidence g4` 已成功运行；正常 G4 comment 的 `Gate 断言` 行以规范格式记录语义一致的命令和 `已通过` 结果。只有合格的 `g3-exception:v1` historical replay 才保留 `未通过` 并输出 `accepted_exception`，且不得描述为 Pass。`待运行`、无结构化记录的失败、缺少成功标记或参数不匹配不得通过 G4。
+- 经 Merge Queue 合并时，G4 comment 必须记录 `H_pr`、`H_mg`、`H_main`、绑定 `H_mg` 的 required-check success permalink 与 inclusion / replay 链；validator 会把 `H_pr`、`H_main` 分别与 GitHub `headRefOid`、`mergeCommit.oid` 对照。activation 前的非队列历史合并不要求补造 `H_mg`。
 
 G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必须补写，应标记为补救记录。
 
@@ -406,6 +407,11 @@ G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必�
 ## G4 完成判断
 
 - 合并：
+- H_pr：`<Queue-ready PR head 40-hex OID>`
+- H_mg：`<Merge Group head 40-hex OID>`
+- H_main：`<GitHub mergeCommit 40-hex OID>`
+- H_mg required checks：success；`<H_mg>`；<当前仓库 GitHub checks / run permalink>
+- Inclusion / replay：`<H_pr>` -> `<H_mg>` -> `<H_main>`；验证方法 / evidence permalink
 - main CI：
 - 验收：
 - Project：

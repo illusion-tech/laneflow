@@ -373,7 +373,10 @@ PR 合并后，应回到关联 Issue 完成 G4，而不是在清场时首次补�
 
 G4 清场必须完成：
 
-- 确认 PR 已按默认策略 Rebase and merge 合入，或记录例外原因。
+- 确认 PR 已按默认 Merge Queue（最终 Rebase）策略合入，或记录例外原因。
+- 保存 Queue-ready `H_pr`、真实 Merge Group `H_mg`、GitHub `mergeCommit` 对应的 `H_main`、绑定
+  `H_mg` 的 required-check success permalink 与 inclusion / replay 证据，并由 `check-gate-evidence g4`
+  复核三身份链；activation 前的非队列历史合并不补造 `H_mg`。
 - 勾选 Issue 验收 checklist。
 - 在 Issue comment 发表 `## G4 完成判断`，并在 Issue Gate Ledger 勾选 G4、回链该 comment；Delivery PR body 只回链该 Issue G4 comment。
 - 将 Project 中关联 Issue 和 PR 移动到 `Done`。

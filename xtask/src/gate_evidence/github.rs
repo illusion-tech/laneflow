@@ -557,7 +557,7 @@ pub(super) fn gh_pr_fields(phase: GateEvidencePhase) -> &'static str {
             "body,state,isDraft,headRefOid,baseRefOid,createdAt,mergedAt,closingIssuesReferences,comments"
         }
         GateEvidencePhase::G4 => {
-            "body,state,isDraft,headRefOid,baseRefOid,createdAt,mergedAt,closingIssuesReferences,projectItems,comments"
+            "body,state,isDraft,headRefOid,baseRefOid,createdAt,mergedAt,mergeCommit,closingIssuesReferences,projectItems,comments"
         }
     }
 }
