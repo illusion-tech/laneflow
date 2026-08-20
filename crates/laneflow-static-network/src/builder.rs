@@ -125,6 +125,7 @@ struct BuildCounts {
     lane_segment_count: u32,
     facility_geometry_count: u32,
     facility_point_count: u32,
+    relation_payloads: crate::relations::RelationPayloads,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -453,6 +454,7 @@ fn count_and_preflight(
         lane_segment_count,
         facility_geometry_count,
         facility_point_count,
+        relation_payloads: crate::relations_build::count_relation_payloads(view, options)?,
     })
 }
 
@@ -527,6 +529,7 @@ fn check_retained_budget(
     retained = retained
         .checked_add(crate::relations::relation_retained_floor(
             &counts.entity_counts,
+            counts.relation_payloads,
         )?)
         .ok_or(BuildError::ArithmeticOverflow {
             structure: BuildStructure::RetainedOutput,
@@ -698,7 +701,10 @@ fn check_scratch_budget(
         0
     };
     let scratch = scratch.max(spatial_join_scratch);
-    let scratch = scratch.max(relation_scratch_bytes(&counts.entity_counts)?);
+    let scratch = scratch.max(relation_scratch_bytes(
+        &counts.entity_counts,
+        counts.relation_payloads,
+    )?);
     if scratch > options.limits.max_scratch_bytes {
         return Err(BuildError::BudgetExceeded {
             structure: BuildStructure::BuilderScratch,
@@ -709,7 +715,10 @@ fn check_scratch_budget(
     Ok(())
 }
 
-fn relation_scratch_bytes(entity_counts: &EntityCounts) -> Result<u64, BuildError> {
+fn relation_scratch_bytes(
+    entity_counts: &EntityCounts,
+    payloads: crate::relations::RelationPayloads,
+) -> Result<u64, BuildError> {
     let unique_limit = EntityKind::ALL
         .iter()
         .map(|kind| entity_counts.count(*kind))
@@ -734,6 +743,18 @@ fn relation_scratch_bytes(entity_counts: &EntityCounts) -> Result<u64, BuildErro
                 structure: BuildStructure::BuilderScratch,
             })?;
     let class_count = entity_counts.count(EntityKind::ParticipantClass);
+    let class_scratch = structure_bytes::<u32>(class_count, BuildStructure::BuilderScratch)?
+        .checked_mul(5)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?
+        .checked_add(structure_bytes::<usize>(
+            class_count,
+            BuildStructure::BuilderScratch,
+        )?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
     let verdicts = if class_count == 0 {
         0
     } else {
@@ -753,10 +774,40 @@ fn relation_scratch_bytes(entity_counts: &EntityCounts) -> Result<u64, BuildErro
             verdict_rows,
             BuildStructure::BuilderScratch,
         )?
+        .checked_mul(3)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?
     };
+    let reverse_buckets = structure_bytes::<u32>(
+        entity_counts
+            .count(EntityKind::LaneEdge)
+            .checked_add(entity_counts.count(EntityKind::ManeuverPath))
+            .and_then(|count| count.checked_add(entity_counts.count(EntityKind::ManeuverGate)))
+            .and_then(|count| count.checked_add(entity_counts.count(EntityKind::WaitingZone)))
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::BuilderScratch,
+            })?,
+        BuildStructure::BuilderScratch,
+    )?;
+    let route_rebuild = structure_bytes::<u32>(
+        payloads
+            .route_edges
+            .checked_add(payloads.route_maneuvers)
+            .and_then(|count| count.checked_add(payloads.route_gate_occurrences))
+            .and_then(|count| count.checked_add(payloads.route_waiting_occurrences))
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::BuilderScratch,
+            })?,
+        BuildStructure::BuilderScratch,
+    )?;
+    let peak = class_scratch
+        .max(verdicts)
+        .max(reverse_buckets)
+        .max(route_rebuild);
     unique
         .checked_add(intern)
-        .and_then(|bytes| bytes.checked_add(verdicts))
+        .and_then(|bytes| bytes.checked_add(peak))
         .ok_or(BuildError::ArithmeticOverflow {
             structure: BuildStructure::BuilderScratch,
         })
@@ -3812,6 +3863,7 @@ mod tests {
             lane_segment_count: 0,
             facility_geometry_count: 0,
             facility_point_count: 0,
+            relation_payloads: crate::relations::RelationPayloads::default(),
         };
         let options = SharedNetworkBuildOptions::new(
             SpatialBuildOption::Omit,
@@ -3851,6 +3903,7 @@ mod tests {
             lane_segment_count: 0,
             facility_geometry_count: 0,
             facility_point_count: 0,
+            relation_payloads: crate::relations::RelationPayloads::default(),
         };
         let options = SharedNetworkBuildOptions::new(
             SpatialBuildOption::RetainAvailable,
