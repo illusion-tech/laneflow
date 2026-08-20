@@ -15,7 +15,7 @@ param(
     [ValidateSet('Ensure', 'Start', 'Status', 'Stop', 'Prune')]
     [string]$Action = 'Ensure',
 
-    [ValidateRange(5, 300)]
+    [ValidateRange(15, 300)]
     [int]$StartupTimeoutSeconds = 60,
 
     [string]$WorktreeRoot,

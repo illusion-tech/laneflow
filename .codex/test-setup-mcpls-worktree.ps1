@@ -38,6 +38,19 @@ function Assert-Throws {
     Assert-True -Condition $threw -Message $Message
 }
 
+$setupScriptCommand = Get-Command -Name (
+    Join-Path $PSScriptRoot 'setup-mcpls-worktree.ps1'
+) -CommandType ExternalScript
+$startupTimeoutRange = @(
+    $setupScriptCommand.Parameters['StartupTimeoutSeconds'].Attributes |
+        Where-Object { $_ -is [System.Management.Automation.ValidateRangeAttribute] }
+)
+Assert-True -Condition (
+    $startupTimeoutRange.Count -eq 1 -and
+    [int]$startupTimeoutRange[0].MinRange -eq 15 -and
+    [int]$startupTimeoutRange[0].MaxRange -eq 300
+) -Message 'CLI startup timeout excludes values that cannot preserve mandatory startup reserves'
+
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) (
     "laneflow-mcpls-tests-$([System.Guid]::NewGuid().ToString('N'))"
 )
