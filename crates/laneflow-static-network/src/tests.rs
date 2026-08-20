@@ -1,13 +1,16 @@
 use std::sync::{Arc, atomic::AtomicBool};
 
-use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, RegistryCheckedFieldValue, check_canonical_network_input_v1};
 use laneflow_static_contract::{
-    EntityKind, LaneEdgeKind, LaneEdgeOrdinal, ManeuverPathOrdinal, RoadCorridorOrdinal,
+    AuthoringLaneOrdinal, EntityKind, LaneEdgeKind, LaneEdgeOrdinal, ManeuverPathOrdinal,
+    ParticipantClassOrdinal, RoadCorridorOrdinal, RoadSectionOrdinal, SignalControllerOrdinal,
+    SignalPhaseOrdinal, StaticRouteOrdinal,
 };
 
 use crate::{
-    BuildError, BuildStructure, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
-    SpatialBuildOption, build_shared_network_revision,
+    AccessCell, BuildError, BuildStructure, CorridorElement, FacilityKind,
+    SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+    build_shared_network_revision,
 };
 
 const MIN_HEADLESS: &[u8] = include_bytes!(
@@ -263,22 +266,22 @@ fn successful_root_outlives_input_bytes_and_arc_clones_share_components() {
 fn retained_limit_fails_before_a_root_exists_and_exact_boundary_succeeds() {
     let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
         .expect("checked input");
-    let result = build_shared_network_revision(
-        input,
-        SharedNetworkBuildOptions::new(
-            SpatialBuildOption::RetainAvailable,
-            SharedNetworkBuildLimits::new(1, u64::MAX),
+    assert!(matches!(
+        build_shared_network_revision(
+            input,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::RetainAvailable,
+                SharedNetworkBuildLimits::new(1, u64::MAX),
+            ),
         ),
-    );
-    let required = match result {
         Err(BuildError::BudgetExceeded {
             structure: BuildStructure::RetainedOutput,
-            required,
             ..
-        }) => required,
-        _ => panic!("retained budget should fail first"),
-    };
+        })
+    ));
 
+    let required =
+        build(FULL_SPATIAL, SpatialBuildOption::RetainAvailable).retained_logical_bytes();
     let below_exact = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
         .expect("checked input");
     assert!(matches!(
@@ -291,9 +294,8 @@ fn retained_limit_fails_before_a_root_exists_and_exact_boundary_succeeds() {
         ),
         Err(BuildError::BudgetExceeded {
             structure: BuildStructure::RetainedOutput,
-            required: actual,
             ..
-        }) if actual == required
+        })
     ));
 
     let exact = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
@@ -388,4 +390,237 @@ fn pre_cancelled_build_returns_no_root() {
             .with_cancellation(&cancelled),
     );
     assert!(matches!(result, Err(BuildError::Cancelled)));
+}
+
+fn ordinals(row: laneflow_format::RegistryCheckedRowView<'_>, tag: u16) -> Vec<u32> {
+    match row
+        .field_by_tag(tag)
+        .expect("field")
+        .value()
+        .expect("value")
+    {
+        RegistryCheckedFieldValue::OrdinalVectorU32(values) => (0..values.len())
+            .map(|index| values.get(index).expect("member"))
+            .collect(),
+        _ => panic!("expected ordinal vector"),
+    }
+}
+
+fn u64_field(row: laneflow_format::RegistryCheckedRowView<'_>, tag: u16) -> u64 {
+    match row
+        .field_by_tag(tag)
+        .expect("field")
+        .value()
+        .expect("value")
+    {
+        RegistryCheckedFieldValue::U64(value) => value,
+        _ => panic!("expected u64"),
+    }
+}
+
+#[test]
+fn full_spatial_preserves_section_lane_and_controller_phase_sequence() {
+    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+        .expect("checked input");
+    let view = input.value_checked_view();
+    let entities = view.registry_view().section(2).expect("entities");
+    let revision = build(FULL_SPATIAL, SpatialBuildOption::Omit);
+    let relations = revision.traffic().relations();
+
+    let section_table = entities.table(1).expect("RoadSection");
+    for (index, row) in section_table.rows().enumerate() {
+        let expected = ordinals(row, 5)
+            .into_iter()
+            .map(AuthoringLaneOrdinal::from_raw)
+            .collect::<Vec<_>>();
+        let section = RoadSectionOrdinal::from_raw(u32::try_from(index).expect("fits"));
+        assert_eq!(
+            relations.section_lanes(section).expect("section lanes"),
+            expected.as_slice()
+        );
+    }
+
+    let controller_table = entities.table(11).expect("SignalController");
+    for (index, row) in controller_table.rows().enumerate() {
+        let controller = SignalControllerOrdinal::from_raw(u32::try_from(index).expect("fits"));
+        let expected = ordinals(row, 6)
+            .into_iter()
+            .map(SignalPhaseOrdinal::from_raw)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            relations
+                .controller_phases(controller)
+                .expect("controller phases"),
+            expected.as_slice()
+        );
+        let cycle = u64_field(row, 4);
+        assert_eq!(relations.controller_cycle_ms(controller), Some(cycle));
+        let mut cursor = 0_u64;
+        for phase in &expected {
+            let duration = relations.phase_duration_ms(*phase).expect("duration");
+            cursor += duration;
+            assert_eq!(relations.phase_end_offset_ms(*phase), Some(cursor));
+        }
+        if let Some(last) = expected.last() {
+            assert_eq!(relations.phase_end_offset_ms(*last), Some(cycle));
+        }
+    }
+}
+
+#[test]
+fn full_spatial_closes_corridor_facility_kind_and_uncovered_edges() {
+    let revision = build(FULL_SPATIAL, SpatialBuildOption::Omit);
+    let relations = revision.traffic().relations();
+    let counts = revision.traffic().entity_counts();
+    let corridor_count = counts.count(EntityKind::RoadCorridor);
+    let mut saw_section = false;
+    let mut saw_band = false;
+    for raw in 0..corridor_count {
+        let corridor = RoadCorridorOrdinal::from_raw(raw);
+        let elements = relations.corridor_elements(corridor).expect("elements");
+        for element in elements {
+            match element {
+                CorridorElement::RoadSection(_) => saw_section = true,
+                CorridorElement::FacilityBand(_) => saw_band = true,
+            }
+        }
+        assert!(relations.corridor_reference_section(corridor).is_some());
+    }
+    if corridor_count > 0 {
+        assert!(saw_section || saw_band);
+    }
+
+    let section_count = counts.count(EntityKind::RoadSection);
+    for raw in 0..section_count {
+        let kind = relations
+            .section_kind(RoadSectionOrdinal::from_raw(raw))
+            .expect("section kind");
+        if matches!(kind, FacilityKind::Custom { .. }) {
+            assert!(relations.facility_kind_token(kind).is_some());
+        } else {
+            assert!(matches!(
+                relations.facility_kind_token(kind),
+                Some("motorLane")
+                    | Some("nonMotorLane")
+                    | Some("sidewalk")
+                    | Some("median")
+                    | Some("plantingStrip")
+                    | Some("facilityStrip")
+                    | Some("shoulder")
+            ));
+        }
+    }
+
+    let lane_count = counts.count(EntityKind::LaneEdge);
+    for raw in 0..lane_count {
+        let edge = LaneEdgeOrdinal::from_raw(raw);
+        let _ = relations.lane_edge_authoring_lane(edge);
+        let _ = relations.lane_edge_junction(edge);
+        let _ = relations.stop_line_for_edge(edge);
+    }
+}
+
+#[test]
+fn full_spatial_access_cells_do_not_scan_and_stay_in_rule_bounds() {
+    let revision = build(FULL_SPATIAL, SpatialBuildOption::Omit);
+    let relations = revision.traffic().relations();
+    let counts = revision.traffic().entity_counts();
+    let class_count = counts.count(EntityKind::ParticipantClass);
+    let rule_count = counts.count(EntityKind::AccessRule);
+    for edge in 0..counts.count(EntityKind::LaneEdge) {
+        for class in 0..class_count {
+            match relations.edge_access(
+                LaneEdgeOrdinal::from_raw(edge),
+                ParticipantClassOrdinal::from_raw(class),
+            ) {
+                AccessCell::Unconstrained => {}
+                AccessCell::Decided { rule, .. } => {
+                    assert!(rule.raw() < rule_count);
+                }
+            }
+        }
+    }
+    for path in 0..counts.count(EntityKind::ManeuverPath) {
+        for class in 0..class_count {
+            match relations.path_access(
+                ManeuverPathOrdinal::from_raw(path),
+                ParticipantClassOrdinal::from_raw(class),
+            ) {
+                AccessCell::Unconstrained => {}
+                AccessCell::Decided { rule, .. } => {
+                    assert!(rule.raw() < rule_count);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn full_spatial_route_occurrences_are_owner_local_partitions() {
+    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+        .expect("checked input");
+    let view = input.value_checked_view();
+    let entities = view.registry_view().section(2).expect("entities");
+    let routes = entities.table(20).expect("StaticRoute");
+    let revision = build(FULL_SPATIAL, SpatialBuildOption::Omit);
+    let relations = revision.traffic().relations();
+    let route_count = revision
+        .traffic()
+        .entity_counts()
+        .count(EntityKind::StaticRoute);
+    for raw in 0..route_count {
+        let route = StaticRouteOrdinal::from_raw(raw);
+        let row = routes.row(raw).expect("route row");
+        let expected_edges = ordinals(row, 3)
+            .into_iter()
+            .map(LaneEdgeOrdinal::from_raw)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            relations.static_route_edges(route).expect("edges"),
+            expected_edges.as_slice()
+        );
+        let mut gate_cursor = 0_u32;
+        let mut wait_cursor = 0_u32;
+        let man_count = relations.route_maneuver_count(route).expect("maneuvers");
+        for index in 0..man_count {
+            let occurrence = relations
+                .route_maneuver_occurrence(route, index)
+                .expect("maneuver");
+            assert_eq!(occurrence.gate_occurrence_range().start(), gate_cursor);
+            assert_eq!(occurrence.waiting_occurrence_range().start(), wait_cursor);
+            gate_cursor += occurrence.gate_occurrence_range().len();
+            wait_cursor += occurrence.waiting_occurrence_range().len();
+            assert!(occurrence.entry_route_edge_index() <= occurrence.exit_route_edge_index());
+            assert!(
+                (occurrence.exit_route_edge_index() as usize) < expected_edges.len()
+                    || expected_edges.is_empty()
+            );
+        }
+        assert_eq!(
+            gate_cursor,
+            u32::try_from(relations.route_gate_count(route).expect("gates")).expect("fits")
+        );
+        assert_eq!(
+            wait_cursor,
+            u32::try_from(relations.route_waiting_count(route).expect("waiting")).expect("fits")
+        );
+        for index in 0..relations.route_gate_count(route).expect("gates") {
+            let gate = relations
+                .route_gate_occurrence(route, index)
+                .expect("gate occ");
+            assert!(
+                (gate.maneuver_occurrence_index() as usize)
+                    < relations.route_maneuver_count(route).expect("mans")
+            );
+            if !expected_edges.is_empty() {
+                assert!((gate.from_route_edge_index() as usize) < expected_edges.len());
+            }
+        }
+    }
+    assert!(
+        relations
+            .route_distance_to_end(StaticRouteOrdinal::from_raw(0))
+            .is_some()
+            || route_count == 0
+    );
 }

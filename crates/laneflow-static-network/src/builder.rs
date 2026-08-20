@@ -194,7 +194,6 @@ struct TopologyPlan {
 }
 
 impl TopologyPlan {
-    #[allow(dead_code)]
     fn successor_count(&self) -> Result<u32, BuildError> {
         u32::try_from(self.pairs.len()).map_err(|_| BuildError::ArithmeticOverflow {
             structure: BuildStructure::LaneSuccessors,
@@ -211,6 +210,7 @@ pub fn build_shared_network_revision(
     let counts = count_and_preflight(input.value_checked_view(), options)?;
     check_scratch_budget(counts, options)?;
     let topology = build_topology_plan(input.value_checked_view(), &counts, options)?;
+    check_retained_budget(counts, topology.successor_count()?, options)?;
     check_cancelled(options)?;
 
     let mut forward_identity = allocate_forward_identity(&counts.entity_counts)?;
@@ -456,7 +456,6 @@ fn count_and_preflight(
     })
 }
 
-#[allow(dead_code)]
 fn check_retained_budget(
     counts: BuildCounts,
     runtime_successor_count: u32,
@@ -524,6 +523,14 @@ fn check_retained_budget(
     retained = add_retained::<RangeU32>(retained, lane_count)?;
     retained =
         add_retained::<ManeuverTransitionCandidate>(retained, counts.maneuver_transition_count)?;
+
+    retained = retained
+        .checked_add(crate::relations::relation_retained_floor(
+            &counts.entity_counts,
+        )?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::RetainedOutput,
+        })?;
 
     if options.spatial == SpatialBuildOption::RetainAvailable && counts.spatial_present {
         if counts.lane_geometry_count != 0 {
@@ -3035,7 +3042,6 @@ fn structure_bytes<T>(count: u32, structure: BuildStructure) -> Result<u64, Buil
         .ok_or(BuildError::ArithmeticOverflow { structure })
 }
 
-#[allow(dead_code)]
 fn add_retained<T>(total: u64, count: u32) -> Result<u64, BuildError> {
     total
         .checked_add(retained_bytes::<T>(count)?)
@@ -3044,7 +3050,6 @@ fn add_retained<T>(total: u64, count: u32) -> Result<u64, BuildError> {
         })
 }
 
-#[allow(dead_code)]
 fn add_retained_bytes(total: u64, bytes: u32) -> Result<u64, BuildError> {
     total
         .checked_add(u64::from(bytes))

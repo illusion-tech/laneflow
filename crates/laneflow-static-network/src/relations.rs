@@ -1,15 +1,17 @@
 use core::mem::size_of;
 
 use laneflow_static_contract::{
-    AccessEffect, AccessRuleOrdinal, AuthoringLaneOrdinal, FacilityBandOrdinal, JunctionOrdinal,
-    LaneEdgeOrdinal, LaneGroupOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, MovementOrdinal,
-    ParkingAreaOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal, RoadCorridorOrdinal,
-    RoadSectionOrdinal, SignalAspect, SignalControllerOrdinal, SignalGroupOrdinal,
-    SignalPhaseOrdinal, StaticRouteOrdinal, StopLineOrdinal, WaitingZoneOrdinal,
+    AccessEffect, AccessRuleOrdinal, AuthoringLaneOrdinal, EntityKind, FacilityBandOrdinal,
+    JunctionOrdinal, LaneEdgeOrdinal, LaneGroupOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
+    MovementOrdinal, ParkingAreaOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal,
+    RoadCorridorOrdinal, RoadSectionOrdinal, SignalAspect, SignalControllerOrdinal,
+    SignalGroupOrdinal, SignalPhaseOrdinal, StaticRouteOrdinal, StopLineOrdinal,
+    WaitingZoneOrdinal,
 };
 
 use crate::RangeU32;
 use crate::traffic::logical_bytes;
+use crate::{BuildError, BuildStructure, EntityCounts};
 
 const UNCONSTRAINED_ROW: u32 = u32::MAX;
 
@@ -65,6 +67,129 @@ pub enum AccessCell {
         rule: AccessRuleOrdinal,
         effect: AccessEffect,
     },
+}
+
+/// 一条 StaticRoute 上的机动 occurrence，含 owner-local 门/等待区 range。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RouteManeuverOccurrence {
+    path: ManeuverPathOrdinal,
+    entry_route_edge_index: u32,
+    exit_route_edge_index: u32,
+    gate_occurrence_range: RangeU32,
+    waiting_occurrence_range: RangeU32,
+}
+
+impl RouteManeuverOccurrence {
+    #[must_use]
+    pub const fn path(self) -> ManeuverPathOrdinal {
+        self.path
+    }
+
+    #[must_use]
+    pub const fn entry_route_edge_index(self) -> u32 {
+        self.entry_route_edge_index
+    }
+
+    #[must_use]
+    pub const fn exit_route_edge_index(self) -> u32 {
+        self.exit_route_edge_index
+    }
+
+    #[must_use]
+    pub const fn gate_occurrence_range(self) -> RangeU32 {
+        self.gate_occurrence_range
+    }
+
+    #[must_use]
+    pub const fn waiting_occurrence_range(self) -> RangeU32 {
+        self.waiting_occurrence_range
+    }
+}
+
+/// 一条 StaticRoute 上的门 occurrence。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RouteGateOccurrence {
+    gate: ManeuverGateOrdinal,
+    maneuver_occurrence_index: u32,
+    from_route_edge_index: u32,
+    next_gate_occurrence_index: Option<u32>,
+    next_boundary_route_edge_index: u32,
+    waiting_zone_occurrence_index: Option<u32>,
+}
+
+impl RouteGateOccurrence {
+    #[must_use]
+    pub const fn gate(self) -> ManeuverGateOrdinal {
+        self.gate
+    }
+
+    #[must_use]
+    pub const fn maneuver_occurrence_index(self) -> u32 {
+        self.maneuver_occurrence_index
+    }
+
+    #[must_use]
+    pub const fn from_route_edge_index(self) -> u32 {
+        self.from_route_edge_index
+    }
+
+    #[must_use]
+    pub const fn next_gate_occurrence_index(self) -> Option<u32> {
+        self.next_gate_occurrence_index
+    }
+
+    #[must_use]
+    pub const fn next_boundary_route_edge_index(self) -> u32 {
+        self.next_boundary_route_edge_index
+    }
+
+    #[must_use]
+    pub const fn waiting_zone_occurrence_index(self) -> Option<u32> {
+        self.waiting_zone_occurrence_index
+    }
+}
+
+/// 一条 StaticRoute 上的等待区 occurrence。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RouteWaitingOccurrence {
+    zone: WaitingZoneOrdinal,
+    maneuver_occurrence_index: u32,
+    entry_gate_occurrence_index: u32,
+    release_gate_occurrence_index: u32,
+    entry_route_edge_index: u32,
+    release_route_edge_index: u32,
+}
+
+impl RouteWaitingOccurrence {
+    #[must_use]
+    pub const fn zone(self) -> WaitingZoneOrdinal {
+        self.zone
+    }
+
+    #[must_use]
+    pub const fn maneuver_occurrence_index(self) -> u32 {
+        self.maneuver_occurrence_index
+    }
+
+    #[must_use]
+    pub const fn entry_gate_occurrence_index(self) -> u32 {
+        self.entry_gate_occurrence_index
+    }
+
+    #[must_use]
+    pub const fn release_gate_occurrence_index(self) -> u32 {
+        self.release_gate_occurrence_index
+    }
+
+    #[must_use]
+    pub const fn entry_route_edge_index(self) -> u32 {
+        self.entry_route_edge_index
+    }
+
+    #[must_use]
+    pub const fn release_route_edge_index(self) -> u32 {
+        self.release_route_edge_index
+    }
 }
 
 /// 可选一对一反向：`None` 表示缺失，禁止用 `0` 冒充有效 ordinal。
@@ -202,10 +327,28 @@ pub struct SharedRelationClosure {
     route_maneuver_paths: Box<[ManeuverPathOrdinal]>,
     route_maneuver_entry: Box<[u32]>,
     route_maneuver_exit: Box<[u32]>,
+    route_maneuver_gate_occ_start: Box<[u32]>,
+    route_maneuver_gate_occ_count: Box<[u32]>,
+    route_maneuver_waiting_occ_start: Box<[u32]>,
+    route_maneuver_waiting_occ_count: Box<[u32]>,
     route_gate_occ_ranges: Box<[RangeU32]>,
     route_gate_occ_gates: Box<[ManeuverGateOrdinal]>,
+    route_gate_occ_maneuver: Box<[u32]>,
+    route_gate_occ_from: Box<[u32]>,
+    route_gate_occ_next: Box<[Option<u32>]>,
+    route_gate_occ_next_boundary: Box<[u32]>,
+    route_gate_occ_waiting: Box<[Option<u32>]>,
     route_waiting_occ_ranges: Box<[RangeU32]>,
     route_waiting_occ_zones: Box<[WaitingZoneOrdinal]>,
+    route_waiting_occ_maneuver: Box<[u32]>,
+    route_waiting_occ_entry_gate: Box<[u32]>,
+    route_waiting_occ_release_gate: Box<[u32]>,
+    route_waiting_occ_entry_edge: Box<[u32]>,
+    route_waiting_occ_release_edge: Box<[u32]>,
+    route_reverse_kind: Box<[u16]>,
+    route_reverse_ordinal: Box<[u32]>,
+    route_reverse_route: Box<[StaticRouteOrdinal]>,
+    route_reverse_occurrence: Box<[u32]>,
     route_distance_to_end: Box<[f64]>,
     route_distance_ranges: Box<[RangeU32]>,
     next_controlled_gate: Box<[Option<ManeuverGateOrdinal>]>,
@@ -323,6 +466,28 @@ impl SharedRelationClosure {
     }
 
     #[must_use]
+    pub fn controller_cycle_ms(&self, controller: SignalControllerOrdinal) -> Option<u64> {
+        self.controller_cycle_ms.get(controller.index()).copied()
+    }
+
+    #[must_use]
+    pub fn controller_phases(
+        &self,
+        controller: SignalControllerOrdinal,
+    ) -> Option<&[SignalPhaseOrdinal]> {
+        Some(
+            self.controller_phase_ranges
+                .get(controller.index())?
+                .slice(&self.controller_phases),
+        )
+    }
+
+    #[must_use]
+    pub fn phase_duration_ms(&self, phase: SignalPhaseOrdinal) -> Option<u64> {
+        self.phase_duration_ms.get(phase.index()).copied()
+    }
+
+    #[must_use]
     pub fn phase_end_offset_ms(&self, phase: SignalPhaseOrdinal) -> Option<u64> {
         self.phase_end_offset_ms.get(phase.index()).copied()
     }
@@ -396,6 +561,89 @@ impl SharedRelationClosure {
                 .get(route.index())?
                 .slice(&self.route_edges),
         )
+    }
+
+    #[must_use]
+    pub fn route_maneuver_count(&self, route: StaticRouteOrdinal) -> Option<usize> {
+        Some(self.route_maneuver_ranges.get(route.index())?.len() as usize)
+    }
+
+    #[must_use]
+    pub fn route_maneuver_occurrence(
+        &self,
+        route: StaticRouteOrdinal,
+        index: usize,
+    ) -> Option<RouteManeuverOccurrence> {
+        let range = *self.route_maneuver_ranges.get(route.index())?;
+        if index >= usize::try_from(range.len()).ok()? {
+            return None;
+        }
+        let slot = usize::try_from(range.start()).ok()? + index;
+        Some(RouteManeuverOccurrence {
+            path: *self.route_maneuver_paths.get(slot)?,
+            entry_route_edge_index: *self.route_maneuver_entry.get(slot)?,
+            exit_route_edge_index: *self.route_maneuver_exit.get(slot)?,
+            gate_occurrence_range: RangeU32::new(
+                *self.route_maneuver_gate_occ_start.get(slot)?,
+                *self.route_maneuver_gate_occ_count.get(slot)?,
+            ),
+            waiting_occurrence_range: RangeU32::new(
+                *self.route_maneuver_waiting_occ_start.get(slot)?,
+                *self.route_maneuver_waiting_occ_count.get(slot)?,
+            ),
+        })
+    }
+
+    #[must_use]
+    pub fn route_gate_count(&self, route: StaticRouteOrdinal) -> Option<usize> {
+        Some(self.route_gate_occ_ranges.get(route.index())?.len() as usize)
+    }
+
+    #[must_use]
+    pub fn route_gate_occurrence(
+        &self,
+        route: StaticRouteOrdinal,
+        index: usize,
+    ) -> Option<RouteGateOccurrence> {
+        let range = *self.route_gate_occ_ranges.get(route.index())?;
+        if index >= usize::try_from(range.len()).ok()? {
+            return None;
+        }
+        let slot = usize::try_from(range.start()).ok()? + index;
+        Some(RouteGateOccurrence {
+            gate: *self.route_gate_occ_gates.get(slot)?,
+            maneuver_occurrence_index: *self.route_gate_occ_maneuver.get(slot)?,
+            from_route_edge_index: *self.route_gate_occ_from.get(slot)?,
+            next_gate_occurrence_index: *self.route_gate_occ_next.get(slot)?,
+            next_boundary_route_edge_index: *self.route_gate_occ_next_boundary.get(slot)?,
+            waiting_zone_occurrence_index: *self.route_gate_occ_waiting.get(slot)?,
+        })
+    }
+
+    #[must_use]
+    pub fn route_waiting_count(&self, route: StaticRouteOrdinal) -> Option<usize> {
+        Some(self.route_waiting_occ_ranges.get(route.index())?.len() as usize)
+    }
+
+    #[must_use]
+    pub fn route_waiting_occurrence(
+        &self,
+        route: StaticRouteOrdinal,
+        index: usize,
+    ) -> Option<RouteWaitingOccurrence> {
+        let range = *self.route_waiting_occ_ranges.get(route.index())?;
+        if index >= usize::try_from(range.len()).ok()? {
+            return None;
+        }
+        let slot = usize::try_from(range.start()).ok()? + index;
+        Some(RouteWaitingOccurrence {
+            zone: *self.route_waiting_occ_zones.get(slot)?,
+            maneuver_occurrence_index: *self.route_waiting_occ_maneuver.get(slot)?,
+            entry_gate_occurrence_index: *self.route_waiting_occ_entry_gate.get(slot)?,
+            release_gate_occurrence_index: *self.route_waiting_occ_release_gate.get(slot)?,
+            entry_route_edge_index: *self.route_waiting_occ_entry_edge.get(slot)?,
+            release_route_edge_index: *self.route_waiting_occ_release_edge.get(slot)?,
+        })
     }
 
     #[must_use]
@@ -541,10 +789,28 @@ impl SharedRelationClosure {
             + logical_bytes::<ManeuverPathOrdinal>(self.route_maneuver_paths.len())
             + logical_bytes::<u32>(self.route_maneuver_entry.len())
             + logical_bytes::<u32>(self.route_maneuver_exit.len())
+            + logical_bytes::<u32>(self.route_maneuver_gate_occ_start.len())
+            + logical_bytes::<u32>(self.route_maneuver_gate_occ_count.len())
+            + logical_bytes::<u32>(self.route_maneuver_waiting_occ_start.len())
+            + logical_bytes::<u32>(self.route_maneuver_waiting_occ_count.len())
             + logical_bytes::<RangeU32>(self.route_gate_occ_ranges.len())
             + logical_bytes::<ManeuverGateOrdinal>(self.route_gate_occ_gates.len())
+            + logical_bytes::<u32>(self.route_gate_occ_maneuver.len())
+            + logical_bytes::<u32>(self.route_gate_occ_from.len())
+            + logical_bytes::<Option<u32>>(self.route_gate_occ_next.len())
+            + logical_bytes::<u32>(self.route_gate_occ_next_boundary.len())
+            + logical_bytes::<Option<u32>>(self.route_gate_occ_waiting.len())
             + logical_bytes::<RangeU32>(self.route_waiting_occ_ranges.len())
             + logical_bytes::<WaitingZoneOrdinal>(self.route_waiting_occ_zones.len())
+            + logical_bytes::<u32>(self.route_waiting_occ_maneuver.len())
+            + logical_bytes::<u32>(self.route_waiting_occ_entry_gate.len())
+            + logical_bytes::<u32>(self.route_waiting_occ_release_gate.len())
+            + logical_bytes::<u32>(self.route_waiting_occ_entry_edge.len())
+            + logical_bytes::<u32>(self.route_waiting_occ_release_edge.len())
+            + logical_bytes::<u16>(self.route_reverse_kind.len())
+            + logical_bytes::<u32>(self.route_reverse_ordinal.len())
+            + logical_bytes::<StaticRouteOrdinal>(self.route_reverse_route.len())
+            + logical_bytes::<u32>(self.route_reverse_occurrence.len())
             + logical_bytes::<f64>(self.route_distance_to_end.len())
             + logical_bytes::<RangeU32>(self.route_distance_ranges.len())
             + logical_bytes::<Option<ManeuverGateOrdinal>>(self.next_controlled_gate.len())
@@ -558,6 +824,120 @@ impl SharedRelationClosure {
             + logical_bytes::<u32>(self.path_row_starts.len())
             + logical_bytes::<AccessCell>(self.path_cells.len())
     }
+}
+
+fn floor_add<T>(total: u64, count: u32) -> Result<u64, BuildError> {
+    total
+        .checked_add(logical_bytes::<T>(
+            usize::try_from(count).expect("u32 fits usize"),
+        ))
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::RetainedOutput,
+        })
+}
+
+pub(crate) fn relation_retained_floor(counts: &EntityCounts) -> Result<u64, BuildError> {
+    let mut total = u64::try_from(size_of::<SharedRelationClosure>()).map_err(|_| {
+        BuildError::ArithmeticOverflow {
+            structure: BuildStructure::RetainedOutput,
+        }
+    })?;
+    let corridor = counts.count(EntityKind::RoadCorridor);
+    let section = counts.count(EntityKind::RoadSection);
+    let authoring = counts.count(EntityKind::AuthoringLane);
+    let lane = counts.count(EntityKind::LaneEdge);
+    let junction = counts.count(EntityKind::Junction);
+    let movement = counts.count(EntityKind::Movement);
+    let path = counts.count(EntityKind::ManeuverPath);
+    let gate = counts.count(EntityKind::ManeuverGate);
+    let waiting = counts.count(EntityKind::WaitingZone);
+    let stop = counts.count(EntityKind::StopLine);
+    let group = counts.count(EntityKind::SignalGroup);
+    let controller = counts.count(EntityKind::SignalController);
+    let phase = counts.count(EntityKind::SignalPhase);
+    let area = counts.count(EntityKind::ParkingArea);
+    let space = counts.count(EntityKind::ParkingSpace);
+    let lane_group = counts.count(EntityKind::LaneGroup);
+    let band = counts.count(EntityKind::FacilityBand);
+    let class = counts.count(EntityKind::ParticipantClass);
+    let rule = counts.count(EntityKind::AccessRule);
+    let profile = counts.count(EntityKind::VehicleProfile);
+    let route = counts.count(EntityKind::StaticRoute);
+    total = floor_add::<RoadSectionOrdinal>(total, corridor)?;
+    total = floor_add::<RangeU32>(total, corridor)?;
+    total = floor_add::<RoadCorridorOrdinal>(total, section)?;
+    total = floor_add::<FacilityKind>(total, section)?;
+    total = floor_add::<RangeU32>(total, section)?;
+    total = floor_add::<RoadSectionOrdinal>(total, authoring)?;
+    total = floor_add::<RangeU32>(total, authoring)?;
+    total = floor_add::<Option<LaneGroupOrdinal>>(total, authoring)?;
+    total = floor_add::<Option<AuthoringLaneOrdinal>>(total, lane)?;
+    total = floor_add::<Option<JunctionOrdinal>>(total, lane)?;
+    total = floor_add::<Option<StopLineOrdinal>>(total, lane)?;
+    total = floor_add::<RangeU32>(total, junction)?;
+    total = floor_add::<JunctionOrdinal>(total, movement)?;
+    total = floor_add::<RangeU32>(total, movement)?;
+    total = floor_add::<LaneEdgeOrdinal>(total, stop)?;
+    total = floor_add::<RangeU32>(total, stop)?;
+    total = floor_add::<ManeuverPathOrdinal>(total, gate)?;
+    total = floor_add::<u32>(total, gate)?;
+    total = floor_add::<StopLineOrdinal>(total, gate)?;
+    total = floor_add::<Option<SignalGroupOrdinal>>(total, gate)?;
+    total = floor_add::<ManeuverPathOrdinal>(total, waiting)?;
+    total = floor_add::<ManeuverGateOrdinal>(total, waiting)?;
+    total = floor_add::<ManeuverGateOrdinal>(total, waiting)?;
+    total = floor_add::<u32>(total, waiting)?;
+    total = floor_add::<SignalControllerOrdinal>(total, group)?;
+    total = floor_add::<RangeU32>(total, group)?;
+    total = floor_add::<u64>(total, controller)?;
+    total = floor_add::<u64>(total, controller)?;
+    total = floor_add::<RangeU32>(total, controller)?;
+    total = floor_add::<RangeU32>(total, controller)?;
+    total = floor_add::<SignalControllerOrdinal>(total, phase)?;
+    total = floor_add::<u64>(total, phase)?;
+    total = floor_add::<u64>(total, phase)?;
+    total = floor_add::<RangeU32>(total, phase)?;
+    total = floor_add::<RangeU32>(total, area)?;
+    total = floor_add::<Option<ParkingAreaOrdinal>>(total, space)?;
+    total = floor_add::<LaneEdgeOrdinal>(total, space)?;
+    total = floor_add::<f64>(total, space)?;
+    total = floor_add::<LaneEdgeOrdinal>(total, space)?;
+    total = floor_add::<f64>(total, space)?;
+    total = floor_add::<f64>(total, space)?;
+    total = floor_add::<f64>(total, space)?;
+    total = floor_add::<f64>(total, space)?;
+    total = floor_add::<f64>(total, space)?;
+    total = floor_add::<RoadSectionOrdinal>(total, lane_group)?;
+    total = floor_add::<RangeU32>(total, lane_group)?;
+    total = floor_add::<RoadCorridorOrdinal>(total, band)?;
+    total = floor_add::<FacilityKind>(total, band)?;
+    total = floor_add::<Option<ParticipantClassOrdinal>>(total, class)?;
+    total = floor_add::<u32>(total, class)?;
+    total = floor_add::<u32>(total, class)?;
+    total = floor_add::<u32>(total, class)?;
+    total = floor_add::<AccessTarget>(total, rule)?;
+    total = floor_add::<AccessEffect>(total, rule)?;
+    total = floor_add::<RangeU32>(total, rule)?;
+    total = floor_add::<i32>(total, rule)?;
+    total = floor_add::<ParticipantClassOrdinal>(total, profile)?;
+    total = floor_add::<f64>(
+        total,
+        profile
+            .checked_mul(7)
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::RetainedOutput,
+            })?,
+    )?;
+    total = floor_add::<RangeU32>(total, route)?;
+    total = floor_add::<RangeU32>(total, route)?;
+    total = floor_add::<RangeU32>(total, route)?;
+    total = floor_add::<RangeU32>(total, route)?;
+    total = floor_add::<RangeU32>(total, route)?;
+    total = floor_add::<RangeU32>(total, route)?;
+    total = floor_add::<RangeU32>(total, route)?;
+    total = floor_add::<u32>(total, lane)?;
+    total = floor_add::<u32>(total, path)?;
+    Ok(total)
 }
 
 fn plane_cell(
@@ -695,10 +1075,28 @@ mod builder_support {
         route_maneuver_paths: Box<[ManeuverPathOrdinal]>,
         route_maneuver_entry: Box<[u32]>,
         route_maneuver_exit: Box<[u32]>,
+        route_maneuver_gate_occ_start: Box<[u32]>,
+        route_maneuver_gate_occ_count: Box<[u32]>,
+        route_maneuver_waiting_occ_start: Box<[u32]>,
+        route_maneuver_waiting_occ_count: Box<[u32]>,
         route_gate_occ_ranges: Box<[RangeU32]>,
         route_gate_occ_gates: Box<[ManeuverGateOrdinal]>,
+        route_gate_occ_maneuver: Box<[u32]>,
+        route_gate_occ_from: Box<[u32]>,
+        route_gate_occ_next: Box<[Option<u32>]>,
+        route_gate_occ_next_boundary: Box<[u32]>,
+        route_gate_occ_waiting: Box<[Option<u32>]>,
         route_waiting_occ_ranges: Box<[RangeU32]>,
         route_waiting_occ_zones: Box<[WaitingZoneOrdinal]>,
+        route_waiting_occ_maneuver: Box<[u32]>,
+        route_waiting_occ_entry_gate: Box<[u32]>,
+        route_waiting_occ_release_gate: Box<[u32]>,
+        route_waiting_occ_entry_edge: Box<[u32]>,
+        route_waiting_occ_release_edge: Box<[u32]>,
+        route_reverse_kind: Box<[u16]>,
+        route_reverse_ordinal: Box<[u32]>,
+        route_reverse_route: Box<[StaticRouteOrdinal]>,
+        route_reverse_occurrence: Box<[u32]>,
         route_distance_to_end: Box<[f64]>,
         route_distance_ranges: Box<[RangeU32]>,
         next_controlled_gate: Box<[Option<ManeuverGateOrdinal>]>,
@@ -801,10 +1199,28 @@ mod builder_support {
             route_maneuver_paths,
             route_maneuver_entry,
             route_maneuver_exit,
+            route_maneuver_gate_occ_start,
+            route_maneuver_gate_occ_count,
+            route_maneuver_waiting_occ_start,
+            route_maneuver_waiting_occ_count,
             route_gate_occ_ranges,
             route_gate_occ_gates,
+            route_gate_occ_maneuver,
+            route_gate_occ_from,
+            route_gate_occ_next,
+            route_gate_occ_next_boundary,
+            route_gate_occ_waiting,
             route_waiting_occ_ranges,
             route_waiting_occ_zones,
+            route_waiting_occ_maneuver,
+            route_waiting_occ_entry_gate,
+            route_waiting_occ_release_gate,
+            route_waiting_occ_entry_edge,
+            route_waiting_occ_release_edge,
+            route_reverse_kind,
+            route_reverse_ordinal,
+            route_reverse_route,
+            route_reverse_occurrence,
             route_distance_to_end,
             route_distance_ranges,
             next_controlled_gate,
@@ -888,6 +1304,24 @@ mod builder_support {
             Box::new([]),
             Box::new([]),
             empty_optional(0).expect("empty"),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
             Box::new([]),
             Box::new([]),
             Box::new([]),
