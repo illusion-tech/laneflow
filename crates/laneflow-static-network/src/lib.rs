@@ -25,8 +25,11 @@ pub use origin::{
     CanonicalNetworkOrigin, PARTITION_PLANNING_HINTS_DERIVATION_VERSION, StaticContractVersions,
 };
 pub use relations::{
-    AccessCell, AccessTarget, CorridorElement, FacilityKind, RouteGateOccurrence,
-    RouteManeuverOccurrence, RouteWaitingOccurrence, SharedRelationClosure,
+    AccessCell, AccessRuleView, AccessTarget, BoundedDistance, CorridorElement, FacilityKind,
+    ManeuverGateView, NextControlledTransition, ParkingSpaceView, ParticipantClassView,
+    RouteGateOccurrence, RouteManeuverOccurrence, RouteWaitingOccurrence, SharedRelationClosure,
+    SignalControllerView, SignalGroupView, SignalPhaseView, StopLineView, VehicleProfileView,
+    WaitingZoneView,
 };
 pub use spatial::{
     CanonicalPoint, FacilityGeometryView, LaneGeometryView, LanePoseNetwork, SegmentGeometry,

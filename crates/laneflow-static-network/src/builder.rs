@@ -698,6 +698,7 @@ fn check_scratch_budget(
         0
     };
     let scratch = scratch.max(spatial_join_scratch);
+    let scratch = scratch.max(relation_scratch_bytes(&counts.entity_counts)?);
     if scratch > options.limits.max_scratch_bytes {
         return Err(BuildError::BudgetExceeded {
             structure: BuildStructure::BuilderScratch,
@@ -706,6 +707,28 @@ fn check_scratch_budget(
         });
     }
     Ok(())
+}
+
+fn relation_scratch_bytes(entity_counts: &EntityCounts) -> Result<u64, BuildError> {
+    let class_count = entity_counts.count(EntityKind::ParticipantClass);
+    if class_count == 0 {
+        return Ok(0);
+    }
+    let targets = entity_counts
+        .count(EntityKind::RoadSection)
+        .checked_add(entity_counts.count(EntityKind::LaneGroup))
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let verdict_rows = targets
+        .checked_mul(class_count)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    structure_bytes::<(u32, u8, i32, Option<u32>, Option<u32>)>(
+        verdict_rows,
+        BuildStructure::BuilderScratch,
+    )
 }
 
 fn build_topology_plan(

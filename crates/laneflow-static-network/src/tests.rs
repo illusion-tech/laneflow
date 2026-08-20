@@ -527,27 +527,39 @@ fn full_spatial_access_cells_do_not_scan_and_stay_in_rule_bounds() {
     let counts = revision.traffic().entity_counts();
     let class_count = counts.count(EntityKind::ParticipantClass);
     let rule_count = counts.count(EntityKind::AccessRule);
-    for edge in 0..counts.count(EntityKind::LaneEdge) {
+    let lane_count = counts.count(EntityKind::LaneEdge);
+    for edge in 0..lane_count {
         for class in 0..class_count {
             match relations.edge_access(
                 LaneEdgeOrdinal::from_raw(edge),
                 ParticipantClassOrdinal::from_raw(class),
             ) {
-                AccessCell::Unconstrained => {}
-                AccessCell::Decided { rule, .. } => {
+                None => panic!("in-range access query must be Some"),
+                Some(AccessCell::Unconstrained) => {}
+                Some(AccessCell::Decided { rule, .. }) => {
                     assert!(rule.raw() < rule_count);
                 }
             }
         }
     }
+    assert!(
+        relations
+            .edge_access(
+                LaneEdgeOrdinal::from_raw(lane_count),
+                ParticipantClassOrdinal::from_raw(0)
+            )
+            .is_none()
+            || class_count == 0 && lane_count == 0
+    );
     for path in 0..counts.count(EntityKind::ManeuverPath) {
         for class in 0..class_count {
             match relations.path_access(
                 ManeuverPathOrdinal::from_raw(path),
                 ParticipantClassOrdinal::from_raw(class),
             ) {
-                AccessCell::Unconstrained => {}
-                AccessCell::Decided { rule, .. } => {
+                None => panic!("in-range access query must be Some"),
+                Some(AccessCell::Unconstrained) => {}
+                Some(AccessCell::Decided { rule, .. }) => {
                     assert!(rule.raw() < rule_count);
                 }
             }
@@ -623,4 +635,59 @@ fn full_spatial_route_occurrences_are_owner_local_partitions() {
             .is_some()
             || route_count == 0
     );
+}
+
+#[test]
+fn full_spatial_entity_views_cover_required_columns() {
+    let revision = build(FULL_SPATIAL, SpatialBuildOption::Omit);
+    let relations = revision.traffic().relations();
+    let counts = revision.traffic().entity_counts();
+    for raw in 0..counts.count(EntityKind::ManeuverGate) {
+        assert!(
+            relations
+                .maneuver_gate(laneflow_static_contract::ManeuverGateOrdinal::from_raw(raw))
+                .is_some()
+        );
+    }
+    for raw in 0..counts.count(EntityKind::WaitingZone) {
+        assert!(
+            relations
+                .waiting_zone(laneflow_static_contract::WaitingZoneOrdinal::from_raw(raw))
+                .is_some()
+        );
+    }
+    for raw in 0..counts.count(EntityKind::SignalController) {
+        let view = relations
+            .signal_controller(SignalControllerOrdinal::from_raw(raw))
+            .expect("controller view");
+        assert_eq!(
+            view.cycle_ms(),
+            relations
+                .controller_cycle_ms(SignalControllerOrdinal::from_raw(raw))
+                .expect("cycle")
+        );
+    }
+    for raw in 0..counts.count(EntityKind::ParkingSpace) {
+        let view = relations
+            .parking_space(laneflow_static_contract::ParkingSpaceOrdinal::from_raw(raw))
+            .expect("parking view");
+        let _ = view.exit();
+        let _ = view.entry();
+    }
+    for raw in 0..counts.count(EntityKind::VehicleProfile) {
+        assert!(
+            relations
+                .vehicle_profile(laneflow_static_contract::VehicleProfileOrdinal::from_raw(
+                    raw
+                ))
+                .is_some()
+        );
+    }
+    for raw in 0..counts.count(EntityKind::ParticipantClass) {
+        assert!(
+            relations
+                .participant_class(ParticipantClassOrdinal::from_raw(raw))
+                .is_some()
+        );
+    }
 }

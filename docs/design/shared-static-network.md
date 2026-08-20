@@ -577,8 +577,12 @@ Identity 正反表与 22 类基数已由 #439 闭合。本表只冻结 Traffic r
 - `StaticRoute` 的边/机动/门/等待区 occurrence 反向，且无 gap、overlap、跨 owner 错配。
 
 一对多关系使用 `RangeU32 + flat payload`。可选一对一反向使用并行 presence/bitset 或
-等价稀疏列，不得用 `0` 冒充有效 ordinal。tick 向 accessor 返回连续 slice；不得在成功
-对象上保留哈希表、字符串、全表扫描或重复验证。失败不返回部分根。
+等价稀疏列，不得用 `0` 冒充有效 ordinal。tick 向 accessor 返回连续 slice 或实体 View；
+不得在成功对象上保留哈希表、字符串、全表扫描或重复验证。准入查询对越界 ordinal 返回
+缺失，`Unconstrained` 只表示本修订内无适用规则。派生执行索引（相位累计边界、下一受控
+转换、路线距离）必须从 owner-local slice 计算，距离使用与当前 Core 同构的有界表示，
+不得把溢出写成非有限浮点。构建期 intern 可用有序表；成功对象只保留冷 intern 列。
+失败不返回部分根。
 
 共享准入平面与规则表一起在 seal 前闭合：同一 LFCA 的 `(edge, class)` / `(path, class)`
 裁决必须与当前 Core `AccessRegistry` 在 **以 LFCA AccessRule ordinal 为声明序** 时的
