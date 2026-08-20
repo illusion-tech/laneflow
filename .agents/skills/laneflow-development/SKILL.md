@@ -54,7 +54,9 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 4. 若改变长期行为或契约，同步更新文档。
 5. 按切片类型运行对应检查。
 6. 记录验证结果、文档状态与剩余风险。
-7. PR 准备合并时，默认使用 **Rebase and merge**（`gh pr merge <number> --rebase`），除非 PR 中已说明例外。
+7. PR 准备合并时，冻结 current exact head `H_pr` 并完成该 head 的外部审阅与 G3；`main` 要求通过
+   Merge Queue 入队，使用 `gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`，
+   最终 Rebase 方式由队列规则控制。不得因 `main` 单纯前进手工 rebase；不得使用 `--admin` 绕过队列。
 
 ### Rust 语义导航
 
@@ -108,4 +110,4 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 - 已运行的验证
 - 文档是否更新或为何无需更新
 - 剩余风险或后续 Issue
-- 建议的 PR 合并方式（默认 Rebase and merge）
+- PR 合并路径（默认 Merge Queue，队列最终 Rebase）与 `H_pr/H_mg/H_main` 状态

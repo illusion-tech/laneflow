@@ -12,7 +12,7 @@
 
 ## 可用 Skill
 
-- `skills/laneflow-governance/SKILL.md`：GitHub Issue、PR、commit、Project、Milestone、Release 与 G0–G4 工作流（PR 默认 Rebase and merge）。
+- `skills/laneflow-governance/SKILL.md`：GitHub Issue、PR、commit、Project、Milestone、Release 与 G0–G4 工作流（PR 默认通过 Merge Queue，队列最终 Rebase）。
 - `skills/laneflow-development/SKILL.md`：LaneFlow 通用实现工作流。
 - `skills/laneflow-core-design/SKILL.md`：当前态 LaneFlow Core、目标态 LaneFlow
   交通运行时（Traffic Runtime）、当前道路机动车的车道图（Lane Graph）/路线

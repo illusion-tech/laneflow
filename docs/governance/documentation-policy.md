@@ -1,7 +1,7 @@
 # 文档边界政策
 
 **文档状态**: Active  
-**最后更新**: 2026-07-29
+**最后更新**: 2026-08-20
 **适用范围**: LaneFlow 的 GitHub 治理、仓库文档治理和 AI Agent 开发上下文
 
 ## 1. 目标
@@ -46,7 +46,8 @@ PR 用于承载：
 
 PR 是合并闸口，不是设计文档替代品。
 
-PR 合入 `main` 默认使用 **Rebase and merge**，详见 `github-workflow.md` 第 7 节。
+PR 默认通过合并队列（Merge Queue）进入 `main`，队列最终使用 **Rebase** 保持线性历史；
+入队、失效与例外边界详见 `github-workflow.md` 第 7 节。
 
 ### Projects
 

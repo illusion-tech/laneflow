@@ -95,7 +95,7 @@ G3 comment 模板（合并前发表）：
 - 验证：
 - 风险：
 - 例外：
-- 合并方式：
+- 合并方式：Merge Queue（最终 Rebase）；Queue-ready `H_pr`：
 - Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` <按 Gate 结果填写：`G3 Exception` 写“未通过”，其他结果写“已通过”>。
 
 每个 Related PR 都使用 `cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 并永久保留该 Related-only 断言；版本由 `xtask` package `rust-version` 生成，历史稳定版本按 development-gates.md 的 gate-command v1 窗口语义解析。Delivery PR / full-set 使用 `--delivery-pr <number>` 并传入全部 Related PR，不要求把历史 Related comment 改写为 full-set 命令。一个 PR 关联多个 Issue 时，在同一 current G3 comment 中为每个 Issue 分别写一条精确 `Gate 断言`。`G3 Pass` 必须实际成功并写“已通过”；`G3 Exception` 必须写“未通过”并另发合格的 `g3-exception:v1` appendix，机器状态保持 `accepted_exception`。
@@ -115,5 +115,5 @@ G3 comment 模板（合并前发表）：
 - [ ] PR commits 符合 `docs/reference/commit-convention.md`（Conventional Commits 标题 + `Gate: G3 Candidate` + 其他 LaneFlow 治理字段）；合并范围内没有 `Gate: G3 Block`。
 - [ ] commit message footer 与 PR body 语义已区分：commit 通常使用 `Refs: #<issue>`，PR body 使用 `Closes/Resolves` 建立 Development 关联。
 - [ ] 本 PR 未在只完成子切片的情况下声称父任务已完成。
-- [ ] 合并方式：默认 **Rebase and merge**；若使用 Squash / Merge commit，已在 PR 中说明原因。
+- [ ] 合并方式：默认 **Merge Queue（最终 Rebase）**；已冻结 Queue-ready `H_pr`，且未使用 `--admin`。若最终方式例外，已通过治理 Issue 修改规则并说明原因。
 - [ ] 未把 G0-G3 首次记录推迟到 G4 清场阶段；若存在补救记录，已说明流程遗漏原因。

@@ -187,13 +187,22 @@ git config core.hooksPath .githooks
 
 ## PR 合并
 
-默认使用 **Rebase and merge** 合入 `main`：
+`main` 要求使用合并队列（Merge Queue）；队列规则控制最终使用 **Rebase**，操作者不再为
+日常 PR 选择 merge strategy。入队前冻结 current exact head `H_pr`，确认 current-head 外部审阅、
+finding disposition、G3 Owner comment、marker 与 PR 级 required checks 仍有效，然后使用 head guard：
 
 ```powershell
-gh pr merge <number> --rebase
+gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 ```
 
-例外使用 Squash 或 Merge commit 时，须在 PR 中说明原因。详见 `docs/governance/github-workflow.md` 第 7 节。
+required checks 尚未完成时，该命令只启用满足条件后的自动入队；已完成时直接入队。`main` 前进或
+队列顺序变化只替换 `H_mg` 并重跑队列级机器检查，不使未变化 `H_pr` 上的人审失效。任何 push、
+force-push 或冲突修复改变 `H_pr` 后，旧审阅、G3 与入队资格全部 stale，必须对新 head 重走生命周期。
+
+禁止使用 `--admin` 绕过队列。若 live Ruleset 未要求队列、队列未生成真实 `H_mg`，或 required checks /
+CodeQL 缺失或失败，停止合并并按关联 Issue 的 activation / rollback 契约处置；不得回退为无记录的直接合并。
+最终 merge method、例外和 G4 的 `H_pr → H_mg → H_main` 证据以
+`docs/governance/github-workflow.md` 第 7 节为准。
 
 ## 交付说明
 
@@ -202,6 +211,6 @@ gh pr merge <number> --rebase
 - 改了什么
 - 支持哪个闸口或工作流
 - 更新了哪些文档或 GitHub 模板
-- PR 合并方式（默认 Rebase and merge）
+- PR 合并路径（默认 Merge Queue，队列最终 Rebase）与 `H_pr/H_mg/H_main` 证据
 - Gate Ledger 当前状态和缺失项
 - 还有哪些必须在 GitHub 上手动完成的设置
