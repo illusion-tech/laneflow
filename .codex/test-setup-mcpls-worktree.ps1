@@ -734,6 +734,7 @@ try {
     $script:CapturedCreateTimeout = 0
     $script:CreateCallCount = 0
     $script:ReturnMismatchedCreateIdentity = $false
+    $script:ThrowCreateInspection = $false
     $script:AmbiguousReconcileCalls = 0
     $originalProcessSnapshotFromHandle = (
         Get-Command Get-ProcessSnapshotFromHandle
@@ -759,6 +760,9 @@ try {
         }
         Set-Item -Path Function:Get-ProcessSnapshotFromHandle -Value {
             param($Process, $Deadline)
+            if ($script:ThrowCreateInspection) {
+                throw 'injected post-create inspection failure'
+            }
             return [pscustomobject]@{
                 ProcessId = $Process.Id
                 ParentProcessId = 0
@@ -775,7 +779,7 @@ try {
         }
         $externalProbe = Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
             -Context $testContext -Port $identityPort `
-            -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
+            -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(7))
         $externalProbe.Dispose()
         Assert-True -Condition (
             $script:CapturedCreateArguments.CommandLine -match '--config' -and
@@ -795,7 +799,7 @@ try {
         Assert-Throws -Operation {
             Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
                 -Context $testContext -Port $identityPort `
-                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(7))
         } -Message 'a PID identity mismatch after WMI creation is never adopted for cleanup'
         $script:ReturnMismatchedCreateIdentity = $false
         $createCallsBeforeShortDeadline = $script:CreateCallCount
@@ -807,10 +811,6 @@ try {
         Assert-True -Condition (
             $script:CreateCallCount -eq $createCallsBeforeShortDeadline
         ) -Message 'an insufficient deadline refuses startup before invoking Win32_Process.Create'
-        Set-Item -Path Function:Invoke-CimMethod -Value {
-            param($ClassName, $MethodName, $Arguments, $OperationTimeoutSec)
-            throw 'injected ambiguous WMI timeout'
-        }
         Set-Item -Path Function:Stop-AmbiguousMcplsCreate -Value {
             param(
                 $Context,
@@ -823,12 +823,25 @@ try {
             $script:AmbiguousReconcileCalls++
             return 4242
         }
+        $script:ThrowCreateInspection = $true
         Assert-Throws -Operation {
             Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
                 -Context $testContext -Port $identityPort `
-                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
-        } -Message 'an ambiguous WMI exception is reported only after reconciliation'
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(7))
+        } -Message 'a post-create inspection exception is reconciled before failure returns'
         Assert-True -Condition ($script:AmbiguousReconcileCalls -eq 1) `
+            -Message 'a returned PID inspection exception invokes bounded reconciliation'
+        $script:ThrowCreateInspection = $false
+        Set-Item -Path Function:Invoke-CimMethod -Value {
+            param($ClassName, $MethodName, $Arguments, $OperationTimeoutSec)
+            throw 'injected ambiguous WMI timeout'
+        }
+        Assert-Throws -Operation {
+            Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
+                -Context $testContext -Port $identityPort `
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(7))
+        } -Message 'an ambiguous WMI exception is reported only after reconciliation'
+        Assert-True -Condition ($script:AmbiguousReconcileCalls -eq 2) `
             -Message 'a WMI exception invokes bounded ambiguous-create reconciliation'
         Set-Item -Path Function:Invoke-CimMethod -Value {
             param($ClassName, $MethodName, $Arguments, $OperationTimeoutSec)
@@ -837,7 +850,7 @@ try {
         Assert-Throws -Operation {
             Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
                 -Context $testContext -Port $identityPort `
-                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(7))
         } -Message 'Win32_Process.Create failures remain visible to fail-open Ensure handling'
     }
     finally {
