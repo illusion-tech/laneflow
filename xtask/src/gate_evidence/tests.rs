@@ -3540,6 +3540,16 @@ fn required_check_rule(name: &str) -> GitHubBranchRule {
     }
 }
 
+fn trusted_branch_rules(name: &str) -> Vec<GitHubBranchRule> {
+    vec![
+        GitHubBranchRule {
+            rule_type: "merge_queue".to_string(),
+            parameters: None,
+        },
+        required_check_rule(name),
+    ]
+}
+
 #[test]
 fn validates_h_mg_against_trusted_merge_group_and_live_required_checks() {
     assert!(
@@ -3550,7 +3560,7 @@ fn validates_h_mg_against_trusted_merge_group_and_live_required_checks() {
             MERGE_GROUP_OID,
             &[trusted_check(10, "Dependency policy", "success")],
             &[trusted_merge_group_run()],
-            &[required_check_rule("Dependency policy")],
+            &trusted_branch_rules("Dependency policy"),
             &queue_timeline(false),
         )
         .is_ok()
@@ -3568,7 +3578,7 @@ fn rejects_self_attested_h_mg_without_matching_trusted_merge_group_run() {
         MERGE_GROUP_OID,
         &[trusted_check(10, "Dependency policy", "success")],
         &[wrong_run],
-        &[required_check_rule("Dependency policy")],
+        &trusted_branch_rules("Dependency policy"),
         &queue_timeline(false),
     )
     .expect_err("self-attested H_mg must not pass without trusted queue identity");
@@ -3587,7 +3597,7 @@ fn rejects_missing_or_newer_failed_live_required_check() {
             trusted_check(11, "Dependency policy", "failure"),
         ],
         &[trusted_merge_group_run()],
-        &[required_check_rule("Dependency policy")],
+        &trusted_branch_rules("Dependency policy"),
         &queue_timeline(false),
     )
     .expect_err("latest required check conclusion must win");
@@ -3603,7 +3613,7 @@ fn rejects_dequeue_before_direct_merge_even_with_an_old_successful_h_mg() {
         MERGE_GROUP_OID,
         &[trusted_check(10, "Dependency policy", "success")],
         &[trusted_merge_group_run()],
-        &[required_check_rule("Dependency policy")],
+        &trusted_branch_rules("Dependency policy"),
         &queue_timeline(true),
     )
     .expect_err("dequeue followed by direct merge must reject old queue evidence");
@@ -3624,7 +3634,7 @@ fn rejects_an_older_generation_while_the_pr_remains_enqueued() {
         MERGE_GROUP_OID,
         &[trusted_check(10, "Dependency policy", "success")],
         &[old_run, regenerated],
-        &[required_check_rule("Dependency policy")],
+        &trusted_branch_rules("Dependency policy"),
         &queue_timeline(false),
     )
     .expect_err("a newer same-enqueue merge-group generation must win");
@@ -3644,11 +3654,27 @@ fn ignores_required_check_reruns_completed_after_merge() {
             MERGE_GROUP_OID,
             &[before_merge, after_merge],
             &[trusted_merge_group_run()],
-            &[required_check_rule("Dependency policy")],
+            &trusted_branch_rules("Dependency policy"),
             &queue_timeline(false),
         )
         .is_ok()
     );
+}
+
+#[test]
+fn rejects_g4_after_the_live_merge_queue_rule_is_removed() {
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &[trusted_check(10, "Dependency policy", "success")],
+        &[trusted_merge_group_run()],
+        &[required_check_rule("Dependency policy")],
+        &queue_timeline(false),
+    )
+    .expect_err("activation G4 must retain the live merge-queue rule");
+    assert!(error.contains("缺少 live merge_queue rule"));
 }
 
 fn queue_delivery_g4_fixture(

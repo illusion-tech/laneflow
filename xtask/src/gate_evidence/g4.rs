@@ -289,7 +289,12 @@ pub(super) fn validate_trusted_merge_group_evidence(
 
     let mut required_checks = BTreeSet::new();
     let mut ruleset_required_count = 0usize;
+    let mut has_live_merge_queue_rule = false;
     for rule in branch_rules {
+        if rule.rule_type == "merge_queue" {
+            has_live_merge_queue_rule = true;
+            continue;
+        }
         if rule.rule_type != "required_status_checks" {
             continue;
         }
@@ -301,6 +306,11 @@ pub(super) fn validate_trusted_merge_group_evidence(
             ruleset_required_count += 1;
             required_checks.insert(required.context.clone());
         }
+    }
+    if !has_live_merge_queue_rule {
+        return Err(format!(
+            "PR #{number} base `{base_ref_name}` 缺少 live merge_queue rule；G4 失败关闭"
+        ));
     }
     if ruleset_required_count == 0 {
         return Err(format!(
