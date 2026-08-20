@@ -265,7 +265,7 @@ fn record_table_bindings(
     bindings: &mut DirectBindings,
 ) -> Result<(), FormatError> {
     match (object_kind, section_kind, table_kind) {
-        (PortableObjectKind::CanonicalArtifact, 3, 35) => {
+        (PortableObjectKind::CanonicalArtifact, 3, 22) => {
             bindings.lfca_has_canonical_frame = row_count != 0;
         }
         (PortableObjectKind::CanonicalArtifact, 5, 2) => {
@@ -2250,7 +2250,14 @@ mod tests {
                 .class(),
             FormatErrorClass::BindingMismatch
         );
-        bindings.lfca_has_canonical_frame = true;
+        record_table_bindings(
+            PortableObjectKind::CanonicalArtifact,
+            3,
+            22,
+            1,
+            &mut bindings,
+        )
+        .unwrap();
         validate_object_bindings(PortableObjectKind::CanonicalArtifact, &bindings).unwrap();
 
         let mut headless = DirectBindings {

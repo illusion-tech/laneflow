@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 430,
+    "author": {
+      "login": "wangzishi"
+    },
+    "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "comments": {
+      "nodes": [
+        {
+          "id": "IC-marker-1",
+          "author": {
+            "login": "github-actions[bot]"
+          },
+          "body": "@codex review\n\n<!-- codex-review-request:v1 {\"schemaVersion\":1,\"id\":\"codex-review-request-430-1\",\"pr\":430,\"requestHeadOid\":\"cccccccccccccccccccccccccccccccccccccccc\",\"requestBaseOid\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"} -->",
+          "createdAt": "2026-08-19T01:00:00Z",
+          "updatedAt": "2026-08-19T01:00:00Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/430#issuecomment-100"
+        },
+        {
+          "id": "IC-codex-clean-nosha-1",
+          "author": {
+            "login": "chatgpt-codex-connector"
+          },
+          "body": "Codex Review: Didn't find any major issues. Hooray!",
+          "createdAt": "2026-08-19T01:05:00Z",
+          "updatedAt": "2026-08-19T01:05:00Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/430#issuecomment-101"
+        },
+        {
+          "id": "IC-marker-2",
+          "author": {
+            "login": "github-actions[bot]"
+          },
+          "body": "@codex review\n\n<!-- codex-review-request:v1 {\"schemaVersion\":1,\"id\":\"codex-review-request-430-2\",\"pr\":430,\"requestHeadOid\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"requestBaseOid\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"} -->",
+          "createdAt": "2026-08-19T01:10:00Z",
+          "updatedAt": "2026-08-19T01:10:00Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/430#issuecomment-102"
+        },
+        {
+          "id": "IC-codex-clean-nosha-2",
+          "author": {
+            "login": "chatgpt-codex-connector"
+          },
+          "body": "Codex Review: Didn't find any major issues. Swish!",
+          "createdAt": "2026-08-19T01:15:00Z",
+          "updatedAt": "2026-08-19T01:15:00Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/430#issuecomment-103"
+        }
+      ]
+    }
+  }
+}

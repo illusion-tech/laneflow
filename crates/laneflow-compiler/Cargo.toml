@@ -20,6 +20,7 @@ laneflow-road-editing-wire = { version = "0.0.0", path = "../laneflow-road-editi
 sha2 = { version = "0.11", default-features = false }
 
 [dev-dependencies]
+laneflow-static-network = { version = "0.0.0", path = "../laneflow-static-network" }
 stats_alloc = "=0.1.10"
 
 [lints]

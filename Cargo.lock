@@ -3194,6 +3194,7 @@ dependencies = [
  "laneflow-format",
  "laneflow-road-editing-wire",
  "laneflow-static-contract",
+ "laneflow-static-network",
  "sha2",
  "stats_alloc",
 ]
@@ -3318,6 +3319,14 @@ dependencies = [
 [[package]]
 name = "laneflow-static-contract"
 version = "0.0.0"
+
+[[package]]
+name = "laneflow-static-network"
+version = "0.0.0"
+dependencies = [
+ "laneflow-format",
+ "laneflow-static-contract",
+]
 
 [[package]]
 name = "lazy_static"

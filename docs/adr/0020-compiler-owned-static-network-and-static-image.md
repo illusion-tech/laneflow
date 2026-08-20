@@ -15,8 +15,9 @@
 拥有静态路网、Canonical LIR、可移植规范制品、对象外信任锚和 Runtime/Spatial 分层的
 其余决定保持有效。ADR 0025（Accepted；#300 G1 Pass）进一步以进程内
 `SharedNetworkRevision` 取代本文 target/profile-specific 静态镜像文件、稳定 ABI、
-descriptor/完整性清单、mmap/chunk 和镜像摘要/长度决定；该设计已接受但尚未实现。精确
-后继边界见
+descriptor/完整性清单、mmap/chunk 和镜像摘要/长度决定；该设计已接受。#439 / PR #436
+承载已形成的受检 LFCA 到共享路网基础投影，#440 闭合剩余 Runtime 静态关系，#441
+独立记录资源与性能证据；#300 保持父级跟踪项。精确后继边界见
 `../design/compiler-post-emission-check-and-minimal-publication-closure.md` 与
 `../design/shared-static-network.md`。<br>
 

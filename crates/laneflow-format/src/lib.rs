@@ -4,6 +4,7 @@
 #[cfg(test)]
 extern crate std;
 
+mod canonical_network;
 mod error;
 mod framing;
 mod limits;
@@ -16,6 +17,9 @@ mod value;
 mod wire;
 mod writer;
 
+pub use canonical_network::{
+    CanonicalNetworkInputError, CheckedCanonicalNetworkInputV1, check_canonical_network_input_v1,
+};
 pub use error::{FormatError, FormatErrorClass, FormatStructure, LimitDimension};
 pub use framing::{ObjectFramingView, SectionFramingView, preflight_object_framing};
 pub use limits::{FormatLimitConfig, FormatLimits};

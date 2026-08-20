@@ -19,14 +19,16 @@ Artifact）、共享静态路网（Shared Static Network）、源映射（Source
 （Semantic Diff）、compiler 后发射检查、交通运行时（Traffic Runtime）命名、
 静态执行约束（Static Execution Constraints）、不可变路网修订
 （Immutable Network Revision）和当前态（Current）→目标态（Target）迁移<br>
-**实现状态**: 未实现；当前态生产路径仍使用 Traffic v0.10 / SpatialPackage v0.1 /
+**实现状态**: 部分实现；当前态生产路径仍使用 Traffic v0.10 / SpatialPackage v0.1 /
 ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial Registry）；
 #292 已完成编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
 （Synthetic DSL Frontend）G4；#315 已落地私有共同 Typed AST、逻辑模块/来源文档独立登记、
 原子共同接入、文档集摘要与 v2 文档数配置档；#296 已实现内部、未发布的 FlatBuffers B1
 道路编辑 production compiler 入口，旧 Geometry JSON 实现只作历史证据；#297 不再建立
 current JSON 编译器前端。该入口的实现不表示整个目标路网编译器、共享静态路网或 Traffic
-Runtime 已经实现
+Runtime 已经实现；#439 / PR #436 已形成受检 LFCA 输入能力与
+`laneflow-static-network` 的根/Identity/LaneEdge/机动拓扑/Spatial 基础投影，#440 与
+#441 分别承担剩余 Runtime 静态关系闭包和资源/性能证据，父级 #300 尚未完成<br>
 
 **关联决策与设计**:
 

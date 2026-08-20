@@ -33,6 +33,7 @@ jobs:
             ".githooks/commit-msg"
             ".github/dependabot.yml"
             ".github/workflows/ci.yml"
+            ".github/workflows/codex-clean-binding.yml"
             ".github/workflows/external-review-gate.yml"
             ".github/workflows/external-review-signal.yml"
             ".github/workflows/g3-evidence-gate.yml"
@@ -162,6 +163,7 @@ jobs:
               - 'Cargo.lock'
               - 'deny.toml'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/codex-clean-binding.yml'
               - '.github/workflows/external-review-gate.yml'
               - '.github/workflows/external-review-signal.yml'
               - '.github/workflows/g3-evidence-gate.yml'
