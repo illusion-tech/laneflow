@@ -1129,7 +1129,12 @@ pub(super) fn validate_external_review_g3(
             )?;
             external_review::evaluate_live_with_round_cap(repo, number, round_cap)?
         }
-        G3Result::Pass | G3Result::Bootstrap => external_review::evaluate_live(repo, number)?,
+        G3Result::Pass | G3Result::Bootstrap => {
+            // #406 D2 激活边界：disclosure_active 同时作为 deferred 语义开关，
+            // pre-activation 的 G4 replay 不按新语义 defer P2/P3（不 retroactive
+            // 升级历史结论）
+            external_review::evaluate_live_with_policy(repo, number, disclosure_active)?
+        }
         G3Result::Exception | G3Result::LegacyBlock => {
             return Err("G3 exception 状态未形成有效 accepted_exception".to_string());
         }
@@ -2286,6 +2291,13 @@ pub(super) fn build_external_review_round_cap_input(
     if seen_refs != visible_refs {
         return Err(format!(
             "{label} round-cap remainingFindings labels 必须与 `{G3_REVIEW_ROUND_CAP_COMMENT_FIELD}` 行 labels 完全一致（同一组引用）"
+        ));
+    }
+    // 不同 label 解析到同一 URL 时 evaluator 侧集合比较会静默塌缩条数，拒绝
+    let unique_urls = remaining_finding_urls.iter().collect::<BTreeSet<_>>();
+    if unique_urls.len() != remaining_finding_urls.len() {
+        return Err(format!(
+            "{label} round-cap remainingFindings 解析出重复 URL（不同 label 指向同一 finding）"
         ));
     }
 

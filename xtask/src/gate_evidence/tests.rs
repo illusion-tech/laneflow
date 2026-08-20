@@ -3023,6 +3023,19 @@ fn round_cap_record_requires_reason_and_visible_resolvable_github_refs() {
 }
 
 #[test]
+fn round_cap_record_rejects_labels_resolving_to_the_same_url() {
+    // 不同 label 解析到同一 URL：evaluator 侧集合比较会静默塌缩条数，必须拒绝
+    let comment = round_cap_g3_comment(
+        round_cap_comment_body(&round_cap_record_json("round-cap-60-1", "#60"))
+            .replace(ROUND_CAP_FINDING_URL_2, ROUND_CAP_FINDING_URL_1),
+    );
+    let records = parse_external_review_round_cap_records(&comment).unwrap();
+    let error = build_external_review_round_cap_input(&comment, &records, 60, "Delivery PR")
+        .expect_err("distinct labels resolving to one URL must fail closed");
+    assert!(error.contains("重复 URL"));
+}
+
+#[test]
 fn round_cap_record_set_must_equal_associated_issues() {
     let records_60 = round_cap_record_json("round-cap-60-1", "#60");
     let records_61 = round_cap_record_json("round-cap-61-1", "#61");
