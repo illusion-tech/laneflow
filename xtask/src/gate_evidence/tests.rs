@@ -3474,6 +3474,90 @@ fn append_queue_g4_record(body: &mut String, entries: Vec<serde_json::Value>) {
     ));
 }
 
+fn trusted_check(id: u64, name: &str, conclusion: &str) -> GitHubCheckRun {
+    GitHubCheckRun {
+        id,
+        name: name.to_string(),
+        head_sha: MERGE_GROUP_OID.to_string(),
+        status: "completed".to_string(),
+        conclusion: Some(conclusion.to_string()),
+        html_url: format!("https://github.com/illusion-tech/laneflow/runs/{id}"),
+    }
+}
+
+fn trusted_merge_group_run() -> GitHubWorkflowRun {
+    GitHubWorkflowRun {
+        event: "merge_group".to_string(),
+        head_sha: MERGE_GROUP_OID.to_string(),
+        head_branch: Some("gh-readonly-queue/main/pr-61-deadbeef".to_string()),
+        status: "completed".to_string(),
+        conclusion: Some("success".to_string()),
+        html_url: "https://github.com/illusion-tech/laneflow/actions/runs/100".to_string(),
+    }
+}
+
+fn required_check_rule(name: &str) -> GitHubBranchRule {
+    GitHubBranchRule {
+        rule_type: "required_status_checks".to_string(),
+        parameters: Some(GitHubRequiredStatusChecksParameters {
+            required_status_checks: vec![GitHubRequiredStatusCheck {
+                context: name.to_string(),
+            }],
+        }),
+    }
+}
+
+#[test]
+fn validates_h_mg_against_trusted_merge_group_and_live_required_checks() {
+    assert!(
+        validate_trusted_merge_group_evidence(
+            "illusion-tech/laneflow",
+            61,
+            "main",
+            MERGE_GROUP_OID,
+            &[trusted_check(10, "Dependency policy", "success")],
+            &[trusted_merge_group_run()],
+            &[required_check_rule("Dependency policy")],
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn rejects_self_attested_h_mg_without_matching_trusted_merge_group_run() {
+    let mut wrong_run = trusted_merge_group_run();
+    wrong_run.head_sha = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &[trusted_check(10, "Dependency policy", "success")],
+        &[wrong_run],
+        &[required_check_rule("Dependency policy")],
+    )
+    .expect_err("self-attested H_mg must not pass without trusted queue identity");
+    assert!(error.contains("merge_group success workflow run"));
+}
+
+#[test]
+fn rejects_missing_or_newer_failed_live_required_check() {
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &[
+            trusted_check(10, "Dependency policy", "success"),
+            trusted_check(11, "Dependency policy", "failure"),
+        ],
+        &[trusted_merge_group_run()],
+        &[required_check_rule("Dependency policy")],
+    )
+    .expect_err("latest required check conclusion must win");
+    assert!(error.contains("不是 completed/success"));
+}
+
 fn queue_delivery_g4_fixture(
     entry: serde_json::Value,
 ) -> (GateEvidenceArgs, GitHubIssue, GitHubPullRequest) {
