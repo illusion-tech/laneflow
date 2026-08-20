@@ -1,8 +1,18 @@
 //! G4 完成证据与 late Related PR recovery 验证。
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{args::*, document::*, g3::*, github::*, model::*};
+
+pub(super) const MERGE_QUEUE_REQUIRED_CHECKS: [&str; 5] = [
+    "Governance checks",
+    "Rust checks",
+    "Dependency policy",
+    "Analyze (actions)",
+    "Analyze (rust)",
+];
+pub(super) const GITHUB_ACTIONS_INTEGRATION_ID: u64 = 15368;
+pub(super) const CODEQL_ANALYSIS_KEY: &str = ".github/workflows/codeql.yml:analyze";
 
 fn full_commit_oid(value: &str, label: &str) -> Result<String, String> {
     if value.len() != 40 || !value.chars().all(|character| character.is_ascii_hexdigit()) {
@@ -201,6 +211,7 @@ pub(super) fn validate_trusted_merge_group_evidence(
     h_mg: &str,
     check_runs: &[GitHubCheckRun],
     workflow_runs: &[GitHubWorkflowRun],
+    codeql_analyses: &[GitHubCodeScanningAnalysis],
     branch_rules: &[GitHubBranchRule],
     timeline: &[GitHubTimelineItem],
 ) -> Result<(), String> {
@@ -274,6 +285,12 @@ pub(super) fn validate_trusted_merge_group_evidence(
             latest_generation.2.head_sha
         ));
     }
+    let queue_branch = latest_generation
+        .2
+        .head_branch
+        .as_deref()
+        .expect("PR-bound merge_group run filter guarantees head_branch");
+    let expected_analysis_ref = format!("refs/heads/{queue_branch}");
     if !pr_bound_runs.iter().any(|(_, _, run)| {
         run.head_sha.eq_ignore_ascii_case(h_mg)
             && run.status == "completed"
@@ -287,7 +304,7 @@ pub(super) fn validate_trusted_merge_group_evidence(
         ));
     }
 
-    let mut required_checks = BTreeSet::new();
+    let mut required_checks = BTreeMap::<String, BTreeSet<Option<u64>>>::new();
     let mut ruleset_required_count = 0usize;
     let mut has_live_merge_queue_rule = false;
     for rule in branch_rules {
@@ -304,7 +321,10 @@ pub(super) fn validate_trusted_merge_group_evidence(
             .ok_or("required_status_checks rule 缺少 parameters")?;
         for required in &parameters.required_status_checks {
             ruleset_required_count += 1;
-            required_checks.insert(required.context.clone());
+            required_checks
+                .entry(required.context.clone())
+                .or_default()
+                .insert(required.integration_id);
         }
     }
     if !has_live_merge_queue_rule {
@@ -317,11 +337,32 @@ pub(super) fn validate_trusted_merge_group_evidence(
             "PR #{number} base `{base_ref_name}` 缺少 live required status checks；G4 失败关闭"
         ));
     }
+    let missing_required = MERGE_QUEUE_REQUIRED_CHECKS
+        .iter()
+        .copied()
+        .filter(|name| !required_checks.contains_key(*name))
+        .collect::<Vec<_>>();
+    if !missing_required.is_empty() {
+        return Err(format!(
+            "PR #{number} base `{base_ref_name}` live required status checks 缺少固定 context：{}",
+            missing_required.join(", ")
+        ));
+    }
+    for name in MERGE_QUEUE_REQUIRED_CHECKS {
+        if !required_checks
+            .get(name)
+            .is_some_and(|ids| ids.contains(&Some(GITHUB_ACTIONS_INTEGRATION_ID)))
+        {
+            return Err(format!(
+                "PR #{number} live required check `{name}` 未绑定 integration_id={GITHUB_ACTIONS_INTEGRATION_ID}"
+            ));
+        }
+    }
 
-    for name in required_checks {
+    for name in required_checks.keys() {
         let latest = check_runs
             .iter()
-            .filter(|run| run.name == name && run.head_sha.eq_ignore_ascii_case(h_mg))
+            .filter(|run| run.name == *name && run.head_sha.eq_ignore_ascii_case(h_mg))
             .filter_map(|run| {
                 let completed_at = run
                     .completed_at
@@ -346,6 +387,47 @@ pub(super) fn validate_trusted_merge_group_evidence(
         {
             return Err(format!(
                 "PR #{number} H_mg check `{name}` URL 不属于当前 repository"
+            ));
+        }
+        if MERGE_QUEUE_REQUIRED_CHECKS.contains(&name.as_str())
+            && latest.app.as_ref().map(|app| app.id) != Some(GITHUB_ACTIONS_INTEGRATION_ID)
+        {
+            return Err(format!(
+                "PR #{number} H_mg check `{name}` source 不是 integration_id={GITHUB_ACTIONS_INTEGRATION_ID}"
+            ));
+        }
+    }
+
+    for language in ["actions", "rust"] {
+        let category = format!("/language:{language}");
+        let latest = codeql_analyses
+            .iter()
+            .filter(|analysis| {
+                analysis.commit_sha.eq_ignore_ascii_case(h_mg)
+                    && analysis.git_ref == expected_analysis_ref
+                    && analysis.analysis_key == CODEQL_ANALYSIS_KEY
+                    && analysis.category == category
+                    && analysis.tool.name == "CodeQL"
+            })
+            .filter_map(|analysis| {
+                let created_at = parse_utc_timestamp_seconds(&analysis.created_at)?;
+                (created_at >= queued_at && created_at <= merged_at).then_some((
+                    created_at,
+                    analysis.id,
+                    analysis,
+                ))
+            })
+            .max_by_key(|(created_at, id, _)| (*created_at, *id))
+            .ok_or_else(|| {
+                format!(
+                    "PR #{number} H_mg 缺少合并前 trusted advanced CodeQL `{language}` analysis"
+                )
+            })?
+            .2;
+        if !latest.error.is_empty() {
+            return Err(format!(
+                "PR #{number} H_mg advanced CodeQL `{language}` analysis 包含错误：{}",
+                latest.error
             ));
         }
     }
@@ -374,6 +456,25 @@ pub(super) fn validate_live_merge_queue_g4_evidence(args: &GateEvidenceArgs) -> 
         let pr = gh_pr_view_for_phase(&args.repo, entry.number, GateEvidencePhase::G4)?;
         let check_runs = gh_commit_check_runs(&args.repo, &h_mg)?;
         let workflow_runs = gh_merge_group_workflow_runs(&args.repo)?;
+        let expected_branch_prefix = format!(
+            "gh-readonly-queue/{}/pr-{}-",
+            pr.base_ref_name, entry.number
+        );
+        let codeql_analyses = workflow_runs
+            .iter()
+            .filter(|run| {
+                run.event == "merge_group"
+                    && run.head_sha.eq_ignore_ascii_case(&h_mg)
+                    && run
+                        .head_branch
+                        .as_deref()
+                        .is_some_and(|branch| branch.starts_with(&expected_branch_prefix))
+            })
+            .max_by_key(|run| (&run.created_at, run.id))
+            .and_then(|run| run.head_branch.as_deref())
+            .map(|branch| gh_code_scanning_analyses(&args.repo, &format!("refs/heads/{branch}")))
+            .transpose()?
+            .unwrap_or_default();
         let branch_rules = gh_branch_rules(&args.repo, &pr.base_ref_name)?;
         let timeline = gh_issue_timeline(&args.repo, entry.number)?;
         validate_trusted_merge_group_evidence(
@@ -383,6 +484,7 @@ pub(super) fn validate_live_merge_queue_g4_evidence(args: &GateEvidenceArgs) -> 
             &h_mg,
             &check_runs,
             &workflow_runs,
+            &codeql_analyses,
             &branch_rules,
             &timeline,
         )?;

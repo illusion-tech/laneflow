@@ -126,7 +126,7 @@ CI job 名称固定为 `Dependency policy`，并由 `main` ruleset 的 required 
 - `.github/dependabot.yml` 每周检查 Cargo 与 GitHub Actions version updates。
 - 每个 ecosystem 最多同时打开 5 个 version update PR，避免维护队列失控。
 
-Dependabot PR 仍必须通过测试与 cargo-deny，并按 `security-scanning.md` 与 `development-gates.md` 完成 CodeQL 和外部审阅。只有精确满足 `dependabot-cargo-lock-only-v1` 时，才分别使用其中定义的 CodeQL `not applicable` 与机器 completion；其他 Dependabot PR 仍必须取得 CodeQL success 和人工/Agent 审阅。自动生成不等于自动批准或自动合并。
+Dependabot PR 仍必须通过测试与 cargo-deny，并按 `security-scanning.md` 与 `development-gates.md` 完成 CodeQL 和外部审阅。包括精确满足 `dependabot-cargo-lock-only-v1` 的 PR 在内，都必须让 `Analyze (actions)` 与 `Analyze (rust)` 实际成功；该窄 profile 只允许使用其中定义的外部审阅机器 completion，不再提供 CodeQL `not applicable`。其他 Dependabot PR 仍必须取得 CodeQL success 和人工/Agent 审阅。自动生成不等于自动批准或自动合并。
 
 Dependabot 无法生成 LaneFlow 的完整治理正文，因此 commit 校验器仅对同时满足以下条件的机器提交提供窄例外：
 
