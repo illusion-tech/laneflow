@@ -965,8 +965,8 @@ function Stop-AmbiguousMcplsCreate {
         [Parameter(Mandatory)][DateTimeOffset]$Deadline
     )
 
-    while (Get-RemainingMillisecondsOrZero -Deadline $Deadline -Maximum 3000) {
-        if ((Get-RemainingMillisecondsOrZero -Deadline $Deadline -Maximum 3000) -lt 1000) {
+    while ($true) {
+        if ((Get-RemainingMillisecondsOrZero -Deadline $Deadline -Maximum 3000) -lt 1100) {
             break
         }
         $matches = @(Find-NewMcplsProcessSnapshots `
@@ -992,7 +992,12 @@ function Stop-AmbiguousMcplsCreate {
                 -ExpectedRoot $Context.Root -Deadline $Deadline
             return [int]$snapshot.ProcessId
         }
-        Start-Sleep -Milliseconds 100
+        $sleepMilliseconds = Get-RemainingMillisecondsOrZero `
+            -Deadline $Deadline -Maximum 100
+        if ($sleepMilliseconds -le 0) {
+            break
+        }
+        Start-Sleep -Milliseconds $sleepMilliseconds
     }
     return 0
 }
@@ -1312,10 +1317,10 @@ function Start-McplsProcess {
         }
     $remainingMilliseconds = Get-RemainingMilliseconds -Deadline $Deadline
     $remainingWholeSeconds = [int][Math]::Floor($remainingMilliseconds / 1000.0)
-    if ($remainingWholeSeconds -lt 4) {
+    if ($remainingWholeSeconds -lt 6) {
         throw 'Insufficient startup time remains for bounded CIM creation and identity inspection.'
     }
-    $operationTimeoutSeconds = $remainingWholeSeconds - 3
+    $operationTimeoutSeconds = $remainingWholeSeconds - 5
     $createRequestedAtUtc = [DateTimeOffset]::UtcNow
     try {
         $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
@@ -1357,20 +1362,38 @@ function Start-McplsProcess {
     try {
         $process = Get-Process -Id $processId -ErrorAction Stop
         $snapshot = Get-ProcessSnapshotFromHandle -Process $process -Deadline $Deadline
-        $identity = Test-NewMcplsProcessSnapshotIdentity -Snapshot $snapshot `
-            -ExpectedExecutable $Executable -ExpectedCommandLine $commandLine `
-            -CreateRequestedAtUtc $createRequestedAtUtc
-        if (-not $identity.Matched) {
-            throw "created PID failed identity validation: $($identity.Reason)"
-        }
-        return $process
     }
     catch {
+        $inspectionFailure = $_.Exception.Message
         if ($null -ne $process) {
             $process.Dispose()
+            $process = $null
         }
-        throw "Win32_Process.Create returned PID $processId, but safe inspection failed: $($_.Exception.Message)"
+        try {
+            $reconciledProcessId = Stop-AmbiguousMcplsCreate -Context $Context `
+                -ExpectedExecutable $Executable -ExpectedCommandLine $commandLine `
+                -CreateRequestedAtUtc $createRequestedAtUtc -Port $Port `
+                -Deadline $Deadline
+        }
+        catch {
+            throw "Win32_Process.Create returned PID $processId, but inspection failed: $inspectionFailure Reconciliation failed: $($_.Exception.Message)"
+        }
+        $reconciliation = if ($reconciledProcessId -gt 0) {
+            "Reconciled and stopped identity-matched PID $reconciledProcessId."
+        }
+        else {
+            'No identity-matched process appeared during the bounded reconciliation window.'
+        }
+        throw "Win32_Process.Create returned PID $processId, but inspection failed: $inspectionFailure $reconciliation"
     }
+    $identity = Test-NewMcplsProcessSnapshotIdentity -Snapshot $snapshot `
+        -ExpectedExecutable $Executable -ExpectedCommandLine $commandLine `
+        -CreateRequestedAtUtc $createRequestedAtUtc
+    if (-not $identity.Matched) {
+        $process.Dispose()
+        throw "Win32_Process.Create returned PID $processId, but created PID failed identity validation: $($identity.Reason)"
+    }
+    return $process
 }
 
 function Stop-VerifiedServiceProcessTree {
