@@ -875,6 +875,7 @@ fn deserializes_gh_project_items_with_top_level_title() {
             "isDraft": false,
             "createdAt": "2026-07-10T04:00:00Z",
             "mergedAt": "2026-07-10T05:30:00Z",
+            "mergeCommit": {"oid": "dddddddddddddddddddddddddddddddddddddddd"},
             "closingIssuesReferences": [],
             "projectItems": [{
                 "status": {"optionId": "6114ac6a", "name": "Done"},
@@ -886,6 +887,10 @@ fn deserializes_gh_project_items_with_top_level_title() {
     .expect("current gh pr view projectItems shape should deserialize");
 
     assert_eq!(pr.project_items[0].title, "LaneFlow");
+    assert_eq!(
+        pr.merge_commit.as_ref().map(|commit| commit.oid.as_str()),
+        Some(MAIN_RESULT_OID)
+    );
     assert_eq!(
         pr.project_items[0]
             .status
@@ -1713,6 +1718,9 @@ fn a_historical_exception_applies_only_to_its_exact_full_set_target() {
     delivery.comments.truncate(1);
     delivery.state = "MERGED".to_string();
     delivery.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+    delivery.merge_commit = Some(GitHubCommit {
+        oid: MAIN_RESULT_OID.to_string(),
+    });
 
     let mut related = related_pr(false);
     related.state = "MERGED".to_string();
@@ -2432,6 +2440,9 @@ fn g4_failed_assertion_requires_an_exact_structured_historical_exception_target(
     delivery.comments.truncate(1);
     delivery.state = "MERGED".to_string();
     delivery.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+    delivery.merge_commit = Some(GitHubCommit {
+        oid: MAIN_RESULT_OID.to_string(),
+    });
     delivery.project_items[0].status = Some(ProjectStatus {
         name: "Done".to_string(),
     });
@@ -3422,6 +3433,408 @@ fn rejects_g4_assertion_that_is_still_pending() {
         .expect_err("pending G4 assertion must not pass");
 
     assert!(error.contains("明确记录 `已通过`"));
+}
+
+fn queue_g4_entry(number: u64, role: &str) -> serde_json::Value {
+    serde_json::json!({
+        "number": number,
+        "role": role,
+        "mode": "merge_queue",
+        "hPr": DELIVERY_HEAD_OID,
+        "hMain": MAIN_RESULT_OID,
+        "hMg": MERGE_GROUP_OID,
+        "checksConclusion": "success",
+        "checksUrl": format!("https://github.com/illusion-tech/laneflow/commit/{MERGE_GROUP_OID}/checks"),
+        "chain": format!("{DELIVERY_HEAD_OID} -> {MERGE_GROUP_OID} -> {MAIN_RESULT_OID}"),
+        "inclusionMethod": MERGE_QUEUE_G4_INCLUSION_METHOD,
+        "inclusionEvidenceUrl": format!("https://github.com/illusion-tech/laneflow/compare/{DELIVERY_HEAD_OID}...{MERGE_GROUP_OID}")
+    })
+}
+
+fn pre_activation_g4_entry(number: u64, role: &str) -> serde_json::Value {
+    serde_json::json!({
+        "number": number,
+        "role": role,
+        "mode": "pre_activation",
+        "hPr": DELIVERY_HEAD_OID,
+        "hMain": MAIN_RESULT_OID,
+        "reason": format!("merged before {MERGE_QUEUE_G4_ACTIVATION}")
+    })
+}
+
+fn append_queue_g4_record(body: &mut String, entries: Vec<serde_json::Value>) {
+    let record = serde_json::json!({
+        "schemaVersion": 1,
+        "activationBoundary": MERGE_QUEUE_G4_ACTIVATION,
+        "pullRequests": entries
+    });
+    body.push_str(&format!(
+        "\n- Merge Queue evidence：见 merge-queue-g4-evidence:v1。\n{MERGE_QUEUE_G4_RECORD_START}\n{}\n{MERGE_QUEUE_G4_RECORD_END}",
+        serde_json::to_string_pretty(&record).expect("test record must serialize")
+    ));
+}
+
+fn trusted_check(id: u64, name: &str, conclusion: &str) -> GitHubCheckRun {
+    GitHubCheckRun {
+        id,
+        name: name.to_string(),
+        head_sha: MERGE_GROUP_OID.to_string(),
+        status: "completed".to_string(),
+        conclusion: Some(conclusion.to_string()),
+        completed_at: Some("2026-08-20T05:20:00Z".to_string()),
+        html_url: format!("https://github.com/illusion-tech/laneflow/runs/{id}"),
+    }
+}
+
+fn trusted_merge_group_run() -> GitHubWorkflowRun {
+    GitHubWorkflowRun {
+        id: 100,
+        event: "merge_group".to_string(),
+        head_sha: MERGE_GROUP_OID.to_string(),
+        head_branch: Some("gh-readonly-queue/main/pr-61-deadbeef".to_string()),
+        created_at: "2026-08-20T05:10:00Z".to_string(),
+        status: "completed".to_string(),
+        conclusion: Some("success".to_string()),
+        html_url: "https://github.com/illusion-tech/laneflow/actions/runs/100".to_string(),
+    }
+}
+
+fn queue_timeline(removed_before_merge: bool) -> Vec<GitHubTimelineItem> {
+    let mut items = vec![GitHubTimelineItem {
+        id: None,
+        event: "added_to_merge_queue".to_string(),
+        created_at: Some("2026-08-20T05:00:00Z".to_string()),
+        updated_at: None,
+        submitted_at: None,
+        committer: None,
+    }];
+    if removed_before_merge {
+        items.push(GitHubTimelineItem {
+            id: None,
+            event: "removed_from_merge_queue".to_string(),
+            created_at: Some("2026-08-20T05:20:00Z".to_string()),
+            updated_at: None,
+            submitted_at: None,
+            committer: None,
+        });
+    }
+    items.push(GitHubTimelineItem {
+        id: None,
+        event: "merged".to_string(),
+        created_at: Some("2026-08-20T05:30:00Z".to_string()),
+        updated_at: None,
+        submitted_at: None,
+        committer: None,
+    });
+    items
+}
+
+fn required_check_rule(name: &str) -> GitHubBranchRule {
+    GitHubBranchRule {
+        rule_type: "required_status_checks".to_string(),
+        parameters: Some(GitHubRequiredStatusChecksParameters {
+            required_status_checks: vec![GitHubRequiredStatusCheck {
+                context: name.to_string(),
+            }],
+        }),
+    }
+}
+
+fn trusted_branch_rules(name: &str) -> Vec<GitHubBranchRule> {
+    vec![
+        GitHubBranchRule {
+            rule_type: "merge_queue".to_string(),
+            parameters: None,
+        },
+        required_check_rule(name),
+    ]
+}
+
+#[test]
+fn validates_h_mg_against_trusted_merge_group_and_live_required_checks() {
+    assert!(
+        validate_trusted_merge_group_evidence(
+            "illusion-tech/laneflow",
+            61,
+            "main",
+            MERGE_GROUP_OID,
+            &[trusted_check(10, "Dependency policy", "success")],
+            &[trusted_merge_group_run()],
+            &trusted_branch_rules("Dependency policy"),
+            &queue_timeline(false),
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn rejects_self_attested_h_mg_without_matching_trusted_merge_group_run() {
+    let mut wrong_run = trusted_merge_group_run();
+    wrong_run.head_sha = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &[trusted_check(10, "Dependency policy", "success")],
+        &[wrong_run],
+        &trusted_branch_rules("Dependency policy"),
+        &queue_timeline(false),
+    )
+    .expect_err("self-attested H_mg must not pass without trusted queue identity");
+    assert!(error.contains("record H_mg 不是合并前最后一代"));
+}
+
+#[test]
+fn rejects_missing_or_newer_failed_live_required_check() {
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &[
+            trusted_check(10, "Dependency policy", "success"),
+            trusted_check(11, "Dependency policy", "failure"),
+        ],
+        &[trusted_merge_group_run()],
+        &trusted_branch_rules("Dependency policy"),
+        &queue_timeline(false),
+    )
+    .expect_err("latest required check conclusion must win");
+    assert!(error.contains("不是 completed/success"));
+}
+
+#[test]
+fn rejects_the_check_run_that_completed_last_before_merge() {
+    let mut earlier_success = trusted_check(11, "Dependency policy", "success");
+    earlier_success.completed_at = Some("2026-08-20T05:10:00Z".to_string());
+    let later_failure = trusted_check(10, "Dependency policy", "failure");
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &[earlier_success, later_failure],
+        &[trusted_merge_group_run()],
+        &trusted_branch_rules("Dependency policy"),
+        &queue_timeline(false),
+    )
+    .expect_err("completion time must win over check-run creation id");
+    assert!(error.contains("不是 completed/success"));
+}
+
+#[test]
+fn rejects_dequeue_before_direct_merge_even_with_an_old_successful_h_mg() {
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &[trusted_check(10, "Dependency policy", "success")],
+        &[trusted_merge_group_run()],
+        &trusted_branch_rules("Dependency policy"),
+        &queue_timeline(true),
+    )
+    .expect_err("dequeue followed by direct merge must reject old queue evidence");
+    assert!(error.contains("removed_from_merge_queue"));
+}
+
+#[test]
+fn rejects_an_older_generation_while_the_pr_remains_enqueued() {
+    let old_run = trusted_merge_group_run();
+    let mut regenerated = trusted_merge_group_run();
+    regenerated.id = 101;
+    regenerated.head_sha = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
+    regenerated.created_at = "2026-08-20T05:15:00Z".to_string();
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &[trusted_check(10, "Dependency policy", "success")],
+        &[old_run, regenerated],
+        &trusted_branch_rules("Dependency policy"),
+        &queue_timeline(false),
+    )
+    .expect_err("a newer same-enqueue merge-group generation must win");
+    assert!(error.contains("不是合并前最后一代"));
+}
+
+#[test]
+fn ignores_required_check_reruns_completed_after_merge() {
+    let before_merge = trusted_check(10, "Dependency policy", "success");
+    let mut after_merge = trusted_check(11, "Dependency policy", "failure");
+    after_merge.completed_at = Some("2026-08-20T05:40:00Z".to_string());
+    assert!(
+        validate_trusted_merge_group_evidence(
+            "illusion-tech/laneflow",
+            61,
+            "main",
+            MERGE_GROUP_OID,
+            &[before_merge, after_merge],
+            &[trusted_merge_group_run()],
+            &trusted_branch_rules("Dependency policy"),
+            &queue_timeline(false),
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn rejects_g4_after_the_live_merge_queue_rule_is_removed() {
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &[trusted_check(10, "Dependency policy", "success")],
+        &[trusted_merge_group_run()],
+        &[required_check_rule("Dependency policy")],
+        &queue_timeline(false),
+    )
+    .expect_err("activation G4 must retain the live merge-queue rule");
+    assert!(error.contains("缺少 live merge_queue rule"));
+}
+
+fn queue_delivery_g4_fixture(
+    entry: serde_json::Value,
+) -> (GateEvidenceArgs, GitHubIssue, GitHubPullRequest) {
+    let args = gate_args(GateEvidencePhase::G4);
+    let mut issue = issue("OPEN", "Done");
+    issue.comments[0].created_at = "2026-08-20T06:00:00Z".to_string();
+    issue.comments[0].body = issue.comments[0]
+        .body
+        .replace("- 合并：", "- 合并：Merge Queue（最终 Rebase）");
+    append_queue_g4_record(&mut issue.comments[0].body, vec![entry]);
+    let delivery = delivery_pr(Some("2026-08-20T05:30:00Z"));
+    (args, issue, delivery)
+}
+
+#[test]
+fn accepts_legacy_pre_activation_g4_without_structured_record() {
+    let issue = issue("OPEN", "Done");
+    let delivery = delivery_pr(Some("2026-07-10T05:30:00Z"));
+
+    assert!(
+        validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery, &[]).is_ok()
+    );
+}
+
+#[test]
+fn rejects_post_activation_g4_without_structured_record_or_queue_label() {
+    let mut issue = issue("OPEN", "Done");
+    issue.comments[0].created_at = "2026-08-20T06:00:00Z".to_string();
+    let delivery = delivery_pr(Some("2026-08-20T05:30:00Z"));
+    let error = validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery, &[])
+        .expect_err("post-activation G4 cannot trust a direct-merge label");
+    assert!(error.contains("缺少 merge-queue-g4-evidence:v1"));
+
+    let (args, mut queue_issue, delivery) =
+        queue_delivery_g4_fixture(queue_g4_entry(61, "delivery"));
+    queue_issue.comments[0].body = queue_issue.comments[0].body.replace(
+        "- 合并：Merge Queue（最终 Rebase）",
+        "- 合并：Rebase and merge；例外",
+    );
+    let error = validate_g4_evidence(&args, &queue_issue, &delivery, &[])
+        .expect_err("post-activation merge label must agree with trusted queue evidence");
+    assert!(error.contains("必须明确记录 Merge Queue"));
+}
+
+#[test]
+fn rejects_merge_queue_g4_with_wrong_pr_or_main_identity() {
+    let mut wrong_pr = queue_g4_entry(61, "delivery");
+    wrong_pr["hPr"] = serde_json::json!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+    let (args, issue, delivery) = queue_delivery_g4_fixture(wrong_pr);
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
+        .expect_err("H_pr must match GitHub headRefOid");
+    assert!(error.contains("H_pr 与 GitHub headRefOid 不一致"));
+
+    let mut wrong_main = queue_g4_entry(61, "delivery");
+    wrong_main["hMain"] = serde_json::json!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+    let (args, issue, delivery) = queue_delivery_g4_fixture(wrong_main);
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
+        .expect_err("H_main must match GitHub mergeCommit");
+    assert!(error.contains("H_main 与 GitHub mergeCommit OID 不一致"));
+}
+
+#[test]
+fn rejects_checks_url_not_bound_to_merge_group() {
+    let mut entry = queue_g4_entry(61, "delivery");
+    entry["checksUrl"] = serde_json::json!("https://github.com/illusion-tech/laneflow/pull/450");
+    let (args, issue, delivery) = queue_delivery_g4_fixture(entry);
+
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
+        .expect_err("checks URL must identify H_mg");
+    assert!(error.contains("checksUrl 必须精确绑定 H_mg"));
+}
+
+#[test]
+fn rejects_unordered_or_unproved_inclusion_chain() {
+    let mut reversed = queue_g4_entry(61, "delivery");
+    reversed["chain"] = serde_json::json!(format!(
+        "{MAIN_RESULT_OID} -> {MERGE_GROUP_OID} -> {DELIVERY_HEAD_OID}"
+    ));
+    let (args, issue, delivery) = queue_delivery_g4_fixture(reversed);
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
+        .expect_err("chain order must be canonical");
+    assert!(error.contains("规范顺序"));
+
+    let mut unrelated = queue_g4_entry(61, "delivery");
+    unrelated["inclusionEvidenceUrl"] =
+        serde_json::json!("https://github.com/illusion-tech/laneflow/pull/450");
+    let (args, issue, delivery) = queue_delivery_g4_fixture(unrelated);
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
+        .expect_err("inclusion evidence must bind H_pr and H_mg");
+    assert!(error.contains("inclusionEvidenceUrl 必须精确绑定"));
+}
+
+#[test]
+fn validates_queue_or_pre_activation_evidence_for_every_associated_pr() {
+    let mut args = gate_args(GateEvidencePhase::G4);
+    args.related_prs = vec![62];
+    let mut issue = issue("OPEN", "Done");
+    issue.comments[0] = g4_comment_for_args(ISSUE_G4_URL, "2026-08-20T06:00:00Z", &args);
+    issue.comments[0].body = issue.comments[0]
+        .body
+        .replace("- 合并：", "- 合并：Merge Queue（最终 Rebase）");
+    append_queue_g4_record(
+        &mut issue.comments[0].body,
+        vec![
+            queue_g4_entry(61, "delivery"),
+            pre_activation_g4_entry(62, "related"),
+        ],
+    );
+    let delivery = delivery_pr(Some("2026-08-20T05:30:00Z"));
+    let mut related = related_pr(false);
+    related.state = "MERGED".to_string();
+    related.merged_at = Some("2026-07-10T05:40:00Z".to_string());
+    related.merge_commit = Some(GitHubCommit {
+        oid: MAIN_RESULT_OID.to_string(),
+    });
+    related.project_items[0].status = Some(ProjectStatus {
+        name: "Done".to_string(),
+    });
+
+    assert!(validate_g4_evidence(&args, &issue, &delivery, std::slice::from_ref(&related)).is_ok());
+
+    let marker = issue.comments[0]
+        .body
+        .find(MERGE_QUEUE_G4_RECORD_START)
+        .expect("record marker must exist");
+    issue.comments[0].body.truncate(marker);
+    issue.comments[0].body = issue.comments[0]
+        .body
+        .lines()
+        .filter(|line| !line.starts_with("- Merge Queue evidence："))
+        .collect::<Vec<_>>()
+        .join("\n");
+    append_queue_g4_record(
+        &mut issue.comments[0].body,
+        vec![queue_g4_entry(61, "delivery")],
+    );
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[related])
+        .expect_err("every Related PR requires an evidence entry");
+    assert!(error.contains("Delivery + 全部 Related PR"));
 }
 
 #[test]

@@ -2,7 +2,393 @@
 
 use std::collections::BTreeSet;
 
-use super::{args::*, document::*, g3::*, model::*};
+use super::{args::*, document::*, g3::*, github::*, model::*};
+
+fn full_commit_oid(value: &str, label: &str) -> Result<String, String> {
+    if value.len() != 40 || !value.chars().all(|character| character.is_ascii_hexdigit()) {
+        return Err(format!("G4 `{label}` 不是 40 位十六进制 commit OID"));
+    }
+    Ok(value.to_ascii_lowercase())
+}
+
+fn merge_queue_g4_record(body: &str) -> Result<Option<MergeQueueG4Record>, String> {
+    let count = body.matches(MERGE_QUEUE_G4_RECORD_START).count();
+    if count == 0 {
+        return Ok(None);
+    }
+    if count != 1 {
+        return Err("Issue G4 必须包含且只包含一个 merge-queue-g4-evidence:v1 记录".to_string());
+    }
+    let (_, after_start) = body
+        .split_once(MERGE_QUEUE_G4_RECORD_START)
+        .expect("marker count guarantees a start marker");
+    let (json, _) = after_start
+        .split_once(MERGE_QUEUE_G4_RECORD_END)
+        .ok_or("merge-queue-g4-evidence:v1 缺少结束 marker")?;
+    serde_json::from_str(json.trim())
+        .map(Some)
+        .map_err(|error| format!("merge-queue-g4-evidence:v1 JSON 无效：{error}"))
+}
+
+fn merged_after_queue_activation(pr: &GitHubPullRequest, label: &str) -> Result<bool, String> {
+    let merged_at = pr
+        .merged_at
+        .as_deref()
+        .ok_or_else(|| format!("{label} 尚未合并，不能判断 Merge Queue G4 边界"))?;
+    let merged_at = parse_utc_timestamp_seconds(merged_at)
+        .ok_or_else(|| format!("{label} mergedAt 不是 UTC RFC3339 秒级时间"))?;
+    let activation = parse_utc_timestamp_seconds(MERGE_QUEUE_G4_ACTIVATION)
+        .expect("MERGE_QUEUE_G4_ACTIVATION must be a valid UTC timestamp");
+    Ok(merged_at >= activation)
+}
+
+fn validate_g4_pr_record(
+    repo: &str,
+    number: u64,
+    role: &str,
+    pr: &GitHubPullRequest,
+    record: &MergeQueueG4PullRequestRecord,
+) -> Result<bool, String> {
+    if record.number != number || record.role != role {
+        return Err(format!(
+            "Merge Queue G4 PR record identity/order 不一致：期望 {role} PR #{number}"
+        ));
+    }
+    let h_pr = full_commit_oid(&record.h_pr, &format!("PR #{number} H_pr"))?;
+    let h_main = full_commit_oid(&record.h_main, &format!("PR #{number} H_main"))?;
+    if h_pr != pr.head_ref_oid.to_ascii_lowercase() {
+        return Err(format!("G4 PR #{number} H_pr 与 GitHub headRefOid 不一致"));
+    }
+    let merge_commit = pr
+        .merge_commit
+        .as_ref()
+        .ok_or_else(|| format!("PR #{number} 缺少 GitHub mergeCommit，无法验证 H_main"))?;
+    if h_main != merge_commit.oid.to_ascii_lowercase() {
+        return Err(format!(
+            "G4 PR #{number} H_main 与 GitHub mergeCommit OID 不一致"
+        ));
+    }
+
+    let uses_queue = merged_after_queue_activation(pr, &format!("PR #{number}"))?;
+    if !uses_queue {
+        if record.mode != "pre_activation"
+            || record.reason.as_deref().is_none_or(str::is_empty)
+            || record.h_mg.is_some()
+            || record.checks_conclusion.is_some()
+            || record.checks_url.is_some()
+            || record.chain.is_some()
+            || record.inclusion_method.is_some()
+            || record.inclusion_evidence_url.is_some()
+        {
+            return Err(format!(
+                "G4 PR #{number} 在 activation 前合并，必须只记录 pre_activation identity 与非空 reason"
+            ));
+        }
+        return Ok(false);
+    }
+
+    if record.mode != "merge_queue" || record.reason.is_some() {
+        return Err(format!(
+            "G4 PR #{number} 在 activation 边界后合并，必须使用 merge_queue record；非队列例外需先扩展结构化治理契约"
+        ));
+    }
+    let h_mg = full_commit_oid(
+        record
+            .h_mg
+            .as_deref()
+            .ok_or_else(|| format!("G4 PR #{number} merge_queue record 缺少 H_mg"))?,
+        &format!("PR #{number} H_mg"),
+    )?;
+    if h_mg == h_pr || h_mg == h_main {
+        return Err(format!("G4 PR #{number} H_mg 必须独立于 H_pr 与 H_main"));
+    }
+    if record.checks_conclusion.as_deref() != Some("success") {
+        return Err(format!(
+            "G4 PR #{number} H_mg required checks conclusion 必须为 success"
+        ));
+    }
+    let expected_checks_url = format!("https://github.com/{repo}/commit/{h_mg}/checks");
+    if record.checks_url.as_deref() != Some(expected_checks_url.as_str()) {
+        return Err(format!(
+            "G4 PR #{number} checksUrl 必须精确绑定 H_mg 的 commit checks 页面"
+        ));
+    }
+    let expected_chain = format!("{h_pr} -> {h_mg} -> {h_main}");
+    if record.chain.as_deref() != Some(expected_chain.as_str()) {
+        return Err(format!(
+            "G4 PR #{number} chain 必须按 H_pr -> H_mg -> H_main 规范顺序记录"
+        ));
+    }
+    if record.inclusion_method.as_deref() != Some(MERGE_QUEUE_G4_INCLUSION_METHOD) {
+        return Err(format!(
+            "G4 PR #{number} inclusionMethod 必须使用已冻结的 trusted merge_group + compare 方法"
+        ));
+    }
+    let expected_inclusion_url = format!("https://github.com/{repo}/compare/{h_pr}...{h_mg}");
+    if record.inclusion_evidence_url.as_deref() != Some(expected_inclusion_url.as_str()) {
+        return Err(format!(
+            "G4 PR #{number} inclusionEvidenceUrl 必须精确绑定 H_pr...H_mg compare"
+        ));
+    }
+    Ok(true)
+}
+
+fn validate_merge_queue_g4_evidence(
+    args: &GateEvidenceArgs,
+    body: &str,
+    delivery_pr: &GitHubPullRequest,
+    related_prs: &[GitHubPullRequest],
+) -> Result<(), String> {
+    let delivery_number = args
+        .delivery_pr
+        .ok_or("G4 validation 缺少 Delivery PR 参数")?;
+    let any_post_activation =
+        merged_after_queue_activation(delivery_pr, &format!("Delivery PR #{delivery_number}"))?
+            || args
+                .related_prs
+                .iter()
+                .zip(related_prs)
+                .map(|(number, pr)| {
+                    merged_after_queue_activation(pr, &format!("Related PR #{number}"))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .any(|value| value);
+
+    let Some(record) = merge_queue_g4_record(body)? else {
+        return if any_post_activation {
+            Err("post-activation G4 缺少 merge-queue-g4-evidence:v1 记录".to_string())
+        } else {
+            Ok(())
+        };
+    };
+    unique_metadata_line(body, "Merge Queue evidence")?;
+    if record.schema_version != 1 || record.activation_boundary != MERGE_QUEUE_G4_ACTIVATION {
+        return Err(
+            "merge-queue-g4-evidence:v1 schemaVersion / activationBoundary 不匹配".to_string(),
+        );
+    }
+    if record.pull_requests.len() != 1 + related_prs.len() {
+        return Err("Merge Queue G4 PR record 集合必须等于 Delivery + 全部 Related PR".to_string());
+    }
+
+    let mut queue_records = 0usize;
+    queue_records += validate_g4_pr_record(
+        &args.repo,
+        delivery_number,
+        "delivery",
+        delivery_pr,
+        &record.pull_requests[0],
+    )? as usize;
+    for ((number, pr), entry) in args
+        .related_prs
+        .iter()
+        .zip(related_prs)
+        .zip(record.pull_requests.iter().skip(1))
+    {
+        queue_records += validate_g4_pr_record(&args.repo, *number, "related", pr, entry)? as usize;
+    }
+    if queue_records > 0 && !unique_metadata_line(body, "合并")?.contains("Merge Queue") {
+        return Err("post-activation G4 `- 合并：` 必须明确记录 Merge Queue".to_string());
+    }
+    Ok(())
+}
+
+pub(super) fn validate_trusted_merge_group_evidence(
+    repo: &str,
+    number: u64,
+    base_ref_name: &str,
+    h_mg: &str,
+    check_runs: &[GitHubCheckRun],
+    workflow_runs: &[GitHubWorkflowRun],
+    branch_rules: &[GitHubBranchRule],
+    timeline: &[GitHubTimelineItem],
+) -> Result<(), String> {
+    if base_ref_name.is_empty() {
+        return Err(format!("PR #{number} 缺少 trusted baseRefName"));
+    }
+    let merged_positions = timeline
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.event == "merged")
+        .collect::<Vec<_>>();
+    let [(merged_position, merged_event)] = merged_positions.as_slice() else {
+        return Err(format!(
+            "PR #{number} timeline 必须包含且只包含一个 merged event"
+        ));
+    };
+    let (queue_position, queue_event) = timeline[..*merged_position]
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, item)| {
+            matches!(
+                item.event.as_str(),
+                "added_to_merge_queue" | "removed_from_merge_queue"
+            )
+        })
+        .ok_or_else(|| format!("PR #{number} merged 前缺少 Merge Queue timeline event"))?;
+    if queue_event.event != "added_to_merge_queue" {
+        return Err(format!(
+            "PR #{number} 最后一个 merge 前 queue event 是 `{}`（position={queue_position}），不能证明保持入队到合并",
+            queue_event.event
+        ));
+    }
+    let queued_at = parse_utc_timestamp_seconds(
+        queue_event
+            .created_at
+            .as_deref()
+            .ok_or_else(|| format!("PR #{number} added_to_merge_queue 缺少 created_at"))?,
+    )
+    .ok_or_else(|| format!("PR #{number} added_to_merge_queue created_at 无效"))?;
+    let merged_at = parse_utc_timestamp_seconds(
+        merged_event
+            .created_at
+            .as_deref()
+            .ok_or_else(|| format!("PR #{number} merged event 缺少 created_at"))?,
+    )
+    .ok_or_else(|| format!("PR #{number} merged event created_at 无效"))?;
+
+    let expected_branch_prefix = format!("gh-readonly-queue/{base_ref_name}/pr-{number}-");
+    let mut pr_bound_runs = Vec::new();
+    for run in workflow_runs.iter().filter(|run| {
+        run.event == "merge_group"
+            && run
+                .head_branch
+                .as_deref()
+                .is_some_and(|branch| branch.starts_with(&expected_branch_prefix))
+    }) {
+        let created_at = parse_utc_timestamp_seconds(&run.created_at)
+            .ok_or_else(|| format!("PR #{number} merge_group run created_at 无效"))?;
+        if created_at >= queued_at && created_at <= merged_at {
+            pr_bound_runs.push((created_at, run.id, run));
+        }
+    }
+    let latest_generation = pr_bound_runs
+        .iter()
+        .max_by_key(|(created_at, id, _)| (*created_at, *id))
+        .ok_or_else(|| format!("PR #{number} 入队到合并之间缺少 PR-bound merge_group run"))?;
+    if !latest_generation.2.head_sha.eq_ignore_ascii_case(h_mg) {
+        return Err(format!(
+            "PR #{number} record H_mg 不是合并前最后一代 merge_group head：record={h_mg} latest={}",
+            latest_generation.2.head_sha
+        ));
+    }
+    if !pr_bound_runs.iter().any(|(_, _, run)| {
+        run.head_sha.eq_ignore_ascii_case(h_mg)
+            && run.status == "completed"
+            && run.conclusion.as_deref() == Some("success")
+            && run
+                .html_url
+                .starts_with(&format!("https://github.com/{repo}/actions/runs/"))
+    }) {
+        return Err(format!(
+            "PR #{number} H_mg 未绑定 trusted GitHub merge_group success workflow run"
+        ));
+    }
+
+    let mut required_checks = BTreeSet::new();
+    let mut ruleset_required_count = 0usize;
+    let mut has_live_merge_queue_rule = false;
+    for rule in branch_rules {
+        if rule.rule_type == "merge_queue" {
+            has_live_merge_queue_rule = true;
+            continue;
+        }
+        if rule.rule_type != "required_status_checks" {
+            continue;
+        }
+        let parameters = rule
+            .parameters
+            .as_ref()
+            .ok_or("required_status_checks rule 缺少 parameters")?;
+        for required in &parameters.required_status_checks {
+            ruleset_required_count += 1;
+            required_checks.insert(required.context.clone());
+        }
+    }
+    if !has_live_merge_queue_rule {
+        return Err(format!(
+            "PR #{number} base `{base_ref_name}` 缺少 live merge_queue rule；G4 失败关闭"
+        ));
+    }
+    if ruleset_required_count == 0 {
+        return Err(format!(
+            "PR #{number} base `{base_ref_name}` 缺少 live required status checks；G4 失败关闭"
+        ));
+    }
+
+    for name in required_checks {
+        let latest = check_runs
+            .iter()
+            .filter(|run| run.name == name && run.head_sha.eq_ignore_ascii_case(h_mg))
+            .filter_map(|run| {
+                let completed_at = run
+                    .completed_at
+                    .as_deref()
+                    .and_then(parse_utc_timestamp_seconds)?;
+                (completed_at <= merged_at).then_some((completed_at, run.id, run))
+            })
+            .max_by_key(|(completed_at, id, _)| (*completed_at, *id))
+            .ok_or_else(|| {
+                format!("PR #{number} H_mg 缺少 merge 前完成的 trusted GitHub check `{name}`")
+            })?
+            .2;
+        if latest.status != "completed" || latest.conclusion.as_deref() != Some("success") {
+            return Err(format!(
+                "PR #{number} H_mg 最新 check `{name}` 不是 completed/success：status={} conclusion={:?}",
+                latest.status, latest.conclusion
+            ));
+        }
+        if !latest
+            .html_url
+            .starts_with(&format!("https://github.com/{repo}/"))
+        {
+            return Err(format!(
+                "PR #{number} H_mg check `{name}` URL 不属于当前 repository"
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn validate_live_merge_queue_g4_evidence(args: &GateEvidenceArgs) -> Result<(), String> {
+    let issue = gh_issue_view_for_phase(&args.repo, args.issue, GateEvidencePhase::G4)?;
+    let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
+    let comment = comment_for_permalink(&issue, &issue_g4_permalink, "Issue G4")?;
+    let Some(record) = merge_queue_g4_record(&comment.body)? else {
+        return Ok(());
+    };
+    for entry in record
+        .pull_requests
+        .iter()
+        .filter(|entry| entry.mode == "merge_queue")
+    {
+        let h_mg = full_commit_oid(
+            entry
+                .h_mg
+                .as_deref()
+                .ok_or_else(|| format!("PR #{} merge_queue record 缺少 H_mg", entry.number))?,
+            &format!("PR #{} H_mg", entry.number),
+        )?;
+        let pr = gh_pr_view_for_phase(&args.repo, entry.number, GateEvidencePhase::G4)?;
+        let check_runs = gh_commit_check_runs(&args.repo, &h_mg)?;
+        let workflow_runs = gh_merge_group_workflow_runs(&args.repo)?;
+        let branch_rules = gh_branch_rules(&args.repo, &pr.base_ref_name)?;
+        let timeline = gh_issue_timeline(&args.repo, entry.number)?;
+        validate_trusted_merge_group_evidence(
+            &args.repo,
+            entry.number,
+            &pr.base_ref_name,
+            &h_mg,
+            &check_runs,
+            &workflow_runs,
+            &branch_rules,
+            &timeline,
+        )?;
+    }
+    Ok(())
+}
 
 pub(super) fn reject_inapplicable_g4_recovery_marker(issue: &GitHubIssue) -> Result<(), String> {
     let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
@@ -278,6 +664,7 @@ pub(super) fn validate_g4_evidence(
     let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
     let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
     validate_comment_body(&g4_comment.body, G4_COMMENT_FIELDS, "Issue G4")?;
+    validate_merge_queue_g4_evidence(args, &g4_comment.body, delivery_pr, related_prs)?;
     let delivery_number = args
         .delivery_pr
         .ok_or("G4 validation 缺少 Delivery PR 参数")?;

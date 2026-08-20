@@ -247,15 +247,77 @@ pub(super) struct GitHubPullRequest {
     #[serde(rename = "baseRefOid")]
     #[serde(default)]
     pub(super) base_ref_oid: String,
+    #[serde(rename = "baseRefName", default)]
+    pub(super) base_ref_name: String,
     #[serde(rename = "createdAt")]
     pub(super) created_at: String,
     #[serde(rename = "mergedAt")]
     pub(super) merged_at: Option<String>,
+    #[serde(rename = "mergeCommit", default)]
+    pub(super) merge_commit: Option<GitHubCommit>,
     #[serde(rename = "closingIssuesReferences")]
     pub(super) closing_issues_references: Vec<IssueReference>,
     #[serde(rename = "projectItems", default)]
     pub(super) project_items: Vec<ProjectItem>,
     pub(super) comments: Vec<GitHubComment>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubCommit {
+    pub(super) oid: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubCheckRunsPage {
+    pub(super) total_count: usize,
+    pub(super) check_runs: Vec<GitHubCheckRun>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubCheckRun {
+    pub(super) id: u64,
+    pub(super) name: String,
+    pub(super) head_sha: String,
+    pub(super) status: String,
+    pub(super) conclusion: Option<String>,
+    pub(super) completed_at: Option<String>,
+    pub(super) html_url: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubWorkflowRunsPage {
+    pub(super) total_count: usize,
+    pub(super) workflow_runs: Vec<GitHubWorkflowRun>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubWorkflowRun {
+    pub(super) id: u64,
+    pub(super) event: String,
+    pub(super) head_sha: String,
+    pub(super) head_branch: Option<String>,
+    pub(super) created_at: String,
+    pub(super) status: String,
+    pub(super) conclusion: Option<String>,
+    pub(super) html_url: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubBranchRule {
+    #[serde(rename = "type")]
+    pub(super) rule_type: String,
+    pub(super) parameters: Option<GitHubRequiredStatusChecksParameters>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubRequiredStatusChecksParameters {
+    #[serde(default)]
+    pub(super) required_status_checks: Vec<GitHubRequiredStatusCheck>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubRequiredStatusCheck {
+    pub(super) context: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -457,5 +519,43 @@ pub(super) const G4_COMMENT_FIELDS: &[&str] = &[
     "- 权限 / bypass：",
     "- Gate 断言：",
 ];
+
+pub(super) const MERGE_QUEUE_G4_ACTIVATION: &str = "2026-08-20T04:00:00Z";
+pub(super) const MERGE_QUEUE_G4_RECORD_START: &str = "<!-- merge-queue-g4-evidence:v1";
+pub(super) const MERGE_QUEUE_G4_RECORD_END: &str = "-->";
+pub(super) const MERGE_QUEUE_G4_INCLUSION_METHOD: &str =
+    "trusted GitHub merge_group identity + compare";
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct MergeQueueG4Record {
+    pub(super) schema_version: u64,
+    pub(super) activation_boundary: String,
+    pub(super) pull_requests: Vec<MergeQueueG4PullRequestRecord>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct MergeQueueG4PullRequestRecord {
+    pub(super) number: u64,
+    pub(super) role: String,
+    pub(super) mode: String,
+    pub(super) h_pr: String,
+    pub(super) h_main: String,
+    #[serde(default)]
+    pub(super) h_mg: Option<String>,
+    #[serde(default)]
+    pub(super) checks_conclusion: Option<String>,
+    #[serde(default)]
+    pub(super) checks_url: Option<String>,
+    #[serde(default)]
+    pub(super) chain: Option<String>,
+    #[serde(default)]
+    pub(super) inclusion_method: Option<String>,
+    #[serde(default)]
+    pub(super) inclusion_evidence_url: Option<String>,
+    #[serde(default)]
+    pub(super) reason: Option<String>,
+}
 
 pub(super) const GATE_ASSERTION_PREFIX: &str = "- Gate 断言：";

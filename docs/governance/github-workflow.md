@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active  
-**最后更新**: 2026-08-05
+**最后更新**: 2026-08-20
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
 ## 1. 工作流原则
@@ -225,7 +225,9 @@ Issue #230 采用 `R0 -> R1 -> R2`：
 - R2 激活前必须注册并仅在 base repository 安装专用 External Review Gate GitHub App；其短期 installation token 只能提供给 trusted publisher。App repository permissions 固定为 `Checks: read and write`（创建 / 复核 Check Run）、`Commit statuses: read and write`（允许 ruleset 选择 expected source）与 `Pull requests: read`（接收 review-thread webhook），不授予 Contents、Actions 或 Issues。App 必须订阅 `pull_request_review_thread` webhook 并让 trusted publisher 重读当前 PR；PR D canary 必须实测 resolved 与 unresolve 两个方向。若平台只交付文档化的 `resolved` action，unresolve 仍需 marker 或另一条自动信号，且在该缺口关闭前不得进入 R2。PR D 把正式 Check 政名为 `External Review Gate`，验证 API 返回该专用 App 的 slug / integration ID，并在 ruleset 中同时绑定 Check 名和 expected source App。缺少该独立身份、完整 thread signal、仍由 `github-actions` 发布或 spoof canary 能满足 required check 时，R2 一律阻断。
 - R2 达标且专用 App canary 通过后，把正式 `External Review Gate` 加入 required status checks，启用 conversation resolution，保持 native required approvals 为 0，移除 `update` restriction 和 `wangzishi: always` bypass。
 
-ruleset 变更前后必须保存完整 JSON snapshot 并做字段级对比；随后用低风险 canary PR 验证全部 Gate 通过时 `gh pr merge <number> --rebase` 无需 `--admin`。R2 激活时重新评估全部 open PR，不进行无证据 grandfathering。
+ruleset 变更前后必须保存完整 JSON snapshot 并做字段级对比；随后用低风险 canary PR 验证全部 Gate
+通过时可由 `gh pr merge <number> --match-head-commit <H_pr>` 无 `--admin` 入队，并由队列按 Rebase
+完成合并。R2 激活时重新评估全部 open PR，不进行无证据 grandfathering。
 
 紧急路径不保留 standing bypass。仅在 `development-gates.md` 允许的四类事件中临时授权，记录 `G3 Waived`、风险、到期、follow-up 和 Cleanup owner，并默认在 24 小时内撤回。
 
@@ -241,18 +243,72 @@ ruleset 变更前后必须保存完整 JSON snapshot 并做字段级对比；随
 
 ## 7. PR 合并策略
 
-LaneFlow 默认使用 **Rebase and merge** 将 PR 合入 `main`。
+LaneFlow 默认通过合并队列（Merge Queue）将 PR 合入 `main`，队列最终使用 **Rebase**。
 
 原因：
 
 - 保持 `main` 历史线性、清晰。
 - 保留 PR 内各 commit 的治理说明（`Gate`、`Slice`、`Impact` 等）。
-- 避免为常规功能 PR 增加多余的 merge commit 节点。
+- 在最新 `main` 与队列前序变更的真实组合上重新运行 required checks。
+- 避免只因 `main` 前进而要求其他 PR 手工 rebase 和重复外部审阅。
 
-默认规则：
+`main` 的初始队列配置使用保守单项合并：
 
-- 常规功能、修复、文档、治理 PR → **Rebase and merge**。
-- PR 内 commit 已具备独立意义且 message 符合 `docs/reference/commit-convention.md` → **Rebase and merge**。
+| 参数                                | 初始值     | 目的                                                |
+| ----------------------------------- | ---------- | --------------------------------------------------- |
+| `merge_method`                      | `REBASE`   | 保持线性历史并保留独立 commit 治理说明              |
+| `grouping_strategy`                 | `ALLGREEN` | 每个进入合并组的 PR 都必须满足 required checks      |
+| `max_entries_to_build`              | `1`        | 首轮串行构建，降低 activation 与归因复杂度          |
+| `min_entries_to_merge`              | `1`        | 单个已就绪 PR 不等待额外成员                        |
+| `max_entries_to_merge`              | `1`        | 首轮每次只把一个 PR 写入 `main`，保留清晰的 G4 映射 |
+| `min_entries_to_merge_wait_minutes` | `0`        | `min=1` 时无需额外等待                              |
+| `check_response_timeout_minutes`    | `60`       | required check 超时后失败关闭，不无限占用队列       |
+
+上述值是治理配置，不由单个 PR 在入队时选择。后续调整并发、分组或超时必须通过独立治理 Issue，
+保存 Ruleset before / after 与 canary 证据。
+
+启用队列时，`required_status_checks.strict_required_status_checks_policy` 必须设为 `false`，但不得删除或
+放宽 required checks。队列会在最新 `main` 与队列前序变更形成的 `H_mg` 上重新运行这些检查；若同时保留
+strict up-to-date，PR 在入队前仍可能被要求先更新分支，重新引入本策略要消除的手工 rebase 与重复构建。
+
+### 7.1 日常入队与失效边界
+
+LaneFlow 采用“审阅稳定补丁、队列验证集成结果”的模型：
+
+- PR Head `H_pr` 是补丁审阅身份，绑定 exact-head 外部审阅、finding disposition 与 G3 Owner 判断。
+- 合并组（Merge Group）Head `H_mg` 是集成候选身份，由最新 `main`、队列中位于当前 PR 之前的变更与当前 PR 组成，绑定 CI、依赖政策和适用安全扫描。
+- Main Result `H_main` 是 GitHub 执行 rebase 后进入 `main` 的结果；G4 保存 `H_pr → H_mg → H_main`，验证 inclusion / replay，不要求 SHA 相等。
+
+失效边界固定为：PR 新 push、force-push 或冲突修复产生新 `H_pr` 时，旧 external review、finding disposition、
+G3 与入队资格全部 stale；`main` 前进、队列顺序或成员变化只废弃旧 `H_mg` 并重跑机器检查，
+不得让未变化 `H_pr` 上的人审失效。合并组检查失败时不得合并；若 `H_pr` 未变化，不要求重新人审。
+
+入队前必须冻结并二次读取 current exact `H_pr`，确认该 head 的外部审阅、finding disposition、G3 Owner
+comment、marker 与 PR 级 required checks 仍有效。目标分支要求合并队列时，GitHub CLI 不要求 merge strategy；
+使用 `--match-head-commit` 防止并发 push 后误入队：
+
+```powershell
+gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
+```
+
+只有 current exact `H_pr` 的 required checks、适用 CodeQL、外部审阅、finding disposition、G3 Owner
+comment 与 marker 全部完成且有效后，才可运行入队命令。不得在 checks pending 时预先运行并武装
+auto-merge：`--match-head-commit` 只保护启用当下的 head，不能替代 maintainer 后续 push 后的新 head 审阅与
+G3 授权。禁止使用 `--admin` 绕过队列。若 live Ruleset 未要求队列、未生成真实 `H_mg`、required checks / CodeQL 缺失或失败，必须停止
+并记录阻断，不得回退为无记录的直接合并。GitHub 的当前行为与配置入口见
+[GitHub CLI `gh pr merge`](https://cli.github.com/manual/gh_pr_merge) 和
+[Managing a merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)。
+
+### 7.2 #446 bootstrap / activation 边界
+
+#446 分两个 PR 自举：Related PR 1 只把契约和 `merge_group` CI 能力合入 `main`，不修改 live Ruleset，
+也不能使用候选队列能力自批。Delivery PR 2 先确认所需 workflow 已在 `main` 部署，保存 Ruleset before
+快照与精确 rollback 载荷，然后以事务方式临时启用合并队列、关闭 strict up-to-date 并将自身入队；
+required checks 集合保持不变。只有这一步之后 GitHub 才能创建真实 Merge Group。真实 `H_mg` 上的
+required checks 与 CodeQL canary 全部成功时，保留新 Ruleset
+并继续首次无 `--admin` 合并；任一结果缺失或失败时，立即恢复 before 配置、停止 canary 并保持 G3 Block。
+canary 成功不是启用队列的前置条件，而是决定激活事务提交或回滚的判据。在 Delivery PR 2 完成 G4 前，
+不得把 bootstrap 或尚未提交的临时激活描述为合并队列已经稳定启用。
 
 PR commit message 应使用 Conventional Commits 标题，并在正文保留 LaneFlow 治理字段：
 
@@ -268,18 +324,14 @@ CI 会校验 PR commit 标题和必需治理字段。若确需例外，必须在
 
 新提交的 `Gate` 使用 `G3 Candidate`；`G3 Pass` 与 `G3 Waived` 只属于 PR Check / comment 证据层。迁移 cutoff 和历史 commit 兼容规则见 `docs/reference/commit-convention.md`。
 
-例外（须在 PR 或 Issue 中说明原因）：
+最终 merge method 例外必须先通过治理 Issue 修改适用的队列 / 分支规则，保存 before / after 与验证证据；
+不能由单个 PR 在入队时临时选择：
 
 - **Squash and merge**：PR 内含多个无独立意义的 wip commit，或明确要求 `main` 上 1 个 PR 对应 1 个 commit。
 - **Create a merge commit**：发布分支、长期分支合流等需要保留 merge 节点的场景。
 
-命令示例：
-
-```powershell
-gh pr merge <number> --rebase
-```
-
-仓库设置建议：在 GitHub 仓库 Settings → General → Pull Requests 中启用 **Allow rebase merging**，并按团队习惯禁用或保留 squash / merge commit。
+仓库 Settings → General → Pull Requests 必须保持 **Allow rebase merging** 启用；该仓库级能力若与队列
+`REBASE` 规则冲突，GitHub 将无法完成队列合并。
 
 ## 8. CI 规则
 
@@ -323,7 +375,14 @@ PR 合并后，应回到关联 Issue 完成 G4，而不是在清场时首次补�
 
 G4 清场必须完成：
 
-- 确认 PR 已按默认策略 Rebase and merge 合入，或记录例外原因。
+- 确认 PR 已按默认 Merge Queue（最终 Rebase）策略合入，或记录例外原因。
+- 在 `merge-queue-g4-evidence:v1` 中按 Delivery-first、随后全部 Related PR 顺序逐项保存证据：
+  activation boundary 后成员记录 Queue-ready `H_pr`、真实 `H_mg`、GitHub `mergeCommit` 对应的 `H_main`、
+  精确 `commit/<H_mg>/checks` success URL、规范 chain 与 `H_pr...H_mg` inclusion compare；boundary 前成员
+  只记录 `pre_activation`、`H_pr/H_main` 与原因，不补造 `H_mg`。由 `check-gate-evidence g4` 对照每个 PR
+  的 trusted merge metadata、对应 PR 的 GitHub `merge_group` run、merge 前最后一个 queue timeline event、
+  仍生效的 live `merge_queue` rule、同次入队的最后一代 queue head，以及 live Ruleset 全部分页结果中 required checks 在 merge 前的最后完成结论；不能用旧 queue run、一个 Delivery
+  record 代替 Related PR 证据，也不要求本地形式化 replay。
 - 勾选 Issue 验收 checklist。
 - 在 Issue comment 发表 `## G4 完成判断`，并在 Issue Gate Ledger 勾选 G4、回链该 comment；Delivery PR body 只回链该 Issue G4 comment。
 - 将 Project 中关联 Issue 和 PR 移动到 `Done`。

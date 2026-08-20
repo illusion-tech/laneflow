@@ -557,9 +557,89 @@ pub(super) fn gh_pr_fields(phase: GateEvidencePhase) -> &'static str {
             "body,state,isDraft,headRefOid,baseRefOid,createdAt,mergedAt,closingIssuesReferences,comments"
         }
         GateEvidencePhase::G4 => {
-            "body,state,isDraft,headRefOid,baseRefOid,createdAt,mergedAt,closingIssuesReferences,projectItems,comments"
+            "body,state,isDraft,headRefOid,baseRefOid,baseRefName,createdAt,mergedAt,mergeCommit,closingIssuesReferences,projectItems,comments"
         }
     }
+}
+
+pub(super) fn gh_commit_check_runs(repo: &str, oid: &str) -> Result<Vec<GitHubCheckRun>, String> {
+    let pages: Vec<GitHubCheckRunsPage> = gh_json(&[
+        "api".to_string(),
+        "--paginate".to_string(),
+        "--slurp".to_string(),
+        "-H".to_string(),
+        "Accept: application/vnd.github+json".to_string(),
+        "-H".to_string(),
+        "X-GitHub-Api-Version: 2022-11-28".to_string(),
+        format!("repos/{repo}/commits/{oid}/check-runs?filter=all&per_page=100"),
+    ])?;
+    let expected = pages.iter().map(|page| page.total_count).max().unwrap_or(0);
+    let runs = pages
+        .into_iter()
+        .flat_map(|page| page.check_runs)
+        .collect::<Vec<_>>();
+    if runs.len() < expected {
+        return Err(format!(
+            "GitHub check-runs 分页不完整：H_mg={oid} expected={expected} actual={}",
+            runs.len()
+        ));
+    }
+    Ok(runs)
+}
+
+pub(super) fn gh_merge_group_workflow_runs(repo: &str) -> Result<Vec<GitHubWorkflowRun>, String> {
+    let pages: Vec<GitHubWorkflowRunsPage> = gh_json(&[
+        "api".to_string(),
+        "--paginate".to_string(),
+        "--slurp".to_string(),
+        "-H".to_string(),
+        "Accept: application/vnd.github+json".to_string(),
+        "-H".to_string(),
+        "X-GitHub-Api-Version: 2022-11-28".to_string(),
+        format!("repos/{repo}/actions/runs?event=merge_group&per_page=100"),
+    ])?;
+    let expected = pages.iter().map(|page| page.total_count).max().unwrap_or(0);
+    let runs = pages
+        .into_iter()
+        .flat_map(|page| page.workflow_runs)
+        .collect::<Vec<_>>();
+    if runs.len() < expected {
+        return Err(format!(
+            "GitHub merge_group workflow-runs 分页不完整：expected={expected} actual={}",
+            runs.len()
+        ));
+    }
+    Ok(runs)
+}
+
+fn encode_path_preserving_slashes(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
+                encoded.push(char::from(byte));
+            }
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
+}
+
+pub(super) fn gh_branch_rules(repo: &str, branch: &str) -> Result<Vec<GitHubBranchRule>, String> {
+    let pages: Vec<Vec<GitHubBranchRule>> = gh_json(&[
+        "api".to_string(),
+        "--paginate".to_string(),
+        "--slurp".to_string(),
+        "-H".to_string(),
+        "Accept: application/vnd.github+json".to_string(),
+        "-H".to_string(),
+        "X-GitHub-Api-Version: 2022-11-28".to_string(),
+        format!(
+            "repos/{repo}/rules/branches/{}?per_page=100",
+            encode_path_preserving_slashes(branch)
+        ),
+    ])?;
+    Ok(pages.into_iter().flatten().collect())
 }
 
 pub(super) fn gh_json<T: serde::de::DeserializeOwned>(args: &[String]) -> Result<T, String> {

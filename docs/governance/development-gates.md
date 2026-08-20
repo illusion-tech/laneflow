@@ -1,7 +1,7 @@
 # 开发闸口
 
 **文档状态**: Active  
-**最后更新**: 2026-08-10
+**最后更新**: 2026-08-20
 
 **适用范围**: LaneFlow 的需求、设计、实现、评审与完成治理
 
@@ -244,6 +244,23 @@ steady state 的正式 `G3 Pass` 必须同时满足：
 
 `External Review Gate` 是机器权威；G3 comment 是 Owner 决策。PR / Issue body 只保存 permalink 索引，commit 只使用 `Gate: G3 Candidate`，三者不能互相替代。
 
+Issue #446 为合并队列（Merge Queue）冻结三个独立身份：`H_pr` 是 current exact PR Head，承载本节 external review
+与 G3 Owner 证据；`H_mg` 是 GitHub 为当前队列组合创建的合并组（Merge Group）Head，承载最新 `main` 上的集成
+检查；`H_main` 是最终 rebase 进入默认分支的结果。PR Head 变化会让旧 review / Check / G3 全部 stale；
+`main` 前进或队列重排只替换 `H_mg`，不得让未变化 `H_pr` 的外部审阅失效。合并组失败时保持阻断，
+但只有修复导致 `H_pr` 变化时才重新进入 exact-head 审阅生命周期。G4 必须保存并复核
+`H_pr → H_mg → H_main`，不能用 rebase 后 SHA 不同否定已验证的 inclusion，也不能用 patch inclusion
+替代 `H_mg` 上的 required checks。
+
+该契约按 bootstrap / activation 两个 PR 生效：Related PR 1 只增加 `merge_group` workflow、validator 与
+文档能力，仍按修改前的 live ruleset 完成 G3；Delivery PR 2 先确认这些能力已在 `main` 部署，并保存
+Ruleset before 与精确回滚载荷，再以事务方式临时启用合并队列、把
+`required_status_checks.strict_required_status_checks_policy` 设为 `false` 并将自身入队；required checks
+集合保持不变。GitHub 创建真实 `H_mg` 后，Delivery PR 2 才验证 required checks 与 CodeQL；全部成功则
+保留新 Ruleset 并继续无 `--admin` 合并，任一
+结果缺失或失败则立即恢复 before 配置并保持 G3 Block。Delivery PR 2 完成 G4 前，不得提前把 `G3 Pass`、
+shadow telemetry、候选 workflow 或“已临时启用”描述为队列集成已经通过。
+
 R1 的 `External Review Gate Shadow` 由 `github-actions` 发布，只用于 non-required telemetry，不能直接升级为 required Check：GitHub required status checks 不区分 workflow、matrix 或 event，同仓 PR 可以创建同 source App 的同名 Actions job。R2 前必须改由独立、最小权限的专用 GitHub App 发布正式 `External Review Gate`，ruleset 同时绑定 Check name 与该 App；spoof canary 必须证明 PR 自定义的同名 job 不能满足 required check。
 
 `G3 Evidence Gate Shadow` 是独立的 R1 证据闭环 telemetry。它从 `main` 上的 trusted validator 运行 `check-gate-evidence-target --repo <owner/repo> --pr <current-pr>`，通常根据 PR body 中一个或多个明确的 `关联 Issue` 和精确 `PR 角色`，为每个 Issue 独立构造 Related-only 或 Delivery full-set G3 参数并全部校验。R1 publisher 只在精确新建的 `g3-evidence: changed` marker 事件或精确 `dependabot-cargo-lock-only-v1` 的 marker 复用事件发布 `G3 Evidence Gate Shadow` Check；其他 PR / Issue / workflow 事件属于仅遥测（telemetry-only），不发布新 Check，也不得把 merged / closed / draft / 非 main base 的 head 重新染红。精确 `dependabot-cargo-lock-only-v1` 的 body 元数据恢复例外按上一节执行。一个 PR 关联多个 Issue 时，同一 current G3 comment 为每个 Issue 分别记录一条精确 `Gate 断言`；完整命令集合必须与全部解析 target 精确相等，不接受缺失、重复或未声明 Issue / 参数的额外成功断言。Delivery target 的完整 `closingIssuesReferences` 必须与全部 `关联 Issue` 精确一致；Related target 的 closing set 必须为空，不能用未声明 closing keyword 绕过自动 target 解析。Delivery 的完整 Related PR 集合只从对应 Issue `Related PRs` 按记录顺序读取；每个 current-policy Related 成员还必须在自身 body 声明 `Related PR` 角色、包含当前 Issue、保持空 closing set，并通过其全部声明 Issue 的断言集合闭包；只有上述精确 Dependabot 例外可从 current G3 comment 的规范断言恢复这些冗余 body 元数据。Related PR 必须已经列入每个对应 Issue，并且是非 Draft `OPEN` current target，或带 `mergedAt` 的 `MERGED` 历史证据；`CLOSED` / 状态与合并时间不一致均 fail closed。具体 PR 编号只能使用无残留选项的 `#<number>` 列表；`pending / #61 / N/A`、`#<number>` 占位、空原因、缺失或重复编号、角色与 Issue 元数据不一致均 fail closed。关联 Issue 必须仍为 `OPEN`；G3 查询不得读取只供 G4 `Project=Done` 使用的 `projectItems`，避免要求 trusted workflow token 拥有不必要的 Projects 权限。
@@ -336,7 +353,9 @@ content-equivalent rebase 还必须记录 reviewed/new head、old/new base、cha
 - 源代码许可证、依赖许可证、RustSec advisory、crate 来源或 Dependabot 配置违反 `dependency-security.md`，或适用 cargo-deny 检查未通过。
 - `security-scanning.md` 要求的适用扫描仍为 `pending`、失败、无分析、已禁用或不可用，且没有记录显式例外。
 
-PR 合入 `main` 默认使用 **Rebase and merge**；若使用 Squash 或 Merge commit，须在 PR 中说明原因。详见 `github-workflow.md` 第 7 节。
+PR 默认通过合并队列（Merge Queue）合入 `main`，队列最终使用 **Rebase**；不得使用 `--admin` 绕过。
+Squash 或 Merge commit 等最终方式例外必须先通过治理 Issue 修改适用规则并说明原因。详见
+`github-workflow.md` 第 7 节。
 
 G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 current head、rollout phase、`Checks`、`External Review Gate`、`G3 Evidence Gate Shadow`、审阅、验证、风险、例外、合并方式和 `Gate 断言`。PR body 的 G3 checkbox 必须勾选并回链当前 PR comment；Issue body 的 G3 Gate Ledger 必须增量回链该 comment，只有 Delivery PR 与全部 Related PR 均完成时才勾选。`Gate 断言` 必须使用当前角色对应的 Related-only 或 full-set 规范命令，一个 PR 关联多个 Issue 时分别写一条。`G3 Pass` 填写后必须逐条运行成功；`G3 Exception` 必须如实保留 `未通过` 并满足结构化记录，不得改写成成功。
 
@@ -354,7 +373,7 @@ G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 cur
 - 验证：
 - 风险：
 - 例外：N/A / exception type、风险、到期、follow-up、Cleanup owner
-- 合并方式：Rebase and merge / 例外原因
+- 合并方式：Merge Queue（最终 Rebase）；Queue-ready H_pr： / 例外原因
 - Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` <按 Gate 结果填写：`G3 Exception` 写“未通过”，其他结果写“已通过”>。
 ```
 
@@ -366,7 +385,7 @@ G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 cur
 
 Issue 关闭前必须满足：
 
-- 关联 PR 已按默认策略（Rebase and merge）合并，或说明为什么无需 PR / 为什么使用其他合并方式。
+- 关联 PR 已按默认策略经 Merge Queue 最终 Rebase 合并，或说明为什么无需 PR / 为什么使用其他合并方式。
 - 验收 checklist 已完成。
 - 文档已回写，或说明不需要。
 - 测试和验证结果已记录。
@@ -380,6 +399,9 @@ Issue 关闭前必须满足：
 - 临时权限、ruleset bypass 或 admin override 已撤回，或说明保留原因、风险和 Cleanup owner。
 - 已在所有关联 PR 合并后、Issue 关闭前发表 `## G4 完成判断` comment；Issue body G4 checkbox 已回链该 comment，Delivery PR body 已回链该 Issue G4 comment。
 - `check-gate-evidence g4` 已成功运行；正常 G4 comment 的 `Gate 断言` 行以规范格式记录语义一致的命令和 `已通过` 结果。只有合格的 `g3-exception:v1` historical replay 才保留 `未通过` 并输出 `accepted_exception`，且不得描述为 Pass。`待运行`、无结构化记录的失败、缺少成功标记或参数不匹配不得通过 G4。
+- `2026-08-20T04:00:00Z` 是 Merge Queue G4 证据的固定 activation boundary；该时刻后合并的 Delivery 或 Related PR 都必须在 `merge-queue-g4-evidence:v1` 中各有一条 `merge_queue` record。validator 按 Delivery-first、随后 Issue Related PR 顺序验证完整集合，把每条 `H_pr` / `H_main` 与 GitHub `headRefOid` / `mergeCommit.oid` 对照，并要求 `checksUrl` 精确为当前 `H_mg` 的 commit checks 页面、`chain` 使用规范顺序、inclusion 方法与 `H_pr...H_mg` compare permalink 精确绑定。
+- G4 live validation 还须从 GitHub API 读取 `merge_group` workflow runs、PR timeline 与目标分支全部当前生效的 rules；live `merge_queue` rule 必须仍存在，合并前最后一个 queue event 不得是 dequeue，最后一次入队到 merge 之间对应 PR 的最后一代 queue head 必须等于记录的 `H_mg`，并存在 trusted success run；每个 live required check 只按 merge 时刻前已完成的最后一个同名 check run 判定，且必须在该 `H_mg` 上 `completed/success`。该边界用于排除激活后回滚、任意自报 SHA、同次入队内被替换的旧 queue head、合并后 rerun 或旧队列结论；不要求本地抓取已删除的临时 ref 或执行逐补丁形式化重放。
+- 全部关联 PR 都早于 boundary 合并的历史 G4 可继续无 record 重放；若一个 Issue 同时包含 activation 前后 PR，则 record 仍须覆盖全部成员，历史成员使用 `pre_activation`、保存 `H_pr/H_main` 与非空 reason，禁止补造 `H_mg`。boundary 后的非队列 merge 默认失败关闭；若治理决定允许例外，必须先通过独立 Issue 扩展结构化 record 与 validator，不能只改 `- 合并：` 文本。
 
 G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必须补写，应标记为补救记录。
 
@@ -387,6 +409,7 @@ G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必�
 ## G4 完成判断
 
 - 合并：
+- Merge Queue evidence：见 `merge-queue-g4-evidence:v1`；按 Delivery-first、随后全部 Related PR 顺序。
 - main CI：
 - 验收：
 - Project：
@@ -394,6 +417,36 @@ G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必�
 - 分支：
 - 权限 / bypass：N/A，原因：/ 保留原因、风险、Cleanup owner：
 - Gate 断言：`cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence g4 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...` <正常 G4 写“已通过”；仅精确匹配 `legacy_evidence_reconstruction` 的 historical replay 写“未通过”>。
+
+<!-- merge-queue-g4-evidence:v1
+{
+  "schemaVersion": 1,
+  "activationBoundary": "2026-08-20T04:00:00Z",
+  "pullRequests": [
+    {
+      "number": 450,
+      "role": "delivery",
+      "mode": "merge_queue",
+      "hPr": "<40-hex>",
+      "hMain": "<40-hex>",
+      "hMg": "<40-hex>",
+      "checksConclusion": "success",
+      "checksUrl": "https://github.com/<owner>/<repo>/commit/<H_mg>/checks",
+      "chain": "<H_pr> -> <H_mg> -> <H_main>",
+      "inclusionMethod": "trusted GitHub merge_group identity + compare",
+      "inclusionEvidenceUrl": "https://github.com/<owner>/<repo>/compare/<H_pr>...<H_mg>"
+    },
+    {
+      "number": 448,
+      "role": "related",
+      "mode": "pre_activation",
+      "hPr": "<40-hex>",
+      "hMain": "<40-hex>",
+      "reason": "merged before 2026-08-20T04:00:00Z"
+    }
+  ]
+}
+-->
 ```
 
 ### 7.1 Delivery 合并后新增 Related PR 的 G4 recovery

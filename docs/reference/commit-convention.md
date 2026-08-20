@@ -1,7 +1,7 @@
 # 提交规范
 
 **文档状态**: Active  
-**最后更新**: 2026-07-14  
+**最后更新**: 2026-08-20
 **适用范围**: LaneFlow 的本地提交、AI Agent 提交说明、PR commit 审查和无需完整 PR 审查的小切片留痕
 
 ## 1. 目标
@@ -261,23 +261,28 @@ PR 是主要合并证据，commit message 是轻量留痕。
 
 ## 12. PR 合并策略
 
-PR 合入 `main` 默认使用 **Rebase and merge**，以便：
+PR 默认通过合并队列（Merge Queue）合入 `main`；队列规则最终使用 **Rebase**，以便：
 
 - 保持 `main` 线性历史。
 - 保留 PR 内各 commit 的 Conventional Commits 标题和 LaneFlow 治理字段。
 
-默认命令：
+current exact head 的 required checks、适用 CodeQL、外部审阅与 G3 全部完成后，入队命令使用 head guard；
+不得在 pending 时预先武装 auto-merge。目标分支要求合并队列时，不由操作者选择 merge strategy：
 
 ```powershell
-gh pr merge <number> --rebase
+gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 ```
 
-例外：
+不得因为 `main` 前进而改写 PR commit；队列只为新的集成组合重建 `H_mg`。只有 PR 新 push、force-push
+或冲突修复改变 `H_pr` 时，才重走 exact-head 审阅与 G3。禁止使用 `--admin` 绕过队列。
+
+最终 merge method 例外：
 
 - **Squash and merge**：PR 内多个 wip commit 且无独立留痕价值，或明确要求 1 PR = 1 commit。
 - **Create a merge commit**：发布分支、长期分支合流等场景。
 
-使用例外时，须在 PR 中说明原因。详见 `../governance/github-workflow.md` 第 7 节。
+使用例外时，须先通过治理 Issue 修改适用的队列 / 分支规则，并在 PR 中说明原因；不能由单个 PR 在
+入队时临时选择。详见 `../governance/github-workflow.md` 第 7 节。
 
 ## 13. CI 校验
 

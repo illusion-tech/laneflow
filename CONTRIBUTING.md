@@ -63,10 +63,13 @@ PR 应使用仓库 PR 模板，并至少说明：
 
 ## 5. PR 合并策略
 
-LaneFlow 默认使用 **Rebase and merge** 合入 `main`，详见 `docs/governance/github-workflow.md` 第 7 节。
+LaneFlow 默认通过 **Merge Queue** 合入 `main`，队列最终使用 **Rebase** 保持线性历史。详见
+`docs/governance/github-workflow.md` 第 7 节。
 
-- 默认：`gh pr merge <number> --rebase`
-- 例外使用 Squash 或 Merge commit 时，须在 PR 中说明原因
+- 当前 exact head 的 checks、审阅与 G3 全部完成后入队：`gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`；不得在 pending 时预先武装 auto-merge
+- `main` 前进或队列重排只重建 Merge Group，不要求对未变化 PR Head 重新人审
+- Ruleset 保留 required checks、关闭 strict up-to-date，由 Merge Group 验证最新 `main` 组合
+- 禁止使用 `--admin` 绕过队列；最终 merge method 例外必须先通过治理 Issue 修改规则
 
 ## 6. Commit Message
 

@@ -1,7 +1,7 @@
 # AI Agent 开发指南
 
 **文档状态**: Active  
-**最后更新**: 2026-07-24
+**最后更新**: 2026-08-20
 
 **适用范围**: 使用 AI Agent 参与 LaneFlow 的设计、开发、测试、文档和治理工作
 
@@ -123,10 +123,15 @@ Agent 完成工作后，PR 或最终说明至少应包含：
 
 ## 11. PR 合并策略
 
-Agent 协助合并 PR 时，默认使用 **Rebase and merge**：
+Agent 协助合并 PR 时，先冻结 current exact head `H_pr`，确认该 head 的外部审阅、finding disposition、
+G3 Owner comment、marker、PR 级 required checks 与适用 CodeQL 均已完成且有效，再把 PR 加入 `main` 的
+合并队列；不得在 pending 时预先武装 auto-merge：
 
 ```powershell
-gh pr merge <number> --rebase
+gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 ```
 
-仅在 PR 或 Issue 中已说明原因时，才使用 Squash and merge 或 Create a merge commit。规则详见 `docs/governance/github-workflow.md` 第 7 节。
+合并队列的 live 规则控制最终使用 Rebase；Agent 不再为日常入队选择 merge strategy。`main` 前进或队列
+重排只重建 `H_mg` 并重跑机器检查，不要求对未变化 `H_pr` 重新人审；任何 push、force-push 或冲突修复
+改变 `H_pr` 后，旧审阅、G3 与入队资格全部 stale。禁止使用 `--admin` 绕过队列。规则与例外详见
+`docs/governance/github-workflow.md` 第 7 节。

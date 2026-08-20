@@ -1,9 +1,9 @@
 # 安全扫描基线
 
 **文档状态**: Active  
-**最后更新**: 2026-07-17
+**最后更新**: 2026-08-20
 **适用范围**: LaneFlow 仓库的 Code Scanning、Secret Scanning、Dependabot 状态审计与公开发布阻断  
-**关联 Issue**: `#88`、`#56`
+**关联 Issue**: `#88`、`#56`、`#451`
 
 ## 1. 目标
 
@@ -20,16 +20,58 @@ GitHub 仓库设置和实时告警属于平台状态，不由仓库文件直接�
 
 ### 2.1 Code Scanning
 
-LaneFlow 使用 GitHub CodeQL default setup：
+LaneFlow 按 #451 从 GitHub CodeQL default setup 迁移到仓库内 `.github/workflows/codeql.yml` 的
+advanced setup；在 #451 记录主线双语言首次验证前，live default setup 仍是当前配置，不能只凭候选文件
+声称切换已经完成。迁移完成后的冻结配置为：
 
-- 自动识别并分析 `actions` 与 `rust`。
-- 使用 `default` query suite 和 GitHub-hosted standard runner。
-- Rust 使用 GitHub 支持的 `none` build mode，不额外维护手工 build workflow。
-- 由 default setup 负责默认分支、受保护分支、PR 和每周调度扫描。
-- `main` ruleset 使用原生 `code_scanning` 规则要求 CodeQL 提供结果；分析未配置、仍在运行或发现 `high` / `critical` security alert 时阻断合并。
-- 只有实际出现覆盖率、查询、构建方式或 runner 限制时，才通过独立 Issue 评估 advanced setup。
+- 显式分析 `actions` 与 `rust`，使用 `default` query suite、GitHub-hosted Ubuntu runner 和
+  `none` build mode。
+- workflow 覆盖 targeting `main` 的 `pull_request`、`main` 的 `push`、每周调度、手工
+  dispatch 和 `merge_group/checks_requested`；矩阵检查名称固定为 `Analyze (actions)` 与
+  `Analyze (rust)`。
+- `actions/checkout` 与 `github/codeql-action` 使用完整 commit SHA pin，并由 Dependabot
+  GitHub Actions updates 跟踪；更新后仍须完成安全与 Merge Group 验证。
+- `github/codeql-action` 是只在 GitHub-hosted CI runner 执行的工具依赖，不进入 LaneFlow runtime、
+  library 或发布分发物。#451 于 2026-08-20 核验当前 pin
+  `ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`（`v4.37.7`）来源为
+  [GitHub 官方仓库](https://github.com/github/codeql-action)，该 revision 的
+  [许可证为 MIT](https://github.com/github/codeql-action/blob/ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd/LICENSE)。
+  当日 upstream published repository advisories 为
+  [GHSA-vqf5-2xx6-9wfm](https://github.com/github/codeql-action/security/advisories/GHSA-vqf5-2xx6-9wfm)
+  与 [GHSA-g36v-2xff-pv5m](https://github.com/github/codeql-action/security/advisories/GHSA-g36v-2xff-pv5m)，
+  公布的受影响范围分别止于旧 `v3.28.2` / `v2` 和旧 CodeQL runner；不包含当前 `v4.37.7`。
+  这是有日期的 upstream metadata 审计，不等于永久零漏洞；pin 更新仍须重新核验来源、许可证、advisory
+  与分发边界。
+- `main` ruleset 的原生 `code_scanning` rule 继续约束普通 PR：分析未配置、仍在运行或发现
+  `high` / `critical` security alert 时阻断合并。
+- GitHub 明确说明原生 code-scanning merge protection **不适用于 Merge Queue groups**；
+  `H_mg` 因而必须由 required status checks 等待上述两个 advanced workflow 矩阵 job，不能把
+  原生 rule、PR Head 或合并后的 `main` 分析当作队列证据。
 
-选择 default setup 是为了保留 GitHub 的自动语言识别与低维护升级路径，避免在没有定制需求时自行维护 CodeQL workflow。使用原生 ruleset merge protection 是为了让分析缺失、未完成和高危结果成为机器可执行阻断，而不是只依赖人工阅读 Checks。GitHub 官方说明见 [配置 Code Scanning](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configure-code-scanning)、[Code Scanning setup types](https://docs.github.com/en/code-security/concepts/code-scanning/setup-types) 和 [Code Scanning merge protection](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/manage-your-configuration/set-merge-protection)。
+该 advanced setup 由 #451 两阶段激活：Related PR 先把最终 workflow 部署到 `main`，仍由切换前的
+default setup 判断；合入后保存 default setup / workflow state before，禁用 default setup，重新启用
+被它覆盖的 advanced workflow，并在 `main` 手工 dispatch。只有 `actions` / `rust` 的 job 与 analysis
+都成功后，advanced setup 才成为队列 activation baseline；失败时恢复 default setup，保持队列关闭。
+后续 Delivery canary 才能事务式修改 Ruleset 与 repository queue 设置。
+
+Merge Queue activation after 的 required status checks 固定为：
+
+- `Governance checks`
+- `Rust checks`
+- `Dependency policy`
+- `Analyze (actions)`
+- `Analyze (rust)`
+
+五项都绑定 GitHub Actions App expected source（当前 `integration_id=15368`），并在真实 `H_mg` 上合并前
+完成。expected source 能拒绝其他 App 或用户提交的同名 status，但不能区分同一 GitHub Actions App 下的
+不同 workflow；#451 G1 的实时审计中，organization Free plan 的 required workflow / organization ruleset
+API 返回 `403`，后续使用前仍须重新读取当前 plan / API。
+因此初始边界还要求 exact-head 外部审阅与 `Governance checks`，且不得声称已经具备独立 App 级防伪。
+
+GitHub 官方说明见 [Code scanning merge protection](https://docs.github.com/en/code-security/concepts/code-scanning/merge-protection)、
+[CodeQL workflow configuration options](https://docs.github.com/en/code-security/reference/code-scanning/workflow-configuration-options)、
+[Advanced setup](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configuring-advanced-setup-for-code-scanning)
+和 [Managing a merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)。
 
 ### 2.2 Secret Scanning
 
@@ -98,7 +140,9 @@ ADR 0011 把 catalog 中的 JSON Schema `$id` 定义为 public retrieval URL。S
 
 对三类能力分别采用以下最低证据：
 
-- Code Scanning：default setup 为 `configured`，预期语言存在，最近适用 run / analysis 成功，open alerts API 成功返回。
+- Code Scanning：记录 active setup identity；迁移前要求 default setup 为 `configured`，迁移后要求
+  advanced workflow 已启用且最近 `actions` / `rust` 适用 run / analysis 成功；两种状态都要求 open alerts
+  API 成功返回，候选或同时自报两种 active setup 不得通过。
 - Secret Scanning：功能与 push protection 均为 `enabled`，open alerts API 成功返回。
 - Dependabot：vulnerability alerts 可用，security updates 为 `enabled`，open alerts API 成功返回；version updates 配置存在且适用。设置状态、空告警和 cargo-deny 结果必须分别记录。
 
@@ -111,7 +155,13 @@ API 返回空集合只表示该次查询范围内无开放告警。未配置、�
 - 修改安全设置、扫描 workflow、依赖策略或安全治理规则的 PR，必须在 G3 前验证受影响配置，并等待对应首次或最新扫描完成。
 - 对包含适用源代码的 PR，GitHub 为当前 PR 产生的 CodeQL check 必须成功；`pending`、`failure`、`cancelled` 或缺少预期语言分析均不能作为通过。
 - 当前 PR 没有产生预期扫描时，必须说明原因；若属于配置、权限或平台异常，应记录显式例外，不得静默忽略。
-- 对满足 `development-gates.md` 中 `dependabot-cargo-lock-only-v1` 全部机器条件的 PR，CodeQL default setup 返回 `NEUTRAL` 且摘要为 `2 configurations not found`、没有 PR analysis，表示本次纯 lockfile 变更对源代码分析为 `not applicable`。这既不是 CodeQL success，也不表示零告警；G3 仍须记录该 Check URL，并要求 Governance、Rust、Dependency policy 及适用的 cargo-deny 检查成功。任何源文件或额外 commit 都不得使用此语义。
+- 在 #451 advanced setup 主线首次验证完成前，对满足 `development-gates.md` 中
+  `dependabot-cargo-lock-only-v1` 全部机器条件的 PR，CodeQL default setup 返回 `NEUTRAL` 且摘要为
+  `2 configurations not found`、没有 PR analysis，表示本次纯 lockfile 变更对源代码分析为
+  `not applicable`。这既不是 CodeQL success，也不表示零告警；G3 仍须记录该 Check URL，并要求
+  Governance、Rust、Dependency policy 及适用的 cargo-deny 检查成功。advanced setup 激活后不再使用
+  该 default-only 语义，`Analyze (actions)` 与 `Analyze (rust)` 必须按当前 workflow 实际完成；任何源文件
+  或额外 commit 在两个阶段都不得使用 lockfile-only 例外。
 - 任何与当前变更相关且仍为 open 的 Secret Scanning alert 默认阻断 G3。
 - CodeQL 或 Dependabot 的 `high` / `critical` 开放告警默认阻断 G3；若确认与本次变更无关，仍须链接修复 Issue 或按 `development-gates.md` 记录显式例外。
 - 修改 Cargo dependency、许可证、`deny.toml` 或依赖更新配置时，cargo-deny 的 advisories、licenses、bans 和 sources 检查必须成功；规则见 `dependency-security.md`。

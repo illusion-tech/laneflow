@@ -2,6 +2,9 @@ name: CI
 
 on:
   pull_request:
+  merge_group:
+    types:
+      - checks_requested
   push:
     branches:
       - main
@@ -33,6 +36,7 @@ jobs:
             ".githooks/commit-msg"
             ".github/dependabot.yml"
             ".github/workflows/ci.yml"
+            ".github/workflows/codeql.yml"
             ".github/workflows/codex-clean-binding.yml"
             ".github/workflows/external-review-gate.yml"
             ".github/workflows/external-review-signal.yml"
@@ -163,6 +167,7 @@ jobs:
               - 'Cargo.lock'
               - 'deny.toml'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/codeql.yml'
               - '.github/workflows/codex-clean-binding.yml'
               - '.github/workflows/external-review-gate.yml'
               - '.github/workflows/external-review-signal.yml'
