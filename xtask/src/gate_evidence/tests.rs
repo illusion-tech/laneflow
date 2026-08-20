@@ -3540,6 +3540,7 @@ fn trusted_check(id: u64, name: &str, conclusion: &str) -> GitHubCheckRun {
         head_sha: MERGE_GROUP_OID.to_string(),
         status: "completed".to_string(),
         conclusion: Some(conclusion.to_string()),
+        started_at: Some("2026-08-20T05:10:00Z".to_string()),
         completed_at: Some("2026-08-20T05:20:00Z".to_string()),
         html_url: format!("https://github.com/illusion-tech/laneflow/runs/{id}"),
         app: Some(GitHubApp {
@@ -4127,6 +4128,29 @@ fn rejects_required_check_completed_at_the_terminal_removal_second() {
         &queue_timeline_with_terminal_bot_removal(),
     )
     .expect_err("cross-API same-second evidence lacks a trusted ordering signal");
+    assert!(error.contains("缺少 merge 前完成的 trusted GitHub check `Dependency policy`"));
+}
+
+#[test]
+fn rejects_required_check_started_before_the_current_enqueue() {
+    let mut checks = trusted_checks();
+    checks
+        .iter_mut()
+        .find(|run| run.name == "Dependency policy")
+        .expect("trusted checks contain Dependency policy")
+        .started_at = Some("2026-08-20T04:59:59Z".to_string());
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &checks,
+        &[trusted_merge_group_run()],
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
+        &queue_timeline_with_terminal_bot_removal(),
+    )
+    .expect_err("an old successful check on the same H_mg must not certify a re-enqueue");
     assert!(error.contains("缺少 merge 前完成的 trusted GitHub check `Dependency policy`"));
 }
 

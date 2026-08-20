@@ -472,11 +472,18 @@ pub(super) fn validate_trusted_merge_group_evidence(
             .iter()
             .filter(|run| run.name == *name && run.head_sha.eq_ignore_ascii_case(h_mg))
             .filter_map(|run| {
+                let started_at = run
+                    .started_at
+                    .as_deref()
+                    .and_then(parse_utc_timestamp_seconds)?;
                 let completed_at = run
                     .completed_at
                     .as_deref()
                     .and_then(parse_utc_timestamp_seconds)?;
-                evidence_precedes_cutoff(completed_at).then_some((completed_at, run.id, run))
+                (started_at >= queued_at
+                    && started_at <= completed_at
+                    && evidence_precedes_cutoff(completed_at))
+                .then_some((completed_at, run.id, run))
             })
             .max_by_key(|(completed_at, id, _)| (*completed_at, *id))
             .ok_or_else(|| {
