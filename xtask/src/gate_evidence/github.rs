@@ -587,10 +587,7 @@ pub(super) fn gh_commit_check_runs(repo: &str, oid: &str) -> Result<Vec<GitHubCh
     Ok(runs)
 }
 
-pub(super) fn gh_merge_group_workflow_runs(
-    repo: &str,
-    oid: &str,
-) -> Result<Vec<GitHubWorkflowRun>, String> {
+pub(super) fn gh_merge_group_workflow_runs(repo: &str) -> Result<Vec<GitHubWorkflowRun>, String> {
     let pages: Vec<GitHubWorkflowRunsPage> = gh_json(&[
         "api".to_string(),
         "--paginate".to_string(),
@@ -599,7 +596,7 @@ pub(super) fn gh_merge_group_workflow_runs(
         "Accept: application/vnd.github+json".to_string(),
         "-H".to_string(),
         "X-GitHub-Api-Version: 2022-11-28".to_string(),
-        format!("repos/{repo}/actions/runs?event=merge_group&head_sha={oid}&per_page=100"),
+        format!("repos/{repo}/actions/runs?event=merge_group&per_page=100"),
     ])?;
     let expected = pages.iter().map(|page| page.total_count).max().unwrap_or(0);
     let runs = pages
@@ -608,7 +605,7 @@ pub(super) fn gh_merge_group_workflow_runs(
         .collect::<Vec<_>>();
     if runs.len() < expected {
         return Err(format!(
-            "GitHub merge_group workflow-runs 分页不完整：H_mg={oid} expected={expected} actual={}",
+            "GitHub merge_group workflow-runs 分页不完整：expected={expected} actual={}",
             runs.len()
         ));
     }

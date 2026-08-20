@@ -280,6 +280,7 @@ pub(super) struct GitHubCheckRun {
     pub(super) head_sha: String,
     pub(super) status: String,
     pub(super) conclusion: Option<String>,
+    pub(super) completed_at: Option<String>,
     pub(super) html_url: String,
 }
 
@@ -291,6 +292,7 @@ pub(super) struct GitHubWorkflowRunsPage {
 
 #[derive(Debug, serde::Deserialize)]
 pub(super) struct GitHubWorkflowRun {
+    pub(super) id: u64,
     pub(super) event: String,
     pub(super) head_sha: String,
     pub(super) head_branch: Option<String>,

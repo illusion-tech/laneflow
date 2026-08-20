@@ -3481,12 +3481,14 @@ fn trusted_check(id: u64, name: &str, conclusion: &str) -> GitHubCheckRun {
         head_sha: MERGE_GROUP_OID.to_string(),
         status: "completed".to_string(),
         conclusion: Some(conclusion.to_string()),
+        completed_at: Some("2026-08-20T05:20:00Z".to_string()),
         html_url: format!("https://github.com/illusion-tech/laneflow/runs/{id}"),
     }
 }
 
 fn trusted_merge_group_run() -> GitHubWorkflowRun {
     GitHubWorkflowRun {
+        id: 100,
         event: "merge_group".to_string(),
         head_sha: MERGE_GROUP_OID.to_string(),
         head_branch: Some("gh-readonly-queue/main/pr-61-deadbeef".to_string()),
@@ -3570,7 +3572,7 @@ fn rejects_self_attested_h_mg_without_matching_trusted_merge_group_run() {
         &queue_timeline(false),
     )
     .expect_err("self-attested H_mg must not pass without trusted queue identity");
-    assert!(error.contains("merge_group success workflow run"));
+    assert!(error.contains("record H_mg 不是合并前最后一代"));
 }
 
 #[test]
@@ -3606,6 +3608,47 @@ fn rejects_dequeue_before_direct_merge_even_with_an_old_successful_h_mg() {
     )
     .expect_err("dequeue followed by direct merge must reject old queue evidence");
     assert!(error.contains("removed_from_merge_queue"));
+}
+
+#[test]
+fn rejects_an_older_generation_while_the_pr_remains_enqueued() {
+    let old_run = trusted_merge_group_run();
+    let mut regenerated = trusted_merge_group_run();
+    regenerated.id = 101;
+    regenerated.head_sha = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
+    regenerated.created_at = "2026-08-20T05:15:00Z".to_string();
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &[trusted_check(10, "Dependency policy", "success")],
+        &[old_run, regenerated],
+        &[required_check_rule("Dependency policy")],
+        &queue_timeline(false),
+    )
+    .expect_err("a newer same-enqueue merge-group generation must win");
+    assert!(error.contains("不是合并前最后一代"));
+}
+
+#[test]
+fn ignores_required_check_reruns_completed_after_merge() {
+    let before_merge = trusted_check(10, "Dependency policy", "success");
+    let mut after_merge = trusted_check(11, "Dependency policy", "failure");
+    after_merge.completed_at = Some("2026-08-20T05:40:00Z".to_string());
+    assert!(
+        validate_trusted_merge_group_evidence(
+            "illusion-tech/laneflow",
+            61,
+            "main",
+            MERGE_GROUP_OID,
+            &[before_merge, after_merge],
+            &[trusted_merge_group_run()],
+            &[required_check_rule("Dependency policy")],
+            &queue_timeline(false),
+        )
+        .is_ok()
+    );
 }
 
 fn queue_delivery_g4_fixture(
