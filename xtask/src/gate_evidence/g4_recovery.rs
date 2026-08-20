@@ -380,20 +380,35 @@ pub(super) fn validate_live_merge_queue_recovery(
         let remediation_g4 = validate_remediation_issue(&remediation, failure)?;
         let remediation_g4_at = parse_utc_timestamp_seconds(&remediation_g4.created_at)
             .ok_or("remediation Issue G4 createdAt 无效")?;
-        if evidence_at >= remediation_g4_at
-            || failed_merged_at >= remediation_g4_at
-            || remediation_g4_at >= target_g4_at
-        {
-            return Err(
-                "remediation Issue G4 必须严格晚于 failure evidence 与失败 PR merge，且早于 accepted_exception"
-                .to_string(),
-            );
-        }
+        validate_merge_queue_recovery_timing(
+            failed_merged_at,
+            evidence_at,
+            remediation_g4_at,
+            target_g4_at,
+        )?;
         let remediation_project =
             gh_issue_project_status_evidence(&args.repo, failure.remediation_issue)?;
         validate_remediation_project_done(&remediation_project, remediation_g4_at, target_g4_at)?;
         let remediation_timeline = gh_issue_timeline(&args.repo, failure.remediation_issue)?;
         validate_remediation_closure(&remediation_timeline, remediation_g4_at, target_g4_at)?;
+    }
+    Ok(())
+}
+
+pub(super) fn validate_merge_queue_recovery_timing(
+    failed_merged_at: u64,
+    evidence_at: u64,
+    remediation_g4_at: u64,
+    accepted_exception_at: u64,
+) -> Result<(), String> {
+    if failed_merged_at >= evidence_at
+        || evidence_at >= remediation_g4_at
+        || remediation_g4_at >= accepted_exception_at
+    {
+        return Err(
+            "historical recovery 时间必须严格满足：失败 PR merge < failure evidence < remediation Issue G4 < accepted_exception"
+                .to_string(),
+        );
     }
     Ok(())
 }
