@@ -1,7 +1,9 @@
 use std::sync::{Arc, atomic::AtomicBool};
 
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
-use laneflow_static_contract::{EntityKind, LaneEdgeKind, LaneEdgeOrdinal, ManeuverPathOrdinal};
+use laneflow_static_contract::{
+    EntityKind, LaneEdgeKind, LaneEdgeOrdinal, ManeuverPathOrdinal, RoadCorridorOrdinal,
+};
 
 use crate::{
     BuildError, BuildStructure, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
@@ -166,6 +168,36 @@ fn full_spatial_build_closes_identity_lane_csr_and_lane_pose() {
     let geometry = lane_pose.lane_geometry(first).expect("first lane geometry");
     assert!(geometry.points().len() >= 2);
     assert_eq!(geometry.segments().len() + 1, geometry.points().len());
+
+    let relations = revision.traffic().relations();
+    let corridor_count = revision
+        .traffic()
+        .entity_counts()
+        .count(EntityKind::RoadCorridor);
+    if corridor_count > 0 {
+        let corridor = RoadCorridorOrdinal::from_raw(0);
+        assert!(relations.corridor_elements(corridor).is_some());
+        assert!(relations.corridor_reference_section(corridor).is_some());
+    }
+    for raw in 0..lane_count {
+        let edge = LaneEdgeOrdinal::from_raw(raw);
+        let _ = relations.lane_edge_authoring_lane(edge);
+        let _ = relations.lane_edge_junction(edge);
+        let _ = relations.stop_line_for_edge(edge);
+    }
+    if revision
+        .traffic()
+        .entity_counts()
+        .count(EntityKind::SignalPhase)
+        > 0
+    {
+        use laneflow_static_contract::SignalPhaseOrdinal;
+        assert!(
+            relations
+                .phase_end_offset_ms(SignalPhaseOrdinal::from_raw(0))
+                .is_some()
+        );
+    }
 }
 
 #[test]

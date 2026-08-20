@@ -16,6 +16,8 @@ pub enum BuildStructure {
     SpatialPresence,
     LaneEdgeGeometry,
     FacilityBandGeometry,
+    RelationClosure,
+    AccessPlane,
     RetainedOutput,
     BuilderScratch,
 }
@@ -108,6 +110,13 @@ pub enum BuildError {
     AllocationFailure {
         structure: BuildStructure,
     },
+    AccessAmbiguity {
+        plane: &'static str,
+        unit: u32,
+        class: u32,
+        first_rule: u32,
+        second_rule: u32,
+    },
     Cancelled,
 }
 
@@ -132,6 +141,7 @@ impl BuildError {
             Self::BudgetExceeded { .. } => BuildErrorClass::Budget,
             Self::ArithmeticOverflow { .. } => BuildErrorClass::Arithmetic,
             Self::AllocationFailure { .. } => BuildErrorClass::Allocation,
+            Self::AccessAmbiguity { .. } => BuildErrorClass::Reference,
             Self::Cancelled => BuildErrorClass::Cancelled,
         }
     }

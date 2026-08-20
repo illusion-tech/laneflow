@@ -110,6 +110,7 @@ impl<'a> SharedNetworkBuildOptions<'a> {
 struct BuildCounts {
     contracts: StaticContractVersions,
     entity_counts: EntityCounts,
+    #[allow(dead_code)]
     entity_count_total: u32,
     identity_count: u32,
     topology_pair_capacity: u32,
@@ -193,6 +194,7 @@ struct TopologyPlan {
 }
 
 impl TopologyPlan {
+    #[allow(dead_code)]
     fn successor_count(&self) -> Result<u32, BuildError> {
         u32::try_from(self.pairs.len()).map_err(|_| BuildError::ArithmeticOverflow {
             structure: BuildStructure::LaneSuccessors,
@@ -209,7 +211,6 @@ pub fn build_shared_network_revision(
     let counts = count_and_preflight(input.value_checked_view(), options)?;
     check_scratch_budget(counts, options)?;
     let topology = build_topology_plan(input.value_checked_view(), &counts, options)?;
-    check_retained_budget(counts, topology.successor_count()?, options)?;
     check_cancelled(options)?;
 
     let mut forward_identity = allocate_forward_identity(&counts.entity_counts)?;
@@ -248,13 +249,22 @@ pub fn build_shared_network_revision(
         input.network_revision(),
         counts.contracts,
     );
-    Ok(Arc::new(SharedNetworkRevision {
+    let revision = SharedNetworkRevision {
         origin,
         traffic,
         identity,
         planning_hints,
         spatial,
-    }))
+    };
+    let retained = revision.retained_logical_bytes();
+    if retained > options.limits.max_retained_bytes {
+        return Err(BuildError::BudgetExceeded {
+            structure: BuildStructure::RetainedOutput,
+            required: retained,
+            limit: options.limits.max_retained_bytes,
+        });
+    }
+    Ok(Arc::new(revision))
 }
 
 fn count_and_preflight(
@@ -446,6 +456,7 @@ fn count_and_preflight(
     })
 }
 
+#[allow(dead_code)]
 fn check_retained_budget(
     counts: BuildCounts,
     runtime_successor_count: u32,
@@ -2056,6 +2067,13 @@ fn build_traffic(
         build_predecessors(lane_count, &successor_ranges, &successors, options)?;
     let maneuvers =
         build_maneuver_network(counts, maneuver_paths, waiting_zones, candidates, options)?;
+    let relations = crate::relations_build::build_relations(
+        view,
+        &counts.entity_counts,
+        &lane_lengths,
+        &lane_speed_limits,
+        options,
+    )?;
     Ok(SharedTrafficNetwork::new(
         counts.entity_counts,
         lane_lengths.into_boxed_slice(),
@@ -2065,6 +2083,7 @@ fn build_traffic(
         predecessor_ranges,
         predecessors,
         maneuvers,
+        relations,
     ))
 }
 
@@ -2873,7 +2892,7 @@ fn singleton_row(
         .ok_or(BuildError::InputInvariant { structure })
 }
 
-fn checked_u8(
+pub(crate) fn checked_u8(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
     structure: BuildStructure,
@@ -2895,7 +2914,7 @@ fn checked_u16(
     }
 }
 
-fn checked_u32(
+pub(crate) fn checked_u32(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
     structure: BuildStructure,
@@ -2917,7 +2936,7 @@ fn checked_f32(
     }
 }
 
-fn checked_f64(
+pub(crate) fn checked_f64(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
     structure: BuildStructure,
@@ -2939,7 +2958,7 @@ fn checked_stable_id(
     }
 }
 
-fn checked_ordinal_vector(
+pub(crate) fn checked_ordinal_vector(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
     structure: BuildStructure,
@@ -2950,7 +2969,7 @@ fn checked_ordinal_vector(
     }
 }
 
-fn checked_record_vector(
+pub(crate) fn checked_record_vector(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
     structure: BuildStructure,
@@ -2961,7 +2980,7 @@ fn checked_record_vector(
     }
 }
 
-fn checked_field<'a>(
+pub(crate) fn checked_field<'a>(
     row: RegistryCheckedRowView<'a>,
     tag: u16,
     structure: BuildStructure,
@@ -2972,7 +2991,7 @@ fn checked_field<'a>(
         .map_err(|_| BuildError::InputInvariant { structure })
 }
 
-fn allocate_vec<T>(count: u32, structure: BuildStructure) -> Result<Vec<T>, BuildError> {
+pub(crate) fn allocate_vec<T>(count: u32, structure: BuildStructure) -> Result<Vec<T>, BuildError> {
     let capacity = usize::try_from(count).expect("u32 format count fits usize");
     let mut values = Vec::new();
     values
@@ -2993,11 +3012,16 @@ fn allocate_if_retained<T>(
     }
 }
 
-fn checked_add_count(left: u32, right: u32, structure: BuildStructure) -> Result<u32, BuildError> {
+pub(crate) fn checked_add_count(
+    left: u32,
+    right: u32,
+    structure: BuildStructure,
+) -> Result<u32, BuildError> {
     left.checked_add(right)
         .ok_or(BuildError::ArithmeticOverflow { structure })
 }
 
+#[allow(dead_code)]
 fn retained_bytes<T>(count: u32) -> Result<u64, BuildError> {
     structure_bytes::<T>(count, BuildStructure::RetainedOutput)
 }
@@ -3011,6 +3035,7 @@ fn structure_bytes<T>(count: u32, structure: BuildStructure) -> Result<u64, Buil
         .ok_or(BuildError::ArithmeticOverflow { structure })
 }
 
+#[allow(dead_code)]
 fn add_retained<T>(total: u64, count: u32) -> Result<u64, BuildError> {
     total
         .checked_add(retained_bytes::<T>(count)?)
@@ -3019,6 +3044,7 @@ fn add_retained<T>(total: u64, count: u32) -> Result<u64, BuildError> {
         })
 }
 
+#[allow(dead_code)]
 fn add_retained_bytes(total: u64, bytes: u32) -> Result<u64, BuildError> {
     total
         .checked_add(u64::from(bytes))
@@ -3038,7 +3064,10 @@ fn check_cancelled(options: SharedNetworkBuildOptions<'_>) -> Result<(), BuildEr
     }
 }
 
-fn poll_cancelled(options: SharedNetworkBuildOptions<'_>, ordinal: u32) -> Result<(), BuildError> {
+pub(crate) fn poll_cancelled(
+    options: SharedNetworkBuildOptions<'_>,
+    ordinal: u32,
+) -> Result<(), BuildError> {
     if ordinal & CANCELLATION_POLL_MASK == 0 {
         check_cancelled(options)?;
     }

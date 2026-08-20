@@ -5,6 +5,8 @@ mod error;
 mod identity;
 mod numeric;
 mod origin;
+mod relations;
+mod relations_build;
 mod spatial;
 mod traffic;
 
@@ -21,6 +23,9 @@ pub use error::{BuildError, BuildErrorClass, BuildStructure};
 pub use identity::SharedIdentityIndex;
 pub use origin::{
     CanonicalNetworkOrigin, PARTITION_PLANNING_HINTS_DERIVATION_VERSION, StaticContractVersions,
+};
+pub use relations::{
+    AccessCell, AccessTarget, CorridorElement, FacilityKind, SharedRelationClosure,
 };
 pub use spatial::{
     CanonicalPoint, FacilityGeometryView, LaneGeometryView, LanePoseNetwork, SegmentGeometry,

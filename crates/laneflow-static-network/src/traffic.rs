@@ -249,6 +249,7 @@ pub struct SharedTrafficNetwork {
     predecessor_ranges: Box<[RangeU32]>,
     predecessors: Box<[LaneEdgeOrdinal]>,
     maneuvers: SharedManeuverNetwork,
+    relations: crate::SharedRelationClosure,
 }
 
 impl SharedTrafficNetwork {
@@ -262,6 +263,7 @@ impl SharedTrafficNetwork {
         predecessor_ranges: Box<[RangeU32]>,
         predecessors: Box<[LaneEdgeOrdinal]>,
         maneuvers: SharedManeuverNetwork,
+        relations: crate::SharedRelationClosure,
     ) -> Self {
         Self {
             entity_counts,
@@ -272,6 +274,7 @@ impl SharedTrafficNetwork {
             predecessor_ranges,
             predecessors,
             maneuvers,
+            relations,
         }
     }
 
@@ -313,6 +316,11 @@ impl SharedTrafficNetwork {
     }
 
     #[must_use]
+    pub const fn relations(&self) -> &crate::SharedRelationClosure {
+        &self.relations
+    }
+
+    #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         logical_bytes::<f64>(self.lane_lengths_meters.len())
             + logical_bytes::<f64>(self.lane_speed_limits_meters_per_second.len())
@@ -321,6 +329,7 @@ impl SharedTrafficNetwork {
             + logical_bytes::<RangeU32>(self.predecessor_ranges.len())
             + logical_bytes::<LaneEdgeOrdinal>(self.predecessors.len())
             + self.maneuvers.retained_logical_bytes()
+            + self.relations.retained_logical_bytes()
     }
 }
 
@@ -412,6 +421,7 @@ mod tests {
             empty_ranges(),
             Box::new([]),
             maneuvers,
+            crate::relations::empty_for_tests(lane_count),
         );
         let last_polled = Cell::new(None);
 
