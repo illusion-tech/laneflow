@@ -6,7 +6,7 @@ use laneflow_static_contract::{
     MovementOrdinal, ParkingAreaOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal,
     RoadCorridorOrdinal, RoadSectionOrdinal, SignalAspect, SignalControllerOrdinal,
     SignalGroupOrdinal, SignalPhaseOrdinal, StaticRouteOrdinal, StopLineOrdinal,
-    WaitingZoneOrdinal,
+    VehicleProfileOrdinal, WaitingZoneOrdinal,
 };
 
 use crate::RangeU32;
@@ -60,6 +60,9 @@ pub enum AccessTarget {
 }
 
 /// 共享准入平面单元。
+///
+/// 只表示**本修订内**的裁决。边或 class ordinal 越界由查询函数返回 `None`，
+/// 不得把无效 handle 编码成 [`AccessCell::Unconstrained`]。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccessCell {
     Unconstrained,
@@ -67,6 +70,366 @@ pub enum AccessCell {
         rule: AccessRuleOrdinal,
         effect: AccessEffect,
     },
+}
+
+/// 与当前 Core `BoundedDistance` 同构的有界距离；禁止把溢出写成非有限 `f64`。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BoundedDistance {
+    Finite(f64),
+    BeyondFinite,
+}
+
+impl BoundedDistance {
+    pub(crate) const fn finite(value: f64) -> Self {
+        Self::Finite(value)
+    }
+
+    pub(crate) fn add(self, value: f64) -> Self {
+        match self {
+            Self::Finite(current) if value.is_finite() && value <= f64::MAX - current => {
+                Self::Finite(current + value)
+            }
+            Self::Finite(_) | Self::BeyondFinite => Self::BeyondFinite,
+        }
+    }
+}
+
+/// 编制车道上的停止线与机动门绑定。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StopLineView<'a> {
+    edge: LaneEdgeOrdinal,
+    gates: &'a [ManeuverGateOrdinal],
+}
+
+impl<'a> StopLineView<'a> {
+    #[must_use]
+    pub const fn edge(self) -> LaneEdgeOrdinal {
+        self.edge
+    }
+
+    #[must_use]
+    pub const fn gates(self) -> &'a [ManeuverGateOrdinal] {
+        self.gates
+    }
+}
+
+/// 机动门拓扑：路径、transition、停止线与可选信号组。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ManeuverGateView {
+    path: ManeuverPathOrdinal,
+    transition_index: u32,
+    stop_line: StopLineOrdinal,
+    signal_group: Option<SignalGroupOrdinal>,
+}
+
+impl ManeuverGateView {
+    #[must_use]
+    pub const fn path(self) -> ManeuverPathOrdinal {
+        self.path
+    }
+
+    #[must_use]
+    pub const fn transition_index(self) -> u32 {
+        self.transition_index
+    }
+
+    #[must_use]
+    pub const fn stop_line(self) -> StopLineOrdinal {
+        self.stop_line
+    }
+
+    #[must_use]
+    pub const fn signal_group(self) -> Option<SignalGroupOrdinal> {
+        self.signal_group
+    }
+}
+
+/// 等待区拓扑。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WaitingZoneView {
+    path: ManeuverPathOrdinal,
+    entry_gate: ManeuverGateOrdinal,
+    release_gate: ManeuverGateOrdinal,
+    max_occupancy: u32,
+}
+
+impl WaitingZoneView {
+    #[must_use]
+    pub const fn path(self) -> ManeuverPathOrdinal {
+        self.path
+    }
+
+    #[must_use]
+    pub const fn entry_gate(self) -> ManeuverGateOrdinal {
+        self.entry_gate
+    }
+
+    #[must_use]
+    pub const fn release_gate(self) -> ManeuverGateOrdinal {
+        self.release_gate
+    }
+
+    #[must_use]
+    pub const fn max_occupancy(self) -> u32 {
+        self.max_occupancy
+    }
+}
+
+/// 固定时制控制器程序。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SignalControllerView<'a> {
+    offset_ms: u64,
+    cycle_ms: u64,
+    groups: &'a [SignalGroupOrdinal],
+    phases: &'a [SignalPhaseOrdinal],
+}
+
+impl<'a> SignalControllerView<'a> {
+    #[must_use]
+    pub const fn offset_ms(self) -> u64 {
+        self.offset_ms
+    }
+
+    #[must_use]
+    pub const fn cycle_ms(self) -> u64 {
+        self.cycle_ms
+    }
+
+    #[must_use]
+    pub const fn groups(self) -> &'a [SignalGroupOrdinal] {
+        self.groups
+    }
+
+    #[must_use]
+    pub const fn phases(self) -> &'a [SignalPhaseOrdinal] {
+        self.phases
+    }
+}
+
+/// 信号相位及其累计互斥边界。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SignalPhaseView<'a> {
+    controller: SignalControllerOrdinal,
+    duration_ms: u64,
+    end_offset_ms: u64,
+    groups: &'a [SignalGroupOrdinal],
+    aspects: &'a [SignalAspect],
+}
+
+impl<'a> SignalPhaseView<'a> {
+    #[must_use]
+    pub const fn controller(self) -> SignalControllerOrdinal {
+        self.controller
+    }
+
+    #[must_use]
+    pub const fn duration_ms(self) -> u64 {
+        self.duration_ms
+    }
+
+    #[must_use]
+    pub const fn end_offset_ms(self) -> u64 {
+        self.end_offset_ms
+    }
+
+    pub fn states(self) -> impl Iterator<Item = (SignalGroupOrdinal, SignalAspect)> + 'a {
+        self.groups
+            .iter()
+            .copied()
+            .zip(self.aspects.iter().copied())
+    }
+}
+
+/// 信号组属主与反向门。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SignalGroupView<'a> {
+    controller: SignalControllerOrdinal,
+    gates: &'a [ManeuverGateOrdinal],
+}
+
+impl<'a> SignalGroupView<'a> {
+    #[must_use]
+    pub const fn controller(self) -> SignalControllerOrdinal {
+        self.controller
+    }
+
+    #[must_use]
+    pub const fn gates(self) -> &'a [ManeuverGateOrdinal] {
+        self.gates
+    }
+}
+
+/// 停车位入口/出口锚点与几何。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ParkingSpaceView {
+    area: Option<ParkingAreaOrdinal>,
+    entry_edge: LaneEdgeOrdinal,
+    entry_progress: f64,
+    exit_edge: LaneEdgeOrdinal,
+    exit_progress: f64,
+    lateral: f64,
+    heading: f64,
+    length: f64,
+    width: f64,
+}
+
+impl ParkingSpaceView {
+    #[must_use]
+    pub const fn area(self) -> Option<ParkingAreaOrdinal> {
+        self.area
+    }
+
+    #[must_use]
+    pub const fn entry(self) -> (LaneEdgeOrdinal, f64) {
+        (self.entry_edge, self.entry_progress)
+    }
+
+    #[must_use]
+    pub const fn exit(self) -> (LaneEdgeOrdinal, f64) {
+        (self.exit_edge, self.exit_progress)
+    }
+
+    #[must_use]
+    pub const fn geometry(self) -> (f64, f64, f64, f64) {
+        (self.lateral, self.heading, self.length, self.width)
+    }
+}
+
+/// 参与者类别区间编码。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParticipantClassView {
+    parent: Option<ParticipantClassOrdinal>,
+    depth: u32,
+    subtree_enter: u32,
+    subtree_exit: u32,
+}
+
+impl ParticipantClassView {
+    #[must_use]
+    pub const fn parent(self) -> Option<ParticipantClassOrdinal> {
+        self.parent
+    }
+
+    #[must_use]
+    pub const fn depth(self) -> u32 {
+        self.depth
+    }
+
+    #[must_use]
+    pub const fn subtree_range(self) -> (u32, u32) {
+        (self.subtree_enter, self.subtree_exit)
+    }
+}
+
+/// 准入规则审计列（查询权威是 resolved 平面）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AccessRuleView<'a> {
+    target: AccessTarget,
+    effect: AccessEffect,
+    classes: &'a [ParticipantClassOrdinal],
+    priority: i32,
+}
+
+impl<'a> AccessRuleView<'a> {
+    #[must_use]
+    pub const fn target(self) -> AccessTarget {
+        self.target
+    }
+
+    #[must_use]
+    pub const fn effect(self) -> AccessEffect {
+        self.effect
+    }
+
+    #[must_use]
+    pub const fn classes(self) -> &'a [ParticipantClassOrdinal] {
+        self.classes
+    }
+
+    #[must_use]
+    pub const fn priority(self) -> i32 {
+        self.priority
+    }
+}
+
+/// 车型跟驰参数。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VehicleProfileView {
+    class: ParticipantClassOrdinal,
+    length: f64,
+    desired_speed: f64,
+    min_gap: f64,
+    time_headway: f64,
+    max_accel: f64,
+    comfort_decel: f64,
+    emergency_decel: f64,
+}
+
+impl VehicleProfileView {
+    #[must_use]
+    pub const fn class(self) -> ParticipantClassOrdinal {
+        self.class
+    }
+
+    #[must_use]
+    pub const fn length(self) -> f64 {
+        self.length
+    }
+
+    #[must_use]
+    pub const fn desired_speed(self) -> f64 {
+        self.desired_speed
+    }
+
+    #[must_use]
+    pub const fn min_gap(self) -> f64 {
+        self.min_gap
+    }
+
+    #[must_use]
+    pub const fn time_headway(self) -> f64 {
+        self.time_headway
+    }
+
+    #[must_use]
+    pub const fn max_accel(self) -> f64 {
+        self.max_accel
+    }
+
+    #[must_use]
+    pub const fn comfort_decel(self) -> f64 {
+        self.comfort_decel
+    }
+
+    #[must_use]
+    pub const fn emergency_decel(self) -> f64 {
+        self.emergency_decel
+    }
+}
+
+/// 路线上从某条边起的下一受控转换。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NextControlledTransition {
+    gate: ManeuverGateOrdinal,
+    from_route_edge_index: u32,
+    distance_from_edge_start: BoundedDistance,
+}
+
+impl NextControlledTransition {
+    #[must_use]
+    pub const fn gate(self) -> ManeuverGateOrdinal {
+        self.gate
+    }
+
+    #[must_use]
+    pub const fn from_route_edge_index(self) -> u32 {
+        self.from_route_edge_index
+    }
+
+    #[must_use]
+    pub const fn distance_from_edge_start(self) -> BoundedDistance {
+        self.distance_from_edge_start
+    }
 }
 
 /// 一条 StaticRoute 上的机动 occurrence，含 owner-local 门/等待区 range。
@@ -349,10 +712,11 @@ pub struct SharedRelationClosure {
     route_reverse_ordinal: Box<[u32]>,
     route_reverse_route: Box<[StaticRouteOrdinal]>,
     route_reverse_occurrence: Box<[u32]>,
-    route_distance_to_end: Box<[f64]>,
+    route_distance_to_end: Box<[BoundedDistance]>,
     route_distance_ranges: Box<[RangeU32]>,
     next_controlled_gate: Box<[Option<ManeuverGateOrdinal>]>,
     next_controlled_from: Box<[u32]>,
+    next_controlled_distance: Box<[BoundedDistance]>,
     speed_limit_from: Box<[u32]>,
     speed_limit_to_edge: Box<[LaneEdgeOrdinal]>,
     speed_limit_target: Box<[f64]>,
@@ -466,8 +830,82 @@ impl SharedRelationClosure {
     }
 
     #[must_use]
+    pub fn stop_line(&self, stop: StopLineOrdinal) -> Option<StopLineView<'_>> {
+        Some(StopLineView {
+            edge: *self.stop_line_edge.get(stop.index())?,
+            gates: self
+                .stop_line_gate_ranges
+                .get(stop.index())?
+                .slice(&self.stop_line_gates),
+        })
+    }
+
+    #[must_use]
+    pub fn maneuver_gate(&self, gate: ManeuverGateOrdinal) -> Option<ManeuverGateView> {
+        Some(ManeuverGateView {
+            path: *self.gate_path.get(gate.index())?,
+            transition_index: *self.gate_transition_index.get(gate.index())?,
+            stop_line: *self.gate_stop_line.get(gate.index())?,
+            signal_group: self.gate_signal_group.get(gate.index()),
+        })
+    }
+
+    #[must_use]
+    pub fn waiting_zone(&self, zone: WaitingZoneOrdinal) -> Option<WaitingZoneView> {
+        Some(WaitingZoneView {
+            path: *self.waiting_path.get(zone.index())?,
+            entry_gate: *self.waiting_entry_gate.get(zone.index())?,
+            release_gate: *self.waiting_release_gate.get(zone.index())?,
+            max_occupancy: *self.waiting_max_occupancy.get(zone.index())?,
+        })
+    }
+
+    #[must_use]
+    pub fn signal_group(&self, group: SignalGroupOrdinal) -> Option<SignalGroupView<'_>> {
+        Some(SignalGroupView {
+            controller: *self.group_controller.get(group.index())?,
+            gates: self
+                .group_gate_ranges
+                .get(group.index())?
+                .slice(&self.group_gates),
+        })
+    }
+
+    #[must_use]
+    pub fn signal_controller(
+        &self,
+        controller: SignalControllerOrdinal,
+    ) -> Option<SignalControllerView<'_>> {
+        Some(SignalControllerView {
+            offset_ms: *self.controller_offset_ms.get(controller.index())?,
+            cycle_ms: *self.controller_cycle_ms.get(controller.index())?,
+            groups: self
+                .controller_group_ranges
+                .get(controller.index())?
+                .slice(&self.controller_groups),
+            phases: self
+                .controller_phase_ranges
+                .get(controller.index())?
+                .slice(&self.controller_phases),
+        })
+    }
+
+    #[must_use]
+    pub fn signal_phase(&self, phase: SignalPhaseOrdinal) -> Option<SignalPhaseView<'_>> {
+        let range = *self.phase_state_ranges.get(phase.index())?;
+        Some(SignalPhaseView {
+            controller: *self.phase_controller.get(phase.index())?,
+            duration_ms: *self.phase_duration_ms.get(phase.index())?,
+            end_offset_ms: *self.phase_end_offset_ms.get(phase.index())?,
+            groups: range.slice(&self.phase_state_groups),
+            aspects: range.slice(&self.phase_state_aspects),
+        })
+    }
+
+    #[must_use]
     pub fn controller_cycle_ms(&self, controller: SignalControllerOrdinal) -> Option<u64> {
-        self.controller_cycle_ms.get(controller.index()).copied()
+        self.signal_controller(controller)
+            .map(|view| view.cycle_ms())
     }
 
     #[must_use]
@@ -475,16 +913,12 @@ impl SharedRelationClosure {
         &self,
         controller: SignalControllerOrdinal,
     ) -> Option<&[SignalPhaseOrdinal]> {
-        Some(
-            self.controller_phase_ranges
-                .get(controller.index())?
-                .slice(&self.controller_phases),
-        )
+        self.signal_controller(controller).map(|view| view.phases())
     }
 
     #[must_use]
     pub fn phase_duration_ms(&self, phase: SignalPhaseOrdinal) -> Option<u64> {
-        self.phase_duration_ms.get(phase.index()).copied()
+        self.signal_phase(phase).map(|view| view.duration_ms())
     }
 
     #[must_use]
@@ -505,14 +939,35 @@ impl SharedRelationClosure {
     }
 
     #[must_use]
+    pub fn parking_area_spaces(&self, area: ParkingAreaOrdinal) -> Option<&[ParkingSpaceOrdinal]> {
+        Some(
+            self.parking_space_ranges
+                .get(area.index())?
+                .slice(&self.parking_spaces),
+        )
+    }
+
+    #[must_use]
+    pub fn parking_space(&self, space: ParkingSpaceOrdinal) -> Option<ParkingSpaceView> {
+        Some(ParkingSpaceView {
+            area: self.space_area.get(space.index()),
+            entry_edge: *self.space_entry_edge.get(space.index())?,
+            entry_progress: *self.space_entry_progress.get(space.index())?,
+            exit_edge: *self.space_exit_edge.get(space.index())?,
+            exit_progress: *self.space_exit_progress.get(space.index())?,
+            lateral: *self.space_lateral.get(space.index())?,
+            heading: *self.space_heading.get(space.index())?,
+            length: *self.space_length.get(space.index())?,
+            width: *self.space_width.get(space.index())?,
+        })
+    }
+
+    #[must_use]
     pub fn parking_space_entry(
         &self,
         space: ParkingSpaceOrdinal,
     ) -> Option<(LaneEdgeOrdinal, f64)> {
-        Some((
-            *self.space_entry_edge.get(space.index())?,
-            *self.space_entry_progress.get(space.index())?,
-        ))
+        self.parking_space(space).map(|view| view.entry())
     }
 
     #[must_use]
@@ -520,16 +975,55 @@ impl SharedRelationClosure {
         &self,
         space: ParkingSpaceOrdinal,
     ) -> Option<(f64, f64, f64, f64)> {
-        Some((
-            *self.space_lateral.get(space.index())?,
-            *self.space_heading.get(space.index())?,
-            *self.space_length.get(space.index())?,
-            *self.space_width.get(space.index())?,
-        ))
+        self.parking_space(space).map(|view| view.geometry())
     }
 
     #[must_use]
-    pub fn edge_access(&self, edge: LaneEdgeOrdinal, class: ParticipantClassOrdinal) -> AccessCell {
+    pub fn participant_class(
+        &self,
+        class: ParticipantClassOrdinal,
+    ) -> Option<ParticipantClassView> {
+        Some(ParticipantClassView {
+            parent: self.class_parent.get(class.index()),
+            depth: *self.class_depth.get(class.index())?,
+            subtree_enter: *self.class_subtree_enter.get(class.index())?,
+            subtree_exit: *self.class_subtree_exit.get(class.index())?,
+        })
+    }
+
+    #[must_use]
+    pub fn access_rule(&self, rule: AccessRuleOrdinal) -> Option<AccessRuleView<'_>> {
+        Some(AccessRuleView {
+            target: *self.rule_target.get(rule.index())?,
+            effect: *self.rule_effect.get(rule.index())?,
+            classes: self
+                .rule_class_ranges
+                .get(rule.index())?
+                .slice(&self.rule_classes),
+            priority: *self.rule_priority.get(rule.index())?,
+        })
+    }
+
+    #[must_use]
+    pub fn vehicle_profile(&self, profile: VehicleProfileOrdinal) -> Option<VehicleProfileView> {
+        Some(VehicleProfileView {
+            class: *self.profile_class.get(profile.index())?,
+            length: *self.profile_length.get(profile.index())?,
+            desired_speed: *self.profile_desired_speed.get(profile.index())?,
+            min_gap: *self.profile_min_gap.get(profile.index())?,
+            time_headway: *self.profile_time_headway.get(profile.index())?,
+            max_accel: *self.profile_max_accel.get(profile.index())?,
+            comfort_decel: *self.profile_comfort_decel.get(profile.index())?,
+            emergency_decel: *self.profile_emergency_decel.get(profile.index())?,
+        })
+    }
+
+    #[must_use]
+    pub fn edge_access(
+        &self,
+        edge: LaneEdgeOrdinal,
+        class: ParticipantClassOrdinal,
+    ) -> Option<AccessCell> {
         plane_cell(
             &self.edge_row_starts,
             &self.edge_cells,
@@ -544,7 +1038,7 @@ impl SharedRelationClosure {
         &self,
         path: ManeuverPathOrdinal,
         class: ParticipantClassOrdinal,
-    ) -> AccessCell {
+    ) -> Option<AccessCell> {
         plane_cell(
             &self.path_row_starts,
             &self.path_cells,
@@ -647,7 +1141,7 @@ impl SharedRelationClosure {
     }
 
     #[must_use]
-    pub fn route_distance_to_end(&self, route: StaticRouteOrdinal) -> Option<&[f64]> {
+    pub fn route_distance_to_end(&self, route: StaticRouteOrdinal) -> Option<&[BoundedDistance]> {
         Some(
             self.route_distance_ranges
                 .get(route.index())?
@@ -660,13 +1154,17 @@ impl SharedRelationClosure {
         &self,
         route: StaticRouteOrdinal,
         edge_index: usize,
-    ) -> Option<ManeuverGateOrdinal> {
+    ) -> Option<NextControlledTransition> {
         let range = *self.route_edge_ranges.get(route.index())?;
         if edge_index >= usize::try_from(range.len()).ok()? {
             return None;
         }
         let index = usize::try_from(range.start()).ok()? + edge_index;
-        self.next_controlled_gate.get(index).copied().flatten()
+        Some(NextControlledTransition {
+            gate: self.next_controlled_gate.get(index).copied().flatten()?,
+            from_route_edge_index: *self.next_controlled_from.get(index)?,
+            distance_from_edge_start: *self.next_controlled_distance.get(index)?,
+        })
     }
 
     #[must_use]
@@ -698,7 +1196,7 @@ impl SharedRelationClosure {
 
     #[must_use]
     pub fn gate_signal_group(&self, gate: ManeuverGateOrdinal) -> Option<SignalGroupOrdinal> {
-        self.gate_signal_group.get(gate.index())
+        self.maneuver_gate(gate)?.signal_group()
     }
 
     #[must_use]
@@ -811,10 +1309,11 @@ impl SharedRelationClosure {
             + logical_bytes::<u32>(self.route_reverse_ordinal.len())
             + logical_bytes::<StaticRouteOrdinal>(self.route_reverse_route.len())
             + logical_bytes::<u32>(self.route_reverse_occurrence.len())
-            + logical_bytes::<f64>(self.route_distance_to_end.len())
+            + logical_bytes::<BoundedDistance>(self.route_distance_to_end.len())
             + logical_bytes::<RangeU32>(self.route_distance_ranges.len())
             + logical_bytes::<Option<ManeuverGateOrdinal>>(self.next_controlled_gate.len())
             + logical_bytes::<u32>(self.next_controlled_from.len())
+            + logical_bytes::<BoundedDistance>(self.next_controlled_distance.len())
             + logical_bytes::<u32>(self.speed_limit_from.len())
             + logical_bytes::<LaneEdgeOrdinal>(self.speed_limit_to_edge.len())
             + logical_bytes::<f64>(self.speed_limit_target.len())
@@ -946,20 +1445,15 @@ fn plane_cell(
     class_count: u32,
     unit: usize,
     class: usize,
-) -> AccessCell {
-    let Some(&start) = row_starts.get(unit) else {
-        return AccessCell::Unconstrained;
-    };
-    if start == UNCONSTRAINED_ROW {
-        return AccessCell::Unconstrained;
-    }
+) -> Option<AccessCell> {
+    let &start = row_starts.get(unit)?;
     if class >= usize::try_from(class_count).unwrap_or(0) {
-        return AccessCell::Unconstrained;
+        return None;
     }
-    cells
-        .get(usize::try_from(start).unwrap_or(0) + class)
-        .copied()
-        .unwrap_or(AccessCell::Unconstrained)
+    if start == UNCONSTRAINED_ROW {
+        return Some(AccessCell::Unconstrained);
+    }
+    cells.get(usize::try_from(start).ok()? + class).copied()
 }
 
 pub(crate) use builder_support::*;
@@ -1097,10 +1591,11 @@ mod builder_support {
         route_reverse_ordinal: Box<[u32]>,
         route_reverse_route: Box<[StaticRouteOrdinal]>,
         route_reverse_occurrence: Box<[u32]>,
-        route_distance_to_end: Box<[f64]>,
+        route_distance_to_end: Box<[BoundedDistance]>,
         route_distance_ranges: Box<[RangeU32]>,
         next_controlled_gate: Box<[Option<ManeuverGateOrdinal>]>,
         next_controlled_from: Box<[u32]>,
+        next_controlled_distance: Box<[BoundedDistance]>,
         speed_limit_from: Box<[u32]>,
         speed_limit_to_edge: Box<[LaneEdgeOrdinal]>,
         speed_limit_target: Box<[f64]>,
@@ -1225,6 +1720,7 @@ mod builder_support {
             route_distance_ranges,
             next_controlled_gate,
             next_controlled_from,
+            next_controlled_distance,
             speed_limit_from,
             speed_limit_to_edge,
             speed_limit_target,
@@ -1304,6 +1800,7 @@ mod builder_support {
             Box::new([]),
             Box::new([]),
             empty_optional(0).expect("empty"),
+            Box::new([]),
             Box::new([]),
             Box::new([]),
             Box::new([]),
