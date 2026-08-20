@@ -5299,6 +5299,27 @@ fn accepts_only_completed_trusted_remediation_issue() {
 }
 
 #[test]
+fn requires_failure_evidence_after_failed_merge() {
+    assert!(validate_merge_queue_recovery_timing(10, 11, 12, 13).is_ok());
+
+    for invalid_times in [
+        (10, 10, 12, 13),
+        (10, 9, 12, 13),
+        (10, 11, 11, 13),
+        (10, 11, 12, 12),
+    ] {
+        let error = validate_merge_queue_recovery_timing(
+            invalid_times.0,
+            invalid_times.1,
+            invalid_times.2,
+            invalid_times.3,
+        )
+        .expect_err("historical recovery timestamps must be strictly ordered");
+        assert!(error.contains("失败 PR merge < failure evidence"));
+    }
+}
+
+#[test]
 fn accepts_only_trusted_remediation_closure_between_g4_and_acceptance() {
     let remediation_g4_at =
         parse_utc_timestamp_seconds("2026-08-20T10:00:00Z").expect("valid G4 timestamp");
