@@ -73,7 +73,8 @@
   Traffic/Identity/Hints/可选 Spatial component、性能优先 SoA/CSR 默认布局、共享所有权、
   构建闭合、玩家确认建造、`CommittedNetworkSource` 与 session-only exact LFCA
   `EditableDiffBase`、只保存已提交道路状态和一次性交付测量；不定义静态镜像文件/ABI、
-  mmap、cache 或第二套证明平台。
+  mmap、cache 或第二套证明平台。#440 G1 候选附录冻结剩余 Runtime 关系/字段三类清单，
+  不改变 #439 已交付基线，也不授权 #440 实现。
 - `portable-canonical-artifact.md`：#298 G1 已重新接受并完成 G4 的实现级格式与历史
   验证事实源；把上述长期架构收窄为
   LFCA/LFSM/LFSD/LFCP 四类对象的封闭节目录、规范记录编码、路网修订派生、
