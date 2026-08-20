@@ -381,7 +381,7 @@ G4 清场必须完成：
   精确 `commit/<H_mg>/checks` success URL、规范 chain 与 `H_pr...H_mg` inclusion compare；boundary 前成员
   只记录 `pre_activation`、`H_pr/H_main` 与原因，不补造 `H_mg`。由 `check-gate-evidence g4` 对照每个 PR
   的 trusted merge metadata、对应 PR 的 GitHub `merge_group` run、merge 前最后一个 queue timeline event、
-  同次入队的最后一代 queue head，以及 live Ruleset 全部分页结果中 required checks 在 merge 前的最后完成结论；不能用旧 queue run、一个 Delivery
+  仍生效的 live `merge_queue` rule、同次入队的最后一代 queue head，以及 live Ruleset 全部分页结果中 required checks 在 merge 前的最后完成结论；不能用旧 queue run、一个 Delivery
   record 代替 Related PR 证据，也不要求本地形式化 replay。
 - 勾选 Issue 验收 checklist。
 - 在 Issue comment 发表 `## G4 完成判断`，并在 Issue Gate Ledger 勾选 G4、回链该 comment；Delivery PR body 只回链该 Issue G4 comment。
