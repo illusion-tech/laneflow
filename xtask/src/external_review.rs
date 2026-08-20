@@ -246,6 +246,11 @@ pub struct ExternalReviewSnapshot {
     waiver: Option<WaiverInput>,
     #[serde(default)]
     round_cap: Option<RoundCapInput>,
+    // D4：旧 reviewed head 已不在 PR commits(last:100)（rebase/force-push 后从 PR
+    // 历史消失）时，由追加 GraphQL 查询解析出的完整 oid→tree 映射；snapshot CLI
+    // 输入可自行携带该字段（缺省为空 → 孤儿 head 不继承，fail-closed）
+    #[serde(default)]
+    resolved_commit_trees: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -506,7 +511,10 @@ pub struct ExternalReviewResult {
     reviewed_head_oid: Option<String>,
     completion_time: Option<String>,
     finding_count: usize,
-    // D2 起语义为 blocking（P0/P1/无 badge）未闭环 thread 计数；P2/P3 deferred 不计入
+    // D2 起语义为 blocking（P0/P1/无 badge）未闭环 thread 计数；P2/P3 deferred 不计入。
+    // wire 键保留 v1 的 `unresolvedActionableThreads`（schemaVersion 仍为 1，
+    // 既有消费者按旧键识别；语义变更已在 development-gates.md 披露）
+    #[serde(rename = "unresolvedActionableThreads")]
     unresolved_blocking_threads: usize,
     deferred_findings: Vec<DeferredFinding>,
     unresolved_blocking_findings: Vec<BlockingFinding>,
@@ -1073,6 +1081,10 @@ pub(crate) fn evaluate_snapshot_with_policy(
             commits_by_oid.insert(node.commit.oid.as_str(), tree.oid.as_str());
         }
     }
+    // D4：current head tree 取自同一 snapshot 的 commits(last:100) 映射（与 headRefOid
+    // 同源读取，天然消除 force-push race）；head 不在映射内（>100 commits 截断等）
+    // → None → 不继承（fail-closed）
+    let current_head_tree_oid = commits_by_oid.get(pr.head_ref_oid.as_str()).copied();
     let dependabot_completion = dependabot_lockfile_completion(pr);
     let mut dependabot_completion_event = dependabot_completion
         .map(|completion| (completion.committed_date.as_str(), completion.url.as_str()));
@@ -1131,6 +1143,8 @@ pub(crate) fn evaluate_snapshot_with_policy(
         // has_trusted_finding 的那条）；该 comment 无 badge 即 blocking（fail-closed），
         // 前文不可信 comment 的 badge 文本不采信。deferred 语义未激活时不分级。
         let mut severity: Option<FindingSeverity> = None;
+        // D4 回活判定用：首条受信 finding comment 关联 review 的 commit tree
+        let mut first_finding_review_tree: Option<&str> = None;
         let mut first_finding_url: Option<&str> = None;
         let mut has_trusted_finding = false;
         for (index, comment) in thread.comments.nodes.iter().enumerate() {
@@ -1169,6 +1183,11 @@ pub(crate) fn evaluate_snapshot_with_policy(
                 } else {
                     FindingSeverity::Blocking
                 });
+                first_finding_review_tree = review
+                    .commit
+                    .as_ref()
+                    .and_then(|commit| commit.tree.as_ref())
+                    .map(|tree| tree.oid.as_str());
             }
             has_trusted_finding = true;
             finding_thread_ids.insert(thread.id.clone());
@@ -1191,7 +1210,13 @@ pub(crate) fn evaluate_snapshot_with_policy(
                 severity.unwrap_or(FindingSeverity::Blocking),
             );
         }
-        if !thread.is_resolved && !thread.is_outdated {
+        // D4 对称继承：content-equivalent force-push 会把旧 thread 标 isOutdated；
+        // 其首条受信 finding 关联 review 的 commit tree 与 current head tree 逐字节
+        // 相等时回活（按未 outdated 处理，未闭环 P1 同样继承，见 G1 对称继承契约）；
+        // tree 缺失/不等保持丢弃（fail-closed）。isResolved 语义不变（已处置不回活）。
+        let revived_by_tree =
+            thread.is_outdated && tree_oids_equal(first_finding_review_tree, current_head_tree_oid);
+        if !thread.is_resolved && (!thread.is_outdated || revived_by_tree) {
             if has_trusted_finding {
                 match severity.unwrap_or(FindingSeverity::Blocking) {
                     FindingSeverity::Blocking => {
@@ -1463,12 +1488,16 @@ pub(crate) fn evaluate_snapshot_with_policy(
     }
 
     // D4：evidence 缺 tree 时用其 reviewed head OID 查 commits 映射补齐（Codex clean
-    // issue comment 等无 tree 来源的主路径由此获得 tree）；查不到或短 SHA 前缀歧义
-    // 一律不补（fail-closed，不继承）
+    // issue comment 等无 tree 来源的主路径由此获得 tree；commits 映射查不到时再查
+    // 孤儿 head 追加解析结果）；查不到或短 SHA 前缀歧义一律不补（fail-closed，不继承）
     for item in &mut evidence {
         if item.reviewed_head_tree_oid.is_none() {
-            item.reviewed_head_tree_oid =
-                commits_tree_for(&commits_by_oid, &item.reviewed_head_oid).map(str::to_string);
+            item.reviewed_head_tree_oid = commits_tree_for(
+                &commits_by_oid,
+                &snapshot.resolved_commit_trees,
+                &item.reviewed_head_oid,
+            )
+            .map(str::to_string);
         }
     }
 
@@ -1496,10 +1525,6 @@ pub(crate) fn evaluate_snapshot_with_policy(
     }
     let review_rounds = finding_round_oids.len();
 
-    // D4：current head tree 取自同一 snapshot 的 commits(last:100) 映射（与 headRefOid
-    // 同源读取，天然消除 force-push race）；head 不在映射内（>100 commits 截断等）
-    // → None → 不继承（fail-closed）
-    let current_head_tree_oid = commits_by_oid.get(pr.head_ref_oid.as_str()).copied();
     let current_evidence = evidence
         .iter()
         .filter(|item| {
@@ -3359,22 +3384,55 @@ fn tree_oids_equal(reviewed_tree_oid: Option<&str>, current_tree_oid: Option<&st
     }
 }
 
-/// D4：从 commits(last:100) 映射查 reviewed head 的 tree OID：完整 OID 直接命中；
-/// 短 SHA 前缀须唯一匹配（多命中歧义不补，fail-closed 不继承）
+/// D4：查 reviewed head 的 tree OID：先查 commits(last:100) 映射，再查孤儿 head
+/// 追加解析结果（resolved_commit_trees）；完整 OID 直接命中，短 SHA 前缀须唯一
+/// 匹配（多命中歧义不补，fail-closed 不继承）
 fn commits_tree_for<'a>(
     commits_by_oid: &BTreeMap<&str, &'a str>,
+    resolved_commit_trees: &'a BTreeMap<String, String>,
     reviewed_head: &str,
 ) -> Option<&'a str> {
-    if let Some(tree) = commits_by_oid.get(reviewed_head) {
-        return Some(*tree);
+    let direct = commits_by_oid
+        .get(reviewed_head)
+        .copied()
+        .or_else(|| resolved_commit_trees.get(reviewed_head).map(String::as_str));
+    if direct.is_some() {
+        return direct;
     }
     let mut matches = commits_by_oid
         .iter()
+        .map(|(oid, tree)| (*oid, *tree))
+        .chain(
+            resolved_commit_trees
+                .iter()
+                .map(|(oid, tree)| (oid.as_str(), tree.as_str())),
+        )
         .filter(|(oid, _)| oid_matches_current(reviewed_head, oid));
     match (matches.next(), matches.next()) {
-        (Some((_, tree)), None) => Some(*tree),
+        (Some((_, tree)), None) => Some(tree),
         _ => None,
     }
+}
+
+/// D4：收集需要追加查询解析 tree 的孤儿 reviewed head oid——PR 顶层 comments 的
+/// `Reviewed commit:` marker 值中去重后仍无法由 commits 映射解析的部分；
+/// 超过 16 个不同 oid → None（fail-closed 不解析，全部不继承）
+fn orphan_reviewed_oids_for_tree_resolution(
+    comments: &[IssueComment],
+    commits_by_oid: &BTreeMap<&str, &str>,
+    resolved_commit_trees: &BTreeMap<String, String>,
+) -> Option<Vec<String>> {
+    let mut oids = BTreeSet::new();
+    for comment in comments {
+        let Some(reviewed) = parse_reviewed_commit(&comment.body) else {
+            continue;
+        };
+        if commits_tree_for(commits_by_oid, resolved_commit_trees, reviewed).is_some() {
+            continue;
+        }
+        oids.insert(reviewed.to_string());
+    }
+    (oids.len() <= 16).then(|| oids.into_iter().collect())
 }
 
 fn valid_full_oid(value: &str) -> bool {
@@ -4024,14 +4082,102 @@ fn load_live_snapshot(repository: &str, pr: u64) -> Result<ExternalReviewSnapsho
             page_info: PageInfo::default(),
         };
     }
-    Ok(ExternalReviewSnapshot {
+    let mut snapshot = ExternalReviewSnapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
         repository: repository.to_string(),
         pull_request,
         provider_errors: Vec::new(),
         waiver: None,
         round_cap: None,
-    })
+        resolved_commit_trees: BTreeMap::new(),
+    };
+    resolve_orphan_commit_trees(repository, &mut snapshot);
+    Ok(snapshot)
+}
+
+const COMMIT_TREE_QUERY: &str = r#"
+query($owner:String!, $name:String!, $oid:GitObjectID!) {
+  repository(owner:$owner, name:$name) {
+    object(oid:$oid) {
+      ... on Commit {
+        oid
+        tree { oid }
+      }
+    }
+  }
+}
+"#;
+
+/// D4：rebase/force-push 后旧 reviewed head 可能已从 PR commits(last:100) 消失；
+/// 对 PR 顶层 comments 的 `Reviewed commit:` marker 中无法由 commits 映射解析的
+/// 不同 oid（去重，超过 16 个 fail-closed 不解析）逐一发追加查询解析 tree。
+/// 任一 oid 查询失败/非 Commit/无 tree/回应 oid 与请求不一致 → 该 oid 缺失不继承
+///（尽力而为，fail-closed，不向 snapshot 注入歧义）。
+fn resolve_orphan_commit_trees(repository: &str, snapshot: &mut ExternalReviewSnapshot) {
+    let Some((owner, name)) = repository.split_once('/') else {
+        return;
+    };
+    let pr = &snapshot.pull_request;
+    let mut commits_by_oid = BTreeMap::<&str, &str>::new();
+    for node in &pr.commits.nodes {
+        if let Some(tree) = node.commit.tree.as_ref() {
+            commits_by_oid.insert(node.commit.oid.as_str(), tree.oid.as_str());
+        }
+    }
+    let Some(orphan_oids) = orphan_reviewed_oids_for_tree_resolution(
+        &pr.comments.nodes,
+        &commits_by_oid,
+        &snapshot.resolved_commit_trees,
+    ) else {
+        return;
+    };
+    for orphan in orphan_oids {
+        let Ok(data) = gh_graphql_commit_tree(owner, name, &orphan) else {
+            continue;
+        };
+        let Some(object) = data.repository.and_then(|repository| repository.object) else {
+            continue;
+        };
+        let Some(tree) = object.tree else { continue };
+        // 只接受回应 oid 与请求 marker 一致（前缀语义）的完整 OID，拒绝歧义解析
+        if !valid_full_oid(&object.oid)
+            || !valid_full_oid(&tree.oid)
+            || !oid_matches_current(&orphan, &object.oid)
+        {
+            continue;
+        }
+        snapshot.resolved_commit_trees.insert(object.oid, tree.oid);
+    }
+}
+
+fn gh_graphql_commit_tree(owner: &str, name: &str, oid: &str) -> Result<CommitTreeData, String> {
+    let output = Command::new("gh")
+        .arg("api")
+        .arg("graphql")
+        .arg("-F")
+        .arg(format!("owner={owner}"))
+        .arg("-F")
+        .arg(format!("name={name}"))
+        .arg("-F")
+        .arg(format!("oid={oid}"))
+        .arg("-f")
+        .arg(format!("query={COMMIT_TREE_QUERY}"))
+        .output()
+        .map_err(|error| format!("无法运行 gh GraphQL：{error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "gh GraphQL 失败：{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let envelope = serde_json::from_slice::<GraphQlEnvelope<CommitTreeData>>(&output.stdout)
+        .map_err(|error| format!("gh GraphQL 输出不是预期 JSON：{error}"))?;
+    if !envelope.errors.is_empty() {
+        return Err("GitHub GraphQL errors".to_string());
+    }
+    envelope
+        .data
+        .ok_or_else(|| "GitHub GraphQL response 缺少 data".to_string())
 }
 
 fn fetch_all_issue_comments(repository: &str, pr: u64) -> Result<Vec<IssueComment>, String> {
@@ -4133,6 +4279,7 @@ fn load_live_waiver_snapshot(
         provider_errors: Vec::new(),
         waiver: Some(waiver),
         round_cap: None,
+        resolved_commit_trees: BTreeMap::new(),
     })
 }
 
@@ -4232,6 +4379,22 @@ struct ExternalReviewData {
 #[serde(rename_all = "camelCase")]
 struct ExternalReviewRepository {
     pull_request: Option<PullRequestSnapshot>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CommitTreeData {
+    repository: Option<CommitTreeRepository>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CommitTreeRepository {
+    object: Option<CommitTreeObject>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CommitTreeObject {
+    oid: String,
+    tree: Option<TreeRef>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -5285,6 +5448,16 @@ mod tests {
     }
 
     #[test]
+    fn result_json_keeps_v1_unresolved_actionable_threads_key() {
+        // D4：v1 wire 键保持 unresolvedActionableThreads，下游消费者不受影响。
+        let json = serde_json::to_value(sample_result(ExternalReviewState::Pass))
+            .expect("result should serialize");
+
+        assert_eq!(json["unresolvedActionableThreads"], 0);
+        assert!(json.get("unresolvedBlockingThreads").is_none());
+    }
+
+    #[test]
     fn exact_head_clean_after_finding_passes() {
         let result = evaluate_snapshot(&fixture(include_str!(
             "../fixtures/external-review/history-pr-232-final.json"
@@ -5996,6 +6169,173 @@ mod tests {
         let result = evaluate_snapshot(&truncated);
         assert_eq!(result.state, ExternalReviewState::Stale);
         assert!(result.current_head_tree_oid.is_none());
+    }
+
+    #[test]
+    fn orphan_head_clean_inherits_via_resolved_commit_trees() {
+        let tree_oid = "dddddddddddddddddddddddddddddddddddddddd";
+        let old_head = "cccccccccccccccccccccccccccccccccccccccc";
+        // Codex clean comment 的 Reviewed commit 指向已从 PR 历史消失的孤儿 head（短 SHA）
+        let mut snapshot = fixture(include_str!("../fixtures/external-review/codex-clean.json"));
+        snapshot.pull_request.comments.nodes[0].body = format!(
+            "Codex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** `{}`",
+            &old_head[..12]
+        );
+        // commits(last:100) 只剩 current head；孤儿 head 的 tree 由追加查询解析提供
+        let head = snapshot.pull_request.head_ref_oid.clone();
+        snapshot.pull_request.commits.nodes = vec![commit_node(&head, Some(tree_oid))];
+        snapshot.resolved_commit_trees =
+            BTreeMap::from([(old_head.to_string(), tree_oid.to_string())]);
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert!(
+            result
+                .evidence
+                .iter()
+                .any(|item| item.reviewed_head_tree_oid.as_deref() == Some(tree_oid))
+        );
+
+        // 追加解析缺该 oid（查询失败形态）→ 不继承（fail-closed Stale）
+        let mut unresolved = snapshot.clone();
+        unresolved.resolved_commit_trees.clear();
+        assert_eq!(
+            evaluate_snapshot(&unresolved).state,
+            ExternalReviewState::Stale
+        );
+    }
+
+    #[test]
+    fn orphan_oid_collection_is_deduped_resolvable_aware_and_bounded() {
+        let tree_oid = "dddddddddddddddddddddddddddddddddddddddd";
+        let in_map_head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let orphan_head = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let commits_by_oid = BTreeMap::from([(in_map_head, tree_oid)]);
+        let resolved = BTreeMap::new();
+        let comment = |body: String| IssueComment {
+            id: String::new(),
+            author: None,
+            body,
+            created_at: "2026-08-20T00:00:00Z".to_string(),
+            updated_at: "2026-08-20T00:00:00Z".to_string(),
+            url: String::new(),
+        };
+        let marker = |oid: &str| format!("Codex Review: clean\n\n**Reviewed commit:** `{oid}`");
+
+        // commits 映射可解析（短 SHA 前缀）→ 不收集；无 marker / 形态不符 → 不收集；
+        // 孤儿 oid 去重后只出现一次
+        let comments = vec![
+            comment(marker(&in_map_head[..12])),
+            comment("no marker here".to_string()),
+            comment(marker(&orphan_head[..12])),
+            comment(marker(&orphan_head[..12])),
+        ];
+        assert_eq!(
+            orphan_reviewed_oids_for_tree_resolution(&comments, &commits_by_oid, &resolved),
+            Some(vec![orphan_head[..12].to_string()])
+        );
+
+        // 超过 16 个不同孤儿 oid → None（fail-closed 不解析）
+        let comments = (0..17u32)
+            .map(|index| comment(marker(&format!("{index:040x}"))))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            orphan_reviewed_oids_for_tree_resolution(&comments, &commits_by_oid, &resolved),
+            None
+        );
+    }
+
+    #[test]
+    fn tree_equivalent_outdated_thread_stays_blocking() {
+        let tree_oid = "dddddddddddddddddddddddddddddddddddddddd";
+        let old_head = "cccccccccccccccccccccccccccccccccccccccc";
+        let commit_ref = |oid: &str, tree: Option<&str>| CommitRef {
+            oid: oid.to_string(),
+            tree: tree.map(|oid| TreeRef {
+                oid: oid.to_string(),
+            }),
+        };
+        // content-equivalent force-push：旧 thread 被标 isOutdated，但首条受信 finding
+        // 关联 review 的 commit tree 与 current head tree 逐字节相等 → 回活仍 blocking
+        let revived_snapshot = |reference_tree: Option<&str>| {
+            let mut snapshot = fixture(include_str!(
+                "../fixtures/external-review/copilot-findings-open.json"
+            ));
+            let thread = &mut snapshot.pull_request.review_threads.nodes[0];
+            thread.is_outdated = true;
+            thread.comments.nodes[0]
+                .pull_request_review
+                .as_mut()
+                .expect("fixture review reference")
+                .commit = Some(commit_ref(old_head, reference_tree));
+            snapshot.pull_request.reviews.nodes[0].commit =
+                Some(commit_ref(old_head, Some(tree_oid)));
+            let head = snapshot.pull_request.head_ref_oid.clone();
+            snapshot
+                .pull_request
+                .commits
+                .nodes
+                .push(commit_node(&head, Some(tree_oid)));
+            snapshot
+        };
+
+        let result = evaluate_snapshot(&revived_snapshot(Some(tree_oid)));
+        assert_eq!(result.state, ExternalReviewState::FindingsOpen);
+        assert_eq!(result.unresolved_blocking_threads, 1);
+        assert_eq!(result.unresolved_blocking_findings.len(), 1);
+        assert_eq!(
+            result.unresolved_blocking_findings[0].thread_id,
+            "PRRT-copilot-finding"
+        );
+
+        // tree 不等 → 维持丢弃（fail-closed）：finding 只欠 clean re-review
+        let result = evaluate_snapshot(&revived_snapshot(Some(
+            "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        )));
+        assert_eq!(result.state, ExternalReviewState::AwaitingRereview);
+        assert_eq!(result.unresolved_blocking_threads, 0);
+        assert!(result.unresolved_blocking_findings.is_empty());
+    }
+
+    #[test]
+    fn round_cap_must_list_revived_outdated_blocking_findings() {
+        // 4 轮 outdated 但 tree 等价的 thread 全部回活 → 空 remainingFindings 的 record
+        // 与实测未闭环 blocking 集合不符 → fail-closed ProviderError
+        let tree_oid = "dddddddddddddddddddddddddddddddddddddddd";
+        let mut snapshot = four_round_findings_snapshot();
+        for thread in &mut snapshot.pull_request.review_threads.nodes {
+            thread.is_outdated = true;
+            let reference = thread.comments.nodes[0]
+                .pull_request_review
+                .as_mut()
+                .expect("fixture review reference");
+            reference.commit.as_mut().expect("reference commit").tree = Some(TreeRef {
+                oid: tree_oid.to_string(),
+            });
+        }
+        let head = snapshot.pull_request.head_ref_oid.clone();
+        snapshot
+            .pull_request
+            .commits
+            .nodes
+            .push(commit_node(&head, Some(tree_oid)));
+        let baseline = evaluate_snapshot(&snapshot);
+        assert_eq!(baseline.state, ExternalReviewState::FindingsOpen);
+        assert_eq!(baseline.unresolved_blocking_findings.len(), 4);
+
+        snapshot.round_cap = Some(RoundCapInput {
+            current_head_oid: snapshot.pull_request.head_ref_oid.clone(),
+            round_count: 4,
+            remaining_finding_urls: Vec::new(),
+        });
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("remainingFindingUrls"))
+        );
+        assert!(result.round_cap.is_none());
     }
 
     #[test]
