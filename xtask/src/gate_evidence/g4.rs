@@ -250,18 +250,34 @@ pub(super) fn validate_trusted_merge_group_evidence(
     .ok_or_else(|| format!("PR #{number} merged event created_at 无效"))?;
 
     let expected_branch_prefix = format!("gh-readonly-queue/{base_ref_name}/pr-{number}-");
-    if !workflow_runs.iter().any(|run| {
-        let run_created_at = parse_utc_timestamp_seconds(&run.created_at);
+    let mut pr_bound_runs = Vec::new();
+    for run in workflow_runs.iter().filter(|run| {
         run.event == "merge_group"
-            && run.head_sha.eq_ignore_ascii_case(h_mg)
             && run
                 .head_branch
                 .as_deref()
                 .is_some_and(|branch| branch.starts_with(&expected_branch_prefix))
+    }) {
+        let created_at = parse_utc_timestamp_seconds(&run.created_at)
+            .ok_or_else(|| format!("PR #{number} merge_group run created_at 无效"))?;
+        if created_at >= queued_at && created_at <= merged_at {
+            pr_bound_runs.push((created_at, run.id, run));
+        }
+    }
+    let latest_generation = pr_bound_runs
+        .iter()
+        .max_by_key(|(created_at, id, _)| (*created_at, *id))
+        .ok_or_else(|| format!("PR #{number} 入队到合并之间缺少 PR-bound merge_group run"))?;
+    if !latest_generation.2.head_sha.eq_ignore_ascii_case(h_mg) {
+        return Err(format!(
+            "PR #{number} record H_mg 不是合并前最后一代 merge_group head：record={h_mg} latest={}",
+            latest_generation.2.head_sha
+        ));
+    }
+    if !pr_bound_runs.iter().any(|(_, _, run)| {
+        run.head_sha.eq_ignore_ascii_case(h_mg)
             && run.status == "completed"
             && run.conclusion.as_deref() == Some("success")
-            && run_created_at
-                .is_some_and(|created_at| created_at >= queued_at && created_at <= merged_at)
             && run
                 .html_url
                 .starts_with(&format!("https://github.com/{repo}/actions/runs/"))
@@ -296,8 +312,17 @@ pub(super) fn validate_trusted_merge_group_evidence(
         let latest = check_runs
             .iter()
             .filter(|run| run.name == name && run.head_sha.eq_ignore_ascii_case(h_mg))
+            .filter_map(|run| {
+                let completed_at = run
+                    .completed_at
+                    .as_deref()
+                    .and_then(parse_utc_timestamp_seconds)?;
+                (completed_at <= merged_at).then_some(run)
+            })
             .max_by_key(|run| run.id)
-            .ok_or_else(|| format!("PR #{number} H_mg 缺少 trusted GitHub check `{name}`"))?;
+            .ok_or_else(|| {
+                format!("PR #{number} H_mg 缺少 merge 前完成的 trusted GitHub check `{name}`")
+            })?;
         if latest.status != "completed" || latest.conclusion.as_deref() != Some("success") {
             return Err(format!(
                 "PR #{number} H_mg 最新 check `{name}` 不是 completed/success：status={} conclusion={:?}",
@@ -337,7 +362,7 @@ pub(super) fn validate_live_merge_queue_g4_evidence(args: &GateEvidenceArgs) -> 
         )?;
         let pr = gh_pr_view_for_phase(&args.repo, entry.number, GateEvidencePhase::G4)?;
         let check_runs = gh_commit_check_runs(&args.repo, &h_mg)?;
-        let workflow_runs = gh_merge_group_workflow_runs(&args.repo, &h_mg)?;
+        let workflow_runs = gh_merge_group_workflow_runs(&args.repo)?;
         let branch_rules = gh_branch_rules(&args.repo, &pr.base_ref_name)?;
         let timeline = gh_issue_timeline(&args.repo, entry.number)?;
         validate_trusted_merge_group_evidence(
