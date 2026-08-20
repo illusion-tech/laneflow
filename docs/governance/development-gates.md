@@ -399,7 +399,8 @@ Issue 关闭前必须满足：
 - 临时权限、ruleset bypass 或 admin override 已撤回，或说明保留原因、风险和 Cleanup owner。
 - 已在所有关联 PR 合并后、Issue 关闭前发表 `## G4 完成判断` comment；Issue body G4 checkbox 已回链该 comment，Delivery PR body 已回链该 Issue G4 comment。
 - `check-gate-evidence g4` 已成功运行；正常 G4 comment 的 `Gate 断言` 行以规范格式记录语义一致的命令和 `已通过` 结果。只有合格的 `g3-exception:v1` historical replay 才保留 `未通过` 并输出 `accepted_exception`，且不得描述为 Pass。`待运行`、无结构化记录的失败、缺少成功标记或参数不匹配不得通过 G4。
-- 经 Merge Queue 合并时，G4 comment 必须记录 `H_pr`、`H_mg`、`H_main`、绑定 `H_mg` 的 required-check success permalink 与 inclusion / replay 链；validator 会把 `H_pr`、`H_main` 分别与 GitHub `headRefOid`、`mergeCommit.oid` 对照。activation 前的非队列历史合并不要求补造 `H_mg`。
+- `2026-08-20T04:00:00Z` 是 Merge Queue G4 证据的固定 activation boundary；该时刻后合并的 Delivery 或 Related PR 都必须在 `merge-queue-g4-evidence:v1` 中各有一条 `merge_queue` record。validator 按 Delivery-first、随后 Issue Related PR 顺序验证完整集合，把每条 `H_pr` / `H_main` 与 GitHub `headRefOid` / `mergeCommit.oid` 对照，并要求 `checksUrl` 精确为当前 `H_mg` 的 commit checks 页面、`chain` 使用规范顺序、inclusion 方法与 `H_pr...H_mg` compare permalink 精确绑定。
+- 全部关联 PR 都早于 boundary 合并的历史 G4 可继续无 record 重放；若一个 Issue 同时包含 activation 前后 PR，则 record 仍须覆盖全部成员，历史成员使用 `pre_activation`、保存 `H_pr/H_main` 与非空 reason，禁止补造 `H_mg`。boundary 后的非队列 merge 默认失败关闭；若治理决定允许例外，必须先通过独立 Issue 扩展结构化 record 与 validator，不能只改 `- 合并：` 文本。
 
 G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必须补写，应标记为补救记录。
 
@@ -407,11 +408,7 @@ G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必�
 ## G4 完成判断
 
 - 合并：
-- H_pr：`<Queue-ready PR head 40-hex OID>`
-- H_mg：`<Merge Group head 40-hex OID>`
-- H_main：`<GitHub mergeCommit 40-hex OID>`
-- H_mg required checks：success；`<H_mg>`；<当前仓库 GitHub checks / run permalink>
-- Inclusion / replay：`<H_pr>` -> `<H_mg>` -> `<H_main>`；验证方法 / evidence permalink
+- Merge Queue evidence：见 `merge-queue-g4-evidence:v1`；按 Delivery-first、随后全部 Related PR 顺序。
 - main CI：
 - 验收：
 - Project：
@@ -419,6 +416,36 @@ G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必�
 - 分支：
 - 权限 / bypass：N/A，原因：/ 保留原因、风险、Cleanup owner：
 - Gate 断言：`cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence g4 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...` <正常 G4 写“已通过”；仅精确匹配 `legacy_evidence_reconstruction` 的 historical replay 写“未通过”>。
+
+<!-- merge-queue-g4-evidence:v1
+{
+  "schemaVersion": 1,
+  "activationBoundary": "2026-08-20T04:00:00Z",
+  "pullRequests": [
+    {
+      "number": 450,
+      "role": "delivery",
+      "mode": "merge_queue",
+      "hPr": "<40-hex>",
+      "hMain": "<40-hex>",
+      "hMg": "<40-hex>",
+      "checksConclusion": "success",
+      "checksUrl": "https://github.com/<owner>/<repo>/commit/<H_mg>/checks",
+      "chain": "<H_pr> -> <H_mg> -> <H_main>",
+      "inclusionMethod": "git patch-id + tree/diff replay",
+      "inclusionEvidenceUrl": "https://github.com/<owner>/<repo>/compare/<H_pr>...<H_mg>"
+    },
+    {
+      "number": 448,
+      "role": "related",
+      "mode": "pre_activation",
+      "hPr": "<40-hex>",
+      "hMain": "<40-hex>",
+      "reason": "merged before 2026-08-20T04:00:00Z"
+    }
+  ]
+}
+-->
 ```
 
 ### 7.1 Delivery 合并后新增 Related PR 的 G4 recovery

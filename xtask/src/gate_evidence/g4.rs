@@ -4,70 +4,192 @@ use std::collections::BTreeSet;
 
 use super::{args::*, document::*, g3::*, model::*};
 
-fn g4_oid(body: &str, field: &str) -> Result<String, String> {
-    let line = unique_metadata_line(body, field)?;
-    let prefix = format!("- {field}：");
-    let value = line
-        .strip_prefix(&prefix)
-        .expect("unique_metadata_line returns the requested prefix")
-        .trim();
-    let oid = value
-        .strip_prefix('`')
-        .and_then(|value| value.strip_suffix('`'))
-        .ok_or_else(|| format!("G4 `{field}` 必须只包含反引号包裹的完整 commit OID"))?;
-    if oid.len() != 40 || !oid.chars().all(|character| character.is_ascii_hexdigit()) {
-        return Err(format!("G4 `{field}` 不是 40 位十六进制 commit OID"));
+fn full_commit_oid(value: &str, label: &str) -> Result<String, String> {
+    if value.len() != 40 || !value.chars().all(|character| character.is_ascii_hexdigit()) {
+        return Err(format!("G4 `{label}` 不是 40 位十六进制 commit OID"));
     }
-    Ok(oid.to_ascii_lowercase())
+    Ok(value.to_ascii_lowercase())
+}
+
+fn merge_queue_g4_record(body: &str) -> Result<Option<MergeQueueG4Record>, String> {
+    let count = body.matches(MERGE_QUEUE_G4_RECORD_START).count();
+    if count == 0 {
+        return Ok(None);
+    }
+    if count != 1 {
+        return Err("Issue G4 必须包含且只包含一个 merge-queue-g4-evidence:v1 记录".to_string());
+    }
+    let (_, after_start) = body
+        .split_once(MERGE_QUEUE_G4_RECORD_START)
+        .expect("marker count guarantees a start marker");
+    let (json, _) = after_start
+        .split_once(MERGE_QUEUE_G4_RECORD_END)
+        .ok_or("merge-queue-g4-evidence:v1 缺少结束 marker")?;
+    serde_json::from_str(json.trim())
+        .map(Some)
+        .map_err(|error| format!("merge-queue-g4-evidence:v1 JSON 无效：{error}"))
+}
+
+fn merged_after_queue_activation(pr: &GitHubPullRequest, label: &str) -> Result<bool, String> {
+    let merged_at = pr
+        .merged_at
+        .as_deref()
+        .ok_or_else(|| format!("{label} 尚未合并，不能判断 Merge Queue G4 边界"))?;
+    let merged_at = parse_utc_timestamp_seconds(merged_at)
+        .ok_or_else(|| format!("{label} mergedAt 不是 UTC RFC3339 秒级时间"))?;
+    let activation = parse_utc_timestamp_seconds(MERGE_QUEUE_G4_ACTIVATION)
+        .expect("MERGE_QUEUE_G4_ACTIVATION must be a valid UTC timestamp");
+    Ok(merged_at >= activation)
+}
+
+fn validate_g4_pr_record(
+    repo: &str,
+    number: u64,
+    role: &str,
+    pr: &GitHubPullRequest,
+    record: &MergeQueueG4PullRequestRecord,
+) -> Result<bool, String> {
+    if record.number != number || record.role != role {
+        return Err(format!(
+            "Merge Queue G4 PR record identity/order 不一致：期望 {role} PR #{number}"
+        ));
+    }
+    let h_pr = full_commit_oid(&record.h_pr, &format!("PR #{number} H_pr"))?;
+    let h_main = full_commit_oid(&record.h_main, &format!("PR #{number} H_main"))?;
+    if h_pr != pr.head_ref_oid.to_ascii_lowercase() {
+        return Err(format!("G4 PR #{number} H_pr 与 GitHub headRefOid 不一致"));
+    }
+    let merge_commit = pr
+        .merge_commit
+        .as_ref()
+        .ok_or_else(|| format!("PR #{number} 缺少 GitHub mergeCommit，无法验证 H_main"))?;
+    if h_main != merge_commit.oid.to_ascii_lowercase() {
+        return Err(format!(
+            "G4 PR #{number} H_main 与 GitHub mergeCommit OID 不一致"
+        ));
+    }
+
+    let uses_queue = merged_after_queue_activation(pr, &format!("PR #{number}"))?;
+    if !uses_queue {
+        if record.mode != "pre_activation"
+            || record.reason.as_deref().is_none_or(str::is_empty)
+            || record.h_mg.is_some()
+            || record.checks_conclusion.is_some()
+            || record.checks_url.is_some()
+            || record.chain.is_some()
+            || record.inclusion_method.is_some()
+            || record.inclusion_evidence_url.is_some()
+        {
+            return Err(format!(
+                "G4 PR #{number} 在 activation 前合并，必须只记录 pre_activation identity 与非空 reason"
+            ));
+        }
+        return Ok(false);
+    }
+
+    if record.mode != "merge_queue" || record.reason.is_some() {
+        return Err(format!(
+            "G4 PR #{number} 在 activation 边界后合并，必须使用 merge_queue record；非队列例外需先扩展结构化治理契约"
+        ));
+    }
+    let h_mg = full_commit_oid(
+        record
+            .h_mg
+            .as_deref()
+            .ok_or_else(|| format!("G4 PR #{number} merge_queue record 缺少 H_mg"))?,
+        &format!("PR #{number} H_mg"),
+    )?;
+    if h_mg == h_pr || h_mg == h_main {
+        return Err(format!("G4 PR #{number} H_mg 必须独立于 H_pr 与 H_main"));
+    }
+    if record.checks_conclusion.as_deref() != Some("success") {
+        return Err(format!(
+            "G4 PR #{number} H_mg required checks conclusion 必须为 success"
+        ));
+    }
+    let expected_checks_url = format!("https://github.com/{repo}/commit/{h_mg}/checks");
+    if record.checks_url.as_deref() != Some(expected_checks_url.as_str()) {
+        return Err(format!(
+            "G4 PR #{number} checksUrl 必须精确绑定 H_mg 的 commit checks 页面"
+        ));
+    }
+    let expected_chain = format!("{h_pr} -> {h_mg} -> {h_main}");
+    if record.chain.as_deref() != Some(expected_chain.as_str()) {
+        return Err(format!(
+            "G4 PR #{number} chain 必须按 H_pr -> H_mg -> H_main 规范顺序记录"
+        ));
+    }
+    if record.inclusion_method.as_deref() != Some(MERGE_QUEUE_G4_INCLUSION_METHOD) {
+        return Err(format!(
+            "G4 PR #{number} inclusionMethod 必须使用已冻结的 patch inclusion/replay 方法"
+        ));
+    }
+    let expected_inclusion_url = format!("https://github.com/{repo}/compare/{h_pr}...{h_mg}");
+    if record.inclusion_evidence_url.as_deref() != Some(expected_inclusion_url.as_str()) {
+        return Err(format!(
+            "G4 PR #{number} inclusionEvidenceUrl 必须精确绑定 H_pr...H_mg compare"
+        ));
+    }
+    Ok(true)
 }
 
 fn validate_merge_queue_g4_evidence(
     args: &GateEvidenceArgs,
     body: &str,
     delivery_pr: &GitHubPullRequest,
+    related_prs: &[GitHubPullRequest],
 ) -> Result<(), String> {
-    let merge_line = unique_metadata_line(body, "合并")?;
-    if !merge_line.contains("Merge Queue") {
-        return Ok(());
-    }
-    validate_comment_body(body, G4_MERGE_QUEUE_COMMENT_FIELDS, "Issue G4 Merge Queue")?;
+    let delivery_number = args
+        .delivery_pr
+        .ok_or("G4 validation 缺少 Delivery PR 参数")?;
+    let any_post_activation =
+        merged_after_queue_activation(delivery_pr, &format!("Delivery PR #{delivery_number}"))?
+            || args
+                .related_prs
+                .iter()
+                .zip(related_prs)
+                .map(|(number, pr)| {
+                    merged_after_queue_activation(pr, &format!("Related PR #{number}"))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .any(|value| value);
 
-    let h_pr = g4_oid(body, "H_pr")?;
-    if h_pr != delivery_pr.head_ref_oid.to_ascii_lowercase() {
-        return Err("G4 H_pr 与 Delivery PR headRefOid 不一致".to_string());
-    }
-
-    let h_mg = g4_oid(body, "H_mg")?;
-    let h_main = g4_oid(body, "H_main")?;
-    let merge_commit = delivery_pr
-        .merge_commit
-        .as_ref()
-        .ok_or("Delivery PR 缺少 GitHub mergeCommit，无法验证 G4 H_main")?;
-    if h_main != merge_commit.oid.to_ascii_lowercase() {
-        return Err("G4 H_main 与 Delivery PR mergeCommit OID 不一致".to_string());
-    }
-    if h_mg == h_pr || h_mg == h_main {
-        return Err("G4 H_mg 必须是独立于 H_pr 与 H_main 的 Merge Group OID".to_string());
-    }
-
-    let checks = unique_metadata_line(body, "H_mg required checks")?;
-    let repo_url = format!("https://github.com/{}/", args.repo);
-    if !checks.contains(&h_mg)
-        || !checks.to_ascii_lowercase().contains("success")
-        || !checks.contains(&repo_url)
-    {
+    let Some(record) = merge_queue_g4_record(body)? else {
+        return if any_post_activation {
+            Err("post-activation G4 缺少 merge-queue-g4-evidence:v1 记录".to_string())
+        } else {
+            Ok(())
+        };
+    };
+    unique_metadata_line(body, "Merge Queue evidence")?;
+    if record.schema_version != 1 || record.activation_boundary != MERGE_QUEUE_G4_ACTIVATION {
         return Err(
-            "G4 H_mg required checks 必须同时记录 H_mg、success 与当前仓库 GitHub evidence URL"
-                .to_string(),
+            "merge-queue-g4-evidence:v1 schemaVersion / activationBoundary 不匹配".to_string(),
         );
     }
+    if record.pull_requests.len() != 1 + related_prs.len() {
+        return Err("Merge Queue G4 PR record 集合必须等于 Delivery + 全部 Related PR".to_string());
+    }
 
-    let inclusion = unique_metadata_line(body, "Inclusion / replay")?;
-    if ![h_pr.as_str(), h_mg.as_str(), h_main.as_str()]
+    let mut queue_records = 0usize;
+    queue_records += validate_g4_pr_record(
+        &args.repo,
+        delivery_number,
+        "delivery",
+        delivery_pr,
+        &record.pull_requests[0],
+    )? as usize;
+    for ((number, pr), entry) in args
+        .related_prs
         .iter()
-        .all(|oid| inclusion.contains(oid))
+        .zip(related_prs)
+        .zip(record.pull_requests.iter().skip(1))
     {
-        return Err("G4 Inclusion / replay 必须记录完整 H_pr -> H_mg -> H_main 链".to_string());
+        queue_records += validate_g4_pr_record(&args.repo, *number, "related", pr, entry)? as usize;
+    }
+    if queue_records > 0 && !unique_metadata_line(body, "合并")?.contains("Merge Queue") {
+        return Err("post-activation G4 `- 合并：` 必须明确记录 Merge Queue".to_string());
     }
     Ok(())
 }
@@ -346,7 +468,7 @@ pub(super) fn validate_g4_evidence(
     let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
     let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
     validate_comment_body(&g4_comment.body, G4_COMMENT_FIELDS, "Issue G4")?;
-    validate_merge_queue_g4_evidence(args, &g4_comment.body, delivery_pr)?;
+    validate_merge_queue_g4_evidence(args, &g4_comment.body, delivery_pr, related_prs)?;
     let delivery_number = args
         .delivery_pr
         .ok_or("G4 validation 缺少 Delivery PR 参数")?;

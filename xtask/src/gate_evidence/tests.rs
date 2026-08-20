@@ -3435,95 +3435,184 @@ fn rejects_g4_assertion_that_is_still_pending() {
     assert!(error.contains("明确记录 `已通过`"));
 }
 
-#[test]
-fn rejects_merge_queue_g4_without_identity_chain() {
+fn queue_g4_entry(number: u64, role: &str) -> serde_json::Value {
+    serde_json::json!({
+        "number": number,
+        "role": role,
+        "mode": "merge_queue",
+        "hPr": DELIVERY_HEAD_OID,
+        "hMain": MAIN_RESULT_OID,
+        "hMg": MERGE_GROUP_OID,
+        "checksConclusion": "success",
+        "checksUrl": format!("https://github.com/illusion-tech/laneflow/commit/{MERGE_GROUP_OID}/checks"),
+        "chain": format!("{DELIVERY_HEAD_OID} -> {MERGE_GROUP_OID} -> {MAIN_RESULT_OID}"),
+        "inclusionMethod": MERGE_QUEUE_G4_INCLUSION_METHOD,
+        "inclusionEvidenceUrl": format!("https://github.com/illusion-tech/laneflow/compare/{DELIVERY_HEAD_OID}...{MERGE_GROUP_OID}")
+    })
+}
+
+fn pre_activation_g4_entry(number: u64, role: &str) -> serde_json::Value {
+    serde_json::json!({
+        "number": number,
+        "role": role,
+        "mode": "pre_activation",
+        "hPr": DELIVERY_HEAD_OID,
+        "hMain": MAIN_RESULT_OID,
+        "reason": format!("merged before {MERGE_QUEUE_G4_ACTIVATION}")
+    })
+}
+
+fn append_queue_g4_record(body: &mut String, entries: Vec<serde_json::Value>) {
+    let record = serde_json::json!({
+        "schemaVersion": 1,
+        "activationBoundary": MERGE_QUEUE_G4_ACTIVATION,
+        "pullRequests": entries
+    });
+    body.push_str(&format!(
+        "\n- Merge Queue evidence：见 merge-queue-g4-evidence:v1。\n{MERGE_QUEUE_G4_RECORD_START}\n{}\n{MERGE_QUEUE_G4_RECORD_END}",
+        serde_json::to_string_pretty(&record).expect("test record must serialize")
+    ));
+}
+
+fn queue_delivery_g4_fixture(
+    entry: serde_json::Value,
+) -> (GateEvidenceArgs, GitHubIssue, GitHubPullRequest) {
+    let args = gate_args(GateEvidencePhase::G4);
     let mut issue = issue("OPEN", "Done");
+    issue.comments[0].created_at = "2026-08-20T06:00:00Z".to_string();
     issue.comments[0].body = issue.comments[0]
         .body
-        .lines()
-        .filter(|line| !line.starts_with("- H_mg："))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+        .replace("- 合并：", "- 合并：Merge Queue（最终 Rebase）");
+    append_queue_g4_record(&mut issue.comments[0].body, vec![entry]);
+    let delivery = delivery_pr(Some("2026-08-20T05:30:00Z"));
+    (args, issue, delivery)
+}
 
-    let error = validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
-        .expect_err("Merge Queue G4 must preserve all three identities");
+#[test]
+fn accepts_legacy_pre_activation_g4_without_structured_record() {
+    let issue = issue("OPEN", "Done");
+    let delivery = delivery_pr(Some("2026-07-10T05:30:00Z"));
 
-    assert!(error.contains("- H_mg："));
+    assert!(
+        validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery, &[]).is_ok()
+    );
+}
+
+#[test]
+fn rejects_post_activation_g4_without_structured_record_or_queue_label() {
+    let mut issue = issue("OPEN", "Done");
+    issue.comments[0].created_at = "2026-08-20T06:00:00Z".to_string();
+    let delivery = delivery_pr(Some("2026-08-20T05:30:00Z"));
+    let error = validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery, &[])
+        .expect_err("post-activation G4 cannot trust a direct-merge label");
+    assert!(error.contains("缺少 merge-queue-g4-evidence:v1"));
+
+    let (args, mut queue_issue, delivery) =
+        queue_delivery_g4_fixture(queue_g4_entry(61, "delivery"));
+    queue_issue.comments[0].body = queue_issue.comments[0].body.replace(
+        "- 合并：Merge Queue（最终 Rebase）",
+        "- 合并：Rebase and merge；例外",
+    );
+    let error = validate_g4_evidence(&args, &queue_issue, &delivery, &[])
+        .expect_err("post-activation merge label must agree with trusted queue evidence");
+    assert!(error.contains("必须明确记录 Merge Queue"));
 }
 
 #[test]
 fn rejects_merge_queue_g4_with_wrong_pr_or_main_identity() {
-    let mut wrong_pr_issue = issue("OPEN", "Done");
-    wrong_pr_issue.comments[0].body = wrong_pr_issue.comments[0].body.replace(
-        &format!("- H_pr：`{DELIVERY_HEAD_OID}`"),
-        "- H_pr：`eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee`",
-    );
-    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+    let mut wrong_pr = queue_g4_entry(61, "delivery");
+    wrong_pr["hPr"] = serde_json::json!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+    let (args, issue, delivery) = queue_delivery_g4_fixture(wrong_pr);
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
+        .expect_err("H_pr must match GitHub headRefOid");
+    assert!(error.contains("H_pr 与 GitHub headRefOid 不一致"));
 
-    let error = validate_g4_evidence(
-        &gate_args(GateEvidencePhase::G4),
-        &wrong_pr_issue,
-        &delivery_pr,
-        &[],
-    )
-    .expect_err("H_pr must match GitHub headRefOid");
-    assert!(error.contains("H_pr 与 Delivery PR headRefOid 不一致"));
-
-    let mut wrong_main_issue = issue("OPEN", "Done");
-    wrong_main_issue.comments[0].body = wrong_main_issue.comments[0].body.replace(
-        &format!("- H_main：`{MAIN_RESULT_OID}`"),
-        "- H_main：`eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee`",
-    );
-    let error = validate_g4_evidence(
-        &gate_args(GateEvidencePhase::G4),
-        &wrong_main_issue,
-        &delivery_pr,
-        &[],
-    )
-    .expect_err("H_main must match GitHub mergeCommit");
-    assert!(error.contains("H_main 与 Delivery PR mergeCommit OID 不一致"));
+    let mut wrong_main = queue_g4_entry(61, "delivery");
+    wrong_main["hMain"] = serde_json::json!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+    let (args, issue, delivery) = queue_delivery_g4_fixture(wrong_main);
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
+        .expect_err("H_main must match GitHub mergeCommit");
+    assert!(error.contains("H_main 与 GitHub mergeCommit OID 不一致"));
 }
 
 #[test]
-fn rejects_merge_queue_g4_without_merge_group_check_evidence() {
-    let mut issue = issue("OPEN", "Done");
-    issue.comments[0].body = issue.comments[0].body.replace(
-        &format!(
-            "- H_mg required checks：success；{MERGE_GROUP_OID}；https://github.com/illusion-tech/laneflow/commit/{MERGE_GROUP_OID}/checks"
-        ),
-        "- H_mg required checks：pending",
-    );
-    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+fn rejects_checks_url_not_bound_to_merge_group() {
+    let mut entry = queue_g4_entry(61, "delivery");
+    entry["checksUrl"] = serde_json::json!("https://github.com/illusion-tech/laneflow/pull/450");
+    let (args, issue, delivery) = queue_delivery_g4_fixture(entry);
 
-    let error = validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
-        .expect_err("Merge Queue G4 must bind successful checks to H_mg");
-
-    assert!(error.contains("H_mg required checks 必须同时记录"));
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
+        .expect_err("checks URL must identify H_mg");
+    assert!(error.contains("checksUrl 必须精确绑定 H_mg"));
 }
 
 #[test]
-fn accepts_pre_queue_g4_without_merge_group_fields() {
+fn rejects_unordered_or_unproved_inclusion_chain() {
+    let mut reversed = queue_g4_entry(61, "delivery");
+    reversed["chain"] = serde_json::json!(format!(
+        "{MAIN_RESULT_OID} -> {MERGE_GROUP_OID} -> {DELIVERY_HEAD_OID}"
+    ));
+    let (args, issue, delivery) = queue_delivery_g4_fixture(reversed);
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
+        .expect_err("chain order must be canonical");
+    assert!(error.contains("规范顺序"));
+
+    let mut unrelated = queue_g4_entry(61, "delivery");
+    unrelated["inclusionEvidenceUrl"] =
+        serde_json::json!("https://github.com/illusion-tech/laneflow/pull/450");
+    let (args, issue, delivery) = queue_delivery_g4_fixture(unrelated);
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[])
+        .expect_err("inclusion evidence must bind H_pr and H_mg");
+    assert!(error.contains("inclusionEvidenceUrl 必须精确绑定"));
+}
+
+#[test]
+fn validates_queue_or_pre_activation_evidence_for_every_associated_pr() {
+    let mut args = gate_args(GateEvidencePhase::G4);
+    args.related_prs = vec![62];
     let mut issue = issue("OPEN", "Done");
+    issue.comments[0] = g4_comment_for_args(ISSUE_G4_URL, "2026-08-20T06:00:00Z", &args);
     issue.comments[0].body = issue.comments[0]
         .body
-        .replace(
-            "- 合并：Merge Queue（最终 Rebase）",
-            "- 合并：Rebase and merge；activation 前",
-        )
+        .replace("- 合并：", "- 合并：Merge Queue（最终 Rebase）");
+    append_queue_g4_record(
+        &mut issue.comments[0].body,
+        vec![
+            queue_g4_entry(61, "delivery"),
+            pre_activation_g4_entry(62, "related"),
+        ],
+    );
+    let delivery = delivery_pr(Some("2026-08-20T05:30:00Z"));
+    let mut related = related_pr(false);
+    related.state = "MERGED".to_string();
+    related.merged_at = Some("2026-07-10T05:40:00Z".to_string());
+    related.merge_commit = Some(GitHubCommit {
+        oid: MAIN_RESULT_OID.to_string(),
+    });
+    related.project_items[0].status = Some(ProjectStatus {
+        name: "Done".to_string(),
+    });
+
+    assert!(validate_g4_evidence(&args, &issue, &delivery, std::slice::from_ref(&related)).is_ok());
+
+    let marker = issue.comments[0]
+        .body
+        .find(MERGE_QUEUE_G4_RECORD_START)
+        .expect("record marker must exist");
+    issue.comments[0].body.truncate(marker);
+    issue.comments[0].body = issue.comments[0]
+        .body
         .lines()
-        .filter(|line| {
-            !G4_MERGE_QUEUE_COMMENT_FIELDS
-                .iter()
-                .any(|field| line.starts_with(field))
-        })
+        .filter(|line| !line.starts_with("- Merge Queue evidence："))
         .collect::<Vec<_>>()
         .join("\n");
-    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
-
-    assert!(
-        validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[]).is_ok()
+    append_queue_g4_record(
+        &mut issue.comments[0].body,
+        vec![queue_g4_entry(61, "delivery")],
     );
+    let error = validate_g4_evidence(&args, &issue, &delivery, &[related])
+        .expect_err("every Related PR requires an evidence entry");
+    assert!(error.contains("Delivery + 全部 Related PR"));
 }
 
 #[test]
