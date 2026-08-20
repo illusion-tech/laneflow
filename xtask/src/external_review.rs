@@ -2496,8 +2496,10 @@ fn select_earliest_unconsumed_marker<'a>(
     EarliestMarkerSelection::Selected(first_comment)
 }
 
-/// 与 evaluate_snapshot 的 comment 闸门一致：只有未编辑、Codex 发表、匹配封闭
-/// clean grammar 且无 Reviewed commit marker 的 comment 才进入 record 绑定判定。
+/// 与 evaluate_snapshot 的 comment 闸门一致：只有未编辑、Codex 发表、匹配 clean
+/// verdict 子串形状、无 Reviewed commit marker 且 createdAt/URL 有效的 comment
+/// 才进入 record 绑定判定（publisher sweep 复用本闸门，不会为字段无效的 clean
+/// 发布 evaluator 必拒的 malformed record）。
 fn sha_less_bindable_clean(comment: &IssueComment) -> bool {
     comment
         .author
@@ -2507,6 +2509,8 @@ fn sha_less_bindable_clean(comment: &IssueComment) -> bool {
         && codex_clean_comment_shape(&comment.body)
         && comment.updated_at == comment.created_at
         && parse_reviewed_commit(&comment.body).is_none()
+        && valid_timestamp(&comment.created_at)
+        && valid_github_url(&comment.url)
 }
 
 /// 按 record 创建时间升序逐条判定无 SHA clean 的绑定，返回 clean comment id →
@@ -5235,6 +5239,38 @@ mod tests {
         assert_eq!(sweep_diagnostics.len(), 1);
         assert!(sweep_diagnostics[0].contains("IC-codex-clean-nosha-2"));
         assert!(sweep_diagnostics[0].contains("均已被既有 binding record 消费"));
+    }
+
+    #[test]
+    fn sweep_skips_clean_with_invalid_evidence_fields() {
+        // 与 evaluate_snapshot 闸门一致：createdAt/URL 无效的 clean 不进入 sweep
+        // 候选，publisher 不会为其发布 record 字段必判无效的 malformed record
+        // （malformed record 会让后续 run 在收集阶段持续 fail-closed 中止）。
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-same-head-overlap-sequential.json"
+        ));
+        {
+            let clean = snapshot
+                .pull_request
+                .comments
+                .nodes
+                .iter_mut()
+                .find(|comment| comment.id == "IC-codex-clean-nosha-2")
+                .expect("fixture 含 C2");
+            clean.url = "https://example.com/not-a-github-url".to_string();
+        }
+        let pr = &snapshot.pull_request;
+        let mut diagnostics = Vec::new();
+        let records = collect_codex_clean_binding_records(pr, &mut diagnostics);
+        assert!(diagnostics.is_empty());
+        assert_eq!(records.len(), 2);
+
+        // C1 已有 record 时 C2 本是唯一 sweep 候选（对照见
+        // sweep_plans_unbound_clean_against_records_from_the_same_run）；
+        // URL 无效后候选集合为空，sweep 无工作也不记诊断。
+        let mut sweep_diagnostics = Vec::new();
+        assert!(plan_next_sweep_binding(pr, &records[..1], &mut sweep_diagnostics).is_none());
+        assert!(sweep_diagnostics.is_empty());
     }
 
     #[test]
