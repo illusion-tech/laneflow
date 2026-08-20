@@ -3957,6 +3957,49 @@ fn accepts_only_the_exact_451_452_codeql_activation_bootstrap() {
     assert!(error.contains("identity/order 不一致") || error.contains("只允许 #451"));
 }
 
+#[test]
+fn accepts_single_entry_rebase_queue_when_h_mg_is_h_main() {
+    let issue = issue("OPEN", "Done");
+    let mut pr = delivery_pr(Some("2026-08-20T08:30:00Z"));
+    pr.merge_commit = Some(GitHubCommit {
+        oid: MERGE_GROUP_OID.to_string(),
+    });
+    let record = MergeQueueG4PullRequestRecord {
+        number: 61,
+        role: "delivery".to_string(),
+        mode: "merge_queue".to_string(),
+        h_pr: DELIVERY_HEAD_OID.to_string(),
+        h_main: MERGE_GROUP_OID.to_string(),
+        h_mg: Some(MERGE_GROUP_OID.to_string()),
+        checks_conclusion: Some("success".to_string()),
+        checks_url: Some(format!(
+            "https://github.com/illusion-tech/laneflow/commit/{MERGE_GROUP_OID}/checks"
+        )),
+        chain: Some(format!(
+            "{DELIVERY_HEAD_OID} -> {MERGE_GROUP_OID} -> {MERGE_GROUP_OID}"
+        )),
+        inclusion_method: Some(MERGE_QUEUE_G4_INCLUSION_METHOD.to_string()),
+        inclusion_evidence_url: Some(format!(
+            "https://github.com/illusion-tech/laneflow/compare/{DELIVERY_HEAD_OID}...{MERGE_GROUP_OID}"
+        )),
+        reason: None,
+        bootstrap_evidence_url: None,
+    };
+
+    assert!(
+        validate_g4_pr_record(
+            "illusion-tech/laneflow",
+            61,
+            &issue,
+            61,
+            "delivery",
+            &pr,
+            &record,
+        )
+        .is_ok()
+    );
+}
+
 fn queue_delivery_g4_fixture(
     entry: serde_json::Value,
 ) -> (GateEvidenceArgs, GitHubIssue, GitHubPullRequest) {
