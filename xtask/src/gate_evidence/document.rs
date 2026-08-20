@@ -1056,6 +1056,9 @@ pub(super) fn validate_external_review_g3(
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} G3 permalink 未指向该 PR 的 comment"))?;
     let effective_at = g3_comment_effective_at(comment, label)?;
+    // #406 D2/D3 激活边界：更早的 G3 comment 豁免条件披露字段与 round-cap record 规则，
+    // 保护历史 G4 replay（先例：G3_EXCEPTION_POLICY_ACTIVATION）。
+    let disclosure_active = effective_at >= G3_CONDITIONAL_DISCLOSURE_ACTIVATION;
     let gate_result = parse_g3_result(&comment.body)?;
     let current_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1091,6 +1094,11 @@ pub(super) fn validate_external_review_g3(
         );
         return Ok(());
     }
+    let round_cap_records = if disclosure_active && scoped_gate_result == G3Result::Pass {
+        parse_external_review_round_cap_records(comment)?
+    } else {
+        Vec::new()
+    };
     let result = match scoped_gate_result {
         G3Result::Waived => {
             let historical_replay =
@@ -1111,6 +1119,15 @@ pub(super) fn validate_external_review_g3(
                 historical_replay.grandfathered_confirmed_gate_defect,
             )?;
             external_review::evaluate_live_with_waiver(repo, number, waiver)?
+        }
+        G3Result::Pass if !round_cap_records.is_empty() => {
+            let round_cap = build_external_review_round_cap_input(
+                comment,
+                &round_cap_records,
+                issue_number,
+                label,
+            )?;
+            external_review::evaluate_live_with_round_cap(repo, number, round_cap)?
         }
         G3Result::Pass | G3Result::Bootstrap => external_review::evaluate_live(repo, number)?,
         G3Result::Exception | G3Result::LegacyBlock => {
@@ -1134,6 +1151,25 @@ pub(super) fn validate_external_review_g3(
             result.current_head_oid()
         ));
     }
+    if disclosure_active {
+        // evaluator 内部已对不适用的 round-cap record fail-closed；这里再断言一层
+        // record ⟺ 生效的双向一致（records 仅在激活后 Pass 路径解析，未激活时恒空，
+        // 与 result.round_cap 恒 None 配对，一致性断言自然豁免）。
+        validate_external_review_round_cap_consistency(
+            &round_cap_records,
+            &associated_issues,
+            result.round_cap(),
+            result.review_rounds(),
+            label,
+        )?;
+    }
+    // 条件披露字段函数自带激活门控（历史 comment 豁免）。
+    validate_g3_conditional_disclosure_fields(
+        comment,
+        label,
+        &result.deferred_finding_urls(),
+        result.round_cap(),
+    )?;
     if scoped_gate_result != G3Result::Waived {
         let completion_time = result
             .completion_time()
@@ -1484,6 +1520,82 @@ pub(super) fn parse_gate_waiver_records(
         records.push(record);
     }
     Ok(records)
+}
+
+/// 解析 `external-review-round-cap:v1` 记录集（#406 D3）。record 是 `G3 Pass` 的可选
+/// 披露，缺失返回空集；存在时按 waiver 同模式强制 schemaVersion==1 与 id/followUpIssue
+/// 双去重。
+pub(super) fn parse_external_review_round_cap_records(
+    comment: &GitHubComment,
+) -> Result<Vec<ExternalReviewRoundCapRecord>, String> {
+    let marker_count = comment
+        .body
+        .matches(EXTERNAL_REVIEW_ROUND_CAP_START)
+        .count();
+    if marker_count == 0 {
+        return Ok(Vec::new());
+    }
+    let mut records = Vec::with_capacity(marker_count);
+    let mut seen_ids = BTreeSet::new();
+    let mut seen_follow_up_issues = BTreeSet::new();
+    for (index, after_start) in comment
+        .body
+        .split(EXTERNAL_REVIEW_ROUND_CAP_START)
+        .skip(1)
+        .enumerate()
+    {
+        let (json, _) = after_start
+            .split_once(EXTERNAL_REVIEW_ROUND_CAP_END)
+            .ok_or_else(|| format!("round-cap 第 {} 个结构化记录缺少结束标记", index + 1))?;
+        let record =
+            serde_json::from_str::<ExternalReviewRoundCapRecord>(json.trim()).map_err(|error| {
+                format!(
+                    "round-cap 第 {} 个结构化记录不是 schema v1 JSON：{error}",
+                    index + 1
+                )
+            })?;
+        if record.schema_version != 1 {
+            return Err(format!(
+                "round-cap schemaVersion 必须为 1，实际为 {}",
+                record.schema_version
+            ));
+        }
+        let follow_up_issue_number = round_cap_follow_up_issue_number(&record)?;
+        if !seen_ids.insert(record.id.clone()) {
+            return Err(format!("round-cap id 不能重复：{}", record.id));
+        }
+        if !seen_follow_up_issues.insert(follow_up_issue_number) {
+            return Err(format!(
+                "round-cap 每个 Issue 只能包含一个结构化记录：{}",
+                record.follow_up_issue
+            ));
+        }
+        records.push(record);
+    }
+    Ok(records)
+}
+
+pub(super) fn round_cap_follow_up_issue_number(
+    record: &ExternalReviewRoundCapRecord,
+) -> Result<u64, String> {
+    let number = record
+        .follow_up_issue
+        .strip_prefix('#')
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|number| *number > 0)
+        .ok_or_else(|| {
+            format!(
+                "round-cap followUpIssue 必须是明确的正整数 Issue 编号：{}",
+                record.follow_up_issue
+            )
+        })?;
+    if record.follow_up_issue != format!("#{number}") {
+        return Err(format!(
+            "round-cap followUpIssue 必须使用无前导零的规范 `#<positive number>`：{}",
+            record.follow_up_issue
+        ));
+    }
+    Ok(number)
 }
 
 pub(super) fn parse_g3_exception_records(
@@ -1872,6 +1984,17 @@ pub(super) fn validate_g3_exception(
         (None, Some(record)) => Some(record),
         (None, None) => None,
     };
+    // `external-review-round-cap:v1` 只与 `G3 Pass` 配对（#406 D3），与 g3-exception 互斥；
+    // 主防线在 validate_gate_waiver_record_set 的非 Pass 夹带分支，此处再断言一层。
+    if selected.is_some()
+        && g3_comment_effective_at(g3_comment, "G3 comment")?
+            >= G3_CONDITIONAL_DISCLOSURE_ACTIVATION
+        && g3_comment.body.contains(EXTERNAL_REVIEW_ROUND_CAP_START)
+    {
+        return Err(
+            "g3-exception 与 `external-review-round-cap:v1` 结构化记录互斥，不得夹带".to_string(),
+        );
+    }
     match (gate_result, selected) {
         (G3Result::Exception | G3Result::LegacyBlock, None) => Err(format!(
             "{} 缺少匹配的 `{G3_EXCEPTION_START}` 结构化记录",
@@ -1929,10 +2052,12 @@ pub(super) fn validate_gate_waiver_record_set(
     comment: &GitHubComment,
     declared_issues: &BTreeSet<u64>,
 ) -> Result<(), String> {
-    if g3_comment_effective_at(comment, "G3 comment")? < EXTERNAL_REVIEW_G3_ACTIVATION {
+    let effective_at = g3_comment_effective_at(comment, "G3 comment")?;
+    if effective_at < EXTERNAL_REVIEW_G3_ACTIVATION {
         return Ok(());
     }
-    match parse_g3_result(&comment.body)? {
+    let gate_result = parse_g3_result(&comment.body)?;
+    match gate_result {
         G3Result::Waived => {
             let records = parse_gate_waiver_records(comment)?;
             let recorded_issues = records
@@ -1955,6 +2080,16 @@ pub(super) fn validate_gate_waiver_record_set(
                 );
             }
         }
+    }
+    // `external-review-round-cap:v1` 只与 `G3 Pass` 配对（#406 D3）；是否生效由
+    // validate_external_review_g3 结合 evaluator 结果断言，这里先拒掉非 Pass 夹带。
+    if gate_result != G3Result::Pass
+        && effective_at >= G3_CONDITIONAL_DISCLOSURE_ACTIVATION
+        && comment.body.contains(EXTERNAL_REVIEW_ROUND_CAP_START)
+    {
+        return Err(
+            "非 G3 Pass comment 不得夹带 `external-review-round-cap:v1` 结构化记录".to_string(),
+        );
     }
     Ok(())
 }
@@ -2073,6 +2208,282 @@ fn gate_waiver_exception_type(
                 "G3 Waived multi-Issue comment 缺少当前 Issue `{expected_follow_up_issue}` 的唯一结构化记录"
             )
         })
+}
+
+/// 从 `G3 Pass` comment 的 round-cap record 构造 evaluator 输入（#406 D3）。这里只做
+/// 授权与可见性校验；`currentHeadOid` / `roundCount` / 遗留 URL 集合与实测的精确一致
+/// 由 evaluator 以 RoundCapInput fail-closed 核验（validate_round_cap）。
+pub(super) fn build_external_review_round_cap_input(
+    comment: &GitHubComment,
+    records: &[ExternalReviewRoundCapRecord],
+    issue_number: u64,
+    label: &str,
+) -> Result<external_review::RoundCapInput, String> {
+    let expected_follow_up_issue = format!("#{issue_number}");
+    let record = records
+        .iter()
+        .find(|record| record.follow_up_issue == expected_follow_up_issue)
+        .ok_or_else(|| {
+            format!(
+                "{label} round-cap multi-Issue comment 缺少当前 Issue `{expected_follow_up_issue}` 的唯一结构化记录"
+            )
+        })?;
+    let author = comment
+        .author
+        .as_ref()
+        .map(|actor| actor.login.as_str())
+        .ok_or_else(|| format!("{label} round-cap comment 缺少 author，无法验证授权人"))?;
+    if !author.eq_ignore_ascii_case(&record.authorized_by) {
+        return Err(format!(
+            "{label} round-cap authorizedBy `{}` 与 comment author `{author}` 不一致",
+            record.authorized_by
+        ));
+    }
+    if !G3_OWNER_ACTORS
+        .iter()
+        .any(|actor| actor.eq_ignore_ascii_case(author))
+    {
+        return Err(format!(
+            "{label} round-cap comment author `{author}` 不在 trusted G3 Owner allowlist"
+        ));
+    }
+    if record.reason.trim().is_empty() {
+        return Err(format!("{label} round-cap `reason` 不能为空"));
+    }
+
+    let line = conditional_field_line(&comment.body, G3_REVIEW_ROUND_CAP_COMMENT_FIELD)?
+        .ok_or_else(|| {
+            format!(
+                "{label} round-cap record 生效时 comment 必须含 `{G3_REVIEW_ROUND_CAP_COMMENT_FIELD}` 可见字段行"
+            )
+        })?;
+    let visible_refs = markdown_reference_labels(line)
+        .into_iter()
+        .map(str::to_ascii_lowercase)
+        .collect::<BTreeSet<_>>();
+    let mut seen_refs = BTreeSet::new();
+    let mut remaining_finding_urls = Vec::with_capacity(record.remaining_findings.len());
+    for finding_ref in &record.remaining_findings {
+        let normalized = finding_ref.to_ascii_lowercase();
+        if !seen_refs.insert(normalized.clone()) {
+            return Err(format!(
+                "{label} round-cap remainingFindings 重复：{finding_ref}"
+            ));
+        }
+        if !visible_refs.contains(&normalized) {
+            return Err(format!(
+                "{label} round-cap remaining finding `{finding_ref}` 未由 `{G3_REVIEW_ROUND_CAP_COMMENT_FIELD}` 行可见引用"
+            ));
+        }
+        remaining_finding_urls.push(
+            reference_github_url(&comment.body, finding_ref).ok_or_else(|| {
+                format!(
+                    "{label} round-cap remaining finding `{finding_ref}` 缺少 GitHub HTTPS 文末引用定义"
+                )
+            })?,
+        );
+    }
+    if seen_refs != visible_refs {
+        return Err(format!(
+            "{label} round-cap remainingFindings labels 必须与 `{G3_REVIEW_ROUND_CAP_COMMENT_FIELD}` 行 labels 完全一致（同一组引用）"
+        ));
+    }
+
+    Ok(external_review::RoundCapInput {
+        current_head_oid: record.current_head_oid.clone(),
+        round_count: record.round_count,
+        remaining_finding_urls,
+    })
+}
+
+/// record ⟺ evaluator 生效的双向一致（#406 D3）：任一方向不成立即失败；生效时
+/// record set 的 followUpIssue 集合必须与 PR `关联 Issue` 精确一致（单 Issue 恰一条，
+/// 多 Issue 每 Issue 一条），镜像 waiver record-set 规则。
+pub(super) fn validate_external_review_round_cap_consistency(
+    records: &[ExternalReviewRoundCapRecord],
+    associated_issues: &BTreeSet<u64>,
+    round_cap: Option<(usize, &[String])>,
+    review_rounds: usize,
+    label: &str,
+) -> Result<(), String> {
+    match (records.is_empty(), round_cap) {
+        (true, None) => Ok(()),
+        (false, Some(_)) => {
+            let recorded_issues = records
+                .iter()
+                .map(round_cap_follow_up_issue_number)
+                .collect::<Result<BTreeSet<_>, _>>()?;
+            if &recorded_issues != associated_issues {
+                return Err(format!(
+                    "{label} round-cap 结构化记录的 followUpIssue 集合必须与 `关联 Issue` 精确一致：声明 [{}]；round-cap [{}]",
+                    format_issue_numbers(associated_issues),
+                    format_issue_numbers(&recorded_issues)
+                ));
+            }
+            Ok(())
+        }
+        (false, None) => Err(format!(
+            "{label} comment 夹带 `external-review-round-cap:v1` 结构化记录，但 evaluator 未生效 round-cap（实测轮数 {review_rounds}）"
+        )),
+        (true, Some(_)) => Err(format!(
+            "{label} evaluator 已生效 round-cap（实测轮数 {review_rounds}），但 comment 缺少 `external-review-round-cap:v1` 结构化记录"
+        )),
+    }
+}
+
+fn conditional_field_line<'a>(body: &'a str, field: &str) -> Result<Option<&'a str>, String> {
+    let lines = body
+        .lines()
+        .filter(|line| line.trim_start().starts_with(field))
+        .collect::<Vec<_>>();
+    match lines.as_slice() {
+        [] => Ok(None),
+        [line] => Ok(Some(line)),
+        _ => Err(format!("G3 comment 的 `{field}` 条件字段不能重复")),
+    }
+}
+
+/// 解析条件字段行行内 `[text][label]` 引用（同 waiver evidenceRefs 模式），逐个经
+/// 文末 `[label]: <url>` 定义为 GitHub HTTPS URL；返回去重后的 URL 集合。
+fn conditional_field_urls(body: &str, line: &str, field: &str) -> Result<BTreeSet<String>, String> {
+    let mut seen_labels = BTreeSet::new();
+    let mut urls = BTreeSet::new();
+    for field_label in markdown_reference_labels(line) {
+        if !seen_labels.insert(field_label.to_ascii_lowercase()) {
+            return Err(format!(
+                "`{field}` 字段 reference label 重复：{field_label}"
+            ));
+        }
+        urls.insert(reference_github_url(body, field_label).ok_or_else(|| {
+            format!("`{field}` 字段 reference `{field_label}` 缺少 GitHub HTTPS 文末引用定义")
+        })?);
+    }
+    Ok(urls)
+}
+
+/// `- Deferred findings：N 条 [text][label] ...`：N 必须等于 deferred 集合大小。
+fn validate_deferred_findings_field(
+    body: &str,
+    label: &str,
+    deferred_finding_urls: &BTreeSet<&str>,
+) -> Result<(), String> {
+    let field = G3_DEFERRED_FINDINGS_COMMENT_FIELD;
+    let line = conditional_field_line(body, field)?;
+    if deferred_finding_urls.is_empty() {
+        return match line {
+            None => Ok(()),
+            Some(_) => Err(format!(
+                "{label} evaluator 无 deferred findings，comment 不得夹带 `{field}` 字段"
+            )),
+        };
+    }
+    let line = line.ok_or_else(|| {
+        format!(
+            "{label} evaluator 存在 {} 条 deferred findings，comment 缺少 `{field}` 字段",
+            deferred_finding_urls.len()
+        )
+    })?;
+    let value = line.trim_start().strip_prefix(field).unwrap_or_default();
+    let (count_text, _) = value
+        .split_once(" 条")
+        .ok_or_else(|| format!("{label} `{field}` 字段必须以 `N 条` 开头"))?;
+    let count = count_text
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| format!("{label} `{field}` 字段条数必须是十进制非负整数：{count_text}"))?;
+    if count != deferred_finding_urls.len() {
+        return Err(format!(
+            "{label} `{field}` 字段条数与 evaluator 实测不一致：声明 {count}；实际 {}",
+            deferred_finding_urls.len()
+        ));
+    }
+    let urls = conditional_field_urls(body, line, field)?;
+    let expected = deferred_finding_urls
+        .iter()
+        .map(|url| (*url).to_string())
+        .collect::<BTreeSet<_>>();
+    if urls != expected {
+        return Err(format!(
+            "{label} `{field}` 字段的 URL 集合必须与 evaluator 实测 deferred findings 精确一致"
+        ));
+    }
+    Ok(())
+}
+
+/// `- Review round cap：N 轮，遗留 M 条 [text][label] ...`：N 必须等于生效轮数，
+/// M 与 URL 集合必须等于遗留 findings。
+fn validate_review_round_cap_field(
+    body: &str,
+    label: &str,
+    round_cap: Option<(usize, &[String])>,
+) -> Result<(), String> {
+    let field = G3_REVIEW_ROUND_CAP_COMMENT_FIELD;
+    let line = conditional_field_line(body, field)?;
+    let Some((rounds, remaining_finding_urls)) = round_cap else {
+        return match line {
+            None => Ok(()),
+            Some(_) => Err(format!(
+                "{label} evaluator 未生效 round-cap，comment 不得夹带 `{field}` 字段"
+            )),
+        };
+    };
+    let line = line.ok_or_else(|| {
+        format!("{label} evaluator 已生效 round-cap，comment 缺少 `{field}` 字段")
+    })?;
+    let value = line.trim_start().strip_prefix(field).unwrap_or_default();
+    let (rounds_text, remainder) = value
+        .split_once(" 轮，遗留 ")
+        .ok_or_else(|| format!("{label} `{field}` 字段必须使用 `N 轮，遗留 M 条` 格式"))?;
+    let rounds_declared = rounds_text
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| format!("{label} `{field}` 字段轮数必须是十进制非负整数：{rounds_text}"))?;
+    if rounds_declared != rounds {
+        return Err(format!(
+            "{label} `{field}` 字段轮数与 evaluator 实测不一致：声明 {rounds_declared}；实际 {rounds}"
+        ));
+    }
+    let (count_text, _) = remainder
+        .split_once(" 条")
+        .ok_or_else(|| format!("{label} `{field}` 字段必须使用 `N 轮，遗留 M 条` 格式"))?;
+    let count = count_text
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| format!("{label} `{field}` 字段遗留条数必须是十进制非负整数：{count_text}"))?;
+    if count != remaining_finding_urls.len() {
+        return Err(format!(
+            "{label} `{field}` 字段遗留条数与 evaluator 实测不一致：声明 {count}；实际 {}",
+            remaining_finding_urls.len()
+        ));
+    }
+    let urls = conditional_field_urls(body, line, field)?;
+    let expected = remaining_finding_urls
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if urls != expected {
+        return Err(format!(
+            "{label} `{field}` 字段的 URL 集合必须与 evaluator 实测遗留 findings 精确一致"
+        ));
+    }
+    Ok(())
+}
+
+/// #406 D2/D3 条件必填可见字段：evaluator deferred 非空 ⟺ `- Deferred findings：`
+/// 存在且精确匹配；round-cap 生效 ⟺ `- Review round cap：` 存在且精确匹配。
+/// 两字段不进 CURRENT_G3_COMMENT_FIELDS 恒定清单；effective time 早于
+/// G3_CONDITIONAL_DISCLOSURE_ACTIVATION 的历史 G3 comment 豁免（保护 G4 replay）。
+pub(super) fn validate_g3_conditional_disclosure_fields(
+    comment: &GitHubComment,
+    label: &str,
+    deferred_finding_urls: &BTreeSet<&str>,
+    round_cap: Option<(usize, &[String])>,
+) -> Result<(), String> {
+    if g3_comment_effective_at(comment, label)? < G3_CONDITIONAL_DISCLOSURE_ACTIVATION {
+        return Ok(());
+    }
+    validate_deferred_findings_field(&comment.body, label, deferred_finding_urls)?;
+    validate_review_round_cap_field(&comment.body, label, round_cap)
 }
 
 pub(super) fn reference_github_url(body: &str, label: &str) -> Option<String> {

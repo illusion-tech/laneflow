@@ -7,6 +7,10 @@ pub(super) const G3_EVIDENCE_SHADOW_ACTIVATION: &str = "2026-08-06T10:49:21Z";
 // Issue #405 G1 decision time. Only PRs merged before this policy switch may replay the
 // retired `G3 Waived + confirmed_gate_defect` form during G4.
 pub(super) const G3_EXCEPTION_POLICY_ACTIVATION: &str = "2026-08-18T04:20:55Z";
+// Issue #406 G1 design freeze comment creation time. Earlier G3 comments predate the
+// conditional disclosure obligations (`- Deferred findings：` / `- Review round cap：`
+// fields and the `external-review-round-cap:v1` record) and stay exempt during G4 replay.
+pub(super) const G3_CONDITIONAL_DISCLOSURE_ACTIVATION: &str = "2026-08-20T04:20:39Z";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum GateEvidencePhase {
     G3,
@@ -425,6 +429,11 @@ pub(super) const CURRENT_G3_COMMENT_FIELDS: &[&str] = &[
 ];
 
 pub(super) const G3_EVIDENCE_SHADOW_COMMENT_FIELD: &str = "- G3 Evidence Gate Shadow：";
+// #406 D2/D3 条件必填可见字段：不进 CURRENT_G3_COMMENT_FIELDS 恒定清单，存在性按
+// evaluator 结果在 validate_external_review_g3 内断言（激活边界见
+// G3_CONDITIONAL_DISCLOSURE_ACTIVATION）。
+pub(super) const G3_DEFERRED_FINDINGS_COMMENT_FIELD: &str = "- Deferred findings：";
+pub(super) const G3_REVIEW_ROUND_CAP_COMMENT_FIELD: &str = "- Review round cap：";
 
 pub(super) const EXTERNAL_REVIEW_WAIVER_START: &str = "<!-- external-review-waiver:v1";
 pub(super) const EXTERNAL_REVIEW_WAIVER_END: &str = "-->";
@@ -436,6 +445,8 @@ pub(super) const G3_EXCEPTION_END: &str = "-->";
 pub(super) const G3_EXCEPTION_MAX_SECONDS: u64 = 24 * 60 * 60;
 pub(super) const G3_FULL_SET_RECOVERY_START: &str = "<!-- g3-full-set-recovery:v1";
 pub(super) const G3_FULL_SET_RECOVERY_END: &str = "-->";
+pub(super) const EXTERNAL_REVIEW_ROUND_CAP_START: &str = "<!-- external-review-round-cap:v1";
+pub(super) const EXTERNAL_REVIEW_ROUND_CAP_END: &str = "-->";
 pub(super) const G3_OWNER_ACTORS: &[&str] = &["wangzishi"];
 
 #[derive(Debug, serde::Deserialize)]
@@ -535,6 +546,22 @@ pub(super) struct GateWaiverRecord {
     pub(super) expires_at: String,
     pub(super) follow_up_issue: String,
     pub(super) cleanup_owner: String,
+    pub(super) authorized_by: String,
+}
+
+/// `external-review-round-cap:v1`（#406 D3）：`G3 Pass` comment 内嵌的轮数上限收口记录。
+/// `remainingFindings` 只保存 Markdown reference label（同 waiver evidenceRefs 模式）；
+/// head/roundCount/遗留 URL 集合与 evaluator 实测的精确一致由 evaluator fail-closed 核验。
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct ExternalReviewRoundCapRecord {
+    pub(super) schema_version: u64,
+    pub(super) id: String,
+    pub(super) current_head_oid: String,
+    pub(super) round_count: usize,
+    pub(super) remaining_findings: Vec<String>,
+    pub(super) reason: String,
+    pub(super) follow_up_issue: String,
     pub(super) authorized_by: String,
 }
 

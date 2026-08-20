@@ -2803,6 +2803,568 @@ fn rejects_expired_structured_gate_waiver() {
     assert!(invalid_merged_at.contains("mergedAt 不是 UTC RFC3339 时间"));
 }
 
+const ROUND_CAP_FINDING_URL_1: &str =
+    "https://github.com/illusion-tech/laneflow/pull/61#discussion_r101";
+const ROUND_CAP_FINDING_URL_2: &str =
+    "https://github.com/illusion-tech/laneflow/pull/61#discussion_r102";
+
+fn round_cap_g3_comment(body: String) -> GitHubComment {
+    GitHubComment {
+        id: String::new(),
+        url: DELIVERY_G3_URL.to_string(),
+        body,
+        author: Some(GitHubActor {
+            login: "wangzishi".to_string(),
+        }),
+        created_at: "2026-08-20T05:00:00Z".to_string(),
+        updated_at: None,
+        user_content_edits: None,
+        includes_created_edit: false,
+    }
+}
+
+fn round_cap_record_json(id: &str, follow_up_issue: &str) -> String {
+    format!(
+        r##"<!-- external-review-round-cap:v1
+{{
+  "schemaVersion": 1,
+  "id": "{id}",
+  "currentHeadOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "roundCount": 4,
+  "remainingFindings": ["rc-1", "rc-2"],
+  "reason": "provider keeps re-filing the same two P1 threads after four rounds",
+  "followUpIssue": "{follow_up_issue}",
+  "authorizedBy": "wangzishi"
+}}
+-->"##
+    )
+}
+
+fn round_cap_comment_body(records: &str) -> String {
+    format!(
+        r##"- Gate 结果：`G3 Pass`
+- Current head：`aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- Review round cap：4 轮，遗留 2 条 [P1][rc-1]、[P1][rc-2]。
+{records}
+
+[rc-1]: {ROUND_CAP_FINDING_URL_1}
+[rc-2]: {ROUND_CAP_FINDING_URL_2}"##
+    )
+}
+
+#[test]
+fn parses_external_review_round_cap_record_and_builds_evaluator_input() {
+    let comment = round_cap_g3_comment(round_cap_comment_body(&round_cap_record_json(
+        "round-cap-60-1",
+        "#60",
+    )));
+    let records = parse_external_review_round_cap_records(&comment).unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].id, "round-cap-60-1");
+    assert_eq!(records[0].round_count, 4);
+
+    let input =
+        build_external_review_round_cap_input(&comment, &records, 60, "Delivery PR").unwrap();
+    assert_eq!(
+        input.current_head_oid,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    assert_eq!(input.round_count, 4);
+    assert_eq!(
+        input.remaining_finding_urls,
+        vec![
+            ROUND_CAP_FINDING_URL_1.to_string(),
+            ROUND_CAP_FINDING_URL_2.to_string()
+        ]
+    );
+    validate_external_review_round_cap_consistency(
+        &records,
+        &BTreeSet::from([60]),
+        Some((4, input.remaining_finding_urls.as_slice())),
+        4,
+        "Delivery PR",
+    )
+    .unwrap();
+
+    // record 缺失（无 marker）时解析为空集，不强制提供
+    let plain = round_cap_g3_comment("- Gate 结果：`G3 Pass`".to_string());
+    assert!(
+        parse_external_review_round_cap_records(&plain)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn round_cap_record_requires_schema_v1_json() {
+    let comment = round_cap_g3_comment(
+        round_cap_comment_body(&round_cap_record_json("round-cap-60-1", "#60"))
+            .replace(r#""schemaVersion": 1"#, r#""schemaVersion": 2"#),
+    );
+    let error = parse_external_review_round_cap_records(&comment)
+        .expect_err("round-cap records must pin schema v1");
+    assert!(error.contains("round-cap schemaVersion 必须为 1"));
+
+    let comment =
+        round_cap_g3_comment("<!-- external-review-round-cap:v1\n{not json}\n-->".to_string());
+    let error = parse_external_review_round_cap_records(&comment)
+        .expect_err("round-cap record must be schema v1 JSON");
+    assert!(error.contains("不是 schema v1 JSON"));
+
+    let comment = round_cap_g3_comment("<!-- external-review-round-cap:v1\n{}".to_string());
+    let error = parse_external_review_round_cap_records(&comment)
+        .expect_err("round-cap record must be terminated");
+    assert!(error.contains("缺少结束标记"));
+}
+
+#[test]
+fn round_cap_record_rejects_duplicate_id_and_follow_up_issue() {
+    let record = round_cap_record_json("round-cap-60-1", "#60");
+    let comment = round_cap_g3_comment(round_cap_comment_body(&format!("{record}\n{record}")));
+    let error = parse_external_review_round_cap_records(&comment)
+        .expect_err("duplicate round-cap ids must fail closed");
+    assert!(error.contains("round-cap id 不能重复"));
+
+    let other = round_cap_record_json("round-cap-60-2", "#60");
+    let comment = round_cap_g3_comment(round_cap_comment_body(&format!("{record}\n{other}")));
+    let error = parse_external_review_round_cap_records(&comment)
+        .expect_err("each Issue must carry exactly one round-cap record");
+    assert!(error.contains("每个 Issue 只能包含一个"));
+}
+
+#[test]
+fn round_cap_record_requires_comment_author_in_owner_allowlist() {
+    let mut comment = round_cap_g3_comment(round_cap_comment_body(&round_cap_record_json(
+        "round-cap-60-1",
+        "#60",
+    )));
+    comment.body = comment.body.replace(
+        r#""authorizedBy": "wangzishi""#,
+        r#""authorizedBy": "untrusted-contributor""#,
+    );
+    let records = parse_external_review_round_cap_records(&comment).unwrap();
+    let error = build_external_review_round_cap_input(&comment, &records, 60, "Delivery PR")
+        .expect_err("authorizedBy must equal the comment author");
+    assert!(error.contains("与 comment author `wangzishi` 不一致"));
+
+    // authorizedBy 与 author 一致但不在 trusted allowlist
+    comment.author = Some(GitHubActor {
+        login: "untrusted-contributor".to_string(),
+    });
+    let records = parse_external_review_round_cap_records(&comment).unwrap();
+    let error = build_external_review_round_cap_input(&comment, &records, 60, "Delivery PR")
+        .expect_err("round-cap author must be a trusted G3 Owner");
+    assert!(error.contains("不在 trusted G3 Owner allowlist"));
+}
+
+#[test]
+fn round_cap_record_requires_reason_and_visible_resolvable_github_refs() {
+    let comment = round_cap_g3_comment(
+        round_cap_comment_body(&round_cap_record_json("round-cap-60-1", "#60")).replace(
+            r#""reason": "provider keeps re-filing the same two P1 threads after four rounds""#,
+            r#""reason": "  ""#,
+        ),
+    );
+    let records = parse_external_review_round_cap_records(&comment).unwrap();
+    let error = build_external_review_round_cap_input(&comment, &records, 60, "Delivery PR")
+        .expect_err("round-cap reason must be non-empty");
+    assert!(error.contains("`reason` 不能为空"));
+
+    // record label 未由 `- Review round cap：` 行可见引用
+    let comment = round_cap_g3_comment(
+        round_cap_comment_body(&round_cap_record_json("round-cap-60-1", "#60")).replace(
+            r#""remainingFindings": ["rc-1", "rc-2"]"#,
+            r#""remainingFindings": ["rc-1", "rc-hidden"]"#,
+        ),
+    );
+    let records = parse_external_review_round_cap_records(&comment).unwrap();
+    let error = build_external_review_round_cap_input(&comment, &records, 60, "Delivery PR")
+        .expect_err("remainingFindings labels must be visible on the round-cap field line");
+    assert!(error.contains("未由 `- Review round cap：` 行可见引用"));
+
+    // 可见 label 缺少文末定义
+    let comment = round_cap_g3_comment(
+        round_cap_comment_body(&round_cap_record_json("round-cap-60-1", "#60"))
+            .replace(&format!("\n[rc-2]: {ROUND_CAP_FINDING_URL_2}"), ""),
+    );
+    let records = parse_external_review_round_cap_records(&comment).unwrap();
+    let error = build_external_review_round_cap_input(&comment, &records, 60, "Delivery PR")
+        .expect_err("visible labels must resolve to a definition");
+    assert!(error.contains("缺少 GitHub HTTPS 文末引用定义"));
+
+    // 定义指向非 GitHub URL
+    let comment = round_cap_g3_comment(
+        round_cap_comment_body(&round_cap_record_json("round-cap-60-1", "#60"))
+            .replace(ROUND_CAP_FINDING_URL_2, "https://example.com/not-github"),
+    );
+    let records = parse_external_review_round_cap_records(&comment).unwrap();
+    let error = build_external_review_round_cap_input(&comment, &records, 60, "Delivery PR")
+        .expect_err("remainingFindings definitions must be GitHub HTTPS URLs");
+    assert!(error.contains("缺少 GitHub HTTPS 文末引用定义"));
+
+    // 字段行 labels 与 record labels 不完全一致（字段行多一条引用）
+    let comment = round_cap_g3_comment(
+        round_cap_comment_body(&round_cap_record_json("round-cap-60-1", "#60"))
+            .replace(
+                "遗留 2 条 [P1][rc-1]、[P1][rc-2]。",
+                "遗留 2 条 [P1][rc-1]、[P1][rc-2]、[P1][rc-3]。",
+            )
+            .replace(
+                &format!("[rc-2]: {ROUND_CAP_FINDING_URL_2}"),
+                &format!(
+                    "[rc-2]: {ROUND_CAP_FINDING_URL_2}\n[rc-3]: https://github.com/illusion-tech/laneflow/pull/61#discussion_r103"
+                ),
+            ),
+    );
+    let records = parse_external_review_round_cap_records(&comment).unwrap();
+    let error = build_external_review_round_cap_input(&comment, &records, 60, "Delivery PR")
+        .expect_err("record labels must equal the field line labels");
+    assert!(error.contains("完全一致（同一组引用）"));
+}
+
+#[test]
+fn round_cap_record_set_must_equal_associated_issues() {
+    let records_60 = round_cap_record_json("round-cap-60-1", "#60");
+    let records_61 = round_cap_record_json("round-cap-61-1", "#61");
+    let comment = round_cap_g3_comment(round_cap_comment_body(&format!(
+        "{records_60}\n{records_61}"
+    )));
+    let records = parse_external_review_round_cap_records(&comment).unwrap();
+    let urls = vec![
+        ROUND_CAP_FINDING_URL_1.to_string(),
+        ROUND_CAP_FINDING_URL_2.to_string(),
+    ];
+    // 多 Issue 各一条、payload 相同：两个 Issue 构造出同一 evaluator 输入
+    let input_60 =
+        build_external_review_round_cap_input(&comment, &records, 60, "Delivery PR").unwrap();
+    let input_61 =
+        build_external_review_round_cap_input(&comment, &records, 61, "Delivery PR").unwrap();
+    assert_eq!(input_60.round_count, input_61.round_count);
+    assert_eq!(
+        input_60.remaining_finding_urls,
+        input_61.remaining_finding_urls
+    );
+
+    validate_external_review_round_cap_consistency(
+        &records,
+        &BTreeSet::from([60, 61]),
+        Some((4, urls.as_slice())),
+        4,
+        "Delivery PR",
+    )
+    .unwrap();
+    let error = validate_external_review_round_cap_consistency(
+        &records,
+        &BTreeSet::from([60]),
+        Some((4, urls.as_slice())),
+        4,
+        "Delivery PR",
+    )
+    .expect_err("round-cap record set must equal the associated Issue set");
+    assert!(error.contains("必须与 `关联 Issue` 精确一致"));
+}
+
+#[test]
+fn round_cap_record_and_applied_state_must_agree() {
+    let comment = round_cap_g3_comment(round_cap_comment_body(&round_cap_record_json(
+        "round-cap-60-1",
+        "#60",
+    )));
+    let records = parse_external_review_round_cap_records(&comment).unwrap();
+    let urls = vec![
+        ROUND_CAP_FINDING_URL_1.to_string(),
+        ROUND_CAP_FINDING_URL_2.to_string(),
+    ];
+    let error = validate_external_review_round_cap_consistency(
+        &records,
+        &BTreeSet::from([60]),
+        None,
+        4,
+        "Delivery PR",
+    )
+    .expect_err("a smuggled record without evaluator application must fail closed");
+    assert!(error.contains("夹带 `external-review-round-cap:v1` 结构化记录"));
+
+    let error = validate_external_review_round_cap_consistency(
+        &[],
+        &BTreeSet::from([60]),
+        Some((4, urls.as_slice())),
+        4,
+        "Delivery PR",
+    )
+    .expect_err("evaluator application without a record must fail closed");
+    assert!(error.contains("缺少 `external-review-round-cap:v1` 结构化记录"));
+}
+
+#[test]
+fn non_pass_g3_comment_must_not_smuggle_round_cap_record() {
+    let record = round_cap_record_json("round-cap-60-1", "#60");
+    // `G3 Pass` comment：record-set 校验不拒绝（生效与否由 validate_external_review_g3 断言）
+    let pass_comment = round_cap_g3_comment(round_cap_comment_body(&record));
+    assert!(validate_gate_waiver_record_set(&pass_comment, &BTreeSet::from([60])).is_ok());
+
+    // bootstrap comment 夹带
+    let mut bootstrap = round_cap_g3_comment(format!("- Gate 结果：`R0-R1 bootstrap`\n{record}"));
+    let error = validate_gate_waiver_record_set(&bootstrap, &BTreeSet::from([60]))
+        .expect_err("bootstrap comment must not carry a round-cap record");
+    assert!(error.contains("非 G3 Pass comment 不得夹带"));
+
+    // Waived comment 夹带
+    let waived = round_cap_g3_comment(format!(
+        r##"- Gate 结果：`G3 Waived`
+- 例外：`G3 Waived`；证据：[批准记录][waiver-evidence]。
+<!-- external-review-waiver:v1
+{{
+  "schemaVersion": 1,
+  "id": "waiver-60-1",
+  "exceptionType": "provider_platform_outage",
+  "currentHeadOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "currentBaseOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "reason": "all configured providers unavailable",
+  "evidenceRefs": ["waiver-evidence"],
+  "risk": "review coverage unavailable",
+  "acceptanceBoundary": "metadata-only governance change",
+  "expiresAt": "2026-08-21T05:00:00Z",
+  "followUpIssue": "#60",
+  "cleanupOwner": "wangzishi",
+  "authorizedBy": "wangzishi"
+}}
+-->
+{record}
+
+[waiver-evidence]: https://github.com/illusion-tech/laneflow/issues/60#issuecomment-1"##
+    ));
+    let error = validate_gate_waiver_record_set(&waived, &BTreeSet::from([60]))
+        .expect_err("waived comment must not carry a round-cap record");
+    assert!(error.contains("非 G3 Pass comment 不得夹带"));
+
+    // 激活边界之前的历史 comment 豁免 record 规则（保护历史 G4 replay）
+    bootstrap.created_at = "2026-08-20T04:20:38Z".to_string();
+    assert!(validate_gate_waiver_record_set(&bootstrap, &BTreeSet::from([60])).is_ok());
+}
+
+#[test]
+fn g3_exception_target_must_not_smuggle_round_cap_record() {
+    let (mut pr, _) = g3_exception_fixture(
+        "confirmed_gate_defect",
+        "G3 Exception",
+        "2026-08-20T05:10:00Z",
+        "2026-08-20T06:00:00Z",
+    );
+    pr.comments[0].created_at = "2026-08-20T05:00:00Z".to_string();
+    pr.comments[0].body = format!(
+        "{}\n{}",
+        pr.comments[0].body,
+        round_cap_record_json("round-cap-60-1", "#60")
+    );
+    let error = validate_g3_exception(
+        60,
+        61,
+        &pr,
+        &pr.comments[0],
+        G3Result::Exception,
+        None,
+        G3ExceptionValidationTimes {
+            gate_time: None,
+            evaluation_time: None,
+        },
+    )
+    .expect_err("exception target must not carry a round-cap record");
+    assert!(error.contains("互斥"));
+}
+
+#[test]
+fn external_review_g3_routes_round_cap_record_through_owner_validation() {
+    let mut comment = round_cap_g3_comment(round_cap_comment_body(&round_cap_record_json(
+        "round-cap-60-1",
+        "#60",
+    )));
+    comment.body = comment.body.replace(
+        r#""authorizedBy": "wangzishi""#,
+        r#""authorizedBy": "untrusted-contributor""#,
+    );
+    let mut pr = delivery_pr(None);
+    pr.body = format!("- 关联 Issue：#60\n- PR 角色：Delivery PR\n{}", pr.body);
+    pr.comments = vec![comment];
+    let error = validate_external_review_g3(
+        "illusion-tech/laneflow",
+        60,
+        61,
+        &pr,
+        "Delivery PR",
+        None,
+        ExternalReviewG3Validation {
+            phase: GateEvidencePhase::G3,
+            exception_gate_time: None,
+            ordinary_waiver_merged_at: None,
+        },
+    )
+    .expect_err("round-cap record must pass owner validation before live evaluation");
+    assert!(error.contains("round-cap authorizedBy"));
+}
+
+#[test]
+fn deferred_findings_field_required_exactly_when_evaluator_reports_deferred() {
+    let deferred_urls: BTreeSet<&str> = [
+        "https://github.com/illusion-tech/laneflow/pull/61#discussion_r201",
+        "https://github.com/illusion-tech/laneflow/pull/61#discussion_r202",
+    ]
+    .into_iter()
+    .collect();
+    let line = "- Deferred findings：2 条 [P2][d1]、[P3][d2]。";
+    let definitions = "\n\n[d1]: https://github.com/illusion-tech/laneflow/pull/61#discussion_r201\n[d2]: https://github.com/illusion-tech/laneflow/pull/61#discussion_r202";
+
+    let comment = round_cap_g3_comment(format!("- Gate 结果：`G3 Pass`\n{line}{definitions}"));
+    assert!(
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .is_ok()
+    );
+
+    // deferred 非空但缺字段
+    let comment = round_cap_g3_comment("- Gate 结果：`G3 Pass`".to_string());
+    let error =
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .expect_err("missing deferred field must fail");
+    assert!(error.contains("缺少 `- Deferred findings：` 字段"));
+
+    // deferred 为空夹带字段
+    let empty = BTreeSet::new();
+    let comment = round_cap_g3_comment(format!("- Gate 结果：`G3 Pass`\n{line}{definitions}"));
+    let error = validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &empty, None)
+        .expect_err("a smuggled deferred field must fail");
+    assert!(error.contains("不得夹带 `- Deferred findings：` 字段"));
+
+    // 条数不符
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n- Deferred findings：3 条 [P2][d1]、[P3][d2]。{definitions}"
+    ));
+    let error =
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .expect_err("deferred count must equal the evaluator measurement");
+    assert!(error.contains("条数与 evaluator 实测不一致"));
+
+    // labels 集合不等（d2 指向其他 URL）
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n{line}\n\n[d1]: https://github.com/illusion-tech/laneflow/pull/61#discussion_r201\n[d2]: https://github.com/illusion-tech/laneflow/pull/61#discussion_r999"
+    ));
+    let error =
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .expect_err("deferred label URL set must equal the evaluator measurement");
+    assert!(error.contains("URL 集合必须与 evaluator 实测 deferred findings 精确一致"));
+}
+
+#[test]
+fn review_round_cap_field_required_exactly_when_round_cap_applies() {
+    let remaining = vec![
+        ROUND_CAP_FINDING_URL_1.to_string(),
+        ROUND_CAP_FINDING_URL_2.to_string(),
+    ];
+    let applied = Some((4, remaining.as_slice()));
+    let comment = round_cap_g3_comment(round_cap_comment_body(&round_cap_record_json(
+        "round-cap-60-1",
+        "#60",
+    )));
+    assert!(
+        validate_g3_conditional_disclosure_fields(
+            &comment,
+            "Delivery PR",
+            &BTreeSet::new(),
+            applied
+        )
+        .is_ok()
+    );
+
+    // 生效但缺字段行
+    let comment = round_cap_g3_comment("- Gate 结果：`G3 Pass`".to_string());
+    let error = validate_g3_conditional_disclosure_fields(
+        &comment,
+        "Delivery PR",
+        &BTreeSet::new(),
+        applied,
+    )
+    .expect_err("missing round-cap field must fail");
+    assert!(error.contains("缺少 `- Review round cap：` 字段"));
+
+    // 未生效夹带字段行
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n- Review round cap：4 轮，遗留 2 条 [P1][rc-1]、[P1][rc-2]。\n\n[rc-1]: {ROUND_CAP_FINDING_URL_1}\n[rc-2]: {ROUND_CAP_FINDING_URL_2}"
+    ));
+    let error =
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &BTreeSet::new(), None)
+            .expect_err("a smuggled round-cap field must fail");
+    assert!(error.contains("不得夹带 `- Review round cap：` 字段"));
+
+    // 轮数不符
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n- Review round cap：3 轮，遗留 2 条 [P1][rc-1]、[P1][rc-2]。\n\n[rc-1]: {ROUND_CAP_FINDING_URL_1}\n[rc-2]: {ROUND_CAP_FINDING_URL_2}"
+    ));
+    let error = validate_g3_conditional_disclosure_fields(
+        &comment,
+        "Delivery PR",
+        &BTreeSet::new(),
+        applied,
+    )
+    .expect_err("rounds must equal the evaluator measurement");
+    assert!(error.contains("轮数与 evaluator 实测不一致"));
+
+    // 遗留条数不符
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n- Review round cap：4 轮，遗留 3 条 [P1][rc-1]、[P1][rc-2]。\n\n[rc-1]: {ROUND_CAP_FINDING_URL_1}\n[rc-2]: {ROUND_CAP_FINDING_URL_2}"
+    ));
+    let error = validate_g3_conditional_disclosure_fields(
+        &comment,
+        "Delivery PR",
+        &BTreeSet::new(),
+        applied,
+    )
+    .expect_err("remaining count must equal the evaluator measurement");
+    assert!(error.contains("遗留条数与 evaluator 实测不一致"));
+
+    // labels → URL 集合不等
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n- Review round cap：4 轮，遗留 2 条 [P1][rc-1]、[P1][rc-2]。\n\n[rc-1]: {ROUND_CAP_FINDING_URL_1}\n[rc-2]: https://github.com/illusion-tech/laneflow/pull/61#discussion_r999"
+    ));
+    let error = validate_g3_conditional_disclosure_fields(
+        &comment,
+        "Delivery PR",
+        &BTreeSet::new(),
+        applied,
+    )
+    .expect_err("round-cap label URL set must equal the evaluator measurement");
+    assert!(error.contains("URL 集合必须与 evaluator 实测遗留 findings 精确一致"));
+}
+
+#[test]
+fn conditional_disclosure_fields_exempt_historical_g3_comment() {
+    let deferred_urls: BTreeSet<&str> =
+        ["https://github.com/illusion-tech/laneflow/pull/61#discussion_r201"]
+            .into_iter()
+            .collect();
+    let remaining = vec![ROUND_CAP_FINDING_URL_1.to_string()];
+    let mut comment = round_cap_g3_comment("- Gate 结果：`G3 Pass`".to_string());
+    // 激活边界之前的历史 comment 豁免两个条件字段（保护历史 G4 replay）
+    comment.created_at = "2026-08-20T04:20:38Z".to_string();
+    assert!(
+        validate_g3_conditional_disclosure_fields(
+            &comment,
+            "Delivery PR",
+            &deferred_urls,
+            Some((4, remaining.as_slice())),
+        )
+        .is_ok()
+    );
+    // 激活时点起强制
+    comment.created_at = G3_CONDITIONAL_DISCLOSURE_ACTIVATION.to_string();
+    let error = validate_g3_conditional_disclosure_fields(
+        &comment,
+        "Delivery PR",
+        &deferred_urls,
+        Some((4, remaining.as_slice())),
+    )
+    .expect_err("the activation boundary must enforce the conditional fields");
+    assert!(error.contains("缺少 `- Deferred findings：` 字段"));
+}
+
 #[test]
 fn confirmed_defect_waiver_grandfathering_requires_pre_policy_g4_replay() {
     let before_policy = "2026-08-18T04:20:54Z";
