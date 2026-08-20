@@ -533,30 +533,30 @@ v0.10 切换也不需要的冷数据。它不是「#301 第一个 kernel 暂时�
 Identity 正反表与 22 类基数已由 #439 闭合。本表只冻结 Traffic retained 标量/向量；
 未列出的 UTF-8、身份前像、来源位置一律不投影。
 
-| 实体               | 本切片进入 Traffic 的字段                                                                 | 明确不进入                                                              |
-| ------------------ | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `RoadCorridor`     | `reference_section`；元素 range（角色 2）                                                 | 无额外显示名                                                            |
-| `RoadSection`      | `road_corridor`；车道 range（角色 3）；有类型 `FacilityKind`（seed 代码或冷 intern id）   | 原文 `kind_id` UTF-8 热列                                               |
-| `AuthoringLane`    | `road_section`；`edge_chain`；可选 `lane_group`                                           | 无                                                                      |
-| `LaneEdge`         | #439 已有长度/限速/CSR；本切片补**可选**编制属主、内部边属主与停止线反向                  | 强制全覆盖属主；一边多条停止线                                          |
-| `Junction`         | `movements` range                                                                         | 任何 approach 实体或 UTF-8 key                                          |
-| `Movement`         | `junction`；`maneuver_paths` range                                                        | `directed_entry_approach_key`、`directed_exit_approach_key`             |
-| `ManeuverPath`     | #439 已有 movement/edges/gates/waiting                                                    | 无                                                                      |
-| `ManeuverGate`     | `maneuver_path`、`transition_index`、`stop_line`、signal-control 标签与可选 `SignalGroup` | 法规或冲突字段                                                          |
-| `WaitingZone`      | `maneuver_path`、`entry_gate`、`release_gate`、`max_occupancy`                            | 占用账本、队列、#282 runtime 状态                                       |
-| `StopLine`         | `lane_edge`；机动门 range                                                                 | 无                                                                      |
-| `SignalGroup`      | `controller`；机动门反向 range                                                            | 无                                                                      |
-| `SignalController` | `offset_ms`、`cycle_duration_ms`；group/phase ranges                                      | 感应/自适应程序                                                         |
-| `SignalPhase`      | `controller`、`duration_ms`；`(SignalGroup, aspect)` 状态表                               | 未冻结的 aspect 扩展                                                    |
-| `ParkingArea`      | 车位反向 range                                                                            | 无                                                                      |
-| `ParkingSpace`     | 可选 area；入口/出口边与 progress；lateral、heading、length、width                        | 编辑器预览几何                                                          |
-| `LaneGroup`        | `road_section`；成员 range                                                                | 动态 lane-use overlay                                                   |
-| `FacilityBand`     | `road_corridor` 属主句柄；有类型 `FacilityKind`（seed 代码或冷 intern id）                | 原文 `kind_id` UTF-8 热列；几何留在 Spatial；不得成为 AccessRule target |
-| `ParticipantClass` | 可选 parent；`depth`、`subtree_enter`、`subtree_exit`                                     | 显示名                                                                  |
-| `AccessRule`       | 目标 kind+ordinal、`effect`、参与者类别 range、`priority`；seal 后的共享稀疏准入平面      | `regulation` 全部 UTF-8；查询时扫描规则表                               |
-| `VehicleProfile`   | `participant_class` 与全部跟驰数值列                                                      | 显示名                                                                  |
-| `StaticRoute`      | 边序列；transition 可选门；三类 occurrence 的 owner-local range 与交叉索引                | 动态 Route 或出行选择策略                                               |
-| `CanonicalFrame`   | 仅维持 Identity/基数；几何在 Spatial                                                      | Traffic 不复制 frame 点列                                               |
+| 实体               | 本切片进入 Traffic 的字段                                                                        | 明确不进入                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `RoadCorridor`     | `reference_section`；元素 range（角色 2）                                                        | 无额外显示名                                                            |
+| `RoadSection`      | `road_corridor`；车道 range（角色 3）；有类型 `FacilityKind`（seed 代码或冷 intern id）          | 原文 `kind_id` UTF-8 热列                                               |
+| `AuthoringLane`    | `road_section`；`edge_chain`；可选 `lane_group`                                                  | 无                                                                      |
+| `LaneEdge`         | #439 已有长度/限速/CSR；本切片补**可选**编制属主、内部边属主与停止线反向                         | 强制全覆盖属主；一边多条停止线                                          |
+| `Junction`         | `movements` range                                                                                | 任何 approach 实体或 UTF-8 key                                          |
+| `Movement`         | `junction`；`maneuver_paths` range                                                               | `directed_entry_approach_key`、`directed_exit_approach_key`             |
+| `ManeuverPath`     | #439 已有 movement/edges/gates/waiting                                                           | 无                                                                      |
+| `ManeuverGate`     | `maneuver_path`、`transition_index`、`stop_line`、signal-control 标签与可选 `SignalGroup`        | 法规或冲突字段                                                          |
+| `WaitingZone`      | `maneuver_path`、`entry_gate`、`release_gate`、`max_occupancy`                                   | 占用账本、队列、#282 runtime 状态                                       |
+| `StopLine`         | `lane_edge`；机动门 range                                                                        | 无                                                                      |
+| `SignalGroup`      | `controller`；机动门反向 range                                                                   | 无                                                                      |
+| `SignalController` | `offset_ms`、`cycle_duration_ms`；group/phase ranges                                             | 感应/自适应程序                                                         |
+| `SignalPhase`      | `controller`、`duration_ms`；`(SignalGroup, aspect)` 状态表；seal 派生的累计互斥 `end_offset_ms` | 未冻结的 aspect 扩展；每 tick 对 duration 前缀求和                      |
+| `ParkingArea`      | 车位反向 range                                                                                   | 无                                                                      |
+| `ParkingSpace`     | 可选 area；入口/出口边与 progress；lateral、heading、length、width                               | 编辑器预览几何                                                          |
+| `LaneGroup`        | `road_section`；成员 range                                                                       | 动态 lane-use overlay                                                   |
+| `FacilityBand`     | `road_corridor` 属主句柄；有类型 `FacilityKind`（seed 代码或冷 intern id）                       | 原文 `kind_id` UTF-8 热列；几何留在 Spatial；不得成为 AccessRule target |
+| `ParticipantClass` | 可选 parent；`depth`、`subtree_enter`、`subtree_exit`                                            | 显示名                                                                  |
+| `AccessRule`       | 目标 kind+ordinal、`effect`、参与者类别 range、`priority`；seal 后的共享稀疏准入平面             | `regulation` 全部 UTF-8；查询时扫描规则表                               |
+| `VehicleProfile`   | `participant_class` 与全部跟驰数值列                                                             | 显示名                                                                  |
+| `StaticRoute`      | 边序列；transition 可选门；三类 occurrence；seal 派生的距离索引、下一受控转换与限速下降转换      | 动态 `register_route`；出行选择策略                                     |
+| `CanonicalFrame`   | 仅维持 Identity/基数；几何在 Spatial                                                             | Traffic 不复制 frame 点列                                               |
 
 ### 13.4 反向索引与闭合
 
@@ -585,6 +585,19 @@ Identity 正反表与 22 类基数已由 #439 闭合。本表只冻结 Traffic r
 unconstrained/decided 语义一致，包括胜者 rule 归因。平面是共享静态数据，不能推迟到
 每 world 可变状态。
 
+下列列由已冻结静态事实在 seal 时派生，供当前 Core tick 热路径直接借用，不得每
+tick 扫描，也不得复制进每 world 可变状态：
+
+- **信号相位累计边界**：每个 `SignalPhase` 保留控制器内累计互斥 `end_offset_ms`
+  （当前 Core `ResolvedSignalPhase.end_offset_ms`）。`populate_runtime_state` 用
+  `partition_point` 解析活动相位；末相位 `end_offset_ms` 必须等于 controller
+  `cycle_duration_ms`。只留 `duration_ms` 会迫使每 tick 前缀求和或每 world 重建。
+- **StaticRoute 执行索引**：对每条编译器作者的 `StaticRoute`，seal 时生成与当前
+  `CoreWorld::register_compiled_route` 等价的 `RouteDistanceIndex`、
+  `next_controlled_transition` 与 `speed_limit_transitions`（由边长、限速、
+  受信号控制的 transition gate 派生）。动态 `CoreWorld::register_route` 仍由
+  #301 每世界拥有，不进共享静态路网。
+
 `PartitionPlanningHints` 默认保持 #439 的边邻接度数公式。若实现要把路口或静态路线
 边界权值纳入 worker 数无关提示，必须提升
 `partitionPlanningHintsDerivationVersion`，并证明不改变精确执行结果；不得把最终
@@ -605,7 +618,10 @@ partition/worker 写入共享对象。本 G1 不把提示算法升级当作完�
   LFCA AccessRule ordinal，不得用 JSON 声明序当 oracle；查询不得扫描规则表；
 - `LaneEdge → StopLine`：无停止线的边构建成功且反向缺失；一边两条停止线失败关闭；
 - 信号 program：controller offset/cycle、phase duration、group aspect 与门绑定
-  往返相等；不得出现冲突裁决字段；
+  往返相等；累计 `end_offset_ms` 与 `partition_point` 相位边界精确等于当前 Core；
+  不得出现冲突裁决字段；
+- StaticRoute 执行索引：同一 LFCA 路线的距离查询、下一受控 gate 距离与限速下降转换
+  与当前 `register_compiled_route` 在相同边长/限速/受控门下的结果一致；
 - 停车：关系加几何标量在 headless 下可绑定；取消/失败不留根；
 - 静态路线 occurrence：边跨度、门链、等待区入口与 owner-local range 无空洞；
 - 合法 UTF-8 冷字段（approach key、`regulation`、原文 `kind_id`）存在于 LFCA 但不出现在
@@ -631,4 +647,7 @@ partition/worker 写入共享对象。本 G1 不把提示算法升级当作完�
 - 准入查询必须在 tick/绑定期扫描规则表，或每 world 重建 resolved 平面才能保持当前
   Core 语义；
 - 必须把 Traffic JSON 声明顺序而不是 LFCA AccessRule ordinal 当作并列规则归因权威，
-  才能完成 v0.10 切换。
+  才能完成 v0.10 切换；
+- 固定时制相位解析必须每 tick 扫描/累加 `duration_ms`，或每 world 重建累计边界；
+- 绑定 `StaticRoute` 时必须每 world 重建 `RouteDistanceIndex` / 下一受控转换 /
+  限速下降转换，或在 tick 中扫描路线边。
