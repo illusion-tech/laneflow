@@ -225,14 +225,14 @@ AwaitingReview
 判定规则：
 
 - 没有有效 completion event 时，即使 `reviewThreads=0` 也保持 `AwaitingReview`。
-- 当前 exact head 首次得到一个有效 reviewer 的 clean completion 后，才满足 reviewer 数量门槛。
-- 出现 finding 后，仅修复代码、回复或由作者 resolve thread 不能恢复为 clean；必须形成 `finding -> disposition -> exact-head clean re-review`。
+- 当前 exact head 首次得到一个有效 reviewer 的 clean completion（或按 D4 从 tree OID 逐字节相等的已审 head 对称继承 clean 结论）后，才满足 reviewer 数量门槛。
+- 出现 blocking finding 后，仅修复代码、回复或由作者 resolve thread 不能恢复为 clean；必须形成 `finding -> disposition -> clean re-review`，re-review 绑定 current exact head 或按 D4 tree OID 逐字节相等继承；deferred（P2/P3）findings 不适用该链（见下文 #406 全局语义层）。
 - `unresolved actionable threads == 0` 是必要条件，不是充分条件。
 - 受信任人工 reviewer 只以 `APPROVED` / `CHANGES_REQUESTED` 分别形成结构化 clean / findings；body-only `COMMENTED` 且没有受信任 inline finding thread 时不构成 completion 或 finding，不对自由文本做关键词或语义阻断推断。
 - 受信任 Codex provider 创建且保持未编辑、时间与 URL 有效、符合 clean marker 但缺少可解析 `Reviewed commit` 的 comment，是无绑定 clean 歧义事件。只有创建/提交时间严格晚于该事件、actor/provider 可信、绑定 current exact head 且字段完整有效的 clean completion 才能覆盖它；GitHub 秒级时间相同不能证明先后。仅有此类歧义，或最后一个有效 current-head clean completion 之后仍有此类歧义，均返回 `provider_error`。被编辑 comment、无效时间/URL/OID、分页截断、actor/provider 不可信和 head/base 竞态不适用该窄规则，继续直接失败关闭。
 - 无绑定 clean 歧义的标准解除路径是受控请求 marker + 受信绑定记录：G3 Owner 在 PR conversation 新增正文精确为 `external-review: request-codex-review` 的 comment，trusted `Codex Clean Binding` workflow（`issue_comment.created` 触发、仅从 default branch 运行、显式 checkout `refs/heads/main` 且关闭 credential persistence）校验后发布含 `codex-review-request:v1` 隐藏记录的复审请求，记录 request head/base 完整 OID；Codex clean comment 到达时，同一 workflow 的 publisher 校验其 actor、clean verdict 子串形状（正文含固定 `Codex Review:` 与 clean verdict 文本；该形状只区分受信 actor 自身产物的 verdict 类别，信任根是 actor 身份与 head/base 绑定而非 body 语法封闭性）、未编辑与时间/URL 有效，为其选择创建时间严格更早（秒粒度）的最早未消费 marker——候选 head/base 不全相同时无法证明 clean 归属，歧义拒绝发布——并以含 `codex-clean-binding:v1` 隐藏记录的 comment 发布绑定。evaluator 只从快照判定 `github-actions[bot]` 发布、保持未编辑、字段完整有效的 marker 与 record（发布回读确认是 publisher 的运行时后置条件，见 `github-workflow.md`，evaluator 无法从快照重放证明其曾执行，不列为 evaluator 验收项）；record 引用的 marker/clean 不存在、marker 与 clean 同秒、字段无效、id 重复冲突或多个 record 引用同一 clean 均失败关闭。record 绑 current exact head 时其 clean 计为 completion，完成时间取 clean 创建时间；record 绑旧 head 时 clean 落 `stale`，stale record 同样消费其 marker，使跨 push 迟到的旧 head 响应不会永久卡死后续 clean。同秒发布的多条 record 以各自引用 clean 的 `(createdAt, id)` 恢复分配顺序，hash 派生的 record id 只作最终 tie-break。任何人手工伪造 marker 或 record 都因 actor 校验失败关闭。
 - R1 没有原生 thread-resolution workflow event；每批 resolve / unresolve 后必须新增顶层 `external-review: thread-state-changed` comment，等待 trusted publisher 重读状态。R2 必须由专用 GitHub App 的 `pull_request_review_thread` webhook 或等价自动信号覆盖两个方向；若 unresolve 仍需人工 marker，不得进入 R2。
-- 首版标准路径只接受 exact-head review。content-equivalent rebase 不自动继承 Pass，只能按显式例外处理。
+- 首版标准路径接受 exact-head review；git tree OID 与上一已审 head 逐字节相等的内容等价 rebase 按 D4 对称继承审阅结论（见下文 #406 全局语义层），其它 content-equivalent rebase 不自动继承 Pass，只能按显式例外处理。
 - `dependabot-cargo-lock-only-v1` 是窄范围机器 completion：仅当 PR author 是 Dependabot、变更精确为一个 `MODIFIED` 的 `Cargo.lock`、精确为一个等于 current head 的 commit、该 commit 的 Git author name/email 精确为 `dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>`，且 commit 时间与 GitHub URL 有效时适用。它只忽略已 resolved / outdated、绑定 current head、当前正文精确等于 PR #313 已记录三条 Codex bot-author 错误之一的 finding；还必须有受信任人工 `Disposition:` 回复，其当前正文记录 current head 与 Dependabot 的精确 bot identity，且回复的最新更新时间严格晚于 finding 的最新更新时间。该 thread 的其他受信任回复也必须都是同样合格的人工 disposition；任一其他受信任回复都退回标准审阅路径。comment 被编辑本身不使证据失效，判定使用当前正文与 `updatedAt` 顺序；依赖 disposition 的机器 completion 也以最后一条适用回复的 `updatedAt` 和 URL 作为完成证据。Codex provider 不可用或 Copilot 无法审阅在这条窄路径中不构成 completion；由上述 GitHub metadata 形成 completion。任一源文件、额外 commit、受信任 provider 的真实或 dismissed finding、current unresolved authorless thread、受信任 provider 的其他未解决 finding thread 或证据字段不完整都回到标准失败关闭路径；不受信任 actor 的自由文本和 thread 不获得外部审阅结论或阻断权。仅对已经通过上述完整机器条件、且当前 PR body 仍保留已勾选 G3 comment permalink 的 PR，若 Dependabot 自主改写使 `关联 Issue` / `PR 角色` 不再可解析，G3 Shadow 可从该 current G3 comment 的完整规范 `Gate 断言` 集合恢复 target；Issue Gate Ledger、closing set、current head 与其余 G3 校验不放宽，编辑后的 comment 仍按本节统一的 effective time 重新验证。
 
 ### 6.2 G3 双钥匙与时序
@@ -335,7 +335,7 @@ G3 Owner 可以在 PR 合并前纠正 current G3 comment，也可以新增 super
 - `evidenceRefs` 只保存 Markdown reference label；每个 label 必须由可见的 `- 例外：` 行引用，并在 comment 文末解析为 GitHub HTTPS 证据，JSON 内不直接写 URL；
 - current head/base 必须与 live PR 一致，`followUpIssue` 必须指向当前关联 Issue，`authorizedBy` 必须等于 current G3 comment author，且该 actor 必须在 trusted G3 Owner allowlist；
 - `expiresAt` 必须晚于 comment effective time，且有效期从该时点起不超过 24 小时。当前仍为 `OPEN` 的 Delivery / Related PR 在每次 Gate 运行时都必须保持未过期；Delivery full-set 或 G4 复核带 `mergedAt` 的 `MERGED` 历史 Related PR 时，只按该 `mergedAt` 判断 waiver 在其合并时是否有效。该历史复核不延长或恢复 waiver，不适用于 Delivery PR 自身或 `OPEN` Related PR，不把 `waived` 转换为 `pass`，也不允许包含 waived member 的 full-set 取得 Shadow success；缺失或非法 `mergedAt` 继续失败关闭；
-- validator 的输出保持 `waived`，只与 `G3 Waived` 配对；它不得转换成标准 `pass`，`G3 Pass` / `R0-R1 bootstrap` 仍要求 live exact-head `pass`。
+- validator 的输出保持 `waived`，只与 `G3 Waived` 配对；它不得转换成标准 `pass`，`G3 Pass` / `R0-R1 bootstrap` 仍要求 live `pass`（exact-head，或按 D4 tree OID 逐字节相等继承的审阅结论）。
 
 content-equivalent rebase 还必须记录 reviewed/new head、old/new base、changed paths、稳定 patch fingerprint、受影响路径 blob 对照和常规 checks；workflow、Gate、权限、安全策略、依赖锁定语义变化或任何无法解释的不等价都禁止使用该例外。
 
@@ -362,8 +362,8 @@ external review evaluator 的 #406 全局语义层（D2 deferred 披露、D3 轮
 - 关联 Issue 缺少必需 GitHub 元数据 / 依赖关系审计且没有显式例外，或不适用项缺少 `N/A` 原因。
 - Delivery PR 的完整 `closingIssuesReferences` 与全部 `关联 Issue` 不精确一致，或 Related PR 的 closing set 非空，且没有显式例外。
 - PR commit message 不符合 `docs/reference/commit-convention.md`，且没有记录显式例外。
-- 缺少有效外部 review completion、reviewed head 不是 current head、review 仍 pending/stale，或 actor/provider 不可信。
-- finding 尚未处置、处置后没有 exact-head clean re-review，或仍有 unresolved actionable thread。
+- 缺少有效外部 review completion、reviewed head 不是 current head 且 git tree OID 未与 current head 逐字节相等（不适用 D4 继承）、review 仍 pending/stale，或 actor/provider 不可信。
+- blocking finding 尚未处置、处置后没有 current-head clean re-review（含 D4 tree 相等继承），或仍有 unresolved actionable thread。
 - R2 激活后，current-head `External Review Gate` 未成功，或 G3 comment 早于最终 Check / completion。
 - G3 comment 在 PR 合并后被补写或编辑，编辑后未按新 effective time 重验 / 新增 marker，或 commit 使用 `G3 Pass` / `G3 Waived` 冒充 PR Gate 结果。
 - 源代码许可证、依赖许可证、RustSec advisory、crate 来源或 Dependabot 配置违反 `dependency-security.md`，或适用 cargo-deny 检查未通过。

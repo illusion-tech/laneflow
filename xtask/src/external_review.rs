@@ -1629,7 +1629,16 @@ pub(crate) fn evaluate_snapshot_with_policy(
     let would_be_findings_open =
         unresolved_blocking_threads > 0 && (latest_finding.is_some() || latest_clean.is_some());
     let would_be_awaiting_rereview = latest_finding.is_some_and(|finding| {
-        unresolved_blocking_threads == 0 && clean_after_finding.is_none() && finding_blocks(finding)
+        if unresolved_blocking_threads > 0 || clean_after_finding.is_some() {
+            return false;
+        }
+        // F1：与下方状态分支口径一致——blocking finding 仍在，或 deferred-only
+        // 最新 review 背后存在未被更晚 clean 覆盖的更早 blocking finding（该形态下
+        // 未闭环 blocking 集合为空，record 的空 remainingFindingUrls 语义自洽）。
+        finding_blocks(finding)
+            || !latest_blocking_finding.is_none_or(|blocking| {
+                latest_clean.is_some_and(|clean| clean.submitted_at > blocking.submitted_at)
+            })
     });
     let round_cap_applied = snapshot
         .round_cap
@@ -3442,11 +3451,13 @@ fn commits_tree_for<'a>(
     }
 }
 
-/// D4：收集需要追加查询解析 tree 的孤儿 reviewed head oid——PR 顶层 comments 的
-/// `Reviewed commit:` marker 值，以及经校验的 Codex clean binding record 的
-/// boundHeadOid（F：SHA-less clean completion 的 head 只存在于该隐藏记录）；
-/// 去重后仍无法由 commits 映射与已解析结果解析的部分；超过 16 个不同 oid →
-/// None（fail-closed 不解析，全部不继承）
+/// D4：收集需要追加查询解析 tree 的孤儿 reviewed head oid——PR 顶层 comments 中
+/// 能成为受信 Codex clean 证据的 comment 的 `Reviewed commit:` marker 值（F2：
+/// 受信 Codex actor + clean comment 形态 + 未被编辑；伪造 marker 不参与收集、
+/// 不占用 16-OID 上限、不牵引追加查询），以及经校验的 Codex clean binding
+/// record 的 boundHeadOid（F：SHA-less clean completion 的 head 只存在于该
+/// 隐藏记录）；去重后仍无法由 commits 映射与已解析结果解析的部分；超过 16 个
+/// 不同 oid → None（fail-closed 不解析，全部不继承）
 fn orphan_reviewed_oids_for_tree_resolution(
     pr: &PullRequestSnapshot,
     commits_by_oid: &BTreeMap<&str, &str>,
@@ -3454,6 +3465,16 @@ fn orphan_reviewed_oids_for_tree_resolution(
 ) -> Option<Vec<String>> {
     let mut oids = BTreeSet::new();
     for comment in &pr.comments.nodes {
+        // F2：与 evaluate 的 clean comment 证据入口同一受信口径
+        let trusted_clean = comment
+            .author
+            .as_ref()
+            .is_some_and(|actor| normalize_actor(&actor.login) == CODEX_ACTOR)
+            && codex_clean_comment_shape(&comment.body)
+            && comment.updated_at == comment.created_at;
+        if !trusted_clean {
+            continue;
+        }
         let Some(reviewed) = parse_reviewed_commit(&comment.body) else {
             continue;
         };
@@ -5801,6 +5822,92 @@ mod tests {
     }
 
     #[test]
+    fn round_cap_applies_when_deferred_review_masks_blocking_round() {
+        // F1：4 个不同 finding heads（> MAX_REVIEW_ROUNDS），current-head 上较早
+        // blocking finding 已 resolve 但无后续 clean，最新 findings review 仅 deferred
+        // → 状态本将落 AwaitingRereview，合法 round-cap record（空 remaining）应生效收口。
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/copilot-findings-open.json"
+        ));
+        let head = snapshot.pull_request.head_ref_oid.clone();
+        // PR author 换成非受信 actor，wangzishi 的人工 review 才计入受信证据
+        snapshot.pull_request.author = Some(Actor {
+            login: "contributor".to_string(),
+        });
+        // current-head blocking finding（thread 已 resolve，无后续 clean）
+        let blocking_thread = &mut snapshot.pull_request.review_threads.nodes[0];
+        blocking_thread.is_resolved = true;
+        blocking_thread.comments.nodes[0].body = codex_badge_body("P1", "Must fix before merge.");
+        // 3 个更早 old-head 上的 unthreaded findings，凑足 4 个不同 finding heads
+        for round in 1..=3u32 {
+            snapshot.pull_request.reviews.nodes.push(Review {
+                id: format!("PRR-human-changes-r{round}"),
+                author: Some(Actor {
+                    login: "wangzishi".to_string(),
+                }),
+                body: String::new(),
+                state: "CHANGES_REQUESTED".to_string(),
+                submitted_at: Some(format!("2026-07-0{round}T08:00:00Z")),
+                url: Some(format!(
+                    "https://github.com/illusion-tech/laneflow/pull/38#pullrequestreview-r{round}"
+                )),
+                commit: Some(CommitRef {
+                    oid: format!("{round:040x}"),
+                    tree: None,
+                }),
+            });
+        }
+        // 更晚的 P2-only deferred findings review 及其关联 thread
+        snapshot.pull_request.reviews.nodes.push(Review {
+            id: "PRR-copilot-findings-2".to_string(),
+            author: Some(Actor {
+                login: "copilot-pull-request-reviewer".to_string(),
+            }),
+            body: "Copilot reviewed 2 files and generated 1 comment.".to_string(),
+            state: "COMMENTED".to_string(),
+            submitted_at: Some("2026-07-10T08:00:00Z".to_string()),
+            url: Some(
+                "https://github.com/illusion-tech/laneflow/pull/38#pullrequestreview-4661194999"
+                    .to_string(),
+            ),
+            commit: Some(CommitRef {
+                oid: head.clone(),
+                tree: None,
+            }),
+        });
+        let mut p2_thread = snapshot.pull_request.review_threads.nodes[0].clone();
+        p2_thread.id = "PRRT-copilot-finding-p2".to_string();
+        p2_thread.is_resolved = false;
+        let p2_comment = &mut p2_thread.comments.nodes[0];
+        p2_comment.id = "PRRC-copilot-finding-p2".to_string();
+        p2_comment.url =
+            "https://github.com/illusion-tech/laneflow/pull/38#discussion_r3550034360".to_string();
+        p2_comment.body = codex_badge_body("P2", "Deferrable concern.");
+        let p2_review_ref = p2_comment.pull_request_review.as_mut().expect("review ref");
+        p2_review_ref.id = "PRR-copilot-findings-2".to_string();
+        p2_review_ref.submitted_at = Some("2026-07-10T08:00:00Z".to_string());
+        snapshot.pull_request.review_threads.nodes.push(p2_thread);
+
+        // 无 round-cap record：deferred 掩盖下仍落 AwaitingRereview
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.review_rounds, 4);
+        assert_eq!(result.state, ExternalReviewState::AwaitingRereview);
+        assert!(result.round_cap.is_none());
+
+        // 合法 round-cap record（remaining 为空，与实测未闭环集合一致）→ 生效收口
+        snapshot.round_cap = Some(RoundCapInput {
+            current_head_oid: head.clone(),
+            round_count: 4,
+            remaining_finding_urls: Vec::new(),
+        });
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        let applied = result.round_cap.expect("round-cap applied");
+        assert_eq!(applied.rounds, 4);
+        assert!(applied.remaining_finding_urls.is_empty());
+    }
+
+    #[test]
     fn counts_review_rounds_by_distinct_finding_head_oids() {
         // 无 findings → 0 轮
         let clean = evaluate_snapshot(&fixture(include_str!(
@@ -6364,13 +6471,17 @@ mod tests {
         let resolved = BTreeMap::new();
         let comment = |body: String| IssueComment {
             id: String::new(),
-            author: None,
+            author: Some(Actor {
+                login: CODEX_ACTOR.to_string(),
+            }),
             body,
             created_at: "2026-08-20T00:00:00Z".to_string(),
             updated_at: "2026-08-20T00:00:00Z".to_string(),
             url: String::new(),
         };
-        let marker = |oid: &str| format!("Codex Review: clean\n\n**Reviewed commit:** `{oid}`");
+        let marker = |oid: &str| {
+            format!("Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `{oid}`")
+        };
         let snapshot_with = |comments: Vec<IssueComment>| {
             let mut snapshot =
                 fixture(include_str!("../fixtures/external-review/codex-clean.json"));
@@ -6406,6 +6517,78 @@ mod tests {
                 &resolved
             ),
             None
+        );
+    }
+
+    #[test]
+    fn orphan_markers_only_collected_from_trusted_clean_comments() {
+        // F2：不可信 author / 非 clean 形态 / 创建后被编辑的 comment 里的伪造
+        // marker 一律不进入收集（不占 16-OID 上限，不牵引追加 GraphQL 查询）
+        let orphan_head = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let commits_by_oid = BTreeMap::new();
+        let resolved = BTreeMap::new();
+        let codex_comment = |body: String| IssueComment {
+            id: String::new(),
+            author: Some(Actor {
+                login: CODEX_ACTOR.to_string(),
+            }),
+            body,
+            created_at: "2026-08-20T00:00:00Z".to_string(),
+            updated_at: "2026-08-20T00:00:00Z".to_string(),
+            url: String::new(),
+        };
+        let marker = |oid: &str| {
+            format!("Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `{oid}`")
+        };
+        let snapshot_with = |comments: Vec<IssueComment>| {
+            let mut snapshot =
+                fixture(include_str!("../fixtures/external-review/codex-clean.json"));
+            snapshot.pull_request.comments.nodes = comments;
+            snapshot
+        };
+
+        // 仅受信 clean comment 的孤儿 marker 被收集；三类伪造 marker 各自不收集
+        let mut untrusted = codex_comment(marker("cccccccccccc"));
+        untrusted.author = Some(Actor {
+            login: "external-contributor".to_string(),
+        });
+        let not_clean_shape = codex_comment(
+            "Codex Review: found issues\n\n**Reviewed commit:** `dddddddddddd`".to_string(),
+        );
+        let mut edited = codex_comment(marker("eeeeeeeeeeee"));
+        edited.updated_at = "2026-08-20T00:01:00Z".to_string();
+        let comments = vec![
+            untrusted,
+            not_clean_shape,
+            edited,
+            codex_comment(marker(&orphan_head[..12])),
+        ];
+        assert_eq!(
+            orphan_reviewed_oids_for_tree_resolution(
+                &snapshot_with(comments).pull_request,
+                &commits_by_oid,
+                &resolved
+            ),
+            Some(vec![orphan_head[..12].to_string()])
+        );
+
+        // 不可信 commenter 投 17 个伪造 marker → 不触发上限（返回空集而非 None）
+        let comments = (0..17u32)
+            .map(|index| {
+                let mut forged = codex_comment(marker(&format!("{index:040x}")));
+                forged.author = Some(Actor {
+                    login: "external-contributor".to_string(),
+                });
+                forged
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            orphan_reviewed_oids_for_tree_resolution(
+                &snapshot_with(comments).pull_request,
+                &commits_by_oid,
+                &resolved
+            ),
+            Some(Vec::new())
         );
     }
 
