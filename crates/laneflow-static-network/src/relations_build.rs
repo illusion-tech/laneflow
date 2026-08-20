@@ -18,7 +18,8 @@ use crate::builder::{
 };
 use crate::relations::{
     ACCESS_UNCONSTRAINED_ROW, AccessCell, AccessTarget, BoundedDistance, CorridorElement,
-    FacilityKind, SharedRelationClosure, assemble, empty_optional, get_optional, set_optional,
+    FacilityKind, RelationPayloads, SharedRelationClosure, assemble, empty_optional, get_optional,
+    set_optional,
 };
 use crate::{BuildError, BuildStructure, EntityCounts, RangeU32, SharedManeuverNetwork};
 
@@ -89,6 +90,8 @@ pub(crate) fn build_relations(
         &junction_movement_ranges,
         &junction_movements,
         &movement_junction,
+        MovementOrdinal::index,
+        JunctionOrdinal::from_raw,
         entity_counts.count(EntityKind::Junction),
         options,
     )?;
@@ -120,6 +123,15 @@ pub(crate) fn build_relations(
         options,
     )?;
     let signals = build_signals(view, entity_counts, &mut unique, options)?;
+    close_owner_members(
+        &signals.controller_group_ranges,
+        &signals.controller_groups,
+        &signals.group_controller,
+        SignalGroupOrdinal::index,
+        SignalControllerOrdinal::from_raw,
+        entity_counts.count(EntityKind::SignalController),
+        options,
+    )?;
     close_optional_owner_members(
         &signals.group_gate_ranges,
         &signals.group_gates,
@@ -146,8 +158,8 @@ pub(crate) fn build_relations(
         entity_counts.count(EntityKind::ParkingSpace),
         options,
     )?;
-    let classes = build_classes(view, entity_counts, options)?;
-    close_class_forest(&classes, options)?;
+    let mut classes = build_classes(view, entity_counts, options)?;
+    close_class_forest(&mut classes, options)?;
     let rules = build_access_rules(view, entity_counts, &mut unique, options)?;
     let profiles = build_profiles(view, entity_counts, options)?;
     let (edge_row_starts, edge_cells, path_row_starts, path_cells, access_class_count) =
@@ -416,6 +428,71 @@ fn relation_table<'a>(
         .ok_or(BuildError::InputInvariant {
             structure: STRUCTURE,
         })
+}
+
+pub(crate) fn count_relation_payloads(
+    view: ValueCheckedObjectView<'_>,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<RelationPayloads, BuildError> {
+    Ok(RelationPayloads {
+        corridor_elements: sum_record_field(view, EntityKind::RoadCorridor, 4, options)?,
+        section_lanes: sum_ordinal_field(view, EntityKind::RoadSection, 5, options)?,
+        authoring_edges: sum_ordinal_field(view, EntityKind::AuthoringLane, 4, options)?,
+        junction_movements: sum_ordinal_field(view, EntityKind::Junction, 3, options)?,
+        movement_paths: sum_ordinal_field(view, EntityKind::Movement, 6, options)?,
+        stop_line_gates: sum_ordinal_field(view, EntityKind::StopLine, 4, options)?,
+        group_gates: sum_ordinal_field(view, EntityKind::SignalGroup, 4, options)?,
+        controller_groups: sum_ordinal_field(view, EntityKind::SignalController, 5, options)?,
+        controller_phases: sum_ordinal_field(view, EntityKind::SignalController, 6, options)?,
+        phase_states: sum_record_field(view, EntityKind::SignalPhase, 5, options)?,
+        parking_spaces: sum_ordinal_field(view, EntityKind::ParkingArea, 3, options)?,
+        lane_group_members: sum_ordinal_field(view, EntityKind::LaneGroup, 4, options)?,
+        rule_classes: sum_ordinal_field(view, EntityKind::AccessRule, 6, options)?,
+        route_edges: sum_ordinal_field(view, EntityKind::StaticRoute, 3, options)?,
+        route_transitions: sum_record_field(view, EntityKind::StaticRoute, 4, options)?,
+        route_maneuvers: relation_table(view, 1)?.row_count(),
+        route_gate_occurrences: relation_table(view, 2)?.row_count(),
+        route_waiting_occurrences: relation_table(view, 3)?.row_count(),
+        route_reverse: relation_table(view, 4)?.row_count(),
+    })
+}
+
+fn sum_ordinal_field(
+    view: ValueCheckedObjectView<'_>,
+    kind: EntityKind,
+    tag: u16,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<u32, BuildError> {
+    let table = entity_table(view, kind)?;
+    let mut total = 0_u32;
+    for (index, row) in table.rows().enumerate() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
+        total = total
+            .checked_add(checked_ordinal_vector(row, tag, STRUCTURE)?.len())
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: STRUCTURE,
+            })?;
+    }
+    Ok(total)
+}
+
+fn sum_record_field(
+    view: ValueCheckedObjectView<'_>,
+    kind: EntityKind,
+    tag: u16,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<u32, BuildError> {
+    let table = entity_table(view, kind)?;
+    let mut total = 0_u32;
+    for (index, row) in table.rows().enumerate() {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
+        total = total
+            .checked_add(checked_record_vector(row, tag, STRUCTURE)?.len())
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: STRUCTURE,
+            })?;
+    }
+    Ok(total)
 }
 
 fn expect_row_ordinal(row: RegistryCheckedRowView<'_>, expected: u32) -> Result<(), BuildError> {
@@ -760,13 +837,19 @@ fn close_corridor_ownership(
     Ok(())
 }
 
-fn close_owner_members(
+fn close_owner_members<M, O>(
     ranges: &[RangeU32],
-    members: &[MovementOrdinal],
-    scalar: &[JunctionOrdinal],
+    members: &[M],
+    scalar: &[O],
+    member_index: impl Fn(M) -> usize,
+    make_owner: impl Fn(u32) -> O,
     owner_count: u32,
     options: SharedNetworkBuildOptions<'_>,
-) -> Result<(), BuildError> {
+) -> Result<(), BuildError>
+where
+    M: Copy,
+    O: Copy + PartialEq,
+{
     if ranges.len() != usize::try_from(owner_count).expect("u32") {
         return Err(BuildError::InputInvariant {
             structure: STRUCTURE,
@@ -775,14 +858,14 @@ fn close_owner_members(
     let mut seen = vec![None; scalar.len()];
     for (owner_index, range) in ranges.iter().enumerate() {
         poll_cancelled(options, u32::try_from(owner_index).unwrap_or(u32::MAX))?;
-        let owner = JunctionOrdinal::from_raw(u32::try_from(owner_index).expect("fits"));
+        let owner = make_owner(u32::try_from(owner_index).expect("fits"));
         for member in range.slice(members) {
-            if scalar.get(member.index()) != Some(&owner) {
+            let slot = member_index(*member);
+            if scalar.get(slot) != Some(&owner) {
                 return Err(BuildError::InputInvariant {
                     structure: STRUCTURE,
                 });
             }
-            let slot = member.index();
             if seen.get(slot).copied().flatten().is_some() {
                 return Err(BuildError::InputInvariant {
                     structure: STRUCTURE,
@@ -846,7 +929,7 @@ where
 }
 
 fn close_class_forest(
-    classes: &Classes,
+    classes: &mut Classes,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<(), BuildError> {
     let count = classes.depth.len();
@@ -871,6 +954,17 @@ fn close_class_forest(
             structure: STRUCTURE,
         });
     }
+    let mut by_enter = vec![0_u32; count];
+    for (index, &enter) in classes.subtree_enter.iter().enumerate() {
+        let slot = usize::try_from(enter).expect("u32 fits");
+        if slot >= count {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        by_enter[slot] = u32::try_from(index).expect("fits");
+    }
+    classes.by_enter = by_enter.into_boxed_slice();
     Ok(())
 }
 
@@ -1970,6 +2064,7 @@ struct Classes {
     depth: Box<[u32]>,
     subtree_enter: Box<[u32]>,
     subtree_exit: Box<[u32]>,
+    by_enter: Box<[u32]>,
 }
 
 fn build_classes(
@@ -2012,6 +2107,7 @@ fn build_classes(
         depth: depth.into_boxed_slice(),
         subtree_enter: enter.into_boxed_slice(),
         subtree_exit: exit.into_boxed_slice(),
+        by_enter: Box::new([]),
     })
 }
 
@@ -2209,19 +2305,6 @@ fn opt_min(a: Option<u32>, b: Option<u32>) -> Option<u32> {
     }
 }
 
-fn is_descendant_or_self(classes: &Classes, profile: u32, ancestor: u32) -> bool {
-    let Some(enter) = classes.subtree_enter.get(profile as usize).copied() else {
-        return false;
-    };
-    let Some(ancestor_enter) = classes.subtree_enter.get(ancestor as usize).copied() else {
-        return false;
-    };
-    let Some(ancestor_exit) = classes.subtree_exit.get(ancestor as usize).copied() else {
-        return false;
-    };
-    ancestor_enter <= enter && enter < ancestor_exit
-}
-
 fn target_specificity(target: AccessTarget) -> u8 {
     match target {
         AccessTarget::LaneEdge(_) => 2,
@@ -2239,33 +2322,27 @@ fn fold_rule(
 ) {
     let class_range = rules.class_ranges[rule_index as usize];
     let rule_classes = class_range.slice(&rules.classes);
-    for (profile, slot) in verdicts.iter_mut().enumerate() {
-        let mut depth = None;
-        for class in rule_classes {
-            if is_descendant_or_self(classes, profile as u32, class.raw()) {
-                let class_depth = classes.depth[class.index()];
-                depth = Some(depth.map_or(class_depth, |best: u32| best.max(class_depth)));
-            }
-        }
-        let Some(depth) = depth else {
-            continue;
-        };
-        let key = (
-            depth,
-            target_specificity(rules.target[rule_index as usize]),
-            rules.priority[rule_index as usize],
-        );
+    let specificity = target_specificity(rules.target[rule_index as usize]);
+    let priority = rules.priority[rule_index as usize];
+    let allow = matches!(rules.effect[rule_index as usize], AccessEffect::Allow);
+    for class in rule_classes {
+        let enter = classes.subtree_enter[class.index()];
+        let exit = classes.subtree_exit[class.index()];
+        let class_depth = classes.depth[class.index()];
+        let key = (class_depth, specificity, priority);
         let verdict = ClassVerdict {
             key,
-            min_allow: matches!(rules.effect[rule_index as usize], AccessEffect::Allow)
-                .then_some(rule_index),
-            min_deny: matches!(rules.effect[rule_index as usize], AccessEffect::Deny)
-                .then_some(rule_index),
+            min_allow: allow.then_some(rule_index),
+            min_deny: (!allow).then_some(rule_index),
         };
-        *slot = Some(match *slot {
-            Some(existing) => existing.merge(verdict),
-            None => verdict,
-        });
+        for time in enter..exit {
+            let profile = usize::try_from(classes.by_enter[time as usize]).expect("u32");
+            let slot = &mut verdicts[profile];
+            *slot = Some(match *slot {
+                Some(existing) => existing.merge(verdict),
+                None => verdict,
+            });
+        }
     }
 }
 
@@ -3691,20 +3768,77 @@ fn build_route_reverse(
             structure: STRUCTURE,
         });
     }
-    let mut order: Vec<usize> = (0..kinds.len()).collect();
-    order.sort_unstable_by_key(|&index| {
-        (
-            kinds[index],
-            ordinals[index],
-            routes[index].raw(),
-            occurrences[index],
-        )
-    });
+    bucket_reverse_rows(kinds, ordinals, routes, occurrences, entity_counts, options)
+}
+
+fn bucket_reverse_rows(
+    kinds: Vec<u16>,
+    ordinals: Vec<u32>,
+    routes: Vec<StaticRouteOrdinal>,
+    occurrences: Vec<u32>,
+    entity_counts: &EntityCounts,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<
+    (
+        Box<[u16]>,
+        Box<[u32]>,
+        Box<[StaticRouteOrdinal]>,
+        Box<[u32]>,
+    ),
+    BuildError,
+> {
+    let len = kinds.len();
+    let mut out_kinds = vec![0_u16; len];
+    let mut out_ordinals = vec![0_u32; len];
+    let mut out_routes = vec![StaticRouteOrdinal::from_raw(0); len];
+    let mut out_occurrences = vec![0_u32; len];
+    let mut cursor = 0_usize;
+    for kind in [
+        EntityKind::LaneEdge,
+        EntityKind::ManeuverPath,
+        EntityKind::ManeuverGate,
+        EntityKind::WaitingZone,
+    ] {
+        poll_cancelled(options, u32::from(kind.code()))?;
+        let code = kind.code();
+        let limit = usize::try_from(entity_counts.count(kind)).expect("u32 fits");
+        let mut counts = vec![0_usize; limit];
+        for index in 0..len {
+            if kinds[index] == code {
+                let ordinal = usize::try_from(ordinals[index]).expect("u32 fits");
+                counts[ordinal] =
+                    counts[ordinal]
+                        .checked_add(1)
+                        .ok_or(BuildError::ArithmeticOverflow {
+                            structure: STRUCTURE,
+                        })?;
+            }
+        }
+        let mut pos = vec![0_usize; limit];
+        let mut running = cursor;
+        for ordinal in 0..limit {
+            pos[ordinal] = running;
+            running += counts[ordinal];
+        }
+        for index in 0..len {
+            if kinds[index] != code {
+                continue;
+            }
+            let ordinal = usize::try_from(ordinals[index]).expect("u32 fits");
+            let slot = pos[ordinal];
+            pos[ordinal] += 1;
+            out_kinds[slot] = kinds[index];
+            out_ordinals[slot] = ordinals[index];
+            out_routes[slot] = routes[index];
+            out_occurrences[slot] = occurrences[index];
+        }
+        cursor = running;
+    }
     Ok((
-        order.iter().map(|&index| kinds[index]).collect(),
-        order.iter().map(|&index| ordinals[index]).collect(),
-        order.iter().map(|&index| routes[index]).collect(),
-        order.iter().map(|&index| occurrences[index]).collect(),
+        out_kinds.into_boxed_slice(),
+        out_ordinals.into_boxed_slice(),
+        out_routes.into_boxed_slice(),
+        out_occurrences.into_boxed_slice(),
     ))
 }
 

@@ -1557,7 +1557,33 @@ fn floor_add<T>(total: u64, count: u32) -> Result<u64, BuildError> {
         })
 }
 
-pub(crate) fn relation_retained_floor(counts: &EntityCounts) -> Result<u64, BuildError> {
+#[derive(Clone, Copy, Default)]
+pub(crate) struct RelationPayloads {
+    pub corridor_elements: u32,
+    pub section_lanes: u32,
+    pub authoring_edges: u32,
+    pub junction_movements: u32,
+    pub movement_paths: u32,
+    pub stop_line_gates: u32,
+    pub group_gates: u32,
+    pub controller_groups: u32,
+    pub controller_phases: u32,
+    pub phase_states: u32,
+    pub parking_spaces: u32,
+    pub lane_group_members: u32,
+    pub rule_classes: u32,
+    pub route_edges: u32,
+    pub route_transitions: u32,
+    pub route_maneuvers: u32,
+    pub route_gate_occurrences: u32,
+    pub route_waiting_occurrences: u32,
+    pub route_reverse: u32,
+}
+
+pub(crate) fn relation_retained_floor(
+    counts: &EntityCounts,
+    payloads: RelationPayloads,
+) -> Result<u64, BuildError> {
     let mut total = u64::try_from(size_of::<SharedRelationClosure>()).map_err(|_| {
         BuildError::ArithmeticOverflow {
             structure: BuildStructure::RetainedOutput,
@@ -1659,6 +1685,70 @@ pub(crate) fn relation_retained_floor(counts: &EntityCounts) -> Result<u64, Buil
     total = floor_add::<RangeU32>(total, route)?;
     total = floor_add::<u32>(total, lane)?;
     total = floor_add::<u32>(total, path)?;
+    total = floor_add::<CorridorElement>(total, payloads.corridor_elements)?;
+    total = floor_add::<AuthoringLaneOrdinal>(total, payloads.section_lanes)?;
+    total = floor_add::<LaneEdgeOrdinal>(total, payloads.authoring_edges)?;
+    total = floor_add::<MovementOrdinal>(total, payloads.junction_movements)?;
+    total = floor_add::<ManeuverPathOrdinal>(total, payloads.movement_paths)?;
+    total = floor_add::<ManeuverGateOrdinal>(total, payloads.stop_line_gates)?;
+    total = floor_add::<ManeuverGateOrdinal>(total, payloads.group_gates)?;
+    total = floor_add::<SignalGroupOrdinal>(total, payloads.controller_groups)?;
+    total = floor_add::<SignalPhaseOrdinal>(total, payloads.controller_phases)?;
+    total = floor_add::<SignalGroupOrdinal>(total, payloads.phase_states)?;
+    total = floor_add::<SignalAspect>(total, payloads.phase_states)?;
+    total = floor_add::<ParkingSpaceOrdinal>(total, payloads.parking_spaces)?;
+    total = floor_add::<AuthoringLaneOrdinal>(total, payloads.lane_group_members)?;
+    total = floor_add::<ParticipantClassOrdinal>(total, payloads.rule_classes)?;
+    total = floor_add::<LaneEdgeOrdinal>(total, payloads.route_edges)?;
+    total = floor_add::<BoundedDistance>(total, payloads.route_edges)?;
+    total = floor_add::<u32>(total, payloads.route_edges)?;
+    total = floor_add::<f64>(total, payloads.route_edges)?;
+    total = floor_add::<Option<ManeuverGateOrdinal>>(total, payloads.route_edges)?;
+    total = floor_add::<u32>(total, payloads.route_edges)?;
+    total = floor_add::<BoundedDistance>(total, payloads.route_edges)?;
+    total = floor_add::<Option<ManeuverGateOrdinal>>(total, payloads.route_transitions)?;
+    total = floor_add::<ManeuverPathOrdinal>(total, payloads.route_maneuvers)?;
+    total = floor_add::<u32>(
+        total,
+        payloads
+            .route_maneuvers
+            .checked_mul(6)
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::RetainedOutput,
+            })?,
+    )?;
+    total = floor_add::<ManeuverGateOrdinal>(total, payloads.route_gate_occurrences)?;
+    total = floor_add::<u32>(
+        total,
+        payloads
+            .route_gate_occurrences
+            .checked_mul(3)
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::RetainedOutput,
+            })?,
+    )?;
+    total = floor_add::<Option<u32>>(
+        total,
+        payloads
+            .route_gate_occurrences
+            .checked_mul(2)
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::RetainedOutput,
+            })?,
+    )?;
+    total = floor_add::<WaitingZoneOrdinal>(total, payloads.route_waiting_occurrences)?;
+    total = floor_add::<u32>(
+        total,
+        payloads.route_waiting_occurrences.checked_mul(5).ok_or(
+            BuildError::ArithmeticOverflow {
+                structure: BuildStructure::RetainedOutput,
+            },
+        )?,
+    )?;
+    total = floor_add::<u16>(total, payloads.route_reverse)?;
+    total = floor_add::<u32>(total, payloads.route_reverse)?;
+    total = floor_add::<StaticRouteOrdinal>(total, payloads.route_reverse)?;
+    total = floor_add::<u32>(total, payloads.route_reverse)?;
     Ok(total)
 }
 
