@@ -20,18 +20,25 @@ use crate::relations::{
     ACCESS_UNCONSTRAINED_ROW, AccessCell, AccessTarget, BoundedDistance, CorridorElement,
     FacilityKind, SharedRelationClosure, assemble, empty_optional, get_optional, set_optional,
 };
-use crate::{BuildError, BuildStructure, EntityCounts, RangeU32};
+use crate::{BuildError, BuildStructure, EntityCounts, RangeU32, SharedManeuverNetwork};
 
 const STRUCTURE: BuildStructure = BuildStructure::RelationClosure;
+const MAX_PORTABLE_SIGNAL_TIME_MS: u64 = 9_007_199_254_740_991;
+const ROUTE_DISTANCE_SEGMENT_LIMIT: f64 = f64::MAX / 16.0;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_relations(
     view: ValueCheckedObjectView<'_>,
     entity_counts: &EntityCounts,
     lane_lengths: &[f64],
     lane_speeds: &[f64],
+    successor_ranges: &[RangeU32],
+    successors: &[LaneEdgeOrdinal],
+    maneuvers: &SharedManeuverNetwork,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<SharedRelationClosure, BuildError> {
-    let mut intern = Intern::default();
+    let mut intern = Intern::new(options.limits().max_scratch_bytes());
+    let mut unique = UniqueCheck::new(max_entity_count(entity_counts))?;
     let lane_count = entity_counts.count(EntityKind::LaneEdge);
     let mut edge_authoring = empty_optional(lane_count)?;
     let mut edge_junction = empty_optional(lane_count)?;
@@ -40,7 +47,7 @@ pub(crate) fn build_relations(
     let (corridor_reference_section, corridor_element_ranges, corridor_elements) =
         build_corridors(view, entity_counts, options)?;
     let (section_corridor, section_kind, section_lane_ranges, section_lanes) =
-        build_sections(view, entity_counts, &mut intern, options)?;
+        build_sections(view, entity_counts, &mut intern, &mut unique, options)?;
     let (authoring_section, authoring_edge_ranges, authoring_edges, authoring_group) =
         build_authoring_lanes(
             view,
@@ -50,7 +57,7 @@ pub(crate) fn build_relations(
             options,
         )?;
     let (lane_group_section, lane_group_member_ranges, lane_group_members) =
-        build_lane_groups(view, entity_counts, options)?;
+        build_lane_groups(view, entity_counts, &mut unique, options)?;
     close_overlay_membership(
         &section_lane_ranges,
         &section_lanes,
@@ -63,13 +70,28 @@ pub(crate) fn build_relations(
     )?;
     let (band_corridor, band_kind) =
         build_facility_bands(view, entity_counts, &mut intern, options)?;
+    close_corridor_ownership(
+        &corridor_reference_section,
+        &corridor_element_ranges,
+        &corridor_elements,
+        &section_corridor,
+        &band_corridor,
+        options,
+    )?;
     let (
         junction_movement_ranges,
         junction_movements,
         movement_junction,
         movement_path_ranges,
         movement_paths,
-    ) = build_junctions(view, entity_counts, options)?;
+    ) = build_junctions(view, entity_counts, &mut unique, options)?;
+    close_owner_members(
+        &junction_movement_ranges,
+        &junction_movements,
+        &movement_junction,
+        entity_counts.count(EntityKind::Junction),
+        options,
+    )?;
     build_internal_edges(
         view,
         lane_count,
@@ -94,12 +116,39 @@ pub(crate) fn build_relations(
         entity_counts,
         lane_count,
         &mut edge_stop_line,
+        &mut unique,
         options,
     )?;
-    let signals = build_signals(view, entity_counts, options)?;
-    let parking = build_parking(view, entity_counts, lane_count, lane_lengths, options)?;
+    let signals = build_signals(view, entity_counts, &mut unique, options)?;
+    close_optional_owner_members(
+        &signals.group_gate_ranges,
+        &signals.group_gates,
+        &gate_signal_group,
+        ManeuverGateOrdinal::raw,
+        SignalGroupOrdinal::from_raw,
+        entity_counts.count(EntityKind::ManeuverGate),
+        options,
+    )?;
+    let parking = build_parking(
+        view,
+        entity_counts,
+        lane_count,
+        lane_lengths,
+        &mut unique,
+        options,
+    )?;
+    close_optional_owner_members(
+        &parking.parking_space_ranges,
+        &parking.parking_spaces,
+        &parking.space_area,
+        ParkingSpaceOrdinal::raw,
+        ParkingAreaOrdinal::from_raw,
+        entity_counts.count(EntityKind::ParkingSpace),
+        options,
+    )?;
     let classes = build_classes(view, entity_counts, options)?;
-    let rules = build_access_rules(view, entity_counts, options)?;
+    close_class_forest(&classes, options)?;
+    let rules = build_access_rules(view, entity_counts, &mut unique, options)?;
     let profiles = build_profiles(view, entity_counts, options)?;
     let (edge_row_starts, edge_cells, path_row_starts, path_cells, access_class_count) =
         resolve_access_planes(
@@ -125,6 +174,14 @@ pub(crate) fn build_relations(
         lane_speeds,
         &gate_signal_group,
         &edge_junction,
+        successor_ranges,
+        successors,
+        maneuvers,
+        &gate_path,
+        &gate_transition_index,
+        &waiting_path,
+        &waiting_entry_gate,
+        &waiting_release_gate,
         options,
     )?;
 
@@ -240,6 +297,10 @@ pub(crate) fn build_relations(
         routes.reverse_occurrence,
         routes.distance_to_end,
         routes.distance_ranges,
+        routes.distance_segments,
+        routes.distance_offsets,
+        routes.segment_totals,
+        routes.segment_ranges,
         routes.next_controlled_gate,
         routes.next_controlled_from,
         routes.next_controlled_distance,
@@ -263,30 +324,74 @@ pub(crate) fn build_relations(
     Ok(closure)
 }
 
-#[derive(Default)]
 struct Intern {
-    tokens: Vec<Box<str>>,
     by_token: BTreeMap<Box<str>, u32>,
+    used: u64,
+    limit: u64,
 }
 
 impl Intern {
+    fn new(limit: u64) -> Self {
+        Self {
+            by_token: BTreeMap::new(),
+            used: 0,
+            limit,
+        }
+    }
+
     fn intern(&mut self, token: &str) -> Result<u32, BuildError> {
         if let Some(&index) = self.by_token.get(token) {
             return Ok(index);
         }
+        let extra = intern_entry_bytes(token.len())?;
+        let used = self
+            .used
+            .checked_add(extra)
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::BuilderScratch,
+            })?;
+        if used > self.limit {
+            return Err(BuildError::BudgetExceeded {
+                structure: BuildStructure::BuilderScratch,
+                required: used,
+                limit: self.limit,
+            });
+        }
         let index =
-            u32::try_from(self.tokens.len()).map_err(|_| BuildError::ArithmeticOverflow {
+            u32::try_from(self.by_token.len()).map_err(|_| BuildError::ArithmeticOverflow {
                 structure: STRUCTURE,
             })?;
-        let owned: Box<str> = token.into();
-        self.by_token.insert(owned.clone(), index);
-        self.tokens.push(owned);
+        self.by_token.insert(token.into(), index);
+        self.used = used;
         Ok(index)
     }
 
     fn seal(self) -> Box<[Box<str>]> {
-        self.tokens.into_boxed_slice()
+        let mut tokens = vec![None; self.by_token.len()];
+        for (token, index) in self.by_token {
+            tokens[usize::try_from(index).expect("u32 fits")] = Some(token);
+        }
+        tokens
+            .into_iter()
+            .map(|token| token.expect("dense intern"))
+            .collect::<Vec<_>>()
+            .into_boxed_slice()
     }
+}
+
+fn intern_entry_bytes(token_len: usize) -> Result<u64, BuildError> {
+    let node =
+        u64::try_from(core::mem::size_of::<(Box<str>, u32)>() + 3 * core::mem::size_of::<usize>())
+            .map_err(|_| BuildError::ArithmeticOverflow {
+                structure: BuildStructure::BuilderScratch,
+            })?;
+    let payload = u64::try_from(token_len).map_err(|_| BuildError::ArithmeticOverflow {
+        structure: BuildStructure::BuilderScratch,
+    })?;
+    node.checked_add(payload)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })
 }
 
 fn entity_table<'a>(
@@ -374,12 +479,69 @@ enum MemberOrder {
     Sequence,
 }
 
+fn max_entity_count(entity_counts: &EntityCounts) -> u32 {
+    EntityKind::ALL
+        .iter()
+        .map(|kind| entity_counts.count(*kind))
+        .max()
+        .unwrap_or(0)
+}
+
+struct UniqueCheck {
+    generation: u32,
+    stamps: Vec<u32>,
+}
+
+impl UniqueCheck {
+    fn new(limit: u32) -> Result<Self, BuildError> {
+        let capacity = limit.max(1);
+        let mut stamps = allocate_vec(capacity, STRUCTURE)?;
+        stamps.resize(usize::try_from(capacity).expect("u32 fits"), 0);
+        Ok(Self {
+            generation: 1,
+            stamps,
+        })
+    }
+
+    fn ensure_unique(&mut self, members: &[u32]) -> Result<(), BuildError> {
+        if members.len() < 2 {
+            return Ok(());
+        }
+        if self.generation == u32::MAX {
+            self.stamps.fill(0);
+            self.generation = 1;
+        }
+        let generation = self.generation;
+        self.generation += 1;
+        let stamp_limit = u32::try_from(self.stamps.len()).unwrap_or(u32::MAX);
+        for &member in members {
+            let slot = usize::try_from(member).expect("u32 fits");
+            let stamp = self
+                .stamps
+                .get_mut(slot)
+                .ok_or(BuildError::ReferenceOutOfBounds {
+                    structure: STRUCTURE,
+                    ordinal: member,
+                    limit: stamp_limit,
+                })?;
+            if *stamp == generation {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+            *stamp = generation;
+        }
+        Ok(())
+    }
+}
+
 fn push_members(
     members: laneflow_format::RegistryCheckedOrdinalVectorView<'_>,
     dest: &mut Vec<u32>,
     limit: u32,
     order: MemberOrder,
     options: SharedNetworkBuildOptions<'_>,
+    unique: &mut UniqueCheck,
 ) -> Result<RangeU32, BuildError> {
     let start = u32::try_from(dest.len()).map_err(|_| BuildError::ArithmeticOverflow {
         structure: STRUCTURE,
@@ -410,23 +572,9 @@ fn push_members(
         dest.push(member);
     }
     if matches!(order, MemberOrder::Sequence) {
-        ensure_unique(&dest[usize::try_from(start).expect("u32 fits")..])?;
+        unique.ensure_unique(&dest[usize::try_from(start).expect("u32 fits")..])?;
     }
     Ok(RangeU32::new(start, members.len()))
-}
-
-fn ensure_unique(members: &[u32]) -> Result<(), BuildError> {
-    if members.len() < 2 {
-        return Ok(());
-    }
-    let mut sorted = members.to_vec();
-    sorted.sort_unstable();
-    if sorted.windows(2).any(|pair| pair[0] == pair[1]) {
-        return Err(BuildError::InputInvariant {
-            structure: STRUCTURE,
-        });
-    }
-    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -527,6 +675,255 @@ fn close_parking_progress(
         return Err(BuildError::InputInvariant {
             structure: STRUCTURE,
         });
+    }
+    Ok(())
+}
+
+fn close_corridor_ownership(
+    corridor_reference_section: &[RoadSectionOrdinal],
+    corridor_element_ranges: &[RangeU32],
+    corridor_elements: &[CorridorElement],
+    section_corridor: &[RoadCorridorOrdinal],
+    band_corridor: &[RoadCorridorOrdinal],
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<(), BuildError> {
+    let mut section_owner = vec![None; section_corridor.len()];
+    let mut band_owner = vec![None; band_corridor.len()];
+    for (corridor_index, range) in corridor_element_ranges.iter().enumerate() {
+        poll_cancelled(options, u32::try_from(corridor_index).unwrap_or(u32::MAX))?;
+        let corridor = RoadCorridorOrdinal::from_raw(u32::try_from(corridor_index).expect("fits"));
+        let mut saw_reference = false;
+        let reference =
+            *corridor_reference_section
+                .get(corridor_index)
+                .ok_or(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                })?;
+        for element in range.slice(corridor_elements) {
+            match *element {
+                CorridorElement::RoadSection(section) => {
+                    if section_corridor.get(section.index()) != Some(&corridor) {
+                        return Err(BuildError::InputInvariant {
+                            structure: STRUCTURE,
+                        });
+                    }
+                    if section_owner
+                        .get(section.index())
+                        .copied()
+                        .flatten()
+                        .is_some()
+                    {
+                        return Err(BuildError::InputInvariant {
+                            structure: STRUCTURE,
+                        });
+                    }
+                    section_owner[section.index()] = Some(corridor);
+                    if section == reference {
+                        saw_reference = true;
+                    }
+                }
+                CorridorElement::FacilityBand(band) => {
+                    if band_corridor.get(band.index()) != Some(&corridor) {
+                        return Err(BuildError::InputInvariant {
+                            structure: STRUCTURE,
+                        });
+                    }
+                    if band_owner.get(band.index()).copied().flatten().is_some() {
+                        return Err(BuildError::InputInvariant {
+                            structure: STRUCTURE,
+                        });
+                    }
+                    band_owner[band.index()] = Some(corridor);
+                }
+            }
+        }
+        if !saw_reference {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+    }
+    for (index, owner) in section_corridor.iter().enumerate() {
+        if section_owner.get(index).copied().flatten() != Some(*owner) {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+    }
+    for (index, owner) in band_corridor.iter().enumerate() {
+        if band_owner.get(index).copied().flatten() != Some(*owner) {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn close_owner_members(
+    ranges: &[RangeU32],
+    members: &[MovementOrdinal],
+    scalar: &[JunctionOrdinal],
+    owner_count: u32,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<(), BuildError> {
+    if ranges.len() != usize::try_from(owner_count).expect("u32") {
+        return Err(BuildError::InputInvariant {
+            structure: STRUCTURE,
+        });
+    }
+    let mut seen = vec![None; scalar.len()];
+    for (owner_index, range) in ranges.iter().enumerate() {
+        poll_cancelled(options, u32::try_from(owner_index).unwrap_or(u32::MAX))?;
+        let owner = JunctionOrdinal::from_raw(u32::try_from(owner_index).expect("fits"));
+        for member in range.slice(members) {
+            if scalar.get(member.index()) != Some(&owner) {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+            let slot = member.index();
+            if seen.get(slot).copied().flatten().is_some() {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+            seen[slot] = Some(owner);
+        }
+    }
+    for (index, owner) in scalar.iter().enumerate() {
+        if seen.get(index).copied().flatten() != Some(*owner) {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn close_optional_owner_members<M, O>(
+    ranges: &[RangeU32],
+    members: &[M],
+    scalar: &crate::relations::OptionalColumn<O>,
+    member_raw: impl Fn(M) -> u32,
+    make_owner: impl Fn(u32) -> O,
+    member_limit: u32,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<(), BuildError>
+where
+    M: Copy,
+    O: Copy + PartialEq,
+{
+    let mut seen = vec![None; usize::try_from(member_limit).expect("u32")];
+    for (owner_index, range) in ranges.iter().enumerate() {
+        poll_cancelled(options, u32::try_from(owner_index).unwrap_or(u32::MAX))?;
+        let owner = make_owner(u32::try_from(owner_index).expect("fits"));
+        for member in range.slice(members) {
+            let raw = member_raw(*member);
+            if get_optional(scalar, raw) != Some(owner) {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+            let slot = usize::try_from(raw).expect("u32");
+            if seen.get(slot).copied().flatten().is_some() {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+            seen[slot] = Some(owner);
+        }
+    }
+    for (index, expected) in seen.iter().enumerate() {
+        let actual = get_optional(scalar, u32::try_from(index).expect("fits"));
+        if actual != *expected {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn close_class_forest(
+    classes: &Classes,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<(), BuildError> {
+    let count = classes.depth.len();
+    for index in 0..count {
+        poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
+        let raw = u32::try_from(index).expect("fits");
+        let enter = classes.subtree_enter[index];
+        let exit = classes.subtree_exit[index];
+        if enter >= exit {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        match get_optional(&classes.parent, raw) {
+            None => {
+                if classes.depth[index] != 0 {
+                    return Err(BuildError::InputInvariant {
+                        structure: STRUCTURE,
+                    });
+                }
+            }
+            Some(parent) => {
+                if parent.index() == index || parent.index() >= count {
+                    return Err(BuildError::InputInvariant {
+                        structure: STRUCTURE,
+                    });
+                }
+                if classes.depth[index] != classes.depth[parent.index()].saturating_add(1) {
+                    return Err(BuildError::InputInvariant {
+                        structure: STRUCTURE,
+                    });
+                }
+                if enter < classes.subtree_enter[parent.index()]
+                    || exit > classes.subtree_exit[parent.index()]
+                {
+                    return Err(BuildError::InputInvariant {
+                        structure: STRUCTURE,
+                    });
+                }
+                let mut cursor = Some(parent);
+                let mut hops = 0_u32;
+                while let Some(node) = cursor {
+                    hops = hops.checked_add(1).ok_or(BuildError::ArithmeticOverflow {
+                        structure: STRUCTURE,
+                    })?;
+                    if hops > u32::try_from(count).expect("fits") {
+                        return Err(BuildError::InputInvariant {
+                            structure: STRUCTURE,
+                        });
+                    }
+                    cursor = get_optional(&classes.parent, node.raw());
+                    if cursor == Some(ParticipantClassOrdinal::from_raw(raw)) {
+                        return Err(BuildError::InputInvariant {
+                            structure: STRUCTURE,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    for left in 0..count {
+        for right in (left + 1)..count {
+            if get_optional(&classes.parent, u32::try_from(left).expect("fits"))
+                != get_optional(&classes.parent, u32::try_from(right).expect("fits"))
+            {
+                continue;
+            }
+            let left_enter = classes.subtree_enter[left];
+            let left_exit = classes.subtree_exit[left];
+            let right_enter = classes.subtree_enter[right];
+            let right_exit = classes.subtree_exit[right];
+            if left_enter < right_exit && right_enter < left_exit {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+        }
     }
     Ok(())
 }
@@ -657,6 +1054,7 @@ fn build_sections(
     view: ValueCheckedObjectView<'_>,
     entity_counts: &EntityCounts,
     intern: &mut Intern,
+    unique: &mut UniqueCheck,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<
     (
@@ -698,6 +1096,7 @@ fn build_sections(
             lane_limit,
             MemberOrder::Sequence,
             options,
+            unique,
         )?;
         ranges.push(range);
     }
@@ -797,6 +1196,7 @@ fn build_authoring_lanes(
 fn build_lane_groups(
     view: ValueCheckedObjectView<'_>,
     entity_counts: &EntityCounts,
+    unique: &mut UniqueCheck,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<
     (
@@ -834,6 +1234,7 @@ fn build_lane_groups(
             lane_limit,
             MemberOrder::Sequence,
             options,
+            unique,
         )?;
         ranges.push(range);
     }
@@ -882,6 +1283,7 @@ fn build_facility_bands(
 fn build_junctions(
     view: ValueCheckedObjectView<'_>,
     entity_counts: &EntityCounts,
+    unique: &mut UniqueCheck,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<
     (
@@ -911,6 +1313,7 @@ fn build_junctions(
             movement_count,
             MemberOrder::CanonicalSet,
             options,
+            unique,
         )?;
         junction_ranges.push(range);
     }
@@ -939,6 +1342,7 @@ fn build_junctions(
             path_limit,
             MemberOrder::CanonicalSet,
             options,
+            unique,
         )?;
         path_ranges.push(range);
     }
@@ -996,6 +1400,7 @@ fn build_gates_and_waiting(
     entity_counts: &EntityCounts,
     lane_count: u32,
     edge_stop_line: &mut crate::relations::OptionalColumn<StopLineOrdinal>,
+    unique: &mut UniqueCheck,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<
     (
@@ -1093,6 +1498,7 @@ fn build_gates_and_waiting(
             gate_count,
             MemberOrder::CanonicalSet,
             options,
+            unique,
         )?;
         stop_ranges.push(range);
     }
@@ -1164,6 +1570,7 @@ struct Signals {
 fn build_signals(
     view: ValueCheckedObjectView<'_>,
     entity_counts: &EntityCounts,
+    unique: &mut UniqueCheck,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<Signals, BuildError> {
     let group_count = entity_counts.count(EntityKind::SignalGroup);
@@ -1195,6 +1602,7 @@ fn build_signals(
             gate_limit,
             MemberOrder::CanonicalSet,
             options,
+            unique,
         )?;
         group_ranges.push(range);
     }
@@ -1212,14 +1620,26 @@ fn build_signals(
         })?;
         poll_cancelled(options, expected)?;
         expect_row_ordinal(row, expected)?;
-        offsets.push(checked_u64(row, 3)?);
-        cycles.push(checked_u64(row, 4)?);
+        let offset = checked_u64(row, 3)?;
+        let cycle = checked_u64(row, 4)?;
+        if offset > MAX_PORTABLE_SIGNAL_TIME_MS
+            || cycle == 0
+            || cycle > MAX_PORTABLE_SIGNAL_TIME_MS
+            || offset >= cycle
+        {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        offsets.push(offset);
+        cycles.push(cycle);
         controller_group_ranges.push(push_members(
             checked_ordinal_vector(row, 5, STRUCTURE)?,
             &mut controller_groups,
             group_count,
             MemberOrder::CanonicalSet,
             options,
+            unique,
         )?);
         controller_phase_ranges.push(push_members(
             checked_ordinal_vector(row, 6, STRUCTURE)?,
@@ -1227,6 +1647,7 @@ fn build_signals(
             phase_count,
             MemberOrder::Sequence,
             options,
+            unique,
         )?);
     }
 
@@ -1251,7 +1672,13 @@ fn build_signals(
             });
         }
         phase_controller.push(SignalControllerOrdinal::from_raw(controller));
-        durations.push(checked_u64(row, 4)?);
+        let duration = checked_u64(row, 4)?;
+        if !(1..=MAX_PORTABLE_SIGNAL_TIME_MS).contains(&duration) {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        durations.push(duration);
         let states = checked_record_vector(row, 5, STRUCTURE)?;
         let start =
             u32::try_from(state_groups.len()).map_err(|_| BuildError::ArithmeticOverflow {
@@ -1336,6 +1763,33 @@ fn build_signals(
             structure: STRUCTURE,
         });
     }
+    for (controller, range) in controller_phase_ranges.iter().enumerate() {
+        let owned = controller_group_ranges[controller].slice(controller_groups.as_slice());
+        for phase in range.slice(controller_phases.as_slice()) {
+            let phase_index = usize::try_from(*phase).expect("u32");
+            if phase_controller[phase_index].raw() != u32::try_from(controller).expect("fits") {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+            let states = state_ranges[phase_index].slice(state_groups.as_slice());
+            if states.len() != owned.len() {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+            for (state_group, &owned_group) in states.iter().zip(owned.iter()) {
+                if state_group.raw() != owned_group
+                    || group_controller[state_group.index()].raw()
+                        != u32::try_from(controller).expect("fits")
+                {
+                    return Err(BuildError::InputInvariant {
+                        structure: STRUCTURE,
+                    });
+                }
+            }
+        }
+    }
 
     Ok(Signals {
         group_controller: group_controller.into_boxed_slice(),
@@ -1387,6 +1841,7 @@ fn build_parking(
     entity_counts: &EntityCounts,
     lane_count: u32,
     lane_lengths: &[f64],
+    unique: &mut UniqueCheck,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<Parking, BuildError> {
     let area_count = entity_counts.count(EntityKind::ParkingArea);
@@ -1406,6 +1861,7 @@ fn build_parking(
             space_count,
             MemberOrder::CanonicalSet,
             options,
+            unique,
         )?);
     }
     let space_table = entity_table(view, EntityKind::ParkingSpace)?;
@@ -1540,6 +1996,7 @@ struct Rules {
 fn build_access_rules(
     view: ValueCheckedObjectView<'_>,
     entity_counts: &EntityCounts,
+    unique: &mut UniqueCheck,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<Rules, BuildError> {
     let count = entity_counts.count(EntityKind::AccessRule);
@@ -1574,6 +2031,7 @@ fn build_access_rules(
             class_limit,
             MemberOrder::CanonicalSet,
             options,
+            unique,
         )?);
         let _ = row.field_by_tag(7);
         priority.push(checked_i32(row, 8)?);
@@ -2185,6 +2643,10 @@ struct Routes {
     reverse_occurrence: Box<[u32]>,
     distance_to_end: Box<[BoundedDistance]>,
     distance_ranges: Box<[RangeU32]>,
+    distance_segments: Box<[u32]>,
+    distance_offsets: Box<[f64]>,
+    segment_totals: Box<[f64]>,
+    segment_ranges: Box<[RangeU32]>,
     next_controlled_gate: Box<[Option<ManeuverGateOrdinal>]>,
     next_controlled_from: Box<[u32]>,
     next_controlled_distance: Box<[BoundedDistance]>,
@@ -2283,6 +2745,62 @@ fn dest_len(len: usize) -> Result<u32, BuildError> {
     })
 }
 
+fn route_pair_connected(
+    from: LaneEdgeOrdinal,
+    to: LaneEdgeOrdinal,
+    successor_ranges: &[RangeU32],
+    successors: &[LaneEdgeOrdinal],
+    maneuvers: &SharedManeuverNetwork,
+) -> bool {
+    if successor_ranges
+        .get(from.index())
+        .is_some_and(|range| range.slice(successors).contains(&to))
+    {
+        return true;
+    }
+    maneuvers
+        .transition_candidates(from)
+        .is_some_and(|candidates| {
+            candidates
+                .iter()
+                .any(|candidate| candidate.successor() == to)
+        })
+}
+
+fn segmented_route_coordinates(edge_lengths: &[f64]) -> (Vec<u32>, Vec<f64>, Vec<f64>) {
+    let mut segments = Vec::with_capacity(edge_lengths.len());
+    let mut offsets = Vec::with_capacity(edge_lengths.len());
+    let mut totals = Vec::new();
+    let mut current_total = 0.0;
+    let mut current_has_occurrence = false;
+    for edge_length in edge_lengths.iter().copied() {
+        let combined = current_total + edge_length;
+        let must_start_segment = current_has_occurrence
+            && (edge_length > ROUTE_DISTANCE_SEGMENT_LIMIT
+                || current_total > ROUTE_DISTANCE_SEGMENT_LIMIT - edge_length
+                || combined == current_total
+                || combined == edge_length);
+        if must_start_segment {
+            totals.push(current_total);
+            current_total = 0.0;
+        }
+        segments.push(u32::try_from(totals.len()).expect("segment index fits"));
+        offsets.push(current_total);
+        current_total += edge_length;
+        current_has_occurrence = true;
+        if edge_length > ROUTE_DISTANCE_SEGMENT_LIMIT {
+            totals.push(current_total);
+            current_total = 0.0;
+            current_has_occurrence = false;
+        }
+    }
+    if current_has_occurrence {
+        totals.push(current_total);
+    }
+    (segments, offsets, totals)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn build_routes(
     view: ValueCheckedObjectView<'_>,
     entity_counts: &EntityCounts,
@@ -2290,6 +2808,14 @@ fn build_routes(
     lane_speeds: &[f64],
     gate_signal_group: &crate::relations::OptionalColumn<SignalGroupOrdinal>,
     edge_junction: &crate::relations::OptionalColumn<JunctionOrdinal>,
+    successor_ranges: &[RangeU32],
+    successors: &[LaneEdgeOrdinal],
+    maneuvers: &SharedManeuverNetwork,
+    gate_path: &[ManeuverPathOrdinal],
+    gate_transition_index: &[u32],
+    waiting_path: &[ManeuverPathOrdinal],
+    waiting_entry_gate: &[ManeuverGateOrdinal],
+    waiting_release_gate: &[ManeuverGateOrdinal],
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<Routes, BuildError> {
     let route_count = entity_counts.count(EntityKind::StaticRoute);
@@ -2304,6 +2830,10 @@ fn build_routes(
     let mut transition_gates = Vec::new();
     let mut distance_ranges = allocate_vec(route_count, STRUCTURE)?;
     let mut distance_to_end = Vec::new();
+    let mut distance_segments = Vec::new();
+    let mut distance_offsets = Vec::new();
+    let mut segment_totals = Vec::new();
+    let mut segment_ranges = allocate_vec(route_count, STRUCTURE)?;
     let mut next_gate = Vec::new();
     let mut next_from = Vec::new();
     let mut next_distance = Vec::new();
@@ -2338,6 +2868,14 @@ fn build_routes(
             edges.push(LaneEdgeOrdinal::from_raw(edge));
         }
         edge_ranges.push(RangeU32::new(start, route_edges.len()));
+        let route_edge_slice = &edges[usize::try_from(start).expect("u32")..];
+        for pair in route_edge_slice.windows(2) {
+            if !route_pair_connected(pair[0], pair[1], successor_ranges, successors, maneuvers) {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+        }
         let gates = checked_record_vector(row, 4, STRUCTURE)?;
         let expected_transitions = route_edges.len().saturating_sub(1);
         if gates.len() != expected_transitions {
@@ -2381,6 +2919,22 @@ fn build_routes(
         distance_ranges.push(RangeU32::new(
             dist_start,
             u32::try_from(suffix_list.len()).expect("fits"),
+        ));
+        let lengths: Vec<f64> = route_edge_slice
+            .iter()
+            .map(|edge| lane_lengths.get(edge.index()).copied().unwrap_or(0.0))
+            .collect();
+        let (segments, offsets, totals) = segmented_route_coordinates(&lengths);
+        let segment_start =
+            u32::try_from(segment_totals.len()).map_err(|_| BuildError::ArithmeticOverflow {
+                structure: STRUCTURE,
+            })?;
+        distance_segments.extend_from_slice(&segments);
+        distance_offsets.extend_from_slice(&offsets);
+        segment_totals.extend_from_slice(&totals);
+        segment_ranges.push(RangeU32::new(
+            segment_start,
+            u32::try_from(totals.len()).expect("fits"),
         ));
 
         let mut next = None;
@@ -2556,6 +3110,7 @@ fn build_routes(
         &edge_ranges,
         &edges,
         &maneuver_ranges,
+        &maneuver_paths,
         &maneuver_entry,
         &maneuver_exit,
         &maneuver_gate_occ_start,
@@ -2563,18 +3118,26 @@ fn build_routes(
         &maneuver_waiting_occ_start,
         &maneuver_waiting_occ_count,
         &gate_occ_ranges,
+        &gate_occ_gates,
         &gate_occ_maneuver,
         &gate_occ_from,
         &gate_occ_next,
         &gate_occ_next_boundary,
         &gate_occ_waiting,
         &waiting_occ_ranges,
+        &waiting_occ_zones,
         &waiting_occ_maneuver,
         &waiting_occ_entry_gate,
         &waiting_occ_release_gate,
         &waiting_occ_entry_edge,
         &waiting_occ_release_edge,
+        waiting_path,
+        waiting_entry_gate,
+        waiting_release_gate,
         edge_junction,
+        maneuvers,
+        gate_path,
+        gate_transition_index,
         options,
     )?;
 
@@ -2583,9 +3146,13 @@ fn build_routes(
         entity_counts,
         route_count,
         &edge_ranges,
+        &edges,
         &maneuver_ranges,
+        &maneuver_paths,
         &gate_occ_ranges,
+        &gate_occ_gates,
         &waiting_occ_ranges,
+        &waiting_occ_zones,
         options,
     )?;
 
@@ -2622,6 +3189,10 @@ fn build_routes(
         reverse_occurrence,
         distance_to_end: distance_to_end.into_boxed_slice(),
         distance_ranges: distance_ranges.into_boxed_slice(),
+        distance_segments: distance_segments.into_boxed_slice(),
+        distance_offsets: distance_offsets.into_boxed_slice(),
+        segment_totals: segment_totals.into_boxed_slice(),
+        segment_ranges: segment_ranges.into_boxed_slice(),
         next_controlled_gate: next_gate.into_boxed_slice(),
         next_controlled_from: next_from.into_boxed_slice(),
         next_controlled_distance: next_distance.into_boxed_slice(),
@@ -2638,6 +3209,7 @@ fn close_route_occurrences(
     edge_ranges: &[RangeU32],
     edges: &[LaneEdgeOrdinal],
     maneuver_ranges: &[RangeU32],
+    maneuver_paths: &[ManeuverPathOrdinal],
     maneuver_entry: &[u32],
     maneuver_exit: &[u32],
     maneuver_gate_occ_start: &[u32],
@@ -2645,23 +3217,32 @@ fn close_route_occurrences(
     maneuver_waiting_occ_start: &[u32],
     maneuver_waiting_occ_count: &[u32],
     gate_occ_ranges: &[RangeU32],
+    gate_occ_gates: &[ManeuverGateOrdinal],
     gate_occ_maneuver: &[u32],
     gate_occ_from: &[u32],
     gate_occ_next: &[Option<u32>],
     gate_occ_next_boundary: &[u32],
     gate_occ_waiting: &[Option<u32>],
     waiting_occ_ranges: &[RangeU32],
+    waiting_occ_zones: &[WaitingZoneOrdinal],
     waiting_occ_maneuver: &[u32],
     waiting_occ_entry_gate: &[u32],
     waiting_occ_release_gate: &[u32],
     waiting_occ_entry_edge: &[u32],
     waiting_occ_release_edge: &[u32],
+    waiting_path: &[ManeuverPathOrdinal],
+    waiting_entry_gate: &[ManeuverGateOrdinal],
+    waiting_release_gate: &[ManeuverGateOrdinal],
     edge_junction: &crate::relations::OptionalColumn<JunctionOrdinal>,
+    maneuvers: &SharedManeuverNetwork,
+    gate_path: &[ManeuverPathOrdinal],
+    gate_transition_index: &[u32],
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<(), BuildError> {
     for route in 0..route_count {
         poll_cancelled(options, route)?;
         let route_index = usize::try_from(route).expect("u32 fits");
+        let route_edges = edge_ranges[route_index].slice(edges);
         let edge_count = edge_ranges[route_index].len();
         let man_range = maneuver_ranges[route_index];
         let gate_range = gate_occ_ranges[route_index];
@@ -2703,6 +3284,18 @@ fn close_route_occurrences(
                     structure: STRUCTURE,
                 });
             }
+            let path = maneuvers.maneuver_path(maneuver_paths[slot]).ok_or(
+                BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                },
+            )?;
+            let entry_index = usize::try_from(entry).expect("u32 fits");
+            let exit_index = usize::try_from(exit).expect("u32 fits");
+            if path.edges() != &route_edges[entry_index..=exit_index] {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
         }
         if gate_cursor != gate_range.len() || wait_cursor != wait_range.len() {
             return Err(BuildError::InputInvariant {
@@ -2727,6 +3320,36 @@ fn close_route_occurrences(
                 },
             )?;
             if local < start || local >= end || gate_occ_from[slot] >= edge_count {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+            let gate = gate_occ_gates[slot];
+            if gate_path.get(gate.index()) != Some(&maneuver_paths[man_slot]) {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+            let path = maneuvers.maneuver_path(maneuver_paths[man_slot]).ok_or(
+                BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                },
+            )?;
+            if !path.maneuver_gates().contains(&gate) {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+            let expected_from = maneuver_entry[man_slot]
+                .checked_add(*gate_transition_index.get(gate.index()).ok_or(
+                    BuildError::InputInvariant {
+                        structure: STRUCTURE,
+                    },
+                )?)
+                .ok_or(BuildError::ArithmeticOverflow {
+                    structure: STRUCTURE,
+                })?;
+            if gate_occ_from[slot] != expected_from {
                 return Err(BuildError::InputInvariant {
                     structure: STRUCTURE,
                 });
@@ -2809,9 +3432,17 @@ fn close_route_occurrences(
                     structure: STRUCTURE,
                 });
             }
+            let zone = waiting_occ_zones[slot];
+            if waiting_path.get(zone.index()) != Some(&maneuver_paths[man_slot])
+                || waiting_entry_gate.get(zone.index()) != Some(&gate_occ_gates[entry_slot])
+                || waiting_release_gate.get(zone.index()) != Some(&gate_occ_gates[release_slot])
+            {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
         }
 
-        let route_edges = edge_ranges[route_index].slice(edges);
         let mut covered = vec![false; route_edges.len()];
         for local in 0..man_len {
             let slot = usize::try_from(man_range.start() + local).expect("u32 fits");
@@ -2843,9 +3474,13 @@ fn build_route_reverse(
     entity_counts: &EntityCounts,
     route_count: u32,
     edge_ranges: &[RangeU32],
+    edges: &[LaneEdgeOrdinal],
     maneuver_ranges: &[RangeU32],
+    maneuver_paths: &[ManeuverPathOrdinal],
     gate_occ_ranges: &[RangeU32],
+    gate_occ_gates: &[ManeuverGateOrdinal],
     waiting_occ_ranges: &[RangeU32],
+    waiting_occ_zones: &[WaitingZoneOrdinal],
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<
     (
@@ -2861,6 +3496,10 @@ fn build_route_reverse(
     let mut ordinals = Vec::new();
     let mut routes = Vec::new();
     let mut occurrences = Vec::new();
+    let mut seen_edge = vec![false; edges.len()];
+    let mut seen_maneuver = vec![false; maneuver_paths.len()];
+    let mut seen_gate = vec![false; gate_occ_gates.len()];
+    let mut seen_waiting = vec![false; waiting_occ_zones.len()];
     for (index, row) in table.rows().enumerate() {
         poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
         let kind_code = match checked_field(row, 1, STRUCTURE)? {
@@ -2892,28 +3531,59 @@ fn build_route_reverse(
             });
         }
         let occurrence = checked_u32(row, 4, STRUCTURE)?;
-        let occ_limit = match kind {
-            EntityKind::ManeuverPath => maneuver_ranges[route as usize].len(),
-            EntityKind::ManeuverGate => gate_occ_ranges[route as usize].len(),
-            EntityKind::WaitingZone => waiting_occ_ranges[route as usize].len(),
-            EntityKind::LaneEdge => edge_ranges[route as usize].len(),
+        let route_index = usize::try_from(route).expect("u32 fits");
+        match kind {
+            EntityKind::LaneEdge => close_reverse_payload(
+                edge_ranges[route_index],
+                occurrence,
+                edges,
+                ordinal,
+                LaneEdgeOrdinal::raw,
+                &mut seen_edge,
+            )?,
+            EntityKind::ManeuverPath => close_reverse_payload(
+                maneuver_ranges[route_index],
+                occurrence,
+                maneuver_paths,
+                ordinal,
+                ManeuverPathOrdinal::raw,
+                &mut seen_maneuver,
+            )?,
+            EntityKind::ManeuverGate => close_reverse_payload(
+                gate_occ_ranges[route_index],
+                occurrence,
+                gate_occ_gates,
+                ordinal,
+                ManeuverGateOrdinal::raw,
+                &mut seen_gate,
+            )?,
+            EntityKind::WaitingZone => close_reverse_payload(
+                waiting_occ_ranges[route_index],
+                occurrence,
+                waiting_occ_zones,
+                ordinal,
+                WaitingZoneOrdinal::raw,
+                &mut seen_waiting,
+            )?,
             _ => {
                 return Err(BuildError::InputInvariant {
                     structure: STRUCTURE,
                 });
             }
-        };
-        if occurrence >= occ_limit {
-            return Err(BuildError::ReferenceOutOfBounds {
-                structure: STRUCTURE,
-                ordinal: occurrence,
-                limit: occ_limit,
-            });
         }
         kinds.push(kind_code);
         ordinals.push(ordinal);
         routes.push(StaticRouteOrdinal::from_raw(route));
         occurrences.push(occurrence);
+    }
+    if seen_edge.iter().any(|seen| !*seen)
+        || seen_maneuver.iter().any(|seen| !*seen)
+        || seen_gate.iter().any(|seen| !*seen)
+        || seen_waiting.iter().any(|seen| !*seen)
+    {
+        return Err(BuildError::InputInvariant {
+            structure: STRUCTURE,
+        });
     }
     Ok((
         kinds.into_boxed_slice(),
@@ -2923,18 +3593,85 @@ fn build_route_reverse(
     ))
 }
 
+fn close_reverse_payload<T: Copy>(
+    range: RangeU32,
+    occurrence: u32,
+    column: &[T],
+    ordinal: u32,
+    raw: impl Fn(T) -> u32,
+    seen: &mut [bool],
+) -> Result<(), BuildError> {
+    if occurrence >= range.len() {
+        return Err(BuildError::ReferenceOutOfBounds {
+            structure: STRUCTURE,
+            ordinal: occurrence,
+            limit: range.len(),
+        });
+    }
+    let slot = usize::try_from(range.start().checked_add(occurrence).ok_or(
+        BuildError::ArithmeticOverflow {
+            structure: STRUCTURE,
+        },
+    )?)
+    .expect("u32 fits");
+    let actual = column
+        .get(slot)
+        .copied()
+        .ok_or(BuildError::InputInvariant {
+            structure: STRUCTURE,
+        })?;
+    if raw(actual) != ordinal || seen.get(slot).copied().unwrap_or(true) {
+        return Err(BuildError::InputInvariant {
+            structure: STRUCTURE,
+        });
+    }
+    seen[slot] = true;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{OccurrenceCursor, ensure_unique};
+    use super::{OccurrenceCursor, UniqueCheck, segmented_route_coordinates};
+    use crate::relations::{RouteDistanceIndexView, RouteDistanceQuery};
     use crate::{BuildError, RangeU32};
 
     #[test]
     fn sequence_members_reject_duplicates_but_allow_non_monotonic_order() {
-        assert!(ensure_unique(&[2, 0, 1]).is_ok());
+        let mut unique = UniqueCheck::new(4).expect("unique table");
+        assert!(unique.ensure_unique(&[2, 0, 1]).is_ok());
+        let mut unique = UniqueCheck::new(4).expect("unique table");
         assert!(matches!(
-            ensure_unique(&[1, 0, 1]),
+            unique.ensure_unique(&[1, 0, 1]),
             Err(BuildError::InputInvariant { .. })
         ));
+    }
+
+    #[test]
+    fn segmented_coordinates_preserve_finite_windows_around_huge_edges() {
+        let lengths = [f64::MAX, 1.0, 2.0, f64::MAX];
+        let (segments, offsets, totals) = segmented_route_coordinates(&lengths);
+        let suffix = [
+            crate::BoundedDistance::finite(0.0)
+                .add(f64::MAX)
+                .add(2.0)
+                .add(1.0)
+                .add(f64::MAX),
+            crate::BoundedDistance::finite(0.0)
+                .add(f64::MAX)
+                .add(2.0)
+                .add(1.0),
+            crate::BoundedDistance::finite(0.0).add(f64::MAX).add(2.0),
+            crate::BoundedDistance::finite(0.0).add(f64::MAX),
+        ];
+        let view = RouteDistanceIndexView::from_parts(&segments, &offsets, &totals, &suffix);
+        assert_eq!(
+            view.distance_within(1, 0.0, 2, 2.0, 3.0),
+            RouteDistanceQuery::Within(3.0)
+        );
+        assert_eq!(
+            view.distance_within(1, 0.0, 3, f64::MAX, f64::MAX),
+            RouteDistanceQuery::BeyondHorizon
+        );
     }
 
     #[test]

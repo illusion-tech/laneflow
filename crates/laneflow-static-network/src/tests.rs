@@ -591,6 +591,18 @@ fn full_spatial_route_occurrences_are_owner_local_partitions() {
             relations.static_route_edges(route).expect("edges"),
             expected_edges.as_slice()
         );
+        assert_eq!(
+            relations
+                .static_route_transition_gates(route)
+                .expect("transition gates")
+                .len(),
+            expected_edges.len().saturating_sub(1)
+        );
+        let distance = relations
+            .route_distance_index(route)
+            .expect("route distance index");
+        assert_eq!(distance.occurrence_segments().len(), expected_edges.len());
+        assert_eq!(distance.distance_to_end().len(), expected_edges.len());
         let mut gate_cursor = 0_u32;
         let mut wait_cursor = 0_u32;
         let man_count = relations.route_maneuver_count(route).expect("maneuvers");
