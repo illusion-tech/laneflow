@@ -342,7 +342,8 @@ external review evaluator 的 #406 全局语义层（D2 deferred 披露、D3 轮
 - `authorizedBy` 必须等于 current G3 comment author 且该 actor 在 trusted G3 Owner allowlist；`currentHeadOid`、`roundCount` 与 `remainingFindings` 解析出的 URL 集合必须与 evaluator 实测精确一致；轮数不超过 3 时不得提供 record；单 Issue PR 恰一条记录，多 Issue PR 为每个关联 Issue 分别一条，`followUpIssue` 集合与 `关联 Issue` 精确一致；任一不符失败关闭；
 - round-cap 收口时 `- Gate 结果：` 保持 `G3 Pass`，但不得伪装成 clean pass：结构化 record、可见 `- Review round cap：` 字段与 check output 必须同时显式列出轮数与遗留 findings；record 存在而 evaluator 未生效、或 evaluator 生效而 record 缺失，均失败关闭；
 - head commit 的 git tree OID 与上一已审 head 的 tree OID 逐字节相等时，对称继承该 head 的审阅结论（clean 继承为 pass，未闭环 P1 同样继承为 findings-open，同 patchset 同审阅状态）；既有 `content_equivalent_rebase` waiver 保留给非 tree 相等的显式例外，`waived ≠ pass` 不变；
-- 上述 deferred / round-cap 披露义务以 Issue #406 G1 设计冻结 comment 的创建时间 `2026-08-20T04:20:39Z` 为激活边界；effective time 更早的 G3 comment 豁免两个条件字段与 record 规则，历史 G4 replay 不追溯。
+- 上述 deferred / round-cap 披露义务以 Issue #406 G1 设计冻结 comment 的创建时间 `2026-08-20T04:20:39Z` 为激活边界；effective time 更早的 G3 comment 豁免两个条件字段与 record 规则，历史 G4 replay 不追溯。pre-activation 的 G4 replay 同时停用 deferred 语义本身（受信 finding 一律按 blocking 评估），不 retroactive 升级历史结论；
+- round-cap record 的 publish 通道注入（`publish-external-review-check` 读取 G3 comment 并注入 evaluator）属于 R2 激活前置项；R1 阶段 round-cap 披露由 current G3 comment 的可见字段与 gate evidence 校验承载，published shadow Check 不反映 round-cap 收口。
 
 默认阻断条件：
 
