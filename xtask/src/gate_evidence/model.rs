@@ -323,6 +323,7 @@ pub(super) struct GitHubWorkflowRun {
     pub(super) head_sha: String,
     pub(super) head_branch: Option<String>,
     pub(super) created_at: String,
+    pub(super) updated_at: String,
     pub(super) status: String,
     pub(super) conclusion: Option<String>,
     pub(super) html_url: String,

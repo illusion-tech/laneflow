@@ -338,7 +338,7 @@ pub(super) fn validate_trusted_merge_group_evidence(
             .ok_or_else(|| format!("PR #{number} merged event 缺少 created_at"))?,
     )
     .ok_or_else(|| format!("PR #{number} merged event created_at 无效"))?;
-    if let Some(removal) = terminal_removal {
+    let evidence_cutoff = if let Some(removal) = terminal_removal {
         let removed_at =
             parse_utc_timestamp_seconds(removal.created_at.as_deref().ok_or_else(|| {
                 format!("PR #{number} GitHub Merge Queue bot 终态移出事件缺少 created_at")
@@ -346,12 +346,22 @@ pub(super) fn validate_trusted_merge_group_evidence(
             .ok_or_else(|| {
                 format!("PR #{number} GitHub Merge Queue bot 终态移出 created_at 无效")
             })?;
-        if removed_at < queued_at || removed_at >= merged_at {
+        if removed_at < queued_at || removed_at > merged_at {
             return Err(format!(
-                "PR #{number} GitHub Merge Queue bot 终态移出时间必须满足 queued_at <= removed_at < merged_at"
+                "PR #{number} GitHub Merge Queue bot 终态移出时间必须满足 queued_at <= removed_at <= merged_at"
             ));
         }
-    }
+        removed_at
+    } else {
+        merged_at
+    };
+    let evidence_precedes_cutoff = |timestamp: u64| {
+        if terminal_removal.is_some() {
+            timestamp < evidence_cutoff
+        } else {
+            timestamp <= evidence_cutoff
+        }
+    };
 
     let expected_branch_prefix = format!("gh-readonly-queue/{base_ref_name}/pr-{number}-");
     let mut pr_bound_runs = Vec::new();
@@ -364,28 +374,31 @@ pub(super) fn validate_trusted_merge_group_evidence(
     }) {
         let created_at = parse_utc_timestamp_seconds(&run.created_at)
             .ok_or_else(|| format!("PR #{number} merge_group run created_at 无效"))?;
-        if created_at >= queued_at && created_at <= merged_at {
-            pr_bound_runs.push((created_at, run.id, run));
+        if created_at >= queued_at && evidence_precedes_cutoff(created_at) {
+            let updated_at = parse_utc_timestamp_seconds(&run.updated_at)
+                .ok_or_else(|| format!("PR #{number} merge_group run updated_at 无效"))?;
+            pr_bound_runs.push((created_at, updated_at, run.id, run));
         }
     }
     let latest_generation = pr_bound_runs
         .iter()
-        .max_by_key(|(created_at, id, _)| (*created_at, *id))
+        .max_by_key(|(created_at, _, id, _)| (*created_at, *id))
         .ok_or_else(|| format!("PR #{number} 入队到合并之间缺少 PR-bound merge_group run"))?;
-    if !latest_generation.2.head_sha.eq_ignore_ascii_case(h_mg) {
+    if !latest_generation.3.head_sha.eq_ignore_ascii_case(h_mg) {
         return Err(format!(
             "PR #{number} record H_mg 不是合并前最后一代 merge_group head：record={h_mg} latest={}",
-            latest_generation.2.head_sha
+            latest_generation.3.head_sha
         ));
     }
     let queue_branch = latest_generation
-        .2
+        .3
         .head_branch
         .as_deref()
         .expect("PR-bound merge_group run filter guarantees head_branch");
     let expected_analysis_ref = format!("refs/heads/{queue_branch}");
-    if !pr_bound_runs.iter().any(|(_, _, run)| {
+    if !pr_bound_runs.iter().any(|(_, updated_at, _, run)| {
         run.head_sha.eq_ignore_ascii_case(h_mg)
+            && evidence_precedes_cutoff(*updated_at)
             && run.status == "completed"
             && run.conclusion.as_deref() == Some("success")
             && run
@@ -463,7 +476,7 @@ pub(super) fn validate_trusted_merge_group_evidence(
                     .completed_at
                     .as_deref()
                     .and_then(parse_utc_timestamp_seconds)?;
-                (completed_at <= merged_at).then_some((completed_at, run.id, run))
+                evidence_precedes_cutoff(completed_at).then_some((completed_at, run.id, run))
             })
             .max_by_key(|(completed_at, id, _)| (*completed_at, *id))
             .ok_or_else(|| {
@@ -506,7 +519,7 @@ pub(super) fn validate_trusted_merge_group_evidence(
             })
             .filter_map(|analysis| {
                 let created_at = parse_utc_timestamp_seconds(&analysis.created_at)?;
-                (created_at >= queued_at && created_at <= merged_at).then_some((
+                (created_at >= queued_at && evidence_precedes_cutoff(created_at)).then_some((
                     created_at,
                     analysis.id,
                     analysis,

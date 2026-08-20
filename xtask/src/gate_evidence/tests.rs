@@ -3585,6 +3585,7 @@ fn trusted_merge_group_run() -> GitHubWorkflowRun {
         head_sha: MERGE_GROUP_OID.to_string(),
         head_branch: Some("gh-readonly-queue/main/pr-61-deadbeef".to_string()),
         created_at: "2026-08-20T05:10:00Z".to_string(),
+        updated_at: "2026-08-20T05:20:00Z".to_string(),
         status: "completed".to_string(),
         conclusion: Some("success".to_string()),
         html_url: "https://github.com/illusion-tech/laneflow/actions/runs/100".to_string(),
@@ -3695,6 +3696,26 @@ fn accepts_github_merge_queue_bot_terminal_removal_before_merge() {
             &trusted_codeql_analyses(),
             &trusted_branch_rules(),
             &queue_timeline_with_terminal_bot_removal(),
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn accepts_terminal_bot_removal_in_the_same_second_as_merge() {
+    let mut timeline = queue_timeline_with_terminal_bot_removal();
+    timeline[1].created_at = timeline[2].created_at.clone();
+    assert!(
+        validate_trusted_merge_group_evidence(
+            "illusion-tech/laneflow",
+            61,
+            "main",
+            MERGE_GROUP_OID,
+            &trusted_checks(),
+            &[trusted_merge_group_run()],
+            &trusted_codeql_analyses(),
+            &trusted_branch_rules(),
+            &timeline,
         )
         .is_ok()
     );
@@ -4009,7 +4030,7 @@ fn rejects_terminal_bot_removal_without_prior_enqueue() {
 #[test]
 fn rejects_terminal_bot_removal_with_invalid_time_order() {
     let mut timeline = queue_timeline_with_terminal_bot_removal();
-    timeline[1].created_at = Some("2026-08-20T05:30:00Z".to_string());
+    timeline[1].created_at = Some("2026-08-20T05:30:01Z".to_string());
     let error = validate_trusted_merge_group_evidence(
         "illusion-tech/laneflow",
         61,
@@ -4021,8 +4042,111 @@ fn rejects_terminal_bot_removal_with_invalid_time_order() {
         &trusted_branch_rules(),
         &timeline,
     )
-    .expect_err("terminal bot removal must be strictly earlier than merge");
-    assert!(error.contains("queued_at <= removed_at < merged_at"));
+    .expect_err("terminal bot removal must not be later than merge");
+    assert!(error.contains("queued_at <= removed_at <= merged_at"));
+}
+
+#[test]
+fn rejects_merge_group_run_created_after_terminal_removal() {
+    let mut run = trusted_merge_group_run();
+    run.created_at = "2026-08-20T05:30:00Z".to_string();
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[run],
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
+        &queue_timeline_with_terminal_bot_removal(),
+    )
+    .expect_err("post-removal merge_group run must not certify queue completion");
+    assert!(error.contains("入队到合并之间缺少 PR-bound merge_group run"));
+}
+
+#[test]
+fn rejects_merge_group_run_completed_after_terminal_removal() {
+    let mut run = trusted_merge_group_run();
+    run.updated_at = "2026-08-20T05:30:00Z".to_string();
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[run],
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
+        &queue_timeline_with_terminal_bot_removal(),
+    )
+    .expect_err("post-removal merge_group completion must not certify queue completion");
+    assert!(error.contains("H_mg 未绑定 trusted GitHub merge_group success workflow run"));
+}
+
+#[test]
+fn rejects_required_check_completed_after_terminal_removal() {
+    let mut checks = trusted_checks();
+    checks
+        .iter_mut()
+        .find(|run| run.name == "Dependency policy")
+        .expect("trusted checks contain Dependency policy")
+        .completed_at = Some("2026-08-20T05:30:00Z".to_string());
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &checks,
+        &[trusted_merge_group_run()],
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
+        &queue_timeline_with_terminal_bot_removal(),
+    )
+    .expect_err("post-removal required check must not certify queue completion");
+    assert!(error.contains("缺少 merge 前完成的 trusted GitHub check `Dependency policy`"));
+}
+
+#[test]
+fn rejects_required_check_completed_at_the_terminal_removal_second() {
+    let mut checks = trusted_checks();
+    checks
+        .iter_mut()
+        .find(|run| run.name == "Dependency policy")
+        .expect("trusted checks contain Dependency policy")
+        .completed_at = Some("2026-08-20T05:29:59Z".to_string());
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &checks,
+        &[trusted_merge_group_run()],
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
+        &queue_timeline_with_terminal_bot_removal(),
+    )
+    .expect_err("cross-API same-second evidence lacks a trusted ordering signal");
+    assert!(error.contains("缺少 merge 前完成的 trusted GitHub check `Dependency policy`"));
+}
+
+#[test]
+fn rejects_codeql_analysis_created_after_terminal_removal() {
+    let mut analyses = trusted_codeql_analyses();
+    analyses[1].created_at = "2026-08-20T05:30:00Z".to_string();
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[trusted_merge_group_run()],
+        &analyses,
+        &trusted_branch_rules(),
+        &queue_timeline_with_terminal_bot_removal(),
+    )
+    .expect_err("post-removal CodeQL analysis must not certify queue completion");
+    assert!(error.contains("CodeQL `rust` analysis"));
 }
 
 #[test]
