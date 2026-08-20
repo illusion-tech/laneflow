@@ -68,6 +68,7 @@ LaneFlow 默认通过 **Merge Queue** 合入 `main`，队列最终使用 **Rebas
 
 - 默认入队：`gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`
 - `main` 前进或队列重排只重建 Merge Group，不要求对未变化 PR Head 重新人审
+- Ruleset 保留 required checks、关闭 strict up-to-date，由 Merge Group 验证最新 `main` 组合
 - 禁止使用 `--admin` 绕过队列；最终 merge method 例外必须先通过治理 Issue 修改规则
 
 ## 6. Commit Message

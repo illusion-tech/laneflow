@@ -254,8 +254,10 @@ Issue #446 为合并队列（Merge Queue）冻结三个独立身份：`H_pr` 是
 
 该契约按 bootstrap / activation 两个 PR 生效：Related PR 1 只增加 `merge_group` workflow、validator 与
 文档能力，仍按修改前的 live ruleset 完成 G3；Delivery PR 2 先确认这些能力已在 `main` 部署，并保存
-Ruleset before 与精确回滚载荷，再以事务方式临时启用合并队列并将自身入队。GitHub 创建真实 `H_mg` 后，
-Delivery PR 2 才验证 required checks 与 CodeQL；全部成功则保留新 Ruleset 并继续无 `--admin` 合并，任一
+Ruleset before 与精确回滚载荷，再以事务方式临时启用合并队列、把
+`required_status_checks.strict_required_status_checks_policy` 设为 `false` 并将自身入队；required checks
+集合保持不变。GitHub 创建真实 `H_mg` 后，Delivery PR 2 才验证 required checks 与 CodeQL；全部成功则
+保留新 Ruleset 并继续无 `--admin` 合并，任一
 结果缺失或失败则立即恢复 before 配置并保持 G3 Block。Delivery PR 2 完成 G4 前，不得提前把 `G3 Pass`、
 shadow telemetry、候选 workflow 或“已临时启用”描述为队列集成已经通过。
 
