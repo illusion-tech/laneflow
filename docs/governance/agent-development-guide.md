@@ -135,3 +135,8 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 重排只重建 `H_mg` 并重跑机器检查，不要求对未变化 `H_pr` 重新人审；任何 push、force-push 或冲突修复
 改变 `H_pr` 后，旧审阅、G3 与入队资格全部 stale。禁止使用 `--admin` 绕过队列。规则与例外详见
 `docs/governance/github-workflow.md` 第 7 节。
+
+Agent 必须按 GitHub API / Checks 精确核对 `H_pr` 与真实 `H_mg` 的 `Governance checks`、`Rust checks`、
+`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`；CodeQL 两项还须来自 GitHub Actions App
+`integration_id=15368` 并在 `H_mg` 上形成适用 analysis。不得用 PR Head、合并后的 `main` 或原生
+CodeQL rule 的旧结果补足 Merge Group。

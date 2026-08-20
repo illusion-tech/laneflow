@@ -20,9 +20,10 @@ GitHub 仓库设置和实时告警属于平台状态，不由仓库文件直接�
 
 ### 2.1 Code Scanning
 
-LaneFlow 按 #451 从 GitHub CodeQL default setup 迁移到仓库内 `.github/workflows/codeql.yml` 的
-advanced setup；在 #451 记录主线双语言首次验证前，live default setup 仍是当前配置，不能只凭候选文件
-声称切换已经完成。迁移完成后的冻结配置为：
+LaneFlow 使用仓库内 `.github/workflows/codeql.yml` 的 GitHub CodeQL advanced setup。#451 Related PR #452
+合入后，default setup 已切换为 `not-configured`，advanced workflow 已启用，并在 exact `main` 的手工
+dispatch 中完成 actions/rust 双语言 job 与 analysis；候选文件或历史 default analysis 不能替代该 active
+setup identity。冻结配置为：
 
 - 显式分析 `actions` 与 `rust`，使用 `default` query suite、GitHub-hosted Ubuntu runner 和
   `none` build mode。
@@ -48,11 +49,10 @@ advanced setup；在 #451 记录主线双语言首次验证前，live default se
   `H_mg` 因而必须由 required status checks 等待上述两个 advanced workflow 矩阵 job，不能把
   原生 rule、PR Head 或合并后的 `main` 分析当作队列证据。
 
-该 advanced setup 由 #451 两阶段激活：Related PR 先把最终 workflow 部署到 `main`，仍由切换前的
-default setup 判断；合入后保存 default setup / workflow state before，禁用 default setup，重新启用
-被它覆盖的 advanced workflow，并在 `main` 手工 dispatch。只有 `actions` / `rust` 的 job 与 analysis
-都成功后，advanced setup 才成为队列 activation baseline；失败时恢复 default setup，保持队列关闭。
-后续 Delivery canary 才能事务式修改 Ruleset 与 repository queue 设置。
+#451 以两阶段完成迁移：Related PR #452 先部署最终 workflow；合入后保存 default setup / workflow state
+before，禁用 default setup，并在 `main` 手工 dispatch，actions/rust 的 job 与 analysis 成功后，advanced
+setup 成为队列 activation baseline。后续 Delivery canary 仍须事务式修改 Ruleset 与 repository queue
+设置，并用真实 `H_mg` 完成合并前 canary；主线 dispatch 不是 Merge Queue 证据。
 
 Merge Queue activation after 的 required status checks 固定为：
 
@@ -140,9 +140,9 @@ ADR 0011 把 catalog 中的 JSON Schema `$id` 定义为 public retrieval URL。S
 
 对三类能力分别采用以下最低证据：
 
-- Code Scanning：记录 active setup identity；迁移前要求 default setup 为 `configured`，迁移后要求
-  advanced workflow 已启用且最近 `actions` / `rust` 适用 run / analysis 成功；两种状态都要求 open alerts
-  API 成功返回，候选或同时自报两种 active setup 不得通过。
+- Code Scanning：记录 active setup identity；default setup 必须为 `not-configured`，advanced workflow 必须
+  已启用且最近 `actions` / `rust` 适用 run / analysis 成功；同时要求 open alerts API 成功返回。历史
+  default analysis、候选 workflow 或同时自报两种 active setup 不得通过。
 - Secret Scanning：功能与 push protection 均为 `enabled`，open alerts API 成功返回。
 - Dependabot：vulnerability alerts 可用，security updates 为 `enabled`，open alerts API 成功返回；version updates 配置存在且适用。设置状态、空告警和 cargo-deny 结果必须分别记录。
 
@@ -155,13 +155,10 @@ API 返回空集合只表示该次查询范围内无开放告警。未配置、�
 - 修改安全设置、扫描 workflow、依赖策略或安全治理规则的 PR，必须在 G3 前验证受影响配置，并等待对应首次或最新扫描完成。
 - 对包含适用源代码的 PR，GitHub 为当前 PR 产生的 CodeQL check 必须成功；`pending`、`failure`、`cancelled` 或缺少预期语言分析均不能作为通过。
 - 当前 PR 没有产生预期扫描时，必须说明原因；若属于配置、权限或平台异常，应记录显式例外，不得静默忽略。
-- 在 #451 advanced setup 主线首次验证完成前，对满足 `development-gates.md` 中
-  `dependabot-cargo-lock-only-v1` 全部机器条件的 PR，CodeQL default setup 返回 `NEUTRAL` 且摘要为
-  `2 configurations not found`、没有 PR analysis，表示本次纯 lockfile 变更对源代码分析为
-  `not applicable`。这既不是 CodeQL success，也不表示零告警；G3 仍须记录该 Check URL，并要求
-  Governance、Rust、Dependency policy 及适用的 cargo-deny 检查成功。advanced setup 激活后不再使用
-  该 default-only 语义，`Analyze (actions)` 与 `Analyze (rust)` 必须按当前 workflow 实际完成；任何源文件
-  或额外 commit 在两个阶段都不得使用 lockfile-only 例外。
+- #451 advanced setup 主线首次验证后，不再使用 default setup 的 lockfile-only `NEUTRAL` 语义。
+  包括精确 `dependabot-cargo-lock-only-v1` 在内的当前 PR 都必须让 `Analyze (actions)` 与
+  `Analyze (rust)` 按 advanced workflow 实际完成；activation 前保存的历史 `NEUTRAL` 只保留原时点证据，
+  不能复用于新 head、G3 或 Merge Group。
 - 任何与当前变更相关且仍为 open 的 Secret Scanning alert 默认阻断 G3。
 - CodeQL 或 Dependabot 的 `high` / `critical` 开放告警默认阻断 G3；若确认与本次变更无关，仍须链接修复 Issue 或按 `development-gates.md` 记录显式例外。
 - 修改 Cargo dependency、许可证、`deny.toml` 或依赖更新配置时，cargo-deny 的 advisories、licenses、bans 和 sources 检查必须成功；规则见 `dependency-security.md`。

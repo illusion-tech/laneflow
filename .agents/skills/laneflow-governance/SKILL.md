@@ -145,6 +145,9 @@ Issue Gate Ledger 模板：
 - 安全设置、扫描 workflow、依赖策略或公开发布任务必须以 `docs/governance/security-scanning.md` 为长期事实源。
 - 必须通过 GitHub API / Checks 读取实际配置、最近适用分析和开放告警；404、403、disabled、not-configured、无分析或命令失败都不能记为零告警。
 - 修改 CodeQL、Secret Scanning、push protection 或 ruleset 时，先记录设计与开工 Gate，操作后保存设置前后和首次适用分析证据。
+- 当前 CodeQL 基线是 `.github/workflows/codeql.yml` advanced setup；default setup 必须为
+  `not-configured`。普通 PR 与真实 `H_mg` 都要求 `Analyze (actions)` / `Analyze (rust)`，不能用原生
+  CodeQL rule、其他 SHA 或合并后的 `main` 分析替代。
 - ruleset bypass 或 push protection bypass 不改变扫描结论；使用 bypass 时仍按例外规则记录原因、风险、接受边界和 Cleanup owner。
 - 源代码许可证、第三方许可证、cargo-deny 与 Dependabot 更新策略以 `docs/governance/dependency-security.md` 为事实源；新增或更新依赖的 PR 必须记录许可证、来源、漏洞和分发影响。
 
@@ -197,6 +200,9 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 
 队列启用时必须保留 required checks，并把 `required_status_checks.strict_required_status_checks_policy`
 设为 `false`；最新 `main` 组合由 `H_mg` 检查，不得再以 strict up-to-date 要求未变化 `H_pr` 手工 rebase。
+required checks 固定为 `Governance checks`、`Rust checks`、`Dependency policy`、`Analyze (actions)`、
+`Analyze (rust)`，五项 expected source 都是 GitHub Actions App `integration_id=15368`；`H_pr` 与真实
+`H_mg` 都必须完成 success。
 
 只有 current exact `H_pr` 的 required checks、适用 CodeQL、外部审阅、finding disposition、G3 Owner
 comment 与 marker 全部完成且有效后才能运行命令；不得在 pending 时预先武装 auto-merge，

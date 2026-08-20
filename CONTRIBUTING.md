@@ -67,6 +67,7 @@ LaneFlow 默认通过 **Merge Queue** 合入 `main`，队列最终使用 **Rebas
 `docs/governance/github-workflow.md` 第 7 节。
 
 - 当前 exact head 的 checks、审阅与 G3 全部完成后入队：`gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`；不得在 pending 时预先武装 auto-merge
+- `H_pr` 与真实 `H_mg` 都必须完成 `Governance checks`、`Rust checks`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`；原生 CodeQL rule 不替代队列中的两个 `Analyze` checks
 - `main` 前进或队列重排只重建 Merge Group，不要求对未变化 PR Head 重新人审
 - Ruleset 保留 required checks、关闭 strict up-to-date，由 Merge Group 验证最新 `main` 组合
 - 禁止使用 `--admin` 绕过队列；最终 merge method 例外必须先通过治理 Issue 修改规则

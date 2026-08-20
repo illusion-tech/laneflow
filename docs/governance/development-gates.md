@@ -252,14 +252,18 @@ Issue #446 为合并队列（Merge Queue）冻结三个独立身份：`H_pr` 是
 `H_pr → H_mg → H_main`，不能用 rebase 后 SHA 不同否定已验证的 inclusion，也不能用 patch inclusion
 替代 `H_mg` 上的 required checks。
 
-该契约按 bootstrap / activation 两个 PR 生效：Related PR 1 只增加 `merge_group` workflow、validator 与
-文档能力，仍按修改前的 live ruleset 完成 G3；Delivery PR 2 先确认这些能力已在 `main` 部署，并保存
-Ruleset before 与精确回滚载荷，再以事务方式临时启用合并队列、把
-`required_status_checks.strict_required_status_checks_policy` 设为 `false` 并将自身入队；required checks
-集合保持不变。GitHub 创建真实 `H_mg` 后，Delivery PR 2 才验证 required checks 与 CodeQL；全部成功则
-保留新 Ruleset 并继续无 `--admin` 合并，任一
-结果缺失或失败则立即恢复 before 配置并保持 G3 Block。Delivery PR 2 完成 G4 前，不得提前把 `G3 Pass`、
-shadow telemetry、候选 workflow 或“已临时启用”描述为队列集成已经通过。
+当前 `H_pr` 与真实 `H_mg` 都必须完成 `Governance checks`、`Rust checks`、`Dependency policy`、
+`Analyze (actions)` 与 `Analyze (rust)`；五项 expected source 都是 GitHub Actions App
+`integration_id=15368`。Ruleset 的原生 CodeQL `code_scanning` rule 不适用于 Merge Queue groups，不能替代
+`H_mg` 上两个 advanced CodeQL required checks。`strict_required_status_checks_policy=false` 只取消手工
+up-to-date / rebase 前置，不删除或放宽上述检查。
+
+#446 canary 发现 default setup 没有合并前 `H_mg` 分析后已精确回滚；#451 Related PR #452 随后部署
+advanced workflow，并在 default setup 关闭后完成 exact `main` 双语言 dispatch。#451 Delivery canary 只有在
+current-head G3 完成后才可保存 before、事务式写入五项 required checks、启用队列并入队。真实 `H_mg` 的
+五项 checks 和 CodeQL analysis 全部在合并前成功才提交 after；任一 missing、pending 或 failure 都恢复
+Ruleset before、`allow_auto_merge=false` 与队列关闭。Delivery canary 完成 G4 前，不得把主线 dispatch、
+shadow telemetry 或临时启用描述为队列集成已经通过。
 
 R1 的 `External Review Gate Shadow` 由 `github-actions` 发布，只用于 non-required telemetry，不能直接升级为 required Check：GitHub required status checks 不区分 workflow、matrix 或 event，同仓 PR 可以创建同 source App 的同名 Actions job。R2 前必须改由独立、最小权限的专用 GitHub App 发布正式 `External Review Gate`，ruleset 同时绑定 Check name 与该 App；spoof canary 必须证明 PR 自定义的同名 job 不能满足 required check。
 
@@ -352,6 +356,8 @@ content-equivalent rebase 还必须记录 reviewed/new head、old/new base、cha
 - G3 comment 在 PR 合并后被补写或编辑，编辑后未按新 effective time 重验 / 新增 marker，或 commit 使用 `G3 Pass` / `G3 Waived` 冒充 PR Gate 结果。
 - 源代码许可证、依赖许可证、RustSec advisory、crate 来源或 Dependabot 配置违反 `dependency-security.md`，或适用 cargo-deny 检查未通过。
 - `security-scanning.md` 要求的适用扫描仍为 `pending`、失败、无分析、已禁用或不可用，且没有记录显式例外。
+- `H_pr` 缺少上述任一 required context，或入队后的真实 `H_mg` 没有在合并前完成同名、同 expected source
+  的五项 success；PR / `main` 历史结果和原生 CodeQL rule 都不能补足 `H_mg` 缺口。
 
 PR 默认通过合并队列（Merge Queue）合入 `main`，队列最终使用 **Rebase**；不得使用 `--admin` 绕过。
 Squash 或 Merge commit 等最终方式例外必须先通过治理 Issue 修改适用规则并说明原因。详见
@@ -400,7 +406,7 @@ Issue 关闭前必须满足：
 - 已在所有关联 PR 合并后、Issue 关闭前发表 `## G4 完成判断` comment；Issue body G4 checkbox 已回链该 comment，Delivery PR body 已回链该 Issue G4 comment。
 - `check-gate-evidence g4` 已成功运行；正常 G4 comment 的 `Gate 断言` 行以规范格式记录语义一致的命令和 `已通过` 结果。只有合格的 `g3-exception:v1` historical replay 才保留 `未通过` 并输出 `accepted_exception`，且不得描述为 Pass。`待运行`、无结构化记录的失败、缺少成功标记或参数不匹配不得通过 G4。
 - `2026-08-20T04:00:00Z` 是 Merge Queue G4 证据的固定 activation boundary；该时刻后合并的 Delivery 或 Related PR 都必须在 `merge-queue-g4-evidence:v1` 中各有一条 `merge_queue` record。validator 按 Delivery-first、随后 Issue Related PR 顺序验证完整集合，把每条 `H_pr` / `H_main` 与 GitHub `headRefOid` / `mergeCommit.oid` 对照，并要求 `checksUrl` 精确为当前 `H_mg` 的 commit checks 页面、`chain` 使用规范顺序、inclusion 方法与 `H_pr...H_mg` compare permalink 精确绑定。
-- G4 live validation 还须从 GitHub API 读取 `merge_group` workflow runs、PR timeline 与目标分支全部当前生效的 rules；live `merge_queue` rule 必须仍存在，合并前最后一个 queue event 不得是 dequeue，最后一次入队到 merge 之间对应 PR 的最后一代 queue head 必须等于记录的 `H_mg`，并存在 trusted success run；每个 live required check 只按 merge 时刻前已完成的最后一个同名 check run 判定，且必须在该 `H_mg` 上 `completed/success`。该边界用于排除激活后回滚、任意自报 SHA、同次入队内被替换的旧 queue head、合并后 rerun 或旧队列结论；不要求本地抓取已删除的临时 ref 或执行逐补丁形式化重放。
+- G4 live validation 还须从 GitHub API 读取 `merge_group` workflow runs、PR timeline 与目标分支全部当前生效的 rules；live `merge_queue` rule 必须仍存在，合并前最后一个 queue event 不得是 dequeue，最后一次入队到 merge 之间对应 PR 的最后一代 queue head 必须等于记录的 `H_mg`，并存在 trusted success run；每个 live required check 只按 merge 时刻前已完成的最后一个同名 check run 判定，且必须在该 `H_mg` 上 `completed/success`。两个 CodeQL checks 还须绑定 `integration_id=15368`，并存在同一 `H_mg` 的 advanced workflow analysis。该边界用于排除激活后回滚、任意自报 SHA、同次入队内被替换的旧 queue head、合并后 rerun 或旧队列结论；不要求本地抓取已删除的临时 ref 或执行逐补丁形式化重放。
 - 全部关联 PR 都早于 boundary 合并的历史 G4 可继续无 record 重放；若一个 Issue 同时包含 activation 前后 PR，则 record 仍须覆盖全部成员，历史成员使用 `pre_activation`、保存 `H_pr/H_main` 与非空 reason，禁止补造 `H_mg`。boundary 后的非队列 merge 默认失败关闭；若治理决定允许例外，必须先通过独立 Issue 扩展结构化 record 与 validator，不能只改 `- 合并：` 文本。
 
 G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必须补写，应标记为补救记录。

@@ -273,6 +273,10 @@ current exact head 的 required checks、适用 CodeQL、外部审阅与 G3 全�
 gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 ```
 
+required checks 固定包含 `Governance checks`、`Rust checks`、`Dependency policy`、
+`Analyze (actions)` 与 `Analyze (rust)`；五项必须在 `H_pr` 和队列创建的真实 `H_mg` 上 success。
+原生 CodeQL rule 或其他 SHA 的同名结果不能替代 Merge Group checks。
+
 不得因为 `main` 前进而改写 PR commit；队列只为新的集成组合重建 `H_mg`。只有 PR 新 push、force-push
 或冲突修复改变 `H_pr` 时，才重走 exact-head 审阅与 G3。禁止使用 `--admin` 绕过队列。
 
