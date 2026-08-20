@@ -33,6 +33,8 @@ $script:McplsVersion = '0.3.9'
 $script:StateSchemaVersion = 2
 $script:LaunchMethod = 'win32_process_create'
 $script:ExternalProcessCreateFlags = [uint32]0x09000000
+$script:PostCreateInspectionReserveSeconds = 3
+$script:VerifiedCleanupReserveSeconds = 5
 $script:TemplateSchemaVersion = 1
 $script:GeneratedConfigSchemaVersion = 1
 $script:PortMinimum = 41000
@@ -1317,10 +1319,12 @@ function Start-McplsProcess {
         }
     $remainingMilliseconds = Get-RemainingMilliseconds -Deadline $Deadline
     $remainingWholeSeconds = [int][Math]::Floor($remainingMilliseconds / 1000.0)
-    if ($remainingWholeSeconds -lt 6) {
+    $reservedSeconds = $script:PostCreateInspectionReserveSeconds +
+        $script:VerifiedCleanupReserveSeconds
+    if ($remainingWholeSeconds -le $reservedSeconds) {
         throw 'Insufficient startup time remains for bounded CIM creation and identity inspection.'
     }
-    $operationTimeoutSeconds = $remainingWholeSeconds - 5
+    $operationTimeoutSeconds = $remainingWholeSeconds - $reservedSeconds
     $createRequestedAtUtc = [DateTimeOffset]::UtcNow
     try {
         $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
@@ -1555,7 +1559,12 @@ function Wait-McplsReady {
             return $health
         }
         $lastReason = $health.Reason
-        Start-Sleep -Milliseconds 250
+        $sleepMilliseconds = Get-RemainingMillisecondsOrZero `
+            -Deadline $Deadline -Maximum 250
+        if ($sleepMilliseconds -le 0) {
+            break
+        }
+        Start-Sleep -Milliseconds $sleepMilliseconds
     }
 
     return [pscustomobject]@{
@@ -1580,6 +1589,9 @@ function Start-NewMcplsService {
     }
 
     $lastFailure = $null
+    $readinessDeadline = $Deadline.AddSeconds(
+        -$script:VerifiedCleanupReserveSeconds
+    )
     $portRangeSize = $script:PortMaximum - $script:PortMinimum + 1
     for ($offset = 0; $offset -lt $portRangeSize; $offset++) {
         $null = Get-RemainingMilliseconds -Deadline $Deadline
@@ -1608,8 +1620,8 @@ function Start-NewMcplsService {
             Write-LifecycleLog -Context $Context `
                 -Message "launched pid=$($process.Id) endpoint=$($state.endpoint)"
             $listenDeadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
-            if ($listenDeadline -gt $Deadline) {
-                $listenDeadline = $Deadline
+            if ($listenDeadline -gt $readinessDeadline) {
+                $listenDeadline = $readinessDeadline
             }
             $bound = $false
             while ([DateTimeOffset]::UtcNow -lt $listenDeadline -and -not $process.HasExited) {
@@ -1624,7 +1636,12 @@ function Start-NewMcplsService {
                     $bound = $true
                     break
                 }
-                Start-Sleep -Milliseconds 100
+                $sleepMilliseconds = Get-RemainingMillisecondsOrZero `
+                    -Deadline $listenDeadline -Maximum 100
+                if ($sleepMilliseconds -le 0) {
+                    break
+                }
+                Start-Sleep -Milliseconds $sleepMilliseconds
             }
             if ($process.HasExited -or -not $bound) {
                 $exitedBeforeBind = $process.HasExited
@@ -1706,7 +1723,7 @@ function Start-NewMcplsService {
 
         try {
             $health = Wait-McplsReady -Process $process -Endpoint $state.endpoint `
-                -Deadline $Deadline
+                -Deadline $readinessDeadline
             if (-not $health.Healthy) {
                 throw "mcpls failed HTTP initialize: $($health.Reason)"
             }

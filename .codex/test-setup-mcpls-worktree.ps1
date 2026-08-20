@@ -779,7 +779,7 @@ try {
         }
         $externalProbe = Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
             -Context $testContext -Port $identityPort `
-            -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(7))
+            -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(10))
         $externalProbe.Dispose()
         Assert-True -Condition (
             $script:CapturedCreateArguments.CommandLine -match '--config' -and
@@ -799,7 +799,7 @@ try {
         Assert-Throws -Operation {
             Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
                 -Context $testContext -Port $identityPort `
-                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(7))
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(10))
         } -Message 'a PID identity mismatch after WMI creation is never adopted for cleanup'
         $script:ReturnMismatchedCreateIdentity = $false
         $createCallsBeforeShortDeadline = $script:CreateCallCount
@@ -827,7 +827,7 @@ try {
         Assert-Throws -Operation {
             Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
                 -Context $testContext -Port $identityPort `
-                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(7))
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(10))
         } -Message 'a post-create inspection exception is reconciled before failure returns'
         Assert-True -Condition ($script:AmbiguousReconcileCalls -eq 1) `
             -Message 'a returned PID inspection exception invokes bounded reconciliation'
@@ -839,7 +839,7 @@ try {
         Assert-Throws -Operation {
             Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
                 -Context $testContext -Port $identityPort `
-                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(7))
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(10))
         } -Message 'an ambiguous WMI exception is reported only after reconciliation'
         Assert-True -Condition ($script:AmbiguousReconcileCalls -eq 2) `
             -Message 'a WMI exception invokes bounded ambiguous-create reconciliation'
@@ -850,7 +850,7 @@ try {
         Assert-Throws -Operation {
             Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
                 -Context $testContext -Port $identityPort `
-                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(7))
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(10))
         } -Message 'Win32_Process.Create failures remain visible to fail-open Ensure handling'
     }
     finally {
@@ -909,6 +909,7 @@ try {
     $originalPortListening = (Get-Command Test-LoopbackPortListening).ScriptBlock
     $originalWriteState = (Get-Command Write-ServiceState).ScriptBlock
     $originalStopVerified = (Get-Command Stop-VerifiedServiceProcessTree).ScriptBlock
+    $originalWaitReady = (Get-Command Wait-McplsReady).ScriptBlock
     $script:StartupTestPid = 0
     $script:StartupPortListeningCalls = 0
     $script:StartupTestExecutable = (Get-Process -Id $PID).Path
@@ -961,6 +962,66 @@ try {
         Set-Item -Path Function:Write-ServiceState -Value $originalWriteState
         if ($script:StartupTestPid -gt 0) {
             Stop-Process -Id $script:StartupTestPid -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $script:ReservedCleanupTestPid = 0
+    $script:CapturedReadinessDeadline = [DateTimeOffset]::MinValue
+    try {
+        Set-Item -Path Function:Start-McplsProcess -Value {
+            param($Executable, $Context, $Port, $Deadline)
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = $script:StartupTestExecutable
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $startInfo.ArgumentList.Add('-NoLogo')
+            $startInfo.ArgumentList.Add('-NoProfile')
+            $startInfo.ArgumentList.Add('-Command')
+            $startInfo.ArgumentList.Add('Start-Sleep -Seconds 60')
+            $startInfo.ArgumentList.Add('--config')
+            $startInfo.ArgumentList.Add($Context.McplsConfigPath)
+            $startInfo.ArgumentList.Add('--listen')
+            $startInfo.ArgumentList.Add("127.0.0.1:$Port")
+            $startInfo.ArgumentList.Add('--http-path')
+            $startInfo.ArgumentList.Add($script:HttpPath)
+            $child = [System.Diagnostics.Process]::Start($startInfo)
+            $script:ReservedCleanupTestPid = $child.Id
+            return $child
+        }
+        Set-Item -Path Function:Test-LoopbackPortAvailable -Value { return $true }
+        Set-Item -Path Function:Test-LoopbackPortListening -Value { return $true }
+        Set-Item -Path Function:Wait-McplsReady -Value {
+            param($Process, $Endpoint, $Deadline)
+            $script:CapturedReadinessDeadline = $Deadline
+            return [pscustomobject]@{
+                Healthy = $false
+                Reason = 'injected readiness timeout'
+            }
+        }
+        $operationDeadline = [DateTimeOffset]::UtcNow.AddSeconds(12)
+        Assert-Throws -Operation {
+            Start-NewMcplsService -Context $testContext -Tool $startupTool `
+                -RustAnalyzer $startupRustAnalyzer `
+                -TemplateInfo $template -McplsConfigHash $secondConfigHash `
+                -Deadline $operationDeadline
+        } -Message 'readiness failure remains visible after verified cleanup'
+        Assert-True -Condition (
+            [Math]::Abs((
+                $operationDeadline - $script:CapturedReadinessDeadline
+            ).TotalSeconds - $script:VerifiedCleanupReserveSeconds) -lt 0.01 -and
+            $script:ReservedCleanupTestPid -gt 0 -and
+            $null -eq (Get-Process -Id $script:ReservedCleanupTestPid `
+                -ErrorAction SilentlyContinue)
+        ) -Message 'readiness preserves the verified cleanup reserve and leaves no child'
+    }
+    finally {
+        Set-Item -Path Function:Start-McplsProcess -Value $originalStartProcess
+        Set-Item -Path Function:Test-LoopbackPortAvailable -Value $originalPortAvailable
+        Set-Item -Path Function:Test-LoopbackPortListening -Value $originalPortListening
+        Set-Item -Path Function:Wait-McplsReady -Value $originalWaitReady
+        if ($script:ReservedCleanupTestPid -gt 0) {
+            Stop-Process -Id $script:ReservedCleanupTestPid -Force `
+                -ErrorAction SilentlyContinue
         }
     }
 

@@ -104,7 +104,9 @@ Codex 为新任务创建 worktree 时会运行 setup。`Ensure` 会：
    携带协商得到的 `MCP-Protocol-Version` 删除临时 session，并把删除失败视为不健康；
 6. 用 `StartupTimeoutSeconds` 的单一截止时间约束初始 Git worktree discovery、自动清理、
    二进制校验、锁等待、CIM 创建、端口绑定和 HTTP 健康检查；CIM 只接受整秒超时，
-   因此脚本只使用剩余预算内的整秒数，并在创建前保留后续身份检查预算；
+   因此脚本只使用剩余预算内的整秒数，并在创建前保留后续身份检查预算；端口绑定和
+   HTTP readiness 还会在同一截止时间内保留 5 秒受检回收预算，不能把总预算耗尽后再
+   尝试停止已经外部创建的进程；
 7. 使用 `Win32_Process.Create` 和 `CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW` 以当前用户、
    目标 worktree 为工作目录创建直接 mcpls PID，并通过 `Win32_ProcessStartup` 显式复制当前
    setup 进程环境，使服务运行时的 `PATH` 与前置 `rust-analyzer` 校验一致；环境值不写入
