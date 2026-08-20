@@ -571,7 +571,7 @@ pub(super) fn gh_commit_check_runs(repo: &str, oid: &str) -> Result<Vec<GitHubCh
         "Accept: application/vnd.github+json".to_string(),
         "-H".to_string(),
         "X-GitHub-Api-Version: 2022-11-28".to_string(),
-        format!("repos/{repo}/commits/{oid}/check-runs?per_page=100"),
+        format!("repos/{repo}/commits/{oid}/check-runs?filter=all&per_page=100"),
     ])?;
     let expected = pages.iter().map(|page| page.total_count).max().unwrap_or(0);
     let runs = pages
