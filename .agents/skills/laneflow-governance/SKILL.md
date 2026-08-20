@@ -219,6 +219,9 @@ CodeQL 缺失或失败，停止合并并按关联 Issue 的 activation / rollbac
 成员保存 `pre_activation` identity 和原因。运行 `check-gate-evidence g4` 对照每个 PR 的
 `headRefOid/mergeCommit.oid`、GitHub trusted `merge_group` run、最终 queue timeline state、仍生效的 live `merge_queue` rule、同次入队的最后一代 queue head 与 merge 前完成的 live required checks；
 不得只写 Delivery、泛化的“已合并 / CI 通过”，也无需抓取临时 ref 做本地形式化 replay。
+GitHub 成功完成队列合并时可能由 `github-merge-queue[bot]` 在唯一 `merged` 前直接记录终态
+`removed_from_merge_queue`；只在前序入队、actor、邻接顺序、时间关系和上述全部 trusted `H_mg`
+证据同时成立时接受。人工/缺失 actor、其他 bot、非邻接移出或异常时间仍失败关闭。
 #451 Related PR #452 是唯一已冻结的 `activation_bootstrap`，必须使用文档规定的精确 reason、证据 URL 与
 identity；不得填写 `H_mg`，也不得把它泛化为其他 activation boundary 后的直接合并例外。
 
