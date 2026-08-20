@@ -7,5 +7,5 @@
 Adapter 或文件系统。共享根拥有 Traffic、Identity、Planning Hints 与可选 Spatial
 component；调用方只独立保留 `Arc<SharedNetworkRevision>`。
 
-当前基础投影由 #439 / PR #436 交付；剩余 Runtime 静态关系由 #440 闭合，父级状态以
-#300 Gate Ledger 为准。
+当前基础投影由 #439 / PR #436 交付；#440 G2 在同一 crate 闭合剩余 Runtime 静态关系，
+父级状态以 #300 Gate Ledger 为准。

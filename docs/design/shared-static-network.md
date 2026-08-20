@@ -1,7 +1,7 @@
 # 共享静态路网
 
 **文档状态**: Accepted（#300 G1 Pass）<br>
-**最后更新**: 2026-08-19（#440 G1 候选附录）<br>
+**最后更新**: 2026-08-20（#440 G1 Pass / G2 实现）<br>
 **适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
 **关联文档**: `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
@@ -446,7 +446,7 @@ requested capacity、累计分配、returned retained bytes 和进程 RSS，不�
 
 ## 13. #440 剩余 Runtime 关系闭包
 
-**文档状态**: Proposed（#440 G1 候选；不授权 G2）<br>
+**文档状态**: Accepted（#440 G1 Pass；G2 实现按本附录闭合）<br>
 **适用范围**: `SharedTrafficNetwork` 在 #439 基础投影之后仍需闭合的 LFCA v1
 compiled relation / 实体字段；不改变 ADR 0025、§1–§12 的根所有权、admission、
 Spatial 基线或性能证据职责。

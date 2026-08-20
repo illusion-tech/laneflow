@@ -154,6 +154,7 @@ pub(crate) const fn kind_index(entity_kind: EntityKind) -> usize {
     (entity_kind.code() - 1) as usize
 }
 
+#[allow(dead_code)]
 pub(crate) const fn reverse_entry_bytes() -> usize {
     size_of::<IdentityReverseEntry>()
 }
