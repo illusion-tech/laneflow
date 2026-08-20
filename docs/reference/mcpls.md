@@ -103,9 +103,12 @@ Codex 为新任务创建 worktree 时会运行 setup。`Ensure` 会：
    服务并启动新服务；解析到的 `rust-analyzer` 路径变化也会阻止复用旧服务；健康探测会
    携带协商得到的 `MCP-Protocol-Version` 删除临时 session，并把删除失败视为不健康；
 6. 用 `StartupTimeoutSeconds` 的单一截止时间约束初始 Git worktree discovery、自动清理、
-   二进制校验、锁等待、CIM 创建、端口绑定和 HTTP 健康检查；
+   二进制校验、锁等待、CIM 创建、端口绑定和 HTTP 健康检查；CIM 只接受整秒超时，
+   因此脚本只使用剩余预算内的整秒数，并在创建前保留后续身份检查预算；
 7. 使用 `Win32_Process.Create` 和 `CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW` 以当前用户、
-   目标 worktree 为工作目录创建直接 mcpls PID；不再用普通 `Start-Process` 启动常驻后代；
+   目标 worktree 为工作目录创建直接 mcpls PID；WMI 返回的裸 PID 必须先通过可执行路径、
+   完整命令行和创建时间检查，后续回收也必须重新验证状态身份，不会按裸 PID 杀进程；
+   不再用普通 `Start-Process` 启动常驻后代；
 8. 进程创建后立即原子持久化 `starting` 状态，再等待端口绑定；只有健康检查、启用配置
    与生命周期日志全部提交成功后才保留新进程。任一记账步骤失败都会回收该进程，且失败
    路径只在持有同 worktree 锁时改写禁用配置。进程在 bind 前自行退出会直接中止启动，

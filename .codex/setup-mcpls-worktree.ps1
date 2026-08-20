@@ -836,6 +836,43 @@ function Test-ServiceProcessIdentity {
     }
 }
 
+function Test-NewMcplsProcessSnapshotIdentity {
+    param(
+        [Parameter(Mandatory)]$Snapshot,
+        [Parameter(Mandatory)][string]$ExpectedExecutable,
+        [Parameter(Mandatory)][string]$ExpectedCommandLine,
+        [Parameter(Mandatory)][DateTimeOffset]$CreateRequestedAtUtc
+    )
+
+    try {
+        if (-not (Test-PathEqual -Left $Snapshot.ExecutablePath `
+            -Right $ExpectedExecutable)) {
+            throw 'created process executable path mismatch'
+        }
+        if (-not [string]::Equals(
+            [string]$Snapshot.CommandLine,
+            $ExpectedCommandLine,
+            [System.StringComparison]::Ordinal
+        )) {
+            throw 'created process command line mismatch'
+        }
+        if ($Snapshot.StartedAtUtc.ToUniversalTime() -lt
+            $CreateRequestedAtUtc.UtcDateTime.AddSeconds(-2)) {
+            throw 'created process start time predates the WMI request'
+        }
+        return [pscustomobject]@{
+            Matched = $true
+            Reason = $null
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Matched = $false
+            Reason = $_.Exception.Message
+        }
+    }
+}
+
 function Get-ServiceReuseInputs {
     param(
         [Parameter(Mandatory)]$State,
@@ -1147,10 +1184,12 @@ function Start-McplsProcess {
             ShowWindow = [uint16]0
         }
     $remainingMilliseconds = Get-RemainingMilliseconds -Deadline $Deadline
-    $operationTimeoutSeconds = [int][Math]::Max(
-        1,
-        [Math]::Ceiling($remainingMilliseconds / 1000.0)
-    )
+    $remainingWholeSeconds = [int][Math]::Floor($remainingMilliseconds / 1000.0)
+    if ($remainingWholeSeconds -lt 3) {
+        throw 'Insufficient startup time remains for bounded CIM creation and identity inspection.'
+    }
+    $operationTimeoutSeconds = $remainingWholeSeconds - 2
+    $createRequestedAtUtc = [DateTimeOffset]::UtcNow
     $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
         -Arguments @{
             CommandLine = $commandLine
@@ -1166,46 +1205,23 @@ function Start-McplsProcess {
     if ($processId -le 0) {
         throw 'Win32_Process.Create returned an invalid process ID.'
     }
+    $process = $null
     try {
-        return Get-Process -Id $processId -ErrorAction Stop
-    }
-    catch {
-        throw "Win32_Process.Create returned PID $processId, but it exited before inspection."
-    }
-}
-
-function Stop-OwnedProcessTree {
-    param(
-        [Parameter(Mandatory)][System.Diagnostics.Process]$Process,
-        [ValidateRange(0, 10000)][int]$TimeoutMilliseconds = 10000,
-        [DateTimeOffset]$Deadline = [DateTimeOffset]::MinValue
-    )
-
-    if ($Process.HasExited) {
-        return
-    }
-    $processId = [int]$Process.Id
-    try {
-        $Process.Kill($true)
-    }
-    catch {
-        if ($Process.HasExited) {
-            return
+        $process = Get-Process -Id $processId -ErrorAction Stop
+        $snapshot = Get-ProcessSnapshotFromHandle -Process $process -Deadline $Deadline
+        $identity = Test-NewMcplsProcessSnapshotIdentity -Snapshot $snapshot `
+            -ExpectedExecutable $Executable -ExpectedCommandLine $commandLine `
+            -CreateRequestedAtUtc $createRequestedAtUtc
+        if (-not $identity.Matched) {
+            throw "created PID failed identity validation: $($identity.Reason)"
         }
-        throw
+        return $process
     }
-    $exitWait = if ($Deadline -eq [DateTimeOffset]::MinValue) {
-        $TimeoutMilliseconds
-    }
-    else {
-        Get-RemainingMillisecondsOrZero -Deadline $Deadline `
-            -Maximum $TimeoutMilliseconds
-    }
-    if (-not $Process.WaitForExit($exitWait)) {
-        throw (
-            "Process tree rooted at PID $processId did not exit within " +
-            "$exitWait milliseconds."
-        )
+    catch {
+        if ($null -ne $process) {
+            $process.Dispose()
+        }
+        throw "Win32_Process.Create returned PID $processId, but safe inspection failed: $($_.Exception.Message)"
     }
 }
 
@@ -1450,7 +1466,8 @@ function Start-NewMcplsService {
                 $launchedProcessId = [int]$process.Id
                 try {
                     if (-not $process.HasExited) {
-                        Stop-OwnedProcessTree -Process $process `
+                        Stop-VerifiedServiceProcessTree -State $state `
+                            -ExpectedRoot $Context.Root `
                             -TimeoutMilliseconds 5000 -Deadline $Deadline
                     }
                     $state.status = 'failed'
@@ -1481,9 +1498,10 @@ function Start-NewMcplsService {
             $preReadyFailure = $_.Exception.Message
             $launchedProcessId = if ($null -ne $process) { [int]$process.Id } else { 0 }
             $stopped = $null -eq $process -or $process.HasExited
-            if ($null -ne $process -and -not $stopped) {
+            if ($null -ne $process -and -not $stopped -and $null -ne $state) {
                 try {
-                    Stop-OwnedProcessTree -Process $process -Deadline $Deadline
+                    Stop-VerifiedServiceProcessTree -State $state `
+                        -ExpectedRoot $Context.Root -Deadline $Deadline
                     $stopped = $true
                 }
                 catch {
@@ -1536,8 +1554,8 @@ function Start-NewMcplsService {
             $failureReason = $_.Exception.Message
             if ($null -ne $process -and -not $process.HasExited) {
                 try {
-                    Stop-OwnedProcessTree -Process $process `
-                        -Deadline $Deadline
+                    Stop-VerifiedServiceProcessTree -State $state `
+                        -ExpectedRoot $Context.Root -Deadline $Deadline
                 }
                 catch {
                     $failureReason = "$failureReason Cleanup failed: $($_.Exception.Message)"
@@ -1574,10 +1592,11 @@ function Start-NewMcplsService {
         }
         finally {
             if ($null -ne $process) {
-                if (-not $committed -and -not $process.HasExited) {
+                if (-not $committed -and -not $process.HasExited -and
+                    $null -ne $state) {
                     try {
-                        Stop-OwnedProcessTree -Process $process `
-                            -Deadline $Deadline
+                        Stop-VerifiedServiceProcessTree -State $state `
+                            -ExpectedRoot $Context.Root -Deadline $Deadline
                     }
                     catch {
                         # The primary failure already records the cleanup attempt.

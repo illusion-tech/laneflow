@@ -732,6 +732,8 @@ try {
 
     $script:CapturedCreateArguments = $null
     $script:CapturedCreateTimeout = 0
+    $script:CreateCallCount = 0
+    $script:ReturnMismatchedCreateIdentity = $false
     try {
         Set-Item -Path Function:New-CimInstance -Value {
             param($ClassName, [switch]$ClientOnly, $Property)
@@ -743,9 +745,26 @@ try {
         }
         Set-Item -Path Function:Invoke-CimMethod -Value {
             param($ClassName, $MethodName, $Arguments, $OperationTimeoutSec)
+            $script:CreateCallCount++
             $script:CapturedCreateArguments = $Arguments
             $script:CapturedCreateTimeout = $OperationTimeoutSec
             return [pscustomobject]@{ ReturnValue = [uint32]0; ProcessId = $PID }
+        }
+        Set-Item -Path Function:Get-ProcessSnapshotFromHandle -Value {
+            param($Process, $Deadline)
+            return [pscustomobject]@{
+                ProcessId = $Process.Id
+                ParentProcessId = 0
+                Name = $Process.ProcessName
+                ExecutablePath = if ($script:ReturnMismatchedCreateIdentity) {
+                    $testContext.McplsConfigPath
+                }
+                else {
+                    $Process.Path
+                }
+                CommandLine = $script:CapturedCreateArguments.CommandLine
+                StartedAtUtc = [DateTimeOffset]::UtcNow.UtcDateTime
+            }
         }
         $externalProbe = Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
             -Context $testContext -Port $identityPort `
@@ -757,8 +776,25 @@ try {
             $script:CapturedCreateArguments.CurrentDirectory -eq $testContext.Root -and
             [uint32]$script:CapturedCreateArguments.ProcessStartupInformation.Property.CreateFlags -eq
                 $script:ExternalProcessCreateFlags -and
-            $script:CapturedCreateTimeout -ge 1
+            $script:CapturedCreateTimeout -ge 1 -and
+            $script:CapturedCreateTimeout -le 2
         ) -Message 'long-lived service uses bounded Win32_Process.Create outside the setup child tree'
+        $script:ReturnMismatchedCreateIdentity = $true
+        Assert-Throws -Operation {
+            Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
+                -Context $testContext -Port $identityPort `
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
+        } -Message 'a PID identity mismatch after WMI creation is never adopted for cleanup'
+        $script:ReturnMismatchedCreateIdentity = $false
+        $createCallsBeforeShortDeadline = $script:CreateCallCount
+        Assert-Throws -Operation {
+            Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
+                -Context $testContext -Port $identityPort `
+                -Deadline ([DateTimeOffset]::UtcNow.AddMilliseconds(500))
+        } -Message 'CIM creation is refused when less than its whole-second budget remains'
+        Assert-True -Condition (
+            $script:CreateCallCount -eq $createCallsBeforeShortDeadline
+        ) -Message 'an insufficient deadline refuses startup before invoking Win32_Process.Create'
         Set-Item -Path Function:Invoke-CimMethod -Value {
             param($ClassName, $MethodName, $Arguments, $OperationTimeoutSec)
             return [pscustomobject]@{ ReturnValue = [uint32]2; ProcessId = 0 }
@@ -772,13 +808,15 @@ try {
     finally {
         Remove-Item -Path Function:New-CimInstance -Force -ErrorAction SilentlyContinue
         Remove-Item -Path Function:Invoke-CimMethod -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path Function:Get-ProcessSnapshotFromHandle -Force `
+            -ErrorAction SilentlyContinue
     }
 
     $originalStartProcess = (Get-Command Start-McplsProcess).ScriptBlock
     $originalPortAvailable = (Get-Command Test-LoopbackPortAvailable).ScriptBlock
     $originalPortListening = (Get-Command Test-LoopbackPortListening).ScriptBlock
     $originalWriteState = (Get-Command Write-ServiceState).ScriptBlock
-    $originalStopOwned = (Get-Command Stop-OwnedProcessTree).ScriptBlock
+    $originalStopVerified = (Get-Command Stop-VerifiedServiceProcessTree).ScriptBlock
     $script:StartupTestPid = 0
     $script:StartupPortListeningCalls = 0
     $script:StartupTestExecutable = (Get-Process -Id $PID).Path
@@ -793,6 +831,12 @@ try {
             $startInfo.ArgumentList.Add('-NoProfile')
             $startInfo.ArgumentList.Add('-Command')
             $startInfo.ArgumentList.Add('Start-Sleep -Seconds 60')
+            $startInfo.ArgumentList.Add('--config')
+            $startInfo.ArgumentList.Add($Context.McplsConfigPath)
+            $startInfo.ArgumentList.Add('--listen')
+            $startInfo.ArgumentList.Add("127.0.0.1:$Port")
+            $startInfo.ArgumentList.Add('--http-path')
+            $startInfo.ArgumentList.Add($script:HttpPath)
             $child = [System.Diagnostics.Process]::Start($startInfo)
             $script:StartupTestPid = $child.Id
             return $child
@@ -847,7 +891,7 @@ try {
         }
         Set-Item -Path Function:Test-LoopbackPortAvailable -Value { return $true }
         Set-Item -Path Function:Test-LoopbackPortListening -Value { return $false }
-        Set-Item -Path Function:Stop-OwnedProcessTree -Value {
+        Set-Item -Path Function:Stop-VerifiedServiceProcessTree -Value {
             throw 'injected unconfirmed cleanup failure'
         }
         Set-Item -Path Function:Write-ServiceState -Value {
@@ -871,7 +915,7 @@ try {
         Set-Item -Path Function:Test-LoopbackPortAvailable -Value $originalPortAvailable
         Set-Item -Path Function:Test-LoopbackPortListening -Value $originalPortListening
         Set-Item -Path Function:Write-ServiceState -Value $originalWriteState
-        Set-Item -Path Function:Stop-OwnedProcessTree -Value $originalStopOwned
+        Set-Item -Path Function:Stop-VerifiedServiceProcessTree -Value $originalStopVerified
         if ($script:StartupTestPid -gt 0) {
             Stop-Process -Id $script:StartupTestPid -Force -ErrorAction SilentlyContinue
         }
