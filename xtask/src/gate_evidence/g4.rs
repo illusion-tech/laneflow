@@ -327,12 +327,13 @@ pub(super) fn validate_trusted_merge_group_evidence(
                     .completed_at
                     .as_deref()
                     .and_then(parse_utc_timestamp_seconds)?;
-                (completed_at <= merged_at).then_some(run)
+                (completed_at <= merged_at).then_some((completed_at, run.id, run))
             })
-            .max_by_key(|run| run.id)
+            .max_by_key(|(completed_at, id, _)| (*completed_at, *id))
             .ok_or_else(|| {
                 format!("PR #{number} H_mg 缺少 merge 前完成的 trusted GitHub check `{name}`")
-            })?;
+            })?
+            .2;
         if latest.status != "completed" || latest.conclusion.as_deref() != Some("success") {
             return Err(format!(
                 "PR #{number} H_mg 最新 check `{name}` 不是 completed/success：status={} conclusion={:?}",
