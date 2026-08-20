@@ -1612,6 +1612,18 @@ pub(crate) fn evaluate_snapshot_with_policy(
             .copied()
             .unwrap_or(true)
     };
+    // E（r3820473548）：独立跟踪最新 blocking finding（blocking 压力或 unthreaded）。
+    // 防止最新 findings review 仅 deferred（P2/P3）时掩盖较早 blocking finding
+    // 「处置后需其后的 current-head clean re-review」的要求。
+    let latest_blocking_finding = current_evidence
+        .iter()
+        .rev()
+        .find(|item| {
+            item.outcome == EvidenceOutcome::Findings
+                && (finding_blocks(item)
+                    || unthreaded_finding_urls.contains(item.evidence_url.as_str()))
+        })
+        .copied();
     // D3：round-cap record 只在「本将落 FindingsOpen / AwaitingRereview」时生效；
     // 其它状态不受影响（record 校验失败已在上游 diagnostics fail-closed）。
     let would_be_findings_open =
@@ -1678,13 +1690,29 @@ pub(crate) fn evaluate_snapshot_with_policy(
         } else if let Some(clean) = clean_after_finding {
             (ExternalReviewState::Pass, false, Some(clean), None)
         } else if !finding_blocks(finding) {
-            // D2：仅剩 deferred（P2/P3）findings 时不阻断，明细在 check output 披露
-            (
-                ExternalReviewState::Pass,
-                false,
-                Some(finding),
-                Some("current-head 仅剩 deferred findings（P2/P3），不阻断合并".to_string()),
-            )
+            // D2：仅剩 deferred（P2/P3）findings 时不阻断，明细在 check output 披露。
+            // E：前提是不存在未被覆盖的更早 blocking finding——存在时必须有严格
+            // 晚于其 submitted_at 的 current-head clean，否则落 AwaitingRereview。
+            let blocking_recovered = latest_blocking_finding.is_none_or(|blocking| {
+                latest_clean.is_some_and(|clean| clean.submitted_at > blocking.submitted_at)
+            });
+            if blocking_recovered {
+                (
+                    ExternalReviewState::Pass,
+                    false,
+                    Some(finding),
+                    Some("current-head 仅剩 deferred findings（P2/P3），不阻断合并".to_string()),
+                )
+            } else {
+                (
+                    ExternalReviewState::AwaitingRereview,
+                    true,
+                    latest_blocking_finding,
+                    Some(
+                        "blocking finding 处置后缺少其后的 exact-head clean re-review".to_string(),
+                    ),
+                )
+            }
         } else {
             (
                 ExternalReviewState::AwaitingRereview,
@@ -3415,15 +3443,17 @@ fn commits_tree_for<'a>(
 }
 
 /// D4：收集需要追加查询解析 tree 的孤儿 reviewed head oid——PR 顶层 comments 的
-/// `Reviewed commit:` marker 值中去重后仍无法由 commits 映射解析的部分；
-/// 超过 16 个不同 oid → None（fail-closed 不解析，全部不继承）
+/// `Reviewed commit:` marker 值，以及经校验的 Codex clean binding record 的
+/// boundHeadOid（F：SHA-less clean completion 的 head 只存在于该隐藏记录）；
+/// 去重后仍无法由 commits 映射与已解析结果解析的部分；超过 16 个不同 oid →
+/// None（fail-closed 不解析，全部不继承）
 fn orphan_reviewed_oids_for_tree_resolution(
-    comments: &[IssueComment],
+    pr: &PullRequestSnapshot,
     commits_by_oid: &BTreeMap<&str, &str>,
     resolved_commit_trees: &BTreeMap<String, String>,
 ) -> Option<Vec<String>> {
     let mut oids = BTreeSet::new();
-    for comment in comments {
+    for comment in &pr.comments.nodes {
         let Some(reviewed) = parse_reviewed_commit(&comment.body) else {
             continue;
         };
@@ -3431,6 +3461,16 @@ fn orphan_reviewed_oids_for_tree_resolution(
             continue;
         }
         oids.insert(reviewed.to_string());
+    }
+    // F（r3820473559）：复用 binding record 的解析/校验；校验失败的 record 一律
+    // 不收集（fail-closed，其 diagnostics 由 evaluate 阶段复核报告）
+    let mut record_diagnostics = Vec::new();
+    for bound in collect_codex_clean_binding_records(pr, &mut record_diagnostics) {
+        let bound_head = &bound.record.bound_head_oid;
+        if commits_tree_for(commits_by_oid, resolved_commit_trees, bound_head).is_some() {
+            continue;
+        }
+        oids.insert(bound_head.clone());
     }
     (oids.len() <= 16).then(|| oids.into_iter().collect())
 }
@@ -4125,7 +4165,7 @@ fn resolve_orphan_commit_trees(repository: &str, snapshot: &mut ExternalReviewSn
         }
     }
     let Some(orphan_oids) = orphan_reviewed_oids_for_tree_resolution(
-        &pr.comments.nodes,
+        pr,
         &commits_by_oid,
         &snapshot.resolved_commit_trees,
     ) else {
@@ -5655,6 +5695,112 @@ mod tests {
     }
 
     #[test]
+    fn deferred_review_does_not_mask_blocking_finding_rereview() {
+        // E（r3820473548）：较早 blocking finding（thread 已 resolve、尚无后续 clean）
+        // 之后来一轮仅 P2 的 deferred findings review，不得直接判 Pass。
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/copilot-findings-open.json"
+        ));
+        let head = snapshot.pull_request.head_ref_oid.clone();
+        // PR author 换成非受信 actor，wangzishi 的人工 clean review 才计入受信证据
+        snapshot.pull_request.author = Some(Actor {
+            login: "contributor".to_string(),
+        });
+        // 既有 thread 升级为 P1 blocking 且已 resolve（处置完毕，尚无后续 clean）
+        let blocking_thread = &mut snapshot.pull_request.review_threads.nodes[0];
+        blocking_thread.is_resolved = true;
+        blocking_thread.comments.nodes[0].body = codex_badge_body("P1", "Must fix before merge.");
+        // 追加更晚的 P2-only deferred findings review 及其关联 thread
+        snapshot.pull_request.reviews.nodes.push(Review {
+            id: "PRR-copilot-findings-2".to_string(),
+            author: Some(Actor {
+                login: "copilot-pull-request-reviewer".to_string(),
+            }),
+            body: "Copilot reviewed 2 files and generated 1 comment.".to_string(),
+            state: "COMMENTED".to_string(),
+            submitted_at: Some("2026-07-10T08:00:00Z".to_string()),
+            url: Some(
+                "https://github.com/illusion-tech/laneflow/pull/38#pullrequestreview-4661194999"
+                    .to_string(),
+            ),
+            commit: Some(CommitRef {
+                oid: head.clone(),
+                tree: None,
+            }),
+        });
+        let mut p2_thread = snapshot.pull_request.review_threads.nodes[0].clone();
+        p2_thread.id = "PRRT-copilot-finding-p2".to_string();
+        p2_thread.is_resolved = false;
+        let p2_comment = &mut p2_thread.comments.nodes[0];
+        p2_comment.id = "PRRC-copilot-finding-p2".to_string();
+        p2_comment.url =
+            "https://github.com/illusion-tech/laneflow/pull/38#discussion_r3550034360".to_string();
+        p2_comment.body = codex_badge_body("P2", "Deferrable concern.");
+        let p2_review_ref = p2_comment.pull_request_review.as_mut().expect("review ref");
+        p2_review_ref.id = "PRR-copilot-findings-2".to_string();
+        p2_review_ref.submitted_at = Some("2026-07-10T08:00:00Z".to_string());
+        snapshot.pull_request.review_threads.nodes.push(p2_thread);
+
+        // deferred-only 最新 review 不得掩盖 P1 的 clean re-review 要求
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::AwaitingRereview);
+        assert!(result.requires_rereview);
+        assert_eq!(result.deferred_findings.len(), 1);
+
+        // blocking finding 之前的更早 clean 不放行
+        let human_clean = |id: &str, submitted_at: &str| Review {
+            id: id.to_string(),
+            author: Some(Actor {
+                login: "wangzishi".to_string(),
+            }),
+            body: String::new(),
+            state: "APPROVED".to_string(),
+            submitted_at: Some(submitted_at.to_string()),
+            url: Some(format!(
+                "https://github.com/illusion-tech/laneflow/pull/38#pullrequestreview-{id}"
+            )),
+            commit: Some(CommitRef {
+                oid: head.clone(),
+                tree: None,
+            }),
+        };
+        let mut earlier_clean = snapshot.clone();
+        earlier_clean
+            .pull_request
+            .reviews
+            .nodes
+            .insert(0, human_clean("early", "2026-07-08T08:00:00Z"));
+        assert_eq!(
+            evaluate_snapshot(&earlier_clean).state,
+            ExternalReviewState::AwaitingRereview
+        );
+
+        // 严格晚于 blocking finding（早于 deferred review）的 clean → 放行
+        let mut mid_clean = snapshot.clone();
+        mid_clean
+            .pull_request
+            .reviews
+            .nodes
+            .push(human_clean("mid", "2026-07-09T12:00:00Z"));
+        assert_eq!(
+            evaluate_snapshot(&mid_clean).state,
+            ExternalReviewState::Pass
+        );
+
+        // 严格晚于 deferred review 的 clean → 放行（既有 clean_after_finding 路径）
+        let mut late_clean = snapshot;
+        late_clean
+            .pull_request
+            .reviews
+            .nodes
+            .push(human_clean("late", "2026-07-11T08:00:00Z"));
+        assert_eq!(
+            evaluate_snapshot(&late_clean).state,
+            ExternalReviewState::Pass
+        );
+    }
+
+    #[test]
     fn counts_review_rounds_by_distinct_finding_head_oids() {
         // 无 findings → 0 轮
         let clean = evaluate_snapshot(&fixture(include_str!(
@@ -6225,6 +6371,12 @@ mod tests {
             url: String::new(),
         };
         let marker = |oid: &str| format!("Codex Review: clean\n\n**Reviewed commit:** `{oid}`");
+        let snapshot_with = |comments: Vec<IssueComment>| {
+            let mut snapshot =
+                fixture(include_str!("../fixtures/external-review/codex-clean.json"));
+            snapshot.pull_request.comments.nodes = comments;
+            snapshot
+        };
 
         // commits 映射可解析（短 SHA 前缀）→ 不收集；无 marker / 形态不符 → 不收集；
         // 孤儿 oid 去重后只出现一次
@@ -6235,7 +6387,11 @@ mod tests {
             comment(marker(&orphan_head[..12])),
         ];
         assert_eq!(
-            orphan_reviewed_oids_for_tree_resolution(&comments, &commits_by_oid, &resolved),
+            orphan_reviewed_oids_for_tree_resolution(
+                &snapshot_with(comments).pull_request,
+                &commits_by_oid,
+                &resolved
+            ),
             Some(vec![orphan_head[..12].to_string()])
         );
 
@@ -6244,8 +6400,88 @@ mod tests {
             .map(|index| comment(marker(&format!("{index:040x}"))))
             .collect::<Vec<_>>();
         assert_eq!(
-            orphan_reviewed_oids_for_tree_resolution(&comments, &commits_by_oid, &resolved),
+            orphan_reviewed_oids_for_tree_resolution(
+                &snapshot_with(comments).pull_request,
+                &commits_by_oid,
+                &resolved
+            ),
             None
+        );
+    }
+
+    #[test]
+    fn orphan_oid_collection_includes_validated_binding_bound_head() {
+        // F（r3820473559）：SHA-less clean 的 head 只存在于 binding record 的
+        // boundHeadOid → 收集；record 校验失败 → 不收集（fail-closed）
+        let bound_head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let tree_oid = "dddddddddddddddddddddddddddddddddddddddd";
+        let commits_by_oid = BTreeMap::new();
+        let resolved = BTreeMap::new();
+        let snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-bound-clean.json"
+        ));
+        assert_eq!(
+            orphan_reviewed_oids_for_tree_resolution(
+                &snapshot.pull_request,
+                &commits_by_oid,
+                &resolved
+            ),
+            Some(vec![bound_head.to_string()])
+        );
+
+        // binding record 创建后被编辑 → 校验失败 → 不收集
+        let mut edited = snapshot.clone();
+        edited.pull_request.comments.nodes[2].updated_at = "2026-08-19T01:12:00Z".to_string();
+        assert_eq!(
+            orphan_reviewed_oids_for_tree_resolution(
+                &edited.pull_request,
+                &commits_by_oid,
+                &resolved
+            ),
+            Some(Vec::new())
+        );
+
+        // 已解析结果可解析该 head → 不重复收集
+        let resolved = BTreeMap::from([(bound_head.to_string(), tree_oid.to_string())]);
+        assert_eq!(
+            orphan_reviewed_oids_for_tree_resolution(
+                &snapshot.pull_request,
+                &commits_by_oid,
+                &resolved
+            ),
+            Some(Vec::new())
+        );
+    }
+
+    #[test]
+    fn orphan_bound_head_clean_inherits_via_resolved_commit_trees() {
+        // F：rebase 后 SHA-less clean 的绑定 head 成为孤儿（只存在于 binding
+        // record），其 tree 经追加解析与 current head tree 相等 → 继承 Pass；
+        // 缺 tree → 不继承（fail-closed Stale）
+        let tree_oid = "dddddddddddddddddddddddddddddddddddddddd";
+        let bound_head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let new_head = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-no-sha-bound-clean.json"
+        ));
+        snapshot.pull_request.head_ref_oid = new_head.to_string();
+        snapshot.pull_request.commits.nodes = vec![commit_node(new_head, Some(tree_oid))];
+        snapshot.resolved_commit_trees =
+            BTreeMap::from([(bound_head.to_string(), tree_oid.to_string())]);
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert!(
+            result
+                .evidence
+                .iter()
+                .any(|item| item.reviewed_head_tree_oid.as_deref() == Some(tree_oid))
+        );
+
+        let mut unresolved = snapshot.clone();
+        unresolved.resolved_commit_trees.clear();
+        assert_eq!(
+            evaluate_snapshot(&unresolved).state,
+            ExternalReviewState::Stale
         );
     }
 
