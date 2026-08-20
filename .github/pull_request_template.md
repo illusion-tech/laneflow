@@ -84,7 +84,7 @@ G3 comment 模板（合并前发表）：
 - Gate 结果：`G3 Pass` / `G3 Waived` / `G3 Exception` / `R0-R1 bootstrap`
 - Rollout phase：`R0` / `R1` / `R2`
 - Current head：
-- Checks：
+- Checks：列出 `Governance checks`、`Rust checks`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)` 的 current `H_pr` 结果；入队后 G4 另保存真实 `H_mg` 五项结果：
 - External Review Gate：
 - G3 Evidence Gate Shadow：按 Rollout phase 只保留一项且不包裹整个值：R0 = 候选 workflow bootstrap：<边界>；R1 = R1 non-required：<原因>；R2 = Check URL：https://github.com/...
 - 审阅：provider、actor、reviewed head、outcome、completion、evidence URL：
@@ -115,5 +115,6 @@ G3 comment 模板（合并前发表）：
 - [ ] PR commits 符合 `docs/reference/commit-convention.md`（Conventional Commits 标题 + `Gate: G3 Candidate` + 其他 LaneFlow 治理字段）；合并范围内没有 `Gate: G3 Block`。
 - [ ] commit message footer 与 PR body 语义已区分：commit 通常使用 `Refs: #<issue>`，PR body 使用 `Closes/Resolves` 建立 Development 关联。
 - [ ] 本 PR 未在只完成子切片的情况下声称父任务已完成。
+- [ ] `H_pr` 的五项 required checks 已 success；`Analyze (actions)` / `Analyze (rust)` 来自预期 GitHub Actions App。入队后不以该结果冒充 `H_mg` 证据。
 - [ ] 合并方式：默认 **Merge Queue（最终 Rebase）**；已冻结 Queue-ready `H_pr`，且未使用 `--admin`。若最终方式例外，已通过治理 Issue 修改规则并说明原因。
 - [ ] 未把 G0-G3 首次记录推迟到 G4 清场阶段；若存在补救记录，已说明流程遗漏原因。

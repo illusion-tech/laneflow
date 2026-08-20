@@ -271,6 +271,14 @@ LaneFlow 默认通过合并队列（Merge Queue）将 PR 合入 `main`，队列�
 放宽 required checks。队列会在最新 `main` 与队列前序变更形成的 `H_mg` 上重新运行这些检查；若同时保留
 strict up-to-date，PR 在入队前仍可能被要求先更新分支，重新引入本策略要消除的手工 rebase 与重复构建。
 
+当前 required status checks 固定为 `Governance checks`、`Rust checks`、`Dependency policy`、
+`Analyze (actions)` 与 `Analyze (rust)`，五项 expected source 都绑定 GitHub Actions App
+`integration_id=15368`。入队前 `H_pr` 必须已有五项 success；入队后 GitHub 必须在真实 `H_mg` 上重新产生
+并完成五项 success。原生 CodeQL `code_scanning` rule 继续约束普通 PR，但 GitHub 不把该 rule 应用于
+Merge Queue groups；它不能替代 `H_mg` 上两个 `Analyze (...)` required checks。expected source 只能区分
+App、不能区分同一 App 下的 workflow，剩余边界由 exact-head 外部审阅、`Governance checks` 与 G4 live
+queue evidence 共同承担；不得声称已经具备独立 App 级防伪。
+
 ### 7.1 日常入队与失效边界
 
 LaneFlow 采用“审阅稳定补丁、队列验证集成结果”的模型：
@@ -299,16 +307,19 @@ G3 授权。禁止使用 `--admin` 绕过队列。若 live Ruleset 未要求队�
 [GitHub CLI `gh pr merge`](https://cli.github.com/manual/gh_pr_merge) 和
 [Managing a merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)。
 
-### 7.2 #446 bootstrap / activation 边界
+### 7.2 #446 / #451 activation 与回滚边界
 
-#446 分两个 PR 自举：Related PR 1 只把契约和 `merge_group` CI 能力合入 `main`，不修改 live Ruleset，
-也不能使用候选队列能力自批。Delivery PR 2 先确认所需 workflow 已在 `main` 部署，保存 Ruleset before
-快照与精确 rollback 载荷，然后以事务方式临时启用合并队列、关闭 strict up-to-date 并将自身入队；
-required checks 集合保持不变。只有这一步之后 GitHub 才能创建真实 Merge Group。真实 `H_mg` 上的
-required checks 与 CodeQL canary 全部成功时，保留新 Ruleset
-并继续首次无 `--admin` 合并；任一结果缺失或失败时，立即恢复 before 配置、停止 canary 并保持 G3 Block。
-canary 成功不是启用队列的前置条件，而是决定激活事务提交或回滚的判据。在 Delivery PR 2 完成 G4 前，
-不得把 bootstrap 或尚未提交的临时激活描述为合并队列已经稳定启用。
+#446 先用 Related PR #448 部署队列契约和 `merge_group` CI，再用 Delivery PR #450 创建真实 canary。
+该 canary 证明 CodeQL default setup 只在合并后的 `main` push 产生分析，不能形成合并前 `H_mg` 门禁，
+因此事务恢复 Ruleset before、`allow_auto_merge=false` 与队列关闭，并拆出 #451。
+
+#451 Related PR #452 已把显式监听 `merge_group/checks_requested` 的 advanced CodeQL workflow 合入
+`main`；随后已禁用 default setup，并在 exact `main` 手工 dispatch 验证 `Analyze (actions)` 与
+`Analyze (rust)` 的 job 和 analysis。#451 Delivery canary 在自身 current-head G3 完成后保存 Ruleset /
+repository before 与精确 rollback 载荷，再事务式加入上述五项 required checks、关闭 strict up-to-date、
+启用 REBASE / ALLGREEN 单项队列并将自身入队。只有真实 `H_mg` 的五项 checks 和 CodeQL analysis 均在
+合并前成功，才保留 after 并继续无 `--admin` 合并；任一 missing、pending 或 failure 都恢复 before、
+`allow_auto_merge=false` 与队列关闭。canary 完成 G4 前，不得把临时启用或主线 dispatch 描述为队列已稳定激活。
 
 PR commit message 应使用 Conventional Commits 标题，并在正文保留 LaneFlow 治理字段：
 

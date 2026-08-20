@@ -59,7 +59,9 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
    Merge Queue 入队，使用 `gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`，
    最终 Rebase 方式由队列规则控制。不得因 `main` 单纯前进手工 rebase；不得使用 `--admin` 绕过队列。
    队列 live Ruleset 必须保留 required checks，并关闭 `strict_required_status_checks_policy`；集成结果由
-   GitHub 为最新目标分支组合生成的 `H_mg` 承载。
+   GitHub 为最新目标分支组合生成的 `H_mg` 承载。`H_pr` 与真实 `H_mg` 都必须完成
+   `Governance checks`、`Rust checks`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`；
+   CodeQL 两项必须来自 GitHub Actions App `integration_id=15368`，不得用原生 CodeQL rule 或其他 SHA 补足。
 
 ### Rust 语义导航
 

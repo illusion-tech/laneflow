@@ -4645,7 +4645,7 @@ mod tests {
     }
 
     #[test]
-    fn documents_the_lockfile_only_codeql_not_applicable_semantics() {
+    fn documents_the_lockfile_only_codeql_advanced_setup_semantics() {
         let gates = include_str!("../../docs/governance/development-gates.md");
         let scanning = include_str!("../../docs/governance/security-scanning.md");
         let dependency = include_str!("../../docs/governance/dependency-security.md");
@@ -4654,9 +4654,10 @@ mod tests {
 
         assert!(gates.contains("dependabot-cargo-lock-only-v1"));
         assert!(scanning.contains("dependabot-cargo-lock-only-v1"));
-        assert!(scanning.contains("NEUTRAL"));
-        assert!(scanning.contains("2 configurations not found"));
-        assert!(scanning.contains("not applicable"));
+        assert!(scanning.contains("default setup 必须为 `not-configured`"));
+        assert!(scanning.contains("`Analyze (actions)`"));
+        assert!(scanning.contains("`Analyze (rust)`"));
+        assert!(scanning.contains("不能复用于新 head、G3 或 Merge Group"));
         for entry_point in [dependency, template, agent_guide] {
             assert!(entry_point.contains("dependabot-cargo-lock-only-v1"));
         }
