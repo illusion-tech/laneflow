@@ -59,18 +59,10 @@ pub(super) fn g4_comment_for_args(
     created_at: &str,
     args: &GateEvidenceArgs,
 ) -> GitHubComment {
-    let body = gate_comment_body(G4_COMMENT_FIELDS, args)
-        .replace("- 合并：", "- 合并：Merge Queue（最终 Rebase）")
-        .replace(
-            GATE_ASSERTION_PREFIX,
-            &format!(
-                "- H_pr：`{DELIVERY_HEAD_OID}`\n- H_mg：`{MERGE_GROUP_OID}`\n- H_main：`{MAIN_RESULT_OID}`\n- H_mg required checks：success；{MERGE_GROUP_OID}；https://github.com/illusion-tech/laneflow/commit/{MERGE_GROUP_OID}/checks\n- Inclusion / replay：{DELIVERY_HEAD_OID} -> {MERGE_GROUP_OID} -> {MAIN_RESULT_OID}\n{GATE_ASSERTION_PREFIX}"
-            ),
-        );
     GitHubComment {
         id: String::new(),
         url: url.to_string(),
-        body,
+        body: gate_comment_body(G4_COMMENT_FIELDS, args),
         author: Some(GitHubActor {
             login: "wangzishi".to_string(),
         }),

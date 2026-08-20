@@ -465,12 +465,41 @@ pub(super) const G4_COMMENT_FIELDS: &[&str] = &[
     "- Gate 断言：",
 ];
 
-pub(super) const G4_MERGE_QUEUE_COMMENT_FIELDS: &[&str] = &[
-    "- H_pr：",
-    "- H_mg：",
-    "- H_main：",
-    "- H_mg required checks：",
-    "- Inclusion / replay：",
-];
+pub(super) const MERGE_QUEUE_G4_ACTIVATION: &str = "2026-08-20T04:00:00Z";
+pub(super) const MERGE_QUEUE_G4_RECORD_START: &str = "<!-- merge-queue-g4-evidence:v1";
+pub(super) const MERGE_QUEUE_G4_RECORD_END: &str = "-->";
+pub(super) const MERGE_QUEUE_G4_INCLUSION_METHOD: &str = "git patch-id + tree/diff replay";
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct MergeQueueG4Record {
+    pub(super) schema_version: u64,
+    pub(super) activation_boundary: String,
+    pub(super) pull_requests: Vec<MergeQueueG4PullRequestRecord>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct MergeQueueG4PullRequestRecord {
+    pub(super) number: u64,
+    pub(super) role: String,
+    pub(super) mode: String,
+    pub(super) h_pr: String,
+    pub(super) h_main: String,
+    #[serde(default)]
+    pub(super) h_mg: Option<String>,
+    #[serde(default)]
+    pub(super) checks_conclusion: Option<String>,
+    #[serde(default)]
+    pub(super) checks_url: Option<String>,
+    #[serde(default)]
+    pub(super) chain: Option<String>,
+    #[serde(default)]
+    pub(super) inclusion_method: Option<String>,
+    #[serde(default)]
+    pub(super) inclusion_evidence_url: Option<String>,
+    #[serde(default)]
+    pub(super) reason: Option<String>,
+}
 
 pub(super) const GATE_ASSERTION_PREFIX: &str = "- Gate 断言：";

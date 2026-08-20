@@ -207,9 +207,11 @@ force-push 或冲突修复改变 `H_pr` 后，旧审阅、G3 与入队资格全�
 禁止使用 `--admin` 绕过队列。若 live Ruleset 未要求队列、队列未生成真实 `H_mg`，或 required checks /
 CodeQL 缺失或失败，停止合并并按关联 Issue 的 activation / rollback 契约处置；不得回退为无记录的直接合并。
 最终 merge method、例外和 G4 的 `H_pr → H_mg → H_main` 证据以
-`docs/governance/github-workflow.md` 第 7 节为准。Merge Queue G4 comment 必须记录三项完整 OID、绑定
-`H_mg` 的 required-check success permalink 与 inclusion / replay，并运行 `check-gate-evidence g4` 验证
-`H_pr=headRefOid`、`H_main=mergeCommit.oid`；不得只写泛化的“已合并 / CI 通过”。
+`docs/governance/github-workflow.md` 第 7 节为准。Merge Queue G4 comment 必须用
+`merge-queue-g4-evidence:v1` 按 Delivery-first、随后全部 Related PR 顺序逐项记录；activation 后成员保存
+三项完整 OID、精确绑定 `H_mg` 的 commit-checks success URL、规范 chain 与 inclusion/replay，activation 前
+成员保存 `pre_activation` identity 和原因。运行 `check-gate-evidence g4` 对照每个 PR 的
+`headRefOid/mergeCommit.oid`；不得只写 Delivery 或泛化的“已合并 / CI 通过”。
 
 ## 交付说明
 
