@@ -94,6 +94,119 @@ impl BoundedDistance {
     }
 }
 
+/// 与当前 Core `RouteDistanceQuery` 同构的有界距离查询结果。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RouteDistanceQuery {
+    Passed,
+    BeyondHorizon,
+    Within(f64),
+}
+
+/// 共享静态路线距离索引：分段坐标 + 后缀有界距离。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RouteDistanceIndexView<'a> {
+    occurrence_segments: &'a [u32],
+    occurrence_offsets: &'a [f64],
+    segment_totals: &'a [f64],
+    distance_to_end: &'a [BoundedDistance],
+}
+
+impl<'a> RouteDistanceIndexView<'a> {
+    #[cfg(test)]
+    pub(crate) const fn from_parts(
+        occurrence_segments: &'a [u32],
+        occurrence_offsets: &'a [f64],
+        segment_totals: &'a [f64],
+        distance_to_end: &'a [BoundedDistance],
+    ) -> Self {
+        Self {
+            occurrence_segments,
+            occurrence_offsets,
+            segment_totals,
+            distance_to_end,
+        }
+    }
+
+    #[must_use]
+    pub const fn occurrence_segments(self) -> &'a [u32] {
+        self.occurrence_segments
+    }
+
+    #[must_use]
+    pub const fn occurrence_offsets(self) -> &'a [f64] {
+        self.occurrence_offsets
+    }
+
+    #[must_use]
+    pub const fn segment_totals(self) -> &'a [f64] {
+        self.segment_totals
+    }
+
+    #[must_use]
+    pub const fn distance_to_end(self) -> &'a [BoundedDistance] {
+        self.distance_to_end
+    }
+
+    #[must_use]
+    pub fn distance_within(
+        self,
+        from_occurrence: usize,
+        from_progress: f64,
+        target_occurrence: usize,
+        target_progress: f64,
+        horizon: f64,
+    ) -> RouteDistanceQuery {
+        if target_occurrence < from_occurrence
+            || (target_occurrence == from_occurrence && target_progress < from_progress)
+        {
+            return RouteDistanceQuery::Passed;
+        }
+        let Some(from) = self.coordinate(from_occurrence) else {
+            return RouteDistanceQuery::Passed;
+        };
+        let Some(target) = self.coordinate(target_occurrence) else {
+            return RouteDistanceQuery::Passed;
+        };
+
+        if from.0 == target.0 {
+            let distance = (target.1 + target_progress) - (from.1 + from_progress);
+            return if distance <= horizon {
+                RouteDistanceQuery::Within(distance.max(0.0))
+            } else {
+                RouteDistanceQuery::BeyondHorizon
+            };
+        }
+
+        let Some(&from_segment_total) = self.segment_totals.get(from.0) else {
+            return RouteDistanceQuery::Passed;
+        };
+        let mut distance = from_segment_total - (from.1 + from_progress);
+        if distance > horizon {
+            return RouteDistanceQuery::BeyondHorizon;
+        }
+        for segment in (from.0 + 1)..target.0 {
+            let Some(&segment_total) = self.segment_totals.get(segment) else {
+                return RouteDistanceQuery::Passed;
+            };
+            if segment_total > horizon - distance || (distance > 0.0 && segment_total >= horizon) {
+                return RouteDistanceQuery::BeyondHorizon;
+            }
+            distance += segment_total;
+        }
+        let target_distance = target.1 + target_progress;
+        if target_distance > horizon - distance || (distance > 0.0 && target_distance >= horizon) {
+            return RouteDistanceQuery::BeyondHorizon;
+        }
+        RouteDistanceQuery::Within(distance + target_distance)
+    }
+
+    fn coordinate(self, occurrence: usize) -> Option<(usize, f64)> {
+        let segment = usize::try_from(*self.occurrence_segments.get(occurrence)?).ok()?;
+        let offset = *self.occurrence_offsets.get(occurrence)?;
+        Some((segment, offset))
+    }
+}
+
 /// 编制车道上的停止线与机动门绑定。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StopLineView<'a> {
@@ -714,6 +827,10 @@ pub struct SharedRelationClosure {
     route_reverse_occurrence: Box<[u32]>,
     route_distance_to_end: Box<[BoundedDistance]>,
     route_distance_ranges: Box<[RangeU32]>,
+    route_distance_segments: Box<[u32]>,
+    route_distance_offsets: Box<[f64]>,
+    route_segment_totals: Box<[f64]>,
+    route_segment_ranges: Box<[RangeU32]>,
     next_controlled_gate: Box<[Option<ManeuverGateOrdinal>]>,
     next_controlled_from: Box<[u32]>,
     next_controlled_distance: Box<[BoundedDistance]>,
@@ -1058,6 +1175,18 @@ impl SharedRelationClosure {
     }
 
     #[must_use]
+    pub fn static_route_transition_gates(
+        &self,
+        route: StaticRouteOrdinal,
+    ) -> Option<&[Option<ManeuverGateOrdinal>]> {
+        Some(
+            self.route_gate_ranges
+                .get(route.index())?
+                .slice(&self.route_transition_gates),
+        )
+    }
+
+    #[must_use]
     pub fn route_maneuver_count(&self, route: StaticRouteOrdinal) -> Option<usize> {
         Some(self.route_maneuver_ranges.get(route.index())?.len() as usize)
     }
@@ -1147,6 +1276,21 @@ impl SharedRelationClosure {
                 .get(route.index())?
                 .slice(&self.route_distance_to_end),
         )
+    }
+
+    #[must_use]
+    pub fn route_distance_index(
+        &self,
+        route: StaticRouteOrdinal,
+    ) -> Option<RouteDistanceIndexView<'_>> {
+        let range = *self.route_distance_ranges.get(route.index())?;
+        let segment_range = *self.route_segment_ranges.get(route.index())?;
+        Some(RouteDistanceIndexView {
+            occurrence_segments: range.slice(&self.route_distance_segments),
+            occurrence_offsets: range.slice(&self.route_distance_offsets),
+            segment_totals: segment_range.slice(&self.route_segment_totals),
+            distance_to_end: range.slice(&self.route_distance_to_end),
+        })
     }
 
     #[must_use]
@@ -1311,6 +1455,10 @@ impl SharedRelationClosure {
             + logical_bytes::<u32>(self.route_reverse_occurrence.len())
             + logical_bytes::<BoundedDistance>(self.route_distance_to_end.len())
             + logical_bytes::<RangeU32>(self.route_distance_ranges.len())
+            + logical_bytes::<u32>(self.route_distance_segments.len())
+            + logical_bytes::<f64>(self.route_distance_offsets.len())
+            + logical_bytes::<f64>(self.route_segment_totals.len())
+            + logical_bytes::<RangeU32>(self.route_segment_ranges.len())
             + logical_bytes::<Option<ManeuverGateOrdinal>>(self.next_controlled_gate.len())
             + logical_bytes::<u32>(self.next_controlled_from.len())
             + logical_bytes::<BoundedDistance>(self.next_controlled_distance.len())
@@ -1427,6 +1575,7 @@ pub(crate) fn relation_retained_floor(counts: &EntityCounts) -> Result<u64, Buil
                 structure: BuildStructure::RetainedOutput,
             })?,
     )?;
+    total = floor_add::<RangeU32>(total, route)?;
     total = floor_add::<RangeU32>(total, route)?;
     total = floor_add::<RangeU32>(total, route)?;
     total = floor_add::<RangeU32>(total, route)?;
@@ -1593,6 +1742,10 @@ mod builder_support {
         route_reverse_occurrence: Box<[u32]>,
         route_distance_to_end: Box<[BoundedDistance]>,
         route_distance_ranges: Box<[RangeU32]>,
+        route_distance_segments: Box<[u32]>,
+        route_distance_offsets: Box<[f64]>,
+        route_segment_totals: Box<[f64]>,
+        route_segment_ranges: Box<[RangeU32]>,
         next_controlled_gate: Box<[Option<ManeuverGateOrdinal>]>,
         next_controlled_from: Box<[u32]>,
         next_controlled_distance: Box<[BoundedDistance]>,
@@ -1718,6 +1871,10 @@ mod builder_support {
             route_reverse_occurrence,
             route_distance_to_end,
             route_distance_ranges,
+            route_distance_segments,
+            route_distance_offsets,
+            route_segment_totals,
+            route_segment_ranges,
             next_controlled_gate,
             next_controlled_from,
             next_controlled_distance,
@@ -1800,6 +1957,10 @@ mod builder_support {
             Box::new([]),
             Box::new([]),
             empty_optional(0).expect("empty"),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
+            Box::new([]),
             Box::new([]),
             Box::new([]),
             Box::new([]),

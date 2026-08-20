@@ -710,25 +710,56 @@ fn check_scratch_budget(
 }
 
 fn relation_scratch_bytes(entity_counts: &EntityCounts) -> Result<u64, BuildError> {
-    let class_count = entity_counts.count(EntityKind::ParticipantClass);
-    if class_count == 0 {
-        return Ok(0);
-    }
-    let targets = entity_counts
+    let unique_limit = EntityKind::ALL
+        .iter()
+        .map(|kind| entity_counts.count(*kind))
+        .max()
+        .unwrap_or(0)
+        .max(1);
+    let unique = structure_bytes::<u32>(unique_limit, BuildStructure::BuilderScratch)?;
+    let intern_keys = entity_counts
         .count(EntityKind::RoadSection)
-        .checked_add(entity_counts.count(EntityKind::LaneGroup))
+        .checked_add(entity_counts.count(EntityKind::FacilityBand))
         .ok_or(BuildError::ArithmeticOverflow {
             structure: BuildStructure::BuilderScratch,
         })?;
-    let verdict_rows = targets
-        .checked_mul(class_count)
-        .ok_or(BuildError::ArithmeticOverflow {
+    let intern_node = u64::try_from(size_of::<(Box<str>, u32)>() + 3 * size_of::<usize>())
+        .map_err(|_| BuildError::ArithmeticOverflow {
             structure: BuildStructure::BuilderScratch,
         })?;
-    structure_bytes::<(u32, u8, i32, Option<u32>, Option<u32>)>(
-        verdict_rows,
-        BuildStructure::BuilderScratch,
-    )
+    let intern =
+        u64::from(intern_keys)
+            .checked_mul(intern_node)
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::BuilderScratch,
+            })?;
+    let class_count = entity_counts.count(EntityKind::ParticipantClass);
+    let verdicts = if class_count == 0 {
+        0
+    } else {
+        let targets = entity_counts
+            .count(EntityKind::RoadSection)
+            .checked_add(entity_counts.count(EntityKind::LaneGroup))
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::BuilderScratch,
+            })?;
+        let verdict_rows =
+            targets
+                .checked_mul(class_count)
+                .ok_or(BuildError::ArithmeticOverflow {
+                    structure: BuildStructure::BuilderScratch,
+                })?;
+        structure_bytes::<(u32, u8, i32, Option<u32>, Option<u32>)>(
+            verdict_rows,
+            BuildStructure::BuilderScratch,
+        )?
+    };
+    unique
+        .checked_add(intern)
+        .and_then(|bytes| bytes.checked_add(verdicts))
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })
 }
 
 fn build_topology_plan(
@@ -2102,6 +2133,9 @@ fn build_traffic(
         &counts.entity_counts,
         &lane_lengths,
         &lane_speed_limits,
+        &successor_ranges,
+        &successors,
+        &maneuvers,
         options,
     )?;
     Ok(SharedTrafficNetwork::new(
