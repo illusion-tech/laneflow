@@ -1675,13 +1675,22 @@ pub(crate) fn evaluate_snapshot_with_policy(
             Some("存在完整结构化 waiver；不得映射为标准 pass".to_string()),
         )
     } else if let Some(round_cap) = round_cap_applied.as_ref() {
-        // primary 取 latest_finding/or(latest_clean)：round-cap 生效前提已保证二者至少
-        // 其一存在（would_be_* 判定），gate_evidence 对非 Waived pass 强制要求
-        // completion time（round-cap pass 不是 clean pass，但仍以最新证据计时）
+        // primary 取 latest_finding 与 latest_clean 中时间最新者（G3：unresolved
+        // blocking + 更晚 clean 形态下，Owner 收口决策不得早于最新 review 活动）；
+        // round-cap 生效前提已保证二者至少其一存在（would_be_* 判定），
+        // gate_evidence 对非 Waived pass 强制要求 completion time
+        //（round-cap pass 不是 clean pass，但仍以最新证据计时）
+        let primary = match (latest_finding, latest_clean) {
+            (Some(finding), Some(clean)) if clean.submitted_at > finding.submitted_at => {
+                Some(clean)
+            }
+            (Some(finding), _) => Some(finding),
+            (None, clean) => clean,
+        };
         (
             ExternalReviewState::Pass,
             false,
-            latest_finding.or(latest_clean),
+            primary,
             Some(format!(
                 "review 轮数 {} 超过上限 {MAX_REVIEW_ROUNDS}，round-cap record 生效收口；遗留 {} 条未闭环 blocking findings，不得伪装为 clean pass",
                 round_cap.rounds,
@@ -5900,6 +5909,75 @@ mod tests {
         let applied = result.round_cap.expect("round-cap applied");
         assert_eq!(applied.rounds, 4);
         assert!(applied.remaining_finding_urls.is_empty());
+    }
+
+    #[test]
+    fn round_cap_completion_time_uses_newest_evidence() {
+        // G3：unresolved blocking finding + 严格更晚的 current-head clean + 合法
+        // round-cap record → 收口 Pass 的 completion_time 取更晚的 clean 时间
+        //（Owner 决策不得早于最新 review 活动）
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/copilot-findings-open.json"
+        ));
+        let head = snapshot.pull_request.head_ref_oid.clone();
+        // PR author 换成非受信 actor，wangzishi 的人工 review 才计入受信证据
+        snapshot.pull_request.author = Some(Actor {
+            login: "contributor".to_string(),
+        });
+        // 3 个更早 old-head 上的 unthreaded findings，凑足 4 个不同 finding heads
+        for round in 1..=3u32 {
+            snapshot.pull_request.reviews.nodes.push(Review {
+                id: format!("PRR-human-changes-r{round}"),
+                author: Some(Actor {
+                    login: "wangzishi".to_string(),
+                }),
+                body: String::new(),
+                state: "CHANGES_REQUESTED".to_string(),
+                submitted_at: Some(format!("2026-07-0{round}T08:00:00Z")),
+                url: Some(format!(
+                    "https://github.com/illusion-tech/laneflow/pull/38#pullrequestreview-r{round}"
+                )),
+                commit: Some(CommitRef {
+                    oid: format!("{round:040x}"),
+                    tree: None,
+                }),
+            });
+        }
+        // 严格更晚的 current-head 人工 clean
+        snapshot.pull_request.reviews.nodes.push(Review {
+            id: "PRR-human-clean".to_string(),
+            author: Some(Actor {
+                login: "wangzishi".to_string(),
+            }),
+            body: String::new(),
+            state: "APPROVED".to_string(),
+            submitted_at: Some("2026-07-12T08:00:00Z".to_string()),
+            url: Some(
+                "https://github.com/illusion-tech/laneflow/pull/38#pullrequestreview-clean"
+                    .to_string(),
+            ),
+            commit: Some(CommitRef {
+                oid: head.clone(),
+                tree: None,
+            }),
+        });
+        // fixture 自带 current-head unresolved blocking thread（finding @ 07-09），
+        // record 列出其 URL（与实测未闭环集合一致）
+        snapshot.round_cap = Some(RoundCapInput {
+            current_head_oid: head.clone(),
+            round_count: 4,
+            remaining_finding_urls: vec![
+                "https://github.com/illusion-tech/laneflow/pull/38#discussion_r3550034350"
+                    .to_string(),
+            ],
+        });
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert_eq!(result.review_rounds, 4);
+        assert_eq!(
+            result.completion_time.as_deref(),
+            Some("2026-07-12T08:00:00Z")
+        );
     }
 
     #[test]
