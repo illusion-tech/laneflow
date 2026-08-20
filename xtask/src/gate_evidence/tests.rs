@@ -3420,6 +3420,113 @@ fn conditional_fields_hidden_in_non_rendered_regions_count_as_missing() {
 }
 
 #[test]
+fn conditional_fields_hidden_after_inline_comment_opener_count_as_missing() {
+    // G1：`Owner note <!--` 行内 opener 之后进入 comment 模式，后续行在 GitHub
+    // 上被隐藏直到 `-->` → 藏进去的字段行判缺失
+    let deferred_urls: BTreeSet<&str> =
+        ["https://github.com/illusion-tech/laneflow/pull/61#discussion_r201"]
+            .into_iter()
+            .collect();
+    let field_line = "- Deferred findings：1 条 [P2][d1]。";
+    let definition = "[d1]: https://github.com/illusion-tech/laneflow/pull/61#discussion_r201";
+
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\nOwner note <!--\n{field_line}\n-->\n\n{definition}"
+    ));
+    let error =
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .expect_err("field after an inline comment opener must count as missing");
+    assert!(error.contains("缺少 `- Deferred findings：` 字段"));
+
+    // 单行闭合不误伤：字段行尾附 inline comment 仍算可见（opener 之前内容保留）
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n{field_line} <!-- 备注 -->\n\n{definition}"
+    ));
+    assert!(
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .is_ok()
+    );
+
+    // 单行 `text <!-- note --> more` 不进入 comment 模式，后续可见行不受影响
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\ntext <!-- note --> more\n{field_line}\n\n{definition}"
+    ));
+    assert!(
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .is_ok()
+    );
+}
+
+#[test]
+fn conditional_fields_fence_close_must_match_opening_length() {
+    // G4：闭合 fence 必须与开启同字符且长度 ≥ 开启长度；短伪闭合不结束
+    // code block，藏进去的字段行判缺失
+    let deferred_urls: BTreeSet<&str> =
+        ["https://github.com/illusion-tech/laneflow/pull/61#discussion_r201"]
+            .into_iter()
+            .collect();
+    let field_line = "- Deferred findings：1 条 [P2][d1]。";
+    let definition = "[d1]: https://github.com/illusion-tech/laneflow/pull/61#discussion_r201";
+
+    // 4 backtick 开启 + 3 backtick 伪闭合 → 字段行仍在 code block 内
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n````\n```\n{field_line}\n````\n\n{definition}"
+    ));
+    let error =
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .expect_err("short pseudo-close must not end the code block");
+    assert!(error.contains("缺少 `- Deferred findings：` 字段"));
+
+    // 等长 fence 正常闭合 → 之后字段行可见
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n````\nsome code\n````\n{field_line}\n\n{definition}"
+    ));
+    assert!(
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .is_ok()
+    );
+
+    // 更长 fence 同样正常闭合
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n````\nsome code\n`````\n{field_line}\n\n{definition}"
+    ));
+    assert!(
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .is_ok()
+    );
+}
+
+#[test]
+fn conditional_field_rejects_duplicate_urls_after_resolution() {
+    // G2：两个不同 label 解析到同一 URL → 集合塌缩条数，fail-closed 拒绝
+    let deferred_urls: BTreeSet<&str> =
+        ["https://github.com/illusion-tech/laneflow/pull/61#discussion_r201"]
+            .into_iter()
+            .collect();
+    let comment = round_cap_g3_comment(
+        "- Gate 结果：`G3 Pass`\n- Deferred findings：1 条 [P2][d1]、[P2][d2]。\n\n[d1]: https://github.com/illusion-tech/laneflow/pull/61#discussion_r201\n[d2]: https://github.com/illusion-tech/laneflow/pull/61#discussion_r201"
+            .to_string(),
+    );
+    let error =
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .expect_err("labels resolving to the same URL must fail");
+    assert!(error.contains("解析出重复 URL"));
+}
+
+#[test]
+fn round_cap_record_rejects_empty_id() {
+    // G5：空 / 全空白 id 不是可用的稳定审计标识 → fail-closed
+    for empty_id in ["", "   "] {
+        let comment = round_cap_g3_comment(round_cap_comment_body(&round_cap_record_json(
+            empty_id, "#60",
+        )));
+        let error = parse_external_review_round_cap_records(&comment)
+            .expect_err("empty round-cap record id must fail");
+        assert!(error.contains("`id` 不能为空"), "id `{empty_id}`: {error}");
+    }
+}
+
+#[test]
 fn conditional_disclosure_fields_exempt_historical_g3_comment() {
     let deferred_urls: BTreeSet<&str> =
         ["https://github.com/illusion-tech/laneflow/pull/61#discussion_r201"]

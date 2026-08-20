@@ -1565,6 +1565,14 @@ pub(super) fn parse_external_review_round_cap_records(
                 record.schema_version
             ));
         }
+        // G5：空 id 不能作为审计记录的稳定标识，重复检测之前 fail-closed
+        //（与 g3-exception 等既有结构化 record 的非空字段规则一致）
+        if record.id.trim().is_empty() {
+            return Err(format!(
+                "round-cap 第 {} 个结构化记录的 `id` 不能为空",
+                index + 1
+            ));
+        }
         let follow_up_issue_number = round_cap_follow_up_issue_number(&record)?;
         if !seen_ids.insert(record.id.clone()) {
             return Err(format!("round-cap id 不能重复：{}", record.id));
@@ -2358,50 +2366,81 @@ fn conditional_field_line<'a>(body: &'a str, field: &str) -> Result<Option<&'a s
 /// F3：Markdown 可见顶层行——剔除多行 HTML comment、fenced code block（``` 或
 /// ~~~）与 indented code block（4+ 空格或 tab 缩进）内的行；这些区域 GitHub
 /// 不渲染，条件披露字段行或引用定义藏进去等同未披露（fail-closed 判缺失）。
+/// G1：`<!--` 可出现在可见文本之后（如 `Owner note <!--`），同行无 `-->`
+/// 闭合即进入 comment 模式；该行只保留首个 opener 之前的可见内容，opener
+/// 之后一律丢弃（保守：字段行/引用定义的判定不依赖行尾）。G4：闭合 fence
+/// 必须与开启同字符、长度不短于开启 fence，且闭合行其余内容为空——短伪
+/// 闭合不结束 code block（与 GitHub 渲染一致）。
 fn visible_top_level_lines(body: &str) -> Vec<&str> {
     let mut visible = Vec::new();
     let mut in_html_comment = false;
-    let mut fence_char: Option<char> = None;
+    let mut fence: Option<(char, usize)> = None;
     for line in body.lines() {
         let trimmed = line.trim_start();
         if in_html_comment {
-            if trimmed.contains("-->") {
-                in_html_comment = false;
-            }
+            in_html_comment = ends_in_html_comment(line, true);
             continue;
         }
-        if let Some(fence) = fence_char {
-            if trimmed
+        if let Some((fence_char, fence_len)) = fence {
+            let run = trimmed
                 .chars()
-                .take_while(|character| *character == fence)
-                .count()
-                >= 3
-                && trimmed.trim_start_matches(fence).trim().is_empty()
-            {
-                fence_char = None;
+                .take_while(|character| *character == fence_char)
+                .count();
+            if run >= fence_len && trimmed[run..].trim().is_empty() {
+                fence = None;
             }
             continue;
         }
         if line.starts_with("    ") || line.starts_with('\t') {
             continue;
         }
-        if let Some(rest) = trimmed.strip_prefix("<!--") {
-            if !rest.contains("-->") {
-                in_html_comment = true;
+        // fence 检测先于 HTML comment：fence 内的 `<!--` 是代码内容
+        let fence_char = match trimmed.chars().next() {
+            Some(character @ ('`' | '~')) => Some(character),
+            _ => None,
+        };
+        if let Some(fence_char) = fence_char {
+            let run = trimmed
+                .chars()
+                .take_while(|character| *character == fence_char)
+                .count();
+            if run >= 3 {
+                fence = Some((fence_char, run));
+                continue;
             }
-            continue;
         }
-        if trimmed.starts_with("```") {
-            fence_char = Some('`');
-            continue;
-        }
-        if trimmed.starts_with("~~~") {
-            fence_char = Some('~');
+        if line.contains("<!--") {
+            let opener = line.find("<!--").unwrap_or(0);
+            let before = line[..opener].trim_end();
+            if !before.is_empty() {
+                visible.push(before);
+            }
+            in_html_comment = ends_in_html_comment(line, false);
             continue;
         }
         visible.push(line);
     }
     visible
+}
+
+/// 顺序扫描片段中的 `<!--` / `-->`，返回片段结束时是否仍处于 HTML comment 内
+///（处理单行多次开闭，如 `<!-- a --> b <!--`）。
+fn ends_in_html_comment(mut fragment: &str, mut in_comment: bool) -> bool {
+    loop {
+        if in_comment {
+            let Some(closer) = fragment.find("-->") else {
+                return true;
+            };
+            fragment = &fragment[closer + 3..];
+            in_comment = false;
+        } else {
+            let Some(opener) = fragment.find("<!--") else {
+                return false;
+            };
+            fragment = &fragment[opener + 4..];
+            in_comment = true;
+        }
+    }
 }
 
 /// F3：引用定义同样只认可见顶层行（藏在 HTML comment/代码块里的定义不渲染）。
@@ -2422,11 +2461,16 @@ fn conditional_field_urls(body: &str, line: &str, field: &str) -> Result<BTreeSe
                 "`{field}` 字段 reference label 重复：{field_label}"
             ));
         }
-        urls.insert(
-            visible_reference_github_url(body, field_label).ok_or_else(|| {
-                format!("`{field}` 字段 reference `{field_label}` 缺少 GitHub HTTPS 文末引用定义")
-            })?,
-        );
+        // G2：不同 label 解析到同一 URL 时集合比较会静默塌缩条数，拒绝
+        //（与 round-cap remainingFindings 的既有规则一致）
+        let url = visible_reference_github_url(body, field_label).ok_or_else(|| {
+            format!("`{field}` 字段 reference `{field_label}` 缺少 GitHub HTTPS 文末引用定义")
+        })?;
+        if !urls.insert(url) {
+            return Err(format!(
+                "`{field}` 字段解析出重复 URL（不同 label 指向同一 finding）"
+            ));
+        }
     }
     Ok(urls)
 }
