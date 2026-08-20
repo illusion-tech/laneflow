@@ -1,7 +1,7 @@
 # 开发闸口
 
 **文档状态**: Active  
-**最后更新**: 2026-08-10
+**最后更新**: 2026-08-20
 
 **适用范围**: LaneFlow 的需求、设计、实现、评审与完成治理
 
@@ -351,7 +351,9 @@ content-equivalent rebase 还必须记录 reviewed/new head、old/new base、cha
 - 源代码许可证、依赖许可证、RustSec advisory、crate 来源或 Dependabot 配置违反 `dependency-security.md`，或适用 cargo-deny 检查未通过。
 - `security-scanning.md` 要求的适用扫描仍为 `pending`、失败、无分析、已禁用或不可用，且没有记录显式例外。
 
-PR 合入 `main` 默认使用 **Rebase and merge**；若使用 Squash 或 Merge commit，须在 PR 中说明原因。详见 `github-workflow.md` 第 7 节。
+PR 默认通过合并队列（Merge Queue）合入 `main`，队列最终使用 **Rebase**；不得使用 `--admin` 绕过。
+Squash 或 Merge commit 等最终方式例外必须先通过治理 Issue 修改适用规则并说明原因。详见
+`github-workflow.md` 第 7 节。
 
 G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 current head、rollout phase、`Checks`、`External Review Gate`、`G3 Evidence Gate Shadow`、审阅、验证、风险、例外、合并方式和 `Gate 断言`。PR body 的 G3 checkbox 必须勾选并回链当前 PR comment；Issue body 的 G3 Gate Ledger 必须增量回链该 comment，只有 Delivery PR 与全部 Related PR 均完成时才勾选。`Gate 断言` 必须使用当前角色对应的 Related-only 或 full-set 规范命令，一个 PR 关联多个 Issue 时分别写一条。`G3 Pass` 填写后必须逐条运行成功；`G3 Exception` 必须如实保留 `未通过` 并满足结构化记录，不得改写成成功。
 
@@ -369,7 +371,7 @@ G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 cur
 - 验证：
 - 风险：
 - 例外：N/A / exception type、风险、到期、follow-up、Cleanup owner
-- 合并方式：Rebase and merge / 例外原因
+- 合并方式：Merge Queue（最终 Rebase）；Queue-ready H_pr： / 例外原因
 - Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` <按 Gate 结果填写：`G3 Exception` 写“未通过”，其他结果写“已通过”>。
 ```
 
@@ -381,7 +383,7 @@ G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 cur
 
 Issue 关闭前必须满足：
 
-- 关联 PR 已按默认策略（Rebase and merge）合并，或说明为什么无需 PR / 为什么使用其他合并方式。
+- 关联 PR 已按默认策略经 Merge Queue 最终 Rebase 合并，或说明为什么无需 PR / 为什么使用其他合并方式。
 - 验收 checklist 已完成。
 - 文档已回写，或说明不需要。
 - 测试和验证结果已记录。
