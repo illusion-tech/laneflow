@@ -285,7 +285,7 @@ LaneFlow 采用“审阅稳定补丁、队列验证集成结果”的模型：
 
 - PR Head `H_pr` 是补丁审阅身份，绑定 exact-head 外部审阅、finding disposition 与 G3 Owner 判断。
 - 合并组（Merge Group）Head `H_mg` 是集成候选身份，由最新 `main`、队列中位于当前 PR 之前的变更与当前 PR 组成，绑定 CI、依赖政策和适用安全扫描。
-- Main Result `H_main` 是 GitHub 执行 rebase 后进入 `main` 的结果；G4 保存 `H_pr → H_mg → H_main`，验证 inclusion / replay，不要求 SHA 相等。
+- Main Result `H_main` 是 GitHub 执行 rebase 后进入 `main` 的结果；G4 保存 `H_pr → H_mg → H_main`，验证 inclusion / replay，不要求 SHA 相等。单条目队列最终 Rebase 时，GitHub 可以直接让已验证的 `H_mg` 成为 `H_main`；校验器不得把 `H_mg == H_main` 当作失败。
 
 失效边界固定为：PR 新 push、force-push 或冲突修复产生新 `H_pr` 时，旧 external review、finding disposition、
 G3 与入队资格全部 stale；`main` 前进、队列顺序或成员变化只废弃旧 `H_mg` 并重跑机器检查，

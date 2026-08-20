@@ -250,7 +250,8 @@ Issue #446 为合并队列（Merge Queue）冻结三个独立身份：`H_pr` 是
 `main` 前进或队列重排只替换 `H_mg`，不得让未变化 `H_pr` 的外部审阅失效。合并组失败时保持阻断，
 但只有修复导致 `H_pr` 变化时才重新进入 exact-head 审阅生命周期。G4 必须保存并复核
 `H_pr → H_mg → H_main`，不能用 rebase 后 SHA 不同否定已验证的 inclusion，也不能用 patch inclusion
-替代 `H_mg` 上的 required checks。
+替代 `H_mg` 上的 required checks。单条目队列最终 Rebase 时允许 `H_mg == H_main`；该相等关系表示已验证的
+队列候选直接成为 `main` 结果，不是缺少独立合并组证据。
 
 当前 `H_pr` 与真实 `H_mg` 都必须完成 `Governance checks`、`Rust checks`、`Dependency policy`、
 `Analyze (actions)` 与 `Analyze (rust)`；五项 expected source 都是 GitHub Actions App

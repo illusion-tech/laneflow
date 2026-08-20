@@ -152,8 +152,8 @@ pub(super) fn validate_g4_pr_record(
             .ok_or_else(|| format!("G4 PR #{number} merge_queue record 缺少 H_mg"))?,
         &format!("PR #{number} H_mg"),
     )?;
-    if h_mg == h_pr || h_mg == h_main {
-        return Err(format!("G4 PR #{number} H_mg 必须独立于 H_pr 与 H_main"));
+    if h_mg == h_pr {
+        return Err(format!("G4 PR #{number} H_mg 必须独立于 H_pr"));
     }
     if record.checks_conclusion.as_deref() != Some("success") {
         return Err(format!(
