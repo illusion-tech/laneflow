@@ -198,8 +198,10 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 队列启用时必须保留 required checks，并把 `required_status_checks.strict_required_status_checks_policy`
 设为 `false`；最新 `main` 组合由 `H_mg` 检查，不得再以 strict up-to-date 要求未变化 `H_pr` 手工 rebase。
 
-required checks 尚未完成时，该命令只启用满足条件后的自动入队；已完成时直接入队。`main` 前进或
-队列顺序变化只替换 `H_mg` 并重跑队列级机器检查，不使未变化 `H_pr` 上的人审失效。任何 push、
+只有 current exact `H_pr` 的 required checks、适用 CodeQL、外部审阅、finding disposition、G3 Owner
+comment 与 marker 全部完成且有效后才能运行命令；不得在 pending 时预先武装 auto-merge，
+`--match-head-commit` 不能替代 maintainer 后续 push 后的新 head 授权。`main` 前进或队列顺序变化只替换
+`H_mg` 并重跑队列级机器检查，不使未变化 `H_pr` 上的人审失效。任何 push、
 force-push 或冲突修复改变 `H_pr` 后，旧审阅、G3 与入队资格全部 stale，必须对新 head 重走生命周期。
 
 禁止使用 `--admin` 绕过队列。若 live Ruleset 未要求队列、队列未生成真实 `H_mg`，或 required checks /

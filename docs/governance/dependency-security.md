@@ -102,7 +102,11 @@ LaneFlow 固定 cargo-deny `0.20.2` 作为当前依赖政策执行器。CI 直�
 cargo deny --locked --all-features check advisories bans licenses sources
 ```
 
-CI job 名称固定为 `Dependency policy`，并由 `main` ruleset 的 required status checks 强制要求成功；ruleset 使用 strict 模式，目标分支更新后 PR 必须基于最新代码重新通过该检查。仅新增 workflow job 而不维护 ruleset required context，不算建立硬门禁。
+CI job 名称固定为 `Dependency policy`，并由 `main` ruleset 的 required status checks 强制要求成功。Merge Queue
+启用后，`strict_required_status_checks_policy=false`：current exact `H_pr` 必须在 G3 前通过该检查，GitHub 还必须
+在最新 `main` 与队列前序变更形成的真实 `H_mg` 上重新运行并成功后才可合并；目标分支单纯前进不要求作者
+更新 PR 分支。仅新增 workflow job 而不维护 ruleset required context，或只验证 `H_pr` 而不验证 `H_mg`，
+都不算建立硬门禁。
 
 检查职责：
 

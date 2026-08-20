@@ -291,8 +291,10 @@ comment、marker 与 PR 级 required checks 仍有效。目标分支要求合并
 gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 ```
 
-required checks 尚未完成时，该命令启用满足条件后的自动入队；已完成时直接加入队列。禁止使用 `--admin`
-绕过队列。若 live Ruleset 未要求队列、未生成真实 `H_mg`、required checks / CodeQL 缺失或失败，必须停止
+只有 current exact `H_pr` 的 required checks、适用 CodeQL、外部审阅、finding disposition、G3 Owner
+comment 与 marker 全部完成且有效后，才可运行入队命令。不得在 checks pending 时预先运行并武装
+auto-merge：`--match-head-commit` 只保护启用当下的 head，不能替代 maintainer 后续 push 后的新 head 审阅与
+G3 授权。禁止使用 `--admin` 绕过队列。若 live Ruleset 未要求队列、未生成真实 `H_mg`、required checks / CodeQL 缺失或失败，必须停止
 并记录阻断，不得回退为无记录的直接合并。GitHub 的当前行为与配置入口见
 [GitHub CLI `gh pr merge`](https://cli.github.com/manual/gh_pr_merge) 和
 [Managing a merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)。

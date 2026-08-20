@@ -54,7 +54,8 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 4. 若改变长期行为或契约，同步更新文档。
 5. 按切片类型运行对应检查。
 6. 记录验证结果、文档状态与剩余风险。
-7. PR 准备合并时，冻结 current exact head `H_pr` 并完成该 head 的外部审阅与 G3；`main` 要求通过
+7. PR 准备合并时，冻结 current exact head `H_pr` 并完成该 head 的 required checks、适用 CodeQL、
+   外部审阅与 G3；全部 success / 有效后才可运行入队命令，不得在 pending 时预先武装 auto-merge。`main` 要求通过
    Merge Queue 入队，使用 `gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`，
    最终 Rebase 方式由队列规则控制。不得因 `main` 单纯前进手工 rebase；不得使用 `--admin` 绕过队列。
    队列 live Ruleset 必须保留 required checks，并关闭 `strict_required_status_checks_policy`；集成结果由

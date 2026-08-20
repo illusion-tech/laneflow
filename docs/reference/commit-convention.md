@@ -266,7 +266,8 @@ PR 默认通过合并队列（Merge Queue）合入 `main`；队列规则最终�
 - 保持 `main` 线性历史。
 - 保留 PR 内各 commit 的 Conventional Commits 标题和 LaneFlow 治理字段。
 
-入队命令使用 current exact head guard；目标分支要求合并队列时，不由操作者选择 merge strategy：
+current exact head 的 required checks、适用 CodeQL、外部审阅与 G3 全部完成后，入队命令使用 head guard；
+不得在 pending 时预先武装 auto-merge。目标分支要求合并队列时，不由操作者选择 merge strategy：
 
 ```powershell
 gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
