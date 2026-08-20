@@ -702,4 +702,60 @@ fn full_spatial_entity_views_cover_required_columns() {
                 .is_some()
         );
     }
+    for raw in 0..counts.count(EntityKind::RoadSection) {
+        let section = RoadSectionOrdinal::from_raw(raw);
+        let corridor = relations.section_corridor(section).expect("section owner");
+        assert!(
+            relations
+                .corridor_elements(corridor)
+                .expect("corridor elements")
+                .contains(&CorridorElement::RoadSection(section))
+        );
+    }
+    for raw in 0..counts.count(EntityKind::AuthoringLane) {
+        let lane = AuthoringLaneOrdinal::from_raw(raw);
+        let section = relations
+            .authoring_section(lane)
+            .expect("authoring section");
+        assert!(
+            relations
+                .section_lanes(section)
+                .expect("section lanes")
+                .contains(&lane)
+        );
+    }
+    for raw in 0..counts.count(EntityKind::Movement) {
+        assert!(
+            relations
+                .movement_junction(laneflow_static_contract::MovementOrdinal::from_raw(raw))
+                .is_some()
+        );
+    }
+    for raw in 0..counts.count(EntityKind::LaneGroup) {
+        assert!(
+            relations
+                .lane_group_section(laneflow_static_contract::LaneGroupOrdinal::from_raw(raw))
+                .is_some()
+        );
+    }
+    for raw in 0..counts.count(EntityKind::FacilityBand) {
+        assert!(
+            relations
+                .band_corridor(laneflow_static_contract::FacilityBandOrdinal::from_raw(raw))
+                .is_some()
+        );
+    }
+    for raw in 0..counts.count(EntityKind::LaneEdge) {
+        let hits = relations
+            .static_route_reverse(EntityKind::LaneEdge, raw)
+            .expect("reverse index");
+        assert_eq!(hits.routes().len(), hits.occurrences().len());
+        for (&route, &occurrence) in hits.routes().iter().zip(hits.occurrences()) {
+            let edges = relations.static_route_edges(route).expect("route edges");
+            assert_eq!(
+                edges.get(occurrence as usize).map(|edge| edge.raw()),
+                Some(raw)
+            );
+        }
+    }
 }

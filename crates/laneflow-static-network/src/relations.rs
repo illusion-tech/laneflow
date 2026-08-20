@@ -520,6 +520,25 @@ impl VehicleProfileView {
     }
 }
 
+/// 一条实体在静态路线上的 reverse 命中。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RouteReverseHits<'a> {
+    routes: &'a [StaticRouteOrdinal],
+    occurrences: &'a [u32],
+}
+
+impl<'a> RouteReverseHits<'a> {
+    #[must_use]
+    pub const fn routes(self) -> &'a [StaticRouteOrdinal] {
+        self.routes
+    }
+
+    #[must_use]
+    pub const fn occurrences(self) -> &'a [u32] {
+        self.occurrences
+    }
+}
+
 /// 路线上从某条边起的下一受控转换。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NextControlledTransition {
@@ -891,6 +910,11 @@ impl SharedRelationClosure {
     }
 
     #[must_use]
+    pub fn section_corridor(&self, section: RoadSectionOrdinal) -> Option<RoadCorridorOrdinal> {
+        self.section_corridor.get(section.index()).copied()
+    }
+
+    #[must_use]
     pub fn section_lanes(&self, section: RoadSectionOrdinal) -> Option<&[AuthoringLaneOrdinal]> {
         Some(
             self.section_lane_ranges
@@ -906,6 +930,11 @@ impl SharedRelationClosure {
                 .get(lane.index())?
                 .slice(&self.authoring_edges),
         )
+    }
+
+    #[must_use]
+    pub fn authoring_section(&self, lane: AuthoringLaneOrdinal) -> Option<RoadSectionOrdinal> {
+        self.authoring_section.get(lane.index()).copied()
     }
 
     #[must_use]
@@ -944,6 +973,11 @@ impl SharedRelationClosure {
                 .get(movement.index())?
                 .slice(&self.movement_paths),
         )
+    }
+
+    #[must_use]
+    pub fn movement_junction(&self, movement: MovementOrdinal) -> Option<JunctionOrdinal> {
+        self.movement_junction.get(movement.index()).copied()
     }
 
     #[must_use]
@@ -1187,6 +1221,36 @@ impl SharedRelationClosure {
     }
 
     #[must_use]
+    pub fn static_route_reverse(
+        &self,
+        kind: EntityKind,
+        ordinal: u32,
+    ) -> Option<RouteReverseHits<'_>> {
+        match kind {
+            EntityKind::LaneEdge
+            | EntityKind::ManeuverPath
+            | EntityKind::ManeuverGate
+            | EntityKind::WaitingZone => {}
+            _ => return None,
+        }
+        let code = kind.code();
+        let start = partition_reverse_keys(
+            &self.route_reverse_kind,
+            &self.route_reverse_ordinal,
+            |kind_code, entity| (kind_code, entity) < (code, ordinal),
+        );
+        let end = partition_reverse_keys(
+            &self.route_reverse_kind,
+            &self.route_reverse_ordinal,
+            |kind_code, entity| (kind_code, entity) <= (code, ordinal),
+        );
+        Some(RouteReverseHits {
+            routes: &self.route_reverse_route[start..end],
+            occurrences: &self.route_reverse_occurrence[start..end],
+        })
+    }
+
+    #[must_use]
     pub fn route_maneuver_count(&self, route: StaticRouteOrdinal) -> Option<usize> {
         Some(self.route_maneuver_ranges.get(route.index())?.len() as usize)
     }
@@ -1334,8 +1398,18 @@ impl SharedRelationClosure {
     }
 
     #[must_use]
+    pub fn lane_group_section(&self, group: LaneGroupOrdinal) -> Option<RoadSectionOrdinal> {
+        self.lane_group_section.get(group.index()).copied()
+    }
+
+    #[must_use]
     pub fn band_kind(&self, band: FacilityBandOrdinal) -> Option<FacilityKind> {
         self.band_kind.get(band.index()).copied()
+    }
+
+    #[must_use]
+    pub fn band_corridor(&self, band: FacilityBandOrdinal) -> Option<RoadCorridorOrdinal> {
+        self.band_corridor.get(band.index()).copied()
     }
 
     #[must_use]
@@ -1586,6 +1660,24 @@ pub(crate) fn relation_retained_floor(counts: &EntityCounts) -> Result<u64, Buil
     total = floor_add::<u32>(total, lane)?;
     total = floor_add::<u32>(total, path)?;
     Ok(total)
+}
+
+fn partition_reverse_keys(
+    kinds: &[u16],
+    ordinals: &[u32],
+    mut before: impl FnMut(u16, u32) -> bool,
+) -> usize {
+    let mut lo = 0;
+    let mut hi = kinds.len();
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        if before(kinds[mid], ordinals[mid]) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
 }
 
 fn plane_cell(

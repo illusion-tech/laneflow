@@ -850,82 +850,112 @@ fn close_class_forest(
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<(), BuildError> {
     let count = classes.depth.len();
+    let count_u32 = u32::try_from(count).expect("fits");
     for index in 0..count {
         poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
         let raw = u32::try_from(index).expect("fits");
-        let enter = classes.subtree_enter[index];
-        let exit = classes.subtree_exit[index];
-        if enter >= exit {
+        if let Some(parent) = get_optional(&classes.parent, raw)
+            && (parent.index() == index || parent.index() >= count)
+        {
             return Err(BuildError::InputInvariant {
                 structure: STRUCTURE,
             });
         }
-        match get_optional(&classes.parent, raw) {
-            None => {
-                if classes.depth[index] != 0 {
-                    return Err(BuildError::InputInvariant {
-                        structure: STRUCTURE,
-                    });
-                }
-            }
-            Some(parent) => {
-                if parent.index() == index || parent.index() >= count {
-                    return Err(BuildError::InputInvariant {
-                        structure: STRUCTURE,
-                    });
-                }
-                if classes.depth[index] != classes.depth[parent.index()].saturating_add(1) {
-                    return Err(BuildError::InputInvariant {
-                        structure: STRUCTURE,
-                    });
-                }
-                if enter < classes.subtree_enter[parent.index()]
-                    || exit > classes.subtree_exit[parent.index()]
-                {
-                    return Err(BuildError::InputInvariant {
-                        structure: STRUCTURE,
-                    });
-                }
-                let mut cursor = Some(parent);
-                let mut hops = 0_u32;
-                while let Some(node) = cursor {
-                    hops = hops.checked_add(1).ok_or(BuildError::ArithmeticOverflow {
-                        structure: STRUCTURE,
-                    })?;
-                    if hops > u32::try_from(count).expect("fits") {
-                        return Err(BuildError::InputInvariant {
-                            structure: STRUCTURE,
-                        });
-                    }
-                    cursor = get_optional(&classes.parent, node.raw());
-                    if cursor == Some(ParticipantClassOrdinal::from_raw(raw)) {
-                        return Err(BuildError::InputInvariant {
-                            structure: STRUCTURE,
-                        });
-                    }
-                }
-            }
-        }
     }
-    for left in 0..count {
-        for right in (left + 1)..count {
-            if get_optional(&classes.parent, u32::try_from(left).expect("fits"))
-                != get_optional(&classes.parent, u32::try_from(right).expect("fits"))
-            {
-                continue;
-            }
-            let left_enter = classes.subtree_enter[left];
-            let left_exit = classes.subtree_exit[left];
-            let right_enter = classes.subtree_enter[right];
-            let right_exit = classes.subtree_exit[right];
-            if left_enter < right_exit && right_enter < left_exit {
+    let (depth, enter, exit) = reconstruct_class_intervals(&classes.parent, count_u32)?;
+    if depth.as_slice() != classes.depth.as_ref()
+        || enter.as_slice() != classes.subtree_enter.as_ref()
+        || exit.as_slice() != classes.subtree_exit.as_ref()
+    {
+        return Err(BuildError::InputInvariant {
+            structure: STRUCTURE,
+        });
+    }
+    Ok(())
+}
+
+fn reconstruct_class_intervals(
+    parent: &crate::relations::OptionalColumn<ParticipantClassOrdinal>,
+    count: u32,
+) -> Result<(Vec<u32>, Vec<u32>, Vec<u32>), BuildError> {
+    let len = usize::try_from(count).expect("u32 fits");
+    let mut depths = vec![None::<u32>; len];
+    for start in 0..len {
+        let mut chain = Vec::new();
+        let mut current = start;
+        let mut hops = 0_u32;
+        let mut next_depth = loop {
+            hops = hops.checked_add(1).ok_or(BuildError::ArithmeticOverflow {
+                structure: STRUCTURE,
+            })?;
+            if hops > count.saturating_add(1) {
                 return Err(BuildError::InputInvariant {
                     structure: STRUCTURE,
                 });
             }
+            if let Some(depth) = depths[current] {
+                break depth.checked_add(1).ok_or(BuildError::ArithmeticOverflow {
+                    structure: STRUCTURE,
+                })?;
+            }
+            chain.push(current);
+            match get_optional(parent, u32::try_from(current).expect("fits")) {
+                Some(node) => current = node.index(),
+                None => break 0,
+            }
+        };
+        for node in chain.into_iter().rev() {
+            depths[node] = Some(next_depth);
+            next_depth = next_depth
+                .checked_add(1)
+                .ok_or(BuildError::ArithmeticOverflow {
+                    structure: STRUCTURE,
+                })?;
         }
     }
-    Ok(())
+    let depth = depths
+        .into_iter()
+        .map(|value| {
+            value.ok_or(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut children: Vec<Vec<u32>> = vec![Vec::new(); len];
+    for child in 0..count {
+        if let Some(owner) = get_optional(parent, child) {
+            children[owner.index()].push(child);
+        }
+    }
+    let mut enter = vec![0_u32; len];
+    let mut exit = vec![0_u32; len];
+    let mut next_enter = 0_u32;
+    for root in 0..count {
+        if get_optional(parent, root).is_some() {
+            continue;
+        }
+        let mut stack = vec![(root, 0_usize)];
+        while let Some(&(node, cursor)) = stack.last() {
+            if cursor == 0 {
+                enter[node as usize] = next_enter;
+                next_enter = next_enter
+                    .checked_add(1)
+                    .ok_or(BuildError::ArithmeticOverflow {
+                        structure: STRUCTURE,
+                    })?;
+            }
+            if cursor < children[node as usize].len() {
+                let child = children[node as usize][cursor];
+                stack.last_mut().expect("stack").1 += 1;
+                stack.push((child, 0));
+            } else {
+                exit[node as usize] = next_enter;
+                stack.pop();
+            }
+        }
+    }
+    Ok((depth, enter, exit))
 }
 
 fn parse_facility_kind(
@@ -2183,16 +2213,13 @@ fn is_descendant_or_self(classes: &Classes, profile: u32, ancestor: u32) -> bool
     let Some(enter) = classes.subtree_enter.get(profile as usize).copied() else {
         return false;
     };
-    let Some(exit) = classes.subtree_exit.get(profile as usize).copied() else {
-        return false;
-    };
     let Some(ancestor_enter) = classes.subtree_enter.get(ancestor as usize).copied() else {
         return false;
     };
     let Some(ancestor_exit) = classes.subtree_exit.get(ancestor as usize).copied() else {
         return false;
     };
-    enter >= ancestor_enter && exit <= ancestor_exit
+    ancestor_enter <= enter && enter < ancestor_exit
 }
 
 fn target_specificity(target: AccessTarget) -> u8 {
@@ -2380,8 +2407,7 @@ fn resolve_access_planes(
         lane_count,
         edge_authoring,
         authoring_section,
-        lane_group_members,
-        lane_group_member_ranges,
+        authoring_group,
         lane_group_section,
         &edge_direct,
         &group_rules,
@@ -2400,7 +2426,8 @@ fn resolve_access_planes(
         options,
     )?;
     let _ = (
-        authoring_group,
+        lane_group_members,
+        lane_group_member_ranges,
         section_lanes,
         section_lane_ranges,
         authoring_edges,
@@ -2421,8 +2448,7 @@ fn resolve_edge_plane(
     lane_count: u32,
     edge_authoring: &crate::relations::OptionalColumn<AuthoringLaneOrdinal>,
     authoring_section: &[RoadSectionOrdinal],
-    lane_group_members: &[AuthoringLaneOrdinal],
-    lane_group_member_ranges: &[RangeU32],
+    authoring_group: &crate::relations::OptionalColumn<LaneGroupOrdinal>,
     lane_group_section: &[RoadSectionOrdinal],
     edge_direct: &[Vec<u32>],
     group_rules: &[Vec<u32>],
@@ -2453,81 +2479,57 @@ fn resolve_edge_plane(
         })
         .collect::<Result<_, _>>()?;
 
-    let mut lane_groups: BTreeMap<(u32, u32), Vec<u32>> = BTreeMap::new();
-    for (group_index, verdicts) in group_verdicts.iter().enumerate() {
-        if verdicts.is_none() {
-            continue;
-        }
-        let Some(section) = lane_group_section.get(group_index).copied() else {
+    let mut context_verdicts: Vec<Vec<Option<ClassVerdict>>> = Vec::new();
+    let mut section_context = vec![None; section_verdicts.len()];
+    for (section_index, verdicts) in section_verdicts.iter().enumerate() {
+        let Some(verdicts) = verdicts else {
             continue;
         };
-        let Some(range) = lane_group_member_ranges.get(group_index) else {
+        let id = u32::try_from(context_verdicts.len()).expect("context fits u32");
+        context_verdicts.push(verdicts.clone());
+        section_context[section_index] = Some(id);
+    }
+    let mut group_context = vec![None; group_verdicts.len()];
+    for (group_index, group_delta) in group_verdicts.iter().enumerate() {
+        let Some(delta) = group_delta else {
             continue;
         };
-        let group = u32::try_from(group_index).expect("usize group fits u32");
-        for lane in range.slice(lane_group_members) {
-            if authoring_section
-                .get(lane.index())
-                .is_none_or(|owned| *owned != section)
-            {
-                return Err(BuildError::InputInvariant {
-                    structure: BuildStructure::AccessPlane,
-                });
-            }
-            lane_groups
-                .entry((section.raw(), lane.raw()))
-                .or_default()
-                .push(group);
-        }
+        let section = *lane_group_section
+            .get(group_index)
+            .ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::AccessPlane,
+            })?;
+        let mut merged = match section_verdicts.get(section.index()) {
+            Some(Some(verdicts)) => verdicts.clone(),
+            _ => vec![None; class_len],
+        };
+        merge_verdicts(&mut merged, delta);
+        let id = u32::try_from(context_verdicts.len()).expect("context fits u32");
+        context_verdicts.push(merged);
+        group_context[group_index] = Some(id);
     }
 
-    let mut lane_contexts: BTreeMap<u32, Option<u32>> = BTreeMap::new();
-    let mut context_keys: BTreeMap<(u32, Box<[u32]>), u32> = BTreeMap::new();
-    let mut context_verdicts: Vec<Vec<Option<ClassVerdict>>> = Vec::new();
-    let mut signature_rows: BTreeMap<(Option<u32>, Box<[u32]>), u32> = BTreeMap::new();
+    let mut empty_direct_row = vec![None; context_verdicts.len()];
     let mut starts = allocate_vec(lane_count, BuildStructure::AccessPlane)?;
     let mut cells = Vec::new();
     for edge in 0..lane_count {
         poll_cancelled(options, edge)?;
         let context_id = match get_optional(edge_authoring, edge) {
             Some(lane) => {
-                let section = authoring_section.get(lane.index()).copied().ok_or(
-                    BuildError::InputInvariant {
-                        structure: BuildStructure::AccessPlane,
-                    },
-                )?;
-                *lane_contexts.entry(lane.raw()).or_insert_with(|| {
-                    let groups = lane_groups.get(&(section.raw(), lane.raw()));
-                    if section_verdicts
-                        .get(section.index())
-                        .is_none_or(Option::is_none)
-                        && groups.is_none_or(|list| list.is_empty())
-                    {
-                        return None;
-                    }
-                    let key = (
-                        section.raw(),
-                        groups.map_or_else(Box::default, |list| list.as_slice().into()),
-                    );
-                    if let Some(&id) = context_keys.get(&key) {
-                        return Some(id);
-                    }
-                    let mut merged = match section_verdicts.get(section.index()) {
-                        Some(Some(verdicts)) => verdicts.clone(),
-                        _ => vec![None; class_len],
-                    };
-                    if let Some(groups) = groups {
-                        for &group_index in groups {
-                            if let Some(Some(delta)) = group_verdicts.get(group_index as usize) {
-                                merge_verdicts(&mut merged, delta);
-                            }
-                        }
-                    }
-                    let id = u32::try_from(context_verdicts.len()).expect("context fits u32");
-                    context_verdicts.push(merged);
-                    context_keys.insert(key, id);
-                    Some(id)
-                })
+                let section =
+                    *authoring_section
+                        .get(lane.index())
+                        .ok_or(BuildError::InputInvariant {
+                            structure: BuildStructure::AccessPlane,
+                        })?;
+                match get_optional(authoring_group, lane.raw()) {
+                    Some(group) => group_context
+                        .get(group.index())
+                        .copied()
+                        .flatten()
+                        .or(section_context.get(section.index()).copied().flatten()),
+                    None => section_context.get(section.index()).copied().flatten(),
+                }
             }
             None => None,
         };
@@ -2536,18 +2538,34 @@ fn resolve_edge_plane(
             starts.push(ACCESS_UNCONSTRAINED_ROW);
             continue;
         }
-        let signature = (context_id, direct.as_slice().into());
-        if let Some(&row_start) = signature_rows.get(&signature) {
+        if class_count == 0 {
+            starts.push(ACCESS_UNCONSTRAINED_ROW);
+            continue;
+        }
+        if direct.is_empty() {
+            let context = context_id.expect("constrained context");
+            if let Some(row) = empty_direct_row[context as usize] {
+                starts.push(row);
+                continue;
+            }
+            let row_start = dest_len(cells.len())?;
+            check_access_cell_capacity(cells.len().checked_add(class_len).ok_or(
+                BuildError::ArithmeticOverflow {
+                    structure: BuildStructure::AccessPlane,
+                },
+            )?)?;
+            write_cells_from_verdicts(
+                &context_verdicts[context as usize],
+                "edge",
+                edge,
+                &mut cells,
+            )?;
+            empty_direct_row[context as usize] = Some(row_start);
             starts.push(row_start);
             continue;
         }
-        if class_count == 0 {
-            starts.push(ACCESS_UNCONSTRAINED_ROW);
-            signature_rows.insert(signature, ACCESS_UNCONSTRAINED_ROW);
-            continue;
-        }
-        let row_start = cells.len();
-        check_access_cell_capacity((signature_rows.len() + 1).checked_mul(class_len).ok_or(
+        let row_start = dest_len(cells.len())?;
+        check_access_cell_capacity(cells.len().checked_add(class_len).ok_or(
             BuildError::ArithmeticOverflow {
                 structure: BuildStructure::AccessPlane,
             },
@@ -2560,11 +2578,7 @@ fn resolve_edge_plane(
             fold_rule(&mut merged, rule, rules, classes);
         }
         write_cells_from_verdicts(&merged, "edge", edge, &mut cells)?;
-        let start = u32::try_from(row_start).map_err(|_| BuildError::ArithmeticOverflow {
-            structure: BuildStructure::AccessPlane,
-        })?;
-        signature_rows.insert(signature, start);
-        starts.push(start);
+        starts.push(row_start);
     }
     Ok((starts.into_boxed_slice(), cells.into_boxed_slice()))
 }
@@ -2767,6 +2781,267 @@ fn route_pair_connected(
         })
 }
 
+struct ReconstructedRoute {
+    transition_gates: Vec<Option<ManeuverGateOrdinal>>,
+    maneuver_paths: Vec<ManeuverPathOrdinal>,
+    maneuver_entry: Vec<u32>,
+    maneuver_exit: Vec<u32>,
+    maneuver_gate_occ_start: Vec<u32>,
+    maneuver_gate_occ_count: Vec<u32>,
+    maneuver_waiting_occ_start: Vec<u32>,
+    maneuver_waiting_occ_count: Vec<u32>,
+    gate_occ_gates: Vec<ManeuverGateOrdinal>,
+    gate_occ_maneuver: Vec<u32>,
+    gate_occ_from: Vec<u32>,
+    gate_occ_next: Vec<Option<u32>>,
+    gate_occ_next_boundary: Vec<u32>,
+    gate_occ_waiting: Vec<Option<u32>>,
+    waiting_occ_zones: Vec<WaitingZoneOrdinal>,
+    waiting_occ_maneuver: Vec<u32>,
+    waiting_occ_entry_gate: Vec<u32>,
+    waiting_occ_release_gate: Vec<u32>,
+    waiting_occ_entry_edge: Vec<u32>,
+    waiting_occ_release_edge: Vec<u32>,
+}
+
+fn unique_entry_path_match(
+    from: LaneEdgeOrdinal,
+    to: LaneEdgeOrdinal,
+    remaining: &[LaneEdgeOrdinal],
+    maneuvers: &SharedManeuverNetwork,
+) -> Result<Option<ManeuverPathOrdinal>, BuildError> {
+    let Some(candidates) = maneuvers.transition_candidates(from) else {
+        return Ok(None);
+    };
+    let mut matched = None;
+    let mut saw_entry = false;
+    for candidate in candidates {
+        if candidate.successor() != to || candidate.transition_index() != 0 {
+            continue;
+        }
+        saw_entry = true;
+        let path = maneuvers.maneuver_path(candidate.maneuver_path()).ok_or(
+            BuildError::InputInvariant {
+                structure: STRUCTURE,
+            },
+        )?;
+        if remaining.starts_with(path.edges()) {
+            match matched {
+                None => matched = Some(candidate.maneuver_path()),
+                Some(first) if first != candidate.maneuver_path() => {
+                    return Err(BuildError::InputInvariant {
+                        structure: STRUCTURE,
+                    });
+                }
+                Some(_) => {}
+            }
+        }
+    }
+    if !saw_entry {
+        return Ok(None);
+    }
+    matched
+        .ok_or(BuildError::InputInvariant {
+            structure: STRUCTURE,
+        })
+        .map(Some)
+}
+
+fn reconstruct_route_occurrences(
+    route_edges: &[LaneEdgeOrdinal],
+    edge_junction: &crate::relations::OptionalColumn<JunctionOrdinal>,
+    maneuvers: &SharedManeuverNetwork,
+    gate_transition_index: &[u32],
+    waiting_entry_gate: &[ManeuverGateOrdinal],
+    waiting_release_gate: &[ManeuverGateOrdinal],
+) -> Result<ReconstructedRoute, BuildError> {
+    if let (Some(first), Some(last)) = (route_edges.first(), route_edges.last())
+        && (get_optional(edge_junction, first.raw()).is_some()
+            || get_optional(edge_junction, last.raw()).is_some())
+    {
+        return Err(BuildError::InputInvariant {
+            structure: STRUCTURE,
+        });
+    }
+    let transition_len = route_edges.len().saturating_sub(1);
+    let mut expected = ReconstructedRoute {
+        transition_gates: vec![None; transition_len],
+        maneuver_paths: Vec::new(),
+        maneuver_entry: Vec::new(),
+        maneuver_exit: Vec::new(),
+        maneuver_gate_occ_start: Vec::new(),
+        maneuver_gate_occ_count: Vec::new(),
+        maneuver_waiting_occ_start: Vec::new(),
+        maneuver_waiting_occ_count: Vec::new(),
+        gate_occ_gates: Vec::new(),
+        gate_occ_maneuver: Vec::new(),
+        gate_occ_from: Vec::new(),
+        gate_occ_next: Vec::new(),
+        gate_occ_next_boundary: Vec::new(),
+        gate_occ_waiting: Vec::new(),
+        waiting_occ_zones: Vec::new(),
+        waiting_occ_maneuver: Vec::new(),
+        waiting_occ_entry_gate: Vec::new(),
+        waiting_occ_release_gate: Vec::new(),
+        waiting_occ_entry_edge: Vec::new(),
+        waiting_occ_release_edge: Vec::new(),
+    };
+    let mut internal_coverage = vec![None; route_edges.len()];
+    for entry_index in 0..transition_len {
+        let from = route_edges[entry_index];
+        let to = route_edges[entry_index + 1];
+        let Some(path_ordinal) =
+            unique_entry_path_match(from, to, &route_edges[entry_index..], maneuvers)?
+        else {
+            continue;
+        };
+        let path = maneuvers
+            .maneuver_path(path_ordinal)
+            .ok_or(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            })?;
+        let exit_index = entry_index
+            .checked_add(path.edges().len())
+            .and_then(|value| value.checked_sub(1))
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: STRUCTURE,
+            })?;
+        if exit_index >= route_edges.len() {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        for coverage in internal_coverage
+            .iter_mut()
+            .take(exit_index)
+            .skip(entry_index + 1)
+        {
+            if coverage.is_some() {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+            *coverage = Some(path_ordinal);
+        }
+        let maneuver_index = dest_len(expected.maneuver_paths.len())?;
+        let gate_start = dest_len(expected.gate_occ_gates.len())?;
+        let entry_u32 = dest_len(entry_index)?;
+        let exit_u32 = dest_len(exit_index)?;
+        for &gate in path.maneuver_gates() {
+            let transition_index =
+                *gate_transition_index
+                    .get(gate.index())
+                    .ok_or(BuildError::InputInvariant {
+                        structure: STRUCTURE,
+                    })?;
+            let from_route =
+                entry_u32
+                    .checked_add(transition_index)
+                    .ok_or(BuildError::ArithmeticOverflow {
+                        structure: STRUCTURE,
+                    })?;
+            let from_slot = usize::try_from(from_route).expect("u32");
+            if from_slot >= expected.transition_gates.len() {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
+            expected.transition_gates[from_slot] = Some(gate);
+            expected.gate_occ_gates.push(gate);
+            expected.gate_occ_maneuver.push(maneuver_index);
+            expected.gate_occ_from.push(from_route);
+            expected.gate_occ_next.push(None);
+            expected.gate_occ_next_boundary.push(exit_u32);
+            expected.gate_occ_waiting.push(None);
+        }
+        let gate_end = dest_len(expected.gate_occ_gates.len())?;
+        for local in gate_start..gate_end {
+            let slot = usize::try_from(local).expect("u32");
+            let last = local + 1 == gate_end;
+            expected.gate_occ_next[slot] = if last { None } else { Some(local + 1) };
+            expected.gate_occ_next_boundary[slot] = if last {
+                exit_u32
+            } else {
+                expected.gate_occ_from[slot + 1]
+            };
+        }
+        let waiting_start = dest_len(expected.waiting_occ_zones.len())?;
+        for &zone in path.waiting_zones() {
+            let entry_gate =
+                *waiting_entry_gate
+                    .get(zone.index())
+                    .ok_or(BuildError::InputInvariant {
+                        structure: STRUCTURE,
+                    })?;
+            let release_gate =
+                *waiting_release_gate
+                    .get(zone.index())
+                    .ok_or(BuildError::InputInvariant {
+                        structure: STRUCTURE,
+                    })?;
+            let entry_local = (gate_start..gate_end)
+                .find(|local| {
+                    expected.gate_occ_gates[usize::try_from(*local).expect("u32")] == entry_gate
+                })
+                .ok_or(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                })?;
+            let release_local = (gate_start..gate_end)
+                .find(|local| {
+                    expected.gate_occ_gates[usize::try_from(*local).expect("u32")] == release_gate
+                })
+                .ok_or(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                })?;
+            let waiting_local = dest_len(expected.waiting_occ_zones.len())?;
+            let entry_slot = usize::try_from(entry_local).expect("u32");
+            expected.gate_occ_waiting[entry_slot] = Some(waiting_local);
+            expected.waiting_occ_zones.push(zone);
+            expected.waiting_occ_maneuver.push(maneuver_index);
+            expected.waiting_occ_entry_gate.push(entry_local);
+            expected.waiting_occ_release_gate.push(release_local);
+            expected
+                .waiting_occ_entry_edge
+                .push(expected.gate_occ_from[entry_slot]);
+            expected
+                .waiting_occ_release_edge
+                .push(expected.gate_occ_from[usize::try_from(release_local).expect("u32")]);
+        }
+        let waiting_end = dest_len(expected.waiting_occ_zones.len())?;
+        expected.maneuver_paths.push(path_ordinal);
+        expected.maneuver_entry.push(entry_u32);
+        expected.maneuver_exit.push(exit_u32);
+        expected.maneuver_gate_occ_start.push(gate_start);
+        expected
+            .maneuver_gate_occ_count
+            .push(
+                gate_end
+                    .checked_sub(gate_start)
+                    .ok_or(BuildError::ArithmeticOverflow {
+                        structure: STRUCTURE,
+                    })?,
+            );
+        expected.maneuver_waiting_occ_start.push(waiting_start);
+        expected
+            .maneuver_waiting_occ_count
+            .push(waiting_end.checked_sub(waiting_start).ok_or(
+                BuildError::ArithmeticOverflow {
+                    structure: STRUCTURE,
+                },
+            )?);
+    }
+    for (edge_index, edge) in route_edges.iter().enumerate() {
+        if get_optional(edge_junction, edge.raw()).is_some()
+            && internal_coverage[edge_index].is_none()
+        {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+    }
+    Ok(expected)
+}
+
 fn segmented_route_coordinates(edge_lengths: &[f64]) -> (Vec<u32>, Vec<f64>, Vec<f64>) {
     let mut segments = Vec::with_capacity(edge_lengths.len());
     let mut offsets = Vec::with_capacity(edge_lengths.len());
@@ -2811,9 +3086,9 @@ fn build_routes(
     successor_ranges: &[RangeU32],
     successors: &[LaneEdgeOrdinal],
     maneuvers: &SharedManeuverNetwork,
-    gate_path: &[ManeuverPathOrdinal],
+    _gate_path: &[ManeuverPathOrdinal],
     gate_transition_index: &[u32],
-    waiting_path: &[ManeuverPathOrdinal],
+    _waiting_path: &[ManeuverPathOrdinal],
     waiting_entry_gate: &[ManeuverGateOrdinal],
     waiting_release_gate: &[ManeuverGateOrdinal],
     options: SharedNetworkBuildOptions<'_>,
@@ -3109,6 +3384,8 @@ fn build_routes(
         route_count,
         &edge_ranges,
         &edges,
+        &gate_ranges,
+        &transition_gates,
         &maneuver_ranges,
         &maneuver_paths,
         &maneuver_entry,
@@ -3131,12 +3408,10 @@ fn build_routes(
         &waiting_occ_release_gate,
         &waiting_occ_entry_edge,
         &waiting_occ_release_edge,
-        waiting_path,
         waiting_entry_gate,
         waiting_release_gate,
         edge_junction,
         maneuvers,
-        gate_path,
         gate_transition_index,
         options,
     )?;
@@ -3208,6 +3483,8 @@ fn close_route_occurrences(
     route_count: u32,
     edge_ranges: &[RangeU32],
     edges: &[LaneEdgeOrdinal],
+    gate_ranges: &[RangeU32],
+    transition_gates: &[Option<ManeuverGateOrdinal>],
     maneuver_ranges: &[RangeU32],
     maneuver_paths: &[ManeuverPathOrdinal],
     maneuver_entry: &[u32],
@@ -3230,12 +3507,10 @@ fn close_route_occurrences(
     waiting_occ_release_gate: &[u32],
     waiting_occ_entry_edge: &[u32],
     waiting_occ_release_edge: &[u32],
-    waiting_path: &[ManeuverPathOrdinal],
     waiting_entry_gate: &[ManeuverGateOrdinal],
     waiting_release_gate: &[ManeuverGateOrdinal],
     edge_junction: &crate::relations::OptionalColumn<JunctionOrdinal>,
     maneuvers: &SharedManeuverNetwork,
-    gate_path: &[ManeuverPathOrdinal],
     gate_transition_index: &[u32],
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<(), BuildError> {
@@ -3243,226 +3518,57 @@ fn close_route_occurrences(
         poll_cancelled(options, route)?;
         let route_index = usize::try_from(route).expect("u32 fits");
         let route_edges = edge_ranges[route_index].slice(edges);
-        let edge_count = edge_ranges[route_index].len();
-        let man_range = maneuver_ranges[route_index];
-        let gate_range = gate_occ_ranges[route_index];
-        let wait_range = waiting_occ_ranges[route_index];
-        let man_len = man_range.len();
-        let mut gate_cursor = 0_u32;
-        let mut wait_cursor = 0_u32;
-        for local in 0..man_len {
-            let index = man_range.start() + local;
-            let slot = usize::try_from(index).expect("u32 fits");
-            if maneuver_gate_occ_start[slot] != gate_cursor
-                || maneuver_waiting_occ_start[slot] != wait_cursor
-            {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-            let gate_end = maneuver_gate_occ_start[slot]
-                .checked_add(maneuver_gate_occ_count[slot])
-                .ok_or(BuildError::ArithmeticOverflow {
-                    structure: STRUCTURE,
-                })?;
-            let wait_end = maneuver_waiting_occ_start[slot]
-                .checked_add(maneuver_waiting_occ_count[slot])
-                .ok_or(BuildError::ArithmeticOverflow {
-                    structure: STRUCTURE,
-                })?;
-            if gate_end > gate_range.len() || wait_end > wait_range.len() {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-            gate_cursor = gate_end;
-            wait_cursor = wait_end;
-            let entry = maneuver_entry[slot];
-            let exit = maneuver_exit[slot];
-            if entry > exit || exit >= edge_count {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-            let path = maneuvers.maneuver_path(maneuver_paths[slot]).ok_or(
-                BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                },
-            )?;
-            let entry_index = usize::try_from(entry).expect("u32 fits");
-            let exit_index = usize::try_from(exit).expect("u32 fits");
-            if path.edges() != &route_edges[entry_index..=exit_index] {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-        }
-        if gate_cursor != gate_range.len() || wait_cursor != wait_range.len() {
+        let expected = reconstruct_route_occurrences(
+            route_edges,
+            edge_junction,
+            maneuvers,
+            gate_transition_index,
+            waiting_entry_gate,
+            waiting_release_gate,
+        )?;
+        if gate_ranges[route_index].slice(transition_gates) != expected.transition_gates.as_slice()
+            || maneuver_ranges[route_index].slice(maneuver_paths)
+                != expected.maneuver_paths.as_slice()
+            || maneuver_ranges[route_index].slice(maneuver_entry)
+                != expected.maneuver_entry.as_slice()
+            || maneuver_ranges[route_index].slice(maneuver_exit)
+                != expected.maneuver_exit.as_slice()
+            || maneuver_ranges[route_index].slice(maneuver_gate_occ_start)
+                != expected.maneuver_gate_occ_start.as_slice()
+            || maneuver_ranges[route_index].slice(maneuver_gate_occ_count)
+                != expected.maneuver_gate_occ_count.as_slice()
+            || maneuver_ranges[route_index].slice(maneuver_waiting_occ_start)
+                != expected.maneuver_waiting_occ_start.as_slice()
+            || maneuver_ranges[route_index].slice(maneuver_waiting_occ_count)
+                != expected.maneuver_waiting_occ_count.as_slice()
+            || gate_occ_ranges[route_index].slice(gate_occ_gates)
+                != expected.gate_occ_gates.as_slice()
+            || gate_occ_ranges[route_index].slice(gate_occ_maneuver)
+                != expected.gate_occ_maneuver.as_slice()
+            || gate_occ_ranges[route_index].slice(gate_occ_from)
+                != expected.gate_occ_from.as_slice()
+            || gate_occ_ranges[route_index].slice(gate_occ_next)
+                != expected.gate_occ_next.as_slice()
+            || gate_occ_ranges[route_index].slice(gate_occ_next_boundary)
+                != expected.gate_occ_next_boundary.as_slice()
+            || gate_occ_ranges[route_index].slice(gate_occ_waiting)
+                != expected.gate_occ_waiting.as_slice()
+            || waiting_occ_ranges[route_index].slice(waiting_occ_zones)
+                != expected.waiting_occ_zones.as_slice()
+            || waiting_occ_ranges[route_index].slice(waiting_occ_maneuver)
+                != expected.waiting_occ_maneuver.as_slice()
+            || waiting_occ_ranges[route_index].slice(waiting_occ_entry_gate)
+                != expected.waiting_occ_entry_gate.as_slice()
+            || waiting_occ_ranges[route_index].slice(waiting_occ_release_gate)
+                != expected.waiting_occ_release_gate.as_slice()
+            || waiting_occ_ranges[route_index].slice(waiting_occ_entry_edge)
+                != expected.waiting_occ_entry_edge.as_slice()
+            || waiting_occ_ranges[route_index].slice(waiting_occ_release_edge)
+                != expected.waiting_occ_release_edge.as_slice()
+        {
             return Err(BuildError::InputInvariant {
                 structure: STRUCTURE,
             });
-        }
-
-        for local in 0..gate_range.len() {
-            let index = gate_range.start() + local;
-            let slot = usize::try_from(index).expect("u32 fits");
-            let man_local = gate_occ_maneuver[slot];
-            if man_local >= man_len {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-            let man_slot = usize::try_from(man_range.start() + man_local).expect("u32 fits");
-            let start = maneuver_gate_occ_start[man_slot];
-            let end = start.checked_add(maneuver_gate_occ_count[man_slot]).ok_or(
-                BuildError::ArithmeticOverflow {
-                    structure: STRUCTURE,
-                },
-            )?;
-            if local < start || local >= end || gate_occ_from[slot] >= edge_count {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-            let gate = gate_occ_gates[slot];
-            if gate_path.get(gate.index()) != Some(&maneuver_paths[man_slot]) {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-            let path = maneuvers.maneuver_path(maneuver_paths[man_slot]).ok_or(
-                BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                },
-            )?;
-            if !path.maneuver_gates().contains(&gate) {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-            let expected_from = maneuver_entry[man_slot]
-                .checked_add(*gate_transition_index.get(gate.index()).ok_or(
-                    BuildError::InputInvariant {
-                        structure: STRUCTURE,
-                    },
-                )?)
-                .ok_or(BuildError::ArithmeticOverflow {
-                    structure: STRUCTURE,
-                })?;
-            if gate_occ_from[slot] != expected_from {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-            let last_in_maneuver = local + 1 == end;
-            match (gate_occ_next[slot], last_in_maneuver) {
-                (None, true) => {}
-                (Some(next), false) if next == local + 1 => {}
-                _ => {
-                    return Err(BuildError::InputInvariant {
-                        structure: STRUCTURE,
-                    });
-                }
-            }
-            let expected_boundary = if last_in_maneuver {
-                maneuver_exit[man_slot]
-            } else {
-                let next_slot = usize::try_from(gate_range.start() + local + 1).expect("u32 fits");
-                gate_occ_from[next_slot]
-            };
-            if gate_occ_next_boundary[slot] != expected_boundary {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-            if let Some(waiting_local) = gate_occ_waiting[slot]
-                && waiting_local >= wait_range.len()
-            {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-        }
-
-        for local in 0..wait_range.len() {
-            let index = wait_range.start() + local;
-            let slot = usize::try_from(index).expect("u32 fits");
-            let man_local = waiting_occ_maneuver[slot];
-            if man_local >= man_len {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-            let man_slot = usize::try_from(man_range.start() + man_local).expect("u32 fits");
-            let start = maneuver_waiting_occ_start[man_slot];
-            let end = start
-                .checked_add(maneuver_waiting_occ_count[man_slot])
-                .ok_or(BuildError::ArithmeticOverflow {
-                    structure: STRUCTURE,
-                })?;
-            if local < start || local >= end {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-            let gate_start = maneuver_gate_occ_start[man_slot];
-            let gate_end = gate_start
-                .checked_add(maneuver_gate_occ_count[man_slot])
-                .ok_or(BuildError::ArithmeticOverflow {
-                    structure: STRUCTURE,
-                })?;
-            let entry_gate = waiting_occ_entry_gate[slot];
-            let release_gate = waiting_occ_release_gate[slot];
-            if entry_gate < gate_start
-                || entry_gate >= gate_end
-                || release_gate < gate_start
-                || release_gate >= gate_end
-            {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-            let entry_slot = usize::try_from(gate_range.start() + entry_gate).expect("u32 fits");
-            let release_slot =
-                usize::try_from(gate_range.start() + release_gate).expect("u32 fits");
-            if waiting_occ_entry_edge[slot] != gate_occ_from[entry_slot]
-                || waiting_occ_release_edge[slot] != gate_occ_from[release_slot]
-            {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-            let zone = waiting_occ_zones[slot];
-            if waiting_path.get(zone.index()) != Some(&maneuver_paths[man_slot])
-                || waiting_entry_gate.get(zone.index()) != Some(&gate_occ_gates[entry_slot])
-                || waiting_release_gate.get(zone.index()) != Some(&gate_occ_gates[release_slot])
-            {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
-        }
-
-        let mut covered = vec![false; route_edges.len()];
-        for local in 0..man_len {
-            let slot = usize::try_from(man_range.start() + local).expect("u32 fits");
-            let entry = usize::try_from(maneuver_entry[slot]).expect("u32 fits");
-            let exit = usize::try_from(maneuver_exit[slot]).expect("u32 fits");
-            for covered_edge in covered.iter_mut().take(exit).skip(entry + 1) {
-                if *covered_edge {
-                    return Err(BuildError::InputInvariant {
-                        structure: STRUCTURE,
-                    });
-                }
-                *covered_edge = true;
-            }
-        }
-        for (edge_index, edge) in route_edges.iter().enumerate() {
-            if get_optional(edge_junction, edge.raw()).is_some() && !covered[edge_index] {
-                return Err(BuildError::InputInvariant {
-                    structure: STRUCTURE,
-                });
-            }
         }
     }
     Ok(())
@@ -3585,11 +3691,20 @@ fn build_route_reverse(
             structure: STRUCTURE,
         });
     }
+    let mut order: Vec<usize> = (0..kinds.len()).collect();
+    order.sort_unstable_by_key(|&index| {
+        (
+            kinds[index],
+            ordinals[index],
+            routes[index].raw(),
+            occurrences[index],
+        )
+    });
     Ok((
-        kinds.into_boxed_slice(),
-        ordinals.into_boxed_slice(),
-        routes.into_boxed_slice(),
-        occurrences.into_boxed_slice(),
+        order.iter().map(|&index| kinds[index]).collect(),
+        order.iter().map(|&index| ordinals[index]).collect(),
+        order.iter().map(|&index| routes[index]).collect(),
+        order.iter().map(|&index| occurrences[index]).collect(),
     ))
 }
 
@@ -3634,6 +3749,26 @@ mod tests {
     use super::{OccurrenceCursor, UniqueCheck, segmented_route_coordinates};
     use crate::relations::{RouteDistanceIndexView, RouteDistanceQuery};
     use crate::{BuildError, RangeU32};
+
+    #[test]
+    fn reconstructed_class_intervals_give_strict_child_ranges() {
+        let mut parent = crate::relations::empty_optional(2).expect("parent column");
+        crate::relations::set_optional(
+            &mut parent,
+            1,
+            laneflow_static_contract::ParticipantClassOrdinal::from_raw(0),
+        )
+        .expect("child parent");
+        let (depth, enter, exit) = super::reconstruct_class_intervals(&parent, 2).expect("forest");
+        assert_eq!(depth, vec![0, 1]);
+        assert_eq!(enter[0], 0);
+        assert_eq!(exit[0], 2);
+        assert_eq!(enter[1], 1);
+        assert_eq!(exit[1], 2);
+        assert!(enter[1] > enter[0]);
+        assert!(exit[1] <= exit[0]);
+        assert_ne!((enter[0], exit[0]), (enter[1], exit[1]));
+    }
 
     #[test]
     fn sequence_members_reject_duplicates_but_allow_non_monotonic_order() {
