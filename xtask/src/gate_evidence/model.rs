@@ -145,6 +145,75 @@ pub(super) struct GitHubEditTimestamps {
 }
 
 #[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubIssueProjectItemsResponse {
+    pub(super) data: GitHubIssueProjectItemsData,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubIssueProjectItemsData {
+    pub(super) repository: Option<GitHubIssueProjectItemsRepository>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubIssueProjectItemsRepository {
+    pub(super) issue: Option<GitHubIssueProjectItemsIssue>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubIssueProjectItemsIssue {
+    #[serde(rename = "projectItems")]
+    pub(super) project_items: GitHubProjectItemConnection,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubProjectItemConnection {
+    #[serde(rename = "pageInfo")]
+    pub(super) page_info: GitHubPageInfo,
+    pub(super) nodes: Vec<GitHubProjectItemNode>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubProjectItemNode {
+    pub(super) project: GitHubProjectTitle,
+    #[serde(rename = "fieldValues")]
+    pub(super) field_values: GitHubProjectFieldValueConnection,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubProjectTitle {
+    pub(super) title: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubProjectFieldValueConnection {
+    #[serde(rename = "pageInfo")]
+    pub(super) page_info: GitHubPageInfo,
+    pub(super) nodes: Vec<GitHubProjectFieldValue>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubProjectFieldValue {
+    #[serde(rename = "__typename")]
+    pub(super) type_name: String,
+    pub(super) name: Option<String>,
+    #[serde(rename = "updatedAt")]
+    pub(super) updated_at: Option<String>,
+    pub(super) field: Option<GitHubProjectField>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubProjectField {
+    pub(super) name: String,
+}
+
+#[derive(Debug)]
+pub(super) struct GitHubProjectStatusEvidence {
+    pub(super) project_title: String,
+    pub(super) status_name: String,
+    pub(super) updated_at: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
 pub(super) struct GitHubUserContentEditsResponse {
     pub(super) data: GitHubUserContentEditsData,
 }
@@ -580,6 +649,8 @@ pub(super) const G4_COMMENT_FIELDS: &[&str] = &[
 pub(super) const MERGE_QUEUE_G4_ACTIVATION: &str = "2026-08-20T04:00:00Z";
 pub(super) const MERGE_QUEUE_G4_RECORD_START: &str = "<!-- merge-queue-g4-evidence:v1";
 pub(super) const MERGE_QUEUE_G4_RECORD_END: &str = "-->";
+pub(super) const MERGE_QUEUE_G4_RECOVERY_START: &str = "<!-- merge-queue-g4-recovery:v1";
+pub(super) const MERGE_QUEUE_G4_RECOVERY_END: &str = "-->";
 pub(super) const MERGE_QUEUE_G4_INCLUSION_METHOD: &str =
     "trusted GitHub merge_group identity + compare";
 pub(super) const CODEQL_QUEUE_BOOTSTRAP_MODE: &str = "activation_bootstrap";
@@ -594,6 +665,28 @@ pub(super) struct MergeQueueG4Record {
     pub(super) schema_version: u64,
     pub(super) activation_boundary: String,
     pub(super) pull_requests: Vec<MergeQueueG4PullRequestRecord>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct MergeQueueG4RecoveryRecord {
+    pub(super) schema_version: u64,
+    pub(super) decision: String,
+    pub(super) failures: Vec<MergeQueueG4RecoveryEntry>,
+    pub(super) risk: String,
+    pub(super) acceptance_boundary: String,
+    pub(super) cleanup_owner: String,
+    pub(super) authorized_by: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct MergeQueueG4RecoveryEntry {
+    pub(super) failed_pr: u64,
+    pub(super) failed_role: String,
+    pub(super) failure_evidence_url: String,
+    pub(super) remediation_issue: u64,
+    pub(super) remediation_g4_url: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -620,6 +713,10 @@ pub(super) struct MergeQueueG4PullRequestRecord {
     pub(super) reason: Option<String>,
     #[serde(default)]
     pub(super) bootstrap_evidence_url: Option<String>,
+    #[serde(default)]
+    pub(super) failure_evidence_url: Option<String>,
+    #[serde(default)]
+    pub(super) recovery_evidence_url: Option<String>,
 }
 
 pub(super) const GATE_ASSERTION_PREFIX: &str = "- Gate 断言：";

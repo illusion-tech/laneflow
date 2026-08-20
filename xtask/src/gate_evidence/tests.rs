@@ -4258,6 +4258,8 @@ fn codeql_activation_bootstrap_record(pr: &GitHubPullRequest) -> MergeQueueG4Pul
         inclusion_evidence_url: None,
         reason: Some(CODEQL_QUEUE_BOOTSTRAP_REASON.to_string()),
         bootstrap_evidence_url: Some(CODEQL_QUEUE_BOOTSTRAP_EVIDENCE_URL.to_string()),
+        failure_evidence_url: None,
+        recovery_evidence_url: None,
     }
 }
 
@@ -5086,6 +5088,8 @@ fn accepts_single_entry_rebase_queue_when_h_mg_is_h_main() {
         )),
         reason: None,
         bootstrap_evidence_url: None,
+        failure_evidence_url: None,
+        recovery_evidence_url: None,
     };
 
     assert!(
@@ -5114,6 +5118,301 @@ fn queue_delivery_g4_fixture(
     append_queue_g4_record(&mut issue.comments[0].body, vec![entry]);
     let delivery = delivery_pr(Some("2026-08-20T05:30:00Z"));
     (args, issue, delivery)
+}
+
+fn generic_merge_queue_recovery_fixture() -> (GateEvidenceArgs, GitHubComment) {
+    let args = GateEvidenceArgs {
+        phase: GateEvidencePhase::G4,
+        repo: "example/road-sim".to_string(),
+        issue: 70,
+        delivery_pr: Some(71),
+        related_prs: vec![72, 73],
+    };
+    let mut comment = g4_comment_for_args(
+        "https://github.com/example/road-sim/issues/70#issuecomment-800",
+        "2026-08-20T10:05:00Z",
+        &args,
+    );
+    comment.body.push_str(
+        r#"
+- Historical queue recovery：原失败保持失败，由 trusted Owner 接受并绑定已完成的 remediation。
+<!-- merge-queue-g4-recovery:v1
+{
+  "schemaVersion": 1,
+  "decision": "accepted_exception",
+  "failures": [{
+    "failedPr": 71,
+    "failedRole": "delivery",
+    "failureEvidenceUrl": "https://github.com/example/road-sim/issues/70#issuecomment-801",
+    "remediationIssue": 80,
+    "remediationG4Url": "https://github.com/example/road-sim/issues/80#issuecomment-802"
+  }],
+  "risk": "historical checks remain non-success",
+  "acceptanceBoundary": "only the bound target and remediation evidence",
+  "cleanupOwner": "wangzishi",
+  "authorizedBy": "wangzishi"
+}
+-->
+"#,
+    );
+    (args, comment)
+}
+
+fn historical_failure_record(checks_conclusion: Option<&str>) -> MergeQueueG4PullRequestRecord {
+    MergeQueueG4PullRequestRecord {
+        number: 71,
+        role: "delivery".to_string(),
+        mode: "historical_failure".to_string(),
+        h_pr: DELIVERY_HEAD_OID.to_string(),
+        h_main: MAIN_RESULT_OID.to_string(),
+        h_mg: Some(MERGE_GROUP_OID.to_string()),
+        checks_conclusion: checks_conclusion.map(str::to_string),
+        checks_url: None,
+        chain: None,
+        inclusion_method: None,
+        inclusion_evidence_url: None,
+        reason: Some("pre-merge evidence was incomplete".to_string()),
+        bootstrap_evidence_url: None,
+        failure_evidence_url: Some(
+            "https://github.com/example/road-sim/issues/70#issuecomment-801".to_string(),
+        ),
+        recovery_evidence_url: Some(
+            "https://github.com/example/road-sim/issues/80#issuecomment-802".to_string(),
+        ),
+    }
+}
+
+#[test]
+fn accepts_minimal_historical_failure_independent_of_remediation_topology() {
+    let (mut args, comment) = generic_merge_queue_recovery_fixture();
+    args.related_prs.reverse();
+    let recovery = merge_queue_g4_recovery_record(&comment, &args)
+        .expect("generic recovery record should parse")
+        .expect("generic recovery marker should be present");
+    let delivery = delivery_pr(Some("2026-08-20T10:00:00Z"));
+
+    assert!(
+        validate_historical_failure_pr_record(
+            71,
+            "delivery",
+            &delivery,
+            &historical_failure_record(None),
+            &recovery.failures[0],
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn rejects_unsigned_acceptance_and_historical_success_claims() {
+    let (args, mut unsigned) = generic_merge_queue_recovery_fixture();
+    unsigned.author = Some(GitHubActor {
+        login: "untrusted-user".to_string(),
+    });
+    let authorization_error = merge_queue_g4_recovery_record(&unsigned, &args)
+        .expect_err("accepted_exception requires a trusted signer");
+    assert!(authorization_error.contains("authorizedBy"));
+
+    let (args, mut self_referencing) = generic_merge_queue_recovery_fixture();
+    self_referencing.body = self_referencing
+        .body
+        .replace("issues/70#issuecomment-801", "issues/70#issuecomment-800");
+    let evidence_error = merge_queue_g4_recovery_record(&self_referencing, &args)
+        .expect_err("failure evidence cannot be the acceptance comment itself");
+    assert!(evidence_error.contains("evidence URL"));
+
+    let (args, comment) = generic_merge_queue_recovery_fixture();
+    let recovery = merge_queue_g4_recovery_record(&comment, &args)
+        .unwrap()
+        .unwrap();
+    let delivery = delivery_pr(Some("2026-08-20T10:00:00Z"));
+    let success_error = validate_historical_failure_pr_record(
+        71,
+        "delivery",
+        &delivery,
+        &historical_failure_record(Some("success")),
+        &recovery.failures[0],
+    )
+    .expect_err("historical failure must never be rewritten as success");
+    assert!(success_error.contains("不得声称 checks"));
+}
+
+#[test]
+fn accepts_only_completed_trusted_remediation_issue() {
+    let (args, comment) = generic_merge_queue_recovery_fixture();
+    let recovery = merge_queue_g4_recovery_record(&comment, &args)
+        .unwrap()
+        .unwrap();
+    let failure = &recovery.failures[0];
+    let mut remediation = issue("CLOSED", "Done");
+    remediation.body = remediation
+        .body
+        .replace(ISSUE_G4_URL, &failure.remediation_g4_url);
+    remediation.comments[0].url = failure.remediation_g4_url.clone();
+    remediation.comments[0].body = remediation.comments[0]
+        .body
+        .replace("- Project：", "- Project：LaneFlow Project -> Done");
+    remediation.comments[0].body.push_str(&format!(
+        "\n- Historical failure evidence：{}",
+        failure.failure_evidence_url
+    ));
+
+    assert!(validate_remediation_issue(&remediation, failure).is_ok());
+
+    let mut target = issue("OPEN", "In Review");
+    target.comments[0].url = failure.failure_evidence_url.clone();
+    let pr_record = historical_failure_record(None);
+    target.comments[0].body.push_str(&format!(
+        "\n- Historical failed PR：#71\n- Historical failed H_mg：`{MERGE_GROUP_OID}`\n- Historical failure reason：{}",
+        pr_record.reason.as_deref().unwrap()
+    ));
+    assert!(validate_failure_evidence(&target, failure, &pr_record).is_ok());
+    target.comments[0].includes_created_edit = true;
+    let evidence_error = validate_failure_evidence(&target, failure, &pr_record)
+        .expect_err("failure evidence must be trusted and unedited");
+    assert!(evidence_error.contains("trusted G3 Owner"));
+
+    remediation.comments[0].body = remediation.comments[0].body.replace(
+        &failure.failure_evidence_url,
+        "https://github.com/example/road-sim/issues/70#issuecomment-999",
+    );
+    let backlink_error = validate_remediation_issue(&remediation, failure)
+        .expect_err("remediation G4 must link the exact failure evidence");
+    assert!(backlink_error.contains("精确回链"));
+    remediation.comments[0].body = remediation.comments[0].body.replace(
+        "https://github.com/example/road-sim/issues/70#issuecomment-999",
+        &failure.failure_evidence_url,
+    );
+
+    target.comments[0].includes_created_edit = false;
+    target.comments[0].body = target.comments[0]
+        .body
+        .replace("Historical failed PR：#71", "Historical failed PR：#72");
+    let identity_error = validate_failure_evidence(&target, failure, &pr_record)
+        .expect_err("failure evidence must name the exact failed PR");
+    assert!(identity_error.contains("精确绑定 failed PR"));
+
+    remediation.state = "OPEN".to_string();
+    let error = validate_remediation_issue(&remediation, failure)
+        .expect_err("remediation must be closed after ordinary G4");
+    assert!(error.contains("Project Done 并手动关闭"));
+}
+
+#[test]
+fn accepts_only_trusted_remediation_closure_between_g4_and_acceptance() {
+    let remediation_g4_at =
+        parse_utc_timestamp_seconds("2026-08-20T10:00:00Z").expect("valid G4 timestamp");
+    let acceptance_at =
+        parse_utc_timestamp_seconds("2026-08-20T12:00:00Z").expect("valid acceptance timestamp");
+    let trusted_close = || GitHubTimelineItem {
+        id: Some(1),
+        event: "closed".to_string(),
+        actor: Some(GitHubActor {
+            login: "wangzishi".to_string(),
+        }),
+        created_at: Some("2026-08-20T11:00:00Z".to_string()),
+        updated_at: None,
+        submitted_at: None,
+        committer: None,
+    };
+
+    assert!(
+        validate_remediation_closure(&[trusted_close()], remediation_g4_at, acceptance_at).is_ok()
+    );
+
+    let reopened = GitHubTimelineItem {
+        id: Some(2),
+        event: "reopened".to_string(),
+        actor: Some(GitHubActor {
+            login: "wangzishi".to_string(),
+        }),
+        created_at: Some("2026-08-20T11:30:00Z".to_string()),
+        updated_at: None,
+        submitted_at: None,
+        committer: None,
+    };
+    let reopen_error = validate_remediation_closure(
+        &[trusted_close(), reopened],
+        remediation_g4_at,
+        acceptance_at,
+    )
+    .expect_err("a later reopen must invalidate remediation completion");
+    assert!(reopen_error.contains("G4 后不得再次 reopen"));
+
+    let reopened_after_g4 = GitHubTimelineItem {
+        id: Some(3),
+        event: "reopened".to_string(),
+        actor: Some(GitHubActor {
+            login: "wangzishi".to_string(),
+        }),
+        created_at: Some("2026-08-20T10:30:00Z".to_string()),
+        updated_at: None,
+        submitted_at: None,
+        committer: None,
+    };
+    let mut close_after_reopen = trusted_close();
+    close_after_reopen.created_at = Some("2026-08-20T11:30:00Z".to_string());
+    let stale_g4_error = validate_remediation_closure(
+        &[reopened_after_g4, close_after_reopen],
+        remediation_g4_at,
+        acceptance_at,
+    )
+    .expect_err("closing again must not make a pre-reopen G4 current");
+    assert!(stale_g4_error.contains("G4 后不得再次 reopen"));
+
+    let reopened_before_g4 = GitHubTimelineItem {
+        id: Some(4),
+        event: "reopened".to_string(),
+        actor: Some(GitHubActor {
+            login: "wangzishi".to_string(),
+        }),
+        created_at: Some("2026-08-20T09:30:00Z".to_string()),
+        updated_at: None,
+        submitted_at: None,
+        committer: None,
+    };
+    assert!(
+        validate_remediation_closure(
+            &[reopened_before_g4, trusted_close()],
+            remediation_g4_at,
+            acceptance_at,
+        )
+        .is_ok()
+    );
+
+    let mut late_close = trusted_close();
+    late_close.created_at = Some("2026-08-20T12:00:00Z".to_string());
+    let ordering_error =
+        validate_remediation_closure(&[late_close], remediation_g4_at, acceptance_at)
+            .expect_err("closure must precede accepted_exception");
+    assert!(ordering_error.contains("accepted_exception 前"));
+}
+
+#[test]
+fn accepts_only_project_done_before_remediation_g4() {
+    let remediation_g4_at =
+        parse_utc_timestamp_seconds("2026-08-20T10:00:00Z").expect("valid G4 timestamp");
+    let acceptance_at =
+        parse_utc_timestamp_seconds("2026-08-20T12:00:00Z").expect("valid acceptance timestamp");
+    let mut evidence = vec![GitHubProjectStatusEvidence {
+        project_title: "LaneFlow".to_string(),
+        status_name: "Done".to_string(),
+        updated_at: "2026-08-20T09:00:00Z".to_string(),
+    }];
+
+    assert!(validate_remediation_project_done(&evidence, remediation_g4_at, acceptance_at).is_ok());
+
+    evidence[0].updated_at = "2026-08-20T11:00:00Z".to_string();
+    let late_error = validate_remediation_project_done(&evidence, remediation_g4_at, acceptance_at)
+        .expect_err("Project Done after remediation G4 must not pass");
+    assert!(late_error.contains("普通 G4"));
+
+    evidence[0].updated_at = "2026-08-20T09:00:00Z".to_string();
+    evidence[0].status_name = "In Progress".to_string();
+    let status_error =
+        validate_remediation_project_done(&evidence, remediation_g4_at, acceptance_at)
+            .expect_err("current non-Done status must not pass");
+    assert!(status_error.contains("Project Done"));
 }
 
 #[test]
