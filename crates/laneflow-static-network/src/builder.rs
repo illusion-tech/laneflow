@@ -13,7 +13,7 @@ use laneflow_static_contract::{
     EntityKind, FacilityBandOrdinal, IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION,
     LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, MovementOrdinal,
     NETWORK_REVISION_DERIVATION_VERSION, SPATIAL_JOIN_POSITION_TOLERANCE_METERS,
-    STATIC_EXECUTION_CONTRACT_VERSION_V1, StableId128, WaitingZoneOrdinal,
+    STATIC_EXECUTION_CONTRACT_VERSION_V1, StableId128, StaticRouteOrdinal, WaitingZoneOrdinal,
 };
 
 use crate::{
@@ -454,7 +454,11 @@ fn count_and_preflight(
         lane_segment_count,
         facility_geometry_count,
         facility_point_count,
-        relation_payloads: crate::relations_build::count_relation_payloads(view, options)?,
+        relation_payloads: crate::relations_build::count_relation_payloads(
+            view,
+            &entity_counts,
+            options,
+        )?,
     })
 }
 
@@ -726,22 +730,16 @@ fn relation_scratch_bytes(
         .unwrap_or(0)
         .max(1);
     let unique = structure_bytes::<u32>(unique_limit, BuildStructure::BuilderScratch)?;
-    let intern_keys = entity_counts
-        .count(EntityKind::RoadSection)
-        .checked_add(entity_counts.count(EntityKind::FacilityBand))
-        .ok_or(BuildError::ArithmeticOverflow {
-            structure: BuildStructure::BuilderScratch,
-        })?;
     let intern_node = u64::try_from(size_of::<(Box<str>, u32)>() + 3 * size_of::<usize>())
         .map_err(|_| BuildError::ArithmeticOverflow {
             structure: BuildStructure::BuilderScratch,
         })?;
-    let intern =
-        u64::from(intern_keys)
-            .checked_mul(intern_node)
-            .ok_or(BuildError::ArithmeticOverflow {
-                structure: BuildStructure::BuilderScratch,
-            })?;
+    let intern = u64::from(payloads.intern_keys)
+        .checked_mul(intern_node)
+        .and_then(|bytes| bytes.checked_add(u64::from(payloads.intern_utf8)))
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
     let class_count = entity_counts.count(EntityKind::ParticipantClass);
     let class_scratch = structure_bytes::<u32>(class_count, BuildStructure::BuilderScratch)?
         .checked_mul(5)
@@ -754,7 +752,33 @@ fn relation_scratch_bytes(
         )?)
         .ok_or(BuildError::ArithmeticOverflow {
             structure: BuildStructure::BuilderScratch,
+        })?
+        .checked_add(structure_bytes::<Vec<u32>>(
+            class_count,
+            BuildStructure::BuilderScratch,
+        )?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?
+        .checked_add(structure_bytes::<Option<u32>>(
+            class_count,
+            BuildStructure::BuilderScratch,
+        )?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
         })?;
+    let lane_count = entity_counts.count(EntityKind::LaneEdge);
+    let path_count = entity_counts.count(EntityKind::ManeuverPath);
+    let gate_count = entity_counts.count(EntityKind::ManeuverGate);
+    let waiting_count = entity_counts.count(EntityKind::WaitingZone);
+    let bucket_units = lane_count
+        .checked_add(entity_counts.count(EntityKind::LaneGroup))
+        .and_then(|count| count.checked_add(entity_counts.count(EntityKind::RoadSection)))
+        .and_then(|count| count.checked_add(path_count))
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let bucket_headers = structure_bytes::<Vec<u32>>(bucket_units, BuildStructure::BuilderScratch)?;
     let verdicts = if class_count == 0 {
         0
     } else {
@@ -779,31 +803,94 @@ fn relation_scratch_bytes(
             structure: BuildStructure::BuilderScratch,
         })?
     };
-    let reverse_buckets = structure_bytes::<u32>(
-        entity_counts
-            .count(EntityKind::LaneEdge)
-            .checked_add(entity_counts.count(EntityKind::ManeuverPath))
-            .and_then(|count| count.checked_add(entity_counts.count(EntityKind::ManeuverGate)))
-            .and_then(|count| count.checked_add(entity_counts.count(EntityKind::WaitingZone)))
+    let access_scratch =
+        bucket_headers
+            .checked_add(verdicts)
             .ok_or(BuildError::ArithmeticOverflow {
                 structure: BuildStructure::BuilderScratch,
-            })?,
-        BuildStructure::BuilderScratch,
-    )?;
-    let route_rebuild = structure_bytes::<u32>(
-        payloads
-            .route_edges
-            .checked_add(payloads.route_maneuvers)
-            .and_then(|count| count.checked_add(payloads.route_gate_occurrences))
-            .and_then(|count| count.checked_add(payloads.route_waiting_occurrences))
-            .ok_or(BuildError::ArithmeticOverflow {
-                structure: BuildStructure::BuilderScratch,
-            })?,
-        BuildStructure::BuilderScratch,
-    )?;
+            })?;
+    let reverse_entities = lane_count
+        .checked_add(path_count)
+        .and_then(|count| count.checked_add(gate_count))
+        .and_then(|count| count.checked_add(waiting_count))
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let reverse_rows = payloads.route_reverse;
+    let reverse_live = structure_bytes::<u16>(reverse_rows, BuildStructure::BuilderScratch)?;
+    let reverse_live = reverse_live
+        .checked_add(structure_bytes::<u32>(
+            reverse_rows,
+            BuildStructure::BuilderScratch,
+        )?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let reverse_live = reverse_live
+        .checked_add(structure_bytes::<StaticRouteOrdinal>(
+            reverse_rows,
+            BuildStructure::BuilderScratch,
+        )?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let reverse_live = reverse_live
+        .checked_add(structure_bytes::<u32>(
+            reverse_rows,
+            BuildStructure::BuilderScratch,
+        )?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let reverse_live = reverse_live
+        .checked_mul(2)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let reverse_live = reverse_live
+        .checked_add(structure_bytes::<usize>(
+            reverse_entities,
+            BuildStructure::BuilderScratch,
+        )?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let reverse_live = reverse_live
+        .checked_add(structure_bytes::<usize>(
+            reverse_entities,
+            BuildStructure::BuilderScratch,
+        )?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let route_units = payloads
+        .route_edges
+        .checked_add(payloads.route_maneuvers)
+        .and_then(|count| count.checked_add(payloads.route_gate_occurrences))
+        .and_then(|count| count.checked_add(payloads.route_waiting_occurrences))
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let route_rebuild = structure_bytes::<u32>(route_units, BuildStructure::BuilderScratch)?;
+    let route_rebuild = route_rebuild
+        .checked_add(structure_bytes::<Option<ManeuverPathOrdinal>>(
+            payloads.route_edges,
+            BuildStructure::BuilderScratch,
+        )?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let route_rebuild = route_rebuild
+        .checked_add(structure_bytes::<Option<ManeuverGateOrdinal>>(
+            payloads.route_transitions,
+            BuildStructure::BuilderScratch,
+        )?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
     let peak = class_scratch
-        .max(verdicts)
-        .max(reverse_buckets)
+        .max(access_scratch)
+        .max(reverse_live)
         .max(route_rebuild);
     unique
         .checked_add(intern)

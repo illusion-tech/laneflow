@@ -191,6 +191,22 @@ impl SharedManeuverNetwork {
         })
     }
 
+    pub(crate) fn path_gate_ranges(&self) -> &[RangeU32] {
+        &self.maneuver_gate_ranges
+    }
+
+    pub(crate) fn path_gates(&self) -> &[ManeuverGateOrdinal] {
+        &self.maneuver_gates
+    }
+
+    pub(crate) fn path_waiting_ranges(&self) -> &[RangeU32] {
+        &self.waiting_zone_ranges
+    }
+
+    pub(crate) fn path_waiting_zones(&self) -> &[WaitingZoneOrdinal] {
+        &self.waiting_zones
+    }
+
     #[must_use]
     pub fn transition_candidates(
         &self,

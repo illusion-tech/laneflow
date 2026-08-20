@@ -1557,6 +1557,14 @@ fn floor_add<T>(total: u64, count: u32) -> Result<u64, BuildError> {
         })
 }
 
+fn floor_add_bytes(total: u64, bytes: u32) -> Result<u64, BuildError> {
+    total
+        .checked_add(u64::from(bytes))
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::RetainedOutput,
+        })
+}
+
 #[derive(Clone, Copy, Default)]
 pub(crate) struct RelationPayloads {
     pub corridor_elements: u32,
@@ -1578,6 +1586,12 @@ pub(crate) struct RelationPayloads {
     pub route_gate_occurrences: u32,
     pub route_waiting_occurrences: u32,
     pub route_reverse: u32,
+    pub intern_keys: u32,
+    pub intern_utf8: u32,
+    pub edge_cells: u32,
+    pub path_cells: u32,
+    pub route_segment_totals: u32,
+    pub speed_limit_transitions: u32,
 }
 
 pub(crate) fn relation_retained_floor(
@@ -1749,6 +1763,13 @@ pub(crate) fn relation_retained_floor(
     total = floor_add::<u32>(total, payloads.route_reverse)?;
     total = floor_add::<StaticRouteOrdinal>(total, payloads.route_reverse)?;
     total = floor_add::<u32>(total, payloads.route_reverse)?;
+    total = floor_add_bytes(total, payloads.intern_utf8)?;
+    total = floor_add::<f64>(total, payloads.route_segment_totals)?;
+    total = floor_add::<u32>(total, payloads.speed_limit_transitions)?;
+    total = floor_add::<LaneEdgeOrdinal>(total, payloads.speed_limit_transitions)?;
+    total = floor_add::<f64>(total, payloads.speed_limit_transitions)?;
+    total = floor_add::<AccessCell>(total, payloads.edge_cells)?;
+    total = floor_add::<AccessCell>(total, payloads.path_cells)?;
     Ok(total)
 }
 
