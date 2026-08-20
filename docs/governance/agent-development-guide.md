@@ -124,7 +124,8 @@ Agent 完成工作后，PR 或最终说明至少应包含：
 ## 11. PR 合并策略
 
 Agent 协助合并 PR 时，先冻结 current exact head `H_pr`，确认该 head 的外部审阅、finding disposition、
-G3 Owner comment、marker 与 PR 级 required checks 仍有效，再把 PR 加入 `main` 的合并队列：
+G3 Owner comment、marker、PR 级 required checks 与适用 CodeQL 均已完成且有效，再把 PR 加入 `main` 的
+合并队列；不得在 pending 时预先武装 auto-merge：
 
 ```powershell
 gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
