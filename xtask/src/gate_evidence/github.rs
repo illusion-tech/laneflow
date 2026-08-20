@@ -629,17 +629,20 @@ fn encode_path_preserving_slashes(value: &str) -> String {
 }
 
 pub(super) fn gh_branch_rules(repo: &str, branch: &str) -> Result<Vec<GitHubBranchRule>, String> {
-    gh_json(&[
+    let pages: Vec<Vec<GitHubBranchRule>> = gh_json(&[
         "api".to_string(),
+        "--paginate".to_string(),
+        "--slurp".to_string(),
         "-H".to_string(),
         "Accept: application/vnd.github+json".to_string(),
         "-H".to_string(),
         "X-GitHub-Api-Version: 2022-11-28".to_string(),
         format!(
-            "repos/{repo}/rules/branches/{}",
+            "repos/{repo}/rules/branches/{}?per_page=100",
             encode_path_preserving_slashes(branch)
         ),
-    ])
+    ])?;
+    Ok(pages.into_iter().flatten().collect())
 }
 
 pub(super) fn gh_json<T: serde::de::DeserializeOwned>(args: &[String]) -> Result<T, String> {
