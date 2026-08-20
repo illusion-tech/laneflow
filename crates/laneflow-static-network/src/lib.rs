@@ -25,7 +25,8 @@ pub use origin::{
     CanonicalNetworkOrigin, PARTITION_PLANNING_HINTS_DERIVATION_VERSION, StaticContractVersions,
 };
 pub use relations::{
-    AccessCell, AccessTarget, CorridorElement, FacilityKind, SharedRelationClosure,
+    AccessCell, AccessTarget, CorridorElement, FacilityKind, RouteGateOccurrence,
+    RouteManeuverOccurrence, RouteWaitingOccurrence, SharedRelationClosure,
 };
 pub use spatial::{
     CanonicalPoint, FacilityGeometryView, LaneGeometryView, LanePoseNetwork, SegmentGeometry,
