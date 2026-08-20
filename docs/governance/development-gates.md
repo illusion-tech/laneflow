@@ -287,7 +287,7 @@ fork / cross-repository PR 的 head commit 不保证存在于 base repository，
 
 G3 Owner 可以在 PR 合并前纠正 current G3 comment，也可以新增 superseding comment。new push、review dismissal 或 Gate 状态变化后，旧 review、旧 Check 与旧 G3 内容对新 head 全部 stale；无论选择编辑还是新增，都必须绑定 current head、重新满足 completion / Check、按新的 effective time 重验，并新增严格更晚的 marker。合并后不得编辑 G3 形成或改变历史证据。唯一可恢复的既成事实是：合并前正文语义有效，合并后只去除或增加 `G3 Evidence Gate Shadow` 完整值的一层反引号。G4 replay 必须从 GitHub `UserContentEdit.diff` 相邻快照验证 original/new SHA-256、editor、`editedAt`、原版早于 merge、新版晚于 merge，并由 trusted G3 Owner 在编辑后新增未编辑的 `g3-comment-correction:v1` appendix。记录字段固定为 `schemaVersion`、唯一 `id`、`issue`、`pullRequest`、`currentHeadOid`、`g3Comment`、`originalBodySha256`、`newBodySha256`、`editedAt`、`editor`、`reason`、`risk`、`acceptanceBoundary`、独立 `followUpIssue`、`cleanupOwner`、`authorizedBy`。该记录不是 exception，不能改变 Gate 结果、断言结果或合并合法性；与 pre-merge `confirmed_gate_defect` 组合回放时，exception 的正文哈希与 acceptedAt 必须绑定 correction 已验证恢复的 original snapshot，而不是格式编辑后的当前正文。任一其他正文差异、哈希/actor/head/时序不符、编辑历史分页或 appendix 自身被编辑都失败关闭。
 
-`G3 Exception` 是“断言未通过但由 G3 Owner 接受风险”的一等审计状态，机器状态固定为 `accepted_exception`，绝不等于 `pass`。current 路径只允许 `confirmed_gate_defect`，必须在目标 G3 comment 之后另发未编辑的 `g3-exception:v1` appendix，并在验证/merge 时未过期（最长 24 小时）；多 Issue PR 按记录中的 `issue` 精确限定 exception 作用域，只有匹配 Issue 的 Gate 断言写“未通过”，其余 Issue 仍可独立写“已通过”并走正常 exact-head 外部审阅。historical G4 replay 只允许 `legacy_evidence_reconstruction`，用于既有 `G3 Block` 或历史 `G3 Pass + 未通过`，且接受事件必须晚于原 merge、在实际 G4 evaluation time 仍未过期，明确不追授原 merge 合规。记录字段固定为 `schemaVersion`、唯一 `id`、`exceptionType`、`issue`、`pullRequest`、`currentHeadOid`、`currentBaseOid`、`g3Comment`、`g3CommentBodySha256`、`reason`、非空 `evidenceRefs`、`risk`、`acceptanceBoundary`、`acceptedAt`、`expiresAt`、独立 `followUpIssue`、`cleanupOwner`、`authorizedBy`；current comment 还必须可见记录与 GitHub PR identity 一致的完整 current head。合并前 current 校验继续要求 live head/base 精确一致；G4 重放 pre-merge `confirmed_gate_defect` 时，head 仍精确匹配，而记录中的完整 base OID 保留为 merge 边界审计值，不与已经前移的 live post-merge base ref 比较。可见 `- 例外：` 行必须引用同一 GitHub evidence。未授权、过期、重复、未知类型、正文/identity/hash 不符均失败关闭。它与 `external-review-waiver:v1`、`g3-comment-correction:v1` 分离，不可互换。
+`G3 Exception` 是“断言未通过但由 G3 Owner 接受风险”的一等审计状态，机器状态固定为 `accepted_exception`，绝不等于 `pass`。current 路径只允许 `confirmed_gate_defect`，必须在目标 G3 comment 之后另发未编辑的 `g3-exception:v1` appendix，并在验证/merge 时未过期（最长 24 小时）；多 Issue PR 按记录中的 `issue` 精确限定 exception 作用域，只有匹配 Issue 的 Gate 断言写“未通过”，其余 Issue 仍可独立写“已通过”并走正常 exact-head 外部审阅。historical G4 replay 只允许 `legacy_evidence_reconstruction`，用于既有 `G3 Block` 或历史 `G3 Pass + 未通过`，且接受事件必须晚于原 merge、在实际 G4 evaluation time 仍未过期，明确不追授原 merge 合规。记录字段固定为 `schemaVersion`、唯一 `id`、`exceptionType`、`issue`、`pullRequest`、`currentHeadOid`、`currentBaseOid`、`g3Comment`、`g3CommentBodySha256`、`reason`、非空 `evidenceRefs`、`risk`、`acceptanceBoundary`、`acceptedAt`、`expiresAt`、独立 `followUpIssue`、`cleanupOwner`、`authorizedBy`；current comment 还必须可见记录与 GitHub PR identity 一致的完整 current head。合并前 current 校验继续要求 live head/base 精确一致；G4 重放 pre-merge `confirmed_gate_defect` 时，head 仍精确匹配，而记录中的完整 base OID 保留为 merge 边界审计值，不与已经前移的 live post-merge base ref 比较。可见 `- 例外：` 行必须引用同一 GitHub evidence。未授权、过期、重复、未知类型、正文/identity/hash 不符均失败关闭。它与 `external-review-waiver:v1`、`g3-comment-correction:v1`、`external-review-round-cap:v1` 分离，不可互换。
 
 在 #230 的 R0 / R1 bootstrap 阶段，required `External Review Gate` 尚未启用：
 
@@ -334,6 +334,16 @@ G3 Owner 可以在 PR 合并前纠正 current G3 comment，也可以新增 super
 
 content-equivalent rebase 还必须记录 reviewed/new head、old/new base、changed paths、稳定 patch fingerprint、受影响路径 blob 对照和常规 checks；workflow、Gate、权限、安全策略、依赖锁定语义变化或任何无法解释的不等价都禁止使用该例外。
 
+external review evaluator 的 #406 全局语义层（D2 deferred 披露、D3 轮数上限、D4 内容等价继承）只在以下结构化边界内生效：
+
+- P2/P3 findings 全局转 deferred：evaluator 按 review thread 首条 finding comment 的 badge（`P1` / `P2` / `P3`）解析严重度，无 badge 或解析失败保守按 P1；deferred 不阻断闭环、不强制 resolve / disposition、不自动建 backlog Issue，但必须单独计数，并在 check output 与 current G3 comment 的 `- Deferred findings：` 条件字段逐项以 Markdown reference label 披露 GitHub HTTPS URL；无 deferred 时该字段整行禁出现；
+- review 轮数按产生过受信 findings 的不同 head OID 数计，上限 3；第 4 轮起仍存在未闭环 blocking findings 时 evaluator 保持 non-pass，G3 Owner 可在 current G3 comment 嵌入且只嵌入 `external-review-round-cap:v1` 收口：每个 HTML comment 内都是 `schemaVersion: 1` JSON，字段固定为 `id`、`currentHeadOid`、`roundCount`、`remainingFindings`、`reason`、`followUpIssue`、`authorizedBy`；
+- `remainingFindings` 只保存 Markdown reference label；每个 label 必须由可见的 `- Review round cap：` 行引用（与该行 labels 完全一致、同一组引用），并在 comment 文末解析为 GitHub HTTPS URL，JSON 内不直接写 URL；
+- `authorizedBy` 必须等于 current G3 comment author 且该 actor 在 trusted G3 Owner allowlist；`currentHeadOid`、`roundCount` 与 `remainingFindings` 解析出的 URL 集合必须与 evaluator 实测精确一致；轮数不超过 3 时不得提供 record；单 Issue PR 恰一条记录，多 Issue PR 为每个关联 Issue 分别一条，`followUpIssue` 集合与 `关联 Issue` 精确一致；任一不符失败关闭；
+- round-cap 收口时 `- Gate 结果：` 保持 `G3 Pass`，但不得伪装成 clean pass：结构化 record、可见 `- Review round cap：` 字段与 check output 必须同时显式列出轮数与遗留 findings；record 存在而 evaluator 未生效、或 evaluator 生效而 record 缺失，均失败关闭；
+- head commit 的 git tree OID 与上一已审 head 的 tree OID 逐字节相等时，对称继承该 head 的审阅结论（clean 继承为 pass，未闭环 P1 同样继承为 findings-open，同 patchset 同审阅状态）；既有 `content_equivalent_rebase` waiver 保留给非 tree 相等的显式例外，`waived ≠ pass` 不变；
+- 上述 deferred / round-cap 披露义务以 Issue #406 G1 设计冻结 comment 的创建时间 `2026-08-20T04:20:39Z` 为激活边界；effective time 更早的 G3 comment 豁免两个条件字段与 record 规则，历史 G4 replay 不追溯。
+
 默认阻断条件：
 
 - Adapter 代码把引擎依赖泄漏进 Core。
@@ -357,7 +367,7 @@ PR 默认通过合并队列（Merge Queue）合入 `main`，队列最终使用 *
 Squash 或 Merge commit 等最终方式例外必须先通过治理 Issue 修改适用规则并说明原因。详见
 `github-workflow.md` 第 7 节。
 
-G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 current head、rollout phase、`Checks`、`External Review Gate`、`G3 Evidence Gate Shadow`、审阅、验证、风险、例外、合并方式和 `Gate 断言`。PR body 的 G3 checkbox 必须勾选并回链当前 PR comment；Issue body 的 G3 Gate Ledger 必须增量回链该 comment，只有 Delivery PR 与全部 Related PR 均完成时才勾选。`Gate 断言` 必须使用当前角色对应的 Related-only 或 full-set 规范命令，一个 PR 关联多个 Issue 时分别写一条。`G3 Pass` 填写后必须逐条运行成功；`G3 Exception` 必须如实保留 `未通过` 并满足结构化记录，不得改写成成功。
+G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 current head、rollout phase、`Checks`、`External Review Gate`、`G3 Evidence Gate Shadow`、审阅、验证、风险、例外、合并方式和 `Gate 断言`。恒定清单之外有两个条件必填字段：evaluator 存在 deferred（P2/P3）findings 时必须写 `- Deferred findings：`（`N 条` 与 reference label 引用的 GitHub URL 集合必须与 evaluator 实测精确一致，无 deferred 时整行禁出现）；round-cap record 收口时必须写 `- Review round cap：`（`N 轮，遗留 M 条` 与遗留 URL 集合必须与 evaluator 实测精确一致，未生效时整行禁出现）。PR body 的 G3 checkbox 必须勾选并回链当前 PR comment；Issue body 的 G3 Gate Ledger 必须增量回链该 comment，只有 Delivery PR 与全部 Related PR 均完成时才勾选。`Gate 断言` 必须使用当前角色对应的 Related-only 或 full-set 规范命令，一个 PR 关联多个 Issue 时分别写一条。`G3 Pass` 填写后必须逐条运行成功；`G3 Exception` 必须如实保留 `未通过` 并满足结构化记录，不得改写成成功。
 
 ```text
 ## G3 合并判断
@@ -370,6 +380,8 @@ G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 cur
 - G3 Evidence Gate Shadow：按 Rollout phase 只保留一项且不包裹整个值：R0 = 候选 workflow bootstrap：<边界>；R1 = R1 non-required：<原因>；R2 = Check URL：https://github.com/...
 - 审阅：provider、actor、reviewed head、outcome、completion time、evidence URL
 - Review threads：actionable / unresolved / disposition / re-review
+- Deferred findings：N 条 [P2][d1] …（仅存在 deferred P2/P3 时必填；无 deferred 时整行省略）
+- Review round cap：N 轮，遗留 M 条 [P1][r1] …（仅 round-cap 收口时必填；否则整行省略）
 - 验证：
 - 风险：
 - 例外：N/A / exception type、风险、到期、follow-up、Cleanup owner

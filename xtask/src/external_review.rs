@@ -23,6 +23,9 @@ const CODEX_REVIEW_REQUEST_MARKER: &str = "<!-- codex-review-request:v1 ";
 const CODEX_CLEAN_BINDING_MARKER: &str = "<!-- codex-clean-binding:v1 ";
 const HIDDEN_RECORD_SUFFIX: &str = " -->";
 const BINDING_RECORD_SCHEMA_VERSION: u64 = 1;
+// D3 轮数上限：产生过受信 findings 的不同 head OID 数超过该值后，
+// 只允许精确的 round-cap record 收口（详见 validate_round_cap）。
+const MAX_REVIEW_ROUNDS: usize = 3;
 
 const EXTERNAL_REVIEW_QUERY: &str = r#"
 query($owner:String!, $name:String!, $number:Int!) {
@@ -33,6 +36,14 @@ query($owner:String!, $name:String!, $number:Int!) {
       headRefOid
       baseRefOid
       isDraft
+      headRef {
+        target {
+          ... on Commit {
+            oid
+            tree { oid }
+          }
+        }
+      }
       files(first:2) {
         nodes { path changeType }
         pageInfo { hasNextPage }
@@ -65,7 +76,7 @@ query($owner:String!, $name:String!, $number:Int!) {
           state
           submittedAt
           url
-          commit { oid }
+          commit { oid tree { oid } }
         }
         pageInfo { hasNextPage }
       }
@@ -98,7 +109,7 @@ query($owner:String!, $name:String!, $number:Int!) {
                 author { login }
                 state
                 submittedAt
-                commit { oid }
+                commit { oid tree { oid } }
               }
             }
             pageInfo { hasNextPage }
@@ -240,6 +251,8 @@ pub struct ExternalReviewSnapshot {
     provider_errors: Vec<String>,
     #[serde(default)]
     waiver: Option<WaiverInput>,
+    #[serde(default)]
+    round_cap: Option<RoundCapInput>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -263,6 +276,25 @@ struct PullRequestSnapshot {
     comments: Connection<IssueComment>,
     #[serde(default)]
     review_threads: Connection<ReviewThread>,
+    // D4：current head 的 tree OID（fork/headRef 为 null 时缺省，不继承）
+    #[serde(default)]
+    head_ref: Option<HeadRefSnapshot>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HeadRefSnapshot {
+    #[serde(default)]
+    target: Option<HeadRefCommitSnapshot>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HeadRefCommitSnapshot {
+    #[serde(default)]
+    oid: Option<String>,
+    #[serde(default)]
+    tree: Option<TreeRef>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -413,6 +445,14 @@ struct ReviewReference {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CommitRef {
     oid: String,
+    #[serde(default)]
+    tree: Option<TreeRef>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TreeRef {
+    oid: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -434,6 +474,17 @@ pub(crate) struct WaiverInput {
     pub(crate) historical_base_replay: bool,
     #[serde(skip)]
     pub(crate) grandfathered_confirmed_gate_defect: bool,
+}
+
+/// `external-review-round-cap:v1` 的 evaluator 输入（D3）：gate_evidence 侧从
+/// current G3 comment 解析构造；evaluator 只做与实测语义的精确匹配校验，
+/// 任一不一致即 fail-closed（见 validate_round_cap）。
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RoundCapInput {
+    pub(crate) current_head_oid: String,
+    pub(crate) round_count: usize,
+    pub(crate) remaining_finding_urls: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -469,6 +520,7 @@ pub struct ExternalReviewResult {
     repository: String,
     pull_request: u64,
     current_head_oid: String,
+    current_head_tree_oid: Option<String>,
     current_base_oid: String,
     author: String,
     pub state: ExternalReviewState,
@@ -477,12 +529,42 @@ pub struct ExternalReviewResult {
     reviewed_head_oid: Option<String>,
     completion_time: Option<String>,
     finding_count: usize,
-    unresolved_actionable_threads: usize,
+    // D2 起语义为 blocking（P0/P1/无 badge）未闭环 thread 计数；P2/P3 deferred 不计入
+    unresolved_blocking_threads: usize,
+    deferred_findings: Vec<DeferredFinding>,
+    unresolved_blocking_findings: Vec<BlockingFinding>,
+    review_rounds: usize,
+    round_cap: Option<RoundCapApplied>,
     requires_rereview: bool,
     pending_review_requests: usize,
     evidence: Vec<ReviewEvidence>,
     waiver_id: Option<String>,
     diagnostics: Vec<String>,
+}
+
+/// D2 deferred（P2/P3）finding 明细；按 thread id 排序保证序列化确定。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeferredFinding {
+    thread_id: String,
+    severity: String,
+    url: String,
+}
+
+/// 未闭环 blocking（P0/P1/无 badge）finding 明细；按 thread id 排序保证序列化确定。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BlockingFinding {
+    thread_id: String,
+    url: String,
+}
+
+/// D3 round-cap 生效记录：轮数与遗留 findings 必须进 check output，不伪装 clean pass。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RoundCapApplied {
+    rounds: usize,
+    remaining_finding_urls: Vec<String>,
 }
 
 impl ExternalReviewResult {
@@ -492,6 +574,7 @@ impl ExternalReviewResult {
             repository: repository.to_string(),
             pull_request: pr,
             current_head_oid: String::new(),
+            current_head_tree_oid: None,
             current_base_oid: String::new(),
             author: String::new(),
             state: ExternalReviewState::ProviderError,
@@ -500,7 +583,11 @@ impl ExternalReviewResult {
             reviewed_head_oid: None,
             completion_time: None,
             finding_count: 0,
-            unresolved_actionable_threads: 0,
+            unresolved_blocking_threads: 0,
+            deferred_findings: Vec::new(),
+            unresolved_blocking_findings: Vec::new(),
+            review_rounds: 0,
+            round_cap: None,
             requires_rereview: false,
             pending_review_requests: 0,
             evidence: Vec::new(),
@@ -525,6 +612,27 @@ impl ExternalReviewResult {
                     && item.outcome == EvidenceOutcome::Clean
                     && oid_matches_current(&item.reviewed_head_oid, &self.current_head_oid)
             })
+    }
+
+    /// D3 gate_evidence 侧只读投影：实测 review 轮数（产生过受信 findings 的不同 head OID 数）。
+    pub(crate) fn review_rounds(&self) -> usize {
+        self.review_rounds
+    }
+
+    /// D2 gate_evidence 侧只读投影：deferred（P2/P3）findings 的 URL 集合。
+    pub(crate) fn deferred_finding_urls(&self) -> BTreeSet<&str> {
+        self.deferred_findings
+            .iter()
+            .map(|finding| finding.url.as_str())
+            .collect()
+    }
+
+    /// D3 gate_evidence 侧只读投影：round-cap 生效时的轮数与遗留 findings URL 清单；
+    /// state 非 Pass 时强制 None（见 evaluate_snapshot 尾部构造）。
+    pub(crate) fn round_cap(&self) -> Option<(usize, &[String])> {
+        self.round_cap
+            .as_ref()
+            .map(|applied| (applied.rounds, applied.remaining_finding_urls.as_slice()))
     }
 
     fn bind_identity_if_missing(&mut self, repository: &str, identity: &PullRequestIdentity) {
@@ -564,6 +672,7 @@ struct ReviewEvidence {
     actor: String,
     source_kind: String,
     reviewed_head_oid: String,
+    reviewed_head_tree_oid: Option<String>,
     reviewed_base_oid: String,
     outcome: EvidenceOutcome,
     submitted_at: String,
@@ -879,6 +988,29 @@ pub(crate) fn evaluate_live_with_waiver(
     evaluate_live_with_optional_waiver(repository, pr, Some(waiver))
 }
 
+/// D3 round-cap record 的 live 注入通道：必须走全量快照（轮数与未闭环 blocking
+/// findings 依赖 review threads，不能用 waiver 的极简快照）；gate_evidence 解析出的
+/// record 由 evaluator 精确匹配校验，任一不一致即 fail-closed（validate_round_cap）。
+pub(crate) fn evaluate_live_with_round_cap(
+    repository: &str,
+    pr: u64,
+    round_cap: RoundCapInput,
+) -> Result<ExternalReviewResult, String> {
+    let mut snapshot = load_live_snapshot(repository, pr)?;
+    snapshot.round_cap = Some(round_cap);
+    let initial_head = snapshot.pull_request.head_ref_oid.clone();
+    let initial_base = snapshot.pull_request.base_ref_oid.clone();
+    let mut result = evaluate_snapshot(&snapshot);
+    let verified = load_live_identity(repository, pr)?;
+    if verified.head_ref_oid != initial_head || verified.base_ref_oid != initial_base {
+        result.set_provider_error(format!(
+            "head/base 竞态：首次读取 {initial_head}/{initial_base}，发布前复核 {}/{}",
+            verified.head_ref_oid, verified.base_ref_oid
+        ));
+    }
+    Ok(result)
+}
+
 fn evaluate_live_with_optional_waiver(
     repository: &str,
     pr: u64,
@@ -938,7 +1070,11 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
 
     let mut review_to_finding_threads = BTreeMap::<String, BTreeSet<String>>::new();
     let mut finding_thread_ids = BTreeSet::<String>::new();
-    let mut unresolved_actionable_threads = 0;
+    let mut thread_severity = BTreeMap::<String, FindingSeverity>::new();
+    let mut finding_round_oids = BTreeSet::<String>::new();
+    let mut unresolved_blocking_threads = 0;
+    let mut unresolved_blocking_findings = Vec::new();
+    let mut deferred_findings = Vec::new();
     let mut seen_thread_ids = BTreeSet::new();
     for thread in &pr.review_threads.nodes {
         if !seen_thread_ids.insert(thread.id.as_str()) {
@@ -982,6 +1118,9 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             .nodes
             .iter()
             .any(|comment| comment.author.is_none());
+        // D2：严重度按首条 comment 的 badge 判定；仅对有受信 finding 的 thread 生效
+        let severity = thread_finding_severity(first_comment, &author);
+        let mut first_finding_url: Option<&str> = None;
         let mut has_trusted_finding = false;
         for (index, comment) in thread.comments.nodes.iter().enumerate() {
             let Some(actor) = comment.author.as_ref() else {
@@ -1019,12 +1158,48 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 .entry(review.id.clone())
                 .or_default()
                 .insert(thread.id.clone());
+            // D3 轮数口径：产生过受信 findings 的不同 head OID（commit 缺失时跳过，
+            // 该 thread 的其它歧义已由上面的 fail-closed 诊断覆盖）
+            if let Some(commit) = review.commit.as_ref() {
+                finding_round_oids.insert(commit.oid.clone());
+            }
+            if first_finding_url.is_none() {
+                first_finding_url = Some(comment.url.as_str());
+            }
         }
-        if !thread.is_resolved
-            && !thread.is_outdated
-            && (has_trusted_finding || (dependabot_completion.is_some() && has_authorless_comment))
-        {
-            unresolved_actionable_threads += 1;
+        if has_trusted_finding {
+            thread_severity.insert(thread.id.clone(), severity);
+        }
+        if !thread.is_resolved && !thread.is_outdated {
+            if has_trusted_finding {
+                match severity {
+                    FindingSeverity::Blocking => {
+                        unresolved_blocking_threads += 1;
+                        unresolved_blocking_findings.push(BlockingFinding {
+                            thread_id: thread.id.clone(),
+                            url: first_finding_url
+                                .unwrap_or(first_comment.url.as_str())
+                                .to_string(),
+                        });
+                    }
+                    FindingSeverity::Deferred(digit) => {
+                        deferred_findings.push(DeferredFinding {
+                            thread_id: thread.id.clone(),
+                            severity: format!("P{digit}"),
+                            url: first_finding_url
+                                .unwrap_or(first_comment.url.as_str())
+                                .to_string(),
+                        });
+                    }
+                }
+            } else if dependabot_completion.is_some() && has_authorless_comment {
+                // Dependabot 已知误报之外的 authorless thread 没有 badge 语义，保持 blocking
+                unresolved_blocking_threads += 1;
+                unresolved_blocking_findings.push(BlockingFinding {
+                    thread_id: thread.id.clone(),
+                    url: first_comment.url.clone(),
+                });
+            }
         }
     }
     let review_ids = pr
@@ -1045,6 +1220,9 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     let mut unbound_clean_ambiguities = Vec::new();
     let mut stale_or_dismissed = false;
     let mut unthreaded_findings = 0;
+    // D2：以 evidence URL 为键记录每条 finding completion 是否仍具 blocking 压力
+    //（unthreaded 或任一关联 thread 为 blocking 严重度即为 true；缺失时按 true 处理）
+    let mut finding_has_blocking = BTreeMap::<String, bool>::new();
     for review in &pr.reviews.nodes {
         let Some(actor) = review.author.as_ref() else {
             continue;
@@ -1105,6 +1283,21 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             ));
             continue;
         };
+        if outcome == EvidenceOutcome::Findings {
+            let has_blocking = review_to_finding_threads
+                .get(&review.id)
+                .is_none_or(|threads| {
+                    threads.is_empty()
+                        || threads.iter().any(|thread_id| {
+                            thread_severity
+                                .get(thread_id)
+                                .copied()
+                                .unwrap_or(FindingSeverity::Blocking)
+                                == FindingSeverity::Blocking
+                        })
+                });
+            finding_has_blocking.insert(url.to_string(), has_blocking);
+        }
         push_evidence(
             &mut evidence,
             &mut diagnostics,
@@ -1113,6 +1306,11 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 actor: &actor_login,
                 source_kind: "review",
                 reviewed_head,
+                reviewed_head_tree: review
+                    .commit
+                    .as_ref()
+                    .and_then(|commit| commit.tree.as_ref())
+                    .map(|tree| tree.oid.as_str()),
                 reviewed_base: &pr.base_ref_oid,
                 outcome,
                 submitted_at,
@@ -1160,6 +1358,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                             actor: CODEX_ACTOR,
                             source_kind: "binding_record",
                             reviewed_head: &bound.record.bound_head_oid,
+                            reviewed_head_tree: None,
                             reviewed_base: &bound.record.bound_base_oid,
                             outcome: EvidenceOutcome::Clean,
                             // completion 排序使用被引用 clean comment 的创建时间；
@@ -1188,6 +1387,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 actor: CODEX_ACTOR,
                 source_kind: "issue_comment",
                 reviewed_head,
+                reviewed_head_tree: None,
                 reviewed_base: &pr.base_ref_oid,
                 outcome: EvidenceOutcome::Clean,
                 submitted_at: &comment.created_at,
@@ -1209,7 +1409,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         dependabot_completion.filter(|_| {
             finding_thread_ids.is_empty()
                 && unthreaded_findings == 0
-                && unresolved_actionable_threads == 0
+                && unresolved_blocking_threads == 0
                 && !stale_or_dismissed
         }),
         dependabot_completion_event,
@@ -1222,6 +1422,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 actor: "github-metadata",
                 source_kind: "machine_verification",
                 reviewed_head: &completion.oid,
+                reviewed_head_tree: None,
                 reviewed_base: &pr.base_ref_oid,
                 outcome: EvidenceOutcome::Clean,
                 submitted_at: completion_time,
@@ -1252,10 +1453,36 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     if let Some(waiver) = snapshot.waiver.as_ref() {
         validate_waiver(waiver, pr, &mut diagnostics);
     }
+    let review_rounds = finding_round_oids.len();
+    if let Some(round_cap) = snapshot.round_cap.as_ref() {
+        validate_round_cap(
+            round_cap,
+            pr,
+            review_rounds,
+            &unresolved_blocking_findings,
+            &mut diagnostics,
+        );
+    }
+    // 明细集合按 thread id 排序，保证 result 序列化（fingerprint）确定
+    deferred_findings.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
+    unresolved_blocking_findings.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
 
+    let current_head_tree_oid = pr
+        .head_ref
+        .as_ref()
+        .and_then(|head_ref| head_ref.target.as_ref())
+        .and_then(|target| target.tree.as_ref())
+        .map(|tree| tree.oid.as_str());
     let current_evidence = evidence
         .iter()
-        .filter(|item| oid_matches_current(&item.reviewed_head_oid, &pr.head_ref_oid))
+        .filter(|item| {
+            evidence_matches_current(
+                &item.reviewed_head_oid,
+                item.reviewed_head_tree_oid.as_deref(),
+                &pr.head_ref_oid,
+                current_head_tree_oid,
+            )
+        })
         .collect::<Vec<_>>();
     let latest_clean = current_evidence
         .iter()
@@ -1280,6 +1507,35 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     }
     let finding_count = finding_thread_ids.len() + unthreaded_findings;
 
+    let clean_after_finding = latest_finding
+        .and_then(|finding| latest_clean.filter(|clean| clean.submitted_at > finding.submitted_at));
+    // D2：current-head finding 是否仍具 blocking 压力；无记录时 fail-closed 按有处理
+    let finding_blocks = |finding: &ReviewEvidence| {
+        finding_has_blocking
+            .get(finding.evidence_url.as_str())
+            .copied()
+            .unwrap_or(true)
+    };
+    // D3：round-cap record 只在「本将落 FindingsOpen / AwaitingRereview」时生效；
+    // 其它状态不受影响（record 校验失败已在上游 diagnostics fail-closed）。
+    let would_be_findings_open =
+        unresolved_blocking_threads > 0 && (latest_finding.is_some() || latest_clean.is_some());
+    let would_be_awaiting_rereview = latest_finding.is_some_and(|finding| {
+        unresolved_blocking_threads == 0 && clean_after_finding.is_none() && finding_blocks(finding)
+    });
+    let round_cap_applied = snapshot
+        .round_cap
+        .as_ref()
+        .filter(|_| would_be_findings_open || would_be_awaiting_rereview)
+        .map(|input| {
+            let mut remaining_finding_urls = input.remaining_finding_urls.clone();
+            remaining_finding_urls.sort();
+            RoundCapApplied {
+                rounds: input.round_count,
+                remaining_finding_urls,
+            }
+        });
+
     let (state, requires_rereview, primary, state_diagnostic) = if !diagnostics.is_empty() {
         (
             ExternalReviewState::ProviderError,
@@ -1301,18 +1557,35 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             None,
             Some("存在完整结构化 waiver；不得映射为标准 pass".to_string()),
         )
+    } else if let Some(round_cap) = round_cap_applied.as_ref() {
+        (
+            ExternalReviewState::Pass,
+            false,
+            None,
+            Some(format!(
+                "review 轮数 {} 超过上限 {MAX_REVIEW_ROUNDS}，round-cap record 生效收口；遗留 {} 条未闭环 blocking findings，不得伪装为 clean pass",
+                round_cap.rounds,
+                round_cap.remaining_finding_urls.len()
+            )),
+        )
     } else if let Some(finding) = latest_finding {
-        let clean_after_finding =
-            latest_clean.filter(|clean| clean.submitted_at > finding.submitted_at);
-        if unresolved_actionable_threads > 0 {
+        if unresolved_blocking_threads > 0 {
             (
                 ExternalReviewState::FindingsOpen,
                 true,
                 Some(finding),
-                Some("current-head finding 仍有 unresolved actionable thread".to_string()),
+                Some("current-head finding 仍有 unresolved blocking thread".to_string()),
             )
         } else if let Some(clean) = clean_after_finding {
             (ExternalReviewState::Pass, false, Some(clean), None)
+        } else if !finding_blocks(finding) {
+            // D2：仅剩 deferred（P2/P3）findings 时不阻断，明细在 check output 披露
+            (
+                ExternalReviewState::Pass,
+                false,
+                Some(finding),
+                Some("current-head 仅剩 deferred findings（P2/P3），不阻断合并".to_string()),
+            )
         } else {
             (
                 ExternalReviewState::AwaitingRereview,
@@ -1322,12 +1595,12 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             )
         }
     } else if let Some(clean) = latest_clean {
-        if unresolved_actionable_threads > 0 {
+        if unresolved_blocking_threads > 0 {
             (
                 ExternalReviewState::FindingsOpen,
                 true,
                 Some(clean),
-                Some("存在 unresolved actionable thread，clean completion 不足以放行".to_string()),
+                Some("存在 unresolved blocking thread，clean completion 不足以放行".to_string()),
             )
         } else {
             (ExternalReviewState::Pass, false, Some(clean), None)
@@ -1364,6 +1637,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         repository: snapshot.repository.clone(),
         pull_request: pr.number,
         current_head_oid: pr.head_ref_oid.clone(),
+        current_head_tree_oid: current_head_tree_oid.map(str::to_string),
         current_base_oid: pr.base_ref_oid.clone(),
         author,
         state,
@@ -1372,7 +1646,16 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         reviewed_head_oid: primary.map(|item| item.reviewed_head_oid.clone()),
         completion_time: primary.map(|item| item.submitted_at.clone()),
         finding_count,
-        unresolved_actionable_threads,
+        unresolved_blocking_threads,
+        deferred_findings,
+        unresolved_blocking_findings,
+        review_rounds,
+        // round-cap 只在实际生效（结论 Pass）时记录；校验失败/其它状态一律 None
+        round_cap: if state == ExternalReviewState::Pass {
+            round_cap_applied
+        } else {
+            None
+        },
         requires_rereview,
         pending_review_requests,
         evidence,
@@ -2099,6 +2382,7 @@ struct EvidenceInput<'a> {
     actor: &'a str,
     source_kind: &'a str,
     reviewed_head: &'a str,
+    reviewed_head_tree: Option<&'a str>,
     reviewed_base: &'a str,
     outcome: EvidenceOutcome,
     submitted_at: &'a str,
@@ -2166,6 +2450,7 @@ fn push_evidence(
         actor: input.actor.to_string(),
         source_kind: input.source_kind.to_string(),
         reviewed_head_oid: input.reviewed_head.to_ascii_lowercase(),
+        reviewed_head_tree_oid: input.reviewed_head_tree.map(str::to_ascii_lowercase),
         reviewed_base_oid: input.reviewed_base.to_string(),
         outcome: input.outcome,
         submitted_at: input.submitted_at.to_string(),
@@ -2847,6 +3132,47 @@ fn validate_waiver(waiver: &WaiverInput, pr: &PullRequestSnapshot, diagnostics: 
     }
 }
 
+/// D3 round-cap record 校验：任一字段与 evaluator 实测语义不一致即 fail-closed
+///（diagnostics 非空 → ProviderError，与无效 waiver 的失败行为一致）。
+fn validate_round_cap(
+    round_cap: &RoundCapInput,
+    pr: &PullRequestSnapshot,
+    review_rounds: usize,
+    unresolved_blocking_findings: &[BlockingFinding],
+    diagnostics: &mut Vec<String>,
+) {
+    if round_cap.current_head_oid != pr.head_ref_oid {
+        diagnostics.push("round-cap currentHeadOid 与 PR current head 不一致".to_string());
+    }
+    if round_cap.round_count != review_rounds {
+        diagnostics.push(format!(
+            "round-cap roundCount 与 evaluator 实测轮数不一致：record={} evaluator={review_rounds}",
+            round_cap.round_count
+        ));
+    }
+    if round_cap.round_count <= MAX_REVIEW_ROUNDS {
+        diagnostics.push(format!(
+            "round-cap record 仅在 review 轮数超过 {MAX_REVIEW_ROUNDS} 时适用，record 声明 {}",
+            round_cap.round_count
+        ));
+    }
+    let expected = unresolved_blocking_findings
+        .iter()
+        .map(|finding| finding.url.as_str())
+        .collect::<BTreeSet<_>>();
+    let actual = round_cap
+        .remaining_finding_urls
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    if actual != expected {
+        diagnostics.push(
+            "round-cap remainingFindingUrls 与 evaluator 实测未闭环 blocking findings 不一致"
+                .to_string(),
+        );
+    }
+}
+
 fn copilot_outcome(body: &str, linked_findings: usize) -> Result<Option<EvidenceOutcome>, String> {
     if linked_findings > 0 {
         return Ok(Some(EvidenceOutcome::Findings));
@@ -2884,6 +3210,40 @@ fn parse_reviewed_commit(body: &str) -> Option<&str> {
     valid_oid_fragment(candidate).then_some(candidate)
 }
 
+/// D2 严重度分级：P0/P1 与任何无法识别的输入一律 blocking（fail-closed）；
+/// 仅 P2/P3 转 deferred，不阻断合并但必须在 check output 披露。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FindingSeverity {
+    Blocking,
+    Deferred(u8),
+}
+
+/// 解析 Codex 风格严重度 badge `![P<digit> Badge]`；多 badge 取首个。
+/// 无 badge / 解析失败返回 None，由调用方按 blocking 处理。
+fn parse_severity_badge(body: &str) -> Option<u8> {
+    let start = body.find("![P")?;
+    let tail = body.get(start + "![P".len()..)?;
+    let digit = tail.chars().next()?.to_digit(10)? as u8;
+    tail.get(1..)?.starts_with(" Badge]").then_some(digit)
+}
+
+/// thread 严重度只看首条 comment 的 badge，且仅当首条 comment 来自受信
+/// provider 时才采信（badge 是 provider 产物；不可信来源的 badge 文本不采信，
+/// Copilot 与人工 reviewer 不发 badge，自然保持 blocking）。
+fn thread_finding_severity(comment: &ReviewThreadComment, pr_author: &str) -> FindingSeverity {
+    let badge_trusted = comment
+        .author
+        .as_ref()
+        .is_some_and(|actor| trusted_provider(&actor.login, pr_author).is_some());
+    if !badge_trusted {
+        return FindingSeverity::Blocking;
+    }
+    match parse_severity_badge(&comment.body) {
+        Some(digit @ (2 | 3)) => FindingSeverity::Deferred(digit),
+        _ => FindingSeverity::Blocking,
+    }
+}
+
 fn trusted_provider(actor: &str, author: &str) -> Option<&'static str> {
     let normalized = normalize_actor(actor);
     if normalized == normalize_actor(author) {
@@ -2907,6 +3267,28 @@ fn oid_matches_current(reviewed: &str, current: &str) -> bool {
         && current
             .to_ascii_lowercase()
             .starts_with(&reviewed.to_ascii_lowercase())
+}
+
+/// D4 内容等价继承：head OID 前缀匹配，或双方 tree OID 均为完整 OID 且逐字节
+/// 相等（同 patchset 同审阅状态，clean 与未闭环 findings 对称继承）；
+/// tree 任一缺失/非法时回退纯 OID 判定（旧行为）。
+fn evidence_matches_current(
+    reviewed_oid: &str,
+    reviewed_tree_oid: Option<&str>,
+    current_oid: &str,
+    current_tree_oid: Option<&str>,
+) -> bool {
+    oid_matches_current(reviewed_oid, current_oid)
+        || tree_oids_equal(reviewed_tree_oid, current_tree_oid)
+}
+
+fn tree_oids_equal(reviewed_tree_oid: Option<&str>, current_tree_oid: Option<&str>) -> bool {
+    match (reviewed_tree_oid, current_tree_oid) {
+        (Some(reviewed), Some(current)) => {
+            valid_full_oid(reviewed) && valid_full_oid(current) && reviewed == current
+        }
+        _ => false,
+    }
 }
 
 fn valid_full_oid(value: &str) -> bool {
@@ -3042,7 +3424,7 @@ fn parse_pr_number(value: &str) -> Result<u64, String> {
 
 fn print_summary(result: &ExternalReviewResult) {
     println!(
-        "External Review Gate: {:?}\nPR: {}/pull/{}\nCurrent head/base: {}/{}\nProvider/actor: {}/{}\nReviewed head/completion: {}/{}\nFindings/unresolved/re-review: {}/{}/{}\nEvidence count: {}\nDiagnostics: {}",
+        "External Review Gate: {:?}\nPR: {}/pull/{}\nCurrent head/base: {}/{}\nProvider/actor: {}/{}\nReviewed head/completion: {}/{}\nFindings/unresolved-blocking/deferred/rounds/re-review: {}/{}/{}/{}/{}\nEvidence count: {}\nDiagnostics: {}",
         result.state,
         result.repository,
         result.pull_request,
@@ -3053,7 +3435,9 @@ fn print_summary(result: &ExternalReviewResult) {
         result.reviewed_head_oid.as_deref().unwrap_or("N/A"),
         result.completion_time.as_deref().unwrap_or("N/A"),
         result.finding_count,
-        result.unresolved_actionable_threads,
+        result.unresolved_blocking_threads,
+        result.deferred_findings.len(),
+        result.review_rounds,
         result.requires_rereview,
         result.evidence.len(),
         if result.diagnostics.is_empty() {
@@ -3324,12 +3708,16 @@ fn build_check_run_payload(
     let reviewed_head = optional_value(result.reviewed_head_oid.as_deref());
     let completion = optional_value(result.completion_time.as_deref());
     let waiver = optional_value(result.waiver_id.as_deref());
+    // `unresolved=` 键名保留（wire 稳定）；D2 起其值语义为 blocking 计数，
+    // deferred（P2/P3）与轮数由独立键披露。
     let summary = format!(
-        "state=`{}`; head=`{}`; provider=`{provider}`; actor=`{actor}`; findings={}; unresolved={}; re-review={}; diagnostics={}",
+        "state=`{}`; head=`{}`; provider=`{provider}`; actor=`{actor}`; findings={}; unresolved={}; deferred={}; rounds={}; re-review={}; diagnostics={}",
         result.state.as_str(),
         result.current_head_oid,
         result.finding_count,
-        result.unresolved_actionable_threads,
+        result.unresolved_blocking_threads,
+        result.deferred_findings.len(),
+        result.review_rounds,
         result.requires_rereview,
         result.diagnostics.len()
     );
@@ -3343,7 +3731,7 @@ fn build_check_run_payload(
         .map(|(index, _)| format!("[evidence-{}]", index + 1))
         .collect::<Vec<_>>();
     let mut text = format!(
-        "- Repository / PR：`{}` / `#{}`\n- Current head / base：`{}` / `{}`\n- Author：`{}`\n- State：`{}`\n- Provider / actor：`{provider}` / `{actor}`\n- Reviewed head / completion：`{reviewed_head}` / `{completion}`\n- Findings / unresolved threads / requires re-review：`{}` / `{}` / `{}`\n- Pending review requests：`{}`\n- Waiver：`{waiver}`\n- Evidence：{}\n- Diagnostics：`{}`（详情见 workflow run）",
+        "- Repository / PR：`{}` / `#{}`\n- Current head / base：`{}` / `{}`\n- Author：`{}`\n- State：`{}`\n- Provider / actor：`{provider}` / `{actor}`\n- Reviewed head / completion：`{reviewed_head}` / `{completion}`\n- Findings / unresolved blocking threads / requires re-review：`{}` / `{}` / `{}`\n- Deferred findings / review rounds：`{}` / `{}`\n- Pending review requests：`{}`\n- Waiver：`{waiver}`\n- Evidence：{}\n- Diagnostics：`{}`（详情见 workflow run）",
         single_line(&result.repository),
         result.pull_request,
         result.current_head_oid,
@@ -3351,8 +3739,10 @@ fn build_check_run_payload(
         single_line(&result.author),
         result.state.as_str(),
         result.finding_count,
-        result.unresolved_actionable_threads,
+        result.unresolved_blocking_threads,
         result.requires_rereview,
+        result.deferred_findings.len(),
+        result.review_rounds,
         result.pending_review_requests,
         if evidence_labels.is_empty() {
             "N/A".to_string()
@@ -3370,11 +3760,36 @@ fn build_check_run_payload(
     if !evidence_labels.is_empty() {
         text.push_str("\n\n");
         for (index, evidence) in result.evidence.iter().take(evidence_limit).enumerate() {
+            // D4：tree 等价继承命中的 evidence 必须显式标注，保证可审计
+            let inheritance = if evidence_inherits_by_tree(evidence, result) {
+                "（tree-equivalent 继承）"
+            } else {
+                ""
+            };
             text.push_str(&format!(
-                "[evidence-{}]: {}\n",
+                "[evidence-{}]: {}{}\n",
                 index + 1,
-                evidence.evidence_url
+                evidence.evidence_url,
+                inheritance
             ));
+        }
+    }
+    if !result.deferred_findings.is_empty() {
+        text.push_str("\nDeferred findings（P2/P3，不阻断合并）：");
+        for finding in &result.deferred_findings {
+            text.push_str(&format!("\n- {} {}", finding.severity, finding.url));
+        }
+    }
+    if let Some(round_cap) = &result.round_cap {
+        text.push_str(&format!(
+            "\n\nReview round cap：review 轮数 `{}` 超过上限 `{MAX_REVIEW_ROUNDS}`，经 round-cap record 收口（非 clean pass）；遗留未闭环 blocking findings：",
+            round_cap.rounds
+        ));
+        if round_cap.remaining_finding_urls.is_empty() {
+            text.push_str("\n- （无未闭环 blocking thread；finding 仍待 clean re-review 闭环）");
+        }
+        for url in &round_cap.remaining_finding_urls {
+            text.push_str(&format!("\n- {url}"));
         }
     }
 
@@ -3395,6 +3810,16 @@ fn build_check_run_payload(
 
 fn optional_value(value: Option<&str>) -> String {
     value.map(single_line).unwrap_or_else(|| "N/A".to_string())
+}
+
+/// D4：evidence 的 reviewed head OID 不是 current head、但 tree OID 与 current
+/// head 逐字节相等时，该 evidence 经 tree 等价继承生效，输出必须标注。
+fn evidence_inherits_by_tree(evidence: &ReviewEvidence, result: &ExternalReviewResult) -> bool {
+    !oid_matches_current(&evidence.reviewed_head_oid, &result.current_head_oid)
+        && tree_oids_equal(
+            evidence.reviewed_head_tree_oid.as_deref(),
+            result.current_head_tree_oid.as_deref(),
+        )
 }
 
 fn single_line(value: &str) -> String {
@@ -3516,6 +3941,7 @@ fn load_live_snapshot(repository: &str, pr: u64) -> Result<ExternalReviewSnapsho
         pull_request,
         provider_errors: Vec::new(),
         waiver: None,
+        round_cap: None,
     })
 }
 
@@ -3614,9 +4040,11 @@ fn load_live_waiver_snapshot(
             reviews: Connection::default(),
             comments: Connection::default(),
             review_threads: Connection::default(),
+            head_ref: None,
         },
         provider_errors: Vec::new(),
         waiver: Some(waiver),
+        round_cap: None,
     })
 }
 
@@ -3807,6 +4235,7 @@ mod tests {
             repository: "illusion-tech/laneflow".to_string(),
             pull_request: 239,
             current_head_oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+            current_head_tree_oid: None,
             current_base_oid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
             author: "wangzishi".to_string(),
             state,
@@ -3815,7 +4244,11 @@ mod tests {
             reviewed_head_oid: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
             completion_time: Some("2026-07-24T17:15:39Z".to_string()),
             finding_count: 2,
-            unresolved_actionable_threads: 0,
+            unresolved_blocking_threads: 0,
+            deferred_findings: Vec::new(),
+            unresolved_blocking_findings: Vec::new(),
+            review_rounds: 0,
+            round_cap: None,
             requires_rereview: false,
             pending_review_requests: 0,
             evidence: vec![ReviewEvidence {
@@ -3823,6 +4256,7 @@ mod tests {
                 actor: CODEX_ACTOR.to_string(),
                 source_kind: "issue_comment".to_string(),
                 reviewed_head_oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+                reviewed_head_tree_oid: None,
                 reviewed_base_oid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
                 outcome: EvidenceOutcome::Clean,
                 submitted_at: "2026-07-24T17:15:39Z".to_string(),
@@ -4455,7 +4889,7 @@ mod tests {
             .author = None;
         let authorless_result = evaluate_snapshot(&authorless);
         assert!(!authorless_result.state.is_pass());
-        assert_eq!(authorless_result.unresolved_actionable_threads, 1);
+        assert_eq!(authorless_result.unresolved_blocking_threads, 1);
 
         let mut untrusted_thread = fixture(contents);
         let thread = &mut untrusted_thread.pull_request.review_threads.nodes[0];
@@ -4474,7 +4908,7 @@ mod tests {
         });
         let untrusted_result = evaluate_snapshot(&untrusted_thread);
         assert!(untrusted_result.state.is_pass());
-        assert_eq!(untrusted_result.unresolved_actionable_threads, 0);
+        assert_eq!(untrusted_result.unresolved_blocking_threads, 0);
 
         let mut authorless_reply_to_untrusted = untrusted_thread.clone();
         let thread = &mut authorless_reply_to_untrusted
@@ -4487,7 +4921,7 @@ mod tests {
         thread.comments.nodes.push(authorless_reply);
         let authorless_reply_result = evaluate_snapshot(&authorless_reply_to_untrusted);
         assert!(!authorless_reply_result.state.is_pass());
-        assert_eq!(authorless_reply_result.unresolved_actionable_threads, 1);
+        assert_eq!(authorless_reply_result.unresolved_blocking_threads, 1);
 
         let mut trusted_reply_to_untrusted = fixture(contents);
         let mut trusted_reply = trusted_reply_to_untrusted.pull_request.review_threads.nodes[0]
@@ -4541,7 +4975,7 @@ mod tests {
             ExternalReviewState::FindingsOpen
         );
         assert_eq!(trusted_reply_result.finding_count, 1);
-        assert_eq!(trusted_reply_result.unresolved_actionable_threads, 1);
+        assert_eq!(trusted_reply_result.unresolved_blocking_threads, 1);
 
         let mut trusted_reply_after_authorless = trusted_reply_to_untrusted.clone();
         let thread = &mut trusted_reply_after_authorless
@@ -4556,7 +4990,7 @@ mod tests {
             ExternalReviewState::AwaitingRereview
         );
         assert_eq!(authorless_reply_result.finding_count, 1);
-        assert_eq!(authorless_reply_result.unresolved_actionable_threads, 0);
+        assert_eq!(authorless_reply_result.unresolved_blocking_threads, 0);
 
         let mut human_commented = fixture(contents);
         let mut review = human_commented.pull_request.reviews.nodes[0].clone();
@@ -4769,8 +5203,441 @@ mod tests {
         )));
         assert_eq!(result.state, ExternalReviewState::Pass);
         assert_eq!(result.finding_count, 2);
-        assert_eq!(result.unresolved_actionable_threads, 0);
+        assert_eq!(result.unresolved_blocking_threads, 0);
         assert!(!result.requires_rereview);
+    }
+
+    fn codex_badge_body(severity: &str, title: &str) -> String {
+        format!(
+            "**<sub><sub>![{severity} Badge](https://img.shields.io/badge/{severity}-yellow?style=flat)</sub></sub>  {title}"
+        )
+    }
+
+    #[test]
+    fn parses_severity_badges_fail_closed() {
+        assert_eq!(parse_severity_badge(&codex_badge_body("P0", "t")), Some(0));
+        assert_eq!(parse_severity_badge(&codex_badge_body("P1", "t")), Some(1));
+        assert_eq!(parse_severity_badge(&codex_badge_body("P2", "t")), Some(2));
+        assert_eq!(parse_severity_badge(&codex_badge_body("P3", "t")), Some(3));
+        // 无 badge / 垃圾文本 / 形态不符 → None（调用方按 blocking 处理）
+        assert_eq!(parse_severity_badge("no badge here"), None);
+        assert_eq!(parse_severity_badge("![PX Badge]"), None);
+        assert_eq!(parse_severity_badge("![P2Badge]"), None);
+        assert_eq!(parse_severity_badge("P2 Badge"), None);
+        // 多 badge 取首个
+        assert_eq!(
+            parse_severity_badge(&format!(
+                "{}\n\n{}",
+                codex_badge_body("P2", "first"),
+                codex_badge_body("P1", "second")
+            )),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn p2_p3_findings_defer_without_blocking_merge() {
+        let contents = include_str!("../fixtures/external-review/copilot-findings-open.json");
+        // 基线：无 badge thread 保持 blocking（行为不变）
+        let baseline = evaluate_snapshot(&fixture(contents));
+        assert_eq!(baseline.state, ExternalReviewState::FindingsOpen);
+        assert_eq!(baseline.unresolved_blocking_threads, 1);
+        assert!(baseline.deferred_findings.is_empty());
+
+        let with_badge = |severity: &str| {
+            let mut snapshot = fixture(contents);
+            snapshot.pull_request.review_threads.nodes[0].comments.nodes[0].body =
+                codex_badge_body(severity, "Require closingIssuesReferences.");
+            snapshot
+        };
+        for (severity, expected, blocking, deferred) in [
+            ("P0", ExternalReviewState::FindingsOpen, 1, 0),
+            ("P1", ExternalReviewState::FindingsOpen, 1, 0),
+            ("P2", ExternalReviewState::Pass, 0, 1),
+            ("P3", ExternalReviewState::Pass, 0, 1),
+            // 未知严重度 fail-closed 按 blocking
+            ("P4", ExternalReviewState::FindingsOpen, 1, 0),
+        ] {
+            let result = evaluate_snapshot(&with_badge(severity));
+            assert_eq!(result.state, expected, "severity {severity}");
+            assert_eq!(
+                result.unresolved_blocking_threads, blocking,
+                "severity {severity}"
+            );
+            assert_eq!(
+                result.deferred_findings.len(),
+                deferred,
+                "severity {severity}"
+            );
+        }
+
+        // deferred 明细与 check output 披露
+        let p2 = evaluate_snapshot(&with_badge("P2"));
+        assert_eq!(p2.deferred_findings.len(), 1);
+        assert_eq!(p2.deferred_findings[0].thread_id, "PRRT-copilot-finding");
+        assert_eq!(p2.deferred_findings[0].severity, "P2");
+        assert_eq!(
+            p2.deferred_findings[0].url,
+            "https://github.com/illusion-tech/laneflow/pull/38#discussion_r3550034350"
+        );
+        let payload = build_check_run_payload(
+            &p2,
+            "https://github.com/illusion-tech/laneflow/actions/runs/1",
+            "external-review:test".to_string(),
+        );
+        assert!(payload.output.summary.contains("deferred=1"));
+        assert!(payload.output.summary.contains("rounds=1"));
+        assert!(payload.output.text.contains("Deferred findings"));
+        assert!(payload.output.text.contains(
+            "P2 https://github.com/illusion-tech/laneflow/pull/38#discussion_r3550034350"
+        ));
+    }
+
+    #[test]
+    fn mixed_severity_keeps_p1_blocking_and_lists_only_p2_deferred() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/copilot-findings-open.json"
+        ));
+        snapshot.pull_request.review_threads.nodes[0].comments.nodes[0].body =
+            codex_badge_body("P2", "Require closingIssuesReferences.");
+        // 追加同一 review 的 P1 blocking thread
+        let mut p1_thread = snapshot.pull_request.review_threads.nodes[0].clone();
+        p1_thread.id = "PRRT-copilot-finding-p1".to_string();
+        let p1_comment = &mut p1_thread.comments.nodes[0];
+        p1_comment.id = "PRRC-copilot-finding-p1".to_string();
+        p1_comment.url =
+            "https://github.com/illusion-tech/laneflow/pull/38#discussion_r3550034351".to_string();
+        p1_comment.body = codex_badge_body("P1", "Must fix before merge.");
+        snapshot.pull_request.review_threads.nodes.push(p1_thread);
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::FindingsOpen);
+        assert!(result.requires_rereview);
+        assert_eq!(result.unresolved_blocking_threads, 1);
+        assert_eq!(result.deferred_findings.len(), 1);
+        assert_eq!(
+            result.deferred_findings[0].thread_id,
+            "PRRT-copilot-finding"
+        );
+        assert_eq!(result.unresolved_blocking_findings.len(), 1);
+        assert_eq!(
+            result.unresolved_blocking_findings[0].thread_id,
+            "PRRT-copilot-finding-p1"
+        );
+    }
+
+    #[test]
+    fn untrusted_first_comment_badge_is_not_honored() {
+        // 不可信 author 在首条 comment 放置 P2 badge 文本不能解除阻断：
+        // badge 只采信受信 provider 产物
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/copilot-findings-open.json"
+        ));
+        let mut trusted_reply =
+            snapshot.pull_request.review_threads.nodes[0].comments.nodes[0].clone();
+        trusted_reply.id = "PRRC-copilot-reply".to_string();
+        trusted_reply.url =
+            "https://github.com/illusion-tech/laneflow/pull/38#discussion_r3550034352".to_string();
+        trusted_reply.body = "Substantive concern without badge.".to_string();
+        let thread = &mut snapshot.pull_request.review_threads.nodes[0];
+        let first = &mut thread.comments.nodes[0];
+        first.author = Some(Actor {
+            login: "external-contributor".to_string(),
+        });
+        first.pull_request_review = None;
+        first.body = codex_badge_body("P2", "fake deferred marker.");
+        thread.comments.nodes.push(trusted_reply);
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::FindingsOpen);
+        assert_eq!(result.unresolved_blocking_threads, 1);
+        assert!(result.deferred_findings.is_empty());
+    }
+
+    #[test]
+    fn counts_review_rounds_by_distinct_finding_head_oids() {
+        // 无 findings → 0 轮
+        let clean = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/codex-clean.json"
+        )));
+        assert_eq!(clean.review_rounds, 0);
+        // 单 finding thread 单 head → 1 轮
+        let one = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/copilot-findings-open.json"
+        )));
+        assert_eq!(one.review_rounds, 1);
+        // 两个 finding thread 分布在两个不同 head → 2 轮
+        let two = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/history-pr-232-final.json"
+        )));
+        assert_eq!(two.review_rounds, 2);
+    }
+
+    /// 4 个不同 head OID 上各有未闭环 blocking finding 的 snapshot（无 badge，
+    /// 全 blocking）：current head 1 轮 + 追加 3 轮。
+    fn four_round_findings_snapshot() -> ExternalReviewSnapshot {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/copilot-findings-open.json"
+        ));
+        for round in 2..=4u32 {
+            let oid = format!("{round:040x}");
+            let submitted = format!("2026-07-09T08:0{round}:32Z");
+            let mut review = snapshot.pull_request.reviews.nodes[0].clone();
+            review.id = format!("PRR-copilot-findings-r{round}");
+            review.submitted_at = Some(submitted.clone());
+            review.url = Some(format!(
+                "https://github.com/illusion-tech/laneflow/pull/38#pullrequestreview-r{round}"
+            ));
+            review.commit = Some(CommitRef {
+                oid: oid.clone(),
+                tree: None,
+            });
+            snapshot.pull_request.reviews.nodes.push(review);
+
+            let mut thread = snapshot.pull_request.review_threads.nodes[0].clone();
+            thread.id = format!("PRRT-copilot-finding-r{round}");
+            let comment = &mut thread.comments.nodes[0];
+            comment.id = format!("PRRC-copilot-finding-r{round}");
+            comment.url =
+                format!("https://github.com/illusion-tech/laneflow/pull/38#discussion_r{round}");
+            comment.created_at = submitted.clone();
+            comment.updated_at = submitted.clone();
+            let reference = comment
+                .pull_request_review
+                .as_mut()
+                .expect("fixture review reference");
+            reference.id = format!("PRR-copilot-findings-r{round}");
+            reference.submitted_at = Some(submitted);
+            reference.commit = Some(CommitRef { oid, tree: None });
+            snapshot.pull_request.review_threads.nodes.push(thread);
+        }
+        snapshot
+    }
+
+    fn four_round_finding_urls() -> Vec<String> {
+        vec![
+            "https://github.com/illusion-tech/laneflow/pull/38#discussion_r3550034350".to_string(),
+            "https://github.com/illusion-tech/laneflow/pull/38#discussion_r2".to_string(),
+            "https://github.com/illusion-tech/laneflow/pull/38#discussion_r3".to_string(),
+            "https://github.com/illusion-tech/laneflow/pull/38#discussion_r4".to_string(),
+        ]
+    }
+
+    #[test]
+    fn round_cap_record_closes_over_cap_rounds_without_disguise() {
+        // 基线：超过 3 轮且无 record → 保持 FindingsOpen，行为不变
+        let baseline = evaluate_snapshot(&four_round_findings_snapshot());
+        assert_eq!(baseline.state, ExternalReviewState::FindingsOpen);
+        assert_eq!(baseline.review_rounds, 4);
+        assert!(baseline.round_cap.is_none());
+
+        // valid record：head/roundCount/遗留 URL 集合精确匹配 → Pass + round_cap 披露
+        let mut snapshot = four_round_findings_snapshot();
+        snapshot.round_cap = Some(RoundCapInput {
+            current_head_oid: snapshot.pull_request.head_ref_oid.clone(),
+            round_count: 4,
+            remaining_finding_urls: four_round_finding_urls(),
+        });
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert!(!result.requires_rereview);
+        let cap = result.round_cap.as_ref().expect("round cap applied");
+        assert_eq!(cap.rounds, 4);
+        assert_eq!(cap.remaining_finding_urls.len(), 4);
+        // check output 显式列出轮数与遗留 findings（不伪装 clean pass）
+        let payload = build_check_run_payload(
+            &result,
+            "https://github.com/illusion-tech/laneflow/actions/runs/1",
+            "external-review:test".to_string(),
+        );
+        assert_eq!(payload.conclusion, "success");
+        assert!(payload.output.summary.contains("rounds=4"));
+        assert!(payload.output.text.contains("Review round cap"));
+        for url in &cap.remaining_finding_urls {
+            assert!(payload.output.text.contains(url.as_str()));
+        }
+
+        // AwaitingRereview 形态（findings 已 resolve 但缺 clean re-review）同样可被
+        // 收口，此时未闭环 blocking URL 集合为空
+        let mut resolved = four_round_findings_snapshot();
+        for thread in &mut resolved.pull_request.review_threads.nodes {
+            thread.is_resolved = true;
+        }
+        let resolved_baseline = evaluate_snapshot(&resolved);
+        assert_eq!(
+            resolved_baseline.state,
+            ExternalReviewState::AwaitingRereview
+        );
+        resolved.round_cap = Some(RoundCapInput {
+            current_head_oid: resolved.pull_request.head_ref_oid.clone(),
+            round_count: 4,
+            remaining_finding_urls: Vec::new(),
+        });
+        let result = evaluate_snapshot(&resolved);
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        let cap = result.round_cap.as_ref().expect("round cap applied");
+        assert_eq!(cap.rounds, 4);
+        assert!(cap.remaining_finding_urls.is_empty());
+    }
+
+    #[test]
+    fn round_cap_record_fails_closed_on_any_mismatch() {
+        // head 不匹配
+        let mut wrong_head = four_round_findings_snapshot();
+        wrong_head.round_cap = Some(RoundCapInput {
+            current_head_oid: "cccccccccccccccccccccccccccccccccccccccc".to_string(),
+            round_count: 4,
+            remaining_finding_urls: four_round_finding_urls(),
+        });
+        let result = evaluate_snapshot(&wrong_head);
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("currentHeadOid 与 PR current head 不一致"))
+        );
+        assert!(result.round_cap.is_none());
+
+        // roundCount 与实测轮数不等
+        let mut wrong_count = four_round_findings_snapshot();
+        wrong_count.round_cap = Some(RoundCapInput {
+            current_head_oid: wrong_count.pull_request.head_ref_oid.clone(),
+            round_count: 5,
+            remaining_finding_urls: four_round_finding_urls(),
+        });
+        let result = evaluate_snapshot(&wrong_count);
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("roundCount 与 evaluator 实测轮数不一致"))
+        );
+
+        // 遗留 URL 集合与实测未闭环 blocking findings 不等
+        let mut wrong_urls = four_round_findings_snapshot();
+        wrong_urls.round_cap = Some(RoundCapInput {
+            current_head_oid: wrong_urls.pull_request.head_ref_oid.clone(),
+            round_count: 4,
+            remaining_finding_urls: four_round_finding_urls()[..3].to_vec(),
+        });
+        let result = evaluate_snapshot(&wrong_urls);
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("remainingFindingUrls"))
+        );
+
+        // 轮数未超上限却提供 record（该 fixture 实测 1 轮）
+        let mut premature = fixture(include_str!(
+            "../fixtures/external-review/copilot-findings-open.json"
+        ));
+        premature.round_cap = Some(RoundCapInput {
+            current_head_oid: premature.pull_request.head_ref_oid.clone(),
+            round_count: 1,
+            remaining_finding_urls: vec![
+                "https://github.com/illusion-tech/laneflow/pull/38#discussion_r3550034350"
+                    .to_string(),
+            ],
+        });
+        let result = evaluate_snapshot(&premature);
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("仅在 review 轮数超过 3 时适用"))
+        );
+    }
+
+    #[test]
+    fn tree_equivalent_head_inherits_review_outcome_symmetrically() {
+        let tree_oid = "dddddddddddddddddddddddddddddddddddddddd";
+        let old_head = "cccccccccccccccccccccccccccccccccccccccc";
+        let commit_ref = |oid: &str, tree: Option<&str>| CommitRef {
+            oid: oid.to_string(),
+            tree: tree.map(|oid| TreeRef {
+                oid: oid.to_string(),
+            }),
+        };
+        let with_head_tree = |snapshot: &mut ExternalReviewSnapshot| {
+            snapshot.pull_request.head_ref = Some(HeadRefSnapshot {
+                target: Some(HeadRefCommitSnapshot {
+                    oid: Some(snapshot.pull_request.head_ref_oid.clone()),
+                    tree: Some(TreeRef {
+                        oid: tree_oid.to_string(),
+                    }),
+                }),
+            });
+        };
+
+        // clean 继承：老 head 的 APPROVED review 与 current head tree 相等 → Pass
+        let mut clean = fixture(include_str!(
+            "../fixtures/external-review/human-approved.json"
+        ));
+        clean.pull_request.reviews.nodes[0].commit = Some(commit_ref(old_head, Some(tree_oid)));
+        with_head_tree(&mut clean);
+        let clean_result = evaluate_snapshot(&clean);
+        assert_eq!(clean_result.state, ExternalReviewState::Pass);
+        // tree 继承命中的 evidence 必须显式标注
+        let payload = build_check_run_payload(
+            &clean_result,
+            "https://github.com/illusion-tech/laneflow/actions/runs/1",
+            "external-review:test".to_string(),
+        );
+        assert!(payload.output.text.contains("tree-equivalent"));
+
+        // findings 继承（对称）：老 head 的未闭环 blocking finding，tree 相等 → FindingsOpen
+        let mut findings = fixture(include_str!(
+            "../fixtures/external-review/copilot-findings-open.json"
+        ));
+        findings.pull_request.reviews.nodes[0].commit = Some(commit_ref(old_head, Some(tree_oid)));
+        findings.pull_request.review_threads.nodes[0].comments.nodes[0]
+            .pull_request_review
+            .as_mut()
+            .expect("fixture review reference")
+            .commit = Some(commit_ref(old_head, Some(tree_oid)));
+        with_head_tree(&mut findings);
+        assert_eq!(
+            evaluate_snapshot(&findings).state,
+            ExternalReviewState::FindingsOpen
+        );
+
+        // tree 缺失 → 回退纯 OID 判定（旧行为 Stale）
+        let mut legacy = fixture(include_str!(
+            "../fixtures/external-review/human-approved.json"
+        ));
+        legacy.pull_request.reviews.nodes[0].commit = Some(commit_ref(old_head, None));
+        assert_eq!(evaluate_snapshot(&legacy).state, ExternalReviewState::Stale);
+
+        // headRef 缺失（fork/null 场景）→ fail-closed 不继承
+        let mut no_head_ref = clean.clone();
+        no_head_ref.pull_request.head_ref = None;
+        assert_eq!(
+            evaluate_snapshot(&no_head_ref).state,
+            ExternalReviewState::Stale
+        );
+
+        // tree 不相等 → 不继承
+        let mut mismatched = clean.clone();
+        mismatched
+            .pull_request
+            .head_ref
+            .as_mut()
+            .expect("head ref")
+            .target
+            .as_mut()
+            .expect("target")
+            .tree = Some(TreeRef {
+            oid: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string(),
+        });
+        assert_eq!(
+            evaluate_snapshot(&mismatched).state,
+            ExternalReviewState::Stale
+        );
     }
 
     #[test]

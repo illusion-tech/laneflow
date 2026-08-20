@@ -60,7 +60,7 @@
 - Reviewer provider / actor：
 - Reviewed head / outcome / completion / evidence：
 - Findings disposition / clean re-review：
-- Review threads：`unresolved = <count>`，证据：
+- Review threads：`unresolved = <blocking count>`（只计 P0/P1/无 badge 未闭环 thread；P2/P3 deferred 计数与轮数见 check output 的 `deferred=` / `rounds=`），证据：
 - External Review Gate：Check URL；R0/R1 尚未启用时写明 bootstrap 状态和缺失项：
 - G3 Evidence Gate Shadow：按 Rollout phase 只保留一项且不包裹整个值：R0 = 候选 workflow bootstrap：<边界>；R1 = R1 non-required：<原因>；R2 = Check URL：https://github.com/...
 
@@ -89,7 +89,7 @@ G3 comment 模板（合并前发表）：
 - G3 Evidence Gate Shadow：按 Rollout phase 只保留一项且不包裹整个值：R0 = 候选 workflow bootstrap：<边界>；R1 = R1 non-required：<原因>；R2 = Check URL：https://github.com/...
 - 审阅：provider、actor、reviewed head、outcome、completion、evidence URL：
 - Findings disposition / clean re-review：
-- Review threads：`unresolved = <count>`，证据：
+- Review threads：`unresolved = <blocking count>`（只计 P0/P1/无 badge 未闭环 thread；P2/P3 deferred 计数与轮数见 check output 的 `deferred=` / `rounds=`），证据：
 - R1 thread-state signal：每批 resolve / unresolve 后新增顶层 `external-review: thread-state-changed` comment；R2 写 GitHub App webhook receipt：
 - R0 bootstrap 工具边界：Related PR B 自身不得用候选 validator 自批；Related PR C 自身不得用尚未合入 default branch 的候选 shadow workflow 自批。PR B 合入后记录 live `check-external-review` 结果；PR C 合入后才记录首次 trusted-ref Check 与 R1 起点。G3 Owner 已人工核验本阶段仍未由 required Check 覆盖的字段：
 - 验证：
