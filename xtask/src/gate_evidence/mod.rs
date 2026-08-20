@@ -17,9 +17,9 @@ use std::fs;
 use args::*;
 use document::*;
 use g3::*;
-use g4::validate_g4_evidence;
 #[cfg(test)]
 use g4::*;
+use g4::{validate_g4_evidence, validate_live_merge_queue_g4_evidence};
 use github::*;
 use model::*;
 
@@ -114,7 +114,11 @@ fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> 
         None,
         gh_issue_view_for_phase,
         gh_pr_view_for_gate_evidence,
-    )
+    )?;
+    if args.phase == GateEvidencePhase::G4 {
+        validate_live_merge_queue_g4_evidence(args)?;
+    }
+    Ok(())
 }
 
 fn check_gate_evidence_with_target(

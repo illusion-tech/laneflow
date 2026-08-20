@@ -209,9 +209,10 @@ CodeQL 缺失或失败，停止合并并按关联 Issue 的 activation / rollbac
 最终 merge method、例外和 G4 的 `H_pr → H_mg → H_main` 证据以
 `docs/governance/github-workflow.md` 第 7 节为准。Merge Queue G4 comment 必须用
 `merge-queue-g4-evidence:v1` 按 Delivery-first、随后全部 Related PR 顺序逐项记录；activation 后成员保存
-三项完整 OID、精确绑定 `H_mg` 的 commit-checks success URL、规范 chain 与 inclusion/replay，activation 前
+三项完整 OID、精确绑定 `H_mg` 的 commit-checks success URL、规范 chain 与 inclusion compare，activation 前
 成员保存 `pre_activation` identity 和原因。运行 `check-gate-evidence g4` 对照每个 PR 的
-`headRefOid/mergeCommit.oid`；不得只写 Delivery 或泛化的“已合并 / CI 通过”。
+`headRefOid/mergeCommit.oid`、GitHub trusted `merge_group` run 与 live required checks；不得只写 Delivery、
+泛化的“已合并 / CI 通过”，也无需抓取临时 ref 做本地形式化 replay。
 
 ## 交付说明
 

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{args::*, document::*, g3::*, model::*};
+use super::{args::*, document::*, g3::*, github::*, model::*};
 
 fn full_commit_oid(value: &str, label: &str) -> Result<String, String> {
     if value.len() != 40 || !value.chars().all(|character| character.is_ascii_hexdigit()) {
@@ -121,7 +121,7 @@ fn validate_g4_pr_record(
     }
     if record.inclusion_method.as_deref() != Some(MERGE_QUEUE_G4_INCLUSION_METHOD) {
         return Err(format!(
-            "G4 PR #{number} inclusionMethod 必须使用已冻结的 patch inclusion/replay 方法"
+            "G4 PR #{number} inclusionMethod 必须使用已冻结的 trusted merge_group + compare 方法"
         ));
     }
     let expected_inclusion_url = format!("https://github.com/{repo}/compare/{h_pr}...{h_mg}");
@@ -190,6 +190,118 @@ fn validate_merge_queue_g4_evidence(
     }
     if queue_records > 0 && !unique_metadata_line(body, "合并")?.contains("Merge Queue") {
         return Err("post-activation G4 `- 合并：` 必须明确记录 Merge Queue".to_string());
+    }
+    Ok(())
+}
+
+pub(super) fn validate_trusted_merge_group_evidence(
+    repo: &str,
+    number: u64,
+    base_ref_name: &str,
+    h_mg: &str,
+    check_runs: &[GitHubCheckRun],
+    workflow_runs: &[GitHubWorkflowRun],
+    branch_rules: &[GitHubBranchRule],
+) -> Result<(), String> {
+    if base_ref_name.is_empty() {
+        return Err(format!("PR #{number} 缺少 trusted baseRefName"));
+    }
+    let expected_branch_prefix = format!("gh-readonly-queue/{base_ref_name}/pr-{number}-");
+    if !workflow_runs.iter().any(|run| {
+        run.event == "merge_group"
+            && run.head_sha.eq_ignore_ascii_case(h_mg)
+            && run
+                .head_branch
+                .as_deref()
+                .is_some_and(|branch| branch.starts_with(&expected_branch_prefix))
+            && run.status == "completed"
+            && run.conclusion.as_deref() == Some("success")
+            && run
+                .html_url
+                .starts_with(&format!("https://github.com/{repo}/actions/runs/"))
+    }) {
+        return Err(format!(
+            "PR #{number} H_mg 未绑定 trusted GitHub merge_group success workflow run"
+        ));
+    }
+
+    let mut required_checks = BTreeSet::new();
+    let mut ruleset_required_count = 0usize;
+    for rule in branch_rules {
+        if rule.rule_type != "required_status_checks" {
+            continue;
+        }
+        let parameters = rule
+            .parameters
+            .as_ref()
+            .ok_or("required_status_checks rule 缺少 parameters")?;
+        for required in &parameters.required_status_checks {
+            ruleset_required_count += 1;
+            required_checks.insert(required.context.clone());
+        }
+    }
+    if ruleset_required_count == 0 {
+        return Err(format!(
+            "PR #{number} base `{base_ref_name}` 缺少 live required status checks；G4 失败关闭"
+        ));
+    }
+
+    for name in required_checks {
+        let latest = check_runs
+            .iter()
+            .filter(|run| run.name == name && run.head_sha.eq_ignore_ascii_case(h_mg))
+            .max_by_key(|run| run.id)
+            .ok_or_else(|| format!("PR #{number} H_mg 缺少 trusted GitHub check `{name}`"))?;
+        if latest.status != "completed" || latest.conclusion.as_deref() != Some("success") {
+            return Err(format!(
+                "PR #{number} H_mg 最新 check `{name}` 不是 completed/success：status={} conclusion={:?}",
+                latest.status, latest.conclusion
+            ));
+        }
+        if !latest
+            .html_url
+            .starts_with(&format!("https://github.com/{repo}/"))
+        {
+            return Err(format!(
+                "PR #{number} H_mg check `{name}` URL 不属于当前 repository"
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn validate_live_merge_queue_g4_evidence(args: &GateEvidenceArgs) -> Result<(), String> {
+    let issue = gh_issue_view_for_phase(&args.repo, args.issue, GateEvidencePhase::G4)?;
+    let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
+    let comment = comment_for_permalink(&issue, &issue_g4_permalink, "Issue G4")?;
+    let Some(record) = merge_queue_g4_record(&comment.body)? else {
+        return Ok(());
+    };
+    for entry in record
+        .pull_requests
+        .iter()
+        .filter(|entry| entry.mode == "merge_queue")
+    {
+        let h_mg = full_commit_oid(
+            entry
+                .h_mg
+                .as_deref()
+                .ok_or_else(|| format!("PR #{} merge_queue record 缺少 H_mg", entry.number))?,
+            &format!("PR #{} H_mg", entry.number),
+        )?;
+        let pr = gh_pr_view_for_phase(&args.repo, entry.number, GateEvidencePhase::G4)?;
+        let check_runs = gh_commit_check_runs(&args.repo, &h_mg)?;
+        let workflow_runs = gh_merge_group_workflow_runs(&args.repo, &h_mg)?;
+        let branch_rules = gh_branch_rules(&args.repo, &pr.base_ref_name)?;
+        validate_trusted_merge_group_evidence(
+            &args.repo,
+            entry.number,
+            &pr.base_ref_name,
+            &h_mg,
+            &check_runs,
+            &workflow_runs,
+            &branch_rules,
+        )?;
     }
     Ok(())
 }
