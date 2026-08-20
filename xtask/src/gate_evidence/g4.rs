@@ -276,7 +276,7 @@ pub(super) fn validate_trusted_merge_group_evidence(
             "PR #{number} timeline 必须包含且只包含一个 merged event"
         ));
     };
-    let (queue_position, queue_event) = timeline[..*merged_position]
+    let (queue_position, last_queue_event) = timeline[..*merged_position]
         .iter()
         .enumerate()
         .rev()
@@ -287,12 +287,43 @@ pub(super) fn validate_trusted_merge_group_evidence(
             )
         })
         .ok_or_else(|| format!("PR #{number} merged 前缺少 Merge Queue timeline event"))?;
-    if queue_event.event != "added_to_merge_queue" {
-        return Err(format!(
-            "PR #{number} 最后一个 merge 前 queue event 是 `{}`（position={queue_position}），不能证明保持入队到合并",
-            queue_event.event
-        ));
-    }
+    let terminal_removal =
+        (last_queue_event.event == "removed_from_merge_queue").then_some(last_queue_event);
+    let queue_event = if let Some(removal) = terminal_removal {
+        if queue_position + 1 != *merged_position {
+            return Err(format!(
+                "PR #{number} GitHub Merge Queue bot 终态移出事件未直接邻接 merged event"
+            ));
+        }
+        if removal.actor.as_ref().map(|actor| actor.login.as_str())
+            != Some("github-merge-queue[bot]")
+        {
+            return Err(format!(
+                "PR #{number} 最后一个 merge 前 queue event 是 `removed_from_merge_queue`，但 actor 不是 `github-merge-queue[bot]`"
+            ));
+        }
+        let (_, previous_queue_event) = timeline[..queue_position]
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, item)| {
+                matches!(
+                    item.event.as_str(),
+                    "added_to_merge_queue" | "removed_from_merge_queue"
+                )
+            })
+            .ok_or_else(|| {
+                format!("PR #{number} GitHub Merge Queue bot 终态移出前缺少 queue timeline event")
+            })?;
+        if previous_queue_event.event != "added_to_merge_queue" {
+            return Err(format!(
+                "PR #{number} GitHub Merge Queue bot 终态移出前最后一个 queue event 不是 added_to_merge_queue"
+            ));
+        }
+        previous_queue_event
+    } else {
+        last_queue_event
+    };
     let queued_at = parse_utc_timestamp_seconds(
         queue_event
             .created_at
@@ -307,6 +338,20 @@ pub(super) fn validate_trusted_merge_group_evidence(
             .ok_or_else(|| format!("PR #{number} merged event 缺少 created_at"))?,
     )
     .ok_or_else(|| format!("PR #{number} merged event created_at 无效"))?;
+    if let Some(removal) = terminal_removal {
+        let removed_at =
+            parse_utc_timestamp_seconds(removal.created_at.as_deref().ok_or_else(|| {
+                format!("PR #{number} GitHub Merge Queue bot 终态移出事件缺少 created_at")
+            })?)
+            .ok_or_else(|| {
+                format!("PR #{number} GitHub Merge Queue bot 终态移出 created_at 无效")
+            })?;
+        if removed_at < queued_at || removed_at >= merged_at {
+            return Err(format!(
+                "PR #{number} GitHub Merge Queue bot 终态移出时间必须满足 queued_at <= removed_at < merged_at"
+            ));
+        }
+    }
 
     let expected_branch_prefix = format!("gh-readonly-queue/{base_ref_name}/pr-{number}-");
     let mut pr_bound_runs = Vec::new();

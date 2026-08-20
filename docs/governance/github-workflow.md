@@ -391,8 +391,8 @@ G4 清场必须完成：
   activation boundary 后成员记录 Queue-ready `H_pr`、真实 `H_mg`、GitHub `mergeCommit` 对应的 `H_main`、
   精确 `commit/<H_mg>/checks` success URL、规范 chain 与 `H_pr...H_mg` inclusion compare；boundary 前成员
   只记录 `pre_activation`、`H_pr/H_main` 与原因，不补造 `H_mg`。由 `check-gate-evidence g4` 对照每个 PR
-  的 trusted merge metadata、对应 PR 的 GitHub `merge_group` run、merge 前最后一个 queue timeline event、
-  仍生效的 live `merge_queue` rule、同次入队的最后一代 queue head，以及 live Ruleset 全部分页结果中 required checks 在 merge 前的最后完成结论；不能用旧 queue run、一个 Delivery
+  的 trusted merge metadata、对应 PR 的 GitHub `merge_group` run、merge 前 queue timeline、
+  仍生效的 live `merge_queue` rule、同次入队的最后一代 queue head，以及 live Ruleset 全部分页结果中 required checks 在 merge 前的最后完成结论。通常最后一个 queue event 必须为入队；GitHub 成功完成队列时只额外接受 `github-merge-queue[bot]` 直接邻接唯一 `merged` 的终态自动移出，并要求前一个 queue event 为有效入队且时间满足 `queued_at <= removed_at < merged_at`。人工/无身份移出、其他 bot、非邻接、缺少入队或异常时间仍失败关闭；不能用旧 queue run、一个 Delivery
   record 代替 Related PR 证据，也不要求本地形式化 replay。
 - #451 Related PR #452 是唯一一次性 `activation_bootstrap`：它按 #451 G1/G2 在 live queue transaction 前
   部署 advanced CodeQL workflow。G4 record 只保存 `H_pr/H_main`、冻结 reason 与精确

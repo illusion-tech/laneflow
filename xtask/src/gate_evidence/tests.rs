@@ -699,6 +699,7 @@ fn marker_freshness_covers_related_lifecycle_and_comment_activity() {
         GitHubTimelineItem {
             id: Some(1),
             event: "closed".to_string(),
+            actor: None,
             created_at: Some("2026-08-06T03:30:00Z".to_string()),
             updated_at: None,
             submitted_at: None,
@@ -707,6 +708,7 @@ fn marker_freshness_covers_related_lifecycle_and_comment_activity() {
         GitHubTimelineItem {
             id: Some(marker_id),
             event: "commented".to_string(),
+            actor: None,
             created_at: Some(marker_created_at.to_string()),
             updated_at: Some("2026-08-06T03:30:05Z".to_string()),
             submitted_at: None,
@@ -728,6 +730,7 @@ fn marker_freshness_covers_related_lifecycle_and_comment_activity() {
     timeline.push(GitHubTimelineItem {
         id: Some(2),
         event: "reopened".to_string(),
+        actor: None,
         created_at: Some("2026-08-06T03:30:02Z".to_string()),
         updated_at: None,
         submitted_at: None,
@@ -748,6 +751,7 @@ fn marker_freshness_covers_related_lifecycle_and_comment_activity() {
     timeline.push(GitHubTimelineItem {
         id: Some(3),
         event: "commented".to_string(),
+        actor: None,
         created_at: Some("2026-08-06T03:29:00Z".to_string()),
         updated_at: Some("2026-08-06T03:30:02Z".to_string()),
         submitted_at: None,
@@ -897,6 +901,24 @@ fn deserializes_gh_project_items_with_top_level_title() {
             .as_ref()
             .map(|status| status.name.as_str()),
         Some("Done")
+    );
+}
+
+#[test]
+fn deserializes_merge_queue_timeline_actor() {
+    let item: GitHubTimelineItem = serde_json::from_str(
+        r#"{
+            "id": 29738590644,
+            "event": "removed_from_merge_queue",
+            "actor": { "login": "github-merge-queue[bot]" },
+            "created_at": "2026-08-20T10:57:33Z"
+        }"#,
+    )
+    .expect("GitHub timeline actor should deserialize");
+
+    assert_eq!(
+        item.actor.as_ref().map(|actor| actor.login.as_str()),
+        Some("github-merge-queue[bot]")
     );
 }
 
@@ -3573,6 +3595,9 @@ fn queue_timeline(removed_before_merge: bool) -> Vec<GitHubTimelineItem> {
     let mut items = vec![GitHubTimelineItem {
         id: None,
         event: "added_to_merge_queue".to_string(),
+        actor: Some(GitHubActor {
+            login: "wangzishi".to_string(),
+        }),
         created_at: Some("2026-08-20T05:00:00Z".to_string()),
         updated_at: None,
         submitted_at: None,
@@ -3582,6 +3607,9 @@ fn queue_timeline(removed_before_merge: bool) -> Vec<GitHubTimelineItem> {
         items.push(GitHubTimelineItem {
             id: None,
             event: "removed_from_merge_queue".to_string(),
+            actor: Some(GitHubActor {
+                login: "wangzishi".to_string(),
+            }),
             created_at: Some("2026-08-20T05:20:00Z".to_string()),
             updated_at: None,
             submitted_at: None,
@@ -3591,11 +3619,23 @@ fn queue_timeline(removed_before_merge: bool) -> Vec<GitHubTimelineItem> {
     items.push(GitHubTimelineItem {
         id: None,
         event: "merged".to_string(),
+        actor: Some(GitHubActor {
+            login: "wangzishi".to_string(),
+        }),
         created_at: Some("2026-08-20T05:30:00Z".to_string()),
         updated_at: None,
         submitted_at: None,
         committer: None,
     });
+    items
+}
+
+fn queue_timeline_with_terminal_bot_removal() -> Vec<GitHubTimelineItem> {
+    let mut items = queue_timeline(true);
+    items[1].actor = Some(GitHubActor {
+        login: "github-merge-queue[bot]".to_string(),
+    });
+    items[1].created_at = Some("2026-08-20T05:29:59Z".to_string());
     items
 }
 
@@ -3637,6 +3677,24 @@ fn validates_h_mg_against_trusted_merge_group_and_live_required_checks() {
             &trusted_codeql_analyses(),
             &trusted_branch_rules(),
             &queue_timeline(false),
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn accepts_github_merge_queue_bot_terminal_removal_before_merge() {
+    assert!(
+        validate_trusted_merge_group_evidence(
+            "illusion-tech/laneflow",
+            61,
+            "main",
+            MERGE_GROUP_OID,
+            &trusted_checks(),
+            &[trusted_merge_group_run()],
+            &trusted_codeql_analyses(),
+            &trusted_branch_rules(),
+            &queue_timeline_with_terminal_bot_removal(),
         )
         .is_ok()
     );
@@ -3855,6 +3913,148 @@ fn rejects_dequeue_before_direct_merge_even_with_an_old_successful_h_mg() {
     )
     .expect_err("dequeue followed by direct merge must reject old queue evidence");
     assert!(error.contains("removed_from_merge_queue"));
+}
+
+#[test]
+fn rejects_terminal_removal_without_exact_merge_queue_bot_actor() {
+    let mut timeline = queue_timeline_with_terminal_bot_removal();
+    timeline[1].actor = None;
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[trusted_merge_group_run()],
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
+        &timeline,
+    )
+    .expect_err("anonymous terminal removal must not inherit bot authority");
+    assert!(error.contains("actor 不是 `github-merge-queue[bot]`"));
+}
+
+#[test]
+fn rejects_terminal_removal_from_another_bot() {
+    let mut timeline = queue_timeline_with_terminal_bot_removal();
+    timeline[1].actor = Some(GitHubActor {
+        login: "actions-user[bot]".to_string(),
+    });
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[trusted_merge_group_run()],
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
+        &timeline,
+    )
+    .expect_err("another bot must not inherit GitHub Merge Queue authority");
+    assert!(error.contains("actor 不是 `github-merge-queue[bot]`"));
+}
+
+#[test]
+fn rejects_terminal_bot_removal_not_adjacent_to_merge() {
+    let mut timeline = queue_timeline_with_terminal_bot_removal();
+    timeline.insert(
+        2,
+        GitHubTimelineItem {
+            id: None,
+            event: "commented".to_string(),
+            actor: Some(GitHubActor {
+                login: "wangzishi".to_string(),
+            }),
+            created_at: Some("2026-08-20T05:29:59Z".to_string()),
+            updated_at: None,
+            submitted_at: None,
+            committer: None,
+        },
+    );
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[trusted_merge_group_run()],
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
+        &timeline,
+    )
+    .expect_err("terminal bot removal must directly precede the merged event");
+    assert!(error.contains("未直接邻接 merged event"));
+}
+
+#[test]
+fn rejects_terminal_bot_removal_without_prior_enqueue() {
+    let mut timeline = queue_timeline_with_terminal_bot_removal();
+    timeline.remove(0);
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[trusted_merge_group_run()],
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
+        &timeline,
+    )
+    .expect_err("terminal bot removal without a prior enqueue must fail closed");
+    assert!(error.contains("终态移出前缺少 queue timeline event"));
+}
+
+#[test]
+fn rejects_terminal_bot_removal_with_invalid_time_order() {
+    let mut timeline = queue_timeline_with_terminal_bot_removal();
+    timeline[1].created_at = Some("2026-08-20T05:30:00Z".to_string());
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[trusted_merge_group_run()],
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
+        &timeline,
+    )
+    .expect_err("terminal bot removal must be strictly earlier than merge");
+    assert!(error.contains("queued_at <= removed_at < merged_at"));
+}
+
+#[test]
+fn rejects_terminal_bot_removal_after_another_dequeue() {
+    let mut timeline = queue_timeline_with_terminal_bot_removal();
+    timeline.insert(
+        1,
+        GitHubTimelineItem {
+            id: None,
+            event: "removed_from_merge_queue".to_string(),
+            actor: Some(GitHubActor {
+                login: "wangzishi".to_string(),
+            }),
+            created_at: Some("2026-08-20T05:20:00Z".to_string()),
+            updated_at: None,
+            submitted_at: None,
+            committer: None,
+        },
+    );
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[trusted_merge_group_run()],
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
+        &timeline,
+    )
+    .expect_err("a stale enqueue before another dequeue must not authorize terminal removal");
+    assert!(error.contains("终态移出前最后一个 queue event 不是 added_to_merge_queue"));
 }
 
 #[test]

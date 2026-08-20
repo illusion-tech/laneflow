@@ -209,6 +209,8 @@ pub(super) struct GitHubTimelineItem {
     pub(super) id: Option<u64>,
     pub(super) event: String,
     #[serde(default)]
+    pub(super) actor: Option<GitHubActor>,
+    #[serde(default)]
     pub(super) created_at: Option<String>,
     #[serde(default)]
     pub(super) updated_at: Option<String>,
