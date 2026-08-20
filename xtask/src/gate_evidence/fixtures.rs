@@ -8,6 +8,9 @@ pub(super) const ISSUE_G4_URL: &str =
     "https://github.com/illusion-tech/laneflow/issues/60#issuecomment-200";
 pub(super) const RELATED_G3_URL: &str =
     "https://github.com/illusion-tech/laneflow/pull/62#issuecomment-300";
+pub(super) const DELIVERY_HEAD_OID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+pub(super) const MERGE_GROUP_OID: &str = "cccccccccccccccccccccccccccccccccccccccc";
+pub(super) const MAIN_RESULT_OID: &str = "dddddddddddddddddddddddddddddddddddddddd";
 
 pub(super) fn gate_comment_body(required_fields: &[&str], args: &GateEvidenceArgs) -> String {
     required_fields
@@ -56,10 +59,18 @@ pub(super) fn g4_comment_for_args(
     created_at: &str,
     args: &GateEvidenceArgs,
 ) -> GitHubComment {
+    let body = gate_comment_body(G4_COMMENT_FIELDS, args)
+        .replace("- 合并：", "- 合并：Merge Queue（最终 Rebase）")
+        .replace(
+            GATE_ASSERTION_PREFIX,
+            &format!(
+                "- H_pr：`{DELIVERY_HEAD_OID}`\n- H_mg：`{MERGE_GROUP_OID}`\n- H_main：`{MAIN_RESULT_OID}`\n- H_mg required checks：success；{MERGE_GROUP_OID}；https://github.com/illusion-tech/laneflow/commit/{MERGE_GROUP_OID}/checks\n- Inclusion / replay：{DELIVERY_HEAD_OID} -> {MERGE_GROUP_OID} -> {MAIN_RESULT_OID}\n{GATE_ASSERTION_PREFIX}"
+            ),
+        );
     GitHubComment {
         id: String::new(),
         url: url.to_string(),
-        body: gate_comment_body(G4_COMMENT_FIELDS, args),
+        body,
         author: Some(GitHubActor {
             login: "wangzishi".to_string(),
         }),
@@ -132,10 +143,13 @@ pub(super) fn delivery_pr(merged_at: Option<&str>) -> GitHubPullRequest {
             "OPEN".to_string()
         },
         is_draft: false,
-        head_ref_oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        head_ref_oid: DELIVERY_HEAD_OID.to_string(),
         base_ref_oid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
         created_at: "2026-07-10T04:00:00Z".to_string(),
         merged_at: merged_at.map(ToOwned::to_owned),
+        merge_commit: merged_at.map(|_| GitHubCommit {
+            oid: MAIN_RESULT_OID.to_string(),
+        }),
         closing_issues_references: vec![issue_reference("illusion-tech/laneflow", 60)],
         project_items: vec![ProjectItem {
             title: "LaneFlow".to_string(),
@@ -187,6 +201,7 @@ pub(super) fn related_pr_for_args(
         base_ref_oid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
         created_at: "2026-07-10T04:30:00Z".to_string(),
         merged_at: None,
+        merge_commit: None,
         closing_issues_references: closes_issue
             .then_some(vec![issue_reference("illusion-tech/laneflow", 60)])
             .unwrap_or_default(),

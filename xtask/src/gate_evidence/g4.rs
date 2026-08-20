@@ -4,6 +4,74 @@ use std::collections::BTreeSet;
 
 use super::{args::*, document::*, g3::*, model::*};
 
+fn g4_oid(body: &str, field: &str) -> Result<String, String> {
+    let line = unique_metadata_line(body, field)?;
+    let prefix = format!("- {field}：");
+    let value = line
+        .strip_prefix(&prefix)
+        .expect("unique_metadata_line returns the requested prefix")
+        .trim();
+    let oid = value
+        .strip_prefix('`')
+        .and_then(|value| value.strip_suffix('`'))
+        .ok_or_else(|| format!("G4 `{field}` 必须只包含反引号包裹的完整 commit OID"))?;
+    if oid.len() != 40 || !oid.chars().all(|character| character.is_ascii_hexdigit()) {
+        return Err(format!("G4 `{field}` 不是 40 位十六进制 commit OID"));
+    }
+    Ok(oid.to_ascii_lowercase())
+}
+
+fn validate_merge_queue_g4_evidence(
+    args: &GateEvidenceArgs,
+    body: &str,
+    delivery_pr: &GitHubPullRequest,
+) -> Result<(), String> {
+    let merge_line = unique_metadata_line(body, "合并")?;
+    if !merge_line.contains("Merge Queue") {
+        return Ok(());
+    }
+    validate_comment_body(body, G4_MERGE_QUEUE_COMMENT_FIELDS, "Issue G4 Merge Queue")?;
+
+    let h_pr = g4_oid(body, "H_pr")?;
+    if h_pr != delivery_pr.head_ref_oid.to_ascii_lowercase() {
+        return Err("G4 H_pr 与 Delivery PR headRefOid 不一致".to_string());
+    }
+
+    let h_mg = g4_oid(body, "H_mg")?;
+    let h_main = g4_oid(body, "H_main")?;
+    let merge_commit = delivery_pr
+        .merge_commit
+        .as_ref()
+        .ok_or("Delivery PR 缺少 GitHub mergeCommit，无法验证 G4 H_main")?;
+    if h_main != merge_commit.oid.to_ascii_lowercase() {
+        return Err("G4 H_main 与 Delivery PR mergeCommit OID 不一致".to_string());
+    }
+    if h_mg == h_pr || h_mg == h_main {
+        return Err("G4 H_mg 必须是独立于 H_pr 与 H_main 的 Merge Group OID".to_string());
+    }
+
+    let checks = unique_metadata_line(body, "H_mg required checks")?;
+    let repo_url = format!("https://github.com/{}/", args.repo);
+    if !checks.contains(&h_mg)
+        || !checks.to_ascii_lowercase().contains("success")
+        || !checks.contains(&repo_url)
+    {
+        return Err(
+            "G4 H_mg required checks 必须同时记录 H_mg、success 与当前仓库 GitHub evidence URL"
+                .to_string(),
+        );
+    }
+
+    let inclusion = unique_metadata_line(body, "Inclusion / replay")?;
+    if ![h_pr.as_str(), h_mg.as_str(), h_main.as_str()]
+        .iter()
+        .all(|oid| inclusion.contains(oid))
+    {
+        return Err("G4 Inclusion / replay 必须记录完整 H_pr -> H_mg -> H_main 链".to_string());
+    }
+    Ok(())
+}
+
 pub(super) fn reject_inapplicable_g4_recovery_marker(issue: &GitHubIssue) -> Result<(), String> {
     let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
     let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
@@ -278,6 +346,7 @@ pub(super) fn validate_g4_evidence(
     let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
     let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
     validate_comment_body(&g4_comment.body, G4_COMMENT_FIELDS, "Issue G4")?;
+    validate_merge_queue_g4_evidence(args, &g4_comment.body, delivery_pr)?;
     let delivery_number = args
         .delivery_pr
         .ok_or("G4 validation 缺少 Delivery PR 参数")?;

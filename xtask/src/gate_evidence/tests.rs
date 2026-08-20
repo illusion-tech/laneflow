@@ -875,6 +875,7 @@ fn deserializes_gh_project_items_with_top_level_title() {
             "isDraft": false,
             "createdAt": "2026-07-10T04:00:00Z",
             "mergedAt": "2026-07-10T05:30:00Z",
+            "mergeCommit": {"oid": "dddddddddddddddddddddddddddddddddddddddd"},
             "closingIssuesReferences": [],
             "projectItems": [{
                 "status": {"optionId": "6114ac6a", "name": "Done"},
@@ -886,6 +887,10 @@ fn deserializes_gh_project_items_with_top_level_title() {
     .expect("current gh pr view projectItems shape should deserialize");
 
     assert_eq!(pr.project_items[0].title, "LaneFlow");
+    assert_eq!(
+        pr.merge_commit.as_ref().map(|commit| commit.oid.as_str()),
+        Some(MAIN_RESULT_OID)
+    );
     assert_eq!(
         pr.project_items[0]
             .status
@@ -1713,6 +1718,9 @@ fn a_historical_exception_applies_only_to_its_exact_full_set_target() {
     delivery.comments.truncate(1);
     delivery.state = "MERGED".to_string();
     delivery.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+    delivery.merge_commit = Some(GitHubCommit {
+        oid: MAIN_RESULT_OID.to_string(),
+    });
 
     let mut related = related_pr(false);
     related.state = "MERGED".to_string();
@@ -2432,6 +2440,9 @@ fn g4_failed_assertion_requires_an_exact_structured_historical_exception_target(
     delivery.comments.truncate(1);
     delivery.state = "MERGED".to_string();
     delivery.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+    delivery.merge_commit = Some(GitHubCommit {
+        oid: MAIN_RESULT_OID.to_string(),
+    });
     delivery.project_items[0].status = Some(ProjectStatus {
         name: "Done".to_string(),
     });
@@ -3422,6 +3433,97 @@ fn rejects_g4_assertion_that_is_still_pending() {
         .expect_err("pending G4 assertion must not pass");
 
     assert!(error.contains("明确记录 `已通过`"));
+}
+
+#[test]
+fn rejects_merge_queue_g4_without_identity_chain() {
+    let mut issue = issue("OPEN", "Done");
+    issue.comments[0].body = issue.comments[0]
+        .body
+        .lines()
+        .filter(|line| !line.starts_with("- H_mg："))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+
+    let error = validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
+        .expect_err("Merge Queue G4 must preserve all three identities");
+
+    assert!(error.contains("- H_mg："));
+}
+
+#[test]
+fn rejects_merge_queue_g4_with_wrong_pr_or_main_identity() {
+    let mut wrong_pr_issue = issue("OPEN", "Done");
+    wrong_pr_issue.comments[0].body = wrong_pr_issue.comments[0].body.replace(
+        &format!("- H_pr：`{DELIVERY_HEAD_OID}`"),
+        "- H_pr：`eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee`",
+    );
+    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+
+    let error = validate_g4_evidence(
+        &gate_args(GateEvidencePhase::G4),
+        &wrong_pr_issue,
+        &delivery_pr,
+        &[],
+    )
+    .expect_err("H_pr must match GitHub headRefOid");
+    assert!(error.contains("H_pr 与 Delivery PR headRefOid 不一致"));
+
+    let mut wrong_main_issue = issue("OPEN", "Done");
+    wrong_main_issue.comments[0].body = wrong_main_issue.comments[0].body.replace(
+        &format!("- H_main：`{MAIN_RESULT_OID}`"),
+        "- H_main：`eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee`",
+    );
+    let error = validate_g4_evidence(
+        &gate_args(GateEvidencePhase::G4),
+        &wrong_main_issue,
+        &delivery_pr,
+        &[],
+    )
+    .expect_err("H_main must match GitHub mergeCommit");
+    assert!(error.contains("H_main 与 Delivery PR mergeCommit OID 不一致"));
+}
+
+#[test]
+fn rejects_merge_queue_g4_without_merge_group_check_evidence() {
+    let mut issue = issue("OPEN", "Done");
+    issue.comments[0].body = issue.comments[0].body.replace(
+        &format!(
+            "- H_mg required checks：success；{MERGE_GROUP_OID}；https://github.com/illusion-tech/laneflow/commit/{MERGE_GROUP_OID}/checks"
+        ),
+        "- H_mg required checks：pending",
+    );
+    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+
+    let error = validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
+        .expect_err("Merge Queue G4 must bind successful checks to H_mg");
+
+    assert!(error.contains("H_mg required checks 必须同时记录"));
+}
+
+#[test]
+fn accepts_pre_queue_g4_without_merge_group_fields() {
+    let mut issue = issue("OPEN", "Done");
+    issue.comments[0].body = issue.comments[0]
+        .body
+        .replace(
+            "- 合并：Merge Queue（最终 Rebase）",
+            "- 合并：Rebase and merge；activation 前",
+        )
+        .lines()
+        .filter(|line| {
+            !G4_MERGE_QUEUE_COMMENT_FIELDS
+                .iter()
+                .any(|field| line.starts_with(field))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+
+    assert!(
+        validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[]).is_ok()
+    );
 }
 
 #[test]

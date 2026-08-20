@@ -251,11 +251,18 @@ pub(super) struct GitHubPullRequest {
     pub(super) created_at: String,
     #[serde(rename = "mergedAt")]
     pub(super) merged_at: Option<String>,
+    #[serde(rename = "mergeCommit", default)]
+    pub(super) merge_commit: Option<GitHubCommit>,
     #[serde(rename = "closingIssuesReferences")]
     pub(super) closing_issues_references: Vec<IssueReference>,
     #[serde(rename = "projectItems", default)]
     pub(super) project_items: Vec<ProjectItem>,
     pub(super) comments: Vec<GitHubComment>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubCommit {
+    pub(super) oid: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -456,6 +463,14 @@ pub(super) const G4_COMMENT_FIELDS: &[&str] = &[
     "- 分支：",
     "- 权限 / bypass：",
     "- Gate 断言：",
+];
+
+pub(super) const G4_MERGE_QUEUE_COMMENT_FIELDS: &[&str] = &[
+    "- H_pr：",
+    "- H_mg：",
+    "- H_main：",
+    "- H_mg required checks：",
+    "- Inclusion / replay：",
 ];
 
 pub(super) const GATE_ASSERTION_PREFIX: &str = "- Gate 断言：";
