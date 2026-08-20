@@ -734,6 +734,13 @@ try {
     $script:CapturedCreateTimeout = 0
     $script:CreateCallCount = 0
     $script:ReturnMismatchedCreateIdentity = $false
+    $script:AmbiguousReconcileCalls = 0
+    $originalProcessSnapshotFromHandle = (
+        Get-Command Get-ProcessSnapshotFromHandle
+    ).ScriptBlock
+    $originalStopAmbiguousCreate = (
+        Get-Command Stop-AmbiguousMcplsCreate
+    ).ScriptBlock
     try {
         Set-Item -Path Function:New-CimInstance -Value {
             param($ClassName, [switch]$ClientOnly, $Property)
@@ -776,9 +783,14 @@ try {
             $script:CapturedCreateArguments.CurrentDirectory -eq $testContext.Root -and
             [uint32]$script:CapturedCreateArguments.ProcessStartupInformation.Property.CreateFlags -eq
                 $script:ExternalProcessCreateFlags -and
+            @($script:CapturedCreateArguments.ProcessStartupInformation.Property.EnvironmentVariables |
+                Where-Object {
+                    $_.StartsWith('PATH=', [System.StringComparison]::OrdinalIgnoreCase) -and
+                    $_.Substring($_.IndexOf('=') + 1) -eq $env:PATH
+                }).Count -eq 1 -and
             $script:CapturedCreateTimeout -ge 1 -and
             $script:CapturedCreateTimeout -le 2
-        ) -Message 'long-lived service uses bounded Win32_Process.Create outside the setup child tree'
+        ) -Message 'bounded external creation forwards the validated setup environment'
         $script:ReturnMismatchedCreateIdentity = $true
         Assert-Throws -Operation {
             Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
@@ -797,6 +809,29 @@ try {
         ) -Message 'an insufficient deadline refuses startup before invoking Win32_Process.Create'
         Set-Item -Path Function:Invoke-CimMethod -Value {
             param($ClassName, $MethodName, $Arguments, $OperationTimeoutSec)
+            throw 'injected ambiguous WMI timeout'
+        }
+        Set-Item -Path Function:Stop-AmbiguousMcplsCreate -Value {
+            param(
+                $Context,
+                $ExpectedExecutable,
+                $ExpectedCommandLine,
+                $CreateRequestedAtUtc,
+                $Port,
+                $Deadline
+            )
+            $script:AmbiguousReconcileCalls++
+            return 4242
+        }
+        Assert-Throws -Operation {
+            Start-McplsProcess -Executable (Get-Process -Id $PID).Path `
+                -Context $testContext -Port $identityPort `
+                -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
+        } -Message 'an ambiguous WMI exception is reported only after reconciliation'
+        Assert-True -Condition ($script:AmbiguousReconcileCalls -eq 1) `
+            -Message 'a WMI exception invokes bounded ambiguous-create reconciliation'
+        Set-Item -Path Function:Invoke-CimMethod -Value {
+            param($ClassName, $MethodName, $Arguments, $OperationTimeoutSec)
             return [pscustomobject]@{ ReturnValue = [uint32]2; ProcessId = 0 }
         }
         Assert-Throws -Operation {
@@ -808,8 +843,52 @@ try {
     finally {
         Remove-Item -Path Function:New-CimInstance -Force -ErrorAction SilentlyContinue
         Remove-Item -Path Function:Invoke-CimMethod -Force -ErrorAction SilentlyContinue
-        Remove-Item -Path Function:Get-ProcessSnapshotFromHandle -Force `
-            -ErrorAction SilentlyContinue
+        Set-Item -Path Function:Get-ProcessSnapshotFromHandle `
+            -Value $originalProcessSnapshotFromHandle
+        Set-Item -Path Function:Stop-AmbiguousMcplsCreate `
+            -Value $originalStopAmbiguousCreate
+    }
+
+    $script:CapturedAmbiguousStopState = $null
+    $originalFindNewMcplsSnapshots = (
+        Get-Command Find-NewMcplsProcessSnapshots
+    ).ScriptBlock
+    $originalVerifiedStopForAmbiguous = (
+        Get-Command Stop-VerifiedServiceProcessTree
+    ).ScriptBlock
+    try {
+        Set-Item -Path Function:Find-NewMcplsProcessSnapshots -Value {
+            param(
+                $ExpectedExecutable,
+                $ExpectedCommandLine,
+                $CreateRequestedAtUtc,
+                $Deadline
+            )
+            return [pscustomobject]@{
+                ProcessId = $PID
+                StartedAtUtc = [DateTimeOffset]::UtcNow.UtcDateTime
+            }
+        }
+        Set-Item -Path Function:Stop-VerifiedServiceProcessTree -Value {
+            param($State, $ExpectedRoot, $Deadline)
+            $script:CapturedAmbiguousStopState = $State
+        }
+        $reconciledPid = Stop-AmbiguousMcplsCreate -Context $testContext `
+            -ExpectedExecutable (Get-Process -Id $PID).Path `
+            -ExpectedCommandLine 'expected mcpls command' `
+            -CreateRequestedAtUtc ([DateTimeOffset]::UtcNow) `
+            -Port $identityPort -Deadline ([DateTimeOffset]::UtcNow.AddSeconds(5))
+        Assert-True -Condition (
+            $reconciledPid -eq $PID -and
+            $script:CapturedAmbiguousStopState.process_id -eq $PID -and
+            $script:CapturedAmbiguousStopState.port -eq $identityPort
+        ) -Message 'ambiguous-create reconciliation stops the unique match through verified state'
+    }
+    finally {
+        Set-Item -Path Function:Find-NewMcplsProcessSnapshots `
+            -Value $originalFindNewMcplsSnapshots
+        Set-Item -Path Function:Stop-VerifiedServiceProcessTree `
+            -Value $originalVerifiedStopForAmbiguous
     }
 
     $originalStartProcess = (Get-Command Start-McplsProcess).ScriptBlock

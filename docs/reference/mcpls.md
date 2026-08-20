@@ -106,13 +106,17 @@ Codex 为新任务创建 worktree 时会运行 setup。`Ensure` 会：
    二进制校验、锁等待、CIM 创建、端口绑定和 HTTP 健康检查；CIM 只接受整秒超时，
    因此脚本只使用剩余预算内的整秒数，并在创建前保留后续身份检查预算；
 7. 使用 `Win32_Process.Create` 和 `CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW` 以当前用户、
-   目标 worktree 为工作目录创建直接 mcpls PID；WMI 返回的裸 PID 必须先通过可执行路径、
-   完整命令行和创建时间检查，后续回收也必须重新验证状态身份，不会按裸 PID 杀进程；
-   不再用普通 `Start-Process` 启动常驻后代；
+   目标 worktree 为工作目录创建直接 mcpls PID，并通过 `Win32_ProcessStartup` 显式复制当前
+   setup 进程环境，使服务运行时的 `PATH` 与前置 `rust-analyzer` 校验一致；环境值不写入
+   状态或日志；WMI 返回的裸 PID 必须先通过可执行路径、完整命令行和创建时间检查，后续
+   回收也必须重新验证状态身份，不会按裸 PID 杀进程；不再用普通 `Start-Process` 启动
+   常驻后代；
 8. 进程创建后立即原子持久化 `starting` 状态，再等待端口绑定；只有健康检查、启用配置
    与生命周期日志全部提交成功后才保留新进程。任一记账步骤失败都会回收该进程，且失败
    路径只在持有同 worktree 锁时改写禁用配置。进程在 bind 前自行退出会直接中止启动，
-   不会遍历其余端口；只有仍存活但未绑定时才尝试下一候选端口。
+   不会遍历其余端口；只有仍存活但未绑定时才尝试下一候选端口。WMI 调用异常时会在预留
+   的有界窗口内按本次完整命令行和创建时间查找唯一候选，并经相同状态身份复核停止后才
+   返回失败，避免“服务端已创建但客户端未收到 PID”留下无状态常驻进程。
 
 直接在 Codex setup 中给 `CreateProcess` 增加 breakaway flag 的实机探针仍被外层嵌套 Job
 捕获，因此不是支持路径。Windows Task Scheduler 虽能异步托管进程，但会增加持久系统
