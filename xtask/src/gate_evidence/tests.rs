@@ -3483,7 +3483,40 @@ fn trusted_check(id: u64, name: &str, conclusion: &str) -> GitHubCheckRun {
         conclusion: Some(conclusion.to_string()),
         completed_at: Some("2026-08-20T05:20:00Z".to_string()),
         html_url: format!("https://github.com/illusion-tech/laneflow/runs/{id}"),
+        app: Some(GitHubApp {
+            id: GITHUB_ACTIONS_INTEGRATION_ID,
+        }),
     }
+}
+
+fn trusted_checks() -> Vec<GitHubCheckRun> {
+    MERGE_QUEUE_REQUIRED_CHECKS
+        .iter()
+        .enumerate()
+        .map(|(index, name)| trusted_check(10 + index as u64, name, "success"))
+        .collect()
+}
+
+fn trusted_codeql_analysis(id: u64, language: &str) -> GitHubCodeScanningAnalysis {
+    GitHubCodeScanningAnalysis {
+        id,
+        git_ref: "refs/heads/gh-readonly-queue/main/pr-61-deadbeef".to_string(),
+        commit_sha: MERGE_GROUP_OID.to_string(),
+        analysis_key: CODEQL_ANALYSIS_KEY.to_string(),
+        category: format!("/language:{language}"),
+        created_at: "2026-08-20T05:20:00Z".to_string(),
+        error: String::new(),
+        tool: GitHubCodeScanningTool {
+            name: "CodeQL".to_string(),
+        },
+    }
+}
+
+fn trusted_codeql_analyses() -> Vec<GitHubCodeScanningAnalysis> {
+    vec![
+        trusted_codeql_analysis(20, "actions"),
+        trusted_codeql_analysis(21, "rust"),
+    ]
 }
 
 fn trusted_merge_group_run() -> GitHubWorkflowRun {
@@ -3535,19 +3568,23 @@ fn required_check_rule(name: &str) -> GitHubBranchRule {
         parameters: Some(GitHubRequiredStatusChecksParameters {
             required_status_checks: vec![GitHubRequiredStatusCheck {
                 context: name.to_string(),
+                integration_id: Some(GITHUB_ACTIONS_INTEGRATION_ID),
             }],
         }),
     }
 }
 
-fn trusted_branch_rules(name: &str) -> Vec<GitHubBranchRule> {
-    vec![
-        GitHubBranchRule {
-            rule_type: "merge_queue".to_string(),
-            parameters: None,
-        },
-        required_check_rule(name),
-    ]
+fn trusted_branch_rules() -> Vec<GitHubBranchRule> {
+    let mut rules = vec![GitHubBranchRule {
+        rule_type: "merge_queue".to_string(),
+        parameters: None,
+    }];
+    rules.extend(
+        MERGE_QUEUE_REQUIRED_CHECKS
+            .iter()
+            .map(|name| required_check_rule(name)),
+    );
+    rules
 }
 
 #[test]
@@ -3558,13 +3595,127 @@ fn validates_h_mg_against_trusted_merge_group_and_live_required_checks() {
             61,
             "main",
             MERGE_GROUP_OID,
-            &[trusted_check(10, "Dependency policy", "success")],
+            &trusted_checks(),
             &[trusted_merge_group_run()],
-            &trusted_branch_rules("Dependency policy"),
+            &trusted_codeql_analyses(),
+            &trusted_branch_rules(),
             &queue_timeline(false),
         )
         .is_ok()
     );
+}
+
+#[test]
+fn rejects_live_ruleset_missing_a_frozen_required_check() {
+    let rules = vec![
+        GitHubBranchRule {
+            rule_type: "merge_queue".to_string(),
+            parameters: None,
+        },
+        required_check_rule("Dependency policy"),
+    ];
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[trusted_merge_group_run()],
+        &trusted_codeql_analyses(),
+        &rules,
+        &queue_timeline(false),
+    )
+    .expect_err("all five frozen required contexts must remain live");
+    assert!(error.contains("缺少固定 context"));
+    assert!(error.contains("Analyze (actions)"));
+}
+
+#[test]
+fn rejects_wrong_required_check_or_check_run_source() {
+    let mut rules = trusted_branch_rules();
+    let codeql_rule = rules
+        .iter_mut()
+        .find(|rule| {
+            rule.parameters.as_ref().is_some_and(|parameters| {
+                parameters
+                    .required_status_checks
+                    .iter()
+                    .any(|check| check.context == "Analyze (rust)")
+            })
+        })
+        .expect("trusted rules contain Analyze (rust)");
+    codeql_rule
+        .parameters
+        .as_mut()
+        .expect("required check rule has parameters")
+        .required_status_checks[0]
+        .integration_id = Some(999);
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[trusted_merge_group_run()],
+        &trusted_codeql_analyses(),
+        &rules,
+        &queue_timeline(false),
+    )
+    .expect_err("ruleset source identity must be GitHub Actions");
+    assert!(error.contains("未绑定 integration_id=15368"));
+
+    let mut checks = trusted_checks();
+    checks
+        .iter_mut()
+        .find(|run| run.name == "Analyze (rust)")
+        .expect("trusted checks contain Analyze (rust)")
+        .app = Some(GitHubApp { id: 999 });
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &checks,
+        &[trusted_merge_group_run()],
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
+        &queue_timeline(false),
+    )
+    .expect_err("check-run source identity must be GitHub Actions");
+    assert!(error.contains("source 不是 integration_id=15368"));
+}
+
+#[test]
+fn rejects_missing_or_mismatched_codeql_analysis() {
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[trusted_merge_group_run()],
+        &[trusted_codeql_analysis(20, "actions")],
+        &trusted_branch_rules(),
+        &queue_timeline(false),
+    )
+    .expect_err("both CodeQL languages require an advanced analysis");
+    assert!(error.contains("CodeQL `rust` analysis"));
+
+    let mut analyses = trusted_codeql_analyses();
+    analyses[1].commit_sha = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[trusted_merge_group_run()],
+        &analyses,
+        &trusted_branch_rules(),
+        &queue_timeline(false),
+    )
+    .expect_err("CodeQL analysis must bind to the exact H_mg");
+    assert!(error.contains("CodeQL `rust` analysis"));
 }
 
 #[test]
@@ -3576,9 +3727,10 @@ fn rejects_self_attested_h_mg_without_matching_trusted_merge_group_run() {
         61,
         "main",
         MERGE_GROUP_OID,
-        &[trusted_check(10, "Dependency policy", "success")],
+        &trusted_checks(),
         &[wrong_run],
-        &trusted_branch_rules("Dependency policy"),
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
         &queue_timeline(false),
     )
     .expect_err("self-attested H_mg must not pass without trusted queue identity");
@@ -3587,17 +3739,17 @@ fn rejects_self_attested_h_mg_without_matching_trusted_merge_group_run() {
 
 #[test]
 fn rejects_missing_or_newer_failed_live_required_check() {
+    let mut checks = trusted_checks();
+    checks.push(trusted_check(100, "Dependency policy", "failure"));
     let error = validate_trusted_merge_group_evidence(
         "illusion-tech/laneflow",
         61,
         "main",
         MERGE_GROUP_OID,
-        &[
-            trusted_check(10, "Dependency policy", "success"),
-            trusted_check(11, "Dependency policy", "failure"),
-        ],
+        &checks,
         &[trusted_merge_group_run()],
-        &trusted_branch_rules("Dependency policy"),
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
         &queue_timeline(false),
     )
     .expect_err("latest required check conclusion must win");
@@ -3606,17 +3758,22 @@ fn rejects_missing_or_newer_failed_live_required_check() {
 
 #[test]
 fn rejects_the_check_run_that_completed_last_before_merge() {
-    let mut earlier_success = trusted_check(11, "Dependency policy", "success");
-    earlier_success.completed_at = Some("2026-08-20T05:10:00Z".to_string());
-    let later_failure = trusted_check(10, "Dependency policy", "failure");
+    let mut checks = trusted_checks();
+    checks
+        .iter_mut()
+        .find(|run| run.name == "Dependency policy")
+        .expect("trusted checks contain Dependency policy")
+        .completed_at = Some("2026-08-20T05:10:00Z".to_string());
+    checks.push(trusted_check(1, "Dependency policy", "failure"));
     let error = validate_trusted_merge_group_evidence(
         "illusion-tech/laneflow",
         61,
         "main",
         MERGE_GROUP_OID,
-        &[earlier_success, later_failure],
+        &checks,
         &[trusted_merge_group_run()],
-        &trusted_branch_rules("Dependency policy"),
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
         &queue_timeline(false),
     )
     .expect_err("completion time must win over check-run creation id");
@@ -3630,9 +3787,10 @@ fn rejects_dequeue_before_direct_merge_even_with_an_old_successful_h_mg() {
         61,
         "main",
         MERGE_GROUP_OID,
-        &[trusted_check(10, "Dependency policy", "success")],
+        &trusted_checks(),
         &[trusted_merge_group_run()],
-        &trusted_branch_rules("Dependency policy"),
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
         &queue_timeline(true),
     )
     .expect_err("dequeue followed by direct merge must reject old queue evidence");
@@ -3651,9 +3809,10 @@ fn rejects_an_older_generation_while_the_pr_remains_enqueued() {
         61,
         "main",
         MERGE_GROUP_OID,
-        &[trusted_check(10, "Dependency policy", "success")],
+        &trusted_checks(),
         &[old_run, regenerated],
-        &trusted_branch_rules("Dependency policy"),
+        &trusted_codeql_analyses(),
+        &trusted_branch_rules(),
         &queue_timeline(false),
     )
     .expect_err("a newer same-enqueue merge-group generation must win");
@@ -3662,18 +3821,20 @@ fn rejects_an_older_generation_while_the_pr_remains_enqueued() {
 
 #[test]
 fn ignores_required_check_reruns_completed_after_merge() {
-    let before_merge = trusted_check(10, "Dependency policy", "success");
-    let mut after_merge = trusted_check(11, "Dependency policy", "failure");
+    let mut checks = trusted_checks();
+    let mut after_merge = trusted_check(100, "Dependency policy", "failure");
     after_merge.completed_at = Some("2026-08-20T05:40:00Z".to_string());
+    checks.push(after_merge);
     assert!(
         validate_trusted_merge_group_evidence(
             "illusion-tech/laneflow",
             61,
             "main",
             MERGE_GROUP_OID,
-            &[before_merge, after_merge],
+            &checks,
             &[trusted_merge_group_run()],
-            &trusted_branch_rules("Dependency policy"),
+            &trusted_codeql_analyses(),
+            &trusted_branch_rules(),
             &queue_timeline(false),
         )
         .is_ok()
@@ -3682,14 +3843,17 @@ fn ignores_required_check_reruns_completed_after_merge() {
 
 #[test]
 fn rejects_g4_after_the_live_merge_queue_rule_is_removed() {
+    let mut rules = trusted_branch_rules();
+    rules.remove(0);
     let error = validate_trusted_merge_group_evidence(
         "illusion-tech/laneflow",
         61,
         "main",
         MERGE_GROUP_OID,
-        &[trusted_check(10, "Dependency policy", "success")],
+        &trusted_checks(),
         &[trusted_merge_group_run()],
-        &[required_check_rule("Dependency policy")],
+        &trusted_codeql_analyses(),
+        &rules,
         &queue_timeline(false),
     )
     .expect_err("activation G4 must retain the live merge-queue rule");

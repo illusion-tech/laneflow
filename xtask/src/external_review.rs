@@ -4661,6 +4661,10 @@ mod tests {
         for entry_point in [dependency, template, agent_guide] {
             assert!(entry_point.contains("dependabot-cargo-lock-only-v1"));
         }
+        assert!(dependency.contains("`Analyze (actions)`"));
+        assert!(dependency.contains("`Analyze (rust)`"));
+        assert!(dependency.contains("不再提供 CodeQL `not applicable`"));
+        assert!(!dependency.contains("CodeQL `not applicable` 与机器 completion"));
     }
 
     #[test]

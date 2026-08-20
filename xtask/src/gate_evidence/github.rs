@@ -625,6 +625,39 @@ fn encode_path_preserving_slashes(value: &str) -> String {
     encoded
 }
 
+fn encode_query_component(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                encoded.push(char::from(byte));
+            }
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
+}
+
+pub(super) fn gh_code_scanning_analyses(
+    repo: &str,
+    git_ref: &str,
+) -> Result<Vec<GitHubCodeScanningAnalysis>, String> {
+    let pages: Vec<Vec<GitHubCodeScanningAnalysis>> = gh_json(&[
+        "api".to_string(),
+        "--paginate".to_string(),
+        "--slurp".to_string(),
+        "-H".to_string(),
+        "Accept: application/vnd.github+json".to_string(),
+        "-H".to_string(),
+        "X-GitHub-Api-Version: 2022-11-28".to_string(),
+        format!(
+            "repos/{repo}/code-scanning/analyses?ref={}&per_page=100",
+            encode_query_component(git_ref)
+        ),
+    ])?;
+    Ok(pages.into_iter().flatten().collect())
+}
+
 pub(super) fn gh_branch_rules(repo: &str, branch: &str) -> Result<Vec<GitHubBranchRule>, String> {
     let pages: Vec<Vec<GitHubBranchRule>> = gh_json(&[
         "api".to_string(),

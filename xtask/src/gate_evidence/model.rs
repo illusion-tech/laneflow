@@ -282,6 +282,30 @@ pub(super) struct GitHubCheckRun {
     pub(super) conclusion: Option<String>,
     pub(super) completed_at: Option<String>,
     pub(super) html_url: String,
+    pub(super) app: Option<GitHubApp>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubApp {
+    pub(super) id: u64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubCodeScanningAnalysis {
+    pub(super) id: u64,
+    #[serde(rename = "ref")]
+    pub(super) git_ref: String,
+    pub(super) commit_sha: String,
+    pub(super) analysis_key: String,
+    pub(super) category: String,
+    pub(super) created_at: String,
+    pub(super) error: String,
+    pub(super) tool: GitHubCodeScanningTool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GitHubCodeScanningTool {
+    pub(super) name: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -318,6 +342,8 @@ pub(super) struct GitHubRequiredStatusChecksParameters {
 #[derive(Debug, serde::Deserialize)]
 pub(super) struct GitHubRequiredStatusCheck {
     pub(super) context: String,
+    #[serde(default)]
+    pub(super) integration_id: Option<u64>,
 }
 
 #[derive(Debug, serde::Deserialize)]
