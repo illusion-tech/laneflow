@@ -223,7 +223,8 @@ GitHub 成功完成队列合并时可能由 `github-merge-queue[bot]` 在唯一 
 `removed_from_merge_queue`；只在前序入队、actor、邻接顺序、秒级 `queued_at <= removed_at <= merged_at`
 和上述全部 trusted `H_mg` 证据同时成立时接受，同秒顺序只由这两个 timeline 事件的邻接证明。该路径要求
 merge-group run 的 `created_at/updated_at`、required check completion 与 CodeQL analysis 严格早于
-`removed_at`；不同 API 的同秒时间不能补证。
+`removed_at`；不同 API 的同秒时间不能补证。required check 还必须以 `started_at >= queued_at` 且
+`started_at <= completed_at` 绑定当前入队，禁止同一 `H_mg` 重新入队时复用旧成功 run。
 人工/缺失 actor、其他 bot、非邻接移出或异常时间仍失败关闭。
 #451 Related PR #452 是唯一已冻结的 `activation_bootstrap`，必须使用文档规定的精确 reason、证据 URL 与
 identity；不得填写 `H_mg`，也不得把它泛化为其他 activation boundary 后的直接合并例外。

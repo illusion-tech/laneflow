@@ -282,6 +282,7 @@ pub(super) struct GitHubCheckRun {
     pub(super) head_sha: String,
     pub(super) status: String,
     pub(super) conclusion: Option<String>,
+    pub(super) started_at: Option<String>,
     pub(super) completed_at: Option<String>,
     pub(super) html_url: String,
     pub(super) app: Option<GitHubApp>,
