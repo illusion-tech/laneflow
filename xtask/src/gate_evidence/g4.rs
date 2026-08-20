@@ -52,8 +52,10 @@ fn merged_after_queue_activation(pr: &GitHubPullRequest, label: &str) -> Result<
     Ok(merged_at >= activation)
 }
 
-fn validate_g4_pr_record(
+pub(super) fn validate_g4_pr_record(
     repo: &str,
+    issue_number: u64,
+    issue: &GitHubIssue,
     number: u64,
     role: &str,
     pr: &GitHubPullRequest,
@@ -89,6 +91,7 @@ fn validate_g4_pr_record(
             || record.chain.is_some()
             || record.inclusion_method.is_some()
             || record.inclusion_evidence_url.is_some()
+            || record.bootstrap_evidence_url.is_some()
         {
             return Err(format!(
                 "G4 PR #{number} 在 activation 前合并，必须只记录 pre_activation identity 与非空 reason"
@@ -97,7 +100,47 @@ fn validate_g4_pr_record(
         return Ok(false);
     }
 
-    if record.mode != "merge_queue" || record.reason.is_some() {
+    if record.mode == CODEQL_QUEUE_BOOTSTRAP_MODE {
+        let is_exact_bootstrap = repo == "illusion-tech/laneflow"
+            && issue_number == 451
+            && number == 452
+            && role == "related"
+            && pr.merged_at.as_deref() == Some("2026-08-20T07:27:35Z")
+            && record.reason.as_deref() == Some(CODEQL_QUEUE_BOOTSTRAP_REASON)
+            && record.bootstrap_evidence_url.as_deref()
+                == Some(CODEQL_QUEUE_BOOTSTRAP_EVIDENCE_URL)
+            && record.h_mg.is_none()
+            && record.checks_conclusion.is_none()
+            && record.checks_url.is_none()
+            && record.chain.is_none()
+            && record.inclusion_method.is_none()
+            && record.inclusion_evidence_url.is_none();
+        let evidence = issue
+            .comments
+            .iter()
+            .find(|comment| comment.url == CODEQL_QUEUE_BOOTSTRAP_EVIDENCE_URL);
+        let has_trusted_authorization = evidence.is_some_and(|comment| {
+            comment.author.as_ref().map(|author| author.login.as_str()) == Some("wangzishi")
+                && !comment.includes_created_edit
+                && comment.created_at == "2026-08-20T06:46:31Z"
+                && comment.body.contains("当前只授权 Related PR 1 / bootstrap")
+                && comment
+                    .body
+                    .contains("不修改 live Ruleset、Merge Queue 或 `allow_auto_merge`")
+        });
+        if !is_exact_bootstrap || !has_trusted_authorization {
+            return Err(
+                "activation_bootstrap 只允许 #451 Related PR #452 的已冻结 CodeQL queue bootstrap 记录"
+                    .to_string(),
+            );
+        }
+        return Ok(false);
+    }
+
+    if record.mode != "merge_queue"
+        || record.reason.is_some()
+        || record.bootstrap_evidence_url.is_some()
+    {
         return Err(format!(
             "G4 PR #{number} 在 activation 边界后合并，必须使用 merge_queue record；非队列例外需先扩展结构化治理契约"
         ));
@@ -145,6 +188,7 @@ fn validate_g4_pr_record(
 
 fn validate_merge_queue_g4_evidence(
     args: &GateEvidenceArgs,
+    issue: &GitHubIssue,
     body: &str,
     delivery_pr: &GitHubPullRequest,
     related_prs: &[GitHubPullRequest],
@@ -185,6 +229,8 @@ fn validate_merge_queue_g4_evidence(
     let mut queue_records = 0usize;
     queue_records += validate_g4_pr_record(
         &args.repo,
+        args.issue,
+        issue,
         delivery_number,
         "delivery",
         delivery_pr,
@@ -196,7 +242,9 @@ fn validate_merge_queue_g4_evidence(
         .zip(related_prs)
         .zip(record.pull_requests.iter().skip(1))
     {
-        queue_records += validate_g4_pr_record(&args.repo, *number, "related", pr, entry)? as usize;
+        queue_records +=
+            validate_g4_pr_record(&args.repo, args.issue, issue, *number, "related", pr, entry)?
+                as usize;
     }
     if queue_records > 0 && !unique_metadata_line(body, "合并")?.contains("Merge Queue") {
         return Err("post-activation G4 `- 合并：` 必须明确记录 Merge Queue".to_string());
@@ -349,12 +397,14 @@ pub(super) fn validate_trusted_merge_group_evidence(
         ));
     }
     for name in MERGE_QUEUE_REQUIRED_CHECKS {
-        if !required_checks
-            .get(name)
-            .is_some_and(|ids| ids.contains(&Some(GITHUB_ACTIONS_INTEGRATION_ID)))
-        {
+        if !required_checks.get(name).is_some_and(|ids| {
+            !ids.is_empty()
+                && ids
+                    .iter()
+                    .all(|id| *id == Some(GITHUB_ACTIONS_INTEGRATION_ID))
+        }) {
             return Err(format!(
-                "PR #{number} live required check `{name}` 未绑定 integration_id={GITHUB_ACTIONS_INTEGRATION_ID}"
+                "PR #{number} live required check `{name}` 存在未绑定 integration_id={GITHUB_ACTIONS_INTEGRATION_ID} 的 source"
             ));
         }
     }
@@ -766,7 +816,7 @@ pub(super) fn validate_g4_evidence(
     let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
     let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
     validate_comment_body(&g4_comment.body, G4_COMMENT_FIELDS, "Issue G4")?;
-    validate_merge_queue_g4_evidence(args, &g4_comment.body, delivery_pr, related_prs)?;
+    validate_merge_queue_g4_evidence(args, issue, &g4_comment.body, delivery_pr, related_prs)?;
     let delivery_number = args
         .delivery_pr
         .ok_or("G4 validation 缺少 Delivery PR 参数")?;

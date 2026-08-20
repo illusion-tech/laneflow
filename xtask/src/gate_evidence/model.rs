@@ -551,6 +551,11 @@ pub(super) const MERGE_QUEUE_G4_RECORD_START: &str = "<!-- merge-queue-g4-eviden
 pub(super) const MERGE_QUEUE_G4_RECORD_END: &str = "-->";
 pub(super) const MERGE_QUEUE_G4_INCLUSION_METHOD: &str =
     "trusted GitHub merge_group identity + compare";
+pub(super) const CODEQL_QUEUE_BOOTSTRAP_MODE: &str = "activation_bootstrap";
+pub(super) const CODEQL_QUEUE_BOOTSTRAP_REASON: &str =
+    "Related PR #452 在 #451 live Merge Queue transaction 前部署 advanced CodeQL workflow";
+pub(super) const CODEQL_QUEUE_BOOTSTRAP_EVIDENCE_URL: &str =
+    "https://github.com/illusion-tech/laneflow/issues/451#issuecomment-5352404197";
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -582,6 +587,8 @@ pub(super) struct MergeQueueG4PullRequestRecord {
     pub(super) inclusion_evidence_url: Option<String>,
     #[serde(default)]
     pub(super) reason: Option<String>,
+    #[serde(default)]
+    pub(super) bootstrap_evidence_url: Option<String>,
 }
 
 pub(super) const GATE_ASSERTION_PREFIX: &str = "- Gate 断言：";

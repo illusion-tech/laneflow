@@ -3462,6 +3462,43 @@ fn pre_activation_g4_entry(number: u64, role: &str) -> serde_json::Value {
     })
 }
 
+fn codeql_activation_bootstrap_record(pr: &GitHubPullRequest) -> MergeQueueG4PullRequestRecord {
+    MergeQueueG4PullRequestRecord {
+        number: 452,
+        role: "related".to_string(),
+        mode: CODEQL_QUEUE_BOOTSTRAP_MODE.to_string(),
+        h_pr: pr.head_ref_oid.clone(),
+        h_main: pr
+            .merge_commit
+            .as_ref()
+            .expect("bootstrap fixture has merge commit")
+            .oid
+            .clone(),
+        h_mg: None,
+        checks_conclusion: None,
+        checks_url: None,
+        chain: None,
+        inclusion_method: None,
+        inclusion_evidence_url: None,
+        reason: Some(CODEQL_QUEUE_BOOTSTRAP_REASON.to_string()),
+        bootstrap_evidence_url: Some(CODEQL_QUEUE_BOOTSTRAP_EVIDENCE_URL.to_string()),
+    }
+}
+
+fn codeql_activation_bootstrap_issue() -> GitHubIssue {
+    let mut value = issue("OPEN", "Done");
+    let mut authorization = value.comments[0].clone();
+    authorization.url = CODEQL_QUEUE_BOOTSTRAP_EVIDENCE_URL.to_string();
+    authorization.created_at = "2026-08-20T06:46:31Z".to_string();
+    authorization.author = Some(GitHubActor {
+        login: "wangzishi".to_string(),
+    });
+    authorization.includes_created_edit = false;
+    authorization.body = "当前只授权 Related PR 1 / bootstrap；不修改 live Ruleset、Merge Queue 或 `allow_auto_merge`".to_string();
+    value.comments.push(authorization);
+    value
+}
+
 fn append_queue_g4_record(body: &mut String, entries: Vec<serde_json::Value>) {
     let record = serde_json::json!({
         "schemaVersion": 1,
@@ -3664,6 +3701,29 @@ fn rejects_wrong_required_check_or_check_run_source() {
     .expect_err("ruleset source identity must be GitHub Actions");
     assert!(error.contains("未绑定 integration_id=15368"));
 
+    let mut mixed_rules = trusted_branch_rules();
+    let mut wrong_duplicate = required_check_rule("Analyze (rust)");
+    wrong_duplicate
+        .parameters
+        .as_mut()
+        .expect("required check rule has parameters")
+        .required_status_checks[0]
+        .integration_id = None;
+    mixed_rules.push(wrong_duplicate);
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &trusted_checks(),
+        &[trusted_merge_group_run()],
+        &trusted_codeql_analyses(),
+        &mixed_rules,
+        &queue_timeline(false),
+    )
+    .expect_err("a correct binding must not hide a duplicate wrong-source binding");
+    assert!(error.contains("未绑定 integration_id=15368"));
+
     let mut checks = trusted_checks();
     checks
         .iter_mut()
@@ -3858,6 +3918,43 @@ fn rejects_g4_after_the_live_merge_queue_rule_is_removed() {
     )
     .expect_err("activation G4 must retain the live merge-queue rule");
     assert!(error.contains("缺少 live merge_queue rule"));
+}
+
+#[test]
+fn accepts_only_the_exact_451_452_codeql_activation_bootstrap() {
+    let issue = codeql_activation_bootstrap_issue();
+    let mut pr = related_pr(false);
+    pr.state = "MERGED".to_string();
+    pr.merged_at = Some("2026-08-20T07:27:35Z".to_string());
+    pr.merge_commit = Some(GitHubCommit {
+        oid: MAIN_RESULT_OID.to_string(),
+    });
+    let record = codeql_activation_bootstrap_record(&pr);
+
+    assert!(
+        validate_g4_pr_record(
+            "illusion-tech/laneflow",
+            451,
+            &issue,
+            452,
+            "related",
+            &pr,
+            &record,
+        )
+        .is_ok()
+    );
+
+    let error = validate_g4_pr_record(
+        "illusion-tech/laneflow",
+        451,
+        &issue,
+        453,
+        "related",
+        &pr,
+        &record,
+    )
+    .expect_err("the one-time bootstrap must not become a general direct-merge exception");
+    assert!(error.contains("identity/order 不一致") || error.contains("只允许 #451"));
 }
 
 fn queue_delivery_g4_fixture(
