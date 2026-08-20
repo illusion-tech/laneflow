@@ -244,6 +244,21 @@ steady state 的正式 `G3 Pass` 必须同时满足：
 
 `External Review Gate` 是机器权威；G3 comment 是 Owner 决策。PR / Issue body 只保存 permalink 索引，commit 只使用 `Gate: G3 Candidate`，三者不能互相替代。
 
+Issue #446 为合并队列（Merge Queue）冻结三个独立身份：`H_pr` 是 current exact PR Head，承载本节 external review
+与 G3 Owner 证据；`H_mg` 是 GitHub 为当前队列组合创建的合并组（Merge Group）Head，承载最新 `main` 上的集成
+检查；`H_main` 是最终 rebase 进入默认分支的结果。PR Head 变化会让旧 review / Check / G3 全部 stale；
+`main` 前进或队列重排只替换 `H_mg`，不得让未变化 `H_pr` 的外部审阅失效。合并组失败时保持阻断，
+但只有修复导致 `H_pr` 变化时才重新进入 exact-head 审阅生命周期。G4 必须保存并复核
+`H_pr → H_mg → H_main`，不能用 rebase 后 SHA 不同否定已验证的 inclusion，也不能用 patch inclusion
+替代 `H_mg` 上的 required checks。
+
+该契约按 bootstrap / activation 两个 PR 生效：Related PR 1 只增加 `merge_group` workflow、validator 与
+文档能力，仍按修改前的 live ruleset 完成 G3；Delivery PR 2 先确认这些能力已在 `main` 部署，并保存
+Ruleset before 与精确回滚载荷，再以事务方式临时启用合并队列并将自身入队。GitHub 创建真实 `H_mg` 后，
+Delivery PR 2 才验证 required checks 与 CodeQL；全部成功则保留新 Ruleset 并继续无 `--admin` 合并，任一
+结果缺失或失败则立即恢复 before 配置并保持 G3 Block。Delivery PR 2 完成 G4 前，不得提前把 `G3 Pass`、
+shadow telemetry、候选 workflow 或“已临时启用”描述为队列集成已经通过。
+
 R1 的 `External Review Gate Shadow` 由 `github-actions` 发布，只用于 non-required telemetry，不能直接升级为 required Check：GitHub required status checks 不区分 workflow、matrix 或 event，同仓 PR 可以创建同 source App 的同名 Actions job。R2 前必须改由独立、最小权限的专用 GitHub App 发布正式 `External Review Gate`，ruleset 同时绑定 Check name 与该 App；spoof canary 必须证明 PR 自定义的同名 job 不能满足 required check。
 
 `G3 Evidence Gate Shadow` 是独立的 R1 证据闭环 telemetry。它从 `main` 上的 trusted validator 运行 `check-gate-evidence-target --repo <owner/repo> --pr <current-pr>`，通常根据 PR body 中一个或多个明确的 `关联 Issue` 和精确 `PR 角色`，为每个 Issue 独立构造 Related-only 或 Delivery full-set G3 参数并全部校验。R1 publisher 只在精确新建的 `g3-evidence: changed` marker 事件或精确 `dependabot-cargo-lock-only-v1` 的 marker 复用事件发布 `G3 Evidence Gate Shadow` Check；其他 PR / Issue / workflow 事件属于仅遥测（telemetry-only），不发布新 Check，也不得把 merged / closed / draft / 非 main base 的 head 重新染红。精确 `dependabot-cargo-lock-only-v1` 的 body 元数据恢复例外按上一节执行。一个 PR 关联多个 Issue 时，同一 current G3 comment 为每个 Issue 分别记录一条精确 `Gate 断言`；完整命令集合必须与全部解析 target 精确相等，不接受缺失、重复或未声明 Issue / 参数的额外成功断言。Delivery target 的完整 `closingIssuesReferences` 必须与全部 `关联 Issue` 精确一致；Related target 的 closing set 必须为空，不能用未声明 closing keyword 绕过自动 target 解析。Delivery 的完整 Related PR 集合只从对应 Issue `Related PRs` 按记录顺序读取；每个 current-policy Related 成员还必须在自身 body 声明 `Related PR` 角色、包含当前 Issue、保持空 closing set，并通过其全部声明 Issue 的断言集合闭包；只有上述精确 Dependabot 例外可从 current G3 comment 的规范断言恢复这些冗余 body 元数据。Related PR 必须已经列入每个对应 Issue，并且是非 Draft `OPEN` current target，或带 `mergedAt` 的 `MERGED` 历史证据；`CLOSED` / 状态与合并时间不一致均 fail closed。具体 PR 编号只能使用无残留选项的 `#<number>` 列表；`pending / #61 / N/A`、`#<number>` 占位、空原因、缺失或重复编号、角色与 Issue 元数据不一致均 fail closed。关联 Issue 必须仍为 `OPEN`；G3 查询不得读取只供 G4 `Project=Done` 使用的 `projectItems`，避免要求 trusted workflow token 拥有不必要的 Projects 权限。

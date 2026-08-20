@@ -254,6 +254,27 @@ LaneFlow 默认使用 **Rebase and merge** 将 PR 合入 `main`。
 - 常规功能、修复、文档、治理 PR → **Rebase and merge**。
 - PR 内 commit 已具备独立意义且 message 符合 `docs/reference/commit-convention.md` → **Rebase and merge**。
 
+### 7.1 合并队列（Merge Queue）目标态与 bootstrap 边界
+
+Issue #446 采用“审阅稳定补丁、队列验证集成结果”的模型，在不放弃最终 rebase 历史的前提下，
+消除 `main` 单纯前进造成的例行手工 rebase 与重复外部审阅：
+
+- PR Head `H_pr` 是补丁审阅身份，绑定 exact-head 外部审阅、finding disposition 与 G3 Owner 判断。
+- 合并组（Merge Group）Head `H_mg` 是集成候选身份，由最新 `main`、队列中位于当前 PR 之前的变更与当前 PR 组成，绑定 CI、依赖政策和适用安全扫描。
+- Main Result `H_main` 是 GitHub 执行 rebase 后进入 `main` 的结果；G4 保存 `H_pr → H_mg → H_main`，验证 inclusion / replay，不要求 SHA 相等。
+
+失效边界固定为：PR 新 push、force-push 或冲突修复产生新 `H_pr` 时，旧 external review、finding disposition、
+G3 与入队资格全部 stale；`main` 前进、队列顺序或成员变化只废弃旧 `H_mg` 并重跑机器检查，
+不得让未变化 `H_pr` 上的人审失效。合并组检查失败时不得合并；若 `H_pr` 未变化，不要求重新人审。
+
+#446 分两个 PR 自举：Related PR 1 只把该契约和 `merge_group` CI 能力合入 `main`，不修改 live Ruleset，
+也不能使用候选队列能力自批。Delivery PR 2 先确认所需 workflow 已在 `main` 部署，保存 Ruleset before
+快照与精确 rollback 载荷，然后以事务方式临时启用合并队列并将自身入队；只有这一步之后 GitHub 才能
+创建真实 Merge Group。真实 `H_mg` 上的 required checks 与 CodeQL canary 全部成功时，保留新 Ruleset
+并继续首次无 `--admin` 合并；任一结果缺失或失败时，立即恢复 before 配置、停止 canary 并保持 G3 Block。
+canary 成功不是启用队列的前置条件，而是决定激活事务提交或回滚的判据。在 Delivery PR 2 完成 G4 前，
+不得把 bootstrap 或尚未提交的临时激活描述为合并队列已经稳定启用。
+
 PR commit message 应使用 Conventional Commits 标题，并在正文保留 LaneFlow 治理字段：
 
 - `Gate`

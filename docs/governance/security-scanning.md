@@ -29,6 +29,14 @@ LaneFlow 使用 GitHub CodeQL default setup：
 - `main` ruleset 使用原生 `code_scanning` 规则要求 CodeQL 提供结果；分析未配置、仍在运行或发现 `high` / `critical` security alert 时阻断合并。
 - 只有实际出现覆盖率、查询、构建方式或 runner 限制时，才通过独立 Issue 评估 advanced setup。
 
+合并队列 activation 必须先保存 Ruleset before 与精确回滚载荷，再临时启用队列并将 Delivery canary PR
+入队；只有这一步之后，GitHub 才能创建用于验证的真实 canary 合并组（Merge Group）。default setup 必须为
+该 `merge_group.head_sha` 产生 `actions` 与 `rust` 的适用分析，并保存分析 URL、目标 SHA 与 ruleset 判断；
+在验证完成前，临时启用不等于 activation 已提交。仅让普通 CI 监听 `merge_group`、看到历史 PR / `main`
+分析或 API 返回空告警，都不能证明 Merge Group 已被 CodeQL 覆盖。若 default setup 未产生适用分析，
+必须立即恢复 before 配置并保持合并队列未启用状态，再通过独立 G1 判断是否需要 advanced setup；不得在
+同一次 activation 中无设计记录地切换扫描模式。
+
 选择 default setup 是为了保留 GitHub 的自动语言识别与低维护升级路径，避免在没有定制需求时自行维护 CodeQL workflow。使用原生 ruleset merge protection 是为了让分析缺失、未完成和高危结果成为机器可执行阻断，而不是只依赖人工阅读 Checks。GitHub 官方说明见 [配置 Code Scanning](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configure-code-scanning)、[Code Scanning setup types](https://docs.github.com/en/code-security/concepts/code-scanning/setup-types) 和 [Code Scanning merge protection](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/manage-your-configuration/set-merge-protection)。
 
 ### 2.2 Secret Scanning
