@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{args::*, document::*, g3::*, github::*, model::*};
+use super::{args::*, document::*, g3::*, g4_recovery::*, github::*, model::*};
 
 pub(super) const MERGE_QUEUE_REQUIRED_CHECKS: [&str; 5] = [
     "Governance checks",
@@ -14,7 +14,7 @@ pub(super) const MERGE_QUEUE_REQUIRED_CHECKS: [&str; 5] = [
 pub(super) const GITHUB_ACTIONS_INTEGRATION_ID: u64 = 15368;
 pub(super) const CODEQL_ANALYSIS_KEY: &str = ".github/workflows/codeql.yml:analyze";
 
-fn full_commit_oid(value: &str, label: &str) -> Result<String, String> {
+pub(super) fn full_commit_oid(value: &str, label: &str) -> Result<String, String> {
     if value.len() != 40 || !value.chars().all(|character| character.is_ascii_hexdigit()) {
         return Err(format!("G4 `{label}` 不是 40 位十六进制 commit OID"));
     }
@@ -40,7 +40,10 @@ fn merge_queue_g4_record(body: &str) -> Result<Option<MergeQueueG4Record>, Strin
         .map_err(|error| format!("merge-queue-g4-evidence:v1 JSON 无效：{error}"))
 }
 
-fn merged_after_queue_activation(pr: &GitHubPullRequest, label: &str) -> Result<bool, String> {
+pub(super) fn merged_after_queue_activation(
+    pr: &GitHubPullRequest,
+    label: &str,
+) -> Result<bool, String> {
     let merged_at = pr
         .merged_at
         .as_deref()
@@ -92,6 +95,8 @@ pub(super) fn validate_g4_pr_record(
             || record.inclusion_method.is_some()
             || record.inclusion_evidence_url.is_some()
             || record.bootstrap_evidence_url.is_some()
+            || record.failure_evidence_url.is_some()
+            || record.recovery_evidence_url.is_some()
         {
             return Err(format!(
                 "G4 PR #{number} 在 activation 前合并，必须只记录 pre_activation identity 与非空 reason"
@@ -114,7 +119,9 @@ pub(super) fn validate_g4_pr_record(
             && record.checks_url.is_none()
             && record.chain.is_none()
             && record.inclusion_method.is_none()
-            && record.inclusion_evidence_url.is_none();
+            && record.inclusion_evidence_url.is_none()
+            && record.failure_evidence_url.is_none()
+            && record.recovery_evidence_url.is_none();
         let evidence = issue
             .comments
             .iter()
@@ -140,6 +147,8 @@ pub(super) fn validate_g4_pr_record(
     if record.mode != "merge_queue"
         || record.reason.is_some()
         || record.bootstrap_evidence_url.is_some()
+        || record.failure_evidence_url.is_some()
+        || record.recovery_evidence_url.is_some()
     {
         return Err(format!(
             "G4 PR #{number} 在 activation 边界后合并，必须使用 merge_queue record；非队列例外需先扩展结构化治理契约"
@@ -189,10 +198,11 @@ pub(super) fn validate_g4_pr_record(
 fn validate_merge_queue_g4_evidence(
     args: &GateEvidenceArgs,
     issue: &GitHubIssue,
-    body: &str,
+    g4_comment: &GitHubComment,
     delivery_pr: &GitHubPullRequest,
     related_prs: &[GitHubPullRequest],
 ) -> Result<(), String> {
+    let body = &g4_comment.body;
     let delivery_number = args
         .delivery_pr
         .ok_or("G4 validation 缺少 Delivery PR 参数")?;
@@ -209,7 +219,13 @@ fn validate_merge_queue_g4_evidence(
                 .into_iter()
                 .any(|value| value);
 
+    let recovery = merge_queue_g4_recovery_record(g4_comment, args)?;
     let Some(record) = merge_queue_g4_record(body)? else {
+        if recovery.is_some() {
+            return Err(
+                "merge-queue-g4-recovery:v1 必须与 merge-queue-g4-evidence:v1 同时存在".to_string(),
+            );
+        }
         return if any_post_activation {
             Err("post-activation G4 缺少 merge-queue-g4-evidence:v1 记录".to_string())
         } else {
@@ -225,26 +241,60 @@ fn validate_merge_queue_g4_evidence(
     if record.pull_requests.len() != 1 + related_prs.len() {
         return Err("Merge Queue G4 PR record 集合必须等于 Delivery + 全部 Related PR".to_string());
     }
+    let historical_failures = record
+        .pull_requests
+        .iter()
+        .filter(|entry| entry.mode == "historical_failure")
+        .count();
+    let accepted_failures = recovery
+        .as_ref()
+        .map_or(0, |recovery| recovery.failures.len());
+    if accepted_failures != historical_failures {
+        return Err(
+            "Merge Queue G4 accepted_exception failures 必须与 historical_failure PR records 一一配对"
+                .to_string(),
+        );
+    }
 
     let mut queue_records = 0usize;
-    queue_records += validate_g4_pr_record(
-        &args.repo,
-        args.issue,
-        issue,
-        delivery_number,
-        "delivery",
-        delivery_pr,
-        &record.pull_requests[0],
-    )? as usize;
+    if let Some(recovery) = recovery
+        .as_ref()
+        .and_then(|recovery| recovery_entry(recovery, delivery_number, "delivery"))
+    {
+        validate_historical_failure_pr_record(
+            delivery_number,
+            "delivery",
+            delivery_pr,
+            &record.pull_requests[0],
+            recovery,
+        )?;
+    } else {
+        queue_records += validate_g4_pr_record(
+            &args.repo,
+            args.issue,
+            issue,
+            delivery_number,
+            "delivery",
+            delivery_pr,
+            &record.pull_requests[0],
+        )? as usize;
+    }
     for ((number, pr), entry) in args
         .related_prs
         .iter()
         .zip(related_prs)
         .zip(record.pull_requests.iter().skip(1))
     {
-        queue_records +=
-            validate_g4_pr_record(&args.repo, args.issue, issue, *number, "related", pr, entry)?
-                as usize;
+        if let Some(recovery) = recovery
+            .as_ref()
+            .and_then(|recovery| recovery_entry(recovery, *number, "related"))
+        {
+            validate_historical_failure_pr_record(*number, "related", pr, entry, recovery)?;
+        } else {
+            queue_records += validate_g4_pr_record(
+                &args.repo, args.issue, issue, *number, "related", pr, entry,
+            )? as usize;
+        }
     }
     if queue_records > 0 && !unique_metadata_line(body, "合并")?.contains("Merge Queue") {
         return Err("post-activation G4 `- 合并：` 必须明确记录 Merge Queue".to_string());
@@ -604,6 +654,9 @@ pub(super) fn validate_live_merge_queue_g4_evidence(args: &GateEvidenceArgs) -> 
             &timeline,
         )?;
     }
+    if let Some(recovery) = merge_queue_g4_recovery_record(comment, args)? {
+        validate_live_merge_queue_recovery(args, &issue, &record, &recovery)?;
+    }
     Ok(())
 }
 
@@ -881,7 +934,7 @@ pub(super) fn validate_g4_evidence(
     let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
     let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
     validate_comment_body(&g4_comment.body, G4_COMMENT_FIELDS, "Issue G4")?;
-    validate_merge_queue_g4_evidence(args, issue, &g4_comment.body, delivery_pr, related_prs)?;
+    validate_merge_queue_g4_evidence(args, issue, g4_comment, delivery_pr, related_prs)?;
     let delivery_number = args
         .delivery_pr
         .ok_or("G4 validation 缺少 Delivery PR 参数")?;

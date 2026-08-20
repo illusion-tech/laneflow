@@ -6,6 +6,7 @@ mod document;
 mod fixtures;
 mod g3;
 mod g4;
+mod g4_recovery;
 mod github;
 mod model;
 #[cfg(test)]
@@ -20,6 +21,8 @@ use g3::*;
 #[cfg(test)]
 use g4::*;
 use g4::{validate_g4_evidence, validate_live_merge_queue_g4_evidence};
+#[cfg(test)]
+use g4_recovery::*;
 use github::*;
 use model::*;
 

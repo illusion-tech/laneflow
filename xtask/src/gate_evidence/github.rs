@@ -222,6 +222,84 @@ pub(super) fn gh_issue_timeline(
     Ok(pages.into_iter().flatten().collect())
 }
 
+pub(super) fn gh_issue_project_status_evidence(
+    repo: &str,
+    number: u64,
+) -> Result<Vec<GitHubProjectStatusEvidence>, String> {
+    let (owner, name) = repo
+        .split_once('/')
+        .ok_or_else(|| format!("`--repo` 格式不正确：{repo}，应为 `owner/repo`"))?;
+    let query = r#"query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      projectItems(first: 100) {
+        pageInfo { hasNextPage }
+        nodes {
+          project { title }
+          fieldValues(first: 100) {
+            pageInfo { hasNextPage }
+            nodes {
+              __typename
+              ... on ProjectV2ItemFieldSingleSelectValue {
+                name
+                updatedAt
+                field { ... on ProjectV2FieldCommon { name } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}"#;
+    let response: GitHubIssueProjectItemsResponse = gh_json(&[
+        "api".to_string(),
+        "graphql".to_string(),
+        "-f".to_string(),
+        format!("query={query}"),
+        "-F".to_string(),
+        format!("owner={owner}"),
+        "-F".to_string(),
+        format!("name={name}"),
+        "-F".to_string(),
+        format!("number={number}"),
+    ])?;
+    let issue = response
+        .data
+        .repository
+        .ok_or("GitHub GraphQL 未返回目标 repository")?
+        .issue
+        .ok_or_else(|| format!("GitHub GraphQL 未返回 Issue #{number}"))?;
+    if issue.project_items.page_info.has_next_page {
+        return Err("remediation Issue projectItems 超过 100 项，无法完整验证".to_string());
+    }
+
+    let mut evidence = Vec::new();
+    for item in issue.project_items.nodes {
+        if item.field_values.page_info.has_next_page {
+            return Err(format!(
+                "remediation Issue Project `{}` fieldValues 超过 100 项，无法完整验证",
+                item.project.title
+            ));
+        }
+        for value in item.field_values.nodes {
+            if value.type_name != "ProjectV2ItemFieldSingleSelectValue"
+                || value.field.as_ref().map(|field| field.name.as_str()) != Some("Status")
+            {
+                continue;
+            }
+            evidence.push(GitHubProjectStatusEvidence {
+                project_title: item.project.title.clone(),
+                status_name: value.name.ok_or("Project Status value 缺少 name")?,
+                updated_at: value
+                    .updated_at
+                    .ok_or("Project Status value 缺少 updatedAt")?,
+            });
+        }
+    }
+    Ok(evidence)
+}
+
 pub(super) fn validate_g3_evidence_marker_comment(
     marker: &GitHubIssueCommentRest,
     repo: &str,
