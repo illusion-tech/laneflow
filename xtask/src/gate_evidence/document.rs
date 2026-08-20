@@ -2344,8 +2344,8 @@ pub(super) fn validate_external_review_round_cap_consistency(
 }
 
 fn conditional_field_line<'a>(body: &'a str, field: &str) -> Result<Option<&'a str>, String> {
-    let lines = body
-        .lines()
+    let lines = visible_top_level_lines(body)
+        .into_iter()
         .filter(|line| line.trim_start().starts_with(field))
         .collect::<Vec<_>>();
     match lines.as_slice() {
@@ -2353,6 +2353,62 @@ fn conditional_field_line<'a>(body: &'a str, field: &str) -> Result<Option<&'a s
         [line] => Ok(Some(line)),
         _ => Err(format!("G3 comment 的 `{field}` 条件字段不能重复")),
     }
+}
+
+/// F3：Markdown 可见顶层行——剔除多行 HTML comment、fenced code block（``` 或
+/// ~~~）与 indented code block（4+ 空格或 tab 缩进）内的行；这些区域 GitHub
+/// 不渲染，条件披露字段行或引用定义藏进去等同未披露（fail-closed 判缺失）。
+fn visible_top_level_lines(body: &str) -> Vec<&str> {
+    let mut visible = Vec::new();
+    let mut in_html_comment = false;
+    let mut fence_char: Option<char> = None;
+    for line in body.lines() {
+        let trimmed = line.trim_start();
+        if in_html_comment {
+            if trimmed.contains("-->") {
+                in_html_comment = false;
+            }
+            continue;
+        }
+        if let Some(fence) = fence_char {
+            if trimmed
+                .chars()
+                .take_while(|character| *character == fence)
+                .count()
+                >= 3
+                && trimmed.trim_start_matches(fence).trim().is_empty()
+            {
+                fence_char = None;
+            }
+            continue;
+        }
+        if line.starts_with("    ") || line.starts_with('\t') {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("<!--") {
+            if !rest.contains("-->") {
+                in_html_comment = true;
+            }
+            continue;
+        }
+        if trimmed.starts_with("```") {
+            fence_char = Some('`');
+            continue;
+        }
+        if trimmed.starts_with("~~~") {
+            fence_char = Some('~');
+            continue;
+        }
+        visible.push(line);
+    }
+    visible
+}
+
+/// F3：引用定义同样只认可见顶层行（藏在 HTML comment/代码块里的定义不渲染）。
+fn visible_reference_github_url(body: &str, label: &str) -> Option<String> {
+    visible_top_level_lines(body)
+        .into_iter()
+        .find_map(|line| reference_definition_url(line, label))
 }
 
 /// 解析条件字段行行内 `[text][label]` 引用（同 waiver evidenceRefs 模式），逐个经
@@ -2366,9 +2422,11 @@ fn conditional_field_urls(body: &str, line: &str, field: &str) -> Result<BTreeSe
                 "`{field}` 字段 reference label 重复：{field_label}"
             ));
         }
-        urls.insert(reference_github_url(body, field_label).ok_or_else(|| {
-            format!("`{field}` 字段 reference `{field_label}` 缺少 GitHub HTTPS 文末引用定义")
-        })?);
+        urls.insert(
+            visible_reference_github_url(body, field_label).ok_or_else(|| {
+                format!("`{field}` 字段 reference `{field_label}` 缺少 GitHub HTTPS 文末引用定义")
+            })?,
+        );
     }
     Ok(urls)
 }
@@ -2499,20 +2557,23 @@ pub(super) fn validate_g3_conditional_disclosure_fields(
 }
 
 pub(super) fn reference_github_url(body: &str, label: &str) -> Option<String> {
-    body.lines().find_map(|line| {
-        let definition = line.trim().strip_prefix('[')?;
-        let (candidate, value) = definition.split_once("]:")?;
-        if !candidate.eq_ignore_ascii_case(label) {
-            return None;
-        }
-        let value = value.trim();
-        let value = value
-            .strip_prefix('<')
-            .and_then(|value| value.strip_suffix('>'))
-            .unwrap_or(value);
-        (value.starts_with("https://github.com/") && !value.chars().any(char::is_whitespace))
-            .then(|| value.to_string())
-    })
+    body.lines()
+        .find_map(|line| reference_definition_url(line, label))
+}
+
+fn reference_definition_url(line: &str, label: &str) -> Option<String> {
+    let definition = line.trim().strip_prefix('[')?;
+    let (candidate, value) = definition.split_once("]:")?;
+    if !candidate.eq_ignore_ascii_case(label) {
+        return None;
+    }
+    let value = value.trim();
+    let value = value
+        .strip_prefix('<')
+        .and_then(|value| value.strip_suffix('>'))
+        .unwrap_or(value);
+    (value.starts_with("https://github.com/") && !value.chars().any(char::is_whitespace))
+        .then(|| value.to_string())
 }
 
 pub(super) fn parse_utc_timestamp_seconds(value: &str) -> Option<u64> {

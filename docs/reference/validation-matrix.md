@@ -55,7 +55,7 @@ cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
 
 ## 4. 外部审阅 Gate 回归矩阵
 
-所有切片默认需要一个有效 external reviewer。首版标准路径只接受 exact-head review；check output 的 `unresolved=` 自 #406 起只计 blocking（P0/P1/无 badge）未闭环 thread，`unresolved=0` 是必要非充分条件；deferred（P2/P3）计数与 review 轮数由 `deferred=` / `rounds=` 键单独披露。
+所有切片默认需要一个有效 external reviewer。首版标准路径接受 exact-head review；git tree OID 逐字节相等的内容等价 head 按 D4 继承审阅结论；check output 的 `unresolved=` 自 #406 起只计 blocking（P0/P1/无 badge）未闭环 thread，`unresolved=0` 是必要非充分条件；deferred（P2/P3）计数与 review 轮数由 `deferred=` / `rounds=` 键单独披露。
 
 | 场景                                                                                           | 预期状态 / 结果                                                                                    |
 | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |

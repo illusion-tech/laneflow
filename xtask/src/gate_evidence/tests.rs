@@ -3326,6 +3326,78 @@ fn review_round_cap_field_required_exactly_when_round_cap_applies() {
 }
 
 #[test]
+fn conditional_fields_hidden_in_non_rendered_regions_count_as_missing() {
+    // F3：字段行或引用定义藏在多行 HTML comment / fenced / indented code block
+    // 内时 GitHub 不渲染，一律判缺失（fail-closed）
+    let deferred_urls: BTreeSet<&str> =
+        ["https://github.com/illusion-tech/laneflow/pull/61#discussion_r201"]
+            .into_iter()
+            .collect();
+    let field_line = "- Deferred findings：1 条 [P2][d1]。";
+    let definition = "[d1]: https://github.com/illusion-tech/laneflow/pull/61#discussion_r201";
+
+    // 字段行藏在多行 HTML comment 内
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n<!--\n{field_line}\n-->\n\n{definition}"
+    ));
+    let error =
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .expect_err("field hidden in HTML comment must count as missing");
+    assert!(error.contains("缺少 `- Deferred findings：` 字段"));
+
+    // 字段行藏在 fenced code block 内（``` 与 ~~~ 两种 fence）
+    for fence in ["```", "~~~"] {
+        let comment = round_cap_g3_comment(format!(
+            "- Gate 结果：`G3 Pass`\n{fence}\n{field_line}\n{fence}\n\n{definition}"
+        ));
+        let error = validate_g3_conditional_disclosure_fields(
+            &comment,
+            "Delivery PR",
+            &deferred_urls,
+            None,
+        )
+        .expect_err("field hidden in fenced code block must count as missing");
+        assert!(error.contains("缺少 `- Deferred findings：` 字段"));
+    }
+
+    // 字段行缩进 4 空格（indented code block）
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n\n    {field_line}\n\n{definition}"
+    ));
+    let error =
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .expect_err("indented field must count as missing");
+    assert!(error.contains("缺少 `- Deferred findings：` 字段"));
+
+    // 字段行可见但引用定义藏在 HTML comment 内 → 链接不渲染，判缺定义
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n{field_line}\n\n<!--\n{definition}\n-->"
+    ));
+    let error =
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .expect_err("definition hidden in HTML comment must not resolve");
+    assert!(error.contains("缺少 GitHub HTTPS 文末引用定义"));
+
+    // 引用定义藏在 fenced code block 内
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n{field_line}\n\n```\n{definition}\n```"
+    ));
+    let error =
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .expect_err("definition hidden in fenced code block must not resolve");
+    assert!(error.contains("缺少 GitHub HTTPS 文末引用定义"));
+
+    // 对照：字段行与定义都可见 → 通过
+    let comment = round_cap_g3_comment(format!(
+        "- Gate 结果：`G3 Pass`\n{field_line}\n\n{definition}"
+    ));
+    assert!(
+        validate_g3_conditional_disclosure_fields(&comment, "Delivery PR", &deferred_urls, None)
+            .is_ok()
+    );
+}
+
+#[test]
 fn conditional_disclosure_fields_exempt_historical_g3_comment() {
     let deferred_urls: BTreeSet<&str> =
         ["https://github.com/illusion-tech/laneflow/pull/61#discussion_r201"]
