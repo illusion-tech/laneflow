@@ -202,12 +202,56 @@ pub(super) fn validate_trusted_merge_group_evidence(
     check_runs: &[GitHubCheckRun],
     workflow_runs: &[GitHubWorkflowRun],
     branch_rules: &[GitHubBranchRule],
+    timeline: &[GitHubTimelineItem],
 ) -> Result<(), String> {
     if base_ref_name.is_empty() {
         return Err(format!("PR #{number} 缺少 trusted baseRefName"));
     }
+    let merged_positions = timeline
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.event == "merged")
+        .collect::<Vec<_>>();
+    let [(merged_position, merged_event)] = merged_positions.as_slice() else {
+        return Err(format!(
+            "PR #{number} timeline 必须包含且只包含一个 merged event"
+        ));
+    };
+    let (queue_position, queue_event) = timeline[..*merged_position]
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, item)| {
+            matches!(
+                item.event.as_str(),
+                "added_to_merge_queue" | "removed_from_merge_queue"
+            )
+        })
+        .ok_or_else(|| format!("PR #{number} merged 前缺少 Merge Queue timeline event"))?;
+    if queue_event.event != "added_to_merge_queue" {
+        return Err(format!(
+            "PR #{number} 最后一个 merge 前 queue event 是 `{}`（position={queue_position}），不能证明保持入队到合并",
+            queue_event.event
+        ));
+    }
+    let queued_at = parse_utc_timestamp_seconds(
+        queue_event
+            .created_at
+            .as_deref()
+            .ok_or_else(|| format!("PR #{number} added_to_merge_queue 缺少 created_at"))?,
+    )
+    .ok_or_else(|| format!("PR #{number} added_to_merge_queue created_at 无效"))?;
+    let merged_at = parse_utc_timestamp_seconds(
+        merged_event
+            .created_at
+            .as_deref()
+            .ok_or_else(|| format!("PR #{number} merged event 缺少 created_at"))?,
+    )
+    .ok_or_else(|| format!("PR #{number} merged event created_at 无效"))?;
+
     let expected_branch_prefix = format!("gh-readonly-queue/{base_ref_name}/pr-{number}-");
     if !workflow_runs.iter().any(|run| {
+        let run_created_at = parse_utc_timestamp_seconds(&run.created_at);
         run.event == "merge_group"
             && run.head_sha.eq_ignore_ascii_case(h_mg)
             && run
@@ -216,6 +260,8 @@ pub(super) fn validate_trusted_merge_group_evidence(
                 .is_some_and(|branch| branch.starts_with(&expected_branch_prefix))
             && run.status == "completed"
             && run.conclusion.as_deref() == Some("success")
+            && run_created_at
+                .is_some_and(|created_at| created_at >= queued_at && created_at <= merged_at)
             && run
                 .html_url
                 .starts_with(&format!("https://github.com/{repo}/actions/runs/"))
@@ -293,6 +339,7 @@ pub(super) fn validate_live_merge_queue_g4_evidence(args: &GateEvidenceArgs) -> 
         let check_runs = gh_commit_check_runs(&args.repo, &h_mg)?;
         let workflow_runs = gh_merge_group_workflow_runs(&args.repo, &h_mg)?;
         let branch_rules = gh_branch_rules(&args.repo, &pr.base_ref_name)?;
+        let timeline = gh_issue_timeline(&args.repo, entry.number)?;
         validate_trusted_merge_group_evidence(
             &args.repo,
             entry.number,
@@ -301,6 +348,7 @@ pub(super) fn validate_live_merge_queue_g4_evidence(args: &GateEvidenceArgs) -> 
             &check_runs,
             &workflow_runs,
             &branch_rules,
+            &timeline,
         )?;
     }
     Ok(())

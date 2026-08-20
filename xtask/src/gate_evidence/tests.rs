@@ -3490,10 +3490,41 @@ fn trusted_merge_group_run() -> GitHubWorkflowRun {
         event: "merge_group".to_string(),
         head_sha: MERGE_GROUP_OID.to_string(),
         head_branch: Some("gh-readonly-queue/main/pr-61-deadbeef".to_string()),
+        created_at: "2026-08-20T05:10:00Z".to_string(),
         status: "completed".to_string(),
         conclusion: Some("success".to_string()),
         html_url: "https://github.com/illusion-tech/laneflow/actions/runs/100".to_string(),
     }
+}
+
+fn queue_timeline(removed_before_merge: bool) -> Vec<GitHubTimelineItem> {
+    let mut items = vec![GitHubTimelineItem {
+        id: None,
+        event: "added_to_merge_queue".to_string(),
+        created_at: Some("2026-08-20T05:00:00Z".to_string()),
+        updated_at: None,
+        submitted_at: None,
+        committer: None,
+    }];
+    if removed_before_merge {
+        items.push(GitHubTimelineItem {
+            id: None,
+            event: "removed_from_merge_queue".to_string(),
+            created_at: Some("2026-08-20T05:20:00Z".to_string()),
+            updated_at: None,
+            submitted_at: None,
+            committer: None,
+        });
+    }
+    items.push(GitHubTimelineItem {
+        id: None,
+        event: "merged".to_string(),
+        created_at: Some("2026-08-20T05:30:00Z".to_string()),
+        updated_at: None,
+        submitted_at: None,
+        committer: None,
+    });
+    items
 }
 
 fn required_check_rule(name: &str) -> GitHubBranchRule {
@@ -3518,6 +3549,7 @@ fn validates_h_mg_against_trusted_merge_group_and_live_required_checks() {
             &[trusted_check(10, "Dependency policy", "success")],
             &[trusted_merge_group_run()],
             &[required_check_rule("Dependency policy")],
+            &queue_timeline(false),
         )
         .is_ok()
     );
@@ -3535,6 +3567,7 @@ fn rejects_self_attested_h_mg_without_matching_trusted_merge_group_run() {
         &[trusted_check(10, "Dependency policy", "success")],
         &[wrong_run],
         &[required_check_rule("Dependency policy")],
+        &queue_timeline(false),
     )
     .expect_err("self-attested H_mg must not pass without trusted queue identity");
     assert!(error.contains("merge_group success workflow run"));
@@ -3553,9 +3586,26 @@ fn rejects_missing_or_newer_failed_live_required_check() {
         ],
         &[trusted_merge_group_run()],
         &[required_check_rule("Dependency policy")],
+        &queue_timeline(false),
     )
     .expect_err("latest required check conclusion must win");
     assert!(error.contains("不是 completed/success"));
+}
+
+#[test]
+fn rejects_dequeue_before_direct_merge_even_with_an_old_successful_h_mg() {
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &[trusted_check(10, "Dependency policy", "success")],
+        &[trusted_merge_group_run()],
+        &[required_check_rule("Dependency policy")],
+        &queue_timeline(true),
+    )
+    .expect_err("dequeue followed by direct merge must reject old queue evidence");
+    assert!(error.contains("removed_from_merge_queue"));
 }
 
 fn queue_delivery_g4_fixture(
