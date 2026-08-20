@@ -3605,6 +3605,25 @@ fn rejects_missing_or_newer_failed_live_required_check() {
 }
 
 #[test]
+fn rejects_the_check_run_that_completed_last_before_merge() {
+    let mut earlier_success = trusted_check(11, "Dependency policy", "success");
+    earlier_success.completed_at = Some("2026-08-20T05:10:00Z".to_string());
+    let later_failure = trusted_check(10, "Dependency policy", "failure");
+    let error = validate_trusted_merge_group_evidence(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &[earlier_success, later_failure],
+        &[trusted_merge_group_run()],
+        &trusted_branch_rules("Dependency policy"),
+        &queue_timeline(false),
+    )
+    .expect_err("completion time must win over check-run creation id");
+    assert!(error.contains("不是 completed/success"));
+}
+
+#[test]
 fn rejects_dequeue_before_direct_merge_even_with_an_old_successful_h_mg() {
     let error = validate_trusted_merge_group_evidence(
         "illusion-tech/laneflow",
