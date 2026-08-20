@@ -267,6 +267,10 @@ LaneFlow 默认通过合并队列（Merge Queue）将 PR 合入 `main`，队列�
 上述值是治理配置，不由单个 PR 在入队时选择。后续调整并发、分组或超时必须通过独立治理 Issue，
 保存 Ruleset before / after 与 canary 证据。
 
+启用队列时，`required_status_checks.strict_required_status_checks_policy` 必须设为 `false`，但不得删除或
+放宽 required checks。队列会在最新 `main` 与队列前序变更形成的 `H_mg` 上重新运行这些检查；若同时保留
+strict up-to-date，PR 在入队前仍可能被要求先更新分支，重新引入本策略要消除的手工 rebase 与重复构建。
+
 ### 7.1 日常入队与失效边界
 
 LaneFlow 采用“审阅稳定补丁、队列验证集成结果”的模型：
@@ -297,8 +301,9 @@ required checks 尚未完成时，该命令启用满足条件后的自动入队�
 
 #446 分两个 PR 自举：Related PR 1 只把契约和 `merge_group` CI 能力合入 `main`，不修改 live Ruleset，
 也不能使用候选队列能力自批。Delivery PR 2 先确认所需 workflow 已在 `main` 部署，保存 Ruleset before
-快照与精确 rollback 载荷，然后以事务方式临时启用合并队列并将自身入队；只有这一步之后 GitHub 才能
-创建真实 Merge Group。真实 `H_mg` 上的 required checks 与 CodeQL canary 全部成功时，保留新 Ruleset
+快照与精确 rollback 载荷，然后以事务方式临时启用合并队列、关闭 strict up-to-date 并将自身入队；
+required checks 集合保持不变。只有这一步之后 GitHub 才能创建真实 Merge Group。真实 `H_mg` 上的
+required checks 与 CodeQL canary 全部成功时，保留新 Ruleset
 并继续首次无 `--admin` 合并；任一结果缺失或失败时，立即恢复 before 配置、停止 canary 并保持 G3 Block。
 canary 成功不是启用队列的前置条件，而是决定激活事务提交或回滚的判据。在 Delivery PR 2 完成 G4 前，
 不得把 bootstrap 或尚未提交的临时激活描述为合并队列已经稳定启用。

@@ -57,6 +57,8 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 7. PR 准备合并时，冻结 current exact head `H_pr` 并完成该 head 的外部审阅与 G3；`main` 要求通过
    Merge Queue 入队，使用 `gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`，
    最终 Rebase 方式由队列规则控制。不得因 `main` 单纯前进手工 rebase；不得使用 `--admin` 绕过队列。
+   队列 live Ruleset 必须保留 required checks，并关闭 `strict_required_status_checks_policy`；集成结果由
+   GitHub 为最新目标分支组合生成的 `H_mg` 承载。
 
 ### Rust 语义导航
 
