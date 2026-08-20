@@ -270,6 +270,39 @@ function Get-RemainingMillisecondsOrZero {
     return [Math]::Max(0, [Math]::Min($remaining, $Maximum))
 }
 
+function Get-CimOperationTimeoutSeconds {
+    param(
+        [Parameter(Mandatory)][DateTimeOffset]$Deadline,
+        [ValidateRange(1, 300)][int]$MaximumSeconds = 3
+    )
+
+    $remainingMilliseconds = Get-RemainingMilliseconds -Deadline $Deadline `
+        -Maximum ($MaximumSeconds * 1000)
+    $wholeSeconds = [int][Math]::Floor($remainingMilliseconds / 1000.0)
+    if ($wholeSeconds -lt 1) {
+        throw 'Insufficient time remains for a bounded CIM operation.'
+    }
+    return [Math]::Min($wholeSeconds, $MaximumSeconds)
+}
+
+function Get-ProcessEnvironmentVariableEntries {
+    $variables = [System.Environment]::GetEnvironmentVariables(
+        [System.EnvironmentVariableTarget]::Process
+    )
+    $entries = foreach ($keyValue in $variables.GetEnumerator()) {
+        $name = [string]$keyValue.Key
+        $value = [string]$keyValue.Value
+        if ([string]::IsNullOrEmpty($name) -or
+            $name.IndexOf('=', [System.StringComparison]::Ordinal) -ge 0 -or
+            $name.IndexOf([char]0) -ge 0 -or
+            $value.IndexOf([char]0) -ge 0) {
+            continue
+        }
+        "$name=$value"
+    }
+    return @($entries | Sort-Object)
+}
+
 function Get-RemainingProbeMilliseconds {
     param(
         [Parameter(Mandatory)][DateTimeOffset]$Deadline,
@@ -677,11 +710,8 @@ function Get-ProcessSnapshotFromHandle {
     try {
         $operationTimeoutSeconds = 3
         if ($Deadline -ne [DateTimeOffset]::MinValue) {
-            $remaining = Get-RemainingMilliseconds -Deadline $Deadline -Maximum 3000
-            $operationTimeoutSeconds = [Math]::Max(
-                1,
-                [int][Math]::Ceiling($remaining / 1000.0)
-            )
+            $operationTimeoutSeconds = Get-CimOperationTimeoutSeconds `
+                -Deadline $Deadline -MaximumSeconds 3
         }
         $cim = Get-CimInstance -ClassName Win32_Process `
             -Filter "ProcessId = $ProcessId" `
@@ -871,6 +901,100 @@ function Test-NewMcplsProcessSnapshotIdentity {
             Reason = $_.Exception.Message
         }
     }
+}
+
+function Find-NewMcplsProcessSnapshots {
+    param(
+        [Parameter(Mandatory)][string]$ExpectedExecutable,
+        [Parameter(Mandatory)][string]$ExpectedCommandLine,
+        [Parameter(Mandatory)][DateTimeOffset]$CreateRequestedAtUtc,
+        [Parameter(Mandatory)][DateTimeOffset]$Deadline
+    )
+
+    $operationTimeoutSeconds = Get-CimOperationTimeoutSeconds `
+        -Deadline $Deadline -MaximumSeconds 1
+    $rows = @(Get-CimInstance -ClassName Win32_Process `
+        -OperationTimeoutSec $operationTimeoutSeconds -ErrorAction Stop)
+    $matches = [System.Collections.Generic.List[object]]::new()
+    foreach ($row in $rows) {
+        if (-not [string]::Equals(
+            [string]$row.CommandLine,
+            $ExpectedCommandLine,
+            [System.StringComparison]::Ordinal
+        )) {
+            continue
+        }
+        $process = $null
+        try {
+            $process = Get-Process -Id ([int]$row.ProcessId) -ErrorAction Stop
+            $snapshot = [pscustomobject]@{
+                ProcessId = [int]$row.ProcessId
+                ParentProcessId = [int]$row.ParentProcessId
+                Name = [string]$row.Name
+                ExecutablePath = Get-NormalizedPath -Path ([string]$process.Path)
+                CommandLine = [string]$row.CommandLine
+                StartedAtUtc = $process.StartTime.ToUniversalTime()
+            }
+            $identity = Test-NewMcplsProcessSnapshotIdentity -Snapshot $snapshot `
+                -ExpectedExecutable $ExpectedExecutable `
+                -ExpectedCommandLine $ExpectedCommandLine `
+                -CreateRequestedAtUtc $CreateRequestedAtUtc
+            if ($identity.Matched) {
+                $matches.Add($snapshot)
+            }
+        }
+        catch {
+            # A candidate that exits during inspection no longer needs reconciliation.
+        }
+        finally {
+            if ($null -ne $process) {
+                $process.Dispose()
+            }
+        }
+    }
+    return @($matches)
+}
+
+function Stop-AmbiguousMcplsCreate {
+    param(
+        [Parameter(Mandatory)]$Context,
+        [Parameter(Mandatory)][string]$ExpectedExecutable,
+        [Parameter(Mandatory)][string]$ExpectedCommandLine,
+        [Parameter(Mandatory)][DateTimeOffset]$CreateRequestedAtUtc,
+        [Parameter(Mandatory)][int]$Port,
+        [Parameter(Mandatory)][DateTimeOffset]$Deadline
+    )
+
+    while (Get-RemainingMillisecondsOrZero -Deadline $Deadline -Maximum 3000) {
+        if ((Get-RemainingMillisecondsOrZero -Deadline $Deadline -Maximum 3000) -lt 1000) {
+            break
+        }
+        $matches = @(Find-NewMcplsProcessSnapshots `
+            -ExpectedExecutable $ExpectedExecutable `
+            -ExpectedCommandLine $ExpectedCommandLine `
+            -CreateRequestedAtUtc $CreateRequestedAtUtc -Deadline $Deadline)
+        if ($matches.Count -gt 1) {
+            throw "Found $($matches.Count) identity-matched processes after an ambiguous WMI create."
+        }
+        if ($matches.Count -eq 1) {
+            $snapshot = $matches[0]
+            $transientState = [pscustomobject]@{
+                schema_version = $script:StateSchemaVersion
+                worktree_id = $Context.WorktreeId
+                worktree_root = $Context.Root
+                process_id = [int]$snapshot.ProcessId
+                process_started_at_utc = $snapshot.StartedAtUtc.ToString('O')
+                executable_path = $ExpectedExecutable
+                mcpls_config_path = $Context.McplsConfigPath
+                port = $Port
+            }
+            Stop-VerifiedServiceProcessTree -State $transientState `
+                -ExpectedRoot $Context.Root -Deadline $Deadline
+            return [int]$snapshot.ProcessId
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    return 0
 }
 
 function Get-ServiceReuseInputs {
@@ -1181,22 +1305,46 @@ function Start-McplsProcess {
     $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly `
         -Property @{
             CreateFlags = $script:ExternalProcessCreateFlags
+            EnvironmentVariables = [string[]]@(
+                Get-ProcessEnvironmentVariableEntries
+            )
             ShowWindow = [uint16]0
         }
     $remainingMilliseconds = Get-RemainingMilliseconds -Deadline $Deadline
     $remainingWholeSeconds = [int][Math]::Floor($remainingMilliseconds / 1000.0)
-    if ($remainingWholeSeconds -lt 3) {
+    if ($remainingWholeSeconds -lt 4) {
         throw 'Insufficient startup time remains for bounded CIM creation and identity inspection.'
     }
-    $operationTimeoutSeconds = $remainingWholeSeconds - 2
+    $operationTimeoutSeconds = $remainingWholeSeconds - 3
     $createRequestedAtUtc = [DateTimeOffset]::UtcNow
-    $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
-        -Arguments @{
-            CommandLine = $commandLine
-            CurrentDirectory = $Context.Root
-            ProcessStartupInformation = $startup
-        } `
-        -OperationTimeoutSec $operationTimeoutSeconds
+    try {
+        $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
+            -Arguments @{
+                CommandLine = $commandLine
+                CurrentDirectory = $Context.Root
+                ProcessStartupInformation = $startup
+            } `
+            -OperationTimeoutSec $operationTimeoutSeconds
+    }
+    catch {
+        $createFailure = $_.Exception.Message
+        try {
+            $reconciledProcessId = Stop-AmbiguousMcplsCreate -Context $Context `
+                -ExpectedExecutable $Executable -ExpectedCommandLine $commandLine `
+                -CreateRequestedAtUtc $createRequestedAtUtc -Port $Port `
+                -Deadline $Deadline
+        }
+        catch {
+            throw "Win32_Process.Create failed: $createFailure Ambiguous-create reconciliation failed: $($_.Exception.Message)"
+        }
+        $reconciliation = if ($reconciledProcessId -gt 0) {
+            "Reconciled and stopped identity-matched PID $reconciledProcessId."
+        }
+        else {
+            'No identity-matched process appeared during the bounded reconciliation window.'
+        }
+        throw "Win32_Process.Create failed: $createFailure $reconciliation"
+    }
     if ($null -eq $created -or [uint32]$created.ReturnValue -ne 0) {
         $returnValue = if ($null -eq $created) { 'no result' } else { $created.ReturnValue }
         throw "Win32_Process.Create failed with return value $returnValue."
