@@ -476,11 +476,15 @@ Spatial 基线或性能证据职责。
    与 `JunctionInternalEdge`。approach key 不进 Traffic；若日后 `#237`/`#301` 需要
    分组，再用 ordinal 派生。
 5. **共享 resolved 准入平面是查询权威。** builder seal 时按当前 Core
-   `AccessRegistry` 语义（参与者继承、target 特异性、priority、input order 归因）
-   生成稀疏 `(edge, class)` 与 `(path, class)` 平面，查询为 O(1)。规则表只保留归因/
+   `AccessRegistry` 语义（参与者继承、target 特异性、priority）生成稀疏
+   `(edge, class)` 与 `(path, class)` 平面，查询为 O(1)。规则表只保留归因/
    审计所需的胜者 rule handle 与原始 target/effect/classes/priority，不能作为查询时
    全表扫描或每 world 重建的权威。无约束单元必须用与成功对象内无效 handle 区分的
-   表示，不得伪造 typed handle。
+   表示，不得伪造 typed handle。同 effect、同特异性、同 priority 的并列规则，
+   **不再承诺 Traffic JSON 声明顺序**：builder 只看见 LFCA，LIR/LFCA 已按 Identity v1
+   规范顺序排列 AccessRule。并列归因与歧义配对一律使用 LFCA AccessRule canonical
+   ordinal（较小者胜出 / 作为 first_rule）。不得为保留 JSON 顺序而新增 LFCA 字段或
+   读取 LFSM。测试必须按 LFCA 表序构造并列规则，不得用 JSON 文件顺序当 oracle。
 6. **本附录是 #440 G1 的设计事实源。** 不得只引用 #300 总体验收代替本切片审阅。
 
 「Runtime 当前不消费」在本切片中的含义是：不是当前 Core 静态注册表已经消费、因而
@@ -534,7 +538,7 @@ Identity 正反表与 22 类基数已由 #439 闭合。本表只冻结 Traffic r
 | `RoadCorridor`     | `reference_section`；元素 range（角色 2）                                                 | 无额外显示名                                                            |
 | `RoadSection`      | `road_corridor`；车道 range（角色 3）；有类型 `FacilityKind`（seed 代码或冷 intern id）   | 原文 `kind_id` UTF-8 热列                                               |
 | `AuthoringLane`    | `road_section`；`edge_chain`；可选 `lane_group`                                           | 无                                                                      |
-| `LaneEdge`         | #439 已有长度/限速/CSR；本切片补**可选**编制属主反向与**可选**内部边属主                  | 强制全覆盖属主                                                          |
+| `LaneEdge`         | #439 已有长度/限速/CSR；本切片补**可选**编制属主、内部边属主与停止线反向                  | 强制全覆盖属主；一边多条停止线                                          |
 | `Junction`         | `movements` range                                                                         | 任何 approach 实体或 UTF-8 key                                          |
 | `Movement`         | `junction`；`maneuver_paths` range                                                        | `directed_entry_approach_key`、`directed_exit_approach_key`             |
 | `ManeuverPath`     | #439 已有 movement/edges/gates/waiting                                                    | 无                                                                      |
@@ -564,6 +568,9 @@ Identity 正反表与 22 类基数已由 #439 闭合。本表只冻结 Traffic r
   必须返回明确缺失，不得拒绝制品或伪造属主。
 - `AuthoringLane → LaneGroup`：可选；仅当该编制车道是组成员时存在。
 - `LaneEdge → Junction`：**可选**；仅内部边（角色 9）有属主。
+- `LaneEdge → StopLine`：**可选一对一**。当前 Core `SignalRegistry::stop_line_for_edge`
+  与「一边至多一条停止线」不变量必须保留；缺失为合法，重复属主在 seal 前失败关闭。
+  不得靠扫描全部 StopLine 实现该查询。
 - `StopLine ↔ ManeuverGate`；
 - `ManeuverGate ↔ SignalGroup`（门侧绑定仍可选）；
 - `ParkingSpace ↔ ParkingArea`（area 仍可选）；
@@ -574,8 +581,9 @@ Identity 正反表与 22 类基数已由 #439 闭合。本表只冻结 Traffic r
 对象上保留哈希表、字符串、全表扫描或重复验证。失败不返回部分根。
 
 共享准入平面与规则表一起在 seal 前闭合：同一 LFCA 的 `(edge, class)` / `(path, class)`
-裁决必须与当前 Core `AccessRegistry` 的 unconstrained/decided 语义一致，包括胜者 rule
-归因。平面是共享静态数据，不能推迟到每 world 可变状态。
+裁决必须与当前 Core `AccessRegistry` 在 **以 LFCA AccessRule ordinal 为声明序** 时的
+unconstrained/decided 语义一致，包括胜者 rule 归因。平面是共享静态数据，不能推迟到
+每 world 可变状态。
 
 `PartitionPlanningHints` 默认保持 #439 的边邻接度数公式。若实现要把路口或静态路线
 边界权值纳入 worker 数无关提示，必须提升
@@ -593,7 +601,9 @@ partition/worker 写入共享对象。本 G1 不把提示算法升级当作完�
   冷 intern 表；
 - 准入四域、`ParticipantClass` 区间编码与 **resolved 平面**：LaneGroup/RoadSection 目标
   可通过覆盖链落到 LaneEdge；错误域（含 FacilityBand target）失败关闭；unconstrained、
-  target 特异性、priority 与 input-order 归因必须与当前 Core 平面一致；查询不得扫描规则表；
+  target 特异性、priority 必须与当前 Core 平面一致；同 effect 并列的胜者/歧义配对按
+  LFCA AccessRule ordinal，不得用 JSON 声明序当 oracle；查询不得扫描规则表；
+- `LaneEdge → StopLine`：无停止线的边构建成功且反向缺失；一边两条停止线失败关闭；
 - 信号 program：controller offset/cycle、phase duration、group aspect 与门绑定
   往返相等；不得出现冲突裁决字段；
 - 停车：关系加几何标量在 headless 下可绑定；取消/失败不留根；
@@ -619,4 +629,6 @@ partition/worker 写入共享对象。本 G1 不把提示算法升级当作完�
 - 停车激活证明必须依赖 Spatial 泊位 pose，而不能使用本切片 Traffic 几何列；
 - AccessRule 需要第五个 target domain 或时变 overlay 才能完成 v0.10 切换；
 - 准入查询必须在 tick/绑定期扫描规则表，或每 world 重建 resolved 平面才能保持当前
-  Core 语义。
+  Core 语义；
+- 必须把 Traffic JSON 声明顺序而不是 LFCA AccessRule ordinal 当作并列规则归因权威，
+  才能完成 v0.10 切换。
