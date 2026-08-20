@@ -172,6 +172,34 @@ fn commit_range_from_event(
                 non_empty_value(base_ref).ok_or("pull_request 事件缺少 GITHUB_BASE_REF")?;
             Ok(format!("origin/{base_ref}..HEAD"))
         }
+        Some("merge_group") => {
+            let event = event_payload
+                .and_then(merge_group_event_payload)
+                .ok_or("merge_group 事件缺少合法的 GITHUB_EVENT_PATH payload")?;
+            let base_sha = event
+                .merge_group
+                .base_sha
+                .as_deref()
+                .filter(|value| is_non_zero_value(value))
+                .ok_or("merge_group 事件缺少非零 merge_group.base_sha")?;
+            let head_sha = event
+                .merge_group
+                .head_sha
+                .as_deref()
+                .filter(|value| is_non_zero_value(value))
+                .ok_or("merge_group 事件缺少非零 merge_group.head_sha")?;
+
+            if let Some(github_sha) =
+                non_empty_value(github_sha).filter(|value| is_non_zero_value(value))
+                && github_sha != head_sha
+            {
+                return Err(format!(
+                    "merge_group.head_sha `{head_sha}` 与 GITHUB_SHA `{github_sha}` 不一致"
+                ));
+            }
+
+            Ok(format!("{base_sha}..{head_sha}"))
+        }
         Some("push") => {
             let event = event_payload.and_then(push_event_payload);
             let after = event
@@ -212,7 +240,22 @@ struct PushEventPayload {
     after: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+struct MergeGroupEventPayload {
+    merge_group: MergeGroupPayload,
+}
+
+#[derive(serde::Deserialize)]
+struct MergeGroupPayload {
+    base_sha: Option<String>,
+    head_sha: Option<String>,
+}
+
 fn push_event_payload(payload: &str) -> Option<PushEventPayload> {
+    serde_json::from_str(payload).ok()
+}
+
+fn merge_group_event_payload(payload: &str) -> Option<MergeGroupEventPayload> {
     serde_json::from_str(payload).ok()
 }
 
@@ -1174,6 +1217,22 @@ Refs: #12
     }
 
     #[test]
+    fn extracts_nested_merge_group_payload_fields() {
+        let payload = r#"{
+            "base_sha": "outer-base",
+            "head_sha": "outer-head",
+            "merge_group": {
+                "base_sha": "abc",
+                "head_sha": "def"
+            }
+        }"#;
+        let event = merge_group_event_payload(payload).expect("payload should parse");
+
+        assert_eq!(event.merge_group.base_sha.as_deref(), Some("abc"));
+        assert_eq!(event.merge_group.head_sha.as_deref(), Some("def"));
+    }
+
+    #[test]
     fn local_run_requires_explicit_commit_range() {
         let error = commit_range_from_event(None, None, None, None).unwrap_err();
 
@@ -1194,6 +1253,60 @@ Refs: #12
             commit_range_from_event(Some("pull_request"), Some("main"), Some("def"), None).unwrap();
 
         assert_eq!(range, "origin/main..HEAD");
+    }
+
+    #[test]
+    fn merge_group_event_uses_payload_range() {
+        let payload = r#"{
+            "merge_group": {
+                "base_sha": "abc",
+                "head_sha": "def"
+            }
+        }"#;
+
+        let range =
+            commit_range_from_event(Some("merge_group"), None, Some("def"), Some(payload)).unwrap();
+
+        assert_eq!(range, "abc..def");
+    }
+
+    #[test]
+    fn merge_group_event_requires_payload() {
+        let error =
+            commit_range_from_event(Some("merge_group"), None, Some("def"), None).unwrap_err();
+
+        assert!(error.contains("GITHUB_EVENT_PATH payload"));
+    }
+
+    #[test]
+    fn merge_group_event_rejects_zero_base_sha() {
+        let payload = r#"{
+            "merge_group": {
+                "base_sha": "0000000000000000000000000000000000000000",
+                "head_sha": "def"
+            }
+        }"#;
+
+        let error = commit_range_from_event(Some("merge_group"), None, Some("def"), Some(payload))
+            .unwrap_err();
+
+        assert!(error.contains("merge_group.base_sha"));
+    }
+
+    #[test]
+    fn merge_group_event_rejects_github_sha_mismatch() {
+        let payload = r#"{
+            "merge_group": {
+                "base_sha": "abc",
+                "head_sha": "def"
+            }
+        }"#;
+
+        let error =
+            commit_range_from_event(Some("merge_group"), None, Some("other"), Some(payload))
+                .unwrap_err();
+
+        assert!(error.contains("与 GITHUB_SHA `other` 不一致"));
     }
 
     #[test]

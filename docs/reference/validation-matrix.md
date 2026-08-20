@@ -78,6 +78,9 @@ cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
 | provider 文案正确但 actor 不在 allowlist                                                       | Fail                                                                                               |
 | author 转贴 Cursor / 本地 Agent 输出                                                           | Fail                                                                                               |
 | content-equivalent rebase 具备全部附加证据                                                     | `waived`；不得自动转成标准 `pass`                                                                  |
+| 合并队列中 `main` 前进或队列顺序变化，但 PR exact Head 未变化                                  | 保留 `H_pr` 上的 review；废弃旧 `H_mg` 并重跑集成检查，不要求重新人审                              |
+| 合并队列中 PR 新 push、force-push 或冲突修复产生新 exact Head                                  | 旧 review / G3 / 入队资格全部 stale；对新 `H_pr` 完成标准 external-review lifecycle                |
+| 合并组 required check 失败，但 PR exact Head 未变化                                            | 阻断合并并重建/移出队列；不得把集成失败自动解释为外部审阅失效                                      |
 | 合并前纠正 current G3 comment                                                                  | 允许；以 REST `updatedAt` 重验，并新增更晚 marker                                                  |
 | 合并后编辑或缺少可核验 `updatedAt`                                                             | Fail；不得改变历史证据，无法核验时失败关闭                                                         |
 | Related PR B 自身仍由 main 上的旧 validator 判断                                               | 按 R0 bootstrap 人工核验 exact-head review；不得用候选 validator 自批                              |
