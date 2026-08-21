@@ -1420,7 +1420,14 @@ pub(crate) fn evaluate_snapshot_with_policy(
         if normalize_actor(&actor.login) != CODEX_ACTOR {
             continue;
         }
-        if comment.body.contains("To use Codex here") && dependabot_completion.is_none() {
+        // Codex 故障注释（环境不可用）的 provider-error 诊断例外覆盖两条机器
+        // completion 通道：dependabot 与 D1 快速通道命中的 PR 不依赖 Codex 可用性，
+        // 故障注释不产生诊断（例外判定与 dependabot 一致，不看
+        // machine_completion_open 闸门——闸门只作用于证据注入）
+        if comment.body.contains("To use Codex here")
+            && dependabot_completion.is_none()
+            && fast_lane.is_none()
+        {
             diagnostics.push(format!("Codex provider 报告环境不可用：{}", comment.url));
             continue;
         }
@@ -6195,6 +6202,48 @@ mod tests {
         let inactive = evaluate_snapshot_with_policy(&snapshot, false);
         assert_eq!(inactive.state, ExternalReviewState::AwaitingReview);
         assert!(no_machine_completion_evidence(&inactive));
+    }
+
+    #[test]
+    fn fast_lane_completion_tolerates_codex_outage_comment_like_dependabot() {
+        let contents = include_str!("../fixtures/external-review/fast-lane-docs-only.json");
+        let outage_comment = || IssueComment {
+            id: "IC-codex-outage".to_string(),
+            author: Some(Actor {
+                login: CODEX_ACTOR.to_string(),
+            }),
+            body: "To use Codex here, please ask the admin to install the app.".to_string(),
+            created_at: "2026-08-20T09:00:00Z".to_string(),
+            updated_at: "2026-08-20T09:00:00Z".to_string(),
+            url: "https://github.com/illusion-tech/laneflow/pull/460#issuecomment-9".to_string(),
+        };
+
+        // 快速通道命中的 PR：Codex 故障注释不产生 provider-error 诊断
+        //（与 dependabot 通道同构——机器 completion 不依赖 Codex 可用性）
+        let mut hit = fixture(contents);
+        hit.pull_request.comments.nodes.push(outage_comment());
+        let result = evaluate_snapshot(&hit);
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert_eq!(result.provider.as_deref(), Some("docs-only-v1"));
+        assert!(
+            !result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("环境不可用"))
+        );
+
+        // 通道不命中：故障诊断照常产生（既有行为不变）
+        let mut miss = fixture(contents);
+        miss.pull_request.files.nodes[0].path = "src/lib.rs".to_string();
+        miss.pull_request.comments.nodes.push(outage_comment());
+        let result = evaluate_snapshot(&miss);
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("环境不可用"))
+        );
     }
 
     #[test]
