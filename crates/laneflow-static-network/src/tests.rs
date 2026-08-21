@@ -45,6 +45,13 @@ fn minimal_headless_build_has_required_components_and_no_spatial() {
     assert!(revision.planning_hints().edge_boundary_weights().is_empty());
     assert!(revision.spatial().is_none());
     assert!(revision.retained_logical_bytes() > 0);
+    assert!(
+        revision
+            .traffic()
+            .relations()
+            .static_route_reverse(EntityKind::LaneEdge, 0)
+            .is_none()
+    );
 }
 
 #[test]
@@ -758,4 +765,27 @@ fn full_spatial_entity_views_cover_required_columns() {
             );
         }
     }
+    for kind in [
+        EntityKind::LaneEdge,
+        EntityKind::ManeuverPath,
+        EntityKind::ManeuverGate,
+        EntityKind::WaitingZone,
+    ] {
+        let count = counts.count(kind);
+        for raw in 0..count {
+            let hits = relations
+                .static_route_reverse(kind, raw)
+                .expect("in-range reverse lookup");
+            assert_eq!(hits.routes().len(), hits.occurrences().len());
+        }
+        assert!(
+            relations.static_route_reverse(kind, count).is_none(),
+            "out-of-range reverse lookup must be None"
+        );
+    }
+    assert!(
+        relations
+            .static_route_reverse(EntityKind::RoadSection, 0)
+            .is_none()
+    );
 }

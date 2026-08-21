@@ -1318,18 +1318,22 @@ impl SharedRelationClosure {
         )
     }
 
+    /// 路线反向索引。`None` 表示 kind 不受支持或 ordinal 越出本修订；修订内无命中返回空切片。
     #[must_use]
     pub fn static_route_reverse(
         &self,
         kind: EntityKind,
         ordinal: u32,
     ) -> Option<RouteReverseHits<'_>> {
-        match kind {
-            EntityKind::LaneEdge
-            | EntityKind::ManeuverPath
-            | EntityKind::ManeuverGate
-            | EntityKind::WaitingZone => {}
+        let limit = match kind {
+            EntityKind::LaneEdge => self.edge_row_starts.len(),
+            EntityKind::ManeuverPath => self.path_row_starts.len(),
+            EntityKind::ManeuverGate => self.gate_path.len(),
+            EntityKind::WaitingZone => self.waiting_path.len(),
             _ => return None,
+        };
+        if usize::try_from(ordinal).ok()? >= limit {
+            return None;
         }
         let code = kind.code();
         let start = partition_reverse_keys(
