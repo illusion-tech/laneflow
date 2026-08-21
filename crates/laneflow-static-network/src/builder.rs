@@ -208,8 +208,14 @@ pub fn build_shared_network_revision(
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<Arc<SharedNetworkRevision>, BuildError> {
     check_cancelled(options)?;
-    let counts = count_and_preflight(input.value_checked_view(), options)?;
+    let mut counts = count_and_preflight(input.value_checked_view(), options)?;
     check_scratch_budget(counts, options)?;
+    counts.relation_payloads = crate::relations_build::finish_relation_payloads(
+        input.value_checked_view(),
+        &counts.entity_counts,
+        counts.relation_payloads,
+        options,
+    )?;
     let topology = build_topology_plan(input.value_checked_view(), &counts, options)?;
     check_retained_budget(counts, topology.successor_count()?, options)?;
     check_cancelled(options)?;
@@ -709,6 +715,7 @@ fn check_scratch_budget(
         &counts.entity_counts,
         counts.relation_payloads,
     )?);
+    let scratch = scratch.max(counts.relation_payloads.pass_a_scratch);
     if scratch > options.limits.max_scratch_bytes {
         return Err(BuildError::BudgetExceeded {
             structure: BuildStructure::BuilderScratch,

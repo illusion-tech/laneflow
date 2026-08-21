@@ -226,6 +226,7 @@ pub(crate) fn build_relations(
         lane_speeds,
         &gate_signal_group,
         &edge_junction,
+        &edge_stop_line,
         successor_ranges,
         successors,
         maneuvers,
@@ -488,36 +489,135 @@ pub(crate) fn count_relation_payloads(
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<RelationPayloads, BuildError> {
     let (intern_keys, intern_utf8) = count_intern_payloads(view, options)?;
-    let (edge_cells, path_cells) = count_access_cells(view, entity_counts, options)?;
-    let (route_segment_totals, speed_limit_transitions) =
-        count_route_derived(view, entity_counts, options)?;
+    let corridor_elements = sum_record_field(view, EntityKind::RoadCorridor, 4, options)?;
+    let section_lanes = sum_ordinal_field(view, EntityKind::RoadSection, 5, options)?;
+    let authoring_edges = sum_ordinal_field(view, EntityKind::AuthoringLane, 4, options)?;
+    let junction_movements = sum_ordinal_field(view, EntityKind::Junction, 3, options)?;
+    let movement_paths = sum_ordinal_field(view, EntityKind::Movement, 6, options)?;
+    let stop_line_gates = sum_ordinal_field(view, EntityKind::StopLine, 4, options)?;
+    let group_gates = sum_ordinal_field(view, EntityKind::SignalGroup, 4, options)?;
+    let controller_groups = sum_ordinal_field(view, EntityKind::SignalController, 5, options)?;
+    let controller_phases = sum_ordinal_field(view, EntityKind::SignalController, 6, options)?;
+    let phase_states = sum_record_field(view, EntityKind::SignalPhase, 5, options)?;
+    let parking_spaces = sum_ordinal_field(view, EntityKind::ParkingArea, 3, options)?;
+    let lane_group_members = sum_ordinal_field(view, EntityKind::LaneGroup, 4, options)?;
+    let rule_classes = sum_ordinal_field(view, EntityKind::AccessRule, 6, options)?;
+    let route_edges = sum_ordinal_field(view, EntityKind::StaticRoute, 3, options)?;
+    let route_transitions = sum_record_field(view, EntityKind::StaticRoute, 4, options)?;
+    let pass_a_scratch =
+        relation_pass_a_scratch(entity_counts, intern_keys, intern_utf8, route_edges)?;
     Ok(RelationPayloads {
-        corridor_elements: sum_record_field(view, EntityKind::RoadCorridor, 4, options)?,
-        section_lanes: sum_ordinal_field(view, EntityKind::RoadSection, 5, options)?,
-        authoring_edges: sum_ordinal_field(view, EntityKind::AuthoringLane, 4, options)?,
-        junction_movements: sum_ordinal_field(view, EntityKind::Junction, 3, options)?,
-        movement_paths: sum_ordinal_field(view, EntityKind::Movement, 6, options)?,
-        stop_line_gates: sum_ordinal_field(view, EntityKind::StopLine, 4, options)?,
-        group_gates: sum_ordinal_field(view, EntityKind::SignalGroup, 4, options)?,
-        controller_groups: sum_ordinal_field(view, EntityKind::SignalController, 5, options)?,
-        controller_phases: sum_ordinal_field(view, EntityKind::SignalController, 6, options)?,
-        phase_states: sum_record_field(view, EntityKind::SignalPhase, 5, options)?,
-        parking_spaces: sum_ordinal_field(view, EntityKind::ParkingArea, 3, options)?,
-        lane_group_members: sum_ordinal_field(view, EntityKind::LaneGroup, 4, options)?,
-        rule_classes: sum_ordinal_field(view, EntityKind::AccessRule, 6, options)?,
-        route_edges: sum_ordinal_field(view, EntityKind::StaticRoute, 3, options)?,
-        route_transitions: sum_record_field(view, EntityKind::StaticRoute, 4, options)?,
+        corridor_elements,
+        section_lanes,
+        authoring_edges,
+        junction_movements,
+        movement_paths,
+        stop_line_gates,
+        group_gates,
+        controller_groups,
+        controller_phases,
+        phase_states,
+        parking_spaces,
+        lane_group_members,
+        rule_classes,
+        route_edges,
+        route_transitions,
         route_maneuvers: relation_table(view, 1)?.row_count(),
         route_gate_occurrences: relation_table(view, 2)?.row_count(),
         route_waiting_occurrences: relation_table(view, 3)?.row_count(),
         route_reverse: relation_table(view, 4)?.row_count(),
         intern_keys,
         intern_utf8,
-        edge_cells,
-        path_cells,
-        route_segment_totals,
-        speed_limit_transitions,
+        edge_cells: 0,
+        path_cells: 0,
+        route_segment_totals: 0,
+        speed_limit_transitions: 0,
+        pass_a_scratch,
     })
+}
+
+pub(crate) fn finish_relation_payloads(
+    view: ValueCheckedObjectView<'_>,
+    entity_counts: &EntityCounts,
+    mut payloads: RelationPayloads,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<RelationPayloads, BuildError> {
+    let (edge_cells, path_cells) = count_access_cells(view, entity_counts, options)?;
+    let (route_segment_totals, speed_limit_transitions) =
+        count_route_derived(view, entity_counts, options)?;
+    payloads.edge_cells = edge_cells;
+    payloads.path_cells = path_cells;
+    payloads.route_segment_totals = route_segment_totals;
+    payloads.speed_limit_transitions = speed_limit_transitions;
+    Ok(payloads)
+}
+
+fn pass_a_count_bytes<T>(count: u32) -> Result<u64, BuildError> {
+    u64::from(count)
+        .checked_mul(u64::try_from(core::mem::size_of::<T>()).map_err(|_| {
+            BuildError::ArithmeticOverflow {
+                structure: BuildStructure::BuilderScratch,
+            }
+        })?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })
+}
+
+fn relation_pass_a_scratch(
+    entity_counts: &EntityCounts,
+    intern_keys: u32,
+    intern_utf8: u32,
+    route_edges: u32,
+) -> Result<u64, BuildError> {
+    let intern = intern_entry_bytes(0)?
+        .checked_mul(u64::from(intern_keys))
+        .and_then(|bytes| bytes.checked_add(u64::from(intern_utf8)))
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let lane = entity_counts.count(EntityKind::LaneEdge);
+    let group = entity_counts.count(EntityKind::LaneGroup);
+    let section = entity_counts.count(EntityKind::RoadSection);
+    let path = entity_counts.count(EntityKind::ManeuverPath);
+    let authoring = entity_counts.count(EntityKind::AuthoringLane);
+    let flags = lane
+        .checked_add(group)
+        .and_then(|count| count.checked_add(section))
+        .and_then(|count| count.checked_add(path))
+        .and_then(|count| count.checked_add(section))
+        .and_then(|count| count.checked_add(group))
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let access = pass_a_count_bytes::<bool>(flags)?;
+    let access = access
+        .checked_add(pass_a_count_bytes::<u32>(authoring)?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let access = access
+        .checked_add(pass_a_count_bytes::<Option<u32>>(authoring)?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let access = access
+        .checked_add(pass_a_count_bytes::<Option<u32>>(lane)?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    let route =
+        pass_a_count_bytes::<f64>(lane)?
+            .checked_mul(2)
+            .ok_or(BuildError::ArithmeticOverflow {
+                structure: BuildStructure::BuilderScratch,
+            })?;
+    let route = route
+        .checked_add(pass_a_count_bytes::<f64>(route_edges)?)
+        .ok_or(BuildError::ArithmeticOverflow {
+            structure: BuildStructure::BuilderScratch,
+        })?;
+    Ok(intern.max(access).max(route))
 }
 
 fn interned_facility_token(token: &str, lane_bearing: bool) -> Option<&str> {
@@ -3635,6 +3735,7 @@ fn build_routes(
     lane_speeds: &[f64],
     gate_signal_group: &crate::relations::OptionalColumn<SignalGroupOrdinal>,
     edge_junction: &crate::relations::OptionalColumn<JunctionOrdinal>,
+    edge_stop_line: &crate::relations::OptionalColumn<StopLineOrdinal>,
     successor_ranges: &[RangeU32],
     successors: &[LaneEdgeOrdinal],
     maneuvers: &SharedManeuverNetwork,
@@ -3696,6 +3797,13 @@ fn build_routes(
         }
         edge_ranges.push(RangeU32::new(start, route_edges.len()));
         let route_edge_slice = &edges[usize::try_from(start).expect("u32")..];
+        if let Some(last) = route_edge_slice.last()
+            && get_optional(edge_stop_line, last.raw()).is_some()
+        {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
         for pair in route_edge_slice.windows(2) {
             if !route_pair_connected(pair[0], pair[1], successor_ranges, successors, maneuvers) {
                 return Err(BuildError::InputInvariant {
