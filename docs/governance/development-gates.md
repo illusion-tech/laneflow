@@ -226,6 +226,7 @@ AwaitingReview
 
 - 没有有效 completion event 时，即使 `reviewThreads=0` 也保持 `AwaitingReview`。
 - 当前 exact head 首次得到一个有效 reviewer 的 clean completion（或按 D4 从 tree OID 逐字节相等的已审 head 对称继承 clean 结论）后，才满足 reviewer 数量门槛。
+- 每条 review finding thread 都必须在原线程单独回复；是否 resolve 继续由既有 deferred disclosure、round-cap 与 blocking closure 协议决定，不得为形式闭环移除协议要求保留的 unresolved evidence。
 - 出现 blocking finding 后，仅修复代码、回复或由作者 resolve thread 不能恢复为 clean；必须形成 `finding -> disposition -> clean re-review`，re-review 绑定 current exact head 或按 D4 tree OID 逐字节相等继承；deferred（P2/P3）findings 不适用该链（见下文 #406 全局语义层）。
 - `unresolved actionable threads == 0` 是必要条件，不是充分条件。
 - 受信任人工 reviewer 只以 `APPROVED` / `CHANGES_REQUESTED` 分别形成结构化 clean / findings；body-only `COMMENTED` 且没有受信任 inline finding thread 时不构成 completion 或 finding，不对自由文本做关键词或语义阻断推断。
