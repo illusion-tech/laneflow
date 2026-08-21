@@ -1413,6 +1413,15 @@ pub(crate) fn evaluate_snapshot_with_policy(
     let binding_records = collect_codex_clean_binding_records(pr, &mut diagnostics);
     let bindings = adjudicate_codex_clean_bindings(pr, &binding_records, &mut diagnostics);
     let mut consumed_binding_records = BTreeSet::<String>::new();
+    // D1 共享失效闸门：evaluate 时已存在任何受信 finding（含 P2/P3 deferred，
+    // 即 findingCount 层面而非仅 blocking）、unresolved blocking thread 或
+    // stale/dismissed 活动 → 全部机器 completion 通道失效，回标准路径
+    //（此后 deferred/round-cap 等既有语义照常）。四个输入由线程循环与 reviews
+    // 循环算出，comments 循环不修改它们，故闸门前置到此处供故障例外复用。
+    let machine_completion_open = finding_thread_ids.is_empty()
+        && unthreaded_findings == 0
+        && unresolved_blocking_threads == 0
+        && !stale_or_dismissed;
     for comment in &pr.comments.nodes {
         let Some(actor) = comment.author.as_ref() else {
             continue;
@@ -1421,12 +1430,12 @@ pub(crate) fn evaluate_snapshot_with_policy(
             continue;
         }
         // Codex 故障注释（环境不可用）的 provider-error 诊断例外覆盖两条机器
-        // completion 通道：dependabot 与 D1 快速通道命中的 PR 不依赖 Codex 可用性，
-        // 故障注释不产生诊断（例外判定与 dependabot 一致，不看
-        // machine_completion_open 闸门——闸门只作用于证据注入）
+        // completion 通道，但两侧不对称：dependabot 侧保持既有口径（未过闸门的
+        // 原始判定，legacy 行为不动）；D1 快速通道侧只在机器 completion 实际
+        // 可用（过闸门后）时生效——闸门已关时不吞故障歧义信号
         if comment.body.contains("To use Codex here")
             && dependabot_completion.is_none()
-            && fast_lane.is_none()
+            && fast_lane.filter(|_| machine_completion_open).is_none()
         {
             diagnostics.push(format!("Codex provider 报告环境不可用：{}", comment.url));
             continue;
@@ -1503,14 +1512,6 @@ pub(crate) fn evaluate_snapshot_with_policy(
         }
     }
 
-    // D1 共享失效闸门：evaluate 时已存在任何受信 finding（含 P2/P3 deferred，
-    // 即 findingCount 层面而非仅 blocking）、unresolved blocking thread 或
-    // stale/dismissed 活动 → 全部机器 completion 通道失效，回标准路径
-    //（此后 deferred/round-cap 等既有语义照常）。
-    let machine_completion_open = finding_thread_ids.is_empty()
-        && unthreaded_findings == 0
-        && unresolved_blocking_threads == 0
-        && !stale_or_dismissed;
     if let (Some(completion), Some((completion_time, completion_url))) = (
         dependabot_completion.filter(|_| machine_completion_open),
         dependabot_completion_event,
@@ -5708,10 +5709,19 @@ mod tests {
             assert!(template.contains(lane), "template 缺少快速通道 {lane}");
             assert!(matrix.contains(lane), "matrix 缺少快速通道 {lane}");
         }
-        // 失效闸门与 waiver 区分的权威表述（改文案时必须与本 pin 锁步）
+        // 失效闸门与 waiver 区分的权威表述（改文案时必须与本 pin 锁步）：
+        // findings/unresolved blocking/stale-dismissed/分页溢出闸门三通道共享；
+        // snapshot 字段完整性前置仅适用两条新通道（dependabot 字段口径不变）
         assert!(gates.contains(
-            "三条通道共享同一失效闸门：任何受信 actor 的 finding（含 P2/P3 deferred，按 findingCount 层面判定）抵达、snapshot 字段缺失（任一文件的 `additions`/`deletions` 或 head commit 的 `message`）或 files 分页溢出，通道立即失效并回标准路径，不接受人工修补；pre-activation（#406 G1 冻结 `2026-08-20T04:20:39Z` 前）replay 不适用新通道；回标准路径后 deferred、round-cap 等既有语义照常。"
+            "三条通道共享同一失效闸门：任何受信 actor 的 finding（含 P2/P3 deferred，按 findingCount 层面判定）抵达、unresolved blocking thread、stale/dismissed 活动或 files 分页溢出，通道立即失效并回标准路径，不接受人工修补；pre-activation（#406 G1 冻结 `2026-08-20T04:20:39Z` 前）replay 不适用新通道；回标准路径后 deferred、round-cap 等既有语义照常。"
         ));
+        assert!(gates.contains(
+            "snapshot 字段完整性前置（任一文件的 `additions`/`deletions` 或 head commit 的 `message` 缺失即失效）仅适用两条新通道；dependabot 通道字段口径不变（旧快照兼容）"
+        ));
+        assert!(
+            matrix.contains("snapshot 字段缺失（`additions`/`deletions`/`message`，仅两条新通道）")
+        );
+        assert!(matrix.contains("dependabot 通道字段口径不变（旧快照兼容）"));
         assert!(gates.contains("它是机器 completion 而非 waiver"));
         assert!(gates.contains("第 6.1 节的快速通道是机器 completion 而非 waiver"));
         assert!(
@@ -6237,6 +6247,33 @@ mod tests {
         miss.pull_request.files.nodes[0].path = "src/lib.rs".to_string();
         miss.pull_request.comments.nodes.push(outage_comment());
         let result = evaluate_snapshot(&miss);
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("环境不可用"))
+        );
+    }
+
+    #[test]
+    fn fast_lane_outage_exception_yields_to_closed_machine_completion_gate() {
+        let contents = include_str!("../fixtures/external-review/fast-lane-docs-only.json");
+        // 结构命中 docs-only 但已有受信 P2 finding：闸门关闭 → 快速通道侧故障
+        // 例外不生效，「环境不可用」诊断照常产生（不吞故障歧义信号）
+        let mut gated = fixture(contents);
+        fast_lane_trusted_finding(&mut gated, "P2");
+        gated.pull_request.comments.nodes.push(IssueComment {
+            id: "IC-codex-outage-gated".to_string(),
+            author: Some(Actor {
+                login: CODEX_ACTOR.to_string(),
+            }),
+            body: "To use Codex here, please ask the admin to install the app.".to_string(),
+            created_at: "2026-08-20T09:05:00Z".to_string(),
+            updated_at: "2026-08-20T09:05:00Z".to_string(),
+            url: "https://github.com/illusion-tech/laneflow/pull/460#issuecomment-10".to_string(),
+        });
+        let result = evaluate_snapshot(&gated);
         assert_eq!(result.state, ExternalReviewState::ProviderError);
         assert!(
             result
