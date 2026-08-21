@@ -111,9 +111,9 @@ GitHub Issue / PR 为准。#297 调整后不建立 current JSON 编译器前端�
 - 干净单工作线程编译（Clean Single-thread Compile）是并行或增量实现的确定性
   预言机：内存 LIR 必须具有相同规范语义，后继制品发射器存在时则必须产生相同精确
   字节；
-- #294 完成 G4 前，由 `Traffic v0.10`、`SpatialPackage v0.1`、
+- #301 完成前，由 `Traffic v0.10`、`SpatialPackage v0.1`、
   `ScenarioManifest v0.1`、`laneflow-data`、`laneflow-core` 和
-  `laneflow-spatial` 组成的当前路径仍是生产契约。
+  `laneflow-spatial` 组成的当前路径仍是仓库内可运行契约；#301 完成后该路径拆除。
 
 #292 的目标是：
 
@@ -180,10 +180,9 @@ HIR 和 MIR 的区块分配键（arena key）则留在编译器内部。这样�
   `laneflow-validator`；
 - `laneflow-static-network` 的受检 LFCA 构建闭合、performance-first layout 与共享
   生命周期由 #300 交付；
-- `laneflow-runtime` 与空间层共享静态路网消费路径由 #301 交付；不可变路网修订、
-  运行时快照（Runtime Snapshot）与在线路网修订切换由 #302 交付；
-- 当前态 `laneflow-core` 到目标态 `laneflow-runtime` 的一次性不兼容切换由 #294
-  独占。
+- `laneflow-runtime` 与空间层共享静态路网消费路径由 #301 交付；#301 同时使
+  `TrafficWorld` 成为唯一可运行世界并拆除 current Core/JSON 运行时入口；
+- 不可变路网修订、运行时快照（Runtime Snapshot）与在线路网修订切换由 #302 交付。
 
 #292 可以定义后继编译发射器所需的只读已验证规范低层中间表示视图（View），但不得用私有
 临时线格式提前冻结 #298/#300 的公共字节契约。

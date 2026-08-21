@@ -139,8 +139,9 @@ SharedNetworkRevision ─┬─> Traffic Runtime: SharedTrafficNetwork + per-wor
 - Accepted ADR 0021 把服务中国特色城市模拟游戏交通基础定义为 LaneFlow 第一长期
   产品目标，并让城市经济、出行需求、路线选择策略和游戏规则继续由上层拥有。
 
-本文描述目标态。ADR 0020/0021 Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，
-现有 JSON/Data/Core/Spatial 路径仍是当前态生产契约。
+本文描述目标态。#301 完成前，现有 JSON/Data/Core/Spatial 路径仍是仓库内可运行的
+current 契约；#301 完成后 `laneflow-runtime` 为唯一可运行交通世界，current Core/JSON
+运行时入口拆除。精确消费与拆除边界见 `traffic-runtime-shared-consumption.md`。
 
 ## 2. 为什么不能继续 L1/L2
 
@@ -1205,9 +1206,9 @@ Accepted ADR 0025 / #300 G1 已取消 image binding；但没有 #302 接受的�
 
 Target 把当前 `LaneFlow Core` / `laneflow-core` 重命名为
 `LaneFlow Traffic Runtime` / `laneflow-runtime`。这不是机械改名：static contract、
-format、shared-network builder 和 compiler type 必须移出 runtime crate。当前 production 的
-`laneflow-core`/`CoreWorld` 名称在 cutover 前继续有效；target public world 名称为
-`TrafficWorld`。
+format、shared-network builder 和 compiler type 必须移出 runtime crate。#301 完成前
+`laneflow-core`/`CoreWorld` 仍是仓库内可运行名称；#301 完成后 public world 为
+`TrafficWorld`，`laneflow-core` 不再作为可运行入口。
 
 `TrafficWorld` 共享 `Arc<SharedNetworkRevision>` 并从根借用 `SharedTrafficNetwork`，只分配：
 
@@ -1238,7 +1239,10 @@ Spatial 只在 `SharedNetworkRevision` 含 Spatial component 时借用
 才与 Traffic edge ordinal 完整对齐；facility/profile/frame-only component 不能启动车辆
 pose sampling。可用 pose 路径不再建立 `HashMap<EdgeHandle, slot>` 或按 external ID join，
 并继续遵守 ADR 0015 的 canonical f32、frame token、稳定顺序、零分配和失败原子性。
-headless 构建不创建 Spatial runtime。
+headless 构建不创建 Spatial runtime。Spatial session 只
+`bind(Arc<SharedNetworkRevision>)`，不依赖 `laneflow-runtime`；同修订由组合根与
+pose 批次上的 `NetworkRevisionId` 保证。详细契约见
+`traffic-runtime-shared-consumption.md`。
 
 ### 9.3 admission 与共享构建状态
 
@@ -1801,7 +1805,6 @@ laneflow-compiler -------> laneflow-format
 laneflow-runtime --------> laneflow-static-contract
 laneflow-runtime --------> laneflow-static-network
 laneflow-spatial --------> laneflow-static-contract
-laneflow-spatial --------> laneflow-runtime
 laneflow-spatial --------> laneflow-static-network
 
 laneflow-adapter-* ------> laneflow-runtime
@@ -1833,8 +1836,8 @@ ScenarioManifest 配对；它不提供编译器严格导入能力。current JSON
 | `laneflow-format`          | 可移植制品线格式/视图、无分配后发射检查、revision/digest/跨对象 binding                   | 编译器来源/IR 语义、文件系统、运行时、空间层 |
 | `laneflow-static-network`  | 受检 LFCA 构建闭合、typed dense arrays、Traffic/Identity/Hints/可选 Spatial、共享生命周期 | 编译器、当前 Core/Data、Adapter、文件系统    |
 | `laneflow-compiler`        | 前端、中间表示、编译遍、主发射器、源映射 / 语义差异、LFCP v2 与发布编排                   | 当前态数据 / 核心对象图                      |
-| `laneflow-runtime`         | 固定步进、已实现执行域的交通参与单元、动态通行定义、可变交通状态                          | 编译器、Serde、文件系统、空间层              |
-| `laneflow-spatial`         | 规范几何采样、位姿批次                                                                    | 编译器、引擎                                 |
+| `laneflow-runtime`         | 固定步进、已实现执行域的交通参与单元、动态通行定义、可变交通状态                          | 编译器、Serde、文件系统、空间层、`laneflow-core` |
+| `laneflow-spatial`         | 规范几何采样、位姿批次                                                                    | 编译器、引擎、Runtime                            |
 
 `laneflow-runtime` 是 current `laneflow-core` 的 target 名称；
 `laneflow-static-network` 表达进程内共享静态路网，不是 image/cache crate。共享 static
@@ -1855,9 +1858,10 @@ normalization authority，也不保留离线兼容入口。
 阶段 5  #298 可移植规范制品/源映射/语义差异
         + #299 compiler 后发射检查/LFCP v2/最小发布闭合
 阶段 6  #300 受检 LFCA→共享静态路网 + #301 交通运行时/空间层共享消费路径
+        （#301 使 TrafficWorld 成为唯一可运行世界，并拆除 Core/JSON 运行时入口）
         + #302 不可变路网修订/运行时快照/在线切换
-阶段 7  behavior/perf/security cutover Gate
-阶段 8  #294：production cutover，完成 core→runtime rename 并移除 projection/重复构建
+阶段 7  behavior/perf/security 目标路径认证 Gate（不再以 Core 为对照物）
+阶段 8  残留文档/Skill 标识符改名（crate 拆除已由 #301 完成；不得把 Core 当正式世界）
 ```
 
 阶段是架构迁移顺序，不是把终态降级为最小方案。#292 已在阶段 2 与阶段 3 均完成后
@@ -1874,15 +1878,14 @@ StableId、有类型所有者关系（Typed Owner Relation）与其他规范语�
 或核心对象图（Core Object Graph）反向派生标识（Identity），测试输入直接由编译器
 原生有类型模块构造。
 
-阶段 8 的 #294 一次性不兼容改名不仅覆盖 crate/type，也覆盖文档导航、Agent Skill
-ID、工具薄包装和治理枚举：`laneflow-core-design` 目标改为
-`laneflow-runtime-design`。在 current `laneflow-core/CoreWorld` 仍服役时只同步
-Skill 内容并明确 current/target，不提前删除旧发现入口；具体治理枚举迁移必须由
-独立 implementation Issue 原子更新 validator、模板和历史兼容规则。
+crate/type 拆除由 #301 完成。文档导航、Agent Skill ID（`laneflow-core-design` →
+`laneflow-runtime-design`）、工具薄包装若未随 #301 改完，只作为残留改名，不得保留
+`laneflow-core` 作为可运行世界。
 
-Cutover 前必须证明：
+#301 完成后必须证明：
 
-1. current/target 场景的静态语义、tick、event、pose 等价；
+1. Runtime 端到端场景的静态语义、tick、event、pose 与失败原子性（不以 `CoreWorld`
+   为预言机）；
 2. deterministic artifact 与同 LFCA shared-network accessor-visible 内容确定性；
 3. compiler 后发射闭合、外部认证 manifest admission 与 shared-network 构建闭合安全；
    #300/#302 的输入已由各自 G1 冻结；
@@ -1890,7 +1893,7 @@ Cutover 前必须证明：
 5. worker/partition 置换等价、无额外 tick 延迟和单大型 world scaling；
 6. publication/migration/source map/semantic diff 可用；
 7. snapshot/replay 与 network revision cutover 有失败关闭的后继 G1/实现入口；
-8. fallback/rollback 只切换 current/target asset path，不存在两套可变 authority。
+8. 不存在两套可变 authority；current JSON/Core 不得再作为可运行入口。
 
 ## 15. 风险登记
 
@@ -1940,8 +1943,8 @@ Cutover 前必须证明：
   #296 按自身 Gate 推进；#297 不建立 current JSON 编译器前端，并按调整后范围重新
   完成 Gate；
   当前 Project 状态和原生依赖关系不在长期设计中镜像；
-- 阶段 8 生产切换、core→runtime 原子改名与旧路径移除由 #294 的 G4 独占，不再
-  误绑到 #291 的设计交付 G4；
+- current Core/JSON 运行时入口拆除与 `TrafficWorld` 成为唯一可运行世界由 #301
+  完成，不再误绑到 #291 的设计交付或 #294 生产切换；
 
 以下 shared-network 修订已随 ADR 0025 / #300 G1 Pass 成为后继实现输入；任何下游 Issue
 仍不得引用本列表越过自身 G1/G2：

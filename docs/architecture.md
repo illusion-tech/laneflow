@@ -158,8 +158,9 @@ Journal）记录已提交动态状态/生命周期变化及命令/事件游标�
 标识，Runtime 不接受调用方或 LFSD 自报修订。#300/#302 分别冻结共享静态路网和切换
 输入。当前 production descriptor 是不含 receipt 的 LFCP v2；LFCP v1 只保留为
 #298 已实现的历史契约。目标职责、上层
-边界与历史 ADR 的关系见 ADR 0020/0021 及 Accepted ADR 0024；阶段 8 生产切换 Issue
-#294 完成 G4 前，本文其余 current 章节继续有效。
+边界与历史 ADR 的关系见 ADR 0020/0021 及 Accepted ADR 0024。#301 完成前，本文其余
+current 章节描述仓库内仍可运行的 Core 路径；#301 完成后这些章节须改为历史描述或删除，
+以 `docs/design/traffic-runtime-shared-consumption.md` 为准。
 
 ## 3. Authoring Layer
 

@@ -1,7 +1,7 @@
 # 共享静态路网
 
 **文档状态**: Accepted（#300 G1 Pass）<br>
-**最后更新**: 2026-08-20（#440 G1 Pass / G2 实现）<br>
+**最后更新**: 2026-08-22（#301 G1 消费路径回写）<br>
 **适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
 **关联文档**: `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
@@ -19,8 +19,9 @@ Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验
 根唯一所有权、Identity、LaneEdge、Spatial，以及把普通后继与 `ManeuverPath.edges`
 合并成完整可执行 CSR 和带 path/transition/gate/waiting 上下文的机动候选。#440 单独闭合
 剩余 Runtime 静态关系，#441 在最终字段集合与 #301 production kernel 上单独记录资源/
-性能证据；#300 保持父级跟踪项，不由 #436 自动关闭。目标 Runtime 仍不存在，当前生产
-路径仍是 Traffic v0.10 / SpatialPackage v0.1 / Data / Core。
+性能证据；#300 保持父级跟踪项，不由 #436 自动关闭。#301 交付 `TrafficWorld` 对共享根
+的消费并使它成为唯一可运行交通世界，同时拆除 current Core/JSON 运行时入口；契约见
+`traffic-runtime-shared-consumption.md`。
 
 ## 2. 职责与依赖
 

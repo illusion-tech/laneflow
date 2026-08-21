@@ -27,11 +27,9 @@
 
 Agent 应选择与当前任务最相关、范围最小的 Skill。若任务跨多个领域，先读 governance，再读领域 Skill。
 
-`laneflow-core-design` Skill 标识符（Skill ID）在阶段 8 生产切换 Issue #294 完成
-G4 前保留，用于
-发现当前态核心（Current Core）任务；其内容已经同时覆盖目标态交通运行时（Target
-Traffic Runtime）。生产切换时再与 `laneflow-core/CoreWorld` 一起原子改名，避免
-工具发现、当前 API 和目标文档提前分叉。
+`laneflow-core-design` Skill 标识符（Skill ID）可在 `laneflow-core` crate 删除后
+短暂保留，用于发现 Traffic Runtime 任务；其内容已经覆盖目标态交通运行时。crate
+拆除由 #301 完成；Skill 改名不得反向保留可运行的 `CoreWorld`。
 
 语言约定：长期设计和 Agent 工作流以中文术语、中文定义为权威事实，英文只作辅助
 理解；双语映射遵循 `docs/reference/glossary.md`。技术标识符（切片类型、闸口
