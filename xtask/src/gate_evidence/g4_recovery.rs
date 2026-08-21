@@ -358,6 +358,7 @@ pub(super) fn validate_live_merge_queue_recovery(
     let target_g4 = comment_for_permalink(target_issue, &target_g4_url, "target Issue G4")?;
     let target_g4_at = parse_utc_timestamp_seconds(&target_g4.created_at)
         .ok_or("target Issue G4 createdAt 无效")?;
+    let merge_group_runs = gh_merge_group_workflow_runs(&args.repo)?;
 
     for failure in &record.failures {
         let pr_record = evidence_record
@@ -374,6 +375,22 @@ pub(super) fn validate_live_merge_queue_recovery(
             .as_deref()
             .and_then(parse_utc_timestamp_seconds)
             .ok_or("historical_failure PR mergedAt 无效")?;
+        let h_mg = full_commit_oid(
+            pr_record
+                .h_mg
+                .as_deref()
+                .ok_or("historical_failure record 必须保留已观测的 H_mg")?,
+            &format!("historical_failure PR #{} H_mg", failure.failed_pr),
+        )?;
+        let failed_timeline = gh_issue_timeline(&args.repo, failure.failed_pr)?;
+        validate_historical_merge_group_identity(
+            &args.repo,
+            failure.failed_pr,
+            &failed_pr.base_ref_name,
+            &h_mg,
+            &merge_group_runs,
+            &failed_timeline,
+        )?;
 
         let remediation =
             gh_issue_view_for_phase(&args.repo, failure.remediation_issue, GateEvidencePhase::G4)?;
