@@ -1420,6 +1420,7 @@ impl SharedRelationClosure {
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
         u64::try_from(size_of::<Self>()).unwrap_or(0)
+            + logical_bytes::<Box<str>>(self.intern.len())
             + self
                 .intern
                 .iter()
@@ -1592,6 +1593,7 @@ pub(crate) struct RelationPayloads {
     pub path_cells: u32,
     pub route_segment_totals: u32,
     pub speed_limit_transitions: u32,
+    pub pass_a_scratch: u64,
 }
 
 pub(crate) fn relation_retained_floor(
@@ -1763,6 +1765,7 @@ pub(crate) fn relation_retained_floor(
     total = floor_add::<u32>(total, payloads.route_reverse)?;
     total = floor_add::<StaticRouteOrdinal>(total, payloads.route_reverse)?;
     total = floor_add::<u32>(total, payloads.route_reverse)?;
+    total = floor_add::<Box<str>>(total, payloads.intern_keys)?;
     total = floor_add_bytes(total, payloads.intern_utf8)?;
     total = floor_add::<f64>(total, payloads.route_segment_totals)?;
     total = floor_add::<u32>(total, payloads.speed_limit_transitions)?;
