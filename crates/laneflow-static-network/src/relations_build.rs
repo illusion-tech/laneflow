@@ -2702,6 +2702,7 @@ fn build_access_rules(
     let mut ranges = allocate_vec(count, STRUCTURE)?;
     let mut classes = Vec::new();
     let mut priority = allocate_vec(count, STRUCTURE)?;
+    let mut regulation = None;
     for (index, row) in table.rows().enumerate() {
         let expected = u32::try_from(index).map_err(|_| BuildError::ArithmeticOverflow {
             structure: STRUCTURE,
@@ -2734,7 +2735,7 @@ fn build_access_rules(
             });
         }
         ranges.push(range);
-        let _ = row.field_by_tag(7);
+        close_regulation_authority(row, &mut regulation)?;
         priority.push(checked_i32(row, 8)?);
     }
     Ok(Rules {
@@ -2748,6 +2749,55 @@ fn build_access_rules(
             .into_boxed_slice(),
         priority: priority.into_boxed_slice(),
     })
+}
+
+/// Core AccessRegistry phase 9.6：已声明 `regulation` 必须共享同一
+/// `(jurisdiction, version)`（`source` 不参与）；未声明者跳过。UTF-8 只用于比对，
+/// 不 intern、不进入 Traffic。
+fn close_regulation_authority<'a>(
+    row: RegistryCheckedRowView<'a>,
+    canonical: &mut Option<(&'a str, &'a str)>,
+) -> Result<(), BuildError> {
+    let Some(field) = row.field_by_tag(7) else {
+        return Ok(());
+    };
+    let RegistryCheckedFieldValue::RecordVector(records) =
+        field.value().map_err(|_| BuildError::InputInvariant {
+            structure: STRUCTURE,
+        })?
+    else {
+        return Err(BuildError::InputInvariant {
+            structure: STRUCTURE,
+        });
+    };
+    if records.len() != 1 {
+        return Err(BuildError::InputInvariant {
+            structure: STRUCTURE,
+        });
+    }
+    let nested = records.rows().next().ok_or(BuildError::InputInvariant {
+        structure: STRUCTURE,
+    })?;
+    bind_regulation_authority(
+        canonical,
+        (checked_utf8(nested, 1)?, checked_utf8(nested, 2)?),
+    )
+}
+
+fn bind_regulation_authority<'a>(
+    canonical: &mut Option<(&'a str, &'a str)>,
+    authority: (&'a str, &'a str),
+) -> Result<(), BuildError> {
+    if let Some(first) = *canonical {
+        if first != authority {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        return Ok(());
+    }
+    *canonical = Some(authority);
+    Ok(())
 }
 
 fn parse_access_target(
@@ -4610,6 +4660,26 @@ mod tests {
             view.distance_to_end_within(1, 0.0, f64::MAX),
             RouteDistanceQuery::Within(f64::MAX)
         );
+    }
+
+    #[test]
+    fn regulation_authority_requires_one_jurisdiction_version() {
+        let mut canonical = None;
+        super::bind_regulation_authority(&mut canonical, ("CN-test", "2026-01"))
+            .expect("first declared regulation");
+        super::bind_regulation_authority(&mut canonical, ("CN-test", "2026-01"))
+            .expect("matching provenance");
+        assert!(matches!(
+            super::bind_regulation_authority(&mut canonical, ("CN-other", "2026-01")),
+            Err(BuildError::InputInvariant { .. })
+        ));
+        let mut canonical = None;
+        super::bind_regulation_authority(&mut canonical, ("CN-test", "2026-01"))
+            .expect("first declared regulation");
+        assert!(matches!(
+            super::bind_regulation_authority(&mut canonical, ("CN-test", "2026-02")),
+            Err(BuildError::InputInvariant { .. })
+        ));
     }
 
     #[test]
