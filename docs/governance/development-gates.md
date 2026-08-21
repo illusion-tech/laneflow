@@ -200,7 +200,7 @@ G1 证据可以是：
 
 `pure-move-v1` 暂缓启用：GraphQL `PullRequestChangedFile` 不提供 rename 源路径，destination-only 校验无法防止语义路径文件的 0/0 改名逃逸（如 `.github/dependabot.yml` 改名为 `docs/` 下文件关停 Dependabot），见 #406 审阅记录。
 
-快速通道与 `dependabot-cargo-lock-only-v1` 同构：精确机器条件命中后由 evaluator 注入机器 completion 证据（两条新通道的 provider 为通道名，actor 为 `github-metadata`，completion 时间取 head commit 时间），免外部 review；它是机器 completion 而非 waiver，不需要 `external-review-waiver:v1` 记录。三条通道共享同一失效闸门：任何受信 actor 的 finding（含 P2/P3 deferred，按 findingCount 层面判定）抵达、snapshot 字段缺失（任一文件的 `additions`/`deletions` 或 head commit 的 `message`）或 files 分页溢出，通道立即失效并回标准路径，不接受人工修补；pre-activation（#406 G1 冻结 `2026-08-20T04:20:39Z` 前）replay 不适用新通道；回标准路径后 deferred、round-cap 等既有语义照常。
+快速通道与 `dependabot-cargo-lock-only-v1` 同构：精确机器条件命中后由 evaluator 注入机器 completion 证据（两条新通道的 provider 为通道名，actor 为 `github-metadata`，completion 时间取 head commit 时间），免外部 review；它是机器 completion 而非 waiver，不需要 `external-review-waiver:v1` 记录。三条通道共享同一失效闸门：任何受信 actor 的 finding（含 P2/P3 deferred，按 findingCount 层面判定）抵达、unresolved blocking thread、stale/dismissed 活动或 files 分页溢出，通道立即失效并回标准路径，不接受人工修补；pre-activation（#406 G1 冻结 `2026-08-20T04:20:39Z` 前）replay 不适用新通道；回标准路径后 deferred、round-cap 等既有语义照常。snapshot 字段完整性前置（任一文件的 `additions`/`deletions` 或 head commit 的 `message` 缺失即失效）仅适用两条新通道；dependabot 通道字段口径不变（旧快照兼容）。
 
 单维护者仓库采用双层责任：
 
