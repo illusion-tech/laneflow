@@ -1273,8 +1273,14 @@ pub(crate) fn evaluate_snapshot_with_policy(
                         });
                     }
                 }
-            } else if dependabot_completion.is_some() && has_authorless_comment {
-                // Dependabot 已知误报之外的 authorless thread 没有 badge 语义，保持 blocking
+            } else if (dependabot_completion.is_some() || fast_lane.is_some())
+                && has_authorless_comment
+            {
+                // Dependabot 已知误报之外的 authorless thread 没有 badge 语义，保持
+                // blocking；新通道与 dependabot 一致：authorless 未结 thread 按
+                // blocking 处理（fail-closed，deleted/unavailable reviewer 身份不可
+                // 核验）。两侧都用结构判定的原始值（不过闸门）——目的正是让这类
+                // thread 关闭 machine_completion_open 闸门
                 unresolved_blocking_threads += 1;
                 unresolved_blocking_findings.push(BlockingFinding {
                     thread_id: thread.id.clone(),
@@ -5672,9 +5678,11 @@ mod tests {
         assert!(scanning.contains("`Analyze (actions)`"));
         assert!(scanning.contains("`Analyze (rust)`"));
         assert!(scanning.contains("不能复用于新 head、G3 或 Merge Group"));
-        for entry_point in [dependency, template, agent_guide] {
+        for entry_point in [dependency, template] {
             assert!(entry_point.contains("dependabot-cargo-lock-only-v1"));
         }
+        // agent-development-guide 不逐个列通道名（防双写漂移），锁其引用 §6.1 通道集合
+        assert!(agent_guide.contains("`development-gates.md` 第 6.1 节定义的快速通道"));
         assert!(dependency.contains("`Analyze (actions)`"));
         assert!(dependency.contains("`Analyze (rust)`"));
         assert!(dependency.contains("不再提供 CodeQL `not applicable`"));
@@ -5710,10 +5718,12 @@ mod tests {
             assert!(matrix.contains(lane), "matrix 缺少快速通道 {lane}");
         }
         // 失效闸门与 waiver 区分的权威表述（改文案时必须与本 pin 锁步）：
-        // findings/unresolved blocking/stale-dismissed/分页溢出闸门三通道共享；
+        // findings/unresolved blocking/dismissed/分页溢出闸门三通道共享
+        //（stale clean review 不关闸是有意设计：代码 stale_or_dismissed 仅在
+        // DISMISSED 置位，旧 head 的 finding 型 review 已由 findings 闸门覆盖）；
         // snapshot 字段完整性前置仅适用两条新通道（dependabot 字段口径不变）
         assert!(gates.contains(
-            "三条通道共享同一失效闸门：任何受信 actor 的 finding（含 P2/P3 deferred，按 findingCount 层面判定）抵达、unresolved blocking thread、stale/dismissed 活动或 files 分页溢出，通道立即失效并回标准路径，不接受人工修补；pre-activation（#406 G1 冻结 `2026-08-20T04:20:39Z` 前）replay 不适用新通道；回标准路径后 deferred、round-cap 等既有语义照常。"
+            "三条通道共享同一失效闸门：任何受信 actor 的 finding（含 P2/P3 deferred，按 findingCount 层面判定）抵达、unresolved blocking thread、dismissed 活动或 files 分页溢出，通道立即失效并回标准路径，不接受人工修补；pre-activation（#406 G1 冻结 `2026-08-20T04:20:39Z` 前）replay 不适用新通道；回标准路径后 deferred、round-cap 等既有语义照常。"
         ));
         assert!(gates.contains(
             "snapshot 字段完整性前置（任一文件的 `additions`/`deletions` 或 head commit 的 `message` 缺失即失效）仅适用两条新通道；dependabot 通道字段口径不变（旧快照兼容）"
@@ -6281,6 +6291,42 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.contains("环境不可用"))
         );
+    }
+
+    #[test]
+    fn fast_lane_authorless_unresolved_thread_blocks_machine_completion() {
+        let contents = include_str!("../fixtures/external-review/fast-lane-docs-only.json");
+        // authorless（deleted/unavailable reviewer，身份不可核验）未结 thread：
+        // 与 dependabot 一致按 blocking 处理——关闭闸门，机器 completion 不注入
+        let mut snapshot = fixture(contents);
+        snapshot
+            .pull_request
+            .review_threads
+            .nodes
+            .push(ReviewThread {
+                id: "PRRT-authorless-fast-lane".to_string(),
+                is_resolved: false,
+                is_outdated: false,
+                comments: Connection {
+                    nodes: vec![ReviewThreadComment {
+                        id: "PRRC-authorless-fast-lane".to_string(),
+                        author: None,
+                        body: "This looks wrong.".to_string(),
+                        created_at: "2026-08-20T09:00:00Z".to_string(),
+                        updated_at: "2026-08-20T09:00:00Z".to_string(),
+                        url: "https://github.com/illusion-tech/laneflow/pull/460#discussion_r11"
+                            .to_string(),
+                        pull_request_review: None,
+                    }],
+                    page_info: PageInfo::default(),
+                },
+            });
+        let result = evaluate_snapshot(&snapshot);
+        // 无受信 finding 与 clean completion 时落 AwaitingReview；关键是 blocking
+        // 计数关闸、机器 completion 证据不注入（修复前为 Pass）
+        assert_eq!(result.state, ExternalReviewState::AwaitingReview);
+        assert_eq!(result.unresolved_blocking_threads, 1);
+        assert!(no_machine_completion_evidence(&result));
     }
 
     #[test]

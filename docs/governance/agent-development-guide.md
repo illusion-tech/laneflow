@@ -32,7 +32,7 @@ AI Agent 开工前应读取：
 AI Agent 应遵守以下流程：
 
 1. 确认任务类型和影响范围。
-2. 审计当前 Issue 的 GitHub 元数据 / 依赖关系，包括 Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking、Delivery PR 和 Related PRs；Delivery PR 创建后须在 G3 前确认 `closingIssuesReferences` 覆盖目标 Issue，Related PR 不得误用 closing keyword。G3 前必须取得 trusted reviewer 对当前 exact head 的完成态外部审阅；仅当 PR 精确满足 `development-gates.md` 的 `dependabot-cargo-lock-only-v1` 时，才由其机器 completion 替代 reviewer completion。PR author 自审不计入外部 reviewer，有 findings 时必须在处置后取得新的 current-head clean re-review。G3 证据写入 PR comment；合并前允许纠错编辑，未编辑时以 `createdAt`、编辑后以经 REST 核对的 `updatedAt` 作为生效时间，并重新验证全部当前证据。G4 证据写入 Issue comment，body checkbox 只回链对应 permalink；`Gate 断言` 行必须包含与实际参数完全一致的反引号命令并明确写 `已通过`，pending、缺少结果、参数不匹配或运行失败均不得推进对应 Gate。若只能手动关联 GitHub Development 面板，必须记录显式例外；不适用项必须有 `N/A` 原因，无法设置的必需元数据必须记录显式例外。
+2. 审计当前 Issue 的 GitHub 元数据 / 依赖关系，包括 Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking、Delivery PR 和 Related PRs；Delivery PR 创建后须在 G3 前确认 `closingIssuesReferences` 覆盖目标 Issue，Related PR 不得误用 closing keyword。G3 前必须取得 trusted reviewer 对当前 exact head 的完成态外部审阅；仅当 PR 精确满足 `development-gates.md` 第 6.1 节定义的快速通道时，才由其机器 completion 替代 reviewer completion。PR author 自审不计入外部 reviewer，有 findings 时必须在处置后取得新的 current-head clean re-review。G3 证据写入 PR comment；合并前允许纠错编辑，未编辑时以 `createdAt`、编辑后以经 REST 核对的 `updatedAt` 作为生效时间，并重新验证全部当前证据。G4 证据写入 Issue comment，body checkbox 只回链对应 permalink；`Gate 断言` 行必须包含与实际参数完全一致的反引号命令并明确写 `已通过`，pending、缺少结果、参数不匹配或运行失败均不得推进对应 Gate。若只能手动关联 GitHub Development 面板，必须记录显式例外；不适用项必须有 `N/A` 原因，无法设置的必需元数据必须记录显式例外。
 3. 检查是否需要 ADR 或 design 文档。
 4. 读取现有代码和测试。
 5. 制定小范围实现计划。
