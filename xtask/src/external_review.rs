@@ -301,8 +301,9 @@ struct Actor {
 struct ChangedFile {
     path: String,
     change_type: String,
-    // D1：pure-move-v1 需要精确 additions/deletions=0；旧快照 / fixture 无此字段
-    //（serde default → None），字段缺失时依赖它们的通道 fail-closed 不成立
+    // D1：快速通道共享完整性闸门需要精确 additions/deletions；旧快照 / fixture
+    // 无此字段（serde default → None），字段缺失时新通道 fail-closed 不成立
+    //（dependabot 通道不依赖这两个字段，不受影响）
     #[serde(default)]
     additions: Option<u64>,
     #[serde(default)]
@@ -326,8 +327,9 @@ struct CommitMetadata {
     // D4：commits(last:100) 携带的 tree OID（旧 fixture 无此字段，serde default 兼容）
     #[serde(default)]
     tree: Option<TreeRef>,
-    // D1：governance-docs-v1 解析治理字段 `Slice` 所需；旧快照 / fixture 无此字段
-    //（serde default → None），message 缺失时该通道 fail-closed 不成立
+    // D1：governance-docs-v1 解析治理字段 `Slice` 所需，且属快速通道共享完整性
+    // 闸门；旧快照 / fixture 无此字段（serde default → None），message 缺失时
+    // 新通道 fail-closed 不成立
     #[serde(default)]
     message: Option<String>,
 }
@@ -1060,9 +1062,10 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     evaluate_snapshot_with_policy(snapshot, true)
 }
 
-/// severity_deferral_active=false（G4 replay pre-activation G3 comment）时停用 D2/D3
-/// 新语义：不做 badge 分级（受信 finding 一律 blocking）、deferred_findings 恒空、
-/// round-cap input 视为不适用（diagnostics fail-closed），不 retroactive 升级历史结论。
+/// severity_deferral_active=false（G4 replay pre-activation G3 comment）时停用 D1/D2/D3
+/// 新语义：不注入 D1 快速通道机器 completion（dependabot 通道不受影响）、不做 badge
+/// 分级（受信 finding 一律 blocking）、deferred_findings 恒空、round-cap input 视为
+/// 不适用（diagnostics fail-closed），不 retroactive 升级历史结论。
 pub(crate) fn evaluate_snapshot_with_policy(
     snapshot: &ExternalReviewSnapshot,
     severity_deferral_active: bool,
@@ -1112,10 +1115,14 @@ pub(crate) fn evaluate_snapshot_with_policy(
     let dependabot_completion = dependabot_lockfile_completion(pr);
     let mut dependabot_completion_event = dependabot_completion
         .map(|completion| (completion.committed_date.as_str(), completion.url.as_str()));
-    // D1 快速通道（docs-only-v1 / pure-move-v1 / governance-docs-v1）：与
+    // D1 快速通道（docs-only-v1 / governance-docs-v1）：与
     // dependabot-cargo-lock-only-v1 同构的机器 completion；evidence 注入走下方
-    // 与 dependabot 共享的失效闸门（machine_completion_open）
-    let fast_lane = fast_lane_completion(pr);
+    // 与 dependabot 共享的失效闸门（machine_completion_open）。
+    // 激活边界：复用 severity_deferral_active（G1 冻结 `2026-08-20T04:20:39Z`）——
+    // pre-activation replay 不注入新通道机器 completion；dependabot 通道不受此闸门。
+    // 同一边界对 D1 安全：G1 冻结至本 PR 部署之间唯一的 G3 comment（#453）触及
+    // xtask/**，任何通道都不会命中。
+    let fast_lane = fast_lane_completion(pr).filter(|_| severity_deferral_active);
 
     let mut review_to_finding_threads = BTreeMap::<String, BTreeSet<String>>::new();
     let mut finding_thread_ids = BTreeSet::<String>::new();
@@ -3136,17 +3143,37 @@ fn dependabot_lockfile_completion(pr: &PullRequestSnapshot) -> Option<&CommitMet
         .then_some(commit)
 }
 
-/// D1 快速通道（issue #406 PR-B）：`docs-only-v1` / `pure-move-v1` /
-/// `governance-docs-v1` 的机器 completion 判定，与 dependabot-cargo-lock-only-v1
-/// 同构——精确机器条件 + evaluate 级联中的共享 evidence 注入闸门（任何受信 finding
-/// 抵达即失效，见 evaluate_snapshot 的 machine_completion_open）。多通道同时命中
-/// 时按固定顺序取首个命名通道（证据等价，通道名只作 provider 标注）。
+/// D1 快速通道（issue #406 PR-B）：`docs-only-v1` / `governance-docs-v1` 的
+/// 机器 completion 判定，与 dependabot-cargo-lock-only-v1 同构——精确机器条件 +
+/// evaluate 级联中的共享 evidence 注入闸门（任何受信 finding 抵达即失效，见
+/// evaluate_snapshot 的 machine_completion_open）。多通道同时命中时按固定顺序
+/// 取首个命名通道（证据等价，通道名只作 provider 标注）。
+///
+/// `pure-move-v1` 暂缓启用：GraphQL `PullRequestChangedFile` 不提供 rename 源
+/// 路径，destination-only 校验无法防止语义路径文件的 0/0 改名逃逸（如
+/// `.github/dependabot.yml` 改名为 `docs/` 下文件关停 Dependabot），见 #406
+/// 审阅记录（PR #464）。
 fn fast_lane_completion(pr: &PullRequestSnapshot) -> Option<(&'static str, &CommitMetadata)> {
-    docs_only_lane_completion(pr)
+    let files = fully_paginated_files(pr)?;
+    // 共享前置校验一：RENAMED 排除——所有通道统一拒绝改名文件（见上）
+    if files.iter().any(|file| file.change_type == "RENAMED") {
+        return None;
+    }
+    // 共享前置校验二：snapshot 完整性——任一文件的 additions/deletions 或 head
+    // commit 的 message 缺失（旧快照形态）即失效，回标准路径
+    if files
+        .iter()
+        .any(|file| file.additions.is_none() || file.deletions.is_none())
+    {
+        return None;
+    }
+    let commit = head_commit_for_fast_lane(pr)?;
+    commit.message.as_ref()?;
+    docs_only_lane_completion(files, commit)
         .map(|commit| ("docs-only-v1", commit))
-        .or_else(|| pure_move_lane_completion(pr).map(|commit| ("pure-move-v1", commit)))
         .or_else(|| {
-            governance_docs_lane_completion(pr).map(|commit| ("governance-docs-v1", commit))
+            governance_docs_lane_completion(files, commit)
+                .map(|commit| ("governance-docs-v1", commit))
         })
 }
 
@@ -3175,18 +3202,20 @@ fn head_commit_for_fast_lane(pr: &PullRequestSnapshot) -> Option<&CommitMetadata
     .then_some(commit)
 }
 
-/// `docs-only-v1`：完整分页后全部变更文件匹配 `docs/**`、根级 `*.md`
-/// 或 `research/**/*.md`
-fn docs_only_lane_completion(pr: &PullRequestSnapshot) -> Option<&CommitMetadata> {
-    let files = fully_paginated_files(pr)?;
+/// `docs-only-v1`：全部变更文件匹配 `docs/**/*.md`、根级 `*.md`
+/// 或 `research/**/*.md`（共享前置校验已完成 RENAMED 排除与 snapshot 完整性检查）
+fn docs_only_lane_completion<'a>(
+    files: &[ChangedFile],
+    commit: &'a CommitMetadata,
+) -> Option<&'a CommitMetadata> {
     if !files.iter().all(|file| is_docs_only_path(&file.path)) {
         return None;
     }
-    head_commit_for_fast_lane(pr)
+    Some(commit)
 }
 
 fn is_docs_only_path(path: &str) -> bool {
-    path.starts_with("docs/")
+    (path.starts_with("docs/") && path.ends_with(".md"))
         || is_root_markdown(path)
         || (path.starts_with("research/") && path.ends_with(".md"))
 }
@@ -3195,29 +3224,18 @@ fn is_root_markdown(path: &str) -> bool {
     !path.contains('/') && path.ends_with(".md")
 }
 
-/// `pure-move-v1`：完整分页后全部变更文件 `changeType=RENAMED` 且
-/// `additions=0`、`deletions=0`；字段缺失（旧快照）即不成立
-fn pure_move_lane_completion(pr: &PullRequestSnapshot) -> Option<&CommitMetadata> {
-    let files = fully_paginated_files(pr)?;
-    if !files.iter().all(|file| {
-        file.change_type == "RENAMED" && file.additions == Some(0) && file.deletions == Some(0)
-    }) {
-        return None;
-    }
-    head_commit_for_fast_lane(pr)
-}
-
 /// `governance-docs-v1`：head commit 治理字段 `Slice: governance`（只认 head commit
-/// 本身；message 缺失 / 无 Slice / 值非 governance 即不成立），且完整分页后全部
-/// 变更文件匹配 `docs/**`、根级 `*.md`、`.agents/**/*.md` 或 `.github/**/*.md`；
+/// 本身；message 缺失 / 无 Slice / 值非 governance 即不成立），且全部变更文件匹配
+/// `docs/**/*.md`、根级 `*.md`、`.agents/**/*.md` 或 `.github/**/*.md`；
 /// `.github/workflows/**`、`xtask/**`、`schemas/**`、`crates/**` 任一命中即不成立
 ///（门禁代码面与运行时代码不豁免）。
-fn governance_docs_lane_completion(pr: &PullRequestSnapshot) -> Option<&CommitMetadata> {
-    let commit = head_commit_for_fast_lane(pr)?;
+fn governance_docs_lane_completion<'a>(
+    files: &[ChangedFile],
+    commit: &'a CommitMetadata,
+) -> Option<&'a CommitMetadata> {
     if head_commit_slice_value(commit.message.as_deref()?) != Some("governance") {
         return None;
     }
-    let files = fully_paginated_files(pr)?;
     if !files.iter().all(|file| is_governance_docs_path(&file.path)) {
         return None;
     }
@@ -3232,7 +3250,7 @@ fn is_governance_docs_path(path: &str) -> bool {
     {
         return false;
     }
-    path.starts_with("docs/")
+    (path.starts_with("docs/") && path.ends_with(".md"))
         || is_root_markdown(path)
         || (path.starts_with(".agents/") && path.ends_with(".md"))
         || (path.starts_with(".github/") && path.ends_with(".md"))
@@ -5664,7 +5682,6 @@ mod tests {
         for lane in [
             "lockfile-only-dependabot",
             "docs-only-v1",
-            "pure-move-v1",
             "governance-docs-v1",
         ] {
             assert!(
@@ -5672,13 +5689,21 @@ mod tests {
                 "gates 缺少快速通道 {lane}"
             );
         }
-        for lane in ["docs-only-v1", "pure-move-v1", "governance-docs-v1"] {
+        // pure-move-v1 暂缓启用（GraphQL 无 rename 源路径，destination-only 校验
+        // 不可证伪语义路径逃逸）：gates 只允许以「暂缓启用」注记形式提及，
+        // template 的可选通道列表不得包含
+        assert!(gates.contains("`pure-move-v1` 暂缓启用"));
+        assert!(
+            !template.contains("pure-move-v1"),
+            "template 不得列出暂缓启用的 pure-move-v1"
+        );
+        for lane in ["docs-only-v1", "governance-docs-v1"] {
             assert!(template.contains(lane), "template 缺少快速通道 {lane}");
             assert!(matrix.contains(lane), "matrix 缺少快速通道 {lane}");
         }
         // 失效闸门与 waiver 区分的权威表述（改文案时必须与本 pin 锁步）
         assert!(gates.contains(
-            "四条通道共享同一失效闸门：任何受信 actor 的 finding（含 P2/P3 deferred，按 findingCount 层面判定）抵达，或 snapshot 字段缺失 / files 分页溢出，通道立即失效并回标准路径，不接受人工修补"
+            "三条通道共享同一失效闸门：任何受信 actor 的 finding（含 P2/P3 deferred，按 findingCount 层面判定）抵达、snapshot 字段缺失（任一文件的 `additions`/`deletions` 或 head commit 的 `message`）或 files 分页溢出，通道立即失效并回标准路径，不接受人工修补；pre-activation（#406 G1 冻结 `2026-08-20T04:20:39Z` 前）replay 不适用新通道；回标准路径后 deferred、round-cap 等既有语义照常。"
         ));
         assert!(gates.contains("它是机器 completion 而非 waiver"));
         assert!(gates.contains("第 6.1 节的快速通道是机器 completion 而非 waiver"));
@@ -5686,6 +5711,10 @@ mod tests {
             template.contains("仅当 PR 精确满足 `development-gates.md` 第 6.1 节定义的快速通道")
         );
         assert!(matrix.contains("快速通道 PR 抵达任何受信 finding（含 P2/P3 deferred）"));
+        assert!(matrix.contains("含任一 `changeType=RENAMED` 文件"));
+        assert!(matrix.contains(
+            "pre-activation（G1 冻结 `2026-08-20T04:20:39Z` 前）replay 不注入新通道机器 completion"
+        ));
         assert!(matrix.contains("快速通道 files 分页溢出"));
         assert!(matrix.contains("门禁代码面与运行时代码不豁免"));
         // files 分页失败语义：通道失效回标准路径，不作整体 fail-closed
@@ -5781,12 +5810,13 @@ mod tests {
             "https://github.com/illusion-tech/laneflow/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         );
 
-        // 任一文件不匹配 docs/**、根级 *.md、research/**/*.md → 通道不成立
+        // 任一文件不匹配 docs/**/*.md、根级 *.md、research/**/*.md → 通道不成立
         for path in [
             "src/lib.rs",
             "research/issue-406-fast-lanes/data.json",
             "guides/README.md",
             "docs-only/readme.md",
+            "docs/reference/compiler-calibration-contract-v1.json",
         ] {
             let mut snapshot = fixture(contents);
             snapshot.pull_request.files.nodes[0].path = path.to_string();
@@ -5805,38 +5835,75 @@ mod tests {
     }
 
     #[test]
-    fn fast_lane_pure_move_requires_renamed_with_exact_zero_diff() {
-        let contents = include_str!("../fixtures/external-review/fast-lane-pure-move.json");
-        let pass = evaluate_snapshot(&fixture(contents));
-        assert_eq!(pass.state, ExternalReviewState::Pass);
-        assert_eq!(pass.provider.as_deref(), Some("pure-move-v1"));
+    fn fast_lane_fails_closed_on_missing_snapshot_fields() {
+        let contents = include_str!("../fixtures/external-review/fast-lane-docs-only.json");
 
-        // RENAMED 但 additions>0 → 不成立
-        let mut edited = fixture(contents);
-        edited.pull_request.files.nodes[0].additions = Some(1);
-        assert_eq!(
-            evaluate_snapshot(&edited).state,
-            ExternalReviewState::AwaitingReview
-        );
-
-        // changeType 非 RENAMED（即使 0/0）→ 不成立
-        let mut modified = fixture(contents);
-        modified.pull_request.files.nodes[0].change_type = "MODIFIED".to_string();
-        assert_eq!(
-            evaluate_snapshot(&modified).state,
-            ExternalReviewState::AwaitingReview
-        );
-
-        // additions/deletions 字段缺失（旧快照形态）→ fail-closed 不成立
-        let mut missing_fields = fixture(contents);
-        missing_fields.pull_request.files.nodes[0].additions = None;
-        let result = evaluate_snapshot(&missing_fields);
+        // head commit message 缺失（旧快照形态）→ 共享完整性闸门 fail-closed
+        let mut no_message = fixture(contents);
+        no_message.pull_request.commits.nodes[0].commit.message = None;
+        let result = evaluate_snapshot(&no_message);
         assert_eq!(result.state, ExternalReviewState::AwaitingReview);
         assert!(no_machine_completion_evidence(&result));
+
+        // 任一文件 additions 缺失 → 共享完整性闸门 fail-closed
+        let mut no_additions = fixture(contents);
+        no_additions.pull_request.files.nodes[0].additions = None;
+        let result = evaluate_snapshot(&no_additions);
+        assert_eq!(result.state, ExternalReviewState::AwaitingReview);
+        assert!(no_machine_completion_evidence(&result));
+
         // 对称地，仅 deletions 缺失同样 fail-closed
-        let mut missing_deletions = fixture(contents);
-        missing_deletions.pull_request.files.nodes[0].deletions = None;
-        let result = evaluate_snapshot(&missing_deletions);
+        let mut no_deletions = fixture(contents);
+        no_deletions.pull_request.files.nodes[0].deletions = None;
+        let result = evaluate_snapshot(&no_deletions);
+        assert_eq!(result.state, ExternalReviewState::AwaitingReview);
+        assert!(no_machine_completion_evidence(&result));
+    }
+
+    #[test]
+    fn fast_lane_renamed_files_are_excluded_from_all_fast_lanes() {
+        // pure-move-v1 暂缓启用后的统一语义：任何 changeType=RENAMED 文件使全部
+        // 快速通道失效（GraphQL PullRequestChangedFile 无 rename 源路径，
+        // destination-only 校验无法防语义路径文件 0/0 改名逃逸，如
+        // .github/dependabot.yml → docs/x.md 关停 Dependabot）
+        let docs_contents = include_str!("../fixtures/external-review/fast-lane-docs-only.json");
+
+        // destination 在 docs/ 下的 0/0 改名 → 所有通道失效
+        let mut renamed_doc = fixture(docs_contents);
+        renamed_doc.pull_request.files.nodes = vec![ChangedFile {
+            path: "docs/governance/development-gates.md".to_string(),
+            change_type: "RENAMED".to_string(),
+            additions: Some(0),
+            deletions: Some(0),
+        }];
+        let result = evaluate_snapshot(&renamed_doc);
+        assert_eq!(result.state, ExternalReviewState::AwaitingReview);
+        assert!(no_machine_completion_evidence(&result));
+
+        // destination 在 crates/ 下的 0/0 改名 → 同样失效
+        let mut renamed_code = fixture(docs_contents);
+        renamed_code.pull_request.files.nodes = vec![ChangedFile {
+            path: "crates/laneflow-core/src/lib.rs".to_string(),
+            change_type: "RENAMED".to_string(),
+            additions: Some(0),
+            deletions: Some(0),
+        }];
+        let result = evaluate_snapshot(&renamed_code);
+        assert_eq!(result.state, ExternalReviewState::AwaitingReview);
+        assert!(no_machine_completion_evidence(&result));
+
+        // governance-docs 通道同样排除：.agents/**/*.md 0/0 改名 +
+        // Slice: governance → 失效
+        let mut renamed_agents = fixture(include_str!(
+            "../fixtures/external-review/fast-lane-governance-docs.json"
+        ));
+        renamed_agents.pull_request.files.nodes = vec![ChangedFile {
+            path: ".agents/skills/laneflow-governance/SKILL.md".to_string(),
+            change_type: "RENAMED".to_string(),
+            additions: Some(0),
+            deletions: Some(0),
+        }];
+        let result = evaluate_snapshot(&renamed_agents);
         assert_eq!(result.state, ExternalReviewState::AwaitingReview);
         assert!(no_machine_completion_evidence(&result));
     }
@@ -5893,7 +5960,7 @@ mod tests {
         );
 
         // 门禁代码面与运行时代码不豁免：workflows/xtask/schemas/crates 任一命中即不成立；
-        // research/**/*.md 不在 governance-docs 允许集合内
+        // research/**/*.md 与 docs/ 下非 .md 文件不在 governance-docs 允许集合内
         for path in [
             ".github/workflows/ci.yml",
             ".github/workflows/notes.md",
@@ -5901,6 +5968,7 @@ mod tests {
             "schemas/laneflow-data-v0.10.schema.json",
             "crates/laneflow-core/src/lib.rs",
             "research/issue-406-fast-lanes/notes.md",
+            "docs/reference/compiler-calibration-contract-v1.json",
         ] {
             let mut snapshot = fixture(contents);
             snapshot.pull_request.files.nodes[0].path = path.to_string();
@@ -6083,35 +6151,50 @@ mod tests {
 
     #[test]
     fn fast_lane_hit_order_is_deterministic_across_overlapping_lanes() {
-        // docs/ 下 RENAMED 0/0 且 Slice: governance 同时满足三条通道，
-        // 按固定顺序 docs-only-v1 → pure-move-v1 → governance-docs-v1 取首个
+        // docs/**/*.md 修改且 Slice: governance 同时满足两条通道，
+        // 按固定顺序 docs-only-v1 → governance-docs-v1 取首个
         let mut snapshot = fixture(include_str!(
             "../fixtures/external-review/fast-lane-governance-docs.json"
         ));
         snapshot.pull_request.files.nodes = vec![ChangedFile {
             path: "docs/governance/development-gates.md".to_string(),
-            change_type: "RENAMED".to_string(),
-            additions: Some(0),
-            deletions: Some(0),
+            change_type: "MODIFIED".to_string(),
+            additions: Some(8),
+            deletions: Some(2),
         }];
         let result = evaluate_snapshot(&snapshot);
         assert_eq!(result.state, ExternalReviewState::Pass);
         assert_eq!(result.provider.as_deref(), Some("docs-only-v1"));
 
-        // docs-only 不命中而 pure-move 与 governance-docs 同时命中（.agents/**/*.md
-        // RENAMED 0/0 + Slice: governance）→ pure-move 优先
+        // docs-only 不命中而 governance-docs 命中（.agents/**/*.md 修改 +
+        // Slice: governance）→ governance-docs 胜出
         let mut snapshot = fixture(include_str!(
             "../fixtures/external-review/fast-lane-governance-docs.json"
         ));
         snapshot.pull_request.files.nodes = vec![ChangedFile {
             path: ".agents/skills/laneflow-governance/SKILL.md".to_string(),
-            change_type: "RENAMED".to_string(),
-            additions: Some(0),
-            deletions: Some(0),
+            change_type: "MODIFIED".to_string(),
+            additions: Some(3),
+            deletions: Some(1),
         }];
         let result = evaluate_snapshot(&snapshot);
         assert_eq!(result.state, ExternalReviewState::Pass);
-        assert_eq!(result.provider.as_deref(), Some("pure-move-v1"));
+        assert_eq!(result.provider.as_deref(), Some("governance-docs-v1"));
+    }
+
+    #[test]
+    fn pre_activation_replay_disables_fast_lane_machine_completion() {
+        let snapshot = fixture(include_str!(
+            "../fixtures/external-review/fast-lane-docs-only.json"
+        ));
+        // 激活：docs-only-v1 机器 completion
+        let active = evaluate_snapshot_with_policy(&snapshot, true);
+        assert_eq!(active.state, ExternalReviewState::Pass);
+        assert_eq!(active.provider.as_deref(), Some("docs-only-v1"));
+        // pre-activation replay：不注入新通道机器 completion，回标准路径
+        let inactive = evaluate_snapshot_with_policy(&snapshot, false);
+        assert_eq!(inactive.state, ExternalReviewState::AwaitingReview);
+        assert!(no_machine_completion_evidence(&inactive));
     }
 
     #[test]

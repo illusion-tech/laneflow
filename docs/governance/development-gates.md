@@ -192,14 +192,15 @@ G1 证据可以是：
 
 ### 6.1 外部审阅硬门槛
 
-所有 PR 在进入标准 `G3 Pass` 前至少需要一个有效外部 reviewer。`docs-only`、`governance` 和小改动不自动豁免；确需跳过时只能使用第 8 节和本节定义的显式 `G3 Waived`。唯一不经外部 reviewer 也不使用 waiver 的合并路径是本节定义的四条快速通道机器 completion：
+所有 PR 在进入标准 `G3 Pass` 前至少需要一个有效外部 reviewer。`docs-only`、`governance` 和小改动不自动豁免；确需跳过时只能使用第 8 节和本节定义的显式 `G3 Waived`。唯一不经外部 reviewer 也不使用 waiver 的合并路径是本节定义的三条快速通道机器 completion：
 
 - `lockfile-only-dependabot`：即既有 `dependabot-cargo-lock-only-v1`（机器条件见下文），不随本扩展变化。
-- `docs-only-v1`：变更文件完整分页后，全部匹配 `docs/**`、根级 `*.md` 或 `research/**/*.md`。
-- `pure-move-v1`：变更文件完整分页后，全部 `changeType=RENAMED` 且 `additions=0`、`deletions=0`。
-- `governance-docs-v1`：head commit 治理字段 `Slice: governance`（只认 head commit 本身；message 缺失、无 `Slice` 或值非 `governance` 即不成立），且变更文件完整分页后全部匹配 `docs/**`、根级 `*.md`、`.agents/**/*.md` 或 `.github/**/*.md`；`.github/workflows/**`、`xtask/**`、`schemas/**`、`crates/**` 任一命中即不成立（门禁代码面与运行时代码不豁免）。
+- `docs-only-v1`：变更文件完整分页后，全部匹配 `docs/**/*.md`、根级 `*.md` 或 `research/**/*.md`，且不含任何 `changeType=RENAMED` 文件。
+- `governance-docs-v1`：head commit 治理字段 `Slice: governance`（只认 head commit 本身；message 缺失、无 `Slice` 或值非 `governance` 即不成立），且变更文件完整分页后全部匹配 `docs/**/*.md`、根级 `*.md`、`.agents/**/*.md` 或 `.github/**/*.md`，且不含任何 `changeType=RENAMED` 文件；`.github/workflows/**`、`xtask/**`、`schemas/**`、`crates/**` 任一命中即不成立（门禁代码面与运行时代码不豁免）。
 
-快速通道与 `dependabot-cargo-lock-only-v1` 同构：精确机器条件命中后由 evaluator 注入机器 completion 证据（三条新通道的 provider 为通道名，actor 为 `github-metadata`，completion 时间取 head commit 时间），免外部 review；它是机器 completion 而非 waiver，不需要 `external-review-waiver:v1` 记录。四条通道共享同一失效闸门：任何受信 actor 的 finding（含 P2/P3 deferred，按 findingCount 层面判定）抵达，或 snapshot 字段缺失 / files 分页溢出，通道立即失效并回标准路径，不接受人工修补；回标准路径后 deferred、round-cap 等既有语义照常。
+`pure-move-v1` 暂缓启用：GraphQL `PullRequestChangedFile` 不提供 rename 源路径，destination-only 校验无法防止语义路径文件的 0/0 改名逃逸（如 `.github/dependabot.yml` 改名为 `docs/` 下文件关停 Dependabot），见 #406 审阅记录。
+
+快速通道与 `dependabot-cargo-lock-only-v1` 同构：精确机器条件命中后由 evaluator 注入机器 completion 证据（两条新通道的 provider 为通道名，actor 为 `github-metadata`，completion 时间取 head commit 时间），免外部 review；它是机器 completion 而非 waiver，不需要 `external-review-waiver:v1` 记录。三条通道共享同一失效闸门：任何受信 actor 的 finding（含 P2/P3 deferred，按 findingCount 层面判定）抵达、snapshot 字段缺失（任一文件的 `additions`/`deletions` 或 head commit 的 `message`）或 files 分页溢出，通道立即失效并回标准路径，不接受人工修补；pre-activation（#406 G1 冻结 `2026-08-20T04:20:39Z` 前）replay 不适用新通道；回标准路径后 deferred、round-cap 等既有语义照常。
 
 单维护者仓库采用双层责任：
 
