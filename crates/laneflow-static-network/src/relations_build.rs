@@ -115,6 +115,15 @@ pub(crate) fn build_relations(
         lane_count,
         options,
     )?;
+    close_authoring_chains(
+        &authoring_edge_ranges,
+        &authoring_edges,
+        successor_ranges,
+        successors,
+        maneuvers,
+        &edge_junction,
+        options,
+    )?;
     let (
         stop_line_edge,
         stop_line_gate_ranges,
@@ -1009,6 +1018,13 @@ fn close_overlay_membership(
         });
     }
 
+    let mut section_position = vec![0_u32; authoring_count];
+    for range in section_lane_ranges {
+        for (local, lane) in range.slice(section_lanes).iter().enumerate() {
+            section_position[lane.index()] = dest_len(local)?;
+        }
+    }
+
     let mut seen_group: Vec<Option<LaneGroupOrdinal>> = vec![None; authoring_count];
     for (group_index, range) in lane_group_member_ranges.iter().enumerate() {
         poll_cancelled(options, u32::try_from(group_index).unwrap_or(u32::MAX))?;
@@ -1018,6 +1034,7 @@ fn close_overlay_membership(
             .ok_or(BuildError::InputInvariant {
                 structure: STRUCTURE,
             })?;
+        let mut previous_position = None;
         for lane in range.slice(lane_group_members) {
             if authoring_section.get(lane.index()) != Some(&section) {
                 return Err(BuildError::InputInvariant {
@@ -1029,6 +1046,22 @@ fn close_overlay_membership(
                     structure: STRUCTURE,
                 });
             }
+            let position =
+                *section_position
+                    .get(lane.index())
+                    .ok_or(BuildError::InputInvariant {
+                        structure: STRUCTURE,
+                    })?;
+            if let Some(previous) = previous_position
+                && position <= previous
+            {
+                return Err(BuildError::NonCanonicalOrder {
+                    structure: STRUCTURE,
+                    previous,
+                    actual: position,
+                });
+            }
+            previous_position = Some(position);
             let slot = lane.index();
             if seen_group.get(slot).copied().flatten().is_some() {
                 return Err(BuildError::InputInvariant {
@@ -1901,6 +1934,54 @@ fn close_internal_edges(
             return Err(BuildError::InputInvariant {
                 structure: STRUCTURE,
             });
+        }
+    }
+    Ok(())
+}
+
+/// 编制链相邻边：两端都不在内部边集合时必须落在规范后继；任一端在内部边集合时必须是某条机动路径的相邻 occurrence。
+fn close_authoring_chains(
+    authoring_edge_ranges: &[RangeU32],
+    authoring_edges: &[LaneEdgeOrdinal],
+    successor_ranges: &[RangeU32],
+    successors: &[LaneEdgeOrdinal],
+    maneuvers: &SharedManeuverNetwork,
+    edge_junction: &crate::relations::OptionalColumn<JunctionOrdinal>,
+    options: SharedNetworkBuildOptions<'_>,
+) -> Result<(), BuildError> {
+    for (lane_index, range) in authoring_edge_ranges.iter().enumerate() {
+        poll_cancelled(options, u32::try_from(lane_index).unwrap_or(u32::MAX))?;
+        if range.is_empty() {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        let chain = range.slice(authoring_edges);
+        for pair in chain.windows(2) {
+            let from = pair[0];
+            let to = pair[1];
+            let touches_internal = get_optional(edge_junction, from.raw()).is_some()
+                || get_optional(edge_junction, to.raw()).is_some();
+            let connected = if touches_internal {
+                maneuvers
+                    .transition_candidates(from)
+                    .is_some_and(|candidates| {
+                        candidates
+                            .iter()
+                            .any(|candidate| candidate.successor() == to)
+                    })
+            } else {
+                successor_ranges
+                    .get(from.index())
+                    .is_some_and(|successors_range| {
+                        successors_range.slice(successors).contains(&to)
+                    })
+            };
+            if !connected {
+                return Err(BuildError::InputInvariant {
+                    structure: STRUCTURE,
+                });
+            }
         }
     }
     Ok(())
@@ -4077,6 +4158,7 @@ fn build_route_reverse(
     let mut seen_maneuver = vec![false; maneuver_paths.len()];
     let mut seen_gate = vec![false; gate_occ_gates.len()];
     let mut seen_waiting = vec![false; waiting_occ_zones.len()];
+    let mut previous_key = None;
     for (index, row) in table.rows().enumerate() {
         poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
         let kind_code = match checked_field(row, 1, STRUCTURE)? {
@@ -4108,6 +4190,26 @@ fn build_route_reverse(
             });
         }
         let occurrence = checked_u32(row, 4, STRUCTURE)?;
+        let key = (kind_code, ordinal, route, occurrence);
+        if let Some(previous) = previous_key
+            && key <= previous
+        {
+            let (previous_part, actual_part) = if key.0 != previous.0 {
+                (u32::from(previous.0), u32::from(key.0))
+            } else if key.1 != previous.1 {
+                (previous.1, key.1)
+            } else if key.2 != previous.2 {
+                (previous.2, key.2)
+            } else {
+                (previous.3, key.3)
+            };
+            return Err(BuildError::NonCanonicalOrder {
+                structure: STRUCTURE,
+                previous: previous_part,
+                actual: actual_part,
+            });
+        }
+        previous_key = Some(key);
         let route_index = usize::try_from(route).expect("u32 fits");
         match kind {
             EntityKind::LaneEdge => close_reverse_payload(
