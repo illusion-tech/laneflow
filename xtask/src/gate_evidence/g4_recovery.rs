@@ -1,6 +1,6 @@
 //! Merge Queue G4 历史失败的最小恢复协议。
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{document::*, g4::*, github::*, model::*};
 
@@ -348,17 +348,57 @@ pub(super) fn validate_remediation_project_done(
     Ok(())
 }
 
+fn merge_group_run_key(run: &GitHubWorkflowRun) -> Option<(String, u64)> {
+    if run.event != "merge_group" {
+        return None;
+    }
+    let branch = run.head_branch.as_deref()?;
+    let queue_suffix = branch.strip_prefix("gh-readonly-queue/")?;
+    let (base_ref_name, pr_generation) = queue_suffix.rsplit_once("/pr-")?;
+    let (number_text, generation) = pr_generation.split_once('-')?;
+    let number = number_text.parse::<u64>().ok()?;
+    if base_ref_name.is_empty() || generation.is_empty() || number.to_string() != number_text {
+        return None;
+    }
+    Some((base_ref_name.to_string(), number))
+}
+
+pub(super) fn index_historical_merge_group_runs<'a>(
+    workflow_runs: &'a [GitHubWorkflowRun],
+    targets: &BTreeSet<(String, u64)>,
+) -> BTreeMap<(String, u64), Vec<&'a GitHubWorkflowRun>> {
+    let mut indexed = BTreeMap::<(String, u64), Vec<&'a GitHubWorkflowRun>>::new();
+    for run in workflow_runs {
+        let Some(key) = merge_group_run_key(run) else {
+            continue;
+        };
+        if targets.contains(&key) {
+            indexed.entry(key).or_default().push(run);
+        }
+    }
+    indexed
+}
+
 pub(super) fn validate_live_merge_queue_recovery(
     args: &GateEvidenceArgs,
     target_issue: &GitHubIssue,
     evidence_record: &MergeQueueG4Record,
     record: &MergeQueueG4RecoveryRecord,
+    merge_group_runs: &[GitHubWorkflowRun],
 ) -> Result<(), String> {
     let target_g4_url = completed_gate_permalink(&target_issue.body, "G4")?;
     let target_g4 = comment_for_permalink(target_issue, &target_g4_url, "target Issue G4")?;
     let target_g4_at = parse_utc_timestamp_seconds(&target_g4.created_at)
         .ok_or("target Issue G4 createdAt 无效")?;
-    let merge_group_runs = gh_merge_group_workflow_runs(&args.repo)?;
+    let mut failed_prs = BTreeMap::<u64, GitHubPullRequest>::new();
+    let mut merge_group_targets = BTreeSet::<(String, u64)>::new();
+    for failure in &record.failures {
+        let failed_pr = gh_pr_view_for_phase(&args.repo, failure.failed_pr, GateEvidencePhase::G4)?;
+        merge_group_targets.insert((failed_pr.base_ref_name.clone(), failure.failed_pr));
+        failed_prs.insert(failure.failed_pr, failed_pr);
+    }
+    let merge_group_runs_by_pr =
+        index_historical_merge_group_runs(merge_group_runs, &merge_group_targets);
 
     for failure in &record.failures {
         let pr_record = evidence_record
@@ -369,7 +409,9 @@ pub(super) fn validate_live_merge_queue_recovery(
         let evidence = validate_failure_evidence(target_issue, failure, pr_record)?;
         let evidence_at = parse_utc_timestamp_seconds(&evidence.created_at)
             .ok_or("historical failure evidence createdAt 无效")?;
-        let failed_pr = gh_pr_view_for_phase(&args.repo, failure.failed_pr, GateEvidencePhase::G4)?;
+        let failed_pr = failed_prs
+            .get(&failure.failed_pr)
+            .expect("recovery prefetch covers every historical failure");
         let failed_merged_at = failed_pr
             .merged_at
             .as_deref()
@@ -383,12 +425,16 @@ pub(super) fn validate_live_merge_queue_recovery(
             &format!("historical_failure PR #{} H_mg", failure.failed_pr),
         )?;
         let failed_timeline = gh_issue_timeline(&args.repo, failure.failed_pr)?;
+        let indexed_merge_group_runs = merge_group_runs_by_pr
+            .get(&(failed_pr.base_ref_name.clone(), failure.failed_pr))
+            .map(Vec::as_slice)
+            .unwrap_or_default();
         validate_historical_merge_group_identity(
             &args.repo,
             failure.failed_pr,
             &failed_pr.base_ref_name,
             &h_mg,
-            &merge_group_runs,
+            indexed_merge_group_runs.iter().copied(),
             &failed_timeline,
         )?;
 

@@ -325,7 +325,7 @@ fn merge_group_identity_window<'a>(
     number: u64,
     base_ref_name: &str,
     h_mg: &str,
-    workflow_runs: &'a [GitHubWorkflowRun],
+    workflow_runs: impl IntoIterator<Item = &'a GitHubWorkflowRun>,
     timeline: &[GitHubTimelineItem],
 ) -> Result<MergeGroupIdentityWindow<'a>, String> {
     if base_ref_name.is_empty() {
@@ -424,7 +424,7 @@ fn merge_group_identity_window<'a>(
 
     let expected_branch_prefix = format!("gh-readonly-queue/{base_ref_name}/pr-{number}-");
     let mut pr_bound_runs = Vec::new();
-    for run in workflow_runs.iter().filter(|run| {
+    for run in workflow_runs.into_iter().filter(|run| {
         run.event == "merge_group"
             && run
                 .head_branch
@@ -479,12 +479,12 @@ fn merge_group_identity_window<'a>(
     })
 }
 
-pub(super) fn validate_historical_merge_group_identity(
+pub(super) fn validate_historical_merge_group_identity<'a>(
     repo: &str,
     number: u64,
     base_ref_name: &str,
     h_mg: &str,
-    workflow_runs: &[GitHubWorkflowRun],
+    workflow_runs: impl IntoIterator<Item = &'a GitHubWorkflowRun>,
     timeline: &[GitHubTimelineItem],
 ) -> Result<(), String> {
     merge_group_identity_window(repo, number, base_ref_name, h_mg, workflow_runs, timeline)?;
@@ -503,8 +503,14 @@ pub(super) fn validate_trusted_merge_group_evidence(
     branch_rules: &[GitHubBranchRule],
     timeline: &[GitHubTimelineItem],
 ) -> Result<(), String> {
-    let identity =
-        merge_group_identity_window(repo, number, base_ref_name, h_mg, workflow_runs, timeline)?;
+    let identity = merge_group_identity_window(
+        repo,
+        number,
+        base_ref_name,
+        h_mg,
+        workflow_runs.iter(),
+        timeline,
+    )?;
     let expected_analysis_ref = format!("refs/heads/{}", identity.queue_branch);
     if !identity
         .pr_bound_runs
@@ -667,6 +673,17 @@ pub(super) fn validate_live_merge_queue_g4_evidence(args: &GateEvidenceArgs) -> 
     let Some(record) = merge_queue_g4_record(&comment.body)? else {
         return Ok(());
     };
+    let recovery = merge_queue_g4_recovery_record(comment, args)?;
+    let needs_merge_group_runs = recovery.is_some()
+        || record
+            .pull_requests
+            .iter()
+            .any(|entry| entry.mode == "merge_queue");
+    let workflow_runs = if needs_merge_group_runs {
+        gh_merge_group_workflow_runs(&args.repo)?
+    } else {
+        Vec::new()
+    };
     for entry in record
         .pull_requests
         .iter()
@@ -681,7 +698,6 @@ pub(super) fn validate_live_merge_queue_g4_evidence(args: &GateEvidenceArgs) -> 
         )?;
         let pr = gh_pr_view_for_phase(&args.repo, entry.number, GateEvidencePhase::G4)?;
         let check_runs = gh_commit_check_runs(&args.repo, &h_mg)?;
-        let workflow_runs = gh_merge_group_workflow_runs(&args.repo)?;
         let expected_branch_prefix = format!(
             "gh-readonly-queue/{}/pr-{}-",
             pr.base_ref_name, entry.number
@@ -715,8 +731,8 @@ pub(super) fn validate_live_merge_queue_g4_evidence(args: &GateEvidenceArgs) -> 
             &timeline,
         )?;
     }
-    if let Some(recovery) = merge_queue_g4_recovery_record(comment, args)? {
-        validate_live_merge_queue_recovery(args, &issue, &record, &recovery)?;
+    if let Some(recovery) = recovery {
+        validate_live_merge_queue_recovery(args, &issue, &record, &recovery, &workflow_runs)?;
     }
     Ok(())
 }
