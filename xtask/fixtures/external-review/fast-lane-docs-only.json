@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 460,
+    "author": { "login": "contributor" },
+    "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "files": {
+      "nodes": [
+        {
+          "path": "docs/governance/development-gates.md",
+          "changeType": "MODIFIED",
+          "additions": 12,
+          "deletions": 3
+        },
+        {
+          "path": "README.md",
+          "changeType": "MODIFIED",
+          "additions": 2,
+          "deletions": 1
+        },
+        {
+          "path": "research/issue-406-fast-lanes/notes.md",
+          "changeType": "ADDED",
+          "additions": 20,
+          "deletions": 0
+        }
+      ]
+    },
+    "commits": {
+      "nodes": [
+        {
+          "commit": {
+            "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "committedDate": "2026-08-20T08:00:00Z",
+            "message": "docs(governance): 记录外部审阅快速通道\n\nGate: G3 Candidate\nSlice: docs-only\nImpact: core-api=none; data-format=none; adapter-api=none\nScope: 补开发闸口快速通道说明\nValidation: 仅文档审阅\nDocs: updated\n\nRefs: #406",
+            "url": "https://github.com/illusion-tech/laneflow/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "author": {
+              "name": "Contributor",
+              "email": "contributor@users.noreply.github.com"
+            },
+            "tree": { "oid": "dddddddddddddddddddddddddddddddddddddddd" }
+          }
+        }
+      ]
+    }
+  }
+}

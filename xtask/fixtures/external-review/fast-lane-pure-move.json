@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 461,
+    "author": { "login": "contributor" },
+    "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "files": {
+      "nodes": [
+        {
+          "path": "crates/laneflow-core/src/following.rs",
+          "changeType": "RENAMED",
+          "additions": 0,
+          "deletions": 0
+        },
+        {
+          "path": "docs/design/vehicle-following.md",
+          "changeType": "RENAMED",
+          "additions": 0,
+          "deletions": 0
+        }
+      ]
+    },
+    "commits": {
+      "nodes": [
+        {
+          "commit": {
+            "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "committedDate": "2026-08-20T08:00:00Z",
+            "message": "refactor(core): 移动 following 模块\n\nGate: G3 Candidate\nSlice: core-runtime\nImpact: core-api=none; data-format=none; adapter-api=none\nScope: 纯移动 following 模块文件\nValidation: cargo +1.96.0 test --workspace --locked\nDocs: not required\n\nRefs: #406",
+            "url": "https://github.com/illusion-tech/laneflow/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "author": {
+              "name": "Contributor",
+              "email": "contributor@users.noreply.github.com"
+            },
+            "tree": { "oid": "dddddddddddddddddddddddddddddddddddddddd" }
+          }
+        }
+      ]
+    }
+  }
+}
