@@ -2,7 +2,7 @@
 
 **文档状态**：Accepted（取代原“当前包迁移导入前端”设计）<br>
 **调整日期**：2026-08-10<br>
-**关联议题**：#297、#294
+**关联议题**：#297、#301
 
 ## 1. 结论
 
@@ -19,8 +19,8 @@ Pages、包分发或直接用户交付发布这些 JSON 数据；当前可见输
 - 不提供批量迁移工具、已发布资产清单、迁移报告或长期离线兼容路径；
 - 编译器正确性使用编译器原生的有类型模块测试，不以旧 JSON loader 为预言机；
 - 仓库内部 JSON 夹具在新编制来源可表达相同场景后一次性转换或删除；
-- `laneflow-data` 与 `laneflow-current-source` 只作为当前态加载实现保留到 #294 切换，
-  不形成新的兼容承诺。
+- `laneflow-data` 与 `laneflow-current-source` 只作为当前态加载实现保留到 #301
+  拆除运行时入口，不形成新的兼容承诺。
 
 ## 2. current JSON 的精确定义
 
@@ -35,7 +35,7 @@ Pages、包分发或直接用户交付发布这些 JSON 数据；当前可见输
 
 ## 3. 架构边界
 
-当前切换完成前保留两条互不耦合的验证边界：
+#301 拆除 current 运行时入口前，仓库保留两条互不耦合的验证边界：
 
 ```text
 current JSON -> laneflow-data -> current Core/Spatial
@@ -154,8 +154,8 @@ current JSON -> compiler frontend -> HIR/MIR/LIR
 3. 用编译器原生代表性夹具维持 LIR→Core/Spatial 投影覆盖。
 4. 从 #297 的范围、验收标准和 Gate Ledger 中移除迁移前端、资产报告与导入 API；原
    G1/G2 基于已发布资产迁移前提，不得继续作为调整后范围的通过证据。
-5. 由新范围重新完成 G1/G2；#294 切换时删除旧 loader、source 包和不再需要的 JSON
-   夹具。
+5. 由新范围重新完成 G1/G2；#301 拆除运行时入口时删除旧 loader、source 包和不再
+   需要的 JSON 夹具。LIR→Core 投影随 `laneflow-core` 一并删除。
 
 本设计不改变当前 Core API、目标 Traffic Runtime API、JSON wire shape 或 Adapter API；
 它删除尚未交付的迁移能力，并收紧测试和包依赖边界。

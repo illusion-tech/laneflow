@@ -7,7 +7,8 @@
 目标静态镜像（Target Static Image）、验证收据（Validation Receipt）、源映射
 （Source Map）、独立验证器（Independent Validator），以及当前态 Core / 目标态
 交通运行时（Traffic Runtime）、Data、Spatial 初始化边界<br>
-**目标取代范围**: ADR 0005、0007、0008、0011、0013、0015、0017 中与静态数据 normalization、制品配对和运行时 registry 构建位置冲突的条款，并在目标态以 `LaneFlow Traffic Runtime`/`laneflow-runtime` 一次性不兼容替代当前 `LaneFlow Core`/`laneflow-core`；在本 ADR Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，当前生产实现继续由原 ADR 约束<br>
+**目标取代范围**: ADR 0005、0007、0008、0011、0013、0015、0017 中与静态数据 normalization、制品配对和运行时 registry 构建位置冲突的条款，并在目标态以 `LaneFlow Traffic Runtime`/`laneflow-runtime` 一次性不兼容替代当前 `LaneFlow Core`/`laneflow-core`。<br>
+**迁移时间表修订（#301 G1）**: 仓库未发布 1.0、无外部运行时消费者。#301 完成后 `laneflow-runtime` / `TrafficWorld` 即唯一可运行交通世界，并拆除 current Core/JSON 运行时入口；不再等待 #294 才切换权威。#294 不再拥有生产切换或拆除旧运行时路径。精确消费契约见 `../design/traffic-runtime-shared-consumption.md`。<br>
 
 **后继决策**: ADR 0024（Accepted；#299 G1 Pass）已部分取代本文关于独立
 `laneflow-validator`、`canonical-publication-v1` receipt、由 #299 统一交付三类
@@ -57,6 +58,7 @@ descriptor/完整性清单、mmap/chunk 和镜像摘要/长度决定；该设计
   - #291
   - #292
   - #294
+  - #301
 
 ## 术语规范
 
@@ -553,25 +555,27 @@ Static/shared contract 不得留在 Runtime；否则 compiler/validator 会反�
 
 ### 10. 迁移必须保持当前态（Current）与目标态（Target）语义可区分
 
-本 ADR 在 Accepted 前是 #291 的目标决策输入；在阶段 8 生产切换 Issue #294 的
-static-image/Traffic Runtime cutover 完成 G4 前：
+本 ADR 在 Accepted 前是 #291 的目标决策输入。#301 G1 修订本节目程，不改变
+compiler 拥有静态路网、Runtime 终态名、crate 分层或「不得用 Core 对象图当 compiler
+IR」：
 
-- Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1 继续是当前 production
-  contract；
-- `InitialTrafficData`、current loaders、schemas 和已发布 artifacts 继续按原 ADR
-  工作；
-- target docs 必须标注“未实现”，不得把 static image 或 `laneflow-runtime` 描述成
-  current API；
+- #301 完成前：Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1、
+  `InitialTrafficData` 与 current loaders 仍是仓库内可运行的 current 路径；目标
+  `laneflow-runtime` 文档须标明尚未作为可运行世界落地。
+- #301 完成后：`laneflow-runtime` / `TrafficWorld` 是唯一可运行交通世界；current
+  JSON 与 `laneflow-core` 不再是 production contract，必须随 #301 完成 PR 从运行时
+  入口拆除。文档把 Runtime 写成已实现目标路径，不得再写「未实现 / 非 current API」。
 - 新实现切片不得以 current object graph 作为 compiler IR，也不得让过渡兼容反向
-  塑造终态布局；
-- #292 到 image cutover 之间只允许 integration-only LIR→current projection：
-  bridge crate 可以依赖 compiler + current Core/Spatial，compiler 不依赖 bridge；
-  bridge 不公开为 production backend，并由 cutover owner 删除；
-- 切换必须有同一场景的 behavior/determinism/pose equivalence、启动成本、retained
-  memory 和一万/十万 runtime 性能证据；
-- production cutover 后才可把旧 JSON runtime path 和重复 registry construction
-  标记 Deprecated/移除，并以独立 breaking implementation Issue 完成
-  `laneflow-core/CoreWorld` → `laneflow-runtime/TrafficWorld` clean break。
+  塑造终态布局。
+- integration-only LIR→Core 投影随 Core 一并删除；compiler 正确性看 LFCA/制品，
+  需要 tick 的证据只走 Runtime。禁止用同一场景的 `CoreWorld` 对拍作为 #301/#305
+  门禁。
+- #301 的行为证据是新的 Runtime 端到端示例与测试，不是 current/target 双路径等价。
+  启动成本、retained memory 与规模证据仍由 #441/#305 按自身 G1 记录，不以 Core
+  为对照物。
+- `laneflow-core/CoreWorld` → `laneflow-runtime/TrafficWorld` 的 crate 拆除在 #301
+  完成；#294 不再独占生产切换。若仍需独立 Issue，只处理文档导航 / Skill 标识符等
+  残留改名。
 
 ### 11. 静态执行约束、分区提示与运行时执行计划分层
 
@@ -738,8 +742,8 @@ Target image 的具体零拷贝/归档实现（自有 offset tables、经过审�
 
 本矩阵只取代“工作发生在哪一层、何时发生、如何存储”的条款，不重新定义上述 ADR
 已经冻结的交通、空间和运行时行为语义。ADR 0020 Accepted 状态提交在各历史 ADR
-页头登记精确的目标态取代范围；在阶段 8 生产切换 Issue #294 完成 G4 前，它们的
-current 状态继续有效，届时再原子更新实际 Superseded/Partially Superseded 状态。
+页头登记精确的目标态取代范围；#301 拆除 `laneflow-core` 运行时入口时，再原子更新
+各历史 ADR 的实际 Superseded/Partially Superseded 状态。
 
 ## 后果
 

@@ -20,7 +20,8 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
    `laneflow-runtime/TrafficWorld` 的 #294 生产切换时，读取
    `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、
    `docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、
-   `docs/design/network-compiler.md` 与 `docs/design/shared-static-network.md`
+   `docs/design/network-compiler.md`、`docs/design/shared-static-network.md` 与
+   `docs/design/traffic-runtime-shared-consumption.md`
 9. 涉及 #308 编译器工作负载、资源/性能预算校准、研究停止护栏或私有容器候选时，
    读取 `docs/design/compiler-budget-calibration.md`、
    `docs/reference/compiler-calibration-workloads-v1.json` 与
@@ -81,10 +82,11 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 ## 规则
 
 - 不要把引擎相关依赖引入当前 Core 或目标 Traffic Runtime。
-- 当前态使用 `LaneFlow Core` / `laneflow-core` / `CoreWorld`；#291 目标态使用中文
+- 当前态使用 `LaneFlow Core` / `laneflow-core` / `CoreWorld`；目标态使用中文
   规范名“LaneFlow 交通运行时”及精确标识符 `laneflow-runtime` / `TrafficWorld`。
-  在 ADR 0020 完成 Accepted 与阶段 8 生产切换 Issue #294 完成 G4 前，不得把目标态
-  写成当前 API。
+  #301 完成前不得把尚未落地的 Runtime 写成已可运行世界；#301 完成后 Runtime 是
+  唯一可运行交通世界，不得再把 Core 当正式入口。契约见
+  `docs/design/traffic-runtime-shared-consumption.md`。
 - 不要在不更新 design 文档的情况下改变数据格式语义。
 - 长期文档中的领域术语必须中文权威、英文辅助；新术语先补
   `docs/reference/glossary.md`，代码和协议标识符保留精确原文。

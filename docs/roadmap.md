@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Accepted（长期路线；当前执行状态以 GitHub 为准）<br>
-**最后更新**: 2026-08-19
+**最后更新**: 2026-08-22
 **适用范围**: LaneFlow 版本路线图与中国特色城市模拟游戏交通基础的长期演进
 
 本文记录 LaneFlow 的稳定路线图和已接受长期目标。GitHub Project 负责当前执行
@@ -339,8 +339,9 @@ Cutover Descriptor，`NetworkRevisionCutoverDescriptor`）绑定，不能自行�
 与路线选择策略仍由城市游戏/出行编排层拥有。
 
 当前 Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1、
-`InitialTrafficData` 与 Spatial registry 仍是 production contract，直到 target
-迁移由阶段 8 生产切换 Issue #294 完成 G4；target 文档不得误写成现状。#292 已
+`InitialTrafficData` 与 Spatial registry 只在 #301 完成前作为仓库内 current 运行时
+路径；#301 完成后 `laneflow-runtime` 为唯一可运行交通世界，上述 JSON/Core 入口拆除。
+#292 已
 重划为编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端（Synthetic DSL
 Frontend）的首个纵向闭环；#291 G1
 前置条件已经满足，#292 已完成 G4。#308 已
@@ -358,11 +359,10 @@ Frontend）的首个纵向闭环；#291 G1
 切片并行推进。#298 已完成 G4，并交付可移植规范制品 /
 源映射 / 语义差异；#299 按 Accepted ADR 0024 交付 compiler 后发射检查/LFCP v2/最小发布闭合、
 #300 交付从受检 LFCA 构建的性能优先共享静态路网、#301 交付交通
-运行时 / 空间层共享消费路径、#302 交付不可变路网修订 / 运行时快照（Runtime
-Snapshot）/ 在线修订切换，随后进入行为 / 性能 / 安全生产切换闸口。
-最后由 #294 独占阶段 8 production cutover、core→runtime 原子改名与 projection/
-旧路径移除；#294 G4 前不得提前满足切换条件。Projection 不进入 compiler production
-dependency。编译器性能工作负载及其规模计数由对应实现 G1 依据编制 / 中间表示证据
+运行时 / 空间层共享消费路径并拆除 current Core/JSON 运行时入口、#302 交付不可变路网
+修订 / 运行时快照（Runtime Snapshot）/ 在线修订切换，随后进入目标路径行为 / 性能 /
+安全认证闸口。crate 拆除由 #301 完成；#294 不再独占生产切换。Projection 不进入
+compiler production dependency。编译器性能工作负载及其规模计数由对应实现 G1 依据编制 / 中间表示证据
 独立冻结；#292 已以 #308 研究证据完成首轮资源估算，原生产性能自然身份在 G2 被
 确认不适用后已由追加 G1 修订，并形成真实生产 R0；不能从 #72 的运行时
 交通参与单元规模反推。#72 继续拥有交通参与单元按执行域

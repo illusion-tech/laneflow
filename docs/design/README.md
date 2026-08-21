@@ -68,6 +68,11 @@
   compiler foundation、Synthetic DSL frontend、集成专用 LIR→current projection 及 G4，
   #282–#285 关于 #292 的稳定开工前置已经满足。该完成事实不表示整个目标路网编译器、
   共享静态路网或 Traffic Runtime 已经实现；当前 Project 状态与原生依赖关系以 GitHub 为准。
+- `traffic-runtime-shared-consumption.md`：#301 G1 冻结草案；`TrafficWorld` 安装
+  `Arc<SharedNetworkRevision>`、Spatial session 只 bind 同一根且不依赖 Runtime、
+  1-worker 车辆 tick 只读共享 accessor、以 `LFCA-V1-FULL-SPATIAL` + 2 车 + 最小
+  Bevy 为唯一行为证据（零 Core 预言机），并在同一完成 PR 拆除 current Core/JSON
+  运行时入口。
 - `shared-static-network.md`：#300 G1 Accepted 的实现级设计；从
   `laneflow-format` 受检 LFCA capability 有界构建 `SharedNetworkRevision`，冻结
   Traffic/Identity/Hints/可选 Spatial component、性能优先 SoA/CSR 默认布局、共享所有权、
@@ -111,7 +116,7 @@
 - `current-package-import.md`：#297 调整后的 Accepted 设计；确认 current Traffic v0.10、
   SpatialPackage v0.1 与 ScenarioManifest v0.1 仅为未发布的内部加载格式，取消 compiler
   导入特性、迁移包、严格资源/位置能力和资产报告，改用编译器原生有类型夹具验证
-  Canonical LIR→当前 Core/Spatial 投影，并由 #294 删除旧加载路径。
+  Canonical LIR→当前 Core/Spatial 投影，并由 #301 删除旧加载路径。
 
 ## 文档状态
 

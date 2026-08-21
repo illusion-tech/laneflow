@@ -21,7 +21,8 @@ Runtime）的兼容发现入口；它不表示目标态继续命名为 Core。
    生产切换时，读取
    `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、
    `docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、
-   `docs/design/network-compiler.md` 与 `docs/design/shared-static-network.md`
+   `docs/design/network-compiler.md`、`docs/design/shared-static-network.md` 与
+   `docs/design/traffic-runtime-shared-consumption.md`
 8. 涉及 #308 编译器工作负载、资源/性能预算校准、研究停止护栏或私有容器候选时，
    读取 `docs/design/compiler-budget-calibration.md`、
    `docs/reference/compiler-calibration-workloads-v1.json` 与
@@ -47,8 +48,8 @@ Runtime）的兼容发现入口；它不表示目标态继续命名为 Core。
   `laneflow-core` / `CoreWorld`。
 - #291 目标态：中文规范名“LaneFlow 交通运行时（LaneFlow Traffic Runtime）”，
   精确标识符 `laneflow-runtime` / `TrafficWorld`。
-- ADR 0020 Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，代码与现有 API
-  继续使用当前态名称；目标设计不得把 `Core` 当成终态名称。
+- #301 完成前，代码与现有 API 继续使用当前态名称；#301 完成后可运行世界使用
+  `laneflow-runtime` / `TrafficWorld`。目标设计不得把 `Core` 当成终态名称。
 - 中文术语和中文定义以 `docs/reference/glossary.md` 为权威，英文只作辅助理解。
 
 ## 动态执行层边界
