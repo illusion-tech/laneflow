@@ -4460,6 +4460,28 @@ fn accepts_historical_h_mg_bound_to_failed_pr_merge_group_run() {
 }
 
 #[test]
+fn indexes_historical_merge_group_runs_once_by_exact_pr_and_base() {
+    let target_run = trusted_merge_group_run();
+    let mut other_pr = trusted_merge_group_run();
+    other_pr.id = 101;
+    other_pr.head_branch = Some("gh-readonly-queue/main/pr-62-cafebabe".to_string());
+    let mut other_base = trusted_merge_group_run();
+    other_base.id = 102;
+    other_base.head_branch = Some("gh-readonly-queue/release/1.x/pr-61-cafebabe".to_string());
+    let mut noncanonical_pr = trusted_merge_group_run();
+    noncanonical_pr.id = 103;
+    noncanonical_pr.head_branch = Some("gh-readonly-queue/main/pr-061-cafebabe".to_string());
+    let targets = BTreeSet::from([("main".to_string(), 61)]);
+    let workflow_runs = [target_run, other_pr, other_base, noncanonical_pr];
+
+    let indexed = index_historical_merge_group_runs(&workflow_runs, &targets);
+
+    assert_eq!(indexed.len(), 1);
+    assert_eq!(indexed[&("main".to_string(), 61)].len(), 1);
+    assert_eq!(indexed[&("main".to_string(), 61)][0].id, 100);
+}
+
+#[test]
 fn rejects_historical_h_mg_not_bound_to_latest_pr_merge_group_run() {
     let error = validate_historical_merge_group_identity(
         "illusion-tech/laneflow",
