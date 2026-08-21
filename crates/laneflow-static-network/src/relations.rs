@@ -92,6 +92,37 @@ impl BoundedDistance {
             Self::Finite(_) | Self::BeyondFinite => Self::BeyondFinite,
         }
     }
+
+    fn compensated_positive_sum(values: impl IntoIterator<Item = f64>) -> Self {
+        let mut sum = 0.0;
+        let mut compensation = 0.0;
+        for value in values {
+            debug_assert!(value.is_finite() && value >= 0.0);
+            let next = sum + value;
+            if !next.is_finite() {
+                return Self::BeyondFinite;
+            }
+            let correction = if sum >= value {
+                (sum - next) + value
+            } else {
+                (value - next) + sum
+            };
+            compensation += correction;
+            if !compensation.is_finite() {
+                return Self::BeyondFinite;
+            }
+            sum = next;
+        }
+        if compensation > 0.0 && compensation > f64::MAX - sum {
+            return Self::BeyondFinite;
+        }
+        let total = sum + compensation;
+        if total.is_finite() {
+            Self::Finite(total.max(0.0))
+        } else {
+            Self::BeyondFinite
+        }
+    }
 }
 
 /// 与当前 Core `RouteDistanceQuery` 同构的有界距离查询结果。
@@ -145,6 +176,73 @@ impl<'a> RouteDistanceIndexView<'a> {
     #[must_use]
     pub const fn distance_to_end(self) -> &'a [BoundedDistance] {
         self.distance_to_end
+    }
+
+    #[must_use]
+    pub fn distance_to_end_within(
+        self,
+        from_occurrence: usize,
+        from_progress: f64,
+        horizon: f64,
+    ) -> RouteDistanceQuery {
+        let Some(distance) = self.distance_to_end.get(from_occurrence).copied() else {
+            return RouteDistanceQuery::Passed;
+        };
+        match distance {
+            BoundedDistance::BeyondFinite => RouteDistanceQuery::BeyondHorizon,
+            BoundedDistance::Finite(distance) => {
+                let remaining = distance - from_progress;
+                if remaining <= horizon {
+                    RouteDistanceQuery::Within(remaining.max(0.0))
+                } else {
+                    RouteDistanceQuery::BeyondHorizon
+                }
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn finite_distance(
+        self,
+        from_occurrence: usize,
+        from_progress: f64,
+        target_occurrence: usize,
+        target_progress: f64,
+    ) -> Option<BoundedDistance> {
+        if target_occurrence < from_occurrence
+            || (target_occurrence == from_occurrence && target_progress < from_progress)
+        {
+            return None;
+        }
+        let from = self.coordinate(from_occurrence)?;
+        let target = self.coordinate(target_occurrence)?;
+        if from.0 == target.0 {
+            let from_distance = from.1 + from_progress;
+            let target_distance = target.1 + target_progress;
+            if !from_distance.is_finite() || !target_distance.is_finite() {
+                return Some(BoundedDistance::BeyondFinite);
+            }
+            return Some(BoundedDistance::Finite(
+                (target_distance - from_distance).max(0.0),
+            ));
+        }
+        let from_distance = from.1 + from_progress;
+        let target_distance = target.1 + target_progress;
+        if !from_distance.is_finite() || !target_distance.is_finite() {
+            return Some(BoundedDistance::BeyondFinite);
+        }
+        let first_segment_distance = *self.segment_totals.get(from.0)? - from_distance;
+        let middle_start = from.0.checked_add(1)?;
+        let middle_segments = self
+            .segment_totals
+            .get(middle_start..target.0)?
+            .iter()
+            .copied();
+        Some(BoundedDistance::compensated_positive_sum(
+            core::iter::once(first_segment_distance)
+                .chain(middle_segments)
+                .chain(core::iter::once(target_distance)),
+        ))
     }
 
     #[must_use]
