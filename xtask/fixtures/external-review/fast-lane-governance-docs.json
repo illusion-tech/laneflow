@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 462,
+    "author": { "login": "contributor" },
+    "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "files": {
+      "nodes": [
+        {
+          "path": "docs/governance/development-gates.md",
+          "changeType": "MODIFIED",
+          "additions": 8,
+          "deletions": 2
+        },
+        {
+          "path": ".agents/skills/laneflow-governance/SKILL.md",
+          "changeType": "MODIFIED",
+          "additions": 3,
+          "deletions": 1
+        },
+        {
+          "path": ".github/pull_request_template.md",
+          "changeType": "MODIFIED",
+          "additions": 2,
+          "deletions": 1
+        }
+      ]
+    },
+    "commits": {
+      "nodes": [
+        {
+          "commit": {
+            "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "committedDate": "2026-08-20T08:00:00Z",
+            "message": "docs(governance): 更新 PR 模板与治理说明\n\nGate: G3 Candidate\nSlice: governance\nImpact: core-api=none; data-format=none; adapter-api=none\nScope: 更新 PR 模板外部审阅完成边界表述\nValidation: 仅文档审阅\nDocs: updated\n\nRefs: #406",
+            "url": "https://github.com/illusion-tech/laneflow/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "author": {
+              "name": "Contributor",
+              "email": "contributor@users.noreply.github.com"
+            },
+            "tree": { "oid": "dddddddddddddddddddddddddddddddddddddddd" }
+          }
+        }
+      ]
+    }
+  }
+}

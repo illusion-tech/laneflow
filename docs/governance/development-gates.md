@@ -192,7 +192,14 @@ G1 证据可以是：
 
 ### 6.1 外部审阅硬门槛
 
-所有 PR 在进入标准 `G3 Pass` 前至少需要一个有效外部 reviewer。`docs-only`、`governance` 和小改动不自动豁免；确需跳过时只能使用第 8 节和本节定义的显式 `G3 Waived`。
+所有 PR 在进入标准 `G3 Pass` 前至少需要一个有效外部 reviewer。`docs-only`、`governance` 和小改动不自动豁免；确需跳过时只能使用第 8 节和本节定义的显式 `G3 Waived`。唯一不经外部 reviewer 也不使用 waiver 的合并路径是本节定义的四条快速通道机器 completion：
+
+- `lockfile-only-dependabot`：即既有 `dependabot-cargo-lock-only-v1`（机器条件见下文），不随本扩展变化。
+- `docs-only-v1`：变更文件完整分页后，全部匹配 `docs/**`、根级 `*.md` 或 `research/**/*.md`。
+- `pure-move-v1`：变更文件完整分页后，全部 `changeType=RENAMED` 且 `additions=0`、`deletions=0`。
+- `governance-docs-v1`：head commit 治理字段 `Slice: governance`（只认 head commit 本身；message 缺失、无 `Slice` 或值非 `governance` 即不成立），且变更文件完整分页后全部匹配 `docs/**`、根级 `*.md`、`.agents/**/*.md` 或 `.github/**/*.md`；`.github/workflows/**`、`xtask/**`、`schemas/**`、`crates/**` 任一命中即不成立（门禁代码面与运行时代码不豁免）。
+
+快速通道与 `dependabot-cargo-lock-only-v1` 同构：精确机器条件命中后由 evaluator 注入机器 completion 证据（三条新通道的 provider 为通道名，actor 为 `github-metadata`，completion 时间取 head commit 时间），免外部 review；它是机器 completion 而非 waiver，不需要 `external-review-waiver:v1` 记录。四条通道共享同一失效闸门：任何受信 actor 的 finding（含 P2/P3 deferred，按 findingCount 层面判定）抵达，或 snapshot 字段缺失 / files 分页溢出，通道立即失效并回标准路径，不接受人工修补；回标准路径后 deferred、round-cap 等既有语义照常。
 
 单维护者仓库采用双层责任：
 
@@ -327,7 +334,7 @@ G3 Owner 可以在 PR 合并前纠正 current G3 comment，也可以新增 super
 决策记录的创建时间 `2026-08-18T04:20:55Z` 为明确边界；在该时点前已用旧规则合并的
 `G3 Waived + confirmed_gate_defect` 只允许在 G4 以原 merge 时点重放；这项 grandfather 不接受 OPEN/current PR，也不恢复日常 bypass。
 
-普通审阅延迟、作者不同意 finding、`docs-only`、赶进度和减少步骤均不是 waiver 理由。waiver 必须记录 exception type、PR/current head、已有证据、风险、临时接受边界、默认不超过 24 小时的到期时间、follow-up Issue、Cleanup owner，以及临时 bypass 的添加/撤回时间。Check 与 G3 comment 必须显示 `G3 Waived`，不得伪装成标准 `G3 Pass`。
+普通审阅延迟、作者不同意 finding、`docs-only`、赶进度和减少步骤均不是 waiver 理由。第 6.1 节的快速通道是机器 completion 而非 waiver：精确命中机器条件的 PR 由 evaluator 注入机器 completion 证据，不需要 waiver 记录；不满足机器条件的 PR 不得用 waiver 伪装成快速通道绕过外部审阅。waiver 必须记录 exception type、PR/current head、已有证据、风险、临时接受边界、默认不超过 24 小时的到期时间、follow-up Issue、Cleanup owner，以及临时 bypass 的添加/撤回时间。Check 与 G3 comment 必须显示 `G3 Waived`，不得伪装成标准 `G3 Pass`。
 
 `check-gate-evidence g3` 只在以下结构化边界内接受 `G3 Waived`：
 

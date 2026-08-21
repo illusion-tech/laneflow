@@ -36,8 +36,8 @@ query($owner:String!, $name:String!, $number:Int!) {
       headRefOid
       baseRefOid
       isDraft
-      files(first:2) {
-        nodes { path changeType }
+      files(first:100) {
+        nodes { path changeType additions deletions }
         pageInfo { hasNextPage }
       }
       commits(last:100) {
@@ -45,6 +45,7 @@ query($owner:String!, $name:String!, $number:Int!) {
           commit {
             oid
             committedDate
+            message
             url
             author { name email }
             tree { oid }
@@ -146,6 +147,19 @@ query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
           updatedAt
           url
         }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}
+"#;
+
+const PULL_REQUEST_FILES_QUERY: &str = r#"
+query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$number) {
+      files(first:100, after:$cursor) {
+        nodes { path changeType additions deletions }
         pageInfo { hasNextPage endCursor }
       }
     }
@@ -287,6 +301,12 @@ struct Actor {
 struct ChangedFile {
     path: String,
     change_type: String,
+    // D1：pure-move-v1 需要精确 additions/deletions=0；旧快照 / fixture 无此字段
+    //（serde default → None），字段缺失时依赖它们的通道 fail-closed 不成立
+    #[serde(default)]
+    additions: Option<u64>,
+    #[serde(default)]
+    deletions: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -306,6 +326,10 @@ struct CommitMetadata {
     // D4：commits(last:100) 携带的 tree OID（旧 fixture 无此字段，serde default 兼容）
     #[serde(default)]
     tree: Option<TreeRef>,
+    // D1：governance-docs-v1 解析治理字段 `Slice` 所需；旧快照 / fixture 无此字段
+    //（serde default → None），message 缺失时该通道 fail-closed 不成立
+    #[serde(default)]
+    message: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1088,6 +1112,10 @@ pub(crate) fn evaluate_snapshot_with_policy(
     let dependabot_completion = dependabot_lockfile_completion(pr);
     let mut dependabot_completion_event = dependabot_completion
         .map(|completion| (completion.committed_date.as_str(), completion.url.as_str()));
+    // D1 快速通道（docs-only-v1 / pure-move-v1 / governance-docs-v1）：与
+    // dependabot-cargo-lock-only-v1 同构的机器 completion；evidence 注入走下方
+    // 与 dependabot 共享的失效闸门（machine_completion_open）
+    let fast_lane = fast_lane_completion(pr);
 
     let mut review_to_finding_threads = BTreeMap::<String, BTreeSet<String>>::new();
     let mut finding_thread_ids = BTreeSet::<String>::new();
@@ -1461,13 +1489,16 @@ pub(crate) fn evaluate_snapshot_with_policy(
         }
     }
 
+    // D1 共享失效闸门：evaluate 时已存在任何受信 finding（含 P2/P3 deferred，
+    // 即 findingCount 层面而非仅 blocking）、unresolved blocking thread 或
+    // stale/dismissed 活动 → 全部机器 completion 通道失效，回标准路径
+    //（此后 deferred/round-cap 等既有语义照常）。
+    let machine_completion_open = finding_thread_ids.is_empty()
+        && unthreaded_findings == 0
+        && unresolved_blocking_threads == 0
+        && !stale_or_dismissed;
     if let (Some(completion), Some((completion_time, completion_url))) = (
-        dependabot_completion.filter(|_| {
-            finding_thread_ids.is_empty()
-                && unthreaded_findings == 0
-                && unresolved_blocking_threads == 0
-                && !stale_or_dismissed
-        }),
+        dependabot_completion.filter(|_| machine_completion_open),
         dependabot_completion_event,
     ) {
         push_evidence(
@@ -1483,6 +1514,24 @@ pub(crate) fn evaluate_snapshot_with_policy(
                 outcome: EvidenceOutcome::Clean,
                 submitted_at: completion_time,
                 evidence_url: completion_url,
+            },
+        );
+    }
+
+    if let Some((lane, commit)) = fast_lane.filter(|_| machine_completion_open) {
+        push_evidence(
+            &mut evidence,
+            &mut diagnostics,
+            EvidenceInput {
+                provider: lane,
+                actor: "github-metadata",
+                source_kind: "machine_verification",
+                reviewed_head: &commit.oid,
+                reviewed_head_tree: None,
+                reviewed_base: &pr.base_ref_oid,
+                outcome: EvidenceOutcome::Clean,
+                submitted_at: &commit.committed_date,
+                evidence_url: &commit.url,
             },
         );
     }
@@ -3087,6 +3136,121 @@ fn dependabot_lockfile_completion(pr: &PullRequestSnapshot) -> Option<&CommitMet
         .then_some(commit)
 }
 
+/// D1 快速通道（issue #406 PR-B）：`docs-only-v1` / `pure-move-v1` /
+/// `governance-docs-v1` 的机器 completion 判定，与 dependabot-cargo-lock-only-v1
+/// 同构——精确机器条件 + evaluate 级联中的共享 evidence 注入闸门（任何受信 finding
+/// 抵达即失效，见 evaluate_snapshot 的 machine_completion_open）。多通道同时命中
+/// 时按固定顺序取首个命名通道（证据等价，通道名只作 provider 标注）。
+fn fast_lane_completion(pr: &PullRequestSnapshot) -> Option<(&'static str, &CommitMetadata)> {
+    docs_only_lane_completion(pr)
+        .map(|commit| ("docs-only-v1", commit))
+        .or_else(|| pure_move_lane_completion(pr).map(|commit| ("pure-move-v1", commit)))
+        .or_else(|| {
+            governance_docs_lane_completion(pr).map(|commit| ("governance-docs-v1", commit))
+        })
+}
+
+/// 完整分页的非空 files 视图：分页溢出（snapshot 截断）或空 diff → None
+///（全部快速通道失效，回标准路径，不接受人工修补）
+fn fully_paginated_files(pr: &PullRequestSnapshot) -> Option<&[ChangedFile]> {
+    if pr.files.page_info.has_next_page || pr.files.nodes.is_empty() {
+        return None;
+    }
+    Some(pr.files.nodes.as_slice())
+}
+
+/// head commit metadata：快速通道机器 completion 的证据来源（reviewed head、
+/// completion time、evidence URL）；head 不在 commits 连接内或证据字段无效
+/// → None（fail-closed）
+fn head_commit_for_fast_lane(pr: &PullRequestSnapshot) -> Option<&CommitMetadata> {
+    let commit = &pr
+        .commits
+        .nodes
+        .iter()
+        .find(|node| node.commit.oid == pr.head_ref_oid)?
+        .commit;
+    (valid_full_oid(&commit.oid)
+        && valid_timestamp(&commit.committed_date)
+        && valid_github_url(&commit.url))
+    .then_some(commit)
+}
+
+/// `docs-only-v1`：完整分页后全部变更文件匹配 `docs/**`、根级 `*.md`
+/// 或 `research/**/*.md`
+fn docs_only_lane_completion(pr: &PullRequestSnapshot) -> Option<&CommitMetadata> {
+    let files = fully_paginated_files(pr)?;
+    if !files.iter().all(|file| is_docs_only_path(&file.path)) {
+        return None;
+    }
+    head_commit_for_fast_lane(pr)
+}
+
+fn is_docs_only_path(path: &str) -> bool {
+    path.starts_with("docs/")
+        || is_root_markdown(path)
+        || (path.starts_with("research/") && path.ends_with(".md"))
+}
+
+fn is_root_markdown(path: &str) -> bool {
+    !path.contains('/') && path.ends_with(".md")
+}
+
+/// `pure-move-v1`：完整分页后全部变更文件 `changeType=RENAMED` 且
+/// `additions=0`、`deletions=0`；字段缺失（旧快照）即不成立
+fn pure_move_lane_completion(pr: &PullRequestSnapshot) -> Option<&CommitMetadata> {
+    let files = fully_paginated_files(pr)?;
+    if !files.iter().all(|file| {
+        file.change_type == "RENAMED" && file.additions == Some(0) && file.deletions == Some(0)
+    }) {
+        return None;
+    }
+    head_commit_for_fast_lane(pr)
+}
+
+/// `governance-docs-v1`：head commit 治理字段 `Slice: governance`（只认 head commit
+/// 本身；message 缺失 / 无 Slice / 值非 governance 即不成立），且完整分页后全部
+/// 变更文件匹配 `docs/**`、根级 `*.md`、`.agents/**/*.md` 或 `.github/**/*.md`；
+/// `.github/workflows/**`、`xtask/**`、`schemas/**`、`crates/**` 任一命中即不成立
+///（门禁代码面与运行时代码不豁免）。
+fn governance_docs_lane_completion(pr: &PullRequestSnapshot) -> Option<&CommitMetadata> {
+    let commit = head_commit_for_fast_lane(pr)?;
+    if head_commit_slice_value(commit.message.as_deref()?) != Some("governance") {
+        return None;
+    }
+    let files = fully_paginated_files(pr)?;
+    if !files.iter().all(|file| is_governance_docs_path(&file.path)) {
+        return None;
+    }
+    Some(commit)
+}
+
+fn is_governance_docs_path(path: &str) -> bool {
+    if path.starts_with(".github/workflows/")
+        || path.starts_with("xtask/")
+        || path.starts_with("schemas/")
+        || path.starts_with("crates/")
+    {
+        return false;
+    }
+    path.starts_with("docs/")
+        || is_root_markdown(path)
+        || (path.starts_with(".agents/") && path.ends_with(".md"))
+        || (path.starts_with(".github/") && path.ends_with(".md"))
+}
+
+/// head commit message 的治理字段 `Slice` 值（commit-convention.md §2 严格格式：
+/// 字段名 + 冒号 + 一个空格）。无 Slice 行、空值或多行歧义 → None（fail-closed）。
+fn head_commit_slice_value(message: &str) -> Option<&str> {
+    let mut values = message
+        .lines()
+        .filter_map(|line| line.strip_prefix("Slice: "));
+    let value = values.next()?.trim_end();
+    if value.is_empty() || values.next().is_some() {
+        return None;
+    }
+    Some(value)
+}
+
 fn dependabot_lockfile_false_positive_disposition<'a>(
     thread: &'a ReviewThread,
     completion: &CommitMetadata,
@@ -4152,6 +4316,20 @@ fn load_live_snapshot(repository: &str, pr: u64) -> Result<ExternalReviewSnapsho
             page_info: PageInfo::default(),
         };
     }
+    if pull_request.files.page_info.has_next_page {
+        // D1 快速通道需要完整 files 视图：截断时补齐全量分页。分页无法完成时
+        // 不传播错误——files 只服务快速通道判定，标准路径不依赖它；保留原始截断
+        // 连接（has_next_page 保持 true），fully_paginated_files 返回 None，全部
+        // 机器通道（含 dependabot）失效，评估继续走标准路径（G1：分页溢出 →
+        // 通道失效并回标准路径）。这与 comments 不同：不完整评论会破坏绑定判定
+        // 完整性，必须整体 fail-closed。
+        if let Ok(files) = fetch_all_pr_files(repository, pr) {
+            pull_request.files = Connection {
+                nodes: files,
+                page_info: PageInfo::default(),
+            };
+        }
+    }
     let mut snapshot = ExternalReviewSnapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
         repository: repository.to_string(),
@@ -4258,39 +4436,48 @@ fn fetch_all_issue_comments(repository: &str, pr: u64) -> Result<Vec<IssueCommen
 }
 
 fn fetch_comment_pages(
-    mut load_page: impl FnMut(Option<&str>) -> Result<CommentsConnection, String>,
+    load_page: impl FnMut(Option<&str>) -> Result<CommentsConnection, String>,
 ) -> Result<Vec<IssueComment>, String> {
-    let mut comments = Vec::new();
+    fetch_cursor_pages("issue comments", load_page)
+}
+
+/// 通用 cursor 分页循环（issue comments 与 PR files 共用）：cursor 不推进、
+/// 空页但 hasNextPage、缺 endCursor 均无法证明分页完整，一律 fail-closed。
+fn fetch_cursor_pages<T>(
+    label: &str,
+    mut load_page: impl FnMut(Option<&str>) -> Result<CursorConnection<T>, String>,
+) -> Result<Vec<T>, String> {
+    let mut items = Vec::new();
     let mut cursor: Option<String> = None;
     loop {
         let page = load_page(cursor.as_deref())?;
         let fetched = page.nodes.len();
-        comments.extend(page.nodes);
-        let Some(next) = next_comment_page_cursor(&page.page_info, fetched)? else {
+        items.extend(page.nodes);
+        let Some(next) = next_cursor_page(label, &page.page_info, fetched)? else {
             break;
         };
         if cursor.as_deref() == Some(next.as_str()) {
-            return Err(
-                "issue comments 分页 cursor 未推进，无法完成分页，按 fail-closed 处理".to_string(),
-            );
+            return Err(format!(
+                "{label} 分页 cursor 未推进，无法完成分页，按 fail-closed 处理"
+            ));
         }
         cursor = Some(next);
     }
-    Ok(comments)
+    Ok(items)
 }
 
-fn next_comment_page_cursor(
-    page_info: &CommentsPageInfo,
+fn next_cursor_page(
+    label: &str,
+    page_info: &CursorPageInfo,
     fetched: usize,
 ) -> Result<Option<String>, String> {
     if !page_info.has_next_page {
         return Ok(None);
     }
     if fetched == 0 {
-        return Err(
-            "issue comments 分页返回空页但 hasNextPage 为 true，无法完成分页，按 fail-closed 处理"
-                .to_string(),
-        );
+        return Err(format!(
+            "{label} 分页返回空页但 hasNextPage 为 true，无法完成分页，按 fail-closed 处理"
+        ));
     }
     match page_info
         .end_cursor
@@ -4298,9 +4485,9 @@ fn next_comment_page_cursor(
         .filter(|cursor| !cursor.is_empty())
     {
         Some(cursor) => Ok(Some(cursor.to_string())),
-        None => {
-            Err("issue comments 分页缺少 endCursor，无法完成分页，按 fail-closed 处理".to_string())
-        }
+        None => Err(format!(
+            "{label} 分页缺少 endCursor，无法完成分页，按 fail-closed 处理"
+        )),
     }
 }
 
@@ -4315,6 +4502,33 @@ fn load_issue_comments_page(
     data.repository
         .and_then(|repository| repository.pull_request)
         .map(|pull_request| pull_request.comments)
+        .ok_or_else(|| format!("GitHub PR 不存在或不可读：{owner}/{name}#{pr}"))
+}
+
+fn fetch_all_pr_files(repository: &str, pr: u64) -> Result<Vec<ChangedFile>, String> {
+    let (owner, name) = repository
+        .split_once('/')
+        .ok_or_else(|| format!("repository 格式不正确：{repository}"))?;
+    fetch_file_pages(|cursor| load_pr_files_page(owner, name, pr, cursor))
+}
+
+fn fetch_file_pages(
+    load_page: impl FnMut(Option<&str>) -> Result<CursorConnection<ChangedFile>, String>,
+) -> Result<Vec<ChangedFile>, String> {
+    fetch_cursor_pages("PR files", load_page)
+}
+
+fn load_pr_files_page(
+    owner: &str,
+    name: &str,
+    pr: u64,
+    cursor: Option<&str>,
+) -> Result<CursorConnection<ChangedFile>, String> {
+    let data: FilesPageData =
+        gh_graphql_with_cursor(PULL_REQUEST_FILES_QUERY, owner, name, pr, cursor)?;
+    data.repository
+        .and_then(|repository| repository.pull_request)
+        .map(|pull_request| pull_request.files)
         .ok_or_else(|| format!("GitHub PR 不存在或不可读：{owner}/{name}#{pr}"))
 }
 
@@ -4483,22 +4697,41 @@ struct CommentsPagePullRequest {
     comments: CommentsConnection,
 }
 
+/// 带 endCursor 的分页连接（issue comments 与 PR files 的补齐分页查询共用）。
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CommentsConnection {
+#[serde(rename_all = "camelCase", bound(deserialize = "T: Deserialize<'de>"))]
+struct CursorConnection<T> {
     #[serde(default)]
-    nodes: Vec<IssueComment>,
+    nodes: Vec<T>,
     #[serde(default)]
-    page_info: CommentsPageInfo,
+    page_info: CursorPageInfo,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CommentsPageInfo {
+struct CursorPageInfo {
     #[serde(default)]
     has_next_page: bool,
     #[serde(default)]
     end_cursor: Option<String>,
+}
+
+type CommentsConnection = CursorConnection<IssueComment>;
+
+#[derive(Debug, Deserialize)]
+struct FilesPageData {
+    repository: Option<FilesPageRepository>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FilesPageRepository {
+    pull_request: Option<FilesPagePullRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FilesPagePullRequest {
+    files: CursorConnection<ChangedFile>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -5420,6 +5653,530 @@ mod tests {
         assert!(dependency.contains("`Analyze (rust)`"));
         assert!(dependency.contains("不再提供 CodeQL `not applicable`"));
         assert!(!dependency.contains("CodeQL `not applicable` 与机器 completion"));
+    }
+
+    #[test]
+    fn documents_the_fast_lane_machine_completion_contract() {
+        let gates = include_str!("../../docs/governance/development-gates.md");
+        let template = include_str!("../../.github/pull_request_template.md");
+        let matrix = include_str!("../../docs/reference/validation-matrix.md");
+
+        for lane in [
+            "lockfile-only-dependabot",
+            "docs-only-v1",
+            "pure-move-v1",
+            "governance-docs-v1",
+        ] {
+            assert!(
+                gates.contains(&format!("`{lane}`")),
+                "gates 缺少快速通道 {lane}"
+            );
+        }
+        for lane in ["docs-only-v1", "pure-move-v1", "governance-docs-v1"] {
+            assert!(template.contains(lane), "template 缺少快速通道 {lane}");
+            assert!(matrix.contains(lane), "matrix 缺少快速通道 {lane}");
+        }
+        // 失效闸门与 waiver 区分的权威表述（改文案时必须与本 pin 锁步）
+        assert!(gates.contains(
+            "四条通道共享同一失效闸门：任何受信 actor 的 finding（含 P2/P3 deferred，按 findingCount 层面判定）抵达，或 snapshot 字段缺失 / files 分页溢出，通道立即失效并回标准路径，不接受人工修补"
+        ));
+        assert!(gates.contains("它是机器 completion 而非 waiver"));
+        assert!(gates.contains("第 6.1 节的快速通道是机器 completion 而非 waiver"));
+        assert!(
+            template.contains("仅当 PR 精确满足 `development-gates.md` 第 6.1 节定义的快速通道")
+        );
+        assert!(matrix.contains("快速通道 PR 抵达任何受信 finding（含 P2/P3 deferred）"));
+        assert!(matrix.contains("快速通道 files 分页溢出"));
+        assert!(matrix.contains("门禁代码面与运行时代码不豁免"));
+        // files 分页失败语义：通道失效回标准路径，不作整体 fail-closed
+        assert!(
+            matrix.contains("files 只服务快速通道判定：分页溢出时全部机器通道失效并回标准路径")
+        );
+    }
+
+    /// D1：构造一条绑定 current head 的受信 Codex finding（review + thread），
+    /// 用于快速通道共享失效闸门测试。
+    fn fast_lane_trusted_finding(snapshot: &mut ExternalReviewSnapshot, badge_severity: &str) {
+        let head = snapshot.pull_request.head_ref_oid.clone();
+        snapshot.pull_request.reviews.nodes.push(Review {
+            id: "PRR-codex-fast-lane-finding".to_string(),
+            author: Some(Actor {
+                login: CODEX_ACTOR.to_string(),
+            }),
+            body: String::new(),
+            state: "COMMENTED".to_string(),
+            submitted_at: Some("2026-08-20T09:00:00Z".to_string()),
+            url: Some(
+                "https://github.com/illusion-tech/laneflow/pull/460#pullrequestreview-9"
+                    .to_string(),
+            ),
+            commit: Some(CommitRef {
+                oid: head.clone(),
+                tree: None,
+            }),
+        });
+        snapshot
+            .pull_request
+            .review_threads
+            .nodes
+            .push(ReviewThread {
+                id: "PRRT-codex-fast-lane-finding".to_string(),
+                is_resolved: false,
+                is_outdated: false,
+                comments: Connection {
+                    nodes: vec![ReviewThreadComment {
+                        id: "PRRC-codex-fast-lane-finding".to_string(),
+                        author: Some(Actor {
+                            login: CODEX_ACTOR.to_string(),
+                        }),
+                        body: codex_badge_body(badge_severity, "Fast lane gate probe."),
+                        created_at: "2026-08-20T09:00:00Z".to_string(),
+                        updated_at: "2026-08-20T09:00:00Z".to_string(),
+                        url: "https://github.com/illusion-tech/laneflow/pull/460#discussion_r9"
+                            .to_string(),
+                        pull_request_review: Some(ReviewReference {
+                            id: "PRR-codex-fast-lane-finding".to_string(),
+                            author: Some(Actor {
+                                login: CODEX_ACTOR.to_string(),
+                            }),
+                            state: "COMMENTED".to_string(),
+                            submitted_at: Some("2026-08-20T09:00:00Z".to_string()),
+                            commit: Some(CommitRef {
+                                oid: head.clone(),
+                                tree: None,
+                            }),
+                        }),
+                    }],
+                    page_info: PageInfo::default(),
+                },
+            });
+    }
+
+    fn no_machine_completion_evidence(result: &ExternalReviewResult) -> bool {
+        !result
+            .evidence
+            .iter()
+            .any(|item| item.source_kind == "machine_verification")
+    }
+
+    #[test]
+    fn fast_lane_docs_only_hits_and_fails_closed_on_boundary_mismatch() {
+        let contents = include_str!("../fixtures/external-review/fast-lane-docs-only.json");
+        let pass = evaluate_snapshot(&fixture(contents));
+        assert_eq!(pass.state, ExternalReviewState::Pass);
+        assert_eq!(pass.provider.as_deref(), Some("docs-only-v1"));
+        assert_eq!(pass.actor.as_deref(), Some("github-metadata"));
+        assert_eq!(
+            pass.reviewed_head_oid.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        assert_eq!(
+            pass.completion_time.as_deref(),
+            Some("2026-08-20T08:00:00Z")
+        );
+        assert_eq!(pass.finding_count, 0);
+        assert_eq!(pass.review_rounds, 0);
+        assert_eq!(
+            pass.evidence[0].evidence_url,
+            "https://github.com/illusion-tech/laneflow/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
+
+        // 任一文件不匹配 docs/**、根级 *.md、research/**/*.md → 通道不成立
+        for path in [
+            "src/lib.rs",
+            "research/issue-406-fast-lanes/data.json",
+            "guides/README.md",
+            "docs-only/readme.md",
+        ] {
+            let mut snapshot = fixture(contents);
+            snapshot.pull_request.files.nodes[0].path = path.to_string();
+            let result = evaluate_snapshot(&snapshot);
+            assert_eq!(result.state, ExternalReviewState::AwaitingReview, "{path}");
+            assert!(no_machine_completion_evidence(&result), "{path}");
+        }
+
+        // 空 diff 不产生机器 completion
+        let mut empty = fixture(contents);
+        empty.pull_request.files.nodes.clear();
+        assert_eq!(
+            evaluate_snapshot(&empty).state,
+            ExternalReviewState::AwaitingReview
+        );
+    }
+
+    #[test]
+    fn fast_lane_pure_move_requires_renamed_with_exact_zero_diff() {
+        let contents = include_str!("../fixtures/external-review/fast-lane-pure-move.json");
+        let pass = evaluate_snapshot(&fixture(contents));
+        assert_eq!(pass.state, ExternalReviewState::Pass);
+        assert_eq!(pass.provider.as_deref(), Some("pure-move-v1"));
+
+        // RENAMED 但 additions>0 → 不成立
+        let mut edited = fixture(contents);
+        edited.pull_request.files.nodes[0].additions = Some(1);
+        assert_eq!(
+            evaluate_snapshot(&edited).state,
+            ExternalReviewState::AwaitingReview
+        );
+
+        // changeType 非 RENAMED（即使 0/0）→ 不成立
+        let mut modified = fixture(contents);
+        modified.pull_request.files.nodes[0].change_type = "MODIFIED".to_string();
+        assert_eq!(
+            evaluate_snapshot(&modified).state,
+            ExternalReviewState::AwaitingReview
+        );
+
+        // additions/deletions 字段缺失（旧快照形态）→ fail-closed 不成立
+        let mut missing_fields = fixture(contents);
+        missing_fields.pull_request.files.nodes[0].additions = None;
+        let result = evaluate_snapshot(&missing_fields);
+        assert_eq!(result.state, ExternalReviewState::AwaitingReview);
+        assert!(no_machine_completion_evidence(&result));
+        // 对称地，仅 deletions 缺失同样 fail-closed
+        let mut missing_deletions = fixture(contents);
+        missing_deletions.pull_request.files.nodes[0].deletions = None;
+        let result = evaluate_snapshot(&missing_deletions);
+        assert_eq!(result.state, ExternalReviewState::AwaitingReview);
+        assert!(no_machine_completion_evidence(&result));
+    }
+
+    #[test]
+    fn fast_lane_governance_docs_requires_slice_and_allowed_paths() {
+        let contents = include_str!("../fixtures/external-review/fast-lane-governance-docs.json");
+        let pass = evaluate_snapshot(&fixture(contents));
+        assert_eq!(pass.state, ExternalReviewState::Pass);
+        assert_eq!(pass.provider.as_deref(), Some("governance-docs-v1"));
+
+        // head commit message 缺失 / Slice 值非 governance → 不成立
+        let mut no_message = fixture(contents);
+        no_message.pull_request.commits.nodes[0].commit.message = None;
+        assert_eq!(
+            evaluate_snapshot(&no_message).state,
+            ExternalReviewState::AwaitingReview
+        );
+        let mut docs_only_slice = fixture(contents);
+        docs_only_slice.pull_request.commits.nodes[0].commit.message =
+            docs_only_slice.pull_request.commits.nodes[0]
+                .commit
+                .message
+                .as_ref()
+                .map(|message| message.replace("Slice: governance", "Slice: docs-only"));
+        assert_eq!(
+            evaluate_snapshot(&docs_only_slice).state,
+            ExternalReviewState::AwaitingReview
+        );
+        // 大小写变体（Slice: Governance）→ 值非精确 governance，fail-closed
+        let mut capitalized_slice = fixture(contents);
+        capitalized_slice.pull_request.commits.nodes[0]
+            .commit
+            .message = capitalized_slice.pull_request.commits.nodes[0]
+            .commit
+            .message
+            .as_ref()
+            .map(|message| message.replace("Slice: governance", "Slice: Governance"));
+        assert_eq!(
+            evaluate_snapshot(&capitalized_slice).state,
+            ExternalReviewState::AwaitingReview
+        );
+        // 多个 Slice 行歧义 → fail-closed 不成立
+        let mut ambiguous_slice = fixture(contents);
+        ambiguous_slice.pull_request.commits.nodes[0].commit.message =
+            ambiguous_slice.pull_request.commits.nodes[0]
+                .commit
+                .message
+                .as_ref()
+                .map(|message| format!("{message}\nSlice: governance"));
+        assert_eq!(
+            evaluate_snapshot(&ambiguous_slice).state,
+            ExternalReviewState::AwaitingReview
+        );
+
+        // 门禁代码面与运行时代码不豁免：workflows/xtask/schemas/crates 任一命中即不成立；
+        // research/**/*.md 不在 governance-docs 允许集合内
+        for path in [
+            ".github/workflows/ci.yml",
+            ".github/workflows/notes.md",
+            "xtask/src/main.rs",
+            "schemas/laneflow-data-v0.10.schema.json",
+            "crates/laneflow-core/src/lib.rs",
+            "research/issue-406-fast-lanes/notes.md",
+        ] {
+            let mut snapshot = fixture(contents);
+            snapshot.pull_request.files.nodes[0].path = path.to_string();
+            let result = evaluate_snapshot(&snapshot);
+            assert_eq!(result.state, ExternalReviewState::AwaitingReview, "{path}");
+            assert!(no_machine_completion_evidence(&result), "{path}");
+        }
+
+        // 只认 head commit 本身：旧 commit 带 Slice: governance 而 head 没有 → 不成立
+        let mut older_commit_only = fixture(contents);
+        older_commit_only.pull_request.commits.nodes[0]
+            .commit
+            .message = None;
+        let mut older = commit_node(
+            "cccccccccccccccccccccccccccccccccccccccc",
+            Some("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"),
+        );
+        older.commit.message =
+            Some("docs(governance): 旧提交\n\nGate: G3 Candidate\nSlice: governance".to_string());
+        older_commit_only
+            .pull_request
+            .commits
+            .nodes
+            .push(older.clone());
+        assert_eq!(
+            evaluate_snapshot(&older_commit_only).state,
+            ExternalReviewState::AwaitingReview
+        );
+        // 反向：head 带 Slice: governance，旧 commit 没有 → 仍成立
+        let mut head_has_slice = fixture(contents);
+        older.commit.message = None;
+        head_has_slice.pull_request.commits.nodes.push(older);
+        assert_eq!(
+            evaluate_snapshot(&head_has_slice).state,
+            ExternalReviewState::Pass
+        );
+    }
+
+    #[test]
+    fn fast_lane_shared_gate_disables_machine_completion_on_any_trusted_finding() {
+        let contents = include_str!("../fixtures/external-review/fast-lane-docs-only.json");
+
+        // 受信 P1 blocking finding → 通道失效，FindingsOpen
+        let mut p1 = fixture(contents);
+        fast_lane_trusted_finding(&mut p1, "P1");
+        let p1_result = evaluate_snapshot(&p1);
+        assert_eq!(p1_result.state, ExternalReviewState::FindingsOpen);
+        assert!(no_machine_completion_evidence(&p1_result));
+
+        // 受信 P2 deferred finding → 通道同样失效（findingCount 层面）；
+        // 回标准路径后由既有 D2 deferred 语义放行（非机器 completion）
+        let mut p2 = fixture(contents);
+        fast_lane_trusted_finding(&mut p2, "P2");
+        let p2_result = evaluate_snapshot(&p2);
+        assert_eq!(p2_result.state, ExternalReviewState::Pass);
+        assert_eq!(p2_result.provider.as_deref(), Some("codex"));
+        assert_eq!(p2_result.deferred_findings.len(), 1);
+        assert!(no_machine_completion_evidence(&p2_result));
+
+        // 已 resolved 的受信 finding 同样使通道失效（回标准路径，待 re-review）
+        let mut resolved = fixture(contents);
+        fast_lane_trusted_finding(&mut resolved, "P1");
+        resolved.pull_request.review_threads.nodes[0].is_resolved = true;
+        let resolved_result = evaluate_snapshot(&resolved);
+        assert_eq!(resolved_result.state, ExternalReviewState::AwaitingRereview);
+        assert!(no_machine_completion_evidence(&resolved_result));
+
+        // dismissed review → stale_or_dismissed 关闭闸门
+        let mut dismissed = fixture(contents);
+        dismissed.pull_request.reviews.nodes.push(Review {
+            id: "PRR-dismissed".to_string(),
+            author: Some(Actor {
+                login: "wangzishi".to_string(),
+            }),
+            body: String::new(),
+            state: "DISMISSED".to_string(),
+            submitted_at: Some("2026-08-20T09:00:00Z".to_string()),
+            url: Some(
+                "https://github.com/illusion-tech/laneflow/pull/460#pullrequestreview-10"
+                    .to_string(),
+            ),
+            commit: Some(CommitRef {
+                oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+                tree: None,
+            }),
+        });
+        let dismissed_result = evaluate_snapshot(&dismissed);
+        assert_eq!(dismissed_result.state, ExternalReviewState::Stale);
+        assert!(no_machine_completion_evidence(&dismissed_result));
+
+        // 人工 unthreaded finding（review 级 CHANGES_REQUESTED，无关联 thread）→ 闸门同样关闭
+        let mut unthreaded = fixture(contents);
+        let head = unthreaded.pull_request.head_ref_oid.clone();
+        unthreaded.pull_request.reviews.nodes.push(Review {
+            id: "PRR-human-changes-fast-lane".to_string(),
+            author: Some(Actor {
+                login: "wangzishi".to_string(),
+            }),
+            body: String::new(),
+            state: "CHANGES_REQUESTED".to_string(),
+            submitted_at: Some("2026-08-20T09:00:00Z".to_string()),
+            url: Some(
+                "https://github.com/illusion-tech/laneflow/pull/460#pullrequestreview-12"
+                    .to_string(),
+            ),
+            commit: Some(CommitRef {
+                oid: head,
+                tree: None,
+            }),
+        });
+        let unthreaded_result = evaluate_snapshot(&unthreaded);
+        assert_eq!(
+            unthreaded_result.state,
+            ExternalReviewState::AwaitingRereview
+        );
+        assert!(no_machine_completion_evidence(&unthreaded_result));
+    }
+
+    #[test]
+    fn fast_lane_fails_closed_on_truncated_files_or_missing_head_commit() {
+        let contents = include_str!("../fixtures/external-review/fast-lane-docs-only.json");
+
+        // files 分页溢出（snapshot 截断）→ 通道失效，回标准路径
+        let mut truncated = fixture(contents);
+        truncated.pull_request.files.page_info.has_next_page = true;
+        let result = evaluate_snapshot(&truncated);
+        assert_eq!(result.state, ExternalReviewState::AwaitingReview);
+        assert!(no_machine_completion_evidence(&result));
+
+        // 分页溢出不是整体 fail-closed：存在有效人工 clean 时标准路径照常放行
+        let mut truncated_with_review = fixture(contents);
+        truncated_with_review
+            .pull_request
+            .files
+            .page_info
+            .has_next_page = true;
+        truncated_with_review
+            .pull_request
+            .reviews
+            .nodes
+            .push(Review {
+                id: "PRR-human-clean".to_string(),
+                author: Some(Actor {
+                    login: "wangzishi".to_string(),
+                }),
+                body: String::new(),
+                state: "APPROVED".to_string(),
+                submitted_at: Some("2026-08-20T09:00:00Z".to_string()),
+                url: Some(
+                    "https://github.com/illusion-tech/laneflow/pull/460#pullrequestreview-11"
+                        .to_string(),
+                ),
+                commit: Some(CommitRef {
+                    oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+                    tree: None,
+                }),
+            });
+        let result = evaluate_snapshot(&truncated_with_review);
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert_eq!(result.provider.as_deref(), Some("human"));
+        assert!(no_machine_completion_evidence(&result));
+
+        // head commit 不在 commits 连接内 → 无证据来源，通道失效
+        let mut no_commits = fixture(contents);
+        no_commits.pull_request.commits.nodes.clear();
+        assert_eq!(
+            evaluate_snapshot(&no_commits).state,
+            ExternalReviewState::AwaitingReview
+        );
+
+        // head commit 证据字段无效（URL 非 GitHub HTTPS）→ 通道失效
+        let mut invalid_url = fixture(contents);
+        invalid_url.pull_request.commits.nodes[0].commit.url =
+            "https://example.com/commit/aaaa".to_string();
+        assert_eq!(
+            evaluate_snapshot(&invalid_url).state,
+            ExternalReviewState::AwaitingReview
+        );
+    }
+
+    #[test]
+    fn fast_lane_hit_order_is_deterministic_across_overlapping_lanes() {
+        // docs/ 下 RENAMED 0/0 且 Slice: governance 同时满足三条通道，
+        // 按固定顺序 docs-only-v1 → pure-move-v1 → governance-docs-v1 取首个
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/fast-lane-governance-docs.json"
+        ));
+        snapshot.pull_request.files.nodes = vec![ChangedFile {
+            path: "docs/governance/development-gates.md".to_string(),
+            change_type: "RENAMED".to_string(),
+            additions: Some(0),
+            deletions: Some(0),
+        }];
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert_eq!(result.provider.as_deref(), Some("docs-only-v1"));
+
+        // docs-only 不命中而 pure-move 与 governance-docs 同时命中（.agents/**/*.md
+        // RENAMED 0/0 + Slice: governance）→ pure-move 优先
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/fast-lane-governance-docs.json"
+        ));
+        snapshot.pull_request.files.nodes = vec![ChangedFile {
+            path: ".agents/skills/laneflow-governance/SKILL.md".to_string(),
+            change_type: "RENAMED".to_string(),
+            additions: Some(0),
+            deletions: Some(0),
+        }];
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert_eq!(result.provider.as_deref(), Some("pure-move-v1"));
+    }
+
+    #[test]
+    fn parses_head_commit_slice_value_fail_closed() {
+        assert_eq!(
+            head_commit_slice_value("Slice: governance"),
+            Some("governance")
+        );
+        let message = "docs(governance): 标题\n\nGate: G3 Candidate\nSlice: governance\nImpact: core-api=none; data-format=none; adapter-api=none\nScope: x\nValidation: y\nDocs: updated\n\nRefs: #406";
+        assert_eq!(head_commit_slice_value(message), Some("governance"));
+        // 无 Slice 行 / 空值 / 多行歧义 / 非严格「冒号 + 一个空格」→ None
+        assert_eq!(head_commit_slice_value("no slice here"), None);
+        assert_eq!(head_commit_slice_value("Slice: "), None);
+        assert_eq!(
+            head_commit_slice_value("Slice: docs-only\nSlice: governance"),
+            None
+        );
+        assert_eq!(head_commit_slice_value("Slice:governance"), None);
+        assert_eq!(head_commit_slice_value(" Slice: governance"), None);
+        // 大小写敏感：值按原样返回，由通道等值比较 fail-closed（Governance ≠ governance）
+        assert_eq!(
+            head_commit_slice_value("Slice: Governance"),
+            Some("Governance")
+        );
+        // 行尾空白（如 CRLF）容忍，值内的内容保持精确
+        assert_eq!(
+            head_commit_slice_value("Slice: governance\r"),
+            Some("governance")
+        );
+        assert_eq!(
+            head_commit_slice_value("Slice: governance extra"),
+            Some("governance extra")
+        );
+    }
+
+    #[test]
+    fn fast_lane_new_snapshot_fields_stay_deserialization_compatible() {
+        // 旧快照无 additions/deletions/message 字段：serde default → None，不破坏
+        // 既有评估（dependabot 窄通道照旧生效）
+        let legacy = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        assert!(legacy.pull_request.files.nodes[0].additions.is_none());
+        assert!(legacy.pull_request.files.nodes[0].deletions.is_none());
+        assert!(
+            legacy.pull_request.commits.nodes[0]
+                .commit
+                .message
+                .is_none()
+        );
+        assert_eq!(evaluate_snapshot(&legacy).state, ExternalReviewState::Pass);
+
+        // 新字段在快照 JSON 中正常反序列化（deny_unknown_fields 不拒绝）
+        let docs = fixture(include_str!(
+            "../fixtures/external-review/fast-lane-docs-only.json"
+        ));
+        assert_eq!(docs.pull_request.files.nodes[0].additions, Some(12));
+        assert_eq!(docs.pull_request.files.nodes[0].deletions, Some(3));
+        assert!(
+            docs.pull_request.commits.nodes[0]
+                .commit
+                .message
+                .as_deref()
+                .is_some_and(|message| message.contains("Slice: docs-only"))
+        );
     }
 
     #[test]
@@ -6360,6 +7117,7 @@ mod tests {
                 tree: tree.map(|oid| TreeRef {
                     oid: oid.to_string(),
                 }),
+                message: None,
             },
         }
     }
@@ -7503,7 +8261,7 @@ mod tests {
         let page =
             |nodes: Vec<IssueComment>, has_next: bool, cursor: Option<&str>| CommentsConnection {
                 nodes,
-                page_info: CommentsPageInfo {
+                page_info: CursorPageInfo {
                     has_next_page: has_next,
                     end_cursor: cursor.map(str::to_string),
                 },
