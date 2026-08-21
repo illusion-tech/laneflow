@@ -49,6 +49,8 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 迁移预言机           | migration oracle                         | —                                     | 用于对照目标实现语义、行为或字节结果的独立基准实现。                                                    |
 | 开发闸口             | development gate                         | `G0`–`G4`                             | LaneFlow 从立项、设计、开工、合并到完成的治理状态。                                                     |
 | G3 例外状态          | G3 exception status                      | `G3 Exception` / `accepted_exception` | G3 断言未通过但由 G3 Owner 以结构化记录接受风险的一等审计状态；始终保持非成功，绝不等同于 Pass。        |
+| 历史合并失败记录     | historical merge failure record          | `historical_failure`                  | 保留历史合并失败事实，不得追授 Pass。                                                                   |
+| 历史失败接受记录     | historical failure acceptance record     | `merge-queue-g4-recovery:v1`          | 由 trusted G3 Owner 接受已完成补救后的历史失败。                                                        |
 | 仅遥测               | telemetry-only                           | —                                     | 只记录或观察状态、不发布 required 结论也不更新既有门禁结论的运行方式。                                  |
 | 合并队列             | merge queue                              | GitHub Merge Queue                    | GitHub 对已满足 PR 级要求的变更按队列顺序创建合并组、验证最新默认分支组合并在成功后执行合并的平台机制。 |
 | 合并组               | merge group                              | `merge_group`                         | 合并队列为最新默认分支、队列前序变更与当前 PR 生成的临时集成候选；其 Head SHA 承载队列级机器检查。      |
