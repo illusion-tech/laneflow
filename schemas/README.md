@@ -1,71 +1,30 @@
-# LaneFlow Schema Source and Publication
+# LaneFlow Schema Source
 
-<!-- schema-publication-contract: public-retrieval -->
-<!-- schema-publication-catalog: schemas/publication.json -->
-<!-- schema-source-current: traffic=0.10;spatial=0.1;scenarioManifest=0.1 -->
+本目录保存当前内部 loader、测试与道路编辑前端使用的 schema source。它们不是对外
+发布的公共契约。ADR 0011 的公共发布义务已被
+[ADR 0026](../docs/adr/0026-merge-governance-rebuild.md) 取代。
 
-本目录同时保存当前 schema source 与已经公开的 immutable schema artifacts。机器可读的 family、current source、canonical URL 与 publication provenance 见 [`publication.json`](publication.json)。
+## 当前内部 source
 
-FlatBuffers 等非 JSON schema 可以先作为明确标注的 G1 候选进入子目录；在对应 Gate、
-production reader/writer 和发布来源固定前，它们不进入 `publication.json`，也不得被
-描述成已发布或当前 production contract。
+| Family            | Current source                                                                               | 说明                        |
+| ----------------- | -------------------------------------------------------------------------------------------- | --------------------------- |
+| Traffic           | [`laneflow-data-v0.10.schema.json`](laneflow-data-v0.10.schema.json)                         | 当前 JSON loader；#294 删除 |
+| Spatial           | [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)                     | 当前 JSON loader；#294 删除 |
+| Scenario Manifest | [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json) | 当前 JSON loader；#294 删除 |
 
-## 当前 Source Contract
-
-| Family            | Current source                                                                               | Publication 状态 |
-| ----------------- | -------------------------------------------------------------------------------------------- | ---------------- |
-| Traffic           | [`laneflow-data-v0.10.schema.json`](laneflow-data-v0.10.schema.json)                         | 已发布           |
-| Spatial           | [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)                     | 已发布           |
-| Scenario Manifest | [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json) | 已发布           |
-
-## G1 候选 Source Contract
+## G1 候选 source
 
 | Family       | Candidate source                                                       | 状态                             |
 | ------------ | ---------------------------------------------------------------------- | -------------------------------- |
 | Road Editing | [`road-editing/v1/road-editing.fbs`](road-editing/v1/road-editing.fbs) | #296 G1 冻结候选；未实现、未发布 |
 
 字段级领域语义见 [`road-editing/v1/README.md`](road-editing/v1/README.md)。它使用
-size-prefixed FlatBuffers 和 `LFRE` file identifier，不是 JSON Schema，也不由当前
-GitHub Pages JSON schema publication workflow 发布。
+size-prefixed FlatBuffers 和 `LFRE` file identifier，不是 JSON Schema。
 
-`currentFormatVersion` 表示 repository 中由 loader/tests 使用的当前 source；只有列入对应 `publishedSchemas` 且具有固定 `sourceRevision` / `sourceBlobOid` 的文件才属于公共发布集合。新 family 可以先合入 source，再由后续 publication PR 固定 `main` revision 并发布，避免以可变分支提交伪造不可变 provenance。
-
-## 公共契约
-
-- 每个 published schema 的 `$id` 是 canonical identifier，也是受支持的 HTTPS retrieval URL。
-- 已发布 version 永久保留且不可原地修改；修正格式契约必须发布新的 `formatVersion`。
-- canonical URL 的响应体必须与 catalog 固定 source revision 中的 schema 逐字节一致。
-- v0.2/v0.3 Traffic 保留历史 Raw GitHub `$id`；后续 schema 使用 organisation-owned GitHub Pages URL。
-- Pages `/schema/` 只包含 `publishedSchemas` 与 machine-readable publication index；source-only schema 不会被误部署。
-
-当前 Traffic production source 是 v0.10；其固定 `main` provenance 已登记到
-publication catalog，canonical URL 已经 live 验证为 HTTP 200，且响应体与固定
-source blob 逐字节一致。v0.9 及更早版本继续按固定 provenance 永久保留。
-当前 schema contract 是：
-
-- [`laneflow-data-v0.10.schema.json`](laneflow-data-v0.10.schema.json)（已发布）
-- <https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.10.schema.json>
-- [`laneflow-data-v0.9.schema.json`](laneflow-data-v0.9.schema.json)（已发布）
-- <https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.9.schema.json>
-- [`laneflow-data-v0.8.schema.json`](laneflow-data-v0.8.schema.json)（已发布）
-- <https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.8.schema.json>
-- [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)
-- <https://illusion-tech.github.io/laneflow/schema/laneflow-spatial-v0.1.schema.json>
-- [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json)
-- <https://illusion-tech.github.io/laneflow/schema/laneflow-scenario-manifest-v0.1.schema.json>
-
-Traffic v0.2-v0.5 与 v0.7-v0.8 只作为 immutable publication artifacts 保留，不进入
-current production loader、fixture 或 compatibility matrix。
+Traffic v0.2–v0.9 历史 schema 已从当前树删除。当时的 closure review 按当时语义保留
+在 Git 历史与对应 Issue 中，不构成现行发布义务。
 
 ## Runtime 边界
 
-Core、production loader、Adapter 与 hermetic runtime tests 不联网解析 `$id` / `$schema`。公共发布是 distribution/CD concern；调用方主动下载 schema 时负责输入大小、内容验证、缓存和网络失败处理。
-
-## 验证与构建
-
-```powershell
-cargo +1.96.0 run --locked -p xtask -- check-schema-publication-contract
-cargo +1.96.0 run --locked -p xtask -- build-schema-publication target/schema-publication-site
-```
-
-GitHub Pages deployment 与每日 live monitor 分别由 `.github/workflows/schema-publication.yml` 和 `.github/workflows/schema-publication-monitor.yml` 执行。详细决策见 [ADR 0011](../docs/adr/0011-schema-identifier-and-publication-contract.md)。
+Core、production loader、Adapter 与 hermetic runtime tests 不联网解析 `$id` /
+`$schema`。调用方如果自行下载 schema，自行负责输入大小、内容验证、缓存和网络失败。

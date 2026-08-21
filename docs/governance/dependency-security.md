@@ -81,7 +81,7 @@ SPDX `OR` expression 只要至少一个分支位于允许列表即可通过；`A
 
 ### 4.2 默认阻断
 
-以下情况默认阻断 `G3` 和公开发布：
+以下情况默认阻断合并和公开发布：
 
 - cargo-deny 报告未允许或无法确定的许可证。
 - GPL、AGPL 或其他强 copyleft 依赖进入发布依赖图。
@@ -103,7 +103,7 @@ cargo deny --locked --all-features check advisories bans licenses sources
 ```
 
 CI job 名称固定为 `Dependency policy`，并由 `main` ruleset 的 required status checks 强制要求成功。Merge Queue
-启用后，`strict_required_status_checks_policy=false`：current exact `H_pr` 必须在 G3 前通过该检查，GitHub 还必须
+启用后，`strict_required_status_checks_policy=false`：current exact `H_pr` 必须在合并前通过该检查，GitHub 还必须
 在最新 `main` 与队列前序变更形成的真实 `H_mg` 上重新运行并成功后才可合并；目标分支单纯前进不要求作者
 更新 PR 分支。仅新增 workflow job 而不维护 ruleset required context，或只验证 `H_pr` 而不验证 `H_mg`，
 都不算建立硬门禁。
@@ -134,7 +134,7 @@ Dependabot 无法生成 LaneFlow 的完整治理正文，因此 commit 校验器
 - Git author email 精确为 `49699333+dependabot[bot]@users.noreply.github.com`。
 - 标题为非 breaking 的 `build(deps): <description>`。
 
-该例外不是身份认证机制，也不适用于人工依赖提交、其他 bot 或其他 scope。PR 级 G3、Development 关联和安全检查仍须完整执行。
+该例外不是身份认证机制，也不适用于人工依赖提交、其他 bot 或其他 scope。PR 审阅和安全检查仍须完整执行。
 
 ## 6. 例外治理
 
@@ -147,9 +147,9 @@ Dependabot 无法生成 LaneFlow 的完整治理正文，因此 commit 校验器
 - Cleanup owner。
 - 跟踪 Issue。
 
-没有理由的裸字符串 ignore、无到期边界的通配例外或仅为“让 CI 通过”的放宽均不接受。若工具配置无法承载全部字段，应在邻近注释与关联 Issue 中共同保存，并在 PR G3 comment 中回链。
+没有理由的裸字符串 ignore、无到期边界的通配例外或仅为“让 CI 通过”的放宽均不接受。若工具配置无法承载全部字段，应在邻近注释与关联 Issue 中共同保存。
 
-## 7. G3 与发布验证
+## 7. 合并与发布验证
 
 修改依赖、Cargo manifest、许可证、`deny.toml`、Dependabot 或依赖 CI 的 PR，至少运行并记录：
 
@@ -161,6 +161,6 @@ cargo +1.96.0 test --workspace --locked
 
 还必须按 `security-scanning.md` 读取 GitHub 的实际 Dependabot setting 与 open alerts。API 失败、功能 disabled、cargo-deny 未运行或 policy check 失败都不能记为零告警或通过。
 
-PR G3 还必须确认 GitHub 上的 `Dependency policy` required check 已成功完成；missing、pending、skipped、cancelled 或 failure 均阻断。
+合并前还必须确认 GitHub 上的 `Dependency policy` required check 已成功完成；missing、pending、skipped、cancelled 或 failure 均阻断。
 
 公开发布前重新验证目标 commit，不得复用历史截图或旧 PR 的空告警结果。发布分发物若包含仓库外第三方材料，还必须单独生成/复核 attribution 清单。

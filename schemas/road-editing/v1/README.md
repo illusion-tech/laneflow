@@ -290,7 +290,7 @@ FlatBuffers scalar 的 wire 缺省值与显式写入同一默认值不可区分�
 
 - 当前 exact B1 schema 的每张 table 字段 `id` 从 0 连续分配，union 字段同时占用隐式
   type id，enum 与 union 判别值显式固定。B1 v1 只授权内部完整验证，尚未进入
-  `schemas/publication.json`；任何会让旧 bytes 被不同解释的 wire/语义变化都必须提升
+  公共 publication catalog；任何会让旧 bytes 被不同解释的 wire/语义变化都必须提升
   `format_version` 及相应 frontend/geometry semantics code，当前 reader 拒绝旧值且不提供
   迁移。internal family 保持 `LFRE + root format_version(id:0,uint)` 可读 envelope；若该
   envelope 也改变，则分配新 file identifier。

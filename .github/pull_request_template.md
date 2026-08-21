@@ -1,12 +1,8 @@
-# PR 治理检查清单
+# PR 检查清单
 
 ## 范围
 
-- 关联 Issue：
-- PR 角色：`Delivery PR` / `Related PR`
-- Development 关联：
-  - Delivery PR：唯一可完成关联 Issue 验收边界的 PR，使用 `Closes #<issue>` / `Resolves #<issue>`，完整 `closingIssuesReferences` 必须与全部 `关联 Issue` 精确一致。
-  - Related PR：部分交付，使用 `Refs: #<issue>`；完整 `closingIssuesReferences` 必须为空。
+- 关联 Issue：`Closes #`
 - 切片类型：
   - [ ] docs-only（仅文档）
   - [ ] governance（治理）
@@ -16,107 +12,39 @@
   - [ ] authoring-tool（编辑工具）
   - [ ] example（示例）
   - [ ] cross-layer（跨层高风险）
-- 本次 PR 变更：
-- 本次 PR 明确不做：
-
-## 关联 Issue 元数据 / 依赖关系审计
-
-- [ ] 关联 Issue 的 Project、Project status、Labels 已核验；缺失项已有显式例外。
-- [ ] Milestone、Parent / sub-issues、Blocked by、Blocking 已核验；不适用项已有 `N/A` 原因。
-- [ ] Delivery PR / Related PRs 已在 Issue 中准确记录；若本 PR 是 Delivery PR，完整 `closingIssuesReferences` 与全部 `关联 Issue` 精确一致；若本 PR 是 Related PR，已记录 `Refs: #<issue>` 且 closing set 为空。
+- 本次变更：
+- 本次明确不做：
 
 ## 影响
 
-- Core API 影响：`无` / 说明：
-- 数据格式影响：`无` / 说明：
-- Adapter API 影响：`无` / 说明：
-- 示例或演示影响：`无` / 说明：
-- 依赖 / 许可证影响：`无` / 说明依赖名称、用途、来源、许可证和分发影响：
+- Core API：`无` / 说明：
+- 数据格式：`无` / 说明：
+- Adapter API：`无` / 说明：
+- 依赖 / 许可证：`无` / 说明：
 - 破坏性变更：`否` / `是`，说明：
-- 数值权威：本 PR 引入或修改的数值域（几何/道路里程站位（Stationing）/偏移/字面量/来源位置）各采用什么标量、允许范围与转换边界？只有完全未触及数值域及其转换边界时才可填写 `N/A`，原因： / 逐域声明：`域：标量（f32/f64/整数/字节数组），范围与转换边界：，依据：`；整数域必须写明确切 signedness 与宽度（`u64`/`u32`/`i32` 等），不得只写 `整数`；字节数组必须写明元素 signedness/宽度与固定长度（例如 `[u8; 32]`），不得只写 `字节` 或 `字节序列`；注明 `f64 → f32` 量化是否仅发生在 geometry compile 的 `quantize_point` 边界（受检且不可在 wire/lowering 提前窄化、不在 HIR 内部 SpatialHir 子表示、MIR 或 LIR 中二次量化）；offset horizontal-regularity proof 是否在细分前对 binary64 derivative controls 做独立 interval walk（不产生 canonical point），subdivision acceptance 与最终 canonical direction 检查是否仅把已量化 `f32` 弦端点经 `promote_point` 无损提升回 `f64` 后做 distance/direction test（ADR 0022 220–280）；若触及 Core ↔ compiler 投影，是否仅为 integration-only（`laneflow-compiler-test-support`，#294 删除）：
+
+<!-- 未触及数值域则删除本节。
+## 数值权威
+
+- 域：标量（`f32` / `f64` / 确切整数宽度 / 字节数组），范围与转换边界：，依据：
+-->
 
 ## 设计依据
 
 - 相关文档 / ADR：
-- 是否需要新增 ADR 或更新 design 文档？`否` / `是`，说明：
-- 若需要 G1，冻结后的设计输入在哪里？
+- 是否需要新增 ADR 或更新 design？`否` / `是`，说明：
 
 ## 验证
 
-列出实际运行的命令或手工检查。若某项相关检查未运行，请说明原因。
+列出实际运行的命令或手工检查。未运行的相关检查请说明原因。
 
-- Markdown / 文档检查：
-- 构建：
-- 单元测试：
-- Schema / 数据格式校验：
-- Dependency policy / cargo-deny：
-- Adapter 验证：
-- 示例 smoke test：
+- 构建 / 测试：
+- 文档：
+- 其他：
 
-## 外部审阅
+## 完成
 
-- Rollout phase：`R0` / `R1` / `R2`
-- Current head：
-- Reviewer provider / actor：
-- Reviewed head / outcome / completion / evidence：
-- Findings disposition / clean re-review：
-- Review threads：`unresolved = <blocking count>`（只计 P0/P1/无 badge 未闭环 thread；P2/P3 deferred 计数与轮数见 check output 的 `deferred=` / `rounds=`），证据：
-- External Review Gate：Check URL；R0/R1 尚未启用时写明 bootstrap 状态和缺失项：
-- G3 Evidence Gate Shadow：按 Rollout phase 只保留一项且不包裹整个值：R0 = 候选 workflow bootstrap：<边界>；R1 = R1 non-required：<原因>；R2 = Check URL：https://github.com/...
-
-## 风险与例外
-
-- 已知风险：
-- 例外：`N/A`，或填写类型、原因、证据、风险、批准人、到期时间和 Cleanup owner：
-- 后续 Issue：
-
-## Gate Ledger
-
-- [ ] G3 合并判断已记录：[当前 head 的 PR G3 comment](...)。该 comment 必须在合并前形成；允许合并前纠错编辑，编辑后以经 REST 核对的 `updatedAt` 为生效时间并重新验证。comment 包含 current head、rollout phase、checks、External Review Gate、G3 Evidence Gate Shadow、结构化审阅证据、review threads、验证、风险、例外、合并方式和 Gate 断言。
-- [ ] PR / Issue permalink 均已更新后，已新增精确 `g3-evidence: changed` 顶层 PR comment 并等待 trusted `G3 Evidence Gate Shadow` 重读；marker 必须未编辑，严格晚于 current G3 comment 的生效时间、当前 PR 与全部关联 Issue body 的最后编辑时间，并晚于关联 Issue 的 close/reopen 及 full-set 全部 PR 的 comment/review/commit/lifecycle timeline 活动。只有该新建 marker 可首次为直接目标发布 success；G3 comment 的任何后续编辑都要求新 marker。仅精确 `dependabot-cargo-lock-only-v1` 的 Dependabot 自主 body edit 可在完整 trusted replay 后重用受影响 target 各自最近的 marker，其他 conversation/review/thread/metadata/manual 活动仍要求新增 marker；候选 workflow 尚未合入 `main` 时记录 bootstrap 边界。
-- G4 回写：Delivery PR 在关联 Issue 的 G4 comment 发表后填入 permalink；Related PR 填 `N/A` 并说明不承担 Issue G4。
-
-<!--
-G3 comment 模板（合并前发表）：
-
-## G3 合并判断
-
-- Gate 结果：`G3 Pass` / `G3 Waived` / `G3 Exception` / `R0-R1 bootstrap`
-- Rollout phase：`R0` / `R1` / `R2`
-- Current head：
-- Checks：列出 `Governance checks`、`Rust checks`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)` 的 current `H_pr` 结果；入队后 G4 另保存真实 `H_mg` 五项结果：
-- External Review Gate：
-- G3 Evidence Gate Shadow：按 Rollout phase 只保留一项且不包裹整个值：R0 = 候选 workflow bootstrap：<边界>；R1 = R1 non-required：<原因>；R2 = Check URL：https://github.com/...
-- 审阅：provider、actor、reviewed head、outcome、completion、evidence URL：
-- Findings disposition / clean re-review：
-- Review threads：`unresolved = <blocking count>`（只计 P0/P1/无 badge 未闭环 thread；P2/P3 deferred 计数与轮数见 check output 的 `deferred=` / `rounds=`），证据：
-- Deferred findings：N 条 [P2][d1] …（仅存在 deferred P2/P3 时必填；无 deferred 时整行省略）
-- Review round cap：N 轮，遗留 M 条 [P1][r1] …（仅 round-cap 收口时必填；否则整行省略）
-- R1 thread-state signal：每批 resolve / unresolve 后新增顶层 `external-review: thread-state-changed` comment；R2 写 GitHub App webhook receipt：
-- R0 bootstrap 工具边界：Related PR B 自身不得用候选 validator 自批；Related PR C 自身不得用尚未合入 default branch 的候选 shadow workflow 自批。PR B 合入后记录 live `check-external-review` 结果；PR C 合入后才记录首次 trusted-ref Check 与 R1 起点。G3 Owner 已人工核验本阶段仍未由 required Check 覆盖的字段：
-- 验证：
-- 风险：
-- 例外：
-- 合并方式：Merge Queue（最终 Rebase）；Queue-ready `H_pr`：
-- Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` <按 Gate 结果填写：`G3 Exception` 写“未通过”，其他结果写“已通过”>。
-
-每个 Related PR 都使用 `cargo +<workspace-rust-version> run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 并永久保留该 Related-only 断言；版本由 `xtask` package `rust-version` 生成，历史稳定版本按 development-gates.md 的 gate-command v1 窗口语义解析。Delivery PR / full-set 使用 `--delivery-pr <number>` 并传入全部 Related PR，不要求把历史 Related comment 改写为 full-set 命令。一个 PR 关联多个 Issue 时，在同一 current G3 comment 中为每个 Issue 分别写一条精确 `Gate 断言`。`G3 Pass` 必须实际成功并写“已通过”；`G3 Exception` 必须写“未通过”并另发合格的 `g3-exception:v1` appendix，机器状态保持 `accepted_exception`。
-
-如 Gate 结果为 `G3 Waived`，还必须按 `docs/governance/development-gates.md` 写入 `external-review-waiver:v1` 结构化记录；单 Issue 使用一条，多 Issue 为每个关联 Issue 分别写入一条具有唯一 `followUpIssue` 的记录，完整 record set 与 `关联 Issue` 精确一致。evidence 使用可见 `- 例外：` 行和文末 reference-style 定义，不在 JSON 中直接写 URL；当前 target 或其 Delivery full-set 任一成员使用有期限 waiver 时，Shadow 只发布 non-success。
-
-如 Gate 结果为 `G3 Exception`，在目标 comment 之后另发未编辑 appendix：可见 `- 例外：` 行引用 GitHub evidence，随后写 `g3-exception:v1` JSON。字段为 schemaVersion/id/exceptionType/issue/pullRequest/currentHeadOid/currentBaseOid/g3Comment/g3CommentBodySha256/reason/evidenceRefs/risk/acceptanceBoundary/acceptedAt/expiresAt/followUpIssue/cleanupOwner/authorizedBy；current 仅允许 confirmed_gate_defect、最长 24 小时。不要把 correction、waiver 或一般例外混入该记录。
--->
-
-## 完成边界
-
-- [ ] 已覆盖关联 Issue 的验收标准，或剩余范围已拆成后续 Issue。
-- [ ] 关联 Issue 的 GitHub 元数据 / 依赖关系审计已完成。
-- [ ] 文档已更新，或本 PR 已说明为何无需更新。
-- [ ] 当前 head 已有一个有效外部 reviewer 的完成态审阅；若曾有 blocking findings，处置后已有新的 current-head clean re-review。仅当 PR 精确满足 `development-gates.md` 第 6.1 节定义的快速通道（`dependabot-cargo-lock-only-v1` / `docs-only-v1` / `governance-docs-v1`）机器条件时，可改为记录对应的机器 completion。PR author 自审未计入外部 reviewer。
-- [ ] `unresolved actionable threads = 0`；不受信任 actor 的自由文本或 thread 不获得阻断权，且未把该条件当作外部审阅完成的替代证据。
-- [ ] PR commits 符合 `docs/reference/commit-convention.md`（Conventional Commits 标题 + `Gate: G3 Candidate` + 其他 LaneFlow 治理字段）；合并范围内没有 `Gate: G3 Block`。
-- [ ] commit message footer 与 PR body 语义已区分：commit 通常使用 `Refs: #<issue>`，PR body 使用 `Closes/Resolves` 建立 Development 关联。
-- [ ] 本 PR 未在只完成子切片的情况下声称父任务已完成。
-- [ ] `H_pr` 的五项 required checks 已 success；`Analyze (actions)` / `Analyze (rust)` 来自预期 GitHub Actions App。入队后不以该结果冒充 `H_mg` 证据。
-- [ ] 合并方式：默认 **Merge Queue（最终 Rebase）**；已冻结 Queue-ready `H_pr`，且未使用 `--admin`。若最终方式例外，已通过治理 Issue 修改规则并说明原因。
-- [ ] 未把 G0-G3 首次记录推迟到 G4 清场阶段；若存在补救记录，已说明流程遗漏原因。
+- [ ] commit 使用 Conventional 标题、`Refs: #<issue>`；破坏性变更同时有标题 `!` 和 `BREAKING CHANGE:`
+- [ ] 当前 head 上有非作者原生 PullRequestReview（由 `External Review` Check 判定；普通评论不算）
+- [ ] 未解决的 review conversation 已处理（由 GitHub 原生规则拦截）
+- [ ] 合入走 Merge Queue，不使用 `--admin`

@@ -1,4 +1,5 @@
-//! LaneFlow commit message contract、CI range 推导与对应测试。
+//! LaneFlow commit message contract: Conventional Commits title, Refs/Closes footer,
+//! and BREAKING CHANGE when the title uses `!`. Extra body fields are ignored.
 
 use std::borrow::Cow;
 use std::env;
@@ -8,22 +9,6 @@ const ALLOWED_TYPES: &[&str] = &[
     "feat", "fix", "docs", "test", "refactor", "perf", "build", "ci", "chore", "revert",
 ];
 
-const ALLOWED_SLICES: &[&str] = &[
-    "docs-only",
-    "governance",
-    "core-runtime",
-    "data-spec",
-    "adapter",
-    "authoring-tool",
-    "example",
-    "cross-layer",
-];
-
-const REQUIRED_FIELDS: &[&str] = &["Gate", "Slice", "Impact", "Scope", "Validation", "Docs"];
-const CURRENT_GATE_VALUES: &[&str] = &["G3 Candidate", "G3 Block"];
-const LEGACY_GATE_VALUES: &[&str] = &["G3 Pass", "G3 Waived", "Docs Only"];
-// 2026-08-07T00:00:00Z: legacy commit-message syntax migration boundary.
-const LEGACY_GATE_CUTOFF_UNIX: u64 = 1_786_060_800;
 const DEPENDABOT_AUTHOR_NAME: &str = "dependabot[bot]";
 const DEPENDABOT_AUTHOR_EMAIL: &str = "49699333+dependabot[bot]@users.noreply.github.com";
 
@@ -38,12 +23,7 @@ pub(crate) fn check_commit_message_file(path: &str) -> Result<(), String> {
         println!("已校验 commit message 文件: {path}");
         Ok(())
     } else {
-        let mut output = String::from("Commit message 校验失败:");
-        for error in errors {
-            output.push_str("\n- ");
-            output.push_str(&error);
-        }
-        Err(output)
+        Err(format_errors(errors))
     }
 }
 
@@ -83,12 +63,7 @@ pub(crate) fn check_commit_messages(explicit_range: Option<&str>) -> Result<(), 
         if is_allowed_dependabot_commit(author_name.trim(), author_email.trim(), &message) {
             continue;
         }
-        let gate_policy = commit_gate_policy(commit_hash)?;
-        errors.extend(validate_message_with_gate_policy(
-            commit_hash,
-            &message,
-            gate_policy,
-        ));
+        errors.extend(validate_message(commit_hash, &message));
     }
 
     if errors.is_empty() {
@@ -99,39 +74,17 @@ pub(crate) fn check_commit_messages(explicit_range: Option<&str>) -> Result<(), 
         );
         Ok(())
     } else {
-        let mut output = String::from("Commit message 校验失败:");
-        for error in errors {
-            output.push_str("\n- ");
-            output.push_str(&error);
-        }
-        Err(output)
+        Err(format_errors(errors))
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum CommitGatePolicy {
-    LocalHook,
-    RangeCurrent,
-    RangeLegacyCompatible,
-}
-
-fn commit_gate_policy(commit_hash: &str) -> Result<CommitGatePolicy, String> {
-    let author_timestamp = git(["log", "-1", "--format=%at", commit_hash])?;
-    let author_timestamp = author_timestamp.trim().parse::<u64>().map_err(|error| {
-        format!(
-            "无法解析 commit `{commit_hash}` 的 author timestamp `{}`: {error}",
-            author_timestamp.trim()
-        )
-    })?;
-    Ok(commit_gate_policy_for_timestamp(author_timestamp))
-}
-
-fn commit_gate_policy_for_timestamp(author_timestamp: u64) -> CommitGatePolicy {
-    if author_timestamp < LEGACY_GATE_CUTOFF_UNIX {
-        CommitGatePolicy::RangeLegacyCompatible
-    } else {
-        CommitGatePolicy::RangeCurrent
+fn format_errors(errors: Vec<String>) -> String {
+    let mut output = String::from("Commit message 校验失败:");
+    for error in errors {
+        output.push_str("\n- ");
+        output.push_str(&error);
     }
+    output
 }
 
 fn is_allowed_dependabot_commit(author_name: &str, author_email: &str, message: &str) -> bool {
@@ -296,14 +249,6 @@ fn git<const N: usize>(args: [&str; N]) -> Result<String, String> {
 }
 
 fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
-    validate_message_with_gate_policy(commit_hash, message, CommitGatePolicy::LocalHook)
-}
-
-fn validate_message_with_gate_policy(
-    commit_hash: &str,
-    message: &str,
-    gate_policy: CommitGatePolicy,
-) -> Vec<String> {
     let message = normalize_commit_message_line_endings(message);
     let message = message.as_ref();
     let title = message.lines().next().unwrap_or_default();
@@ -314,42 +259,6 @@ fn validate_message_with_gate_policy(
 
     if !valid_conventional_title(title) {
         errors.push("标题不符合 Conventional Commits".to_string());
-    }
-
-    for field in REQUIRED_FIELDS {
-        if !has_non_empty_field(message, field) {
-            errors.push(format!("缺少 `{field}: ` 行"));
-        }
-    }
-
-    if !has_valid_governance_block(message) {
-        errors.push(
-            "`Gate`/`Slice`/`Impact`/`Scope`/`Validation`/`Docs` 必须作为连续治理字段块；标题后空一行，`Docs` 后空一行并接最后的 `Refs:`/`Closes:` footer"
-                .to_string(),
-        );
-    }
-
-    if !has_valid_gate(message, gate_policy) {
-        let allowed = match gate_policy {
-            CommitGatePolicy::LocalHook => "`G3 Candidate` 或 `G3 Block`",
-            CommitGatePolicy::RangeCurrent => "`G3 Candidate`；`G3 Block` 不得进入合并范围",
-            CommitGatePolicy::RangeLegacyCompatible => {
-                "`G3 Candidate` 或迁移期 legacy 值 `G3 Pass` / `G3 Waived` / `Docs Only`；`G3 Block` 不得进入合并范围"
-            }
-        };
-        errors.push(format!("`Gate` 必须是 {allowed}"));
-    }
-
-    if !has_valid_slice(message) {
-        errors.push("`Slice` 缺失或不是支持的 LaneFlow 切片类型".to_string());
-    }
-
-    if !has_valid_impact(message) {
-        errors.push("`Impact` 必须同时覆盖 core-api、data-format 和 adapter-api".to_string());
-    }
-
-    if !has_valid_docs(message) {
-        errors.push("`Docs` 必须是 updated、not required 或 pending <reason>".to_string());
     }
 
     if has_breaking_bang && !has_breaking_change_footer {
@@ -367,10 +276,6 @@ fn validate_message_with_gate_policy(
         );
     }
 
-    if (has_breaking_bang || has_breaking_change_footer) && !has_changed_impact(message) {
-        errors.push("破坏性变更必须将 `Impact` 至少一项标为 changed".to_string());
-    }
-
     if let Err(error) = validate_issue_footer(message) {
         errors.push(error.message().to_string());
     }
@@ -382,21 +287,6 @@ fn validate_message_with_gate_policy(
             format!("{short_hash} {title}: {error}")
         })
         .collect()
-}
-
-fn has_valid_gate(message: &str, gate_policy: CommitGatePolicy) -> bool {
-    message.lines().any(|line| {
-        let Some(gate) = field_value(line, "Gate") else {
-            return false;
-        };
-        match gate_policy {
-            CommitGatePolicy::LocalHook => CURRENT_GATE_VALUES.contains(&gate),
-            CommitGatePolicy::RangeCurrent => gate == "G3 Candidate",
-            CommitGatePolicy::RangeLegacyCompatible => {
-                gate == "G3 Candidate" || LEGACY_GATE_VALUES.contains(&gate)
-            }
-        }
-    })
 }
 
 fn valid_conventional_title(title: &str) -> bool {
@@ -435,106 +325,6 @@ fn valid_scope(scope: &str) -> bool {
     }
 
     chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '.' | '_' | '-'))
-}
-
-fn has_non_empty_field(message: &str, field: &str) -> bool {
-    message
-        .lines()
-        .any(|line| field_value(line, field).is_some_and(|value| !value.trim().is_empty()))
-}
-
-fn field_value<'a>(line: &'a str, field: &str) -> Option<&'a str> {
-    line.strip_prefix(field)?.strip_prefix(": ")
-}
-
-fn has_valid_governance_block(message: &str) -> bool {
-    let lines = message.lines().collect::<Vec<_>>();
-    let field_start = 2;
-    let blank_before_footer = field_start + REQUIRED_FIELDS.len();
-    let footer_start = blank_before_footer + 1;
-
-    if lines.get(1).is_none_or(|line| !line.trim().is_empty()) {
-        return false;
-    }
-
-    for (offset, field) in REQUIRED_FIELDS.iter().enumerate() {
-        let Some(line) = lines.get(field_start + offset) else {
-            return false;
-        };
-        if field_value(line, field).is_none_or(|value| value.trim().is_empty()) {
-            return false;
-        }
-    }
-
-    if lines
-        .get(blank_before_footer)
-        .is_none_or(|line| !line.trim().is_empty())
-    {
-        return false;
-    }
-
-    let Some(last_non_empty_index) = lines.iter().rposition(|line| !line.trim().is_empty()) else {
-        return false;
-    };
-
-    if !lines
-        .get(last_non_empty_index)
-        .is_some_and(|line| valid_issue_footer_line(line))
-    {
-        return false;
-    }
-
-    match last_non_empty_index.checked_sub(footer_start) {
-        Some(0) => true,
-        Some(1) => lines
-            .get(footer_start)
-            .is_some_and(|line| valid_breaking_change_footer_line(line)),
-        _ => false,
-    }
-}
-
-fn has_valid_slice(message: &str) -> bool {
-    message
-        .lines()
-        .any(|line| field_value(line, "Slice").is_some_and(|slice| ALLOWED_SLICES.contains(&slice)))
-}
-
-fn has_valid_impact(message: &str) -> bool {
-    message.lines().any(|line| {
-        let Some(value) = field_value(line, "Impact") else {
-            return false;
-        };
-        let parts = value.split("; ").collect::<Vec<_>>();
-        parts.len() == 3
-            && matches!(parts[0], "core-api=none" | "core-api=changed")
-            && matches!(parts[1], "data-format=none" | "data-format=changed")
-            && matches!(parts[2], "adapter-api=none" | "adapter-api=changed")
-    })
-}
-
-fn has_changed_impact(message: &str) -> bool {
-    message.lines().any(|line| {
-        let Some(value) = field_value(line, "Impact") else {
-            return false;
-        };
-        value.split("; ").any(|part| {
-            matches!(
-                part,
-                "core-api=changed" | "data-format=changed" | "adapter-api=changed"
-            )
-        })
-    })
-}
-
-fn has_valid_docs(message: &str) -> bool {
-    message.lines().any(|line| {
-        field_value(line, "Docs").is_some_and(|docs| {
-            matches!(docs, "updated" | "not required")
-                || docs
-                    .strip_prefix("pending ")
-                    .is_some_and(|reason| !reason.trim().is_empty())
-        })
-    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -617,15 +407,24 @@ fn breaking_change_footer_count(message: &str) -> usize {
 }
 
 fn has_single_valid_breaking_change_footer(message: &str) -> bool {
-    let mut breaking_change_lines = message
-        .lines()
-        .filter(|line| line.starts_with("BREAKING CHANGE:"));
-
-    let Some(line) = breaking_change_lines.next() else {
+    let lines = message.lines().collect::<Vec<_>>();
+    let Some(last_non_empty_index) = lines.iter().rposition(|line| !line.trim().is_empty()) else {
+        return false;
+    };
+    let Some(breaking_index) = lines
+        .iter()
+        .position(|line| line.starts_with("BREAKING CHANGE:"))
+    else {
         return false;
     };
 
-    breaking_change_lines.next().is_none() && valid_breaking_change_footer_line(line)
+    breaking_change_footer_count(message) == 1
+        && valid_breaking_change_footer_line(lines[breaking_index])
+        && valid_issue_footer_line(lines[last_non_empty_index])
+        && breaking_index < last_non_empty_index
+        && lines[breaking_index + 1..last_non_empty_index]
+            .iter()
+            .all(|line| line.trim().is_empty())
 }
 
 fn is_issue_footer_candidate(line: &str) -> bool {
@@ -651,6 +450,12 @@ mod tests {
     const VALID_MESSAGE: &str = "\
 docs(governance): 对齐提交规范
 
+Refs: #23
+";
+
+    const LEGACY_G3_MESSAGE: &str = "\
+docs(governance): 对齐提交规范
+
 Gate: G3 Candidate
 Slice: governance
 Impact: core-api=none; data-format=none; adapter-api=none
@@ -664,79 +469,18 @@ Refs: #23
     const BREAKING_MESSAGE: &str = "\
 feat(core)!: 调整 tick API
 
-Gate: G3 Candidate
-Slice: core-runtime
-Impact: core-api=changed; data-format=none; adapter-api=none
-Scope: 将 TickInput.delta_time_ms 固化为必填字段
-Validation: cargo +1.96.0 test --workspace --locked
-Docs: updated
-
 BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。
 Refs: #12
 ";
 
     #[test]
-    fn accepts_lane_flow_commit_message() {
+    fn accepts_conventional_title_and_refs_footer() {
         assert!(validate_message("0123456789abcdef", VALID_MESSAGE).is_empty());
     }
 
     #[test]
-    fn accepts_g3_block_for_a_non_mergeable_branch_record() {
-        let message = VALID_MESSAGE.replace("Gate: G3 Candidate", "Gate: G3 Block");
-
-        assert!(validate_message("0123456789abcdef", &message).is_empty());
-    }
-
-    #[test]
-    fn rejects_g3_block_in_a_commit_range() {
-        let message = VALID_MESSAGE.replace("Gate: G3 Candidate", "Gate: G3 Block");
-
-        for gate_policy in [
-            CommitGatePolicy::RangeCurrent,
-            CommitGatePolicy::RangeLegacyCompatible,
-        ] {
-            let errors =
-                validate_message_with_gate_policy("0123456789abcdef", &message, gate_policy);
-            assert!(
-                errors
-                    .iter()
-                    .any(|error| error.contains("不得进入合并范围"))
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_legacy_gate_for_a_new_commit() {
-        let message = VALID_MESSAGE.replace("Gate: G3 Candidate", "Gate: G3 Pass");
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("G3 Candidate")));
-    }
-
-    #[test]
-    fn accepts_legacy_gate_before_the_migration_cutoff() {
-        let message = VALID_MESSAGE.replace("Gate: G3 Candidate", "Gate: G3 Pass");
-
-        let errors = validate_message_with_gate_policy(
-            "0123456789abcdef",
-            &message,
-            CommitGatePolicy::RangeLegacyCompatible,
-        );
-
-        assert!(errors.is_empty());
-    }
-
-    #[test]
-    fn switches_to_current_gate_policy_at_the_cutoff() {
-        assert_eq!(
-            commit_gate_policy_for_timestamp(LEGACY_GATE_CUTOFF_UNIX - 1),
-            CommitGatePolicy::RangeLegacyCompatible
-        );
-        assert_eq!(
-            commit_gate_policy_for_timestamp(LEGACY_GATE_CUTOFF_UNIX),
-            CommitGatePolicy::RangeCurrent
-        );
+    fn ignores_legacy_g3_body_fields() {
+        assert!(validate_message("0123456789abcdef", LEGACY_G3_MESSAGE).is_empty());
     }
 
     #[test]
@@ -754,7 +498,7 @@ Refs: #12
     }
 
     #[test]
-    fn accepts_breaking_change_with_bang_footer_and_changed_impact() {
+    fn accepts_breaking_change_with_bang_and_footer() {
         assert!(validate_message("0123456789abcdef", BREAKING_MESSAGE).is_empty());
     }
 
@@ -780,22 +524,6 @@ Refs: #12
             errors
                 .iter()
                 .any(|error| error.contains("必须与标题 `!` 同时使用"))
-        );
-    }
-
-    #[test]
-    fn rejects_breaking_change_with_unchanged_impact() {
-        let message = BREAKING_MESSAGE.replace(
-            "Impact: core-api=changed; data-format=none; adapter-api=none",
-            "Impact: core-api=none; data-format=none; adapter-api=none",
-        );
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(
-            errors
-                .iter()
-                .any(|error| error.contains("至少一项标为 changed"))
         );
     }
 
@@ -889,193 +617,13 @@ Refs: #12
     }
 
     #[test]
-    fn rejects_missing_blank_line_after_title() {
-        let message = VALID_MESSAGE.replace(
-            "docs(governance): 对齐提交规范\n\nGate: G3 Candidate",
-            "docs(governance): 对齐提交规范\nGate: G3 Candidate",
-        );
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("连续治理字段块")));
-    }
-
-    #[test]
-    fn rejects_blank_line_between_governance_fields() {
-        let message = VALID_MESSAGE.replace(
-            "Gate: G3 Candidate\nSlice: governance",
-            "Gate: G3 Candidate\n\nSlice: governance",
-        );
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("连续治理字段块")));
-    }
-
-    #[test]
-    fn rejects_governance_fields_out_of_order() {
-        let message = VALID_MESSAGE.replace(
-            "Gate: G3 Candidate\nSlice: governance",
-            "Slice: governance\nGate: G3 Candidate",
-        );
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("连续治理字段块")));
-    }
-
-    #[test]
-    fn rejects_missing_blank_line_before_issue_footer() {
+    fn rejects_legacy_title() {
         let message =
-            VALID_MESSAGE.replace("Docs: updated\n\nRefs: #23", "Docs: updated\nRefs: #23");
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("连续治理字段块")));
-    }
-
-    #[test]
-    fn rejects_extra_blank_line_before_issue_footer() {
-        let message =
-            VALID_MESSAGE.replace("Docs: updated\n\nRefs: #23", "Docs: updated\n\n\nRefs: #23");
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("连续治理字段块")));
-    }
-
-    #[test]
-    fn rejects_legacy_title_and_type_field() {
-        let message = VALID_MESSAGE
-            .replace("docs(governance): 对齐提交规范", "LF-23: 对齐提交规范")
-            .replace("Slice: governance", "Type: governance");
+            VALID_MESSAGE.replace("docs(governance): 对齐提交规范", "LF-23: 对齐提交规范");
 
         let errors = validate_message("0123456789abcdef", &message);
 
         assert!(errors.iter().any(|error| error.contains("标题不符合")));
-        assert!(errors.iter().any(|error| error.contains("`Slice`")));
-    }
-
-    #[test]
-    fn rejects_required_field_without_space_after_colon() {
-        let message = VALID_MESSAGE.replace("Gate: G3 Candidate", "Gate:G3 Candidate");
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("Gate: ")));
-    }
-
-    #[test]
-    fn rejects_slice_without_space_after_colon() {
-        let message = VALID_MESSAGE.replace("Slice: governance", "Slice:governance");
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("Slice")));
-    }
-
-    #[test]
-    fn rejects_impact_without_separator_space() {
-        let message = VALID_MESSAGE.replace(
-            "Impact: core-api=none; data-format=none; adapter-api=none",
-            "Impact: core-api=none;data-format=none; adapter-api=none",
-        );
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("`Impact`")));
-    }
-
-    #[test]
-    fn rejects_impact_without_space_after_colon() {
-        let message = VALID_MESSAGE.replace(
-            "Impact: core-api=none; data-format=none; adapter-api=none",
-            "Impact:core-api=none; data-format=none; adapter-api=none",
-        );
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("Impact")));
-    }
-
-    #[test]
-    fn rejects_impact_fields_out_of_order() {
-        let message = VALID_MESSAGE.replace(
-            "Impact: core-api=none; data-format=none; adapter-api=none",
-            "Impact: data-format=none; core-api=none; adapter-api=none",
-        );
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("`Impact`")));
-    }
-
-    #[test]
-    fn rejects_impact_with_missing_field() {
-        let message = VALID_MESSAGE.replace(
-            "Impact: core-api=none; data-format=none; adapter-api=none",
-            "Impact: core-api=none; data-format=none",
-        );
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("`Impact`")));
-    }
-
-    #[test]
-    fn rejects_impact_with_extra_field() {
-        let message = VALID_MESSAGE.replace(
-            "Impact: core-api=none; data-format=none; adapter-api=none",
-            "Impact: core-api=none; data-format=none; adapter-api=none; docs=changed",
-        );
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("`Impact`")));
-    }
-
-    #[test]
-    fn rejects_impact_with_invalid_value() {
-        let message = VALID_MESSAGE.replace(
-            "Impact: core-api=none; data-format=none; adapter-api=none",
-            "Impact: core-api=maybe; data-format=none; adapter-api=none",
-        );
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("`Impact`")));
-    }
-
-    #[test]
-    fn accepts_docs_not_required() {
-        let message = VALID_MESSAGE.replace("Docs: updated", "Docs: not required");
-
-        assert!(validate_message("0123456789abcdef", &message).is_empty());
-    }
-
-    #[test]
-    fn accepts_docs_pending_reason() {
-        let message = VALID_MESSAGE.replace("Docs: updated", "Docs: pending 后续由 #25 跟踪补齐");
-
-        assert!(validate_message("0123456789abcdef", &message).is_empty());
-    }
-
-    #[test]
-    fn rejects_docs_pending_without_reason() {
-        let message = VALID_MESSAGE.replace("Docs: updated", "Docs: pending");
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("`Docs`")));
-    }
-
-    #[test]
-    fn rejects_docs_unknown_value() {
-        let message = VALID_MESSAGE.replace("Docs: updated", "Docs: maybe");
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("`Docs`")));
     }
 
     #[test]
@@ -1154,22 +702,12 @@ Refs: #12
     }
 
     #[test]
-    fn rejects_issue_reference_followed_by_non_empty_footer_line() {
-        let message =
-            VALID_MESSAGE.replace("Refs: #23\n", "Refs: #23\nNote: footer must stay last\n");
-
-        let errors = validate_message("0123456789abcdef", &message);
-
-        assert!(errors.iter().any(|error| error.contains("最后一个非空行")));
-    }
-
-    #[test]
     fn accepts_breaking_change_bang() {
         assert!(valid_conventional_title("feat(core)!: 调整 tick API"));
     }
 
     #[test]
-    fn accepts_dependabot_dependency_commit_without_governance_body() {
+    fn accepts_dependabot_dependency_commit_without_refs_footer() {
         assert!(is_allowed_dependabot_commit(
             DEPENDABOT_AUTHOR_NAME,
             DEPENDABOT_AUTHOR_EMAIL,

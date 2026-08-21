@@ -1,7 +1,7 @@
 # 文档边界政策
 
 **文档状态**: Active  
-**最后更新**: 2026-08-20
+**最后更新**: 2026-08-21
 **适用范围**: LaneFlow 的 GitHub 治理、仓库文档治理和 AI Agent 开发上下文
 
 ## 1. 目标
@@ -111,12 +111,15 @@ LaneFlow 初期默认不使用 GitHub Wiki。长期知识应进入仓库文档�
 - `docs/design/`：Core、数据格式、Adapter、运行时规则等具体设计。
 - `docs/governance/`：GitHub 流程、开发闸口、AI Agent 开发规范。
 - `docs/reference/`：术语、模板、校验矩阵、命名约定。
-- `schemas/`：current JSON Schema 事实源与面向消费者的 identifier/distribution 入口；长期决策仍由 ADR 与 design 文档解释。
+- `schemas/`：当前内部 loader/test 与道路编辑候选 source；不是对外发布入口。长期决策仍由 ADR 与 design 文档解释。
 - `CONTRIBUTING.md`：贡献流程和协作规则。
 
-### Schema 标识与分发文字
+### Schema 标识
 
-JSON Schema `$id` 与 runtime loader 路径必须分开描述。LaneFlow 按 ADR 0011 把 catalog 中的 `$id` 定义为 public canonical retrieval URL；文档只有在 live monitor 证实 HTTP 200 与 byte equality 时才能声称可下载。已发布版本永久保留且不可原地修改，current/历史边界以 `schemas/publication.json` 为准。历史 closure review 只记录当时事实，不能替代当前 `schemas/README.md`、ADR、CI/CD 与实时可用性证据。
+JSON Schema `$id` 与 runtime loader 路径必须分开描述。ADR 0011 的公共 retrieval /
+永久保留义务已被 ADR 0026 取代；不得把内部 schema 文件写成对外兼容承诺。历史
+closure review 只记录当时事实。current JSON schema 在 #294 删除旧生产路径前仅供
+仓库内部 loader 与测试使用。
 
 ## 4. 决策回写规则
 

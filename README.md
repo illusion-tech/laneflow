@@ -99,7 +99,7 @@ LaneFlow 的当前能力与 #291 已接受长期目标共同关注：
 - `crates/laneflow-spatial`：LaneFlow 自有的有界 `f32` canonical 点、向量、单位方向、稳定 frame ID、immutable edge-binding registry，以及带 placement token、Parking pose 和失败原子性的批量位姿提取；依赖方向固定为 `laneflow-spatial -> laneflow-core`，Core 不反向依赖 Spatial。
 - `tools/laneflow-corridor-generator`：Traffic v0.10 受保护转向走廊的离线 authoring 工具；读取内部 TOML，确定性生成并校验 Traffic/Spatial/Manifest JSON 与 scenario-local catalog 0.2 TOML，并复用 `laneflow-scenario` 的 catalog wire DTO。
 - `research/issue-123-spatial-prototype`：#123 G1 使用的研究用工作区成员；不属于生产接口，第三方几何候选只作为开发依赖进行对照。
-- `xtask`：Markdown 表格格式化、提交消息和 Gate evidence 等仓库治理工具。
+- `xtask`：Markdown 表格格式化、提交消息和 External Review Check 等仓库治理工具。
 
 Data crate 只接收调用方提供的内存 bytes/string，不读取引擎路径或直接创建 `CoreWorld`。详细边界见 `docs/design/data-loading.md`、ADR 0007 与 ADR 0008。
 

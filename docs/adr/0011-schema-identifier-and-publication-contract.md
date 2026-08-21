@@ -1,8 +1,8 @@
 # 0011 Schema Identifier and Public Publication Contract
 
-**状态**: Accepted
+**状态**: Superseded（被 [ADR 0026](0026-merge-governance-rebuild.md) 取代）
 **日期**: 2026-07-17
-**适用范围**: LaneFlow 多 family JSON Schema `$id`、source/publication 分层、immutable version、历史保留、网络与 CI/CD 边界
+**适用范围**: 历史记录：LaneFlow 多 family JSON Schema `$id`、source/publication 分层、immutable version、历史保留、网络与 CI/CD 边界。现行义务已取消；#294 完成前 current JSON loader schema 仍只作为内部输入保留。
 **目标态取代登记**: Accepted ADR 0020 将把发布目录从仅描述 JSON Schema 系列扩展
 为同时描述可移植规范制品与历史静态镜像变体；Accepted ADR 0025 / #300 G1 已决定不发布静态
 镜像变体。Accepted ADR 0024 已取消 #299 的验证收据，

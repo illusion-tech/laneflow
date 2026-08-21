@@ -59,18 +59,19 @@ PR 应使用仓库 PR 模板，并至少说明：
 - 测试与验证结果
 - 已知风险和例外
 
-不要在父任务名义下合入只覆盖子范围的实现。
+不要在父任务名义下合入只覆盖子范围的实现。PR body 使用 `Closes #<issue>`；commit
+footer 使用 `Refs: #<issue>`。
 
 ## 5. PR 合并策略
 
 LaneFlow 默认通过 **Merge Queue** 合入 `main`，队列最终使用 **Rebase** 保持线性历史。详见
 `docs/governance/github-workflow.md` 第 7 节。
 
-- 当前 exact head 的 checks、审阅与 G3 全部完成后入队：`gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`；不得在 pending 时预先武装 auto-merge
-- `H_pr` 与真实 `H_mg` 都必须完成 `Governance checks`、`Rust checks`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`；原生 CodeQL rule 不替代队列中的两个 `Analyze` checks
+- 当前 exact head 的 checks 与原生外部审阅完成后入队：`gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`；不得在 pending 时预先武装 auto-merge
+- `H_pr` 与真实 `H_mg` 都必须完成 `Commit message`、`Rust checks`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`、`External Review`（后者按 ADR 0026 先验证再 required）；原生 CodeQL rule 不替代队列中的两个 `Analyze` checks
 - `main` 前进或队列重排只重建 Merge Group，不要求对未变化 PR Head 重新人审
 - Ruleset 保留 required checks、关闭 strict up-to-date，由 Merge Group 验证最新 `main` 组合
-- 禁止使用 `--admin` 绕过队列；最终 merge method 例外必须先通过治理 Issue 修改规则
+- 禁止日常 `--admin` 绕过队列；最终 merge method 例外必须先通过治理 Issue 修改规则
 
 ## 6. Commit Message
 
@@ -81,19 +82,11 @@ LaneFlow 默认通过 **Merge Queue** 合入 `main`，队列最终使用 **Rebas
 ```text
 feat(core): 校验 route segment 连续性
 
-Gate: G3 Candidate
-Slice: core-runtime
-Impact: core-api=changed; data-format=none; adapter-api=none
-Scope: 增加 route edge sequence 连通性校验
-Validation: cargo +1.96.0 test --workspace --locked
-Docs: updated
-
 Refs: #12
 ```
 
-提交标题遵循 Conventional Commits，正文保留 LaneFlow 治理字段。只有满足 G4 完成边界时，才使用 `Closes: #<id>`；否则使用 `Refs: #<id>`。
-
-`Gate: G3 Candidate` 表示 commit 已准备进入 PR 级 G3 判断，不等同于正式通过。正式 `G3 Pass` 只记录在当前 head 的 `External Review Gate` Check 和 current G3 Owner comment；comment 可在合并前纠错编辑，但以 REST 核验的 `updatedAt` 重新生效并要求新 marker，合并后不得编辑历史 G3。阻断中的本地提交可使用 `Gate: G3 Block`，但 PR / push range 校验会拒绝它，解除阻断后必须重写或移除。
+提交标题遵循 Conventional Commits。footer 使用 `Refs: #<id>`；标题带 `!` 时必须有
+`BREAKING CHANGE:`。不要再写 `Gate` / `Slice` / `Impact` 等 G3 正文字段。
 
 ## 7. 文档要求
 
@@ -112,9 +105,11 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 
 当前 CI 包含：
 
-- Governance checks：必需治理文件存在、Markdown 文件非空、commit message 符合提交规范；`xtask` 构建使用 `Swatinem/rust-cache`（仅 `main` 写回缓存）。
+- Commit message：Conventional Commits 标题、`Refs` / `Closes`、必要时 `BREAKING CHANGE:`；`xtask` 构建使用 `Swatinem/rust-cache`（仅 `main` 写回缓存）。
+- Markdown tables：表格格式检查只警告，不阻断合并。
 - Rust checks：job 始终运行以保持 required check 稳定。若变更触及 `crates/`、`xtask/`、`tools/`、`examples/`、`research/`、`schemas/`、`Cargo.toml` / `Cargo.lock`、`deny.toml`、本 workflow、external-review workflows 或 `docs/governance/github-workflow.md`，则安装 Rust 1.96.0、恢复/写入 cargo 缓存、运行 `fmt`、`test --workspace`、Core/Spatial allocation 与 `cargo build --benches`（dev profile 下完成 codegen/link，避免 `cargo bench --no-run` 的 bench profile 全量重编）。若变更触及 Bevy Adapter、其 workspace 依赖（`laneflow-core` / `spatial` / `data` / `scenario`）、native example 制品路径、workspace lockfile/manifest 或本 workflow，额外编译 `native-example` 示例并构建 Bevy benches、检查 Bevy allocation。纯文档等非 Rust 路径会跳过重型 cargo 步骤并显式记录 skip。
 - Dependency policy：cargo-deny 检查 RustSec advisories、许可证、wildcard dependency 和 crate 来源。
+- External Review：当前 head 上的非作者原生 `PullRequestReview`；Merge Queue 上盖章到 `H_mg`。
 
 数据 schema、Adapter build、示例 smoke test 和 Release 检查应在对应切片落地后继续加入专用门禁。
 

@@ -54,13 +54,14 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 4. 若改变长期行为或契约，同步更新文档。
 5. 按切片类型运行对应检查。
 6. 记录验证结果、文档状态与剩余风险。
-7. PR 准备合并时，冻结 current exact head `H_pr` 并完成该 head 的 required checks、适用 CodeQL、
-   外部审阅与 G3；全部 success / 有效后才可运行入队命令，不得在 pending 时预先武装 auto-merge。`main` 要求通过
+7. PR 准备合并时，冻结 current exact head `H_pr` 并完成该 head 的 required checks、适用 CodeQL 与
+   原生外部审阅；全部 success 后才可运行入队命令，不得在 pending 时预先武装 auto-merge。`main` 要求通过
    Merge Queue 入队，使用 `gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`，
    最终 Rebase 方式由队列规则控制。不得因 `main` 单纯前进手工 rebase；不得使用 `--admin` 绕过队列。
    队列 live Ruleset 必须保留 required checks，并关闭 `strict_required_status_checks_policy`；集成结果由
    GitHub 为最新目标分支组合生成的 `H_mg` 承载。`H_pr` 与真实 `H_mg` 都必须完成
-   `Governance checks`、`Rust checks`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`；
+   `Commit message`、`Rust checks`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`、
+   `External Review`（后者按 ADR 0026 启用顺序）；
    CodeQL 两项必须来自 GitHub Actions App `integration_id=15368`，不得用原生 CodeQL rule 或其他 SHA 补足。
 
 ### Rust 语义导航
@@ -104,7 +105,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 - Rust 数字字面量等仓库级可读性规则只应用于本次触及范围；历史格式问题应单独跟踪。
 - 不要在只完成子切片时声称父任务已完成。
 - 不要隐瞒未运行的检查；说明未运行项及原因。
-- 提交标题使用 Conventional Commits，提交正文保留 `Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs` 与 `Refs/Closes`，详见 `docs/reference/commit-convention.md`。
+- 提交标题使用 Conventional Commits，footer 使用 `Refs` / `Closes`；标题带 `!` 时必须有 `BREAKING CHANGE:`。详见 `docs/reference/commit-convention.md`。
 
 ## 交付说明
 

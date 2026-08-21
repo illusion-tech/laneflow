@@ -14,7 +14,7 @@
 - PR 合并与公开发布前需要哪些证据。
 - 哪些依赖安全与许可证职责继续由 `#56` 承担。
 
-GitHub 仓库设置和实时告警属于平台状态，不由仓库文件直接声明。文档只定义期望状态与判断规则；每次变更仍须通过 Issue、PR、Gate Ledger 和 GitHub API 保存可追踪证据。
+GitHub 仓库设置和实时告警属于平台状态，不由仓库文件直接声明。文档只定义期望状态与判断规则；每次变更仍须通过 Issue、PR 和 GitHub API 保存可追踪证据。
 
 ## 2. 基线配置
 
@@ -54,19 +54,18 @@ before，禁用 default setup，并在 `main` 手工 dispatch，actions/rust 的
 setup 成为队列 activation baseline。后续 Delivery canary 仍须事务式修改 Ruleset 与 repository queue
 设置，并用真实 `H_mg` 完成合并前 canary；主线 dispatch 不是 Merge Queue 证据。
 
-Merge Queue activation after 的 required status checks 固定为：
+Merge Queue 的 required status checks 固定为：
 
-- `Governance checks`
+- `Commit message`
 - `Rust checks`
 - `Dependency policy`
 - `Analyze (actions)`
 - `Analyze (rust)`
+- `External Review`（按 ADR 0026 先经真实队列验证再 required）
 
-五项都绑定 GitHub Actions App expected source（当前 `integration_id=15368`），并在真实 `H_mg` 上合并前
+机器检查绑定 GitHub Actions App expected source（当前 `integration_id=15368`），并在真实 `H_mg` 上合并前
 完成。expected source 能拒绝其他 App 或用户提交的同名 status，但不能区分同一 GitHub Actions App 下的
-不同 workflow；#451 G1 的实时审计中，organization Free plan 的 required workflow / organization ruleset
-API 返回 `403`，后续使用前仍须重新读取当前 plan / API。
-因此初始边界还要求 exact-head 外部审阅与 `Governance checks`，且不得声称已经具备独立 App 级防伪。
+不同 workflow。不得声称已经具备独立 App 级防伪；残余风险见 ADR 0026。
 
 GitHub 官方说明见 [Code scanning merge protection](https://docs.github.com/en/code-security/concepts/code-scanning/merge-protection)、
 [CodeQL workflow configuration options](https://docs.github.com/en/code-security/reference/code-scanning/workflow-configuration-options)、
@@ -80,7 +79,7 @@ GitHub 官方说明见 [Code scanning merge protection](https://docs.github.com/
 - Secret Scanning user alerts。
 - Secret Scanning push protection。
 
-任何 push protection bypass 都必须在 G3 前复核；若推送内容包含真实 secret，必须撤销或轮换凭据并清理提交历史，不能只用 bypass 理由关闭告警。
+任何 push protection bypass 都必须在合并前复核；若推送内容包含真实 secret，必须撤销或轮换凭据并清理提交历史，不能只用 bypass 理由关闭告警。
 
 以下能力不属于当前基线，不能在审计中写成“已覆盖”：
 
@@ -104,25 +103,6 @@ GitHub 官方说明见 [Code scanning merge protection](https://docs.github.com/
 源代码许可证、允许的第三方许可证、cargo-deny 配置、Dependabot 更新策略和例外字段以 `dependency-security.md` 为事实源。本文只定义 GitHub 安全能力的实时状态语义及合并/发布阻断；两份文档必须同时满足，不能以一方的空告警替代另一方的门禁。
 
 `#88` 建立 GitHub 扫描基线，`#56` 建立源代码许可证与依赖安全基线；对应长期规则已分别进入本文与 `dependency-security.md`，后续任务不得只引用已关闭 Issue 代替当前文档和实时 API 证据。
-
-### 2.4 Schema publication availability
-
-ADR 0011 把 catalog 中的 JSON Schema `$id` 定义为 public retrieval URL。Schema publication workflow 与 scheduled monitor 负责 HTTP 200、media type、合法 JSON 和 byte equality；失败阻断 #103 G4 或后续受影响 release 的 publication 判断。
-
-该 availability 证据不替代 Code Scanning、Secret Scanning、Dependabot 或 cargo-deny，也不能把这些安全能力的失败解释为 schema hosting 问题。消费者主动下载 schema 时，网络来源、revision/content pin、完整性和输入限制仍由其部署边界负责。
-
-#### Deployment 失败与重试边界
-
-当前官方 `actions/deploy-pages` 路径把 `GITHUB_SHA` 作为 `pages_build_version`。当某一版本的 deployment 在超时后被取消或进入终态失败时，同一 SHA 的 workflow rerun 或独立 dispatch 不能作为新的部署身份证据；操作者不得把同一 SHA 的重复失败解释为 schema 内容漂移，也不得用无界重试替代调查。
-
-处置顺序：
-
-- 保存首次 deployment、失败 job rerun、独立 dispatch 和 live monitor 的运行链接、状态与 SHA；
-- 通过 Pages、environment、deployment 和 Actions queued / in-progress API 区分内容问题、排队状态与终态失败；
-- 没有残留 deployment 或队列证据时，不删除或重建 Pages site / environment，也不删除历史 deployment；
-- 等待合法的后续不同 `main` SHA；若 path filter 未触发，从该 SHA 对应的 `main` ref 手工 dispatch；
-- 只有 build、deploy、canonical verify 全部成功且 Pages deployment status 为 `succeed`，才能把 publication 恢复写入 G4 证据；独立 monitor 成功只证明线上内容当前可用且 byte equality 成立，不证明失败 deployment 已恢复；
-- 后续不同 SHA 仍失败时，停止同类重试，回到 G1 评估 workflow 变更，或携带已保存的平台证据升级调查。
 
 ## 3. 状态语义
 
@@ -150,20 +130,19 @@ API 返回空集合只表示该次查询范围内无开放告警。未配置、�
 
 ## 4. 阻断规则
 
-### 4.1 G3
+### 4.1 合并前
 
-- 修改安全设置、扫描 workflow、依赖策略或安全治理规则的 PR，必须在 G3 前验证受影响配置，并等待对应首次或最新扫描完成。
+- 修改安全设置、扫描 workflow、依赖策略或安全治理规则的 PR，必须在合并前验证受影响配置，并等待对应首次或最新扫描完成。
 - 对包含适用源代码的 PR，GitHub 为当前 PR 产生的 CodeQL check 必须成功；`pending`、`failure`、`cancelled` 或缺少预期语言分析均不能作为通过。
 - 当前 PR 没有产生预期扫描时，必须说明原因；若属于配置、权限或平台异常，应记录显式例外，不得静默忽略。
 - #451 advanced setup 主线首次验证后，不再使用 default setup 的 lockfile-only `NEUTRAL` 语义。
-  包括精确 `dependabot-cargo-lock-only-v1` 在内的当前 PR 都必须让 `Analyze (actions)` 与
-  `Analyze (rust)` 按 advanced workflow 实际完成；activation 前保存的历史 `NEUTRAL` 只保留原时点证据，
-  不能复用于新 head、G3 或 Merge Group。
-- 任何与当前变更相关且仍为 open 的 Secret Scanning alert 默认阻断 G3。
-- CodeQL 或 Dependabot 的 `high` / `critical` 开放告警默认阻断 G3；若确认与本次变更无关，仍须链接修复 Issue 或按 `development-gates.md` 记录显式例外。
+  当前 PR 都必须让 `Analyze (actions)` 与 `Analyze (rust)` 按 advanced workflow 实际完成；
+  activation 前保存的历史 `NEUTRAL` 只保留原时点证据，不能复用于新 head 或 Merge Group。
+- 任何与当前变更相关且仍为 open 的 Secret Scanning alert 默认阻断合并。
+- CodeQL 或 Dependabot 的 `high` / `critical` 开放告警默认阻断合并；若确认与本次变更无关，仍须链接修复 Issue 或按 `development-gates.md` 记录显式例外。
 - 修改 Cargo dependency、许可证、`deny.toml` 或依赖更新配置时，cargo-deny 的 advisories、licenses、bans 和 sources 检查必须成功；规则见 `dependency-security.md`。
 
-普通 PR 不要求在正文重复完整 API 快照；Checks、扫描链接和异常判断写入 PR G3 comment。改变仓库设置的治理 PR 还应在 Issue 或 PR 中保留设置变更前后证据。
+普通 PR 不要求在正文重复完整 API 快照。改变仓库设置的治理 PR 还应在 Issue 或 PR 中保留设置变更前后证据。
 
 ### 4.2 公开发布或对外分发
 

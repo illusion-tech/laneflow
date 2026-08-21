@@ -1,0 +1,13 @@
+{
+  "schema": "laneflow.trusted-reviewers.v1",
+  "reviewers": [
+    {
+      "login": "wangzishi",
+      "kind": "human"
+    },
+    {
+      "login": "copilot-pull-request-reviewer",
+      "kind": "bot"
+    }
+  ]
+}

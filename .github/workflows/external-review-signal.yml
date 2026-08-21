@@ -4,21 +4,15 @@ on:
   pull_request_review:
     types:
       - submitted
-      - edited
       - dismissed
-  pull_request_review_comment:
-    types:
-      - created
-      - edited
-      - deleted
 
 permissions: {}
 
 jobs:
   signal:
-    name: Emit metadata-only signal
+    name: Emit review-change signal
     runs-on: ubuntu-latest
     steps:
       - name: Signal trusted publisher
         shell: bash
-        run: echo "Review metadata changed; the trusted publisher will re-read current PR state."
+        run: echo "A native PullRequestReview was submitted or dismissed; the trusted publisher will re-read current PR state."
