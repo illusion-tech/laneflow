@@ -4494,7 +4494,7 @@ fn close_reverse_payload<T: Copy>(
 #[cfg(test)]
 mod tests {
     use super::{OccurrenceCursor, UniqueCheck, segmented_route_coordinates};
-    use crate::relations::{RouteDistanceIndexView, RouteDistanceQuery};
+    use crate::relations::{BoundedDistance, RouteDistanceIndexView, RouteDistanceQuery};
     use crate::{BuildError, RangeU32};
 
     #[test]
@@ -4553,6 +4553,62 @@ mod tests {
         assert_eq!(
             view.distance_within(1, 0.0, 3, f64::MAX, f64::MAX),
             RouteDistanceQuery::BeyondHorizon
+        );
+    }
+
+    fn distance_view(lengths: &[f64]) -> (Vec<u32>, Vec<f64>, Vec<f64>, Vec<BoundedDistance>) {
+        let (segments, offsets, totals) = segmented_route_coordinates(lengths);
+        let mut suffix = BoundedDistance::finite(0.0);
+        let mut distance_to_end = vec![BoundedDistance::finite(0.0); lengths.len()];
+        for (index, &length) in lengths.iter().enumerate().rev() {
+            suffix = suffix.add(length);
+            distance_to_end[index] = suffix;
+        }
+        (segments, offsets, totals, distance_to_end)
+    }
+
+    #[test]
+    fn finite_distance_recovers_small_segments_around_large_values() {
+        let large = 9_007_199_254_740_992.0;
+        let (segments, offsets, totals, suffix) = distance_view(&[1.0, large, 1.0]);
+        let view = RouteDistanceIndexView::from_parts(&segments, &offsets, &totals, &suffix);
+        assert_eq!(
+            view.finite_distance(0, 0.0, 2, 1.0),
+            Some(BoundedDistance::Finite(large + 2.0))
+        );
+    }
+
+    #[test]
+    fn finite_distance_reports_unrepresentable_sum() {
+        let (segments, offsets, totals, suffix) = distance_view(&[f64::MAX, f64::MAX]);
+        let view = RouteDistanceIndexView::from_parts(&segments, &offsets, &totals, &suffix);
+        assert_eq!(
+            view.finite_distance(0, 0.0, 1, f64::MAX),
+            Some(BoundedDistance::BeyondFinite)
+        );
+    }
+
+    #[test]
+    fn finite_distance_rejects_positive_compensation_beyond_finite_headroom() {
+        let (segments, offsets, totals, suffix) = distance_view(&[1.0, f64::MAX]);
+        let view = RouteDistanceIndexView::from_parts(&segments, &offsets, &totals, &suffix);
+        assert_eq!(
+            view.finite_distance(0, 0.0, 1, f64::MAX),
+            Some(BoundedDistance::BeyondFinite)
+        );
+    }
+
+    #[test]
+    fn distance_to_end_within_treats_overflow_as_beyond_horizon() {
+        let (segments, offsets, totals, suffix) = distance_view(&[f64::MAX, f64::MAX]);
+        let view = RouteDistanceIndexView::from_parts(&segments, &offsets, &totals, &suffix);
+        assert_eq!(
+            view.distance_to_end_within(0, 0.0, f64::MAX),
+            RouteDistanceQuery::BeyondHorizon
+        );
+        assert_eq!(
+            view.distance_to_end_within(1, 0.0, f64::MAX),
+            RouteDistanceQuery::Within(f64::MAX)
         );
     }
 
