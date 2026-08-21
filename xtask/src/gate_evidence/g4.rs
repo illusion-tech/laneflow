@@ -302,17 +302,32 @@ fn validate_merge_queue_g4_evidence(
     Ok(())
 }
 
-pub(super) fn validate_trusted_merge_group_evidence(
+struct MergeGroupIdentityWindow<'a> {
+    queued_at: u64,
+    evidence_cutoff: u64,
+    cutoff_is_exclusive: bool,
+    pr_bound_runs: Vec<(u64, u64, u64, &'a GitHubWorkflowRun)>,
+    queue_branch: String,
+}
+
+impl MergeGroupIdentityWindow<'_> {
+    fn evidence_precedes_cutoff(&self, timestamp: u64) -> bool {
+        if self.cutoff_is_exclusive {
+            timestamp < self.evidence_cutoff
+        } else {
+            timestamp <= self.evidence_cutoff
+        }
+    }
+}
+
+fn merge_group_identity_window<'a>(
     repo: &str,
     number: u64,
     base_ref_name: &str,
     h_mg: &str,
-    check_runs: &[GitHubCheckRun],
-    workflow_runs: &[GitHubWorkflowRun],
-    codeql_analyses: &[GitHubCodeScanningAnalysis],
-    branch_rules: &[GitHubBranchRule],
+    workflow_runs: &'a [GitHubWorkflowRun],
     timeline: &[GitHubTimelineItem],
-) -> Result<(), String> {
+) -> Result<MergeGroupIdentityWindow<'a>, String> {
     if base_ref_name.is_empty() {
         return Err(format!("PR #{number} 缺少 trusted baseRefName"));
     }
@@ -405,13 +420,7 @@ pub(super) fn validate_trusted_merge_group_evidence(
     } else {
         merged_at
     };
-    let evidence_precedes_cutoff = |timestamp: u64| {
-        if terminal_removal.is_some() {
-            timestamp < evidence_cutoff
-        } else {
-            timestamp <= evidence_cutoff
-        }
-    };
+    let cutoff_is_exclusive = terminal_removal.is_some();
 
     let expected_branch_prefix = format!("gh-readonly-queue/{base_ref_name}/pr-{number}-");
     let mut pr_bound_runs = Vec::new();
@@ -424,7 +433,12 @@ pub(super) fn validate_trusted_merge_group_evidence(
     }) {
         let created_at = parse_utc_timestamp_seconds(&run.created_at)
             .ok_or_else(|| format!("PR #{number} merge_group run created_at 无效"))?;
-        if created_at >= queued_at && evidence_precedes_cutoff(created_at) {
+        let precedes_cutoff = if cutoff_is_exclusive {
+            created_at < evidence_cutoff
+        } else {
+            created_at <= evidence_cutoff
+        };
+        if created_at >= queued_at && precedes_cutoff {
             let updated_at = parse_utc_timestamp_seconds(&run.updated_at)
                 .ok_or_else(|| format!("PR #{number} merge_group run updated_at 无效"))?;
             pr_bound_runs.push((created_at, updated_at, run.id, run));
@@ -440,21 +454,71 @@ pub(super) fn validate_trusted_merge_group_evidence(
             latest_generation.3.head_sha
         ));
     }
+    if !latest_generation
+        .3
+        .html_url
+        .starts_with(&format!("https://github.com/{repo}/actions/runs/"))
+    {
+        return Err(format!(
+            "PR #{number} H_mg 的 merge_group identity URL 不属于当前 repository"
+        ));
+    }
     let queue_branch = latest_generation
         .3
         .head_branch
         .as_deref()
-        .expect("PR-bound merge_group run filter guarantees head_branch");
-    let expected_analysis_ref = format!("refs/heads/{queue_branch}");
-    if !pr_bound_runs.iter().any(|(_, updated_at, _, run)| {
-        run.head_sha.eq_ignore_ascii_case(h_mg)
-            && evidence_precedes_cutoff(*updated_at)
-            && run.status == "completed"
-            && run.conclusion.as_deref() == Some("success")
-            && run
-                .html_url
-                .starts_with(&format!("https://github.com/{repo}/actions/runs/"))
-    }) {
+        .expect("PR-bound merge_group run filter guarantees head_branch")
+        .to_string();
+
+    Ok(MergeGroupIdentityWindow {
+        queued_at,
+        evidence_cutoff,
+        cutoff_is_exclusive,
+        pr_bound_runs,
+        queue_branch,
+    })
+}
+
+pub(super) fn validate_historical_merge_group_identity(
+    repo: &str,
+    number: u64,
+    base_ref_name: &str,
+    h_mg: &str,
+    workflow_runs: &[GitHubWorkflowRun],
+    timeline: &[GitHubTimelineItem],
+) -> Result<(), String> {
+    merge_group_identity_window(repo, number, base_ref_name, h_mg, workflow_runs, timeline)?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn validate_trusted_merge_group_evidence(
+    repo: &str,
+    number: u64,
+    base_ref_name: &str,
+    h_mg: &str,
+    check_runs: &[GitHubCheckRun],
+    workflow_runs: &[GitHubWorkflowRun],
+    codeql_analyses: &[GitHubCodeScanningAnalysis],
+    branch_rules: &[GitHubBranchRule],
+    timeline: &[GitHubTimelineItem],
+) -> Result<(), String> {
+    let identity =
+        merge_group_identity_window(repo, number, base_ref_name, h_mg, workflow_runs, timeline)?;
+    let expected_analysis_ref = format!("refs/heads/{}", identity.queue_branch);
+    if !identity
+        .pr_bound_runs
+        .iter()
+        .any(|(_, updated_at, _, run)| {
+            run.head_sha.eq_ignore_ascii_case(h_mg)
+                && identity.evidence_precedes_cutoff(*updated_at)
+                && run.status == "completed"
+                && run.conclusion.as_deref() == Some("success")
+                && run
+                    .html_url
+                    .starts_with(&format!("https://github.com/{repo}/actions/runs/"))
+        })
+    {
         return Err(format!(
             "PR #{number} H_mg 未绑定 trusted GitHub merge_group success workflow run"
         ));
@@ -530,9 +594,9 @@ pub(super) fn validate_trusted_merge_group_evidence(
                     .completed_at
                     .as_deref()
                     .and_then(parse_utc_timestamp_seconds)?;
-                (started_at >= queued_at
+                (started_at >= identity.queued_at
                     && started_at <= completed_at
-                    && evidence_precedes_cutoff(completed_at))
+                    && identity.evidence_precedes_cutoff(completed_at))
                 .then_some((completed_at, run.id, run))
             })
             .max_by_key(|(completed_at, id, _)| (*completed_at, *id))
@@ -576,11 +640,8 @@ pub(super) fn validate_trusted_merge_group_evidence(
             })
             .filter_map(|analysis| {
                 let created_at = parse_utc_timestamp_seconds(&analysis.created_at)?;
-                (created_at >= queued_at && evidence_precedes_cutoff(created_at)).then_some((
-                    created_at,
-                    analysis.id,
-                    analysis,
-                ))
+                (created_at >= identity.queued_at && identity.evidence_precedes_cutoff(created_at))
+                    .then_some((created_at, analysis.id, analysis))
             })
             .max_by_key(|(created_at, id, _)| (*created_at, *id))
             .ok_or_else(|| {

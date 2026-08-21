@@ -4441,6 +4441,59 @@ fn validates_h_mg_against_trusted_merge_group_and_live_required_checks() {
 }
 
 #[test]
+fn accepts_historical_h_mg_bound_to_failed_pr_merge_group_run() {
+    let mut failed_run = trusted_merge_group_run();
+    failed_run.conclusion = Some("failure".to_string());
+    failed_run.updated_at = "2026-08-20T05:40:00Z".to_string();
+
+    assert!(
+        validate_historical_merge_group_identity(
+            "illusion-tech/laneflow",
+            61,
+            "main",
+            MERGE_GROUP_OID,
+            &[failed_run],
+            &queue_timeline(false),
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn rejects_historical_h_mg_not_bound_to_latest_pr_merge_group_run() {
+    let error = validate_historical_merge_group_identity(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MAIN_RESULT_OID,
+        &[trusted_merge_group_run()],
+        &queue_timeline(false),
+    )
+    .expect_err("self-attested historical H_mg must match the live PR-bound generation");
+
+    assert!(error.contains("record H_mg 不是合并前最后一代"));
+}
+
+#[test]
+fn rejects_historical_h_mg_without_queue_timeline_identity() {
+    let timeline = queue_timeline(false)
+        .into_iter()
+        .filter(|item| item.event == "merged")
+        .collect::<Vec<_>>();
+    let error = validate_historical_merge_group_identity(
+        "illusion-tech/laneflow",
+        61,
+        "main",
+        MERGE_GROUP_OID,
+        &[trusted_merge_group_run()],
+        &timeline,
+    )
+    .expect_err("direct merge without a queue event must not authorize historical_failure");
+
+    assert!(error.contains("缺少 Merge Queue timeline event"));
+}
+
+#[test]
 fn accepts_github_merge_queue_bot_terminal_removal_before_merge() {
     assert!(
         validate_trusted_merge_group_evidence(
