@@ -158,6 +158,7 @@ const PULL_REQUEST_FILES_QUERY: &str = r#"
 query($owner:String!, $name:String!, $number:Int!, $cursor:String) {
   repository(owner:$owner, name:$name) {
     pullRequest(number:$number) {
+      headRefOid
       files(first:100, after:$cursor) {
         nodes { path changeType additions deletions }
         pageInfo { hasNextPage endCursor }
@@ -3229,6 +3230,12 @@ fn docs_only_lane_completion<'a>(
 }
 
 fn is_docs_only_path(path: &str) -> bool {
+    // AGENTS.md 是 agent 工作流 SSOT 入口（机器消费指令面，非惰性文档），
+    // 与「门禁代码面不豁免」同源：精确排除（仅根级等值；.agents/、docs/ 下
+    // 同名文件不受影响——前者本就不命中，后者由 docs/**/*.md 分支管辖）
+    if path == "AGENTS.md" {
+        return false;
+    }
     (path.starts_with("docs/") && path.ends_with(".md"))
         || is_root_markdown(path)
         || (path.starts_with("research/") && path.ends_with(".md"))
@@ -4355,12 +4362,11 @@ fn load_live_snapshot(repository: &str, pr: u64) -> Result<ExternalReviewSnapsho
         // 机器通道（含 dependabot）失效，评估继续走标准路径（G1：分页溢出 →
         // 通道失效并回标准路径）。这与 comments 不同：不完整评论会破坏绑定判定
         // 完整性，必须整体 fail-closed。
-        if let Ok(files) = fetch_all_pr_files(repository, pr) {
-            pull_request.files = Connection {
-                nodes: files,
-                page_info: PageInfo::default(),
-            };
-        }
+        adopt_files_refetch(
+            &mut pull_request.files,
+            &pull_request.head_ref_oid,
+            fetch_all_pr_files(repository, pr),
+        );
     }
     let mut snapshot = ExternalReviewSnapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
@@ -4373,6 +4379,26 @@ fn load_live_snapshot(repository: &str, pr: u64) -> Result<ExternalReviewSnapsho
     };
     resolve_orphan_commit_trees(repository, &mut snapshot);
     Ok(snapshot)
+}
+
+/// D1：files 补页绑定 current head——补页返回的 headRefOid 与 snapshot head 一致
+/// 才采用补页结果；不一致（补读期间 force-push，如 A→B→A 拼接）或补页失败时
+/// 保留截断连接（has_next_page 保持 true），全部机器通道失效回标准路径
+///（与分页溢出/失败同语义，不传播 Err）
+fn adopt_files_refetch(
+    files: &mut Connection<ChangedFile>,
+    snapshot_head: &str,
+    refetch: Result<(String, Vec<ChangedFile>), String>,
+) {
+    let Ok((refetch_head, nodes)) = refetch else {
+        return;
+    };
+    if refetch_head == snapshot_head {
+        *files = Connection {
+            nodes,
+            page_info: PageInfo::default(),
+        };
+    }
 }
 
 const COMMIT_TREE_QUERY: &str = r#"
@@ -4537,11 +4563,27 @@ fn load_issue_comments_page(
         .ok_or_else(|| format!("GitHub PR 不存在或不可读：{owner}/{name}#{pr}"))
 }
 
-fn fetch_all_pr_files(repository: &str, pr: u64) -> Result<Vec<ChangedFile>, String> {
+/// D1：files 补页绑定 PR current head——逐页校验 headRefOid 一致并随结果返回，
+/// 防补读期间 force-push（A→B 补页、判定前恢复 A）把 A 的 head 元数据与 B 的
+/// 文件路径拼接；任一页 head 不同即按补页失败处理（调用方保留截断连接）
+fn fetch_all_pr_files(repository: &str, pr: u64) -> Result<(String, Vec<ChangedFile>), String> {
     let (owner, name) = repository
         .split_once('/')
         .ok_or_else(|| format!("repository 格式不正确：{repository}"))?;
-    fetch_file_pages(|cursor| load_pr_files_page(owner, name, pr, cursor))
+    let mut refetch_head: Option<String> = None;
+    let files = fetch_file_pages(|cursor| {
+        let page = load_pr_files_page(owner, name, pr, cursor)?;
+        match &refetch_head {
+            None => refetch_head = Some(page.head_ref_oid),
+            Some(head) if *head == page.head_ref_oid => {}
+            Some(_) => {
+                return Err("PR files 补页期间 head 发生变化，按 fail-closed 处理".to_string());
+            }
+        }
+        Ok(page.files)
+    })?;
+    let head = refetch_head.ok_or_else(|| "PR files 补页未返回 headRefOid".to_string())?;
+    Ok((head, files))
 }
 
 fn fetch_file_pages(
@@ -4555,12 +4597,11 @@ fn load_pr_files_page(
     name: &str,
     pr: u64,
     cursor: Option<&str>,
-) -> Result<CursorConnection<ChangedFile>, String> {
+) -> Result<FilesPagePullRequest, String> {
     let data: FilesPageData =
         gh_graphql_with_cursor(PULL_REQUEST_FILES_QUERY, owner, name, pr, cursor)?;
     data.repository
         .and_then(|repository| repository.pull_request)
-        .map(|pull_request| pull_request.files)
         .ok_or_else(|| format!("GitHub PR 不存在或不可读：{owner}/{name}#{pr}"))
 }
 
@@ -4762,7 +4803,9 @@ struct FilesPageRepository {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct FilesPagePullRequest {
+    head_ref_oid: String,
     files: CursorConnection<ChangedFile>,
 }
 
@@ -5732,6 +5775,12 @@ mod tests {
             matrix.contains("snapshot 字段缺失（`additions`/`deletions`/`message`，仅两条新通道）")
         );
         assert!(matrix.contains("dependabot 通道字段口径不变（旧快照兼容）"));
+        // AGENTS.md 排除与 files 补页 head 绑定的权威表述（改文案时必须与本 pin 锁步）
+        assert!(gates.contains("不含 `AGENTS.md`——agent 指令 SSOT 属机器消费面，非惰性文档"));
+        assert!(
+            gates.contains("files 补页绑定 current head，补读期间 head 变化即通道失效回标准路径")
+        );
+        assert!(matrix.contains("files 补页期间 current head 变化"));
         assert!(gates.contains("它是机器 completion 而非 waiver"));
         assert!(gates.contains("第 6.1 节的快速通道是机器 completion 而非 waiver"));
         assert!(
@@ -5837,13 +5886,15 @@ mod tests {
             "https://github.com/illusion-tech/laneflow/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         );
 
-        // 任一文件不匹配 docs/**/*.md、根级 *.md、research/**/*.md → 通道不成立
+        // 任一文件不匹配 docs/**/*.md、根级 *.md、research/**/*.md → 通道不成立；
+        // AGENTS.md 是 agent 指令 SSOT（机器消费面），显式排除
         for path in [
             "src/lib.rs",
             "research/issue-406-fast-lanes/data.json",
             "guides/README.md",
             "docs-only/readme.md",
             "docs/reference/compiler-calibration-contract-v1.json",
+            "AGENTS.md",
         ] {
             let mut snapshot = fixture(contents);
             snapshot.pull_request.files.nodes[0].path = path.to_string();
@@ -6174,6 +6225,77 @@ mod tests {
             evaluate_snapshot(&invalid_url).state,
             ExternalReviewState::AwaitingReview
         );
+    }
+
+    #[test]
+    fn files_refetch_adoption_requires_stable_head_match() {
+        // 补页 seam 截获逻辑：补页返回 head 与 snapshot head 不一致（补读期间
+        // force-push，如 A→B→A 拼接）或补页失败 → 保留截断连接，通道失效
+        //（evaluator 层「截断 → AwaitingReview、无机器证据、非 ProviderError」
+        // 由上一个测试钉住）
+        let truncated = || Connection {
+            nodes: vec![ChangedFile {
+                path: "docs/governance/development-gates.md".to_string(),
+                change_type: "MODIFIED".to_string(),
+                additions: Some(8),
+                deletions: Some(2),
+            }],
+            page_info: PageInfo {
+                has_next_page: true,
+            },
+        };
+        let refetched = || {
+            vec![
+                ChangedFile {
+                    path: "docs/governance/development-gates.md".to_string(),
+                    change_type: "MODIFIED".to_string(),
+                    additions: Some(8),
+                    deletions: Some(2),
+                },
+                ChangedFile {
+                    path: "docs/reference/glossary.md".to_string(),
+                    change_type: "ADDED".to_string(),
+                    additions: Some(4),
+                    deletions: Some(0),
+                },
+            ]
+        };
+
+        // head 匹配：采用补页结果（分页标记清零，通道可判定）
+        let mut files = truncated();
+        adopt_files_refetch(
+            &mut files,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            Ok((
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+                refetched(),
+            )),
+        );
+        assert!(!files.page_info.has_next_page);
+        assert_eq!(files.nodes.len(), 2);
+
+        // head 不匹配：保留截断连接（has_next_page 保持 true），通道失效
+        let mut files = truncated();
+        adopt_files_refetch(
+            &mut files,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            Ok((
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+                refetched(),
+            )),
+        );
+        assert!(files.page_info.has_next_page);
+        assert_eq!(files.nodes.len(), 1);
+
+        // 补页失败：同语义，不传播 Err
+        let mut files = truncated();
+        adopt_files_refetch(
+            &mut files,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            Err("network down".to_string()),
+        );
+        assert!(files.page_info.has_next_page);
+        assert_eq!(files.nodes.len(), 1);
     }
 
     #[test]
