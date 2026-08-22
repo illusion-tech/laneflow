@@ -146,8 +146,10 @@ expected source 暂为 GitHub Actions。存在同名 Check 伪造的残余风险
 - 删除 `schemas/publication.json`、schema Pages / monitor workflow。
 - 删除仅用于历史发布的 Traffic schema `laneflow-data-v0.2` … `v0.9`。
 - 暂时保留当前内部 loader/test 输入：`laneflow-data-v0.10`、
-  `laneflow-spatial-v0.1`、`laneflow-scenario-manifest-v0.1` 与
-  `schemas/road-editing/`，在 #301 删除旧 JSON 生产路径时一并删除。
+  `laneflow-spatial-v0.1`、`laneflow-scenario-manifest-v0.1`，在 #301 删除旧 JSON
+  生产路径时一并删除。
+- `schemas/road-editing/` 是道路编辑 FlatBuffers 生产来源，不是 JSON 运行时路径；
+  #301 不得删除。
 - ADR 0011 被本文取代。历史 closure review 按当时语义保留，不回写、不当现行义务。
 - 所有者停止 Schema Pages 发布；若 Pages 仅服务该功能则关闭对应仓库设置。
 
