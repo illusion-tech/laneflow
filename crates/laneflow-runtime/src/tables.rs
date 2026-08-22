@@ -157,6 +157,46 @@ pub(crate) fn static_route_ordinal(handle: RouteHandle) -> Option<StaticRouteOrd
         .then(|| StaticRouteOrdinal::from_raw(handle.index()))
 }
 
+pub(crate) fn remaining_along_route(
+    lengths: &[f64],
+    edges: &[LaneEdgeOrdinal],
+    from_index: usize,
+    from_progress: f64,
+    to_index: usize,
+    to_progress: f64,
+) -> Option<f64> {
+    if to_index < from_index || (to_index == from_index && to_progress < from_progress) {
+        return None;
+    }
+    if to_index == from_index {
+        return Some(to_progress - from_progress);
+    }
+    let from_edge = *edges.get(from_index)?;
+    let mut distance = lengths.get(from_edge.index())? - from_progress;
+    for edge in edges.get(from_index + 1..to_index)? {
+        distance += *lengths.get(edge.index())?;
+    }
+    Some(distance + to_progress)
+}
+
+pub(crate) fn remaining_to_route_end(
+    lengths: &[f64],
+    edges: &[LaneEdgeOrdinal],
+    from_index: usize,
+    from_progress: f64,
+) -> Option<f64> {
+    let last = edges.len().checked_sub(1)?;
+    let last_edge = *edges.get(last)?;
+    remaining_along_route(
+        lengths,
+        edges,
+        from_index,
+        from_progress,
+        last,
+        *lengths.get(last_edge.index())?,
+    )
+}
+
 pub(crate) fn spawn_motion_error(progress: f64, speed: f64) -> Option<SpawnError> {
     if !progress.is_finite() || progress < 0.0 {
         return Some(SpawnError::InvalidProgress);

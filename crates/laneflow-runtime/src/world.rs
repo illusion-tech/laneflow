@@ -18,18 +18,18 @@ use crate::{
 
 /// 1-worker 交通世界。只克隆根 `Arc`，不复制静态 component。
 pub struct TrafficWorld {
-    revision: Arc<SharedNetworkRevision>,
-    config: WorldConfig,
-    tick_index: u64,
-    time_ms: u64,
-    signal_aspects: Box<[SignalAspect]>,
-    dynamic_routes: Vec<DynamicRouteSlot>,
-    free_routes: Vec<usize>,
-    live_dynamic_routes: u32,
-    vehicles: Vec<VehicleSlot>,
-    free_vehicles: Vec<usize>,
-    live_order: Vec<VehicleHandle>,
-    parking_occupants: Box<[Option<VehicleHandle>]>,
+    pub(crate) revision: Arc<SharedNetworkRevision>,
+    pub(crate) config: WorldConfig,
+    pub(crate) tick_index: u64,
+    pub(crate) time_ms: u64,
+    pub(crate) signal_aspects: Box<[SignalAspect]>,
+    pub(crate) dynamic_routes: Vec<DynamicRouteSlot>,
+    pub(crate) free_routes: Vec<usize>,
+    pub(crate) live_dynamic_routes: u32,
+    pub(crate) vehicles: Vec<VehicleSlot>,
+    pub(crate) free_vehicles: Vec<usize>,
+    pub(crate) live_order: Vec<VehicleHandle>,
+    pub(crate) parking_occupants: Box<[Option<VehicleHandle>]>,
 }
 
 impl TrafficWorld {
@@ -298,22 +298,7 @@ impl TrafficWorld {
 
     /// 固定步进。失败不推进时间，已提交查询与失败前一致。
     pub fn step(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
-        let expected = self.config.fixed_delta_time_ms();
-        if input.delta_time_ms != expected {
-            return Err(StepError::DeltaMismatch {
-                expected_delta_time_ms: expected,
-                actual_delta_time_ms: input.delta_time_ms,
-            });
-        }
-        let tick_index = self.tick_index.checked_add(1).ok_or(StepError::Overflow)?;
-        let time_ms = self
-            .time_ms
-            .checked_add(expected)
-            .ok_or(StepError::Overflow)?;
-        self.tick_index = tick_index;
-        self.time_ms = time_ms;
-        self.refresh_signals();
-        Ok(StepOutcome::new(tick_index, time_ms))
+        self.step_vehicles(input)
     }
 
     /// 稳定顺序的已提交 pose 源。
@@ -369,7 +354,7 @@ impl TrafficWorld {
         CommittedSignalGroupBatch { items }
     }
 
-    fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
+    pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
         let slot = self.vehicles.get(usize::try_from(handle.index()).ok()?)?;
         if slot.generation != handle.generation() {
             return None;
@@ -377,7 +362,7 @@ impl TrafficWorld {
         slot.state.as_ref()
     }
 
-    fn route_edges(
+    pub(crate) fn route_edges(
         &self,
         route: RouteHandle,
     ) -> Option<&[laneflow_static_contract::LaneEdgeOrdinal]> {
@@ -464,7 +449,7 @@ impl TrafficWorld {
         })
     }
 
-    fn refresh_signals(&mut self) {
+    pub(crate) fn refresh_signals(&mut self) {
         self.signal_aspects.fill(SignalAspect::Red);
         let relations = self.revision.traffic().relations();
         let controller_count = self
