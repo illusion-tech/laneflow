@@ -5,9 +5,9 @@ description: 处理 LaneFlow 当前态核心运行时（Current Core Runtime）�
 
 # LaneFlow 交通运行时设计（Traffic Runtime Design）
 
-Skill 标识符（Skill ID）`laneflow-core-design` 在阶段 8 生产切换 Issue #294 完成
-G4 前保留，作为当前态核心（Current Core）与目标态交通运行时（Target Traffic
-Runtime）的兼容发现入口；它不表示目标态继续命名为 Core。
+Skill 标识符（Skill ID）`laneflow-core-design` 可在 `laneflow-core` crate 删除后
+短暂保留，作为 Traffic Runtime 的发现入口；它不表示目标态继续命名为 Core。crate
+拆除由 #301 完成。
 
 ## 先读这些
 
@@ -17,8 +17,7 @@ Runtime）的兼容发现入口；它不表示目标态继续命名为 Core。
 4. `docs/governance/development-gates.md`
 5. `docs/reference/glossary.md`
 6. 已存在的相关 Core / Traffic Runtime design 文档
-7. 涉及 #291 静态路网编译、#300 共享静态路网或 #294 core→runtime
-   生产切换时，读取
+7. 涉及 #291 静态路网编译、#300 共享静态路网或 #301 消费路径与 Core 入口拆除时，读取
    `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、
    `docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、
    `docs/design/network-compiler.md`、`docs/design/shared-static-network.md` 与

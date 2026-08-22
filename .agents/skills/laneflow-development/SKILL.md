@@ -17,7 +17,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 8. 涉及 #291 目标静态路网编译、#300 共享静态路网、静态执行约束/分区规划
    提示/运行时执行计划（Static Execution Constraint / Partition Planning Hints /
    Runtime Execution Plan），或 `laneflow-core/CoreWorld` →
-   `laneflow-runtime/TrafficWorld` 的 #294 生产切换时，读取
+   `laneflow-runtime/TrafficWorld` 的 #301 消费路径与旧入口拆除时，读取
    `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、
    `docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、
    `docs/design/network-compiler.md`、`docs/design/shared-static-network.md` 与

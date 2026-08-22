@@ -8,9 +8,9 @@
 
 | Family            | Current source                                                                               | 说明                        |
 | ----------------- | -------------------------------------------------------------------------------------------- | --------------------------- |
-| Traffic           | [`laneflow-data-v0.10.schema.json`](laneflow-data-v0.10.schema.json)                         | 当前 JSON loader；#294 删除 |
-| Spatial           | [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)                     | 当前 JSON loader；#294 删除 |
-| Scenario Manifest | [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json) | 当前 JSON loader；#294 删除 |
+| Traffic           | [`laneflow-data-v0.10.schema.json`](laneflow-data-v0.10.schema.json)                         | 当前 JSON loader；#301 删除 |
+| Spatial           | [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)                     | 当前 JSON loader；#301 删除 |
+| Scenario Manifest | [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json) | 当前 JSON loader；#301 删除 |
 
 ## G1 候选 source
 

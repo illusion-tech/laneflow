@@ -4,8 +4,9 @@ LaneFlow 当前是一个面向主流游戏引擎、可嵌入的轻量 NPC 交通
 厂区、校园、景区、停车场、道路片区和数字孪生等局部道路场景中生成可信的车辆流动
 效果。#291 G1 已接受编译器拥有的静态路网与交通运行时长期设计；Accepted ADR 0025 /
 #300 G1 已进一步冻结以受检 LFCA 构建进程内共享静态路网、且不交付独立静态镜像文件/
-ABI 的修订。这表示目标设计已经接受，不表示对应实现已经交付。在阶段 8 生产切换 Issue #294
-完成 G4 前，当前 JSON/Data/Core/Spatial 路径仍是生产契约。
+ABI 的修订。这表示目标设计已经接受，不表示对应实现已经交付。#301 完成前，当前 JSON/Data/Core/Spatial
+路径仍是仓库内可运行契约；#301 完成后 `laneflow-runtime` 为唯一可运行交通世界，并拆除
+current Core/JSON 运行时入口。详见 `docs/design/traffic-runtime-shared-consumption.md`。
 
 Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通基础”定义为 LaneFlow
 的第一长期产品目标。该目标不是完整交通工程仿真器，也不拥有城市经济、市民出行
@@ -93,7 +94,7 @@ LaneFlow 的当前能力与 #291 已接受长期目标共同关注：
 
 - `crates/laneflow-bevy`：Bevy 0.19 Reference Adapter；使用最小 modular dependency graph，提供单活动 `LaneFlowSession`、专用 fixed schedule、Vehicle/Entity 部分双射、frame placement、原子 local Transform 同步、可选 Gizmos、campus 最小示例与 v0.10 protected-turning signalized-corridor native example。
 - `crates/laneflow-core`：引擎无关的 Core domain/runtime、typed handles、fixed tick、fixed-time Signals snapshot/query/events、SignalStop 与 permission-aware traversal，以及私有 occupancy/leader、IIDM、safe-speed 与 no-overlap projection pipeline。
-- `crates/laneflow-current-source`：当前态内部加载辅助 crate；为 `laneflow-data` 承载 Traffic v0.10、Scenario Manifest v0.1 与 Spatial v0.1 的 wire DTO、版本闸口、摘要与 descriptor 配对校验；不进入 compiler，并随 #294 旧加载路径一起删除。
+- `crates/laneflow-current-source`：当前态内部加载辅助 crate；为 `laneflow-data` 承载 Traffic v0.10、Scenario Manifest v0.1 与 Spatial v0.1 的 wire DTO、版本闸口、摘要与 descriptor 配对校验；不进入 compiler，并随 #301 拆除 current 运行时入口时删除。
 - `crates/laneflow-data`：当前 Traffic v0.10 JSON loader、严格版本闸口、Junction/Movement/ManeuverPath/ManeuverGate、横断面/准入静态模型、per-edge `speedLimit` 与 Core normalization；依赖方向固定为 `laneflow-data -> laneflow-core` 与 `laneflow-data -> laneflow-current-source`。
 - `crates/laneflow-scenario`：可选、引擎无关的 reference scenario policy；当前提供 v0.10 signalized-corridor catalog 0.2 的 PortalLane/weighted RouteChoice normalization、50–200 车辆确定性初始化、ordered completion 消费和 blocked recycle retry，依赖方向固定为 `laneflow-scenario -> laneflow-core`。
 - `crates/laneflow-spatial`：LaneFlow 自有的有界 `f32` canonical 点、向量、单位方向、稳定 frame ID、immutable edge-binding registry，以及带 placement token、Parking pose 和失败原子性的批量位姿提取；依赖方向固定为 `laneflow-spatial -> laneflow-core`，Core 不反向依赖 Spatial。
