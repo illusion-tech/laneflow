@@ -3286,6 +3286,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-runtime"
+version = "0.0.0"
+dependencies = [
+ "laneflow-format",
+ "laneflow-static-contract",
+ "laneflow-static-network",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "laneflow-scenario"
 version = "0.0.0"
 dependencies = [
