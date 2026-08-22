@@ -182,9 +182,9 @@ Route 用共享根边序号编译 occurrence。
   `LaneEdgeOrdinal` + 进度。
 - `spawn_vehicle` 返回代际感知 `VehicleHandle`（不是 `PoseRecordId`）。由 profile
   解析 `ParticipantClass`，对静态和动态 `RouteHandle` 都按 ADR 0018 做
-  `(class, Route)` 绑定期准入（只查当前 cursor / 序列下标起的可达后缀）。初速不得
-  超过该 occurrence 当前边的基础限速。重叠、非法路线/下标/进度、未知 profile、
-  超容量、准入 deny、超限速失败时不得留下半辆车。
+  `(class, Route)` 绑定期准入（只查当前 cursor / 序列下标起的可达后缀）。初速可以
+  等于该 occurrence 当前边的基础限速，超过则拒绝。重叠、非法路线/下标/进度、未知
+  profile、超容量、准入 deny、超限速失败时不得留下半辆车。
 - 本切片不冻 `despawn` / `replace`。
 
 ### 4.3 停车占用
@@ -300,7 +300,7 @@ Issue**，不是 #301 完成条件。#301 只要求它们不再以 `CoreWorld` �
 - 信号停车与许可通行（车辆用 snapshot(T)；成功 step 后 `committed_signal_groups`
   为 T + D。相位边界落在 `[T, T + D)` 时该拍不得提前用 T + D 灯色）；
 - 停车占用权威（`occupy_parking` 双向互斥与失败原子性，含已停车辆再占其他车位
-  必须失败；`committed_parking_occupant`）；
+  必须失败、同一车位重复占用幂等成功；`committed_parking_occupant`）；
 - 确定性固定步进（`step`：正的 `fixed_delta_time_ms`、delta 不匹配则拒绝、
   `tick_index`/`time_ms` 溢出则拒绝且世界不变、同输入序列同结果）；
 - 信号 program 每个 phase `durationMs >= fixed_delta_time_ms`，否则 install 失败；
@@ -311,7 +311,7 @@ Issue**，不是 #301 完成条件。#301 只要求它们不再以 `CoreWorld` �
   tick 读本世界动态 occurrence 表；不含走廊级人口与回流）；
 - spawn 绑定期准入（静态与动态 Route 均按 ADR 0018 `(ParticipantClass, Route)`
   后缀拒绝，失败不留车）；
-- spawn 初速不得超过当前边基础限速；
+- spawn 初速等于当前边基础限速须成功，超过则拒绝且不留车；
 - `remove_route` 拒绝静态路线句柄。
 
 空实现若只过 S1 两车推进/pose 不得视为完成。完整停车离场/预约、受保护转向走廊、
