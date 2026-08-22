@@ -174,11 +174,16 @@ Route 用共享根边序号编译 occurrence。
 - `remove_route`：仍有 live 车辆引用则失败；成功后旧句柄 stale，本世界动态
   occurrence 表去掉该路线。
 - 人口是调用方所有：`install` 不接受初始车辆。`VehicleSpawnInput` 含共享根车辆
-  profile 序号、已有 `RouteHandle`、路线边序号、与共享根边长同域的进度、初速。
+  profile 序号、已有 `RouteHandle`、**路线序列下标**（ADR 0017 `routeEdgeIndex`：该
+  `RouteHandle` 边序列上的 occurrence 位置，不是共享根 `LaneEdgeOrdinal`；`[A, B, A]`
+  的两个 A 靠下标区分）、该 occurrence 对应边上与共享根边长同域的进度、初速。
+  下标必须落在 `0..len`，越界失败、不留车。tick 内部车辆状态继续带着这个序列下标
+  前进。`committed_pose_sources` 的 `PoseSource::Lane` 仍用该 occurrence 解出的
+  `LaneEdgeOrdinal` + 进度。
 - `spawn_vehicle` 返回代际感知 `VehicleHandle`（不是 `PoseRecordId`）。由 profile
   解析 `ParticipantClass`，对静态和动态 `RouteHandle` 都按 ADR 0018 做
-  `(class, Route)` 绑定期准入（只查当前 cursor 起的可达后缀）。重叠、非法路线/
-  进度、未知 profile、超容量、准入 deny 失败时不得留下半辆车。
+  `(class, Route)` 绑定期准入（只查当前 cursor / 序列下标起的可达后缀）。重叠、
+  非法路线/下标/进度、未知 profile、超容量、准入 deny 失败时不得留下半辆车。
 - 本切片不冻 `despawn` / `replace`。
 
 ### 4.3 停车占用
