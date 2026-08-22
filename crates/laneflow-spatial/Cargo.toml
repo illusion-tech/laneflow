@@ -15,9 +15,11 @@ path = "src/lib.rs"
 [dependencies]
 laneflow-core = { version = "0.0.0", path = "../laneflow-core" }
 laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
+laneflow-static-network = { version = "0.0.0", path = "../laneflow-static-network" }
 
 [dev-dependencies]
 criterion = "0.8"
+laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 proptest = { version = "1.11", default-features = false, features = ["std"] }
 stats_alloc = "=0.1.10"
 
