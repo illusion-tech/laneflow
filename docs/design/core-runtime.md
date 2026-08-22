@@ -450,8 +450,9 @@ Tick 调用链改用 crate-private `TickInvariantError`：该类型只保存 typ
 handle 解析并构造 `String`。该布局不得改变 first-error 顺序、事件总序、确定性、数值结果、
 失败原子性或 scratch 恢复顺序。
 
-目标运行时 #301 在权威切换时必须继承等价的私有热错误边界；若新执行管线取代当前 Tick
-闭包，则应显式记录取代依据与等价的尺寸、分配和行为证据。
+目标运行时 #301 必须保持失败原子性，且成功 tick 不因错误边界新分配诊断。不把本文
+`TickInvariantError` 的 `Copy` / 64 / 72 字节布局当作拆除门禁；Runtime 私有错误形状
+由 #301 实现自定，只要满足上述行为。
 
 v0.2 应把这些规则提升为正式 validation 设计。
 
