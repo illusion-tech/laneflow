@@ -45,7 +45,7 @@
 - 不实现多 worker / 分区算法，不把最终 partition 写入共享静态路网。
 - 不把城市经济、出行需求或路线选择策略放进 Runtime。
 - 不做完整 Adapter 生产接线或 corridor 规模人口；最小 Bevy 只证明同一根上的
-  tick + pose 能驱动代理位移。
+  tick + pose 能驱动代理位移。`signalized_corridor` 迁到 Runtime 另开 follow-up。
 - 不把 `laneflow-core-design` Skill 标识符改名（若仍需独立残留 Issue，不得反向
   保留 `laneflow-core` crate）。
 
@@ -163,23 +163,9 @@ Runtime 在该根上 spawn **两辆**同一路线前后排列的车，1-worker �
 - 安装或步进失败不留下半个 world；
 - 测试 crate 不链接 `laneflow-core`。
 
-不要求：完整停车离场状态机、红灯停止线的独立故事夹具、多 worker、与任何历史
-Core 轨迹相等。S1 是共享根集成证据，**不能**单独替代下列 Runtime 原生覆盖。
-
-### 6.4 拆除 Core 行为套件前的 Runtime 覆盖
-
-§5 的第一刀（跟车、信号遵守、停车占用）在删除对应 Core 测试之前，必须有 **Runtime
-原生** 测试覆盖同等行为。现有 `vehicle_following` / `signals_compliance` /
-`parking_runtime` 套件保护这些语义；空实现若只过 S1 两车推进/pose 不得视为完成。
-
-这些 Runtime 测试：
-
-- 只链接 `laneflow-runtime`（及共享根/format/compiler 夹具），不链接 `laneflow-core`；
-- 不把 Core 轨迹当预言机；
-- 不要求逐条搬迁 Core 测试文件，但必须覆盖跟车安全间隙、信号停车/许可通行、停车占用
-  权威（占用互斥与失败原子性）。
-
-完整离场/预约生命周期若超出第一刀占用语义，可缩小断言，但不得变成 no-op。
+不要求：完整停车离场状态机、红灯停止线的独立故事夹具、多 worker、走廊规模人口、
+与任何历史 Core 轨迹相等。S1 是共享根集成证据，**不能**单独替代下列 Runtime
+原生覆盖。
 
 ### 6.3 最小 Bevy 示例
 
@@ -187,20 +173,43 @@ Core 轨迹相等。S1 是共享根集成证据，**不能**单独替代下列 R
 CI 对该 example 做 `check`（可与现有 `native-example` feature 对齐）。这是「新的
 端到端示例」，不是 corridor 规模演示。
 
+`signalized_corridor` / `laneflow-scenario` / 走廊生成器迁到 Runtime 是 **follow-up
+Issue**，不是 #301 完成条件。#301 只要求它们不再以 `CoreWorld` 为可运行入口。
+
+### 6.4 拆除 Core 行为套件前的 Runtime 覆盖
+
+删除 `laneflow-core` 及其测试支持 crate 之前，必须有 **Runtime 原生** 测试覆盖下列
+保留的当前运行时合同（不把 Core 轨迹当预言机，不要求逐条搬迁测试文件）：
+
+- 跟车安全间隙；
+- 信号停车与许可通行；
+- 停车占用权威（占用互斥与失败原子性）；
+- 确定性固定步进（正的 `fixed_delta_time_ms`、delta 不匹配则拒绝、同输入序列同结果）；
+- 安装/步进/命令失败原子性（失败不留下半个 world 或已提交半更新）；
+- 动态 Route 注册与编译 occurrence（ADR 0017 lifecycle 的注册/移除，不含走廊级
+  人口与回流）。
+
+空实现若只过 S1 两车推进/pose 不得视为完成。完整停车离场/预约、受保护转向走廊、
+50–200 辆人口、vehicle replace 的全部历史变体，不进本切片；需要时另开 Issue。
+
+这些测试只链接 `laneflow-runtime`（及共享根/format/compiler 夹具），不链接
+`laneflow-core`。
+
 ## 7. 拆除（合入 `main` 的完成定义）
 
 #301 使用 **一个完成 PR**（同一分支上的提交序列）。合入后 `main` 上：
 
 必须消失或不再作为运行时入口：
 
-- `crates/laneflow-core` 与 `laneflow-core-test-support`（前提：§6.4 的 Runtime
-  原生跟车/信号/停车占用覆盖已存在）；
+- `crates/laneflow-core` 与 `laneflow-core-test-support`（前提：§6.4 覆盖已存在）；
 - `laneflow-data` / `laneflow-current-source` 作为 Core 的 JSON 加载入口；
 - `laneflow-compiler-test-support` 的 LIR→Core 投影；
 - `laneflow-spatial` 对 `laneflow-core` 的依赖（改为共享根 bind）；
 - `laneflow-bevy`、`laneflow-scenario`、`laneflow-corridor-generator` 以及
   campus / `native_reference` / `signalized_corridor` 中任何 `CoreWorld` /
-  `InitialTrafficData` 构造。接得上 S1 就改接；接不上就删除。
+  `InitialTrafficData` 构造。campus / native 接得上 S1 就改接，接不上就删除。
+  走廊示例允许从本切片删除 Core 入口；迁到 Runtime 是 follow-up，不作为本 PR
+  成功标准。
 - research 代码中以 Core 为 `fixture-oracle` 的可选依赖：删除或改为非 CI 遗留，
   不得再作为可运行入口。
 
@@ -211,7 +220,8 @@ CI 对该 example 做 `check`（可与现有 `native-example` feature 对齐）�
 #294 只可能残留文档导航 / Skill 标识符改名；不得再把 Core 当正式世界。
 
 #305 不再要求「current 与 target 同时存在时的等价矩阵」。阶段 7 认证目标路径
-本身；其 G1 另开，不在本文展开。
+本身；其 G1 另开，不在本文展开。#301 拆除 Core **不以** #441/#305 的性能、规模或
+安全门禁通过为前提：仓库没有生产回退路径，权威在 #301 切换。
 
 ## 8. 路线图关系
 
@@ -234,7 +244,7 @@ Spatial、不得用 Core 对象图当 compiler IR，保持有效。
 - Spatial 不得不依赖 Runtime 才能正确采样，或 pose 批次不得不嵌入车辆 handle；
 - 完成 PR 无法在不合入 Core 双入口的前提下拆除旧 crate，需要改变 L1/Q；
 - `LFCA-V1-FULL-SPATIAL` 无法支撑两车跟车的可观察断言，需要新的 S2 编制；
-- 认为必须恢复 Core 预言机或产品双轨。
+- 认为必须恢复 Core 预言机、产品双轨，或以 #305 通过为拆除前提。
 
 ## 10. 对 G2 的输入
 
