@@ -102,6 +102,10 @@ TrafficWorld::install(
     config: WorldConfig,
 ) -> Result<TrafficWorld, InstallError>;
 
+TrafficWorld::spawn_vehicle(
+    input: VehicleSpawnInput,
+) -> Result<VehicleHandle, SpawnError>;
+
 SpatialSession::bind(
     revision: Arc<SharedNetworkRevision>,
 ) -> Result<Option<SpatialSession>, SpatialBindError>;
@@ -110,6 +114,8 @@ SpatialSession::bind(
 - `WorldConfig` 含每世界容量、1-worker 计划，以及正整数 `fixed_delta_time_ms`
   （ADR 0003：同一 world 运行中不得改变；`TickInput` 若带 delta 必须相等）。
   不接受 LFCA 字节、调用方自报 digest / `NetworkRevisionId`、或裸 component。
+- `install` 核对该修订每个信号 program 的每个 phase：`durationMs >=
+  fixed_delta_time_ms`，否则失败关闭、不留下 world。短相位不得靠 tick 跳过。
 - 失败原子：失败不留下可观察的半个 world / session。
 - 多世界：再次 `install`，只克隆根 `Arc`。
 - `spatial()` 为 `None`：`bind` 返回 `Ok(None)`，不建 session（headless）。
@@ -126,6 +132,18 @@ SpatialSession::bind(
 
 动态 Route 仍按 ADR 0017：compiler 预编译静态初始路线；Runtime 新注册的动态
 Route 用 typed dense candidate handle 编译 occurrence。
+
+人口是调用方所有：`install` 不接受初始车辆。S1 / 最小 Bevy 在 install 成功后
+`spawn_vehicle`。`VehicleSpawnInput`（不承诺最终 Rust 字段名）含：
+
+- 共享根车辆 profile 序号；
+- 已有 Route 句柄（夹具静态路线，或已 `register` 的动态 Route）；
+- 路线边序号与共享根边长同域的进度；
+- 初速。
+
+返回 Runtime 代际感知 `VehicleHandle`（不是 `PoseRecordId`）。Adapter / harness
+把 handle 映射到 pose 记录。重叠、非法路线/进度、未知 profile、超容量失败时不得
+留下半辆车。本切片不冻 `despawn` / `replace` 全矩阵。
 
 ## 5. Tick
 
@@ -160,7 +178,7 @@ Route 用 typed dense candidate handle 编译 occurrence。
 它含 22 类实体 Identity、信号、停车、lane-pose 几何和一条
 `entry → middle → exit` 静态路线。
 
-Runtime 在该根上 spawn **两辆**同一路线前后排列的车，1-worker 固定步数。CI 集成
+Runtime 在该根上 `spawn_vehicle` **两辆**同一静态路线前后排列的车，1-worker 固定步数。CI 集成
 测试（无窗口）必须断言：
 
 - `install` 成功且只保留一根 `Arc`；
@@ -175,9 +193,15 @@ Runtime 在该根上 spawn **两辆**同一路线前后排列的车，1-worker �
 
 ### 6.3 最小 Bevy 示例
 
-同一编制产物驱动一个最小 Bevy example：fixed tick + 代理位移。GUI 不进 CI；
-CI 对该 example 做 `check`（可与现有 `native-example` feature 对齐）。这是「新的
-端到端示例」，不是 corridor 规模演示。
+同一编制产物驱动一个最小 Bevy example：fixed tick + 代理位移。GUI 不进 CI。
+CI 必须同时：
+
+- 对该 example 做 `check`（可与现有 `native-example` feature 对齐）；
+- 跑无窗口 Bevy `App` smoke：推进 schedule，断言至少一个代理 `Transform` 发生
+  可观察变化。
+
+`cargo check` 不能单独作为完成证据。这是「新的端到端示例」，不是 corridor 规模
+演示。
 
 `signalized_corridor` / `laneflow-scenario` / 走廊生成器迁到 Runtime 是 **follow-up
 Issue**，不是 #301 完成条件。#301 只要求它们不再以 `CoreWorld` 为可运行入口。
@@ -191,7 +215,10 @@ Issue**，不是 #301 完成条件。#301 只要求它们不再以 `CoreWorld` �
 - 信号停车与许可通行；
 - 停车占用权威（占用互斥与失败原子性）；
 - 确定性固定步进（正的 `fixed_delta_time_ms`、delta 不匹配则拒绝、同输入序列同结果）；
+- 信号 program 每个 phase `durationMs >= fixed_delta_time_ms`，否则 install 失败；
 - 安装/步进/命令失败原子性（失败不留下半个 world 或已提交半更新）；
+- 成功 tick 不因错误边界新分配诊断（不要求继承 Core `TickInvariantError` 的
+  `Copy` / 64 / 72 字节布局）；
 - 动态 Route 注册与编译 occurrence（ADR 0017 lifecycle 的注册/移除，不含走廊级
   人口与回流）。
 
