@@ -9,7 +9,8 @@
 `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
 `../adr/0026-merge-governance-rebuild.md`、
 `network-compiler.md`、`shared-static-network.md`、
-`portable-canonical-artifact.md`、`current-package-import.md`
+`portable-canonical-artifact.md`、`current-package-import.md`、
+`../adr/0003-runtime-tick-and-determinism.md`
 
 本文是 #301 的实现级 G1 输入。它不授权 #302 在线修订切换、#441 系统化性能账本、
 #303 Routing 或 #294 残留文档/Skill 改名（若 #301 已删除 `laneflow-core` crate）。
@@ -25,8 +26,9 @@
 1. 新建 `laneflow-runtime`。`TrafficWorld` 安装完整 `Arc<SharedNetworkRevision>`，
    只分配每世界可变状态与 1-worker 执行计划；热路径只借共享根的连续 accessor。
 2. `laneflow-spatial` 依赖 `laneflow-static-network` / `laneflow-static-contract`，
-   **不**依赖 Runtime。`SpatialSession::bind` 只接受根 `Arc`。同修订由组合根与
-   pose 批次上的 `NetworkRevisionId` 保证。
+   **不**依赖 Runtime。`SpatialSession::bind` 只接受根 `Arc`。world 与 session 配对
+   必须 `Arc::ptr_eq`（或两者来自同一保留的根 `Arc`）。pose 批次使用与 Runtime
+   无关的不透明记录身份，并携带该 `Arc` 的 `NetworkRevisionId`。
 3. Runtime **禁止**依赖 Spatial、compiler、Serde、文件系统、`laneflow-core`。
 4. 正确性证据是 compiler 拥有的 `LFCA-V1-FULL-SPATIAL` 加上 Runtime 2 车 1-worker
    集成测试，以及同一编制上的最小 Bevy 示例。禁止同一场景对拍 `CoreWorld`。
@@ -66,11 +68,22 @@ Adapter / 示例 ─────────────────> laneflow-s
 | 包 | 拥有 | 禁止 |
 | --- | --- | --- |
 | `laneflow-runtime` | 固定步进、已实现执行域的每世界可变状态、动态 Route occurrence 编译、1-worker 执行计划 | Spatial、compiler、Serde、文件系统、`laneflow-core`、LFCA 解析 |
-| `laneflow-spatial` | 规范位姿采样、session scratch/output | Traffic tick 权威、compiler、引擎、Runtime |
+| `laneflow-spatial` | 规范位姿采样、session scratch/output；pose 批次只使用不透明 `PoseRecordId` 与共享根序号 | Traffic tick 权威、compiler、引擎、Runtime、车辆 handle |
 
 `network-compiler.md` 历史 crate 图中的 Spatial → Runtime 作废。几何属于修订根，
 session 是 revision-scoped，不是 world-scoped。N 个 `TrafficWorld` 共用一份
 `SharedSpatialNetwork`。
+
+pose 记录身份（不承诺最终 Rust 拼写）：
+
+- `PoseRecordId`：调用方分配的不透明 `u32`。Spatial 不解释为车辆、也不导入
+  Runtime/Core handle。
+- `PoseSource::Lane`：`LaneEdgeOrdinal` + 与共享根边长同域的进度。
+- `PoseSource::Parking`：共享根上的停车位序号。
+- 批次头保存 `bind` 所用 `Arc` 的 `NetworkRevisionId`。
+
+Adapter / Runtime 在组合根把车辆 handle 映射到 `PoseRecordId`。禁止 Spatial 依赖
+`VehicleHandle`，禁止为此再抽第三 crate。
 
 「不能独立安装 component」由根类型保证：`SharedSpatialNetwork` 不 `Clone`、无公开
 构造器。Spatial crate 再依赖 Runtime 并不能加强这点，只会把采样绑到 tick 对象上。
@@ -90,8 +103,9 @@ SpatialSession::bind(
 ) -> Result<Option<SpatialSession>, SpatialBindError>;
 ```
 
-- `WorldConfig` 只含每世界容量与 1-worker 计划。不接受 LFCA 字节、调用方自报
-  digest / `NetworkRevisionId`、或裸 component。
+- `WorldConfig` 含每世界容量、1-worker 计划，以及正整数 `fixed_delta_time_ms`
+  （ADR 0003：同一 world 运行中不得改变；`TickInput` 若带 delta 必须相等）。
+  不接受 LFCA 字节、调用方自报 digest / `NetworkRevisionId`、或裸 component。
 - 失败原子：失败不留下可观察的半个 world / session。
 - 多世界：再次 `install`，只克隆根 `Arc`。
 - `spatial()` 为 `None`：`bind` 返回 `Ok(None)`，不建 session（headless）。
@@ -101,8 +115,9 @@ SpatialSession::bind(
 - Runtime 可以提供只读转发 `TrafficWorld::revision()` /
   `traffic()`；**不**持有 `SpatialSession`，**不** `use` Spatial 类型。
 - 同时持有 world 与 session 的调用方（#301 harness、最小 Bevy、以后的 Adapter）
-  必须检查 `Arc::ptr_eq` 或双方 `network_revision()` 相等。pose 批次携带
-  `NetworkRevisionId`。
+  必须 `Arc::ptr_eq`，或证明两者来自同一保留的根 `Arc`。禁止只比较
+  `NetworkRevisionId`：同一 LFCA 可构建两次，headless 与带 Spatial 的根可以同 ID。
+  pose 批次仍携带该 `Arc` 的 `NetworkRevisionId`，供 Adapter 在提交宿主变换前复核。
 
 动态 Route 仍按 ADR 0017：compiler 预编译静态初始路线；Runtime 新注册的动态
 Route 用 typed dense candidate handle 编译 occurrence。
@@ -149,7 +164,22 @@ Runtime 在该根上 spawn **两辆**同一路线前后排列的车，1-worker �
 - 测试 crate 不链接 `laneflow-core`。
 
 不要求：完整停车离场状态机、红灯停止线的独立故事夹具、多 worker、与任何历史
-Core 轨迹相等。
+Core 轨迹相等。S1 是共享根集成证据，**不能**单独替代下列 Runtime 原生覆盖。
+
+### 6.4 拆除 Core 行为套件前的 Runtime 覆盖
+
+§5 的第一刀（跟车、信号遵守、停车占用）在删除对应 Core 测试之前，必须有 **Runtime
+原生** 测试覆盖同等行为。现有 `vehicle_following` / `signals_compliance` /
+`parking_runtime` 套件保护这些语义；空实现若只过 S1 两车推进/pose 不得视为完成。
+
+这些 Runtime 测试：
+
+- 只链接 `laneflow-runtime`（及共享根/format/compiler 夹具），不链接 `laneflow-core`；
+- 不把 Core 轨迹当预言机；
+- 不要求逐条搬迁 Core 测试文件，但必须覆盖跟车安全间隙、信号停车/许可通行、停车占用
+  权威（占用互斥与失败原子性）。
+
+完整离场/预约生命周期若超出第一刀占用语义，可缩小断言，但不得变成 no-op。
 
 ### 6.3 最小 Bevy 示例
 
@@ -163,7 +193,8 @@ CI 对该 example 做 `check`（可与现有 `native-example` feature 对齐）�
 
 必须消失或不再作为运行时入口：
 
-- `crates/laneflow-core` 与 `laneflow-core-test-support`；
+- `crates/laneflow-core` 与 `laneflow-core-test-support`（前提：§6.4 的 Runtime
+  原生跟车/信号/停车占用覆盖已存在）；
 - `laneflow-data` / `laneflow-current-source` 作为 Core 的 JSON 加载入口；
 - `laneflow-compiler-test-support` 的 LIR→Core 投影；
 - `laneflow-spatial` 对 `laneflow-core` 的依赖（改为共享根 bind）；
@@ -200,7 +231,7 @@ Spatial、不得用 Core 对象图当 compiler IR，保持有效。
 实现中出现下列任一情况必须停止并修订本文后再求新的 G1：
 
 - 热路径无法只借共享 accessor，需要复制静态表才能步进；
-- Spatial 不得不依赖 Runtime 才能正确采样；
+- Spatial 不得不依赖 Runtime 才能正确采样，或 pose 批次不得不嵌入车辆 handle；
 - 完成 PR 无法在不合入 Core 双入口的前提下拆除旧 crate，需要改变 L1/Q；
 - `LFCA-V1-FULL-SPATIAL` 无法支撑两车跟车的可观察断言，需要新的 S2 编制；
 - 认为必须恢复 Core 预言机或产品双轨。
