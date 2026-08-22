@@ -109,7 +109,7 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 - Markdown tables：表格格式检查只警告，不阻断合并。
 - Rust checks：job 始终运行以保持 required check 稳定。若变更触及 `crates/`、`xtask/`、`tools/`、`examples/`、`research/`、`schemas/`、`Cargo.toml` / `Cargo.lock`、`deny.toml`、本 workflow、external-review workflows 或 `docs/governance/github-workflow.md`，则安装 Rust 1.96.0、恢复/写入 cargo 缓存、运行 `fmt`、`test --workspace`、Core/Spatial allocation 与 `cargo build --benches`（dev profile 下完成 codegen/link，避免 `cargo bench --no-run` 的 bench profile 全量重编）。若变更触及 Bevy Adapter、其 workspace 依赖（`laneflow-core` / `spatial` / `data` / `scenario`）、native example 制品路径、workspace lockfile/manifest 或本 workflow，额外编译 `native-example` 示例并构建 Bevy benches、检查 Bevy allocation。纯文档等非 Rust 路径会跳过重型 cargo 步骤并显式记录 skip。
 - Dependency policy：cargo-deny 检查 RustSec advisories、许可证、wildcard dependency 和 crate 来源。
-- External Review：当前 head 上的非作者原生 `PullRequestReview`；Merge Queue 上盖章到 `H_mg`。
+- External Review：受信非作者 Approve/Comment（不要求绑当前 head）或 PR 正文 👍；Merge Queue 上盖章到 `H_mg`。
 
 数据 schema、Adapter build、示例 smoke test 和 Release 检查应在对应切片落地后继续加入专用门禁。
 

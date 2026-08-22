@@ -1,5 +1,5 @@
-//! External Review Check: native `PullRequestReview` on the current PR head, plus
-//! merge-group stamping onto `H_mg`. Issue/PR comments are never evidence.
+//! External Review Check: trusted non-author `APPROVED`/`COMMENTED` on the PR
+//! (any commit), or a 👍 (`+1`) on the PR body. Merge-group stamps onto `H_mg`.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -19,7 +19,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let roster = load_trusted_reviewers(&args.trusted_reviewers)?;
     let identity = load_pull_request(&args.repository, args.pr)?;
     let reviews = load_pull_request_reviews(&args.repository, args.pr)?;
-    let evaluation = evaluate(&identity, &reviews, &roster, None);
+    let reactions = load_issue_reactions(&args.repository, args.pr)?;
+    let evaluation = evaluate(&identity, &reviews, &roster, None, &reactions);
     println!(
         "{}",
         serde_json::to_string_pretty(&evaluation)
@@ -82,7 +83,14 @@ pub fn run_publish_check(args: &[String]) -> Result<(), String> {
     }
 
     let reviews = load_pull_request_reviews(&args.repository, args.pr)?;
-    let evaluation = evaluate(&initial, &reviews, &roster, args.queued_head.as_deref());
+    let reactions = load_issue_reactions(&args.repository, args.pr)?;
+    let evaluation = evaluate(
+        &initial,
+        &reviews,
+        &roster,
+        args.queued_head.as_deref(),
+        &reactions,
+    );
     let verified = load_pull_request(&args.repository, args.pr)?;
     if verified.head_sha != initial.head_sha {
         return Err(format!(
@@ -188,6 +196,12 @@ pub struct NativeReview {
     pub html_url: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssueReaction {
+    pub user_login: String,
+    pub content: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct Evaluation {
     pub repository: String,
@@ -278,6 +292,12 @@ struct RestReview {
     html_url: String,
 }
 
+#[derive(Deserialize)]
+struct RestReaction {
+    user: Option<RestUser>,
+    content: String,
+}
+
 pub fn load_trusted_reviewers(path: &Path) -> Result<ReviewerRoster, String> {
     let contents = fs::read_to_string(path)
         .map_err(|error| format!("无法读取受信审阅者名单 `{}`: {error}", path.display()))?;
@@ -324,6 +344,7 @@ pub fn evaluate(
     reviews: &[NativeReview],
     roster: &ReviewerRoster,
     queued_head: Option<&str>,
+    reactions: &[IssueReaction],
 ) -> Evaluation {
     if let Some(queued_head) = queued_head {
         if !oid_equal(queued_head, &identity.head_sha) {
@@ -352,9 +373,6 @@ pub fn evaluate(
         if !roster.logins.contains_key(&reviewer) {
             continue;
         }
-        if !oid_equal(&review.commit_id, &identity.head_sha) {
-            continue;
-        }
         if !is_accepted_review_state(&review.state) {
             continue;
         }
@@ -366,18 +384,37 @@ pub fn evaluate(
         });
     }
 
+    let issue_url = format!(
+        "https://github.com/{}/pull/{}",
+        identity.base_repo, identity.number
+    );
+    for reaction in reactions {
+        if reaction.content != "+1" {
+            continue;
+        }
+        let reviewer = normalize_login(&reaction.user_login);
+        if reviewer.is_empty() || reviewer == author {
+            continue;
+        }
+        if !roster.logins.contains_key(&reviewer) {
+            continue;
+        }
+        accepted.push(AcceptedReview {
+            reviewer,
+            state: "+1".to_string(),
+            commit_id: String::new(),
+            html_url: issue_url.clone(),
+        });
+    }
+
     let passed = !accepted.is_empty();
     let summary = if passed {
         format!(
-            "当前 head `{}` 上存在 {} 条非作者原生 PullRequestReview",
-            identity.head_sha,
+            "PR 上存在 {} 条受信非作者 Approve/Comment 或正文点赞",
             accepted.len()
         )
     } else {
-        format!(
-            "当前 head `{}` 缺少非作者受信原生 PullRequestReview；Issue/PR 评论不算证据",
-            identity.head_sha
-        )
+        "缺少受信非作者 Approve/Comment，且 PR 正文无受信点赞".to_string()
     };
 
     Evaluation {
@@ -647,6 +684,20 @@ fn rest_pull_request_identity(
     })
 }
 
+fn load_issue_reactions(repository: &str, pr: u64) -> Result<Vec<IssueReaction>, String> {
+    let endpoint = format!("repos/{repository}/issues/{pr}/reactions?per_page=100");
+    let payload = gh_api_get_paginate(&endpoint)?;
+    let parsed: Vec<RestReaction> = serde_json::from_str(&payload)
+        .map_err(|error| format!("无法解析 reactions JSON：{error}"))?;
+    Ok(parsed
+        .into_iter()
+        .map(|reaction| IssueReaction {
+            user_login: reaction.user.map(|user| user.login).unwrap_or_default(),
+            content: reaction.content,
+        })
+        .collect())
+}
+
 fn load_pull_request_reviews(repository: &str, pr: u64) -> Result<Vec<NativeReview>, String> {
     let endpoint = format!("repos/{repository}/pulls/{pr}/reviews?per_page=100");
     let payload = gh_api_get_paginate(&endpoint)?;
@@ -911,9 +962,25 @@ mod tests {
         }
     }
 
+    fn eval(
+        identity: &PullRequestIdentity,
+        reviews: &[NativeReview],
+        roster: &ReviewerRoster,
+        queued_head: Option<&str>,
+    ) -> Evaluation {
+        super::evaluate(identity, reviews, roster, queued_head, &[])
+    }
+
+    fn plus_one(login: &str) -> IssueReaction {
+        IssueReaction {
+            user_login: login.to_string(),
+            content: "+1".to_string(),
+        }
+    }
+
     #[test]
     fn human_approval_on_current_head_passes() {
-        let evaluation = evaluate(
+        let evaluation = eval(
             &identity("alice"),
             &[review(1, "wangzishi", "APPROVED", HEAD)],
             &roster(),
@@ -925,7 +992,7 @@ mod tests {
 
     #[test]
     fn copilot_commented_review_on_current_head_passes() {
-        let evaluation = evaluate(
+        let evaluation = eval(
             &identity("wangzishi"),
             &[review(
                 2,
@@ -941,7 +1008,7 @@ mod tests {
 
     #[test]
     fn author_self_review_does_not_count() {
-        let evaluation = evaluate(
+        let evaluation = eval(
             &identity("wangzishi"),
             &[review(1, "wangzishi", "APPROVED", HEAD)],
             &roster(),
@@ -951,20 +1018,44 @@ mod tests {
     }
 
     #[test]
-    fn old_head_review_does_not_count() {
-        let evaluation = evaluate(
+    fn old_head_approval_still_counts() {
+        let evaluation = eval(
             &identity("alice"),
             &[review(1, "wangzishi", "APPROVED", OLD_HEAD)],
             &roster(),
             None,
         );
+        assert!(evaluation.passed);
+    }
+
+    #[test]
+    fn trusted_pr_body_thumbs_up_passes() {
+        let evaluation = super::evaluate(
+            &identity("alice"),
+            &[],
+            &roster(),
+            None,
+            &[plus_one("copilot-pull-request-reviewer[bot]")],
+        );
+        assert!(evaluation.passed);
+        assert_eq!(evaluation.accepted_reviews[0].state, "+1");
+    }
+
+    #[test]
+    fn author_thumbs_up_does_not_count() {
+        let evaluation = super::evaluate(
+            &identity("wangzishi"),
+            &[],
+            &roster(),
+            None,
+            &[plus_one("wangzishi")],
+        );
         assert!(!evaluation.passed);
-        assert!(evaluation.summary.contains("评论不算证据"));
     }
 
     #[test]
     fn changes_requested_does_not_pass() {
-        let evaluation = evaluate(
+        let evaluation = eval(
             &identity("alice"),
             &[review(1, "wangzishi", "CHANGES_REQUESTED", HEAD)],
             &roster(),
@@ -975,7 +1066,7 @@ mod tests {
 
     #[test]
     fn dismissed_review_does_not_pass() {
-        let evaluation = evaluate(
+        let evaluation = eval(
             &identity("alice"),
             &[review(1, "wangzishi", "DISMISSED", HEAD)],
             &roster(),
@@ -986,7 +1077,7 @@ mod tests {
 
     #[test]
     fn untrusted_bot_does_not_count_even_with_native_review() {
-        let evaluation = evaluate(
+        let evaluation = eval(
             &identity("alice"),
             &[review(1, "chatgpt-codex-connector[bot]", "COMMENTED", HEAD)],
             &roster(),
@@ -997,7 +1088,7 @@ mod tests {
 
     #[test]
     fn latest_changes_requested_supersedes_earlier_approval() {
-        let evaluation = evaluate(
+        let evaluation = eval(
             &identity("alice"),
             &[
                 review(1, "wangzishi", "APPROVED", HEAD),
@@ -1011,7 +1102,7 @@ mod tests {
 
     #[test]
     fn queued_head_mismatch_fails_merge_group_stamp() {
-        let evaluation = evaluate(
+        let evaluation = eval(
             &identity("alice"),
             &[review(1, "wangzishi", "APPROVED", HEAD)],
             &roster(),
@@ -1023,7 +1114,7 @@ mod tests {
 
     #[test]
     fn queued_head_match_passes_merge_group_stamp() {
-        let evaluation = evaluate(
+        let evaluation = eval(
             &identity("alice"),
             &[review(1, "wangzishi", "APPROVED", HEAD)],
             &roster(),
@@ -1072,10 +1163,10 @@ mod tests {
     }
 
     #[test]
-    fn comments_are_not_part_of_the_review_model() {
-        let evaluation = evaluate(&identity("alice"), &[], &roster(), None);
+    fn empty_reviews_and_reactions_fail() {
+        let evaluation = eval(&identity("alice"), &[], &roster(), None);
         assert!(!evaluation.passed);
-        assert!(evaluation.summary.contains("原生 PullRequestReview"));
+        assert!(evaluation.summary.contains("点赞"));
     }
 
     #[test]

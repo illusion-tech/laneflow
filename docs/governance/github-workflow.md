@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active
-**最后更新**: 2026-08-21
+**最后更新**: 2026-08-22
 
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
@@ -156,8 +156,9 @@ PR 与 `merge_group` 同名。`External Review` 按 ADR 0026 启用顺序，先�
   `External Review` 在此为盖章。
 - Main Result `H_main` 是 GitHub 执行 rebase 后进入 `main` 的结果。
 
-失效边界：PR 新 push、force-push 或冲突修复产生新 `H_pr` 时，旧审阅与入队资格
-全部 stale。`main` 前进只废弃旧 `H_mg` 并重跑机器检查。
+失效边界：PR 新 push、force-push 或冲突修复产生新 `H_pr` 时，入队资格与机器检查
+按新 head 重跑。External Review 不因 `H_pr` 变化作废已有受信 Approve/Comment 或
+PR 正文点赞。`main` 前进只废弃旧 `H_mg` 并重跑机器检查。
 
 ```powershell
 gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>

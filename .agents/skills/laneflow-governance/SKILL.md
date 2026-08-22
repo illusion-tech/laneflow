@@ -40,10 +40,9 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 
 ## 外部审阅与合并
 
-- `External Review` Check 只接受绑定当前 `H_pr` 的原生 `PullRequestReview`。
-- 普通 PR 评论一律不算。作者自审不计入。
-- 受信名单是默认分支上的 `.github/trusted-reviewers.json`。无法生成原生 Review
-  的机器人不得列入。
+- `External Review` Check 接受受信非作者的原生 `APPROVED`/`COMMENTED`（不要求
+  绑当前 head），或受信非作者对 PR 正文的 👍。作者自审不计入。
+- 受信名单是默认分支上的 `.github/trusted-reviewers.json`。
 - 未解决对话由 GitHub `required_review_thread_resolution` 拦截，不要自己数 thread。
 - `main` 走 Merge Queue（最终 Rebase）：
 

@@ -38,15 +38,15 @@ GitHub Reviews API 与 Check Run。正文和评论允许编辑；不把评论当
 
 ### 2. 用 commit OID 绑定身份
 
-人审批当前 PR head `H_pr`。CI / CodeQL 批 Merge Queue 的合并组 head `H_mg`。`H_pr`
-变了人审作废；`main` 前进只重跑机器检查。墙钟先后、同秒顺序、comment 必须晚于
-review 等规则废止。
+CI / CodeQL 批 Merge Queue 的合并组 head `H_mg`。`main` 前进只重跑机器检查。
+人审不因 `H_pr` 变化自动作废：结论未变而不重盖章的受信 Approve 仍算。墙钟先后、
+同秒顺序、comment 必须晚于 review 等规则废止。
 
 ### 3. 删除 G3 / G4 手续
 
 删除：G3 Owner comment、`check-gate-evidence`、Evidence Gate Shadow、Gate Ledger
 勾选与 permalink、自指 cargo 断言、「维护者点头」第二钥匙、G4
-`merge-queue-g4-evidence:v1`。不删除「当前 head 上要有非作者受信审阅」和
+`merge-queue-g4-evidence:v1`。不删除「PR 上要有受信非作者 Approve/Comment 或正文点赞」和
 「CI / CodeQL 必须绿才能进 main」。
 
 合入事实以 GitHub `mergeCommit` 与 merge group `head_sha` 为准。
@@ -83,20 +83,20 @@ G0 / G1 / G2 仍作为人可读的立项、设计冻结、开工意图，不进 
 `BREAKING CHANGE:`。不检查 `Gate` / `Slice` / `Impact` / `Scope` / `Validation` /
 `Docs`。历史提交上残留的旧 G3 字段忽略。
 
-### 6. External Review 只认原生 PullRequestReview
+### 6. External Review：受信 Approve/Comment 或 PR 正文点赞
 
-Check 名固定为 `External Review`。
+Check 名固定为 `External Review`。满足**任一**即可通过：
 
-通过条件：当前 `H_pr` 上存在至少一条非作者、列入 `.github/trusted-reviewers.json`
-的已提交原生 `PullRequestReview`，且其 `commit_id` 等于当前 head，状态为
-`APPROVED` 或 `COMMENTED`。每位 reviewer 只看其最新一条已提交 review。
-`CHANGES_REQUESTED`、`DISMISSED`、`PENDING`、旧 head、作者自审均不算。
+1. 受信名单中的非作者在本 PR 上已提交原生 `APPROVED` 或 `COMMENTED`。**不要求**
+   `commit_id` 等于当前 head。
+2. 受信名单中的非作者对本 PR 正文点了 👍（Issue reaction `+1`）。
 
-普通 Issue / PR 评论一律不算。无法生成原生 Review 的机器人不得列入受信名单。
+每位 reviewer 只看其最新一条已提交 Review。`CHANGES_REQUESTED`、`DISMISSED`、
+`PENDING`、作者自审、未列入名单均不算。
+
 初始名单包含 `wangzishi` 与 `copilot-pull-request-reviewer`。后继已把
 `chatgpt-codex-connector`（ChatGPT Codex Connector）与 `kody-ai`（Kodus Kody AI）
-列入同一 JSON；二者均对 PR 提交原生 `PullRequestReview`。名单仍不把普通
-Issue/PR 评论算作证据。`qodo-code-review` 是另一个产品，未列入。
+列入同一 JSON。`qodo-code-review` 是另一个产品，未列入。
 
 未解决对话由 Ruleset `required_review_thread_resolution: true` 拦截。Check 不
 维护 thread 是否已解决，也不再使用 `thread-state-changed` marker。

@@ -60,15 +60,16 @@ CI 的 `Markdown tables` job 对协作范围内的 Markdown 执行相同检查�
 
 ## 4. 外部审阅
 
-所有切片默认需要一个非作者受信原生 `PullRequestReview`，绑定当前 `H_pr`。名单见
-`.github/trusted-reviewers.json`。普通评论不算。未解决对话由 GitHub 原生规则拦截。
+所有切片默认需要受信非作者 Approve/Comment，或受信非作者对 PR 正文点赞。名单见
+`.github/trusted-reviewers.json`。未解决对话由 GitHub 原生规则拦截。
 
 | 场景                                                     | 结果                           |
 | -------------------------------------------------------- | ------------------------------ |
-| 无原生 Review，只有评论或 review request                 | Fail                           |
-| 只有 PR author self-review                               | Fail                           |
-| 受信 reviewer 在当前 head 提交 `APPROVED` 或 `COMMENTED` | Pass                           |
-| Review 绑在旧 head                                       | Fail                           |
+| 无原生 Review、无正文 👍                                 | Fail                           |
+| 只有 PR author self-review 或作者点赞                    | Fail                           |
+| 受信 reviewer 提交 `APPROVED` 或 `COMMENTED`（任意 head） | Pass                           |
+| 受信 reviewer 对 PR 正文点 👍                            | Pass                           |
+| Review 绑在旧 head 且结论仍为 Approve/Comment            | Pass                           |
 | 最新 review 为 `CHANGES_REQUESTED` 或 `DISMISSED`        | Fail                           |
 | 未列入名单的 bot（例如当前的 Codex connector）即使有评论 | Fail                           |
 | `main` 前进但 `H_pr` 未变                                | 人审保留；重跑 `H_mg` 机器检查 |

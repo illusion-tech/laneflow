@@ -49,7 +49,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 迁移预言机           | migration oracle                         | —                               | 用于对照目标实现语义、行为或字节结果的独立基准实现。                                                    |
 | 开发闸口             | development gate                         | `G0`–`G2`                       | LaneFlow 从立项、设计冻结到开工的人流程；合并由 required checks、原生审阅与 Merge Queue 承担。          |
 | 受信审阅者名单       | trusted reviewers roster                 | `laneflow.trusted-reviewers.v1` | 默认分支 `.github/trusted-reviewers.json` 中可对当前 PR head 提交原生 `PullRequestReview` 的账号列表。  |
-| 外部审阅检查         | External Review check                    | `External Review`               | 只认绑定当前 `H_pr` 的非作者原生 PullRequestReview，并在 `H_mg` 上盖章的合并门禁 Check。                |
+| 外部审阅检查         | External Review check                    | `External Review`               | 认受信非作者原生 Approve/Comment（不要求绑当前 head）或 PR 正文 👍，并在 `H_mg` 上盖章的合并门禁 Check。 |
 | 仅遥测               | telemetry-only                           | —                               | 只记录或观察状态、不发布 required 结论也不更新既有门禁结论的运行方式。                                  |
 | 合并队列             | merge queue                              | GitHub Merge Queue              | GitHub 对已满足 PR 级要求的变更按队列顺序创建合并组、验证最新默认分支组合并在成功后执行合并的平台机制。 |
 | 合并组               | merge group                              | `merge_group`                   | 合并队列为最新默认分支、队列前序变更与当前 PR 生成的临时集成候选；其 Head SHA 承载队列级机器检查。      |
