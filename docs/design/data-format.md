@@ -1,7 +1,7 @@
 # Data Format 设计
 
 **文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）<br>
-**最后更新**: 2026-08-18（#281 current；ADR 0025 / #300 G1 target 修订）<br>
+**最后更新**: 2026-08-22（#281 current；ADR 0025 / #300 G1 target 修订；#301 G1 拆除所有权）<br>
 **适用范围**: 当前 Traffic v0.10、SpatialPackage v0.1、ScenarioManifest v0.1、保留的 Data v0.6 数值研究输入，以及 compiler target 的格式边界
 
 **关联文档**:
@@ -74,11 +74,9 @@ ADR 0020 不把当前 Traffic JSON 直接改名为编译器中间表示（Compil
 
 编译器从已验证规范低层中间表示（Validated Canonical LIR）发射 LFCA/LFSM/LFSD；
 `laneflow-static-network` 再从受检 LFCA 构建共享修订。目标态交通运行时（Traffic
-Runtime）安装完整根，空间层（Spatial）只从同一根或 revision-bound snapshot 借用对齐
-component。目标动态层一次性
+Runtime）安装完整根，空间层（Spatial）只 bind 同一根 `Arc`，不依赖 Runtime。目标动态层一次性
 不兼容命名为 `laneflow-runtime`/`TrafficWorld`。`formatVersion: "0.10"`、本章数据包模型
-（Package Model）和 §7–§8 的 JSON→Core 规范化在阶段 8 生产切换 Issue #294 完成
-G4 前继续是当前契约，但不再约束目标编译器中间表示或共享内存布局。目标版本轴、发布
+（Package Model）和 §7–§8 的 JSON→Core 规范化在 #301 拆除 current JSON 运行时入口前继续是当前契约，但不再约束目标编译器中间表示或共享内存布局。目标版本轴、发布
 与迁移规则见 ADR 0020、ADR 0025 和 `network-compiler.md`。
 
 ## 2. 当前 Package Model

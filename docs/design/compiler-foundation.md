@@ -2,7 +2,7 @@
 
 **文档状态**: #292 已接受并完成 G4；#315 共同受检模块接入契约已实现；
 #297 current JSON 编译器导入设计已取消；#299 后继边界见 Accepted ADR 0024<br>
-**最后更新**: 2026-08-18<br>
+**最后更新**: 2026-08-22<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
@@ -1029,7 +1029,7 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
   `SpatialRegistry`，多 frame LIR 在本迁移桥显式失败，不把该限制回写为编译器契约；
 - 不读取当前态 `Traffic v0.10` `JSON` 形成目标态语义；
 - 投影不成为 `laneflow-compiler` 功能特性（feature），不被生产编译发射器复用；
-- #294 完成生产切换时删除。
+- #301 拆除 current Core/JSON 运行时入口时删除。
 
 调整后的投影验证矩阵覆盖：
 

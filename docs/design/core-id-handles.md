@@ -47,8 +47,8 @@ typed ordinal 双向翻译；它不进入 steady tick，也不能证明同一 St
 路网修订间语义兼容。跨修订状态迁移仍必须使用由 #302 可信切换输入绑定的
 语义差异（Semantic Diff），不能采用仅凭索引的回退。显示名、来源位置和完整规范元组等
 诊断数据由可移植制品、源映射或独立诊断制品外置提供，不进入 v1 shared static
-network。本文后续“Core 初始化阶段 normalization”继续描述 current，直到阶段 8
-生产切换 Issue #294 完成 runtime cutover G4。
+network。本文后续“Core 初始化阶段 normalization”继续描述 current，直到 #301
+拆除 current Core/JSON 运行时入口。
 
 ## 2. 背景
 

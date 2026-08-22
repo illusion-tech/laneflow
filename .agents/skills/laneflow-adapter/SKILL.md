@@ -17,7 +17,10 @@ description: 处理 LaneFlow 引擎适配器（Engine Adapter）工作。适用�
    `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、
    `docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、
    `docs/design/network-compiler.md` 与 `docs/design/shared-static-network.md`
-8. 涉及城市模拟游戏集成、存档/回放、路网切换或 fidelity 时，读取
+8. 涉及 #301 目标 Runtime/Spatial 绑定、最小 Bevy 或 Adapter 目标接线时，读取
+   `docs/design/traffic-runtime-shared-consumption.md`。Spatial 只 bind 根 `Arc`，
+   不依赖 Runtime；pose 使用 `PoseRecordId`。
+9. 涉及城市模拟游戏集成、存档/回放、路网切换或 fidelity 时，读取
    `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 
 若 Adapter API 设计尚不存在，且任务会改变当前 Core / 目标 Traffic Runtime 与
@@ -58,6 +61,8 @@ Adapter 不得：
 - 拥有出行需求、Routing、静态规则、运行时分区（Runtime Partition），或把宿主
   Entity/seed 写入共享静态路网/运行时快照权威；也不得单独替换 Traffic/Spatial
   component 或把内部连续数组当作稳定 Adapter ABI。
+- 让 Spatial 依赖 Runtime，或从 Runtime 发布的 snapshot/facade 借用 Spatial
+  component。
 
 ## 验证
 

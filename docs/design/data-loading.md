@@ -54,8 +54,8 @@ ADR 0020 target 把完整静态 semantic normalization 前移到 compiler。Acce
 #300 决定共享静态路网构建输入。Accepted ADR 0025 / #300 G1 让发布加载先认证 LFCP v2 /
 manifest 的 exact LFCA binding，再由 `laneflow-format` 建立受检 capability，并由
 `laneflow-static-network` 构建闭合的 `SharedNetworkRevision`。Traffic、Identity 与
-Hints component 必选，Spatial component 可选；Runtime 安装完整根，Spatial 从同一根或
-revision-bound snapshot 借用实际 capability。两者不解析 JSON 或 LFCA、不按 external
+Hints component 必选，Spatial component 可选；Runtime 安装完整根，Spatial 只 bind 同一根
+`Arc`，不依赖 Runtime。两者不解析 JSON 或 LFCA、不按 external
 string rebind，也不重跑 authoring topology/geometry derivation。
 
 Accepted ADR 0024 规定完整静态语义由 compiler 在发射前裁决，#299 不重复该
@@ -64,8 +64,8 @@ Accepted ADR 0024 规定完整静态语义由 compiler 在发射前裁决，#299
 Diff）摘要和迁移策略由 #302 重新冻结，不得继续假设 `revision-cutover-v1` receipt
 存在。LFSD 只记录变更事实，不构成激活授权或迁移权威。
 共享根的 origin metadata 不是发布信任锚。本文其余 `LoadedPackage` /
-`InitialTrafficData` 路径仍是 current production contract，直到 shared-network
-cutover 完成 G4；target `laneflow-runtime` 不复用 private current DTO 作为 IR。
+`InitialTrafficData` 路径仍是 current production contract，直到 #301 拆除 JSON
+运行时入口；target `laneflow-runtime` 不复用 private current DTO 作为 IR。
 
 ## 2. Crate 与 API 边界
 
@@ -351,7 +351,7 @@ version 并在同一交付 PR 中完成这些切换；不保留 v0.9 分派、�
 
 本节 wire DTO、版本/摘要/配对实现已经集中到未发布的 `laneflow-current-source`，并
 由 `laneflow-data` 消费。#297 调整后不再建立 strict compiler 导入策略；current JSON
-只作为当前内部加载路径和仓库夹具保留到 #294，不形成外部兼容或迁移工具承诺。
+只作为当前内部加载路径和仓库夹具保留到 #301，不形成外部兼容或迁移工具承诺。
 
 Scenario loader 不替代现有 Traffic loader，而是在它外层建立精确制品配对和 Spatial 规范化：
 
