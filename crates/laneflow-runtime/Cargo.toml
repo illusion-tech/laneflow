@@ -1,23 +1,25 @@
 [package]
-name = "laneflow-spatial"
+name = "laneflow-runtime"
 version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
-description = "LaneFlow 引擎无关的标准空间类型与共享根位姿采样 crate。"
+description = "LaneFlow 交通运行时：消费共享静态路网修订的每世界可变状态与固定步进。"
 publish = false
 
 [lib]
-name = "laneflow_spatial"
+name = "laneflow_runtime"
 path = "src/lib.rs"
 
 [dependencies]
 laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
 laneflow-static-network = { version = "0.0.0", path = "../laneflow-static-network" }
+thiserror = "2.0"
 
 [dev-dependencies]
 laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
+laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
 
 [lints]
 workspace = true

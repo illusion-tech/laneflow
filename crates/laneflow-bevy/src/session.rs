@@ -1,21 +1,12 @@
-//! 单活动 LaneFlow Session 与 outer-frame 可观察状态。
+//! 单活动 LaneFlow Session：TrafficWorld + 可选 Spatial session。
 
 use std::{num::NonZeroU32, time::Duration};
 
 use bevy_ecs::resource::Resource;
-use laneflow_core::{CoreWorld, StepResult};
-use laneflow_spatial::{
-    CanonicalPoseBatchF32, CanonicalPoseBatchScratch, FramePlacementToken, PoseInputRecord,
-    SpatialRegistry,
-};
+use laneflow_runtime::{StepOutcome, TickInput, TrafficWorld};
+use laneflow_spatial::SpatialSession;
 
-use crate::{
-    LaneFlowAdapterError,
-    presentation::{
-        LaneFlowFramePlacement, LaneFlowPresentationReport, LaneFlowVehicleEntityMap,
-        StagedTransform,
-    },
-};
+use crate::LaneFlowAdapterError;
 
 /// 单活动 Session 的 fixed-schedule 配置。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,7 +20,7 @@ impl LaneFlowSessionConfig {
         Self { max_catch_up_steps }
     }
 
-    /// 返回单个 outer frame 允许的最大 Core step 数。
+    /// 返回单个 outer frame 允许的最大 step 数。
     pub const fn max_catch_up_steps(self) -> NonZeroU32 {
         self.max_catch_up_steps
     }
@@ -50,7 +41,7 @@ impl LaneFlowFrameReport {
         self.frame_delta
     }
 
-    /// 返回该 outer frame 成功提交的 Core step 数。
+    /// 返回该 outer frame 成功提交的 step 数。
     pub const fn steps_run(self) -> u32 {
         self.steps_run
     }
@@ -69,52 +60,25 @@ impl LaneFlowFrameReport {
 /// 一个 Bevy `App` 中唯一活动的 LaneFlow runtime resource。
 #[derive(Resource)]
 pub struct LaneFlowSession {
-    pub(crate) core: CoreWorld,
-    pub(crate) spatial: SpatialRegistry,
-    pub(crate) pose_inputs: Vec<PoseInputRecord>,
-    pub(crate) pose_batch: CanonicalPoseBatchF32,
-    pub(crate) pose_scratch: CanonicalPoseBatchScratch,
-    pub(crate) transform_staging: Vec<StagedTransform>,
-    pub(crate) vehicle_entities: LaneFlowVehicleEntityMap,
-    pub(crate) frame_placement: Option<LaneFlowFramePlacement>,
-    pub(crate) presentation_report: LaneFlowPresentationReport,
-    pub(crate) pose_batch_is_validated: bool,
+    world: TrafficWorld,
+    spatial: Option<SpatialSession>,
     config: LaneFlowSessionConfig,
     accumulator: Duration,
     frame_report: LaneFlowFrameReport,
-    frame_step_results: Vec<StepResult>,
+    frame_step_results: Vec<StepOutcome>,
     pub(crate) last_error: Option<LaneFlowAdapterError>,
 }
 
 impl LaneFlowSession {
-    /// 创建不预留 pose scratch 容量的 Session。
-    pub fn new(core: CoreWorld, spatial: SpatialRegistry, config: LaneFlowSessionConfig) -> Self {
-        Self::with_pose_capacity(core, spatial, config, 0)
-    }
-
-    /// 创建并预留 Adapter pose scratch 容量的 Session。
-    pub fn with_pose_capacity(
-        core: CoreWorld,
-        spatial: SpatialRegistry,
+    /// 创建 Session。
+    pub fn new(
+        world: TrafficWorld,
+        spatial: Option<SpatialSession>,
         config: LaneFlowSessionConfig,
-        pose_capacity: usize,
     ) -> Self {
-        let frame_id = spatial.frame_id().clone();
         Self {
-            core,
+            world,
             spatial,
-            pose_inputs: Vec::with_capacity(pose_capacity),
-            pose_batch: CanonicalPoseBatchF32::with_capacity(
-                frame_id,
-                FramePlacementToken::new(0),
-                pose_capacity,
-            ),
-            pose_scratch: CanonicalPoseBatchScratch::with_capacity(pose_capacity),
-            transform_staging: Vec::with_capacity(pose_capacity),
-            vehicle_entities: LaneFlowVehicleEntityMap::with_capacity(pose_capacity),
-            frame_placement: None,
-            presentation_report: LaneFlowPresentationReport::default(),
-            pose_batch_is_validated: false,
             config,
             accumulator: Duration::ZERO,
             frame_report: LaneFlowFrameReport::default(),
@@ -123,48 +87,38 @@ impl LaneFlowSession {
         }
     }
 
-    /// 返回 Core 权威状态的只读视图。
-    pub const fn core(&self) -> &CoreWorld {
-        &self.core
+    /// 交通世界。
+    pub const fn world(&self) -> &TrafficWorld {
+        &self.world
     }
 
-    /// 返回 Spatial 权威注册表的只读视图。
-    pub const fn spatial(&self) -> &SpatialRegistry {
-        &self.spatial
+    /// 可选 Spatial session。
+    pub const fn spatial(&self) -> Option<&SpatialSession> {
+        self.spatial.as_ref()
     }
 
-    /// 返回 Session 配置。
+    /// Session 配置。
     pub const fn config(&self) -> LaneFlowSessionConfig {
         self.config
     }
 
-    /// 返回当前完整保留的时间 backlog。
-    pub const fn accumulator(&self) -> Duration {
-        self.accumulator
-    }
-
-    /// 返回最近一个 outer frame 的推进摘要。
+    /// 最近一个 outer frame 的推进摘要。
     pub const fn frame_report(&self) -> LaneFlowFrameReport {
         self.frame_report
     }
 
-    /// 返回最近一个 outer frame 中按执行顺序提交的全部 Core step 结果。
-    pub fn frame_step_results(&self) -> &[StepResult] {
+    /// 最近一个 outer frame 中按执行顺序提交的步进结果。
+    pub fn frame_step_results(&self) -> &[StepOutcome] {
         &self.frame_step_results
     }
 
-    /// 返回最近一个 outer frame 的结构化失败；成功或尚未运行时返回 `None`。
+    /// 最近失败。
     pub const fn last_error(&self) -> Option<&LaneFlowAdapterError> {
         self.last_error.as_ref()
     }
 
-    /// 返回可复用 pose scratch 的当前容量。
-    pub const fn pose_scratch_capacity(&self) -> usize {
-        self.pose_scratch.capacity()
-    }
-
     pub(crate) fn fixed_quantum(&self) -> Duration {
-        Duration::from_millis(self.core.fixed_delta_time_ms())
+        Duration::from_millis(self.world.config().fixed_delta_time_ms())
     }
 
     pub(crate) fn begin_outer_frame(&mut self, frame_delta: Duration) -> bool {
@@ -176,7 +130,6 @@ impl LaneFlowSession {
             backlog: self.accumulator,
             catch_up_limit_reached: false,
         };
-
         let Some(accumulator) = self.accumulator.checked_add(frame_delta) else {
             self.last_error = Some(LaneFlowAdapterError::AccumulatorOverflow {
                 backlog: self.accumulator,
@@ -203,37 +156,29 @@ impl LaneFlowSession {
         self.last_error.is_none() && self.accumulator >= self.fixed_quantum()
     }
 
-    pub(crate) fn step_core(&mut self) {
+    pub(crate) fn step_world(&mut self) {
         if self.last_error.is_some() {
             return;
         }
-
-        let tick_index = self.core.tick_index();
-        let fixed_delta_time_ms = self.core.fixed_delta_time_ms();
-        match self
-            .core
-            .step(laneflow_core::TickInput::new(fixed_delta_time_ms))
-        {
+        let delta = self.world.config().fixed_delta_time_ms();
+        match self.world.step(TickInput::new(delta)) {
             Ok(result) => {
                 self.accumulator = self
                     .accumulator
-                    .checked_sub(Duration::from_millis(fixed_delta_time_ms))
-                    .expect("driver only runs a Core step when one full quantum is available");
+                    .checked_sub(self.fixed_quantum())
+                    .unwrap_or(Duration::ZERO);
+                self.frame_report.steps_run = self.frame_report.steps_run.saturating_add(1);
                 self.frame_step_results.push(result);
             }
-            Err(source) => {
-                self.last_error = Some(LaneFlowAdapterError::CoreStep { tick_index, source });
+            Err(error) => {
+                self.last_error = Some(LaneFlowAdapterError::StepFailed(error));
             }
         }
     }
 
     pub(crate) fn finish_outer_frame(&mut self) {
-        let steps_run = u32::try_from(self.frame_step_results.len())
-            .expect("successful steps cannot exceed the configured u32 catch-up limit");
-        self.frame_report.steps_run = steps_run;
         self.frame_report.backlog = self.accumulator;
-        self.frame_report.catch_up_limit_reached = self.last_error.is_none()
-            && steps_run == self.config.max_catch_up_steps.get()
-            && self.accumulator >= self.fixed_quantum();
+        self.frame_report.catch_up_limit_reached =
+            self.last_error.is_none() && self.accumulator >= self.fixed_quantum();
     }
 }

@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::path::{Component, Path};
 
-use laneflow_core::MAX_PORTABLE_SIGNAL_TIME_MS;
 use serde::Deserialize;
 
 use crate::Error;
@@ -11,6 +10,7 @@ pub const VEHICLE_LENGTH_METERS: f64 = 4.5;
 pub const MIN_GAP_METERS: f64 = 2.0;
 pub const ENDPOINT_CLEARANCE_METERS: f64 = VEHICLE_LENGTH_METERS + MIN_GAP_METERS;
 pub const MIN_SPAWN_SLOT_COUNT: usize = 200;
+const MAX_PORTABLE_SIGNAL_TIME_MS: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

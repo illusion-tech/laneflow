@@ -8,6 +8,40 @@ pub use laneflow_static_contract::{
 
 use crate::{SpatialAxis, SpatialError};
 
+/// 调用方分配的不透明 pose 记录身份。Spatial 不解释为车辆。
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct PoseRecordId(u32);
+
+/// Adapter 为 canonical frame 的某次宿主放置颁发的不透明等值 token。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FramePlacementToken(u64);
+
+impl FramePlacementToken {
+    /// 从调用方拥有的稳定值创建 token。
+    #[must_use]
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+}
+
+impl PoseRecordId {
+    /// 从调用方拥有的稳定值创建记录身份。
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+}
+
 /// 标准坐标框架 ID 使用的稳定 ASCII token 模式。
 pub const CANONICAL_FRAME_ID_PATTERN: &str = "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$";
 
