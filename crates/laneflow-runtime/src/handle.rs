@@ -9,7 +9,6 @@ pub struct RouteHandle {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum RouteKind {
     Static,
-    #[allow(dead_code)]
     Dynamic,
 }
 
@@ -22,19 +21,24 @@ impl RouteHandle {
         }
     }
 
-    #[allow(dead_code)]
+    pub(crate) const fn dynamic_route(index: u32, generation: u32) -> Self {
+        Self {
+            kind: RouteKind::Dynamic,
+            index,
+            generation,
+        }
+    }
+
     #[must_use]
     pub(crate) const fn is_static(self) -> bool {
         matches!(self.kind, RouteKind::Static)
     }
 
-    #[allow(dead_code)]
     #[must_use]
     pub(crate) const fn index(self) -> u32 {
         self.index
     }
 
-    #[allow(dead_code)]
     #[must_use]
     pub(crate) const fn generation(self) -> u32 {
         self.generation
@@ -48,7 +52,6 @@ pub struct VehicleHandle {
     generation: u32,
 }
 
-#[allow(dead_code)]
 impl VehicleHandle {
     pub(crate) const fn new(index: u32, generation: u32) -> Self {
         Self { index, generation }
