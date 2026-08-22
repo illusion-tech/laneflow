@@ -1,7 +1,7 @@
 # 当前 JSON 退役与编译器测试边界
 
 **文档状态**：Accepted（取代原“当前包迁移导入前端”设计）<br>
-**调整日期**：2026-08-10<br>
+**调整日期**：2026-08-22<br>
 **关联议题**：#297、#301
 
 ## 1. 结论
@@ -63,7 +63,7 @@ current JSON -> compiler frontend -> HIR/MIR/LIR
 ### 4.1 `laneflow-data`
 
 继续拥有当前态 JSON 到 `LoadedPackage`（内含 `InitialTrafficData`）/
-`LoadedSpatialPackage` 的加载与规范化，直到 #294 完成主代码路径切换。
+`LoadedSpatialPackage` 的加载与规范化，直到 #301 拆除 JSON 运行时入口。
 `LoadedSpatialPackage` 只保存已绑定当前车道图的受检空间输入；`SpatialRegistry` 由
 调用方通过 `SpatialRegistry::try_new` 构造，不属于 `laneflow-data` 的构造权威。旧
 加载器测试只验证仓库当前仍使用的接受集合、错误分类和加载结果，不作为编译器的语义
@@ -78,7 +78,7 @@ current JSON -> compiler frontend -> HIR/MIR/LIR
 除修复当前加载路径的实际正确性问题外，不再为逐项复刻未承诺的 Serde 边缘行为增加
 手写解析复杂度。
 
-`CurrentSourceIssueContext` 与 `CurrentSourceErrorPayload::stable_code` 只是在 #294 删除
+`CurrentSourceIssueContext` 与 `CurrentSourceErrorPayload::stable_code` 只是在 #301 删除
 当前加载路径前维持跨内部包错误传递的可执行契约；其精确形状和字符串映射分别由
 `laneflow-current-source/src/error.rs` 及 `tests/current_loading.rs` 共同约束。本文不复制
 一张可能形成长期兼容暗示的错误码表，这些内部符号也不构成公开诊断协议。
@@ -87,7 +87,7 @@ current JSON -> compiler frontend -> HIR/MIR/LIR
 
 只消费 `ValidatedCanonicalLir` 并投影到当前 Core/Spatial，用于切换期集成验证。测试
 直接构造编译器原生有类型模块，并对投影实体、关系、几何和确定性做显式断言；该包
-不依赖 `laneflow-data` 或 `serde_json`。
+不依赖 `laneflow-data` 或 `serde_json`。#301 拆除 Core 时一并删除本包。
 
 ### 4.4 不建立的包和 API
 

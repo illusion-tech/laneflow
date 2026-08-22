@@ -1,7 +1,7 @@
 # 架构
 
 **文档状态**: Accepted（current + #291 target design + ADR 0025 / #300 G1 修订）<br>
-**最后更新**: 2026-08-19<br>
+**最后更新**: 2026-08-22<br>
 **适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Core/Adapter 边界，以及 #291/ADR 0020/0021 和 Accepted ADR 0025 的城市模拟游戏交通基础与目标静态编译架构
 
 ## 1. 架构目标
@@ -365,10 +365,11 @@ Adapter 可以按需调用 `laneflow-data` 解析自身 asset pipeline 已读取
 
 ADR 0025 target 中，Adapter/宿主 asset pipeline 负责认证发布资产或提供已提交道路编辑
 状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
-`Arc<SharedNetworkRevision>`。Runtime 安装完整根；Spatial/Adapter 只从同一根或 Runtime
-发布的 revision-bound snapshot/facade 借用对应只读 component，不存在独立 component
-安装或重新组合 API。Adapter 不读取 compiler IR、LFCA 表语义，也不拥有共享静态规则或
-单独替换 component。
+`Arc<SharedNetworkRevision>`。Runtime 安装完整根；Spatial 只 `bind` 同一根 `Arc`，不依赖
+Runtime，也不从 Runtime 发布的 snapshot/facade 借用。同时持有 world 与 session 的 Adapter
+必须 `Arc::ptr_eq`。不存在独立 component 安装或重新组合 API。#302 若发布
+revision-bound 只读 facade，必须内部保留同一根 `Arc`，不得把 Spatial 绑到 Runtime 类型。
+Adapter 不读取 compiler IR、LFCA 表语义，也不拥有共享静态规则或单独替换 component。
 它也不得把细节层次、可见性或帧预算转换为交通 fidelity：宿主可以暂停、慢放或
 统一改变模拟时间推进速度，但不能静默丢 fixed tick、丢事件或让不同分区读取不同
 逻辑时点。任何多频率或 aggregate 降级必须由独立 fidelity contract 和 G1 冻结。

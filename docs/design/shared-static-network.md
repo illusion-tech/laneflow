@@ -462,7 +462,7 @@ Spatial 基线或性能证据职责。
 ### 13.1 已锁定产品决策
 
 1. **覆盖切面 = v0.10 切换完整集。** 投影当前 Core 已经从 Traffic JSON 消费的全部
-   静态事实，使阶段 8 `#294` 去掉 current JSON 时不必再开第二次静态投影。不投影
+   静态事实，使 #301 去掉 current JSON 时不必再开第二次静态投影。不投影
    `#282` 等待区占用求解、`#284` 冲突裁决、`#237` 动态车道用途。
 2. **热路径不进 UTF-8；设施 kind 用有类型列。** `Movement` 的 directed entry/exit
    approach key 与 `AccessRule.regulation` 的司法管辖/version/source 仍留在

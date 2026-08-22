@@ -1,7 +1,7 @@
 # 文档边界政策
 
 **文档状态**: Active  
-**最后更新**: 2026-08-21
+**最后更新**: 2026-08-22
 **适用范围**: LaneFlow 的 GitHub 治理、仓库文档治理和 AI Agent 开发上下文
 
 ## 1. 目标
@@ -118,7 +118,7 @@ LaneFlow 初期默认不使用 GitHub Wiki。长期知识应进入仓库文档�
 
 JSON Schema `$id` 与 runtime loader 路径必须分开描述。ADR 0011 的公共 retrieval /
 永久保留义务已被 ADR 0026 取代；不得把内部 schema 文件写成对外兼容承诺。历史
-closure review 只记录当时事实。current JSON schema 在 #294 删除旧生产路径前仅供
+closure review 只记录当时事实。current JSON schema 在 #301 删除旧生产路径前仅供
 仓库内部 loader 与测试使用。
 
 ## 4. 决策回写规则

@@ -1,8 +1,8 @@
 # 适配器应用程序接口（API）
 
-**文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）
+**文档状态**: Accepted（current + #291 target 导航；#301 G1 目标绑定已对齐）
 
-**最后更新**: 2026-08-18（#187 current；#291/ADR 0020 target；Accepted ADR 0024 后继边界）
+**最后更新**: 2026-08-22（#187 current；#291/ADR 0020 target；Accepted ADR 0024 后继边界；#301 G1 根 `Arc` 绑定）
 
 **适用范围**: Core、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与 typed lifecycle 契约；具体 Bevy 0.19 specialization 见 `bevy-reference-adapter.md`
 
@@ -22,6 +22,7 @@
 - `spatial-geometry.md`
 - `bevy-reference-adapter.md`
 - `example-scenarios.md`
+- `traffic-runtime-shared-consumption.md`
 
 ## 1. 目标与术语
 
@@ -46,13 +47,18 @@ ADR 0020/0025 target 不改变表内 authority。current
 `LaneFlow Core` clean-break 为 `LaneFlow Traffic Runtime` / `laneflow-runtime`。
 宿主 asset pipeline 为发布加载认证 LFCP v2 / manifest，或为本地编辑提供已提交道路
 状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
-`Arc<SharedNetworkRevision>`。Runtime 安装完整根；Spatial 只从同一根或 Runtime 发布的
-revision-bound snapshot/facade 借用 optional `SharedSpatialNetwork`，不存在独立的 Traffic
-或 Spatial component 安装入口。Adapter 不解析 compiler IR 或 LFCA table，不重建
-Traffic/Spatial binding，也不读取共享数组中的静态规则来自行裁决行为或单独替换
-component。本文后续 JSON/registry 生命周期仍描述 current，直到 shared-network cutover G4。
+`Arc<SharedNetworkRevision>`。Runtime 安装完整根。`SpatialSession::bind` 只接受该
+根 `Arc`，**不**从 Runtime 发布的 snapshot/facade 借用，也不得依赖 `laneflow-runtime`。
+同时持有 world 与 session 的 Adapter 必须 `Arc::ptr_eq`（或证明两者来自同一保留的根
+`Arc`）。不存在独立的 Traffic 或 Spatial component 安装入口。Adapter 不解析 compiler IR
+或 LFCA table，不重建 Traffic/Spatial binding，也不读取共享数组中的静态规则来自行裁决
+行为或单独替换 component。#301 目标 pose 使用与 Runtime 无关的 `PoseRecordId`，见
+`traffic-runtime-shared-consumption.md`。本文后续 JSON/registry 生命周期仍描述 current，
+直到 #301 拆除 Core/JSON 运行时入口。
 
 ## 3. 生命周期顺序
+
+current 路径（#301 完成 PR 合入前）：
 
 ```text
 读取引擎资源
@@ -66,7 +72,22 @@ component。本文后续 JSON/registry 生命周期仍描述 current，直到 sh
   -> 提交宿主生命周期、变换和表现结果
 ```
 
-适配器只能从已提交状态生成表现结果。Core 推进、Spatial 提取或宿主转换任一步失败时，都不能留下只完成一部分的车辆映射或变换批次。
+目标路径（#301 起）：
+
+```text
+读取引擎资源
+  -> 加载认证 LFCP v2 / 已提交道路状态，构建 Arc<SharedNetworkRevision>
+  -> TrafficWorld::install(同一根 Arc)
+  -> SpatialSession::bind(同一根 Arc)；配对 Arc::ptr_eq
+  -> 建立 PoseRecordId 与宿主实体的绑定
+  -> 提交固定步长命令和输入
+  -> TrafficWorld 完成并提交一次推进
+  -> 读取已提交状态和事件
+  -> Spatial 按 PoseRecordId 批量提取位姿
+  -> 提交宿主生命周期、变换和表现结果
+```
+
+适配器只能从已提交状态生成表现结果。推进、Spatial 提取或宿主转换任一步失败时，都不能留下只完成一部分的车辆映射或变换批次。
 
 ## 4. 位姿输入与输出
 
@@ -84,6 +105,11 @@ PoseInputRecord {
 - Adapter 从同一已提交 Core snapshot 构造调用方拥有的稳定序列；Spatial 不接收 `CoreWorld`、不遍历宿主实体组件系统（ECS），也不重新判断车辆生命周期。
 - 已完成或已移除车辆不产生有效位姿记录，由具体生命周期事件决定是否清理宿主实体。
 - 输入和输出顺序必须稳定，不能依赖引擎实体组件系统（ECS）或散列表的遍历顺序。
+
+#301 目标 pose 记录不把 `VehicleHandle` 嵌入 Spatial：调用方使用不透明 `PoseRecordId`
+（`u32`），lane 用 `LaneEdgeOrdinal` + 共享根边长同域进度，parking 用共享根停车位序号。
+Spatial 不导入 Runtime/Core handle。精确契约见 `traffic-runtime-shared-consumption.md`。
+本文其余 `VehicleHandle` / `EdgeHandle` 形状仍描述 current。
 
 Spatial 提供 LaneFlow 自有的有界 `f32` canonical 位姿。生产输出为：
 

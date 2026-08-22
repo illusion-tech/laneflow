@@ -1873,7 +1873,7 @@ AST/HIR/MIR/LIR、LFCA 与 shared-network contract 前进，不允许先建一�
 builder API。阶段 3 的 bridge 固定为 `laneflow-compiler-test-support` 或等价
 integration-only crate：它可以依赖 compiler + current Core/Spatial，将 validated
 LIR 投影为 current inputs；compiler 不依赖它，它不构成 public backend contract，
-并由阶段 8 的切换责任议题 #294 删除。该投影器（Projection）只消费 LIR 已验证的
+并由 #301 随 Core/JSON 运行时入口一并删除。该投影器（Projection）只消费 LIR 已验证的
 StableId、有类型所有者关系（Typed Owner Relation）与其他规范语义，不从当前 JSON
 或核心对象图（Core Object Graph）反向派生标识（Identity），测试输入直接由编译器
 原生有类型模块构造。

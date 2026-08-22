@@ -10,6 +10,7 @@
 `../adr/0026-merge-governance-rebuild.md`、
 `network-compiler.md`、`shared-static-network.md`、
 `portable-canonical-artifact.md`、`current-package-import.md`、
+`adapter-api.md`、
 `../adr/0003-runtime-tick-and-determinism.md`
 
 本文是 #301 的实现级 G1 输入。它不授权 #302 在线修订切换、#441 系统化性能账本、
@@ -124,9 +125,10 @@ Route 用 typed dense candidate handle 编译 occurrence。
 
 ## 5. Tick
 
-`TrafficWorld` 的 1-worker 车辆 tick 直接读取 `SharedTrafficNetwork` /
-`SharedIdentityIndex` 的连续 slice（后继 CSR、准入、路线 occurrence、信号 program、
-停车静态关系）。禁止：
+`TrafficWorld` 的 1-worker 车辆 tick 只读取 `SharedTrafficNetwork` 的连续 slice
+（后继 CSR、准入、路线 occurrence、信号 program、停车静态关系）。`SharedIdentityIndex`
+不进入 steady tick；只用于 install 核对、动态 Route 重建，以及后继 #302 快照/修订
+切换。禁止：
 
 - 先投影成 `LaneGraph` / 各 registry 再调用任何 `CoreWorld` 步进；
 - Runtime 依赖 `laneflow-core`；
