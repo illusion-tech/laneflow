@@ -6,6 +6,7 @@ mod handle;
 mod input;
 mod pose;
 mod tables;
+mod tick;
 mod world;
 
 pub use config::{StepOutcome, TickInput, WorldConfig};

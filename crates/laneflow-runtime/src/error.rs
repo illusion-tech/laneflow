@@ -33,6 +33,9 @@ pub enum StepError {
     /// `tick_index` 或 `time_ms` 的 checked 加法溢出。
     #[error("tick_index 或 time_ms 溢出")]
     Overflow,
+    /// 本拍运动产生非有限速度或位移。
+    #[error("步进运动非有限")]
+    NonFiniteMotion,
 }
 
 /// 静态路线或停车位等共享根序号查找失败。
