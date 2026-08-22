@@ -11,7 +11,9 @@
 `network-compiler.md`、`shared-static-network.md`、
 `portable-canonical-artifact.md`、`current-package-import.md`、
 `adapter-api.md`、
-`../adr/0003-runtime-tick-and-determinism.md`
+`../adr/0003-runtime-tick-and-determinism.md`、
+`../adr/0017-static-road-junction-maneuver-and-gate-identity.md`、
+`../adr/0018-multimodal-cross-section-and-access-overlay.md`
 
 本文是 #301 的实现级 G1 输入。它不授权 #302 在线修订切换、#441 系统化性能账本、
 #303 Routing 或 #294 残留文档/Skill 改名（若 #301 已删除 `laneflow-core` crate）。
@@ -25,7 +27,9 @@
 冻结句：
 
 1. 新建 `laneflow-runtime`。`TrafficWorld` 安装完整 `Arc<SharedNetworkRevision>`，
-   只分配每世界可变状态与 1-worker 执行计划；热路径只借共享根的连续 accessor。
+   只分配每世界可变状态与 1-worker 执行计划。热路径借共享根静态连续 accessor，
+   **并**读本世界已提交/已编译表（车辆、占用、动态 Route occurrence）；不把动态
+   occurrence 写回共享根，也不把 `SharedIdentityIndex` 推进 steady tick。
 2. `laneflow-spatial` 依赖 `laneflow-static-network` / `laneflow-static-contract`，
    **不**依赖 Runtime。`SpatialSession::bind` 只接受根 `Arc`。world 与 session 配对
    必须 `Arc::ptr_eq`（或两者来自同一保留的根 `Arc`）。pose 批次使用与 Runtime
@@ -53,6 +57,7 @@
   保留 `laneflow-core` crate）。
 - 不冻 `despawn` / `replace`、停车预约/到场/离场状态机，也不把 `CoreEvent` 枚举
   搬进 Runtime。
+- 不实现时变准入；`register_route` 不做 `(ParticipantClass, Route)` 判断。
 
 ## 3. 包依赖
 
@@ -163,13 +168,17 @@ Route 用共享根边序号编译 occurrence。
 - 静态路线：`install` 后 `static_route(共享根静态路线序号)` 取得 `RouteHandle`，
   不必再 `register_route`。
 - `register_route`：输入为共享根 `LaneEdgeOrdinal` 有序非空序列（不要 JSON
-  字符串 ID）；按共享根后继做连通校验，编译 occurrence，返回代际感知
-  `RouteHandle`。非法序列失败，不留下半条路线。
-- `remove_route`：仍有 live 车辆引用则失败；成功后旧句柄 stale。
+  字符串 ID）；按共享根后继做连通校验，把 occurrence 编进**本世界**表，返回代际
+  感知 `RouteHandle`。非法序列失败，不留下半条路线。不做准入判断（ADR 0018：
+  Route 无 class 上下文）。
+- `remove_route`：仍有 live 车辆引用则失败；成功后旧句柄 stale，本世界动态
+  occurrence 表去掉该路线。
 - 人口是调用方所有：`install` 不接受初始车辆。`VehicleSpawnInput` 含共享根车辆
   profile 序号、已有 `RouteHandle`、路线边序号、与共享根边长同域的进度、初速。
-- `spawn_vehicle` 返回代际感知 `VehicleHandle`（不是 `PoseRecordId`）。重叠、
-  非法路线/进度、未知 profile、超容量失败时不得留下半辆车。
+- `spawn_vehicle` 返回代际感知 `VehicleHandle`（不是 `PoseRecordId`）。由 profile
+  解析 `ParticipantClass`，对静态和动态 `RouteHandle` 都按 ADR 0018 做
+  `(class, Route)` 绑定期准入（只查当前 cursor 起的可达后缀）。重叠、非法路线/
+  进度、未知 profile、超容量、准入 deny 失败时不得留下半辆车。
 - 本切片不冻 `despawn` / `replace`。
 
 ### 4.3 停车占用
@@ -189,25 +198,33 @@ TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
 - `TickInput.delta_time_ms` 必须等于 `WorldConfig.fixed_delta_time_ms`，否则拒绝，
   不推进。成功 `StepOutcome` 含 `tick_index` 与 `time_ms`；`tick_index()` /
   `time_ms()` 与之一致。
+- 时序沿用 `signal-system.md`：运动、跟车、信号遵守、占用判断都读已提交状态
+  **T**；算完再原子提交 **T + D**（时间、pose、占用、信号 snapshot）。同 tick 内
+  不得把未提交位移当成其他车的权威前车。相位边界落在 `[T, T + D)` 时，该拍车辆
+  仍用 snapshot(T) 的灯色，不得提前用 T + D。
 - 失败不推进时间，不留下半更新；成功 tick 不因错误边界新分配诊断。
 - 不把 `CoreEvent` 搬进本切片。跟车/信号遵守用已提交 pose 进度与信号组 aspect
   观察。
 - `committed_pose_sources()`：稳定顺序的 `(VehicleHandle, PoseSource)`。车道用
   `LaneEdgeOrdinal` + 同域进度，停车用停车位序号。已完成或已移除车辆不出现。
   Adapter 映射为 `PoseRecordId` 再交给 Spatial。
-- `committed_signal_groups()`：稳定按组序号的当前 aspect，由 `time_ms` + 共享根
-  program + offset 导出。`install` 成功后 time 0 已有有效 snapshot，初始化不发
-  事件。
+- `committed_signal_groups()`：稳定按组序号的当前 aspect，由已提交 `time_ms` +
+  共享根 program + offset 导出。`install` 成功后 time 0 已有有效 snapshot；成功
+  `step` 之后查询到的是 T + D。初始化不发事件。
 - 上述查询只读已提交状态；`step` 失败时与失败前一致。不冻完整 snapshot/event
   套件，也不把 Spatial 绑到这些查询类型。
 
 ## 5. Tick
 
 公开推进入口是 `TrafficWorld::step`（§4.4）。`TrafficWorld` 的 1-worker 车辆 tick
-只读取 `SharedTrafficNetwork` 的连续 slice
-（后继 CSR、准入、路线 occurrence、信号 program、停车静态关系）。`SharedIdentityIndex`
-不进入 steady tick；只用于 install 核对、动态 Route 重建，以及后继 #302 快照/修订
-切换。禁止：
+读取：
+
+- 共享根 `SharedTrafficNetwork` 的连续 slice（后继 CSR、准入 resolved 表、静态
+  路线 occurrence、信号 program、停车静态关系）；
+- **本世界**已提交/已编译表（车辆列、车道与停车占用、动态 Route occurrence）。
+
+不得把动态 occurrence 写回共享根。`SharedIdentityIndex` 不进入 steady tick；只用于
+install 核对、`register_route` 重建，以及后继 #302 快照/修订切换。禁止：
 
 - 先投影成 `LaneGraph` / 各 registry 再调用任何 `CoreWorld` 步进；
 - Runtime 依赖 `laneflow-core`；
@@ -270,8 +287,9 @@ Issue**，不是 #301 完成条件。#301 只要求它们不再以 `CoreWorld` �
 删除 `laneflow-core` 及其测试支持 crate 之前，必须有 **Runtime 原生** 测试覆盖下列
 保留的当前运行时合同（不把 Core 轨迹当预言机，不要求逐条搬迁测试文件）：
 
-- 跟车安全间隙（`step` + `committed_pose_sources` 进度）；
-- 信号停车与许可通行（`committed_signal_groups` + pose 进度）；
+- 跟车安全间隙（`step` 读已提交 T 的前车；`committed_pose_sources` 进度）；
+- 信号停车与许可通行（车辆用 snapshot(T)；成功 step 后 `committed_signal_groups`
+  为 T + D。相位边界落在 `[T, T + D)` 时该拍不得提前用 T + D 灯色）；
 - 停车占用权威（`occupy_parking` 互斥与失败原子性，`committed_parking_occupant`）；
 - 确定性固定步进（`step`：正的 `fixed_delta_time_ms`、delta 不匹配则拒绝、同输入
   序列同 `tick_index` / `time_ms` / pose）；
@@ -280,7 +298,9 @@ Issue**，不是 #301 完成条件。#301 只要求它们不再以 `CoreWorld` �
 - 成功 tick 不因错误边界新分配诊断（不要求继承 Core `TickInvariantError` 的
   `Copy` / 64 / 72 字节布局）；
 - 动态 Route 注册与编译 occurrence（`register_route` / `remove_route`，ADR 0017；
-  不含走廊级人口与回流）。
+  tick 读本世界动态 occurrence 表；不含走廊级人口与回流）；
+- spawn 绑定期准入（静态与动态 Route 均按 ADR 0018 `(ParticipantClass, Route)`
+  后缀拒绝，失败不留车）。
 
 空实现若只过 S1 两车推进/pose 不得视为完成。完整停车离场/预约、受保护转向走廊、
 50–200 辆人口、vehicle replace 的全部历史变体，不进本切片；需要时另开 Issue。
