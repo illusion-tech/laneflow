@@ -82,7 +82,7 @@ current 路径（#301 完成 PR 合入前）：
   -> 建立 PoseRecordId 与宿主实体的绑定
   -> 提交固定步长命令和输入
   -> TrafficWorld 完成并提交一次推进
-  -> 读取已提交状态和事件
+  -> 读取 committed_pose_sources，映射 PoseRecordId
   -> Spatial 按 PoseRecordId 批量提取位姿
   -> 提交宿主生命周期、变换和表现结果
 ```
@@ -106,11 +106,13 @@ PoseInputRecord {
 - 已完成或已移除车辆不产生有效位姿记录，由具体生命周期事件决定是否清理宿主实体。
 - 输入和输出顺序必须稳定，不能依赖引擎实体组件系统（ECS）或散列表的遍历顺序。
 
-#301 目标 pose 记录不把 `VehicleHandle` 嵌入 Spatial：调用方使用不透明 `PoseRecordId`
-（`u32`），lane 用 `LaneEdgeOrdinal` + 共享根边长同域进度，parking 用共享根停车位序号。
-一批必须同一 canonical frame；批次头带 `CanonicalFrameId`（或共享根
-`CanonicalFrameOrdinal`）与 `FramePlacementToken`，混 frame 整批失败。Spatial 不导入
-Runtime/Core handle。精确契约见 `traffic-runtime-shared-consumption.md`。
+#301 目标 pose 记录不把 `VehicleHandle` 嵌入 Spatial：调用方从
+`TrafficWorld::committed_pose_sources()` 读取已提交 `(VehicleHandle, PoseSource)`，
+再映射为不透明 `PoseRecordId`（`u32`）。lane 用 `LaneEdgeOrdinal` + 共享根边长同域
+进度，parking 用共享根停车位序号。一批必须同一 canonical frame；批次头带
+`CanonicalFrameId`（或共享根 `CanonicalFrameOrdinal`）与 `FramePlacementToken`，混
+frame 整批失败。Spatial 不导入 Runtime/Core handle。精确契约见
+`traffic-runtime-shared-consumption.md`。
 本文其余 `VehicleHandle` / `EdgeHandle` 形状仍描述 current。
 
 Spatial 提供 LaneFlow 自有的有界 `f32` canonical 位姿。生产输出为：
