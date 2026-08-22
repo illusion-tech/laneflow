@@ -68,7 +68,7 @@
   compiler foundation、Synthetic DSL frontend、集成专用 LIR→current projection 及 G4，
   #282–#285 关于 #292 的稳定开工前置已经满足。该完成事实不表示整个目标路网编译器、
   共享静态路网或 Traffic Runtime 已经实现；当前 Project 状态与原生依赖关系以 GitHub 为准。
-- `traffic-runtime-shared-consumption.md`：#301 G1 冻结草案；`TrafficWorld` 安装
+- `traffic-runtime-shared-consumption.md`：#301 G1 Accepted；`TrafficWorld` 安装
   `Arc<SharedNetworkRevision>`、Spatial session 只 bind 同一根且不依赖 Runtime、
   1-worker 车辆 tick 只读共享 accessor、以 `LFCA-V1-FULL-SPATIAL` + 2 车 + 最小
   Bevy 为唯一行为证据（零 Core 预言机），并在同一完成 PR 拆除 current Core/JSON
