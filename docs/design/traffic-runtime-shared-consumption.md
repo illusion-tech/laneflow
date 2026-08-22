@@ -1,6 +1,6 @@
 # 交通运行时共享静态路网消费
 
-**文档状态**: Review（#301 G1 冻结草案）<br>
+**文档状态**: Review（#301 G1 冻结草案；合入 `main` 时改为 Accepted）<br>
 **最后更新**: 2026-08-22<br>
 **适用范围**: `laneflow-runtime` / `TrafficWorld`、`laneflow-spatial` 目标 session、
 1-worker 车辆 tick、#301 端到端证据，以及 current `laneflow-core` / JSON 运行时入口拆除<br>
@@ -106,6 +106,8 @@ TrafficWorld::spawn_vehicle(
     input: VehicleSpawnInput,
 ) -> Result<VehicleHandle, SpawnError>;
 
+TrafficWorld::committed_pose_sources() -> CommittedPoseSourceBatch;
+
 SpatialSession::bind(
     revision: Arc<SharedNetworkRevision>,
 ) -> Result<Option<SpatialSession>, SpatialBindError>;
@@ -124,6 +126,12 @@ SpatialSession::bind(
   的 session。短期函数借用可以。
 - Runtime 可以提供只读转发 `TrafficWorld::revision()` /
   `traffic()`；**不**持有 `SpatialSession`，**不** `use` Spatial 类型。
+- 成功 tick / spawn 之后，调用方只读已提交
+  `committed_pose_sources()`：稳定顺序的
+  `(VehicleHandle, PoseSource)` 批次。`PoseSource` 为车道
+  （`LaneEdgeOrdinal` + 共享根边长同域进度）或停车位序号。Adapter / harness
+  把 handle 映射为 `PoseRecordId` 再交给 Spatial。已完成或已移除车辆不出现。
+  只读已提交状态，不冻完整 snapshot/event 套件，也不把 Spatial 绑到该查询类型。
 - 同时持有 world 与 session 的调用方（#301 harness、最小 Bevy、以后的 Adapter）
   必须 `Arc::ptr_eq`，或证明两者来自同一保留的根 `Arc`。禁止只比较
   `NetworkRevisionId`：同一 LFCA 可构建两次，headless 与带 Spatial 的根可以同 ID。
@@ -142,8 +150,9 @@ Route 用 typed dense candidate handle 编译 occurrence。
 - 初速。
 
 返回 Runtime 代际感知 `VehicleHandle`（不是 `PoseRecordId`）。Adapter / harness
-把 handle 映射到 pose 记录。重叠、非法路线/进度、未知 profile、超容量失败时不得
-留下半辆车。本切片不冻 `despawn` / `replace` 全矩阵。
+经 `committed_pose_sources()` 读取已提交 lane/parking 源，再映射到 pose 记录。
+重叠、非法路线/进度、未知 profile、超容量失败时不得留下半辆车。本切片不冻
+`despawn` / `replace` 全矩阵。
 
 ## 5. Tick
 
@@ -183,7 +192,8 @@ Runtime 在该根上 `spawn_vehicle` **两辆**同一静态路线前后排列的
 
 - `install` 成功且只保留一根 `Arc`；
 - 两车都能推进；后车受前车约束可观察（跟车或至少不能穿透前车占用）；
-- 因夹具有 `lane_pose`，`SpatialSession::bind` 同一 `Arc` 能产出 pose 批次；
+- 因夹具有 `lane_pose`，同一 `Arc` 上用 `committed_pose_sources()` 构造 pose
+  输入，`SpatialSession::bind` 能产出 pose 批次；
 - 安装或步进失败不留下半个 world；
 - 测试 crate 不链接 `laneflow-core`。
 
@@ -197,8 +207,8 @@ Runtime 在该根上 `spawn_vehicle` **两辆**同一静态路线前后排列的
 CI 必须同时：
 
 - 对该 example 做 `check`（可与现有 `native-example` feature 对齐）；
-- 跑无窗口 Bevy `App` smoke：推进 schedule，断言至少一个代理 `Transform` 发生
-  可观察变化。
+- 跑无窗口 Bevy `App` smoke：用 `committed_pose_sources()` 构造 pose 输入，推进
+  schedule，断言至少一个代理 `Transform` 发生可观察变化。
 
 `cargo check` 不能单独作为完成证据。这是「新的端到端示例」，不是 corridor 规模
 演示。
@@ -286,6 +296,12 @@ Spatial、不得用 Core 对象图当 compiler IR，保持有效。
 
 ## 10. 对 G2 的输入
 
-G2 开工前 Issue 须为 `Ready` 或等价。实现按本文一次完成，不拆成可独立交付、
-合入后语义不完整的子 Issue。允许同一 PR 内分提交，提交顺序须保证审查时能看出
-「先有 Runtime 再拆旧入口」，且默认分支终态满足 §7。
+G2 开工前：
+
+- Issue 须为 `Ready` 或等价；
+- 本文已以 **Accepted** 合入 `main`。本 PR 审阅期间保持 Review；合入前最后一刀
+  改为 Accepted。不得在 Review 稿上开工拆 Core。
+
+实现按本文一次完成，不拆成可独立交付、合入后语义不完整的子 Issue。允许同一 PR
+内分提交，提交顺序须保证审查时能看出「先有 Runtime 再拆旧入口」，且默认分支终态
+满足 §7。
