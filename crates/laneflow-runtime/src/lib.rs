@@ -3,12 +3,15 @@
 mod config;
 mod error;
 mod handle;
+mod input;
 mod pose;
+mod tables;
 mod world;
 
 pub use config::{StepOutcome, TickInput, WorldConfig};
-pub use error::{InstallError, LookupError, StepError};
+pub use error::{InstallError, LookupError, ParkingError, RouteError, SpawnError, StepError};
 pub use handle::{RouteHandle, VehicleHandle};
+pub use input::{RouteRegisterInput, VehicleSpawnInput};
 pub use pose::{CommittedPoseSourceBatch, CommittedSignalGroupBatch, PoseSource};
 pub use world::TrafficWorld;
 
