@@ -8,6 +8,14 @@
     {
       "login": "copilot-pull-request-reviewer",
       "kind": "bot"
+    },
+    {
+      "login": "chatgpt-codex-connector",
+      "kind": "bot"
+    },
+    {
+      "login": "kody-ai",
+      "kind": "bot"
     }
   ]
 }

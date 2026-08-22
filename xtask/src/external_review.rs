@@ -1086,6 +1086,7 @@ mod tests {
         let roster = load_trusted_reviewers(&path).expect("checked-in roster should parse");
         assert!(roster.logins.contains_key("wangzishi"));
         assert!(roster.logins.contains_key("copilot-pull-request-reviewer"));
-        assert!(!roster.logins.contains_key("chatgpt-codex-connector"));
+        assert!(roster.logins.contains_key("chatgpt-codex-connector"));
+        assert!(roster.logins.contains_key("kody-ai"));
     }
 }

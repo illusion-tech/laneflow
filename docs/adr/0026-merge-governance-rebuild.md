@@ -93,9 +93,10 @@ Check 名固定为 `External Review`。
 `CHANGES_REQUESTED`、`DISMISSED`、`PENDING`、旧 head、作者自审均不算。
 
 普通 Issue / PR 评论一律不算。无法生成原生 Review 的机器人不得列入受信名单。
-初始名单包含 `wangzishi` 与 `copilot-pull-request-reviewer`；不包含
-`chatgpt-codex-connector`，因为 #278 上 Codex 对当前 head 只留下 Issue 评论，
-原生 Review 绑在旧 head。
+初始名单包含 `wangzishi` 与 `copilot-pull-request-reviewer`。后继已把
+`chatgpt-codex-connector`（ChatGPT Codex Connector）与 `kody-ai`（Kodus Kody AI）
+列入同一 JSON；二者均对 PR 提交原生 `PullRequestReview`。名单仍不把普通
+Issue/PR 评论算作证据。`qodo-code-review` 是另一个产品，未列入。
 
 未解决对话由 Ruleset `required_review_thread_resolution: true` 拦截。Check 不
 维护 thread 是否已解决，也不再使用 `thread-state-changed` marker。
