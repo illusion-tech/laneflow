@@ -81,9 +81,9 @@ current 路径（#301 完成 PR 合入前）：
   -> SpatialSession::bind(同一根 Arc)；配对 Arc::ptr_eq
   -> 建立 PoseRecordId 与宿主实体的绑定
   -> 提交固定步长命令和输入
-  -> TrafficWorld 完成并提交一次推进
+  -> TrafficWorld::step
   -> 读取 committed_pose_sources，映射 PoseRecordId
-  -> Spatial 按 PoseRecordId 批量提取位姿
+  -> SpatialSession::extract_pose_batch
   -> 提交宿主生命周期、变换和表现结果
 ```
 
