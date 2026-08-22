@@ -1882,18 +1882,21 @@ crate/type 拆除由 #301 完成。文档导航、Agent Skill ID（`laneflow-cor
 `laneflow-runtime-design`）、工具薄包装若未随 #301 改完，只作为残留改名，不得保留
 `laneflow-core` 作为可运行世界。
 
-#301 完成后必须证明：
+#301 完成 PR 必须证明（精确契约见 `traffic-runtime-shared-consumption.md`）：
 
-1. Runtime 端到端场景的静态语义、tick、event、pose 与失败原子性（不以 `CoreWorld`
-   为预言机）；
-2. deterministic artifact 与同 LFCA shared-network accessor-visible 内容确定性；
-3. compiler 后发射闭合、外部认证 manifest admission 与 shared-network 构建闭合安全；
-   #300/#302 的输入已由各自 G1 冻结；
-4. startup、memory、一万/十万和 multi-world Gate；
-5. worker/partition 置换等价、无额外 tick 延迟和单大型 world scaling；
-6. publication/migration/source map/semantic diff 可用；
-7. snapshot/replay 与 network revision cutover 有失败关闭的后继 G1/实现入口；
-8. 不存在两套可变 authority；current JSON/Core 不得再作为可运行入口。
+1. Runtime 端到端的静态语义、`step`、已提交 pose / 信号组 / 停车占用查询与失败
+   原子性（不以 `CoreWorld` 为预言机）。不要求 `CoreEvent` 或完整 snapshot/event
+   套件。
+2. 不存在两套可变 authority；current JSON/Core 不得再作为可运行入口。
+
+下列证明**不挡** #301 拆除，按下述议题各自推进：
+
+- 制品确定性与同 LFCA shared-network accessor-visible 内容：#298 / #300；
+- compiler 后发射闭合、LFCP v2 / manifest admission：#299；
+- startup、memory、一万/十万和 multi-world：#441 / #305；
+- worker/partition 置换等价、无额外 tick 延迟和单大型 world scaling：后继并行 G1；
+- publication / source map / semantic diff：#298 / #299；
+- snapshot/replay 与 network revision cutover：#302。
 
 ## 15. 风险登记
 
