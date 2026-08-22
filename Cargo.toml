@@ -9,6 +9,7 @@ members = [
     "crates/laneflow-data",
     "crates/laneflow-format",
     "crates/laneflow-road-editing-wire",
+    "crates/laneflow-runtime",
     "crates/laneflow-scenario",
     "crates/laneflow-spatial",
     "crates/laneflow-static-contract",
