@@ -46,7 +46,11 @@ bevy_mesh = { version = "0.19", optional = true }
 bevy_time = { version = "0.19", default-features = false, features = ["std"] }
 bevy_transform = { version = "0.19", default-features = false, features = ["bevy-support", "std"] }
 laneflow-core = { version = "0.0.0", path = "../laneflow-core" }
+laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
+laneflow-runtime = { version = "0.0.0", path = "../laneflow-runtime" }
 laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
+laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
+laneflow-static-network = { version = "0.0.0", path = "../laneflow-static-network" }
 
 [dev-dependencies]
 criterion = "0.8"
@@ -70,6 +74,10 @@ required-features = ["native-example"]
 
 [[example]]
 name = "signalized_corridor"
+required-features = ["native-example"]
+
+[[example]]
+name = "runtime_min"
 required-features = ["native-example"]
 
 [lints]
