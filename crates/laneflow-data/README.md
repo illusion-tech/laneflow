@@ -1,32 +1,14 @@
 # laneflow_data
 
-LaneFlow 当前 Traffic v0.10、SpatialPackage v0.1 与 ScenarioManifest v0.1 的内存 JSON loader 和 normalization crate。
+current JSON 运行时入口已由 #301 拆除。本 crate 不再把 Traffic/Spatial/Manifest JSON
+正规化为可运行世界，也不创建 `TrafficWorld`。
 
-Traffic loader 继续：
-
-- 只接受 Traffic `formatVersion: "0.10"`，并在 strict current shape 前拒绝旧版和未来版；
-- 解析 closed v0.10 DTO、required per-edge `speedLimit`、Junction/Movement/ManeuverPath、multi-Gate/WaitingZone、SI units、static Signals 与 static Parking；
-- 解析 ParticipantClass、横断面（FacilityBand/RoadSection/LaneGroup/RoadCorridor）与 AccessRule overlay，v1 capability guard 对声明 timeWindows 或 FacilityBand target 的规则显式拒绝载入；
-- 调用 `laneflow-core` constructors 规范化 lane graph、routes、Vehicle Profiles、Signals、WaitingZones 与 Parking；
-- 返回单一 current `LoadedPackage`，不公开 raw wire DTO 或历史 version variant。
-
-Scenario loader 通过 `from_scenario_json_slice` / `from_scenario_json_str`：
-
-- 只接受 ScenarioManifest v0.1 与 SpatialPackage v0.1；
-- 按不透明、大小写敏感的 `artifactRef` 配对调用方已经读取到内存的原始制品；
-- 在解析制品前校验 raw byte `size` 与 `sha256:<64 lowercase hex>`；
-- 复用现有 Traffic loader，再以该 LaneGraph 校验 Spatial edge 的 unknown、duplicate 与 complete coverage；
-- 先以 `f64` 暂存空间坐标，执行有限性和每轴 `[-16_384, 16_384] m` 检查，再转换为 canonical `f32` 点；
-- 返回按 `LaneGraph::edges()` 稳定顺序排列的 `LoadedScenario`，任一步失败都不暴露部分结果。
-
-本 crate 不读取文件、不联网、不创建 `CoreWorld`、不拥有 fixed tick 或 runtime entity，也不执行 #135 所属的退化段、弧长、Traffic length binding、端点连续性、基底、采样或 `SpatialRegistry` 提交。
-
-wire DTO、严格版本闸口、raw byte `size`/`sha256` 摘要与 descriptor 配对校验由 `laneflow-current-source` 能力提供；本 crate 消费其校验结果并负责 Core normalization。
-
-依赖方向固定为：
+它只再导出 `laneflow-current-source` 的格式版本与媒体类型常量，供 authoring 工具与
+schema 测试使用。wire 校验仍由 `laneflow-current-source` 拥有；可运行交通世界只从
+`SharedNetworkRevision` 安装。
 
 ```text
-laneflow-data -> laneflow-core
-laneflow-data -> laneflow-spatial
 laneflow-data -> laneflow-current-source
+laneflow-data -X-> laneflow-runtime
+laneflow-data -X-> laneflow-spatial
 ```

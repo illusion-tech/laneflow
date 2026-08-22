@@ -8,9 +8,9 @@
 
 | Family            | Current source                                                                               | 说明                        |
 | ----------------- | -------------------------------------------------------------------------------------------- | --------------------------- |
-| Traffic           | [`laneflow-data-v0.10.schema.json`](laneflow-data-v0.10.schema.json)                         | 当前 JSON loader；#301 删除 |
-| Spatial           | [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)                     | 当前 JSON loader；#301 删除 |
-| Scenario Manifest | [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json) | 当前 JSON loader；#301 删除 |
+| Traffic           | [`laneflow-data-v0.10.schema.json`](laneflow-data-v0.10.schema.json)                         | authoring JSON；不是运行时入口 |
+| Spatial           | [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)                     | authoring JSON；不是运行时入口 |
+| Scenario Manifest | [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json) | authoring JSON；不是运行时入口 |
 
 ## G1 候选 source
 
@@ -26,5 +26,6 @@ Traffic v0.2–v0.9 历史 schema 已从当前树删除。当时的 closure revi
 
 ## Runtime 边界
 
-Core、production loader、Adapter 与 hermetic runtime tests 不联网解析 `$id` /
-`$schema`。调用方如果自行下载 schema，自行负责输入大小、内容验证、缓存和网络失败。
+Runtime、Adapter 与 hermetic runtime tests 不联网解析 `$id` / `$schema`。调用方如果
+自行下载 schema，自行负责输入大小、内容验证、缓存和网络失败。当前 JSON 不再安装
+可运行交通世界。

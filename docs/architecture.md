@@ -1,8 +1,8 @@
 # 架构
 
-**文档状态**: Accepted（current + #291 target design + ADR 0025 / #300 G1 修订）<br>
-**最后更新**: 2026-08-22<br>
-**适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Core/Adapter 边界，以及 #291/ADR 0020/0021 和 Accepted ADR 0025 的城市模拟游戏交通基础与目标静态编译架构
+**文档状态**: Accepted（current + #291 target design + ADR 0025 / #300 G1 修订；#301 后 Runtime 为当前可运行世界）<br>
+**最后更新**: 2026-08-23<br>
+**适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Runtime/Adapter 边界，以及 #291/ADR 0020/0021 和 Accepted ADR 0025 的城市模拟游戏交通基础与目标静态编译架构
 
 ## 1. 架构目标
 
@@ -12,9 +12,9 @@ LaneFlow 当前是一个引擎无关、可嵌入的交通运行时。Accepted AD
 
 当前架构与 #291 已接受目标态设计共同关注：
 
-- Core 与具体游戏引擎解耦。
+- 交通运行时与具体游戏引擎解耦。
 - 数据格式可以被工具、示例和多个 Adapter 共享。
-- Adapter 负责引擎集成和表现层，不复制 Core 交通规则。
+- Adapter 负责引擎集成和表现层，不复制交通规则。
 - 示例场景用于验证最小可用闭环。
 - 城市经济、市民出行需求、土地利用和游戏规则由上层拥有，LaneFlow 通过显式
   命令、快照、事件和路径接入边界提供交通能力。
@@ -34,20 +34,20 @@ LaneFlow 当前是一个引擎无关、可嵌入的交通运行时。Accepted AD
 出行需求决定谁在何时为何出发；交通运行时导出已提交交通观测快照；路径规划/
 出行编排层再结合静态路网、观测、收费、游戏政策和偏好构造动态成本快照并生成候选
 路径；交通运行时只验证/注册由候选路径构成的动态通行定义，并负责交通参与单元如何
-在所属执行域安全推进。当前 Core 只实现道路机动车车辆特化；长期通用抽象不把
+在所属执行域安全推进。当前 Runtime 只实现道路机动车车辆特化；长期通用抽象不把
 非机动车、行人或轨道交通排除在目标交通运行时（Target Traffic Runtime）之外。
-目标产品边界见 Accepted ADR 0021；Accepted 状态不表示对应交通运行时已经实现。
+目标产品边界见 Accepted ADR 0021。#301 已使 `TrafficWorld` 成为唯一可运行交通世界。
 
 ## 2. 分层
 
 ```text
-Authoring Layer
+Authoring / Compiler Layer
   │
   v
-Traffic Data Layer (`laneflow-data`)
+Shared Static Network (`laneflow-static-network`)
   │
   v
-LaneFlow Core (`laneflow-core`)
+LaneFlow Traffic Runtime (`laneflow-runtime`)
   │
   v
 Engine Adapter Layer
@@ -59,27 +59,29 @@ Presentation Layer
 当前 Rust crate 依赖方向固定为：
 
 ```text
-laneflow-data -> laneflow-core
-laneflow-data -> laneflow-current-source
-laneflow-core -X-> laneflow-data
+laneflow-runtime -> laneflow-static-network
+laneflow-runtime -> laneflow-static-contract
+laneflow-spatial -> laneflow-static-network
+laneflow-spatial -> laneflow-static-contract
+laneflow-runtime -X-> laneflow-spatial
+laneflow-spatial -X-> laneflow-runtime
 
-Engine Adapter -> laneflow-core
-Engine Adapter -> laneflow-data  (按需加载外部数据)
+Engine Adapter -> laneflow-runtime
+Engine Adapter -> laneflow-spatial
 ```
 
-外部格式可以依赖 Core domain types 做 normalization；Core 不反向依赖 JSON、Serde、JSON Schema、文件系统或 Adapter。详细决策见 `adr/0007-traffic-data-crate-and-loader-boundary.md`。
+Runtime 不依赖 JSON、Serde、JSON Schema、文件系统、compiler 或 Adapter。current JSON 不再安装可运行世界。详细决策见 `design/traffic-runtime-shared-consumption.md`。
 
 v0.6 #123 已在 G1 接受引擎无关的空间层（Spatial Layer），#133 已建立首个生产 `laneflow-spatial` crate。当前与目标依赖方向为：
 
 ```text
-laneflow-spatial -> laneflow-core
+laneflow-spatial -> laneflow-static-network
 laneflow-spatial -> laneflow-static-contract  (共享静态空间数值边界)
-laneflow-data -> laneflow-spatial  (只在空间包加载与绑定路径)
-引擎适配器 -> laneflow-core / laneflow-spatial / laneflow-data
-laneflow-core -X-> laneflow-spatial
+引擎适配器 -> laneflow-runtime / laneflow-spatial
+laneflow-runtime -X-> laneflow-spatial
 ```
 
-Core 继续拥有拓扑、长度、进度与交通行为的权威职责；Spatial 拥有有界 local canonical frame、中心线、弧长、绑定与位姿采样；Adapter 只把 LaneFlow 位姿映射为宿主变换（Transform）。当前 `laneflow-spatial` 已实现 LaneFlow-owned canonical `f32` 基础类型、每轴 `±16_384 m` 点范围、稳定 frame ID、结构化错误、按 `LaneGraph::edges()` 排序的 immutable registry、量化后折线绑定/采样，以及带 batch-level placement token、Parking pose 和失败原子性的批量提取。#134 的空间包/清单 loader 可直接构造该 registry；#137 继续负责误差、分配、内存和一万/十万性能基线。
+#301 后 Spatial 绑定共享根 `Arc`，不再依赖已拆除的 `laneflow-core`。Spatial 拥有有界 local canonical frame、中心线、弧长与位姿采样；Adapter 只把 LaneFlow 位姿映射为宿主变换（Transform）。当前 `laneflow-spatial` 已实现 LaneFlow-owned canonical `f32` 基础类型、每轴 `±16_384 m` 点范围、稳定 frame ID、结构化错误，以及绑定 `SharedNetworkRevision` 的 `SpatialSession` 批量提取。
 
 ### 2.1 #291 目标静态编译分层
 
@@ -262,9 +264,9 @@ Spatial 只拥有 canonical 3D geometry/validation。SSOT 见
 `design/waiting-zone-conflict-right-of-way.md`；其中 #281 static/Data 已生产化，
 #282–#285 的 runtime/Conflict/policy/组合验证仍不构成 current API 声称。
 
-## 5. LaneFlow Core
+## 5. LaneFlow 交通运行时
 
-LaneFlow Core 负责运行时交通逻辑：
+LaneFlow 交通运行时负责运行时交通逻辑：
 
 - vehicle state
 - route following
@@ -274,18 +276,16 @@ LaneFlow Core 负责运行时交通逻辑：
 - intersection rules
 - parking behavior
 
-Core 不依赖具体游戏引擎 API。
+Runtime 不依赖具体游戏引擎 API。
 
-Rust workspace 中，Core 由 `laneflow-core` 表达。Core 拥有 `InitialTrafficData`、lane graph、route、Vehicle Profile、typed handle、registry/resolver 和全部 domain/runtime invariant。
-
-这句话描述 current。ADR 0020 target 把动态执行层 clean-break 重命名为
-`LaneFlow Traffic Runtime` / `laneflow-runtime`，target public world 为
-`TrafficWorld`。Static/shared contract 移入 `laneflow-static-contract` 与
-`laneflow-static-network`；Runtime 不再从 `InitialTrafficData` 构建静态 registries，
-而是共享 `SharedTrafficNetwork`。每个 `TrafficWorld` 只拥有已实现执行域的交通参与
+Rust workspace 中，当前可运行世界由 `laneflow-runtime` 的 `TrafficWorld` 表达。
+`laneflow-core` / `CoreWorld` 已拆除。Static/shared contract 在
+`laneflow-static-contract` 与 `laneflow-static-network`；Runtime 共享
+`SharedTrafficNetwork`，不再从 `InitialTrafficData` 构建静态 registries。
+每个 `TrafficWorld` 只拥有已实现执行域的交通参与
 单元、动态通行定义、控制器/预约/停驻状态（Stationary State）等可变数组，
 以及世界 identity、输入命令游标、运行时执行计划和当前路网修订绑定。当前
-投影仍是车辆/动态路线/控制器/预约/停车特化；人口、
+投影仍是车辆/动态路线/停车占用特化；人口、
 Routing 和游戏规则 seed 仍由 caller/出行编排层拥有；Runtime 只有在后续 G1 显式
 授予随机权威时才拥有相应随机流。
 Initial/static occurrence 由 compiler

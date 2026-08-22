@@ -2,9 +2,6 @@
 members = [
     "crates/laneflow-bevy",
     "crates/laneflow-compiler",
-    "crates/laneflow-compiler-test-support",
-    "crates/laneflow-core",
-    "crates/laneflow-core-test-support",
     "crates/laneflow-current-source",
     "crates/laneflow-data",
     "crates/laneflow-format",

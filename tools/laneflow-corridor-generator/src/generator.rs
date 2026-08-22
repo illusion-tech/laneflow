@@ -1,14 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use laneflow_core::CoreWorld;
-use laneflow_data::{
-    NamedArtifact, SPATIAL_PACKAGE_MEDIA_TYPE, TRAFFIC_PACKAGE_MEDIA_TYPE, from_scenario_json_slice,
-};
+use laneflow_data::{SPATIAL_PACKAGE_MEDIA_TYPE, TRAFFIC_PACKAGE_MEDIA_TYPE};
 use laneflow_scenario::signalized_corridor::{
     CATALOG_VERSION, CorridorCatalog, PortalCatalogEntry, PortalLaneCatalogEntry,
     RouteCatalogEntry, SpawnSlotCatalogEntry, WeightedRouteChoiceCatalogEntry,
 };
-use laneflow_spatial::{SpatialEdgeInput, SpatialRegistry};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -269,7 +265,6 @@ pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
     catalog_text.push('\n');
     let catalog_bytes = catalog_text.into_bytes();
 
-    validate_runtime(config, &traffic_bytes, &spatial_bytes, &manifest_bytes)?;
     validate_catalog(&catalog, &corridor)?;
 
     let counts = ScenarioCounts {
@@ -1828,46 +1823,6 @@ fn validate_catalog(catalog: &CorridorCatalog, corridor: &CorridorBuild) -> Resu
             }
         }
     }
-    Ok(())
-}
-
-fn validate_runtime(
-    config: &CorridorConfig,
-    traffic: &[u8],
-    spatial: &[u8],
-    manifest: &[u8],
-) -> Result<(), Error> {
-    let loaded = from_scenario_json_slice(
-        manifest,
-        &[
-            NamedArtifact::new(&config.output.traffic_artifact_ref, traffic),
-            NamedArtifact::new(&config.output.spatial_artifact_ref, spatial),
-        ],
-    )
-    .map_err(|error| Error::Validation {
-        stage: "production scenario loader",
-        message: error.to_string(),
-    })?;
-    let (traffic, spatial) = loaded.into_parts();
-    let traffic = traffic.into_initial_traffic_data();
-    SpatialRegistry::try_new(
-        traffic.lane_graph(),
-        spatial.frame_id().clone(),
-        spatial
-            .edges()
-            .iter()
-            .map(|edge| SpatialEdgeInput::new(edge.edge(), edge.points())),
-    )
-    .map_err(|error| Error::Validation {
-        stage: "SpatialRegistry",
-        message: error.to_string(),
-    })?;
-    CoreWorld::with_traffic_data(config.fixed_delta_ms, traffic, Vec::new()).map_err(|error| {
-        Error::Validation {
-            stage: "CoreWorld",
-            message: error.to_string(),
-        }
-    })?;
     Ok(())
 }
 
