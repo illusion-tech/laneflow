@@ -16,7 +16,7 @@
 
 | Family       | Candidate source                                                       | 状态                             |
 | ------------ | ---------------------------------------------------------------------- | -------------------------------- |
-| Road Editing | [`road-editing/v1/road-editing.fbs`](road-editing/v1/road-editing.fbs) | #296 G1 冻结候选；未实现、未发布 |
+| Road Editing | [`road-editing/v1/road-editing.fbs`](road-editing/v1/road-editing.fbs) | #296 已实现的生产 compiler 来源；#301 不得删除 |
 
 字段级领域语义见 [`road-editing/v1/README.md`](road-editing/v1/README.md)。它使用
 size-prefixed FlatBuffers 和 `LFRE` file identifier，不是 JSON Schema。

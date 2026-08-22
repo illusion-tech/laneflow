@@ -108,7 +108,9 @@ PoseInputRecord {
 
 #301 目标 pose 记录不把 `VehicleHandle` 嵌入 Spatial：调用方使用不透明 `PoseRecordId`
 （`u32`），lane 用 `LaneEdgeOrdinal` + 共享根边长同域进度，parking 用共享根停车位序号。
-Spatial 不导入 Runtime/Core handle。精确契约见 `traffic-runtime-shared-consumption.md`。
+一批必须同一 canonical frame；批次头带 `CanonicalFrameId`（或共享根
+`CanonicalFrameOrdinal`）与 `FramePlacementToken`，混 frame 整批失败。Spatial 不导入
+Runtime/Core handle。精确契约见 `traffic-runtime-shared-consumption.md`。
 本文其余 `VehicleHandle` / `EdgeHandle` 形状仍描述 current。
 
 Spatial 提供 LaneFlow 自有的有界 `f32` canonical 位姿。生产输出为：

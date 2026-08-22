@@ -81,7 +81,10 @@ pose 记录身份（不承诺最终 Rust 拼写）：
   Runtime/Core handle。
 - `PoseSource::Lane`：`LaneEdgeOrdinal` + 与共享根边长同域的进度。
 - `PoseSource::Parking`：共享根上的停车位序号。
-- 批次头保存 `bind` 所用 `Arc` 的 `NetworkRevisionId`。
+- 一批必须同一 canonical frame；混 frame 整批失败。
+- 批次头保存：`bind` 所用 `Arc` 的 `NetworkRevisionId`、该批 `CanonicalFrameId`
+  （或共享根 `CanonicalFrameOrdinal`）与调用方 `FramePlacementToken`。Spatial
+  原样回显 token；Adapter 提交宿主变换前复核。不把 frame 身份逐条写入 record。
 
 Adapter / Runtime 在组合根把车辆 handle 映射到 `PoseRecordId`。禁止 Spatial 依赖
 `VehicleHandle`，禁止为此再抽第三 crate。
@@ -118,7 +121,8 @@ SpatialSession::bind(
 - 同时持有 world 与 session 的调用方（#301 harness、最小 Bevy、以后的 Adapter）
   必须 `Arc::ptr_eq`，或证明两者来自同一保留的根 `Arc`。禁止只比较
   `NetworkRevisionId`：同一 LFCA 可构建两次，headless 与带 Spatial 的根可以同 ID。
-  pose 批次仍携带该 `Arc` 的 `NetworkRevisionId`，供 Adapter 在提交宿主变换前复核。
+  pose 批次仍携带该 `Arc` 的 `NetworkRevisionId`、该批 frame 身份与
+  `FramePlacementToken`，供 Adapter 在提交宿主变换前复核。
 
 动态 Route 仍按 ADR 0017：compiler 预编译静态初始路线；Runtime 新注册的动态
 Route 用 typed dense candidate handle 编译 occurrence。
@@ -205,6 +209,8 @@ Issue**，不是 #301 完成条件。#301 只要求它们不再以 `CoreWorld` �
 
 - `crates/laneflow-core` 与 `laneflow-core-test-support`（前提：§6.4 覆盖已存在）；
 - `laneflow-data` / `laneflow-current-source` 作为 Core 的 JSON 加载入口；
+- current JSON schema：`laneflow-data-v0.10`、`laneflow-spatial-v0.1`、
+  `laneflow-scenario-manifest-v0.1`。不得删除 `schemas/road-editing/`；
 - `laneflow-compiler-test-support` 的 LIR→Core 投影；
 - `laneflow-spatial` 对 `laneflow-core` 的依赖（改为共享根 bind）；
 - `laneflow-bevy`、`laneflow-scenario`、`laneflow-corridor-generator` 以及
