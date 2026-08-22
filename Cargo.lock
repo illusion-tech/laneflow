@@ -3290,6 +3290,7 @@ name = "laneflow-runtime"
 version = "0.0.0"
 dependencies = [
  "laneflow-format",
+ "laneflow-spatial",
  "laneflow-static-contract",
  "laneflow-static-network",
  "thiserror 2.0.19",
@@ -3313,7 +3314,9 @@ version = "0.0.0"
 dependencies = [
  "criterion",
  "laneflow-core",
+ "laneflow-format",
  "laneflow-static-contract",
+ "laneflow-static-network",
  "proptest",
  "stats_alloc",
 ]

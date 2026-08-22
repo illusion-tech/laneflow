@@ -5,6 +5,7 @@ mod error;
 mod geometry;
 mod primitives;
 mod registry;
+mod session;
 
 pub use batch::{
     CanonicalPoseBatchF32, CanonicalPoseBatchScratch, CanonicalPoseRecordF32, FramePlacementToken,
@@ -20,9 +21,12 @@ pub use geometry::{
 pub use primitives::{
     CANONICAL_FRAME_ID_PATTERN, CANONICAL_POINT_COMPONENT_MAX_METERS,
     CANONICAL_POINT_COMPONENT_MIN_METERS, CanonicalFrameId, CanonicalPoint3F32,
-    CanonicalUnitVector3F32, CanonicalVector3F32,
+    CanonicalUnitVector3F32, CanonicalVector3F32, PoseRecordId,
 };
 pub use registry::SpatialRegistry;
+pub use session::{
+    CanonicalPoseBatch, CanonicalPoseRecord, PoseInput, SpatialBindError, SpatialSession,
+};
 
 #[cfg(test)]
 mod tests {

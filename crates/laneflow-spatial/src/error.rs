@@ -3,6 +3,9 @@
 use std::{error::Error, fmt};
 
 use laneflow_core::{EdgeHandle, ParkingSpaceHandle, VehicleHandle};
+use laneflow_static_contract::{LaneEdgeOrdinal, ParkingSpaceOrdinal};
+
+use crate::PoseRecordId;
 
 /// 三维标准空间分量轴。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -203,6 +206,43 @@ pub enum SpatialError {
         /// 底层 lane 或 Parking 位姿错误。
         source: Box<SpatialError>,
     },
+    /// 共享根 LaneEdge 序号无法采样。
+    UnknownLaneEdge {
+        /// 共享根边序号。
+        edge: LaneEdgeOrdinal,
+    },
+    /// 共享根停车位序号无法采样。
+    UnknownParkingSpace {
+        /// 共享根停车位序号。
+        space: ParkingSpaceOrdinal,
+    },
+    /// 共享根批次中一条记录失败。
+    SharedPoseRecordFailed {
+        /// 零基输入序号。
+        input_index: usize,
+        /// 调用方 pose 记录身份。
+        record: PoseRecordId,
+        /// 底层错误。
+        source: Box<SpatialError>,
+    },
+    /// 共享根车道进度越界。
+    SharedProgressOutOfRange {
+        /// 共享根边序号。
+        edge: LaneEdgeOrdinal,
+        /// 输入进度。
+        progress_meters: f64,
+        /// 边长。
+        max_meters: f64,
+    },
+    /// 共享根停车位姿派生失败。
+    SharedParkingPoseComputation {
+        /// 停车位序号。
+        space: ParkingSpaceOrdinal,
+        /// 派生阶段。
+        operation: &'static str,
+        /// 底层错误。
+        source: Box<SpatialError>,
+    },
 }
 
 impl fmt::Display for SpatialError {
@@ -342,6 +382,36 @@ impl fmt::Display for SpatialError {
                 formatter,
                 "位姿批量输入 {input_index}（vehicle {vehicle:?}）失败: {source}"
             ),
+            Self::UnknownLaneEdge { edge } => {
+                write!(formatter, "共享根 LaneEdge {edge} 无法采样")
+            }
+            Self::UnknownParkingSpace { space } => {
+                write!(formatter, "共享根停车位 {space} 无法采样")
+            }
+            Self::SharedPoseRecordFailed {
+                input_index,
+                record,
+                source,
+            } => write!(
+                formatter,
+                "共享根位姿输入 {input_index}（record {record:?}）失败: {source}"
+            ),
+            Self::SharedProgressOutOfRange {
+                edge,
+                progress_meters,
+                max_meters,
+            } => write!(
+                formatter,
+                "LaneEdge {edge} 的采样进度 {progress_meters:?} m 超出闭区间 [0, {max_meters:?}] m"
+            ),
+            Self::SharedParkingPoseComputation {
+                space,
+                operation,
+                source,
+            } => write!(
+                formatter,
+                "停车位 {space} 的 {operation} 无法保持 canonical 位姿不变量: {source}"
+            ),
         }
     }
 }
@@ -351,7 +421,9 @@ impl Error for SpatialError {
         match self {
             Self::SamplePositionComputation { source, .. }
             | Self::ParkingPoseComputation { source, .. }
-            | Self::PoseRecordFailed { source, .. } => Some(source.as_ref()),
+            | Self::PoseRecordFailed { source, .. }
+            | Self::SharedPoseRecordFailed { source, .. }
+            | Self::SharedParkingPoseComputation { source, .. } => Some(source.as_ref()),
             _ => None,
         }
     }
