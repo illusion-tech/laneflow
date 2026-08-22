@@ -12,6 +12,23 @@ use crate::{SpatialAxis, SpatialError};
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct PoseRecordId(u32);
 
+/// Adapter 为 canonical frame 的某次宿主放置颁发的不透明等值 token。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FramePlacementToken(u64);
+
+impl FramePlacementToken {
+    /// 从调用方拥有的稳定值创建 token。
+    #[must_use]
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+}
+
 impl PoseRecordId {
     /// 从调用方拥有的稳定值创建记录身份。
     #[must_use]

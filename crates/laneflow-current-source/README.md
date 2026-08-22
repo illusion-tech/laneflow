@@ -12,14 +12,14 @@ wire 校验、版本闸口、SHA-256 摘要与 Manifest 配对 source crate。
 
 错误面固定为至少含一项 issue 的 `CurrentSourceError` bundle；每项 issue 携带 document、context、规范 `$` path、category 与 owned `serde_json::Error`；payload 只含当前加载路径可达 variant 并提供稳定字符串码。`CurrentSourceIssueParts::into_components` 是调用方取走不可 Clone `serde_json::Error` 的唯一 owned bridge。
 
-本 crate 不读取文件、不联网、不做 Core/Spatial 规范化，也不建立编译器位置表、严格导入
-配置或资源账本。它不会被接入 `laneflow-compiler`，并将在 #301 拆除 current 运行时入口时删除。
+本 crate 不读取文件、不联网、不做 Runtime/Spatial 规范化，也不建立编译器位置表、严格导入
+配置或资源账本。它不是可运行交通世界入口。
 
 依赖方向固定为：
 
 ```text
 laneflow-data -> laneflow-current-source
-laneflow-current-source -X-> laneflow-core / laneflow-spatial / laneflow-compiler
+laneflow-current-source -X-> laneflow-runtime / laneflow-spatial / laneflow-compiler
 ```
 
 本 crate 只依赖 Rust 标准库、Serde/serde_json、serde_path_to_error、SHA-256 与 thiserror，

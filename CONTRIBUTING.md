@@ -107,7 +107,7 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 
 - Commit message：Conventional Commits 标题、`Refs` / `Closes`、必要时 `BREAKING CHANGE:`；`xtask` 构建使用 `Swatinem/rust-cache`（仅 `main` 写回缓存）。
 - Markdown tables：表格格式检查只警告，不阻断合并。
-- Rust checks：job 始终运行以保持 required check 稳定。若变更触及 `crates/`、`xtask/`、`tools/`、`examples/`、`research/`、`schemas/`、`Cargo.toml` / `Cargo.lock`、`deny.toml`、本 workflow、external-review workflows 或 `docs/governance/github-workflow.md`，则安装 Rust 1.96.0、恢复/写入 cargo 缓存、运行 `fmt`、`test --workspace`、Core/Spatial allocation 与 `cargo build --benches`（dev profile 下完成 codegen/link，避免 `cargo bench --no-run` 的 bench profile 全量重编）。若变更触及 Bevy Adapter、其 workspace 依赖（`laneflow-core` / `spatial` / `data` / `scenario`）、native example 制品路径、workspace lockfile/manifest 或本 workflow，额外编译 `native-example` 示例并构建 Bevy benches、检查 Bevy allocation。纯文档等非 Rust 路径会跳过重型 cargo 步骤并显式记录 skip。
+- Rust checks：job 始终运行以保持 required check 稳定。若变更触及 `crates/`、`xtask/`、`tools/`、`examples/`、`research/`、`schemas/`、`Cargo.toml` / `Cargo.lock`、`deny.toml`、本 workflow、external-review workflows 或 `docs/governance/github-workflow.md`，则安装 Rust 1.96.0、恢复/写入 cargo 缓存、运行 `fmt`、`test --workspace`，以及走廊 generator `check`。若变更触及 Bevy Adapter、其 workspace 依赖（`laneflow-runtime` / `spatial` / `data` / `scenario`）、native example 制品路径、workspace lockfile/manifest 或本 workflow，额外编译 `runtime_min` 示例。纯文档等非 Rust 路径会跳过重型 cargo 步骤并显式记录 skip。
 - Dependency policy：cargo-deny 检查 RustSec advisories、许可证、wildcard dependency 和 crate 来源。
 - External Review：受信非作者 Approve/Comment（不要求绑当前 head）或 PR 正文 👍；Merge Queue 上盖章到 `H_mg`。
 
@@ -119,7 +119,7 @@ PR 中必须记录实际运行的检查。无法运行时，应说明原因和�
 
 AI Agent 可以参与设计、实现、测试和文档维护，但应遵守 `docs/governance/agent-development-guide.md`。
 
-Agent 不应在未读取相关设计文档的情况下修改 Core API、数据格式或 Adapter 协议。
+Agent 不应在未读取相关设计文档的情况下修改 Traffic Runtime API、数据格式或 Adapter 协议。
 
 通用 Agent 工作流位于 `.agents/skills/`。Cursor 的 `.cursor/skills/` 只作为薄包装入口，规范本体仍以 `.agents/` 和 `docs/` 为准。
 

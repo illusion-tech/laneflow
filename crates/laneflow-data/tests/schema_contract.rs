@@ -1,6 +1,7 @@
 use jsonschema::draft202012;
-use laneflow_core::MAX_PORTABLE_SIGNAL_TIME_MS;
 use serde_json::Value;
+
+const MAX_PORTABLE_SIGNAL_TIME_MS: u64 = 9_007_199_254_740_991;
 
 const CURRENT_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.10.schema.json");
 const SIGNALS_FIXTURE: &str =

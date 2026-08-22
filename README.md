@@ -92,21 +92,21 @@ LaneFlow 的当前能力与 #291 已接受长期目标共同关注：
 
 ## Rust workspace
 
-- `crates/laneflow-bevy`：Bevy 0.19 Reference Adapter；使用最小 modular dependency graph，提供单活动 `LaneFlowSession`、专用 fixed schedule、Vehicle/Entity 部分双射、frame placement、原子 local Transform 同步、可选 Gizmos、campus 最小示例与 v0.10 protected-turning signalized-corridor native example。
-- `crates/laneflow-core`：引擎无关的 Core domain/runtime、typed handles、fixed tick、fixed-time Signals snapshot/query/events、SignalStop 与 permission-aware traversal，以及私有 occupancy/leader、IIDM、safe-speed 与 no-overlap projection pipeline。
-- `crates/laneflow-current-source`：当前态内部加载辅助 crate；为 `laneflow-data` 承载 Traffic v0.10、Scenario Manifest v0.1 与 Spatial v0.1 的 wire DTO、版本闸口、摘要与 descriptor 配对校验；不进入 compiler，并随 #301 拆除 current 运行时入口时删除。
-- `crates/laneflow-data`：当前 Traffic v0.10 JSON loader、严格版本闸口、Junction/Movement/ManeuverPath/ManeuverGate、横断面/准入静态模型、per-edge `speedLimit` 与 Core normalization；依赖方向固定为 `laneflow-data -> laneflow-core` 与 `laneflow-data -> laneflow-current-source`。
-- `crates/laneflow-scenario`：可选、引擎无关的 reference scenario policy；当前提供 v0.10 signalized-corridor catalog 0.2 的 PortalLane/weighted RouteChoice normalization、50–200 车辆确定性初始化、ordered completion 消费和 blocked recycle retry，依赖方向固定为 `laneflow-scenario -> laneflow-core`。
-- `crates/laneflow-spatial`：LaneFlow 自有的有界 `f32` canonical 点、向量、单位方向、稳定 frame ID、immutable edge-binding registry，以及带 placement token、Parking pose 和失败原子性的批量位姿提取；依赖方向固定为 `laneflow-spatial -> laneflow-core`，Core 不反向依赖 Spatial。
+- `crates/laneflow-bevy`：Bevy 0.19 Reference Adapter；使用最小 modular dependency graph，提供单活动 `LaneFlowSession`、专用 fixed schedule，以及 `TrafficWorld` + 可选 `SpatialSession` 的最小示例。campus / 走廊 Core 入口已拆除。
+- `crates/laneflow-runtime`：引擎无关的交通运行时。`TrafficWorld` 安装 `Arc<SharedNetworkRevision>`，拥有 1-worker 固定步进、动态 Route、车辆、停车占用与信号 snapshot。
+- `crates/laneflow-current-source`：Traffic v0.10、Scenario Manifest v0.1 与 Spatial v0.1 的内部 wire 校验 crate；不是可运行交通世界入口。
+- `crates/laneflow-data`：再导出 current JSON 格式版本与媒体类型；不再把 JSON 正规化为可运行世界。
+- `crates/laneflow-scenario`：可选、引擎无关的 reference scenario catalog 线格式；走廊人口迁到 Runtime 是 follow-up。
+- `crates/laneflow-spatial`：LaneFlow 自有的有界 `f32` canonical 点、向量、单位方向、稳定 frame ID，以及绑定共享根 `Arc` 的 `SpatialSession` 位姿采样；不依赖 Runtime。
 - `tools/laneflow-corridor-generator`：Traffic v0.10 受保护转向走廊的离线 authoring 工具；读取内部 TOML，确定性生成并校验 Traffic/Spatial/Manifest JSON 与 scenario-local catalog 0.2 TOML，并复用 `laneflow-scenario` 的 catalog wire DTO。
 - `research/issue-123-spatial-prototype`：#123 G1 使用的研究用工作区成员；不属于生产接口，第三方几何候选只作为开发依赖进行对照。
 - `xtask`：Markdown 表格格式化、提交消息和 External Review Check 等仓库治理工具。
 
-Data crate 只接收调用方提供的内存 bytes/string，不读取引擎路径或直接创建 `CoreWorld`。详细边界见 `docs/design/data-loading.md`、ADR 0007 与 ADR 0008。
+可运行交通世界只从共享静态路网修订安装，不从 current JSON 创建。详细边界见 `docs/design/traffic-runtime-shared-consumption.md`。
 
 ## 许可证
 
-LaneFlow 公开仓库采用 [Apache License 2.0](LICENSE)。`laneflow-core`、`laneflow-data` 与本仓库其他自有内容按 Apache-2.0-only 分发；第三方材料仍遵循其各自许可证。
+LaneFlow 公开仓库采用 [Apache License 2.0](LICENSE)。`laneflow-runtime`、`laneflow-data` 与本仓库其他自有内容按 Apache-2.0-only 分发；第三方材料仍遵循其各自许可证。
 
 未来高级编辑器、城市级或分布式仿真、优化分析、企业 Adapter、云服务与商业支持可以在独立产品和独立许可证下交付。商业产品可以依赖开放 Core/Data，开放仓库不得依赖商业实现。详细边界与依赖审计规则见 `docs/adr/0002-dependency-and-licensing-constraints.md` 和 `docs/governance/dependency-security.md`。
 

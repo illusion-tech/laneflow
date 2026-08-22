@@ -1,15 +1,14 @@
 //! Bevy 0.19 Plugin 与 LaneFlow 专用 schedule。
 
-use bevy_app::{App, First, MainScheduleOrder, Plugin, PostUpdate};
+use bevy_app::{App, First, MainScheduleOrder, Plugin};
 use bevy_ecs::{
     schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel, SingleThreadedExecutor, SystemSet},
     system::{Res, ResMut},
     world::World,
 };
 use bevy_time::Time;
-use bevy_transform::TransformSystems;
 
-use crate::{LaneFlowSession, presentation::sync_lane_flow_transforms};
+use crate::LaneFlowSession;
 
 /// 每个 Bevy outer frame 运行一次的 LaneFlow 驱动 schedule。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, ScheduleLabel)]
@@ -22,9 +21,9 @@ pub struct LaneFlowFixed;
 /// 每个 LaneFlow fixed step 内稳定执行的公共阶段。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, SystemSet)]
 pub enum LaneFlowFixedSet {
-    /// 调用方提交 vehicle lifecycle command 的 fixed-step boundary。
+    /// 调用方提交 lifecycle command 的 fixed-step boundary。
     Lifecycle,
-    /// Adapter 推进一次 LaneFlow Core fixed tick。
+    /// Adapter 推进一次 TrafficWorld fixed tick。
     Step,
     /// 调用方读取本次 fixed step committed 结果。
     Observe,
@@ -50,13 +49,9 @@ impl Plugin for LaneFlowPlugin {
             )
                 .chain(),
         );
-        fixed.add_systems(step_core.in_set(LaneFlowFixedSet::Step));
+        fixed.add_systems(step_world.in_set(LaneFlowFixedSet::Step));
 
         app.add_schedule(outer_frame).add_schedule(fixed);
-        app.add_systems(
-            PostUpdate,
-            sync_lane_flow_transforms.before(TransformSystems::Propagate),
-        );
         app.world_mut()
             .resource_mut::<MainScheduleOrder>()
             .insert_after(First, LaneFlowOuterFrame);
@@ -96,8 +91,8 @@ fn run_outer_frame(world: &mut World) {
     world.resource_mut::<LaneFlowSession>().finish_outer_frame();
 }
 
-fn step_core(mut session: ResMut<'_, LaneFlowSession>) {
-    session.step_core();
+fn step_world(mut session: ResMut<'_, LaneFlowSession>) {
+    session.step_world();
 }
 
 fn session_has_no_error(session: Res<'_, LaneFlowSession>) -> bool {

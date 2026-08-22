@@ -3,9 +3,7 @@
 #[cfg(feature = "debug-gizmos")]
 mod debug;
 mod error;
-mod lifecycle;
 mod plugin;
-mod presentation;
 mod session;
 
 #[cfg(feature = "debug-gizmos")]
@@ -15,13 +13,7 @@ pub use debug::{
     LaneFlowDebugVehicleFilter,
 };
 pub use error::LaneFlowAdapterError;
-pub use lifecycle::{
-    LaneFlowVehicleReplaceOutcome, LaneFlowVehicleReplaceRecord, replace_completed_vehicle,
-};
 pub use plugin::{LaneFlowFixed, LaneFlowFixedSet, LaneFlowOuterFrame, LaneFlowPlugin};
-pub use presentation::{
-    LaneFlowFramePlacement, LaneFlowPresentationReport, LaneFlowVehicleEntityMap,
-};
 pub use session::{LaneFlowFrameReport, LaneFlowSession, LaneFlowSessionConfig};
 
 #[cfg(test)]

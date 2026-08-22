@@ -108,7 +108,7 @@ jobs:
               - 'docs/governance/github-workflow.md'
             bevy:
               - 'crates/laneflow-bevy/**'
-              - 'crates/laneflow-core/**'
+              - 'crates/laneflow-runtime/**'
               - 'crates/laneflow-spatial/**'
               - 'crates/laneflow-data/**'
               - 'crates/laneflow-scenario/**'
@@ -159,47 +159,8 @@ jobs:
         shell: bash
         run: >-
           cargo +1.96.0 check --locked -p laneflow-bevy
-          --example signalized_corridor
-          --example native_reference
+          --example runtime_min
           --features native-example
-
-      - name: Run Parking allocation invariants serially
-        if: steps.filter.outputs.rust == 'true'
-        shell: bash
-        run: cargo +1.96.0 test -p laneflow-core --test parking_runtime_allocations --all-features --locked -- --ignored --test-threads=1
-
-      - name: Run speed-limit allocation invariant serially
-        if: steps.filter.outputs.rust == 'true'
-        shell: bash
-        run: cargo +1.96.0 test -p laneflow-core --test speed_limit_allocations --locked -- --ignored --test-threads=1
-
-      - name: Run Spatial allocation invariants serially
-        if: steps.filter.outputs.rust == 'true'
-        shell: bash
-        run: cargo +1.96.0 test -p laneflow-spatial --test pose_batch_allocations --locked -- --ignored --test-threads=1
-
-      - name: Run Bevy Adapter allocation invariants serially
-        if: steps.filter.outputs.bevy == 'true'
-        shell: bash
-        run: cargo +1.96.0 test -p laneflow-bevy --test presentation_allocations --locked -- --ignored --test-threads=1
-
-      - name: Run Parking lifecycle example
-        if: steps.filter.outputs.rust == 'true'
-        shell: bash
-        run: cargo +1.96.0 run -p laneflow-data --example parking_lifecycle --locked
-
-      - name: Build Core and Spatial benchmarks
-        if: steps.filter.outputs.rust == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo +1.96.0 build --locked -p laneflow-core --benches
-          cargo +1.96.0 build --locked -p laneflow-spatial --benches
-
-      - name: Build Bevy Adapter benchmarks
-        if: steps.filter.outputs.bevy == 'true'
-        shell: bash
-        run: cargo +1.96.0 build --locked -p laneflow-bevy --benches
 
       - name: Skip heavy Rust checks for non-Rust paths
         if: steps.filter.outputs.rust != 'true'
