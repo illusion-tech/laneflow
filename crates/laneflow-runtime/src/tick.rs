@@ -513,7 +513,9 @@ fn clamp_travel_to_speed_down_boundary(
         if distance <= 1e-12 {
             continue;
         }
-        if min_travel > distance + 1e-12 && travel > distance {
+        // 能停在更低限速边之前时才钳在边界；min_travel 已超过距离则本拍必须进入，
+        // 否则会把行程压到低于 0.5 v Δt，再被夹成在入口边尽头静止。
+        if min_travel <= distance + 1e-12 && travel > distance {
             travel = travel.min(distance);
         }
     }
