@@ -37,7 +37,7 @@ fn bind_full_spatial_and_extract_lane_pose() {
             .expect("session")
             .revision()
     ));
-    let session = SpatialSession::bind(revision)
+    let mut session = SpatialSession::bind(revision)
         .expect("bind")
         .expect("session");
     let edge = LaneEdgeOrdinal::from_raw(0);

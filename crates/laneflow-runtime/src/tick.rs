@@ -1,5 +1,5 @@
 use laneflow_static_contract::{LaneEdgeOrdinal, SignalAspect, StaticRouteOrdinal};
-use laneflow_static_network::{BoundedDistance, VehicleProfileView};
+use laneflow_static_network::VehicleProfileView;
 
 use crate::tables::{
     VehicleState, VehicleStatus, remaining_along_route, remaining_to_route_end,
@@ -22,7 +22,8 @@ impl TrafficWorld {
             .checked_add(expected)
             .ok_or(StepError::Overflow)?;
         let delta_s = expected as f64 / 1_000.0;
-        let mut next_states = Vec::new();
+        self.next_states.clear();
+        self.next_states.reserve(self.live_order.len());
         for handle in self.live_order.iter().copied() {
             let Some(state) = self.vehicle_state(handle).copied() else {
                 continue;
@@ -34,22 +35,22 @@ impl TrafficWorld {
                 .advance_active_vehicle(state, delta_s)
                 .ok_or(StepError::NonFiniteMotion)?;
             let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
-            next_states.push((slot, next));
+            self.next_states.push((slot, next));
         }
-        for (slot, next) in next_states {
-            if next.status == VehicleStatus::Completed
-                && let Some(previous) = self.vehicles[slot].state
-                && previous.status == VehicleStatus::Active
-                && !previous.route.is_static()
-            {
-                let route_index = usize::try_from(previous.route.index())
-                    .expect("dynamic route index fits usize");
-                self.dynamic_routes[route_index].live_vehicles = self.dynamic_routes[route_index]
-                    .live_vehicles
-                    .saturating_sub(1);
+        let mut updates = std::mem::take(&mut self.next_states);
+        for (slot, next) in updates.drain(..) {
+            if next.status == VehicleStatus::Completed {
+                if let Some(previous) = self.vehicles[slot].state
+                    && previous.status == VehicleStatus::Active
+                {
+                    self.release_route_ref(previous.route);
+                    self.retire_completed_vehicle(slot, previous.handle);
+                }
+                continue;
             }
             self.vehicles[slot].state = Some(next);
         }
+        self.next_states = updates;
         self.tick_index = tick_index;
         self.time_ms = time_ms;
         self.refresh_signals();
@@ -131,16 +132,33 @@ impl TrafficWorld {
             let Some(leader) = self.vehicle_state(handle) else {
                 continue;
             };
-            if leader.status != VehicleStatus::Active || leader.route != follower.route {
+            if leader.status != VehicleStatus::Active {
                 continue;
             }
+            let Some(leader_edges) = self.route_edges(leader.route) else {
+                continue;
+            };
             let leader_index = usize::try_from(leader.route_edge_index).ok()?;
+            let Some(leader_edge) = leader_edges.get(leader_index).copied() else {
+                continue;
+            };
+            let Some(found) = edges
+                .iter()
+                .enumerate()
+                .skip(cursor)
+                .find_map(|(index, edge)| (*edge == leader_edge).then_some(index))
+            else {
+                continue;
+            };
+            if found == cursor && leader.progress <= follower.progress {
+                continue;
+            }
             let Some(front_to_front) = remaining_along_route(
                 lengths,
                 edges,
                 cursor,
                 follower.progress,
-                leader_index,
+                found,
                 leader.progress,
             ) else {
                 continue;
@@ -172,19 +190,28 @@ impl TrafficWorld {
         lengths: &[f64],
         cursor: usize,
     ) -> Option<f64> {
-        let nxt = self
-            .revision
-            .traffic()
-            .relations()
-            .next_controlled_transition(ordinal, cursor)?;
-        if !self.gate_is_restrictive(nxt.gate()) {
-            return None;
+        let relations = self.revision.traffic().relations();
+        let mut search = cursor;
+        loop {
+            let nxt = relations.next_controlled_transition(ordinal, search)?;
+            let from = usize::try_from(nxt.from_route_edge_index()).ok()?;
+            if self.gate_is_restrictive(nxt.gate()) {
+                let stop_edge = *edges.get(from)?;
+                let stop_at = *lengths.get(stop_edge.index())?;
+                return remaining_along_route(
+                    lengths,
+                    edges,
+                    cursor,
+                    state.progress,
+                    from,
+                    stop_at,
+                );
+            }
+            search = from.checked_add(1)?;
+            if search >= edges.len() {
+                return None;
+            }
         }
-        let from = usize::try_from(nxt.from_route_edge_index()).ok()?;
-        let BoundedDistance::Finite(at_edge) = nxt.distance_from_edge_start() else {
-            return None;
-        };
-        remaining_along_route(lengths, edges, cursor, state.progress, from, at_edge)
     }
 
     fn dynamic_signal_stop_distance(
@@ -194,24 +221,26 @@ impl TrafficWorld {
         cursor: usize,
         progress: f64,
     ) -> Option<f64> {
-        let relations = self.revision.traffic().relations();
-        for (index, edge) in edges.iter().copied().enumerate().skip(cursor) {
-            let Some(stop) = relations.stop_line_for_edge(edge) else {
+        let traffic = self.revision.traffic();
+        for index in cursor..edges.len().saturating_sub(1) {
+            let from = edges[index];
+            let to = edges[index + 1];
+            let Some(candidates) = traffic.maneuvers().transition_candidates(from) else {
                 continue;
             };
-            let Some(view) = relations.stop_line(stop) else {
+            let Some(candidate) = candidates
+                .iter()
+                .find(|candidate| candidate.successor() == to)
+            else {
                 continue;
             };
-            let restrictive = view.gates().iter().copied().any(|gate| {
-                relations
-                    .maneuver_gate(gate)
-                    .and_then(|gate| gate.signal_group())
-                    .is_some_and(|group| self.group_is_restrictive(group))
-            });
-            if !restrictive {
+            let Some(gate) = candidate.maneuver_gate() else {
+                continue;
+            };
+            if !self.gate_is_restrictive(gate) {
                 continue;
             }
-            let edge_length = *lengths.get(edge.index())?;
+            let edge_length = *lengths.get(from.index())?;
             return remaining_along_route(lengths, edges, cursor, progress, index, edge_length);
         }
         None
@@ -227,10 +256,11 @@ impl TrafficWorld {
     }
 
     fn group_is_restrictive(&self, group: laneflow_static_contract::SignalGroupOrdinal) -> bool {
-        matches!(
-            self.signal_aspects.get(group.index()).copied(),
-            Some(SignalAspect::Red | SignalAspect::Yellow)
-        )
+        match self.signal_aspects.get(group.index()).copied() {
+            Some(SignalAspect::Red | SignalAspect::Yellow) => true,
+            Some(SignalAspect::Green) | None => false,
+            _ => false,
+        }
     }
 }
 

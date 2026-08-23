@@ -1,12 +1,21 @@
 //! 单活动 LaneFlow Session：TrafficWorld + 可选 Spatial session。
 
-use std::{num::NonZeroU32, time::Duration};
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use bevy_ecs::resource::Resource;
-use laneflow_runtime::{StepOutcome, TickInput, TrafficWorld};
-use laneflow_spatial::SpatialSession;
+use laneflow_runtime::{PoseSource as RuntimePoseSource, StepOutcome, TickInput, TrafficWorld};
+use laneflow_spatial::{PoseInput, PoseRecordId, SpatialSession};
 
 use crate::LaneFlowAdapterError;
+
+/// 把 Runtime 已提交 pose 源映射为 Spatial 批次输入。
+#[must_use]
+pub fn pose_input(record: PoseRecordId, source: RuntimePoseSource) -> PoseInput {
+    match source {
+        RuntimePoseSource::Lane { edge, progress } => PoseInput::lane(record, edge, progress),
+        RuntimePoseSource::Parking { space } => PoseInput::parking(record, space),
+    }
+}
 
 /// 单活动 Session 的 fixed-schedule 配置。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,13 +79,18 @@ pub struct LaneFlowSession {
 }
 
 impl LaneFlowSession {
-    /// 创建 Session。
+    /// 创建 Session。若提供 Spatial，必须与 world 满足 `Arc::ptr_eq`。
     pub fn new(
         world: TrafficWorld,
         spatial: Option<SpatialSession>,
         config: LaneFlowSessionConfig,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, LaneFlowAdapterError> {
+        if let Some(session) = spatial.as_ref()
+            && !Arc::ptr_eq(&world.revision(), &session.revision())
+        {
+            return Err(LaneFlowAdapterError::RevisionMismatch);
+        }
+        Ok(Self {
             world,
             spatial,
             config,
@@ -84,17 +98,27 @@ impl LaneFlowSession {
             frame_report: LaneFlowFrameReport::default(),
             frame_step_results: Vec::new(),
             last_error: None,
-        }
+        })
     }
 
-    /// 交通世界。
+    /// 已提交交通世界。
     pub const fn world(&self) -> &TrafficWorld {
         &self.world
+    }
+
+    /// 两次 `step` 之间提交生命周期命令。
+    pub const fn world_mut(&mut self) -> &mut TrafficWorld {
+        &mut self.world
     }
 
     /// 可选 Spatial session。
     pub const fn spatial(&self) -> Option<&SpatialSession> {
         self.spatial.as_ref()
+    }
+
+    /// 可变 Spatial session，用于复用 pose 批次 scratch。
+    pub const fn spatial_mut(&mut self) -> Option<&mut SpatialSession> {
+        self.spatial.as_mut()
     }
 
     /// Session 配置。

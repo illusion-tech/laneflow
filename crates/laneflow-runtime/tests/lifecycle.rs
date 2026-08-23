@@ -258,6 +258,32 @@ fn remove_dynamic_route_rejects_live_vehicle() {
 }
 
 #[test]
+fn parking_releases_dynamic_route_so_remove_succeeds() {
+    let mut world = world();
+    let first = edge_for_length(&world, 10.0);
+    let middle = edge_for_length(&world, 8.0);
+    let last = edge_for_length(&world, 12.0);
+    let route = world
+        .register_route(RouteRegisterInput::new(vec![first, middle, last]))
+        .expect("dynamic route");
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            0.0,
+            0.0,
+        ))
+        .expect("spawn on dynamic");
+    world
+        .occupy_parking(vehicle, ParkingSpaceOrdinal::from_raw(0))
+        .expect("park");
+    world
+        .remove_route(route)
+        .expect("parked vehicle does not pin route");
+}
+
+#[test]
 fn spawn_rejects_out_of_range_index_and_progress() {
     let mut world = world();
     let route = world

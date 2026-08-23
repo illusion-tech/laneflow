@@ -152,6 +152,62 @@ pub(crate) fn bumpers_overlap(a_front: f64, a_length: f64, b_front: f64, b_lengt
     a_rear < b_front && b_rear < a_front
 }
 
+pub(crate) fn occupancy_intervals(
+    lengths: &[f64],
+    edges: &[LaneEdgeOrdinal],
+    mut index: usize,
+    mut end: f64,
+    mut remaining: f64,
+) -> Option<Vec<(LaneEdgeOrdinal, f64, f64)>> {
+    let mut intervals = Vec::new();
+    while remaining > 1e-12 {
+        let edge = *edges.get(index)?;
+        let edge_length = *lengths.get(edge.index())?;
+        let start = (end - remaining).max(0.0);
+        let hi = end.min(edge_length);
+        if hi > start {
+            intervals.push((edge, start, hi));
+        }
+        remaining -= hi - start;
+        if remaining <= 1e-12 || index == 0 {
+            break;
+        }
+        index -= 1;
+        end = *lengths.get(edges.get(index)?.index())?;
+    }
+    Some(intervals)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn bodies_overlap(
+    lengths: &[f64],
+    a_edges: &[LaneEdgeOrdinal],
+    a_index: usize,
+    a_progress: f64,
+    a_length: f64,
+    b_edges: &[LaneEdgeOrdinal],
+    b_index: usize,
+    b_progress: f64,
+    b_length: f64,
+) -> bool {
+    if a_edges.get(a_index) == b_edges.get(b_index)
+        && bumpers_overlap(a_progress, a_length, b_progress, b_length)
+    {
+        return true;
+    }
+    let Some(left) = occupancy_intervals(lengths, a_edges, a_index, a_progress, a_length) else {
+        return false;
+    };
+    let Some(right) = occupancy_intervals(lengths, b_edges, b_index, b_progress, b_length) else {
+        return false;
+    };
+    left.iter().any(|(edge, a_lo, a_hi)| {
+        right
+            .iter()
+            .any(|(other, b_lo, b_hi)| *edge == *other && *a_lo < *b_hi && *b_lo < *a_hi)
+    })
+}
+
 pub(crate) fn static_route_ordinal(handle: RouteHandle) -> Option<StaticRouteOrdinal> {
     handle
         .is_static()

@@ -75,11 +75,13 @@ impl StepOutcome {
         }
     }
 
+    /// 成功步进后的已提交 `tick_index`。
     #[must_use]
     pub const fn tick_index(self) -> u64 {
         self.tick_index
     }
 
+    /// 成功步进后的已提交 `time_ms`。
     #[must_use]
     pub const fn time_ms(self) -> u64 {
         self.time_ms

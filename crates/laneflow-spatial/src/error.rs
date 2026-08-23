@@ -2,7 +2,7 @@
 
 use std::{error::Error, fmt};
 
-use laneflow_static_contract::{LaneEdgeOrdinal, ParkingSpaceOrdinal};
+use laneflow_static_contract::{CanonicalFrameOrdinal, LaneEdgeOrdinal, ParkingSpaceOrdinal};
 
 use crate::PoseRecordId;
 
@@ -60,12 +60,12 @@ pub enum SpatialError {
     },
     /// 零向量不能成为单位方向。
     ZeroLengthDirection,
-    /// committed batch 的 frame 不一致。
+    /// 同一批 `PoseInput` 混用多个 canonical frame；失败不改 `output`。
     BatchFrameMismatch {
-        /// 期望的 frame。
-        registry_frame_id: String,
-        /// 实际 frame。
-        output_frame_id: String,
+        /// 批次已锁定的 frame。
+        expected_frame: CanonicalFrameOrdinal,
+        /// 冲突记录的 frame。
+        actual_frame: CanonicalFrameOrdinal,
     },
     /// 共享根 LaneEdge 序号无法采样。
     UnknownLaneEdge {
@@ -131,11 +131,11 @@ impl fmt::Display for SpatialError {
             ),
             Self::ZeroLengthDirection => formatter.write_str("零向量不能归一化为单位方向"),
             Self::BatchFrameMismatch {
-                registry_frame_id,
-                output_frame_id,
+                expected_frame,
+                actual_frame,
             } => write!(
                 formatter,
-                "位姿批次 frame {output_frame_id:?} 与 {registry_frame_id:?} 不一致"
+                "位姿批次 frame {actual_frame:?} 与 {expected_frame:?} 不一致"
             ),
             Self::UnknownLaneEdge { edge } => {
                 write!(formatter, "共享根 LaneEdge {edge} 无法采样")

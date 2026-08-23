@@ -7,7 +7,7 @@ use laneflow_static_contract::{
 use laneflow_static_network::SharedNetworkRevision;
 
 use crate::tables::{
-    DynamicRouteSlot, VehicleSlot, VehicleState, VehicleStatus, bumpers_overlap,
+    DynamicRouteSlot, VehicleSlot, VehicleState, VehicleStatus, bodies_overlap,
     compile_dynamic_route, route_access_denied, spawn_motion_error, static_route_ordinal,
 };
 use crate::{
@@ -17,6 +17,7 @@ use crate::{
 };
 
 /// 1-worker 交通世界。只克隆根 `Arc`，不复制静态 component。
+/// 生命周期命令（`register_route` / `spawn_vehicle` / `occupy_parking`）只在两次 `step` 之间调用。
 pub struct TrafficWorld {
     pub(crate) revision: Arc<SharedNetworkRevision>,
     pub(crate) config: WorldConfig,
@@ -30,6 +31,7 @@ pub struct TrafficWorld {
     pub(crate) free_vehicles: Vec<usize>,
     pub(crate) live_order: Vec<VehicleHandle>,
     pub(crate) parking_occupants: Box<[Option<VehicleHandle>]>,
+    pub(crate) next_states: Vec<(usize, VehicleState)>,
 }
 
 impl TrafficWorld {
@@ -59,19 +61,22 @@ impl TrafficWorld {
                 .count(EntityKind::ParkingSpace),
         )
         .expect("parking space count fits usize");
+        let vehicle_capacity = usize::try_from(config.vehicle_capacity()).unwrap_or(0);
+        let route_capacity = usize::try_from(config.dynamic_route_capacity()).unwrap_or(0);
         let mut world = Self {
             revision,
             config,
             tick_index: 0,
             time_ms: 0,
             signal_aspects: vec![SignalAspect::Red; group_count].into_boxed_slice(),
-            dynamic_routes: Vec::new(),
-            free_routes: Vec::new(),
+            dynamic_routes: Vec::with_capacity(route_capacity),
+            free_routes: Vec::with_capacity(route_capacity),
             live_dynamic_routes: 0,
-            vehicles: Vec::new(),
-            free_vehicles: Vec::new(),
-            live_order: Vec::new(),
+            vehicles: Vec::with_capacity(vehicle_capacity),
+            free_vehicles: Vec::with_capacity(vehicle_capacity),
+            live_order: Vec::with_capacity(vehicle_capacity),
             parking_occupants: vec![None; space_count].into_boxed_slice(),
+            next_states: Vec::with_capacity(vehicle_capacity),
         };
         world.refresh_signals();
         Ok(world)
@@ -89,16 +94,19 @@ impl TrafficWorld {
         self.revision.traffic()
     }
 
+    /// 已提交 `tick_index`。`install` 后为 0；成功 `step` 与 `StepOutcome` 一致；失败不变。
     #[must_use]
     pub const fn tick_index(&self) -> u64 {
         self.tick_index
     }
 
+    /// 已提交 `time_ms`。`install` 后为 0；成功 `step` 与 `StepOutcome` 一致；失败不变。
     #[must_use]
     pub const fn time_ms(&self) -> u64 {
         self.time_ms
     }
 
+    /// 安装时冻结的 world 配置。
     #[must_use]
     pub const fn config(&self) -> WorldConfig {
         self.config
@@ -174,8 +182,8 @@ impl TrafficWorld {
         if let Some(next_generation) = slot.generation.checked_add(1) {
             slot.generation = next_generation;
             self.free_routes.push(index);
+            self.live_dynamic_routes = self.live_dynamic_routes.saturating_sub(1);
         }
-        self.live_dynamic_routes -= 1;
         Ok(())
     }
 
@@ -215,7 +223,7 @@ impl TrafficWorld {
         if self.route_suffix_denied(input.route(), profile.class(), cursor) {
             return Err(SpawnError::AccessDenied);
         }
-        if self.lane_overlap(edge, input.progress(), profile.length()) {
+        if self.lane_overlap(input.route(), cursor, input.progress(), profile.length()) {
             return Err(SpawnError::Overlap);
         }
 
@@ -283,7 +291,10 @@ impl TrafficWorld {
             }
             return Err(ParkingError::SpaceOccupiedByOther);
         }
-
+        if state.status != VehicleStatus::Active {
+            return Err(ParkingError::UnknownVehicle);
+        }
+        let route = state.route;
         let slot_index = usize::try_from(vehicle.index()).expect("vehicle index fits usize");
         let state = self.vehicles[slot_index]
             .state
@@ -293,10 +304,15 @@ impl TrafficWorld {
         state.speed = 0.0;
         state.parking = Some(space);
         self.parking_occupants[space_index] = Some(vehicle);
+        self.release_route_ref(route);
         Ok(())
     }
 
-    /// 固定步进。失败不推进时间，已提交查询与失败前一致。
+    /// 固定步进。`delta_time_ms` 必须等于 `WorldConfig.fixed_delta_time_ms`；
+    /// `tick_index`/`time_ms` 用 checked 加法。运动、跟车与信号遵守只读 snapshot(T)；
+    /// 成功后再提交 T+D 的 pose、时间与 `committed_signal_groups`。相位边界落在
+    /// `[T, T+D)` 时该拍仍用 snapshot(T) 灯色。失败不推进时间，已提交查询与失败前一致。
+    /// 生命周期命令只在两次 `step` 之间调用。
     pub fn step(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
         self.step_vehicles(input)
     }
@@ -425,12 +441,11 @@ impl TrafficWorld {
         )
     }
 
-    fn lane_overlap(
-        &self,
-        edge: laneflow_static_contract::LaneEdgeOrdinal,
-        progress: f64,
-        length: f64,
-    ) -> bool {
+    fn lane_overlap(&self, route: RouteHandle, cursor: usize, progress: f64, length: f64) -> bool {
+        let Some(spawn_edges) = self.route_edges(route) else {
+            return true;
+        };
+        let lengths = self.revision.traffic().lane_lengths_meters();
         self.live_order.iter().copied().any(|handle| {
             let Some(state) = self.vehicle_state(handle) else {
                 return false;
@@ -441,50 +456,97 @@ impl TrafficWorld {
             let Some(edges) = self.route_edges(state.route) else {
                 return false;
             };
-            let Some(current) =
-                edges.get(usize::try_from(state.route_edge_index).unwrap_or(usize::MAX))
-            else {
+            let Ok(index) = usize::try_from(state.route_edge_index) else {
                 return false;
             };
-            *current == edge && bumpers_overlap(progress, length, state.progress, state.length)
+            bodies_overlap(
+                lengths,
+                spawn_edges,
+                cursor,
+                progress,
+                length,
+                edges,
+                index,
+                state.progress,
+                state.length,
+            )
         })
     }
 
+    pub(crate) fn release_route_ref(&mut self, route: RouteHandle) {
+        if route.is_static() {
+            return;
+        }
+        let Ok(index) = usize::try_from(route.index()) else {
+            return;
+        };
+        let Some(slot) = self.dynamic_routes.get_mut(index) else {
+            return;
+        };
+        if slot.generation != route.generation() || slot.compiled.is_none() {
+            return;
+        }
+        slot.live_vehicles = slot.live_vehicles.saturating_sub(1);
+    }
+
+    pub(crate) fn retire_completed_vehicle(&mut self, slot: usize, handle: VehicleHandle) {
+        self.live_order.retain(|current| *current != handle);
+        let Some(vehicle) = self.vehicles.get_mut(slot) else {
+            return;
+        };
+        vehicle.state = None;
+        if let Some(next_generation) = vehicle.generation.checked_add(1) {
+            vehicle.generation = next_generation;
+            self.free_vehicles.push(slot);
+        }
+    }
+
     pub(crate) fn refresh_signals(&mut self) {
-        self.signal_aspects.fill(SignalAspect::Red);
-        let relations = self.revision.traffic().relations();
-        let controller_count = self
-            .revision
-            .traffic()
-            .entity_counts()
-            .count(EntityKind::SignalController);
-        for raw in 0..controller_count {
-            let controller = SignalControllerOrdinal::from_raw(raw);
-            let Some(view) = relations.signal_controller(controller) else {
-                continue;
-            };
-            let cycle_ms = view.cycle_ms();
-            if cycle_ms == 0 || view.phases().is_empty() {
-                continue;
-            }
-            let position = u64::try_from(
-                (u128::from(self.time_ms) + u128::from(view.offset_ms())) % u128::from(cycle_ms),
-            )
-            .expect("cycle position fits u64");
-            let phases = view.phases();
-            let phase_index = phases.partition_point(|phase| {
-                relations.phase_end_offset_ms(*phase).unwrap_or(0) <= position
-            });
-            let Some(phase) = phases.get(phase_index).copied() else {
-                continue;
-            };
-            let Some((groups, aspects)) = relations.phase_states(phase) else {
-                continue;
-            };
-            for (group, aspect) in groups.iter().copied().zip(aspects.iter().copied()) {
-                if let Some(slot) = self.signal_aspects.get_mut(group.index()) {
-                    *slot = aspect;
-                }
+        fill_signal_aspects(
+            self.revision.as_ref(),
+            self.time_ms,
+            &mut self.signal_aspects,
+        );
+    }
+}
+
+pub(crate) fn fill_signal_aspects(
+    revision: &SharedNetworkRevision,
+    time_ms: u64,
+    aspects: &mut [SignalAspect],
+) {
+    aspects.fill(SignalAspect::Red);
+    let relations = revision.traffic().relations();
+    let controller_count = revision
+        .traffic()
+        .entity_counts()
+        .count(EntityKind::SignalController);
+    for raw in 0..controller_count {
+        let controller = SignalControllerOrdinal::from_raw(raw);
+        let Some(view) = relations.signal_controller(controller) else {
+            continue;
+        };
+        let cycle_ms = view.cycle_ms();
+        if cycle_ms == 0 || view.phases().is_empty() {
+            continue;
+        }
+        let position = u64::try_from(
+            (u128::from(time_ms) + u128::from(view.offset_ms())) % u128::from(cycle_ms),
+        )
+        .expect("cycle position fits u64");
+        let phases = view.phases();
+        let phase_index = phases.partition_point(|phase| {
+            relations.phase_end_offset_ms(*phase).unwrap_or(0) <= position
+        });
+        let Some(phase) = phases.get(phase_index).copied() else {
+            continue;
+        };
+        let Some((groups, values)) = relations.phase_states(phase) else {
+            continue;
+        };
+        for (group, aspect) in groups.iter().copied().zip(values.iter().copied()) {
+            if let Some(slot) = aspects.get_mut(group.index()) {
+                *slot = aspect;
             }
         }
     }

@@ -18,8 +18,7 @@
 
 - `publish = false`，`default = []`；
 - 生产 crate 不得依赖本包；
-- `laneflow-core`、`laneflow-data` 与 `laneflow-spatial` 只由 `fixture-oracle` 在计时区外
-  读取并独立投影当前夹具；
+- current JSON Core loader 已拆除；本包不再以 `laneflow-core` 为可运行入口；
 - 每种第三方候选拥有独立私有特性（feature）；
 - `research-runner-full` 是正式研究执行器的封闭总特性（feature），其成员已在 #308 G2
   依赖审计中冻结；

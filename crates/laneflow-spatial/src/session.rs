@@ -53,14 +53,22 @@ impl PoseInput {
         }
     }
 
+    /// 调用方分配的不透明 pose 记录身份。
     #[must_use]
     pub const fn record(self) -> PoseRecordId {
         self.record
     }
 
+    /// 位姿来源。
     #[must_use]
     pub const fn source(self) -> PoseSource {
         self.source
+    }
+
+    /// 由记录身份与来源构造。
+    #[must_use]
+    pub const fn from_source(record: PoseRecordId, source: PoseSource) -> Self {
+        Self { record, source }
     }
 }
 
@@ -74,6 +82,7 @@ pub enum SpatialBindError {
 /// 绑定到一根 `SharedNetworkRevision` 的 Spatial session。
 pub struct SpatialSession {
     revision: Arc<SharedNetworkRevision>,
+    scratch: Vec<CanonicalPoseRecord>,
 }
 
 impl SpatialSession {
@@ -84,7 +93,10 @@ impl SpatialSession {
             Some(spatial) if spatial.lane_pose().is_none() => {
                 Err(SpatialBindError::MissingLanePose)
             }
-            Some(_) => Ok(Some(Self { revision })),
+            Some(_) => Ok(Some(Self {
+                revision,
+                scratch: Vec::new(),
+            })),
         }
     }
 
@@ -100,14 +112,16 @@ impl SpatialSession {
         self.revision.network_revision()
     }
 
-    /// 按调用方顺序提取 pose 批次。混 frame 整批失败。
+    /// 按调用方顺序提取 pose 批次。
+    /// `placement_token` 原样回显。混 frame 或任一条记录失败则整批失败，且不改 `output`。
     pub fn extract_pose_batch(
-        &self,
+        &mut self,
         placement_token: FramePlacementToken,
         inputs: &[PoseInput],
         output: &mut CanonicalPoseBatch,
     ) -> Result<(), SpatialError> {
-        let mut records = Vec::with_capacity(inputs.len());
+        self.scratch.clear();
+        self.scratch.reserve(inputs.len());
         let mut frame: Option<CanonicalFrameOrdinal> = None;
         for (input_index, input) in inputs.iter().copied().enumerate() {
             let (sampled_frame, pose) = self.sample(input.source).map_err(|source| {
@@ -119,15 +133,16 @@ impl SpatialSession {
             })?;
             if let Some(expected) = frame {
                 if expected != sampled_frame {
+                    self.scratch.clear();
                     return Err(SpatialError::BatchFrameMismatch {
-                        registry_frame_id: format!("{expected}"),
-                        output_frame_id: format!("{sampled_frame}"),
+                        expected_frame: expected,
+                        actual_frame: sampled_frame,
                     });
                 }
             } else {
                 frame = Some(sampled_frame);
             }
-            records.push(CanonicalPoseRecord {
+            self.scratch.push(CanonicalPoseRecord {
                 record: input.record,
                 pose,
             });
@@ -135,7 +150,8 @@ impl SpatialSession {
         output.network_revision = Some(self.network_revision());
         output.canonical_frame = frame;
         output.placement_token = placement_token;
-        output.records = records;
+        output.records.clear();
+        output.records.extend_from_slice(&self.scratch);
         Ok(())
     }
 

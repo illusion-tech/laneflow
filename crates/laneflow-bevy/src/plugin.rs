@@ -21,7 +21,7 @@ pub struct LaneFlowFixed;
 /// 每个 LaneFlow fixed step 内稳定执行的公共阶段。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, SystemSet)]
 pub enum LaneFlowFixedSet {
-    /// 调用方提交 lifecycle command 的 fixed-step boundary。
+    /// 调用方通过 `LaneFlowSession::world_mut` 提交生命周期命令的 fixed-step 边界。
     Lifecycle,
     /// Adapter 推进一次 TrafficWorld fixed tick。
     Step,

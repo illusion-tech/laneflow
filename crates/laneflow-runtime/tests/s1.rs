@@ -89,7 +89,7 @@ fn s1_two_vehicles_step_and_extract_pose_batch() {
     };
     let _ = profile;
 
-    let session = SpatialSession::bind(world.revision())
+    let mut session = SpatialSession::bind(world.revision())
         .expect("bind")
         .expect("full spatial session");
     assert!(Arc::ptr_eq(&session.revision(), &world.revision()));
@@ -99,12 +99,14 @@ fn s1_two_vehicles_step_and_extract_pose_batch() {
         .iter()
         .enumerate()
         .map(|(index, (_, source))| match *source {
-            PoseSource::Lane { edge, progress } => {
-                PoseInput::lane(PoseRecordId::new(index as u32), edge, progress)
-            }
-            PoseSource::Parking { space } => {
-                PoseInput::parking(PoseRecordId::new(index as u32), space)
-            }
+            PoseSource::Lane { edge, progress } => PoseInput::from_source(
+                PoseRecordId::new(index as u32),
+                laneflow_spatial::PoseSource::Lane { edge, progress },
+            ),
+            PoseSource::Parking { space } => PoseInput::from_source(
+                PoseRecordId::new(index as u32),
+                laneflow_spatial::PoseSource::Parking { space },
+            ),
         })
         .collect();
     session

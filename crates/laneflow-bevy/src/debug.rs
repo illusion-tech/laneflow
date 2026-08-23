@@ -1,4 +1,4 @@
-//! Core JSON 调试可视化已拆除；走廊/campus gizmos 迁到 Runtime 是 follow-up。
+//! 占位 plugin：当前不绘制中心线或车辆。参数被忽略，直到 Runtime gizmos 切片。
 
 use bevy_app::{App, Plugin};
 
@@ -23,7 +23,7 @@ pub enum LaneFlowDebugCenterlineStatus {
 pub struct LaneFlowDebugGizmosConfig;
 
 impl LaneFlowDebugGizmosConfig {
-    /// 启用占位。
+    /// 构造占位配置。预算与段数当前被忽略。
     #[must_use]
     pub const fn enabled(_budget: u32, _segments: u32) -> Self {
         Self
