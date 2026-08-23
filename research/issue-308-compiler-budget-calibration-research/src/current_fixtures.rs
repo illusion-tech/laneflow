@@ -482,60 +482,11 @@ pub fn build_current_fixture_summaries(
     Ok(build_current_fixtures_known_vectors(trusted)?.cases)
 }
 
-#[cfg(feature = "fixture-oracle")]
-pub fn verify_current_fixtures_oracle(
-    trusted: &TrustedContract,
-) -> Result<CurrentFixturesOracleVerificationReport, CurrentFixturesOracleError> {
-    let contract = CurrentFixturesContract::from_manifest(&trusted.workload_manifest)?;
-    let generator = trusted.generator_contract()?;
-    let identity = trusted.identity_contract()?;
-    let stage = trusted.stage_contract()?;
-    let repository_root = crate::repository_root();
-    let mut checked_cases = 0_u32;
-    for case in contract.cases() {
-        let produced =
-            build_current_fixture_case(&generator, &identity, &stage, case, &repository_root)?;
-        let production_template =
-            crate::corridor_fixture_oracle::build_production_loader_fixture_case(&case.id)
-                .map_err(CurrentFixturesOracleError::ProductionLoader)?;
-        if produced.template != production_template {
-            return Err(CurrentFixturesOracleError::TemplateMismatch {
-                case_id: case.id.clone(),
-                details: describe_template_mismatch(&produced.template, &production_template),
-            });
-        }
-        let oracle = crate::corridor_oracle::build_fixed_fixture_oracle_records(
-            &trusted.workload_manifest,
-            CURRENT_FIXTURES_WORKLOAD_ID,
-            &production_template,
-        )?;
-        if produced.records != oracle.records
-            || produced.semantic_record_stream != oracle.stream
-            || produced.materialization.output != produced.semantic_record_stream
-        {
-            return Err(CurrentFixturesOracleError::RecordStreamMismatch(
-                case.id.clone(),
-            ));
-        }
-        checked_cases = checked_cases
-            .checked_add(1)
-            .ok_or_else(|| CurrentFixturesOracleError::Contract("case count overflow".into()))?;
-    }
-    Ok(CurrentFixturesOracleVerificationReport {
-        checked_cases,
-        production_loader_cases: checked_cases,
-        independent_identity_and_stream_checked: true,
-        scenario_manifest_emits_no_records: true,
-        excluded_from_budget_and_candidate_ranking: true,
-    })
-}
-
-#[cfg(not(feature = "fixture-oracle"))]
 pub fn verify_current_fixtures_oracle(
     _trusted: &TrustedContract,
 ) -> Result<CurrentFixturesOracleVerificationReport, CurrentFixturesOracleError> {
     Err(CurrentFixturesOracleError::ProductionLoader(
-        "fixture-oracle feature is required".to_owned(),
+        "current JSON Core loader was removed in #301".to_owned(),
     ))
 }
 

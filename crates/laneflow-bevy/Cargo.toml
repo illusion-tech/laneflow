@@ -20,8 +20,7 @@ debug-gizmos = [
     "dep:bevy_gizmos",
     "dep:bevy_math",
 ]
-debug-gizmos-smoke = ["debug-gizmos", "dep:bevy", "dep:bevy_mesh"]
-native-example = ["debug-gizmos", "dep:bevy", "dep:bevy_mesh"]
+native-example = ["dep:bevy", "dep:bevy_mesh"]
 
 [dependencies]
 bevy = { version = "0.19", default-features = false, features = [
@@ -45,9 +44,11 @@ bevy_math = { version = "0.19", default-features = false, features = ["std"], op
 bevy_mesh = { version = "0.19", optional = true }
 bevy_time = { version = "0.19", default-features = false, features = ["std"] }
 bevy_transform = { version = "0.19", default-features = false, features = ["bevy-support", "std"] }
-laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 laneflow-runtime = { version = "0.0.0", path = "../laneflow-runtime" }
 laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
+
+[dev-dependencies]
+laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
 laneflow-static-network = { version = "0.0.0", path = "../laneflow-static-network" }
 

@@ -14,8 +14,6 @@ mod bounded_template;
 mod candidate_matrix;
 mod controlled_alloc;
 mod corridor;
-#[cfg(feature = "fixture-oracle")]
-mod corridor_fixture_oracle;
 mod corridor_oracle;
 mod current_fixtures;
 mod diagnostic;

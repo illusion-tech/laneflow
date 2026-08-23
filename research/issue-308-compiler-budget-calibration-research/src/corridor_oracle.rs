@@ -922,26 +922,11 @@ fn hex(bytes: &[u8]) -> String {
     result
 }
 
-#[cfg(feature = "fixture-oracle")]
-fn verify_bound_fixtures_with_production_loaders(
-    producer_template: &CorridorTemplate,
-) -> Result<u32, CorridorOracleError> {
-    let independent = crate::corridor_fixture_oracle::build_production_loader_template()
-        .map_err(CorridorOracleError::ProductionLoader)?;
-    if independent != *producer_template {
-        return Err(CorridorOracleError::TemplateProjectionMismatch(
-            describe_template_mismatch(producer_template, &independent),
-        ));
-    }
-    Ok(2)
-}
-
-#[cfg(not(feature = "fixture-oracle"))]
 fn verify_bound_fixtures_with_production_loaders(
     _producer_template: &CorridorTemplate,
 ) -> Result<u32, CorridorOracleError> {
     Err(CorridorOracleError::ProductionLoader(
-        "fixture-oracle feature is required".to_owned(),
+        "current JSON Core loader was removed in #301".to_owned(),
     ))
 }
 

@@ -1,18 +1,17 @@
-use std::sync::Arc;
+use std::{num::NonZeroU32, sync::Arc};
 
 use bevy_app::App;
 use bevy_ecs::{
     entity::Entity,
     resource::Resource,
-    system::{Commands, Query, ResMut},
+    system::{Commands, Query, Res, ResMut},
 };
 use bevy_time::TimePlugin;
 use bevy_transform::{TransformPlugin, components::Transform};
+use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
-use laneflow_runtime::{PoseSource, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
-use laneflow_spatial::{
-    CanonicalPoseBatch, FramePlacementToken, PoseInput, PoseRecordId, SpatialSession,
-};
+use laneflow_runtime::{TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
+use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId, SpatialSession};
 use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
@@ -24,11 +23,7 @@ const FULL_SPATIAL: &[u8] = include_bytes!(
 );
 
 #[derive(Resource)]
-struct MinRuntime {
-    world: TrafficWorld,
-    session: SpatialSession,
-    proxy: Option<Entity>,
-}
+struct Proxy(Entity);
 
 fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
     let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
@@ -72,38 +67,38 @@ fn spawn_two_vehicles(world: &mut TrafficWorld) {
         .expect("follower");
 }
 
-fn setup_proxy(mut commands: Commands, mut runtime: ResMut<MinRuntime>) {
-    runtime.proxy = Some(commands.spawn(Transform::IDENTITY).id());
+fn setup_proxy(mut commands: Commands) {
+    let entity = commands.spawn(Transform::IDENTITY).id();
+    commands.insert_resource(Proxy(entity));
 }
 
-fn step_runtime(mut runtime: ResMut<MinRuntime>, mut transforms: Query<&mut Transform>) {
-    runtime.world.step(TickInput::new(100)).expect("step");
-    let poses = runtime.world.committed_pose_sources();
-    let inputs: Vec<PoseInput> = poses
+fn step_runtime(
+    mut session: ResMut<LaneFlowSession>,
+    proxy: Option<Res<Proxy>>,
+    mut transforms: Query<&mut Transform>,
+) {
+    session.world_mut().step(TickInput::new(100)).expect("step");
+    let poses = session.world().committed_pose_sources();
+    let inputs: Vec<_> = poses
         .as_slice()
         .iter()
         .enumerate()
-        .map(|(index, (_, source))| match *source {
-            PoseSource::Lane { edge, progress } => {
-                PoseInput::lane(PoseRecordId::new(index as u32), edge, progress)
-            }
-            PoseSource::Parking { space } => {
-                PoseInput::parking(PoseRecordId::new(index as u32), space)
-            }
-        })
+        .map(|(index, (_, source))| pose_input(PoseRecordId::new(index as u32), *source))
         .collect();
+    let Some(spatial) = session.spatial_mut() else {
+        return;
+    };
     let mut batch = CanonicalPoseBatch::new();
-    runtime
-        .session
+    spatial
         .extract_pose_batch(FramePlacementToken::new(1), &inputs, &mut batch)
         .expect("extract");
     let Some(record) = batch.records().first() else {
         return;
     };
-    let Some(entity) = runtime.proxy else {
+    let Some(proxy) = proxy else {
         return;
     };
-    if let Ok(mut transform) = transforms.get_mut(entity) {
+    if let Ok(mut transform) = transforms.get_mut(proxy.0) {
         let position = record.pose().position();
         *transform = Transform::from_xyz(position.x(), position.y(), position.z());
     }
@@ -115,28 +110,30 @@ fn headless_app_steps_runtime_and_moves_proxy_transform() {
     let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 4, 1, 100))
         .expect("install");
     spawn_two_vehicles(&mut world);
-    let session = SpatialSession::bind(revision)
+    let spatial = SpatialSession::bind(revision)
         .expect("bind")
         .expect("session");
-    let mut app = App::new();
-    app.add_plugins((TimePlugin, TransformPlugin));
-    app.insert_resource(MinRuntime {
+    let session = LaneFlowSession::new(
         world,
-        session,
-        proxy: None,
-    });
+        Some(spatial),
+        LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero")),
+    )
+    .expect("paired session");
+    let mut app = App::new();
+    app.add_plugins((TimePlugin, TransformPlugin, LaneFlowPlugin));
+    app.insert_resource(session);
     app.add_systems(bevy_app::Startup, setup_proxy);
     app.add_systems(bevy_app::Update, step_runtime);
     app.update();
     let before = {
-        let entity = app.world().resource::<MinRuntime>().proxy.expect("proxy");
+        let entity = app.world().resource::<Proxy>().0;
         *app.world().get::<Transform>(entity).expect("transform")
     };
     for _ in 0..16 {
         app.update();
     }
     let after = {
-        let entity = app.world().resource::<MinRuntime>().proxy.expect("proxy");
+        let entity = app.world().resource::<Proxy>().0;
         *app.world().get::<Transform>(entity).expect("transform")
     };
     assert_ne!(

@@ -2,7 +2,7 @@
 
 LaneFlow 的 Bevy 0.19 Reference Adapter crate。
 
-当前入口消费 `TrafficWorld` 与可选 `SpatialSession`，不再构造 `CoreWorld`：
+当前入口消费 `TrafficWorld` 与可选 `SpatialSession`。`LaneFlowSession::new` 在提供 Spatial 时要求 `Arc::ptr_eq`：
 
 - `LaneFlowPlugin`：安装 LaneFlow 专用 outer-frame 与 fixed schedule；
 - `LaneFlowOuterFrame`：位于 Bevy `First` 之后，读取宿主已经更新的 `Time::delta()`；
@@ -29,7 +29,7 @@ use laneflow_spatial::SpatialSession;
 # ) {
 let config = LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero"));
 app.add_plugins((TimePlugin, LaneFlowPlugin));
-app.insert_resource(LaneFlowSession::new(world, spatial, config));
+app.insert_resource(LaneFlowSession::new(world, spatial, config).expect("paired session"));
 # }
 ```
 

@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
 use laneflow_runtime::{
-    PoseSource, SpawnError, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
+    PoseSource, RouteRegisterInput, SpawnError, TickInput, TrafficWorld, VehicleSpawnInput,
+    WorldConfig,
 };
 use laneflow_static_contract::{
     EntityKind, SignalAspect, SignalControllerOrdinal, StaticRouteOrdinal, VehicleProfileOrdinal,
@@ -443,7 +444,7 @@ fn red_snapshot_prevents_controlled_transition() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             1,
-            6.0,
+            7.2,
             speed_limit,
         ))
         .expect("spawn");
@@ -494,7 +495,6 @@ fn phase_boundary_inside_tick_keeps_snapshot_t_and_publishes_t_plus_d() {
         .static_route_edges(StaticRouteOrdinal::from_raw(0))
         .expect("edges")
         .to_vec();
-    let from = edges[0];
     let to = edges[1];
     let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[from.index()];
     world
@@ -510,9 +510,9 @@ fn phase_boundary_inside_tick_keeps_snapshot_t_and_publishes_t_plus_d() {
     let PoseSource::Lane { edge, progress } = world.committed_pose_sources().as_slice()[0].1 else {
         panic!("expected lane pose");
     };
-    assert!(
-        edge == to || (edge == from && progress > 9.0),
-        "snapshot(T) is Green so the vehicle may approach/cross; got edge={edge:?} progress={progress}"
+    assert_eq!(
+        edge, to,
+        "snapshot(T) is Green so the vehicle must complete entry StopLine; got edge={edge:?} progress={progress}"
     );
     let committed: Vec<SignalAspect> = world
         .committed_signal_groups()
@@ -723,4 +723,173 @@ fn route_end_leaves_committed_poses_and_lane_occupancy() {
             0.0,
         ))
         .expect("route-end occupancy must be released");
+}
+
+#[test]
+fn later_red_stop_caps_travel_after_permitted_gate() {
+    let mut world = world_with_delta(1_000);
+    let route = world
+        .static_route(StaticRouteOrdinal::from_raw(0))
+        .expect("static route");
+    let edges = world
+        .traffic()
+        .relations()
+        .static_route_edges(StaticRouteOrdinal::from_raw(0))
+        .expect("edges")
+        .to_vec();
+    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[edges[0].index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            9.0,
+            speed_limit,
+        ))
+        .expect("spawn");
+    world.step(TickInput::new(1_000)).expect("step");
+    let PoseSource::Lane { edge, progress } = world.committed_pose_sources().as_slice()[0].1 else {
+        panic!("expected lane pose");
+    };
+    assert_eq!(edge, edges[1], "must stop at later red, not skip middle");
+    assert!(
+        progress <= 8.0 + 1e-6,
+        "must not enter exit on later red {progress}"
+    );
+}
+
+#[test]
+fn static_and_dynamic_vehicles_follow_on_shared_edges() {
+    let mut world = world();
+    let edges = world
+        .traffic()
+        .relations()
+        .static_route_edges(StaticRouteOrdinal::from_raw(0))
+        .expect("edges")
+        .to_vec();
+    let static_route = world
+        .static_route(StaticRouteOrdinal::from_raw(0))
+        .expect("static");
+    let dynamic = world
+        .register_route(RouteRegisterInput::new(edges.clone()))
+        .expect("dynamic");
+    let profile = world
+        .traffic()
+        .relations()
+        .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
+        .expect("profile");
+    let leader = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            static_route,
+            0,
+            profile.length() + profile.min_gap() + 0.5,
+            0.0,
+        ))
+        .expect("leader");
+    let follower = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            dynamic,
+            0,
+            0.0,
+            0.0,
+        ))
+        .expect("follower");
+    for _ in 0..20 {
+        world.step(TickInput::new(100)).expect("step");
+    }
+    let gap = bumper_gap(&world, leader, follower, profile.length());
+    assert!(
+        gap + 1e-6 >= profile.min_gap(),
+        "shared-edge following must keep min_gap, got {gap}"
+    );
+}
+
+#[test]
+fn spawn_rejects_overlap_across_adjacent_edges() {
+    let mut world = world();
+    let route = world
+        .static_route(StaticRouteOrdinal::from_raw(0))
+        .expect("static route");
+    let profile = world
+        .traffic()
+        .relations()
+        .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
+        .expect("profile");
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            1,
+            1.0,
+            0.0,
+        ))
+        .expect("leader on middle");
+    assert_eq!(
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                8.0,
+                0.0,
+            ))
+            .unwrap_err(),
+        SpawnError::Overlap
+    );
+    let _ = profile;
+}
+
+#[test]
+fn completed_vehicle_frees_capacity_for_new_spawn() {
+    let mut world =
+        TrafficWorld::install(revision(), WorldConfig::new(1, 4, 1, 100)).expect("install");
+    let route = world
+        .static_route(StaticRouteOrdinal::from_raw(0))
+        .expect("static route");
+    let edges = world
+        .traffic()
+        .relations()
+        .static_route_edges(StaticRouteOrdinal::from_raw(0))
+        .expect("edges")
+        .to_vec();
+    let last = *edges.last().expect("route has edges");
+    let last_length = world.traffic().lane_lengths_meters()[last.index()];
+    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[last.index()];
+    let last_index = u32::try_from(edges.len() - 1).expect("index fits u32");
+    let old = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            last_index,
+            (last_length - 0.5).max(0.0),
+            speed_limit,
+        ))
+        .expect("only slot");
+    for _ in 0..8 {
+        world.step(TickInput::new(100)).expect("step");
+        if world.committed_pose_sources().as_slice().is_empty() {
+            break;
+        }
+    }
+    assert!(world.committed_pose_sources().as_slice().is_empty());
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            last_index,
+            0.0,
+            0.0,
+        ))
+        .expect("capacity reused after complete");
+    assert!(
+        world
+            .occupy_parking(
+                old,
+                laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0)
+            )
+            .is_err(),
+        "retired handle must be stale"
+    );
 }

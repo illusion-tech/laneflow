@@ -1,4 +1,4 @@
-//! 走廊 catalog 线格式。人口迁到 Runtime 是 follow-up。
+//! 走廊 catalog TOML 线格式。
 
 mod catalog;
 

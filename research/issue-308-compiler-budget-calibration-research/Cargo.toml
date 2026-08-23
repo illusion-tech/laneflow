@@ -39,7 +39,6 @@ research-runner-full = [
     "candidate-hashbrown-xxh64",
     "candidate-hashbrown-fnv1a64",
     "candidate-indexmap-randomstate",
-    "fixture-oracle",
 ]
 
 [dependencies]

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// 当前 scenario-local corridor catalog 版本。
 pub const CATALOG_VERSION: &str = "0.2";
 
-/// v0.8 portal 的规范顺序。
+/// 走廊 portal 的规范顺序。
 pub const PORTAL_IDS: [&str; 6] = [
     "portal-main-west",
     "portal-main-east",
@@ -31,7 +31,7 @@ pub struct CorridorCatalog {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PortalCatalogEntry {
-    /// portal external ID。
+    /// portal 外部 ID。
     pub id: String,
     /// 按 lane index 排序的 entry lanes。
     pub lanes: Vec<PortalLaneCatalogEntry>,

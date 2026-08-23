@@ -14,7 +14,7 @@ pub use debug::{
 };
 pub use error::LaneFlowAdapterError;
 pub use plugin::{LaneFlowFixed, LaneFlowFixedSet, LaneFlowOuterFrame, LaneFlowPlugin};
-pub use session::{LaneFlowFrameReport, LaneFlowSession, LaneFlowSessionConfig};
+pub use session::{LaneFlowFrameReport, LaneFlowSession, LaneFlowSessionConfig, pose_input};
 
 #[cfg(test)]
 mod tests {

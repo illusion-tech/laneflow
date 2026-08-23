@@ -8,8 +8,8 @@ pub enum InstallError {
     /// `fixed_delta_time_ms` 必须为正。
     #[error("fixed_delta_time_ms 必须为正")]
     NonPositiveDelta,
-    /// 本切片只允许 1-worker 执行计划。
-    #[error("本切片只允许 1-worker 执行计划")]
+    /// 当前 `TrafficWorld` 只接受 `worker_count == 1`。
+    #[error("当前 TrafficWorld 只接受 worker_count == 1")]
     WorkerCountNotOne,
     /// 某个信号 phase 的 `durationMs` 短于固定步长。
     #[error("信号 phase 时长短于 fixed_delta_time_ms")]
