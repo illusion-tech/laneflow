@@ -53,6 +53,46 @@ pub(crate) struct VehicleSlot {
     pub state: Option<VehicleState>,
 }
 
+fn route_pair_connected(
+    traffic: &SharedTrafficNetwork,
+    from: LaneEdgeOrdinal,
+    to: LaneEdgeOrdinal,
+) -> bool {
+    if traffic
+        .successors(from)
+        .is_some_and(|successors| successors.contains(&to))
+    {
+        return true;
+    }
+    traffic
+        .maneuvers()
+        .transition_candidates(from)
+        .is_some_and(|candidates| {
+            candidates
+                .iter()
+                .any(|candidate| candidate.successor() == to)
+        })
+}
+
+fn claim_internal_coverage(
+    coverage: &mut [Option<ManeuverPathOrdinal>],
+    entry_index: usize,
+    exit_index: usize,
+    path: ManeuverPathOrdinal,
+) -> Result<(), RouteError> {
+    for slot in coverage
+        .iter_mut()
+        .take(exit_index)
+        .skip(entry_index.saturating_add(1))
+    {
+        if slot.is_some() {
+            return Err(RouteError::ManeuverMismatch);
+        }
+        *slot = Some(path);
+    }
+    Ok(())
+}
+
 pub(crate) fn compile_dynamic_route(
     traffic: &SharedTrafficNetwork,
     edges: &[LaneEdgeOrdinal],
@@ -66,27 +106,27 @@ pub(crate) fn compile_dynamic_route(
             return Err(RouteError::UnknownEdge);
         }
     }
-    for pair in edges.windows(2) {
-        let Some(successors) = traffic.successors(pair[0]) else {
-            return Err(RouteError::UnknownEdge);
-        };
-        if !successors.contains(&pair[1]) {
-            return Err(RouteError::Disconnected);
-        }
-    }
+    let first = edges[0];
     let last = *edges.last().expect("non-empty route");
     if traffic.relations().stop_line_for_edge(last).is_some() {
         return Err(RouteError::ManeuverMismatch);
+    }
+    if traffic.relations().lane_edge_junction(first).is_some()
+        || traffic.relations().lane_edge_junction(last).is_some()
+    {
+        return Err(RouteError::ManeuverMismatch);
+    }
+    for pair in edges.windows(2) {
+        if !route_pair_connected(traffic, pair[0], pair[1]) {
+            return Err(RouteError::Disconnected);
+        }
     }
 
     let mut maneuvers: Vec<ManeuverOccurrence> = Vec::new();
     let network = traffic.maneuvers();
     let transition_len = edges.len().saturating_sub(1);
-    let mut next_entry = 0;
+    let mut coverage = vec![None; edges.len()];
     for entry_index in 0..transition_len {
-        if entry_index < next_entry {
-            continue;
-        }
         let Some(path_ordinal) = unique_entry_path_match(
             network,
             edges[entry_index],
@@ -106,12 +146,17 @@ pub(crate) fn compile_dynamic_route(
         if exit_index >= edges.len() {
             return Err(RouteError::ManeuverMismatch);
         }
+        claim_internal_coverage(&mut coverage, entry_index, exit_index, path_ordinal)?;
         maneuvers.push(ManeuverOccurrence {
             path: path_ordinal,
             entry_route_edge_index: u32::try_from(entry_index).expect("route edge index fits u32"),
             exit_route_edge_index: u32::try_from(exit_index).expect("route edge index fits u32"),
         });
-        next_entry = exit_index;
+    }
+    for (index, edge) in edges.iter().enumerate() {
+        if traffic.relations().lane_edge_junction(*edge).is_some() && coverage[index].is_none() {
+            return Err(RouteError::ManeuverMismatch);
+        }
     }
 
     Ok(CompiledRoute {
@@ -122,9 +167,9 @@ pub(crate) fn compile_dynamic_route(
 
 /// 在机动路径入口跳上，用剩余边序列唯一匹配完整 `path.edges()` 前缀。
 ///
-/// 与静态路线 `unique_entry_path_match` 同一规则：只认 `transition_index == 0`；
-/// 多条不同 path 都匹配则歧义；有入口候选但对不上完整路径则失败。
-/// 对得上机动后继但不是入口跳、且未被已有 occurrence 覆盖时，失败关闭。
+/// 与静态路线重建同一规则：只认 `transition_index == 0`；多条不同 path 都匹配则歧义；
+/// 有入口候选但对不上完整路径则失败。非入口跳返回 `Ok(None)`，由 occurrence 覆盖表
+/// 在编译结束时对路口内部边失败关闭。
 pub(crate) fn unique_entry_path_match(
     network: &SharedManeuverNetwork,
     from: LaneEdgeOrdinal,
@@ -135,25 +180,14 @@ pub(crate) fn unique_entry_path_match(
         return Ok(None);
     };
     let mut entry_paths = Vec::new();
-    let mut uncovered_internal = false;
     for candidate in candidates {
-        if candidate.successor() != to {
-            continue;
-        }
-        if candidate.transition_index() != 0 {
-            uncovered_internal = true;
+        if candidate.successor() != to || candidate.transition_index() != 0 {
             continue;
         }
         let path = network
             .maneuver_path(candidate.maneuver_path())
             .ok_or(RouteError::ManeuverMismatch)?;
         entry_paths.push((candidate.maneuver_path(), path.edges()));
-    }
-    if entry_paths.is_empty() {
-        if uncovered_internal {
-            return Err(RouteError::ManeuverMismatch);
-        }
-        return Ok(None);
     }
     unique_entry_path_match_filtered(remaining, entry_paths)
 }
@@ -364,6 +398,7 @@ pub(crate) fn bodies_overlap(
 }
 
 /// 前车占用相对后车前保险杠的间隙。走完占用才返回 `Some`；中途失败丢弃局部结果。
+/// 后车剩余边序列上每一次同名边出现都计入，取最近间隙。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn occupancy_front_gap(
     lengths: &[f64],
@@ -383,33 +418,30 @@ pub(crate) fn occupancy_front_gap(
         leader_progress,
         leader_length,
         |edge, lo, hi| {
-            let Some(found) = follower_edges
-                .iter()
-                .enumerate()
-                .skip(follower_index)
-                .find_map(|(index, candidate)| (*candidate == edge).then_some(index))
-            else {
-                return;
-            };
-            let bumper = if found == follower_index {
-                if hi <= follower_progress + 1e-12 {
-                    return;
+            for (found, candidate) in follower_edges.iter().enumerate().skip(follower_index) {
+                if *candidate != edge {
+                    continue;
                 }
-                lo - follower_progress
-            } else {
-                let Some(front_to_rear) = remaining_along_route(
-                    lengths,
-                    follower_edges,
-                    follower_index,
-                    follower_progress,
-                    found,
-                    lo,
-                ) else {
-                    return;
+                let bumper = if found == follower_index {
+                    if hi <= follower_progress + 1e-12 {
+                        continue;
+                    }
+                    lo - follower_progress
+                } else {
+                    let Some(front_to_rear) = remaining_along_route(
+                        lengths,
+                        follower_edges,
+                        follower_index,
+                        follower_progress,
+                        found,
+                        lo,
+                    ) else {
+                        continue;
+                    };
+                    front_to_rear
                 };
-                front_to_rear
-            };
-            gap = Some(gap.map_or(bumper, |current| current.min(bumper)));
+                gap = Some(gap.map_or(bumper, |current| current.min(bumper)));
+            }
         },
     )?;
     gap
@@ -555,6 +587,26 @@ mod unique_entry_path_match_tests {
         .expect("unique");
         assert_eq!(matched, Some(path(0)));
     }
+
+    #[test]
+    fn overlapping_internal_coverage_is_mismatch() {
+        let mut coverage = [None, None, None, None];
+        claim_internal_coverage(&mut coverage, 0, 3, path(0)).unwrap();
+        assert_eq!(
+            claim_internal_coverage(&mut coverage, 1, 3, path(1)),
+            Err(RouteError::ManeuverMismatch)
+        );
+    }
+
+    #[test]
+    fn adjacent_occurrences_do_not_share_internal_slots() {
+        let mut coverage = [None, None, None, None, None];
+        claim_internal_coverage(&mut coverage, 0, 2, path(0)).unwrap();
+        claim_internal_coverage(&mut coverage, 2, 4, path(1)).unwrap();
+        assert_eq!(coverage[1], Some(path(0)));
+        assert_eq!(coverage[2], None);
+        assert_eq!(coverage[3], Some(path(1)));
+    }
 }
 
 #[cfg(test)]
@@ -639,6 +691,89 @@ mod compile_dynamic_route_tests {
         );
         assert_eq!(
             compile_dynamic_route(traffic, &[entry]).unwrap_err(),
+            RouteError::ManeuverMismatch
+        );
+    }
+
+    #[test]
+    fn s1_path_hops_are_connected_by_successor_or_maneuver() {
+        let revision = revision();
+        let traffic = revision.traffic();
+        let path = traffic
+            .maneuvers()
+            .maneuver_path(ManeuverPathOrdinal::from_raw(0))
+            .expect("fixture path");
+        for pair in path.edges().windows(2) {
+            assert!(
+                route_pair_connected(traffic, pair[0], pair[1]),
+                "path hop {:?} -> {:?} must be connected",
+                pair[0],
+                pair[1]
+            );
+        }
+        compile_dynamic_route(traffic, path.edges()).expect("full path still compiles");
+    }
+
+    #[test]
+    fn internal_maneuver_hop_is_not_an_entry_match() {
+        let revision = revision();
+        let traffic = revision.traffic();
+        let path = traffic
+            .maneuvers()
+            .maneuver_path(ManeuverPathOrdinal::from_raw(0))
+            .expect("fixture path");
+        assert!(
+            path.edges().len() >= 3,
+            "fixture path must have an internal hop"
+        );
+        assert_eq!(
+            unique_entry_path_match(
+                traffic.maneuvers(),
+                path.edges()[1],
+                path.edges()[2],
+                &path.edges()[1..],
+            ),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn single_internal_edge_is_mismatch() {
+        let revision = revision();
+        let traffic = revision.traffic();
+        let path = traffic
+            .maneuvers()
+            .maneuver_path(ManeuverPathOrdinal::from_raw(0))
+            .expect("fixture path");
+        let internal = path.edges()[1];
+        assert!(
+            traffic.relations().lane_edge_junction(internal).is_some(),
+            "fixture internal edge must belong to a junction"
+        );
+        assert_eq!(
+            compile_dynamic_route(traffic, &[internal]).unwrap_err(),
+            RouteError::ManeuverMismatch
+        );
+    }
+
+    #[test]
+    fn ending_on_internal_maneuver_edge_is_mismatch() {
+        let revision = revision();
+        let traffic = revision.traffic();
+        let path = traffic
+            .maneuvers()
+            .maneuver_path(ManeuverPathOrdinal::from_raw(0))
+            .expect("fixture path");
+        let prefix = &path.edges()[..2];
+        assert!(
+            traffic
+                .relations()
+                .lane_edge_junction(*prefix.last().expect("prefix"))
+                .is_some(),
+            "truncated path must end on a junction-owned edge"
+        );
+        assert_eq!(
+            compile_dynamic_route(traffic, prefix).unwrap_err(),
             RouteError::ManeuverMismatch
         );
     }
@@ -735,6 +870,28 @@ mod occupancy_interval_tests {
         let edges = [edge(0)];
         assert_eq!(
             occupancy_front_gap(&lengths, &edges, 0, 1.0, &edges, 0, 6.0, 2.0),
+            Some(3.0)
+        );
+    }
+
+    #[test]
+    fn occupancy_front_gap_uses_later_repeated_edge() {
+        let lengths = [10.0, 5.0];
+        let follower = [edge(0), edge(1), edge(0)];
+        let leader = [edge(0)];
+        assert_eq!(
+            occupancy_front_gap(&lengths, &follower, 0, 9.0, &leader, 0, 1.0, 1.0),
+            Some(6.0)
+        );
+    }
+
+    #[test]
+    fn occupancy_front_gap_prefers_nearest_repeated_edge() {
+        let lengths = [10.0, 5.0];
+        let follower = [edge(0), edge(1), edge(0)];
+        let leader = [edge(0)];
+        assert_eq!(
+            occupancy_front_gap(&lengths, &follower, 0, 1.0, &leader, 0, 6.0, 2.0),
             Some(3.0)
         );
     }

@@ -55,7 +55,7 @@ pub enum RouteError {
     /// 边序号越出共享根。
     #[error("动态路线含未知 LaneEdge")]
     UnknownEdge,
-    /// 相邻边在共享根后继中不连通。
+    /// 相邻边在共享根车道后继或机动转移中都不连通。
     #[error("动态路线边序列不连通")]
     Disconnected,
     /// 动态路线数量达到 world 容量。
