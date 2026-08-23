@@ -52,4 +52,17 @@ fn bind_full_spatial_and_extract_lane_pose() {
     assert_eq!(output.records().len(), 1);
     assert_eq!(output.records()[0].record(), PoseRecordId::new(7));
     assert_eq!(output.placement_token(), FramePlacementToken::new(1));
+
+    let previous_len = output.records().len();
+    let failed = session.extract_pose_batch(
+        FramePlacementToken::new(2),
+        &[
+            PoseInput::lane(PoseRecordId::new(1), edge, 0.0),
+            PoseInput::lane(PoseRecordId::new(2), edge, 1.0e9),
+        ],
+        &mut output,
+    );
+    assert!(failed.is_err());
+    assert_eq!(output.records().len(), previous_len);
+    assert_eq!(output.placement_token(), FramePlacementToken::new(1));
 }

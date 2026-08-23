@@ -4,15 +4,15 @@ LaneFlow 当前是一个面向主流游戏引擎、可嵌入的轻量 NPC 交通
 厂区、校园、景区、停车场、道路片区和数字孪生等局部道路场景中生成可信的车辆流动
 效果。#291 G1 已接受编译器拥有的静态路网与交通运行时长期设计；Accepted ADR 0025 /
 #300 G1 已进一步冻结以受检 LFCA 构建进程内共享静态路网、且不交付独立静态镜像文件/
-ABI 的修订。这表示目标设计已经接受，不表示对应实现已经交付。#301 完成前，当前 JSON/Data/Core/Spatial
-路径仍是仓库内可运行契约；#301 完成后 `laneflow-runtime` 为唯一可运行交通世界，并拆除
-current Core/JSON 运行时入口。详见 `docs/design/traffic-runtime-shared-consumption.md`。
+ABI 的修订。共享静态路网与 `TrafficWorld` 已由 #300 / #301 交付为当前可运行路径。
+`laneflow-runtime` 是唯一可运行交通世界；current JSON 不再安装可运行入口。
+详见 `docs/design/traffic-runtime-shared-consumption.md`。
 
 Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通基础”定义为 LaneFlow
 的第一长期产品目标。该目标不是完整交通工程仿真器，也不拥有城市经济、市民出行
 需求或游戏规则，而是让这些上层系统通过显式命令、快照、事件和路径规划边界驱动
-一个引擎无关的交通运行时。当前 LaneFlow Core 只实现道路机动车车辆特化，负责
-车辆逻辑、车道图、路线、红绿灯、前车避让和停车系统；已接受的目标态交通运行时
+一个引擎无关的交通运行时。当前 `TrafficWorld` 只实现道路机动车车辆特化，负责
+车辆逻辑、车道图、路线、红绿灯、前车避让和停车占用；已接受的目标态交通运行时
 （Target Traffic Runtime）以交通参与单元（Traffic Participant Unit）和交通执行域
 （Traffic Execution Domain）承载长期多模式扩展，当前车辆能力不排除未来的非机动车、
 行人或轨道交通。不同游戏引擎通过引擎适配器（Engine Adapter）接入，并负责已实现
@@ -74,8 +74,8 @@ LaneFlow 的当前能力与 #291 已接受长期目标共同关注：
 └──────────────────┬──────────────────┘
                    ↓
 ┌─────────────────────────────────────┐
-│          LaneFlow Core              │
-│ vehicle / route / signal / parking  │
+│     LaneFlow Traffic Runtime        │
+│ TrafficWorld / route / signal / park│
 │ engine-agnostic runtime             │
 └──────────────────┬──────────────────┘
                    ↓

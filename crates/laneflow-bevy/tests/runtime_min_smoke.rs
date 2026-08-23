@@ -1,4 +1,4 @@
-use std::{num::NonZeroU32, sync::Arc};
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use bevy_app::App;
 use bevy_ecs::{
@@ -6,11 +6,11 @@ use bevy_ecs::{
     resource::Resource,
     system::{Commands, Query, Res, ResMut},
 };
-use bevy_time::TimePlugin;
+use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use bevy_transform::{TransformPlugin, components::Transform};
 use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
-use laneflow_runtime::{TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
+use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId, SpatialSession};
 use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
@@ -72,12 +72,11 @@ fn setup_proxy(mut commands: Commands) {
     commands.insert_resource(Proxy(entity));
 }
 
-fn step_runtime(
+fn sync_proxy(
     mut session: ResMut<LaneFlowSession>,
     proxy: Option<Res<Proxy>>,
     mut transforms: Query<&mut Transform>,
 ) {
-    session.world_mut().step(TickInput::new(100)).expect("step");
     let poses = session.world().committed_pose_sources();
     let inputs: Vec<_> = poses
         .as_slice()
@@ -121,9 +120,12 @@ fn headless_app_steps_runtime_and_moves_proxy_transform() {
     .expect("paired session");
     let mut app = App::new();
     app.add_plugins((TimePlugin, TransformPlugin, LaneFlowPlugin));
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+        100,
+    )));
     app.insert_resource(session);
     app.add_systems(bevy_app::Startup, setup_proxy);
-    app.add_systems(bevy_app::Update, step_runtime);
+    app.add_systems(bevy_app::Update, sync_proxy);
     app.update();
     let before = {
         let entity = app.world().resource::<Proxy>().0;
@@ -132,6 +134,14 @@ fn headless_app_steps_runtime_and_moves_proxy_transform() {
     for _ in 0..16 {
         app.update();
     }
+    assert!(
+        app.world()
+            .resource::<LaneFlowSession>()
+            .frame_report()
+            .steps_run()
+            > 0,
+        "LaneFlowFixed schedule must step TrafficWorld"
+    );
     let after = {
         let entity = app.world().resource::<Proxy>().0;
         *app.world().get::<Transform>(entity).expect("transform")

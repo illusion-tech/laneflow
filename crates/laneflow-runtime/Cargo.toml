@@ -18,6 +18,7 @@ laneflow-static-network = { version = "0.0.0", path = "../laneflow-static-networ
 thiserror = "2.0"
 
 [dev-dependencies]
+laneflow-compiler = { version = "0.0.0", path = "../laneflow-compiler" }
 laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
 

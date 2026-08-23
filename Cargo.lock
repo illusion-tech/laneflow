@@ -3105,6 +3105,7 @@ dependencies = [
 name = "laneflow-runtime"
 version = "0.0.0"
 dependencies = [
+ "laneflow-compiler",
  "laneflow-format",
  "laneflow-spatial",
  "laneflow-static-contract",
