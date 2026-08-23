@@ -179,10 +179,10 @@ impl TrafficWorld {
             return Err(RouteError::InUse { vehicle, route });
         }
         slot.compiled = None;
+        self.live_dynamic_routes = self.live_dynamic_routes.saturating_sub(1);
         if let Some(next_generation) = slot.generation.checked_add(1) {
             slot.generation = next_generation;
             self.free_routes.push(index);
-            self.live_dynamic_routes = self.live_dynamic_routes.saturating_sub(1);
         }
         Ok(())
     }
@@ -294,7 +294,6 @@ impl TrafficWorld {
         if state.status != VehicleStatus::Active {
             return Err(ParkingError::UnknownVehicle);
         }
-        let route = state.route;
         let slot_index = usize::try_from(vehicle.index()).expect("vehicle index fits usize");
         let state = self.vehicles[slot_index]
             .state
@@ -304,7 +303,6 @@ impl TrafficWorld {
         state.speed = 0.0;
         state.parking = Some(space);
         self.parking_occupants[space_index] = Some(vehicle);
-        self.release_route_ref(route);
         Ok(())
     }
 

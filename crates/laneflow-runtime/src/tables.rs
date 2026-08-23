@@ -188,6 +188,21 @@ pub(crate) fn compiled_hop_gate(
         .maneuver_gate()
 }
 
+fn access_cell_denied(cell: Option<AccessCell>) -> bool {
+    match cell {
+        Some(AccessCell::Unconstrained) => false,
+        Some(AccessCell::Decided {
+            effect: AccessEffect::Allow,
+            ..
+        }) => false,
+        Some(AccessCell::Decided {
+            effect: AccessEffect::Deny,
+            ..
+        }) => true,
+        Some(_) | None => true,
+    }
+}
+
 pub(crate) fn route_access_denied(
     traffic: &SharedTrafficNetwork,
     class: ParticipantClassOrdinal,
@@ -196,13 +211,7 @@ pub(crate) fn route_access_denied(
     maneuvers: impl Iterator<Item = (ManeuverPathOrdinal, u32)>,
 ) -> bool {
     for edge in edges.iter().skip(cursor) {
-        if matches!(
-            traffic.relations().edge_access(*edge, class),
-            Some(AccessCell::Decided {
-                effect: AccessEffect::Deny,
-                ..
-            })
-        ) {
+        if access_cell_denied(traffic.relations().edge_access(*edge, class)) {
             return true;
         }
     }
@@ -211,13 +220,7 @@ pub(crate) fn route_access_denied(
         if exit_index <= cursor {
             continue;
         }
-        if matches!(
-            traffic.relations().path_access(path, class),
-            Some(AccessCell::Decided {
-                effect: AccessEffect::Deny,
-                ..
-            })
-        ) {
+        if access_cell_denied(traffic.relations().path_access(path, class)) {
             return true;
         }
     }

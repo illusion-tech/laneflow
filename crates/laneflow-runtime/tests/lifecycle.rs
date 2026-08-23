@@ -258,7 +258,7 @@ fn remove_dynamic_route_rejects_live_vehicle() {
 }
 
 #[test]
-fn parking_releases_dynamic_route_so_remove_succeeds() {
+fn parking_keeps_dynamic_route_so_remove_fails() {
     let mut world = world();
     let first = edge_for_length(&world, 10.0);
     let middle = edge_for_length(&world, 8.0);
@@ -278,9 +278,10 @@ fn parking_releases_dynamic_route_so_remove_succeeds() {
     world
         .occupy_parking(vehicle, ParkingSpaceOrdinal::from_raw(0))
         .expect("park");
-    world
-        .remove_route(route)
-        .expect("parked vehicle does not pin route");
+    assert_eq!(
+        world.remove_route(route).unwrap_err(),
+        RouteError::InUse { vehicle, route }
+    );
 }
 
 #[test]

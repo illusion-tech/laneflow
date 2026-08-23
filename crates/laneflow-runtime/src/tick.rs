@@ -2,8 +2,8 @@ use laneflow_static_contract::{LaneEdgeOrdinal, SignalAspect, StaticRouteOrdinal
 use laneflow_static_network::VehicleProfileView;
 
 use crate::tables::{
-    VehicleState, VehicleStatus, compiled_hop_gate, remaining_along_route, remaining_to_route_end,
-    static_route_ordinal,
+    VehicleState, VehicleStatus, compiled_hop_gate, occupancy_intervals, remaining_along_route,
+    remaining_to_route_end, static_route_ordinal,
 };
 use crate::{StepError, StepOutcome, TickInput, TrafficWorld};
 
@@ -139,32 +139,39 @@ impl TrafficWorld {
                 continue;
             };
             let leader_index = usize::try_from(leader.route_edge_index).ok()?;
-            let Some(leader_edge) = leader_edges.get(leader_index).copied() else {
-                continue;
-            };
-            let Some(found) = edges
-                .iter()
-                .enumerate()
-                .skip(cursor)
-                .find_map(|(index, edge)| (*edge == leader_edge).then_some(index))
-            else {
-                continue;
-            };
-            if found == cursor && leader.progress <= follower.progress {
-                continue;
-            }
-            let Some(front_to_front) = remaining_along_route(
+            let Some(intervals) = occupancy_intervals(
                 lengths,
-                edges,
-                cursor,
-                follower.progress,
-                found,
+                leader_edges,
+                leader_index,
                 leader.progress,
+                leader.length,
             ) else {
                 continue;
             };
-            let bumper = front_to_front - leader.length;
-            best = Some(best.map_or(bumper, |current| current.min(bumper)));
+            for (edge, lo, hi) in intervals {
+                let Some(found) = edges
+                    .iter()
+                    .enumerate()
+                    .skip(cursor)
+                    .find_map(|(index, candidate)| (*candidate == edge).then_some(index))
+                else {
+                    continue;
+                };
+                let bumper = if found == cursor {
+                    if hi <= follower.progress + 1e-12 {
+                        continue;
+                    }
+                    lo - follower.progress
+                } else {
+                    let Some(front_to_rear) =
+                        remaining_along_route(lengths, edges, cursor, follower.progress, found, lo)
+                    else {
+                        continue;
+                    };
+                    front_to_rear
+                };
+                best = Some(best.map_or(bumper, |current| current.min(bumper)));
+            }
         }
         best
     }
@@ -256,9 +263,9 @@ impl TrafficWorld {
 
     fn group_is_restrictive(&self, group: laneflow_static_contract::SignalGroupOrdinal) -> bool {
         match self.signal_aspects.get(group.index()).copied() {
+            Some(SignalAspect::Green) => false,
             Some(SignalAspect::Red | SignalAspect::Yellow) => true,
-            Some(SignalAspect::Green) | None => false,
-            _ => false,
+            Some(_) | None => true,
         }
     }
 }
@@ -294,7 +301,7 @@ fn iidm_travel(
         0.0
     };
     let accel = accel_max * (1.0 - speed_term - gap_term);
-    let next_speed = (speed + accel * delta_s).max(0.0);
+    let next_speed = (speed + accel * delta_s).max(0.0).min(desired.max(0.0));
     let travel = ((speed + next_speed) * 0.5 * delta_s).max(0.0);
     travel.is_finite().then_some(travel)
 }

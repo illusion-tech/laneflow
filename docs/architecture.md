@@ -8,7 +8,8 @@
 
 LaneFlow 当前是一个引擎无关、可嵌入的交通运行时。Accepted ADR 0021 把“为未来的
 中国特色城市模拟游戏提供交通基础”定义为第一长期产品目标；#291 G1 已接受该目标
-和下述目标态分层，但对应实现尚未交付。
+和下述目标态分层。#300 / #301 已交付共享静态路网与 `TrafficWorld` 当前可运行路径；
+出行编排、Routing 与多执行域尚未交付。
 
 当前架构与 #291 已接受目标态设计共同关注：
 
@@ -34,7 +35,7 @@ LaneFlow 当前是一个引擎无关、可嵌入的交通运行时。Accepted AD
 出行需求决定谁在何时为何出发；交通运行时导出已提交交通观测快照；路径规划/
 出行编排层再结合静态路网、观测、收费、游戏政策和偏好构造动态成本快照并生成候选
 路径；交通运行时只验证/注册由候选路径构成的动态通行定义，并负责交通参与单元如何
-在所属执行域安全推进。当前 Runtime 只实现道路机动车车辆特化；长期通用抽象不把
+在所属执行域安全推进。当前 `TrafficWorld` 只实现道路机动车车辆特化；长期通用抽象不把
 非机动车、行人或轨道交通排除在目标交通运行时（Target Traffic Runtime）之外。
 目标产品边界见 Accepted ADR 0021。#301 已使 `TrafficWorld` 成为唯一可运行交通世界。
 
@@ -306,13 +307,11 @@ partition plan 不进入快照。只要 snapshot/runtime contract 与身份/执�
 完整基线或版本化增量/分区选择的已提交交通观测；路径规划据此构造动态成本快照，
 不进入交通参与单元 fixed-tick 热路径，也不要求每 tick 全量复制全网。
 
-`InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，当前包含 lane
-graph、Junction registry、compiled routes、Vehicle Profiles 与 immutable
-Signals/Parking registries，不拥有 tick、initial vehicles 或 runtime route
-generation。初始 route validation 与 runtime route registration 复用同一 Core
-compiler，包括 Maneuver occurrence、Gate 与 route-final-StopLine 约束。
+历史 `InitialTrafficData` 只表示 Core 时代可用于初始化 world 的已验证静态 JSON
+输入。#301 后可运行世界由 `TrafficWorld::install(Arc<SharedNetworkRevision>)`
+安装，不再从 current JSON / `InitialTrafficData` 构造。
 
-Signals 在 Core 内保持四层职责：Controller 产生 indication；ManeuverGate/StopLine
+Signals 分层职责：Controller 产生 indication；ManeuverGate/StopLine
 表达空间准入；compliance policy 解释 signal-layer permission；纵向 constraint、
 安全投影与 permission-aware traversal 保证结果不可绕过。SignalController 不硬编码
 国家/转向规则，Adapter 只 query/render。长期分层见 ADR 0009、
@@ -349,7 +348,7 @@ v0.5 Parking runtime 由 Core 私有 binding aggregate 持有唯一 authority；
 
 ## 6. Engine Adapter Layer
 
-Engine Adapter 负责把 Core 状态映射到具体引擎：
+Engine Adapter 负责把已提交交通状态映射到具体引擎：
 
 - tick 调用
 - actor / entity 生命周期
@@ -359,9 +358,9 @@ Engine Adapter 负责把 Core 状态映射到具体引擎：
 - UI 面板
 - LOD 和性能策略
 
-Adapter 不应把引擎依赖引入 Core。
+Adapter 不应把引擎依赖引入 Runtime。
 
-Adapter 可以按需调用 `laneflow-data` 解析自身 asset pipeline 已读取的内存数据，但不得要求 Core 理解引擎路径、asset handle 或异步加载协议。
+Adapter 不再从 current JSON 安装可运行世界；它消费 `TrafficWorld` 与可选 `SpatialSession`。不得要求 Runtime 理解引擎路径、asset handle 或异步加载协议。
 
 ADR 0025 target 中，Adapter/宿主 asset pipeline 负责认证发布资产或提供已提交道路编辑
 状态；`laneflow-format` 与 `laneflow-static-network` 产生完整
@@ -374,11 +373,11 @@ Adapter 不读取 compiler IR、LFCA 表语义，也不拥有共享静态规则�
 统一改变模拟时间推进速度，但不能静默丢 fixed tick、丢事件或让不同分区读取不同
 逻辑时点。任何多频率或 aggregate 降级必须由独立 fidelity contract 和 G1 冻结。
 
-ADR 0013/0015 与 #136 已冻结适配器边界。各 Adapter 不再自行定义中心线和长度采样权威；它们从已提交的 Core 快照构造稳定的 Lane/Parking 输入，消费带 frame identity 和 placement token 的 `f32` canonical 批量位姿，并只在末端处理 frame 放置、坐标轴、坐标系手性、宿主变换、插值和细节层次（LOD）。详细设计见 ADR 0013、ADR 0015、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
+ADR 0013/0015 与 #136 已冻结适配器边界。各 Adapter 不再自行定义中心线和长度采样权威；它们从 `TrafficWorld::committed_pose_sources()` 构造稳定的 Lane/Parking 输入，消费带 frame identity 和 placement token 的 `f32` canonical 批量位姿，并只在末端处理 frame 放置、坐标轴、坐标系手性、宿主变换、插值和细节层次（LOD）。详细设计见 ADR 0013、ADR 0015、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
 
-v0.7 的首个生产 Adapter crate 为 `laneflow-bevy`。它依赖 `laneflow-core`、`laneflow-spatial` 和 Bevy 0.19 的最小 modular crates，使用一个 Bevy Resource 表达单活动 Session，并在宿主 `First` 之后运行 LaneFlow 自有 outer-frame/fixed schedules；它不修改 Bevy `Time<Fixed>`，也不把 Bevy 类型引入 Core/Data/Spatial。#169-#173 已完成 Plugin/Session、Adapter-owned Vehicle/Entity 部分双射、显式 frame root/token、transform propagation 前两阶段原子 local Transform 同步、headless/performance Gate、预算受控 Gizmos 与 native reference example。最终契约、证据与兼容边界见 `design/bevy-reference-adapter.md` 和 `reference/v0.7-bevy-closure-review.md`。
+v0.7 的首个生产 Adapter crate 为 `laneflow-bevy`。#301 后它依赖 `laneflow-runtime`、`laneflow-spatial` 和 Bevy 0.19 的最小 modular crates，使用一个 Bevy Resource 表达单活动 Session，并在宿主 `First` 之后运行 LaneFlow 自有 outer-frame/fixed schedules；它不修改 Bevy `Time<Fixed>`，也不把 Bevy 类型引入 Runtime/Spatial。`debug-gizmos` 目前是占位 plugin。最小证据为 `runtime_min` 与无窗口 smoke。历史 v0.7 Gate 与 native reference 细节见 `design/bevy-reference-adapter.md` 和 `reference/v0.7-bevy-closure-review.md`。
 
-v0.8 的场景人口与回流采用 ADR 0016 的 caller-owned policy，不进入 `CoreWorld::step` 隐藏状态，也不由 Bevy ECS 选择 route。Core 不提供人口 controller、车辆数量限制、seed 或 portal/route 决策，只拥有 caller-driven 的原子 old-handle/new-handle replace 与交通 invariant；Adapter 以 typed transaction 原子切换同一 Entity 的 handle binding。`laneflow-scenario` 中的 #203 reference policy 按 fixed-step input sequence 拥有目标人口、seed、catalog normalization、portal/lane 决策和 blocked retry，依赖方向固定为 `laneflow-scenario -> laneflow-core`，未来城市游戏可以完全替换该 policy。Traffic/Spatial/Manifest 继续是静态制品，不持久化目标人口、runtime handles 或 Entity。场景目标见 `design/example-scenarios.md`，policy 实现契约见 `design/signalized-corridor-population.md`；production 其余切片由 #185–#189 承担。
+v0.8 的场景人口与回流采用 ADR 0016 的 caller-owned policy，不进入 `TrafficWorld::step` 隐藏状态，也不由 Bevy ECS 选择 route。Runtime 不提供人口 controller。走廊人口迁到 Runtime 是 follow-up Issue，不是 #301 完成条件。Traffic/Spatial 继续是静态制品，不持久化目标人口、runtime handles 或 Entity。场景目标见 `design/example-scenarios.md`。
 
 ## 7. Presentation Layer
 

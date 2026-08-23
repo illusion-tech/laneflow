@@ -124,13 +124,17 @@ impl SpatialSession {
         self.scratch.reserve(inputs.len());
         let mut frame: Option<CanonicalFrameOrdinal> = None;
         for (input_index, input) in inputs.iter().copied().enumerate() {
-            let (sampled_frame, pose) = self.sample(input.source).map_err(|source| {
-                SpatialError::SharedPoseRecordFailed {
-                    input_index,
-                    record: input.record,
-                    source: Box::new(source),
+            let (sampled_frame, pose) = match self.sample(input.source) {
+                Ok(sampled) => sampled,
+                Err(source) => {
+                    self.scratch.clear();
+                    return Err(SpatialError::SharedPoseRecordFailed {
+                        input_index,
+                        record: input.record,
+                        source: Box::new(source),
+                    });
                 }
-            })?;
+            };
             if let Some(expected) = frame {
                 if expected != sampled_frame {
                     self.scratch.clear();
