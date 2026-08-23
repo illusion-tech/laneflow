@@ -23,10 +23,10 @@ Skill 标识符（Skill ID）`laneflow-core-design` 可在 `laneflow-core` crate
    `docs/design/network-compiler.md`、`docs/design/shared-static-network.md` 与
    `docs/design/traffic-runtime-shared-consumption.md`
 8. 涉及 #308 编译器工作负载、资源/性能预算校准、研究停止护栏或私有容器候选时，
-   读取 `docs/design/compiler-budget-calibration.md`、
-   `docs/reference/compiler-calibration-workloads-v1.json` 与
-   `docs/reference/compiler-calibration-evidence-v1.schema.json`、
-   `docs/reference/compiler-calibration-contract-v1.json`
+   读取 `docs/design/compiler-budget-calibration.md` 与
+   `docs/reference/v0.10-compiler-budget-calibration-report.md`。#308 已关闭；
+   研究执行器不在当前工作区。查阅当时契约与代码，使用 G4 精确证据提交
+   `de4cd460a96415cafbd811141568b81f74d73534` 与交付 PR #310
 9. 涉及 #292/#315/#296/#297 编译器基础设施、官方前端共同受检模块接入、current JSON
    退役、已验证规范 LIR 或集成专用 LIR→当前态投影时，额外读取
    `docs/design/compiler-foundation.md`；

@@ -1,18 +1,18 @@
 # 编译器资源与性能预算校准
 
-**文档状态**: Accepted（#308 G4 已完成；一次性研究已关闭）<br>
-**最后更新**: 2026-08-03<br>
-**适用范围**: 编译器工作负载、编译器校准规模（Compiler Calibration Scale）、
-编译器压力规模（Compiler Stress Scale）、编译资源上限（Compile Limits）、冷实例
-与稳定容量复用测量、研究停止护栏（Research Stop Guardrail）、私有容器候选和
-机器可读研究证据<br>
-**实现状态**: 非生产研究实现已完成并关闭；停止护栏、终止状态、二进制角色、三个可扩展
-工作负载、当前固定样例研究投影、基础规模发现、两批五轮正式规模阶梯、限制资格、失败
-恢复、候选矩阵以及紧凑 Evidence v1 写出/独立验证代码路径已经实现；冻结研究机的
-batch 0/1 两批正式 R0 测量、机器可读证据与中文报告已经生成。本文不实现生产编译器、
-不冻结公共应用程序接口（API），也不形成产品服务等级协议（product SLA）。当前
-R0 物理机器已由产品负责人另行选定为目标产品推荐参考机型（Target Product
-Recommended Reference Machine，`P100`）；该硬件角色选择不改变研究证据分类
+**文档状态**: Retired as live harness（#308 G4 已完成并关闭；研究执行器已移出工作区）<br>
+**最后更新**: 2026-08-23<br>
+**适用范围**: 已关闭的 #308 编译器资源/性能预算校准研究协议与历史证据导航<br>
+**实现状态**: 一次性非生产研究已关闭。工作区不再包含
+`research/issue-308-compiler-budget-calibration-research`，也不再维护可复跑的
+工作负载清单/契约描述符/Evidence Schema。查阅研究执行器与当时契约，使用 G4 精确
+证据提交
+[`de4cd460a96415cafbd811141568b81f74d73534`](https://github.com/illusion-tech/laneflow/tree/de4cd460a96415cafbd811141568b81f74d73534)
+与交付 PR [#310](https://github.com/illusion-tech/laneflow/pull/310)
+（merge `606ac52dbc75196c6d37073c72c3d48cbb031be0`）。现行树上只保留冻结的 R0
+报告与 Evidence 制品。本文不实现生产编译器、不冻结公共应用程序接口（API），也不形成
+产品服务等级协议（product SLA）。#292 G2 已确认这些研究工作负载不能按原自然身份
+无损映射为生产语义。
 
 **关联决策与设计**:
 
@@ -29,9 +29,9 @@ Recommended Reference Machine，`P100`）；该硬件角色选择不改变研究
 - `data-format.md`
 - `spatial-geometry.md`
 - `../reference/glossary.md`
-- `../reference/compiler-calibration-workloads-v1.json`
-- `../reference/compiler-calibration-evidence-v1.schema.json`
-- `../reference/compiler-calibration-contract-v1.json`
+- [G4 工作负载清单](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/compiler-calibration-workloads-v1.json)
+- [G4 Evidence Schema](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/compiler-calibration-evidence-v1.schema.json)
+- [G4 契约描述符](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/compiler-calibration-contract-v1.json)
 - `compiler-foundation.md`
 - [#308](https://github.com/illusion-tech/laneflow/issues/308)
 - [#292](https://github.com/illusion-tech/laneflow/issues/292)
@@ -124,11 +124,14 @@ Single-thread Research Compile），不能重定义 #292 的生产参考路径�
 
 ### 2.2 研究包边界
 
-取得 #308 G2 后，研究代码拟位于：
+取得 #308 G2 后，研究代码曾位于：
 
 ```text
 research/issue-308-compiler-budget-calibration-research/
 ```
+
+该目录已从当前工作区删除。G4 树见
+[`de4cd460a96415cafbd811141568b81f74d73534`](https://github.com/illusion-tech/laneflow/tree/de4cd460a96415cafbd811141568b81f74d73534/research/issue-308-compiler-budget-calibration-research)。
 
 其边界必须与 `research/issue-123-spatial-prototype` 的既有治理方式一致：
 
@@ -141,8 +144,7 @@ research/issue-308-compiler-budget-calibration-research/
   `[dev-dependencies]`；
 - `default = []`；每个第三方候选使用独立私有 feature，`research-runner-full` 作为
   正式单入口的封闭总 feature。G2 依赖审计冻结具体 package/version 后同步冻结该总
-  feature 的精确成员。#301 已删除 `fixture-oracle` 所依赖的 current JSON 加载路径；
-- `[dev-dependencies]` 只保存不会被普通 runner 二进制链接的测试辅助依赖；
+  feature 的精确成员；
 - `[dev-dependencies]` 只保存不会被普通 runner 二进制链接的测试辅助依赖；
 - 研究类型、候选标识和证据封套不进入生产公共 API；
 - 研究代码不得通过路径依赖复用尚未实现的 #292 生产 crate。
@@ -432,8 +434,9 @@ G2 必须同时发布未知引用、重复所有者、资源上限和诊断截�
 
 ### 3.4 机器可读工作负载清单
 
-`../reference/compiler-calibration-workloads-v1.json` 是研究工作负载清单（Research
-Workload Manifest）的机器可读 SSOT，冻结：
+G4 工作负载清单
+（[`compiler-calibration-workloads-v1.json`](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/compiler-calibration-workloads-v1.json)）
+是当时研究工作负载清单（Research Workload Manifest）的机器可读 SSOT，冻结：
 
 - 三种模块图配置档及其精确模块/导入/跨模块引用公式；
 - 三种字符串配置、来源文档键和虚拟来源位置规则；
@@ -1922,6 +1925,10 @@ batch 0/1 汇总分层相同，重算双向比值、约分结果和全局最大�
 运行无效、缺失、重复、来自被评估候选或跨分层时，配对必须失败。
 
 ### 10.3 可复现命令
+
+下列命令只适用于 G4 精确证据提交
+`de4cd460a96415cafbd811141568b81f74d73534`。当前工作区已删除该研究包，不得在
+`main` 头上重跑。
 
 G2 必须提供锁定工具链和锁文件的单入口，形状为：
 
