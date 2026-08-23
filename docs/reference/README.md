@@ -28,9 +28,9 @@
   辅助理解，当前完整覆盖 #291 编译器时代静态路网、Identity、制品/镜像、信任、
   Traffic Runtime、城市模拟游戏上层、执行规划、路网修订、快照/回放、Routing、
   Spatial 与 Adapter 术语。
-- #308 研究执行器、工作负载清单、Evidence Schema 与契约描述符已移出当前工作区。
-  G4 精确证据提交为
-  [`de4cd460a96415cafbd811141568b81f74d73534`](https://github.com/illusion-tech/laneflow/tree/de4cd460a96415cafbd811141568b81f74d73534)，
+- #308 研究执行器、活契约与 R0 巨大 Evidence/raw JSON 已移出当前工作区。G4 精确
+  证据提交为
+  [`de4cd460a96415cafbd811141568b81f74d73534`](https://github.com/illusion-tech/laneflow/tree/de4cd460a96415cafbd811141568b81f74d73534/docs/reference)，
   交付 PR 为 [#310](https://github.com/illusion-tech/laneflow/pull/310)。
 - `road-editing-source-semantic-seed-v1.json`：#296 的不可变 benchmark 语义种子；只供
   test/research generator 读取，不是 production source format，也不形成 JSON 兼容承诺。
@@ -42,19 +42,6 @@
   curve、完整映射/optional/string/width 规则、九档组合、单模块候选替换生命周期和精确
   测量协议。它不是 production JSON 兼容层或测量结果；writer/fixture digest 与 exact
   commit 只由后继 G2 evidence 填写。
-- `v0.10-compiler-pilot-budget.md`：#308 在 R0 研究机上得到的九个基础规模冷实例临时
-  性能预算、来源、计算规则、正确性核对与禁止外推边界；只用于早期基础规模发现与
-  正式校准候选输入，不是 #292 G1 冻结的首轮实现预算。
-- `v0.10-compiler-pilot-budget.json`：上述临时预算的机器可读精确整数、七样本原始值、
-  运行/预言机引用、语义摘要与来源检查点绑定；不是 Compiler Calibration Evidence v1。
-- `v0.10-compiler-budget-calibration-raw.json`：#308 R0 两批正式执行的逐次运行权威事实，
-  包含有效、无效、失败与受护栏记录；紧凑 Evidence 通过精确长度和 SHA-256 绑定它。
-- `v0.10-compiler-budget-calibration-environment.json`：上述 R0 的操作者环境声明。
-- `v0.10-compiler-budget-calibration-evidence.json`：从绑定原始执行结果独立重算的紧凑
-  Evidence v1，包含基础规模、正式阶梯分析、重复性包络、预算与候选分类。
-- `v0.10-compiler-budget-calibration-report.md`：上述 R0 的中文权威结论、预算摘要、候选
-  判断、环境边界与 P100 同机硬件角色更新。研究执行器已不在当前工作区；复现命令以
-  G4 提交为准，不能把本报告追认为现行生产门禁。
 - `v0.10-compiler-foundation-validation.md`：#292 G2 生产纵向切片的实现、依赖方向、
   迁移等价、本地验证与性能门槛适用性结论；记录 G1 修订、生产基线和进入 Delivery PR
   审阅前的剩余边界。
