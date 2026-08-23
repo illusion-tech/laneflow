@@ -496,7 +496,7 @@ fn phase_boundary_inside_tick_keeps_snapshot_t_and_publishes_t_plus_d() {
         .expect("edges")
         .to_vec();
     let to = edges[1];
-    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[from.index()];
+    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[edges[0].index()];
     world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -755,6 +755,39 @@ fn later_red_stop_caps_travel_after_permitted_gate() {
     assert!(
         progress <= 8.0 + 1e-6,
         "must not enter exit on later red {progress}"
+    );
+}
+
+#[test]
+fn dynamic_route_later_red_uses_compiled_path_gate() {
+    let mut world = world_with_delta(1_000);
+    let edges = world
+        .traffic()
+        .relations()
+        .static_route_edges(StaticRouteOrdinal::from_raw(0))
+        .expect("edges")
+        .to_vec();
+    let route = world
+        .register_route(RouteRegisterInput::new(edges.clone()))
+        .expect("dynamic");
+    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[edges[0].index()];
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            9.0,
+            speed_limit,
+        ))
+        .expect("spawn");
+    world.step(TickInput::new(1_000)).expect("step");
+    let PoseSource::Lane { edge, progress } = world.committed_pose_sources().as_slice()[0].1 else {
+        panic!("expected lane pose");
+    };
+    assert_eq!(edge, edges[1], "dynamic later red must stop on middle");
+    assert!(
+        progress <= 8.0 + 1e-6,
+        "dynamic later red must not enter exit {progress}"
     );
 }
 

@@ -7,7 +7,7 @@ use laneflow_static_contract::{
 use laneflow_static_network::SharedNetworkRevision;
 
 use crate::tables::{
-    DynamicRouteSlot, VehicleSlot, VehicleState, VehicleStatus, bodies_overlap,
+    CompiledRoute, DynamicRouteSlot, VehicleSlot, VehicleState, VehicleStatus, bodies_overlap,
     compile_dynamic_route, route_access_denied, spawn_motion_error, static_route_ordinal,
 };
 use crate::{
@@ -397,6 +397,19 @@ impl TrafficWorld {
             return None;
         }
         Some(slot.compiled.as_ref()?.edges.as_ref())
+    }
+
+    pub(crate) fn compiled_dynamic_route(&self, route: RouteHandle) -> Option<&CompiledRoute> {
+        if static_route_ordinal(route).is_some() {
+            return None;
+        }
+        let slot = self
+            .dynamic_routes
+            .get(usize::try_from(route.index()).ok()?)?;
+        if slot.generation != route.generation() {
+            return None;
+        }
+        slot.compiled.as_ref()
     }
 
     fn route_suffix_denied(
