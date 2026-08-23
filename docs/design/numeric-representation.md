@@ -19,10 +19,8 @@
 - `compiler-foundation.md`
 - `road-editing-source-and-geometry-frontend.md`
 - `core-runtime.md`
-- `data-format.md`
 - `vehicle-following.md`
 - `parking-system.md`
-- `../reference/v0.6-numeric-validation.md`
 
 ## 1. 状态与目标
 
@@ -346,8 +344,8 @@ Core 的有效进度
 6. Core/Data/Spatial/Adapter migration 判断；
 7. ADR 0012 的决策、备选方案、后果与实施边界。
 
-#140 还补充了 edge 上界的生产 Core 稳态/构造/跨 edge 压力矩阵、每个最大误差的 tick/车辆/控制来源，以及 `10_000 m` 防御性单 edge 上界证据。完整数字与限制记录在 [`v0.6-numeric-validation.md`](../reference/v0.6-numeric-validation.md) 第 9 节。
+#140 还补充了 edge 上界的生产 Core 稳态/构造/跨 edge 压力矩阵、每个最大误差的 tick/车辆/控制来源，以及 `10_000 m` 防御性单 edge 上界证据。逐轮数字见 git 历史；裁决结论见 ADR 0014。
 
 #141 G1 最初冻结 10 km Core/Data 硬上限、其他单一 `f32` 数值域的产品范围、`EdgeLength`/`EdgeProgress` 表示、公共 API 分层、route 距离的语义与候选、Spatial 长度量化余量及生产收益闸口。#144 后续以完整账本把旧“内存至少降低 10%”修订为 5% 退化护栏，并把 14 项稳态几何平均至少提升 5% 冻结为主门槛；ADR 0014 保存当前规则。
 
-#126 已冻结公开 Core API、Parking 锚点、分层错误载荷、Data v0.6 准确版本与原子替换矩阵；#127 已完成目标 `f32` 九领域离线标定、长期判定基准、性能与扩展常驻内存账本。#144 的原子生产转换因性能门槛失败而 no-go，当前保持 `f64` 且不保留双精度开关。#128 已按这一真实结论形成 [`v0.6 数值切片收口审阅基线`](../reference/v0.6-numeric-closure-review.md)；未来若重启数值迁移，必须新建议题并重新进入 G1。空间层（Spatial）/v0.7 仍分别交付真实几何与适配器（Adapter）转换。
+#126 已冻结公开 Core API、Parking 锚点、分层错误载荷与原子替换矩阵；#127 已完成目标 `f32` 九领域离线标定、长期判定基准、性能与扩展常驻内存账本。#144 的原子生产转换因性能门槛失败而 no-go，当前保持 `f64` 且不保留双精度开关。逐轮收口流水账见 git 历史；未来若重启数值迁移，必须新建议题并重新进入 G1。空间层（Spatial）/v0.7 仍分别交付真实几何与适配器（Adapter）转换。

@@ -8,8 +8,6 @@
 **关联文档**:
 
 - [`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md)
-- [`data-format.md`](data-format.md)
-- [`data-loading.md`](data-loading.md)
 - [`spatial-geometry.md`](spatial-geometry.md)
 - [`../governance/dependency-security.md`](../governance/dependency-security.md)
 - [#224 当前 G1 纠偏冻结判断](https://github.com/illusion-tech/laneflow/issues/224#issuecomment-5078718717)

@@ -51,8 +51,6 @@ Runtime 已经实现；#439 / PR #436 已形成受检 LFCA 输入能力与
 - `shared-static-network.md`
 - `current-package-import.md`
 - `cross-section-access.md`
-- `data-format.md`
-- `data-loading.md`
 - `spatial-geometry.md`
 - `road-junction-model.md`
 - `signal-system.md`
@@ -342,11 +340,9 @@ buffer/document”应用
 摘要、重复资源计数或第二次规范排序。精确所有权、失败事务和共同接入性能验证以
 `compiler-foundation.md` 第 3.3 与 10.4 节为权威。
 
-current JSON 不属于官方编译器前端。`laneflow-current-source` 只服务当前
-`laneflow-data` 加载器，不提供严格导入策略、编译器资源余额或位置表；
-`laneflow-compiler` 不依赖它。编译器和投影测试直接构造有类型模块，避免用旧 wire
-format 决定编译器语义。精确退役边界见
-[`current-package-import.md`](current-package-import.md)。
+current JSON 不属于官方编译器前端，schema 与加载 crate 已删除。
+`laneflow-compiler` 不依赖 JSON。编译器和投影测试直接构造有类型模块。精确退役
+边界见 [`current-package-import.md`](current-package-import.md)。
 
 这不是第三方前端插件协议。#315 只冻结公开面继续使用 LaneFlow 拥有的具体入口以及它们进入共同
 私有接入的规则，不交付或冻结 Geometry 公共签名。#296 FlatBuffers G1 选择借用完整
@@ -1815,16 +1811,12 @@ laneflow-adapter-* ------> laneflow-spatial
 
 ```text
 laneflow-data ----------------> laneflow-current-source
-laneflow-data ----------------> laneflow-core
-laneflow-data ----------------> laneflow-spatial
-
-laneflow-compiler -X-> laneflow-current-source / laneflow-data
+laneflow-compiler -X-> JSON / laneflow-data / laneflow-current-source
 ```
 
-`laneflow-current-source` 为 `laneflow-data` 集中当前 wire DTO、版本、摘要和
-ScenarioManifest 配对；它不提供编译器严格导入能力。current JSON 未曾对外发布，仓库
-夹具由新编制来源一次性重写或随旧加载器删除，因此不建立迁移 crate、编译器特性或
-长期离线导入入口。完整边界见 `current-package-import.md`。
+`laneflow-data` 与 `laneflow-current-source` 已删除。current JSON 未曾对外发布，
+不建立迁移 crate、编译器特性或长期离线导入入口。完整边界见
+`current-package-import.md`。
 
 职责与禁止依赖：
 

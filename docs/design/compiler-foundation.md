@@ -2,7 +2,7 @@
 
 **文档状态**: #292 已接受并完成 G4；#315 共同受检模块接入契约已实现；
 #297 current JSON 编译器导入设计已取消；#299 后继边界见 Accepted ADR 0024<br>
-**最后更新**: 2026-08-22<br>
+**最后更新**: 2026-08-23<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
@@ -47,9 +47,10 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`；首批支持矩阵中的
 动态路线生命周期及后继编译遍尚未实现。
 #292 G1 已
-接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；当前生产路径仍是
-`Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /
-`laneflow-data` / `laneflow-core` / `laneflow-spatial`。#315 已按 G2 授权落地共同私有
+接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；#308 研究工作负载不能按原自然
+身份无损映射为生产语义。可运行交通世界现由 `TrafficWorld` 安装
+`SharedNetworkRevision`；`laneflow-data` / `laneflow-core` / current JSON 已拆除。
+#315 已按 G2 授权落地共同私有
 `TypedAstModule` / `TypedAstDeclaration`、逻辑模块与来源文档独立登记、原子共同接入、
 文档集摘要以及 `LF-COMP-P100-INITIAL-v2`。#296 因 production 来源产品前提纠偏返回
 FlatBuffers；#332 草稿中的旧 Geometry JSON 原型只作历史证据。
@@ -68,13 +69,12 @@ GitHub Issue / PR 为准。#297 调整后不建立 current JSON 编译器前端�
 - `../adr/0025-checked-canonical-network-and-shared-static-network.md`
 - `network-compiler.md`
 - `road-editing-source-and-geometry-frontend.md`
-- `data-format.md`
-- `data-loading.md`
 - `numeric-representation.md`
 - `spatial-geometry.md`
 - `core-runtime-performance-baseline.md`（复用 P100 硬件身份，不复用运行时规模或预算）
-- `compiler-budget-calibration.md`（#308 已关闭；执行器不在当前工作区）
+- `compiler-budget-calibration.md`（#308 已关闭；证据在 git 历史）
 - `current-package-import.md`
+- `../reference/v0.10-compiler-production-baseline.md`
 - [G4 工作负载清单](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/compiler-calibration-workloads-v1.json)
 - [G4 R0 报告](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-report.md)
 - [G4 R0 Evidence](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-evidence.json)
@@ -912,24 +912,14 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 
 ### 6.3 迁移场景
 
-G1 冻结以下两个当前态固定样例的等价迁移：
+G1 曾冻结两个 current JSON 固定样例的等价迁移。这些 JSON 文件已随 #301 删除。
+编译器正确性继续使用编译器原生有类型模块；不得把已删除 JSON 当作现行夹具或
+预言机。走廊 catalog 仍为
+`examples/data/v0.2-signalized-corridor.catalog.toml`。
 
-1. `examples/config/v0.10-signalized-corridor.toml` 指向的完整配对集合：
-   `examples/data/v0.10-signalized-corridor.laneflow.json`、
-   `examples/data/v0.1-signalized-corridor.spatial.json`、
-   `examples/data/v0.1-signalized-corridor.scenario.json` 与
-   `examples/data/v0.2-signalized-corridor.catalog.toml`；覆盖完整车道拓扑、横断面 /
-   准入、信号、停车、静态路线与规范几何；
-2. `examples/data/v0.10-multi-gate-waiting-zone.laneflow.json`：覆盖单个机动路径的
-   多机动门、等待区与对应路线出现项编译。
-
-若第一项完整走廊在实现基准中证明会把 #292 变成几何文档前端交付，只能通过新的 G1
-审阅发现处置记录收窄为其**显式规范折线**投影；不得改用只含两条边的玩具场景并声称
-覆盖横断面 / 准入 / 空间层等价。
-
-`examples/data/v0.10-empty-signals-and-parking.laneflow.json` 不作为第三个端到端迁移
-场景，但其 `loop`、`isolated`、`loop-once` 进入标识 v1 / 静态路线回归固定样例，
-证明自环边、合法孤立边和重复边出现项都不依赖道路区段或路口所有者。
+当时覆盖的领域仍必须能由合成 DSL / 道路编辑前端表达：完整车道拓扑、横断面 /
+准入、信号、停车、静态路线、规范几何，以及单个机动路径的多机动门、等待区与
+对应路线出现项。自环边、合法孤立边和重复边出现项都不依赖道路区段或路口所有者。
 
 ## 7. 标识 v1 首次实现
 
@@ -1407,8 +1397,7 @@ Delivery PR 收口是 #296/#297 进入各自 G2 的硬前置；该前置后来�
       compile-fail 测试已经覆盖；
 - [x] 构建器模块向量、模块索引、文档索引、冻结 scratch、结果模块包装和源映射平坦文档表
       均进入分阶段资源账本；专项 admission-only 基准报告 median/MAD、冷来源字符串字节、
-      构建器/结果存续、冻结 scratch 与准入控制峰值；完整验证证据见
-      [`v0.10-official-module-admission-validation.md`](../reference/v0.10-official-module-admission-validation.md)；
+      构建器/结果存续、冻结 scratch 与准入控制峰值；逐轮验证流水账见 git 历史；
 - [x] #296 道路编辑来源语义明确排除在本切片之外；当时排除的 #297 current 导入设计现已
       取消，不再是后继实现目标。
 

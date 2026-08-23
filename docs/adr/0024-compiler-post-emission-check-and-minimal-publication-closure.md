@@ -22,7 +22,6 @@ LIR、可移植规范制品、目标静态镜像或对象外信任锚决定<br>
 - `../design/compiler-post-emission-check-and-minimal-publication-closure.md`
 - `../design/network-compiler.md`
 - `../design/portable-canonical-artifact.md`
-- `../reference/v0.10-portable-artifact-validation.md`
 
 ## 背景
 

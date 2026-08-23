@@ -1,7 +1,7 @@
 # 文档边界政策
 
 **文档状态**: Active  
-**最后更新**: 2026-08-22
+**最后更新**: 2026-08-23
 **适用范围**: LaneFlow 的 GitHub 治理、仓库文档治理和 AI Agent 开发上下文
 
 ## 1. 目标
@@ -110,16 +110,18 @@ LaneFlow 初期默认不使用 GitHub Wiki。长期知识应进入仓库文档�
 - `docs/adr/`：高影响、难回退的架构决策。
 - `docs/design/`：Core、数据格式、Adapter、运行时规则等具体设计。
 - `docs/governance/`：GitHub 流程、开发闸口、AI Agent 开发规范。
-- `docs/reference/`：术语、模板、校验矩阵、命名约定。
-- `schemas/`：当前内部 loader/test 与道路编辑候选 source；不是对外发布入口。长期决策仍由 ADR 与 design 文档解释。
+- `docs/reference/`：术语、模板、校验矩阵、命名约定，以及仍约束实现的机器可读
+  编制种子 / 生产编译基线。不存放里程碑收口审阅、逐切片验证流水账、原始性能轮次
+  或 smoke 截图；那些当时证据只保留在 git 历史与 GitHub Issue / PR。
+- `schemas/`：道路编辑 FlatBuffers source；不是对外发布入口，也不是 JSON loader
+  契约。长期决策仍由 ADR 与 design 文档解释。
 - `CONTRIBUTING.md`：贡献流程和协作规则。
 
 ### Schema 标识
 
-JSON Schema `$id` 与 runtime loader 路径必须分开描述。ADR 0011 的公共 retrieval /
-永久保留义务已被 ADR 0026 取代；不得把内部 schema 文件写成对外兼容承诺。历史
-closure review 只记录当时事实。current JSON schema 在 #301 删除旧生产路径前仅供
-仓库内部 loader 与测试使用。
+ADR 0011 的公共 retrieval / 永久保留义务已被 ADR 0026 取代；不得把内部 schema
+文件写成对外兼容承诺。current JSON schema 与加载 crate 已随 #301 删除。道路编辑
+B1 仍是未发布的内部 source。
 
 ## 4. 决策回写规则
 
@@ -175,13 +177,13 @@ LaneFlow 的长期设计、模板与治理规范采用**中文权威、英文辅
   和聚合等价六项目标计数。Accepted 目标计数不得暗示目标态实现已经存在，也不得改写
   current 工作负载或历史证据。任何状态下都不得把不同执行域的未分解总数写成可比较
   性能指标。
-- 当前 Core、现有 `Vehicle*` API 与历史车辆 workload 应继续使用准确的车辆术语，
-  但必须标明 current/车辆特化边界；不得把车辆证据改写成已经支持非机动车、行人或
+- 当前 `TrafficWorld`、现有 `Vehicle*` API 与历史车辆 workload 应继续使用准确的
+  车辆术语，但必须标明车辆特化边界；不得把车辆证据改写成已经支持非机动车、行人或
   轨道交通，也不得让当前车辆特化反向定义目标交通运行时。
-- 历史 closure、验证和基准记录保存当时的证据语义、研究归因与能力边界。后续术语
-  治理可以做数量或译名等价更新，但不得用新的 Proposed 架构重新定性旧结论；确需
-  解释时，应保留原陈述并另行明确标注“按后续提案框架重述”，不能让重述冒充原始
-  证据。
+- 已关闭切片的收口、验证轮次和截图不进入当前文档树。查阅当时证据使用 git 历史
+  与对应 GitHub Issue / PR。后续术语治理可以做数量或译名等价更新，但不得用新的
+  Proposed 架构重新定性旧结论；确需解释时，应保留原陈述并另行明确标注“按后续
+  提案框架重述”，不能让重述冒充原始证据。
 - Rust 类型、crate、字段、算法和协议常量等精确标识符使用反引号保留原文，但周边
   正文必须以中文说明其规范语义。
 

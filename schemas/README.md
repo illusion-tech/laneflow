@@ -16,8 +16,8 @@ Traffic v0.10、Spatial v0.1 与 Scenario Manifest v0.1 JSON Schema 已随 #301 
 字段级领域语义见 [`road-editing/v1/README.md`](road-editing/v1/README.md)。它使用
 size-prefixed FlatBuffers 和 `LFRE` file identifier，不是 JSON Schema。
 
-Traffic v0.2–v0.10 历史 schema 已从当前树删除。当时的 closure review 按当时语义保留
-在 Git 历史与对应 Issue 中，不构成现行发布义务。
+Traffic v0.2–v0.10 历史 schema 已从当前树删除。当时验证流水账只保留在 git 历史
+与对应 Issue 中，不构成现行发布义务。
 
 ## Runtime 边界
 

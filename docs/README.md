@@ -6,10 +6,9 @@ GitHub 用于管理当前任务、协作状态和合并证据；仓库文档用�
 
 Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通基础”定义为
 LaneFlow 的第一长期产品目标，并让城市经济、市民出行需求和游戏规则继续由上层
-拥有。该目标边界已经由 #291 G1 接受，但不表示目标态交通运行时已经实现。#301
-完成前，current 路径仍按各文档的状态标注作为仓库内可运行契约生效；#301 完成后
-Runtime 为唯一可运行交通世界，current Core/JSON 运行时入口拆除。契约见
-`docs/design/traffic-runtime-shared-consumption.md`。
+拥有。该目标边界已经由 #291 G1 接受；出行编排、Routing 与多执行域尚未交付。
+`laneflow-runtime` / `TrafficWorld` 是唯一可运行交通世界。current Core 与 JSON
+运行时入口已拆除。契约见 `docs/design/traffic-runtime-shared-consumption.md`。
 
 ## 目录结构
 

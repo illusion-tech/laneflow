@@ -38,7 +38,7 @@ Windows/Ubuntu exact-byte CI 已对独立进程输出完成集中逐字节比较
 `numeric-representation.md`、
 `../adr/0020-compiler-owned-static-network-and-static-image.md`、
 `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
-`../reference/v0.10-portable-artifact-validation.md`、
+`compiler-post-emission-check-and-minimal-publication-closure.md`、
 `../reference/glossary.md`
 
 ## 1. 状态、目标与非目标
@@ -1089,8 +1089,8 @@ Ubuntu 和两个 fresh process 之间比较三对象 exact bytes 与全部计算
 证据或安全边界；只有新语义分支默认扩展跨平台 exact-byte 集合，不能因新增一个规模或边界
 样本而无序扩张整个矩阵。该职责分配由 [#298 G1 窄纠正][g1-evidence-lanes-correction] 接受。
 
-完整计划和 G2 证据占位见
-`../reference/v0.10-portable-artifact-validation.md`。
+逐轮验证流水账见 git 历史。现行后发射检查与 LFCP v2 见
+`compiler-post-emission-check-and-minimal-publication-closure.md`。
 
 ## 11. G1 再次重开内容闭合与重新接受结果
 

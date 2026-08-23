@@ -31,7 +31,6 @@
 - `0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../design/spatial-geometry.md`
 - `../design/adapter-api.md`
-- `../reference/v0.6-spatial-validation.md`
 
 ## 1. 背景
 

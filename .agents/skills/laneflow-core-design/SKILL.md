@@ -22,18 +22,17 @@ Skill 标识符（Skill ID）`laneflow-core-design` 可在 `laneflow-core` crate
    `docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、
    `docs/design/network-compiler.md`、`docs/design/shared-static-network.md` 与
    `docs/design/traffic-runtime-shared-consumption.md`
-8. 涉及 #308 编译器工作负载、资源/性能预算校准、研究停止护栏或私有容器候选时，
-   读取 `docs/design/compiler-budget-calibration.md`。#308 已关闭；研究执行器、
-   R0 raw/Evidence JSON 与研究报告不在当前工作区。查阅当时制品，使用 G4 精确
-   证据提交 `de4cd460a96415cafbd811141568b81f74d73534` 与交付 PR #310
+8. 涉及已关闭的 #308 编译器预算校准时，只读
+   `docs/design/compiler-budget-calibration.md` 的短结论。查阅当时制品使用 G4
+   精确证据提交 `de4cd460a96415cafbd811141568b81f74d73534` 与交付 PR #310
 9. 涉及 #292/#315/#296/#297 编译器基础设施、官方前端共同受检模块接入、current JSON
-   退役、已验证规范 LIR 或集成专用 LIR→当前态投影时，额外读取
+   退役、已验证规范 LIR 或集成专用投影时，额外读取
    `docs/design/compiler-foundation.md`；
    #296 的道路编辑状态、候选道路替换或来源权威还须读取
    `docs/adr/0023-road-editing-state-and-phased-network-replacement.md` 与
    `docs/design/road-editing-source-and-geometry-frontend.md`；
-   准备 #292 G3 或复核生产性能证据时，同时读取
-   `docs/reference/v0.10-compiler-foundation-validation.md`
+   复核生产编译性能时读取
+   `docs/reference/v0.10-compiler-production-baseline.md`
 10. 涉及城市模拟游戏范围、出行编排、Routing、路网修订、存档/回放、并行或
    fidelity 时，读取 `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 
@@ -42,17 +41,14 @@ Skill 标识符（Skill ID）`laneflow-core-design` 可在 `laneflow-core` crate
 
 ## 当前态与目标态命名边界
 
-- 当前态：中文规范名“LaneFlow 核心（LaneFlow Core）”，精确标识符
-  `laneflow-core` / `CoreWorld`。
-- #291 目标态：中文规范名“LaneFlow 交通运行时（LaneFlow Traffic Runtime）”，
+- 可运行世界：中文规范名“LaneFlow 交通运行时（LaneFlow Traffic Runtime）”，
   精确标识符 `laneflow-runtime` / `TrafficWorld`。
-- #301 完成前，代码与现有 API 继续使用当前态名称；#301 完成后可运行世界使用
-  `laneflow-runtime` / `TrafficWorld`。目标设计不得把 `Core` 当成终态名称。
+- `laneflow-core` / `CoreWorld` 已拆除。目标设计不得把 `Core` 当成终态名称。
 - 中文术语和中文定义以 `docs/reference/glossary.md` 为权威，英文只作辅助理解。
 
 ## 动态执行层边界
 
-当前 Core 只实现道路机动车车辆特化，负责：
+当前 `TrafficWorld` 只实现道路机动车车辆特化，负责：
 
 - `VehicleState`、车道图遍历、Route 跟随与前车避让
 - 信号遵守、路口规则和停车行为
@@ -64,7 +60,7 @@ Skill 标识符（Skill ID）`laneflow-core-design` 可在 `laneflow-core` crate
 计划和路网修订绑定。当前车辆能力不能被写成终态唯一参与者模型，通用术语也不能
 反向声称非机动车、行人或轨道执行域已经实现。
 
-当前 Core / 目标 Traffic Runtime 不得依赖：
+Traffic Runtime 不得依赖：
 
 - Unity API
 - Unreal API

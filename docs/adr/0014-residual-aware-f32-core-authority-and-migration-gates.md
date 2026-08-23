@@ -25,9 +25,7 @@
 - 详细设计与证据：
   - `../design/numeric-representation.md`
   - `../design/route-system.md`
-  - `../design/data-format.md`
   - `../design/spatial-geometry.md`
-  - `../reference/v0.6-numeric-validation.md`
 
 ## 1. 背景
 
@@ -231,7 +229,7 @@ Core 量化余量必须覆盖合法范围内 `f64 -> f32` 舍入到最近可表�
 
 #144 的候选 B 在五轮交替顺序的 14 项真实生产布局矩阵中，相对 current-f64 的等权几何平均提升为 `4.257138%`，低于 `5%` 门槛；14 项中没有可重复、无法解释的超过 `5%` 中位回退。候选 A 在优化前五轮矩阵中相对 current-f64 慢 `9.310%`，应用相同热路径优化后的完整探针仍比候选 B 慢 `8.321%`，不满足“相对 B 至少快 `5%`”的复杂度支付条件。
 
-因此 #144 的生产结论是 no-go：不再执行不会改变主判定的构造、命令转换和路线距离次级矩阵；Core/Data/schema 完整回退 current-f64，只保留同形基准与机器可读证据。详细逐轮数据见 `../reference/v0.6-numeric-production-migration-evidence.json`。
+因此 #144 的生产结论是 no-go：不再执行不会改变主判定的构造、命令转换和路线距离次级矩阵；运行时数值权威完整回退 current-f64。详细逐轮数据见 git 历史。
 
 ## 10. 后果
 

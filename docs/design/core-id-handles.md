@@ -503,7 +503,7 @@ v0.2 可以暂时接受每 tick 克隆 compact `VehicleRuntimeState` 来保持 s
 - route reference 使用 exact live count 与按 stable position 排序的 lazy heap；派生 heap 与 route-distance index 使用并行 SoA 存储，不扩大 tick 热路径的 `RouteSlot`；
 - warm despawn、route-in-use failure 与 no-event step 为零 heap allocation；owned overlap error 的分配只与实际错误数量相关，不随 V 或 route length 增长。
 
-这些都是 Core 私有 representation，不冻结 container ABI。长期测试、allocation、retained-memory 与同机性能证据见 [`../reference/v0.5-lifecycle-substrate-validation.md`](../reference/v0.5-lifecycle-substrate-validation.md)。
+这些都是运行时私有 representation，不冻结 container ABI。当时 allocation / retained-memory 与同机性能证据见 git 历史。
 
 ## 7. 测试策略
 

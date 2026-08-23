@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted<br>
 **最后更新**: 2026-07-27<br>
-**适用范围**: Signals 静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界，以及 current Traffic v0.10 package embedding<br>
+**适用范围**: Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载，不再走 current JSON。<br>
 **实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 加入 Parking，
 #185 迁移到 v0.7；#229 以一等 ManeuverGate clean-break 替换 pair-based Gate 并迁移到
 Traffic v0.8；#262 迁移到 v0.9；#281 将 current Traffic 迁移到 v0.10 并支持
@@ -512,7 +512,7 @@ scenarios。十万 observation 同时放大到 `N_traffic_active=100000`、1,000
 
 Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 不计入。一万使用 20 samples、十万使用 10 samples，warm-up 1 s、measurement 5 s，连续三轮读取 median point estimate 后再取三轮 median。必须记录 CPU、OS、rustc、target、power mode、commit 和 profile；环境变化时同机重跑 baseline/candidate。
 
-十万只用于 scaling observation，不构成实时承诺。CI 只做 functional smoke 与 benchmark compile，不用共享 runner wall-clock 阻断。具体 workload、环境和结果见 [`v0.4-signals-validation.md`](../reference/v0.4-signals-validation.md)，不把单次测量写入本文。
+十万只用于 scaling observation，不构成实时承诺。CI 只做 functional smoke 与 benchmark compile，不用共享 runner wall-clock 阻断。当时 workload 与逐轮结果见 git 历史，不把单次测量写入本文。
 
 ## 14. Tests 与 canonical fixtures
 

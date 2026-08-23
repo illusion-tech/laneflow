@@ -19,7 +19,6 @@ Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭�
 - `../design/shared-static-network.md`
 - `../design/network-compiler.md`
 - `../design/portable-canonical-artifact.md`
-- `../reference/v0.10-portable-artifact-validation.md`
 
 ## 背景
 

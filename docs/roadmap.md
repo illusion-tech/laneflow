@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Accepted（长期路线；当前执行状态以 GitHub 为准）<br>
-**最后更新**: 2026-08-22
+**最后更新**: 2026-08-23
 **适用范围**: LaneFlow 版本路线图与中国特色城市模拟游戏交通基础的长期演进
 
 本文记录 LaneFlow 的稳定路线图和已接受长期目标。GitHub Project 负责当前执行
@@ -34,7 +34,7 @@ Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通�
 
 目标：稳定车道图和路线系统。
 
-完成状态：2026-07-12 已完成。设计、实现、数据契约、测试与剩余风险的收口依据见[收口审阅基线](reference/v0.2-closure-review.md)。
+完成状态：2026-07-12 已完成。当时收口流水账见 git 历史；现行车道图与路线设计见 `design/lane-graph.md`、`design/route-system.md`。
 
 范围：
 
@@ -48,9 +48,7 @@ Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通�
 
 目标：支持可信的前车避让和速度控制。
 
-完成状态：2026-07-14 已完成。设计、实现、当前数据契约、确定性、不变量、性能与剩余风险的收口依据见[收口审阅基线](reference/v0.3-closure-review.md)。
-
-设计输入：[`design/vehicle-following.md`](design/vehicle-following.md)、[`design/data-loading.md`](design/data-loading.md)、[`design/data-format.md`](design/data-format.md)、[`adr/0006-vehicle-following-control-and-safety.md`](adr/0006-vehicle-following-control-and-safety.md)、[`adr/0007-traffic-data-crate-and-loader-boundary.md`](adr/0007-traffic-data-crate-and-loader-boundary.md) 与 [`adr/0008-pre-1.0-data-format-version-policy.md`](adr/0008-pre-1.0-data-format-version-policy.md)。
+完成状态：2026-07-14 已完成。当时收口流水账见 git 历史。现行设计见 [`design/vehicle-following.md`](design/vehicle-following.md) 与 [`adr/0006-vehicle-following-control-and-safety.md`](adr/0006-vehicle-following-control-and-safety.md)。
 
 范围：
 
@@ -64,7 +62,7 @@ Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通�
 
 目标：支持基础红绿灯和路口通行规则。
 
-完成状态：2026-07-15 已完成。设计、current 0.4 数据契约、runtime、车辆合规、确定性、一万/十万性能、安全与剩余风险的收口依据见 [`v0.4 收口审阅基线`](reference/v0.4-closure-review.md)；详细测量见 [`Signals 验证基线`](reference/v0.4-signals-validation.md)。
+完成状态：2026-07-15 已完成。当时收口流水账见 git 历史。现行设计见 [`design/signal-system.md`](design/signal-system.md) 与 [`adr/0009-signal-indication-gate-and-policy-separation.md`](adr/0009-signal-indication-gate-and-policy-separation.md)。
 
 范围：
 
@@ -82,7 +80,7 @@ Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通�
 
 目标：支持基础停车位进出和占用状态。
 
-完成状态：2026-07-17 已完成。#105-#110 的设计、substrate、current 0.5 data、runtime、activation 与全面验证均已交付；最终设计、实现、数据契约、性能、安全、治理和剩余边界见 [`v0.5 收口审阅基线`](reference/v0.5-closure-review.md)，详细测量见 [`Parking 验证基线`](reference/v0.5-parking-validation.md)。
+完成状态：2026-07-17 已完成。当时收口流水账见 git 历史。现行设计见 [`design/parking-system.md`](design/parking-system.md) 与 [`adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`](adr/0010-parking-binding-and-vehicle-lifecycle-authority.md)。
 
 范围：
 
@@ -103,7 +101,7 @@ Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通�
 
 目标：在实现首个引擎适配器前，冻结 LaneFlow 的数值表示边界、引擎无关道路空间几何、长度与坐标权威，以及最小空间查询能力。
 
-完成状态：2026-07-21 已完成。数值切片和 Spatial 切片均已完成独立 G4，整体设计、生产实现、数据制品、正确性、性能、安全与治理结论见 [v0.6 收口审阅基线](reference/v0.6-closure-review.md)。
+完成状态：2026-07-21 已完成。当时收口流水账见 git 历史。现行设计见 [`design/numeric-representation.md`](design/numeric-representation.md) 与 [`design/spatial-geometry.md`](design/spatial-geometry.md)。
 
 当前生产边界为 Core/Data current-f64 交通权威、Traffic Data v0.10（含 static Junction/Movement/ManeuverPath、multi-Gate/WaitingZone、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退；Spatial `f32` 通过误差、零分配、内存和一万/十万性能 Gate。未来重启 Core/Data 数值迁移必须新建议题并重新进入 G1。
 
@@ -129,7 +127,7 @@ Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通�
 
 目标：以 Rust/Bevy 作为首个 Reference Adapter，完成可运行的引擎集成闭环，并用真实宿主验证 Adapter API；Bevy 不是跨 ABI、跨语言稳定性的唯一证明。
 
-完成状态：Milestone tracker 为 #121。v0.6 前置与 Adapter API 已完成；#169-#173 已分别交付 Bevy 0.19.x 最小 production graph、fixed schedule、Entity/Transform 同步、headless/performance Gate、debug Gizmos 与 native reference example，#174 负责最终集成收口。长期设计见 `design/bevy-reference-adapter.md`，最终生产事实、机器证据、安全与兼容边界见 `reference/v0.7-bevy-closure-review.md`。
+完成状态：Milestone tracker 为 #121。v0.6 前置与 Adapter API 已完成；#169-#173 已分别交付 Bevy 0.19.x 最小 production graph、fixed schedule、Entity/Transform 同步、headless/performance Gate、debug Gizmos 与 native reference example，#174 负责最终集成收口。长期设计见 `design/bevy-reference-adapter.md`。当时收口流水账见 git 历史。
 
 范围：
 
@@ -151,7 +149,7 @@ Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通�
 
 目标：交付首个可调、可持续运行的直行信号化走廊示例，把既有 Core、Signals、Spatial 与 Bevy Reference Adapter 串成一条可验证的产品路径。Milestone tracker 为 #193。
 
-完成状态：2026-07-24 已完成。#184–#189 与 #203 已分别完成 Accepted 设计、道路限速、Core atomic replace、Bevy lifecycle transaction、场景制品、确定性人口/回流策略和 native example；最终生产事实、机器/可视证据、安全状态、兼容边界与剩余风险见 [`v0.8 收口审阅基线`](reference/v0.8-signalized-corridor-closure-review.md)。
+完成状态：2026-07-24 已完成。当时收口流水账见 git 历史。现行场景设计见 `design/example-scenarios.md`。
 
 范围：
 
@@ -173,7 +171,7 @@ Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通�
 ManeuverGate 静态身份，再交付支持受保护左转、直行和右转的完整信号化走廊示例。
 Milestone tracker 为 #194；v0.8 已完成前置收口。
 
-完成状态：2026-07-26 已完成。#228、#196、#229、#190、#191 已分别完成长期 Road/Junction/Maneuver 分层冻结、protected-turning profile G1、Junction/Movement/ManeuverPath 最小静态模型与 Traffic v0.8 原子迁移、受保护左/直/右场景与 native 集成、50/100/200 cross-layer 统一验证；#192 执行独立 closure review 并同步覆盖 #194 与 #183。最终生产事实、机器/可视证据、安全状态、兼容边界与剩余风险见 [`v0.9 收口审阅基线`](reference/v0.9-signalized-corridor-closure-review.md)。
+完成状态：2026-07-26 已完成。当时收口流水账见 git 历史。现行设计见 `design/road-junction-model.md` 与 `design/signalized-corridor-protected-turning.md`。
 
 范围：
 
