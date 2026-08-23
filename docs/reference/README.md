@@ -28,15 +28,10 @@
   辅助理解，当前完整覆盖 #291 编译器时代静态路网、Identity、制品/镜像、信任、
   Traffic Runtime、城市模拟游戏上层、执行规划、路网修订、快照/回放、Routing、
   Spatial 与 Adapter 术语。
-- `compiler-calibration-workloads-v1.json`：#308 已完成研究的机器可读工作负载清单；
-  冻结模块图、字符串/来源位置、identity 字段绑定、研究记录布局、精确计数、夹具
-  摘要、失败变体与候选注册表，不是生产编译器 API 或产品容量声明。
-- `compiler-calibration-evidence-v1.schema.json`：#308 已完成研究的证据 JSON Schema；
-  冻结原始执行制品绑定、来源、环境、覆盖计数和紧凑派生结果封套；逐次运行只保存在
-  被绑定的原始 JSON，Rust 验证器从原始事实独立重算整份 Evidence。
-- `compiler-calibration-contract-v1.json`：#308 已完成研究的非自指契约描述符；从
-  Evidence v1 Schema 外部绑定证据 Schema 与工作负载清单的路径、版本、长度和
-  SHA-256，正式验证必须先校验该描述符。
+- #308 研究执行器、工作负载清单、Evidence Schema 与契约描述符已移出当前工作区。
+  G4 精确证据提交为
+  [`de4cd460a96415cafbd811141568b81f74d73534`](https://github.com/illusion-tech/laneflow/tree/de4cd460a96415cafbd811141568b81f74d73534)，
+  交付 PR 为 [#310](https://github.com/illusion-tech/laneflow/pull/310)。
 - `road-editing-source-semantic-seed-v1.json`：#296 的不可变 benchmark 语义种子；只供
   test/research generator 读取，不是 production source format，也不形成 JSON 兼容承诺。
 - `road-editing-source-reference-machine-v1.json`：#296 道路编辑来源校准参考机声明；以
@@ -58,8 +53,8 @@
 - `v0.10-compiler-budget-calibration-evidence.json`：从绑定原始执行结果独立重算的紧凑
   Evidence v1，包含基础规模、正式阶梯分析、重复性包络、预算与候选分类。
 - `v0.10-compiler-budget-calibration-report.md`：上述 R0 的中文权威结论、预算摘要、候选
-  判断、环境边界、P100 同机硬件角色更新与精确复现命令；硬件角色更新不改变原始证据
-  或追溯形成 Product Pass。
+  判断、环境边界与 P100 同机硬件角色更新。研究执行器已不在当前工作区；复现命令以
+  G4 提交为准，不能把本报告追认为现行生产门禁。
 - `v0.10-compiler-foundation-validation.md`：#292 G2 生产纵向切片的实现、依赖方向、
   迁移等价、本地验证与性能门槛适用性结论；记录 G1 修订、生产基线和进入 Delivery PR
   审阅前的剩余边界。

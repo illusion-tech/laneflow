@@ -73,9 +73,9 @@ GitHub Issue / PR 为准。#297 调整后不建立 current JSON 编译器前端�
 - `numeric-representation.md`
 - `spatial-geometry.md`
 - `core-runtime-performance-baseline.md`（复用 P100 硬件身份，不复用运行时规模或预算）
-- `compiler-budget-calibration.md`
+- `compiler-budget-calibration.md`（#308 已关闭；执行器不在当前工作区）
 - `current-package-import.md`
-- `../reference/compiler-calibration-workloads-v1.json`
+- [G4 工作负载清单](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/compiler-calibration-workloads-v1.json)
 - `../reference/v0.10-compiler-budget-calibration-report.md`
 - `../reference/v0.10-compiler-budget-calibration-raw.json`
 - `../reference/v0.10-compiler-budget-calibration-evidence.json`

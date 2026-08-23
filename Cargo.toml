@@ -10,7 +10,6 @@ members = [
     "crates/laneflow-static-contract",
     "crates/laneflow-static-network",
     "research/issue-123-spatial-prototype",
-    "research/issue-308-compiler-budget-calibration-research",
     "tools/laneflow-corridor-generator",
     "xtask",
 ]
