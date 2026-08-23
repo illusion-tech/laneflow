@@ -15,7 +15,6 @@ mod candidate_matrix;
 mod controlled_alloc;
 mod corridor;
 mod corridor_oracle;
-mod current_fixtures;
 mod diagnostic;
 mod environment;
 mod evidence;
@@ -82,15 +81,6 @@ pub use corridor::{
 };
 pub use corridor_oracle::{
     CorridorOracleError, CorridorOracleVerificationReport, verify_corridor_oracle_matrix,
-};
-pub use current_fixtures::{
-    CURRENT_FIXTURES_CHILD_SCHEMA, CURRENT_FIXTURES_CHILD_SCHEMA_VERSION,
-    CURRENT_FIXTURES_KNOWN_VECTOR_SCHEMA, CURRENT_FIXTURES_WORKLOAD_ID, CurrentFixtureCaseSummary,
-    CurrentFixturesChildReport, CurrentFixturesContract, CurrentFixturesError,
-    CurrentFixturesKnownVectorDocument, CurrentFixturesOracleError,
-    CurrentFixturesOracleVerificationReport, build_current_fixture_summaries,
-    build_current_fixtures_known_vectors, measure_current_fixtures_child,
-    verify_current_fixtures_oracle,
 };
 pub use environment::{
     BackgroundProcessAudit, BackgroundProcessDelta, EnvironmentError, ExternalStateObservation,
@@ -195,8 +185,8 @@ pub use process_protocol::{
 };
 pub use protocol::{
     FORMAL_PROTOCOL_CHECKPOINT_SCHEMA, FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION,
-    FormalBinarySourceSnapshot, FormalCurrentFixtureProjection, FormalProtocolCheckpoint,
-    FormalProtocolError, FormalProtocolOutcome, FormalProtocolRequest, FormalSourceSnapshot,
+    FormalBinarySourceSnapshot, FormalProtocolCheckpoint, FormalProtocolError,
+    FormalProtocolOutcome, FormalProtocolRequest, FormalSourceSnapshot,
     parse_formal_protocol_arguments, run_formal_protocol,
 };
 pub use roles::{
@@ -242,9 +232,9 @@ pub use workload::{
 };
 
 pub const CONTRACT_DESCRIPTOR_PATH: &str = "docs/reference/compiler-calibration-contract-v1.json";
-pub const CONTRACT_DESCRIPTOR_BYTE_LENGTH: u64 = 1_320;
+pub const CONTRACT_DESCRIPTOR_BYTE_LENGTH: u64 = 1_319;
 pub const CONTRACT_DESCRIPTOR_SHA256: &str =
-    "f2e0170a80517460bd0a76b4a699e35cdd09c5a1fd1c7ae243296e741d00e809";
+    "3f6da0bf88fe1ae7b95141244fa4194908b6d8d3b1d9f00bdd1f6c3d1636805b";
 
 const CONTRACT_SCHEMA: &str = "laneflow.compiler-calibration-contract";
 const WORKLOAD_MANIFEST_SCHEMA: &str = "laneflow.compiler-calibration-workload-manifest";

@@ -229,7 +229,7 @@ fn templates_and_plan(
         }
         ScalableWorkloadId::Corridor => {
             let contract = CorridorContract::from_manifest(&trusted.workload_manifest)?;
-            let template = contract.load_template(&crate::repository_root())?;
+            let template = contract.load_template()?;
             let plan = ScalableStagePlanFactory::from_trusted_contract_for_template_workload(
                 trusted,
                 workload_id,

@@ -7,11 +7,6 @@ use issue_308_compiler_budget_calibration_research::{
     ScalableLadderOutcome, ScalableOracleChildReport, ScalableOracleOutcome,
     ScalableTimingChildReport, ScalableTimingOutcome, ScalableWorkloadId, TIMING_BINARY_ID,
 };
-#[cfg(feature = "fixture-oracle")]
-use issue_308_compiler_budget_calibration_research::{
-    CURRENT_FIXTURES_CHILD_SCHEMA, CURRENT_FIXTURES_CHILD_SCHEMA_VERSION,
-    CurrentFixturesChildReport,
-};
 use serde_json::Value;
 use std::io::Write;
 use std::path::Path;
@@ -212,26 +207,6 @@ fn attribution_guard_is_structured_and_exits_zero() {
         .expect("controlled allocation guard");
     assert_eq!(guard.hard_ceiling_bytes, 1);
     assert!(guard.live_requested_bytes + guard.requested_bytes > guard.hard_ceiling_bytes);
-}
-
-#[test]
-#[cfg(feature = "fixture-oracle")]
-fn current_fixture_projection_runs_in_the_oracle_child() {
-    let output = run_handshaken(
-        Path::new(env!(
-            "CARGO_BIN_EXE_issue-308-compiler-budget-calibration-oracle"
-        )),
-        &["run-current-fixtures"],
-    );
-    let report = serde_json::from_slice::<CurrentFixturesChildReport>(&output.stdout)
-        .expect("current fixture child report");
-    assert_eq!(report.schema, CURRENT_FIXTURES_CHILD_SCHEMA);
-    assert_eq!(report.schema_version, CURRENT_FIXTURES_CHILD_SCHEMA_VERSION);
-    assert_eq!(report.binary_id, ORACLE_BINARY_ID);
-    assert_eq!(report.cases.len(), 3);
-    assert_eq!(report.verification.checked_cases, 3);
-    assert_eq!(report.verification.production_loader_cases, 3);
-    assert!(report.verification.independent_identity_and_stream_checked);
 }
 
 #[test]

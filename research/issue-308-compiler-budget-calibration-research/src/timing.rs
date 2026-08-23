@@ -458,7 +458,7 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
             ),
             ScalableWorkloadId::Corridor => {
                 let contract = CorridorContract::from_manifest(&trusted.workload_manifest)?;
-                let template = contract.load_template(&crate::repository_root())?;
+                let template = contract.load_template()?;
                 let plans = ScalableStagePlanFactory::from_trusted_contract_for_template_workload(
                     trusted,
                     workload_id,

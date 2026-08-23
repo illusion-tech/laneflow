@@ -8,7 +8,7 @@ use crate::{
     FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION, FormalLadderAnalysis, FormalLadderBatchSummary,
     FormalLadderCompletedLevel, FormalLadderRoundRun, FormalProtocolCheckpoint, RunStatus,
     TrustedContract, analyze_formal_ladder, load_repository_contract, repository_root,
-    validate_limit_qualification_bundle, verify_current_fixtures_oracle,
+    validate_limit_qualification_bundle,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -131,19 +131,6 @@ fn build_document(
     validate_source(checkpoint)?;
     crate::pilot_budget::validate_base_scale_pilot(&checkpoint.base_scale_pilot)
         .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
-    let fixture_verification = verify_current_fixtures_oracle(trusted)
-        .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
-    let fixture_child =
-        checkpoint.current_fixtures.child.as_ref().ok_or_else(|| {
-            EvidenceError::InvalidCheckpoint("当前固定样例缺少子进程报告".to_owned())
-        })?;
-    if checkpoint.current_fixtures.status != RunStatus::Valid
-        || fixture_child.verification != fixture_verification
-    {
-        return Err(EvidenceError::InvalidCheckpoint(
-            "当前固定样例独立复算不一致".to_owned(),
-        ));
-    }
 
     let analyses = recompute_formal_analyses(trusted, checkpoint)?;
     let (envelopes, budgets) =
@@ -200,10 +187,6 @@ fn build_document(
         },
         "coverage": coverage,
         "results": {
-            "currentFixtures": {
-                "caseCount": fixture_child.cases.len(),
-                "verification": fixture_verification
-            },
             "baseScaleSelections": checkpoint.base_scale_pilot.selections,
             "formalLadders": analyses,
             "reproducibilityEnvelopes": envelopes,
@@ -1956,7 +1939,6 @@ fn coverage(
             RunStatus::Guarded => 2,
         }] += 1;
     };
-    add(checkpoint.current_fixtures.status);
     for run in &checkpoint.base_scale_pilot.runs {
         add(run.status);
     }

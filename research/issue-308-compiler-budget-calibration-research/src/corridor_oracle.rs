@@ -30,7 +30,7 @@ pub fn verify_corridor_oracle_matrix(
     trusted: &TrustedContract,
 ) -> Result<CorridorOracleVerificationReport, CorridorOracleError> {
     let contract = CorridorContract::from_manifest(&trusted.workload_manifest)?;
-    let template = contract.load_template(&crate::repository_root())?;
+    let template = contract.load_template()?;
     let mut checked_cases = 0_u32;
     for graph_profile in GraphProfileId::ALL {
         for n in [1, 2] {
@@ -46,12 +46,11 @@ pub fn verify_corridor_oracle_matrix(
                 .ok_or_else(|| CorridorOracleError::Contract("checkedCases overflow".to_owned()))?;
         }
     }
-    let production_loader_fixture_sets = verify_bound_fixtures_with_production_loaders(&template)?;
     Ok(CorridorOracleVerificationReport {
         checked_cases,
         checked_n1_cases: 3,
         checked_n2_cases: 3,
-        production_loader_fixture_sets,
+        production_loader_fixture_sets: 0,
         independent_template_projection_checked: true,
     })
 }
@@ -922,14 +921,6 @@ fn hex(bytes: &[u8]) -> String {
     result
 }
 
-fn verify_bound_fixtures_with_production_loaders(
-    _producer_template: &CorridorTemplate,
-) -> Result<u32, CorridorOracleError> {
-    Err(CorridorOracleError::ProductionLoader(
-        "current JSON Core loader was removed in #301".to_owned(),
-    ))
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum CorridorOracleError {
     #[error(transparent)]
@@ -1007,7 +998,7 @@ mod tests {
         let trusted = crate::load_repository_contract().expect("frozen contract");
         let report = verify_corridor_oracle_matrix(&trusted).expect("corridor oracle matrix");
         assert_eq!(report.checked_cases, 6);
-        assert_eq!(report.production_loader_fixture_sets, 2);
+        assert_eq!(report.production_loader_fixture_sets, 0);
         assert!(report.independent_template_projection_checked);
     }
 }

@@ -3408,7 +3408,7 @@ fn build_constant_hash_input(
     let contract = CorridorContract::from_manifest(&trusted.workload_manifest)
         .map_err(|error| CandidateMatrixError::Corridor(error.to_string()))?;
     let template = contract
-        .load_template(&repository_root())
+        .load_template()
         .map_err(|error| CandidateMatrixError::Corridor(error.to_string()))?;
     let summary = build_corridor_stage_summary(trusted, GraphProfileId::WideStar, 1)
         .map_err(|error| CandidateMatrixError::Corridor(error.to_string()))?;
