@@ -9,8 +9,8 @@
 证据提交
 [`de4cd460a96415cafbd811141568b81f74d73534`](https://github.com/illusion-tech/laneflow/tree/de4cd460a96415cafbd811141568b81f74d73534)
 与交付 PR [#310](https://github.com/illusion-tech/laneflow/pull/310)
-（merge `606ac52dbc75196c6d37073c72c3d48cbb031be0`）。现行树上只保留冻结的 R0
-报告与 Evidence 制品。本文不实现生产编译器、不冻结公共应用程序接口（API），也不形成
+（merge `606ac52dbc75196c6d37073c72c3d48cbb031be0`）。现行树不再保存 R0 raw/Evidence
+JSON 或研究报告。本文不实现生产编译器、不冻结公共应用程序接口（API），也不形成
 产品服务等级协议（product SLA）。#292 G2 已确认这些研究工作负载不能按原自然身份
 无损映射为生产语义。
 
@@ -21,11 +21,9 @@
 - `../adr/0021-city-simulation-game-traffic-foundation.md`
 - `network-compiler.md`
 - `core-runtime-performance-baseline.md`
-- `../reference/v0.10-compiler-pilot-budget.md`
-- `../reference/v0.10-compiler-pilot-budget.json`
-- `../reference/v0.10-compiler-budget-calibration-raw.json`
-- `../reference/v0.10-compiler-budget-calibration-evidence.json`
-- `../reference/v0.10-compiler-budget-calibration-report.md`
+- [G4 R0 报告](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-report.md)
+- [G4 R0 Evidence](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-evidence.json)
+- [G4 R0 raw](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-raw.json)
 - `data-format.md`
 - `spatial-geometry.md`
 - `../reference/glossary.md`
@@ -1641,6 +1639,9 @@ G2/G3 研究交付拟生成：
 docs/reference/v0.10-compiler-budget-calibration-evidence.json
 docs/reference/v0.10-compiler-budget-calibration-report.md
 ```
+
+这些制品已从当前树删除；查阅 G4 提交
+`de4cd460a96415cafbd811141568b81f74d73534`。
 
 JSON 是原始与派生数值的权威证据；Markdown 只解释方法、图表、异常、候选裁决和
 对 #292 的建议。JSON 绑定来源提交和全部外部分析制品；Markdown 记录同一来源提交、

@@ -76,9 +76,9 @@ GitHub Issue / PR 为准。#297 调整后不建立 current JSON 编译器前端�
 - `compiler-budget-calibration.md`（#308 已关闭；执行器不在当前工作区）
 - `current-package-import.md`
 - [G4 工作负载清单](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/compiler-calibration-workloads-v1.json)
-- `../reference/v0.10-compiler-budget-calibration-report.md`
-- `../reference/v0.10-compiler-budget-calibration-raw.json`
-- `../reference/v0.10-compiler-budget-calibration-evidence.json`
+- [G4 R0 报告](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-report.md)
+- [G4 R0 Evidence](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-evidence.json)
+- [G4 R0 raw](https://github.com/illusion-tech/laneflow/blob/de4cd460a96415cafbd811141568b81f74d73534/docs/reference/v0.10-compiler-budget-calibration-raw.json)
 - `../reference/glossary.md`
 
 ## 术语规范
@@ -745,10 +745,11 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 主要规模上限、失败原子性或 canonical LIR 语义。
 
 `LF-COMP-P100-INITIAL-v1` 以 #308 九个压力分层的逐维上包络为来源。来源 / 领域计数
-取原始测量制品 `v0.10-compiler-budget-calibration-raw.json` 中
+取 G4 原始测量制品 `v0.10-compiler-budget-calibration-raw.json`（现仅存 git 历史
+`de4cd460a96415cafbd811141568b81f74d73534`）中
 `limitQualification.limitPairs[].pair.exactDimensionValue` 的压力规模最大值；总存续
 与保留容量取紧凑 Evidence
-`v0.10-compiler-budget-calibration-evidence.json` 中
+`v0.10-compiler-budget-calibration-evidence.json`（同一提交）中
 `results.budgetRecommendations[]` 压力规模所有适用分层的最大建议值。原始制品与
 紧凑 Evidence 都由最终主线提交
 `606ac52dbc75196c6d37073c72c3d48cbb031be0` 发布，并共同绑定研究来源 / 执行器提交
@@ -1221,7 +1222,7 @@ R0 研究基线；产品负责人另行把同一台 `LF-P100-REF-01` 物理机�
 
 `LF-COMP-P100-R0-v1` 只消费校准规模与压力规模的 126 条精确预算建议。自然身份是
 `(workloadId, graphProfile, n, sampleKind, binaryMode, metric)`；每个生产基准样本必须
-逐项查找 `v0.10-compiler-budget-calibration-evidence.json` 中相同自然身份的
+逐项查找 G4 提交中 `v0.10-compiler-budget-calibration-evidence.json` 相同自然身份的
 `results.budgetRecommendations[]`，不得用跨工作负载平均值掩盖单项回退。下表仅给出
 便于人工审阅的逐等级最大值，不能替代机器可读逐项门槛：
 
