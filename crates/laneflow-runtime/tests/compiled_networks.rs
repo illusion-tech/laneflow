@@ -466,3 +466,59 @@ fn speed_down_transition_caps_next_tick_travel() {
         "tick on or after 1 m/s edge must not keep a 10 m/s envelope, travelled={travelled}, first={first_progress:?} {after_first:?}, second={second_progress:?} {after_second:?}"
     );
 }
+
+#[test]
+fn equal_limit_edge_boundary_does_not_stop_the_vehicle() {
+    let revision = compile_revision(|module| {
+        add_standard_profiles(module);
+        module
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "a",
+                length_meters: 20.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("b")],
+            })
+            .expect("a")
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "b",
+                length_meters: 100.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .expect("b")
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route",
+                edge_sequence: &[LaneEdgeReference::local("a"), LaneEdgeReference::local("b")],
+            })
+            .expect("route");
+    });
+    let mut world =
+        TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let route = world
+        .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
+        .expect("route");
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            19.6,
+            10.0,
+        ))
+        .expect("spawn near equal-limit boundary");
+    world.step(TickInput::new(100)).expect("step");
+    let PoseSource::Lane { edge, progress } = world
+        .committed_pose_sources()
+        .as_slice()
+        .iter()
+        .find(|(handle, _)| *handle == vehicle)
+        .expect("pose")
+        .1
+    else {
+        panic!("lane pose");
+    };
+    assert!(
+        (progress - 20.0).abs() > 1e-6,
+        "equal-limit crossing must not stop at the first-edge end, edge={edge:?} progress={progress}"
+    );
+}

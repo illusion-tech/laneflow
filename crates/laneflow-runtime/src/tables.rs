@@ -120,6 +120,7 @@ pub(crate) fn compile_dynamic_route(
 ///
 /// 与静态路线 `unique_entry_path_match` 同一规则：只认 `transition_index == 0`；
 /// 多条不同 path 都匹配则歧义；有入口候选但对不上完整路径则失败。
+/// 对得上机动后继但不是入口跳、且未被已有 occurrence 覆盖时，失败关闭。
 pub(crate) fn unique_entry_path_match(
     network: &SharedManeuverNetwork,
     from: LaneEdgeOrdinal,
@@ -130,14 +131,25 @@ pub(crate) fn unique_entry_path_match(
         return Ok(None);
     };
     let mut entry_paths = Vec::new();
+    let mut uncovered_internal = false;
     for candidate in candidates {
-        if candidate.successor() != to || candidate.transition_index() != 0 {
+        if candidate.successor() != to {
+            continue;
+        }
+        if candidate.transition_index() != 0 {
+            uncovered_internal = true;
             continue;
         }
         let path = network
             .maneuver_path(candidate.maneuver_path())
             .ok_or(RouteError::ManeuverMismatch)?;
         entry_paths.push((candidate.maneuver_path(), path.edges()));
+    }
+    if entry_paths.is_empty() {
+        if uncovered_internal {
+            return Err(RouteError::ManeuverMismatch);
+        }
+        return Ok(None);
     }
     unique_entry_path_match_filtered(remaining, entry_paths)
 }
@@ -233,21 +245,25 @@ pub(crate) fn bumpers_overlap(a_front: f64, a_length: f64, b_front: f64, b_lengt
     a_rear < b_front && b_rear < a_front
 }
 
-pub(crate) fn occupancy_intervals(
+const OCCUPANCY_INTERVAL_CAP: usize = 16;
+type OccupancyInterval = (LaneEdgeOrdinal, f64, f64);
+type OccupancyStack = ([OccupancyInterval; OCCUPANCY_INTERVAL_CAP], usize, bool);
+
+pub(crate) fn for_each_occupancy_interval(
     lengths: &[f64],
     edges: &[LaneEdgeOrdinal],
     mut index: usize,
     mut end: f64,
     mut remaining: f64,
-) -> Option<Vec<(LaneEdgeOrdinal, f64, f64)>> {
-    let mut intervals = Vec::new();
+    mut visit: impl FnMut(LaneEdgeOrdinal, f64, f64),
+) -> Option<()> {
     while remaining > 1e-12 {
         let edge = *edges.get(index)?;
         let edge_length = *lengths.get(edge.index())?;
         let start = (end - remaining).max(0.0);
         let hi = end.min(edge_length);
         if hi > start {
-            intervals.push((edge, start, hi));
+            visit(edge, start, hi);
         }
         remaining -= hi - start;
         if remaining <= 1e-12 || index == 0 {
@@ -256,7 +272,28 @@ pub(crate) fn occupancy_intervals(
         index -= 1;
         end = *lengths.get(edges.get(index)?.index())?;
     }
-    Some(intervals)
+    Some(())
+}
+
+fn occupancy_intervals_stack(
+    lengths: &[f64],
+    edges: &[LaneEdgeOrdinal],
+    index: usize,
+    end: f64,
+    remaining: f64,
+) -> Option<OccupancyStack> {
+    let mut intervals = [(LaneEdgeOrdinal::from_raw(0), 0.0, 0.0); OCCUPANCY_INTERVAL_CAP];
+    let mut count = 0;
+    let mut overflow = false;
+    for_each_occupancy_interval(lengths, edges, index, end, remaining, |edge, lo, hi| {
+        if count < OCCUPANCY_INTERVAL_CAP {
+            intervals[count] = (edge, lo, hi);
+            count += 1;
+        } else {
+            overflow = true;
+        }
+    })?;
+    Some((intervals, count, overflow))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -276,14 +313,21 @@ pub(crate) fn bodies_overlap(
     {
         return true;
     }
-    let Some(left) = occupancy_intervals(lengths, a_edges, a_index, a_progress, a_length) else {
+    let Some((left, left_n, left_overflow)) =
+        occupancy_intervals_stack(lengths, a_edges, a_index, a_progress, a_length)
+    else {
         return false;
     };
-    let Some(right) = occupancy_intervals(lengths, b_edges, b_index, b_progress, b_length) else {
+    let Some((right, right_n, right_overflow)) =
+        occupancy_intervals_stack(lengths, b_edges, b_index, b_progress, b_length)
+    else {
         return false;
     };
-    left.iter().any(|(edge, a_lo, a_hi)| {
-        right
+    if left_overflow || right_overflow {
+        return true;
+    }
+    left[..left_n].iter().any(|(edge, a_lo, a_hi)| {
+        right[..right_n]
             .iter()
             .any(|(other, b_lo, b_hi)| *edge == *other && *a_lo < *b_hi && *b_lo < *a_hi)
     })
@@ -478,5 +522,23 @@ mod compile_dynamic_route_tests {
         let second = path.edges()[1];
         let gate = compiled_hop_gate(traffic.maneuvers(), &compiled, 0, first, second);
         assert_eq!(gate, path.maneuver_gates().first().copied());
+    }
+
+    #[test]
+    fn starting_on_internal_maneuver_edge_is_mismatch() {
+        let revision = revision();
+        let traffic = revision.traffic();
+        let path = traffic
+            .maneuvers()
+            .maneuver_path(ManeuverPathOrdinal::from_raw(0))
+            .expect("fixture path");
+        assert!(
+            path.edges().len() >= 3,
+            "fixture path must have an internal hop"
+        );
+        assert_eq!(
+            compile_dynamic_route(traffic, &path.edges()[1..]).unwrap_err(),
+            RouteError::ManeuverMismatch
+        );
     }
 }
