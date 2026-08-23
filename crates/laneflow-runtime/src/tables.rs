@@ -74,6 +74,10 @@ pub(crate) fn compile_dynamic_route(
             return Err(RouteError::Disconnected);
         }
     }
+    let last = *edges.last().expect("non-empty route");
+    if traffic.relations().stop_line_for_edge(last).is_some() {
+        return Err(RouteError::ManeuverMismatch);
+    }
 
     let mut maneuvers: Vec<ManeuverOccurrence> = Vec::new();
     let network = traffic.maneuvers();
@@ -538,6 +542,25 @@ mod compile_dynamic_route_tests {
         );
         assert_eq!(
             compile_dynamic_route(traffic, &path.edges()[1..]).unwrap_err(),
+            RouteError::ManeuverMismatch
+        );
+    }
+
+    #[test]
+    fn ending_on_stop_line_edge_is_mismatch() {
+        let revision = revision();
+        let traffic = revision.traffic();
+        let path = traffic
+            .maneuvers()
+            .maneuver_path(ManeuverPathOrdinal::from_raw(0))
+            .expect("fixture path");
+        let entry = path.edges()[0];
+        assert!(
+            traffic.relations().stop_line_for_edge(entry).is_some(),
+            "fixture path entry must carry a StopLine"
+        );
+        assert_eq!(
+            compile_dynamic_route(traffic, &[entry]).unwrap_err(),
             RouteError::ManeuverMismatch
         );
     }
