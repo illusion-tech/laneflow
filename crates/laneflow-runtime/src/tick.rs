@@ -2,7 +2,7 @@ use laneflow_static_contract::{LaneEdgeOrdinal, SignalAspect, StaticRouteOrdinal
 use laneflow_static_network::VehicleProfileView;
 
 use crate::tables::{
-    VehicleState, VehicleStatus, remaining_along_route, remaining_to_route_end,
+    VehicleState, VehicleStatus, compiled_hop_gate, remaining_along_route, remaining_to_route_end,
     static_route_ordinal,
 };
 use crate::{StepError, StepOutcome, TickInput, TrafficWorld};
@@ -179,7 +179,7 @@ impl TrafficWorld {
         if let Some(ordinal) = static_route_ordinal(state.route) {
             return self.static_signal_stop_distance(ordinal, state, edges, lengths, cursor);
         }
-        self.dynamic_signal_stop_distance(edges, lengths, cursor, state.progress)
+        self.dynamic_signal_stop_distance(state, edges, lengths, cursor)
     }
 
     fn static_signal_stop_distance(
@@ -216,32 +216,31 @@ impl TrafficWorld {
 
     fn dynamic_signal_stop_distance(
         &self,
+        state: &VehicleState,
         edges: &[LaneEdgeOrdinal],
         lengths: &[f64],
         cursor: usize,
-        progress: f64,
     ) -> Option<f64> {
-        let traffic = self.revision.traffic();
+        let compiled = self.compiled_dynamic_route(state.route)?;
+        let network = self.revision.traffic().maneuvers();
         for index in cursor..edges.len().saturating_sub(1) {
             let from = edges[index];
             let to = edges[index + 1];
-            let Some(candidates) = traffic.maneuvers().transition_candidates(from) else {
-                continue;
-            };
-            let Some(candidate) = candidates
-                .iter()
-                .find(|candidate| candidate.successor() == to)
-            else {
-                continue;
-            };
-            let Some(gate) = candidate.maneuver_gate() else {
+            let Some(gate) = compiled_hop_gate(network, compiled, index, from, to) else {
                 continue;
             };
             if !self.gate_is_restrictive(gate) {
                 continue;
             }
             let edge_length = *lengths.get(from.index())?;
-            return remaining_along_route(lengths, edges, cursor, progress, index, edge_length);
+            return remaining_along_route(
+                lengths,
+                edges,
+                cursor,
+                state.progress,
+                index,
+                edge_length,
+            );
         }
         None
     }

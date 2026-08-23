@@ -1,14 +1,15 @@
 use laneflow_static_contract::{
-    AccessEffect, LaneEdgeOrdinal, ManeuverPathOrdinal, ParkingSpaceOrdinal,
+    AccessEffect, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, ParkingSpaceOrdinal,
     ParticipantClassOrdinal, StaticRouteOrdinal, VehicleProfileOrdinal,
 };
-use laneflow_static_network::{AccessCell, SharedTrafficNetwork};
+use laneflow_static_network::{AccessCell, SharedManeuverNetwork, SharedTrafficNetwork};
 
 use crate::{RouteError, RouteHandle, SpawnError, VehicleHandle};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ManeuverOccurrence {
     pub path: ManeuverPathOrdinal,
+    pub entry_route_edge_index: u32,
     pub exit_route_edge_index: u32,
 }
 
@@ -76,38 +77,115 @@ pub(crate) fn compile_dynamic_route(
 
     let mut maneuvers: Vec<ManeuverOccurrence> = Vec::new();
     let network = traffic.maneuvers();
-    for (index, pair) in edges.windows(2).enumerate() {
-        let Some(candidates) = network.transition_candidates(pair[0]) else {
+    let transition_len = edges.len().saturating_sub(1);
+    let mut next_entry = 0;
+    for entry_index in 0..transition_len {
+        if entry_index < next_entry {
             continue;
-        };
-        let Some(candidate) = candidates
-            .iter()
-            .find(|candidate| candidate.successor() == pair[1])
+        }
+        let Some(path_ordinal) = unique_entry_path_match(
+            network,
+            edges[entry_index],
+            edges[entry_index + 1],
+            &edges[entry_index..],
+        )?
         else {
             continue;
         };
-        let path = candidate.maneuver_path();
-        let entry = u32::try_from(index).expect("route edge index fits u32");
-        let exit = entry
-            .checked_add(1)
-            .expect("route edge index increment fits u32");
-        if let Some(last) = maneuvers.last_mut()
-            && last.path == path
-            && last.exit_route_edge_index == entry
-        {
-            last.exit_route_edge_index = exit;
-            continue;
+        let path = network
+            .maneuver_path(path_ordinal)
+            .ok_or(RouteError::ManeuverMismatch)?;
+        let exit_index = entry_index
+            .checked_add(path.edges().len())
+            .and_then(|value| value.checked_sub(1))
+            .ok_or(RouteError::ManeuverMismatch)?;
+        if exit_index >= edges.len() {
+            return Err(RouteError::ManeuverMismatch);
         }
         maneuvers.push(ManeuverOccurrence {
-            path,
-            exit_route_edge_index: exit,
+            path: path_ordinal,
+            entry_route_edge_index: u32::try_from(entry_index).expect("route edge index fits u32"),
+            exit_route_edge_index: u32::try_from(exit_index).expect("route edge index fits u32"),
         });
+        next_entry = exit_index;
     }
 
     Ok(CompiledRoute {
         edges: edges.to_vec().into_boxed_slice(),
         maneuvers: maneuvers.into_boxed_slice(),
     })
+}
+
+/// 在机动路径入口跳上，用剩余边序列唯一匹配完整 `path.edges()` 前缀。
+///
+/// 与静态路线 `unique_entry_path_match` 同一规则：只认 `transition_index == 0`；
+/// 多条不同 path 都匹配则歧义；有入口候选但对不上完整路径则失败。
+pub(crate) fn unique_entry_path_match(
+    network: &SharedManeuverNetwork,
+    from: LaneEdgeOrdinal,
+    to: LaneEdgeOrdinal,
+    remaining: &[LaneEdgeOrdinal],
+) -> Result<Option<ManeuverPathOrdinal>, RouteError> {
+    let Some(candidates) = network.transition_candidates(from) else {
+        return Ok(None);
+    };
+    let mut entry_paths = Vec::new();
+    for candidate in candidates {
+        if candidate.successor() != to || candidate.transition_index() != 0 {
+            continue;
+        }
+        let path = network
+            .maneuver_path(candidate.maneuver_path())
+            .ok_or(RouteError::ManeuverMismatch)?;
+        entry_paths.push((candidate.maneuver_path(), path.edges()));
+    }
+    unique_entry_path_match_filtered(remaining, entry_paths)
+}
+
+fn unique_entry_path_match_filtered<'a>(
+    remaining: &[LaneEdgeOrdinal],
+    entry_paths: impl IntoIterator<Item = (ManeuverPathOrdinal, &'a [LaneEdgeOrdinal])>,
+) -> Result<Option<ManeuverPathOrdinal>, RouteError> {
+    let mut matched = None;
+    let mut saw_entry = false;
+    for (path, edges) in entry_paths {
+        saw_entry = true;
+        if remaining.starts_with(edges) {
+            match matched {
+                None => matched = Some(path),
+                Some(first) if first != path => return Err(RouteError::AmbiguousManeuver),
+                Some(_) => {}
+            }
+        }
+    }
+    if !saw_entry {
+        return Ok(None);
+    }
+    matched.ok_or(RouteError::ManeuverMismatch).map(Some)
+}
+
+/// 动态路线已编译 occurrence 上，即将跨越的 hop 对应的闸。
+pub(crate) fn compiled_hop_gate(
+    network: &SharedManeuverNetwork,
+    compiled: &CompiledRoute,
+    hop_index: usize,
+    from: LaneEdgeOrdinal,
+    to: LaneEdgeOrdinal,
+) -> Option<ManeuverGateOrdinal> {
+    let hop = u32::try_from(hop_index).ok()?;
+    let occurrence = compiled.maneuvers.iter().find(|occurrence| {
+        hop >= occurrence.entry_route_edge_index && hop < occurrence.exit_route_edge_index
+    })?;
+    let transition_index = hop.checked_sub(occurrence.entry_route_edge_index)?;
+    network
+        .transition_candidates(from)?
+        .iter()
+        .find(|candidate| {
+            candidate.successor() == to
+                && candidate.maneuver_path() == occurrence.path
+                && candidate.transition_index() == transition_index
+        })?
+        .maneuver_gate()
 }
 
 pub(crate) fn route_access_denied(
@@ -262,4 +340,140 @@ pub(crate) fn spawn_motion_error(progress: f64, speed: f64) -> Option<SpawnError
         return Some(SpawnError::InvalidSpeed);
     }
     None
+}
+
+#[cfg(test)]
+mod unique_entry_path_match_tests {
+    use super::*;
+    use laneflow_static_contract::LaneEdgeOrdinal;
+
+    fn edge(raw: u32) -> LaneEdgeOrdinal {
+        LaneEdgeOrdinal::from_raw(raw)
+    }
+
+    fn path(raw: u32) -> ManeuverPathOrdinal {
+        ManeuverPathOrdinal::from_raw(raw)
+    }
+
+    #[test]
+    fn remaining_abd_selects_path_abd_not_abc() {
+        let abc = [edge(0), edge(1), edge(2)];
+        let abd = [edge(0), edge(1), edge(3)];
+        let remaining = [edge(0), edge(1), edge(3)];
+        let matched = unique_entry_path_match_filtered(
+            &remaining,
+            [(path(0), abc.as_slice()), (path(1), abd.as_slice())],
+        )
+        .expect("unique");
+        assert_eq!(matched, Some(path(1)));
+    }
+
+    #[test]
+    fn remaining_abc_selects_path_abc() {
+        let abc = [edge(0), edge(1), edge(2)];
+        let abd = [edge(0), edge(1), edge(3)];
+        let remaining = [edge(0), edge(1), edge(2)];
+        let matched = unique_entry_path_match_filtered(
+            &remaining,
+            [(path(0), abc.as_slice()), (path(1), abd.as_slice())],
+        )
+        .expect("unique");
+        assert_eq!(matched, Some(path(0)));
+    }
+
+    #[test]
+    fn two_prefix_matches_are_ambiguous() {
+        let short = [edge(0), edge(1), edge(2)];
+        let long = [edge(0), edge(1), edge(2), edge(3)];
+        let remaining = [edge(0), edge(1), edge(2), edge(3)];
+        assert_eq!(
+            unique_entry_path_match_filtered(
+                &remaining,
+                [(path(0), short.as_slice()), (path(1), long.as_slice())],
+            ),
+            Err(RouteError::AmbiguousManeuver)
+        );
+    }
+
+    #[test]
+    fn entry_without_complete_path_is_mismatch() {
+        let abc = [edge(0), edge(1), edge(2)];
+        let abd = [edge(0), edge(1), edge(3)];
+        let remaining = [edge(0), edge(1)];
+        assert_eq!(
+            unique_entry_path_match_filtered(
+                &remaining,
+                [(path(0), abc.as_slice()), (path(1), abd.as_slice())],
+            ),
+            Err(RouteError::ManeuverMismatch)
+        );
+    }
+
+    #[test]
+    fn no_entry_candidate_is_not_a_maneuver_start() {
+        let remaining = [edge(0), edge(1)];
+        assert_eq!(unique_entry_path_match_filtered(&remaining, []), Ok(None));
+    }
+
+    #[test]
+    fn duplicate_same_path_is_unique() {
+        let abc = [edge(0), edge(1), edge(2)];
+        let remaining = [edge(0), edge(1), edge(2)];
+        let matched = unique_entry_path_match_filtered(
+            &remaining,
+            [(path(0), abc.as_slice()), (path(0), abc.as_slice())],
+        )
+        .expect("unique");
+        assert_eq!(matched, Some(path(0)));
+    }
+}
+
+#[cfg(test)]
+mod compile_dynamic_route_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+
+    const FULL_SPATIAL: &[u8] = include_bytes!(
+        "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    );
+
+    fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
+        let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD).unwrap();
+        build_shared_network_revision(
+            input,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::RetainAvailable,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            ),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn s1_fixture_compiles_the_single_maneuver_path() {
+        let revision = revision();
+        let traffic = revision.traffic();
+        let path = traffic
+            .maneuvers()
+            .maneuver_path(ManeuverPathOrdinal::from_raw(0))
+            .expect("fixture path");
+        let compiled = compile_dynamic_route(traffic, path.edges()).expect("compile");
+        assert_eq!(compiled.maneuvers.len(), 1);
+        assert_eq!(compiled.maneuvers[0].path, ManeuverPathOrdinal::from_raw(0));
+        assert_eq!(compiled.maneuvers[0].entry_route_edge_index, 0);
+        assert_eq!(
+            compiled.maneuvers[0].exit_route_edge_index,
+            u32::try_from(path.edges().len() - 1).expect("path length")
+        );
+        let first = path.edges()[0];
+        let second = path.edges()[1];
+        let gate = compiled_hop_gate(traffic.maneuvers(), &compiled, 0, first, second);
+        assert_eq!(gate, path.maneuver_gates().first().copied());
+    }
 }
