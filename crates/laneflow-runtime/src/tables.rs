@@ -93,6 +93,35 @@ fn claim_internal_coverage(
     Ok(())
 }
 
+fn hop_ranges_overlap(a_entry: u32, a_exit: u32, b_entry: u32, b_exit: u32) -> bool {
+    a_entry < b_exit && b_entry < a_exit
+}
+
+fn record_occurrence(
+    coverage: &mut [Option<ManeuverPathOrdinal>],
+    maneuvers: &[ManeuverOccurrence],
+    entry_index: usize,
+    exit_index: usize,
+    path: ManeuverPathOrdinal,
+) -> Result<(), RouteError> {
+    if coverage.get(entry_index).copied().flatten().is_some() {
+        return Err(RouteError::ManeuverMismatch);
+    }
+    let entry = u32::try_from(entry_index).expect("route edge index fits u32");
+    let exit = u32::try_from(exit_index).expect("route edge index fits u32");
+    if maneuvers.iter().any(|occ| {
+        hop_ranges_overlap(
+            occ.entry_route_edge_index,
+            occ.exit_route_edge_index,
+            entry,
+            exit,
+        )
+    }) {
+        return Err(RouteError::ManeuverMismatch);
+    }
+    claim_internal_coverage(coverage, entry_index, exit_index, path)
+}
+
 pub(crate) fn compile_dynamic_route(
     traffic: &SharedTrafficNetwork,
     edges: &[LaneEdgeOrdinal],
@@ -146,7 +175,13 @@ pub(crate) fn compile_dynamic_route(
         if exit_index >= edges.len() {
             return Err(RouteError::ManeuverMismatch);
         }
-        claim_internal_coverage(&mut coverage, entry_index, exit_index, path_ordinal)?;
+        record_occurrence(
+            &mut coverage,
+            &maneuvers,
+            entry_index,
+            exit_index,
+            path_ordinal,
+        )?;
         maneuvers.push(ManeuverOccurrence {
             path: path_ordinal,
             entry_route_edge_index: u32::try_from(entry_index).expect("route edge index fits u32"),
@@ -606,6 +641,39 @@ mod unique_entry_path_match_tests {
         assert_eq!(coverage[1], Some(path(0)));
         assert_eq!(coverage[2], None);
         assert_eq!(coverage[3], Some(path(1)));
+    }
+
+    #[test]
+    fn hop_ranges_touching_at_exit_do_not_overlap() {
+        assert!(!hop_ranges_overlap(0, 2, 2, 4));
+        assert!(hop_ranges_overlap(0, 3, 2, 4));
+    }
+
+    #[test]
+    fn occurrence_starting_on_last_internal_is_mismatch() {
+        let mut coverage = [None, None, None, None];
+        record_occurrence(&mut coverage, &[], 0, 3, path(0)).unwrap();
+        let recorded = [ManeuverOccurrence {
+            path: path(0),
+            entry_route_edge_index: 0,
+            exit_route_edge_index: 3,
+        }];
+        assert_eq!(
+            record_occurrence(&mut coverage, &recorded, 2, 3, path(1)),
+            Err(RouteError::ManeuverMismatch)
+        );
+    }
+
+    #[test]
+    fn record_adjacent_occurrences_succeeds() {
+        let mut coverage = [None, None, None, None, None];
+        record_occurrence(&mut coverage, &[], 0, 2, path(0)).unwrap();
+        let recorded = [ManeuverOccurrence {
+            path: path(0),
+            entry_route_edge_index: 0,
+            exit_route_edge_index: 2,
+        }];
+        record_occurrence(&mut coverage, &recorded, 2, 4, path(1)).unwrap();
     }
 }
 

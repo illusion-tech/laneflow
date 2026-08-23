@@ -586,3 +586,67 @@ fn infeasible_stop_before_lower_limit_still_enters() {
         "must enter when even a stop this tick overshoots the slower-edge start, edge={edge:?} progress={progress}"
     );
 }
+
+#[test]
+fn already_below_downstream_limit_does_not_stop_at_boundary() {
+    let revision = compile_revision(|module| {
+        add_standard_profiles(module);
+        module
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "posted-fast",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("mid")],
+            })
+            .expect("posted-fast")
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "mid",
+                length_meters: 100.0,
+                speed_limit_meters_per_second: 5.0,
+                successors: &[],
+            })
+            .expect("mid")
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route",
+                edge_sequence: &[
+                    LaneEdgeReference::local("posted-fast"),
+                    LaneEdgeReference::local("mid"),
+                ],
+            })
+            .expect("route");
+    });
+    let mut world =
+        TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 1_000)).expect("install");
+    let route = world
+        .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
+        .expect("route");
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            9.0,
+            2.0,
+        ))
+        .expect("spawn already slower than the 5 m/s next edge");
+    world.step(TickInput::new(1_000)).expect("step");
+    let PoseSource::Lane { edge, progress } = world
+        .committed_pose_sources()
+        .as_slice()
+        .iter()
+        .find(|(handle, _)| *handle == vehicle)
+        .expect("pose")
+        .1
+    else {
+        panic!("lane pose");
+    };
+    let first = world
+        .traffic()
+        .relations()
+        .static_route_edges(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
+        .expect("edges")[0];
+    assert!(
+        edge != first || (progress - 10.0).abs() > 1e-6,
+        "already-legal speed must not be clamped to a stop at the posted drop, edge={edge:?} progress={progress}"
+    );
+}
