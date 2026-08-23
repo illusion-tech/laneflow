@@ -1,7 +1,7 @@
 # 交通运行时共享静态路网消费
 
 **文档状态**: Accepted（#301 G1；#469 合入后收口）<br>
-**最后更新**: 2026-08-22<br>
+**最后更新**: 2026-08-23<br>
 **适用范围**: `laneflow-runtime` / `TrafficWorld`、`laneflow-spatial` 目标 session、
 1-worker 车辆 tick、#301 端到端证据，以及 current `laneflow-core` / JSON 运行时入口拆除<br>
 **关联文档**: `../adr/0020-compiler-owned-static-network-and-static-image.md`、
@@ -168,9 +168,10 @@ Route 用共享根边序号编译 occurrence。
 - 静态路线：`install` 后 `static_route(共享根静态路线序号)` 取得 `RouteHandle`，
   不必再 `register_route`。
 - `register_route`：输入为共享根 `LaneEdgeOrdinal` 有序非空序列（不要 JSON
-  字符串 ID）；按共享根后继做连通校验，把 occurrence 编进**本世界**表，返回代际
-  感知 `RouteHandle`。非法序列失败，不留下半条路线。不做准入判断（ADR 0018：
-  Route 无 class 上下文）。
+  字符串 ID）；按共享根连通校验（车道后继或机动转移候选），把 occurrence 编进
+  **本世界**表，返回代际感知 `RouteHandle`。首边或末边不得落在路口内部边上，末边
+  不得带 StopLine；occurrence 覆盖与静态路线重建同一规则。非法序列失败，不留下
+  半条路线。不做准入判断（ADR 0018：Route 无 class 上下文）。
 - `remove_route`：只移除本世界 **动态** 路线。静态路线句柄必须拒绝。仍有 live
   车辆引用则失败；成功后旧动态句柄 stale，本世界动态 occurrence 表去掉该路线。
 - 人口是调用方所有：`install` 不接受初始车辆。`VehicleSpawnInput` 含共享根车辆
