@@ -29,6 +29,7 @@ pub(crate) struct DynamicRouteSlot {
 pub(crate) enum VehicleStatus {
     Active,
     Parked,
+    Completed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

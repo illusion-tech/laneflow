@@ -27,7 +27,7 @@ impl TrafficWorld {
             let Some(state) = self.vehicle_state(handle).copied() else {
                 continue;
             };
-            if state.status == VehicleStatus::Parked {
+            if state.status != VehicleStatus::Active {
                 continue;
             }
             let next = self
@@ -37,6 +37,17 @@ impl TrafficWorld {
             next_states.push((slot, next));
         }
         for (slot, next) in next_states {
+            if next.status == VehicleStatus::Completed
+                && let Some(previous) = self.vehicles[slot].state
+                && previous.status == VehicleStatus::Active
+                && !previous.route.is_static()
+            {
+                let route_index = usize::try_from(previous.route.index())
+                    .expect("dynamic route index fits usize");
+                self.dynamic_routes[route_index].live_vehicles = self.dynamic_routes[route_index]
+                    .live_vehicles
+                    .saturating_sub(1);
+            }
             self.vehicles[slot].state = Some(next);
         }
         self.tick_index = tick_index;
@@ -71,7 +82,7 @@ impl TrafficWorld {
 
         let mut travel = iidm_travel(state.speed, desired, leader_gap, profile, delta_s)?;
         if let Some(gap) = leader_gap {
-            travel = travel.min(gap.max(0.0));
+            travel = travel.min((gap - profile.min_gap()).max(0.0));
         }
         if let Some(stop) = signal_stop {
             travel = travel.min(stop.max(0.0));
@@ -96,6 +107,7 @@ impl TrafficWorld {
         )?;
         if remaining <= 1e-9 {
             speed = 0.0;
+            state.status = VehicleStatus::Completed;
         }
         if signal_stop.is_some_and(|stop| travel + 1e-9 >= stop) {
             speed = 0.0;
