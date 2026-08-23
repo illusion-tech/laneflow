@@ -1,9 +1,10 @@
 # Signalized Corridor Population
 
 **文档状态**: Accepted（#203 G1）<br>
-**最后更新**: 2026-07-25<br>
+**最后更新**: 2026-08-24<br>
 **适用范围**: current v0.10 signalized-corridor catalog 0.2 人口/回流 policy；
-caller-owned authority 继续继承 v0.8/#203
+caller-owned authority 继续继承 v0.8/#203。catalog 字符串在 prepare 绑到共享路网修订
+（#472）；50–200 原子替换见 #475。
 
 **关联文档**:
 
@@ -18,7 +19,7 @@ caller-owned authority 继续继承 v0.8/#203
 `laneflow-scenario` 是可选、引擎无关的 reference policy crate。依赖方向固定为：
 
 ```text
-laneflow-corridor-generator -> laneflow-scenario -> laneflow-core
+laneflow-corridor-generator -> laneflow-scenario -> laneflow-compiler（prepare 绑定）
 ```
 
 generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate 不读取文件系统，不依赖 Data、Spatial、Bevy 或其他 Engine Adapter。Core、Adapter 和宿主游戏都不反向依赖 scenario crate。城市游戏可以用自己的 policy 完全替代本实现。

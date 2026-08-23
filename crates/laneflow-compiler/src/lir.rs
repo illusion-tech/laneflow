@@ -2214,6 +2214,9 @@ pub(crate) fn freeze_lir(
                 .iter()
                 .map(|member| mir_maneuver_gate_to_lir[member.maneuver_gate.index()]),
         );
+        // 共享静态路网要求同一停止线的门成员按 LIR 序号严格递增；MIR 仍按 stable_id
+        // 排列，映射后必须再按序号冻结。
+        stop_line_maneuver_gates[relation_start..].sort_unstable();
         stop_lines.push(LirStopLine {
             ordinal: mir_stop_line_to_lir[mir_key.index()],
             stable_id: stop_line.stable_id,

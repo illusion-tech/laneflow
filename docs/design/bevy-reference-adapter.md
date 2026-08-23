@@ -167,7 +167,7 @@ cargo +1.96.0 check --locked -p laneflow-bevy --example runtime_min --features n
 cargo +1.96.0 test --locked -p laneflow-bevy --test runtime_min_smoke
 ```
 
-`native-example` 仍是非默认 opt-in，完整 `DefaultPlugins` / window / renderer 留在示例边界。v0.7 `native_reference`、campus JSON 与 `laneflow_data::from_scenario_json_slice` 已删除。走廊 native example 见 [#472](https://github.com/illusion-tech/laneflow/issues/472)。
+`native-example` 仍是非默认 opt-in，完整 `DefaultPlugins` / window / renderer 留在示例边界。v0.7 `native_reference`、campus JSON 与 `laneflow_data::from_scenario_json_slice` 已删除。薄走廊 native example 使用检入 LFCA；50–200 回流见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
 
 ## 10. 验证与性能 Gate
 

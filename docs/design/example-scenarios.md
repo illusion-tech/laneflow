@@ -1,7 +1,7 @@
 # 示例场景设计
 
 **文档状态**: Accepted（#184 G1；#196 v0.9 增量）<br>
-**最后更新**: 2026-08-23<br>
+**最后更新**: 2026-08-24<br>
 **适用范围**: 信号化走廊几何、受保护转向 profile、catalog 0.2、人口和车辆回流策略。
 JSON 制品与 production loader 已删除。
 
@@ -188,11 +188,13 @@ delta、lane width、输出目录与文件名），不调用 generator，也不�
 runtime dependency。相对输出目录以 config 所在目录为基准；随后必须通过 production
 Scenario loader 的 size/digest/reference validation。
 
-运行命令为：
+现行薄走廊 Bevy 路径不恢复 50–200 人口或 `--vehicles` CLI。运行命令为：
 
 ```powershell
-cargo +1.96.0 run --locked -p laneflow-bevy --example signalized_corridor --features native-example -- --vehicles 100 --seed 0 --config examples/config/v0.10-signalized-corridor.toml
+cargo +1.96.0 run --locked -p laneflow-bevy --example signalized_corridor --features native-example
 ```
+
+完整 50–200 native 回流命令见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
 
 道路、lane marking、StopLine、灯具与 camera 从已加载 Spatial/Core/config projection
 派生，不维护第二套手写 corridor 坐标。灯具 aspect 只读取 committed Core snapshot；
@@ -330,12 +332,12 @@ exact config `0.2`，包含道路轴线长度、交叉口位置、lane width、1
 pitch、main/secondary/left/right 限速、四组 active-set timing、两个 offset 和
 artifacts 输出文件名。它不包含车辆数、seed、回流策略或展示资源。
 
-generator 另行生成 `v0.2-signalized-corridor.catalog.toml`，记录 ordered PortalLane、
-weighted RouteChoice、共享 entry SpawnSlot、Route→exit portal 和全部 physical slot
-cross-reference。authoring config 与 catalog 都是内部 TOML，不进入
-ScenarioManifest。JSON 没有生产 loader；走廊人口迁到 Runtime 见
-[#472](https://github.com/illusion-tech/laneflow/issues/472)。不能把 generator
-内存结构当作 `TrafficWorld` 入口。
+generator 写出 `v0.2-signalized-corridor.catalog.toml` 与
+`v0.2-signalized-corridor.lfca`。catalog 记录 ordered PortalLane、weighted
+RouteChoice、共享 entry SpawnSlot、Route→exit portal 和全部 physical slot
+cross-reference。authoring config 与 catalog 都是内部 TOML。可运行世界只安装 LFCA
+构建的共享路网修订。50–200 确定性回流见
+[#475](https://github.com/illusion-tech/laneflow/issues/475)。
 
 同一配置和 generator 版本必须 byte-deterministically 生成相同 artifacts、size、digest 和 catalog。仓库根目录使用下列命令生成或只读检查：
 
@@ -344,7 +346,7 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- generate --config e
 cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.10-signalized-corridor.toml
 ```
 
-`check` 不写文件。catalog 字节对拍由 `laneflow-corridor-generator` 测试覆盖，随
+`check` 不写文件。catalog 与 LFCA 字节对拍由 `laneflow-corridor-generator` 测试覆盖，随
 `cargo test --workspace` 进入 `Rust checks`，不再单独跑 generator `check`。
 
 ## 10. 分层权威与实施切片

@@ -1,7 +1,7 @@
 # 交通运行时共享静态路网消费
 
 **文档状态**: Accepted（#301 G1；#469 合入后收口）<br>
-**最后更新**: 2026-08-23<br>
+**最后更新**: 2026-08-24<br>
 **适用范围**: `laneflow-runtime` / `TrafficWorld`、`laneflow-spatial` 目标 session、
 1-worker 车辆 tick、#301 端到端证据，以及 current `laneflow-core` / JSON 运行时入口拆除<br>
 **关联文档**: `../adr/0020-compiler-owned-static-network-and-static-image.md`、
@@ -290,9 +290,10 @@ CI 必须同时：
 `cargo check` 不能单独作为完成证据。这是「新的端到端示例」，不是 corridor 规模
 演示。
 
-`signalized_corridor` / `laneflow-scenario` / 走廊生成器迁到 Runtime 是
-[#472](https://github.com/illusion-tech/laneflow/issues/472)，不是 #301 完成条件。
-#301 只要求它们不再以 `CoreWorld` 为可运行入口。
+`signalized_corridor` 薄路径、catalog 绑定与走廊 LFCA 由
+[#472](https://github.com/illusion-tech/laneflow/issues/472) 交付。50–200 原子替换见
+[#475](https://github.com/illusion-tech/laneflow/issues/475)。#301 只要求它们不再以
+`CoreWorld` 为可运行入口。
 
 ### 6.4 拆除 Core 行为套件前的 Runtime 覆盖
 
@@ -333,7 +334,7 @@ CI 必须同时：
 - `laneflow-data` / `laneflow-current-source` 作为 Core 的 JSON 加载入口（本完成 PR 已删除 crate）；
 - current JSON schema：`laneflow-data-v0.10`、`laneflow-spatial-v0.1`、
   `laneflow-scenario-manifest-v0.1`（本完成 PR 已删除文件）。不得删除 `schemas/road-editing/`。
-  走廊生成器仍可写出同名 JSON 字节，但没有生产 schema 或加载入口；
+  走廊生成器不再构造 current JSON；编制走 compiler，检入 catalog 与 LFCA；
 - `laneflow-compiler-test-support` 的 LIR→Core 投影；
 - `laneflow-spatial` 对 `laneflow-core` 的依赖（改为共享根 bind）；
 - `laneflow-bevy`、`laneflow-scenario`、`laneflow-corridor-generator` 以及

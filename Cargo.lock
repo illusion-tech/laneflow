@@ -2855,10 +2855,14 @@ dependencies = [
 name = "laneflow-corridor-generator"
 version = "0.0.0"
 dependencies = [
+ "laneflow-compiler",
+ "laneflow-format",
+ "laneflow-runtime",
  "laneflow-scenario",
  "laneflow-spatial",
+ "laneflow-static-contract",
+ "laneflow-static-network",
  "serde",
- "serde_json",
  "sha2",
  "thiserror 2.0.19",
  "toml",
@@ -2895,6 +2899,8 @@ dependencies = [
 name = "laneflow-scenario"
 version = "0.0.0"
 dependencies = [
+ "laneflow-compiler",
+ "laneflow-static-contract",
  "serde",
 ]
 

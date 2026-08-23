@@ -1,7 +1,7 @@
+mod compile;
 mod config;
 mod error;
 mod generator;
-mod model;
 
 use std::path::{Path, PathBuf};
 
@@ -16,10 +16,8 @@ pub use laneflow_scenario::signalized_corridor::{
 
 #[derive(Clone, Debug)]
 pub struct OutputPaths {
-    pub traffic: PathBuf,
-    pub spatial: PathBuf,
-    pub manifest: PathBuf,
     pub catalog: PathBuf,
+    pub lfca: PathBuf,
 }
 
 pub fn load_config(path: &Path) -> Result<CorridorConfig, Error> {
@@ -31,10 +29,8 @@ pub fn output_paths(config_path: &Path, config: &CorridorConfig) -> OutputPaths 
     let config_directory = config_path.parent().unwrap_or_else(|| Path::new("."));
     let directory = config_directory.join(&config.output.directory);
     OutputPaths {
-        traffic: directory.join(&config.output.traffic_artifact_ref),
-        spatial: directory.join(&config.output.spatial_artifact_ref),
-        manifest: directory.join(&config.output.manifest_file_name),
         catalog: directory.join(&config.output.catalog_file_name),
+        lfca: directory.join(&config.output.lfca_file_name),
     }
 }
 
@@ -43,11 +39,12 @@ pub fn generate_files(config_path: &Path) -> Result<ScenarioCounts, Error> {
     let generated = generate(&config)?;
     let paths = output_paths(config_path, &config);
     let parent = paths
-        .traffic
+        .catalog
         .parent()
         .expect("joined output file always has a parent");
     std::fs::create_dir_all(parent).at(parent)?;
     write(&paths.catalog, generated.catalog_bytes())?;
+    write(&paths.lfca, generated.lfca_bytes())?;
     Ok(generated.counts())
 }
 
@@ -56,6 +53,7 @@ pub fn check_files(config_path: &Path) -> Result<ScenarioCounts, Error> {
     let generated = generate(&config)?;
     let paths = output_paths(config_path, &config);
     compare(&paths.catalog, generated.catalog_bytes())?;
+    compare(&paths.lfca, generated.lfca_bytes())?;
     Ok(generated.counts())
 }
 

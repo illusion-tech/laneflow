@@ -1,9 +1,9 @@
 # LaneFlow Signalized Corridor Generator
 
-本工具提供受保护左转、直行和右转走廊的可复现离线生成路径。它读取仓库内部 TOML 配置，写出
-scenario-local catalog 0.2 TOML。`generate` / `check` 只对拍 catalog。内存里仍可构造
-遗留 Traffic / Spatial / Manifest JSON 字节，但仓库不再检入这些 JSON，也没有生产
-schema 或加载入口。走廊人口迁到 Runtime 见 [#472](https://github.com/illusion-tech/laneflow/issues/472)。
+本工具提供受保护左转、直行和右转走廊的可复现离线生成路径。它读取仓库内部 TOML 配置，从几何
+建造填充 compiler 合成来源模块，写出 scenario-local catalog 0.2 TOML 与可 `install` 的
+LFCA（含 Spatial）。不写出 current JSON。50–200 确定性回流见
+[#475](https://github.com/illusion-tech/laneflow/issues/475)。
 
 ## 使用
 
@@ -19,7 +19,7 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- generate --config e
 cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.10-signalized-corridor.toml
 ```
 
-`check` 不写文件。两个命令只比较 catalog 字节，并做 catalog cross-reference 校验。
+`check` 不写文件。两个命令比较 catalog 与 LFCA 字节，并做 catalog cross-reference 校验。
 
 ## 依赖与分发
 
@@ -34,4 +34,4 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config exam
 - catalog 0.2 由 Portal 拥有 ordered PortalLane，PortalLane 拥有共享 entry
   SpawnSlot 与 weighted RouteChoice。
 - `vehicles`、`seed`、回流策略、Bevy Entity 和展示资源不属于本工具配置。
-- 工具不进入 Runtime fixed-step 热路径，不把遗留 JSON 安装为可运行世界。
+- 工具不进入 Runtime fixed-step 热路径。可运行世界只从检入的 LFCA 安装共享路网修订。

@@ -4,34 +4,82 @@ use laneflow_scenario::signalized_corridor::{
     CATALOG_VERSION, CorridorCatalog, PortalCatalogEntry, PortalLaneCatalogEntry,
     RouteCatalogEntry, SpawnSlotCatalogEntry, WeightedRouteChoiceCatalogEntry,
 };
-use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 use crate::Error;
-use crate::config::{
-    CorridorConfig, ENDPOINT_CLEARANCE_METERS, MIN_GAP_METERS, MIN_SPAWN_SLOT_COUNT,
-    VEHICLE_LENGTH_METERS,
-};
-use crate::model::{
-    AccessRule, AccessTarget, ArtifactDescriptor, Centerline, CorridorElement, FacilityBand,
-    Junction, LaneConnection, LaneEdge, LaneGraph, LaneGroup, ManeuverGate, ManeuverPath, Movement,
-    Parking, ParticipantClass, RoadCorridor, RoadSection, Route, ScenarioManifest, SectionLane,
-    SignalControl, SignalController, SignalGroup, SignalGroupState, SignalPhase, Signals,
-    SpatialEdge, SpatialPackage, StopLine, TrafficPackage, Units, VehicleProfile,
-};
+use crate::compile::compile_corridor;
+use crate::config::{CorridorConfig, ENDPOINT_CLEARANCE_METERS, MIN_SPAWN_SLOT_COUNT};
 
-const TRAFFIC_PACKAGE_MEDIA_TYPE: &str = "application/vnd.laneflow.traffic+json";
-const SPATIAL_PACKAGE_MEDIA_TYPE: &str = "application/vnd.laneflow.spatial+json";
 const CURVE_SEGMENT_COUNT: usize = 64;
 const MIN_SPATIAL_SEGMENT_METERS: f64 = 0.1;
 
 #[derive(Clone, Debug)]
-struct CorridorBuild {
-    edges: Vec<EdgeBuild>,
+pub(crate) struct CorridorBuild {
+    pub edges: Vec<EdgeBuild>,
     road_metas: Vec<RoadEdgeMeta>,
-    routes: Vec<RouteBuild>,
-    connectors: Vec<ConnectorBuild>,
-    stop_lines: Vec<StopLineBuild>,
+    pub routes: Vec<RouteBuild>,
+    pub connectors: Vec<ConnectorBuild>,
+    pub stop_lines: Vec<StopLineBuild>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Route {
+    pub id: String,
+    pub edge_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CrossSectionDocs {
+    pub facility_bands: Vec<FacilityBand>,
+    pub road_sections: Vec<RoadSection>,
+    pub lane_groups: Vec<LaneGroup>,
+    pub road_corridors: Vec<RoadCorridor>,
+    pub access_rules: Vec<AccessRule>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct FacilityBand {
+    pub id: String,
+    pub kind_id: &'static str,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct RoadSection {
+    pub id: String,
+    pub kind_id: &'static str,
+    pub lanes: Vec<SectionLane>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SectionLane {
+    pub edge_ids: Vec<String>,
+    pub lane_group_id: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct LaneGroup {
+    pub id: String,
+    pub road_section_id: String,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct RoadCorridor {
+    pub id: String,
+    pub reference_section_id: String,
+    pub elements: Vec<CorridorElement>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum CorridorElement {
+    Section { section_id: String },
+    Band { band_id: String },
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AccessRule {
+    pub id: String,
+    pub target_id: String,
+    pub effect: &'static str,
+    pub participant_class_ids: Vec<&'static str>,
 }
 
 /// 道路段 edge 的横断面元数据：与 `build_road_edges` 同序产生，
@@ -79,8 +127,8 @@ impl RoadDirection {
 }
 
 #[derive(Clone, Debug)]
-struct RouteBuild {
-    route: Route,
+pub(crate) struct RouteBuild {
+    pub route: Route,
     entry_portal_id: String,
     exit_portal_id: String,
     lane_index: usize,
@@ -98,34 +146,34 @@ struct RouteSpec {
 }
 
 #[derive(Clone, Debug)]
-struct EdgeBuild {
-    id: String,
-    points: Vec<[f32; 3]>,
-    speed_limit: f64,
-    connections: Vec<String>,
+pub(crate) struct EdgeBuild {
+    pub id: String,
+    pub points: Vec<[f32; 3]>,
+    pub speed_limit: f64,
+    pub connections: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
-struct ConnectorBuild {
-    key: PathKey,
-    entry_edge_id: String,
-    internal_edge_id: String,
-    exit_edge_id: String,
-    movement_id: String,
-    maneuver_path_id: String,
-    maneuver_gate_id: String,
-    stop_line_id: String,
-    signal_group_id: String,
+pub(crate) struct ConnectorBuild {
+    pub key: PathKey,
+    pub entry_edge_id: String,
+    pub internal_edge_id: String,
+    pub exit_edge_id: String,
+    pub movement_id: String,
+    pub maneuver_path_id: String,
+    pub maneuver_gate_id: String,
+    pub stop_line_id: String,
+    pub signal_group_id: String,
 }
 
 #[derive(Clone, Debug)]
-struct StopLineBuild {
-    id: String,
-    edge_id: String,
+pub(crate) struct StopLineBuild {
+    pub id: String,
+    pub edge_id: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-enum Approach {
+pub(crate) enum Approach {
     West,
     East,
     North,
@@ -133,14 +181,32 @@ enum Approach {
 }
 
 impl Approach {
+    #[allow(dead_code)]
     const ALL: [Self; 4] = [Self::West, Self::East, Self::North, Self::South];
 
-    const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::West => "west",
             Self::East => "east",
             Self::North => "north",
             Self::South => "south",
+        }
+    }
+
+    pub(crate) const fn exit(self, turn: Turn) -> Self {
+        match (self, turn) {
+            (Self::West, Turn::Straight) => Self::East,
+            (Self::West, Turn::Left) => Self::North,
+            (Self::West, Turn::Right) => Self::South,
+            (Self::East, Turn::Straight) => Self::West,
+            (Self::East, Turn::Left) => Self::South,
+            (Self::East, Turn::Right) => Self::North,
+            (Self::North, Turn::Straight) => Self::South,
+            (Self::North, Turn::Left) => Self::East,
+            (Self::North, Turn::Right) => Self::West,
+            (Self::South, Turn::Straight) => Self::North,
+            (Self::South, Turn::Left) => Self::West,
+            (Self::South, Turn::Right) => Self::East,
         }
     }
 
@@ -150,16 +216,17 @@ impl Approach {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-enum Turn {
+pub(crate) enum Turn {
     Left,
     Straight,
     Right,
 }
 
 impl Turn {
+    #[allow(dead_code)]
     const ALL: [Self; 3] = [Self::Left, Self::Straight, Self::Right];
 
-    const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Left => "left",
             Self::Straight => "straight",
@@ -169,21 +236,19 @@ impl Turn {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct PathKey {
-    junction: usize,
-    approach: Approach,
-    turn: Turn,
+pub(crate) struct PathKey {
+    pub junction: usize,
+    pub approach: Approach,
+    pub turn: Turn,
     entry_lane: usize,
     exit_lane: usize,
 }
 
-#[derive(Clone, Debug)]
 pub struct GeneratedScenario {
-    traffic: Vec<u8>,
-    spatial: Vec<u8>,
-    manifest: Vec<u8>,
     catalog: Vec<u8>,
+    lfca: Vec<u8>,
     counts: ScenarioCounts,
+    compilation: laneflow_compiler::CompilationOutput,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -208,50 +273,30 @@ pub struct ScenarioCounts {
 }
 
 impl GeneratedScenario {
-    pub fn traffic_bytes(&self) -> &[u8] {
-        &self.traffic
-    }
-
-    pub fn spatial_bytes(&self) -> &[u8] {
-        &self.spatial
-    }
-
-    pub fn manifest_bytes(&self) -> &[u8] {
-        &self.manifest
-    }
-
     pub fn catalog_bytes(&self) -> &[u8] {
         &self.catalog
     }
 
+    pub fn lfca_bytes(&self) -> &[u8] {
+        &self.lfca
+    }
+
     pub const fn counts(&self) -> ScenarioCounts {
         self.counts
+    }
+
+    pub fn lir(&self) -> &laneflow_compiler::ValidatedCanonicalLir {
+        self.compilation.lir()
     }
 }
 
 pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
     config.validate()?;
     let corridor = build_corridor(config)?;
-    let (traffic, spatial, catalog) = build_documents(config, &corridor)?;
-
-    // Traffic/Spatial/Manifest JSON 仍写出确定性字节，但仓库已无生产 schema 或加载 crate。
-    let traffic_bytes = json_bytes("TrafficPackage", &traffic)?;
-    let spatial_bytes = json_bytes("SpatialPackage", &spatial)?;
-
-    let manifest = ScenarioManifest {
-        format_version: "0.1",
-        traffic: descriptor(
-            config.output.traffic_artifact_ref.clone(),
-            TRAFFIC_PACKAGE_MEDIA_TYPE,
-            &traffic_bytes,
-        ),
-        spatial: descriptor(
-            config.output.spatial_artifact_ref.clone(),
-            SPATIAL_PACKAGE_MEDIA_TYPE,
-            &spatial_bytes,
-        ),
-    };
-    let manifest_bytes = json_bytes("ScenarioManifest", &manifest)?;
+    let catalog = build_catalog(config, &corridor)?;
+    validate_catalog(&catalog, &corridor)?;
+    let cross_section = build_cross_section(&corridor);
+    let compilation = compile_corridor(config, &corridor, &cross_section)?;
 
     let mut catalog_text = toml::to_string_pretty(&catalog)?;
     while catalog_text.ends_with(['\r', '\n']) {
@@ -260,31 +305,24 @@ pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
     catalog_text.push('\n');
     let catalog_bytes = catalog_text.into_bytes();
 
-    validate_catalog(&catalog, &corridor)?;
-
     let counts = ScenarioCounts {
-        edges: traffic.lane_graph.edges.len(),
-        routes: traffic.routes.len(),
-        junctions: traffic.junctions.len(),
-        movements: traffic.movements.len(),
-        maneuver_paths: traffic.maneuver_paths.len(),
-        stop_lines: traffic.signals.stop_lines.len(),
-        maneuver_gates: traffic.signals.maneuver_gates.len(),
-        signal_groups: traffic.signals.groups.len(),
-        controllers: traffic.signals.controllers.len(),
-        phases: traffic
-            .signals
-            .controllers
-            .iter()
-            .map(|controller| controller.phases.len())
-            .sum(),
+        edges: corridor.edges.len(),
+        routes: corridor.routes.len(),
+        junctions: 2,
+        movements: 24,
+        maneuver_paths: corridor.connectors.len(),
+        stop_lines: corridor.stop_lines.len(),
+        maneuver_gates: corridor.connectors.len(),
+        signal_groups: 8,
+        controllers: 2,
+        phases: 24,
         portals: catalog.portals.len(),
         spawn_slots: catalog.spawn_slots.len(),
-        facility_bands: traffic.facility_bands.len(),
-        road_sections: traffic.road_sections.len(),
-        lane_groups: traffic.lane_groups.len(),
-        road_corridors: traffic.road_corridors.len(),
-        access_rules: traffic.access_rules.len(),
+        facility_bands: cross_section.facility_bands.len(),
+        road_sections: cross_section.road_sections.len(),
+        lane_groups: cross_section.lane_groups.len(),
+        road_corridors: cross_section.road_corridors.len(),
+        access_rules: cross_section.access_rules.len(),
     };
     if counts.spawn_slots < MIN_SPAWN_SLOT_COUNT {
         return Err(Error::Config(format!(
@@ -293,182 +331,13 @@ pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
         )));
     }
 
+    let lfca = crate::compile::emit_lfca(&compilation)?;
     Ok(GeneratedScenario {
-        traffic: traffic_bytes,
-        spatial: spatial_bytes,
-        manifest: manifest_bytes,
         catalog: catalog_bytes,
+        lfca,
         counts,
+        compilation,
     })
-}
-
-fn build_documents(
-    config: &CorridorConfig,
-    corridor: &CorridorBuild,
-) -> Result<(TrafficPackage, SpatialPackage, CorridorCatalog), Error> {
-    let mut lane_edges = Vec::new();
-    let mut spatial_edges = Vec::new();
-    let mut maneuver_paths = Vec::new();
-    let mut maneuver_gates = Vec::new();
-
-    for edge in &corridor.edges {
-        lane_edges.push(LaneEdge {
-            id: edge.id.clone(),
-            length: edge.length(),
-            speed_limit: edge.speed_limit,
-            connections: edge
-                .connections
-                .iter()
-                .map(|to_edge_id| LaneConnection {
-                    to_edge_id: to_edge_id.clone(),
-                })
-                .collect(),
-        });
-        spatial_edges.push(SpatialEdge {
-            traffic_edge_id: edge.id.clone(),
-            centerline: Centerline {
-                points: edge.points.iter().copied().map(point_f64).collect(),
-            },
-        });
-    }
-    for connector in &corridor.connectors {
-        maneuver_paths.push(ManeuverPath {
-            id: connector.maneuver_path_id.clone(),
-            movement_id: connector.movement_id.clone(),
-            entry_edge_id: connector.entry_edge_id.clone(),
-            internal_edge_ids: vec![connector.internal_edge_id.clone()],
-            exit_edge_id: connector.exit_edge_id.clone(),
-        });
-        maneuver_gates.push(ManeuverGate {
-            id: connector.maneuver_gate_id.clone(),
-            maneuver_path_id: connector.maneuver_path_id.clone(),
-            transition_index: 0,
-            stop_line_id: connector.stop_line_id.clone(),
-            signal_control: SignalControl {
-                kind: "group",
-                group_id: connector.signal_group_id.clone(),
-            },
-        });
-    }
-
-    let controllers = (0..2)
-        .map(|index| signal_controller(config, index))
-        .collect::<Vec<_>>();
-    let cross_section = build_cross_section(corridor);
-    let signals = Signals {
-        stop_lines: corridor
-            .stop_lines
-            .iter()
-            .map(|stop_line| StopLine {
-                id: stop_line.id.clone(),
-                edge_id: stop_line.edge_id.clone(),
-                location: "edgeEnd",
-            })
-            .collect(),
-        maneuver_gates,
-        groups: (1..=2)
-            .flat_map(|junction| {
-                [
-                    "main-left",
-                    "main-through-right",
-                    "secondary-left",
-                    "secondary-through-right",
-                ]
-                .map(|suffix| SignalGroup {
-                    id: format!("signal-group-junction-{junction}-{suffix}"),
-                })
-            })
-            .collect(),
-        controllers,
-    };
-
-    let traffic = TrafficPackage {
-        format_version: "0.10",
-        units: Units {
-            distance: "meter",
-            time: "second",
-        },
-        lane_graph: LaneGraph { edges: lane_edges },
-        junctions: (1..=2)
-            .map(|junction| Junction {
-                id: format!("junction-{junction}"),
-            })
-            .collect(),
-        movements: (1..=2)
-            .flat_map(|junction| {
-                Approach::ALL.into_iter().flat_map(move |approach| {
-                    Turn::ALL.into_iter().map(move |turn| Movement {
-                        id: movement_id(junction, approach, turn),
-                        junction_id: format!("junction-{junction}"),
-                    })
-                })
-            })
-            .collect(),
-        maneuver_paths,
-        routes: corridor
-            .routes
-            .iter()
-            .map(|item| item.route.clone())
-            .collect(),
-        vehicle_profiles: vec![
-            VehicleProfile {
-                id: "passenger-car",
-                length: VEHICLE_LENGTH_METERS,
-                model: "iidm",
-                desired_speed: 20.0,
-                min_gap: MIN_GAP_METERS,
-                time_headway: 1.5,
-                max_acceleration: 1.5,
-                comfortable_deceleration: 2.0,
-                emergency_deceleration: 6.0,
-                participant_class_id: "car",
-            },
-            VehicleProfile {
-                id: "shuttle-bus",
-                length: 12.0,
-                model: "iidm",
-                desired_speed: 15.0,
-                min_gap: 3.0,
-                time_headway: 2.0,
-                max_acceleration: 1.0,
-                comfortable_deceleration: 1.5,
-                emergency_deceleration: 5.0,
-                participant_class_id: "bus",
-            },
-        ],
-        participant_classes: vec![
-            ParticipantClass {
-                id: "motorVehicle",
-                extends_id: None,
-            },
-            ParticipantClass {
-                id: "car",
-                extends_id: Some("motorVehicle"),
-            },
-            ParticipantClass {
-                id: "bus",
-                extends_id: Some("motorVehicle"),
-            },
-        ],
-        facility_bands: cross_section.facility_bands,
-        road_sections: cross_section.road_sections,
-        lane_groups: cross_section.lane_groups,
-        road_corridors: cross_section.road_corridors,
-        access_rules: cross_section.access_rules,
-        waiting_zones: Vec::new(),
-        signals,
-        parking: Parking {
-            areas: Vec::new(),
-            spaces: Vec::new(),
-        },
-    };
-    let spatial = SpatialPackage {
-        format_version: "0.1",
-        frame_id: config.frame_id.clone(),
-        edges: spatial_edges,
-    };
-    let catalog = build_catalog(config, corridor)?;
-    Ok((traffic, spatial, catalog))
 }
 
 fn build_corridor(config: &CorridorConfig) -> Result<CorridorBuild, Error> {
@@ -664,15 +533,7 @@ fn road_edge(id: String, start: [f32; 3], end: [f32; 3], speed_limit: f64) -> Ed
 
 /// 由 corridor 拓扑显式派生的横断面声明（SSOT §3：lane index 按 corridor
 /// reference 方向从左到右；同一 corridor 的元素按 road 分段保持纵向共延伸）。
-struct CrossSectionDocs {
-    facility_bands: Vec<FacilityBand>,
-    road_sections: Vec<RoadSection>,
-    lane_groups: Vec<LaneGroup>,
-    road_corridors: Vec<RoadCorridor>,
-    access_rules: Vec<AccessRule>,
-}
-
-fn build_cross_section(corridor: &CorridorBuild) -> CrossSectionDocs {
+pub(crate) fn build_cross_section(corridor: &CorridorBuild) -> CrossSectionDocs {
     // 物理 corridor 单元 = 一条 road 分段（junction 之间/之外）：主干道三段 +
     // 每条支路两段。reference 方向：主干道取 w2e，支路取 n2s。
     // segment 是按方向 traversal order 编号而非物理区间：w2e road-0 是最西段，
@@ -863,10 +724,7 @@ fn build_cross_section(corridor: &CorridorBuild) -> CrossSectionDocs {
             ] {
                 docs.access_rules.push(AccessRule {
                     id: format!("{prefix}-{suffix}"),
-                    target: AccessTarget {
-                        kind: "laneGroup",
-                        id: group_id.clone(),
-                    },
+                    target_id: group_id.clone(),
                     effect,
                     participant_class_ids: classes,
                 });
@@ -1527,101 +1385,6 @@ fn signal_group_id(key: PathKey) -> String {
     format!("signal-group-junction-{}-{suffix}", key.junction)
 }
 
-fn signal_controller(config: &CorridorConfig, index: usize) -> SignalController {
-    let junction = index + 1;
-    let suffixes = [
-        "main-left",
-        "main-through-right",
-        "secondary-left",
-        "secondary-through-right",
-    ];
-    let group_ids = suffixes
-        .map(|suffix| format!("signal-group-junction-{junction}-{suffix}"))
-        .to_vec();
-    let states = |active_index: Option<usize>, active_aspect: &'static str| {
-        group_ids
-            .iter()
-            .enumerate()
-            .map(|(group_index, group_id)| SignalGroupState {
-                group_id: group_id.clone(),
-                aspect: if active_index == Some(group_index) {
-                    active_aspect
-                } else {
-                    "red"
-                },
-            })
-            .collect()
-    };
-    SignalController {
-        id: format!("signal-controller-junction-{junction}"),
-        kind: "fixedTime",
-        offset_ms: config.signals.controller_offsets_ms[index],
-        group_ids: group_ids.clone(),
-        phases: vec![
-            SignalPhase {
-                id: "phase-main-left-green".to_owned(),
-                duration_ms: config.signals.main_left_green_ms,
-                states: states(Some(0), "green"),
-            },
-            SignalPhase {
-                id: "phase-main-left-yellow".to_owned(),
-                duration_ms: config.signals.yellow_ms,
-                states: states(Some(0), "yellow"),
-            },
-            SignalPhase {
-                id: "phase-after-main-left-all-red".to_owned(),
-                duration_ms: config.signals.all_red_ms,
-                states: states(None, "red"),
-            },
-            SignalPhase {
-                id: "phase-main-through-right-green".to_owned(),
-                duration_ms: config.signals.main_through_right_green_ms,
-                states: states(Some(1), "green"),
-            },
-            SignalPhase {
-                id: "phase-main-through-right-yellow".to_owned(),
-                duration_ms: config.signals.yellow_ms,
-                states: states(Some(1), "yellow"),
-            },
-            SignalPhase {
-                id: "phase-after-main-through-right-all-red".to_owned(),
-                duration_ms: config.signals.all_red_ms,
-                states: states(None, "red"),
-            },
-            SignalPhase {
-                id: "phase-secondary-left-green".to_owned(),
-                duration_ms: config.signals.secondary_left_green_ms,
-                states: states(Some(2), "green"),
-            },
-            SignalPhase {
-                id: "phase-secondary-left-yellow".to_owned(),
-                duration_ms: config.signals.yellow_ms,
-                states: states(Some(2), "yellow"),
-            },
-            SignalPhase {
-                id: "phase-after-secondary-left-all-red".to_owned(),
-                duration_ms: config.signals.all_red_ms,
-                states: states(None, "red"),
-            },
-            SignalPhase {
-                id: "phase-secondary-through-right-green".to_owned(),
-                duration_ms: config.signals.secondary_through_right_green_ms,
-                states: states(Some(3), "green"),
-            },
-            SignalPhase {
-                id: "phase-secondary-through-right-yellow".to_owned(),
-                duration_ms: config.signals.yellow_ms,
-                states: states(Some(3), "yellow"),
-            },
-            SignalPhase {
-                id: "phase-after-secondary-through-right-all-red".to_owned(),
-                duration_ms: config.signals.all_red_ms,
-                states: states(None, "red"),
-            },
-        ],
-    }
-}
-
 fn build_catalog(
     config: &CorridorConfig,
     corridor: &CorridorBuild,
@@ -1821,32 +1584,6 @@ fn validate_catalog(catalog: &CorridorCatalog, corridor: &CorridorBuild) -> Resu
     Ok(())
 }
 
-fn json_bytes<T: Serialize>(document: &'static str, value: &T) -> Result<Vec<u8>, Error> {
-    let mut bytes =
-        serde_json::to_vec_pretty(value).map_err(|source| Error::Json { document, source })?;
-    bytes.push(b'\n');
-    Ok(bytes)
-}
-
-fn descriptor(artifact_ref: String, media_type: &'static str, bytes: &[u8]) -> ArtifactDescriptor {
-    ArtifactDescriptor {
-        artifact_ref,
-        media_type,
-        digest: format!("sha256:{}", hex_digest(Sha256::digest(bytes).as_slice())),
-        size: u64::try_from(bytes.len()).expect("artifact size fits in u64"),
-    }
-}
-
-fn hex_digest(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    encoded
-}
-
 fn point_f64(point: [f32; 3]) -> [f64; 3] {
     point.map(f64::from)
 }
@@ -1869,7 +1606,7 @@ impl EdgeBuild {
         *self.points.last().expect("edge has an end point")
     }
 
-    fn length(&self) -> f64 {
+    pub(crate) fn length(&self) -> f64 {
         self.points
             .windows(2)
             .map(|pair| edge_length(pair[0], pair[1]))
