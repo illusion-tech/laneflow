@@ -1,7 +1,7 @@
 # 验证矩阵
 
 **文档状态**: Active
-**最后更新**: 2026-08-21
+**最后更新**: 2026-08-23
 
 **适用范围**: LaneFlow 各切片类型在合并前的最小验证要求
 **关联文档**:
@@ -26,8 +26,8 @@
 矩阵不要求所有 PR 跑同一组重复检查，但要求每次变更显式说明验证结论。Rust Core workspace
 落地后，`core-runtime` 切片默认应运行 `cargo fmt --all -- --check` 与
 `cargo test --workspace --locked`。仓库 CI 的 `Rust checks` job 按路径分流：非 Rust / 非 external-review 契约输入
-路径跳过重型 cargo。道路编辑 FlatBuffers 变更仍走 Rust 路径。本地仍应按本矩阵主动运行
-与切片相关的命令，不能只依赖 CI skip。
+路径跳过重型 cargo。道路编辑 FlatBuffers 变更走独立 Codegen，不因 `.fbs` 拉起整仓
+Rust 测试。本地仍应按本矩阵主动运行与切片相关的命令，不能只依赖 CI skip。
 
 ## 2. 切片类型到验证矩阵
 

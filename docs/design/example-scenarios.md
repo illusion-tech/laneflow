@@ -333,9 +333,9 @@ artifacts 输出文件名。它不包含车辆数、seed、回流策略或展示
 generator 另行生成 `v0.2-signalized-corridor.catalog.toml`，记录 ordered PortalLane、
 weighted RouteChoice、共享 entry SpawnSlot、Route→exit portal 和全部 physical slot
 cross-reference。authoring config 与 catalog 都是内部 TOML，不进入
-ScenarioManifest，也不改变 Traffic/Spatial production interchange shape。native
-example 必须先通过 production Traffic/Spatial/Manifest loader，不能直接把 generator
-内存结构塞进 Core。
+ScenarioManifest。JSON 没有生产 loader；走廊人口迁到 Runtime 见
+[#472](https://github.com/illusion-tech/laneflow/issues/472)。不能把 generator
+内存结构当作 `TrafficWorld` 入口。
 
 同一配置和 generator 版本必须 byte-deterministically 生成相同 artifacts、size、digest 和 catalog。仓库根目录使用下列命令生成或只读检查：
 
@@ -344,7 +344,8 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- generate --config e
 cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.10-signalized-corridor.toml
 ```
 
-`check` 不写文件；CI 发现任一 checked-in byte 差异即失败。
+`check` 不写文件。catalog 字节对拍由 `laneflow-corridor-generator` 测试覆盖，随
+`cargo test --workspace` 进入 `Rust checks`，不再单独跑 generator `check`。
 
 ## 10. 分层权威与实施切片
 
