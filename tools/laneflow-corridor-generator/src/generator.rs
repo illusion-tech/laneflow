@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use laneflow_data::{SPATIAL_PACKAGE_MEDIA_TYPE, TRAFFIC_PACKAGE_MEDIA_TYPE};
 use laneflow_scenario::signalized_corridor::{
     CATALOG_VERSION, CorridorCatalog, PortalCatalogEntry, PortalLaneCatalogEntry,
     RouteCatalogEntry, SpawnSlotCatalogEntry, WeightedRouteChoiceCatalogEntry,
@@ -21,10 +20,8 @@ use crate::model::{
     SpatialEdge, SpatialPackage, StopLine, TrafficPackage, Units, VehicleProfile,
 };
 
-const TRAFFIC_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.10.schema.json");
-const SPATIAL_SCHEMA: &str = include_str!("../../../schemas/laneflow-spatial-v0.1.schema.json");
-const MANIFEST_SCHEMA: &str =
-    include_str!("../../../schemas/laneflow-scenario-manifest-v0.1.schema.json");
+const TRAFFIC_PACKAGE_MEDIA_TYPE: &str = "application/vnd.laneflow.traffic+json";
+const SPATIAL_PACKAGE_MEDIA_TYPE: &str = "application/vnd.laneflow.spatial+json";
 const CURVE_SEGMENT_COUNT: usize = 64;
 const MIN_SPATIAL_SEGMENT_METERS: f64 = 0.1;
 
@@ -237,10 +234,9 @@ pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
     let corridor = build_corridor(config)?;
     let (traffic, spatial, catalog) = build_documents(config, &corridor)?;
 
+    // Traffic/Spatial/Manifest JSON 仍写出确定性字节，但仓库已无生产 schema 或加载 crate。
     let traffic_bytes = json_bytes("TrafficPackage", &traffic)?;
     let spatial_bytes = json_bytes("SpatialPackage", &spatial)?;
-    validate_schema("TrafficPackage", TRAFFIC_SCHEMA, &traffic_bytes)?;
-    validate_schema("SpatialPackage", SPATIAL_SCHEMA, &spatial_bytes)?;
 
     let manifest = ScenarioManifest {
         format_version: "0.1",
@@ -256,7 +252,6 @@ pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
         ),
     };
     let manifest_bytes = json_bytes("ScenarioManifest", &manifest)?;
-    validate_schema("ScenarioManifest", MANIFEST_SCHEMA, &manifest_bytes)?;
 
     let mut catalog_text = toml::to_string_pretty(&catalog)?;
     while catalog_text.ends_with(['\r', '\n']) {
@@ -1824,19 +1819,6 @@ fn validate_catalog(catalog: &CorridorCatalog, corridor: &CorridorBuild) -> Resu
         }
     }
     Ok(())
-}
-
-fn validate_schema(document: &'static str, schema_source: &str, input: &[u8]) -> Result<(), Error> {
-    let schema = serde_json::from_str(schema_source).map_err(|source| Error::Json {
-        document: "repository schema",
-        source,
-    })?;
-    let instance =
-        serde_json::from_slice(input).map_err(|source| Error::Json { document, source })?;
-    jsonschema::draft202012::validate(&schema, &instance).map_err(|error| Error::Schema {
-        document,
-        message: error.to_string(),
-    })
 }
 
 fn json_bytes<T: Serialize>(document: &'static str, value: &T) -> Result<Vec<u8>, Error> {

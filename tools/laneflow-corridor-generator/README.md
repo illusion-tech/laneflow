@@ -1,14 +1,15 @@
 # LaneFlow Signalized Corridor Generator
 
-本工具提供 Traffic v0.10 受保护左转、直行和右转走廊的可复现 authoring 路径。它读取仓库内部 TOML 配置，生成并校验：
+本工具提供受保护左转、直行和右转走廊的可复现离线生成路径。它读取仓库内部 TOML 配置，写出：
 
-- Traffic package v0.10 JSON；
-- SpatialPackage v0.1 JSON；
-- ScenarioManifest v0.1 JSON；
+- 遗留 Traffic package JSON；
+- 遗留 SpatialPackage JSON；
+- 遗留 ScenarioManifest JSON；
 - scenario-local catalog 0.2 TOML。
 
-Traffic、Spatial 和 Manifest 是 production interchange 制品；catalog 只用于
-`laneflow-scenario` 与 native example 的仓库内部启动路径，不进入 Manifest。
+Traffic / Spatial / Manifest JSON 在 #301 删除 schema 与加载 crate 后没有生产
+interchange 契约，也不是 Runtime 入口。catalog 只用于 `laneflow-scenario` 的仓库
+内部线格式，不进入 Manifest。走廊人口迁到 Runtime 是 follow-up。
 
 ## 使用
 
@@ -24,13 +25,13 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- generate --config e
 cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.10-signalized-corridor.toml
 ```
 
-`check` 不写文件。两个命令都会执行 JSON Schema、production loader、Manifest size/SHA-256、Spatial length/join 和 catalog cross-reference 校验。
+`check` 不写文件。两个命令都会比较生成字节与已检入文件，并做 catalog
+cross-reference 校验。仓库已无 current JSON Schema 或 production loader。
 
 ## 依赖与分发
 
 - `toml 1.1.4+spec-1.1.0` 只解析/序列化仓库内部配置与 catalog，许可证为 MIT OR Apache-2.0，MSRV 低于 workspace 1.96。
-- `jsonschema 0.49.9` 沿用 workspace 已锁定版本，用于写盘前校验三个 production JSON 文档；其 `borrow-or-share 0.2.4` 传递依赖采用 MIT-0，`deny.toml` 只为该精确 crate/version 设置例外。
-- 工具离线运行，不进入 Core fixed-step 或 Adapter 热路径，不引入网络、引擎或 copyleft 依赖。
+- 工具离线运行，不进入 Runtime fixed-step 或 Adapter 热路径，不引入网络、引擎或 copyleft 依赖。
 
 ## 边界
 
@@ -40,4 +41,4 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config exam
 - catalog 0.2 由 Portal 拥有 ordered PortalLane，PortalLane 拥有共享 entry
   SpawnSlot 与 weighted RouteChoice。
 - `vehicles`、`seed`、回流策略、Bevy Entity 和展示资源不属于本工具配置。
-- 工具不进入 Core fixed-step 热路径，不改变 Core/Data/Spatial/Adapter public API。
+- 工具不进入 Runtime fixed-step 热路径，不把遗留 JSON 安装为可运行世界。

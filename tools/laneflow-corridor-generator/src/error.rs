@@ -26,12 +26,6 @@ pub enum Error {
     #[error("invalid corridor configuration: {0}")]
     Config(String),
 
-    #[error("{document} does not satisfy its repository JSON Schema: {message}")]
-    Schema {
-        document: &'static str,
-        message: String,
-    },
-
     #[error("{stage} validation failed: {message}")]
     Validation {
         stage: &'static str,

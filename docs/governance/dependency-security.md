@@ -32,12 +32,12 @@ LaneFlow 公开仓库采用 **Apache License 2.0-only**：
 
 ### 2.2 开放与商业边界
 
-开放仓库长期承载可复用的 Core、Data、公开 schema/spec、公共 API、测试和最小示例。高级编辑器、城市级或分布式仿真、优化分析、企业 Adapter、云服务和商业支持可以在独立产品、独立仓库或独立分发物中使用商业许可证。
+开放仓库长期承载可复用的 Runtime、编译器/格式、道路编辑来源、公共 API、测试和最小示例。高级编辑器、城市级或分布式仿真、优化分析、企业 Adapter、云服务和商业支持可以在独立产品、独立仓库或独立分发物中使用商业许可证。
 
 依赖方向固定为：
 
 ```text
-commercial products -> open laneflow-core / laneflow-data
+commercial products -> open laneflow-runtime / laneflow-format
 open repository -X-> commercial implementation
 ```
 
@@ -51,9 +51,9 @@ open repository -X-> commercial implementation
 
 ### 2.4 Schema 分发与网络输入
 
-本仓库自有 schema 与代码、文档一样按 Apache-2.0 分发。根据 ADR 0011，catalog 中的 schema `$id` 是 public retrieval URL，但 production loader、Core、Adapter 和 hermetic tests 不联网解析它；因此 publication availability 是 distribution/CD 门禁，不是 Cargo dependency 或 runtime 启动条件。
+本仓库自有 schema 与代码、文档一样按 Apache-2.0 分发。ADR 0011 的公共 schema 发布义务已被 ADR 0026 取代；current JSON Schema 已随 #301 删除。道路编辑 FlatBuffers 与 Runtime、Adapter、hermetic tests 不联网解析 `$id` 或 `$schema`。
 
-Publication workflow 必须固定第三方 Action 完整 commit SHA，并以 catalog source revision/byte equality 防止 artifact 漂移。消费者下载 schema/package 时仍须在其边界处理来源、完整性、缓存、输入大小和网络失败；远端内容不能因 URL 位于本组织域名下就绕过不可信输入治理，也不得把网络 fetch 隐式加入 `laneflow-data`。
+Publication workflow 必须固定第三方 Action 完整 commit SHA，并以 catalog source revision/byte equality 防止 artifact 漂移。消费者下载 schema/package 时仍须在其边界处理来源、完整性、缓存、输入大小和网络失败；远端内容不能因 URL 位于本组织域名下就绕过不可信输入治理，也不得把网络 fetch 隐式加入生产 crate。
 
 ## 3. Cargo metadata
 

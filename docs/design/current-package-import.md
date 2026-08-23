@@ -1,15 +1,23 @@
 # 当前 JSON 退役与编译器测试边界
 
-**文档状态**：Accepted（取代原“当前包迁移导入前端”设计）<br>
-**调整日期**：2026-08-22<br>
+**文档状态**：Accepted（取代原“当前包迁移导入前端”设计；#301 已删除 schema 与加载 crate）<br>
+**调整日期**：2026-08-23<br>
 **关联议题**：#297、#301
 
 ## 1. 结论
 
-Traffic v0.10、SpatialPackage v0.1 与 ScenarioManifest v0.1 JSON 是当前
+Traffic v0.10、SpatialPackage v0.1 与 ScenarioManifest v0.1 JSON 曾是
 `laneflow-data` 加载器使用的仓库内部格式。项目尚未发布 1.0，也从未通过 Release、
-Pages、包分发或直接用户交付发布这些 JSON 数据；当前可见输入仅是仓库示例、测试夹具
-和生成器输出。
+Pages、包分发或直接用户交付发布这些 JSON 数据。#301 完成 PR 已删除：
+
+- `crates/laneflow-data`
+- `crates/laneflow-current-source`
+- `schemas/laneflow-data-v0.10.schema.json`
+- `schemas/laneflow-spatial-v0.1.schema.json`
+- `schemas/laneflow-scenario-manifest-v0.1.schema.json`
+
+走廊生成器仍可写出同名 JSON 字节与 catalog TOML。JSON 写出不是新的 authoring
+契约，也不是 Runtime 入口；走廊人口迁到 Runtime 是 follow-up。
 
 因此：
 
@@ -19,8 +27,7 @@ Pages、包分发或直接用户交付发布这些 JSON 数据；当前可见输
 - 不提供批量迁移工具、已发布资产清单、迁移报告或长期离线兼容路径；
 - 编译器正确性使用编译器原生的有类型模块测试，不以旧 JSON loader 为预言机；
 - 仓库内部 JSON 夹具在新编制来源可表达相同场景后一次性转换或删除；
-- `laneflow-data` 与 `laneflow-current-source` 只作为当前态加载实现保留到 #301
-  拆除运行时入口，不形成新的兼容承诺。
+- `laneflow-data` 与 `laneflow-current-source` 已随 #301 拆除，不形成新的兼容承诺。
 
 ## 2. current JSON 的精确定义
 

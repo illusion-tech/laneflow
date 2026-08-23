@@ -1,8 +1,8 @@
 # Data Loading 设计
 
-**文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）<br>
-**最后更新**: 2026-08-18（#281 current；#291/ADR 0020 target；Accepted ADR 0024 后继边界）
-**适用范围**: Traffic v0.10、SpatialPackage/ScenarioManifest v0.1 production loader、保留的 Data v0.6 数值迁移边界，以及 target LFCA admission/shared-network builder
+**文档状态**: Retired as production contract（#301 已删除 `laneflow-data` / `laneflow-current-source`；本文保留历史 loader 边界）<br>
+**最后更新**: 2026-08-23（#301 删除 current JSON 加载 crate）
+**适用范围**: 已删除的 Traffic v0.10 / SpatialPackage/ScenarioManifest v0.1 历史 loader 边界、保留的 Data v0.6 数值迁移边界，以及 target LFCA admission/shared-network builder
 
 **关联文档**:
 
