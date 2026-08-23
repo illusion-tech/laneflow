@@ -33,7 +33,7 @@ app.insert_resource(LaneFlowSession::new(world, spatial, config).expect("paired 
 # }
 ```
 
-campus / `native_reference` / `signalized_corridor` 的 Core 入口已删除。走廊迁到 Runtime 见 [#472](https://github.com/illusion-tech/laneflow/issues/472)。Bevy debug gizmos 的 Runtime 实现见 [#473](https://github.com/illusion-tech/laneflow/issues/473)。
+campus / `native_reference` / `signalized_corridor` 的 Core 入口已删除。走廊迁到 Runtime 见 [#472](https://github.com/illusion-tech/laneflow/issues/472)。Bevy debug gizmos 不是现行交付（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭）。
 
 最小 Bevy 证据是 `runtime_min` 示例与无窗口 `tests/runtime_min_smoke.rs`：
 
