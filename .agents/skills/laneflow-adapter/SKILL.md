@@ -28,9 +28,9 @@ Adapter 的契约，应先提出 G1 设计缺口或创建最小设计基线。
 
 ## 命名与术语
 
-- 当前态动态执行层使用 `LaneFlow Core` / `laneflow-core` / `CoreWorld`。
-- #291 目标态使用中文规范名“LaneFlow 交通运行时（LaneFlow Traffic Runtime）”及
+- 可运行世界使用中文规范名“LaneFlow 交通运行时（LaneFlow Traffic Runtime）”及
   精确标识符 `laneflow-runtime` / `TrafficWorld`。
+- `laneflow-core` / `CoreWorld` 已拆除。
 - 当前 Adapter API 是 `VehicleHandle`/Entity 车辆特化；目标通用表现使用交通参与
   单元并按交通执行域区分。不得把当前车辆映射写成终态唯一 Adapter 模型，也不得用
   通用术语声称尚未实现的非机动车、行人或轨道表现能力。

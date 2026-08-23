@@ -19,11 +19,6 @@ Traffic Runtime 的多执行域身份（Identity）、批处理（Batch）、命
 - `core-id-handles.md`
 - `adapter-api.md`
 - `bevy-reference-adapter.md`
-- `../reference/v0.3-vehicle-following-validation.md`
-- `../reference/v0.4-signals-validation.md`
-- `../reference/v0.5-parking-validation.md`
-- `../reference/v0.6-spatial-validation.md`
-- `../reference/v0.7-bevy-validation.md`
 
 ## 1. 结论
 
@@ -547,7 +542,7 @@ caller-owned seed/随机流由上层 Save Manifest 绑定；只有后续 G1 显�
 
 **状态**：测试专用语义原型通过，当前全量双缓冲事务 cache 的性能 Gate 未通过。ablation 已证明 IIDM controller-intent 降频本身有可测收益，因此保留 individual-first reduced-rate semantics 及其缓存事务优化作为研究候选；当前实现仍不是 production 候选，不新增 Core/Adapter API、runtime dependency、data format、默认行为或 ADR，也不启动 production G1。
 
-**provenance 降级落地（2026-08-14，#380 切片 ③）**：按 `core-research-instrumentation-externalization.md` §3 A 类冻结与 #380 降级记录（comment-5288562896 / comment-5289304629），P4 harness 的可运行形态已从 main 移除：`world_reduced_rate_research_tests.rs` 模块、`CoreWorld.reduced_rate_research` 字段、reduced-rate Active 分叉与 P4 独占的 `evaluate_controller_intent_for_research` / `compute_motion_from_controller_intent_for_research` seam 随切片 ③ 删除。源码经 git 历史保留，最后可运行 commit 为 `879343a5`（切片 ③ 合并的父 commit，以合并时 #380 记录为准）。本节及以下 P4 证据按历史证据语义保留，不作为可重跑基线；语义 oracle 与 research-commit 复现由 #218 在仪器探针边界（`StepProbe` / `StageTimingProbe`）上重建。
+**provenance 降级落地（2026-08-14，#380 切片 ③）**：按 #380 仪器外移结论与降级记录（comment-5288562896 / comment-5289304629），P4 harness 的可运行形态已从 main 移除：`world_reduced_rate_research_tests.rs` 模块、`CoreWorld.reduced_rate_research` 字段、reduced-rate Active 分叉与 P4 独占的 `evaluate_controller_intent_for_research` / `compute_motion_from_controller_intent_for_research` seam 随切片 ③ 删除。源码经 git 历史保留，最后可运行 commit 为 `879343a5`（切片 ③ 合并的父 commit，以合并时 #380 记录为准）。本节及以下 P4 证据按历史证据语义保留，不作为可重跑基线；语义 oracle 与 research-commit 复现由 #218 在仪器探针边界（`StepProbe` / `StageTimingProbe`）上重建。
 
 原型原位于 `crates/laneflow-core/src/world_reduced_rate_research_tests.rs`（已随上条 provenance 降级移除），由 `world` 下的 `#[cfg(test)]` 私有模块编译；`longitudinal.rs` 只增加 test-only controller-intent seam。生产路径仍每个 base tick 重建 occupancy/leader、safe-speed、当前 edge/route speed limit、route end、SignalStop、ParkingStop、全局 leader chain/cycle projection、最终 motion/events，并原子提交全部 vehicle state。跨 tick 只允许缓存 finite signed comfort acceleration 及 cadence/失效元数据；leader observation、constraint、projection、candidate/final motion 和 applied acceleration 均不缓存。
 
@@ -700,7 +695,7 @@ C4 使用相同十万 workload 与 Criterion 参数重新配对 P0/H1/C2/C3，`m
 1. coarse stage timing（粗粒度阶段计时）：每个 tick、每个阶段只取一次 `Instant`，把 whole-step 拆为 occupancy/leader rebuild、longitudinal proposal/store、global projection、advance/events/authority commit 和 research cache commit；这组数据按同一 tick 采样，可以用于阶段占比和近似加和。
 2. independent Criterion kernels（独立内核基准）：对 IIDM intent、post-intent safe motion、scratch begin、motion store 和 global projection 分别测十万 batch；它们用于解释机制，但因输入布局、cache 状态和循环边界不同，**不得把独立数字简单相加当成 whole-step 分解**。
 
-**探针替代边界回写（2026-08-14，#380 切片 ②）**：本节 coarse stage timing 原由深嵌生产路径的 5 处 `#[cfg(test)] Instant::now()` 钩子采集（occupancy、longitudinal 总计、proposal/store、global projection、advance/events/authority commit），research cache commit 由 P4 研究状态内嵌记录。该内嵌形态已按 `core-research-instrumentation-externalization.md` §3 B 类冻结收敛为 method-generic 仪器探针边界：`CoreWorld::step_with_probe<P: StepProbe>` + 默认 `NoOpProbe`（`ENABLED = false`，发布构建不读取时钟、空操作整体编译消除），研究态记录实现 `StageTimingProbe`（六段 `Duration` 快照，含 research-commit）由 `instrumentation` feature 或 crate 内测试启用，Criterion 取证（`criterion_100k_three_round_*`）已迁移为探针实现。D5 下表 H1/C4 行全部列与 kernel 诊断命令（`reduced-rate-ablation` controller-only 与 motion benchmark 输入）的可运行复现随 P4 provenance 降级整体暂停（降级记录见 #380 评论，P4 状态机移除在切片 ③ 落地）；已记录数值按历史证据语义保留，不作为可重跑基线。生产路径探针在 P0 workload 上的五段计时（occupancy、longitudinal 总计 / proposal / projection、post-longitudinal）复现能力完整保留：对任意 workload 以 `StageTimingProbe` 运行 `step_with_probe` 即可按 tick 采样六段计时。
+**探针替代边界回写（2026-08-14，#380 切片 ②）**：本节 coarse stage timing 原由深嵌生产路径的 5 处 `#[cfg(test)] Instant::now()` 钩子采集（occupancy、longitudinal 总计、proposal/store、global projection、advance/events/authority commit），research cache commit 由 P4 研究状态内嵌记录。该内嵌形态已按 #380 仪器外移结论收敛为 method-generic 仪器探针边界：`CoreWorld::step_with_probe<P: StepProbe>` + 默认 `NoOpProbe`（`ENABLED = false`，发布构建不读取时钟、空操作整体编译消除），研究态记录实现 `StageTimingProbe`（六段 `Duration` 快照，含 research-commit）由 `instrumentation` feature 或 crate 内测试启用，Criterion 取证（`criterion_100k_three_round_*`）已迁移为探针实现。D5 下表 H1/C4 行全部列与 kernel 诊断命令（`reduced-rate-ablation` controller-only 与 motion benchmark 输入）的可运行复现随 P4 provenance 降级整体暂停（降级记录见 #380 评论，P4 状态机移除在切片 ③ 落地）；已记录数值按历史证据语义保留，不作为可重跑基线。生产路径探针在 P0 workload 上的五段计时（occupancy、longitudinal 总计 / proposal / projection、post-longitudinal）复现能力完整保留：对任意 workload 以 `StageTimingProbe` 运行 `step_with_probe` 即可按 tick 采样六段计时。
 
 外部 sampled profile 使用 Windows Performance Recorder（WPR）采集 CPU sampling ETL。非提权进程首次执行 `wpr -start CPU` 返回 `0xc5585011: Failed to enable the policy to profile system performance`；随后通过 UAC 启动一次性 elevated helper，确认令牌包含 `SeSystemProfilePrivilege` 后，WPR start、十万 H1 workload 和 WPR stop 的退出码均为 0，不需要修改本地安全策略。第一次 coarse run 还暴露了 instrumentation lifecycle 问题：`begin_step` 会清零刚记录的 occupancy duration；该轮已判无效、不计入结果，修正后从干净 workload 重跑。
 

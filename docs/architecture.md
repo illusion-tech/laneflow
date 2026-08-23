@@ -224,20 +224,16 @@ semantic normalization 在 compiler；共享静态路网不取代 LFCA publicati
 与宿主 admission 契约。current JSON 未曾作为外部资产发布，不接入 compiler，也不形成
 长期兼容或迁移工具承诺。
 
-以下段落保留 #229/#234/#235 把领域模型写入当时 current JSON 的历史；那些 schema
-文件已删除，领域语义现由 compiler / 共享静态路网承载。
+静态领域模型（车道图、Junction/Movement/ManeuverPath、StopLine、ManeuverGate、
+SignalGroup、固定时制 Controller/Phase、ParkingArea/ParkingSpace、横断面与准入、
+WaitingZone）由编译器写入 Canonical LIR / LFCA，再进入共享静态路网。JSON schema
+与 `laneflow-data` 已删除，不再是现行契约。详细现行路径见
+`design/portable-canonical-artifact.md`、`design/shared-static-network.md` 与对应
+领域设计。
 
-current v0.10 在保持相同依赖方向的前提下包含 per-edge 基础道路限速、
-Junction/Movement/ManeuverPath、StopLine、一等 ManeuverGate、SignalGroup、
-fixed-time Controller/Phase、immutable ParkingArea/ParkingSpace、entry/exit
-anchors 和 edge-relative geometry，以及 #262 生产化的 ParticipantClass、
-RoadCorridor/RoadSection/LaneGroup/FacilityBand 横断面与 AccessRule 准入静态模型
-（profile 必填 `participantClassId`），以及 #281 的 multi-Gate、
-WaitingZone static registry/route occurrence/绑定期 capability guards，并由
-canonical fixtures 锁定。详细契约见
-`design/data-format.md` 与 `design/data-loading.md`。
-
-Traffic Data 只承载 immutable ParkingArea/ParkingSpace、entry/exit anchors 与 edge-relative geometry，不持久化 reservation、occupancy、initial parked vehicles 或 runtime handles。#107 已原子切换 schema、private DTO、loader、fixtures 与 current docs；#108 的 runtime authority 完全保留在 CoreWorld，不回写 production data。
+共享静态路网只承载 immutable ParkingArea/ParkingSpace、entry/exit anchors 与
+edge-relative geometry，不持久化 reservation、occupancy、initial parked vehicles
+或 runtime handles。停车占用权威在 `TrafficWorld`。
 
 #229 已按 #228/ADR 0017 把 Traffic 原子切换为 v0.8：clean break 增加
 Junction、Movement、ManeuverPath，并以一等 ManeuverGate 取代 pair-based Gate。
@@ -312,7 +308,7 @@ Signals 分层职责：Controller 产生 indication；ManeuverGate/StopLine
 表达空间准入；compliance policy 解释 signal-layer permission；纵向 constraint、
 安全投影与 permission-aware traversal 保证结果不可绕过。SignalController 不硬编码
 国家/转向规则，Adapter 只 query/render。长期分层见 ADR 0009、
-`design/signal-system.md` 与 `reference/v0.4-closure-review.md`。
+`design/signal-system.md`。
 
 #229 在不改变上述职责分层的前提下实现了 ADR 0017：
 `Junction -> Movement -> ManeuverPath` immutable owner hierarchy、derived
@@ -372,7 +368,7 @@ Adapter 不读取 compiler IR、LFCA 表语义，也不拥有共享静态规则�
 
 ADR 0013/0015 与 #136 已冻结适配器边界。各 Adapter 不再自行定义中心线和长度采样权威；它们从 `TrafficWorld::committed_pose_sources()` 构造稳定的 Lane/Parking 输入，消费带 frame identity 和 placement token 的 `f32` canonical 批量位姿，并只在末端处理 frame 放置、坐标轴、坐标系手性、宿主变换、插值和细节层次（LOD）。详细设计见 ADR 0013、ADR 0015、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
 
-v0.7 的首个生产 Adapter crate 为 `laneflow-bevy`。#301 后它依赖 `laneflow-runtime`、`laneflow-spatial` 和 Bevy 0.19 的最小 modular crates，使用一个 Bevy Resource 表达单活动 Session，并在宿主 `First` 之后运行 LaneFlow 自有 outer-frame/fixed schedules；它不修改 Bevy `Time<Fixed>`，也不把 Bevy 类型引入 Runtime/Spatial。`debug-gizmos` 目前是占位 plugin。最小证据为 `runtime_min` 与无窗口 smoke。历史 v0.7 Gate 与 native reference 细节见 `design/bevy-reference-adapter.md` 和 `reference/v0.7-bevy-closure-review.md`。
+v0.7 的首个生产 Adapter crate 为 `laneflow-bevy`。#301 后它依赖 `laneflow-runtime`、`laneflow-spatial` 和 Bevy 0.19 的最小 modular crates，使用一个 Bevy Resource 表达单活动 Session，并在宿主 `First` 之后运行 LaneFlow 自有 outer-frame/fixed schedules；它不修改 Bevy `Time<Fixed>`，也不把 Bevy 类型引入 Runtime/Spatial。`debug-gizmos` 目前是占位 plugin。最小证据为 `runtime_min` 与无窗口 smoke。Adapter 边界见 `design/bevy-reference-adapter.md`。
 
 v0.8 的场景人口与回流采用 ADR 0016 的 caller-owned policy，不进入 `TrafficWorld::step` 隐藏状态，也不由 Bevy ECS 选择 route。Runtime 不提供人口 controller。走廊人口迁到 Runtime 是 follow-up Issue，不是 #301 完成条件。Traffic/Spatial 继续是静态制品，不持久化目标人口、runtime handles 或 Entity。场景目标见 `design/example-scenarios.md`。
 

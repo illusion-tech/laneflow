@@ -1,9 +1,9 @@
 # 示例场景设计
 
 **文档状态**: Accepted（#184 G1；#196 v0.9 增量）<br>
-**最后更新**: 2026-07-29<br>
-**适用范围**: v0.8 Signalized Corridor 基线，以及 current v0.10
-protected-turning 制品、启动配置、人口和车辆回流入口
+**最后更新**: 2026-08-23<br>
+**适用范围**: 信号化走廊几何、受保护转向 profile、catalog 0.2、人口和车辆回流策略。
+JSON 制品与 production loader 已删除。
 
 **关联 ADR**:
 
@@ -23,12 +23,15 @@ protected-turning 制品、启动配置、人口和车辆回流入口
 
 ## 1. 目标与交付边界
 
-v0.8 首先交付一个可持续运行、可复现且使用 production loader 的直行 native
-reference 场景。v0.9 在保持道路 envelope、限速、50–200 辆车人口、出口回流和
-Core/Spatial/Adapter 分层不变的前提下，clean-break 切换为受保护左转、直行和右转
-profile。
+v0.8 首先交付一个可持续运行、可复现的直行 native reference 场景。v0.9 在保持道路
+envelope、限速、50–200 辆车人口、出口回流和 Runtime/Spatial/Adapter 分层不变的
+前提下，clean-break 切换为受保护左转、直行和右转 profile。
 
-current v0.10 包含：
+current 走廊几何与人口策略仍按下列边界描述。Traffic / Spatial / Manifest JSON
+与 production JSON loader 已随 #301 删除；仓库只保留 catalog TOML。可运行世界从
+共享静态路网安装。走廊人口迁到 Runtime 是 follow-up。
+
+走廊能力包含：
 
 - 物理道路轴线总长不超过 2 km，默认 1.4 km；
 - 66 条 LaneEdge、24 个 Movement、32 条 lane-level ManeuverPath/Gate、28 条
@@ -37,8 +40,8 @@ current v0.10 包含：
 - 两套可配置固定时制信号控制器，每个 Junction 四组、12 phase/84 秒；
 - `50..=200` 可调车辆人口、显式 seed 和确定性出口回流；
 - 同一 Bevy proxy/model 复用，但每次回流获得新的 Core `VehicleHandle`；
-- Traffic v0.10、SpatialPackage/ScenarioManifest v0.1 与 scenario-local catalog 0.2；
-- checked-in 默认制品、确定性 generator 与 production loader 往返验证。
+- scenario-local catalog 0.2；
+- 确定性 generator 写出 catalog；JSON 往返验证已删除。
 
 current 场景不包含换道、路径搜索、permissive turn、红灯右转、感应或自适应信号、
 运行时热修改信号、行人、停车、匝道、路网编辑器和 runtime snapshot。

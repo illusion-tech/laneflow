@@ -21,7 +21,6 @@
   - `../design/numeric-representation.md`
   - `../design/core-runtime.md`
   - `../design/data-format.md`
-  - `../reference/v0.6-numeric-validation.md`
   - `../roadmap.md`
 
 ## 背景
@@ -30,7 +29,7 @@ LaneFlow 在首个 Engine Adapter 前需要冻结交通状态、道路几何和�
 
 把 Core 全量改成 `f32` 可能缩小 hot state，但也会改变当前接近“全部有限 `f64`”的公共输入范围、错误 payload、JSON normalization、edge boundary、route total、控制器与累计语义。把 `f16` 用于 authority 会进一步引入明显量化误差。另一方面，永远把大世界绝对坐标直接 cast 到宿主 `f32` 也会在 Adapter 端丢失可见精度。因此数值选择必须按 authority、累计、局部表示和 presentation 分层，而不是按“整个项目只用一种 float”处理。
 
-#122 在 commit `a001b5b2d567a172fcaa462e44ed70863fb6f774` 建立了不进入 production Core 的 f64/raw-f32/compensated-f32/mixed 候选模型。f64 模型先在 legacy/locality 两种布局、free-flow/dense/stop-and-go 三类场景与 production Core 逐 tick 对齐，再用于一万/十万差分、Criterion、长时累计、layout memory 和量化研究。详细限制与原始结果由 validation 文档保存。
+#122 在 commit `a001b5b2d567a172fcaa462e44ed70863fb6f774` 建立了不进入 production Core 的 f64/raw-f32/compensated-f32/mixed 候选模型。f64 模型先在 legacy/locality 两种布局、free-flow/dense/stop-and-go 三类场景与 production Core 逐 tick 对齐，再用于一万/十万差分、Criterion、长时累计、layout memory 和量化研究。详细限制与原始结果见 git 历史。
 
 ## 2026-07-18 后续复核状态
 
@@ -42,7 +41,7 @@ LaneFlow 在首个 Engine Adapter 前需要冻结交通状态、道路几何和�
 - “所有 f32 候选都没有 wall-time 优势”；
 - “compensated f32 的剩余误差证明控制链必须回到 f64”。
 
-ADR 0014 已接受补偿残差感知 `f32` 的下一目标契约，并取代本文关于“目标权威继续统一为 `f64`”的长期目标决策。#144 的首次独立原子迁移通过正确性和内存护栏，但稳态性能只提升 `4.257%`、未达到 `5%` 门槛，因此当前生产仍保持本文的 `f64` 状态。完整数字与最大误差来源见 `../reference/v0.6-numeric-validation.md` 第 9 节和第 15 节。
+ADR 0014 已接受补偿残差感知 `f32` 的下一目标契约，并取代本文关于“目标权威继续统一为 `f64`”的长期目标决策。#144 的首次独立原子迁移通过正确性和内存护栏，但稳态性能只提升 `4.257%`、未达到 `5%` 门槛，因此当前生产仍保持本文的 `f64` 状态。完整逐轮数字见 git 历史中的 v0.6 数值验证记录；本文与 ADR 0014 保留裁决结论。
 
 ## 决策
 

@@ -17,11 +17,9 @@
 - `../adr/0025-checked-canonical-network-and-shared-static-network.md`
 - `../reference/glossary.md`
 - `numeric-representation.md`
-- `data-format.md`
 - `adapter-api.md`
 - `parking-system.md`
 - `signalized-corridor-protected-turning.md`
-- `../reference/v0.6-spatial-validation.md`
 
 ## 1. 目标、边界与术语
 
@@ -353,7 +351,7 @@ CanonicalPoseRecordF32 { vehicle, pose }
 - Spatial 注册表按已解析的边句柄或索引查询，不在每辆车的高频路径中解析外部字符串 ID。
 - output frame 与 registry frame 不匹配时在读取 records 前失败。record 失败按输入顺序返回 first-error，携带输入序号、vehicle handle 和结构化 source。
 - `SpatialRegistry::extract_pose_batch` 先把全部记录计算到调用方拥有的 `CanonicalPoseBatchScratch`；任何失败都清空 scratch 并保持旧 output 的 frame/token/records 不变，全部成功后才 swap 并更新 token。
-- 调用方可以为 output/scratch 预留容量并跨 tick 复用；#137 已验证稳定容量下的零分配和一万/十万性能，固定机结果和适用边界见 `../reference/v0.6-spatial-validation.md`。
+- 调用方可以为 output/scratch 预留容量并跨 tick 复用；#137 已验证稳定容量下的零分配和一万/十万性能。逐轮固定机结果见 git 历史。
 - Adapter 在提交宿主 Transform 前比较 batch token 与当前 placement token；同一 frame 的 placement 切换必须颁发新 token。
 - 表现插值、细节层次和相机相对原点切换不能回写 Core/Spatial 的权威状态。
 
@@ -386,7 +384,7 @@ heading = anchor.tangent * cos(heading_offset_radians)
 | `geo`                 | 不采用            | 二维地理算法与依赖面过大，坐标参考系统仍不是首版目标            |
 | `rstar`               | 延后到 #72 类需求 | R 树解决空间查询与索引，不解决中心线权威和采样                  |
 
-完整版本、MSRV、许可证、特性开关、依赖与维护证据见 `v0.6-spatial-validation.md`。
+完整版本、MSRV、许可证、特性开关、依赖与维护证据见 git 历史中的 v0.6 Spatial 验证记录。
 
 ## 12. 确定性与验证
 

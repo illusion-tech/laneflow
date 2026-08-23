@@ -38,10 +38,10 @@ v0.5 的目标是在 v0.4 Accepted fixed tick、typed handles、lane graph、rou
 - 公开不可变 static registry、borrowed committed snapshot、typed commands/records/events/errors；
 - 冻结 current data format 0.5、migration、canonical fixtures 和验证/性能门禁。
 
-本文既保留 #105 Accepted 实现输入，也记录 #106-#110 current 交付事实；#19 的独立完成判断与剩余风险见 [`../reference/v0.5-closure-review.md`](../reference/v0.5-closure-review.md)。分阶段事实必须保持：
+本文既保留 #105 Accepted 实现输入，也记录 #106-#110 已交付的停车行为。当时收口流水账见 git 历史。分阶段事实必须保持：
 
 1. #105 当时只新增 design/ADR；该历史阶段不再代表 current tree。
-2. #106 已交付无 Parking public types 的 lifecycle/route-distance/command-spatial 性能底座；验证基线见 [`../reference/v0.5-lifecycle-substrate-validation.md`](../reference/v0.5-lifecycle-substrate-validation.md)。
+2. #106 已交付无 Parking public types 的 lifecycle/route-distance/command-spatial 性能底座。逐轮验证见 git 历史。
 3. #107 已把 static Parking、schema、private DTO、loader、fixtures 与 current docs 原子切换到 production 0.5。
 4. #108 已交付 runtime commands/query，并用窄 capability guard 保护当时尚未激活的 Reserved step。
 5. #109 已完整交付 ParkingStop、arrival、traversal/release/events 并解除 guard。
@@ -1035,22 +1035,10 @@ Public loader surface不变，仍只接收in-memory bytes/string并返回单一c
    ParticipantClass/CrossSection/AccessRule，Parking shape 仍不变。
 5. #281 将 current Traffic contract clean-break 到 `0.10`，增加
    multi-Gate/WaitingZone 静态模型，Parking shape 仍不变。
-6. 仓库 active examples 已随每次 current-format 迁移。
-7. Git/收口报告保留 v0.5/v0.7/v0.8/v0.9 历史事实；已发布 schema bytes 作为 immutable
-   publication artifacts 保留。
-8. v0.9 及更早输入返回 `UnsupportedFormatVersion`，不自动补
-   WaitingZone、ParticipantClass/CrossSection/Access、topology、limit 或 empty
-   Parking，不提供 shim/converter。
-
-只保留两个active canonical fixtures：
-
-- `v0.10-parking-signals-baseline.laneflow.json`：non-empty Signals + Parking，显式
-  Junction/Movement/ManeuverPath/ManeuverGate、ParticipantClass/CrossSection/
-  AccessRule 与空 WaitingZone array，area members + standalone、same/distinct
-  entry/exit、正负 lateral、zero/angled heading，不含 runtime state。
-- `v0.10-empty-signals-and-parking.laneflow.json`：Junction/Movement/ManeuverPath、
-  ParticipantClass/CrossSection/Access/WaitingZone arrays、Signals 四数组和
-  Parking 两数组显式提供，继续承担 route/profile/repeated-edge 回归。
+6. current JSON 示例与 schema 已随 #301 删除；停车静态数据由编译器 / 共享静态路网
+   承载。
+7. v0.5–v0.10 JSON 历史事实只保留在 git 历史，不构成现行加载契约。
+8. 不提供旧 JSON 的 shim/converter。停车占用权威在 `TrafficWorld`。
 
 ## 13. Performance contract
 
@@ -1144,7 +1132,7 @@ Exact private containers、compaction threshold和allocation crate不由本文�
 
 - engine-independent loader-to-Core `parking_lifecycle` example：load/register -> reserve -> approach/arrival -> commit -> leave -> resume。
 - Example/fixture assertions由integration tests复用；benchmark builder复用相同topology generator。
-- #110已新增 [`../reference/v0.5-parking-validation.md`](../reference/v0.5-parking-validation.md)，记录commit/dirty status、CPU/OS/rustc/LLVM/target/profile/power mode、workload、commands、三轮raw results、confidence interval、outliers、noise、profile与remaining risks。
+- #110 当时的三轮 raw 结果、环境与 remaining risks 见 git 历史，不作为现行 JSON 契约。
 - Shared CI运行functional/scale smoke、allocation invariant和benchmark compile，不使用shared runner wall-clock阻断。
 - Windows incremental-cache finalize note仅作为local noise；只有clean build/CI实际失败才另立build Issue。
 

@@ -16,16 +16,14 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 7. 相关的 `docs/design/` 与 `docs/adr/` 文档
 8. 涉及 #291 目标静态路网编译、#300 共享静态路网、静态执行约束/分区规划
    提示/运行时执行计划（Static Execution Constraint / Partition Planning Hints /
-   Runtime Execution Plan），或 `laneflow-core/CoreWorld` →
-   `laneflow-runtime/TrafficWorld` 的 #301 消费路径与旧入口拆除时，读取
+   Runtime Execution Plan），或 `laneflow-runtime/TrafficWorld` 时，读取
    `docs/adr/0020-compiler-owned-static-network-and-static-image.md`、
    `docs/adr/0025-checked-canonical-network-and-shared-static-network.md`、
    `docs/design/network-compiler.md`、`docs/design/shared-static-network.md` 与
    `docs/design/traffic-runtime-shared-consumption.md`
-9. 涉及 #308 编译器工作负载、资源/性能预算校准、研究停止护栏或私有容器候选时，
-   读取 `docs/design/compiler-budget-calibration.md`。#308 已关闭；研究执行器、
-   R0 raw/Evidence JSON 与研究报告不在当前工作区。查阅当时制品，使用 G4 精确
-   证据提交 `de4cd460a96415cafbd811141568b81f74d73534` 与交付 PR #310。不得把该
+9. 涉及已关闭的 #308 编译器预算校准时，只读
+   `docs/design/compiler-budget-calibration.md` 的短结论。查阅当时制品使用 G4
+   精确证据提交 `de4cd460a96415cafbd811141568b81f74d73534` 与交付 PR #310。不得把该
    研究重新加回生产 crate 或工作区成员
 10. 涉及 #292、#315、#296、#297、`laneflow-static-contract`、
     `laneflow-compiler`、官方前端共同受检模块接入、合成领域专用语言前端
@@ -33,13 +31,12 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
     LIR→当前态投影时，额外读取
    `docs/design/compiler-foundation.md`；#296 还须读取
    `docs/adr/0023-road-editing-state-and-phased-network-replacement.md` 与
-   `docs/design/road-editing-source-and-geometry-frontend.md`；准备 #292 G3 或复核生产性能证据时，同时读取
-   `docs/reference/v0.10-compiler-foundation-validation.md`
+   `docs/design/road-editing-source-and-geometry-frontend.md`；复核生产编译性能时读取
+   `docs/reference/v0.10-compiler-production-baseline.md`
 11. 涉及 #298、`laneflow-format`、可移植规范制品、源映射封套、语义差异封套、
     规范发布描述符、逐字节确定性或原子发布时，额外读取
     `docs/design/portable-canonical-artifact.md` 与
-    `docs/reference/v0.10-portable-artifact-validation.md`；#298 G1 Pass 只冻结实现输入，
-    在独立 G2 开工判断 Pass 前不能启动格式实现
+    `docs/design/compiler-post-emission-check-and-minimal-publication-closure.md`
 12. 涉及城市模拟游戏范围、Routing、路网修订、存档/回放、并行或 fidelity 时读取
    `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 
@@ -81,12 +78,12 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 ## 规则
 
 - 不要把引擎相关依赖引入当前 Core 或目标 Traffic Runtime。
-- 当前态使用 `LaneFlow Core` / `laneflow-core` / `CoreWorld`；目标态使用中文
-  规范名“LaneFlow 交通运行时”及精确标识符 `laneflow-runtime` / `TrafficWorld`。
-  #301 完成前不得把尚未落地的 Runtime 写成已可运行世界；#301 完成后 Runtime 是
-  唯一可运行交通世界，不得再把 Core 当正式入口。契约见
+- 可运行世界使用中文规范名“LaneFlow 交通运行时”及精确标识符
+  `laneflow-runtime` / `TrafficWorld`。`laneflow-core` / `CoreWorld` 与 current
+  JSON 入口已拆除，不得再当作正式入口。契约见
   `docs/design/traffic-runtime-shared-consumption.md`。
-- 不要在不更新 design 文档的情况下改变数据格式语义。
+- 不要在不更新 design 文档的情况下改变数据格式语义。静态数据现行路径是 LFCA /
+  共享静态路网，不是已删除的 current JSON。
 - 长期文档中的领域术语必须中文权威、英文辅助；新术语先补
   `docs/reference/glossary.md`，代码和协议标识符保留精确原文。
 - 面向读者的数量必须让数量级、单位和计数对象清楚且无歧义；零较多的中文正文建议

@@ -26,8 +26,6 @@
 - 详细设计与证据：
   - `../design/spatial-geometry.md`
   - `../design/adapter-api.md`
-  - `../design/data-format.md`
-  - `../reference/v0.6-spatial-validation.md`
   - `../../research/issue-123-spatial-prototype/README.md`
 
 ## 背景

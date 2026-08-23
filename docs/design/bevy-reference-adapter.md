@@ -17,13 +17,12 @@
 - `adapter-api.md`
 - `spatial-geometry.md`
 - `example-scenarios.md`
+- `traffic-runtime-shared-consumption.md`
 - `../reference/validation-matrix.md`
-- `../reference/v0.6-spatial-validation.md`
-- `../reference/v0.7-bevy-closure-review.md`
 
 ## 1. 目标
 
-`laneflow-bevy` 是 LaneFlow 的首个 Reference Adapter。它用一个真实 Rust 游戏引擎验证 fixed tick 调度、车辆与实体生命周期、批量位姿到宿主 Transform 的转换、调试可视化和最小可运行示例，但不改变 Core、Data 或 Spatial 的权威职责。
+`laneflow-bevy` 是 LaneFlow 的首个 Reference Adapter。它用一个真实 Rust 游戏引擎验证 fixed tick 调度、车辆与实体生命周期、批量位姿到宿主 Transform 的转换、调试可视化和最小可运行示例，但不改变 Runtime 或 Spatial 的权威职责。#301 后 Session 安装 `TrafficWorld` 与可选 `SpatialSession`；`CoreWorld` 与 current JSON 入口已拆除。历史 campus / 走廊 Core 示例不再是现行证据。
 
 v0.7 的完成目标是提供一条可构建、可测试、可演示且默认依赖面受控的 Bevy 集成路径。Bevy 不是跨 ABI、跨语言兼容性的唯一证明。
 
@@ -42,8 +41,8 @@ v0.7 的完成目标是提供一条可构建、可测试、可演示且默认依
 
 v0.7 每个 Bevy `App` 只支持一个活动 `LaneFlowSession`。Session 可以组合或持有：
 
-- `CoreWorld`；
-- `SpatialRegistry`；
+- `TrafficWorld`；
+- 可选 `SpatialSession`；
 - 已提交的 pose batch；
 - 可复用的 extraction、validation 与 Transform staging scratch；
 - 当前 canonical frame placement 与 token；
@@ -51,7 +50,7 @@ v0.7 每个 Bevy `App` 只支持一个活动 `LaneFlowSession`。Session 可以�
 
 组合不改变权威职责：
 
-- Core 决定 fixed quantum、tick index、simulation time、车辆、路线、信号与停车状态。
+- Runtime 决定 fixed quantum、tick index、simulation time、车辆、路线、信号与停车状态。
 - Spatial 决定 canonical frame、中心线、弧长、绑定和 canonical pose。
 - Bevy Adapter 决定 schedule 集成、Entity、local Transform 与 frame placement。
 - Presentation 决定模型、材质、动画、可见性、LOD、pooling、debug draw 与示例 UI。
@@ -206,7 +205,7 @@ v0.7 不冻结 glTF、prefab、scene、asset pipeline、UI、presentation interp
 - 示例创建 main/loop 两辆 Core vehicle、非原点且带 placement token 的 frame-root、直接 child proxy 和内建 cuboid vehicle child。道路只按调用方已加载的中心线点生成简单表现几何，不重算 Spatial 长度，也不反写 Core/Spatial。
 - 完整 `DefaultPlugins`、camera、directional/ambient light、mesh/material、keyboard 与 screenshot 系统全部保留在 example 文件。`G` 切换既有预算受控 Gizmos，`F12` 保存当前工作目录截图；这些控制不进入 library export。
 - 文件、manifest/digest、Traffic/Spatial normalization 与 Core world 构造失败带路径和阶段诊断返回；运行中 Adapter 结构化错误写入宿主日志。
-- 共享 CI 执行 dedicated example compile；本机 smoke 额外验证真实窗口、车辆/道路几何、frame axes、中心线、运行时 Gizmos 开关与截图。证据见 `../reference/v0.7-bevy-native-example-validation.md`。
+- 共享 CI 执行 dedicated example compile。历史 native 窗口 smoke 见 git 历史；现行最小证据为 `runtime_min` 与无窗口 smoke。`debug-gizmos` 目前是占位 plugin。
 
 ## 10. 验证与性能 Gate
 
@@ -238,7 +237,7 @@ Spatial batch extract
 
 共享 CI 运行 correctness、determinism、allocation、workspace/MSRV、example/benchmark compile 与 dependency policy。绝对 wall-clock Gate 只在记录了机器、source commit、命令、样本和后台负载的固定环境运行，不作为跨平台 SLA。
 
-#171 已在 source commit `d7e8b1e` 上固化该边界：稳定容量的一万/十万完整 `PostUpdate` 均为零 allocation/reallocation；Rust 1.96 固定机五轮 p95 中位数为 `3.067 ms` / `35.852 ms`，扩展 `11.691x`，全部通过冻结 Gate。完整协议与逐轮数据见 `../reference/v0.7-bevy-validation.md` 和 `../reference/v0.7-bevy-performance-evidence.json`。
+#171 已在 source commit `d7e8b1e` 上固化该边界：稳定容量的一万/十万完整 `PostUpdate` 均为零 allocation/reallocation；Rust 1.96 固定机五轮 p95 中位数为 `3.067 ms` / `35.852 ms`，扩展 `11.691x`。逐轮协议见 git 历史。该结果是当时 Bevy 0.19 campus 路径证据，不是 #301 后 `TrafficWorld` 的产品 SLA。
 
 ## 11. 执行切片与 PR 角色
 
@@ -253,7 +252,7 @@ Spatial batch extract
 
 每个子 Issue 使用自己的唯一 Delivery PR。#169-#173 的 PR 对父 #121 只使用 Related PR 语义，不得以 closing keyword 覆盖父 tracker。#174 的最终 integration PR 同时作为 #174 与 #121 的唯一 Delivery PR；所有子 Issue G4 后才允许 #121 进入最终 G3/G4。
 
-#174 的独立审阅没有发现需要回开生产实现、Adapter API、数据格式或 CI 契约的缺口；默认/可选 feature graph、正确性与确定性、失败原子性、固定机性能、可视证据和依赖安全状态统一归档在 `../reference/v0.7-bevy-closure-review.md`。本节的剩余项继续是明确的后续非目标，不阻断 v0.7 收口。
+#174 的独立审阅没有发现需要回开生产实现、Adapter API 或 CI 契约的缺口。当时收口流水账见 git 历史。本节的剩余项继续是明确的后续非目标。
 
 ## 12. 兼容性与后续演进
 
