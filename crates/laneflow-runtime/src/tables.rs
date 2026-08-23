@@ -300,6 +300,28 @@ fn occupancy_intervals_stack(
     Some((intervals, count, overflow))
 }
 
+fn occupancy_intervals_vec(
+    lengths: &[f64],
+    edges: &[LaneEdgeOrdinal],
+    index: usize,
+    end: f64,
+    remaining: f64,
+) -> Option<Vec<OccupancyInterval>> {
+    let mut intervals = Vec::new();
+    for_each_occupancy_interval(lengths, edges, index, end, remaining, |edge, lo, hi| {
+        intervals.push((edge, lo, hi));
+    })?;
+    Some(intervals)
+}
+
+fn occupancy_slices_overlap(left: &[OccupancyInterval], right: &[OccupancyInterval]) -> bool {
+    left.iter().any(|(edge, a_lo, a_hi)| {
+        right
+            .iter()
+            .any(|(other, b_lo, b_hi)| *edge == *other && *a_lo < *b_hi && *b_lo < *a_hi)
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn bodies_overlap(
     lengths: &[f64],
@@ -328,13 +350,69 @@ pub(crate) fn bodies_overlap(
         return false;
     };
     if left_overflow || right_overflow {
-        return true;
+        let Some(left) = occupancy_intervals_vec(lengths, a_edges, a_index, a_progress, a_length)
+        else {
+            return false;
+        };
+        let Some(right) = occupancy_intervals_vec(lengths, b_edges, b_index, b_progress, b_length)
+        else {
+            return false;
+        };
+        return occupancy_slices_overlap(&left, &right);
     }
-    left[..left_n].iter().any(|(edge, a_lo, a_hi)| {
-        right[..right_n]
-            .iter()
-            .any(|(other, b_lo, b_hi)| *edge == *other && *a_lo < *b_hi && *b_lo < *a_hi)
-    })
+    occupancy_slices_overlap(&left[..left_n], &right[..right_n])
+}
+
+/// 前车占用相对后车前保险杠的间隙。走完占用才返回 `Some`；中途失败丢弃局部结果。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn occupancy_front_gap(
+    lengths: &[f64],
+    follower_edges: &[LaneEdgeOrdinal],
+    follower_index: usize,
+    follower_progress: f64,
+    leader_edges: &[LaneEdgeOrdinal],
+    leader_index: usize,
+    leader_progress: f64,
+    leader_length: f64,
+) -> Option<f64> {
+    let mut gap: Option<f64> = None;
+    for_each_occupancy_interval(
+        lengths,
+        leader_edges,
+        leader_index,
+        leader_progress,
+        leader_length,
+        |edge, lo, hi| {
+            let Some(found) = follower_edges
+                .iter()
+                .enumerate()
+                .skip(follower_index)
+                .find_map(|(index, candidate)| (*candidate == edge).then_some(index))
+            else {
+                return;
+            };
+            let bumper = if found == follower_index {
+                if hi <= follower_progress + 1e-12 {
+                    return;
+                }
+                lo - follower_progress
+            } else {
+                let Some(front_to_rear) = remaining_along_route(
+                    lengths,
+                    follower_edges,
+                    follower_index,
+                    follower_progress,
+                    found,
+                    lo,
+                ) else {
+                    return;
+                };
+                front_to_rear
+            };
+            gap = Some(gap.map_or(bumper, |current| current.min(bumper)));
+        },
+    )?;
+    gap
 }
 
 pub(crate) fn static_route_ordinal(handle: RouteHandle) -> Option<StaticRouteOrdinal> {
@@ -562,6 +640,102 @@ mod compile_dynamic_route_tests {
         assert_eq!(
             compile_dynamic_route(traffic, &[entry]).unwrap_err(),
             RouteError::ManeuverMismatch
+        );
+    }
+}
+
+#[cfg(test)]
+mod occupancy_interval_tests {
+    use super::*;
+    use laneflow_static_contract::LaneEdgeOrdinal;
+
+    fn edge(raw: u32) -> LaneEdgeOrdinal {
+        LaneEdgeOrdinal::from_raw(raw)
+    }
+
+    fn chain(start: u32, count: usize) -> Vec<LaneEdgeOrdinal> {
+        (0..count)
+            .map(|offset| edge(start + u32::try_from(offset).expect("edge ordinal")))
+            .collect()
+    }
+
+    fn overflow_count() -> usize {
+        OCCUPANCY_INTERVAL_CAP + 1
+    }
+
+    fn overflow_body_length() -> f64 {
+        overflow_count() as f64 - 0.5
+    }
+
+    #[test]
+    fn overflow_without_shared_edges_is_not_overlap() {
+        let span = overflow_count();
+        let lengths = vec![1.0; span * 2];
+        let left = chain(0, span);
+        let right = chain(u32::try_from(span).expect("start"), span);
+        let last = span - 1;
+        let body = overflow_body_length();
+        assert!(!bodies_overlap(
+            &lengths, &left, last, 1.0, body, &right, last, 1.0, body,
+        ));
+    }
+
+    #[test]
+    fn overflow_is_not_overlap_when_only_dropped_interval_is_disjoint() {
+        let span = overflow_count();
+        let lengths = vec![1.0; span];
+        let edges = chain(0, span);
+        let last = span - 1;
+        assert!(!bodies_overlap(
+            &lengths,
+            &edges,
+            last,
+            1.0,
+            overflow_body_length(),
+            &edges,
+            0,
+            0.4,
+            0.3,
+        ));
+    }
+
+    #[test]
+    fn overflow_still_overlaps_when_only_dropped_interval_collides() {
+        let span = overflow_count();
+        let lengths = vec![1.0; span];
+        let edges = chain(0, span);
+        let last = span - 1;
+        assert!(bodies_overlap(
+            &lengths,
+            &edges,
+            last,
+            1.0,
+            overflow_body_length(),
+            &edges,
+            0,
+            0.7,
+            0.3,
+        ));
+    }
+
+    #[test]
+    fn occupancy_front_gap_discards_partial_walk() {
+        let lengths = [1.0];
+        let follower = [edge(0)];
+        let leader = [edge(99), edge(0)];
+        assert_eq!(
+            occupancy_front_gap(&lengths, &follower, 0, 0.2, &leader, 1, 1.0, 1.5),
+            None
+        );
+    }
+
+    #[test]
+    fn occupancy_front_gap_returns_rear_bumper_on_same_edge() {
+        let lengths = [10.0];
+        let edges = [edge(0)];
+        assert_eq!(
+            occupancy_front_gap(&lengths, &edges, 0, 1.0, &edges, 0, 6.0, 2.0),
+            Some(3.0)
         );
     }
 }

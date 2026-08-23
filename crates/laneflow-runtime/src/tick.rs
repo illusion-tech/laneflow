@@ -2,8 +2,8 @@ use laneflow_static_contract::{LaneEdgeOrdinal, SignalAspect, StaticRouteOrdinal
 use laneflow_static_network::VehicleProfileView;
 
 use crate::tables::{
-    VehicleState, VehicleStatus, compiled_hop_gate, for_each_occupancy_interval,
-    remaining_along_route, remaining_to_route_end, static_route_ordinal,
+    VehicleState, VehicleStatus, compiled_hop_gate, occupancy_front_gap, remaining_along_route,
+    remaining_to_route_end, static_route_ordinal,
 };
 use crate::{StepError, StepOutcome, TickInput, TrafficWorld};
 
@@ -184,46 +184,22 @@ impl TrafficWorld {
             let Some(leader_edges) = self.route_edges(leader.route) else {
                 continue;
             };
-            let leader_index = usize::try_from(leader.route_edge_index).ok()?;
-            let walked = for_each_occupancy_interval(
+            let Ok(leader_index) = usize::try_from(leader.route_edge_index) else {
+                continue;
+            };
+            let Some(gap) = occupancy_front_gap(
                 lengths,
+                edges,
+                cursor,
+                follower.progress,
                 leader_edges,
                 leader_index,
                 leader.progress,
                 leader.length,
-                |edge, lo, hi| {
-                    let Some(found) = edges
-                        .iter()
-                        .enumerate()
-                        .skip(cursor)
-                        .find_map(|(index, candidate)| (*candidate == edge).then_some(index))
-                    else {
-                        return;
-                    };
-                    let bumper = if found == cursor {
-                        if hi <= follower.progress + 1e-12 {
-                            return;
-                        }
-                        lo - follower.progress
-                    } else {
-                        let Some(front_to_rear) = remaining_along_route(
-                            lengths,
-                            edges,
-                            cursor,
-                            follower.progress,
-                            found,
-                            lo,
-                        ) else {
-                            return;
-                        };
-                        front_to_rear
-                    };
-                    best = Some(best.map_or(bumper, |current| current.min(bumper)));
-                },
-            );
-            if walked.is_none() {
+            ) else {
                 continue;
-            }
+            };
+            best = Some(best.map_or(gap, |current| current.min(gap)));
         }
         best
     }
