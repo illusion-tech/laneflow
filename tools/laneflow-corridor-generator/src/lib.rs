@@ -47,9 +47,6 @@ pub fn generate_files(config_path: &Path) -> Result<ScenarioCounts, Error> {
         .parent()
         .expect("joined output file always has a parent");
     std::fs::create_dir_all(parent).at(parent)?;
-    write(&paths.traffic, generated.traffic_bytes())?;
-    write(&paths.spatial, generated.spatial_bytes())?;
-    write(&paths.manifest, generated.manifest_bytes())?;
     write(&paths.catalog, generated.catalog_bytes())?;
     Ok(generated.counts())
 }
@@ -58,9 +55,6 @@ pub fn check_files(config_path: &Path) -> Result<ScenarioCounts, Error> {
     let config = load_config(config_path)?;
     let generated = generate(&config)?;
     let paths = output_paths(config_path, &config);
-    compare(&paths.traffic, generated.traffic_bytes())?;
-    compare(&paths.spatial, generated.spatial_bytes())?;
-    compare(&paths.manifest, generated.manifest_bytes())?;
     compare(&paths.catalog, generated.catalog_bytes())?;
     Ok(generated.counts())
 }

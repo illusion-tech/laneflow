@@ -2,18 +2,16 @@ mod support;
 
 use issue_308_compiler_budget_calibration_research::{
     ConstantHashRole, ORACLE_BINARY_ID, ScalableWorkloadId, build_corridor_known_vectors,
-    build_current_fixtures_known_vectors, build_identity_known_vectors,
-    build_identity_oracle_child, build_junction_grid_known_vectors,
+    build_identity_known_vectors, build_identity_oracle_child, build_junction_grid_known_vectors,
     build_module_graph_known_vectors, load_repository_contract, measure_constant_hash_observation,
-    measure_current_fixtures_child, oracle_binary_descriptor, verify_corridor_oracle_matrix,
-    verify_current_fixtures_oracle, verify_identity_oracle_matrix,
+    oracle_binary_descriptor, verify_corridor_oracle_matrix, verify_identity_oracle_matrix,
     verify_junction_grid_oracle_matrix, verify_scalable_oracle_child, wait_for_parent_start_signal,
 };
 use serde::Serialize;
 use std::path::Path;
 use std::str::FromStr;
 
-const USAGE: &str = "用法：issue-308-compiler-budget-calibration-oracle <describe-role|run|run-scalable|run-current-fixtures|run-constant-hash|verify-matrix|write-known-vectors>\n  run <graph-profile> <N>\n  run-scalable <oracle-run-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>\n  run-constant-hash <candidate-id> <input-variant-id>";
+const USAGE: &str = "用法：issue-308-compiler-budget-calibration-oracle <describe-role|run|run-scalable|run-constant-hash|verify-matrix|write-known-vectors>\n  run <graph-profile> <N>\n  run-scalable <oracle-run-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>\n  run-constant-hash <candidate-id> <input-variant-id>";
 
 fn main() {
     support::main_with(run);
@@ -86,14 +84,6 @@ fn run() -> Result<(), String> {
             .map_err(|error| error.to_string())?;
             support::print_json(&report, "可扩展工作负载独立预言机结果")
         }
-        "run-current-fixtures" => {
-            support::require_no_more_arguments(&mut arguments, USAGE)?;
-            wait_for_parent_start_signal().map_err(|error| error.to_string())?;
-            let trusted = load_repository_contract().map_err(|error| error.to_string())?;
-            let report =
-                measure_current_fixtures_child(&trusted).map_err(|error| error.to_string())?;
-            support::print_json(&report, "当前固定样例独立预言机结果")
-        }
         "run-constant-hash" => {
             let candidate_id = support::next_utf8_argument(&mut arguments, "candidate-id", USAGE)?;
             let input_variant_id =
@@ -121,13 +111,10 @@ fn run() -> Result<(), String> {
                 verify_corridor_oracle_matrix(&trusted).map_err(|error| error.to_string())?;
             let junction_grid =
                 verify_junction_grid_oracle_matrix(&trusted).map_err(|error| error.to_string())?;
-            let current_fixtures =
-                verify_current_fixtures_oracle(&trusted).map_err(|error| error.to_string())?;
             let report = OracleMatrixReport {
                 identity,
                 corridor,
                 junction_grid,
-                current_fixtures,
             };
             support::print_json(&report, "预言机矩阵验证结果")
         }
@@ -147,8 +134,6 @@ fn write_known_vectors() -> Result<(), String> {
         verify_corridor_oracle_matrix(&trusted).map_err(|error| error.to_string())?;
     let junction_grid_oracle_report =
         verify_junction_grid_oracle_matrix(&trusted).map_err(|error| error.to_string())?;
-    let current_fixtures_oracle_report =
-        verify_current_fixtures_oracle(&trusted).map_err(|error| error.to_string())?;
     let generator_contract = trusted
         .generator_contract()
         .map_err(|error| error.to_string())?;
@@ -170,8 +155,6 @@ fn write_known_vectors() -> Result<(), String> {
         build_corridor_known_vectors(&trusted).map_err(|error| error.to_string())?;
     let junction_grid_vectors =
         build_junction_grid_known_vectors(&trusted).map_err(|error| error.to_string())?;
-    let current_fixture_vectors =
-        build_current_fixtures_known_vectors(&trusted).map_err(|error| error.to_string())?;
     let output_directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("known-vectors");
     std::fs::create_dir_all(&output_directory).map_err(|error| {
         format!(
@@ -195,10 +178,6 @@ fn write_known_vectors() -> Result<(), String> {
         &output_directory.join("junction-grid-summary-v1.json"),
         &junction_grid_vectors,
     )?;
-    write_known_vector(
-        &output_directory.join("current-fixtures-summary-v1.json"),
-        &current_fixture_vectors,
-    )?;
     println!("written={}", output_directory.display());
     println!("oracleCheckedCases={}", oracle_report.checked_cases);
     println!(
@@ -208,10 +187,6 @@ fn write_known_vectors() -> Result<(), String> {
     println!(
         "junctionGridOracleCheckedCases={}",
         junction_grid_oracle_report.checked_cases
-    );
-    println!(
-        "currentFixturesOracleCheckedCases={}",
-        current_fixtures_oracle_report.checked_cases
     );
     Ok(())
 }
@@ -223,8 +198,6 @@ struct OracleMatrixReport {
     corridor: issue_308_compiler_budget_calibration_research::CorridorOracleVerificationReport,
     junction_grid:
         issue_308_compiler_budget_calibration_research::JunctionGridOracleVerificationReport,
-    current_fixtures:
-        issue_308_compiler_budget_calibration_research::CurrentFixturesOracleVerificationReport,
 }
 
 fn write_known_vector(path: &Path, value: &impl Serialize) -> Result<(), String> {

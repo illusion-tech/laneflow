@@ -1,15 +1,9 @@
 # LaneFlow Signalized Corridor Generator
 
-本工具提供受保护左转、直行和右转走廊的可复现离线生成路径。它读取仓库内部 TOML 配置，写出：
-
-- 遗留 Traffic package JSON；
-- 遗留 SpatialPackage JSON；
-- 遗留 ScenarioManifest JSON；
-- scenario-local catalog 0.2 TOML。
-
-Traffic / Spatial / Manifest JSON 在 #301 删除 schema 与加载 crate 后没有生产
-interchange 契约，也不是 Runtime 入口。catalog 只用于 `laneflow-scenario` 的仓库
-内部线格式，不进入 Manifest。走廊人口迁到 Runtime 是 follow-up。
+本工具提供受保护左转、直行和右转走廊的可复现离线生成路径。它读取仓库内部 TOML 配置，写出
+scenario-local catalog 0.2 TOML。`generate` / `check` 只对拍 catalog。内存里仍可构造
+遗留 Traffic / Spatial / Manifest JSON 字节，但仓库不再检入这些 JSON，也没有生产
+schema 或加载入口。走廊人口迁到 Runtime 是 follow-up。
 
 ## 使用
 
@@ -25,8 +19,7 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- generate --config e
 cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.10-signalized-corridor.toml
 ```
 
-`check` 不写文件。两个命令都会比较生成字节与已检入文件，并做 catalog
-cross-reference 校验。仓库已无 current JSON Schema 或 production loader。
+`check` 不写文件。两个命令只比较 catalog 字节，并做 catalog cross-reference 校验。
 
 ## 依赖与分发
 

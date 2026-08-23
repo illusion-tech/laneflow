@@ -136,14 +136,13 @@ research/issue-308-compiler-budget-calibration-research/
 - 包名固定为 `issue-308-compiler-budget-calibration-research`，README 必须明确标记
   “非生产研究”，`Cargo.toml` 必须设置 `publish = false`；
 - 生产 crate 不得依赖该研究包；
-- 研究 runner 的普通二进制必须能够看见其运行时依赖；第三方候选以及
-  `laneflow-data` / `laneflow-spatial` 必须登记为该私有研究包的**可选普通依赖**，
-  不得错误放入只对测试、示例和基准可见的 `[dev-dependencies]`；
-- `default = []`；每个第三方候选使用独立私有 feature，当前夹具对照预言机使用
-  `fixture-oracle`，`research-runner-full` 作为正式单入口的封闭总 feature。G2
-  依赖审计冻结具体 package/version 后同步冻结该总 feature 的精确成员；
-- `laneflow-data` / `laneflow-spatial` 只允许由 `fixture-oracle` 在计时区外读取当前
-  夹具和运行对照预言机，不得被合成研究管线调用；
+- 研究 runner 的普通二进制必须能够看见其运行时依赖；第三方候选必须登记为该私有
+  研究包的**可选普通依赖**，不得错误放入只对测试、示例和基准可见的
+  `[dev-dependencies]`；
+- `default = []`；每个第三方候选使用独立私有 feature，`research-runner-full` 作为
+  正式单入口的封闭总 feature。G2 依赖审计冻结具体 package/version 后同步冻结该总
+  feature 的精确成员。#301 已删除 `fixture-oracle` 所依赖的 current JSON 加载路径；
+- `[dev-dependencies]` 只保存不会被普通 runner 二进制链接的测试辅助依赖；
 - `[dev-dependencies]` 只保存不会被普通 runner 二进制链接的测试辅助依赖；
 - 研究类型、候选标识和证据封套不进入生产公共 API；
 - 研究代码不得通过路径依赖复用尚未实现的 #292 生产 crate。
@@ -501,14 +500,10 @@ Workload Manifest）的机器可读 SSOT，冻结：
 目的：隔离道路走廊所有者树、车道边连接、路线出现项、横断面/准入关系、信号关系、
 几何展开和全局规范排序。
 
-一个工作单元以仓库当前
-`examples/data/v0.10-signalized-corridor.laneflow.json`、配对
-`examples/data/v0.1-signalized-corridor.spatial.json` 和
-`examples/data/v0.10-parking-signals-baseline.laneflow.json` 的**结构计数**为来源；
-研究工作负载清单固定这些文件的精确字节长度与 SHA-256，并按其中登记的数组顺序为
-每种实体生成零起始八位十六进制局部键；引用随原引用映射到对应局部键。G2 可以在
-计时区外从固定文件构造一个常量大小单元配方，但每次规模运行不得解析 JSON，也不得
-把原始 ID 或路径复制进领域键。停车基线没有配对 SpatialPackage；其三条 LaneEdge
+一个工作单元的结构计数来自当时 current JSON 走廊/停车夹具；#301 已删除这些 JSON
+文件。研究包改为冻结内部单元配方，规模运行只复制该配方，不再解析 current JSON，
+也不得把原始 ID 或路径复制进领域键。G2 当时按数组顺序为每种实体生成零起始八位
+十六进制局部键；引用随原引用映射到对应局部键。停车基线没有配对 SpatialPackage；其三条 LaneEdge
 在研究生成器中各使用两个清单冻结的规范点，并与信号化走廊共同绑定到每工作单元
 唯一的 CanonicalFrame。`ParkingSpace.areaId` 仅在夹具显式提供时生成组织关系，
 不参与停车位身份派生；缺省值不得由研究生成器补造。合并后的基线计数冻结如下：
@@ -576,7 +571,10 @@ ManeuverPath，并沿路径放置三个 ManeuverGate 和两个相邻门之间的
 
 主归一化分母是 ManeuverGate、WaitingZone 与 route edge occurrence 的总出现数。
 
-### 4.4 `LF-COMP-RESEARCH-CURRENT-FIXTURES-v1`
+### 4.4 `LF-COMP-RESEARCH-CURRENT-FIXTURES-v1`（#301 已删除）
+
+#301 完成 PR 已删除 current JSON schema、加载 crate、`examples/data/` JSON 夹具
+与本工作负载。下文保留当时闭合规则，不构成现行研究入口。
 
 目的：证明研究管线能够表达当前固定夹具的关键结构，校验错误定位与小输入固定成本。
 它不是可放大的规模负载。

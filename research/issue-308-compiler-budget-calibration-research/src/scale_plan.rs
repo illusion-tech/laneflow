@@ -254,7 +254,7 @@ fn template_payload_basis(
     let template = match workload_id {
         ScalableWorkloadId::Corridor => {
             let contract = CorridorContract::from_manifest(&trusted.workload_manifest)?;
-            contract.load_template(&crate::repository_root())?
+            contract.load_template()?
         }
         ScalableWorkloadId::JunctionGrid => {
             let contract = JunctionGridContract::from_manifest(&trusted.workload_manifest)?;

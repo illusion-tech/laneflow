@@ -3091,9 +3091,7 @@ mod tests {
         let plans = ScalableStagePlanFactory::from_trusted_contract(&trusted).unwrap();
         let corridor_contract =
             CorridorContract::from_manifest(&trusted.workload_manifest).unwrap();
-        let corridor_template = corridor_contract
-            .load_template(&crate::repository_root())
-            .unwrap();
+        let corridor_template = corridor_contract.load_template().unwrap();
         let junction_contract =
             JunctionGridContract::from_manifest(&trusted.workload_manifest).unwrap();
         let junction_template = build_junction_grid_template();

@@ -10,7 +10,7 @@ pub const MODULE_GRAPH_KNOWN_VECTOR_ORDER: &str = "canonical-module-name-utf8-as
 const MODULE_GRAPH_KNOWN_VECTOR_BYTE_LENGTH: usize = 6_545;
 #[cfg(test)]
 const MODULE_GRAPH_KNOWN_VECTOR_SHA256: &str =
-    "246a9cccd916b30dac5d951a7db60ab6cee496d8d53934327f582e522346aae0";
+    "f09749bc8ad4c95a7b89be21a8e49a3ac662e22d842efb8497435492efbc4cf7";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum GraphProfileId {

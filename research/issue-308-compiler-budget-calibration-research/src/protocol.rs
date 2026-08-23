@@ -4,18 +4,13 @@
 //! 拐点和规模选择。该检查点不冒充编译器校准证据 v1；证据写出器只能把它作为原始
 //! 输入，并在发布前通过独立 Evidence v1 验证器。
 
-use crate::ladder_runner::decode_child_execution;
-use crate::pilot::run_monitored_command_child;
 use crate::{
     ATTRIBUTION_BINARY_ID, BaseScalePilotCheckpoint, CandidateMatrixError,
-    CandidateMatrixExecutionBundle, ChildProcessMonitorReport, ContractError,
-    CurrentFixturesChildReport, ExternalStateObservation, FORMAL_PROTOCOL_ID,
-    FormalEnvironmentSnapshot, FormalLadderExecution, FormalLadderExecutionDisposition,
-    FormalLadderRunnerError, GraphProfileId, GuardThresholds, InvalidationReason,
-    LimitQualificationBundle, LimitQualificationExecutionError, ORACLE_BINARY_ID, PilotError,
-    ProcessObservation, RunStatus, ScalableWorkloadId, TIMING_BINARY_ID,
-    load_and_install_formal_environment, load_repository_contract, repository_root,
-    run_base_scale_pilot_discovery_with_checkpoint_sink,
+    CandidateMatrixExecutionBundle, ContractError, FORMAL_PROTOCOL_ID, FormalEnvironmentSnapshot,
+    FormalLadderExecution, FormalLadderExecutionDisposition, FormalLadderRunnerError,
+    GraphProfileId, LimitQualificationBundle, LimitQualificationExecutionError, ORACLE_BINARY_ID,
+    PilotError, ScalableWorkloadId, TIMING_BINARY_ID, load_and_install_formal_environment,
+    load_repository_contract, repository_root, run_base_scale_pilot_discovery_with_checkpoint_sink,
     run_candidate_matrix_bundle_with_checkpoint_sink, run_formal_ladders,
     run_limit_qualification_bundle, validate_limit_qualification_bundle,
 };
@@ -48,7 +43,6 @@ pub struct FormalProtocolOutcome {
     pub recorded_formal_oracle_runs: usize,
     pub recorded_attribution_preflight_runs: usize,
     pub recorded_timing_guard_runs: usize,
-    pub current_fixture_case_count: usize,
     pub limit_pair_count: usize,
     pub cleanup_experiment_count: usize,
     pub limit_qualification_valid: bool,
@@ -60,22 +54,7 @@ pub struct FormalProtocolOutcome {
 
 pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA: &str =
     "laneflow.compiler-calibration-formal-execution-checkpoint";
-pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION: u32 = 10;
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FormalCurrentFixtureProjection {
-    pub status: RunStatus,
-    pub invalidation_reasons: Vec<InvalidationReason>,
-    pub process: ProcessObservation,
-    pub child: Option<CurrentFixturesChildReport>,
-    pub monitor: ChildProcessMonitorReport,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub external_state: Option<ExternalStateObservation>,
-    pub kill_error: Option<String>,
-    pub monitor_error: Option<String>,
-    pub stderr: String,
-}
+pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION: u32 = 11;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,7 +81,6 @@ pub struct FormalProtocolCheckpoint {
     pub protocol_id: String,
     pub source: FormalSourceSnapshot,
     pub environment: FormalEnvironmentSnapshot,
-    pub current_fixtures: FormalCurrentFixtureProjection,
     pub base_scale_pilot: BaseScalePilotCheckpoint,
     pub formal_ladders: Vec<FormalLadderExecution>,
     pub active_formal_ladder: Option<FormalLadderExecution>,
@@ -204,7 +182,6 @@ pub fn run_formal_protocol(
         &attribution_executable,
         &oracle_executable,
     )?;
-    let current_fixtures = run_current_fixtures_process(&oracle_executable, &environment)?;
     let mut writer = FormalCheckpointWriter::prepare(&request.output_path)?;
     eprintln!("[正式进度] 阶段=基础规模 操作=逐级探测九个自然身份的 B");
     let base_scale_pilot = run_base_scale_pilot_discovery_with_checkpoint_sink(
@@ -216,7 +193,6 @@ pub fn run_formal_protocol(
                 .persist(&formal_checkpoint(
                     &source,
                     &environment,
-                    &current_fixtures,
                     base_scale_pilot,
                     &[],
                     None,
@@ -245,7 +221,6 @@ pub fn run_formal_protocol(
                 .persist(&formal_checkpoint(
                     &source,
                     &environment,
-                    &current_fixtures,
                     &base_scale_pilot,
                     completed,
                     active,
@@ -277,7 +252,6 @@ pub fn run_formal_protocol(
     writer.persist(&formal_checkpoint(
         &source,
         &environment,
-        &current_fixtures,
         &base_scale_pilot,
         &formal_ladders,
         None,
@@ -307,7 +281,6 @@ pub fn run_formal_protocol(
                 .persist(&formal_checkpoint(
                     &source,
                     &environment,
-                    &current_fixtures,
                     &base_scale_pilot,
                     &formal_ladders,
                     None,
@@ -321,7 +294,6 @@ pub fn run_formal_protocol(
     let checkpoint = formal_checkpoint(
         &source,
         &environment,
-        &current_fixtures,
         &base_scale_pilot,
         &formal_ladders,
         None,
@@ -365,10 +337,6 @@ pub fn run_formal_protocol(
             .flat_map(|ladder| &ladder.levels)
             .filter(|level| level.timing_guard_run.is_some())
             .count(),
-        current_fixture_case_count: current_fixtures
-            .child
-            .as_ref()
-            .map_or(0, |child| child.cases.len()),
         limit_pair_count: limit_qualification.limit_pairs.len(),
         cleanup_experiment_count: limit_qualification.cleanup_experiments.len(),
         limit_qualification_valid: limit_qualification_validation_error.is_none(),
@@ -437,7 +405,6 @@ fn formal_ladder_ready_for_downstream(ladder: &FormalLadderExecution) -> bool {
 fn formal_checkpoint(
     source: &FormalSourceSnapshot,
     environment: &FormalEnvironmentSnapshot,
-    current_fixtures: &FormalCurrentFixtureProjection,
     base_scale_pilot: &BaseScalePilotCheckpoint,
     formal_ladders: &[FormalLadderExecution],
     active_formal_ladder: Option<&FormalLadderExecution>,
@@ -451,7 +418,6 @@ fn formal_checkpoint(
         protocol_id: FORMAL_PROTOCOL_ID.to_owned(),
         source: source.clone(),
         environment: environment.clone(),
-        current_fixtures: current_fixtures.clone(),
         base_scale_pilot: base_scale_pilot.clone(),
         formal_ladders: formal_ladders.to_vec(),
         active_formal_ladder: active_formal_ladder.cloned(),
@@ -506,62 +472,6 @@ fn capture_formal_source(
         dirty: false,
         cargo_lock_sha256,
         binaries,
-    })
-}
-
-fn run_current_fixtures_process(
-    oracle_executable: &Path,
-    environment: &FormalEnvironmentSnapshot,
-) -> Result<FormalCurrentFixtureProjection, FormalProtocolError> {
-    let thresholds =
-        GuardThresholds::from_physical_memory_bytes(environment.physical_memory_bytes)?;
-    let execution = run_monitored_command_child(
-        oracle_executable,
-        0,
-        &["run-current-fixtures".to_owned()],
-        thresholds,
-    )?;
-    let decoded = decode_child_execution(
-        execution,
-        ORACLE_BINARY_ID,
-        |report: &CurrentFixturesChildReport| {
-            if report.schema == crate::CURRENT_FIXTURES_CHILD_SCHEMA
-                && report.schema_version == crate::CURRENT_FIXTURES_CHILD_SCHEMA_VERSION
-                && report.binary_id == ORACLE_BINARY_ID
-                && report.verification.checked_cases
-                    == u32::try_from(report.cases.len()).unwrap_or(u32::MAX)
-                && report.verification.production_loader_cases
-                    == u32::try_from(report.cases.len()).unwrap_or(u32::MAX)
-                && report.verification.independent_identity_and_stream_checked
-                && report.verification.scenario_manifest_emits_no_records
-                && report
-                    .verification
-                    .excluded_from_budget_and_candidate_ranking
-            {
-                Ok(())
-            } else {
-                Err("current-fixtures-child-protocol".to_owned())
-            }
-        },
-        |_| false,
-    )?;
-    if decoded
-        .child
-        .as_ref()
-        .is_some_and(|report| decoded.process.child_pid.value != Some(u64::from(report.child_pid)))
-    {
-        return Err(FormalProtocolError::CurrentFixturesChildPidMismatch);
-    }
-    Ok(FormalCurrentFixtureProjection {
-        status: decoded.status,
-        invalidation_reasons: decoded.invalidation_reasons,
-        process: decoded.process,
-        child: decoded.child,
-        monitor: decoded.monitor,
-        external_state: decoded.external_state,
-        kill_error: decoded.kill_error,
-        monitor_error: decoded.monitor_error,
-        stderr: decoded.stderr,
     })
 }
 
@@ -1252,8 +1162,6 @@ pub enum FormalProtocolError {
         #[source]
         source: std::io::Error,
     },
-    #[error("当前固定样例子进程报告的 pid 与父进程观察不一致")]
-    CurrentFixturesChildPidMismatch,
     #[error(
         "正式阶梯没有形成完整的两批规模选择，已保留原始检查点并禁止进入限制资格与候选矩阵；请排除环境干扰后使用新输出路径重跑：{details}"
     )]
@@ -1284,10 +1192,6 @@ pub enum FormalProtocolError {
     Pilot(#[from] PilotError),
     #[error(transparent)]
     FormalLadder(#[from] FormalLadderRunnerError),
-    #[error(transparent)]
-    CurrentFixtures(#[from] crate::CurrentFixturesError),
-    #[error(transparent)]
-    CurrentFixturesOracle(#[from] crate::CurrentFixturesOracleError),
     #[error(transparent)]
     Guard(#[from] crate::GuardError),
     #[error(transparent)]
@@ -1494,30 +1398,6 @@ mod tests {
         formal_checkpoint(
             &test_source(),
             &test_environment(),
-            &FormalCurrentFixtureProjection {
-                status: RunStatus::Valid,
-                invalidation_reasons: Vec::new(),
-                process: ProcessObservation::guarded_before_start(1, ORACLE_BINARY_ID),
-                child: None,
-                monitor: ChildProcessMonitorReport {
-                    observation_count: 0,
-                    last_private_bytes: crate::NullableObservation::unavailable(
-                        "child-not-started",
-                    ),
-                    peak_private_bytes: crate::NullableObservation::unavailable(
-                        "child-not-started",
-                    ),
-                    last_available_physical_memory_bytes: crate::NullableObservation::unavailable(
-                        "child-not-started",
-                    ),
-                    elapsed_wall_time_ns: 0,
-                    trigger: None,
-                },
-                external_state: None,
-                kill_error: None,
-                monitor_error: None,
-                stderr: String::new(),
-            },
             &BaseScalePilotCheckpoint {
                 schema: BASE_SCALE_PILOT_CHECKPOINT_SCHEMA.to_owned(),
                 schema_version: BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION,

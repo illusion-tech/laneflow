@@ -1,7 +1,7 @@
-//! `LF-COMP-CORRIDOR-v1` 的绑定夹具模板、八阶段管线与摘要已知向量。
+//! `LF-COMP-CORRIDOR-v1` 的绑定单元配方、八阶段管线与摘要已知向量。
 //!
-//! 原始 JSON 只在模板准备期读取。模板保留有类型局部序号、引用、标量和规范几何，
-//! 不保留夹具 ID 或路径；规模运行只复制模板并执行确定性阶段降阶。
+//! 单元配方是研究内部的有类型模板，不再读取 current JSON。模板保留有类型局部序号、
+//! 引用、标量和规范几何；规模运行只复制模板并执行确定性阶段降阶。
 
 use crate::identity::{
     ABSENT_LOCAL_INDEX, IDENTITY_MAGIC, IdentityContract, IdentityField, IdentityFieldValue,
@@ -15,28 +15,24 @@ use crate::{
     GeneratorContract, GraphProfileId, SequenceKind, TrustedContract, expand_module_graph,
     permute_in_place,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Component, Path};
 
 pub const CORRIDOR_WORKLOAD_ID: &str = "LF-COMP-CORRIDOR-v1";
 pub const CORRIDOR_KNOWN_VECTOR_SCHEMA: &str =
     "laneflow.compiler-calibration-corridor-summary-known-vectors";
+const CORRIDOR_UNIT_TEMPLATE_JSON: &str = include_str!("../templates/corridor-unit-v1.json");
 #[cfg(test)]
 const CORRIDOR_KNOWN_VECTOR_BYTE_LENGTH: usize = 9_101;
 #[cfg(test)]
 const CORRIDOR_KNOWN_VECTOR_SHA256: &str =
-    "7b8a66802b586ee3806d05fce7f8b842a9f1298f4fedf15cff1c5deedd1b825c";
+    "eb3fdb0a6ae900568e919475a30a58e525bfb3dd9311e8d3cd51c253c5746e1c";
 
 const ENTITY_KIND_ABSENT: u16 = 0;
 const SHARED_CONSTANT_ENTITY_KIND: u16 = 0x00ff;
 const SHORT_UNIQUE_PROFILE_ID: &str = "short-unique-v1";
-const SIGNALIZED_TRAFFIC_ROLE: &str = "traffic-signalized-corridor";
-const SIGNALIZED_SPATIAL_ROLE: &str = "spatial-signalized-corridor";
-const PARKING_TRAFFIC_ROLE: &str = "traffic-parking-signals-baseline";
 
 const EXPECTED_STAGE_INPUTS: [(&str, u64); 6] = [
     ("sourceDeclarationCount", 357),
@@ -85,7 +81,6 @@ const EXPECTED_PER_UNIT_COUNTS: [(&str, u64); 33] = [
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CorridorContract {
-    template_files: Vec<BoundTemplateFile>,
     expected_stage_inputs: BTreeMap<String, u64>,
     expected_per_unit_counts: BTreeMap<String, u64>,
 }
@@ -116,32 +111,7 @@ impl CorridorContract {
             require_u64(per_unit_counts, field, expected)?;
         }
 
-        let template_files = required_array(workload, "templateFiles")?
-            .iter()
-            .map(BoundTemplateFile::parse)
-            .collect::<Result<Vec<_>, _>>()?;
-        let roles = template_files
-            .iter()
-            .map(|file| file.role.as_str())
-            .collect::<Vec<_>>();
-        if roles
-            != [
-                SIGNALIZED_TRAFFIC_ROLE,
-                SIGNALIZED_SPATIAL_ROLE,
-                PARKING_TRAFFIC_ROLE,
-            ]
-        {
-            return Err(CorridorError::Mismatch {
-                path: "workloads[LF-COMP-CORRIDOR-v1].templateFiles.roles".to_owned(),
-                expected: format!(
-                    "{SIGNALIZED_TRAFFIC_ROLE}, {SIGNALIZED_SPATIAL_ROLE}, {PARKING_TRAFFIC_ROLE}"
-                ),
-                actual: roles.join(", "),
-            });
-        }
-
         Ok(Self {
-            template_files,
             expected_stage_inputs: EXPECTED_STAGE_INPUTS
                 .into_iter()
                 .map(|(field, value)| (field.to_owned(), value))
@@ -153,33 +123,13 @@ impl CorridorContract {
         })
     }
 
-    pub(crate) fn load_template(
-        &self,
-        repository_root: &Path,
-    ) -> Result<CorridorTemplate, CorridorError> {
-        let mut documents = BTreeMap::<String, Value>::new();
-        for binding in &self.template_files {
-            let bytes = read_bound_file(repository_root, binding)?;
-            let value =
-                serde_json::from_slice::<Value>(&bytes).map_err(|source| CorridorError::Json {
-                    path: binding.path.clone(),
-                    source,
-                })?;
-            require_string(&value, "formatVersion", &binding.format_version)?;
-            if documents.insert(binding.role.clone(), value).is_some() {
-                return Err(CorridorError::DuplicateRole(binding.role.clone()));
+    pub(crate) fn load_template(&self) -> Result<CorridorTemplate, CorridorError> {
+        let template = serde_json::from_str(CORRIDOR_UNIT_TEMPLATE_JSON).map_err(|source| {
+            CorridorError::Json {
+                path: "templates/corridor-unit-v1.json".to_owned(),
+                source,
             }
-        }
-        let signalized = documents
-            .remove(SIGNALIZED_TRAFFIC_ROLE)
-            .ok_or_else(|| CorridorError::Missing(SIGNALIZED_TRAFFIC_ROLE.to_owned()))?;
-        let spatial = documents
-            .remove(SIGNALIZED_SPATIAL_ROLE)
-            .ok_or_else(|| CorridorError::Missing(SIGNALIZED_SPATIAL_ROLE.to_owned()))?;
-        let parking = documents
-            .remove(PARKING_TRAFFIC_ROLE)
-            .ok_or_else(|| CorridorError::Missing(PARKING_TRAFFIC_ROLE.to_owned()))?;
-        let template = build_raw_template(&signalized, &spatial, &parking)?;
+        })?;
         self.validate_template(&template)?;
         Ok(template)
     }
@@ -217,40 +167,19 @@ impl CorridorContract {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct BoundTemplateFile {
-    role: String,
-    path: String,
-    format_version: String,
-    byte_length: u64,
-    sha256: String,
-}
-
-impl BoundTemplateFile {
-    fn parse(value: &Value) -> Result<Self, CorridorError> {
-        Ok(Self {
-            role: required_string(value, "role")?.to_owned(),
-            path: required_string(value, "path")?.to_owned(),
-            format_version: required_string(value, "formatVersion")?.to_owned(),
-            byte_length: required_u64(value, "byteLength")?,
-            sha256: required_string(value, "sha256")?.to_owned(),
-        })
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) struct EntityRef {
     pub(crate) kind: u16,
     pub(crate) local: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct TemplateEntity {
     pub(crate) reference: EntityRef,
     pub(crate) identity_references: BTreeMap<u16, EntityRef>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum TemplateRelation {
     Owner {
         child: EntityRef,
@@ -317,13 +246,13 @@ pub(crate) enum TemplateRelation {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum TemplateGeometryRule {
     Fixed,
     JunctionGridV1,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct TemplateGeometry {
     pub(crate) edge: EntityRef,
     pub(crate) frame: EntityRef,
@@ -334,7 +263,7 @@ pub(crate) struct TemplateGeometry {
     pub(crate) coordinate_rule: TemplateGeometryRule,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CorridorTemplate {
     pub(crate) entities: Vec<TemplateEntity>,
     pub(crate) relations: Vec<TemplateRelation>,
@@ -583,1058 +512,6 @@ pub enum CorridorError {
     Stage(#[from] StageGenerationError),
 }
 
-fn read_bound_file(
-    repository_root: &Path,
-    binding: &BoundTemplateFile,
-) -> Result<Vec<u8>, CorridorError> {
-    let relative = Path::new(&binding.path);
-    if relative.is_absolute()
-        || relative
-            .components()
-            .any(|component| !matches!(component, Component::Normal(_)))
-    {
-        return Err(CorridorError::InvalidPath(binding.path.clone()));
-    }
-    let path = repository_root.join(relative);
-    let bytes = fs::read(&path).map_err(|source| CorridorError::Io {
-        path: binding.path.clone(),
-        source,
-    })?;
-    let actual_length = u64::try_from(bytes.len()).expect("file length must fit u64");
-    if actual_length != binding.byte_length {
-        return Err(CorridorError::Mismatch {
-            path: format!("{}.byteLength", binding.path),
-            expected: binding.byte_length.to_string(),
-            actual: actual_length.to_string(),
-        });
-    }
-    let actual_sha = lower_hex(&Sha256::digest(&bytes));
-    if actual_sha != binding.sha256 {
-        return Err(CorridorError::Mismatch {
-            path: format!("{}.sha256", binding.path),
-            expected: binding.sha256.clone(),
-            actual: actual_sha,
-        });
-    }
-    Ok(bytes)
-}
-
-#[derive(Default)]
-struct DocumentRefs {
-    by_kind: BTreeMap<u16, BTreeMap<String, EntityRef>>,
-    lanes: Vec<Vec<EntityRef>>,
-    phases: Vec<Vec<EntityRef>>,
-}
-
-impl DocumentRefs {
-    fn named(&self, kind: u16, id: &str, context: &str) -> Result<EntityRef, CorridorError> {
-        self.by_kind
-            .get(&kind)
-            .and_then(|values| values.get(id))
-            .copied()
-            .ok_or_else(|| {
-                CorridorError::UnknownReference(format!("{context}: kind={kind} id={id}"))
-            })
-    }
-}
-
-fn build_raw_template(
-    signalized: &Value,
-    spatial: &Value,
-    parking: &Value,
-) -> Result<CorridorTemplate, CorridorError> {
-    build_projected_template(&[signalized, parking], Some((0, spatial)), Some(1))
-}
-
-pub(crate) fn build_current_fixture_raw_template(
-    traffic: &Value,
-    spatial: Option<&Value>,
-) -> Result<CorridorTemplate, CorridorError> {
-    build_projected_template(&[traffic], spatial.map(|document| (0, document)), None)
-}
-
-fn build_projected_template(
-    traffic_documents: &[&Value],
-    spatial_binding: Option<(usize, &Value)>,
-    synthetic_parking_document: Option<usize>,
-) -> Result<CorridorTemplate, CorridorError> {
-    let mut document_refs = (0..traffic_documents.len())
-        .map(|_| DocumentRefs::default())
-        .collect::<Vec<_>>();
-    let mut entities = Vec::new();
-    let mut next_local = [0_u32; 23];
-
-    for kind in 1_u16..=21 {
-        for (document_index, document) in traffic_documents.iter().enumerate() {
-            register_document_entities(
-                document,
-                document_index,
-                kind,
-                &mut next_local,
-                &mut document_refs,
-                &mut entities,
-            )?;
-        }
-    }
-    let canonical_frame = if spatial_binding.is_some() || synthetic_parking_document.is_some() {
-        let frame = EntityRef { kind: 22, local: 0 };
-        entities.push(TemplateEntity {
-            reference: frame,
-            identity_references: BTreeMap::new(),
-        });
-        next_local[22] = 1;
-        Some(frame)
-    } else {
-        None
-    };
-
-    let mut entity_positions = entities
-        .iter()
-        .enumerate()
-        .map(|(index, entity)| (entity.reference, index))
-        .collect::<BTreeMap<_, _>>();
-    if entity_positions.len() != entities.len() {
-        return Err(CorridorError::DuplicateReference(
-            "entity kind/local tuple".to_owned(),
-        ));
-    }
-
-    let mut road_owner = BTreeMap::<EntityRef, EntityRef>::new();
-    for (document_index, document) in traffic_documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        for corridor in array_at(document, &["roadCorridors"])? {
-            let corridor_ref =
-                refs.named(1, required_string(corridor, "id")?, "roadCorridors[].id")?;
-            for element in array_at(corridor, &["elements"])? {
-                let child =
-                    if let Some(section_id) = element.get("sectionId").and_then(Value::as_str) {
-                        refs.named(2, section_id, "roadCorridors[].elements[].sectionId")?
-                    } else if let Some(band_id) = element.get("bandId").and_then(Value::as_str) {
-                        refs.named(17, band_id, "roadCorridors[].elements[].bandId")?
-                    } else {
-                        return Err(CorridorError::Missing(
-                            "roadCorridors[].elements[].sectionId|bandId".to_owned(),
-                        ));
-                    };
-                if road_owner.insert(child, corridor_ref).is_some() {
-                    return Err(CorridorError::DuplicateReference(format!(
-                        "RoadCorridor owner for kind={} local={}",
-                        child.kind, child.local
-                    )));
-                }
-            }
-        }
-    }
-    let expected_owned =
-        usize::try_from(next_local[2] + next_local[17]).expect("owned entity count must fit usize");
-    if road_owner.len() != expected_owned {
-        return Err(CorridorError::Mismatch {
-            path: "RoadCorridor complete owner tree".to_owned(),
-            expected: expected_owned.to_string(),
-            actual: road_owner.len().to_string(),
-        });
-    }
-
-    let mut owner_relations = Vec::new();
-    for (document_index, document) in traffic_documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        let sections = array_at(document, &["roadSections"])?;
-        for (section_index, section) in sections.iter().enumerate() {
-            let section_ref =
-                refs.named(2, required_string(section, "id")?, "roadSections[].id")?;
-            for lane_ref in refs
-                .lanes
-                .get(section_index)
-                .ok_or_else(|| CorridorError::Missing("roadSections[].lanes".to_owned()))?
-            {
-                set_identity_reference(
-                    &mut entities,
-                    &entity_positions,
-                    *lane_ref,
-                    32,
-                    section_ref,
-                )?;
-                owner_relations.push(TemplateRelation::Owner {
-                    child: *lane_ref,
-                    parent: section_ref,
-                });
-            }
-        }
-    }
-    for (document_index, document) in traffic_documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        for movement in array_at(document, &["movements"])? {
-            let child = refs.named(6, required_string(movement, "id")?, "movements[].id")?;
-            let parent = refs.named(
-                5,
-                required_string(movement, "junctionId")?,
-                "movements[].junctionId",
-            )?;
-            set_identity_reference(&mut entities, &entity_positions, child, 34, parent)?;
-            owner_relations.push(TemplateRelation::Owner { child, parent });
-        }
-    }
-    for (document_index, document) in traffic_documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        for path in array_at(document, &["maneuverPaths"])? {
-            let child = refs.named(7, required_string(path, "id")?, "maneuverPaths[].id")?;
-            let movement = refs.named(
-                6,
-                required_string(path, "movementId")?,
-                "maneuverPaths[].movementId",
-            )?;
-            let entry = refs.named(
-                4,
-                required_string(path, "entryEdgeId")?,
-                "maneuverPaths[].entryEdgeId",
-            )?;
-            let exit = refs.named(
-                4,
-                required_string(path, "exitEdgeId")?,
-                "maneuverPaths[].exitEdgeId",
-            )?;
-            set_identity_reference(&mut entities, &entity_positions, child, 11, movement)?;
-            set_identity_reference(&mut entities, &entity_positions, child, 12, entry)?;
-            set_identity_reference(&mut entities, &entity_positions, child, 13, exit)?;
-            owner_relations.push(TemplateRelation::Owner {
-                child,
-                parent: movement,
-            });
-        }
-    }
-    for (document_index, document) in traffic_documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        for gate in array_at(document, &["signals", "maneuverGates"])? {
-            let child = refs.named(
-                8,
-                required_string(gate, "id")?,
-                "signals.maneuverGates[].id",
-            )?;
-            let parent = refs.named(
-                7,
-                required_string(gate, "maneuverPathId")?,
-                "signals.maneuverGates[].maneuverPathId",
-            )?;
-            set_identity_reference(&mut entities, &entity_positions, child, 14, parent)?;
-            owner_relations.push(TemplateRelation::Owner { child, parent });
-        }
-    }
-    for (document_index, document) in traffic_documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        for zone in array_at(document, &["waitingZones"])? {
-            let child = refs.named(9, required_string(zone, "id")?, "waitingZones[].id")?;
-            let parent = refs.named(
-                7,
-                required_string(zone, "maneuverPathId")?,
-                "waitingZones[].maneuverPathId",
-            )?;
-            set_identity_reference(&mut entities, &entity_positions, child, 14, parent)?;
-            owner_relations.push(TemplateRelation::Owner { child, parent });
-        }
-    }
-    for (document_index, document) in traffic_documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        let controllers = array_at(document, &["signals", "controllers"])?;
-        for (controller_index, controller) in controllers.iter().enumerate() {
-            let parent = refs.named(
-                12,
-                required_string(controller, "id")?,
-                "signals.controllers[].id",
-            )?;
-            for child in refs
-                .phases
-                .get(controller_index)
-                .ok_or_else(|| CorridorError::Missing("signals.controllers[].phases".to_owned()))?
-            {
-                set_identity_reference(&mut entities, &entity_positions, *child, 20, parent)?;
-                owner_relations.push(TemplateRelation::Owner {
-                    child: *child,
-                    parent,
-                });
-            }
-        }
-    }
-    for (document_index, document) in traffic_documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        for space in array_at(document, &["parking", "spaces"])? {
-            let child = refs.named(15, required_string(space, "id")?, "parking.spaces[].id")?;
-            if let Some(area_id) = space.get("areaId").and_then(Value::as_str) {
-                let parent = refs.named(14, area_id, "parking.spaces[].areaId")?;
-                owner_relations.push(TemplateRelation::Owner { child, parent });
-            }
-        }
-    }
-    for (document_index, document) in traffic_documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        for group in array_at(document, &["laneGroups"])? {
-            let child = refs.named(16, required_string(group, "id")?, "laneGroups[].id")?;
-            let parent = refs.named(
-                2,
-                required_string(group, "roadSectionId")?,
-                "laneGroups[].roadSectionId",
-            )?;
-            set_identity_reference(&mut entities, &entity_positions, child, 32, parent)?;
-            owner_relations.push(TemplateRelation::Owner { child, parent });
-        }
-    }
-    for (child, parent) in &road_owner {
-        let tag = match child.kind {
-            2 | 17 => 33,
-            _ => {
-                return Err(CorridorError::Mismatch {
-                    path: "RoadCorridor owner child kind".to_owned(),
-                    expected: "RoadSection or FacilityBand".to_owned(),
-                    actual: child.kind.to_string(),
-                });
-            }
-        };
-        set_identity_reference(&mut entities, &entity_positions, *child, tag, *parent)?;
-        owner_relations.push(TemplateRelation::Owner {
-            child: *child,
-            parent: *parent,
-        });
-    }
-
-    validate_identity_reference_completeness(&entities)?;
-
-    let mut relations = owner_relations;
-    append_edge_connections(traffic_documents, &document_refs, &mut relations)?;
-    append_route_occurrences(traffic_documents, &document_refs, &mut relations)?;
-    append_access_relations(traffic_documents, &document_refs, &mut relations)?;
-    append_signal_relations(traffic_documents, &document_refs, &mut relations)?;
-    append_gate_and_waiting_occurrences(traffic_documents, &document_refs, &mut relations)?;
-    append_parking_anchors(traffic_documents, &document_refs, &mut relations)?;
-    append_lane_coverage(traffic_documents, &document_refs, &mut relations)?;
-    append_junction_internal_edges(traffic_documents, &document_refs, &mut relations)?;
-
-    let geometry = build_projected_geometry(
-        traffic_documents,
-        spatial_binding,
-        synthetic_parking_document,
-        &document_refs,
-        canonical_frame,
-    )?;
-    entity_positions.clear();
-    Ok(CorridorTemplate {
-        entities,
-        relations,
-        geometry,
-    })
-}
-
-fn register_document_entities(
-    document: &Value,
-    document_index: usize,
-    kind: u16,
-    next_local: &mut [u32; 23],
-    document_refs: &mut [DocumentRefs],
-    entities: &mut Vec<TemplateEntity>,
-) -> Result<(), CorridorError> {
-    if kind == 3 {
-        let mut section_lanes = Vec::new();
-        for section in array_at(document, &["roadSections"])? {
-            let mut lanes = Vec::new();
-            for _lane in array_at(section, &["lanes"])? {
-                let reference = register_entity(kind, next_local, entities)?;
-                lanes.push(reference);
-            }
-            section_lanes.push(lanes);
-        }
-        document_refs[document_index].lanes = section_lanes;
-        return Ok(());
-    }
-    if kind == 13 {
-        let mut controller_phases = Vec::new();
-        for controller in array_at(document, &["signals", "controllers"])? {
-            let mut phases = Vec::new();
-            for _phase in array_at(controller, &["phases"])? {
-                // SignalPhase IDs are controller-local in the source format and may repeat
-                // across controllers. The controller nesting and phase array position are the
-                // complete identity source; no document-global ID map is valid here.
-                let reference = register_entity(kind, next_local, entities)?;
-                phases.push(reference);
-            }
-            controller_phases.push(phases);
-        }
-        document_refs[document_index].phases = controller_phases;
-        return Ok(());
-    }
-
-    let path: &[&str] = match kind {
-        1 => &["roadCorridors"],
-        2 => &["roadSections"],
-        4 => &["laneGraph", "edges"],
-        5 => &["junctions"],
-        6 => &["movements"],
-        7 => &["maneuverPaths"],
-        8 => &["signals", "maneuverGates"],
-        9 => &["waitingZones"],
-        10 => &["signals", "stopLines"],
-        11 => &["signals", "groups"],
-        12 => &["signals", "controllers"],
-        14 => &["parking", "areas"],
-        15 => &["parking", "spaces"],
-        16 => &["laneGroups"],
-        17 => &["facilityBands"],
-        18 => &["participantClasses"],
-        19 => &["accessRules"],
-        20 => &["vehicleProfiles"],
-        21 => &["routes"],
-        _ => {
-            return Err(CorridorError::Mismatch {
-                path: "entity kind".to_owned(),
-                expected: "1..=21".to_owned(),
-                actual: kind.to_string(),
-            });
-        }
-    };
-    for value in array_at(document, path)? {
-        register_named_entity(
-            kind,
-            value,
-            &format!("{}.id", path.join(".")),
-            next_local,
-            entities,
-            &mut document_refs[document_index],
-        )?;
-    }
-    Ok(())
-}
-
-fn register_entity(
-    kind: u16,
-    next_local: &mut [u32; 23],
-    entities: &mut Vec<TemplateEntity>,
-) -> Result<EntityRef, CorridorError> {
-    let index = usize::from(kind);
-    let local = next_local[index];
-    next_local[index] = local
-        .checked_add(1)
-        .ok_or_else(|| CorridorError::Mismatch {
-            path: "entity local ordinal".to_owned(),
-            expected: "u32".to_owned(),
-            actual: "overflow".to_owned(),
-        })?;
-    let reference = EntityRef { kind, local };
-    entities.push(TemplateEntity {
-        reference,
-        identity_references: BTreeMap::new(),
-    });
-    Ok(reference)
-}
-
-fn register_named_entity(
-    kind: u16,
-    value: &Value,
-    path: &str,
-    next_local: &mut [u32; 23],
-    entities: &mut Vec<TemplateEntity>,
-    document_refs: &mut DocumentRefs,
-) -> Result<EntityRef, CorridorError> {
-    let id = required_string(value, "id")?;
-    let reference = register_entity(kind, next_local, entities)?;
-    let previous = document_refs
-        .by_kind
-        .entry(kind)
-        .or_default()
-        .insert(id.to_owned(), reference);
-    if previous.is_some() {
-        return Err(CorridorError::DuplicateReference(format!("{path}: {id}")));
-    }
-    Ok(reference)
-}
-
-fn set_identity_reference(
-    entities: &mut [TemplateEntity],
-    positions: &BTreeMap<EntityRef, usize>,
-    source: EntityRef,
-    tag: u16,
-    target: EntityRef,
-) -> Result<(), CorridorError> {
-    let index = positions
-        .get(&source)
-        .copied()
-        .ok_or_else(|| CorridorError::UnknownReference(format!("entity {source:?}")))?;
-    if entities[index]
-        .identity_references
-        .insert(tag, target)
-        .is_some()
-    {
-        return Err(CorridorError::DuplicateReference(format!(
-            "identity tag {tag} for {source:?}"
-        )));
-    }
-    Ok(())
-}
-
-fn validate_identity_reference_completeness(
-    entities: &[TemplateEntity],
-) -> Result<(), CorridorError> {
-    for entity in entities {
-        let required = match entity.reference.kind {
-            2 => &[33][..],
-            3 => &[32][..],
-            6 => &[34][..],
-            7 => &[11, 12, 13][..],
-            8 | 9 => &[14][..],
-            13 => &[20][..],
-            16 => &[32][..],
-            17 => &[33][..],
-            _ => &[][..],
-        };
-        let actual = entity
-            .identity_references
-            .keys()
-            .copied()
-            .collect::<Vec<_>>();
-        if actual != required {
-            return Err(CorridorError::Mismatch {
-                path: format!("identity references for {:?}", entity.reference),
-                expected: format!("{required:?}"),
-                actual: format!("{actual:?}"),
-            });
-        }
-    }
-    Ok(())
-}
-
-fn append_edge_connections(
-    documents: &[&Value],
-    document_refs: &[DocumentRefs],
-    relations: &mut Vec<TemplateRelation>,
-) -> Result<(), CorridorError> {
-    for (document_index, document) in documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        for edge in array_at(document, &["laneGraph", "edges"])? {
-            let source = refs.named(4, required_string(edge, "id")?, "laneGraph.edges[].id")?;
-            for connection in array_at(edge, &["connections"])? {
-                let target = refs.named(
-                    4,
-                    required_string(connection, "toEdgeId")?,
-                    "laneGraph.edges[].connections[].toEdgeId",
-                )?;
-                relations.push(TemplateRelation::EdgeConnection { source, target });
-            }
-        }
-    }
-    Ok(())
-}
-
-fn append_route_occurrences(
-    documents: &[&Value],
-    document_refs: &[DocumentRefs],
-    relations: &mut Vec<TemplateRelation>,
-) -> Result<(), CorridorError> {
-    for (document_index, document) in documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        for route in array_at(document, &["routes"])? {
-            let route_ref = refs.named(21, required_string(route, "id")?, "routes[].id")?;
-            for (index, edge_id) in array_at(route, &["edgeIds"])?.iter().enumerate() {
-                let edge = refs.named(
-                    4,
-                    edge_id
-                        .as_str()
-                        .ok_or_else(|| CorridorError::Missing("routes[].edgeIds[]".to_owned()))?,
-                    "routes[].edgeIds[]",
-                )?;
-                relations.push(TemplateRelation::RouteOccurrence {
-                    route: route_ref,
-                    index: u32::try_from(index).expect("route occurrence index must fit u32"),
-                    edge,
-                });
-            }
-        }
-    }
-    Ok(())
-}
-
-fn append_access_relations(
-    documents: &[&Value],
-    document_refs: &[DocumentRefs],
-    relations: &mut Vec<TemplateRelation>,
-) -> Result<(), CorridorError> {
-    for (document_index, document) in documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        for rule in array_at(document, &["accessRules"])? {
-            let rule_ref = refs.named(19, required_string(rule, "id")?, "accessRules[].id")?;
-            let target = required_object(rule, "target")?;
-            let target_kind_name = required_string(target, "kind")?;
-            let target_kind = match target_kind_name {
-                "roadSection" => 2,
-                "laneEdge" => 4,
-                "maneuverPath" => 7,
-                "laneGroup" => 16,
-                "facilityBand" => 17,
-                _ => {
-                    return Err(CorridorError::Mismatch {
-                        path: "accessRules[].target.kind".to_owned(),
-                        expected: "roadSection|laneEdge|maneuverPath|laneGroup|facilityBand"
-                            .to_owned(),
-                        actual: target_kind_name.to_owned(),
-                    });
-                }
-            };
-            let target_ref = refs.named(
-                target_kind,
-                required_string(target, "id")?,
-                "accessRules[].target.id",
-            )?;
-            let decision = match required_string(rule, "effect")? {
-                "deny" => 0,
-                "allow" => 1,
-                actual => {
-                    return Err(CorridorError::Mismatch {
-                        path: "accessRules[].effect".to_owned(),
-                        expected: "deny|allow".to_owned(),
-                        actual: actual.to_owned(),
-                    });
-                }
-            };
-            for participant_id in array_at(rule, &["participantClassIds"])? {
-                let participant = refs.named(
-                    18,
-                    participant_id.as_str().ok_or_else(|| {
-                        CorridorError::Missing("accessRules[].participantClassIds[]".to_owned())
-                    })?,
-                    "accessRules[].participantClassIds[]",
-                )?;
-                relations.push(TemplateRelation::Access {
-                    rule: rule_ref,
-                    participant,
-                    target: target_ref,
-                    decision,
-                });
-            }
-        }
-    }
-    Ok(())
-}
-
-fn append_signal_relations(
-    documents: &[&Value],
-    document_refs: &[DocumentRefs],
-    relations: &mut Vec<TemplateRelation>,
-) -> Result<(), CorridorError> {
-    for (document_index, document) in documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        for gate in array_at(document, &["signals", "maneuverGates"])? {
-            let control = required_object(gate, "signalControl")?;
-            match required_string(control, "kind")? {
-                "group" => {
-                    let group = refs.named(
-                        11,
-                        required_string(control, "groupId")?,
-                        "signals.maneuverGates[].signalControl.groupId",
-                    )?;
-                    let gate_ref = refs.named(
-                        8,
-                        required_string(gate, "id")?,
-                        "signals.maneuverGates[].id",
-                    )?;
-                    relations.push(TemplateRelation::SignalGroup {
-                        group,
-                        gate: gate_ref,
-                    });
-                }
-                "none" => {}
-                actual => {
-                    return Err(CorridorError::Mismatch {
-                        path: "signals.maneuverGates[].signalControl.kind".to_owned(),
-                        expected: "group|none".to_owned(),
-                        actual: actual.to_owned(),
-                    });
-                }
-            }
-        }
-
-        let controllers = array_at(document, &["signals", "controllers"])?;
-        for (controller_index, controller) in controllers.iter().enumerate() {
-            let phases = array_at(controller, &["phases"])?;
-            for (phase_index, phase) in phases.iter().enumerate() {
-                let phase_ref = *refs
-                    .phases
-                    .get(controller_index)
-                    .and_then(|values| values.get(phase_index))
-                    .ok_or_else(|| {
-                        CorridorError::Missing("signals.controllers[].phases[]".to_owned())
-                    })?;
-                for state in array_at(phase, &["states"])? {
-                    let group = refs.named(
-                        11,
-                        required_string(state, "groupId")?,
-                        "signals.controllers[].phases[].states[].groupId",
-                    )?;
-                    let state_code = match required_string(state, "aspect")? {
-                        "red" => 0,
-                        "yellow" => 1,
-                        "green" => 2,
-                        actual => {
-                            return Err(CorridorError::Mismatch {
-                                path: "signals.controllers[].phases[].states[].aspect".to_owned(),
-                                expected: "red|yellow|green".to_owned(),
-                                actual: actual.to_owned(),
-                            });
-                        }
-                    };
-                    relations.push(TemplateRelation::PhaseState {
-                        phase: phase_ref,
-                        group,
-                        state: state_code,
-                    });
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn append_gate_and_waiting_occurrences(
-    documents: &[&Value],
-    document_refs: &[DocumentRefs],
-    relations: &mut Vec<TemplateRelation>,
-) -> Result<(), CorridorError> {
-    for (document_index, document) in documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        let paths = array_at(document, &["maneuverPaths"])?;
-        let gates = array_at(document, &["signals", "maneuverGates"])?;
-        for gate in gates {
-            let path_id = required_string(gate, "maneuverPathId")?;
-            let path_value = find_named(paths, path_id, "maneuverPaths")?;
-            let path = refs.named(7, path_id, "signals.maneuverGates[].maneuverPathId")?;
-            let transition_index = required_u32(gate, "transitionIndex")?;
-            let edge_id = ordered_path_edge_id(path_value, transition_index)?;
-            let edge = refs.named(4, edge_id, "gate transition LaneEdge")?;
-            let gate_ref = refs.named(
-                8,
-                required_string(gate, "id")?,
-                "signals.maneuverGates[].id",
-            )?;
-            let stop_line = refs.named(
-                10,
-                required_string(gate, "stopLineId")?,
-                "signals.maneuverGates[].stopLineId",
-            )?;
-            relations.push(TemplateRelation::Gate {
-                path,
-                transition_index,
-                gate: gate_ref,
-                stop_line,
-                edge,
-                edge_position_bits: 1.0_f32.to_bits(),
-            });
-        }
-
-        for zone in array_at(document, &["waitingZones"])? {
-            let path = refs.named(
-                7,
-                required_string(zone, "maneuverPathId")?,
-                "waitingZones[].maneuverPathId",
-            )?;
-            let before_id = required_string(zone, "entryGateId")?;
-            let after_id = required_string(zone, "releaseGateId")?;
-            let before_gate_value = find_named(gates, before_id, "signals.maneuverGates")?;
-            let after_gate_value = find_named(gates, after_id, "signals.maneuverGates")?;
-            relations.push(TemplateRelation::WaitingZone {
-                path,
-                entry_transition_index: required_u32(before_gate_value, "transitionIndex")?,
-                release_transition_index: required_u32(after_gate_value, "transitionIndex")?,
-                zone: refs.named(9, required_string(zone, "id")?, "waitingZones[].id")?,
-                before_gate: refs.named(8, before_id, "waitingZones[].entryGateId")?,
-                after_gate: refs.named(8, after_id, "waitingZones[].releaseGateId")?,
-                capacity: required_u32(zone, "maxOccupancy")?,
-            });
-        }
-    }
-    Ok(())
-}
-
-fn append_parking_anchors(
-    documents: &[&Value],
-    document_refs: &[DocumentRefs],
-    relations: &mut Vec<TemplateRelation>,
-) -> Result<(), CorridorError> {
-    for (document_index, document) in documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        for space in array_at(document, &["parking", "spaces"])? {
-            let entry = required_object(space, "entry")?;
-            let exit = required_object(space, "exit")?;
-            let (entry_high_bits, entry_residual_bits) =
-                progress_bits(required_f64(entry, "progress")?)?;
-            let (exit_high_bits, exit_residual_bits) =
-                progress_bits(required_f64(exit, "progress")?)?;
-            relations.push(TemplateRelation::Parking {
-                space: refs.named(15, required_string(space, "id")?, "parking.spaces[].id")?,
-                entry_edge: refs.named(
-                    4,
-                    required_string(entry, "edgeId")?,
-                    "parking.spaces[].entry.edgeId",
-                )?,
-                entry_high_bits,
-                entry_residual_bits,
-                exit_edge: refs.named(
-                    4,
-                    required_string(exit, "edgeId")?,
-                    "parking.spaces[].exit.edgeId",
-                )?,
-                exit_high_bits,
-                exit_residual_bits,
-            });
-        }
-    }
-    Ok(())
-}
-
-fn append_lane_coverage(
-    documents: &[&Value],
-    document_refs: &[DocumentRefs],
-    relations: &mut Vec<TemplateRelation>,
-) -> Result<(), CorridorError> {
-    for (document_index, document) in documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        for (section_index, section) in array_at(document, &["roadSections"])?.iter().enumerate() {
-            for (lane_index, lane) in array_at(section, &["lanes"])?.iter().enumerate() {
-                let lane_ref = *refs
-                    .lanes
-                    .get(section_index)
-                    .and_then(|lanes| lanes.get(lane_index))
-                    .ok_or_else(|| CorridorError::Missing("roadSections[].lanes[]".to_owned()))?;
-                for (index, edge_id) in array_at(lane, &["edgeIds"])?.iter().enumerate() {
-                    relations.push(TemplateRelation::LaneCoverage {
-                        lane: lane_ref,
-                        index: u32::try_from(index).expect("lane coverage index must fit u32"),
-                        edge: refs.named(
-                            4,
-                            edge_id.as_str().ok_or_else(|| {
-                                CorridorError::Missing(
-                                    "roadSections[].lanes[].edgeIds[]".to_owned(),
-                                )
-                            })?,
-                            "roadSections[].lanes[].edgeIds[]",
-                        )?,
-                    });
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn append_junction_internal_edges(
-    documents: &[&Value],
-    document_refs: &[DocumentRefs],
-    relations: &mut Vec<TemplateRelation>,
-) -> Result<(), CorridorError> {
-    for (document_index, document) in documents.iter().enumerate() {
-        let refs = &document_refs[document_index];
-        let movements = array_at(document, &["movements"])?;
-        for path in array_at(document, &["maneuverPaths"])? {
-            let movement_id = required_string(path, "movementId")?;
-            let movement = find_named(movements, movement_id, "movements")?;
-            let junction = refs.named(
-                5,
-                required_string(movement, "junctionId")?,
-                "movements[].junctionId",
-            )?;
-            for edge_id in array_at(path, &["internalEdgeIds"])? {
-                relations.push(TemplateRelation::JunctionInternalEdge {
-                    junction,
-                    edge: refs.named(
-                        4,
-                        edge_id.as_str().ok_or_else(|| {
-                            CorridorError::Missing("maneuverPaths[].internalEdgeIds[]".to_owned())
-                        })?,
-                        "maneuverPaths[].internalEdgeIds[]",
-                    )?,
-                });
-            }
-        }
-    }
-    Ok(())
-}
-
-fn build_projected_geometry(
-    traffic_documents: &[&Value],
-    spatial_binding: Option<(usize, &Value)>,
-    synthetic_parking_document: Option<usize>,
-    document_refs: &[DocumentRefs],
-    frame: Option<EntityRef>,
-) -> Result<Vec<TemplateGeometry>, CorridorError> {
-    let mut geometry = Vec::new();
-    if let Some((traffic_index, spatial)) = spatial_binding {
-        let frame =
-            frame.ok_or_else(|| CorridorError::Missing("spatial canonical frame".to_owned()))?;
-        let traffic = traffic_documents
-            .get(traffic_index)
-            .copied()
-            .ok_or_else(|| CorridorError::Missing("spatial traffic document".to_owned()))?;
-        let traffic_refs = document_refs
-            .get(traffic_index)
-            .ok_or_else(|| CorridorError::Missing("spatial traffic references".to_owned()))?;
-        append_spatial_geometry(&mut geometry, traffic, spatial, traffic_refs, frame)?;
-    }
-    if let Some(parking_index) = synthetic_parking_document {
-        let frame = frame.ok_or_else(|| {
-            CorridorError::Missing("synthetic parking canonical frame".to_owned())
-        })?;
-        let parking = traffic_documents
-            .get(parking_index)
-            .copied()
-            .ok_or_else(|| CorridorError::Missing("synthetic parking document".to_owned()))?;
-        let parking_refs = document_refs
-            .get(parking_index)
-            .ok_or_else(|| CorridorError::Missing("synthetic parking references".to_owned()))?;
-        append_synthetic_parking_geometry(&mut geometry, parking, parking_refs, frame)?;
-    }
-    Ok(geometry)
-}
-
-fn append_spatial_geometry(
-    geometry: &mut Vec<TemplateGeometry>,
-    traffic: &Value,
-    spatial: &Value,
-    traffic_refs: &DocumentRefs,
-    frame: EntityRef,
-) -> Result<(), CorridorError> {
-    let mut spatial_points = BTreeMap::<String, Vec<[u32; 3]>>::new();
-    for edge in array_at(spatial, &["edges"])? {
-        let id = required_string(edge, "trafficEdgeId")?;
-        let mut points = Vec::new();
-        for point in array_at(edge, &["centerline", "points"])? {
-            let values = point.as_array().ok_or_else(|| {
-                CorridorError::Missing("spatial.edges[].centerline.points[]".to_owned())
-            })?;
-            if values.len() != 3 {
-                return Err(CorridorError::Mismatch {
-                    path: "spatial.edges[].centerline.points[].length".to_owned(),
-                    expected: "3".to_owned(),
-                    actual: values.len().to_string(),
-                });
-            }
-            points.push([
-                canonical_f32_bits(
-                    values[0].as_f64().ok_or_else(|| {
-                        CorridorError::Missing("spatial.edges[].centerline.points[][0]".to_owned())
-                    })?,
-                    "spatial x",
-                )?,
-                canonical_f32_bits(
-                    values[1].as_f64().ok_or_else(|| {
-                        CorridorError::Missing("spatial.edges[].centerline.points[][1]".to_owned())
-                    })?,
-                    "spatial y",
-                )?,
-                canonical_f32_bits(
-                    values[2].as_f64().ok_or_else(|| {
-                        CorridorError::Missing("spatial.edges[].centerline.points[][2]".to_owned())
-                    })?,
-                    "spatial z",
-                )?,
-            ]);
-        }
-        if spatial_points.insert(id.to_owned(), points).is_some() {
-            return Err(CorridorError::DuplicateReference(format!(
-                "spatial trafficEdgeId {id}"
-            )));
-        }
-    }
-
-    for edge in array_at(traffic, &["laneGraph", "edges"])? {
-        let id = required_string(edge, "id")?;
-        let edge_ref = traffic_refs.named(4, id, "laneGraph.edges[].id")?;
-        let points = spatial_points
-            .remove(id)
-            .ok_or_else(|| CorridorError::UnknownReference(format!("spatial edge {id}")))?;
-        for (point_index, bits) in points.into_iter().enumerate() {
-            geometry.push(TemplateGeometry {
-                edge: edge_ref,
-                frame,
-                point_index: u32::try_from(point_index).expect("geometry point index must fit u32"),
-                x_bits: bits[0],
-                y_bits: bits[1],
-                z_bits: bits[2],
-                coordinate_rule: TemplateGeometryRule::Fixed,
-            });
-        }
-    }
-    if !spatial_points.is_empty() {
-        return Err(CorridorError::Mismatch {
-            path: "spatial edge coverage".to_owned(),
-            expected: "no unjoined spatial edges".to_owned(),
-            actual: spatial_points.len().to_string(),
-        });
-    }
-    Ok(())
-}
-
-fn append_synthetic_parking_geometry(
-    geometry: &mut Vec<TemplateGeometry>,
-    parking: &Value,
-    parking_refs: &DocumentRefs,
-    frame: EntityRef,
-) -> Result<(), CorridorError> {
-    for edge in array_at(parking, &["laneGraph", "edges"])? {
-        let edge_ref = parking_refs.named(
-            4,
-            required_string(edge, "id")?,
-            "parking laneGraph.edges[].id",
-        )?;
-        let x0 = f64::from(edge_ref.local);
-        for (point_index, x) in [x0, x0 + 1.0].into_iter().enumerate() {
-            geometry.push(TemplateGeometry {
-                edge: edge_ref,
-                frame,
-                point_index: u32::try_from(point_index)
-                    .expect("synthetic point index must fit u32"),
-                x_bits: canonical_f32_bits(x, "parking synthetic x")?,
-                y_bits: 0.0_f32.to_bits(),
-                z_bits: 0.0_f32.to_bits(),
-                coordinate_rule: TemplateGeometryRule::Fixed,
-            });
-        }
-    }
-    Ok(())
-}
-
-fn ordered_path_edge_id(path: &Value, transition_index: u32) -> Result<&str, CorridorError> {
-    if transition_index == 0 {
-        return required_string(path, "entryEdgeId");
-    }
-    let internal = array_at(path, &["internalEdgeIds"])?;
-    let internal_index =
-        usize::try_from(transition_index - 1).expect("transition index must fit usize");
-    if let Some(value) = internal.get(internal_index) {
-        return value
-            .as_str()
-            .ok_or_else(|| CorridorError::Missing("maneuverPaths[].internalEdgeIds[]".to_owned()));
-    }
-    if internal_index == internal.len() {
-        return required_string(path, "exitEdgeId");
-    }
-    Err(CorridorError::Mismatch {
-        path: "signals.maneuverGates[].transitionIndex".to_owned(),
-        expected: format!("0..={}", internal.len()),
-        actual: transition_index.to_string(),
-    })
-}
-
-fn progress_bits(value: f64) -> Result<(u32, u32), CorridorError> {
-    let high = canonical_f32(value, "parking progress")?;
-    let residual = canonical_f32(f64::from(high) - value, "parking progress residual")?;
-    Ok((high.to_bits(), residual.to_bits()))
-}
-
-fn canonical_f32(value: f64, path: &str) -> Result<f32, CorridorError> {
-    let converted = value as f32;
-    if !value.is_finite() || !converted.is_finite() {
-        return Err(CorridorError::InvalidNumber(path.to_owned()));
-    }
-    Ok(if converted == 0.0 { 0.0 } else { converted })
-}
-
-fn canonical_f32_bits(value: f64, path: &str) -> Result<u32, CorridorError> {
-    canonical_f32(value, path).map(f32::to_bits)
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct UnitEntityRef {
     pub(crate) unit: u32,
@@ -1738,7 +615,7 @@ pub fn build_corridor_known_vectors(
         .stage_contract()
         .map_err(|error| CorridorError::Contract(error.to_string()))?;
     let contract = CorridorContract::from_manifest(&trusted.workload_manifest)?;
-    let template = contract.load_template(&crate::repository_root())?;
+    let template = contract.load_template()?;
     let mut vectors = Vec::with_capacity(GraphProfileId::ALL.len());
     for graph_profile in GraphProfileId::ALL {
         vectors.push(
@@ -1780,7 +657,7 @@ pub fn build_corridor_stage_summary(
         .stage_contract()
         .map_err(|error| CorridorError::Contract(error.to_string()))?;
     let contract = CorridorContract::from_manifest(&trusted.workload_manifest)?;
-    let template = contract.load_template(&crate::repository_root())?;
+    let template = contract.load_template()?;
     Ok(build_corridor_stage_case(
         &generator,
         &identity,
@@ -3416,18 +2293,6 @@ fn required_array<'a>(value: &'a Value, field: &str) -> Result<&'a [Value], Corr
         .ok_or_else(|| CorridorError::Missing(field.to_owned()))
 }
 
-fn array_at<'a>(mut value: &'a Value, path: &[&str]) -> Result<&'a [Value], CorridorError> {
-    for segment in path {
-        value = value
-            .get(*segment)
-            .ok_or_else(|| CorridorError::Missing(path.join(".")))?;
-    }
-    value
-        .as_array()
-        .map(Vec::as_slice)
-        .ok_or_else(|| CorridorError::Missing(path.join(".")))
-}
-
 fn required_object<'a>(value: &'a Value, field: &str) -> Result<&'a Value, CorridorError> {
     let object = value
         .get(field)
@@ -3436,32 +2301,6 @@ fn required_object<'a>(value: &'a Value, field: &str) -> Result<&'a Value, Corri
         .as_object()
         .ok_or_else(|| CorridorError::Missing(field.to_owned()))?;
     Ok(object)
-}
-
-fn required_string<'a>(value: &'a Value, field: &str) -> Result<&'a str, CorridorError> {
-    value
-        .get(field)
-        .and_then(Value::as_str)
-        .ok_or_else(|| CorridorError::Missing(field.to_owned()))
-}
-
-fn require_string(value: &Value, field: &str, expected: &str) -> Result<(), CorridorError> {
-    let actual = required_string(value, field)?;
-    if actual != expected {
-        return Err(CorridorError::Mismatch {
-            path: field.to_owned(),
-            expected: expected.to_owned(),
-            actual: actual.to_owned(),
-        });
-    }
-    Ok(())
-}
-
-fn required_u64(value: &Value, field: &str) -> Result<u64, CorridorError> {
-    value
-        .get(field)
-        .and_then(Value::as_u64)
-        .ok_or_else(|| CorridorError::Missing(field.to_owned()))
 }
 
 fn require_u64(value: &Value, field: &str, expected: u64) -> Result<(), CorridorError> {
@@ -3477,18 +2316,6 @@ fn require_u64(value: &Value, field: &str, expected: u64) -> Result<(), Corridor
         });
     }
     Ok(())
-}
-
-fn required_u32(value: &Value, field: &str) -> Result<u32, CorridorError> {
-    u32::try_from(required_u64(value, field)?)
-        .map_err(|_| CorridorError::InvalidNumber(field.to_owned()))
-}
-
-fn required_f64(value: &Value, field: &str) -> Result<f64, CorridorError> {
-    value
-        .get(field)
-        .and_then(Value::as_f64)
-        .ok_or_else(|| CorridorError::Missing(field.to_owned()))
 }
 
 fn require_bool(value: &Value, field: &str, expected: bool) -> Result<(), CorridorError> {
@@ -3526,17 +2353,6 @@ fn require_string_array(
         });
     }
     Ok(())
-}
-
-fn find_named<'a>(
-    values: &'a [Value],
-    id: &str,
-    context: &str,
-) -> Result<&'a Value, CorridorError> {
-    values
-        .iter()
-        .find(|value| value.get("id").and_then(Value::as_str) == Some(id))
-        .ok_or_else(|| CorridorError::UnknownReference(format!("{context}: {id}")))
 }
 
 fn entity_kind_name(kind: u16) -> Result<&'static str, CorridorError> {
@@ -3616,7 +2432,7 @@ mod tests {
         let contract =
             CorridorContract::from_manifest(&trusted.workload_manifest).expect("corridor contract");
         let template = contract
-            .load_template(&crate::repository_root())
+            .load_template()
             .expect("bound corridor fixture template");
 
         assert_eq!(template.entities.len(), 357);
@@ -3636,7 +2452,7 @@ mod tests {
         let contract =
             CorridorContract::from_manifest(&trusted.workload_manifest).expect("corridor contract");
         let template = contract
-            .load_template(&crate::repository_root())
+            .load_template()
             .expect("bound corridor fixture template");
 
         for profile in GraphProfileId::ALL {

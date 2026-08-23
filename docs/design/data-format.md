@@ -199,19 +199,8 @@ ParkingData
 
 三类 topology arrays、六个横断面/准入 arrays、`waitingZones`、`signals`、
 `parking` 及其全部子数组均必填，可以为空。
-当前 canonical fixtures：
-
-- `examples/data/v0.10-parking-signals-baseline.laneflow.json`：完整 topology/Signals、
-  area-owned 与 standalone spaces。
-- `examples/data/v0.10-empty-signals-and-parking.laneflow.json`：显式空 static arrays，
-  承接 route/profile/repeated-edge 行为回归。
-- `examples/data/v0.10-signalized-corridor.laneflow.json`：2 Junction、24 Movement、
-  32 ManeuverPath/Gate 与横断面/准入 overlay 的 generator artifact。
-- `examples/data/v0.10-multi-gate-waiting-zone.laneflow.json`：同一路径三个
-  ordered Gate、两个共享边界 WaitingZone 与 route occurrence 编译基线。
-
-v0.9 及更早 fixtures 作为历史 artifact 保留在 `examples/data/`，不再驱动
-current contract tests。
+#301 已删除 `examples/data/` 中的 current JSON fixtures。走廊生成器只检入 catalog
+TOML；研究走廊工作负载使用内部冻结单元配方，不再读这些 JSON。
 
 ## 3. 通用字段规则
 

@@ -1,7 +1,7 @@
 {
   "schema": "laneflow.compiler-calibration-junction-grid-summary-known-vectors",
   "schemaVersion": 1,
-  "sourceWorkloadManifestSha256": "f6c3a6a950f18888159a4cd84cc6055d23fba6e8fa20bbad3a172e72d20b0a4b",
+  "sourceWorkloadManifestSha256": "66b47e2c159d19490cbc1f7d90420f2865f14b58ceba930c130b8917e8337809",
   "workloadId": "LF-COMP-JUNCTION-GRID-v1",
   "n": 1,
   "stringProfile": "short-unique-v1",
