@@ -131,13 +131,13 @@ impl TrafficWorld {
         travel = clamp_travel_to_speed_down_boundary(
             travel,
             state.speed,
+            speed,
             delta_s,
             edges,
             lengths,
             speed_limits,
             cursor,
             state.progress,
-            current_limit,
         )?;
         if travel <= 0.0 {
             speed = 0.0;
@@ -495,18 +495,18 @@ fn speed_down_constraint_holds(
 fn clamp_travel_to_speed_down_boundary(
     mut travel: f64,
     current_speed: f64,
+    next_speed: f64,
     delta_s: f64,
     edges: &[LaneEdgeOrdinal],
     lengths: &[f64],
     speed_limits: &[f64],
     cursor: usize,
     progress: f64,
-    current_limit: f64,
 ) -> Option<f64> {
     let min_travel = 0.5 * current_speed * delta_s;
     for (index, edge) in edges.iter().enumerate().skip(cursor + 1) {
         let limit = *speed_limits.get(edge.index())?;
-        if !limit.is_finite() || limit + 1e-12 >= current_limit {
+        if !limit.is_finite() || limit + 1e-12 >= current_speed || limit + 1e-12 >= next_speed {
             continue;
         }
         let distance = remaining_along_route(lengths, edges, cursor, progress, index, 0.0)?;

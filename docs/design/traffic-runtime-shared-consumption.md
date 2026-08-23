@@ -170,8 +170,9 @@ Route 用共享根边序号编译 occurrence。
 - `register_route`：输入为共享根 `LaneEdgeOrdinal` 有序非空序列（不要 JSON
   字符串 ID）；按共享根连通校验（车道后继或机动转移候选），把 occurrence 编进
   **本世界**表，返回代际感知 `RouteHandle`。首边或末边不得落在路口内部边上，末边
-  不得带 StopLine；occurrence 覆盖与静态路线重建同一规则。非法序列失败，不留下
-  半条路线。不做准入判断（ADR 0018：Route 无 class 上下文）。
+  不得带 StopLine；occurrence 覆盖与静态路线重建同一规则，且 hop 半开区间
+  `[entry, exit)` 不得相交。非法序列失败，不留下半条路线。不做准入判断
+  （ADR 0018：Route 无 class 上下文）。
 - `remove_route`：只移除本世界 **动态** 路线。静态路线句柄必须拒绝。仍有 live
   车辆引用则失败；成功后旧动态句柄 stale，本世界动态 occurrence 表去掉该路线。
 - 人口是调用方所有：`install` 不接受初始车辆。`VehicleSpawnInput` 含共享根车辆
