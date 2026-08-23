@@ -96,7 +96,7 @@ LaneFlow 的当前能力与 #291 已接受长期目标共同关注：
 - `crates/laneflow-runtime`：引擎无关的交通运行时。`TrafficWorld` 安装 `Arc<SharedNetworkRevision>`，拥有 1-worker 固定步进、动态 Route、车辆、停车占用与信号 snapshot。
 - `crates/laneflow-scenario`：可选、引擎无关的 reference scenario catalog 线格式；走廊人口迁到 Runtime 见 [#472](https://github.com/illusion-tech/laneflow/issues/472)。
 - `crates/laneflow-spatial`：LaneFlow 自有的有界 `f32` canonical 点、向量、单位方向、稳定 frame ID，以及绑定共享根 `Arc` 的 `SpatialSession` 位姿采样；不依赖 Runtime。
-- `tools/laneflow-corridor-generator`：受保护转向走廊的离线生成工具；读取内部 TOML，确定性写出遗留 Traffic/Spatial/Manifest JSON 与 scenario-local catalog 0.2 TOML。JSON 没有生产 schema 或加载 crate；走廊人口迁到 Runtime 见 [#472](https://github.com/illusion-tech/laneflow/issues/472)。
+- `tools/laneflow-corridor-generator`：受保护转向走廊的离线生成工具；读取内部 TOML，确定性写出 scenario-local catalog 0.2 TOML。内存里仍可构造遗留 Traffic/Spatial/Manifest JSON，但不落盘、没有生产 schema 或加载 crate；走廊人口迁到 Runtime 见 [#472](https://github.com/illusion-tech/laneflow/issues/472)。
 - `research/issue-123-spatial-prototype`：#123 G1 使用的研究用工作区成员；不属于生产接口，第三方几何候选只作为开发依赖进行对照。
 - `xtask`：Markdown 表格格式化、提交消息和 External Review Check 等仓库治理工具。
 
