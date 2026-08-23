@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-08-23
+**最后更新**: 2026-08-24
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -154,8 +154,9 @@ Bevy Transform 写入系统运行在 `PostUpdate`，并位于 `TransformSystems:
 
 ## 8. 可选调试可视化
 
-#301 后仓库不再导出占位 `debug-gizmos` feature 或空 plugin。v0.7 的 gizmos 契约仍是目标能力，Runtime 实现跟踪
-[#473](https://github.com/illusion-tech/laneflow/issues/473)。当时 campus / `debug_gizmos_smoke` 命令与 JSON 入口只存在于 git 历史。
+#301 后仓库不再导出占位 `debug-gizmos` feature 或空 plugin。v0.7 / #172 曾交付过预算受控 gizmos；#301 拆除 Core 表现层时一并删除。campus / `debug_gizmos_smoke` 与 JSON 入口只存在于 git 历史。
+
+该能力不是现行交付。[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭：当前最小 Bevy 证据是 `runtime_min` 与无窗口 smoke，不恢复 gizmos 公共 API。真正有可见诊断场景时再开新 Issue；默认 production graph 仍不得包含 Gizmos/render/window。
 
 ## 9. 最小 native example
 
