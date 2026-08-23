@@ -2,8 +2,8 @@ use laneflow_static_contract::{LaneEdgeOrdinal, SignalAspect, StaticRouteOrdinal
 use laneflow_static_network::VehicleProfileView;
 
 use crate::tables::{
-    VehicleState, VehicleStatus, compiled_hop_gate, occupancy_intervals, remaining_along_route,
-    remaining_to_route_end, static_route_ordinal,
+    VehicleState, VehicleStatus, compiled_hop_gate, for_each_occupancy_interval,
+    remaining_along_route, remaining_to_route_end, static_route_ordinal,
 };
 use crate::{StepError, StepOutcome, TickInput, TrafficWorld};
 
@@ -134,8 +134,10 @@ impl TrafficWorld {
             delta_s,
             edges,
             lengths,
+            speed_limits,
             cursor,
             state.progress,
+            current_limit,
         )?;
         if travel <= 0.0 {
             speed = 0.0;
@@ -183,38 +185,44 @@ impl TrafficWorld {
                 continue;
             };
             let leader_index = usize::try_from(leader.route_edge_index).ok()?;
-            let Some(intervals) = occupancy_intervals(
+            let walked = for_each_occupancy_interval(
                 lengths,
                 leader_edges,
                 leader_index,
                 leader.progress,
                 leader.length,
-            ) else {
-                continue;
-            };
-            for (edge, lo, hi) in intervals {
-                let Some(found) = edges
-                    .iter()
-                    .enumerate()
-                    .skip(cursor)
-                    .find_map(|(index, candidate)| (*candidate == edge).then_some(index))
-                else {
-                    continue;
-                };
-                let bumper = if found == cursor {
-                    if hi <= follower.progress + 1e-12 {
-                        continue;
-                    }
-                    lo - follower.progress
-                } else {
-                    let Some(front_to_rear) =
-                        remaining_along_route(lengths, edges, cursor, follower.progress, found, lo)
+                |edge, lo, hi| {
+                    let Some(found) = edges
+                        .iter()
+                        .enumerate()
+                        .skip(cursor)
+                        .find_map(|(index, candidate)| (*candidate == edge).then_some(index))
                     else {
-                        continue;
+                        return;
                     };
-                    front_to_rear
-                };
-                best = Some(best.map_or(bumper, |current| current.min(bumper)));
+                    let bumper = if found == cursor {
+                        if hi <= follower.progress + 1e-12 {
+                            return;
+                        }
+                        lo - follower.progress
+                    } else {
+                        let Some(front_to_rear) = remaining_along_route(
+                            lengths,
+                            edges,
+                            cursor,
+                            follower.progress,
+                            found,
+                            lo,
+                        ) else {
+                            return;
+                        };
+                        front_to_rear
+                    };
+                    best = Some(best.map_or(bumper, |current| current.min(bumper)));
+                },
+            );
+            if walked.is_none() {
+                continue;
             }
         }
         best
@@ -507,17 +515,24 @@ fn speed_down_constraint_holds(
     travel + braking <= distance + 1e-9
 }
 
+#[allow(clippy::too_many_arguments)]
 fn clamp_travel_to_speed_down_boundary(
     mut travel: f64,
     current_speed: f64,
     delta_s: f64,
     edges: &[LaneEdgeOrdinal],
     lengths: &[f64],
+    speed_limits: &[f64],
     cursor: usize,
     progress: f64,
+    current_limit: f64,
 ) -> Option<f64> {
     let min_travel = 0.5 * current_speed * delta_s;
-    for (index, _) in edges.iter().enumerate().skip(cursor + 1) {
+    for (index, edge) in edges.iter().enumerate().skip(cursor + 1) {
+        let limit = *speed_limits.get(edge.index())?;
+        if !limit.is_finite() || limit + 1e-12 >= current_limit {
+            continue;
+        }
         let distance = remaining_along_route(lengths, edges, cursor, progress, index, 0.0)?;
         if distance <= 1e-12 {
             continue;
