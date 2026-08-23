@@ -370,7 +370,7 @@ ADR 0013/0015 与 #136 已冻结适配器边界。各 Adapter 不再自行定义
 
 v0.7 的首个生产 Adapter crate 为 `laneflow-bevy`。#301 后它依赖 `laneflow-runtime`、`laneflow-spatial` 和 Bevy 0.19 的最小 modular crates，使用一个 Bevy Resource 表达单活动 Session，并在宿主 `First` 之后运行 LaneFlow 自有 outer-frame/fixed schedules；它不修改 Bevy `Time<Fixed>`，也不把 Bevy 类型引入 Runtime/Spatial。`debug-gizmos` 占位 API 已删除，不是现行交付（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭）。最小证据为 `runtime_min` 与无窗口 smoke。Adapter 边界见 `design/bevy-reference-adapter.md`。
 
-v0.8 的场景人口与回流采用 ADR 0016 的 caller-owned policy，不进入 `TrafficWorld::step` 隐藏状态，也不由 Bevy ECS 选择 route。Runtime 不提供人口 controller。走廊人口迁到 Runtime 是 [#472](https://github.com/illusion-tech/laneflow/issues/472)，不是 #301 完成条件。Traffic/Spatial 继续是静态制品，不持久化目标人口、runtime handles 或 Entity。场景目标见 `design/example-scenarios.md`。
+v0.8 的场景人口与回流采用 ADR 0016 的 caller-owned policy，不进入 `TrafficWorld::step` 隐藏状态，也不由 Bevy ECS 选择 route。Runtime 不提供人口 controller。走廊编制与 catalog 绑定由 [#472](https://github.com/illusion-tech/laneflow/issues/472) 迁到 `TrafficWorld`；50–200 原子替换见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。静态制品不持久化目标人口、runtime handles 或 Entity。场景目标见 `design/example-scenarios.md`。
 
 ## 7. Presentation Layer
 

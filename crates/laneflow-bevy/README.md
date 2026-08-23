@@ -33,11 +33,14 @@ app.insert_resource(LaneFlowSession::new(world, spatial, config).expect("paired 
 # }
 ```
 
-campus / `native_reference` / `signalized_corridor` 的 Core 入口已删除。走廊迁到 Runtime 见 [#472](https://github.com/illusion-tech/laneflow/issues/472)。Bevy debug gizmos 不是现行交付（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭）。
+campus / `native_reference` 的 Core 入口已删除。薄走廊 Bevy 路径使用检入的 LFCA，不恢复
+50–200 回流；回流见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。Bevy debug
+gizmos 不是现行交付（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭）。
 
-最小 Bevy 证据是 `runtime_min` 示例与无窗口 `tests/runtime_min_smoke.rs`：
+最小 Bevy 证据是 `runtime_min`；走廊薄路径是 `signalized_corridor`：
 
 ```powershell
 cargo +1.96.0 test --locked -p laneflow-bevy --test runtime_min_smoke
-cargo +1.96.0 check --locked -p laneflow-bevy --example runtime_min --features native-example
+cargo +1.96.0 test --locked -p laneflow-bevy --test signalized_corridor_smoke
+cargo +1.96.0 check --locked -p laneflow-bevy --example runtime_min --example signalized_corridor --features native-example
 ```

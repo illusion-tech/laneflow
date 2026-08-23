@@ -13,6 +13,8 @@ name = "laneflow_scenario"
 path = "src/lib.rs"
 
 [dependencies]
+laneflow-compiler = { version = "0.0.0", path = "../laneflow-compiler" }
+laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
 serde = { version = "1.0", features = ["derive"] }
 
 [lints]

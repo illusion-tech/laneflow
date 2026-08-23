@@ -65,10 +65,8 @@ pub struct SignalConfig {
 #[serde(deny_unknown_fields)]
 pub struct OutputConfig {
     pub directory: String,
-    pub traffic_artifact_ref: String,
-    pub spatial_artifact_ref: String,
-    pub manifest_file_name: String,
     pub catalog_file_name: String,
+    pub lfca_file_name: String,
 }
 
 impl CorridorConfig {
@@ -219,12 +217,7 @@ impl CorridorConfig {
         if self.output.directory.trim().is_empty() {
             return Err(config_error("output.directory must not be empty"));
         }
-        let names = [
-            &self.output.traffic_artifact_ref,
-            &self.output.spatial_artifact_ref,
-            &self.output.manifest_file_name,
-            &self.output.catalog_file_name,
-        ];
+        let names = [&self.output.catalog_file_name, &self.output.lfca_file_name];
         let mut unique = HashSet::new();
         for name in names {
             if !is_single_file_name(name) {

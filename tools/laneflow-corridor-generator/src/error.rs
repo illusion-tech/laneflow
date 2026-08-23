@@ -16,13 +16,6 @@ pub enum Error {
     #[error("could not serialize corridor catalog TOML: {0}")]
     TomlSerialize(#[from] toml::ser::Error),
 
-    #[error("could not serialize {document} JSON: {source}")]
-    Json {
-        document: &'static str,
-        #[source]
-        source: serde_json::Error,
-    },
-
     #[error("invalid corridor configuration: {0}")]
     Config(String),
 

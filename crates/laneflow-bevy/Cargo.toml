@@ -46,5 +46,9 @@ laneflow-static-network = { version = "0.0.0", path = "../laneflow-static-networ
 name = "runtime_min"
 required-features = ["native-example"]
 
+[[example]]
+name = "signalized_corridor"
+required-features = ["native-example"]
+
 [lints]
 workspace = true
