@@ -311,6 +311,7 @@ impl TrafficWorld {
             .filter_map(|handle| {
                 let state = self.vehicle_state(handle)?;
                 let source = match state.status {
+                    VehicleStatus::Completed => return None,
                     VehicleStatus::Parked => PoseSource::Parking {
                         space: state.parking.expect("parked vehicle has a space"),
                     },
