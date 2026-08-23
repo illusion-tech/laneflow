@@ -1,8 +1,8 @@
 # Data Format 设计
 
-**文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）<br>
-**最后更新**: 2026-08-22（#281 current；ADR 0025 / #300 G1 target 修订；#301 G1 拆除所有权）<br>
-**适用范围**: 当前 Traffic v0.10、SpatialPackage v0.1、ScenarioManifest v0.1、保留的 Data v0.6 数值研究输入，以及 compiler target 的格式边界
+**文档状态**: Retired as production contract（#301 已删除 schema 与加载 crate；本文保留历史 wire 语义）<br>
+**最后更新**: 2026-08-23（#301 删除 current JSON schema）<br>
+**适用范围**: 已删除的 Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1 历史 wire 语义、保留的 Data v0.6 数值研究输入，以及 compiler target 的格式边界
 
 **关联文档**:
 
@@ -22,10 +22,7 @@
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
 - `../adr/0025-checked-canonical-network-and-shared-static-network.md`
 - `../reference/glossary.md`
-- `../../schemas/laneflow-data-v0.10.schema.json`
-- `../../schemas/laneflow-spatial-v0.1.schema.json`
-- `../../schemas/laneflow-scenario-manifest-v0.1.schema.json`
-- `../../schemas/README.md`
+- `../../schemas/README.md`（道路编辑 FlatBuffers；current JSON schema 已删除）
 - `data-loading.md`
 - `spatial-geometry.md`
 - `lane-graph.md`

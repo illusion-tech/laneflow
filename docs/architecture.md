@@ -201,7 +201,7 @@ LFCA 供下一次 `PortableDiffBase::Artifact`，但存档仍只保存 committed
 
 ## 4. Traffic Data Layer
 
-Traffic Data Layer 保存 Core 可消费的数据：
+Traffic Data Layer 保存可被编译器和共享静态路网消费的静态交通事实：
 
 - lane graph
 - route
@@ -212,23 +212,20 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 数据格式应尽量保持引擎无关。
 
-当前 Rust workspace 中，Traffic Data Layer 已由 `laneflow-data` 表达。它负责：
+当前生产路径不经过 JSON loader。静态交通数据由编译器从受检编制来源产出 LFCA，
+`laneflow-static-network` 构建 `SharedNetworkRevision`，`TrafficWorld` 安装该共享根。
+`laneflow-data`、`laneflow-current-source` 与 current JSON Schema（Traffic v0.10、
+Spatial v0.1、Scenario Manifest v0.1）已随 #301 拆除。走廊生成器仍可写出同名 JSON
+字节，但这些文档没有生产 schema、加载 crate 或 Runtime 入口；走廊人口迁到 Runtime
+是 follow-up。
 
-- 当前 v0.10 external package（横断面/准入静态模型、profile 必填 `participantClassId`）、required per-edge `speedLimit`、必填版本闸口与旧版/未来版拒绝；
-- JSON syntax、wire shape、units 和字段路径诊断；
-- external ID 到 Core domain input 的转换；
-- 调用 Core constructors 完成 lane graph、Junction/Movement/ManeuverPath、route、
-  Vehicle Profile、ParticipantClass、RoadCorridor/RoadSection/LaneGroup/FacilityBand、
-  AccessRule、multi-Gate/WaitingZone、static Signals 与 static Parking normalization。
+portable canonical artifact 由 `laneflow-format`/compiler contract 描述。静态
+semantic normalization 在 compiler；共享静态路网不取代 LFCA publication/provenance
+与宿主 admission 契约。current JSON 未曾作为外部资产发布，不接入 compiler，也不形成
+长期兼容或迁移工具承诺。
 
-`laneflow-data` 不拥有 fixed tick、runtime entity、world lifecycle 或 Engine asset I/O。初始 loader 接收内存 bytes/string，不直接读取文件或创建 `CoreWorld`。
-
-ADR 0020/0025 target 中，`laneflow-data` 只作为 current JSON 临时内部加载实现；
-portable canonical artifact 由 `laneflow-format`/compiler contract 描述，生产
-Runtime 由 `laneflow-static-network` 从受检 LFCA 构建并挂载
-`SharedNetworkRevision`。静态 semantic normalization 从 Data/Core constructors 前移到
-compiler；共享静态路网不取代 LFCA publication/provenance 与宿主 admission 契约。current JSON
-未曾作为外部资产发布，不接入 compiler，也不形成长期兼容或迁移工具承诺。
+以下段落保留 #229/#234/#235 把领域模型写入当时 current JSON 的历史；那些 schema
+文件已删除，领域语义现由 compiler / 共享静态路网承载。
 
 current v0.10 在保持相同依赖方向的前提下包含 per-edge 基础道路限速、
 Junction/Movement/ManeuverPath、StopLine、一等 ManeuverGate、SignalGroup、

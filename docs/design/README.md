@@ -41,8 +41,8 @@
 - `parking-system.md`：Accepted v0.5 Parking；#107 已落地 ParkingSpace/ParkingArea static registry 与 current 0.5 data，#108/#109 已交付占用 authority、预约/停车/离开及 route/Following/Signals 集成，#110 已完成端到端与性能验证，#19 已完成独立收口审阅。
 - `adapter-api.md`：Core/Spatial 与引擎适配器之间的只读快照、批量位姿、宿主转换和权威职责边界。
 - `bevy-reference-adapter.md`：v0.7 Bevy 0.19 Reference Adapter 的依赖、schedule、Entity/Transform、debug、example 与验证边界。
-- `data-format.md`：lane graph、route 等外部数据格式、validation 和 loader 边界；Rust crate 所有权见 ADR 0007。
-- `data-loading.md`：当前 v0.10 Rust loader、严格版本闸口、Junction/Movement/ManeuverPath、multi-Gate/WaitingZone、per-edge speed limit、横断面/准入（RoadCorridor/RoadSection/LaneGroup/FacilityBand/ParticipantClass/AccessRule）、Core Signals/Parking normalization、错误与测试边界。
+- `data-format.md`：已删除的 current JSON 历史 wire 语义；生产静态数据现由 compiler / LFCA / 共享静态路网承载。
+- `data-loading.md`：已删除的 current JSON loader 历史边界；`laneflow-data` / `laneflow-current-source` 已随 #301 拆除。
 - `example-scenarios.md`：v0.8 直行走廊基线与 current v0.10 protected-turning 增量；记录 1.4 km 几何、28 Route、限速、固定时制、50–200 车辆人口、native 入口与分层验收路径。
 - `signalized-corridor-population.md`：current v0.10 caller-owned reference policy；冻结 `laneflow-scenario` crate 边界、catalog 0.2 PortalLane/weighted RouteChoice normalization、三 draw-site completion、blocked retry、replay 与零分配基线。
 - `network-compiler.md`：#291 G1 综合架构修订；采用权威来源模块图

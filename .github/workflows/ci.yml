@@ -110,7 +110,6 @@ jobs:
               - 'crates/laneflow-bevy/**'
               - 'crates/laneflow-runtime/**'
               - 'crates/laneflow-spatial/**'
-              - 'crates/laneflow-data/**'
               - 'crates/laneflow-scenario/**'
               - 'examples/data/**'
               - 'examples/config/**'

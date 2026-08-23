@@ -327,9 +327,10 @@ Issue**，不是 #301 完成条件。#301 只要求它们不再以 `CoreWorld` �
 必须消失或不再作为运行时入口：
 
 - `crates/laneflow-core` 与 `laneflow-core-test-support`（前提：§6.4 覆盖已存在）；
-- `laneflow-data` / `laneflow-current-source` 作为 Core 的 JSON 加载入口；
+- `laneflow-data` / `laneflow-current-source` 作为 Core 的 JSON 加载入口（本完成 PR 已删除 crate）；
 - current JSON schema：`laneflow-data-v0.10`、`laneflow-spatial-v0.1`、
-  `laneflow-scenario-manifest-v0.1`。不得删除 `schemas/road-editing/`；
+  `laneflow-scenario-manifest-v0.1`（本完成 PR 已删除文件）。不得删除 `schemas/road-editing/`。
+  走廊生成器仍可写出同名 JSON 字节，但没有生产 schema 或加载入口；
 - `laneflow-compiler-test-support` 的 LIR→Core 投影；
 - `laneflow-spatial` 对 `laneflow-core` 的依赖（改为共享根 bind）；
 - `laneflow-bevy`、`laneflow-scenario`、`laneflow-corridor-generator` 以及

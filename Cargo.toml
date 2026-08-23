@@ -2,8 +2,6 @@
 members = [
     "crates/laneflow-bevy",
     "crates/laneflow-compiler",
-    "crates/laneflow-current-source",
-    "crates/laneflow-data",
     "crates/laneflow-format",
     "crates/laneflow-road-editing-wire",
     "crates/laneflow-runtime",

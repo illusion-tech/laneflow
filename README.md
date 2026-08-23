@@ -94,11 +94,9 @@ LaneFlow 的当前能力与 #291 已接受长期目标共同关注：
 
 - `crates/laneflow-bevy`：Bevy 0.19 Reference Adapter；使用最小 modular dependency graph，提供单活动 `LaneFlowSession`、专用 fixed schedule，以及 `TrafficWorld` + 可选 `SpatialSession` 的最小示例。campus / 走廊 Core 入口已拆除。
 - `crates/laneflow-runtime`：引擎无关的交通运行时。`TrafficWorld` 安装 `Arc<SharedNetworkRevision>`，拥有 1-worker 固定步进、动态 Route、车辆、停车占用与信号 snapshot。
-- `crates/laneflow-current-source`：Traffic v0.10、Scenario Manifest v0.1 与 Spatial v0.1 的内部 wire 校验 crate；不是可运行交通世界入口。
-- `crates/laneflow-data`：再导出 current JSON 格式版本与媒体类型；不再把 JSON 正规化为可运行世界。
 - `crates/laneflow-scenario`：可选、引擎无关的 reference scenario catalog 线格式；走廊人口迁到 Runtime 是 follow-up。
 - `crates/laneflow-spatial`：LaneFlow 自有的有界 `f32` canonical 点、向量、单位方向、稳定 frame ID，以及绑定共享根 `Arc` 的 `SpatialSession` 位姿采样；不依赖 Runtime。
-- `tools/laneflow-corridor-generator`：Traffic v0.10 受保护转向走廊的离线 authoring 工具；读取内部 TOML，确定性生成并校验 Traffic/Spatial/Manifest JSON 与 scenario-local catalog 0.2 TOML，并复用 `laneflow-scenario` 的 catalog wire DTO。
+- `tools/laneflow-corridor-generator`：受保护转向走廊的离线生成工具；读取内部 TOML，确定性写出遗留 Traffic/Spatial/Manifest JSON 与 scenario-local catalog 0.2 TOML。JSON 没有生产 schema 或加载 crate；走廊人口迁到 Runtime 是 follow-up。
 - `research/issue-123-spatial-prototype`：#123 G1 使用的研究用工作区成员；不属于生产接口，第三方几何候选只作为开发依赖进行对照。
 - `xtask`：Markdown 表格格式化、提交消息和 External Review Check 等仓库治理工具。
 
@@ -106,7 +104,7 @@ LaneFlow 的当前能力与 #291 已接受长期目标共同关注：
 
 ## 许可证
 
-LaneFlow 公开仓库采用 [Apache License 2.0](LICENSE)。`laneflow-runtime`、`laneflow-data` 与本仓库其他自有内容按 Apache-2.0-only 分发；第三方材料仍遵循其各自许可证。
+LaneFlow 公开仓库采用 [Apache License 2.0](LICENSE)。`laneflow-runtime` 与本仓库其他自有内容按 Apache-2.0-only 分发；第三方材料仍遵循其各自许可证。
 
 未来高级编辑器、城市级或分布式仿真、优化分析、企业 Adapter、云服务与商业支持可以在独立产品和独立许可证下交付。商业产品可以依赖开放 Core/Data，开放仓库不得依赖商业实现。详细边界与依赖审计规则见 `docs/adr/0002-dependency-and-licensing-constraints.md` 和 `docs/governance/dependency-security.md`。
 
