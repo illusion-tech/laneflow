@@ -47,14 +47,15 @@ fn default_corridor_locks_scope_counts_and_deterministic_bytes() {
 #[test]
 fn checked_in_artifacts_are_exact_generator_outputs() {
     let generated = default_generated();
-    for (relative, expected) in [(
-        "examples/data/v0.2-signalized-corridor.catalog.toml",
+    let relative = "examples/data/v0.2-signalized-corridor.catalog.toml";
+    let path = repository_path(relative);
+    let actual = std::fs::read(&path).expect("checked-in artifact must be readable");
+    assert_eq!(
+        actual,
         generated.catalog_bytes(),
-    )] {
-        let path = repository_path(relative);
-        let actual = std::fs::read(&path).expect("checked-in artifact must be readable");
-        assert_eq!(actual, expected, "{} is stale", path.display());
-    }
+        "{} is stale",
+        path.display()
+    );
 }
 
 #[test]

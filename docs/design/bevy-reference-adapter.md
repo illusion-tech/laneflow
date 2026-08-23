@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-07-27（#262 current Traffic v0.10 artifact 迁移）
+**最后更新**: 2026-08-23
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -154,58 +154,19 @@ Bevy Transform 写入系统运行在 `PostUpdate`，并位于 `TransformSystems:
 
 ## 8. 可选调试可视化
 
-`debug-gizmos` 是非默认 opt-in feature：
-
-- 只消费最近一次已验证的 presentation batch。
-- 最小绘制内容为 frame axes 与车辆 position/forward/up marker。
-- 调用方可以提供已经加载的空间几何绘制中心线，但 Adapter 不重新计算长度或建立第二套 Spatial authority。
-- 必须提供可配置绘制预算与过滤器；达到预算时按稳定 batch 顺序截取。
-- debug feature、运行时开关和预算不得改变 Core、Spatial、映射或 Transform 结果。
-- Gizmos/render/window 依赖不进入默认 production graph。
-
-调试绘制用于诊断坐标、frame、映射和 pose，不是 editor、authoring tool、通用 inspector 或高车辆数全量可视化承诺。
-
-#172 冻结并实现的公开边界为：
-
-- `LaneFlowDebugGizmosPlugin` 只在 `debug-gizmos` feature 下导出。宿主必须先安装 `GizmoPlugin`；顺序不满足时 plugin 不注册绘制系统，只通过 `LaneFlowDebugGizmosReport` 报告 `MissingGizmoPlugin`。
-- `LaneFlowDebugGizmosConfig::default()` 保持运行时关闭且车辆/中心线预算均为零。调用方通过显式 Resource 配置 frame axes、position cross、forward/up marker 尺寸、车辆预算、中心线 segment 预算和 membership filter。
-- 车辆 filter 支持全部、仅已映射或显式 allow-list；filter 只决定 membership，绘制与预算截取顺序始终来自当前 validated pose batch。
-- presentation 在每个 outer frame 开始时撤销上一帧 validated 标记，只有 Spatial extraction、frame/token、映射、Entity/parent、有限值、Transform staging 与原子提交全部成功后才重新发布当前 batch。debug 系统不接受 stale fallback。
-- debug 系统在 `PostUpdate` 的 `TransformSystems::Propagate` 之后运行，只读取已提交 batch、Session placement、frame-root `GlobalTransform` 与只读映射；它不运行 Core step、不调用 Spatial 单记录采样、不写映射或 local Transform。
-- `LaneFlowDebugCenterlines` 由调用方提供显式 `CanonicalFrameId` 与有序 canonical polylines。Adapter 只按输入顺序展开 segment 并应用预算；frame mismatch 只跳过中心线，不计算长度、不重采样、不生成新的 Spatial registry。
-- `LaneFlowDebugGizmosReport` 为 headless 测试和宿主诊断公开状态、车辆/中心线可用与截断计数、稳定首尾 vehicle 以及 emitted line segment 数。无效 debug 配置或中心线输入不会使 presentation 失败。
-- `debug-gizmos` 只增加 modular `bevy_asset`、`bevy_color`、`bevy_gizmos` 与 `bevy_math`；默认 graph 仍不包含这些依赖。`debug-gizmos-smoke` 才为可视 smoke 激活 umbrella `bevy` 的 3D/window/render graph，并显式选择 winit 与 Linux X11 后端，不启用粗粒度 `default_platform` 或 Wayland。
-
-专用 smoke example 使用三个静止车辆、一个带 frame identity 的弯折中心线和非原点 frame-root，验证 axes、车辆 forward/up、中心线预算与 host-world placement。它使用以下命令运行：
-
-```powershell
-cargo +1.96.0 run -p laneflow-bevy --example debug_gizmos_smoke --features debug-gizmos-smoke --locked
-```
-
-该 smoke 不读取校园 artifacts，也不承诺 native example 的输入、场景或交互 API；#173 仍独立交付完整最小 native reference example。
+#301 后仓库不再导出占位 `debug-gizmos` feature 或空 plugin。v0.7 的 gizmos 契约仍是目标能力，Runtime 实现跟踪
+[#473](https://github.com/illusion-tech/laneflow/issues/473)。当时 campus / `debug_gizmos_smoke` 命令与 JSON 入口只存在于 git 历史。
 
 ## 9. 最小 native example
 
-native example 使用显式 `native-example` feature，并把完整 Bevy `DefaultPlugins`、window、renderer、mesh/material 留在示例边界。
+现行最小 native example 是 `runtime_min`：安装 `TrafficWorld` 与可选 `SpatialSession`，用 compiler 夹具 `LFCA-V1-FULL-SPATIAL`，不读取 campus JSON，也不构造 `CoreWorld`。
 
-示例必须：
+```powershell
+cargo +1.96.0 check --locked -p laneflow-bevy --example runtime_min --features native-example
+cargo +1.96.0 test --locked -p laneflow-bevy --test runtime_min_smoke
+```
 
-- 加载仓库现有 `examples/data/v0.1-campus.scenario.json` 及其 traffic/spatial artifacts；
-- 使用内建简单几何生成车辆和必要场景表现，不要求外部二进制素材；
-- 展示 fixed tick、Vehicle/Entity binding、frame-root Transform、车辆移动和可切换 debug Gizmos；
-- 提供精确运行命令、dedicated compile check、本机 smoke 记录与截图；
-- 不把 camera、input、renderer 或示例资源管理提升为 production Adapter API。
-
-v0.7 不冻结 glTF、prefab、scene、asset pipeline、UI、presentation interpolation 或 LOD/pooling 算法。GUI smoke 不能替代 headless deterministic tests。
-
-#173 冻结并实现的示例边界为：
-
-- `native-example` 是非默认 opt-in feature，复用 #172 已审计的完整 Bevy 3D/window/render 依赖集合，并启用 `debug-gizmos`；默认 production graph 与 all-features crate/version 集合均不改变。
-- `native_reference` 在启动时从仓库 `examples/data/` 读取 campus manifest、traffic artifact 与 spatial artifact，通过 `laneflow_data::from_scenario_json_slice` 校验 artifact ref、media type、size 与 SHA-256，再构造 production `InitialTrafficData`、`SpatialRegistry` 和 `CoreWorld`。
-- 示例创建 main/loop 两辆 Core vehicle、非原点且带 placement token 的 frame-root、直接 child proxy 和内建 cuboid vehicle child。道路只按调用方已加载的中心线点生成简单表现几何，不重算 Spatial 长度，也不反写 Core/Spatial。
-- 完整 `DefaultPlugins`、camera、directional/ambient light、mesh/material、keyboard 与 screenshot 系统全部保留在 example 文件。`G` 切换既有预算受控 Gizmos，`F12` 保存当前工作目录截图；这些控制不进入 library export。
-- 文件、manifest/digest、Traffic/Spatial normalization 与 Core world 构造失败带路径和阶段诊断返回；运行中 Adapter 结构化错误写入宿主日志。
-- 共享 CI 执行 dedicated example compile。历史 native 窗口 smoke 见 git 历史；现行最小证据为 `runtime_min` 与无窗口 smoke。`debug-gizmos` 目前是占位 plugin。
+`native-example` 仍是非默认 opt-in，完整 `DefaultPlugins` / window / renderer 留在示例边界。v0.7 `native_reference`、campus JSON 与 `laneflow_data::from_scenario_json_slice` 已删除。走廊 native example 见 [#472](https://github.com/illusion-tech/laneflow/issues/472)。
 
 ## 10. 验证与性能 Gate
 

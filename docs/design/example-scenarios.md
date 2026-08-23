@@ -29,7 +29,7 @@ envelope、限速、50–200 辆车人口、出口回流和 Runtime/Spatial/Adap
 
 current 走廊几何与人口策略仍按下列边界描述。Traffic / Spatial / Manifest JSON
 与 production JSON loader 已随 #301 删除；仓库只保留 catalog TOML。可运行世界从
-共享静态路网安装。走廊人口迁到 Runtime 是 follow-up。
+共享静态路网安装。走廊人口迁到 Runtime 见 [#472](https://github.com/illusion-tech/laneflow/issues/472)。
 
 走廊能力包含：
 

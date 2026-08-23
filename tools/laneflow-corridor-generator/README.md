@@ -3,7 +3,7 @@
 本工具提供受保护左转、直行和右转走廊的可复现离线生成路径。它读取仓库内部 TOML 配置，写出
 scenario-local catalog 0.2 TOML。`generate` / `check` 只对拍 catalog。内存里仍可构造
 遗留 Traffic / Spatial / Manifest JSON 字节，但仓库不再检入这些 JSON，也没有生产
-schema 或加载入口。走廊人口迁到 Runtime 是 follow-up。
+schema 或加载入口。走廊人口迁到 Runtime 见 [#472](https://github.com/illusion-tech/laneflow/issues/472)。
 
 ## 使用
 

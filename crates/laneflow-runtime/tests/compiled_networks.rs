@@ -385,3 +385,84 @@ fn large_delta_travel_does_not_exceed_speed_limit_envelope() {
         "travel must not exceed speed-limit envelope, progress={progress}"
     );
 }
+
+#[test]
+fn speed_down_transition_caps_next_tick_travel() {
+    let revision = compile_revision(|module| {
+        add_standard_profiles(module);
+        module
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "fast",
+                length_meters: 20.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("slow")],
+            })
+            .expect("fast")
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "slow",
+                length_meters: 100.0,
+                speed_limit_meters_per_second: 1.0,
+                successors: &[],
+            })
+            .expect("slow")
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route",
+                edge_sequence: &[
+                    LaneEdgeReference::local("fast"),
+                    LaneEdgeReference::local("slow"),
+                ],
+            })
+            .expect("route");
+    });
+    let mut world =
+        TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 1_000)).expect("install");
+    let route = world
+        .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
+        .expect("route");
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            18.0,
+            10.0,
+        ))
+        .expect("spawn near fast/slow boundary");
+    world.step(TickInput::new(1_000)).expect("approach/cross");
+    let PoseSource::Lane {
+        edge: after_first,
+        progress: first_progress,
+    } = world
+        .committed_pose_sources()
+        .as_slice()
+        .iter()
+        .find(|(handle, _)| *handle == vehicle)
+        .expect("pose")
+        .1
+    else {
+        panic!("lane pose");
+    };
+    world.step(TickInput::new(1_000)).expect("slow edge tick");
+    let PoseSource::Lane {
+        edge: after_second,
+        progress: second_progress,
+    } = world
+        .committed_pose_sources()
+        .as_slice()
+        .iter()
+        .find(|(handle, _)| *handle == vehicle)
+        .expect("pose")
+        .1
+    else {
+        panic!("lane pose");
+    };
+    let travelled = if after_second == after_first {
+        second_progress - first_progress
+    } else {
+        second_progress
+    };
+    assert!(
+        travelled <= 1.0 + 1e-6,
+        "tick on or after 1 m/s edge must not keep a 10 m/s envelope, travelled={travelled}, first={first_progress:?} {after_first:?}, second={second_progress:?} {after_second:?}"
+    );
+}

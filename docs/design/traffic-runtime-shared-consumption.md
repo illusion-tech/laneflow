@@ -288,8 +288,9 @@ CI 必须同时：
 `cargo check` 不能单独作为完成证据。这是「新的端到端示例」，不是 corridor 规模
 演示。
 
-`signalized_corridor` / `laneflow-scenario` / 走廊生成器迁到 Runtime 是 **follow-up
-Issue**，不是 #301 完成条件。#301 只要求它们不再以 `CoreWorld` 为可运行入口。
+`signalized_corridor` / `laneflow-scenario` / 走廊生成器迁到 Runtime 是
+[#472](https://github.com/illusion-tech/laneflow/issues/472)，不是 #301 完成条件。
+#301 只要求它们不再以 `CoreWorld` 为可运行入口。
 
 ### 6.4 拆除 Core 行为套件前的 Runtime 覆盖
 

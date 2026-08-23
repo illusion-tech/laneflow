@@ -514,30 +514,17 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 
 十万只用于 scaling observation，不构成实时承诺。CI 只做 functional smoke 与 benchmark compile，不用共享 runner wall-clock 阻断。当时 workload 与逐轮结果见 git 历史，不把单次测量写入本文。
 
-## 14. Tests 与 canonical fixtures
+## 14. Tests 与现行夹具
 
-测试矩阵必须覆盖：
+Signals 行为由 `TrafficWorld` 与编译器原生有类型模块覆盖。current JSON fixture
+（`v0.10-parking-signals-baseline.laneflow.json` 等）已删除，不再是测试入口。
 
-- schema/DTO/loader：current version、closed shape、tagged union、safe integer、旧字段/JSON-LD 拒绝、path/source；
-- Core domain：identity/reference/coverage/ownership/complete state/cycle、
-  terminal/unreferenced StopLine 与 route-final-StopLine；
-- timing/query：time 0、boundary、offset、non-divisible delta、single-phase wrap、overflow 与失败原子性；
-- vehicle behavior：green/red/yellow、exact boundary、nearest denied Gate、多 Gate、repeated edge、same-tick hard stop 的三车以上 minimum-gap platoon、queue/release、shared StopLine；
-- events/determinism：全局总序、dual projection、multi-controller、replay 与 fresh-world retry；
-- property：1-8 groups/phases、boundary/wrap/long-time/near-overflow，对照独立 `u128` reference resolver；
-- performance：一万 common/stress、matched all-green/none/no-signals、legacy regression 与十万 scaling。
+现行必须覆盖：
 
-#107 建立的两个 fixture 角色已随格式迁移到 current v0.10；Signals 端到端测试直接
-消费，不复制：
-
-1. `v0.10-parking-signals-baseline.laneflow.json`：完整
-   StopLine/ManeuverGates、group/none、green/yellow/red program、static Parking 与
-   current ParticipantClass/CrossSection/Access 顶层 shape；route 在无 StopLine
-   downstream edge 终止。其 `none` Gate 只验证 signal-layer 无约束语义，不表达
-   红灯右转法规。
-2. `v0.10-empty-signals-and-parking.laneflow.json`：Signals 四数组和 Parking 两数组
-   显式为空，并提供 v0.10 必填的 ParticipantClass/CrossSection/Access/Waiting arrays，证明
-   无信号/无停车数据仍是 current v0.10 的合法输入。
+- 固定时制 snapshot(T) 与成功 step 后 `committed_signal_groups` 为 T+D；
+- 限制性灯色的停车距离与许可通行；
+- install 时 `durationMs >= fixed_delta_time_ms`，否则失败；
+- 无信号编制仍可安装并步进。
 
 ## 15. 实施切片与退出边界
 
