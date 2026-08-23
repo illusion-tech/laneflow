@@ -1,17 +1,9 @@
 #![doc = include_str!("../README.md")]
 
-#[cfg(feature = "debug-gizmos")]
-mod debug;
 mod error;
 mod plugin;
 mod session;
 
-#[cfg(feature = "debug-gizmos")]
-pub use debug::{
-    LaneFlowDebugCenterlineStatus, LaneFlowDebugCenterlines, LaneFlowDebugGizmosConfig,
-    LaneFlowDebugGizmosPlugin, LaneFlowDebugGizmosReport, LaneFlowDebugGizmosStatus,
-    LaneFlowDebugVehicleFilter,
-};
 pub use error::LaneFlowAdapterError;
 pub use plugin::{LaneFlowFixed, LaneFlowFixedSet, LaneFlowOuterFrame, LaneFlowPlugin};
 pub use session::{LaneFlowFrameReport, LaneFlowSession, LaneFlowSessionConfig, pose_input};

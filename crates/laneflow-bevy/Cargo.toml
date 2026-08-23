@@ -14,12 +14,6 @@ path = "src/lib.rs"
 
 [features]
 default = []
-debug-gizmos = [
-    "dep:bevy_asset",
-    "dep:bevy_color",
-    "dep:bevy_gizmos",
-    "dep:bevy_math",
-]
 native-example = ["dep:bevy", "dep:bevy_mesh"]
 
 [dependencies]
@@ -36,11 +30,7 @@ bevy = { version = "0.19", default-features = false, features = [
     "x11",
 ], optional = true }
 bevy_app = { version = "0.19", default-features = false, features = ["std"] }
-bevy_asset = { version = "0.19", optional = true }
-bevy_color = { version = "0.19", default-features = false, features = ["std"], optional = true }
 bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
-bevy_gizmos = { version = "0.19", default-features = false, optional = true }
-bevy_math = { version = "0.19", default-features = false, features = ["std"], optional = true }
 bevy_mesh = { version = "0.19", optional = true }
 bevy_time = { version = "0.19", default-features = false, features = ["std"] }
 bevy_transform = { version = "0.19", default-features = false, features = ["bevy-support", "std"] }
