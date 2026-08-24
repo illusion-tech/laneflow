@@ -129,27 +129,27 @@ fn default_corridor_locks_protected_turning_geometry_routes_and_signals() {
     assert!((side.speed_limit_meters_per_second() - 40.0 / 3.6).abs() < 1e-12);
     for (id, expected_length, expected_speed) in [
         (
-            "edge-junction-1-west-straight-lane-2-to-2-internal-0",
+            "edge-junction-1-west-straight-lane-2-to-2-i0",
             21.0,
             60.0 / 3.6,
         ),
         (
-            "edge-junction-1-north-straight-lane-1-to-1-internal-0",
+            "edge-junction-1-north-straight-lane-1-to-1-i0",
             28.0,
             40.0 / 3.6,
         ),
         (
-            "edge-junction-1-west-straight-lane-1-to-0-internal-0",
+            "edge-junction-1-west-straight-lane-1-to-0-i0",
             21.345_867_633_819_58,
             60.0 / 3.6,
         ),
         (
-            "edge-junction-1-west-left-lane-0-to-0-internal-0",
+            "edge-junction-1-west-left-lane-0-to-0-i0",
             22.076_601_803_302_765,
             25.0 / 3.6,
         ),
         (
-            "edge-junction-1-west-right-lane-2-to-1-internal-0",
+            "edge-junction-1-west-right-lane-2-to-1-i0",
             8.246_497_988_700_867,
             15.0 / 3.6,
         ),
@@ -168,7 +168,7 @@ fn default_corridor_locks_protected_turning_geometry_routes_and_signals() {
         for edge in route.edges() {
             let view = lir.lane_edge(*edge).expect("route edge");
             let key = ascii_field(view.identity_fields(), FieldTag::LaneEdgeKey);
-            if key.ends_with("-internal-0") {
+            if key.ends_with("-i0") {
                 internal_occurrences += 1;
                 unique_internals.insert(key);
             }
@@ -182,11 +182,11 @@ fn default_corridor_locks_protected_turning_geometry_routes_and_signals() {
         assert_eq!(controller.cycle_duration_ms(), 84_000);
     }
     for (id, expected_points) in [
-        ("edge-junction-1-west-straight-lane-2-to-2-internal-0", 2),
-        ("edge-junction-1-north-straight-lane-1-to-1-internal-0", 2),
-        ("edge-junction-1-west-straight-lane-1-to-0-internal-0", 65),
-        ("edge-junction-1-west-left-lane-0-to-0-internal-0", 65),
-        ("edge-junction-1-west-right-lane-2-to-1-internal-0", 65),
+        ("edge-junction-1-west-straight-lane-2-to-2-i0", 2),
+        ("edge-junction-1-north-straight-lane-1-to-1-i0", 2),
+        ("edge-junction-1-west-straight-lane-1-to-0-i0", 65),
+        ("edge-junction-1-west-left-lane-0-to-0-i0", 65),
+        ("edge-junction-1-west-right-lane-2-to-1-i0", 65),
     ] {
         let edge = edge_key(lir, id);
         let geometry = edge
@@ -408,12 +408,33 @@ fn every_portal_lane_must_have_spawn_capacity() {
 }
 
 #[test]
+fn identity_ascii_keys_stay_below_compile_string_limit() {
+    use laneflow_compiler::CompileLimits;
+
+    let generated = default_generated();
+    let limit = CompileLimits::p100_initial_v1().max_single_string_bytes();
+    let mut longest = 0_u64;
+    for edge in generated.lir().lane_edges() {
+        let key = ascii_field(edge.identity_fields(), FieldTag::LaneEdgeKey);
+        longest = longest.max(u64::try_from(key.len()).expect("key length"));
+        assert!(
+            u64::try_from(key.len()).expect("key length") < limit,
+            "lane edge key {key:?} must stay below {limit} bytes"
+        );
+    }
+    assert!(
+        longest + 8 <= limit,
+        "longest identity key is {longest} bytes; leave headroom under {limit}"
+    );
+}
+
+#[test]
 fn catalog_bind_spawns_few_vehicles_and_steps() {
     use std::sync::Arc;
 
     use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
     use laneflow_runtime::{TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
-    use laneflow_scenario::signalized_corridor::bind;
+    use laneflow_scenario::signalized_corridor::{PASSENGER_CAR_PROFILE_KEY, bind};
     use laneflow_static_network::{
         SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
         build_shared_network_revision,
@@ -423,14 +444,6 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
     let catalog: laneflow_corridor_generator::CorridorCatalog =
         toml::from_str(std::str::from_utf8(generated.catalog_bytes()).expect("catalog is UTF-8"))
             .expect("catalog TOML must parse");
-    let bound = bind(&catalog, generated.lir()).expect("prepare bind");
-    assert_eq!(bound.spawn_slots.len(), 212);
-    assert_eq!(bound.routes.len(), 28);
-    let profile = *bound
-        .profiles
-        .get("passenger-car")
-        .expect("passenger-car profile");
-
     let input = check_canonical_network_input_v1(generated.lfca_bytes(), FormatLimits::V1_HARD)
         .expect("checked LFCA");
     let revision = build_shared_network_revision(
@@ -441,41 +454,41 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
         ),
     )
     .expect("shared network revision");
+    let bound = bind(&catalog, &revision).expect("prepare bind");
+    assert_eq!(bound.network_revision, revision.network_revision());
+    assert_eq!(bound.spawn_slots.len(), 212);
+    assert_eq!(bound.routes.len(), 28);
+    let profile = *bound
+        .profiles
+        .get(PASSENGER_CAR_PROFILE_KEY)
+        .expect("passenger-car profile");
+
     let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 32, 1, 16))
         .expect("install");
+    assert_eq!(world.revision().network_revision(), bound.network_revision);
 
-    let mut spawned = 0;
-    for slot in &bound.spawn_slots {
-        if spawned == 3 {
-            break;
-        }
-        let portal = catalog
-            .portals
+    for slot in bound.spawn_slots.iter().take(3) {
+        let edges = world
+            .traffic()
+            .relations()
+            .static_route_edges(slot.entry_route)
+            .expect("route edges");
+        let index = edges
             .iter()
-            .find(|portal| portal.id == slot.portal_id)
-            .expect("portal");
-        let lane = portal
-            .lanes
-            .iter()
-            .find(|lane| lane.lane_index == slot.lane_index)
-            .expect("lane");
-        let route_id = &lane.route_choices[0].route_id;
-        let route_ordinal = *bound.routes.get(route_id).expect("bound route");
-        let route = world.static_route(route_ordinal).expect("static route");
-        if world
+            .position(|edge| *edge == slot.edge)
+            .expect("slot edge is on its entry route");
+        assert_eq!(index, 0, "catalog slots bind to the route entry edge");
+        let route = world.static_route(slot.entry_route).expect("static route");
+        world
             .spawn_vehicle(VehicleSpawnInput::new(
                 profile,
                 route,
-                0,
+                u32::try_from(index).expect("edge index"),
                 slot.progress,
                 0.0,
             ))
-            .is_ok()
-        {
-            spawned += 1;
-        }
+            .expect("catalog slot must spawn");
     }
-    assert_eq!(spawned, 3, "three catalog slots must spawn");
     world.step(TickInput::new(16)).expect("step");
     assert!(!world.committed_pose_sources().as_slice().is_empty());
 }

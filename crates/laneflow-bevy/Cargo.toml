@@ -39,8 +39,10 @@ laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
 
 [dev-dependencies]
 laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
+laneflow-scenario = { version = "0.0.0", path = "../laneflow-scenario" }
 laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
 laneflow-static-network = { version = "0.0.0", path = "../laneflow-static-network" }
+toml = "1.1.3"
 
 [[example]]
 name = "runtime_min"

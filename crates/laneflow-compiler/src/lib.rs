@@ -63,7 +63,7 @@ pub use diagnostic::{
     SourceSpan, SourceTextViolation, SpatialAxis, SpatialGeometryViolation, WaitingZoneGateRole,
 };
 pub use geometry_profile::{GeometryAccuracyProfile, GeometryDirectionProfile};
-pub use identity::CanonicalIdentityViolation;
+pub use identity::{CanonicalIdentityViolation, derive_canonical_stable_id_v1};
 pub use laneflow_static_contract::{AccessEffect, SignalAspect};
 pub use limits::{CompileLimitDimension, CompileLimits};
 pub use module::{

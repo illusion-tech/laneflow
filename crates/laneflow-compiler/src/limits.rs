@@ -196,6 +196,12 @@ impl CompileLimits {
         limits
     }
 
+    /// 单个受检编制字符串 / Identity ASCII 字段的字节上限。
+    #[must_use]
+    pub const fn max_single_string_bytes(&self) -> u64 {
+        self.max_single_string_bytes as u64
+    }
+
     /// 返回调用方显式选择的稳定配置档标识符。
     #[must_use]
     pub const fn profile_id(&self) -> &'static str {

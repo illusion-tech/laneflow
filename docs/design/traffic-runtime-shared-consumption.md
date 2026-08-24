@@ -52,7 +52,9 @@
 - 不实现多 worker / 分区算法，不把最终 partition 写入共享静态路网。
 - 不把城市经济、出行需求或路线选择策略放进 Runtime。
 - 不做完整 Adapter 生产接线或 corridor 规模人口；最小 Bevy 只证明同一根上的
-  tick + pose 能驱动代理位移。`signalized_corridor` 迁到 Runtime 另开 follow-up。
+  tick + pose 能驱动代理位移。`signalized_corridor` 现行最小路径由
+  [#472](https://github.com/illusion-tech/laneflow/issues/472) 交付；50–200 原子替换见
+  [#475](https://github.com/illusion-tech/laneflow/issues/475)。
 - 不把 `laneflow-core-design` Skill 标识符改名（若仍需独立残留 Issue，不得反向
   保留 `laneflow-core` crate）。
 - 不冻 `despawn` / `replace`、停车预约/到场/离场状态机，也不把 `CoreEvent` 枚举

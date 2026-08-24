@@ -11,13 +11,14 @@ use laneflow_compiler::{
     SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
 };
 use laneflow_format::FormatLimits;
+use laneflow_scenario::signalized_corridor::{
+    AUTHORING_NAMESPACE, PASSENGER_CAR_PROFILE_KEY, SHUTTLE_BUS_PROFILE_KEY,
+};
 use sha2::{Digest, Sha256};
 
 use crate::Error;
 use crate::config::{CorridorConfig, MIN_GAP_METERS, VEHICLE_LENGTH_METERS};
 use crate::generator::{Approach, CorridorBuild, CorridorElement, CrossSectionDocs};
-
-const AUTHORING_NAMESPACE: &str = "laneflow/signalized-corridor";
 const SOURCE_DOCUMENT_KEY: &str = "signalized-corridor.document";
 const GENERATOR_BUILD_ID: &str = "laneflow-corridor-generator";
 const PROVENANCE: &str = "repository:laneflow";
@@ -125,7 +126,7 @@ fn add_participant_classes(builder: &mut SyntheticModuleBuilder) -> Result<(), E
 fn add_vehicle_profiles(builder: &mut SyntheticModuleBuilder) -> Result<(), Error> {
     builder
         .add_vehicle_profile(VehicleProfileInput {
-            vehicle_profile_key: "passenger-car",
+            vehicle_profile_key: PASSENGER_CAR_PROFILE_KEY,
             participant_class: ParticipantClassReference::local("car"),
             iidm: IidmVehicleProfileInput {
                 length_meters: VEHICLE_LENGTH_METERS,
@@ -139,7 +140,7 @@ fn add_vehicle_profiles(builder: &mut SyntheticModuleBuilder) -> Result<(), Erro
         })
         .and_then(|builder| {
             builder.add_vehicle_profile(VehicleProfileInput {
-                vehicle_profile_key: "shuttle-bus",
+                vehicle_profile_key: SHUTTLE_BUS_PROFILE_KEY,
                 participant_class: ParticipantClassReference::local("bus"),
                 iidm: IidmVehicleProfileInput {
                     length_meters: 12.0,
@@ -521,7 +522,7 @@ fn add_access_rules(
         let classes: Vec<_> = rule
             .participant_class_ids
             .iter()
-            .map(|id| ParticipantClassReference::local(*id))
+            .map(|id| ParticipantClassReference::local(id))
             .collect();
         builder
             .add_access_rule(AccessRuleInput {

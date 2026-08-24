@@ -34,4 +34,5 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config exam
 - catalog 0.2 由 Portal 拥有 ordered PortalLane，PortalLane 拥有共享 entry
   SpawnSlot 与 weighted RouteChoice。
 - `vehicles`、`seed`、回流策略、Bevy Entity 和展示资源不属于本工具配置。
-- 工具不进入 Runtime fixed-step 热路径。可运行世界只从检入的 LFCA 安装共享路网修订。
+- 工具不进入 Runtime fixed-step 热路径。可运行世界只从检入的 LFCA 安装共享路网修订；
+  catalog 字符串在 prepare 用 Identity v1 绑到该修订，不查 LIR。

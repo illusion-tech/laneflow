@@ -69,7 +69,7 @@ road/internal split，不指铺装 envelope，也不在 `±10.5 m` / `±14.0 m` 
 ```text
 movement-junction-{1|2}-{west|east|north|south}-{left|straight|right}
 path-junction-{1|2}-{approach}-{turn}-lane-{entry}-to-{exit}
-edge-junction-{1|2}-{approach}-{turn}-lane-{entry}-to-{exit}-internal-0
+edge-junction-{1|2}-{approach}-{turn}-lane-{entry}-to-{exit}-i0
 gate-junction-{1|2}-{approach}-{turn}-lane-{entry}-to-{exit}
 stop-line-junction-{1|2}-{approach}-lane-{entry}
 signal-group-junction-{1|2}-{main-left|main-through-right|secondary-left|secondary-through-right}
