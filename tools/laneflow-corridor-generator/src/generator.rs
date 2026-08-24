@@ -247,6 +247,8 @@ pub(crate) struct PathKey {
 pub struct GeneratedScenario {
     catalog: Vec<u8>,
     lfca: Vec<u8>,
+    lfsm: Vec<u8>,
+    lfsd: Vec<u8>,
     counts: ScenarioCounts,
     compilation: laneflow_compiler::CompilationOutput,
 }
@@ -279,6 +281,14 @@ impl GeneratedScenario {
 
     pub fn lfca_bytes(&self) -> &[u8] {
         &self.lfca
+    }
+
+    pub fn lfsm_bytes(&self) -> &[u8] {
+        &self.lfsm
+    }
+
+    pub fn lfsd_bytes(&self) -> &[u8] {
+        &self.lfsd
     }
 
     pub const fn counts(&self) -> ScenarioCounts {
@@ -331,10 +341,12 @@ pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
         )));
     }
 
-    let lfca = crate::compile::emit_lfca(&compilation)?;
+    let (lfca, lfsm, lfsd) = crate::compile::emit_portable_objects(&compilation)?;
     Ok(GeneratedScenario {
         catalog: catalog_bytes,
         lfca,
+        lfsm,
+        lfsd,
         counts,
         compilation,
     })
