@@ -1,9 +1,13 @@
 //! 单活动 LaneFlow Session：TrafficWorld + 可选 Spatial session。
 
+use std::collections::HashMap;
 use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
+use bevy_ecs::entity::Entity;
 use bevy_ecs::resource::Resource;
-use laneflow_runtime::{PoseSource as RuntimePoseSource, StepOutcome, TickInput, TrafficWorld};
+use laneflow_runtime::{
+    PoseSource as RuntimePoseSource, StepOutcome, TickInput, TrafficWorld, VehicleHandle,
+};
 use laneflow_spatial::{PoseInput, PoseRecordId, SpatialSession};
 
 use crate::LaneFlowAdapterError;
@@ -76,6 +80,7 @@ pub struct LaneFlowSession {
     frame_report: LaneFlowFrameReport,
     frame_step_results: Vec<StepOutcome>,
     pub(crate) last_error: Option<LaneFlowAdapterError>,
+    vehicle_entities: VehicleEntityMap,
 }
 
 impl LaneFlowSession {
@@ -98,6 +103,7 @@ impl LaneFlowSession {
             frame_report: LaneFlowFrameReport::default(),
             frame_step_results: Vec::new(),
             last_error: None,
+            vehicle_entities: VehicleEntityMap::default(),
         })
     }
 
@@ -139,6 +145,51 @@ impl LaneFlowSession {
     /// 最近失败。
     pub const fn last_error(&self) -> Option<&LaneFlowAdapterError> {
         self.last_error.as_ref()
+    }
+
+    /// 把 live 车辆绑到宿主 Entity。未绑定车辆保持未绑定。
+    pub fn bind_vehicle_entity(
+        &mut self,
+        vehicle: VehicleHandle,
+        entity: Entity,
+    ) -> Result<(), LaneFlowAdapterError> {
+        if self.world.vehicle(vehicle).is_none() {
+            return Err(LaneFlowAdapterError::UnknownVehicle { vehicle });
+        }
+        self.vehicle_entities.bind(vehicle, entity)
+    }
+
+    /// 解除车辆绑定。
+    pub fn unbind_vehicle(
+        &mut self,
+        vehicle: VehicleHandle,
+    ) -> Result<Entity, LaneFlowAdapterError> {
+        self.vehicle_entities.unbind_vehicle(vehicle)
+    }
+
+    /// 查询车辆当前绑定的 Entity。
+    #[must_use]
+    pub fn vehicle_entity(&self, vehicle: VehicleHandle) -> Option<Entity> {
+        self.vehicle_entities.entity(vehicle)
+    }
+
+    pub(crate) fn validate_replacement(
+        &self,
+        old: VehicleHandle,
+    ) -> Result<Option<Entity>, LaneFlowAdapterError> {
+        if self.world.vehicle(old).is_none() {
+            return Err(LaneFlowAdapterError::UnknownVehicle { vehicle: old });
+        }
+        Ok(self.vehicle_entities.entity(old))
+    }
+
+    pub(crate) fn rotate_replaced_vehicle(
+        &mut self,
+        old: VehicleHandle,
+        new: VehicleHandle,
+        entity: Option<Entity>,
+    ) {
+        self.vehicle_entities.rotate(old, new, entity);
     }
 
     pub(crate) fn fixed_quantum(&self) -> Duration {
@@ -204,5 +255,57 @@ impl LaneFlowSession {
         self.frame_report.backlog = self.accumulator;
         self.frame_report.catch_up_limit_reached =
             self.last_error.is_none() && self.accumulator >= self.fixed_quantum();
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct VehicleEntityMap {
+    by_vehicle: HashMap<VehicleHandle, Entity>,
+    by_entity: HashMap<Entity, VehicleHandle>,
+}
+
+impl VehicleEntityMap {
+    fn entity(&self, vehicle: VehicleHandle) -> Option<Entity> {
+        self.by_vehicle.get(&vehicle).copied()
+    }
+
+    fn bind(&mut self, vehicle: VehicleHandle, entity: Entity) -> Result<(), LaneFlowAdapterError> {
+        if let Some(existing) = self.by_vehicle.get(&vehicle).copied()
+            && existing != entity
+        {
+            return Err(LaneFlowAdapterError::DuplicateVehicleBinding {
+                vehicle,
+                existing,
+                requested: entity,
+            });
+        }
+        if let Some(existing) = self.by_entity.get(&entity).copied()
+            && existing != vehicle
+        {
+            return Err(LaneFlowAdapterError::DuplicateEntityBinding {
+                entity,
+                existing,
+                requested: vehicle,
+            });
+        }
+        self.by_vehicle.insert(vehicle, entity);
+        self.by_entity.insert(entity, vehicle);
+        Ok(())
+    }
+
+    fn unbind_vehicle(&mut self, vehicle: VehicleHandle) -> Result<Entity, LaneFlowAdapterError> {
+        let Some(entity) = self.by_vehicle.remove(&vehicle) else {
+            return Err(LaneFlowAdapterError::UnknownVehicle { vehicle });
+        };
+        self.by_entity.remove(&entity);
+        Ok(entity)
+    }
+
+    fn rotate(&mut self, old: VehicleHandle, new: VehicleHandle, entity: Option<Entity>) {
+        self.by_vehicle.remove(&old);
+        if let Some(entity) = entity {
+            self.by_entity.insert(entity, new);
+            self.by_vehicle.insert(new, entity);
+        }
     }
 }

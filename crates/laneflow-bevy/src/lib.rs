@@ -1,10 +1,14 @@
 #![doc = include_str!("../README.md")]
 
 mod error;
+mod lifecycle;
 mod plugin;
 mod session;
 
 pub use error::LaneFlowAdapterError;
+pub use lifecycle::{
+    LaneFlowVehicleReplaceOutcome, LaneFlowVehicleReplaceRecord, replace_completed_vehicle,
+};
 pub use plugin::{LaneFlowFixed, LaneFlowFixedSet, LaneFlowOuterFrame, LaneFlowPlugin};
 pub use session::{LaneFlowFrameReport, LaneFlowSession, LaneFlowSessionConfig, pose_input};
 

@@ -1,10 +1,10 @@
 use laneflow_static_contract::{
-    AccessEffect, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, ParkingSpaceOrdinal,
-    ParticipantClassOrdinal, StaticRouteOrdinal, VehicleProfileOrdinal,
+    AccessEffect, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
+    ParticipantClassOrdinal, StaticRouteOrdinal,
 };
 use laneflow_static_network::{AccessCell, SharedManeuverNetwork, SharedTrafficNetwork};
 
-use crate::{RouteError, RouteHandle, SpawnError, VehicleHandle};
+use crate::{RouteError, RouteHandle, SpawnError, VehicleState};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ManeuverOccurrence {
@@ -24,27 +24,6 @@ pub(crate) struct DynamicRouteSlot {
     pub generation: u32,
     pub compiled: Option<CompiledRoute>,
     pub live_vehicles: u32,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum VehicleStatus {
-    Active,
-    Parked,
-    Completed,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct VehicleState {
-    pub handle: VehicleHandle,
-    pub profile: VehicleProfileOrdinal,
-    pub class: ParticipantClassOrdinal,
-    pub route: RouteHandle,
-    pub route_edge_index: u32,
-    pub progress: f64,
-    pub speed: f64,
-    pub length: f64,
-    pub status: VehicleStatus,
-    pub parking: Option<ParkingSpaceOrdinal>,
 }
 
 #[derive(Clone, Debug)]

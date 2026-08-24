@@ -98,7 +98,7 @@ Presentation 可以自行创建或回收模型 Entity。用于接收 LaneFlow po
 - `LaneFlowSession::vehicle_entities()` 返回 `LaneFlowVehicleEntityMap` 只读视图，可按 vehicle 或 Entity 双向查询，不公开 HashMap 迭代顺序。
 - duplicate vehicle、duplicate Entity、unknown vehicle 与未绑定 rebind 都返回 `LaneFlowAdapterError`，失败前后双射不变。
 - rebind 只替换一个 vehicle 的 Entity 并返回旧 Entity；宿主负责新旧 Entity 的 bundle、parent 与回收生命周期。
-- #187 的 `replace_completed_vehicle(&mut World, old, &VehicleReplaceInput)` 是 replacement 唯一公共组合事务；成功时已绑定 vehicle 复用同一 Entity 并原子轮换到 new handle，未绑定 vehicle 继续保持未绑定。它不替代宿主主动调用的 bind/unbind/rebind。
+- #475 的 `replace_completed_vehicle(&mut World, old, VehicleSpawnInput)` 是 replacement 唯一公共组合事务；成功时已绑定 vehicle 复用同一 Entity 并原子轮换到 new handle，未绑定 vehicle 继续保持未绑定。`Blocked` 时映射与 Transform 不变。它不替代宿主主动调用的 bind/unbind。
 
 ## 6. Canonical frame 与 Bevy Transform
 
@@ -148,7 +148,7 @@ Bevy Transform 写入系统运行在 `PostUpdate`，并位于 `TransformSystems:
 - 默认同步路径不得对每辆车调用 Spatial 单记录查询。
 - 稳定容量下必须复用 extraction、validation 与 Transform staging 内存。
 
-#170 的实现从 committed `CoreWorld::vehicles()` 顺序重建 pose inputs：Active/Stopped vehicle 使用当前 route edge 与 progress，Parked vehicle 使用已提交的 Occupied parking binding，Completed vehicle 不进入 presentation batch。batch 同时包含已映射和未绑定 vehicle，映射查询不会改变 record 顺序。
+Presentation 从 committed `TrafficWorld::committed_pose_sources()` 重建 pose inputs：Active vehicle 使用当前 route edge 与 progress，Parked vehicle 使用已提交停车占用，Completed vehicle 不进入 presentation batch。batch 同时包含已映射和未绑定 vehicle，映射查询不会改变 record 顺序。
 
 `LaneFlowPlugin` 安装 exclusive `PostUpdate` 系统并显式排序在 `TransformSystems::Propagate` 前。实现先完成 Spatial batch、frame/token、root、所有 mapped Entity/parent/Transform 与转换结果校验，再统一写入 ECS；exclusive system 内两阶段之间没有其他 system 可以修改 Entity。`LaneFlowPresentationReport` 暴露 `pose_records`、`mapped_records`、`unbound_records` 与 `applied_records`，失败时 `applied_records` 恒为零，具体失败保存在 Session 的最近错误中。
 
@@ -231,18 +231,16 @@ Spatial batch extract
 
 ## 13. v0.8 直行走廊 schedule 与 proxy 复用
 
-以下 §13–15 是拆除 JSON/Core 运行时入口前的 Bevy specialization，不是
-[#472](https://github.com/illusion-tech/laneflow/issues/472) 的现行入口。现行
-`signalized_corridor` 只安装 `TrafficWorld` 与可选 `SpatialSession`，用 catalog 0.2
-prepare 绑定少量车辆；`replace_completed_vehicle` 与 JSON loader 不可调用。50–200
-typed replace 见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
+现行 `signalized_corridor` 安装 `TrafficWorld` 与可选 `SpatialSession`，用 catalog 0.2
+prepare 绑定车辆。#475 交付 `TrafficWorld::replace_completed_vehicle` 与 Session typed
+replace-and-rebind；薄示例仍可不启用 50–200 人口。JSON loader 与 `CoreWorld` 不可调用。
 
 
 #187 在 v0.7 schedule 上公开 `LaneFlowFixedSet::{Lifecycle, Step, Observe}`，固定顺序为：每个 LaneFlow fixed step 前在 `Lifecycle` 应用 pending lifecycle commands，Adapter 在 `Step` 推进一次 Core，调用方在 `Observe` 消费 committed result/event 并为下一 boundary 入队。一个 outer frame 内的 catch-up steps 逐步重复完整链，presentation 仍在 outer frame 最多提交一次，因此 frame chunking 不得改变 Population/Core 决策。
 
-车辆完成 route 后，既有 proxy/model 不 despawn。等待可用入口时，Completed vehicle 不产生 pose record，Entity 保留最后 Transform。caller 在 `Lifecycle` 使用 `replace_completed_vehicle`：`Blocked` 保持 Core/映射/Transform 不变并允许继续处理其他计划；`Replaced` 把同一 Entity 从 old handle 轮换到 new handle，下一次正常 `PostUpdate` presentation 才更新入口位姿。fatal Adapter/Core error 停止该 outer frame 当前和后续 catch-up，完整保留 backlog；已成功的前序 command 不做跨 command 回滚。
+车辆完成 route 后，既有 proxy/model 不 despawn。等待可用入口时，Completed vehicle 不产生 pose record，Entity 保留最后 Transform。caller 在 `Lifecycle` 使用 `replace_completed_vehicle`：`Blocked` 保持 Runtime/映射/Transform 不变并允许继续处理其他计划；`Replaced` 把同一 Entity 从 old handle 轮换到 new handle，下一次正常 `PostUpdate` presentation 才更新入口位姿。fatal Adapter/Runtime error 停止该 outer frame 当前和后续 catch-up，完整保留 backlog；已成功的前序 command 不做跨 command 回滚。
 
-该边界不提供通用 runtime spawn/despawn、生命周期枚举、Adapter-owned persistent queue/retry 或人口 controller。初始人口在创建 Session 前由调用方建立；seed、portal/lane 抽样与 retry policy 继续由 #203 的 engine-neutral caller policy 拥有。道路、灯具、CLI/UI 和 50–200 车辆 native 集成由 #189 交付；Core atomic replace、caller-owned reference policy 与 typed Session transaction 分别由 #186/#203/#187 交付。详细场景参数见 `example-scenarios.md`。
+该边界不提供通用 runtime despawn、Adapter-owned persistent queue/retry 或人口 controller。初始人口在创建 Session 前由调用方建立；seed、portal/lane 抽样与 retry policy 由 `laneflow-scenario` 的 engine-neutral caller policy 拥有。
 
 ## 14. v0.8 signalized-corridor native specialization
 

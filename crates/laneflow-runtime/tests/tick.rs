@@ -3,7 +3,7 @@ use std::sync::Arc;
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
 use laneflow_runtime::{
     PoseSource, RouteRegisterInput, SpawnError, TickInput, TrafficWorld, VehicleSpawnInput,
-    WorldConfig,
+    VehicleStatus, WorldConfig,
 };
 use laneflow_static_contract::{
     EntityKind, SignalAspect, SignalControllerOrdinal, StaticRouteOrdinal, VehicleProfileOrdinal,
@@ -714,6 +714,10 @@ fn route_end_leaves_committed_poses_and_lane_occupancy() {
             .all(|(handle, _)| *handle != vehicle),
         "completed vehicle must leave committed_pose_sources"
     );
+    assert_eq!(
+        world.vehicle(vehicle).expect("retained").status(),
+        VehicleStatus::Completed
+    );
     world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -723,6 +727,10 @@ fn route_end_leaves_committed_poses_and_lane_occupancy() {
             0.0,
         ))
         .expect("route-end occupancy must be released");
+    assert!(
+        world.vehicle(vehicle).is_some(),
+        "Completed handle must stay live after occupancy-releasing spawn"
+    );
 }
 
 #[test]
@@ -875,7 +883,7 @@ fn spawn_rejects_overlap_across_adjacent_edges() {
 }
 
 #[test]
-fn completed_vehicle_frees_capacity_for_new_spawn() {
+fn completed_vehicle_keeps_capacity_until_replace() {
     let mut world =
         TrafficWorld::install(revision(), WorldConfig::new(1, 4, 1, 100)).expect("install");
     let route = world
@@ -907,22 +915,30 @@ fn completed_vehicle_frees_capacity_for_new_spawn() {
         }
     }
     assert!(world.committed_pose_sources().as_slice().is_empty());
-    world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            last_index,
-            0.0,
-            0.0,
-        ))
-        .expect("capacity reused after complete");
-    assert!(
+    assert_eq!(
+        world.vehicle(old).expect("retained").status(),
+        VehicleStatus::Completed
+    );
+    assert_eq!(
         world
-            .occupy_parking(
-                old,
-                laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0)
-            )
-            .is_err(),
-        "retired handle must be stale"
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                last_index,
+                0.0,
+                0.0,
+            ))
+            .unwrap_err(),
+        SpawnError::CapacityExceeded
+    );
+    world
+        .replace_completed_vehicle(
+            old,
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0.0, 0.0),
+        )
+        .expect("capacity rotates only via replace");
+    assert!(
+        world.vehicle(old).is_none(),
+        "replaced handle must be stale"
     );
 }

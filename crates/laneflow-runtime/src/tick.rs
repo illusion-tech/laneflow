@@ -2,10 +2,10 @@ use laneflow_static_contract::{LaneEdgeOrdinal, SignalAspect, StaticRouteOrdinal
 use laneflow_static_network::VehicleProfileView;
 
 use crate::tables::{
-    VehicleState, VehicleStatus, compiled_hop_gate, occupancy_front_gap, remaining_along_route,
-    remaining_to_route_end, static_route_ordinal,
+    compiled_hop_gate, occupancy_front_gap, remaining_along_route, remaining_to_route_end,
+    static_route_ordinal,
 };
-use crate::{StepError, StepOutcome, TickInput, TrafficWorld};
+use crate::{StepError, StepOutcome, TickInput, TrafficWorld, VehicleState, VehicleStatus};
 
 impl TrafficWorld {
     pub(crate) fn step_vehicles(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
@@ -39,14 +39,11 @@ impl TrafficWorld {
         }
         let mut updates = std::mem::take(&mut self.next_states);
         for (slot, next) in updates.drain(..) {
-            if next.status == VehicleStatus::Completed {
-                if let Some(previous) = self.vehicles[slot].state
-                    && previous.status == VehicleStatus::Active
-                {
-                    self.release_route_ref(previous.route);
-                    self.retire_completed_vehicle(slot, previous.handle);
-                }
-                continue;
+            if next.status == VehicleStatus::Completed
+                && let Some(previous) = self.vehicles[slot].state
+                && previous.status == VehicleStatus::Active
+            {
+                self.release_route_ref(previous.route);
             }
             self.vehicles[slot].state = Some(next);
         }

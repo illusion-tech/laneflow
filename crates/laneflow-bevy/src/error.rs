@@ -3,10 +3,11 @@
 use std::fmt;
 use std::time::Duration;
 
-use laneflow_runtime::StepError;
+use bevy_ecs::entity::Entity;
+use laneflow_runtime::{ReplaceError, StepError, VehicleHandle};
 
 /// LaneFlow Bevy Adapter 的结构化失败。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum LaneFlowAdapterError {
     /// outer frame 缺少 `Time` resource。
@@ -22,6 +23,45 @@ pub enum LaneFlowAdapterError {
     StepFailed(StepError),
     /// `TrafficWorld` 与 `SpatialSession` 不是同一根 `Arc`。
     RevisionMismatch,
+    /// 生命周期命令缺少 `LaneFlowSession`。
+    MissingSessionForLifecycleCommand,
+    /// 车辆句柄不在当前 world。
+    UnknownVehicle {
+        /// 未知句柄。
+        vehicle: VehicleHandle,
+    },
+    /// 同一车辆已绑定其他 Entity。
+    DuplicateVehicleBinding {
+        /// 车辆。
+        vehicle: VehicleHandle,
+        /// 已有 Entity。
+        existing: Entity,
+        /// 本次请求。
+        requested: Entity,
+    },
+    /// 同一 Entity 已绑定其他车辆。
+    DuplicateEntityBinding {
+        /// Entity。
+        entity: Entity,
+        /// 已有车辆。
+        existing: VehicleHandle,
+        /// 本次请求。
+        requested: VehicleHandle,
+    },
+    /// 已绑定 Entity 已失效。
+    StaleLifecycleEntity {
+        /// 车辆。
+        vehicle: VehicleHandle,
+        /// 失效 Entity。
+        entity: Entity,
+    },
+    /// Runtime 原子替换致命失败。
+    VehicleReplace {
+        /// 旧句柄。
+        old: VehicleHandle,
+        /// Runtime 错误。
+        source: ReplaceError,
+    },
 }
 
 impl fmt::Display for LaneFlowAdapterError {
@@ -39,6 +79,37 @@ impl fmt::Display for LaneFlowAdapterError {
             Self::RevisionMismatch => formatter.write_str(
                 "TrafficWorld 与 SpatialSession 必须绑定同一根 SharedNetworkRevision Arc",
             ),
+            Self::MissingSessionForLifecycleCommand => {
+                formatter.write_str("生命周期命令需要 LaneFlowSession")
+            }
+            Self::UnknownVehicle { vehicle } => {
+                write!(formatter, "未知车辆句柄：{vehicle:?}")
+            }
+            Self::DuplicateVehicleBinding {
+                vehicle,
+                existing,
+                requested,
+            } => write!(
+                formatter,
+                "车辆 {vehicle:?} 已绑定 {existing:?}，不能再绑 {requested:?}"
+            ),
+            Self::DuplicateEntityBinding {
+                entity,
+                existing,
+                requested,
+            } => write!(
+                formatter,
+                "Entity {entity:?} 已绑定 {existing:?}，不能再绑 {requested:?}"
+            ),
+            Self::StaleLifecycleEntity { vehicle, entity } => {
+                write!(
+                    formatter,
+                    "车辆 {vehicle:?} 绑定的 Entity {entity:?} 已失效"
+                )
+            }
+            Self::VehicleReplace { old, source } => {
+                write!(formatter, "车辆 {old:?} 原子替换失败：{source}")
+            }
         }
     }
 }
@@ -49,7 +120,13 @@ impl std::error::Error for LaneFlowAdapterError {
             Self::StepFailed(error) => Some(error),
             Self::MissingTimeResource
             | Self::AccumulatorOverflow { .. }
-            | Self::RevisionMismatch => None,
+            | Self::RevisionMismatch
+            | Self::MissingSessionForLifecycleCommand
+            | Self::UnknownVehicle { .. }
+            | Self::DuplicateVehicleBinding { .. }
+            | Self::DuplicateEntityBinding { .. }
+            | Self::StaleLifecycleEntity { .. } => None,
+            Self::VehicleReplace { source, .. } => Some(source),
         }
     }
 }

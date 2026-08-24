@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use laneflow_compiler::{CanonicalIdentityViolation, CompileLimits, derive_canonical_stable_id_v1};
@@ -21,6 +21,37 @@ pub struct BoundCorridorCatalog {
     pub edges: BTreeMap<String, LaneEdgeOrdinal>,
     pub profiles: BTreeMap<String, VehicleProfileOrdinal>,
     pub spawn_slots: Vec<BoundSpawnSlot>,
+    /// `catalog.routes` 顺序的静态路线与出口 portal 下标。
+    pub route_exits: Vec<BoundRouteExit>,
+    /// 按 portal、lane index 展开的热路径入口车道。
+    pub portal_lanes: Vec<BoundPortalLane>,
+    /// 每个 portal 在 `portal_lanes` 中的下标。
+    pub portal_lane_indices: [Vec<usize>; 6],
+}
+
+/// catalog route 绑到共享根静态路线与出口 portal。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BoundRouteExit {
+    pub route: StaticRouteOrdinal,
+    pub exit_portal_index: u8,
+    pub entry_slot_index: usize,
+}
+
+/// portal lane 的加权 RouteChoice；`route_index` 指向 `route_exits`。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BoundRouteChoice {
+    pub route_index: usize,
+    pub weight: u64,
+}
+
+/// 已绑定的 portal lane：共享 entry slot 与加权路线。
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoundPortalLane {
+    pub portal_index: u8,
+    pub lane_index: usize,
+    pub entry_slot_index: usize,
+    pub choices: Vec<BoundRouteChoice>,
+    pub total_positive_weight: u64,
 }
 
 /// 已绑定到类型化序号的物理 spawn slot。
@@ -28,7 +59,9 @@ pub struct BoundCorridorCatalog {
 pub struct BoundSpawnSlot {
     pub slot_id: String,
     pub portal_id: String,
+    pub portal_index: u8,
     pub lane_index: usize,
+    pub portal_lane_index: usize,
     pub edge: LaneEdgeOrdinal,
     pub progress: f64,
     pub entry_route: StaticRouteOrdinal,
@@ -144,12 +177,81 @@ pub fn bind(
             .then(left.progress.total_cmp(&right.progress))
             .then(left.slot_id.cmp(&right.slot_id))
     });
+
+    let mut slot_index_by_id = HashMap::new();
+    for (index, slot) in spawn_slots.iter().enumerate() {
+        slot_index_by_id.insert(slot.slot_id.as_str(), index);
+    }
+    let mut route_index_by_id = HashMap::new();
+    let mut route_exits = Vec::with_capacity(catalog.routes.len());
+    for route in &catalog.routes {
+        let ordinal = *routes
+            .get(&route.route_id)
+            .ok_or_else(|| BindError::UnknownRoute(route.route_id.clone()))?;
+        let exit_portal_index =
+            u8::try_from(portal_rank(&route.exit_portal_id)).expect("portal count fits u8");
+        route_index_by_id.insert(route.route_id.as_str(), route_exits.len());
+        route_exits.push(BoundRouteExit {
+            route: ordinal,
+            exit_portal_index,
+            entry_slot_index: 0,
+        });
+    }
+    let mut portal_lanes = Vec::new();
+    let mut portal_lane_indices = [(); PORTAL_IDS.len()].map(|_| Vec::new());
+    for (portal_index, portal) in catalog.portals.iter().enumerate() {
+        for lane in &portal.lanes {
+            let entry_slot_index = *slot_index_by_id
+                .get(lane.entry_spawn_slot_id.as_str())
+                .expect("validate checked entry slot");
+            let mut choices = Vec::with_capacity(lane.route_choices.len());
+            let mut total_positive_weight = 0_u64;
+            for choice in &lane.route_choices {
+                let route_index = *route_index_by_id
+                    .get(choice.route_id.as_str())
+                    .ok_or_else(|| BindError::UnknownRoute(choice.route_id.clone()))?;
+                choices.push(BoundRouteChoice {
+                    route_index,
+                    weight: choice.weight,
+                });
+                total_positive_weight += choice.weight;
+            }
+            let lane_slot = portal_lanes.len();
+            portal_lane_indices[portal_index].push(lane_slot);
+            portal_lanes.push(BoundPortalLane {
+                portal_index: u8::try_from(portal_index).expect("portal count fits u8"),
+                lane_index: lane.lane_index,
+                entry_slot_index,
+                choices,
+                total_positive_weight,
+            });
+        }
+    }
+    drop(slot_index_by_id);
+    drop(route_index_by_id);
+    for lane in &portal_lanes {
+        for choice in &lane.choices {
+            route_exits[choice.route_index].entry_slot_index = lane.entry_slot_index;
+        }
+    }
+    for slot in &mut spawn_slots {
+        slot.portal_lane_index = portal_lanes
+            .iter()
+            .position(|lane| {
+                lane.portal_index == slot.portal_index && lane.lane_index == slot.lane_index
+            })
+            .expect("validate checked portal lane");
+    }
+
     Ok(BoundCorridorCatalog {
         network_revision: revision.network_revision(),
         routes,
         edges,
         profiles,
         spawn_slots,
+        route_exits,
+        portal_lanes,
+        portal_lane_indices,
     })
 }
 
@@ -220,7 +322,9 @@ fn bind_slot(
     Ok(BoundSpawnSlot {
         slot_id: slot.slot_id.clone(),
         portal_id: slot.portal_id.clone(),
+        portal_index: u8::try_from(portal_rank(&slot.portal_id)).expect("portal count fits u8"),
         lane_index: slot.lane_index,
+        portal_lane_index: 0,
         edge,
         progress,
         entry_route,

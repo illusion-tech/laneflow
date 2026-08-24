@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{RouteHandle, VehicleHandle};
+use crate::{RouteHandle, VehicleHandle, VehicleReplaceBlock};
 
 /// `TrafficWorld::install` 失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
@@ -113,6 +113,63 @@ pub enum SpawnError {
     /// 与已提交车辆车身重叠。
     #[error("spawn 与已提交车辆重叠")]
     Overlap,
+}
+
+/// `replace_completed_vehicle` 失败。预检失败时已提交世界不变。
+#[derive(Clone, Copy, Debug, PartialEq, Error)]
+pub enum ReplaceError {
+    /// 句柄无效或已失效。
+    #[error("未知或失效车辆句柄")]
+    StaleHandle,
+    /// 旧车不是 Completed。
+    #[error("只能替换 Completed 车辆")]
+    NotCompleted,
+    /// 旧车仍占用停车位。
+    #[error("Completed 车辆仍占用停车位")]
+    ParkingOccupied,
+    /// 车辆 profile 序号越界。
+    #[error("未知车辆 profile")]
+    UnknownProfile,
+    /// 路线句柄无效。
+    #[error("未知或失效路线句柄")]
+    UnknownRoute,
+    /// 路线序列下标越界。
+    #[error("路线序列下标越界")]
+    RouteIndexOutOfRange,
+    /// 进度非有限、为负或超过边长。
+    #[error("replace 进度非法")]
+    InvalidProgress,
+    /// 初速非有限或为负。
+    #[error("replace 初速非法")]
+    InvalidSpeed,
+    /// 初速超过当前边基础限速。
+    #[error("replace 初速超过当前边基础限速")]
+    SpeedExceedsLimit,
+    /// 车辆数量达到 world 容量。
+    #[error("车辆数量达到容量")]
+    CapacityExceeded,
+    /// `(class, Route)` 后缀准入 deny。
+    #[error("路线后缀准入拒绝")]
+    AccessDenied,
+    /// 入口占用/重叠；可原样重放同一 `VehicleSpawnInput`。
+    #[error("入口占用阻塞")]
+    Blocked(VehicleReplaceBlock),
+}
+
+impl From<SpawnError> for ReplaceError {
+    fn from(error: SpawnError) -> Self {
+        match error {
+            SpawnError::UnknownProfile => Self::UnknownProfile,
+            SpawnError::UnknownRoute => Self::UnknownRoute,
+            SpawnError::RouteIndexOutOfRange => Self::RouteIndexOutOfRange,
+            SpawnError::InvalidProgress => Self::InvalidProgress,
+            SpawnError::InvalidSpeed => Self::InvalidSpeed,
+            SpawnError::SpeedExceedsLimit => Self::SpeedExceedsLimit,
+            SpawnError::CapacityExceeded => Self::CapacityExceeded,
+            SpawnError::AccessDenied => Self::AccessDenied,
+            SpawnError::Overlap => unreachable!("spawn overlap maps to ReplaceError::Blocked"),
+        }
+    }
 }
 
 /// `occupy_parking` 失败。

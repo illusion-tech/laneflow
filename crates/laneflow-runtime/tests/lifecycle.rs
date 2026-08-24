@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
 use laneflow_runtime::{
-    ParkingError, PoseSource, RouteError, RouteRegisterInput, SpawnError, TrafficWorld,
-    VehicleSpawnInput, WorldConfig,
+    ParkingError, PoseSource, ReplaceError, RouteError, RouteRegisterInput, SpawnError, TickInput,
+    TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
 };
 use laneflow_static_contract::{
     EntityKind, LaneEdgeOrdinal, ParkingSpaceOrdinal, StaticRouteOrdinal, VehicleProfileOrdinal,
@@ -319,5 +319,213 @@ fn spawn_rejects_out_of_range_index_and_progress() {
             ))
             .unwrap_err(),
         SpawnError::InvalidProgress
+    );
+}
+
+fn drive_to_completed(world: &mut TrafficWorld) -> laneflow_runtime::VehicleHandle {
+    let route = world
+        .static_route(StaticRouteOrdinal::from_raw(0))
+        .expect("static route");
+    let edges = world
+        .traffic()
+        .relations()
+        .static_route_edges(StaticRouteOrdinal::from_raw(0))
+        .expect("edges")
+        .to_vec();
+    let last = *edges.last().expect("route has edges");
+    let last_length = world.traffic().lane_lengths_meters()[last.index()];
+    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[last.index()];
+    let last_index = u32::try_from(edges.len() - 1).expect("index fits u32");
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            last_index,
+            (last_length - 0.5).max(0.0),
+            speed_limit,
+        ))
+        .expect("spawn near end");
+    for _ in 0..8 {
+        world.step(TickInput::new(100)).expect("step");
+        if world
+            .vehicle(vehicle)
+            .is_some_and(|state| state.status() == VehicleStatus::Completed)
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        world.vehicle(vehicle).expect("retained").status(),
+        VehicleStatus::Completed
+    );
+    vehicle
+}
+
+#[test]
+fn completed_vehicle_is_retained_without_pose_or_occupancy() {
+    let mut world = world();
+    let old = drive_to_completed(&mut world);
+    assert!(
+        world
+            .committed_pose_sources()
+            .as_slice()
+            .iter()
+            .all(|(handle, _)| *handle != old),
+        "Completed must leave committed_pose_sources"
+    );
+    assert_eq!(world.live_vehicles(), &[old]);
+    let route = world
+        .static_route(StaticRouteOrdinal::from_raw(0))
+        .expect("static route");
+    let edges = world
+        .traffic()
+        .relations()
+        .static_route_edges(StaticRouteOrdinal::from_raw(0))
+        .expect("edges")
+        .to_vec();
+    let last = *edges.last().expect("route has edges");
+    let last_length = world.traffic().lane_lengths_meters()[last.index()];
+    let last_index = u32::try_from(edges.len() - 1).expect("index fits u32");
+    let occupancy = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            last_index,
+            (last_length - 0.5).max(0.0),
+            0.0,
+        ))
+        .expect("Completed must release lane occupancy");
+    assert_ne!(occupancy, old);
+    assert!(world.vehicle(old).is_some(), "old handle must stay live");
+}
+
+#[test]
+fn completed_vehicle_occupies_capacity_until_replace() {
+    let mut world =
+        TrafficWorld::install(revision(), WorldConfig::new(1, 4, 1, 100)).expect("install");
+    let old = drive_to_completed(&mut world);
+    let route = world
+        .static_route(StaticRouteOrdinal::from_raw(0))
+        .expect("static route");
+    assert_eq!(
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                0.0,
+                0.0,
+            ))
+            .unwrap_err(),
+        SpawnError::CapacityExceeded
+    );
+    let record = world
+        .replace_completed_vehicle(
+            old,
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0.0, 0.0),
+        )
+        .expect("atomic replace");
+    assert_eq!(record.old, old);
+    assert_ne!(record.new, old);
+    assert!(world.vehicle(old).is_none(), "old handle must be stale");
+    assert_eq!(
+        world.vehicle(record.new).expect("new").status(),
+        VehicleStatus::Active
+    );
+    assert_eq!(world.live_vehicles(), &[record.new]);
+}
+
+#[test]
+fn replace_is_atomic_and_blocked_overlap_is_retryable() {
+    let mut world = world();
+    let old = drive_to_completed(&mut world);
+    let route = world
+        .static_route(StaticRouteOrdinal::from_raw(0))
+        .expect("static route");
+    let blocker = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            0.0,
+            0.0,
+        ))
+        .expect("blocker at entry");
+    let before = world.vehicle(old);
+    let error = world
+        .replace_completed_vehicle(
+            old,
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0.0, 0.0),
+        )
+        .unwrap_err();
+    let ReplaceError::Blocked(block) = error else {
+        panic!("expected blocked replace, got {error:?}");
+    };
+    assert_eq!(block.old, old);
+    assert_eq!(block.blocker, blocker);
+    assert_eq!(world.vehicle(old), before, "Blocked must not mutate world");
+    assert_eq!(world.live_vehicles(), &[old, blocker]);
+
+    assert_eq!(
+        world
+            .replace_completed_vehicle(
+                blocker,
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1.0, 0.0),
+            )
+            .unwrap_err(),
+        ReplaceError::NotCompleted
+    );
+    assert_eq!(
+        world
+            .replace_completed_vehicle(
+                old,
+                VehicleSpawnInput::new(
+                    VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    u32::MAX,
+                    0.0,
+                    0.0,
+                ),
+            )
+            .unwrap_err(),
+        ReplaceError::RouteIndexOutOfRange
+    );
+    assert_eq!(world.vehicle(old), before);
+
+    let record = world
+        .replace_completed_vehicle(
+            old,
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8.0, 0.0),
+        )
+        .expect("entry behind blocker");
+    assert_ne!(record.new, old);
+    assert!(world.vehicle(old).is_none());
+    assert_eq!(world.live_vehicles(), &[record.new, blocker]);
+}
+
+#[test]
+fn replace_does_not_use_despawn_then_spawn() {
+    let mut world =
+        TrafficWorld::install(revision(), WorldConfig::new(1, 4, 1, 100)).expect("install");
+    let old = drive_to_completed(&mut world);
+    let route = world
+        .static_route(StaticRouteOrdinal::from_raw(0))
+        .expect("static route");
+    assert!(
+        world.vehicle(old).is_some(),
+        "禁止先消失再生成：Completed 必须仍可读"
+    );
+    assert_eq!(
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                0.0,
+                0.0,
+            ))
+            .unwrap_err(),
+        SpawnError::CapacityExceeded,
+        "不得把跑完即退役再 spawn 写成回流"
     );
 }

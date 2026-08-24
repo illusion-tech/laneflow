@@ -578,26 +578,24 @@ Core identity / handle 模型影响 Core API、data-format 输入和后续 Adapt
 
 `parking-system.md` 在不改变本文 external-ID/opaque-handle 原则的前提下增加 static dense `ParkingAreaHandle` / `ParkingSpaceHandle` 与 immutable registry/resolver。#107 已交付 static handles/API；Parking handles 不持久化、没有 public ordering，dynamic vehicle 继续使用 generation handle。Planned Parking binding/lifecycle records 由 #108/#109 交付；binding 是 Core 私有 aggregate，不进入 handle 本身、VehicleState 或 Adapter。
 
-## 12. v0.8 场景人口与 atomic replace extension
+## 12. 场景人口与 atomic replace extension
 
-#184/ADR 0016 与 #186 G1 冻结了持续运行场景所需的最小 Core lifecycle 原语：
+#184/ADR 0016 的权威仍有效。#186 的 Core 命令已随 `CoreWorld` 拆除；现行入口由 #475 钉在 `TrafficWorld`：
 
 ```rust
 replace_completed_vehicle(
     old: VehicleHandle,
-    replacement: &VehicleReplaceInput,
-) -> Result<VehicleReplaceOutcome, CoreError>
+    input: VehicleSpawnInput,
+) -> Result<VehicleReplaceRecord, ReplaceError>
 ```
 
-命令只接受 live、未绑定 Parking 的 `Completed` old vehicle，并创建 `Active` replacement；replacement 的 applied acceleration 固定为零。borrowed input 显式携带 `Preserve | ReplaceWith(String)` external-ID 策略、`VehicleProfileHandle`、`RouteHandle`、`route_edge_index`、edge progress 与 initial speed，因此调用方可在 typed `Blocked` 后复用同一输入。
+命令只接受 live、未绑定 Parking 的 `Completed` old vehicle，并创建 `Active` replacement。`VehicleSpawnInput` 携带 profile、`RouteHandle`、`route_edge_index`、edge progress 与 initial speed，因此调用方可在 typed `Blocked` 后复用同一输入。Runtime 没有 external ID 字符串，不把 `Preserve | ReplaceWith` 搬进生产入口。
 
-`Preserve` 转移 Core 已拥有的 external ID，不 clone 字符串；`ReplaceWith` 支持调用方给新旅程分配新 ID，若内容等于旧 ID 则规范化为 `Preserve`。成功返回 `VehicleReplaceRecord { old, new }`，old 立即 stale，new handle 必须不同；public contract 不保证相同 slot index，generation 耗尽时旧 slot 必须退休。
+成功返回 `VehicleReplaceRecord { old, new }`，old 立即 stale，new handle 必须不同；public contract 不保证相同 slot index。到达路线终点写成 `Completed`，保留槽位与句柄，直到 replace；不进 pose、不占车道，占车辆容量。公开契约不恢复独立 `despawn`，也不得用退役后再 `spawn` 充当回流。
 
-只有物理 overlap 返回可恢复的 typed `VehicleReplaceBlock`，payload 只含 old/blocker handle、前后关系和 bumper gap，不分配 external-ID 字符串。stale、状态、Parking binding、external ID、profile、route、`route_edge_index`、progress、speed、限速和内部不变量错误均为 fatal `CoreError`。任一 blocked/fatal 结果都保持 committed world 不变。
+只有物理 overlap 返回可恢复的 typed `ReplaceError::Blocked`，payload 含 old/blocker handle、前后关系和 bumper gap。stale、非 Completed、Parking 占用、profile、route、`route_edge_index`、progress、speed、限速、准入和容量错误均为致命 `ReplaceError`。任一 blocked/fatal 结果都保持 committed world 不变。
 
-replace 保留 old 的 stable update-order position，不产生 tombstone；vehicle registry/resolver、slot/free-list、route reference、Parking unbound state 与 command-spatial membership 在 `validate/compute -> prepare capacities -> infallible apply` 中一次提交。warm `Preserve` 成功和 warm blocked retry 为零 heap allocation；replacement 不 clone `CoreWorld`、不扫描/排序全部 vehicle，也不建立全人口临时容器。route reference 使用 exact update-position index，反复替换不会积累 stale reference nodes。
-
-Core 不选择回流 portal、lane 或 route，不拥有目标人口、seed、PRNG、pending retry 或车辆数量上限，也不接触 Entity。#203/城市游戏等调用方拥有 lifecycle policy；成功 record 足以让 #187 Adapter transaction 原子切换 binding。详细职责和 same-proxy/new-identity 契约见 `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md` 与 `example-scenarios.md`。
+replace 尽量保留 old 的 `live_order` 位置，不产生 tombstone。TrafficWorld 不选择回流 portal、lane 或 route，不拥有目标人口、seed、PRNG、pending retry 或车辆数量上限，也不接触 Entity。走廊 / 城市游戏等调用方拥有 lifecycle policy；成功 record 足以让 Adapter transaction 原子切换 binding。详细职责见 `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md` 与 `example-scenarios.md`。
 
 ## 13. v0.9 static Road/Junction/Maneuver handle extension
 
