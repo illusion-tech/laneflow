@@ -106,7 +106,7 @@ apply pending lifecycle commands
   -> enqueue frozen plans for next lifecycle boundary
 ```
 
-`consume_world` 与 `pending_spawn_input` 先校验传入 `TrafficWorld` 的 `NetworkRevisionId` 与 catalog bind 一致，再要求恰好消费上一拍之后的那一拍（`last_consumed_tick + 1`），并以先验证、后提交的方式处理整个 completion batch。跳过中间 tick 或同一拍重复消费都失败。Running 句柄若已从 world 消失，视为「先消失再生成」契约失败。每个 completion 必须满足：
+`consume_world` 与 `pending_spawn_input` 先校验传入 `TrafficWorld` 的 `NetworkRevisionId` 与 catalog bind 一致；`apply_pending` 先校验调用方提供的 `NetworkRevisionId`（通常来自即将提交 replace 的那份 `TrafficWorld`）。`consume_world` 再要求恰好消费上一拍之后的那一拍（`last_consumed_tick + 1`），并以先验证、后提交的方式处理整个 completion batch。跳过中间 tick 或同一拍重复消费都失败。Running 句柄若已从 world 消失，视为「先消失再生成」契约失败。每个 completion 必须满足：
 
 - vehicle 属于一个 `Running` logical slot，状态为 `Completed`，且同一 batch 不重复；world 中未跟踪的 Completed 车辆同样使整个 batch 失败；
 - route handle 等于该 logical slot 当前 route；
@@ -132,7 +132,7 @@ Running(vehicle, route)
 Pending(old, frozen route plan)
 ```
 
-`apply_pending` 是 transport-neutral lifecycle API。caller 可把同一 `VehicleSpawnInput` 交给 `TrafficWorld` 或 Adapter 的 typed transaction，并将结果映射为：
+`apply_pending` 先校验 `NetworkRevisionId`；host callback 仍是 transport-neutral，caller 可把同一 `VehicleSpawnInput` 交给 `TrafficWorld` 或 Adapter 的 typed transaction，并将结果映射为：
 
 - `Replaced(old, new)`：controller 以 new handle 原子轮换 logical identity，回到 Running；
 - `Blocked(old, blocker, ...)`：保留 old 与 frozen plan，移动到 FIFO 队尾；

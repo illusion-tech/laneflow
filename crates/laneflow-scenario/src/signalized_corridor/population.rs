@@ -570,13 +570,20 @@ impl CorridorPopulationController {
     }
 
     /// 在一个 lifecycle boundary 内按 FIFO 各尝试一次既有 pending plan。
+    ///
+    /// `network_revision` 必须与 catalog bind 一致。host callback 仍是
+    /// transport-neutral，可把同一输入交给 `TrafficWorld` 或 Adapter typed replace。
     pub fn apply_pending<F, E>(
         &mut self,
+        network_revision: NetworkRevisionId,
         mut apply: F,
     ) -> Result<CorridorBoundaryReport, CorridorReplaceApplyError<E>>
     where
         F: FnMut(VehicleHandle, VehicleSpawnInput) -> Result<CorridorReplaceAttemptOutcome, E>,
     {
+        if let Err(error) = self.require_bound_revision(network_revision) {
+            return Err(CorridorReplaceApplyError::Policy(error));
+        }
         let boundary_pending = self.pending.len();
         let mut report = CorridorBoundaryReport::default();
         for _ in 0..boundary_pending {
@@ -777,7 +784,14 @@ impl CorridorPopulationController {
     }
 
     fn require_bound_world(&self, world: &TrafficWorld) -> Result<(), CorridorPopulationError> {
-        if world.revision().network_revision() != self.catalog.network_revision {
+        self.require_bound_revision(world.revision().network_revision())
+    }
+
+    fn require_bound_revision(
+        &self,
+        network_revision: NetworkRevisionId,
+    ) -> Result<(), CorridorPopulationError> {
+        if network_revision != self.catalog.network_revision {
             return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
                 detail: "TrafficWorld 修订与 catalog bind 不一致".to_owned(),
             });

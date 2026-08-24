@@ -159,7 +159,7 @@ fn bind_and_replace_does_not_despawn_then_spawn() {
 
     let rng_before = controller.rng_state();
     let report = controller
-        .apply_pending(|old, input| {
+        .apply_pending(world.revision().network_revision(), |old, input| {
             CorridorReplaceAttemptOutcome::from_replace(world.replace_completed_vehicle(old, input))
         })
         .expect("apply");
@@ -216,7 +216,7 @@ fn blocked_retry_replays_the_same_plan() {
     let before_caps = controller.capacities();
     let pending = controller.counts().pending;
     let report = controller
-        .apply_pending(|old, _input| {
+        .apply_pending(world.revision().network_revision(), |old, _input| {
             Ok::<_, std::convert::Infallible>(CorridorReplaceAttemptOutcome::Blocked(
                 VehicleReplaceBlock {
                     old,
@@ -264,7 +264,7 @@ fn apply_pending_host_error_restores_fifo_front() {
     assert!(pending > 0);
     let mut front = None;
     let error = controller
-        .apply_pending(|old, input| {
+        .apply_pending(world.revision().network_revision(), |old, input| {
             front = Some((old, input));
             Err("host-fail")
         })
@@ -468,4 +468,51 @@ fn pending_spawn_input_rejects_foreign_revision() {
         error,
         CorridorPopulationError::BoundWorldCatalogMismatch { .. }
     ));
+}
+
+#[test]
+fn apply_pending_rejects_foreign_revision() {
+    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world = TrafficWorld::install(
+        Arc::clone(&revision),
+        WorldConfig::new(
+            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
+            8,
+            1,
+            100,
+        ),
+    )
+    .expect("install");
+    let vehicles = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
+    for _ in 0..8_000 {
+        world.step(TickInput::new(100)).expect("step");
+        if controller.consume_world(&world).expect("consume") > 0 {
+            break;
+        }
+    }
+    let pending = controller.counts().pending;
+    assert!(pending > 0);
+    let mut called = false;
+    let error = controller
+        .apply_pending(foreign_world().revision().network_revision(), |old, _| {
+            called = true;
+            Ok::<_, std::convert::Infallible>(CorridorReplaceAttemptOutcome::Blocked(
+                VehicleReplaceBlock {
+                    old,
+                    blocker: old,
+                    blocker_ahead: true,
+                    bumper_gap: 0.0,
+                },
+            ))
+        })
+        .expect_err("foreign apply");
+    assert!(!called, "host callback must not run on revision mismatch");
+    assert!(matches!(
+        error,
+        CorridorReplaceApplyError::Policy(
+            CorridorPopulationError::BoundWorldCatalogMismatch { .. }
+        )
+    ));
+    assert_eq!(controller.counts().pending, pending);
 }
