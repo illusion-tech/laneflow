@@ -6,8 +6,9 @@ use laneflow_runtime::{
 };
 use laneflow_scenario::signalized_corridor::{
     CorridorCatalog, CorridorPopulationConfig, CorridorPopulationError, CorridorPopulationPrepare,
-    CorridorReplaceAttemptOutcome, DEFAULT_SEED, DEFAULT_TARGET_VEHICLE_COUNT,
-    MAX_TARGET_VEHICLE_COUNT, MIN_TARGET_VEHICLE_COUNT, PASSENGER_CAR_PROFILE_KEY, bind,
+    CorridorReplaceApplyError, CorridorReplaceAttemptOutcome, DEFAULT_SEED,
+    DEFAULT_TARGET_VEHICLE_COUNT, MAX_TARGET_VEHICLE_COUNT, MIN_TARGET_VEHICLE_COUNT,
+    PASSENGER_CAR_PROFILE_KEY, bind,
 };
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
@@ -234,6 +235,48 @@ fn blocked_retry_replays_the_same_plan() {
     assert_eq!(first.route(), second.route());
     assert_eq!(first.progress(), second.progress());
     assert_eq!(first.initial_speed(), second.initial_speed());
+}
+
+#[test]
+fn apply_pending_host_error_restores_fifo_front() {
+    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world = TrafficWorld::install(
+        Arc::clone(&revision),
+        WorldConfig::new(
+            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
+            8,
+            1,
+            100,
+        ),
+    )
+    .expect("install");
+    let vehicles = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
+    for _ in 0..8_000 {
+        world.step(TickInput::new(100)).expect("step");
+        if controller.consume_world(&world).expect("consume") > 0 {
+            break;
+        }
+    }
+    let pending = controller.counts().pending;
+    assert!(pending > 0);
+    let mut front = None;
+    let error = controller
+        .apply_pending(|old, input| {
+            front = Some((old, input));
+            Err("host-fail")
+        })
+        .expect_err("host failure");
+    assert!(matches!(
+        error,
+        CorridorReplaceApplyError::Host("host-fail")
+    ));
+    let (old, first) = front.expect("callback saw FIFO front");
+    assert_eq!(controller.counts().pending, pending);
+    let replayed = controller
+        .pending_spawn_input(&world, old)
+        .expect("front restored");
+    assert_eq!(first, replayed);
 }
 
 #[test]

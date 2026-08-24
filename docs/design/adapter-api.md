@@ -74,7 +74,7 @@ current 路径：
 Bevy Reference Adapter 把上述 world 与可选 Spatial 收进唯一活动的 `LaneFlowSession`。
 `LaneFlowSession::new` 在提供 Spatial 时强制 `Arc::ptr_eq`，失败为 `RevisionMismatch`。
 生命周期命令经 `LaneFlowSession::world_mut()` 调用 `TrafficWorld` 的
-`register_route` / `spawn_vehicle` / `remove_route`。原子替换只走 typed
+`register_route` / `spawn_vehicle` / `remove_route` / `occupy_parking`。原子替换只走 typed
 `laneflow_bevy::replace_completed_vehicle`，以免 Runtime 成功后留下 stale 映射。
 只读观察走 `world()`。
 
@@ -149,15 +149,15 @@ Bevy/glam、Unity `Vector3`、Unreal `FVector`、Godot `Vector3` 以及 JavaScri
 
 ## 7. v0.7 Bevy specialization
 
-#121 已在 `bevy-reference-adapter.md` 冻结 v0.7 的 Bevy 0.19 支持线、最小 modular dependency graph、专用 fixed schedule、单活动 Session、frame-root/child Transform、placement token 复核、两阶段原子批量提交、可选 Gizmos、最小 native example。#301 之后该 Session 持有 `TrafficWorld` 与可选 `SpatialSession`，不再持有 `CoreWorld`。可选 Gizmos 不是现行交付；#172 历史实现见 git，[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭。
+#121 已在 `bevy-reference-adapter.md` 冻结 v0.7 的 Bevy 0.19 支持线、最小 modular dependency graph、专用 fixed schedule、单活动 Session、frame-root/child Transform、placement token 复核、两阶段原子批量提交、可选 Gizmos、最小 native example。#301 之后该 Session 持有 `TrafficWorld` 与可选 `SpatialSession`。可选 Gizmos 不是现行交付；#172 历史实现见 git，[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭。
 
 该 specialization 不改变本文的跨引擎权威职责、`f32` canonical 精度边界、稳定批量顺序、失败原子性和宿主类型隔离。v0.7 仍不冻结 presentation interpolation、LOD/pooling、glTF/prefab/scene asset API、WASM、外语绑定的二进制接口、C 外部函数接口（FFI）或第二个 Engine Adapter。
 
-`CoreWorld` 已拆除。现行入口是 `TrafficWorld` 与 `LaneFlowSession`。
+现行入口是 `TrafficWorld` 与 `LaneFlowSession`。
 
 ## 8. 生命周期命令与原子替换
 
-#475 冻结 `TrafficWorld::replace_completed_vehicle` 与 Bevy typed replace-and-rebind。不恢复独立 `despawn`，也不把 `CoreEvent` 搬进 Runtime。
+#475 冻结 `TrafficWorld::replace_completed_vehicle` 与 Bevy typed replace-and-rebind。不恢复独立 `despawn`，也不把已拆除的事件模型搬进 Runtime。
 
 ```rust
 TrafficWorld::replace_completed_vehicle(
