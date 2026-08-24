@@ -99,8 +99,8 @@ fn assert_stable_build(
 }
 
 fn sample_worlds(revision: &Arc<SharedNetworkRevision>, count: usize) -> AllocSample {
-    let mut worlds = Vec::with_capacity(count);
     let region = Region::new(GLOBAL);
+    let mut worlds = Vec::with_capacity(count);
     for _ in 0..count {
         worlds.push(
             TrafficWorld::install(Arc::clone(revision), WorldConfig::new(8, 8, 1, 16))

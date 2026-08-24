@@ -468,6 +468,25 @@ fn measure_ns(warmup: usize, samples: usize, mut op: impl FnMut()) -> (u128, u12
     summarize_ns(&mut values)
 }
 
+fn measure_ns_held<T>(
+    warmup: usize,
+    samples: usize,
+    mut op: impl FnMut() -> T,
+) -> (u128, u128, u128) {
+    let mut held = Vec::with_capacity(warmup + samples);
+    for _ in 0..warmup {
+        held.push(op());
+    }
+    let mut values = vec![0_u128; samples];
+    for slot in &mut values {
+        let started = Instant::now();
+        held.push(op());
+        *slot = started.elapsed().as_nanos();
+    }
+    black_box(&held);
+    summarize_ns(&mut values)
+}
+
 fn coexistence_ledger(
     current: &SharedNetworkRevision,
     base: &[u8],
@@ -802,9 +821,7 @@ fn wall_clock_build_identity_and_kernel() {
         ),
         ("corridor", CORRIDOR, SpatialBuildOption::RetainAvailable),
     ] {
-        let build_ns = measure_ns(WARMUP, SAMPLES, || {
-            black_box(build(bytes, spatial));
-        });
+        let build_ns = measure_ns_held(WARMUP, SAMPLES, || build(bytes, spatial));
         println!(
             "shared-static-network-evidence wallclock kind=build scene={scene} min_ns={} median_ns={} max_ns={}",
             build_ns.0, build_ns.1, build_ns.2
