@@ -2884,12 +2884,15 @@ name = "laneflow-runtime"
 version = "0.0.0"
 dependencies = [
  "laneflow-compiler",
+ "laneflow-corridor-generator",
  "laneflow-format",
+ "laneflow-scenario",
  "laneflow-spatial",
  "laneflow-static-contract",
  "laneflow-static-network",
  "stats_alloc",
  "thiserror 2.0.20",
+ "toml",
 ]
 
 [[package]]
