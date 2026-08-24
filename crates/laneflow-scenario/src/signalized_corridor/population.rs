@@ -558,6 +558,20 @@ impl CorridorPopulationController {
         })
     }
 
+    /// pending FIFO 中的旧句柄，队首先被 `apply_pending` 尝试。
+    #[must_use]
+    pub fn pending_vehicles(&self) -> Vec<VehicleHandle> {
+        self.pending
+            .iter()
+            .map(|&slot_index| match self.slots[slot_index].state {
+                LogicalSlotState::Pending { old, .. } => old,
+                LogicalSlotState::Running { .. } => {
+                    unreachable!("pending FIFO must only contain Pending slots")
+                }
+            })
+            .collect()
+    }
+
     /// 构造指定 pending slot 的替换输入。
     pub fn pending_spawn_input(
         &self,
