@@ -1,6 +1,5 @@
 //! Canonical LIR 公共只读视图。
 //!
-//! 稳定实体视图由 [`impl_stable_entity_view`] 生成；领域方法放在对应子模块。
 //! 字段保持私有，仅 `compiler` 模块可通过 `from_lir` / `from_record` 构造。
 
 use laneflow_static_contract::{FieldTag, LaneEdgeId, LaneEdgeOrdinal, StaticRouteOrdinal};

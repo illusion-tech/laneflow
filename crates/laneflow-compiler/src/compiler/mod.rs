@@ -25,7 +25,6 @@ use crate::Diagnostic;
 #[cfg(test)]
 use laneflow_static_contract::{AccessEffect, FieldTag, SignalAspect};
 
-/// 已完成 #292 当前支持子集全部静态语义验证的 Canonical LIR。
 mod output;
 mod views;
 
@@ -46,6 +45,10 @@ pub use views::{
     CanonicalVehicleProfileView, CanonicalWaitingZoneOccurrenceView, CanonicalWaitingZoneView,
 };
 
+/// 已完成 #292 当前支持子集全部静态语义验证的 Canonical LIR。
+///
+/// 字段保持私有，调用方只能按规范稳定顺序读取有类型表、身份字段和关系区间。不存在从
+/// 裸表、未验证 MIR 或自报状态构造本类型的入口。
 pub struct ValidatedCanonicalLir {
     inner: LirUnit,
 }
