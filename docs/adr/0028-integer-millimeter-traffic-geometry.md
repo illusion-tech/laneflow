@@ -101,8 +101,9 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
 
 - 前车 `min_gap` 之后的空隙（无前车则不限制）；
 - `DenyAndStop` 停车线距离（绿灯/无灯则不限制）；
-- 若下一条转移 **不存在** 或该转移的 Gate **拒绝**：当前 `fromEdge` 终点；
-- 若下一条转移存在且 Gate 许可：边终点 **不是** 硬停，余量进入下一条。
+- **路线剩余**：沿本车路线累加到最后一边终点（与现行 `remaining_to_route_end` 同构）；
+- 若下一条路线 hop 存在但该转移的 Gate **拒绝**：当前 `fromEdge` 终点；
+- 若下一条 hop 存在且 Gate 许可：边终点 **不是** 硬停，余量进入下一条。
 
 落地顺序固定：
 
@@ -116,13 +117,17 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
    `travel_mm = min(um / 1000, hard_room_mm)`（`u64` 运算，避免 `f32` 在大行程
    上丢失微米）；
 5. `apply_travel`。若 `travel_mm == hard_room_mm`（本拍走到停车类约束）：
-   到位后硬停，`speed_mm_s = 0`，`carry_um = 0`。否则保留
-   `carry_um = um % 1000`，速度量化为 `u32` mm/s，**独立于** 本拍是否凑满 1 mm。
+   到位后 `speed_mm_s = 0`，`carry_um = 0`。若该约束是 **路线剩余为零**（没有
+   下一 hop）：再把 `VehicleStatus` 置为 `Completed`，离开占用与
+   `committed_pose_sources`。Gate 拒绝或仍有后续 hop 的硬停保持 `Active`。
+   否则保留 `carry_um = um % 1000`，速度量化为 `u32` mm/s，**独立于** 本拍是否
+   凑满 1 mm。
 
-跨边：仅当本拍行程到达 `fromEdge` 终点 **且** 下一条边存在 **且** 该转移 Gate
+跨边：仅当本拍行程到达 `fromEdge` 终点 **且** 下一条 hop 存在 **且** 该转移 Gate
 （若有）许可。`progress_mm = 0`，**保留** `carry_um`（除非跨边后立即命中硬停）。
 `progress_mm == length_mm` 是合法的「停在边终点 / 拒绝 Gate 前」状态，**不得**
-无条件跨边。`Completed`、`Parked`、车辆替换：`carry_um = 0`。
+无条件跨边，也 **不得** 把这种 Active 硬停写成 `Completed`。`Completed`、
+`Parked`、车辆替换：`carry_um = 0`。
 
 禁止把未截断的 `v × Δt` 送进累加器。舍入模式全合同统一为
 **IEEE 754 round-ties-to-even**，中间乘法在 `f64` 完成。
@@ -191,6 +196,7 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 - 用整数 travel 反推已提交速度，或为过小加速度增加速度余数。
 - 用 SI `travel <= 0` 代替整数硬约束判定硬停。
 - 到边终点无条件跨边。
+- 走到路线终点只清速度、不进入 `Completed`。
 - 承诺跨 CPU / 跨机器整数位级相同（行程余数输入仍是 `f32` IIDM）。
 - 1–3 ms 步长；Runtime 慢放/可变 Δt。
 - 编制另写一条边长，或从 Spatial 采样反推边长。

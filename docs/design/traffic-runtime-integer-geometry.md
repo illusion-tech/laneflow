@@ -98,18 +98,23 @@ speed_mm_s: u32            // 静止可为 0
 3. 整数硬约束 `hard_room_mm`（有符号 mm，下限 0）：
    - 前车 `min_gap` 后空隙；
    - `DenyAndStop` 停车线；
-   - 下一条转移不存在或 Gate 拒绝时的 `fromEdge` 终点。
-   下一条存在且 Gate 许可时，边终点不是硬停。
+   - 本车路线剩余（沿路线累加到最后一边终点，与现行 `remaining_to_route_end`
+     同构）；
+   - 下一 hop 存在但 Gate 拒绝时的 `fromEdge` 终点。
+   下一 hop 存在且 Gate 许可时，边终点不是硬停。
 4. `hard_room_mm == 0`：`travel_mm = 0`，`speed_mm_s = 0`，`carry_um = 0`，不
-   `apply_travel`。
+   `apply_travel`。若此时路线剩余已为零：`VehicleStatus::Completed`。
 5. 否则
    `um = u64(carry_um) + round-ties-to-even(f64(travel_m) × 1e6)`；
    `travel_mm = min(um / 1000, hard_room_mm)`；
    若 `travel_mm < hard_room_mm`：`carry_um = (um % 1000) as u16`；
-   若 `travel_mm == hard_room_mm`：到位后硬停，本拍末 `carry_um = 0`。
+   若 `travel_mm == hard_room_mm`：到位后 `carry_um = 0`。
 6. 整数 `apply_travel`：`progress_mm + travel_mm`。满边且下一跳许可则余量进下一条、
-   `progress_mm = 0`；满边但下一跳拒绝则停在 `progress_mm == length_mm`。
-7. 硬停（第 4 步，或第 5 步走到 `hard_room_mm`）：`speed_mm_s = 0`。否则
+   `progress_mm = 0`；满边但下一跳拒绝则停在 `progress_mm == length_mm`，保持
+   `Active`。
+7. 硬停（第 4 步，或第 5 步走到 `hard_room_mm`）：`speed_mm_s = 0`。若走完的是
+   **路线剩余**（没有下一 hop）：`VehicleStatus::Completed`，离开占用与
+   `committed_pose_sources`。Gate 拒绝不是 `Completed`。否则
    `speed_mm_s = round-ties-to-even(f64(next_speed_m) × 1000)`，不由 travel 反推。
 
 占用循环：`remaining_mm == 0` 结束。重叠：整数区间。生产路径删除米制
@@ -173,10 +178,10 @@ LFCA 登记表破坏性更新（不兼容读旧 `F64` 米或 `F64` 时距/加减
   事件序。联机 / 跨机器 lockstep 不在本切片。
 - 不得要求与 current-`f64` 录影零分歧，也不得用 2 车走廊墙钟当 Product Pass。
 - 必测：硬停清余数与速度；`hard_room_mm > 0` 且量化 travel `< 1 mm` 时速度保持、
-  余数增长；跨边余数保留；拒绝 Gate 时停在 `fromEdge` 终点且不清错边；
-  `max_accel < 0.5` 失败；`60 km/h` 长期平均速度由余数对齐量化后的 `mm/s`，
-  无系统少走；相位非倍数 `install` 失败；`dt=3` 失败；`dt=4` 与 `dt=1000`
-  均能 install（夹具相位允许时）。
+  余数增长；跨边余数保留；拒绝 Gate 时停在 `fromEdge` 终点、保持 `Active`、
+  不清错边；走到路线终点进入 `Completed` 并离开占用 / pose；`max_accel < 0.5`
+  失败；`60 km/h` 长期平均速度由余数对齐量化后的 `mm/s`，无系统少走；相位非倍数
+  `install` 失败；`dt=3` 失败；`dt=4` 与 `dt=1000` 均能 install（夹具相位允许时）。
 
 ## 9. 明确不做
 
