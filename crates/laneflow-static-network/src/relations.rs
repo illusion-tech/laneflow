@@ -1,5 +1,3 @@
-use core::mem::size_of;
-
 use laneflow_static_contract::{
     AccessEffect, AccessRuleOrdinal, AuthoringLaneOrdinal, EntityKind, FacilityBandOrdinal,
     JunctionOrdinal, LaneEdgeOrdinal, LaneGroupOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
@@ -1521,8 +1519,7 @@ impl SharedRelationClosure {
 
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
-        u64::try_from(size_of::<Self>()).unwrap_or(0)
-            + logical_bytes::<Box<str>>(self.intern.len())
+        logical_bytes::<Box<str>>(self.intern.len())
             + self
                 .intern
                 .iter()
@@ -1702,11 +1699,8 @@ pub(crate) fn relation_retained_floor(
     counts: &EntityCounts,
     payloads: RelationPayloads,
 ) -> Result<u64, BuildError> {
-    let mut total = u64::try_from(size_of::<SharedRelationClosure>()).map_err(|_| {
-        BuildError::ArithmeticOverflow {
-            structure: BuildStructure::RetainedOutput,
-        }
-    })?;
+    // 闭合对象内联在 SharedNetworkRevision 中，对象头已计入根 size_of。
+    let mut total = 0_u64;
     let corridor = counts.count(EntityKind::RoadCorridor);
     let section = counts.count(EntityKind::RoadSection);
     let authoring = counts.count(EntityKind::AuthoringLane);
