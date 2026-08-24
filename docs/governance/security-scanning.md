@@ -1,7 +1,7 @@
 # 安全扫描基线
 
 **文档状态**: Active  
-**最后更新**: 2026-08-24
+**最后更新**: 2026-08-24  
 **适用范围**: LaneFlow 仓库的 Code Scanning、Secret Scanning、Dependabot 状态审计与公开发布阻断  
 **关联 Issue**: `#88`、`#56`、`#451`
 
