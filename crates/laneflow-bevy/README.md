@@ -37,6 +37,15 @@ campus / `native_reference` 的 Core 入口已删除。现行走廊 Bevy 最小�
 catalog 0.2 与 LFCA，prepare 绑到已安装共享路网修订，不恢复 50–200 回流；回流见
 [#475](https://github.com/illusion-tech/laneflow/issues/475)。Bevy debug gizmos 不是现行交付（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭）。
 
+## 依赖与分发
+
+走廊 example / smoke 的第三方 **dev-dependency** 不进入 `laneflow-bevy` 生产 graph：
+
+- `toml 1.1.4+spec-1.1.0`：crates.io，MIT OR Apache-2.0；只解析检入的 catalog TOML。生成器已使用同一 crate。
+- `bevy_math 0.19.1`：crates.io，MIT OR Apache-2.0；smoke 用 `Vec3` 组 `looking_to`。生产 crate 已依赖 `bevy_transform 0.19`，该 crate 本就在 lock graph 中。
+
+二者均在 `deny.toml` 允许的 SPDX 分支内，无 copyleft，不新增 crates.io 之外的来源。已知漏洞由 CI `Dependency policy`（cargo-deny advisories）把关。
+
 最小 Bevy 证据是 `runtime_min`；走廊最小路径是 `signalized_corridor`：
 
 ```powershell
