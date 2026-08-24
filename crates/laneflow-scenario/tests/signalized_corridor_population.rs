@@ -6,7 +6,8 @@ use laneflow_runtime::{
     WorldConfig,
 };
 use laneflow_scenario::signalized_corridor::{
-    CorridorCatalog, CorridorPopulationConfig, CorridorPopulationError, CorridorPopulationPrepare,
+    CorridorCatalog, CorridorPopulationCapacities, CorridorPopulationConfig,
+    CorridorPopulationController, CorridorPopulationError, CorridorPopulationPrepare,
     CorridorReplaceApplyError, CorridorReplaceAttemptOutcome, DEFAULT_SEED,
     DEFAULT_TARGET_VEHICLE_COUNT, MAX_TARGET_VEHICLE_COUNT, MIN_TARGET_VEHICLE_COUNT,
     PASSENGER_CAR_PROFILE_KEY, bind,
@@ -515,4 +516,151 @@ fn apply_pending_rejects_foreign_revision() {
         )
     ));
     assert_eq!(controller.counts().pending, pending);
+}
+
+const TICK_MS: u64 = 100;
+const SHORT_SOAK_REPLACED: usize = 50;
+const FULL_SOAK_REPLACED: usize = 10_000;
+const SHORT_SOAK_MAX_TICKS: u32 = 200_000;
+const FULL_SOAK_MAX_TICKS: u32 = 5_000_000;
+const REPLAY_TICKS: u32 = 12_000;
+
+fn bound_controller(target: usize) -> (TrafficWorld, CorridorPopulationController) {
+    let (prepared, revision) = prepare(target, DEFAULT_SEED);
+    let mut world = TrafficWorld::install(
+        Arc::clone(&revision),
+        WorldConfig::new(u32::try_from(target).expect("fits"), 8, 1, TICK_MS),
+    )
+    .expect("install");
+    let vehicles = spawn_population(&mut world, &prepared);
+    let controller = prepared.bind(&world, &vehicles).expect("bind");
+    (world, controller)
+}
+
+fn lifecycle_tick(
+    world: &mut TrafficWorld,
+    controller: &mut CorridorPopulationController,
+) -> usize {
+    let revision = world.revision().network_revision();
+    let replaced = controller
+        .apply_pending(revision, |old, input| {
+            CorridorReplaceAttemptOutcome::from_replace(world.replace_completed_vehicle(old, input))
+        })
+        .expect("apply")
+        .replaced;
+    world.step(TickInput::new(TICK_MS)).expect("step");
+    controller.consume_world(world).expect("consume");
+    replaced
+}
+
+fn soak_replacements(
+    target: usize,
+    replaced_goal: usize,
+    max_ticks: u32,
+) -> (
+    CorridorPopulationCapacities,
+    CorridorPopulationCapacities,
+    usize,
+) {
+    let (mut world, mut controller) = bound_controller(target);
+    let warmed = controller.capacities();
+    let mut replaced = 0;
+    for _ in 1..=max_ticks {
+        replaced += lifecycle_tick(&mut world, &mut controller);
+        let counts = controller.counts();
+        assert_eq!(counts.running + counts.pending, target);
+        if replaced >= replaced_goal {
+            break;
+        }
+    }
+    assert!(
+        replaced >= replaced_goal,
+        "target {target} only reached {replaced} replacements in {max_ticks} ticks"
+    );
+    let after = controller.capacities();
+    (warmed, after, replaced)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct HeadlessSnapshot {
+    tick_index: u64,
+    rng_state: u64,
+    running: usize,
+    pending: usize,
+    last_consumed_tick: u64,
+    live: Vec<VehicleHandle>,
+    logical: Vec<VehicleHandle>,
+    capacities: CorridorPopulationCapacities,
+}
+
+fn snapshot(world: &TrafficWorld, controller: &CorridorPopulationController) -> HeadlessSnapshot {
+    let target = controller.counts().target;
+    HeadlessSnapshot {
+        tick_index: world.tick_index(),
+        rng_state: controller.rng_state(),
+        running: controller.counts().running,
+        pending: controller.counts().pending,
+        last_consumed_tick: controller.last_consumed_tick(),
+        live: world.live_vehicles().to_vec(),
+        logical: (0..target)
+            .map(|index| controller.logical_vehicle(index).expect("slot"))
+            .collect(),
+        capacities: controller.capacities(),
+    }
+}
+
+fn run_chunked(target: usize, ticks: u32, chunk: u32) -> HeadlessSnapshot {
+    assert_eq!(ticks % chunk, 0);
+    let (mut world, mut controller) = bound_controller(target);
+    let frames = ticks / chunk;
+    for _ in 0..frames {
+        for _ in 0..chunk {
+            let _ = lifecycle_tick(&mut world, &mut controller);
+        }
+    }
+    snapshot(&world, &controller)
+}
+
+#[test]
+fn soak_50_cars_keeps_retained_capacity() {
+    let (warmed, after, replaced) = soak_replacements(
+        MIN_TARGET_VEHICLE_COUNT,
+        SHORT_SOAK_REPLACED,
+        SHORT_SOAK_MAX_TICKS,
+    );
+    assert_eq!(after, warmed);
+    assert!(replaced >= SHORT_SOAK_REPLACED);
+}
+
+#[test]
+fn soak_200_cars_keeps_retained_capacity() {
+    let (warmed, after, replaced) = soak_replacements(
+        MAX_TARGET_VEHICLE_COUNT,
+        SHORT_SOAK_REPLACED,
+        SHORT_SOAK_MAX_TICKS,
+    );
+    assert_eq!(after, warmed);
+    assert!(replaced >= SHORT_SOAK_REPLACED);
+}
+
+#[test]
+#[ignore = "完整 10,000 次成功 replace；见 laneflow-scenario README"]
+fn soak_50_cars_10000_replacements() {
+    let (warmed, after, replaced) = soak_replacements(
+        MIN_TARGET_VEHICLE_COUNT,
+        FULL_SOAK_REPLACED,
+        FULL_SOAK_MAX_TICKS,
+    );
+    assert_eq!(after, warmed);
+    assert!(replaced >= FULL_SOAK_REPLACED);
+}
+
+#[test]
+fn catch_up_chunking_matches_per_tick_headless_replay() {
+    let one = run_chunked(MIN_TARGET_VEHICLE_COUNT, REPLAY_TICKS, 1);
+    let four = run_chunked(MIN_TARGET_VEHICLE_COUNT, REPLAY_TICKS, 4);
+    let eight = run_chunked(MIN_TARGET_VEHICLE_COUNT, REPLAY_TICKS, 8);
+    assert_eq!(one, four);
+    assert_eq!(one, eight);
+    assert_eq!(one.tick_index, u64::from(REPLAY_TICKS));
 }
