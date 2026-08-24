@@ -116,9 +116,10 @@ Validation：
 - `length` 严格大于领域专用的最小 vehicle length（current-f64 为 `1.0e-9 m`）。
 - `minGap >= 0`。
 - `emergencyDeceleration >= comfortableDeceleration`。
-- #496 G2（Proposed）：`length >= 100 mm`，`desiredSpeed` 为 `1..=100_000` mm/s，
-  `maxAcceleration >= 0.5 m/s²`；spawn 用 `progress_mm` / `speed_mm_s` 且
-  `carry_um = 0`。不另做速度余数。current 生产路径不执行这些下限。
+- #496 G2（Proposed）：车长 `100..=128_000` mm，`desiredSpeed` `1..=100_000` mm/s，
+  `minGap` `0..=128_000` mm，`maxAcceleration` `0.5..=50` m/s²，时距 `<= 60` s；
+  spawn 用 `progress_mm` / `speed_mm_s` 且 `carry_um = 0`。不另做速度余数。
+  current 生产路径不执行这些上下界。
 - external ID 遵循当前 data-format 的 ASCII token 规则，并在 profile domain 内唯一。
 
 ### 4.2 Package 版本

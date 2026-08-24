@@ -35,8 +35,9 @@ multi-Gate/WaitingZone occurrence 与 profile-route-cursor 静态可行性校验
 Current static ParkingSpace 不持有 RouteHandle。#108/#109 current runtime 消费有限显式 route/occurrence：Reserved approach 选择当前 cursor 后的 first-reachable entry occurrence，leave/rebind 由 caller 提供明确 route occurrence，Parked/Reserved vehicle 保留 live route reference。Overflow-safe route prefix 不得新增“整条 route 累计距离必须 finite”的合法性条件。完整端到端验证由 #110 固化，详细契约见 [`parking-system.md`](parking-system.md)。
 
 ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go 后 current 继续
-`f64`。**下一生产合同是 ADR 0028**（Proposed）：路线前缀为 `u64` mm，单边
-`u32` mm，`10_000_000` mm 上界。本文以下仍描述 current-`f64` 路线距离语义。
+`f64`。**下一生产合同是 ADR 0028**（Proposed）：路线前缀与距离查询为 `u32` mm，
+溢出 `BeyondFinite`；单边 `u32` mm，`10_000_000` mm 上界。本文以下仍描述
+current-`f64` 路线距离语义。
 
 目标：
 

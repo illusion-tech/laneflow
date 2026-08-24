@@ -48,24 +48,33 @@ JSON 生产入口已拆除，该门槛不再构成现行交通权威。
 
 下列已提交量使用整数毫米，不使用生产路径上的 `1e-9` / `1e-12` 米哨兵：
 
-| 量                                                           | 表示                     | 规则                                                |
-| ------------------------------------------------------------ | ------------------------ | --------------------------------------------------- |
-| 边长、边内进度、车长、`min_gap`、停车入口/出口进度、停车长宽 | `u32` mm                 | 无符号长度                                          |
-| 停车横向偏移                                                 | `i32` mm                 | 有符号；禁止 `u32` 下溢代替「不够」                 |
-| 占用间隙、跨 hop 跟车空隙                                    | `i64` mm                 | checked；禁止 `i32` 回绕。单边仍 `u32`              |
-| 路线前缀和、视距累计、`hard_room_mm`                         | `u64` mm                 | 单边仍 `u32`                                        |
-| 单边防御上界                                                 | `10_000_000` mm（10 km） | 超限失败关闭，不自动拆边                            |
-| 最短边、最短车长                                             | `100` mm                 | 对齐 Spatial 最短段 `0.1 m`                         |
-| 停车锚点端点留白                                             | `1` mm                   | **另一个常量**：`1 <= progress_mm <= length_mm - 1` |
-| 路外泊位横向                                                 | `abs(offset_mm) >= 1`    | 不允许标 0 却声称离开中心线                         |
+| 量                                   | 表示                     | 规则                                            |
+| ------------------------------------ | ------------------------ | ----------------------------------------------- |
+| 边长、边内进度                       | `u32` mm                 | 单边 `100..=10_000_000`                         |
+| 车长、停车长宽                       | `u32` mm                 | `100..=128_000`（沿用 ADR 0014 `0.1..=128 m`）  |
+| `min_gap`                            | `u32` mm                 | `0..=128_000`                                   |
+| 停车入口/出口进度                    | `u32` mm                 | `1 <= p <= length_mm - 1`                       |
+| 停车横向偏移                         | `i32` mm                 | `abs <= 128_000`；路外 `abs >= 1`               |
+| 占用间隙、跨 hop 跟车空隙            | `i64` mm                 | 有符号；禁止回绕。单边仍 `u32`                  |
+| 路线前缀和、视距累计、`hard_room_mm` | `u32` mm                 | checked 加；溢出不是再加宽，而是 `BeyondFinite` |
+| 单边防御上界                         | `10_000_000` mm（10 km） | 超限失败关闭，不自动拆边                        |
+| 停车锚点端点留白                     | `1` mm                   | **另一个常量**，与最短边 `100` 分开             |
 
-`BoundedDistance::Finite` 改为 `u64` mm；`BeyondFinite` 语义保留。
+`BoundedDistance::Finite(u32)` 毫米。满量程约 **4295 km**，已覆盖城市一趟行程
+（Spatial 单 frame 约 32 km 盒；家→公司/过境是几十公里，不是跨省 2000 km 单路单）。
+前缀和用 checked `u32` 加；溢出 → `BeyondFinite`（或注册失败），**不**为 1920×10 km
+理论积上 `u64`。`BeyondFinite` 语义保留。
 
 朝向、车头时距、加速度/减速度 **不是** 一维长度，不进毫米权威：时距与加减速
-保持受检 `f32` SI，供 IIDM 使用。profile `max_accel` 的产品下限为
-**`0.5 m/s²`**（`install` / 编制检查失败关闭）。该下限保证 4 ms 量子下，静止起步
-约 1 s 内能靠行程余数凑满 1 mm；更弱的加速度不是产品车辆，**禁止**另做速度余数
-去「救」它。`comfort_decel` / `emergency_decel` / `time_headway` 仍为严格大于零。
+保持受检 `f32` SI，供 IIDM 使用。沿用 ADR 0014 上界，并加上起步下限：
+
+- `max_accel`：`0.5..=50` m/s²
+- `comfort_decel` / `emergency_decel`：`0 < value <= 50` m/s²，且
+  `emergency_decel >= comfort_decel`
+- `time_headway`：`0 < value <= 60` s
+
+`max_accel` 下限保证 4 ms 下静止起步约 1 s 内能靠行程余数凑满 1 mm；更弱加速度
+不是产品车辆，**禁止**速度余数。
 
 ### 2. LFCA 只存一条 `U32` 毫米边长；有折线从弧长派生，headless 不求弧
 
@@ -103,8 +112,8 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
 
 每辆 live 车持有 `carry_um: u16`，不变式 `0..=999`。
 
-硬约束剩余空间 `hard_room_mm: u64` 是本拍整数可走的停车类上限（下限 0）。前车空隙
-用 `i64` 间隙算出后再夹到 `u64`：
+硬约束剩余空间 `hard_room_mm: u32` 是本拍整数可走的停车类上限（下限 0）。前车空隙
+用 `i64` 间隙算出后，负值当 0，正值夹到 `u32`：
 
 - 前车 `min_gap` 之后的空隙（无前车则不限制）；可跨 hop 累加，不得用 `i32` 回绕；
 - `DenyAndStop` 停车线距离（绿灯/无灯则不限制）；
@@ -208,6 +217,12 @@ LFCA v2 长度/速度类字段为 `U32` 毫米或毫米每秒（单位进字段�
   再做一层未文档化的米→毫米量化。
 - `PoseSource::Lane`：`LaneEdgeOrdinal` + `progress_mm: u32`。Spatial 采样在
   边界把 mm 换成弧长比例；不得把米制进度当作已提交 pose 权威。
+- `VehicleReplaceBlock.bumper_gap_mm: i64`（与占用间隙同型）。`ReplaceError::Blocked`
+  不再用米制 `bumper_gap` 当权威。
+- 路线距离查询（`RouteDistanceIndexView` / `RouteDistanceQuery`）：
+  `occurrence_offsets` / `segment_totals` 为 `u32` mm；参数 `from_progress_mm`、
+  `horizon_mm` 为 `u32`；`Within(u32)`；`Finite(u32)` / `BeyondFinite` /
+  `Passed`。不得保留米制查询再换算。
 - 只读米制换算可以有，不得当 `value()`，不得回写。
 
 边限速与 profile 期望车速：`1..=100_000` mm/s。`install` / 构建 / spawn 任一
@@ -232,7 +247,11 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 - 1–3 ms 步长；Runtime 慢放/可变 Δt。
 - 编制另写一条 LFCA 长度字段，或从已省略的 Spatial 表反推边长。
 - 强迫 headless 从折线弧长派生边长（无中心线就没有弧）。
-- 占用间隙用 `i32`（长路单跨 hop 累加会回绕）。
+- 占用间隙用 `i32` 回绕代替有符号 `i64`。
+- 路线 `Finite` 用 `u64` 只为装下 1920×10 km 理论积；产品行程用 `u32` mm，溢出走
+  `BeyondFinite`。
+- 丢掉 ADR 0014 的加减速/时距/尺寸/横向 **上界**，只写下限。
+- 路线距离查询或 `VehicleReplaceBlock` 继续用米制作权威。
 - 改写已冻 LFCA v1 登记表，而不分配 `canonicalFormatVersion = 2`。
 - spawn / `PoseSource` 继续用米制作权威，只冻 `VehicleState` 观察面。
 - 把一维 mm 收进三维 `Point` / `Vector3<T>`（#354）。
