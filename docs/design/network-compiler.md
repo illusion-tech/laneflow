@@ -803,7 +803,9 @@ Accepted ADR 0025 / #300 G1 不生成第二个持久化性能制品。`laneflow-
 只接受字段私有的 `CheckedCanonicalNetworkInputV1`，按 LFCA wire order 先计数和预算，
 再一次性 reserve/fill 连续 typed columns、CSR/ranges、身份索引、按显式非语义 derivation
 version 从受检关系确定性派生的规划提示，以及可选 Spatial 数据，完成跨表/身份/
-Traffic-Spatial/执行约束闭合后返回：
+Traffic-Spatial/执行约束闭合后返回。#496 G1（Proposed）：G2 生产构建改认
+`CheckedCanonicalNetworkInputV2`，V1 入口继续拒绝 v2；详见
+`shared-static-network.md` §3.1。当前 V1 路径闭合后返回：
 
 ```text
 SharedNetworkRevision
@@ -1822,12 +1824,12 @@ laneflow-compiler -X-> JSON / laneflow-data / laneflow-current-source
 
 中文术语与英文辅助名统一见 `../reference/glossary.md`；下表不重复定义双语映射。
 
-| 包                         | 拥有职责                                                                                  | 禁止依赖                                     |
-| -------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `laneflow-static-contract` | 稳定标识、路网修订标识、种类 / 标签登记表、有类型序号、共享静态契约版本                   | Serde、文件系统、核心 / 运行时、空间层       |
-| `laneflow-format`          | 可移植制品线格式/视图、无分配后发射检查、revision/digest/跨对象 binding                   | 编译器来源/IR 语义、文件系统、运行时、空间层 |
-| `laneflow-static-network`  | 受检 LFCA 构建闭合、typed dense arrays、Traffic/Identity/Hints/可选 Spatial、共享生命周期 | 编译器、当前 Core/Data、Adapter、文件系统    |
-| `laneflow-compiler`        | 前端、中间表示、编译遍、主发射器、源映射 / 语义差异、LFCP v2 与发布编排                   | 当前态数据 / 核心对象图                      |
+| 包                         | 拥有职责                                                                                  | 禁止依赖                                         |
+| -------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `laneflow-static-contract` | 稳定标识、路网修订标识、种类 / 标签登记表、有类型序号、共享静态契约版本                   | Serde、文件系统、核心 / 运行时、空间层           |
+| `laneflow-format`          | 可移植制品线格式/视图、无分配后发射检查、revision/digest/跨对象 binding                   | 编译器来源/IR 语义、文件系统、运行时、空间层     |
+| `laneflow-static-network`  | 受检 LFCA 构建闭合、typed dense arrays、Traffic/Identity/Hints/可选 Spatial、共享生命周期 | 编译器、当前 Core/Data、Adapter、文件系统        |
+| `laneflow-compiler`        | 前端、中间表示、编译遍、主发射器、源映射 / 语义差异、LFCP v2 与发布编排                   | 当前态数据 / 核心对象图                          |
 | `laneflow-runtime`         | 固定步进、已实现执行域的交通参与单元、动态通行定义、可变交通状态                          | 编译器、Serde、文件系统、空间层、`laneflow-core` |
 | `laneflow-spatial`         | 规范几何采样、位姿批次                                                                    | 编译器、引擎、Runtime                            |
 

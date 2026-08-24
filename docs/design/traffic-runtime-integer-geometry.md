@@ -1,7 +1,7 @@
 # 交通运行时整数毫米几何
 
 **文档状态**: Review（#496 G1；未 Pass，不授权实现）<br>
-**最后更新**: 2026-08-24<br>
+**最后更新**: 2026-08-25<br>
 **适用范围**: `TrafficWorld` 已提交一维几何与速度、`WorldConfig` 步长、
 `laneflow-static-network` 热列、LFCA 长度/速度字段、compiler 边长派生、
 Spatial 采样钉死端点<br>
@@ -104,8 +104,12 @@ speed_mm_s: u32            // 静止可为 0
    与限速包络。
 2. SI 中舒适截断 travel（前车、灯、路终、包络）。SI `travel <= 0` **不是**硬停。
 3. 整数硬约束 `hard_room_mm: u32`（下限 0）。前车空隙用 `i64`，负值当 0，正值夹到
-   `u32`：
-   - 前车 `min_gap` 后空隙（可跨 hop）；
+   `u32`。只读 **T 时刻 occupancy 快照**，与现行 `advance_active_vehicle` 同构：
+   `step_vehicles` 先按快照算出全部 next，再一次性提交；`hard_room_mm` **不**读本拍
+   其他车已算行程，也 **不**加 `vehicle-following.md` §11.2 的
+   `leader_final_travel`。
+   - 前车 `min_gap` 后空隙（可跨 hop；快照间距恰为 `min_gap` 则本拍 `hard_room_mm == 0`，
+     即使前车本拍会走）；
    - `DenyAndStop` 停车线；
    - 本车路线剩余（沿路线累加到最后一边终点，与现行 `remaining_to_route_end`
      同构）；
@@ -132,6 +136,13 @@ speed_mm_s: u32            // 静止可为 0
 舍入一律 IEEE 754 **round-ties-to-even**，缩放在 `f64` 中做（`f32 × 1e6` 在
 100 m 行程上会丢微米）。
 
+4 ms 静止跟停量化死区（**接受**）：IIDM 有效加速度可以远小于 `max_accel`。静止
+follower / leader、空隙 = `min_gap + 0.1 m`、`max_accel = 0.5 m/s²` 时，有效加速度
+约 `0.0465 m/s²`，4 ms 行程约 `0.37 µm`、下一速度约 `0.186 mm/s`，量化后 `um` 与
+`speed_mm_s` 均为 0，`carry_um` 不增长，状态重复；车辆停在期望间距外约 `100 mm`。
+这是 `hard_room_mm > 0` 的爬行退化，不是硬停，也不是 `max_accel < 0.5` 非法 profile。
+**禁止**亚微米累加器。建议默认 16 ms 下同工况约 `6 µm`，能进入 `carry_um`。
+
 ## 6. compiler 与 LFCA
 
 LFCA / Traffic 热列只存 `U32` 毫米边长。headless **不求弧、也不需要弧**：
@@ -156,6 +167,19 @@ G2 分配 **LFCA v2**：对象前导 `formatVersion` 与
 `staticExecutionContractVersion` 为 `2`；身份两字段保持 `1`。不得改写 v1 登记表。
 v1 读器拒绝 v2，v2 读器拒绝 v1。LFSM `canonicalArtifactFormatVersion` 等于所绑
 LFCA 版本。
+
+`SharedNetworkRevision` 的受检输入必须并行升到 v2，不得放宽现行 V1 入口：
+
+- G2 前 `main` 仍只承认 `CheckedCanonicalNetworkInputV1` /
+  `check_canonical_network_input_v1` /
+  `PostEmissionCheckedBundleV1::canonical_network_input`，且 object kind 精确为
+  LFCA v1。
+- G2 分配 `CheckedCanonicalNetworkInputV2`、`check_canonical_network_input_v2`、
+  `check_post_emission_bundle_v2`、
+  `PostEmissionCheckedBundleV2::canonical_network_input() -> CheckedCanonicalNetworkInputV2`。
+  object kind 精确为 LFCA v2；走 v2 registry 预检；字段私有、不可伪造。
+  `PostEmissionCheckedBundleV1` 不得派生 V2。
+- 生产构建 G2 后只消费 V2。草图与能力规则见 `shared-static-network.md` §3.1。
 
 LFCA v2 登记表破坏性更新（相对 v1 字段名/类型；不兼容读旧 `F64`）：
 
@@ -206,7 +230,13 @@ LFCA v2 登记表破坏性更新（相对 v1 字段名/类型；不兼容读旧 
   跨 hop 占用间隙用 `i64`；路线距离查询为 `u32` mm / `BeyondFinite`；
   `VehicleReplaceBlock.bumper_gap_mm` 为 `i64`；spawn `carry_um = 0`；
   `PoseSource::Lane` 为 `progress_mm`；边限速 `> 100_000` mm/s 失败；v1 LFCA
-  在 v2 读器上失败关闭；
+  在 v2 读器上失败关闭；v2 LFCA 在 `check_canonical_network_input_v1` 上失败关闭；
+  v1 LFCA 在 `check_canonical_network_input_v2` 上失败关闭；`PostEmissionCheckedBundleV1`
+  不能得到 V2 capability；
+  4 ms 静止跟停死区：`min_gap + 0.1 m`、双方静止、`max_accel = 0.5` 时本拍
+  `travel_mm == 0`、`speed_mm_s == 0`、`carry_um == 0` 且下一拍状态重复，不是失败；
+  快照 `hard_room`：follower 与 leader 间距恰为 `min_gap` 时本拍硬停，即使 leader
+  本拍会走（与现行 `advance_active_vehicle` 同构）；
   `60 km/h` 长期平均速度由余数对齐量化后的 `mm/s`，无系统少走；相位非倍数
   `install` 失败；`dt=3` 失败；`dt=4` 与 `dt=1000` 均能 install（夹具相位允许时）。
 
@@ -220,3 +250,6 @@ LFCA v2 登记表破坏性更新（相对 v1 字段名/类型；不兼容读旧 
 - G1 改走廊 toml 或重生 LFCA。
 - 强迫 headless 从折线弧长派生边长。
 - 改写已冻 LFCA v1 登记表。
+- 放宽 V1 admission 接纳 LFCA v2，或不冻结并行 `CheckedCanonicalNetworkInputV2`。
+- 亚微米累加器，或把 4 ms 静止跟停量化死区当缺陷消掉。
+- 把 `vehicle-following.md` §11.2 的 `leader_final_travel` 并入本切片 `hard_room_mm`。
