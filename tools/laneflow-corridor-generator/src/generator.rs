@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use laneflow_compiler::{PortableDiffBase, PortableEmissionProvenanceV1, emit_portable_candidate};
+use laneflow_format::{FormatLimits, check_post_emission_bundle_v1};
 use laneflow_scenario::signalized_corridor::{
     CATALOG_VERSION, CorridorCatalog, PORTAL_IDS, PortalCatalogEntry, PortalLaneCatalogEntry,
     RouteCatalogEntry, SpawnSlotCatalogEntry, WeightedRouteChoiceCatalogEntry, validate,
@@ -8,6 +10,8 @@ use laneflow_scenario::signalized_corridor::{
 use crate::Error;
 use crate::compile::compile_corridor;
 use crate::config::{CorridorConfig, ENDPOINT_CLEARANCE_METERS, MIN_SPAWN_SLOT_COUNT};
+
+const PORTABLE_COMPILER_BUILD_ID: &str = "laneflow-corridor-generator-v1";
 
 const CURVE_SEGMENT_COUNT: usize = 64;
 const MIN_SPATIAL_SEGMENT_METERS: f64 = 0.1;
@@ -247,8 +251,6 @@ pub(crate) struct PathKey {
 pub struct GeneratedScenario {
     catalog: Vec<u8>,
     lfca: Vec<u8>,
-    lfsm: Vec<u8>,
-    lfsd: Vec<u8>,
     counts: ScenarioCounts,
     compilation: laneflow_compiler::CompilationOutput,
 }
@@ -283,12 +285,37 @@ impl GeneratedScenario {
         &self.lfca
     }
 
-    pub fn lfsm_bytes(&self) -> &[u8] {
-        &self.lfsm
-    }
-
-    pub fn lfsd_bytes(&self) -> &[u8] {
-        &self.lfsd
+    pub fn emit_portable_sidecars(&self) -> Result<(Vec<u8>, Vec<u8>), Error> {
+        let provenance = PortableEmissionProvenanceV1::try_new(PORTABLE_COMPILER_BUILD_ID)
+            .map_err(|error| Error::Validation {
+                stage: "portable provenance",
+                message: format!("{error:?}"),
+            })?;
+        let candidate = emit_portable_candidate(
+            &self.compilation,
+            &provenance,
+            FormatLimits::V1_HARD,
+            PortableDiffBase::Genesis,
+        )
+        .map_err(|error| Error::Validation {
+            stage: "emit LFCA",
+            message: format!("{error:?}"),
+        })?;
+        check_post_emission_bundle_v1(
+            candidate.canonical_artifact().bytes(),
+            candidate.source_map().bytes(),
+            candidate.semantic_diff().bytes(),
+            candidate.expected_semantic_diff_base(),
+            FormatLimits::V1_HARD,
+        )
+        .map_err(|error| Error::Validation {
+            stage: "post-emission",
+            message: format!("{error:?}"),
+        })?;
+        Ok((
+            candidate.source_map().bytes().to_vec(),
+            candidate.semantic_diff().bytes().to_vec(),
+        ))
     }
 
     pub const fn counts(&self) -> ScenarioCounts {
@@ -341,12 +368,10 @@ pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
         )));
     }
 
-    let (lfca, lfsm, lfsd) = crate::compile::emit_portable_objects(&compilation)?;
+    let lfca = crate::compile::emit_lfca(&compilation)?;
     Ok(GeneratedScenario {
         catalog: catalog_bytes,
         lfca,
-        lfsm,
-        lfsd,
         counts,
         compilation,
     })
