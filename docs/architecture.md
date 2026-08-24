@@ -1,6 +1,6 @@
 # 架构
 
-**文档状态**: Accepted（current + #291 target design + ADR 0025 / #300 G1 修订；#301 后 Runtime 为当前可运行世界）<br>
+**文档状态**: Accepted（current + #291 target design + ADR 0025 / #300 G1 修订；#301 后 Runtime 为当前可运行世界；ADR 0028 为提案中的下一生产一维几何合同，#496 G1 未 Pass）<br>
 **最后更新**: 2026-08-24<br>
 **适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Runtime/Adapter 边界，以及 #291/ADR 0020/0021 和 Accepted ADR 0025 的城市模拟游戏交通基础与目标静态编译架构
 
@@ -289,7 +289,8 @@ Initial/static occurrence 由 compiler
 运行时快照（Runtime Snapshot）是与共享静态数组分离的版本化制品。Accepted ADR 0025 要求
 #302 使用版本化路网修订标识、LFCA origin digest/length、静态契约版本、world identity、
 tick、输入命令游标和全部每世界可变状态完成绑定；内部 dense ordinal、地址、布局和
-partition plan 不进入快照。只要 snapshot/runtime contract 与身份/执行约束版本兼容，
+partition plan 不进入快照。ADR 0028（Proposed；#496）把那些可变状态中的一维几何与速度定为整数毫米 /
+`mm/s` 加微米余数；#496 完成前 #302 不得先冻 `f64` 米进度。G2 前 `main` 仍为 current-`f64`。只要 snapshot/runtime contract 与身份/执行约束版本兼容，
 加载时可以从已提交道路编辑状态重新编译 LFCA、构建同一修订并借助
 `SharedIdentityIndex` 完整重建引用。dense ordinal 不能跨路网修订直接复用。
 任何保留旧状态的跨修订切换/恢复都必须消费经 #302 接受的可信切换输入绑定的语义

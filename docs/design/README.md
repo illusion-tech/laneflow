@@ -32,7 +32,8 @@
 - `waiting-zone-conflict-right-of-way.md`：待行区、冲突与通行权（Accepted 设计；
   运行时生产化按独立 Issue）。
 - `cross-section-access.md`：横断面与准入 overlay。
-- `numeric-representation.md`：数值权威、误差预算与 current `f64` 生产裁决。
+- `numeric-representation.md`：数值分层；G2 前 main 仍为 current-`f64`，下一生产合同见 ADR 0028（Proposed）。
+- `traffic-runtime-integer-geometry.md`：#496 整数毫米 / 微米余数 / `mm/s` 实现输入（Review，未 Pass，未授权代码）。
 - `spatial-geometry.md`：有界 canonical `f32` 几何与位姿。
 
 ## 场景、规模与 Adapter
