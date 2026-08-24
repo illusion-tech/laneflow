@@ -1,7 +1,7 @@
 # Signal System 设计
 
-**文档状态**: Accepted<br>
-**最后更新**: 2026-07-27<br>
+**文档状态**: Accepted（固定时制与 Gate 合规仍有效；相位倍数见 ADR 0028 Proposed，G2 前 `main` 仍允许不整除）<br>
+**最后更新**: 2026-08-24<br>
 **适用范围**: Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载，不再走 current JSON。<br>
 **实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 加入 Parking，
 #185 迁移到 v0.7；#229 以一等 ManeuverGate clean-break 替换 pair-based Gate 并迁移到
@@ -18,6 +18,8 @@ Traffic v0.8；#262 迁移到 v0.9；#281 将 current Traffic 迁移到 v0.10 �
 - `../adr/0007-traffic-data-crate-and-loader-boundary.md`
 - `../adr/0008-pre-1.0-data-format-version-policy.md`
 - `../adr/0009-signal-indication-gate-and-policy-separation.md`
+- `../adr/0028-integer-millimeter-traffic-geometry.md`
+- `traffic-runtime-integer-geometry.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `data-format.md`
 - `data-loading.md`
@@ -299,7 +301,7 @@ InitialTrafficData final assembly
 
 First-error 顺序同样是 contract：array domain error 按输入顺序；duplicate 锚定第二个 occurrence；Phase state 先按 record 顺序报告 unknown/duplicate group，再按 `groupIds` 顺序报告第一个 missing group；global coverage/usage 按 StopLine、Group、Controller normalization order；Route 按 route/`edgeIds` 顺序。
 
-当前 world compatibility 按以下顺序执行：验证 positive fixed delta；按 Controller/Phase normalization order 检查 `durationMs >= fixedDeltaTimeMs`；构造 time-0 signal snapshot；注册 initial routes；按既有 overlap 规则校验并创建 initial vehicles；最后发布 world。#96 已用 SignalStop、hard projection 与 permission-aware traversal 的完整车辆合规替代 capability guard，non-empty Signals 可与 initial/runtime vehicles 组合。
+当前 world compatibility 按以下顺序执行：验证 positive fixed delta；按 Controller/Phase normalization order 检查 `durationMs >= fixedDeltaTimeMs`；构造 time-0 signal snapshot；注册 initial routes；按既有 overlap 规则校验并创建 initial vehicles；最后发布 world。#96 已用 SignalStop、hard projection 与 permission-aware traversal 的完整车辆合规替代 capability guard，non-empty Signals 可与 initial/runtime vehicles 组合。#496 G2（ADR 0028）把步长检查改为 `4..=1000` ms，并把相位检查改为正整数倍；G2 前不得用倍数规则拒绝现行制品。
 
 `InitialTrafficData` 已包含 immutable signal registry，并在组装时按自身 `LaneGraph` 重绑定和复验 graph-dependent handles。Core 保留不经 JSON 的 programmatic construction path；runtime handles 永不持久化到 external package。
 
@@ -312,8 +314,11 @@ Controller 的 effective state 由 immutable program、world integer `timeMs` �
 - 使用 overflow-safe `timeMs + offset` modulo cycle；不累计浮点 timer；
 - Phase interval 是 half-open `[start, end)`，恰好命中 boundary 选择后一个 Phase；
 - time 0 已有有效 phase/aspect snapshot，初始化不发 change event；
-- Phase duration 不要求整除 fixed delta；
-- world 初始化要求每个 `durationMs >= fixedDeltaTimeMs`；
+- Phase duration：**当前**不要求整除 fixed delta；world 初始化要求每个
+  `durationMs >= fixedDeltaTimeMs`。**Proposed（#496 G2）**：每个
+  `durationMs` 必须是该世界步长的正整数倍，否则 `install` 失败。现行走廊
+  `yellow_ms = 3000`、`all_red_ms = 1000` 相对 16 ms 不能整除，G2 必须改相位并
+  重生 LFCA；G1 不改生成器输入。
 - 因此每个 Controller 每 tick 最多一次 observable Phase change；
 - Phase identity 改变即产生 Phase event，即使 aspect vector 相同；single-phase wrap 不产生。
 
@@ -523,7 +528,8 @@ Signals 行为由 `TrafficWorld` 与编译器原生有类型模块覆盖。curre
 
 - 固定时制 snapshot(T) 与成功 step 后 `committed_signal_groups` 为 T+D；
 - 限制性灯色的停车距离与许可通行；
-- install 时 `durationMs >= fixed_delta_time_ms`，否则失败；
+- install 时 `durationMs >= fixed_delta_time_ms`，否则失败（#301 现行）。
+  #496 G2 另测非倍数相位失败、倍数相位成功；
 - 无信号编制仍可安装并步进。
 
 ## 15. 实施切片与退出边界

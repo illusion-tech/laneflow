@@ -1,10 +1,12 @@
 # 0014 补偿残差感知的 f32 Core 数值权威与迁移门槛
 
-**状态**: Accepted
+**状态**: Partially Superseded
 
-**实施说明**: 已接受目标设计；#144 的首次生产迁移因稳态性能仅提升 `4.257%`、未达到 `5%` 门槛而形成不迁移（no-go）结论，当前生产继续使用 `f64`
+**取代说明**: ADR 0028 / #496（Proposed，未 Pass）将取代本文「生产继续 current-`f64`」的实施状态，以及「下一生产权威为补偿残差感知 `f32` 进度」的目标合同。#144 取证与 `5%` no-go 仍是历史事实，不再作为必须与旧 `f64` tick 零分歧的现行门禁。单边 10 km 与速度 `100 m/s` 产品上界由 0028 沿用。G1 Pass 与 G2 完成前，本文仍描述 `main` 的 current-`f64` 实施。
 
-**Spatial 修订**: ADR 0015 已取代本文的 Spatial `f64` 精度与局部原点转换条款；Core 数值权威与迁移门槛不变
+**实施说明（历史）**: #144 的首次生产迁移因稳态性能仅提升 `4.257%`、未达到当时 `5%` 门槛而回退；在 0028 G2 完成前 `main` 仍为 current-`f64`。
+
+**Spatial 修订**: ADR 0015 已取代本文的 Spatial `f64` 精度与局部原点转换条款；该部分继续有效。
 
 **后续冻结**: #126 于 2026-07-19 冻结公开数值表面与 Data v0.6 迁移输入；#127 完成离线标定；#144 于 2026-07-20 完成真实生产取证并按本 ADR 回退
 
@@ -22,6 +24,8 @@
   - `0008-pre-1.0-data-format-version-policy.md`
   - `0013-engine-neutral-spatial-geometry-and-length-authority.md`
   - `0015-bounded-f32-canonical-spatial-frames.md`
+- 后续生产合同：
+  - `0028-integer-millimeter-traffic-geometry.md`
 - 详细设计与证据：
   - `../design/numeric-representation.md`
   - `../design/route-system.md`

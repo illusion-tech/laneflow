@@ -1,10 +1,10 @@
 # 数值表示与精度
 
-**文档状态**: Accepted
+**文档状态**: Accepted（current-`f64` 实现基线仍约束 `main`，直至 #496 G2；下一生产合同以 ADR 0028 为准，Proposed 未 Pass）
 
-**最后更新**: 2026-08-14（#296 compiler 前端数值权威按 delivery 权威实现校准：canonical `f32` 折线自 geometry compile 贯穿高层中间表示（HIR）内部 `SpatialHir` 子表示、中层中间表示（MIR）与 LIR，`f64` 仅保留 analytic/reference 子表示与非几何标量）
+**最后更新**: 2026-08-24（#496 G1：下一交通一维权威改为整数毫米；#296 compiler 前端数值权威不变：canonical `f32` 折线，`f64` 仅编制 analytic/reference 与非几何时距/加减速）
 
-**适用范围**: v0.6 数值与空间基础（Numeric & Spatial Foundation）的 Core 数值表示、精度分层、公开表面和跨层转换边界（#122、#126、#140、#141），以及 #296/#378 冻结的 compiler 前端数值权威边界
+**适用范围**: 数值分层、误差预算、compiler 前端几何权威，以及 #496 G2 完成前的 current-`f64` 实现基线
 
 **关联文档**:
 
@@ -16,6 +16,8 @@
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
 - `../adr/0022-authoring-curve-and-canonical-polyline-error-budgets.md`
+- `../adr/0028-integer-millimeter-traffic-geometry.md`
+- `traffic-runtime-integer-geometry.md`
 - `compiler-foundation.md`
 - `road-editing-source-and-geometry-frontend.md`
 - `core-runtime.md`
@@ -24,15 +26,12 @@
 
 ## 1. 状态与目标
 
-本文同时记录当前实现与 ADR 0014 接受的下一目标契约，禁止把尚未完成的迁移写成当前事实：
+本文同时记录 **G2 完成前的 `main` 实现** 与提案中的下一生产合同（ADR 0028；未 Pass），禁止把尚未合入的整数毫米写成当前事实：
 
-- 当前生产 Core/Data v0.10 继续使用现有 `f64` 权威和接受范围；#229 的 static-domain clean-break、#262 的横断面/准入迁移与 #281 的 WaitingZone static 迁移均未改变该数值契约。#144 的首次完整生产迁移仅获得 `4.257%` 稳态提升，未达到 `5%` 门槛，已按 ADR 0014 完整回退；
-- 下一契约中，`EdgeLength` 和单值热状态使用经过检查的 `f32`，`EdgeProgress` 使用封装的高位分量/残差，固定 tick/时间继续使用经过检查的整数；
-- 路线（route）距离冻结派生权威、误差、复杂度和溢出语义，由完整证据选择 `f64` 前缀基线或分块局部 `f32` 布局；
-- 空间层（Spatial）按 ADR 0015 使用每轴 `±16_384 m` 的 LaneFlow 自有 canonical `f32` 几何/位姿；原始高保真值只用于转换前诊断，不形成第二权威；
-- `f16`/量化整数不承担 Core/Spatial 权威，只能按用途进入可丢弃或带版本的存储/传输；
-- 下一契约会改变 Core API、接受范围、Data 版本、舍入和 Spatial 长度绑定，因此不属于纯内部优化；
-- 不承诺跨 CPU、跨语言或跨编译器的位级浮点确定性。
+- `#496` G2 完成前，`TrafficWorld` / 共享热列 / LFCA 长度与限速仍为 current-`f64` 米；#144 残差 `f32` 迁移已回退，**不再**作为下一生产目标。
+- 提案中的下一生产合同是 ADR 0028：已提交一维几何为整数毫米 + 微米余数，速度为 `u32` mm/s，步长 `4..=1000` ms，边长由 compiler 内部规范 `f32` 弧长派生，`max_accel >= 0.5 m/s²`，不另做速度余数。G2 对照门是该契约自洽，不是与旧 `f64` tick 零分歧，也不是 `5%` 墙钟。G1 未 Pass，不授权实现。
+- 空间层按 ADR 0015 使用每轴 `±16_384 m` 的 canonical `f32` 几何/位姿；编制曲线按 ADR 0022 在 `f64` 中求值。三维点/向量不并入毫米轴（#354）。
+- 下面 §2 起的 current-`f64` 领域表、`1.0e-9` 哨兵与残差 `f32` 预算是 **历史实现与 #144 证据**，G2 后由整数比较与 `100 mm` / `1 mm` 常量取代生产判定。
 
 本设计固定数值职责和迁移闸口，不固定 Spatial 几何容器、空间索引或 v0.7 的具体引擎 ABI。#136 已在引擎无关边界固定 batch-level frame/placement identity 和 canonical `f32` 位姿类型，但不包含宿主 Transform。
 
@@ -169,7 +168,9 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 
 若 hot state 改为 `f32` 却需要为每辆车增加一个 `f32` residual，必须把该字段计入内存比较；不能只按 `8 byte -> 4 byte` 宣称 progress 节省一半。
 
-## 4. 接受的目标精度分层
+## 4. 历史目标精度分层（ADR 0014；已被 0028 部分取代）
+
+下表保留 #144 残差 `f32` 合同，便于阅读历史证据。**下一生产合同以 ADR 0028 为准**（整数毫米 + 微米余数 + `u32` mm/s），不要按本表实施 G2。
 
 | 数值职责                           | 已接受的目标表示                       | 权威归属           | 规则                                                    |
 | ---------------------------------- | -------------------------------------- | ------------------ | ------------------------------------------------------- |
@@ -225,7 +226,7 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 | geometry 中层中间表示（MIR）                | canonical 折线 `f32`                                 | compiler                               | `MirCanonicalPoint3F32`/`MirSpatialSegment` 保留 Spatial 高层中间表示（HIR）的 canonical 折线                                                                                                                                                                                                                                              |
 | 已验证规范低层中间表示（canonical LIR）折线 | `f32`（`LirCanonicalPoint3F32`/`LirSpatialSegment`） | compiler 输出                          | 运行时规范权威几何；非几何标量（`EdgeLength`/`SpeedLimit`/Parking/`VehicleProfile`）保持 `f64`                                                                                                                                                                                                                                             |
 | LIR 同版本语义指纹（semantic fingerprint）  | `[u8; 32]`                                           | compiler 输出                          | `Lir::semantic_digest` 与 `CompilationMetrics::semantic_fingerprint()` 固定为 32 bytes；#298 的 portable artifact 字节完整性 digest 归 #298                                                                                                                                                                                                |
-| Core ↔ compiler projection                  | 仅 integration-only                                  | `laneflow-compiler-test-support`       | 投影不进入 `laneflow-compiler` 生产功能，#301 拆除 Core 时删除                                                                                                                                                                                                                                                                                 |
+| Core ↔ compiler projection                  | 仅 integration-only                                  | `laneflow-compiler-test-support`       | 投影不进入 `laneflow-compiler` 生产功能，#301 拆除 Core 时删除                                                                                                                                                                                                                                                                             |
 
 - 当前生产 Core 交通连续量仍为 `f64`（production）；ADR 0014 的已接受目标契约（`EdgeLength`/`Speed`/`Acceleration` 为 `f32`、`EdgeProgress` 为补偿 `f32`）仍是目标且经 #144 no-go 后未切换；compiler authoring 侧保持 `f64` 不改变这两者之一。
 - 注册管线只有有类型抽象语法树（typed AST）、高层中间表示（HIR）、中层中间表示（MIR）与已验证规范低层中间表示（canonical LIR）；私有 `SpatialHir` 是 `build_spatial_hir` 在高层中间表示（HIR）构造期间使用的内部子表示，不是第二个已注册阶段。其 canonical 折线（`HirCanonicalPoint3F32`/`HirSpatialSegment`）为 `f32`，由共享 `freeze_spatial_polyline` 冻结；官方来源不直接构造 Spatial 对象。

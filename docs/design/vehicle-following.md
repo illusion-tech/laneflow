@@ -1,9 +1,9 @@
 # Vehicle Following 设计
 
-**文档状态**: Accepted  
-**最后更新**: 2026-07-29
+**文档状态**: Accepted（纵向分层与 IIDM/安全投影仍有效；本文正文描述 current-`f64`。下一生产几何量子见 ADR 0028，G2 前 `main` 仍为 current-`f64`）<br>
+**最后更新**: 2026-08-24
 
-**适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、current Traffic v0.10 继承的 per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
+**适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
 **关联文档**:
 
@@ -14,6 +14,8 @@
 - `../adr/0006-vehicle-following-control-and-safety.md`
 - `../adr/0007-traffic-data-crate-and-loader-boundary.md`
 - `../adr/0008-pre-1.0-data-format-version-policy.md`
+- `../adr/0028-integer-millimeter-traffic-geometry.md`
+- `traffic-runtime-integer-geometry.md`
 - `core-id-handles.md`
 - `data-loading.md`
 - `lane-graph.md`
@@ -24,6 +26,11 @@
 ## 1. 目标与状态
 
 本文固化 LaneFlow v0.3 Vehicle Following 的最小可执行设计，作为 #71 的 G1 冻结结果、#79 的 Traffic Data 边界输入和 #73-#77 的实施依据；全面审阅发现的性能修复由 #86 收口。
+
+#496 / ADR 0028（Proposed，未 Pass）把下一生产已提交一维几何改为整数毫米，占用/
+重叠用整数比较，IIDM 仍为舒适层；`max_accel >= 0.5 m/s²`，不另做速度余数。G2
+完成前生产路径仍为本文的 current-`f64` 与 `1.0e-9` 哨兵；落地规则见
+`traffic-runtime-integer-geometry.md`，不得按整数合同阅读本节以下 current 字段。
 
 目标：
 
@@ -108,6 +115,7 @@ Validation：
 - `length` 严格大于领域专用的最小 vehicle length（current-f64 为 `1.0e-9 m`）。
 - `minGap >= 0`。
 - `emergencyDeceleration >= comfortableDeceleration`。
+- #496 G2（Proposed）：`length >= 100 mm`，`maxAcceleration >= 0.5 m/s²`；不另做速度余数。current 生产路径不执行该下限。
 - external ID 遵循当前 data-format 的 ASCII token 规则，并在 profile domain 内唯一。
 
 ### 4.2 Package 版本

@@ -12,11 +12,13 @@
 `portable-canonical-artifact.md`、`current-package-import.md`、
 `adapter-api.md`、
 `../adr/0003-runtime-tick-and-determinism.md`、
+`../adr/0028-integer-millimeter-traffic-geometry.md`、
 `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`、
 `../adr/0018-multimodal-cross-section-and-access-overlay.md`
 
 本文是 #301 的实现级 G1 输入。它不授权 #302 在线修订切换、#441 系统化性能账本、
-#303 Routing 或 #294 残留文档/Skill 改名（若 #301 已删除 `laneflow-core` crate）。
+#303 Routing、#294 残留文档/Skill 改名，或 #496 整数毫米落地（见
+`traffic-runtime-integer-geometry.md` / ADR 0028）。
 
 ## 1. 结论
 
@@ -78,10 +80,10 @@ Adapter / 示例 ─────────────────> laneflow-s
 （Adapter 生产 graph 不直接依赖 laneflow-static-contract；停车序号由 Runtime 再导出。）
 ```
 
-| 包 | 拥有 | 禁止 |
-| --- | --- | --- |
-| `laneflow-runtime` | 固定步进、已实现执行域的每世界可变状态、动态 Route occurrence 编译、1-worker 执行计划 | Spatial、compiler、Serde、文件系统、`laneflow-core`、LFCA 解析 |
-| `laneflow-spatial` | 规范位姿采样、session scratch/output；pose 批次只使用不透明 `PoseRecordId` 与共享根序号 | Traffic tick 权威、compiler、引擎、Runtime、车辆 handle |
+| 包                 | 拥有                                                                                    | 禁止                                                           |
+| ------------------ | --------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `laneflow-runtime` | 固定步进、已实现执行域的每世界可变状态、动态 Route occurrence 编译、1-worker 执行计划   | Spatial、compiler、Serde、文件系统、`laneflow-core`、LFCA 解析 |
+| `laneflow-spatial` | 规范位姿采样、session scratch/output；pose 批次只使用不透明 `PoseRecordId` 与共享根序号 | Traffic tick 权威、compiler、引擎、Runtime、车辆 handle        |
 
 `network-compiler.md` 历史 crate 图中的 Spatial → Runtime 作废。几何属于修订根，
 session 是 revision-scoped，不是 world-scoped。N 个 `TrafficWorld` 共用一份
@@ -153,11 +155,13 @@ SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
 
 ### 4.1 安装与绑定
 
-- `WorldConfig` 含每世界容量、1-worker 计划，以及正整数 `fixed_delta_time_ms`
-  （ADR 0003：同一 world 运行中不得改变）。不接受 LFCA 字节、调用方自报 digest /
-  `NetworkRevisionId`、或裸 component。
-- `install` 核对该修订每个信号 program 的每个 phase：`durationMs >=
-  fixed_delta_time_ms`，否则失败关闭、不留下 world。短相位不得靠 tick 跳过。
+- `WorldConfig` 含每世界容量、1-worker 计划，以及 `fixed_delta_time_ms`（同一
+  world 运行中不得改变）。**当前（#301）**：步长为正整数，相位
+  `durationMs >= fixed_delta_time_ms`。**Proposed（#496 / ADR 0028）**：步长
+  `∈ [4, 1000]`，每个 phase `durationMs % dt == 0 && durationMs >= dt`，否则
+  `install` 失败关闭、不留下 world。短相位不得靠 tick 跳过。G2 前不得按倍数规则
+  拒绝现行走廊制品。不接受 LFCA 字节、调用方自报 digest / `NetworkRevisionId`、
+  或裸 component。
 - 失败原子：失败不留下可观察的半个 world / session。
 - 多世界：再次 `install`，只克隆根 `Arc`。
 - `spatial()` 为 `None`：`bind` 返回 `Ok(None)`，不建 session（headless）。
@@ -317,7 +321,9 @@ CI 必须同时：
   必须失败、同一车位重复占用幂等成功；`committed_parking_occupant`）；
 - 确定性固定步进（`step`：正的 `fixed_delta_time_ms`、delta 不匹配则拒绝、
   `tick_index`/`time_ms` 溢出则拒绝且世界不变、同输入序列同结果）；
-- 信号 program 每个 phase `durationMs >= fixed_delta_time_ms`，否则 install 失败；
+- 信号 program 每个 phase `durationMs >= fixed_delta_time_ms`，否则 install 失败
+  （#301 现行覆盖）。#496 G2 把该条替换为 `durationMs` 必须是步长的正整数倍；
+
 - 安装/步进/命令失败原子性（失败不留下半个 world 或已提交半更新）；
 - 成功 tick 不因错误边界新分配诊断（不要求继承 Core `TickInvariantError` 的
   `Copy` / 64 / 72 字节布局）；

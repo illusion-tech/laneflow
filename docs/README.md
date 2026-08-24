@@ -9,6 +9,7 @@ LaneFlow 的第一长期产品目标，并让城市经济、市民出行需求�
 拥有。该目标边界已经由 #291 G1 接受；出行编排、Routing 与多执行域尚未交付。
 `laneflow-runtime` / `TrafficWorld` 是唯一可运行交通世界。current Core 与 JSON
 运行时入口已拆除。契约见 `docs/design/traffic-runtime-shared-consumption.md`。
+提案中的下一生产一维几何合同见 ADR 0028（#496 G1；未 Pass，不授权实现；G2 前 `main` 仍为 current-`f64`）。
 
 ## 目录结构
 

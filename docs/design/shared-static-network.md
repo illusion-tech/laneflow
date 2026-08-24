@@ -1,7 +1,7 @@
 # 共享静态路网
 
 **文档状态**: Accepted（#300 G1 Pass）<br>
-**最后更新**: 2026-08-22（#301 G1 消费路径回写）<br>
+**最后更新**: 2026-08-24（#496 G1：下一热列合同为整数毫米 / `mm/s`，G2 前 `main` 仍为 `f64`）<br>
 **适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
 **关联文档**: `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
@@ -21,7 +21,10 @@ Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验
 剩余 Runtime 静态关系，#441 在最终字段集合与 #301 production kernel 上单独记录资源/
 性能证据；#300 保持父级跟踪项，不由 #436 自动关闭。#301 交付 `TrafficWorld` 对共享根
 的消费并使它成为唯一可运行交通世界，同时拆除 current Core/JSON 运行时入口；契约见
-`traffic-runtime-shared-consumption.md`。
+`traffic-runtime-shared-consumption.md`。ADR 0028 / `traffic-runtime-integer-geometry.md`
+把下一生产热列定为 `u32` mm 与 mm/s（Proposed；未 Pass）；G2 完成前构建器仍发射
+current-`f64` 米。边长由 compiler 内部规范弧长派生，headless 修订同样写入 Traffic
+热列，不从 Spatial 反推。
 
 ## 2. 职责与依赖
 
