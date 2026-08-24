@@ -1349,12 +1349,16 @@ transition 领域顺序，行数精确为 `max(edges.count-1, 0)`。这些 Recor
 `facilityStrip`、`shoulder` 或 `x-` 加非空后缀，但 `x-lane-` 前缀仍属于 RoadSection，不能
 回退为 FacilityBand。该分类是 closed structural category，不授予未登记的交通能力。
 
-下列规范标量必须在通用 finite/正零检查之外逐字段验证。**当前 LFCA v1** 仍为
-`F64` 米；#496 G2 将按 ADR 0028 改为 `U32` 毫米 / 毫米每秒，时距、三项加减速与
-`ParkingSpace.headingOffsetRadians` 改为受检 `F32` SI，并删除 `1.0e-9 m`
-生产判定，旧字节失败关闭。G2 前不得把下列 `F64` 字段写成已经是毫米或 `F32` 朝向。
-G2 朝向上界仍是 `-π <= x < π`，`π` 改为 binary32 `0x40490fdb`，不得沿用下行
-binary64 比特。
+下列规范标量必须在通用 finite/正零检查之外逐字段验证。**当前 LFCA v1**
+（`canonicalFormatVersion = 1`）仍为 `F64` 米。#496 G2 **分配 LFCA v2**
+（`formatVersion` 与 `canonicalFormatVersion = 2`，并提升
+`networkRevisionDerivationVersion` / `constraintContractVersion` /
+`staticExecutionContractVersion` 为 `2`），按 ADR 0028 把长度/速度改为 `U32`
+毫米 / 毫米每秒，时距、三项加减速与 `ParkingSpace.headingOffsetRadians` 改为
+受检 `F32` SI，删除 `1.0e-9 m` 生产判定。**不得改写本附录的 v1 登记表。**
+v1 读器拒绝 v2，v2 读器拒绝 v1。G2 前不得把下列 `F64` 字段写成已经是毫米或
+`F32` 朝向。G2 朝向上界仍是 `-π <= x < π`，`π` 改为 binary32 `0x40490fdb`，
+不得沿用下行 binary64 比特。边限速 G2 为 `1..=100_000` mm/s。
 
 | 对象/字段                                                                 | 闭合约束                                                          |
 | ------------------------------------------------------------------------- | ----------------------------------------------------------------- |

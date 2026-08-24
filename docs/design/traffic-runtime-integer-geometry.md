@@ -23,8 +23,8 @@ Spatial 采样钉死端点<br>
 
 ```text
 编制 f64 曲线
-  -> 规范 f32 折线 / 弧长          （ADR 0022 / 0015，#354 不改）
-  -> length_mm = round(arc_m×1000) （compiler 内部弧；headless 同样写入热列）
+  -> 规范 f32 折线 / 弧长          （有折线时；ADR 0022 / 0015，#354 不改）
+  -> length_mm = round(弧长或 LIR 交通边长 ×1000)
   -> SharedTrafficNetwork 热列 u32 mm / mm/s
   -> TrafficWorld 进度 u32 mm + carry_um
 ```
@@ -58,12 +58,12 @@ IIDM 仍在 `f32` SI 中算出「这一拍最多走多远」。**先**用整数�
 `SharedTrafficNetwork`（有无 Spatial 都写这些热列）：
 
 - `lane_lengths_mm: Box<[u32]>`
-- `lane_speed_limits_mm_s: Box<[u32]>`，每项 `> 0`，`<= 100_000`
+- `lane_speed_limits_mm_s: Box<[u32]>`，每项 `1..=100_000`
 
 `VehicleProfileView`：
 
 - `length_mm: u32`，`>= 100`
-- `desired_speed_mm_s: u32`，`> 0`，`<= 100_000`
+- `desired_speed_mm_s: u32`，`1..=100_000`
 - `min_gap_mm: u32`（0 合法，退化为只禁止重叠）
 - `time_headway_seconds`、`max_accel`、`comfort_decel`、`emergency_decel`：受检 `f32` SI
 - `max_accel >= 0.5`；`comfort_decel` / `emergency_decel` / `time_headway_seconds` 严格大于零；
@@ -83,8 +83,10 @@ carry_um: u16              // 0..=999
 speed_mm_s: u32            // 静止可为 0
 ```
 
-公开观察表面以上述整数为权威。可以提供显式只读换算（例如文档化的 `/ 1000`），
-不得把 `f64` 米当作权威 `value()`，不得在生产路径回写。
+公开观察表面以上述整数为权威。`VehicleSpawnInput` / `replace_completed_vehicle`
+使用 `progress_mm` 与 `speed_mm_s`，新车 `carry_um = 0`。`PoseSource::Lane` 携带
+`progress_mm: u32`，不把米制进度当已提交权威。可以提供显式只读换算（例如文档化的
+`/ 1000`），不得当 `value()`，不得回写。
 
 `progress_mm == length_mm` 合法，表示停在边终点（含拒绝 Gate 前）。替换 /
 `Completed` / `Parked`：`carry_um = 0`。跨边保留 `carry_um`，除非跨边后立即硬停。
@@ -139,9 +141,17 @@ require 100 <= length_mm <= 10_000_000
 两条路径都写入 `lane_lengths_mm`。禁止从 `lane_pose()` 或空 Spatial 表反推边长。
 无 Spatial 时不得走车辆 pose 采样。
 
-限速：`speed_limit_mm_s = round-ties-to-even(f64(m/s) × 1000)`，且 `> 0`。
+限速：`speed_limit_mm_s = round-ties-to-even(f64(m/s) × 1000)`，且
+`1..=100_000`。
 
-LFCA 登记表破坏性更新（不兼容读旧 `F64` 米或 `F64` 时距/加减速/朝向）：
+G2 分配 **LFCA v2**：对象前导 `formatVersion` 与
+`ContractVersions.canonicalFormatVersion` 为 `2`；
+`networkRevisionDerivationVersion` / `constraintContractVersion` /
+`staticExecutionContractVersion` 为 `2`；身份两字段保持 `1`。不得改写 v1 登记表。
+v1 读器拒绝 v2，v2 读器拒绝 v1。LFSM `canonicalArtifactFormatVersion` 等于所绑
+LFCA 版本。
+
+LFCA v2 登记表破坏性更新（相对 v1 字段名/类型；不兼容读旧 `F64`）：
 
 | 现行                                         | 目标                                  |
 | -------------------------------------------- | ------------------------------------- |
@@ -153,7 +163,7 @@ LFCA 登记表破坏性更新（不兼容读旧 `F64` 米或 `F64` 时距/加减
 | `ParkingSpace.headingOffsetRadians: F64`     | `headingOffsetRadians: F32`           |
 | 时距与三项加减速                             | 受检 `F32` SI（不保留 `F64`）         |
 
-后发射检查失败关闭旧字节。走廊检入 LFCA 必须由生成器重生并对拍。
+后发射检查失败关闭旧 v1 字节。走廊检入 LFCA 必须按 v2 重生并对拍。
 `NetworkRevisionId` 随载荷变化。
 
 `laneflow-static-contract` 常量：最短尺寸 `100` mm，端点留白 `1` mm，删除作为
@@ -162,6 +172,8 @@ LFCA 登记表破坏性更新（不兼容读旧 `F64` 米或 `F64` 时距/加减
 ## 7. Spatial
 
 不改 canonical `f32` 点。采样：
+
+`PoseSource::Lane` 把 `progress_mm` 交给采样（不是米）：
 
 - `progress_mm == 0` → 折线起点；
 - `progress_mm == length_mm` → 折线终点；
@@ -185,7 +197,9 @@ LFCA 登记表破坏性更新（不兼容读旧 `F64` 米或 `F64` 时距/加减
   余数增长；跨边余数保留；拒绝 Gate 时停在 `fromEdge` 终点、保持 `Active`、
   不清错边；走到路线终点进入 `Completed` 并离开占用 / pose；`max_accel < 0.5`
   失败；headless 无折线时 `length_mm` 来自 LIR 交通长度 round，不要求弧；
-  跨 hop 占用间隙用 `i64`，长路单不得 `i32` 回绕；
+  跨 hop 占用间隙用 `i64`，长路单不得 `i32` 回绕；spawn `carry_um = 0`；
+  `PoseSource::Lane` 为 `progress_mm`；边限速 `> 100_000` mm/s 失败；v1 LFCA
+  在 v2 读器上失败关闭；
   `60 km/h` 长期平均速度由余数对齐量化后的 `mm/s`，无系统少走；相位非倍数
   `install` 失败；`dt=3` 失败；`dt=4` 与 `dt=1000` 均能 install（夹具相位允许时）。
 
@@ -198,3 +212,4 @@ LFCA 登记表破坏性更新（不兼容读旧 `F64` 米或 `F64` 时距/加减
 - 跨 CPU / 跨机器位级回放或联机 lockstep。
 - G1 改走廊 toml 或重生 LFCA。
 - 强迫 headless 从折线弧长派生边长。
+- 改写已冻 LFCA v1 登记表。

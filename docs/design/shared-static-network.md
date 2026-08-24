@@ -22,9 +22,9 @@ Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验
 性能证据；#300 保持父级跟踪项，不由 #436 自动关闭。#301 交付 `TrafficWorld` 对共享根
 的消费并使它成为唯一可运行交通世界，同时拆除 current Core/JSON 运行时入口；契约见
 `traffic-runtime-shared-consumption.md`。ADR 0028 / `traffic-runtime-integer-geometry.md`
-把下一生产热列定为 `u32` mm 与 mm/s（Proposed；未 Pass）；G2 完成前构建器仍发射
-current-`f64` 米。边长由 compiler 内部规范弧长派生，headless 修订同样写入 Traffic
-热列，不从 Spatial 反推。
+把下一生产热列定为 `u32` mm 与 mm/s（Proposed；未 Pass），制品为 **LFCA v2**；
+G2 完成前构建器仍发射 current-`f64` 米的 LFCA v1。有折线时边长从弧长 round，
+headless 从 LIR 交通边长 round；不从 Spatial 反推。
 
 ## 2. 职责与依赖
 
