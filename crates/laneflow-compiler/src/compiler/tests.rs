@@ -9,14 +9,14 @@ use crate::{
     DiagnosticPayload, FacilityBandInput, FacilityBandReference, IidmVehicleProfileInput,
     JunctionInput, JunctionReference, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
     LaneGroupInput, LaneGroupReference, ManeuverGateInput, ManeuverGateReference,
-    ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
-    ParkingAreaInput, ParkingAreaReference, ParkingLaneAnchorInput, ParkingSpaceGeometryInput,
-    ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference, RoadCorridorInput,
-    RoadSectionInput, RoadSectionReference, SignalControlInput, SignalControllerInput,
-    SignalGroupInput, SignalGroupReference, SignalGroupStateInput, SignalPhaseInput,
-    SourceModuleDescriptor, SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole,
-    SourceSpan, StaticRouteInput, StopLineInput, StopLineReference, SyntheticModule,
-    SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
+    ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference, ParkingAreaInput,
+    ParkingAreaReference, ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput,
+    ParticipantClassInput, ParticipantClassReference, RoadCorridorInput, RoadSectionInput,
+    RoadSectionReference, SignalControlInput, SignalControllerInput, SignalGroupInput,
+    SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, SourceModuleDescriptor,
+    SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole, SourceSpan, StaticRouteInput,
+    StopLineInput, StopLineReference, SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput,
+    WaitingZoneInput,
 };
 use laneflow_static_contract::CanonicalFrameKind;
 use std::sync::Arc;
@@ -169,12 +169,7 @@ fn spatial_cross_section_unit(
     facility_a_z: f32,
     include_facility_geometry: bool,
 ) -> CompilationUnit {
-    spatial_cross_section_unit_with_frame(
-        permuted,
-        facility_a_z,
-        include_facility_geometry,
-        false,
-    )
+    spatial_cross_section_unit_with_frame(permuted, facility_a_z, include_facility_geometry, false)
 }
 
 fn spatial_cross_section_unit_with_frame(
@@ -521,10 +516,7 @@ fn control_builder(document: &str) -> SyntheticModuleBuilder {
     builder
 }
 
-fn branched_control_builder(
-    document: &str,
-    include_right_path: bool,
-) -> SyntheticModuleBuilder {
+fn branched_control_builder(document: &str, include_right_path: bool) -> SyntheticModuleBuilder {
     let mut builder = junction_builder(document);
     builder
         .add_lane_edge(LaneEdgeInput {
@@ -878,9 +870,7 @@ fn single_signal_group_builder(document: &str) -> SyntheticModuleBuilder {
             maneuver_path: ManeuverPathReference::local("path-main"),
             transition_index: 0,
             stop_line: StopLineReference::local("stop-entry"),
-            signal_control: SignalControlInput::Group(SignalGroupReference::local(
-                "group-main",
-            )),
+            signal_control: SignalControlInput::Group(SignalGroupReference::local("group-main")),
         })
         .unwrap();
     builder
@@ -1262,8 +1252,7 @@ fn portable_artifact_diff_classifies_retained_fields_and_relations() {
             module("city/base", "base.document", &[], &[("edge-b", 20.0, &[])]),
         ]))
         .unwrap();
-    let provenance =
-        crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap();
+    let provenance = crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap();
     let base_candidate = crate::emit_portable_candidate(
         &base_output,
         &provenance,
@@ -1339,8 +1328,7 @@ fn portable_artifact_diff_rejects_cross_revision_stable_id_collisions() {
             &[("edge-a", 10.0, &[])],
         )]))
         .unwrap();
-    let provenance =
-        crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap();
+    let provenance = crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap();
     let candidate = crate::emit_portable_candidate(
         &output,
         &provenance,
@@ -1374,8 +1362,7 @@ fn portable_artifact_diff_rejects_cross_revision_stable_id_collisions() {
 
 #[test]
 fn portable_emitter_closes_every_current_relation_family_and_spatial_projection() {
-    let provenance =
-        crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap();
+    let provenance = crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap();
     let mut emitted_roles = std::collections::BTreeSet::new();
     let mut emit = |output: &CompilationOutput| {
         let candidate = crate::emit_portable_candidate(
@@ -1713,9 +1700,7 @@ fn signal_group_reference_failure_is_reported_even_without_signal_entities() {
             maneuver_path: ManeuverPathReference::local("path-main"),
             transition_index: 0,
             stop_line: StopLineReference::local("stop-entry"),
-            signal_control: SignalControlInput::Group(SignalGroupReference::local(
-                "group-missing",
-            )),
+            signal_control: SignalControlInput::Group(SignalGroupReference::local("group-missing")),
         })
         .unwrap();
     assert_eq!(
@@ -2225,8 +2210,7 @@ fn compiler_rejects_junction_topology_semantic_failures_before_lir() {
         })
         .unwrap();
     assert!(
-        compile_diagnostic_codes(disconnected)
-            .contains(&DiagnosticCode::DisconnectedManeuverPath)
+        compile_diagnostic_codes(disconnected).contains(&DiagnosticCode::DisconnectedManeuverPath)
     );
 
     let mut duplicate = junction_builder("duplicate-path.document");
@@ -2567,9 +2551,10 @@ fn compiler_rejects_cross_section_semantic_failures_before_lir() {
         Err(diagnostics) => diagnostics,
     };
     assert!(
-        diagnostics.diagnostics().iter().any(|diagnostic| {
-            diagnostic.code() == DiagnosticCode::MultipleCrossSectionOwners
-        })
+        diagnostics
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| { diagnostic.code() == DiagnosticCode::MultipleCrossSectionOwners })
     );
 
     let mut group_parent_mismatch = make_builder();
@@ -2617,20 +2602,16 @@ fn compiler_rejects_cross_section_semantic_failures_before_lir() {
             road_corridor_key: "corridor-a",
             reference_section: RoadSectionReference::local("section-a"),
             elements: &[
-                CorridorElementReference::road_section(RoadSectionReference::local(
-                    "section-a",
-                )),
-                CorridorElementReference::road_section(RoadSectionReference::local(
-                    "section-b",
-                )),
+                CorridorElementReference::road_section(RoadSectionReference::local("section-a")),
+                CorridorElementReference::road_section(RoadSectionReference::local("section-b")),
             ],
         })
         .unwrap();
-    let diagnostics =
-        match Compiler::new().compile(unit([group_parent_mismatch.finish().unwrap()])) {
-            Ok(_) => panic!("lane-group parent mismatch must reject compilation"),
-            Err(diagnostics) => diagnostics,
-        };
+    let diagnostics = match Compiler::new().compile(unit([group_parent_mismatch.finish().unwrap()]))
+    {
+        Ok(_) => panic!("lane-group parent mismatch must reject compilation"),
+        Err(diagnostics) => diagnostics,
+    };
     assert!(
         diagnostics
             .diagnostics()
@@ -3299,8 +3280,7 @@ fn control_closure_rejects_invalid_gate_and_stop_line_topology() {
         })
         .unwrap();
     assert!(
-        compile_diagnostic_codes(mismatch)
-            .contains(&DiagnosticCode::ManeuverGateStopLineMismatch)
+        compile_diagnostic_codes(mismatch).contains(&DiagnosticCode::ManeuverGateStopLineMismatch)
     );
 
     let mut orphan = control_builder("stop-orphan.document");
@@ -3319,9 +3299,7 @@ fn control_closure_rejects_invalid_gate_and_stop_line_topology() {
             lane_edge: LaneEdgeReference::local("entry"),
         })
         .unwrap();
-    assert!(
-        compile_diagnostic_codes(unreferenced).contains(&DiagnosticCode::UnreferencedStopLine)
-    );
+    assert!(compile_diagnostic_codes(unreferenced).contains(&DiagnosticCode::UnreferencedStopLine));
 
     let mut duplicate_stop_line = control_builder("stop-duplicate-edge.document");
     for key in ["stop-entry-a", "stop-entry-b"] {
@@ -3437,9 +3415,10 @@ fn synthetic_maneuver_path_requires_successors_for_internal_sequence() {
         Err(diagnostics) => diagnostics,
     };
     assert!(
-        diagnostics.diagnostics().iter().any(|diagnostic| {
-            diagnostic.code() == DiagnosticCode::DisconnectedManeuverPath
-        })
+        diagnostics
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| { diagnostic.code() == DiagnosticCode::DisconnectedManeuverPath })
     );
 }
 
@@ -3610,8 +3589,7 @@ fn waiting_zone_validation_rejects_zero_reverse_and_overlap() {
         })
         .unwrap();
     assert!(
-        compile_diagnostic_codes(reverse)
-            .contains(&DiagnosticCode::InvalidWaitingZoneGateOrder)
+        compile_diagnostic_codes(reverse).contains(&DiagnosticCode::InvalidWaitingZoneGateOrder)
     );
 
     let mut overlap = control_builder("waiting-overlap.document");
@@ -3625,9 +3603,7 @@ fn waiting_zone_validation_rejects_zero_reverse_and_overlap() {
             max_occupancy: 1,
         })
         .unwrap();
-    assert!(
-        compile_diagnostic_codes(overlap).contains(&DiagnosticCode::OverlappingWaitingZones)
-    );
+    assert!(compile_diagnostic_codes(overlap).contains(&DiagnosticCode::OverlappingWaitingZones));
 }
 
 #[test]
@@ -3653,8 +3629,7 @@ fn parking_static_contract_freezes_area_standalone_space_and_source_roles() {
         .iter()
         .copied()
         .find(|space| {
-            stable_key(space.identity_fields(), FieldTag::ParkingSpaceKey)
-                == "space-independent"
+            stable_key(space.identity_fields(), FieldTag::ParkingSpaceKey) == "space-independent"
         })
         .unwrap();
 
@@ -4204,9 +4179,7 @@ fn imported_facility_frame_keeps_the_band_module_as_its_relation_source() {
     let sources = output
         .source_map_input()
         .spatial_relation_sources()
-        .filter(|source| {
-            source.role() == SourceRelationRole::CanonicalFrameFacilityBandGeometry
-        })
+        .filter(|source| source.role() == SourceRelationRole::CanonicalFrameFacilityBandGeometry)
         .collect::<Vec<_>>();
 
     assert_eq!(sources.len(), 2);
@@ -4777,9 +4750,7 @@ fn compiler_preserves_all_supported_access_target_planes() {
         .unwrap()
         .add_access_rule(AccessRuleInput {
             access_rule_key: "rule-path",
-            target: AccessRuleTargetInput::ManeuverPath(ManeuverPathReference::local(
-                "path-main",
-            )),
+            target: AccessRuleTargetInput::ManeuverPath(ManeuverPathReference::local("path-main")),
             effect: AccessEffect::Deny,
             participant_classes: &[ParticipantClassReference::local("all")],
             regulation: None,
@@ -4852,12 +4823,8 @@ fn access_validation_closes_shape_capability_reference_and_regulation_failures()
             road_corridor_key: "corridor-main",
             reference_section: RoadSectionReference::local("section-main"),
             elements: &[
-                CorridorElementReference::road_section(RoadSectionReference::local(
-                    "section-main",
-                )),
-                CorridorElementReference::facility_band(FacilityBandReference::local(
-                    "band-main",
-                )),
+                CorridorElementReference::road_section(RoadSectionReference::local("section-main")),
+                CorridorElementReference::facility_band(FacilityBandReference::local("band-main")),
             ],
         })
         .unwrap()
@@ -4868,9 +4835,7 @@ fn access_validation_closes_shape_capability_reference_and_regulation_failures()
         .unwrap()
         .add_access_rule(AccessRuleInput {
             access_rule_key: "band-rule",
-            target: AccessRuleTargetInput::FacilityBand(FacilityBandReference::local(
-                "band-main",
-            )),
+            target: AccessRuleTargetInput::FacilityBand(FacilityBandReference::local("band-main")),
             effect: AccessEffect::Allow,
             participant_classes: &[ParticipantClassReference::local("all")],
             regulation: None,
