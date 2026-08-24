@@ -1,6 +1,9 @@
 //! #441 分配账本。独立 integration test，避免污染 uninstrumented 墙钟。
 //!
 //! 本文件只有一个默认测试，避免 `stats_alloc::Region` 在并行测试之间串账。
+//! `allocated_bytes` 采用 `stats_alloc` 0.1.10 净值：普通 alloc 记全量，变大 realloc
+//! 只把 `new_size - old_size` 计入 `bytes_allocated`。`live_bytes` 已含该净增长；
+//! `reallocated_delta_bytes` 是有符号 realloc 净值，不得再加进 `live_bytes`。
 
 use std::alloc::System;
 use std::hint::black_box;
@@ -38,6 +41,7 @@ struct AllocSample {
     reallocations: usize,
     allocated_bytes: usize,
     deallocated_bytes: usize,
+    reallocated_delta_bytes: isize,
     live_bytes: usize,
     retained: u64,
 }
@@ -54,6 +58,7 @@ fn sample_from_stats(stats: stats_alloc::Stats, retained: u64) -> AllocSample {
         reallocations: stats.reallocations,
         allocated_bytes: stats.bytes_allocated,
         deallocated_bytes: stats.bytes_deallocated,
+        reallocated_delta_bytes: stats.bytes_reallocated,
         live_bytes: stats
             .bytes_allocated
             .saturating_sub(stats.bytes_deallocated),
@@ -86,11 +91,12 @@ fn assert_stable_build(
         first.reallocations
     );
     println!(
-        "shared-static-network-evidence allocation scene={scene} spatial={spatial:?} allocations={} reallocations={} allocated_bytes={} deallocated_bytes={} live_bytes={} retained={} lfca_exact={}",
+        "shared-static-network-evidence allocation scene={scene} spatial={spatial:?} allocations={} reallocations={} allocated_bytes={} deallocated_bytes={} reallocated_delta_bytes={} live_bytes={} retained={} lfca_exact={}",
         first.allocations,
         first.reallocations,
         first.allocated_bytes,
         first.deallocated_bytes,
+        first.reallocated_delta_bytes,
         first.live_bytes,
         first.retained,
         bytes.len(),
@@ -200,11 +206,12 @@ fn allocation_ledgers_and_per_world_live_bytes() {
     );
     assert!(first.live_bytes > 0);
     println!(
-        "shared-static-network-evidence allocation coexistence-held current_retained={} candidate_live={} candidate_retained={} reallocations={} target_lfca={} target_lfsm={} target_lfsd={}",
+        "shared-static-network-evidence allocation coexistence-held current_retained={} candidate_live={} candidate_retained={} reallocations={} reallocated_delta_bytes={} target_lfca={} target_lfsm={} target_lfsd={}",
         current.retained_logical_bytes(),
         first.live_bytes,
         first.retained,
         first.reallocations,
+        first.reallocated_delta_bytes,
         target_lfca.len(),
         target_lfsm.len(),
         target_lfsd.len(),
@@ -241,8 +248,8 @@ fn allocation_ledgers_and_per_world_live_bytes() {
         );
         per_world.push(live_per);
         println!(
-            "shared-static-network-evidence allocation worlds count={count} live_bytes={} live_per_world={live_per} reallocations={} static_retained={}",
-            first.live_bytes, first.reallocations, first.retained
+            "shared-static-network-evidence allocation worlds count={count} live_bytes={} live_per_world={live_per} reallocations={} reallocated_delta_bytes={} static_retained={}",
+            first.live_bytes, first.reallocations, first.reallocated_delta_bytes, first.retained
         );
     }
     let min = *per_world.iter().min().expect("per-world");
