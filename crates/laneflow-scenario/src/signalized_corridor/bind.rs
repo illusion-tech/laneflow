@@ -30,11 +30,12 @@ pub struct BoundCorridorCatalog {
 }
 
 /// catalog route 绑到共享根静态路线与出口 portal。
+///
+/// 入口进度按 portal lane 的 `entry_slot_index` 取，不在路线上缓存单一入口槽。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundRouteExit {
     pub route: StaticRouteOrdinal,
     pub exit_portal_index: u8,
-    pub entry_slot_index: usize,
 }
 
 /// portal lane 的加权 RouteChoice；`route_index` 指向 `route_exits`。
@@ -194,7 +195,6 @@ pub fn bind(
         route_exits.push(BoundRouteExit {
             route: ordinal,
             exit_portal_index,
-            entry_slot_index: 0,
         });
     }
     let mut portal_lanes = Vec::new();
@@ -229,11 +229,6 @@ pub fn bind(
     }
     drop(slot_index_by_id);
     drop(route_index_by_id);
-    for lane in &portal_lanes {
-        for choice in &lane.choices {
-            route_exits[choice.route_index].entry_slot_index = lane.entry_slot_index;
-        }
-    }
     for slot in &mut spawn_slots {
         slot.portal_lane_index = portal_lanes
             .iter()

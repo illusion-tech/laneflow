@@ -230,7 +230,7 @@ Spatial batch extract
 
 现行 `signalized_corridor` 安装 `TrafficWorld` 与可选 `SpatialSession`，用 catalog 0.2
 prepare 绑定车辆。#475 交付 `TrafficWorld::replace_completed_vehicle` 与 Session typed
-replace-and-rebind；薄示例仍可不启用 50–200 人口。JSON loader 与 `CoreWorld` 不可调用。
+replace-and-rebind；薄示例仍可不启用 50–200 人口。不得再走已拆除的 JSON 运行时入口。
 
 
 `LaneFlowFixedSet::{Lifecycle, Step, Observe}` 的固定顺序为：每个 LaneFlow fixed step 前在 `Lifecycle` 应用 pending lifecycle commands，Adapter 在 `Step` 推进一次 `TrafficWorld`，调用方在 `Observe` 消费 committed result 并为下一 boundary 入队。一个 outer frame 内的 catch-up steps 逐步重复完整链，presentation 仍在 outer frame 最多提交一次，因此 frame chunking 不得改变 Population/Runtime 决策。

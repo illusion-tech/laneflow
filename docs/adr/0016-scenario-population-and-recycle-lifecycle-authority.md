@@ -11,7 +11,7 @@ v0.7 已交付固定步长 Core、动态 vehicle handle、Traffic/Spatial/Scenar
 
 - `TrafficWorld::spawn_vehicle` 是独立原子命令，但不能把已完成车辆替换为新 identity；
 - `VehicleHandle` 必须在替换后失效，不能把同一 handle 重置到另一条 route；
-- `LaneFlowSession` 不公开 `&mut TrafficWorld` 以外的松散两步 despawn/spawn；typed replace-and-rebind 负责同一 Entity 换绑；
+- `LaneFlowSession::world_mut()` 只提交 spawn / register / remove / occupy；已绑定车辆的原子替换必须走 typed `replace_completed_vehicle`，不得经 `&mut TrafficWorld` 绕过映射轮换；
 - Completed vehicle 不再进入 pose batch，因此已绑定 proxy 会保留最后一次合法 Transform；
 - 共享静态路网与 catalog 不持久化 initial vehicles、spawn schedule、runtime handles 或 Adapter metadata；
 - TrafficWorld fixed step 不读取 wall clock、全局随机数或引擎状态。
