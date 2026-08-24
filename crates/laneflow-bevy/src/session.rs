@@ -5,11 +5,11 @@ use std::{num::NonZeroU32, sync::Arc, time::Duration};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::resource::Resource;
 use laneflow_runtime::{
-    ParkingError, PoseSource as RuntimePoseSource, RouteError, RouteHandle, RouteRegisterInput,
-    SpawnError, StepOutcome, TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput,
+    ParkingError, ParkingSpaceOrdinal, PoseSource as RuntimePoseSource, RouteError, RouteHandle,
+    RouteRegisterInput, SpawnError, StepOutcome, TickInput, TrafficWorld, VehicleHandle,
+    VehicleSpawnInput,
 };
 use laneflow_spatial::{PoseInput, PoseRecordId, SpatialSession};
-use laneflow_static_contract::ParkingSpaceOrdinal;
 
 use crate::LaneFlowAdapterError;
 

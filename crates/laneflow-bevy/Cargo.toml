@@ -36,7 +36,6 @@ bevy_time = { version = "0.19", default-features = false, features = ["std"] }
 bevy_transform = { version = "0.19", default-features = false, features = ["bevy-support", "std"] }
 laneflow-runtime = { version = "0.0.0", path = "../laneflow-runtime" }
 laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
-laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
 
 [dev-dependencies]
 bevy_math = { version = "0.19", default-features = false }

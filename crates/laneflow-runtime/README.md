@@ -5,7 +5,8 @@
 
 生命周期命令只在两次 `step` 之间调用。`replace_completed_vehicle` 把 Completed
 车辆一次提交为新的 Active 句柄；到终点保留 Completed，不进 pose、不占车道，占容量。
-不提供独立 `despawn`，也不把人口政策写入 `step`。
+不提供独立 `despawn`，也不把人口政策写入 `step`。`occupy_parking` 使用的
+`ParkingSpaceOrdinal` 由本 crate 再导出，Adapter 不必直接依赖静态合同包。
 
 本 crate 不依赖 Spatial、compiler、Serde、文件系统或 `laneflow-core`。契约见
 `docs/design/traffic-runtime-shared-consumption.md`。
