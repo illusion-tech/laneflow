@@ -72,7 +72,8 @@ IIDM 仍在 `f32` SI 中算出「这一拍最多走多远」。**先**用整数�
 停车：入口/出口 `u32` mm，且 `1 <= p <= length_mm - 1`；长宽 `>= 100` mm；横向
 `i32` mm，路外 `abs >= 1`；朝向仍为受检弧度 `f32`。
 
-路线剩余：沿边把 `u32` 边长累加到 `u64` mm。`BoundedDistance::Finite(u64)`。
+路线剩余：沿 hop 把 `u32` 边长累加到 `u64` mm。`BoundedDistance::Finite(u64)`。
+占用间隙与跨 hop 跟车空隙用 checked `i64` mm，禁止 `i32` 回绕。边上区间仍 `u32`。
 
 ## 4. 车辆已提交状态
 
@@ -95,8 +96,8 @@ speed_mm_s: u32            // 静止可为 0
 1. 把 `progress_mm` / 边长 / 车长 / `min_gap` / 速度转为瞬时 `f32` 米，喂 IIDM
    与限速包络。
 2. SI 中舒适截断 travel（前车、灯、路终、包络）。SI `travel <= 0` **不是**硬停。
-3. 整数硬约束 `hard_room_mm`（有符号 mm，下限 0）：
-   - 前车 `min_gap` 后空隙；
+3. 整数硬约束 `hard_room_mm: u64`（下限 0）。前车空隙用 `i64` 再夹到 `u64`：
+   - 前车 `min_gap` 后空隙（可跨 hop）；
    - `DenyAndStop` 停车线；
    - 本车路线剩余（沿路线累加到最后一边终点，与现行 `remaining_to_route_end`
      同构）；
@@ -117,8 +118,8 @@ speed_mm_s: u32            // 静止可为 0
    `committed_pose_sources`。Gate 拒绝不是 `Completed`。否则
    `speed_mm_s = round-ties-to-even(f64(next_speed_m) × 1000)`，不由 travel 反推。
 
-占用循环：`remaining_mm == 0` 结束。重叠：整数区间。生产路径删除米制
-`1e-9` / `1e-12` 比较。
+占用循环：边上 `remaining_mm == 0` 结束（`u32`）。重叠：有符号整数区间。跨 hop
+间隙用 checked `i64`。生产路径删除米制 `1e-9` / `1e-12` 比较。
 
 舍入一律 IEEE 754 **round-ties-to-even**，缩放在 `f64` 中做（`f32 × 1e6` 在
 100 m 行程上会丢微米）。
@@ -184,6 +185,7 @@ LFCA 登记表破坏性更新（不兼容读旧 `F64` 米或 `F64` 时距/加减
   余数增长；跨边余数保留；拒绝 Gate 时停在 `fromEdge` 终点、保持 `Active`、
   不清错边；走到路线终点进入 `Completed` 并离开占用 / pose；`max_accel < 0.5`
   失败；headless 无折线时 `length_mm` 来自 LIR 交通长度 round，不要求弧；
+  跨 hop 占用间隙用 `i64`，长路单不得 `i32` 回绕；
   `60 km/h` 长期平均速度由余数对齐量化后的 `mm/s`，无系统少走；相位非倍数
   `install` 失败；`dt=3` 失败；`dt=4` 与 `dt=1000` 均能 install（夹具相位允许时）。
 
