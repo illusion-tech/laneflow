@@ -1,5 +1,4 @@
 mod commit_messages;
-mod external_review;
 mod markdown_tables;
 mod road_editing_codegen;
 
@@ -25,13 +24,11 @@ fn run(args: Vec<String>) -> Result<(), String> {
             )?;
             commit_messages::check_commit_message_file(path)
         }
-        Some("check-external-review") => external_review::run(&args[1..]),
-        Some("publish-external-review-check") => external_review::run_publish_check(&args[1..]),
         Some("format-md-tables") => markdown_tables::run(&args[1..]),
         Some("check-road-editing-codegen") => road_editing_codegen::run(&args[1..]),
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-external-review, publish-external-review-check, format-md-tables, check-road-editing-codegen"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, format-md-tables, check-road-editing-codegen"
                 .to_string(),
         ),
     }

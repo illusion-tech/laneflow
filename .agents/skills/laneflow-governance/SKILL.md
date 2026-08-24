@@ -14,9 +14,10 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 5. `docs/reference/glossary.md`
 6. `.github/pull_request_template.md`
 7. `docs/adr/0026-merge-governance-rebuild.md`
-8. 涉及安全设置、扫描或公开发布时，额外阅读 `docs/governance/security-scanning.md`
-9. 涉及许可证、Cargo 依赖、RustSec、cargo-deny 或 Dependabot 时，额外阅读 `docs/governance/dependency-security.md`
-10. 涉及产品定位、城市级范围、出行编排、Routing、路网修订、存档/回放、并行或
+8. `docs/adr/0027-retire-external-review-check.md`
+9. 涉及安全设置、扫描或公开发布时，额外阅读 `docs/governance/security-scanning.md`
+10. 涉及许可证、Cargo 依赖、RustSec、cargo-deny 或 Dependabot 时，额外阅读 `docs/governance/dependency-security.md`
+11. 涉及产品定位、城市级范围、出行编排、Routing、路网修订、存档/回放、并行或
     fidelity 时，额外阅读 `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 
 ## 工作流
@@ -38,11 +39,11 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 - commit footer 使用 `Refs: #<issue>`。
 - 高影响变更在实现前确认 ADR / design；文档 / 缺陷 / 调研不强制 G1。
 
-## 外部审阅与合并
+## Review conversation 与合并
 
-- `External Review` Check 接受受信非作者的原生 `APPROVED`/`COMMENTED`（不要求
-  绑当前 head），或受信非作者对 PR 正文的 👍。作者自审不计入。
-- 受信名单是默认分支上的 `.github/trusted-reviewers.json`。
+- 普通 GitHub Review 用于协作，不由自定义 Check、受信名单或 reaction 计数。
+- 当前 Ruleset 不要求固定批准数或 CODEOWNERS review；以后若要强制独立批准，先开
+  治理 Issue 使用 GitHub 原生能力。
 - 未解决对话由 GitHub `required_review_thread_resolution` 拦截，不要自己数 thread。
 - `main` 走 Merge Queue（最终 Rebase）：
 
@@ -51,9 +52,8 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 ```
 
 - required checks（PR 与 `merge_group` 同名）：`Commit message`、`Rust checks`、
-  `Dependency policy`、`Analyze (actions)`、`Analyze (rust)`、`External Review`。
-  `External Review` 按 ADR 0026 先经真实队列验证再 required。
-- 禁止日常 `--admin`。验证完成并撤 bypass 之前，所有者按 ADR 0026 清单操作。
+  `Dependency policy`、`Analyze (actions)`、`Analyze (rust)`。
+- 禁止日常 `--admin`。owner bypass 的终态由 #493 独立治理。
 
 ## 提交说明
 

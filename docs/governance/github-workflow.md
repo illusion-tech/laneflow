@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active
-**最后更新**: 2026-08-23
+**最后更新**: 2026-08-24
 
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
@@ -17,7 +17,8 @@ LaneFlow 采用 GitHub-first 治理：
 - Releases 是发布事实记录。
 
 长期设计、架构决策和规范必须进入仓库文档，不应只留在 GitHub 页面中。合并证据模型
-见 [ADR 0026](../adr/0026-merge-governance-rebuild.md)。
+见 [ADR 0026](../adr/0026-merge-governance-rebuild.md) 与
+[ADR 0027](../adr/0027-retire-external-review-check.md)。
 
 ## 2. Issue 规则
 
@@ -94,23 +95,10 @@ Milestone 用于表达版本边界，而不是单个大任务。每个 Milestone
 不得用父任务标题合入只覆盖部分能力的实现。commit footer 使用 `Refs: #<issue>`，
 不要为了关单把每个 commit 写成 `Closes`。
 
-外部审阅由 `External Review` Check 判定：当前 head 上是否存在非作者受信原生
-`PullRequestReview`。未解决对话由 GitHub 原生规则拦截。不要在 PR 里抄 SHA、
-thread 计数或 Shadow 行。
+普通 GitHub Review 继续用于协作，但不由自定义 Check、受信名单或 reaction 计数。
+未解决对话由 GitHub 原生规则拦截。不要在 PR 里抄 SHA 或 thread 计数。
 
 fork / cross-repository PR 必须把最终 patchset 迁到同仓 PR。
-
-### External Review workflow 安全
-
-- metadata-only；禁止 checkout 或执行 PR head。
-- 权限：`contents: read`、`pull-requests: read`、`checks: write`。
-- checkout `refs/heads/main`，关闭 credential persistence。
-- Check 名固定为 `External Review`。
-- expected source 暂为 GitHub Actions；同名伪造残余风险见 ADR 0026。
-- `pull_request_review` 只由空权限 signal workflow 唤醒 trusted publisher。
-- `merge_group` 上发布同名 Check，盖章已通过的 `H_pr`，不重做人审。
-
-修改 Gate workflow 的 PR 由 `main` 上的旧 validator 判断，不能用候选实现自批。
 
 ### Copilot repository instructions
 
@@ -126,7 +114,7 @@ LaneFlow 默认通过合并队列（Merge Queue）将 PR 合入 `main`，队列�
 - 保持 `main` 历史线性、清晰。
 - 保留 PR 内各 commit 的 Conventional Commits 标题。
 - 在最新 `main` 与队列前序变更的真实组合上重新运行 required checks。
-- 避免只因 `main` 前进而要求其他 PR 手工 rebase 和重复外部审阅。
+- 避免只因 `main` 前进而要求其他 PR 手工 rebase。
 
 `main` 的队列配置：
 
@@ -143,29 +131,27 @@ LaneFlow 默认通过合并队列（Merge Queue）将 PR 合入 `main`，队列�
 启用队列时，`required_status_checks.strict_required_status_checks_policy` 必须为
 `false`，但不得删除 required checks。
 
-切换完成后 required status checks 固定为 `Commit message`、`Rust checks`、
-`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`、`External Review`，
-PR 与 `merge_group` 同名。`External Review` 按 ADR 0026 启用顺序，先经真实队列
-验证再 required。五项机器检查 expected source 绑定 GitHub Actions App
+required status checks 固定为 `Commit message`、`Rust checks`、
+`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`，PR 与 `merge_group`
+同名。五项机器检查 expected source 绑定 GitHub Actions App
 `integration_id=15368`。原生 CodeQL rule 不能替代 `H_mg` 上的两个 `Analyze`。
 
 ### 7.1 日常入队与失效边界
 
-- PR Head `H_pr` 是补丁审阅身份，绑定原生外部审阅。
-- 合并组 Head `H_mg` 是集成候选身份，绑定 CI、依赖政策和适用安全扫描；
-  `External Review` 在此为盖章。
+- PR Head `H_pr` 是补丁身份，绑定 PR 级机器检查与 GitHub 原生协作状态。
+- 合并组 Head `H_mg` 是集成候选身份，绑定 CI、依赖政策和适用安全扫描。
 - Main Result `H_main` 是 GitHub 执行 rebase 后进入 `main` 的结果。
 
 失效边界：PR 新 push、force-push 或冲突修复产生新 `H_pr` 时，入队资格与机器检查
-按新 head 重跑。External Review 不因 `H_pr` 变化作废已有受信 Approve/Comment 或
-PR 正文点赞。`main` 前进只废弃旧 `H_mg` 并重跑机器检查。
+按新 head 重跑。`main` 前进只废弃旧 `H_mg` 并重跑机器检查。未解决的 review
+conversation 始终由 GitHub 原生规则判断。
 
 ```powershell
 gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 ```
 
-不得在 pending 时预先武装 auto-merge。验证通过并移除 bypass 之后，禁止日常
-`--admin`。
+不得在 pending 时预先武装 auto-merge，禁止日常 `--admin`。owner bypass 的终态由
+#493 独立治理；永久 bypass 不得被解释为 checks 已通过。
 
 最终 merge method 例外必须先通过治理 Issue 修改队列 / 分支规则：
 
@@ -188,7 +174,6 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   static-contract、static-network、compiler 或 `examples/data/` 变更时编译。
 - `Dependency policy`：cargo-deny。
 - `Analyze (actions)` / `Analyze (rust)`：advanced CodeQL。
-- `External Review`：原生审阅 Check。
 
 GitHub CodeQL、Secret Scanning 和 Dependabot 见 `security-scanning.md`。
 

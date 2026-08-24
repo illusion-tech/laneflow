@@ -1,10 +1,14 @@
 # 0026 合并治理重建：原生审阅 Check、Merge Queue 与 Schema Publication 退役
 
-**状态**: Accepted
+**状态**: Accepted（第 5–9 节及相关后果已被
+[ADR 0027](0027-retire-external-review-check.md) 取代）
 **日期**: 2026-08-21
 **适用范围**: LaneFlow 合并门禁、External Review Check、commit message 校验、Issue/PR
 模板、GitHub Ruleset / Merge Queue、JSON Schema 公共发布义务
 **取代**: ADR 0011 的公共发布、永久 URL 与历史保留现行义务
+**后续修订**: ADR 0027 退役 External Review 自定义 Check，并把 required status
+checks 收敛为五项；本文其它 G3/G4、commit message、模板与 Schema Publication
+决策继续有效
 **关联 Issue**: [#468](https://github.com/illusion-tech/laneflow/issues/468)
 
 **关联文档**:
@@ -14,7 +18,7 @@
 - `../governance/documentation-policy.md`
 - `../reference/commit-convention.md`
 - `../../schemas/README.md`
-- `../../.github/trusted-reviewers.json`
+- 历史 `.github/trusted-reviewers.json`（已由 ADR 0027 删除）
 
 ## 背景
 

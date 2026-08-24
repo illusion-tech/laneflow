@@ -67,9 +67,9 @@ footer 使用 `Refs: #<issue>`。
 LaneFlow 默认通过 **Merge Queue** 合入 `main`，队列最终使用 **Rebase** 保持线性历史。详见
 `docs/governance/github-workflow.md` 第 7 节。
 
-- 当前 exact head 的 checks 与原生外部审阅完成后入队：`gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`；不得在 pending 时预先武装 auto-merge
-- `H_pr` 与真实 `H_mg` 都必须完成 `Commit message`、`Rust checks`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`、`External Review`（后者按 ADR 0026 先验证再 required）；原生 CodeQL rule 不替代队列中的两个 `Analyze` checks
-- `main` 前进或队列重排只重建 Merge Group，不要求对未变化 PR Head 重新人审
+- 当前 exact head 的 required checks 完成后入队：`gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`；不得在 pending 时预先武装 auto-merge
+- `H_pr` 与真实 `H_mg` 都必须完成 `Commit message`、`Rust checks`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`；原生 CodeQL rule 不替代队列中的两个 `Analyze` checks
+- `main` 前进或队列重排只重建 Merge Group；未解决的 review conversation 继续由 GitHub 原生规则阻断
 - Ruleset 保留 required checks、关闭 strict up-to-date，由 Merge Group 验证最新 `main` 组合
 - 禁止日常 `--admin` 绕过队列；最终 merge method 例外必须先通过治理 Issue 修改规则
 
@@ -107,10 +107,10 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 
 - Commit message：Conventional Commits 标题、`Refs` / `Closes`、必要时 `BREAKING CHANGE:`；`xtask` 构建使用 `Swatinem/rust-cache`（仅 `main` 写回缓存）。
 - Markdown tables：表格格式检查只警告，不阻断合并。
-- Rust checks：job 始终运行以保持 required check 稳定。变更触及 `crates/`、`xtask/`、`tools/`、`examples/`、`research/`、`Cargo.toml` / `Cargo.lock`、`deny.toml`、本 workflow、external-review workflows 或 `docs/governance/github-workflow.md` 时，安装 Rust 1.96.0 并运行 `fmt` 与 `test --workspace --locked`。走廊 catalog 与 LFCA 对拍由 `laneflow-corridor-generator` 测试覆盖，不再单独跑 generator `check`。`schemas/road-editing/` 由独立 Codegen workflow 覆盖，不因 `.fbs` 拉起整仓 Rust 测试。Bevy `runtime_min` 与 `signalized_corridor` 在 Adapter、Runtime、Spatial、scenario、format、static-contract、static-network、compiler 或 `examples/data/` 变更时编译。纯文档等非 Rust 路径跳过重型 cargo 并显式记录 skip。
+- Rust checks：job 始终运行以保持 required check 稳定。变更触及 `crates/`、`xtask/`、`tools/`、`examples/`、`research/`、`Cargo.toml` / `Cargo.lock`、`deny.toml`、本 workflow 或 `docs/governance/github-workflow.md` 时，安装 Rust 1.96.0 并运行 `fmt` 与 `test --workspace --locked`。走廊 catalog 与 LFCA 对拍由 `laneflow-corridor-generator` 测试覆盖，不再单独跑 generator `check`。`schemas/road-editing/` 由独立 Codegen workflow 覆盖，不因 `.fbs` 拉起整仓 Rust 测试。Bevy `runtime_min` 与 `signalized_corridor` 在 Adapter、Runtime、Spatial、scenario、format、static-contract、static-network、compiler 或 `examples/data/` 变更时编译。纯文档等非 Rust 路径跳过重型 cargo 并显式记录 skip。
 - Dependency policy：cargo-deny 检查 RustSec advisories、许可证、wildcard dependency 和 crate 来源。
 - Analyze (actions) / Analyze (rust)：advanced CodeQL。
-- External Review：受信非作者 Approve/Comment（不要求绑当前 head）或 PR 正文 👍；Merge Queue 上盖章到 `H_mg`。
+- Review conversation：未解决对话由 GitHub Ruleset 原生阻断；普通 Review 不由自定义 CI Check 计数或盖章。
 
 数据 schema、Adapter build、示例 smoke test 和 Release 检查应在对应切片落地后继续加入专用门禁。
 
