@@ -521,7 +521,7 @@ fn apply_pending_rejects_foreign_revision() {
 const TICK_MS: u64 = 100;
 const SHORT_SOAK_REPLACED: usize = 50;
 const FULL_SOAK_REPLACED: usize = 10_000;
-const SHORT_SOAK_MAX_TICKS: u32 = 200_000;
+const SHORT_SOAK_MAX_TICKS: u32 = 50_000;
 const FULL_SOAK_MAX_TICKS: u32 = 5_000_000;
 const REPLAY_TICKS: u32 = 12_000;
 
