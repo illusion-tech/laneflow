@@ -21,6 +21,7 @@
 - `0022-authoring-curve-and-canonical-polyline-error-budgets.md`
 - `0025-checked-canonical-network-and-shared-static-network.md`
 - `../design/traffic-runtime-integer-geometry.md`
+- `../design/shared-static-network.md`
 - `../design/numeric-representation.md`
 - `../design/vehicle-following.md`
 - `../design/traffic-runtime-shared-consumption.md`
@@ -115,7 +116,12 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
 硬约束剩余空间 `hard_room_mm: u32` 是本拍整数可走的停车类上限（下限 0）。前车空隙
 用 `i64` 间隙算出后，负值当 0，正值夹到 `u32`：
 
-- 前车 `min_gap` 之后的空隙（无前车则不限制）；可跨 hop 累加，不得用 `i32` 回绕；
+- 前车 `min_gap` 之后的空隙（无前车则不限制）；可跨 hop 累加，不得用 `i32` 回绕。
+  空隙取 **本拍开始时 occupancy 快照**，与现行 `advance_active_vehicle` 对
+  `leader_bumper_gap` 再截断到 `(gap - min_gap).max(0)` 同构。**不**计入本拍
+  `leader_final_travel`（`vehicle-following.md` §11.2 的前向后传播）。快照中间距
+  恰为 `min_gap` 时 `hard_room_mm == 0`，即使前车本拍会走；follower 下一拍才看见
+  新空隙。该一拍滞后是现行生产路径的行为，#496 不在本轴改为投影前车行程；
 - `DenyAndStop` 停车线距离（绿灯/无灯则不限制）；
 - **路线剩余**：沿本车路线累加到最后一边终点（与现行 `remaining_to_route_end` 同构）；
 - 若下一条路线 hop 存在但该转移的 Gate **拒绝**：当前 `fromEdge` 终点；
@@ -126,7 +132,8 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
 1. 用已提交整数状态派生 IIDM / 限速包络所需的瞬时 SI 值；
 2. 在 SI 中计算候选 travel，并按前车、灯、路终、下游限速包络做舒适截断。
    **SI `travel <= 0` 不是硬停判定**；
-3. 用已提交整数计算 `hard_room_mm`。若 `hard_room_mm == 0`：硬停。
+3. 用已提交整数计算 `hard_room_mm`（只读 T 快照，不读本拍其他车已算行程）。
+   若 `hard_room_mm == 0`：硬停。
    `travel_mm = 0`，`speed_mm_s = 0`，`carry_um = 0`，不 `apply_travel`；
 4. 否则
    `um = u64(carry_um) + round-ties-to-even(f64(travel_m) × 1_000_000)`，
@@ -151,7 +158,21 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
 硬停与爬行：
 
 - 硬停：整数硬约束剩余为 0，或本拍走完该剩余。清速度与余数。
-- 爬行：`hard_room_mm > 0` 且量化后 `travel_mm == 0`。保留速度与余数。
+- 爬行：`hard_room_mm > 0` 且量化后 `travel_mm == 0`。保留本拍量化后的速度与余数
+  （二者都可以是 0）。
+
+4 ms 静止跟停量化死区（**接受**，不为它加状态）：
+
+IIDM 有效加速度可以远小于 profile `max_accel`。静止 follower、静止 leader、bumper
+空隙 = `min_gap + 0.1 m`、`max_accel = 0.5 m/s²` 时，有效加速度约 `0.0465 m/s²`，
+4 ms 行程约 `0.37 µm`、下一速度约 `0.186 mm/s`。round-ties-to-even 后 `um == 0`
+且 `speed_mm_s == 0`，`carry_um` 不增长，下一拍状态重复；车辆停在期望间距外约
+`100 mm`。这不是 `max_accel < 0.5` 的被拒情形，而是舒适层在接近 `min_gap` 时把本拍
+能量化到 0。`hard_room_mm` 仍大于 0，因此这是爬行的退化，不是硬停。
+
+**禁止**亚微米累加器、把 `carry` 改成更高分辨率、或把该死区当实现缺陷消掉。
+建议默认 16 ms 下同工况行程约 `6 µm`，能进入 `carry_um`。死区是 4 ms 最细量子的
+产品接受面。
 
 ### 5. 固定步进合法区间为 `4..=1000` ms
 
@@ -204,6 +225,25 @@ v1 读器拒绝 `formatVersion != 1`；v2 读器拒绝 v1。不兼容读取。LF
 `canonicalArtifactFormatVersion` 必须等于所绑 LFCA 的 `canonicalFormatVersion`。
 不为本切片单开 LFSM/LFSD 对象版本。
 
+G2 必须同时冻结共享静态路网 **admission**，不得只换制品版本号：
+
+- 现行 `CheckedCanonicalNetworkInputV1` / `check_canonical_network_input_v1` /
+  `PostEmissionCheckedBundleV1::canonical_network_input` **只**承认 LFCA v1。
+  **禁止**放宽 V1 预检或 V1 capability 以接纳 `formatVersion = 2`。
+- G2 分配并行能力（名称冻结；Rust 字段布局可在不扩大能力的前提下调整）：
+  `CheckedCanonicalNetworkInputV2`、`check_canonical_network_input_v2`、
+  `check_post_emission_bundle_v2`、
+  `PostEmissionCheckedBundleV2::canonical_network_input() -> CheckedCanonicalNetworkInputV2`。
+- `check_canonical_network_input_v2` 要求对象 kind 精确为 LFCA v2（前导
+  `formatVersion` 与 `canonicalFormatVersion` 均为 2），走 **v2 registry 预检**；
+  digest / exact length / `NetworkRevisionId` 闭合、字段私有、无公共构造器，规则同 V1。
+- 后发射：对 LFCA 走 v2 预检；LFSM/LFSD 仍按现行对象版本预检，但必须
+  `LFSM.canonicalArtifactFormatVersion == 2` 且与所绑 LFCA 一致。
+  `PostEmissionCheckedBundleV1` 不得派生 V2 capability。
+- G2 完成后，`SharedNetworkRevision` 生产构建只消费 V2。G2 前 `main` 仍只消费 V1。
+  不得让同一隐式入口把 v1 `F64` 米列读成毫米。API 草图见
+  `shared-static-network.md` §3.1。
+
 LFCA v2 长度/速度类字段为 `U32` 毫米或毫米每秒（单位进字段名）；时距、三项
 加减速与停车朝向为受检 `F32` SI。检入走廊必须按 v2 重生。`NetworkRevisionId`
 随语义载荷变化。
@@ -253,6 +293,11 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 - 丢掉 ADR 0014 的加减速/时距/尺寸/横向 **上界**，只写下限。
 - 路线距离查询或 `VehicleReplaceBlock` 继续用米制作权威。
 - 改写已冻 LFCA v1 登记表，而不分配 `canonicalFormatVersion = 2`。
+- 放宽 `CheckedCanonicalNetworkInputV1` / `check_canonical_network_input_v1` /
+  `PostEmissionCheckedBundleV1` 以接纳 LFCA v2；或不冻结并行 V2 admission，把构建入口留给 G2 临场发挥。
+- 为消除 4 ms 静止跟停量化死区而增加亚微米累加器或更高分辨率 `carry`。
+- 把 `vehicle-following.md` §11.2 的 `leader_final_travel` 并入 #496 的
+  `hard_room_mm`，打破与现行快照截断的同构。
 - spawn / `PoseSource` 继续用米制作权威，只冻 `VehicleState` 观察面。
 - 把一维 mm 收进三维 `Point` / `Vector3<T>`（#354）。
 
@@ -260,14 +305,18 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 
 - 跟车占用与跨边有产品量级的离散代数；空间几何仍是有界 `f32`。
 - 短步长爬行靠微米余数，不靠纳米哨兵；硬停靠整数硬约束，不靠 SI 符号。
-- G2 必须同时改 compiler 发射、LFCA 登记表、共享列和 Runtime 热状态。
+- 4 ms 静止跟停在 IIDM 有效加速度过小、本拍不足 0.5 µm 时可以停在期望间距外约
+  10 cm；这是接受面，不是再加一层余数的理由。
+- `hard_room_mm` 与现行快照截断同构；跟车设计文档 §11.2 的投影前车行程仍是另一轴。
+- G2 必须同时改 compiler 发射、LFCA 登记表、v2 admission、共享列和 Runtime 热状态。
 - #302 不得在本切片完成前进入自身 G1 的快照字段冻结。
 - 同进程并行不因撤回跨 CPU 位级承诺而改合同；跨机器联机仍需独立 ADR。
 
 ## 实施与治理
 
 1. #496 G1：本 ADR、`traffic-runtime-integer-geometry.md`、ADR 0003/0014 修订
-   与 glossary/数值/跟车/消费/信号/制品同步。设计 PR `Refs: #496`，不 `Closes`。
+   与 glossary/数值/跟车/消费/信号/制品/共享静态路网 admission 同步。设计 PR
+   `Refs: #496`，不 `Closes`。
 2. #496 G2：唯一 Delivery PR 实现合同、对齐走廊相位并重生夹具，`Closes #496`。
 3. 实现中若发现必须改变毫米量子、步长区间、加速度下限或「先整数硬约束再余数」，
    停工并重开 G1。

@@ -1,7 +1,7 @@
 # 共享静态路网
 
 **文档状态**: Accepted（#300 G1 Pass）<br>
-**最后更新**: 2026-08-24（#496 G1：下一热列合同为整数毫米 / `mm/s`，G2 前 `main` 仍为 `f64`）<br>
+**最后更新**: 2026-08-25（#496 G1：下一热列合同为整数毫米 / `mm/s`，制品为 LFCA v2 并行 admission；G2 前 `main` 仍为 `f64` / V1）<br>
 **适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
 **关联文档**: `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
@@ -92,6 +92,49 @@ impl<'a> PostEmissionCheckedBundleV1<'a> {
 - 字段私有、无调用方传入 view/digest/revision 的公共构造器；公开 accessor 不授予
   重建该 capability 的能力。
 
+#### 提案中的 LFCA v2 admission（#496 G1；未 Pass，G2 前 `main` 仍为 V1）
+
+ADR 0028 把下一生产制品定为 LFCA v2。G2 **不得**把 v2 对象送进本节 V1 入口，也不得
+放宽 `preflight_object_values_v1` / `check_canonical_network_input_v1` 以接纳
+`formatVersion = 2`。并行能力（名称冻结；Rust 字段布局可在不扩大能力的前提下调整）：
+
+```rust
+pub struct CheckedCanonicalNetworkInputV2<'a> {
+    // all fields private to laneflow-format
+    value_checked_lfca: ValueCheckedObjectView<'a>,
+    canonical_artifact_digest: Sha256Digest,
+    canonical_artifact_byte_length: ExactByteLength,
+    network_revision: NetworkRevisionId,
+}
+
+pub fn check_canonical_network_input_v2(
+    lfca: &[u8],
+    limits: FormatLimits,
+) -> Result<CheckedCanonicalNetworkInputV2<'_>, CanonicalNetworkInputError>;
+
+impl<'a> PostEmissionCheckedBundleV2<'a> {
+    pub fn canonical_network_input(self) -> CheckedCanonicalNetworkInputV2<'a>;
+}
+```
+
+V2 能力必须满足：
+
+- object kind 精确为 LFCA v2（前导 `formatVersion` 与 `canonicalFormatVersion` 均为
+  `2`）；
+- 走 **v2 registry** 与直接值域检查，不复用会按 v1 行形状接纳字段的 V1 预检；
+- digest 和 exact length 从实际 bytes 计算；
+- `NetworkRevisionId` 已从 LFCA semantic payload 重算并与 claim 比较；
+- 字段私有、无调用方传入 view/digest/revision 的公共构造器；公开 accessor 不授予
+  重建该 capability 的能力。
+
+后发射：`check_post_emission_bundle_v2` 对 LFCA 走 v2 预检；LFSM/LFSD 不单开对象
+版本，仍按现行对象预检，但必须 `LFSM.canonicalArtifactFormatVersion == 2` 且与所绑
+LFCA 一致。`PostEmissionCheckedBundleV1` 不得派生 V2 capability。数值 `FormatLimits`
+上限不因本切片单开 `V2_HARD`，除非另有 Issue 改预算。
+
+G2 完成后，`SharedNetworkRevision` 生产构建只消费 V2。G2 前继续只消费 V1。不得提供
+把 v1 `F64` 米列读成毫米的隐式重载。
+
 `ValueCheckedObjectView` 本身不证明跨表引用、row ordering 或真实性，因此不能直接作为
 共享静态路网成功结果。`laneflow-static-network` 必须继续完成 §7 的构建闭合；发布内容
 是否被产品/宿主接受，则由 LFCP/manifest admission 在调用前决定。
@@ -123,6 +166,9 @@ RoadEditingState
 写入存档。构建成功结果不借用任何输入 backing；runtime-only 调用方可以释放 LFCA。
 可编辑 session 为后续 `PortableDiffBase::Artifact` 保留的 exact LFCA 由 editor/#302 作为
 `EditableDiffBase` 单独拥有，不进入 `SharedNetworkRevision`，也不改变 builder 的借用边界。
+
+#496 G2（Proposed）：上图两条路径改为 `CheckedCanonicalNetworkInputV2` 与
+`PostEmissionCheckedBundleV2`；不得画成 V1 入口兼收 v2。
 
 ## 4. 根修订与 component
 
@@ -261,6 +307,9 @@ CheckedCanonicalNetworkInputV1
   -> seal owned components
   -> SharedNetworkRevision
 ```
+
+#496 G2（Proposed）：算法起点换为 `CheckedCanonicalNetworkInputV2`；G2 前保持 V1。
+不得在同一 builder 函数里靠 `formatVersion` 隐式把 v1 米列当成毫米。
 
 pass A/B 都按 LFCA wire order 线性遍历，不使用保留的 O(n) ordinal random-access API 形成
 O(n²) 构建。实现可以融合不影响精确预算或错误语义的子 pass，但不得增加第二个 projection。

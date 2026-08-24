@@ -16,9 +16,15 @@ Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭�
 - `0021-city-simulation-game-traffic-foundation.md`
 - `0023-road-editing-state-and-phased-network-replacement.md`
 - `0024-compiler-post-emission-check-and-minimal-publication-closure.md`
+- `0028-integer-millimeter-traffic-geometry.md`
 - `../design/shared-static-network.md`
 - `../design/network-compiler.md`
 - `../design/portable-canonical-artifact.md`
+
+> **后续提案（#496 G1，Proposed，未 Pass）**：G2 分配并行
+> `CheckedCanonicalNetworkInputV2` / `PostEmissionCheckedBundleV2`，不得把 LFCA v2
+> 塞进本节 V1 capability。G2 完成前 `main` 仍只承认 V1。合同见 ADR 0028 与
+> `../design/shared-static-network.md` §3.1。
 
 ## 背景
 

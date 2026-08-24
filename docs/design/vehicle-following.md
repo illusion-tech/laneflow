@@ -1,7 +1,7 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted（纵向分层与 IIDM/安全投影仍有效；本文正文描述 current-`f64`。下一生产几何量子见 ADR 0028，G2 前 `main` 仍为 current-`f64`）<br>
-**最后更新**: 2026-08-24
+**最后更新**: 2026-08-25
 
 **适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
@@ -541,6 +541,11 @@ final_gap >= g_floor
 - 该约束在每个有 leader 的 tick 生效，不能等双方完全静止后再应用。
 
 求解目标是在不超过各 vehicle candidate travel 的前提下，得到最大的可行 final travel。Spatial hard projection（Signal/Parking/SpeedLimit/RouteEnd）先确定 leader final travel，再从前向后传播 follower minimum-gap cap。
+
+#496 / ADR 0028（Proposed，未 Pass）的 `hard_room_mm` **不**实现本节 `leader_final_travel`：
+它与现行 `advance_active_vehicle` 同构，只用 T 时刻 occupancy 快照的 `min_gap` 后空隙。
+current `TrafficWorld` 也尚未做前向后传播；整数毫米切片不在本轴闭合该差距，也不取代
+本节作为跟车投影的设计目标。
 
 Leader graph 中每个 vehicle 至多指向一个 leader：
 

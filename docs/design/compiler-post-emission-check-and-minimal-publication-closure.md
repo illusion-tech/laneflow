@@ -107,6 +107,13 @@ pub fn check_post_emission_bundle_v1<'a>(
 轻量 capability 可以实现 `Clone`/`Copy`；不可伪造来自字段私有性和构造入口，而不是
 一次性消费技巧。
 
+#496 G1（Proposed，未 Pass）：G2 另提供 `check_post_emission_bundle_v2` 与
+`PostEmissionCheckedBundleV2`，从中派生 `CheckedCanonicalNetworkInputV2`。不得让
+`check_post_emission_bundle_v1` / `preflight_object_values_v1` 接纳 LFCA
+`formatVersion = 2`。LFSM/LFSD 对象版本不单开；bundle 仍要求
+`canonicalArtifactFormatVersion` 与所绑 LFCA 一致。详见 ADR 0028 与
+`shared-static-network.md` §3.1。
+
 ## 5. 检查顺序
 
 检查顺序固定以下安全约束，但不把内部扫描遍数冻结为协议：
