@@ -106,9 +106,9 @@ apply pending lifecycle commands
   -> enqueue frozen plans for next lifecycle boundary
 ```
 
-`consume_world` 要求 tick 严格递增，并以先验证、后提交的方式处理整个 completion batch。Running 句柄若已从 world 消失，视为「先消失再生成」契约失败。每个 completion 必须满足：
+`consume_world` 要求恰好消费上一拍之后的那一拍（`last_consumed_tick + 1`），并以先验证、后提交的方式处理整个 completion batch。跳过中间 tick 或同一拍重复消费都失败。Running 句柄若已从 world 消失，视为「先消失再生成」契约失败。每个 completion 必须满足：
 
-- vehicle 属于一个 `Running` logical slot，状态为 `Completed`，且同一 batch 不重复；
+- vehicle 属于一个 `Running` logical slot，状态为 `Completed`，且同一 batch 不重复；world 中未跟踪的 Completed 车辆同样使整个 batch 失败；
 - route handle 等于该 logical slot 当前 route；
 - route edge occurrence 精确等于该 route 末端。
 

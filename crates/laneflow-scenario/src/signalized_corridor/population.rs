@@ -219,8 +219,8 @@ pub enum CorridorPopulationError {
         /// 诊断。
         detail: String,
     },
-    /// consume 的 tick 必须严格递增。
-    #[error("step tick {actual} 未大于上次 {previous}")]
+    /// consume 必须恰好消费上一拍之后的那一拍。
+    #[error("step tick {actual} 不是上次 {previous} 的下一拍")]
     NonMonotonicStep {
         /// 上次成功消费的 tick。
         previous: u64,
@@ -653,7 +653,7 @@ impl CorridorPopulationController {
         world: &TrafficWorld,
     ) -> Result<usize, CorridorPopulationError> {
         let tick = world.tick_index();
-        if tick <= self.last_consumed_tick {
+        if Some(tick) != self.last_consumed_tick.checked_add(1) {
             return Err(CorridorPopulationError::NonMonotonicStep {
                 previous: self.last_consumed_tick,
                 actual: tick,
@@ -674,6 +674,17 @@ impl CorridorPopulationController {
 
         for handle in world.live_vehicles() {
             let Some(slot_index) = self.running_slot(*handle) else {
+                let Some(state) = world.vehicle(*handle) else {
+                    continue;
+                };
+                if state.status() == VehicleStatus::Completed
+                    && self.slot_for_vehicle(*handle).is_none()
+                {
+                    self.reset_completion_scratch();
+                    return Err(CorridorPopulationError::UnknownCompletionVehicle {
+                        vehicle: *handle,
+                    });
+                }
                 continue;
             };
             let Some(state) = world.vehicle(*handle) else {

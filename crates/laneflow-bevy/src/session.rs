@@ -1,6 +1,5 @@
 //! 单活动 LaneFlow Session：TrafficWorld + 可选 Spatial session。
 
-use std::collections::HashMap;
 use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use bevy_ecs::entity::Entity;
@@ -97,6 +96,9 @@ impl LaneFlowSession {
         {
             return Err(LaneFlowAdapterError::RevisionMismatch);
         }
+        let vehicle_entities = VehicleEntityMap::with_capacity(
+            usize::try_from(world.config().vehicle_capacity()).unwrap_or(0),
+        );
         Ok(Self {
             world,
             spatial,
@@ -105,7 +107,7 @@ impl LaneFlowSession {
             frame_report: LaneFlowFrameReport::default(),
             frame_step_results: Vec::new(),
             last_error: None,
-            vehicle_entities: VehicleEntityMap::default(),
+            vehicle_entities,
         })
     }
 
@@ -302,48 +304,54 @@ impl LaneFlowWorldMut<'_> {
 
 #[derive(Clone, Debug, Default)]
 struct VehicleEntityMap {
-    by_vehicle: HashMap<VehicleHandle, Entity>,
-    by_entity: HashMap<Entity, VehicleHandle>,
+    pairs: Vec<(VehicleHandle, Entity)>,
 }
 
 impl VehicleEntityMap {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            pairs: Vec::with_capacity(capacity),
+        }
+    }
+
     fn entity(&self, vehicle: VehicleHandle) -> Option<Entity> {
-        self.by_vehicle.get(&vehicle).copied()
+        self.pairs
+            .iter()
+            .find_map(|(handle, entity)| (*handle == vehicle).then_some(*entity))
     }
 
     fn bind(&mut self, vehicle: VehicleHandle, entity: Entity) -> Result<(), LaneFlowAdapterError> {
-        if let Some(existing) = self.by_vehicle.get(&vehicle).copied() {
+        if let Some((_, existing)) = self.pairs.iter().find(|(handle, _)| *handle == vehicle) {
             return Err(LaneFlowAdapterError::DuplicateVehicleBinding {
                 vehicle,
-                existing,
+                existing: *existing,
                 requested: entity,
             });
         }
-        if let Some(existing) = self.by_entity.get(&entity).copied() {
+        if let Some((existing, _)) = self.pairs.iter().find(|(_, bound)| *bound == entity) {
             return Err(LaneFlowAdapterError::DuplicateEntityBinding {
                 entity,
-                existing,
+                existing: *existing,
                 requested: vehicle,
             });
         }
-        self.by_vehicle.insert(vehicle, entity);
-        self.by_entity.insert(entity, vehicle);
+        self.pairs.push((vehicle, entity));
         Ok(())
     }
 
     fn unbind_vehicle(&mut self, vehicle: VehicleHandle) -> Result<Entity, LaneFlowAdapterError> {
-        let Some(entity) = self.by_vehicle.remove(&vehicle) else {
+        let Some(index) = self.pairs.iter().position(|(handle, _)| *handle == vehicle) else {
             return Err(LaneFlowAdapterError::UnknownVehicle { vehicle });
         };
-        self.by_entity.remove(&entity);
-        Ok(entity)
+        Ok(self.pairs.swap_remove(index).1)
     }
 
     fn rotate(&mut self, old: VehicleHandle, new: VehicleHandle, entity: Option<Entity>) {
-        self.by_vehicle.remove(&old);
-        if let Some(entity) = entity {
-            self.by_entity.insert(entity, new);
-            self.by_vehicle.insert(new, entity);
+        let Some(entity) = entity else {
+            return;
+        };
+        if let Some(pair) = self.pairs.iter_mut().find(|(handle, _)| *handle == old) {
+            *pair = (new, entity);
         }
     }
 }
