@@ -1,7 +1,7 @@
 # Route System 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-25（#229 Traffic v0.8 occurrence compiler 同步）
+**最后更新**: 2026-08-25（#496 G1：前缀溢出走 `BeyondFinite`，不因此拒绝注册）
 
 **适用范围**: v0.2 Lane Graph + Route 的 route definition、route validation、route lifecycle 和 simple route following 边界  
 **关联文档**:
@@ -14,6 +14,7 @@
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
+- `../adr/0028-integer-millimeter-traffic-geometry.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `../roadmap.md`
 
@@ -36,8 +37,10 @@ Current static ParkingSpace 不持有 RouteHandle。#108/#109 current runtime �
 
 ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go 后 current 继续
 `f64`。**下一生产合同是 ADR 0028**（Proposed）：路线前缀与距离查询为 `u32` mm，
-溢出 `BeyondFinite`；单边 `u32` mm，`10_000_000` mm 上界。本文以下仍描述
-current-`f64` 路线距离语义。
+溢出 `BeyondFinite`；单边 `u32` mm，`10_000_000` mm 上界。`register_route` 与
+StaticRoute **不得**因整条或前缀累计超过 `u32::MAX` mm 失败；`hard_room` 在剩余
+`BeyondFinite` 时不把路终当硬约束，`Completed` 只在剩余 `Finite(0)` 时发生。本文
+以下仍描述 current-`f64` 路线距离语义。
 
 目标：
 
@@ -138,6 +141,7 @@ route validation 不检查：
 - parking availability。
 - path optimality。
 - 几何曲率、turn radius 或碰撞。
+- 整条 route 累计距离必须 finite（#496：溢出为 `BeyondFinite`，不是注册失败）。
 
 ### D5. route registry 支持动态注册和受控移除
 

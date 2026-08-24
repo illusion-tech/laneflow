@@ -22,8 +22,10 @@
 - `0025-checked-canonical-network-and-shared-static-network.md`
 - `../design/traffic-runtime-integer-geometry.md`
 - `../design/shared-static-network.md`
+- `../design/portable-canonical-artifact.md`
 - `../design/numeric-representation.md`
 - `../design/vehicle-following.md`
+- `../design/route-system.md`
 - `../design/traffic-runtime-shared-consumption.md`
 
 ## 背景
@@ -63,8 +65,8 @@ JSON 生产入口已拆除，该门槛不再构成现行交通权威。
 
 `BoundedDistance::Finite(u32)` 毫米。满量程约 **4295 km**，已覆盖城市一趟行程
 （Spatial 单 frame 约 32 km 盒；家→公司/过境是几十公里，不是跨省 2000 km 单路单）。
-前缀和用 checked `u32` 加；溢出 → `BeyondFinite`（或注册失败），**不**为 1920×10 km
-理论积上 `u64`。`BeyondFinite` 语义保留。
+前缀和用 checked `u32` 加；溢出 → `BeyondFinite`，**禁止**因此让 `register_route` 或
+StaticRoute 构建失败，也 **不**为 1920×10 km 理论积上 `u64`。`BeyondFinite` 语义保留。
 
 朝向、车头时距、加速度/减速度 **不是** 一维长度，不进毫米权威：时距与加减速
 保持受检 `f32` SI，供 IIDM 使用。沿用 ADR 0014 上界，并加上起步下限：
@@ -76,6 +78,16 @@ JSON 生产入口已拆除，该门槛不再构成现行交通权威。
 
 `max_accel` 下限保证 4 ms 下静止起步约 1 s 内能靠行程余数凑满 1 mm；更弱加速度
 不是产品车辆，**禁止**速度余数。
+
+编制 / LIR 进入 LFCA v2 或 Runtime 整数表面时，**先量化，再按量化后的界限检查**：
+
+- 毫米 / 毫米每秒：`round-ties-to-even(f64(SI) × 1000)` 得到整数候选，再套本节整数闭包。
+  例如车长 `0.0996 m` → `100 mm` 合法；`0.0994 m` → `99 mm` 失败。**禁止**先用量化前的
+  裸 `0.1 m` / `128 m` 拒绝、再量化（那会与毫米权威打架）。
+- 时距、三项加减速、停车朝向：`f64` → IEEE 754 binary32 round-ties-to-even，再套本节
+  `f32` SI 闭包。朝向 `π` 用 binary32 `0x40490fdb`。
+- 跨字段（停车进度 vs 所引边长）在 **双方都量化之后** 比较。
+裸 SI 不是第二套权威。Spatial 折线仍是 ADR 0015 的 `f32` 米，不走本量化。
 
 ### 2. LFCA 只存一条 `U32` 毫米边长；有折线从弧长派生，headless 不求弧
 
@@ -123,7 +135,11 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
   恰为 `min_gap` 时 `hard_room_mm == 0`，即使前车本拍会走；follower 下一拍才看见
   新空隙。该一拍滞后是现行生产路径的行为，#496 不在本轴改为投影前车行程；
 - `DenyAndStop` 停车线距离（绿灯/无灯则不限制）；
-- **路线剩余**：沿本车路线累加到最后一边终点（与现行 `remaining_to_route_end` 同构）；
+- **路线剩余**：从当前进度沿本车路线 checked 加到最后一边终点（与现行
+  `remaining_to_route_end` 同构）。累加能放入 `u32` 时该项为 `Finite` 并参与
+  `hard_room` 的 min；溢出则为 `BeyondFinite`，**该项不参与** `hard_room`（本拍不靠
+  路终硬停，也不得因此 `Completed`）。`Completed` 当且仅当剩余为 `Finite(0)`。
+  **禁止**把溢出饱和成 `u32::MAX` 当作路终硬约束，也 **禁止**把溢出当成注册失败；
 - 若下一条路线 hop 存在但该转移的 Gate **拒绝**：当前 `fromEdge` 终点；
 - 若下一条 hop 存在且 Gate 许可：边终点 **不是** 硬停，余量进入下一条。
 
@@ -140,9 +156,9 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
    `travel_mm = min(um / 1000, hard_room_mm)`（`u64` 运算，避免 `f32` 在大行程
    上丢失微米）；
 5. `apply_travel`。若 `travel_mm == hard_room_mm`（本拍走到停车类约束）：
-   到位后 `speed_mm_s = 0`，`carry_um = 0`。若该约束是 **路线剩余为零**（没有
-   下一 hop）：再把 `VehicleStatus` 置为 `Completed`，离开占用与
-   `committed_pose_sources`。Gate 拒绝或仍有后续 hop 的硬停保持 `Active`。
+   到位后 `speed_mm_s = 0`，`carry_um = 0`。若该约束是 **路线剩余 `Finite(0)`**
+   （没有下一 hop；`BeyondFinite` 不是路终）：再把 `VehicleStatus` 置为 `Completed`，
+   离开占用与 `committed_pose_sources`。Gate 拒绝或仍有后续 hop 的硬停保持 `Active`。
    否则保留 `carry_um = um % 1000`，速度量化为 `u32` mm/s，**独立于** 本拍是否
    凑满 1 mm。
 
@@ -244,9 +260,17 @@ G2 必须同时冻结共享静态路网 **admission**，不得只换制品版本
   不得让同一隐式入口把 v1 `F64` 米列读成毫米。API 草图见
   `shared-static-network.md` §3.1。
 
-LFCA v2 长度/速度类字段为 `U32` 毫米或毫米每秒（单位进字段名）；时距、三项
-加减速与停车朝向为受检 `F32` SI。检入走廊必须按 v2 重生。`NetworkRevisionId`
-随语义载荷变化。
+LFCA v2 **只**改附录 A.1 下列字段的名字和/或类型；**未列出的字段保持 v1 的 tag、
+名字、类型、必填**。不得改写 A.1 的 v1 表，也不得用「等长度」打包。逐项增量以
+`portable-canonical-artifact.md` A.1 v2 增量与 `traffic-runtime-integer-geometry.md`
+§6 为准，二者必须一致。Spatial `LaneEdgeGeometry` / `segments` 仍为 `f32` 米，不进本表。
+
+检入走廊必须按 v2 重生。`NetworkRevisionId` 随语义载荷变化。
+
+路线距离索引：`occurrence_offsets` / `segment_totals` 对仍能放入 `u32` 的前缀写毫米；
+一旦 checked 加溢出，该点及之后的查询为 `BeyondFinite`。不得用 `u32::MAX` 当哨兵。
+公开查询仍为 `Finite(u32)` / `BeyondFinite` / `Passed`。列的 Rust 形状可在不改变该
+查询语义的前提下调整。`register_route` / StaticRoute **不**因前缀溢出失败。
 
 公开观察与命令表面同一套整数权威：
 
@@ -290,6 +314,10 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 - 占用间隙用 `i32` 回绕代替有符号 `i64`。
 - 路线 `Finite` 用 `u64` 只为装下 1920×10 km 理论积；产品行程用 `u32` mm，溢出走
   `BeyondFinite`。
+- 前缀累计超过 `u32::MAX` mm 时拒绝 `register_route` / StaticRoute，或把
+  `BeyondFinite` 路终饱和成 `u32::MAX` 硬约束。
+- 用「等长度」或分组行代替逐字段 tag / 名字 / 类型 / 必填的 v2 增量。
+- 先按量化前的裸 SI 界限拒绝，再 round 到毫米 / `f32`（与毫米权威打架）。
 - 丢掉 ADR 0014 的加减速/时距/尺寸/横向 **上界**，只写下限。
 - 路线距离查询或 `VehicleReplaceBlock` 继续用米制作权威。
 - 改写已冻 LFCA v1 登记表，而不分配 `canonicalFormatVersion = 2`。
@@ -308,7 +336,8 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 - 4 ms 静止跟停在 IIDM 有效加速度过小、本拍不足 0.5 µm 时可以停在期望间距外约
   10 cm；这是接受面，不是再加一层余数的理由。
 - `hard_room_mm` 与现行快照截断同构；跟车设计文档 §11.2 的投影前车行程仍是另一轴。
-- G2 必须同时改 compiler 发射、LFCA 登记表、v2 admission、共享列和 Runtime 热状态。
+- G2 必须同时改 compiler 发射、LFCA v2 逐字段登记表、v2 admission、共享列和 Runtime 热状态。
+- 路线前缀溢出是 `BeyondFinite`，不是注册失败；先量化再检查，不保留一套打架的裸 SI 下限。
 - #302 不得在本切片完成前进入自身 G1 的快照字段冻结。
 - 同进程并行不因撤回跨 CPU 位级承诺而改合同；跨机器联机仍需独立 ADR。
 

@@ -12,7 +12,7 @@ Spatial 采样钉死端点<br>
 `../adr/0022-authoring-curve-and-canonical-polyline-error-budgets.md`、
 `numeric-representation.md`、`vehicle-following.md`、
 `traffic-runtime-shared-consumption.md`、`shared-static-network.md`、
-`portable-canonical-artifact.md`、`signal-system.md`
+`portable-canonical-artifact.md`、`signal-system.md`、`route-system.md`
 
 本文是 #496 的实现级 G1 输入。它不授权 #302 快照容器、#303 Routing、残差
 `f32` 进度或整数 IIDM。G2 完成前 `main` 仍为 current-`f64`；不得把本文写成已落地。
@@ -75,10 +75,16 @@ IIDM 仍在 `f32` SI 中算出「这一拍最多走多远」。**先**用整数�
 
 路线剩余：沿 hop 把 `u32` 边长 **checked 加** 到 `u32` mm。
 `BoundedDistance::Finite(u32)`；溢出为 `BeyondFinite`，不为理论超长路单上 `u64`。
-`RouteDistanceIndexView` 的 `occurrence_offsets` / `segment_totals`、查询参数
-`from_progress_mm` / `horizon_mm`、以及 `RouteDistanceQuery::Within` 一律 `u32` mm。
-占用间隙与跨 hop 跟车空隙用 checked `i64` mm。边上区间仍 `u32`。
-`VehicleReplaceBlock.bumper_gap_mm: i64`。
+**禁止**因前缀溢出拒绝 `register_route` / StaticRoute。
+`RouteDistanceIndexView` 对仍能放入 `u32` 的前缀写毫米；溢出点及之后查询为
+`BeyondFinite`，不得用 `u32::MAX` 当哨兵。查询参数 `from_progress_mm` /
+`horizon_mm` 与 `RouteDistanceQuery::Within` 为 `u32` mm。占用间隙与跨 hop 跟车空隙用
+checked `i64` mm。边上区间仍 `u32`。`VehicleReplaceBlock.bumper_gap_mm: i64`。
+
+编制进入毫米 / `f32` 表面时 **先量化，再检查**：毫米类
+`round-ties-to-even(f64(SI) × 1000)` 后套整数闭包；时距/加减速/朝向先
+round-ties-to-even 到 `f32` 再套 `f32` 闭包。禁止先用裸 `0.1 m` 拒绝再量化。
+`0.0996 m` → `100 mm` 合法，`0.0994 m` → `99 mm` 失败。跨字段在双方量化后比较。
 
 ## 4. 车辆已提交状态
 
@@ -111,12 +117,15 @@ speed_mm_s: u32            // 静止可为 0
    - 前车 `min_gap` 后空隙（可跨 hop；快照间距恰为 `min_gap` 则本拍 `hard_room_mm == 0`，
      即使前车本拍会走）；
    - `DenyAndStop` 停车线；
-   - 本车路线剩余（沿路线累加到最后一边终点，与现行 `remaining_to_route_end`
-     同构）；
+   - 本车路线剩余（从当前进度沿路线 checked 加到最后一边终点，与现行
+     `remaining_to_route_end` 同构）。`Finite` 参与 min；`BeyondFinite` **不**参与
+     `hard_room`，本拍不靠路终硬停，也不得因此 `Completed`。禁止把溢出饱和成
+     `u32::MAX`；
    - 下一 hop 存在但 Gate 拒绝时的 `fromEdge` 终点。
    下一 hop 存在且 Gate 许可时，边终点不是硬停。
 4. `hard_room_mm == 0`：`travel_mm = 0`，`speed_mm_s = 0`，`carry_um = 0`，不
-   `apply_travel`。若此时路线剩余已为零：`VehicleStatus::Completed`。
+   `apply_travel`。若此时路线剩余为 `Finite(0)`：`VehicleStatus::Completed`。
+   `BeyondFinite` 不是路终。
 5. 否则
    `um = u64(carry_um) + round-ties-to-even(f64(travel_m) × 1e6)`；
    `travel_mm = min(um / 1000, hard_room_mm)`；
@@ -126,8 +135,8 @@ speed_mm_s: u32            // 静止可为 0
    `progress_mm = 0`；满边但下一跳拒绝则停在 `progress_mm == length_mm`，保持
    `Active`。
 7. 硬停（第 4 步，或第 5 步走到 `hard_room_mm`）：`speed_mm_s = 0`。若走完的是
-   **路线剩余**（没有下一 hop）：`VehicleStatus::Completed`，离开占用与
-   `committed_pose_sources`。Gate 拒绝不是 `Completed`。否则
+   **路线剩余 `Finite(0)`**（没有下一 hop）：`VehicleStatus::Completed`，离开占用与
+   `committed_pose_sources`。Gate 拒绝或剩余 `BeyondFinite` 都不是 `Completed`。否则
    `speed_mm_s = round-ties-to-even(f64(next_speed_m) × 1000)`，不由 travel 反推。
 
 占用循环：边上 `remaining_mm == 0` 结束（`u32`）。重叠：有符号整数区间。跨 hop
@@ -181,17 +190,51 @@ LFCA 版本。
   `PostEmissionCheckedBundleV1` 不得派生 V2。
 - 生产构建 G2 后只消费 V2。草图与能力规则见 `shared-static-network.md` §3.1。
 
-LFCA v2 登记表破坏性更新（相对 v1 字段名/类型；不兼容读旧 `F64`）：
+LFCA v2 登记表增量（相对附录 A.1 v1；**不兼容**读旧 `f64`）。**只改下表各行**；未列出的
+字段保持 v1 的 tag、名字、类型、必填。不得改写 v1 表，不得用「等长度」打包。
+`fieldType`：`3=u32`、`5=f32`、`13=i32`。Spatial `LaneEdgeGeometry.arcLengthMeters` /
+`segments.lengthMeters` 仍为 `f32` 米，不进本表。
 
-| 现行                                         | 目标                                  |
-| -------------------------------------------- | ------------------------------------- |
-| `LaneEdge.lengthMeters: F64`                 | `lengthMillimetres: U32`              |
-| `LaneEdge.speedLimitMetersPerSecond: F64`    | `speedLimitMillimetresPerSecond: U32` |
-| `VehicleProfile.lengthMeters` 等长度         | 对应 `U32` mm                         |
-| `VehicleProfile.desiredSpeedMetersPerSecond` | `U32` mm/s                            |
-| 停车 progress / lateral / extent             | `U32`/`I32` mm                        |
-| `ParkingSpace.headingOffsetRadians: F64`     | `headingOffsetRadians: F32`           |
-| 时距与三项加减速                             | 受检 `F32` SI（不保留 `F64`）         |
+| 表             | tableKind | tag | v1 `name:type:R`                                      | v2 `name:type:R`                                      |
+| -------------- | --------- | --- | ----------------------------------------------------- | ----------------------------------------------------- |
+| LaneEdge       | `0x0004`  | 3   | `lengthMeters:f64:R`                                  | `lengthMillimetres:u32:R`                             |
+| LaneEdge       | `0x0004`  | 4   | `speedLimitMetersPerSecond:f64:R`                     | `speedLimitMillimetresPerSecond:u32:R`                |
+| ParkingSpace   | `0x000f`  | 5   | `entryProgressMeters:f64:R`                           | `entryProgressMillimetres:u32:R`                      |
+| ParkingSpace   | `0x000f`  | 7   | `exitProgressMeters:f64:R`                            | `exitProgressMillimetres:u32:R`                       |
+| ParkingSpace   | `0x000f`  | 8   | `lateralOffsetMeters:f64:R`                           | `lateralOffsetMillimetres:i32:R`                      |
+| ParkingSpace   | `0x000f`  | 9   | `headingOffsetRadians:f64:R`                          | `headingOffsetRadians:f32:R`                          |
+| ParkingSpace   | `0x000f`  | 10  | `lengthMeters:f64:R`                                  | `lengthMillimetres:u32:R`                             |
+| ParkingSpace   | `0x000f`  | 11  | `widthMeters:f64:R`                                   | `widthMillimetres:u32:R`                              |
+| VehicleProfile | `0x0014`  | 4   | `lengthMeters:f64:R`                                  | `lengthMillimetres:u32:R`                             |
+| VehicleProfile | `0x0014`  | 5   | `desiredSpeedMetersPerSecond:f64:R`                   | `desiredSpeedMillimetresPerSecond:u32:R`              |
+| VehicleProfile | `0x0014`  | 6   | `minGapMeters:f64:R`                                  | `minGapMillimetres:u32:R`                             |
+| VehicleProfile | `0x0014`  | 7   | `timeHeadwaySeconds:f64:R`                            | `timeHeadwaySeconds:f32:R`                            |
+| VehicleProfile | `0x0014`  | 8   | `maxAccelerationMetersPerSecondSquared:f64:R`         | `maxAccelerationMetersPerSecondSquared:f32:R`         |
+| VehicleProfile | `0x0014`  | 9   | `comfortableDecelerationMetersPerSecondSquared:f64:R` | `comfortableDecelerationMetersPerSecondSquared:f32:R` |
+| VehicleProfile | `0x0014`  | 10  | `emergencyDecelerationMetersPerSecondSquared:f64:R`   | `emergencyDecelerationMetersPerSecondSquared:f32:R`   |
+
+量化后闭包（先 round，再检查；跨字段在双方量化后比较）：
+
+| v2 字段                                                        | 闭包                                           |
+| -------------------------------------------------------------- | ---------------------------------------------- |
+| `LaneEdge.lengthMillimetres`                                   | `100..=10_000_000`                             |
+| `LaneEdge.speedLimitMillimetresPerSecond`                      | `1..=100_000`                                  |
+| `ParkingSpace.entryProgressMillimetres`                        | 所引入口边量化后边长 `L`：`1 <= p <= L - 1`    |
+| `ParkingSpace.exitProgressMillimetres`                         | 所引出口边量化后边长 `L`：`1 <= p <= L - 1`    |
+| `ParkingSpace.lateralOffsetMillimetres`                        | `abs <= 128_000`；路外 `abs >= 1`              |
+| `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；`π` 为 binary32 `0x40490fdb`    |
+| `ParkingSpace.lengthMillimetres` / `widthMillimetres`          | 各自 `100..=128_000`                           |
+| `VehicleProfile.lengthMillimetres`                             | `100..=128_000`                                |
+| `VehicleProfile.desiredSpeedMillimetresPerSecond`              | `1..=100_000`                                  |
+| `VehicleProfile.minGapMillimetres`                             | `0..=128_000`                                  |
+| `VehicleProfile.timeHeadwaySeconds`                            | `0 < x <= 60`                                  |
+| `VehicleProfile.maxAccelerationMetersPerSecondSquared`         | `0.5..=50`                                     |
+| `VehicleProfile.comfortableDecelerationMetersPerSecondSquared` | `0 < x <= 50`                                  |
+| `VehicleProfile.emergencyDecelerationMetersPerSecondSquared`   | `0 < x <= 50`，且 `>= comfortableDeceleration` |
+
+有折线时，量化后的 `lengthMillimetres` 与 `f32` 弧长仍用现行米制容差对账：
+`abs(f64(length_mm) / 1000 - f64(arc_m)) <= max(0.01 m, 1.0e-6 * max(length_m, f64(arc)))`。
+对账失败关闭，不改写已量化边长。headless 无此对账。
 
 后发射检查失败关闭旧 v1 字节。走廊检入 LFCA 必须按 v2 重生并对拍。
 `NetworkRevisionId` 随载荷变化。
@@ -237,6 +280,10 @@ LFCA v2 登记表破坏性更新（相对 v1 字段名/类型；不兼容读旧 
   `travel_mm == 0`、`speed_mm_s == 0`、`carry_um == 0` 且下一拍状态重复，不是失败；
   快照 `hard_room`：follower 与 leader 间距恰为 `min_gap` 时本拍硬停，即使 leader
   本拍会走（与现行 `advance_active_vehicle` 同构）；
+  前缀累计超过 `u32::MAX` mm 时 `register_route` / StaticRoute 仍成功，查询
+  `BeyondFinite`，`hard_room` 不把路终当硬约束，不进 `Completed`；
+  `0.0996 m` 车长量化为 `100 mm` 并接受；`0.0994 m` 量化为 `99 mm` 并失败；
+  v2 读器按上表逐字段核对 tag/名字/类型，缺字段或把未改字段写成新类型失败关闭；
   `60 km/h` 长期平均速度由余数对齐量化后的 `mm/s`，无系统少走；相位非倍数
   `install` 失败；`dt=3` 失败；`dt=4` 与 `dt=1000` 均能 install（夹具相位允许时）。
 
@@ -253,3 +300,6 @@ LFCA v2 登记表破坏性更新（相对 v1 字段名/类型；不兼容读旧 
 - 放宽 V1 admission 接纳 LFCA v2，或不冻结并行 `CheckedCanonicalNetworkInputV2`。
 - 亚微米累加器，或把 4 ms 静止跟停量化死区当缺陷消掉。
 - 把 `vehicle-following.md` §11.2 的 `leader_final_travel` 并入本切片 `hard_room_mm`。
+- 用「等长度」打包 v2 字段，或改写附录 A.1 的 v1 表。
+- 前缀超过 `u32::MAX` mm 时注册失败，或把 `BeyondFinite` 饱和成 `u32::MAX` 路终硬停。
+- 先按量化前的裸 SI 界限拒绝，再 round 到毫米 / `f32`。
