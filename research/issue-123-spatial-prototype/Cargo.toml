@@ -9,7 +9,7 @@ publish = false
 
 [dev-dependencies]
 euclid = { version = "=0.22.14", default-features = false, features = ["std"] }
-glam = { version = "=0.33.3", default-features = false, features = ["std", "f64"] }
+glam = { version = "=0.33.5", default-features = false, features = ["std", "f64"] }
 
 [lints]
 workspace = true
