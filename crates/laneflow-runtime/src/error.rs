@@ -156,22 +156,6 @@ pub enum ReplaceError {
     Blocked(VehicleReplaceBlock),
 }
 
-impl From<SpawnError> for ReplaceError {
-    fn from(error: SpawnError) -> Self {
-        match error {
-            SpawnError::UnknownProfile => Self::UnknownProfile,
-            SpawnError::UnknownRoute => Self::UnknownRoute,
-            SpawnError::RouteIndexOutOfRange => Self::RouteIndexOutOfRange,
-            SpawnError::InvalidProgress => Self::InvalidProgress,
-            SpawnError::InvalidSpeed => Self::InvalidSpeed,
-            SpawnError::SpeedExceedsLimit => Self::SpeedExceedsLimit,
-            SpawnError::CapacityExceeded => Self::CapacityExceeded,
-            SpawnError::AccessDenied => Self::AccessDenied,
-            SpawnError::Overlap => unreachable!("spawn overlap maps to ReplaceError::Blocked"),
-        }
-    }
-}
-
 /// `occupy_parking` 失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum ParkingError {

@@ -195,3 +195,33 @@ fn unbound_replace_stays_unbound() {
             .is_none()
     );
 }
+
+#[test]
+fn identical_bind_is_duplicate_error() {
+    let mut world =
+        TrafficWorld::install(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let vehicle = drive_to_completed(&mut world);
+    let session = LaneFlowSession::new(
+        world,
+        None,
+        LaneFlowSessionConfig::new(NonZeroU32::new(8).expect("non-zero")),
+    )
+    .expect("session");
+    let mut app = App::new();
+    app.add_plugins((TimePlugin, TransformPlugin, LaneFlowPlugin));
+    app.insert_resource(session);
+    let entity = app.world_mut().spawn(Transform::IDENTITY).id();
+    app.world_mut()
+        .resource_mut::<LaneFlowSession>()
+        .bind_vehicle_entity(vehicle, entity)
+        .expect("first bind");
+    let err = app
+        .world_mut()
+        .resource_mut::<LaneFlowSession>()
+        .bind_vehicle_entity(vehicle, entity)
+        .expect_err("repeat bind");
+    assert!(matches!(
+        err,
+        laneflow_bevy::LaneFlowAdapterError::DuplicateVehicleBinding { .. }
+    ));
+}

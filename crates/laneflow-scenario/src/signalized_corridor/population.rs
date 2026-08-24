@@ -1,10 +1,12 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 use laneflow_runtime::{
     RouteHandle, TrafficWorld, VehicleHandle, VehicleReplaceBlock, VehicleReplaceRecord,
     VehicleSpawnInput, VehicleStatus,
 };
-use laneflow_static_contract::{LaneEdgeOrdinal, StaticRouteOrdinal, VehicleProfileOrdinal};
+use laneflow_static_contract::{
+    LaneEdgeOrdinal, NetworkRevisionId, StaticRouteOrdinal, VehicleProfileOrdinal,
+};
 use laneflow_static_network::SharedNetworkRevision;
 use thiserror::Error;
 
@@ -23,6 +25,8 @@ pub struct CorridorVehiclePlan {
     pub progress: f64,
     /// `min(desiredSpeed, edge speedLimit)`。
     pub initial_speed: f64,
+    /// 产出该计划的共享路网修订。
+    pub network_revision: NetworkRevisionId,
 }
 
 impl CorridorVehiclePlan {
@@ -31,6 +35,11 @@ impl CorridorVehiclePlan {
         self,
         world: &TrafficWorld,
     ) -> Result<VehicleSpawnInput, CorridorPopulationError> {
+        if world.revision().network_revision() != self.network_revision {
+            return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                detail: "计划 NetworkRevisionId 与 TrafficWorld 不一致".to_owned(),
+            });
+        }
         let route = world.static_route(self.route).map_err(|_| {
             CorridorPopulationError::BoundWorldCatalogMismatch {
                 detail: "TrafficWorld 缺少计划中的静态路线".to_owned(),
@@ -84,7 +93,6 @@ pub struct CorridorPopulationController {
     profile: VehicleProfileOrdinal,
     rng: SplitMix64,
     slots: Vec<LogicalSlot>,
-    vehicle_slots: HashMap<VehicleHandle, usize>,
     pending: VecDeque<usize>,
     completion_slots: Vec<usize>,
     completion_seen: Vec<bool>,
@@ -377,6 +385,7 @@ impl CorridorPopulationPrepare {
                 route_edge_index,
                 progress: spawn_slot.progress,
                 initial_speed,
+                network_revision: catalog.network_revision,
             });
             slots.push(PreparedLogicalSlot {
                 route_index,
@@ -458,21 +467,17 @@ impl CorridorPopulationPrepare {
 
         let target = self.config.target_vehicle_count;
         let mut slots = Vec::with_capacity(target);
-        let mut vehicle_slots = HashMap::with_capacity(target);
-        let prepared_inputs = self.initial_vehicles.as_deref().unwrap_or(&[]);
+        let mut seen = Vec::with_capacity(target);
         for (slot_index, (prepared, vehicle)) in self.slots.iter().zip(vehicles.iter()).enumerate()
         {
             let state = world
                 .vehicle(*vehicle)
                 .ok_or(CorridorPopulationError::InitialVehicleMismatch { slot_index })?;
-            let expected = prepared_inputs
-                .get(slot_index)
-                .ok_or(CorridorPopulationError::InitialVehicleMismatch { slot_index })?;
-            let expected_route = world.static_route(expected.route).map_err(|_| {
-                CorridorPopulationError::BoundWorldCatalogMismatch {
+            let expected_route = world
+                .static_route(self.catalog.route_exits[prepared.route_index].route)
+                .map_err(|_| CorridorPopulationError::BoundWorldCatalogMismatch {
                     detail: "TrafficWorld 缺少初始计划静态路线".to_owned(),
-                }
-            })?;
+                })?;
             if state.profile() != self.profile
                 || state.route() != expected_route
                 || state.route_edge_index() != prepared.route_edge_index
@@ -482,11 +487,12 @@ impl CorridorPopulationPrepare {
             {
                 return Err(CorridorPopulationError::InitialVehicleMismatch { slot_index });
             }
-            if vehicle_slots.insert(*vehicle, slot_index).is_some() {
+            if seen.contains(vehicle) {
                 return Err(CorridorPopulationError::DuplicateInitialVehicleHandle {
                     vehicle: *vehicle,
                 });
             }
+            seen.push(*vehicle);
             slots.push(LogicalSlot {
                 state: LogicalSlotState::Running {
                     vehicle: *vehicle,
@@ -503,7 +509,6 @@ impl CorridorPopulationPrepare {
             profile: self.profile,
             rng: self.rng,
             slots,
-            vehicle_slots,
             pending: VecDeque::with_capacity(target),
             completion_slots: Vec::with_capacity(target),
             completion_seen: vec![false; target],
@@ -528,7 +533,7 @@ impl CorridorPopulationController {
     pub fn capacities(&self) -> CorridorPopulationCapacities {
         CorridorPopulationCapacities {
             slots: self.slots.capacity(),
-            vehicle_slots: self.vehicle_slots.capacity(),
+            vehicle_slots: self.slots.capacity(),
             pending: self.pending.capacity(),
             completion_slots: self.completion_slots.capacity(),
             completion_seen: self.completion_seen.capacity(),
@@ -581,9 +586,13 @@ impl CorridorPopulationController {
             let LogicalSlotState::Pending { old, plan } = self.slots[slot_index].state else {
                 unreachable!("pending FIFO must only contain Pending slots");
             };
-            let input = self
-                .spawn_input_from_plan(plan)
-                .map_err(CorridorReplaceApplyError::Policy)?;
+            let input = match self.spawn_input_from_plan(plan) {
+                Ok(input) => input,
+                Err(error) => {
+                    self.pending.push_front(slot_index);
+                    return Err(CorridorReplaceApplyError::Policy(error));
+                }
+            };
             report.attempted += 1;
             let outcome = match apply(old, input) {
                 Ok(outcome) => outcome,
@@ -616,7 +625,7 @@ impl CorridorPopulationController {
                             },
                         ));
                     }
-                    if self.vehicle_slots.contains_key(&record.new) {
+                    if self.slot_for_vehicle(record.new).is_some() {
                         self.pending.push_front(slot_index);
                         return Err(CorridorReplaceApplyError::Policy(
                             CorridorPopulationError::ReplacementHandleAlreadyTracked {
@@ -624,8 +633,6 @@ impl CorridorPopulationController {
                             },
                         ));
                     }
-                    let replaced = self.vehicle_slots.insert(record.new, slot_index);
-                    debug_assert!(replaced.is_none());
                     self.slots[slot_index].state = LogicalSlotState::Running {
                         vehicle: record.new,
                         route_index: plan.route_index,
@@ -654,18 +661,19 @@ impl CorridorPopulationController {
         }
         self.reset_completion_scratch();
 
-        if let Some(vehicle) = self
-            .vehicle_slots
-            .keys()
-            .copied()
-            .find(|vehicle| world.vehicle(*vehicle).is_none())
-        {
+        if let Some(vehicle) = self.slots.iter().find_map(|slot| {
+            let handle = match slot.state {
+                LogicalSlotState::Running { vehicle, .. } => vehicle,
+                LogicalSlotState::Pending { old, .. } => old,
+            };
+            world.vehicle(handle).is_none().then_some(handle)
+        }) {
             self.reset_completion_scratch();
             return Err(CorridorPopulationError::VehicleVanished { vehicle });
         }
 
         for handle in world.live_vehicles() {
-            let Some(&slot_index) = self.vehicle_slots.get(handle) else {
+            let Some(slot_index) = self.running_slot(*handle) else {
                 continue;
             };
             let Some(state) = world.vehicle(*handle) else {
@@ -737,12 +745,11 @@ impl CorridorPopulationController {
         let target_route_index =
             draw_weighted_route(&mut self.rng, &self.catalog.portal_lanes[target_lane_index]);
 
-        let removed = self.vehicle_slots.remove(&vehicle);
-        debug_assert_eq!(removed, Some(slot_index));
         self.slots[slot_index].state = LogicalSlotState::Pending {
             old: vehicle,
             plan: FrozenPlan {
                 route_index: target_route_index,
+                portal_lane_index: target_lane_index,
             },
         };
         self.pending.push_back(slot_index);
@@ -781,8 +788,14 @@ impl CorridorPopulationController {
         plan: FrozenPlan,
     ) -> Result<VehicleSpawnInput, CorridorPopulationError> {
         let route = self.route_handles[plan.route_index];
-        let entry_slot_index = self.catalog.route_exits[plan.route_index].entry_slot_index;
-        let entry = &self.catalog.spawn_slots[entry_slot_index];
+        let lane = self
+            .catalog
+            .portal_lanes
+            .get(plan.portal_lane_index)
+            .ok_or(CorridorPopulationError::BoundWorldCatalogMismatch {
+                detail: "frozen plan portal lane 越界".to_owned(),
+            })?;
+        let entry = &self.catalog.spawn_slots[lane.entry_slot_index];
         Ok(VehicleSpawnInput::new(
             self.profile,
             route,
@@ -790,6 +803,19 @@ impl CorridorPopulationController {
             entry.progress,
             self.route_entry_speeds[plan.route_index],
         ))
+    }
+
+    fn running_slot(&self, handle: VehicleHandle) -> Option<usize> {
+        self.slots.iter().position(|slot| {
+            matches!(slot.state, LogicalSlotState::Running { vehicle, .. } if vehicle == handle)
+        })
+    }
+
+    fn slot_for_vehicle(&self, handle: VehicleHandle) -> Option<usize> {
+        self.slots.iter().position(|slot| match slot.state {
+            LogicalSlotState::Running { vehicle, .. } => vehicle == handle,
+            LogicalSlotState::Pending { old, .. } => old == handle,
+        })
     }
 }
 
@@ -834,6 +860,7 @@ enum LogicalSlotState {
 #[derive(Clone, Copy, Debug)]
 struct FrozenPlan {
     route_index: usize,
+    portal_lane_index: usize,
 }
 
 #[derive(Clone, Copy, Debug)]

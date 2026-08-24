@@ -2901,7 +2901,7 @@ dependencies = [
  "laneflow-static-contract",
  "laneflow-static-network",
  "serde",
- "thiserror 2.0.19",
+ "thiserror 2.0.20",
  "toml",
 ]
 

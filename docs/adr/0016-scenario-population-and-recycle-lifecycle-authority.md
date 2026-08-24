@@ -99,10 +99,11 @@ apply pending lifecycle commands
 
 有界抽样的 `bound` 与 draw `r` 都是 `u64`。先以 unsigned wrapping 语义计算 `threshold = bound.wrapping_neg() % bound`（等价于 `2^64 mod bound`），拒绝 `r < threshold` 的值，接受后返回 `r % bound`；不得使用有偏的直接 modulo，也不得依赖集合迭代顺序。
 
-每个首次进入 pending 的 logical slot 固定消耗两次有界决策：
+每个首次进入 pending 的 logical slot 固定消耗三个有界决策：
 
 1. 从除刚驶出 portal 外的其余 5 个 portal 中均匀选择；
-2. 从目标 portal 的 2 或 3 条 lane routes 中均匀选择。
+2. 从目标 portal 的 2 或 3 条 PortalLane 中均匀选择；
+3. 对该 lane 的完整正整数 raw weights 执行 cumulative RouteChoice；单 choice 也不得跳过 draw。
 
 blocked retry 不再消耗随机数。初始人口使用同一个 PRNG 对 stable spawn-slot catalog 执行确定性 Fisher–Yates permutation；同版本实现必须用 golden sequence 锁定 seed、draw order 与结果。
 
@@ -159,7 +160,7 @@ Traffic v0.8 只承载 immutable lane graph、Junction/Movement/ManeuverPath、r
 
 ### 先 despawn，再尝试 spawn
 
-拒绝。入口阻塞或 spawn validation 失败会丢失 vehicle、降低人口，并留下 proxy 与 Core 不一致。
+拒绝。入口阻塞或 spawn validation 失败会丢失 vehicle、降低人口，并留下 proxy 与 Runtime/Session 映射不一致。
 
 ### 把人口、seed 或 Entity 写入 Traffic/Manifest
 
@@ -178,7 +179,7 @@ Traffic v0.8 只承载 immutable lane graph、Junction/Movement/ManeuverPath、r
 
 ## 验证要求
 
-- old handle stale、new handle live、logical external ID 可复用；
+- old handle stale、new handle live、logical slot 人口不变；
 - Runtime replace 的所有 validation failure 都保持 world 不变；
 - Adapter 预检/提交失败不留下 stale 或双重映射；
 - pending proxy 保持最后 pose，成功回流复用同一 Entity；

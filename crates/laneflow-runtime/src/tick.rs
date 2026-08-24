@@ -39,12 +39,6 @@ impl TrafficWorld {
         }
         let mut updates = std::mem::take(&mut self.next_states);
         for (slot, next) in updates.drain(..) {
-            if next.status == VehicleStatus::Completed
-                && let Some(previous) = self.vehicles[slot].state
-                && previous.status == VehicleStatus::Active
-            {
-                self.release_route_ref(previous.route);
-            }
             self.vehicles[slot].state = Some(next);
         }
         self.next_states = updates;

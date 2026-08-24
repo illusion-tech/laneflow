@@ -94,11 +94,8 @@ Presentation 可以自行创建或回收模型 Entity。用于接收 LaneFlow po
 
 #170 冻结并实现的公开边界为：
 
-- `LaneFlowSession::{bind_vehicle_entity, unbind_vehicle, unbind_entity, rebind_vehicle_entity}` 是映射的唯一写入口；bind/rebind 只接受当前 Core 中存在的 vehicle。
-- `LaneFlowSession::vehicle_entities()` 返回 `LaneFlowVehicleEntityMap` 只读视图，可按 vehicle 或 Entity 双向查询，不公开 HashMap 迭代顺序。
-- duplicate vehicle、duplicate Entity、unknown vehicle 与未绑定 rebind 都返回 `LaneFlowAdapterError`，失败前后双射不变。
-- rebind 只替换一个 vehicle 的 Entity 并返回旧 Entity；宿主负责新旧 Entity 的 bundle、parent 与回收生命周期。
-- #475 的 `replace_completed_vehicle(&mut World, old, VehicleSpawnInput)` 是 replacement 唯一公共组合事务；成功时已绑定 vehicle 复用同一 Entity 并原子轮换到 new handle，未绑定 vehicle 继续保持未绑定。`Blocked` 时映射与 Transform 不变。它不替代宿主主动调用的 bind/unbind。
+- `LaneFlowSession::{bind_vehicle_entity, unbind_vehicle, vehicle_entity}` 是映射的写/查入口；bind 只接受当前 `TrafficWorld` 中存在的 vehicle。重复 bind（含完全相同的 Vehicle/Entity）是结构化错误。
+- #475 的 `replace_completed_vehicle(&mut World, old, VehicleSpawnInput)` 是 replacement 唯一公共组合事务；成功时已绑定 vehicle 复用同一 Entity 并原子轮换到 new handle，未绑定 vehicle 继续保持未绑定。`Blocked` 时映射与 Transform 不变。不得经 `world_mut()` 直接调用 `TrafficWorld::replace_completed_vehicle`。
 
 ## 6. Canonical frame 与 Bevy Transform
 
@@ -236,7 +233,7 @@ prepare 绑定车辆。#475 交付 `TrafficWorld::replace_completed_vehicle` 与
 replace-and-rebind；薄示例仍可不启用 50–200 人口。JSON loader 与 `CoreWorld` 不可调用。
 
 
-#187 在 v0.7 schedule 上公开 `LaneFlowFixedSet::{Lifecycle, Step, Observe}`，固定顺序为：每个 LaneFlow fixed step 前在 `Lifecycle` 应用 pending lifecycle commands，Adapter 在 `Step` 推进一次 Core，调用方在 `Observe` 消费 committed result/event 并为下一 boundary 入队。一个 outer frame 内的 catch-up steps 逐步重复完整链，presentation 仍在 outer frame 最多提交一次，因此 frame chunking 不得改变 Population/Core 决策。
+`LaneFlowFixedSet::{Lifecycle, Step, Observe}` 的固定顺序为：每个 LaneFlow fixed step 前在 `Lifecycle` 应用 pending lifecycle commands，Adapter 在 `Step` 推进一次 `TrafficWorld`，调用方在 `Observe` 消费 committed result 并为下一 boundary 入队。一个 outer frame 内的 catch-up steps 逐步重复完整链，presentation 仍在 outer frame 最多提交一次，因此 frame chunking 不得改变 Population/Runtime 决策。
 
 车辆完成 route 后，既有 proxy/model 不 despawn。等待可用入口时，Completed vehicle 不产生 pose record，Entity 保留最后 Transform。caller 在 `Lifecycle` 使用 `replace_completed_vehicle`：`Blocked` 保持 Runtime/映射/Transform 不变并允许继续处理其他计划；`Replaced` 把同一 Entity 从 old handle 轮换到 new handle，下一次正常 `PostUpdate` presentation 才更新入口位姿。fatal Adapter/Runtime error 停止该 outer frame 当前和后续 catch-up，完整保留 backlog；已成功的前序 command 不做跨 command 回滚。
 
@@ -252,12 +249,12 @@ public API。
 启动顺序固定为：
 
 ```text
-严格 CLI/config projection
-  -> production ScenarioManifest/Traffic/Spatial loader
-  -> catalog normalize + population prepare
-  -> Core initial batch
+检入 catalog 0.2 + LFCA
+  -> SharedNetworkRevision::build + TrafficWorld::install
+  -> catalog bind + population prepare
+  -> spawn_vehicle batch
   -> population bind
-  -> Session + one proxy per vehicle
+  -> Session + 可选 proxy
   -> 首个 fixed step
 ```
 

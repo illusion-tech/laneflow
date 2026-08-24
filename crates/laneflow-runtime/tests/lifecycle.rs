@@ -463,6 +463,7 @@ fn replace_is_atomic_and_blocked_overlap_is_retryable() {
     };
     assert_eq!(block.old, old);
     assert_eq!(block.blocker, blocker);
+    assert!(block.blocker_ahead, "entry spawn is behind the blocker");
     assert_eq!(world.vehicle(old), before, "Blocked must not mutate world");
     assert_eq!(world.live_vehicles(), &[old, blocker]);
 
@@ -528,4 +529,121 @@ fn replace_does_not_use_despawn_then_spawn() {
         SpawnError::CapacityExceeded,
         "不得把跑完即退役再 spawn 写成回流"
     );
+}
+
+#[test]
+fn completed_dynamic_route_stays_referenced_until_replace() {
+    let mut world = world();
+    let first = edge_for_length(&world, 10.0);
+    let middle = edge_for_length(&world, 8.0);
+    let last = edge_for_length(&world, 12.0);
+    let dynamic = world
+        .register_route(RouteRegisterInput::new(vec![first, middle, last]))
+        .expect("dynamic");
+    let last_length = world.traffic().lane_lengths_meters()[last.index()];
+    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[last.index()];
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            dynamic,
+            2,
+            (last_length - 0.5).max(0.0),
+            speed_limit,
+        ))
+        .expect("spawn near end");
+    for _ in 0..8 {
+        world.step(TickInput::new(100)).expect("step");
+        if world
+            .vehicle(vehicle)
+            .is_some_and(|state| state.status() == VehicleStatus::Completed)
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        world.vehicle(vehicle).expect("retained").status(),
+        VehicleStatus::Completed
+    );
+    assert_eq!(
+        world.remove_route(dynamic).unwrap_err(),
+        RouteError::InUse {
+            vehicle,
+            route: dynamic
+        }
+    );
+    world.step(TickInput::new(100)).expect("extra step");
+    assert_eq!(
+        world.vehicle(vehicle).expect("no timeout retire").status(),
+        VehicleStatus::Completed
+    );
+
+    let static_route = world
+        .static_route(StaticRouteOrdinal::from_raw(0))
+        .expect("static");
+    let record = world
+        .replace_completed_vehicle(
+            vehicle,
+            VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                static_route,
+                0,
+                0.0,
+                0.0,
+            ),
+        )
+        .expect("replace onto static");
+    world.remove_route(dynamic).expect("old dynamic unused");
+    assert!(world.vehicle(record.new).is_some());
+}
+
+#[test]
+fn parked_and_stale_replace_leave_world_unchanged() {
+    let mut world = world();
+    let route = world
+        .static_route(StaticRouteOrdinal::from_raw(0))
+        .expect("static route");
+    let parked = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            0.0,
+            0.0,
+        ))
+        .expect("spawn");
+    world
+        .occupy_parking(parked, ParkingSpaceOrdinal::from_raw(0))
+        .expect("park");
+    assert_eq!(
+        world
+            .replace_completed_vehicle(
+                parked,
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1.0, 0.0),
+            )
+            .unwrap_err(),
+        ReplaceError::NotCompleted
+    );
+    assert_eq!(
+        world.vehicle(parked).expect("unchanged").status(),
+        VehicleStatus::Parked
+    );
+
+    let stale = parked;
+    let old = drive_to_completed(&mut world);
+    world
+        .replace_completed_vehicle(
+            old,
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8.0, 0.0),
+        )
+        .expect("free the completed slot");
+    assert_eq!(
+        world
+            .replace_completed_vehicle(
+                old,
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8.0, 0.0),
+            )
+            .unwrap_err(),
+        ReplaceError::StaleHandle
+    );
+    let _ = stale;
 }

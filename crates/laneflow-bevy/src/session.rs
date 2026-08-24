@@ -6,9 +6,11 @@ use std::{num::NonZeroU32, sync::Arc, time::Duration};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::resource::Resource;
 use laneflow_runtime::{
-    PoseSource as RuntimePoseSource, StepOutcome, TickInput, TrafficWorld, VehicleHandle,
+    ParkingError, PoseSource as RuntimePoseSource, RouteError, RouteHandle, RouteRegisterInput,
+    SpawnError, StepOutcome, TickInput, TrafficWorld, VehicleHandle, VehicleSpawnInput,
 };
 use laneflow_spatial::{PoseInput, PoseRecordId, SpatialSession};
+use laneflow_static_contract::ParkingSpaceOrdinal;
 
 use crate::LaneFlowAdapterError;
 
@@ -112,8 +114,17 @@ impl LaneFlowSession {
         &self.world
     }
 
-    /// 两次 `step` 之间提交生命周期命令。
-    pub const fn world_mut(&mut self) -> &mut TrafficWorld {
+    /// 两次 `step` 之间提交 spawn / occupy / register / remove。
+    ///
+    /// 已绑定车辆的原子替换必须走 [`crate::replace_completed_vehicle`]，避免 Runtime
+    /// 成功后留下 stale 映射。
+    pub const fn world_mut(&mut self) -> LaneFlowWorldMut<'_> {
+        LaneFlowWorldMut {
+            world: &mut self.world,
+        }
+    }
+
+    pub(crate) const fn runtime_mut(&mut self) -> &mut TrafficWorld {
         &mut self.world
     }
 
@@ -258,6 +269,37 @@ impl LaneFlowSession {
     }
 }
 
+/// `world_mut` 可提交的生命周期命令。不含 replace，以免绕过映射轮换。
+pub struct LaneFlowWorldMut<'a> {
+    world: &'a mut TrafficWorld,
+}
+
+impl LaneFlowWorldMut<'_> {
+    /// 生成一辆车。
+    pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, SpawnError> {
+        self.world.spawn_vehicle(input)
+    }
+
+    /// 注册本世界动态路线。
+    pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
+        self.world.register_route(input)
+    }
+
+    /// 移除本世界动态路线。
+    pub fn remove_route(&mut self, route: RouteHandle) -> Result<(), RouteError> {
+        self.world.remove_route(route)
+    }
+
+    /// 停车占用。
+    pub fn occupy_parking(
+        &mut self,
+        vehicle: VehicleHandle,
+        space: ParkingSpaceOrdinal,
+    ) -> Result<(), ParkingError> {
+        self.world.occupy_parking(vehicle, space)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 struct VehicleEntityMap {
     by_vehicle: HashMap<VehicleHandle, Entity>,
@@ -270,18 +312,14 @@ impl VehicleEntityMap {
     }
 
     fn bind(&mut self, vehicle: VehicleHandle, entity: Entity) -> Result<(), LaneFlowAdapterError> {
-        if let Some(existing) = self.by_vehicle.get(&vehicle).copied()
-            && existing != entity
-        {
+        if let Some(existing) = self.by_vehicle.get(&vehicle).copied() {
             return Err(LaneFlowAdapterError::DuplicateVehicleBinding {
                 vehicle,
                 existing,
                 requested: entity,
             });
         }
-        if let Some(existing) = self.by_entity.get(&entity).copied()
-            && existing != vehicle
-        {
+        if let Some(existing) = self.by_entity.get(&entity).copied() {
             return Err(LaneFlowAdapterError::DuplicateEntityBinding {
                 entity,
                 existing,
