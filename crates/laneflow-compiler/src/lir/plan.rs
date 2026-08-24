@@ -11,7 +11,7 @@ use crate::diagnostic::DiagnosticCollector;
 use crate::mir::{
     MirLaneEdgeConnection, MirLaneEdgeKey, MirSignalControllerGroup, MirSignalPhaseState, MirUnit,
 };
-use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle};
+use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
 
 use super::{
     LIR_ACCESS_RULE_LOGICAL_BYTES, LIR_BAND_LOGICAL_BYTES, LIR_CANONICAL_FRAME_LOGICAL_BYTES,
@@ -44,11 +44,7 @@ use super::{
 ///
 /// [`LirFreezePlan::analyze`] 在任何与记录数成正比的分配前一次统计；算术逐点复制
 /// 自拆分前 `freeze_lir` 的资源段。#374 已记录的估算/实际偏差与 `lir_record_count`
-/// 中重复累加项原样保留。
-///
-/// 领域计数与变长字节观测在本 commit 已写入计划；后续 `CanonicalOrders` 与领域冻结
-/// 才读取它们。
-#[allow(dead_code, reason = "#353 后续 commit 将消费领域计数与变长字节观测")]
+/// 中重复累加项原样保留。规范排列与领域冻结的表容量从本计划派生，不再回读 MIR 长度。
 pub(crate) struct LirFreezePlan {
     pub(crate) lane_edge_count: u64,
     pub(crate) successor_count: u64,
@@ -62,9 +58,6 @@ pub(crate) struct LirFreezePlan {
     pub(crate) spatial: LirSpatialCounts,
     pub(crate) access: LirAccessCounts,
     pub(crate) route: LirRouteCounts,
-    pub(crate) kind_id_byte_count: u64,
-    pub(crate) movement_approach_key_byte_count: u64,
-    pub(crate) access_regulation_byte_count: u64,
     pub(crate) reverse_occurrence_count: u64,
     pub(crate) lir_record_count: u64,
     pub(crate) stage_scratch_bytes: u64,
@@ -92,11 +85,14 @@ pub(crate) struct LirJunctionCounts {
     pub(crate) movement_paths: u64,
     pub(crate) maneuver_paths: u64,
     pub(crate) maneuver_path_edges: u64,
+    pub(crate) maneuver_path_gates: u64,
+    pub(crate) maneuver_path_waiting_zones: u64,
     pub(crate) junction_internal_edges: u64,
 }
 
 pub(crate) struct LirControlCounts {
     pub(crate) stop_lines: u64,
+    pub(crate) stop_line_maneuver_gates: u64,
     pub(crate) maneuver_gates: u64,
     pub(crate) waiting_zones: u64,
 }
@@ -141,6 +137,14 @@ pub(crate) struct LirRouteCounts {
 }
 
 impl LirFreezePlan {
+    pub(crate) fn capacity(
+        count: u64,
+        limits: &crate::CompileLimits,
+        primary_span: Option<SourceLocation>,
+    ) -> Result<usize, DiagnosticBundle> {
+        usize::try_from(count).map_err(|_| super::ordinal_overflow(limits, primary_span))
+    }
+
     /// 统计全部计数并聚合预算；不分配任何与记录数成正比的集合。
     pub(crate) fn analyze(unit: &CompilationUnit, mir: &MirUnit) -> Self {
         let lane_edge_count = mir_len(mir.lane_edges.len());
@@ -163,10 +167,13 @@ impl LirFreezePlan {
             movement_paths: mir_len(mir.movement_maneuver_paths.len()),
             maneuver_paths: mir_len(mir.maneuver_paths.len()),
             maneuver_path_edges: mir_len(mir.maneuver_path_edges.len()),
+            maneuver_path_gates: mir_len(mir.maneuver_path_gates.len()),
+            maneuver_path_waiting_zones: mir_len(mir.maneuver_path_waiting_zones.len()),
             junction_internal_edges: mir_len(mir.junction_internal_edges.len()),
         };
         let control = LirControlCounts {
             stop_lines: mir_len(mir.stop_lines.len()),
+            stop_line_maneuver_gates: mir_len(mir.stop_line_maneuver_gates.len()),
             maneuver_gates: mir_len(mir.maneuver_gates.len()),
             waiting_zones: mir_len(mir.waiting_zones.len()),
         };
@@ -748,9 +755,6 @@ impl LirFreezePlan {
             spatial,
             access,
             route,
-            kind_id_byte_count,
-            movement_approach_key_byte_count,
-            access_regulation_byte_count,
             reverse_occurrence_count,
             lir_record_count,
             stage_scratch_bytes,

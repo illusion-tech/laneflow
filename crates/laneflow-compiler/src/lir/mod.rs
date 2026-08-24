@@ -23,13 +23,12 @@ use laneflow_static_contract::{
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange};
 use crate::geometry_profile::GeometryCompilationProfiles;
 use crate::mir::{
-    MirAccessRuleKey, MirAccessTarget, MirAuthoringLaneKey, MirCanonicalFrameKey,
-    MirCorridorElement, MirFacilityBandKey, MirJunctionKey, MirLaneEdgeConnection, MirLaneEdgeKey,
-    MirLaneGroupKey, MirManeuverGateKey, MirManeuverPathKey, MirMovementKey, MirParkingAreaKey,
-    MirParkingSpaceKey, MirParticipantClassKey, MirRoadCorridorKey, MirRoadSectionKey,
-    MirSignalControl, MirSignalControllerGroup, MirSignalControllerKey, MirSignalGroupKey,
-    MirSignalPhaseKey, MirSignalPhaseState, MirStaticRouteKey, MirStopLineKey, MirUnit,
-    MirVehicleProfileKey, MirWaitingZoneKey,
+    MirAccessRuleKey, MirAuthoringLaneKey, MirCanonicalFrameKey, MirFacilityBandKey,
+    MirJunctionKey, MirLaneEdgeConnection, MirLaneEdgeKey, MirLaneGroupKey, MirManeuverGateKey,
+    MirManeuverPathKey, MirMovementKey, MirParkingAreaKey, MirParkingSpaceKey,
+    MirParticipantClassKey, MirRoadCorridorKey, MirRoadSectionKey, MirSignalControllerGroup,
+    MirSignalControllerKey, MirSignalGroupKey, MirSignalPhaseKey, MirSignalPhaseState,
+    MirStaticRouteKey, MirStopLineKey, MirUnit, MirVehicleProfileKey, MirWaitingZoneKey,
 };
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceLocation};
 
@@ -118,27 +117,34 @@ mod spatial;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use access::{
-    LirAccessRegulation, LirAccessRule, LirAccessTarget, LirParticipantClass, LirVehicleProfile,
-};
+use access::{AccessClassParts, AccessRuleParts};
+pub(crate) use access::{LirAccessRule, LirAccessTarget, LirParticipantClass, LirVehicleProfile};
+use control::ControlParts;
 pub(crate) use control::{LirManeuverGate, LirStopLine, LirWaitingZone};
+use cross_section::CrossSectionParts;
 pub(crate) use cross_section::{
     LirAuthoringLane, LirCorridorElement, LirFacilityBand, LirLaneGroup, LirRoadCorridor,
     LirRoadSection,
 };
+use junction::JunctionParts;
 pub(crate) use junction::{LirJunction, LirJunctionInternalEdge, LirManeuverPath, LirMovement};
 pub(crate) use orders::{CanonicalOrders, LirEntityOrder, OwnerLocalPermutation};
-pub(crate) use parking::{
-    LirParkingArea, LirParkingLaneAnchor, LirParkingSpace, LirParkingSpaceGeometry,
+use parking::ParkingParts;
+pub(crate) use parking::{LirParkingArea, LirParkingSpace};
+pub(crate) use plan::{
+    LirAccessCounts, LirControlCounts, LirCrossSectionCounts, LirFreezePlan, LirJunctionCounts,
+    LirParkingCounts, LirRouteCounts, LirSignalCounts, LirSpatialCounts,
 };
-pub(crate) use plan::LirFreezePlan;
+use route::RouteParts;
 pub(crate) use route::{
     LirGateOccurrence, LirManeuverOccurrence, LirRouteOccurrenceRef, LirStaticRoute,
     LirStaticRouteTransition, LirWaitingZoneOccurrence,
 };
+use signal::SignalParts;
 pub(crate) use signal::{
     LirSignalControl, LirSignalController, LirSignalGroup, LirSignalPhase, LirSignalPhaseState,
 };
+use spatial::SpatialParts;
 pub(crate) use spatial::{
     LirCanonicalFrame, LirCanonicalPoint3F32, LirFacilityBandGeometry, LirLaneEdgeGeometry,
     LirSpatialSegment,
@@ -292,6 +298,21 @@ impl LirFreezeOutput {
     }
 }
 
+pub(super) struct FreezeEnv<'a> {
+    pub mir: &'a MirUnit,
+    pub orders: &'a CanonicalOrders,
+    pub identity_fields: &'a mut Vec<LirIdentityField>,
+    pub identity_field_bytes: &'a mut Vec<u8>,
+    pub limits: &'a crate::CompileLimits,
+    pub primary_span: Option<SourceLocation>,
+}
+
+impl FreezeEnv<'_> {
+    pub(super) fn capacity(&self, count: u64) -> Result<usize, DiagnosticBundle> {
+        LirFreezePlan::capacity(count, self.limits, self.primary_span.clone())
+    }
+}
+
 /// 将全部 MIR 引用重映射到规范 LIR 序号，并原子冻结连续只读表。
 ///
 /// 排序键是 Identity v1 完整前像的逐字节顺序，而不是 `StableId128` 或普通字符串
@@ -310,16 +331,19 @@ pub(crate) fn freeze_lir(
     plan.check_limits(unit, mir)?;
     let primary_span = mir.modules.first().map(|module| module.source_span.clone());
 
-    let edge_capacity = usize::try_from(plan.lane_edge_count)
-        .map_err(|_| ordinal_overflow(&unit.limits, primary_span.clone()))?;
-    let successor_capacity = usize::try_from(plan.successor_count)
-        .map_err(|_| ordinal_overflow(&unit.limits, primary_span.clone()))?;
-    let identity_field_capacity = usize::try_from(plan.identity_field_count)
-        .map_err(|_| ordinal_overflow(&unit.limits, primary_span.clone()))?;
+    let edge_capacity =
+        LirFreezePlan::capacity(plan.lane_edge_count, &unit.limits, primary_span.clone())?;
+    let successor_capacity =
+        LirFreezePlan::capacity(plan.successor_count, &unit.limits, primary_span.clone())?;
+    let identity_field_capacity = LirFreezePlan::capacity(
+        plan.identity_field_count,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
     let identity_byte_capacity = usize::try_from(plan.identity_field_byte_count)
         .map_err(|_| output_overflow(&unit.limits, primary_span.clone()))?;
 
-    let orders = CanonicalOrders::build(mir, &unit.limits, primary_span.clone())?;
+    let orders = CanonicalOrders::build(mir, &plan, &unit.limits, primary_span.clone())?;
 
     let mut lane_edges = Vec::with_capacity(edge_capacity);
     let mut successors = Vec::with_capacity(successor_capacity);
@@ -396,1319 +420,103 @@ pub(crate) fn freeze_lir(
         });
     }
 
-    let mut road_corridors = Vec::with_capacity(mir.road_corridors.len());
-    let mut corridor_elements = Vec::with_capacity(mir.corridor_elements.len());
-    for mir_key in orders
-        .road_corridors
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let corridor = &mir.road_corridors[mir_key.index()];
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::CorridorKey,
-            &mir.modules[corridor.module.index()].authoring_namespace_id,
-            &corridor.stable_key,
-            None,
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        let relation_start = corridor_elements.len();
-        corridor_elements.extend(
-            mir.corridor_elements[corridor.elements.as_usize_range()]
-                .iter()
-                .map(|element| match element {
-                    MirCorridorElement::RoadSection { road_section, .. } => {
-                        LirCorridorElement::RoadSection(orders.road_sections.ordinal(*road_section))
-                    }
-                    MirCorridorElement::FacilityBand { facility_band, .. } => {
-                        LirCorridorElement::FacilityBand(
-                            orders.facility_bands.ordinal(*facility_band),
-                        )
-                    }
-                }),
-        );
-        road_corridors.push(LirRoadCorridor {
-            ordinal: orders.road_corridors.ordinal(mir_key),
-            stable_id: corridor.stable_id,
-            identity_fields: identity_range,
-            reference_section: orders.road_sections.ordinal(corridor.reference_section),
-            elements: relation_range(
-                relation_start,
-                corridor_elements.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-        });
-    }
-
-    let mut road_sections = Vec::with_capacity(mir.road_sections.len());
-    let mut road_section_lanes = Vec::with_capacity(mir.authoring_lanes.len());
-    for mir_key in orders
-        .road_sections
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let section = &mir.road_sections[mir_key.index()];
-        let parent_id = mir.road_corridors[section.road_corridor.index()]
-            .stable_id
-            .into_untyped();
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::SectionKey,
-            &mir.modules[section.module.index()].authoring_namespace_id,
-            &section.stable_key,
-            Some((FieldTag::RoadCorridorStableId, parent_id.as_bytes())),
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        let relation_start = road_section_lanes.len();
-        road_section_lanes.extend(section.lanes.as_usize_range().map(|index| {
-            orders
-                .authoring_lanes
-                .ordinal(MirAuthoringLaneKey::from_raw(
-                    u32::try_from(index).expect("MIR range prevalidated as u32"),
-                ))
-        }));
-        road_sections.push(LirRoadSection {
-            ordinal: orders.road_sections.ordinal(mir_key),
-            stable_id: section.stable_id,
-            identity_fields: identity_range,
-            road_corridor: orders.road_corridors.ordinal(section.road_corridor),
-            kind_id: section.kind_id.as_ref().into(),
-            lanes: relation_range(
-                relation_start,
-                road_section_lanes.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-        });
-    }
-
-    let mut authoring_lanes = Vec::with_capacity(mir.authoring_lanes.len());
-    let mut authoring_lane_edges = Vec::with_capacity(mir.authoring_lane_edges.len());
-    for mir_key in orders
-        .authoring_lanes
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let lane = &mir.authoring_lanes[mir_key.index()];
-        let parent_id = mir.road_sections[lane.road_section.index()]
-            .stable_id
-            .into_untyped();
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::LaneKey,
-            &mir.modules[lane.module.index()].authoring_namespace_id,
-            &lane.stable_key,
-            Some((FieldTag::RoadSectionStableId, parent_id.as_bytes())),
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        let relation_start = authoring_lane_edges.len();
-        authoring_lane_edges.extend(
-            mir.authoring_lane_edges[lane.edge_chain.as_usize_range()]
-                .iter()
-                .map(|edge| orders.lane_edges.ordinal(edge.target)),
-        );
-        authoring_lanes.push(LirAuthoringLane {
-            ordinal: orders.authoring_lanes.ordinal(mir_key),
-            stable_id: lane.stable_id,
-            identity_fields: identity_range,
-            road_section: orders.road_sections.ordinal(lane.road_section),
-            edge_chain: relation_range(
-                relation_start,
-                authoring_lane_edges.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            lane_group: lane.lane_group.map(|key| orders.lane_groups.ordinal(key)),
-        });
-    }
-
-    let mut lane_groups = Vec::with_capacity(mir.lane_groups.len());
-    let mut lane_group_members = Vec::with_capacity(mir.lane_group_members.len());
-    for mir_key in orders.lane_groups.stage_keys_in_lir_order().iter().copied() {
-        let group = &mir.lane_groups[mir_key.index()];
-        let parent_id = mir.road_sections[group.road_section.index()]
-            .stable_id
-            .into_untyped();
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::LaneGroupKey,
-            &mir.modules[group.module.index()].authoring_namespace_id,
-            &group.stable_key,
-            Some((FieldTag::RoadSectionStableId, parent_id.as_bytes())),
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        let relation_start = lane_group_members.len();
-        lane_group_members.extend(
-            mir.lane_group_members[group.members.as_usize_range()]
-                .iter()
-                .map(|member| orders.authoring_lanes.ordinal(member.lane)),
-        );
-        lane_groups.push(LirLaneGroup {
-            ordinal: orders.lane_groups.ordinal(mir_key),
-            stable_id: group.stable_id,
-            identity_fields: identity_range,
-            road_section: orders.road_sections.ordinal(group.road_section),
-            members: relation_range(
-                relation_start,
-                lane_group_members.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-        });
-    }
-
-    let mut facility_bands = Vec::with_capacity(mir.facility_bands.len());
-    for mir_key in orders
-        .facility_bands
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let band = &mir.facility_bands[mir_key.index()];
-        let parent_id = mir.road_corridors[band.road_corridor.index()]
-            .stable_id
-            .into_untyped();
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::FacilityBandKey,
-            &mir.modules[band.module.index()].authoring_namespace_id,
-            &band.stable_key,
-            Some((FieldTag::RoadCorridorStableId, parent_id.as_bytes())),
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        facility_bands.push(LirFacilityBand {
-            ordinal: orders.facility_bands.ordinal(mir_key),
-            stable_id: band.stable_id,
-            identity_fields: identity_range,
-            road_corridor: orders.road_corridors.ordinal(band.road_corridor),
-            kind_id: band.kind_id.as_ref().into(),
-        });
-    }
-
-    let mut junctions = Vec::with_capacity(mir.junctions.len());
-    let mut junction_movements = Vec::with_capacity(mir.junction_movements.len());
-    for mir_key in orders.junctions.stage_keys_in_lir_order().iter().copied() {
-        let junction = &mir.junctions[mir_key.index()];
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::JunctionKey,
-            &mir.modules[junction.module.index()].authoring_namespace_id,
-            &junction.stable_key,
-            None,
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        let relation_start = junction_movements.len();
-        junction_movements.extend(
-            mir.junction_movements[junction.movements.as_usize_range()]
-                .iter()
-                .map(|member| orders.movements.ordinal(member.movement)),
-        );
-        // 所有者成员关系是集合语义；按子实体规范序号冻结，避免声明先后进入语义摘要。
-        junction_movements[relation_start..].sort_unstable();
-        junctions.push(LirJunction {
-            ordinal: orders.junctions.ordinal(mir_key),
-            stable_id: junction.stable_id,
-            identity_fields: identity_range,
-            movements: relation_range(
-                relation_start,
-                junction_movements.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-        });
-    }
-
-    let mut movements = Vec::with_capacity(mir.movements.len());
-    let mut movement_maneuver_paths = Vec::with_capacity(mir.movement_maneuver_paths.len());
-    for mir_key in orders.movements.stage_keys_in_lir_order().iter().copied() {
-        let movement = &mir.movements[mir_key.index()];
-        let identity_start = identity_fields.len();
-        for (tag, value) in [
-            (
-                FieldTag::AuthoringNamespaceId,
-                mir.modules[movement.module.index()]
-                    .authoring_namespace_id
-                    .as_bytes(),
-            ),
-            (FieldTag::MovementKey, movement.stable_key.as_bytes()),
-            (
-                FieldTag::DirectedEntryApproachKey,
-                movement.directed_entry_approach_key.as_bytes(),
-            ),
-            (
-                FieldTag::DirectedExitApproachKey,
-                movement.directed_exit_approach_key.as_bytes(),
-            ),
-            (
-                FieldTag::JunctionStableId,
-                mir.junctions[movement.junction.index()]
-                    .stable_id
-                    .as_untyped()
-                    .as_bytes(),
-            ),
-        ] {
-            push_identity_field(
-                &mut identity_fields,
-                &mut identity_field_bytes,
-                tag,
-                value,
-                &unit.limits,
-                primary_span.clone(),
-            )?;
-        }
-        let relation_start = movement_maneuver_paths.len();
-        movement_maneuver_paths.extend(
-            mir.movement_maneuver_paths[movement.maneuver_paths.as_usize_range()]
-                .iter()
-                .map(|member| orders.maneuver_paths.ordinal(member.maneuver_path)),
-        );
-        movement_maneuver_paths[relation_start..].sort_unstable();
-        movements.push(LirMovement {
-            ordinal: orders.movements.ordinal(mir_key),
-            stable_id: movement.stable_id,
-            identity_fields: relation_range(
-                identity_start,
-                identity_fields.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            junction: orders.junctions.ordinal(movement.junction),
-            directed_entry_approach_key: movement.directed_entry_approach_key.as_ref().into(),
-            directed_exit_approach_key: movement.directed_exit_approach_key.as_ref().into(),
-            maneuver_paths: relation_range(
-                relation_start,
-                movement_maneuver_paths.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-        });
-    }
-
-    let mut maneuver_paths = Vec::with_capacity(mir.maneuver_paths.len());
-    let mut maneuver_path_edges = Vec::with_capacity(mir.maneuver_path_edges.len());
-    let mut maneuver_path_gates = Vec::with_capacity(mir.maneuver_path_gates.len());
-    let mut maneuver_path_waiting_zones = Vec::with_capacity(mir.maneuver_path_waiting_zones.len());
-    for mir_key in orders
-        .maneuver_paths
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let path = &mir.maneuver_paths[mir_key.index()];
-        let edges = &mir.maneuver_path_edges[path.edges.as_usize_range()];
-        let identity_start = identity_fields.len();
-        for (tag, value) in [
-            (
-                FieldTag::AuthoringNamespaceId,
-                mir.modules[path.module.index()]
-                    .authoring_namespace_id
-                    .as_bytes(),
-            ),
-            (FieldTag::PathKey, path.stable_key.as_bytes()),
-            (
-                FieldTag::MovementStableId,
-                mir.movements[path.movement.index()]
-                    .stable_id
-                    .as_untyped()
-                    .as_bytes(),
-            ),
-            (
-                FieldTag::EntryEdgeStableId,
-                mir.lane_edges[edges[0].target.index()]
-                    .stable_id
-                    .as_untyped()
-                    .as_bytes(),
-            ),
-            (
-                FieldTag::ExitEdgeStableId,
-                mir.lane_edges[edges[edges.len() - 1].target.index()]
-                    .stable_id
-                    .as_untyped()
-                    .as_bytes(),
-            ),
-        ] {
-            push_identity_field(
-                &mut identity_fields,
-                &mut identity_field_bytes,
-                tag,
-                value,
-                &unit.limits,
-                primary_span.clone(),
-            )?;
-        }
-        let edge_start = maneuver_path_edges.len();
-        maneuver_path_edges.extend(
-            edges
-                .iter()
-                .map(|edge| orders.lane_edges.ordinal(edge.target)),
-        );
-        let gate_start = maneuver_path_gates.len();
-        maneuver_path_gates.extend(
-            mir.maneuver_path_gates[path.maneuver_gates.as_usize_range()]
-                .iter()
-                .map(|member| orders.maneuver_gates.ordinal(member.maneuver_gate)),
-        );
-        let waiting_start = maneuver_path_waiting_zones.len();
-        maneuver_path_waiting_zones.extend(
-            mir.maneuver_path_waiting_zones[path.waiting_zones.as_usize_range()]
-                .iter()
-                .map(|member| orders.waiting_zones.ordinal(member.waiting_zone)),
-        );
-        maneuver_paths.push(LirManeuverPath {
-            ordinal: orders.maneuver_paths.ordinal(mir_key),
-            stable_id: path.stable_id,
-            identity_fields: relation_range(
-                identity_start,
-                identity_fields.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            movement: orders.movements.ordinal(path.movement),
-            edges: relation_range(
-                edge_start,
-                maneuver_path_edges.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            maneuver_gates: relation_range(
-                gate_start,
-                maneuver_path_gates.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            waiting_zones: relation_range(
-                waiting_start,
-                maneuver_path_waiting_zones.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            static_route_occurrences: TableRange::empty(),
-        });
-    }
-
-    let mut canonical_mir_internal_edge_order: Vec<u32> = (0..mir.junction_internal_edges.len())
-        .map(|index| u32::try_from(index).expect("LIR precheck proved relation count fits u32"))
-        .collect();
-    canonical_mir_internal_edge_order.sort_unstable_by_key(|index| {
-        orders
-            .lane_edges
-            .ordinal(mir.junction_internal_edges[*index as usize].edge)
-    });
-    let junction_internal_edges = canonical_mir_internal_edge_order
-        .iter()
-        .map(|index| {
-            let relation = &mir.junction_internal_edges[*index as usize];
-            LirJunctionInternalEdge {
-                edge: orders.lane_edges.ordinal(relation.edge),
-                junction: orders.junctions.ordinal(relation.junction),
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let mut stop_lines = Vec::with_capacity(mir.stop_lines.len());
-    let mut stop_line_maneuver_gates = Vec::with_capacity(mir.stop_line_maneuver_gates.len());
-    for mir_key in orders.stop_lines.stage_keys_in_lir_order().iter().copied() {
-        let stop_line = &mir.stop_lines[mir_key.index()];
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::StopLineKey,
-            &mir.modules[stop_line.module.index()].authoring_namespace_id,
-            &stop_line.stable_key,
-            None,
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        let relation_start = stop_line_maneuver_gates.len();
-        stop_line_maneuver_gates.extend(
-            mir.stop_line_maneuver_gates[stop_line.maneuver_gates.as_usize_range()]
-                .iter()
-                .map(|member| orders.maneuver_gates.ordinal(member.maneuver_gate)),
-        );
-        // 共享静态路网要求同一停止线的门成员按 LIR 序号严格递增；MIR 仍按 stable_id
-        // 排列，映射后必须再按序号冻结。
-        stop_line_maneuver_gates[relation_start..].sort_unstable();
-        stop_lines.push(LirStopLine {
-            ordinal: orders.stop_lines.ordinal(mir_key),
-            stable_id: stop_line.stable_id,
-            identity_fields: identity_range,
-            lane_edge: orders.lane_edges.ordinal(stop_line.lane_edge),
-            maneuver_gates: relation_range(
-                relation_start,
-                stop_line_maneuver_gates.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-        });
-    }
-
-    let mut maneuver_gates = Vec::with_capacity(mir.maneuver_gates.len());
-    for mir_key in orders
-        .maneuver_gates
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let gate = &mir.maneuver_gates[mir_key.index()];
-        let identity_start = identity_fields.len();
-        for (tag, value) in [
-            (
-                FieldTag::AuthoringNamespaceId,
-                mir.modules[gate.module.index()]
-                    .authoring_namespace_id
-                    .as_bytes(),
-            ),
-            (
-                FieldTag::ManeuverPathStableId,
-                mir.maneuver_paths[gate.maneuver_path.index()]
-                    .stable_id
-                    .as_untyped()
-                    .as_bytes(),
-            ),
-            (FieldTag::GateKey, gate.stable_key.as_bytes()),
-        ] {
-            push_identity_field(
-                &mut identity_fields,
-                &mut identity_field_bytes,
-                tag,
-                value,
-                &unit.limits,
-                primary_span.clone(),
-            )?;
-        }
-        maneuver_gates.push(LirManeuverGate {
-            ordinal: orders.maneuver_gates.ordinal(mir_key),
-            stable_id: gate.stable_id,
-            identity_fields: relation_range(
-                identity_start,
-                identity_fields.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            maneuver_path: orders.maneuver_paths.ordinal(gate.maneuver_path),
-            transition_index: gate.transition_index,
-            stop_line: orders.stop_lines.ordinal(gate.stop_line),
-            signal_control: match gate.signal_control {
-                MirSignalControl::Group { signal_group, .. } => {
-                    LirSignalControl::Group(orders.signal_groups.ordinal(signal_group))
-                }
-                MirSignalControl::None => LirSignalControl::None,
-            },
-            static_route_occurrences: TableRange::empty(),
-        });
-    }
-
-    let mut waiting_zones = Vec::with_capacity(mir.waiting_zones.len());
-    for mir_key in orders
-        .waiting_zones
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let waiting = &mir.waiting_zones[mir_key.index()];
-        let identity_start = identity_fields.len();
-        for (tag, value) in [
-            (
-                FieldTag::AuthoringNamespaceId,
-                mir.modules[waiting.module.index()]
-                    .authoring_namespace_id
-                    .as_bytes(),
-            ),
-            (
-                FieldTag::ManeuverPathStableId,
-                mir.maneuver_paths[waiting.maneuver_path.index()]
-                    .stable_id
-                    .as_untyped()
-                    .as_bytes(),
-            ),
-            (FieldTag::WaitingZoneKey, waiting.stable_key.as_bytes()),
-        ] {
-            push_identity_field(
-                &mut identity_fields,
-                &mut identity_field_bytes,
-                tag,
-                value,
-                &unit.limits,
-                primary_span.clone(),
-            )?;
-        }
-        waiting_zones.push(LirWaitingZone {
-            ordinal: orders.waiting_zones.ordinal(mir_key),
-            stable_id: waiting.stable_id,
-            identity_fields: relation_range(
-                identity_start,
-                identity_fields.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            maneuver_path: orders.maneuver_paths.ordinal(waiting.maneuver_path),
-            entry_gate: orders.maneuver_gates.ordinal(waiting.entry_gate),
-            release_gate: orders.maneuver_gates.ordinal(waiting.release_gate),
-            max_occupancy: waiting.max_occupancy,
-            static_route_occurrences: TableRange::empty(),
-        });
-    }
-
-    let mut signal_groups = Vec::with_capacity(mir.signal_groups.len());
-    let mut signal_group_maneuver_gates = Vec::with_capacity(mir.signal_group_maneuver_gates.len());
-    for mir_key in orders
-        .signal_groups
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let group = &mir.signal_groups[mir_key.index()];
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::SignalGroupKey,
-            &mir.modules[group.module.index()].authoring_namespace_id,
-            &group.stable_key,
-            None,
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        let gate_start = signal_group_maneuver_gates.len();
-        signal_group_maneuver_gates.extend(
-            mir.signal_group_maneuver_gates[group.maneuver_gates.as_usize_range()]
-                .iter()
-                .map(|member| orders.maneuver_gates.ordinal(member.maneuver_gate)),
-        );
-        signal_group_maneuver_gates[gate_start..].sort_unstable();
-        signal_groups.push(LirSignalGroup {
-            ordinal: orders.signal_groups.ordinal(mir_key),
-            stable_id: group.stable_id,
-            identity_fields: identity_range,
-            controller: orders.signal_controllers.ordinal(group.controller),
-            maneuver_gates: relation_range(
-                gate_start,
-                signal_group_maneuver_gates.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-        });
-    }
-
-    let mut signal_controllers = Vec::with_capacity(mir.signal_controllers.len());
-    let mut signal_controller_groups = Vec::with_capacity(mir.signal_controller_groups.len());
-    let mut signal_controller_group_mir_rows: Vec<ArenaKey<MirSignalControllerGroup>> =
-        Vec::with_capacity(mir.signal_controller_groups.len());
-    let mut signal_controller_phases = Vec::with_capacity(mir.signal_phases.len());
-    for mir_key in orders
-        .signal_controllers
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let controller = &mir.signal_controllers[mir_key.index()];
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::SignalControllerKey,
-            &mir.modules[controller.module.index()].authoring_namespace_id,
-            &controller.stable_key,
-            None,
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        let group_start = signal_controller_groups.len();
-        let permutation_start = signal_controller_group_mir_rows.len();
-        signal_controller_group_mir_rows.extend(controller.signal_groups.as_usize_range().map(
-            |index| {
-                ArenaKey::from_raw(
-                    u32::try_from(index).expect("LIR precheck proved every MIR key fits u32"),
-                )
-            },
-        ));
-        signal_controller_group_mir_rows[permutation_start..].sort_unstable_by_key(|mir_row| {
-            let member = &mir.signal_controller_groups[mir_row.index()];
-            (
-                orders.signal_groups.ordinal(member.signal_group),
-                mir_row.raw(),
-            )
-        });
-        // 集合语义只排序这一份 MIR 行地址；语义目标和来源随后都借用此排列。
-        signal_controller_groups.extend(
-            signal_controller_group_mir_rows[permutation_start..]
-                .iter()
-                .map(|mir_row| {
-                    let member = &mir.signal_controller_groups[mir_row.index()];
-                    orders.signal_groups.ordinal(member.signal_group)
-                }),
-        );
-        debug_assert_eq!(group_start, permutation_start);
-        let phase_start = signal_controller_phases.len();
-        for phase_index in controller.phases.as_usize_range() {
-            signal_controller_phases.push(orders.signal_phases.ordinal(
-                MirSignalPhaseKey::from_raw(
-                    u32::try_from(phase_index).expect("MIR range prevalidated as u32"),
-                ),
-            ));
-        }
-        signal_controllers.push(LirSignalController {
-            ordinal: orders.signal_controllers.ordinal(mir_key),
-            stable_id: controller.stable_id,
-            identity_fields: identity_range,
-            offset_ms: controller.offset_ms,
-            cycle_duration_ms: controller.cycle_duration_ms,
-            signal_groups: relation_range(
-                group_start,
-                signal_controller_groups.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            // 相位顺序就是固定时制程序顺序，不能按 ordinal 再排序。
-            phases: relation_range(
-                phase_start,
-                signal_controller_phases.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-        });
-    }
-
-    let mut signal_phases = Vec::with_capacity(mir.signal_phases.len());
-    let mut signal_phase_states = Vec::with_capacity(mir.signal_phase_states.len());
-    let mut signal_phase_state_mir_rows: Vec<ArenaKey<MirSignalPhaseState>> =
-        Vec::with_capacity(mir.signal_phase_states.len());
-    for mir_key in orders
-        .signal_phases
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let phase = &mir.signal_phases[mir_key.index()];
-        let identity_start = identity_fields.len();
-        for (tag, value) in [
-            (
-                FieldTag::AuthoringNamespaceId,
-                mir.modules[phase.module.index()]
-                    .authoring_namespace_id
-                    .as_bytes(),
-            ),
-            (
-                FieldTag::SignalControllerStableId,
-                mir.signal_controllers[phase.controller.index()]
-                    .stable_id
-                    .as_untyped()
-                    .as_bytes(),
-            ),
-            (FieldTag::PhaseKey, phase.stable_key.as_bytes()),
-        ] {
-            push_identity_field(
-                &mut identity_fields,
-                &mut identity_field_bytes,
-                tag,
-                value,
-                &unit.limits,
-                primary_span.clone(),
-            )?;
-        }
-        let state_start = signal_phase_states.len();
-        let permutation_start = signal_phase_state_mir_rows.len();
-        signal_phase_state_mir_rows.extend(phase.states.as_usize_range().map(|index| {
-            ArenaKey::from_raw(
-                u32::try_from(index).expect("LIR precheck proved every MIR key fits u32"),
-            )
-        }));
-        signal_phase_state_mir_rows[permutation_start..].sort_unstable_by_key(|mir_row| {
-            let state = &mir.signal_phase_states[mir_row.index()];
-            (
-                orders.signal_groups.ordinal(state.signal_group),
-                mir_row.raw(),
-            )
-        });
-        // 相位状态与控制器组表共享 LIR signal-group ordinal 轴。
-        signal_phase_states.extend(signal_phase_state_mir_rows[permutation_start..].iter().map(
-            |mir_row| {
-                let state = &mir.signal_phase_states[mir_row.index()];
-                LirSignalPhaseState {
-                    signal_group: orders.signal_groups.ordinal(state.signal_group),
-                    aspect: state.aspect,
-                }
-            },
-        ));
-        debug_assert_eq!(state_start, permutation_start);
-        signal_phases.push(LirSignalPhase {
-            ordinal: orders.signal_phases.ordinal(mir_key),
-            stable_id: phase.stable_id,
-            identity_fields: relation_range(
-                identity_start,
-                identity_fields.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            controller: orders.signal_controllers.ordinal(phase.controller),
-            duration_ms: phase.duration_ms,
-            states: relation_range(
-                state_start,
-                signal_phase_states.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-        });
-    }
-
-    let mut parking_areas = Vec::with_capacity(mir.parking_areas.len());
-    let mut parking_area_spaces = Vec::with_capacity(mir.parking_area_spaces.len());
-    for mir_key in orders
-        .parking_areas
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let area = &mir.parking_areas[mir_key.index()];
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::ParkingAreaKey,
-            &mir.modules[area.module.index()].authoring_namespace_id,
-            &area.stable_key,
-            None,
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        let member_start = parking_area_spaces.len();
-        parking_area_spaces.extend(
-            mir.parking_area_spaces[area.parking_spaces.as_usize_range()]
-                .iter()
-                .map(|member| orders.parking_spaces.ordinal(member.parking_space)),
-        );
-        parking_area_spaces[member_start..].sort_unstable();
-        parking_areas.push(LirParkingArea {
-            ordinal: orders.parking_areas.ordinal(mir_key),
-            stable_id: area.stable_id,
-            identity_fields: identity_range,
-            parking_spaces: relation_range(
-                member_start,
-                parking_area_spaces.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-        });
-    }
-
-    let mut parking_spaces = Vec::with_capacity(mir.parking_spaces.len());
-    for mir_key in orders
-        .parking_spaces
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let space = &mir.parking_spaces[mir_key.index()];
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::ParkingSpaceKey,
-            &mir.modules[space.module.index()].authoring_namespace_id,
-            &space.stable_key,
-            None,
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        parking_spaces.push(LirParkingSpace {
-            ordinal: orders.parking_spaces.ordinal(mir_key),
-            stable_id: space.stable_id,
-            identity_fields: identity_range,
-            parking_area: space
-                .parking_area
-                .map(|area| orders.parking_areas.ordinal(area)),
-            entry: LirParkingLaneAnchor {
-                lane_edge: orders.lane_edges.ordinal(space.entry.lane_edge),
-                progress_meters: space.entry.progress_meters,
-            },
-            exit: LirParkingLaneAnchor {
-                lane_edge: orders.lane_edges.ordinal(space.exit.lane_edge),
-                progress_meters: space.exit.progress_meters,
-            },
-            geometry: LirParkingSpaceGeometry {
-                lateral_offset_meters: space.geometry.lateral_offset_meters,
-                heading_offset_radians: space.geometry.heading_offset_radians,
-                length_meters: space.geometry.length_meters,
-                width_meters: space.geometry.width_meters,
-            },
-        });
-    }
-
-    let mut participant_classes = Vec::with_capacity(mir.participant_classes.len());
-    for mir_key in orders
-        .participant_classes
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let participant_class = &mir.participant_classes[mir_key.index()];
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::ParticipantClassKey,
-            &mir.modules[participant_class.module.index()].authoring_namespace_id,
-            &participant_class.stable_key,
-            None,
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        participant_classes.push(LirParticipantClass {
-            ordinal: orders.participant_classes.ordinal(mir_key),
-            stable_id: participant_class.stable_id,
-            identity_fields: identity_range,
-            parent: participant_class
-                .parent
-                .map(|parent| orders.participant_classes.ordinal(parent)),
-            depth: participant_class.depth,
-            subtree_enter: participant_class.subtree_enter,
-            subtree_exit: participant_class.subtree_exit,
-        });
-    }
-
-    let mut vehicle_profiles = Vec::with_capacity(mir.vehicle_profiles.len());
-    for mir_key in orders
-        .vehicle_profiles
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let profile = &mir.vehicle_profiles[mir_key.index()];
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::VehicleProfileKey,
-            &mir.modules[profile.module.index()].authoring_namespace_id,
-            &profile.stable_key,
-            None,
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        vehicle_profiles.push(LirVehicleProfile {
-            ordinal: orders.vehicle_profiles.ordinal(mir_key),
-            stable_id: profile.stable_id,
-            identity_fields: identity_range,
-            participant_class: orders
-                .participant_classes
-                .ordinal(profile.participant_class),
-            length_meters: profile.length_meters,
-            desired_speed_meters_per_second: profile.desired_speed_meters_per_second,
-            min_gap_meters: profile.min_gap_meters,
-            time_headway_seconds: profile.time_headway_seconds,
-            max_acceleration_meters_per_second_squared: profile
-                .max_acceleration_meters_per_second_squared,
-            comfortable_deceleration_meters_per_second_squared: profile
-                .comfortable_deceleration_meters_per_second_squared,
-            emergency_deceleration_meters_per_second_squared: profile
-                .emergency_deceleration_meters_per_second_squared,
-        });
-    }
-
-    let mut canonical_frames = Vec::with_capacity(mir.canonical_frames.len());
-    for mir_key in orders
-        .canonical_frames
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let frame = &mir.canonical_frames[mir_key.index()];
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::CanonicalFrameKey,
-            &mir.modules[frame.module.index()].authoring_namespace_id,
-            &frame.stable_key,
-            None,
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        canonical_frames.push(LirCanonicalFrame {
-            ordinal: orders.canonical_frames.ordinal(mir_key),
-            stable_id: frame.stable_id,
-            identity_fields: identity_range,
-        });
-    }
-
-    // HIR 已证明“空间存在时每条 LaneEdge 恰好一条几何”。冻结阶段只按最终
-    // LaneEdgeOrdinal 重排，并保持每条中心线内部的点/线段顺序。
-    let mut mir_edge_to_geometry = vec![None; mir.lane_edges.len()];
-    for (index, geometry) in mir.lane_edge_geometries.iter().enumerate() {
-        debug_assert!(mir_edge_to_geometry[geometry.lane_edge.index()].is_none());
-        mir_edge_to_geometry[geometry.lane_edge.index()] = Some(index);
-    }
-    let mut lane_edge_geometries = Vec::with_capacity(mir.lane_edge_geometries.len());
-    let mut canonical_points = Vec::with_capacity(mir.canonical_points.len());
-    let mut spatial_segments = Vec::with_capacity(mir.spatial_segments.len());
-    for mir_edge in orders.lane_edges.stage_keys_in_lir_order().iter().copied() {
-        let Some(geometry_index) = mir_edge_to_geometry[mir_edge.index()] else {
-            debug_assert!(mir.lane_edge_geometries.is_empty());
-            continue;
-        };
-        let geometry = &mir.lane_edge_geometries[geometry_index];
-        let point_start = canonical_points.len();
-        canonical_points.extend(
-            mir.canonical_points[geometry.points.as_usize_range()]
-                .iter()
-                .map(|point| LirCanonicalPoint3F32 {
-                    x: point.x,
-                    y: point.y,
-                    z: point.z,
-                }),
-        );
-        let segment_start = spatial_segments.len();
-        spatial_segments.extend(
-            mir.spatial_segments[geometry.segments.as_usize_range()]
-                .iter()
-                .map(|segment| LirSpatialSegment {
-                    length_meters: segment.length_meters,
-                    cumulative_end_meters: segment.cumulative_end_meters,
-                    tangent: segment.tangent,
-                    up: segment.up,
-                }),
-        );
-        lane_edge_geometries.push(LirLaneEdgeGeometry {
-            canonical_frame: orders.canonical_frames.ordinal(geometry.canonical_frame),
-            points: TableRange::try_from_usize(
-                point_start,
-                canonical_points.len().saturating_sub(point_start),
-            )
-            .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
-            segments: TableRange::try_from_usize(
-                segment_start,
-                spatial_segments.len().saturating_sub(segment_start),
-            )
-            .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
-            arc_length_meters: geometry.arc_length_meters,
-        });
-    }
-
-    // FacilityBand 不进入可通行图，但其可视几何必须和实体使用同一规范顺序。每个
-    // 稀疏几何行携带 band ordinal，view 通过有序表查找，避免复制第二份范围索引。
-    let mut mir_band_to_geometry = vec![None; mir.facility_bands.len()];
-    for (index, geometry) in mir.facility_band_geometries.iter().enumerate() {
-        debug_assert!(mir_band_to_geometry[geometry.facility_band.index()].is_none());
-        mir_band_to_geometry[geometry.facility_band.index()] = Some(index);
-    }
-    let mut facility_band_geometries = Vec::with_capacity(mir.facility_band_geometries.len());
-    for mir_band in orders
-        .facility_bands
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let Some(geometry_index) = mir_band_to_geometry[mir_band.index()] else {
-            continue;
-        };
-        let geometry = &mir.facility_band_geometries[geometry_index];
-        let point_start = canonical_points.len();
-        canonical_points.extend(
-            mir.canonical_points[geometry.points.as_usize_range()]
-                .iter()
-                .map(|point| LirCanonicalPoint3F32 {
-                    x: point.x,
-                    y: point.y,
-                    z: point.z,
-                }),
-        );
-        let facility_band = orders.facility_bands.ordinal(mir_band);
-        facility_band_geometries.push(LirFacilityBandGeometry {
-            facility_band,
-            canonical_frame: orders.canonical_frames.ordinal(geometry.canonical_frame),
-            points: TableRange::try_from_usize(
-                point_start,
-                canonical_points.len().saturating_sub(point_start),
-            )
-            .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
-        });
-    }
-
-    let mut access_rules = Vec::with_capacity(mir.access_rules.len());
-    let mut access_rule_participant_classes =
-        Vec::with_capacity(mir.access_rule_participant_classes.len());
-    for mir_key in orders
-        .access_rules
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let rule = &mir.access_rules[mir_key.index()];
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::AccessRuleKey,
-            &mir.modules[rule.module.index()].authoring_namespace_id,
-            &rule.stable_key,
-            None,
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-        let class_start = access_rule_participant_classes.len();
-        access_rule_participant_classes.extend(
-            mir.access_rule_participant_classes[rule.participant_classes.as_usize_range()]
-                .iter()
-                .map(|selector| {
-                    orders
-                        .participant_classes
-                        .ordinal(selector.participant_class)
-                }),
-        );
-        access_rule_participant_classes[class_start..].sort_unstable();
-        let target = match rule.target {
-            MirAccessTarget::LaneEdge(target) => {
-                LirAccessTarget::LaneEdge(orders.lane_edges.ordinal(target))
-            }
-            MirAccessTarget::LaneGroup(target) => {
-                LirAccessTarget::LaneGroup(orders.lane_groups.ordinal(target))
-            }
-            MirAccessTarget::RoadSection(target) => {
-                LirAccessTarget::RoadSection(orders.road_sections.ordinal(target))
-            }
-            MirAccessTarget::ManeuverPath(target) => {
-                LirAccessTarget::ManeuverPath(orders.maneuver_paths.ordinal(target))
-            }
-        };
-        access_rules.push(LirAccessRule {
-            ordinal: orders.access_rules.ordinal(mir_key),
-            stable_id: rule.stable_id,
-            identity_fields: identity_range,
-            target,
-            effect: rule.effect,
-            participant_classes: relation_range(
-                class_start,
-                access_rule_participant_classes.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            regulation: rule
-                .regulation
-                .as_ref()
-                .map(|regulation| LirAccessRegulation {
-                    jurisdiction: regulation.jurisdiction.as_ref().into(),
-                    version: regulation.version.as_ref().into(),
-                    source: regulation.source.as_deref().map(Into::into),
-                }),
-            priority: rule.priority,
-        });
-    }
-
-    let mut static_routes = Vec::with_capacity(mir.static_routes.len());
-    let mut static_route_edges = Vec::with_capacity(mir.static_route_edges.len());
-    let mut static_route_transitions = Vec::with_capacity(mir.static_route_transitions.len());
-    let mut maneuver_occurrences = Vec::with_capacity(mir.maneuver_occurrences.len());
-    let mut gate_occurrences = Vec::with_capacity(mir.gate_occurrences.len());
-    let mut waiting_zone_occurrences = Vec::with_capacity(mir.waiting_zone_occurrences.len());
-    let mut edge_reverse = Vec::with_capacity(mir.static_route_edges.len());
-    let mut path_reverse = Vec::with_capacity(mir.maneuver_occurrences.len());
-    let mut gate_reverse = Vec::with_capacity(mir.gate_occurrences.len());
-    let mut waiting_reverse = Vec::with_capacity(mir.waiting_zone_occurrences.len());
-
-    for mir_key in orders
-        .static_routes
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let route = &mir.static_routes[mir_key.index()];
-        let route_ordinal = orders.static_routes.ordinal(mir_key);
-        let identity_range = push_lir_identity(
-            &mut identity_fields,
-            &mut identity_field_bytes,
-            FieldTag::RouteKey,
-            &mir.modules[route.module.index()].authoring_namespace_id,
-            &route.stable_key,
-            None,
-            &unit.limits,
-            primary_span.clone(),
-        )?;
-
-        let edge_start = static_route_edges.len();
-        for (local_index, edge) in mir.static_route_edges[route.edges.as_usize_range()]
-            .iter()
-            .enumerate()
-        {
-            let ordinal = orders.lane_edges.ordinal(edge.target);
-            static_route_edges.push(ordinal);
-            edge_reverse.push((
-                ordinal.raw(),
-                LirRouteOccurrenceRef {
-                    static_route: route_ordinal,
-                    occurrence_index: u32::try_from(local_index).unwrap_or(u32::MAX),
-                },
-            ));
-        }
-        let transition_start = static_route_transitions.len();
-        static_route_transitions.extend(
-            mir.static_route_transitions[route.transitions.as_usize_range()]
-                .iter()
-                .map(|transition| LirStaticRouteTransition {
-                    maneuver_gate: transition
-                        .maneuver_gate
-                        .map(|key| orders.maneuver_gates.ordinal(key)),
-                }),
-        );
-
-        let gate_start = gate_occurrences.len();
-        for (local_index, occurrence) in mir.gate_occurrences
-            [route.gate_occurrences.as_usize_range()]
-        .iter()
-        .enumerate()
-        {
-            let ordinal = orders.maneuver_gates.ordinal(occurrence.maneuver_gate);
-            gate_occurrences.push(LirGateOccurrence {
-                maneuver_gate: ordinal,
-                maneuver_occurrence_index: occurrence.maneuver_occurrence_index,
-                from_route_edge_index: occurrence.from_route_edge_index,
-                next_gate_occurrence_index: occurrence.next_gate_occurrence_index,
-                next_boundary_route_edge_index: occurrence.next_boundary_route_edge_index,
-                waiting_zone_occurrence_index: occurrence.waiting_zone_occurrence_index,
-            });
-            gate_reverse.push((
-                ordinal.raw(),
-                LirRouteOccurrenceRef {
-                    static_route: route_ordinal,
-                    occurrence_index: u32::try_from(local_index).unwrap_or(u32::MAX),
-                },
-            ));
-        }
-        let waiting_start = waiting_zone_occurrences.len();
-        for (local_index, occurrence) in mir.waiting_zone_occurrences
-            [route.waiting_zone_occurrences.as_usize_range()]
-        .iter()
-        .enumerate()
-        {
-            let ordinal = orders.waiting_zones.ordinal(occurrence.waiting_zone);
-            waiting_zone_occurrences.push(LirWaitingZoneOccurrence {
-                waiting_zone: ordinal,
-                maneuver_occurrence_index: occurrence.maneuver_occurrence_index,
-                entry_gate_occurrence_index: occurrence.entry_gate_occurrence_index,
-                release_gate_occurrence_index: occurrence.release_gate_occurrence_index,
-                entry_route_edge_index: occurrence.entry_route_edge_index,
-                release_route_edge_index: occurrence.release_route_edge_index,
-            });
-            waiting_reverse.push((
-                ordinal.raw(),
-                LirRouteOccurrenceRef {
-                    static_route: route_ordinal,
-                    occurrence_index: u32::try_from(local_index).unwrap_or(u32::MAX),
-                },
-            ));
-        }
-
-        let maneuver_start = maneuver_occurrences.len();
-        for (local_index, occurrence) in mir.maneuver_occurrences
-            [route.maneuver_occurrences.as_usize_range()]
-        .iter()
-        .enumerate()
-        {
-            let ordinal = orders.maneuver_paths.ordinal(occurrence.maneuver_path);
-            let gate_local_start = occurrence
-                .gate_occurrences
-                .start()
-                .saturating_sub(route.gate_occurrences.start());
-            let waiting_local_start = occurrence
-                .waiting_zone_occurrences
-                .start()
-                .saturating_sub(route.waiting_zone_occurrences.start());
-            maneuver_occurrences.push(LirManeuverOccurrence {
-                maneuver_path: ordinal,
-                entry_route_edge_index: occurrence.entry_route_edge_index,
-                exit_route_edge_index: occurrence.exit_route_edge_index,
-                gate_occurrences: TableRange::try_from_usize(
-                    gate_start + gate_local_start as usize,
-                    occurrence.gate_occurrences.len() as usize,
-                )
-                .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
-                waiting_zone_occurrences: TableRange::try_from_usize(
-                    waiting_start + waiting_local_start as usize,
-                    occurrence.waiting_zone_occurrences.len() as usize,
-                )
-                .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
-            });
-            path_reverse.push((
-                ordinal.raw(),
-                LirRouteOccurrenceRef {
-                    static_route: route_ordinal,
-                    occurrence_index: u32::try_from(local_index).unwrap_or(u32::MAX),
-                },
-            ));
-        }
-
-        static_routes.push(LirStaticRoute {
-            ordinal: route_ordinal,
-            stable_id: route.stable_id,
-            identity_fields: identity_range,
-            edges: relation_range(
-                edge_start,
-                static_route_edges.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            transitions: relation_range(
-                transition_start,
-                static_route_transitions.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            maneuver_occurrences: relation_range(
-                maneuver_start,
-                maneuver_occurrences.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            gate_occurrences: relation_range(
-                gate_start,
-                gate_occurrences.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-            waiting_zone_occurrences: relation_range(
-                waiting_start,
-                waiting_zone_occurrences.len(),
-                &unit.limits,
-                primary_span.clone(),
-            )?,
-        });
-    }
-
-    let lane_edge_route_occurrences = freeze_reverse_occurrences(
-        edge_reverse,
+    let mut env = FreezeEnv {
+        mir,
+        orders: &orders,
+        identity_fields: &mut identity_fields,
+        identity_field_bytes: &mut identity_field_bytes,
+        limits: &unit.limits,
+        primary_span: primary_span.clone(),
+    };
+    let cross_section = cross_section::freeze(&mut env, &plan.cross_section)?;
+    let mut junction = junction::freeze(&mut env, &plan.junction)?;
+    let mut control = control::freeze(&mut env, &plan.control)?;
+    let signal = signal::freeze(&mut env, &plan.signal)?;
+    let parking = parking::freeze(&mut env, &plan.parking)?;
+    let access_classes = access::freeze_classes(&mut env, &plan.access)?;
+    let spatial = spatial::freeze(&mut env, &plan.spatial)?;
+    let access_rules = access::freeze_rules(&mut env, &plan.access)?;
+    let route = route::freeze(
+        &mut env,
+        &plan.route,
+        plan.reverse_occurrence_count,
         &mut lane_edges,
-        |entity, range| entity.static_route_occurrences = range,
-        &unit.limits,
-        primary_span.clone(),
+        &mut junction.maneuver_paths,
+        &mut control.maneuver_gates,
+        &mut control.waiting_zones,
     )?;
-    let maneuver_path_route_occurrences = freeze_reverse_occurrences(
-        path_reverse,
-        &mut maneuver_paths,
-        |entity, range| entity.static_route_occurrences = range,
-        &unit.limits,
-        primary_span.clone(),
-    )?;
-    let maneuver_gate_route_occurrences = freeze_reverse_occurrences(
-        gate_reverse,
-        &mut maneuver_gates,
-        |entity, range| entity.static_route_occurrences = range,
-        &unit.limits,
-        primary_span.clone(),
-    )?;
-    let waiting_zone_route_occurrences = freeze_reverse_occurrences(
-        waiting_reverse,
-        &mut waiting_zones,
-        |entity, range| entity.static_route_occurrences = range,
-        &unit.limits,
-        primary_span.clone(),
-    )?;
+    let CrossSectionParts {
+        road_corridors,
+        corridor_elements,
+        road_sections,
+        road_section_lanes,
+        authoring_lanes,
+        authoring_lane_edges,
+        lane_groups,
+        lane_group_members,
+        facility_bands,
+    } = cross_section;
+    let JunctionParts {
+        junctions,
+        junction_movements,
+        movements,
+        movement_maneuver_paths,
+        maneuver_paths,
+        maneuver_path_edges,
+        maneuver_path_gates,
+        maneuver_path_waiting_zones,
+        junction_internal_edges,
+        canonical_mir_internal_edge_order,
+    } = junction;
+    let ControlParts {
+        stop_lines,
+        stop_line_maneuver_gates,
+        maneuver_gates,
+        waiting_zones,
+    } = control;
+    let SignalParts {
+        signal_groups,
+        signal_group_maneuver_gates,
+        signal_controllers,
+        signal_controller_groups,
+        signal_controller_phases,
+        signal_phases,
+        signal_phase_states,
+        signal_controller_group_mir_rows,
+        signal_phase_state_mir_rows,
+    } = signal;
+    let ParkingParts {
+        parking_areas,
+        parking_area_spaces,
+        parking_spaces,
+    } = parking;
+    let AccessClassParts {
+        participant_classes,
+        vehicle_profiles,
+    } = access_classes;
+    let SpatialParts {
+        canonical_frames,
+        lane_edge_geometries,
+        facility_band_geometries,
+        canonical_points,
+        spatial_segments,
+    } = spatial;
+    let AccessRuleParts {
+        access_rules,
+        access_rule_participant_classes,
+    } = access_rules;
+    let RouteParts {
+        static_routes,
+        static_route_edges,
+        static_route_transitions,
+        maneuver_occurrences,
+        gate_occurrences,
+        waiting_zone_occurrences,
+        lane_edge_route_occurrences,
+        maneuver_path_route_occurrences,
+        maneuver_gate_route_occurrences,
+        waiting_zone_route_occurrences,
+    } = route;
 
     debug_assert_eq!(lane_edges.len(), edge_capacity);
     debug_assert_eq!(successors.len(), successor_capacity);
@@ -2134,7 +942,7 @@ fn mapping_pair_bytes<K, O>(order_len: usize, mapping_len: usize) -> u64 {
     )
 }
 
-fn freeze_reverse_occurrences<T>(
+pub(super) fn freeze_reverse_occurrences<T>(
     mut entries: Vec<(u32, LirRouteOccurrenceRef)>,
     entities: &mut [T],
     mut set_range: impl FnMut(&mut T, TableRange<LirRouteOccurrenceRef>),
