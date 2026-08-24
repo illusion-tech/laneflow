@@ -167,10 +167,9 @@ fn allocation_ledgers_and_per_world_live_bytes() {
 
     let config = CorridorConfig::parse(CORRIDOR_CONFIG).expect("corridor config");
     let generated = generate(&config).expect("generate corridor");
+    let (target_lfsm, target_lfsd) = generated.emit_portable_sidecars().expect("sidecars");
     let base = CORRIDOR.to_vec();
     let target_lfca = generated.lfca_bytes().to_vec();
-    let target_lfsm = generated.lfsm_bytes().to_vec();
-    let target_lfsd = generated.lfsd_bytes().to_vec();
     assert!(!target_lfsm.is_empty());
     assert!(!target_lfsd.is_empty());
     let current = build(&base, SpatialBuildOption::RetainAvailable);

@@ -81,10 +81,12 @@ fn default_corridor_locks_scope_counts_and_deterministic_bytes() {
     assert_eq!(counts.access_rules, 18);
     assert_eq!(first.catalog_bytes(), second.catalog_bytes());
     assert_eq!(first.lfca_bytes(), second.lfca_bytes());
-    assert_eq!(first.lfsm_bytes(), second.lfsm_bytes());
-    assert_eq!(first.lfsd_bytes(), second.lfsd_bytes());
-    assert!(!first.lfsm_bytes().is_empty());
-    assert!(!first.lfsd_bytes().is_empty());
+    let (first_lfsm, first_lfsd) = first.emit_portable_sidecars().expect("sidecars");
+    let (second_lfsm, second_lfsd) = second.emit_portable_sidecars().expect("sidecars");
+    assert_eq!(first_lfsm, second_lfsm);
+    assert_eq!(first_lfsd, second_lfsd);
+    assert!(!first_lfsm.is_empty());
+    assert!(!first_lfsd.is_empty());
     let lir = first.lir();
     assert_eq!(lir.lane_edges().len(), 66);
     assert_eq!(lir.static_routes().len(), 28);

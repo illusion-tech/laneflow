@@ -704,12 +704,13 @@ fn publish_and_editable_coexistence_terms_are_held() {
 
     let config = CorridorConfig::parse(CORRIDOR_CONFIG).expect("corridor config");
     let generated = generate(&config).expect("generate corridor");
+    let (target_lfsm, target_lfsd) = generated.emit_portable_sidecars().expect("sidecars");
     hold_coexistence(
         "corridor",
         CORRIDOR,
         generated.lfca_bytes(),
-        generated.lfsm_bytes(),
-        generated.lfsd_bytes(),
+        &target_lfsm,
+        &target_lfsd,
         SpatialBuildOption::RetainAvailable,
     );
 }

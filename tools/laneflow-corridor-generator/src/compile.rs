@@ -81,9 +81,7 @@ pub(crate) fn compile_corridor(
         .map_err(|bundle| compile_error("compile", bundle))
 }
 
-pub(crate) fn emit_portable_objects(
-    output: &CompilationOutput,
-) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), Error> {
+pub(crate) fn emit_lfca(output: &CompilationOutput) -> Result<Vec<u8>, Error> {
     let provenance = PortableEmissionProvenanceV1::try_new(COMPILER_BUILD_ID).map_err(|error| {
         Error::Validation {
             stage: "portable provenance",
@@ -111,11 +109,7 @@ pub(crate) fn emit_portable_objects(
         stage: "post-emission",
         message: format!("{error:?}"),
     })?;
-    Ok((
-        candidate.canonical_artifact().bytes().to_vec(),
-        candidate.source_map().bytes().to_vec(),
-        candidate.semantic_diff().bytes().to_vec(),
-    ))
+    Ok(candidate.canonical_artifact().bytes().to_vec())
 }
 
 fn add_participant_classes(builder: &mut SyntheticModuleBuilder) -> Result<(), Error> {
