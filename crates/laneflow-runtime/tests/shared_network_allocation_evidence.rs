@@ -1,6 +1,7 @@
 //! #441 分配账本。独立 integration test，避免污染 uninstrumented 墙钟。
 //!
 //! 本文件只有一个默认测试，避免 `stats_alloc::Region` 在并行测试之间串账。
+//! 每条账本采样先丢一次 warmup，避免进程一次性初始化进入 first==second。
 //! `allocated_bytes` 采用 `stats_alloc` 0.1.10 净值：普通 alloc 记全量，变大 realloc
 //! 只把 `new_size - old_size` 计入 `bytes_allocated`。`live_bytes` 已含该净增长；
 //! `reallocated_delta_bytes` 是有符号 realloc 净值，不得再加进 `live_bytes`。
@@ -73,12 +74,17 @@ fn sample_build(bytes: &[u8], spatial: SpatialBuildOption) -> AllocSample {
     sample_from_stats(region.change(), revision.retained_logical_bytes())
 }
 
+fn warmup_build(bytes: &[u8], spatial: SpatialBuildOption) {
+    black_box(sample_build(bytes, spatial));
+}
+
 fn assert_stable_build(
     scene: &str,
     bytes: &[u8],
     spatial: SpatialBuildOption,
     max_reallocations: usize,
 ) -> AllocSample {
+    warmup_build(bytes, spatial);
     let first = sample_build(bytes, spatial);
     let second = sample_build(bytes, spatial);
     assert_eq!(
@@ -179,6 +185,14 @@ fn allocation_ledgers_and_per_world_live_bytes() {
     assert!(!target_lfsm.is_empty());
     assert!(!target_lfsd.is_empty());
     let current = build(&base, SpatialBuildOption::RetainAvailable);
+    black_box(sample_held_candidate(
+        &current,
+        &base,
+        &target_lfca,
+        &target_lfsm,
+        &target_lfsd,
+        SpatialBuildOption::RetainAvailable,
+    ));
     let first = sample_held_candidate(
         &current,
         &base,
@@ -221,6 +235,7 @@ fn allocation_ledgers_and_per_world_live_bytes() {
     let static_retained = usize::try_from(revision.retained_logical_bytes()).expect("retained");
     let mut per_world = Vec::new();
     for count in [2_usize, 8, 32] {
+        black_box(sample_worlds(&revision, count));
         let first = sample_worlds(&revision, count);
         let second = sample_worlds(&revision, count);
         assert_eq!(
