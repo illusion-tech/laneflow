@@ -22,7 +22,7 @@ use crate::generator::{Approach, CorridorBuild, CorridorElement, CrossSectionDoc
 const SOURCE_DOCUMENT_KEY: &str = "signalized-corridor.document";
 const GENERATOR_BUILD_ID: &str = "laneflow-corridor-generator";
 const PROVENANCE: &str = "repository:laneflow";
-const COMPILER_BUILD_ID: &str = "laneflow-corridor-generator-v1";
+pub(crate) const COMPILER_BUILD_ID: &str = "laneflow-corridor-generator-v1";
 const FRONTEND_OPTIONS_SALT: &[u8] = b"laneflow-corridor-generator-synthetic-v1";
 
 const SIGNAL_GROUP_SUFFIXES: [&str; 4] = [

@@ -8,10 +8,8 @@ use laneflow_scenario::signalized_corridor::{
 };
 
 use crate::Error;
-use crate::compile::compile_corridor;
+use crate::compile::{compile_corridor, COMPILER_BUILD_ID};
 use crate::config::{CorridorConfig, ENDPOINT_CLEARANCE_METERS, MIN_SPAWN_SLOT_COUNT};
-
-const PORTABLE_COMPILER_BUILD_ID: &str = "laneflow-corridor-generator-v1";
 
 const CURVE_SEGMENT_COUNT: usize = 64;
 const MIN_SPATIAL_SEGMENT_METERS: f64 = 0.1;
@@ -286,7 +284,7 @@ impl GeneratedScenario {
     }
 
     pub fn emit_portable_sidecars(&self) -> Result<(Vec<u8>, Vec<u8>), Error> {
-        let provenance = PortableEmissionProvenanceV1::try_new(PORTABLE_COMPILER_BUILD_ID)
+        let provenance = PortableEmissionProvenanceV1::try_new(COMPILER_BUILD_ID)
             .map_err(|error| Error::Validation {
                 stage: "portable provenance",
                 message: format!("{error:?}"),
@@ -312,6 +310,12 @@ impl GeneratedScenario {
             stage: "post-emission",
             message: format!("{error:?}"),
         })?;
+        if candidate.canonical_artifact().bytes() != self.lfca.as_slice() {
+            return Err(Error::Validation {
+                stage: "portable provenance",
+                message: "re-emitted LFCA does not match generate() LFCA".to_owned(),
+            });
+        }
         Ok((
             candidate.source_map().bytes().to_vec(),
             candidate.semantic_diff().bytes().to_vec(),

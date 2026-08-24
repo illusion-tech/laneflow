@@ -801,7 +801,7 @@ fn production_kernel_keeps_two_lane_poses() {
 #[ignore = "manual release wall-clock evidence; CI 不当墙钟基线"]
 fn wall_clock_build_identity_and_kernel() {
     let empty = measure_ns(WARMUP, SAMPLES, || {
-        black_box(Instant::now());
+        black_box(());
     });
     println!(
         "shared-static-network-evidence calibrate instant_noop_ns min={} median={} max={}",
