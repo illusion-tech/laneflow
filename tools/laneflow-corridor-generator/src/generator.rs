@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use laneflow_scenario::signalized_corridor::{
-    CATALOG_VERSION, CorridorCatalog, PortalCatalogEntry, PortalLaneCatalogEntry,
-    RouteCatalogEntry, SpawnSlotCatalogEntry, WeightedRouteChoiceCatalogEntry,
+    CATALOG_VERSION, CorridorCatalog, PORTAL_IDS, PortalCatalogEntry, PortalLaneCatalogEntry,
+    RouteCatalogEntry, SpawnSlotCatalogEntry, WeightedRouteChoiceCatalogEntry, validate,
 };
 
 use crate::Error;
@@ -1348,7 +1348,7 @@ fn maneuver_path_id(key: PathKey) -> String {
 
 fn internal_edge_id(key: PathKey) -> String {
     format!(
-        "edge-junction-{}-{}-{}-lane-{}-to-{}-internal-0",
+        "edge-junction-{}-{}-{}-lane-{}-to-{}-i0",
         key.junction,
         key.approach.as_str(),
         key.turn.as_str(),
@@ -1391,16 +1391,8 @@ fn build_catalog(
 ) -> Result<CorridorCatalog, Error> {
     let routes = &corridor.routes;
     let edge_by_id = corridor.edge_by_id();
-    let portal_order = [
-        "portal-main-west",
-        "portal-main-east",
-        "portal-side-1-north",
-        "portal-side-1-south",
-        "portal-side-2-north",
-        "portal-side-2-south",
-    ];
     let mut slots = Vec::new();
-    let portals = portal_order
+    let portals = PORTAL_IDS
         .into_iter()
         .map(|portal_id| -> Result<PortalCatalogEntry, Error> {
             let portal_routes = routes
@@ -1503,6 +1495,7 @@ fn validate_catalog(catalog: &CorridorCatalog, corridor: &CorridorBuild) -> Resu
             "TOML round trip changed catalog semantics".to_owned(),
         ));
     }
+    validate(catalog).map_err(|error| Error::Catalog(error.to_string()))?;
 
     let route_by_id = corridor
         .routes
@@ -1510,11 +1503,6 @@ fn validate_catalog(catalog: &CorridorCatalog, corridor: &CorridorBuild) -> Resu
         .map(|route| (route.route.id.as_str(), route))
         .collect::<HashMap<_, _>>();
     let edge_by_id = corridor.edge_by_id();
-    let portal_ids = catalog
-        .portals
-        .iter()
-        .map(|portal| portal.id.as_str())
-        .collect::<HashSet<_>>();
     let lane_by_key = catalog
         .portals
         .iter()
@@ -1525,35 +1513,17 @@ fn validate_catalog(catalog: &CorridorCatalog, corridor: &CorridorBuild) -> Resu
                 .map(move |lane| ((portal.id.as_str(), lane.lane_index), lane))
         })
         .collect::<HashMap<_, _>>();
-    let mut slot_ids = HashSet::new();
     for slot in &catalog.spawn_slots {
-        if !slot_ids.insert(slot.slot_id.as_str()) {
-            return Err(Error::Catalog(format!(
-                "duplicate spawn slot ID {:?}",
-                slot.slot_id
-            )));
-        }
-        if !portal_ids.contains(slot.portal_id.as_str()) {
-            return Err(Error::Catalog(format!(
-                "unknown portal {:?}",
-                slot.portal_id
-            )));
-        }
         let lane = lane_by_key
             .get(&(slot.portal_id.as_str(), slot.lane_index))
-            .ok_or_else(|| {
-                Error::Catalog(format!(
-                    "slot {:?} has no matching portal lane",
-                    slot.slot_id
-                ))
-            })?;
+            .expect("scenario validate checked portal lane");
         for choice in &lane.route_choices {
             let route = route_by_id
                 .get(choice.route_id.as_str())
                 .ok_or_else(|| Error::Catalog(format!("unknown route {:?}", choice.route_id)))?;
-            if !route.route.edge_ids.contains(&slot.edge_id) {
+            if route.route.edge_ids.first() != Some(&slot.edge_id) {
                 return Err(Error::Catalog(format!(
-                    "slot {:?} edge_id is not present in route {:?}",
+                    "slot {:?} edge_id is not the entry edge of route {:?}",
                     slot.slot_id, choice.route_id
                 )));
             }
@@ -1562,23 +1532,14 @@ fn validate_catalog(catalog: &CorridorCatalog, corridor: &CorridorBuild) -> Resu
             .get(slot.edge_id.as_str())
             .expect("route edge exists in corridor topology")
             .length();
-        if slot.progress < ENDPOINT_CLEARANCE_METERS
+        if !slot.progress.is_finite()
+            || slot.progress < ENDPOINT_CLEARANCE_METERS
             || slot.progress > length - ENDPOINT_CLEARANCE_METERS
         {
             return Err(Error::Catalog(format!(
                 "slot {:?} violates endpoint clearance",
                 slot.slot_id
             )));
-        }
-    }
-    for portal in &catalog.portals {
-        for lane in &portal.lanes {
-            if !slot_ids.contains(lane.entry_spawn_slot_id.as_str()) {
-                return Err(Error::Catalog(format!(
-                    "portal {:?} lane {} has no valid entry_spawn_slot_id",
-                    portal.id, lane.lane_index
-                )));
-            }
         }
     }
     Ok(())

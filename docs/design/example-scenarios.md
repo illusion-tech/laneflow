@@ -28,8 +28,10 @@ envelope、限速、50–200 辆车人口、出口回流和 Runtime/Spatial/Adap
 前提下，clean-break 切换为受保护左转、直行和右转 profile。
 
 current 走廊几何与人口策略仍按下列边界描述。Traffic / Spatial / Manifest JSON
-与 production JSON loader 已随 #301 删除；仓库只保留 catalog TOML。可运行世界从
-共享静态路网安装。走廊人口迁到 Runtime 见 [#472](https://github.com/illusion-tech/laneflow/issues/472)。
+与 production JSON loader 已随 #301 删除；仓库保留 catalog 0.2 与 LFCA。可运行世界从
+共享静态路网安装。现行走廊 Bevy 最小路径见
+[#472](https://github.com/illusion-tech/laneflow/issues/472)；50–200 人口与回流见
+[#475](https://github.com/illusion-tech/laneflow/issues/475)。
 
 走廊能力包含：
 
@@ -38,10 +40,10 @@ current 走廊几何与人口策略仍按下列边界描述。Traffic / Spatial 
   Route 和 44 个编译后 Maneuver occurrence；
 - 主干道 60 km/h、次干道 40 km/h 的 per-edge 限速；
 - 两套可配置固定时制信号控制器，每个 Junction 四组、12 phase/84 秒；
-- `50..=200` 可调车辆人口、显式 seed 和确定性出口回流；
-- 同一 Bevy proxy/model 复用，但每次回流获得新的 Core `VehicleHandle`；
+- `50..=200` 可调车辆人口、显式 seed 和确定性出口回流（#475）；
+- 同一 Bevy proxy/model 复用，但每次回流获得新的 Runtime 车辆句柄（#475）；
 - scenario-local catalog 0.2；
-- 确定性 generator 写出 catalog；JSON 往返验证已删除。
+- 确定性 generator 写出 catalog 与 LFCA。
 
 current 场景不包含换道、路径搜索、permissive turn、红灯右转、感应或自适应信号、
 运行时热修改信号、行人、停车、匝道、路网编辑器和 runtime snapshot。
@@ -171,7 +173,14 @@ yellow 固定 `3 s`，每个 active set 后 all-red 固定 `1 s`，完整 cycle 
 
 ### 6.1 Native runtime 参数
 
-native reference 至少公开：
+现行走廊 Bevy 最小路径不恢复 50–200 人口或 `--vehicles` CLI。它 `include_bytes` 检入的
+catalog 0.2 与 LFCA，prepare 绑到已安装共享路网修订，再 spawn 少数车辆。运行命令为：
+
+```powershell
+cargo +1.96.0 run --locked -p laneflow-bevy --example signalized_corridor --features native-example
+```
+
+#475 的完整 native 至少公开：
 
 ```text
 --vehicles <50..=200>   # 默认 100
@@ -179,41 +188,13 @@ native reference 至少公开：
 --config <path>         # 默认使用 checked-in authoring/startup config
 ```
 
-非法车辆数、解析失败、未知 portal/route、无足够 spawn slots 或 artifact validation failure 都必须在第一个 Core step 前返回明确错误，不能静默 clamp 或降级。
-
+非法车辆数、解析失败、未知 portal/route、无足够 spawn slots 或 artifact validation
+failure 都必须在第一个 `TrafficWorld` step 前返回明确错误，不能静默 clamp 或降级。
 #189 创建的 Bevy target `signalized_corridor` 继续复用 opt-in `native-example`
-feature；#190 只更新其 protected-turning profile 与 example-local observation，不改变
-Adapter public API。example 只读取 authoring config 的启动 projection（版本、fixed
-delta、lane width、输出目录与文件名），不调用 generator，也不把 generator 变成
-runtime dependency。相对输出目录以 config 所在目录为基准；随后必须通过 production
-Scenario loader 的 size/digest/reference validation。
+feature。example 不调用 generator，也不把 generator 变成 runtime dependency。
 
-现行薄走廊 Bevy 路径不恢复 50–200 人口或 `--vehicles` CLI。运行命令为：
-
-```powershell
-cargo +1.96.0 run --locked -p laneflow-bevy --example signalized_corridor --features native-example
-```
-
-完整 50–200 native 回流命令见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
-
-道路、lane marking、StopLine、灯具与 camera 从已加载 Spatial/Core/config projection
-派生，不维护第二套手写 corridor 坐标。灯具 aspect 只读取 committed Core snapshot；
-车辆材质与 HUD 通过编译后的 Maneuver/Route handles 区分 protected-left、straight
-和 protected-right，不从 external ID 或 geometry 反推 movement。完成车辆继续复用
-同一 Bevy Entity，pending 时保持最后合法 Transform。
-
-运行遥测通过 Bevy UI 直接绘制在画面左上角，window title 保持稳定。camera 是
-example-local orbit camera：滚轮缩放，左键拖动沿水平面平移 focus，右键拖动绕 focus
-旋转。Core/Spatial 的车辆 pose 仍以车辆前保险杠为原点；built-in body 只沿 local
-`+Z` 向后延伸，不能把 proxy 原点误当成车身中心。
-
-HUD 使用约 1 秒 outer-frame 采样窗口展示宿主 FPS/frame time；example-local wall-clock
-计时从 population `Lifecycle` 完成后开始，到 `Observe` 消费 committed result 前结束，
-只包围 `LaneFlowFixedSet::Step`，并展示平均 `ms/frame`、`us/tick`、最近 outer frame 的
-step/backlog/catch-up 状态。车辆计数只读取 #203 controller 的
-target/running/pending，不以 ECS Entity 数替代 logical population authority。计时样本
-不进入 Core、PRNG、回流决策或 replay，不包含 renderer、截图和 `PostUpdate`
-presentation，也不定义跨机器性能 SLA。
+#475 才恢复道路/灯具/HUD/orbit camera 与 50–200 同一 Entity 回流。现行最小路径不绘制这些
+表现层，车辆 pose 仍以车辆前保险杠为原点。
 
 ### 6.2 Stable spawn-slot catalog
 
@@ -315,15 +296,14 @@ raw weights 或 draw order 必须经过新的版本/迁移决策，不能静默�
 
 ### 9.1 Production 制品
 
-current v0.10 场景由三类 immutable source artifacts 构成：
+current v0.10 场景的可运行制品是：
 
-- Traffic package v0.10：66 LaneEdge、2 Junction、24 Movement、32
-  ManeuverPath/Gate、28 Route、vehicle profiles/participant classes、横断面/准入
-  静态模型、Signals、Parking 空集合和 per-edge speed limit；
-- SpatialPackage v0.1：所有 lane/connector centerline 与 canonical frame；
-- ScenarioManifest v0.1：Traffic/Spatial 不透明路径、byte size 和 SHA-256 digest 配对。
+- `v0.2-signalized-corridor.lfca`：编译器从走廊合成模块发射的 LFCA（含 Spatial）；
+- `v0.2-signalized-corridor.catalog.toml`：scenario-local catalog 0.2。
 
-ScenarioManifest 继续是静态配对清单，不加入 seed、车辆数、spawn slots、runtime handle、Entity 或 engine asset metadata。
+历史 Traffic package / SpatialPackage / ScenarioManifest JSON 已随 #301 删除，不再是
+现行制品。seed、车辆数、runtime handle、Entity 或 engine asset metadata 不写入 LFCA
+或 catalog。
 
 ### 9.2 Authoring config 与 scenario-local catalog
 
@@ -384,7 +364,7 @@ current v0.10 至少验证：
 | 回流     | 排除原出口、portal/lane/weighted-route 三 draw site、blocked 不重抽、人口保持       |
 | 生命周期 | old handle stale/new live、same Entity/proxy、Core+mapping 失败原子                 |
 | 确定性   | 同 seed/fixed input 相同、不同 outer-frame chunking 相同、golden PRNG               |
-| 制品     | generator byte deterministic、Manifest digest/size 正确、production loader 往返     |
+| 制品     | generator byte deterministic、检入 catalog 与 LFCA 对拍、prepare bind 到共享路网修订 |
 | 可视     | 左/直/右可识别、灯具状态一致、Adapter pose 和 same-Entity recycle 正常              |
 | 性能     | 200 车持续运行无 unbounded queue/retained growth；稳态 lifecycle 不做全人口临时分配 |
 

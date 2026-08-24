@@ -11,14 +11,19 @@ use bevy_transform::{TransformPlugin, components::Transform};
 use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
 use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
+use laneflow_scenario::signalized_corridor::{
+    BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
+};
 use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId, SpatialSession};
-use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
+use laneflow_static_contract::VehicleProfileOrdinal;
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
 };
 
 const CORRIDOR_LFCA: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
+const CORRIDOR_CATALOG: &str =
+    include_str!("../../../examples/data/v0.2-signalized-corridor.catalog.toml");
 
 #[derive(Resource)]
 struct Proxy(Entity);
@@ -36,33 +41,52 @@ fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
     .expect("shared network revision")
 }
 
-fn spawn_two_vehicles(world: &mut TrafficWorld) {
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
-    let profile = world
+fn spawn_on_slot(world: &mut TrafficWorld, profile: VehicleProfileOrdinal, slot: &BoundSpawnSlot) {
+    let edges = world
         .traffic()
         .relations()
-        .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
-        .expect("profile");
+        .static_route_edges(slot.entry_route)
+        .expect("route edges");
+    let index = edges
+        .iter()
+        .position(|edge| *edge == slot.edge)
+        .expect("slot edge is on its entry route");
+    let route = world.static_route(slot.entry_route).expect("static route");
     world
         .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
+            profile,
             route,
-            0,
-            1.0 + profile.length() + profile.min_gap() + 2.0,
+            u32::try_from(index).expect("edge index"),
+            slot.progress,
             0.0,
         ))
-        .expect("leader");
-    world
-        .spawn_vehicle(VehicleSpawnInput::new(
-            VehicleProfileOrdinal::from_raw(0),
-            route,
-            0,
-            1.0,
-            0.0,
-        ))
-        .expect("follower");
+        .expect("catalog slot must spawn");
+}
+
+fn spawn_two_vehicles(
+    world: &mut TrafficWorld,
+    revision: &laneflow_static_network::SharedNetworkRevision,
+) {
+    let catalog: CorridorCatalog = toml::from_str(CORRIDOR_CATALOG).expect("catalog TOML");
+    let bound = bind(&catalog, revision).expect("prepare bind");
+    assert_eq!(bound.network_revision, revision.network_revision());
+    let profile = *bound
+        .profiles
+        .get(PASSENGER_CAR_PROFILE_KEY)
+        .expect("passenger-car profile");
+    let follower = bound.spawn_slots.first().expect("spawn slot");
+    let leader = bound
+        .spawn_slots
+        .iter()
+        .find(|slot| {
+            slot.portal_id == follower.portal_id
+                && slot.lane_index == follower.lane_index
+                && slot.edge == follower.edge
+                && slot.progress > follower.progress
+        })
+        .expect("leader spawn slot");
+    spawn_on_slot(world, profile, leader);
+    spawn_on_slot(world, profile, follower);
 }
 
 fn setup_proxy(mut commands: Commands) {
@@ -106,7 +130,7 @@ fn headless_app_steps_corridor_runtime_and_moves_proxy_transform() {
     let revision = revision();
     let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 8, 1, 16))
         .expect("install");
-    spawn_two_vehicles(&mut world);
+    spawn_two_vehicles(&mut world, &revision);
     let spatial = SpatialSession::bind(revision)
         .expect("bind")
         .expect("session");

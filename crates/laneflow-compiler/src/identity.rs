@@ -15,6 +15,8 @@ use laneflow_static_contract::{
     STABLE_ID_DOMAIN_PREFIX, StableId128,
 };
 
+use crate::limits::{CompileLimitDimension, CompileLimits};
+
 #[cfg(test)]
 use crate::SourceSpan;
 use crate::source::external_token_violation;
@@ -102,6 +104,43 @@ impl EncodedCanonicalIdentity {
 /// 哈希器和输出缓冲区在同一次顺序写入中更新，避免为
 /// `domain_prefix || canonical_bytes` 再构造一份拼接缓冲区。返回前会验证字段集合与登记
 /// 表完全一致，因此成功值可以安全进入唯一性登记表。
+/// 为「`AuthoringNamespaceId` + 单一 ASCII 本地键」实体种类派生 Identity v1 稳定标识。
+///
+/// prepare 绑定用它把编制字符串对上已安装 `SharedIdentityIndex`。字段顺序与种类登记表
+/// 一致，由本函数按 `EntityKind::required_tags` 组装。独立制品验证器不得把本函数当作
+/// 第二套已知向量预言机。
+pub fn derive_canonical_stable_id_v1(
+    kind: EntityKind,
+    authoring_namespace_id: &str,
+    local_key: &str,
+    limits: &CompileLimits,
+) -> Result<StableId128, CanonicalIdentityViolation> {
+    let tags = kind.required_tags();
+    if tags.len() != 2 {
+        return Err(CanonicalIdentityViolation::FieldCountMismatch {
+            expected: u16::try_from(tags.len()).expect("Identity v1 field count must fit u16"),
+            actual: 2,
+        });
+    }
+    if tags[0] != FieldTag::AuthoringNamespaceId {
+        return Err(CanonicalIdentityViolation::UnexpectedFieldTag {
+            position: 0,
+            expected: FieldTag::AuthoringNamespaceId.code(),
+            actual: tags[0].code(),
+        });
+    }
+    let fields = [
+        IdentityFieldInput::new(tags[0], authoring_namespace_id.as_bytes()),
+        IdentityFieldInput::new(tags[1], local_key.as_bytes()),
+    ];
+    Ok(encode_canonical_identity(
+        kind,
+        &fields,
+        limits.value(CompileLimitDimension::SingleStringBytes),
+    )?
+    .stable_id())
+}
+
 pub(crate) fn encode_canonical_identity(
     kind: EntityKind,
     fields: &[IdentityFieldInput<'_>],
@@ -398,6 +437,25 @@ mod tests {
             assert_eq!(compiler.canonical_bytes(), oracle_bytes, "{kind:?}");
             assert_eq!(compiler.stable_id().as_bytes(), &oracle_id, "{kind:?}");
         }
+    }
+
+    #[test]
+    fn public_namespaced_key_derivation_matches_encoder() {
+        let limits = CompileLimits::p100_initial_v1();
+        let encoded = encode_canonical_identity(
+            EntityKind::LaneEdge,
+            &lane_edge_fields(b"city/vector", b"edge-a"),
+            limits.max_single_string_bytes(),
+        )
+        .unwrap();
+        let derived =
+            derive_canonical_stable_id_v1(EntityKind::LaneEdge, "city/vector", "edge-a", &limits)
+                .unwrap();
+        assert_eq!(derived, encoded.stable_id());
+        assert!(
+            derive_canonical_stable_id_v1(EntityKind::Movement, "city/vector", "m", &limits)
+                .is_err()
+        );
     }
 
     #[test]

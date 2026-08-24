@@ -1,4 +1,4 @@
-//! 薄走廊 Bevy 路径：检入的走廊 LFCA + 少数车辆 tick / pose。
+//! 现行走廊 Bevy 最小路径：检入的 catalog 0.2 + LFCA，prepare 绑定后少数车辆 tick / pose。
 //!
 //! 不恢复 50–200 人口、HUD、灯具或同一 Entity 回流。GUI 不进 CI。
 
@@ -8,16 +8,22 @@ use bevy::prelude::*;
 use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
 use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
+use laneflow_scenario::signalized_corridor::{
+    BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
+};
 use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId, SpatialSession};
-use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
+use laneflow_static_contract::VehicleProfileOrdinal;
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
 };
 
 const CORRIDOR_LFCA: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
+const CORRIDOR_CATALOG: &str =
+    include_str!("../../../examples/data/v0.2-signalized-corridor.catalog.toml");
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let catalog: CorridorCatalog = toml::from_str(CORRIDOR_CATALOG)?;
     let input = check_canonical_network_input_v1(CORRIDOR_LFCA, FormatLimits::V1_HARD)
         .map_err(|error| format!("{error:?}"))?;
     let revision = build_shared_network_revision(
@@ -28,27 +34,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         ),
     )
     .map_err(|error| format!("{error:?}"))?;
+    let bound = bind(&catalog, &revision).map_err(|error| error.to_string())?;
     let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 8, 1, 16))?;
-    let route = world.static_route(StaticRouteOrdinal::from_raw(0))?;
-    let profile = world
-        .traffic()
-        .relations()
-        .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
-        .ok_or("missing profile")?;
-    world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        route,
-        0,
-        1.0 + profile.length() + profile.min_gap() + 2.0,
-        0.0,
-    ))?;
-    world.spawn_vehicle(VehicleSpawnInput::new(
-        VehicleProfileOrdinal::from_raw(0),
-        route,
-        0,
-        1.0,
-        0.0,
-    ))?;
+    let profile = *bound
+        .profiles
+        .get(PASSENGER_CAR_PROFILE_KEY)
+        .ok_or("missing passenger-car profile")?;
+    let follower = bound.spawn_slots.first().ok_or("missing spawn slot")?;
+    let leader = bound
+        .spawn_slots
+        .iter()
+        .find(|slot| {
+            slot.portal_id == follower.portal_id
+                && slot.lane_index == follower.lane_index
+                && slot.edge == follower.edge
+                && slot.progress > follower.progress
+        })
+        .ok_or("missing leader spawn slot")?;
+    spawn_on_slot(&mut world, profile, leader)?;
+    spawn_on_slot(&mut world, profile, follower)?;
     let spatial = SpatialSession::bind(revision)
         .map_err(|error| format!("{error:?}"))?
         .ok_or("missing spatial session")?;
@@ -64,6 +68,31 @@ fn main() -> Result<(), Box<dyn Error>> {
         .add_systems(Startup, spawn_proxy)
         .add_systems(Update, sync_proxy)
         .run();
+    Ok(())
+}
+
+fn spawn_on_slot(
+    world: &mut TrafficWorld,
+    profile: VehicleProfileOrdinal,
+    slot: &BoundSpawnSlot,
+) -> Result<(), Box<dyn Error>> {
+    let edges = world
+        .traffic()
+        .relations()
+        .static_route_edges(slot.entry_route)
+        .ok_or("missing route edges")?;
+    let index = edges
+        .iter()
+        .position(|edge| *edge == slot.edge)
+        .ok_or("slot edge is not on its entry route")?;
+    let route = world.static_route(slot.entry_route)?;
+    world.spawn_vehicle(VehicleSpawnInput::new(
+        profile,
+        route,
+        u32::try_from(index)?,
+        slot.progress,
+        0.0,
+    ))?;
     Ok(())
 }
 

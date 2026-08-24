@@ -167,7 +167,7 @@ cargo +1.96.0 check --locked -p laneflow-bevy --example runtime_min --features n
 cargo +1.96.0 test --locked -p laneflow-bevy --test runtime_min_smoke
 ```
 
-`native-example` 仍是非默认 opt-in，完整 `DefaultPlugins` / window / renderer 留在示例边界。v0.7 `native_reference`、campus JSON 与 `laneflow_data::from_scenario_json_slice` 已删除。薄走廊 native example 使用检入 LFCA；50–200 回流见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
+`native-example` 仍是非默认 opt-in，完整 `DefaultPlugins` / window / renderer 留在示例边界。v0.7 `native_reference`、campus JSON 与 `laneflow_data::from_scenario_json_slice` 已删除。现行走廊 native example 使用检入 catalog 0.2 与 LFCA，prepare 绑到已安装共享路网修订；50–200 回流见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
 
 ## 10. 验证与性能 Gate
 
@@ -230,6 +230,13 @@ Spatial batch extract
 插值、LOD/pooling、prefab/glTF、WASM、第二个 Engine Adapter 和 foreign-host boundary proof 保持后续独立范围，不是 v0.7 完成条件。
 
 ## 13. v0.8 直行走廊 schedule 与 proxy 复用
+
+以下 §13–15 是拆除 `CoreWorld` 前的 Bevy specialization，不是
+[#472](https://github.com/illusion-tech/laneflow/issues/472) 的现行入口。现行
+`signalized_corridor` 只安装 `TrafficWorld` 与可选 `SpatialSession`，用 catalog 0.2
+prepare 绑定少量车辆；`replace_completed_vehicle` 与 JSON loader 不可调用。50–200
+typed replace 见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
+
 
 #187 在 v0.7 schedule 上公开 `LaneFlowFixedSet::{Lifecycle, Step, Observe}`，固定顺序为：每个 LaneFlow fixed step 前在 `Lifecycle` 应用 pending lifecycle commands，Adapter 在 `Step` 推进一次 Core，调用方在 `Observe` 消费 committed result/event 并为下一 boundary 入队。一个 outer frame 内的 catch-up steps 逐步重复完整链，presentation 仍在 outer frame 最多提交一次，因此 frame chunking 不得改变 Population/Core 决策。
 

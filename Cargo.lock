@@ -2833,9 +2833,11 @@ dependencies = [
  "bevy_transform",
  "laneflow-format",
  "laneflow-runtime",
+ "laneflow-scenario",
  "laneflow-spatial",
  "laneflow-static-contract",
  "laneflow-static-network",
+ "toml",
 ]
 
 [[package]]
@@ -2901,7 +2903,9 @@ version = "0.0.0"
 dependencies = [
  "laneflow-compiler",
  "laneflow-static-contract",
+ "laneflow-static-network",
  "serde",
+ "toml",
 ]
 
 [[package]]

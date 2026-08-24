@@ -19,7 +19,9 @@ caller-owned authority 继续继承 v0.8/#203。catalog 字符串在 prepare 绑
 `laneflow-scenario` 是可选、引擎无关的 reference policy crate。依赖方向固定为：
 
 ```text
-laneflow-corridor-generator -> laneflow-scenario -> laneflow-compiler（prepare 绑定）
+laneflow-corridor-generator -> laneflow-scenario
+  -> laneflow-compiler（Identity v1 派生）
+  -> laneflow-static-network（已安装共享路网修订）
 ```
 
 generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate 不读取文件系统，不依赖 Data、Spatial、Bevy 或其他 Engine Adapter。Core、Adapter 和宿主游戏都不反向依赖 scenario crate。城市游戏可以用自己的 policy 完全替代本实现。
@@ -41,16 +43,23 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 
 ## 2. 两阶段启动
 
+#472 现行 prepare 绑定是 `validate(catalog)` 之后
+`bind(catalog, &SharedNetworkRevision)`：编制字符串经 Identity v1 派生
+`StableId128`，再查已安装修订的 `SharedIdentityIndex`。可运行世界由 LFCA 安装，不再经过
+`InitialTrafficData` 或 `CoreWorld`。
+
+以下 50–200 启动协议仍是 #475 的目标形状，不是 #472 现行入口：
+
 启动使用 `CorridorPopulationPrepare::prepare` 与 `bind` 两阶段协议：
 
-1. caller 用 production loader 取得 `InitialTrafficData`，并在内存中解析 catalog；
-2. `CorridorCatalog::normalize` 对 production Traffic 完成 cross-reference validation；
+1. caller 安装共享路网修订并在内存中解析 catalog；
+2. `validate` 对 catalog 0.2 完成交叉引用校验，`bind` 把它钉到该 `NetworkRevisionId`；
 3. `prepare` 校验 config/profile，执行一次确定性 Fisher–Yates，返回完整 `VehicleSpawnInput` batch；
-4. caller 只调用一次 `CoreWorld::with_traffic_data` 提交完整 batch；
-5. `bind` 必须发生在 tick 0，并按 external ID 回查所有 vehicle、route 和 profile identity；
+4. caller 只调用一次 `TrafficWorld` spawn batch 提交完整人口；
+5. population bind 必须发生在 tick 0，并按已绑定序号回查所有 vehicle、route 和 profile identity；
 6. 全部 identity 一致后，controller 才进入 `Running = target, Pending = 0`。
 
-`take_initial_vehicles` 是一次性转移。Core batch 创建失败或 bind 发现任一缺失、stale、route/profile/status/progress 不一致时，启动整体失败，不进入首个 step。
+`take_initial_vehicles` 是一次性转移。Runtime batch 创建失败或 bind 发现任一缺失、stale、route/profile/status/progress 不一致时，启动整体失败，不进入首个 step。
 
 ## 3. Catalog 契约
 

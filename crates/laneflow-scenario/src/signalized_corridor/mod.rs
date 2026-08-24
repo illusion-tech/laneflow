@@ -5,6 +5,8 @@ mod catalog;
 
 pub use bind::{BindError, BoundCorridorCatalog, BoundSpawnSlot, bind};
 pub use catalog::{
-    CATALOG_VERSION, CorridorCatalog, PORTAL_IDS, PortalCatalogEntry, PortalLaneCatalogEntry,
-    RouteCatalogEntry, SpawnSlotCatalogEntry, WeightedRouteChoiceCatalogEntry,
+    AUTHORING_NAMESPACE, CATALOG_VERSION, CatalogError, CorridorCatalog, MIN_SPAWN_SLOT_COUNT,
+    PASSENGER_CAR_PROFILE_KEY, PORTAL_IDS, PortalCatalogEntry, PortalLaneCatalogEntry, ROUTE_COUNT,
+    RouteCatalogEntry, SHUTTLE_BUS_PROFILE_KEY, SpawnSlotCatalogEntry,
+    WeightedRouteChoiceCatalogEntry, validate,
 };

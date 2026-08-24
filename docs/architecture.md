@@ -215,9 +215,9 @@ Traffic Data Layer 保存可被编译器和共享静态路网消费的静态交�
 当前生产路径不经过 JSON loader。静态交通数据由编译器从受检编制来源产出 LFCA，
 `laneflow-static-network` 构建 `SharedNetworkRevision`，`TrafficWorld` 安装该共享根。
 `laneflow-data`、`laneflow-current-source` 与 current JSON Schema（Traffic v0.10、
-Spatial v0.1、Scenario Manifest v0.1）已随 #301 拆除。走廊生成器仍可写出同名 JSON
-字节，但这些文档没有生产 schema、加载 crate 或 Runtime 入口；走廊人口迁到 Runtime
-是 follow-up。
+Spatial v0.1、Scenario Manifest v0.1）已随 #301 拆除。走廊生成器写出 catalog 0.2 与
+LFCA；可运行世界只安装 LFCA 构建的共享路网修订。50–200 确定性回流见
+[#475](https://github.com/illusion-tech/laneflow/issues/475)。
 
 portable canonical artifact 由 `laneflow-format`/compiler contract 描述。静态
 semantic normalization 在 compiler；共享静态路网不取代 LFCA publication/provenance

@@ -185,7 +185,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
   LFCA 对拍由 `laneflow-corridor-generator` 测试覆盖，不再单独跑 generator `check`。
   `schemas/road-editing/` 由独立 Codegen workflow 覆盖，不因 `.fbs` 变更拉起整仓
   Rust 测试。Bevy native example 在 Adapter/Runtime/Spatial/scenario、format、
-  static-contract、static-network 或 compiler fixture 变更时编译。
+  static-contract、static-network、compiler 或 `examples/data/` 变更时编译。
 - `Dependency policy`：cargo-deny。
 - `Analyze (actions)` / `Analyze (rust)`：advanced CodeQL。
 - `External Review`：原生审阅 Check。
