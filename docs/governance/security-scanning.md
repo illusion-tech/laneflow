@@ -1,7 +1,7 @@
 # 安全扫描基线
 
 **文档状态**: Active  
-**最后更新**: 2026-08-20
+**最后更新**: 2026-08-24
 **适用范围**: LaneFlow 仓库的 Code Scanning、Secret Scanning、Dependabot 状态审计与公开发布阻断  
 **关联 Issue**: `#88`、`#56`、`#451`
 
@@ -33,16 +33,18 @@ setup identity。冻结配置为：
 - `actions/checkout` 与 `github/codeql-action` 使用完整 commit SHA pin，并由 Dependabot
   GitHub Actions updates 跟踪；更新后仍须完成安全与 Merge Group 验证。
 - `github/codeql-action` 是只在 GitHub-hosted CI runner 执行的工具依赖，不进入 LaneFlow runtime、
-  library 或发布分发物。#451 于 2026-08-20 核验当前 pin
-  `ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`（`v4.37.7`）来源为
+  library 或发布分发物。#485 于 2026-08-24 核验当前 pin
+  `db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28`（`v4.37.8`）来源为
   [GitHub 官方仓库](https://github.com/github/codeql-action)，该 revision 的
-  [许可证为 MIT](https://github.com/github/codeql-action/blob/ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd/LICENSE)。
-  当日 upstream published repository advisories 为
+  [许可证为 MIT](https://github.com/github/codeql-action/blob/db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28/LICENSE)。
+  当日 upstream published repository advisories 仍为
   [GHSA-vqf5-2xx6-9wfm](https://github.com/github/codeql-action/security/advisories/GHSA-vqf5-2xx6-9wfm)
   与 [GHSA-g36v-2xff-pv5m](https://github.com/github/codeql-action/security/advisories/GHSA-g36v-2xff-pv5m)，
-  公布的受影响范围分别止于旧 `v3.28.2` / `v2` 和旧 CodeQL runner；不包含当前 `v4.37.7`。
-  这是有日期的 upstream metadata 审计，不等于永久零漏洞；pin 更新仍须重新核验来源、许可证、advisory
-  与分发边界。
+  公布的受影响范围分别止于旧 `v3.28.2` / `v2` 和旧 CodeQL runner；不包含当前 `v4.37.8`。
+  `v4.37.8` 的 [release notes](https://github.com/github/codeql-action/releases/tag/v4.37.8) 为
+  “No user facing changes”。这是有日期的 upstream metadata 审计，不等于永久零漏洞；pin 更新仍须
+  重新核验来源、许可证、advisory 与分发边界。#451 于 2026-08-20 核验的前一 pin
+  `ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`（`v4.37.7`）只保留为历史审计，不再表示当前 pin。
 - `main` ruleset 的原生 `code_scanning` rule 继续约束普通 PR：分析未配置、仍在运行或发现
   `high` / `critical` security alert 时阻断合并。
 - GitHub 明确说明原生 code-scanning merge protection **不适用于 Merge Queue groups**；
