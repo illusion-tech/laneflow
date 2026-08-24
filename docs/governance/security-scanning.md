@@ -63,11 +63,11 @@ Merge Queue 的 required status checks 固定为：
 - `Dependency policy`
 - `Analyze (actions)`
 - `Analyze (rust)`
-- `External Review`（按 ADR 0026 先经真实队列验证再 required）
 
 机器检查绑定 GitHub Actions App expected source（当前 `integration_id=15368`），并在真实 `H_mg` 上合并前
 完成。expected source 能拒绝其他 App 或用户提交的同名 status，但不能区分同一 GitHub Actions App 下的
-不同 workflow。不得声称已经具备独立 App 级防伪；残余风险见 ADR 0026。
+不同 workflow。修改 required workflow 时仍须检查 workflow 来源与实际 Check Run；不得把 App 绑定写成
+workflow 级防伪。
 
 GitHub 官方说明见 [Code scanning merge protection](https://docs.github.com/en/code-security/concepts/code-scanning/merge-protection)、
 [CodeQL workflow configuration options](https://docs.github.com/en/code-security/reference/code-scanning/workflow-configuration-options)、

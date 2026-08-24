@@ -70,8 +70,12 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   Runtime 的 committed 道路状态或已认证 LFCA asset reference；可编辑 session 在共享根外
   保留 exact LFCA diff base，但不把它写入存档（Accepted；#300 G1 Pass）
 - `0026`: 推倒 G3/G4 自然语言门禁，改为原生 PullRequestReview Check、Merge Queue
-  盖章与收窄的 commit 校验；退役 Schema Publication / ADR 0011 公共发布义务
-  （Accepted；#468）
+  盖章与收窄的 commit 校验；退役 Schema Publication / ADR 0011 公共发布义务；
+  External Review、六项 required checks 与相关启用顺序已被 0027 取代，其它决策继续
+  有效（Accepted；#468）
+- `0027`: 退役非 required 的 External Review 自定义 Check，收敛为五项机器门禁、
+  Merge Queue 与 GitHub 原生未解决对话阻断；required approvals 不在本次启用，owner
+  bypass 转入 #493 独立治理（Accepted；#492）
 
 ## 命名规则
 

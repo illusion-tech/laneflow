@@ -1,7 +1,7 @@
 # 验证矩阵
 
 **文档状态**: Active
-**最后更新**: 2026-08-23
+**最后更新**: 2026-08-24
 
 **适用范围**: LaneFlow 各切片类型在合并前的最小验证要求
 **关联文档**:
@@ -12,6 +12,7 @@
   - `../governance/security-scanning.md`
   - `commit-convention.md`
   - `../adr/0026-merge-governance-rebuild.md`
+  - `../adr/0027-retire-external-review-check.md`
 - 模板:
   - `../../.github/pull_request_template.md`
 
@@ -25,7 +26,7 @@
 
 矩阵不要求所有 PR 跑同一组重复检查，但要求每次变更显式说明验证结论。Rust Core workspace
 落地后，`core-runtime` 切片默认应运行 `cargo fmt --all -- --check` 与
-`cargo test --workspace --locked`。仓库 CI 的 `Rust checks` job 按路径分流：非 Rust / 非 external-review 契约输入
+`cargo test --workspace --locked`。仓库 CI 的 `Rust checks` job 按路径分流：非 Rust 契约输入
 路径跳过重型 cargo。道路编辑 FlatBuffers 变更走独立 Codegen，不因 `.fbs` 拉起整仓
 Rust 测试。本地仍应按本矩阵主动运行与切片相关的命令，不能只依赖 CI skip。
 
@@ -58,31 +59,20 @@ cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
 
 CI 的 `Markdown tables` job 对协作范围内的 Markdown 执行相同检查，但只警告，不阻断合并。
 
-## 4. 外部审阅
+## 4. Review conversation
 
-所有切片默认需要受信非作者 Approve/Comment，或受信非作者对 PR 正文点赞。名单见
-`.github/trusted-reviewers.json`。未解决对话由 GitHub 原生规则拦截。
+普通 GitHub Review 继续用于协作，但不由自定义 Check、受信名单或 reaction 计数。
+当前 Ruleset 不要求固定批准数或 CODEOWNERS review；未解决 review conversation 由
+GitHub 原生 `required_review_thread_resolution: true` 阻止入队。
 
-| 场景                                                     | 结果                           |
-| -------------------------------------------------------- | ------------------------------ |
-| 无原生 Review、无正文 👍                                 | Fail                           |
-| 只有 PR author self-review 或作者点赞                    | Fail                           |
-| 受信 reviewer 提交 `APPROVED` 或 `COMMENTED`（任意 head） | Pass                           |
-| 受信 reviewer 对 PR 正文点 👍                            | Pass                           |
-| Review 绑在旧 head 且结论仍为 Approve/Comment            | Pass                           |
-| 最新 review 为 `CHANGES_REQUESTED` 或 `DISMISSED`        | Fail                           |
-| 未列入名单的 bot（例如当前的 Codex connector）即使有评论 | Fail                           |
-| `main` 前进但 `H_pr` 未变                                | 人审保留；重跑 `H_mg` 机器检查 |
-| 新 push 产生新 `H_pr`                                    | 旧审阅作废                     |
-| fork / cross-repository PR                               | 必须迁到同仓 PR                |
-
-本地对照：
-
-```powershell
-cargo +1.96.0 run --locked -p xtask -- check-external-review --repo <owner/repo> --pr <number>
-```
-
-`publish-external-review-check` 只能在 trusted workflow 中使用。
+| 场景                            | 结果                                   |
+| ------------------------------- | -------------------------------------- |
+| 没有 Review 或 reaction         | 不影响五项机器 Check                   |
+| 存在未解决 review conversation  | GitHub 原生规则阻止入队或合并          |
+| 所有 review conversation 已解决 | 对话条件满足，仍须等待 required checks |
+| `main` 前进但 `H_pr` 未变       | 重建 `H_mg` 并重跑五项机器检查         |
+| 新 push 产生新 `H_pr`           | 新 head 重跑适用 PR 检查               |
+| fork / cross-repository PR      | 必须迁到同仓 PR                        |
 
 ## 5. 默认阻断条件
 
@@ -95,8 +85,7 @@ cargo +1.96.0 run --locked -p xtask -- check-external-review --repo <owner/repo>
 5. 必需验证未运行且没有原因说明。
 6. PR 声称完成父任务，但证据只覆盖子切片。
 7. `security-scanning.md` 要求的适用扫描仍为 pending、失败、无分析、已禁用或不可用。
-8. 当前 head 缺少非作者受信原生 Review。
-9. required checks 未在 `H_pr` 与真实 `H_mg` 上成功。
+8. required checks 未在 `H_pr` 与真实 `H_mg` 上成功。
 
 ## 6. 无法运行时的记录方式
 

@@ -45,6 +45,5 @@
 ## 完成
 
 - [ ] commit 使用 Conventional 标题、`Refs: #<issue>`；破坏性变更同时有标题 `!` 和 `BREAKING CHANGE:`
-- [ ] 当前 head 上有非作者原生 PullRequestReview（由 `External Review` Check 判定；普通评论不算）
 - [ ] 未解决的 review conversation 已处理（由 GitHub 原生规则拦截）
 - [ ] 合入走 Merge Queue，不使用 `--admin`

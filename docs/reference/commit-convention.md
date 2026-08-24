@@ -1,7 +1,7 @@
 # 提交规范
 
 **文档状态**: Active
-**最后更新**: 2026-08-21
+**最后更新**: 2026-08-24
 **适用范围**: LaneFlow 的本地提交、AI Agent 提交说明、PR commit 审查
 
 ## 1. 目标
@@ -93,7 +93,9 @@ Refs: #12
 ## 6. 与 PR 的关系
 
 PR 是主要合并证据。Core、数据格式、Adapter、跨层变更和任何 breaking change
-都应走 PR，并取得当前 head 上的非作者原生审阅。
+都应走 PR。当前 Ruleset 不要求固定批准数或 CODEOWNERS review；已有 review
+conversation 必须在当前 patchset 上解决后才能入队。若以后要强制独立批准，必须先经
+治理 Issue 选择 GitHub 原生 required approvals / CODEOWNERS。
 
 ## 7. PR 合并策略
 

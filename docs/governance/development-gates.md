@@ -1,15 +1,16 @@
 # 开发闸口
 
 **文档状态**: Active
-**最后更新**: 2026-08-21
+**最后更新**: 2026-08-24
 
 **适用范围**: LaneFlow 的需求、设计、实现、评审与合并
 
 ## 1. 目标
 
 本文定义 LaneFlow 的轻量开发闸口。人流程写在 Issue 模板里，机器不解析正文。
-合并由 required checks、原生外部审阅和 Merge Queue 执行。完整决策见
-[ADR 0026](../adr/0026-merge-governance-rebuild.md)。
+合并由 required checks、GitHub 原生未解决对话阻断和 Merge Queue 执行。基础重建见
+[ADR 0026](../adr/0026-merge-governance-rebuild.md)，External Review 退役与当前目标态见
+[ADR 0027](../adr/0027-retire-external-review-check.md)。
 
 人可读阶段：
 
@@ -107,34 +108,25 @@ exact head 重新取得审阅；不得沿用旧 head 的设计结论。
 `security-scanning.md` 记录适用扫描状态；涉及许可证、Cargo 依赖、cargo-deny 或
 Dependabot 时还必须满足 `dependency-security.md`。
 
-### 6.1 外部审阅
+### 6.1 Review conversation
 
-所有非 Draft PR 在入队前，当前 exact head `H_pr` 上必须有一条非作者的受信原生
-`PullRequestReview`（`APPROVED` 或 `COMMENTED`，绑定该 head）。作者自审不计入。
-普通评论不算。名单见 `.github/trusted-reviewers.json`。机器实现见
-`xtask` 的 `check-external-review` / `publish-external-review-check`。
+普通 GitHub Review 继续用于协作，但不由自定义 Check、受信名单或 reaction 计数。
+当前 Ruleset 不要求固定批准数或 CODEOWNERS review；以后若要强制独立批准，必须先
+通过治理 Issue 选择 GitHub 原生 required approvals / CODEOWNERS。
 
 未解决的 review conversation 由 GitHub Ruleset
-`required_review_thread_resolution: true` 阻止入队。External Review Check 不
-统计 thread。
-
-`docs-only`、`governance` 和小改动不自动豁免。fork / cross-repository PR 必须把
-最终 patchset 迁到同仓 PR 后再审阅。
+`required_review_thread_resolution: true` 阻止入队。不得在 workflow 或 `xtask` 中
+复制 thread 计数状态机。fork / cross-repository PR 必须把最终 patchset 迁到同仓 PR。
 
 ### 6.2 Required checks
 
-切换完成后，PR 与 `merge_group` 使用相同的六个 required check 名称：
+PR 与 `merge_group` 使用相同的五个 required check 名称：
 
 1. `Commit message`
 2. `Rust checks`
 3. `Dependency policy`
 4. `Analyze (actions)`
 5. `Analyze (rust)`
-6. `External Review`
-
-`External Review` 必须先经真实 Merge Queue 验证，再设为 required；验证前 bypass
-必须保留。见 ADR 0026 启用顺序。
-
 `Markdown tables` 只警告。Schema publication 不参与合并门禁。
 
 ### 6.3 入队
@@ -146,8 +138,8 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 ```
 
 不得在 checks pending 时预先武装 auto-merge。禁止日常 `--admin`。`H_pr` 变了必须
-重新审阅；`main` 前进只重建 `H_mg` 并重跑机器检查。队列在 `H_mg` 上需要同名六项
-绿（`External Review` 为盖章，不是在 `H_mg` 上重做人审）。
+重跑适用检查；`main` 前进只重建 `H_mg` 并重跑机器检查。队列在 `H_mg` 上需要同名
+五项绿。owner bypass 的终态由 #493 独立治理。
 
 ## 7. 完成
 

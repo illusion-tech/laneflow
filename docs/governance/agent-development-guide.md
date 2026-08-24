@@ -1,7 +1,7 @@
 # AI Agent 开发指南
 
 **文档状态**: Active
-**最后更新**: 2026-08-21
+**最后更新**: 2026-08-24
 
 **适用范围**: 使用 AI Agent 参与 LaneFlow 的设计、开发、测试、文档和治理工作
 
@@ -113,19 +113,20 @@ AI Agent 不应：
 - 未运行检查及原因
 - 文档更新情况
 - 已知风险
-- 当前 head 的 `External Review` Check 状态
+- 当前 head 的五项 required checks 与未解决 review conversation 状态
 - 后续 Issue 或留白
 
 ## 11. PR 合并策略
 
-先冻结 current exact head `H_pr`，确认该 head 的外部审阅与 required checks 已完成，
+先冻结 current exact head `H_pr`，确认该 head 的 required checks 已完成，
 再加入 `main` 的合并队列：
 
 ```powershell
 gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 ```
 
-`main` 前进只重建 `H_mg` 并重跑机器检查。任何 push 改变 `H_pr` 后，旧审阅作废。
+`main` 前进只重建 `H_mg` 并重跑机器检查。任何 push 改变 `H_pr` 后，旧机器检查结果
+不能复用于新 head。
 禁止日常 `--admin`。核对 `Commit message`、`Rust checks`、`Dependency policy`、
-`Analyze (actions)`、`Analyze (rust)`、`External Review`。CodeQL 两项须来自
+`Analyze (actions)`、`Analyze (rust)`。CodeQL 两项须来自
 GitHub Actions App `integration_id=15368`。

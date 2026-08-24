@@ -13,7 +13,8 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 4. `docs/reference/commit-convention.md`
 5. `docs/reference/glossary.md`
 6. 修改 Rust 时读取 `docs/reference/rust-code-style.md`
-7. 相关的 `docs/design/` 与 `docs/adr/` 文档
+7. 相关的 `docs/design/` 与 `docs/adr/` 文档；治理交付同时读取
+   `docs/adr/0027-retire-external-review-check.md`
 8. 涉及 #291 目标静态路网编译、#300 共享静态路网、静态执行约束/分区规划
    提示/运行时执行计划（Static Execution Constraint / Partition Planning Hints /
    Runtime Execution Plan），或 `laneflow-runtime/TrafficWorld` 时，读取
@@ -51,14 +52,13 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 4. 若改变长期行为或契约，同步更新文档。
 5. 按切片类型运行对应检查。
 6. 记录验证结果、文档状态与剩余风险。
-7. PR 准备合并时，冻结 current exact head `H_pr` 并完成该 head 的 required checks、适用 CodeQL 与
-   原生外部审阅；全部 success 后才可运行入队命令，不得在 pending 时预先武装 auto-merge。`main` 要求通过
+7. PR 准备合并时，冻结 current exact head `H_pr` 并完成该 head 的 required checks 与适用 CodeQL；
+   未解决 review conversation 由 GitHub 原生规则阻断。全部 success 后才可运行入队命令，不得在 pending 时预先武装 auto-merge。`main` 要求通过
    Merge Queue 入队，使用 `gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>`，
    最终 Rebase 方式由队列规则控制。不得因 `main` 单纯前进手工 rebase；不得使用 `--admin` 绕过队列。
    队列 live Ruleset 必须保留 required checks，并关闭 `strict_required_status_checks_policy`；集成结果由
    GitHub 为最新目标分支组合生成的 `H_mg` 承载。`H_pr` 与真实 `H_mg` 都必须完成
-   `Commit message`、`Rust checks`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`、
-   `External Review`（后者按 ADR 0026 启用顺序）；
+   `Commit message`、`Rust checks`、`Dependency policy`、`Analyze (actions)`、`Analyze (rust)`；
    CodeQL 两项必须来自 GitHub Actions App `integration_id=15368`，不得用原生 CodeQL rule 或其他 SHA 补足。
 
 ### Rust 语义导航
