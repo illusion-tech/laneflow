@@ -21,6 +21,7 @@ thiserror = "2.0"
 laneflow-compiler = { version = "0.0.0", path = "../laneflow-compiler" }
 laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
+stats_alloc = "=0.1.10"
 
 [lints]
 workspace = true
