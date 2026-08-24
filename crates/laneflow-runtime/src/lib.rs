@@ -16,6 +16,7 @@ pub use error::{
 };
 pub use handle::{RouteHandle, VehicleHandle};
 pub use input::{RouteRegisterInput, VehicleSpawnInput};
+pub use laneflow_static_contract::ParkingSpaceOrdinal;
 pub use pose::{CommittedPoseSourceBatch, CommittedSignalGroupBatch, PoseSource};
 pub use vehicle::{VehicleReplaceBlock, VehicleReplaceRecord, VehicleState, VehicleStatus};
 pub use world::TrafficWorld;

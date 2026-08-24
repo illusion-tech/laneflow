@@ -75,6 +75,7 @@ laneflow-spatial ───────────────> laneflow-static-
 laneflow-spatial ───────────────> laneflow-static-contract
 Adapter / 示例 ─────────────────> laneflow-runtime
 Adapter / 示例 ─────────────────> laneflow-spatial
+（Adapter 生产 graph 不直接依赖 laneflow-static-contract；停车序号由 Runtime 再导出。）
 ```
 
 | 包 | 拥有 | 禁止 |

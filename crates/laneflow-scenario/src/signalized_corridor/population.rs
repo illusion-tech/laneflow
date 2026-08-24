@@ -564,6 +564,7 @@ impl CorridorPopulationController {
         world: &TrafficWorld,
         old: VehicleHandle,
     ) -> Result<VehicleSpawnInput, CorridorPopulationError> {
+        self.require_bound_world(world)?;
         let slot_index = self.vehicle_pending_slot(old)?;
         self.spawn_input_for_pending(world, slot_index)
     }
@@ -652,6 +653,7 @@ impl CorridorPopulationController {
         &mut self,
         world: &TrafficWorld,
     ) -> Result<usize, CorridorPopulationError> {
+        self.require_bound_world(world)?;
         let tick = world.tick_index();
         if Some(tick) != self.last_consumed_tick.checked_add(1) {
             return Err(CorridorPopulationError::NonMonotonicStep {
@@ -774,6 +776,15 @@ impl CorridorPopulationController {
         }
     }
 
+    fn require_bound_world(&self, world: &TrafficWorld) -> Result<(), CorridorPopulationError> {
+        if world.revision().network_revision() != self.catalog.network_revision {
+            return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                detail: "TrafficWorld 修订与 catalog bind 不一致".to_owned(),
+            });
+        }
+        Ok(())
+    }
+
     fn vehicle_pending_slot(&self, old: VehicleHandle) -> Result<usize, CorridorPopulationError> {
         self.slots
             .iter()
@@ -783,9 +794,10 @@ impl CorridorPopulationController {
 
     fn spawn_input_for_pending(
         &self,
-        _world: &TrafficWorld,
+        world: &TrafficWorld,
         slot_index: usize,
     ) -> Result<VehicleSpawnInput, CorridorPopulationError> {
+        self.require_bound_world(world)?;
         let LogicalSlotState::Pending { plan, .. } = self.slots[slot_index].state else {
             return Err(CorridorPopulationError::UnknownCompletionVehicle {
                 vehicle: self.logical_vehicle(slot_index).expect("slot exists"),

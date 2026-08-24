@@ -357,6 +357,22 @@ fn consume_world_rejects_untracked_completed_vehicle() {
     ));
 }
 
+fn foreign_world() -> TrafficWorld {
+    const S1: &[u8] = include_bytes!(
+        "../../../crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    );
+    let input = check_canonical_network_input_v1(S1, FormatLimits::V1_HARD).expect("s1");
+    let foreign = build_shared_network_revision(
+        input,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+        ),
+    )
+    .expect("foreign revision");
+    TrafficWorld::install(foreign, WorldConfig::new(8, 4, 1, 100)).expect("install")
+}
+
 fn spawn_near_route_end(world: &mut TrafficWorld) -> VehicleHandle {
     let route = world
         .static_route(StaticRouteOrdinal::from_raw(0))
@@ -384,22 +400,72 @@ fn spawn_near_route_end(world: &mut TrafficWorld) -> VehicleHandle {
 
 #[test]
 fn spawn_input_rejects_foreign_revision() {
-    const S1: &[u8] = include_bytes!(
-        "../../../crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
-    );
     let (prepared, _) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let input = check_canonical_network_input_v1(S1, FormatLimits::V1_HARD).expect("s1");
-    let foreign = build_shared_network_revision(
-        input,
-        SharedNetworkBuildOptions::new(
-            SpatialBuildOption::RetainAvailable,
-            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
-        ),
-    )
-    .expect("foreign revision");
-    let world = TrafficWorld::install(foreign, WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let world = foreign_world();
     assert!(
         prepared.initial_vehicles()[0].spawn_input(&world).is_err(),
         "plan must fail-closed on another NetworkRevisionId"
     );
+}
+
+#[test]
+fn consume_world_rejects_foreign_revision() {
+    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world = TrafficWorld::install(
+        Arc::clone(&revision),
+        WorldConfig::new(
+            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
+            8,
+            1,
+            100,
+        ),
+    )
+    .expect("install");
+    let vehicles = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
+    let error = controller
+        .consume_world(&foreign_world())
+        .expect_err("foreign consume");
+    assert!(matches!(
+        error,
+        CorridorPopulationError::BoundWorldCatalogMismatch { .. }
+    ));
+}
+
+#[test]
+fn pending_spawn_input_rejects_foreign_revision() {
+    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world = TrafficWorld::install(
+        Arc::clone(&revision),
+        WorldConfig::new(
+            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
+            8,
+            1,
+            100,
+        ),
+    )
+    .expect("install");
+    let vehicles = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
+    for _ in 0..8_000 {
+        world.step(TickInput::new(100)).expect("step");
+        if controller.consume_world(&world).expect("consume") > 0 {
+            break;
+        }
+    }
+    let old = (0..MIN_TARGET_VEHICLE_COUNT)
+        .map(|index| controller.logical_vehicle(index).expect("slot"))
+        .find(|handle| {
+            world
+                .vehicle(*handle)
+                .is_some_and(|state| state.status() == VehicleStatus::Completed)
+        })
+        .expect("completed handle");
+    let error = controller
+        .pending_spawn_input(&foreign_world(), old)
+        .expect_err("foreign pending");
+    assert!(matches!(
+        error,
+        CorridorPopulationError::BoundWorldCatalogMismatch { .. }
+    ));
 }
