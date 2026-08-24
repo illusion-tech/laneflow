@@ -7,17 +7,19 @@ use laneflow_static_contract::{
 use laneflow_static_network::SharedNetworkRevision;
 
 use crate::tables::{
-    CompiledRoute, DynamicRouteSlot, VehicleSlot, VehicleState, VehicleStatus, bodies_overlap,
-    compile_dynamic_route, route_access_denied, spawn_motion_error, static_route_ordinal,
+    CompiledRoute, DynamicRouteSlot, VehicleSlot, bodies_overlap, compile_dynamic_route,
+    occupancy_front_gap, route_access_denied, spawn_motion_error, static_route_ordinal,
 };
 use crate::{
     CommittedPoseSourceBatch, CommittedSignalGroupBatch, InstallError, LookupError, ParkingError,
-    PoseSource, RouteError, RouteHandle, RouteRegisterInput, SpawnError, StepError, StepOutcome,
-    TickInput, VehicleHandle, VehicleSpawnInput, WorldConfig,
+    PoseSource, ReplaceError, RouteError, RouteHandle, RouteRegisterInput, SpawnError, StepError,
+    StepOutcome, TickInput, VehicleHandle, VehicleReplaceBlock, VehicleReplaceRecord,
+    VehicleSpawnInput, VehicleState, VehicleStatus, WorldConfig,
 };
 
 /// 1-worker 交通世界。只克隆根 `Arc`，不复制静态 component。
-/// 生命周期命令（`register_route` / `spawn_vehicle` / `occupy_parking`）只在两次 `step` 之间调用。
+/// 生命周期命令（`register_route` / `spawn_vehicle` / `occupy_parking` /
+/// `replace_completed_vehicle`）只在两次 `step` 之间调用。
 pub struct TrafficWorld {
     pub(crate) revision: Arc<SharedNetworkRevision>,
     pub(crate) config: WorldConfig,
@@ -223,7 +225,10 @@ impl TrafficWorld {
         if self.route_suffix_denied(input.route(), profile.class(), cursor) {
             return Err(SpawnError::AccessDenied);
         }
-        if self.lane_overlap(input.route(), cursor, input.progress(), profile.length()) {
+        if self
+            .overlap_blocker(input.route(), cursor, input.progress(), profile.length())
+            .is_some()
+        {
             return Err(SpawnError::Overlap);
         }
 
@@ -264,6 +269,130 @@ impl TrafficWorld {
         }
         self.live_order.push(handle);
         Ok(handle)
+    }
+
+    /// 把 live 的 Completed 车辆原子替换为新的 Active 车辆。
+    ///
+    /// 入口占用返回可重试的 [`ReplaceError::Blocked`]；其他失败为致命错误。
+    /// 任一失败都保持已提交世界不变。成功后旧句柄立即 stale；公开契约不保证同一 slot index。
+    pub fn replace_completed_vehicle(
+        &mut self,
+        old: VehicleHandle,
+        input: VehicleSpawnInput,
+    ) -> Result<VehicleReplaceRecord, ReplaceError> {
+        let old_state = self.vehicle_state(old).ok_or(ReplaceError::StaleHandle)?;
+        if old_state.status != VehicleStatus::Completed {
+            return Err(ReplaceError::NotCompleted);
+        }
+        if old_state.parking.is_some() {
+            return Err(ReplaceError::ParkingOccupied);
+        }
+        let Some(order_index) = self.live_order.iter().position(|handle| *handle == old) else {
+            return Err(ReplaceError::StaleHandle);
+        };
+
+        if let Some(error) = spawn_motion_error(input.progress(), input.initial_speed()) {
+            return Err(error.into());
+        }
+        let profile = self
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(input.profile())
+            .ok_or(ReplaceError::UnknownProfile)?;
+        let cursor = usize::try_from(input.route_edge_index()).expect("route index fits usize");
+        let edge = {
+            let edges = self
+                .route_edges(input.route())
+                .ok_or(ReplaceError::UnknownRoute)?;
+            *edges
+                .get(cursor)
+                .ok_or(ReplaceError::RouteIndexOutOfRange)?
+        };
+        let length = self.revision.traffic().lane_lengths_meters()[edge.index()];
+        if input.progress() > length {
+            return Err(ReplaceError::InvalidProgress);
+        }
+        let speed_limit = self
+            .revision
+            .traffic()
+            .lane_speed_limits_meters_per_second()[edge.index()];
+        if input.initial_speed() > speed_limit {
+            return Err(ReplaceError::SpeedExceedsLimit);
+        }
+        if self.route_suffix_denied(input.route(), profile.class(), cursor) {
+            return Err(ReplaceError::AccessDenied);
+        }
+        if let Some(blocker) =
+            self.overlap_blocker(input.route(), cursor, input.progress(), profile.length())
+        {
+            let (blocker_ahead, bumper_gap) = self.overlap_relation(
+                input.route(),
+                cursor,
+                input.progress(),
+                profile.length(),
+                blocker,
+            );
+            return Err(ReplaceError::Blocked(VehicleReplaceBlock {
+                old,
+                blocker,
+                blocker_ahead,
+                bumper_gap,
+            }));
+        }
+
+        let old_index = usize::try_from(old.index()).expect("vehicle index fits usize");
+        let reusable_generation = self.vehicles[old_index].generation.checked_add(1);
+        let slot_index = reusable_generation.map_or_else(
+            || self.free_vehicles.pop().unwrap_or(self.vehicles.len()),
+            |_| old_index,
+        );
+        let generation = reusable_generation.unwrap_or_else(|| {
+            self.vehicles
+                .get(slot_index)
+                .map_or(0, |slot| slot.generation)
+        });
+        let new = VehicleHandle::new(
+            u32::try_from(slot_index).expect("vehicle index fits u32"),
+            generation,
+        );
+        let state = VehicleState {
+            handle: new,
+            profile: input.profile(),
+            class: profile.class(),
+            route: input.route(),
+            route_edge_index: input.route_edge_index(),
+            progress: input.progress(),
+            speed: input.initial_speed(),
+            length: profile.length(),
+            status: VehicleStatus::Active,
+            parking: None,
+        };
+
+        if reusable_generation.is_some() {
+            self.vehicles[old_index] = VehicleSlot {
+                generation,
+                state: Some(state),
+            };
+        } else {
+            self.vehicles[old_index].state = None;
+            let slot = VehicleSlot {
+                generation,
+                state: Some(state),
+            };
+            if slot_index == self.vehicles.len() {
+                self.vehicles.push(slot);
+            } else {
+                self.vehicles[slot_index] = slot;
+            }
+        }
+        if !input.route().is_static() {
+            let route_index =
+                usize::try_from(input.route().index()).expect("route index fits usize");
+            self.dynamic_routes[route_index].live_vehicles += 1;
+        }
+        self.live_order[order_index] = new;
+        Ok(VehicleReplaceRecord { old, new })
     }
 
     /// 停车占用：每车一个车位、每车位一车；同车位幂等。
@@ -369,6 +498,18 @@ impl TrafficWorld {
         CommittedSignalGroupBatch { items }
     }
 
+    /// 已提交车辆快照。`Completed` 仍可读；stale 句柄返回 `None`。
+    #[must_use]
+    pub fn vehicle(&self, handle: VehicleHandle) -> Option<VehicleState> {
+        self.vehicle_state(handle).copied()
+    }
+
+    /// 稳定更新顺序，含 Active / Parked / Completed。
+    #[must_use]
+    pub fn live_vehicles(&self) -> &[VehicleHandle] {
+        &self.live_order
+    }
+
     pub(crate) fn vehicle_state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
         let slot = self.vehicles.get(usize::try_from(handle.index()).ok()?)?;
         if slot.generation != handle.generation() {
@@ -452,12 +593,16 @@ impl TrafficWorld {
         )
     }
 
-    fn lane_overlap(&self, route: RouteHandle, cursor: usize, progress: f64, length: f64) -> bool {
-        let Some(spawn_edges) = self.route_edges(route) else {
-            return true;
-        };
+    fn overlap_blocker(
+        &self,
+        route: RouteHandle,
+        cursor: usize,
+        progress: f64,
+        length: f64,
+    ) -> Option<VehicleHandle> {
+        let spawn_edges = self.route_edges(route)?;
         let lengths = self.revision.traffic().lane_lengths_meters();
-        self.live_order.iter().copied().any(|handle| {
+        self.live_order.iter().copied().find(|&handle| {
             let Some(state) = self.vehicle_state(handle) else {
                 return false;
             };
@@ -484,6 +629,54 @@ impl TrafficWorld {
         })
     }
 
+    fn overlap_relation(
+        &self,
+        route: RouteHandle,
+        cursor: usize,
+        progress: f64,
+        length: f64,
+        blocker: VehicleHandle,
+    ) -> (bool, f64) {
+        let Some(spawn_edges) = self.route_edges(route) else {
+            return (true, 0.0);
+        };
+        let Some(leader) = self.vehicle_state(blocker) else {
+            return (true, 0.0);
+        };
+        let Some(blocker_edges) = self.route_edges(leader.route) else {
+            return (true, 0.0);
+        };
+        let Ok(blocker_index) = usize::try_from(leader.route_edge_index) else {
+            return (true, 0.0);
+        };
+        let lengths = self.revision.traffic().lane_lengths_meters();
+        if let Some(gap) = occupancy_front_gap(
+            lengths,
+            spawn_edges,
+            cursor,
+            progress,
+            blocker_edges,
+            blocker_index,
+            leader.progress,
+            leader.length,
+        ) {
+            return (true, gap);
+        }
+        if let Some(gap) = occupancy_front_gap(
+            lengths,
+            blocker_edges,
+            blocker_index,
+            leader.progress,
+            spawn_edges,
+            cursor,
+            progress,
+            length,
+        ) {
+            return (false, gap);
+        }
+        (true, 0.0)
+    }
+
     pub(crate) fn release_route_ref(&mut self, route: RouteHandle) {
         if route.is_static() {
             return;
@@ -498,18 +691,6 @@ impl TrafficWorld {
             return;
         }
         slot.live_vehicles = slot.live_vehicles.saturating_sub(1);
-    }
-
-    pub(crate) fn retire_completed_vehicle(&mut self, slot: usize, handle: VehicleHandle) {
-        self.live_order.retain(|current| *current != handle);
-        let Some(vehicle) = self.vehicles.get_mut(slot) else {
-            return;
-        };
-        vehicle.state = None;
-        if let Some(next_generation) = vehicle.generation.checked_add(1) {
-            vehicle.generation = next_generation;
-            self.free_vehicles.push(slot);
-        }
     }
 
     pub(crate) fn refresh_signals(&mut self) {

@@ -1,10 +1,10 @@
 # Signalized Corridor Population
 
-**文档状态**: Accepted（#203 G1）<br>
+**文档状态**: Accepted（#203 G1；#475 Runtime 回流）<br>
 **最后更新**: 2026-08-24<br>
 **适用范围**: current v0.10 signalized-corridor catalog 0.2 人口/回流 policy；
-caller-owned authority 继续继承 v0.8/#203。catalog 字符串在 prepare 绑到共享路网修订
-（#472）；50–200 原子替换见 #475。
+caller-owned authority 继续继承 ADR 0016。catalog 字符串在 prepare 绑到共享路网修订
+（#472）；50–200 原子替换由 #475 交付。
 
 **关联文档**:
 
@@ -24,7 +24,7 @@ laneflow-corridor-generator -> laneflow-scenario
   -> laneflow-static-network（已安装共享路网修订）
 ```
 
-generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate 不读取文件系统，不依赖 Data、Spatial、Bevy 或其他 Engine Adapter。Core、Adapter 和宿主游戏都不反向依赖 scenario crate。城市游戏可以用自己的 policy 完全替代本实现。
+generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate 不读取文件系统，不依赖 Spatial、Bevy 或其他 Engine Adapter。Runtime、Adapter 和宿主游戏都不反向依赖 scenario crate。城市游戏可以用自己的 policy 完全替代本实现。
 
 本 crate 拥有：
 
@@ -32,11 +32,11 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 - caller 提供的 `u64 seed` 与默认值 `0`；
 - corridor catalog 的 closed TOML shape、语义校验和规范顺序；
 - 初始 slot permutation、completion 顺序消费、portal/lane 抽样和 blocked retry；
-- logical slot 到当前 Core vehicle identity 的 caller-owned 映射。
+- logical slot 到当前 `VehicleHandle` 的 caller-owned 映射。
 
 本 crate 不拥有：
 
-- 已拆除的核心世界类型、交通状态、overlap 或 replacement transaction；
+- `TrafficWorld` 占用/跟车实现或 replacement transaction 本体；
 - Entity、Transform、模型、UI 或 outer-frame 时间；
 - Traffic/Spatial/Manifest 的加载路径和持久化格式；
 - 通用人口 controller 或面向任意路网的路径搜索。
@@ -48,18 +48,18 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 `StableId128`，再查已安装修订的 `SharedIdentityIndex`。可运行世界由 LFCA 安装，不再经过已拆除的 JSON/Core
 运行时入口。
 
-以下 50–200 启动协议仍是 #475 的目标形状，不是 #472 现行入口：
+#475 现行启动协议：
 
-启动使用 `CorridorPopulationPrepare::prepare` 与 `bind` 两阶段协议：
+启动使用 catalog `bind`、`CorridorPopulationPrepare::prepare` 与 controller `bind`：
 
 1. caller 安装共享路网修订并在内存中解析 catalog；
 2. `validate` 对 catalog 0.2 完成交叉引用校验，`bind` 把它钉到该 `NetworkRevisionId`；
-3. `prepare` 校验 config/profile，执行一次确定性 Fisher–Yates，返回完整 `VehicleSpawnInput` batch；
-4. caller 只调用一次 `TrafficWorld` spawn batch 提交完整人口；
+3. `prepare` 校验 config/profile，执行一次确定性 Fisher–Yates，返回完整 `CorridorVehiclePlan` batch；
+4. caller 在 `TrafficWorld` 上按计划逐辆 `spawn_vehicle`；
 5. population bind 必须发生在 tick 0，并按已绑定序号回查所有 vehicle、route 和 profile identity；
 6. 全部 identity 一致后，controller 才进入 `Running = target, Pending = 0`。
 
-`take_initial_vehicles` 是一次性转移。Runtime batch 创建失败或 bind 发现任一缺失、stale、route/profile/status/progress 不一致时，启动整体失败，不进入首个 step。
+`take_initial_vehicles` 是一次性转移。Runtime spawn 失败或 bind 发现任一缺失、stale、route/profile/status/progress 不一致时，启动整体失败，不进入首个 step。
 
 ## 3. Catalog 契约
 
@@ -86,32 +86,30 @@ choice 使用 Traffic Route 输入顺序，physical slot 使用
 
 PRNG 使用 `example-scenarios.md` 冻结的 SplitMix64 和 rejection sampling。初始 permutation 与所有回流 draw 共享一个 controller-owned state；不使用 thread RNG、hash iteration、文件系统顺序或 ECS iteration。
 
-每个 logical slot 使用 `corridor-vehicle-{index:03}` external ID。`prepare` 对完整规范
-physical slot catalog 执行从末尾到开头的 Fisher–Yates 后取前 N 个 slot，再按 logical
-slot 顺序对其 PortalLane 执行一次 weighted RouteChoice draw。单 choice 也必须使用
-原始正整数 weight 作为 `uniform` bound，不能跳过 draw。每个 initial slot 与每条
-route 的共享 entry slot 都派生
+Runtime 没有 external ID 字符串。`prepare` 对完整规范 physical slot catalog 执行从末尾
+到开头的 Fisher–Yates 后取前 N 个 slot，再按 logical slot 顺序对其 PortalLane 执行一次
+weighted RouteChoice draw。单 choice 也必须使用原始正整数 weight 作为 `uniform` bound，
+不能跳过 draw。每个 initial slot 与每条 route 的共享 entry slot 都派生
 `min(VehicleProfile.desiredSpeed, spawn edge speedLimit)` 作为正常行驶初速度；没有
 speed-limit authority 时启动失败。50、100、200 三种目标人口都必须通过同 seed
-整批 golden、初速度上限/正值、Core batch no-overlap 和 tick-0 bind 验证。
+整批 golden、初速度上限/正值、no-overlap spawn 和 tick-0 bind 验证。
 
 ## 5. Fixed-step lifecycle
 
-controller 只消费 caller 传入的 ordered `StepResult`，不主动驱动 Core：
+controller 只消费 caller 传入的已提交 `TrafficWorld`，不主动驱动 step：
 
 ```text
 apply pending lifecycle commands
-  -> Core fixed step
-  -> consume ordered completion events
+  -> TrafficWorld fixed step
+  -> consume ordered Completed vehicles
   -> enqueue frozen plans for next lifecycle boundary
 ```
 
-`consume_step_result` 要求 tick 严格递增，并以先验证、后提交的方式处理整个 completion batch。每个 completion 必须满足：
+`consume_world` 要求 tick 严格递增，并以先验证、后提交的方式处理整个 completion batch。Running 句柄若已从 world 消失，视为「先消失再生成」契约失败。每个 completion 必须满足：
 
-- event tick 等于 `StepResult.tick_index`；
-- vehicle 属于一个 `Running` logical slot，且同一 batch 不重复；
+- vehicle 属于一个 `Running` logical slot，状态为 `Completed`，且同一 batch 不重复；
 - route handle 等于该 logical slot 当前 route；
-- edge handle 与 route edge occurrence 精确等于该 route 末端。
+- route edge occurrence 精确等于该 route 末端。
 
 任一校验失败时，batch 不更新 logical state、PRNG、pending queue 或 last consumed tick。
 
@@ -133,7 +131,7 @@ Running(vehicle, route)
 Pending(old, frozen route plan)
 ```
 
-`apply_pending` 是 transport-neutral lifecycle API。caller 可把同一 `VehicleReplaceInput` 交给 Core 或 Adapter 的 typed transaction，并将结果映射为：
+`apply_pending` 是 transport-neutral lifecycle API。caller 可把同一 `VehicleSpawnInput` 交给 `TrafficWorld` 或 Adapter 的 typed transaction，并将结果映射为：
 
 - `Replaced(old, new)`：controller 以 new handle 原子轮换 logical identity，回到 Running；
 - `Blocked(old, blocker, ...)`：保留 old 与 frozen plan，移动到 FIFO 队尾；
@@ -151,7 +149,7 @@ controller 在 bind 时按目标人口预留所有 steady containers。completio
 - 无 completion 的 ordered step；
 - completion batch 校验与提交；
 - blocked retry；
-- Preserve external ID 的成功 logical identity rotation。
+- 成功 logical identity rotation（新 `VehicleHandle`）。
 
 200 车持续运行不得产生无界 queue、history 或 retained capacity 增长。测试基线至少覆盖 10,000 次 completion/replacement 轮换，以及不同 outer-frame catch-up chunking 下相同 fixed-step input 的 replay 一致性。
 
@@ -164,8 +162,8 @@ initial ID 和 batch permutation 共同构成 current replay contract。blocked 
 无说明的内部重构。
 
 catalog `0.1 -> 0.2` 是无兼容 clean break，不提供旧 DTO、dual parser、alias 或
-migration shim。本实现不改变 Core API、Traffic/Spatial/Manifest shape 或 Adapter
-API；Traffic/Spatial/Manifest bytes 随 protected profile 原子更新。
+migration shim。本实现通过 `TrafficWorld::replace_completed_vehicle` 与 Adapter
+typed 换绑交付回流；不恢复 current JSON / `laneflow-data`，也不把人口政策写入 `step`。
 
 ## 9. v0.9 catalog 0.2 current 实现
 

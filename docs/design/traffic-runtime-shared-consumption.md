@@ -57,8 +57,8 @@
   [#475](https://github.com/illusion-tech/laneflow/issues/475)。
 - 不把 `laneflow-core-design` Skill 标识符改名（若仍需独立残留 Issue，不得反向
   保留 `laneflow-core` crate）。
-- 不冻 `despawn` / `replace`、停车预约/到场/离场状态机，也不把 `CoreEvent` 枚举
-  搬进 Runtime。
+- 不恢复独立 `despawn`；原子替换由 #475 交付。不冻停车预约/到场/离场状态机，也不把
+  `CoreEvent` 枚举搬进 Runtime。
 - 不实现时变准入；`register_route` 不做 `(ParticipantClass, Route)` 判断。
 
 ## 3. 包依赖
@@ -106,8 +106,9 @@ Adapter / Runtime 在组合根把车辆 handle 映射到 `PoseRecordId`。禁止
 ## 4. 公开入口
 
 凡 S1、最小 Bevy、§6.4 要驱动或观察的行为，公开入口只在本节。生命周期命令
-（`register_route` / `remove_route` / `spawn_vehicle` / `occupy_parking`）只在
-`step` 之间调用；单条失败原子，不得在一次 `step` 中间改实体集合。
+（`register_route` / `remove_route` / `spawn_vehicle` / `occupy_parking` /
+`replace_completed_vehicle`）只在 `step` 之间调用；单条失败原子，不得在一次
+`step` 中间改实体集合。`Completed` 车辆保留到 replace：不进 pose、不占车道，占容量。
 
 语义形状（不承诺最终 Rust 字段名）：
 
@@ -121,6 +122,12 @@ TrafficWorld::static_route(route: /* 共享根静态路线序号 */) -> Result<R
 TrafficWorld::register_route(input: RouteRegisterInput) -> Result<RouteHandle, RouteError>;
 TrafficWorld::remove_route(route: RouteHandle) -> Result<(), RouteError>;
 TrafficWorld::spawn_vehicle(input: VehicleSpawnInput) -> Result<VehicleHandle, SpawnError>;
+TrafficWorld::replace_completed_vehicle(
+    old: VehicleHandle,
+    input: VehicleSpawnInput,
+) -> Result<VehicleReplaceRecord, ReplaceError>;
+TrafficWorld::vehicle(handle) -> Option<VehicleState>;
+TrafficWorld::live_vehicles() -> &[VehicleHandle];
 TrafficWorld::occupy_parking(
     vehicle: VehicleHandle,
     space: /* 共享根停车位序号 */,
@@ -189,7 +196,7 @@ Route 用共享根边序号编译 occurrence。
   `(class, Route)` 绑定期准入（只查当前 cursor / 序列下标起的可达后缀）。初速可以
   等于该 occurrence 当前边的基础限速，超过则拒绝。重叠、非法路线/下标/进度、未知
   profile、超容量、准入 deny、超限速失败时不得留下半辆车。
-- 本切片不冻 `despawn` / `replace`。
+- #475 交付 `replace_completed_vehicle`；不恢复独立 `despawn`。到达终点写成 `Completed`，保留句柄与容量，不进 pose、不占车道。
 
 ### 4.3 停车占用
 

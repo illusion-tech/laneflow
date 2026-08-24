@@ -2896,9 +2896,12 @@ name = "laneflow-scenario"
 version = "0.0.0"
 dependencies = [
  "laneflow-compiler",
+ "laneflow-format",
+ "laneflow-runtime",
  "laneflow-static-contract",
  "laneflow-static-network",
  "serde",
+ "thiserror 2.0.19",
  "toml",
 ]
 

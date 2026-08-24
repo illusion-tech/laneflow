@@ -217,13 +217,13 @@ weighted RouteChoice draw。
 checked-in 默认配置使用 `10 m` slot pitch，并在每个 eligible segment 两端保留
 车辆安全 clearance；由此确定性生成 212 个 physical slot。
 
-每个 logical population slot 拥有稳定 external vehicle ID，例如 `corridor-vehicle-000`。初始 spawn 和后续 replace 都使用该 external ID，但每次旅程拥有新的 Core handle generation。
+Runtime 没有 external ID 字符串。每个 logical population slot 跟踪当前 `VehicleHandle`；每次旅程拥有新的 handle generation。初始 spawn 和后续 replace 使用 `VehicleSpawnInput`。
 
 ## 7. 出口回流
 
 ### 7.1 Portal/Lane/Route 三个 draw site
 
-车辆完成 route 后不从场景消失。#203 的 caller-owned reference policy 为该 logical slot 建立 pending plan；Core 本身不自动回流：
+车辆完成 route 后不从场景消失。caller-owned reference policy 为该 logical slot 建立 pending plan；TrafficWorld 本身不自动回流：
 
 1. 从除刚驶出 portal 外的其余 5 个 portal 中均匀选择目标 portal；
 2. 从该 portal 的 2 或 3 条 PortalLane 中均匀选择一条；
@@ -246,22 +246,22 @@ checked-in 默认配置使用 `10 m` slot pitch，并在每个 eligible segment 
 - 同一 boundary 内该 plan 只尝试一次；
 - 其他 pending plan 继续按稳定 insertion order 尝试。
 
-成功后 Core 原子使 old handle stale 并返回 new handle，Adapter 在同一公开事务中把同一 Entity 从 old handle 切换到 new handle。人口的 logical slot 数保持目标值，Bevy 不 despawn/respawn proxy 或 model。
+成功后 TrafficWorld 原子使 old handle stale 并返回 new handle，Adapter 在同一公开事务中把同一 Entity 从 old handle 切换到 new handle。人口的 logical slot 数保持目标值，Bevy 不 despawn/respawn proxy 或 model。不得用退役后再 `spawn` 充当回流。
 
 不可恢复的配置或 invariant 错误进入明确 fatal/diagnostic 路径，不能无限伪装成入口阻塞。
 
 ### 7.3 Fixed-step 顺序
 
-每个 Core fixed step 的 caller-owned 顺序固定为：
+每个 TrafficWorld fixed step 的 caller-owned 顺序固定为：
 
 ```text
 apply pending lifecycle commands
-  -> Core fixed step
-  -> consume ordered completion events
+  -> TrafficWorld fixed step
+  -> consume ordered Completed vehicles
   -> enqueue pending plans for the next lifecycle boundary
 ```
 
-若一个 outer frame 运行多个 catch-up step，每个 step 间仍执行上述顺序。Presentation 每个 outer frame 最多提交一次，因此 frame chunking 不改变 Core/population 决策序列。
+若一个 outer frame 运行多个 catch-up step，每个 step 间仍执行上述顺序。Presentation 每个 outer frame 最多提交一次，因此 frame chunking 不改变 Runtime/population 决策序列。
 
 ## 8. PRNG 契约
 

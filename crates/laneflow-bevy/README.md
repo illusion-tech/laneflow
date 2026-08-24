@@ -8,7 +8,8 @@ LaneFlow 的 Bevy 0.19 Reference Adapter crate。
 - `LaneFlowOuterFrame`：位于 Bevy `First` 之后，读取宿主已经更新的 `Time::delta()`；
 - `LaneFlowFixed`：按 Session accumulator 运行零次或多次 `TrafficWorld` 固定步进；
 - `LaneFlowFixedSet::{Lifecycle, Step, Observe}`：每个 fixed/catch-up step 内稳定重复的公共阶段链；
-- `LaneFlowSession`：单活动 Bevy Resource，组合 `TrafficWorld`、可选 `SpatialSession`、catch-up 配置与最近一帧结果；
+- `LaneFlowSession`：单活动 Bevy Resource，组合 `TrafficWorld`、可选 `SpatialSession`、catch-up 配置、Vehicle/Entity 映射与最近一帧结果；
+- `replace_completed_vehicle`：Lifecycle 边界的 typed 原子替换；已绑定车辆复用同一 Entity，`Blocked` 时映射与 Transform 不变；
 - `LaneFlowFrameReport` / `LaneFlowAdapterError`：暴露 step 数、完整 backlog、上限状态与结构化失败。
 
 宿主必须在第一次 `App::update` 前安装 Bevy `TimePlugin`（或包含它的 plugin group）并插入一个 `LaneFlowSession`。本 crate 不修改 Bevy `Time<Fixed>`，也不重复安装宿主 plugin。
