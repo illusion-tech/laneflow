@@ -6,13 +6,14 @@ use bevy_ecs::{
     resource::Resource,
     system::{Commands, Query, Res, ResMut},
 };
+use bevy_math::Vec3;
 use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use bevy_transform::{TransformPlugin, components::Transform};
 use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
 use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_scenario::signalized_corridor::{
-    BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
+    BoundCorridorCatalog, BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
 };
 use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId, SpatialSession};
 use laneflow_static_contract::VehicleProfileOrdinal;
@@ -74,7 +75,25 @@ fn spawn_two_vehicles(
         .profiles
         .get(PASSENGER_CAR_PROFILE_KEY)
         .expect("passenger-car profile");
-    let follower = bound.spawn_slots.first().expect("spawn slot");
+    let (follower, leader) = follow_pair(&catalog, &bound);
+    spawn_on_slot(world, profile, leader);
+    spawn_on_slot(world, profile, follower);
+}
+
+fn follow_pair<'a>(
+    catalog: &CorridorCatalog,
+    bound: &'a BoundCorridorCatalog,
+) -> (&'a BoundSpawnSlot, &'a BoundSpawnSlot) {
+    let lane = catalog
+        .portals
+        .first()
+        .and_then(|portal| portal.lanes.first())
+        .expect("portal lane");
+    let follower = bound
+        .spawn_slots
+        .iter()
+        .find(|slot| slot.slot_id == lane.entry_spawn_slot_id)
+        .expect("entry spawn slot");
     let leader = bound
         .spawn_slots
         .iter()
@@ -85,8 +104,17 @@ fn spawn_two_vehicles(
                 && slot.progress > follower.progress
         })
         .expect("leader spawn slot");
-    spawn_on_slot(world, profile, leader);
-    spawn_on_slot(world, profile, follower);
+    (follower, leader)
+}
+
+fn proxy_transform(pose: laneflow_spatial::CanonicalPoseF32) -> Transform {
+    let position = pose.position();
+    let tangent = pose.tangent();
+    let up = pose.up();
+    Transform::from_xyz(position.x(), position.y(), position.z()).looking_to(
+        Vec3::new(tangent.x(), tangent.y(), tangent.z()),
+        Vec3::new(up.x(), up.y(), up.z()),
+    )
 }
 
 fn setup_proxy(mut commands: Commands) {
@@ -120,8 +148,7 @@ fn sync_proxy(
         return;
     };
     if let Ok(mut transform) = transforms.get_mut(proxy.0) {
-        let position = record.pose().position();
-        *transform = Transform::from_xyz(position.x(), position.y(), position.z());
+        *transform = proxy_transform(record.pose());
     }
 }
 

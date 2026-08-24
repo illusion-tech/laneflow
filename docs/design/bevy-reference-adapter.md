@@ -231,7 +231,7 @@ Spatial batch extract
 
 ## 13. v0.8 直行走廊 schedule 与 proxy 复用
 
-以下 §13–15 是拆除 `CoreWorld` 前的 Bevy specialization，不是
+以下 §13–15 是拆除 JSON/Core 运行时入口前的 Bevy specialization，不是
 [#472](https://github.com/illusion-tech/laneflow/issues/472) 的现行入口。现行
 `signalized_corridor` 只安装 `TrafficWorld` 与可选 `SpatialSession`，用 catalog 0.2
 prepare 绑定少量车辆；`replace_completed_vehicle` 与 JSON loader 不可调用。50–200

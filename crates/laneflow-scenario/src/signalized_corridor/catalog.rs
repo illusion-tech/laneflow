@@ -144,6 +144,9 @@ pub enum CatalogError {
     UnreferencedRoute(String),
     InsufficientSlots(usize),
     DuplicateSlot(String),
+    EmptyId {
+        field: &'static str,
+    },
     InvalidProgress {
         slot_id: String,
     },
@@ -240,8 +243,12 @@ impl fmt::Display for CatalogError {
                 "catalog must provide at least {MIN_SPAWN_SLOT_COUNT} spawn slots, found {actual}"
             ),
             Self::DuplicateSlot(id) => write!(formatter, "duplicate spawn slot {id:?}"),
+            Self::EmptyId { field } => write!(formatter, "{field} must not be empty"),
             Self::InvalidProgress { slot_id } => {
-                write!(formatter, "spawn slot {slot_id:?} progress is not finite")
+                write!(
+                    formatter,
+                    "spawn slot {slot_id:?} progress is not finite or is negative"
+                )
             }
             Self::DuplicatePosition { slot_id } => {
                 write!(
@@ -293,6 +300,7 @@ pub fn validate(catalog: &CorridorCatalog) -> Result<(), CatalogError> {
         if portal.id != PORTAL_IDS[index] {
             return Err(CatalogError::PortalSet);
         }
+        require_id("portal.id", &portal.id)?;
         if !seen_portals.insert(portal.id.as_str()) {
             return Err(CatalogError::DuplicatePortal(portal.id.clone()));
         }
@@ -322,9 +330,11 @@ pub fn validate(catalog: &CorridorCatalog) -> Result<(), CatalogError> {
                     lane_index,
                 });
             }
+            require_id("entry_spawn_slot_id", &lane.entry_spawn_slot_id)?;
             let mut choice_routes = HashSet::new();
             let mut weight_sum = 0_u64;
             for choice in &lane.route_choices {
+                require_id("route_id", &choice.route_id)?;
                 if choice.weight == 0 {
                     return Err(CatalogError::ZeroWeight {
                         portal_id: portal.id.clone(),
@@ -353,6 +363,8 @@ pub fn validate(catalog: &CorridorCatalog) -> Result<(), CatalogError> {
     let mut route_ids = HashSet::new();
     let mut route_exit = HashMap::new();
     for route in &catalog.routes {
+        require_id("route_id", &route.route_id)?;
+        require_id("exit_portal_id", &route.exit_portal_id)?;
         if !route_ids.insert(route.route_id.as_str()) {
             return Err(CatalogError::DuplicateRoute(route.route_id.clone()));
         }
@@ -402,15 +414,23 @@ pub fn validate(catalog: &CorridorCatalog) -> Result<(), CatalogError> {
     let mut positions = HashSet::new();
     let mut slot_by_id = HashMap::new();
     for slot in &catalog.spawn_slots {
+        require_id("slot_id", &slot.slot_id)?;
+        require_id("portal_id", &slot.portal_id)?;
+        require_id("edge_id", &slot.edge_id)?;
         if !slot_ids.insert(slot.slot_id.as_str()) {
             return Err(CatalogError::DuplicateSlot(slot.slot_id.clone()));
         }
-        if !slot.progress.is_finite() {
+        if !slot.progress.is_finite() || slot.progress < 0.0 {
             return Err(CatalogError::InvalidProgress {
                 slot_id: slot.slot_id.clone(),
             });
         }
-        if !positions.insert((slot.edge_id.as_str(), slot.progress.to_bits())) {
+        let progress_bits = if slot.progress == 0.0 {
+            0.0_f64.to_bits()
+        } else {
+            slot.progress.to_bits()
+        };
+        if !positions.insert((slot.edge_id.as_str(), progress_bits)) {
             return Err(CatalogError::DuplicatePosition {
                 slot_id: slot.slot_id.clone(),
             });
@@ -441,6 +461,13 @@ pub fn validate(catalog: &CorridorCatalog) -> Result<(), CatalogError> {
                 });
             }
         }
+    }
+    Ok(())
+}
+
+fn require_id(field: &'static str, value: &str) -> Result<(), CatalogError> {
+    if value.is_empty() {
+        return Err(CatalogError::EmptyId { field });
     }
     Ok(())
 }
@@ -489,12 +516,26 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_finite_progress() {
+    fn rejects_non_finite_or_negative_progress_and_empty_ids() {
         let mut catalog = golden_catalog();
         catalog.spawn_slots[0].progress = f64::NAN;
         assert!(matches!(
             validate(&catalog),
             Err(CatalogError::InvalidProgress { .. })
         ));
+
+        let mut catalog = golden_catalog();
+        catalog.spawn_slots[0].progress = -1.0;
+        assert!(matches!(
+            validate(&catalog),
+            Err(CatalogError::InvalidProgress { .. })
+        ));
+
+        let mut catalog = golden_catalog();
+        catalog.spawn_slots[0].slot_id.clear();
+        assert_eq!(
+            validate(&catalog),
+            Err(CatalogError::EmptyId { field: "slot_id" })
+        );
     }
 }

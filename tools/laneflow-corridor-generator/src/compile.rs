@@ -10,7 +10,7 @@ use laneflow_compiler::{
     SignalPhaseInput, SourceModuleHeader, SourceModuleHeaderInput, StaticRouteInput, StopLineInput,
     SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
 };
-use laneflow_format::FormatLimits;
+use laneflow_format::{FormatLimits, check_post_emission_bundle_v1};
 use laneflow_scenario::signalized_corridor::{
     AUTHORING_NAMESPACE, PASSENGER_CAR_PROFILE_KEY, SHUTTLE_BUS_PROFILE_KEY,
 };
@@ -96,6 +96,17 @@ pub(crate) fn emit_lfca(output: &CompilationOutput) -> Result<Vec<u8>, Error> {
     )
     .map_err(|error| Error::Validation {
         stage: "emit LFCA",
+        message: format!("{error:?}"),
+    })?;
+    check_post_emission_bundle_v1(
+        candidate.canonical_artifact().bytes(),
+        candidate.source_map().bytes(),
+        candidate.semantic_diff().bytes(),
+        candidate.expected_semantic_diff_base(),
+        FormatLimits::V1_HARD,
+    )
+    .map_err(|error| Error::Validation {
+        stage: "post-emission",
         message: format!("{error:?}"),
     })?;
     Ok(candidate.canonical_artifact().bytes().to_vec())
