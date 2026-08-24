@@ -258,9 +258,10 @@ fn allocation_ledgers_and_per_world_live_bytes() {
 #[ignore = "manual instrumented vs uninstrumented wall-clock delta"]
 fn instrumented_build_wall_clock_for_calibration() {
     let started = Instant::now();
-    black_box(build(CORRIDOR, SpatialBuildOption::RetainAvailable));
+    let held = build(CORRIDOR, SpatialBuildOption::RetainAvailable);
+    let elapsed_ns = started.elapsed().as_nanos();
+    black_box(&held);
     println!(
-        "shared-static-network-evidence calibrate instrumented_corridor_build_ns={}",
-        started.elapsed().as_nanos()
+        "shared-static-network-evidence calibrate instrumented_corridor_build_ns={elapsed_ns}"
     );
 }
