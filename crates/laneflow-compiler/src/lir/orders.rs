@@ -23,8 +23,8 @@ use crate::mir::{
 use crate::{DiagnosticBundle, SourceLocation};
 
 use super::{
-    compare_identity_parts, compare_identity_v1, compare_length_prefixed, dense_mir_keys,
-    mapping_pair_bytes, ordinal_mapping, ordinal_overflow, requested_bytes,
+    LirFreezePlan, compare_identity_parts, compare_identity_v1, compare_length_prefixed,
+    dense_mir_keys, mapping_pair_bytes, ordinal_mapping, ordinal_overflow, requested_bytes,
 };
 
 /// 一类稳定实体从 MIR 致密地址到 LIR 规范序号的双向排列。
@@ -143,6 +143,7 @@ pub(crate) struct CanonicalOrders {
 impl CanonicalOrders {
     pub(crate) fn build(
         mir: &MirUnit,
+        plan: &LirFreezePlan,
         limits: &crate::CompileLimits,
         primary_span: Option<SourceLocation>,
     ) -> Result<Self, DiagnosticBundle> {
@@ -162,14 +163,22 @@ impl CanonicalOrders {
                 .all(|pair| { compare_identity_v1(mir, pair[0], pair[1]) == Ordering::Less })
         );
 
-        let mut mir_to_lir = vec![LaneEdgeOrdinal::from_raw(0); mir.lane_edges.len()];
+        let mut mir_to_lir =
+            vec![
+                LaneEdgeOrdinal::from_raw(0);
+                LirFreezePlan::capacity(plan.lane_edge_count, limits, primary_span.clone())?
+            ];
         for (index, mir_key) in canonical_order.iter().copied().enumerate() {
             mir_to_lir[mir_key.index()] = LaneEdgeOrdinal::try_from_usize(index)
                 .map_err(|_| ordinal_overflow(limits, primary_span.clone()))?;
         }
 
         let mut canonical_mir_corridor_order: Vec<MirRoadCorridorKey> =
-            dense_mir_keys(mir.road_corridors.len());
+            dense_mir_keys(LirFreezePlan::capacity(
+                plan.cross_section.road_corridors,
+                limits,
+                primary_span.clone(),
+            )?);
         canonical_mir_corridor_order.sort_unstable_by(|left, right| {
             let left = &mir.road_corridors[left.index()];
             let right = &mir.road_corridors[right.index()];
@@ -183,7 +192,11 @@ impl CanonicalOrders {
             )
         });
         let mir_corridor_to_lir = ordinal_mapping(
-            mir.road_corridors.len(),
+            LirFreezePlan::capacity(
+                plan.cross_section.road_corridors,
+                limits,
+                primary_span.clone(),
+            )?,
             &canonical_mir_corridor_order,
             RoadCorridorOrdinal::try_from_usize,
             limits,
@@ -191,7 +204,11 @@ impl CanonicalOrders {
         )?;
 
         let mut canonical_mir_section_order: Vec<MirRoadSectionKey> =
-            dense_mir_keys(mir.road_sections.len());
+            dense_mir_keys(LirFreezePlan::capacity(
+                plan.cross_section.road_sections,
+                limits,
+                primary_span.clone(),
+            )?);
         canonical_mir_section_order.sort_unstable_by(|left, right| {
             let left = &mir.road_sections[left.index()];
             let right = &mir.road_sections[right.index()];
@@ -215,7 +232,11 @@ impl CanonicalOrders {
             )
         });
         let mir_section_to_lir = ordinal_mapping(
-            mir.road_sections.len(),
+            LirFreezePlan::capacity(
+                plan.cross_section.road_sections,
+                limits,
+                primary_span.clone(),
+            )?,
             &canonical_mir_section_order,
             RoadSectionOrdinal::try_from_usize,
             limits,
@@ -223,7 +244,11 @@ impl CanonicalOrders {
         )?;
 
         let mut canonical_mir_lane_order: Vec<MirAuthoringLaneKey> =
-            dense_mir_keys(mir.authoring_lanes.len());
+            dense_mir_keys(LirFreezePlan::capacity(
+                plan.cross_section.authoring_lanes,
+                limits,
+                primary_span.clone(),
+            )?);
         canonical_mir_lane_order.sort_unstable_by(|left, right| {
             let left = &mir.authoring_lanes[left.index()];
             let right = &mir.authoring_lanes[right.index()];
@@ -247,15 +272,20 @@ impl CanonicalOrders {
             )
         });
         let mir_lane_to_lir = ordinal_mapping(
-            mir.authoring_lanes.len(),
+            LirFreezePlan::capacity(
+                plan.cross_section.authoring_lanes,
+                limits,
+                primary_span.clone(),
+            )?,
             &canonical_mir_lane_order,
             AuthoringLaneOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_group_order: Vec<MirLaneGroupKey> =
-            dense_mir_keys(mir.lane_groups.len());
+        let mut canonical_mir_group_order: Vec<MirLaneGroupKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.cross_section.lane_groups, limits, primary_span.clone())?,
+        );
         canonical_mir_group_order.sort_unstable_by(|left, right| {
             let left = &mir.lane_groups[left.index()];
             let right = &mir.lane_groups[right.index()];
@@ -279,7 +309,7 @@ impl CanonicalOrders {
             )
         });
         let mir_group_to_lir = ordinal_mapping(
-            mir.lane_groups.len(),
+            LirFreezePlan::capacity(plan.cross_section.lane_groups, limits, primary_span.clone())?,
             &canonical_mir_group_order,
             LaneGroupOrdinal::try_from_usize,
             limits,
@@ -287,7 +317,11 @@ impl CanonicalOrders {
         )?;
 
         let mut canonical_mir_band_order: Vec<MirFacilityBandKey> =
-            dense_mir_keys(mir.facility_bands.len());
+            dense_mir_keys(LirFreezePlan::capacity(
+                plan.cross_section.facility_bands,
+                limits,
+                primary_span.clone(),
+            )?);
         canonical_mir_band_order.sort_unstable_by(|left, right| {
             let left = &mir.facility_bands[left.index()];
             let right = &mir.facility_bands[right.index()];
@@ -311,15 +345,20 @@ impl CanonicalOrders {
             )
         });
         let mir_band_to_lir = ordinal_mapping(
-            mir.facility_bands.len(),
+            LirFreezePlan::capacity(
+                plan.cross_section.facility_bands,
+                limits,
+                primary_span.clone(),
+            )?,
             &canonical_mir_band_order,
             FacilityBandOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_junction_order: Vec<MirJunctionKey> =
-            dense_mir_keys(mir.junctions.len());
+        let mut canonical_mir_junction_order: Vec<MirJunctionKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.junction.junctions, limits, primary_span.clone())?,
+        );
         canonical_mir_junction_order.sort_unstable_by(|left, right| {
             let left = &mir.junctions[left.index()];
             let right = &mir.junctions[right.index()];
@@ -333,15 +372,16 @@ impl CanonicalOrders {
             )
         });
         let mir_junction_to_lir = ordinal_mapping(
-            mir.junctions.len(),
+            LirFreezePlan::capacity(plan.junction.junctions, limits, primary_span.clone())?,
             &canonical_mir_junction_order,
             JunctionOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_movement_order: Vec<MirMovementKey> =
-            dense_mir_keys(mir.movements.len());
+        let mut canonical_mir_movement_order: Vec<MirMovementKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.junction.movements, limits, primary_span.clone())?,
+        );
         canonical_mir_movement_order.sort_unstable_by(|left, right| {
             let left = &mir.movements[left.index()];
             let right = &mir.movements[right.index()];
@@ -382,15 +422,16 @@ impl CanonicalOrders {
             })
         });
         let mir_movement_to_lir = ordinal_mapping(
-            mir.movements.len(),
+            LirFreezePlan::capacity(plan.junction.movements, limits, primary_span.clone())?,
             &canonical_mir_movement_order,
             MovementOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_maneuver_path_order: Vec<MirManeuverPathKey> =
-            dense_mir_keys(mir.maneuver_paths.len());
+        let mut canonical_mir_maneuver_path_order: Vec<MirManeuverPathKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.junction.maneuver_paths, limits, primary_span.clone())?,
+        );
         canonical_mir_maneuver_path_order.sort_unstable_by(|left, right| {
             let left = &mir.maneuver_paths[left.index()];
             let right = &mir.maneuver_paths[right.index()];
@@ -445,15 +486,16 @@ impl CanonicalOrders {
             })
         });
         let mir_maneuver_path_to_lir = ordinal_mapping(
-            mir.maneuver_paths.len(),
+            LirFreezePlan::capacity(plan.junction.maneuver_paths, limits, primary_span.clone())?,
             &canonical_mir_maneuver_path_order,
             ManeuverPathOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_stop_line_order: Vec<MirStopLineKey> =
-            dense_mir_keys(mir.stop_lines.len());
+        let mut canonical_mir_stop_line_order: Vec<MirStopLineKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.control.stop_lines, limits, primary_span.clone())?,
+        );
         canonical_mir_stop_line_order.sort_unstable_by(|left, right| {
             let left = &mir.stop_lines[left.index()];
             let right = &mir.stop_lines[right.index()];
@@ -467,15 +509,16 @@ impl CanonicalOrders {
             )
         });
         let mir_stop_line_to_lir = ordinal_mapping(
-            mir.stop_lines.len(),
+            LirFreezePlan::capacity(plan.control.stop_lines, limits, primary_span.clone())?,
             &canonical_mir_stop_line_order,
             StopLineOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_maneuver_gate_order: Vec<MirManeuverGateKey> =
-            dense_mir_keys(mir.maneuver_gates.len());
+        let mut canonical_mir_maneuver_gate_order: Vec<MirManeuverGateKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.control.maneuver_gates, limits, primary_span.clone())?,
+        );
         canonical_mir_maneuver_gate_order.sort_unstable_by(|left, right| {
             let left = &mir.maneuver_gates[left.index()];
             let right = &mir.maneuver_gates[right.index()];
@@ -504,15 +547,16 @@ impl CanonicalOrders {
             })
         });
         let mir_maneuver_gate_to_lir = ordinal_mapping(
-            mir.maneuver_gates.len(),
+            LirFreezePlan::capacity(plan.control.maneuver_gates, limits, primary_span.clone())?,
             &canonical_mir_maneuver_gate_order,
             ManeuverGateOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_waiting_zone_order: Vec<MirWaitingZoneKey> =
-            dense_mir_keys(mir.waiting_zones.len());
+        let mut canonical_mir_waiting_zone_order: Vec<MirWaitingZoneKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.control.waiting_zones, limits, primary_span.clone())?,
+        );
         canonical_mir_waiting_zone_order.sort_unstable_by(|left, right| {
             let left = &mir.waiting_zones[left.index()];
             let right = &mir.waiting_zones[right.index()];
@@ -541,15 +585,16 @@ impl CanonicalOrders {
             })
         });
         let mir_waiting_zone_to_lir = ordinal_mapping(
-            mir.waiting_zones.len(),
+            LirFreezePlan::capacity(plan.control.waiting_zones, limits, primary_span.clone())?,
             &canonical_mir_waiting_zone_order,
             WaitingZoneOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_signal_group_order: Vec<MirSignalGroupKey> =
-            dense_mir_keys(mir.signal_groups.len());
+        let mut canonical_mir_signal_group_order: Vec<MirSignalGroupKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.signal.groups, limits, primary_span.clone())?,
+        );
         canonical_mir_signal_group_order.sort_unstable_by(|left, right| {
             let left = &mir.signal_groups[left.index()];
             let right = &mir.signal_groups[right.index()];
@@ -563,15 +608,16 @@ impl CanonicalOrders {
             )
         });
         let mir_signal_group_to_lir = ordinal_mapping(
-            mir.signal_groups.len(),
+            LirFreezePlan::capacity(plan.signal.groups, limits, primary_span.clone())?,
             &canonical_mir_signal_group_order,
             SignalGroupOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_signal_controller_order: Vec<MirSignalControllerKey> =
-            dense_mir_keys(mir.signal_controllers.len());
+        let mut canonical_mir_signal_controller_order: Vec<MirSignalControllerKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.signal.controllers, limits, primary_span.clone())?,
+        );
         canonical_mir_signal_controller_order.sort_unstable_by(|left, right| {
             let left = &mir.signal_controllers[left.index()];
             let right = &mir.signal_controllers[right.index()];
@@ -585,15 +631,16 @@ impl CanonicalOrders {
             )
         });
         let mir_signal_controller_to_lir = ordinal_mapping(
-            mir.signal_controllers.len(),
+            LirFreezePlan::capacity(plan.signal.controllers, limits, primary_span.clone())?,
             &canonical_mir_signal_controller_order,
             SignalControllerOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_signal_phase_order: Vec<MirSignalPhaseKey> =
-            dense_mir_keys(mir.signal_phases.len());
+        let mut canonical_mir_signal_phase_order: Vec<MirSignalPhaseKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.signal.phases, limits, primary_span.clone())?,
+        );
         canonical_mir_signal_phase_order.sort_unstable_by(|left, right| {
             let left = &mir.signal_phases[left.index()];
             let right = &mir.signal_phases[right.index()];
@@ -622,15 +669,16 @@ impl CanonicalOrders {
             })
         });
         let mir_signal_phase_to_lir = ordinal_mapping(
-            mir.signal_phases.len(),
+            LirFreezePlan::capacity(plan.signal.phases, limits, primary_span.clone())?,
             &canonical_mir_signal_phase_order,
             SignalPhaseOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_parking_area_order: Vec<MirParkingAreaKey> =
-            dense_mir_keys(mir.parking_areas.len());
+        let mut canonical_mir_parking_area_order: Vec<MirParkingAreaKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.parking.areas, limits, primary_span.clone())?,
+        );
         canonical_mir_parking_area_order.sort_unstable_by(|left, right| {
             let left = &mir.parking_areas[left.index()];
             let right = &mir.parking_areas[right.index()];
@@ -644,15 +692,16 @@ impl CanonicalOrders {
             )
         });
         let mir_parking_area_to_lir = ordinal_mapping(
-            mir.parking_areas.len(),
+            LirFreezePlan::capacity(plan.parking.areas, limits, primary_span.clone())?,
             &canonical_mir_parking_area_order,
             ParkingAreaOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_parking_space_order: Vec<MirParkingSpaceKey> =
-            dense_mir_keys(mir.parking_spaces.len());
+        let mut canonical_mir_parking_space_order: Vec<MirParkingSpaceKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.parking.spaces, limits, primary_span.clone())?,
+        );
         canonical_mir_parking_space_order.sort_unstable_by(|left, right| {
             let left = &mir.parking_spaces[left.index()];
             let right = &mir.parking_spaces[right.index()];
@@ -666,7 +715,7 @@ impl CanonicalOrders {
             )
         });
         let mir_parking_space_to_lir = ordinal_mapping(
-            mir.parking_spaces.len(),
+            LirFreezePlan::capacity(plan.parking.spaces, limits, primary_span.clone())?,
             &canonical_mir_parking_space_order,
             ParkingSpaceOrdinal::try_from_usize,
             limits,
@@ -674,7 +723,11 @@ impl CanonicalOrders {
         )?;
 
         let mut canonical_mir_participant_class_order: Vec<MirParticipantClassKey> =
-            dense_mir_keys(mir.participant_classes.len());
+            dense_mir_keys(LirFreezePlan::capacity(
+                plan.access.participant_classes,
+                limits,
+                primary_span.clone(),
+            )?);
         canonical_mir_participant_class_order.sort_unstable_by(|left, right| {
             let left = &mir.participant_classes[left.index()];
             let right = &mir.participant_classes[right.index()];
@@ -688,15 +741,20 @@ impl CanonicalOrders {
             )
         });
         let mir_participant_class_to_lir = ordinal_mapping(
-            mir.participant_classes.len(),
+            LirFreezePlan::capacity(
+                plan.access.participant_classes,
+                limits,
+                primary_span.clone(),
+            )?,
             &canonical_mir_participant_class_order,
             ParticipantClassOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_vehicle_profile_order: Vec<MirVehicleProfileKey> =
-            dense_mir_keys(mir.vehicle_profiles.len());
+        let mut canonical_mir_vehicle_profile_order: Vec<MirVehicleProfileKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.access.vehicle_profiles, limits, primary_span.clone())?,
+        );
         canonical_mir_vehicle_profile_order.sort_unstable_by(|left, right| {
             let left = &mir.vehicle_profiles[left.index()];
             let right = &mir.vehicle_profiles[right.index()];
@@ -710,15 +768,16 @@ impl CanonicalOrders {
             )
         });
         let mir_vehicle_profile_to_lir = ordinal_mapping(
-            mir.vehicle_profiles.len(),
+            LirFreezePlan::capacity(plan.access.vehicle_profiles, limits, primary_span.clone())?,
             &canonical_mir_vehicle_profile_order,
             VehicleProfileOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_canonical_frame_order: Vec<MirCanonicalFrameKey> =
-            dense_mir_keys(mir.canonical_frames.len());
+        let mut canonical_mir_canonical_frame_order: Vec<MirCanonicalFrameKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.spatial.canonical_frames, limits, primary_span.clone())?,
+        );
         canonical_mir_canonical_frame_order.sort_unstable_by(|left, right| {
             let left = &mir.canonical_frames[left.index()];
             let right = &mir.canonical_frames[right.index()];
@@ -732,15 +791,16 @@ impl CanonicalOrders {
             )
         });
         let mir_canonical_frame_to_lir = ordinal_mapping(
-            mir.canonical_frames.len(),
+            LirFreezePlan::capacity(plan.spatial.canonical_frames, limits, primary_span.clone())?,
             &canonical_mir_canonical_frame_order,
             CanonicalFrameOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_access_rule_order: Vec<MirAccessRuleKey> =
-            dense_mir_keys(mir.access_rules.len());
+        let mut canonical_mir_access_rule_order: Vec<MirAccessRuleKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.access.access_rules, limits, primary_span.clone())?,
+        );
         canonical_mir_access_rule_order.sort_unstable_by(|left, right| {
             let left = &mir.access_rules[left.index()];
             let right = &mir.access_rules[right.index()];
@@ -754,15 +814,16 @@ impl CanonicalOrders {
             )
         });
         let mir_access_rule_to_lir = ordinal_mapping(
-            mir.access_rules.len(),
+            LirFreezePlan::capacity(plan.access.access_rules, limits, primary_span.clone())?,
             &canonical_mir_access_rule_order,
             AccessRuleOrdinal::try_from_usize,
             limits,
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_static_route_order: Vec<MirStaticRouteKey> =
-            dense_mir_keys(mir.static_routes.len());
+        let mut canonical_mir_static_route_order: Vec<MirStaticRouteKey> = dense_mir_keys(
+            LirFreezePlan::capacity(plan.route.static_routes, limits, primary_span.clone())?,
+        );
         canonical_mir_static_route_order.sort_unstable_by(|left, right| {
             let left = &mir.static_routes[left.index()];
             let right = &mir.static_routes[right.index()];
@@ -776,7 +837,7 @@ impl CanonicalOrders {
             )
         });
         let mir_static_route_to_lir = ordinal_mapping(
-            mir.static_routes.len(),
+            LirFreezePlan::capacity(plan.route.static_routes, limits, primary_span.clone())?,
             &canonical_mir_static_route_order,
             StaticRouteOrdinal::try_from_usize,
             limits,

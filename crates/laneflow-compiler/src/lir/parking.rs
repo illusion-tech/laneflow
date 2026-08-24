@@ -38,3 +38,107 @@ pub(crate) struct LirParkingSpace {
     pub(crate) exit: LirParkingLaneAnchor,
     pub(crate) geometry: LirParkingSpaceGeometry,
 }
+
+use super::{FreezeEnv, LirParkingCounts, push_lir_identity, relation_range};
+use crate::DiagnosticBundle;
+use laneflow_static_contract::FieldTag;
+
+pub(super) struct ParkingParts {
+    pub parking_areas: Vec<LirParkingArea>,
+    pub parking_area_spaces: Vec<ParkingSpaceOrdinal>,
+    pub parking_spaces: Vec<LirParkingSpace>,
+}
+
+pub(super) fn freeze(
+    env: &mut FreezeEnv<'_>,
+    counts: &LirParkingCounts,
+) -> Result<ParkingParts, DiagnosticBundle> {
+    let mut parking_areas = Vec::with_capacity(env.capacity(counts.areas)?);
+    let mut parking_area_spaces = Vec::with_capacity(env.capacity(counts.memberships)?);
+    for mir_key in env
+        .orders
+        .parking_areas
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
+        let area = &env.mir.parking_areas[mir_key.index()];
+        let identity_range = push_lir_identity(
+            env.identity_fields,
+            env.identity_field_bytes,
+            FieldTag::ParkingAreaKey,
+            &env.mir.modules[area.module.index()].authoring_namespace_id,
+            &area.stable_key,
+            None,
+            env.limits,
+            env.primary_span.clone(),
+        )?;
+        let member_start = parking_area_spaces.len();
+        parking_area_spaces.extend(
+            env.mir.parking_area_spaces[area.parking_spaces.as_usize_range()]
+                .iter()
+                .map(|member| env.orders.parking_spaces.ordinal(member.parking_space)),
+        );
+        parking_area_spaces[member_start..].sort_unstable();
+        parking_areas.push(LirParkingArea {
+            ordinal: env.orders.parking_areas.ordinal(mir_key),
+            stable_id: area.stable_id,
+            identity_fields: identity_range,
+            parking_spaces: relation_range(
+                member_start,
+                parking_area_spaces.len(),
+                env.limits,
+                env.primary_span.clone(),
+            )?,
+        });
+    }
+
+    let mut parking_spaces = Vec::with_capacity(env.capacity(counts.spaces)?);
+    for mir_key in env
+        .orders
+        .parking_spaces
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
+        let space = &env.mir.parking_spaces[mir_key.index()];
+        let identity_range = push_lir_identity(
+            env.identity_fields,
+            env.identity_field_bytes,
+            FieldTag::ParkingSpaceKey,
+            &env.mir.modules[space.module.index()].authoring_namespace_id,
+            &space.stable_key,
+            None,
+            env.limits,
+            env.primary_span.clone(),
+        )?;
+        parking_spaces.push(LirParkingSpace {
+            ordinal: env.orders.parking_spaces.ordinal(mir_key),
+            stable_id: space.stable_id,
+            identity_fields: identity_range,
+            parking_area: space
+                .parking_area
+                .map(|area| env.orders.parking_areas.ordinal(area)),
+            entry: LirParkingLaneAnchor {
+                lane_edge: env.orders.lane_edges.ordinal(space.entry.lane_edge),
+                progress_meters: space.entry.progress_meters,
+            },
+            exit: LirParkingLaneAnchor {
+                lane_edge: env.orders.lane_edges.ordinal(space.exit.lane_edge),
+                progress_meters: space.exit.progress_meters,
+            },
+            geometry: LirParkingSpaceGeometry {
+                lateral_offset_meters: space.geometry.lateral_offset_meters,
+                heading_offset_radians: space.geometry.heading_offset_radians,
+                length_meters: space.geometry.length_meters,
+                width_meters: space.geometry.width_meters,
+            },
+        });
+    }
+
+    Ok(ParkingParts {
+        parking_areas,
+        parking_area_spaces,
+        parking_spaces,
+    })
+}
