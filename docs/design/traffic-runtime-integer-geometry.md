@@ -62,18 +62,23 @@ IIDM 仍在 `f32` SI 中算出「这一拍最多走多远」。**先**用整数�
 
 `VehicleProfileView`：
 
-- `length_mm: u32`，`>= 100`
+- `length_mm: u32`，`100..=128_000`
 - `desired_speed_mm_s: u32`，`1..=100_000`
-- `min_gap_mm: u32`（0 合法，退化为只禁止重叠）
-- `time_headway_seconds`、`max_accel`、`comfort_decel`、`emergency_decel`：受检 `f32` SI
-- `max_accel >= 0.5`；`comfort_decel` / `emergency_decel` / `time_headway_seconds` 严格大于零；
+- `min_gap_mm: u32`，`0..=128_000`（0 合法，退化为只禁止重叠）
+- `time_headway_seconds`：受检 `f32`，`0 < value <= 60`
+- `max_accel`：受检 `f32`，`0.5..=50` m/s²
+- `comfort_decel` / `emergency_decel`：受检 `f32`，`0 < value <= 50` m/s²，且
   `emergency_decel >= comfort_decel`
 
-停车：入口/出口 `u32` mm，且 `1 <= p <= length_mm - 1`；长宽 `>= 100` mm；横向
-`i32` mm，路外 `abs >= 1`；朝向仍为受检弧度 `f32`。
+停车：入口/出口 `u32` mm，且 `1 <= p <= length_mm - 1`；长宽 `100..=128_000` mm；
+横向 `i32` mm，`abs <= 128_000`，路外 `abs >= 1`；朝向仍为受检弧度 `f32`。
 
-路线剩余：沿 hop 把 `u32` 边长累加到 `u64` mm。`BoundedDistance::Finite(u64)`。
-占用间隙与跨 hop 跟车空隙用 checked `i64` mm，禁止 `i32` 回绕。边上区间仍 `u32`。
+路线剩余：沿 hop 把 `u32` 边长 **checked 加** 到 `u32` mm。
+`BoundedDistance::Finite(u32)`；溢出为 `BeyondFinite`，不为理论超长路单上 `u64`。
+`RouteDistanceIndexView` 的 `occurrence_offsets` / `segment_totals`、查询参数
+`from_progress_mm` / `horizon_mm`、以及 `RouteDistanceQuery::Within` 一律 `u32` mm。
+占用间隙与跨 hop 跟车空隙用 checked `i64` mm。边上区间仍 `u32`。
+`VehicleReplaceBlock.bumper_gap_mm: i64`。
 
 ## 4. 车辆已提交状态
 
@@ -98,7 +103,8 @@ speed_mm_s: u32            // 静止可为 0
 1. 把 `progress_mm` / 边长 / 车长 / `min_gap` / 速度转为瞬时 `f32` 米，喂 IIDM
    与限速包络。
 2. SI 中舒适截断 travel（前车、灯、路终、包络）。SI `travel <= 0` **不是**硬停。
-3. 整数硬约束 `hard_room_mm: u64`（下限 0）。前车空隙用 `i64` 再夹到 `u64`：
+3. 整数硬约束 `hard_room_mm: u32`（下限 0）。前车空隙用 `i64`，负值当 0，正值夹到
+   `u32`：
    - 前车 `min_gap` 后空隙（可跨 hop）；
    - `DenyAndStop` 停车线；
    - 本车路线剩余（沿路线累加到最后一边终点，与现行 `remaining_to_route_end`
@@ -197,7 +203,8 @@ LFCA v2 登记表破坏性更新（相对 v1 字段名/类型；不兼容读旧 
   余数增长；跨边余数保留；拒绝 Gate 时停在 `fromEdge` 终点、保持 `Active`、
   不清错边；走到路线终点进入 `Completed` 并离开占用 / pose；`max_accel < 0.5`
   失败；headless 无折线时 `length_mm` 来自 LIR 交通长度 round，不要求弧；
-  跨 hop 占用间隙用 `i64`，长路单不得 `i32` 回绕；spawn `carry_um = 0`；
+  跨 hop 占用间隙用 `i64`；路线距离查询为 `u32` mm / `BeyondFinite`；
+  `VehicleReplaceBlock.bumper_gap_mm` 为 `i64`；spawn `carry_um = 0`；
   `PoseSource::Lane` 为 `progress_mm`；边限速 `> 100_000` mm/s 失败；v1 LFCA
   在 v2 读器上失败关闭；
   `60 km/h` 长期平均速度由余数对齐量化后的 `mm/s`，无系统少走；相位非倍数
