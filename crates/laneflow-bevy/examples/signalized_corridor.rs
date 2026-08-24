@@ -9,7 +9,7 @@ use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
 use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_scenario::signalized_corridor::{
-    BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
+    BoundCorridorCatalog, BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
 };
 use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId, SpatialSession};
 use laneflow_static_contract::VehicleProfileOrdinal;
@@ -40,17 +40,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .profiles
         .get(PASSENGER_CAR_PROFILE_KEY)
         .ok_or("missing passenger-car profile")?;
-    let follower = bound.spawn_slots.first().ok_or("missing spawn slot")?;
-    let leader = bound
-        .spawn_slots
-        .iter()
-        .find(|slot| {
-            slot.portal_id == follower.portal_id
-                && slot.lane_index == follower.lane_index
-                && slot.edge == follower.edge
-                && slot.progress > follower.progress
-        })
-        .ok_or("missing leader spawn slot")?;
+    let (follower, leader) = follow_pair(&catalog, &bound)?;
     spawn_on_slot(&mut world, profile, leader)?;
     spawn_on_slot(&mut world, profile, follower)?;
     let spatial = SpatialSession::bind(revision)
@@ -69,6 +59,43 @@ fn main() -> Result<(), Box<dyn Error>> {
         .add_systems(Update, sync_proxy)
         .run();
     Ok(())
+}
+
+fn follow_pair<'a>(
+    catalog: &CorridorCatalog,
+    bound: &'a BoundCorridorCatalog,
+) -> Result<(&'a BoundSpawnSlot, &'a BoundSpawnSlot), Box<dyn Error>> {
+    let lane = catalog
+        .portals
+        .first()
+        .and_then(|portal| portal.lanes.first())
+        .ok_or("missing portal lane")?;
+    let follower = bound
+        .spawn_slots
+        .iter()
+        .find(|slot| slot.slot_id == lane.entry_spawn_slot_id)
+        .ok_or("missing entry spawn slot")?;
+    let leader = bound
+        .spawn_slots
+        .iter()
+        .find(|slot| {
+            slot.portal_id == follower.portal_id
+                && slot.lane_index == follower.lane_index
+                && slot.edge == follower.edge
+                && slot.progress > follower.progress
+        })
+        .ok_or("missing leader spawn slot")?;
+    Ok((follower, leader))
+}
+
+fn proxy_transform(pose: laneflow_spatial::CanonicalPoseF32) -> Transform {
+    let position = pose.position();
+    let tangent = pose.tangent();
+    let up = pose.up();
+    Transform::from_xyz(position.x(), position.y(), position.z()).looking_to(
+        Vec3::new(tangent.x(), tangent.y(), tangent.z()),
+        Vec3::new(up.x(), up.y(), up.z()),
+    )
 }
 
 fn spawn_on_slot(
@@ -133,7 +160,6 @@ fn sync_proxy(
         return;
     };
     if let Ok(mut transform) = transforms.get_mut(proxy.0) {
-        let position = record.pose().position();
-        *transform = Transform::from_xyz(position.x(), position.y(), position.z());
+        *transform = proxy_transform(record.pose());
     }
 }

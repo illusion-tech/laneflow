@@ -36,7 +36,7 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 
 本 crate 不拥有：
 
-- `CoreWorld`、交通状态、overlap 或 replacement transaction；
+- 已拆除的核心世界类型、交通状态、overlap 或 replacement transaction；
 - Entity、Transform、模型、UI 或 outer-frame 时间；
 - Traffic/Spatial/Manifest 的加载路径和持久化格式；
 - 通用人口 controller 或面向任意路网的路径搜索。
@@ -45,8 +45,8 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 
 #472 现行 prepare 绑定是 `validate(catalog)` 之后
 `bind(catalog, &SharedNetworkRevision)`：编制字符串经 Identity v1 派生
-`StableId128`，再查已安装修订的 `SharedIdentityIndex`。可运行世界由 LFCA 安装，不再经过
-`InitialTrafficData` 或 `CoreWorld`。
+`StableId128`，再查已安装修订的 `SharedIdentityIndex`。可运行世界由 LFCA 安装，不再经过已拆除的 JSON/Core
+运行时入口。
 
 以下 50–200 启动协议仍是 #475 的目标形状，不是 #472 现行入口：
 

@@ -9,7 +9,7 @@ use laneflow_static_contract::{
 use laneflow_static_network::SharedNetworkRevision;
 
 use super::{
-    AUTHORING_NAMESPACE, CatalogError, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY,
+    AUTHORING_NAMESPACE, CatalogError, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, PORTAL_IDS,
     SHUTTLE_BUS_PROFILE_KEY, SpawnSlotCatalogEntry, validate,
 };
 
@@ -132,11 +132,18 @@ pub fn bind(
         profiles.insert(key.to_owned(), ordinal);
     }
 
-    let spawn_slots = catalog
+    let mut spawn_slots = catalog
         .spawn_slots
         .iter()
         .map(|slot| bind_slot(catalog, slot, revision, &routes, &edges))
         .collect::<Result<Vec<_>, _>>()?;
+    spawn_slots.sort_by(|left, right| {
+        portal_rank(&left.portal_id)
+            .cmp(&portal_rank(&right.portal_id))
+            .then(left.lane_index.cmp(&right.lane_index))
+            .then(left.progress.total_cmp(&right.progress))
+            .then(left.slot_id.cmp(&right.slot_id))
+    });
     Ok(BoundCorridorCatalog {
         network_revision: revision.network_revision(),
         routes,
@@ -187,22 +194,44 @@ fn bind_slot(
         .lane_lengths_meters()
         .get(edge.index())
         .ok_or_else(|| BindError::UnknownEdge(slot.edge_id.clone()))?;
-    if !slot.progress.is_finite() || slot.progress <= 0.0 || slot.progress >= length {
+    if !slot.progress.is_finite() || slot.progress < 0.0 || slot.progress > length {
         return Err(BindError::InvalidProgress {
             slot_id: slot.slot_id.clone(),
         });
     }
-    let entry_route = *routes
-        .get(&lane.route_choices[0].route_id)
+    let progress = if slot.progress == 0.0 {
+        0.0
+    } else {
+        slot.progress
+    };
+    let entry_route = lane
+        .route_choices
+        .iter()
+        .map(|choice| {
+            routes
+                .get(&choice.route_id)
+                .copied()
+                .ok_or_else(|| BindError::UnknownRoute(choice.route_id.clone()))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .min_by_key(|ordinal| ordinal.raw())
         .ok_or_else(|| BindError::UnknownRoute(lane.route_choices[0].route_id.clone()))?;
     Ok(BoundSpawnSlot {
         slot_id: slot.slot_id.clone(),
         portal_id: slot.portal_id.clone(),
         lane_index: slot.lane_index,
         edge,
-        progress: slot.progress,
+        progress,
         entry_route,
     })
+}
+
+fn portal_rank(portal_id: &str) -> usize {
+    PORTAL_IDS
+        .iter()
+        .position(|id| *id == portal_id)
+        .expect("validate checked portal")
 }
 
 fn resolve_route(

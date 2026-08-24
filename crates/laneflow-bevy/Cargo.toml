@@ -38,6 +38,7 @@ laneflow-runtime = { version = "0.0.0", path = "../laneflow-runtime" }
 laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
 
 [dev-dependencies]
+bevy_math = { version = "0.19", default-features = false }
 laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 laneflow-scenario = { version = "0.0.0", path = "../laneflow-scenario" }
 laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
