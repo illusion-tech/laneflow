@@ -8,7 +8,7 @@ use laneflow_scenario::signalized_corridor::{
 };
 
 use crate::Error;
-use crate::compile::{compile_corridor, COMPILER_BUILD_ID};
+use crate::compile::{COMPILER_BUILD_ID, compile_corridor};
 use crate::config::{CorridorConfig, ENDPOINT_CLEARANCE_METERS, MIN_SPAWN_SLOT_COUNT};
 
 const CURVE_SEGMENT_COUNT: usize = 64;
@@ -284,10 +284,12 @@ impl GeneratedScenario {
     }
 
     pub fn emit_portable_sidecars(&self) -> Result<(Vec<u8>, Vec<u8>), Error> {
-        let provenance = PortableEmissionProvenanceV1::try_new(COMPILER_BUILD_ID)
-            .map_err(|error| Error::Validation {
-                stage: "portable provenance",
-                message: format!("{error:?}"),
+        let provenance =
+            PortableEmissionProvenanceV1::try_new(COMPILER_BUILD_ID).map_err(|error| {
+                Error::Validation {
+                    stage: "portable provenance",
+                    message: format!("{error:?}"),
+                }
             })?;
         let candidate = emit_portable_candidate(
             &self.compilation,
