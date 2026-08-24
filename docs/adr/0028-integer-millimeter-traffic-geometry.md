@@ -179,16 +179,39 @@ lockstep 不在本合同范围。
 不得用本切片宣称全 tick 位级回放。不同合法步长的世界轨迹 **不可比**，不是回归
 失败。
 
-### 7. 破坏性制品与 API；#302 必须消费本合同
+### 7. 破坏性制品与 API；分配 LFCA v2；#302 必须消费本合同
 
-允许破坏。LFCA 长度/速度类字段改为 `U32` 毫米或毫米每秒（单位进字段名）；
-时距、三项加减速与停车朝向改为受检 `F32` SI。不保留对旧 `F64` 米或 `F64`
-时距/加减速/朝向的兼容读取。检入走廊 LFCA 必须重生。`NetworkRevisionId`
+允许破坏。**不得改写已冻的 LFCA v1 登记表。** G2 分配新的规范制品版本：
+
+| 字段                                                                  | v1  | G2                        |
+| --------------------------------------------------------------------- | --- | ------------------------- |
+| 对象前导 `formatVersion` 与 `ContractVersions.canonicalFormatVersion` | `1` | **`2`**                   |
+| `networkRevisionDerivationVersion`                                    | `1` | **`2`**                   |
+| `constraintContractVersion`                                           | `1` | **`2`**                   |
+| `staticExecutionContractVersion`                                      | `1` | **`2`**                   |
+| `identityEncodingVersion` / `identityRegistryRevision`                | `1` | `1`（本切片不改身份前像） |
+
+v1 读器拒绝 `formatVersion != 1`；v2 读器拒绝 v1。不兼容读取。LFSM
+`canonicalArtifactFormatVersion` 必须等于所绑 LFCA 的 `canonicalFormatVersion`。
+不为本切片单开 LFSM/LFSD 对象版本。
+
+LFCA v2 长度/速度类字段为 `U32` 毫米或毫米每秒（单位进字段名）；时距、三项
+加减速与停车朝向为受检 `F32` SI。检入走廊必须按 v2 重生。`NetworkRevisionId`
 随语义载荷变化。
 
-`VehicleState` 公开观察表面以 `progress_mm` / `carry_um` / `speed_mm_s` 为权威。
-可以提供显式只读换算（例如文档化的 `/ 1000`），**不得**把米制换算当作权威
-`value()`，也不得在生产路径回写。
+公开观察与命令表面同一套整数权威：
+
+- `VehicleState`：`progress_mm` / `carry_um` / `speed_mm_s`。
+- `VehicleSpawnInput` / `replace_completed_vehicle`：`progress_mm`、
+  `speed_mm_s`；新车 **`carry_um = 0`**。`progress_mm` 落在当前边
+  `0..=length_mm`；`speed_mm_s <=` 当前边限速且 `<= 100_000`。禁止 spawn 时
+  再做一层未文档化的米→毫米量化。
+- `PoseSource::Lane`：`LaneEdgeOrdinal` + `progress_mm: u32`。Spatial 采样在
+  边界把 mm 换成弧长比例；不得把米制进度当作已提交 pose 权威。
+- 只读米制换算可以有，不得当 `value()`，不得回写。
+
+边限速与 profile 期望车速：`1..=100_000` mm/s。`install` / 构建 / spawn 任一
+处超限失败关闭。
 
 #496 原生 blocking #302。Runtime Snapshot 的每世界可变状态必须使用本 ADR 的
 整数进度、余数与 `mm/s`；不得先冻 `f64` 米进度。
@@ -210,6 +233,8 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 - 编制另写一条 LFCA 长度字段，或从已省略的 Spatial 表反推边长。
 - 强迫 headless 从折线弧长派生边长（无中心线就没有弧）。
 - 占用间隙用 `i32`（长路单跨 hop 累加会回绕）。
+- 改写已冻 LFCA v1 登记表，而不分配 `canonicalFormatVersion = 2`。
+- spawn / `PoseSource` 继续用米制作权威，只冻 `VehicleState` 观察面。
 - 把一维 mm 收进三维 `Point` / `Vector3<T>`（#354）。
 
 ## 后果

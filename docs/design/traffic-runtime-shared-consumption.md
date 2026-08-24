@@ -93,7 +93,8 @@ pose 记录身份（不承诺最终 Rust 拼写）：
 
 - `PoseRecordId`：调用方分配的不透明 `u32`。Spatial 不解释为车辆、也不导入
   Runtime/Core handle。
-- `PoseSource::Lane`：`LaneEdgeOrdinal` + 与共享根边长同域的进度。
+- `PoseSource::Lane`：`LaneEdgeOrdinal` + 与共享根边长同域的进度。**当前**：
+  `f64` 米。**Proposed（#496 / ADR 0028）**：`progress_mm: u32`。
 - `PoseSource::Parking`：共享根上的停车位序号。
 - 一批必须同一 canonical frame；混 frame 整批失败。
 - 批次头保存：`bind` 所用 `Arc` 的 `NetworkRevisionId`、该批 `CanonicalFrameId`
@@ -193,9 +194,12 @@ Route 用共享根边序号编译 occurrence。
   profile 序号、已有 `RouteHandle`、**路线序列下标**（ADR 0017 `routeEdgeIndex`：该
   `RouteHandle` 边序列上的 occurrence 位置，不是共享根 `LaneEdgeOrdinal`；`[A, B, A]`
   的两个 A 靠下标区分）、该 occurrence 对应边上与共享根边长同域的进度、初速。
+  **当前**：进度与初速为 `f64` 米 / 米每秒。**Proposed（#496 / ADR 0028）**：
+  `progress_mm` / `speed_mm_s`，新车 `carry_um = 0`，进度 `0..=length_mm`，
+  初速 `<=` 当前边限速且 `<= 100_000` mm/s；禁止未文档化的米→毫米量化。
   下标必须落在 `0..len`，越界失败、不留车。tick 内部车辆状态继续带着这个序列下标
   前进。`committed_pose_sources` 的 `PoseSource::Lane` 仍用该 occurrence 解出的
-  `LaneEdgeOrdinal` + 进度。
+  `LaneEdgeOrdinal` + 同域进度（G2 为 `progress_mm`）。
 - `spawn_vehicle` 返回代际感知 `VehicleHandle`（不是 `PoseRecordId`）。由 profile
   解析 `ParticipantClass`，对静态和动态 `RouteHandle` 都按 ADR 0018 做
   `(class, Route)` 绑定期准入（只查当前 cursor / 序列下标起的可达后缀）。初速可以
@@ -231,8 +235,9 @@ TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
 - 不把 `CoreEvent` 搬进本切片。跟车/信号遵守用已提交 pose 进度与信号组 aspect
   观察。
 - `committed_pose_sources()`：稳定顺序的 `(VehicleHandle, PoseSource)`。车道用
-  `LaneEdgeOrdinal` + 同域进度，停车用停车位序号。已完成或已移除车辆不出现。
-  Adapter 映射为 `PoseRecordId` 再交给 Spatial。
+  `LaneEdgeOrdinal` + 同域进度（**当前** `f64` 米；**G2** `progress_mm: u32`），
+  停车用停车位序号。已完成或已移除车辆不出现。Adapter 映射为 `PoseRecordId`
+  再交给 Spatial；Spatial 在边界把 mm 换成弧长比例，不得把米制当权威。
 - `committed_signal_groups()`：稳定按组序号的当前 aspect，由已提交 `time_ms` +
   共享根 program + offset 导出。`install` 成功后 time 0 已有有效 snapshot；成功
   `step` 之后查询到的是 T + D。初始化不发事件。
@@ -331,7 +336,8 @@ CI 必须同时：
   tick 读本世界动态 occurrence 表；不含走廊级人口与回流）；
 - spawn 绑定期准入（静态与动态 Route 均按 ADR 0018 `(ParticipantClass, Route)`
   后缀拒绝，失败不留车）；
-- spawn 初速等于当前边基础限速须成功，超过则拒绝且不留车；
+- spawn 初速等于当前边基础限速须成功，超过则拒绝且不留车
+  （#301 现行，`f64` 米每秒）。#496 G2 改为 `speed_mm_s`，且 `<= 100_000`；
 - `remove_route` 拒绝静态路线句柄。
 
 空实现若只过 S1 两车推进/pose 不得视为完成。完整停车离场/预约、受保护转向走廊、

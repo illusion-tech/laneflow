@@ -136,7 +136,8 @@ CoreWorld 初始化或 lane graph 构建时必须执行以下校验：
 
 - edge external ID 在 edge domain 内唯一。
 - edge length 在 #496 G2 前：finite 且严格大于 current-`f64` 最小边长（`1.0e-9 m`）。G2 后：`u32` mm，`100..=10_000_000`（ADR 0028）。
-- edge speed limit 在 G2 前：finite 且严格大于 `0 m/s`。G2 后：`u32` mm/s 且 `> 0`。
+- edge speed limit 在 G2 前：finite 且严格大于 `0 m/s`。G2 后：`u32` mm/s，
+  `1..=100_000`（ADR 0028）。
 - 每个 connection 的 `toEdgeExternalId` 必须引用已存在 edge。
 - 同一个 source edge 内不得重复声明同一个 target edge connection。
 - self connection 合法，但必须显式声明。
