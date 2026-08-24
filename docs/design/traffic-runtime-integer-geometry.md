@@ -125,20 +125,22 @@ speed_mm_s: u32            // 静止可为 0
 
 ## 6. compiler 与 LFCA
 
-几何 compile 之后，无论本修订是否带 Spatial：
+LFCA / Traffic 热列只存 `U32` 毫米边长。headless **不求弧、也不需要弧**：
 
 ```text
-arc_m: f32                 // compiler 内部规范折线弧长
-length_mm = round-ties-to-even(f64(arc_m) × 1000)
+有折线:  arc_m: f32
+         length_mm = round-ties-to-even(f64(arc_m) × 1000)
+无折线:  lir_length_m = CanonicalLaneEdgeView::length_meters()
+         length_mm = round-ties-to-even(f64(lir_length_m) × 1000)
 require 100 <= length_mm <= 10_000_000
 ```
 
-结果写入 Traffic 热列。headless `install` 同样消费这列。禁止从 `lane_pose()`
-反推边长。
+两条路径都写入 `lane_lengths_mm`。禁止从 `lane_pose()` 或空 Spatial 表反推边长。
+无 Spatial 时不得走车辆 pose 采样。
 
 限速：`speed_limit_mm_s = round-ties-to-even(f64(m/s) × 1000)`，且 `> 0`。
 
-LFCA 登记表破坏性更新（不兼容读旧 `F64` 米或 `F64` 时距/加减速）：
+LFCA 登记表破坏性更新（不兼容读旧 `F64` 米或 `F64` 时距/加减速/朝向）：
 
 | 现行                                         | 目标                                  |
 | -------------------------------------------- | ------------------------------------- |
@@ -147,6 +149,7 @@ LFCA 登记表破坏性更新（不兼容读旧 `F64` 米或 `F64` 时距/加减
 | `VehicleProfile.lengthMeters` 等长度         | 对应 `U32` mm                         |
 | `VehicleProfile.desiredSpeedMetersPerSecond` | `U32` mm/s                            |
 | 停车 progress / lateral / extent             | `U32`/`I32` mm                        |
+| `ParkingSpace.headingOffsetRadians: F64`     | `headingOffsetRadians: F32`           |
 | 时距与三项加减速                             | 受检 `F32` SI（不保留 `F64`）         |
 
 后发射检查失败关闭旧字节。走廊检入 LFCA 必须由生成器重生并对拍。
@@ -180,7 +183,8 @@ LFCA 登记表破坏性更新（不兼容读旧 `F64` 米或 `F64` 时距/加减
 - 必测：硬停清余数与速度；`hard_room_mm > 0` 且量化 travel `< 1 mm` 时速度保持、
   余数增长；跨边余数保留；拒绝 Gate 时停在 `fromEdge` 终点、保持 `Active`、
   不清错边；走到路线终点进入 `Completed` 并离开占用 / pose；`max_accel < 0.5`
-  失败；`60 km/h` 长期平均速度由余数对齐量化后的 `mm/s`，无系统少走；相位非倍数
+  失败；headless 无折线时 `length_mm` 来自 LIR 交通长度 round，不要求弧；
+  `60 km/h` 长期平均速度由余数对齐量化后的 `mm/s`，无系统少走；相位非倍数
   `install` 失败；`dt=3` 失败；`dt=4` 与 `dt=1000` 均能 install（夹具相位允许时）。
 
 ## 9. 明确不做
@@ -191,3 +195,4 @@ LFCA 登记表破坏性更新（不兼容读旧 `F64` 米或 `F64` 时距/加减
 - Runtime 慢放 API。
 - 跨 CPU / 跨机器位级回放或联机 lockstep。
 - G1 改走廊 toml 或重生 LFCA。
+- 强迫 headless 从折线弧长派生边长。

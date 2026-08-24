@@ -66,20 +66,25 @@ JSON 生产入口已拆除，该门槛不再构成现行交通权威。
 约 1 s 内能靠行程余数凑满 1 mm；更弱的加速度不是产品车辆，**禁止**另做速度余数
 去「救」它。`comfort_decel` / `emergency_decel` / `time_headway` 仍为严格大于零。
 
-### 2. 边长由 compiler 内部规范折线弧长派生
+### 2. LFCA 只存一条 `U32` 毫米边长；有折线从弧长派生，headless 不求弧
 
-`length_mm = round-ties-to-even(f64(arc_m) × 1000)`，其中 `arc_m` 是 ADR 0022 /
-0015 已冻结、compiler 几何遍求出的规范 `f32` 弧长。该派生 **不依赖** 修订是否
-带 Spatial 组件：headless 世界同样把结果写入 `SharedTrafficNetwork` 热列
-`lane_lengths_mm`。禁止从 Spatial 采样反推边长，禁止作者手写第二条长度。无 Spatial
-时不得走车辆 pose 采样，但不影响一维边长权威。
+1D 交通要的是边长数字，不是折线。headless **不需要弧长**：无中心线、不采样位姿。
 
-LFCA 只存 `U32` 毫米边长，**不**另存编制 `F64` 米边长。
+LFCA 交通边只存 `U32` 毫米，**不**另存编制 `F64` 米，也不从已省略的 Spatial 表反推。
+结果写入 `SharedTrafficNetwork.lane_lengths_mm`。
 
-构建时仍用绝对 `0.01 m` 与相对 `1e-6` 对账弧长；对「最近毫米」通常自动满足。
-`length_mm < 100` 或 `> 10_000_000` 失败关闭。
+- **有冻结规范折线**（`spatial_geometry()` 为 `Some`）：
+  `length_mm = round-ties-to-even(f64(arc_m) × 1000)`，`arc_m` 是 ADR 0022 /
+  0015 的规范 `f32` 弧长。构建时仍用绝对 `0.01 m` 与相对 `1e-6` 对账 LIR 交通
+  长度。
+- **无折线**（headless，`spatialPresent=0`，`compiler-foundation` 允许不声明中心线）：
+  `length_mm = round-ties-to-even(f64(lir_length_m) × 1000)`，`lir_length_m` 是
+  现行 LIR 交通边长（`CanonicalLaneEdgeView::length_meters()`）。这不是第二条
+  LFCA 长度字段，也不是要求 G2 为无图形编译编造折线。
 
-编制解析曲线继续 `f64` 求值再量化为折线。#354 不得把本轴收进 `Point` / `Vector`。
+`length_mm < 100` 或 `> 10_000_000` 失败关闭。无 Spatial 时不得走车辆 pose
+采样。编制解析曲线继续 `f64` 求值再量化为折线。#354 不得把本轴收进 `Point` /
+`Vector`。
 
 ### 3. 已提交速度为 `u32` 毫米每秒
 
@@ -175,8 +180,9 @@ lockstep 不在本合同范围。
 ### 7. 破坏性制品与 API；#302 必须消费本合同
 
 允许破坏。LFCA 长度/速度类字段改为 `U32` 毫米或毫米每秒（单位进字段名）；
-时距与三项加减速改为受检 `F32` SI。不保留对旧 `F64` 米或 `F64` 时距/加减速的
-兼容读取。检入走廊 LFCA 必须重生。`NetworkRevisionId` 随语义载荷变化。
+时距、三项加减速与停车朝向改为受检 `F32` SI。不保留对旧 `F64` 米或 `F64`
+时距/加减速/朝向的兼容读取。检入走廊 LFCA 必须重生。`NetworkRevisionId`
+随语义载荷变化。
 
 `VehicleState` 公开观察表面以 `progress_mm` / `carry_um` / `speed_mm_s` 为权威。
 可以提供显式只读换算（例如文档化的 `/ 1000`），**不得**把米制换算当作权威
@@ -199,7 +205,8 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 - 走到路线终点只清速度、不进入 `Completed`。
 - 承诺跨 CPU / 跨机器整数位级相同（行程余数输入仍是 `f32` IIDM）。
 - 1–3 ms 步长；Runtime 慢放/可变 Δt。
-- 编制另写一条边长，或从 Spatial 采样反推边长。
+- 编制另写一条 LFCA 长度字段，或从已省略的 Spatial 表反推边长。
+- 强迫 headless 从折线弧长派生边长（无中心线就没有弧）。
 - 把一维 mm 收进三维 `Point` / `Vector3<T>`（#354）。
 
 ## 后果
