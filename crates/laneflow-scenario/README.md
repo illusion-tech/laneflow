@@ -14,7 +14,7 @@
 工作区路径依赖 `laneflow-compiler` / `laneflow-runtime` /
 `laneflow-static-contract` / `laneflow-static-network` 与本仓库同为 Apache-2.0。
 
-默认 `cargo test` 覆盖 50/200 车短容量 soak 与 headless catch-up 分块对拍。完整 10,000 次成功 `Replaced`：
+默认 `cargo test` 覆盖 50/200 车短容量 soak，以及独立 world 上同一 per-tick 回流链的确定性对拍（不声称测了 Bevy catch-up 调度）。完整 10,000 次成功 `Replaced`：
 
 ```powershell
 cargo +1.96.0 test --offline -p laneflow-scenario --test signalized_corridor_population soak_50_cars_10000_replacements -- --ignored --exact

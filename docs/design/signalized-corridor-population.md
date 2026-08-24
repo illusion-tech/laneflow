@@ -152,7 +152,7 @@ controller 在 bind 时按目标人口预留所有 steady containers。completio
 - blocked retry；
 - 成功 logical identity rotation（新 `VehicleHandle`）。
 
-200 车持续运行不得产生无界 queue、history 或 retained capacity 增长。一轮轮换计一次成功 `Replaced`；`Blocked` 不计入。默认 CI 覆盖 50 车与 200 车的短容量 soak，以及 headless 下 1/4/8 tick 分块对拍。完整 10,000 次成功 replace 由 `#[ignore]` 测试承担，复现：
+200 车持续运行不得产生无界 queue、history 或 retained capacity 增长。一轮轮换计一次成功 `Replaced`；`Blocked` 不计入。默认 CI 覆盖 50 车与 200 车的短容量 soak，以及独立 headless world 上同一 per-tick 链（`apply_pending` → `step` → `consume_world`）的确定性对拍。这不替代 Bevy outer-frame accumulator / `max_catch_up_steps` 调度测试；把多拍 `step` 叠在一次 `consume_world` 之前必须失败。完整 10,000 次成功 replace 由 `#[ignore]` 测试承担，复现：
 
 ```powershell
 cargo +1.96.0 test --offline -p laneflow-scenario --test signalized_corridor_population soak_50_cars_10000_replacements -- --ignored --exact

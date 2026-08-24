@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
 use laneflow_runtime::{
-    TickInput, TrafficWorld, VehicleHandle, VehicleReplaceBlock, VehicleSpawnInput, VehicleStatus,
-    WorldConfig,
+    TickInput, TrafficWorld, VehicleHandle, VehicleReplaceBlock, VehicleSpawnInput, VehicleState,
+    VehicleStatus, WorldConfig,
 };
 use laneflow_scenario::signalized_corridor::{
     CorridorCatalog, CorridorPopulationCapacities, CorridorPopulationConfig,
@@ -569,6 +569,7 @@ fn soak_replacements(
         replaced += lifecycle_tick(&mut world, &mut controller);
         let counts = controller.counts();
         assert_eq!(counts.running + counts.pending, target);
+        assert_eq!(world.live_vehicles().len(), target);
         if replaced >= replaced_goal {
             break;
         }
@@ -581,23 +582,51 @@ fn soak_replacements(
     (warmed, after, replaced)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 struct HeadlessSnapshot {
     tick_index: u64,
+    time_ms: u64,
+    rng_at_bind: u64,
     rng_state: u64,
+    replaced: usize,
     running: usize,
     pending: usize,
     last_consumed_tick: u64,
     live: Vec<VehicleHandle>,
     logical: Vec<VehicleHandle>,
+    pending_fifo: Vec<VehicleHandle>,
+    pending_plans: Vec<VehicleSpawnInput>,
+    states: Vec<VehicleState>,
     capacities: CorridorPopulationCapacities,
 }
 
-fn snapshot(world: &TrafficWorld, controller: &CorridorPopulationController) -> HeadlessSnapshot {
+fn snapshot(
+    world: &TrafficWorld,
+    controller: &CorridorPopulationController,
+    rng_at_bind: u64,
+    replaced: usize,
+) -> HeadlessSnapshot {
     let target = controller.counts().target;
+    let pending_fifo = controller.pending_vehicles();
+    let pending_plans = pending_fifo
+        .iter()
+        .map(|old| {
+            controller
+                .pending_spawn_input(world, *old)
+                .expect("pending plan")
+        })
+        .collect();
+    let states = world
+        .live_vehicles()
+        .iter()
+        .map(|handle| world.vehicle(*handle).expect("live"))
+        .collect();
     HeadlessSnapshot {
         tick_index: world.tick_index(),
+        time_ms: world.time_ms(),
+        rng_at_bind,
         rng_state: controller.rng_state(),
+        replaced,
         running: controller.counts().running,
         pending: controller.counts().pending,
         last_consumed_tick: controller.last_consumed_tick(),
@@ -605,6 +634,9 @@ fn snapshot(world: &TrafficWorld, controller: &CorridorPopulationController) -> 
         logical: (0..target)
             .map(|index| controller.logical_vehicle(index).expect("slot"))
             .collect(),
+        pending_fifo,
+        pending_plans,
+        states,
         capacities: controller.capacities(),
     }
 }
@@ -612,13 +644,15 @@ fn snapshot(world: &TrafficWorld, controller: &CorridorPopulationController) -> 
 fn run_chunked(target: usize, ticks: u32, chunk: u32) -> HeadlessSnapshot {
     assert_eq!(ticks % chunk, 0);
     let (mut world, mut controller) = bound_controller(target);
+    let rng_at_bind = controller.rng_state();
+    let mut replaced = 0;
     let frames = ticks / chunk;
     for _ in 0..frames {
         for _ in 0..chunk {
-            let _ = lifecycle_tick(&mut world, &mut controller);
+            replaced += lifecycle_tick(&mut world, &mut controller);
         }
     }
-    snapshot(&world, &controller)
+    snapshot(&world, &controller, rng_at_bind, replaced)
 }
 
 #[test]
@@ -656,11 +690,41 @@ fn soak_50_cars_10000_replacements() {
 }
 
 #[test]
-fn catch_up_chunking_matches_per_tick_headless_replay() {
+fn per_tick_chain_is_deterministic_across_independent_runs() {
     let one = run_chunked(MIN_TARGET_VEHICLE_COUNT, REPLAY_TICKS, 1);
     let four = run_chunked(MIN_TARGET_VEHICLE_COUNT, REPLAY_TICKS, 4);
     let eight = run_chunked(MIN_TARGET_VEHICLE_COUNT, REPLAY_TICKS, 8);
     assert_eq!(one, four);
     assert_eq!(one, eight);
     assert_eq!(one.tick_index, u64::from(REPLAY_TICKS));
+    assert_eq!(one.time_ms, u64::from(REPLAY_TICKS) * TICK_MS);
+    assert_eq!(one.last_consumed_tick, u64::from(REPLAY_TICKS));
+    assert_ne!(
+        one.rng_state, one.rng_at_bind,
+        "12,000 ticks must consume recycle draws"
+    );
+    assert!(
+        one.replaced > 0 || one.pending > 0,
+        "replay window must reach completion or replacement"
+    );
+    assert_eq!(one.states.len(), one.live.len());
+    assert_eq!(one.pending_fifo.len(), one.pending);
+}
+
+#[test]
+fn grouped_steps_without_per_tick_consume_are_rejected() {
+    let (mut world, mut controller) = bound_controller(MIN_TARGET_VEHICLE_COUNT);
+    let _ = lifecycle_tick(&mut world, &mut controller);
+    world.step(TickInput::new(TICK_MS)).expect("second step");
+    world.step(TickInput::new(TICK_MS)).expect("third step");
+    let error = controller
+        .consume_world(&world)
+        .expect_err("skipped consume");
+    assert!(matches!(
+        error,
+        CorridorPopulationError::NonMonotonicStep {
+            previous: 1,
+            actual: 3
+        }
+    ));
 }
