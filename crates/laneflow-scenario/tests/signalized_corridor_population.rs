@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
 use laneflow_runtime::{
-    TickInput, TrafficWorld, VehicleHandle, VehicleReplaceBlock, VehicleStatus, WorldConfig,
+    TickInput, TrafficWorld, VehicleHandle, VehicleReplaceBlock, VehicleSpawnInput, VehicleStatus,
+    WorldConfig,
 };
 use laneflow_scenario::signalized_corridor::{
     CorridorCatalog, CorridorPopulationConfig, CorridorPopulationError, CorridorPopulationPrepare,
@@ -10,6 +11,7 @@ use laneflow_scenario::signalized_corridor::{
     DEFAULT_TARGET_VEHICLE_COUNT, MAX_TARGET_VEHICLE_COUNT, MIN_TARGET_VEHICLE_COUNT,
     PASSENGER_CAR_PROFILE_KEY, bind,
 };
+use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
@@ -298,6 +300,86 @@ fn take_initial_vehicles_then_bind_reaches_running() {
     let controller = prepared.bind(&world, &vehicles).expect("bind after take");
     assert_eq!(controller.counts().running, MIN_TARGET_VEHICLE_COUNT);
     assert_eq!(controller.counts().pending, 0);
+}
+
+#[test]
+fn consume_world_rejects_skipped_ticks() {
+    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world = TrafficWorld::install(
+        Arc::clone(&revision),
+        WorldConfig::new(
+            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
+            8,
+            1,
+            100,
+        ),
+    )
+    .expect("install");
+    let vehicles = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
+    world.step(TickInput::new(100)).expect("first step");
+    world.step(TickInput::new(100)).expect("skipped consume");
+    let error = controller.consume_world(&world).expect_err("gap");
+    assert!(matches!(
+        error,
+        CorridorPopulationError::NonMonotonicStep {
+            previous: 0,
+            actual: 2
+        }
+    ));
+}
+
+#[test]
+fn consume_world_rejects_untracked_completed_vehicle() {
+    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world = TrafficWorld::install(
+        Arc::clone(&revision),
+        WorldConfig::new(
+            u32::try_from(MIN_TARGET_VEHICLE_COUNT + 1).expect("fits"),
+            8,
+            1,
+            100,
+        ),
+    )
+    .expect("install");
+    let vehicles = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
+    let extra = spawn_near_route_end(&mut world);
+    world.step(TickInput::new(100)).expect("step");
+    assert_eq!(
+        world.vehicle(extra).expect("extra").status(),
+        VehicleStatus::Completed
+    );
+    let error = controller.consume_world(&world).expect_err("untracked");
+    assert!(matches!(
+        error,
+        CorridorPopulationError::UnknownCompletionVehicle { vehicle } if vehicle == extra
+    ));
+}
+
+fn spawn_near_route_end(world: &mut TrafficWorld) -> VehicleHandle {
+    let route = world
+        .static_route(StaticRouteOrdinal::from_raw(0))
+        .expect("static route");
+    let edges = world
+        .traffic()
+        .relations()
+        .static_route_edges(StaticRouteOrdinal::from_raw(0))
+        .expect("edges")
+        .to_vec();
+    let last = *edges.last().expect("route has edges");
+    let last_length = world.traffic().lane_lengths_meters()[last.index()];
+    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[last.index()];
+    let last_index = u32::try_from(edges.len() - 1).expect("index");
+    world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            last_index,
+            (last_length - 0.5).max(0.0),
+            speed_limit,
+        ))
+        .expect("extra near end")
 }
 
 #[test]
