@@ -22,6 +22,7 @@ caller-owned authority 继续继承 ADR 0016。catalog 字符串在 prepare 绑�
 laneflow-corridor-generator -> laneflow-scenario
   -> laneflow-compiler（Identity v1 派生）
   -> laneflow-static-network（已安装共享路网修订）
+  -> laneflow-runtime（TrafficWorld 生命周期命令）
 ```
 
 generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate 不读取文件系统，不依赖 Spatial、Bevy 或其他 Engine Adapter。Runtime、Adapter 和宿主游戏都不反向依赖 scenario crate。城市游戏可以用自己的 policy 完全替代本实现。
@@ -118,9 +119,9 @@ apply pending lifecycle commands
 PortalLane 中均匀抽取 lane，最后按该 lane 完整、规范化的正整数权重 cumulative
 选择 Route。它不对全部 28 条 Route 直接均匀抽样。
 
-pending plan 冻结目标 route 及其 entry edge 正常行驶初速度。入口 overlap 返回
-`Blocked` 时不改 plan、不消耗 PRNG、不降速重试；成功 replacement 后仍由 Core 在首个
-fixed tick 合并 leader、SignalStop、speed limit 与 no-overlap 约束。
+pending plan 冻结抽中的 portal lane、目标 route 及其 entry edge 正常行驶初速度。入口 overlap 返回
+`Blocked` 时不改 plan、不消耗 PRNG、不降速重试；成功 replacement 后仍由 `TrafficWorld::step`
+在首个 fixed tick 合并 leader、SignalStop、speed limit 与 no-overlap 约束。
 
 ## 6. Pending 与 host transaction
 

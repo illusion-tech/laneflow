@@ -10,7 +10,9 @@ pub use lifecycle::{
     LaneFlowVehicleReplaceOutcome, LaneFlowVehicleReplaceRecord, replace_completed_vehicle,
 };
 pub use plugin::{LaneFlowFixed, LaneFlowFixedSet, LaneFlowOuterFrame, LaneFlowPlugin};
-pub use session::{LaneFlowFrameReport, LaneFlowSession, LaneFlowSessionConfig, pose_input};
+pub use session::{
+    LaneFlowFrameReport, LaneFlowSession, LaneFlowSessionConfig, LaneFlowWorldMut, pose_input,
+};
 
 #[cfg(test)]
 mod tests {

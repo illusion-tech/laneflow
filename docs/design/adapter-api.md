@@ -74,9 +74,9 @@ current 路径：
 Bevy Reference Adapter 把上述 world 与可选 Spatial 收进唯一活动的 `LaneFlowSession`。
 `LaneFlowSession::new` 在提供 Spatial 时强制 `Arc::ptr_eq`，失败为 `RevisionMismatch`。
 生命周期命令经 `LaneFlowSession::world_mut()` 调用 `TrafficWorld` 的
-`register_route` / `spawn_vehicle` / `occupy_parking` / `remove_route` /
-`replace_completed_vehicle`；已绑定车辆的同一 Entity 换绑走 typed
-`laneflow_bevy::replace_completed_vehicle`。只读观察走 `world()`。
+`register_route` / `spawn_vehicle` / `remove_route`。原子替换只走 typed
+`laneflow_bevy::replace_completed_vehicle`，以免 Runtime 成功后留下 stale 映射。
+只读观察走 `world()`。
 
 适配器只能从已提交状态生成表现结果。推进、Spatial 提取或宿主转换任一步失败时，都不能留下只完成一部分的车辆映射或变换批次。
 
@@ -177,6 +177,7 @@ replace_completed_vehicle(
 - 已绑定：成功则同一 Entity 轮换到新句柄。未绑定保持未绑定。
 - 到达路线终点写成 `Completed`，保留句柄与容量，不进 pose、不占车道。
 
-当前 Bevy 生命周期边界是 `LaneFlowFixedSet::Lifecycle`。调用方可走 typed `replace_completed_vehicle`，或对未绑定车辆经 `world_mut()` 调 Runtime replace。Adapter 不复制跟车、信号或停车规则。
+当前 Bevy 生命周期边界是 `LaneFlowFixedSet::Lifecycle`。原子替换只走 typed
+`replace_completed_vehicle`。Adapter 不复制跟车、信号或停车规则。
 
 Population 的 seed、portal/lane 抽样、pending/retry queue 仍是 engine-neutral caller-owned authority，不进入 Adapter 或 Bevy ECS；初始人口在 Session 创建前完成。

@@ -61,7 +61,7 @@ pub fn replace_completed_vehicle(
                 return Err(record_error(&mut session, error));
             }
 
-            match session.world_mut().replace_completed_vehicle(old, input) {
+            match session.runtime_mut().replace_completed_vehicle(old, input) {
                 Ok(VehicleReplaceRecord { old, new }) => {
                     session.rotate_replaced_vehicle(old, new, entity);
                     Ok(LaneFlowVehicleReplaceOutcome::Replaced(

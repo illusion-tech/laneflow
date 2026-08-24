@@ -292,7 +292,7 @@ impl TrafficWorld {
         };
 
         if let Some(error) = spawn_motion_error(input.progress(), input.initial_speed()) {
-            return Err(error.into());
+            return Err(replace_motion_error(error));
         }
         let profile = self
             .revision
@@ -341,6 +341,7 @@ impl TrafficWorld {
             }));
         }
 
+        let old_route = old_state.route;
         let old_index = usize::try_from(old.index()).expect("vehicle index fits usize");
         let reusable_generation = self.vehicles[old_index].generation.checked_add(1);
         let slot_index = reusable_generation.map_or_else(
@@ -386,6 +387,7 @@ impl TrafficWorld {
                 self.vehicles[slot_index] = slot;
             }
         }
+        self.release_route_ref(old_route);
         if !input.route().is_static() {
             let route_index =
                 usize::try_from(input.route().index()).expect("route index fits usize");
@@ -699,6 +701,20 @@ impl TrafficWorld {
             self.time_ms,
             &mut self.signal_aspects,
         );
+    }
+}
+
+fn replace_motion_error(error: SpawnError) -> ReplaceError {
+    match error {
+        SpawnError::InvalidProgress => ReplaceError::InvalidProgress,
+        SpawnError::InvalidSpeed => ReplaceError::InvalidSpeed,
+        SpawnError::UnknownProfile
+        | SpawnError::UnknownRoute
+        | SpawnError::RouteIndexOutOfRange
+        | SpawnError::SpeedExceedsLimit
+        | SpawnError::CapacityExceeded
+        | SpawnError::AccessDenied
+        | SpawnError::Overlap => ReplaceError::InvalidProgress,
     }
 }
 

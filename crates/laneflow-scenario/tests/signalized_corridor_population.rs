@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
 use laneflow_runtime::{
-    ReplaceError, TickInput, TrafficWorld, VehicleHandle, VehicleStatus, WorldConfig,
+    TickInput, TrafficWorld, VehicleHandle, VehicleReplaceBlock, VehicleStatus, WorldConfig,
 };
 use laneflow_scenario::signalized_corridor::{
     CorridorCatalog, CorridorPopulationConfig, CorridorPopulationError, CorridorPopulationPrepare,
@@ -54,12 +54,11 @@ fn prepare(
     (prepared, revision)
 }
 
-fn spawn_population(
+fn spawn_plans(
     world: &mut TrafficWorld,
-    prepared: &CorridorPopulationPrepare,
+    plans: &[laneflow_scenario::signalized_corridor::CorridorVehiclePlan],
 ) -> Vec<VehicleHandle> {
-    prepared
-        .initial_vehicles()
+    plans
         .iter()
         .map(|plan| {
             world
@@ -67,6 +66,13 @@ fn spawn_population(
                 .expect("initial spawn")
         })
         .collect()
+}
+
+fn spawn_population(
+    world: &mut TrafficWorld,
+    prepared: &CorridorPopulationPrepare,
+) -> Vec<VehicleHandle> {
+    spawn_plans(world, prepared.initial_vehicles())
 }
 
 #[test]
@@ -156,9 +162,11 @@ fn bind_and_replace_does_not_despawn_then_spawn() {
         .expect("apply");
     assert_eq!(report.attempted, completed);
     assert_eq!(report.replaced + report.blocked, completed);
-    if report.blocked > 0 {
-        assert_eq!(controller.rng_state(), rng_before);
-    }
+    assert_eq!(controller.rng_state(), rng_before);
+    assert!(
+        report.replaced > 0 || report.blocked > 0,
+        "lifecycle boundary must attempt replace"
+    );
     for index in 0..MIN_TARGET_VEHICLE_COUNT {
         let handle = controller.logical_vehicle(index).expect("slot");
         let state = world.vehicle(handle).expect("still live");
@@ -202,25 +210,71 @@ fn blocked_retry_replays_the_same_plan() {
         .pending_spawn_input(&world, old)
         .expect("pending input");
     let rng_before = controller.rng_state();
-    let _ = controller
-        .apply_pending(|old, input| {
-            CorridorReplaceAttemptOutcome::from_replace(world.replace_completed_vehicle(old, input))
+    let before_caps = controller.capacities();
+    let pending = controller.counts().pending;
+    let report = controller
+        .apply_pending(|old, _input| {
+            Ok::<_, std::convert::Infallible>(CorridorReplaceAttemptOutcome::Blocked(
+                VehicleReplaceBlock {
+                    old,
+                    blocker: old,
+                    blocker_ahead: true,
+                    bumper_gap: 0.0,
+                },
+            ))
         })
-        .expect("first apply");
-    if controller.counts().pending == 0 {
-        return;
-    }
+        .expect("forced blocked");
+    assert_eq!(report.blocked, pending);
+    assert_eq!(report.replaced, 0);
+    assert_eq!(controller.rng_state(), rng_before);
+    assert_eq!(controller.capacities(), before_caps);
     let second = controller
         .pending_spawn_input(&world, old)
-        .unwrap_or_else(|_| first);
-    if world
-        .vehicle(old)
-        .is_some_and(|state| state.status() == VehicleStatus::Completed)
-    {
-        assert_eq!(first.route(), second.route());
-        assert_eq!(first.progress(), second.progress());
-        assert_eq!(first.initial_speed(), second.initial_speed());
-        assert_eq!(controller.rng_state(), rng_before);
-    }
-    let _ = ReplaceError::StaleHandle;
+        .expect("same pending plan");
+    assert_eq!(first.route(), second.route());
+    assert_eq!(first.progress(), second.progress());
+    assert_eq!(first.initial_speed(), second.initial_speed());
+}
+
+#[test]
+fn take_initial_vehicles_then_bind_reaches_running() {
+    let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world = TrafficWorld::install(
+        Arc::clone(&revision),
+        WorldConfig::new(
+            u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
+            8,
+            1,
+            100,
+        ),
+    )
+    .expect("install");
+    let plans = prepared.take_initial_vehicles();
+    assert_eq!(plans.len(), MIN_TARGET_VEHICLE_COUNT);
+    let vehicles = spawn_plans(&mut world, &plans);
+    let controller = prepared.bind(&world, &vehicles).expect("bind after take");
+    assert_eq!(controller.counts().running, MIN_TARGET_VEHICLE_COUNT);
+    assert_eq!(controller.counts().pending, 0);
+}
+
+#[test]
+fn spawn_input_rejects_foreign_revision() {
+    const S1: &[u8] = include_bytes!(
+        "../../../crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    );
+    let (prepared, _) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let input = check_canonical_network_input_v1(S1, FormatLimits::V1_HARD).expect("s1");
+    let foreign = build_shared_network_revision(
+        input,
+        SharedNetworkBuildOptions::new(
+            SpatialBuildOption::RetainAvailable,
+            SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+        ),
+    )
+    .expect("foreign revision");
+    let world = TrafficWorld::install(foreign, WorldConfig::new(8, 4, 1, 100)).expect("install");
+    assert!(
+        prepared.initial_vehicles()[0].spawn_input(&world).is_err(),
+        "plan must fail-closed on another NetworkRevisionId"
+    );
 }

@@ -196,7 +196,7 @@ Route 用共享根边序号编译 occurrence。
   `(class, Route)` 绑定期准入（只查当前 cursor / 序列下标起的可达后缀）。初速可以
   等于该 occurrence 当前边的基础限速，超过则拒绝。重叠、非法路线/下标/进度、未知
   profile、超容量、准入 deny、超限速失败时不得留下半辆车。
-- #475 交付 `replace_completed_vehicle`；不恢复独立 `despawn`。到达终点写成 `Completed`，保留句柄与容量，不进 pose、不占车道。
+- #475 交付 `replace_completed_vehicle`；不恢复独立 `despawn`。到达终点写成 `Completed`，保留句柄、容量与动态路线引用，不进 pose、不占车道；replace 成功时再迁移路线引用。
 
 ### 4.3 停车占用
 

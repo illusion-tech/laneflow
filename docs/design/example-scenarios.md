@@ -50,8 +50,8 @@ current 场景不包含换道、路径搜索、permissive turn、红灯右转、
 
 Traffic v0.7 per-edge 限速基础由 #185 交付；#229 已把同一场景制品 clean-break
 迁移到 Traffic v0.8 并显式增加 2 Junction、8 Movement 与 20
-ManeuverPath/ManeuverGate。Core atomic replace 由 #186 承担，caller-owned
-人口/回流策略由 #203 在 `laneflow-scenario` 落地。#262 随后把 canonical Traffic
+ManeuverPath/ManeuverGate。TrafficWorld 原子替换与走廊回流由 #475 交付；历史
+`CoreWorld` 命令见已关闭的 #186/#203。#262 随后把 canonical Traffic
 artifact 原子迁移到 v0.9，并加入 ParticipantClass、CrossSection 与 AccessRule
 静态模型；protected-turning topology、Signals、人口和回流行为保持不变。
 
@@ -180,21 +180,11 @@ catalog 0.2 与 LFCA，prepare 绑到已安装共享路网修订，再 spawn 少
 cargo +1.96.0 run --locked -p laneflow-bevy --example signalized_corridor --features native-example
 ```
 
-#475 的完整 native 至少公开：
-
-```text
---vehicles <50..=200>   # 默认 100
---seed <u64>            # 默认 0
---config <path>         # 默认使用 checked-in authoring/startup config
-```
-
-非法车辆数、解析失败、未知 portal/route、无足够 spawn slots 或 artifact validation
-failure 都必须在第一个 `TrafficWorld` step 前返回明确错误，不能静默 clamp 或降级。
-#189 创建的 Bevy target `signalized_corridor` 继续复用 opt-in `native-example`
-feature。example 不调用 generator，也不把 generator 变成 runtime dependency。
-
-#475 才恢复道路/灯具/HUD/orbit camera 与 50–200 同一 Entity 回流。现行最小路径不绘制这些
-表现层，车辆 pose 仍以车辆前保险杠为原点。
+#475 交付 headless `TrafficWorld` 上的 `50..=200` caller-owned 回流、原子替换和
+Adapter 同一 Entity 换绑；不把 `--vehicles` / HUD / 灯具 / orbit camera 作为完成条件。
+非法车辆数、未知 portal/route 或无足够 spawn slots 必须在第一个 `TrafficWorld`
+step 前失败，不能静默 clamp。`signalized_corridor` 继续复用 opt-in `native-example`。
+车辆 pose 仍以车辆前保险杠为原点。
 
 ### 6.2 Stable spawn-slot catalog
 
@@ -334,9 +324,9 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config exam
 | 关注点                                                                   | 权威层                               | 实施 Issue     |
 | ------------------------------------------------------------------------ | ------------------------------------ | -------------- |
 | per-edge speed limit、v0.8 引入且 current v0.10 继承的 topology/纵向约束 | Data/Core                            | #185/#229/#262 |
-| caller-driven atomic replace、overlap 与 identity invariant              | Core runtime                         | #186           |
-| 目标人口、seed、portal/lane 决策与 blocked retry                         | `laneflow-scenario` reference policy | #203           |
-| typed lifecycle transaction 与 proxy binding                             | Bevy Reference Adapter               | #187           |
+| caller-driven atomic replace、overlap 与 identity invariant              | TrafficWorld                         | #475           |
+| 目标人口、seed、portal/lane 决策与 blocked retry                         | `laneflow-scenario` reference policy | #475           |
+| typed lifecycle transaction 与 proxy binding                             | Bevy Reference Adapter               | #475           |
 | 场景 generator、固定时制配置与三类静态制品                               | Data/Authoring                       | #188           |
 | native UI/CLI、道路/车辆/灯具呈现与场景集成                              | Bevy Reference Adapter               | #189           |
 | 独立审阅、性能/可视/回归证据                                             | Cross-layer closure                  | #195           |
@@ -344,8 +334,8 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config exam
 | expanded clearance/replay/proxy/performance 证据                         | Cross-layer validation               | #191           |
 | v0.9 独立 closure review，不新增 runtime 行为                            | Cross-layer closure                  | #192           |
 
-Core 是 vehicle identity、状态、overlap、Route、SignalStop 和 speed-limit behavior 的
-权威，但不限制车辆数量，也不拥有回流 policy。`laneflow-scenario` 是目标人口、seed、
+TrafficWorld 是 vehicle identity、状态、overlap、Route、SignalStop 和 speed-limit
+behavior 的权威，但不限制车辆数量，也不拥有回流 policy。`laneflow-scenario` 是目标人口、seed、
 catalog 0.2 normalization 和 portal/lane/weighted-route 决策的 reference authority；
 未来城市游戏可以完全替换它。Traffic/Spatial 是静态拓扑和几何的权威；Adapter 是
 VehicleHandle/Entity 部分双射与宿主 schedule 的权威；Presentation 只拥有
@@ -362,7 +352,7 @@ current v0.10 至少验证：
 | 信号     | 两 controller、每路口四 group/12 phase、共享 StopLine、冲突 movement 不同时开放     |
 | 人口     | 50/100/200 成功初始化、无 overlap、非法范围和容量不足明确失败                       |
 | 回流     | 排除原出口、portal/lane/weighted-route 三 draw site、blocked 不重抽、人口保持       |
-| 生命周期 | old handle stale/new live、same Entity/proxy、Core+mapping 失败原子                 |
+| 生命周期 | old handle stale/new live、same Entity/proxy、Runtime+mapping 失败原子              |
 | 确定性   | 同 seed/fixed input 相同、不同 outer-frame chunking 相同、golden PRNG               |
 | 制品     | generator byte deterministic、检入 catalog 与 LFCA 对拍、prepare bind 到共享路网修订 |
 | 可视     | 左/直/右可识别、灯具状态一致、Adapter pose 和 same-Entity recycle 正常              |
