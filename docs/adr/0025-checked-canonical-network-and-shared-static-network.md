@@ -17,12 +17,14 @@ Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭�
 - `0023-road-editing-state-and-phased-network-replacement.md`
 - `0024-compiler-post-emission-check-and-minimal-publication-closure.md`
 - `0028-integer-millimeter-traffic-geometry.md`
+- `0029-retire-precompiled-static-route.md`
 - `../design/shared-static-network.md`
 - `../design/network-compiler.md`
 - `../design/portable-canonical-artifact.md`
 
-> **#496 / ADR 0028**：生产只承认 `formatVersion = 2` 的受检 LFCA。公开 API 不带
-> 世代后缀；读器拒绝 `formatVersion != 2`。合同见 ADR 0028。
+> **#496 / ADR 0028**：交通热列为整数毫米。**#498 / ADR 0029**：生产只承认
+> `formatVersion = 3` 的受检 LFCA；路网不含 `StaticRoute`。公开 API 不带世代后缀；
+> 读器拒绝 `formatVersion != 3`。
 
 ## 背景
 

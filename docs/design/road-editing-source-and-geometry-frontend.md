@@ -246,11 +246,12 @@ schema 遵守以下闭合规则：
   完整 owner-key tuple；不把 FlatBuffers
   table offset 当成领域身份或跨声明引用。
 
-除 `road_alignments` 外，22 个顶层有类型 vector 与 Identity v1 的实体保持一一对应：`RoadCorridor`、
+除 `road_alignments` 外，顶层有类型 vector 与 Identity v1 **可构造**实体一一对应：`RoadCorridor`、
 `RoadSection`、`AuthoringLane`、`LaneEdge`、`Junction`、`Movement`、`ManeuverPath`、
 `ManeuverGate`、`WaitingZone`、`StopLine`、`SignalGroup`、`SignalController`、
 `SignalPhase`、`ParkingArea`、`ParkingSpace`、`LaneGroup`、`FacilityBand`、
-`ParticipantClass`、`AccessRule`、`VehicleProfile`、`StaticRoute` 和 `CanonicalFrame`。
+`ParticipantClass`、`AccessRule`、`VehicleProfile` 和 `CanonicalFrame`。
+`StaticRoute` 已从生产来源删除（ADR 0029）；种类代码 21 保留空位。
 来源格式可以用较高层 road/cross-section intent 生成其中部分声明，但任何最终稳定实体
 都必须具有 Identity v1 要求的显式、持久 ASCII authoring key；数组位置、table offset
 和几何都不能替代稳定身份。
@@ -312,8 +313,9 @@ lane/edge 并显式连接。v1 不接受自由 offset 曲线或第二份 lane/fa
 v1 `AccessTargetKind` 只包含 LaneEdge、LaneGroup、RoadSection 与 ManeuverPath；数值 5
 保留且无效，第一方 writer/UI 不暴露 FacilityBand target。imports、successors、junction
 approach/internal、controller signal group、phase state group 与 access participant class
-等全部 set-like vector 在 reader/writer 都拒绝重复；只有 `StaticRoute.edge_sequence`
-明确允许同一 edge 的多个有序 occurrence。namespace、local key 与 alignment key 禁止
+等全部 set-like vector 在 reader/writer 都拒绝重复。路线边序列不再进入编制来源
+（ADR 0029）；同一边的多次有序出现只存在于运行时 `register_route` 输入。
+namespace、local key 与 alignment key 禁止
 `::`，owner-qualified reference 使用 token 中禁止的 `>` 分隔完整 owner key 链；
 qualified reference 必须恰好一个 `::`。每段 token 仍受 53-byte 上限，完整引用按 schema
 README 的 270-byte 派生上限检查。完整引用只是借用 source bytes 的语法拼写，不作为

@@ -1,8 +1,8 @@
 # 示例场景设计
 
 **文档状态**: Accepted（#184 G1；#196 v0.9 增量）<br>
-**最后更新**: 2026-08-24<br>
-**适用范围**: 信号化走廊几何、受保护转向 profile、catalog 0.2、人口和车辆回流策略。
+**最后更新**: 2026-08-26<br>
+**适用范围**: 信号化走廊几何、受保护转向 profile、catalog 0.3、人口和车辆回流策略。
 JSON 制品与 production loader 已删除。
 
 **关联 ADR**:
@@ -10,6 +10,7 @@ JSON 制品与 production loader 已删除。
 - [`../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`](../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md)
 - [`../adr/0015-bounded-f32-canonical-spatial-frames.md`](../adr/0015-bounded-f32-canonical-spatial-frames.md)
 - [`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`](../adr/0016-scenario-population-and-recycle-lifecycle-authority.md)
+- [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)
 
 **关联设计**:
 
@@ -28,7 +29,7 @@ envelope、限速、50–200 辆车人口、出口回流和 Runtime/Spatial/Adap
 前提下，clean-break 切换为受保护左转、直行和右转 profile。
 
 current 走廊几何与人口策略仍按下列边界描述。Traffic / Spatial / Manifest JSON
-与 production JSON loader 已随 #301 删除；仓库保留 catalog 0.2 与 LFCA。可运行世界从
+与 production JSON loader 已随 #301 删除；仓库保留 catalog 0.3 与 LFCA。可运行世界从
 共享静态路网安装。现行走廊 Bevy 最小路径见
 [#472](https://github.com/illusion-tech/laneflow/issues/472)；50–200 人口与回流见
 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
@@ -42,7 +43,7 @@ current 走廊几何与人口策略仍按下列边界描述。Traffic / Spatial 
 - 两套可配置固定时制信号控制器，每个 Junction 四组、12 phase/84 秒；
 - `50..=200` 可调车辆人口、显式 seed 和确定性出口回流（#475）；
 - 同一 Bevy proxy/model 复用，但每次回流获得新的 Runtime 车辆句柄（#475）；
-- scenario-local catalog 0.2；
+- scenario-local catalog 0.3（28 条路线的有序 `laneEdgeKey` 由 catalog 拥有，不进 LFCA；ADR 0029）；
 - 确定性 generator 写出 catalog 与 LFCA。
 
 current 场景不包含换道、路径搜索、permissive turn、红灯右转、感应或自适应信号、
@@ -289,7 +290,7 @@ raw weights 或 draw order 必须经过新的版本/迁移决策，不能静默�
 current v0.10 场景的可运行制品是：
 
 - `v0.2-signalized-corridor.lfca`：编译器从走廊合成模块发射的 LFCA（含 Spatial）；
-- `v0.2-signalized-corridor.catalog.toml`：scenario-local catalog 0.2。
+- `v0.2-signalized-corridor.catalog.toml`：scenario-local catalog（现行合同 0.3：每条路线含有序边键）。
 
 历史 Traffic package / SpatialPackage / ScenarioManifest JSON 已随 #301 删除，不再是
 现行制品。seed、车辆数、runtime handle、Entity 或 engine asset metadata 不写入 LFCA

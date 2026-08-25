@@ -7,15 +7,16 @@
 > 证据，LFCP v2、API、检查深度和性能边界改以
 > `compiler-post-emission-check-and-minimal-publication-closure.md` 为准。无论后继实现是否
 > 生效，本文 LFCP 历史 v1/receipt 段落只作 #298 证据。LFCA/LFSM/LFSD **当前**
-> wire 以对象 `formatVersion = 2` 与毫米登记表为准，见下一段。
+> wire 以对象 `formatVersion = 3`、毫米登记表、且不含 `StaticRoute` 为准。
 >
-> **后续覆盖（#496）**：当前树只承认对象 `formatVersion` 与
-> `canonicalFormatVersion = 2` 的唯一登记表（毫米 / 受检 `f32` 热列）。公开 API 不带
-> V1/V2 后缀。历史米制表与旧读器以 git 为准，不进当前树。
-> `networkRevisionDerivationVersion` 保持 `1`，算法见 §4.2。合同见 ADR 0028。
+> **后续覆盖（#496 / #498）**：当前树只承认对象 `formatVersion` 与
+> `canonicalFormatVersion = 3` 的唯一登记表（毫米 / 受检 `f32` 热列；ADR 0029
+> 删除预编译静态路线）。公开 API 不带世代后缀。历史表与旧读器以 git 为准，不进
+> 当前树。`networkRevisionDerivationVersion` 保持 `1`，算法见 §4.2。合同见
+> ADR 0028 与 ADR 0029。
 
 **文档状态**: Accepted（#298 G1 Pass；G4 已完成，动态记录以 Issue Gate Ledger 为准）<br>
-**最后更新**: 2026-08-25（#496：对象 `formatVersion` 与 `canonicalFormatVersion = 2`）<br>
+**最后更新**: 2026-08-26（#498：对象 `formatVersion` 与 `canonicalFormatVersion = 3`）<br>
 **适用范围**: `laneflow-format`、`laneflow-static-contract`、
 `laneflow-compiler` 的可移植规范制品（Portable Canonical Artifact）、源映射封套
 （Source Map Envelope）、语义差异封套（Semantic Diff Envelope）、规范发布描述符
@@ -436,7 +437,7 @@ value 精确为 `count:u32 || RowV1[count]`，VBL 必须等于 `4 + sum(rowByteL
 
 ### 4.1 封闭节
 
-`magic = "LFCA"`，`formatVersion = canonicalFormatVersion = 2`。当前精确包含：
+`magic = "LFCA"`，`formatVersion = canonicalFormatVersion = 3`。当前精确包含：
 
 | `sectionKind` | 名称                         | 是否进入规范语义载荷 | 内容                                                                           |
 | ------------- | ---------------------------- | -------------------- | ------------------------------------------------------------------------------ |
@@ -1227,7 +1228,7 @@ StableId128 := first-16-bytes(
 接受域精确为 `1..=53` bytes、首 byte 属于 `[A-Za-z0-9]`、其余 byte 只属于
 `[A-Za-z0-9._:/-]`。空值、控制字符、非 ASCII、标点开头、未登记标点或 54 bytes 及以上
 一律在 StableId 重算前失败；读取器不得从调用方 limits 选择另一套 token 文法或放宽该
-格式级上限。`StableId128` 必须恰为 16 bytes。`entityKind 1..22` 与下列实体表同序；每种
+格式级上限。`StableId128` 必须恰为 16 bytes。`entityKind` 可构造集合为 `1..20` 与 `22`（共 21 种）；代码 21 保留空位。每种
 实体要求的 tag 序列精确为：
 
 ```text
@@ -1241,7 +1242,8 @@ SignalPhase [1,20,21]                 ParkingArea [1,22]
 ParkingSpace [1,24]                   LaneGroup [1,25,32]
 FacilityBand [1,26,33]                ParticipantClass [1,27]
 AccessRule [1,28]                     VehicleProfile [1,29]
-StaticRoute [1,30]                    CanonicalFrame [1,31]
+CanonicalFrame [1,31]
+（种类 21 / 标签 30 不在可构造集合中）
 ```
 
 #298 历史完整接受域还要求在重算全部前像后，为 22 种实体的联合域建立一张全局
@@ -1250,7 +1252,8 @@ StaticRoute [1,30]                    CanonicalFrame [1,31]
 BLAKE3-128 截断碰撞；二者都不得继续建立 ordinal、关系或辅助对象引用。该检查与逐行摘要
 重算同属身份验证前置条件，不能因引用中另有 `entityKind` 而省略。
 
-`CanonicalEntityTables(0x0003)` 精确包含下列 22 张表；即使无行也必须存在。每行共同以
+`CanonicalEntityTables(0x0003)` 精确包含下列 **21** 张表（`0x0001..=0x0014` 与
+`0x0016`）；即使无行也必须存在。`0x0015` 禁止出现。每行共同以
 `1:typedOrdinal:u32:R, 2:stableId:StableId128:R` 开始，余下字段如下：
 
 | tableKind | 表名             | 字段（从 tag 3 开始）                                                                                                                                                                                                                                                                                              | 行键           |
@@ -1275,7 +1278,7 @@ BLAKE3-128 截断碰撞；二者都不得继续建立 ordinal、关系或辅助�
 | `0x0012`  | ParticipantClass | `3:parent:u32:O, 4:depth:u32:R, 5:subtreeEnter:u32:R, 6:subtreeExit:u32:R`                                                                                                                                                                                                                                         | `typedOrdinal` |
 | `0x0013`  | AccessRule       | `3:targetKind:u8:R, 4:targetOrdinal:u32:R, 5:effect:u8:R, 6:participantClasses:OrdinalVectorU32:R, 7:regulation:RecordVector:O, 8:priority:i32:R`                                                                                                                                                                  | `typedOrdinal` |
 | `0x0014`  | VehicleProfile   | `3:participantClass:u32:R, 4:lengthMillimetres:u32:R, 5:desiredSpeedMillimetresPerSecond:u32:R, 6:minGapMillimetres:u32:R, 7:timeHeadwaySeconds:f32:R, 8:maxAccelerationMetersPerSecondSquared:f32:R, 9:comfortableDecelerationMetersPerSecondSquared:f32:R, 10:emergencyDecelerationMetersPerSecondSquared:f32:R` | `typedOrdinal` |
-| `0x0015`  | StaticRoute      | `3:edges:OrdinalVectorU32:R, 4:transitionGates:RecordVector:R`                                                                                                                                                                                                                                                     | `typedOrdinal` |
+| `0x0015`  | *(保留空位)*     | **禁止出现**（ADR 0029）                                                                                                                                                                                                                                                                                           | —              |
 | `0x0016`  | CanonicalFrame   | 无额外字段                                                                                                                                                                                                                                                                                                         | `typedOrdinal` |
 
 Identity 前像中重复表达规范所有权或边界语义的字段必须与实体行严格等值，不能只各自解析成功：
@@ -1317,7 +1320,7 @@ Identity 前像中重复表达规范所有权或边界语义的字段必须与�
 | `ParkingArea.parkingSpaces`     | 集合；按 member typed ordinal 严格递增               | 禁止       | 禁止             |
 | `LaneGroup.members`             | 领域顺序；保持所属 `RoadSection.lanes` 中的相对顺序  | 禁止       | 禁止             |
 | `AccessRule.participantClasses` | 集合；按 member typed ordinal 严格递增               | 禁止       | 禁止             |
-| `StaticRoute.edges`             | 领域顺序；路线出现序                                 | 允许重复项 | 禁止             |
+| `StaticRoute.edges`             | **删除**（ADR 0029；表 `0x0015` 禁止出现）           | —          | —                |
 
 领域顺序向量不得为了得到较小 ordinal 而重排；集合向量不得保留声明顺序。下列跨表关系是
 #298 历史完整接受域对重复 ownership 的闭合规则，不是 #299 当前 checker 的逐字段复验项：
@@ -1340,16 +1343,15 @@ Identity 前像中重复表达规范所有权或边界语义的字段必须与�
 
 任一只验证一侧、遗漏 child、额外 member、owner 不一致或 optional back-reference 与 membership
 不一致都失败关闭。`SignalPhase.states` 作为集合按 `signalGroup` ordinal 严格递增、不得重复，
-并必须逐项覆盖其 controller 的全部 `signalGroups`；`StaticRoute.transitionGates` 保持路线
-transition 领域顺序，行数精确为 `max(edges.count-1, 0)`。这些 RecordVector 约束与上表同样
-属于独立语义验证，不由结构预检猜测。
+并必须逐项覆盖其 controller 的全部 `signalGroups`。`StaticRoute.transitionGates` 已随
+ADR 0029 删除，不得再作为接受域。这些 RecordVector 约束与上表同样属于独立语义验证，
+不由结构预检猜测。
 
 内嵌记录精确为：`RoadCorridor.elements = 1:elementKind:u8:R, 2:ordinal:u32:R`，其中
 `0=RoadSection, 1=FacilityBand`；`SignalPhase.states = 1:signalGroup:u32:R,
 2:aspect:u8:R`；`AccessRule.regulation` 必须恰有一行
 `1:jurisdiction:Utf8:R, 2:version:Utf8:R, 3:source:Utf8:O`；
-`StaticRoute.transitionGates` 的行数必须为 `max(edges.count-1, 0)`，每行只有
-`1:maneuverGate:u32:O`。`signalControlKind` 为 `0=None, 1=Group`，且 tag 7 当且仅当值为
+`signalControlKind` 为 `0=None, 1=Group`，且 tag 7 当且仅当值为
 `1` 时存在。`targetKind` 为 `0=LaneEdge, 1=LaneGroup, 2=RoadSection, 3=ManeuverPath`；
 `effect` 为 `0=Deny, 1=Allow`。`aspect` 为 `0=Red, 1=Yellow, 2=Green`，未知代码失败
 关闭。
@@ -1361,11 +1363,14 @@ transition 领域顺序，行数精确为 `max(edges.count-1, 0)`。这些 Recor
 回退为 FacilityBand。该分类是 closed structural category，不授予未登记的交通能力。
 
 下列规范标量必须在通用 finite/正零检查之外逐字段验证。当前合同：
-`formatVersion` 与 `canonicalFormatVersion = 2`；
-`constraintContractVersion` / `staticExecutionContractVersion` 为 `2`；
-`networkRevisionDerivationVersion` **保持 `1`**，算法见 §4.2；身份两字段保持 `1`。
+`formatVersion` 与 `canonicalFormatVersion = 3`；
+`constraintContractVersion` 为 `2`；`staticExecutionContractVersion` 为 `3`；
+`networkRevisionDerivationVersion` **保持 `1`**，算法见 §4.2；
+`identityEncodingVersion` 保持 `1`，`identityRegistryRevision = 2`。
 LFSM `sourceMapFormatVersion = 2`、LFSD `semanticDiffFormatVersion = 2`（节形状不变）。
-当前树只有这一套登记表；读器拒绝 `formatVersion != 2`。
+当前树只有这一套登记表；读器拒绝 `formatVersion != 3`。
+种类代码 21、字段标签 30、关系角色 13–16 与表 `0x0015` 为保留空位，出现即失败关闭
+（ADR 0029）。
 交通热列以毫米 / 受检 `f32` 为准，不再保留并行 `f64` 米列。
 
 #### 当前交通热列字段（#496）
@@ -1636,9 +1641,9 @@ arc-length 验证。任何适用检查失败都在建立 spatial view 前失败�
 `1:staticExecutionContractVersion:u16:R, 2:constraintContractVersion:u16:R`。具体约束已由
 前述实体、关系和空间表的规范值表达；该行禁止另存 worker 数、目标布局或运行时状态。
 当前 `ContractVersions` 只接受
-`canonicalFormatVersion = 2`、`identityEncodingVersion = 1`、
-`identityRegistryRevision = 1`、`networkRevisionDerivationVersion = 1`、
-`constraintContractVersion = 2`、`staticExecutionContractVersion = 2`。
+`canonicalFormatVersion = 3`、`identityEncodingVersion = 1`、
+`identityRegistryRevision = 2`、`networkRevisionDerivationVersion = 1`、
+`constraintContractVersion = 2`、`staticExecutionContractVersion = 3`。
 `ExecutionContract` tag 1 必须逐值等于 `ContractVersions.staticExecutionContractVersion`，
 tag 2 必须逐值等于 `ContractVersions.constraintContractVersion`。结构预检完成后必须先
 验证支持值和这两项对象内相等关系，再执行依赖相应 contract 的实体语义验证；任一未知值
@@ -1937,12 +1942,12 @@ owner/occurrence/property 闭合，不读取未认证来源文档，也不把该
 必须解析到 `SourceLocation`；contributing/source vectors 是按位置语义值排序去重的集合。
 v1 只允许下列四类派生行：
 
-| sourceRelationRole                    | owner kind    | 必需覆盖的绑定 LFCA 行                                                         | derivationPassVersion | constraintVersion                     |
-| ------------------------------------- | ------------- | ------------------------------------------------------------------------------ | --------------------- | ------------------------------------- |
-| `9=JunctionInternalEdge`              | `Junction`    | 该 junction 的 internal-edge 行；localIndex 是按 laneEdge 行键过滤后的零基位置 | `1`                   | LFCA `constraintContractVersion`      |
-| `14=StaticRouteManeuverOccurrence`    | `StaticRoute` | 同 route 的 `RouteManeuverOccurrence`；localIndex 等于 occurrenceIndex         | `1`                   | LFCA `staticExecutionContractVersion` |
-| `15=StaticRouteGateOccurrence`        | `StaticRoute` | 同 route 的 `RouteGateOccurrence`；localIndex 等于 occurrenceIndex             | `1`                   | LFCA `staticExecutionContractVersion` |
-| `16=StaticRouteWaitingZoneOccurrence` | `StaticRoute` | 同 route 的 `RouteWaitingZoneOccurrence`；localIndex 等于 occurrenceIndex      | `1`                   | LFCA `staticExecutionContractVersion` |
+| sourceRelationRole                    | owner kind | 必需覆盖的绑定 LFCA 行                                                         | derivationPassVersion | constraintVersion                |
+| ------------------------------------- | ---------- | ------------------------------------------------------------------------------ | --------------------- | -------------------------------- |
+| `9=JunctionInternalEdge`              | `Junction` | 该 junction 的 internal-edge 行；localIndex 是按 laneEdge 行键过滤后的零基位置 | `1`                   | LFCA `constraintContractVersion` |
+| `14=StaticRouteManeuverOccurrence`    | —          | **禁止出现**（ADR 0029；角色 14 保留空位）                                     | —                     | —                                |
+| `15=StaticRouteGateOccurrence`        | —          | **禁止出现**（ADR 0029；角色 15 保留空位）                                     | —                     | —                                |
+| `16=StaticRouteWaitingZoneOccurrence` | —          | **禁止出现**（ADR 0029；角色 16 保留空位）                                     | —                     | —                                |
 
 每个被上表覆盖的 LFCA 行必须恰有一个 `DerivedRelationSource`，并恰有一个相同行键的
 `OwnerLocalSource`；其 `sourceLocations` 必须逐字节等于该 owner-local 行的

@@ -5,7 +5,7 @@
 **适用范围**: v0.9 双路口走廊的受保护左转、直行、右转、lane-level
 ManeuverPath、完整 Route catalog、固定时制与验证边界<br>
 **实现状态**: #229 已交付通用 Traffic 0.8 static domains 与一等
-`ManeuverGate`；#190-#192 已交付 production profile artifacts、catalog 0.2、
+`ManeuverGate`；#190-#192 已交付 production profile artifacts、当时 catalog 0.2、
 scenario policy、native example、扩大验证与独立收口；#262 已将相同 profile
 artifact 迁移到 current Traffic v0.10 并保持 protected-turning behavior 不变
 

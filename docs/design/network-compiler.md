@@ -560,14 +560,14 @@ encoding version。
 |           18 | `ParticipantClass` | 声明（Declaration）                           | `participant-class` | `1,27`                    |
 |           19 | `AccessRule`       | 声明（Declaration）                           | `access-rule`       | `1,28`                    |
 |           20 | `VehicleProfile`   | 声明（Declaration）                           | `vehicle-profile`   | `1,29`                    |
-|           21 | `StaticRoute`      | 声明（Declaration）                           | `static-route`      | `1,30`                    |
+|           21 | *(保留空位)*       | 历史 `StaticRoute`；修订 2 起不发射、不解码   | —                   | —                         |
 |           22 | `CanonicalFrame`   | 声明（Declaration）                           | `canonical-frame`   | `1,31`                    |
 
 本表冻结的是 identity v1 已进入当前车辆 projection 的实体集合，不是目标 Traffic
-Runtime 永久封闭的参与单元种类表。`VehicleProfile` 与 `StaticRoute` 只服务当前
-道路机动车执行域；未来非机动车、步行或轨道执行域若需要不同的运行参数配置
-（Runtime Parameter Profile）或通行定义，必须由其 G1 登记新的实体种类/标签
-（Entity Kind/Tag）和约束，不得把非车辆参数塞进
+Runtime 永久封闭的参与单元种类表。`VehicleProfile` 只服务当前道路机动车执行域；
+路线不再作为路网声明种类（ADR 0029）。未来非机动车、步行或轨道执行域若需要不同的
+运行参数配置（Runtime Parameter Profile）或通行定义，必须由其 G1 登记新的实体种类/
+标签（Entity Kind/Tag）和约束，不得把非车辆参数塞进
 `VehicleProfile`，也不得复用 `ParticipantClass` 冒充执行域或行为能力。
 
 所有定义子实体身份的父子关系都使用父实体 `StableId128`，不得把父实体仅在其来源
@@ -589,8 +589,8 @@ canonical LIR 保存有类型的 `ParkingSpace -> ParkingArea` 关系；字段�
 编译器臆造缺失的停车区域。
 
 Movement 的 left/straight/right/u-turn 分类是可重算元数据，不参与标识。
-StaticRoute 只表示编译期 authoring route；runtime 注册的 dynamic Route 继续使用
-generation-aware handle，不获得持久 StableId128。
+路线只经 runtime `register_route` 使用 generation-aware handle，不获得持久
+StableId128，也不进入 Identity 可构造种类（ADR 0029）。
 
 `RoadSection` 和 `FacilityBand` 的父锚点来自已验证的唯一所有者关系
 （Unique Owner Relation）：恰好一个 `RoadCorridor.elements[]` 分别通过
@@ -732,7 +732,7 @@ entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest �
 - section split、boundary/key 和显式 topology closure 变化测试；
 - 全部 `LaneEdge`（道路区段已覆盖、路口内部、无所属、自环、孤立）都获得唯一
   `StableId128`；`v0.10-empty-signals-and-parking` 中 `loop`/`isolated` 与引用
-  `loop` 的静态路线可以完整进入 `SharedIdentityIndex`；
+  `loop` 边可以完整进入 `SharedIdentityIndex`（路线不再作为身份种类，ADR 0029）；
 - 同一 `LaneEdge` 加入 / 移除 RoadSection 覆盖或 Junction internal role 时 ID
   不变；显式替换 / 拆分边并使用新 `laneEdgeKey` 时形成 add/remove；同一 namespace
   重复 `laneEdgeKey` 失败；
@@ -803,7 +803,7 @@ Accepted ADR 0025 / #300 G1 不生成第二个持久化性能制品。`laneflow-
 只接受字段私有的 `CheckedCanonicalNetworkInput`，按 LFCA wire order 先计数和预算，
 再一次性 reserve/fill 连续 typed columns、CSR/ranges、身份索引、按显式非语义 derivation
 version 从受检关系确定性派生的规划提示，以及可选 Spatial 数据，完成跨表/身份/
-Traffic-Spatial/执行约束闭合后返回。生产构建只认 `formatVersion = 2` 的受检输入；
+Traffic-Spatial/执行约束闭合后返回。生产构建只认 `formatVersion = 3` 的受检输入；
 详见 `shared-static-network.md` §3.1。闭合后返回：
 
 ```text
