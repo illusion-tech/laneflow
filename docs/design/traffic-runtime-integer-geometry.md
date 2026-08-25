@@ -136,6 +136,8 @@ G2 决定访问器名字。
    **路线剩余 `Finite(0)`**（没有下一 hop）：`VehicleStatus::Completed`，离开占用与
    `committed_pose_sources`。Gate 拒绝或剩余 `BeyondFinite` 都不是 `Completed`。否则
    `speed_mm_s = round-ties-to-even(f64(next_speed_m) × 1000)`，不由 travel 反推。
+   整数行程落地后，已提交速度不得超过**所在边**限速（`carry_um` 可能比 SI 包络
+   多送 1 mm 跨边）。如何夹紧属 G2。
 
 占用循环：边上 `remaining_mm == 0` 结束（`u32`）。重叠：有符号整数区间。跨 hop
 间隙用 checked `i64`。生产路径删除米制 `1e-9` / `1e-12` 比较。
@@ -143,12 +145,23 @@ G2 决定访问器名字。
 舍入一律 IEEE 754 **round-ties-to-even**，缩放在 `f64` 中做（`f32 × 1e6` 在
 100 m 行程上会丢微米）。
 
-4 ms 静止跟停量化死区（**接受**）：IIDM 有效加速度可以远小于 `max_accel`。静止
-follower / leader、空隙 = `min_gap + 0.1 m`、`max_accel = 0.5 m/s²` 时，有效加速度
-约 `0.0465 m/s²`，4 ms 行程约 `0.37 µm`、下一速度约 `0.186 mm/s`，量化后 `um` 与
-`speed_mm_s` 均为 0，`carry_um` 不增长，状态重复；车辆停在期望间距外约 `100 mm`。
-这是 `hard_room_mm > 0` 的爬行退化，不是硬停，也不是 `max_accel < 0.5` 非法 profile。
-**禁止**亚微米累加器。建议默认 16 ms 下同工况约 `6 µm`，能进入 `carry_um`。
+4 ms 量化死区（**接受**，不为它加状态或改量化）：
+
+- **静止跟停**：IIDM 有效加速度可以远小于 `max_accel`。静止 follower / leader、
+  空隙 = `min_gap + 0.1 m`、`max_accel = 0.5 m/s²` 时，有效加速度约
+  `0.0465 m/s²`，4 ms 行程约 `0.37 µm`、下一速度约 `0.186 mm/s`，量化后 `um` 与
+  `speed_mm_s` 均为 0，`carry_um` 不增长，状态重复；车辆停在期望间距外约
+  `100 mm`。这是 `hard_room_mm > 0` 的爬行退化，不是硬停，也不是
+  `max_accel < 0.5` 非法 profile。建议默认 16 ms 下同工况约 `6 µm`，能进入
+  `carry_um`。
+- **空路巡航**：IIDM `a = max_accel × (1 − (v/v0)⁴)` 接近期望车速时，有效加速度
+  可小于 `0.5 mm/s / Δt`。`dt = 4 ms`、`max_accel = 0.5 m/s²`、期望 `20 m/s` 时，
+  已提交速度稳定在约 `18.61 m/s`（约低 7%），下一增量约 `0.4997 mm/s`，
+  round-ties-to-even 后整数不变。车仍前进；`carry_um` 只攒距离，不能抬速度。
+  相对偏差只取决于 `max_accel` 与步长。建议默认 16 ms 下同画像约低 1.6%。
+
+**禁止**亚微米累加器、速度余数、或把该死区当 G2 必须消掉的缺陷。死区是 4 ms
+最细量子的产品接受面。
 
 ## 6. compiler 与 LFCA
 
@@ -242,7 +255,8 @@ LFCA v2 登记表增量（相对附录 A.1 v1；**不兼容**读旧 `f64`）。*
 
 - `progress_mm == 0` → 折线起点；
 - `progress_mm == length_mm` → 折线终点；
-- 中间 `geometry_s = (progress_mm / length_mm) * arc` 再转为 `f32`。
+- 中间按进度占边长的**实数**比例映射到弧长，再转为 `f32`。`progress_mm` 与
+  `length_mm` 不得做整数除。乘除顺序属实现，G2 对齐现行 Spatial 采样。
 
 横向停车偏移按毫米除以 1000 得到米再采样。进度越界与交通/弧长对账失败时，错误载荷
 的交通侧用毫米，弧长侧仍是 `f32` 米。无 Spatial 时不建采样 session；一维边长权威
