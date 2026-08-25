@@ -118,13 +118,13 @@ jobs:
           done
 
           cmp --silent "${baseline_objects}/min-headless/actual.lfca" \
-            crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-variants/min-headless.lfca
+            crates/laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-variants/min-headless.lfca
           cmp --silent "${baseline_objects}/full-spatial/actual.lfca" \
-            crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca
+            crates/laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca
           cmp --silent "${baseline_objects}/full-spatial/actual.lfsm" \
-            crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsm
+            crates/laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsm
           cmp --silent "${baseline_objects}/full-spatial/actual.lfsd" \
-            crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsd
+            crates/laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsd
           xxd -r -p \
             crates/laneflow-compiler/tests/fixtures/portable-v2/lfcp-v2-min-bindings/expected.lfcp.hex \
             > "${RUNNER_TEMP}/expected.lfcp"

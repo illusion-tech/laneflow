@@ -21,8 +21,8 @@ Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭�
 - `../design/network-compiler.md`
 - `../design/portable-canonical-artifact.md`
 
-> **后续提案（#496 G1，Proposed，未 Pass）**：G2 为 LFCA v2 提供并行受检输入，
-> 不得把 v2 塞进本节 V1 capability。G2 完成前 `main` 仍只承认 V1。合同见 ADR 0028。
+> **#496 / ADR 0028**：生产只承认 `formatVersion = 2` 的受检 LFCA。公开 API 不带
+> 世代后缀；读器拒绝 `formatVersion != 2`。合同见 ADR 0028。
 
 ## 背景
 
@@ -87,7 +87,7 @@ normalization。
 ### 3. 发布加载与玩家编辑共用一条 LFCA 构建路径
 
 共享静态路网构建器只接受由 `laneflow-format` 定义、字段私有的
-`CheckedCanonicalNetworkInputV1` capability。该能力已经完成 framing、registry、
+`CheckedCanonicalNetworkInput` capability。该能力已经完成 framing、registry、
 直接值域、实际摘要/长度和 `NetworkRevisionId` 闭合；builder 不接受裸 `&[u8]`、
 彼此分离的 view/digest/revision 参数或调用方自报 revision。
 

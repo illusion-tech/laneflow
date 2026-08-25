@@ -113,9 +113,9 @@ PathAnchor crossing、distance-to-anchor 归零、zone enter/clear 与 boundary 
 统一由新的 Core 私有
 `CONFLICT_ANCHOR_CROSSING_TOLERANCE_METERS` 拥有。它不与 edge-boundary、
 longitudinal-constraint 或 physical-gap tolerance 互相别名；authoring canonical
-endpoint 仍使用精确结构规则。future current-f64 implementation 的冻结值为
-`1.0e-9 m`；front enter、tail clear、distance-to-anchor 归零、one-shot event 与
-downstream proof 使用详细设计中同一组 inclusive predicate。
+endpoint 仍使用精确结构规则。#235 尚未生产化；后续实现使用整数毫米比较，
+不得再引入米制哨兵。front enter、tail clear、distance-to-anchor 归零、one-shot
+event 与 downstream proof 使用详细设计中同一组 inclusive predicate。
 
 Traffic/Core 中显式声明的 zone-stream 关系是行为 authority。Spatial 拥有 canonical
 3D geometry、pose 与 authoring validation；二维投影相交、mesh overlap 或

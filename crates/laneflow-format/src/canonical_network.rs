@@ -151,9 +151,7 @@ const fn binding_format_error() -> CanonicalNetworkInputError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        ExpectedSemanticDiffBase, check_post_emission_bundle,
-    };
+    use crate::{ExpectedSemanticDiffBase, check_post_emission_bundle};
 
     const MIN_HEADLESS: &[u8] = include_bytes!(
         "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-variants/min-headless.lfca"
@@ -204,8 +202,8 @@ mod tests {
 
     #[test]
     fn accepts_current_artifact() {
-        let checked = check_canonical_network_input(FULL_LFCA, FormatLimits::HARD)
-            .expect("canonical input");
+        let checked =
+            check_canonical_network_input(FULL_LFCA, FormatLimits::HARD).expect("canonical input");
         assert_eq!(checked.value_checked_view().bytes(), FULL_LFCA);
         let bundle = check_post_emission_bundle(
             FULL_LFCA,

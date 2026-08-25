@@ -37,7 +37,7 @@
 
 - 从一个 `CompilationOutput` 产生 LFCA/LFSM/LFSD；
 - 在 emitter 和 publication 中逐对象调用
-  `preflight_object_values_v1`，并在发布路径调用 bundle 后发射检查；
+  `preflight_object_values`，并在发布路径调用 bundle 后发射检查；
 - 在 compiler-private 代码中计算 `NetworkRevisionId`；
 - 用 `PortablePublicationCandidate` 拥有三份 exact bytes 及缓存绑定；
 - 按 LFCA/LFSM/LFSD/LFCP v2 顺序安装，随后恰好一次调用 manifest adapter。
@@ -107,13 +107,11 @@ pub fn check_post_emission_bundle_v1<'a>(
 轻量 capability 可以实现 `Clone`/`Copy`；不可伪造来自字段私有性和构造入口，而不是
 一次性消费技巧。
 
-#496 G1（Proposed，未 Pass）：G2 为 LFCA/LFSM/LFSD v2 提供并行的后发射受检能力，
-从中派生 v2 路网输入。现行 v1 预检与 v1 bundle **不得**接纳对象版本 `2`。LFSM
+#496 / ADR 0028：后发射预检只接纳对象版本 `2`。LFSM
 `sourceMapFormatVersion = 2`，`canonicalArtifactFormatVersion` 必须与所绑 LFCA 一致。
-LFSD `semanticDiffFormatVersion = 2`；Genesis target 合同行须与 LFCA v2 一致，
-Artifact 两端合同行仍须相等（v1→v2 diff 拒绝）。`NetworkRevisionId` 仍按
-`portable-canonical-artifact.md` §4.2 v1 算法重算（派生版本保持 `1`）。发布路径不得
-把 LFCA v2 送进 v1 bundle。G2 决定入口名字。详见 ADR 0028。
+LFSD `semanticDiffFormatVersion = 2`；Genesis target 合同行须与 LFCA 一致。
+`NetworkRevisionId` 仍按 `portable-canonical-artifact.md` §4.2 的 v1 算法重算
+（派生版本保持 `1`）。公开入口不带世代后缀。详见 ADR 0028。
 
 ## 5. 检查顺序
 
@@ -121,7 +119,7 @@ Artifact 两端合同行仍须相等（v1→v2 diff 拒绝）。`NetworkRevision
 
 1. 用三个 slice 的已知长度逐一检查 `ObjectBytes`；
 2. checked-add 三个长度并检查 `CandidateStagingBytes`；
-3. 分别运行 `preflight_object_values_v1`；
+3. 分别运行 `preflight_object_values`；
 4. 计算三对象 SHA-256 和精确长度；
 5. 从 LFCA 六个语义节重算 `NetworkRevisionId`；
 6. 比较 LFCA claim；

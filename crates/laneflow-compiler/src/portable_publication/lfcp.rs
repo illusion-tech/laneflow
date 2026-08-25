@@ -1,7 +1,7 @@
 use laneflow_format::{
-    FieldWriteInput, FieldWriteValue, FormatLimits, ObjectWriteInput,
-    PostEmissionCheckedBundle, RowWriteInput, SectionWriteInput, TableWriteInput,
-    encode_prepared_object, preflight_object_values, prepare_object,
+    FieldWriteInput, FieldWriteValue, FormatLimits, ObjectWriteInput, PostEmissionCheckedBundle,
+    RowWriteInput, SectionWriteInput, TableWriteInput, encode_prepared_object,
+    preflight_object_values, prepare_object,
 };
 use laneflow_static_contract::{
     CANONICAL_ARTIFACT_FORMAT_VERSION, NETWORK_REVISION_DERIVATION_VERSION, PortableObjectKind,
@@ -19,10 +19,7 @@ pub(crate) fn build_lfcp(
 ) -> Result<PortableObjectCandidate, PortablePublicationError> {
     let artifact_fields = [
         field(1, FieldWriteValue::U16(CANONICAL_ARTIFACT_FORMAT_VERSION)),
-        field(
-            2,
-            FieldWriteValue::U16(NETWORK_REVISION_DERIVATION_VERSION),
-        ),
+        field(2, FieldWriteValue::U16(NETWORK_REVISION_DERIVATION_VERSION)),
         field(
             3,
             FieldWriteValue::Sha256(checked.network_revision().into_digest().into_bytes()),

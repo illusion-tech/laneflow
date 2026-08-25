@@ -4,20 +4,20 @@ use std::marker::PhantomData;
 use laneflow_static_contract::{
     AccessEffect, AccessRuleKind, AuthoringLaneKind, CANONICAL_POINT_COMPONENT_MAX_METERS,
     CANONICAL_POINT_COMPONENT_MIN_METERS, CanonicalFrameKind, EntityKind, EntityKindMarker,
-    FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind,
-    MIN_PARKING_EXTENT_EXCLUSIVE_METERS, MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS,
-    MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS, ManeuverGateKind, ManeuverPathKind, MovementKind,
-    PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS, PARKING_HEADING_OFFSET_MAXIMUM_RADIANS,
-    PARKING_HEADING_OFFSET_MINIMUM_RADIANS, ParkingAreaKind, ParkingSpaceKind,
-    ParticipantClassKind, RoadCorridorKind, RoadSectionKind, SignalAspect, SignalControllerKind,
-    SignalGroupKind, SignalPhaseKind, StaticRouteKind, StopLineKind, VehicleProfileKind,
-    WaitingZoneKind,
+    FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind, MAX_LANE_EDGE_LENGTH_MM,
+    MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S, MAX_VEHICLE_LENGTH_MM,
+    MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S, MIN_VEHICLE_LENGTH_MM, ManeuverGateKind,
+    ManeuverPathKind, MovementKind, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, ParkingAreaKind,
+    ParkingSpaceKind, ParticipantClassKind, RoadCorridorKind, RoadSectionKind, SignalAspect,
+    SignalControllerKind, SignalGroupKind, SignalPhaseKind, StaticRouteKind, StopLineKind,
+    VehicleProfileKind, WaitingZoneKind,
 };
 
 use super::rules::{
-    input_error, require_non_empty, require_unique, validate_facility_kind, validate_finite,
-    validate_inclusive_range, validate_non_empty_text, validate_non_negative, validate_positive,
-    validate_token, validate_visible_ascii,
+    accel_violation, heading_violation, input_error, millimetre_i32_abs_range_violation,
+    millimetre_range_violation, require_non_empty, require_unique, time_headway_violation,
+    validate_facility_kind, validate_inclusive_range, validate_non_empty_text,
+    validate_non_negative, validate_positive, validate_token, validate_visible_ascii,
 };
 use crate::declaration::MAX_PORTABLE_SIGNAL_TIME_MS;
 use crate::{DiagnosticBundle, FacilityKindCategory, RoadEditingInputViolation};
@@ -899,8 +899,10 @@ impl LaneEdgeInput {
     ) -> Result<Self, DiagnosticBundle> {
         let lane_edge_key = lane_edge_key.into();
         validate_token(&lane_edge_key, "laneEdge.laneEdgeKey")?;
-        let speed_limit_meters_per_second = validate_positive(
+        let speed_limit_meters_per_second = require_closed_mm(
             speed_limit_meters_per_second,
+            MIN_SPEED_MM_S,
+            MAX_SPEED_MM_S,
             "laneEdge.speedLimitMetersPerSecond",
         )?;
         require_unique(&successors, "laneEdge.successors")?;
@@ -1494,14 +1496,12 @@ impl ParkingLaneAnchor {
         lane_edge: LaneEdgeReference,
         progress_meters: f64,
     ) -> Result<Self, DiagnosticBundle> {
-        let progress_meters =
-            validate_positive(progress_meters, "parkingLaneAnchor.progressMeters")?;
-        if progress_meters <= PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS {
-            return Err(input_error(
-                "parkingLaneAnchor.progressMeters",
-                RoadEditingInputViolation::InvalidCombination,
-            ));
-        }
+        let progress_meters = require_closed_mm(
+            progress_meters,
+            PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM,
+            MAX_LANE_EDGE_LENGTH_MM.saturating_sub(PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM),
+            "parkingLaneAnchor.progressMeters",
+        )?;
         Ok(Self {
             lane_edge,
             progress_meters,
@@ -1535,38 +1535,28 @@ impl ParkingSpaceGeometry {
         length_meters: f64,
         width_meters: f64,
     ) -> Result<Self, DiagnosticBundle> {
-        let lateral_offset_meters = validate_finite(
+        let lateral_offset_meters = require_closed_mm_i32_abs(
             lateral_offset_meters,
+            MIN_PARKING_LATERAL_OFFSET_ABS_MM,
+            MAX_PARKING_LATERAL_OFFSET_ABS_MM,
             "parkingSpace.geometry.lateralOffsetMeters",
         )?;
-        if lateral_offset_meters.abs() <= MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS {
-            return Err(input_error(
-                "parkingSpace.geometry.lateralOffsetMeters",
-                RoadEditingInputViolation::InvalidCombination,
-            ));
-        }
-        let heading_offset_radians = validate_finite(
+        let heading_offset_radians = require_heading(
             heading_offset_radians,
             "parkingSpace.geometry.headingOffsetRadians",
         )?;
-        if !(PARKING_HEADING_OFFSET_MINIMUM_RADIANS..PARKING_HEADING_OFFSET_MAXIMUM_RADIANS)
-            .contains(&heading_offset_radians)
-        {
-            return Err(input_error(
-                "parkingSpace.geometry.headingOffsetRadians",
-                RoadEditingInputViolation::InvalidCombination,
-            ));
-        }
-        let length_meters = validate_positive(length_meters, "parkingSpace.geometry.lengthMeters")?;
-        let width_meters = validate_positive(width_meters, "parkingSpace.geometry.widthMeters")?;
-        if length_meters <= MIN_PARKING_EXTENT_EXCLUSIVE_METERS
-            || width_meters <= MIN_PARKING_EXTENT_EXCLUSIVE_METERS
-        {
-            return Err(input_error(
-                "parkingSpace.geometry.extent",
-                RoadEditingInputViolation::InvalidCombination,
-            ));
-        }
+        let length_meters = require_closed_mm(
+            length_meters,
+            MIN_VEHICLE_LENGTH_MM,
+            MAX_VEHICLE_LENGTH_MM,
+            "parkingSpace.geometry.lengthMeters",
+        )?;
+        let width_meters = require_closed_mm(
+            width_meters,
+            MIN_VEHICLE_LENGTH_MM,
+            MAX_VEHICLE_LENGTH_MM,
+            "parkingSpace.geometry.widthMeters",
+        )?;
         Ok(Self {
             lateral_offset_meters,
             heading_offset_radians,
@@ -1951,32 +1941,37 @@ impl IidmVehicleProfileInput {
         comfortable_deceleration_meters_per_second_squared: f64,
         emergency_deceleration_meters_per_second_squared: f64,
     ) -> Result<Self, DiagnosticBundle> {
-        let length_meters = validate_positive(length_meters, "vehicleProfile.iidm.lengthMeters")?;
-        if length_meters <= MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS {
-            return Err(input_error(
-                "vehicleProfile.iidm.lengthMeters",
-                RoadEditingInputViolation::InvalidCombination,
-            ));
-        }
-        let desired_speed_meters_per_second = validate_positive(
+        let length_meters = require_closed_mm(
+            length_meters,
+            MIN_VEHICLE_LENGTH_MM,
+            MAX_VEHICLE_LENGTH_MM,
+            "vehicleProfile.iidm.lengthMeters",
+        )?;
+        let desired_speed_meters_per_second = require_closed_mm(
             desired_speed_meters_per_second,
+            MIN_SPEED_MM_S,
+            MAX_SPEED_MM_S,
             "vehicleProfile.iidm.desiredSpeedMetersPerSecond",
         )?;
-        let min_gap_meters =
-            validate_non_negative(min_gap_meters, "vehicleProfile.iidm.minGapMeters")?;
-        let time_headway_seconds = validate_positive(
+        let min_gap_meters = require_closed_mm(
+            min_gap_meters,
+            0,
+            MAX_MIN_GAP_MM,
+            "vehicleProfile.iidm.minGapMeters",
+        )?;
+        let time_headway_seconds = require_time_headway(
             time_headway_seconds,
             "vehicleProfile.iidm.timeHeadwaySeconds",
         )?;
-        let max_acceleration_meters_per_second_squared = validate_positive(
+        let max_acceleration_meters_per_second_squared = require_accel(
             max_acceleration_meters_per_second_squared,
             "vehicleProfile.iidm.maxAccelerationMetersPerSecondSquared",
         )?;
-        let comfortable_deceleration_meters_per_second_squared = validate_positive(
+        let comfortable_deceleration_meters_per_second_squared = require_accel(
             comfortable_deceleration_meters_per_second_squared,
             "vehicleProfile.iidm.comfortableDecelerationMetersPerSecondSquared",
         )?;
-        let emergency_deceleration_meters_per_second_squared = validate_positive(
+        let emergency_deceleration_meters_per_second_squared = require_accel(
             emergency_deceleration_meters_per_second_squared,
             "vehicleProfile.iidm.emergencyDecelerationMetersPerSecondSquared",
         )?;
@@ -2272,6 +2267,51 @@ impl RoadEditingDeclaration {
             _ => None,
         }
     }
+}
+
+fn require_closed_mm(
+    value: f64,
+    min_mm: u32,
+    max_mm: u32,
+    field: &'static str,
+) -> Result<f64, DiagnosticBundle> {
+    if let Some(violation) = millimetre_range_violation(value, min_mm, max_mm) {
+        return Err(input_error(field, violation));
+    }
+    Ok(value)
+}
+
+fn require_closed_mm_i32_abs(
+    value: f64,
+    min_abs_mm: u32,
+    max_abs_mm: u32,
+    field: &'static str,
+) -> Result<f64, DiagnosticBundle> {
+    if let Some(violation) = millimetre_i32_abs_range_violation(value, min_abs_mm, max_abs_mm) {
+        return Err(input_error(field, violation));
+    }
+    Ok(value)
+}
+
+fn require_heading(value: f64, field: &'static str) -> Result<f64, DiagnosticBundle> {
+    if let Some(violation) = heading_violation(value) {
+        return Err(input_error(field, violation));
+    }
+    Ok(value)
+}
+
+fn require_time_headway(value: f64, field: &'static str) -> Result<f64, DiagnosticBundle> {
+    if let Some(violation) = time_headway_violation(value) {
+        return Err(input_error(field, violation));
+    }
+    Ok(value)
+}
+
+fn require_accel(value: f64, field: &'static str) -> Result<f64, DiagnosticBundle> {
+    if let Some(violation) = accel_violation(value) {
+        return Err(input_error(field, violation));
+    }
+    Ok(value)
 }
 
 #[cfg(test)]

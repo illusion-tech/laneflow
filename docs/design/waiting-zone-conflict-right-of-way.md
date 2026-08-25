@@ -426,15 +426,13 @@ Core 行为以 PathAnchor 为准；Spatial 绑定用于验证该 anchor 与 3D r
 PathAnchor crossing、distance-to-anchor 归零、ConflictZone enter/clear 与对应事件
 统一使用 Core 私有 `CONFLICT_ANCHOR_CROSSING_TOLERANCE_METERS`。它是独立的
 longitudinal conflict-boundary owner，不能与 edge boundary/remainder、普通
-longitudinal constraint 或 physical gap tolerance 互相别名；即使 current-f64
-候选值相同，后续标定、比较符号与测试仍分别拥有。authoring 的 canonical endpoint
-判定保持精确结构规则，不使用该 runtime tolerance 静默改写输入。
+longitudinal constraint 或 physical gap tolerance 互相别名。authoring 的 canonical
+endpoint 判定保持精确结构规则，不使用该 runtime tolerance 静默改写输入。
 
-#235 为 future current-f64 implementation 冻结：
+#235 尚未生产化。后续实现必须使用整数毫米比较，不得再引入米制哨兵。进入/离开判定
+的示意为：
 
 ```text
-CONFLICT_ANCHOR_CROSSING_TOLERANCE_METERS = 1.0e-9 m
-
 frontReached(anchor) =
   cursor is after anchor in canonical Route order
   OR (

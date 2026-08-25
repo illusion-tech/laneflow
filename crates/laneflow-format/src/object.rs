@@ -924,8 +924,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        FormatErrorClass, FormatLimitConfig, LimitDimension,
-        table::preflight_table_with_registry,
+        FormatErrorClass, FormatLimitConfig, LimitDimension, table::preflight_table_with_registry,
     };
 
     fn default_value(field: &PortableFieldSchema) -> Vec<u8> {
@@ -1106,8 +1105,7 @@ mod tests {
         // 这些 bytes 由 registry 生成，只证明全部登记分支可遍历；它不是独立 known vector。
         for kind in PortableObjectKind::ALL {
             let bytes = encoded_object(kind);
-            let checked =
-                preflight_object_registry(&bytes, kind, FormatLimits::HARD).unwrap();
+            let checked = preflight_object_registry(&bytes, kind, FormatLimits::HARD).unwrap();
             assert_eq!(checked.kind(), kind);
             assert_eq!(checked.bytes(), bytes);
             assert_eq!(checked.section_count(), kind.section_count());
@@ -1878,8 +1876,7 @@ mod tests {
         let mut budget = PreflightBudget::default();
         preflight_table_with_registry(&first_table, first, limits, &mut budget).unwrap();
         assert_eq!(
-            preflight_table_with_registry(&second_table, second, limits, &mut budget)
-                .unwrap_err(),
+            preflight_table_with_registry(&second_table, second, limits, &mut budget).unwrap_err(),
             FormatError::LimitExceeded {
                 dimension: LimitDimension::TotalUtf8Bytes,
                 actual: 2,

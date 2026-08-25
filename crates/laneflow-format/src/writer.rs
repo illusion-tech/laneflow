@@ -799,8 +799,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        FormatErrorClass, FormatLimitConfig, RegistryCheckedFieldValue,
-        preflight_object_registry, preflight_object_values,
+        FormatErrorClass, FormatLimitConfig, RegistryCheckedFieldValue, preflight_object_registry,
+        preflight_object_values,
     };
 
     fn leak<T>(values: Vec<T>) -> &'static [T] {
@@ -1024,8 +1024,8 @@ mod tests {
         let length = measure_object(input, FormatLimits::HARD).unwrap();
         let mut output = vec![0x6d; usize::try_from(length).unwrap()];
         let before = output.clone();
-        let error = encode_object(input, FormatLimits::try_new(config).unwrap(), &mut output)
-            .unwrap_err();
+        let error =
+            encode_object(input, FormatLimits::try_new(config).unwrap(), &mut output).unwrap_err();
         assert_eq!(error.class(), FormatErrorClass::LimitExceeded);
         assert!(matches!(
             error,
@@ -1178,12 +1178,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(framing.section(1).unwrap().bytes().len(), 16_776_626);
-        preflight_object_values(
-            &bytes,
-            PortableObjectKind::SemanticDiff,
-            FormatLimits::HARD,
-        )
-        .unwrap();
+        preflight_object_values(&bytes, PortableObjectKind::SemanticDiff, FormatLimits::HARD)
+            .unwrap();
     }
 
     #[test]
@@ -1279,8 +1275,7 @@ mod tests {
         config.max_fields_per_row = 0;
         assert_limit_failure_is_atomic(lfcp, config, LimitDimension::FieldsPerRow);
 
-        let lfcp_with_text =
-            replace_top_level_value(lfcp, 1, 0, 0, 3, FieldWriteValue::Utf8("x"));
+        let lfcp_with_text = replace_top_level_value(lfcp, 1, 0, 0, 3, FieldWriteValue::Utf8("x"));
         let mut config = FormatLimitConfig::HARD;
         config.max_utf8_field_bytes = 0;
         assert_limit_failure_is_atomic(lfcp_with_text, config, LimitDimension::Utf8FieldBytes);

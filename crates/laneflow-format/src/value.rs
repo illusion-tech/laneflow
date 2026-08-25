@@ -1695,9 +1695,9 @@ mod tests {
     use std::vec::Vec;
 
     use laneflow_static_contract::{
-        OBJECT_PREAMBLE_BYTE_LENGTH, PortableFieldPresence, PortableFieldSchema,
-        PortableFieldType, PortableRowCardinality, PortableRowSchema,
-        SECTION_DIRECTORY_ENTRY_BYTE_LENGTH, SECTION_FORMAT_VERSION, portable_object_schema,
+        OBJECT_PREAMBLE_BYTE_LENGTH, PortableFieldPresence, PortableFieldSchema, PortableFieldType,
+        PortableRowCardinality, PortableRowSchema, SECTION_DIRECTORY_ENTRY_BYTE_LENGTH,
+        SECTION_FORMAT_VERSION, portable_object_schema,
     };
 
     use crate::preflight_object_registry;

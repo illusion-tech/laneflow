@@ -1,6 +1,6 @@
 # Signal System 设计
 
-**文档状态**: Accepted（固定时制与 Gate 合规仍有效；相位倍数见 ADR 0028 Proposed，G2 前 `main` 仍允许不整除）<br>
+**文档状态**: Accepted（固定时制与 Gate 合规仍有效；相位时长必须是世界步长的正整数倍）<br>
 **最后更新**: 2026-08-24<br>
 **适用范围**: Signals 静态领域、fixed-time runtime、车辆合规与性能边界。静态信号数据由编译器 / 共享静态路网承载，不再走 current JSON。<br>
 **实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 加入 Parking，
@@ -314,11 +314,9 @@ Controller 的 effective state 由 immutable program、world integer `timeMs` �
 - 使用 overflow-safe `timeMs + offset` modulo cycle；不累计浮点 timer；
 - Phase interval 是 half-open `[start, end)`，恰好命中 boundary 选择后一个 Phase；
 - time 0 已有有效 phase/aspect snapshot，初始化不发 change event；
-- Phase duration：**当前**不要求整除 fixed delta；world 初始化要求每个
-  `durationMs >= fixedDeltaTimeMs`。**Proposed（#496 G2）**：每个
-  `durationMs` 必须是该世界步长的正整数倍，否则 `install` 失败。现行走廊
-  `yellow_ms = 3000`、`all_red_ms = 1000` 相对 16 ms 不能整除，G2 必须改相位并
-  重生 LFCA；G1 不改生成器输入。
+- Phase duration：每个 `durationMs` 必须 `>= fixedDeltaTimeMs` 且为该世界步长的
+  正整数倍，否则 `install` 失败。检入走廊使用 `yellow_ms = 3008`、
+  `all_red_ms = 1008`（16 ms 的正整数倍）。
 - 因此每个 Controller 每 tick 最多一次 observable Phase change；
 - Phase identity 改变即产生 Phase event，即使 aspect vector 相同；single-phase wrap 不产生。
 

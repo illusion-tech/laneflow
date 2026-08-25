@@ -800,12 +800,11 @@ freeze 后计算该字段；#299 后发射检查从 artifact semantic payload �
 ### 8.2 共享静态路网（Shared Static Network）
 
 Accepted ADR 0025 / #300 G1 不生成第二个持久化性能制品。`laneflow-static-network`
-只接受字段私有的 `CheckedCanonicalNetworkInputV1`，按 LFCA wire order 先计数和预算，
+只接受字段私有的 `CheckedCanonicalNetworkInput`，按 LFCA wire order 先计数和预算，
 再一次性 reserve/fill 连续 typed columns、CSR/ranges、身份索引、按显式非语义 derivation
 version 从受检关系确定性派生的规划提示，以及可选 Spatial 数据，完成跨表/身份/
-Traffic-Spatial/执行约束闭合后返回。#496 G1（Proposed）：G2 生产构建改认
-LFCA v2 受检输入，v1 入口继续拒绝 v2；详见 `shared-static-network.md` §3.1。
-当前 V1 路径闭合后返回：
+Traffic-Spatial/执行约束闭合后返回。生产构建只认 `formatVersion = 2` 的受检输入；
+详见 `shared-static-network.md` §3.1。闭合后返回：
 
 ```text
 SharedNetworkRevision
@@ -1247,7 +1246,7 @@ pose 批次上的 `NetworkRevisionId` 保证。详细契约见
 目标 API 区分三类职责，不能把它们合并成一个“可信镜像”状态：
 
 1. 发布 admission：宿主认证 LFCP v2 / manifest 对 exact LFCA 的绑定；
-2. `CheckedCanonicalNetworkInputV1`：`laneflow-format` 已检查 LFCA framing、registry、
+2. `CheckedCanonicalNetworkInput`：`laneflow-format` 已检查 LFCA framing、registry、
    直接值域、实际 digest/length 和重算的 `NetworkRevisionId`，但尚未证明 Runtime
    跨表闭合；
 3. `SharedNetworkRevision`：`laneflow-static-network` 已完成计数、分配、填充和

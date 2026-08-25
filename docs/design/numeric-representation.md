@@ -1,10 +1,10 @@
 # 数值表示与精度
 
-**文档状态**: Accepted（current-`f64` 实现基线仍约束 `main`，直至 #496 G2；下一生产合同以 ADR 0028 为准，Proposed 未 Pass）
+**文档状态**: Accepted（已提交一维几何为整数毫米；编制 `f64` 与 Spatial canonical `f32` 仍在量化之前）
 
-**最后更新**: 2026-08-25（#496 G1：下一交通一维权威改为整数毫米；#296 compiler 前端数值权威不变：canonical `f32` 折线，`f64` 仅编制 analytic/reference 与非几何时距/加减速）
+**最后更新**: 2026-08-25（#496：交通一维权威为整数毫米；#296 compiler 前端数值权威不变：canonical `f32` 折线，`f64` 仅编制 analytic/reference 与非几何时距/加减速）
 
-**适用范围**: 数值分层、误差预算、compiler 前端几何权威，以及 #496 G2 完成前的 current-`f64` 实现基线
+**适用范围**: 数值分层、误差预算、compiler 前端几何权威，以及已提交整数毫米合同
 
 **关联文档**:
 
@@ -26,12 +26,12 @@
 
 ## 1. 状态与目标
 
-本文同时记录 **G2 完成前的 `main` 实现** 与提案中的下一生产合同（ADR 0028；未 Pass），禁止把尚未合入的整数毫米写成当前事实：
+本文记录现行数值合同，并把 #125 / #144 的米制哨兵与残差 `f32` 候选标为历史：
 
-- `#496` G2 完成前，`TrafficWorld` / 共享热列 / LFCA 长度与限速仍为 current-`f64` 米；#144 残差 `f32` 迁移已回退，**不再**作为下一生产目标。
-- 提案中的下一生产合同是 ADR 0028：已提交一维几何为整数毫米 + 微米余数，速度为 `u32` mm/s，步长 `4..=1000` ms，边长由 compiler 内部规范 `f32` 弧长派生，`max_accel` / 舒适与紧急减速度均 `>= 0.5 m/s²`，不另做速度余数。G2 对照门是该契约自洽，不是与旧 `f64` tick 零分歧，也不是 `5%` 墙钟。G1 未 Pass，不授权实现。
+- `#496` 已落地：`TrafficWorld` / 共享热列 / LFCA 长度与限速为整数毫米 / `mm/s`；#144 残差 `f32` 迁移已回退，**不再**作为生产目标。
+- 现行合同是 ADR 0028：已提交一维几何为整数毫米 + 微米余数，速度为 `u32` mm/s，步长 `4..=1000` ms，边长由 compiler 内部规范 `f32` 弧长派生后量化，`max_accel` / 舒适与紧急减速度均 `>= 0.5 m/s²`，不另做速度余数。对照门是该契约自洽，不是与旧 `f64` tick 零分歧，也不是 `5%` 墙钟。
 - 空间层按 ADR 0015 使用每轴 `±16_384 m` 的 canonical `f32` 几何/位姿；编制曲线按 ADR 0022 在 `f64` 中求值。三维点/向量不并入毫米轴（#354）。
-- 下面 §2 起的 current-`f64` 领域表、`1.0e-9` 哨兵与残差 `f32` 预算是 **历史实现与 #144 证据**，G2 后由整数比较与 `100 mm` / `1 mm` 常量取代生产判定。
+- 下面 §2 起的 current-`f64` 领域表与米制哨兵是 **历史实现与 #144 证据**，生产判定使用整数比较与 `100 mm` / `1 mm` 常量。
 
 本设计固定数值职责和迁移闸口，不固定 Spatial 几何容器、空间索引或 v0.7 的具体引擎 ABI。#136 已在引擎无关边界固定 batch-level frame/placement identity 和 canonical `f32` 位姿类型，但不包含宿主 Transform。
 
@@ -56,9 +56,9 @@
 
 整数 tick/time 已避免长期 wall-clock 浮点累计，但物理推进仍把 fixed milliseconds 转为浮点秒，并在 edge-local progress、route-distance index 和控制器计算中使用 `f64`。
 
-### 2.2 current-f64 领域数值策略
+### 2.2 历史 current-f64 领域数值策略（#125 / #144，已退役）
 
-#125 删除了公开的 `EDGE_BOUNDARY_EPSILON` / `GEOMETRY_GAP_EPSILON`，不保留弃用项、别名或兼容垫片，并拆出首批九个 crate-private owner；#222 为最终 minimum-gap projection 又增加独立 minimum-gap slack owner。current production 共十个值，均保持 `1.0e-9`：
+#125 删除了公开的 `EDGE_BOUNDARY_EPSILON` / `GEOMETRY_GAP_EPSILON`，不保留弃用项、别名或兼容垫片，并拆出首批九个 crate-private owner；#222 为最终 minimum-gap projection 又增加独立 minimum-gap slack owner。下列十个值是 **#144 前回退实现的历史米制哨兵**，现行生产不再使用：
 
 | 领域 owner                            | 单位 | current-f64 值 | 当前职责                                          |
 | ------------------------------------- | ---- | -------------: | ------------------------------------------------- |
@@ -197,7 +197,7 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 | LFRE wire 几何                              | `f64`（`Vec3F64` + corridor station/宽度标量）       | 私有 wire / schema                     | FlatBuffers `double`（含 `RoadCorridor` `start/end_station_meters`、`LinearWidthProfile` `start/end_width_meters`），format v1 权威；`f32` 量化发生在 geometry compile 边界，不在 wire/lowering 层                                                                                                                                         |
 | LFRE 解析几何输入硬范围                     | `f64`                                                | compiler / 静态契约（static contract） | 编制解析曲线控制点各分量在 `[-16_384, 16_384] m`；corridor start 有限且 `>= 0`，Finite end 有限、`> 0` 且严格大于 start，AlignmentEnd end 必须是 bit-exact `+0.0`；宽度两端有限且 `>= 0`，并且不能同时为零                                                                                                                                 |
 | LFRE 非几何交通/静态标量                    | `f64`                                                | 私有 wire / schema                     | `speed_limit_meters_per_second` 有限且严格 `> 0`；Parking 标量、`VehicleProfile` 等经有类型抽象语法树（typed AST）/高层中间表示（HIR）/中层中间表示（MIR）直到 canonical LIR 仍保持 `f64`，禁用后端窄化                                                                                                                                    |
-| Parking / VehicleProfile 硬范围             | `f64`                                                | compiler / 静态契约（static contract） | Parking anchor 距 edge 两端严格 `> 1.0e-9 m`，lateral offset 绝对值和长/宽严格 `> 1.0e-9 m`，heading offset 为 `[-π, +π)`；vehicle length 严格 `> 1.0e-9 m`，desired speed、time headway、max acceleration、comfortable/emergency deceleration 均有限且 `> 0`，min gap 有限且 `>= 0`，emergency deceleration `>=` comfortable deceleration |
+| Parking / VehicleProfile 硬范围             | 编制 `f64` → 量化毫米 / `f32`                        | compiler / 静态契约（static contract） | 先量化再闭包：停车锚点 `1 <= p <= L-1` mm，横向绝对值 `1..=128_000` mm，长/宽与车长 `100..=128_000` mm，朝向量化并折叠后 `-π <= x < π`；期望车速 `1..=100_000` mm/s，时距 `(0, 60]` s，三项加减速 `0.5..=50` m/s²，min gap `0..=128_000` mm，emergency ≥ comfort |
 | LFRE enum / union 判别值                    | `u8`（wire `ubyte`）                                 | 私有 wire / schema                     | v1 合法代码：`ProvenanceKind 1..=2`、Accuracy/Direction `1..=3`、StationEnd/CorridorElement/LaneDirection `1..=2`、SignalAspect `1..=3`、SignalControl `1..=2`、AccessTarget `1..=4`、AccessEffect `1..=2`、`CurveSegmentGeometry 1..=2`；所有 zero/unknown 均无效，AccessTarget `5` 保留且无效                                            |
 | 来源沿袭（provenance）`Digest256`           | `[u8; 32]`（wire `[ubyte:32]`）                      | 私有 wire / schema                     | `parameters_and_inputs_digest` / `frontend_options_digest` 固定为原始 32 bytes；Direct 来源沿袭还要求 generator build ID 为 `laneflow-road-editing-direct-v1`，两个 digest 分别精确为 `6b27d0f76693bcd386ac13df724e30f5fb5ad3b9a152a5e1f88de1a624cea8aa` / `b1621e4a2db8d717b6506b0afb6fef5bd4d5156ecfe887c5abf36d08869c7892`              |
 | compiler 来源前端选择器                     | `u16`（`SourceLanguage`）                            | compiler 来源描述符                    | `SourceLanguage` 固定为 `#[repr(u16)]`；RoadEditingSource 判别值固定为 `3`，不得与 LFRE wire format version 混同                                                                                                                                                                                                                           |

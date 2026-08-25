@@ -1,17 +1,15 @@
-//! 编制/LIR 米制进入 LFCA v2 整数毫米与 `f32` 表面：先量化，再由调用方套闭包。
+//! 编制/LIR 米制进入 LFCA 整数毫米与 `f32` 表面：先量化，再由调用方套闭包。
 
-use laneflow_static_contract::{HEADING_MINUS_PI_F32_BITS, HEADING_PLUS_PI_F32_BITS};
+use laneflow_static_contract::{heading_f32_from_si, millimetres_from_si, millimetres_i32_from_si};
 
 use super::PortableEmissionError;
 
 pub(super) fn millimetres(meters: f64) -> Result<u32, PortableEmissionError> {
-    let mm = scaled_ties_even(meters, 1_000.0)?;
-    u32::try_from(mm).map_err(|_| PortableEmissionError::InternalBindingMismatch)
+    millimetres_from_si(meters).ok_or(PortableEmissionError::InternalBindingMismatch)
 }
 
 pub(super) fn millimetres_i32(meters: f64) -> Result<i32, PortableEmissionError> {
-    let mm = scaled_ties_even(meters, 1_000.0)?;
-    i32::try_from(mm).map_err(|_| PortableEmissionError::InternalBindingMismatch)
+    millimetres_i32_from_si(meters).ok_or(PortableEmissionError::InternalBindingMismatch)
 }
 
 pub(super) fn si_f32(value: f64) -> Result<f32, PortableEmissionError> {
@@ -26,27 +24,13 @@ pub(super) fn si_f32(value: f64) -> Result<f32, PortableEmissionError> {
 }
 
 pub(super) fn heading_f32(radians: f64) -> Result<f32, PortableEmissionError> {
-    let quantized = si_f32(radians)?;
-    if quantized.to_bits() == HEADING_PLUS_PI_F32_BITS {
-        return Ok(f32::from_bits(HEADING_MINUS_PI_F32_BITS));
-    }
-    Ok(quantized)
-}
-
-fn scaled_ties_even(value: f64, scale: f64) -> Result<i64, PortableEmissionError> {
-    if !value.is_finite() {
-        return Err(PortableEmissionError::InternalBindingMismatch);
-    }
-    let scaled = (value * scale).round_ties_even();
-    if !scaled.is_finite() || scaled < i64::MIN as f64 || scaled > i64::MAX as f64 {
-        return Err(PortableEmissionError::InternalBindingMismatch);
-    }
-    Ok(scaled as i64)
+    heading_f32_from_si(radians).ok_or(PortableEmissionError::InternalBindingMismatch)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use laneflow_static_contract::{HEADING_MINUS_PI_F32_BITS, HEADING_PLUS_PI_F32_BITS};
 
     #[test]
     fn rounds_vehicle_length_ties_to_even_then_closes() {

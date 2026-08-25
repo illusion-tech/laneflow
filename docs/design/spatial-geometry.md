@@ -281,7 +281,7 @@ difference > tolerance  -> 阻断错误
 
 本文中的 `normalized_core_length` 是 Core `EdgeLength` 经过领域构造、校验和规范化后的权威边长。Spatial 只消费 Core 提供的有效观察值；它不是原始 Data 输入，也不是几何弧长。Core 的补偿进度可以继续以 `f64` 有效值观察，但 Spatial 顶点和输出位姿保持唯一的 `f32` runtime 权威。
 
-current-f64 实现直接消费 `EdgeProgress` 的有效 `f64` 值，不复制 Core crate-private 的 `1e-9` 边界规则。#135 精确要求 `0 <= progress <= normalized_core_length`：零值直接返回首点，等于 Core 长度时直接返回末点，严格越界返回结构化错误。未来 Core 若先产生已经吸附的有效进度，Spatial 仍只观察结果，不拥有或复制该容差。
+Traffic Runtime 已提交进度为整数毫米。Spatial 只消费换算后的有效米制观察值，不复制运行时边界规则。#135 精确要求 `0 <= progress <= normalized_core_length`：零值直接返回首点，等于权威长度时直接返回末点，严格越界返回结构化错误。Runtime 若先产生已经吸附的有效进度，Spatial 仍只观察结果，不拥有或复制该容差。
 
 ```text
 ratio = effective_core_progress / normalized_core_length
@@ -289,7 +289,7 @@ geometry_s = ratio * geometry_arc_length
 ```
 
 - 进度必须来自经过验证的 Core 有效状态或快照；Spatial 不读取高位/残差分量。
-- Spatial 不自行吸附或截断；current-f64 输入严格越界即返回错误。
+- Spatial 不自行吸附或截断；输入严格越界即返回错误。
 - 比例映射确保 Core 终点精确命中几何终点。
 - 容差内的比例差仍必须小于验证确定的位置误差预算。
 

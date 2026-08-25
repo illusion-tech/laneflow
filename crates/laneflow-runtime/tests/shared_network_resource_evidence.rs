@@ -12,9 +12,7 @@ use laneflow_compiler::{
     SyntheticModuleBuilder, emit_portable_candidate,
 };
 use laneflow_corridor_generator::{CorridorConfig, generate};
-use laneflow_format::{
-    FormatLimits, check_canonical_network_input, check_post_emission_bundle,
-};
+use laneflow_format::{FormatLimits, check_canonical_network_input, check_post_emission_bundle};
 use laneflow_runtime::{PoseSource, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_scenario::signalized_corridor::{
     BoundCorridorCatalog, BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
@@ -100,8 +98,7 @@ struct CoexistenceLedger {
 }
 
 fn build(bytes: &[u8], spatial: SpatialBuildOption) -> Arc<SharedNetworkRevision> {
-    let input =
-        check_canonical_network_input(bytes, FormatLimits::HARD).expect("checked lfca");
+    let input = check_canonical_network_input(bytes, FormatLimits::HARD).expect("checked lfca");
     build_shared_network_revision(input, SharedNetworkBuildOptions::new(spatial, BUILD_LIMITS))
         .expect("shared network revision")
 }
@@ -718,8 +715,7 @@ fn publish_and_editable_coexistence_terms_are_held() {
 #[test]
 fn failure_and_cancel_do_not_return_a_root() {
     let cancelled = AtomicBool::new(true);
-    let input =
-        check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).expect("checked");
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).expect("checked");
     let err = build_shared_network_revision(
         input,
         SharedNetworkBuildOptions::new(SpatialBuildOption::RetainAvailable, BUILD_LIMITS)
@@ -727,8 +723,7 @@ fn failure_and_cancel_do_not_return_a_root() {
     );
     assert!(matches!(err, Err(BuildError::Cancelled)));
 
-    let input =
-        check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).expect("checked");
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).expect("checked");
     let err = build_shared_network_revision(
         input,
         SharedNetworkBuildOptions::new(

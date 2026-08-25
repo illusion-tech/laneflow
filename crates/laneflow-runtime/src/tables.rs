@@ -6,7 +6,7 @@ use laneflow_static_network::{
     AccessCell, BoundedDistance, SharedManeuverNetwork, SharedTrafficNetwork,
 };
 
-use crate::{RouteError, RouteHandle, SpawnError, VehicleState};
+use crate::{RouteError, RouteHandle, VehicleState};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ManeuverOccurrence {
@@ -535,10 +535,6 @@ pub(crate) fn remaining_to_route_end(
         last,
         *lengths.get(last_edge.index())?,
     )
-}
-
-pub(crate) fn spawn_motion_error(_progress_mm: u32, _speed_mm_s: u32) -> Option<SpawnError> {
-    None
 }
 
 #[cfg(test)]

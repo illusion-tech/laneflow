@@ -9,9 +9,10 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     AccessEffect, AuthoringLaneKind, CanonicalFrameKind, EntityKind, EntityKindMarker,
-    FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind, ManeuverGateKind,
-    ManeuverPathKind, MovementKind, ParkingAreaKind, ParticipantClassKind, RoadSectionKind,
-    SignalAspect, SignalGroupKind, StopLineKind, VehicleProfileKind,
+    FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind, MAX_LANE_EDGE_LENGTH_MM,
+    MAX_SPEED_MM_S, MIN_LANE_EDGE_LENGTH_MM, MIN_SPEED_MM_S, ManeuverGateKind, ManeuverPathKind,
+    MovementKind, ParkingAreaKind, ParticipantClassKind, RoadSectionKind, SignalAspect,
+    SignalGroupKind, StopLineKind, VehicleProfileKind, millimetres_from_si,
 };
 
 use crate::SourceLocation;
@@ -425,19 +426,19 @@ pub struct ParticipantClassInput<'a> {
 /// 其他交通执行域的通用运行参数基类。
 #[derive(Clone, Copy, Debug)]
 pub struct IidmVehicleProfileInput {
-    /// 车辆长度，单位为米；必须有限且严格大于几何间隙 epsilon。
+    /// 车辆长度，单位为米；量化后必须落在 `100..=128_000` mm。
     pub length_meters: f64,
-    /// 自由流期望速度，单位为米每秒；必须有限且大于零。
+    /// 自由流期望速度，单位为米每秒；量化后必须落在 `1..=100_000` mm/s。
     pub desired_speed_meters_per_second: f64,
-    /// 行为最小间距，单位为米；必须有限且不小于零。
+    /// 行为最小间距，单位为米；量化后必须落在 `0..=128_000` mm。
     pub min_gap_meters: f64,
-    /// 期望时间间隔，单位为秒；必须有限且大于零。
+    /// 期望时间间隔，单位为秒；量化到 `f32` 后必须满足 `(0, 60]`。
     pub time_headway_seconds: f64,
-    /// 最大舒适加速度，单位为米每二次方秒；必须有限且大于零。
+    /// 最大舒适加速度，单位为米每二次方秒；量化到 `f32` 后必须落在 `0.5..=50`。
     pub max_acceleration_meters_per_second_squared: f64,
-    /// 舒适减速度幅值，单位为米每二次方秒；必须有限且大于零。
+    /// 舒适减速度幅值，单位为米每二次方秒；量化到 `f32` 后必须落在 `0.5..=50`。
     pub comfortable_deceleration_meters_per_second_squared: f64,
-    /// 紧急减速度幅值，单位为米每二次方秒；必须有限、大于零且不小于舒适减速度。
+    /// 紧急减速度幅值，单位为米每二次方秒；量化到 `f32` 后必须落在 `0.5..=50` 且不小于舒适减速度。
     pub emergency_deceleration_meters_per_second_squared: f64,
 }
 
@@ -667,15 +668,18 @@ impl<K: EntityKindMarker> OwnedEntityReference<K> {
 }
 
 #[derive(Clone, Copy)]
-/// 已验证的交通权威车道图边长度，内部继续保留 `f64` 精度。
+/// 已验证的交通权威车道图边长度；准入按毫米闭包，编制值仍保留 `f64`。
 pub(crate) struct EdgeLength(f64);
 
 impl EdgeLength {
-    /// 当前契约的排他最小长度，单位为米。
-    pub(crate) const EXCLUSIVE_MINIMUM_METERS: f64 = 1.0e-9;
-
     pub(crate) fn try_new(value: f64) -> Result<Self, ScalarViolation> {
-        validate_greater_than(value, Self::EXCLUSIVE_MINIMUM_METERS).map(Self)
+        closed_millimetres(value, MIN_LANE_EDGE_LENGTH_MM, MAX_LANE_EDGE_LENGTH_MM)
+            .map(|_| Self(value))
+    }
+
+    /// 编制曲线冻结长度：最短仍是 `100` mm，但不套交通边 `10 km` 上界。
+    pub(crate) fn try_from_authoring_metres(value: f64) -> Result<Self, ScalarViolation> {
+        closed_millimetres(value, MIN_LANE_EDGE_LENGTH_MM, u32::MAX).map(|_| Self(value))
     }
 
     pub(crate) const fn value(self) -> f64 {
@@ -684,12 +688,12 @@ impl EdgeLength {
 }
 
 #[derive(Clone, Copy)]
-/// 已验证的基础道路限速，单位为米每秒并保留 `f64` 精度。
+/// 已验证的基础道路限速；准入按毫米每秒闭包，编制值仍保留 `f64`。
 pub(crate) struct SpeedLimit(f64);
 
 impl SpeedLimit {
     pub(crate) fn try_new(value: f64) -> Result<Self, ScalarViolation> {
-        validate_greater_than(value, 0.0).map(Self)
+        closed_millimetres(value, MIN_SPEED_MM_S, MAX_SPEED_MM_S).map(|_| Self(value))
     }
 
     pub(crate) const fn value(self) -> f64 {
@@ -697,22 +701,32 @@ impl SpeedLimit {
     }
 }
 
-fn validate_greater_than(value: f64, exclusive_minimum: f64) -> Result<f64, ScalarViolation> {
-    if !value.is_finite() {
-        return Err(ScalarViolation::NotFinite);
-    }
-    if value <= exclusive_minimum {
-        return Err(ScalarViolation::NotGreaterThan {
-            exclusive_minimum_bits: exclusive_minimum.to_bits(),
+pub(crate) fn closed_millimetres(
+    value: f64,
+    min_mm: u32,
+    max_mm: u32,
+) -> Result<u32, ScalarViolation> {
+    let Some(actual_mm) = millimetres_from_si(value) else {
+        return Err(if value.is_finite() {
+            ScalarViolation::QuantizeFailed
+        } else {
+            ScalarViolation::NotFinite
+        });
+    };
+    if actual_mm < min_mm || actual_mm > max_mm {
+        return Err(ScalarViolation::OutsideClosedMillimetreRange {
+            min_mm,
+            max_mm,
+            actual_mm,
         });
     }
-    Ok(value)
+    Ok(actual_mm)
 }
 
 /// 受检领域数值不能建立时的结构化原因。
 ///
-/// 错误保留 IEEE 754 位模式而不是格式化字符串，使诊断排序和后续渲染不受浮点文本
-/// 格式变化影响。
+/// 毫米闭包保留量化后的整数；其余错误保留 IEEE 754 位模式，使诊断排序和后续渲染
+/// 不受浮点文本格式变化影响。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum ScalarViolation {
@@ -728,6 +742,29 @@ pub enum ScalarViolation {
         /// 包含下限的 IEEE 754 位模式。
         inclusive_minimum_bits: u64,
     },
+    /// 输入大于给定的包含上限。
+    NotAtMost {
+        /// 包含上限的 IEEE 754 位模式。
+        inclusive_maximum_bits: u64,
+    },
+    /// 量化后的毫米值落在闭包之外。
+    OutsideClosedMillimetreRange {
+        /// 包含下限，单位为毫米。
+        min_mm: u32,
+        /// 包含上限，单位为毫米。
+        max_mm: u32,
+        /// 量化后的实际值，单位为毫米。
+        actual_mm: u32,
+    },
+    /// 量化后的 `f32` 值落在闭包之外。
+    OutsideClosedF32Range {
+        /// 包含下限的 binary32 位型。
+        min_bits: u32,
+        /// 包含上限的 binary32 位型。
+        max_bits: u32,
+    },
+    /// 有限输入无法量化到目标整数单位。
+    QuantizeFailed,
 }
 
 /// 所有受检 Typed AST 声明共享的身份与诊断上下文。

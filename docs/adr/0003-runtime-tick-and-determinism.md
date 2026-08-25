@@ -1,6 +1,6 @@
 # 0003 Runtime Tick and Determinism
 
-**状态**: Accepted（#496 / ADR 0028 Proposed 修订步长合法区间与相位倍数，未 Pass；正文 v0.1「Core」指当时执行层，现行世界是 `TrafficWorld`）
+**状态**: Accepted（#496 / ADR 0028 已落地步长合法区间与相位倍数；正文 v0.1「Core」指当时执行层，现行世界是 `TrafficWorld`）
 **日期**: 2026-06-20
 **最后更新**: 2026-08-24
 **适用范围**: LaneFlow 交通运行时的 tick 输入、时间推进与确定性策略
@@ -31,11 +31,11 @@ Core 不读取系统时间、真实时间或引擎生命周期时间。所有时
 
 ### 2. Core 是 fixed-step runtime
 
-每个交通世界在初始化时确定一个正整数 `fixed_delta_time_ms`。同一 session 运行中不得改变该值。v0.1 未冻范围；#496 / ADR 0028（Proposed，未 Pass）将合法区间冻结为 **`4..=1000` ms**。4 ms 是最细量子，不是默认；面向画面的产品默认建议 16 ms。`>= 100 ms` 合法但不保证跟车观感。不存在全球唯一 Hz。G2 完成前 `main` 仍接受任意正整数步长。
+每个交通世界在初始化时确定一个正整数 `fixed_delta_time_ms`。同一 session 运行中不得改变该值。合法区间为 **`4..=1000` ms**。4 ms 是最细量子，不是默认；面向画面的产品默认建议 16 ms。`>= 100 ms` 合法但不保证跟车观感。不存在全球唯一 Hz。越出区间的步长在 `install` 失败关闭。
 
 Core step 不接受任意 variable delta。若 `TickInput` 保留 `delta_time_ms` / `deltaTimeMs` 字段，该值必须等于当前 world 的 `fixed_delta_time_ms`；不一致时应返回明确的 validation error，而不是按 variable delta 推进。
 
-Variable frame time 应在 Adapter 或上层 scheduler 侧累积，并拆分为 0 个、1 个或多个固定步进。catch-up、丢弃 backlog、快进和 render interpolation 都不属于运行时 tick 语义。交通运行时 **不提供慢放**：不得用缩小 Δt 或可变 Δt 实现墙钟变慢；Adapter 只能少调用 `step`。**当前**信号相位只需 `durationMs >= fixed_delta_time_ms`。ADR 0028 Proposed 要求每个 `durationMs` 为该世界步长的正整数倍；G2 完成前 `main` 不执行倍数检查。
+Variable frame time 应在 Adapter 或上层 scheduler 侧累积，并拆分为 0 个、1 个或多个固定步进。catch-up、丢弃 backlog、快进和 render interpolation 都不属于运行时 tick 语义。交通运行时 **不提供慢放**：不得用缩小 Δt 或可变 Δt 实现墙钟变慢；Adapter 只能少调用 `step`。每个信号相位 `durationMs` 必须满足 `durationMs >= fixed_delta_time_ms` 且为该世界步长的正整数倍。
 
 ### 3. v0.1 确定性范围有限
 

@@ -15,7 +15,7 @@
 > `networkRevisionDerivationVersion` 保持 `1`，算法见 §4.2。合同见 ADR 0028。
 
 **文档状态**: Accepted（#298 G1 Pass；G4 已完成，动态记录以 Issue Gate Ledger 为准）<br>
-**最后更新**: 2026-08-25（#496 G1：Proposed LFCA v2 字段增量；G2 前 `main` 仍为 v1）<br>
+**最后更新**: 2026-08-25（#496：对象 `formatVersion` 与 `canonicalFormatVersion = 2`）<br>
 **适用范围**: `laneflow-format`、`laneflow-static-contract`、
 `laneflow-compiler` 的可移植规范制品（Portable Canonical Artifact）、源映射封套
 （Source Map Envelope）、语义差异封套（Semantic Diff Envelope）、规范发布描述符
@@ -527,10 +527,10 @@ NetworkRevisionIdV1 =
 最终 LFCA 的六个语义节重算并逐字节比较。当前检查不另建身份、拓扑或规则语义后端。
 相同修订对应不同规范语义载荷时不得追加随机数、ordinal 或 suffix。
 
-#496 G1（Proposed，未 Pass）：LFCA v2 **仍使用上述 v1 派生算法**（组帧、域分隔符
+当前 LFCA **仍使用上述 v1 派生算法**（组帧、域分隔符
 `"laneflow.network-revision.v1\0"`、`networkRevisionDerivationVersion = 1`）。
 毫米 / `f32` 字段改变 `sectionExactBytes`，因而改变 `NetworkRevisionId`，不必新算法。
-**禁止**把派生版本升到 `2` 却沿用 v1 组帧。v2 读器重算 ID 时必须用本节公式，并要求
+**禁止**把派生版本升到 `2` 却沿用 v1 组帧。读器重算 ID 时必须用本节公式，并要求
 `ContractVersions.networkRevisionDerivationVersion == 1`。
 
 完整 artifact exact bytes 另由 SHA-256 得到 `canonicalArtifactDigest`，长度是同一字节
@@ -1430,21 +1430,8 @@ Genesis：target 的 `ContractVersions` / `ExecutionContract` 必须与所绑 LF
 LFSD Artifact：两端合同行仍须逐字段相等，因此 **v1→v2 Artifact diff 仍拒绝**。检入走廊
 按 Genesis 重生，不走格式迁移 diff。
 
-**当前 LFCA v1 标量闭合**（G2 前 `main`；不得把本表读成 v2）：
-
-| 对象/字段                                                                 | 闭合约束                                                          |
-| ------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `LaneEdge.lengthMeters`                                                   | `> 1.0e-9 m`                                                      |
-| `LaneEdge.speedLimitMetersPerSecond`                                      | `> 0 m/s`                                                         |
-| `WaitingZone.maxOccupancy`                                                | `> 0`                                                             |
-| `ParkingSpace.entry/exitProgressMeters`                                   | 对所引 edge length `L`，`1.0e-9 < progress < L - 1.0e-9`          |
-| `ParkingSpace.lateralOffsetMeters`                                        | `abs(value) > 1.0e-9 m`                                           |
-| `ParkingSpace.headingOffsetRadians`                                       | `-π <= value < π`；`π` 的 binary64 bits 为 `0x400921fb54442d18`   |
-| `ParkingSpace.lengthMeters/widthMeters`                                   | 各自 `> 1.0e-9 m`                                                 |
-| `VehicleProfile.lengthMeters`                                             | `> 1.0e-9 m`                                                      |
-| `VehicleProfile.desiredSpeedMetersPerSecond`                              | `> 0 m/s`                                                         |
-| `VehicleProfile.minGapMeters`                                             | `>= 0 m`                                                          |
-| `VehicleProfile.timeHeadwaySeconds` 与三项 acceleration/deceleration 标量 | 各自 `> 0`；且 `emergencyDeceleration >= comfortableDeceleration` |
+历史米制标量闭合以 git 为准，不进当前读器。现行闭合见上表。
+`WaitingZone.maxOccupancy` 仍须 `> 0`。
 
 ManeuverPath 的完整 edge StableId occurrence 序列必须全局唯一；同一
 edge 可以在一个序列中重复出现，每个位置分别参与 transition、gate、diff 与来源映射。首末
@@ -1643,7 +1630,7 @@ arc-length 验证。任何适用检查失败都在建立 spatial view 前失败�
 `StaticExecutionConstraints(0x0006)` 只有 `ExecutionContract(0x0001)` singleton：
 `1:staticExecutionContractVersion:u16:R, 2:constraintContractVersion:u16:R`。具体约束已由
 前述实体、关系和空间表的规范值表达；该行禁止另存 worker 数、目标布局或运行时状态。
-LFCA v1 的 `ContractVersions` 六个字段都只接受值 `1`。#496 G2（Proposed）LFCA v2 只接受
+当前 `ContractVersions` 只接受
 `canonicalFormatVersion = 2`、`identityEncodingVersion = 1`、
 `identityRegistryRevision = 1`、`networkRevisionDerivationVersion = 1`、
 `constraintContractVersion = 2`、`staticExecutionContractVersion = 2`。

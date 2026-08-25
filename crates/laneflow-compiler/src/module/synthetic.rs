@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS, EntityKind,
-    FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind, MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS,
-    ManeuverGateKind, ManeuverPathKind, MovementKind, ParticipantClassKind, RoadSectionKind,
-    SignalGroupKind, StopLineKind,
+    FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind, MAX_ACCEL_METERS_PER_SECOND_SQUARED,
+    MAX_MIN_GAP_MM, MAX_TIME_HEADWAY_SECONDS, MAX_VEHICLE_LENGTH_MM,
+    MIN_ACCEL_METERS_PER_SECOND_SQUARED, MIN_VEHICLE_LENGTH_MM, ManeuverGateKind, ManeuverPathKind,
+    MovementKind, ParticipantClassKind, RoadSectionKind, SignalGroupKind, StopLineKind,
 };
 
 use crate::declaration::{
@@ -25,7 +26,7 @@ use crate::declaration::{
     SignalGroupStateDeclaration, SignalPhaseDeclaration, SpeedLimit, StaticRouteDeclaration,
     StaticRouteInput, StopLineDeclaration, StopLineInput, TypedAstDeclaration,
     VehicleProfileDeclaration, VehicleProfileInput, WaitingZoneDeclaration, WaitingZoneInput,
-    facility_kind_category,
+    closed_millimetres, facility_kind_category,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
@@ -3087,30 +3088,11 @@ fn validate_vehicle_profile_scalars(
     span: &SourceSpan,
 ) -> Result<(), DiagnosticBundle> {
     let iidm = input.iidm;
-    let remaining_positive_fields = [
-        ("timeHeadway", iidm.time_headway_seconds),
-        (
-            "maxAcceleration",
-            iidm.max_acceleration_meters_per_second_squared,
-        ),
-        (
-            "comfortableDeceleration",
-            iidm.comfortable_deceleration_meters_per_second_squared,
-        ),
-        (
-            "emergencyDeceleration",
-            iidm.emergency_deceleration_meters_per_second_squared,
-        ),
-    ];
-    if !iidm.length_meters.is_finite() || iidm.length_meters <= MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS
-    {
-        let violation = if iidm.length_meters.is_finite() {
-            ScalarViolation::NotGreaterThan {
-                exclusive_minimum_bits: MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS.to_bits(),
-            }
-        } else {
-            ScalarViolation::NotFinite
-        };
+    if let Err(violation) = closed_millimetres(
+        iidm.length_meters,
+        MIN_VEHICLE_LENGTH_MM,
+        MAX_VEHICLE_LENGTH_MM,
+    ) {
         return Err(DiagnosticBundle::single(
             Diagnostic::invalid_vehicle_profile_value(
                 input.vehicle_profile_key,
@@ -3132,14 +3114,7 @@ fn validate_vehicle_profile_scalars(
             ),
         ));
     }
-    if !iidm.min_gap_meters.is_finite() || iidm.min_gap_meters < 0.0 {
-        let violation = if iidm.min_gap_meters.is_finite() {
-            ScalarViolation::NotLessThan {
-                inclusive_minimum_bits: 0.0_f64.to_bits(),
-            }
-        } else {
-            ScalarViolation::NotFinite
-        };
+    if let Err(violation) = closed_millimetres(iidm.min_gap_meters, 0, MAX_MIN_GAP_MM) {
         return Err(DiagnosticBundle::single(
             Diagnostic::invalid_vehicle_profile_value(
                 input.vehicle_profile_key,
@@ -3150,8 +3125,32 @@ fn validate_vehicle_profile_scalars(
             ),
         ));
     }
-    for (field, value) in remaining_positive_fields {
-        if let Err(violation) = SpeedLimit::try_new(value) {
+    if let Err(violation) = validate_time_headway(iidm.time_headway_seconds) {
+        return Err(DiagnosticBundle::single(
+            Diagnostic::invalid_vehicle_profile_value(
+                input.vehicle_profile_key,
+                "timeHeadway",
+                iidm.time_headway_seconds,
+                violation,
+                span.clone(),
+            ),
+        ));
+    }
+    for (field, value) in [
+        (
+            "maxAcceleration",
+            iidm.max_acceleration_meters_per_second_squared,
+        ),
+        (
+            "comfortableDeceleration",
+            iidm.comfortable_deceleration_meters_per_second_squared,
+        ),
+        (
+            "emergencyDeceleration",
+            iidm.emergency_deceleration_meters_per_second_squared,
+        ),
+    ] {
+        if let Err(violation) = validate_accel(value) {
             return Err(DiagnosticBundle::single(
                 Diagnostic::invalid_vehicle_profile_value(
                     input.vehicle_profile_key,
@@ -3174,6 +3173,41 @@ fn validate_vehicle_profile_scalars(
                 span.clone(),
             ),
         ));
+    }
+    Ok(())
+}
+
+fn validate_time_headway(value: f64) -> Result<(), ScalarViolation> {
+    if !value.is_finite() {
+        return Err(ScalarViolation::NotFinite);
+    }
+    let quantized = value as f32;
+    if !quantized.is_finite() || quantized <= 0.0 {
+        return Err(ScalarViolation::NotGreaterThan {
+            exclusive_minimum_bits: 0.0_f64.to_bits(),
+        });
+    }
+    if quantized > MAX_TIME_HEADWAY_SECONDS {
+        return Err(ScalarViolation::NotAtMost {
+            inclusive_maximum_bits: f64::from(MAX_TIME_HEADWAY_SECONDS).to_bits(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_accel(value: f64) -> Result<(), ScalarViolation> {
+    if !value.is_finite() {
+        return Err(ScalarViolation::NotFinite);
+    }
+    let quantized = value as f32;
+    if !quantized.is_finite()
+        || quantized < MIN_ACCEL_METERS_PER_SECOND_SQUARED
+        || quantized > MAX_ACCEL_METERS_PER_SECOND_SQUARED
+    {
+        return Err(ScalarViolation::OutsideClosedF32Range {
+            min_bits: MIN_ACCEL_METERS_PER_SECOND_SQUARED.to_bits(),
+            max_bits: MAX_ACCEL_METERS_PER_SECOND_SQUARED.to_bits(),
+        });
     }
     Ok(())
 }
