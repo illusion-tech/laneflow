@@ -778,8 +778,7 @@ fn hop_preserves_active_state_and_does_not_force_zero_carry() {
             })
             .expect("route");
     });
-    let mut world =
-        TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let mut world = TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 4)).expect("install");
     let route = world
         .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
         .expect("route");
@@ -789,15 +788,17 @@ fn hop_preserves_active_state_and_does_not_force_zero_carry() {
             route,
             0,
             9_999,
-            10_000,
+            3_141,
         ))
-        .expect("spawn 1 mm before hop");
-    world.step(TickInput::new(100)).expect("step");
+        .expect("spawn 1 mm before hop at 3.141 m/s");
+    world.step(TickInput::new(4)).expect("step");
     let state = world.vehicle(vehicle).expect("state");
     assert_eq!(state.route_edge_index(), 1);
     assert_eq!(state.status(), VehicleStatus::Active);
-    assert!(
-        state.progress_mm() > 0 || state.carry_um() > 0 || state.speed_mm_s() > 0,
-        "cross-edge hop is not a hard stop"
+    assert_ne!(state.speed_mm_s(), 0);
+    assert_ne!(
+        state.carry_um(),
+        0,
+        "permitted hop must keep sub-millimetre remainder"
     );
 }

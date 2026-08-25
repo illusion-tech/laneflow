@@ -1,8 +1,8 @@
 # 空间几何设计
 
-**文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）
+**文档状态**: Accepted（#300/#301 共享空间路网已交付；一维进度为 `progress_mm`）
 
-**最后更新**: 2026-08-18（current Traffic v0.10；ADR 0025 / #300 G1 target 修订；#296/ADR 0022 FlatBuffers G1）
+**最后更新**: 2026-08-25（#496：采样输入为整数毫米；生产入口是 `SpatialSession`）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -43,9 +43,9 @@
 | Data    | 交通包、空间包和清单的线格式校验与规范化               | 运行时推进、文件或网络输入/输出（I/O）、宿主资源句柄 |
 | Adapter | 快照调度、frame 放置、宿主朝向基与变换、表现提交       | 重算交通进度、覆盖几何或长度权威                     |
 
-Core 可以在没有 Spatial 数据包时以无图形宿主方式运行；需要车辆空间位姿的调用方必须提供已经通过配对和绑定的 Spatial 注册表。
+`TrafficWorld` 可以在没有 Spatial 时以无图形宿主方式运行；需要车辆空间位姿的调用方必须绑定共享根并取得 `SpatialSession`。
 
-### 1.1 #291/#300 target 共享空间路网（未实现）
+### 1.1 #291/#300 共享空间路网（已交付）
 
 ADR 0020 保留本章的 Spatial authority、bounded canonical f32、length/pose、
 batch ordering、placement token 与失败原子性，但改变静态数据形成位置：
@@ -62,11 +62,9 @@ batch ordering、placement token 与失败原子性，但改变静态数据形�
 - 多个 world/Adapter session 可共享同一根 `Arc<SharedNetworkRevision>`，只保留各自 pose
   scratch/output 和 placement lifecycle；Spatial 不独立安装 component。
 
-本章 §3 的 Traffic/Spatial/Manifest 三制品与 §3.2 加载顺序继续描述 current，
-直到 target shared-network 路径完成 G4。Target `laneflow-runtime` 是 current
-`laneflow-core` 的 clean-break 名称；共享修订的可选 Spatial component 不改变
-Traffic Runtime/Spatial/Adapter 的语义 authority，也不取代 current
-Core-without-Spatial / target Traffic-Runtime-without-Spatial 边界。
+本章 §3 的 JSON Traffic/Spatial/Manifest 三制品只描述已拆除的 current 路径。
+生产入口是 `SpatialSession::bind(Arc<SharedNetworkRevision>)`，车道进度为
+`progress_mm`。`laneflow-core` 已拆除。无 Spatial 的 headless Traffic Runtime 仍合法。
 
 ## 2. 坐标框架
 

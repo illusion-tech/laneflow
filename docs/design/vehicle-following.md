@@ -123,9 +123,8 @@ Validation：
 
 ### 4.2 Package 版本
 
-Vehicle Profile shape 由 current
-`schemas/laneflow-data-v0.10.schema.json` 承载。以下概念 package 同步列出 current
-v0.10 必填的 ParticipantClass、横断面/准入与 WaitingZone 顶层 arrays：
+Vehicle Profile 现行持久化是 LFCA `formatVersion = 2` 的 `VehicleProfile` 表（毫米 /
+受检 `f32`）。current JSON `schemas/laneflow-data-v0.10.schema.json` 已删除，只作历史形状。历史概念 package 曾列出：
 
 ```json
 {
@@ -203,9 +202,9 @@ v0.3 profile registry 在 world 生命周期内不可变，不公开 runtime reg
 
 ### 4.4 Crate 与 loader 边界
 
-依据 ADR 0007/0008，current v0.10 production loader 位于 `laneflow-data`，依赖方向为
-`laneflow-data -> laneflow-core`。Core 不依赖 Serde、JSON、JSON Schema 或文件系统；
-pre-1.0 的 production loader 只维护当前格式。
+现行生产路径是编译器发射 LFCA，再由 `laneflow-format` / `laneflow-static-network`
+构建共享根。`laneflow-data` / `laneflow-core` JSON loader 已拆除。Runtime 不依赖
+Serde、JSON 或文件系统。
 
 public loader 返回单一当前 `LoadedPackage`，不公开历史版本 enum/variant，也不以
 optional profile 或空 registry 区分格式。VehicleProfile、ParticipantClass、
@@ -226,13 +225,13 @@ v0.3 最小 state：
 ```text
 VehicleState
   handle: VehicleHandle
-  profile: VehicleProfileHandle
+  profile: VehicleProfileOrdinal
   route: RouteHandle
-  routeEdgeIndex: usize
-  edgeProgress: front-bumper progress
-  currentSpeed: nonnegative meter/second
-  appliedAcceleration: signed meter/second^2
-  status: Active | Stopped | Completed
+  route_edge_index: u32
+  progress_mm: u32
+  carry_um: u16
+  speed_mm_s: u32
+  status: Active | Parked | Completed
 ```
 
 规则：

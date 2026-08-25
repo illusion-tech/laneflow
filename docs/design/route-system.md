@@ -64,7 +64,7 @@ ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go �
 - **Route edge sequence**：route 中按行驶顺序排列的 edge 序列。
 - **Route cursor**：车辆在 route 中的位置，至少由 route edge index 和 edge-local progress 表达。
 - **Route target**：route 的完成目标。v0.2 固定为最后一个 route edge 的出口边界。
-- **Live vehicle**：仍存在于 CoreWorld vehicle registry 中的车辆，不等同于 `VehicleStatus::Active`。
+- **Live vehicle**：仍存在于 `TrafficWorld` 车辆表中的车辆，不等同于 `VehicleStatus::Active`。
 
 ## 3. 设计决策
 
@@ -237,12 +237,13 @@ v0.2 route system 只消费调用方提供的 explicit route。它不计算最�
 v0.2 vehicle runtime state 应引用 route handle 和 edge handle，而不是 external string：
 
 ```text
-VehicleRuntime
+VehicleState
   handle: VehicleHandle
   route: RouteHandle
-  routeEdgeIndex: usize
-  edgeProgress: EdgeProgress
-  speed: Speed
+  route_edge_index: u32
+  progress_mm: u32
+  carry_um: u16
+  speed_mm_s: u32
   status: VehicleStatus
 ```
 
@@ -325,7 +326,7 @@ Adapter 不应：
 - route removal 拒绝 live vehicle 正在引用的 route。
 - stale route handle rejection。
 - event payload 使用 handle，resolver 可回查 external ID。
-- 目标 10 km edge 上界、补偿残差感知进度与 route 距离候选，在生产迁移矩阵中通过精确边界、单 tick 多 edge、多轮 route、溢出和失败原子性验证。
+- 10 km 边长上界、整数毫米进度与 `BeyondFinite` 路线距离，在生产矩阵中通过精确边界、单 tick 多 edge、多轮 route、溢出和失败原子性验证。残差 `f32` 进度只作 #144 历史。
 
 ## 10. v0.8 直行走廊 route profile
 

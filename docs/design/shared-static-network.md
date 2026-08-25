@@ -243,17 +243,17 @@ LFCA、`NetworkRevisionId` 或存档兼容性，也不得改变精确执行结�
 
 - direction profile、canonical frame 与实际存在的 geometry capability；
 - 可选 lane-pose 子视图：edge-aligned geometry handle、flat canonical `f32` points、
-  cumulative arc/segment/sampling ranges，以及按 LFCA v1 冻结容差谓词闭合的 Traffic
-  edge/length；
+  cumulative arc/segment/sampling ranges，以及按当前 LFCA（`formatVersion = 2`）
+  冻结容差谓词闭合的 Traffic 边长；
 - 独立的 FacilityBand geometry 子集与连续 points/ranges。
 
 `LaneEdgeGeometry` 为空而 profile/frame/`FacilityBandGeometry` 任一存在是合法状态；此时
 `lane_pose() -> None`，不能伪造空的全覆盖 edge ranges。`LaneEdgeGeometry` 非空时才要求与
-Traffic LaneEdge 同基数、同 ordinal；frame 必须精确闭合，长度必须复用 LFCA v1
+Traffic LaneEdge 同基数、同 ordinal；frame 必须精确闭合。长度先把
+`lengthMillimetres` 换成米，再复用
 [附录 A.1](portable-canonical-artifact.md#a1-lfca-table-registry) 的冻结谓词：
-`abs(edgeLength - f64(arcLength)) <= max(0.01 m, 1.0e-6 * max(edgeLength,
-f64(arcLength))) + 0.0 m`。不得把它收紧为 `f64` Traffic length 与 `f32` geometry arc length
-精确相等。需要车辆位姿的消费者通过
+`abs(length_mm/1000 - f64(arcLength)) <= max(0.01 m, 1.0e-6 * max(length_mm/1000,
+f64(arcLength))) + 0.0 m`。不得要求整数毫米边长与 `f32` 弧长在米制上精确相等。需要车辆位姿的消费者通过
 `require_lane_pose()`/等价 capability check 取得稳定的 unavailable 错误；facility-only、
 profile-only、frame-only LFCA 本身仍可成功构建。编辑器预览 geometry 不属于该 component。
 

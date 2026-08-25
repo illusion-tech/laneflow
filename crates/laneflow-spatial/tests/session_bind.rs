@@ -66,3 +66,44 @@ fn bind_full_spatial_and_extract_lane_pose() {
     assert_eq!(output.records().len(), previous_len);
     assert_eq!(output.placement_token(), FramePlacementToken::new(1));
 }
+
+#[test]
+fn lane_pose_pins_endpoints_and_keeps_interior_off_start() {
+    let revision = revision();
+    let edge = LaneEdgeOrdinal::from_raw(0);
+    let length_mm = revision.traffic().lane_lengths_millimetres()[edge.index()];
+    let geometry = revision
+        .spatial()
+        .and_then(|spatial| spatial.lane_pose())
+        .and_then(|network| network.lane_geometry(edge))
+        .expect("lane geometry");
+    let first = geometry.points()[0];
+    let last = *geometry.points().last().expect("end point");
+    let mut session = SpatialSession::bind(Arc::clone(&revision))
+        .expect("bind")
+        .expect("session");
+    let mut output = CanonicalPoseBatch::new();
+    session
+        .extract_pose_batch(
+            FramePlacementToken::new(1),
+            &[
+                PoseInput::lane(PoseRecordId::new(1), edge, 0),
+                PoseInput::lane(PoseRecordId::new(2), edge, length_mm),
+                PoseInput::lane(PoseRecordId::new(3), edge, 1),
+            ],
+            &mut output,
+        )
+        .expect("extract");
+    let start = output.records()[0].pose().position();
+    let end = output.records()[1].pose().position();
+    let interior = output.records()[2].pose().position();
+    assert_eq!(
+        (start.x(), start.y(), start.z()),
+        (first.x, first.y, first.z)
+    );
+    assert_eq!((end.x(), end.y(), end.z()), (last.x, last.y, last.z));
+    assert_ne!(
+        (interior.x(), interior.y(), interior.z()),
+        (first.x, first.y, first.z)
+    );
+}

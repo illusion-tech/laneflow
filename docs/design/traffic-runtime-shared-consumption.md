@@ -231,7 +231,7 @@ TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
 - 不把 `CoreEvent` 搬进本切片。跟车/信号遵守用已提交 pose 进度与信号组 aspect
   观察。
 - `committed_pose_sources()`：稳定顺序的 `(VehicleHandle, PoseSource)`。车道用
-  `LaneEdgeOrdinal` + 同域进度（**当前** `f64` 米；**G2** `progress_mm: u32`），
+  `LaneEdgeOrdinal` + `progress_mm: u32`，
   停车用停车位序号。已完成或已移除车辆不出现。Adapter 映射为 `PoseRecordId`
   再交给 Spatial；Spatial 在边界把 mm 换成弧长比例，不得把米制当权威。
 - `committed_signal_groups()`：稳定按组序号的当前 aspect，由已提交 `time_ms` +
@@ -320,10 +320,10 @@ CI 必须同时：
   为 T + D。相位边界落在 `[T, T + D)` 时该拍不得提前用 T + D 灯色）；
 - 停车占用权威（`occupy_parking` 双向互斥与失败原子性，含已停车辆再占其他车位
   必须失败、同一车位重复占用幂等成功；`committed_parking_occupant`）；
-- 确定性固定步进（`step`：正的 `fixed_delta_time_ms`、delta 不匹配则拒绝、
+- 确定性固定步进（`step`：`fixed_delta_time_ms ∈ [4, 1000]`、delta 不匹配则拒绝、
   `tick_index`/`time_ms` 溢出则拒绝且世界不变、同输入序列同结果）；
-- 信号 program 每个 phase `durationMs >= fixed_delta_time_ms`，否则 install 失败
-  （#301 现行覆盖）。#496 G2 把该条替换为 `durationMs` 必须是步长的正整数倍；
+- 信号 program 每个 phase `durationMs >= dt && durationMs % dt == 0`，否则
+  `install` 以可区分错误失败（短于一步 / 不能整除）；
 
 - 安装/步进/命令失败原子性（失败不留下半个 world 或已提交半更新）；
 - 成功 tick 不因错误边界新分配诊断（不要求继承 Core `TickInvariantError` 的
@@ -332,8 +332,8 @@ CI 必须同时：
   tick 读本世界动态 occurrence 表；不含走廊级人口与回流）；
 - spawn 绑定期准入（静态与动态 Route 均按 ADR 0018 `(ParticipantClass, Route)`
   后缀拒绝，失败不留车）；
-- spawn 初速等于当前边基础限速须成功，超过则拒绝且不留车
-  （#301 现行，`f64` 米每秒）。#496 G2 改为 `speed_mm_s`，且 `<= 100_000`；
+- spawn 初速等于当前边基础限速须成功，超过则拒绝且不留车；权威为
+  `speed_mm_s`，且 `<= 100_000`；
 - `remove_route` 拒绝静态路线句柄。
 
 空实现若只过 S1 两车推进/pose 不得视为完成。完整停车离场/预约、受保护转向走廊、

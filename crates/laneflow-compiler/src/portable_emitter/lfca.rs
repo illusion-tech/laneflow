@@ -237,6 +237,11 @@ fn canonical_entity_tables(
         }
         row(fields)
     });
+    let lane_length_mm = lir
+        .lane_edges
+        .iter()
+        .map(|record| closed_lane_edge_length_mm(lir, record))
+        .collect::<Result<Vec<_>, PortableEmissionError>>()?;
     let lane_edges = lir
         .lane_edges
         .iter()
@@ -255,7 +260,7 @@ fn canonical_entity_tables(
                     2,
                     OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
                 ),
-                field(3, OwnedValue::U32(lane_edge_length_mm(lir, record)?)),
+                field(3, OwnedValue::U32(lane_length_mm[record.ordinal.index()])),
                 field(
                     4,
                     OwnedValue::U32(quantize::millimetres(record.speed_limit_meters_per_second)?),
@@ -464,7 +469,7 @@ fn canonical_entity_tables(
     let parking_spaces = lir
         .parking_spaces
         .iter()
-        .map(|record| parking_space_row(record))
+        .map(|record| parking_space_row(record, &lane_length_mm))
         .collect::<Result<Vec<_>, PortableEmissionError>>()?;
     let lane_groups = lir.lane_groups.iter().map(|record| {
         row([
@@ -623,7 +628,7 @@ fn canonical_entity_tables(
     ])
 }
 
-fn lane_edge_length_mm(
+fn closed_lane_edge_length_mm(
     lir: &crate::lir::LirUnit,
     record: &crate::lir::LirLaneEdge,
 ) -> Result<u32, PortableEmissionError> {
@@ -632,11 +637,35 @@ fn lane_edge_length_mm(
         .get(record.ordinal.index())
         .map(|geometry| f64::from(geometry.arc_length_meters))
         .unwrap_or(record.length_meters);
-    quantize::millimetres(meters)
+    let millimetres = quantize::millimetres(meters)?;
+    if millimetres < laneflow_static_contract::MIN_LANE_EDGE_LENGTH_MM
+        || millimetres > laneflow_static_contract::MAX_LANE_EDGE_LENGTH_MM
+    {
+        return Err(PortableEmissionError::InternalBindingMismatch);
+    }
+    Ok(millimetres)
+}
+
+fn parking_anchor_progress_mm(
+    progress_meters: f64,
+    edge: laneflow_static_contract::LaneEdgeOrdinal,
+    lane_length_mm: &[u32],
+) -> Result<u32, PortableEmissionError> {
+    let progress_mm = quantize::millimetres(progress_meters)?;
+    let length_mm = *lane_length_mm
+        .get(edge.index())
+        .ok_or(PortableEmissionError::InternalBindingMismatch)?;
+    let min_mm = laneflow_static_contract::PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM;
+    let max_mm = length_mm.saturating_sub(min_mm);
+    if !(min_mm..=max_mm).contains(&progress_mm) {
+        return Err(PortableEmissionError::InternalBindingMismatch);
+    }
+    Ok(progress_mm)
 }
 
 fn parking_space_row(
     record: &crate::lir::LirParkingSpace,
+    lane_length_mm: &[u32],
 ) -> Result<OwnedRow, PortableEmissionError> {
     let mut fields = vec![
         field(1, OwnedValue::U32(record.ordinal.raw())),
@@ -652,12 +681,20 @@ fn parking_space_row(
         field(4, OwnedValue::U32(record.entry.lane_edge.raw())),
         field(
             5,
-            OwnedValue::U32(quantize::millimetres(record.entry.progress_meters)?),
+            OwnedValue::U32(parking_anchor_progress_mm(
+                record.entry.progress_meters,
+                record.entry.lane_edge,
+                lane_length_mm,
+            )?),
         ),
         field(6, OwnedValue::U32(record.exit.lane_edge.raw())),
         field(
             7,
-            OwnedValue::U32(quantize::millimetres(record.exit.progress_meters)?),
+            OwnedValue::U32(parking_anchor_progress_mm(
+                record.exit.progress_meters,
+                record.exit.lane_edge,
+                lane_length_mm,
+            )?),
         ),
         field(
             8,
