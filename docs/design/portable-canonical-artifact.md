@@ -1030,21 +1030,21 @@ G1 只冻结少量可人工复核的向量及推导；G2 再把完整对象 mate
 提交输入、完整 expected bytes、SHA-256、长度和修订 ID，不允许测试在运行时用
 production emitter 自己生成 expected：
 
-| 类别        | 向量/锚点 ID                 | 证明内容                                                                         |
-| ----------- | ---------------------------- | -------------------------------------------------------------------------------- |
-| G1 摘要向量 | `REV-V1-MIN-HEADLESS`        | 六个合法最小语义节的 framing、domain separation 与 SHA-256                       |
-| G1 摘要向量 | `REV-V1-MIN-SPATIAL-EMPTY`   | 启用空间并写入闭合 direction profile code 时 revision 必须变化                   |
-| G1 结构锚点 | `LFCA-V1-MIN-HEADLESS`       | 最小合法无空间 artifact 的前导、八节目录和首节 offset 推导                       |
-| G1 结构锚点 | `LFSM-V1-MIXED-LOCATION`     | Text、无 property 的 Declaration、OwnerLocal 和可选 canvas 形状                  |
-| G1 结构锚点 | `LFSD-V1-GENESIS-BINDING`    | Genesis 四个 base 零值和完整 target binding                                      |
-| G1 结构锚点 | `LFCP-V1-MIN-BINDINGS`       | artifact/source-map/receipt 的外部 digest+exact length 绑定                      |
-| 固定对象    | `lfca-full-spatial`          | 22 种实体、关系、规则、规范 f32 与空间表；目录 `fixtures/portable/lfca-full-spatial/` |
-| 固定对象    | `provenance-*`               | 同语义不同来源沿袭：revision 相同，artifact digest 不同                          |
-| 固定对象    | `claim-mismatch`             | 只篡改非语义 revision claim：结构预检成功、独立 revision 比较失败                |
-| 固定对象    | `reorder-equivalent`         | 声明/集合/hash iteration 重排仍产生完全相同 bytes                                |
-| 固定对象    | `signed-zero`                | 合法输入 `-0.0` 在编译边界变为 `+0.0`；负零 wire 被读取器拒绝                    |
-| 固定对象    | `lfsd-change-set`            | add/remove/reconnect/geometry/global spatial/rule；身份变化只含无配对 remove/add |
-| 固定对象    | `lfsd-noop`                  | 相同 base/target 的空记录但完整 binding                                          |
+| 类别        | 向量/锚点 ID               | 证明内容                                                                              |
+| ----------- | -------------------------- | ------------------------------------------------------------------------------------- |
+| G1 摘要向量 | `REV-V1-MIN-HEADLESS`      | 六个合法最小语义节的 framing、domain separation 与 SHA-256                            |
+| G1 摘要向量 | `REV-V1-MIN-SPATIAL-EMPTY` | 启用空间并写入闭合 direction profile code 时 revision 必须变化                        |
+| G1 结构锚点 | `LFCA-V1-MIN-HEADLESS`     | 最小合法无空间 artifact 的前导、八节目录和首节 offset 推导                            |
+| G1 结构锚点 | `LFSM-V1-MIXED-LOCATION`   | Text、无 property 的 Declaration、OwnerLocal 和可选 canvas 形状                       |
+| G1 结构锚点 | `LFSD-V1-GENESIS-BINDING`  | Genesis 四个 base 零值和完整 target binding                                           |
+| G1 结构锚点 | `LFCP-V1-MIN-BINDINGS`     | artifact/source-map/receipt 的外部 digest+exact length 绑定                           |
+| 固定对象    | `lfca-full-spatial`        | 22 种实体、关系、规则、规范 f32 与空间表；目录 `fixtures/portable/lfca-full-spatial/` |
+| 固定对象    | `provenance-*`             | 同语义不同来源沿袭：revision 相同，artifact digest 不同                               |
+| 固定对象    | `claim-mismatch`           | 只篡改非语义 revision claim：结构预检成功、独立 revision 比较失败                     |
+| 固定对象    | `reorder-equivalent`       | 声明/集合/hash iteration 重排仍产生完全相同 bytes                                     |
+| 固定对象    | `signed-zero`              | 合法输入 `-0.0` 在编译边界变为 `+0.0`；负零 wire 被读取器拒绝                         |
+| 固定对象    | `lfsd-change-set`          | add/remove/reconnect/geometry/global spatial/rule；身份变化只含无配对 remove/add      |
+| 固定对象    | `lfsd-noop`                | 相同 base/target 的空记录但完整 binding                                               |
 
 两个 G1 revision 向量使用 §4.2 的 exact framing 和附录 A 的 section/table/row/field
 编码。`REV-V1-MIN-HEADLESS` 的六节依次是：所有版本值为 `1` 的 ContractVersions；
@@ -1253,30 +1253,30 @@ BLAKE3-128 截断碰撞；二者都不得继续建立 ordinal、关系或辅助�
 `CanonicalEntityTables(0x0003)` 精确包含下列 22 张表；即使无行也必须存在。每行共同以
 `1:typedOrdinal:u32:R, 2:stableId:StableId128:R` 开始，余下字段如下：
 
-| tableKind | 表名             | 字段（从 tag 3 开始）                                                                                                                                                                                                                                                                               | 行键           |
-| --------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `0x0001`  | RoadCorridor     | `3:referenceSection:u32:R, 4:elements:RecordVector:R`                                                                                                                                                                                                                                               | `typedOrdinal` |
-| `0x0002`  | RoadSection      | `3:roadCorridor:u32:R, 4:kindId:Utf8:R, 5:lanes:OrdinalVectorU32:R`                                                                                                                                                                                                                                 | `typedOrdinal` |
-| `0x0003`  | AuthoringLane    | `3:roadSection:u32:R, 4:edgeChain:OrdinalVectorU32:R, 5:laneGroup:u32:O`                                                                                                                                                                                                                            | `typedOrdinal` |
-| `0x0004`  | LaneEdge         | `3:lengthMillimetres:u32:R, 4:speedLimitMillimetresPerSecond:u32:R, 5:successors:OrdinalVectorU32:R`                                                                                                                                                                                                | `typedOrdinal` |
-| `0x0005`  | Junction         | `3:movements:OrdinalVectorU32:R`                                                                                                                                                                                                                                                                    | `typedOrdinal` |
-| `0x0006`  | Movement         | `3:junction:u32:R, 4:directedEntryApproachKey:Utf8:R, 5:directedExitApproachKey:Utf8:R, 6:maneuverPaths:OrdinalVectorU32:R`                                                                                                                                                                         | `typedOrdinal` |
-| `0x0007`  | ManeuverPath     | `3:movement:u32:R, 4:edges:OrdinalVectorU32:R, 5:maneuverGates:OrdinalVectorU32:R, 6:waitingZones:OrdinalVectorU32:R`                                                                                                                                                                               | `typedOrdinal` |
-| `0x0008`  | ManeuverGate     | `3:maneuverPath:u32:R, 4:transitionIndex:u32:R, 5:stopLine:u32:R, 6:signalControlKind:u8:R, 7:signalGroup:u32:O`                                                                                                                                                                                    | `typedOrdinal` |
-| `0x0009`  | WaitingZone      | `3:maneuverPath:u32:R, 4:entryGate:u32:R, 5:releaseGate:u32:R, 6:maxOccupancy:u32:R`                                                                                                                                                                                                                | `typedOrdinal` |
-| `0x000a`  | StopLine         | `3:laneEdge:u32:R, 4:maneuverGates:OrdinalVectorU32:R`                                                                                                                                                                                                                                              | `typedOrdinal` |
-| `0x000b`  | SignalGroup      | `3:controller:u32:R, 4:maneuverGates:OrdinalVectorU32:R`                                                                                                                                                                                                                                            | `typedOrdinal` |
-| `0x000c`  | SignalController | `3:offsetMs:u64:R, 4:cycleDurationMs:u64:R, 5:signalGroups:OrdinalVectorU32:R, 6:phases:OrdinalVectorU32:R`                                                                                                                                                                                         | `typedOrdinal` |
-| `0x000d`  | SignalPhase      | `3:controller:u32:R, 4:durationMs:u64:R, 5:states:RecordVector:R`                                                                                                                                                                                                                                   | `typedOrdinal` |
-| `0x000e`  | ParkingArea      | `3:parkingSpaces:OrdinalVectorU32:R`                                                                                                                                                                                                                                                                | `typedOrdinal` |
-| `0x000f`  | ParkingSpace     | `3:parkingArea:u32:O, 4:entryLaneEdge:u32:R, 5:entryProgressMillimetres:u32:R, 6:exitLaneEdge:u32:R, 7:exitProgressMillimetres:u32:R, 8:lateralOffsetMillimetres:i32:R, 9:headingOffsetRadians:f32:R, 10:lengthMillimetres:u32:R, 11:widthMillimetres:u32:R`                                           | `typedOrdinal` |
-| `0x0010`  | LaneGroup        | `3:roadSection:u32:R, 4:members:OrdinalVectorU32:R`                                                                                                                                                                                                                                                 | `typedOrdinal` |
-| `0x0011`  | FacilityBand     | `3:roadCorridor:u32:R, 4:kindId:Utf8:R`                                                                                                                                                                                                                                                             | `typedOrdinal` |
-| `0x0012`  | ParticipantClass | `3:parent:u32:O, 4:depth:u32:R, 5:subtreeEnter:u32:R, 6:subtreeExit:u32:R`                                                                                                                                                                                                                          | `typedOrdinal` |
-| `0x0013`  | AccessRule       | `3:targetKind:u8:R, 4:targetOrdinal:u32:R, 5:effect:u8:R, 6:participantClasses:OrdinalVectorU32:R, 7:regulation:RecordVector:O, 8:priority:i32:R`                                                                                                                                                   | `typedOrdinal` |
+| tableKind | 表名             | 字段（从 tag 3 开始）                                                                                                                                                                                                                                                                                              | 行键           |
+| --------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
+| `0x0001`  | RoadCorridor     | `3:referenceSection:u32:R, 4:elements:RecordVector:R`                                                                                                                                                                                                                                                              | `typedOrdinal` |
+| `0x0002`  | RoadSection      | `3:roadCorridor:u32:R, 4:kindId:Utf8:R, 5:lanes:OrdinalVectorU32:R`                                                                                                                                                                                                                                                | `typedOrdinal` |
+| `0x0003`  | AuthoringLane    | `3:roadSection:u32:R, 4:edgeChain:OrdinalVectorU32:R, 5:laneGroup:u32:O`                                                                                                                                                                                                                                           | `typedOrdinal` |
+| `0x0004`  | LaneEdge         | `3:lengthMillimetres:u32:R, 4:speedLimitMillimetresPerSecond:u32:R, 5:successors:OrdinalVectorU32:R`                                                                                                                                                                                                               | `typedOrdinal` |
+| `0x0005`  | Junction         | `3:movements:OrdinalVectorU32:R`                                                                                                                                                                                                                                                                                   | `typedOrdinal` |
+| `0x0006`  | Movement         | `3:junction:u32:R, 4:directedEntryApproachKey:Utf8:R, 5:directedExitApproachKey:Utf8:R, 6:maneuverPaths:OrdinalVectorU32:R`                                                                                                                                                                                        | `typedOrdinal` |
+| `0x0007`  | ManeuverPath     | `3:movement:u32:R, 4:edges:OrdinalVectorU32:R, 5:maneuverGates:OrdinalVectorU32:R, 6:waitingZones:OrdinalVectorU32:R`                                                                                                                                                                                              | `typedOrdinal` |
+| `0x0008`  | ManeuverGate     | `3:maneuverPath:u32:R, 4:transitionIndex:u32:R, 5:stopLine:u32:R, 6:signalControlKind:u8:R, 7:signalGroup:u32:O`                                                                                                                                                                                                   | `typedOrdinal` |
+| `0x0009`  | WaitingZone      | `3:maneuverPath:u32:R, 4:entryGate:u32:R, 5:releaseGate:u32:R, 6:maxOccupancy:u32:R`                                                                                                                                                                                                                               | `typedOrdinal` |
+| `0x000a`  | StopLine         | `3:laneEdge:u32:R, 4:maneuverGates:OrdinalVectorU32:R`                                                                                                                                                                                                                                                             | `typedOrdinal` |
+| `0x000b`  | SignalGroup      | `3:controller:u32:R, 4:maneuverGates:OrdinalVectorU32:R`                                                                                                                                                                                                                                                           | `typedOrdinal` |
+| `0x000c`  | SignalController | `3:offsetMs:u64:R, 4:cycleDurationMs:u64:R, 5:signalGroups:OrdinalVectorU32:R, 6:phases:OrdinalVectorU32:R`                                                                                                                                                                                                        | `typedOrdinal` |
+| `0x000d`  | SignalPhase      | `3:controller:u32:R, 4:durationMs:u64:R, 5:states:RecordVector:R`                                                                                                                                                                                                                                                  | `typedOrdinal` |
+| `0x000e`  | ParkingArea      | `3:parkingSpaces:OrdinalVectorU32:R`                                                                                                                                                                                                                                                                               | `typedOrdinal` |
+| `0x000f`  | ParkingSpace     | `3:parkingArea:u32:O, 4:entryLaneEdge:u32:R, 5:entryProgressMillimetres:u32:R, 6:exitLaneEdge:u32:R, 7:exitProgressMillimetres:u32:R, 8:lateralOffsetMillimetres:i32:R, 9:headingOffsetRadians:f32:R, 10:lengthMillimetres:u32:R, 11:widthMillimetres:u32:R`                                                       | `typedOrdinal` |
+| `0x0010`  | LaneGroup        | `3:roadSection:u32:R, 4:members:OrdinalVectorU32:R`                                                                                                                                                                                                                                                                | `typedOrdinal` |
+| `0x0011`  | FacilityBand     | `3:roadCorridor:u32:R, 4:kindId:Utf8:R`                                                                                                                                                                                                                                                                            | `typedOrdinal` |
+| `0x0012`  | ParticipantClass | `3:parent:u32:O, 4:depth:u32:R, 5:subtreeEnter:u32:R, 6:subtreeExit:u32:R`                                                                                                                                                                                                                                         | `typedOrdinal` |
+| `0x0013`  | AccessRule       | `3:targetKind:u8:R, 4:targetOrdinal:u32:R, 5:effect:u8:R, 6:participantClasses:OrdinalVectorU32:R, 7:regulation:RecordVector:O, 8:priority:i32:R`                                                                                                                                                                  | `typedOrdinal` |
 | `0x0014`  | VehicleProfile   | `3:participantClass:u32:R, 4:lengthMillimetres:u32:R, 5:desiredSpeedMillimetresPerSecond:u32:R, 6:minGapMillimetres:u32:R, 7:timeHeadwaySeconds:f32:R, 8:maxAccelerationMetersPerSecondSquared:f32:R, 9:comfortableDecelerationMetersPerSecondSquared:f32:R, 10:emergencyDecelerationMetersPerSecondSquared:f32:R` | `typedOrdinal` |
-| `0x0015`  | StaticRoute      | `3:edges:OrdinalVectorU32:R, 4:transitionGates:RecordVector:R`                                                                                                                                                                                                                                      | `typedOrdinal` |
-| `0x0016`  | CanonicalFrame   | 无额外字段                                                                                                                                                                                                                                                                                          | `typedOrdinal` |
+| `0x0015`  | StaticRoute      | `3:edges:OrdinalVectorU32:R, 4:transitionGates:RecordVector:R`                                                                                                                                                                                                                                                     | `typedOrdinal` |
+| `0x0016`  | CanonicalFrame   | 无额外字段                                                                                                                                                                                                                                                                                                         | `typedOrdinal` |
 
 Identity 前像中重复表达规范所有权或边界语义的字段必须与实体行严格等值，不能只各自解析成功：
 
@@ -1401,22 +1401,22 @@ round-ties-to-even。编制/发射：朝向量化后若等于 `+π`（`0x40490fd
 （`0xc0490fdb`）再检查。制品存着的 `+π` 非法；v2 读器与后发射检查只拒不折。禁止先用
 量化前的裸 SI 界限拒绝。跨字段（停车进度 vs 边长）在双方量化之后比较。闭包：
 
-| v2 字段                                                        | 闭包                                                              |
-| -------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `LaneEdge.lengthMillimetres`                                   | `100..=10_000_000`                                                |
-| `LaneEdge.speedLimitMillimetresPerSecond`                      | `1..=100_000`                                                     |
-| `ParkingSpace.entryProgressMillimetres`                        | 所引入口边量化后边长 `L`：`1 <= p <= L - 1`                       |
-| `ParkingSpace.exitProgressMillimetres`                         | 所引出口边量化后边长 `L`：`1 <= p <= L - 1`                       |
-| `ParkingSpace.lateralOffsetMillimetres`                        | `abs <= 128_000`；路外 `abs >= 1`                                 |
+| v2 字段                                                        | 闭包                                                                     |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `LaneEdge.lengthMillimetres`                                   | `100..=10_000_000`                                                       |
+| `LaneEdge.speedLimitMillimetresPerSecond`                      | `1..=100_000`                                                            |
+| `ParkingSpace.entryProgressMillimetres`                        | 所引入口边量化后边长 `L`：`1 <= p <= L - 1`                              |
+| `ParkingSpace.exitProgressMillimetres`                         | 所引出口边量化后边长 `L`：`1 <= p <= L - 1`                              |
+| `ParkingSpace.lateralOffsetMillimetres`                        | `abs <= 128_000`；路外 `abs >= 1`                                        |
 | `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；存着的 `+π`（`0x40490fdb`）非法；编制/发射量化后写成 `-π` |
-| `ParkingSpace.lengthMillimetres` / `widthMillimetres`          | 各自 `100..=128_000`                                              |
-| `VehicleProfile.lengthMillimetres`                             | `100..=128_000`                                                   |
-| `VehicleProfile.desiredSpeedMillimetresPerSecond`              | `1..=100_000`                                                     |
-| `VehicleProfile.minGapMillimetres`                             | `0..=128_000`                                                     |
-| `VehicleProfile.timeHeadwaySeconds`                            | `0 < x <= 60`                                                     |
-| `VehicleProfile.maxAccelerationMetersPerSecondSquared`         | `0.5..=50`                                                        |
-| `VehicleProfile.comfortableDecelerationMetersPerSecondSquared` | `0.5..=50`                                                        |
-| `VehicleProfile.emergencyDecelerationMetersPerSecondSquared`   | `0.5..=50`，且 `>= comfortableDeceleration`                       |
+| `ParkingSpace.lengthMillimetres` / `widthMillimetres`          | 各自 `100..=128_000`                                                     |
+| `VehicleProfile.lengthMillimetres`                             | `100..=128_000`                                                          |
+| `VehicleProfile.desiredSpeedMillimetresPerSecond`              | `1..=100_000`                                                            |
+| `VehicleProfile.minGapMillimetres`                             | `0..=128_000`                                                            |
+| `VehicleProfile.timeHeadwaySeconds`                            | `0 < x <= 60`                                                            |
+| `VehicleProfile.maxAccelerationMetersPerSecondSquared`         | `0.5..=50`                                                               |
+| `VehicleProfile.comfortableDecelerationMetersPerSecondSquared` | `0.5..=50`                                                               |
+| `VehicleProfile.emergencyDecelerationMetersPerSecondSquared`   | `0.5..=50`，且 `>= comfortableDeceleration`                              |
 
 有折线时，**编译器**用现行 `0.01 m` / `1e-6` 对账 LIR 交通边长与弧长，再按
 `lengthMillimetres = round-ties-to-even(f64(arc) × 1000)` 写入。**v2 读器 / 共享路网

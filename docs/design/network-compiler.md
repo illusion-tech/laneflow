@@ -1897,7 +1897,7 @@ crate/type 拆除由 #301 完成。文档导航、Agent Skill ID（`laneflow-cor
 | --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | 编译器系统性缺陷            | 批量污染全部资产                                              | 人工可复核固定向量、compiler 语义测试、真实场景回归、历史缺陷断言；#299 明确接受共享后端不能独立发现此类缺陷 |
 | 格式/构建闭合漏洞           | 受检直接值域仍形成越界或错配 Runtime 关系                     | `laneflow-format` fuzz + builder 跨表/identity/range closure + 安全 Rust                                     |
-| 发布来源与本地构建混同      | 本地候选被误写成已发布资产，或发布资产绕过 admission          | 发布 LFCP v2/manifest admission 与本地 `PostEmissionCheckedBundle` 分入口，同一 builder 后汇合             |
+| 发布来源与本地构建混同      | 本地候选被误写成已发布资产，或发布资产绕过 admission          | 发布 LFCP v2/manifest admission 与本地 `PostEmissionCheckedBundle` 分入口，同一 builder 后汇合               |
 | 哈希前输入无界              | 超大替换资产制造无界读取、解压、分配或摘要工作                | 所有 exact-byte 对象绑定 digest + length；有界 reader 预检                                                   |
 | 未认证路网修订              | 快照/路由绕过修订检查或兼容恢复误拒绝                         | 语义载荷派生标识、LFCP v2/外部 manifest 与 #302 可信切换输入                                                 |
 | 中间表示泄漏运行时类型      | 后端 / 目标被当前核心对象图锁死                               | 静态契约、目标中立 LIR、无环包依赖图                                                                         |

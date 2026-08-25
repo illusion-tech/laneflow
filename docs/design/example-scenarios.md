@@ -345,18 +345,18 @@ proxy/model/Transform/灯具和 route-class 视觉。
 
 current v0.10 至少验证：
 
-| 类别     | 必须证明的事实                                                                      |
-| -------- | ----------------------------------------------------------------------------------- |
-| 几何     | 1.4 km 默认、<=2 km、66 edges、32 paths、28 routes、Traffic/Spatial 长度绑定        |
-| 限速     | 主 60/次 40、超限 spawn 拒绝、下游降速提前制动、与 leader/signal 组合               |
-| 信号     | 两 controller、每路口四 group/12 phase、共享 StopLine、冲突 movement 不同时开放     |
-| 人口     | 50/100/200 成功初始化、无 overlap、非法范围和容量不足明确失败                       |
-| 回流     | 排除原出口、portal/lane/weighted-route 三 draw site、blocked 不重抽、人口保持       |
-| 生命周期 | old handle stale/new live、same Entity/proxy、Runtime+mapping 失败原子              |
-| 确定性   | 同 seed/fixed input 相同、不同 outer-frame chunking 相同、golden PRNG               |
+| 类别     | 必须证明的事实                                                                       |
+| -------- | ------------------------------------------------------------------------------------ |
+| 几何     | 1.4 km 默认、<=2 km、66 edges、32 paths、28 routes、Traffic/Spatial 长度绑定         |
+| 限速     | 主 60/次 40、超限 spawn 拒绝、下游降速提前制动、与 leader/signal 组合                |
+| 信号     | 两 controller、每路口四 group/12 phase、共享 StopLine、冲突 movement 不同时开放      |
+| 人口     | 50/100/200 成功初始化、无 overlap、非法范围和容量不足明确失败                        |
+| 回流     | 排除原出口、portal/lane/weighted-route 三 draw site、blocked 不重抽、人口保持        |
+| 生命周期 | old handle stale/new live、same Entity/proxy、Runtime+mapping 失败原子               |
+| 确定性   | 同 seed/fixed input 相同、不同 outer-frame chunking 相同、golden PRNG                |
 | 制品     | generator byte deterministic、检入 catalog 与 LFCA 对拍、prepare bind 到共享路网修订 |
-| 可视     | 左/直/右可识别、灯具状态一致、Adapter pose 和 same-Entity recycle 正常              |
-| 性能     | 200 车持续运行无 unbounded queue/retained growth；稳态 lifecycle 不做全人口临时分配 |
+| 可视     | 左/直/右可识别、灯具状态一致、Adapter pose 和 same-Entity recycle 正常               |
+| 性能     | 200 车持续运行无 unbounded queue/retained growth；稳态 lifecycle 不做全人口临时分配  |
 
 ## 12. 治理与完成边界
 
