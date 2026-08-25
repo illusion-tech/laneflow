@@ -1398,9 +1398,9 @@ Spatial `LaneEdgeGeometry.arcLengthMeters:f32` 与 `segments.lengthMeters:f32` *
 
 发射与值域检查 **先量化，再按量化后的界限失败关闭**。毫米 / 毫米每秒：
 `round-ties-to-even(f64(SI) × 1000)`；时距、三项加减速、朝向：`f64` → binary32
-round-ties-to-even。朝向量化后若等于 `+π`（`0x40490fdb`）则折成 `-π`（`0xc0490fdb`）
-再检查。禁止先用量化前的裸 SI 界限拒绝。跨字段（停车进度 vs 边长）在双方
-量化之后比较。闭包：
+round-ties-to-even。编制/发射：朝向量化后若等于 `+π`（`0x40490fdb`）则写成 `-π`
+（`0xc0490fdb`）再检查。制品存着的 `+π` 非法；v2 读器与后发射检查只拒不折。禁止先用
+量化前的裸 SI 界限拒绝。跨字段（停车进度 vs 边长）在双方量化之后比较。闭包：
 
 | v2 字段                                                        | 闭包                                                              |
 | -------------------------------------------------------------- | ----------------------------------------------------------------- |
@@ -1409,7 +1409,7 @@ round-ties-to-even。朝向量化后若等于 `+π`（`0x40490fdb`）则折成 `
 | `ParkingSpace.entryProgressMillimetres`                        | 所引入口边量化后边长 `L`：`1 <= p <= L - 1`                       |
 | `ParkingSpace.exitProgressMillimetres`                         | 所引出口边量化后边长 `L`：`1 <= p <= L - 1`                       |
 | `ParkingSpace.lateralOffsetMillimetres`                        | `abs <= 128_000`；路外 `abs >= 1`                                 |
-| `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；量化后 `+π`（`0x40490fdb`）折成 `-π`（`0xc0490fdb`） |
+| `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；存着的 `+π`（`0x40490fdb`）非法；编制/发射量化后写成 `-π` |
 | `ParkingSpace.lengthMillimetres` / `widthMillimetres`          | 各自 `100..=128_000`                                              |
 | `VehicleProfile.lengthMillimetres`                             | `100..=128_000`                                                   |
 | `VehicleProfile.desiredSpeedMillimetresPerSecond`              | `1..=100_000`                                                     |
