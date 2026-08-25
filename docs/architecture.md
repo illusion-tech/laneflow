@@ -113,8 +113,8 @@ SharedNetworkRevision
 authoring-only 差异由后继 [#345](https://github.com/illusion-tech/laneflow/issues/345)
 `RoadEditingSourceDiff` 负责。
 
-compiler 拥有静态 identity、topology、geometry、owner/member、coverage、length、
-initial/static occurrence 与 dense layout；target `LaneFlow Traffic Runtime`
+compiler 拥有静态 identity、topology、geometry、owner/member、coverage、length
+与 dense layout，**不**预编译路线出现项（ADR 0029）；target `LaneFlow Traffic Runtime`
 （`laneflow-runtime`）继续拥有 tick、已实现执行域的交通参与单元、动态通行定义
 （Dynamic Traversal Definition）和其他可变交通权威（Mutable Traffic
 Authority），Spatial 继续拥有位姿采样（Pose Sampling）。
@@ -282,9 +282,8 @@ Rust workspace 中，当前可运行世界由 `laneflow-runtime` 的 `TrafficWor
 投影仍是车辆/动态路线/停车占用特化；人口、
 Routing 和游戏规则 seed 仍由 caller/出行编排层拥有；Runtime 只有在后续 G1 显式
 授予随机权威时才拥有相应随机流。
-Initial/static occurrence 由 compiler
-预编译，dynamic Route occurrence 仍由 Runtime 按 typed dense handle 编译，steady tick
-继续只使用 typed dense handle。
+路线出现项只在 `TrafficWorld::register_route` 编进每世界表；steady tick
+继续只使用 typed dense handle，不读共享根路线表（ADR 0029）。
 
 运行时快照（Runtime Snapshot）是与共享静态数组分离的版本化制品。Accepted ADR 0025 要求
 #302 使用版本化路网修订标识、LFCA origin digest/length、静态契约版本、world identity、

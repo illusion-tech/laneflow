@@ -52,7 +52,13 @@ hop 是否受控：用已编译机动出现项的 `entry..exit` 定位 path，�
 归独立切片；本切片不得把「静态有、动态无」的出现项缺口留在生产路径。
 
 距离查询继续沿已编译边序号 + 共享根毫米边长做 checked 加；溢出 `BeyondFinite`，
-不拒绝注册。共享根不再为路线预计算 `distance_to_end` 列。
+不拒绝注册。共享根不再为路线预计算 `distance_to_end`、`next_controlled_transition`
+或 `speed_limit_transitions`。tick 的信号停车距离沿已编译边扫描 hop 门，与
+`hop_permitted` 同一套解析。
+
+编制 `StaticRoute.canvas_selection` 随 table 删除，不迁入 Runtime。走廊生成器停止
+`add_static_route`，把有序边键写进 catalog 0.3。LFSM 历史实体代码 34 与 LFSD
+关系角色 13–16 禁止出现。
 
 ## 2. LFCA / 关系 / 身份删除清单
 
