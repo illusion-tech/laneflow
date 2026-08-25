@@ -97,8 +97,8 @@ fn dump_portable_noop_when_requested() {
     if std::env::var_os("DUMP_PORTABLE").is_none() {
         return;
     }
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/portable/lfsd-noop");
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/portable/lfsd-noop");
     std::fs::create_dir_all(&dir).unwrap();
     let candidate = candidate();
     std::fs::write(dir.join("expected.lfsd"), candidate.semantic_diff().bytes()).unwrap();

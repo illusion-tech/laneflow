@@ -815,12 +815,12 @@ artifact、source map 和 genesis/base diff 候选，避免后续错误配对。
 ### 8.1 唯一输入与候选结果
 
 发射器只能同时借用同一个 `CompilationOutput` 的 LIR 和来源映射输入，并接收一份显式、
-已规范化的 `PortableEmissionProvenanceV1`。后者是 exact-byte 确定性输入的一部分，不能由
+已规范化的 `PortableEmissionProvenance`。后者是 exact-byte 确定性输入的一部分，不能由
 发射器读取工作目录、目标平台或时钟临时拼装：
 
 ```text
     +----------------------------------+     +------------------------------+
-    | CompilationOutput                |     | PortableEmissionProvenanceV1 |
+    | CompilationOutput                |     | PortableEmissionProvenance   |
     | ValidatedCanonicalLir            |     | canonical compilerBuildId    |
     | + ValidatedSourceMapInput        |     +---------------+--------------+
     +----------------+-----------------+                     |
@@ -892,7 +892,7 @@ artifact、source map 和 genesis/base diff 候选，避免后续错误配对。
 ```
 
 调用方不能分别构造或重新配对 LIR/source-map input。一次确定性比较的完整规范输入是
-`CompilationOutput + PortableEmissionProvenanceV1 + base binding`；`limits` 和 worker 数只
+`CompilationOutput + PortableEmissionProvenance + base binding`；`limits` 和 worker 数只
 控制资源，不进入 bytes。相同完整规范输入在所有支持平台必须产生相同 bytes；显式改变
 build provenance 可以改变 LFCA/LFSM/LFCP binding 和 artifact digest，但不得改变规范语义
 未变时的 `NetworkRevisionId`。`laneflow-format` 提供写入器与结构视图；对私有编译器 LIR
@@ -1116,7 +1116,7 @@ Ubuntu 和两个 fresh process 之间比较三对象 exact bytes 与全部计算
 - [x] 冻结 Text/RoadEditing 来源位置的判别值、字段 registry、规范排序和混合来源结构
       审阅锚点；
 - [x] 冻结 artifact/source-map/receipt 与 base/target 的摘要+精确长度绑定；
-- [x] 冻结 `CompilationOutput + PortableEmissionProvenanceV1` 完整输入、候选对象不可拆分
+- [x] 冻结 `CompilationOutput + PortableEmissionProvenance` 完整输入、候选对象不可拆分
       成功和发布提交点；
 - [x] 冻结 pre-hash 上限、结构计数上限、硬格式上限和失败原子性；
 - [x] 由非作者审阅者仅依据本文人工重建两个 revision 向量和最小对象关键 offset；
@@ -1646,7 +1646,7 @@ tag 2 必须逐值等于 `ContractVersions.constraintContractVersion`。结构�
 `ArtifactClaims(0x0008)` 只有 `ArtifactClaims(0x0001)` singleton：
 `1:declaredNetworkRevisionId:Sha256:R`。
 
-`PortableEmissionProvenanceV1` 精确提供 `compilerBuildId`，其余字段由 v1 规则派生：
+`PortableEmissionProvenance` 精确提供 `compilerBuildId`，其余字段由 Identity v1 规则派生：
 
 - `compilerBuildId` 是构建系统一次提供的 1..=128-byte ASCII 标识，必须匹配
   `[A-Za-z0-9][A-Za-z0-9._+@-]{0,127}`；同一 compiler build 的所有支持 target 必须提供

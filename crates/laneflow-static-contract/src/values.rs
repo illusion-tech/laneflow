@@ -118,7 +118,7 @@ pub fn millimetres_i32_from_si(meters: f64) -> Option<i32> {
     i32::try_from(si_times_one_thousand(meters)?).ok()
 }
 
-/// 编制朝向量化到 `f32`：`+π` 位型折成 `-π`。非有限返回 `None`。
+/// 编制朝向量化到 `f32`：`+π` 位型折成 `-π`，`-0.0` 折成 `+0.0`。非有限返回 `None`。
 #[must_use]
 pub fn heading_f32_from_si(radians: f64) -> Option<f32> {
     if !radians.is_finite() {
@@ -130,6 +130,9 @@ pub fn heading_f32_from_si(radians: f64) -> Option<f32> {
     }
     if quantized.to_bits() == HEADING_PLUS_PI_F32_BITS {
         return Some(f32::from_bits(HEADING_MINUS_PI_F32_BITS));
+    }
+    if quantized.to_bits() == (-0.0_f32).to_bits() {
+        return Some(0.0);
     }
     Some(quantized)
 }
@@ -186,5 +189,12 @@ mod millimetre_quantize_tests {
         assert!(!heading_f32_in_legal_closure(f32::from_bits(
             HEADING_PLUS_PI_F32_BITS
         )));
+    }
+
+    #[test]
+    fn folds_negative_zero_heading_to_positive_zero() {
+        let folded = heading_f32_from_si(-0.0).expect("finite heading");
+        assert_eq!(folded.to_bits(), 0.0_f32.to_bits());
+        assert!(heading_f32_in_legal_closure(folded));
     }
 }

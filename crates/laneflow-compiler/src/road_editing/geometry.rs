@@ -43,6 +43,7 @@ pub(super) enum NumericFreezeError {
     SourceJoinGapExceeded,
     DegenerateCanonicalSegment,
     DirectionDiscontinuity,
+    LaneEdgeLengthOutOfRange,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

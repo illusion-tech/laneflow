@@ -165,16 +165,18 @@ v0.2 不提供 in-place route mutation。需要替换 route 时，应注册新 r
 
 状态：已接受。
 
-route following 继续遵守 ADR 0003 与 `core-runtime.md`：
+route following 遵守 ADR 0003 与 `traffic-runtime-integer-geometry.md`：
 
-- Core 不读取 wall clock。
-- 每个 world 使用固定 `fixed_delta_time_ms`。
+- Runtime 不读取 wall clock。
+- 每个 world 使用固定 `fixed_delta_time_ms ∈ [4, 1000]`。
 - `TickInput.delta_time_ms` 必须与 world 固定步长一致。
-- travel distance 先把 fixed delta 转成秒，再由 `effective_speed * (fixed_delta_time_ms as f64 / 1000.0)` 得到；计算结果必须保持 finite。
-- 当前生产实现的速度、距离、edge 长度和 edge 进度使用 `f64` 新类型，并拒绝非有限值。
-- edge boundary snap 与 remainder 使用 crate-private 的 edge boundary/remainder owner；它不与最小 edge length、纵向约束或物理 gap owner 合并。
+- IIDM 仍在瞬时 SI 中算出本拍 travel 与 `next_speed`；已提交行程是整数毫米，
+  `carry_um` 保留未凑满 1 mm 的余数。不得用 `2×travel/Δt − v0` 反推已提交速度。
+- 已提交速度、边长和边进度的权威是 `u32` mm / mm/s；公开米制面只作编制输入或只读换算。
+- 满边且下一跳许可时进入下一条 `progress_mm = 0`；满边但下一跳拒绝则停在
+  `progress_mm == length_mm`。
 
-ADR 0014 的目标不直接改写上述 current-f64 行为：迁移后 `EdgeLength` 和单值控制域使用经过检查的 `f32`，`EdgeProgress` 的唯一有效值由高位/残差组合得到；行程、剩余量、边界和快照不得只读取高位分量。#125 拆分 current-f64 领域 owner，#127 离线标定 target-f32；#144 的原子候选未通过性能门槛并已回退，所以本节生产描述仍是 current-f64。
+ADR 0014 的残差 `f32` 进度不是现行合同。#125 / #144 的 current-f64 领域表是历史证据。
 
 单 tick 可以跨越多个 edge，但实现必须有硬上界：
 

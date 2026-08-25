@@ -2321,8 +2321,8 @@ fn validate_iidm(
             return Err(semantic_error(field, violation, expected_key));
         }
     }
-    if value.emergency_deceleration_meters_per_second_squared()
-        < value.comfortable_deceleration_meters_per_second_squared()
+    if (value.emergency_deceleration_meters_per_second_squared() as f32)
+        < (value.comfortable_deceleration_meters_per_second_squared() as f32)
     {
         return Err(invalid_combination(
             "vehicleProfile.iidm.emergencyDecelerationMetersPerSecondSquared",

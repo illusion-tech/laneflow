@@ -97,8 +97,7 @@ fn installs_closed_bytes_only_at_digest_path_and_reuses_exact_winner() {
 fn installs_closed_exact_bytes_without_accepting_caller_binding() {
     let root = TestRoot::new("exact-bytes");
     let store = LocalPortableObjectInstaller::try_open(root.path()).unwrap();
-    let bytes =
-        include_bytes!("../../tests/fixtures/portable/lfca-variants/min-headless.lfca");
+    let bytes = include_bytes!("../../tests/fixtures/portable/lfca-variants/min-headless.lfca");
     let installed = store.install_exact_bytes(bytes).unwrap();
     assert_eq!(
         installed.disposition(),

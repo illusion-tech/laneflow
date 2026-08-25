@@ -301,7 +301,10 @@ InitialTrafficData final assembly
 
 First-error 顺序同样是 contract：array domain error 按输入顺序；duplicate 锚定第二个 occurrence；Phase state 先按 record 顺序报告 unknown/duplicate group，再按 `groupIds` 顺序报告第一个 missing group；global coverage/usage 按 StopLine、Group、Controller normalization order；Route 按 route/`edgeIds` 顺序。
 
-当前 world compatibility 按以下顺序执行：验证 positive fixed delta；按 Controller/Phase normalization order 检查 `durationMs >= fixedDeltaTimeMs`；构造 time-0 signal snapshot；注册 initial routes；按既有 overlap 规则校验并创建 initial vehicles；最后发布 world。#96 已用 SignalStop、hard projection 与 permission-aware traversal 的完整车辆合规替代 capability guard，non-empty Signals 可与 initial/runtime vehicles 组合。#496 G2（ADR 0028）把步长检查改为 `4..=1000` ms，并把相位检查改为正整数倍；G2 前不得用倍数规则拒绝现行制品。
+`TrafficWorld::install` 按以下顺序关闭：步长必须落在 `4..=1000` ms；按
+Controller/Phase 顺序检查 `durationMs >= dt` 且 `durationMs % dt == 0`；再构造
+time-0 signal snapshot。短相位不得靠 tick 跳过。#96 已用 SignalStop、hard
+projection 与 permission-aware traversal 的完整车辆合规替代 capability guard。
 
 `InitialTrafficData` 已包含 immutable signal registry，并在组装时按自身 `LaneGraph` 重绑定和复验 graph-dependent handles。Core 保留不经 JSON 的 programmatic construction path；runtime handles 永不持久化到 external package。
 

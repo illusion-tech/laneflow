@@ -65,7 +65,7 @@ regularity visit cache、待提交几何包装与单 corridor 临时集合使用
 
 可移植候选发射由 `emit_portable_candidate` 提供。它只能原子借用同一个
 `CompilationOutput` 中已配对的 LIR/source-map input，并接收规范化
-`PortableEmissionProvenanceV1`、显式 `PortableDiffBase::{Genesis, Artifact}` 和格式上限。
+`PortableEmissionProvenance`、显式 `PortableDiffBase::{Genesis, Artifact}` 和格式上限。
 成功结果 `PortablePublicationCandidate` 同时拥有 LFCA、LFSM、LFSD 的 exact bytes、
 `Sha256Digest`、`ExactByteLength`、`sha256/<lowercase-hex>` object key 与
 `NetworkRevisionId`。这些计算绑定在公开 API 中保持 `laneflow-static-contract` 的强类型，
@@ -76,7 +76,7 @@ geometry、static rule 与全局 spatial 规则产生诊断性 LFSD。
 
 发射器对受检 table/RecordVector 的顺序消费使用单游标零拷贝迭代器；writer 适配层把
 nested/top fields、rows、tables、sections 降低到少量连续 arena，并通过
-`PreparedObjectV1` 只执行一次完整计量/预检。ordinal 随机访问只保留给 singleton 或真正的
+`PreparedObject` 只执行一次完整计量/预检。ordinal 随机访问只保留给 singleton 或真正的
 定位读取，不得用于全表顺序扫描。
 
 该返回值仍是未受信内存候选：checked base 只证明格式结构和直接值域，不证明完整 artifact

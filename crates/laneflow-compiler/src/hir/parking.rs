@@ -4,10 +4,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    EntityKind, FieldTag, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_VEHICLE_LENGTH_MM,
-    MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_VEHICLE_LENGTH_MM, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM,
-    PARKING_HEADING_OFFSET_MAXIMUM_RADIANS, PARKING_HEADING_OFFSET_MINIMUM_RADIANS, ParkingAreaId,
-    ParkingSpaceId, heading_f32_from_si, heading_f32_in_legal_closure, millimetres_from_si,
+    EntityKind, FieldTag, HEADING_MINUS_PI_F32_BITS, HEADING_PLUS_PI_F32_BITS,
+    MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_VEHICLE_LENGTH_MM, MIN_PARKING_LATERAL_OFFSET_ABS_MM,
+    MIN_VEHICLE_LENGTH_MM, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, ParkingAreaId, ParkingSpaceId,
+    heading_f32_from_si, heading_f32_in_legal_closure, millimetres_from_si,
     millimetres_i32_from_si,
 };
 
@@ -480,8 +480,8 @@ fn parking_heading_violation(value: f64) -> Option<ParkingGeometryViolation> {
         None
     } else {
         Some(ParkingGeometryViolation::OutsideHalfOpenRange {
-            minimum_inclusive_bits: PARKING_HEADING_OFFSET_MINIMUM_RADIANS.to_bits(),
-            maximum_exclusive_bits: PARKING_HEADING_OFFSET_MAXIMUM_RADIANS.to_bits(),
+            minimum_inclusive_bits: HEADING_MINUS_PI_F32_BITS,
+            maximum_exclusive_bits: HEADING_PLUS_PI_F32_BITS,
         })
     }
 }

@@ -98,6 +98,17 @@ fn install_accepts_finest_and_coarsest_tick() {
 }
 
 #[test]
+fn install_rejects_phase_not_multiple_of_tick() {
+    let revision = revision();
+    assert_eq!(
+        TrafficWorld::install(Arc::clone(&revision), config(16, 1))
+            .map(|_| ())
+            .unwrap_err(),
+        InstallError::PhaseNotMultipleOfTick
+    );
+}
+
+#[test]
 fn static_route_rejects_out_of_range() {
     let revision = revision();
     let count = revision

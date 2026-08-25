@@ -380,7 +380,7 @@ fn si_comfort_travel(
     let min_gap_m = f64::from(si_meters(profile.min_gap_mm()));
     let envelope =
         speed_limit_path_envelope(edges, lengths, speed_limits, cursor, progress_mm, delta_s)?;
-    let mut travel = iidm_travel(speed, desired, leader_m, profile, delta_s)?;
+    let (mut travel, mut next_speed) = iidm_travel(speed, desired, leader_m, profile, delta_s)?;
     travel = clamp_si_travel(
         travel,
         leader_m,
@@ -389,14 +389,9 @@ fn si_comfort_travel(
         route_end,
         envelope,
     );
-    if !travel.is_finite() {
+    if !travel.is_finite() || !next_speed.is_finite() {
         return None;
     }
-    let mut next_speed = if travel <= 0.0 {
-        0.0
-    } else {
-        (2.0 * travel / delta_s - speed).max(0.0).min(desired)
-    };
     next_speed = constrain_upcoming_speed_limits(
         speed,
         next_speed,
@@ -458,7 +453,7 @@ fn iidm_travel(
     leader_gap: Option<f64>,
     profile: VehicleProfileView,
     delta_s: f64,
-) -> Option<f64> {
+) -> Option<(f64, f64)> {
     if !speed.is_finite() || !desired.is_finite() || delta_s <= 0.0 {
         return None;
     }
@@ -469,7 +464,7 @@ fn iidm_travel(
         return None;
     }
     if leader_gap.is_some_and(|gap| gap <= 0.0) {
-        return Some(0.0);
+        return Some((0.0, 0.0));
     }
     let speed_term = if desired <= 0.0 {
         1.0
@@ -486,7 +481,7 @@ fn iidm_travel(
     let accel = accel_max * (1.0 - speed_term - gap_term);
     let next_speed = (speed + accel * delta_s).max(0.0).min(desired.max(0.0));
     let travel = ((speed + next_speed) * 0.5 * delta_s).max(0.0);
-    travel.is_finite().then_some(travel)
+    (travel.is_finite() && next_speed.is_finite()).then_some((travel, next_speed))
 }
 
 fn speed_limit_path_envelope(
@@ -688,12 +683,12 @@ fn apply_travel_mm(
         let edge = *edges.get(index)?;
         let edge_length = *lengths.get(edge.index())?;
         let leftover = edge_length.saturating_sub(state.progress_mm);
-        if remaining <= leftover {
+        if remaining < leftover {
             state.progress_mm = state.progress_mm.saturating_add(remaining);
             break;
         }
         remaining -= leftover;
-        if !hop_permitted(index) {
+        if !hop_permitted(index) || index + 1 >= edges.len() {
             state.progress_mm = edge_length;
             break;
         }
@@ -709,13 +704,15 @@ mod preview {
     use super::*;
 
     use laneflow_format::{FormatLimits, check_canonical_network_input};
-    use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
+    use laneflow_static_contract::{
+        ParticipantClassOrdinal, StaticRouteOrdinal, VehicleProfileOrdinal,
+    };
     use laneflow_static_network::{
         SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
         build_shared_network_revision,
     };
 
-    use crate::{VehicleSpawnInput, WorldConfig};
+    use crate::{RouteHandle, VehicleHandle, VehicleSpawnInput, WorldConfig};
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
         "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
@@ -868,5 +865,104 @@ mod preview {
             before_progress
         );
         assert_eq!(world.time_ms, 0);
+    }
+
+    fn travel_state(route_edge_index: u32, progress_mm: u32) -> VehicleState {
+        VehicleState {
+            handle: VehicleHandle::new(0, 0),
+            profile: VehicleProfileOrdinal::from_raw(0),
+            class: ParticipantClassOrdinal::from_raw(0),
+            route: RouteHandle::static_route(0),
+            route_edge_index,
+            progress_mm,
+            carry_um: 0,
+            speed_mm_s: 0,
+            length_mm: 4_500,
+            status: VehicleStatus::Active,
+            parking: None,
+        }
+    }
+
+    #[test]
+    fn apply_travel_hops_when_remaining_equals_leftover_and_hop_is_permitted() {
+        let edges = [LaneEdgeOrdinal::from_raw(0), LaneEdgeOrdinal::from_raw(1)];
+        let lengths = [1_000, 2_000];
+        let mut state = travel_state(0, 500);
+        apply_travel_mm(&mut state, &edges, &lengths, 500, |index| {
+            index + 1 < edges.len()
+        })
+        .unwrap();
+        assert_eq!(state.route_edge_index, 1);
+        assert_eq!(state.progress_mm, 0);
+    }
+
+    #[test]
+    fn apply_travel_stays_at_length_when_remaining_equals_leftover_and_hop_is_denied() {
+        let edges = [LaneEdgeOrdinal::from_raw(0), LaneEdgeOrdinal::from_raw(1)];
+        let lengths = [1_000, 2_000];
+        let mut state = travel_state(0, 500);
+        apply_travel_mm(&mut state, &edges, &lengths, 500, |_| false).unwrap();
+        assert_eq!(state.route_edge_index, 0);
+        assert_eq!(state.progress_mm, 1_000);
+    }
+
+    #[test]
+    fn hard_stop_clears_carry_um() {
+        let mut world = install_preview_world();
+        let route = world.static_route(StaticRouteOrdinal::from_raw(0)).unwrap();
+        let profile = world
+            .traffic()
+            .relations()
+            .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
+            .unwrap();
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000 + profile.length_mm() + profile.min_gap_mm(),
+                0,
+            ))
+            .unwrap();
+        let follower = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .unwrap();
+        let mut state = world.vehicle_state(follower).copied().unwrap();
+        state.carry_um = 777;
+        let next = world.advance_active_vehicle(state, 0.1).unwrap();
+        assert_eq!(next.carry_um, 0);
+        assert_eq!(next.speed_mm_s, 0);
+    }
+
+    #[test]
+    fn crawl_retains_sub_millimetre_carry_or_advances() {
+        let mut world = install_preview_world();
+        let route = world.static_route(StaticRouteOrdinal::from_raw(0)).unwrap();
+        let follower = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .unwrap();
+        let state = world.vehicle_state(follower).copied().unwrap();
+        let next = world.advance_active_vehicle(state, 0.004).unwrap();
+        assert!(
+            next.progress_mm > state.progress_mm || next.carry_um > state.carry_um,
+            "crawl should accumulate distance, carry {} -> {}, progress {} -> {}",
+            state.carry_um,
+            next.carry_um,
+            state.progress_mm,
+            next.progress_mm
+        );
+        assert_ne!(next.status, VehicleStatus::Completed);
     }
 }

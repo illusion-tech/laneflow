@@ -454,6 +454,8 @@ pub enum RoadEditingNumericViolation {
     DegenerateCanonicalSegment,
     /// 规范弦或跨边连接超过所选方向档。
     DirectionDiscontinuity,
+    /// LaneEdge 冻结长度量化后越出 `100..=10_000_000` mm。
+    LaneEdgeLengthOutOfRange,
 }
 /// size-prefixed 道路编辑来源在受检 reader 边界的闭合失败类别。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -619,10 +621,10 @@ pub enum ParkingGeometryViolation {
     },
     /// 量化并折叠后的朝向不在 `-π <= x < π`。
     OutsideHalfOpenRange {
-        /// 包含下界的 IEEE 754 位模式。
-        minimum_inclusive_bits: u64,
-        /// 排他上界的 IEEE 754 位模式。
-        maximum_exclusive_bits: u64,
+        /// 包含下界的 `f32` IEEE 754 位模式。
+        minimum_inclusive_bits: u32,
+        /// 排他上界的 `f32` IEEE 754 位模式。
+        maximum_exclusive_bits: u32,
     },
 }
 
@@ -4186,8 +4188,8 @@ impl fmt::Display for ParkingGeometryViolationDisplay {
             } => write!(
                 formatter,
                 "量化并折叠后必须位于 [{}, {})",
-                f64::from_bits(minimum_inclusive_bits),
-                f64::from_bits(maximum_exclusive_bits)
+                f32::from_bits(minimum_inclusive_bits),
+                f32::from_bits(maximum_exclusive_bits)
             ),
         }
     }
