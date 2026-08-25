@@ -6,7 +6,7 @@ use std::{error::Error, num::NonZeroU32, sync::Arc};
 
 use bevy::prelude::*;
 use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
-use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId, SpatialSession};
 use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
@@ -16,11 +16,11 @@ use laneflow_static_network::{
 };
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
 );
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .map_err(|error| format!("{error:?}"))?;
     let revision = build_shared_network_revision(
         input,
@@ -41,15 +41,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         VehicleProfileOrdinal::from_raw(0),
         route,
         0,
-        1.0 + profile.length() + profile.min_gap() + 2.0,
-        0.0,
+        1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+        0,
     ))?;
     world.spawn_vehicle(VehicleSpawnInput::new(
         VehicleProfileOrdinal::from_raw(0),
         route,
         0,
-        1.0,
-        0.0,
+        1_000,
+        0,
     ))?;
     let spatial = SpatialSession::bind(revision)
         .map_err(|error| format!("{error:?}"))?

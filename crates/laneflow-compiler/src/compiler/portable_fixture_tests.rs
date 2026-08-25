@@ -392,8 +392,8 @@ fn full_spatial_portable_fixture_output() -> CompilationOutput {
         .unwrap()
 }
 
-fn full_spatial_portable_fixture_provenance() -> crate::PortableEmissionProvenanceV1 {
-    crate::PortableEmissionProvenanceV1::try_new("laneflow-fixture-298-full-spatial-v1").unwrap()
+fn full_spatial_portable_fixture_provenance() -> crate::PortableEmissionProvenance {
+    crate::PortableEmissionProvenance::try_new("laneflow-fixture-298-full-spatial-v1").unwrap()
 }
 
 pub(crate) fn full_spatial_portable_fixture_candidate() -> crate::PortablePublicationCandidate {
@@ -402,7 +402,7 @@ pub(crate) fn full_spatial_portable_fixture_candidate() -> crate::PortablePublic
     crate::emit_portable_candidate(
         &output,
         &provenance,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
         crate::PortableDiffBase::Genesis,
     )
     .unwrap()
@@ -413,31 +413,64 @@ pub(crate) fn full_spatial_portable_artifact_base_fixture_candidate()
     let output = full_spatial_portable_fixture_output();
     let provenance = full_spatial_portable_fixture_provenance();
     let genesis = full_spatial_portable_fixture_candidate();
-    let base = laneflow_format::preflight_object_values_v1(
+    let base = laneflow_format::preflight_object_values(
         genesis.canonical_artifact().bytes(),
         laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
     )
     .unwrap();
     crate::emit_portable_candidate(
         &output,
         &provenance,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
         crate::PortableDiffBase::Artifact(base),
     )
     .unwrap()
 }
 
 const FULL_SPATIAL_EXPECTED_LFCA: &[u8] =
-    include_bytes!("../../tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca");
+    include_bytes!("../../tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca");
 const FULL_SPATIAL_EXPECTED_LFSM: &[u8] =
-    include_bytes!("../../tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsm");
+    include_bytes!("../../tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsm");
 const FULL_SPATIAL_EXPECTED_LFSD: &[u8] =
-    include_bytes!("../../tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsd");
+    include_bytes!("../../tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsd");
 const FULL_SPATIAL_NETWORK_REVISION: [u8; 32] = [
-    0xdc, 0x1f, 0x3d, 0x54, 0x43, 0x8d, 0x8a, 0xe4, 0x92, 0x1d, 0xc0, 0x45, 0xfd, 0x8a, 0x0c, 0x0d,
-    0x1a, 0x1b, 0x54, 0x36, 0x3e, 0x41, 0x51, 0x60, 0x44, 0x5b, 0x27, 0xd4, 0x27, 0xdc, 0xe9, 0x01,
+    0x74, 0x12, 0x3d, 0x7d, 0x3b, 0x79, 0x37, 0x7b, 0xa3, 0xee, 0x5b, 0x9e, 0xbf, 0xcd, 0x08, 0xb4,
+    0x12, 0x00, 0x2a, 0xce, 0x17, 0x4d, 0x2e, 0xa7, 0x1a, 0xe5, 0x13, 0x0e, 0x7d, 0xc5, 0xee, 0x54,
 ];
+
+#[test]
+fn dump_portable_full_spatial_when_requested() {
+    if std::env::var_os("DUMP_PORTABLE").is_none() {
+        return;
+    }
+    let candidate = full_spatial_portable_fixture_candidate();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/portable-v2/lfca-v2-full-spatial");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("expected.lfca"),
+        candidate.canonical_artifact().bytes(),
+    )
+    .unwrap();
+    std::fs::write(dir.join("expected.lfsm"), candidate.source_map().bytes()).unwrap();
+    std::fs::write(dir.join("expected.lfsd"), candidate.semantic_diff().bytes()).unwrap();
+    let revision = candidate.network_revision().into_digest().into_bytes();
+    std::fs::write(
+        dir.join("bindings.txt"),
+        format!(
+            "lfca {}\nlfsm {}\nlfsd {}\nrevision {}\n",
+            candidate.canonical_artifact().object_key(),
+            candidate.source_map().object_key(),
+            candidate.semantic_diff().object_key(),
+            revision
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>(),
+        ),
+    )
+    .unwrap();
+}
 
 #[test]
 fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
@@ -453,25 +486,25 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.canonical_artifact().object_key(),
-        "sha256/87e1789dd94f664e2506c3a1f0faac1a86c647c14c3ccdafb536777d273e3a50"
+        "sha256/7562dd4a2794216709c019116cd856c46f3c1f1152af47c98755a4af821e40dc"
     );
     assert_eq!(
         candidate.source_map().object_key(),
-        "sha256/c3a0dd4642ef322303eaf3c7d3a3d89f4fea8da05a7f1e733538127dc8879be9"
+        "sha256/cd6e7bff62c6ab99ff16ce400f97ab27031a2bc97acd51650819a1f90a0aad93"
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/60d65447df655a68c6bda464b1dda6e9c5772fb6c674f76964e16066106543c5"
+        "sha256/318201644f17b455524e9a8a434b0503b3103f52026c23b671d2ab83693125a1"
     );
     assert_eq!(
         candidate.network_revision(),
         network_revision(FULL_SPATIAL_NETWORK_REVISION)
     );
 
-    let artifact = laneflow_format::preflight_object_values_v1(
+    let artifact = laneflow_format::preflight_object_values(
         FULL_SPATIAL_EXPECTED_LFCA,
         laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
     )
     .unwrap()
     .registry_view();

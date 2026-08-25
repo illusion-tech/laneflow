@@ -42,8 +42,13 @@ impl TrafficWorld {
         revision: Arc<SharedNetworkRevision>,
         config: WorldConfig,
     ) -> Result<Self, InstallError> {
-        if config.fixed_delta_time_ms() == 0 {
-            return Err(InstallError::NonPositiveDelta);
+        let dt = config.fixed_delta_time_ms();
+        if !(4..=1_000).contains(&dt) {
+            return Err(InstallError::DeltaOutOfRange {
+                actual: dt,
+                min: 4,
+                max: 1_000,
+            });
         }
         if config.worker_count() != 1 {
             return Err(InstallError::WorkerCountNotOne);
@@ -195,7 +200,7 @@ impl TrafficWorld {
         if live >= self.config.vehicle_capacity() {
             return Err(SpawnError::CapacityExceeded);
         }
-        if let Some(error) = spawn_motion_error(input.progress(), input.initial_speed()) {
+        if let Some(error) = spawn_motion_error(input.progress_mm(), input.initial_speed_mm_s()) {
             return Err(error);
         }
         let profile = self
@@ -211,22 +216,27 @@ impl TrafficWorld {
                 .ok_or(SpawnError::UnknownRoute)?;
             *edges.get(cursor).ok_or(SpawnError::RouteIndexOutOfRange)?
         };
-        let length = self.revision.traffic().lane_lengths_meters()[edge.index()];
-        if input.progress() > length {
+        let length_mm = self.revision.traffic().lane_lengths_millimetres()[edge.index()];
+        if input.progress_mm() > length_mm {
             return Err(SpawnError::InvalidProgress);
         }
         let speed_limit = self
             .revision
             .traffic()
-            .lane_speed_limits_meters_per_second()[edge.index()];
-        if input.initial_speed() > speed_limit {
+            .lane_speed_limits_millimetres_per_second()[edge.index()];
+        if input.initial_speed_mm_s() > speed_limit {
             return Err(SpawnError::SpeedExceedsLimit);
         }
         if self.route_suffix_denied(input.route(), profile.class(), cursor) {
             return Err(SpawnError::AccessDenied);
         }
         if self
-            .overlap_blocker(input.route(), cursor, input.progress(), profile.length())
+            .overlap_blocker(
+                input.route(),
+                cursor,
+                input.progress_mm(),
+                profile.length_mm(),
+            )
             .is_some()
         {
             return Err(SpawnError::Overlap);
@@ -247,9 +257,10 @@ impl TrafficWorld {
             class: profile.class(),
             route: input.route(),
             route_edge_index: input.route_edge_index(),
-            progress: input.progress(),
-            speed: input.initial_speed(),
-            length: profile.length(),
+            progress_mm: input.progress_mm(),
+            carry_um: 0,
+            speed_mm_s: input.initial_speed_mm_s(),
+            length_mm: profile.length_mm(),
             status: VehicleStatus::Active,
             parking: None,
         };
@@ -291,7 +302,7 @@ impl TrafficWorld {
             return Err(ReplaceError::StaleHandle);
         };
 
-        if let Some(error) = spawn_motion_error(input.progress(), input.initial_speed()) {
+        if let Some(error) = spawn_motion_error(input.progress_mm(), input.initial_speed_mm_s()) {
             return Err(replace_motion_error(error));
         }
         let profile = self
@@ -309,28 +320,31 @@ impl TrafficWorld {
                 .get(cursor)
                 .ok_or(ReplaceError::RouteIndexOutOfRange)?
         };
-        let length = self.revision.traffic().lane_lengths_meters()[edge.index()];
-        if input.progress() > length {
+        let length_mm = self.revision.traffic().lane_lengths_millimetres()[edge.index()];
+        if input.progress_mm() > length_mm {
             return Err(ReplaceError::InvalidProgress);
         }
         let speed_limit = self
             .revision
             .traffic()
-            .lane_speed_limits_meters_per_second()[edge.index()];
-        if input.initial_speed() > speed_limit {
+            .lane_speed_limits_millimetres_per_second()[edge.index()];
+        if input.initial_speed_mm_s() > speed_limit {
             return Err(ReplaceError::SpeedExceedsLimit);
         }
         if self.route_suffix_denied(input.route(), profile.class(), cursor) {
             return Err(ReplaceError::AccessDenied);
         }
-        if let Some(blocker) =
-            self.overlap_blocker(input.route(), cursor, input.progress(), profile.length())
-        {
+        if let Some(blocker) = self.overlap_blocker(
+            input.route(),
+            cursor,
+            input.progress_mm(),
+            profile.length_mm(),
+        ) {
             let (blocker_ahead, bumper_gap) = self.overlap_relation(
                 input.route(),
                 cursor,
-                input.progress(),
-                profile.length(),
+                input.progress_mm(),
+                profile.length_mm(),
                 blocker,
             );
             return Err(ReplaceError::Blocked(VehicleReplaceBlock {
@@ -363,9 +377,10 @@ impl TrafficWorld {
             class: profile.class(),
             route: input.route(),
             route_edge_index: input.route_edge_index(),
-            progress: input.progress(),
-            speed: input.initial_speed(),
-            length: profile.length(),
+            progress_mm: input.progress_mm(),
+            carry_um: 0,
+            speed_mm_s: input.initial_speed_mm_s(),
+            length_mm: profile.length_mm(),
             status: VehicleStatus::Active,
             parking: None,
         };
@@ -431,7 +446,8 @@ impl TrafficWorld {
             .as_mut()
             .expect("resolved vehicle remains live");
         state.status = VehicleStatus::Parked;
-        state.speed = 0.0;
+        state.speed_mm_s = 0;
+        state.carry_um = 0;
         state.parking = Some(space);
         self.parking_occupants[space_index] = Some(vehicle);
         Ok(())
@@ -465,7 +481,7 @@ impl TrafficWorld {
                         let edge = *edges.get(usize::try_from(state.route_edge_index).ok()?)?;
                         PoseSource::Lane {
                             edge,
-                            progress: state.progress,
+                            progress_mm: state.progress_mm,
                         }
                     }
                 };
@@ -599,11 +615,11 @@ impl TrafficWorld {
         &self,
         route: RouteHandle,
         cursor: usize,
-        progress: f64,
-        length: f64,
+        progress: u32,
+        length: u32,
     ) -> Option<VehicleHandle> {
         let spawn_edges = self.route_edges(route)?;
-        let lengths = self.revision.traffic().lane_lengths_meters();
+        let lengths = self.revision.traffic().lane_lengths_millimetres();
         self.live_order.iter().copied().find(|&handle| {
             let Some(state) = self.vehicle_state(handle) else {
                 return false;
@@ -625,8 +641,8 @@ impl TrafficWorld {
                 length,
                 edges,
                 index,
-                state.progress,
-                state.length,
+                state.progress_mm,
+                state.length_mm,
             )
         })
     }
@@ -635,23 +651,23 @@ impl TrafficWorld {
         &self,
         route: RouteHandle,
         cursor: usize,
-        progress: f64,
-        length: f64,
+        progress: u32,
+        length: u32,
         blocker: VehicleHandle,
-    ) -> (bool, f64) {
+    ) -> (bool, i64) {
         let Some(spawn_edges) = self.route_edges(route) else {
-            return (true, 0.0);
+            return (true, 0);
         };
         let Some(leader) = self.vehicle_state(blocker) else {
-            return (true, 0.0);
+            return (true, 0);
         };
         let Some(blocker_edges) = self.route_edges(leader.route) else {
-            return (true, 0.0);
+            return (true, 0);
         };
         let Ok(blocker_index) = usize::try_from(leader.route_edge_index) else {
-            return (true, 0.0);
+            return (true, 0);
         };
-        let lengths = self.revision.traffic().lane_lengths_meters();
+        let lengths = self.revision.traffic().lane_lengths_millimetres();
         if let Some(gap) = occupancy_front_gap(
             lengths,
             spawn_edges,
@@ -659,8 +675,8 @@ impl TrafficWorld {
             progress,
             blocker_edges,
             blocker_index,
-            leader.progress,
-            leader.length,
+            leader.progress_mm,
+            leader.length_mm,
         ) {
             return (true, gap);
         }
@@ -668,7 +684,7 @@ impl TrafficWorld {
             lengths,
             blocker_edges,
             blocker_index,
-            leader.progress,
+            leader.progress_mm,
             spawn_edges,
             cursor,
             progress,
@@ -676,7 +692,7 @@ impl TrafficWorld {
         ) {
             return (false, gap);
         }
-        (true, 0.0)
+        (true, 0)
     }
 
     pub(crate) fn release_route_ref(&mut self, route: RouteHandle) {
@@ -784,6 +800,9 @@ fn validate_signal_programs(
             if duration_ms < fixed_delta_time_ms {
                 return Err(InstallError::PhaseShorterThanTick);
             }
+            if duration_ms % fixed_delta_time_ms != 0 {
+                return Err(InstallError::PhaseNotMultipleOfTick);
+            }
         }
     }
     Ok(())
@@ -792,18 +811,18 @@ fn validate_signal_programs(
 #[cfg(test)]
 mod overflow_tests {
     use super::*;
-    use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
     use laneflow_static_network::{
         SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
         build_shared_network_revision,
     };
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
     );
 
     fn world() -> TrafficWorld {
-        let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+        let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
             .expect("checked canonical network input");
         let revision = build_shared_network_revision(
             input,

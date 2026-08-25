@@ -2,13 +2,13 @@
 
 use laneflow_static_contract::{
     ExactByteLength, NETWORK_REVISION_DOMAIN_PREFIX, NetworkRevisionId, PortableObjectKind,
-    SECTION_FORMAT_VERSION_V1, Sha256Digest,
+    SECTION_FORMAT_VERSION, Sha256Digest,
 };
 use sha2::{Digest, Sha256};
 
 use crate::{
     FormatError, FormatLimits, FormatStructure, LimitDimension, RegistryCheckedFieldValue,
-    ValueCheckedObjectView, preflight_object_values_v1,
+    ValueCheckedObjectView, preflight_object_values,
 };
 
 /// 单份规范路网输入检查的稳定失败分类。
@@ -35,14 +35,14 @@ impl From<FormatError> for CanonicalNetworkInputError {
 /// 字段私有且只由本 crate 的检查入口构造。它不证明发布真实性；
 /// `laneflow-static-network` 仍须完成跨表、身份和 Traffic/Spatial 闭合。
 #[derive(Clone, Copy, Debug)]
-pub struct CheckedCanonicalNetworkInputV1<'a> {
+pub struct CheckedCanonicalNetworkInput<'a> {
     view: ValueCheckedObjectView<'a>,
     canonical_artifact_digest: Sha256Digest,
     canonical_artifact_byte_length: ExactByteLength,
     network_revision: NetworkRevisionId,
 }
 
-impl<'a> CheckedCanonicalNetworkInputV1<'a> {
+impl<'a> CheckedCanonicalNetworkInput<'a> {
     /// 供共享静态路网构建器顺序消费的受检 LFCA view。
     #[must_use]
     pub const fn value_checked_view(self) -> ValueCheckedObjectView<'a> {
@@ -65,35 +65,11 @@ impl<'a> CheckedCanonicalNetworkInputV1<'a> {
     }
 }
 
-/// 对一份 exact LFCA 建立共享静态路网构建所需的受检输入能力。
-pub fn check_canonical_network_input_v1(
-    lfca: &[u8],
-    limits: FormatLimits,
-) -> Result<CheckedCanonicalNetworkInputV1<'_>, CanonicalNetworkInputError> {
-    let byte_length =
-        u64::try_from(lfca.len()).map_err(|_| CanonicalNetworkInputError::ArithmeticOverflow)?;
-    let limit = limits.max_object_bytes();
-    if byte_length > limit {
-        return Err(CanonicalNetworkInputError::LimitExceeded {
-            dimension: LimitDimension::ObjectBytes,
-            actual: byte_length,
-            limit,
-        });
-    }
-
-    let view = preflight_object_values_v1(lfca, PortableObjectKind::CanonicalArtifact, limits)?;
-    checked_canonical_network_input_from_parts(
-        view,
-        sha256(lfca),
-        ExactByteLength::new(byte_length),
-    )
-}
-
 pub(crate) fn checked_canonical_network_input_from_parts(
     view: ValueCheckedObjectView<'_>,
     canonical_artifact_digest: Sha256Digest,
     canonical_artifact_byte_length: ExactByteLength,
-) -> Result<CheckedCanonicalNetworkInputV1<'_>, CanonicalNetworkInputError> {
+) -> Result<CheckedCanonicalNetworkInput<'_>, CanonicalNetworkInputError> {
     let network_revision = recompute_network_revision(view)?;
     let declared_revision = view
         .registry_view()
@@ -110,12 +86,36 @@ pub(crate) fn checked_canonical_network_input_from_parts(
         return Err(CanonicalNetworkInputError::NetworkRevisionMismatch);
     }
 
-    Ok(CheckedCanonicalNetworkInputV1 {
+    Ok(CheckedCanonicalNetworkInput {
         view,
         canonical_artifact_digest,
         canonical_artifact_byte_length,
         network_revision,
     })
+}
+
+/// 对一份 exact LFCA 建立共享静态路网构建所需的受检输入能力。
+pub fn check_canonical_network_input(
+    lfca: &[u8],
+    limits: FormatLimits,
+) -> Result<CheckedCanonicalNetworkInput<'_>, CanonicalNetworkInputError> {
+    let byte_length =
+        u64::try_from(lfca.len()).map_err(|_| CanonicalNetworkInputError::ArithmeticOverflow)?;
+    let limit = limits.max_object_bytes();
+    if byte_length > limit {
+        return Err(CanonicalNetworkInputError::LimitExceeded {
+            dimension: LimitDimension::ObjectBytes,
+            actual: byte_length,
+            limit,
+        });
+    }
+
+    let view = preflight_object_values(lfca, PortableObjectKind::CanonicalArtifact, limits)?;
+    checked_canonical_network_input_from_parts(
+        view,
+        sha256(lfca),
+        ExactByteLength::new(byte_length),
+    )
 }
 
 fn recompute_network_revision(
@@ -129,7 +129,7 @@ fn recompute_network_revision(
         let section_length = u64::try_from(section.bytes().len())
             .map_err(|_| CanonicalNetworkInputError::ArithmeticOverflow)?;
         hasher.update(section.kind().to_le_bytes());
-        hasher.update(SECTION_FORMAT_VERSION_V1.to_le_bytes());
+        hasher.update(SECTION_FORMAT_VERSION.to_le_bytes());
         hasher.update(section_length.to_le_bytes());
         hasher.update(section.bytes());
     }
@@ -151,27 +151,29 @@ const fn binding_format_error() -> CanonicalNetworkInputError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ExpectedSemanticDiffBaseV1, check_post_emission_bundle_v1};
+    use crate::{
+        ExpectedSemanticDiffBase, check_post_emission_bundle,
+    };
 
     const MIN_HEADLESS: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-variants/min-headless.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-variants/min-headless.lfca"
     );
     const CLAIM_MISMATCH: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-variants/claim-mismatch.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-variants/claim-mismatch.lfca"
     );
     const FULL_LFCA: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
     );
     const FULL_LFSM: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsm"
+        "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsm"
     );
     const FULL_LFSD: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsd"
+        "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsd"
     );
 
     #[test]
     fn checks_minimal_headless_lfca_and_binds_actual_bytes() {
-        let checked = check_canonical_network_input_v1(MIN_HEADLESS, FormatLimits::V1_HARD)
+        let checked = check_canonical_network_input(MIN_HEADLESS, FormatLimits::HARD)
             .expect("canonical input");
 
         assert_eq!(checked.value_checked_view().bytes(), MIN_HEADLESS);
@@ -186,21 +188,49 @@ mod tests {
     #[test]
     fn rejects_lfca_with_mismatched_revision_claim() {
         assert!(matches!(
-            check_canonical_network_input_v1(CLAIM_MISMATCH, FormatLimits::V1_HARD),
+            check_canonical_network_input(CLAIM_MISMATCH, FormatLimits::HARD),
             Err(CanonicalNetworkInputError::NetworkRevisionMismatch)
         ));
     }
 
     #[test]
-    fn bundle_accessor_is_identical_to_single_object_check() {
-        let direct = check_canonical_network_input_v1(FULL_LFCA, FormatLimits::V1_HARD)
-            .expect("direct canonical input");
-        let bundle = check_post_emission_bundle_v1(
+    fn rejects_non_current_format_version() {
+        let mut bytes = FULL_LFCA.to_vec();
+        bytes[4..6].copy_from_slice(&1_u16.to_le_bytes());
+        assert!(check_canonical_network_input(&bytes, FormatLimits::HARD).is_err());
+        bytes[4..6].copy_from_slice(&3_u16.to_le_bytes());
+        assert!(check_canonical_network_input(&bytes, FormatLimits::HARD).is_err());
+    }
+
+    #[test]
+    fn accepts_current_artifact() {
+        let checked = check_canonical_network_input(FULL_LFCA, FormatLimits::HARD)
+            .expect("canonical input");
+        assert_eq!(checked.value_checked_view().bytes(), FULL_LFCA);
+        let bundle = check_post_emission_bundle(
             FULL_LFCA,
             FULL_LFSM,
             FULL_LFSD,
-            ExpectedSemanticDiffBaseV1::Genesis,
-            FormatLimits::V1_HARD,
+            ExpectedSemanticDiffBase::Genesis,
+            FormatLimits::HARD,
+        )
+        .expect("bundle");
+        assert_eq!(
+            checked.network_revision(),
+            bundle.canonical_network_input().network_revision()
+        );
+    }
+
+    #[test]
+    fn bundle_accessor_is_identical_to_single_object_check() {
+        let direct = check_canonical_network_input(FULL_LFCA, FormatLimits::HARD)
+            .expect("direct canonical input");
+        let bundle = check_post_emission_bundle(
+            FULL_LFCA,
+            FULL_LFSM,
+            FULL_LFSD,
+            ExpectedSemanticDiffBase::Genesis,
+            FormatLimits::HARD,
         )
         .expect("checked bundle")
         .canonical_network_input();

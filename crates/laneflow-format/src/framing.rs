@@ -1,8 +1,8 @@
 //! 对象前导与节目录的零拷贝预检。
 
 use laneflow_static_contract::{
-    OBJECT_PREAMBLE_V1_BYTE_LENGTH, PortableObjectKind, SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH,
-    SECTION_FORMAT_VERSION_V1,
+    OBJECT_PREAMBLE_BYTE_LENGTH, PortableObjectKind, SECTION_DIRECTORY_ENTRY_BYTE_LENGTH,
+    SECTION_FORMAT_VERSION,
 };
 
 use crate::{
@@ -45,8 +45,8 @@ impl<'a> ObjectFramingView<'a> {
         if ordinal >= self.section_count() {
             return None;
         }
-        let directory_offset = u64::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
-            + u64::from(ordinal) * SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH;
+        let directory_offset = u64::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+            + u64::from(ordinal) * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH;
         let kind = read_u16(
             self.bytes,
             directory_offset,
@@ -97,10 +97,19 @@ impl<'a> SectionFramingView<'a> {
     }
 }
 
-/// 对固定对象种类执行前导、目录、exact length 与连续范围预检。
+/// 对当前对象格式版本执行前导、目录、exact length 与连续范围预检。
 pub fn preflight_object_framing(
     bytes: &[u8],
     expected_kind: PortableObjectKind,
+    limits: FormatLimits,
+) -> Result<ObjectFramingView<'_>, FormatError> {
+    preflight_object_framing_at(bytes, expected_kind, expected_kind.format_version(), limits)
+}
+
+pub(crate) fn preflight_object_framing_at(
+    bytes: &[u8],
+    expected_kind: PortableObjectKind,
+    expected_format_version: u16,
     limits: FormatLimits,
 ) -> Result<ObjectFramingView<'_>, FormatError> {
     let config = limits.config();
@@ -125,16 +134,16 @@ pub fn preflight_object_framing(
     }
 
     let format_version = read_u16(bytes, 4, FormatStructure::ObjectPreamble)?;
-    if format_version != expected_kind.format_version() {
+    if format_version != expected_format_version {
         return Err(FormatError::UnsupportedVersion {
             structure: FormatStructure::ObjectPreamble,
             actual: u64::from(format_version),
-            expected: u64::from(expected_kind.format_version()),
+            expected: u64::from(expected_format_version),
         });
     }
 
     let header_byte_length = read_u16(bytes, 6, FormatStructure::ObjectPreamble)?;
-    if header_byte_length != OBJECT_PREAMBLE_V1_BYTE_LENGTH {
+    if header_byte_length != OBJECT_PREAMBLE_BYTE_LENGTH {
         return Err(FormatError::NonCanonicalValue {
             structure: FormatStructure::ObjectPreamble,
             offset: 6,
@@ -157,7 +166,7 @@ pub fn preflight_object_framing(
         });
     }
     let section_directory_offset = read_u64(bytes, 16, FormatStructure::ObjectPreamble)?;
-    if section_directory_offset != u64::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH) {
+    if section_directory_offset != u64::from(OBJECT_PREAMBLE_BYTE_LENGTH) {
         return Err(FormatError::NonCanonicalValue {
             structure: FormatStructure::ObjectPreamble,
             offset: 16,
@@ -173,7 +182,7 @@ pub fn preflight_object_framing(
     }
 
     let directory_byte_length = u64::from(section_count)
-        .checked_mul(SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH)
+        .checked_mul(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH)
         .ok_or(FormatError::ArithmeticOverflow {
             structure: FormatStructure::SectionDirectory,
         })?;
@@ -189,7 +198,7 @@ pub fn preflight_object_framing(
         let entry_offset = section_directory_offset
             .checked_add(
                 u64::from(ordinal)
-                    .checked_mul(SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH)
+                    .checked_mul(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH)
                     .ok_or(FormatError::ArithmeticOverflow {
                         structure: FormatStructure::SectionDirectory,
                     })?,
@@ -220,11 +229,11 @@ pub fn preflight_object_framing(
             entry_offset + 2,
             FormatStructure::SectionDirectoryEntry,
         )?;
-        if section_version != SECTION_FORMAT_VERSION_V1 {
+        if section_version != SECTION_FORMAT_VERSION {
             return Err(FormatError::UnsupportedVersion {
                 structure: FormatStructure::SectionDirectoryEntry,
                 actual: u64::from(section_version),
-                expected: u64::from(SECTION_FORMAT_VERSION_V1),
+                expected: u64::from(SECTION_FORMAT_VERSION),
             });
         }
         let section_flags = read_u32(
@@ -302,18 +311,18 @@ mod tests {
         let mut bytes = vec![0_u8; usize::try_from(total).unwrap()];
         bytes[0..4].copy_from_slice(&kind.magic());
         bytes[4..6].copy_from_slice(&kind.format_version().to_le_bytes());
-        bytes[6..8].copy_from_slice(&OBJECT_PREAMBLE_V1_BYTE_LENGTH.to_le_bytes());
+        bytes[6..8].copy_from_slice(&OBJECT_PREAMBLE_BYTE_LENGTH.to_le_bytes());
         bytes[12..16].copy_from_slice(&kind.section_count().to_le_bytes());
-        bytes[16..24].copy_from_slice(&u64::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH).to_le_bytes());
+        bytes[16..24].copy_from_slice(&u64::from(OBJECT_PREAMBLE_BYTE_LENGTH).to_le_bytes());
         bytes[24..32].copy_from_slice(&total.to_le_bytes());
 
         let mut section_offset = kind.first_section_offset();
         for (ordinal, byte_length) in section_lengths.iter().copied().enumerate() {
-            let entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
-                + ordinal * usize::try_from(SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH).unwrap();
+            let entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+                + ordinal * usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
             bytes[entry..entry + 2]
                 .copy_from_slice(&u16::try_from(ordinal + 1).unwrap().to_le_bytes());
-            bytes[entry + 2..entry + 4].copy_from_slice(&SECTION_FORMAT_VERSION_V1.to_le_bytes());
+            bytes[entry + 2..entry + 4].copy_from_slice(&SECTION_FORMAT_VERSION.to_le_bytes());
             bytes[entry + 8..entry + 16].copy_from_slice(&section_offset.to_le_bytes());
             bytes[entry + 16..entry + 24].copy_from_slice(&byte_length.to_le_bytes());
             section_offset += byte_length;
@@ -326,7 +335,7 @@ mod tests {
         for kind in PortableObjectKind::ALL {
             let section_lengths = vec![4_u64; kind.section_count() as usize];
             let bytes = object_bytes(kind, &section_lengths);
-            let view = preflight_object_framing(&bytes, kind, FormatLimits::V1_HARD).unwrap();
+            let view = preflight_object_framing(&bytes, kind, FormatLimits::HARD).unwrap();
 
             assert_eq!(view.kind(), kind);
             assert_eq!(view.bytes(), bytes);
@@ -346,7 +355,7 @@ mod tests {
         let wrong_length = bytes.len() as u64 + 1;
         bytes[24..32].copy_from_slice(&wrong_length.to_le_bytes());
         assert_eq!(
-            preflight_object_framing(&bytes, kind, FormatLimits::V1_HARD)
+            preflight_object_framing(&bytes, kind, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
@@ -355,19 +364,19 @@ mod tests {
         let mut bytes = original.clone();
         bytes[12..16].copy_from_slice(&2_u32.to_le_bytes());
         assert_eq!(
-            preflight_object_framing(&bytes, kind, FormatLimits::V1_HARD)
+            preflight_object_framing(&bytes, kind, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
         );
 
         let mut bytes = original.clone();
-        let first_entry_offset = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH);
+        let first_entry_offset = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH);
         let wrong_offset = kind.first_section_offset() + 1;
         bytes[first_entry_offset + 8..first_entry_offset + 16]
             .copy_from_slice(&wrong_offset.to_le_bytes());
         assert_eq!(
-            preflight_object_framing(&bytes, kind, FormatLimits::V1_HARD)
+            preflight_object_framing(&bytes, kind, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::GapOrOverlap
@@ -377,7 +386,7 @@ mod tests {
             preflight_object_framing(
                 &original,
                 PortableObjectKind::SemanticDiff,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             )
             .unwrap_err()
             .class(),
@@ -389,7 +398,7 @@ mod tests {
     fn framing_applies_caller_limit_before_parsing() {
         let kind = PortableObjectKind::CanonicalPublicationDescriptor;
         let bytes = object_bytes(kind, &[4, 4, 4]);
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_object_bytes = bytes.len() as u64 - 1;
         let limits = FormatLimits::try_new(config).unwrap();
 
@@ -407,12 +416,12 @@ mod tests {
     fn framing_distinguishes_unknown_section_kind_from_noncanonical_order() {
         let kind = PortableObjectKind::CanonicalPublicationDescriptor;
         let original = object_bytes(kind, &[4, 4, 4]);
-        let first_entry_offset = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH);
+        let first_entry_offset = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH);
 
         let mut unknown = original.clone();
         unknown[first_entry_offset..first_entry_offset + 2].copy_from_slice(&4_u16.to_le_bytes());
         assert_eq!(
-            preflight_object_framing(&unknown, kind, FormatLimits::V1_HARD)
+            preflight_object_framing(&unknown, kind, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::UnknownKind
@@ -420,11 +429,11 @@ mod tests {
 
         let mut duplicate = original;
         let second_entry_offset =
-            first_entry_offset + usize::try_from(SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH).unwrap();
+            first_entry_offset + usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
         duplicate[second_entry_offset..second_entry_offset + 2]
             .copy_from_slice(&1_u16.to_le_bytes());
         assert_eq!(
-            preflight_object_framing(&duplicate, kind, FormatLimits::V1_HARD)
+            preflight_object_framing(&duplicate, kind, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::NonCanonicalOrder

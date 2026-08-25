@@ -37,7 +37,8 @@ Skill 标识符（Skill ID）`laneflow-core-design` 可在 `laneflow-core` crate
    fidelity 时，读取 `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 
 若所需 design 文档尚不存在，在对当前 Core 或目标 Traffic Runtime 做高影响变更
-前，应先创建或提出最小设计基线。
+前，应先创建或提出最小设计基线。1.0 前同时阅读
+`.agents/skills/laneflow-pre-1.0/SKILL.md`。
 
 ## 当前态与目标态命名边界
 

@@ -2,7 +2,7 @@ use std::io::Cursor;
 
 use laneflow_format::{
     FormatError, FormatLimitConfig, FormatLimits, LimitDimension, preflight_object_framing,
-    preflight_object_values_v1,
+    preflight_object_values,
 };
 use laneflow_static_contract::PortableObjectKind;
 use sha2::{Digest, Sha256};
@@ -14,7 +14,7 @@ fn assert_each_section_bit_change_breaks_digest(
     expected_digest: [u8; 32],
     kind: PortableObjectKind,
 ) {
-    let framing = preflight_object_framing(bytes, kind, FormatLimits::V1_HARD).unwrap();
+    let framing = preflight_object_framing(bytes, kind, FormatLimits::HARD).unwrap();
     let actual_digest: [u8; 32] = Sha256::digest(bytes).into();
     assert_eq!(actual_digest, expected_digest);
     for ordinal in 0..framing.section_count() {
@@ -55,13 +55,13 @@ fn every_candidate_section_single_bit_corruption_breaks_its_digest_binding() {
 
 #[test]
 fn valid_object_above_caller_transport_limit_rejects_before_read() {
-    preflight_object_values_v1(
+    preflight_object_values(
         FULL_SPATIAL_EXPECTED_LFCA,
         PortableObjectKind::CanonicalArtifact,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
     )
     .unwrap();
-    let mut config = FormatLimitConfig::V1_HARD;
+    let mut config = FormatLimitConfig::HARD;
     config.max_object_bytes = FULL_SPATIAL_EXPECTED_LFCA.len() as u64 - 1;
     let limits = FormatLimits::try_new(config).unwrap();
     let mut reader = Cursor::new(FULL_SPATIAL_EXPECTED_LFCA);
@@ -81,9 +81,9 @@ fn valid_object_above_caller_transport_limit_rejects_before_read() {
 
 #[test]
 fn value_preflight_honors_a_reduced_identity_ascii_limit() {
-    let mut config = FormatLimitConfig::V1_HARD;
+    let mut config = FormatLimitConfig::HARD;
     config.max_identity_ascii_bytes = 1;
-    let error = preflight_object_values_v1(
+    let error = preflight_object_values(
         FULL_SPATIAL_EXPECTED_LFCA,
         PortableObjectKind::CanonicalArtifact,
         FormatLimits::try_new(config).unwrap(),

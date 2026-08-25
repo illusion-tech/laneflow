@@ -17,8 +17,8 @@ pub enum PoseSource {
     Lane {
         /// 共享根边序号。
         edge: LaneEdgeOrdinal,
-        /// 与共享根边长同域的进度。
-        progress: f64,
+        /// 当前边上的毫米进度。
+        progress_mm: u32,
     },
     /// 停车位。
     Parking {
@@ -37,10 +37,10 @@ pub struct PoseInput {
 impl PoseInput {
     /// 车道采样输入。
     #[must_use]
-    pub const fn lane(record: PoseRecordId, edge: LaneEdgeOrdinal, progress: f64) -> Self {
+    pub const fn lane(record: PoseRecordId, edge: LaneEdgeOrdinal, progress_mm: u32) -> Self {
         Self {
             record,
-            source: PoseSource::Lane { edge, progress },
+            source: PoseSource::Lane { edge, progress_mm },
         }
     }
 
@@ -164,7 +164,7 @@ impl SpatialSession {
         source: PoseSource,
     ) -> Result<(CanonicalFrameOrdinal, CanonicalPoseF32), SpatialError> {
         match source {
-            PoseSource::Lane { edge, progress } => self.sample_lane(edge, progress),
+            PoseSource::Lane { edge, progress_mm } => self.sample_lane(edge, progress_mm),
             PoseSource::Parking { space } => self.sample_parking(space),
         }
     }
@@ -172,19 +172,19 @@ impl SpatialSession {
     fn sample_lane(
         &self,
         edge: LaneEdgeOrdinal,
-        progress: f64,
+        progress_mm: u32,
     ) -> Result<(CanonicalFrameOrdinal, CanonicalPoseF32), SpatialError> {
-        let traffic_length = *self
+        let traffic_length_mm = *self
             .revision
             .traffic()
-            .lane_lengths_meters()
+            .lane_lengths_millimetres()
             .get(edge.index())
             .ok_or(SpatialError::UnknownLaneEdge { edge })?;
-        if progress < 0.0 || progress > traffic_length {
+        if progress_mm > traffic_length_mm {
             return Err(SpatialError::SharedProgressOutOfRange {
                 edge,
-                progress_meters: progress,
-                max_meters: traffic_length,
+                progress_mm,
+                length_mm: traffic_length_mm,
             });
         }
         let geometry = self
@@ -193,7 +193,7 @@ impl SpatialSession {
             .and_then(|spatial| spatial.lane_pose())
             .and_then(|network| network.lane_geometry(edge))
             .ok_or(SpatialError::UnknownLaneEdge { edge })?;
-        let pose = sample_lane_geometry(geometry, traffic_length, progress)?;
+        let pose = sample_lane_geometry(geometry, traffic_length_mm, progress_mm)?;
         Ok((geometry.canonical_frame(), pose))
     }
 
@@ -216,7 +216,7 @@ impl SpatialSession {
                 operation: "parking left basis",
                 source: Box::new(source),
             })?;
-        let lateral = lateral as f32;
+        let lateral = (f64::from(lateral) / 1_000.0) as f32;
         if !lateral.is_finite() {
             return Err(SpatialError::UnknownParkingSpace { space });
         }
@@ -235,7 +235,6 @@ impl SpatialSession {
                 operation: "parking position",
                 source: Box::new(source),
             })?;
-        let heading = heading as f32;
         let (sin_heading, cos_heading) = heading.sin_cos();
         let forward = anchor
             .tangent()
@@ -328,8 +327,8 @@ impl CanonicalPoseRecord {
 
 fn sample_lane_geometry(
     geometry: LaneGeometryView<'_>,
-    traffic_length: f64,
-    progress: f64,
+    traffic_length_mm: u32,
+    progress_mm: u32,
 ) -> Result<CanonicalPoseF32, SpatialError> {
     let points = geometry.points();
     let segments = geometry.segments();
@@ -348,14 +347,15 @@ fn sample_lane_geometry(
                 unit_from_array(segment.up)?,
             ))
         };
-    if progress == 0.0 {
+    if progress_mm == 0 {
         return pose_at(0, 0);
     }
-    if progress >= traffic_length {
+    if progress_mm == traffic_length_mm {
         return pose_at(points.len() - 1, segments.len() - 1);
     }
     let arc = geometry.arc_length_meters();
-    let geometry_s = ((progress / traffic_length) * f64::from(arc)) as f32;
+    let geometry_s =
+        (f64::from(progress_mm) / f64::from(traffic_length_mm) * f64::from(arc)) as f32;
     if geometry_s >= arc {
         return pose_at(points.len() - 1, segments.len() - 1);
     }

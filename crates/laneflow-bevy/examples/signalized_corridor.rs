@@ -6,7 +6,7 @@ use std::{error::Error, num::NonZeroU32, sync::Arc};
 
 use bevy::prelude::*;
 use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
-use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_scenario::signalized_corridor::{
     BoundCorridorCatalog, BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
@@ -24,7 +24,7 @@ const CORRIDOR_CATALOG: &str =
 
 fn main() -> Result<(), Box<dyn Error>> {
     let catalog: CorridorCatalog = toml::from_str(CORRIDOR_CATALOG)?;
-    let input = check_canonical_network_input_v1(CORRIDOR_LFCA, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(CORRIDOR_LFCA, FormatLimits::HARD)
         .map_err(|error| format!("{error:?}"))?;
     let revision = build_shared_network_revision(
         input,
@@ -82,7 +82,7 @@ fn follow_pair<'a>(
             slot.portal_id == follower.portal_id
                 && slot.lane_index == follower.lane_index
                 && slot.edge == follower.edge
-                && slot.progress > follower.progress
+                && slot.progress_mm > follower.progress
         })
         .ok_or("missing leader spawn slot")?;
     Ok((follower, leader))
@@ -117,8 +117,8 @@ fn spawn_on_slot(
         profile,
         route,
         u32::try_from(index)?,
-        slot.progress,
-        0.0,
+        slot.progress_mm,
+        0,
     ))?;
     Ok(())
 }

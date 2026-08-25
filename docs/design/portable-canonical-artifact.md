@@ -9,10 +9,10 @@
 > 生效，本文 LFCA/LFSM/LFSD v1 wire、已完成 emitter/format/安装证据及对象外信任锚
 > 均保持有效。
 >
-> **后续提案（#496 G1，Proposed，未 Pass）**：G2 分配 LFCA v2。附录 A.1 的 v1 登记表
-> **不得改写**；v2 只改 A.1 增量所列字段的名字和/或类型，未列出的字段保持 v1 的
-> tag、名字、类型、必填。`networkRevisionDerivationVersion` 保持 `1`，算法见 §4.2。
-> 合同见 ADR 0028 与下文 A.1 v2 增量。
+> **后续覆盖（#496）**：当前树只承认对象 `formatVersion` 与
+> `canonicalFormatVersion = 2` 的唯一登记表（毫米 / 受检 `f32` 热列）。公开 API 不带
+> V1/V2 后缀。历史米制表与旧读器以 git 为准，不进当前树。
+> `networkRevisionDerivationVersion` 保持 `1`，算法见 §4.2。合同见 ADR 0028。
 
 **文档状态**: Accepted（#298 G1 Pass；G4 已完成，动态记录以 Issue Gate Ledger 为准）<br>
 **最后更新**: 2026-08-25（#496 G1：Proposed LFCA v2 字段增量；G2 前 `main` 仍为 v1）<br>
@@ -1360,23 +1360,22 @@ transition 领域顺序，行数精确为 `max(edges.count-1, 0)`。这些 Recor
 `facilityStrip`、`shoulder` 或 `x-` 加非空后缀，但 `x-lane-` 前缀仍属于 RoadSection，不能
 回退为 FacilityBand。该分类是 closed structural category，不授予未登记的交通能力。
 
-下列规范标量必须在通用 finite/正零检查之外逐字段验证。**当前 LFCA v1**
-（`canonicalFormatVersion = 1`）仍为 `f64` 米，闭合约束见下表。#496 G2 **分配
-LFCA v2**（`formatVersion` 与 `canonicalFormatVersion = 2`；
+下列规范标量必须在通用 finite/正零检查之外逐字段验证。当前合同：
+`formatVersion` 与 `canonicalFormatVersion = 2`；
 `constraintContractVersion` / `staticExecutionContractVersion` 为 `2`；
-`networkRevisionDerivationVersion` **保持 `1`**，算法见 §4.2；身份两字段保持 `1`）。
-同期分配 LFSM `sourceMapFormatVersion = 2`、LFSD `semanticDiffFormatVersion = 2`（节形状
-同 v1，**不改写** §5 / §6 的 v1 正文）。**不得改写本附录的 v1 登记表。** v1 读器拒绝
-v2，v2 读器拒绝 v1。G2 前不得把下列 `f64` 字段写成已经是毫米或 `f32` 朝向。
+`networkRevisionDerivationVersion` **保持 `1`**，算法见 §4.2；身份两字段保持 `1`。
+LFSM `sourceMapFormatVersion = 2`、LFSD `semanticDiffFormatVersion = 2`（节形状不变）。
+当前树只有这一套登记表；读器拒绝 `formatVersion != 2`。
+交通热列以毫米 / 受检 `f32` 为准，不再保留并行 `f64` 米列。
 
-#### LFCA v2 字段增量（#496 G1；Proposed，未 Pass）
+#### 当前交通热列字段（#496）
 
-v2 只改下表各行的名字和/或类型；**未列出的字段保持 v1 的 tag、名字、类型、必填**
+下表是当前唯一登记。未列出的字段保持原 tag、名字、类型、必填
 （含 Identity、关系表、Spatial 几何、`LaneEdge.successors`、
 `ParkingSpace.parkingArea` / `entryLaneEdge` / `exitLaneEdge`、
 `VehicleProfile.participantClass` 等）。`fieldType`：`3=u32`、`5=f32`、`13=i32`。
 Spatial `LaneEdgeGeometry.arcLengthMeters:f32` 与 `segments.lengthMeters:f32` **不**
-改为毫米。
+改为毫米。历史米制列名仅作对照，不进当前读器。
 
 | 表             | tableKind | tag | v1 `name:type:R`                                      | v2 `name:type:R`                                      |
 | -------------- | --------- | --- | ----------------------------------------------------- | ----------------------------------------------------- |

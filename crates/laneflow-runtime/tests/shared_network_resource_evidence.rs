@@ -8,12 +8,12 @@ use std::time::Instant;
 
 use laneflow_compiler::{
     CanonicalFrameInput, CompilationUnitBuilder, CompileLimits, Compiler, PortableDiffBase,
-    PortableEmissionProvenanceV1, SourceModuleHeader, SourceModuleHeaderInput,
+    PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
     SyntheticModuleBuilder, emit_portable_candidate,
 };
 use laneflow_corridor_generator::{CorridorConfig, generate};
 use laneflow_format::{
-    FormatLimits, check_canonical_network_input_v1, check_post_emission_bundle_v1,
+    FormatLimits, check_canonical_network_input, check_post_emission_bundle,
 };
 use laneflow_runtime::{PoseSource, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_scenario::signalized_corridor::{
@@ -34,16 +34,16 @@ use laneflow_static_network::{
 };
 
 const MIN_HEADLESS: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-variants/min-headless.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-variants/min-headless.lfca"
 );
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
 );
 const FULL_SPATIAL_LFSM: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsm"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsm"
 );
 const FULL_SPATIAL_LFSD: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfsd"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsd"
 );
 const CORRIDOR: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CATALOG: &str =
@@ -54,19 +54,19 @@ const CORRIDOR_CONFIG: &str =
 const BUILD_LIMITS: SharedNetworkBuildLimits =
     SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024);
 const FULL_SPATIAL_KERNEL_STEPS: u32 = 1_024;
-const FULL_SPATIAL_DELTA_MS: u64 = 1;
+const FULL_SPATIAL_DELTA_MS: u64 = 4;
 const CORRIDOR_KERNEL_STEPS: u32 = 1_024;
-const CORRIDOR_DELTA_MS: u64 = 16;
+const CORRIDOR_DELTA_MS: u64 = 4;
 const WARMUP: usize = 1;
 const SAMPLES: usize = 7;
-const CORRIDOR_LFCA_LEN: usize = 458_702;
+const CORRIDOR_LFCA_LEN: usize = 458_118;
 const CORRIDOR_SHA256: [u8; 32] = [
-    0xd0, 0x4d, 0xeb, 0x8c, 0xa2, 0x3d, 0x33, 0x1a, 0x8a, 0x22, 0xa9, 0x10, 0x97, 0xf7, 0x44, 0x13,
-    0xe9, 0x72, 0xd4, 0x18, 0xdb, 0xef, 0x7e, 0xc6, 0x0d, 0x76, 0xeb, 0xb8, 0x73, 0x63, 0x01, 0x81,
+    0xb9, 0x99, 0xa9, 0xb0, 0xea, 0x8a, 0x68, 0x12, 0x34, 0x84, 0x34, 0x30, 0x6a, 0xa8, 0x5d, 0x94,
+    0xa3, 0xf6, 0x5e, 0x31, 0x21, 0x77, 0xa3, 0x20, 0xdb, 0xb5, 0x34, 0x34, 0x29, 0xda, 0x1a, 0xf8,
 ];
 const CORRIDOR_NETWORK_REVISION: [u8; 32] = [
-    0x1c, 0x38, 0x91, 0xc7, 0x71, 0xd5, 0x03, 0x2d, 0xba, 0x6d, 0x5b, 0x83, 0x7c, 0x8c, 0xc8, 0xbe,
-    0x1c, 0x95, 0x6b, 0xf1, 0x27, 0xcb, 0x32, 0xf0, 0xf5, 0x54, 0xb0, 0xaa, 0xee, 0x72, 0x8f, 0xe9,
+    0xe4, 0x7b, 0xbc, 0xaf, 0x62, 0xcb, 0xc6, 0xb6, 0x98, 0x45, 0x2b, 0x18, 0x28, 0x0c, 0x03, 0x1a,
+    0x91, 0x56, 0x73, 0x32, 0x81, 0x8a, 0xdb, 0xc3, 0x44, 0x98, 0x46, 0x77, 0x2f, 0xc9, 0x9a, 0x63,
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -101,7 +101,7 @@ struct CoexistenceLedger {
 
 fn build(bytes: &[u8], spatial: SpatialBuildOption) -> Arc<SharedNetworkRevision> {
     let input =
-        check_canonical_network_input_v1(bytes, FormatLimits::V1_HARD).expect("checked lfca");
+        check_canonical_network_input(bytes, FormatLimits::HARD).expect("checked lfca");
     build_shared_network_revision(input, SharedNetworkBuildOptions::new(spatial, BUILD_LIMITS))
         .expect("shared network revision")
 }
@@ -134,20 +134,20 @@ fn emit_and_build(
         .expect("compile");
     let candidate = emit_portable_candidate(
         &output,
-        &PortableEmissionProvenanceV1::try_new("laneflow-441-evidence-v1").expect("provenance"),
-        FormatLimits::V1_HARD,
+        &PortableEmissionProvenance::try_new("laneflow-441-evidence-v1").expect("provenance"),
+        FormatLimits::HARD,
         PortableDiffBase::Genesis,
     )
     .expect("emit");
     let lfca = candidate.canonical_artifact().bytes().to_vec();
     let lfsm = candidate.source_map().bytes().to_vec();
     let lfsd = candidate.semantic_diff().bytes().to_vec();
-    let checked = check_post_emission_bundle_v1(
+    let checked = check_post_emission_bundle(
         &lfca,
         &lfsm,
         &lfsd,
         candidate.expected_semantic_diff_base(),
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
     )
     .expect("post-emission");
     let revision = build_shared_network_revision(
@@ -159,7 +159,7 @@ fn emit_and_build(
 }
 
 fn scratch_required(bytes: &[u8], spatial: SpatialBuildOption) -> u64 {
-    let input = check_canonical_network_input_v1(bytes, FormatLimits::V1_HARD).expect("checked");
+    let input = check_canonical_network_input(bytes, FormatLimits::HARD).expect("checked");
     match build_shared_network_revision(
         input,
         SharedNetworkBuildOptions::new(spatial, SharedNetworkBuildLimits::new(u64::MAX, 1)),
@@ -327,8 +327,8 @@ fn spawn_full_spatial_pair(world: &mut TrafficWorld) {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            1.0 + profile.length() + profile.min_gap() + 2.0,
-            0.0,
+            1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+            0,
         ))
         .expect("leader");
     world
@@ -336,8 +336,8 @@ fn spawn_full_spatial_pair(world: &mut TrafficWorld) {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            1.0,
-            0.0,
+            1_000,
+            0,
         ))
         .expect("follower");
 }
@@ -358,8 +358,8 @@ fn spawn_on_slot(world: &mut TrafficWorld, profile: VehicleProfileOrdinal, slot:
             profile,
             route,
             u32::try_from(index).expect("edge index"),
-            slot.progress,
-            0.0,
+            slot.progress_mm,
+            0,
         ))
         .expect("catalog slot must spawn");
 }
@@ -385,7 +385,7 @@ fn follow_pair<'a>(
             slot.portal_id == follower.portal_id
                 && slot.lane_index == follower.lane_index
                 && slot.edge == follower.edge
-                && slot.progress > follower.progress
+                && slot.progress_mm > follower.progress_mm
         })
         .expect("leader spawn slot");
     (follower, leader)
@@ -719,7 +719,7 @@ fn publish_and_editable_coexistence_terms_are_held() {
 fn failure_and_cancel_do_not_return_a_root() {
     let cancelled = AtomicBool::new(true);
     let input =
-        check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD).expect("checked");
+        check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).expect("checked");
     let err = build_shared_network_revision(
         input,
         SharedNetworkBuildOptions::new(SpatialBuildOption::RetainAvailable, BUILD_LIMITS)
@@ -728,7 +728,7 @@ fn failure_and_cancel_do_not_return_a_root() {
     assert!(matches!(err, Err(BuildError::Cancelled)));
 
     let input =
-        check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD).expect("checked");
+        check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).expect("checked");
     let err = build_shared_network_revision(
         input,
         SharedNetworkBuildOptions::new(

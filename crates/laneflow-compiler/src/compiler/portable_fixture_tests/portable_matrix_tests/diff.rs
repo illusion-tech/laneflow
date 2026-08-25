@@ -13,6 +13,19 @@ fn candidate_mutations(field_type: PortableFieldType, current: &[u8]) -> Vec<Vec
         }
         PortableFieldType::U32 => {
             values.extend((0_u32..=32).map(|value| value.to_le_bytes().to_vec()));
+            values.extend(
+                [
+                    100_u32, 101, 200, 1_000, 4_500, 10_000, 12_000, 20_000, 100_000,
+                ]
+                .map(|value| value.to_le_bytes().to_vec()),
+            );
+            if let Ok(current) = <[u8; 4]>::try_from(current) {
+                let n = u32::from_le_bytes(current);
+                for delta in [1_u32, 2, 10, 100] {
+                    values.push(n.saturating_add(delta).to_le_bytes().to_vec());
+                    values.push(n.saturating_sub(delta).to_le_bytes().to_vec());
+                }
+            }
         }
         PortableFieldType::U64 => {
             values.extend(
@@ -157,17 +170,17 @@ fn prove_field_change(
         }
         let mut bytes = base_bytes.to_vec();
         bytes[range.clone()].copy_from_slice(&replacement);
-        let Ok(base) = preflight_object_values_v1(
+        let Ok(base) = preflight_object_values(
             &bytes,
             PortableObjectKind::CanonicalArtifact,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         ) else {
             continue;
         };
         let Ok(candidate) = crate::emit_portable_candidate(
             output,
             &provenance,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
             crate::PortableDiffBase::Artifact(base),
         ) else {
             continue;
@@ -287,7 +300,7 @@ fn diff_road_corridor_stable_reference_uses_stable_identity_not_raw_ordinal() {
     let candidate = crate::emit_portable_candidate(
         &output,
         &provenance,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
         crate::PortableDiffBase::Genesis,
     )
     .unwrap();
@@ -341,7 +354,7 @@ fn diff_signal_control_kind_and_scalar_relation_change_remain_separate() {
     let candidate = crate::emit_portable_candidate(
         &output,
         &provenance,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
         crate::PortableDiffBase::Artifact(base),
     )
     .unwrap();
@@ -375,7 +388,7 @@ fn diff_ordinal_only_insertion_does_not_create_retained_field_or_geometry_modify
     let base_candidate = crate::emit_portable_candidate(
         &base_output,
         &provenance,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
         crate::PortableDiffBase::Genesis,
     )
     .unwrap();
@@ -386,7 +399,7 @@ fn diff_ordinal_only_insertion_does_not_create_retained_field_or_geometry_modify
     let candidate = crate::emit_portable_candidate(
         &target_output,
         &provenance,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
         crate::PortableDiffBase::Artifact(base),
     )
     .unwrap();
@@ -535,7 +548,7 @@ fn diff_gate_transition_field_modify_and_role_move_are_both_reported() {
     let candidate = crate::emit_portable_candidate(
         &output,
         &provenance,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
         crate::PortableDiffBase::Artifact(base),
     )
     .unwrap();

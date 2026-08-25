@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     InstallError, LookupError, StepError, TickInput, TrafficWorld, WorldConfig,
 };
@@ -11,14 +11,14 @@ use laneflow_static_network::{
 };
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
 );
 
 const BUILD_LIMITS: SharedNetworkBuildLimits =
     SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024);
 
 fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked canonical network input");
     build_shared_network_revision(
         input,
@@ -50,13 +50,37 @@ fn install_full_spatial_retains_single_arc() {
 }
 
 #[test]
-fn install_rejects_non_positive_delta_and_non_one_worker() {
+fn install_rejects_delta_out_of_range_and_non_one_worker() {
     let revision = revision();
     assert_eq!(
         TrafficWorld::install(Arc::clone(&revision), config(0, 1))
             .map(|_| ())
             .unwrap_err(),
-        InstallError::NonPositiveDelta
+        InstallError::DeltaOutOfRange {
+            actual: 0,
+            min: 4,
+            max: 1_000,
+        }
+    );
+    assert_eq!(
+        TrafficWorld::install(Arc::clone(&revision), config(3, 1))
+            .map(|_| ())
+            .unwrap_err(),
+        InstallError::DeltaOutOfRange {
+            actual: 3,
+            min: 4,
+            max: 1_000,
+        }
+    );
+    assert_eq!(
+        TrafficWorld::install(Arc::clone(&revision), config(1_001, 1))
+            .map(|_| ())
+            .unwrap_err(),
+        InstallError::DeltaOutOfRange {
+            actual: 1_001,
+            min: 4,
+            max: 1_000,
+        }
     );
     assert_eq!(
         TrafficWorld::install(Arc::clone(&revision), config(100, 2))
@@ -67,12 +91,10 @@ fn install_rejects_non_positive_delta_and_non_one_worker() {
 }
 
 #[test]
-fn install_rejects_phase_shorter_than_tick() {
+fn install_accepts_finest_and_coarsest_tick() {
     let revision = revision();
-    let err = TrafficWorld::install(revision, config(u64::MAX, 1))
-        .map(|_| ())
-        .unwrap_err();
-    assert_eq!(err, InstallError::PhaseShorterThanTick);
+    TrafficWorld::install(Arc::clone(&revision), config(4, 1)).expect("dt=4");
+    TrafficWorld::install(revision, config(1_000, 1)).expect("dt=1000");
 }
 
 #[test]

@@ -9,13 +9,16 @@ use core::str;
 #[cfg(test)]
 use laneflow_static_contract::FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES;
 use laneflow_static_contract::{
-    EntityKind, FORMAT_HARD_MAX_FIELDS_PER_ROW, FieldEncoding, FieldTag, PortableObjectKind,
-    PortableTableSchema, portable_object_schema,
+    EntityKind, FORMAT_HARD_MAX_FIELDS_PER_ROW, FieldEncoding, FieldTag, HEADING_MINUS_PI_F32_BITS,
+    HEADING_PLUS_PI_F32_BITS, MAX_ACCEL_METERS_PER_SECOND_SQUARED, MAX_LANE_EDGE_LENGTH_MM,
+    MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S, MAX_TIME_HEADWAY_SECONDS,
+    MAX_VEHICLE_LENGTH_MM, MIN_ACCEL_METERS_PER_SECOND_SQUARED, MIN_LANE_EDGE_LENGTH_MM,
+    MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S, MIN_VEHICLE_LENGTH_MM,
+    PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, PortableObjectKind, PortableTableSchema,
 };
 
 use crate::{
     FormatError, FormatLimits, FormatStructure, LimitDimension, RegistryCheckedObjectView,
-    object::preflight_object_registry_v1,
     wire::{checked_slice, read_u8, read_u16, read_u32, read_u64},
 };
 
@@ -65,19 +68,19 @@ impl<'a> ValueCheckedObjectView<'a> {
 
 impl<'a> RegistryCheckedObjectView<'a> {
     /// 在既有完整 registry 结构证明之上检查对象种类专用的直接值域。
-    pub fn check_value_domains_v1(self) -> Result<ValueCheckedObjectView<'a>, FormatError> {
+    pub fn check_value_domains(self) -> Result<ValueCheckedObjectView<'a>, FormatError> {
         validate_object_values(self, self.limits())?;
         Ok(ValueCheckedObjectView { registry: self })
     }
 }
 
-/// 对完整 v1 对象执行 registry 结构预检与直接值域预检。
-pub fn preflight_object_values_v1(
+/// 对完整对象执行 registry 结构预检与直接值域预检。
+pub fn preflight_object_values(
     bytes: &[u8],
     expected_kind: PortableObjectKind,
     limits: FormatLimits,
 ) -> Result<ValueCheckedObjectView<'_>, FormatError> {
-    preflight_object_registry_v1(bytes, expected_kind, limits)?.check_value_domains_v1()
+    crate::object::preflight_object_registry(bytes, expected_kind, limits)?.check_value_domains()
 }
 
 #[derive(Clone, Copy)]
@@ -108,8 +111,8 @@ impl FieldRef<'_> {
         Ok(f32::from_bits(self.u32()?))
     }
 
-    fn f64(self) -> Result<f64, FormatError> {
-        Ok(f64::from_bits(self.u64()?))
+    fn i32(self) -> Result<i32, FormatError> {
+        Ok(self.u32()? as i32)
     }
 }
 
@@ -152,7 +155,6 @@ enum SemanticDiffBaseKind {
     Artifact,
 }
 
-#[derive(Default)]
 struct DirectBindings {
     lfca_spatial_present: Option<u8>,
     lfca_direction_profile: Option<u8>,
@@ -162,14 +164,34 @@ struct DirectBindings {
     lfsd_base_kind: Option<SemanticDiffBaseKind>,
     lfcp_artifact_digest: Option<[u8; 32]>,
     lfcp_source_map_digest: Option<[u8; 32]>,
+    contract_format: u16,
+}
+
+impl Default for DirectBindings {
+    fn default() -> Self {
+        Self {
+            lfca_spatial_present: None,
+            lfca_direction_profile: None,
+            lfca_has_canonical_frame: false,
+            lfca_has_lane_edge_geometry: false,
+            lfca_has_facility_band_geometry: false,
+            lfsd_base_kind: None,
+            lfcp_artifact_digest: None,
+            lfcp_source_map_digest: None,
+            contract_format: 1,
+        }
+    }
 }
 
 fn validate_object_values(
     view: RegistryCheckedObjectView<'_>,
     limits: FormatLimits,
 ) -> Result<(), FormatError> {
-    let object_schema = portable_object_schema(view.kind());
-    let mut bindings = DirectBindings::default();
+    let object_schema = view.schema();
+    let mut bindings = DirectBindings {
+        contract_format: view.contract_format(),
+        ..DirectBindings::default()
+    };
     for (section_index, section_schema) in object_schema.sections.iter().enumerate() {
         let ordinal =
             u32::try_from(section_index).map_err(|_| FormatError::ArithmeticOverflow {
@@ -243,6 +265,7 @@ fn validate_table_values(
                     table_schema.kind,
                     row,
                     limits.max_identity_ascii_bytes(),
+                    bindings.contract_format,
                 )?;
             }
             PortableObjectKind::SemanticDiff => {
@@ -411,9 +434,12 @@ fn validate_lfca_row(
     }
     match (section, table) {
         (1, 1) => {
-            for tag in 1..=6 {
-                require_exact_u16(row.required(tag)?, 1)?;
-            }
+            require_exact_u16(row.required(1)?, bindings.contract_format)?;
+            require_exact_u16(row.required(2)?, 1)?;
+            require_exact_u16(row.required(3)?, 1)?;
+            require_exact_u16(row.required(4)?, 1)?;
+            require_exact_u16(row.required(5)?, bindings.contract_format)?;
+            require_exact_u16(row.required(6)?, bindings.contract_format)?;
         }
         (2, 1) => {
             let entity = require_entity_kind(row.required(1)?)?;
@@ -426,8 +452,12 @@ fn validate_lfca_row(
         }
         (3, 2) => validate_kind_id(row.required(4)?, true)?,
         (3, 4) => {
-            require_f64_greater(row.required(3)?, 1.0e-9)?;
-            require_f64_greater(row.required(4)?, 0.0)?;
+            require_u32_inclusive(
+                row.required(3)?,
+                MIN_LANE_EDGE_LENGTH_MM,
+                MAX_LANE_EDGE_LENGTH_MM,
+            )?;
+            require_u32_inclusive(row.required(4)?, MIN_SPEED_MM_S, MAX_SPEED_MM_S)?;
         }
         (3, 8) => {
             let control = require_u8_range(row.required(6)?, 0, 1)?;
@@ -501,8 +531,8 @@ fn validate_lfca_row(
             validate_direction_profile_applies(row.required(4)?, bindings)?;
         }
         (6, 1) => {
-            require_exact_u16(row.required(1)?, 1)?;
-            require_exact_u16(row.required(2)?, 1)?;
+            require_exact_u16(row.required(1)?, bindings.contract_format)?;
+            require_exact_u16(row.required(2)?, bindings.contract_format)?;
         }
         (7, 1) => {
             validate_compiler_build_id(row.required(1)?)?;
@@ -666,32 +696,61 @@ fn validate_kind_id(field: FieldRef<'_>, road_section: bool) -> Result<(), Forma
 }
 
 fn validate_parking_space(row: RowRef<'_>) -> Result<(), FormatError> {
-    require_f64_greater(row.required(5)?, 1.0e-9)?;
-    require_f64_greater(row.required(7)?, 1.0e-9)?;
-    let lateral = row.required(8)?;
-    if lateral.f64()?.abs() <= 1.0e-9 {
-        return Err(noncanonical(lateral));
-    }
-    let heading = row.required(9)?;
-    let heading_value = heading.f64()?;
-    if !(-core::f64::consts::PI..core::f64::consts::PI).contains(&heading_value) {
-        return Err(noncanonical(heading));
-    }
-    require_f64_greater(row.required(10)?, 1.0e-9)?;
-    require_f64_greater(row.required(11)?, 1.0e-9)
+    let max_progress = MAX_LANE_EDGE_LENGTH_MM - PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM;
+    require_u32_inclusive(
+        row.required(5)?,
+        PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM,
+        max_progress,
+    )?;
+    require_u32_inclusive(
+        row.required(7)?,
+        PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM,
+        max_progress,
+    )?;
+    require_i32_abs_inclusive(
+        row.required(8)?,
+        MIN_PARKING_LATERAL_OFFSET_ABS_MM,
+        MAX_PARKING_LATERAL_OFFSET_ABS_MM,
+    )?;
+    require_heading_f32(row.required(9)?)?;
+    require_u32_inclusive(
+        row.required(10)?,
+        MIN_VEHICLE_LENGTH_MM,
+        MAX_VEHICLE_LENGTH_MM,
+    )?;
+    require_u32_inclusive(
+        row.required(11)?,
+        MIN_VEHICLE_LENGTH_MM,
+        MAX_VEHICLE_LENGTH_MM,
+    )?;
+    Ok(())
 }
 
 fn validate_vehicle_profile(row: RowRef<'_>) -> Result<(), FormatError> {
-    require_f64_greater(row.required(4)?, 1.0e-9)?;
-    require_f64_greater(row.required(5)?, 0.0)?;
-    let min_gap = row.required(6)?;
-    if min_gap.f64()? < 0.0 {
-        return Err(noncanonical(min_gap));
-    }
-    for tag in 7..=10 {
-        require_f64_greater(row.required(tag)?, 0.0)?;
-    }
-    if row.required(10)?.f64()? < row.required(9)?.f64()? {
+    require_u32_inclusive(
+        row.required(4)?,
+        MIN_VEHICLE_LENGTH_MM,
+        MAX_VEHICLE_LENGTH_MM,
+    )?;
+    require_u32_inclusive(row.required(5)?, MIN_SPEED_MM_S, MAX_SPEED_MM_S)?;
+    require_u32_inclusive(row.required(6)?, 0, MAX_MIN_GAP_MM)?;
+    require_f32_positive_at_most(row.required(7)?, MAX_TIME_HEADWAY_SECONDS)?;
+    require_f32_inclusive(
+        row.required(8)?,
+        MIN_ACCEL_METERS_PER_SECOND_SQUARED,
+        MAX_ACCEL_METERS_PER_SECOND_SQUARED,
+    )?;
+    let comfort = require_f32_inclusive(
+        row.required(9)?,
+        MIN_ACCEL_METERS_PER_SECOND_SQUARED,
+        MAX_ACCEL_METERS_PER_SECOND_SQUARED,
+    )?;
+    let emergency = require_f32_inclusive(
+        row.required(10)?,
+        MIN_ACCEL_METERS_PER_SECOND_SQUARED,
+        MAX_ACCEL_METERS_PER_SECOND_SQUARED,
+    )?;
+    if emergency < comfort {
         return Err(row_binding_mismatch());
     }
     Ok(())
@@ -744,11 +803,12 @@ fn validate_lfsm_row(
     table: u16,
     row: RowRef<'_>,
     max_identity_ascii_bytes: u64,
+    contract_format: u16,
 ) -> Result<(), FormatError> {
     match (section, table) {
         (1, 1) => {
             require_exact_u16(row.required(1)?, 1)?;
-            require_exact_u16(row.required(3)?, 1)?;
+            require_exact_u16(row.required(3)?, contract_format)?;
             require_exact_u16(row.required(7)?, 1)?;
             require_u64_greater(row.required(5)?, 0)?;
             validate_compiler_build_id(row.required(6)?)?;
@@ -803,7 +863,7 @@ fn validate_lfsm_row(
                 return Err(row_binding_mismatch());
             }
             require_exact_u16(row.required(5)?, 1)?;
-            require_exact_u16(row.required(6)?, 1)?;
+            require_exact_u16(row.required(6)?, contract_format)?;
         }
         _ => {}
     }
@@ -1323,13 +1383,13 @@ fn validate_lfcp_row(
 ) -> Result<(), FormatError> {
     match section {
         1 => {
-            require_exact_u16(row.required(1)?, 1)?;
+            require_exact_u16(row.required(1)?, bindings.contract_format)?;
             require_exact_u16(row.required(2)?, 1)?;
             require_u64_greater(row.required(5)?, 0)?;
             bindings.lfcp_artifact_digest = Some(copy_digest(row.required(4)?)?);
         }
         2 => {
-            require_exact_u16(row.required(1)?, 1)?;
+            require_exact_u16(row.required(1)?, bindings.contract_format)?;
             require_u64_greater(row.required(3)?, 0)?;
             validate_compiler_build_id(row.required(4)?)?;
             require_exact_u16(row.required(5)?, 1)?;
@@ -1472,6 +1532,62 @@ fn forbid_fields(row: RowRef<'_>, tags: impl Iterator<Item = u16>) -> Result<(),
     }
 }
 
+fn require_u32_inclusive(field: FieldRef<'_>, min: u32, max: u32) -> Result<u32, FormatError> {
+    let value = field.u32()?;
+    if (min..=max).contains(&value) {
+        Ok(value)
+    } else {
+        Err(noncanonical(field))
+    }
+}
+
+fn require_i32_abs_inclusive(
+    field: FieldRef<'_>,
+    min_abs: u32,
+    max_abs: u32,
+) -> Result<i32, FormatError> {
+    let value = field.i32()?;
+    let abs = value.unsigned_abs();
+    if (min_abs..=max_abs).contains(&abs) {
+        Ok(value)
+    } else {
+        Err(noncanonical(field))
+    }
+}
+
+fn require_f32_inclusive(field: FieldRef<'_>, min: f32, max: f32) -> Result<f32, FormatError> {
+    let value = field.f32()?;
+    if value.is_finite() && (min..=max).contains(&value) {
+        Ok(value)
+    } else {
+        Err(noncanonical(field))
+    }
+}
+
+fn require_f32_positive_at_most(field: FieldRef<'_>, max: f32) -> Result<f32, FormatError> {
+    let value = field.f32()?;
+    if value.is_finite() && value > 0.0 && value <= max {
+        Ok(value)
+    } else {
+        Err(noncanonical(field))
+    }
+}
+
+fn require_heading_f32(field: FieldRef<'_>) -> Result<f32, FormatError> {
+    let bits = field.u32()?;
+    if bits == HEADING_PLUS_PI_F32_BITS {
+        return Err(noncanonical(field));
+    }
+    let value = f32::from_bits(bits);
+    let min = f32::from_bits(HEADING_MINUS_PI_F32_BITS);
+    let max = f32::from_bits(HEADING_PLUS_PI_F32_BITS);
+    if value.is_finite() && value >= min && value < max {
+        Ok(value)
+    } else {
+        Err(noncanonical(field))
+    }
+}
+
 fn require_exact_u16(field: FieldRef<'_>, expected: u16) -> Result<(), FormatError> {
     if field.u16()? == expected {
         Ok(())
@@ -1529,14 +1645,6 @@ fn require_f32_greater(field: FieldRef<'_>, lower: f32) -> Result<(), FormatErro
     }
 }
 
-fn require_f64_greater(field: FieldRef<'_>, lower: f64) -> Result<(), FormatError> {
-    if field.f64()? > lower {
-        Ok(())
-    } else {
-        Err(noncanonical(field))
-    }
-}
-
 fn require_all_zero(field: FieldRef<'_>) -> Result<(), FormatError> {
     if field.value.iter().all(|byte| *byte == 0) {
         Ok(())
@@ -1587,10 +1695,12 @@ mod tests {
     use std::vec::Vec;
 
     use laneflow_static_contract::{
-        OBJECT_PREAMBLE_V1_BYTE_LENGTH, PortableFieldPresence, PortableFieldSchema,
+        OBJECT_PREAMBLE_BYTE_LENGTH, PortableFieldPresence, PortableFieldSchema,
         PortableFieldType, PortableRowCardinality, PortableRowSchema,
-        SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH, SECTION_FORMAT_VERSION_V1,
+        SECTION_DIRECTORY_ENTRY_BYTE_LENGTH, SECTION_FORMAT_VERSION, portable_object_schema,
     };
+
+    use crate::preflight_object_registry;
 
     use super::*;
     use crate::{FormatErrorClass, FormatLimitConfig};
@@ -1665,13 +1775,19 @@ mod tests {
             PortableFieldType::U8 => vec![0],
             PortableFieldType::U16 => {
                 let value: u16 = match (kind, section, table, field.tag) {
-                    (PortableObjectKind::CanonicalArtifact, 1, 1, 1..=6)
+                    (PortableObjectKind::CanonicalArtifact, 1, 1, 1 | 5 | 6)
                     | (PortableObjectKind::CanonicalArtifact, 6, 1, 1..=2)
+                    | (PortableObjectKind::SourceMap, 1, 1, 3)
+                    | (PortableObjectKind::CanonicalPublicationDescriptor, 1, 1, 1)
+                    | (PortableObjectKind::CanonicalPublicationDescriptor, 2, 1, 1) => {
+                        kind.format_version()
+                    }
+                    (PortableObjectKind::CanonicalArtifact, 1, 1, 2..=4)
                     | (PortableObjectKind::CanonicalArtifact, 7, 1, 2 | 5)
-                    | (PortableObjectKind::SourceMap, 1, 1, 1 | 3 | 7)
+                    | (PortableObjectKind::SourceMap, 1, 1, 1 | 7)
                     | (PortableObjectKind::SemanticDiff, 1, 1, 6)
-                    | (PortableObjectKind::CanonicalPublicationDescriptor, 1, 1, 1 | 2)
-                    | (PortableObjectKind::CanonicalPublicationDescriptor, 2, 1, 1 | 5) => 1,
+                    | (PortableObjectKind::CanonicalPublicationDescriptor, 1, 1, 2)
+                    | (PortableObjectKind::CanonicalPublicationDescriptor, 2, 1, 5) => 1,
                     _ => 0,
                 };
                 value.to_le_bytes().to_vec()
@@ -1788,17 +1904,17 @@ mod tests {
         let mut bytes = vec![0_u8; kind.first_section_offset() as usize];
         bytes[0..4].copy_from_slice(&kind.magic());
         bytes[4..6].copy_from_slice(&kind.format_version().to_le_bytes());
-        bytes[6..8].copy_from_slice(&OBJECT_PREAMBLE_V1_BYTE_LENGTH.to_le_bytes());
+        bytes[6..8].copy_from_slice(&OBJECT_PREAMBLE_BYTE_LENGTH.to_le_bytes());
         bytes[12..16].copy_from_slice(&kind.section_count().to_le_bytes());
-        bytes[16..24].copy_from_slice(&u64::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH).to_le_bytes());
+        bytes[16..24].copy_from_slice(&u64::from(OBJECT_PREAMBLE_BYTE_LENGTH).to_le_bytes());
         bytes[24..32].copy_from_slice(&total.to_le_bytes());
         let mut section_offset = kind.first_section_offset();
         for (ordinal, section) in sections.iter().enumerate() {
-            let entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
-                + ordinal * SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH as usize;
+            let entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+                + ordinal * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
             bytes[entry..entry + 2]
                 .copy_from_slice(&u16::try_from(ordinal + 1).unwrap().to_le_bytes());
-            bytes[entry + 2..entry + 4].copy_from_slice(&SECTION_FORMAT_VERSION_V1.to_le_bytes());
+            bytes[entry + 2..entry + 4].copy_from_slice(&SECTION_FORMAT_VERSION.to_le_bytes());
             bytes[entry + 8..entry + 16].copy_from_slice(&section_offset.to_le_bytes());
             bytes[entry + 16..entry + 24].copy_from_slice(&(section.len() as u64).to_le_bytes());
             section_offset += section.len() as u64;
@@ -1820,7 +1936,7 @@ mod tests {
     fn every_object_kind_reaches_the_value_checked_capability() {
         for kind in PortableObjectKind::ALL {
             let bytes = encoded_value_object(kind);
-            let checked = preflight_object_values_v1(&bytes, kind, FormatLimits::V1_HARD).unwrap();
+            let checked = preflight_object_values(&bytes, kind, FormatLimits::HARD).unwrap();
             assert_eq!(checked.kind(), kind);
             assert_eq!(checked.bytes(), bytes);
             assert_eq!(checked.registry_view().bytes(), bytes);
@@ -1831,10 +1947,10 @@ mod tests {
     fn registry_capability_preserves_the_callers_limits() {
         let kind = PortableObjectKind::CanonicalArtifact;
         let bytes = encoded_value_object(kind);
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_identity_ascii_bytes = 0;
         let limits = FormatLimits::try_new(config).unwrap();
-        let registry = preflight_object_registry_v1(&bytes, kind, limits).unwrap();
+        let registry = preflight_object_registry(&bytes, kind, limits).unwrap();
         assert_eq!(registry.limits(), limits);
     }
 
@@ -1983,7 +2099,7 @@ mod tests {
             field_bytes(3, PortableFieldType::Utf8, b"document-key"),
             field_bytes(5, PortableFieldType::U32, &1_u32.to_le_bytes()),
         ]);
-        validate_lfsm_row(2, 2, parse_test_row(&source_document), 1).unwrap();
+        validate_lfsm_row(2, 2, parse_test_row(&source_document), 1, 1).unwrap();
 
         let identity = row_bytes(&[
             field_bytes(1, PortableFieldType::U16, &5_u16.to_le_bytes()),
@@ -2299,6 +2415,7 @@ mod tests {
             3,
             parse_test_row(&valid),
             FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            1,
         )
         .unwrap();
 
@@ -2323,6 +2440,7 @@ mod tests {
                 3,
                 parse_test_row(&wrong_depth),
                 FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+                1,
             )
             .unwrap_err()
             .class(),
@@ -2353,6 +2471,7 @@ mod tests {
                 3,
                 parse_test_row(&wrong_property_row),
                 FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+                1,
             )
             .unwrap_err()
             .class(),
@@ -2392,6 +2511,7 @@ mod tests {
                 3,
                 parse_test_row(&bytes),
                 FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+                1,
             )
             .unwrap();
         }
@@ -2422,6 +2542,7 @@ mod tests {
                 3,
                 parse_test_row(&invalid),
                 FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+                1,
             )
             .unwrap_err()
             .class(),
@@ -2462,6 +2583,7 @@ mod tests {
             3,
             parse_test_row(&exact),
             FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            1,
         )
         .unwrap();
 
@@ -2475,6 +2597,7 @@ mod tests {
                 3,
                 parse_test_row(&unreachable_seventeen),
                 FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+                1,
             )
             .unwrap_err()
             .class(),

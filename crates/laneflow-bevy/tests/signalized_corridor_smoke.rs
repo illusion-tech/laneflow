@@ -10,7 +10,7 @@ use bevy_math::Vec3;
 use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use bevy_transform::{TransformPlugin, components::Transform};
 use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
-use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_scenario::signalized_corridor::{
     BoundCorridorCatalog, BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
@@ -30,7 +30,7 @@ const CORRIDOR_CATALOG: &str =
 struct Proxy(Entity);
 
 fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-    let input = check_canonical_network_input_v1(CORRIDOR_LFCA, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(CORRIDOR_LFCA, FormatLimits::HARD)
         .expect("checked canonical network input");
     build_shared_network_revision(
         input,
@@ -58,8 +58,8 @@ fn spawn_on_slot(world: &mut TrafficWorld, profile: VehicleProfileOrdinal, slot:
             profile,
             route,
             u32::try_from(index).expect("edge index"),
-            slot.progress,
-            0.0,
+            slot.progress_mm,
+            0,
         ))
         .expect("catalog slot must spawn");
 }
@@ -101,7 +101,7 @@ fn follow_pair<'a>(
             slot.portal_id == follower.portal_id
                 && slot.lane_index == follower.lane_index
                 && slot.edge == follower.edge
-                && slot.progress > follower.progress
+                && slot.progress_mm > follower.progress_mm
         })
         .expect("leader spawn slot");
     (follower, leader)

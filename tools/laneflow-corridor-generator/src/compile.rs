@@ -4,13 +4,13 @@ use laneflow_compiler::{
     CorridorElementReference, FacilityBandInput, IidmVehicleProfileInput, JunctionInput,
     LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
     ManeuverGateInput, ManeuverPathInput, MovementInput, MovementReference, ParticipantClassInput,
-    ParticipantClassReference, PortableDiffBase, PortableEmissionProvenanceV1, RoadCorridorInput,
+    ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance, RoadCorridorInput,
     RoadSectionInput, RoadSectionReference, SignalAspect, SignalControlInput,
     SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
     SignalPhaseInput, SourceModuleHeader, SourceModuleHeaderInput, StaticRouteInput, StopLineInput,
     SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
 };
-use laneflow_format::{FormatLimits, check_post_emission_bundle_v1};
+use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_scenario::signalized_corridor::{
     AUTHORING_NAMESPACE, PASSENGER_CAR_PROFILE_KEY, SHUTTLE_BUS_PROFILE_KEY,
 };
@@ -82,7 +82,7 @@ pub(crate) fn compile_corridor(
 }
 
 pub(crate) fn emit_lfca(output: &CompilationOutput) -> Result<Vec<u8>, Error> {
-    let provenance = PortableEmissionProvenanceV1::try_new(COMPILER_BUILD_ID).map_err(|error| {
+    let provenance = PortableEmissionProvenance::try_new(COMPILER_BUILD_ID).map_err(|error| {
         Error::Validation {
             stage: "portable provenance",
             message: format!("{error:?}"),
@@ -91,19 +91,19 @@ pub(crate) fn emit_lfca(output: &CompilationOutput) -> Result<Vec<u8>, Error> {
     let candidate = emit_portable_candidate(
         output,
         &provenance,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
         PortableDiffBase::Genesis,
     )
     .map_err(|error| Error::Validation {
         stage: "emit LFCA",
         message: format!("{error:?}"),
     })?;
-    check_post_emission_bundle_v1(
+    check_post_emission_bundle(
         candidate.canonical_artifact().bytes(),
         candidate.source_map().bytes(),
         candidate.semantic_diff().bytes(),
         candidate.expected_semantic_diff_base(),
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
     )
     .map_err(|error| Error::Validation {
         stage: "post-emission",

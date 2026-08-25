@@ -5,16 +5,20 @@ use std::collections::{BTreeMap, BTreeSet};
 use laneflow_format::{RegistryCheckedFieldValue, RegistryCheckedRowView, ValueCheckedObjectView};
 use laneflow_static_contract::{
     AccessEffect, AccessRuleOrdinal, AuthoringLaneOrdinal, EntityKind, FacilityBandOrdinal,
-    JunctionOrdinal, LaneEdgeOrdinal, LaneGroupOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
-    MovementOrdinal, PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS, ParkingAreaOrdinal,
-    ParkingSpaceOrdinal, ParticipantClassOrdinal, RoadCorridorOrdinal, RoadSectionOrdinal,
-    SignalAspect, SignalControllerOrdinal, SignalGroupOrdinal, SignalPhaseOrdinal,
-    StaticRouteOrdinal, StopLineOrdinal, WaitingZoneOrdinal,
+    JunctionOrdinal, LaneEdgeOrdinal, LaneGroupOrdinal, MAX_ACCEL_METERS_PER_SECOND_SQUARED,
+    MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_TIME_HEADWAY_SECONDS,
+    MAX_VEHICLE_LENGTH_MM, MIN_ACCEL_METERS_PER_SECOND_SQUARED, MIN_PARKING_LATERAL_OFFSET_ABS_MM,
+    MIN_SPEED_MM_S, MIN_VEHICLE_LENGTH_MM, ManeuverGateOrdinal, ManeuverPathOrdinal,
+    MovementOrdinal, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, ParkingAreaOrdinal, ParkingSpaceOrdinal,
+    ParticipantClassOrdinal, RoadCorridorOrdinal, RoadSectionOrdinal, SignalAspect,
+    SignalControllerOrdinal, SignalGroupOrdinal, SignalPhaseOrdinal, StaticRouteOrdinal,
+    StopLineOrdinal, WaitingZoneOrdinal,
 };
 
 use crate::builder::{
-    SharedNetworkBuildOptions, allocate_vec, checked_f64, checked_field, checked_ordinal_vector,
-    checked_record_vector, checked_u8, checked_u32, poll_cancelled,
+    SharedNetworkBuildOptions, allocate_vec, checked_f32, checked_field, checked_i32,
+    checked_ordinal_vector, checked_record_vector, checked_u8, checked_u32, heading_f32_stored,
+    poll_cancelled, u32_in_closed_range,
 };
 use crate::relations::{
     ACCESS_UNCONSTRAINED_ROW, AccessCell, AccessTarget, BoundedDistance, CorridorElement,
@@ -25,14 +29,13 @@ use crate::{BuildError, BuildStructure, EntityCounts, RangeU32, SharedManeuverNe
 
 const STRUCTURE: BuildStructure = BuildStructure::RelationClosure;
 const MAX_PORTABLE_SIGNAL_TIME_MS: u64 = 9_007_199_254_740_991;
-const ROUTE_DISTANCE_SEGMENT_LIMIT: f64 = f64::MAX / 16.0;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_relations(
     view: ValueCheckedObjectView<'_>,
     entity_counts: &EntityCounts,
-    lane_lengths: &[f64],
-    lane_speeds: &[f64],
+    lane_lengths: &[u32],
+    lane_speeds: &[u32],
     successor_ranges: &[RangeU32],
     successors: &[LaneEdgeOrdinal],
     maneuvers: &SharedManeuverNetwork,
@@ -828,8 +831,8 @@ fn count_route_derived(
     let mut speeds = Vec::with_capacity(usize::try_from(lane_count).expect("u32 fits"));
     for (index, row) in lane_table.rows().enumerate() {
         poll_cancelled(options, u32::try_from(index).unwrap_or(u32::MAX))?;
-        lengths.push(checked_f64(row, 3, STRUCTURE)?);
-        speeds.push(checked_f64(row, 4, STRUCTURE)?);
+        lengths.push(checked_u32(row, 3, STRUCTURE)?);
+        speeds.push(checked_u32(row, 4, STRUCTURE)?);
     }
     if lengths.len() != usize::try_from(lane_count).expect("u32 fits") {
         return Err(BuildError::InputInvariant {
@@ -937,15 +940,6 @@ fn expect_row_ordinal(row: RegistryCheckedRowView<'_>, expected: u32) -> Result<
 fn checked_u64(row: RegistryCheckedRowView<'_>, tag: u16) -> Result<u64, BuildError> {
     match checked_field(row, tag, STRUCTURE)? {
         RegistryCheckedFieldValue::U64(value) => Ok(value),
-        _ => Err(BuildError::InputInvariant {
-            structure: STRUCTURE,
-        }),
-    }
-}
-
-fn checked_i32(row: RegistryCheckedRowView<'_>, tag: u16) -> Result<i32, BuildError> {
-    match checked_field(row, tag, STRUCTURE)? {
-        RegistryCheckedFieldValue::I32(value) => Ok(value),
         _ => Err(BuildError::InputInvariant {
             structure: STRUCTURE,
         }),
@@ -1182,10 +1176,14 @@ fn close_overlay_membership(
     Ok(())
 }
 
+fn accel_in_range(value: f32) -> bool {
+    (MIN_ACCEL_METERS_PER_SECOND_SQUARED..=MAX_ACCEL_METERS_PER_SECOND_SQUARED).contains(&value)
+}
+
 fn close_parking_progress(
     edge: u32,
-    progress: f64,
-    lane_lengths: &[f64],
+    progress: u32,
+    lane_lengths: &[u32],
 ) -> Result<(), BuildError> {
     let length = lane_lengths
         .get(usize::try_from(edge).expect("u32 fits"))
@@ -1195,10 +1193,8 @@ fn close_parking_progress(
             ordinal: edge,
             limit: u32::try_from(lane_lengths.len()).unwrap_or(u32::MAX),
         })?;
-    if !progress.is_finite()
-        || !length.is_finite()
-        || progress <= PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS
-        || progress >= length - PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS
+    if progress < PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM
+        || progress > length.saturating_sub(PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM)
     {
         return Err(BuildError::InputInvariant {
             structure: STRUCTURE,
@@ -2520,20 +2516,20 @@ struct Parking {
     parking_spaces: Box<[ParkingSpaceOrdinal]>,
     space_area: crate::relations::OptionalColumn<ParkingAreaOrdinal>,
     space_entry_edge: Box<[LaneEdgeOrdinal]>,
-    space_entry_progress: Box<[f64]>,
+    space_entry_progress: Box<[u32]>,
     space_exit_edge: Box<[LaneEdgeOrdinal]>,
-    space_exit_progress: Box<[f64]>,
-    space_lateral: Box<[f64]>,
-    space_heading: Box<[f64]>,
-    space_length: Box<[f64]>,
-    space_width: Box<[f64]>,
+    space_exit_progress: Box<[u32]>,
+    space_lateral: Box<[i32]>,
+    space_heading: Box<[f32]>,
+    space_length: Box<[u32]>,
+    space_width: Box<[u32]>,
 }
 
 fn build_parking(
     view: ValueCheckedObjectView<'_>,
     entity_counts: &EntityCounts,
     lane_count: u32,
-    lane_lengths: &[f64],
+    lane_lengths: &[u32],
     unique: &mut UniqueCheck,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<Parking, BuildError> {
@@ -2596,18 +2592,40 @@ fn build_parking(
                 limit: lane_count,
             });
         }
-        let entry_at = checked_f64(row, 5, STRUCTURE)?;
-        let exit_at = checked_f64(row, 7, STRUCTURE)?;
+        let entry_at = checked_u32(row, 5, STRUCTURE)?;
+        let exit_at = checked_u32(row, 7, STRUCTURE)?;
         close_parking_progress(entry, entry_at, lane_lengths)?;
         close_parking_progress(exit, exit_at, lane_lengths)?;
         entry_edge.push(LaneEdgeOrdinal::from_raw(entry));
         entry_progress.push(entry_at);
         exit_edge.push(LaneEdgeOrdinal::from_raw(exit));
         exit_progress.push(exit_at);
-        lateral.push(checked_f64(row, 8, STRUCTURE)?);
-        heading.push(checked_f64(row, 9, STRUCTURE)?);
-        length.push(checked_f64(row, 10, STRUCTURE)?);
-        width.push(checked_f64(row, 11, STRUCTURE)?);
+        let lateral_mm = checked_i32(row, 8, STRUCTURE)?;
+        let lateral_abs = lateral_mm.unsigned_abs();
+        if lateral_abs < MIN_PARKING_LATERAL_OFFSET_ABS_MM
+            || lateral_abs > MAX_PARKING_LATERAL_OFFSET_ABS_MM
+        {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        lateral.push(lateral_mm);
+        heading.push(heading_f32_stored(
+            checked_f32(row, 9, STRUCTURE)?,
+            STRUCTURE,
+        )?);
+        length.push(u32_in_closed_range(
+            checked_u32(row, 10, STRUCTURE)?,
+            MIN_VEHICLE_LENGTH_MM,
+            MAX_VEHICLE_LENGTH_MM,
+            STRUCTURE,
+        )?);
+        width.push(u32_in_closed_range(
+            checked_u32(row, 11, STRUCTURE)?,
+            MIN_VEHICLE_LENGTH_MM,
+            MAX_VEHICLE_LENGTH_MM,
+            STRUCTURE,
+        )?);
     }
     Ok(Parking {
         parking_space_ranges: ranges.into_boxed_slice(),
@@ -2736,7 +2754,7 @@ fn build_access_rules(
         }
         ranges.push(range);
         close_regulation_authority(row, &mut regulation)?;
-        priority.push(checked_i32(row, 8)?);
+        priority.push(checked_i32(row, 8, STRUCTURE)?);
     }
     Ok(Rules {
         target: target.into_boxed_slice(),
@@ -2840,13 +2858,13 @@ fn parse_access_target(
 
 struct Profiles {
     class: Box<[ParticipantClassOrdinal]>,
-    length: Box<[f64]>,
-    desired_speed: Box<[f64]>,
-    min_gap: Box<[f64]>,
-    time_headway: Box<[f64]>,
-    max_accel: Box<[f64]>,
-    comfort_decel: Box<[f64]>,
-    emergency_decel: Box<[f64]>,
+    length: Box<[u32]>,
+    desired_speed: Box<[u32]>,
+    min_gap: Box<[u32]>,
+    time_headway: Box<[f32]>,
+    max_accel: Box<[f32]>,
+    comfort_decel: Box<[f32]>,
+    emergency_decel: Box<[f32]>,
 }
 
 fn build_profiles(
@@ -2880,13 +2898,47 @@ fn build_profiles(
             });
         }
         class.push(ParticipantClassOrdinal::from_raw(class_ordinal));
-        length.push(checked_f64(row, 4, STRUCTURE)?);
-        desired.push(checked_f64(row, 5, STRUCTURE)?);
-        gap.push(checked_f64(row, 6, STRUCTURE)?);
-        headway.push(checked_f64(row, 7, STRUCTURE)?);
-        accel.push(checked_f64(row, 8, STRUCTURE)?);
-        comfort.push(checked_f64(row, 9, STRUCTURE)?);
-        emergency.push(checked_f64(row, 10, STRUCTURE)?);
+        length.push(u32_in_closed_range(
+            checked_u32(row, 4, STRUCTURE)?,
+            MIN_VEHICLE_LENGTH_MM,
+            MAX_VEHICLE_LENGTH_MM,
+            STRUCTURE,
+        )?);
+        desired.push(u32_in_closed_range(
+            checked_u32(row, 5, STRUCTURE)?,
+            MIN_SPEED_MM_S,
+            laneflow_static_contract::MAX_SPEED_MM_S,
+            STRUCTURE,
+        )?);
+        let min_gap = checked_u32(row, 6, STRUCTURE)?;
+        if min_gap > MAX_MIN_GAP_MM {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        gap.push(min_gap);
+        let time_headway = checked_f32(row, 7, STRUCTURE)?;
+        if !(time_headway > 0.0 && time_headway <= MAX_TIME_HEADWAY_SECONDS) {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        headway.push(time_headway);
+        let max_accel = checked_f32(row, 8, STRUCTURE)?;
+        let comfort_decel = checked_f32(row, 9, STRUCTURE)?;
+        let emergency_decel = checked_f32(row, 10, STRUCTURE)?;
+        if !accel_in_range(max_accel)
+            || !accel_in_range(comfort_decel)
+            || !accel_in_range(emergency_decel)
+            || emergency_decel < comfort_decel
+        {
+            return Err(BuildError::InputInvariant {
+                structure: STRUCTURE,
+            });
+        }
+        accel.push(max_accel);
+        comfort.push(comfort_decel);
+        emergency.push(emergency_decel);
     }
     Ok(Profiles {
         class: class.into_boxed_slice(),
@@ -3360,15 +3412,15 @@ struct Routes {
     distance_to_end: Box<[BoundedDistance]>,
     distance_ranges: Box<[RangeU32]>,
     distance_segments: Box<[u32]>,
-    distance_offsets: Box<[f64]>,
-    segment_totals: Box<[f64]>,
+    distance_offsets: Box<[u32]>,
+    segment_totals: Box<[u32]>,
     segment_ranges: Box<[RangeU32]>,
     next_controlled_gate: Box<[Option<ManeuverGateOrdinal>]>,
     next_controlled_from: Box<[u32]>,
     next_controlled_distance: Box<[BoundedDistance]>,
     speed_limit_from: Box<[u32]>,
     speed_limit_to_edge: Box<[LaneEdgeOrdinal]>,
-    speed_limit_target: Box<[f64]>,
+    speed_limit_target: Box<[u32]>,
     speed_limit_ranges: Box<[RangeU32]>,
 }
 
@@ -3744,32 +3796,25 @@ fn reconstruct_route_occurrences(
     Ok(expected)
 }
 
-fn segmented_route_coordinates(edge_lengths: &[f64]) -> (Vec<u32>, Vec<f64>, Vec<f64>) {
+fn segmented_route_coordinates(edge_lengths: &[u32]) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
     let mut segments = Vec::with_capacity(edge_lengths.len());
     let mut offsets = Vec::with_capacity(edge_lengths.len());
     let mut totals = Vec::new();
-    let mut current_total = 0.0;
+    let mut current_total = 0_u32;
     let mut current_has_occurrence = false;
     for edge_length in edge_lengths.iter().copied() {
-        let combined = current_total + edge_length;
-        let must_start_segment = current_has_occurrence
-            && (edge_length > ROUTE_DISTANCE_SEGMENT_LIMIT
-                || current_total > ROUTE_DISTANCE_SEGMENT_LIMIT - edge_length
-                || combined == current_total
-                || combined == edge_length);
+        let must_start_segment =
+            current_has_occurrence && current_total.checked_add(edge_length).is_none();
         if must_start_segment {
             totals.push(current_total);
-            current_total = 0.0;
+            current_total = 0;
         }
         segments.push(u32::try_from(totals.len()).expect("segment index fits"));
         offsets.push(current_total);
-        current_total += edge_length;
+        current_total = current_total
+            .checked_add(edge_length)
+            .expect("admitted edge length fits a new segment");
         current_has_occurrence = true;
-        if edge_length > ROUTE_DISTANCE_SEGMENT_LIMIT {
-            totals.push(current_total);
-            current_total = 0.0;
-            current_has_occurrence = false;
-        }
     }
     if current_has_occurrence {
         totals.push(current_total);
@@ -3781,8 +3826,8 @@ fn segmented_route_coordinates(edge_lengths: &[f64]) -> (Vec<u32>, Vec<f64>, Vec
 fn build_routes(
     view: ValueCheckedObjectView<'_>,
     entity_counts: &EntityCounts,
-    lane_lengths: &[f64],
-    lane_speeds: &[f64],
+    lane_lengths: &[u32],
+    lane_speeds: &[u32],
     gate_signal_group: &crate::relations::OptionalColumn<SignalGroupOrdinal>,
     edge_junction: &crate::relations::OptionalColumn<JunctionOrdinal>,
     edge_stop_line: &crate::relations::OptionalColumn<StopLineOrdinal>,
@@ -3890,10 +3935,10 @@ fn build_routes(
         gate_ranges.push(RangeU32::new(gate_start, expected_transitions));
 
         let route_edge_slice = &edges[usize::try_from(start).expect("u32")..];
-        let mut suffix = BoundedDistance::finite(0.0);
-        let mut suffix_list = vec![BoundedDistance::finite(0.0); route_edge_slice.len()];
+        let mut suffix = BoundedDistance::finite(0);
+        let mut suffix_list = vec![BoundedDistance::finite(0); route_edge_slice.len()];
         for (index, edge) in route_edge_slice.iter().enumerate().rev() {
-            suffix = suffix.add(lane_lengths.get(edge.index()).copied().unwrap_or(0.0));
+            suffix = suffix.add(lane_lengths.get(edge.index()).copied().unwrap_or(0));
             suffix_list[index] = suffix;
         }
         let dist_start =
@@ -3905,9 +3950,9 @@ fn build_routes(
             dist_start,
             u32::try_from(suffix_list.len()).expect("fits"),
         ));
-        let lengths: Vec<f64> = route_edge_slice
+        let lengths: Vec<u32> = route_edge_slice
             .iter()
-            .map(|edge| lane_lengths.get(edge.index()).copied().unwrap_or(0.0))
+            .map(|edge| lane_lengths.get(edge.index()).copied().unwrap_or(0))
             .collect();
         let (segments, offsets, totals) = segmented_route_coordinates(&lengths);
         let segment_start =
@@ -3924,10 +3969,10 @@ fn build_routes(
 
         let mut next = None;
         let mut next_from_edge = 0_u32;
-        let mut next_dist = BoundedDistance::finite(0.0);
+        let mut next_dist = BoundedDistance::finite(0);
         let mut next_gates = vec![None; route_edge_slice.len()];
         let mut next_froms = vec![0_u32; route_edge_slice.len()];
-        let mut next_dists = vec![BoundedDistance::finite(0.0); route_edge_slice.len()];
+        let mut next_dists = vec![BoundedDistance::finite(0); route_edge_slice.len()];
         let transition_start = usize::try_from(gate_start).expect("u32");
         let transition_count = usize::try_from(expected_transitions).expect("u32");
         let route_transitions =
@@ -3936,7 +3981,7 @@ fn build_routes(
             let length = lane_lengths
                 .get(route_edge_slice[route_edge_index].index())
                 .copied()
-                .unwrap_or(0.0);
+                .unwrap_or(0);
             if let Some(gate) = route_transitions
                 .get(route_edge_index)
                 .copied()
@@ -3945,7 +3990,7 @@ fn build_routes(
             {
                 next = Some(gate);
                 next_from_edge = u32::try_from(route_edge_index).expect("fits");
-                next_dist = BoundedDistance::finite(0.0).add(length);
+                next_dist = BoundedDistance::finite(0).add(length);
             } else if next.is_some() {
                 next_dist = next_dist.add(length);
             }
@@ -3962,8 +4007,8 @@ fn build_routes(
                 structure: STRUCTURE,
             })?;
         for (from_index, pair) in route_edge_slice.windows(2).enumerate() {
-            let from_speed = lane_speeds.get(pair[0].index()).copied().unwrap_or(0.0);
-            let to_speed = lane_speeds.get(pair[1].index()).copied().unwrap_or(0.0);
+            let from_speed = lane_speeds.get(pair[0].index()).copied().unwrap_or(0);
+            let to_speed = lane_speeds.get(pair[1].index()).copied().unwrap_or(0);
             if to_speed < from_speed {
                 speed_from.push(u32::try_from(from_index).expect("fits"));
                 speed_to.push(pair[1]);
@@ -4580,36 +4625,34 @@ mod tests {
 
     #[test]
     fn segmented_coordinates_preserve_finite_windows_around_huge_edges() {
-        let lengths = [f64::MAX, 1.0, 2.0, f64::MAX];
+        let large = u32::MAX;
+        let lengths = [large, 1, 2, large];
         let (segments, offsets, totals) = segmented_route_coordinates(&lengths);
         let suffix = [
-            crate::BoundedDistance::finite(0.0)
-                .add(f64::MAX)
-                .add(2.0)
-                .add(1.0)
-                .add(f64::MAX),
-            crate::BoundedDistance::finite(0.0)
-                .add(f64::MAX)
-                .add(2.0)
-                .add(1.0),
-            crate::BoundedDistance::finite(0.0).add(f64::MAX).add(2.0),
-            crate::BoundedDistance::finite(0.0).add(f64::MAX),
+            crate::BoundedDistance::finite(0)
+                .add(large)
+                .add(2)
+                .add(1)
+                .add(large),
+            crate::BoundedDistance::finite(0).add(large).add(2).add(1),
+            crate::BoundedDistance::finite(0).add(large).add(2),
+            crate::BoundedDistance::finite(0).add(large),
         ];
         let view = RouteDistanceIndexView::from_parts(&segments, &offsets, &totals, &suffix);
         assert_eq!(
-            view.distance_within(1, 0.0, 2, 2.0, 3.0),
-            RouteDistanceQuery::Within(3.0)
+            view.distance_within(1, 0, 2, 2, 3),
+            RouteDistanceQuery::Within(3)
         );
         assert_eq!(
-            view.distance_within(1, 0.0, 3, f64::MAX, f64::MAX),
+            view.distance_within(1, 0, 3, large, large),
             RouteDistanceQuery::BeyondHorizon
         );
     }
 
-    fn distance_view(lengths: &[f64]) -> (Vec<u32>, Vec<f64>, Vec<f64>, Vec<BoundedDistance>) {
+    fn distance_view(lengths: &[u32]) -> (Vec<u32>, Vec<u32>, Vec<u32>, Vec<BoundedDistance>) {
         let (segments, offsets, totals) = segmented_route_coordinates(lengths);
-        let mut suffix = BoundedDistance::finite(0.0);
-        let mut distance_to_end = vec![BoundedDistance::finite(0.0); lengths.len()];
+        let mut suffix = BoundedDistance::finite(0);
+        let mut distance_to_end = vec![BoundedDistance::finite(0); lengths.len()];
         for (index, &length) in lengths.iter().enumerate().rev() {
             suffix = suffix.add(length);
             distance_to_end[index] = suffix;
@@ -4619,46 +4662,50 @@ mod tests {
 
     #[test]
     fn finite_distance_recovers_small_segments_around_large_values() {
-        let large = 9_007_199_254_740_992.0;
-        let (segments, offsets, totals, suffix) = distance_view(&[1.0, large, 1.0]);
+        let large = u32::MAX - 1;
+        let (segments, offsets, totals, suffix) = distance_view(&[1, large, 1]);
         let view = RouteDistanceIndexView::from_parts(&segments, &offsets, &totals, &suffix);
         assert_eq!(
-            view.finite_distance(0, 0.0, 2, 1.0),
-            Some(BoundedDistance::Finite(large + 2.0))
+            view.finite_distance(0, 0, 2, 1),
+            Some(BoundedDistance::BeyondFinite)
+        );
+        assert_eq!(
+            view.finite_distance(1, 0, 2, 1),
+            Some(BoundedDistance::Finite(u32::MAX))
         );
     }
 
     #[test]
     fn finite_distance_reports_unrepresentable_sum() {
-        let (segments, offsets, totals, suffix) = distance_view(&[f64::MAX, f64::MAX]);
+        let (segments, offsets, totals, suffix) = distance_view(&[u32::MAX, u32::MAX]);
         let view = RouteDistanceIndexView::from_parts(&segments, &offsets, &totals, &suffix);
         assert_eq!(
-            view.finite_distance(0, 0.0, 1, f64::MAX),
+            view.finite_distance(0, 0, 1, u32::MAX),
             Some(BoundedDistance::BeyondFinite)
         );
     }
 
     #[test]
-    fn finite_distance_rejects_positive_compensation_beyond_finite_headroom() {
-        let (segments, offsets, totals, suffix) = distance_view(&[1.0, f64::MAX]);
+    fn finite_distance_rejects_sum_beyond_u32() {
+        let (segments, offsets, totals, suffix) = distance_view(&[1, u32::MAX]);
         let view = RouteDistanceIndexView::from_parts(&segments, &offsets, &totals, &suffix);
         assert_eq!(
-            view.finite_distance(0, 0.0, 1, f64::MAX),
+            view.finite_distance(0, 0, 1, u32::MAX),
             Some(BoundedDistance::BeyondFinite)
         );
     }
 
     #[test]
     fn distance_to_end_within_treats_overflow_as_beyond_horizon() {
-        let (segments, offsets, totals, suffix) = distance_view(&[f64::MAX, f64::MAX]);
+        let (segments, offsets, totals, suffix) = distance_view(&[u32::MAX, u32::MAX]);
         let view = RouteDistanceIndexView::from_parts(&segments, &offsets, &totals, &suffix);
         assert_eq!(
-            view.distance_to_end_within(0, 0.0, f64::MAX),
+            view.distance_to_end_within(0, 0, u32::MAX),
             RouteDistanceQuery::BeyondHorizon
         );
         assert_eq!(
-            view.distance_to_end_within(1, 0.0, f64::MAX),
-            RouteDistanceQuery::Within(f64::MAX)
+            view.distance_to_end_within(1, 0, u32::MAX),
+            RouteDistanceQuery::Within(u32::MAX)
         );
     }
 

@@ -90,10 +90,10 @@ pub enum SpatialError {
     SharedProgressOutOfRange {
         /// 共享根边序号。
         edge: LaneEdgeOrdinal,
-        /// 输入进度。
-        progress_meters: f64,
-        /// 边长。
-        max_meters: f64,
+        /// 输入进度（毫米）。
+        progress_mm: u32,
+        /// 边长（毫米）。
+        length_mm: u32,
     },
     /// 共享根停车位姿派生失败。
     SharedParkingPoseComputation {
@@ -153,11 +153,11 @@ impl fmt::Display for SpatialError {
             ),
             Self::SharedProgressOutOfRange {
                 edge,
-                progress_meters,
-                max_meters,
+                progress_mm,
+                length_mm,
             } => write!(
                 formatter,
-                "LaneEdge {edge} 的采样进度 {progress_meters:?} m 超出闭区间 [0, {max_meters:?}] m"
+                "LaneEdge {edge} 的采样进度 {progress_mm} mm 超出闭区间 [0, {length_mm}] mm"
             ),
             Self::SharedParkingPoseComputation {
                 space,

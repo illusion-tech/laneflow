@@ -1,6 +1,6 @@
 # 0028 交通一维几何整数毫米与固定步进合同
 
-**状态**: Proposed（#496 G1；未 Pass，不授权实现）<br>
+**状态**: Accepted（#496 G1；当前树只承认一套制品合同，公开 API 不带 V1/V2 后缀）<br>
 **日期**: 2026-08-24<br>
 **适用范围**: 交通运行时已提交一维几何、固定步进合法区间、已提交速度、LFCA
 长度/速度字段、compiler 边长派生、跟车占用/投影离散判定；以及 #302 快照字段的
@@ -242,39 +242,31 @@ lockstep 不在本合同范围。
 不得用本切片宣称全 tick 位级回放。不同合法步长的世界轨迹 **不可比**，不是回归
 失败。
 
-### 7. 破坏性制品与 API；分配 LFCA/LFSM/LFSD v2；#302 必须消费本合同
+### 7. 破坏性制品与 API；当前树只承认一套合同；#302 必须消费本合同
 
-允许破坏。**不得改写已冻的 LFCA v1 登记表。** G2 分配新的规范制品版本：
+允许破坏。1.0 前不保留制品双栈：旧米制登记表、旧读器、旧夹具以 git 历史为准，
+**不**进当前树，也 **不** 做 v1→毫米转换。公开 Rust 入口不带 `V1`/`V2` 后缀。
 
-| 字段                                                                  | v1  | G2                        |
-| --------------------------------------------------------------------- | --- | ------------------------- |
-| 对象前导 `formatVersion` 与 `ContractVersions.canonicalFormatVersion` | `1` | **`2`**                   |
-| `networkRevisionDerivationVersion`                                    | `1` | **`1`**（算法未改，见下） |
-| `constraintContractVersion`                                           | `1` | **`2`**                   |
-| `staticExecutionContractVersion`                                      | `1` | **`2`**                   |
-| `identityEncodingVersion` / `identityRegistryRevision`                | `1` | `1`（本切片不改身份前像） |
-| LFSM `sourceMapFormatVersion`                                         | `1` | **`2`**（形状同 v1）      |
-| LFSD `semanticDiffFormatVersion`                                      | `1` | **`2`**（形状同 v1）      |
+当前对象前导 `formatVersion` 与 `ContractVersions.canonicalFormatVersion` 为 **`2`**。
+`constraintContractVersion` / `staticExecutionContractVersion` 为 **`2`**。
+LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 为 **`2`**。
+`networkRevisionDerivationVersion` 保持 **`1`**（哈希算法未改，见下）。
+`identityEncodingVersion` / `identityRegistryRevision` 保持 `1`。
+读器拒绝 `formatVersion != 2`。LFSM `canonicalArtifactFormatVersion` 必须等于所绑
+LFCA 的 `canonicalFormatVersion`（故为 `2`）。
 
-v1 读器拒绝对象版本 `!= 1`；v2 读器拒绝 v1。不兼容读取。**不得改写** LFCA/LFSM/LFSD
-的 v1 正文。LFSM `canonicalArtifactFormatVersion` 必须等于所绑 LFCA 的
-`canonicalFormatVersion`（故 v2 为 `2`）。
+LFSD Genesis 的 target `ContractVersions` / `ExecutionContract` 必须与所绑 LFCA
+一致。Artifact diff 两端合同行仍须逐字段相等。检入走廊按 Genesis 重生，不走格式
+迁移 diff。
 
-LFSD v2：Genesis 的 target `ContractVersions` / `ExecutionContract` 必须与所绑
-LFCA v2 一致（v2 支持值合法）。Artifact diff 两端合同行仍须逐字段相等，因此
-**v1→v2 Artifact diff 仍拒绝**。检入走廊按 Genesis 重生，不走格式迁移 diff。
+共享静态路网 admission 与后发射检查只走这一套 registry。构建输入是字段私有、
+不可伪造的受检 LFCA；digest / 长度 / `NetworkRevisionId` 规则不变。不得把米列读成
+毫米，因为当前表里没有米列。
 
-G2 必须同时换共享静态路网 **admission**，不得只换制品版本号：现行 v1 受检输入
-**只**承认 LFCA v1，禁止放宽以接纳 `formatVersion = 2`。并行提供 v2 受检输入（走
-v2 registry 预检，字段私有、不可伪造，digest / 长度 / `NetworkRevisionId` 规则同 V1）。
-后发射对 LFCA/LFSM/LFSD 走各自 v2 预检。v1 受检制品组不得派生 v2 输入。G2 完成后
-生产构建只消费 v2；不得把 v1 米列读成毫米。发布路径同样不得把 LFCA v2 送进 v1
-bundle 检查。G2 决定这些入口的 Rust 名字。
-
-LFCA v2 **只**改附录 A.1 下列字段的名字和/或类型；**未列出的字段保持 v1 的 tag、
-名字、类型、必填**。不得改写 A.1 的 v1 表，也不得用「等长度」打包。逐项增量以
-`portable-canonical-artifact.md` A.1 v2 增量与 `traffic-runtime-integer-geometry.md`
-§6 为准，二者必须一致。Spatial `LaneEdgeGeometry` / `segments` 仍为 `f32` 米，不进本表。
+当前 LFCA 交通热列字段以 `portable-canonical-artifact.md` 与
+`traffic-runtime-integer-geometry.md` §6 的毫米/`f32` 表为准，二者必须一致。
+未改的字段保持原 tag、名字、类型、必填。不得用「等长度」打包。Spatial
+`LaneEdgeGeometry` / `segments` 仍为 `f32` 米，不进本表。
 
 检入走廊必须按 v2 重生。`NetworkRevisionId` **随语义载荷字节变化**；哈希算法仍是
 `portable-canonical-artifact.md` §4.2 的 v1：
@@ -331,8 +323,8 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 - 先按量化前的裸 SI 界限拒绝，再 round 到毫米 / `f32`（与毫米权威打架）。
 - 丢掉 ADR 0014 的加减速/时距/尺寸/横向 **上界**，只写下限。
 - 路线距离查询或替换阻塞间隙继续用米制作权威。
-- 改写已冻 LFCA v1 登记表，而不分配 `canonicalFormatVersion = 2`。
-- 放宽 v1 受检输入以接纳 LFCA v2，或不提供并行 v2 admission。
+- 在当前树保留米制 LFCA 登记表、v1 读器或 `*_v1`/`*_v2` 孪生公开 API。
+- 把旧米列读成毫米，或为未发布的旧字节堆兼容层 / 迁移 diff。
 - 为消除 4 ms 静止跟停或空路巡航量化死区而增加亚微米累加器、更高分辨率
   `carry`、速度余数，或把加速方向改成向上入。
 - 把 `vehicle-following.md` §11.2 的 `leader_final_travel` 并入 #496 的
@@ -354,8 +346,8 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
   10 cm；空路巡航在有效加速度小于 `0.5 mm/s / Δt` 时可以稳定低于期望车速（最钝
   合法画像约 7%）。二者都是接受面，不是再加一层余数的理由。
 - `hard_room_mm` 与现行快照截断同构；跟车设计文档 §11.2 的投影前车行程仍是另一轴。
-- G2 必须同时改 compiler 发射、LFCA v2 逐字段登记表、LFSM/LFSD v2（形状同 v1）、
-  v2 admission、共享列和 Runtime 热状态。Genesis 发 v2；禁止 v1→v2 Artifact diff。
+- G2 同时改 compiler 发射、唯一登记表、admission、共享列和 Runtime 热状态。
+  Genesis 发当前合同；禁止为旧格式做 Artifact 迁移 diff。
 - 减速度下限 `0.5` 后，`100 m/s` 刹停约 10 km；`BeyondFinite` 降速目标本拍忽略。
 - 路线前缀溢出是 `BeyondFinite`，不是注册失败；路终与局部查询从查询起点独立加。
 - `NetworkRevisionId` 仍用 v1 派生算法；载荷变了 ID 就会变，不必新域分隔符。

@@ -298,8 +298,13 @@ const AUTHORING_LANE_ROW: PortableRowSchema = PortableRowSchema {
 const LANE_EDGE_FIELDS: &[PortableFieldSchema] = &[
     field(1, "typedOrdinal", PortableFieldType::U32, R),
     field(2, "stableId", PortableFieldType::StableId128, R),
-    field(3, "lengthMeters", PortableFieldType::F64, R),
-    field(4, "speedLimitMetersPerSecond", PortableFieldType::F64, R),
+    field(3, "lengthMillimetres", PortableFieldType::U32, R),
+    field(
+        4,
+        "speedLimitMillimetresPerSecond",
+        PortableFieldType::U32,
+        R,
+    ),
     field(5, "successors", PortableFieldType::OrdinalVectorU32, R),
 ];
 const LANE_EDGE_ROW: PortableRowSchema = PortableRowSchema {
@@ -432,13 +437,13 @@ const PARKING_SPACE_FIELDS: &[PortableFieldSchema] = &[
     field(2, "stableId", PortableFieldType::StableId128, R),
     field(3, "parkingArea", PortableFieldType::U32, O),
     field(4, "entryLaneEdge", PortableFieldType::U32, R),
-    field(5, "entryProgressMeters", PortableFieldType::F64, R),
+    field(5, "entryProgressMillimetres", PortableFieldType::U32, R),
     field(6, "exitLaneEdge", PortableFieldType::U32, R),
-    field(7, "exitProgressMeters", PortableFieldType::F64, R),
-    field(8, "lateralOffsetMeters", PortableFieldType::F64, R),
-    field(9, "headingOffsetRadians", PortableFieldType::F64, R),
-    field(10, "lengthMeters", PortableFieldType::F64, R),
-    field(11, "widthMeters", PortableFieldType::F64, R),
+    field(7, "exitProgressMillimetres", PortableFieldType::U32, R),
+    field(8, "lateralOffsetMillimetres", PortableFieldType::I32, R),
+    field(9, "headingOffsetRadians", PortableFieldType::F32, R),
+    field(10, "lengthMillimetres", PortableFieldType::U32, R),
+    field(11, "widthMillimetres", PortableFieldType::U32, R),
 ];
 const PARKING_SPACE_ROW: PortableRowSchema = PortableRowSchema {
     fields: PARKING_SPACE_FIELDS,
@@ -504,26 +509,31 @@ const VEHICLE_PROFILE_FIELDS: &[PortableFieldSchema] = &[
     field(1, "typedOrdinal", PortableFieldType::U32, R),
     field(2, "stableId", PortableFieldType::StableId128, R),
     field(3, "participantClass", PortableFieldType::U32, R),
-    field(4, "lengthMeters", PortableFieldType::F64, R),
-    field(5, "desiredSpeedMetersPerSecond", PortableFieldType::F64, R),
-    field(6, "minGapMeters", PortableFieldType::F64, R),
-    field(7, "timeHeadwaySeconds", PortableFieldType::F64, R),
+    field(4, "lengthMillimetres", PortableFieldType::U32, R),
+    field(
+        5,
+        "desiredSpeedMillimetresPerSecond",
+        PortableFieldType::U32,
+        R,
+    ),
+    field(6, "minGapMillimetres", PortableFieldType::U32, R),
+    field(7, "timeHeadwaySeconds", PortableFieldType::F32, R),
     field(
         8,
         "maxAccelerationMetersPerSecondSquared",
-        PortableFieldType::F64,
+        PortableFieldType::F32,
         R,
     ),
     field(
         9,
         "comfortableDecelerationMetersPerSecondSquared",
-        PortableFieldType::F64,
+        PortableFieldType::F32,
         R,
     ),
     field(
         10,
         "emergencyDecelerationMetersPerSecondSquared",
-        PortableFieldType::F64,
+        PortableFieldType::F32,
         R,
     ),
 ];
@@ -1604,38 +1614,78 @@ mod tests {
     fn appendix_registry_matches_reviewed_literal_fingerprint() {
         // 这只是对已依据附录 A 人工复核过的 Rust 登记做防漂移固定，不是独立格式 oracle。
         // 更新该值必须先逐项审阅附录；不得从测试失败输出自动追认新的 production registry。
-        assert_eq!(appendix_registry_fingerprint(), 0x3947_9d51_5818_dbd1);
+        assert_eq!(appendix_registry_fingerprint(), 0xdb92_cedc_6d71_c236);
     }
 
     #[test]
     fn appendix_registry_has_exact_section_and_table_counts() {
         for kind in PortableObjectKind::ALL {
-            let object = portable_object_schema(kind);
-            assert_eq!(object.kind, kind);
-            assert_eq!(object.sections.len(), kind.section_count() as usize);
-            assert_eq!(
-                object
-                    .sections
-                    .iter()
-                    .map(|section| section.tables.len())
-                    .sum::<usize>(),
-                kind.table_count() as usize
-            );
-            for (section_index, section) in object.sections.iter().enumerate() {
-                assert_eq!(section.kind as usize, section_index + 1);
-                for (table_index, table) in section.tables.iter().enumerate() {
-                    assert_eq!(table.kind as usize, table_index + 1);
+            for object in [portable_object_schema(kind)] {
+                assert_eq!(object.kind, kind);
+                assert_eq!(object.sections.len(), kind.section_count() as usize);
+                assert_eq!(
+                    object
+                        .sections
+                        .iter()
+                        .map(|section| section.tables.len())
+                        .sum::<usize>(),
+                    kind.table_count() as usize
+                );
+                for (section_index, section) in object.sections.iter().enumerate() {
+                    assert_eq!(section.kind as usize, section_index + 1);
+                    for (table_index, table) in section.tables.iter().enumerate() {
+                        assert_eq!(table.kind as usize, table_index + 1);
+                    }
                 }
             }
         }
     }
 
     #[test]
+    fn lfca_traffic_hot_columns_are_integer_millimetres() {
+        let schema = portable_object_schema(PortableObjectKind::CanonicalArtifact);
+
+        let lane = schema.sections[2].tables[3].row.fields;
+        assert_eq!(lane[2].name, "lengthMillimetres");
+        assert_eq!(lane[2].field_type, PortableFieldType::U32);
+        assert_eq!(lane[3].name, "speedLimitMillimetresPerSecond");
+        assert_eq!(lane[3].field_type, PortableFieldType::U32);
+
+        let parking = schema.sections[2].tables[14].row.fields;
+        assert_eq!(parking[4].name, "entryProgressMillimetres");
+        assert_eq!(parking[4].field_type, PortableFieldType::U32);
+        assert_eq!(parking[6].name, "exitProgressMillimetres");
+        assert_eq!(parking[6].field_type, PortableFieldType::U32);
+        assert_eq!(parking[7].name, "lateralOffsetMillimetres");
+        assert_eq!(parking[7].field_type, PortableFieldType::I32);
+        assert_eq!(parking[8].name, "headingOffsetRadians");
+        assert_eq!(parking[8].field_type, PortableFieldType::F32);
+        assert_eq!(parking[9].name, "lengthMillimetres");
+        assert_eq!(parking[9].field_type, PortableFieldType::U32);
+        assert_eq!(parking[10].name, "widthMillimetres");
+        assert_eq!(parking[10].field_type, PortableFieldType::U32);
+
+        let profile = schema.sections[2].tables[19].row.fields;
+        assert_eq!(profile[3].name, "lengthMillimetres");
+        assert_eq!(profile[3].field_type, PortableFieldType::U32);
+        assert_eq!(profile[4].name, "desiredSpeedMillimetresPerSecond");
+        assert_eq!(profile[4].field_type, PortableFieldType::U32);
+        assert_eq!(profile[5].name, "minGapMillimetres");
+        assert_eq!(profile[5].field_type, PortableFieldType::U32);
+        assert_eq!(profile[6].field_type, PortableFieldType::F32);
+        assert_eq!(profile[7].field_type, PortableFieldType::F32);
+        assert_eq!(profile[8].field_type, PortableFieldType::F32);
+        assert_eq!(profile[9].field_type, PortableFieldType::F32);
+    }
+
+    #[test]
     fn field_and_variant_registries_are_closed_and_ordered() {
         for kind in PortableObjectKind::ALL {
-            for section in portable_object_schema(kind).sections {
-                for table in section.tables {
-                    check_row(table.row);
+            for schema in [portable_object_schema(kind)] {
+                for section in schema.sections {
+                    for table in section.tables {
+                        check_row(table.row);
+                    }
                 }
             }
         }

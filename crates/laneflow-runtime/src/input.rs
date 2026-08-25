@@ -24,13 +24,13 @@ impl RouteRegisterInput {
 }
 
 /// 调用方所有的车辆生成输入。
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VehicleSpawnInput {
     profile: VehicleProfileOrdinal,
     route: RouteHandle,
     route_edge_index: u32,
-    progress: f64,
-    initial_speed: f64,
+    progress_mm: u32,
+    initial_speed_mm_s: u32,
 }
 
 impl VehicleSpawnInput {
@@ -40,15 +40,15 @@ impl VehicleSpawnInput {
         profile: VehicleProfileOrdinal,
         route: RouteHandle,
         route_edge_index: u32,
-        progress: f64,
-        initial_speed: f64,
+        progress_mm: u32,
+        initial_speed_mm_s: u32,
     ) -> Self {
         Self {
             profile,
             route,
             route_edge_index,
-            progress,
-            initial_speed,
+            progress_mm,
+            initial_speed_mm_s,
         }
     }
 
@@ -68,12 +68,12 @@ impl VehicleSpawnInput {
     }
 
     #[must_use]
-    pub const fn progress(self) -> f64 {
-        self.progress
+    pub const fn progress_mm(self) -> u32 {
+        self.progress_mm
     }
 
     #[must_use]
-    pub const fn initial_speed(self) -> f64 {
-        self.initial_speed
+    pub const fn initial_speed_mm_s(self) -> u32 {
+        self.initial_speed_mm_s
     }
 }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     PoseSource, RouteRegisterInput, SpawnError, TickInput, TrafficWorld, VehicleSpawnInput,
     VehicleStatus, WorldConfig,
@@ -14,11 +14,11 @@ use laneflow_static_network::{
 };
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
 );
 
 fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked canonical network input");
     build_shared_network_revision(
         input,
@@ -88,8 +88,8 @@ fn bumper_gap(
     world: &TrafficWorld,
     leader: laneflow_runtime::VehicleHandle,
     follower: laneflow_runtime::VehicleHandle,
-    length: f64,
-) -> f64 {
+    length: u32,
+) -> i64 {
     let poses = world.committed_pose_sources();
     let leader_progress = poses
         .as_slice()
@@ -103,11 +103,11 @@ fn bumper_gap(
         .find(|(handle, _)| *handle == follower)
         .map(|(_, source)| route_distance(world, *source))
         .expect("follower pose");
-    leader_progress - follower_progress - length
+    i64::from(leader_progress) - i64::from(follower_progress) - i64::from(length)
 }
 
-fn route_distance(world: &TrafficWorld, source: PoseSource) -> f64 {
-    let PoseSource::Lane { edge, progress } = source else {
+fn route_distance(world: &TrafficWorld, source: PoseSource) -> u32 {
+    let PoseSource::Lane { edge, progress_mm } = source else {
         panic!("expected lane pose");
     };
     let edges = world
@@ -115,13 +115,13 @@ fn route_distance(world: &TrafficWorld, source: PoseSource) -> f64 {
         .relations()
         .static_route_edges(StaticRouteOrdinal::from_raw(0))
         .expect("static edges");
-    let lengths = world.traffic().lane_lengths_meters();
-    let mut distance = 0.0;
+    let lengths = world.traffic().lane_lengths_millimetres();
+    let mut distance: u32 = 0;
     for current in edges {
         if *current == edge {
-            return distance + progress;
+            return distance.saturating_add(progress_mm);
         }
-        distance += lengths[current.index()];
+        distance = distance.saturating_add(lengths[current.index()]);
     }
     panic!("edge not on static route");
 }
@@ -142,8 +142,8 @@ fn follower_cannot_penetrate_leader_occupancy() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            profile.length() + 1.0,
-            0.0,
+            profile.length_mm() + 1_000,
+            0,
         ))
         .expect("leader");
     let follower = world
@@ -151,8 +151,8 @@ fn follower_cannot_penetrate_leader_occupancy() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("follower");
 
@@ -174,9 +174,9 @@ fn follower_cannot_penetrate_leader_occupancy() {
         .map(|(_, source)| route_distance(&world, *source))
         .expect("follower pose");
     assert!(
-        follower_progress + profile.length() <= leader_progress + 1e-6,
+        follower_progress + profile.length_mm() <= leader_progress,
         "follower {follower_progress} penetrated leader {leader_progress} length {}",
-        profile.length()
+        profile.length_mm()
     );
 }
 
@@ -191,15 +191,15 @@ fn both_vehicles_can_advance_on_fixture_route() {
         .relations()
         .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
         .expect("profile");
-    let follower_start = 1.0;
-    let leader_start = follower_start + profile.length() + profile.min_gap() + 2.0;
+    let follower_start = 1_000;
+    let leader_start = follower_start + profile.length_mm() + profile.min_gap_mm() + 2_000;
     world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
             leader_start,
-            0.0,
+            0,
         ))
         .expect("leader");
     world
@@ -208,10 +208,10 @@ fn both_vehicles_can_advance_on_fixture_route() {
             route,
             0,
             follower_start,
-            0.0,
+            0,
         ))
         .expect("follower");
-    let before: Vec<f64> = world
+    let before: Vec<u32> = world
         .committed_pose_sources()
         .as_slice()
         .iter()
@@ -220,7 +220,7 @@ fn both_vehicles_can_advance_on_fixture_route() {
     for _ in 0..20 {
         world.step(TickInput::new(100)).expect("step");
     }
-    let after: Vec<f64> = world
+    let after: Vec<u32> = world
         .committed_pose_sources()
         .as_slice()
         .iter()
@@ -228,17 +228,11 @@ fn both_vehicles_can_advance_on_fixture_route() {
         .collect();
     assert_eq!(before.len(), 2);
     assert!(
-        after
-            .iter()
-            .zip(&before)
-            .all(|(next, prev)| *next + 1e-9 >= *prev),
+        after.iter().zip(&before).all(|(next, prev)| *next >= *prev),
         "progress must not reverse: {before:?} -> {after:?}"
     );
     assert!(
-        after
-            .iter()
-            .zip(&before)
-            .all(|(next, prev)| *next > *prev + 1e-4),
+        after.iter().zip(&before).all(|(next, prev)| *next > *prev),
         "both vehicles must advance: {before:?} -> {after:?}"
     );
 }
@@ -254,8 +248,8 @@ fn parked_vehicle_does_not_move() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("spawn");
     let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
@@ -289,8 +283,8 @@ fn identical_step_sequences_are_deterministic() {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                0.0,
-                0.0,
+                0,
+                0,
             ))
             .expect("spawn");
         for _ in 0..8 {
@@ -322,8 +316,8 @@ fn min_gap_is_preserved_when_spawn_gap_is_feasible() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            profile.length() + profile.min_gap() + 0.5,
-            0.0,
+            profile.length_mm() + profile.min_gap_mm() + 500,
+            0,
         ))
         .expect("leader");
     let follower = world
@@ -331,20 +325,20 @@ fn min_gap_is_preserved_when_spawn_gap_is_feasible() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("follower");
-    let initial_gap = bumper_gap(&world, leader, follower, profile.length());
-    assert!(initial_gap + 1e-9 >= profile.min_gap());
+    let initial_gap = bumper_gap(&world, leader, follower, profile.length_mm());
+    assert!(initial_gap >= i64::from(profile.min_gap_mm()));
     for _ in 0..40 {
         world.step(TickInput::new(100)).expect("step");
     }
-    let gap = bumper_gap(&world, leader, follower, profile.length());
+    let gap = bumper_gap(&world, leader, follower, profile.length_mm());
     assert!(
-        gap + 1e-6 >= profile.min_gap(),
+        gap >= i64::from(profile.min_gap_mm()),
         "min_gap invaded: {gap} < {}",
-        profile.min_gap()
+        profile.min_gap_mm()
     );
 }
 
@@ -370,8 +364,8 @@ fn follower_is_observably_constrained_versus_solo() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            profile.length() + profile.min_gap() + 0.5,
-            0.0,
+            profile.length_mm() + profile.min_gap_mm() + 500,
+            0,
         ))
         .expect("leader");
     let follower = paired
@@ -379,8 +373,8 @@ fn follower_is_observably_constrained_versus_solo() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("follower");
     let mut solo = world();
@@ -390,8 +384,8 @@ fn follower_is_observably_constrained_versus_solo() {
             VehicleProfileOrdinal::from_raw(0),
             solo_route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("solo");
     for _ in 0..20 {
@@ -418,7 +412,7 @@ fn follower_is_observably_constrained_versus_solo() {
             .1,
     );
     assert!(
-        follower_distance + 0.05 < solo_distance,
+        follower_distance + 50 < solo_distance,
         "follower {follower_distance} should lag solo {solo_distance}"
     );
 }
@@ -436,7 +430,7 @@ fn red_snapshot_prevents_controlled_transition() {
         .expect("edges")
         .to_vec();
     let from = edges[1];
-    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[from.index()];
+    let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[from.index()];
     let t_aspects = aspects_at(&world, world.time_ms());
     assert_eq!(t_aspects.get(1).copied(), Some(SignalAspect::Red));
     world
@@ -444,24 +438,25 @@ fn red_snapshot_prevents_controlled_transition() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             1,
-            7.2,
+            7_200,
             speed_limit,
         ))
         .expect("spawn");
     world.step(TickInput::new(100)).expect("step");
-    let PoseSource::Lane { edge, progress } = world.committed_pose_sources().as_slice()[0].1 else {
+    let PoseSource::Lane { edge, progress_mm } = world.committed_pose_sources().as_slice()[0].1
+    else {
         panic!("expected lane pose");
     };
     assert_eq!(edge, from, "must not complete fromEdge → toEdge on Red");
     assert!(
-        progress <= 8.0 + 1e-9,
-        "front bumper must not pass StopLine {progress}"
+        progress_mm <= 8_000,
+        "front bumper must not pass StopLine {progress_mm}"
     );
 }
 
 #[test]
 fn phase_boundary_inside_tick_keeps_snapshot_t_and_publishes_t_plus_d() {
-    const DELTA: u64 = 300;
+    const DELTA: u64 = 200;
     let mut world = world_with_delta(DELTA);
     while world.time_ms() < 28_800 {
         world.step(TickInput::new(DELTA)).expect("advance");
@@ -496,23 +491,24 @@ fn phase_boundary_inside_tick_keeps_snapshot_t_and_publishes_t_plus_d() {
         .expect("edges")
         .to_vec();
     let to = edges[1];
-    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[edges[0].index()];
+    let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[edges[0].index()];
     world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            9.0,
+            9_000,
             speed_limit,
         ))
         .expect("spawn");
     world.step(TickInput::new(DELTA)).expect("step");
-    let PoseSource::Lane { edge, progress } = world.committed_pose_sources().as_slice()[0].1 else {
+    let PoseSource::Lane { edge, progress_mm } = world.committed_pose_sources().as_slice()[0].1
+    else {
         panic!("expected lane pose");
     };
     assert_eq!(
         edge, to,
-        "snapshot(T) is Green so the vehicle must complete entry StopLine; got edge={edge:?} progress={progress}"
+        "snapshot(T) is Green so the vehicle must complete entry StopLine; got edge={edge:?} progress={progress_mm}"
     );
     let committed: Vec<SignalAspect> = world
         .committed_signal_groups()
@@ -561,8 +557,8 @@ fn failed_step_leaves_pose_occupancy_signals_and_time_unchanged() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("spawn");
     let poses = world.committed_pose_sources();
@@ -600,11 +596,11 @@ fn spawn_at_vacated_progress_succeeds_after_leader_advances() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("leader");
-    let mut leader_progress = 0.0;
+    let mut leader_progress = 0;
     for _ in 0..80 {
         world.step(TickInput::new(100)).expect("step");
         leader_progress = route_distance(
@@ -617,12 +613,12 @@ fn spawn_at_vacated_progress_succeeds_after_leader_advances() {
                 .expect("leader pose")
                 .1,
         );
-        if leader_progress > profile.length() + profile.min_gap() {
+        if leader_progress > profile.length_mm() + profile.min_gap_mm() {
             break;
         }
     }
     assert!(
-        leader_progress > profile.length() + profile.min_gap(),
+        leader_progress > profile.length_mm() + profile.min_gap_mm(),
         "leader should vacate the origin, got {leader_progress}"
     );
     world
@@ -630,8 +626,8 @@ fn spawn_at_vacated_progress_succeeds_after_leader_advances() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("vacated origin must accept a new vehicle");
     let edges = world
@@ -641,7 +637,7 @@ fn spawn_at_vacated_progress_succeeds_after_leader_advances() {
         .expect("edges");
     let PoseSource::Lane {
         edge: leader_edge,
-        progress: leader_edge_progress,
+        progress_mm: leader_edge_progress,
     } = world
         .committed_pose_sources()
         .as_slice()
@@ -663,7 +659,7 @@ fn spawn_at_vacated_progress_succeeds_after_leader_advances() {
                 route,
                 u32::try_from(leader_index).expect("index fits u32"),
                 leader_edge_progress,
-                0.0,
+                0,
             ))
             .unwrap_err(),
         SpawnError::Overlap
@@ -683,15 +679,15 @@ fn route_end_leaves_committed_poses_and_lane_occupancy() {
         .expect("edges")
         .to_vec();
     let last = *edges.last().expect("route has edges");
-    let last_length = world.traffic().lane_lengths_meters()[last.index()];
-    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[last.index()];
+    let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
+    let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
     let last_index = u32::try_from(edges.len() - 1).expect("index fits u32");
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             last_index,
-            (last_length - 0.5).max(0.0),
+            last_length.saturating_sub(500),
             speed_limit,
         ))
         .expect("spawn near end");
@@ -723,8 +719,8 @@ fn route_end_leaves_committed_poses_and_lane_occupancy() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             last_index,
-            (last_length - 0.5).max(0.0),
-            0.0,
+            last_length.saturating_sub(500),
+            0,
         ))
         .expect("route-end occupancy must be released");
     assert!(
@@ -745,24 +741,25 @@ fn later_red_stop_caps_travel_after_permitted_gate() {
         .static_route_edges(StaticRouteOrdinal::from_raw(0))
         .expect("edges")
         .to_vec();
-    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[edges[0].index()];
+    let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[edges[0].index()];
     world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            9.0,
+            9_000,
             speed_limit,
         ))
         .expect("spawn");
     world.step(TickInput::new(1_000)).expect("step");
-    let PoseSource::Lane { edge, progress } = world.committed_pose_sources().as_slice()[0].1 else {
+    let PoseSource::Lane { edge, progress_mm } = world.committed_pose_sources().as_slice()[0].1
+    else {
         panic!("expected lane pose");
     };
     assert_eq!(edge, edges[1], "must stop at later red, not skip middle");
     assert!(
-        progress <= 8.0 + 1e-6,
-        "must not enter exit on later red {progress}"
+        progress_mm <= 8_000,
+        "must not enter exit on later red {progress_mm}"
     );
 }
 
@@ -778,24 +775,25 @@ fn dynamic_route_later_red_uses_compiled_path_gate() {
     let route = world
         .register_route(RouteRegisterInput::new(edges.clone()))
         .expect("dynamic");
-    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[edges[0].index()];
+    let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[edges[0].index()];
     world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            9.0,
+            9_000,
             speed_limit,
         ))
         .expect("spawn");
     world.step(TickInput::new(1_000)).expect("step");
-    let PoseSource::Lane { edge, progress } = world.committed_pose_sources().as_slice()[0].1 else {
+    let PoseSource::Lane { edge, progress_mm } = world.committed_pose_sources().as_slice()[0].1
+    else {
         panic!("expected lane pose");
     };
     assert_eq!(edge, edges[1], "dynamic later red must stop on middle");
     assert!(
-        progress <= 8.0 + 1e-6,
-        "dynamic later red must not enter exit {progress}"
+        progress_mm <= 8_000,
+        "dynamic later red must not enter exit {progress_mm}"
     );
 }
 
@@ -824,8 +822,8 @@ fn static_and_dynamic_vehicles_follow_on_shared_edges() {
             VehicleProfileOrdinal::from_raw(0),
             static_route,
             0,
-            profile.length() + profile.min_gap() + 0.5,
-            0.0,
+            profile.length_mm() + profile.min_gap_mm() + 500,
+            0,
         ))
         .expect("leader");
     let follower = world
@@ -833,16 +831,16 @@ fn static_and_dynamic_vehicles_follow_on_shared_edges() {
             VehicleProfileOrdinal::from_raw(0),
             dynamic,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("follower");
     for _ in 0..20 {
         world.step(TickInput::new(100)).expect("step");
     }
-    let gap = bumper_gap(&world, leader, follower, profile.length());
+    let gap = bumper_gap(&world, leader, follower, profile.length_mm());
     assert!(
-        gap + 1e-6 >= profile.min_gap(),
+        gap >= i64::from(profile.min_gap_mm()),
         "shared-edge following must keep min_gap, got {gap}"
     );
 }
@@ -863,8 +861,8 @@ fn spawn_rejects_overlap_across_adjacent_edges() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             1,
-            1.0,
-            0.0,
+            1_000,
+            0,
         ))
         .expect("leader on middle");
     assert_eq!(
@@ -873,8 +871,8 @@ fn spawn_rejects_overlap_across_adjacent_edges() {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                8.0,
-                0.0,
+                8_000,
+                0,
             ))
             .unwrap_err(),
         SpawnError::Overlap
@@ -896,15 +894,15 @@ fn completed_vehicle_keeps_capacity_until_replace() {
         .expect("edges")
         .to_vec();
     let last = *edges.last().expect("route has edges");
-    let last_length = world.traffic().lane_lengths_meters()[last.index()];
-    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[last.index()];
+    let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
+    let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
     let last_index = u32::try_from(edges.len() - 1).expect("index fits u32");
     let old = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             last_index,
-            (last_length - 0.5).max(0.0),
+            last_length.saturating_sub(500),
             speed_limit,
         ))
         .expect("only slot");
@@ -925,8 +923,8 @@ fn completed_vehicle_keeps_capacity_until_replace() {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 last_index,
-                0.0,
-                0.0,
+                0,
+                0,
             ))
             .unwrap_err(),
         SpawnError::CapacityExceeded
@@ -934,7 +932,7 @@ fn completed_vehicle_keeps_capacity_until_replace() {
     world
         .replace_completed_vehicle(
             old,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0.0, 0.0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
         )
         .expect("capacity rotates only via replace");
     assert!(

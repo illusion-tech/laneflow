@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     ParkingError, PoseSource, ReplaceError, RouteError, RouteRegisterInput, SpawnError, TickInput,
     TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
@@ -14,11 +14,11 @@ use laneflow_static_network::{
 };
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
 );
 
 fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked canonical network input");
     build_shared_network_revision(
         input,
@@ -34,10 +34,10 @@ fn world() -> TrafficWorld {
     TrafficWorld::install(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install")
 }
 
-fn edge_for_length(world: &TrafficWorld, length: f64) -> LaneEdgeOrdinal {
+fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
     let index = world
         .traffic()
-        .lane_lengths_meters()
+        .lane_lengths_millimetres()
         .iter()
         .position(|actual| *actual == length)
         .expect("fixture lane length");
@@ -46,8 +46,8 @@ fn edge_for_length(world: &TrafficWorld, length: f64) -> LaneEdgeOrdinal {
 
 fn spawn_on_static(
     world: &mut TrafficWorld,
-    progress: f64,
-    speed: f64,
+    progress: u32,
+    speed: u32,
 ) -> laneflow_runtime::VehicleHandle {
     let route = world
         .static_route(StaticRouteOrdinal::from_raw(0))
@@ -66,9 +66,9 @@ fn spawn_on_static(
 #[test]
 fn register_route_requires_connected_shared_edges() {
     let mut world = world();
-    let first = edge_for_length(&world, 10.0);
-    let middle = edge_for_length(&world, 8.0);
-    let last = edge_for_length(&world, 12.0);
+    let first = edge_for_length(&world, 10_000);
+    let middle = edge_for_length(&world, 8_000);
+    let last = edge_for_length(&world, 12_000);
 
     assert_eq!(
         world
@@ -124,14 +124,14 @@ fn spawn_respects_speed_limit_equality_and_overlap() {
         .relations()
         .static_route_edges(StaticRouteOrdinal::from_raw(0))
         .expect("static edges")[0];
-    let limit = world.traffic().lane_speed_limits_meters_per_second()[edge.index()];
+    let limit = world.traffic().lane_speed_limits_millimetres_per_second()[edge.index()];
 
     let first = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
+            0,
             limit,
         ))
         .expect("equal speed spawn");
@@ -141,8 +141,8 @@ fn spawn_respects_speed_limit_equality_and_overlap() {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                0.0,
-                limit + 0.1,
+                0,
+                limit + 1,
             ))
             .unwrap_err(),
         SpawnError::SpeedExceedsLimit
@@ -153,8 +153,8 @@ fn spawn_respects_speed_limit_equality_and_overlap() {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                0.0,
-                0.0,
+                0,
+                0,
             ))
             .unwrap_err(),
         SpawnError::Overlap
@@ -165,7 +165,7 @@ fn spawn_respects_speed_limit_equality_and_overlap() {
     assert_eq!(poses.as_slice()[0].0, first);
     assert!(matches!(
         poses.as_slice()[0].1,
-        PoseSource::Lane { progress, .. } if progress == 0.0
+        PoseSource::Lane { progress_mm, .. } if progress_mm == 0
     ));
 }
 
@@ -178,7 +178,7 @@ fn occupy_parking_enforces_one_to_one_and_same_space_idempotent() {
         .count(EntityKind::ParkingSpace);
     assert!(spaces >= 1);
     let space = ParkingSpaceOrdinal::from_raw(0);
-    let vehicle = spawn_on_static(&mut world, 0.0, 0.0);
+    let vehicle = spawn_on_static(&mut world, 0, 0);
 
     world.occupy_parking(vehicle, space).expect("occupy");
     world.occupy_parking(vehicle, space).expect("idempotent");
@@ -210,20 +210,20 @@ fn occupy_parking_enforces_one_to_one_and_same_space_idempotent() {
             .relations()
             .static_route_edges(StaticRouteOrdinal::from_raw(0))
             .expect("edges")[0];
-        let length = profile.length();
+        let length = profile.length_mm();
         world
             .spawn_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                length + 0.5,
-                0.0,
+                length + 500,
+                0,
             ))
             .unwrap_or_else(|_| {
                 panic!(
                     "second spawn at progress {} on edge length {}",
-                    length + 0.5,
-                    world.traffic().lane_lengths_meters()[edge.index()]
+                    length + 500,
+                    world.traffic().lane_lengths_millimetres()[edge.index()]
                 );
             })
     };
@@ -236,9 +236,9 @@ fn occupy_parking_enforces_one_to_one_and_same_space_idempotent() {
 #[test]
 fn remove_dynamic_route_rejects_live_vehicle() {
     let mut world = world();
-    let first = edge_for_length(&world, 10.0);
-    let middle = edge_for_length(&world, 8.0);
-    let last = edge_for_length(&world, 12.0);
+    let first = edge_for_length(&world, 10_000);
+    let middle = edge_for_length(&world, 8_000);
+    let last = edge_for_length(&world, 12_000);
     let route = world
         .register_route(RouteRegisterInput::new(vec![first, middle, last]))
         .expect("dynamic route");
@@ -247,8 +247,8 @@ fn remove_dynamic_route_rejects_live_vehicle() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("spawn on dynamic");
     assert_eq!(
@@ -260,9 +260,9 @@ fn remove_dynamic_route_rejects_live_vehicle() {
 #[test]
 fn parking_keeps_dynamic_route_so_remove_fails() {
     let mut world = world();
-    let first = edge_for_length(&world, 10.0);
-    let middle = edge_for_length(&world, 8.0);
-    let last = edge_for_length(&world, 12.0);
+    let first = edge_for_length(&world, 10_000);
+    let middle = edge_for_length(&world, 8_000);
+    let last = edge_for_length(&world, 12_000);
     let route = world
         .register_route(RouteRegisterInput::new(vec![first, middle, last]))
         .expect("dynamic route");
@@ -271,8 +271,8 @@ fn parking_keeps_dynamic_route_so_remove_fails() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("spawn on dynamic");
     world
@@ -296,8 +296,8 @@ fn spawn_rejects_out_of_range_index_and_progress() {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 99,
-                0.0,
-                0.0,
+                0,
+                0,
             ))
             .unwrap_err(),
         SpawnError::RouteIndexOutOfRange
@@ -307,15 +307,15 @@ fn spawn_rejects_out_of_range_index_and_progress() {
         .relations()
         .static_route_edges(StaticRouteOrdinal::from_raw(0))
         .expect("edges")[0];
-    let length = world.traffic().lane_lengths_meters()[edge.index()];
+    let length = world.traffic().lane_lengths_millimetres()[edge.index()];
     assert_eq!(
         world
             .spawn_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                length + 1.0,
-                0.0,
+                length + 1_000,
+                0,
             ))
             .unwrap_err(),
         SpawnError::InvalidProgress
@@ -333,15 +333,15 @@ fn drive_to_completed(world: &mut TrafficWorld) -> laneflow_runtime::VehicleHand
         .expect("edges")
         .to_vec();
     let last = *edges.last().expect("route has edges");
-    let last_length = world.traffic().lane_lengths_meters()[last.index()];
-    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[last.index()];
+    let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
+    let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
     let last_index = u32::try_from(edges.len() - 1).expect("index fits u32");
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             last_index,
-            (last_length - 0.5).max(0.0),
+            last_length.saturating_sub(500),
             speed_limit,
         ))
         .expect("spawn near end");
@@ -384,15 +384,15 @@ fn completed_vehicle_is_retained_without_pose_or_occupancy() {
         .expect("edges")
         .to_vec();
     let last = *edges.last().expect("route has edges");
-    let last_length = world.traffic().lane_lengths_meters()[last.index()];
+    let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
     let last_index = u32::try_from(edges.len() - 1).expect("index fits u32");
     let occupancy = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             last_index,
-            (last_length - 0.5).max(0.0),
-            0.0,
+            last_length.saturating_sub(500),
+            0,
         ))
         .expect("Completed must release lane occupancy");
     assert_ne!(occupancy, old);
@@ -413,8 +413,8 @@ fn completed_vehicle_occupies_capacity_until_replace() {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                0.0,
-                0.0,
+                0,
+                0,
             ))
             .unwrap_err(),
         SpawnError::CapacityExceeded
@@ -422,7 +422,7 @@ fn completed_vehicle_occupies_capacity_until_replace() {
     let record = world
         .replace_completed_vehicle(
             old,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0.0, 0.0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
         )
         .expect("atomic replace");
     assert_eq!(record.old, old);
@@ -447,15 +447,15 @@ fn replace_is_atomic_and_blocked_overlap_is_retryable() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("blocker at entry");
     let before = world.vehicle(old);
     let error = world
         .replace_completed_vehicle(
             old,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0.0, 0.0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
         )
         .unwrap_err();
     let ReplaceError::Blocked(block) = error else {
@@ -471,7 +471,7 @@ fn replace_is_atomic_and_blocked_overlap_is_retryable() {
         world
             .replace_completed_vehicle(
                 blocker,
-                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1.0, 0.0),
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1_000, 0),
             )
             .unwrap_err(),
         ReplaceError::NotCompleted
@@ -480,13 +480,7 @@ fn replace_is_atomic_and_blocked_overlap_is_retryable() {
         world
             .replace_completed_vehicle(
                 old,
-                VehicleSpawnInput::new(
-                    VehicleProfileOrdinal::from_raw(0),
-                    route,
-                    u32::MAX,
-                    0.0,
-                    0.0,
-                ),
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, u32::MAX, 0, 0,),
             )
             .unwrap_err(),
         ReplaceError::RouteIndexOutOfRange
@@ -496,7 +490,7 @@ fn replace_is_atomic_and_blocked_overlap_is_retryable() {
     let record = world
         .replace_completed_vehicle(
             old,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8.0, 0.0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0),
         )
         .expect("entry behind blocker");
     assert_ne!(record.new, old);
@@ -522,8 +516,8 @@ fn replace_does_not_use_despawn_then_spawn() {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                0.0,
-                0.0,
+                0,
+                0,
             ))
             .unwrap_err(),
         SpawnError::CapacityExceeded,
@@ -534,20 +528,20 @@ fn replace_does_not_use_despawn_then_spawn() {
 #[test]
 fn completed_dynamic_route_stays_referenced_until_replace() {
     let mut world = world();
-    let first = edge_for_length(&world, 10.0);
-    let middle = edge_for_length(&world, 8.0);
-    let last = edge_for_length(&world, 12.0);
+    let first = edge_for_length(&world, 10_000);
+    let middle = edge_for_length(&world, 8_000);
+    let last = edge_for_length(&world, 12_000);
     let dynamic = world
         .register_route(RouteRegisterInput::new(vec![first, middle, last]))
         .expect("dynamic");
-    let last_length = world.traffic().lane_lengths_meters()[last.index()];
-    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[last.index()];
+    let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
+    let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             dynamic,
             2,
-            (last_length - 0.5).max(0.0),
+            last_length.saturating_sub(500),
             speed_limit,
         ))
         .expect("spawn near end");
@@ -583,13 +577,7 @@ fn completed_dynamic_route_stays_referenced_until_replace() {
     let record = world
         .replace_completed_vehicle(
             vehicle,
-            VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                static_route,
-                0,
-                0.0,
-                0.0,
-            ),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), static_route, 0, 0, 0),
         )
         .expect("replace onto static");
     world.remove_route(dynamic).expect("old dynamic unused");
@@ -607,8 +595,8 @@ fn parked_and_stale_replace_leave_world_unchanged() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("spawn");
     world
@@ -618,7 +606,7 @@ fn parked_and_stale_replace_leave_world_unchanged() {
         world
             .replace_completed_vehicle(
                 parked,
-                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1.0, 0.0),
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 1_000, 0),
             )
             .unwrap_err(),
         ReplaceError::NotCompleted
@@ -633,14 +621,14 @@ fn parked_and_stale_replace_leave_world_unchanged() {
     world
         .replace_completed_vehicle(
             old,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8.0, 0.0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0),
         )
         .expect("free the completed slot");
     assert_eq!(
         world
             .replace_completed_vehicle(
                 old,
-                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8.0, 0.0),
+                VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0),
             )
             .unwrap_err(),
         ReplaceError::StaleHandle

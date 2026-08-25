@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_spatial::{
     CanonicalPoseBatch, FramePlacementToken, PoseInput, PoseRecordId, SpatialSession,
 };
@@ -11,11 +11,11 @@ use laneflow_static_network::{
 };
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
 );
 
 fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked canonical network input");
     build_shared_network_revision(
         input,
@@ -45,7 +45,7 @@ fn bind_full_spatial_and_extract_lane_pose() {
     session
         .extract_pose_batch(
             FramePlacementToken::new(1),
-            &[PoseInput::lane(PoseRecordId::new(7), edge, 0.0)],
+            &[PoseInput::lane(PoseRecordId::new(7), edge, 0)],
             &mut output,
         )
         .expect("extract");
@@ -57,8 +57,8 @@ fn bind_full_spatial_and_extract_lane_pose() {
     let failed = session.extract_pose_batch(
         FramePlacementToken::new(2),
         &[
-            PoseInput::lane(PoseRecordId::new(1), edge, 0.0),
-            PoseInput::lane(PoseRecordId::new(2), edge, 1.0e9),
+            PoseInput::lane(PoseRecordId::new(1), edge, 0),
+            PoseInput::lane(PoseRecordId::new(2), edge, u32::MAX),
         ],
         &mut output,
     );

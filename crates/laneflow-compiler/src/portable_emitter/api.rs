@@ -7,11 +7,11 @@ use super::*;
 /// v1 只允许调用方提供 canonical compiler build ID；来源集合、编译选项、几何档位与
 /// emitter 版本全部由同一个 `CompilationOutput` 和冻结规则派生。
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PortableEmissionProvenanceV1 {
+pub struct PortableEmissionProvenance {
     pub(super) compiler_build_id: Box<str>,
 }
 
-impl PortableEmissionProvenanceV1 {
+impl PortableEmissionProvenance {
     /// 建立一份已规范化的 v1 provenance。
     ///
     /// # Errors
@@ -89,7 +89,7 @@ pub struct PortablePublicationCandidate {
     pub(super) compiler_build_id: Box<str>,
     pub(super) source_collection_digest_version: u16,
     pub(super) source_collection_digest: [u8; 32],
-    pub(super) expected_semantic_diff_base: ExpectedSemanticDiffBaseV1,
+    pub(super) expected_semantic_diff_base: ExpectedSemanticDiffBase,
 }
 
 /// LFSD 的显式 base 选择。
@@ -144,7 +144,7 @@ impl PortablePublicationCandidate {
 
     /// 返回从实际 `PortableDiffBase` 保存、供后发射检查使用的显式 base binding。
     #[must_use]
-    pub const fn expected_semantic_diff_base(&self) -> ExpectedSemanticDiffBaseV1 {
+    pub const fn expected_semantic_diff_base(&self) -> ExpectedSemanticDiffBase {
         self.expected_semantic_diff_base
     }
 }
@@ -209,7 +209,7 @@ mod tests {
             compiler_build_id: Box::from("test-compiler"),
             source_collection_digest_version: 1,
             source_collection_digest: [0; 32],
-            expected_semantic_diff_base: ExpectedSemanticDiffBaseV1::Genesis,
+            expected_semantic_diff_base: ExpectedSemanticDiffBase::Genesis,
         };
         let network_revision: NetworkRevisionId = publication.network_revision();
         assert_eq!(network_revision.into_digest(), digest);

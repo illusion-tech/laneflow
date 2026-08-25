@@ -7,6 +7,7 @@ pub(super) enum OwnedValue {
     U32(u32),
     U64(u64),
     F32(f32),
+    #[allow(dead_code)]
     F64(f64),
     StableId128([u8; 16]),
     Sha256([u8; 32]),
@@ -70,20 +71,20 @@ pub(super) fn section(kind: u16, tables: impl IntoIterator<Item = OwnedTable>) -
     }
 }
 
-fn borrow_primitive_value(value: &OwnedValue) -> FieldWriteValueV1<'_> {
+fn borrow_primitive_value(value: &OwnedValue) -> FieldWriteValue<'_> {
     match value {
-        OwnedValue::U8(value) => FieldWriteValueV1::U8(*value),
-        OwnedValue::U16(value) => FieldWriteValueV1::U16(*value),
-        OwnedValue::U32(value) => FieldWriteValueV1::U32(*value),
-        OwnedValue::U64(value) => FieldWriteValueV1::U64(*value),
-        OwnedValue::F32(value) => FieldWriteValueV1::F32(*value),
-        OwnedValue::F64(value) => FieldWriteValueV1::F64(*value),
-        OwnedValue::StableId128(value) => FieldWriteValueV1::StableId128(*value),
-        OwnedValue::Sha256(value) => FieldWriteValueV1::Sha256(*value),
-        OwnedValue::Utf8(value) => FieldWriteValueV1::Utf8(value),
-        OwnedValue::Bytes(value) => FieldWriteValueV1::Bytes(value),
-        OwnedValue::OrdinalVectorU32(value) => FieldWriteValueV1::OrdinalVectorU32(value),
-        OwnedValue::I32(value) => FieldWriteValueV1::I32(*value),
+        OwnedValue::U8(value) => FieldWriteValue::U8(*value),
+        OwnedValue::U16(value) => FieldWriteValue::U16(*value),
+        OwnedValue::U32(value) => FieldWriteValue::U32(*value),
+        OwnedValue::U64(value) => FieldWriteValue::U64(*value),
+        OwnedValue::F32(value) => FieldWriteValue::F32(*value),
+        OwnedValue::F64(value) => FieldWriteValue::F64(*value),
+        OwnedValue::StableId128(value) => FieldWriteValue::StableId128(*value),
+        OwnedValue::Sha256(value) => FieldWriteValue::Sha256(*value),
+        OwnedValue::Utf8(value) => FieldWriteValue::Utf8(value),
+        OwnedValue::Bytes(value) => FieldWriteValue::Bytes(value),
+        OwnedValue::OrdinalVectorU32(value) => FieldWriteValue::OrdinalVectorU32(value),
+        OwnedValue::I32(value) => FieldWriteValue::I32(*value),
         OwnedValue::RecordVector(_) => unreachable!("record vectors are lowered in a prior layer"),
     }
 }
@@ -166,7 +167,7 @@ pub(super) fn encode_owned_object(
     already_staged_bytes: u64,
 ) -> Result<Box<[u8]>, PortableEmissionError> {
     let capacities = ArenaCapacities::for_object(object)?;
-    let mut nested_fields = Vec::<FieldWriteInputV1<'_>>::with_capacity(capacities.nested_fields);
+    let mut nested_fields = Vec::<FieldWriteInput<'_>>::with_capacity(capacities.nested_fields);
     let mut nested_field_spans = Vec::<ArenaSpan>::with_capacity(capacities.nested_rows);
     let mut record_row_spans = Vec::<ArenaSpan>::with_capacity(capacities.record_vectors);
     for section in &object.sections {
@@ -178,7 +179,7 @@ pub(super) fn encode_owned_object(
                         for nested_row in rows {
                             let field_start = nested_fields.len();
                             nested_fields.extend(nested_row.fields.iter().map(|field| {
-                                FieldWriteInputV1 {
+                                FieldWriteInput {
                                     tag: field.tag,
                                     value: borrow_primitive_value(&field.value),
                                 }
@@ -197,12 +198,12 @@ pub(super) fn encode_owned_object(
     }
 
     let mut nested_rows = Vec::with_capacity(capacities.nested_rows);
-    nested_rows.extend(nested_field_spans.iter().map(|span| RowWriteInputV1 {
+    nested_rows.extend(nested_field_spans.iter().map(|span| RowWriteInput {
         fields: span.slice(&nested_fields),
     }));
 
     let mut record_rows = record_row_spans.iter();
-    let mut top_fields = Vec::<FieldWriteInputV1<'_>>::with_capacity(capacities.top_fields);
+    let mut top_fields = Vec::<FieldWriteInput<'_>>::with_capacity(capacities.top_fields);
     let mut top_field_spans = Vec::<ArenaSpan>::with_capacity(capacities.top_rows);
     for section in &object.sections {
         for table in &section.tables {
@@ -210,7 +211,7 @@ pub(super) fn encode_owned_object(
                 let field_start = top_fields.len();
                 for field in &row.fields {
                     let value = match &field.value {
-                        OwnedValue::RecordVector(_) => FieldWriteValueV1::RecordVector(
+                        OwnedValue::RecordVector(_) => FieldWriteValue::RecordVector(
                             record_rows
                                 .next()
                                 .ok_or(PortableEmissionError::InternalBindingMismatch)?
@@ -218,7 +219,7 @@ pub(super) fn encode_owned_object(
                         ),
                         value => borrow_primitive_value(value),
                     };
-                    top_fields.push(FieldWriteInputV1 {
+                    top_fields.push(FieldWriteInput {
                         tag: field.tag,
                         value,
                     });
@@ -230,7 +231,7 @@ pub(super) fn encode_owned_object(
     debug_assert!(record_rows.next().is_none());
 
     let mut top_rows = Vec::with_capacity(capacities.top_rows);
-    top_rows.extend(top_field_spans.iter().map(|span| RowWriteInputV1 {
+    top_rows.extend(top_field_spans.iter().map(|span| RowWriteInput {
         fields: span.slice(&top_fields),
     }));
 
@@ -246,12 +247,12 @@ pub(super) fn encode_owned_object(
     debug_assert_eq!(top_row_index, top_rows.len());
 
     let mut table_rows = table_row_spans.iter();
-    let mut tables = Vec::<TableWriteInputV1<'_>>::with_capacity(capacities.tables);
+    let mut tables = Vec::<TableWriteInput<'_>>::with_capacity(capacities.tables);
     let mut section_table_spans = Vec::<ArenaSpan>::with_capacity(capacities.sections);
     for section in &object.sections {
         let table_start = tables.len();
         for table in &section.tables {
-            tables.push(TableWriteInputV1 {
+            tables.push(TableWriteInput {
                 kind: table.kind,
                 rows: table_rows
                     .next()
@@ -269,16 +270,16 @@ pub(super) fn encode_owned_object(
             .sections
             .iter()
             .zip(&section_table_spans)
-            .map(|(section, span)| SectionWriteInputV1 {
+            .map(|(section, span)| SectionWriteInput {
                 kind: section.kind,
                 tables: span.slice(&tables),
             }),
     );
-    let input = ObjectWriteInputV1 {
+    let input = ObjectWriteInput {
         kind: object.kind,
         sections: &sections,
     };
-    let prepared = prepare_object_v1(input, limits)?;
+    let prepared = prepare_object(input, limits)?;
     let length = prepared.byte_len();
     let candidate_length = already_staged_bytes
         .checked_add(length)
@@ -293,7 +294,7 @@ pub(super) fn encode_owned_object(
     let output_length =
         usize::try_from(length).map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
     let mut bytes = vec![0_u8; output_length];
-    encode_prepared_object_v1(prepared, &mut bytes)?;
+    encode_prepared_object(prepared, &mut bytes)?;
     Ok(bytes.into_boxed_slice())
 }
 
@@ -353,19 +354,19 @@ mod tests {
     #[test]
     fn candidate_staging_accepts_exact_boundary_and_rejects_limit_plus_one() {
         let object = minimal_lfcp_shape();
-        let length = encode_owned_object(&object, FormatLimits::V1_HARD, 0)
+        let length = encode_owned_object(&object, FormatLimits::HARD, 0)
             .unwrap()
             .len() as u64;
         encode_owned_object(
             &object,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
             FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES - length,
         )
         .unwrap();
         assert_eq!(
             encode_owned_object(
                 &object,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
                 FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES - length + 1,
             ),
             Err(PortableEmissionError::CandidateStagingLimitExceeded {
@@ -378,7 +379,7 @@ mod tests {
     #[test]
     fn candidate_staging_accumulation_reports_arithmetic_overflow() {
         assert_eq!(
-            encode_owned_object(&minimal_lfcp_shape(), FormatLimits::V1_HARD, u64::MAX),
+            encode_owned_object(&minimal_lfcp_shape(), FormatLimits::HARD, u64::MAX),
             Err(PortableEmissionError::ArithmeticOverflow)
         );
     }
@@ -386,10 +387,10 @@ mod tests {
     #[test]
     fn caller_can_reduce_candidate_staging_budget() {
         let object = minimal_lfcp_shape();
-        let length = encode_owned_object(&object, FormatLimits::V1_HARD, 0)
+        let length = encode_owned_object(&object, FormatLimits::HARD, 0)
             .unwrap()
             .len() as u64;
-        let mut config = laneflow_format::FormatLimitConfig::V1_HARD;
+        let mut config = laneflow_format::FormatLimitConfig::HARD;
         config.max_candidate_staging_bytes = length - 1;
         assert_eq!(
             encode_owned_object(&object, FormatLimits::try_new(config).unwrap(), 0),

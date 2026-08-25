@@ -18,7 +18,7 @@ mod wire;
 mod writer;
 
 pub use canonical_network::{
-    CanonicalNetworkInputError, CheckedCanonicalNetworkInputV1, check_canonical_network_input_v1,
+    CanonicalNetworkInputError, CheckedCanonicalNetworkInput, check_canonical_network_input,
 };
 pub use error::{FormatError, FormatErrorClass, FormatStructure, LimitDimension};
 pub use framing::{ObjectFramingView, SectionFramingView, preflight_object_framing};
@@ -28,16 +28,16 @@ pub use object::{
     RegistryCheckedObjectView, RegistryCheckedOrdinalVectorView, RegistryCheckedRecordVectorView,
     RegistryCheckedRowIter, RegistryCheckedRowView, RegistryCheckedSectionIter,
     RegistryCheckedSectionView, RegistryCheckedTableIter, RegistryCheckedTableView,
-    preflight_object_registry_v1,
+    preflight_object_registry,
 };
 pub use post_emission::{
-    ExpectedSemanticDiffBaseV1, PostEmissionCheckError, PostEmissionCheckedBundleV1,
-    check_post_emission_bundle_v1,
+    ExpectedSemanticDiffBase, PostEmissionCheckError, PostEmissionCheckedBundle,
+    check_post_emission_bundle,
 };
-pub use table::{TableStructureSummary, preflight_table_structure_v1};
-pub use value::{ValueCheckedObjectView, preflight_object_values_v1};
+pub use table::{TableStructureSummary, preflight_table_structure};
+pub use value::{ValueCheckedObjectView, preflight_object_values};
 pub use writer::{
-    FieldWriteInputV1, FieldWriteValueV1, ObjectWriteInputV1, PreparedObjectV1, RowWriteInputV1,
-    SectionWriteInputV1, TableWriteInputV1, encode_object_v1, encode_prepared_object_v1,
-    measure_object_v1, prepare_object_v1,
+    FieldWriteInput, FieldWriteValue, ObjectWriteInput, PreparedObject, RowWriteInput,
+    SectionWriteInput, TableWriteInput, encode_object, encode_prepared_object, measure_object,
+    prepare_object,
 };

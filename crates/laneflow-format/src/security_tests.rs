@@ -9,15 +9,15 @@ use laneflow_static_contract::{
     FORMAT_HARD_MAX_FIELDS_PER_ROW, FORMAT_HARD_MAX_OBJECT_BYTES, FORMAT_HARD_MAX_ROWS_PER_TABLE,
     FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES, FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS,
     FORMAT_HARD_MAX_TOTAL_UTF8_BYTES, FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES,
-    FORMAT_HARD_MAX_UTF8_FIELD_BYTES, FORMAT_HARD_MAX_VECTOR_ITEMS, OBJECT_PREAMBLE_V1_BYTE_LENGTH,
-    PortableFieldType, PortableObjectKind, SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH,
-    SECTION_FORMAT_VERSION_V1, portable_object_schema,
+    FORMAT_HARD_MAX_UTF8_FIELD_BYTES, FORMAT_HARD_MAX_VECTOR_ITEMS, OBJECT_PREAMBLE_BYTE_LENGTH,
+    PortableFieldType, PortableObjectKind, SECTION_DIRECTORY_ENTRY_BYTE_LENGTH,
+    SECTION_FORMAT_VERSION, portable_object_schema,
 };
 
 use crate::{
     FormatError, FormatErrorClass, FormatLimits, FormatStructure, LimitDimension,
-    preflight_object_framing, preflight_table_structure_v1,
-    table::{PreflightBudget, preflight_table_with_registry_v1},
+    preflight_object_framing, preflight_table_structure,
+    table::{PreflightBudget, preflight_table_with_registry},
     wire::checked_slice,
 };
 
@@ -70,17 +70,17 @@ fn object_with_section_lengths(kind: PortableObjectKind, section_lengths: &[u64]
     let mut bytes = vec![0_u8; usize::try_from(total).unwrap()];
     bytes[0..4].copy_from_slice(&kind.magic());
     bytes[4..6].copy_from_slice(&kind.format_version().to_le_bytes());
-    bytes[6..8].copy_from_slice(&OBJECT_PREAMBLE_V1_BYTE_LENGTH.to_le_bytes());
+    bytes[6..8].copy_from_slice(&OBJECT_PREAMBLE_BYTE_LENGTH.to_le_bytes());
     bytes[12..16].copy_from_slice(&kind.section_count().to_le_bytes());
-    bytes[16..24].copy_from_slice(&u64::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH).to_le_bytes());
+    bytes[16..24].copy_from_slice(&u64::from(OBJECT_PREAMBLE_BYTE_LENGTH).to_le_bytes());
     bytes[24..32].copy_from_slice(&total.to_le_bytes());
 
     let mut section_offset = kind.first_section_offset();
     for (ordinal, byte_length) in section_lengths.iter().copied().enumerate() {
-        let entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
-            + ordinal * usize::try_from(SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH).unwrap();
+        let entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+            + ordinal * usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
         bytes[entry..entry + 2].copy_from_slice(&u16::try_from(ordinal + 1).unwrap().to_le_bytes());
-        bytes[entry + 2..entry + 4].copy_from_slice(&SECTION_FORMAT_VERSION_V1.to_le_bytes());
+        bytes[entry + 2..entry + 4].copy_from_slice(&SECTION_FORMAT_VERSION.to_le_bytes());
         bytes[entry + 8..entry + 16].copy_from_slice(&section_offset.to_le_bytes());
         bytes[entry + 16..entry + 24].copy_from_slice(&byte_length.to_le_bytes());
         section_offset = section_offset.checked_add(byte_length).unwrap();
@@ -136,7 +136,7 @@ fn redundant_row_and_field_counts_reject_both_minus_and_plus_one() {
         let mut bytes = original.clone();
         bytes[4..8].copy_from_slice(&count.to_le_bytes());
         assert_eq!(
-            preflight_table_structure_v1(&bytes, 1, FormatLimits::V1_HARD)
+            preflight_table_structure(&bytes, 1, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
@@ -145,7 +145,7 @@ fn redundant_row_and_field_counts_reject_both_minus_and_plus_one() {
         let mut bytes = original.clone();
         bytes[24..28].copy_from_slice(&count.to_le_bytes());
         assert_eq!(
-            preflight_table_structure_v1(&bytes, 1, FormatLimits::V1_HARD)
+            preflight_table_structure(&bytes, 1, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
@@ -169,7 +169,7 @@ fn all_fixed_widths_and_both_vector_counts_reject_redundant_mismatch() {
     for (field_type, width) in fixed_widths {
         let bytes = table(1, &[row(&[field(1, field_type, &vec![0; width + 1])])]);
         assert_eq!(
-            preflight_table_structure_v1(&bytes, 1, FormatLimits::V1_HARD)
+            preflight_table_structure(&bytes, 1, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch,
@@ -186,7 +186,7 @@ fn all_fixed_widths_and_both_vector_counts_reject_redundant_mismatch() {
         )])],
     );
     assert_eq!(
-        preflight_table_structure_v1(&ordinal, 1, FormatLimits::V1_HARD)
+        preflight_table_structure(&ordinal, 1, FormatLimits::HARD)
             .unwrap_err()
             .class(),
         FormatErrorClass::LengthMismatch
@@ -203,7 +203,7 @@ fn all_fixed_widths_and_both_vector_counts_reject_redundant_mismatch() {
         )])],
     );
     assert_eq!(
-        preflight_table_structure_v1(&record, 1, FormatLimits::V1_HARD)
+        preflight_table_structure(&record, 1, FormatLimits::HARD)
             .unwrap_err()
             .class(),
         FormatErrorClass::LengthMismatch
@@ -218,12 +218,12 @@ fn every_redundant_outer_length_layer_fails_closed() {
     let mut object_length = original_object.clone();
     let wrong_object_length = object_length.len() as u64 + 1;
     object_length[24..32].copy_from_slice(&wrong_object_length.to_le_bytes());
-    assert!(preflight_object_framing(&object_length, kind, FormatLimits::V1_HARD).is_err());
+    assert!(preflight_object_framing(&object_length, kind, FormatLimits::HARD).is_err());
 
     let mut section_length = original_object;
-    let first_entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH);
+    let first_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH);
     section_length[first_entry + 16..first_entry + 24].copy_from_slice(&5_u64.to_le_bytes());
-    assert!(preflight_object_framing(&section_length, kind, FormatLimits::V1_HARD).is_err());
+    assert!(preflight_object_framing(&section_length, kind, FormatLimits::HARD).is_err());
 
     let original_table = table(1, &[row(&[field(1, PortableFieldType::Bytes, &[0])])]);
     for range in [8..16, 16..24, 36..44] {
@@ -231,7 +231,7 @@ fn every_redundant_outer_length_layer_fails_closed() {
         let current = u64::from_le_bytes(bytes[range.clone()].try_into().unwrap());
         bytes[range].copy_from_slice(&(current + 1).to_le_bytes());
         assert!(
-            preflight_table_structure_v1(&bytes, 1, FormatLimits::V1_HARD).is_err(),
+            preflight_table_structure(&bytes, 1, FormatLimits::HARD).is_err(),
             "length field at offset accepted an inconsistent inner total"
         );
     }
@@ -262,7 +262,7 @@ fn every_table_byte_boundary_truncates_with_a_stable_length_class() {
                     .to_le_bytes(),
             );
         }
-        let class = preflight_table_structure_v1(&truncated, 1, FormatLimits::V1_HARD)
+        let class = preflight_table_structure(&truncated, 1, FormatLimits::HARD)
             .unwrap_err()
             .class();
         assert!(
@@ -281,15 +281,15 @@ fn object_and_table_byte_boundaries_have_explicit_reachability() {
     let first_section_length = FORMAT_HARD_MAX_OBJECT_BYTES - kind.first_section_offset();
     let mut object = object_with_section_lengths(kind, &[first_section_length, 0, 0]);
     assert_eq!(object.len() as u64, FORMAT_HARD_MAX_OBJECT_BYTES);
-    preflight_object_framing(&object, kind, FormatLimits::V1_HARD).unwrap();
+    preflight_object_framing(&object, kind, FormatLimits::HARD).unwrap();
     object.push(0);
     let over_object_length = object.len() as u64;
     object[24..32].copy_from_slice(&over_object_length.to_le_bytes());
-    let first_entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH);
+    let first_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH);
     object[first_entry + 16..first_entry + 24]
         .copy_from_slice(&(first_section_length + 1).to_le_bytes());
     assert_eq!(
-        preflight_object_framing(&object, kind, FormatLimits::V1_HARD).unwrap_err(),
+        preflight_object_framing(&object, kind, FormatLimits::HARD).unwrap_err(),
         FormatError::LimitExceeded {
             dimension: LimitDimension::ObjectBytes,
             actual: FORMAT_HARD_MAX_OBJECT_BYTES + 1,
@@ -314,10 +314,10 @@ fn object_and_table_byte_boundaries_have_explicit_reachability() {
         table_bytes.len() as u64,
         FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES
     );
-    preflight_table_structure_v1(&table_bytes, 1, FormatLimits::V1_HARD).unwrap();
+    preflight_table_structure(&table_bytes, 1, FormatLimits::HARD).unwrap();
     table_bytes.push(0);
     assert_eq!(
-        preflight_table_structure_v1(&table_bytes, 1, FormatLimits::V1_HARD),
+        preflight_table_structure(&table_bytes, 1, FormatLimits::HARD),
         Err(FormatError::LimitExceeded {
             dimension: LimitDimension::SectionOrTableBytes,
             actual: FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES + 1,
@@ -331,10 +331,10 @@ fn row_and_field_count_boundaries_accept_limit_and_reject_next_value() {
     let empty = row(&[]);
     let rows = vec![empty; FORMAT_HARD_MAX_ROWS_PER_TABLE as usize];
     let mut rows_table = table(1, &rows);
-    preflight_table_structure_v1(&rows_table, 1, FormatLimits::V1_HARD).unwrap();
+    preflight_table_structure(&rows_table, 1, FormatLimits::HARD).unwrap();
     rows_table[4..8].copy_from_slice(&(FORMAT_HARD_MAX_ROWS_PER_TABLE + 1).to_le_bytes());
     assert_eq!(
-        preflight_table_structure_v1(&rows_table, 1, FormatLimits::V1_HARD),
+        preflight_table_structure(&rows_table, 1, FormatLimits::HARD),
         Err(FormatError::LimitExceeded {
             dimension: LimitDimension::RowsPerTable,
             actual: u64::from(FORMAT_HARD_MAX_ROWS_PER_TABLE) + 1,
@@ -346,14 +346,14 @@ fn row_and_field_count_boundaries_accept_limit_and_reject_next_value() {
         .map(|tag| field(tag as u16, PortableFieldType::U8, &[0]))
         .collect::<Vec<_>>();
     let valid = table(1, &[row(&fields)]);
-    preflight_table_structure_v1(&valid, 1, FormatLimits::V1_HARD).unwrap();
+    preflight_table_structure(&valid, 1, FormatLimits::HARD).unwrap();
 
     let fields = (1..=FORMAT_HARD_MAX_FIELDS_PER_ROW + 1)
         .map(|tag| field(tag as u16, PortableFieldType::U8, &[0]))
         .collect::<Vec<_>>();
     let invalid = table(1, &[row(&fields)]);
     assert_eq!(
-        preflight_table_structure_v1(&invalid, 1, FormatLimits::V1_HARD),
+        preflight_table_structure(&invalid, 1, FormatLimits::HARD),
         Err(FormatError::LimitExceeded {
             dimension: LimitDimension::FieldsPerRow,
             actual: u64::from(FORMAT_HARD_MAX_FIELDS_PER_ROW) + 1,
@@ -369,12 +369,12 @@ fn utf8_field_and_total_boundaries_accept_exact_and_reject_limit_plus_one() {
         1,
         &[row(&[field(1, PortableFieldType::Utf8, &exact_field)])],
     );
-    preflight_table_structure_v1(&valid, 1, FormatLimits::V1_HARD).unwrap();
+    preflight_table_structure(&valid, 1, FormatLimits::HARD).unwrap();
     let mut over_field = exact_field;
     over_field.push(b'x');
     let invalid = table(1, &[row(&[field(1, PortableFieldType::Utf8, &over_field)])]);
     assert_eq!(
-        preflight_table_structure_v1(&invalid, 1, FormatLimits::V1_HARD),
+        preflight_table_structure(&invalid, 1, FormatLimits::HARD),
         Err(FormatError::LimitExceeded {
             dimension: LimitDimension::Utf8FieldBytes,
             actual: FORMAT_HARD_MAX_UTF8_FIELD_BYTES + 1,
@@ -387,7 +387,7 @@ fn utf8_field_and_total_boundaries_accept_exact_and_reject_limit_plus_one() {
         .map(|tag| field(tag, PortableFieldType::Utf8, &chunk))
         .collect::<Vec<_>>();
     let exact = table(1, &[row(&exact_fields)]);
-    let summary = preflight_table_structure_v1(&exact, 1, FormatLimits::V1_HARD).unwrap();
+    let summary = preflight_table_structure(&exact, 1, FormatLimits::HARD).unwrap();
     assert_eq!(summary.total_utf8_bytes(), FORMAT_HARD_MAX_TOTAL_UTF8_BYTES);
     drop(exact);
 
@@ -395,7 +395,7 @@ fn utf8_field_and_total_boundaries_accept_exact_and_reject_limit_plus_one() {
     over_fields.push(field(9, PortableFieldType::Utf8, b"x"));
     let over = table(1, &[row(&over_fields)]);
     assert_eq!(
-        preflight_table_structure_v1(&over, 1, FormatLimits::V1_HARD),
+        preflight_table_structure(&over, 1, FormatLimits::HARD),
         Err(FormatError::LimitExceeded {
             dimension: LimitDimension::TotalUtf8Bytes,
             actual: FORMAT_HARD_MAX_TOTAL_UTF8_BYTES + 1,
@@ -414,7 +414,7 @@ fn vector_item_and_total_boundaries_accept_exact_and_reject_next_constructible()
             &ordinal_vector(FORMAT_HARD_MAX_VECTOR_ITEMS, 0),
         )])],
     );
-    preflight_table_structure_v1(&at_item_limit, 1, FormatLimits::V1_HARD).unwrap();
+    preflight_table_structure(&at_item_limit, 1, FormatLimits::HARD).unwrap();
     let over_item_limit = table(
         1,
         &[row(&[field(
@@ -424,7 +424,7 @@ fn vector_item_and_total_boundaries_accept_exact_and_reject_next_constructible()
         )])],
     );
     assert_eq!(
-        preflight_table_structure_v1(&over_item_limit, 1, FormatLimits::V1_HARD),
+        preflight_table_structure(&over_item_limit, 1, FormatLimits::HARD),
         Err(FormatError::LimitExceeded {
             dimension: LimitDimension::VectorItems,
             actual: u64::from(FORMAT_HARD_MAX_VECTOR_ITEMS) + 1,
@@ -433,7 +433,7 @@ fn vector_item_and_total_boundaries_accept_exact_and_reject_next_constructible()
     );
 
     let exact = vector_budget_table(65_504, 0);
-    let summary = preflight_table_structure_v1(&exact, 1, FormatLimits::V1_HARD).unwrap();
+    let summary = preflight_table_structure(&exact, 1, FormatLimits::HARD).unwrap();
     assert_eq!(
         summary.total_vector_bytes(),
         FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES
@@ -442,7 +442,7 @@ fn vector_item_and_total_boundaries_accept_exact_and_reject_next_constructible()
 
     let malformed_plus_one = vector_budget_table(65_504, 1);
     assert_eq!(
-        preflight_table_structure_v1(&malformed_plus_one, 1, FormatLimits::V1_HARD),
+        preflight_table_structure(&malformed_plus_one, 1, FormatLimits::HARD),
         Err(FormatError::LimitExceeded {
             dimension: LimitDimension::TotalVectorBytes,
             actual: FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES + 1,
@@ -453,7 +453,7 @@ fn vector_item_and_total_boundaries_accept_exact_and_reject_next_constructible()
 
     let next_constructible = vector_budget_table(65_505, 0);
     assert_eq!(
-        preflight_table_structure_v1(&next_constructible, 1, FormatLimits::V1_HARD),
+        preflight_table_structure(&next_constructible, 1, FormatLimits::HARD),
         Err(FormatError::LimitExceeded {
             dimension: LimitDimension::TotalVectorBytes,
             actual: FORMAT_HARD_MAX_TOTAL_VECTOR_BYTES + 4,
@@ -483,20 +483,20 @@ fn lfsm_source_location_rows_reach_the_frozen_boundary() {
     let text_location = row(&fields);
     let rows = vec![text_location; FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS as usize];
     let mut bytes = table(schema.kind, &rows);
-    preflight_table_with_registry_v1(
+    preflight_table_with_registry(
         &bytes,
         schema,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
         &mut PreflightBudget::default(),
     )
     .unwrap();
 
     bytes[4..8].copy_from_slice(&(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS + 1).to_le_bytes());
     assert_eq!(
-        preflight_table_with_registry_v1(
+        preflight_table_with_registry(
             &bytes,
             schema,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
             &mut PreflightBudget::default(),
         ),
         Err(FormatError::LimitExceeded {

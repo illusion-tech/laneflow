@@ -278,7 +278,7 @@ install 核对、`register_route` 重建，以及后继 #302 快照/修订切换
 ### 6.2 必做的证明
 
 地图：compiler 已冻夹具 `LFCA-V1-FULL-SPATIAL`
-（`crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/`）。
+（`crates/laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/`）。
 它含 22 类实体 Identity、信号、停车、lane-pose 几何和一条
 `entry → middle → exit` 静态路线。
 

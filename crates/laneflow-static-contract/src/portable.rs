@@ -6,20 +6,20 @@
 
 use core::fmt;
 
-/// LFCA 的对象格式版本。
-pub const CANONICAL_ARTIFACT_FORMAT_VERSION: u16 = 1;
+/// 当前 LFCA 对象格式版本。读器只承认该值。
+pub const CANONICAL_ARTIFACT_FORMAT_VERSION: u16 = 2;
 
-/// LFCA v1 的约束契约版本。
-pub const CONSTRAINT_CONTRACT_VERSION_V1: u16 = 1;
+/// 当前约束契约版本。
+pub const CONSTRAINT_CONTRACT_VERSION: u16 = 2;
 
-/// LFCA v1 的静态执行契约版本。
-pub const STATIC_EXECUTION_CONTRACT_VERSION_V1: u16 = 1;
+/// 当前静态执行契约版本。
+pub const STATIC_EXECUTION_CONTRACT_VERSION: u16 = 2;
 
-/// LFSM 的对象格式版本。
-pub const SOURCE_MAP_FORMAT_VERSION: u16 = 1;
+/// 当前 LFSM 对象格式版本。
+pub const SOURCE_MAP_FORMAT_VERSION: u16 = 2;
 
-/// LFSD 的对象格式版本。
-pub const SEMANTIC_DIFF_FORMAT_VERSION: u16 = 1;
+/// 当前 LFSD 对象格式版本。
+pub const SEMANTIC_DIFF_FORMAT_VERSION: u16 = 2;
 
 /// LFCP 的对象格式版本；生产代码只接受无 receipt 的 v2。
 pub const CANONICAL_PUBLICATION_DESCRIPTOR_VERSION: u16 = 2;
@@ -30,14 +30,14 @@ pub const NETWORK_REVISION_DERIVATION_VERSION: u16 = 1;
 /// `NetworkRevisionId` SHA-256 输入的域分离前缀；末尾 NUL 是输入的一部分。
 pub const NETWORK_REVISION_DOMAIN_PREFIX: &[u8] = b"laneflow.network-revision.v1\0";
 
-/// `ObjectPreambleV1` 的固定字节长度。
-pub const OBJECT_PREAMBLE_V1_BYTE_LENGTH: u16 = 32;
+/// 对象前导的固定字节长度。
+pub const OBJECT_PREAMBLE_BYTE_LENGTH: u16 = 32;
 
-/// `SectionDirectoryEntryV1` 的固定字节长度。
-pub const SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH: u64 = 24;
+/// 节目录项的固定字节长度。
+pub const SECTION_DIRECTORY_ENTRY_BYTE_LENGTH: u64 = 24;
 
-/// v1 所有节的格式版本。
-pub const SECTION_FORMAT_VERSION_V1: u16 = 1;
+/// 所有节的格式版本。
+pub const SECTION_FORMAT_VERSION: u16 = 1;
 
 /// 单对象 exact bytes 的格式安全天花板。
 pub const FORMAT_HARD_MAX_OBJECT_BYTES: u64 = 16_777_216;
@@ -108,7 +108,7 @@ impl PortableObjectKind {
         }
     }
 
-    /// 对象自己的当前格式版本。
+    /// 对象自己的当前生产格式版本。
     #[must_use]
     pub const fn format_version(self) -> u16 {
         match self {
@@ -144,8 +144,8 @@ impl PortableObjectKind {
     /// 第一节的规范 wire offset，即 `32 + sectionCount * 24`。
     #[must_use]
     pub const fn first_section_offset(self) -> u64 {
-        OBJECT_PREAMBLE_V1_BYTE_LENGTH as u64
-            + self.section_count() as u64 * SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH
+        OBJECT_PREAMBLE_BYTE_LENGTH as u64
+            + self.section_count() as u64 * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH
     }
 
     /// 从四字节 magic 解析封闭对象种类。
@@ -185,7 +185,7 @@ pub enum PortableFieldType {
 }
 
 impl PortableFieldType {
-    /// 按 wire code 递增的全部 v1 字段类型。
+    /// 按 wire code 递增的全部封闭字段类型。
     pub const ALL: [Self; 13] = [
         Self::U8,
         Self::U16,
@@ -332,11 +332,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lfca_contract_versions_match_v1() {
-        assert_eq!(CANONICAL_ARTIFACT_FORMAT_VERSION, 1);
-        assert_eq!(CONSTRAINT_CONTRACT_VERSION_V1, 1);
-        assert_eq!(STATIC_EXECUTION_CONTRACT_VERSION_V1, 1);
+    fn lfca_contract_versions_match_current() {
+        assert_eq!(CANONICAL_ARTIFACT_FORMAT_VERSION, 2);
+        assert_eq!(CONSTRAINT_CONTRACT_VERSION, 2);
+        assert_eq!(STATIC_EXECUTION_CONTRACT_VERSION, 2);
+        assert_eq!(SOURCE_MAP_FORMAT_VERSION, 2);
+        assert_eq!(SEMANTIC_DIFF_FORMAT_VERSION, 2);
         assert_eq!(NETWORK_REVISION_DERIVATION_VERSION, 1);
+        assert_eq!(PortableObjectKind::CanonicalArtifact.format_version(), 2);
     }
 
     #[test]
@@ -367,12 +370,7 @@ mod tests {
             assert_eq!(actual, kind);
             assert_eq!(kind.magic(), magic);
             assert_eq!(PortableObjectKind::from_magic(magic), Some(kind));
-            let expected_version = if kind == PortableObjectKind::CanonicalPublicationDescriptor {
-                2
-            } else {
-                1
-            };
-            assert_eq!(kind.format_version(), expected_version);
+            assert_eq!(kind.format_version(), 2);
             assert_eq!(kind.section_count(), sections);
             assert_eq!(kind.table_count(), tables);
             assert_eq!(kind.first_section_offset(), first_offset);

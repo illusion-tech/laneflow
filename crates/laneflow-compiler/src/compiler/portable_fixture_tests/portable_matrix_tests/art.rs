@@ -80,7 +80,7 @@ fn art_candidate_closes_identity_tables_and_all_computed_bindings() {
         field_sha256(source_binding, 2),
         candidate.network_revision().into_digest().into_bytes()
     );
-    assert_eq!(field_u16(source_binding, 3), 1);
+    assert_eq!(field_u16(source_binding, 3), 2);
     assert_eq!(
         field_sha256(source_binding, 4),
         candidate.canonical_artifact().digest().into_bytes()
@@ -133,12 +133,17 @@ fn art_direct_version_options_profile_and_build_mutations_fail_closed() {
     for tag in 1..=6 {
         let mut bytes = FULL_SPATIAL_EXPECTED_LFCA.to_vec();
         let range = field_value_range(&bytes, PortableObjectKind::CanonicalArtifact, 0, 0, 0, tag);
-        bytes[range].copy_from_slice(&2_u16.to_le_bytes());
+        let replacement = if matches!(tag, 1 | 5 | 6) {
+            3_u16
+        } else {
+            2_u16
+        };
+        bytes[range].copy_from_slice(&replacement.to_le_bytes());
         assert_eq!(
-            preflight_object_values_v1(
+            preflight_object_values(
                 &bytes,
                 PortableObjectKind::CanonicalArtifact,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             )
             .unwrap_err()
             .class(),
@@ -148,12 +153,12 @@ fn art_direct_version_options_profile_and_build_mutations_fail_closed() {
     for tag in 1..=2 {
         let mut bytes = FULL_SPATIAL_EXPECTED_LFCA.to_vec();
         let range = field_value_range(&bytes, PortableObjectKind::CanonicalArtifact, 5, 0, 0, tag);
-        bytes[range].copy_from_slice(&2_u16.to_le_bytes());
+        bytes[range].copy_from_slice(&3_u16.to_le_bytes());
         assert_eq!(
-            preflight_object_values_v1(
+            preflight_object_values(
                 &bytes,
                 PortableObjectKind::CanonicalArtifact,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             )
             .unwrap_err()
             .class(),
@@ -172,10 +177,10 @@ fn art_direct_version_options_profile_and_build_mutations_fail_closed() {
     );
     wrong_options[options.start] ^= 1;
     assert_eq!(
-        preflight_object_values_v1(
+        preflight_object_values(
             &wrong_options,
             PortableObjectKind::CanonicalArtifact,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap_err()
         .class(),
@@ -193,10 +198,10 @@ fn art_direct_version_options_profile_and_build_mutations_fail_closed() {
     );
     wrong_build[build.start + 1] = b'/';
     assert_eq!(
-        preflight_object_values_v1(
+        preflight_object_values(
             &wrong_build,
             PortableObjectKind::CanonicalArtifact,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap_err()
         .class(),
@@ -215,10 +220,10 @@ fn art_direct_version_options_profile_and_build_mutations_fail_closed() {
         );
         mismatched_profile[range.start] = 1;
         assert_eq!(
-            preflight_object_values_v1(
+            preflight_object_values(
                 &mismatched_profile,
                 PortableObjectKind::CanonicalArtifact,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             )
             .unwrap_err()
             .class(),
@@ -237,15 +242,15 @@ fn art_production_provenance_rejects_noncanonical_environment_data() {
         "-build",
     ] {
         assert_eq!(
-            crate::PortableEmissionProvenanceV1::try_new(invalid),
+            crate::PortableEmissionProvenance::try_new(invalid),
             Err(crate::PortableEmissionError::InvalidCompilerBuildId)
         );
     }
     assert_eq!(
-        crate::PortableEmissionProvenanceV1::try_new("a".repeat(129)),
+        crate::PortableEmissionProvenance::try_new("a".repeat(129)),
         Err(crate::PortableEmissionError::InvalidCompilerBuildId)
     );
-    assert!(crate::PortableEmissionProvenanceV1::try_new("build.v1+ci@main-17").is_ok());
+    assert!(crate::PortableEmissionProvenance::try_new("build.v1+ci@main-17").is_ok());
 }
 
 #[test]
@@ -257,7 +262,7 @@ fn art_diff_base_rejects_duplicate_identity_ordinals_entity_mismatch_and_unknown
         crate::emit_portable_candidate(
             &output,
             &provenance,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
             crate::PortableDiffBase::Artifact(base),
         )
     };

@@ -84,7 +84,7 @@ pub enum BuildError {
     },
     SpatialLengthMismatch {
         lane_edge: u32,
-        traffic_length_meters: f64,
+        traffic_length_mm: u32,
         spatial_length_meters: f32,
     },
     SpatialFrameMismatch {

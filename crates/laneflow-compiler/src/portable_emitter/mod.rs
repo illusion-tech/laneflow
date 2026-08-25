@@ -9,11 +9,12 @@ mod lfca;
 mod lfsd;
 mod lfsm;
 mod model;
+mod quantize;
 mod relations;
 mod wire;
 
 pub use api::{
-    PortableDiffBase, PortableEmissionError, PortableEmissionProvenanceV1, PortableObjectCandidate,
+    PortableDiffBase, PortableEmissionError, PortableEmissionProvenance, PortableObjectCandidate,
     PortablePublicationCandidate,
 };
 pub(crate) use api::{close_object, object_key, sha256};
@@ -24,18 +25,18 @@ use model::*;
 use wire::*;
 
 use laneflow_format::{
-    ExpectedSemanticDiffBaseV1, FieldWriteInputV1, FieldWriteValueV1, FormatError, FormatLimits,
-    ObjectWriteInputV1, RegistryCheckedFieldValue, RegistryCheckedObjectView,
+    ExpectedSemanticDiffBase, FieldWriteInput, FieldWriteValue, FormatError, FormatLimits,
+    ObjectWriteInput, RegistryCheckedFieldValue, RegistryCheckedObjectView,
     RegistryCheckedOrdinalVectorView, RegistryCheckedRecordVectorView, RegistryCheckedRowView,
-    RowWriteInputV1, SectionWriteInputV1, TableWriteInputV1, ValueCheckedObjectView,
-    encode_prepared_object_v1, preflight_object_values_v1, prepare_object_v1,
+    RowWriteInput, SectionWriteInput, TableWriteInput, ValueCheckedObjectView,
+    encode_prepared_object, preflight_object_values, prepare_object,
 };
 use laneflow_static_contract::{
-    CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION_V1, EntityKind,
-    EntityKindMarker, ExactByteLength, IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION,
+    CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION, EntityKind, EntityKindMarker,
+    ExactByteLength, IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION,
     NETWORK_REVISION_DERIVATION_VERSION, NETWORK_REVISION_DOMAIN_PREFIX, NetworkRevisionId,
-    Ordinal, OrdinalKind, PortableObjectKind, SECTION_FORMAT_VERSION_V1,
-    STATIC_EXECUTION_CONTRACT_VERSION_V1, Sha256Digest, StableId,
+    Ordinal, OrdinalKind, PortableObjectKind, SECTION_FORMAT_VERSION,
+    STATIC_EXECUTION_CONTRACT_VERSION, Sha256Digest, StableId,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -108,7 +109,7 @@ fn geometry_direction_profile_code(value: crate::GeometryDirectionProfile) -> u8
 ///
 pub fn emit_portable_candidate(
     output: &CompilationOutput,
-    provenance: &PortableEmissionProvenanceV1,
+    provenance: &PortableEmissionProvenance,
     limits: FormatLimits,
     base: PortableDiffBase<'_>,
 ) -> Result<PortablePublicationCandidate, PortableEmissionError> {
@@ -118,13 +119,13 @@ pub fn emit_portable_candidate(
         provenance,
         source_collection_digest,
         NetworkRevisionId::from_digest(Sha256Digest::ZERO),
-    );
+    )?;
     let preliminary_lfca = encode_owned_object(&lfca, limits, 0)?;
     let network_revision = network_revision(&preliminary_lfca, limits)?;
     drop(preliminary_lfca);
     set_lfca_network_revision(&mut lfca, network_revision)?;
     let canonical_artifact = close_object(encode_owned_object(&lfca, limits, 0)?);
-    let canonical_view = preflight_object_values_v1(
+    let canonical_view = preflight_object_values(
         canonical_artifact.bytes(),
         PortableObjectKind::CanonicalArtifact,
         limits,
@@ -144,7 +145,7 @@ pub fn emit_portable_candidate(
         limits,
         canonical_artifact.byte_length().get(),
     )?);
-    preflight_object_values_v1(source_map.bytes(), PortableObjectKind::SourceMap, limits)?;
+    preflight_object_values(source_map.bytes(), PortableObjectKind::SourceMap, limits)?;
 
     let (lfsd, expected_semantic_diff_base) =
         build_lfsd(output, base, network_revision, &canonical_artifact, limits)?;
@@ -154,7 +155,7 @@ pub fn emit_portable_candidate(
         .checked_add(source_map.byte_length().get())
         .ok_or(PortableEmissionError::ArithmeticOverflow)?;
     let semantic_diff = close_object(encode_owned_object(&lfsd, limits, staged_before_diff)?);
-    preflight_object_values_v1(
+    preflight_object_values(
         semantic_diff.bytes(),
         PortableObjectKind::SemanticDiff,
         limits,
@@ -209,7 +210,7 @@ fn network_revision(
     bytes: &[u8],
     limits: FormatLimits,
 ) -> Result<NetworkRevisionId, PortableEmissionError> {
-    let view = preflight_object_values_v1(bytes, PortableObjectKind::CanonicalArtifact, limits)?;
+    let view = preflight_object_values(bytes, PortableObjectKind::CanonicalArtifact, limits)?;
     network_revision_from_checked(view)
 }
 
@@ -226,7 +227,7 @@ fn network_revision_from_checked(
         let section_kind =
             u16::try_from(ordinal + 1).map_err(|_| PortableEmissionError::ArithmeticOverflow)?;
         hasher.update(section_kind.to_le_bytes());
-        hasher.update(SECTION_FORMAT_VERSION_V1.to_le_bytes());
+        hasher.update(SECTION_FORMAT_VERSION.to_le_bytes());
         hasher.update(
             u64::try_from(section.bytes().len())
                 .expect("supported targets have at most 64-bit usize")

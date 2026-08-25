@@ -16,16 +16,17 @@ pub enum VehicleStatus {
 }
 
 /// 已提交车辆快照。`Completed` 对调用方可读。
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VehicleState {
     pub(crate) handle: VehicleHandle,
     pub(crate) profile: VehicleProfileOrdinal,
     pub(crate) class: ParticipantClassOrdinal,
     pub(crate) route: RouteHandle,
     pub(crate) route_edge_index: u32,
-    pub(crate) progress: f64,
-    pub(crate) speed: f64,
-    pub(crate) length: f64,
+    pub(crate) progress_mm: u32,
+    pub(crate) carry_um: u16,
+    pub(crate) speed_mm_s: u32,
+    pub(crate) length_mm: u32,
     pub(crate) status: VehicleStatus,
     pub(crate) parking: Option<ParkingSpaceOrdinal>,
 }
@@ -61,22 +62,28 @@ impl VehicleState {
         self.route_edge_index
     }
 
-    /// 当前边进度。
+    /// 当前边进度（毫米）。
     #[must_use]
-    pub const fn progress(self) -> f64 {
-        self.progress
+    pub const fn progress_mm(self) -> u32 {
+        self.progress_mm
     }
 
-    /// 当前速度。
+    /// 未凑满 1 mm 的微米余数。
     #[must_use]
-    pub const fn speed(self) -> f64 {
-        self.speed
+    pub const fn carry_um(self) -> u16 {
+        self.carry_um
     }
 
-    /// 车身长度。
+    /// 已提交速度（毫米每秒）。
     #[must_use]
-    pub const fn length(self) -> f64 {
-        self.length
+    pub const fn speed_mm_s(self) -> u32 {
+        self.speed_mm_s
+    }
+
+    /// 车身长度（毫米）。
+    #[must_use]
+    pub const fn length_mm(self) -> u32 {
+        self.length_mm
     }
 
     /// 生命周期状态。
@@ -110,6 +117,6 @@ pub struct VehicleReplaceBlock {
     pub blocker: VehicleHandle,
     /// `true`：blocker 在替换入口前方。
     pub blocker_ahead: bool,
-    /// 相对前保险杠的间隙；无法判定前后时为 `0.0`。
-    pub bumper_gap: f64,
+    /// 相对前保险杠的间隙（毫米）；无法判定前后时为 `0`。
+    pub bumper_gap: i64,
 }

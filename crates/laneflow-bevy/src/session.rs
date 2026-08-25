@@ -17,7 +17,7 @@ use crate::LaneFlowAdapterError;
 #[must_use]
 pub fn pose_input(record: PoseRecordId, source: RuntimePoseSource) -> PoseInput {
     match source {
-        RuntimePoseSource::Lane { edge, progress } => PoseInput::lane(record, edge, progress),
+        RuntimePoseSource::Lane { edge, progress_mm } => PoseInput::lane(record, edge, progress_mm),
         RuntimePoseSource::Parking { space } => PoseInput::parking(record, space),
     }
 }

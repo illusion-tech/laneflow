@@ -5,15 +5,25 @@ use crate::{RouteHandle, VehicleHandle, VehicleReplaceBlock};
 /// `TrafficWorld::install` 失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum InstallError {
-    /// `fixed_delta_time_ms` 必须为正。
-    #[error("fixed_delta_time_ms 必须为正")]
-    NonPositiveDelta,
+    /// `fixed_delta_time_ms` 必须落在 `4..=1000`。
+    #[error("fixed_delta_time_ms 必须落在 {min}..={max}，实际 {actual}")]
+    DeltaOutOfRange {
+        /// 调用方提供的步长。
+        actual: u64,
+        /// 合法下限（含）。
+        min: u64,
+        /// 合法上限（含）。
+        max: u64,
+    },
     /// 当前 `TrafficWorld` 只接受 `worker_count == 1`。
     #[error("当前 TrafficWorld 只接受 worker_count == 1")]
     WorkerCountNotOne,
     /// 某个信号 phase 的 `durationMs` 短于固定步长。
     #[error("信号 phase 时长短于 fixed_delta_time_ms")]
     PhaseShorterThanTick,
+    /// 某个信号 phase 的 `durationMs` 不能被固定步长整除。
+    #[error("信号 phase 时长必须是 fixed_delta_time_ms 的正整数倍")]
+    PhaseNotMultipleOfTick,
     /// 信号 controller 的 cycle 非法。
     #[error("信号 controller cycle 必须为正且含 phase")]
     InvalidSignalProgram,
