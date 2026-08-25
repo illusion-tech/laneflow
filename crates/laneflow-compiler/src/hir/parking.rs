@@ -89,6 +89,7 @@ pub(crate) fn build_parking_hir(
     module_lookup: &HashMap<Arc<str>, HirModuleKey>,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
+    defer_emitted_length_close: bool,
     identities: &mut IdentityRegistry,
 ) -> Result<ParkingHir, DiagnosticBundle> {
     if counts.entity_count() == 0 {
@@ -274,39 +275,6 @@ pub(crate) fn build_parking_hir(
             &mut diagnostics,
         );
 
-        for (role, anchor, edge) in [
-            (ParkingAnchorRole::Entry, &source.entry, entry_edge),
-            (ParkingAnchorRole::Exit, &source.exit, exit_edge),
-        ] {
-            let Some(edge) = edge else { continue };
-            let edge_length = lane_edges.get(edge).length_meters;
-            let progress = anchor.progress_meters;
-            let progress_mm = millimetres_from_si(progress);
-            let length_mm = millimetres_from_si(edge_length);
-            let min_progress_mm = PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM;
-            let max_progress_mm = length_mm
-                .unwrap_or(0)
-                .saturating_sub(PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM);
-            if !matches!(
-                (progress_mm, length_mm),
-                (Some(progress), Some(_))
-                    if (min_progress_mm..=max_progress_mm).contains(&progress)
-            ) {
-                let mut diagnostic = Diagnostic::invalid_parking_anchor_progress(
-                    &source.header.stable_key,
-                    role,
-                    &lane_edges.get(edge).stable_key,
-                    progress,
-                    edge_length,
-                    min_progress_mm,
-                    max_progress_mm,
-                    anchor.lane_edge.span.clone(),
-                );
-                diagnostic.set_canonical_module_order(module_order);
-                diagnostics.push(diagnostic);
-            }
-        }
-
         let geometry = source.geometry;
         for (field, value, violation) in [
             (
@@ -400,6 +368,14 @@ pub(crate) fn build_parking_hir(
             diagnostics.push(diagnostic);
         }
     }
+    if !defer_emitted_length_close {
+        diagnose_parking_anchors_against_emitted_length(
+            spaces.iter().map(|(_, space)| space),
+            lane_edges,
+            &[],
+            &mut diagnostics,
+        );
+    }
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
     }
@@ -440,6 +416,77 @@ pub(crate) fn build_parking_hir(
         parking_spaces: spaces.into_boxed_slice(),
         parking_area_spaces: area_spaces.into_boxed_slice(),
     })
+}
+
+/// 按 LFCA 将写入的毫米边长关闭停车锚点：有折线用冻结弧长，否则用编制交通边长。
+pub(super) fn close_parking_anchors_to_emitted_length_mm(
+    parking: &ParkingHir,
+    lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
+    arc_length_meters_by_lane_edge: &[Option<f32>],
+    diagnostic_limit: u64,
+) -> Result<(), DiagnosticBundle> {
+    if parking.parking_spaces.is_empty() {
+        return Ok(());
+    }
+    let mut diagnostics = DiagnosticCollector::new(diagnostic_limit);
+    diagnose_parking_anchors_against_emitted_length(
+        parking.parking_spaces.iter(),
+        lane_edges,
+        arc_length_meters_by_lane_edge,
+        &mut diagnostics,
+    );
+    if diagnostics.is_empty() {
+        Ok(())
+    } else {
+        Err(diagnostics.finish())
+    }
+}
+
+fn diagnose_parking_anchors_against_emitted_length<'a>(
+    parking_spaces: impl IntoIterator<Item = &'a HirParkingSpace>,
+    lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
+    arc_length_meters_by_lane_edge: &[Option<f32>],
+    diagnostics: &mut DiagnosticCollector,
+) {
+    for space in parking_spaces {
+        for (role, anchor) in [
+            (ParkingAnchorRole::Entry, &space.entry),
+            (ParkingAnchorRole::Exit, &space.exit),
+        ] {
+            let edge = lane_edges.get(anchor.lane_edge);
+            let length_meters = arc_length_meters_by_lane_edge
+                .get(anchor.lane_edge.index())
+                .copied()
+                .flatten()
+                .map(f64::from)
+                .unwrap_or(edge.length_meters);
+            let progress = anchor.progress_meters;
+            let progress_mm = millimetres_from_si(progress);
+            let length_mm = millimetres_from_si(length_meters);
+            let min_progress_mm = PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM;
+            let max_progress_mm = length_mm
+                .unwrap_or(0)
+                .saturating_sub(PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM);
+            if !matches!(
+                (progress_mm, length_mm),
+                (Some(progress), Some(_))
+                    if (min_progress_mm..=max_progress_mm).contains(&progress)
+            ) {
+                let mut diagnostic = Diagnostic::invalid_parking_anchor_progress(
+                    &space.stable_key,
+                    role,
+                    &edge.stable_key,
+                    progress,
+                    length_meters,
+                    min_progress_mm,
+                    max_progress_mm,
+                    space.source_span.clone(),
+                );
+                diagnostic.set_canonical_module_order(space.module.raw());
+                diagnostics.push(diagnostic);
+            }
+        }
+    }
 }
 
 fn parking_extent_violation(value: f64) -> Option<ParkingGeometryViolation> {

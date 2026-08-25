@@ -19,7 +19,9 @@ use crate::{
     SourceModuleHeaderInput, SourceSpan, StaticRouteInput, StopLineInput, StopLineReference,
     SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
 };
-use laneflow_static_contract::{CanonicalFrameKind, LaneEdgeKind};
+use laneflow_static_contract::{
+    CanonicalFrameKind, LaneEdgeKind, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, millimetres_from_si,
+};
 
 fn header(namespace: &str) -> SourceModuleHeader {
     SourceModuleHeader::new(
@@ -2029,4 +2031,119 @@ fn hir_checks_record_scratch_and_live_byte_limits_before_stage_allocation() {
             observed,
         } if *limit == u64::from(source_live_bytes) && observed > limit
     )));
+}
+
+fn parking_unit_with_declared_length_and_polyline(
+    declared_meters: f64,
+    polyline_end_x: f32,
+    progress_meters: f64,
+) -> CompilationUnit {
+    let limits = CompileLimits::p100_initial_v1();
+    let mut builder = SyntheticModuleBuilder::new(header("city/parking-mm"), &limits).unwrap();
+    builder
+        .add_canonical_frame(CanonicalFrameInput {
+            canonical_frame_key: "world",
+            lane_edge_geometries: &[],
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "bay",
+            length_meters: declared_meters,
+            speed_limit_meters_per_second: 8.0,
+            successors: &[],
+        })
+        .unwrap()
+        .add_parking_area(ParkingAreaInput {
+            parking_area_key: "lot",
+        })
+        .unwrap()
+        .add_parking_space(ParkingSpaceInput {
+            parking_space_key: "space",
+            parking_area: Some(ParkingAreaReference::local("lot")),
+            entry: ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local("bay"),
+                progress_meters,
+            },
+            exit: ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local("bay"),
+                progress_meters,
+            },
+            geometry: ParkingSpaceGeometryInput {
+                lateral_offset_meters: -3.0,
+                heading_offset_radians: 0.25,
+                length_meters: 5.5,
+                width_meters: 2.6,
+            },
+        })
+        .unwrap();
+    let mut compiled = unit([builder.finish().unwrap()]);
+    install_compiled_lane_geometries(
+        &mut compiled,
+        "city/parking-mm",
+        GeometryCompilationProfiles {
+            accuracy: GeometryAccuracyProfile::Balanced5Cm,
+            direction: GeometryDirectionProfile::Balanced2Deg,
+        },
+        |_| {
+            (
+                Some(("city/parking-mm", "world")),
+                vec![point(0.0, 0.0, 0.0), point(polyline_end_x, 0.0, 0.0)],
+            )
+        },
+    );
+    compiled
+}
+
+#[test]
+fn parking_anchor_rejects_progress_past_arc_backed_millimetre_length() {
+    let unit = parking_unit_with_declared_length_and_polyline(10.0, 9.99, 9.999);
+    let arc_mm = millimetres_from_si(f64::from(9.99_f32)).unwrap();
+    let progress_mm = millimetres_from_si(9.999).unwrap();
+    let declared_mm = millimetres_from_si(10.0).unwrap();
+    assert!(
+        (PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM
+            ..=declared_mm.saturating_sub(PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM))
+            .contains(&progress_mm),
+        "fixture must be legal against the declared traffic length"
+    );
+    assert!(
+        progress_mm > arc_mm.saturating_sub(PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM),
+        "fixture must sit past the arc-backed parking closure"
+    );
+
+    let diagnostics = match build_hir(&unit) {
+        Ok(_) => panic!("parking past the emitted millimetre length must fail closed"),
+        Err(diagnostics) => diagnostics,
+    };
+    assert!(
+        diagnostics
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.code() == DiagnosticCode::InvalidParkingAnchorProgress)
+    );
+}
+
+#[test]
+fn parking_anchor_accepts_progress_legal_against_longer_arc() {
+    let polyline_end = 10.01_f32;
+    let progress = 10.0;
+    let arc_mm = millimetres_from_si(f64::from(polyline_end)).unwrap();
+    let progress_mm = millimetres_from_si(progress).unwrap();
+    let declared_mm = millimetres_from_si(10.0).unwrap();
+    assert!(
+        progress_mm > declared_mm.saturating_sub(PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM),
+        "fixture must be illegal against the declared traffic length"
+    );
+    assert!(
+        (PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM
+            ..=arc_mm.saturating_sub(PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM))
+            .contains(&progress_mm),
+        "fixture must be legal against the arc-backed parking closure"
+    );
+
+    let unit = parking_unit_with_declared_length_and_polyline(10.0, polyline_end, progress);
+    build_hir(&unit).expect("arc-backed millimetre length must admit this parking progress");
+    crate::Compiler::new()
+        .compile(unit)
+        .expect("emission must use the same millimetre length as HIR parking closure");
 }

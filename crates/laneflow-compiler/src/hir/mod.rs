@@ -77,7 +77,7 @@ use access::{AccessCandidate, AccessHir, build_access_hir};
 use control::{ControlHir, build_control_hir};
 use cross_section::{CanonicalAuthoringLaneSource, CrossSectionHir, build_cross_section_hir};
 use junction::{HirDeclaredJunctionEdge, JunctionHir, ManeuverPathSequence, build_junction_hir};
-use parking::{ParkingHir, build_parking_hir};
+use parking::{ParkingHir, build_parking_hir, close_parking_anchors_to_emitted_length_mm};
 use route::{RouteHir, build_route_hir};
 use signal::{SignalHir, build_signal_hir};
 #[cfg(test)]
@@ -368,6 +368,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &base.module_lookup,
         &base.lane_edges,
         &base.lane_edge_symbols,
+        plan.spatial.lane_edge_geometries > 0,
         &mut identities,
     )?;
     let spatial = build_spatial_hir(
@@ -384,6 +385,17 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             junction_internal_edges: &junction.junction_internal_edges,
         },
         &mut identities,
+    )?;
+    let mut arc_length_meters_by_lane_edge = vec![None; base.lane_edges.len()];
+    for geometry in spatial.lane_edge_geometries.iter() {
+        arc_length_meters_by_lane_edge[geometry.lane_edge.index()] =
+            Some(geometry.arc_length_meters);
+    }
+    close_parking_anchors_to_emitted_length_mm(
+        &parking,
+        &base.lane_edges,
+        &arc_length_meters_by_lane_edge,
+        unit.limits.value(CompileLimitDimension::DiagnosticCount),
     )?;
     let access = build_access_hir(
         unit,
