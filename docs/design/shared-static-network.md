@@ -652,8 +652,10 @@ tick 扫描，也不得复制进每 world 可变状态：
 - **StaticRoute 执行索引**：对每条编译器作者的 `StaticRoute`，seal 时生成与当前
   `CoreWorld::register_compiled_route` 等价的 `RouteDistanceIndex`、
   `next_controlled_transition` 与 `speed_limit_transitions`（由边长、限速、
-  受信号控制的 transition gate 派生）。动态 `CoreWorld::register_route` 仍由
-  #301 每世界拥有，不进共享静态路网。
+  受信号控制的 transition gate 派生）。#496 G1（Proposed）：
+  `speed_limit_transitions` 目标列为 `u32` mm/s；`next_controlled_distance` 为
+  `BoundedDistance::Finite(u32)`。动态 `register_route` 仍由 #301 每世界拥有，
+  不进共享静态路网。
 
 `PartitionPlanningHints` 默认保持 #439 的边邻接度数公式。若实现要把路口或静态路线
 边界权值纳入 worker 数无关提示，必须提升

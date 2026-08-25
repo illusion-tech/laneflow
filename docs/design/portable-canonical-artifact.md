@@ -11,7 +11,8 @@
 >
 > **后续提案（#496 G1，Proposed，未 Pass）**：G2 分配 LFCA v2。附录 A.1 的 v1 登记表
 > **不得改写**；v2 只改 A.1 增量所列字段的名字和/或类型，未列出的字段保持 v1 的
-> tag、名字、类型、必填。合同见 ADR 0028 与下文 A.1 v2 增量。
+> tag、名字、类型、必填。`networkRevisionDerivationVersion` 保持 `1`，算法见 §4.2。
+> 合同见 ADR 0028 与下文 A.1 v2 增量。
 
 **文档状态**: Accepted（#298 G1 Pass；G4 已完成，动态记录以 Issue Gate Ledger 为准）<br>
 **最后更新**: 2026-08-25（#496 G1：Proposed LFCA v2 字段增量；G2 前 `main` 仍为 v1）<br>
@@ -525,6 +526,12 @@ NetworkRevisionIdV1 =
 `ArtifactClaims.declaredNetworkRevisionId`。该声明始终是不受信任输入；#299 后发射检查从
 最终 LFCA 的六个语义节重算并逐字节比较。当前检查不另建身份、拓扑或规则语义后端。
 相同修订对应不同规范语义载荷时不得追加随机数、ordinal 或 suffix。
+
+#496 G1（Proposed，未 Pass）：LFCA v2 **仍使用上述 v1 派生算法**（组帧、域分隔符
+`"laneflow.network-revision.v1\0"`、`networkRevisionDerivationVersion = 1`）。
+毫米 / `f32` 字段改变 `sectionExactBytes`，因而改变 `NetworkRevisionId`，不必新算法。
+**禁止**把派生版本升到 `2` 却沿用 v1 组帧。v2 读器重算 ID 时必须用本节公式，并要求
+`ContractVersions.networkRevisionDerivationVersion == 1`。
 
 完整 artifact exact bytes 另由 SHA-256 得到 `canonicalArtifactDigest`，长度是同一字节
 序列的 `u64` 精确长度。摘要与长度不嵌回自身字节；二者由外部描述符绑定。
@@ -1355,11 +1362,11 @@ transition 领域顺序，行数精确为 `max(edges.count-1, 0)`。这些 Recor
 
 下列规范标量必须在通用 finite/正零检查之外逐字段验证。**当前 LFCA v1**
 （`canonicalFormatVersion = 1`）仍为 `f64` 米，闭合约束见下表。#496 G2 **分配
-LFCA v2**（`formatVersion` 与 `canonicalFormatVersion = 2`，并提升
-`networkRevisionDerivationVersion` / `constraintContractVersion` /
-`staticExecutionContractVersion` 为 `2`；身份两字段保持 `1`）。**不得改写本附录
-的 v1 登记表。** v1 读器拒绝 v2，v2 读器拒绝 v1。G2 前不得把下列 `f64` 字段写成
-已经是毫米或 `f32` 朝向。
+LFCA v2**（`formatVersion` 与 `canonicalFormatVersion = 2`；
+`constraintContractVersion` / `staticExecutionContractVersion` 为 `2`；
+`networkRevisionDerivationVersion` **保持 `1`**，算法见 §4.2；身份两字段保持 `1`）。
+**不得改写本附录的 v1 登记表。** v1 读器拒绝 v2，v2 读器拒绝 v1。G2 前不得把下列
+`f64` 字段写成已经是毫米或 `f32` 朝向。
 
 #### LFCA v2 字段增量（#496 G1；Proposed，未 Pass）
 
@@ -1625,11 +1632,14 @@ arc-length 验证。任何适用检查失败都在建立 spatial view 前失败�
 `StaticExecutionConstraints(0x0006)` 只有 `ExecutionContract(0x0001)` singleton：
 `1:staticExecutionContractVersion:u16:R, 2:constraintContractVersion:u16:R`。具体约束已由
 前述实体、关系和空间表的规范值表达；该行禁止另存 worker 数、目标布局或运行时状态。
-LFCA v1 的 `ContractVersions` 六个字段都只接受值 `1`；`ExecutionContract` tag 1 必须逐值
-等于 `ContractVersions.staticExecutionContractVersion`，tag 2 必须逐值等于
-`ContractVersions.constraintContractVersion`。结构预检完成后必须先验证支持值和这两项对象
-内相等关系，再执行依赖相应 contract 的实体语义验证；任一未知值或副本不一致都失败关闭，
-不得由实现选择其中一份作为权威。
+LFCA v1 的 `ContractVersions` 六个字段都只接受值 `1`。#496 G2（Proposed）LFCA v2 只接受
+`canonicalFormatVersion = 2`、`identityEncodingVersion = 1`、
+`identityRegistryRevision = 1`、`networkRevisionDerivationVersion = 1`、
+`constraintContractVersion = 2`、`staticExecutionContractVersion = 2`。
+`ExecutionContract` tag 1 必须逐值等于 `ContractVersions.staticExecutionContractVersion`，
+tag 2 必须逐值等于 `ContractVersions.constraintContractVersion`。结构预检完成后必须先
+验证支持值和这两项对象内相等关系，再执行依赖相应 contract 的实体语义验证；任一未知值
+或副本不一致都失败关闭，不得由实现选择其中一份作为权威。
 
 `CompilerProvenance(0x0007)` 只有 `CompilerProvenance(0x0001)` singleton：
 `1:compilerBuildId:Utf8:R, 2:sourceCollectionDigestVersion:u16:R,

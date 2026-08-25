@@ -111,8 +111,14 @@ pub fn check_post_emission_bundle_v1<'a>(
 `PostEmissionCheckedBundleV2`，从中派生 `CheckedCanonicalNetworkInputV2`。不得让
 `check_post_emission_bundle_v1` / `preflight_object_values_v1` 接纳 LFCA
 `formatVersion = 2`。LFSM/LFSD 对象版本不单开；bundle 仍要求
-`canonicalArtifactFormatVersion` 与所绑 LFCA 一致。详见 ADR 0028 与
-`shared-static-network.md` §3.1。
+`canonicalArtifactFormatVersion` 与所绑 LFCA 一致。`NetworkRevisionId` 仍按
+`portable-canonical-artifact.md` §4.2 v1 算法重算（`derivationVersion = 1`）。
+
+发布入口：现行 `commit_portable_publication_v2` 的 `v2` 指 LFCP v2。G2 后对
+LFCA v2 候选必须调用 `check_post_emission_bundle_v2`，`build_lfcp_v2` 消费
+`PostEmissionCheckedBundleV2`。expected-base 形状可与 `ExpectedSemanticDiffBaseV1`
+相同，`network_revision_derivation_version` 为 `1`。禁止把 V1 bundle 喂给 LFCA v2
+发布。详见 ADR 0028 与 `shared-static-network.md` §3.1。
 
 ## 5. 检查顺序
 
