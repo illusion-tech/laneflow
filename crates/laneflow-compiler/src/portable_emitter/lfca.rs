@@ -628,6 +628,7 @@ fn canonical_entity_tables(
     ])
 }
 
+/// 有折线时交通边长来自冻结弧长。HIR 停车锚点在空间冻结后用同一尺子关闭。
 fn closed_lane_edge_length_mm(
     lir: &crate::lir::LirUnit,
     record: &crate::lir::LirLaneEdge,
