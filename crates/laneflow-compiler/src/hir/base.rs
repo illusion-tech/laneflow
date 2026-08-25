@@ -68,10 +68,10 @@ pub(crate) struct HirLaneEdge {
     pub(crate) source_address: TypedAstEntityAddress,
     /// 由 `(authoringNamespaceId, laneEdgeKey)` 的完整 Identity v1 前像派生。
     pub(crate) stable_id: LaneEdgeId,
-    /// 交通权威长度，单位为米并保留来源 `f64` 精度。
-    pub(crate) length_meters: f64,
-    /// 基础道路限速，单位为米每秒并保留来源 `f64` 精度。
-    pub(crate) speed_limit_meters_per_second: f64,
+    /// 交通权威长度，单位为毫米。
+    pub(crate) length_mm: u32,
+    /// 基础道路限速，单位为毫米每秒。
+    pub(crate) speed_limit_mm_s: u32,
     /// 此边在 `HirUnit::lane_edge_references` 中的连续下游引用区间。
     pub(crate) successors: TableRange<HirLaneEdgeReference>,
     /// 原始声明位置。
@@ -289,12 +289,12 @@ impl HirBase {
                         stable_key: Arc::clone(&source.header.stable_key),
                         source_address: source.header.source_address.clone(),
                         stable_id: LaneEdgeId::from_untyped(identity.stable_id()),
-                        length_meters: source
+                        length_mm: source
                             .geometry_authority
                             .direct_length()
                             .expect("authoring geometry is compiled before HIR lane construction")
-                            .value(),
-                        speed_limit_meters_per_second: source.speed_limit.value(),
+                            .millimetres(),
+                        speed_limit_mm_s: source.speed_limit.millimetres_per_second(),
                         successors: TableRange::empty(),
                         source_span: source.header.span.clone(),
                     })

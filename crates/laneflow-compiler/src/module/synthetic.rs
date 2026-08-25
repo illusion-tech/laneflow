@@ -3,36 +3,40 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS, EntityKind,
-    FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind, MAX_ACCEL_METERS_PER_SECOND_SQUARED,
-    MAX_MIN_GAP_MM, MAX_TIME_HEADWAY_SECONDS, MAX_VEHICLE_LENGTH_MM,
-    MIN_ACCEL_METERS_PER_SECOND_SQUARED, MIN_VEHICLE_LENGTH_MM, ManeuverGateKind, ManeuverPathKind,
-    MovementKind, ParticipantClassKind, RoadSectionKind, SignalGroupKind, StopLineKind,
+    FieldTag, HEADING_MINUS_PI_F32_BITS, HEADING_PLUS_PI_F32_BITS, JunctionKind, LaneEdgeKind,
+    LaneGroupKind, MAX_ACCEL_METERS_PER_SECOND_SQUARED, MAX_MIN_GAP_MM,
+    MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_TIME_HEADWAY_SECONDS, MAX_VEHICLE_LENGTH_MM,
+    MIN_ACCEL_METERS_PER_SECOND_SQUARED, MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_VEHICLE_LENGTH_MM,
+    ManeuverGateKind, ManeuverPathKind, MovementKind, ParticipantClassKind, RoadSectionKind,
+    SignalGroupKind, StopLineKind, heading_f32_from_si, heading_f32_in_legal_closure,
+    millimetres_from_si, millimetres_i32_from_si,
 };
 
 use crate::declaration::{
-    AccessRuleDeclaration, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneDeclaration,
-    CanonicalFrameDeclaration, CanonicalFrameInput, CanonicalPoint3F32Input,
-    CorridorElementReference, DeclarationHeader, EdgeLength, FacilityBandDeclaration,
-    FacilityBandInput, FacilityKindCategory, FacilityKindViolation, JunctionDeclaration,
-    JunctionInput, LaneEdgeDeclaration, LaneEdgeGeometryAuthority, LaneEdgeGeometryDeclaration,
-    LaneEdgeInput, LaneGroupDeclaration, LaneGroupInput, ManeuverGateDeclaration,
-    ManeuverGateInput, ManeuverPathDeclaration, ManeuverPathInput, MovementDeclaration,
-    MovementInput, OwnedAccessRegulation, OwnedAccessRuleTarget, OwnedCorridorElementReference,
-    OwnedEntityReference, OwnedSignalControl, ParkingAreaDeclaration, ParkingAreaInput,
-    ParkingLaneAnchorDeclaration, ParkingSpaceDeclaration, ParkingSpaceInput,
-    ParticipantClassDeclaration, ParticipantClassInput, RoadCorridorDeclaration, RoadCorridorInput,
-    RoadSectionDeclaration, RoadSectionInput, ScalarViolation, SignalControlInput,
-    SignalControllerDeclaration, SignalControllerInput, SignalGroupDeclaration, SignalGroupInput,
-    SignalGroupStateDeclaration, SignalPhaseDeclaration, SpeedLimit, StaticRouteDeclaration,
-    StaticRouteInput, StopLineDeclaration, StopLineInput, TypedAstDeclaration,
-    VehicleProfileDeclaration, VehicleProfileInput, WaitingZoneDeclaration, WaitingZoneInput,
-    closed_millimetres, facility_kind_category,
+    AccessRuleDeclaration, AccessRuleInput, AccessRuleTargetInput, AdmittedIidmProfile,
+    AdmittedParkingGeometry, AuthoringLaneDeclaration, CanonicalFrameDeclaration,
+    CanonicalFrameInput, CanonicalPoint3F32Input, CorridorElementReference, DeclarationHeader,
+    EdgeLength, FacilityBandDeclaration, FacilityBandInput, FacilityKindCategory,
+    FacilityKindViolation, JunctionDeclaration, JunctionInput, LaneEdgeDeclaration,
+    LaneEdgeGeometryAuthority, LaneEdgeGeometryDeclaration, LaneEdgeInput, LaneGroupDeclaration,
+    LaneGroupInput, ManeuverGateDeclaration, ManeuverGateInput, ManeuverPathDeclaration,
+    ManeuverPathInput, MovementDeclaration, MovementInput, OwnedAccessRegulation,
+    OwnedAccessRuleTarget, OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl,
+    ParkingAreaDeclaration, ParkingAreaInput, ParkingLaneAnchorDeclaration,
+    ParkingSpaceDeclaration, ParkingSpaceInput, ParticipantClassDeclaration, ParticipantClassInput,
+    RoadCorridorDeclaration, RoadCorridorInput, RoadSectionDeclaration, RoadSectionInput,
+    ScalarViolation, SignalControlInput, SignalControllerDeclaration, SignalControllerInput,
+    SignalGroupDeclaration, SignalGroupInput, SignalGroupStateDeclaration, SignalPhaseDeclaration,
+    SpeedLimit, StaticRouteDeclaration, StaticRouteInput, StopLineDeclaration, StopLineInput,
+    TypedAstDeclaration, VehicleProfileDeclaration, VehicleProfileInput, WaitingZoneDeclaration,
+    WaitingZoneInput, closed_millimetres, facility_kind_category,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
 use crate::{
-    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceLocation,
-    SourceModuleHeader, SourceSpan, SpatialAxis, SpatialGeometryViolation,
+    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, ParkingAnchorRole,
+    ParkingGeometryField, ParkingGeometryViolation, SourceLocation, SourceModuleHeader, SourceSpan,
+    SpatialAxis, SpatialGeometryViolation,
 };
 
 use super::admission::{AdmittedOfficialModule, ImportRecord, TypedAstModule};
@@ -1462,6 +1466,11 @@ impl SyntheticModuleBuilder {
         }
         self.validate_reference(EntityKind::LaneEdge, input.entry.lane_edge, &span)?;
         self.validate_reference(EntityKind::LaneEdge, input.exit.lane_edge, &span)?;
+        let (entry_progress_mm, exit_progress_mm, geometry) = admit_parking_space_scalars(
+            input,
+            &span,
+            self.limits.value(CompileLimitDimension::DiagnosticCount),
+        )?;
 
         let reference_count = 2_u64.saturating_add(u64::from(input.parking_area.is_some()));
         let namespace_bytes =
@@ -1515,11 +1524,11 @@ impl SyntheticModuleBuilder {
         };
         let entry = ParkingLaneAnchorDeclaration {
             lane_edge: self.own_reference(EntityKind::LaneEdge, input.entry.lane_edge, &span)?,
-            progress_meters: input.entry.progress_meters,
+            progress_mm: entry_progress_mm,
         };
         let exit = ParkingLaneAnchorDeclaration {
             lane_edge: self.own_reference(EntityKind::LaneEdge, input.exit.lane_edge, &span)?,
-            progress_meters: input.exit.progress_meters,
+            progress_mm: exit_progress_mm,
         };
         let stable_key: Arc<str> = input.parking_space_key.into();
         self.declaration_index
@@ -1536,7 +1545,7 @@ impl SyntheticModuleBuilder {
                 parking_area,
                 entry,
                 exit,
-                geometry: input.geometry,
+                geometry,
             }));
         self.commit_declaration_resources(state);
         Ok(self)
@@ -1643,7 +1652,7 @@ impl SyntheticModuleBuilder {
             &span,
         )?;
         self.validate_reference(EntityKind::ParticipantClass, input.participant_class, &span)?;
-        validate_vehicle_profile_scalars(input, &span)?;
+        let iidm = admit_vehicle_profile_scalars(input, &span)?;
 
         let participant_class =
             self.own_reference(EntityKind::ParticipantClass, input.participant_class, &span)?;
@@ -1691,7 +1700,7 @@ impl SyntheticModuleBuilder {
                     span.clone().into(),
                 ),
                 participant_class,
-                iidm: input.iidm,
+                iidm,
             },
         ));
         self.commit_declaration_resources(state);
@@ -3083,87 +3092,92 @@ fn reference_spelling_parts_bytes(module_namespace: &str, declaration_key: &str)
         .saturating_add(u64::try_from(declaration_key.len()).unwrap_or(u64::MAX))
 }
 
-fn validate_vehicle_profile_scalars(
+fn admit_vehicle_profile_scalars(
     input: VehicleProfileInput<'_>,
     span: &SourceSpan,
-) -> Result<(), DiagnosticBundle> {
+) -> Result<AdmittedIidmProfile, DiagnosticBundle> {
     let iidm = input.iidm;
-    if let Err(violation) = closed_millimetres(
+    let length_mm = closed_millimetres(
         iidm.length_meters,
         MIN_VEHICLE_LENGTH_MM,
         MAX_VEHICLE_LENGTH_MM,
-    ) {
-        return Err(DiagnosticBundle::single(
-            Diagnostic::invalid_vehicle_profile_value(
-                input.vehicle_profile_key,
-                "length",
-                iidm.length_meters,
-                violation,
-                span.clone(),
-            ),
-        ));
-    }
-    if let Err(violation) = SpeedLimit::try_new(iidm.desired_speed_meters_per_second) {
-        return Err(DiagnosticBundle::single(
-            Diagnostic::invalid_vehicle_profile_value(
+    )
+    .map_err(|violation| {
+        DiagnosticBundle::single(Diagnostic::invalid_vehicle_profile_value(
+            input.vehicle_profile_key,
+            "length",
+            iidm.length_meters,
+            violation,
+            span.clone(),
+        ))
+    })?;
+    let desired_speed_mm_s = SpeedLimit::try_new(iidm.desired_speed_meters_per_second)
+        .map(|limit| limit.millimetres_per_second())
+        .map_err(|violation| {
+            DiagnosticBundle::single(Diagnostic::invalid_vehicle_profile_value(
                 input.vehicle_profile_key,
                 "desiredSpeed",
                 iidm.desired_speed_meters_per_second,
                 violation,
                 span.clone(),
-            ),
-        ));
-    }
-    if let Err(violation) = closed_millimetres(iidm.min_gap_meters, 0, MAX_MIN_GAP_MM) {
-        return Err(DiagnosticBundle::single(
-            Diagnostic::invalid_vehicle_profile_value(
+            ))
+        })?;
+    let min_gap_mm =
+        closed_millimetres(iidm.min_gap_meters, 0, MAX_MIN_GAP_MM).map_err(|violation| {
+            DiagnosticBundle::single(Diagnostic::invalid_vehicle_profile_value(
                 input.vehicle_profile_key,
                 "minGap",
                 iidm.min_gap_meters,
                 violation,
                 span.clone(),
-            ),
-        ));
-    }
-    if let Err(violation) = validate_time_headway(iidm.time_headway_seconds) {
-        return Err(DiagnosticBundle::single(
-            Diagnostic::invalid_vehicle_profile_value(
+            ))
+        })?;
+    let time_headway_seconds =
+        admit_time_headway(iidm.time_headway_seconds).map_err(|violation| {
+            DiagnosticBundle::single(Diagnostic::invalid_vehicle_profile_value(
                 input.vehicle_profile_key,
                 "timeHeadway",
                 iidm.time_headway_seconds,
                 violation,
                 span.clone(),
-            ),
-        ));
-    }
-    for (field, value) in [
-        (
-            "maxAcceleration",
-            iidm.max_acceleration_meters_per_second_squared,
-        ),
-        (
+            ))
+        })?;
+    let max_acceleration_meters_per_second_squared =
+        admit_accel(iidm.max_acceleration_meters_per_second_squared).map_err(|violation| {
+            DiagnosticBundle::single(Diagnostic::invalid_vehicle_profile_value(
+                input.vehicle_profile_key,
+                "maxAcceleration",
+                iidm.max_acceleration_meters_per_second_squared,
+                violation,
+                span.clone(),
+            ))
+        })?;
+    let comfortable_deceleration_meters_per_second_squared = admit_accel(
+        iidm.comfortable_deceleration_meters_per_second_squared,
+    )
+    .map_err(|violation| {
+        DiagnosticBundle::single(Diagnostic::invalid_vehicle_profile_value(
+            input.vehicle_profile_key,
             "comfortableDeceleration",
             iidm.comfortable_deceleration_meters_per_second_squared,
-        ),
-        (
+            violation,
+            span.clone(),
+        ))
+    })?;
+    let emergency_deceleration_meters_per_second_squared = admit_accel(
+        iidm.emergency_deceleration_meters_per_second_squared,
+    )
+    .map_err(|violation| {
+        DiagnosticBundle::single(Diagnostic::invalid_vehicle_profile_value(
+            input.vehicle_profile_key,
             "emergencyDeceleration",
             iidm.emergency_deceleration_meters_per_second_squared,
-        ),
-    ] {
-        if let Err(violation) = validate_accel(value) {
-            return Err(DiagnosticBundle::single(
-                Diagnostic::invalid_vehicle_profile_value(
-                    input.vehicle_profile_key,
-                    field,
-                    value,
-                    violation,
-                    span.clone(),
-                ),
-            ));
-        }
-    }
-    if (iidm.emergency_deceleration_meters_per_second_squared as f32)
-        < (iidm.comfortable_deceleration_meters_per_second_squared as f32)
+            violation,
+            span.clone(),
+        ))
+    })?;
+    if emergency_deceleration_meters_per_second_squared
+        < comfortable_deceleration_meters_per_second_squared
     {
         return Err(DiagnosticBundle::single(
             Diagnostic::invalid_vehicle_profile_deceleration_order(
@@ -3174,10 +3188,182 @@ fn validate_vehicle_profile_scalars(
             ),
         ));
     }
-    Ok(())
+    Ok(AdmittedIidmProfile {
+        length_mm,
+        desired_speed_mm_s,
+        min_gap_mm,
+        time_headway_seconds,
+        max_acceleration_meters_per_second_squared,
+        comfortable_deceleration_meters_per_second_squared,
+        emergency_deceleration_meters_per_second_squared,
+    })
 }
 
-fn validate_time_headway(value: f64) -> Result<(), ScalarViolation> {
+fn admit_parking_space_scalars(
+    input: ParkingSpaceInput<'_>,
+    span: &SourceSpan,
+    diagnostic_limit: u64,
+) -> Result<(u32, u32, AdmittedParkingGeometry), DiagnosticBundle> {
+    let mut diagnostics = DiagnosticCollector::new(diagnostic_limit);
+    let entry_progress_mm = match admit_parking_progress(input.entry.progress_meters) {
+        Ok(progress_mm) => Some(progress_mm),
+        Err(_) => {
+            diagnostics.push(Diagnostic::invalid_parking_anchor_progress(
+                input.parking_space_key,
+                ParkingAnchorRole::Entry,
+                input.entry.lane_edge.declaration_key(),
+                input.entry.progress_meters,
+                0.0,
+                1,
+                0,
+                span.clone(),
+            ));
+            None
+        }
+    };
+    let exit_progress_mm = match admit_parking_progress(input.exit.progress_meters) {
+        Ok(progress_mm) => Some(progress_mm),
+        Err(_) => {
+            diagnostics.push(Diagnostic::invalid_parking_anchor_progress(
+                input.parking_space_key,
+                ParkingAnchorRole::Exit,
+                input.exit.lane_edge.declaration_key(),
+                input.exit.progress_meters,
+                0.0,
+                1,
+                0,
+                span.clone(),
+            ));
+            None
+        }
+    };
+    let geometry = input.geometry;
+    let mut admitted = AdmittedParkingGeometry {
+        lateral_offset_mm: 0,
+        heading_offset_radians: 0.0,
+        length_mm: 0,
+        width_mm: 0,
+    };
+    let mut geometry_ok = true;
+    for (field, value, result) in [
+        (
+            ParkingGeometryField::LateralOffsetMeters,
+            geometry.lateral_offset_meters,
+            parking_lateral_mm(geometry.lateral_offset_meters).map(|mm| {
+                admitted.lateral_offset_mm = mm;
+            }),
+        ),
+        (
+            ParkingGeometryField::HeadingOffsetRadians,
+            geometry.heading_offset_radians,
+            parking_heading_f32(geometry.heading_offset_radians).map(|heading| {
+                admitted.heading_offset_radians = heading;
+            }),
+        ),
+        (
+            ParkingGeometryField::LengthMeters,
+            geometry.length_meters,
+            parking_extent_mm(geometry.length_meters).map(|mm| {
+                admitted.length_mm = mm;
+            }),
+        ),
+        (
+            ParkingGeometryField::WidthMeters,
+            geometry.width_meters,
+            parking_extent_mm(geometry.width_meters).map(|mm| {
+                admitted.width_mm = mm;
+            }),
+        ),
+    ] {
+        if let Err(violation) = result {
+            geometry_ok = false;
+            diagnostics.push(Diagnostic::invalid_parking_space_geometry(
+                input.parking_space_key,
+                field,
+                value,
+                violation,
+                span.clone(),
+            ));
+        }
+    }
+    if diagnostics.is_empty() {
+        Ok((
+            entry_progress_mm.expect("progress admitted"),
+            exit_progress_mm.expect("progress admitted"),
+            admitted,
+        ))
+    } else {
+        let _ = (geometry_ok, entry_progress_mm, exit_progress_mm);
+        Err(diagnostics.finish())
+    }
+}
+
+fn admit_parking_progress(value: f64) -> Result<u32, ScalarViolation> {
+    millimetres_from_si(value).ok_or(if value.is_finite() {
+        ScalarViolation::QuantizeFailed
+    } else {
+        ScalarViolation::NotFinite
+    })
+}
+
+fn parking_extent_mm(value: f64) -> Result<u32, ParkingGeometryViolation> {
+    if !value.is_finite() {
+        return Err(ParkingGeometryViolation::NotFinite);
+    }
+    let Some(actual_mm) = millimetres_from_si(value) else {
+        return Err(ParkingGeometryViolation::QuantizeFailed);
+    };
+    if actual_mm < MIN_VEHICLE_LENGTH_MM || actual_mm > MAX_VEHICLE_LENGTH_MM {
+        return Err(ParkingGeometryViolation::OutsideClosedMillimetreRange {
+            min_mm: MIN_VEHICLE_LENGTH_MM,
+            max_mm: MAX_VEHICLE_LENGTH_MM,
+            actual_mm,
+        });
+    }
+    Ok(actual_mm)
+}
+
+fn parking_lateral_mm(value: f64) -> Result<i32, ParkingGeometryViolation> {
+    if !value.is_finite() {
+        return Err(ParkingGeometryViolation::NotFinite);
+    }
+    let Some(actual_mm) = millimetres_i32_from_si(value) else {
+        return Err(ParkingGeometryViolation::QuantizeFailed);
+    };
+    let actual_abs_mm = actual_mm.unsigned_abs();
+    if actual_abs_mm < MIN_PARKING_LATERAL_OFFSET_ABS_MM
+        || actual_abs_mm > MAX_PARKING_LATERAL_OFFSET_ABS_MM
+    {
+        return Err(
+            ParkingGeometryViolation::AbsoluteOutsideClosedMillimetreRange {
+                min_abs_mm: MIN_PARKING_LATERAL_OFFSET_ABS_MM,
+                max_abs_mm: MAX_PARKING_LATERAL_OFFSET_ABS_MM,
+                actual_abs_mm,
+            },
+        );
+    }
+    Ok(actual_mm)
+}
+
+fn parking_heading_f32(value: f64) -> Result<f32, ParkingGeometryViolation> {
+    let Some(heading) = heading_f32_from_si(value) else {
+        return Err(if value.is_finite() {
+            ParkingGeometryViolation::QuantizeFailed
+        } else {
+            ParkingGeometryViolation::NotFinite
+        });
+    };
+    if heading_f32_in_legal_closure(heading) {
+        Ok(heading)
+    } else {
+        Err(ParkingGeometryViolation::OutsideHalfOpenRange {
+            minimum_inclusive_bits: HEADING_MINUS_PI_F32_BITS,
+            maximum_exclusive_bits: HEADING_PLUS_PI_F32_BITS,
+        })
+    }
+}
+
+fn admit_time_headway(value: f64) -> Result<f32, ScalarViolation> {
     if !value.is_finite() {
         return Err(ScalarViolation::NotFinite);
     }
@@ -3192,10 +3378,10 @@ fn validate_time_headway(value: f64) -> Result<(), ScalarViolation> {
             inclusive_maximum_bits: f64::from(MAX_TIME_HEADWAY_SECONDS).to_bits(),
         });
     }
-    Ok(())
+    Ok(quantized)
 }
 
-fn validate_accel(value: f64) -> Result<(), ScalarViolation> {
+fn admit_accel(value: f64) -> Result<f32, ScalarViolation> {
     if !value.is_finite() {
         return Err(ScalarViolation::NotFinite);
     }
@@ -3209,5 +3395,5 @@ fn validate_accel(value: f64) -> Result<(), ScalarViolation> {
             max_bits: MAX_ACCEL_METERS_PER_SECOND_SQUARED.to_bits(),
         });
     }
-    Ok(())
+    Ok(quantized)
 }

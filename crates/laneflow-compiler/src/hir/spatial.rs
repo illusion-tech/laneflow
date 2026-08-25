@@ -4,7 +4,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    CanonicalFrameId, EntityKind, FieldTag, SPATIAL_JOIN_POSITION_TOLERANCE_METERS,
+    CanonicalFrameId, EntityKind, FieldTag, MAX_LANE_EDGE_LENGTH_MM, MIN_LANE_EDGE_LENGTH_MM,
+    SPATIAL_JOIN_POSITION_TOLERANCE_METERS, millimetres_from_si,
 };
 
 use crate::arena::{ArenaKeyOverflow, TableRange, TypedArena};
@@ -116,7 +117,7 @@ pub(crate) struct SpatialFrameAssignment {
 }
 
 pub(crate) struct SpatialHirContext<'a> {
-    pub(crate) lane_edges: &'a TypedArena<HirLaneEdgeTag, HirLaneEdge>,
+    pub(crate) lane_edges: &'a mut TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     pub(crate) lane_edge_references: &'a [HirLaneEdgeReference],
     pub(crate) lane_edge_symbols: &'a SymbolTable<HirLaneEdgeKey>,
     pub(crate) facility_bands: &'a [HirFacilityBand],
@@ -294,7 +295,8 @@ pub(crate) fn build_spatial_hir(
                 pending_geometries[lane_edge.index()] = Some(PendingSpatialGeometry {
                     source_module: module_key,
                     centerline_points: &geometry.centerline_points,
-                    expected_length_meters: lane_edges.get(lane_edge).length_meters,
+                    expected_length_meters: f64::from(lane_edges.get(lane_edge).length_mm)
+                        / 1_000.0,
                     source_ranges: &[],
                     source_span: geometry.lane_edge.span.clone(),
                 });
@@ -405,7 +407,7 @@ pub(crate) fn build_spatial_hir(
             pending_geometries[lane_edge.index()] = Some(PendingSpatialGeometry {
                 source_module: module_key,
                 centerline_points: &compiled.centerline_points,
-                expected_length_meters: compiled.length.value(),
+                expected_length_meters: compiled.length.observation_metres(),
                 source_ranges: &compiled.source_ranges,
                 source_span: source.header.span.clone(),
             });
@@ -461,7 +463,7 @@ pub(crate) fn build_spatial_hir(
             pending_facility_geometries[band.index()] = Some(PendingSpatialGeometry {
                 source_module: module_key,
                 centerline_points: &compiled.centerline_points,
-                expected_length_meters: compiled.length.value(),
+                expected_length_meters: compiled.length.observation_metres(),
                 source_ranges: &compiled.source_ranges,
                 source_span: source.header.span.clone(),
             });
@@ -689,6 +691,36 @@ pub(crate) fn build_spatial_hir(
                     continue;
                 }
             };
+            let Some(committed_mm) = millimetres_from_si(f64::from(frozen.arc_length_meters))
+            else {
+                let mut diagnostic = Diagnostic::invalid_lane_edge_length(
+                    &lane_edges.get(edge).stable_key,
+                    f64::from(frozen.arc_length_meters),
+                    crate::declaration::ScalarViolation::QuantizeFailed,
+                    pending.source_span.clone(),
+                );
+                diagnostic.set_canonical_module_order(lane_edges.get(edge).module.raw());
+                diagnostics.push(diagnostic);
+                order_cursor = order_cursor.saturating_add(1);
+                continue;
+            };
+            if committed_mm < MIN_LANE_EDGE_LENGTH_MM || committed_mm > MAX_LANE_EDGE_LENGTH_MM {
+                let mut diagnostic = Diagnostic::invalid_lane_edge_length(
+                    &lane_edges.get(edge).stable_key,
+                    f64::from(frozen.arc_length_meters),
+                    crate::declaration::ScalarViolation::OutsideClosedMillimetreRange {
+                        min_mm: MIN_LANE_EDGE_LENGTH_MM,
+                        max_mm: MAX_LANE_EDGE_LENGTH_MM,
+                        actual_mm: committed_mm,
+                    },
+                    pending.source_span.clone(),
+                );
+                diagnostic.set_canonical_module_order(lane_edges.get(edge).module.raw());
+                diagnostics.push(diagnostic);
+                order_cursor = order_cursor.saturating_add(1);
+                continue;
+            }
+            lane_edges.get_mut(edge).length_mm = committed_mm;
             let geometry_index = geometries.len();
             let source_range_start = geometry_source_ranges.len();
             push_geometry_source_ranges(

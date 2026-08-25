@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use laneflow_compiler::{CanonicalIdentityFieldView, ValidatedCanonicalLir};
 use laneflow_corridor_generator::{CorridorConfig, generate};
-use laneflow_static_contract::FieldTag;
+use laneflow_static_contract::{FieldTag, millimetres_from_si};
 
 const CONFIG: &str = include_str!("../../../examples/config/v0.10-signalized-corridor.toml");
 
@@ -130,9 +130,15 @@ fn default_corridor_locks_protected_turning_geometry_routes_and_signals() {
     let generated = default_generated();
     let lir = generated.lir();
     let main = edge_key(lir, "edge-main-w2e-lane-0-road-0");
-    assert_eq!(main.speed_limit_meters_per_second(), 60.0 / 3.6);
+    assert_eq!(
+        main.speed_limit_mm_s(),
+        millimetres_from_si(60.0 / 3.6).unwrap()
+    );
     let side = edge_key(lir, "edge-side-1-n2s-lane-0-road-0");
-    assert_eq!(side.speed_limit_meters_per_second(), 40.0 / 3.6);
+    assert_eq!(
+        side.speed_limit_mm_s(),
+        millimetres_from_si(40.0 / 3.6).unwrap()
+    );
     for (id, expected_length, expected_speed) in [
         (
             "edge-junction-1-west-straight-lane-2-to-2-i0",
@@ -161,8 +167,14 @@ fn default_corridor_locks_protected_turning_geometry_routes_and_signals() {
         ),
     ] {
         let edge = edge_key(lir, id);
-        assert_eq!(edge.length_meters(), expected_length);
-        assert_eq!(edge.speed_limit_meters_per_second(), expected_speed);
+        assert_eq!(
+            edge.length_mm(),
+            millimetres_from_si(expected_length).unwrap()
+        );
+        assert_eq!(
+            edge.speed_limit_mm_s(),
+            millimetres_from_si(expected_speed).unwrap()
+        );
     }
     assert!(
         lir.maneuver_gates()
@@ -386,11 +398,11 @@ fn traffic_and_spatial_lengths_match_independently_for_all_66_edges() {
                 dx.hypot(dy).hypot(dz)
             })
             .sum::<f64>();
+        let traffic_m = f64::from(edge.length_mm()) / 1_000.0;
         assert!(
-            (polyline - edge.length_meters()).abs() <= 0.001,
-            "edge {}: spatial polyline {polyline} m vs traffic length {}",
+            (polyline - traffic_m).abs() <= 0.001,
+            "edge {}: spatial polyline {polyline} m vs traffic length {traffic_m} m",
             ascii_field(edge.identity_fields(), FieldTag::LaneEdgeKey),
-            edge.length_meters()
         );
     }
 }

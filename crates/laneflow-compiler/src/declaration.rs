@@ -668,35 +668,38 @@ impl<K: EntityKindMarker> OwnedEntityReference<K> {
 }
 
 #[derive(Clone, Copy)]
-/// 已验证的交通权威车道图边长度；准入按毫米闭包，编制值仍保留 `f64`。
-pub(crate) struct EdgeLength(f64);
+/// 已验证的交通权威车道图边长度，单位为毫米。
+pub(crate) struct EdgeLength(u32);
 
 impl EdgeLength {
     pub(crate) fn try_new(value: f64) -> Result<Self, ScalarViolation> {
-        closed_millimetres(value, MIN_LANE_EDGE_LENGTH_MM, MAX_LANE_EDGE_LENGTH_MM)
-            .map(|_| Self(value))
+        closed_millimetres(value, MIN_LANE_EDGE_LENGTH_MM, MAX_LANE_EDGE_LENGTH_MM).map(Self)
     }
 
     /// 编制曲线冻结长度：最短仍是 `100` mm，但不套交通边 `10 km` 上界。
     pub(crate) fn try_from_authoring_metres(value: f64) -> Result<Self, ScalarViolation> {
-        closed_millimetres(value, MIN_LANE_EDGE_LENGTH_MM, u32::MAX).map(|_| Self(value))
+        closed_millimetres(value, MIN_LANE_EDGE_LENGTH_MM, u32::MAX).map(Self)
     }
 
-    pub(crate) const fn value(self) -> f64 {
+    pub(crate) const fn millimetres(self) -> u32 {
         self.0
+    }
+
+    pub(crate) fn observation_metres(self) -> f64 {
+        f64::from(self.0) / 1_000.0
     }
 }
 
 #[derive(Clone, Copy)]
-/// 已验证的基础道路限速；准入按毫米每秒闭包，编制值仍保留 `f64`。
-pub(crate) struct SpeedLimit(f64);
+/// 已验证的基础道路限速，单位为毫米每秒。
+pub(crate) struct SpeedLimit(u32);
 
 impl SpeedLimit {
     pub(crate) fn try_new(value: f64) -> Result<Self, ScalarViolation> {
-        closed_millimetres(value, MIN_SPEED_MM_S, MAX_SPEED_MM_S).map(|_| Self(value))
+        closed_millimetres(value, MIN_SPEED_MM_S, MAX_SPEED_MM_S).map(Self)
     }
 
-    pub(crate) const fn value(self) -> f64 {
+    pub(crate) const fn millimetres_per_second(self) -> u32 {
         self.0
     }
 }
@@ -1114,10 +1117,19 @@ pub(crate) struct ParkingAreaDeclaration {
     pub(crate) header: DeclarationHeader,
 }
 
-/// Typed AST 中拥有的停车锚点。
+/// Typed AST 中拥有的停车锚点；进度已在准入量化为毫米。
 pub(crate) struct ParkingLaneAnchorDeclaration {
     pub(crate) lane_edge: OwnedEntityReference<LaneEdgeKind>,
-    pub(crate) progress_meters: f64,
+    pub(crate) progress_mm: u32,
+}
+
+/// 准入后的停车矩形：交通一维为毫米，朝向为受检 `f32`。
+#[derive(Clone, Copy)]
+pub(crate) struct AdmittedParkingGeometry {
+    pub(crate) lateral_offset_mm: i32,
+    pub(crate) heading_offset_radians: f32,
+    pub(crate) length_mm: u32,
+    pub(crate) width_mm: u32,
 }
 
 /// 已通过字段级检查、等待解析区域、锚点和几何的停车位 Typed AST 记录。
@@ -1126,7 +1138,7 @@ pub(crate) struct ParkingSpaceDeclaration {
     pub(crate) parking_area: Option<OwnedEntityReference<ParkingAreaKind>>,
     pub(crate) entry: ParkingLaneAnchorDeclaration,
     pub(crate) exit: ParkingLaneAnchorDeclaration,
-    pub(crate) geometry: ParkingSpaceGeometryInput,
+    pub(crate) geometry: AdmittedParkingGeometry,
 }
 
 /// 已通过字段级检查、等待解析父类并编译层级区间的参与者类别 Typed AST 记录。
@@ -1135,11 +1147,23 @@ pub(crate) struct ParticipantClassDeclaration {
     pub(crate) extends: Option<OwnedEntityReference<ParticipantClassKind>>,
 }
 
+/// 准入后的 IIDM 静态参数：长度/速度/`min_gap` 为毫米，时距与加减速为受检 `f32`。
+#[derive(Clone, Copy)]
+pub(crate) struct AdmittedIidmProfile {
+    pub(crate) length_mm: u32,
+    pub(crate) desired_speed_mm_s: u32,
+    pub(crate) min_gap_mm: u32,
+    pub(crate) time_headway_seconds: f32,
+    pub(crate) max_acceleration_meters_per_second_squared: f32,
+    pub(crate) comfortable_deceleration_meters_per_second_squared: f32,
+    pub(crate) emergency_deceleration_meters_per_second_squared: f32,
+}
+
 /// 已通过字段级检查、等待解析唯一参与者类别的车辆配置 Typed AST 记录。
 pub(crate) struct VehicleProfileDeclaration {
     pub(crate) header: DeclarationHeader,
     pub(crate) participant_class: OwnedEntityReference<ParticipantClassKind>,
-    pub(crate) iidm: IidmVehicleProfileInput,
+    pub(crate) iidm: AdmittedIidmProfile,
 }
 
 /// 已通过字段级检查、等待冻结稳定身份的规范坐标框架 Typed AST 记录。
@@ -1433,7 +1457,7 @@ impl TypedAstDeclaration {
                 for anchor in [entry, exit] {
                     let ParkingLaneAnchorDeclaration {
                         lane_edge,
-                        progress_meters: _,
+                        progress_mm: _,
                     } = anchor;
                     try_visit_reference(lane_edge, &mut visit)?;
                 }

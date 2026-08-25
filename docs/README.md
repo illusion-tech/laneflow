@@ -10,7 +10,7 @@ LaneFlow 的第一长期产品目标，并让城市经济、市民出行需求�
 `laneflow-runtime` / `TrafficWorld` 是唯一可运行交通世界。current Core 与 JSON
 运行时入口已拆除。契约见 `docs/design/traffic-runtime-shared-consumption.md`。
 已提交一维几何合同见 ADR 0028（#496；整数毫米 / `mm/s`，制品 `formatVersion = 2`）。
-编译器 IR 交通一维收口见 ADR 0028 / #500（提案中：准入后 IR 存整数毫米。当前 IR 仍存编制 SI 米）。
+编译器 IR 交通一维收口见 ADR 0028 / #500（准入后 Typed AST / HIR / MIR / LIR 存整数毫米）。
 
 ## 目录结构
 

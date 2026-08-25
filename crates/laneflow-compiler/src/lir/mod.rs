@@ -34,8 +34,8 @@ use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle
 
 /// 与公开制品版本轴无关的编译器私有摘要域。
 const LIR_SEMANTIC_DIGEST_DOMAIN: &[u8] = b"LANEFLOW-COMPILER-LIR-SEMANTIC-V1\0";
-/// `ordinal + stable_id + identity_range + length + speed + successor_range + route_range`。
-const LIR_LANE_EDGE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8 + 8 + 8 + 8;
+/// `ordinal + stable_id + identity_range + length_mm + speed_mm_s + successor_range + route_range`。
+const LIR_LANE_EDGE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 8 + 8;
 /// `field_tag + value_range`；表归属已经给出实体种类，不在每项重复编码。
 const LIR_IDENTITY_FIELD_LOGICAL_BYTES: u64 = 2 + 8;
 const LIR_SUCCESSOR_LOGICAL_BYTES: u64 = 4;
@@ -62,9 +62,9 @@ const LIR_SIGNAL_CONTROLLER_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8 + 8 + 8 + 8;
 const LIR_SIGNAL_PHASE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 8;
 const LIR_SIGNAL_PHASE_STATE_LOGICAL_BYTES: u64 = 4 + 1;
 const LIR_PARKING_AREA_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8;
-const LIR_PARKING_SPACE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + (4 + 8) * 2 + 8 * 4;
+const LIR_PARKING_SPACE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + (4 + 4) * 2 + 4 * 4;
 const LIR_PARTICIPANT_CLASS_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + 4 + 4 + 4;
-const LIR_VEHICLE_PROFILE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 * 7;
+const LIR_VEHICLE_PROFILE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 * 7;
 const LIR_CANONICAL_FRAME_LOGICAL_BYTES: u64 = 4 + 16 + 8;
 const LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES: u64 = 4 + 8 + 8 + 4;
 const LIR_FACILITY_BAND_GEOMETRY_LOGICAL_BYTES: u64 = 4 + 4 + 8;
@@ -93,10 +93,10 @@ pub(crate) struct LirLaneEdge {
     pub(crate) stable_id: LaneEdgeId,
     /// 此实体在 `identity_fields` 中的完整、规范有序字段区间。
     pub(crate) identity_fields: TableRange<LirIdentityField>,
-    /// 交通权威长度，单位为米；输入阶段已证明有限且严格大于零。
-    pub(crate) length_meters: f64,
-    /// 基础道路限速，单位为米每秒；输入阶段已证明有限且严格大于零。
-    pub(crate) speed_limit_meters_per_second: f64,
+    /// 交通权威长度，单位为毫米。
+    pub(crate) length_mm: u32,
+    /// 基础道路限速，单位为毫米每秒。
+    pub(crate) speed_limit_mm_s: u32,
     /// 按领域顺序保存的下游边序号区间。
     pub(crate) successors: TableRange<LaneEdgeOrdinal>,
     /// 按路线序号和路线内边下标排序的反向出现项区间。
@@ -409,8 +409,8 @@ pub(crate) fn freeze_lir(
                 identity_fields.len().saturating_sub(identity_start),
             )
             .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
-            length_meters: edge.length_meters,
-            speed_limit_meters_per_second: edge.speed_limit_meters_per_second,
+            length_mm: edge.length_mm,
+            speed_limit_mm_s: edge.speed_limit_mm_s,
             successors: TableRange::try_from_usize(
                 successor_start,
                 successors.len().saturating_sub(successor_start),
@@ -1070,8 +1070,8 @@ fn semantic_digest(
             identity_fields,
             identity_field_bytes,
         );
-        hasher.update(&edge.length_meters.to_bits().to_le_bytes());
-        hasher.update(&edge.speed_limit_meters_per_second.to_bits().to_le_bytes());
+        hash_u32(&mut hasher, edge.length_mm);
+        hash_u32(&mut hasher, edge.speed_limit_mm_s);
         hash_u32(&mut hasher, edge.successors.len());
         for successor in &successors[edge.successors.as_usize_range()] {
             hash_u32(&mut hasher, successor.raw());
@@ -1417,16 +1417,18 @@ fn semantic_digest(
         hash_optional_ordinal(&mut hasher, space.parking_area.map(ParkingAreaOrdinal::raw));
         for anchor in [space.entry, space.exit] {
             hash_u32(&mut hasher, anchor.lane_edge.raw());
-            hasher.update(&anchor.progress_meters.to_bits().to_le_bytes());
+            hash_u32(&mut hasher, anchor.progress_mm);
         }
-        for value in [
-            space.geometry.lateral_offset_meters,
-            space.geometry.heading_offset_radians,
-            space.geometry.length_meters,
-            space.geometry.width_meters,
-        ] {
-            hasher.update(&value.to_bits().to_le_bytes());
-        }
+        hasher.update(&space.geometry.lateral_offset_mm.to_le_bytes());
+        hasher.update(
+            &space
+                .geometry
+                .heading_offset_radians
+                .to_bits()
+                .to_le_bytes(),
+        );
+        hash_u32(&mut hasher, space.geometry.length_mm);
+        hash_u32(&mut hasher, space.geometry.width_mm);
     }
     hash_u32(&mut hasher, EntityKind::ParticipantClass.code().into());
     hash_u32(
@@ -1465,10 +1467,10 @@ fn semantic_digest(
             identity_field_bytes,
         );
         hash_u32(&mut hasher, profile.participant_class.raw());
+        hash_u32(&mut hasher, profile.length_mm);
+        hash_u32(&mut hasher, profile.desired_speed_mm_s);
+        hash_u32(&mut hasher, profile.min_gap_mm);
         for value in [
-            profile.length_meters,
-            profile.desired_speed_meters_per_second,
-            profile.min_gap_meters,
             profile.time_headway_seconds,
             profile.max_acceleration_meters_per_second_squared,
             profile.comfortable_deceleration_meters_per_second_squared,

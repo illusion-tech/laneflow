@@ -25,13 +25,13 @@ pub(crate) struct LirVehicleProfile {
     pub(crate) stable_id: VehicleProfileId,
     pub(crate) identity_fields: TableRange<LirIdentityField>,
     pub(crate) participant_class: ParticipantClassOrdinal,
-    pub(crate) length_meters: f64,
-    pub(crate) desired_speed_meters_per_second: f64,
-    pub(crate) min_gap_meters: f64,
-    pub(crate) time_headway_seconds: f64,
-    pub(crate) max_acceleration_meters_per_second_squared: f64,
-    pub(crate) comfortable_deceleration_meters_per_second_squared: f64,
-    pub(crate) emergency_deceleration_meters_per_second_squared: f64,
+    pub(crate) length_mm: u32,
+    pub(crate) desired_speed_mm_s: u32,
+    pub(crate) min_gap_mm: u32,
+    pub(crate) time_headway_seconds: f32,
+    pub(crate) max_acceleration_meters_per_second_squared: f32,
+    pub(crate) comfortable_deceleration_meters_per_second_squared: f32,
+    pub(crate) emergency_deceleration_meters_per_second_squared: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -137,9 +137,9 @@ pub(super) fn freeze_classes(
                 .orders
                 .participant_classes
                 .ordinal(profile.participant_class),
-            length_meters: profile.length_meters,
-            desired_speed_meters_per_second: profile.desired_speed_meters_per_second,
-            min_gap_meters: profile.min_gap_meters,
+            length_mm: profile.length_mm,
+            desired_speed_mm_s: profile.desired_speed_mm_s,
+            min_gap_mm: profile.min_gap_mm,
             time_headway_seconds: profile.time_headway_seconds,
             max_acceleration_meters_per_second_squared: profile
                 .max_acceleration_meters_per_second_squared,

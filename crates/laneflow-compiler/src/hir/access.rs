@@ -40,7 +40,7 @@ pub(crate) struct HirParticipantClass {
     pub(crate) source_span: SourceLocation,
 }
 
-/// 已解析唯一参与者类别、并保持 current Core IIDM `f64` 语义的车辆配置。
+/// 已解析唯一参与者类别的车辆配置；交通一维为毫米，时距与加减速为受检 `f32`。
 #[derive(Debug, PartialEq)]
 pub(crate) struct HirVehicleProfile {
     pub(crate) module: HirModuleKey,
@@ -48,13 +48,13 @@ pub(crate) struct HirVehicleProfile {
     pub(crate) stable_id: VehicleProfileId,
     pub(crate) participant_class: HirParticipantClassKey,
     pub(crate) participant_class_source_span: SourceLocation,
-    pub(crate) length_meters: f64,
-    pub(crate) desired_speed_meters_per_second: f64,
-    pub(crate) min_gap_meters: f64,
-    pub(crate) time_headway_seconds: f64,
-    pub(crate) max_acceleration_meters_per_second_squared: f64,
-    pub(crate) comfortable_deceleration_meters_per_second_squared: f64,
-    pub(crate) emergency_deceleration_meters_per_second_squared: f64,
+    pub(crate) length_mm: u32,
+    pub(crate) desired_speed_mm_s: u32,
+    pub(crate) min_gap_mm: u32,
+    pub(crate) time_headway_seconds: f32,
+    pub(crate) max_acceleration_meters_per_second_squared: f32,
+    pub(crate) comfortable_deceleration_meters_per_second_squared: f32,
+    pub(crate) emergency_deceleration_meters_per_second_squared: f32,
     pub(crate) source_span: SourceLocation,
 }
 
@@ -491,9 +491,9 @@ pub(crate) fn build_access_hir(
                     stable_id,
                     participant_class: HirParticipantClassKey::from_raw(0),
                     participant_class_source_span: source.participant_class.span.clone(),
-                    length_meters: iidm.length_meters,
-                    desired_speed_meters_per_second: iidm.desired_speed_meters_per_second,
-                    min_gap_meters: iidm.min_gap_meters,
+                    length_mm: iidm.length_mm,
+                    desired_speed_mm_s: iidm.desired_speed_mm_s,
+                    min_gap_mm: iidm.min_gap_mm,
                     time_headway_seconds: iidm.time_headway_seconds,
                     max_acceleration_meters_per_second_squared: iidm
                         .max_acceleration_meters_per_second_squared,

@@ -82,7 +82,7 @@ fn lir_sorts_by_complete_identity_bytes_and_remaps_connections() {
     assert_eq!(lir.lane_edges.len(), 2);
     assert_eq!(lir.lane_edge_successors.len(), 1);
     assert_eq!(lir.lir_record_count, 3);
-    assert_eq!(lir.output_bytes, 212);
+    assert_eq!(lir.output_bytes, 196);
     assert!(lir.controlled_live_bytes > 0);
     assert_eq!(lir.lane_edges[0].ordinal.raw(), 0);
     assert_eq!(lir.lane_edges[1].ordinal.raw(), 1);

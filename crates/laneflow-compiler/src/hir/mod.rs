@@ -320,7 +320,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let plan = HirBuildPlan::analyze(unit);
     plan.check_limits(unit)?;
 
-    let (base, mut identities) = HirBase::build(unit, &plan)?;
+    let (mut base, mut identities) = HirBase::build(unit, &plan)?;
 
     let cross_section = build_cross_section_hir(
         unit,
@@ -376,7 +376,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &plan.spatial,
         &base.module_lookup,
         SpatialHirContext {
-            lane_edges: &base.lane_edges,
+            lane_edges: &mut base.lane_edges,
             lane_edge_references: &base.lane_edge_references,
             lane_edge_symbols: &base.lane_edge_symbols,
             facility_bands: &cross_section.facility_bands,
@@ -386,15 +386,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         },
         &mut identities,
     )?;
-    let mut arc_length_meters_by_lane_edge = vec![None; base.lane_edges.len()];
-    for geometry in spatial.lane_edge_geometries.iter() {
-        arc_length_meters_by_lane_edge[geometry.lane_edge.index()] =
-            Some(geometry.arc_length_meters);
-    }
     close_parking_anchors_to_emitted_length_mm(
         &parking,
         &base.lane_edges,
-        &arc_length_meters_by_lane_edge,
         unit.limits.value(CompileLimitDimension::DiagnosticCount),
     )?;
     let access = build_access_hir(
