@@ -1,7 +1,7 @@
 # 0028 交通一维几何整数毫米与固定步进合同
 
-**状态**: Accepted（#496；已提交一维 / 制品 / Runtime）；#500 G1 修订编译器
-IR 交通一维权威（已写入本文，未 Pass，不授权实现）<br>
+**状态**: Accepted（#496；已提交一维 / 制品 / Runtime）；编译器 IR 交通一维修订为
+提案中（#500）<br>
 **日期**: 2026-08-24<br>
 **适用范围**: 交通运行时已提交一维几何、固定步进合法区间、已提交速度、LFCA
 长度/速度字段、compiler 边长派生、编译器 Typed AST / HIR / MIR / LIR 交通一维
@@ -13,10 +13,10 @@ IR 交通一维权威（已写入本文，未 Pass，不授权实现）<br>
 **不取代**: ADR 0015 有界 canonical `f32` 空间几何；ADR 0022 编制 `f64` 曲线 →
 规范 `f32` 折线；ADR 0003 的「不读墙钟、固定步进、可变 Δt 非法、跨 CPU 不承诺
 浮点位级确定性」。本 ADR **不**给已提交整数状态补一条跨 CPU / 跨机器位级承诺。<br>
-**关联 Issue**: [#496](https://github.com/illusion-tech/laneflow/issues/496)
-（原生 blocking [#302](https://github.com/illusion-tech/laneflow/issues/302)）；
-编译器 IR 收口 [#500](https://github.com/illusion-tech/laneflow/issues/500)
-（blocked-by #496）<br>
+**关联 Issue**: [#496](https://github.com/illusion-tech/laneflow/issues/496)；
+编译器 IR 收口 [#500](https://github.com/illusion-tech/laneflow/issues/500)。
+#496 的已提交整数合同是 [#302](https://github.com/illusion-tech/laneflow/issues/302)
+快照字段冻结的设计前置（快照不得先冻 `f64` 进度）。<br>
 **关联文档**:
 
 - `0003-runtime-tick-and-determinism.md`
@@ -92,15 +92,15 @@ StaticRoute 构建失败，也 **不**为 1920×10 km 理论积上 `u64`。`Beyo
 编制进入编译器整数 / 受检 `f32` 表面时，**在准入边界量化一次，再按量化后的界限检查**。
 之后 Typed AST、HIR、MIR、LIR 的交通一维只带本节整数（或本就不是长度的受检 `f32` SI）。
 **禁止**准入已经证明能量化进毫米闭包后丢掉 `u32`、把原来的 `f64` 留下，再在发射 round
-第二次。G2 前 compiler IR **实现**仍可暂存编制 SI 米；本文 #500 条款不授权实现。
+第二次。当前 compiler IR 仍把交通一维存成编制 SI 米。
 
 - 毫米 / 毫米每秒：`round-ties-to-even(f64(SI) × 1000)` 得到整数候选，再套本节整数闭包。
   例如车长 `0.0996 m` → `100 mm` 合法；`0.0994 m` → `99 mm` 失败。**禁止**先用量化前的
   裸 `0.1 m` / `128 m` 拒绝、再量化（那会与毫米权威打架）。
 - 时距、三项加减速、停车朝向：`f64` → IEEE 754 binary32 round-ties-to-even，再套本节
   `f32` SI 闭包。朝向闭包 `-π <= x < π`；`+π` / `-π` 的 binary32 为 `0x40490fdb` /
-  `0xc0490fdb`。编制/发射：量化后若等于 `+π`，写成 `-π` 再检查。制品与 IR 上的值必须
-  已经满足闭包；存着的 `+π` 非法。读器与后发射检查只拒不折。
+  `0xc0490fdb`。编制/准入：量化后若等于 `+π`，写成 `-π` 再检查。制品与 IR 上的值必须
+  已经满足闭包；存着的 `+π` 非法。读器与后发射检查只拒不折，发射只写已提交值。
 - 跨字段（停车进度 vs 所引边长）在 **双方都量化之后** 比较；有折线时停车锚点相对
   **空间冻结提交后的**边长关闭，见第 2 节。
 裸 SI 不是第二套权威。Spatial 折线仍是 ADR 0015 的 `f32` 米，不走本量化。
@@ -298,8 +298,8 @@ LFSD Genesis 的 target `ContractVersions` / `ExecutionContract` 必须与所绑
 边限速与 profile 期望车速：`1..=100_000` mm/s。`install` / 构建 / spawn 任一
 处超限失败关闭。
 
-#496 原生 blocking #302。Runtime Snapshot 的每世界可变状态必须使用本 ADR 的
-整数进度、余数与 `mm/s`；不得先冻 `f64` 米进度。
+#496 的已提交整数合同是 #302 快照字段冻结的设计前置。Runtime Snapshot 的每世界
+可变状态必须使用本 ADR 的整数进度、余数与 `mm/s`；不得先冻 `f64` 米进度。
 
 G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟或离散零分歧。
 

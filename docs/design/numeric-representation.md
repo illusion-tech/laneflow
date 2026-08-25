@@ -1,6 +1,6 @@
 # 数值表示与精度
 
-**文档状态**: Accepted（已提交一维几何为整数毫米；编制 `f64` 与 Spatial canonical `f32` 仍在量化之前）；#500 G1 修订编译器 IR 存储（未 Pass）
+**文档状态**: Accepted（已提交一维几何为整数毫米；编制 `f64` 与 Spatial canonical `f32` 仍在量化之前）；编译器 IR 存储修订为提案中（#500）
 
 **最后更新**: 2026-08-26（#500：准入后 compiler IR 交通一维改为整数毫米；#496：交通一维权威为整数毫米；#296 compiler 前端数值权威不变：canonical `f32` 折线，`f64` 仅编制 analytic/reference）
 
@@ -29,7 +29,7 @@
 本文记录现行数值合同，并把 #125 / #144 的米制哨兵与残差 `f32` 候选标为历史：
 
 - `#496` 已落地：`TrafficWorld` / 共享热列 / LFCA 长度与限速为整数毫米 / `mm/s`；#144 残差 `f32` 迁移已回退，**不再**作为生产目标。
-- 现行合同是 ADR 0028：已提交一维几何为整数毫米 + 微米余数，速度为 `u32` mm/s，步长 `4..=1000` ms，有折线边长由规范 `f32` 弧长派生后量化并写回 IR，`max_accel` / 舒适与紧急减速度均 `>= 0.5 m/s²`，不另做速度余数。对照门是该契约自洽，不是与旧 `f64` tick 零分歧，也不是 `5%` 墙钟。#500 G1（未 Pass）：准入后 Typed AST / HIR / MIR / LIR 交通一维与制品同一套整数，公开 `Canonical*View` 删除米制访问器。
+- 现行合同是 ADR 0028：已提交一维几何为整数毫米 + 微米余数，速度为 `u32` mm/s，步长 `4..=1000` ms，有折线边长由规范 `f32` 弧长派生后量化并写回 IR，`max_accel` / 舒适与紧急减速度均 `>= 0.5 m/s²`，不另做速度余数。对照门是该契约自洽，不是与旧 `f64` tick 零分歧，也不是 `5%` 墙钟。提案中（#500）：准入后 Typed AST / HIR / MIR / LIR 交通一维与制品同一套整数，公开 `Canonical*View` 删除米制访问器。当前 compiler IR 仍存编制 SI 米。
 - 空间层按 ADR 0015 使用每轴 `±16_384 m` 的 canonical `f32` 几何/位姿；编制曲线按 ADR 0022 在 `f64` 中求值。三维点/向量不并入毫米轴（#354）。
 - 下面 §2 起的 current-`f64` 领域表与米制哨兵是 **历史实现与 #144 证据**，生产判定使用整数比较与 `100 mm` / `1 mm` 常量。
 
@@ -223,9 +223,9 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 | canonical 几何硬阈值                        | `f32`                                                | compiler / 静态契约（static contract） | 点分量范围 `[-16_384, 16_384] m`、segment 长度严格 `> 0.1 m`、source join gap 上限 `0.005 m`、projected-up 长度 `>= 0.008_726_535`                                                                                                                                                                                            |
 | Spatial 长度校验阈值                        | `f64`                                                | compiler / 静态契约（static contract） | absolute tolerance `0.01 m`、relative tolerance `1.0e-6`、Core length quantization allowance `0.0 m`                                                                                                                                                                                                                          |
 | 细分 / 正则性离散上限                       | depth `u8` / visits `u32`                            | compiler                               | `MAX_SUBDIVISION_DEPTH = 20`；`MAX_REGULARITY_NODE_VISITS = 4095`，超过上限失败关闭                                                                                                                                                                                                                                           |
-| 高层中间表示（HIR）内部 `SpatialHir` 子表示 | canonical 折线 `f32`                                 | compiler（owned）                      | 私有 `SpatialHir` 由 `build_spatial_hir` 在高层中间表示（HIR）构造期间建立；`HirCanonicalPoint3F32`/`HirSpatialSegment` 经 `freeze_spatial_polyline` 冻结，长度校验参考 `expected_length_meters: f64`                                                                                                                         |
+| 高层中间表示（HIR）内部 `SpatialHir` 子表示 | canonical 折线 `f32`                                 | compiler（owned）                      | 私有 `SpatialHir` 由 `build_spatial_hir` 在高层中间表示（HIR）构造期间建立；`HirCanonicalPoint3F32`/`HirSpatialSegment` 经 `freeze_spatial_polyline` 冻结。当前长度校验参考 `expected_length_meters: f64`。提案中（#500）：用 `length_mm / 1000` 作观察值对账弧长                                                             |
 | geometry 中层中间表示（MIR）                | canonical 折线 `f32`                                 | compiler                               | `MirCanonicalPoint3F32`/`MirSpatialSegment` 保留 Spatial 高层中间表示（HIR）的 canonical 折线                                                                                                                                                                                                                                 |
-| 已验证规范低层中间表示（canonical LIR）折线 | `f32`（`LirCanonicalPoint3F32`/`LirSpatialSegment`） | compiler 输出                          | 运行时规范权威几何。交通一维在制品/运行时为整数毫米；LIR 编制标量仍为 SI 米，发射时量化（#500 将把 IR 存储也收口为毫米）                                                                                                                                                                                                      |
+| 已验证规范低层中间表示（canonical LIR）折线 | `f32`（`LirCanonicalPoint3F32`/`LirSpatialSegment`） | compiler 输出                          | 运行时规范权威几何。交通一维在制品/运行时为整数毫米。当前 LIR 交通标量仍为编制 SI 米。提案中（#500）：准入后 IR 存整数毫米 / 受检 `f32`，发射只写已提交值，不再量化                                                                                                                                                           |
 | LIR 同版本语义指纹（semantic fingerprint）  | `[u8; 32]`                                           | compiler 输出                          | `Lir::semantic_digest` 与 `CompilationMetrics::semantic_fingerprint()` 固定为 32 bytes；#298 的 portable artifact 字节完整性 digest 归 #298                                                                                                                                                                                   |
 | Core ↔ compiler projection                  | 仅 integration-only                                  | `laneflow-compiler-test-support`       | 投影不进入 `laneflow-compiler` 生产功能，#301 拆除 Core 时删除                                                                                                                                                                                                                                                                |
 

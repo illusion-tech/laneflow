@@ -1395,11 +1395,13 @@ Spatial `LaneEdgeGeometry.arcLengthMeters:f32` 与 `segments.lengthMeters:f32` *
 | VehicleProfile | `0x0014`  | 9   | `comfortableDecelerationMetersPerSecondSquared:f64:R` | `comfortableDecelerationMetersPerSecondSquared:f32:R` |
 | VehicleProfile | `0x0014`  | 10  | `emergencyDecelerationMetersPerSecondSquared:f64:R`   | `emergencyDecelerationMetersPerSecondSquared:f32:R`   |
 
-发射与值域检查 **先量化，再按量化后的界限失败关闭**。毫米 / 毫米每秒：
+编制准入 **先量化，再按量化后的界限失败关闭**。毫米 / 毫米每秒：
 `round-ties-to-even(f64(SI) × 1000)`；时距、三项加减速、朝向：`f64` → binary32
-round-ties-to-even。编制/发射：朝向量化后若等于 `+π`（`0x40490fdb`）则写成 `-π`
-（`0xc0490fdb`）再检查。制品存着的 `+π` 非法；v2 读器与后发射检查只拒不折。禁止先用
-量化前的裸 SI 界限拒绝。跨字段（停车进度 vs 边长）在双方量化之后比较。闭包：
+round-ties-to-even。编制/准入：朝向量化后若等于 `+π`（`0x40490fdb`）则写成 `-π`
+（`0xc0490fdb`）再检查。制品与编译器 IR 上的值必须已经满足闭包；存着的 `+π` 非法。
+读器与后发射检查只拒不折，**不**从 SI 再 round。编译器发射只写 IR 已提交的整数 /
+受检 `f32`，禁止第二次量化。禁止先用量化前的裸 SI 界限拒绝。跨字段（停车进度 vs
+边长）比较已量化的双方（编译器为提交后的 IR 整数）。闭包：
 
 | v2 字段                                                        | 闭包                                                                     |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -1408,7 +1410,7 @@ round-ties-to-even。编制/发射：朝向量化后若等于 `+π`（`0x40490fd
 | `ParkingSpace.entryProgressMillimetres`                        | 所引入口边量化后边长 `L`：`1 <= p <= L - 1`                              |
 | `ParkingSpace.exitProgressMillimetres`                         | 所引出口边量化后边长 `L`：`1 <= p <= L - 1`                              |
 | `ParkingSpace.lateralOffsetMillimetres`                        | `abs <= 128_000`；路外 `abs >= 1`                                        |
-| `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；存着的 `+π`（`0x40490fdb`）非法；编制/发射量化后写成 `-π` |
+| `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；存着的 `+π`（`0x40490fdb`）非法；编制/准入量化后写成 `-π` |
 | `ParkingSpace.lengthMillimetres` / `widthMillimetres`          | 各自 `100..=128_000`                                                     |
 | `VehicleProfile.lengthMillimetres`                             | `100..=128_000`                                                          |
 | `VehicleProfile.desiredSpeedMillimetresPerSecond`              | `1..=100_000`                                                            |
@@ -1421,7 +1423,7 @@ round-ties-to-even。编制/发射：朝向量化后若等于 `+π`（`0x40490fd
 有折线时，**编译器**用 `length_mm / 1000` 作观察值、按现行 `0.01 m` / `1e-6` 对账规范
 弧长；通过后把 IR `length_mm` 提交为 `round-ties-to-even(f64(arc) × 1000)`，LFCA 写该
 整数。提交值越出 `100..=10_000_000` mm 时以边长越界失败关闭。无折线写准入毫米。
-详见 `traffic-runtime-integer-geometry.md` §6（#500 G1；未 Pass，不授权实现）。
+详见 `traffic-runtime-integer-geometry.md` §6（提案中；#500）。当前 compiler IR 仍存编制 SI 米。
 **读器 / 共享路网构建**没有 LIR、也没有 `lengthMeters`：令
 `length_m = f64(lengthMillimetres) / 1000`，再
 `abs(length_m - f64(arcLengthMeters)) <= max(0.01 m, 1.0e-6 * max(length_m, f64(arc))) + 0.0 m`。

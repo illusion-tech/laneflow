@@ -33,7 +33,7 @@
   运行时生产化按独立 Issue）。
 - `cross-section-access.md`：横断面与准入 overlay。
 - `numeric-representation.md`：数值分层；已提交一维几何为整数毫米，编制 `f64` 与 Spatial `f32` 仍在量化之前。
-- `traffic-runtime-integer-geometry.md`：#496 整数毫米 / 微米余数 / `mm/s` 实现合同（Accepted）；#500 G1 修订编译器 IR（未 Pass）。
+- `traffic-runtime-integer-geometry.md`：#496 整数毫米 / 微米余数 / `mm/s` 实现合同（Accepted）；编译器 IR 修订为提案中（#500）。
 - `spatial-geometry.md`：有界 canonical `f32` 几何与位姿。
 
 ## 场景、规模与 Adapter
