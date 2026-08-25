@@ -828,7 +828,7 @@ backing；runtime-only 调用方可释放 LFCA，可编辑 session 所需 exact 
 且不写磁盘。
 
 发布加载先完成 LFCP v2 / manifest admission；玩家确认建造则从
-`PostEmissionCheckedBundleV1` 取得同类受检 LFCA 输入。两条路径在 builder 前汇合。
+`PostEmissionCheckedBundle` 取得同类受检 LFCA 输入。两条路径在 builder 前汇合。
 拖动/预览不触发构建；v1 允许确认建造后的全量候选构建，不交付局部增量、原地修改、
 静态镜像文件/ABI、descriptor、integrity manifest、mmap、磁盘 cache 或 target/profile
 文件变体。具体 API、内存布局、资源和测试矩阵见 `shared-static-network.md`。
@@ -1253,7 +1253,7 @@ pose 批次上的 `NetworkRevisionId` 保证。详细契约见
    reference/identity/Traffic-Spatial/execution-constraint closure 的 owned 成功结果。
 
 玩家确认建造不执行发布 admission 或内容存储，而是从同进程
-`PostEmissionCheckedBundleV1` 提供第 2 类输入。无论来源为何，builder 不接受裸
+`PostEmissionCheckedBundle` 提供第 2 类输入。无论来源为何，builder 不接受裸
 `&[u8]`、调用方自报 digest/revision 或 compiler-private LIR。
 
 #### 被 Accepted ADR 0025 取代的历史镜像加载状态
@@ -1897,7 +1897,7 @@ crate/type 拆除由 #301 完成。文档导航、Agent Skill ID（`laneflow-cor
 | --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | 编译器系统性缺陷            | 批量污染全部资产                                              | 人工可复核固定向量、compiler 语义测试、真实场景回归、历史缺陷断言；#299 明确接受共享后端不能独立发现此类缺陷 |
 | 格式/构建闭合漏洞           | 受检直接值域仍形成越界或错配 Runtime 关系                     | `laneflow-format` fuzz + builder 跨表/identity/range closure + 安全 Rust                                     |
-| 发布来源与本地构建混同      | 本地候选被误写成已发布资产，或发布资产绕过 admission          | 发布 LFCP v2/manifest admission 与本地 `PostEmissionCheckedBundleV1` 分入口，同一 builder 后汇合             |
+| 发布来源与本地构建混同      | 本地候选被误写成已发布资产，或发布资产绕过 admission          | 发布 LFCP v2/manifest admission 与本地 `PostEmissionCheckedBundle` 分入口，同一 builder 后汇合             |
 | 哈希前输入无界              | 超大替换资产制造无界读取、解压、分配或摘要工作                | 所有 exact-byte 对象绑定 digest + length；有界 reader 预检                                                   |
 | 未认证路网修订              | 快照/路由绕过修订检查或兼容恢复误拒绝                         | 语义载荷派生标识、LFCP v2/外部 manifest 与 #302 可信切换输入                                                 |
 | 中间表示泄漏运行时类型      | 后端 / 目标被当前核心对象图锁死                               | 静态契约、目标中立 LIR、无环包依赖图                                                                         |

@@ -25,9 +25,9 @@ framing、Table/Row/Field 通用结构预检、附录 A registry 零拷贝有类
 值域检查，以及先完整计量、再写调用方提供的精确长度缓冲区且失败不改变输出的无分配
 受限写入器。`laneflow-compiler` 已从同一个 `CompilationOutput` 原子发射 LFCA/LFSM 以及
 Genesis 或 checked-base LFSD 的内存候选，并关闭 exact bytes、digest、length、object key、
-revision 和跨对象 binding；`LFCA-V1-FULL-SPATIAL` LFCA/LFSM/Genesis LFSD、复用同一 LFCA
-作为 base/target 的 `LFSD-V1-NOOP`，以及闭合实体 add/remove/modify、关系 reconnect、
-geometry add、静态规则 modify 和全局空间 modify 的 `LFSD-V1-CHANGE-SET` 固定对象已提交，
+revision 和跨对象 binding；`lfca-full-spatial` LFCA/LFSM/Genesis LFSD、复用同一 LFCA
+作为 base/target 的 `lfsd-noop`，以及闭合实体 add/remove/modify、关系 reconnect、
+geometry add、静态规则 modify 和全局空间 modify 的 `lfsd-change-set` 固定对象已提交，
 最小 headless 锚点与 `PROVENANCE-ONLY`、`CLAIM-MISMATCH`、`REORDER-EQUIVALENT`、
 `SIGNED-ZERO` LFCA 变体包也已提交，并由只读 exact-byte 测试约束。#298-owned
 ART/MAP/DIFF 与 `SEC-001..015` 已闭合；本地 `LocalPortableObjectInstaller` 已实现同文件系统 staging、
@@ -1038,13 +1038,13 @@ production emitter 自己生成 expected：
 | G1 结构锚点 | `LFSM-V1-MIXED-LOCATION`     | Text、无 property 的 Declaration、OwnerLocal 和可选 canvas 形状                  |
 | G1 结构锚点 | `LFSD-V1-GENESIS-BINDING`    | Genesis 四个 base 零值和完整 target binding                                      |
 | G1 结构锚点 | `LFCP-V1-MIN-BINDINGS`       | artifact/source-map/receipt 的外部 digest+exact length 绑定                      |
-| G2 固定对象 | `LFCA-V1-FULL-SPATIAL`       | 22 种实体、关系、规则、规范 f32/f64 与空间表                                     |
-| G2 固定对象 | `LFCA-V1-PROVENANCE-ONLY`    | 同语义不同来源沿袭：revision 相同，artifact digest 不同                          |
-| G2 固定对象 | `LFCA-V1-CLAIM-MISMATCH`     | 只篡改非语义 revision claim：结构预检成功、独立 revision 比较失败                |
-| G2 固定对象 | `LFCA-V1-REORDER-EQUIVALENT` | 声明/集合/hash iteration 重排仍产生完全相同 bytes                                |
-| G2 固定对象 | `LFCA-V1-SIGNED-ZERO`        | 合法输入 `-0.0` 在编译边界变为 `+0.0`；负零 wire 被读取器拒绝                    |
-| G2 固定对象 | `LFSD-V1-CHANGE-SET`         | add/remove/reconnect/geometry/global spatial/rule；身份变化只含无配对 remove/add |
-| G2 固定对象 | `LFSD-V1-NOOP`               | 相同 base/target 的空记录但完整 binding                                          |
+| 固定对象    | `lfca-full-spatial`          | 22 种实体、关系、规则、规范 f32 与空间表；目录 `fixtures/portable/lfca-full-spatial/` |
+| 固定对象    | `provenance-*`               | 同语义不同来源沿袭：revision 相同，artifact digest 不同                          |
+| 固定对象    | `claim-mismatch`             | 只篡改非语义 revision claim：结构预检成功、独立 revision 比较失败                |
+| 固定对象    | `reorder-equivalent`         | 声明/集合/hash iteration 重排仍产生完全相同 bytes                                |
+| 固定对象    | `signed-zero`                | 合法输入 `-0.0` 在编译边界变为 `+0.0`；负零 wire 被读取器拒绝                    |
+| 固定对象    | `lfsd-change-set`            | add/remove/reconnect/geometry/global spatial/rule；身份变化只含无配对 remove/add |
+| 固定对象    | `lfsd-noop`                  | 相同 base/target 的空记录但完整 binding                                          |
 
 两个 G1 revision 向量使用 §4.2 的 exact framing 和附录 A 的 section/table/row/field
 编码。`REV-V1-MIN-HEADLESS` 的六节依次是：所有版本值为 `1` 的 ContractVersions；

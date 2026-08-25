@@ -73,7 +73,7 @@ laneflow-compiler ──┐
 公共后发射入口只接受：
 
 - 最终关闭的 LFCA/LFSM/LFSD exact bytes；
-- 显式 `ExpectedSemanticDiffBaseV1`；
+- 显式 `ExpectedSemanticDiffBase`；
 - 调用方 `FormatLimits`。
 
 它负责：
@@ -97,11 +97,11 @@ laneflow-compiler ──┐
 ### 4. 使用借用型能力守卫发布副作用
 
 `laneflow-format` 提供字段私有、无公共构造器的
-`PostEmissionCheckedBundleV1<'a>`。该能力借用三个输入对象，只暴露受检视图和
+`PostEmissionCheckedBundle<'a>`。该能力借用三个输入对象，只暴露受检视图和
 重新计算的绑定；它不可序列化，不表示对象已经发布、认证或可信。
 
 compiler 继续使用拥有字节的 `PortablePublicationCandidate`，避免自引用拥有类型。
-`commit_portable_publication_v2` 必须在第一次 installer 或 manifest 副作用之前建立
+`commit_portable_publication` 必须在第一次 installer 或 manifest 副作用之前建立
 借用型受检能力；LFCP v2 builder 和 manifest commit candidate 的私有构造只能消费该
 局部受检状态。
 
@@ -124,7 +124,7 @@ LFCP v1 和 `CanonicalPublicationReceiptViewV1` 退出生产实现。不提供 v
 ### 6. “发布证明”只指最小发布闭合
 
 本决定不引入新的证明制品。LFCP v2 是内容寻址发布描述符，不自行证明已经发布；
-`PostEmissionCheckedBundleV1` 是进程内检查能力，也不自行证明真实性。
+`PostEmissionCheckedBundle` 是进程内检查能力，也不自行证明真实性。
 
 只有以下条件共同成立时，compiler 才返回 committed publication capability：
 

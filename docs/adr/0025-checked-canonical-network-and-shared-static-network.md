@@ -95,7 +95,7 @@ normalization。
 
 - 发布加载：宿主先认证 LFCP v2 / manifest 绑定，再由 `laneflow-format` 的单对象检查
   对 exact LFCA 建立该 capability；
-- 玩家编辑：compiler 在同进程发射 LFCA，并由 `PostEmissionCheckedBundleV1` 直接派生
+- 玩家编辑：compiler 在同进程发射 LFCA，并由 `PostEmissionCheckedBundle` 直接派生
   同一 capability，不执行内容存储或磁盘发布事务。
 
 两者随后进入同一个 `laneflow-static-network` 计数、分配、填充和闭合路径。v1 不允许
@@ -106,7 +106,7 @@ normalization。
 独立语义验证器。compiler 继续唯一拥有 `identityFields -> StableId128`、规范点列到
 segment length/cumulative/tangent/up 等派生语义；发布 LFCA 的产品接受还必须先经过
 LFCP/manifest admission，玩家编辑 LFCA 则来自同进程
-`PostEmissionCheckedBundleV1`。builder 使用已经受检并绑定修订的声明值建立连续 Runtime
+`PostEmissionCheckedBundle`。builder 使用已经受检并绑定修订的声明值建立连续 Runtime
 数据，只闭合 Runtime 会直接依赖的计数、顺序、引用、范围、双射、Traffic/Spatial
 结构关系和调用方预算。它不重新编码 Identity v1 前像、不重新执行 BLAKE3，也不从 points
 逐值重演 compiler 的 segment 冻结算法；这些派生的功能正确性由 compiler known vectors、

@@ -97,7 +97,7 @@ LFCP wire writer 解包这些值。
 部署边界，消费者仍须按认证 binding 重新计算摘要并在不匹配时失败关闭。该类型不是通用
 对象存储：不公开任意 bytes 写入，不提供枚举、删除、GC、远程 backend、压缩、加密、配额
 或通用存储生命周期。
-`commit_portable_publication_v2` 在任何安装前调用 `laneflow-format` 的无分配后发射检查：
+`commit_portable_publication` 在任何安装前调用 `laneflow-format` 的无分配后发射检查：
 从 LFCA/LFSM/LFSD 最终字节重算 digest、length 与路网修订，并闭合 LFSM 和 LFSD 的必要
 跨对象 binding。成功后发布路径只消费字段私有的借用型能力，依次安装
 LFCA/LFSM/LFSD，构造并安装不含 receipt/LFSD binding 的 LFCP v2，最后恰好调用一次外部

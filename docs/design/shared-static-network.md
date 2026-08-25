@@ -76,7 +76,7 @@ pub fn check_canonical_network_input(
     limits: FormatLimits,
 ) -> Result<CheckedCanonicalNetworkInput<'_>, CanonicalNetworkInputError>;
 
-impl<'a> PostEmissionCheckedBundleV1<'a> {
+impl<'a> PostEmissionCheckedBundle<'a> {
     pub fn canonical_network_input(self) -> CheckedCanonicalNetworkInput<'a>;
 }
 ```
@@ -84,7 +84,7 @@ impl<'a> PostEmissionCheckedBundleV1<'a> {
 单对象函数服务已通过宿主 admission 的发布 LFCA；bundle accessor 服务同进程 compiler
 候选。两者必须复用同一内部 LFCA 检查/绑定实现。能力必须满足：
 
-- object kind 精确为 LFCA v1；
+- object kind 精确为 LFCA；
 - digest 和 exact length 从实际 bytes 计算；
 - `NetworkRevisionId` 已从 LFCA semantic payload 重算并与 claim 比较；
 - view 已通过 `laneflow-format` registry 和直接值域检查；
@@ -109,7 +109,7 @@ API 不带世代后缀，不得把米列读成毫米。
 中已声明的 StableId、length/cumulative/tangent/up，只检查 Runtime 索引、引用、范围和
 component 结构所需的不变量。它不重新哈希 Identity 前像，也不从 points 重演完整几何
 冻结。发布路径以先行 LFCP/manifest admission 为前提，本地编辑路径以同进程
-`PostEmissionCheckedBundleV1` 为前提。
+`PostEmissionCheckedBundle` 为前提。
 
 ### 3.2 两类来源，同一 builder
 
@@ -124,7 +124,7 @@ component 结构所需的不变量。它不重新哈希 Identity 前像，也不
   ┘
 RoadEditingState
   -> compiler -> in-memory LFCA
-  -> PostEmissionCheckedBundleV1
+  -> PostEmissionCheckedBundle
 ```
 
 本地道路编辑不安装 LFCA/LFSM/LFSD/LFCP，不调用 content store/manifest，也不把 LFCA

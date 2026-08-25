@@ -12,19 +12,19 @@ const MIN_HEADLESS_REVISION: [u8; 32] = [
 ];
 
 const MIN_HEADLESS_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/min-headless.lfca");
+    include_bytes!("../../../tests/fixtures/portable/lfca-variants/min-headless.lfca");
 const PROVENANCE_BASE_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/provenance-base.lfca");
+    include_bytes!("../../../tests/fixtures/portable/lfca-variants/provenance-base.lfca");
 const PROVENANCE_SOURCE_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/provenance-source.lfca");
+    include_bytes!("../../../tests/fixtures/portable/lfca-variants/provenance-source.lfca");
 const PROVENANCE_BUILD_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/provenance-build.lfca");
+    include_bytes!("../../../tests/fixtures/portable/lfca-variants/provenance-build.lfca");
 const REORDER_EQUIVALENT_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/reorder-equivalent.lfca");
+    include_bytes!("../../../tests/fixtures/portable/lfca-variants/reorder-equivalent.lfca");
 const SIGNED_ZERO_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/signed-zero.lfca");
+    include_bytes!("../../../tests/fixtures/portable/lfca-variants/signed-zero.lfca");
 const CLAIM_MISMATCH_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/claim-mismatch.lfca");
+    include_bytes!("../../../tests/fixtures/portable/lfca-variants/claim-mismatch.lfca");
 
 const MIN_HEADLESS_LENGTH: u64 = 1_255;
 const MIN_HEADLESS_KEY: &str =
@@ -486,7 +486,7 @@ fn dump_portable_variants_when_requested() {
         return;
     }
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/portable-v2/lfca-v2-variants");
+        .join("tests/fixtures/portable/lfca-variants");
     std::fs::create_dir_all(&dir).unwrap();
     let write_lfca = |name: &str, bytes: &[u8]| {
         std::fs::write(dir.join(name), bytes).unwrap();

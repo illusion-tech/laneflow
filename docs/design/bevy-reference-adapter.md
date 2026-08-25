@@ -157,7 +157,7 @@ Presentation 从 committed `TrafficWorld::committed_pose_sources()` 重建 pose 
 
 ## 9. 最小 native example
 
-现行最小 native example 是 `runtime_min`：安装 `TrafficWorld` 与可选 `SpatialSession`，用 compiler 夹具 `LFCA-V1-FULL-SPATIAL`，不读取 campus JSON，也不构造 `CoreWorld`。
+现行最小 native example 是 `runtime_min`：安装 `TrafficWorld` 与可选 `SpatialSession`，用 compiler 夹具 `lfca-full-spatial`，不读取 campus JSON，也不构造 `CoreWorld`。
 
 ```powershell
 cargo +1.96.0 check --locked -p laneflow-bevy --example runtime_min --features native-example

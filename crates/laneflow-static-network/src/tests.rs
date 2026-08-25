@@ -14,13 +14,13 @@ use crate::{
 };
 
 const MIN_HEADLESS: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-variants/min-headless.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/min-headless.lfca"
 );
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
 );
 const REORDER_EQUIVALENT: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-variants/reorder-equivalent.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/reorder-equivalent.lfca"
 );
 
 const BUILD_LIMITS: SharedNetworkBuildLimits =

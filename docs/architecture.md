@@ -120,7 +120,7 @@ initial/static occurrence 与 dense layout；target `LaneFlow Traffic Runtime`
 Authority），Spatial 继续拥有位姿采样（Pose Sampling）。
 Accepted ADR 0024 已冻结 LFCA 后发射检查和最小发布闭合。Accepted ADR 0025 让发布加载和
 玩家确认建造在 admission 之后共用同一条构建路径：宿主发布加载先认证 LFCP v2/
-manifest 绑定，本地玩家编辑则直接消费 `PostEmissionCheckedBundleV1`；两者都由
+manifest 绑定，本地玩家编辑则直接消费 `PostEmissionCheckedBundle`；两者都由
 `laneflow-format` 提供受检 LFCA capability，再由 `laneflow-static-network` 完成
 跨表引用、身份双射、Traffic/Spatial 对齐和执行约束闭合。目标 Runtime 不解析 JSON、
 LFCA 或 compiler-private LIR，也不按 external ID 重建登记表。

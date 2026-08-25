@@ -1,7 +1,7 @@
 use super::*;
 
 const EXPECTED_LFSD: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v2/lfsd-v2-noop/expected.lfsd");
+    include_bytes!("../../../tests/fixtures/portable/lfsd-noop/expected.lfsd");
 
 fn candidate() -> crate::PortablePublicationCandidate {
     let output = full_spatial_portable_fixture_output();
@@ -98,7 +98,7 @@ fn dump_portable_noop_when_requested() {
         return;
     }
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/portable-v2/lfsd-v2-noop");
+        .join("tests/fixtures/portable/lfsd-noop");
     std::fs::create_dir_all(&dir).unwrap();
     let candidate = candidate();
     std::fs::write(dir.join("expected.lfsd"), candidate.semantic_diff().bytes()).unwrap();
