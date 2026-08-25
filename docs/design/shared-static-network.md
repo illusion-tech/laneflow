@@ -98,7 +98,8 @@ impl<'a> PostEmissionCheckedBundle<'a> {
 生产制品只承认 `formatVersion = 3`。受检输入字段私有，digest / 长度 /
 `NetworkRevisionId` 闭合；object kind 精确为 LFCA，走当前 registry 与直接值域检查。
 后发射对 LFCA/LFSM/LFSD 走各自预检（LFSM `sourceMapFormatVersion = 2`，LFSD
-`semanticDiffFormatVersion = 2`）；`canonicalArtifactFormatVersion` 必须为 `2`。
+`semanticDiffFormatVersion = 2`）；LFSM `canonicalArtifactFormatVersion` 必须等于
+所绑 LFCA 的 `formatVersion` / `canonicalFormatVersion`（故为 `3`）。
 读器拒绝 `formatVersion != 3`。`FormatLimits` 数值上限不因本切片单开新档。公开
 API 不带世代后缀，不得把米列读成毫米。
 
@@ -547,9 +548,9 @@ v0.10 切换也不需要的冷数据。它不是「#301 第一个 kernel 暂时�
 | 28   | `CanonicalFrameLaneEdgeGeometry`     | #439 已覆盖   | Spatial 基线，不进 Traffic                                                                   |
 | 29   | `CanonicalFrameFacilityBandGeometry` | #439 已覆盖   | Spatial 基线，不进 Traffic                                                                   |
 
-### 13.3 22 类实体字段
+### 13.3 实体字段
 
-Identity 正反表与 22 类基数已由 #439 闭合。本表只冻结 Traffic retained 标量/向量；
+Identity 正反表覆盖可构造种类（修订 2：21 种 + 种类 21 空位）。本表只冻结 Traffic retained 标量/向量；
 未列出的 UTF-8、身份前像、来源位置一律不投影。
 
 | 实体               | 本切片进入 Traffic 的字段                                                                        | 明确不进入                                                              |

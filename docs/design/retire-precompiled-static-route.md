@@ -160,27 +160,41 @@ edge_ids: [laneEdgeKey, ...]   # 非空；允许同一边多次出现
 `runtime_min` / 集成夹具同样改为显式边序号 + `register_route`。`lfca-full-spatial`
 不再含静态路线行。
 
-## 5. 每世界表与 #302 输入
+## 5. 每世界热表、磁盘快照与在线切换
 
-本世界动态路线槽：
+三者不是同一份布局。
+
+**内存热表**（G2 tick 只读这一套 + 共享根机动/信号/边长）：
 
 ```text
-generation: u32
-compiled:
+slot.generation: u32
+slot.compiled:
   edges: [LaneEdgeOrdinal]
   maneuvers: [{path, entry_route_edge_index, exit_route_edge_index}]
-  gates: [{maneuver_gate, route_transition_index}]   # 可从 maneuvers+共享根重算，快照是否物化由 #302 G1 定
-  waiting: [{waiting_zone, maneuver_occurrence, entry_gate_occurrence}]
-live_vehicles: u32
+  gates: 可从 maneuvers + 共享根 hop 解析，G2 可内联而不单列
+  waiting: 注册时必须能编译；#282 未消费前仍不得静默丢弃
+slot.live_vehicles: u32
+RouteHandle = { slot_index, generation }
 ```
 
-G2 必须让 tick 只读这份 compiled 数据 + 共享根机动/信号/边长，不再分叉静态表。
-门若能在 hop 时从 maneuvers + 共享根稳定重算，G2 可以不把门向量存成独立列；
-等待出现项若 #282 尚未消费，仍须在注册时验证可编译，不能静默丢弃。
+**磁盘快照**（ADR 0029 §6）：
 
-#302 快照最小必含：occupied 槽位的 generation 与 `edges`（以及不能从共享根稳定
-重算的 compiled 字段）。禁止静态路线序号。禁止把调用方 catalog `route_id` 写进
-Runtime 快照。
+```text
+snapshot_route_id                # 仅该快照内指名
+edges: [LaneEdge StableId128]    # 有序；允许重复边
+vehicle:
+  snapshot_route_id
+  route_edge_index               # 序列下标
+  progress_mm / carry_um / speed_mm_s / status
+profile / class / parking: StableId128
+```
+
+不存槽位、`generation`、任何密集序号、compiled 出现项、catalog `route_id`。
+读档经身份索引解析边身份，再 `register_route`，**新分配** 句柄。exact oracle 比对
+边稳定身份序列与毫米游标，不比对 `RouteHandle`。
+
+**同进程在线切修订**：允许原地改现有槽位的 compiled（新序号 + 重编译出现项），
+当期 `RouteHandle` 保持到该进程结束。不得把该布局写进快照。
 
 ## 6. 必测项（G2）
 
@@ -194,3 +208,4 @@ Runtime 快照。
 - `remove_route` 在有车时失败；无车时旧句柄 stale。
 - tick 源码路径不再按句柄种类分支（G2 可用测试或结构约束证明）。
 - 前缀和溢出仍 `BeyondFinite`，注册成功。
+- 快照夹具（G2 可不实现完整 #302）不得把 `RouteHandle` / 槽位 / 边序号写成耐久主键。

@@ -190,7 +190,8 @@ where:
 
 Magic: 4 bytes.
 
-Format Version (FV): 2 bytes; 当前对象 `FV == 2`。每类对象拥有独立版本轴。
+Format Version (FV): 2 bytes。每类对象拥有独立版本轴；当前 LFCA `FV == 3`，
+LFSM/LFSD 信封 `FV == 2`。
 
 Header Byte Length (HL): 2 bytes; HL == 32.
 
@@ -204,15 +205,15 @@ Object Byte Length (OBL): 8 bytes. 必须等于受限读取器观察到的 exact
 
 约束索引如下：
 
-| 偏移   | 宽度 | 字段                     | v1 约束                                    |
-| ------ | ---- | ------------------------ | ------------------------------------------ |
-| `0x00` | 4    | `magic`                  | 对象专用 ASCII magic                       |
-| `0x04` | 2    | `formatVersion`          | 对象专用版本；当前 LFCA/LFSM/LFSD 为 `2`   |
-| `0x06` | 2    | `headerByteLength`       | v1 固定为 `32`                             |
-| `0x08` | 4    | `flags`                  | v1 固定为 `0`，未知 bit 失败关闭           |
-| `0x0c` | 4    | `sectionCount`           | 必须等于对象 v1 的封闭节数                 |
-| `0x10` | 8    | `sectionDirectoryOffset` | v1 固定为 `32`                             |
-| `0x18` | 8    | `objectByteLength`       | 必须等于外部受限读取器观察到的精确字节长度 |
+| 偏移   | 宽度 | 字段                     | v1 约束                                              |
+| ------ | ---- | ------------------------ | ---------------------------------------------------- |
+| `0x00` | 4    | `magic`                  | 对象专用 ASCII magic                                 |
+| `0x04` | 2    | `formatVersion`          | 对象专用版本；当前 LFCA 为 `3`，LFSM/LFSD 信封为 `2` |
+| `0x06` | 2    | `headerByteLength`       | v1 固定为 `32`                                       |
+| `0x08` | 4    | `flags`                  | v1 固定为 `0`，未知 bit 失败关闭                     |
+| `0x0c` | 4    | `sectionCount`           | 必须等于对象 v1 的封闭节数                           |
+| `0x10` | 8    | `sectionDirectoryOffset` | v1 固定为 `32`                                       |
+| `0x18` | 8    | `objectByteLength`       | 必须等于外部受限读取器观察到的精确字节长度           |
 
 每个目录项是 24 字节 `SectionDirectoryEntryV1`。
 
@@ -1435,10 +1436,11 @@ round-ties-to-even。编制/准入：朝向量化后若等于 `+π`（`0x40490fd
 对账失败关闭，不改已量化边长。headless 无此对账。读器遇到上表以外的改名/改类型、
 或上表字段仍为历史 `f64` 名字/类型，失败关闭。
 
-LFSM v2：`canonicalArtifactFormatVersion` 必须等于所绑 LFCA（故为 `2`）。LFSD v2
-Genesis：target 的 `ContractVersions` / `ExecutionContract` 必须与所绑 LFCA v2 一致。
-LFSD Artifact：两端合同行仍须逐字段相等，因此 **v1→v2 Artifact diff 仍拒绝**。检入走廊
-按 Genesis 重生，不走格式迁移 diff。
+LFSM 对象信封 `formatVersion` 保持 2（节形状未改）。`canonicalArtifactFormatVersion`
+必须等于所绑 LFCA 的 `formatVersion` / `canonicalFormatVersion`（故为 `3`）。
+LFSD 对象信封保持 2；Genesis target 的 `ContractVersions` / `ExecutionContract` 必须
+与所绑 LFCA（canonical 3 / execution 3）一致。LFSD Artifact：两端合同行仍须逐字段
+相等。检入走廊按 Genesis 重生，不走格式迁移 diff。
 
 历史米制标量闭合以 git 为准，不进当前读器。现行闭合见上表。
 `WaitingZone.maxOccupancy` 仍须 `> 0`。
@@ -1498,53 +1500,24 @@ LaneEdge/LaneGroup/RoadSection 属于 Edge plane，ManeuverPath 属于 ManeuverP
 `enter < exit <= count`，祖先关系当且仅当其半开区间包含后代 enter；非祖先区间不得重叠。
 循环、错误 depth、gap/重复 enter、非规范 sibling 顺序或任一错误 interval 都失败关闭。
 
-`CanonicalRelationTables(0x0004)` 精确包含：
+`CanonicalRelationTables(0x0004)` 精确包含 `JunctionInternalEdge`（`0x0001`）。
+历史路线出现项表 `0x0002..=0x0005` 与 `StaticRoute.edges` 双射规则 **禁止出现**
+（ADR 0029；角色 13–16 保留空位）。不得再要求与已删除实体 round-trip。
 
-| tableKind | 表名                       | 字段                                                                                                                                                                                                                                                    | 行键                                                       |
-| --------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `0x0001`  | JunctionInternalEdge       | `1:laneEdge:u32:R, 2:junction:u32:R`                                                                                                                                                                                                                    | `laneEdge`                                                 |
-| `0x0002`  | RouteManeuverOccurrence    | `1:staticRoute:u32:R, 2:occurrenceIndex:u32:R, 3:maneuverPath:u32:R, 4:entryRouteEdgeIndex:u32:R, 5:exitRouteEdgeIndex:u32:R, 6:gateOccurrenceStart:u32:R, 7:gateOccurrenceCount:u32:R, 8:waitingOccurrenceStart:u32:R, 9:waitingOccurrenceCount:u32:R` | `(staticRoute, occurrenceIndex)`                           |
-| `0x0003`  | RouteGateOccurrence        | `1:staticRoute:u32:R, 2:occurrenceIndex:u32:R, 3:maneuverGate:u32:R, 4:maneuverOccurrenceIndex:u32:R, 5:fromRouteEdgeIndex:u32:R, 6:nextGateOccurrenceIndex:u32:O, 7:nextBoundaryRouteEdgeIndex:u32:R, 8:waitingZoneOccurrenceIndex:u32:O`              | `(staticRoute, occurrenceIndex)`                           |
-| `0x0004`  | RouteWaitingZoneOccurrence | `1:staticRoute:u32:R, 2:occurrenceIndex:u32:R, 3:waitingZone:u32:R, 4:maneuverOccurrenceIndex:u32:R, 5:entryGateOccurrenceIndex:u32:R, 6:releaseGateOccurrenceIndex:u32:R, 7:entryRouteEdgeIndex:u32:R, 8:releaseRouteEdgeIndex:u32:R`                  | `(staticRoute, occurrenceIndex)`                           |
-| `0x0005`  | StableRouteReverseIndex    | `1:entityKind:u16:R, 2:typedOrdinal:u32:R, 3:staticRoute:u32:R, 4:occurrenceIndex:u32:R`                                                                                                                                                                | `(entityKind, typedOrdinal, staticRoute, occurrenceIndex)` |
+现行必选关系表：
 
-反向索引只允许 `LaneEdge/ManeuverPath/ManeuverGate/WaitingZone` 四种 `entityKind`，且必须
-与前三张 occurrence 表及 `StaticRoute.edges` 双向完全一致。
+| tableKind | 表名                       | 字段                                 | 行键       |
+| --------- | -------------------------- | ------------------------------------ | ---------- |
+| `0x0001`  | JunctionInternalEdge       | `1:laneEdge:u32:R, 2:junction:u32:R` | `laneEdge` |
+| `0x0002`  | RouteManeuverOccurrence    | **禁止出现**（ADR 0029）             | —          |
+| `0x0003`  | RouteGateOccurrence        | **禁止出现**（ADR 0029）             | —          |
+| `0x0004`  | RouteWaitingZoneOccurrence | **禁止出现**（ADR 0029）             | —          |
+| `0x0005`  | StableRouteReverseIndex    | **禁止出现**（ADR 0029）             | —          |
 
-三张 occurrence 表物理上按 `(staticRoute, occurrenceIndex)` 全局排序，反向索引按其登记的
-四元行键排序；但全部 occurrence/index 字段都是所属 `StaticRoute` 内的局部坐标，绝不是
-全局扁平表下标。对每条 route，三类
-occurrenceIndex 各自从 `0` 连续编号；`entry/exit/from/nextBoundary*RouteEdgeIndex` 只引用该
-route 的 `edges`，`maneuverOccurrenceIndex` 只引用该 route 的 maneuver 表，
-`next/entry/release*GateOccurrenceIndex` 只引用该 route 的 gate 表，
-`waitingZoneOccurrenceIndex` 只引用该 route 的 waiting-zone 表。
-
-每个 maneuver 行满足 `entry <= exit < edges.count`，其 route edge slice 必须逐项等于所引
-`ManeuverPath.edges`；`gateOccurrenceStart/count` 与 `waitingOccurrenceStart/count` 是各自
-route-local 表的半开区间。按 maneuver occurrence 顺序，这些区间必须从零开始、严格相邻并
-完整分割相应表。每个 gate 行必须落在其 `maneuverOccurrenceIndex` 的 gate 区间，且
-`fromRouteEdgeIndex = maneuver.entryRouteEdgeIndex + ManeuverGate.transitionIndex`；同一
-maneuver 内除末项外 `nextGateOccurrenceIndex` 恰为下一 gate 行，末项必须缺失，
-`nextBoundaryRouteEdgeIndex` 分别等于下一 gate 的 `fromRouteEdgeIndex` 或该 maneuver 的
-`exitRouteEdgeIndex`。每个 waiting-zone 行必须落在其 maneuver 的 waiting 区间，两个 gate
-index 必须落在同一 maneuver gate 区间并分别解析为该 `WaitingZone` 的 entry/release gate，
-两个 route-edge index 必须逐值等于对应 gate 的 `fromRouteEdgeIndex`；gate 上的可选
-`waitingZoneOccurrenceIndex` 与该 entry gate 关系必须双向完全一致。任何跨 route 引用、
-区间 gap/overlap、范围外 index 或逆关系不一致都失败关闭。
-
-这些 occurrence 不是可由 writer 自选的辅助缓存，而是 `StaticRoute.edges` 与全部
-ManeuverPath 的完整唯一投影。route 不得以 JunctionInternalEdge 开始或结束，也不得终止在
-StopLine 所在 edge。对每个相邻 route edge pair：若两项都不触及 internal edge，前项必须在
-`LaneEdge.successors` 中显式引用后项；再以当前位置起始的完整 route slice 匹配所有首两项相同
-的 ManeuverPath，零个候选允许无 maneuver，存在候选但无完整匹配时失败，完整匹配超过一个也
-失败。唯一匹配产生且只产生一条 maneuver occurrence，并完整投影该 path 的 gate/waiting
-occurrence；不同匹配的 internal route-edge 区间不得重叠，route 中每个 internal edge 又必须被
-恰好一条匹配覆盖。
-
-`StaticRoute.transitionGates[i]` 必须从上述唯一匹配重算：若覆盖 transition `i` 的 path 在
-对应 path-local transition 有 ManeuverGate，则保存该 gate，否则缺失；writer 不得用全
-`None` 掩盖已匹配 maneuver。三张 occurrence 表、反向索引和 transitionGates 任一遗漏、额外
-或不能从同一算法重算都在 revision 接受前失败。
+出现 `0x0002..=0x0005` 任一表或任何 `staticRoute` 列，读器失败关闭。
+完整匹配、内部边覆盖、停止线末端和 hop 门解析改由 `TrafficWorld::register_route`
+执行，见 `retire-precompiled-static-route.md`。`JunctionInternalEdge` 仍须与路口
+内部边角色闭合。
 
 `CanonicalSpatialTables(0x0005)` 精确包含：
 
@@ -1940,7 +1913,7 @@ owner/occurrence/property 闭合，不读取未认证来源文档，也不把该
 4:localIndex:u32:R, 5:derivationPassVersion:u16:R, 6:constraintVersion:u16:R,
 7:sourceLocations:OrdinalVectorU32:R`，行键与 OwnerLocalSource 相同。所有位置 ordinal
 必须解析到 `SourceLocation`；contributing/source vectors 是按位置语义值排序去重的集合。
-v1 只允许下列四类派生行：
+现行只允许 `JunctionInternalEdge` 派生行。角色 14–16 禁止出现（ADR 0029）：
 
 | sourceRelationRole                    | owner kind | 必需覆盖的绑定 LFCA 行                                                         | derivationPassVersion | constraintVersion                |
 | ------------------------------------- | ---------- | ------------------------------------------------------------------------------ | --------------------- | -------------------------------- |
@@ -1949,7 +1922,7 @@ v1 只允许下列四类派生行：
 | `15=StaticRouteGateOccurrence`        | —          | **禁止出现**（ADR 0029；角色 15 保留空位）                                     | —                     | —                                |
 | `16=StaticRouteWaitingZoneOccurrence` | —          | **禁止出现**（ADR 0029；角色 16 保留空位）                                     | —                     | —                                |
 
-每个被上表覆盖的 LFCA 行必须恰有一个 `DerivedRelationSource`，并恰有一个相同行键的
+每个被允许的上表行（仅 `JunctionInternalEdge`）必须恰有一个 `DerivedRelationSource`，并恰有一个相同行键的
 `OwnerLocalSource`；其 `sourceLocations` 必须逐字节等于该 owner-local 行的
 `primaryLocation + contributingLocations` 按完整位置语义值排序去重后的集合。其他 role、owner
 kind、版本值、遗漏/额外行或不能与绑定 LFCA 行一一对应的 localIndex 都失败关闭。两个版本值
@@ -2318,7 +2291,7 @@ registry 就接受不可达拼接。
 | `10 ManeuverPathGate`                   | ManeuverPath     | ManeuverGate                  | `ManeuverPath.maneuverGates`            | vector / domain     | Relation           |
 | `11 ManeuverPathWaitingZone`            | ManeuverPath     | WaitingZone                   | `ManeuverPath.waitingZones`             | vector / domain     | Relation           |
 | `12 StopLineManeuverGate`               | StopLine         | ManeuverGate                  | `StopLine.maneuverGates`                | vector / set        | Relation           |
-| `13 StaticRouteEdge`                    | StaticRoute      | LaneEdge                      | `StaticRoute.edges`                     | vector / occurrence | Relation           |
+| `13 StaticRouteEdge`                    | —                | —                             | **禁止出现**（ADR 0029）                | —                   | —                  |
 | `14 StaticRouteManeuverOccurrence`      | StaticRoute      | ManeuverPath                  | `RouteManeuverOccurrence` owner rows    | occurrenceIndex     | Relation + derived |
 | `15 StaticRouteGateOccurrence`          | StaticRoute      | ManeuverGate                  | `RouteGateOccurrence` owner rows        | occurrenceIndex     | Relation + derived |
 | `16 StaticRouteWaitingZoneOccurrence`   | StaticRoute      | WaitingZone                   | `RouteWaitingZoneOccurrence` owner rows | occurrenceIndex     | Relation + derived |

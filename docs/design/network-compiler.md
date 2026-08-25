@@ -528,7 +528,8 @@ add/remove。
 ### 7.3 标识 v1 登记表（Identity v1 Registry）
 
 `identityEncodingVersion = 1` 冻结公共字节 envelope；
-`identityRegistryRevision = 1` 冻结本表的 kind、slug 和 required tag sequence。
+`identityRegistryRevision = 2` 冻结本表的 kind、slug 和 required tag sequence
+（种类 21 与标签 30 为保留空位，不发射、不解码；ADR 0029）。
 required tags 必须按数值严格递增编码：
 
 本表是 #291 G1 已接受的 v1 设计，但尚无已发布的 known vector、规范制品或生产
@@ -1543,10 +1544,14 @@ runtime-owned random-stream state (future explicit G1 only)
 ```
 
 快照包含全部每世界可变交通状态。动态通行定义、交通参与单元和其他运行时实体以
-快照局部标识保存引用关系；当前 dynamic Route 或未来执行域的等价通行定义还保存
-可重建的稳定静态实体引用/规范定义。原进程的 runtime handle、slot、generation、
+快照局部标识保存引用关系。路线没有路网级稳定实体（ADR 0029）：耐久定义是快照
+局部路线 ID 加上有序 `LaneEdge` `StableId128`；车辆引用该局部 ID 与序列下标
+`route_edge_index`。`VehicleProfile` / `ParticipantClass` / `ParkingSpace` 同样用
+`StableId128` 指名，不用密集序号。机动/门/等待出现项不进快照，恢复时用
+`register_route` 从边序列重算。原进程的 runtime handle、slot、generation、
 partition 或 worker assignment 不能成为恢复后身份或跨硬件行为权威。跨路网修订
-恢复必须显式迁移，不能把旧 dense ordinal 直接解释为新共享修订实体。
+恢复必须显式迁移，不能把旧 dense ordinal 直接解释为新共享修订实体。身份缺失或
+路线编译失败则整事务失败关闭。
 
 版本化 `networkRevision` 与兼容的 runtime/snapshot 契约、精确相等的
 identity/constraint/execution-constraint versions 是同修订恢复的静态语义权威。
