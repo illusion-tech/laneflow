@@ -68,10 +68,10 @@ profile：车长 `100..=128_000` mm，期望车速 `1..=100_000` mm/s，`min_gap
 `0..=128_000` mm（0 合法，退化为只禁止重叠）；时距与三项加减速为受检 `f32` SI，
 范围见 ADR 0028。停车：入口/出口进度 `u32` mm 且 `1 <= p <= length_mm - 1`；长宽
 `100..=128_000` mm；横向 `i32` mm，`abs <= 128_000`，路外 `abs >= 1`；朝向受检
-`f32` 弧度，量化后若等于 `+π`（`0x40490fdb`）则折成 `-π`（`0xc0490fdb`），闭包
-`-π <= x < π`。限速过渡目标与边限速同一量子（mm/s）。到下一受控门的距离与路线有界
-距离同型（`Finite(u32)` / `BeyondFinite`）。`BeyondFinite` 的降速目标本拍不参与
-包络。
+`f32` 弧度，闭包 `-π <= x < π`。编制/发射量化后若等于 `+π`（`0x40490fdb`）则写成
+`-π`（`0xc0490fdb`）；制品存着的 `+π` 非法，读器只拒不折。限速过渡目标与边限速
+同一量子（mm/s）。到下一受控门的距离与路线有界距离同型（`Finite(u32)` /
+`BeyondFinite`）。`BeyondFinite` 的降速目标本拍不参与包络。
 
 路线距离按查询窗口独立 checked 加，不上 `u64`，**禁止**因前缀溢出拒绝注册。索引
 若分段：段内偏移与段合计是 `u32` mm；下一条边长会让当前段溢出时封段、开新段。
@@ -84,8 +84,8 @@ profile：车长 `100..=128_000` mm，期望车速 `1..=100_000` mm/s，`min_gap
 编制进入毫米 / `f32` 表面时 **先量化，再检查**：毫米类
 `round-ties-to-even(f64(SI) × 1000)` 后套整数闭包；时距/加减速/朝向先
 round-ties-to-even 到 `f32` 再套 `f32` 闭包。禁止先用裸 `0.1 m` 拒绝再量化。
-`0.0996 m` → `100 mm` 合法，`0.0994 m` → `99 mm` 失败。朝向量化后若等于 `+π` 则折成
-`-π` 再检查。跨字段在双方量化后比较。
+`0.0996 m` → `100 mm` 合法，`0.0994 m` → `99 mm` 失败。编制/发射：朝向量化后若等于
+`+π` 则写成 `-π` 再检查；读器遇到存着的 `+π` 失败关闭。跨字段在双方量化后比较。
 
 ## 4. 车辆已提交状态
 
@@ -241,7 +241,7 @@ LFCA v2 登记表增量（相对附录 A.1 v1；**不兼容**读旧 `f64`）。*
 | `ParkingSpace.entryProgressMillimetres`                        | 所引入口边量化后边长 `L`：`1 <= p <= L - 1`    |
 | `ParkingSpace.exitProgressMillimetres`                         | 所引出口边量化后边长 `L`：`1 <= p <= L - 1`    |
 | `ParkingSpace.lateralOffsetMillimetres`                        | `abs <= 128_000`；路外 `abs >= 1`              |
-| `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；量化后 `+π`（`0x40490fdb`）折成 `-π`（`0xc0490fdb`） |
+| `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；存着的 `+π`（`0x40490fdb`）非法；编制/发射量化后写成 `-π` |
 | `ParkingSpace.lengthMillimetres` / `widthMillimetres`          | 各自 `100..=128_000`                           |
 | `VehicleProfile.lengthMillimetres`                             | `100..=128_000`                                |
 | `VehicleProfile.desiredSpeedMillimetresPerSecond`              | `1..=100_000`                                  |

@@ -118,7 +118,7 @@ Validation：
 - `emergencyDeceleration >= comfortableDeceleration`。
 - #496 G2（Proposed）：车长 `100..=128_000` mm，`desiredSpeed` `1..=100_000` mm/s，
   `minGap` `0..=128_000` mm，`maxAcceleration` / `comfortableDeceleration` /
-  `emergencyDeceleration` `0.5..=50` m/s² 且 emergency ≥ comfort，时距 `<= 60` s；
+  `emergencyDeceleration` `0.5..=50` m/s² 且 emergency ≥ comfort，时距 `0 < x <= 60` s；
   spawn 用 `progress_mm` / `speed_mm_s` 且 `carry_um = 0`。不另做速度余数。
   `BeyondFinite` 降速目标本拍不参与包络。current 生产路径不执行这些上下界。
 - external ID 遵循当前 data-format 的 ASCII token 规则，并在 profile domain 内唯一。
