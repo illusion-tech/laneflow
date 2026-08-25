@@ -82,7 +82,7 @@ fn follow_pair<'a>(
             slot.portal_id == follower.portal_id
                 && slot.lane_index == follower.lane_index
                 && slot.edge == follower.edge
-                && slot.progress_mm > follower.progress
+                && slot.progress_mm > follower.progress_mm
         })
         .ok_or("missing leader spawn slot")?;
     Ok((follower, leader))

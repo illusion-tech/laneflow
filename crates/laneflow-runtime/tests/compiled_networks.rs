@@ -2,17 +2,22 @@ use std::sync::Arc;
 
 use laneflow_compiler::{
     AccessRuleInput, AccessRuleTargetInput, CompilationUnitBuilder, CompileLimits, Compiler,
-    IidmVehicleProfileInput, LaneEdgeInput, LaneEdgeReference, ParkingLaneAnchorInput,
-    ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
-    PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
-    StaticRouteInput, SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
+    IidmVehicleProfileInput, JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference,
+    ManeuverGateInput, ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
+    ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput,
+    ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance, SignalControlInput,
+    SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
+    SignalPhaseInput, SourceModuleHeader, SourceModuleHeaderInput, StaticRouteInput, StopLineInput,
+    StopLineReference, SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
 };
 use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
-    ParkingError, PoseSource, RouteRegisterInput, SpawnError, TickInput, TrafficWorld,
-    VehicleSpawnInput, WorldConfig,
+    InstallError, ParkingError, PoseSource, RouteRegisterInput, SpawnError, TickInput,
+    TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
 };
-use laneflow_static_contract::{AccessEffect, ParkingSpaceOrdinal, VehicleProfileOrdinal};
+use laneflow_static_contract::{
+    AccessEffect, ParkingSpaceOrdinal, SignalAspect, VehicleProfileOrdinal,
+};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
     build_shared_network_revision,
@@ -651,5 +656,148 @@ fn already_below_downstream_limit_does_not_stop_at_boundary() {
     assert!(
         edge != first || progress_mm != 10_000,
         "already-legal speed must not be clamped to a stop at the posted drop, edge={edge:?} progress={progress_mm}"
+    );
+}
+
+fn add_signalized_corridor(module: &mut SyntheticModuleBuilder, phase_ms: u64) {
+    let groups = [SignalGroupReference::local("group-entry")];
+    let go_states = [SignalGroupStateInput {
+        signal_group: SignalGroupReference::local("group-entry"),
+        aspect: SignalAspect::Green,
+    }];
+    module
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "entry",
+            length_meters: 10.0,
+            speed_limit_meters_per_second: 10.0,
+            successors: &[LaneEdgeReference::local("middle")],
+        })
+        .expect("entry")
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "middle",
+            length_meters: 8.0,
+            speed_limit_meters_per_second: 8.0,
+            successors: &[LaneEdgeReference::local("exit")],
+        })
+        .expect("middle")
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "exit",
+            length_meters: 12.0,
+            speed_limit_meters_per_second: 10.0,
+            successors: &[],
+        })
+        .expect("exit")
+        .add_junction(JunctionInput {
+            junction_key: "junction-main",
+        })
+        .expect("junction")
+        .add_movement(MovementInput {
+            movement_key: "movement-through",
+            junction: JunctionReference::local("junction-main"),
+            directed_entry_approach_key: "approach-westbound",
+            directed_exit_approach_key: "approach-eastbound",
+        })
+        .expect("movement")
+        .add_maneuver_path(ManeuverPathInput {
+            maneuver_path_key: "path-main",
+            movement: MovementReference::local("movement-through"),
+            entry_edge: LaneEdgeReference::local("entry"),
+            internal_edges: &[LaneEdgeReference::local("middle")],
+            exit_edge: LaneEdgeReference::local("exit"),
+        })
+        .expect("path")
+        .add_stop_line(StopLineInput {
+            stop_line_key: "stop-entry",
+            lane_edge: LaneEdgeReference::local("entry"),
+        })
+        .expect("stop")
+        .add_signal_group(SignalGroupInput {
+            signal_group_key: "group-entry",
+        })
+        .expect("group")
+        .add_maneuver_gate(ManeuverGateInput {
+            maneuver_gate_key: "gate-entry",
+            maneuver_path: ManeuverPathReference::local("path-main"),
+            transition_index: 0,
+            stop_line: StopLineReference::local("stop-entry"),
+            signal_control: SignalControlInput::Group(SignalGroupReference::local("group-entry")),
+        })
+        .expect("gate")
+        .add_signal_controller(SignalControllerInput {
+            signal_controller_key: "controller-main",
+            offset_ms: 0,
+            signal_groups: &groups,
+            phases: &[SignalPhaseInput {
+                signal_phase_key: "phase-go",
+                duration_ms: phase_ms,
+                states: &go_states,
+            }],
+        })
+        .expect("controller");
+}
+
+#[test]
+fn install_rejects_phase_shorter_than_tick() {
+    let revision = compile_revision(|module| {
+        add_standard_profiles(module);
+        add_signalized_corridor(module, 8);
+    });
+    assert_eq!(
+        TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 16))
+            .map(|_| ())
+            .unwrap_err(),
+        InstallError::PhaseShorterThanTick
+    );
+}
+
+#[test]
+fn hop_preserves_active_state_and_does_not_force_zero_carry() {
+    let revision = compile_revision(|module| {
+        add_standard_profiles(module);
+        module
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "first",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("second")],
+            })
+            .expect("first")
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "second",
+                length_meters: 100.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .expect("second")
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route",
+                edge_sequence: &[
+                    LaneEdgeReference::local("first"),
+                    LaneEdgeReference::local("second"),
+                ],
+            })
+            .expect("route");
+    });
+    let mut world =
+        TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let route = world
+        .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
+        .expect("route");
+    let vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            route,
+            0,
+            9_999,
+            10_000,
+        ))
+        .expect("spawn 1 mm before hop");
+    world.step(TickInput::new(100)).expect("step");
+    let state = world.vehicle(vehicle).expect("state");
+    assert_eq!(state.route_edge_index(), 1);
+    assert_eq!(state.status(), VehicleStatus::Active);
+    assert!(
+        state.progress_mm() > 0 || state.carry_um() > 0 || state.speed_mm_s() > 0,
+        "cross-edge hop is not a hard stop"
     );
 }

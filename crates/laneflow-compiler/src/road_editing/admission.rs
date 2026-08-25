@@ -867,6 +867,9 @@ fn geometry_compilation_diagnostic(
         NumericFreezeError::DirectionDiscontinuity => {
             RoadEditingNumericViolation::DirectionDiscontinuity
         }
+        NumericFreezeError::LaneEdgeLengthOutOfRange => {
+            RoadEditingNumericViolation::LaneEdgeLengthOutOfRange
+        }
         NumericFreezeError::GeometryPointLimit | NumericFreezeError::StationRowLimit => {
             unreachable!("handled above")
         }

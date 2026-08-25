@@ -1975,8 +1975,8 @@ impl IidmVehicleProfileInput {
             emergency_deceleration_meters_per_second_squared,
             "vehicleProfile.iidm.emergencyDecelerationMetersPerSecondSquared",
         )?;
-        if emergency_deceleration_meters_per_second_squared
-            < comfortable_deceleration_meters_per_second_squared
+        if (emergency_deceleration_meters_per_second_squared as f32)
+            < (comfortable_deceleration_meters_per_second_squared as f32)
         {
             return Err(input_error(
                 "vehicleProfile.iidm.emergencyDecelerationMetersPerSecondSquared",

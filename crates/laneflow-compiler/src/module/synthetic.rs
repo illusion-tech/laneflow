@@ -3162,8 +3162,8 @@ fn validate_vehicle_profile_scalars(
             ));
         }
     }
-    if iidm.emergency_deceleration_meters_per_second_squared
-        < iidm.comfortable_deceleration_meters_per_second_squared
+    if (iidm.emergency_deceleration_meters_per_second_squared as f32)
+        < (iidm.comfortable_deceleration_meters_per_second_squared as f32)
     {
         return Err(DiagnosticBundle::single(
             Diagnostic::invalid_vehicle_profile_deceleration_order(

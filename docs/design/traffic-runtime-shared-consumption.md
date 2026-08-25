@@ -1,7 +1,7 @@
 # 交通运行时共享静态路网消费
 
 **文档状态**: Accepted（#301 G1；#469 合入后收口）<br>
-**最后更新**: 2026-08-24<br>
+**最后更新**: 2026-08-25<br>
 **适用范围**: `laneflow-runtime` / `TrafficWorld`、`laneflow-spatial` 目标 session、
 1-worker 车辆 tick、#301 端到端证据，以及 current `laneflow-core` / JSON 运行时入口拆除<br>
 **关联文档**: `../adr/0020-compiler-owned-static-network-and-static-image.md`、
@@ -16,9 +16,9 @@
 `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`、
 `../adr/0018-multimodal-cross-section-and-access-overlay.md`
 
-本文是 #301 的实现级 G1 输入。它不授权 #302 在线修订切换、#441 系统化性能账本、
-#303 Routing、#294 残留文档/Skill 改名，或 #496 整数毫米落地（见
-`traffic-runtime-integer-geometry.md` / ADR 0028）。
+本文是 #301 的实现级 G1 输入。已提交一维几何以
+`traffic-runtime-integer-geometry.md` / ADR 0028 为现行合同。它不授权 #302
+在线修订切换、#441 系统化性能账本、#303 Routing 或 #294 残留文档/Skill 改名。
 
 ## 1. 结论
 
@@ -93,8 +93,7 @@ pose 记录身份（不承诺最终 Rust 拼写）：
 
 - `PoseRecordId`：调用方分配的不透明 `u32`。Spatial 不解释为车辆、也不导入
   Runtime/Core handle。
-- `PoseSource::Lane`：`LaneEdgeOrdinal` + 与共享根边长同域的进度。**当前**：
-  `f64` 米。**Proposed（#496 / ADR 0028）**：`progress_mm: u32`。
+- `PoseSource::Lane`：`LaneEdgeOrdinal` + 与共享根边长同域的进度 `progress_mm: u32`。
 - `PoseSource::Parking`：共享根上的停车位序号。
 - 一批必须同一 canonical frame；混 frame 整批失败。
 - 批次头保存：`bind` 所用 `Arc` 的 `NetworkRevisionId`、该批 `CanonicalFrameId`
@@ -157,12 +156,10 @@ SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
 ### 4.1 安装与绑定
 
 - `WorldConfig` 含每世界容量、1-worker 计划，以及 `fixed_delta_time_ms`（同一
-  world 运行中不得改变）。**当前（#301）**：步长为正整数，相位
-  `durationMs >= fixed_delta_time_ms`。**Proposed（#496 / ADR 0028）**：步长
-  `∈ [4, 1000]`，每个 phase `durationMs % dt == 0 && durationMs >= dt`，否则
-  `install` 失败关闭、不留下 world。短相位不得靠 tick 跳过。G2 前不得按倍数规则
-  拒绝现行走廊制品。不接受 LFCA 字节、调用方自报 digest / `NetworkRevisionId`、
-  或裸 component。
+  world 运行中不得改变）。步长 `∈ [4, 1000]`，每个 phase
+  `durationMs % dt == 0 && durationMs >= dt`，否则 `install` 失败关闭、不留下
+  world。短相位不得靠 tick 跳过。不接受 LFCA 字节、调用方自报 digest /
+  `NetworkRevisionId`、或裸 component。
 - 失败原子：失败不留下可观察的半个 world / session。
 - 多世界：再次 `install`，只克隆根 `Arc`。
 - `spatial()` 为 `None`：`bind` 返回 `Ok(None)`，不建 session（headless）。
@@ -194,12 +191,11 @@ Route 用共享根边序号编译 occurrence。
   profile 序号、已有 `RouteHandle`、**路线序列下标**（ADR 0017 `routeEdgeIndex`：该
   `RouteHandle` 边序列上的 occurrence 位置，不是共享根 `LaneEdgeOrdinal`；`[A, B, A]`
   的两个 A 靠下标区分）、该 occurrence 对应边上与共享根边长同域的进度、初速。
-  **当前**：进度与初速为 `f64` 米 / 米每秒。**Proposed（#496 / ADR 0028）**：
-  `progress_mm` / `speed_mm_s`，新车 `carry_um = 0`，进度 `0..=length_mm`，
-  初速 `<=` 当前边限速且 `<= 100_000` mm/s；禁止未文档化的米→毫米量化。
-  下标必须落在 `0..len`，越界失败、不留车。tick 内部车辆状态继续带着这个序列下标
-  前进。`committed_pose_sources` 的 `PoseSource::Lane` 仍用该 occurrence 解出的
-  `LaneEdgeOrdinal` + 同域进度（G2 为 `progress_mm`）。
+  进度与初速为 `progress_mm` / `speed_mm_s`，新车 `carry_um = 0`，进度
+  `0..=length_mm`，初速 `<=` 当前边限速且 `<= 100_000` mm/s；禁止未文档化的
+  米→毫米量化。下标必须落在 `0..len`，越界失败、不留车。tick 内部车辆状态继续
+  带着这个序列下标前进。`committed_pose_sources` 的 `PoseSource::Lane` 仍用该
+  occurrence 解出的 `LaneEdgeOrdinal` + `progress_mm`。
 - `spawn_vehicle` 返回代际感知 `VehicleHandle`（不是 `PoseRecordId`）。由 profile
   解析 `ParticipantClass`，对静态和动态 `RouteHandle` 都按 ADR 0018 做
   `(class, Route)` 绑定期准入（只查当前 cursor / 序列下标起的可达后缀）。初速可以

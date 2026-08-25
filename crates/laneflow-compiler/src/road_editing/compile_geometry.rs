@@ -670,7 +670,9 @@ pub(super) fn compile_authoring_geometry(
         lane_outputs.push(PendingLaneGeometry {
             target: edge.header.source_address.clone(),
             value: Some(CompiledLaneEdgeGeometry {
-                length: compiled.length,
+                length: closed_traffic_lane_edge_length(compiled.length)
+                    .map_err(GeometryCompilationError::from)
+                    .map_err(|error| error.with_numeric_source(edge.header.span.clone()))?,
                 canonical_frame: None,
                 centerline_points: compiled.points,
                 source_ranges: compiled.source_ranges,
@@ -787,7 +789,11 @@ pub(super) fn compile_authoring_geometry(
                     lane_outputs.push(PendingLaneGeometry {
                         target: (*target).clone(),
                         value: Some(CompiledLaneEdgeGeometry {
-                            length: compiled.length,
+                            length: closed_traffic_lane_edge_length(compiled.length)
+                                .map_err(GeometryCompilationError::from)
+                                .map_err(|error| {
+                                    error.with_numeric_source(plan.corridor.header.span.clone())
+                                })?,
                             canonical_frame: Some(alignment.declaration.canonical_frame.clone()),
                             centerline_points: compiled.points,
                             source_ranges: compiled.source_ranges,
@@ -1370,6 +1376,10 @@ fn compile_explicit_curve_exact(
         points: point_collector.points.into_boxed_slice(),
         source_ranges,
     })
+}
+
+fn closed_traffic_lane_edge_length(length: EdgeLength) -> Result<EdgeLength, NumericFreezeError> {
+    EdgeLength::try_new(length.value()).map_err(|_| NumericFreezeError::LaneEdgeLengthOutOfRange)
 }
 
 #[cfg(test)]
@@ -2245,6 +2255,14 @@ mod tests {
         .unwrap();
         assert_eq!(compiled.points.len(), 2);
         assert_eq!(compiled.length.value(), 5.0);
+        assert!(closed_traffic_lane_edge_length(compiled.length).is_ok());
+        assert!(matches!(
+            closed_traffic_lane_edge_length(
+                EdgeLength::try_from_authoring_metres(10_001.0).expect("authoring length")
+            ),
+            Err(NumericFreezeError::LaneEdgeLengthOutOfRange)
+        ));
+        assert!(closed_traffic_lane_edge_length(EdgeLength::try_new(10_000.0).unwrap()).is_ok());
         assert_eq!(compiled.points[1].x, 3.0);
         assert_eq!(compiled.points[1].z, 4.0);
         assert_eq!(compiled.source_ranges.len(), 1);
