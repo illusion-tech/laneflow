@@ -39,15 +39,15 @@ IIDM 仍在 `f32` SI 中算出「这一拍最多走多远」。**先**用整数�
 
 ## 2. 固定步进
 
-| 项           | 合同                                                                                    |
-| ------------ | --------------------------------------------------------------------------------------- |
-| 合法         | `fixed_delta_time_ms ∈ [4, 1000]`，`install` 外拒绝                                     |
-| 最细量子     | 4 ms，**不是**默认                                                                      |
-| 画面默认建议 | 16 ms（走廊 / Bevy 示例）                                                               |
-| 粗量子       | `>= 100 ms` 合法，不保证跟车观感；1000 ms 为离线/SUMO 级                                |
-| 慢放         | Runtime 不提供；Adapter 只可少 `step`，不得改 Δt 或可变 Δt                              |
-| 相位         | `duration_ms % dt == 0 && duration_ms >= dt` |
-| 每次步进输入 | 必须等于配置，否则世界不变                                                              |
+| 项           | 合同                                                       |
+| ------------ | ---------------------------------------------------------- |
+| 合法         | `fixed_delta_time_ms ∈ [4, 1000]`，`install` 外拒绝        |
+| 最细量子     | 4 ms，**不是**默认                                         |
+| 画面默认建议 | 16 ms（走廊 / Bevy 示例）                                  |
+| 粗量子       | `>= 100 ms` 合法，不保证跟车观感；1000 ms 为离线/SUMO 级   |
+| 慢放         | Runtime 不提供；Adapter 只可少 `step`，不得改 Δt 或可变 Δt |
+| 相位         | `duration_ms % dt == 0 && duration_ms >= dt`               |
+| 每次步进输入 | 必须等于配置，否则世界不变                                 |
 
 `install` 必须能区分：步长越出 `4..=1000`、相位短于一步、相位不能整除。校验顺序：
 步长区间 → 时长 `>= dt` → 整除。错误类型为 `InstallError::DeltaOutOfRange` /
@@ -231,22 +231,22 @@ Genesis 重生，不做格式迁移 diff。
 
 量化后闭包（先 round，再检查；跨字段在双方量化后比较）：
 
-| v2 字段                                                        | 闭包                                           |
-| -------------------------------------------------------------- | ---------------------------------------------- |
-| `LaneEdge.lengthMillimetres`                                   | `100..=10_000_000`                             |
-| `LaneEdge.speedLimitMillimetresPerSecond`                      | `1..=100_000`                                  |
-| `ParkingSpace.entryProgressMillimetres`                        | 所引入口边量化后边长 `L`：`1 <= p <= L - 1`    |
-| `ParkingSpace.exitProgressMillimetres`                         | 所引出口边量化后边长 `L`：`1 <= p <= L - 1`    |
-| `ParkingSpace.lateralOffsetMillimetres`                        | `abs <= 128_000`；路外 `abs >= 1`              |
+| v2 字段                                                        | 闭包                                                                     |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `LaneEdge.lengthMillimetres`                                   | `100..=10_000_000`                                                       |
+| `LaneEdge.speedLimitMillimetresPerSecond`                      | `1..=100_000`                                                            |
+| `ParkingSpace.entryProgressMillimetres`                        | 所引入口边量化后边长 `L`：`1 <= p <= L - 1`                              |
+| `ParkingSpace.exitProgressMillimetres`                         | 所引出口边量化后边长 `L`：`1 <= p <= L - 1`                              |
+| `ParkingSpace.lateralOffsetMillimetres`                        | `abs <= 128_000`；路外 `abs >= 1`                                        |
 | `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；存着的 `+π`（`0x40490fdb`）非法；编制/发射量化后写成 `-π` |
-| `ParkingSpace.lengthMillimetres` / `widthMillimetres`          | 各自 `100..=128_000`                           |
-| `VehicleProfile.lengthMillimetres`                             | `100..=128_000`                                |
-| `VehicleProfile.desiredSpeedMillimetresPerSecond`              | `1..=100_000`                                  |
-| `VehicleProfile.minGapMillimetres`                             | `0..=128_000`                                  |
-| `VehicleProfile.timeHeadwaySeconds`                            | `0 < x <= 60`                                  |
-| `VehicleProfile.maxAccelerationMetersPerSecondSquared`         | `0.5..=50`                                     |
-| `VehicleProfile.comfortableDecelerationMetersPerSecondSquared` | `0.5..=50`                                     |
-| `VehicleProfile.emergencyDecelerationMetersPerSecondSquared`   | `0.5..=50`，且 `>= comfortableDeceleration`    |
+| `ParkingSpace.lengthMillimetres` / `widthMillimetres`          | 各自 `100..=128_000`                                                     |
+| `VehicleProfile.lengthMillimetres`                             | `100..=128_000`                                                          |
+| `VehicleProfile.desiredSpeedMillimetresPerSecond`              | `1..=100_000`                                                            |
+| `VehicleProfile.minGapMillimetres`                             | `0..=128_000`                                                            |
+| `VehicleProfile.timeHeadwaySeconds`                            | `0 < x <= 60`                                                            |
+| `VehicleProfile.maxAccelerationMetersPerSecondSquared`         | `0.5..=50`                                                               |
+| `VehicleProfile.comfortableDecelerationMetersPerSecondSquared` | `0.5..=50`                                                               |
+| `VehicleProfile.emergencyDecelerationMetersPerSecondSquared`   | `0.5..=50`，且 `>= comfortableDeceleration`                              |
 
 后发射检查失败关闭旧 v1 字节。走廊检入 LFCA 必须按 v2 重生并对拍。
 `NetworkRevisionId` 随载荷变化（算法仍是 §4.2 v1）。
