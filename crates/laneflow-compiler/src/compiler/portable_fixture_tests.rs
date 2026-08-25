@@ -429,11 +429,11 @@ pub(crate) fn full_spatial_portable_artifact_base_fixture_candidate()
 }
 
 const FULL_SPATIAL_EXPECTED_LFCA: &[u8] =
-    include_bytes!("../../tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca");
+    include_bytes!("../../tests/fixtures/portable/lfca-full-spatial/expected.lfca");
 const FULL_SPATIAL_EXPECTED_LFSM: &[u8] =
-    include_bytes!("../../tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsm");
+    include_bytes!("../../tests/fixtures/portable/lfca-full-spatial/expected.lfsm");
 const FULL_SPATIAL_EXPECTED_LFSD: &[u8] =
-    include_bytes!("../../tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsd");
+    include_bytes!("../../tests/fixtures/portable/lfca-full-spatial/expected.lfsd");
 const FULL_SPATIAL_NETWORK_REVISION: [u8; 32] = [
     0x74, 0x12, 0x3d, 0x7d, 0x3b, 0x79, 0x37, 0x7b, 0xa3, 0xee, 0x5b, 0x9e, 0xbf, 0xcd, 0x08, 0xb4,
     0x12, 0x00, 0x2a, 0xce, 0x17, 0x4d, 0x2e, 0xa7, 0x1a, 0xe5, 0x13, 0x0e, 0x7d, 0xc5, 0xee, 0x54,
@@ -446,7 +446,7 @@ fn dump_portable_full_spatial_when_requested() {
     }
     let candidate = full_spatial_portable_fixture_candidate();
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/portable-v2/lfca-v2-full-spatial");
+        .join("tests/fixtures/portable/lfca-full-spatial");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
         dir.join("expected.lfca"),

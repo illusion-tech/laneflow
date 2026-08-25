@@ -1,11 +1,11 @@
-# LFCP-V2-MIN-BINDINGS
+# LFCP-MIN-BINDINGS
 
-本 fixture 固定 #299 compiler 后发射检查通过后构造的 LFCP v2 exact bytes。LFCP v2 不包含
+本 fixture 固定 compiler 后发射检查通过后构造的 LFCP exact bytes。当前 LFCP 不包含
 receipt，也不绑定 LFSD；它只绑定发布所需的 LFCA、LFSM 与显式发布 provenance。
 
 绑定输入：
 
-- LFCA/LFSM：复用 `LFCA-V1-FULL-SPATIAL` 的固定对象；
+- LFCA/LFSM：复用 `lfca-full-spatial` 的固定对象；
 - publisher kind：`ReleaseService (2)`；
 - publisher build ID：`laneflow-publisher-fixture-v2`；
 - controlled build provenance：`controlled-build`；

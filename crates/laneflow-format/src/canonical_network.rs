@@ -154,19 +154,19 @@ mod tests {
     use crate::{ExpectedSemanticDiffBase, check_post_emission_bundle};
 
     const MIN_HEADLESS: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-variants/min-headless.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/min-headless.lfca"
     );
     const CLAIM_MISMATCH: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-variants/claim-mismatch.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/claim-mismatch.lfca"
     );
     const FULL_LFCA: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
     );
     const FULL_LFSM: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsm"
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfsm"
     );
     const FULL_LFSD: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsd"
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfsd"
     );
 
     #[test]

@@ -356,7 +356,7 @@ fn consume_world_rejects_untracked_completed_vehicle() {
 
 fn foreign_world() -> TrafficWorld {
     const S1: &[u8] = include_bytes!(
-        "../../../crates/laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
+        "../../../crates/laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
     );
     let input = check_canonical_network_input(S1, FormatLimits::HARD).expect("s1");
     let foreign = build_shared_network_revision(

@@ -212,7 +212,7 @@ mod tests {
     use laneflow_format::preflight_object_values;
 
     const FULL_SPATIAL_LFCA: &[u8] =
-        include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca");
+        include_bytes!("../../../tests/fixtures/portable/lfca-full-spatial/expected.lfca");
 
     fn field_value_range(
         bytes: &[u8],

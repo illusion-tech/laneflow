@@ -32,16 +32,16 @@ use laneflow_static_network::{
 };
 
 const MIN_HEADLESS: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-variants/min-headless.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/min-headless.lfca"
 );
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
 );
 const FULL_SPATIAL_LFSM: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsm"
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfsm"
 );
 const FULL_SPATIAL_LFSD: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfsd"
+    "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfsd"
 );
 const CORRIDOR: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CATALOG: &str =

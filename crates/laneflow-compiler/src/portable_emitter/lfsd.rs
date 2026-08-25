@@ -206,7 +206,7 @@ mod tests {
     };
 
     const EXPECTED_LFCA: &[u8] =
-        include_bytes!("../../tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca");
+        include_bytes!("../../tests/fixtures/portable/lfca-full-spatial/expected.lfca");
 
     #[test]
     fn artifact_diff_reapplies_caller_limits_before_building_base_index() {

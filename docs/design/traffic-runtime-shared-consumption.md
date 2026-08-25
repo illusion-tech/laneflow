@@ -37,7 +37,7 @@
    必须 `Arc::ptr_eq`（或两者来自同一保留的根 `Arc`）。pose 批次使用与 Runtime
    无关的不透明记录身份，并携带该 `Arc` 的 `NetworkRevisionId`。
 3. Runtime **禁止**依赖 Spatial、compiler、Serde、文件系统、`laneflow-core`。
-4. 正确性证据是 compiler 拥有的 `LFCA-V1-FULL-SPATIAL` 加上 Runtime 2 车 1-worker
+4. 正确性证据是 compiler 拥有的 `lfca-full-spatial` 加上 Runtime 2 车 1-worker
    集成测试，以及同一编制上的最小 Bevy 示例。禁止同一场景对拍 `CoreWorld`。
 5. #301 的完成 PR 合入 `main` 时，`laneflow-core`、current JSON 运行时入口和
    LIR→Core 投影一并消失；Bevy / 示例不得再构造 `CoreWorld`。
@@ -277,8 +277,8 @@ install 核对、`register_route` 重建，以及后继 #302 快照/修订切换
 
 ### 6.2 必做的证明
 
-地图：compiler 已冻夹具 `LFCA-V1-FULL-SPATIAL`
-（`crates/laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/`）。
+地图：compiler 已冻夹具 `lfca-full-spatial`
+（`crates/laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/`）。
 它含 22 类实体 Identity、信号、停车、lane-pose 几何和一条
 `entry → middle → exit` 静态路线。
 
@@ -400,7 +400,7 @@ Spatial、不得用 Core 对象图当 compiler IR，保持有效。
 - 热路径无法只借共享 accessor，需要复制静态表才能步进；
 - Spatial 不得不依赖 Runtime 才能正确采样，或 pose 批次不得不嵌入车辆 handle；
 - 完成 PR 无法在不合入 Core 双入口的前提下拆除旧 crate，需要改变 L1/Q；
-- `LFCA-V1-FULL-SPATIAL` 无法支撑两车跟车的可观察断言，需要新的 S2 编制；
+- `lfca-full-spatial` 无法支撑两车跟车的可观察断言，需要新的 S2 编制；
 - 认为必须恢复 Core 预言机、产品双轨，或以 #305 通过为拆除前提。
 
 ## 10. 对 G2 的输入

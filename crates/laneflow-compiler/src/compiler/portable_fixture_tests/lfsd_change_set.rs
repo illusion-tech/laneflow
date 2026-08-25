@@ -2,7 +2,7 @@ use super::*;
 
 const FIXTURE_PROVENANCE: &str = "laneflow-fixture-298-change-set-v1";
 const EXPECTED_LFSD: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v2/lfsd-v2-change-set/expected.lfsd");
+    include_bytes!("../../../tests/fixtures/portable/lfsd-change-set/expected.lfsd");
 
 fn module(target: bool) -> SyntheticModule {
     let retained_points = [
@@ -323,7 +323,7 @@ fn dump_portable_change_set_when_requested() {
         return;
     }
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/portable-v2/lfsd-v2-change-set");
+        .join("tests/fixtures/portable/lfsd-change-set");
     std::fs::create_dir_all(&dir).unwrap();
     let (base, target) = candidate();
     std::fs::write(dir.join("expected.lfsd"), target.semantic_diff().bytes()).unwrap();

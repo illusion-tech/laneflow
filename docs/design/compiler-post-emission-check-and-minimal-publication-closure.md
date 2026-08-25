@@ -30,8 +30,8 @@
 - 借用型 `ValueCheckedObjectView`；
 - 有界 writer；
 - `no_std` 且不依赖 heap；
-- 无分配的 `check_post_emission_bundle_v1` 与字段私有的
-  `PostEmissionCheckedBundleV1`。
+- 无分配的 `check_post_emission_bundle` 与字段私有的
+  `PostEmissionCheckedBundle`。
 
 `laneflow-compiler` 当前已经：
 
@@ -75,7 +75,7 @@ sha2 = { version = "0.11", default-features = false }
 G2 实现保持下列语义形状；精确 Rust 字段布局可以在不扩大能力的前提下调整。
 
 ```rust
-pub enum ExpectedSemanticDiffBaseV1 {
+pub enum ExpectedSemanticDiffBase {
     Genesis,
     Artifact {
         network_revision_derivation_version: u16,
@@ -85,16 +85,16 @@ pub enum ExpectedSemanticDiffBaseV1 {
     },
 }
 
-pub fn check_post_emission_bundle_v1<'a>(
+pub fn check_post_emission_bundle<'a>(
     lfca: &'a [u8],
     lfsm: &'a [u8],
     lfsd: &'a [u8],
-    expected_base: ExpectedSemanticDiffBaseV1,
+    expected_base: ExpectedSemanticDiffBase,
     limits: FormatLimits,
-) -> Result<PostEmissionCheckedBundleV1<'a>, PostEmissionCheckError>;
+) -> Result<PostEmissionCheckedBundle<'a>, PostEmissionCheckError>;
 ```
 
-`PostEmissionCheckedBundleV1<'a>` 必须：
+`PostEmissionCheckedBundle<'a>` 必须：
 
 - 字段私有且没有 public/`unsafe` 构造器；
 - 直接借用三个 exact-byte slice；
@@ -125,7 +125,7 @@ LFSD `semanticDiffFormatVersion = 2`；Genesis target 合同行须与 LFCA 一�
 6. 比较 LFCA claim；
 7. 比较 LFSM→LFCA binding 和 LFCA/LFSM 重复 provenance binding；
 8. 比较 LFSD target→LFCA binding；
-9. 比较 LFSD base→`ExpectedSemanticDiffBaseV1` binding；
+9. 比较 LFSD base→`ExpectedSemanticDiffBase` binding；
 10. 构造 capability。
 
 步骤 1–2 必须发生在 hash 或解析前。后续实现可以在不增加分配、不改变失败分类和结果的
@@ -161,7 +161,7 @@ LFSD 的 `targetNetworkRevisionDerivationVersion`、`targetNetworkRevision`、
 `targetCanonicalArtifactDigest` 和 `targetCanonicalArtifactByteLength` 必须分别与本次 LFCA 的
 `networkRevisionDerivationVersion`、revision、digest 和 exact length 相等。
 
-`ExpectedSemanticDiffBaseV1::Genesis` 要求 LFSD 使用规范 Genesis 零绑定；
+`ExpectedSemanticDiffBase::Genesis` 要求 LFSD 使用规范 Genesis 零绑定；
 `Artifact` 要求 LFSD 的 `baseNetworkRevisionDerivationVersion`、`baseNetworkRevision`、
 `baseCanonicalArtifactDigest` 和 `baseCanonicalArtifactByteLength` 分别与显式输入中的派生版本、
 revision、digest 和 exact length 相等。
@@ -202,9 +202,9 @@ CompilationOutput
     ▼
 PortablePublicationCandidate (owns bytes; unpublished)
     │
-    ├─ check_post_emission_bundle_v1
+    ├─ check_post_emission_bundle
     ▼
-PostEmissionCheckedBundleV1<'candidate> (borrowed; in-memory only)
+PostEmissionCheckedBundle<'candidate> (borrowed; in-memory only)
     │
     ├─ install LFCA/LFSM/LFSD
     ├─ build/install LFCP v2
@@ -213,7 +213,7 @@ PostEmissionCheckedBundleV1<'candidate> (borrowed; in-memory only)
 ManifestCommittedPortablePublication
 ```
 
-`commit_portable_publication_v2` 必须在任何 installer 调用前完成 bundle 检查。内部
+`commit_portable_publication` 必须在任何 installer 调用前完成 bundle 检查。内部
 LFCP builder 接受 checked capability，不从 candidate 缓存字段读取 digest/revision；
 object key 从 capability 的 digest 派生。
 
@@ -253,7 +253,7 @@ unknown/future 值，也不能由 `publisherBuildId` 推断种类。
 - 不存在 `ValidationReceiptBinding`、`receiptObjectKey` 或 LFSD binding。
 
 LFCP v2 exact bytes 由新的
-[`LFCP-V2-MIN-BINDINGS`](../../crates/laneflow-compiler/tests/fixtures/portable-v2/lfcp-v2-min-bindings/README.md)
+[`LFCP-MIN-BINDINGS`](../../crates/laneflow-compiler/tests/fixtures/portable/lfcp-min-bindings/README.md)
 固定向量覆盖。
 
 ### 8.1 v1 处置

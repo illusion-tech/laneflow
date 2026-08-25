@@ -596,7 +596,7 @@ fn lfcp_v2_exact_bytes_are_deterministic() {
     let second = build_lfcp(checked, &provenance, FormatLimits::HARD).unwrap();
     if std::env::var_os("DUMP_PORTABLE").is_some() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/portable-v2/lfcp-v2-min-bindings");
+            .join("tests/fixtures/portable/lfcp-min-bindings");
         let hex = first
             .bytes()
             .iter()
@@ -611,7 +611,7 @@ fn lfcp_v2_exact_bytes_are_deterministic() {
         return;
     }
     let expected_hex =
-        include_str!("../../tests/fixtures/portable-v2/lfcp-v2-min-bindings/expected.lfcp.hex");
+        include_str!("../../tests/fixtures/portable/lfcp-min-bindings/expected.lfcp.hex");
     let digits = expected_hex
         .bytes()
         .filter(|byte| !byte.is_ascii_whitespace())
