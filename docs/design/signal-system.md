@@ -529,8 +529,8 @@ Signals 行为由 `TrafficWorld` 与编译器原生有类型模块覆盖。curre
 
 - 固定时制 snapshot(T) 与成功 step 后 `committed_signal_groups` 为 T+D；
 - 限制性灯色的停车距离与许可通行；
-- install 时 `durationMs >= fixed_delta_time_ms`，否则失败（#301 现行）。
-  #496 G2 另测非倍数相位失败、倍数相位成功；
+- install 时 `durationMs >= dt && durationMs % dt == 0`，短于一步与不能整除为
+  可区分失败；走廊相位保持 16 ms 的正整数倍；
 - 无信号编制仍可安装并步进。
 
 ## 15. 实施切片与退出边界

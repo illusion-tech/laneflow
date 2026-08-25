@@ -128,7 +128,7 @@ G1 的误差预算必须以 SI 单位和可观察行为表达，不能只写机�
 
 ### 3.1 下一契约的硬性产品范围
 
-#122 的 `16_384 m` 边（edge）范围是历史研究输入，不是模式/API 的硬上限。#140 的边上界证据与 #141 G1 已把以下范围冻结为下一数值契约；当前 v0.10 在新的原子数值迁移前保持现有 `f64` 行为：
+#122 的 `16_384 m` 边（edge）范围是历史研究输入，不是模式/API 的硬上限。#140 的边上界证据与 #141 G1 已把以下范围冻结为下一数值契约。现行已提交交通一维以 ADR 0028 整数毫米为准，本表是历史 `f32` 迁移范围，不是 `TrafficWorld` 生产权威：
 
 | 数值域                            |                                                下一契约硬范围 |     `f32` 在最大绝对值处的 ULP | 说明                                      |
 | --------------------------------- | ------------------------------------------------------------: | -----------------------------: | ----------------------------------------- |
@@ -169,9 +169,9 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 
 若 hot state 改为 `f32` 却需要为每辆车增加一个 `f32` residual，必须把该字段计入内存比较；不能只按 `8 byte -> 4 byte` 宣称 progress 节省一半。
 
-## 4. 历史目标精度分层（ADR 0014；下一生产以 0028 提案为准）
+## 4. 历史目标精度分层（ADR 0014；已退役）
 
-下表保留 #144 残差 `f32` 合同，便于阅读历史证据。**下一生产合同以 ADR 0028 为准**（整数毫米 + 微米余数 + `u32` mm/s），不要按本表实施 G2。
+下表保留 #144 残差 `f32` 合同，便于阅读历史证据。**现行生产合同是 ADR 0028**（整数毫米 + 微米余数 + `u32` mm/s），不要按本表实施。
 
 | 数值职责                           | 已接受的目标表示                       | 权威归属           | 规则                                                    |
 | ---------------------------------- | -------------------------------------- | ------------------ | ------------------------------------------------------- |
@@ -225,11 +225,11 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 | 细分 / 正则性离散上限                       | depth `u8` / visits `u32`                            | compiler                               | `MAX_SUBDIVISION_DEPTH = 20`；`MAX_REGULARITY_NODE_VISITS = 4095`，超过上限失败关闭                                                                                                                                                                                                                                                        |
 | 高层中间表示（HIR）内部 `SpatialHir` 子表示 | canonical 折线 `f32`                                 | compiler（owned）                      | 私有 `SpatialHir` 由 `build_spatial_hir` 在高层中间表示（HIR）构造期间建立；`HirCanonicalPoint3F32`/`HirSpatialSegment` 经 `freeze_spatial_polyline` 冻结，长度校验参考 `expected_length_meters: f64`                                                                                                                                      |
 | geometry 中层中间表示（MIR）                | canonical 折线 `f32`                                 | compiler                               | `MirCanonicalPoint3F32`/`MirSpatialSegment` 保留 Spatial 高层中间表示（HIR）的 canonical 折线                                                                                                                                                                                                                                              |
-| 已验证规范低层中间表示（canonical LIR）折线 | `f32`（`LirCanonicalPoint3F32`/`LirSpatialSegment`） | compiler 输出                          | 运行时规范权威几何；非几何标量（`EdgeLength`/`SpeedLimit`/Parking/`VehicleProfile`）保持 `f64`                                                                                                                                                                                                                                             |
+| 已验证规范低层中间表示（canonical LIR）折线 | `f32`（`LirCanonicalPoint3F32`/`LirSpatialSegment`） | compiler 输出                          | 运行时规范权威几何。交通一维在制品/运行时为整数毫米；LIR 编制标量仍为 SI 米，发射时量化（#500 将把 IR 存储也收口为毫米）                                                                                                                                                                                                                   |
 | LIR 同版本语义指纹（semantic fingerprint）  | `[u8; 32]`                                           | compiler 输出                          | `Lir::semantic_digest` 与 `CompilationMetrics::semantic_fingerprint()` 固定为 32 bytes；#298 的 portable artifact 字节完整性 digest 归 #298                                                                                                                                                                                                |
 | Core ↔ compiler projection                  | 仅 integration-only                                  | `laneflow-compiler-test-support`       | 投影不进入 `laneflow-compiler` 生产功能，#301 拆除 Core 时删除                                                                                                                                                                                                                                                                             |
 
-- 当前生产交通连续量仍为 `f64`（production）。ADR 0014 补偿残差感知 `f32` 进度是 **#144 历史目标**，经 no-go 回退；**下一生产合同是 ADR 0028 整数毫米**，不要按残差 `f32` 实施 G2。compiler 编制侧保持 `f64` 求值，canonical 折线仍为 `f32`。
+- 当前已提交交通一维为整数毫米 + `carry_um` + `u32` mm/s（ADR 0028）。ADR 0014 补偿残差感知 `f32` 进度是 **#144 历史目标**，经 no-go 回退。compiler 编制曲线保持 `f64` 求值，canonical 折线仍为 `f32` 米。
 - 注册管线只有有类型抽象语法树（typed AST）、高层中间表示（HIR）、中层中间表示（MIR）与已验证规范低层中间表示（canonical LIR）；私有 `SpatialHir` 是 `build_spatial_hir` 在高层中间表示（HIR）构造期间使用的内部子表示，不是第二个已注册阶段。其 canonical 折线（`HirCanonicalPoint3F32`/`HirSpatialSegment`）为 `f32`，由共享 `freeze_spatial_polyline` 冻结；官方来源不直接构造 Spatial 对象。
 - road-editing analytic/reference 子表示（编制解析曲线、道路里程站位 reference 基表、配置档阈值）与非几何交通/静态标量均以 `f64` 存续；canonical 折线自 geometry compile 起量化到有界 `f32` 并贯穿高层中间表示（HIR）内部 `SpatialHir` 子表示、中层中间表示（MIR）与 LIR（ADR 0022 五层表示）。
 - 道路里程站位（Stationing）是 authoring 曲线的配置档无关累计弦长基表，按 source curve segment 组织，不属于运行时 edge 序列里程。
@@ -350,4 +350,4 @@ Core 的有效进度
 
 #141 G1 最初冻结 10 km Core/Data 硬上限、其他单一 `f32` 数值域的产品范围、`EdgeLength`/`EdgeProgress` 表示、公共 API 分层、route 距离的语义与候选、Spatial 长度量化余量及生产收益闸口。#144 后续以完整账本把旧“内存至少降低 10%”修订为 5% 退化护栏，并把 14 项稳态几何平均至少提升 5% 冻结为主门槛；ADR 0014 保存当前规则。
 
-#126 已冻结公开 Core API、Parking 锚点、分层错误载荷与原子替换矩阵；#127 已完成目标 `f32` 九领域离线标定、长期判定基准、性能与扩展常驻内存账本。#144 的原子生产转换因性能门槛失败而 no-go，当前保持 `f64` 且不保留双精度开关。逐轮收口流水账见 git 历史；未来若重启数值迁移，必须新建议题并重新进入 G1。空间层（Spatial）/v0.7 仍分别交付真实几何与适配器（Adapter）转换。
+#126 已冻结公开 Core API、Parking 锚点、分层错误载荷与原子替换矩阵；#127 已完成目标 `f32` 九领域离线标定、长期判定基准、性能与扩展常驻内存账本。#144 的原子生产转换因性能门槛失败而 no-go，残差 `f32` 进度不再作为生产目标。现行一维权威是 ADR 0028。逐轮收口流水账见 git 历史。空间层（Spatial）仍交付规范 `f32` 几何与适配器转换。

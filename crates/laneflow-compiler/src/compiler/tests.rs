@@ -4494,6 +4494,28 @@ fn vehicle_profile_frontend_rejects_invalid_scalars_and_deceleration_order() {
         diagnostics.diagnostics()[0].code(),
         DiagnosticCode::InvalidVehicleProfileDecelerationOrder
     );
+
+    let mut invalid_accel = access_builder("vehicle-profile-invalid-accel.document");
+    invalid_accel
+        .add_participant_class(ParticipantClassInput {
+            participant_class_key: "car",
+            extends: None,
+        })
+        .unwrap();
+    let mut iidm = canonical_iidm_profile();
+    iidm.max_acceleration_meters_per_second_squared = 0.499;
+    let diagnostics = match invalid_accel.add_vehicle_profile(VehicleProfileInput {
+        vehicle_profile_key: "invalid-accel",
+        participant_class: ParticipantClassReference::local("car"),
+        iidm,
+    }) {
+        Ok(_) => panic!("maxAccel below 0.5 must fail"),
+        Err(diagnostics) => diagnostics,
+    };
+    assert_eq!(
+        diagnostics.diagnostics()[0].code(),
+        DiagnosticCode::InvalidVehicleProfileValue
+    );
 }
 
 #[test]

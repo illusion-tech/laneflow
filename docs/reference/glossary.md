@@ -145,7 +145,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 编译器压力规模          | compiler stress scale                                     | —                                         | 目标态已接受（#292 G1；#308 研究证据只在 git 历史），放大编制/中间表示对象、用于暴露资源增长和失败边界的合成规模；不构成产品 SLA。                                                                |
 | 编译器控制总存续内存    | compiler-controlled total live memory                     | —                                         | 目标态已接受（#292 G1；#308 研究证据只在 git 历史），编译请求同时拥有的来源、各阶段记录、字符串、诊断、暂存区和输出构造的存续请求字节总量；不等于进程工作集。                                     |
 | 当前核心对象图          | current Core object graph                                 | —                                         | 已拆除的 `laneflow-core` 对象/句柄/登记表构造；不是编译器中间表示，也不再作为可运行世界。                                                                                                         |
-| 当前空间登记表          | current Spatial registry                                  | `SpatialRegistry`                         | `laneflow-spatial` 的规范几何登记与采样对象。生产位姿采样走绑定共享根的 `SpatialSession`；独立 registry 不是编译器中间表示或目标静态镜像。                                                        |
+| 当前空间会话            | current Spatial session                                   | `SpatialSession`                          | 绑定 `SharedNetworkRevision` 的规范几何采样对象。静态几何在 `SharedSpatialNetwork`；已拆除的独立 `SpatialRegistry` 不是编译器中间表示或目标静态镜像。                                              |
 
 ## 4. 标识、引用与数据布局
 
@@ -420,8 +420,8 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 
 | 中文规范术语       | 英文辅助名（English Alias）       | 精确标识符 / 缩写  | 状态       | 中文规范含义                                                                   |
 | ------------------ | --------------------------------- | ------------------ | ---------- | ------------------------------------------------------------------------------ |
-| 个体车辆数         | individual vehicle count          | `N_individual`     | 当前已接受 | 当前 Core 中仍存在并保留完整身份、路线/进度、停车与生命周期状态的车辆数。      |
-| 道路交通活动车辆数 | road-traffic active vehicle count | `N_traffic_active` | 当前已接受 | 当前处于道路交通系统、每个 Core 基础固定步进参与运动、安全或占用求解的车辆数。 |
+| 个体车辆数         | individual vehicle count          | `N_individual`     | 当前已接受 | 当前 `TrafficWorld` 中仍存在并保留完整身份、路线/进度、停车与生命周期状态的车辆数。 |
+| 道路交通活动车辆数 | road-traffic active vehicle count | `N_traffic_active` | 当前已接受 | 当前处于道路交通系统、每个 TrafficWorld 固定步进参与运动、安全或占用求解的车辆数。 |
 | 意图更新车辆数     | intent-update vehicle count       | `N_intent`         | 当前已接受 | 当前固定步进实际重新计算昂贵控制意图的车辆数。                                 |
 | 表现车辆数         | presented vehicle count           | `N_presented`      | 当前已接受 | 当前外层帧由适配器或表现层实例化、提取或提交的车辆数。                         |
 | 聚合交通量         | aggregate traffic population      | `N_aggregate`      | 当前已接受 | 只以流、包或计数存在、没有完整逐车身份的交通量。                               |

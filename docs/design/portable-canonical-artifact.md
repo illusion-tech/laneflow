@@ -6,8 +6,8 @@
 > `ValidationReceiptBinding` 与 receipt 安装步骤只保留为 #298 历史设计、实现和验证
 > 证据，LFCP v2、API、检查深度和性能边界改以
 > `compiler-post-emission-check-and-minimal-publication-closure.md` 为准。无论后继实现是否
-> 生效，本文 LFCA/LFSM/LFSD v1 wire、已完成 emitter/format/安装证据及对象外信任锚
-> 均保持有效。
+> 生效，本文 LFCP 历史 v1/receipt 段落只作 #298 证据。LFCA/LFSM/LFSD **当前**
+> wire 以对象 `formatVersion = 2` 与毫米登记表为准，见下一段。
 >
 > **后续覆盖（#496）**：当前树只承认对象 `formatVersion` 与
 > `canonicalFormatVersion = 2` 的唯一登记表（毫米 / 受检 `f32` 热列）。公开 API 不带
@@ -189,7 +189,7 @@ where:
 
 Magic: 4 bytes.
 
-Format Version (FV): 2 bytes; FV == 1. 每类对象拥有独立版本轴。
+Format Version (FV): 2 bytes; 当前对象 `FV == 2`。每类对象拥有独立版本轴。
 
 Header Byte Length (HL): 2 bytes; HL == 32.
 
@@ -206,7 +206,7 @@ Object Byte Length (OBL): 8 bytes. 必须等于受限读取器观察到的 exact
 | 偏移   | 宽度 | 字段                     | v1 约束                                    |
 | ------ | ---- | ------------------------ | ------------------------------------------ |
 | `0x00` | 4    | `magic`                  | 对象专用 ASCII magic                       |
-| `0x04` | 2    | `formatVersion`          | 对象专用版本；v1 为 `1`                    |
+| `0x04` | 2    | `formatVersion`          | 对象专用版本；当前 LFCA/LFSM/LFSD 为 `2`   |
 | `0x06` | 2    | `headerByteLength`       | v1 固定为 `32`                             |
 | `0x08` | 4    | `flags`                  | v1 固定为 `0`，未知 bit 失败关闭           |
 | `0x0c` | 4    | `sectionCount`           | 必须等于对象 v1 的封闭节数                 |
@@ -432,11 +432,11 @@ value 精确为 `count:u32 || RowV1[count]`，VBL 必须等于 `4 + sum(rowByteL
 [augmented-packet-diagrams]: https://www.ietf.org/archive/id/draft-mcquistin-augmented-ascii-diagrams-13.html
 [g1-evidence-lanes-correction]: https://github.com/illusion-tech/laneflow/issues/298#issuecomment-5322639700
 
-## 4. 可移植规范制品 `LFCA` v1
+## 4. 可移植规范制品 `LFCA`
 
 ### 4.1 封闭节
 
-`magic = "LFCA"`，`formatVersion = canonicalFormatVersion = 1`。v1 精确包含：
+`magic = "LFCA"`，`formatVersion = canonicalFormatVersion = 2`。当前精确包含：
 
 | `sectionKind` | 名称                         | 是否进入规范语义载荷 | 内容                                                                           |
 | ------------- | ---------------------------- | -------------------- | ------------------------------------------------------------------------------ |
@@ -1258,7 +1258,7 @@ BLAKE3-128 截断碰撞；二者都不得继续建立 ordinal、关系或辅助�
 | `0x0001`  | RoadCorridor     | `3:referenceSection:u32:R, 4:elements:RecordVector:R`                                                                                                                                                                                                                                               | `typedOrdinal` |
 | `0x0002`  | RoadSection      | `3:roadCorridor:u32:R, 4:kindId:Utf8:R, 5:lanes:OrdinalVectorU32:R`                                                                                                                                                                                                                                 | `typedOrdinal` |
 | `0x0003`  | AuthoringLane    | `3:roadSection:u32:R, 4:edgeChain:OrdinalVectorU32:R, 5:laneGroup:u32:O`                                                                                                                                                                                                                            | `typedOrdinal` |
-| `0x0004`  | LaneEdge         | `3:lengthMeters:f64:R, 4:speedLimitMetersPerSecond:f64:R, 5:successors:OrdinalVectorU32:R`                                                                                                                                                                                                          | `typedOrdinal` |
+| `0x0004`  | LaneEdge         | `3:lengthMillimetres:u32:R, 4:speedLimitMillimetresPerSecond:u32:R, 5:successors:OrdinalVectorU32:R`                                                                                                                                                                                                | `typedOrdinal` |
 | `0x0005`  | Junction         | `3:movements:OrdinalVectorU32:R`                                                                                                                                                                                                                                                                    | `typedOrdinal` |
 | `0x0006`  | Movement         | `3:junction:u32:R, 4:directedEntryApproachKey:Utf8:R, 5:directedExitApproachKey:Utf8:R, 6:maneuverPaths:OrdinalVectorU32:R`                                                                                                                                                                         | `typedOrdinal` |
 | `0x0007`  | ManeuverPath     | `3:movement:u32:R, 4:edges:OrdinalVectorU32:R, 5:maneuverGates:OrdinalVectorU32:R, 6:waitingZones:OrdinalVectorU32:R`                                                                                                                                                                               | `typedOrdinal` |
@@ -1269,12 +1269,12 @@ BLAKE3-128 截断碰撞；二者都不得继续建立 ordinal、关系或辅助�
 | `0x000c`  | SignalController | `3:offsetMs:u64:R, 4:cycleDurationMs:u64:R, 5:signalGroups:OrdinalVectorU32:R, 6:phases:OrdinalVectorU32:R`                                                                                                                                                                                         | `typedOrdinal` |
 | `0x000d`  | SignalPhase      | `3:controller:u32:R, 4:durationMs:u64:R, 5:states:RecordVector:R`                                                                                                                                                                                                                                   | `typedOrdinal` |
 | `0x000e`  | ParkingArea      | `3:parkingSpaces:OrdinalVectorU32:R`                                                                                                                                                                                                                                                                | `typedOrdinal` |
-| `0x000f`  | ParkingSpace     | `3:parkingArea:u32:O, 4:entryLaneEdge:u32:R, 5:entryProgressMeters:f64:R, 6:exitLaneEdge:u32:R, 7:exitProgressMeters:f64:R, 8:lateralOffsetMeters:f64:R, 9:headingOffsetRadians:f64:R, 10:lengthMeters:f64:R, 11:widthMeters:f64:R`                                                                 | `typedOrdinal` |
+| `0x000f`  | ParkingSpace     | `3:parkingArea:u32:O, 4:entryLaneEdge:u32:R, 5:entryProgressMillimetres:u32:R, 6:exitLaneEdge:u32:R, 7:exitProgressMillimetres:u32:R, 8:lateralOffsetMillimetres:i32:R, 9:headingOffsetRadians:f32:R, 10:lengthMillimetres:u32:R, 11:widthMillimetres:u32:R`                                           | `typedOrdinal` |
 | `0x0010`  | LaneGroup        | `3:roadSection:u32:R, 4:members:OrdinalVectorU32:R`                                                                                                                                                                                                                                                 | `typedOrdinal` |
 | `0x0011`  | FacilityBand     | `3:roadCorridor:u32:R, 4:kindId:Utf8:R`                                                                                                                                                                                                                                                             | `typedOrdinal` |
 | `0x0012`  | ParticipantClass | `3:parent:u32:O, 4:depth:u32:R, 5:subtreeEnter:u32:R, 6:subtreeExit:u32:R`                                                                                                                                                                                                                          | `typedOrdinal` |
 | `0x0013`  | AccessRule       | `3:targetKind:u8:R, 4:targetOrdinal:u32:R, 5:effect:u8:R, 6:participantClasses:OrdinalVectorU32:R, 7:regulation:RecordVector:O, 8:priority:i32:R`                                                                                                                                                   | `typedOrdinal` |
-| `0x0014`  | VehicleProfile   | `3:participantClass:u32:R, 4:lengthMeters:f64:R, 5:desiredSpeedMetersPerSecond:f64:R, 6:minGapMeters:f64:R, 7:timeHeadwaySeconds:f64:R, 8:maxAccelerationMetersPerSecondSquared:f64:R, 9:comfortableDecelerationMetersPerSecondSquared:f64:R, 10:emergencyDecelerationMetersPerSecondSquared:f64:R` | `typedOrdinal` |
+| `0x0014`  | VehicleProfile   | `3:participantClass:u32:R, 4:lengthMillimetres:u32:R, 5:desiredSpeedMillimetresPerSecond:u32:R, 6:minGapMillimetres:u32:R, 7:timeHeadwaySeconds:f32:R, 8:maxAccelerationMetersPerSecondSquared:f32:R, 9:comfortableDecelerationMetersPerSecondSquared:f32:R, 10:emergencyDecelerationMetersPerSecondSquared:f32:R` | `typedOrdinal` |
 | `0x0015`  | StaticRoute      | `3:edges:OrdinalVectorU32:R, 4:transitionGates:RecordVector:R`                                                                                                                                                                                                                                      | `typedOrdinal` |
 | `0x0016`  | CanonicalFrame   | 无额外字段                                                                                                                                                                                                                                                                                          | `typedOrdinal` |
 

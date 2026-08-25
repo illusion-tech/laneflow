@@ -5,7 +5,7 @@ use crate::tables::{
     compiled_hop_gate, occupancy_front_gap, remaining_along_route, remaining_to_route_end,
     static_route_ordinal,
 };
-use crate::units::{meters, meters_per_second, round_mm, round_um};
+use crate::units::{round_mm, round_um};
 use crate::{StepError, StepOutcome, TickInput, TrafficWorld, VehicleState, VehicleStatus};
 
 impl TrafficWorld {
@@ -22,7 +22,7 @@ impl TrafficWorld {
             .time_ms
             .checked_add(expected)
             .ok_or(StepError::Overflow)?;
-        let delta_s = expected as f64 / 1_000.0;
+        let delta_s = expected as f32 / 1_000.0;
         self.next_states.clear();
         self.next_states.reserve(self.live_order.len());
         for handle in self.live_order.iter().copied() {
@@ -52,7 +52,7 @@ impl TrafficWorld {
     pub(crate) fn advance_active_vehicle(
         &self,
         mut state: VehicleState,
-        delta_s: f64,
+        delta_s: f32,
     ) -> Option<VehicleState> {
         let edges = self.route_edges(state.route)?;
         let cursor = usize::try_from(state.route_edge_index).ok()?;
@@ -111,7 +111,7 @@ impl TrafficWorld {
             return Some(state);
         }
 
-        let um = u64::from(state.carry_um).saturating_add(round_um(travel_m)?);
+        let um = u64::from(state.carry_um).saturating_add(round_um(f64::from(travel_m))?);
         let travel_mm = u32::try_from((um / 1_000).min(u64::from(hard_room))).ok()?;
         let exhausted = travel_mm == hard_room;
         if exhausted {
@@ -135,7 +135,7 @@ impl TrafficWorld {
             }
             return Some(state);
         }
-        let speed_mm_s = round_mm(next_speed_m)?.min(committed_limit);
+        let speed_mm_s = round_mm(f64::from(next_speed_m))?.min(committed_limit);
         state.speed_mm_s = speed_mm_s;
         Some(state)
     }
@@ -314,11 +314,11 @@ impl TrafficWorld {
 }
 
 fn si_meters(mm: u32) -> f32 {
-    meters(mm) as f32
+    mm as f32 / 1_000.0
 }
 
 fn si_speed(mm_s: u32) -> f32 {
-    meters_per_second(mm_s) as f32
+    mm_s as f32 / 1_000.0
 }
 
 fn finite_meters(distance: BoundedDistance) -> Option<f32> {
@@ -359,6 +359,10 @@ fn hard_room_mm(
     room
 }
 
+fn leader_gap_m(gap: Option<i64>) -> Option<f32> {
+    gap.map(|gap| if gap <= 0 { 0.0 } else { gap as f32 / 1_000.0 })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn si_comfort_travel(
     speed_mm_s: u32,
@@ -372,12 +376,12 @@ fn si_comfort_travel(
     speed_limits: &[u32],
     cursor: usize,
     progress_mm: u32,
-    delta_s: f64,
-) -> Option<(f64, f64)> {
-    let speed = f64::from(si_speed(speed_mm_s));
-    let desired = f64::from(si_speed(desired_mm_s));
-    let leader_m = leader_gap.map(|gap| (gap.max(0) as f64) / 1_000.0);
-    let min_gap_m = f64::from(si_meters(profile.min_gap_mm()));
+    delta_s: f32,
+) -> Option<(f32, f32)> {
+    let speed = si_speed(speed_mm_s);
+    let desired = si_speed(desired_mm_s);
+    let leader_m = leader_gap_m(leader_gap);
+    let min_gap_m = si_meters(profile.min_gap_mm());
     let envelope =
         speed_limit_path_envelope(edges, lengths, speed_limits, cursor, progress_mm, delta_s)?;
     let (mut travel, mut next_speed) = iidm_travel(speed, desired, leader_m, profile, delta_s)?;
@@ -401,8 +405,8 @@ fn si_comfort_travel(
         speed_limits,
         cursor,
         progress_mm,
-        f64::from(profile.comfort_decel()),
-        f64::from(profile.emergency_decel()),
+        profile.comfort_decel(),
+        profile.emergency_decel(),
     )?;
     travel = ((speed + next_speed) * 0.5 * delta_s).max(0.0);
     travel = clamp_si_travel(
@@ -428,38 +432,60 @@ fn si_comfort_travel(
 }
 
 fn clamp_si_travel(
-    mut travel: f64,
-    leader_m: Option<f64>,
-    min_gap_m: f64,
+    mut travel: f32,
+    leader_m: Option<f32>,
+    min_gap_m: f32,
     signal_stop: Option<BoundedDistance>,
     route_end: BoundedDistance,
-    envelope: f64,
-) -> f64 {
+    envelope: f32,
+) -> f32 {
     if let Some(gap) = leader_m {
         travel = travel.min((gap - min_gap_m).max(0.0));
     }
     if let Some(stop) = signal_stop.and_then(finite_meters) {
-        travel = travel.min(f64::from(stop).max(0.0));
+        travel = travel.min(stop.max(0.0));
     }
     if let Some(end) = finite_meters(route_end) {
-        travel = travel.min(f64::from(end).max(0.0));
+        travel = travel.min(end.max(0.0));
     }
     travel.min(envelope).max(0.0)
 }
 
 fn iidm_travel(
-    speed: f64,
-    desired: f64,
-    leader_gap: Option<f64>,
+    speed: f32,
+    desired: f32,
+    leader_gap: Option<f32>,
     profile: VehicleProfileView,
-    delta_s: f64,
-) -> Option<(f64, f64)> {
+    delta_s: f32,
+) -> Option<(f32, f32)> {
+    iidm_step(
+        speed,
+        desired,
+        leader_gap,
+        si_meters(profile.min_gap_mm()),
+        profile.time_headway(),
+        profile.max_accel(),
+        profile.comfort_decel(),
+        profile.emergency_decel(),
+        delta_s,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn iidm_step(
+    speed: f32,
+    desired: f32,
+    leader_gap: Option<f32>,
+    min_gap_m: f32,
+    time_headway: f32,
+    accel_max: f32,
+    comfort: f32,
+    emergency: f32,
+    delta_s: f32,
+) -> Option<(f32, f32)> {
     if !speed.is_finite() || !desired.is_finite() || delta_s <= 0.0 {
         return None;
     }
-    let accel_max = f64::from(profile.max_accel());
-    let comfort = f64::from(profile.comfort_decel());
-    let emergency = f64::from(profile.emergency_decel());
     if accel_max <= 0.0 || comfort <= 0.0 || emergency <= 0.0 {
         return None;
     }
@@ -472,8 +498,7 @@ fn iidm_travel(
         (speed / desired).max(0.0).powi(4)
     };
     let gap_term = if let Some(gap) = leader_gap {
-        let s_star =
-            f64::from(si_meters(profile.min_gap_mm())) + speed * f64::from(profile.time_headway());
+        let s_star = min_gap_m + speed * time_headway;
         (s_star / gap).max(0.0).powi(2)
     } else {
         0.0
@@ -490,8 +515,8 @@ fn speed_limit_path_envelope(
     speed_limits: &[u32],
     mut index: usize,
     mut progress_mm: u32,
-    delta_s: f64,
-) -> Option<f64> {
+    delta_s: f32,
+) -> Option<f32> {
     if delta_s <= 0.0 {
         return None;
     }
@@ -499,9 +524,9 @@ fn speed_limit_path_envelope(
     let mut total = 0.0;
     loop {
         let edge = *edges.get(index)?;
-        let length = meters(*lengths.get(edge.index())?);
-        let limit = meters_per_second(*speed_limits.get(edge.index())?);
-        let leftover = (length - meters(progress_mm)).max(0.0);
+        let length = si_meters(*lengths.get(edge.index())?);
+        let limit = si_speed(*speed_limits.get(edge.index())?);
+        let leftover = (length - si_meters(progress_mm)).max(0.0);
         if limit <= 0.0 {
             break;
         }
@@ -523,19 +548,19 @@ fn speed_limit_path_envelope(
 
 #[allow(clippy::too_many_arguments)]
 fn constrain_upcoming_speed_limits(
-    current_speed: f64,
-    mut next_speed: f64,
-    delta_s: f64,
+    current_speed: f32,
+    mut next_speed: f32,
+    delta_s: f32,
     edges: &[LaneEdgeOrdinal],
     lengths: &[u32],
     speed_limits: &[u32],
     cursor: usize,
     progress_mm: u32,
-    comfort: f64,
-    emergency: f64,
-) -> Option<f64> {
+    comfort: f32,
+    emergency: f32,
+) -> Option<f32> {
     for (index, edge) in edges.iter().enumerate().skip(cursor + 1) {
-        let limit = meters_per_second(*speed_limits.get(edge.index())?);
+        let limit = si_speed(*speed_limits.get(edge.index())?);
         if limit >= next_speed {
             continue;
         }
@@ -546,7 +571,7 @@ fn constrain_upcoming_speed_limits(
                 continue;
             }
             BoundedDistance::Finite(mm) => {
-                let distance = meters(mm);
+                let distance = si_meters(mm);
                 next_speed = cap_next_speed_for_limit(
                     current_speed,
                     next_speed,
@@ -563,14 +588,14 @@ fn constrain_upcoming_speed_limits(
 }
 
 fn cap_next_speed_for_limit(
-    current_speed: f64,
-    next_speed: f64,
-    delta_s: f64,
-    distance: f64,
-    limit: f64,
-    comfort: f64,
-    emergency: f64,
-) -> Option<f64> {
+    current_speed: f32,
+    next_speed: f32,
+    delta_s: f32,
+    distance: f32,
+    limit: f32,
+    comfort: f32,
+    emergency: f32,
+) -> Option<f32> {
     if let Some(capped) =
         max_next_speed_for_decel(current_speed, next_speed, delta_s, distance, limit, comfort)
     {
@@ -588,13 +613,13 @@ fn cap_next_speed_for_limit(
 }
 
 fn max_next_speed_for_decel(
-    current_speed: f64,
-    next_speed: f64,
-    delta_s: f64,
-    distance: f64,
-    limit: f64,
-    decel: f64,
-) -> Option<f64> {
+    current_speed: f32,
+    next_speed: f32,
+    delta_s: f32,
+    distance: f32,
+    limit: f32,
+    decel: f32,
+) -> Option<f32> {
     if decel <= 0.0 || delta_s <= 0.0 {
         return None;
     }
@@ -612,7 +637,7 @@ fn max_next_speed_for_decel(
     let quadratic = if discriminant >= 0.0 {
         ((-b_dt + discriminant.sqrt()) / 2.0).min(next_speed)
     } else {
-        f64::NEG_INFINITY
+        f32::NEG_INFINITY
     };
     let mut best = linear;
     if quadratic > limit
@@ -625,12 +650,12 @@ fn max_next_speed_for_decel(
 }
 
 fn speed_down_constraint_holds(
-    current_speed: f64,
-    next_speed: f64,
-    delta_s: f64,
-    distance: f64,
-    limit: f64,
-    decel: f64,
+    current_speed: f32,
+    next_speed: f32,
+    delta_s: f32,
+    distance: f32,
+    limit: f32,
+    decel: f32,
 ) -> bool {
     let travel = 0.5 * (current_speed + next_speed) * delta_s;
     let braking = (next_speed * next_speed - limit * limit).max(0.0) / (2.0 * decel);
@@ -639,19 +664,19 @@ fn speed_down_constraint_holds(
 
 #[allow(clippy::too_many_arguments)]
 fn clamp_travel_to_speed_down_boundary(
-    mut travel: f64,
-    current_speed: f64,
-    next_speed: f64,
-    delta_s: f64,
+    mut travel: f32,
+    current_speed: f32,
+    next_speed: f32,
+    delta_s: f32,
     edges: &[LaneEdgeOrdinal],
     lengths: &[u32],
     speed_limits: &[u32],
     cursor: usize,
     progress_mm: u32,
-) -> Option<f64> {
+) -> Option<f32> {
     let min_travel = 0.5 * current_speed * delta_s;
     for (index, edge) in edges.iter().enumerate().skip(cursor + 1) {
-        let limit = meters_per_second(*speed_limits.get(edge.index())?);
+        let limit = si_speed(*speed_limits.get(edge.index())?);
         if limit >= current_speed || limit >= next_speed {
             continue;
         }
@@ -663,7 +688,7 @@ fn clamp_travel_to_speed_down_boundary(
         if mm == 0 {
             continue;
         }
-        let distance = meters(mm);
+        let distance = si_meters(mm);
         if min_travel <= distance && travel > distance {
             travel = travel.min(distance);
         }
@@ -755,7 +780,7 @@ mod preview {
             ))
             .unwrap();
         let state = world.vehicle_state(follower).copied().unwrap();
-        let next = world.advance_active_vehicle(state, 0.1).unwrap();
+        let next = world.advance_active_vehicle(state, 0.1_f32).unwrap();
         assert!(
             next.progress_mm > state.progress_mm || next.carry_um > state.carry_um,
             "follower should start moving, {} -> {}",
@@ -935,13 +960,15 @@ mod preview {
             .unwrap();
         let mut state = world.vehicle_state(follower).copied().unwrap();
         state.carry_um = 777;
-        let next = world.advance_active_vehicle(state, 0.1).unwrap();
+        let next = world.advance_active_vehicle(state, 0.1_f32).unwrap();
         assert_eq!(next.carry_um, 0);
         assert_eq!(next.speed_mm_s, 0);
+        assert_eq!(next.progress_mm, 1_000);
+        assert_eq!(next.status, VehicleStatus::Active);
     }
 
     #[test]
-    fn crawl_retains_sub_millimetre_carry_or_advances() {
+    fn crawl_retains_sub_millimetre_carry() {
         let mut world = install_preview_world();
         let route = world.static_route(StaticRouteOrdinal::from_raw(0)).unwrap();
         let follower = world
@@ -954,15 +981,27 @@ mod preview {
             ))
             .unwrap();
         let state = world.vehicle_state(follower).copied().unwrap();
-        let next = world.advance_active_vehicle(state, 0.004).unwrap();
-        assert!(
-            next.progress_mm > state.progress_mm || next.carry_um > state.carry_um,
-            "crawl should accumulate distance, carry {} -> {}, progress {} -> {}",
-            state.carry_um,
-            next.carry_um,
-            state.progress_mm,
-            next.progress_mm
-        );
-        assert_ne!(next.status, VehicleStatus::Completed);
+        let next = world.advance_active_vehicle(state, 0.004_f32).unwrap();
+        assert_eq!(next.progress_mm, state.progress_mm);
+        assert!(next.carry_um > state.carry_um);
+        assert!(next.speed_mm_s > 0);
+        assert_eq!(next.status, VehicleStatus::Active);
+    }
+
+    #[test]
+    fn iidm_committed_speed_rounds_f32_si() {
+        let (_, next) = iidm_step(
+            si_speed(9_639),
+            si_speed(12_516),
+            Some(5_560.0_f32 / 1_000.0),
+            2.0,
+            1.4,
+            1.8,
+            2.0,
+            4.5,
+            8.0_f32 / 1_000.0,
+        )
+        .unwrap();
+        assert_eq!(round_mm(f64::from(next)), Some(9_536));
     }
 }

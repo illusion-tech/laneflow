@@ -17,7 +17,7 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 支持 LaneEdge、LaneGroup、RoadSection 和 ManeuverPath 两个独立求值平面，并保留
 效果（effect）、类别集合、优先级（priority）与法规来源。相反效果的精确并列在编译期
 拒绝，FacilityBand target 以结构化能力门卫（capability guard）失败关闭；时变窗口尚未
-进入本切片。当前道路机动车 `VehicleProfile` 已沿用 current Core IIDM `f64` 数值约束，
+进入本切片。当前道路机动车 `VehicleProfile` 按 ADR 0028 先量化再关闭：毫米/`mm/s` 整数闭包，时距与加减速为受检 `f32` SI；编制输入仍是 `f64`，
 解析唯一 `ParticipantClass` 引用并进入规范身份、语义摘要和来源映射；该配置不是其他
 交通执行域的通用参数基类。`CanonicalFrame` 也已把 SpatialPackage v0.1 的稳定
 `frameId` 接入同一管线；坐标单位、手性、轴向和范围继续由全局空间契约固定，声明中
