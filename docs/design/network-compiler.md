@@ -804,8 +804,8 @@ Accepted ADR 0025 / #300 G1 不生成第二个持久化性能制品。`laneflow-
 再一次性 reserve/fill 连续 typed columns、CSR/ranges、身份索引、按显式非语义 derivation
 version 从受检关系确定性派生的规划提示，以及可选 Spatial 数据，完成跨表/身份/
 Traffic-Spatial/执行约束闭合后返回。#496 G1（Proposed）：G2 生产构建改认
-`CheckedCanonicalNetworkInputV2`，V1 入口继续拒绝 v2；详见
-`shared-static-network.md` §3.1。当前 V1 路径闭合后返回：
+LFCA v2 受检输入，v1 入口继续拒绝 v2；详见 `shared-static-network.md` §3.1。
+当前 V1 路径闭合后返回：
 
 ```text
 SharedNetworkRevision

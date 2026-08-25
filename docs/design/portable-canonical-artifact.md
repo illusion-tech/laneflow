@@ -1417,10 +1417,12 @@ round-ties-to-even。禁止先用量化前的裸 SI 界限拒绝。跨字段（�
 | `VehicleProfile.comfortableDecelerationMetersPerSecondSquared` | `0 < x <= 50`                                                     |
 | `VehicleProfile.emergencyDecelerationMetersPerSecondSquared`   | `0 < x <= 50`，且 `>= comfortableDeceleration`                    |
 
-有折线时，量化后的交通边长与规范弧长仍用米制容差对账：
-`abs(f64(length_mm) / 1000 - f64(arc_m)) <= max(0.01 m, 1.0e-6 * max(length_m, f64(arc))) + 0.0 m`。
-对账失败关闭。headless 无此对账。v2 读器遇到上表以外的改名/改类型、或上表字段仍为
-v1 `f64` 名字/类型，失败关闭。
+有折线时，**编译器**用现行 `0.01 m` / `1e-6` 对账 LIR 交通边长与弧长，再按
+`lengthMillimetres = round-ties-to-even(f64(arc) × 1000)` 写入。**v2 读器 / 共享路网
+构建**没有 LIR、也没有 `lengthMeters`：令 `length_m = f64(lengthMillimetres) / 1000`，
+再 `abs(length_m - f64(arcLengthMeters)) <= max(0.01 m, 1.0e-6 * max(length_m, f64(arc))) + 0.0 m`。
+对账失败关闭，不改已量化边长。headless 无此对账。v2 读器遇到上表以外的改名/改类型、
+或上表字段仍为 v1 `f64` 名字/类型，失败关闭。
 
 **当前 LFCA v1 标量闭合**（G2 前 `main`；不得把本表读成 v2）：
 
@@ -1580,9 +1582,12 @@ accuracy profile 无法从最终点表独立重算，
 冻结的 binary32 运算：先计算并把有符号零规范为正零的 `delta=(next-current)`，再计算
 `length = hypot(hypot(delta.x, delta.y), delta.z)`；length 必须严格大于 `0.1 m`。
 `cumulativeEnd` 是从 `+0.0f32` 起逐段做 binary32 加法的结果，必须有限且严格递增；最后一项
-必须与 `arcLengthMeters` 位模式相同。该值与同 ordinal `LaneEdge.lengthMeters` 的差还必须
-满足 `abs(diff) <= max(0.01 m, 1.0e-6 * max(edgeLength, f64(arcLength))) + 0.0 m`；末项是
-`numeric-representation.md` 冻结的 Core length quantization allowance，不得由实现省略或改写。
+必须与 `arcLengthMeters` 位模式相同。**LFCA v1** 该值与同 ordinal
+`LaneEdge.lengthMeters` 的差还必须满足
+`abs(diff) <= max(0.01 m, 1.0e-6 * max(edgeLength, f64(arcLength))) + 0.0 m`。
+**LFCA v2** 对照 `lengthMillimetres`，公式见上文 A.1 v2 增量；不得再读
+`lengthMeters`。末项是 `numeric-representation.md` 冻结的长度量化容差，不得由实现
+省略或改写。
 
 这里所有 `hypot(a,b)` 都精确表示 `HypotRteF32(a,b) = RN32(sqrt(Exact(a)^2 +
 Exact(b)^2))`：`Exact` 把 binary32 操作数提升为精确实数，`sqrt` 取非负实根，`RN32` 只在

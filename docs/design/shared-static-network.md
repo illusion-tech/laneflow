@@ -95,45 +95,12 @@ impl<'a> PostEmissionCheckedBundleV1<'a> {
 #### 提案中的 LFCA v2 admission（#496 G1；未 Pass，G2 前 `main` 仍为 V1）
 
 ADR 0028 把下一生产制品定为 LFCA v2。G2 **不得**把 v2 对象送进本节 V1 入口，也不得
-放宽 `preflight_object_values_v1` / `check_canonical_network_input_v1` 以接纳
-`formatVersion = 2`。并行能力（名称冻结；Rust 字段布局可在不扩大能力的前提下调整）：
-
-```rust
-pub struct CheckedCanonicalNetworkInputV2<'a> {
-    // all fields private to laneflow-format
-    value_checked_lfca: ValueCheckedObjectView<'a>,
-    canonical_artifact_digest: Sha256Digest,
-    canonical_artifact_byte_length: ExactByteLength,
-    network_revision: NetworkRevisionId,
-}
-
-pub fn check_canonical_network_input_v2(
-    lfca: &[u8],
-    limits: FormatLimits,
-) -> Result<CheckedCanonicalNetworkInputV2<'_>, CanonicalNetworkInputError>;
-
-impl<'a> PostEmissionCheckedBundleV2<'a> {
-    pub fn canonical_network_input(self) -> CheckedCanonicalNetworkInputV2<'a>;
-}
-```
-
-V2 能力必须满足：
-
-- object kind 精确为 LFCA v2（前导 `formatVersion` 与 `canonicalFormatVersion` 均为
-  `2`）；
-- 走 **v2 registry** 与直接值域检查，不复用会按 v1 行形状接纳字段的 V1 预检；
-- digest 和 exact length 从实际 bytes 计算；
-- `NetworkRevisionId` 已从 LFCA semantic payload 重算并与 claim 比较；
-- 字段私有、无调用方传入 view/digest/revision 的公共构造器；公开 accessor 不授予
-  重建该 capability 的能力。
-
-后发射：`check_post_emission_bundle_v2` 对 LFCA 走 v2 预检；LFSM/LFSD 不单开对象
-版本，仍按现行对象预检，但必须 `LFSM.canonicalArtifactFormatVersion == 2` 且与所绑
-LFCA 一致。`PostEmissionCheckedBundleV1` 不得派生 V2 capability。数值 `FormatLimits`
-上限不因本切片单开 `V2_HARD`，除非另有 Issue 改预算。
-
-G2 完成后，`SharedNetworkRevision` 生产构建只消费 V2。G2 前继续只消费 V1。不得提供
-把 v1 `F64` 米列读成毫米的隐式重载。
+放宽 v1 预检以接纳 `formatVersion = 2`。并行提供 v2 受检输入：语义形状同 V1（字段
+私有、digest / 长度 / `NetworkRevisionId` 闭合），object kind 精确为 LFCA v2，走
+**v2 registry** 与直接值域检查。后发射对 LFCA 走 v2 预检；LFSM/LFSD 不单开对象版本，
+但 `canonicalArtifactFormatVersion` 必须为 `2`。v1 受检制品组不得派生 v2 输入。
+`FormatLimits` 数值上限不因本切片单开新档。G2 完成后生产构建只消费 v2；不得把
+v1 米列读成毫米。G2 决定这些入口的 Rust 名字。
 
 `ValueCheckedObjectView` 本身不证明跨表引用、row ordering 或真实性，因此不能直接作为
 共享静态路网成功结果。`laneflow-static-network` 必须继续完成 §7 的构建闭合；发布内容
@@ -167,8 +134,7 @@ RoadEditingState
 可编辑 session 为后续 `PortableDiffBase::Artifact` 保留的 exact LFCA 由 editor/#302 作为
 `EditableDiffBase` 单独拥有，不进入 `SharedNetworkRevision`，也不改变 builder 的借用边界。
 
-#496 G2（Proposed）：上图两条路径改为 `CheckedCanonicalNetworkInputV2` 与
-`PostEmissionCheckedBundleV2`；不得画成 V1 入口兼收 v2。
+#496 G2（Proposed）：上图两条路径改为 v2 受检输入；不得画成 v1 入口兼收 v2。
 
 ## 4. 根修订与 component
 
@@ -308,8 +274,8 @@ CheckedCanonicalNetworkInputV1
   -> SharedNetworkRevision
 ```
 
-#496 G2（Proposed）：算法起点换为 `CheckedCanonicalNetworkInputV2`；G2 前保持 V1。
-不得在同一 builder 函数里靠 `formatVersion` 隐式把 v1 米列当成毫米。
+#496 G2（Proposed）：算法起点换为 v2 受检输入；G2 前保持 V1。
+不得靠 `formatVersion` 隐式把 v1 米列当成毫米。
 
 pass A/B 都按 LFCA wire order 线性遍历，不使用保留的 O(n) ordinal random-access API 形成
 O(n²) 构建。实现可以融合不影响精确预算或错误语义的子 pass，但不得增加第二个 projection。
@@ -652,10 +618,9 @@ tick 扫描，也不得复制进每 world 可变状态：
 - **StaticRoute 执行索引**：对每条编译器作者的 `StaticRoute`，seal 时生成与当前
   `CoreWorld::register_compiled_route` 等价的 `RouteDistanceIndex`、
   `next_controlled_transition` 与 `speed_limit_transitions`（由边长、限速、
-  受信号控制的 transition gate 派生）。#496 G1（Proposed）：
-  `speed_limit_transitions` 目标列为 `u32` mm/s；`next_controlled_distance` 为
-  `BoundedDistance::Finite(u32)`。动态 `register_route` 仍由 #301 每世界拥有，
-  不进共享静态路网。
+  受信号控制的 transition gate 派生）。#496 G1（Proposed）：派生限速目标与边限速
+  同一量子（mm/s）；到下一受控门的距离与路线有界距离同型（`Finite(u32)` /
+  `BeyondFinite`）。动态路线注册仍由 Runtime 每世界拥有，不进共享静态路网。
 
 `PartitionPlanningHints` 默认保持 #439 的边邻接度数公式。若实现要把路口或静态路线
 边界权值纳入 worker 数无关提示，必须提升
