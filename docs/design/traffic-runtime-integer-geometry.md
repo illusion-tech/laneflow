@@ -1,6 +1,6 @@
 # 交通运行时整数毫米几何
 
-**文档状态**: Accepted（#496）；#500 G1 修订编译器 IR（Review，未 Pass，不授权实现）<br>
+**文档状态**: Accepted（#496）；编译器 IR 交通一维修订为提案中（#500）<br>
 **最后更新**: 2026-08-26<br>
 **适用范围**: `TrafficWorld` 已提交一维几何与速度、`WorldConfig` 步长、
 `laneflow-static-network` 热列、LFCA 长度/速度字段、compiler Typed AST / HIR /
@@ -15,10 +15,10 @@ Spatial 采样钉死端点<br>
 `traffic-runtime-shared-consumption.md`、`shared-static-network.md`、
 `portable-canonical-artifact.md`、`signal-system.md`、`route-system.md`
 
-本文是 #496 已落地的 Runtime / 制品合同，并写入 #500 对编译器 IR 的 G1 修订。
-它不授权 #302 快照容器、#303 Routing、残差 `f32` 进度或整数 IIDM，也不授权 #500
-G2 实现。当前树制品与 Runtime 只承认整数毫米一维几何；编制 `f64` 与 Spatial `f32`
-仍在量化之前。G2 前 compiler IR **实现**仍可暂存编制 SI 米。
+本文是 #496 已落地的 Runtime / 制品合同，并写入 #500 对编译器 IR 的提案修订。
+它不覆盖 #302 快照容器、#303 Routing、残差 `f32` 进度或整数 IIDM。当前树制品与
+Runtime 只承认整数毫米一维几何；编制 `f64` 与 Spatial `f32` 仍在量化之前。当前
+compiler IR 仍把交通一维存成编制 SI 米。
 
 G1 冻权威、单位、量化顺序、制品字段与跨实现算法。#500：公开 `Canonical*View`
 交通一维删除米制访问器，不留只读换算。
@@ -72,7 +72,7 @@ profile：车长 `100..=128_000` mm，期望车速 `1..=100_000` mm/s，`min_gap
 `0..=128_000` mm（0 合法，退化为只禁止重叠）；时距与三项加减速为受检 `f32` SI，
 范围见 ADR 0028。停车：入口/出口进度 `u32` mm 且 `1 <= p <= length_mm - 1`；长宽
 `100..=128_000` mm；横向 `i32` mm，`abs <= 128_000`，路外 `abs >= 1`；朝向受检
-`f32` 弧度，闭包 `-π <= x < π`。编制/发射量化后若等于 `+π`（`0x40490fdb`）则写成
+`f32` 弧度，闭包 `-π <= x < π`。编制/准入量化后若等于 `+π`（`0x40490fdb`）则写成
 `-π`（`0xc0490fdb`）；制品存着的 `+π` 非法，读器只拒不折。限速过渡目标与边限速
 同一量子（mm/s）。到下一受控门的距离与路线有界距离同型（`Finite(u32)` /
 `BeyondFinite`）。`BeyondFinite` 的降速目标本拍不参与包络。
@@ -88,8 +88,8 @@ profile：车长 `100..=128_000` mm，期望车速 `1..=100_000` mm/s，`min_gap
 编制进入毫米 / `f32` 表面时 **先量化，再检查**：毫米类
 `round-ties-to-even(f64(SI) × 1000)` 后套整数闭包；时距/加减速/朝向先
 round-ties-to-even 到 `f32` 再套 `f32` 闭包。禁止先用裸 `0.1 m` 拒绝再量化。
-`0.0996 m` → `100 mm` 合法，`0.0994 m` → `99 mm` 失败。编制/发射：朝向量化后若等于
-`+π` 则写成 `-π` 再检查；读器遇到存着的 `+π` 失败关闭。跨字段在双方量化后比较。
+`0.0996 m` → `100 mm` 合法，`0.0994 m` → `99 mm` 失败。编制/准入：朝向量化后若等于
+`+π` 则写成 `-π` 再检查；读器遇到存着的 `+π` 失败关闭。跨字段比较已量化的双方。
 
 ## 4. 车辆已提交状态
 
@@ -176,7 +176,7 @@ G2 决定访问器名字。
 
 #500：编制 `f64` 只存在准入边界之前。准入量化一次之后，Typed AST / HIR / MIR / LIR
 的交通一维存储权威是整数毫米；时距、三项加减速、朝向是受检 `f32` SI。不得把原来的
-`f64` 留下再在发射 round。G2 决定字段名。G2 前 IR **实现**仍可暂存编制 SI 米。
+`f64` 留下再在发射 round。G2 决定字段名。当前 IR 仍存编制 SI 米。
 
 交通一维在 IR 中的量：
 
@@ -208,8 +208,8 @@ LFCA:     写 IR length_mm（此时已与将写出值同一整数）
 
 `arc_m` 是规范 `f32` 弧长，仍由 ADR 0015 拥有，不改成毫米。停车锚点相对 **提交后的**
 `length_mm` 做整数关闭（`1 <= p <= L - 1`，端点留白 `1` mm）。有折线不得再用准入毫米
-或另一份米列量化放行。#499 在米列上按发射边长补关停车锚点；G2 应把该关闭变成对已提交
-IR 整数的比较。G1 不冻函数名。
+或另一份米列量化放行。当前实现在米列上按将写出边长补关停车锚点；提案中（#500）把该
+关闭变成对已提交 IR 整数的比较。G2 决定函数名。
 
 **共享路网构建（无 LIR）** 令 `length_m = f64(lengthMillimetres) / 1000`，再
 `abs(length_m - f64(arcLengthMeters)) <= max(0.01 m, 1.0e-6 * max(length_m, f64(arc))) + 0.0 m`。
@@ -267,7 +267,7 @@ Genesis 重生，不做格式迁移 diff。
 | `ParkingSpace.entryProgressMillimetres`                        | 所引入口边 **提交后** 边长 `L`：`1 <= p <= L - 1`                        |
 | `ParkingSpace.exitProgressMillimetres`                         | 所引出口边 **提交后** 边长 `L`：`1 <= p <= L - 1`                        |
 | `ParkingSpace.lateralOffsetMillimetres`                        | `abs <= 128_000`；路外 `abs >= 1`                                        |
-| `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；存着的 `+π`（`0x40490fdb`）非法；编制/发射量化后写成 `-π` |
+| `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；存着的 `+π`（`0x40490fdb`）非法；编制/准入量化后写成 `-π` |
 | `ParkingSpace.lengthMillimetres` / `widthMillimetres`          | 各自 `100..=128_000`                                                     |
 | `VehicleProfile.lengthMillimetres`                             | `100..=128_000`                                                          |
 | `VehicleProfile.desiredSpeedMillimetresPerSecond`              | `1..=100_000`                                                            |
