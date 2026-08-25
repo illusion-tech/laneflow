@@ -70,7 +70,8 @@ IIDM 仍在 `f32` SI 中算出「这一拍最多走多远」。**先**用整数�
 
 profile：车长 `100..=128_000` mm，期望车速 `1..=100_000` mm/s，`min_gap`
 `0..=128_000` mm（0 合法，退化为只禁止重叠）；时距与三项加减速为受检 `f32` SI，
-范围见 ADR 0028。停车：入口/出口进度 `u32` mm 且 `1 <= p <= length_mm - 1`；长宽
+范围见 ADR 0028。停车：入口/出口进度 `u32` mm 且相对 **提交后** `length_mm` 满足
+`1 <= p <= length_mm - 1`；长宽
 `100..=128_000` mm；横向 `i32` mm，`abs <= 128_000`，路外 `abs >= 1`；朝向受检
 `f32` 弧度，闭包 `-π <= x < π`。编制/准入量化后若等于 `+π`（`0x40490fdb`）则写成
 `-π`（`0xc0490fdb`）；制品存着的 `+π` 非法，读器只拒不折。限速过渡目标与边限速
@@ -258,7 +259,7 @@ Genesis 重生，不做格式迁移 diff。
 | VehicleProfile | `0x0014`  | 9   | `comfortableDecelerationMetersPerSecondSquared:f64:R` | `comfortableDecelerationMetersPerSecondSquared:f32:R` |
 | VehicleProfile | `0x0014`  | 10  | `emergencyDecelerationMetersPerSecondSquared:f64:R`   | `emergencyDecelerationMetersPerSecondSquared:f32:R`   |
 
-量化后闭包（先 round，再检查；跨字段在双方量化后比较）：
+闭包（准入先量化再检查；停车进度相对 **提交后** 边长比较）：
 
 | v2 字段                                                        | 闭包                                                                     |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------ |

@@ -1407,8 +1407,8 @@ round-ties-to-even。编制/准入：朝向量化后若等于 `+π`（`0x40490fd
 | -------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `LaneEdge.lengthMillimetres`                                   | `100..=10_000_000`                                                       |
 | `LaneEdge.speedLimitMillimetresPerSecond`                      | `1..=100_000`                                                            |
-| `ParkingSpace.entryProgressMillimetres`                        | 所引入口边量化后边长 `L`：`1 <= p <= L - 1`                              |
-| `ParkingSpace.exitProgressMillimetres`                         | 所引出口边量化后边长 `L`：`1 <= p <= L - 1`                              |
+| `ParkingSpace.entryProgressMillimetres`                        | 所引入口边 **提交后** 边长 `L`：`1 <= p <= L - 1`                        |
+| `ParkingSpace.exitProgressMillimetres`                         | 所引出口边 **提交后** 边长 `L`：`1 <= p <= L - 1`                        |
 | `ParkingSpace.lateralOffsetMillimetres`                        | `abs <= 128_000`；路外 `abs >= 1`                                        |
 | `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；存着的 `+π`（`0x40490fdb`）非法；编制/准入量化后写成 `-π` |
 | `ParkingSpace.lengthMillimetres` / `widthMillimetres`          | 各自 `100..=128_000`                                                     |
