@@ -261,10 +261,7 @@ fn canonical_entity_tables(
                     OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
                 ),
                 field(3, OwnedValue::U32(lane_length_mm[record.ordinal.index()])),
-                field(
-                    4,
-                    OwnedValue::U32(quantize::millimetres(record.speed_limit_meters_per_second)?),
-                ),
+                field(4, OwnedValue::U32(record.speed_limit_mm_s)),
                 field(5, OwnedValue::OrdinalVectorU32(successors)),
             ]))
         })
@@ -628,31 +625,24 @@ fn canonical_entity_tables(
     ])
 }
 
-/// 有折线时交通边长来自冻结弧长。HIR 停车锚点在空间冻结后用同一尺子关闭。
+/// 交通边长在 HIR 空间冻结时已提交为写出毫米。
 fn closed_lane_edge_length_mm(
-    lir: &crate::lir::LirUnit,
+    _lir: &crate::lir::LirUnit,
     record: &crate::lir::LirLaneEdge,
 ) -> Result<u32, PortableEmissionError> {
-    let meters = lir
-        .lane_edge_geometries
-        .get(record.ordinal.index())
-        .map(|geometry| f64::from(geometry.arc_length_meters))
-        .unwrap_or(record.length_meters);
-    let millimetres = quantize::millimetres(meters)?;
-    if millimetres < laneflow_static_contract::MIN_LANE_EDGE_LENGTH_MM
-        || millimetres > laneflow_static_contract::MAX_LANE_EDGE_LENGTH_MM
+    if record.length_mm < laneflow_static_contract::MIN_LANE_EDGE_LENGTH_MM
+        || record.length_mm > laneflow_static_contract::MAX_LANE_EDGE_LENGTH_MM
     {
         return Err(PortableEmissionError::InternalBindingMismatch);
     }
-    Ok(millimetres)
+    Ok(record.length_mm)
 }
 
 fn parking_anchor_progress_mm(
-    progress_meters: f64,
+    progress_mm: u32,
     edge: laneflow_static_contract::LaneEdgeOrdinal,
     lane_length_mm: &[u32],
 ) -> Result<u32, PortableEmissionError> {
-    let progress_mm = quantize::millimetres(progress_meters)?;
     let length_mm = *lane_length_mm
         .get(edge.index())
         .ok_or(PortableEmissionError::InternalBindingMismatch)?;
@@ -683,7 +673,7 @@ fn parking_space_row(
         field(
             5,
             OwnedValue::U32(parking_anchor_progress_mm(
-                record.entry.progress_meters,
+                record.entry.progress_mm,
                 record.entry.lane_edge,
                 lane_length_mm,
             )?),
@@ -692,31 +682,15 @@ fn parking_space_row(
         field(
             7,
             OwnedValue::U32(parking_anchor_progress_mm(
-                record.exit.progress_meters,
+                record.exit.progress_mm,
                 record.exit.lane_edge,
                 lane_length_mm,
             )?),
         ),
-        field(
-            8,
-            OwnedValue::I32(quantize::millimetres_i32(
-                record.geometry.lateral_offset_meters,
-            )?),
-        ),
-        field(
-            9,
-            OwnedValue::F32(quantize::heading_f32(
-                record.geometry.heading_offset_radians,
-            )?),
-        ),
-        field(
-            10,
-            OwnedValue::U32(quantize::millimetres(record.geometry.length_meters)?),
-        ),
-        field(
-            11,
-            OwnedValue::U32(quantize::millimetres(record.geometry.width_meters)?),
-        ),
+        field(8, OwnedValue::I32(record.geometry.lateral_offset_mm)),
+        field(9, OwnedValue::F32(record.geometry.heading_offset_radians)),
+        field(10, OwnedValue::U32(record.geometry.length_mm)),
+        field(11, OwnedValue::U32(record.geometry.width_mm)),
     ]);
     Ok(row(fields))
 }
@@ -731,41 +705,21 @@ fn vehicle_profile_row(
             OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
         ),
         field(3, OwnedValue::U32(record.participant_class.raw())),
-        field(
-            4,
-            OwnedValue::U32(quantize::millimetres(record.length_meters)?),
-        ),
-        field(
-            5,
-            OwnedValue::U32(quantize::millimetres(
-                record.desired_speed_meters_per_second,
-            )?),
-        ),
-        field(
-            6,
-            OwnedValue::U32(quantize::millimetres(record.min_gap_meters)?),
-        ),
-        field(
-            7,
-            OwnedValue::F32(quantize::si_f32(record.time_headway_seconds)?),
-        ),
+        field(4, OwnedValue::U32(record.length_mm)),
+        field(5, OwnedValue::U32(record.desired_speed_mm_s)),
+        field(6, OwnedValue::U32(record.min_gap_mm)),
+        field(7, OwnedValue::F32(record.time_headway_seconds)),
         field(
             8,
-            OwnedValue::F32(quantize::si_f32(
-                record.max_acceleration_meters_per_second_squared,
-            )?),
+            OwnedValue::F32(record.max_acceleration_meters_per_second_squared),
         ),
         field(
             9,
-            OwnedValue::F32(quantize::si_f32(
-                record.comfortable_deceleration_meters_per_second_squared,
-            )?),
+            OwnedValue::F32(record.comfortable_deceleration_meters_per_second_squared),
         ),
         field(
             10,
-            OwnedValue::F32(quantize::si_f32(
-                record.emergency_deceleration_meters_per_second_squared,
-            )?),
+            OwnedValue::F32(record.emergency_deceleration_meters_per_second_squared),
         ),
     ]))
 }

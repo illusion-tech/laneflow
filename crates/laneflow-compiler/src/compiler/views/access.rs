@@ -67,46 +67,46 @@ impl CanonicalVehicleProfileView<'_> {
         self.record.participant_class
     }
 
-    /// 返回车辆长度，单位为米。
+    /// 返回车辆长度，单位为毫米。
     #[must_use]
-    pub const fn length_meters(&self) -> f64 {
-        self.record.length_meters
+    pub const fn length_mm(&self) -> u32 {
+        self.record.length_mm
     }
 
-    /// 返回自由流期望速度，单位为米每秒。
+    /// 返回自由流期望速度，单位为毫米每秒。
     #[must_use]
-    pub const fn desired_speed_meters_per_second(&self) -> f64 {
-        self.record.desired_speed_meters_per_second
+    pub const fn desired_speed_mm_s(&self) -> u32 {
+        self.record.desired_speed_mm_s
     }
 
-    /// 返回行为最小间距，单位为米。
+    /// 返回行为最小间距，单位为毫米。
     #[must_use]
-    pub const fn min_gap_meters(&self) -> f64 {
-        self.record.min_gap_meters
+    pub const fn min_gap_mm(&self) -> u32 {
+        self.record.min_gap_mm
     }
 
     /// 返回期望时间间隔，单位为秒。
     #[must_use]
-    pub const fn time_headway_seconds(&self) -> f64 {
+    pub const fn time_headway_seconds(&self) -> f32 {
         self.record.time_headway_seconds
     }
 
     /// 返回最大舒适加速度，单位为米每二次方秒。
     #[must_use]
-    pub const fn max_acceleration_meters_per_second_squared(&self) -> f64 {
+    pub const fn max_acceleration_meters_per_second_squared(&self) -> f32 {
         self.record.max_acceleration_meters_per_second_squared
     }
 
     /// 返回舒适减速度幅值，单位为米每二次方秒。
     #[must_use]
-    pub const fn comfortable_deceleration_meters_per_second_squared(&self) -> f64 {
+    pub const fn comfortable_deceleration_meters_per_second_squared(&self) -> f32 {
         self.record
             .comfortable_deceleration_meters_per_second_squared
     }
 
     /// 返回紧急减速度幅值，单位为米每二次方秒。
     #[must_use]
-    pub const fn emergency_deceleration_meters_per_second_squared(&self) -> f64 {
+    pub const fn emergency_deceleration_meters_per_second_squared(&self) -> f32 {
         self.record.emergency_deceleration_meters_per_second_squared
     }
 }

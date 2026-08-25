@@ -1,6 +1,6 @@
 # 交通运行时整数毫米几何
 
-**文档状态**: Accepted（#496）；编译器 IR 交通一维修订为提案中（#500）<br>
+**文档状态**: Accepted（#496；#500 编译器 IR 交通一维）<br>
 **最后更新**: 2026-08-26<br>
 **适用范围**: `TrafficWorld` 已提交一维几何与速度、`WorldConfig` 步长、
 `laneflow-static-network` 热列、LFCA 长度/速度字段、compiler Typed AST / HIR /
@@ -15,12 +15,11 @@ Spatial 采样钉死端点<br>
 `traffic-runtime-shared-consumption.md`、`shared-static-network.md`、
 `portable-canonical-artifact.md`、`signal-system.md`、`route-system.md`
 
-本文是 #496 已落地的 Runtime / 制品合同，并写入 #500 对编译器 IR 的提案修订。
-它不覆盖 #302 快照容器、#303 Routing、残差 `f32` 进度或整数 IIDM。当前树制品与
-Runtime 只承认整数毫米一维几何；编制 `f64` 与 Spatial `f32` 仍在量化之前。当前
-compiler IR 仍把交通一维存成编制 SI 米。
+本文是 #496 已落地的 Runtime / 制品合同，以及 #500 已落地的编译器 IR 交通一维合同。
+它不覆盖 #302 快照容器、#303 Routing、残差 `f32` 进度或整数 IIDM。当前树制品、
+Runtime 与编译器 IR 只承认整数毫米一维几何；编制 `f64` 与 Spatial `f32` 仍在量化之前。
 
-G1 冻权威、单位、量化顺序、制品字段与跨实现算法。#500：公开 `Canonical*View`
+G1 冻权威、单位、量化顺序、制品字段与跨实现算法。公开 `Canonical*View`
 交通一维删除米制访问器，不留只读换算。
 
 ## 1. 结论
@@ -177,7 +176,8 @@ G2 决定访问器名字。
 
 #500：编制 `f64` 只存在准入边界之前。准入量化一次之后，Typed AST / HIR / MIR / LIR
 的交通一维存储权威是整数毫米；时距、三项加减速、朝向是受检 `f32` SI。不得把原来的
-`f64` 留下再在发射 round。G2 决定字段名。当前 IR 仍存编制 SI 米。
+`f64` 留下再在发射 round。公开访问器为 `length_mm` / `speed_limit_mm_s` /
+`progress_mm` / `lateral_offset_mm` / `desired_speed_mm_s` / `min_gap_mm`。
 
 交通一维在 IR 中的量：
 
@@ -209,8 +209,7 @@ LFCA:     写 IR length_mm（此时已与将写出值同一整数）
 
 `arc_m` 是规范 `f32` 弧长，仍由 ADR 0015 拥有，不改成毫米。停车锚点相对 **提交后的**
 `length_mm` 做整数关闭（`1 <= p <= L - 1`，端点留白 `1` mm）。有折线不得再用准入毫米
-或另一份米列量化放行。当前实现在米列上按将写出边长补关停车锚点；提案中（#500）把该
-关闭变成对已提交 IR 整数的比较。G2 决定函数名。
+或另一份米列量化放行。停车锚点相对已提交 IR `length_mm` 做整数关闭。
 
 **共享路网构建（无 LIR）** 令 `length_m = f64(lengthMillimetres) / 1000`，再
 `abs(length_m - f64(arcLengthMeters)) <= max(0.01 m, 1.0e-6 * max(length_m, f64(arc))) + 0.0 m`。
@@ -220,8 +219,9 @@ LFCA:     写 IR length_mm（此时已与将写出值同一整数）
 限速在准入量化为 `1..=100_000` mm/s 后原样进入 IR 与 LFCA，不再二次 round。
 
 公开 `Canonical*View`（#500）：交通一维只暴露毫米 / `mm/s`（及受检 `f32` 时距 /
-加减速 / 朝向）。**删除** `length_meters()` 等米制访问器，不留只读换算。G2 决定毫米
-访问器名字。
+加减速 / 朝向）。**删除** `length_meters()` 等米制访问器，不留只读换算。毫米访问器为
+`length_mm`、`speed_limit_mm_s`、`progress_mm`、`lateral_offset_mm`、
+`desired_speed_mm_s`、`min_gap_mm`。
 
 当前制品合同：对象前导 `formatVersion` 与
 `ContractVersions.canonicalFormatVersion` 为 `2`；

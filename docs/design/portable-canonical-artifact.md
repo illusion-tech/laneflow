@@ -1423,7 +1423,7 @@ round-ties-to-even。编制/准入：朝向量化后若等于 `+π`（`0x40490fd
 有折线时，**编译器**用 `length_mm / 1000` 作观察值、按现行 `0.01 m` / `1e-6` 对账规范
 弧长；通过后把 IR `length_mm` 提交为 `round-ties-to-even(f64(arc) × 1000)`，LFCA 写该
 整数。提交值越出 `100..=10_000_000` mm 时以边长越界失败关闭。无折线写准入毫米。
-详见 `traffic-runtime-integer-geometry.md` §6（提案中；#500）。当前 compiler IR 仍存编制 SI 米。
+详见 `traffic-runtime-integer-geometry.md` §6（#500：准入后 IR 与制品同一套整数毫米）。
 **读器 / 共享路网构建**没有 LIR、也没有 `lengthMeters`：令
 `length_m = f64(lengthMillimetres) / 1000`，再
 `abs(length_m - f64(arcLengthMeters)) <= max(0.01 m, 1.0e-6 * max(length_m, f64(arc))) + 0.0 m`。

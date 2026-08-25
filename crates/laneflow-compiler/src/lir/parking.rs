@@ -18,15 +18,15 @@ pub(crate) struct LirParkingArea {
 #[derive(Clone, Copy)]
 pub(crate) struct LirParkingLaneAnchor {
     pub(crate) lane_edge: LaneEdgeOrdinal,
-    pub(crate) progress_meters: f64,
+    pub(crate) progress_mm: u32,
 }
 
 #[derive(Clone, Copy)]
 pub(crate) struct LirParkingSpaceGeometry {
-    pub(crate) lateral_offset_meters: f64,
-    pub(crate) heading_offset_radians: f64,
-    pub(crate) length_meters: f64,
-    pub(crate) width_meters: f64,
+    pub(crate) lateral_offset_mm: i32,
+    pub(crate) heading_offset_radians: f32,
+    pub(crate) length_mm: u32,
+    pub(crate) width_mm: u32,
 }
 
 pub(crate) struct LirParkingSpace {
@@ -121,17 +121,17 @@ pub(super) fn freeze(
                 .map(|area| env.orders.parking_areas.ordinal(area)),
             entry: LirParkingLaneAnchor {
                 lane_edge: env.orders.lane_edges.ordinal(space.entry.lane_edge),
-                progress_meters: space.entry.progress_meters,
+                progress_mm: space.entry.progress_mm,
             },
             exit: LirParkingLaneAnchor {
                 lane_edge: env.orders.lane_edges.ordinal(space.exit.lane_edge),
-                progress_meters: space.exit.progress_meters,
+                progress_mm: space.exit.progress_mm,
             },
             geometry: LirParkingSpaceGeometry {
-                lateral_offset_meters: space.geometry.lateral_offset_meters,
+                lateral_offset_mm: space.geometry.lateral_offset_mm,
                 heading_offset_radians: space.geometry.heading_offset_radians,
-                length_meters: space.geometry.length_meters,
-                width_meters: space.geometry.width_meters,
+                length_mm: space.geometry.length_mm,
+                width_mm: space.geometry.width_mm,
             },
         });
     }

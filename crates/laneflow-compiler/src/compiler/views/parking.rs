@@ -39,7 +39,7 @@ impl CanonicalParkingSpaceView<'_> {
     pub const fn entry(&self) -> CanonicalParkingLaneAnchor {
         CanonicalParkingLaneAnchor {
             lane_edge: self.record.entry.lane_edge,
-            progress_meters: self.record.entry.progress_meters,
+            progress_mm: self.record.entry.progress_mm,
         }
     }
 
@@ -48,7 +48,7 @@ impl CanonicalParkingSpaceView<'_> {
     pub const fn exit(&self) -> CanonicalParkingLaneAnchor {
         CanonicalParkingLaneAnchor {
             lane_edge: self.record.exit.lane_edge,
-            progress_meters: self.record.exit.progress_meters,
+            progress_mm: self.record.exit.progress_mm,
         }
     }
 
@@ -56,10 +56,10 @@ impl CanonicalParkingSpaceView<'_> {
     #[must_use]
     pub const fn geometry(&self) -> CanonicalParkingSpaceGeometry {
         CanonicalParkingSpaceGeometry {
-            lateral_offset_meters: self.record.geometry.lateral_offset_meters,
+            lateral_offset_mm: self.record.geometry.lateral_offset_mm,
             heading_offset_radians: self.record.geometry.heading_offset_radians,
-            length_meters: self.record.geometry.length_meters,
-            width_meters: self.record.geometry.width_meters,
+            length_mm: self.record.geometry.length_mm,
+            width_mm: self.record.geometry.width_mm,
         }
     }
 }
@@ -68,7 +68,7 @@ impl CanonicalParkingSpaceView<'_> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanonicalParkingLaneAnchor {
     lane_edge: LaneEdgeOrdinal,
-    progress_meters: f64,
+    progress_mm: u32,
 }
 
 impl CanonicalParkingLaneAnchor {
@@ -78,44 +78,44 @@ impl CanonicalParkingLaneAnchor {
         self.lane_edge
     }
 
-    /// 返回从边起点量取的纵向进度，单位为米。
+    /// 返回从边起点量取的纵向进度，单位为毫米。
     #[must_use]
-    pub const fn progress_meters(self) -> f64 {
-        self.progress_meters
+    pub const fn progress_mm(self) -> u32 {
+        self.progress_mm
     }
 }
 
 /// Canonical LIR 中已验证停车位矩形几何的值视图。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanonicalParkingSpaceGeometry {
-    lateral_offset_meters: f64,
-    heading_offset_radians: f64,
-    length_meters: f64,
-    width_meters: f64,
+    lateral_offset_mm: i32,
+    heading_offset_radians: f32,
+    length_mm: u32,
+    width_mm: u32,
 }
 
 impl CanonicalParkingSpaceGeometry {
-    /// 返回相对入口边中心线的横向偏移，单位为米；正值位于行驶方向左侧。
+    /// 返回相对入口边中心线的横向偏移，单位为毫米；正值位于行驶方向左侧。
     #[must_use]
-    pub const fn lateral_offset_meters(self) -> f64 {
-        self.lateral_offset_meters
+    pub const fn lateral_offset_mm(self) -> i32 {
+        self.lateral_offset_mm
     }
 
     /// 返回相对入口边正向切线的逆时针朝向偏移，单位为弧度。
     #[must_use]
-    pub const fn heading_offset_radians(self) -> f64 {
+    pub const fn heading_offset_radians(self) -> f32 {
         self.heading_offset_radians
     }
 
-    /// 返回沿停车朝向的泊位长度，单位为米。
+    /// 返回沿停车朝向的泊位长度，单位为毫米。
     #[must_use]
-    pub const fn length_meters(self) -> f64 {
-        self.length_meters
+    pub const fn length_mm(self) -> u32 {
+        self.length_mm
     }
 
-    /// 返回垂直停车朝向的泊位宽度，单位为米。
+    /// 返回垂直停车朝向的泊位宽度，单位为毫米。
     #[must_use]
-    pub const fn width_meters(self) -> f64 {
-        self.width_meters
+    pub const fn width_mm(self) -> u32 {
+        self.width_mm
     }
 }

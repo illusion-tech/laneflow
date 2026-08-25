@@ -5,7 +5,7 @@
 //! 不同的键标记，并通过显式映射表转换，避免碰巧相同的 `u32` 被跨阶段复用。
 //!
 //! MIR 仍是 crate 私有编译阶段，不是静态镜像 ABI 或公共制品格式。它保留稳定键、
-//! `f64` 交通标量和来源位置；后续 LIR 验证/冻结完成前，调用方不得把这些表视为已验证
+//! 整数毫米交通标量和来源位置；后续 LIR 验证/冻结完成前，调用方不得把这些表视为已验证
 //! 发布输出。
 
 use std::sync::Arc;
@@ -101,10 +101,10 @@ pub(crate) struct MirLaneEdge {
     pub(crate) stable_key: Arc<str>,
     /// 从 HIR 原样携带的 Identity v1 有类型稳定标识。
     pub(crate) stable_id: LaneEdgeId,
-    /// 交通权威长度，单位为米并保持 `f64`。
-    pub(crate) length_meters: f64,
-    /// 基础道路限速，单位为米每秒并保持 `f64`。
-    pub(crate) speed_limit_meters_per_second: f64,
+    /// 交通权威长度，单位为毫米。
+    pub(crate) length_mm: u32,
+    /// 基础道路限速，单位为毫米每秒。
+    pub(crate) speed_limit_mm_s: u32,
     /// 此边在 `MirUnit::lane_edge_connections` 中的半开连续区间。
     pub(crate) connections: TableRange<MirLaneEdgeConnection>,
     /// 原始声明位置。
@@ -328,16 +328,16 @@ pub(crate) struct MirParkingArea {
 #[derive(Clone)]
 pub(crate) struct MirParkingLaneAnchor {
     pub(crate) lane_edge: MirLaneEdgeKey,
-    pub(crate) progress_meters: f64,
+    pub(crate) progress_mm: u32,
     pub(crate) source_location: ResolvedSourceLocation,
 }
 
 #[derive(Clone, Copy)]
 pub(crate) struct MirParkingSpaceGeometry {
-    pub(crate) lateral_offset_meters: f64,
-    pub(crate) heading_offset_radians: f64,
-    pub(crate) length_meters: f64,
-    pub(crate) width_meters: f64,
+    pub(crate) lateral_offset_mm: i32,
+    pub(crate) heading_offset_radians: f32,
+    pub(crate) length_mm: u32,
+    pub(crate) width_mm: u32,
 }
 
 pub(crate) struct MirParkingSpace {
@@ -370,13 +370,13 @@ pub(crate) struct MirVehicleProfile {
     pub(crate) stable_id: VehicleProfileId,
     pub(crate) participant_class: MirParticipantClassKey,
     pub(crate) participant_class_source_span: SourceLocation,
-    pub(crate) length_meters: f64,
-    pub(crate) desired_speed_meters_per_second: f64,
-    pub(crate) min_gap_meters: f64,
-    pub(crate) time_headway_seconds: f64,
-    pub(crate) max_acceleration_meters_per_second_squared: f64,
-    pub(crate) comfortable_deceleration_meters_per_second_squared: f64,
-    pub(crate) emergency_deceleration_meters_per_second_squared: f64,
+    pub(crate) length_mm: u32,
+    pub(crate) desired_speed_mm_s: u32,
+    pub(crate) min_gap_mm: u32,
+    pub(crate) time_headway_seconds: f32,
+    pub(crate) max_acceleration_meters_per_second_squared: f32,
+    pub(crate) comfortable_deceleration_meters_per_second_squared: f32,
+    pub(crate) emergency_deceleration_meters_per_second_squared: f32,
     pub(crate) source_span: SourceLocation,
 }
 
@@ -992,8 +992,8 @@ pub(crate) fn lower_to_mir(
                 module,
                 stable_key: Arc::clone(&edge.stable_key),
                 stable_id: edge.stable_id,
-                length_meters: edge.length_meters,
-                speed_limit_meters_per_second: edge.speed_limit_meters_per_second,
+                length_mm: edge.length_mm,
+                speed_limit_mm_s: edge.speed_limit_mm_s,
                 connections: TableRange::empty(),
                 source_span: edge.source_span.clone(),
             })
@@ -1415,19 +1415,19 @@ pub(crate) fn lower_to_mir(
             parking_area_source_location: space.parking_area_source_location.clone(),
             entry: MirParkingLaneAnchor {
                 lane_edge: hir_to_mir[space.entry.lane_edge.index()],
-                progress_meters: space.entry.progress_meters,
+                progress_mm: space.entry.progress_mm,
                 source_location: space.entry.source_location.clone(),
             },
             exit: MirParkingLaneAnchor {
                 lane_edge: hir_to_mir[space.exit.lane_edge.index()],
-                progress_meters: space.exit.progress_meters,
+                progress_mm: space.exit.progress_mm,
                 source_location: space.exit.source_location.clone(),
             },
             geometry: MirParkingSpaceGeometry {
-                lateral_offset_meters: space.geometry.lateral_offset_meters,
+                lateral_offset_mm: space.geometry.lateral_offset_mm,
                 heading_offset_radians: space.geometry.heading_offset_radians,
-                length_meters: space.geometry.length_meters,
-                width_meters: space.geometry.width_meters,
+                length_mm: space.geometry.length_mm,
+                width_mm: space.geometry.width_mm,
             },
             source_span: space.source_span.clone(),
         })
@@ -1560,9 +1560,9 @@ pub(crate) fn lower_to_mir(
             stable_id: profile.stable_id,
             participant_class: participant_class_mapping[profile.participant_class.index()],
             participant_class_source_span: profile.participant_class_source_span.clone(),
-            length_meters: profile.length_meters,
-            desired_speed_meters_per_second: profile.desired_speed_meters_per_second,
-            min_gap_meters: profile.min_gap_meters,
+            length_mm: profile.length_mm,
+            desired_speed_mm_s: profile.desired_speed_mm_s,
+            min_gap_mm: profile.min_gap_mm,
             time_headway_seconds: profile.time_headway_seconds,
             max_acceleration_meters_per_second_squared: profile
                 .max_acceleration_meters_per_second_squared,
@@ -1937,8 +1937,8 @@ mod tests {
         assert_eq!(mir.mir_record_count, 5);
         assert_eq!(mir.modules[1].source_span.source_document_key(), "city/app");
         assert_eq!(mir.lane_edges[1].stable_id, hir.lane_edges[1].stable_id);
-        assert_eq!(mir.lane_edges[1].length_meters, 12.5);
-        assert_eq!(mir.lane_edges[1].speed_limit_meters_per_second, 13.75);
+        assert_eq!(mir.lane_edges[1].length_mm, 12_500);
+        assert_eq!(mir.lane_edges[1].speed_limit_mm_s, 13_750);
         assert_eq!(
             mir.lane_edges[1].source_span.source_document_key(),
             "city/app"

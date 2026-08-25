@@ -8,25 +8,27 @@ use laneflow_static_contract::{
     AccessEffect, AuthoringLaneKind, CanonicalFrameKind, EntityKind, EntityKindMarker,
     FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind, ManeuverGateKind,
     ManeuverPathKind, MovementKind, ParkingAreaKind, ParticipantClassKind, RoadSectionKind,
-    SignalAspect, SignalGroupKind, StopLineKind,
+    SignalAspect, SignalGroupKind, StopLineKind, heading_f32_from_si, millimetres_from_si,
+    millimetres_i32_from_si,
 };
 
 use super::location::RoadEditingLocationFactory;
 use super::rules::validate_wire_reference;
 use crate::declaration::{
-    AccessRuleDeclaration, AuthoringCurveProgramDeclaration, AuthoringCurveSegmentDeclaration,
+    AccessRuleDeclaration, AdmittedIidmProfile, AdmittedParkingGeometry,
+    AuthoringCurveProgramDeclaration, AuthoringCurveSegmentDeclaration,
     AuthoringCurveSegmentGeometry, AuthoringLaneDeclaration, AuthoringLaneDirection,
     AuthoringLaneGeometry, AuthoringPoint3F64, AuthoringStationEnd, AuthoringWidthProfile,
-    CanonicalFrameDeclaration, DeclarationHeader, FacilityBandDeclaration, IidmVehicleProfileInput,
-    JunctionDeclaration, LaneEdgeDeclaration, LaneEdgeGeometryAuthority, LaneGroupDeclaration,
-    ManeuverGateDeclaration, ManeuverPathDeclaration, MovementDeclaration, OwnedAccessRegulation,
-    OwnedAccessRuleTarget, OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl,
+    CanonicalFrameDeclaration, DeclarationHeader, FacilityBandDeclaration, JunctionDeclaration,
+    LaneEdgeDeclaration, LaneEdgeGeometryAuthority, LaneGroupDeclaration, ManeuverGateDeclaration,
+    ManeuverPathDeclaration, MovementDeclaration, OwnedAccessRegulation, OwnedAccessRuleTarget,
+    OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl,
     ParkingAreaDeclaration, ParkingLaneAnchorDeclaration, ParkingSpaceDeclaration,
-    ParkingSpaceGeometryInput, ParticipantClassDeclaration, RoadAlignmentDeclaration,
-    RoadCorridorAuthoringGeometry, RoadCorridorDeclaration, RoadSectionDeclaration,
-    SignalControllerDeclaration, SignalGroupDeclaration, SignalGroupStateDeclaration,
-    SignalPhaseDeclaration, SpeedLimit, StaticRouteDeclaration, StopLineDeclaration,
-    TypedAstDeclaration, TypedAstEntityAddress, VehicleProfileDeclaration, WaitingZoneDeclaration,
+    ParticipantClassDeclaration, RoadAlignmentDeclaration, RoadCorridorAuthoringGeometry,
+    RoadCorridorDeclaration, RoadSectionDeclaration, SignalControllerDeclaration,
+    SignalGroupDeclaration, SignalGroupStateDeclaration, SignalPhaseDeclaration, SpeedLimit,
+    StaticRouteDeclaration, StopLineDeclaration, TypedAstDeclaration, TypedAstEntityAddress,
+    VehicleProfileDeclaration, WaitingZoneDeclaration,
 };
 use crate::{
     RoadEditingPropertyStep, RoadEditingRelationKind, RoadEditingRelationOccurrence,
@@ -344,23 +346,7 @@ pub(super) fn lower_independent_declarations(
                     value.canvas_selection(),
                 ),
             ),
-            iidm: IidmVehicleProfileInput {
-                length_meters: canonicalize_zero(iidm.length_meters()),
-                desired_speed_meters_per_second: canonicalize_zero(
-                    iidm.desired_speed_meters_per_second(),
-                ),
-                min_gap_meters: canonicalize_zero(iidm.min_gap_meters()),
-                time_headway_seconds: canonicalize_zero(iidm.time_headway_seconds()),
-                max_acceleration_meters_per_second_squared: canonicalize_zero(
-                    iidm.max_acceleration_meters_per_second_squared(),
-                ),
-                comfortable_deceleration_meters_per_second_squared: canonicalize_zero(
-                    iidm.comfortable_deceleration_meters_per_second_squared(),
-                ),
-                emergency_deceleration_meters_per_second_squared: canonicalize_zero(
-                    iidm.emergency_deceleration_meters_per_second_squared(),
-                ),
-            },
+            iidm: admit_iidm_profile(iidm),
         })
     }));
 
@@ -1511,7 +1497,7 @@ pub(super) fn lower_aggregate_declarations(
                         value.canvas_selection(),
                     ),
                 ),
-                progress_meters: canonicalize_zero(entry.progress_meters()),
+                progress_mm: admit_parking_progress(entry.progress_meters()),
             },
             exit: ParkingLaneAnchorDeclaration {
                 lane_edge: lower_reference::<LaneEdgeKind>(
@@ -1529,14 +1515,9 @@ pub(super) fn lower_aggregate_declarations(
                         value.canvas_selection(),
                     ),
                 ),
-                progress_meters: canonicalize_zero(exit.progress_meters()),
+                progress_mm: admit_parking_progress(exit.progress_meters()),
             },
-            geometry: ParkingSpaceGeometryInput {
-                lateral_offset_meters: canonicalize_zero(geometry.lateral_offset_meters()),
-                heading_offset_radians: canonicalize_zero(geometry.heading_offset_radians()),
-                length_meters: canonicalize_zero(geometry.length_meters()),
-                width_meters: canonicalize_zero(geometry.width_meters()),
-            },
+            geometry: admit_parking_geometry(geometry),
         })
     }));
 
@@ -1804,6 +1785,50 @@ fn nested_property_location(
 #[inline]
 fn canonicalize_zero(value: f64) -> f64 {
     if value == 0.0 { 0.0 } else { value }
+}
+
+fn admit_parking_progress(value: f64) -> u32 {
+    millimetres_from_si(canonicalize_zero(value))
+        .expect("semantic preflight validated parking progress")
+}
+
+fn admit_parking_geometry(geometry: wire::ParkingSpaceGeometry<'_>) -> AdmittedParkingGeometry {
+    AdmittedParkingGeometry {
+        lateral_offset_mm: millimetres_i32_from_si(canonicalize_zero(
+            geometry.lateral_offset_meters(),
+        ))
+        .expect("semantic preflight validated parking lateral offset"),
+        heading_offset_radians: heading_f32_from_si(canonicalize_zero(
+            geometry.heading_offset_radians(),
+        ))
+        .expect("semantic preflight validated parking heading"),
+        length_mm: millimetres_from_si(canonicalize_zero(geometry.length_meters()))
+            .expect("semantic preflight validated parking length"),
+        width_mm: millimetres_from_si(canonicalize_zero(geometry.width_meters()))
+            .expect("semantic preflight validated parking width"),
+    }
+}
+
+fn admit_iidm_profile(iidm: wire::IidmVehicleProfile<'_>) -> AdmittedIidmProfile {
+    AdmittedIidmProfile {
+        length_mm: millimetres_from_si(canonicalize_zero(iidm.length_meters()))
+            .expect("semantic preflight validated vehicle length"),
+        desired_speed_mm_s: SpeedLimit::try_new(iidm.desired_speed_meters_per_second())
+            .expect("semantic preflight validated desired speed")
+            .millimetres_per_second(),
+        min_gap_mm: millimetres_from_si(canonicalize_zero(iidm.min_gap_meters()))
+            .expect("semantic preflight validated min gap"),
+        time_headway_seconds: canonicalize_zero(iidm.time_headway_seconds()) as f32,
+        max_acceleration_meters_per_second_squared: canonicalize_zero(
+            iidm.max_acceleration_meters_per_second_squared(),
+        ) as f32,
+        comfortable_deceleration_meters_per_second_squared: canonicalize_zero(
+            iidm.comfortable_deceleration_meters_per_second_squared(),
+        ) as f32,
+        emergency_deceleration_meters_per_second_squared: canonicalize_zero(
+            iidm.emergency_deceleration_meters_per_second_squared(),
+        ) as f32,
+    }
 }
 
 #[cfg(test)]
@@ -2491,8 +2516,8 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        assert_eq!(parking.entry.progress_meters, 1.0);
-        assert_eq!(parking.geometry.length_meters, 5.0);
+        assert_eq!(parking.entry.progress_mm, 1_000);
+        assert_eq!(parking.geometry.length_mm, 5_000);
         assert_eq!(
             parking
                 .entry

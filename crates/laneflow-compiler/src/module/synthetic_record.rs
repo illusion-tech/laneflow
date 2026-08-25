@@ -232,7 +232,7 @@ pub(super) fn vehicle_profile_declaration_len(
             &participant_class.module_namespace,
             participant_class.declaration_key(),
         ))
-        .saturating_add(7 * 8)
+        .saturating_add(7 * 4)
 }
 
 #[inline]
@@ -283,7 +283,7 @@ pub(super) fn canonical_frame_declaration_len(declaration: &CanonicalFrameDeclar
 
 #[inline]
 pub(super) fn lane_edge_declaration_base_len(stable_key: &str) -> u64 {
-    declaration_header_len(stable_key).saturating_add(8 + 8 + 4)
+    declaration_header_len(stable_key).saturating_add(4 + 4 + 4)
 }
 
 #[inline]
@@ -442,7 +442,7 @@ pub(super) fn signal_controller_declaration_len(declaration: &SignalControllerDe
 
 #[inline]
 pub(super) fn parking_space_input_len(input: &ParkingSpaceInput<'_>, local_namespace: &str) -> u64 {
-    let mut length = declaration_header_len(input.parking_space_key).saturating_add(1 + 8 * 6);
+    let mut length = declaration_header_len(input.parking_space_key).saturating_add(1 + 4 * 6);
     if let Some(area) = input.parking_area {
         length = length.saturating_add(encoded_reference_len(
             area.module_namespace().unwrap_or(local_namespace),
@@ -460,7 +460,7 @@ pub(super) fn parking_space_input_len(input: &ParkingSpaceInput<'_>, local_names
 
 pub(super) fn parking_space_declaration_len(declaration: &ParkingSpaceDeclaration) -> u64 {
     let mut length =
-        declaration_header_len(&declaration.header.stable_key).saturating_add(1 + 8 * 6);
+        declaration_header_len(&declaration.header.stable_key).saturating_add(1 + 4 * 6);
     if let Some(area) = &declaration.parking_area {
         length = length.saturating_add(encoded_reference_len(
             &area.module_namespace,
@@ -739,10 +739,15 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
                     .geometry_authority
                     .direct_length()
                     .expect("synthetic source records only contain direct lane lengths")
-                    .value()
+                    .millimetres()
                     .to_le_bytes(),
             );
-            output.extend_from_slice(&declaration.speed_limit.value().to_le_bytes());
+            output.extend_from_slice(
+                &declaration
+                    .speed_limit
+                    .millimetres_per_second()
+                    .to_le_bytes(),
+            );
             output.extend_from_slice(
                 &u32::try_from(declaration.successors.len())
                     .unwrap_or(u32::MAX)
@@ -910,13 +915,13 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
             }
             for anchor in [&declaration.entry, &declaration.exit] {
                 put_owned_reference(output, &anchor.lane_edge);
-                output.extend_from_slice(&anchor.progress_meters.to_bits().to_le_bytes());
+                output.extend_from_slice(&anchor.progress_mm.to_le_bytes());
             }
             let geometry = declaration.geometry;
-            output.extend_from_slice(&geometry.lateral_offset_meters.to_bits().to_le_bytes());
+            output.extend_from_slice(&geometry.lateral_offset_mm.to_le_bytes());
             output.extend_from_slice(&geometry.heading_offset_radians.to_bits().to_le_bytes());
-            output.extend_from_slice(&geometry.length_meters.to_bits().to_le_bytes());
-            output.extend_from_slice(&geometry.width_meters.to_bits().to_le_bytes());
+            output.extend_from_slice(&geometry.length_mm.to_le_bytes());
+            output.extend_from_slice(&geometry.width_mm.to_le_bytes());
         }
         TypedAstDeclaration::ParticipantClass(declaration) => {
             put_declaration_header(output, &declaration.header);
@@ -929,10 +934,10 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
             put_declaration_header(output, &declaration.header);
             put_owned_reference(output, &declaration.participant_class);
             let iidm = declaration.iidm;
+            for value in [iidm.length_mm, iidm.desired_speed_mm_s, iidm.min_gap_mm] {
+                output.extend_from_slice(&value.to_le_bytes());
+            }
             for value in [
-                iidm.length_meters,
-                iidm.desired_speed_meters_per_second,
-                iidm.min_gap_meters,
                 iidm.time_headway_seconds,
                 iidm.max_acceleration_meters_per_second_squared,
                 iidm.comfortable_deceleration_meters_per_second_squared,

@@ -9,7 +9,6 @@ mod lfca;
 mod lfsd;
 mod lfsm;
 mod model;
-mod quantize;
 mod relations;
 mod wire;
 

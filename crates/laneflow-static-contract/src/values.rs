@@ -70,7 +70,7 @@ pub const MIN_ACCEL_METERS_PER_SECOND_SQUARED: f32 = 0.5;
 /// 加速度/减速度上限（含），单位为米每二次方秒。
 pub const MAX_ACCEL_METERS_PER_SECOND_SQUARED: f32 = 50.0;
 
-/// 编制/发射量化后折成 `-π` 的 binary32 位型。
+/// 编制/准入量化后折成 `-π` 的 binary32 位型。
 pub const HEADING_PLUS_PI_F32_BITS: u32 = 0x4049_0fdb;
 
 /// 合法朝向闭包的 `-π` binary32 位型。

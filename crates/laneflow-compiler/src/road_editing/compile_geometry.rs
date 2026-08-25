@@ -9,6 +9,7 @@ use crate::declaration::{
     RoadSectionDeclaration, TypedAstDeclaration, TypedAstEntityAddress,
 };
 use crate::{GeometryAccuracyProfile, GeometryDirectionProfile, SourceLocation};
+use laneflow_static_contract::{MAX_LANE_EDGE_LENGTH_MM, MIN_LANE_EDGE_LENGTH_MM};
 
 use super::geometry::{
     ApproximationInterval, ApproximationPoint, ApproximationPointSink, ApproximationVertex,
@@ -1379,7 +1380,11 @@ fn compile_explicit_curve_exact(
 }
 
 fn closed_traffic_lane_edge_length(length: EdgeLength) -> Result<EdgeLength, NumericFreezeError> {
-    EdgeLength::try_new(length.value()).map_err(|_| NumericFreezeError::LaneEdgeLengthOutOfRange)
+    let millimetres = length.millimetres();
+    if millimetres < MIN_LANE_EDGE_LENGTH_MM || millimetres > MAX_LANE_EDGE_LENGTH_MM {
+        return Err(NumericFreezeError::LaneEdgeLengthOutOfRange);
+    }
+    Ok(length)
 }
 
 #[cfg(test)]
@@ -2254,7 +2259,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(compiled.points.len(), 2);
-        assert_eq!(compiled.length.value(), 5.0);
+        assert_eq!(compiled.length.millimetres(), 5_000);
         assert!(closed_traffic_lane_edge_length(compiled.length).is_ok());
         assert!(matches!(
             closed_traffic_lane_edge_length(
@@ -2339,7 +2344,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(compiled.points.len(), 154);
-        assert!(compiled.length.value() > 189.5);
+        assert!(compiled.length.observation_metres() > 189.5);
         let reference = compile_alignment_reference(&program, station_row_bytes(153)).unwrap();
         assert_eq!(reference.station_rows.len(), 153);
         assert_eq!(reference.horizontal_regularity_visits.as_ref(), [3]);
@@ -2402,7 +2407,7 @@ mod tests {
         assert_eq!(compiled.points[0].x, 0.0);
         assert_eq!(compiled.points[1].x, 3.0);
         assert_eq!(compiled.points[2].x, 6.0);
-        assert_eq!(compiled.length.value(), 6.0);
+        assert_eq!(compiled.length.millimetres(), 6_000);
     }
 
     #[test]
@@ -2761,7 +2766,10 @@ mod tests {
         assert_eq!(forward.points[0].z, -2.0);
         assert_eq!(forward.points[1].x, 8.0);
         assert_eq!(forward.points[1].z, -4.0);
-        assert_eq!(forward.length.value(), 40.0_f64.sqrt());
+        assert_eq!(
+            forward.length.millimetres(),
+            laneflow_static_contract::millimetres_from_si(40.0_f64.sqrt()).unwrap()
+        );
 
         let backward = compile_offset_curve(
             &program,
@@ -2780,7 +2788,7 @@ mod tests {
             backward.points,
             forward.points.iter().rev().copied().collect()
         );
-        assert_eq!(backward.length.value(), forward.length.value());
+        assert_eq!(backward.length.millimetres(), forward.length.millimetres());
     }
 
     #[test]
@@ -3078,7 +3086,7 @@ mod tests {
         let LaneEdgeGeometryAuthority::Compiled(geometry) = &edge_a.geometry_authority else {
             panic!("section-derived edge must have compiled geometry");
         };
-        assert_eq!(geometry.length.value(), 10.0);
+        assert_eq!(geometry.length.millimetres(), 10_000);
         assert_eq!(geometry.centerline_points.len(), 2);
         assert_eq!(
             geometry

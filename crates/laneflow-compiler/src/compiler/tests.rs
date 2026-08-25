@@ -18,7 +18,7 @@ use crate::{
     StopLineInput, StopLineReference, SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput,
     WaitingZoneInput,
 };
-use laneflow_static_contract::CanonicalFrameKind;
+use laneflow_static_contract::{CanonicalFrameKind, HEADING_MINUS_PI_F32_BITS};
 use std::sync::Arc;
 
 fn module(
@@ -1185,8 +1185,8 @@ fn compiler_atomically_returns_lir_source_map_and_success_diagnostics() {
     assert_eq!(edge_key(edges[0]), "edge-a");
     assert_eq!(edges[0].ordinal().raw(), 0);
     assert_eq!(edges[0].successors(), [LaneEdgeOrdinal::from_raw(1)]);
-    assert_eq!(edges[0].length_meters(), 10.0);
-    assert_eq!(edges[0].speed_limit_meters_per_second(), 13.75);
+    assert_eq!(edges[0].length_mm(), 10_000);
+    assert_eq!(edges[0].speed_limit_mm_s(), 13_750);
     assert_eq!(
         output
             .lir()
@@ -3636,13 +3636,13 @@ fn parking_static_contract_freezes_area_standalone_space_and_source_roles() {
     assert_eq!(area.parking_spaces(), [owned.ordinal()]);
     assert_eq!(owned.parking_area(), Some(area.ordinal()));
     assert_eq!(independent.parking_area(), None);
-    assert_eq!(owned.entry().progress_meters(), 4.0);
-    assert_eq!(owned.exit().progress_meters(), 6.0);
+    assert_eq!(owned.entry().progress_mm(), 4_000);
+    assert_eq!(owned.exit().progress_mm(), 6_000);
     assert_ne!(owned.entry().lane_edge(), owned.exit().lane_edge());
-    assert_eq!(owned.geometry().lateral_offset_meters(), -3.0);
+    assert_eq!(owned.geometry().lateral_offset_mm(), -3_000);
     assert_eq!(owned.geometry().heading_offset_radians(), 0.25);
-    assert_eq!(owned.geometry().length_meters(), 5.5);
-    assert_eq!(owned.geometry().width_meters(), 2.6);
+    assert_eq!(owned.geometry().length_mm(), 5_500);
+    assert_eq!(owned.geometry().width_mm(), 2_600);
 
     assert_eq!(output.source_map_input().parking_area_sources().len(), 1);
     assert_eq!(output.source_map_input().parking_space_sources().len(), 2);
@@ -3717,9 +3717,49 @@ fn parking_validation_rejects_orphan_anchor_and_geometry_failures() {
         [DiagnosticCode::OrphanParkingArea]
     );
 
-    let mut invalid = parking_builder("parking-invalid.document");
-    add_parking_edges(&mut invalid);
-    invalid
+    let mut invalid_geometry = parking_builder("parking-invalid-geometry.document");
+    add_parking_edges(&mut invalid_geometry);
+    invalid_geometry
+        .add_parking_area(ParkingAreaInput {
+            parking_area_key: "area-main",
+        })
+        .unwrap();
+    let geometry_codes = match invalid_geometry.add_parking_space(ParkingSpaceInput {
+        parking_space_key: "space-invalid",
+        parking_area: Some(ParkingAreaReference::local("area-main")),
+        entry: ParkingLaneAnchorInput {
+            lane_edge: LaneEdgeReference::local("parking-entry"),
+            progress_meters: 4.0,
+        },
+        exit: ParkingLaneAnchorInput {
+            lane_edge: LaneEdgeReference::local("parking-exit"),
+            progress_meters: 6.0,
+        },
+        geometry: ParkingSpaceGeometryInput {
+            lateral_offset_meters: 0.0,
+            heading_offset_radians: core::f64::consts::PI,
+            length_meters: 0.0,
+            width_meters: f64::INFINITY,
+        },
+    }) {
+        Ok(_) => panic!("invalid parking geometry must fail at admission"),
+        Err(diagnostics) => diagnostics
+            .diagnostics()
+            .iter()
+            .map(Diagnostic::code)
+            .collect::<Vec<_>>(),
+    };
+    assert_eq!(
+        geometry_codes
+            .iter()
+            .filter(|code| **code == DiagnosticCode::InvalidParkingSpaceGeometry)
+            .count(),
+        3
+    );
+
+    let mut invalid_anchors = parking_builder("parking-invalid-anchors.document");
+    add_parking_edges(&mut invalid_anchors);
+    invalid_anchors
         .add_parking_area(ParkingAreaInput {
             parking_area_key: "area-main",
         })
@@ -3736,14 +3776,14 @@ fn parking_validation_rejects_orphan_anchor_and_geometry_failures() {
                 progress_meters: 20.0,
             },
             geometry: ParkingSpaceGeometryInput {
-                lateral_offset_meters: 0.0,
-                heading_offset_radians: core::f64::consts::PI,
-                length_meters: 0.0,
-                width_meters: f64::INFINITY,
+                lateral_offset_meters: -3.0,
+                heading_offset_radians: 0.25,
+                length_meters: 5.5,
+                width_meters: 2.6,
             },
         })
         .unwrap();
-    let codes = compile_diagnostic_codes(invalid);
+    let codes = compile_diagnostic_codes(invalid_anchors);
     assert_eq!(
         codes
             .iter()
@@ -3751,14 +3791,63 @@ fn parking_validation_rejects_orphan_anchor_and_geometry_failures() {
             .count(),
         2
     );
-    assert_eq!(
-        codes
-            .iter()
-            .filter(|code| **code == DiagnosticCode::InvalidParkingSpaceGeometry)
-            .count(),
-        3
-    );
     assert!(!codes.contains(&DiagnosticCode::OrphanParkingArea));
+}
+
+#[test]
+fn parking_heading_plus_pi_is_admitted_as_minus_pi() {
+    let mut builder = parking_builder("parking-heading.document");
+    add_parking_edges(&mut builder);
+    builder
+        .add_parking_area(ParkingAreaInput {
+            parking_area_key: "area-main",
+        })
+        .unwrap()
+        .add_parking_space(ParkingSpaceInput {
+            parking_space_key: "space-heading",
+            parking_area: Some(ParkingAreaReference::local("area-main")),
+            entry: ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local("parking-entry"),
+                progress_meters: 4.0,
+            },
+            exit: ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local("parking-exit"),
+                progress_meters: 6.0,
+            },
+            geometry: ParkingSpaceGeometryInput {
+                lateral_offset_meters: -3.0,
+                heading_offset_radians: core::f64::consts::PI,
+                length_meters: 5.5,
+                width_meters: 2.6,
+            },
+        })
+        .unwrap();
+    let output = Compiler::new()
+        .compile(unit([builder.finish().unwrap()]))
+        .unwrap();
+    let space = output.lir().parking_spaces().next().unwrap();
+    assert_eq!(
+        space.geometry().heading_offset_radians().to_bits(),
+        HEADING_MINUS_PI_F32_BITS
+    );
+}
+
+#[test]
+fn compiler_freezes_ten_kilometre_edge_as_one_millimetre_closure() {
+    let mut builder = parking_builder("ten-kilometre.document");
+    builder
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "edge-max",
+            length_meters: 10_000.0,
+            speed_limit_meters_per_second: 8.0,
+            successors: &[],
+        })
+        .unwrap();
+    let output = Compiler::new()
+        .compile(unit([builder.finish().unwrap()]))
+        .unwrap();
+    let edge = output.lir().lane_edges().next().unwrap();
+    assert_eq!(edge.length_mm(), 10_000_000);
 }
 
 #[test]
@@ -3785,9 +3874,9 @@ fn compiler_freezes_vehicle_profile_values_identity_and_class_source() {
         stable_key(profile.identity_fields(), FieldTag::VehicleProfileKey),
         "standard-car"
     );
-    assert_eq!(profile.length_meters(), 4.5);
-    assert_eq!(profile.desired_speed_meters_per_second(), 13.75);
-    assert_eq!(profile.min_gap_meters(), 2.0);
+    assert_eq!(profile.length_mm(), 4_500);
+    assert_eq!(profile.desired_speed_mm_s(), 13_750);
+    assert_eq!(profile.min_gap_mm(), 2_000);
     assert_eq!(profile.time_headway_seconds(), 1.4);
     assert_eq!(profile.max_acceleration_meters_per_second_squared(), 1.8);
     assert_eq!(
@@ -3922,6 +4011,7 @@ fn compiler_validates_and_freezes_lane_edge_spatial_sampling_tables() {
     assert_eq!(geometry.lane_edge(), edge.ordinal());
     assert_eq!(geometry.canonical_frame().raw(), 0);
     assert_eq!(geometry.arc_length_meters(), 20.0);
+    assert_eq!(edge.length_mm(), 20_000);
     let frozen_points = geometry.points().collect::<Vec<_>>();
     assert_eq!(frozen_points.len(), 3);
     assert_eq!(frozen_points[0].x.to_bits(), 0.0_f32.to_bits());

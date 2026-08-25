@@ -126,16 +126,16 @@ impl CanonicalLaneEdgeView<'_> {
             })
     }
 
-    /// 返回交通权威长度，单位为米。
+    /// 返回交通权威长度，单位为毫米。
     #[must_use]
-    pub const fn length_meters(&self) -> f64 {
-        self.edge.length_meters
+    pub const fn length_mm(&self) -> u32 {
+        self.edge.length_mm
     }
 
-    /// 返回基础道路限速，单位为米每秒。
+    /// 返回基础道路限速，单位为毫米每秒。
     #[must_use]
-    pub const fn speed_limit_meters_per_second(&self) -> f64 {
-        self.edge.speed_limit_meters_per_second
+    pub const fn speed_limit_mm_s(&self) -> u32 {
+        self.edge.speed_limit_mm_s
     }
 
     /// 返回按领域顺序冻结的下游边有类型序号。
