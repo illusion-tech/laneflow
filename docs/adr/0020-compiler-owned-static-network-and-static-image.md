@@ -186,7 +186,7 @@ publishable programmatic generator 必须保留 build ID、参数、seed、names
 标识编码封装（Identity Envelope）与实体登记表（Entity Registry）使用独立版本
 轴。`identityEncodingVersion = 1`
 冻结 magic、kind、field count、strictly-increasing tag/length/value bytes；
-`identityRegistryRevision = 1` 必须覆盖 current target 的 topology、Gate/Waiting、
+`identityRegistryRevision = 2` 必须覆盖 current target 的 topology、Gate/Waiting、
 Signals/Phase、Parking、cross-section/access/profile、static Route 与 canonical
 frame declaration。新增 kind 只 append registry revision；修改既有 kind 的字段
 集合、tag 含义或编码必须提升 encoding version。完整 kind/tag/required-sequence

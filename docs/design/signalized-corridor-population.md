@@ -1,7 +1,7 @@
 # Signalized Corridor Population
 
 **文档状态**: Accepted（#203 G1；#475 Runtime 回流）<br>
-**最后更新**: 2026-08-24<br>
+**最后更新**: 2026-08-26<br>
 **适用范围**: current v0.10 signalized-corridor catalog 0.3 人口/回流 policy；
 caller-owned authority 继续继承 ADR 0016。catalog 字符串在 prepare 绑到共享路网修订
 （#472）；50–200 原子替换由 #475 交付。
@@ -64,12 +64,14 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 
 ## 3. Catalog 契约
 
-catalog version 固定为 `0.2`，必须精确包含：
+catalog version 固定为 `0.3`，拒绝 `0.2`。必须精确包含：
 
 - 文档化顺序中的 6 个 portal；
 - 每个 portal 的 ordered PortalLane：主干道 portal 各 3 条、次干道 portal 各 2 条；
 - 每条 PortalLane 的共享 entry SpawnSlot 与至少一个正权重 RouteChoice；
-- 全部 28 条 Traffic Route 到 exit portal 的唯一 cross-reference；
+- 全部 28 条路线：`route_id`、出口 portal、非空有序 `laneEdgeKey` 序列（允许同一
+  边多次出现）；bind 经身份索引解析序号后 `register_route`（ADR 0029）；
+- 全部 28 条路线到 exit portal 的唯一 cross-reference；
 - 至少 200 个 route-independent physical SpawnSlot。
 
 normalize 必须拒绝未知或重复 portal/route/slot、lane count/index 不一致、空 route
@@ -160,17 +162,18 @@ cargo +1.96.0 test --offline -p laneflow-scenario --test signalized_corridor_pop
 
 ## 8. Replay 与兼容性
 
-catalog 0.2 规范顺序、SplitMix64 算法、physical-slot Fisher–Yates、initial
-weighted route draw、completion 的 portal/lane/route draw order、raw weights、
-initial ID 和 batch permutation 共同构成 current replay contract。blocked retry
-不 draw、不改变 frozen plan。修改其中任一项必须通过新的设计/迁移决策，不能作为
-无说明的内部重构。
+catalog 0.3 规范顺序、每条路线的有序边键、SplitMix64 算法、physical-slot
+Fisher–Yates、initial weighted route draw、completion 的 portal/lane/route draw
+order、raw weights、initial ID 和 batch permutation 共同构成 current replay
+contract。blocked retry 不 draw、不改变 frozen plan。修改其中任一项必须通过新的
+设计/迁移决策，不能作为无说明的内部重构。
 
-catalog `0.1 -> 0.2` 是无兼容 clean break，不提供旧 DTO、dual parser、alias 或
-migration shim。本实现通过 `TrafficWorld::replace_completed_vehicle` 与 Adapter
-typed 换绑交付回流；不恢复 current JSON / `laneflow-data`，也不把人口政策写入 `step`。
+catalog `0.2 -> 0.3` 是无兼容 clean break（补边键、启动时 `register_route`），
+不提供旧 DTO、dual parser、alias 或 migration shim。本实现通过
+`TrafficWorld::replace_completed_vehicle` 与 Adapter typed 换绑交付回流；不恢复
+current JSON / `laneflow-data`，也不把人口政策写入 `step`。
 
-## 9. v0.9 catalog 0.2 current 实现
+## 9. 当时 catalog 0.2 实现（历史；现行契约为 0.3）
 
 #190 在不改变 caller-owned lifecycle、ordered completion、bounded state 与 blocked
 retry authority 的前提下，已按 #196 clean-break 实现：
