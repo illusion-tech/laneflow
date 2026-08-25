@@ -1,7 +1,7 @@
 # 共享静态路网
 
 **文档状态**: Accepted（#300 G1 Pass）<br>
-**最后更新**: 2026-08-25（#496：热列为整数毫米 / `mm/s`，制品只承认 `formatVersion = 2`）<br>
+**最后更新**: 2026-08-26（#500 G1：IR 边长提交为写出值；#496：热列为整数毫米 / `mm/s`）<br>
 **适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
 **关联文档**: `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
@@ -23,7 +23,8 @@ Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验
 的消费并使它成为唯一可运行交通世界，同时拆除 current Core/JSON 运行时入口；契约见
 `traffic-runtime-shared-consumption.md`。ADR 0028 / `traffic-runtime-integer-geometry.md`
 把生产热列定为 `u32` mm 与 mm/s，制品为 **LFCA `formatVersion = 2`**。
-有折线时边长从弧长 round，headless 从 LIR 交通边长 round；不从 Spatial 反推。
+有折线时边长从弧长 round 并写回 IR；headless 用准入毫米。LFCA 与 LIR 是同一整数；
+不从 Spatial 反推。#500 G1 修订编译器 IR 存储，未 Pass，不授权实现。
 
 ## 2. 职责与依赖
 

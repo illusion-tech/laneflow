@@ -1,8 +1,8 @@
 # 数值表示与精度
 
-**文档状态**: Accepted（已提交一维几何为整数毫米；编制 `f64` 与 Spatial canonical `f32` 仍在量化之前）
+**文档状态**: Accepted（已提交一维几何为整数毫米；编制 `f64` 与 Spatial canonical `f32` 仍在量化之前）；#500 G1 修订编译器 IR 存储（未 Pass）
 
-**最后更新**: 2026-08-25（#496：交通一维权威为整数毫米；#296 compiler 前端数值权威不变：canonical `f32` 折线，`f64` 仅编制 analytic/reference 与非几何时距/加减速）
+**最后更新**: 2026-08-26（#500：准入后 compiler IR 交通一维改为整数毫米；#496：交通一维权威为整数毫米；#296 compiler 前端数值权威不变：canonical `f32` 折线，`f64` 仅编制 analytic/reference）
 
 **适用范围**: 数值分层、误差预算、compiler 前端几何权威，以及已提交整数毫米合同
 
@@ -29,7 +29,7 @@
 本文记录现行数值合同，并把 #125 / #144 的米制哨兵与残差 `f32` 候选标为历史：
 
 - `#496` 已落地：`TrafficWorld` / 共享热列 / LFCA 长度与限速为整数毫米 / `mm/s`；#144 残差 `f32` 迁移已回退，**不再**作为生产目标。
-- 现行合同是 ADR 0028：已提交一维几何为整数毫米 + 微米余数，速度为 `u32` mm/s，步长 `4..=1000` ms，边长由 compiler 内部规范 `f32` 弧长派生后量化，`max_accel` / 舒适与紧急减速度均 `>= 0.5 m/s²`，不另做速度余数。对照门是该契约自洽，不是与旧 `f64` tick 零分歧，也不是 `5%` 墙钟。
+- 现行合同是 ADR 0028：已提交一维几何为整数毫米 + 微米余数，速度为 `u32` mm/s，步长 `4..=1000` ms，有折线边长由规范 `f32` 弧长派生后量化并写回 IR，`max_accel` / 舒适与紧急减速度均 `>= 0.5 m/s²`，不另做速度余数。对照门是该契约自洽，不是与旧 `f64` tick 零分歧，也不是 `5%` 墙钟。#500 G1（未 Pass）：准入后 Typed AST / HIR / MIR / LIR 交通一维与制品同一套整数，公开 `Canonical*View` 删除米制访问器。
 - 空间层按 ADR 0015 使用每轴 `±16_384 m` 的 canonical `f32` 几何/位姿；编制曲线按 ADR 0022 在 `f64` 中求值。三维点/向量不并入毫米轴（#354）。
 - 下面 §2 起的 current-`f64` 领域表与米制哨兵是 **历史实现与 #144 证据**，生产判定使用整数比较与 `100 mm` / `1 mm` 常量。
 
@@ -229,7 +229,7 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 | LIR 同版本语义指纹（semantic fingerprint）  | `[u8; 32]`                                           | compiler 输出                          | `Lir::semantic_digest` 与 `CompilationMetrics::semantic_fingerprint()` 固定为 32 bytes；#298 的 portable artifact 字节完整性 digest 归 #298                                                                                                                                                                                   |
 | Core ↔ compiler projection                  | 仅 integration-only                                  | `laneflow-compiler-test-support`       | 投影不进入 `laneflow-compiler` 生产功能，#301 拆除 Core 时删除                                                                                                                                                                                                                                                                |
 
-- 当前已提交交通一维为整数毫米 + `carry_um` + `u32` mm/s（ADR 0028）。ADR 0014 补偿残差感知 `f32` 进度是 **#144 历史目标**，经 no-go 回退。compiler 编制曲线保持 `f64` 求值，canonical 折线仍为 `f32` 米。
+- 当前已提交交通一维为整数毫米 + `carry_um` + `u32` mm/s（ADR 0028）。ADR 0014 补偿残差感知 `f32` 进度是 **#144 历史目标**，经 no-go 回退。compiler 编制曲线保持 `f64` 求值，canonical 折线仍为 `f32` 米。提案中（#500）：准入后 compiler IR 交通一维不再存编制米列。
 - 注册管线只有有类型抽象语法树（typed AST）、高层中间表示（HIR）、中层中间表示（MIR）与已验证规范低层中间表示（canonical LIR）；私有 `SpatialHir` 是 `build_spatial_hir` 在高层中间表示（HIR）构造期间使用的内部子表示，不是第二个已注册阶段。其 canonical 折线（`HirCanonicalPoint3F32`/`HirSpatialSegment`）为 `f32`，由共享 `freeze_spatial_polyline` 冻结；官方来源不直接构造 Spatial 对象。
 - road-editing analytic/reference 子表示（编制解析曲线、道路里程站位 reference 基表、配置档阈值）与非几何交通/静态标量均以 `f64` 存续；canonical 折线自 geometry compile 起量化到有界 `f32` 并贯穿高层中间表示（HIR）内部 `SpatialHir` 子表示、中层中间表示（MIR）与 LIR（ADR 0022 五层表示）。
 - 道路里程站位（Stationing）是 authoring 曲线的配置档无关累计弦长基表，按 source curve segment 组织，不属于运行时 edge 序列里程。

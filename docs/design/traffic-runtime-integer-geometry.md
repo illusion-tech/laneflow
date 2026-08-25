@@ -1,9 +1,10 @@
 # 交通运行时整数毫米几何
 
-**文档状态**: Accepted（#496 G1；当前树只承认一套制品合同，公开 API 不带 V1/V2 后缀）<br>
-**最后更新**: 2026-08-25<br>
+**文档状态**: Accepted（#496）；#500 G1 修订编译器 IR（Review，未 Pass，不授权实现）<br>
+**最后更新**: 2026-08-26<br>
 **适用范围**: `TrafficWorld` 已提交一维几何与速度、`WorldConfig` 步长、
-`laneflow-static-network` 热列、LFCA 长度/速度字段、compiler 边长派生、
+`laneflow-static-network` 热列、LFCA 长度/速度字段、compiler Typed AST / HIR /
+MIR / LIR 交通一维存储、公开 `Canonical*View`、compiler 边长派生、
 Spatial 采样钉死端点<br>
 **关联文档**: `../adr/0028-integer-millimeter-traffic-geometry.md`、
 `../adr/0003-runtime-tick-and-determinism.md`、
@@ -14,22 +15,25 @@ Spatial 采样钉死端点<br>
 `traffic-runtime-shared-consumption.md`、`shared-static-network.md`、
 `portable-canonical-artifact.md`、`signal-system.md`、`route-system.md`
 
-本文是 #496 已落地的实现合同。它不授权 #302 快照容器、#303 Routing、残差
-`f32` 进度或整数 IIDM。当前树只承认整数毫米一维几何；编制 `f64` 与 Spatial `f32`
-仍在量化之前。
+本文是 #496 已落地的 Runtime / 制品合同，并写入 #500 对编译器 IR 的 G1 修订。
+它不授权 #302 快照容器、#303 Routing、残差 `f32` 进度或整数 IIDM，也不授权 #500
+G2 实现。当前树制品与 Runtime 只承认整数毫米一维几何；编制 `f64` 与 Spatial `f32`
+仍在量化之前。G2 前 compiler IR **实现**仍可暂存编制 SI 米。
 
-G1 冻权威、单位、量化顺序、制品字段与跨实现算法。公开米制面只作编制输入或只读换算。
+G1 冻权威、单位、量化顺序、制品字段与跨实现算法。#500：公开 `Canonical*View`
+交通一维删除米制访问器，不留只读换算。
 
 ## 1. 结论
 
 已提交交通一维几何与限速改为整数合同：
 
 ```text
-编制 f64 曲线
-  -> 规范 f32 折线 / 弧长          （有折线时；ADR 0022 / 0015，#354 不改）
-  -> length_mm = round(弧长或 LIR 交通边长 ×1000)
-  -> SharedTrafficNetwork 热列 u32 mm / mm/s
-  -> TrafficWorld 进度 u32 mm + carry_um
+编制 f64 曲线 / 编制交通 SI
+  -> 准入量化一次（mm / 受检 f32 SI）
+  -> Typed AST / HIR / MIR / LIR 交通一维只带整数毫米
+  -> 有折线：length_mm/1000 对账规范 f32 弧长；通过后提交 round(弧长)
+     无折线：提交准入毫米
+  -> LFCA / 共享热列 / Canonical 视图 / TrafficWorld 同一套 u32 mm
 ```
 
 IIDM 仍在 `f32` SI 中算出「这一拍最多走多远」。**先**用整数硬约束得到
@@ -170,28 +174,53 @@ G2 决定访问器名字。
 
 ## 6. compiler 与 LFCA
 
-LFCA / Traffic 热列只存 `U32` 毫米边长。headless **不求弧、也不需要弧**：
+#500：编制 `f64` 只存在准入边界之前。准入量化一次之后，Typed AST / HIR / MIR / LIR
+的交通一维存储权威是整数毫米；时距、三项加减速、朝向是受检 `f32` SI。不得把原来的
+`f64` 留下再在发射 round。G2 决定字段名。G2 前 IR **实现**仍可暂存编制 SI 米。
+
+交通一维在 IR 中的量：
+
+| 记录             | 整数毫米 / `mm/s`         | 仍为受检 `f32` SI |
+| ---------------- | ------------------------- | ----------------- |
+| `LaneEdge`       | 边长、限速                | —                 |
+| `VehicleProfile` | 车长、期望车速、`min_gap` | 时距、三项加减速  |
+| 停车锚点 / 矩形  | 进度、横向 `i32` mm、长宽 | 朝向              |
+
+LFCA / Traffic 热列只存 `U32` 毫米边长。headless **不求弧、也不需要弧**。禁止从位姿
+采样或空 Spatial 表反推边长。无 Spatial 时不得走车辆 pose 采样。
+
+编译器边长提交（#500；有折线把 IR 写成 LFCA 将写出的值）：
 
 ```text
-有折线:  length_mm = round-ties-to-even(f64(arc_m) × 1000)
-无折线:  length_mm = round-ties-to-even(f64(lir_length_m) × 1000)
-require 100 <= length_mm <= 10_000_000
+准入:     declared_mm = round-ties-to-even(f64(SI) × 1000)
+          require 100 <= declared_mm <= 10_000_000
+有折线:   obs_m = f64(declared_mm) / 1000
+          abs(obs_m - f64(arc_m))
+            <= max(0.01 m, 1.0e-6 * max(obs_m, f64(arc_m)))
+          对账失败关闭（观察值，不把米列当第二权威）
+          committed_mm = round-ties-to-even(f64(arc_m) × 1000)
+          committed_mm 越出 100..=10_000_000
+            → 边长越界失败关闭（编译侧，不是发射 binding 错误）
+          IR length_mm := committed_mm
+无折线:   IR length_mm := declared_mm
+LFCA:     写 IR length_mm（此时已与将写出值同一整数）
 ```
 
-`arc_m` 是规范 `f32` 弧长；`lir_length_m` 是编译器 LIR 交通边长。两条路径都写入
-同一条热列。禁止从位姿采样或空 Spatial 表反推边长。无 Spatial 时不得走车辆 pose
-采样。
+`arc_m` 是规范 `f32` 弧长，仍由 ADR 0015 拥有，不改成毫米。停车锚点相对 **提交后的**
+`length_mm` 做整数关闭（`1 <= p <= L - 1`，端点留白 `1` mm）。有折线不得再用准入毫米
+或另一份米列量化放行。#499 在米列上按发射边长补关停车锚点；G2 应把该关闭变成对已提交
+IR 整数的比较。G1 不冻函数名。
 
-**编译器（有 LIR）** 有折线时仍用绝对 `0.01 m`、相对 `1e-6` 对账 LIR 交通边长与弧长，
-然后按上式从弧长得到 `length_mm`。无折线只从 LIR round。
-
-**共享路网构建（无 LIR、无米制边长列）** 令
-`length_m = f64(lengthMillimetres) / 1000`，再
+**共享路网构建（无 LIR）** 令 `length_m = f64(lengthMillimetres) / 1000`，再
 `abs(length_m - f64(arcLengthMeters)) <= max(0.01 m, 1.0e-6 * max(length_m, f64(arc))) + 0.0 m`。
 对账失败关闭，不改已量化边长。headless 无此对账。当前树没有 `lengthMeters` 交通列。
+该对账与编译器空间冻结同构：两边都用毫米→米观察值对照 `f32` 弧长。
 
-限速：`speed_limit_mm_s = round-ties-to-even(f64(m/s) × 1000)`，且
-`1..=100_000`。
+限速在准入量化为 `1..=100_000` mm/s 后原样进入 IR 与 LFCA，不再二次 round。
+
+公开 `Canonical*View`（#500）：交通一维只暴露毫米 / `mm/s`（及受检 `f32` 时距 /
+加减速 / 朝向）。**删除** `length_meters()` 等米制访问器，不留只读换算。G2 决定毫米
+访问器名字。
 
 当前制品合同：对象前导 `formatVersion` 与
 `ContractVersions.canonicalFormatVersion` 为 `2`；
@@ -235,8 +264,8 @@ Genesis 重生，不做格式迁移 diff。
 | -------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `LaneEdge.lengthMillimetres`                                   | `100..=10_000_000`                                                       |
 | `LaneEdge.speedLimitMillimetresPerSecond`                      | `1..=100_000`                                                            |
-| `ParkingSpace.entryProgressMillimetres`                        | 所引入口边量化后边长 `L`：`1 <= p <= L - 1`                              |
-| `ParkingSpace.exitProgressMillimetres`                         | 所引出口边量化后边长 `L`：`1 <= p <= L - 1`                              |
+| `ParkingSpace.entryProgressMillimetres`                        | 所引入口边 **提交后** 边长 `L`：`1 <= p <= L - 1`                        |
+| `ParkingSpace.exitProgressMillimetres`                         | 所引出口边 **提交后** 边长 `L`：`1 <= p <= L - 1`                        |
 | `ParkingSpace.lateralOffsetMillimetres`                        | `abs <= 128_000`；路外 `abs >= 1`                                        |
 | `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；存着的 `+π`（`0x40490fdb`）非法；编制/发射量化后写成 `-π` |
 | `ParkingSpace.lengthMillimetres` / `widthMillimetres`          | 各自 `100..=128_000`                                                     |
@@ -278,13 +307,16 @@ Genesis 重生，不做格式迁移 diff。
 - 不得要求与 current-`f64` 录影零分歧，也不得用 2 车走廊墙钟当 Product Pass。
 - 必测（按行为，不按访问器名字）：硬停清余数与速度；爬行时速度保持、余数增长；
   跨边余数保留；拒绝 Gate 时停在边终点且保持 `Active`；走到路线终点进入
-  `Completed`；`max_accel < 0.5` 失败；headless 边长来自 LIR round；跨 hop 间隙
-  `i64`；路线注册在前缀溢出时仍成功，从起点可 `BeyondFinite`，靠近终点可
-  `Finite(0)` 并 `Completed`；`0.0996 m` → `100 mm` 合法、`0.0994 m` → `99 mm`
-  失败；`formatVersion != 2` 失败关闭；`networkRevisionDerivationVersion == 1`；4 ms
-  跟停死区状态重复不是失败；快照 `hard_room` 与现行截断同构；`dt=3` 与相位
-  不能整除均失败且原因可区分；`dt=4` 与 `dt=1000` 能 install（夹具相位允许时）；
-  `60 km/h` 长期平均由余数对齐量化后的 `mm/s`。
+  `Completed`；`max_accel < 0.5` 失败；headless 边长即准入毫米；有折线边长即提交后的
+  弧长量化毫米，且等于 LFCA `lengthMillimetres`；停车锚点贴着弧长量化后的端点留白；
+  10 km 边在编译侧与发射侧同一闭包；弧长量化越出 `100..=10_000_000` mm 以边长越界
+  失败，不是发射 binding 错误；跨 hop 间隙 `i64`；路线注册在前缀溢出时仍成功，从起点
+  可 `BeyondFinite`，靠近终点可 `Finite(0)` 并 `Completed`；`0.0996 m` → `100 mm`
+  合法、`0.0994 m` → `99 mm` 失败；`formatVersion != 2` 失败关闭；
+  `networkRevisionDerivationVersion == 1`；4 ms 跟停死区状态重复不是失败；快照
+  `hard_room` 与现行截断同构；`dt=3` 与相位不能整除均失败且原因可区分；`dt=4` 与
+  `dt=1000` 能 install（夹具相位允许时）；`60 km/h` 长期平均由余数对齐量化后的
+  `mm/s`。
 
 ## 9. 明确不做
 
@@ -305,6 +337,8 @@ Genesis 重生，不做格式迁移 diff。
 - 空升 `networkRevisionDerivationVersion = 2` 却不改哈希算法。
 - 发布或构建把 LFCA v2 送进只承认 v1 的入口。
 - 公开一维表面继续用米制作权威。
+- 公开 `Canonical*View` 为交通一维保留米制只读换算。
 - 把 G1 写成现行每个 Rust 访问器的签名对照表。
 - 先按量化前的裸 SI 界限拒绝，再 round 到毫米 / `f32`。
-- 把编制 LIR、规范折线弧长或时间/字节长度改成毫米权威。
+- 把规范折线点、段长、弧长或时间/字节长度改成毫米权威。
+- #500 G1 改生产代码或重生夹具。

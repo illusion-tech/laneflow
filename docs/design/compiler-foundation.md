@@ -2,7 +2,7 @@
 
 **文档状态**: #292 已接受并完成 G4；#315 共同受检模块接入契约已实现；
 #297 current JSON 编译器导入设计已取消；#299 后继边界见 Accepted ADR 0024<br>
-**最后更新**: 2026-08-23<br>
+**最后更新**: 2026-08-26<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
@@ -33,7 +33,8 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 FacilityBand target 继续由结构化能力门卫（capability guard）失败关闭，时变窗口尚未
 进入合成领域声明。`StaticRoute` 已保留显式有序边出现项，并预编译相邻边门、
 机动路径、机动门、等待区出现项和反向索引。当前道路机动车的 `VehicleProfile` 已按
-current Core IIDM `f64` 数值约束接入，唯一引用一个 `ParticipantClass`，并冻结身份、
+ADR 0028 整数毫米 / 受检 `f32` SI 约束接入（#500 G1 要求准入后 IR 不再把交通一维存成
+编制 `f64`；未 Pass，不授权实现），唯一引用一个 `ParticipantClass`，并冻结身份、
 参数、语义摘要与来源关系；它不构成其他交通执行域的通用参数基类。规范坐标框架
 （`CanonicalFrame`）已把 SpatialPackage v0.1 的稳定 `frameId` 接入 Typed
 AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方向和有界点范围仍是
