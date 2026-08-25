@@ -77,7 +77,8 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   Merge Queue 与 GitHub 原生未解决对话阻断；required approvals 不在本次启用，owner
   bypass 转入 #493 独立治理（Accepted；#492）
 - `0028`: 交通运行时已提交一维几何改为整数毫米 + 微米余数，固定步进
-  `4..=1000` ms，已提交速度 `u32` mm/s；边长由 compiler 内部规范折线弧长派生；
+  `4..=1000` ms，已提交速度 `u32` mm/s；有折线边长由规范折线弧长派生并写回 IR；
+  #500 G1 修订编译器 Typed AST / HIR / MIR / LIR 交通一维权威（未 Pass）；
   已部分取代 ADR 0014 的 current-`f64` 生产实施与残差 `f32` 目标合同
   （Accepted；#496）
 

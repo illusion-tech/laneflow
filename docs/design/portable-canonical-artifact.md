@@ -1418,12 +1418,15 @@ round-ties-to-even。编制/发射：朝向量化后若等于 `+π`（`0x40490fd
 | `VehicleProfile.comfortableDecelerationMetersPerSecondSquared` | `0.5..=50`                                                               |
 | `VehicleProfile.emergencyDecelerationMetersPerSecondSquared`   | `0.5..=50`，且 `>= comfortableDeceleration`                              |
 
-有折线时，**编译器**用现行 `0.01 m` / `1e-6` 对账 LIR 交通边长与弧长，再按
-`lengthMillimetres = round-ties-to-even(f64(arc) × 1000)` 写入。**v2 读器 / 共享路网
-构建**没有 LIR、也没有 `lengthMeters`：令 `length_m = f64(lengthMillimetres) / 1000`，
-再 `abs(length_m - f64(arcLengthMeters)) <= max(0.01 m, 1.0e-6 * max(length_m, f64(arc))) + 0.0 m`。
-对账失败关闭，不改已量化边长。headless 无此对账。v2 读器遇到上表以外的改名/改类型、
-或上表字段仍为 v1 `f64` 名字/类型，失败关闭。
+有折线时，**编译器**用 `length_mm / 1000` 作观察值、按现行 `0.01 m` / `1e-6` 对账规范
+弧长；通过后把 IR `length_mm` 提交为 `round-ties-to-even(f64(arc) × 1000)`，LFCA 写该
+整数。提交值越出 `100..=10_000_000` mm 时以边长越界失败关闭。无折线写准入毫米。
+详见 `traffic-runtime-integer-geometry.md` §6（#500 G1；未 Pass，不授权实现）。
+**读器 / 共享路网构建**没有 LIR、也没有 `lengthMeters`：令
+`length_m = f64(lengthMillimetres) / 1000`，再
+`abs(length_m - f64(arcLengthMeters)) <= max(0.01 m, 1.0e-6 * max(length_m, f64(arc))) + 0.0 m`。
+对账失败关闭，不改已量化边长。headless 无此对账。读器遇到上表以外的改名/改类型、
+或上表字段仍为历史 `f64` 名字/类型，失败关闭。
 
 LFSM v2：`canonicalArtifactFormatVersion` 必须等于所绑 LFCA（故为 `2`）。LFSD v2
 Genesis：target 的 `ContractVersions` / `ExecutionContract` 必须与所绑 LFCA v2 一致。
