@@ -74,8 +74,9 @@ G1 冻权威、单位、量化顺序、制品字段与跨实现算法。G2 决�
 
 有界距离的 Finite 侧是 `u32` 毫米。满量程约 **4295 km**，已覆盖城市一趟行程
 （Spatial 单 frame 约 32 km 盒；家→公司/过境是几十公里，不是跨省 2000 km 单路单）。
-前缀和用 checked `u32` 加；溢出 → `BeyondFinite`，**禁止**因此让路线注册或
-StaticRoute 构建失败，也 **不**为 1920×10 km 理论积上 `u64`。`BeyondFinite` 语义保留。
+前缀和用 checked `u32` 加；溢出 → `BeyondFinite`，**禁止**因此让 `register_route`
+失败，也 **不**为「理论最长边序列 × 10 km」积上 `u64`。`BeyondFinite` 语义保留。
+路网产品不再构建 `StaticRoute`（ADR 0029）。
 
 朝向、车头时距、加速度/减速度 **不是** 一维长度，不进毫米权威：时距与加减速
 保持受检 `f32` SI，供 IIDM 使用。沿用 ADR 0014 上界，并加上起步下限：
@@ -256,13 +257,13 @@ lockstep 不在本合同范围。
 允许破坏。1.0 前不保留制品双栈：旧米制登记表、旧读器、旧夹具以 git 历史为准，
 **不**进当前树，也 **不** 做 v1→毫米转换。公开 Rust 入口不带 `V1`/`V2` 后缀。
 
-当前对象前导 `formatVersion` 与 `ContractVersions.canonicalFormatVersion` 为 **`2`**。
-`constraintContractVersion` / `staticExecutionContractVersion` 为 **`2`**。
-LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 为 **`2`**。
+当前对象前导 `formatVersion` 与 `ContractVersions.canonicalFormatVersion` 为 **`3`**
+（ADR 0029）。`constraintContractVersion` 为 **`2`**；`staticExecutionContractVersion`
+为 **`3`**。LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 为 **`2`**。
 `networkRevisionDerivationVersion` 保持 **`1`**（哈希算法未改，见下）。
-`identityEncodingVersion` / `identityRegistryRevision` 保持 `1`。
-读器拒绝 `formatVersion != 2`。LFSM `canonicalArtifactFormatVersion` 必须等于所绑
-LFCA 的 `canonicalFormatVersion`（故为 `2`）。
+`identityEncodingVersion` 保持 `1`，`identityRegistryRevision` 为 **`2`**（ADR 0029）。
+读器拒绝 `formatVersion != 3`。LFSM `canonicalArtifactFormatVersion` 必须等于所绑
+LFCA 的 `canonicalFormatVersion`（故为 `3`）。
 
 LFSD Genesis 的 target `ContractVersions` / `ExecutionContract` 必须与所绑 LFCA
 一致。Artifact diff 两端合同行仍须逐字段相等。检入走廊按 Genesis 重生，不走格式

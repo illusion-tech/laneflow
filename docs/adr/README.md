@@ -81,6 +81,10 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
   准入后 Typed AST / HIR / MIR / LIR 交通一维与制品同一套整数毫米（#500）；
   已部分取代 ADR 0014 的 current-`f64` 生产实施与残差 `f32` 目标合同
   （Accepted；#496 / #500）
+- `0029`: 路网产品删除预编译 `StaticRoute`；`TrafficWorld` 路线入口只留
+  `register_route`；Identity 种类 21 / 字段标签 30 / 关系角色 13–16 保留空位；
+  对象 `formatVersion = 3`；走廊示例边序列改由 catalog 0.3 拥有
+  （Accepted；#498 G1）
 
 ## 命名规则
 

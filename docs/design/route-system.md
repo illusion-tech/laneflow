@@ -30,15 +30,14 @@ v0.4 将 external sequence 字段改为 `edgeIds`，并规定 route 不得终止
 StopLine 的 edge 上；v0.5 增加 static Parking anchors；v0.7 增加 per-edge speed
 limit；v0.8 再增加 ManeuverPath/Gate occurrence compiler；v0.9 增加
 横断面/准入静态模型与 (class, Route) 绑定期静态准入校验；current v0.10 增加
-multi-Gate/WaitingZone occurrence 与 profile-route-cursor 静态可行性校验。initial route
-与 runtime `register_route` 复用同一 compiler。
+multi-Gate/WaitingZone occurrence 与 profile-route-cursor 静态可行性校验。唯一生产入口是 runtime `register_route`（ADR 0029）；出现项编译器只服务该入口。
 
 Current static ParkingSpace 不持有 RouteHandle。#108/#109 current runtime 消费有限显式 route/occurrence：Reserved approach 选择当前 cursor 后的 first-reachable entry occurrence，leave/rebind 由 caller 提供明确 route occurrence，Parked/Reserved vehicle 保留 live route reference。Overflow-safe route prefix 不得新增“整条 route 累计距离必须 finite”的合法性条件。完整端到端验证由 #110 固化，详细契约见 [`parking-system.md`](parking-system.md)。
 
 ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go 后不再作为生产权威。
 **现行合同是 ADR 0028**：路线前缀与距离查询为 `u32` mm，溢出 `BeyondFinite`；单边
-`u32` mm，`10_000_000` mm 上界。`register_route` 与 StaticRoute **不得**因整条或
-前缀累计超过 `u32::MAX` mm 失败。距离按查询窗口独立 checked 加：从起点的前缀溢出
+`u32` mm，`10_000_000` mm 上界。`register_route` **不得**因整条或
+前缀累计超过 `u32::MAX` mm 失败。路网产品不再构建 StaticRoute（ADR 0029）。距离按查询窗口独立 checked 加：从起点的前缀溢出
 只影响「从起点算」；从当前进度到终点、以及局部视距从查询起点加，靠近终点后可再
 `Finite`，`Completed` 只在剩余 `Finite(0)`。
 
@@ -339,7 +338,7 @@ route completion event 的稳定顺序是 #203/caller-owned policy 建立 pendin
 #228/ADR 0017 保持 Route 是车辆实际 traversal authority。ManeuverPath 不替代、
 补全或重排 Route；它只在 Route 中完整连续匹配时形成语义 occurrence。
 
-Initial 和 runtime `register_route` target 在 command/normalization path 编译：
+`register_route` 在命令路径编译出现项（路网不预编译 initial route，ADR 0029）：
 
 ```text
 ManeuverOccurrence(route, entryRouteEdgeIndex, exitRouteEdgeIndex, maneuverPath)

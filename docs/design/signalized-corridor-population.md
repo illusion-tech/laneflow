@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（#203 G1；#475 Runtime 回流）<br>
 **最后更新**: 2026-08-24<br>
-**适用范围**: current v0.10 signalized-corridor catalog 0.2 人口/回流 policy；
+**适用范围**: current v0.10 signalized-corridor catalog 0.3 人口/回流 policy；
 caller-owned authority 继续继承 ADR 0016。catalog 字符串在 prepare 绑到共享路网修订
 （#472）；50–200 原子替换由 #475 交付。
 
@@ -54,7 +54,7 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 启动使用 catalog `bind`、`CorridorPopulationPrepare::prepare` 与 controller `bind`：
 
 1. caller 安装共享路网修订并在内存中解析 catalog；
-2. `validate` 对 catalog 0.2 完成交叉引用校验，`bind` 把它钉到该 `NetworkRevisionId`；
+2. `validate` 对 catalog 0.3 完成交叉引用与边键校验，`bind` 解析边序号、`register_route`，并把句柄钉到该 `NetworkRevisionId`；
 3. `prepare` 校验 config/profile，执行一次确定性 Fisher–Yates，返回完整 `CorridorVehiclePlan` batch；
 4. caller 在 `TrafficWorld` 上按计划逐辆 `spawn_vehicle`；
 5. population bind 必须发生在 tick 0，并按已绑定序号回查所有 vehicle、route 和 profile identity；

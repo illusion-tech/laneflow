@@ -31,8 +31,8 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 路径平面目标，
 并在运行时之前拒绝继承环、无类别规则、法规来源不一致和相反效果的精确并列。
 FacilityBand target 继续由结构化能力门卫（capability guard）失败关闭，时变窗口尚未
-进入合成领域声明。`StaticRoute` 已保留显式有序边出现项，并预编译相邻边门、
-机动路径、机动门、等待区出现项和反向索引。当前道路机动车的 `VehicleProfile` 已按
+进入合成领域声明。`StaticRoute` 已从编制来源、IR 与制品删除（ADR 0029）；路线出现项只在
+`register_route` 编进每世界表。当前道路机动车的 `VehicleProfile` 已按
 ADR 0028 整数毫米 / 受检 `f32` SI 约束接入（准入后 IR 不再把交通一维
 存成编制 `f64`），唯一引用一个 `ParticipantClass`，并冻结身份、
 参数、语义摘要与来源关系；它不构成其他交通执行域的通用参数基类。规范坐标框架
@@ -575,7 +575,7 @@ HIR 的内部引用使用编译器私有、有类型的 `u32` 区块分配键。
 - 显式规范 `f32` 折线的几何（Geometry）连续性与交通边长共同校验（用
   `length_mm / 1000` 观察值）；
 - 父项先于子项的标识闭包；
-- 静态路线、机动路径、机动门 / 等待区出现项与反向索引；
+- 机动路径、机动门 / 等待区（路线出现项不在编译器预计算，见 ADR 0029）；
 - 所有者 / 成员关系、覆盖关系（Coverage）、唯一所有者和全局一致性。
 
 MIR 可以使用临时哈希与缓存（Hash and Cache），但所有规范遍历都从显式稳定序列或
@@ -686,7 +686,7 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
   -> 按父项先于子项派生规范标识元组与稳定标识
   -> 校验其余全局语义
   -> 冻结确定性实体与关系顺序
-  -> 预计算静态路线、路径、机动门和等待区出现项及其索引
+  -> 预计算机动路径、机动门和等待区索引（不含静态路线）
   -> 冻结已验证规范低层中间表示
   -> 冻结已验证源映射输入与成功诊断
 ```
@@ -772,7 +772,7 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 | `max_reference_count`                 |    37920 | 有类型引用                                       |
 | `max_relation_occurrence_count`       |    10032 | 关系出现项                                       |
 | `max_identity_field_occurrence_count` |    29184 | 标识字段出现项                                   |
-| `max_route_occurrence_count`          |     1920 | 路线出现项                                       |
+| `max_route_occurrence_count`          |        — | **删除**（ADR 0029：不再预编译静态路线出现项）   |
 | `max_maneuver_gate_count`             |     2304 | 机动门                                           |
 | `max_waiting_zone_count`              |     1536 | 等待区                                           |
 | `max_geometry_point_count`            |    22368 | 规范几何点                                       |
@@ -909,7 +909,7 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 | 停车           | 停车区域（`ParkingArea`）、停车位（`ParkingSpace`）、入口 / 出口锚点和当前态静态几何                                                              | 运行时预约 / 生命周期策略                                        |
 | 横断面准入     | 参与者类别（`ParticipantClass`）、准入规则（`AccessRule`）、静态继承 / 准入及当前态车辆投影                                                       | 把 `ParticipantClass` 当执行域；未实现非机动车 / 行人 / 轨道行为 |
 | 车辆配置       | 当前态既有车辆跟驰模型的 `VehicleProfile` 静态参数                                                                                                | 把车辆配置提升为所有交通执行域的公共基类                         |
-| 静态路线       | 显式有序边序列和静态路线出现项                                                                                                                    | 动态路线生命周期和路径规划策略                                   |
+| 静态路线       | **拒绝**：编制来源不得声明路线                                                                                                                    | 每世界 `register_route`；路径规划策略（#303）                    |
 | 空间           | 显式规范坐标框架（`CanonicalFrame`）和已量化规范 `f32` 折线、长度 / 连续性校验                                                                    | 曲线、高程求值、曲线细分（tessellation）和几何文档前端           |
 
 首批领域专用语言必须能表达标识 v1 修订 1 的全部实体种类。支持“声明该实体”不表示对应
@@ -923,8 +923,9 @@ G1 曾冻结两个 current JSON 固定样例的等价迁移。这些 JSON 文件
 `examples/data/v0.2-signalized-corridor.catalog.toml`。
 
 当时覆盖的领域仍必须能由合成 DSL / 道路编辑前端表达：完整车道拓扑、横断面 /
-准入、信号、停车、静态路线、规范几何，以及单个机动路径的多机动门、等待区与
-对应路线出现项。自环边、合法孤立边和重复边出现项都不依赖道路区段或路口所有者。
+准入、信号、停车、规范几何，以及单个机动路径的多机动门与等待区。
+自环边、合法孤立边和重复边出现项都不依赖道路区段或路口所有者。路线出现项不由
+编制来源声明（ADR 0029）。
 
 ## 7. 标识 v1 首次实现
 

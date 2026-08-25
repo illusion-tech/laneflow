@@ -10,7 +10,8 @@
 **目标取代范围**: ADR 0005、0007、0008、0011、0013、0015、0017 中与静态数据 normalization、制品配对和运行时 registry 构建位置冲突的条款，并在目标态以 `LaneFlow Traffic Runtime`/`laneflow-runtime` 一次性不兼容替代当前 `LaneFlow Core`/`laneflow-core`。<br>
 **迁移时间表修订（#301 G1）**: 仓库未发布 1.0、无外部运行时消费者。#301 完成后 `laneflow-runtime` / `TrafficWorld` 即唯一可运行交通世界，并拆除 current Core/JSON 运行时入口；不再等待 #294 才切换权威。#294 不再拥有生产切换或拆除旧运行时路径。精确消费契约见 `../design/traffic-runtime-shared-consumption.md`。<br>
 
-**后继决策**: ADR 0024（Accepted；#299 G1 Pass）已部分取代本文关于独立
+**后继决策**: ADR 0029（Accepted；#498 G1）取消本文把 `StaticRoute` 列为 Identity
+v1 必选声明种类、并由编译器预编译初始路线出现项的条款。ADR 0024（Accepted；#299 G1 Pass）已部分取代本文关于独立
 `laneflow-validator`、`canonical-publication-v1` receipt、由 #299 统一交付三类
 验证收据，以及 compiler/validator 必须维护两套完整语义实现的决定。本文关于编译器
 拥有静态路网、Canonical LIR、可移植规范制品、对象外信任锚和 Runtime/Spatial 分层的

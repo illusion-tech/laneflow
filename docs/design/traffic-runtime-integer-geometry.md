@@ -59,8 +59,8 @@ IIDM 仍在 `f32` SI 中算出「这一拍最多走多远」。**先**用整数�
 不同合法 Δt 的世界不可对拍。
 
 检入走廊 `examples/config/v0.10-signalized-corridor.toml` 使用
-`fixed_delta_ms = 16`、`yellow_ms = 3008`、`all_red_ms = 1008`，并已按
-`formatVersion = 2` 重生 LFCA。
+`fixed_delta_ms = 16`、`yellow_ms = 3008`、`all_red_ms = 1008`。制品
+`formatVersion` 随 ADR 0029 为 `3`。
 
 ## 3. 共享列与 profile
 
@@ -224,11 +224,12 @@ LFCA:     写 IR length_mm（此时已与将写出值同一整数）
 `desired_speed_mm_s`、`min_gap_mm`。
 
 当前制品合同：对象前导 `formatVersion` 与
-`ContractVersions.canonicalFormatVersion` 为 `2`；
-`constraintContractVersion` / `staticExecutionContractVersion` 为 `2`；
+`ContractVersions.canonicalFormatVersion` 为 `3`（ADR 0029 删除 `StaticRoute` 后升闸口）；
+`constraintContractVersion` 为 `2`；`staticExecutionContractVersion` 为 `3`；
 `networkRevisionDerivationVersion` **保持 `1`**（§4.2 组帧与
-`"laneflow.network-revision.v1\0"` 未改；毫米载荷会改变 ID，不必新算法）；
-身份两字段保持 `1`。公开 API 不带 V1/V2 后缀。读器拒绝 `formatVersion != 2`。
+`"laneflow.network-revision.v1\0"` 未改；毫米载荷与路线表删除会改变 ID，不必新算法）；
+`identityEncodingVersion` 保持 `1`，`identityRegistryRevision = 2`。
+公开 API 不带世代后缀。读器拒绝 `formatVersion != 3`。
 旧米制表与旧读器不进当前树。LFSM `sourceMapFormatVersion = 2`，
 `canonicalArtifactFormatVersion` 等于所绑 LFCA。LFSD `semanticDiffFormatVersion = 2`。
 Genesis 的 target 合同行必须与所绑 LFCA 一致；Artifact 两端合同行仍须相等。走廊按
@@ -313,7 +314,7 @@ Genesis 重生，不做格式迁移 diff。
   10 km 边在编译侧与发射侧同一闭包；弧长量化越出 `100..=10_000_000` mm 以边长越界
   失败，不是发射 binding 错误；跨 hop 间隙 `i64`；路线注册在前缀溢出时仍成功，从起点
   可 `BeyondFinite`，靠近终点可 `Finite(0)` 并 `Completed`；`0.0996 m` → `100 mm`
-  合法、`0.0994 m` → `99 mm` 失败；`formatVersion != 2` 失败关闭；
+  合法、`0.0994 m` → `99 mm` 失败；`formatVersion != 3` 失败关闭；
   `networkRevisionDerivationVersion == 1`；4 ms 跟停死区状态重复不是失败；快照
   `hard_room` 与现行截断同构；`dt=3` 与相位不能整除均失败且原因可区分；`dt=4` 与
   `dt=1000` 能 install（夹具相位允许时）；`60 km/h` 长期平均由余数对齐量化后的

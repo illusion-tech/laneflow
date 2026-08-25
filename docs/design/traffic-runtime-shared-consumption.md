@@ -1,12 +1,13 @@
 # 交通运行时共享静态路网消费
 
 **文档状态**: Accepted（#301 G1；#469 合入后收口）<br>
-**最后更新**: 2026-08-25<br>
+**最后更新**: 2026-08-26<br>
 **适用范围**: `laneflow-runtime` / `TrafficWorld`、`laneflow-spatial` 目标 session、
 1-worker 车辆 tick、#301 端到端证据，以及 current `laneflow-core` / JSON 运行时入口拆除<br>
 **关联文档**: `../adr/0020-compiler-owned-static-network-and-static-image.md`、
 `../adr/0021-city-simulation-game-traffic-foundation.md`、
 `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
+`../adr/0029-retire-precompiled-static-route.md`、
 `../adr/0026-merge-governance-rebuild.md`、
 `network-compiler.md`、`shared-static-network.md`、
 `portable-canonical-artifact.md`、`current-package-import.md`、
@@ -121,7 +122,6 @@ TrafficWorld::install(
     config: WorldConfig,
 ) -> Result<TrafficWorld, InstallError>;
 
-TrafficWorld::static_route(route: /* 共享根静态路线序号 */) -> Result<RouteHandle, LookupError>;
 TrafficWorld::register_route(input: RouteRegisterInput) -> Result<RouteHandle, RouteError>;
 TrafficWorld::remove_route(route: RouteHandle) -> Result<(), RouteError>;
 TrafficWorld::spawn_vehicle(input: VehicleSpawnInput) -> Result<VehicleHandle, SpawnError>;
@@ -174,19 +174,17 @@ SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
 
 ### 4.2 路线与车辆
 
-动态 Route 仍按 ADR 0017：compiler 预编译静态初始路线；Runtime 新注册的动态
-Route 用共享根边序号编译 occurrence。
+路线按 ADR 0017 匹配规则 + ADR 0029：路网产品不预编译路线。`install` 后世界没有
+路线；调用方用共享根边序号 `register_route`。
 
-- 静态路线：`install` 后 `static_route(共享根静态路线序号)` 取得 `RouteHandle`，
-  不必再 `register_route`。
 - `register_route`：输入为共享根 `LaneEdgeOrdinal` 有序非空序列（不要 JSON
   字符串 ID）；按共享根连通校验（车道后继或机动转移候选），把 occurrence 编进
   **本世界**表，返回代际感知 `RouteHandle`。首边或末边不得落在路口内部边上，末边
-  不得带 StopLine；occurrence 覆盖与静态路线重建同一规则，且 hop 半开区间
-  `[entry, exit)` 不得相交。非法序列失败，不留下半条路线。不做准入判断
-  （ADR 0018：Route 无 class 上下文）。
-- `remove_route`：只移除本世界 **动态** 路线。静态路线句柄必须拒绝。仍有 live
-  车辆引用则失败；成功后旧动态句柄 stale，本世界动态 occurrence 表去掉该路线。
+  不得带 StopLine；occurrence 覆盖必须达到现行静态 seal 已证明的机动/门/等待语义，
+  且 hop 半开区间 `[entry, exit)` 不得相交。非法序列失败，不留下半条路线。不做
+  准入判断（ADR 0018：Route 无 class 上下文）。
+- `remove_route`：移除本世界路线。仍有 live 车辆引用则失败；成功后旧句柄 stale。
+  不再存在「静态句柄必须拒绝」分支。
 - 人口是调用方所有：`install` 不接受初始车辆。`VehicleSpawnInput` 含共享根车辆
   profile 序号、已有 `RouteHandle`、**路线序列下标**（ADR 0017 `routeEdgeIndex`：该
   `RouteHandle` 边序列上的 occurrence 位置，不是共享根 `LaneEdgeOrdinal`；`[A, B, A]`
@@ -245,9 +243,9 @@ TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
 公开推进入口是 `TrafficWorld::step`（§4.4）。`TrafficWorld` 的 1-worker 车辆 tick
 读取：
 
-- 共享根 `SharedTrafficNetwork` 的连续 slice（后继 CSR、准入 resolved 表、静态
-  路线 occurrence、信号 program、停车静态关系）；
-- **本世界**已提交/已编译表（车辆列、车道与停车占用、动态 Route occurrence）。
+- 共享根 `SharedTrafficNetwork` 的连续 slice（后继 CSR、准入 resolved 表、机动
+  路径/门/等待区、信号 program、停车静态关系）；
+- **本世界**已提交/已编译表（车辆列、车道与停车占用、已注册 Route occurrence）。
 
 不得把动态 occurrence 写回共享根。`SharedIdentityIndex` 不进入 steady tick；只用于
 install 核对、`register_route` 重建，以及后继 #302 快照/修订切换。禁止：
@@ -275,10 +273,10 @@ install 核对、`register_route` 重建，以及后继 #302 快照/修订切换
 
 地图：compiler 已冻夹具 `lfca-full-spatial`
 （`crates/laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/`）。
-它含 22 类实体 Identity、信号、停车、lane-pose 几何和一条
-`entry → middle → exit` 静态路线。
+它含 Identity、信号、停车、lane-pose 几何和可组成
+`entry → middle → exit` 的边。夹具不再含静态路线实体（ADR 0029）。
 
-Runtime 在该根上 `static_route` 取得夹具静态路线，再 `spawn_vehicle` **两辆**同一路线前后排列的车，经 `step` 做 1-worker 固定步数。CI 集成
+Runtime 对该三边序列 `register_route`，再 `spawn_vehicle` **两辆**同一路线前后排列的车，经 `step` 做 1-worker 固定步数。CI 集成
 测试（无窗口）必须断言：
 
 - `install` 成功且只保留一根 `Arc`；
@@ -328,13 +326,12 @@ CI 必须同时：
 - 安装/步进/命令失败原子性（失败不留下半个 world 或已提交半更新）；
 - 成功 tick 不因错误边界新分配诊断（不要求继承 Core `TickInvariantError` 的
   `Copy` / 64 / 72 字节布局）；
-- 动态 Route 注册与编译 occurrence（`register_route` / `remove_route`，ADR 0017；
-  tick 读本世界动态 occurrence 表；不含走廊级人口与回流）；
-- spawn 绑定期准入（静态与动态 Route 均按 ADR 0018 `(ParticipantClass, Route)`
-  后缀拒绝，失败不留车）；
+- 路线注册与编译 occurrence（`register_route` / `remove_route`，ADR 0017 / 0029；
+  tick 只读本世界 occurrence 表；不含走廊级人口与回流）；
+- spawn 绑定期准入（按 ADR 0018 `(ParticipantClass, Route)` 后缀拒绝，失败不留车）；
 - spawn 初速等于当前边基础限速须成功，超过则拒绝且不留车；权威为
   `speed_mm_s`，且 `<= 100_000`；
-- `remove_route` 拒绝静态路线句柄。
+- `remove_route` 在有 live 车辆引用时失败；无静态句柄分支。
 
 空实现若只过 S1 两车推进/pose 不得视为完成。完整停车离场/预约、受保护转向走廊、
 50–200 辆人口、vehicle replace 的全部历史变体，不进本切片；需要时另开 Issue。

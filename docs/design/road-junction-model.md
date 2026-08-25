@@ -415,8 +415,8 @@ ManeuverOccurrence
 
 ### 6.3 Route registration-time compilation
 
-Topology registry 建立 entry-transition candidate index。Initial routes 和 runtime
-`register_route` 使用相同 compiler：
+Topology registry 建立 entry-transition candidate index。唯一生产入口是 runtime
+`register_route`（ADR 0029）；compiler 如下：
 
 1. 按 Route edge order 检查 LaneGraph connectivity；
 2. 用当前 adjacent transition 查询少量 path candidates；
