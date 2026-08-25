@@ -21,10 +21,8 @@ Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭�
 - `../design/network-compiler.md`
 - `../design/portable-canonical-artifact.md`
 
-> **后续提案（#496 G1，Proposed，未 Pass）**：G2 分配并行
-> `CheckedCanonicalNetworkInputV2` / `PostEmissionCheckedBundleV2`，不得把 LFCA v2
-> 塞进本节 V1 capability。G2 完成前 `main` 仍只承认 V1。合同见 ADR 0028 与
-> `../design/shared-static-network.md` §3.1。
+> **后续提案（#496 G1，Proposed，未 Pass）**：G2 为 LFCA v2 提供并行受检输入，
+> 不得把 v2 塞进本节 V1 capability。G2 完成前 `main` 仍只承认 V1。合同见 ADR 0028。
 
 ## 背景
 

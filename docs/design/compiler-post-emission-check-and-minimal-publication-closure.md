@@ -107,18 +107,12 @@ pub fn check_post_emission_bundle_v1<'a>(
 轻量 capability 可以实现 `Clone`/`Copy`；不可伪造来自字段私有性和构造入口，而不是
 一次性消费技巧。
 
-#496 G1（Proposed，未 Pass）：G2 另提供 `check_post_emission_bundle_v2` 与
-`PostEmissionCheckedBundleV2`，从中派生 `CheckedCanonicalNetworkInputV2`。不得让
-`check_post_emission_bundle_v1` / `preflight_object_values_v1` 接纳 LFCA
-`formatVersion = 2`。LFSM/LFSD 对象版本不单开；bundle 仍要求
-`canonicalArtifactFormatVersion` 与所绑 LFCA 一致。`NetworkRevisionId` 仍按
-`portable-canonical-artifact.md` §4.2 v1 算法重算（`derivationVersion = 1`）。
-
-发布入口：现行 `commit_portable_publication_v2` 的 `v2` 指 LFCP v2。G2 后对
-LFCA v2 候选必须调用 `check_post_emission_bundle_v2`，`build_lfcp_v2` 消费
-`PostEmissionCheckedBundleV2`。expected-base 形状可与 `ExpectedSemanticDiffBaseV1`
-相同，`network_revision_derivation_version` 为 `1`。禁止把 V1 bundle 喂给 LFCA v2
-发布。详见 ADR 0028 与 `shared-static-network.md` §3.1。
+#496 G1（Proposed，未 Pass）：G2 为 LFCA v2 提供并行的后发射受检能力，从中派生
+v2 路网输入。现行 v1 预检与 v1 bundle **不得**接纳 `formatVersion = 2`。LFSM/LFSD
+对象版本不单开；`canonicalArtifactFormatVersion` 必须与所绑 LFCA 一致。
+`NetworkRevisionId` 仍按 `portable-canonical-artifact.md` §4.2 v1 算法重算（派生
+版本保持 `1`）。发布路径不得把 LFCA v2 送进 v1 bundle。G2 决定入口名字。详见
+ADR 0028。
 
 ## 5. 检查顺序
 
