@@ -1365,8 +1365,9 @@ transition 领域顺序，行数精确为 `max(edges.count-1, 0)`。这些 Recor
 LFCA v2**（`formatVersion` 与 `canonicalFormatVersion = 2`；
 `constraintContractVersion` / `staticExecutionContractVersion` 为 `2`；
 `networkRevisionDerivationVersion` **保持 `1`**，算法见 §4.2；身份两字段保持 `1`）。
-**不得改写本附录的 v1 登记表。** v1 读器拒绝 v2，v2 读器拒绝 v1。G2 前不得把下列
-`f64` 字段写成已经是毫米或 `f32` 朝向。
+同期分配 LFSM `sourceMapFormatVersion = 2`、LFSD `semanticDiffFormatVersion = 2`（节形状
+同 v1，**不改写** §5 / §6 的 v1 正文）。**不得改写本附录的 v1 登记表。** v1 读器拒绝
+v2，v2 读器拒绝 v1。G2 前不得把下列 `f64` 字段写成已经是毫米或 `f32` 朝向。
 
 #### LFCA v2 字段增量（#496 G1；Proposed，未 Pass）
 
@@ -1397,7 +1398,8 @@ Spatial `LaneEdgeGeometry.arcLengthMeters:f32` 与 `segments.lengthMeters:f32` *
 
 发射与值域检查 **先量化，再按量化后的界限失败关闭**。毫米 / 毫米每秒：
 `round-ties-to-even(f64(SI) × 1000)`；时距、三项加减速、朝向：`f64` → binary32
-round-ties-to-even。禁止先用量化前的裸 SI 界限拒绝。跨字段（停车进度 vs 边长）在双方
+round-ties-to-even。朝向量化后若等于 `+π`（`0x40490fdb`）则折成 `-π`（`0xc0490fdb`）
+再检查。禁止先用量化前的裸 SI 界限拒绝。跨字段（停车进度 vs 边长）在双方
 量化之后比较。闭包：
 
 | v2 字段                                                        | 闭包                                                              |
@@ -1407,15 +1409,15 @@ round-ties-to-even。禁止先用量化前的裸 SI 界限拒绝。跨字段（�
 | `ParkingSpace.entryProgressMillimetres`                        | 所引入口边量化后边长 `L`：`1 <= p <= L - 1`                       |
 | `ParkingSpace.exitProgressMillimetres`                         | 所引出口边量化后边长 `L`：`1 <= p <= L - 1`                       |
 | `ParkingSpace.lateralOffsetMillimetres`                        | `abs <= 128_000`；路外 `abs >= 1`                                 |
-| `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；`π` 为 binary32 `0x40490fdb`，不得沿用 v1 binary64 |
+| `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；量化后 `+π`（`0x40490fdb`）折成 `-π`（`0xc0490fdb`） |
 | `ParkingSpace.lengthMillimetres` / `widthMillimetres`          | 各自 `100..=128_000`                                              |
 | `VehicleProfile.lengthMillimetres`                             | `100..=128_000`                                                   |
 | `VehicleProfile.desiredSpeedMillimetresPerSecond`              | `1..=100_000`                                                     |
 | `VehicleProfile.minGapMillimetres`                             | `0..=128_000`                                                     |
 | `VehicleProfile.timeHeadwaySeconds`                            | `0 < x <= 60`                                                     |
 | `VehicleProfile.maxAccelerationMetersPerSecondSquared`         | `0.5..=50`                                                        |
-| `VehicleProfile.comfortableDecelerationMetersPerSecondSquared` | `0 < x <= 50`                                                     |
-| `VehicleProfile.emergencyDecelerationMetersPerSecondSquared`   | `0 < x <= 50`，且 `>= comfortableDeceleration`                    |
+| `VehicleProfile.comfortableDecelerationMetersPerSecondSquared` | `0.5..=50`                                                        |
+| `VehicleProfile.emergencyDecelerationMetersPerSecondSquared`   | `0.5..=50`，且 `>= comfortableDeceleration`                       |
 
 有折线时，**编译器**用现行 `0.01 m` / `1e-6` 对账 LIR 交通边长与弧长，再按
 `lengthMillimetres = round-ties-to-even(f64(arc) × 1000)` 写入。**v2 读器 / 共享路网
@@ -1423,6 +1425,11 @@ round-ties-to-even。禁止先用量化前的裸 SI 界限拒绝。跨字段（�
 再 `abs(length_m - f64(arcLengthMeters)) <= max(0.01 m, 1.0e-6 * max(length_m, f64(arc))) + 0.0 m`。
 对账失败关闭，不改已量化边长。headless 无此对账。v2 读器遇到上表以外的改名/改类型、
 或上表字段仍为 v1 `f64` 名字/类型，失败关闭。
+
+LFSM v2：`canonicalArtifactFormatVersion` 必须等于所绑 LFCA（故为 `2`）。LFSD v2
+Genesis：target 的 `ContractVersions` / `ExecutionContract` 必须与所绑 LFCA v2 一致。
+LFSD Artifact：两端合同行仍须逐字段相等，因此 **v1→v2 Artifact diff 仍拒绝**。检入走廊
+按 Genesis 重生，不走格式迁移 diff。
 
 **当前 LFCA v1 标量闭合**（G2 前 `main`；不得把本表读成 v2）：
 

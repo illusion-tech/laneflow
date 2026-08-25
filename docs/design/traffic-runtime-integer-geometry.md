@@ -35,7 +35,7 @@ G1 冻权威、单位、量化顺序、制品字段与跨实现算法。G2 决�
 IIDM 仍在 `f32` SI 中算出「这一拍最多走多远」。**先**用整数硬约束得到
 `hard_room_mm`，**再**把微米余数加在剩余空间内。硬停（`hard_room_mm == 0`，
 或本拍走完该剩余）清速度与余数；`hard_room_mm > 0` 且不足 1 mm 的爬行保留
-速度与余数。不另做速度余数；`max_accel >= 0.5 m/s²`。
+速度与余数。不另做速度余数；`max_accel` / `comfort_decel` / `emergency_decel` 均 `>= 0.5 m/s²`。
 
 ## 2. 固定步进
 
@@ -68,8 +68,10 @@ profile：车长 `100..=128_000` mm，期望车速 `1..=100_000` mm/s，`min_gap
 `0..=128_000` mm（0 合法，退化为只禁止重叠）；时距与三项加减速为受检 `f32` SI，
 范围见 ADR 0028。停车：入口/出口进度 `u32` mm 且 `1 <= p <= length_mm - 1`；长宽
 `100..=128_000` mm；横向 `i32` mm，`abs <= 128_000`，路外 `abs >= 1`；朝向受检
-`f32` 弧度。限速过渡目标与边限速同一量子（mm/s）。到下一受控门的距离与路线有界
-距离同型（`Finite(u32)` / `BeyondFinite`）。
+`f32` 弧度，量化后若等于 `+π`（`0x40490fdb`）则折成 `-π`（`0xc0490fdb`），闭包
+`-π <= x < π`。限速过渡目标与边限速同一量子（mm/s）。到下一受控门的距离与路线有界
+距离同型（`Finite(u32)` / `BeyondFinite`）。`BeyondFinite` 的降速目标本拍不参与
+包络。
 
 路线距离按查询窗口独立 checked 加，不上 `u64`，**禁止**因前缀溢出拒绝注册。索引
 若分段：段内偏移与段合计是 `u32` mm；下一条边长会让当前段溢出时封段、开新段。
@@ -82,7 +84,8 @@ profile：车长 `100..=128_000` mm，期望车速 `1..=100_000` mm/s，`min_gap
 编制进入毫米 / `f32` 表面时 **先量化，再检查**：毫米类
 `round-ties-to-even(f64(SI) × 1000)` 后套整数闭包；时距/加减速/朝向先
 round-ties-to-even 到 `f32` 再套 `f32` 闭包。禁止先用裸 `0.1 m` 拒绝再量化。
-`0.0996 m` → `100 mm` 合法，`0.0994 m` → `99 mm` 失败。跨字段在双方量化后比较。
+`0.0996 m` → `100 mm` 合法，`0.0994 m` → `99 mm` 失败。朝向量化后若等于 `+π` 则折成
+`-π` 再检查。跨字段在双方量化后比较。
 
 ## 4. 车辆已提交状态
 
@@ -107,6 +110,8 @@ G2 决定访问器名字。
 1. 把 `progress_mm` / 边长 / 车长 / `min_gap` / 速度转为瞬时 `f32` 米，喂 IIDM
    与限速包络。
 2. SI 中舒适截断 travel（前车、灯、路终、包络）。SI `travel <= 0` **不是**硬停。
+   一维不倒车：负 SI travel 当 0，不扣 `carry_um`。`BeyondFinite` 降速目标本拍不参与
+   包络。
 3. 整数硬约束 `hard_room_mm: u32`（下限 0）。前车空隙用 `i64`，负值当 0，正值夹到
    `u32`。只读 **T 时刻 occupancy 快照**，与现行 `advance_active_vehicle` 同构：
    `step_vehicles` 先按快照算出全部 next，再一次性提交；`hard_room_mm` **不**读本拍
@@ -125,7 +130,7 @@ G2 决定访问器名字。
    `apply_travel`。若此时路线剩余为 `Finite(0)`：`VehicleStatus::Completed`。
    `BeyondFinite` 不是路终。
 5. 否则
-   `um = u64(carry_um) + round-ties-to-even(f64(travel_m) × 1e6)`；
+   `um = u64(carry_um) + round-ties-to-even(f64(非负 travel_m) × 1e6)`；
    `travel_mm = min(um / 1000, hard_room_mm)`；
    若 `travel_mm < hard_room_mm`：`carry_um = (um % 1000) as u16`；
    若 `travel_mm == hard_room_mm`：到位后 `carry_um = 0`。
@@ -195,7 +200,10 @@ G2 分配 **LFCA v2**：对象前导 `formatVersion` 与
 `networkRevisionDerivationVersion` **保持 `1`**（§4.2 v1 组帧与
 `"laneflow.network-revision.v1\0"` 未改；毫米载荷会改变 ID，不必新算法）；
 身份两字段保持 `1`。不得改写 v1 登记表。v1 读器拒绝 v2，v2 读器拒绝 v1。
-LFSM `canonicalArtifactFormatVersion` 等于所绑 LFCA 版本。
+LFSM `sourceMapFormatVersion = 2`，`canonicalArtifactFormatVersion` 等于所绑 LFCA
+（故为 `2`）。LFSD `semanticDiffFormatVersion = 2`，节形状同 v1。Genesis 的 target
+合同行必须与所绑 LFCA v2 一致；Artifact 两端合同行仍须相等，故 **v1→v2 diff 仍拒绝**。
+走廊按 Genesis 重生。
 
 共享路网受检输入必须并行升到 v2：v1 入口只承认 LFCA v1，禁止放宽接纳 v2。v2 入口走
 v2 registry 预检，不可伪造。v1 受检制品组不得派生 v2 输入。G2 后生产构建与发布只消费
@@ -233,15 +241,15 @@ LFCA v2 登记表增量（相对附录 A.1 v1；**不兼容**读旧 `f64`）。*
 | `ParkingSpace.entryProgressMillimetres`                        | 所引入口边量化后边长 `L`：`1 <= p <= L - 1`    |
 | `ParkingSpace.exitProgressMillimetres`                         | 所引出口边量化后边长 `L`：`1 <= p <= L - 1`    |
 | `ParkingSpace.lateralOffsetMillimetres`                        | `abs <= 128_000`；路外 `abs >= 1`              |
-| `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；`π` 为 binary32 `0x40490fdb`    |
+| `ParkingSpace.headingOffsetRadians`                            | `-π <= x < π`；量化后 `+π`（`0x40490fdb`）折成 `-π`（`0xc0490fdb`） |
 | `ParkingSpace.lengthMillimetres` / `widthMillimetres`          | 各自 `100..=128_000`                           |
 | `VehicleProfile.lengthMillimetres`                             | `100..=128_000`                                |
 | `VehicleProfile.desiredSpeedMillimetresPerSecond`              | `1..=100_000`                                  |
 | `VehicleProfile.minGapMillimetres`                             | `0..=128_000`                                  |
 | `VehicleProfile.timeHeadwaySeconds`                            | `0 < x <= 60`                                  |
 | `VehicleProfile.maxAccelerationMetersPerSecondSquared`         | `0.5..=50`                                     |
-| `VehicleProfile.comfortableDecelerationMetersPerSecondSquared` | `0 < x <= 50`                                  |
-| `VehicleProfile.emergencyDecelerationMetersPerSecondSquared`   | `0 < x <= 50`，且 `>= comfortableDeceleration` |
+| `VehicleProfile.comfortableDecelerationMetersPerSecondSquared` | `0.5..=50`                                     |
+| `VehicleProfile.emergencyDecelerationMetersPerSecondSquared`   | `0.5..=50`，且 `>= comfortableDeceleration`    |
 
 后发射检查失败关闭旧 v1 字节。走廊检入 LFCA 必须按 v2 重生并对拍。
 `NetworkRevisionId` 随载荷变化（算法仍是 §4.2 v1）。

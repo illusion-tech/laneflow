@@ -97,8 +97,9 @@ impl<'a> PostEmissionCheckedBundleV1<'a> {
 ADR 0028 把下一生产制品定为 LFCA v2。G2 **不得**把 v2 对象送进本节 V1 入口，也不得
 放宽 v1 预检以接纳 `formatVersion = 2`。并行提供 v2 受检输入：语义形状同 V1（字段
 私有、digest / 长度 / `NetworkRevisionId` 闭合），object kind 精确为 LFCA v2，走
-**v2 registry** 与直接值域检查。后发射对 LFCA 走 v2 预检；LFSM/LFSD 不单开对象版本，
-但 `canonicalArtifactFormatVersion` 必须为 `2`。v1 受检制品组不得派生 v2 输入。
+**v2 registry** 与直接值域检查。后发射对 LFCA/LFSM/LFSD 走各自 v2 预检（LFSM
+`sourceMapFormatVersion = 2`，LFSD `semanticDiffFormatVersion = 2`，形状同 v1）；
+`canonicalArtifactFormatVersion` 必须为 `2`。v1 受检制品组不得派生 v2 输入。
 `FormatLimits` 数值上限不因本切片单开新档。G2 完成后生产构建只消费 v2；不得把
 v1 米列读成毫米。G2 决定这些入口的 Rust 名字。
 

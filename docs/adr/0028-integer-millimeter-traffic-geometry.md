@@ -77,12 +77,13 @@ StaticRoute 构建失败，也 **不**为 1920×10 km 理论积上 `u64`。`Beyo
 保持受检 `f32` SI，供 IIDM 使用。沿用 ADR 0014 上界，并加上起步下限：
 
 - `max_accel`：`0.5..=50` m/s²
-- `comfort_decel` / `emergency_decel`：`0 < value <= 50` m/s²，且
+- `comfort_decel` / `emergency_decel`：`0.5..=50` m/s²，且
   `emergency_decel >= comfort_decel`
 - `time_headway`：`0 < value <= 60` s
 
-`max_accel` 下限保证 4 ms 下静止起步约 1 s 内能靠行程余数凑满 1 mm；更弱加速度
-不是产品车辆，**禁止**速度余数。
+`max_accel` 下限保证 4 ms 下静止起步约 1 s 内能靠行程余数凑满 1 mm。减速度下限保证
+从产品速度上界 `100 m/s` 刹停约 10 km，落在 `Finite(u32)` 内；`0.001 m/s²` 需要
+约 5000 km，会超出。更弱加减速不是产品车辆，**禁止**速度余数。
 
 编制 / LIR 进入 LFCA v2 或 Runtime 整数表面时，**先量化，再按量化后的界限检查**：
 
@@ -90,7 +91,9 @@ StaticRoute 构建失败，也 **不**为 1920×10 km 理论积上 `u64`。`Beyo
   例如车长 `0.0996 m` → `100 mm` 合法；`0.0994 m` → `99 mm` 失败。**禁止**先用量化前的
   裸 `0.1 m` / `128 m` 拒绝、再量化（那会与毫米权威打架）。
 - 时距、三项加减速、停车朝向：`f64` → IEEE 754 binary32 round-ties-to-even，再套本节
-  `f32` SI 闭包。朝向 `π` 用 binary32 `0x40490fdb`。
+  `f32` SI 闭包。朝向闭包 `-π <= x < π`；`+π` / `-π` 的 binary32 为 `0x40490fdb` /
+  `0xc0490fdb`。量化后若等于 `+π`，折成 `-π` 再检查（`f64` 的 π round 到 `f32` 恰为
+  `+π`，不折则会不满足 `x < π`）。
 - 跨字段（停车进度 vs 所引边长）在 **双方都量化之后** 比较。
 裸 SI 不是第二套权威。Spatial 折线仍是 ADR 0015 的 `f32` 米，不走本量化。
 
@@ -148,21 +151,25 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
 
 1. 用已提交整数状态派生 IIDM / 限速包络所需的瞬时 SI 值；
 2. 在 SI 中计算候选 travel，并按前车、灯、路终、下游限速包络做舒适截断。
-   **SI `travel <= 0` 不是硬停判定**；
+   **SI `travel <= 0` 不是硬停判定**。一维不倒车：负 SI travel 当 0，不扣
+   `carry_um`，也不是硬停。`BeyondFinite` 的下游限速目标本拍不参与包络；进入
+   `Finite` 后再按真实距离套。不上 `u64` 视距。
 3. 用已提交整数计算 `hard_room_mm`（只读 T 快照，不读本拍其他车已算行程）。
-   若 `hard_room_mm == 0`：硬停。
-   `travel_mm = 0`，`speed_mm_s = 0`，`carry_um = 0`，不 `apply_travel`；
-4. 否则
-   `um = u64(carry_um) + round-ties-to-even(f64(travel_m) × 1_000_000)`，
+   若 `hard_room_mm == 0`：硬停。`travel_mm = 0`，`speed_mm_s = 0`，`carry_um = 0`，
+   不 `apply_travel`。若此时路线剩余为 **`Finite(0)`**：`VehicleStatus::Completed`，
+   离开占用与 `committed_pose_sources`。`BeyondFinite` 不是路终。
+4. 否则（`hard_room_mm > 0`）
+   `um = u64(carry_um) + round-ties-to-even(f64(非负 travel_m) × 1_000_000)`，
    `travel_mm = min(um / 1000, hard_room_mm)`（`u64` 运算，避免 `f32` 在大行程
    上丢失微米）；
-5. `apply_travel`。若 `travel_mm == hard_room_mm`（本拍走到停车类约束）：
-   到位后 `speed_mm_s = 0`，`carry_um = 0`。若该约束是 **路线剩余 `Finite(0)`**
-   （没有下一 hop；`BeyondFinite` 不是路终）：再把 `VehicleStatus` 置为 `Completed`，
-   离开占用与 `committed_pose_sources`。Gate 拒绝或仍有后续 hop 的硬停保持 `Active`。
-   否则保留 `carry_um = um % 1000`，速度量化为 `u32` mm/s，**独立于** 本拍是否
-   凑满 1 mm。整数行程落地后，已提交速度不得超过**所在边**限速（余数最多比 SI
-   包络多送 1 mm 跨边）。如何夹紧属 G2。
+5. `apply_travel`。
+   - 若 `travel_mm == hard_room_mm`：到位后 `speed_mm_s = 0`，`carry_um = 0`。
+     若该约束是 **路线剩余 `Finite(0)`**（没有下一 hop）：再把 `VehicleStatus`
+     置为 `Completed`，离开占用与 `committed_pose_sources`。Gate 拒绝或仍有后续
+     hop 的硬停保持 `Active`。
+   - 若 `travel_mm < hard_room_mm`：保留 `carry_um = um % 1000`，速度量化为
+     `u32` mm/s，**独立于** 本拍是否凑满 1 mm。整数行程落地后，已提交速度不得超过
+     **所在边**限速（余数最多比 SI 包络多送 1 mm 跨边）。如何夹紧属 G2。
 
 跨边：仅当本拍行程到达 `fromEdge` 终点 **且** 下一条 hop 存在 **且** 该转移 Gate
 （若有）许可。`progress_mm = 0`，**保留** `carry_um`（除非跨边后立即命中硬停）。
@@ -235,7 +242,7 @@ lockstep 不在本合同范围。
 不得用本切片宣称全 tick 位级回放。不同合法步长的世界轨迹 **不可比**，不是回归
 失败。
 
-### 7. 破坏性制品与 API；分配 LFCA v2；#302 必须消费本合同
+### 7. 破坏性制品与 API；分配 LFCA/LFSM/LFSD v2；#302 必须消费本合同
 
 允许破坏。**不得改写已冻的 LFCA v1 登记表。** G2 分配新的规范制品版本：
 
@@ -246,16 +253,21 @@ lockstep 不在本合同范围。
 | `constraintContractVersion`                                           | `1` | **`2`**                   |
 | `staticExecutionContractVersion`                                      | `1` | **`2`**                   |
 | `identityEncodingVersion` / `identityRegistryRevision`                | `1` | `1`（本切片不改身份前像） |
+| LFSM `sourceMapFormatVersion`                                         | `1` | **`2`**（形状同 v1）      |
+| LFSD `semanticDiffFormatVersion`                                      | `1` | **`2`**（形状同 v1）      |
 
-v1 读器拒绝 `formatVersion != 1`；v2 读器拒绝 v1。不兼容读取。LFSM
-`canonicalArtifactFormatVersion` 必须等于所绑 LFCA 的 `canonicalFormatVersion`。
-不为本切片单开 LFSM/LFSD 对象版本。
+v1 读器拒绝对象版本 `!= 1`；v2 读器拒绝 v1。不兼容读取。**不得改写** LFCA/LFSM/LFSD
+的 v1 正文。LFSM `canonicalArtifactFormatVersion` 必须等于所绑 LFCA 的
+`canonicalFormatVersion`（故 v2 为 `2`）。
+
+LFSD v2：Genesis 的 target `ContractVersions` / `ExecutionContract` 必须与所绑
+LFCA v2 一致（v2 支持值合法）。Artifact diff 两端合同行仍须逐字段相等，因此
+**v1→v2 Artifact diff 仍拒绝**。检入走廊按 Genesis 重生，不走格式迁移 diff。
 
 G2 必须同时换共享静态路网 **admission**，不得只换制品版本号：现行 v1 受检输入
 **只**承认 LFCA v1，禁止放宽以接纳 `formatVersion = 2`。并行提供 v2 受检输入（走
 v2 registry 预检，字段私有、不可伪造，digest / 长度 / `NetworkRevisionId` 规则同 V1）。
-后发射对 LFCA 走 v2 预检；LFSM/LFSD 不单开对象版本，但
-`canonicalArtifactFormatVersion` 必须为 2。v1 受检制品组不得派生 v2 输入。G2 完成后
+后发射对 LFCA/LFSM/LFSD 走各自 v2 预检。v1 受检制品组不得派生 v2 输入。G2 完成后
 生产构建只消费 v2；不得把 v1 米列读成毫米。发布路径同样不得把 LFCA v2 送进 v1
 bundle 检查。G2 决定这些入口的 Rust 名字。
 
@@ -328,6 +340,10 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 - 只冻车辆观察面，spawn / pose / 停车 / 替换间隙继续用米制作权威。
 - 把一维 mm 收进三维 `Point` / `Vector3<T>`（#354）。
 - 把编制 LIR、规范折线弧长或时间/`u64` 字节长度改成毫米权威。
+- 发 LFCA v2 却不单开 LFSM/LFSD 对象版本，或改写 LFSD v1「Genesis 只允许 v1 支持值」。
+- 为制动视距把 `Finite` 加宽成 `u64`，或允许 `comfort`/`emergency` 低于 `0.5 m/s²`。
+- 量化后的停车朝向保留 `+π`（`0x40490fdb`），导致不满足 `-π <= x < π`。
+- 负 SI travel 扣减 `carry_um`，或把 `u64` 回绕当行程。
 
 ## 后果
 
@@ -337,7 +353,9 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
   10 cm；空路巡航在有效加速度小于 `0.5 mm/s / Δt` 时可以稳定低于期望车速（最钝
   合法画像约 7%）。二者都是接受面，不是再加一层余数的理由。
 - `hard_room_mm` 与现行快照截断同构；跟车设计文档 §11.2 的投影前车行程仍是另一轴。
-- G2 必须同时改 compiler 发射、LFCA v2 逐字段登记表、v2 admission、共享列和 Runtime 热状态。
+- G2 必须同时改 compiler 发射、LFCA v2 逐字段登记表、LFSM/LFSD v2（形状同 v1）、
+  v2 admission、共享列和 Runtime 热状态。Genesis 发 v2；禁止 v1→v2 Artifact diff。
+- 减速度下限 `0.5` 后，`100 m/s` 刹停约 10 km；`BeyondFinite` 降速目标本拍忽略。
 - 路线前缀溢出是 `BeyondFinite`，不是注册失败；路终与局部查询从查询起点独立加。
 - `NetworkRevisionId` 仍用 v1 派生算法；载荷变了 ID 就会变，不必新域分隔符。
 - 先量化再检查，不保留一套打架的裸 SI 下限。
