@@ -1,5 +1,11 @@
 use std::collections::BTreeSet;
 
+use laneflow_static_contract::{
+    MAX_ACCEL_METERS_PER_SECOND_SQUARED, MAX_TIME_HEADWAY_SECONDS,
+    MIN_ACCEL_METERS_PER_SECOND_SQUARED, heading_f32_from_si, heading_f32_in_legal_closure,
+    millimetres_from_si, millimetres_i32_from_si,
+};
+
 use crate::declaration::{FacilityKindCategory, facility_kind_category};
 use crate::source::external_token_violation;
 use crate::{Diagnostic, DiagnosticBundle, RoadEditingInputViolation, SourceTextViolation};
@@ -211,6 +217,79 @@ pub(super) fn inclusive_range_violation(
                 maximum_bits: maximum.to_bits(),
             },
         )
+    })
+}
+
+pub(super) fn millimetre_range_violation(
+    value: f64,
+    min_mm: u32,
+    max_mm: u32,
+) -> Option<RoadEditingInputViolation> {
+    match millimetres_from_si(value) {
+        Some(mm) if (min_mm..=max_mm).contains(&mm) => None,
+        None if !value.is_finite() => finite_violation(value),
+        Some(_) | None => Some(RoadEditingInputViolation::InvalidCombination),
+    }
+}
+
+pub(super) fn millimetre_i32_abs_range_violation(
+    value: f64,
+    min_abs_mm: u32,
+    max_abs_mm: u32,
+) -> Option<RoadEditingInputViolation> {
+    match millimetres_i32_from_si(value) {
+        Some(mm) => {
+            let abs = mm.unsigned_abs();
+            (abs < min_abs_mm || abs > max_abs_mm)
+                .then_some(RoadEditingInputViolation::InvalidCombination)
+        }
+        None if !value.is_finite() => finite_violation(value),
+        None => Some(RoadEditingInputViolation::InvalidCombination),
+    }
+}
+
+pub(super) fn heading_violation(value: f64) -> Option<RoadEditingInputViolation> {
+    match heading_f32_from_si(value) {
+        Some(heading) if heading_f32_in_legal_closure(heading) => None,
+        None if !value.is_finite() => finite_violation(value),
+        Some(_) | None => Some(RoadEditingInputViolation::InvalidCombination),
+    }
+}
+
+pub(super) fn time_headway_violation(value: f64) -> Option<RoadEditingInputViolation> {
+    finite_violation(value).or_else(|| {
+        let quantized = value as f32;
+        if !quantized.is_finite() || quantized <= 0.0 {
+            Some(RoadEditingInputViolation::NotGreaterThanZero {
+                value_bits: value.to_bits(),
+            })
+        } else if quantized > MAX_TIME_HEADWAY_SECONDS {
+            Some(RoadEditingInputViolation::OutsideInclusiveRange {
+                value_bits: value.to_bits(),
+                minimum_bits: 0.0_f64.to_bits(),
+                maximum_bits: f64::from(MAX_TIME_HEADWAY_SECONDS).to_bits(),
+            })
+        } else {
+            None
+        }
+    })
+}
+
+pub(super) fn accel_violation(value: f64) -> Option<RoadEditingInputViolation> {
+    finite_violation(value).or_else(|| {
+        let quantized = value as f32;
+        if !quantized.is_finite()
+            || quantized < MIN_ACCEL_METERS_PER_SECOND_SQUARED
+            || quantized > MAX_ACCEL_METERS_PER_SECOND_SQUARED
+        {
+            Some(RoadEditingInputViolation::OutsideInclusiveRange {
+                value_bits: value.to_bits(),
+                minimum_bits: f64::from(MIN_ACCEL_METERS_PER_SECOND_SQUARED).to_bits(),
+                maximum_bits: f64::from(MAX_ACCEL_METERS_PER_SECOND_SQUARED).to_bits(),
+            })
+        } else {
+            None
+        }
     })
 }
 

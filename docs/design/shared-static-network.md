@@ -1,7 +1,7 @@
 # 共享静态路网
 
 **文档状态**: Accepted（#300 G1 Pass）<br>
-**最后更新**: 2026-08-25（#496 G1：下一热列合同为整数毫米 / `mm/s`，制品为 LFCA v2 并行 admission；G2 前 `main` 仍为 `f64` / V1）<br>
+**最后更新**: 2026-08-25（#496：热列为整数毫米 / `mm/s`，制品只承认 `formatVersion = 2`）<br>
 **适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
 **关联文档**: `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
@@ -22,9 +22,8 @@ Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验
 性能证据；#300 保持父级跟踪项，不由 #436 自动关闭。#301 交付 `TrafficWorld` 对共享根
 的消费并使它成为唯一可运行交通世界，同时拆除 current Core/JSON 运行时入口；契约见
 `traffic-runtime-shared-consumption.md`。ADR 0028 / `traffic-runtime-integer-geometry.md`
-把下一生产热列定为 `u32` mm 与 mm/s（Proposed；未 Pass），制品为 **LFCA v2**；
-G2 完成前构建器仍发射 current-`f64` 米的 LFCA v1。有折线时边长从弧长 round，
-headless 从 LIR 交通边长 round；不从 Spatial 反推。
+把生产热列定为 `u32` mm 与 mm/s，制品为 **LFCA `formatVersion = 2`**。
+有折线时边长从弧长 round，headless 从 LIR 交通边长 round；不从 Spatial 反推。
 
 ## 2. 职责与依赖
 
@@ -92,16 +91,14 @@ impl<'a> PostEmissionCheckedBundleV1<'a> {
 - 字段私有、无调用方传入 view/digest/revision 的公共构造器；公开 accessor 不授予
   重建该 capability 的能力。
 
-#### 提案中的 LFCA v2 admission（#496 G1；未 Pass，G2 前 `main` 仍为 V1）
+#### LFCA admission（#496 / ADR 0028）
 
-ADR 0028 把下一生产制品定为 LFCA v2。G2 **不得**把 v2 对象送进本节 V1 入口，也不得
-放宽 v1 预检以接纳 `formatVersion = 2`。并行提供 v2 受检输入：语义形状同 V1（字段
-私有、digest / 长度 / `NetworkRevisionId` 闭合），object kind 精确为 LFCA v2，走
-**v2 registry** 与直接值域检查。后发射对 LFCA/LFSM/LFSD 走各自 v2 预检（LFSM
-`sourceMapFormatVersion = 2`，LFSD `semanticDiffFormatVersion = 2`，形状同 v1）；
-`canonicalArtifactFormatVersion` 必须为 `2`。v1 受检制品组不得派生 v2 输入。
-`FormatLimits` 数值上限不因本切片单开新档。G2 完成后生产构建只消费 v2；不得把
-v1 米列读成毫米。G2 决定这些入口的 Rust 名字。
+生产制品只承认 `formatVersion = 2`。受检输入字段私有，digest / 长度 /
+`NetworkRevisionId` 闭合；object kind 精确为 LFCA，走当前 registry 与直接值域检查。
+后发射对 LFCA/LFSM/LFSD 走各自预检（LFSM `sourceMapFormatVersion = 2`，LFSD
+`semanticDiffFormatVersion = 2`）；`canonicalArtifactFormatVersion` 必须为 `2`。
+读器拒绝 `formatVersion != 2`。`FormatLimits` 数值上限不因本切片单开新档。公开
+API 不带世代后缀，不得把米列读成毫米。
 
 `ValueCheckedObjectView` 本身不证明跨表引用、row ordering 或真实性，因此不能直接作为
 共享静态路网成功结果。`laneflow-static-network` 必须继续完成 §7 的构建闭合；发布内容
@@ -135,7 +132,7 @@ RoadEditingState
 可编辑 session 为后续 `PortableDiffBase::Artifact` 保留的 exact LFCA 由 editor/#302 作为
 `EditableDiffBase` 单独拥有，不进入 `SharedNetworkRevision`，也不改变 builder 的借用边界。
 
-#496 G2（Proposed）：上图两条路径改为 v2 受检输入；不得画成 v1 入口兼收 v2。
+两条路径都只接受 `formatVersion = 2` 的受检输入。
 
 ## 4. 根修订与 component
 
@@ -275,8 +272,7 @@ CheckedCanonicalNetworkInput
   -> SharedNetworkRevision
 ```
 
-#496 G2（Proposed）：算法起点换为 v2 受检输入；G2 前保持 V1。
-不得靠 `formatVersion` 隐式把 v1 米列当成毫米。
+算法起点是 `formatVersion = 2` 的受检输入。不得靠 `formatVersion` 隐式把米列当成毫米。
 
 pass A/B 都按 LFCA wire order 线性遍历，不使用保留的 O(n) ordinal random-access API 形成
 O(n²) 构建。实现可以融合不影响精确预算或错误语义的子 pass，但不得增加第二个 projection。
@@ -619,9 +615,9 @@ tick 扫描，也不得复制进每 world 可变状态：
 - **StaticRoute 执行索引**：对每条编译器作者的 `StaticRoute`，seal 时生成与当前
   `CoreWorld::register_compiled_route` 等价的 `RouteDistanceIndex`、
   `next_controlled_transition` 与 `speed_limit_transitions`（由边长、限速、
-  受信号控制的 transition gate 派生）。#496 G1（Proposed）：派生限速目标与边限速
-  同一量子（mm/s）；到下一受控门的距离与路线有界距离同型（`Finite(u32)` /
-  `BeyondFinite`）。动态路线注册仍由 Runtime 每世界拥有，不进共享静态路网。
+  受信号控制的 transition gate 派生）。派生限速目标与边限速同一量子（mm/s）；到下一
+  受控门的距离与路线有界距离同型（`Finite(u32)` / `BeyondFinite`）。动态路线注册仍由
+  Runtime 每世界拥有，不进共享静态路网。
 
 `PartitionPlanningHints` 默认保持 #439 的边邻接度数公式。若实现要把路口或静态路线
 边界权值纳入 worker 数无关提示，必须提升

@@ -385,10 +385,10 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | LaneFlow 核心       | LaneFlow Core                       | `laneflow-core`      | 已拆除的前动态执行层 crate；由交通运行时一次性不兼容替代。                                                                      |
 | 交通世界            | traffic world                       | `TrafficWorld`       | 安装共享静态路网并持有每世界可变状态的运行时实例。                                                                              |
 | 核心世界            | core world                          | `CoreWorld`          | 已拆除的 `laneflow-core` 世界类型。                                                                                             |
-| 固定步进            | fixed tick                          | tick                 | 以确定输入和顺序推进交通状态的一次运行时更新。提案中（Proposed；#496）：合法步长 `4..=1000` ms，4 ms 为最细量子，不是默认。     |
-| 整数毫米            | integer millimetre                  | mm                   | 提案中（Proposed；#496）：已提交交通一维几何的权威长度量子；边长、边内进度、车长、间距与停车锚点使用整数毫米。                  |
-| 微米累加器          | micrometre accumulator              | `carry_um`           | 提案中（Proposed；#496）：每车 `0..=999` 的亚毫米余数。整数硬约束剩余空间为正时才累加；硬停清零；跨边保留；完成/停车/替换清零。 |
-| 毫米每秒            | millimetres per second              | mm/s                 | 提案中（Proposed；#496）：已提交车速、边限速与期望车速的整数量子；IIDM 仍用瞬时 SI。不另设速度余数。                            |
+| 固定步进            | fixed tick                          | tick                 | 以确定输入和顺序推进交通状态的一次运行时更新。合法步长 `4..=1000` ms，4 ms 为最细量子，不是默认。     |
+| 整数毫米            | integer millimetre                  | mm                   | 已提交交通一维几何的权威长度量子；边长、边内进度、车长、间距与停车锚点使用整数毫米。                  |
+| 微米累加器          | micrometre accumulator              | `carry_um`           | 每车 `0..=999` 的亚毫米余数。整数硬约束剩余空间为正时才累加；硬停清零；跨边保留；完成/停车/替换清零。 |
+| 毫米每秒            | millimetres per second              | mm/s                 | 已提交车速、边限速与期望车速的整数量子；IIDM 仍用瞬时 SI。不另设速度余数。                            |
 | 稳态步进            | steady-state tick                   | —                    | 初始化和容量稳定后的高频固定步进路径。                                                                                          |
 | 交通参与者          | traffic participant                 | —                    | 直接使用交通网络或占用交通空间的动态参与者；不等同于城市居民、乘客、出行需求或 AI Agent。                                       |
 | 交通参与单元        | traffic participant unit            | —                    | 交通运行时中可独立保留身份的计数原子；机动车、骑行者组合、行人或轨道运营编组的具体原子由对应执行域 G1 冻结。                    |

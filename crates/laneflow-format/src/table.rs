@@ -84,13 +84,7 @@ pub fn preflight_table_structure(
     limits: FormatLimits,
 ) -> Result<TableStructureSummary, FormatError> {
     let mut budget = PreflightBudget::default();
-    preflight_table_structure_with_registry(
-        bytes,
-        expected_table_kind,
-        None,
-        limits,
-        &mut budget,
-    )
+    preflight_table_structure_with_registry(bytes, expected_table_kind, None, limits, &mut budget)
 }
 
 pub(crate) fn preflight_table_with_registry(
@@ -226,7 +220,7 @@ fn preflight_table_structure_with_registry(
 }
 
 #[cfg(test)]
-fn preflight_table_v1(
+fn preflight_table(
     bytes: &[u8],
     expected_table_kind: u16,
     limits: FormatLimits,
@@ -872,7 +866,7 @@ mod tests {
     #[test]
     fn valid_nested_structure_reports_exact_budget_summary() {
         let bytes = valid_table();
-        let summary = preflight_table_v1(&bytes, 9, FormatLimits::HARD).unwrap();
+        let summary = preflight_table(&bytes, 9, FormatLimits::HARD).unwrap();
 
         assert_eq!(summary.table_kind(), 9);
         assert_eq!(summary.top_level_rows(), 1);
@@ -890,7 +884,7 @@ mod tests {
         let mut bytes = original.clone();
         bytes[4..8].copy_from_slice(&0_u32.to_le_bytes());
         assert_eq!(
-            preflight_table_v1(&bytes, 9, FormatLimits::HARD)
+            preflight_table(&bytes, 9, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
@@ -899,7 +893,7 @@ mod tests {
         let mut bytes = original;
         bytes[24..28].copy_from_slice(&0_u32.to_le_bytes());
         assert_eq!(
-            preflight_table_v1(&bytes, 9, FormatLimits::HARD)
+            preflight_table(&bytes, 9, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
@@ -912,7 +906,7 @@ mod tests {
         first[8..12].copy_from_slice(&2_u32.to_le_bytes());
         let bytes = table(1, &[first, row(&[])]);
         assert_eq!(
-            preflight_table_v1(&bytes, 1, FormatLimits::HARD),
+            preflight_table(&bytes, 1, FormatLimits::HARD),
             Err(FormatError::LengthMismatch {
                 structure: FormatStructure::RowFields,
                 declared: FIELD_HEADER_BYTES,
@@ -929,7 +923,7 @@ mod tests {
         ]);
         let bytes = table(1, &[outer]);
         assert_eq!(
-            preflight_table_v1(&bytes, 1, FormatLimits::HARD),
+            preflight_table(&bytes, 1, FormatLimits::HARD),
             Err(FormatError::LengthMismatch {
                 structure: FormatStructure::RecordVector,
                 declared: ROW_HEADER_BYTES,
@@ -942,7 +936,7 @@ mod tests {
     fn fixed_width_and_vector_redundant_lengths_fail_closed() {
         let wrong_fixed = table(1, &[row(&[field(1, PortableFieldType::U32, &[0_u8; 8])])]);
         assert_eq!(
-            preflight_table_v1(&wrong_fixed, 1, FormatLimits::HARD)
+            preflight_table(&wrong_fixed, 1, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
@@ -959,7 +953,7 @@ mod tests {
             )])],
         );
         assert_eq!(
-            preflight_table_v1(&wrong_vector, 1, FormatLimits::HARD)
+            preflight_table(&wrong_vector, 1, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
@@ -982,7 +976,7 @@ mod tests {
         let bytes = table(1, &[outer]);
 
         assert_eq!(
-            preflight_table_v1(&bytes, 1, FormatLimits::HARD),
+            preflight_table(&bytes, 1, FormatLimits::HARD),
             Err(FormatError::LimitExceeded {
                 dimension: LimitDimension::RecordVectorDepth,
                 actual: 2,
@@ -996,7 +990,7 @@ mod tests {
         let mut excessive_rows = table(1, &[]);
         excessive_rows[4..8].copy_from_slice(&(FORMAT_HARD_MAX_ROWS_PER_TABLE + 1).to_le_bytes());
         assert_eq!(
-            preflight_table_v1(&excessive_rows, 1, FormatLimits::HARD),
+            preflight_table(&excessive_rows, 1, FormatLimits::HARD),
             Err(FormatError::LimitExceeded {
                 dimension: LimitDimension::RowsPerTable,
                 actual: u64::from(FORMAT_HARD_MAX_ROWS_PER_TABLE) + 1,
@@ -1009,7 +1003,7 @@ mod tests {
             .collect::<Vec<_>>();
         let excessive_fields = table(1, &[row(&fields)]);
         assert_eq!(
-            preflight_table_v1(&excessive_fields, 1, FormatLimits::HARD),
+            preflight_table(&excessive_fields, 1, FormatLimits::HARD),
             Err(FormatError::LimitExceeded {
                 dimension: LimitDimension::FieldsPerRow,
                 actual: u64::from(FORMAT_HARD_MAX_FIELDS_PER_ROW) + 1,
@@ -1027,7 +1021,7 @@ mod tests {
             )])],
         );
         assert_eq!(
-            preflight_table_v1(&excessive_items, 1, FormatLimits::HARD),
+            preflight_table(&excessive_items, 1, FormatLimits::HARD),
             Err(FormatError::LimitExceeded {
                 dimension: LimitDimension::VectorItems,
                 actual: u64::from(FORMAT_HARD_MAX_VECTOR_ITEMS) + 1,
@@ -1043,7 +1037,7 @@ mod tests {
         config.max_total_utf8_bytes = 2;
         let limits = FormatLimits::try_new(config).unwrap();
         assert_eq!(
-            preflight_table_v1(&bytes, 9, limits),
+            preflight_table(&bytes, 9, limits),
             Err(FormatError::LimitExceeded {
                 dimension: LimitDimension::TotalUtf8Bytes,
                 actual: 3,
@@ -1055,7 +1049,7 @@ mod tests {
         config.max_total_vector_bytes = 11;
         let limits = FormatLimits::try_new(config).unwrap();
         assert_eq!(
-            preflight_table_v1(&bytes, 9, limits),
+            preflight_table(&bytes, 9, limits),
             Err(FormatError::LimitExceeded {
                 dimension: LimitDimension::TotalVectorBytes,
                 actual: 12,
@@ -1076,7 +1070,7 @@ mod tests {
                 )])],
             );
             assert_eq!(
-                preflight_table_v1(&bytes, 1, FormatLimits::HARD)
+                preflight_table(&bytes, 1, FormatLimits::HARD)
                     .unwrap_err()
                     .class(),
                 FormatErrorClass::NonCanonicalValue
@@ -1085,7 +1079,7 @@ mod tests {
 
         let invalid_utf8 = table(1, &[row(&[field(1, PortableFieldType::Utf8, &[0xff])])]);
         assert_eq!(
-            preflight_table_v1(&invalid_utf8, 1, FormatLimits::HARD)
+            preflight_table(&invalid_utf8, 1, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::NonCanonicalValue
@@ -1099,7 +1093,7 @@ mod tests {
             ])],
         );
         assert_eq!(
-            preflight_table_v1(&unordered, 1, FormatLimits::HARD)
+            preflight_table(&unordered, 1, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::NonCanonicalOrder
@@ -1114,7 +1108,7 @@ mod tests {
         let limits = FormatLimits::try_new(config).unwrap();
 
         assert_eq!(
-            preflight_table_v1(&bytes, 9, limits),
+            preflight_table(&bytes, 9, limits),
             Err(FormatError::LimitExceeded {
                 dimension: LimitDimension::SectionOrTableBytes,
                 actual: bytes.len() as u64,

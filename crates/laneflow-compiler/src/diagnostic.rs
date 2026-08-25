@@ -597,17 +597,27 @@ impl ParkingGeometryField {
 pub enum ParkingGeometryViolation {
     /// 输入为 NaN 或正负无穷。
     NotFinite,
-    /// 输入的绝对值没有严格大于排他下限。
-    AbsoluteNotGreaterThan {
-        /// 排他下限的 IEEE 754 位模式。
-        exclusive_minimum_bits: u64,
+    /// 有限输入无法量化到毫米。
+    QuantizeFailed,
+    /// 量化后的毫米值落在闭包之外。
+    OutsideClosedMillimetreRange {
+        /// 包含下限，单位为毫米。
+        min_mm: u32,
+        /// 包含上限，单位为毫米。
+        max_mm: u32,
+        /// 量化后的实际值，单位为毫米。
+        actual_mm: u32,
     },
-    /// 输入没有严格大于排他下限。
-    NotGreaterThan {
-        /// 排他下限的 IEEE 754 位模式。
-        exclusive_minimum_bits: u64,
+    /// 量化后横向偏移绝对值落在闭包之外。
+    AbsoluteOutsideClosedMillimetreRange {
+        /// 绝对值包含下限，单位为毫米。
+        min_abs_mm: u32,
+        /// 绝对值包含上限，单位为毫米。
+        max_abs_mm: u32,
+        /// 量化后的绝对值，单位为毫米。
+        actual_abs_mm: u32,
     },
-    /// 输入不在包含下界、排除上界的半开区间内。
+    /// 量化并折叠后的朝向不在 `-π <= x < π`。
     OutsideHalfOpenRange {
         /// 包含下界的 IEEE 754 位模式。
         minimum_inclusive_bits: u64,
@@ -1199,14 +1209,15 @@ pub enum DiagnosticPayload {
         cycle_duration_ms: u64,
         max_inclusive: u64,
     },
-    /// 非法停车锚点及边界比较所需的精确浮点位模式。
+    /// 非法停车锚点及量化后的毫米闭包。
     InvalidParkingAnchorProgress {
         parking_space_key: Box<str>,
         role: ParkingAnchorRole,
         lane_edge_key: Box<str>,
         progress_bits: u64,
         edge_length_bits: u64,
-        endpoint_clearance_bits: u64,
+        min_progress_mm: u32,
+        max_progress_mm: u32,
     },
     /// 非法停车几何字段、原始值和结构化失败原因。
     InvalidParkingSpaceGeometry {
@@ -2890,7 +2901,8 @@ impl Diagnostic {
         lane_edge_key: &str,
         progress_meters: f64,
         edge_length_meters: f64,
-        endpoint_clearance_meters: f64,
+        min_progress_mm: u32,
+        max_progress_mm: u32,
         primary_span: impl Into<SourceLocation>,
     ) -> Self {
         Self::error_with_context(
@@ -2901,7 +2913,8 @@ impl Diagnostic {
                 lane_edge_key: lane_edge_key.into(),
                 progress_bits: progress_meters.to_bits(),
                 edge_length_bits: edge_length_meters.to_bits(),
-                endpoint_clearance_bits: endpoint_clearance_meters.to_bits(),
+                min_progress_mm,
+                max_progress_mm,
             },
             Some(primary_span),
             Box::default(),
@@ -3870,15 +3883,14 @@ impl fmt::Display for Diagnostic {
                 role,
                 lane_edge_key,
                 progress_bits,
-                edge_length_bits,
-                endpoint_clearance_bits,
+                edge_length_bits: _,
+                min_progress_mm,
+                max_progress_mm,
             } => write!(
                 formatter,
-                "停车位 {parking_space_key} 的 {} 锚点在车道图边 {lane_edge_key} 上进度为 {} m；必须有限且严格位于 ({}, {}) m",
+                "停车位 {parking_space_key} 的 {} 锚点在车道图边 {lane_edge_key} 上进度为 {} m；量化后必须位于 {min_progress_mm}..={max_progress_mm} mm",
                 role.as_str(),
                 f64::from_bits(*progress_bits),
-                f64::from_bits(*endpoint_clearance_bits),
-                f64::from_bits(*edge_length_bits) - f64::from_bits(*endpoint_clearance_bits),
             ),
             DiagnosticPayload::InvalidParkingSpaceGeometry {
                 parking_space_key,
@@ -4119,6 +4131,28 @@ impl fmt::Display for ScalarViolationDisplay {
                 "必须大于或等于 {}",
                 f64::from_bits(inclusive_minimum_bits)
             ),
+            ScalarViolation::NotAtMost {
+                inclusive_maximum_bits,
+            } => write!(
+                formatter,
+                "必须小于或等于 {}",
+                f64::from_bits(inclusive_maximum_bits)
+            ),
+            ScalarViolation::OutsideClosedMillimetreRange {
+                min_mm,
+                max_mm,
+                actual_mm,
+            } => write!(
+                formatter,
+                "量化后必须位于 {min_mm}..={max_mm} mm，实际为 {actual_mm} mm"
+            ),
+            ScalarViolation::OutsideClosedF32Range { min_bits, max_bits } => write!(
+                formatter,
+                "量化后必须位于 {}..={}",
+                f32::from_bits(min_bits),
+                f32::from_bits(max_bits)
+            ),
+            ScalarViolation::QuantizeFailed => formatter.write_str("无法量化到毫米"),
         }
     }
 }
@@ -4129,26 +4163,29 @@ impl fmt::Display for ParkingGeometryViolationDisplay {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             ParkingGeometryViolation::NotFinite => formatter.write_str("必须是有限数"),
-            ParkingGeometryViolation::AbsoluteNotGreaterThan {
-                exclusive_minimum_bits,
+            ParkingGeometryViolation::QuantizeFailed => formatter.write_str("无法量化到毫米"),
+            ParkingGeometryViolation::OutsideClosedMillimetreRange {
+                min_mm,
+                max_mm,
+                actual_mm,
             } => write!(
                 formatter,
-                "绝对值必须严格大于 {}",
-                f64::from_bits(exclusive_minimum_bits)
+                "量化后必须位于 {min_mm}..={max_mm} mm，实际为 {actual_mm} mm"
             ),
-            ParkingGeometryViolation::NotGreaterThan {
-                exclusive_minimum_bits,
+            ParkingGeometryViolation::AbsoluteOutsideClosedMillimetreRange {
+                min_abs_mm,
+                max_abs_mm,
+                actual_abs_mm,
             } => write!(
                 formatter,
-                "必须严格大于 {}",
-                f64::from_bits(exclusive_minimum_bits)
+                "量化后绝对值必须位于 {min_abs_mm}..={max_abs_mm} mm，实际为 {actual_abs_mm} mm"
             ),
             ParkingGeometryViolation::OutsideHalfOpenRange {
                 minimum_inclusive_bits,
                 maximum_exclusive_bits,
             } => write!(
                 formatter,
-                "必须位于 [{}, {})",
+                "量化并折叠后必须位于 [{}, {})",
                 f64::from_bits(minimum_inclusive_bits),
                 f64::from_bits(maximum_exclusive_bits)
             ),

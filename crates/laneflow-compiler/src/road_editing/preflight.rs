@@ -4,17 +4,19 @@ use laneflow_road_editing_wire::generated::lane_flow::road_editing::v1 as wire;
 use laneflow_road_editing_wire::runtime::{ForwardsUOffset, Vector};
 use laneflow_static_contract::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS, EntityKind,
-    MIN_PARKING_EXTENT_EXCLUSIVE_METERS, MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS,
-    MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS, PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS,
-    PARKING_HEADING_OFFSET_MAXIMUM_RADIANS, PARKING_HEADING_OFFSET_MINIMUM_RADIANS,
+    MAX_LANE_EDGE_LENGTH_MM, MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S,
+    MAX_VEHICLE_LENGTH_MM, MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S,
+    MIN_VEHICLE_LENGTH_MM, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM,
 };
 
 use super::model::{
     DIRECT_FRONTEND_OPTIONS_DIGEST, DIRECT_GENERATOR_BUILD_ID, DIRECT_INPUTS_DIGEST,
 };
 use super::rules::{
-    finite_violation, inclusive_range_violation, non_negative_violation, positive_violation,
-    token_violation, validate_wire_reference, visible_ascii_violation,
+    accel_violation, heading_violation, inclusive_range_violation,
+    millimetre_i32_abs_range_violation, millimetre_range_violation, non_negative_violation,
+    positive_violation, time_headway_violation, token_violation, validate_wire_reference,
+    visible_ascii_violation,
 };
 use crate::declaration::{MAX_PORTABLE_SIGNAL_TIME_MS, facility_kind_category};
 use crate::{
@@ -1369,7 +1371,11 @@ fn validate_lane_edges(
             limits,
             expected_key,
         )?;
-        if let Some(violation) = positive_violation(value.speed_limit_meters_per_second()) {
+        if let Some(violation) = millimetre_range_violation(
+            value.speed_limit_meters_per_second(),
+            MIN_SPEED_MM_S,
+            MAX_SPEED_MM_S,
+        ) {
             return Err(semantic_error(
                 "laneEdge.speedLimitMetersPerSecond",
                 violation,
@@ -1971,32 +1977,21 @@ fn validate_parking(
             expected_key,
         )?;
         let geometry = value.geometry();
-        if let Some(violation) = finite_violation(geometry.lateral_offset_meters()) {
+        if let Some(violation) = millimetre_i32_abs_range_violation(
+            geometry.lateral_offset_meters(),
+            MIN_PARKING_LATERAL_OFFSET_ABS_MM,
+            MAX_PARKING_LATERAL_OFFSET_ABS_MM,
+        ) {
             return Err(semantic_error(
                 "parkingSpace.geometry.lateralOffsetMeters",
                 violation,
                 expected_key,
             ));
         }
-        if geometry.lateral_offset_meters().abs() <= MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS
-        {
-            return Err(invalid_combination(
-                "parkingSpace.geometry.lateralOffsetMeters",
-                expected_key,
-            ));
-        }
-        if let Some(violation) = finite_violation(geometry.heading_offset_radians()) {
+        if let Some(violation) = heading_violation(geometry.heading_offset_radians()) {
             return Err(semantic_error(
                 "parkingSpace.geometry.headingOffsetRadians",
                 violation,
-                expected_key,
-            ));
-        }
-        if !(PARKING_HEADING_OFFSET_MINIMUM_RADIANS..PARKING_HEADING_OFFSET_MAXIMUM_RADIANS)
-            .contains(&geometry.heading_offset_radians())
-        {
-            return Err(invalid_combination(
-                "parkingSpace.geometry.headingOffsetRadians",
                 expected_key,
             ));
         }
@@ -2007,11 +2002,10 @@ fn validate_parking(
             ),
             ("parkingSpace.geometry.widthMeters", geometry.width_meters()),
         ] {
-            if let Some(violation) = positive_violation(extent) {
+            if let Some(violation) =
+                millimetre_range_violation(extent, MIN_VEHICLE_LENGTH_MM, MAX_VEHICLE_LENGTH_MM)
+            {
                 return Err(semantic_error(field, violation, expected_key));
-            }
-            if extent <= MIN_PARKING_EXTENT_EXCLUSIVE_METERS {
-                return Err(invalid_combination(field, expected_key));
             }
         }
         usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
@@ -2039,11 +2033,12 @@ fn validate_parking_anchor(
         limits,
         expected_key,
     )?;
-    if let Some(violation) = positive_violation(value.progress_meters()) {
+    if let Some(violation) = millimetre_range_violation(
+        value.progress_meters(),
+        PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM,
+        MAX_LANE_EDGE_LENGTH_MM.saturating_sub(PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM),
+    ) {
         return Err(semantic_error(field, violation, expected_key));
-    }
-    if value.progress_meters() <= PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS {
-        return Err(invalid_combination(field, expected_key));
     }
     Ok(())
 }
@@ -2272,16 +2267,43 @@ fn validate_iidm(
     value: wire::IidmVehicleProfile<'_>,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
-    let positive = [
-        ("vehicleProfile.iidm.lengthMeters", value.length_meters()),
-        (
+    if let Some(violation) = millimetre_range_violation(
+        value.length_meters(),
+        MIN_VEHICLE_LENGTH_MM,
+        MAX_VEHICLE_LENGTH_MM,
+    ) {
+        return Err(semantic_error(
+            "vehicleProfile.iidm.lengthMeters",
+            violation,
+            expected_key,
+        ));
+    }
+    if let Some(violation) = millimetre_range_violation(
+        value.desired_speed_meters_per_second(),
+        MIN_SPEED_MM_S,
+        MAX_SPEED_MM_S,
+    ) {
+        return Err(semantic_error(
             "vehicleProfile.iidm.desiredSpeedMetersPerSecond",
-            value.desired_speed_meters_per_second(),
-        ),
-        (
+            violation,
+            expected_key,
+        ));
+    }
+    if let Some(violation) = millimetre_range_violation(value.min_gap_meters(), 0, MAX_MIN_GAP_MM) {
+        return Err(semantic_error(
+            "vehicleProfile.iidm.minGapMeters",
+            violation,
+            expected_key,
+        ));
+    }
+    if let Some(violation) = time_headway_violation(value.time_headway_seconds()) {
+        return Err(semantic_error(
             "vehicleProfile.iidm.timeHeadwaySeconds",
-            value.time_headway_seconds(),
-        ),
+            violation,
+            expected_key,
+        ));
+    }
+    for (field, number) in [
         (
             "vehicleProfile.iidm.maxAccelerationMetersPerSecondSquared",
             value.max_acceleration_meters_per_second_squared(),
@@ -2294,24 +2316,10 @@ fn validate_iidm(
             "vehicleProfile.iidm.emergencyDecelerationMetersPerSecondSquared",
             value.emergency_deceleration_meters_per_second_squared(),
         ),
-    ];
-    for (field, number) in positive {
-        if let Some(violation) = positive_violation(number) {
+    ] {
+        if let Some(violation) = accel_violation(number) {
             return Err(semantic_error(field, violation, expected_key));
         }
-    }
-    if value.length_meters() <= MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS {
-        return Err(invalid_combination(
-            "vehicleProfile.iidm.lengthMeters",
-            expected_key,
-        ));
-    }
-    if let Some(violation) = non_negative_violation(value.min_gap_meters()) {
-        return Err(semantic_error(
-            "vehicleProfile.iidm.minGapMeters",
-            violation,
-            expected_key,
-        ));
     }
     if value.emergency_deceleration_meters_per_second_squared()
         < value.comfortable_deceleration_meters_per_second_squared()

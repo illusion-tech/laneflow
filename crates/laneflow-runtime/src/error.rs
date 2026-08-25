@@ -105,12 +105,9 @@ pub enum SpawnError {
     /// 路线序列下标越界。
     #[error("路线序列下标越界")]
     RouteIndexOutOfRange,
-    /// 进度非有限、为负或超过边长。
+    /// 进度超过边长。
     #[error("spawn 进度非法")]
     InvalidProgress,
-    /// 初速非有限或为负。
-    #[error("spawn 初速非法")]
-    InvalidSpeed,
     /// 初速超过当前边基础限速。
     #[error("spawn 初速超过当前边基础限速")]
     SpeedExceedsLimit,
@@ -146,12 +143,9 @@ pub enum ReplaceError {
     /// 路线序列下标越界。
     #[error("路线序列下标越界")]
     RouteIndexOutOfRange,
-    /// 进度非有限、为负或超过边长。
+    /// 进度超过边长。
     #[error("replace 进度非法")]
     InvalidProgress,
-    /// 初速非有限或为负。
-    #[error("replace 初速非法")]
-    InvalidSpeed,
     /// 初速超过当前边基础限速。
     #[error("replace 初速超过当前边基础限速")]
     SpeedExceedsLimit,

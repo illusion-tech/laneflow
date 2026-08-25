@@ -130,9 +130,9 @@ fn default_corridor_locks_protected_turning_geometry_routes_and_signals() {
     let generated = default_generated();
     let lir = generated.lir();
     let main = edge_key(lir, "edge-main-w2e-lane-0-road-0");
-    assert!((main.speed_limit_meters_per_second() - 60.0 / 3.6).abs() < 1e-12);
+    assert_eq!(main.speed_limit_meters_per_second(), 60.0 / 3.6);
     let side = edge_key(lir, "edge-side-1-n2s-lane-0-road-0");
-    assert!((side.speed_limit_meters_per_second() - 40.0 / 3.6).abs() < 1e-12);
+    assert_eq!(side.speed_limit_meters_per_second(), 40.0 / 3.6);
     for (id, expected_length, expected_speed) in [
         (
             "edge-junction-1-west-straight-lane-2-to-2-i0",
@@ -162,7 +162,7 @@ fn default_corridor_locks_protected_turning_geometry_routes_and_signals() {
     ] {
         let edge = edge_key(lir, id);
         assert_eq!(edge.length_meters(), expected_length);
-        assert!((edge.speed_limit_meters_per_second() - expected_speed).abs() < 1e-12);
+        assert_eq!(edge.speed_limit_meters_per_second(), expected_speed);
     }
     assert!(
         lir.maneuver_gates()
@@ -387,7 +387,7 @@ fn traffic_and_spatial_lengths_match_independently_for_all_66_edges() {
             })
             .sum::<f64>();
         assert!(
-            (polyline - edge.length_meters()).abs() <= 1e-3,
+            (polyline - edge.length_meters()).abs() <= 0.001,
             "edge {}: spatial polyline {polyline} m vs traffic length {}",
             ascii_field(edge.identity_fields(), FieldTag::LaneEdgeKey),
             edge.length_meters()

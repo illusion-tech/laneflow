@@ -31,16 +31,8 @@ pub enum AccessEffect {
     Deny,
 }
 
-/// 历史米制哨兵：停车锚点距边端必须严格大于的距离。
-///
-/// G2 起生产判定使用 [`PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM`]；编制 LIR 仍可读本常量。
-pub const PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS: f64 = 1.0e-9;
-
 /// 停车锚点距量化后边端的留白，单位为毫米；与最短边长不是同一个常量。
 pub const PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM: u32 = 1;
-
-/// 历史米制哨兵：停车位横向偏移绝对值必须严格大于的距离。
-pub const MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
 /// 路外停车横向偏移绝对值下限（含），单位为毫米。
 pub const MIN_PARKING_LATERAL_OFFSET_ABS_MM: u32 = 1;
@@ -48,17 +40,11 @@ pub const MIN_PARKING_LATERAL_OFFSET_ABS_MM: u32 = 1;
 /// 停车横向偏移绝对值上限（含），单位为毫米。
 pub const MAX_PARKING_LATERAL_OFFSET_ABS_MM: u32 = 128_000;
 
-/// 历史米制哨兵：停车位长度和宽度必须严格大于的距离。
-pub const MIN_PARKING_EXTENT_EXCLUSIVE_METERS: f64 = 1.0e-9;
-
 /// 停车长宽与车长下限（含），单位为毫米。
 pub const MIN_VEHICLE_LENGTH_MM: u32 = 100;
 
 /// 停车长宽与车长上限（含），单位为毫米。
 pub const MAX_VEHICLE_LENGTH_MM: u32 = 128_000;
-
-/// 历史米制哨兵：车辆长度必须严格大于的距离。
-pub const MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
 /// 交通边最短长度（含），单位为毫米。
 pub const MIN_LANE_EDGE_LENGTH_MM: u32 = 100;
@@ -105,7 +91,7 @@ pub const SPATIAL_LENGTH_ABS_TOLERANCE_METERS: f64 = 0.01;
 /// 交通权威长度与几何弧长绑定的相对容差系数。
 pub const SPATIAL_LENGTH_REL_TOLERANCE: f64 = 1.0e-6;
 
-/// current-f64 交通边长度的量化余量，单位为米。
+/// 交通边长与弧长对账不再另加量化余量；长度为独立整数毫米权威。
 pub const SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS: f64 = 0.0;
 
 /// 已连接车道图边端点允许的最大距离，单位为米。
@@ -119,3 +105,86 @@ pub const PARKING_HEADING_OFFSET_MINIMUM_RADIANS: f64 = -core::f64::consts::PI;
 
 /// 停车位朝向偏移的排他上界，单位为弧度。
 pub const PARKING_HEADING_OFFSET_MAXIMUM_RADIANS: f64 = core::f64::consts::PI;
+
+/// 把编制 SI 米量化为毫米：×1000 后 `round_ties_even`。非有限、越出 `u32` 或为负时返回 `None`。
+#[must_use]
+pub fn millimetres_from_si(meters: f64) -> Option<u32> {
+    u32::try_from(si_times_one_thousand(meters)?).ok()
+}
+
+/// 把编制 SI 米量化为有符号毫米，供停车横向偏移使用。
+#[must_use]
+pub fn millimetres_i32_from_si(meters: f64) -> Option<i32> {
+    i32::try_from(si_times_one_thousand(meters)?).ok()
+}
+
+/// 编制朝向量化到 `f32`：`+π` 位型折成 `-π`。非有限返回 `None`。
+#[must_use]
+pub fn heading_f32_from_si(radians: f64) -> Option<f32> {
+    if !radians.is_finite() {
+        return None;
+    }
+    let quantized = radians as f32;
+    if !quantized.is_finite() {
+        return None;
+    }
+    if quantized.to_bits() == HEADING_PLUS_PI_F32_BITS {
+        return Some(f32::from_bits(HEADING_MINUS_PI_F32_BITS));
+    }
+    Some(quantized)
+}
+
+/// 制品/热列朝向闭包：`-π <= x < π`。存着的 `+π` 位型非法。
+#[must_use]
+pub fn heading_f32_in_legal_closure(value: f32) -> bool {
+    if !value.is_finite() || value.to_bits() == HEADING_PLUS_PI_F32_BITS {
+        return false;
+    }
+    let min = f32::from_bits(HEADING_MINUS_PI_F32_BITS);
+    let max = f32::from_bits(HEADING_PLUS_PI_F32_BITS);
+    value >= min && value < max
+}
+
+fn si_times_one_thousand(value: f64) -> Option<i64> {
+    if !value.is_finite() {
+        return None;
+    }
+    let scaled = value * 1_000.0;
+    if !scaled.is_finite() || scaled < i64::MIN as f64 || scaled > i64::MAX as f64 {
+        return None;
+    }
+    Some(round_ties_even_to_i64(scaled))
+}
+
+fn round_ties_even_to_i64(value: f64) -> i64 {
+    let truncated = value as i64;
+    let fraction = value - truncated as f64;
+    let abs_fraction = if fraction < 0.0 { -fraction } else { fraction };
+    if abs_fraction > 0.5 || (abs_fraction == 0.5 && truncated % 2 != 0) {
+        truncated + if value >= 0.0 { 1 } else { -1 }
+    } else {
+        truncated
+    }
+}
+
+#[cfg(test)]
+mod millimetre_quantize_tests {
+    use super::*;
+
+    #[test]
+    fn rounds_length_ties_to_even() {
+        assert_eq!(millimetres_from_si(0.099_6), Some(100));
+        assert_eq!(millimetres_from_si(0.099_4), Some(99));
+    }
+
+    #[test]
+    fn folds_plus_pi_heading_into_legal_closure() {
+        let folded = heading_f32_from_si(f64::from(f32::from_bits(HEADING_PLUS_PI_F32_BITS)))
+            .expect("finite heading");
+        assert_eq!(folded.to_bits(), HEADING_MINUS_PI_F32_BITS);
+        assert!(heading_f32_in_legal_closure(folded));
+        assert!(!heading_f32_in_legal_closure(f32::from_bits(
+            HEADING_PLUS_PI_F32_BITS
+        )));
+    }
+}

@@ -1362,8 +1362,8 @@ fn compile_explicit_curve_exact(
         return Err(NumericFreezeError::ApproximationNotConverged);
     }
     let length = validate_canonical_polyline(&point_collector.points, direction)?;
-    let length =
-        EdgeLength::try_new(length).map_err(|_| NumericFreezeError::DegenerateCanonicalSegment)?;
+    let length = EdgeLength::try_from_authoring_metres(length)
+        .map_err(|_| NumericFreezeError::DegenerateCanonicalSegment)?;
     let source_ranges = point_collector.finish_source_ranges()?;
     Ok(CompiledCurve {
         length,
@@ -1580,8 +1580,8 @@ fn compile_offset_curve_exact(
         collector.reverse_source_ranges()?;
     }
     let length = validate_canonical_polyline(&collector.points, direction)?;
-    let length =
-        EdgeLength::try_new(length).map_err(|_| NumericFreezeError::DegenerateCanonicalSegment)?;
+    let length = EdgeLength::try_from_authoring_metres(length)
+        .map_err(|_| NumericFreezeError::DegenerateCanonicalSegment)?;
     let source_ranges = collector.finish_source_ranges()?;
     Ok(CompiledCurve {
         length,

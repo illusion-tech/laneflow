@@ -4,10 +4,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    EntityKind, FieldTag, MIN_PARKING_EXTENT_EXCLUSIVE_METERS,
-    MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS, PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS,
+    EntityKind, FieldTag, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_VEHICLE_LENGTH_MM,
+    MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_VEHICLE_LENGTH_MM, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM,
     PARKING_HEADING_OFFSET_MAXIMUM_RADIANS, PARKING_HEADING_OFFSET_MINIMUM_RADIANS, ParkingAreaId,
-    ParkingSpaceId,
+    ParkingSpaceId, heading_f32_from_si, heading_f32_in_legal_closure, millimetres_from_si,
+    millimetres_i32_from_si,
 };
 
 use crate::arena::{ArenaKeyOverflow, TableRange, TypedArena};
@@ -280,17 +281,25 @@ pub(crate) fn build_parking_hir(
             let Some(edge) = edge else { continue };
             let edge_length = lane_edges.get(edge).length_meters;
             let progress = anchor.progress_meters;
-            if !progress.is_finite()
-                || progress <= PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS
-                || progress >= edge_length - PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS
-            {
+            let progress_mm = millimetres_from_si(progress);
+            let length_mm = millimetres_from_si(edge_length);
+            let min_progress_mm = PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM;
+            let max_progress_mm = length_mm
+                .unwrap_or(0)
+                .saturating_sub(PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM);
+            if !matches!(
+                (progress_mm, length_mm),
+                (Some(progress), Some(_))
+                    if (min_progress_mm..=max_progress_mm).contains(&progress)
+            ) {
                 let mut diagnostic = Diagnostic::invalid_parking_anchor_progress(
                     &source.header.stable_key,
                     role,
                     &lane_edges.get(edge).stable_key,
                     progress,
                     edge_length,
-                    PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS,
+                    min_progress_mm,
+                    max_progress_mm,
                     anchor.lane_edge.span.clone(),
                 );
                 diagnostic.set_canonical_module_order(module_order);
@@ -303,35 +312,12 @@ pub(crate) fn build_parking_hir(
             (
                 ParkingGeometryField::LateralOffsetMeters,
                 geometry.lateral_offset_meters,
-                if !geometry.lateral_offset_meters.is_finite() {
-                    Some(ParkingGeometryViolation::NotFinite)
-                } else if geometry.lateral_offset_meters.abs()
-                    <= MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS
-                {
-                    Some(ParkingGeometryViolation::AbsoluteNotGreaterThan {
-                        exclusive_minimum_bits: MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS
-                            .to_bits(),
-                    })
-                } else {
-                    None
-                },
+                parking_lateral_violation(geometry.lateral_offset_meters),
             ),
             (
                 ParkingGeometryField::HeadingOffsetRadians,
                 geometry.heading_offset_radians,
-                if !geometry.heading_offset_radians.is_finite() {
-                    Some(ParkingGeometryViolation::NotFinite)
-                } else if !(PARKING_HEADING_OFFSET_MINIMUM_RADIANS
-                    ..PARKING_HEADING_OFFSET_MAXIMUM_RADIANS)
-                    .contains(&geometry.heading_offset_radians)
-                {
-                    Some(ParkingGeometryViolation::OutsideHalfOpenRange {
-                        minimum_inclusive_bits: PARKING_HEADING_OFFSET_MINIMUM_RADIANS.to_bits(),
-                        maximum_exclusive_bits: PARKING_HEADING_OFFSET_MAXIMUM_RADIANS.to_bits(),
-                    })
-                } else {
-                    None
-                },
+                parking_heading_violation(geometry.heading_offset_radians),
             ),
             (
                 ParkingGeometryField::LengthMeters,
@@ -457,13 +443,61 @@ pub(crate) fn build_parking_hir(
 }
 
 fn parking_extent_violation(value: f64) -> Option<ParkingGeometryViolation> {
+    closed_parking_mm(value, MIN_VEHICLE_LENGTH_MM, MAX_VEHICLE_LENGTH_MM)
+}
+
+fn parking_lateral_violation(value: f64) -> Option<ParkingGeometryViolation> {
     if !value.is_finite() {
-        Some(ParkingGeometryViolation::NotFinite)
-    } else if value <= MIN_PARKING_EXTENT_EXCLUSIVE_METERS {
-        Some(ParkingGeometryViolation::NotGreaterThan {
-            exclusive_minimum_bits: MIN_PARKING_EXTENT_EXCLUSIVE_METERS.to_bits(),
-        })
-    } else {
-        None
+        return Some(ParkingGeometryViolation::NotFinite);
     }
+    let Some(actual_mm) = millimetres_i32_from_si(value) else {
+        return Some(ParkingGeometryViolation::QuantizeFailed);
+    };
+    let actual_abs_mm = actual_mm.unsigned_abs();
+    if actual_abs_mm < MIN_PARKING_LATERAL_OFFSET_ABS_MM
+        || actual_abs_mm > MAX_PARKING_LATERAL_OFFSET_ABS_MM
+    {
+        return Some(
+            ParkingGeometryViolation::AbsoluteOutsideClosedMillimetreRange {
+                min_abs_mm: MIN_PARKING_LATERAL_OFFSET_ABS_MM,
+                max_abs_mm: MAX_PARKING_LATERAL_OFFSET_ABS_MM,
+                actual_abs_mm,
+            },
+        );
+    }
+    None
+}
+
+fn parking_heading_violation(value: f64) -> Option<ParkingGeometryViolation> {
+    let Some(heading) = heading_f32_from_si(value) else {
+        return Some(if value.is_finite() {
+            ParkingGeometryViolation::QuantizeFailed
+        } else {
+            ParkingGeometryViolation::NotFinite
+        });
+    };
+    if heading_f32_in_legal_closure(heading) {
+        None
+    } else {
+        Some(ParkingGeometryViolation::OutsideHalfOpenRange {
+            minimum_inclusive_bits: PARKING_HEADING_OFFSET_MINIMUM_RADIANS.to_bits(),
+            maximum_exclusive_bits: PARKING_HEADING_OFFSET_MAXIMUM_RADIANS.to_bits(),
+        })
+    }
+}
+
+fn closed_parking_mm(value: f64, min_mm: u32, max_mm: u32) -> Option<ParkingGeometryViolation> {
+    if !value.is_finite() {
+        return Some(ParkingGeometryViolation::NotFinite);
+    }
+    let Some(actual_mm) = millimetres_from_si(value) else {
+        return Some(ParkingGeometryViolation::QuantizeFailed);
+    };
+    (actual_mm < min_mm || actual_mm > max_mm).then_some(
+        ParkingGeometryViolation::OutsideClosedMillimetreRange {
+            min_mm,
+            max_mm,
+            actual_mm,
+        },
+    )
 }

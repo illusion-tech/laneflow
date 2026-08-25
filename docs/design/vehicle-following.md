@@ -1,6 +1,6 @@
 # Vehicle Following 设计
 
-**文档状态**: Accepted（纵向分层与 IIDM/安全投影仍有效；本文正文描述 current-`f64`。下一生产几何量子见 ADR 0028，G2 前 `main` 仍为 current-`f64`）<br>
+**文档状态**: Accepted（纵向分层与 IIDM/安全投影仍有效；已提交一维几何为整数毫米，IIDM 仍为瞬时 SI）<br>
 **最后更新**: 2026-08-25
 
 **适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
@@ -27,11 +27,10 @@
 
 本文固化 LaneFlow v0.3 Vehicle Following 的最小可执行设计，作为 #71 的 G1 冻结结果、#79 的 Traffic Data 边界输入和 #73-#77 的实施依据；全面审阅发现的性能修复由 #86 收口。
 
-#496 / ADR 0028（Proposed，未 Pass）把下一生产已提交一维几何改为整数毫米，占用/
+#496 / ADR 0028 把已提交一维几何改为整数毫米，占用/
 重叠用整数比较，跨 hop 间隙为 `i64` mm，IIDM 仍为舒适层；`max_accel >= 0.5 m/s²`，
-不另做速度余数。G2 完成前生产路径仍为本文的 current-`f64` 与 `1.0e-9` 哨兵；落地
-规则见 `traffic-runtime-integer-geometry.md`，不得按整数合同阅读本节以下 current
-字段。
+不另做速度余数。落地规则见 `traffic-runtime-integer-geometry.md`。下文若仍出现
+历史米制字段名，只描述编制输入或瞬时 SI，不是已提交权威。
 
 目标：
 
@@ -111,16 +110,15 @@ IIDM exponent 固定为 `4`，不是每 profile 可调字段。所有行为字�
 
 Validation：
 
-- 所有数值必须 finite。
-- `length`、`desiredSpeed`、`timeHeadway`、`maxAcceleration`、`comfortableDeceleration`、`emergencyDeceleration` 严格大于零。
-- `length` 严格大于领域专用的最小 vehicle length（current-f64 为 `1.0e-9 m`）。
-- `minGap >= 0`。
-- `emergencyDeceleration >= comfortableDeceleration`。
-- #496 G2（Proposed）：车长 `100..=128_000` mm，`desiredSpeed` `1..=100_000` mm/s，
-  `minGap` `0..=128_000` mm，`maxAcceleration` / `comfortableDeceleration` /
-  `emergencyDeceleration` `0.5..=50` m/s² 且 emergency ≥ comfort，时距 `0 < x <= 60` s；
-  spawn 用 `progress_mm` / `speed_mm_s` 且 `carry_um = 0`。不另做速度余数。
-  `BeyondFinite` 降速目标本拍不参与包络。current 生产路径不执行这些上下界。
+- 编制数值必须 finite；准入先量化再检查闭包。
+- 车长 `100..=128_000` mm。
+- `desiredSpeed` `1..=100_000` mm/s。
+- `minGap` `0..=128_000` mm。
+- `timeHeadway` 量化到 `f32` 后满足 `0 < x <= 60` s。
+- `maxAcceleration` / `comfortableDeceleration` / `emergencyDeceleration` 量化到 `f32`
+  后落在 `0.5..=50` m/s²，且 emergency ≥ comfort。
+- spawn 用 `progress_mm` / `speed_mm_s` 且 `carry_um = 0`。不另做速度余数。
+- `BeyondFinite` 降速目标本拍不参与包络。
 - external ID 遵循当前 data-format 的 ASCII token 规则，并在 profile domain 内唯一。
 
 ### 4.2 Package 版本
@@ -543,7 +541,7 @@ final_gap >= g_floor
 
 求解目标是在不超过各 vehicle candidate travel 的前提下，得到最大的可行 final travel。Spatial hard projection（Signal/Parking/SpeedLimit/RouteEnd）先确定 leader final travel，再从前向后传播 follower minimum-gap cap。
 
-#496 / ADR 0028（Proposed，未 Pass）的 `hard_room_mm` **不**实现本节 `leader_final_travel`：
+ADR 0028 的 `hard_room_mm` **不**实现本节 `leader_final_travel`：
 它与现行 `advance_active_vehicle` 同构，只用 T 时刻 occupancy 快照的 `min_gap` 后空隙。
 current `TrafficWorld` 也尚未做前向后传播；整数毫米切片不在本轴闭合该差距，也不取代
 本节作为跟车投影的设计目标。
@@ -595,12 +593,10 @@ final_speed = min(candidate_speed, speed_from_travel)
 
 ## 12. 领域数值策略、finite 与错误语义
 
-- edge boundary/remainder、纵向约束和物理 gap/overlap 分别由 crate-private owner 负责；current-f64 值都为 `1.0e-9 m`，但不得互相别名或由通用近似比较 helper 代理。
-- minimum-gap available slack 使用独立的 crate-private `1.0e-9 m` 绝对阈值；阈值内正 slack 向安全方向规范化为零，避免 route segmentation 的浮点微差改变投影分支。
-- Vehicle Profile length 的输入下限独立于物理 gap/overlap 阈值。
-- computed-speed near-zero 使用独立的 `1.0e-9 m/s` owner，只覆盖已有运行时计算速度判断。
-- `Speed::ZERO`、状态速度等 authority 继续使用精确正零与精确相等，不被 near-zero predicate 替代。
-- target-f32 的固定领域绝对阈值由 #127 离线标定；#144 曾在候选中启用，但形成性能不迁移（no-go）结论后已回退。相对误差和 ULP 不进入 production predicate。
+- 已提交占用、边界和间隙用整数毫米比较，不使用米制哨兵，也不得由通用近似比较 helper 代理。
+- Vehicle Profile length 的输入下限独立于占用间隙。
+- 已提交速度是 `u32` mm/s；IIDM 瞬时 SI 不算已提交权威，不得回写。
+- 相对误差和 ULP 不进入 production predicate。
 - 合法 finite 输入若导致中间计算非有限，返回结构化 longitudinal runtime error，step 原子失败。
 - Safety projection、正常 emergency braking 和拥堵停车不是 validation error。
 

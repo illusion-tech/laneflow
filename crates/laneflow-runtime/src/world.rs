@@ -8,7 +8,7 @@ use laneflow_static_network::SharedNetworkRevision;
 
 use crate::tables::{
     CompiledRoute, DynamicRouteSlot, VehicleSlot, bodies_overlap, compile_dynamic_route,
-    occupancy_front_gap, route_access_denied, spawn_motion_error, static_route_ordinal,
+    occupancy_front_gap, route_access_denied, static_route_ordinal,
 };
 use crate::{
     CommittedPoseSourceBatch, CommittedSignalGroupBatch, InstallError, LookupError, ParkingError,
@@ -200,9 +200,6 @@ impl TrafficWorld {
         if live >= self.config.vehicle_capacity() {
             return Err(SpawnError::CapacityExceeded);
         }
-        if let Some(error) = spawn_motion_error(input.progress_mm(), input.initial_speed_mm_s()) {
-            return Err(error);
-        }
         let profile = self
             .revision
             .traffic()
@@ -302,9 +299,6 @@ impl TrafficWorld {
             return Err(ReplaceError::StaleHandle);
         };
 
-        if let Some(error) = spawn_motion_error(input.progress_mm(), input.initial_speed_mm_s()) {
-            return Err(replace_motion_error(error));
-        }
         let profile = self
             .revision
             .traffic()
@@ -717,20 +711,6 @@ impl TrafficWorld {
             self.time_ms,
             &mut self.signal_aspects,
         );
-    }
-}
-
-fn replace_motion_error(error: SpawnError) -> ReplaceError {
-    match error {
-        SpawnError::InvalidProgress => ReplaceError::InvalidProgress,
-        SpawnError::InvalidSpeed => ReplaceError::InvalidSpeed,
-        SpawnError::UnknownProfile
-        | SpawnError::UnknownRoute
-        | SpawnError::RouteIndexOutOfRange
-        | SpawnError::SpeedExceedsLimit
-        | SpawnError::CapacityExceeded
-        | SpawnError::AccessDenied
-        | SpawnError::Overlap => ReplaceError::InvalidProgress,
     }
 }
 

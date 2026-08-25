@@ -355,7 +355,7 @@ fn lane_edge_rejects_non_finite_and_non_positive_scalars_without_mutation() {
         (f64::NAN, 1.0, DiagnosticCode::InvalidLaneEdgeLength),
         (f64::INFINITY, 1.0, DiagnosticCode::InvalidLaneEdgeLength),
         (0.0, 1.0, DiagnosticCode::InvalidLaneEdgeLength),
-        (1.0e-9, 1.0, DiagnosticCode::InvalidLaneEdgeLength),
+        (0.099_4, 1.0, DiagnosticCode::InvalidLaneEdgeLength),
         (
             1.0,
             f64::NEG_INFINITY,
@@ -379,6 +379,26 @@ fn lane_edge_rejects_non_finite_and_non_positive_scalars_without_mutation() {
         let module = builder.finish().unwrap();
         assert_eq!(module.admitted.resource_counts.declaration_count, 0);
     }
+}
+
+#[test]
+fn lane_edge_admits_length_that_quantizes_to_minimum_millimetres() {
+    let limits = CompileLimits::p100_initial_v1();
+    let mut builder =
+        SyntheticModuleBuilder::new(header("city/a", "source.test"), &limits).unwrap();
+    add_lane_edge_at(
+        &mut builder,
+        LaneEdgeInput {
+            lane_edge_key: "edge-a",
+            length_meters: 0.099_6,
+            speed_limit_meters_per_second: 1.0,
+            successors: &[],
+        },
+        10,
+    )
+    .unwrap();
+    let module = builder.finish().unwrap();
+    assert_eq!(module.admitted.resource_counts.declaration_count, 1);
 }
 
 #[test]

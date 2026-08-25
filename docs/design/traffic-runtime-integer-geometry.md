@@ -14,11 +14,11 @@ Spatial 采样钉死端点<br>
 `traffic-runtime-shared-consumption.md`、`shared-static-network.md`、
 `portable-canonical-artifact.md`、`signal-system.md`、`route-system.md`
 
-本文是 #496 的实现级 G1 输入。它不授权 #302 快照容器、#303 Routing、残差
-`f32` 进度或整数 IIDM。G2 完成前 `main` 仍为 current-`f64`；不得把本文写成已落地。
+本文是 #496 已落地的实现合同。它不授权 #302 快照容器、#303 Routing、残差
+`f32` 进度或整数 IIDM。当前树只承认整数毫米一维几何；编制 `f64` 与 Spatial `f32`
+仍在量化之前。
 
-G1 冻权威、单位、量化顺序、制品字段与跨实现算法。G2 决定 Rust 方法名与错误变体拼写。
-未点名的现行米制公开面随本权威一并迁走或降为只读换算。
+G1 冻权威、单位、量化顺序、制品字段与跨实现算法。公开米制面只作编制输入或只读换算。
 
 ## 1. 结论
 
@@ -46,18 +46,18 @@ IIDM 仍在 `f32` SI 中算出「这一拍最多走多远」。**先**用整数�
 | 画面默认建议 | 16 ms（走廊 / Bevy 示例）                                                               |
 | 粗量子       | `>= 100 ms` 合法，不保证跟车观感；1000 ms 为离线/SUMO 级                                |
 | 慢放         | Runtime 不提供；Adapter 只可少 `step`，不得改 Δt 或可变 Δt                              |
-| 相位         | G2：`duration_ms % dt == 0 && duration_ms >= dt`。G2 前 `main` 仍为 `duration_ms >= dt` |
+| 相位         | `duration_ms % dt == 0 && duration_ms >= dt` |
 | 每次步进输入 | 必须等于配置，否则世界不变                                                              |
 
 `install` 必须能区分：步长越出 `4..=1000`、相位短于一步、相位不能整除。校验顺序：
-步长区间 → 时长 `>= dt` → 整除。G2 决定错误类型名字。
+步长区间 → 时长 `>= dt` → 整除。错误类型为 `InstallError::DeltaOutOfRange` /
+`PhaseShorterThanTick` / `PhaseNotMultipleOfTick`。
 
 不同合法 Δt 的世界不可对拍。
 
-现行检入走廊 `examples/config/v0.10-signalized-corridor.toml` 的
-`fixed_delta_ms = 16`、`yellow_ms = 3000`、`all_red_ms = 1000` 在 G2 相位倍数
-规则下非法。G1 不改该 toml、不重生 LFCA；G2 必须把相位改为 16 的正整数倍
-（例如 `3008` / `1008`）并重生制品。
+检入走廊 `examples/config/v0.10-signalized-corridor.toml` 使用
+`fixed_delta_ms = 16`、`yellow_ms = 3008`、`all_red_ms = 1008`，并已按
+`formatVersion = 2` 重生 LFCA。
 
 ## 3. 共享列与 profile
 
@@ -251,8 +251,8 @@ Genesis 重生，不做格式迁移 diff。
 后发射检查失败关闭旧 v1 字节。走廊检入 LFCA 必须按 v2 重生并对拍。
 `NetworkRevisionId` 随载荷变化（算法仍是 §4.2 v1）。
 
-`laneflow-static-contract` 常量：最短尺寸 `100` mm，端点留白 `1` mm，删除作为
-生产判定的 `1.0e-9` 米常量（或标为历史、不再被 Runtime/compiler 引用）。
+`laneflow-static-contract` 常量：最短尺寸 `100` mm，端点留白 `1` mm。生产判定使用
+这些整数常量，不再引用米制哨兵。
 
 ## 7. Spatial
 

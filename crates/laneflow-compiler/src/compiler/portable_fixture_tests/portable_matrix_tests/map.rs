@@ -296,13 +296,9 @@ fn map_direct_versions_languages_document_lengths_locations_and_derived_values_f
         mutate_u16(0, 0, 0, 7, 2),
     ] {
         assert_eq!(
-            preflight_object_values(
-                &bytes,
-                PortableObjectKind::SourceMap,
-                FormatLimits::HARD,
-            )
-            .unwrap_err()
-            .class(),
+            preflight_object_values(&bytes, PortableObjectKind::SourceMap, FormatLimits::HARD,)
+                .unwrap_err()
+                .class(),
             FormatErrorClass::NonCanonicalValue
         );
     }
@@ -318,13 +314,9 @@ fn map_direct_versions_languages_document_lengths_locations_and_derived_values_f
     );
     for bytes in [mutate_u32(1, 1, 0, 5, 0), mutate_u32(1, 2, 0, 5, 0)] {
         assert_eq!(
-            preflight_object_values(
-                &bytes,
-                PortableObjectKind::SourceMap,
-                FormatLimits::HARD,
-            )
-            .unwrap_err()
-            .class(),
+            preflight_object_values(&bytes, PortableObjectKind::SourceMap, FormatLimits::HARD,)
+                .unwrap_err()
+                .class(),
             FormatErrorClass::NonCanonicalValue
         );
     }
@@ -337,13 +329,9 @@ fn map_direct_versions_languages_document_lengths_locations_and_derived_values_f
     for tag in [5, 6] {
         let bytes = mutate_u16(4, 0, 0, tag, 3);
         assert_eq!(
-            preflight_object_values(
-                &bytes,
-                PortableObjectKind::SourceMap,
-                FormatLimits::HARD,
-            )
-            .unwrap_err()
-            .class(),
+            preflight_object_values(&bytes, PortableObjectKind::SourceMap, FormatLimits::HARD,)
+                .unwrap_err()
+                .class(),
             FormatErrorClass::NonCanonicalValue
         );
     }

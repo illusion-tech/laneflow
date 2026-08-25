@@ -506,13 +506,7 @@ fn speed_limit_path_envelope(
         let edge = *edges.get(index)?;
         let length = meters(*lengths.get(edge.index())?);
         let limit = meters_per_second(*speed_limits.get(edge.index())?);
-        if !length.is_finite() || !limit.is_finite() || length < 0.0 || limit < 0.0 {
-            return None;
-        }
         let leftover = (length - meters(progress_mm)).max(0.0);
-        if leftover < 0.0 {
-            return None;
-        }
         if limit <= 0.0 {
             break;
         }
@@ -547,7 +541,7 @@ fn constrain_upcoming_speed_limits(
 ) -> Option<f64> {
     for (index, edge) in edges.iter().enumerate().skip(cursor + 1) {
         let limit = meters_per_second(*speed_limits.get(edge.index())?);
-        if !limit.is_finite() || limit + 1e-12 >= next_speed {
+        if limit >= next_speed {
             continue;
         }
         match remaining_along_route(lengths, edges, cursor, progress_mm, index, 0)? {
@@ -610,7 +604,7 @@ fn max_next_speed_for_decel(
         return None;
     }
     let limit = limit.max(0.0);
-    if 0.5 * current_speed * delta_s > distance + 1e-12 {
+    if 0.5 * current_speed * delta_s > distance {
         return None;
     }
     let linear = ((2.0 * distance / delta_s) - current_speed)
@@ -645,7 +639,7 @@ fn speed_down_constraint_holds(
 ) -> bool {
     let travel = 0.5 * (current_speed + next_speed) * delta_s;
     let braking = (next_speed * next_speed - limit * limit).max(0.0) / (2.0 * decel);
-    travel + braking <= distance + 1e-9
+    travel + braking <= distance
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -663,7 +657,7 @@ fn clamp_travel_to_speed_down_boundary(
     let min_travel = 0.5 * current_speed * delta_s;
     for (index, edge) in edges.iter().enumerate().skip(cursor + 1) {
         let limit = meters_per_second(*speed_limits.get(edge.index())?);
-        if !limit.is_finite() || limit + 1e-12 >= current_speed || limit + 1e-12 >= next_speed {
+        if limit >= current_speed || limit >= next_speed {
             continue;
         }
         let BoundedDistance::Finite(mm) =
@@ -675,7 +669,7 @@ fn clamp_travel_to_speed_down_boundary(
             continue;
         }
         let distance = meters(mm);
-        if min_travel <= distance + 1e-12 && travel > distance {
+        if min_travel <= distance && travel > distance {
             travel = travel.min(distance);
         }
     }

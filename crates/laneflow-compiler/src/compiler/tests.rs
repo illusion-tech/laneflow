@@ -3756,7 +3756,7 @@ fn parking_validation_rejects_orphan_anchor_and_geometry_failures() {
             .iter()
             .filter(|code| **code == DiagnosticCode::InvalidParkingSpaceGeometry)
             .count(),
-        4
+        3
     );
     assert!(!codes.contains(&DiagnosticCode::OrphanParkingArea));
 }
