@@ -232,7 +232,7 @@ lockstep 不在本合同范围。
 | 字段                                                                  | v1  | G2                        |
 | --------------------------------------------------------------------- | --- | ------------------------- |
 | 对象前导 `formatVersion` 与 `ContractVersions.canonicalFormatVersion` | `1` | **`2`**                   |
-| `networkRevisionDerivationVersion`                                    | `1` | **`2`**                   |
+| `networkRevisionDerivationVersion`                                    | `1` | **`1`**（算法未改，见下） |
 | `constraintContractVersion`                                           | `1` | **`2`**                   |
 | `staticExecutionContractVersion`                                      | `1` | **`2`**                   |
 | `identityEncodingVersion` / `identityRegistryRevision`                | `1` | `1`（本切片不改身份前像） |
@@ -265,29 +265,57 @@ LFCA v2 **只**改附录 A.1 下列字段的名字和/或类型；**未列出的
 `portable-canonical-artifact.md` A.1 v2 增量与 `traffic-runtime-integer-geometry.md`
 §6 为准，二者必须一致。Spatial `LaneEdgeGeometry` / `segments` 仍为 `f32` 米，不进本表。
 
-检入走廊必须按 v2 重生。`NetworkRevisionId` 随语义载荷变化。
+检入走廊必须按 v2 重生。`NetworkRevisionId` **随语义载荷字节变化**；哈希算法仍是
+`portable-canonical-artifact.md` §4.2 的 v1：
+`SHA-256("laneflow.network-revision.v1\0" || canonicalNetworkSemanticPayloadV1)`
+（组帧仍为语义节 `0x0001..0x0006`）。**禁止**空升 `networkRevisionDerivationVersion`
+却不定义新算法。毫米字段改变载荷字节，同一套 v1 算法已得到不同 ID。
 
-路线距离索引：`occurrence_offsets` / `segment_totals` 对仍能放入 `u32` 的前缀写毫米；
-一旦 checked 加溢出，该点及之后的查询为 `BeyondFinite`。不得用 `u32::MAX` 当哨兵。
-公开查询仍为 `Finite(u32)` / `BeyondFinite` / `Passed`。列的 Rust 形状可在不改变该
-查询语义的前提下调整。`register_route` / StaticRoute **不**因前缀溢出失败。
+路线距离：**按查询窗口独立 checked 加**，不从路线头溢出毒死后缀。
+
+- 从路线头起的前缀和溢出 → 仅「从起点算」的距离为 `BeyondFinite`。
+- 从当前进度走到终点（`remaining_to_route_end` / `hard_room` 路终项）从 **当前
+  cursor** 往后加；靠近终点后可再变为 `Finite`，`Finite(0)` 进入 `Completed`。
+- 局部视距（从某 hop / 某进度起一段 `horizon_mm`）从查询起点加，不吃起点前缀溢出。
+- 不得用 `u32::MAX` 当哨兵。`register_route` / StaticRoute **不**因前缀溢出失败。
+- 公开查询仍为 `Finite(u32)` / `BeyondFinite` / `Passed`。
 
 公开观察与命令表面同一套整数权威：
 
-- `VehicleState`：`progress_mm` / `carry_um` / `speed_mm_s`。
+- `VehicleState`：`progress_mm` / `carry_um` / `speed_mm_s` / **`length_mm`**。
+  `length_mm()` 返回缓存在状态上的 `u32`（spawn / replace 时从 profile 拷入），
+  不改为每次读 `VehicleProfileView`。不得保留权威 `length() -> f64`。
+- `VehicleProfileView`：`length_mm()` / `desired_speed_mm_s()` / `min_gap_mm()` 为
+  `u32`；时距与三项加减速为受检 `f32` 访问器。不得保留权威米制 `length()` 等。
 - `VehicleSpawnInput` / `replace_completed_vehicle`：`progress_mm`、
   `speed_mm_s`；新车 **`carry_um = 0`**。`progress_mm` 落在当前边
   `0..=length_mm`；`speed_mm_s <=` 当前边限速且 `<= 100_000`。禁止 spawn 时
   再做一层未文档化的米→毫米量化。
 - `PoseSource::Lane`：`LaneEdgeOrdinal` + `progress_mm: u32`。Spatial 采样在
   边界把 mm 换成弧长比例；不得把米制进度当作已提交 pose 权威。
+- `ParkingSpaceView`：`entry()` / `exit()` 为 `(LaneEdgeOrdinal, u32)` 毫米进度；
+  `lateral_offset_mm() -> i32`；`length_mm()` / `width_mm() -> u32`；
+  `heading_offset_radians() -> f32`。**禁止**把齐次 `geometry() -> (f64,f64,f64,f64)`
+  当权威。
 - `VehicleReplaceBlock.bumper_gap_mm: i64`（与占用间隙同型）。`ReplaceError::Blocked`
   不再用米制 `bumper_gap` 当权威。
-- 路线距离查询（`RouteDistanceIndexView` / `RouteDistanceQuery`）：
-  `occurrence_offsets` / `segment_totals` 为 `u32` mm；参数 `from_progress_mm`、
-  `horizon_mm` 为 `u32`；`Within(u32)`；`Finite(u32)` / `BeyondFinite` /
-  `Passed`。不得保留米制查询再换算。
+- `speed_limit_transitions` 目标列为 `&[u32]` mm/s，与 `lane_speed_limits_mm_s`
+  同一量子。`next_controlled_distance` 跟 `BoundedDistance::Finite(u32)`。
+- 路线距离查询参数 `from_progress_mm`、`horizon_mm` 为 `u32`；`Within(u32)`。
+- `SpatialError::SharedProgressOutOfRange`：`progress_mm` / `max_mm: u32`。
+- `BuildError::SpatialLengthMismatch`：`traffic_length_mm: u32`，
+  `spatial_length_meters: f32`（弧长仍是米）。米制交通长度只作诊断。
+- `InstallError`：`DeltaOutOfRange { actual, min: 4, max: 1000 }` 取代用
+  `NonPositiveDelta` 表示 `dt = 3`；相位 `>= dt` 但不能整除用
+  `PhaseNotMultipleOfTick { duration_ms, delta_ms }`，不得复用
+  `PhaseShorterThanTick`。校验顺序：步长区间 → 相位 `>= dt` → `duration_ms % dt == 0`。
 - 只读米制换算可以有，不得当 `value()`，不得回写。
+
+G2 发布路径：现行 `commit_portable_publication_v2` 的 `v2` 指 **LFCP v2**，不是
+LFCA v2。G2 后该入口对 LFCA v2 候选必须调用 `check_post_emission_bundle_v2`，
+`build_lfcp_v2` 消费 `PostEmissionCheckedBundleV2`。expected-base 形状可与现行
+`ExpectedSemanticDiffBaseV1` 相同，`network_revision_derivation_version` 为 `1`。
+禁止把 V1 bundle 喂给 LFCA v2 发布。不单开 LFCP 对象版本。
 
 边限速与 profile 期望车速：`1..=100_000` mm/s。`install` / 构建 / spawn 任一
 处超限失败关闭。
@@ -316,6 +344,14 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
   `BeyondFinite`。
 - 前缀累计超过 `u32::MAX` mm 时拒绝 `register_route` / StaticRoute，或把
   `BeyondFinite` 路终饱和成 `u32::MAX` 硬约束。
+- 从路线头前缀溢出后把后续后缀查询一律标成 `BeyondFinite`，导致靠近终点的车无法
+  `Completed`。
+- 空升 `networkRevisionDerivationVersion = 2` 却沿用 v1 组帧 / 域分隔符，或不定义
+  新算法。
+- 发布路径继续把 LFCA v2 送进 `check_post_emission_bundle_v1` / `build_lfcp_v2(V1)`。
+- `VehicleState::length()`、`ParkingSpaceView::geometry()`、`speed_limit_transitions`
+  目标列、`SharedProgressOutOfRange` 或 `SpatialLengthMismatch` 继续用米制作权威。
+- 用 `NonPositiveDelta` / `PhaseShorterThanTick` 表示 `dt` 越界或相位不能整除。
 - 用「等长度」或分组行代替逐字段 tag / 名字 / 类型 / 必填的 v2 增量。
 - 先按量化前的裸 SI 界限拒绝，再 round 到毫米 / `f32`（与毫米权威打架）。
 - 丢掉 ADR 0014 的加减速/时距/尺寸/横向 **上界**，只写下限。
@@ -337,7 +373,9 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
   10 cm；这是接受面，不是再加一层余数的理由。
 - `hard_room_mm` 与现行快照截断同构；跟车设计文档 §11.2 的投影前车行程仍是另一轴。
 - G2 必须同时改 compiler 发射、LFCA v2 逐字段登记表、v2 admission、共享列和 Runtime 热状态。
-- 路线前缀溢出是 `BeyondFinite`，不是注册失败；先量化再检查，不保留一套打架的裸 SI 下限。
+- 路线前缀溢出是 `BeyondFinite`，不是注册失败；路终与局部查询从查询起点独立加。
+- `NetworkRevisionId` 仍用 v1 派生算法；载荷变了 ID 就会变，不必新域分隔符。
+- 先量化再检查，不保留一套打架的裸 SI 下限。
 - #302 不得在本切片完成前进入自身 G1 的快照字段冻结。
 - 同进程并行不因撤回跨 CPU 位级承诺而改合同；跨机器联机仍需独立 ADR。
 
