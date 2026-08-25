@@ -11,7 +11,7 @@ fn map_candidate_closes_modules_documents_locations_and_source_bijections() {
     let candidate = crate::emit_portable_candidate(
         &output,
         &provenance,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
         crate::PortableDiffBase::Genesis,
     )
     .unwrap();
@@ -291,15 +291,15 @@ fn map_direct_versions_languages_document_lengths_locations_and_derived_values_f
         bytes
     };
     for bytes in [
-        mutate_u16(0, 0, 0, 1, 2),
-        mutate_u16(0, 0, 0, 3, 2),
+        mutate_u16(0, 0, 0, 1, 3),
+        mutate_u16(0, 0, 0, 3, 1),
         mutate_u16(0, 0, 0, 7, 2),
     ] {
         assert_eq!(
-            preflight_object_values_v1(
+            preflight_object_values(
                 &bytes,
                 PortableObjectKind::SourceMap,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             )
             .unwrap_err()
             .class(),
@@ -307,10 +307,10 @@ fn map_direct_versions_languages_document_lengths_locations_and_derived_values_f
         );
     }
     assert_eq!(
-        preflight_object_values_v1(
+        preflight_object_values(
             &mutate_u16(1, 0, 0, 3, 2),
             PortableObjectKind::SourceMap,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap_err()
         .class(),
@@ -318,10 +318,10 @@ fn map_direct_versions_languages_document_lengths_locations_and_derived_values_f
     );
     for bytes in [mutate_u32(1, 1, 0, 5, 0), mutate_u32(1, 2, 0, 5, 0)] {
         assert_eq!(
-            preflight_object_values_v1(
+            preflight_object_values(
                 &bytes,
                 PortableObjectKind::SourceMap,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             )
             .unwrap_err()
             .class(),
@@ -335,12 +335,12 @@ fn map_direct_versions_languages_document_lengths_locations_and_derived_values_f
         .unwrap();
     assert!(derived.row_count() > 0);
     for tag in [5, 6] {
-        let bytes = mutate_u16(4, 0, 0, tag, 2);
+        let bytes = mutate_u16(4, 0, 0, tag, 3);
         assert_eq!(
-            preflight_object_values_v1(
+            preflight_object_values(
                 &bytes,
                 PortableObjectKind::SourceMap,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             )
             .unwrap_err()
             .class(),

@@ -21,10 +21,10 @@ pub struct CorridorVehiclePlan {
     pub route: StaticRouteOrdinal,
     /// 路线序列下标。
     pub route_edge_index: u32,
-    /// 入口边进度。
-    pub progress: f64,
-    /// `min(desiredSpeed, edge speedLimit)`。
-    pub initial_speed: f64,
+    /// 入口边进度（毫米）。
+    pub progress_mm: u32,
+    /// `min(desiredSpeed, edge speedLimit)`，毫米每秒。
+    pub initial_speed_mm_s: u32,
     /// 产出该计划的共享路网修订。
     pub network_revision: NetworkRevisionId,
 }
@@ -49,8 +49,8 @@ impl CorridorVehiclePlan {
             self.profile,
             route,
             self.route_edge_index,
-            self.progress,
-            self.initial_speed,
+            self.progress_mm,
+            self.initial_speed_mm_s,
         ))
     }
 }
@@ -77,7 +77,7 @@ pub struct CorridorPopulationPrepare {
     config: CorridorPopulationConfig,
     catalog: BoundCorridorCatalog,
     profile: VehicleProfileOrdinal,
-    route_entry_speeds: Vec<f64>,
+    route_entry_speeds: Vec<u32>,
     rng: SplitMix64,
     slots: Vec<PreparedLogicalSlot>,
     initial_vehicles: Option<Vec<CorridorVehiclePlan>>,
@@ -89,7 +89,7 @@ pub struct CorridorPopulationController {
     catalog: BoundCorridorCatalog,
     route_handles: Vec<RouteHandle>,
     route_completion: Vec<RouteCompletionIdentity>,
-    route_entry_speeds: Vec<f64>,
+    route_entry_speeds: Vec<u32>,
     profile: VehicleProfileOrdinal,
     rng: SplitMix64,
     slots: Vec<LogicalSlot>,
@@ -336,7 +336,7 @@ impl CorridorPopulationPrepare {
                 actual: catalog.spawn_slots.len(),
             });
         }
-        let desired_speed = view.desired_speed();
+        let desired_speed = view.desired_speed_mm_s();
         let route_entry_speeds = catalog
             .route_exits
             .iter()
@@ -383,15 +383,15 @@ impl CorridorPopulationPrepare {
                 profile,
                 route,
                 route_edge_index,
-                progress: spawn_slot.progress,
-                initial_speed,
+                progress_mm: spawn_slot.progress_mm,
+                initial_speed_mm_s: initial_speed,
                 network_revision: catalog.network_revision,
             });
             slots.push(PreparedLogicalSlot {
                 route_index,
                 route_edge_index,
-                edge_progress: spawn_slot.progress,
-                initial_speed,
+                edge_progress_mm: spawn_slot.progress_mm,
+                initial_speed_mm_s: initial_speed,
             });
         }
 
@@ -481,8 +481,8 @@ impl CorridorPopulationPrepare {
             if state.profile() != self.profile
                 || state.route() != expected_route
                 || state.route_edge_index() != prepared.route_edge_index
-                || state.progress() != prepared.edge_progress
-                || state.speed() != prepared.initial_speed
+                || state.progress_mm() != prepared.edge_progress_mm
+                || state.speed_mm_s() != prepared.initial_speed_mm_s
                 || state.status() != VehicleStatus::Active
             {
                 return Err(CorridorPopulationError::InitialVehicleMismatch { slot_index });
@@ -851,7 +851,7 @@ impl CorridorPopulationController {
             self.profile,
             route,
             0,
-            entry.progress,
+            entry.progress_mm,
             self.route_entry_speeds[plan.route_index],
         ))
     }
@@ -887,8 +887,8 @@ impl CorridorReplaceAttemptOutcome {
 struct PreparedLogicalSlot {
     route_index: usize,
     route_edge_index: u32,
-    edge_progress: f64,
-    initial_speed: f64,
+    edge_progress_mm: u32,
+    initial_speed_mm_s: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -922,16 +922,15 @@ struct RouteCompletionIdentity {
 fn normal_speed_for_edge(
     revision: &SharedNetworkRevision,
     edge: LaneEdgeOrdinal,
-    desired_speed: f64,
-) -> Result<f64, CorridorPopulationError> {
-    let limits = revision.traffic().lane_speed_limits_meters_per_second();
+    desired_speed_mm_s: u32,
+) -> Result<u32, CorridorPopulationError> {
+    let limits = revision
+        .traffic()
+        .lane_speed_limits_millimetres_per_second();
     let speed_limit = *limits
         .get(edge.index())
         .ok_or(CorridorPopulationError::MissingSpeedLimit)?;
-    if !speed_limit.is_finite() {
-        return Err(CorridorPopulationError::MissingSpeedLimit);
-    }
-    Ok(desired_speed.min(speed_limit).max(0.0))
+    Ok(desired_speed_mm_s.min(speed_limit))
 }
 
 fn route_occurrence(

@@ -64,7 +64,7 @@ pub struct BoundSpawnSlot {
     pub lane_index: usize,
     pub portal_lane_index: usize,
     pub edge: LaneEdgeOrdinal,
-    pub progress: f64,
+    pub progress_mm: u32,
     pub entry_route: StaticRouteOrdinal,
 }
 
@@ -175,7 +175,7 @@ pub fn bind(
         portal_rank(&left.portal_id)
             .cmp(&portal_rank(&right.portal_id))
             .then(left.lane_index.cmp(&right.lane_index))
-            .then(left.progress.total_cmp(&right.progress))
+            .then(left.progress_mm.cmp(&right.progress_mm))
             .then(left.slot_id.cmp(&right.slot_id))
     });
 
@@ -288,19 +288,21 @@ fn bind_slot(
     }
     let length = *revision
         .traffic()
-        .lane_lengths_meters()
+        .lane_lengths_millimetres()
         .get(edge.index())
         .ok_or_else(|| BindError::UnknownEdge(slot.edge_id.clone()))?;
-    if !slot.progress.is_finite() || slot.progress < 0.0 || slot.progress > length {
+    if !slot.progress.is_finite() || slot.progress < 0.0 {
         return Err(BindError::InvalidProgress {
             slot_id: slot.slot_id.clone(),
         });
     }
-    let progress = if slot.progress == 0.0 {
-        0.0
-    } else {
-        slot.progress
-    };
+    let progress_mm = (slot.progress * 1_000.0).round_ties_even();
+    if progress_mm < 0.0 || progress_mm > f64::from(length) {
+        return Err(BindError::InvalidProgress {
+            slot_id: slot.slot_id.clone(),
+        });
+    }
+    let progress_mm = progress_mm as u32;
     let entry_route = lane
         .route_choices
         .iter()
@@ -321,7 +323,7 @@ fn bind_slot(
         lane_index: slot.lane_index,
         portal_lane_index: 0,
         edge,
-        progress,
+        progress_mm,
         entry_route,
     })
 }

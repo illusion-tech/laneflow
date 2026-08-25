@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use laneflow_compiler::{
     CanonicalFrameInput, CompilationUnitBuilder, CompileLimits, Compiler, LaneEdgeInput,
-    LaneEdgeReference, PortableDiffBase, PortableEmissionProvenanceV1, SourceModuleHeader,
+    LaneEdgeReference, PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader,
     SourceModuleHeaderInput, SyntheticModuleBuilder, emit_portable_candidate,
 };
-use laneflow_format::{FormatLimits, check_post_emission_bundle_v1};
+use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_static_contract::{EntityKind, LaneEdgeOrdinal};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
@@ -41,21 +41,21 @@ fn build_compiler_output(
     let output = Compiler::new()
         .compile(unit.build().expect("compilation unit"))
         .expect("compiled output");
-    let provenance = PortableEmissionProvenanceV1::try_new("laneflow-static-network-test-v1")
+    let provenance = PortableEmissionProvenance::try_new("laneflow-static-network-test-v1")
         .expect("portable provenance");
     let candidate = emit_portable_candidate(
         &output,
         &provenance,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
         PortableDiffBase::Genesis,
     )
     .expect("portable candidate");
-    let checked = check_post_emission_bundle_v1(
+    let checked = check_post_emission_bundle(
         candidate.canonical_artifact().bytes(),
         candidate.source_map().bytes(),
         candidate.semantic_diff().bytes(),
         candidate.expected_semantic_diff_base(),
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
     )
     .expect("post-emission checked bundle");
     build_shared_network_revision(
@@ -122,15 +122,15 @@ fn compiler_fan_in_candidate_builds_exact_reverse_csr() {
     let ordinal_for_length = |length| {
         let index = revision
             .traffic()
-            .lane_lengths_meters()
+            .lane_lengths_millimetres()
             .iter()
             .position(|actual| *actual == length)
             .expect("fixture lane length");
         LaneEdgeOrdinal::try_from_usize(index).expect("fixture lane ordinal")
     };
-    let left = ordinal_for_length(11.0);
-    let right = ordinal_for_length(12.0);
-    let merge = ordinal_for_length(13.0);
+    let left = ordinal_for_length(11_000);
+    let right = ordinal_for_length(12_000);
+    let merge = ordinal_for_length(13_000);
 
     assert_eq!(revision.traffic().successors(left), Some(&[merge][..]));
     assert_eq!(revision.traffic().successors(right), Some(&[merge][..]));

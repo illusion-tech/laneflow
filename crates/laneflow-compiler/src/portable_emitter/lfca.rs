@@ -2,10 +2,10 @@ use super::*;
 
 pub(super) fn build_lfca(
     output: &CompilationOutput,
-    provenance: &PortableEmissionProvenanceV1,
+    provenance: &PortableEmissionProvenance,
     source_collection_digest: [u8; 32],
     declared_network_revision: NetworkRevisionId,
-) -> OwnedObject {
+) -> Result<OwnedObject, PortableEmissionError> {
     let lir = output.lir().unit();
     let direction_profile = lir.geometry_profiles.map_or(0, |profiles| {
         geometry_direction_profile_code(profiles.direction)
@@ -20,7 +20,7 @@ pub(super) fn build_lfca(
             || !lir.facility_band_geometries.is_empty(),
     );
 
-    OwnedObject {
+    Ok(OwnedObject {
         kind: PortableObjectKind::CanonicalArtifact,
         sections: vec![
             section(
@@ -32,13 +32,13 @@ pub(super) fn build_lfca(
                         field(2, OwnedValue::U16(IDENTITY_ENCODING_VERSION)),
                         field(3, OwnedValue::U16(IDENTITY_REGISTRY_REVISION)),
                         field(4, OwnedValue::U16(NETWORK_REVISION_DERIVATION_VERSION)),
-                        field(5, OwnedValue::U16(CONSTRAINT_CONTRACT_VERSION_V1)),
-                        field(6, OwnedValue::U16(STATIC_EXECUTION_CONTRACT_VERSION_V1)),
+                        field(5, OwnedValue::U16(CONSTRAINT_CONTRACT_VERSION)),
+                        field(6, OwnedValue::U16(STATIC_EXECUTION_CONTRACT_VERSION)),
                     ])],
                 )],
             ),
             section(2, [table(1, canonical_identity_rows(lir))]),
-            section(3, canonical_entity_tables(lir)),
+            section(3, canonical_entity_tables(lir)?),
             section(4, canonical_relation_tables(lir)),
             section(
                 5,
@@ -59,8 +59,8 @@ pub(super) fn build_lfca(
                 [table(
                     1,
                     [row([
-                        field(1, OwnedValue::U16(STATIC_EXECUTION_CONTRACT_VERSION_V1)),
-                        field(2, OwnedValue::U16(CONSTRAINT_CONTRACT_VERSION_V1)),
+                        field(1, OwnedValue::U16(STATIC_EXECUTION_CONTRACT_VERSION)),
+                        field(2, OwnedValue::U16(CONSTRAINT_CONTRACT_VERSION)),
                     ])],
                 )],
             ),
@@ -90,7 +90,7 @@ pub(super) fn build_lfca(
             ),
         ]
         .into_boxed_slice(),
-    }
+    })
 }
 
 fn ordinals<K: OrdinalKind + Copy>(values: &[Ordinal<K>]) -> Box<[u32]> {
@@ -162,7 +162,9 @@ fn canonical_identity_rows(lir: &crate::lir::LirUnit) -> Vec<OwnedRow> {
     rows
 }
 
-fn canonical_entity_tables(lir: &crate::lir::LirUnit) -> Vec<OwnedTable> {
+fn canonical_entity_tables(
+    lir: &crate::lir::LirUnit,
+) -> Result<Vec<OwnedTable>, PortableEmissionError> {
     let internal_edges: Vec<bool> = (0..lir.lane_edges.len())
         .map(|ordinal| {
             lir.junction_internal_edges
@@ -235,26 +237,33 @@ fn canonical_entity_tables(lir: &crate::lir::LirUnit) -> Vec<OwnedTable> {
         }
         row(fields)
     });
-    let lane_edges = lir.lane_edges.iter().map(|record| {
-        let successors = lir.lane_edge_successors[record.successors.as_usize_range()]
-            .iter()
-            .copied()
-            .filter(|successor| {
-                !internal_edges[record.ordinal.index()] && !internal_edges[successor.index()]
-            })
-            .map(|ordinal| ordinal.raw())
-            .collect();
-        row([
-            field(1, OwnedValue::U32(record.ordinal.raw())),
-            field(
-                2,
-                OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
-            ),
-            field(3, OwnedValue::F64(record.length_meters)),
-            field(4, OwnedValue::F64(record.speed_limit_meters_per_second)),
-            field(5, OwnedValue::OrdinalVectorU32(successors)),
-        ])
-    });
+    let lane_edges = lir
+        .lane_edges
+        .iter()
+        .map(|record| {
+            let successors = lir.lane_edge_successors[record.successors.as_usize_range()]
+                .iter()
+                .copied()
+                .filter(|successor| {
+                    !internal_edges[record.ordinal.index()] && !internal_edges[successor.index()]
+                })
+                .map(|ordinal| ordinal.raw())
+                .collect();
+            Ok(row([
+                field(1, OwnedValue::U32(record.ordinal.raw())),
+                field(
+                    2,
+                    OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
+                ),
+                field(3, OwnedValue::U32(lane_edge_length_mm(lir, record)?)),
+                field(
+                    4,
+                    OwnedValue::U32(quantize::millimetres(record.speed_limit_meters_per_second)?),
+                ),
+                field(5, OwnedValue::OrdinalVectorU32(successors)),
+            ]))
+        })
+        .collect::<Result<Vec<_>, PortableEmissionError>>()?;
     let junctions = lir.junctions.iter().map(|record| {
         row([
             field(1, OwnedValue::U32(record.ordinal.raw())),
@@ -452,29 +461,11 @@ fn canonical_entity_tables(lir: &crate::lir::LirUnit) -> Vec<OwnedTable> {
             ),
         ])
     });
-    let parking_spaces = lir.parking_spaces.iter().map(|record| {
-        let mut fields = vec![
-            field(1, OwnedValue::U32(record.ordinal.raw())),
-            field(
-                2,
-                OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
-            ),
-        ];
-        if let Some(area) = record.parking_area {
-            fields.push(field(3, OwnedValue::U32(area.raw())));
-        }
-        fields.extend([
-            field(4, OwnedValue::U32(record.entry.lane_edge.raw())),
-            field(5, OwnedValue::F64(record.entry.progress_meters)),
-            field(6, OwnedValue::U32(record.exit.lane_edge.raw())),
-            field(7, OwnedValue::F64(record.exit.progress_meters)),
-            field(8, OwnedValue::F64(record.geometry.lateral_offset_meters)),
-            field(9, OwnedValue::F64(record.geometry.heading_offset_radians)),
-            field(10, OwnedValue::F64(record.geometry.length_meters)),
-            field(11, OwnedValue::F64(record.geometry.width_meters)),
-        ]);
-        row(fields)
-    });
+    let parking_spaces = lir
+        .parking_spaces
+        .iter()
+        .map(|record| parking_space_row(record))
+        .collect::<Result<Vec<_>, PortableEmissionError>>()?;
     let lane_groups = lir.lane_groups.iter().map(|record| {
         row([
             field(1, OwnedValue::U32(record.ordinal.raw())),
@@ -565,32 +556,11 @@ fn canonical_entity_tables(lir: &crate::lir::LirUnit) -> Vec<OwnedTable> {
         fields.push(field(8, OwnedValue::I32(record.priority)));
         row(fields)
     });
-    let vehicle_profiles = lir.vehicle_profiles.iter().map(|record| {
-        row([
-            field(1, OwnedValue::U32(record.ordinal.raw())),
-            field(
-                2,
-                OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
-            ),
-            field(3, OwnedValue::U32(record.participant_class.raw())),
-            field(4, OwnedValue::F64(record.length_meters)),
-            field(5, OwnedValue::F64(record.desired_speed_meters_per_second)),
-            field(6, OwnedValue::F64(record.min_gap_meters)),
-            field(7, OwnedValue::F64(record.time_headway_seconds)),
-            field(
-                8,
-                OwnedValue::F64(record.max_acceleration_meters_per_second_squared),
-            ),
-            field(
-                9,
-                OwnedValue::F64(record.comfortable_deceleration_meters_per_second_squared),
-            ),
-            field(
-                10,
-                OwnedValue::F64(record.emergency_deceleration_meters_per_second_squared),
-            ),
-        ])
-    });
+    let vehicle_profiles = lir
+        .vehicle_profiles
+        .iter()
+        .map(vehicle_profile_row)
+        .collect::<Result<Vec<_>, PortableEmissionError>>()?;
     let static_routes = lir.static_routes.iter().map(|record| {
         let transition_gates = lir.static_route_transitions[record.transitions.as_usize_range()]
             .iter()
@@ -627,7 +597,7 @@ fn canonical_entity_tables(lir: &crate::lir::LirUnit) -> Vec<OwnedTable> {
         ])
     });
 
-    vec![
+    Ok(vec![
         table(1, road_corridors),
         table(2, road_sections),
         table(3, authoring_lanes),
@@ -650,7 +620,116 @@ fn canonical_entity_tables(lir: &crate::lir::LirUnit) -> Vec<OwnedTable> {
         table(20, vehicle_profiles),
         table(21, static_routes),
         table(22, canonical_frames),
-    ]
+    ])
+}
+
+fn lane_edge_length_mm(
+    lir: &crate::lir::LirUnit,
+    record: &crate::lir::LirLaneEdge,
+) -> Result<u32, PortableEmissionError> {
+    let meters = lir
+        .lane_edge_geometries
+        .get(record.ordinal.index())
+        .map(|geometry| f64::from(geometry.arc_length_meters))
+        .unwrap_or(record.length_meters);
+    quantize::millimetres(meters)
+}
+
+fn parking_space_row(
+    record: &crate::lir::LirParkingSpace,
+) -> Result<OwnedRow, PortableEmissionError> {
+    let mut fields = vec![
+        field(1, OwnedValue::U32(record.ordinal.raw())),
+        field(
+            2,
+            OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
+        ),
+    ];
+    if let Some(area) = record.parking_area {
+        fields.push(field(3, OwnedValue::U32(area.raw())));
+    }
+    fields.extend([
+        field(4, OwnedValue::U32(record.entry.lane_edge.raw())),
+        field(
+            5,
+            OwnedValue::U32(quantize::millimetres(record.entry.progress_meters)?),
+        ),
+        field(6, OwnedValue::U32(record.exit.lane_edge.raw())),
+        field(
+            7,
+            OwnedValue::U32(quantize::millimetres(record.exit.progress_meters)?),
+        ),
+        field(
+            8,
+            OwnedValue::I32(quantize::millimetres_i32(
+                record.geometry.lateral_offset_meters,
+            )?),
+        ),
+        field(
+            9,
+            OwnedValue::F32(quantize::heading_f32(
+                record.geometry.heading_offset_radians,
+            )?),
+        ),
+        field(
+            10,
+            OwnedValue::U32(quantize::millimetres(record.geometry.length_meters)?),
+        ),
+        field(
+            11,
+            OwnedValue::U32(quantize::millimetres(record.geometry.width_meters)?),
+        ),
+    ]);
+    Ok(row(fields))
+}
+
+fn vehicle_profile_row(
+    record: &crate::lir::LirVehicleProfile,
+) -> Result<OwnedRow, PortableEmissionError> {
+    Ok(row([
+        field(1, OwnedValue::U32(record.ordinal.raw())),
+        field(
+            2,
+            OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
+        ),
+        field(3, OwnedValue::U32(record.participant_class.raw())),
+        field(
+            4,
+            OwnedValue::U32(quantize::millimetres(record.length_meters)?),
+        ),
+        field(
+            5,
+            OwnedValue::U32(quantize::millimetres(
+                record.desired_speed_meters_per_second,
+            )?),
+        ),
+        field(
+            6,
+            OwnedValue::U32(quantize::millimetres(record.min_gap_meters)?),
+        ),
+        field(
+            7,
+            OwnedValue::F32(quantize::si_f32(record.time_headway_seconds)?),
+        ),
+        field(
+            8,
+            OwnedValue::F32(quantize::si_f32(
+                record.max_acceleration_meters_per_second_squared,
+            )?),
+        ),
+        field(
+            9,
+            OwnedValue::F32(quantize::si_f32(
+                record.comfortable_deceleration_meters_per_second_squared,
+            )?),
+        ),
+        field(
+            10,
+            OwnedValue::F32(quantize::si_f32(
+                record.emergency_deceleration_meters_per_second_squared,
+            )?),
+        ),
+    ]))
 }
 
 fn canonical_relation_tables(lir: &crate::lir::LirUnit) -> Vec<OwnedTable> {

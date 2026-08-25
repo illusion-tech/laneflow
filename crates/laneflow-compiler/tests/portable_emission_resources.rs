@@ -2,10 +2,10 @@ use std::{alloc::System, hint::black_box, time::Instant};
 
 use laneflow_compiler::{
     CompilationUnitBuilder, CompileLimits, Compiler, LaneEdgeInput, LaneEdgeReference,
-    PortableDiffBase, PortableEmissionProvenanceV1, SourceModuleHeader, SourceModuleHeaderInput,
+    PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
     SyntheticModuleBuilder, emit_portable_candidate,
 };
-use laneflow_format::{FormatLimits, check_post_emission_bundle_v1, preflight_object_values_v1};
+use laneflow_format::{FormatLimits, check_post_emission_bundle, preflight_object_values};
 use laneflow_static_contract::PortableObjectKind;
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, Stats, StatsAlloc};
 
@@ -105,13 +105,13 @@ fn print_measurement(mode: &str, measurement: Measurement, staging_bytes: u64) {
 #[ignore = "manual single-thread release allocation and wall-clock evidence"]
 fn portable_emitter_reports_genesis_and_artifact_resource_metrics() {
     let output = compile_native_chain();
-    let provenance = PortableEmissionProvenanceV1::try_new("laneflow-resource-probe-v1").unwrap();
+    let provenance = PortableEmissionProvenance::try_new("laneflow-resource-probe-v1").unwrap();
 
     let (genesis, genesis_measurement) = measure(|| {
         emit_portable_candidate(
             &output,
             &provenance,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
             PortableDiffBase::Genesis,
         )
         .unwrap()
@@ -120,17 +120,17 @@ fn portable_emitter_reports_genesis_and_artifact_resource_metrics() {
     assert!(genesis_measurement.stats.bytes_allocated as u64 >= genesis_staging);
     print_measurement("genesis", genesis_measurement, genesis_staging);
 
-    let base = preflight_object_values_v1(
+    let base = preflight_object_values(
         genesis.canonical_artifact().bytes(),
         PortableObjectKind::CanonicalArtifact,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
     )
     .unwrap();
     let (artifact, artifact_measurement) = measure(|| {
         emit_portable_candidate(
             &output,
             &provenance,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
             PortableDiffBase::Artifact(base),
         )
         .unwrap()
@@ -149,22 +149,22 @@ fn portable_emitter_reports_genesis_and_artifact_resource_metrics() {
 #[ignore = "manual single-thread release allocation and wall-clock evidence"]
 fn post_emission_checker_is_allocation_free_and_reports_wall_clock() {
     let output = compile_native_chain();
-    let provenance = PortableEmissionProvenanceV1::try_new("laneflow-resource-probe-v1").unwrap();
+    let provenance = PortableEmissionProvenance::try_new("laneflow-resource-probe-v1").unwrap();
     let candidate = emit_portable_candidate(
         &output,
         &provenance,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
         PortableDiffBase::Genesis,
     )
     .unwrap();
 
     let (_, measurement) = measure(|| {
-        check_post_emission_bundle_v1(
+        check_post_emission_bundle(
             candidate.canonical_artifact().bytes(),
             candidate.source_map().bytes(),
             candidate.semantic_diff().bytes(),
             candidate.expected_semantic_diff_base(),
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap()
     });

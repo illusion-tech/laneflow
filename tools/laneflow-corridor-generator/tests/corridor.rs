@@ -185,7 +185,7 @@ fn default_corridor_locks_protected_turning_geometry_routes_and_signals() {
     assert_eq!(unique_internals.len(), 32);
     for controller in lir.signal_controllers() {
         assert_eq!(controller.phases().len(), 12);
-        assert_eq!(controller.cycle_duration_ms(), 84_000);
+        assert_eq!(controller.cycle_duration_ms(), 84_064);
     }
     for (id, expected_points) in [
         ("edge-junction-1-west-straight-lane-2-to-2-i0", 2),
@@ -344,7 +344,7 @@ fn config_rejects_unknown_fields_length_geometry_offsets_and_output_conflicts() 
 
     let offset = CONFIG.replace(
         "intersection_offsets_ms = [0, 42000]",
-        "intersection_offsets_ms = [84000, 0]",
+        "intersection_offsets_ms = [84064, 0]",
     );
     assert!(CorridorConfig::parse(&offset).is_err());
 
@@ -438,7 +438,7 @@ fn identity_ascii_keys_stay_below_compile_string_limit() {
 fn catalog_bind_spawns_few_vehicles_and_steps() {
     use std::sync::Arc;
 
-    use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
     use laneflow_runtime::{TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
     use laneflow_scenario::signalized_corridor::{PASSENGER_CAR_PROFILE_KEY, bind};
     use laneflow_static_network::{
@@ -450,7 +450,7 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
     let catalog: laneflow_corridor_generator::CorridorCatalog =
         toml::from_str(std::str::from_utf8(generated.catalog_bytes()).expect("catalog is UTF-8"))
             .expect("catalog TOML must parse");
-    let input = check_canonical_network_input_v1(generated.lfca_bytes(), FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(generated.lfca_bytes(), FormatLimits::HARD)
         .expect("checked LFCA");
     let revision = build_shared_network_revision(
         input,
@@ -490,8 +490,8 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
                 profile,
                 route,
                 u32::try_from(index).expect("edge index"),
-                slot.progress,
-                0.0,
+                slot.progress_mm,
+                0,
             ))
             .expect("catalog slot must spawn");
     }

@@ -54,12 +54,12 @@ Adapter ────────────────────────
 
 ### 3.1 单一规范输入
 
-`CheckedCanonicalNetworkInputV1<'a>`（目标名称）定义在 `laneflow-format`，而不是
+`CheckedCanonicalNetworkInput<'a>` 定义在 `laneflow-format`，而不是
 `laneflow-static-network`。这样 format 可以构造不可伪造的能力，同时保持
 static-network → format 的单向依赖。语义形状为：
 
 ```rust
-pub struct CheckedCanonicalNetworkInputV1<'a> {
+pub struct CheckedCanonicalNetworkInput<'a> {
     // all fields private to laneflow-format
     value_checked_lfca: ValueCheckedObjectView<'a>,
     canonical_artifact_digest: Sha256Digest,
@@ -72,13 +72,13 @@ pub struct CheckedCanonicalNetworkInputV1<'a> {
 构造路径：
 
 ```rust
-pub fn check_canonical_network_input_v1(
+pub fn check_canonical_network_input(
     lfca: &[u8],
     limits: FormatLimits,
-) -> Result<CheckedCanonicalNetworkInputV1<'_>, CanonicalNetworkInputError>;
+) -> Result<CheckedCanonicalNetworkInput<'_>, CanonicalNetworkInputError>;
 
 impl<'a> PostEmissionCheckedBundleV1<'a> {
-    pub fn canonical_network_input(self) -> CheckedCanonicalNetworkInputV1<'a>;
+    pub fn canonical_network_input(self) -> CheckedCanonicalNetworkInput<'a>;
 }
 ```
 
@@ -121,7 +121,7 @@ component 结构所需的不变量。它不重新哈希 Identity 前像，也不
   -> LFCP v2 / authenticated manifest admission
   -> laneflow-format checked binding
   ┐
-  ├-> CheckedCanonicalNetworkInputV1
+  ├-> CheckedCanonicalNetworkInput
   │   -> count -> allocate -> fill -> closure
   │   -> SharedNetworkRevision
   ┘
@@ -265,7 +265,7 @@ profile-only、frame-only LFCA 本身仍可成功构建。编辑器预览 geomet
 ### 7.1 阶段
 
 ```text
-CheckedCanonicalNetworkInputV1
+CheckedCanonicalNetworkInput
   -> admission / options / limits
   -> pass A: exact logical counts and budgets
   -> allocate final columns and flat payloads

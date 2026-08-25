@@ -2,7 +2,9 @@ use laneflow_static_contract::{
     AccessEffect, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
     ParticipantClassOrdinal, StaticRouteOrdinal,
 };
-use laneflow_static_network::{AccessCell, SharedManeuverNetwork, SharedTrafficNetwork};
+use laneflow_static_network::{
+    AccessCell, BoundedDistance, SharedManeuverNetwork, SharedTrafficNetwork,
+};
 
 use crate::{RouteError, RouteHandle, SpawnError, VehicleState};
 
@@ -291,34 +293,34 @@ pub(crate) fn route_access_denied(
     false
 }
 
-pub(crate) fn bumpers_overlap(a_front: f64, a_length: f64, b_front: f64, b_length: f64) -> bool {
-    let a_rear = a_front - a_length;
-    let b_rear = b_front - b_length;
-    a_rear < b_front && b_rear < a_front
+pub(crate) fn bumpers_overlap(a_front: u32, a_length: u32, b_front: u32, b_length: u32) -> bool {
+    let a_rear = i64::from(a_front) - i64::from(a_length);
+    let b_rear = i64::from(b_front) - i64::from(b_length);
+    a_rear < i64::from(b_front) && b_rear < i64::from(a_front)
 }
 
 const OCCUPANCY_INTERVAL_CAP: usize = 16;
-type OccupancyInterval = (LaneEdgeOrdinal, f64, f64);
+type OccupancyInterval = (LaneEdgeOrdinal, u32, u32);
 type OccupancyStack = ([OccupancyInterval; OCCUPANCY_INTERVAL_CAP], usize, bool);
 
 pub(crate) fn for_each_occupancy_interval(
-    lengths: &[f64],
+    lengths: &[u32],
     edges: &[LaneEdgeOrdinal],
     mut index: usize,
-    mut end: f64,
-    mut remaining: f64,
-    mut visit: impl FnMut(LaneEdgeOrdinal, f64, f64),
+    mut end: u32,
+    mut remaining: u32,
+    mut visit: impl FnMut(LaneEdgeOrdinal, u32, u32),
 ) -> Option<()> {
-    while remaining > 1e-12 {
+    while remaining > 0 {
         let edge = *edges.get(index)?;
         let edge_length = *lengths.get(edge.index())?;
-        let start = (end - remaining).max(0.0);
+        let start = end.saturating_sub(remaining);
         let hi = end.min(edge_length);
         if hi > start {
             visit(edge, start, hi);
         }
-        remaining -= hi - start;
-        if remaining <= 1e-12 || index == 0 {
+        remaining = remaining.saturating_sub(hi.saturating_sub(start));
+        if remaining == 0 || index == 0 {
             break;
         }
         index -= 1;
@@ -328,13 +330,13 @@ pub(crate) fn for_each_occupancy_interval(
 }
 
 fn occupancy_intervals_stack(
-    lengths: &[f64],
+    lengths: &[u32],
     edges: &[LaneEdgeOrdinal],
     index: usize,
-    end: f64,
-    remaining: f64,
+    end: u32,
+    remaining: u32,
 ) -> Option<OccupancyStack> {
-    let mut intervals = [(LaneEdgeOrdinal::from_raw(0), 0.0, 0.0); OCCUPANCY_INTERVAL_CAP];
+    let mut intervals = [(LaneEdgeOrdinal::from_raw(0), 0, 0); OCCUPANCY_INTERVAL_CAP];
     let mut count = 0;
     let mut overflow = false;
     for_each_occupancy_interval(lengths, edges, index, end, remaining, |edge, lo, hi| {
@@ -349,11 +351,11 @@ fn occupancy_intervals_stack(
 }
 
 fn occupancy_intervals_vec(
-    lengths: &[f64],
+    lengths: &[u32],
     edges: &[LaneEdgeOrdinal],
     index: usize,
-    end: f64,
-    remaining: f64,
+    end: u32,
+    remaining: u32,
 ) -> Option<Vec<OccupancyInterval>> {
     let mut intervals = Vec::new();
     for_each_occupancy_interval(lengths, edges, index, end, remaining, |edge, lo, hi| {
@@ -372,15 +374,15 @@ fn occupancy_slices_overlap(left: &[OccupancyInterval], right: &[OccupancyInterv
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn bodies_overlap(
-    lengths: &[f64],
+    lengths: &[u32],
     a_edges: &[LaneEdgeOrdinal],
     a_index: usize,
-    a_progress: f64,
-    a_length: f64,
+    a_progress: u32,
+    a_length: u32,
     b_edges: &[LaneEdgeOrdinal],
     b_index: usize,
-    b_progress: f64,
-    b_length: f64,
+    b_progress: u32,
+    b_length: u32,
 ) -> bool {
     if a_edges.get(a_index) == b_edges.get(b_index)
         && bumpers_overlap(a_progress, a_length, b_progress, b_length)
@@ -415,16 +417,16 @@ pub(crate) fn bodies_overlap(
 /// 后车剩余边序列上每一次同名边出现都计入，取最近间隙。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn occupancy_front_gap(
-    lengths: &[f64],
+    lengths: &[u32],
     follower_edges: &[LaneEdgeOrdinal],
     follower_index: usize,
-    follower_progress: f64,
+    follower_progress: u32,
     leader_edges: &[LaneEdgeOrdinal],
     leader_index: usize,
-    leader_progress: f64,
-    leader_length: f64,
-) -> Option<f64> {
-    let mut gap: Option<f64> = None;
+    leader_progress: u32,
+    leader_length: u32,
+) -> Option<i64> {
+    let mut gap: Option<i64> = None;
     for_each_occupancy_interval(
         lengths,
         leader_edges,
@@ -437,12 +439,12 @@ pub(crate) fn occupancy_front_gap(
                     continue;
                 }
                 let bumper = if found == follower_index {
-                    if hi <= follower_progress + 1e-12 {
+                    if hi <= follower_progress {
                         continue;
                     }
-                    lo - follower_progress
+                    i64::from(lo) - i64::from(follower_progress)
                 } else {
-                    let Some(front_to_rear) = remaining_along_route(
+                    let Some(front_to_rear) = remaining_along_route_i64(
                         lengths,
                         follower_edges,
                         follower_index,
@@ -467,34 +469,62 @@ pub(crate) fn static_route_ordinal(handle: RouteHandle) -> Option<StaticRouteOrd
         .then(|| StaticRouteOrdinal::from_raw(handle.index()))
 }
 
-pub(crate) fn remaining_along_route(
-    lengths: &[f64],
+pub(crate) fn remaining_along_route_i64(
+    lengths: &[u32],
     edges: &[LaneEdgeOrdinal],
     from_index: usize,
-    from_progress: f64,
+    from_progress: u32,
     to_index: usize,
-    to_progress: f64,
-) -> Option<f64> {
+    to_progress: u32,
+) -> Option<i64> {
     if to_index < from_index || (to_index == from_index && to_progress < from_progress) {
         return None;
     }
     if to_index == from_index {
-        return Some(to_progress - from_progress);
+        return Some(i64::from(to_progress) - i64::from(from_progress));
     }
     let from_edge = *edges.get(from_index)?;
-    let mut distance = lengths.get(from_edge.index())? - from_progress;
+    let mut distance = i64::from(*lengths.get(from_edge.index())?) - i64::from(from_progress);
     for edge in edges.get(from_index + 1..to_index)? {
-        distance += *lengths.get(edge.index())?;
+        distance = distance.checked_add(i64::from(*lengths.get(edge.index())?))?;
     }
-    Some(distance + to_progress)
+    distance.checked_add(i64::from(to_progress))
+}
+
+pub(crate) fn remaining_along_route(
+    lengths: &[u32],
+    edges: &[LaneEdgeOrdinal],
+    from_index: usize,
+    from_progress: u32,
+    to_index: usize,
+    to_progress: u32,
+) -> Option<BoundedDistance> {
+    if to_index < from_index || (to_index == from_index && to_progress < from_progress) {
+        return None;
+    }
+    if to_index == from_index {
+        return Some(BoundedDistance::Finite(
+            to_progress.saturating_sub(from_progress),
+        ));
+    }
+    let from_edge = *edges.get(from_index)?;
+    let mut distance = BoundedDistance::Finite(
+        lengths
+            .get(from_edge.index())?
+            .saturating_sub(from_progress),
+    );
+    for edge in edges.get(from_index + 1..to_index)? {
+        distance = distance.add(*lengths.get(edge.index())?);
+    }
+    Some(distance.add(to_progress))
 }
 
 pub(crate) fn remaining_to_route_end(
-    lengths: &[f64],
+    lengths: &[u32],
     edges: &[LaneEdgeOrdinal],
     from_index: usize,
-    from_progress: f64,
-) -> Option<f64> {
+    from_progress: u32,
+) -> Option<BoundedDistance> {
     let last = edges.len().checked_sub(1)?;
     let last_edge = *edges.get(last)?;
     remaining_along_route(
@@ -507,13 +537,7 @@ pub(crate) fn remaining_to_route_end(
     )
 }
 
-pub(crate) fn spawn_motion_error(progress: f64, speed: f64) -> Option<SpawnError> {
-    if !progress.is_finite() || progress < 0.0 {
-        return Some(SpawnError::InvalidProgress);
-    }
-    if !speed.is_finite() || speed < 0.0 {
-        return Some(SpawnError::InvalidSpeed);
-    }
+pub(crate) fn spawn_motion_error(_progress_mm: u32, _speed_mm_s: u32) -> Option<SpawnError> {
     None
 }
 
@@ -661,18 +685,18 @@ mod compile_dynamic_route_tests {
     use super::*;
     use std::sync::Arc;
 
-    use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
     use laneflow_static_network::{
         SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
         build_shared_network_revision,
     };
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
     );
 
     fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-        let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD).unwrap();
+        let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).unwrap();
         build_shared_network_revision(
             input,
             SharedNetworkBuildOptions::new(
@@ -845,101 +869,101 @@ mod occupancy_interval_tests {
         OCCUPANCY_INTERVAL_CAP + 1
     }
 
-    fn overflow_body_length() -> f64 {
-        overflow_count() as f64 - 0.5
+    fn overflow_body_length() -> u32 {
+        u32::try_from(overflow_count() * 2 - 1).expect("body fits")
     }
 
     #[test]
     fn overflow_without_shared_edges_is_not_overlap() {
         let span = overflow_count();
-        let lengths = vec![1.0; span * 2];
+        let lengths = vec![2; span * 2];
         let left = chain(0, span);
         let right = chain(u32::try_from(span).expect("start"), span);
         let last = span - 1;
         let body = overflow_body_length();
         assert!(!bodies_overlap(
-            &lengths, &left, last, 1.0, body, &right, last, 1.0, body,
+            &lengths, &left, last, 2, body, &right, last, 2, body,
         ));
     }
 
     #[test]
     fn overflow_is_not_overlap_when_only_dropped_interval_is_disjoint() {
         let span = overflow_count();
-        let lengths = vec![1.0; span];
+        let lengths = vec![2; span];
         let edges = chain(0, span);
         let last = span - 1;
         assert!(!bodies_overlap(
             &lengths,
             &edges,
             last,
-            1.0,
+            2,
             overflow_body_length(),
             &edges,
             0,
-            0.4,
-            0.3,
+            1,
+            1,
         ));
     }
 
     #[test]
     fn overflow_still_overlaps_when_only_dropped_interval_collides() {
         let span = overflow_count();
-        let lengths = vec![1.0; span];
+        let lengths = vec![2; span];
         let edges = chain(0, span);
         let last = span - 1;
         assert!(bodies_overlap(
             &lengths,
             &edges,
             last,
-            1.0,
+            2,
             overflow_body_length(),
             &edges,
             0,
-            0.7,
-            0.3,
+            2,
+            1,
         ));
     }
 
     #[test]
     fn occupancy_front_gap_discards_partial_walk() {
-        let lengths = [1.0];
+        let lengths = [1];
         let follower = [edge(0)];
         let leader = [edge(99), edge(0)];
         assert_eq!(
-            occupancy_front_gap(&lengths, &follower, 0, 0.2, &leader, 1, 1.0, 1.5),
+            occupancy_front_gap(&lengths, &follower, 0, 0, &leader, 1, 1, 2),
             None
         );
     }
 
     #[test]
     fn occupancy_front_gap_returns_rear_bumper_on_same_edge() {
-        let lengths = [10.0];
+        let lengths = [10_000];
         let edges = [edge(0)];
         assert_eq!(
-            occupancy_front_gap(&lengths, &edges, 0, 1.0, &edges, 0, 6.0, 2.0),
-            Some(3.0)
+            occupancy_front_gap(&lengths, &edges, 0, 1_000, &edges, 0, 6_000, 2_000),
+            Some(3_000)
         );
     }
 
     #[test]
     fn occupancy_front_gap_uses_later_repeated_edge() {
-        let lengths = [10.0, 5.0];
+        let lengths = [10_000, 5_000];
         let follower = [edge(0), edge(1), edge(0)];
         let leader = [edge(0)];
         assert_eq!(
-            occupancy_front_gap(&lengths, &follower, 0, 9.0, &leader, 0, 1.0, 1.0),
-            Some(6.0)
+            occupancy_front_gap(&lengths, &follower, 0, 9_000, &leader, 0, 1_000, 1_000),
+            Some(6_000)
         );
     }
 
     #[test]
     fn occupancy_front_gap_prefers_nearest_repeated_edge() {
-        let lengths = [10.0, 5.0];
+        let lengths = [10_000, 5_000];
         let follower = [edge(0), edge(1), edge(0)];
         let leader = [edge(0)];
         assert_eq!(
-            occupancy_front_gap(&lengths, &follower, 0, 1.0, &leader, 0, 6.0, 2.0),
-            Some(3.0)
+            occupancy_front_gap(&lengths, &follower, 0, 1_000, &leader, 0, 6_000, 2_000),
+            Some(3_000)
         );
     }
 }

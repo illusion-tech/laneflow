@@ -9,7 +9,7 @@ use bevy_ecs::{
 use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use bevy_transform::{TransformPlugin, components::Transform};
 use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
-use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId, SpatialSession};
 use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
@@ -19,14 +19,14 @@ use laneflow_static_network::{
 };
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
 );
 
 #[derive(Resource)]
 struct Proxy(Entity);
 
 fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked canonical network input");
     build_shared_network_revision(
         input,
@@ -52,8 +52,8 @@ fn spawn_two_vehicles(world: &mut TrafficWorld) {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            1.0 + profile.length() + profile.min_gap() + 2.0,
-            0.0,
+            1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+            0,
         ))
         .expect("leader");
     world
@@ -61,8 +61,8 @@ fn spawn_two_vehicles(world: &mut TrafficWorld) {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            1.0,
-            0.0,
+            1_000,
+            0,
         ))
         .expect("follower");
 }

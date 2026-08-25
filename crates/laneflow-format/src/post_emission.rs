@@ -7,15 +7,15 @@ use laneflow_static_contract::{
 use sha2::{Digest, Sha256};
 
 use crate::{
-    CanonicalNetworkInputError, CheckedCanonicalNetworkInputV1, FormatError, FormatLimits,
+    CanonicalNetworkInputError, CheckedCanonicalNetworkInput, FormatError, FormatLimits,
     FormatStructure, LimitDimension, RegistryCheckedFieldValue, RegistryCheckedRowView,
     ValueCheckedObjectView, canonical_network::checked_canonical_network_input_from_parts,
-    preflight_object_values_v1,
+    preflight_object_values,
 };
 
 /// 调用方从实际 LFSD base 输入保存的预期绑定。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExpectedSemanticDiffBaseV1 {
+pub enum ExpectedSemanticDiffBase {
     Genesis,
     Artifact {
         network_revision_derivation_version: u16,
@@ -73,13 +73,10 @@ struct CheckedObject<'a> {
     byte_length: ExactByteLength,
 }
 
-/// 已从三份最终字节重算并闭合必要 binding 的借用型能力。
-///
-/// 字段私有且只有 [`check_post_emission_bundle_v1`] 能构造。本类型不证明完整路网语义、
-/// 发布真实性或迁移授权。
+/// 已从三份 LFCA/LFSM/LFSD 最终字节重算并闭合必要 binding 的借用型能力。
 #[derive(Clone, Copy, Debug)]
-pub struct PostEmissionCheckedBundleV1<'a> {
-    canonical_network: CheckedCanonicalNetworkInputV1<'a>,
+pub struct PostEmissionCheckedBundle<'a> {
+    canonical_network: CheckedCanonicalNetworkInput<'a>,
     source_map: CheckedObject<'a>,
     semantic_diff: CheckedObject<'a>,
     network_revision: NetworkRevisionId,
@@ -88,7 +85,7 @@ pub struct PostEmissionCheckedBundleV1<'a> {
     source_collection_digest: Sha256Digest,
 }
 
-impl<'a> PostEmissionCheckedBundleV1<'a> {
+impl<'a> PostEmissionCheckedBundle<'a> {
     #[must_use]
     pub const fn canonical_artifact_view(self) -> ValueCheckedObjectView<'a> {
         self.canonical_network.value_checked_view()
@@ -104,9 +101,8 @@ impl<'a> PostEmissionCheckedBundleV1<'a> {
         self.canonical_network.canonical_artifact_byte_length()
     }
 
-    /// 直接取得与单 LFCA 检查入口相同的共享静态路网构建能力。
     #[must_use]
-    pub const fn canonical_network_input(self) -> CheckedCanonicalNetworkInputV1<'a> {
+    pub const fn canonical_network_input(self) -> CheckedCanonicalNetworkInput<'a> {
         self.canonical_network
     }
 
@@ -161,14 +157,24 @@ impl<'a> PostEmissionCheckedBundleV1<'a> {
     }
 }
 
-/// 从 LFCA/LFSM/LFSD 最终字节重算 digest、length、revision 并闭合跨对象 binding。
-pub fn check_post_emission_bundle_v1<'a>(
+/// 对 LFCA/LFSM/LFSD v2 最终字节做后发射闭合检查。
+pub fn check_post_emission_bundle<'a>(
     lfca: &'a [u8],
     lfsm: &'a [u8],
     lfsd: &'a [u8],
-    expected_base: ExpectedSemanticDiffBaseV1,
+    expected_base: ExpectedSemanticDiffBase,
     limits: FormatLimits,
-) -> Result<PostEmissionCheckedBundleV1<'a>, PostEmissionCheckError> {
+) -> Result<PostEmissionCheckedBundle<'a>, PostEmissionCheckError> {
+    check_post_emission_bundle_at(lfca, lfsm, lfsd, expected_base, limits)
+}
+
+fn check_post_emission_bundle_at<'a>(
+    lfca: &'a [u8],
+    lfsm: &'a [u8],
+    lfsd: &'a [u8],
+    expected_base: ExpectedSemanticDiffBase,
+    limits: FormatLimits,
+) -> Result<PostEmissionCheckedBundle<'a>, PostEmissionCheckError> {
     let lfca_length = checked_object_length(lfca, limits)?;
     let lfsm_length = checked_object_length(lfsm, limits)?;
     let lfsd_length = checked_object_length(lfsd, limits)?;
@@ -185,10 +191,9 @@ pub fn check_post_emission_bundle_v1<'a>(
         });
     }
 
-    let lfca_view =
-        preflight_object_values_v1(lfca, PortableObjectKind::CanonicalArtifact, limits)?;
-    let lfsm_view = preflight_object_values_v1(lfsm, PortableObjectKind::SourceMap, limits)?;
-    let lfsd_view = preflight_object_values_v1(lfsd, PortableObjectKind::SemanticDiff, limits)?;
+    let lfca_view = preflight_object_values(lfca, PortableObjectKind::CanonicalArtifact, limits)?;
+    let lfsm_view = preflight_object_values(lfsm, PortableObjectKind::SourceMap, limits)?;
+    let lfsd_view = preflight_object_values(lfsd, PortableObjectKind::SemanticDiff, limits)?;
 
     let canonical_network = checked_canonical_network_input_from_parts(
         lfca_view,
@@ -242,14 +247,14 @@ pub fn check_post_emission_bundle_v1<'a>(
     }
 
     let base_matches = match expected_base {
-        ExpectedSemanticDiffBaseV1::Genesis => {
+        ExpectedSemanticDiffBase::Genesis => {
             checked_u8(diff_binding.field_by_tag(1))? == 0
                 && checked_u16(diff_binding.field_by_tag(2))? == 0
                 && checked_sha256(diff_binding.field_by_tag(3))? == Sha256Digest::ZERO
                 && checked_sha256(diff_binding.field_by_tag(4))? == Sha256Digest::ZERO
                 && checked_u64(diff_binding.field_by_tag(5))? == 0
         }
-        ExpectedSemanticDiffBaseV1::Artifact {
+        ExpectedSemanticDiffBase::Artifact {
             network_revision_derivation_version,
             network_revision,
             digest,
@@ -266,7 +271,7 @@ pub fn check_post_emission_bundle_v1<'a>(
         return Err(PostEmissionCheckError::SemanticDiffBaseBindingMismatch);
     }
 
-    Ok(PostEmissionCheckedBundleV1 {
+    Ok(PostEmissionCheckedBundle {
         canonical_network,
         source_map,
         semantic_diff,

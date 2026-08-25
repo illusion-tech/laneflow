@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use laneflow_corridor_generator::{CorridorConfig, generate};
-use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{TrafficWorld, WorldConfig};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
@@ -24,10 +24,10 @@ use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 const MIN_HEADLESS: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-variants/min-headless.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-variants/min-headless.lfca"
 );
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
 );
 const CORRIDOR: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CONFIG: &str =
@@ -48,7 +48,7 @@ struct AllocSample {
 }
 
 fn build(bytes: &[u8], spatial: SpatialBuildOption) -> Arc<SharedNetworkRevision> {
-    let input = check_canonical_network_input_v1(bytes, FormatLimits::V1_HARD).expect("checked");
+    let input = check_canonical_network_input(bytes, FormatLimits::HARD).expect("checked");
     build_shared_network_revision(input, SharedNetworkBuildOptions::new(spatial, BUILD_LIMITS))
         .expect("build")
 }

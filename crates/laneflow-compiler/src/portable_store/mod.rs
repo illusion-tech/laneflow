@@ -136,7 +136,7 @@ impl PortableObjectInstallation {
 
 /// 由调用方独占管理并信任的 LaneFlow 本地可移植对象安装器。
 ///
-/// 该类型只作为 [`crate::commit_portable_publication_v2`] 的本地发布目标，不是通用对象
+/// 该类型只作为 [`crate::commit_portable_publication`] 的本地发布目标，不是通用对象
 /// 存储 API。操作系统访问控制和存储介质安全继续由调用方部署负责。
 #[derive(Clone, Debug)]
 pub struct LocalPortableObjectInstaller {

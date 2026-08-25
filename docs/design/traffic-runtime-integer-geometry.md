@@ -1,6 +1,6 @@
 # 交通运行时整数毫米几何
 
-**文档状态**: Review（#496 G1；未 Pass，不授权实现）<br>
+**文档状态**: Accepted（#496 G1；当前树只承认一套制品合同，公开 API 不带 V1/V2 后缀）<br>
 **最后更新**: 2026-08-25<br>
 **适用范围**: `TrafficWorld` 已提交一维几何与速度、`WorldConfig` 步长、
 `laneflow-static-network` 热列、LFCA 长度/速度字段、compiler 边长派生、
@@ -185,32 +185,29 @@ require 100 <= length_mm <= 10_000_000
 **编译器（有 LIR）** 有折线时仍用绝对 `0.01 m`、相对 `1e-6` 对账 LIR 交通边长与弧长，
 然后按上式从弧长得到 `length_mm`。无折线只从 LIR round。
 
-**v2 读器 / 共享路网构建（无 LIR、无 `lengthMeters`）** 令
+**共享路网构建（无 LIR、无米制边长列）** 令
 `length_m = f64(lengthMillimetres) / 1000`，再
 `abs(length_m - f64(arcLengthMeters)) <= max(0.01 m, 1.0e-6 * max(length_m, f64(arc))) + 0.0 m`。
-对账失败关闭，不改已量化边长。headless 无此对账。v1 读器继续对照
-`LaneEdge.lengthMeters`，见附录 A.1。
+对账失败关闭，不改已量化边长。headless 无此对账。当前树没有 `lengthMeters` 交通列。
 
 限速：`speed_limit_mm_s = round-ties-to-even(f64(m/s) × 1000)`，且
 `1..=100_000`。
 
-G2 分配 **LFCA v2**：对象前导 `formatVersion` 与
+当前制品合同：对象前导 `formatVersion` 与
 `ContractVersions.canonicalFormatVersion` 为 `2`；
 `constraintContractVersion` / `staticExecutionContractVersion` 为 `2`；
-`networkRevisionDerivationVersion` **保持 `1`**（§4.2 v1 组帧与
+`networkRevisionDerivationVersion` **保持 `1`**（§4.2 组帧与
 `"laneflow.network-revision.v1\0"` 未改；毫米载荷会改变 ID，不必新算法）；
-身份两字段保持 `1`。不得改写 v1 登记表。v1 读器拒绝 v2，v2 读器拒绝 v1。
-LFSM `sourceMapFormatVersion = 2`，`canonicalArtifactFormatVersion` 等于所绑 LFCA
-（故为 `2`）。LFSD `semanticDiffFormatVersion = 2`，节形状同 v1。Genesis 的 target
-合同行必须与所绑 LFCA v2 一致；Artifact 两端合同行仍须相等，故 **v1→v2 diff 仍拒绝**。
-走廊按 Genesis 重生。
+身份两字段保持 `1`。公开 API 不带 V1/V2 后缀。读器拒绝 `formatVersion != 2`。
+旧米制表与旧读器不进当前树。LFSM `sourceMapFormatVersion = 2`，
+`canonicalArtifactFormatVersion` 等于所绑 LFCA。LFSD `semanticDiffFormatVersion = 2`。
+Genesis 的 target 合同行必须与所绑 LFCA 一致；Artifact 两端合同行仍须相等。走廊按
+Genesis 重生，不做格式迁移 diff。
 
-共享路网受检输入必须并行升到 v2：v1 入口只承认 LFCA v1，禁止放宽接纳 v2。v2 入口走
-v2 registry 预检，不可伪造。v1 受检制品组不得派生 v2 输入。G2 后生产构建与发布只消费
-v2；不得把 LFCA v2 送进 v1 bundle。G2 决定入口名字。
+共享路网受检输入与后发射检查只走这一套 registry，不可伪造。
 
-LFCA v2 登记表增量（相对附录 A.1 v1；**不兼容**读旧 `f64`）。**只改下表各行**；未列出的
-字段保持 v1 的 tag、名字、类型、必填。不得改写 v1 表，不得用「等长度」打包。
+当前 LFCA 交通热列（**不兼容**旧 `f64` 米列）。**只改下表各行相对历史米制表的名字和/或类型**；
+未列出的字段保持原 tag、名字、类型、必填。不得用「等长度」打包。
 `fieldType`：`3=u32`、`5=f32`、`13=i32`。Spatial `LaneEdgeGeometry.arcLengthMeters` /
 `segments.lengthMeters` 仍为 `f32` 米，不进本表。
 
@@ -284,7 +281,7 @@ LFCA v2 登记表增量（相对附录 A.1 v1；**不兼容**读旧 `f64`）。*
   `Completed`；`max_accel < 0.5` 失败；headless 边长来自 LIR round；跨 hop 间隙
   `i64`；路线注册在前缀溢出时仍成功，从起点可 `BeyondFinite`，靠近终点可
   `Finite(0)` 并 `Completed`；`0.0996 m` → `100 mm` 合法、`0.0994 m` → `99 mm`
-  失败；v1/v2 制品互拒；v2 的 `networkRevisionDerivationVersion == 1`；4 ms
+  失败；`formatVersion != 2` 失败关闭；`networkRevisionDerivationVersion == 1`；4 ms
   跟停死区状态重复不是失败；快照 `hard_room` 与现行截断同构；`dt=3` 与相位
   不能整除均失败且原因可区分；`dt=4` 与 `dt=1000` 能 install（夹具相位允许时）；
   `60 km/h` 长期平均由余数对齐量化后的 `mm/s`。
@@ -298,11 +295,11 @@ LFCA v2 登记表增量（相对附录 A.1 v1；**不兼容**读旧 `f64`）。*
 - 跨 CPU / 跨机器位级回放或联机 lockstep。
 - G1 改走廊 toml 或重生 LFCA。
 - 强迫 headless 从折线弧长派生边长。
-- 改写已冻 LFCA v1 登记表。
-- 放宽 v1 admission 接纳 LFCA v2，或不提供并行 v2 受检输入。
+- 在当前树保留米制 LFCA 登记表、旧读器或 `*_v1`/`*_v2` 孪生公开 API。
+- 把旧米列读成毫米，或为未发布旧字节堆兼容层。
 - 亚微米累加器，或把 4 ms 静止跟停量化死区当缺陷消掉。
 - 把 `vehicle-following.md` §11.2 的 `leader_final_travel` 并入本切片 `hard_room_mm`。
-- 用「等长度」打包 v2 字段，或改写附录 A.1 的 v1 表。
+- 用「等长度」打包交通热列字段，或在当前树并行保留历史米制表。
 - 前缀超过 `u32::MAX` mm 时注册失败，或把 `BeyondFinite` 饱和成 `u32::MAX` 路终硬停。
 - 从路线头溢出后把后续后缀查询一律标成 `BeyondFinite`。
 - 空升 `networkRevisionDerivationVersion = 2` 却不改哈希算法。

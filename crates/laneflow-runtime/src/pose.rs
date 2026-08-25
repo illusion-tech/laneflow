@@ -10,8 +10,8 @@ pub enum PoseSource {
     Lane {
         /// 共享根边序号。
         edge: LaneEdgeOrdinal,
-        /// 与共享根边长同域的进度。
-        progress: f64,
+        /// 当前边上的毫米进度。
+        progress_mm: u32,
     },
     /// 停车位。
     Parking {

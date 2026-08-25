@@ -4,10 +4,10 @@ use laneflow_compiler::{
     AccessRuleInput, AccessRuleTargetInput, CompilationUnitBuilder, CompileLimits, Compiler,
     IidmVehicleProfileInput, LaneEdgeInput, LaneEdgeReference, ParkingLaneAnchorInput,
     ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
-    PortableDiffBase, PortableEmissionProvenanceV1, SourceModuleHeader, SourceModuleHeaderInput,
+    PortableDiffBase, PortableEmissionProvenance, SourceModuleHeader, SourceModuleHeaderInput,
     StaticRouteInput, SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
 };
-use laneflow_format::{FormatLimits, check_post_emission_bundle_v1};
+use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
     ParkingError, PoseSource, RouteRegisterInput, SpawnError, TickInput, TrafficWorld,
     VehicleSpawnInput, WorldConfig,
@@ -55,21 +55,21 @@ fn compile_revision(
     let output = Compiler::new()
         .compile(unit.build().expect("compilation unit"))
         .expect("compiled output");
-    let provenance = PortableEmissionProvenanceV1::try_new("laneflow-runtime-coverage-v1")
+    let provenance = PortableEmissionProvenance::try_new("laneflow-runtime-coverage-v1")
         .expect("portable provenance");
     let candidate = emit_portable_candidate(
         &output,
         &provenance,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
         PortableDiffBase::Genesis,
     )
     .expect("portable candidate");
-    let checked = check_post_emission_bundle_v1(
+    let checked = check_post_emission_bundle(
         candidate.canonical_artifact().bytes(),
         candidate.source_map().bytes(),
         candidate.semantic_diff().bytes(),
         candidate.expected_semantic_diff_base(),
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
     )
     .expect("post-emission checked bundle");
     build_shared_network_revision(
@@ -145,8 +145,8 @@ fn spawn_access_denied_on_static_and_dynamic_routes_leaves_no_vehicle() {
                 VehicleProfileOrdinal::from_raw(0),
                 static_route,
                 0,
-                0.0,
-                0.0,
+                0,
+                0,
             ))
             .unwrap_err(),
         SpawnError::AccessDenied
@@ -168,8 +168,8 @@ fn spawn_access_denied_on_static_and_dynamic_routes_leaves_no_vehicle() {
                 VehicleProfileOrdinal::from_raw(0),
                 dynamic,
                 0,
-                0.0,
-                0.0,
+                0,
+                0,
             ))
             .unwrap_err(),
         SpawnError::AccessDenied
@@ -243,8 +243,8 @@ fn occupy_other_parking_space_fails_when_already_parked() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("spawn");
     world
@@ -314,8 +314,8 @@ fn follower_on_diverge_respects_leader_overhang_on_shared_stem() {
             VehicleProfileOrdinal::from_raw(0),
             leader_route,
             1,
-            0.5,
-            0.0,
+            500,
+            0,
         ))
         .expect("leader on left, tail on stem");
     let follower = world
@@ -323,12 +323,12 @@ fn follower_on_diverge_respects_leader_overhang_on_shared_stem() {
             VehicleProfileOrdinal::from_raw(0),
             follower_route,
             0,
-            5.0,
-            10.0,
+            5_000,
+            10_000,
         ))
         .expect("follower on stem");
     world.step(TickInput::new(100)).expect("step");
-    let PoseSource::Lane { progress, .. } = world
+    let PoseSource::Lane { progress_mm, .. } = world
         .committed_pose_sources()
         .as_slice()
         .iter()
@@ -339,8 +339,8 @@ fn follower_on_diverge_respects_leader_overhang_on_shared_stem() {
         panic!("follower must stay on lane");
     };
     assert!(
-        progress < 6.0 - 1e-6,
-        "follower must not enter leader overhang on stem, progress={progress}"
+        progress_mm < 6_000,
+        "follower must not enter leader overhang on stem, progress={progress_mm}"
     );
 }
 
@@ -363,7 +363,7 @@ fn large_delta_travel_does_not_exceed_speed_limit_envelope() {
             .expect("route");
     });
     let mut world =
-        TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 20_000)).expect("install");
+        TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 1_000)).expect("install");
     let route = world
         .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
         .expect("route");
@@ -372,17 +372,20 @@ fn large_delta_travel_does_not_exceed_speed_limit_envelope() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("spawn");
-    world.step(TickInput::new(20_000)).expect("step");
-    let PoseSource::Lane { progress, .. } = world.committed_pose_sources().as_slice()[0].1 else {
+    for _ in 0..20 {
+        world.step(TickInput::new(1_000)).expect("step");
+    }
+    let PoseSource::Lane { progress_mm, .. } = world.committed_pose_sources().as_slice()[0].1
+    else {
         panic!("lane pose");
     };
     assert!(
-        progress <= 10.0 * 20.0 + 1e-6,
-        "travel must not exceed speed-limit envelope, progress={progress}"
+        progress_mm <= 200_000,
+        "travel must not exceed speed-limit envelope, progress={progress_mm}"
     );
 }
 
@@ -424,14 +427,14 @@ fn speed_down_transition_caps_next_tick_travel() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            18.0,
-            10.0,
+            18_000,
+            10_000,
         ))
         .expect("spawn near fast/slow boundary");
     world.step(TickInput::new(1_000)).expect("approach/cross");
     let PoseSource::Lane {
         edge: after_first,
-        progress: first_progress,
+        progress_mm: first_progress,
     } = world
         .committed_pose_sources()
         .as_slice()
@@ -445,7 +448,7 @@ fn speed_down_transition_caps_next_tick_travel() {
     world.step(TickInput::new(1_000)).expect("slow edge tick");
     let PoseSource::Lane {
         edge: after_second,
-        progress: second_progress,
+        progress_mm: second_progress,
     } = world
         .committed_pose_sources()
         .as_slice()
@@ -462,7 +465,7 @@ fn speed_down_transition_caps_next_tick_travel() {
         second_progress
     };
     assert!(
-        travelled <= 1.0 + 1e-6,
+        travelled <= 1_000,
         "tick on or after 1 m/s edge must not keep a 10 m/s envelope, travelled={travelled}, first={first_progress:?} {after_first:?}, second={second_progress:?} {after_second:?}"
     );
 }
@@ -502,12 +505,12 @@ fn equal_limit_edge_boundary_does_not_stop_the_vehicle() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            19.6,
-            10.0,
+            19_600,
+            10_000,
         ))
         .expect("spawn near equal-limit boundary");
     world.step(TickInput::new(100)).expect("step");
-    let PoseSource::Lane { edge, progress } = world
+    let PoseSource::Lane { edge, progress_mm } = world
         .committed_pose_sources()
         .as_slice()
         .iter()
@@ -518,8 +521,8 @@ fn equal_limit_edge_boundary_does_not_stop_the_vehicle() {
         panic!("lane pose");
     };
     assert!(
-        (progress - 20.0).abs() > 1e-6,
-        "equal-limit crossing must not stop at the first-edge end, edge={edge:?} progress={progress}"
+        progress_mm != 20_000,
+        "equal-limit crossing must not stop at the first-edge end, edge={edge:?} progress={progress_mm}"
     );
 }
 
@@ -561,12 +564,12 @@ fn infeasible_stop_before_lower_limit_still_enters() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            9.0,
-            10.0,
+            9_000,
+            10_000,
         ))
         .expect("spawn 1 m before a 10→8 drop");
     world.step(TickInput::new(1_000)).expect("step");
-    let PoseSource::Lane { edge, progress } = world
+    let PoseSource::Lane { edge, progress_mm } = world
         .committed_pose_sources()
         .as_slice()
         .iter()
@@ -582,8 +585,8 @@ fn infeasible_stop_before_lower_limit_still_enters() {
         .static_route_edges(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
         .expect("edges")[0];
     assert!(
-        edge != first || (progress - 10.0).abs() > 1e-6,
-        "must enter when even a stop this tick overshoots the slower-edge start, edge={edge:?} progress={progress}"
+        edge != first || progress_mm != 10_000,
+        "must enter when even a stop this tick overshoots the slower-edge start, edge={edge:?} progress={progress_mm}"
     );
 }
 
@@ -625,12 +628,12 @@ fn already_below_downstream_limit_does_not_stop_at_boundary() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            9.0,
-            2.0,
+            9_000,
+            2_000,
         ))
         .expect("spawn already slower than the 5 m/s next edge");
     world.step(TickInput::new(1_000)).expect("step");
-    let PoseSource::Lane { edge, progress } = world
+    let PoseSource::Lane { edge, progress_mm } = world
         .committed_pose_sources()
         .as_slice()
         .iter()
@@ -646,7 +649,7 @@ fn already_below_downstream_limit_does_not_stop_at_boundary() {
         .static_route_edges(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
         .expect("edges")[0];
     assert!(
-        edge != first || (progress - 10.0).abs() > 1e-6,
-        "already-legal speed must not be clamped to a stop at the posted drop, edge={edge:?} progress={progress}"
+        edge != first || progress_mm != 10_000,
+        "already-legal speed must not be clamped to a stop at the posted drop, edge={edge:?} progress={progress_mm}"
     );
 }

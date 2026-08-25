@@ -1,21 +1,21 @@
 use super::*;
 
 const EXPECTED_LFSD: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v1/lfsd-v1-noop/expected.lfsd");
+    include_bytes!("../../../tests/fixtures/portable-v2/lfsd-v2-noop/expected.lfsd");
 
 fn candidate() -> crate::PortablePublicationCandidate {
     let output = full_spatial_portable_fixture_output();
     let provenance = full_spatial_portable_fixture_provenance();
-    let base = laneflow_format::preflight_object_values_v1(
+    let base = laneflow_format::preflight_object_values(
         FULL_SPATIAL_EXPECTED_LFCA,
         laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
     )
     .unwrap();
     crate::emit_portable_candidate(
         &output,
         &provenance,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
         crate::PortableDiffBase::Artifact(base),
     )
     .unwrap()
@@ -36,17 +36,17 @@ fn portable_full_spatial_noop_diff_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/5d72d97e935aa2ecddf2cc1c3cc6af033b7c115166d78de9e95526bc78d7f818"
+        "sha256/3e4e0103b2eb8777d457fb791b802b291dab896149b4c08bb041b60adbd08934"
     );
     assert_eq!(
         candidate.network_revision(),
         network_revision(FULL_SPATIAL_NETWORK_REVISION)
     );
 
-    let diff = laneflow_format::preflight_object_values_v1(
+    let diff = laneflow_format::preflight_object_values(
         EXPECTED_LFSD,
         laneflow_static_contract::PortableObjectKind::SemanticDiff,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
     )
     .unwrap()
     .registry_view();
@@ -77,7 +77,7 @@ fn portable_full_spatial_noop_diff_matches_frozen_exact_bytes() {
     for tag in [5, 9] {
         assert!(matches!(
             binding.field_by_tag(tag).unwrap().value().unwrap(),
-            laneflow_format::RegistryCheckedFieldValue::U64(14_649)
+            laneflow_format::RegistryCheckedFieldValue::U64(14_573)
         ));
     }
     for section_ordinal in 1..6 {
@@ -90,4 +90,26 @@ fn portable_full_spatial_noop_diff_matches_frozen_exact_bytes() {
             0
         );
     }
+}
+
+#[test]
+fn dump_portable_noop_when_requested() {
+    if std::env::var_os("DUMP_PORTABLE").is_none() {
+        return;
+    }
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/portable-v2/lfsd-v2-noop");
+    std::fs::create_dir_all(&dir).unwrap();
+    let candidate = candidate();
+    std::fs::write(dir.join("expected.lfsd"), candidate.semantic_diff().bytes()).unwrap();
+    std::fs::write(
+        dir.join("bindings.txt"),
+        format!(
+            "len={}\nkey={}\nlfca_len={}\n",
+            candidate.semantic_diff().bytes().len(),
+            candidate.semantic_diff().object_key(),
+            candidate.canonical_artifact().bytes().len(),
+        ),
+    )
+    .unwrap();
 }

@@ -6,11 +6,11 @@ use std::{
     path::Path,
 };
 
-use laneflow_format::{FormatLimits, check_post_emission_bundle_v1};
+use laneflow_format::{FormatLimits, check_post_emission_bundle};
 
 use crate::{
-    PortableObjectCandidate, PortablePublicationCandidate, PortablePublicationProvenanceV2,
-    PortablePublisherKindV2,
+    PortableObjectCandidate, PortablePublicationCandidate, PortablePublicationProvenance,
+    PortablePublisherKind,
 };
 
 use super::{
@@ -119,21 +119,21 @@ fn export_workload(output_directory: &Path, workload: PortableExactByteWorkload)
 }
 
 fn build_lfcp(candidate: &PortablePublicationCandidate) -> PortableObjectCandidate {
-    let checked = check_post_emission_bundle_v1(
+    let checked = check_post_emission_bundle(
         candidate.canonical_artifact().bytes(),
         candidate.source_map().bytes(),
         candidate.semantic_diff().bytes(),
         candidate.expected_semantic_diff_base(),
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
     )
     .unwrap();
-    let provenance = PortablePublicationProvenanceV2::new(
-        PortablePublisherKindV2::ReleaseService,
+    let provenance = PortablePublicationProvenance::new(
+        PortablePublisherKind::ReleaseService,
         "laneflow-publisher-fixture-v2",
         Some("controlled-build".into()),
         Some("2026-08-18T00:00:00Z".into()),
     );
-    crate::portable_publication::build_lfcp_v2(checked, &provenance, FormatLimits::V1_HARD).unwrap()
+    crate::portable_publication::build_lfcp(checked, &provenance, FormatLimits::HARD).unwrap()
 }
 
 fn assert_same_candidate(

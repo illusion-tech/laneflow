@@ -10,7 +10,7 @@ mod lfcp;
 use std::io;
 
 use laneflow_format::{
-    FormatError, FormatLimits, PostEmissionCheckError, check_post_emission_bundle_v1,
+    FormatError, FormatLimits, PostEmissionCheckError, check_post_emission_bundle,
 };
 use laneflow_static_contract::{ExactByteLength, Sha256Digest};
 
@@ -19,17 +19,17 @@ use crate::{
     PortableObjectInstallation, PortablePublicationCandidate, portable_emitter::object_key,
 };
 
-pub(crate) use self::lfcp::build_lfcp_v2;
+pub(crate) use self::lfcp::build_lfcp;
 
 /// LFCP v2 的发布者种类。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PortablePublisherKindV2 {
+pub enum PortablePublisherKind {
     LocalTool,
     Ci,
     ReleaseService,
 }
 
-impl PortablePublisherKindV2 {
+impl PortablePublisherKind {
     const fn code(self) -> u8 {
         match self {
             Self::LocalTool => 0,
@@ -41,18 +41,18 @@ impl PortablePublisherKindV2 {
 
 /// 显式、受控且进入 LFCP v2 exact bytes 的发布 provenance。
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PortablePublicationProvenanceV2 {
-    publisher_kind: PortablePublisherKindV2,
+pub struct PortablePublicationProvenance {
+    publisher_kind: PortablePublisherKind,
     publisher_build_id: Box<str>,
     controlled_build_provenance: Option<Box<str>>,
     controlled_timestamp: Option<Box<str>>,
 }
 
-impl PortablePublicationProvenanceV2 {
+impl PortablePublicationProvenance {
     /// 构造完整显式 provenance；本函数不读取环境、时钟或工作目录。
     #[must_use]
     pub fn new(
-        publisher_kind: PortablePublisherKindV2,
+        publisher_kind: PortablePublisherKind,
         publisher_build_id: impl Into<Box<str>>,
         controlled_build_provenance: Option<Box<str>>,
         controlled_timestamp: Option<Box<str>>,
@@ -66,7 +66,7 @@ impl PortablePublicationProvenanceV2 {
     }
 
     #[must_use]
-    pub const fn publisher_kind(&self) -> PortablePublisherKindV2 {
+    pub const fn publisher_kind(&self) -> PortablePublisherKind {
         self.publisher_kind
     }
 
@@ -213,10 +213,10 @@ impl ManifestCommittedPortablePublication {
 /// 后发射闭合检查、任一对象安装、LFCP 编码/预检或 manifest 提交失败时，返回错误且不返回
 /// 部分成功状态。检查失败保证没有安装或 manifest 副作用；检查后的已安装对象在后续失败时
 /// 可以作为未引用对象保留。
-pub fn commit_portable_publication_v2<M: PortableManifestCommitter + ?Sized>(
+pub fn commit_portable_publication<M: PortableManifestCommitter + ?Sized>(
     installer: &LocalPortableObjectInstaller,
     candidate: &PortablePublicationCandidate,
-    provenance: &PortablePublicationProvenanceV2,
+    provenance: &PortablePublicationProvenance,
     limits: FormatLimits,
     manifest: &mut M,
 ) -> Result<ManifestCommittedPortablePublication, PortablePublicationError> {
@@ -245,11 +245,11 @@ fn commit_with_installer<
 >(
     installer: &I,
     candidate: &PortablePublicationCandidate,
-    provenance: &PortablePublicationProvenanceV2,
+    provenance: &PortablePublicationProvenance,
     limits: FormatLimits,
     manifest: &mut M,
 ) -> Result<ManifestCommittedPortablePublication, PortablePublicationError> {
-    let checked = check_post_emission_bundle_v1(
+    let checked = check_post_emission_bundle(
         candidate.canonical_artifact().bytes(),
         candidate.source_map().bytes(),
         candidate.semantic_diff().bytes(),
@@ -281,7 +281,7 @@ fn commit_with_installer<
         checked.semantic_diff_byte_length(),
     )?;
 
-    let descriptor = build_lfcp_v2(checked, provenance, limits)?;
+    let descriptor = build_lfcp(checked, provenance, limits)?;
     let descriptor_installation = installer.install_exact_bytes(descriptor.bytes())?;
     verify_candidate_installation(&descriptor_installation, &descriptor)?;
 

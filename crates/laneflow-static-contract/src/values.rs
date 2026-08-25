@@ -31,24 +31,64 @@ pub enum AccessEffect {
     Deny,
 }
 
-/// 停车锚点距 `LaneEdge` 两端必须严格大于的距离，单位为米。
+/// 历史米制哨兵：停车锚点距边端必须严格大于的距离。
 ///
-/// 该排他边界避免入口/出口落在拓扑连接点上，从而让锚点始终唯一属于一条边。
+/// G2 起生产判定使用 [`PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM`]；编制 LIR 仍可读本常量。
 pub const PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS: f64 = 1.0e-9;
 
-/// 停车位横向偏移绝对值必须严格大于的距离，单位为米。
-///
-/// 零偏移及数值噪声范围会把停车位中心放回入口边中心线，不能表达受支持的路外泊位。
+/// 停车锚点距量化后边端的留白，单位为毫米；与最短边长不是同一个常量。
+pub const PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM: u32 = 1;
+
+/// 历史米制哨兵：停车位横向偏移绝对值必须严格大于的距离。
 pub const MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
-/// 停车位长度和宽度必须严格大于的距离，单位为米。
+/// 路外停车横向偏移绝对值下限（含），单位为毫米。
+pub const MIN_PARKING_LATERAL_OFFSET_ABS_MM: u32 = 1;
+
+/// 停车横向偏移绝对值上限（含），单位为毫米。
+pub const MAX_PARKING_LATERAL_OFFSET_ABS_MM: u32 = 128_000;
+
+/// 历史米制哨兵：停车位长度和宽度必须严格大于的距离。
 pub const MIN_PARKING_EXTENT_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
-/// 当前道路机动车 `VehicleProfile` 长度必须严格大于的距离，单位为米。
-///
-/// 编译器以此显式保留与 current Core 已接受契约相同的输入边界；后继目标运行时也应
-/// 消费该常量，避免形成另一种“最短合法车辆”定义。
+/// 停车长宽与车长下限（含），单位为毫米。
+pub const MIN_VEHICLE_LENGTH_MM: u32 = 100;
+
+/// 停车长宽与车长上限（含），单位为毫米。
+pub const MAX_VEHICLE_LENGTH_MM: u32 = 128_000;
+
+/// 历史米制哨兵：车辆长度必须严格大于的距离。
 pub const MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
+
+/// 交通边最短长度（含），单位为毫米。
+pub const MIN_LANE_EDGE_LENGTH_MM: u32 = 100;
+
+/// 交通边最长长度（含），单位为毫米。
+pub const MAX_LANE_EDGE_LENGTH_MM: u32 = 10_000_000;
+
+/// 边限速与期望车速下限（含），单位为毫米每秒；已提交静止速度可为 0。
+pub const MIN_SPEED_MM_S: u32 = 1;
+
+/// 边限速与期望车速上限（含），单位为毫米每秒。
+pub const MAX_SPEED_MM_S: u32 = 100_000;
+
+/// `min_gap` 上限（含），单位为毫米；0 合法。
+pub const MAX_MIN_GAP_MM: u32 = 128_000;
+
+/// 时距排他下限对应的受检 `f32` 上界（含），单位为秒。
+pub const MAX_TIME_HEADWAY_SECONDS: f32 = 60.0;
+
+/// 加速度/减速度下限（含），单位为米每二次方秒。
+pub const MIN_ACCEL_METERS_PER_SECOND_SQUARED: f32 = 0.5;
+
+/// 加速度/减速度上限（含），单位为米每二次方秒。
+pub const MAX_ACCEL_METERS_PER_SECOND_SQUARED: f32 = 50.0;
+
+/// 编制/发射量化后折成 `-π` 的 binary32 位型。
+pub const HEADING_PLUS_PI_F32_BITS: u32 = 0x4049_0fdb;
+
+/// 合法朝向闭包的 `-π` binary32 位型。
+pub const HEADING_MINUS_PI_F32_BITS: u32 = 0xc049_0fdb;
 
 /// canonical frame 中点分量允许的最小值，单位为米。
 pub const CANONICAL_POINT_COMPONENT_MIN_METERS: f32 = -16_384.0;

@@ -1,17 +1,17 @@
 use std::{cell::Cell, cell::RefCell, ops::Range};
 
 use laneflow_format::{
-    ExpectedSemanticDiffBaseV1, FormatLimitConfig, FormatLimits, LimitDimension,
-    PostEmissionCheckError, RegistryCheckedObjectView, check_post_emission_bundle_v1,
-    preflight_object_values_v1,
+    ExpectedSemanticDiffBase, FormatLimitConfig, FormatLimits, LimitDimension,
+    PostEmissionCheckError, RegistryCheckedObjectView, check_post_emission_bundle,
+    preflight_object_values,
 };
 use laneflow_static_contract::{ExactByteLength, PortableObjectKind};
 
 use super::*;
 use crate::{PortableInstallOperation, compiler::portable_fixture_tests};
 
-fn provenance(kind: PortablePublisherKindV2) -> PortablePublicationProvenanceV2 {
-    PortablePublicationProvenanceV2::new(kind, "laneflow-publisher-fixture-v2", None, None)
+fn provenance(kind: PortablePublisherKind) -> PortablePublicationProvenance {
+    PortablePublicationProvenance::new(kind, "laneflow-publisher-fixture-v2", None, None)
 }
 
 #[derive(Default)]
@@ -97,10 +97,10 @@ impl PublicationObjectInstaller for RecordingInstaller {
 }
 
 fn descriptor_view(bytes: &[u8]) -> RegistryCheckedObjectView<'_> {
-    preflight_object_values_v1(
+    preflight_object_values(
         bytes,
         PortableObjectKind::CanonicalPublicationDescriptor,
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
     )
     .unwrap()
     .registry_view()
@@ -125,19 +125,19 @@ fn field_utf8(bytes: &[u8], section: u32, tag: u16) -> &str {
 
 fn checked_bundle<'a>(
     candidate: &'a PortablePublicationCandidate,
-) -> laneflow_format::PostEmissionCheckedBundleV1<'a> {
-    check_post_emission_bundle_v1(
+) -> laneflow_format::PostEmissionCheckedBundle<'a> {
+    check_post_emission_bundle(
         candidate.canonical_artifact().bytes(),
         candidate.source_map().bytes(),
         candidate.semantic_diff().bytes(),
         candidate.expected_semantic_diff_base(),
-        FormatLimits::V1_HARD,
+        FormatLimits::HARD,
     )
     .unwrap()
 }
 
 fn field_range(bytes: &[u8], kind: PortableObjectKind, section: u32, tag: u16) -> Range<usize> {
-    let value = preflight_object_values_v1(bytes, kind, FormatLimits::V1_HARD)
+    let value = preflight_object_values(bytes, kind, FormatLimits::HARD)
         .unwrap()
         .registry_view()
         .section(section)
@@ -176,7 +176,7 @@ fn checker_accepts_genesis_and_artifact_base_bundles() {
     let artifact = portable_fixture_tests::full_spatial_portable_artifact_base_fixture_candidate();
     assert!(matches!(
         artifact.expected_semantic_diff_base(),
-        ExpectedSemanticDiffBaseV1::Artifact { .. }
+        ExpectedSemanticDiffBase::Artifact { .. }
     ));
     let artifact_checked = checked_bundle(&artifact);
     assert_eq!(
@@ -192,12 +192,12 @@ fn checker_reports_each_cross_object_binding_failure() {
     let mut lfca = candidate.canonical_artifact().bytes().to_vec();
     mutate_field(&mut lfca, PortableObjectKind::CanonicalArtifact, 7, 1);
     assert_eq!(
-        check_post_emission_bundle_v1(
+        check_post_emission_bundle(
             &lfca,
             candidate.source_map().bytes(),
             candidate.semantic_diff().bytes(),
             candidate.expected_semantic_diff_base(),
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap_err(),
         PostEmissionCheckError::NetworkRevisionMismatch
@@ -206,12 +206,12 @@ fn checker_reports_each_cross_object_binding_failure() {
     let mut lfsm = candidate.source_map().bytes().to_vec();
     mutate_field(&mut lfsm, PortableObjectKind::SourceMap, 0, 4);
     assert_eq!(
-        check_post_emission_bundle_v1(
+        check_post_emission_bundle(
             candidate.canonical_artifact().bytes(),
             &lfsm,
             candidate.semantic_diff().bytes(),
             candidate.expected_semantic_diff_base(),
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap_err(),
         PostEmissionCheckError::SourceMapBindingMismatch
@@ -220,29 +220,29 @@ fn checker_reports_each_cross_object_binding_failure() {
     let mut target_lfsd = candidate.semantic_diff().bytes().to_vec();
     mutate_field(&mut target_lfsd, PortableObjectKind::SemanticDiff, 0, 8);
     assert_eq!(
-        check_post_emission_bundle_v1(
+        check_post_emission_bundle(
             candidate.canonical_artifact().bytes(),
             candidate.source_map().bytes(),
             &target_lfsd,
             candidate.expected_semantic_diff_base(),
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap_err(),
         PostEmissionCheckError::SemanticDiffTargetBindingMismatch
     );
 
     assert_eq!(
-        check_post_emission_bundle_v1(
+        check_post_emission_bundle(
             candidate.canonical_artifact().bytes(),
             candidate.source_map().bytes(),
             candidate.semantic_diff().bytes(),
-            ExpectedSemanticDiffBaseV1::Artifact {
+            ExpectedSemanticDiffBase::Artifact {
                 network_revision_derivation_version: 1,
                 network_revision: candidate.network_revision(),
                 digest: candidate.canonical_artifact().digest(),
                 byte_length: candidate.canonical_artifact().byte_length(),
             },
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap_err(),
         PostEmissionCheckError::SemanticDiffBaseBindingMismatch
@@ -272,12 +272,12 @@ fn checker_rejects_truncated_appended_wrong_kind_and_wrong_version_objects() {
             let mut objects = originals;
             objects[object_index] = &changed;
             assert!(matches!(
-                check_post_emission_bundle_v1(
+                check_post_emission_bundle(
                     objects[0],
                     objects[1],
                     objects[2],
                     candidate.expected_semantic_diff_base(),
-                    FormatLimits::V1_HARD,
+                    FormatLimits::HARD,
                 ),
                 Err(PostEmissionCheckError::Format(_))
             ));
@@ -285,12 +285,12 @@ fn checker_rejects_truncated_appended_wrong_kind_and_wrong_version_objects() {
     }
 
     assert!(matches!(
-        check_post_emission_bundle_v1(
+        check_post_emission_bundle(
             candidate.source_map().bytes(),
             candidate.canonical_artifact().bytes(),
             candidate.semantic_diff().bytes(),
             candidate.expected_semantic_diff_base(),
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         ),
         Err(PostEmissionCheckError::Format(_))
     ));
@@ -303,12 +303,12 @@ fn checker_closes_all_variable_source_and_diff_digest_length_bindings() {
         let mut lfsm = genesis.source_map().bytes().to_vec();
         mutate_field(&mut lfsm, PortableObjectKind::SourceMap, 0, tag);
         assert_eq!(
-            check_post_emission_bundle_v1(
+            check_post_emission_bundle(
                 genesis.canonical_artifact().bytes(),
                 &lfsm,
                 genesis.semantic_diff().bytes(),
                 genesis.expected_semantic_diff_base(),
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             )
             .unwrap_err(),
             PostEmissionCheckError::SourceMapBindingMismatch
@@ -320,12 +320,12 @@ fn checker_closes_all_variable_source_and_diff_digest_length_bindings() {
         let mut lfsd = artifact.semantic_diff().bytes().to_vec();
         mutate_field(&mut lfsd, PortableObjectKind::SemanticDiff, 0, tag);
         assert_eq!(
-            check_post_emission_bundle_v1(
+            check_post_emission_bundle(
                 artifact.canonical_artifact().bytes(),
                 artifact.source_map().bytes(),
                 &lfsd,
                 artifact.expected_semantic_diff_base(),
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             )
             .unwrap_err(),
             PostEmissionCheckError::SemanticDiffBaseBindingMismatch
@@ -335,12 +335,12 @@ fn checker_closes_all_variable_source_and_diff_digest_length_bindings() {
         let mut lfsd = artifact.semantic_diff().bytes().to_vec();
         mutate_field(&mut lfsd, PortableObjectKind::SemanticDiff, 0, tag);
         assert_eq!(
-            check_post_emission_bundle_v1(
+            check_post_emission_bundle(
                 artifact.canonical_artifact().bytes(),
                 artifact.source_map().bytes(),
                 &lfsd,
                 artifact.expected_semantic_diff_base(),
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             )
             .unwrap_err(),
             PostEmissionCheckError::SemanticDiffTargetBindingMismatch
@@ -355,12 +355,12 @@ fn checker_rejects_every_fixed_binding_version_during_value_preflight() {
         let mut lfsm = genesis.source_map().bytes().to_vec();
         mutate_field(&mut lfsm, PortableObjectKind::SourceMap, 0, tag);
         assert!(matches!(
-            check_post_emission_bundle_v1(
+            check_post_emission_bundle(
                 genesis.canonical_artifact().bytes(),
                 &lfsm,
                 genesis.semantic_diff().bytes(),
                 genesis.expected_semantic_diff_base(),
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             ),
             Err(PostEmissionCheckError::Format(_))
         ));
@@ -371,12 +371,12 @@ fn checker_rejects_every_fixed_binding_version_during_value_preflight() {
         let mut lfsd = artifact.semantic_diff().bytes().to_vec();
         mutate_field(&mut lfsd, PortableObjectKind::SemanticDiff, 0, tag);
         assert!(matches!(
-            check_post_emission_bundle_v1(
+            check_post_emission_bundle(
                 artifact.canonical_artifact().bytes(),
                 artifact.source_map().bytes(),
                 &lfsd,
                 artifact.expected_semantic_diff_base(),
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             ),
             Err(PostEmissionCheckError::Format(_))
         ));
@@ -387,19 +387,19 @@ fn checker_rejects_every_fixed_binding_version_during_value_preflight() {
 fn lfcp_v2_contains_only_artifact_source_and_publication_bindings() {
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
     for (kind, code) in [
-        (PortablePublisherKindV2::LocalTool, 0_u8),
-        (PortablePublisherKindV2::Ci, 1),
-        (PortablePublisherKindV2::ReleaseService, 2),
+        (PortablePublisherKind::LocalTool, 0_u8),
+        (PortablePublisherKind::Ci, 1),
+        (PortablePublisherKind::ReleaseService, 2),
     ] {
-        let descriptor = build_lfcp_v2(
+        let descriptor = build_lfcp(
             checked_bundle(&candidate),
-            &PortablePublicationProvenanceV2::new(
+            &PortablePublicationProvenance::new(
                 kind,
                 "laneflow-publisher-fixture-v2",
                 Some("controlled-build".into()),
                 Some("2026-08-18T00:00:00Z".into()),
             ),
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap();
         let view = descriptor_view(descriptor.bytes());
@@ -427,8 +427,8 @@ fn publication_checks_before_installing_and_commits_once_in_order() {
     let committed = commit_with_installer(
         &installer,
         &candidate,
-        &provenance(PortablePublisherKindV2::LocalTool),
-        FormatLimits::V1_HARD,
+        &provenance(PortablePublisherKind::LocalTool),
+        FormatLimits::HARD,
         &mut manifest,
     )
     .unwrap();
@@ -456,7 +456,7 @@ fn checker_limit_failure_has_zero_installer_and_manifest_side_effects() {
     .into_iter()
     .max()
     .unwrap();
-    let mut config = FormatLimitConfig::V1_HARD;
+    let mut config = FormatLimitConfig::HARD;
     config.max_object_bytes = largest - 1;
     let installer = RecordingInstaller::succeeds();
     let mut manifest = RecordingManifest::default();
@@ -465,7 +465,7 @@ fn checker_limit_failure_has_zero_installer_and_manifest_side_effects() {
         commit_with_installer(
             &installer,
             &candidate,
-            &provenance(PortablePublisherKindV2::LocalTool),
+            &provenance(PortablePublisherKind::LocalTool),
             FormatLimits::try_new(config).unwrap(),
             &mut manifest,
         ),
@@ -491,9 +491,9 @@ fn checker_closes_exact_candidate_staging_boundary_before_side_effects() {
         .and_then(|value| value.checked_add(candidate.semantic_diff().byte_length().get()))
         .unwrap();
 
-    let mut exact_config = FormatLimitConfig::V1_HARD;
+    let mut exact_config = FormatLimitConfig::HARD;
     exact_config.max_candidate_staging_bytes = total;
-    check_post_emission_bundle_v1(
+    check_post_emission_bundle(
         candidate.canonical_artifact().bytes(),
         candidate.source_map().bytes(),
         candidate.semantic_diff().bytes(),
@@ -510,7 +510,7 @@ fn checker_closes_exact_candidate_staging_boundary_before_side_effects() {
         commit_with_installer(
             &installer,
             &candidate,
-            &provenance(PortablePublisherKindV2::LocalTool),
+            &provenance(PortablePublisherKind::LocalTool),
             FormatLimits::try_new(rejected_config).unwrap(),
             &mut manifest,
         ),
@@ -542,8 +542,8 @@ fn each_object_install_failure_prevents_manifest_commit() {
             commit_with_installer(
                 &installer,
                 &candidate,
-                &provenance(PortablePublisherKindV2::LocalTool),
-                FormatLimits::V1_HARD,
+                &provenance(PortablePublisherKind::LocalTool),
+                FormatLimits::HARD,
                 &mut manifest,
             ),
             Err(PortablePublicationError::Install(error))
@@ -566,8 +566,8 @@ fn manifest_failure_returns_no_committed_capability() {
         commit_with_installer(
             &installer,
             &candidate,
-            &provenance(PortablePublisherKindV2::Ci),
-            FormatLimits::V1_HARD,
+            &provenance(PortablePublisherKind::Ci),
+            FormatLimits::HARD,
             &mut manifest,
         ),
         Err(PortablePublicationError::Manifest(
@@ -586,14 +586,30 @@ fn manifest_failure_returns_no_committed_capability() {
 fn lfcp_v2_exact_bytes_are_deterministic() {
     let candidate = portable_fixture_tests::full_spatial_portable_fixture_candidate();
     let checked = checked_bundle(&candidate);
-    let provenance = PortablePublicationProvenanceV2::new(
-        PortablePublisherKindV2::ReleaseService,
+    let provenance = PortablePublicationProvenance::new(
+        PortablePublisherKind::ReleaseService,
         "laneflow-publisher-fixture-v2",
         Some("controlled-build".into()),
         Some("2026-08-18T00:00:00Z".into()),
     );
-    let first = build_lfcp_v2(checked, &provenance, FormatLimits::V1_HARD).unwrap();
-    let second = build_lfcp_v2(checked, &provenance, FormatLimits::V1_HARD).unwrap();
+    let first = build_lfcp(checked, &provenance, FormatLimits::HARD).unwrap();
+    let second = build_lfcp(checked, &provenance, FormatLimits::HARD).unwrap();
+    if std::env::var_os("DUMP_PORTABLE").is_some() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/portable-v2/lfcp-v2-min-bindings");
+        let hex = first
+            .bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        std::fs::write(dir.join("expected.lfcp.hex"), format!("{hex}\n")).unwrap();
+        std::fs::write(
+            dir.join("bindings.txt"),
+            format!("len={}\nkey={}\n", first.bytes().len(), first.object_key()),
+        )
+        .unwrap();
+        return;
+    }
     let expected_hex =
         include_str!("../../tests/fixtures/portable-v2/lfcp-v2-min-bindings/expected.lfcp.hex");
     let digits = expected_hex
@@ -612,7 +628,7 @@ fn lfcp_v2_exact_bytes_are_deterministic() {
     assert_eq!(first.byte_length(), ExactByteLength::new(812));
     assert_eq!(
         first.object_key(),
-        "sha256/54f6ffd55c7f08f20a2f04bf273bb1b98e96ad38155f7bd027136a347ab3e763"
+        "sha256/7b704eb2a6593df15780469dd6f7a4e385dc54ac290b77275589cb2237e48ce6"
     );
     assert_eq!(first.bytes(), second.bytes());
     assert_eq!(first.digest(), second.digest());

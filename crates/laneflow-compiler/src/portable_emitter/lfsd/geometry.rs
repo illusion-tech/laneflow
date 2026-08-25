@@ -209,9 +209,10 @@ mod tests {
     use std::ops::Range;
 
     use super::*;
+    use laneflow_format::preflight_object_values;
 
     const FULL_SPATIAL_LFCA: &[u8] =
-        include_bytes!("../../../tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca");
+        include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca");
 
     fn field_value_range(
         bytes: &[u8],
@@ -220,10 +221,10 @@ mod tests {
         row: u32,
         tag: u16,
     ) -> Range<usize> {
-        let view = laneflow_format::preflight_object_registry_v1(
+        let view = laneflow_format::preflight_object_registry(
             bytes,
             PortableObjectKind::CanonicalArtifact,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap();
         let value = view
@@ -263,17 +264,17 @@ mod tests {
             base_bytes[applies.clone()].copy_from_slice(&[0]);
             target_bytes[applies].copy_from_slice(&[1]);
 
-            let base_view = preflight_object_values_v1(
+            let base_view = preflight_object_values(
                 &base_bytes,
                 PortableObjectKind::CanonicalArtifact,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             )
             .unwrap()
             .registry_view();
-            let target_view = preflight_object_values_v1(
+            let target_view = preflight_object_values(
                 &target_bytes,
                 PortableObjectKind::CanonicalArtifact,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             )
             .unwrap()
             .registry_view();

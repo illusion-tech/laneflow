@@ -1,13 +1,14 @@
-//! 无分配的 v1 受限精确编码。
+//! 无分配的受限精确编码。
 //!
 //! 编码器只拥有线格式、附录 A registry 与通用规范值检查。编译器语义投影、跨表闭包、
 //! 摘要和文件系统发布事务不属于本模块。
 
 use laneflow_static_contract::{
-    OBJECT_PREAMBLE_V1_BYTE_LENGTH, PortableFieldPresence, PortableFieldSchema, PortableFieldType,
-    PortableObjectKind, PortableRowCardinality, PortableRowSchema, PortableRowShape,
-    PortableSectionSchema, PortableTableSchema, SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH,
-    SECTION_FORMAT_VERSION_V1, portable_field_mask, portable_object_schema,
+    OBJECT_PREAMBLE_BYTE_LENGTH, PortableFieldPresence, PortableFieldSchema, PortableFieldType,
+    PortableObjectKind, PortableObjectSchema, PortableRowCardinality, PortableRowSchema,
+    PortableRowShape, PortableSectionSchema, PortableTableSchema,
+    SECTION_DIRECTORY_ENTRY_BYTE_LENGTH, SECTION_FORMAT_VERSION, portable_field_mask,
+    portable_object_schema,
 };
 
 use crate::{FormatError, FormatLimits, FormatStructure, LimitDimension};
@@ -16,40 +17,40 @@ const SECTION_HEADER_BYTES: u64 = 4;
 const TABLE_HEADER_BYTES: u64 = 16;
 const ROW_HEADER_BYTES: u64 = 16;
 const FIELD_HEADER_BYTES: u64 = 12;
-const TABLE_SCHEMA_VERSION_V1: u16 = 1;
+const TABLE_SCHEMA_VERSION: u16 = 1;
 
-/// 一份完整 v1 对象的借用写入输入。
+/// 一份完整对象的借用写入输入。
 #[derive(Clone, Copy, Debug)]
-pub struct ObjectWriteInputV1<'a> {
+pub struct ObjectWriteInput<'a> {
     pub kind: PortableObjectKind,
-    pub sections: &'a [SectionWriteInputV1<'a>],
+    pub sections: &'a [SectionWriteInput<'a>],
 }
 
-/// 一个 v1 section 的借用写入输入。
+/// 一个 section 的借用写入输入。
 #[derive(Clone, Copy, Debug)]
-pub struct SectionWriteInputV1<'a> {
+pub struct SectionWriteInput<'a> {
     pub kind: u16,
-    pub tables: &'a [TableWriteInputV1<'a>],
+    pub tables: &'a [TableWriteInput<'a>],
 }
 
-/// 一张 v1 table 的借用写入输入。
+/// 一张 table 的借用写入输入。
 #[derive(Clone, Copy, Debug)]
-pub struct TableWriteInputV1<'a> {
+pub struct TableWriteInput<'a> {
     pub kind: u16,
-    pub rows: &'a [RowWriteInputV1<'a>],
+    pub rows: &'a [RowWriteInput<'a>],
 }
 
-/// 一行 v1 row 的借用写入输入。
+/// 一行 row 的借用写入输入。
 #[derive(Clone, Copy, Debug)]
-pub struct RowWriteInputV1<'a> {
-    pub fields: &'a [FieldWriteInputV1<'a>],
+pub struct RowWriteInput<'a> {
+    pub fields: &'a [FieldWriteInput<'a>],
 }
 
-/// 一个带显式 registry tag 的 v1 field 写入输入。
+/// 一个带显式 registry tag 的 field 写入输入。
 #[derive(Clone, Copy, Debug)]
-pub struct FieldWriteInputV1<'a> {
+pub struct FieldWriteInput<'a> {
     pub tag: u16,
-    pub value: FieldWriteValueV1<'a>,
+    pub value: FieldWriteValue<'a>,
 }
 
 /// 已完成完整 registry、规范值与资源限制预检的借用写入 capability。
@@ -57,12 +58,13 @@ pub struct FieldWriteInputV1<'a> {
 /// 该值绑定原始不可变输入和唯一 exact byte length，使调用方可以精确分配后编码，而不再
 /// 对同一输入执行第二次全对象预检。它不授予编译器语义或发布真实性。
 #[derive(Clone, Copy, Debug)]
-pub struct PreparedObjectV1<'a> {
-    input: ObjectWriteInputV1<'a>,
+pub struct PreparedObject<'a> {
+    input: ObjectWriteInput<'a>,
     byte_length: u64,
+    format_version: u16,
 }
 
-impl PreparedObjectV1<'_> {
+impl PreparedObject<'_> {
     /// 编码所需的唯一 exact output length。
     #[must_use]
     pub const fn byte_len(self) -> u64 {
@@ -70,9 +72,9 @@ impl PreparedObjectV1<'_> {
     }
 }
 
-/// v1 封闭 field type 的有类型写入值。
+/// 封闭 field type 的有类型写入值。
 #[derive(Clone, Copy, Debug)]
-pub enum FieldWriteValueV1<'a> {
+pub enum FieldWriteValue<'a> {
     U8(u8),
     U16(u16),
     U32(u32),
@@ -84,11 +86,11 @@ pub enum FieldWriteValueV1<'a> {
     Utf8(&'a str),
     Bytes(&'a [u8]),
     OrdinalVectorU32(&'a [u32]),
-    RecordVector(&'a [RowWriteInputV1<'a>]),
+    RecordVector(&'a [RowWriteInput<'a>]),
     I32(i32),
 }
 
-impl FieldWriteValueV1<'_> {
+impl FieldWriteValue<'_> {
     /// 返回将写入 `FieldV1.fieldType` 的封闭登记类型。
     #[must_use]
     pub const fn field_type(self) -> PortableFieldType {
@@ -119,11 +121,18 @@ struct WriteBudget {
 /// 校验完整输入并返回唯一的 exact object byte length。
 ///
 /// 本函数不分配、不写入，也不执行编译器语义或跨对象绑定验证。
-pub fn measure_object_v1(
-    input: ObjectWriteInputV1<'_>,
+pub fn measure_object(
+    input: ObjectWriteInput<'_>,
     limits: FormatLimits,
 ) -> Result<u64, FormatError> {
-    let schema = portable_object_schema(input.kind);
+    measure_object_with_schema(input, limits, portable_object_schema(input.kind))
+}
+
+fn measure_object_with_schema(
+    input: ObjectWriteInput<'_>,
+    limits: FormatLimits,
+    schema: &'static PortableObjectSchema,
+) -> Result<u64, FormatError> {
     check_exact_count(
         FormatStructure::SectionDirectory,
         input.sections.len(),
@@ -164,19 +173,37 @@ pub fn measure_object_v1(
 }
 
 /// 完成一次全对象预检，并返回可重复使用的 exact-length 编码 capability。
-pub fn prepare_object_v1<'a>(
-    input: ObjectWriteInputV1<'a>,
+pub fn prepare_object<'a>(
+    input: ObjectWriteInput<'a>,
     limits: FormatLimits,
-) -> Result<PreparedObjectV1<'a>, FormatError> {
-    let byte_length = measure_object_v1(input, limits)?;
-    Ok(PreparedObjectV1 { input, byte_length })
+) -> Result<PreparedObject<'a>, FormatError> {
+    prepare_object_with_schema(
+        input,
+        limits,
+        portable_object_schema(input.kind),
+        input.kind.format_version(),
+    )
+}
+
+fn prepare_object_with_schema<'a>(
+    input: ObjectWriteInput<'a>,
+    limits: FormatLimits,
+    schema: &'static PortableObjectSchema,
+    format_version: u16,
+) -> Result<PreparedObject<'a>, FormatError> {
+    let byte_length = measure_object_with_schema(input, limits, schema)?;
+    Ok(PreparedObject {
+        input,
+        byte_length,
+        format_version,
+    })
 }
 
 /// 把已经预检的输入精确编码到调用方提供的缓冲区。
 ///
 /// 缓冲区长度不精确时在写入前失败；成功时不重复执行 registry、规范值或资源限制预检。
-pub fn encode_prepared_object_v1(
-    prepared: PreparedObjectV1<'_>,
+pub fn encode_prepared_object(
+    prepared: PreparedObject<'_>,
     output: &mut [u8],
 ) -> Result<(), FormatError> {
     let output_length = output.len() as u64;
@@ -189,27 +216,32 @@ pub fn encode_prepared_object_v1(
     }
 
     let mut cursor = WriteCursor::new(output);
-    write_object(&mut cursor, prepared.input, prepared.byte_len());
+    write_object(
+        &mut cursor,
+        prepared.input,
+        prepared.byte_len(),
+        prepared.format_version,
+    );
     debug_assert_eq!(cursor.position(), output_length);
     Ok(())
 }
 
 /// 把完整输入精确编码到调用方提供的缓冲区。
 ///
-/// 编码器先完成与 [`measure_object_v1`] 相同的全对象预检，并在缓冲区长度不精确时直接
+/// 编码器先完成与 [`measure_object`] 相同的全对象预检，并在缓冲区长度不精确时直接
 /// 失败。任何返回的错误都发生在写入开始前，因此 `output` 保持逐字节不变。成功时整个
-/// `output` 恰好是一份无 padding、无尾字节的 v1 对象。
-pub fn encode_object_v1(
-    input: ObjectWriteInputV1<'_>,
+/// `output` 恰好是一份无 padding、无尾字节的对象。
+pub fn encode_object(
+    input: ObjectWriteInput<'_>,
     limits: FormatLimits,
     output: &mut [u8],
 ) -> Result<(), FormatError> {
-    encode_prepared_object_v1(prepare_object_v1(input, limits)?, output)
+    encode_prepared_object(prepare_object(input, limits)?, output)
 }
 
 fn measure_section(
     object_kind: PortableObjectKind,
-    section: SectionWriteInputV1<'_>,
+    section: SectionWriteInput<'_>,
     schema: &'static PortableSectionSchema,
     limits: FormatLimits,
     budget: &mut WriteBudget,
@@ -247,7 +279,7 @@ fn measure_section(
 }
 
 fn measure_table(
-    table: TableWriteInputV1<'_>,
+    table: TableWriteInput<'_>,
     schema: &'static PortableTableSchema,
     is_source_location: bool,
     limits: FormatLimits,
@@ -294,7 +326,7 @@ fn measure_table(
 }
 
 fn measure_row(
-    row: RowWriteInputV1<'_>,
+    row: RowWriteInput<'_>,
     schema: &'static PortableRowSchema,
     depth: u8,
     limits: FormatLimits,
@@ -357,7 +389,7 @@ fn measure_row(
         seen_fields |= portable_field_mask(field.tag);
         if let PortableRowShape::DiscriminatedU8 { tag, .. } = schema.shape
             && field.tag == tag
-            && let FieldWriteValueV1::U8(value) = field.value
+            && let FieldWriteValue::U8(value) = field.value
         {
             discriminant = Some(value);
         }
@@ -374,20 +406,20 @@ fn measure_row(
 }
 
 fn measure_value(
-    value: FieldWriteValueV1<'_>,
+    value: FieldWriteValue<'_>,
     schema: PortableFieldSchema,
     depth: u8,
     limits: FormatLimits,
     budget: &mut WriteBudget,
 ) -> Result<u64, FormatError> {
     let value_length = match value {
-        FieldWriteValueV1::U8(_) => 1,
-        FieldWriteValueV1::U16(_) => 2,
-        FieldWriteValueV1::U32(_) | FieldWriteValueV1::F32(_) | FieldWriteValueV1::I32(_) => 4,
-        FieldWriteValueV1::U64(_) | FieldWriteValueV1::F64(_) => 8,
-        FieldWriteValueV1::StableId128(_) => 16,
-        FieldWriteValueV1::Sha256(_) => 32,
-        FieldWriteValueV1::Utf8(value) => {
+        FieldWriteValue::U8(_) => 1,
+        FieldWriteValue::U16(_) => 2,
+        FieldWriteValue::U32(_) | FieldWriteValue::F32(_) | FieldWriteValue::I32(_) => 4,
+        FieldWriteValue::U64(_) | FieldWriteValue::F64(_) => 8,
+        FieldWriteValue::StableId128(_) => 16,
+        FieldWriteValue::Sha256(_) => 32,
+        FieldWriteValue::Utf8(value) => {
             let length = value.len() as u64;
             check_limit(
                 LimitDimension::Utf8FieldBytes,
@@ -403,8 +435,8 @@ fn measure_value(
             )?;
             length
         }
-        FieldWriteValueV1::Bytes(value) => value.len() as u64,
-        FieldWriteValueV1::OrdinalVectorU32(items) => {
+        FieldWriteValue::Bytes(value) => value.len() as u64,
+        FieldWriteValue::OrdinalVectorU32(items) => {
             let count = count_u32(items.len(), FormatStructure::OrdinalVector)?;
             check_limit(
                 LimitDimension::VectorItems,
@@ -419,7 +451,7 @@ fn measure_value(
                     })?;
             checked_add(4, items_length, FormatStructure::OrdinalVector)?
         }
-        FieldWriteValueV1::RecordVector(rows) => {
+        FieldWriteValue::RecordVector(rows) => {
             let next_depth = depth
                 .checked_add(1)
                 .ok_or(FormatError::ArithmeticOverflow {
@@ -458,16 +490,16 @@ fn measure_value(
     };
 
     match value {
-        FieldWriteValueV1::F32(value) if !canonical_f32(value) => {
+        FieldWriteValue::F32(value) if !canonical_f32(value) => {
             return Err(noncanonical_value());
         }
-        FieldWriteValueV1::F64(value) if !canonical_f64(value) => {
+        FieldWriteValue::F64(value) if !canonical_f64(value) => {
             return Err(noncanonical_value());
         }
         _ => {}
     }
 
-    if matches!(value, FieldWriteValueV1::OrdinalVectorU32(_)) {
+    if matches!(value, FieldWriteValue::OrdinalVectorU32(_)) {
         budget.total_vector_bytes =
             checked_total_vector_bytes(budget.total_vector_bytes, value_length, limits)?;
     }
@@ -607,18 +639,23 @@ fn check_limit(dimension: LimitDimension, actual: u64, limit: u64) -> Result<(),
     Ok(())
 }
 
-fn write_object(cursor: &mut WriteCursor<'_>, input: ObjectWriteInputV1<'_>, object_length: u64) {
+fn write_object(
+    cursor: &mut WriteCursor<'_>,
+    input: ObjectWriteInput<'_>,
+    object_length: u64,
+    format_version: u16,
+) {
     cursor.put(&input.kind.magic());
-    cursor.u16(input.kind.format_version());
-    cursor.u16(OBJECT_PREAMBLE_V1_BYTE_LENGTH);
+    cursor.u16(format_version);
+    cursor.u16(OBJECT_PREAMBLE_BYTE_LENGTH);
     cursor.u32(0);
     cursor.u32(input.kind.section_count());
-    cursor.u64(u64::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH));
+    cursor.u64(u64::from(OBJECT_PREAMBLE_BYTE_LENGTH));
     cursor.u64(object_length);
 
     for section in input.sections {
         cursor.u16(section.kind);
-        cursor.u16(SECTION_FORMAT_VERSION_V1);
+        cursor.u16(SECTION_FORMAT_VERSION);
         cursor.u32(0);
         cursor.u64(0);
         cursor.u64(0);
@@ -628,25 +665,25 @@ fn write_object(cursor: &mut WriteCursor<'_>, input: ObjectWriteInputV1<'_>, obj
         let section_offset = cursor.position();
         write_section(cursor, *section);
         let section_length = cursor.position() - section_offset;
-        let directory_entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
+        let directory_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
             + ordinal
-                * usize::try_from(SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH)
+                * usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH)
                     .expect("the frozen directory entry width fits usize");
         cursor.patch_u64(directory_entry + 8, section_offset);
         cursor.patch_u64(directory_entry + 16, section_length);
     }
 }
 
-fn write_section(cursor: &mut WriteCursor<'_>, section: SectionWriteInputV1<'_>) {
+fn write_section(cursor: &mut WriteCursor<'_>, section: SectionWriteInput<'_>) {
     cursor.u32(section.tables.len() as u32);
     for table in section.tables {
         write_table(cursor, *table);
     }
 }
 
-fn write_table(cursor: &mut WriteCursor<'_>, table: TableWriteInputV1<'_>) {
+fn write_table(cursor: &mut WriteCursor<'_>, table: TableWriteInput<'_>) {
     cursor.u16(table.kind);
-    cursor.u16(TABLE_SCHEMA_VERSION_V1);
+    cursor.u16(TABLE_SCHEMA_VERSION);
     cursor.u32(table.rows.len() as u32);
     let rows_length_offset = cursor.reserve_u64();
     let rows_offset = cursor.position();
@@ -656,7 +693,7 @@ fn write_table(cursor: &mut WriteCursor<'_>, table: TableWriteInputV1<'_>) {
     cursor.patch_u64(rows_length_offset, cursor.position() - rows_offset);
 }
 
-fn write_row(cursor: &mut WriteCursor<'_>, row: RowWriteInputV1<'_>) {
+fn write_row(cursor: &mut WriteCursor<'_>, row: RowWriteInput<'_>) {
     let row_offset = cursor.position();
     let row_length_offset = cursor.reserve_u64();
     cursor.u32(row.fields.len() as u32);
@@ -673,31 +710,31 @@ fn write_row(cursor: &mut WriteCursor<'_>, row: RowWriteInputV1<'_>) {
     cursor.patch_u64(row_length_offset, cursor.position() - row_offset);
 }
 
-fn write_value(cursor: &mut WriteCursor<'_>, value: FieldWriteValueV1<'_>) {
+fn write_value(cursor: &mut WriteCursor<'_>, value: FieldWriteValue<'_>) {
     match value {
-        FieldWriteValueV1::U8(value) => cursor.u8(value),
-        FieldWriteValueV1::U16(value) => cursor.u16(value),
-        FieldWriteValueV1::U32(value) => cursor.u32(value),
-        FieldWriteValueV1::U64(value) => cursor.u64(value),
-        FieldWriteValueV1::F32(value) => cursor.u32(value.to_bits()),
-        FieldWriteValueV1::F64(value) => cursor.u64(value.to_bits()),
-        FieldWriteValueV1::StableId128(value) => cursor.put(&value),
-        FieldWriteValueV1::Sha256(value) => cursor.put(&value),
-        FieldWriteValueV1::Utf8(value) => cursor.put(value.as_bytes()),
-        FieldWriteValueV1::Bytes(value) => cursor.put(value),
-        FieldWriteValueV1::OrdinalVectorU32(items) => {
+        FieldWriteValue::U8(value) => cursor.u8(value),
+        FieldWriteValue::U16(value) => cursor.u16(value),
+        FieldWriteValue::U32(value) => cursor.u32(value),
+        FieldWriteValue::U64(value) => cursor.u64(value),
+        FieldWriteValue::F32(value) => cursor.u32(value.to_bits()),
+        FieldWriteValue::F64(value) => cursor.u64(value.to_bits()),
+        FieldWriteValue::StableId128(value) => cursor.put(&value),
+        FieldWriteValue::Sha256(value) => cursor.put(&value),
+        FieldWriteValue::Utf8(value) => cursor.put(value.as_bytes()),
+        FieldWriteValue::Bytes(value) => cursor.put(value),
+        FieldWriteValue::OrdinalVectorU32(items) => {
             cursor.u32(items.len() as u32);
             for item in items {
                 cursor.u32(*item);
             }
         }
-        FieldWriteValueV1::RecordVector(rows) => {
+        FieldWriteValue::RecordVector(rows) => {
             cursor.u32(rows.len() as u32);
             for row in rows {
                 write_row(cursor, *row);
             }
         }
-        FieldWriteValueV1::I32(value) => cursor.put(&value.to_le_bytes()),
+        FieldWriteValue::I32(value) => cursor.put(&value.to_le_bytes()),
     }
 }
 
@@ -763,7 +800,7 @@ mod tests {
     use super::*;
     use crate::{
         FormatErrorClass, FormatLimitConfig, RegistryCheckedFieldValue,
-        preflight_object_registry_v1, preflight_object_values_v1,
+        preflight_object_registry, preflight_object_values,
     };
 
     fn leak<T>(values: Vec<T>) -> &'static [T] {
@@ -796,53 +833,53 @@ mod tests {
         field: &PortableFieldSchema,
         discriminant: Option<(u16, u8)>,
         populate_records: bool,
-    ) -> FieldWriteValueV1<'static> {
+    ) -> FieldWriteValue<'static> {
         match field.field_type {
-            PortableFieldType::U8 => FieldWriteValueV1::U8(
+            PortableFieldType::U8 => FieldWriteValue::U8(
                 discriminant
                     .filter(|(tag, _)| *tag == field.tag)
                     .map_or(0, |(_, value)| value),
             ),
-            PortableFieldType::U16 => FieldWriteValueV1::U16(0),
-            PortableFieldType::U32 => FieldWriteValueV1::U32(0),
-            PortableFieldType::U64 => FieldWriteValueV1::U64(0),
-            PortableFieldType::F32 => FieldWriteValueV1::F32(0.0),
-            PortableFieldType::F64 => FieldWriteValueV1::F64(0.0),
-            PortableFieldType::StableId128 => FieldWriteValueV1::StableId128([0; 16]),
-            PortableFieldType::Sha256 => FieldWriteValueV1::Sha256([0; 32]),
-            PortableFieldType::Utf8 => FieldWriteValueV1::Utf8(""),
-            PortableFieldType::Bytes => FieldWriteValueV1::Bytes(&[]),
-            PortableFieldType::OrdinalVectorU32 => FieldWriteValueV1::OrdinalVectorU32(&[]),
+            PortableFieldType::U16 => FieldWriteValue::U16(0),
+            PortableFieldType::U32 => FieldWriteValue::U32(0),
+            PortableFieldType::U64 => FieldWriteValue::U64(0),
+            PortableFieldType::F32 => FieldWriteValue::F32(0.0),
+            PortableFieldType::F64 => FieldWriteValue::F64(0.0),
+            PortableFieldType::StableId128 => FieldWriteValue::StableId128([0; 16]),
+            PortableFieldType::Sha256 => FieldWriteValue::Sha256([0; 32]),
+            PortableFieldType::Utf8 => FieldWriteValue::Utf8(""),
+            PortableFieldType::Bytes => FieldWriteValue::Bytes(&[]),
+            PortableFieldType::OrdinalVectorU32 => FieldWriteValue::OrdinalVectorU32(&[]),
             PortableFieldType::RecordVector => {
                 if populate_records {
                     let nested = leak(vec![default_row(
                         field.nested_row.expect("registry supplies nested row"),
                         false,
                     )]);
-                    FieldWriteValueV1::RecordVector(nested)
+                    FieldWriteValue::RecordVector(nested)
                 } else {
-                    FieldWriteValueV1::RecordVector(&[])
+                    FieldWriteValue::RecordVector(&[])
                 }
             }
-            PortableFieldType::I32 => FieldWriteValueV1::I32(0),
+            PortableFieldType::I32 => FieldWriteValue::I32(0),
         }
     }
 
     fn default_row(
         schema: &'static PortableRowSchema,
         populate_records: bool,
-    ) -> RowWriteInputV1<'static> {
+    ) -> RowWriteInput<'static> {
         let (selected, discriminant) = selected_row_fields(schema);
         let fields = schema
             .fields
             .iter()
             .filter(|field| selected & portable_field_mask(field.tag) != 0)
-            .map(|field| FieldWriteInputV1 {
+            .map(|field| FieldWriteInput {
                 tag: field.tag,
                 value: default_value(field, discriminant, populate_records),
             })
             .collect();
-        RowWriteInputV1 {
+        RowWriteInput {
             fields: leak(fields),
         }
     }
@@ -850,7 +887,7 @@ mod tests {
     fn fixture_object(
         kind: PortableObjectKind,
         populate_first_record_vector: bool,
-    ) -> ObjectWriteInputV1<'static> {
+    ) -> ObjectWriteInput<'static> {
         let schema = portable_object_schema(kind);
         let mut record_populated = false;
         let sections = schema
@@ -875,26 +912,26 @@ mod tests {
                         } else {
                             &[]
                         };
-                        TableWriteInputV1 {
+                        TableWriteInput {
                             kind: table.kind,
                             rows,
                         }
                     })
                     .collect();
-                SectionWriteInputV1 {
+                SectionWriteInput {
                     kind: section.kind,
                     tables: leak(tables),
                 }
             })
             .collect();
         assert!(!populate_first_record_vector || record_populated);
-        ObjectWriteInputV1 {
+        ObjectWriteInput {
             kind,
             sections: leak(sections),
         }
     }
 
-    fn lfsd_with_entity_add_payload(payload: &'static [u8]) -> ObjectWriteInputV1<'static> {
+    fn lfsd_with_entity_add_payload(payload: &'static [u8]) -> ObjectWriteInput<'static> {
         let input = fixture_object(PortableObjectKind::SemanticDiff, false);
         let mut sections = input.sections.to_vec();
 
@@ -903,10 +940,10 @@ mod tests {
         let mut binding_fields = binding_rows[0].fields.to_vec();
         for field in &mut binding_fields {
             field.value = match field.tag {
-                6 => FieldWriteValueV1::U16(1),
-                7 => FieldWriteValueV1::Sha256([1; 32]),
-                8 => FieldWriteValueV1::Sha256([2; 32]),
-                9 => FieldWriteValueV1::U64(1),
+                6 => FieldWriteValue::U16(1),
+                7 => FieldWriteValue::Sha256([1; 32]),
+                8 => FieldWriteValue::Sha256([2; 32]),
+                9 => FieldWriteValue::U64(1),
                 _ => field.value,
             };
         }
@@ -919,8 +956,8 @@ mod tests {
         let mut entity_fields = entity_row.fields.to_vec();
         for field in &mut entity_fields {
             field.value = match field.tag {
-                2 => FieldWriteValueV1::U16(1),
-                10 => FieldWriteValueV1::Bytes(payload),
+                2 => FieldWriteValue::U16(1),
+                10 => FieldWriteValue::Bytes(payload),
                 _ => field.value,
             };
         }
@@ -933,16 +970,16 @@ mod tests {
         spatial_tables[0].rows = leak(vec![default_row(schema.sections[5].tables[0].row, false)]);
         sections[5].tables = leak(spatial_tables);
 
-        ObjectWriteInputV1 {
+        ObjectWriteInput {
             kind: input.kind,
             sections: leak(sections),
         }
     }
 
     fn replace_first_value(
-        input: ObjectWriteInputV1<'static>,
-        value: FieldWriteValueV1<'static>,
-    ) -> ObjectWriteInputV1<'static> {
+        input: ObjectWriteInput<'static>,
+        value: FieldWriteValue<'static>,
+    ) -> ObjectWriteInput<'static> {
         let mut sections = input.sections.to_vec();
         let mut tables = sections[0].tables.to_vec();
         let mut rows = tables[0].rows.to_vec();
@@ -951,20 +988,20 @@ mod tests {
         rows[0].fields = leak(fields);
         tables[0].rows = leak(rows);
         sections[0].tables = leak(tables);
-        ObjectWriteInputV1 {
+        ObjectWriteInput {
             kind: input.kind,
             sections: leak(sections),
         }
     }
 
     fn replace_top_level_value(
-        input: ObjectWriteInputV1<'static>,
+        input: ObjectWriteInput<'static>,
         section_ordinal: usize,
         table_ordinal: usize,
         row_ordinal: usize,
         field_ordinal: usize,
-        value: FieldWriteValueV1<'static>,
-    ) -> ObjectWriteInputV1<'static> {
+        value: FieldWriteValue<'static>,
+    ) -> ObjectWriteInput<'static> {
         let mut sections = input.sections.to_vec();
         let mut tables = sections[section_ordinal].tables.to_vec();
         let mut rows = tables[table_ordinal].rows.to_vec();
@@ -973,21 +1010,21 @@ mod tests {
         rows[row_ordinal].fields = leak(fields);
         tables[table_ordinal].rows = leak(rows);
         sections[section_ordinal].tables = leak(tables);
-        ObjectWriteInputV1 {
+        ObjectWriteInput {
             kind: input.kind,
             sections: leak(sections),
         }
     }
 
     fn assert_limit_failure_is_atomic(
-        input: ObjectWriteInputV1<'static>,
+        input: ObjectWriteInput<'static>,
         config: FormatLimitConfig,
         dimension: LimitDimension,
     ) {
-        let length = measure_object_v1(input, FormatLimits::V1_HARD).unwrap();
+        let length = measure_object(input, FormatLimits::HARD).unwrap();
         let mut output = vec![0x6d; usize::try_from(length).unwrap()];
         let before = output.clone();
-        let error = encode_object_v1(input, FormatLimits::try_new(config).unwrap(), &mut output)
+        let error = encode_object(input, FormatLimits::try_new(config).unwrap(), &mut output)
             .unwrap_err();
         assert_eq!(error.class(), FormatErrorClass::LimitExceeded);
         assert!(matches!(
@@ -1001,7 +1038,7 @@ mod tests {
     }
 
     fn assert_value_bytes(
-        value: FieldWriteValueV1<'static>,
+        value: FieldWriteValue<'static>,
         schema: PortableFieldSchema,
         expected: &[u8],
     ) {
@@ -1009,7 +1046,7 @@ mod tests {
             value,
             schema,
             0,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
             &mut WriteBudget::default(),
         )
         .unwrap();
@@ -1025,9 +1062,9 @@ mod tests {
     fn every_object_kind_encodes_an_exact_registry_checked_object() {
         for kind in PortableObjectKind::ALL {
             let input = fixture_object(kind, false);
-            let length = measure_object_v1(input, FormatLimits::V1_HARD).unwrap();
+            let length = measure_object(input, FormatLimits::HARD).unwrap();
             let mut output = vec![0xa5; usize::try_from(length).unwrap()];
-            encode_object_v1(input, FormatLimits::V1_HARD, &mut output).unwrap();
+            encode_object(input, FormatLimits::HARD, &mut output).unwrap();
 
             assert_eq!(&output[..4], &kind.magic());
             assert_eq!(
@@ -1035,7 +1072,7 @@ mod tests {
                 length
             );
             assert_eq!(output.len() as u64, length);
-            let view = preflight_object_registry_v1(&output, kind, FormatLimits::V1_HARD).unwrap();
+            let view = preflight_object_registry(&output, kind, FormatLimits::HARD).unwrap();
             assert_eq!(view.kind(), kind);
         }
     }
@@ -1043,25 +1080,25 @@ mod tests {
     #[test]
     fn prepared_object_reuses_one_preflight_and_preserves_atomic_length_failure() {
         let input = fixture_object(PortableObjectKind::CanonicalArtifact, true);
-        let prepared = prepare_object_v1(input, FormatLimits::V1_HARD).unwrap();
+        let prepared = prepare_object(input, FormatLimits::HARD).unwrap();
         assert_eq!(
             prepared.byte_len(),
-            measure_object_v1(input, FormatLimits::V1_HARD).unwrap()
+            measure_object(input, FormatLimits::HARD).unwrap()
         );
 
         let mut output = vec![0; usize::try_from(prepared.byte_len()).unwrap()];
-        encode_prepared_object_v1(prepared, &mut output).unwrap();
-        preflight_object_registry_v1(
+        encode_prepared_object(prepared, &mut output).unwrap();
+        preflight_object_registry(
             &output,
             PortableObjectKind::CanonicalArtifact,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap();
 
         let mut short = vec![0x5a; output.len() - 1];
         let before = short.clone();
         assert_eq!(
-            encode_prepared_object_v1(prepared, &mut short)
+            encode_prepared_object(prepared, &mut short)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
@@ -1072,10 +1109,10 @@ mod tests {
     #[test]
     fn lfcp_minimal_structural_input_has_frozen_exact_header_and_first_section_bytes() {
         let input = fixture_object(PortableObjectKind::CanonicalPublicationDescriptor, false);
-        let length = measure_object_v1(input, FormatLimits::V1_HARD).unwrap();
+        let length = measure_object(input, FormatLimits::HARD).unwrap();
         assert_eq!(length, 545);
         let mut output = vec![0; usize::try_from(length).unwrap()];
-        encode_object_v1(input, FormatLimits::V1_HARD, &mut output).unwrap();
+        encode_object(input, FormatLimits::HARD, &mut output).unwrap();
 
         let mut expected_header = Vec::new();
         expected_header.extend_from_slice(b"LFCP");
@@ -1124,27 +1161,27 @@ mod tests {
     #[test]
     fn value_checked_lfsd_reaches_the_exact_object_byte_limit() {
         let with_empty_payload = lfsd_with_entity_add_payload(&[]);
-        let base_length = measure_object_v1(with_empty_payload, FormatLimits::V1_HARD).unwrap();
+        let base_length = measure_object(with_empty_payload, FormatLimits::HARD).unwrap();
         let payload_length = FORMAT_HARD_MAX_OBJECT_BYTES - base_length;
         let payload = leak(vec![0; usize::try_from(payload_length).unwrap()]);
         let exact = lfsd_with_entity_add_payload(payload);
         assert_eq!(
-            measure_object_v1(exact, FormatLimits::V1_HARD).unwrap(),
+            measure_object(exact, FormatLimits::HARD).unwrap(),
             FORMAT_HARD_MAX_OBJECT_BYTES
         );
         let mut bytes = vec![0; usize::try_from(FORMAT_HARD_MAX_OBJECT_BYTES).unwrap()];
-        encode_object_v1(exact, FormatLimits::V1_HARD, &mut bytes).unwrap();
+        encode_object(exact, FormatLimits::HARD, &mut bytes).unwrap();
         let framing = crate::preflight_object_framing(
             &bytes,
             PortableObjectKind::SemanticDiff,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap();
         assert_eq!(framing.section(1).unwrap().bytes().len(), 16_776_626);
-        preflight_object_values_v1(
+        preflight_object_values(
             &bytes,
             PortableObjectKind::SemanticDiff,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap();
     }
@@ -1152,13 +1189,13 @@ mod tests {
     #[test]
     fn validation_and_output_length_failures_leave_the_destination_unchanged() {
         let valid = fixture_object(PortableObjectKind::CanonicalPublicationDescriptor, false);
-        let length = measure_object_v1(valid, FormatLimits::V1_HARD).unwrap();
+        let length = measure_object(valid, FormatLimits::HARD).unwrap();
         let mut output = vec![0xa5; usize::try_from(length).unwrap()];
         let before = output.clone();
 
-        let invalid = replace_first_value(valid, FieldWriteValueV1::U32(0));
+        let invalid = replace_first_value(valid, FieldWriteValue::U32(0));
         assert_eq!(
-            encode_object_v1(invalid, FormatLimits::V1_HARD, &mut output)
+            encode_object(invalid, FormatLimits::HARD, &mut output)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::BindingMismatch
@@ -1168,7 +1205,7 @@ mod tests {
         let mut short = vec![0x5a; usize::try_from(length - 1).unwrap()];
         let short_before = short.clone();
         assert_eq!(
-            encode_object_v1(valid, FormatLimits::V1_HARD, &mut short)
+            encode_object(valid, FormatLimits::HARD, &mut short)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
@@ -1179,13 +1216,13 @@ mod tests {
     #[test]
     fn nested_records_use_exact_counts_and_writer_limits_before_output() {
         let input = fixture_object(PortableObjectKind::CanonicalArtifact, true);
-        let length = measure_object_v1(input, FormatLimits::V1_HARD).unwrap();
+        let length = measure_object(input, FormatLimits::HARD).unwrap();
         let mut output = vec![0; usize::try_from(length).unwrap()];
-        encode_object_v1(input, FormatLimits::V1_HARD, &mut output).unwrap();
-        let view = preflight_object_registry_v1(
+        encode_object(input, FormatLimits::HARD, &mut output).unwrap();
+        let view = preflight_object_registry(
             &output,
             PortableObjectKind::CanonicalArtifact,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap();
         let mut found_nested_row = false;
@@ -1207,13 +1244,13 @@ mod tests {
         }
         assert!(found_nested_row);
 
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_vector_items = 0;
         let limits = FormatLimits::try_new(config).unwrap();
         let mut untouched = vec![0x3c; usize::try_from(length).unwrap()];
         let before = untouched.clone();
         assert_eq!(
-            encode_object_v1(input, limits, &mut untouched)
+            encode_object(input, limits, &mut untouched)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LimitExceeded
@@ -1224,44 +1261,44 @@ mod tests {
     #[test]
     fn writer_enforces_each_applicable_caller_budget_before_output() {
         let lfcp = fixture_object(PortableObjectKind::CanonicalPublicationDescriptor, false);
-        let lfcp_length = measure_object_v1(lfcp, FormatLimits::V1_HARD).unwrap();
+        let lfcp_length = measure_object(lfcp, FormatLimits::HARD).unwrap();
 
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_object_bytes = lfcp_length - 1;
         assert_limit_failure_is_atomic(lfcp, config, LimitDimension::ObjectBytes);
 
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_section_or_table_bytes = 100;
         assert_limit_failure_is_atomic(lfcp, config, LimitDimension::SectionOrTableBytes);
 
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_rows_per_table = 0;
         assert_limit_failure_is_atomic(lfcp, config, LimitDimension::RowsPerTable);
 
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_fields_per_row = 0;
         assert_limit_failure_is_atomic(lfcp, config, LimitDimension::FieldsPerRow);
 
         let lfcp_with_text =
-            replace_top_level_value(lfcp, 1, 0, 0, 3, FieldWriteValueV1::Utf8("x"));
-        let mut config = FormatLimitConfig::V1_HARD;
+            replace_top_level_value(lfcp, 1, 0, 0, 3, FieldWriteValue::Utf8("x"));
+        let mut config = FormatLimitConfig::HARD;
         config.max_utf8_field_bytes = 0;
         assert_limit_failure_is_atomic(lfcp_with_text, config, LimitDimension::Utf8FieldBytes);
 
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_total_utf8_bytes = 0;
         assert_limit_failure_is_atomic(lfcp_with_text, config, LimitDimension::TotalUtf8Bytes);
 
         let lfca_with_record = fixture_object(PortableObjectKind::CanonicalArtifact, true);
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_vector_items = 0;
         assert_limit_failure_is_atomic(lfca_with_record, config, LimitDimension::VectorItems);
 
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_total_vector_bytes = 0;
         assert_limit_failure_is_atomic(lfca_with_record, config, LimitDimension::TotalVectorBytes);
 
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_record_vector_depth = 0;
         assert_limit_failure_is_atomic(lfca_with_record, config, LimitDimension::RecordVectorDepth);
     }
@@ -1278,10 +1315,10 @@ mod tests {
         for value in [-0.0_f32, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             assert_eq!(
                 measure_value(
-                    FieldWriteValueV1::F32(value),
+                    FieldWriteValue::F32(value),
                     float_schema,
                     0,
-                    FormatLimits::V1_HARD,
+                    FormatLimits::HARD,
                     &mut WriteBudget::default(),
                 )
                 .unwrap_err()
@@ -1297,13 +1334,13 @@ mod tests {
             presence: PortableFieldPresence::Required,
             nested_row: None,
         };
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_total_utf8_bytes = 3;
         let limits = FormatLimits::try_new(config).unwrap();
         let mut budget = WriteBudget::default();
         assert_eq!(
             measure_value(
-                FieldWriteValueV1::Utf8("ab"),
+                FieldWriteValue::Utf8("ab"),
                 utf8_schema,
                 0,
                 limits,
@@ -1313,7 +1350,7 @@ mod tests {
         );
         assert_eq!(
             measure_value(
-                FieldWriteValueV1::Utf8("cd"),
+                FieldWriteValue::Utf8("cd"),
                 utf8_schema,
                 0,
                 limits,
@@ -1339,23 +1376,23 @@ mod tests {
             presence: PortableFieldPresence::Required,
             nested_row: Some(&NESTED_ROW),
         };
-        let invalid_fields = [FieldWriteInputV1 {
+        let invalid_fields = [FieldWriteInput {
             tag: 1,
-            value: FieldWriteValueV1::U8(0),
+            value: FieldWriteValue::U8(0),
         }];
         let rows = [
-            RowWriteInputV1 { fields: &[] },
-            RowWriteInputV1 {
+            RowWriteInput { fields: &[] },
+            RowWriteInput {
                 fields: &invalid_fields,
             },
         ];
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_total_vector_bytes = 4;
         let limits = FormatLimits::try_new(config).unwrap();
 
         assert_eq!(
             measure_value(
-                FieldWriteValueV1::RecordVector(&rows),
+                FieldWriteValue::RecordVector(&rows),
                 schema,
                 0,
                 limits,
@@ -1391,66 +1428,66 @@ mod tests {
             nested_row,
         };
         assert_value_bytes(
-            FieldWriteValueV1::U8(0x12),
+            FieldWriteValue::U8(0x12),
             schema(PortableFieldType::U8, None),
             &[0x12],
         );
         assert_value_bytes(
-            FieldWriteValueV1::U16(0x1234),
+            FieldWriteValue::U16(0x1234),
             schema(PortableFieldType::U16, None),
             &[0x34, 0x12],
         );
         assert_value_bytes(
-            FieldWriteValueV1::U32(0x1234_5678),
+            FieldWriteValue::U32(0x1234_5678),
             schema(PortableFieldType::U32, None),
             &[0x78, 0x56, 0x34, 0x12],
         );
         assert_value_bytes(
-            FieldWriteValueV1::U64(0x0123_4567_89ab_cdef),
+            FieldWriteValue::U64(0x0123_4567_89ab_cdef),
             schema(PortableFieldType::U64, None),
             &0x0123_4567_89ab_cdef_u64.to_le_bytes(),
         );
         assert_value_bytes(
-            FieldWriteValueV1::F32(1.5),
+            FieldWriteValue::F32(1.5),
             schema(PortableFieldType::F32, None),
             &1.5_f32.to_bits().to_le_bytes(),
         );
         assert_value_bytes(
-            FieldWriteValueV1::F64(-1.5),
+            FieldWriteValue::F64(-1.5),
             schema(PortableFieldType::F64, None),
             &(-1.5_f64).to_bits().to_le_bytes(),
         );
         assert_value_bytes(
-            FieldWriteValueV1::StableId128([0x5a; 16]),
+            FieldWriteValue::StableId128([0x5a; 16]),
             schema(PortableFieldType::StableId128, None),
             &[0x5a; 16],
         );
         assert_value_bytes(
-            FieldWriteValueV1::Sha256([0xa5; 32]),
+            FieldWriteValue::Sha256([0xa5; 32]),
             schema(PortableFieldType::Sha256, None),
             &[0xa5; 32],
         );
         assert_value_bytes(
-            FieldWriteValueV1::Utf8("路"),
+            FieldWriteValue::Utf8("路"),
             schema(PortableFieldType::Utf8, None),
             "路".as_bytes(),
         );
         assert_value_bytes(
-            FieldWriteValueV1::Bytes(&[0xde, 0xad]),
+            FieldWriteValue::Bytes(&[0xde, 0xad]),
             schema(PortableFieldType::Bytes, None),
             &[0xde, 0xad],
         );
         assert_value_bytes(
-            FieldWriteValueV1::OrdinalVectorU32(&[1, 0x1234_5678]),
+            FieldWriteValue::OrdinalVectorU32(&[1, 0x1234_5678]),
             schema(PortableFieldType::OrdinalVectorU32, None),
             &[2, 0, 0, 0, 1, 0, 0, 0, 0x78, 0x56, 0x34, 0x12],
         );
 
-        let nested_fields = leak(vec![FieldWriteInputV1 {
+        let nested_fields = leak(vec![FieldWriteInput {
             tag: 1,
-            value: FieldWriteValueV1::U32(0x1234_5678),
+            value: FieldWriteValue::U32(0x1234_5678),
         }]);
-        let nested_rows = leak(vec![RowWriteInputV1 {
+        let nested_rows = leak(vec![RowWriteInput {
             fields: nested_fields,
         }]);
         let mut nested_expected = Vec::new();
@@ -1464,12 +1501,12 @@ mod tests {
         nested_expected.extend_from_slice(&4_u64.to_le_bytes());
         nested_expected.extend_from_slice(&0x1234_5678_u32.to_le_bytes());
         assert_value_bytes(
-            FieldWriteValueV1::RecordVector(nested_rows),
+            FieldWriteValue::RecordVector(nested_rows),
             schema(PortableFieldType::RecordVector, Some(&NESTED_ROW)),
             &nested_expected,
         );
         assert_value_bytes(
-            FieldWriteValueV1::I32(-2),
+            FieldWriteValue::I32(-2),
             schema(PortableFieldType::I32, None),
             &(-2_i32).to_le_bytes(),
         );

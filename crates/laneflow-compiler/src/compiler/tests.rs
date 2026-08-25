@@ -1097,8 +1097,8 @@ fn compiler_atomically_returns_lir_source_map_and_success_diagnostics() {
     let output = compiler.compile(input).unwrap();
     let candidate = crate::emit_portable_candidate(
         &output,
-        &crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap(),
-        laneflow_format::FormatLimits::V1_HARD,
+        &crate::PortableEmissionProvenance::try_new("laneflow-test-build").unwrap(),
+        laneflow_format::FormatLimits::HARD,
         crate::PortableDiffBase::Genesis,
     )
     .unwrap();
@@ -1107,38 +1107,38 @@ fn compiler_atomically_returns_lir_source_map_and_success_diagnostics() {
     assert_eq!(&candidate.canonical_artifact().bytes()[..4], b"LFCA");
     assert_eq!(&candidate.source_map().bytes()[..4], b"LFSM");
     assert_eq!(&candidate.semantic_diff().bytes()[..4], b"LFSD");
-    let wrong_base = laneflow_format::preflight_object_values_v1(
+    let wrong_base = laneflow_format::preflight_object_values(
         candidate.source_map().bytes(),
         laneflow_static_contract::PortableObjectKind::SourceMap,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
     )
     .unwrap();
     assert_eq!(
         crate::emit_portable_candidate(
             &output,
-            &crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap(),
-            laneflow_format::FormatLimits::V1_HARD,
+            &crate::PortableEmissionProvenance::try_new("laneflow-test-build").unwrap(),
+            laneflow_format::FormatLimits::HARD,
             crate::PortableDiffBase::Artifact(wrong_base),
         ),
         Err(crate::PortableEmissionError::InvalidDiffBaseKind)
     );
-    let base = laneflow_format::preflight_object_values_v1(
+    let base = laneflow_format::preflight_object_values(
         candidate.canonical_artifact().bytes(),
         laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
     )
     .unwrap();
     let same_artifact_diff = crate::emit_portable_candidate(
         &output,
-        &crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap(),
-        laneflow_format::FormatLimits::V1_HARD,
+        &crate::PortableEmissionProvenance::try_new("laneflow-test-build").unwrap(),
+        laneflow_format::FormatLimits::HARD,
         crate::PortableDiffBase::Artifact(base),
     )
     .unwrap();
-    let diff = laneflow_format::preflight_object_values_v1(
+    let diff = laneflow_format::preflight_object_values(
         same_artifact_diff.semantic_diff().bytes(),
         laneflow_static_contract::PortableObjectKind::SemanticDiff,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
     )
     .unwrap()
     .registry_view();
@@ -1252,18 +1252,18 @@ fn portable_artifact_diff_classifies_retained_fields_and_relations() {
             module("city/base", "base.document", &[], &[("edge-b", 20.0, &[])]),
         ]))
         .unwrap();
-    let provenance = crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap();
+    let provenance = crate::PortableEmissionProvenance::try_new("laneflow-test-build").unwrap();
     let base_candidate = crate::emit_portable_candidate(
         &base_output,
         &provenance,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
         crate::PortableDiffBase::Genesis,
     )
     .unwrap();
-    let base = laneflow_format::preflight_object_values_v1(
+    let base = laneflow_format::preflight_object_values(
         base_candidate.canonical_artifact().bytes(),
         laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
     )
     .unwrap();
 
@@ -1282,14 +1282,14 @@ fn portable_artifact_diff_classifies_retained_fields_and_relations() {
     let candidate = crate::emit_portable_candidate(
         &target_output,
         &provenance,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
         crate::PortableDiffBase::Artifact(base),
     )
     .unwrap();
-    let diff = laneflow_format::preflight_object_values_v1(
+    let diff = laneflow_format::preflight_object_values(
         candidate.semantic_diff().bytes(),
         laneflow_static_contract::PortableObjectKind::SemanticDiff,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
     )
     .unwrap()
     .registry_view();
@@ -1328,11 +1328,11 @@ fn portable_artifact_diff_rejects_cross_revision_stable_id_collisions() {
             &[("edge-a", 10.0, &[])],
         )]))
         .unwrap();
-    let provenance = crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap();
+    let provenance = crate::PortableEmissionProvenance::try_new("laneflow-test-build").unwrap();
     let candidate = crate::emit_portable_candidate(
         &output,
         &provenance,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
         crate::PortableDiffBase::Genesis,
     )
     .unwrap();
@@ -1342,10 +1342,10 @@ fn portable_artifact_diff_rejects_cross_revision_stable_id_collisions() {
         .position(|window| window == b"edge-a")
         .unwrap();
     colliding_base[key_offset + b"edge-".len()] = b'z';
-    let base = laneflow_format::preflight_object_values_v1(
+    let base = laneflow_format::preflight_object_values(
         &colliding_base,
         laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
     )
     .unwrap();
 
@@ -1353,7 +1353,7 @@ fn portable_artifact_diff_rejects_cross_revision_stable_id_collisions() {
         crate::emit_portable_candidate(
             &output,
             &provenance,
-            laneflow_format::FormatLimits::V1_HARD,
+            laneflow_format::FormatLimits::HARD,
             crate::PortableDiffBase::Artifact(base),
         ),
         Err(crate::PortableEmissionError::CrossRevisionStableIdCollision)
@@ -1362,20 +1362,20 @@ fn portable_artifact_diff_rejects_cross_revision_stable_id_collisions() {
 
 #[test]
 fn portable_emitter_closes_every_current_relation_family_and_spatial_projection() {
-    let provenance = crate::PortableEmissionProvenanceV1::try_new("laneflow-test-build").unwrap();
+    let provenance = crate::PortableEmissionProvenance::try_new("laneflow-test-build").unwrap();
     let mut emitted_roles = std::collections::BTreeSet::new();
     let mut emit = |output: &CompilationOutput| {
         let candidate = crate::emit_portable_candidate(
             output,
             &provenance,
-            laneflow_format::FormatLimits::V1_HARD,
+            laneflow_format::FormatLimits::HARD,
             crate::PortableDiffBase::Genesis,
         )
         .unwrap();
-        let source_map = laneflow_format::preflight_object_values_v1(
+        let source_map = laneflow_format::preflight_object_values(
             candidate.source_map().bytes(),
             laneflow_static_contract::PortableObjectKind::SourceMap,
-            laneflow_format::FormatLimits::V1_HARD,
+            laneflow_format::FormatLimits::HARD,
         )
         .unwrap()
         .registry_view();

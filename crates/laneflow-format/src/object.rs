@@ -1,15 +1,15 @@
 //! 完整对象的附录 A registry 结构预检。
 
 use laneflow_static_contract::{
-    PortableFieldSchema, PortableFieldType, PortableObjectKind, PortableRowSchema,
-    PortableSectionSchema, PortableTableSchema, Sha256Digest, StableId128, portable_object_schema,
+    PortableFieldSchema, PortableFieldType, PortableObjectKind, PortableObjectSchema,
+    PortableRowSchema, PortableSectionSchema, PortableTableSchema, Sha256Digest, StableId128,
+    portable_object_schema,
 };
 
 use crate::{
     FormatError, FormatLimits, FormatStructure, LimitDimension, ObjectFramingView,
     SectionFramingView,
-    framing::preflight_object_framing,
-    table::{PreflightBudget, preflight_table_with_registry_v1},
+    table::{PreflightBudget, preflight_table_with_registry},
     wire::{checked_slice, read_u8, read_u16, read_u32, read_u64},
 };
 
@@ -27,6 +27,8 @@ const FIELD_HEADER_BYTES: u64 = 12;
 pub struct RegistryCheckedObjectView<'a> {
     framing: ObjectFramingView<'a>,
     limits: FormatLimits,
+    schema: &'static PortableObjectSchema,
+    contract_format: u16,
 }
 
 impl<'a> RegistryCheckedObjectView<'a> {
@@ -44,6 +46,14 @@ impl<'a> RegistryCheckedObjectView<'a> {
 
     pub(crate) const fn limits(self) -> FormatLimits {
         self.limits
+    }
+
+    pub(crate) const fn schema(self) -> &'static PortableObjectSchema {
+        self.schema
+    }
+
+    pub(crate) const fn contract_format(self) -> u16 {
+        self.contract_format
     }
 
     /// 附录 A 冻结的精确 section 数量。
@@ -64,9 +74,7 @@ impl<'a> RegistryCheckedObjectView<'a> {
     /// 取得一个已经完成节内 registry 结构预检的 section。
     #[must_use]
     pub fn section(self, ordinal: u32) -> Option<RegistryCheckedSectionView<'a>> {
-        let schema = portable_object_schema(self.kind())
-            .sections
-            .get(usize::try_from(ordinal).ok()?)?;
+        let schema = self.schema.sections.get(usize::try_from(ordinal).ok()?)?;
         let framing = self.framing.section(ordinal)?;
         let table_count = read_u32(framing.bytes(), 0, FormatStructure::Section).ok()?;
         Some(RegistryCheckedSectionView {
@@ -721,14 +729,36 @@ fn read_array_value<const N: usize>(value: &[u8]) -> Result<[u8; N], FormatError
     })
 }
 
-/// 对完整 v1 对象执行前导、目录与附录 A 静态 registry 的 fail-closed 结构预检。
-pub fn preflight_object_registry_v1(
+/// 对完整对象执行前导、目录与静态 registry 的 fail-closed 结构预检。
+pub fn preflight_object_registry(
     bytes: &[u8],
     expected_kind: PortableObjectKind,
     limits: FormatLimits,
 ) -> Result<RegistryCheckedObjectView<'_>, FormatError> {
-    let framing = preflight_object_framing(bytes, expected_kind, limits)?;
-    let schema = portable_object_schema(expected_kind);
+    preflight_object_registry_at(
+        bytes,
+        expected_kind,
+        expected_kind.format_version(),
+        portable_object_schema(expected_kind),
+        expected_kind.format_version(),
+        limits,
+    )
+}
+
+fn preflight_object_registry_at<'a>(
+    bytes: &'a [u8],
+    expected_kind: PortableObjectKind,
+    expected_format_version: u16,
+    schema: &'static PortableObjectSchema,
+    contract_format: u16,
+    limits: FormatLimits,
+) -> Result<RegistryCheckedObjectView<'a>, FormatError> {
+    let framing = crate::framing::preflight_object_framing_at(
+        bytes,
+        expected_kind,
+        expected_format_version,
+        limits,
+    )?;
 
     let mut declared_table_count = 0_u64;
     for (ordinal, section_schema) in schema.sections.iter().enumerate() {
@@ -835,7 +865,7 @@ pub fn preflight_object_registry_v1(
                 table_byte_length,
                 FormatStructure::Table,
             )?;
-            preflight_table_with_registry_v1(table_bytes, table_schema, limits, &mut budget)?;
+            preflight_table_with_registry(table_bytes, table_schema, limits, &mut budget)?;
             cursor =
                 cursor
                     .checked_add(table_byte_length)
@@ -852,7 +882,12 @@ pub fn preflight_object_registry_v1(
         }
     }
 
-    Ok(RegistryCheckedObjectView { framing, limits })
+    Ok(RegistryCheckedObjectView {
+        framing,
+        limits,
+        schema,
+        contract_format,
+    })
 }
 
 fn check_source_location_rows(
@@ -882,15 +917,15 @@ mod tests {
     use std::vec::Vec;
 
     use laneflow_static_contract::{
-        FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS, OBJECT_PREAMBLE_V1_BYTE_LENGTH, PortableFieldSchema,
+        FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS, OBJECT_PREAMBLE_BYTE_LENGTH, PortableFieldSchema,
         PortableFieldType, PortableRowCardinality, PortableRowSchema, PortableRowShape,
-        SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH, SECTION_FORMAT_VERSION_V1,
+        SECTION_DIRECTORY_ENTRY_BYTE_LENGTH, SECTION_FORMAT_VERSION,
     };
 
     use super::*;
     use crate::{
         FormatErrorClass, FormatLimitConfig, LimitDimension,
-        table::preflight_table_with_registry_v1,
+        table::preflight_table_with_registry,
     };
 
     fn default_value(field: &PortableFieldSchema) -> Vec<u8> {
@@ -1047,17 +1082,17 @@ mod tests {
         let mut bytes = vec![0_u8; kind.first_section_offset() as usize];
         bytes[0..4].copy_from_slice(&kind.magic());
         bytes[4..6].copy_from_slice(&kind.format_version().to_le_bytes());
-        bytes[6..8].copy_from_slice(&OBJECT_PREAMBLE_V1_BYTE_LENGTH.to_le_bytes());
+        bytes[6..8].copy_from_slice(&OBJECT_PREAMBLE_BYTE_LENGTH.to_le_bytes());
         bytes[12..16].copy_from_slice(&kind.section_count().to_le_bytes());
-        bytes[16..24].copy_from_slice(&u64::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH).to_le_bytes());
+        bytes[16..24].copy_from_slice(&u64::from(OBJECT_PREAMBLE_BYTE_LENGTH).to_le_bytes());
         bytes[24..32].copy_from_slice(&total.to_le_bytes());
         let mut section_offset = kind.first_section_offset();
         for (ordinal, section) in sections.iter().enumerate() {
-            let entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
-                + ordinal * SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH as usize;
+            let entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+                + ordinal * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
             bytes[entry..entry + 2]
                 .copy_from_slice(&u16::try_from(ordinal + 1).unwrap().to_le_bytes());
-            bytes[entry + 2..entry + 4].copy_from_slice(&SECTION_FORMAT_VERSION_V1.to_le_bytes());
+            bytes[entry + 2..entry + 4].copy_from_slice(&SECTION_FORMAT_VERSION.to_le_bytes());
             bytes[entry + 8..entry + 16].copy_from_slice(&section_offset.to_le_bytes());
             bytes[entry + 16..entry + 24].copy_from_slice(&(section.len() as u64).to_le_bytes());
             section_offset += section.len() as u64;
@@ -1072,7 +1107,7 @@ mod tests {
         for kind in PortableObjectKind::ALL {
             let bytes = encoded_object(kind);
             let checked =
-                preflight_object_registry_v1(&bytes, kind, FormatLimits::V1_HARD).unwrap();
+                preflight_object_registry(&bytes, kind, FormatLimits::HARD).unwrap();
             assert_eq!(checked.kind(), kind);
             assert_eq!(checked.bytes(), bytes);
             assert_eq!(checked.section_count(), kind.section_count());
@@ -1086,11 +1121,11 @@ mod tests {
             let original = encoded_object(kind);
             for boundary in 0..original.len() {
                 let mut truncated = original[..boundary].to_vec();
-                if boundary >= usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH) {
+                if boundary >= usize::from(OBJECT_PREAMBLE_BYTE_LENGTH) {
                     truncated[24..32]
                         .copy_from_slice(&u64::try_from(boundary).unwrap().to_le_bytes());
                 }
-                let class = preflight_object_registry_v1(&truncated, kind, FormatLimits::V1_HARD)
+                let class = preflight_object_registry(&truncated, kind, FormatLimits::HARD)
                     .unwrap_err()
                     .class();
                 assert!(
@@ -1108,14 +1143,15 @@ mod tests {
     fn one_bit_corruption_in_every_object_section_fails_registry_preflight() {
         for kind in PortableObjectKind::ALL {
             let original = encoded_object(kind);
-            let framing = preflight_object_framing(&original, kind, FormatLimits::V1_HARD).unwrap();
+            let framing =
+                crate::preflight_object_framing(&original, kind, FormatLimits::HARD).unwrap();
             for ordinal in 0..framing.section_count() {
                 let section = framing.section(ordinal).unwrap();
                 let offset = section.bytes().as_ptr() as usize - original.as_ptr() as usize;
                 let mut corrupted = original.clone();
                 corrupted[offset] ^= 1;
                 assert!(
-                    preflight_object_registry_v1(&corrupted, kind, FormatLimits::V1_HARD).is_err(),
+                    preflight_object_registry(&corrupted, kind, FormatLimits::HARD).is_err(),
                     "{kind:?} section {} accepted a one-bit table-count corruption",
                     ordinal + 1
                 );
@@ -1131,7 +1167,7 @@ mod tests {
                 let mut bytes = original.clone();
                 bytes[12..16].copy_from_slice(&count.to_le_bytes());
                 assert_eq!(
-                    preflight_object_registry_v1(&bytes, kind, FormatLimits::V1_HARD)
+                    preflight_object_registry(&bytes, kind, FormatLimits::HARD)
                         .unwrap_err()
                         .class(),
                     FormatErrorClass::LengthMismatch,
@@ -1148,9 +1184,9 @@ mod tests {
             for (section_ordinal, section_schema) in
                 portable_object_schema(kind).sections.iter().enumerate()
             {
-                let entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
+                let entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
                     + section_ordinal
-                        * usize::try_from(SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH).unwrap();
+                        * usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
                 let section_offset =
                     u64::from_le_bytes(original[entry + 8..entry + 16].try_into().unwrap())
                         as usize;
@@ -1159,7 +1195,7 @@ mod tests {
                     let mut bytes = original.clone();
                     bytes[section_offset..section_offset + 4].copy_from_slice(&count.to_le_bytes());
                     assert_eq!(
-                        preflight_object_registry_v1(&bytes, kind, FormatLimits::V1_HARD)
+                        preflight_object_registry(&bytes, kind, FormatLimits::HARD)
                             .unwrap_err()
                             .class(),
                         FormatErrorClass::LengthMismatch,
@@ -1182,10 +1218,10 @@ mod tests {
 
                     let valid = encoded_row(table_schema.row, None);
                     let table = table_with_rows(table_schema, core::slice::from_ref(&valid));
-                    preflight_table_with_registry_v1(
+                    preflight_table_with_registry(
                         &table,
                         table_schema,
-                        FormatLimits::V1_HARD,
+                        FormatLimits::HARD,
                         &mut PreflightBudget::default(),
                     )
                     .unwrap_or_else(|error| {
@@ -1201,10 +1237,10 @@ mod tests {
                         let missing = encoded_row(table_schema.row, Some(required.tag));
                         let table = table_with_rows(table_schema, &[missing]);
                         assert_eq!(
-                            preflight_table_with_registry_v1(
+                            preflight_table_with_registry(
                                 &table,
                                 table_schema,
-                                FormatLimits::V1_HARD,
+                                FormatLimits::HARD,
                                 &mut PreflightBudget::default(),
                             )
                             .unwrap_err()
@@ -1233,10 +1269,10 @@ mod tests {
                         .copy_from_slice(&unknown_tag.to_le_bytes());
                     let table = table_with_rows(table_schema, &[unknown]);
                     assert_eq!(
-                        preflight_table_with_registry_v1(
+                        preflight_table_with_registry(
                             &table,
                             table_schema,
-                            FormatLimits::V1_HARD,
+                            FormatLimits::HARD,
                             &mut PreflightBudget::default(),
                         )
                         .unwrap_err()
@@ -1255,7 +1291,7 @@ mod tests {
     fn registry_checked_view_exposes_only_registered_typed_values() {
         let kind = PortableObjectKind::CanonicalArtifact;
         let bytes = encoded_object(kind);
-        let checked = preflight_object_registry_v1(&bytes, kind, FormatLimits::V1_HARD).unwrap();
+        let checked = preflight_object_registry(&bytes, kind, FormatLimits::HARD).unwrap();
         let section = checked.section(0).unwrap();
         assert_eq!(section.table_count(), 1);
         let table = section.table(0).unwrap();
@@ -1290,12 +1326,12 @@ mod tests {
             &portable_object_schema(PortableObjectKind::CanonicalArtifact).sections[2].tables[0];
         assert_eq!(schema.cardinality, PortableRowCardinality::Any);
         let encoded = encoded_row(schema.row, None);
-        let row_count = FormatLimitConfig::V1_HARD.max_rows_per_table;
+        let row_count = FormatLimitConfig::HARD.max_rows_per_table;
         let table_bytes = table_with_repeated_row(schema, &encoded, row_count);
-        preflight_table_with_registry_v1(
+        preflight_table_with_registry(
             &table_bytes,
             schema,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
             &mut PreflightBudget::default(),
         )
         .unwrap();
@@ -1322,7 +1358,7 @@ mod tests {
         let mut wrong_count = original.clone();
         wrong_count[first_section..first_section + 4].copy_from_slice(&0_u32.to_le_bytes());
         assert_eq!(
-            preflight_object_registry_v1(&wrong_count, kind, FormatLimits::V1_HARD)
+            preflight_object_registry(&wrong_count, kind, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
@@ -1332,7 +1368,7 @@ mod tests {
         wrong_table_kind[first_section + 4..first_section + 6]
             .copy_from_slice(&2_u16.to_le_bytes());
         assert_eq!(
-            preflight_object_registry_v1(&wrong_table_kind, kind, FormatLimits::V1_HARD)
+            preflight_object_registry(&wrong_table_kind, kind, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::UnknownKind
@@ -1342,8 +1378,8 @@ mod tests {
         trailing.push(0);
         let new_object_length = trailing.len() as u64;
         trailing[24..32].copy_from_slice(&new_object_length.to_le_bytes());
-        let last_entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
-            + 3 * SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH as usize;
+        let last_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+            + 3 * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
         let old_length = u64::from_le_bytes(
             trailing[last_entry + 16..last_entry + 24]
                 .try_into()
@@ -1351,7 +1387,7 @@ mod tests {
         );
         trailing[last_entry + 16..last_entry + 24].copy_from_slice(&(old_length + 1).to_le_bytes());
         assert_eq!(
-            preflight_object_registry_v1(&trailing, kind, FormatLimits::V1_HARD)
+            preflight_object_registry(&trailing, kind, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
@@ -1359,8 +1395,8 @@ mod tests {
 
         let lfca_kind = PortableObjectKind::CanonicalArtifact;
         let mut wrong_order = encoded_object(lfca_kind);
-        let entity_section_entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
-            + 2 * SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH as usize;
+        let entity_section_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+            + 2 * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
         let entity_section_offset = u64::from_le_bytes(
             wrong_order[entity_section_entry + 8..entity_section_entry + 16]
                 .try_into()
@@ -1369,7 +1405,7 @@ mod tests {
         wrong_order[entity_section_offset + 4..entity_section_offset + 6]
             .copy_from_slice(&2_u16.to_le_bytes());
         assert_eq!(
-            preflight_object_registry_v1(&wrong_order, lfca_kind, FormatLimits::V1_HARD)
+            preflight_object_registry(&wrong_order, lfca_kind, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::NonCanonicalOrder
@@ -1383,14 +1419,14 @@ mod tests {
         let first_section = kind.first_section_offset() as usize;
         bytes[first_section + 6..first_section + 8].copy_from_slice(&2_u16.to_le_bytes());
 
-        let last_entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
-            + (kind.section_count() as usize - 1) * SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH as usize;
+        let last_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+            + (kind.section_count() as usize - 1) * SECTION_DIRECTORY_ENTRY_BYTE_LENGTH as usize;
         let last_section =
             u64::from_le_bytes(bytes[last_entry + 8..last_entry + 16].try_into().unwrap()) as usize;
         bytes[last_section..last_section + 4].copy_from_slice(&0_u32.to_le_bytes());
 
         assert_eq!(
-            preflight_object_registry_v1(&bytes, kind, FormatLimits::V1_HARD)
+            preflight_object_registry(&bytes, kind, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
             FormatErrorClass::LengthMismatch
@@ -1406,10 +1442,10 @@ mod tests {
 
         let empty_singleton = table_with_rows(table_schema, &[]);
         assert_eq!(
-            preflight_table_with_registry_v1(
+            preflight_table_with_registry(
                 &empty_singleton,
                 table_schema,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
                 &mut PreflightBudget::default(),
             )
             .unwrap_err()
@@ -1419,10 +1455,10 @@ mod tests {
 
         let missing = table_with_rows(table_schema, &[encoded_row(table_schema.row, Some(3))]);
         assert_eq!(
-            preflight_table_with_registry_v1(
+            preflight_table_with_registry(
                 &missing,
                 table_schema,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
                 &mut PreflightBudget::default(),
             )
             .unwrap_err()
@@ -1434,10 +1470,10 @@ mod tests {
         wrong_type_row[18] = PortableFieldType::U32 as u8;
         let wrong_type = table_with_rows(table_schema, &[wrong_type_row]);
         assert_eq!(
-            preflight_table_with_registry_v1(
+            preflight_table_with_registry(
                 &wrong_type,
                 table_schema,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
                 &mut PreflightBudget::default(),
             )
             .unwrap_err()
@@ -1461,10 +1497,10 @@ mod tests {
         unknown_row.extend_from_slice(&unknown_field);
         let unknown = table_with_rows(table_schema, &[unknown_row]);
         assert_eq!(
-            preflight_table_with_registry_v1(
+            preflight_table_with_registry(
                 &unknown,
                 table_schema,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
                 &mut PreflightBudget::default(),
             )
             .unwrap_err()
@@ -1476,10 +1512,10 @@ mod tests {
             let noncanonical_row = encoded_variant_row(table_schema.row, &tags, 0, 0);
             let noncanonical = table_with_rows(table_schema, &[noncanonical_row]);
             assert_eq!(
-                preflight_table_with_registry_v1(
+                preflight_table_with_registry(
                     &noncanonical,
                     table_schema,
-                    FormatLimits::V1_HARD,
+                    FormatLimits::HARD,
                     &mut PreflightBudget::default(),
                 )
                 .unwrap_err()
@@ -1495,10 +1531,10 @@ mod tests {
             &portable_object_schema(PortableObjectKind::SourceMap).sections[1].tables[2];
         let valid_text = encoded_variant_row(source_location.row, &[1, 2, 3, 4, 5, 6, 7, 8], 2, 0);
         let table = table_with_rows(source_location, &[valid_text]);
-        preflight_table_with_registry_v1(
+        preflight_table_with_registry(
             &table,
             source_location,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
             &mut PreflightBudget::default(),
         )
         .unwrap();
@@ -1507,10 +1543,10 @@ mod tests {
             encoded_variant_row(source_location.row, &[1, 2, 3, 4, 5, 6, 7, 8, 9], 2, 0);
         let table = table_with_rows(source_location, &[text_with_road_field]);
         assert_eq!(
-            preflight_table_with_registry_v1(
+            preflight_table_with_registry(
                 &table,
                 source_location,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
                 &mut PreflightBudget::default(),
             )
             .unwrap_err()
@@ -1522,10 +1558,10 @@ mod tests {
             &portable_object_schema(PortableObjectKind::SemanticDiff).sections[4].tables[0];
         let valid_modify = encoded_variant_row(static_rule.row, &[1, 2, 4, 6, 9], 1, 0);
         let table = table_with_rows(static_rule, &[valid_modify]);
-        preflight_table_with_registry_v1(
+        preflight_table_with_registry(
             &table,
             static_rule,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
             &mut PreflightBudget::default(),
         )
         .unwrap();
@@ -1533,10 +1569,10 @@ mod tests {
         let no_payload = encoded_variant_row(static_rule.row, &[1, 2, 4, 6], 1, 0);
         let table = table_with_rows(static_rule, &[no_payload]);
         assert_eq!(
-            preflight_table_with_registry_v1(
+            preflight_table_with_registry(
                 &table,
                 static_rule,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
                 &mut PreflightBudget::default(),
             )
             .unwrap_err()
@@ -1547,10 +1583,10 @@ mod tests {
         let wrong_code = encoded_variant_row(static_rule.row, &[1, 2, 4, 6, 9], 1, 2);
         let table = table_with_rows(static_rule, &[wrong_code]);
         assert_eq!(
-            preflight_table_with_registry_v1(
+            preflight_table_with_registry(
                 &table,
                 static_rule,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
                 &mut PreflightBudget::default(),
             )
             .unwrap_err()
@@ -1563,10 +1599,10 @@ mod tests {
         let initialize = encoded_variant_row(spatial_configuration.row, &[1, 3], 1, 0);
         let table = table_with_rows(spatial_configuration, &[initialize.clone(), initialize]);
         assert_eq!(
-            preflight_table_with_registry_v1(
+            preflight_table_with_registry(
                 &table,
                 spatial_configuration,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
                 &mut PreflightBudget::default(),
             )
             .unwrap_err()
@@ -1605,10 +1641,10 @@ mod tests {
                             variant.discriminant,
                         );
                         let table = table_with_rows(table_schema, &[valid]);
-                        preflight_table_with_registry_v1(
+                        preflight_table_with_registry(
                             &table,
                             table_schema,
-                            FormatLimits::V1_HARD,
+                            FormatLimits::HARD,
                             &mut PreflightBudget::default(),
                         )
                         .unwrap_or_else(|error| {
@@ -1634,10 +1670,10 @@ mod tests {
                             );
                             let table = table_with_rows(table_schema, &[row]);
                             assert_eq!(
-                                preflight_table_with_registry_v1(
+                                preflight_table_with_registry(
                                     &table,
                                     table_schema,
-                                    FormatLimits::V1_HARD,
+                                    FormatLimits::HARD,
                                     &mut PreflightBudget::default(),
                                 )
                                 .unwrap_err()
@@ -1668,10 +1704,10 @@ mod tests {
                             );
                             let table = table_with_rows(table_schema, &[row]);
                             assert_eq!(
-                                preflight_table_with_registry_v1(
+                                preflight_table_with_registry(
                                     &table,
                                     table_schema,
-                                    FormatLimits::V1_HARD,
+                                    FormatLimits::HARD,
                                     &mut PreflightBudget::default(),
                                 )
                                 .unwrap_err()
@@ -1703,10 +1739,10 @@ mod tests {
                             );
                             let table = table_with_rows(table_schema, &[row]);
                             assert_eq!(
-                                preflight_table_with_registry_v1(
+                                preflight_table_with_registry(
                                     &table,
                                     table_schema,
-                                    FormatLimits::V1_HARD,
+                                    FormatLimits::HARD,
                                     &mut PreflightBudget::default(),
                                 )
                                 .unwrap_err()
@@ -1743,10 +1779,10 @@ mod tests {
                     let row = encoded_variant_row(table_schema.row, &tags, tag, unknown);
                     let table = table_with_rows(table_schema, &[row]);
                     assert_eq!(
-                        preflight_table_with_registry_v1(
+                        preflight_table_with_registry(
                             &table,
                             table_schema,
-                            FormatLimits::V1_HARD,
+                            FormatLimits::HARD,
                             &mut PreflightBudget::default(),
                         )
                         .unwrap_err()
@@ -1790,10 +1826,10 @@ mod tests {
         }
         let table = table_with_rows(identity, &[row]);
         assert_eq!(
-            preflight_table_with_registry_v1(
+            preflight_table_with_registry(
                 &table,
                 identity,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
                 &mut PreflightBudget::default(),
             )
             .unwrap_err()
@@ -1834,15 +1870,15 @@ mod tests {
         };
         let first_table = table_with_rows(first, &[row_with_utf8(first.row)]);
         let second_table = table_with_rows(second, &[row_with_utf8(second.row)]);
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         // SourceMapBinding 有一个 UTF-8，PublicationProvenance 有四个；第二张表必须在
         // 读取第一个 value 时越过对象累计预算。
         config.max_total_utf8_bytes = 1;
         let limits = FormatLimits::try_new(config).unwrap();
         let mut budget = PreflightBudget::default();
-        preflight_table_with_registry_v1(&first_table, first, limits, &mut budget).unwrap();
+        preflight_table_with_registry(&first_table, first, limits, &mut budget).unwrap();
         assert_eq!(
-            preflight_table_with_registry_v1(&second_table, second, limits, &mut budget)
+            preflight_table_with_registry(&second_table, second, limits, &mut budget)
                 .unwrap_err(),
             FormatError::LimitExceeded {
                 dimension: LimitDimension::TotalUtf8Bytes,
@@ -1854,7 +1890,7 @@ mod tests {
 
     #[test]
     fn caller_can_reduce_lfsm_source_location_rows_independently() {
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_source_location_rows = 4;
         let limits = FormatLimits::try_new(config).unwrap();
         assert_eq!(
@@ -1872,8 +1908,8 @@ mod tests {
     fn lfsm_source_location_wire_count_uses_its_independent_limit_before_row_walk() {
         let kind = PortableObjectKind::SourceMap;
         let original = encoded_object(kind);
-        let section_entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
-            + usize::try_from(SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH).unwrap();
+        let section_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
+            + usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
         let section_offset = u64::from_le_bytes(
             original[section_entry + 8..section_entry + 16]
                 .try_into()
@@ -1895,7 +1931,7 @@ mod tests {
         hard_plus_one[source_location_count_offset..source_location_count_offset + 4]
             .copy_from_slice(&(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS + 1).to_le_bytes());
         assert_eq!(
-            preflight_object_registry_v1(&hard_plus_one, kind, FormatLimits::V1_HARD).unwrap_err(),
+            preflight_object_registry(&hard_plus_one, kind, FormatLimits::HARD).unwrap_err(),
             FormatError::LimitExceeded {
                 dimension: LimitDimension::SourceLocationRows,
                 actual: u64::from(FORMAT_HARD_MAX_SOURCE_LOCATION_ROWS) + 1,
@@ -1903,13 +1939,13 @@ mod tests {
             }
         );
 
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_source_location_rows = 4;
         let mut caller_plus_one = original;
         caller_plus_one[source_location_count_offset..source_location_count_offset + 4]
             .copy_from_slice(&5_u32.to_le_bytes());
         assert_eq!(
-            preflight_object_registry_v1(
+            preflight_object_registry(
                 &caller_plus_one,
                 kind,
                 FormatLimits::try_new(config).unwrap(),

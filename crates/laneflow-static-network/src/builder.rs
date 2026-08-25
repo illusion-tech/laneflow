@@ -5,15 +5,15 @@ use std::sync::{
 };
 
 use laneflow_format::{
-    CheckedCanonicalNetworkInputV1, RegistryCheckedFieldValue, RegistryCheckedOrdinalVectorView,
+    CheckedCanonicalNetworkInput, RegistryCheckedFieldValue, RegistryCheckedOrdinalVectorView,
     RegistryCheckedRecordVectorView, RegistryCheckedRowView, ValueCheckedObjectView,
 };
 use laneflow_static_contract::{
-    CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION_V1, CanonicalFrameOrdinal,
+    CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION, CanonicalFrameOrdinal,
     EntityKind, FacilityBandOrdinal, IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION,
     LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, MovementOrdinal,
     NETWORK_REVISION_DERIVATION_VERSION, SPATIAL_JOIN_POSITION_TOLERANCE_METERS,
-    STATIC_EXECUTION_CONTRACT_VERSION_V1, StableId128, StaticRouteOrdinal, WaitingZoneOrdinal,
+    STATIC_EXECUTION_CONTRACT_VERSION, StableId128, StaticRouteOrdinal, WaitingZoneOrdinal,
 };
 
 use crate::{
@@ -204,7 +204,7 @@ impl TopologyPlan {
 
 /// 从受检 LFCA 构建完全拥有、不可变的共享静态路网根。
 pub fn build_shared_network_revision(
-    input: CheckedCanonicalNetworkInputV1<'_>,
+    input: CheckedCanonicalNetworkInput<'_>,
     options: SharedNetworkBuildOptions<'_>,
 ) -> Result<Arc<SharedNetworkRevision>, BuildError> {
     check_cancelled(options)?;
@@ -494,7 +494,7 @@ fn check_retained_budget(
                 structure: BuildStructure::RetainedOutput,
             })?,
     )?;
-    retained = add_retained::<f64>(
+    retained = add_retained::<u32>(
         retained,
         lane_count
             .checked_mul(2)
@@ -2256,8 +2256,18 @@ fn build_traffic(
             }
 
             if entity_kind == EntityKind::LaneEdge {
-                lane_lengths.push(checked_f64(row, 3, BuildStructure::LaneEdge)?);
-                lane_speed_limits.push(checked_f64(row, 4, BuildStructure::LaneEdge)?);
+                lane_lengths.push(u32_in_closed_range(
+                    checked_u32(row, 3, BuildStructure::LaneEdge)?,
+                    laneflow_static_contract::MIN_LANE_EDGE_LENGTH_MM,
+                    laneflow_static_contract::MAX_LANE_EDGE_LENGTH_MM,
+                    BuildStructure::LaneEdge,
+                )?);
+                lane_speed_limits.push(u32_in_closed_range(
+                    checked_u32(row, 4, BuildStructure::LaneEdge)?,
+                    laneflow_static_contract::MIN_SPEED_MM_S,
+                    laneflow_static_contract::MAX_SPEED_MM_S,
+                    BuildStructure::LaneEdge,
+                )?);
             }
         }
     }
@@ -2722,16 +2732,16 @@ fn build_spatial(
             });
         }
         let arc_length = checked_f32(row, 3, BuildStructure::LaneEdgeGeometry)?;
-        let traffic_length = *traffic
-            .lane_lengths_meters()
+        let traffic_length_mm = *traffic
+            .lane_lengths_millimetres()
             .get(usize::try_from(lane_edge).expect("u32 lane ordinal fits usize"))
             .ok_or(BuildError::InputInvariant {
                 structure: BuildStructure::LaneEdgeGeometry,
             })?;
-        if !spatial_length_matches(traffic_length, arc_length) {
+        if !spatial_length_matches(f64::from(traffic_length_mm) / 1_000.0, arc_length) {
             return Err(BuildError::SpatialLengthMismatch {
                 lane_edge,
-                traffic_length_meters: traffic_length,
+                traffic_length_mm,
                 spatial_length_meters: arc_length,
             });
         }
@@ -3046,8 +3056,8 @@ fn validate_supported_contract_versions(
         || contracts.identity_encoding_version() != IDENTITY_ENCODING_VERSION
         || contracts.identity_registry_revision() != IDENTITY_REGISTRY_REVISION
         || contracts.network_revision_derivation_version() != NETWORK_REVISION_DERIVATION_VERSION
-        || contracts.constraint_contract_version() != CONSTRAINT_CONTRACT_VERSION_V1
-        || contracts.static_execution_contract_version() != STATIC_EXECUTION_CONTRACT_VERSION_V1
+        || contracts.constraint_contract_version() != CONSTRAINT_CONTRACT_VERSION
+        || contracts.static_execution_contract_version() != STATIC_EXECUTION_CONTRACT_VERSION
     {
         return Err(BuildError::ContractMismatch {
             structure: BuildStructure::ContractVersions,
@@ -3134,24 +3144,50 @@ pub(crate) fn checked_u32(
     }
 }
 
-fn checked_f32(
+pub(crate) fn checked_i32(
+    row: RegistryCheckedRowView<'_>,
+    tag: u16,
+    structure: BuildStructure,
+) -> Result<i32, BuildError> {
+    match checked_field(row, tag, structure)? {
+        RegistryCheckedFieldValue::I32(value) => Ok(value),
+        _ => Err(BuildError::InputInvariant { structure }),
+    }
+}
+
+pub(crate) fn u32_in_closed_range(
+    value: u32,
+    min: u32,
+    max: u32,
+    structure: BuildStructure,
+) -> Result<u32, BuildError> {
+    if value < min || value > max {
+        return Err(BuildError::InputInvariant { structure });
+    }
+    Ok(value)
+}
+
+pub(crate) fn heading_f32_stored(value: f32, structure: BuildStructure) -> Result<f32, BuildError> {
+    use laneflow_static_contract::{HEADING_MINUS_PI_F32_BITS, HEADING_PLUS_PI_F32_BITS};
+
+    if value.to_bits() == HEADING_PLUS_PI_F32_BITS {
+        return Err(BuildError::InputInvariant { structure });
+    }
+    let min = f32::from_bits(HEADING_MINUS_PI_F32_BITS);
+    let max = f32::from_bits(HEADING_PLUS_PI_F32_BITS);
+    if !value.is_finite() || value < min || value >= max {
+        return Err(BuildError::InputInvariant { structure });
+    }
+    Ok(value)
+}
+
+pub(crate) fn checked_f32(
     row: RegistryCheckedRowView<'_>,
     tag: u16,
     structure: BuildStructure,
 ) -> Result<f32, BuildError> {
     match checked_field(row, tag, structure)? {
         RegistryCheckedFieldValue::F32(value) => Ok(value),
-        _ => Err(BuildError::InputInvariant { structure }),
-    }
-}
-
-pub(crate) fn checked_f64(
-    row: RegistryCheckedRowView<'_>,
-    tag: u16,
-    structure: BuildStructure,
-) -> Result<f64, BuildError> {
-    match checked_field(row, tag, structure)? {
-        RegistryCheckedFieldValue::F64(value) => Ok(value),
         _ => Err(BuildError::InputInvariant { structure }),
     }
 }
@@ -3310,59 +3346,59 @@ mod tests {
             IDENTITY_ENCODING_VERSION,
             IDENTITY_REGISTRY_REVISION,
             NETWORK_REVISION_DERIVATION_VERSION,
-            CONSTRAINT_CONTRACT_VERSION_V1,
-            STATIC_EXECUTION_CONTRACT_VERSION_V1,
+            CONSTRAINT_CONTRACT_VERSION,
+            STATIC_EXECUTION_CONTRACT_VERSION,
         );
         assert!(validate_supported_contract_versions(supported).is_ok());
 
         let unsupported = [
             StaticContractVersions::new(
-                2,
+                1,
                 IDENTITY_ENCODING_VERSION,
                 IDENTITY_REGISTRY_REVISION,
                 NETWORK_REVISION_DERIVATION_VERSION,
-                CONSTRAINT_CONTRACT_VERSION_V1,
-                STATIC_EXECUTION_CONTRACT_VERSION_V1,
+                CONSTRAINT_CONTRACT_VERSION,
+                STATIC_EXECUTION_CONTRACT_VERSION,
             ),
             StaticContractVersions::new(
                 CANONICAL_ARTIFACT_FORMAT_VERSION,
                 2,
                 IDENTITY_REGISTRY_REVISION,
                 NETWORK_REVISION_DERIVATION_VERSION,
-                CONSTRAINT_CONTRACT_VERSION_V1,
-                STATIC_EXECUTION_CONTRACT_VERSION_V1,
+                CONSTRAINT_CONTRACT_VERSION,
+                STATIC_EXECUTION_CONTRACT_VERSION,
             ),
             StaticContractVersions::new(
                 CANONICAL_ARTIFACT_FORMAT_VERSION,
                 IDENTITY_ENCODING_VERSION,
                 2,
                 NETWORK_REVISION_DERIVATION_VERSION,
-                CONSTRAINT_CONTRACT_VERSION_V1,
-                STATIC_EXECUTION_CONTRACT_VERSION_V1,
+                CONSTRAINT_CONTRACT_VERSION,
+                STATIC_EXECUTION_CONTRACT_VERSION,
             ),
             StaticContractVersions::new(
                 CANONICAL_ARTIFACT_FORMAT_VERSION,
                 IDENTITY_ENCODING_VERSION,
                 IDENTITY_REGISTRY_REVISION,
                 2,
-                CONSTRAINT_CONTRACT_VERSION_V1,
-                STATIC_EXECUTION_CONTRACT_VERSION_V1,
-            ),
-            StaticContractVersions::new(
-                CANONICAL_ARTIFACT_FORMAT_VERSION,
-                IDENTITY_ENCODING_VERSION,
-                IDENTITY_REGISTRY_REVISION,
-                NETWORK_REVISION_DERIVATION_VERSION,
-                2,
-                STATIC_EXECUTION_CONTRACT_VERSION_V1,
+                CONSTRAINT_CONTRACT_VERSION,
+                STATIC_EXECUTION_CONTRACT_VERSION,
             ),
             StaticContractVersions::new(
                 CANONICAL_ARTIFACT_FORMAT_VERSION,
                 IDENTITY_ENCODING_VERSION,
                 IDENTITY_REGISTRY_REVISION,
                 NETWORK_REVISION_DERIVATION_VERSION,
-                CONSTRAINT_CONTRACT_VERSION_V1,
-                2,
+                1,
+                STATIC_EXECUTION_CONTRACT_VERSION,
+            ),
+            StaticContractVersions::new(
+                CANONICAL_ARTIFACT_FORMAT_VERSION,
+                IDENTITY_ENCODING_VERSION,
+                IDENTITY_REGISTRY_REVISION,
+                NETWORK_REVISION_DERIVATION_VERSION,
+                CONSTRAINT_CONTRACT_VERSION,
+                1,
             ),
         ];
         for contracts in unsupported {

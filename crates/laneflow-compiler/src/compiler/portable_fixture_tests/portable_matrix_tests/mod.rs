@@ -4,15 +4,15 @@ use std::ops::Range;
 
 use laneflow_format::{
     FormatLimits, RegistryCheckedFieldValue, RegistryCheckedObjectView, RegistryCheckedRowView,
-    ValueCheckedObjectView, preflight_object_values_v1,
+    ValueCheckedObjectView, preflight_object_values,
 };
 use laneflow_static_contract::{
-    EntityKind, OBJECT_PREAMBLE_V1_BYTE_LENGTH, PortableObjectKind,
-    SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH,
+    EntityKind, OBJECT_PREAMBLE_BYTE_LENGTH, PortableObjectKind,
+    SECTION_DIRECTORY_ENTRY_BYTE_LENGTH,
 };
 
 fn value_checked(bytes: &[u8], kind: PortableObjectKind) -> ValueCheckedObjectView<'_> {
-    preflight_object_values_v1(bytes, kind, FormatLimits::V1_HARD).unwrap()
+    preflight_object_values(bytes, kind, FormatLimits::HARD).unwrap()
 }
 
 fn registry(bytes: &[u8], kind: PortableObjectKind) -> RegistryCheckedObjectView<'_> {
@@ -94,9 +94,9 @@ fn remove_field(
     bytes[table_start + 8..table_start + 16]
         .copy_from_slice(&(rows_length - removed).to_le_bytes());
 
-    let directory_entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
+    let directory_entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
         + usize::try_from(section_ordinal).unwrap()
-            * usize::try_from(SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH).unwrap();
+            * usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
     let section_length = u64::from_le_bytes(
         bytes[directory_entry + 16..directory_entry + 24]
             .try_into()
@@ -114,9 +114,9 @@ fn remove_field(
     bytes[directory_entry + 16..directory_entry + 24]
         .copy_from_slice(&(section_length - removed).to_le_bytes());
     for following in section_ordinal + 1..kind.section_count() {
-        let entry = usize::from(OBJECT_PREAMBLE_V1_BYTE_LENGTH)
+        let entry = usize::from(OBJECT_PREAMBLE_BYTE_LENGTH)
             + usize::try_from(following).unwrap()
-                * usize::try_from(SECTION_DIRECTORY_ENTRY_V1_BYTE_LENGTH).unwrap();
+                * usize::try_from(SECTION_DIRECTORY_ENTRY_BYTE_LENGTH).unwrap();
         let offset = u64::from_le_bytes(bytes[entry + 8..entry + 16].try_into().unwrap()) - removed;
         bytes[entry + 8..entry + 16].copy_from_slice(&offset.to_le_bytes());
     }

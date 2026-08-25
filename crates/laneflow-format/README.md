@@ -1,19 +1,19 @@
 # laneflow_format
 
 LaneFlow 可移植规范制品 `LFCA`、源映射封套 `LFSM`、语义差异封套 `LFSD` 与规范发布描述符
-`LFCP` v2 的受限线格式 crate；前三类对象保持 v1。规范术语见
+`LFCP` 的受限线格式 crate。对象 `formatVersion` 只承认当前值 `2`。规范术语见
 [`docs/reference/glossary.md`](../../docs/reference/glossary.md)。
 
-当前 G2 线格式层包括：
+当前线格式层包括：
 
-- 无分配的 `measure_object_v1` / `prepare_object_v1` / `encode_object_v1` 受限精确编码：接收借用的
+- 无分配的 `measure_object` / `prepare_object` / `encode_object` 受限精确编码：接收借用的
   对象、节、表、行和字段输入，复用附录 A registry，先完成
-  全对象计量、形状和预算检查；`PreparedObjectV1` 可把这一次预检和 exact length 带入
-  `encode_prepared_object_v1`，避免精确分配后重复预检；只有调用方缓冲区长度精确匹配后
+  全对象计量、形状和预算检查；`PreparedObject` 可把这一次预检和 exact length 带入
+  `encode_prepared_object`，避免精确分配后重复预检；只有调用方缓冲区长度精确匹配后
   才写入，任何返回错误都保持输出逐字节不变；
 
-- `ObjectPreambleV1` 与 `SectionDirectoryEntryV1` 的零拷贝 framing 预检；
-- `TableV1` / `RowV1` / `FieldV1` 的冗余长度、计数、字段类型、向量、UTF-8、浮点和
+- 对象前导与节目录项的零拷贝 framing 预检；
+- 表 / 行 / 字段的冗余长度、计数、字段类型、向量、UTF-8、浮点和
   一层 `RecordVector` 通用结构预检；
 - 附录 A.1-A.4 的精确 section/table/field registry、singleton 行数、由
   `sourceLocationKind/changeKind` 直接选择的线形状存在性矩阵，以及 field-specific
@@ -25,13 +25,13 @@ LaneFlow 可移植规范制品 `LFCA`、源映射封套 `LFSM`、语义差异封
   LFCA 的版本/封闭枚举/实体内部向量基数/局部标量、LFSM 的来源种类/address/property path、
   LFSD 的 Genesis/Artifact 直接绑定和同行 change 约束，以及 LFCP v2 的版本、publisher kind 与
   `sha256/<64 lowercase hex>` 同对象摘要绑定。
-- 无分配的 `check_post_emission_bundle_v1`：从三份最终字节重算 digest、length 与 LFCA
+- 无分配的 `check_post_emission_bundle`：从三份最终字节重算 digest、length 与 LFCA
   `NetworkRevisionId`，并闭合 LFSM provenance/artifact binding 以及 LFSD 显式 base/target
   binding；成功后只返回字段私有的借用型发布能力。它不重跑完整路网语义或验证 LFSD
   change set 完备性。
-- `check_canonical_network_input_v1` 与 `PostEmissionCheckedBundleV1::canonical_network_input`：
+- `check_canonical_network_input` 与 `PostEmissionCheckedBundle::canonical_network_input`：
   单份已通过宿主 admission 的 LFCA 和同进程 compiler bundle 共用同一份
-  digest/length/`NetworkRevisionId` 检查与字段私有 `CheckedCanonicalNetworkInputV1`
+  digest/length/`NetworkRevisionId` 检查与字段私有 `CheckedCanonicalNetworkInput`
   能力；该能力是 `laneflow-static-network` 的唯一构建输入，但不表示发布真实性或
   Runtime 跨表闭合已经成立。
 - `FormatLimits` 同时覆盖对象/节/表、行/字段、Identity ASCII、UTF-8、向量、嵌套、LFSM
@@ -42,7 +42,7 @@ LaneFlow 可移植规范制品 `LFCA`、源映射封套 `LFSM`、语义差异封
 语义已验证或可信视图。`RegistryCheckedObjectView` 进一步证明附录登记形状；
 `ValueCheckedObjectView` 再证明不需要外部对象或全局语义重算的直接值域与同对象绑定。两者仍不证明行排序键、
 跨表引用、StableId/NetworkRevision 重算、跨对象摘要绑定、语义差异完备性或发布真实性。
-只有额外取得 `CheckedCanonicalNetworkInputV1` 后，LFCA 的实际摘要、精确长度和重算
+只有额外取得 `CheckedCanonicalNetworkInput` 后，LFCA 的实际摘要、精确长度和重算
 `NetworkRevisionId` 才被绑定；跨表、Identity 双射与 Traffic/Spatial 闭合继续由共享静态
 路网构建器负责。
 

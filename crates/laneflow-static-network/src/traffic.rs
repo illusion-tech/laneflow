@@ -258,8 +258,8 @@ impl EntityCounts {
 /// 根唯一共享所有权。
 pub struct SharedTrafficNetwork {
     entity_counts: EntityCounts,
-    lane_lengths_meters: Box<[f64]>,
-    lane_speed_limits_meters_per_second: Box<[f64]>,
+    lane_lengths_millimetres: Box<[u32]>,
+    lane_speed_limits_millimetres_per_second: Box<[u32]>,
     successor_ranges: Box<[RangeU32]>,
     successors: Box<[LaneEdgeOrdinal]>,
     predecessor_ranges: Box<[RangeU32]>,
@@ -272,8 +272,8 @@ impl SharedTrafficNetwork {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         entity_counts: EntityCounts,
-        lane_lengths_meters: Box<[f64]>,
-        lane_speed_limits_meters_per_second: Box<[f64]>,
+        lane_lengths_millimetres: Box<[u32]>,
+        lane_speed_limits_millimetres_per_second: Box<[u32]>,
         successor_ranges: Box<[RangeU32]>,
         successors: Box<[LaneEdgeOrdinal]>,
         predecessor_ranges: Box<[RangeU32]>,
@@ -283,8 +283,8 @@ impl SharedTrafficNetwork {
     ) -> Self {
         Self {
             entity_counts,
-            lane_lengths_meters,
-            lane_speed_limits_meters_per_second,
+            lane_lengths_millimetres,
+            lane_speed_limits_millimetres_per_second,
             successor_ranges,
             successors,
             predecessor_ranges,
@@ -305,13 +305,13 @@ impl SharedTrafficNetwork {
     }
 
     #[must_use]
-    pub fn lane_lengths_meters(&self) -> &[f64] {
-        &self.lane_lengths_meters
+    pub fn lane_lengths_millimetres(&self) -> &[u32] {
+        &self.lane_lengths_millimetres
     }
 
     #[must_use]
-    pub fn lane_speed_limits_meters_per_second(&self) -> &[f64] {
-        &self.lane_speed_limits_meters_per_second
+    pub fn lane_speed_limits_millimetres_per_second(&self) -> &[u32] {
+        &self.lane_speed_limits_millimetres_per_second
     }
 
     #[must_use]
@@ -338,8 +338,8 @@ impl SharedTrafficNetwork {
 
     #[must_use]
     pub fn retained_logical_bytes(&self) -> u64 {
-        logical_bytes::<f64>(self.lane_lengths_meters.len())
-            + logical_bytes::<f64>(self.lane_speed_limits_meters_per_second.len())
+        logical_bytes::<u32>(self.lane_lengths_millimetres.len())
+            + logical_bytes::<u32>(self.lane_speed_limits_millimetres_per_second.len())
             + logical_bytes::<RangeU32>(self.successor_ranges.len())
             + logical_bytes::<LaneEdgeOrdinal>(self.successors.len())
             + logical_bytes::<RangeU32>(self.predecessor_ranges.len())
@@ -430,8 +430,8 @@ mod tests {
         );
         let traffic = SharedTrafficNetwork::new(
             EntityCounts::new(entity_counts),
-            vec![1.0; lane_count as usize].into_boxed_slice(),
-            vec![1.0; lane_count as usize].into_boxed_slice(),
+            vec![1_000; lane_count as usize].into_boxed_slice(),
+            vec![1_000; lane_count as usize].into_boxed_slice(),
             empty_ranges(),
             Box::new([]),
             empty_ranges(),

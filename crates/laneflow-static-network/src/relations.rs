@@ -70,73 +70,55 @@ pub enum AccessCell {
     },
 }
 
-/// 与当前 Core `BoundedDistance` 同构的有界距离；禁止把溢出写成非有限 `f64`。
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// 有界距离：Finite 侧是 `u32` 毫米。溢出是 `BeyondFinite`，禁止饱和成 `u32::MAX`。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BoundedDistance {
-    Finite(f64),
+    Finite(u32),
     BeyondFinite,
 }
 
 impl BoundedDistance {
-    pub(crate) const fn finite(value: f64) -> Self {
+    pub(crate) const fn finite(value: u32) -> Self {
         Self::Finite(value)
     }
 
-    pub(crate) fn add(self, value: f64) -> Self {
+    #[must_use]
+    pub fn add(self, value: u32) -> Self {
         match self {
-            Self::Finite(current) if value.is_finite() && value <= f64::MAX - current => {
-                Self::Finite(current + value)
-            }
-            Self::Finite(_) | Self::BeyondFinite => Self::BeyondFinite,
+            Self::Finite(current) => current
+                .checked_add(value)
+                .map(Self::Finite)
+                .unwrap_or(Self::BeyondFinite),
+            Self::BeyondFinite => Self::BeyondFinite,
         }
     }
 
-    fn compensated_positive_sum(values: impl IntoIterator<Item = f64>) -> Self {
-        let mut sum = 0.0;
-        let mut compensation = 0.0;
+    fn checked_sum(values: impl IntoIterator<Item = u32>) -> Self {
+        let mut sum = 0_u32;
         for value in values {
-            debug_assert!(value.is_finite() && value >= 0.0);
-            let next = sum + value;
-            if !next.is_finite() {
-                return Self::BeyondFinite;
+            match sum.checked_add(value) {
+                Some(next) => sum = next,
+                None => return Self::BeyondFinite,
             }
-            let correction = if sum >= value {
-                (sum - next) + value
-            } else {
-                (value - next) + sum
-            };
-            compensation += correction;
-            if !compensation.is_finite() {
-                return Self::BeyondFinite;
-            }
-            sum = next;
         }
-        if compensation > 0.0 && compensation > f64::MAX - sum {
-            return Self::BeyondFinite;
-        }
-        let total = sum + compensation;
-        if total.is_finite() {
-            Self::Finite(total.max(0.0))
-        } else {
-            Self::BeyondFinite
-        }
+        Self::Finite(sum)
     }
 }
 
-/// 与当前 Core `RouteDistanceQuery` 同构的有界距离查询结果。
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// 有界距离查询结果。`Within` 为毫米。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RouteDistanceQuery {
     Passed,
     BeyondHorizon,
-    Within(f64),
+    Within(u32),
 }
 
 /// 共享静态路线距离索引：分段坐标 + 后缀有界距离。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RouteDistanceIndexView<'a> {
     occurrence_segments: &'a [u32],
-    occurrence_offsets: &'a [f64],
-    segment_totals: &'a [f64],
+    occurrence_offsets: &'a [u32],
+    segment_totals: &'a [u32],
     distance_to_end: &'a [BoundedDistance],
 }
 
@@ -144,8 +126,8 @@ impl<'a> RouteDistanceIndexView<'a> {
     #[cfg(test)]
     pub(crate) const fn from_parts(
         occurrence_segments: &'a [u32],
-        occurrence_offsets: &'a [f64],
-        segment_totals: &'a [f64],
+        occurrence_offsets: &'a [u32],
+        segment_totals: &'a [u32],
         distance_to_end: &'a [BoundedDistance],
     ) -> Self {
         Self {
@@ -162,12 +144,12 @@ impl<'a> RouteDistanceIndexView<'a> {
     }
 
     #[must_use]
-    pub const fn occurrence_offsets(self) -> &'a [f64] {
+    pub const fn occurrence_offsets(self) -> &'a [u32] {
         self.occurrence_offsets
     }
 
     #[must_use]
-    pub const fn segment_totals(self) -> &'a [f64] {
+    pub const fn segment_totals(self) -> &'a [u32] {
         self.segment_totals
     }
 
@@ -180,8 +162,8 @@ impl<'a> RouteDistanceIndexView<'a> {
     pub fn distance_to_end_within(
         self,
         from_occurrence: usize,
-        from_progress: f64,
-        horizon: f64,
+        from_progress: u32,
+        horizon: u32,
     ) -> RouteDistanceQuery {
         let Some(distance) = self.distance_to_end.get(from_occurrence).copied() else {
             return RouteDistanceQuery::Passed;
@@ -189,9 +171,9 @@ impl<'a> RouteDistanceIndexView<'a> {
         match distance {
             BoundedDistance::BeyondFinite => RouteDistanceQuery::BeyondHorizon,
             BoundedDistance::Finite(distance) => {
-                let remaining = distance - from_progress;
+                let remaining = distance.saturating_sub(from_progress);
                 if remaining <= horizon {
-                    RouteDistanceQuery::Within(remaining.max(0.0))
+                    RouteDistanceQuery::Within(remaining)
                 } else {
                     RouteDistanceQuery::BeyondHorizon
                 }
@@ -203,9 +185,9 @@ impl<'a> RouteDistanceIndexView<'a> {
     pub fn finite_distance(
         self,
         from_occurrence: usize,
-        from_progress: f64,
+        from_progress: u32,
         target_occurrence: usize,
-        target_progress: f64,
+        target_progress: u32,
     ) -> Option<BoundedDistance> {
         if target_occurrence < from_occurrence
             || (target_occurrence == from_occurrence && target_progress < from_progress)
@@ -214,29 +196,30 @@ impl<'a> RouteDistanceIndexView<'a> {
         }
         let from = self.coordinate(from_occurrence)?;
         let target = self.coordinate(target_occurrence)?;
+        let from_distance = match from.1.checked_add(from_progress) {
+            Some(value) => value,
+            None => return Some(BoundedDistance::BeyondFinite),
+        };
+        let target_distance = match target.1.checked_add(target_progress) {
+            Some(value) => value,
+            None => return Some(BoundedDistance::BeyondFinite),
+        };
         if from.0 == target.0 {
-            let from_distance = from.1 + from_progress;
-            let target_distance = target.1 + target_progress;
-            if !from_distance.is_finite() || !target_distance.is_finite() {
-                return Some(BoundedDistance::BeyondFinite);
-            }
             return Some(BoundedDistance::Finite(
-                (target_distance - from_distance).max(0.0),
+                target_distance.saturating_sub(from_distance),
             ));
         }
-        let from_distance = from.1 + from_progress;
-        let target_distance = target.1 + target_progress;
-        if !from_distance.is_finite() || !target_distance.is_finite() {
-            return Some(BoundedDistance::BeyondFinite);
-        }
-        let first_segment_distance = *self.segment_totals.get(from.0)? - from_distance;
+        let first_segment_distance = match self.segment_totals.get(from.0) {
+            Some(&total) => total.saturating_sub(from_distance),
+            None => return None,
+        };
         let middle_start = from.0.checked_add(1)?;
         let middle_segments = self
             .segment_totals
             .get(middle_start..target.0)?
             .iter()
             .copied();
-        Some(BoundedDistance::compensated_positive_sum(
+        Some(BoundedDistance::checked_sum(
             core::iter::once(first_segment_distance)
                 .chain(middle_segments)
                 .chain(core::iter::once(target_distance)),
@@ -247,10 +230,10 @@ impl<'a> RouteDistanceIndexView<'a> {
     pub fn distance_within(
         self,
         from_occurrence: usize,
-        from_progress: f64,
+        from_progress: u32,
         target_occurrence: usize,
-        target_progress: f64,
-        horizon: f64,
+        target_progress: u32,
+        horizon: u32,
     ) -> RouteDistanceQuery {
         if target_occurrence < from_occurrence
             || (target_occurrence == from_occurrence && target_progress < from_progress)
@@ -265,9 +248,15 @@ impl<'a> RouteDistanceIndexView<'a> {
         };
 
         if from.0 == target.0 {
-            let distance = (target.1 + target_progress) - (from.1 + from_progress);
+            let Some(from_distance) = from.1.checked_add(from_progress) else {
+                return RouteDistanceQuery::BeyondHorizon;
+            };
+            let Some(target_distance) = target.1.checked_add(target_progress) else {
+                return RouteDistanceQuery::BeyondHorizon;
+            };
+            let distance = target_distance.saturating_sub(from_distance);
             return if distance <= horizon {
-                RouteDistanceQuery::Within(distance.max(0.0))
+                RouteDistanceQuery::Within(distance)
             } else {
                 RouteDistanceQuery::BeyondHorizon
             };
@@ -276,7 +265,10 @@ impl<'a> RouteDistanceIndexView<'a> {
         let Some(&from_segment_total) = self.segment_totals.get(from.0) else {
             return RouteDistanceQuery::Passed;
         };
-        let mut distance = from_segment_total - (from.1 + from_progress);
+        let Some(from_distance) = from.1.checked_add(from_progress) else {
+            return RouteDistanceQuery::BeyondHorizon;
+        };
+        let mut distance = from_segment_total.saturating_sub(from_distance);
         if distance > horizon {
             return RouteDistanceQuery::BeyondHorizon;
         }
@@ -284,19 +276,21 @@ impl<'a> RouteDistanceIndexView<'a> {
             let Some(&segment_total) = self.segment_totals.get(segment) else {
                 return RouteDistanceQuery::Passed;
             };
-            if segment_total > horizon - distance || (distance > 0.0 && segment_total >= horizon) {
-                return RouteDistanceQuery::BeyondHorizon;
+            match distance.checked_add(segment_total) {
+                Some(next) if next <= horizon => distance = next,
+                Some(_) | None => return RouteDistanceQuery::BeyondHorizon,
             }
-            distance += segment_total;
         }
-        let target_distance = target.1 + target_progress;
-        if target_distance > horizon - distance || (distance > 0.0 && target_distance >= horizon) {
+        let Some(target_distance) = target.1.checked_add(target_progress) else {
             return RouteDistanceQuery::BeyondHorizon;
+        };
+        match distance.checked_add(target_distance) {
+            Some(next) if next <= horizon => RouteDistanceQuery::Within(next),
+            Some(_) | None => RouteDistanceQuery::BeyondHorizon,
         }
-        RouteDistanceQuery::Within(distance + target_distance)
     }
 
-    fn coordinate(self, occurrence: usize) -> Option<(usize, f64)> {
+    fn coordinate(self, occurrence: usize) -> Option<(usize, u32)> {
         let segment = usize::try_from(*self.occurrence_segments.get(occurrence)?).ok()?;
         let offset = *self.occurrence_offsets.get(occurrence)?;
         Some((segment, offset))
@@ -473,13 +467,13 @@ impl<'a> SignalGroupView<'a> {
 pub struct ParkingSpaceView {
     area: Option<ParkingAreaOrdinal>,
     entry_edge: LaneEdgeOrdinal,
-    entry_progress: f64,
+    entry_progress_mm: u32,
     exit_edge: LaneEdgeOrdinal,
-    exit_progress: f64,
-    lateral: f64,
-    heading: f64,
-    length: f64,
-    width: f64,
+    exit_progress_mm: u32,
+    lateral_mm: i32,
+    heading: f32,
+    length_mm: u32,
+    width_mm: u32,
 }
 
 impl ParkingSpaceView {
@@ -489,18 +483,18 @@ impl ParkingSpaceView {
     }
 
     #[must_use]
-    pub const fn entry(self) -> (LaneEdgeOrdinal, f64) {
-        (self.entry_edge, self.entry_progress)
+    pub const fn entry(self) -> (LaneEdgeOrdinal, u32) {
+        (self.entry_edge, self.entry_progress_mm)
     }
 
     #[must_use]
-    pub const fn exit(self) -> (LaneEdgeOrdinal, f64) {
-        (self.exit_edge, self.exit_progress)
+    pub const fn exit(self) -> (LaneEdgeOrdinal, u32) {
+        (self.exit_edge, self.exit_progress_mm)
     }
 
     #[must_use]
-    pub const fn geometry(self) -> (f64, f64, f64, f64) {
-        (self.lateral, self.heading, self.length, self.width)
+    pub const fn geometry(self) -> (i32, f32, u32, u32) {
+        (self.lateral_mm, self.heading, self.length_mm, self.width_mm)
     }
 }
 
@@ -565,13 +559,13 @@ impl<'a> AccessRuleView<'a> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VehicleProfileView {
     class: ParticipantClassOrdinal,
-    length: f64,
-    desired_speed: f64,
-    min_gap: f64,
-    time_headway: f64,
-    max_accel: f64,
-    comfort_decel: f64,
-    emergency_decel: f64,
+    length_mm: u32,
+    desired_speed_mm_s: u32,
+    min_gap_mm: u32,
+    time_headway: f32,
+    max_accel: f32,
+    comfort_decel: f32,
+    emergency_decel: f32,
 }
 
 impl VehicleProfileView {
@@ -581,37 +575,37 @@ impl VehicleProfileView {
     }
 
     #[must_use]
-    pub const fn length(self) -> f64 {
-        self.length
+    pub const fn length_mm(self) -> u32 {
+        self.length_mm
     }
 
     #[must_use]
-    pub const fn desired_speed(self) -> f64 {
-        self.desired_speed
+    pub const fn desired_speed_mm_s(self) -> u32 {
+        self.desired_speed_mm_s
     }
 
     #[must_use]
-    pub const fn min_gap(self) -> f64 {
-        self.min_gap
+    pub const fn min_gap_mm(self) -> u32 {
+        self.min_gap_mm
     }
 
     #[must_use]
-    pub const fn time_headway(self) -> f64 {
+    pub const fn time_headway(self) -> f32 {
         self.time_headway
     }
 
     #[must_use]
-    pub const fn max_accel(self) -> f64 {
+    pub const fn max_accel(self) -> f32 {
         self.max_accel
     }
 
     #[must_use]
-    pub const fn comfort_decel(self) -> f64 {
+    pub const fn comfort_decel(self) -> f32 {
         self.comfort_decel
     }
 
     #[must_use]
-    pub const fn emergency_decel(self) -> f64 {
+    pub const fn emergency_decel(self) -> f32 {
         self.emergency_decel
     }
 }
@@ -881,13 +875,13 @@ pub struct SharedRelationClosure {
     parking_spaces: Box<[ParkingSpaceOrdinal]>,
     space_area: OptionalColumn<ParkingAreaOrdinal>,
     space_entry_edge: Box<[LaneEdgeOrdinal]>,
-    space_entry_progress: Box<[f64]>,
+    space_entry_progress: Box<[u32]>,
     space_exit_edge: Box<[LaneEdgeOrdinal]>,
-    space_exit_progress: Box<[f64]>,
-    space_lateral: Box<[f64]>,
-    space_heading: Box<[f64]>,
-    space_length: Box<[f64]>,
-    space_width: Box<[f64]>,
+    space_exit_progress: Box<[u32]>,
+    space_lateral: Box<[i32]>,
+    space_heading: Box<[f32]>,
+    space_length: Box<[u32]>,
+    space_width: Box<[u32]>,
     lane_group_section: Box<[RoadSectionOrdinal]>,
     lane_group_member_ranges: Box<[RangeU32]>,
     lane_group_members: Box<[AuthoringLaneOrdinal]>,
@@ -903,13 +897,13 @@ pub struct SharedRelationClosure {
     rule_classes: Box<[ParticipantClassOrdinal]>,
     rule_priority: Box<[i32]>,
     profile_class: Box<[ParticipantClassOrdinal]>,
-    profile_length: Box<[f64]>,
-    profile_desired_speed: Box<[f64]>,
-    profile_min_gap: Box<[f64]>,
-    profile_time_headway: Box<[f64]>,
-    profile_max_accel: Box<[f64]>,
-    profile_comfort_decel: Box<[f64]>,
-    profile_emergency_decel: Box<[f64]>,
+    profile_length: Box<[u32]>,
+    profile_desired_speed: Box<[u32]>,
+    profile_min_gap: Box<[u32]>,
+    profile_time_headway: Box<[f32]>,
+    profile_max_accel: Box<[f32]>,
+    profile_comfort_decel: Box<[f32]>,
+    profile_emergency_decel: Box<[f32]>,
     route_edge_ranges: Box<[RangeU32]>,
     route_edges: Box<[LaneEdgeOrdinal]>,
     route_gate_ranges: Box<[RangeU32]>,
@@ -943,15 +937,15 @@ pub struct SharedRelationClosure {
     route_distance_to_end: Box<[BoundedDistance]>,
     route_distance_ranges: Box<[RangeU32]>,
     route_distance_segments: Box<[u32]>,
-    route_distance_offsets: Box<[f64]>,
-    route_segment_totals: Box<[f64]>,
+    route_distance_offsets: Box<[u32]>,
+    route_segment_totals: Box<[u32]>,
     route_segment_ranges: Box<[RangeU32]>,
     next_controlled_gate: Box<[Option<ManeuverGateOrdinal>]>,
     next_controlled_from: Box<[u32]>,
     next_controlled_distance: Box<[BoundedDistance]>,
     speed_limit_from: Box<[u32]>,
     speed_limit_to_edge: Box<[LaneEdgeOrdinal]>,
-    speed_limit_target: Box<[f64]>,
+    speed_limit_target: Box<[u32]>,
     speed_limit_ranges: Box<[RangeU32]>,
     access_class_count: u32,
     edge_row_starts: Box<[u32]>,
@@ -1199,13 +1193,13 @@ impl SharedRelationClosure {
         Some(ParkingSpaceView {
             area: self.space_area.get(space.index()),
             entry_edge: *self.space_entry_edge.get(space.index())?,
-            entry_progress: *self.space_entry_progress.get(space.index())?,
+            entry_progress_mm: *self.space_entry_progress.get(space.index())?,
             exit_edge: *self.space_exit_edge.get(space.index())?,
-            exit_progress: *self.space_exit_progress.get(space.index())?,
-            lateral: *self.space_lateral.get(space.index())?,
+            exit_progress_mm: *self.space_exit_progress.get(space.index())?,
+            lateral_mm: *self.space_lateral.get(space.index())?,
             heading: *self.space_heading.get(space.index())?,
-            length: *self.space_length.get(space.index())?,
-            width: *self.space_width.get(space.index())?,
+            length_mm: *self.space_length.get(space.index())?,
+            width_mm: *self.space_width.get(space.index())?,
         })
     }
 
@@ -1213,7 +1207,7 @@ impl SharedRelationClosure {
     pub fn parking_space_entry(
         &self,
         space: ParkingSpaceOrdinal,
-    ) -> Option<(LaneEdgeOrdinal, f64)> {
+    ) -> Option<(LaneEdgeOrdinal, u32)> {
         self.parking_space(space).map(|view| view.entry())
     }
 
@@ -1221,7 +1215,7 @@ impl SharedRelationClosure {
     pub fn parking_space_geometry(
         &self,
         space: ParkingSpaceOrdinal,
-    ) -> Option<(f64, f64, f64, f64)> {
+    ) -> Option<(i32, f32, u32, u32)> {
         self.parking_space(space).map(|view| view.geometry())
     }
 
@@ -1255,9 +1249,9 @@ impl SharedRelationClosure {
     pub fn vehicle_profile(&self, profile: VehicleProfileOrdinal) -> Option<VehicleProfileView> {
         Some(VehicleProfileView {
             class: *self.profile_class.get(profile.index())?,
-            length: *self.profile_length.get(profile.index())?,
-            desired_speed: *self.profile_desired_speed.get(profile.index())?,
-            min_gap: *self.profile_min_gap.get(profile.index())?,
+            length_mm: *self.profile_length.get(profile.index())?,
+            desired_speed_mm_s: *self.profile_desired_speed.get(profile.index())?,
+            min_gap_mm: *self.profile_min_gap.get(profile.index())?,
             time_headway: *self.profile_time_headway.get(profile.index())?,
             max_accel: *self.profile_max_accel.get(profile.index())?,
             comfort_decel: *self.profile_comfort_decel.get(profile.index())?,
@@ -1479,7 +1473,7 @@ impl SharedRelationClosure {
     pub fn speed_limit_transitions(
         &self,
         route: StaticRouteOrdinal,
-    ) -> Option<(&[u32], &[LaneEdgeOrdinal], &[f64])> {
+    ) -> Option<(&[u32], &[LaneEdgeOrdinal], &[u32])> {
         let range = *self.speed_limit_ranges.get(route.index())?;
         Some((
             range.slice(&self.speed_limit_from),
@@ -1574,13 +1568,13 @@ impl SharedRelationClosure {
             + logical_bytes::<ParkingSpaceOrdinal>(self.parking_spaces.len())
             + self.space_area.retained_bytes()
             + logical_bytes::<LaneEdgeOrdinal>(self.space_entry_edge.len())
-            + logical_bytes::<f64>(self.space_entry_progress.len())
+            + logical_bytes::<u32>(self.space_entry_progress.len())
             + logical_bytes::<LaneEdgeOrdinal>(self.space_exit_edge.len())
-            + logical_bytes::<f64>(self.space_exit_progress.len())
-            + logical_bytes::<f64>(self.space_lateral.len())
-            + logical_bytes::<f64>(self.space_heading.len())
-            + logical_bytes::<f64>(self.space_length.len())
-            + logical_bytes::<f64>(self.space_width.len())
+            + logical_bytes::<u32>(self.space_exit_progress.len())
+            + logical_bytes::<i32>(self.space_lateral.len())
+            + logical_bytes::<f32>(self.space_heading.len())
+            + logical_bytes::<u32>(self.space_length.len())
+            + logical_bytes::<u32>(self.space_width.len())
             + logical_bytes::<RoadSectionOrdinal>(self.lane_group_section.len())
             + logical_bytes::<RangeU32>(self.lane_group_member_ranges.len())
             + logical_bytes::<AuthoringLaneOrdinal>(self.lane_group_members.len())
@@ -1596,7 +1590,13 @@ impl SharedRelationClosure {
             + logical_bytes::<ParticipantClassOrdinal>(self.rule_classes.len())
             + logical_bytes::<i32>(self.rule_priority.len())
             + logical_bytes::<ParticipantClassOrdinal>(self.profile_class.len())
-            + logical_bytes::<f64>(self.profile_length.len()) * 7
+            + logical_bytes::<u32>(self.profile_length.len())
+            + logical_bytes::<u32>(self.profile_desired_speed.len())
+            + logical_bytes::<u32>(self.profile_min_gap.len())
+            + logical_bytes::<f32>(self.profile_time_headway.len())
+            + logical_bytes::<f32>(self.profile_max_accel.len())
+            + logical_bytes::<f32>(self.profile_comfort_decel.len())
+            + logical_bytes::<f32>(self.profile_emergency_decel.len())
             + logical_bytes::<RangeU32>(self.route_edge_ranges.len())
             + logical_bytes::<LaneEdgeOrdinal>(self.route_edges.len())
             + logical_bytes::<RangeU32>(self.route_gate_ranges.len())
@@ -1630,15 +1630,15 @@ impl SharedRelationClosure {
             + logical_bytes::<BoundedDistance>(self.route_distance_to_end.len())
             + logical_bytes::<RangeU32>(self.route_distance_ranges.len())
             + logical_bytes::<u32>(self.route_distance_segments.len())
-            + logical_bytes::<f64>(self.route_distance_offsets.len())
-            + logical_bytes::<f64>(self.route_segment_totals.len())
+            + logical_bytes::<u32>(self.route_distance_offsets.len())
+            + logical_bytes::<u32>(self.route_segment_totals.len())
             + logical_bytes::<RangeU32>(self.route_segment_ranges.len())
             + logical_bytes::<Option<ManeuverGateOrdinal>>(self.next_controlled_gate.len())
             + logical_bytes::<u32>(self.next_controlled_from.len())
             + logical_bytes::<BoundedDistance>(self.next_controlled_distance.len())
             + logical_bytes::<u32>(self.speed_limit_from.len())
             + logical_bytes::<LaneEdgeOrdinal>(self.speed_limit_to_edge.len())
-            + logical_bytes::<f64>(self.speed_limit_target.len())
+            + logical_bytes::<u32>(self.speed_limit_target.len())
             + logical_bytes::<RangeU32>(self.speed_limit_ranges.len())
             + logical_bytes::<u32>(self.edge_row_starts.len())
             + logical_bytes::<AccessCell>(self.edge_cells.len())
@@ -1759,13 +1759,13 @@ pub(crate) fn relation_retained_floor(
     total = floor_add::<RangeU32>(total, area)?;
     total = floor_add::<Option<ParkingAreaOrdinal>>(total, space)?;
     total = floor_add::<LaneEdgeOrdinal>(total, space)?;
-    total = floor_add::<f64>(total, space)?;
+    total = floor_add::<u32>(total, space)?;
     total = floor_add::<LaneEdgeOrdinal>(total, space)?;
-    total = floor_add::<f64>(total, space)?;
-    total = floor_add::<f64>(total, space)?;
-    total = floor_add::<f64>(total, space)?;
-    total = floor_add::<f64>(total, space)?;
-    total = floor_add::<f64>(total, space)?;
+    total = floor_add::<u32>(total, space)?;
+    total = floor_add::<i32>(total, space)?;
+    total = floor_add::<f32>(total, space)?;
+    total = floor_add::<u32>(total, space)?;
+    total = floor_add::<u32>(total, space)?;
     total = floor_add::<RoadSectionOrdinal>(total, lane_group)?;
     total = floor_add::<RangeU32>(total, lane_group)?;
     total = floor_add::<RoadCorridorOrdinal>(total, band)?;
@@ -1779,14 +1779,13 @@ pub(crate) fn relation_retained_floor(
     total = floor_add::<RangeU32>(total, rule)?;
     total = floor_add::<i32>(total, rule)?;
     total = floor_add::<ParticipantClassOrdinal>(total, profile)?;
-    total = floor_add::<f64>(
-        total,
-        profile
-            .checked_mul(7)
-            .ok_or(BuildError::ArithmeticOverflow {
-                structure: BuildStructure::RetainedOutput,
-            })?,
-    )?;
+    total = floor_add::<u32>(total, profile)?;
+    total = floor_add::<u32>(total, profile)?;
+    total = floor_add::<u32>(total, profile)?;
+    total = floor_add::<f32>(total, profile)?;
+    total = floor_add::<f32>(total, profile)?;
+    total = floor_add::<f32>(total, profile)?;
+    total = floor_add::<f32>(total, profile)?;
     total = floor_add::<RangeU32>(total, route)?;
     total = floor_add::<RangeU32>(total, route)?;
     total = floor_add::<RangeU32>(total, route)?;
@@ -1814,7 +1813,7 @@ pub(crate) fn relation_retained_floor(
     total = floor_add::<LaneEdgeOrdinal>(total, payloads.route_edges)?;
     total = floor_add::<BoundedDistance>(total, payloads.route_edges)?;
     total = floor_add::<u32>(total, payloads.route_edges)?;
-    total = floor_add::<f64>(total, payloads.route_edges)?;
+    total = floor_add::<u32>(total, payloads.route_edges)?;
     total = floor_add::<Option<ManeuverGateOrdinal>>(total, payloads.route_edges)?;
     total = floor_add::<u32>(total, payloads.route_edges)?;
     total = floor_add::<BoundedDistance>(total, payloads.route_edges)?;
@@ -1863,10 +1862,10 @@ pub(crate) fn relation_retained_floor(
     total = floor_add::<u32>(total, payloads.route_reverse)?;
     total = floor_add::<Box<str>>(total, payloads.intern_keys)?;
     total = floor_add_bytes(total, payloads.intern_utf8)?;
-    total = floor_add::<f64>(total, payloads.route_segment_totals)?;
+    total = floor_add::<u32>(total, payloads.route_segment_totals)?;
     total = floor_add::<u32>(total, payloads.speed_limit_transitions)?;
     total = floor_add::<LaneEdgeOrdinal>(total, payloads.speed_limit_transitions)?;
-    total = floor_add::<f64>(total, payloads.speed_limit_transitions)?;
+    total = floor_add::<u32>(total, payloads.speed_limit_transitions)?;
     total = floor_add::<AccessCell>(total, payloads.edge_cells)?;
     total = floor_add::<AccessCell>(total, payloads.path_cells)?;
     Ok(total)
@@ -1983,13 +1982,13 @@ mod builder_support {
         parking_spaces: Box<[ParkingSpaceOrdinal]>,
         space_area: OptionalColumn<ParkingAreaOrdinal>,
         space_entry_edge: Box<[LaneEdgeOrdinal]>,
-        space_entry_progress: Box<[f64]>,
+        space_entry_progress: Box<[u32]>,
         space_exit_edge: Box<[LaneEdgeOrdinal]>,
-        space_exit_progress: Box<[f64]>,
-        space_lateral: Box<[f64]>,
-        space_heading: Box<[f64]>,
-        space_length: Box<[f64]>,
-        space_width: Box<[f64]>,
+        space_exit_progress: Box<[u32]>,
+        space_lateral: Box<[i32]>,
+        space_heading: Box<[f32]>,
+        space_length: Box<[u32]>,
+        space_width: Box<[u32]>,
         lane_group_section: Box<[RoadSectionOrdinal]>,
         lane_group_member_ranges: Box<[RangeU32]>,
         lane_group_members: Box<[AuthoringLaneOrdinal]>,
@@ -2005,13 +2004,13 @@ mod builder_support {
         rule_classes: Box<[ParticipantClassOrdinal]>,
         rule_priority: Box<[i32]>,
         profile_class: Box<[ParticipantClassOrdinal]>,
-        profile_length: Box<[f64]>,
-        profile_desired_speed: Box<[f64]>,
-        profile_min_gap: Box<[f64]>,
-        profile_time_headway: Box<[f64]>,
-        profile_max_accel: Box<[f64]>,
-        profile_comfort_decel: Box<[f64]>,
-        profile_emergency_decel: Box<[f64]>,
+        profile_length: Box<[u32]>,
+        profile_desired_speed: Box<[u32]>,
+        profile_min_gap: Box<[u32]>,
+        profile_time_headway: Box<[f32]>,
+        profile_max_accel: Box<[f32]>,
+        profile_comfort_decel: Box<[f32]>,
+        profile_emergency_decel: Box<[f32]>,
         route_edge_ranges: Box<[RangeU32]>,
         route_edges: Box<[LaneEdgeOrdinal]>,
         route_gate_ranges: Box<[RangeU32]>,
@@ -2045,15 +2044,15 @@ mod builder_support {
         route_distance_to_end: Box<[BoundedDistance]>,
         route_distance_ranges: Box<[RangeU32]>,
         route_distance_segments: Box<[u32]>,
-        route_distance_offsets: Box<[f64]>,
-        route_segment_totals: Box<[f64]>,
+        route_distance_offsets: Box<[u32]>,
+        route_segment_totals: Box<[u32]>,
         route_segment_ranges: Box<[RangeU32]>,
         next_controlled_gate: Box<[Option<ManeuverGateOrdinal>]>,
         next_controlled_from: Box<[u32]>,
         next_controlled_distance: Box<[BoundedDistance]>,
         speed_limit_from: Box<[u32]>,
         speed_limit_to_edge: Box<[LaneEdgeOrdinal]>,
-        speed_limit_target: Box<[f64]>,
+        speed_limit_target: Box<[u32]>,
         speed_limit_ranges: Box<[RangeU32]>,
         access_class_count: u32,
         edge_row_starts: Box<[u32]>,

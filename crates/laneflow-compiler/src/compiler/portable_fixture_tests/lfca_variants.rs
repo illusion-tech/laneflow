@@ -7,53 +7,53 @@ const MIN_HEADLESS_BUILD_ID: &str = "laneflow-fixture-298-min-headless-v1";
 const VARIANT_BUILD_ID: &str = "laneflow-fixture-298-variants-v1";
 const VARIANT_ALTERNATE_BUILD_ID: &str = "laneflow-fixture-298-variants-v2";
 const MIN_HEADLESS_REVISION: [u8; 32] = [
-    0x4b, 0x61, 0xb2, 0x8f, 0xca, 0x27, 0xbd, 0xec, 0xd0, 0x39, 0x7f, 0x82, 0x6c, 0xfa, 0xe1, 0xad,
-    0xa0, 0xb2, 0xea, 0x37, 0x5b, 0x72, 0x5d, 0xdc, 0x84, 0xec, 0xd6, 0x68, 0x96, 0x0c, 0x1c, 0x89,
+    0x9d, 0x65, 0xc6, 0x54, 0x75, 0xc5, 0x9a, 0xeb, 0x9c, 0x83, 0x22, 0x2c, 0x10, 0x8d, 0x20, 0x1d,
+    0x0f, 0x1a, 0x75, 0xc3, 0x64, 0xbf, 0x54, 0xf8, 0xad, 0xa1, 0x21, 0xe7, 0x8c, 0xe1, 0xc0, 0xbc,
 ];
 
 const MIN_HEADLESS_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v1/lfca-v1-variants/min-headless.lfca");
+    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/min-headless.lfca");
 const PROVENANCE_BASE_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v1/lfca-v1-variants/provenance-base.lfca");
+    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/provenance-base.lfca");
 const PROVENANCE_SOURCE_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v1/lfca-v1-variants/provenance-source.lfca");
+    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/provenance-source.lfca");
 const PROVENANCE_BUILD_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v1/lfca-v1-variants/provenance-build.lfca");
+    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/provenance-build.lfca");
 const REORDER_EQUIVALENT_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v1/lfca-v1-variants/reorder-equivalent.lfca");
+    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/reorder-equivalent.lfca");
 const SIGNED_ZERO_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v1/lfca-v1-variants/signed-zero.lfca");
+    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/signed-zero.lfca");
 const CLAIM_MISMATCH_EXPECTED: &[u8] =
-    include_bytes!("../../../tests/fixtures/portable-v1/lfca-v1-variants/claim-mismatch.lfca");
+    include_bytes!("../../../tests/fixtures/portable-v2/lfca-v2-variants/claim-mismatch.lfca");
 
 const MIN_HEADLESS_LENGTH: u64 = 1_255;
 const MIN_HEADLESS_KEY: &str =
-    "sha256/c799e91f6a7b20d9324bccf1e6e91a12c945c0a14d914ea396211205c72d8b2b";
+    "sha256/babda2563fae62097b4c1ee9e170bdb55f01b56c1d435ca390e6180e2c2fe228";
 const PROVENANCE_BASE_LENGTH: u64 = 1_251;
 const PROVENANCE_BASE_KEY: &str =
-    "sha256/eb77ff67a286a9148cc977e4a824a728ebde9269e470af7b3f7f4934b1aa8b7f";
+    "sha256/19c9864cfb49bceb4848a38de44ba84c099ca1b586254696dfb10517f63df3de";
 const PROVENANCE_SOURCE_LENGTH: u64 = 1_251;
 const PROVENANCE_SOURCE_KEY: &str =
-    "sha256/67164e7fd5e50ed1c68a89dc3ed96c8d29b5a6375578ef68160c7cf0774d289d";
+    "sha256/7687e0833dc84fb43d613fd277871af0adfdc6987c9155f193a80237972309b4";
 const PROVENANCE_BUILD_LENGTH: u64 = 1_251;
 const PROVENANCE_BUILD_KEY: &str =
-    "sha256/9cc40523737b85e443532042cda705f886bd916184c811d0c180079eb2a261d8";
-const REORDER_EQUIVALENT_LENGTH: u64 = 3_185;
+    "sha256/6c7376bebca1112d997599bccd170e0d8b826a83e2ffe646cb2eb7aeb46243c1";
+const REORDER_EQUIVALENT_LENGTH: u64 = 3_137;
 const REORDER_EQUIVALENT_KEY: &str =
-    "sha256/1cb156511ca147d942875dc4a145e7477c6ce39a2132f56ef8f0603b0eb60d73";
-const SIGNED_ZERO_LENGTH: u64 = 2_239;
+    "sha256/2e2147e65cac2c64f2517330457604e95019182a9650a38c2a052eeb90934379";
+const SIGNED_ZERO_LENGTH: u64 = 2_231;
 const SIGNED_ZERO_KEY: &str =
-    "sha256/4401ac342ee5d065694c98119d48f3ca3347ce3bb0af3f04429dc77775cc0038";
+    "sha256/cea18ad790e5cb91c477e3fd1316a3ea24fccfa327537575fd1d500d7a631178";
 const CLAIM_MISMATCH_LENGTH: u64 = 1_255;
 const CLAIM_MISMATCH_KEY: &str =
-    "sha256/2267ba3128b80b86623807b816516c2052212db8d218be0f6b4e0f0d8f6ee4aa";
+    "sha256/c91e9c799cdc7cf51175a45c1a377d546f5b38500270bb8c44e194e707ae66b9";
 
 fn emit(output: &CompilationOutput, build_id: &str) -> crate::PortablePublicationCandidate {
-    let provenance = crate::PortableEmissionProvenanceV1::try_new(build_id).unwrap();
+    let provenance = crate::PortableEmissionProvenance::try_new(build_id).unwrap();
     crate::emit_portable_candidate(
         output,
         &provenance,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
         crate::PortableDiffBase::Genesis,
     )
     .unwrap()
@@ -166,10 +166,10 @@ fn signed_zero_output(zero: f32) -> CompilationOutput {
 }
 
 fn artifact_view(bytes: &[u8]) -> laneflow_format::RegistryCheckedObjectView<'_> {
-    laneflow_format::preflight_object_values_v1(
+    laneflow_format::preflight_object_values(
         bytes,
         laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
-        laneflow_format::FormatLimits::V1_HARD,
+        laneflow_format::FormatLimits::HARD,
     )
     .unwrap()
     .registry_view()
@@ -271,12 +271,12 @@ fn portable_min_headless_matches_g1_anchor_and_frozen_exact_bytes() {
     assert_eq!(first_section_offset, 0x00e0);
     let expected_lengths = [120, 20, 356, 84, 94, 64];
     let expected_digests = [
-        "8682b46d765cdc7cf4e880dbf1dcd8d046d6ca82990d57cf3abc2a3568220869",
+        "943f88cfabdc560b98ee110575a1571742f96c9a74b7571fd51d1d42aa46d4ae",
         "3a85cd4b4d295cdd6cfe6ea3cb119b7c59f1addcc36faf58c33809f958191c7e",
         "54975e3435099f8ac2f6b6ec53e3bf68104d236da4a840318e9d0486a46e0f6e",
         "041fb436600f0bd293d9a9a78bb1367144e03e51ecfafca712bbc4dedb67dc19",
         "1ac4a913965b92e3dec446f935384fc18f6947038140c2feb3b474cc854dc5ed",
-        "79e8acf6943d876fd8ee1f45f6856c3b8285562f0c30e4d9de559317316f025f",
+        "c5b63c7194baea4b61907840f8a49b7aefc4591f56d17d4392e47878726add60",
     ];
     for (ordinal, (length, expected_digest)) in expected_lengths
         .into_iter()
@@ -440,10 +440,10 @@ fn portable_signed_zero_input_matches_positive_zero_and_wire_negative_zero_fails
     let mut negative_zero_wire = SIGNED_ZERO_EXPECTED.to_vec();
     negative_zero_wire[offset..offset + 4].copy_from_slice(&(-0.0_f32).to_le_bytes());
     assert_eq!(
-        laneflow_format::preflight_object_values_v1(
+        laneflow_format::preflight_object_values(
             &negative_zero_wire,
             laneflow_static_contract::PortableObjectKind::CanonicalArtifact,
-            laneflow_format::FormatLimits::V1_HARD,
+            laneflow_format::FormatLimits::HARD,
         )
         .unwrap_err()
         .class(),
@@ -478,4 +478,79 @@ fn portable_claim_mismatch_is_structurally_valid_but_not_the_frozen_revision() {
 // caller locations, so inserting lines above those sites would intentionally change exact bytes.
 pub(super) fn min_headless_portable_fixture_candidate() -> crate::PortablePublicationCandidate {
     emit(&empty_output(), MIN_HEADLESS_BUILD_ID)
+}
+
+#[test]
+fn dump_portable_variants_when_requested() {
+    if std::env::var_os("DUMP_PORTABLE").is_none() {
+        return;
+    }
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/portable-v2/lfca-v2-variants");
+    std::fs::create_dir_all(&dir).unwrap();
+    let write_lfca = |name: &str, bytes: &[u8]| {
+        std::fs::write(dir.join(name), bytes).unwrap();
+        format!(
+            "{name} len={} key=sha256/{}\n",
+            bytes.len(),
+            digest_hex(bytes)
+        )
+    };
+    let min = min_headless_portable_fixture_candidate();
+    let mut report = write_lfca("min-headless.lfca", min.canonical_artifact().bytes());
+    report.push_str(&format!(
+        "min-headless revision={}\n",
+        digest_hex(min.network_revision().into_digest().as_bytes())
+    ));
+    let view = artifact_view(min.canonical_artifact().bytes());
+    for ordinal in 0..6 {
+        let section = view.section(ordinal).unwrap();
+        report.push_str(&format!(
+            "min-headless section{ordinal} len={} digest={}\n",
+            section.bytes().len(),
+            digest_hex(section.bytes())
+        ));
+    }
+    report.push_str(&write_lfca(
+        "provenance-base.lfca",
+        emit(
+            &provenance_output("portable-provenance-a.document"),
+            VARIANT_BUILD_ID,
+        )
+        .canonical_artifact()
+        .bytes(),
+    ));
+    report.push_str(&write_lfca(
+        "provenance-source.lfca",
+        emit(
+            &provenance_output("portable-provenance-b.document"),
+            VARIANT_BUILD_ID,
+        )
+        .canonical_artifact()
+        .bytes(),
+    ));
+    report.push_str(&write_lfca(
+        "provenance-build.lfca",
+        emit(
+            &provenance_output("portable-provenance-a.document"),
+            VARIANT_ALTERNATE_BUILD_ID,
+        )
+        .canonical_artifact()
+        .bytes(),
+    ));
+    report.push_str(&write_lfca(
+        "reorder-equivalent.lfca",
+        emit(&reorder_output(false), VARIANT_BUILD_ID)
+            .canonical_artifact()
+            .bytes(),
+    ));
+    report.push_str(&write_lfca(
+        "signed-zero.lfca",
+        emit(&signed_zero_output(0.0), VARIANT_BUILD_ID)
+            .canonical_artifact()
+            .bytes(),
+    ));
+    let mismatch = claim_mismatch_bytes(min.canonical_artifact().bytes());
+    report.push_str(&write_lfca("claim-mismatch.lfca", &mismatch));
+    std::fs::write(dir.join("bindings.txt"), report).unwrap();
 }

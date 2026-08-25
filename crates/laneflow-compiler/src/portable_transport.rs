@@ -207,7 +207,7 @@ mod tests {
     }
 
     fn limits(max_object_bytes: u64) -> FormatLimits {
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_object_bytes = max_object_bytes;
         FormatLimits::try_new(config).unwrap()
     }

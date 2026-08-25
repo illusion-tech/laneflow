@@ -19,7 +19,7 @@ fn build_genesis_lfsd(
     artifact: &PortableObjectCandidate,
     limits: FormatLimits,
 ) -> Result<OwnedObject, PortableEmissionError> {
-    let target = preflight_object_values_v1(
+    let target = preflight_object_values(
         artifact.bytes(),
         PortableObjectKind::CanonicalArtifact,
         limits,
@@ -84,11 +84,11 @@ pub(super) fn build_lfsd(
     network_revision: NetworkRevisionId,
     artifact: &PortableObjectCandidate,
     limits: FormatLimits,
-) -> Result<(OwnedObject, ExpectedSemanticDiffBaseV1), PortableEmissionError> {
+) -> Result<(OwnedObject, ExpectedSemanticDiffBase), PortableEmissionError> {
     match base {
         PortableDiffBase::Genesis => Ok((
             build_genesis_lfsd(output, network_revision, artifact, limits)?,
-            ExpectedSemanticDiffBaseV1::Genesis,
+            ExpectedSemanticDiffBase::Genesis,
         )),
         PortableDiffBase::Artifact(base) => {
             build_artifact_lfsd(base, network_revision, artifact, limits)
@@ -117,14 +117,14 @@ fn build_artifact_lfsd(
     target_network_revision: NetworkRevisionId,
     target_artifact: &PortableObjectCandidate,
     limits: FormatLimits,
-) -> Result<(OwnedObject, ExpectedSemanticDiffBaseV1), PortableEmissionError> {
+) -> Result<(OwnedObject, ExpectedSemanticDiffBase), PortableEmissionError> {
     if base.kind() != PortableObjectKind::CanonicalArtifact {
         return Err(PortableEmissionError::InvalidDiffBaseKind);
     }
     let base =
-        preflight_object_values_v1(base.bytes(), PortableObjectKind::CanonicalArtifact, limits)?;
+        preflight_object_values(base.bytes(), PortableObjectKind::CanonicalArtifact, limits)?;
     let base_view = base.registry_view();
-    let target_view = preflight_object_values_v1(
+    let target_view = preflight_object_values(
         target_artifact.bytes(),
         PortableObjectKind::CanonicalArtifact,
         limits,
@@ -147,7 +147,7 @@ fn build_artifact_lfsd(
     let static_rule_changes = artifact_static_rule_changes(&base_index, &target_index)?;
     let spatial_changes = artifact_spatial_configuration_changes(&base_index, &target_index)?;
 
-    let expected_base = ExpectedSemanticDiffBaseV1::Artifact {
+    let expected_base = ExpectedSemanticDiffBase::Artifact {
         network_revision_derivation_version: NETWORK_REVISION_DERIVATION_VERSION,
         network_revision: base_network_revision,
         digest: base_digest,
@@ -201,19 +201,21 @@ fn build_artifact_lfsd(
 mod tests {
     use super::*;
 
-    use laneflow_format::{FormatError, FormatLimitConfig, LimitDimension};
+    use laneflow_format::{
+        FormatError, FormatLimitConfig, LimitDimension, preflight_object_values,
+    };
 
     const EXPECTED_LFCA: &[u8] =
-        include_bytes!("../../tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca");
+        include_bytes!("../../tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca");
 
     #[test]
     fn artifact_diff_reapplies_caller_limits_before_building_base_index() {
         let mut duplicate_stable_id = EXPECTED_LFCA.to_vec();
         let (first_stable_id, second_stable_id) = {
-            let view = preflight_object_values_v1(
+            let view = preflight_object_values(
                 &duplicate_stable_id,
                 PortableObjectKind::CanonicalArtifact,
-                FormatLimits::V1_HARD,
+                FormatLimits::HARD,
             )
             .unwrap()
             .registry_view();
@@ -232,14 +234,14 @@ mod tests {
         };
         let value = duplicate_stable_id[first_stable_id].to_vec();
         duplicate_stable_id[second_stable_id].copy_from_slice(&value);
-        let base = preflight_object_values_v1(
+        let base = preflight_object_values(
             &duplicate_stable_id,
             PortableObjectKind::CanonicalArtifact,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .unwrap();
         let target = close_object(EXPECTED_LFCA.to_vec().into_boxed_slice());
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_object_bytes = duplicate_stable_id.len() as u64 - 1;
         let limits = FormatLimits::try_new(config).unwrap();
 

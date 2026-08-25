@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{PoseSource, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_spatial::{
     CanonicalPoseBatch, FramePlacementToken, PoseInput, PoseRecordId, SpatialSession,
@@ -12,11 +12,11 @@ use laneflow_static_network::{
 };
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
 );
 
 fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked canonical network input");
     build_shared_network_revision(
         input,
@@ -49,8 +49,8 @@ fn s1_two_vehicles_step_and_extract_pose_batch() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            1.0 + profile.length() + profile.min_gap() + 2.0,
-            0.0,
+            1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+            0,
         ))
         .expect("leader");
     let follower = world
@@ -58,8 +58,8 @@ fn s1_two_vehicles_step_and_extract_pose_batch() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            1.0,
-            0.0,
+            1_000,
+            0,
         ))
         .expect("follower");
 
@@ -99,9 +99,9 @@ fn s1_two_vehicles_step_and_extract_pose_batch() {
         .iter()
         .enumerate()
         .map(|(index, (_, source))| match *source {
-            PoseSource::Lane { edge, progress } => PoseInput::from_source(
+            PoseSource::Lane { edge, progress_mm } => PoseInput::from_source(
                 PoseRecordId::new(index as u32),
-                laneflow_spatial::PoseSource::Lane { edge, progress },
+                laneflow_spatial::PoseSource::Lane { edge, progress_mm },
             ),
             PoseSource::Parking { space } => PoseInput::from_source(
                 PoseRecordId::new(index as u32),

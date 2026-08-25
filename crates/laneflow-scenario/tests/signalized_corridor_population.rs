@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     TickInput, TrafficWorld, VehicleHandle, VehicleReplaceBlock, VehicleSpawnInput, VehicleState,
     VehicleStatus, WorldConfig,
@@ -23,7 +23,7 @@ const CORRIDOR_CATALOG: &str =
     include_str!("../../../examples/data/v0.2-signalized-corridor.catalog.toml");
 
 fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-    let input = check_canonical_network_input_v1(CORRIDOR_LFCA, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(CORRIDOR_LFCA, FormatLimits::HARD)
         .expect("checked canonical network input");
     build_shared_network_revision(
         input,
@@ -94,18 +94,12 @@ fn config_freezes_defaults_and_closed_target_range() {
 
 #[test]
 fn prepare_50_100_200_are_deterministic_for_seed_zero() {
-    fn fingerprint(target: usize) -> Vec<(u32, u32, u64)> {
+    fn fingerprint(target: usize) -> Vec<(u32, u32, u32)> {
         let (prepared, _) = prepare(target, 0);
         prepared
             .initial_vehicles()
             .iter()
-            .map(|plan| {
-                (
-                    plan.route.raw(),
-                    plan.route_edge_index,
-                    plan.progress.to_bits(),
-                )
-            })
+            .map(|plan| (plan.route.raw(), plan.route_edge_index, plan.progress_mm))
             .collect()
     }
     let fifty = fingerprint(50);
@@ -128,7 +122,7 @@ fn bind_and_replace_does_not_despawn_then_spawn() {
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
             8,
             1,
-            100,
+            TICK_MS,
         ),
     )
     .expect("install");
@@ -139,7 +133,7 @@ fn bind_and_replace_does_not_despawn_then_spawn() {
 
     let mut completed = 0;
     for _ in 0..8_000 {
-        world.step(TickInput::new(100)).expect("step");
+        world.step(TickInput::new(TICK_MS)).expect("step");
         completed += controller.consume_world(&world).expect("consume");
         if completed > 0 {
             break;
@@ -189,14 +183,14 @@ fn blocked_retry_replays_the_same_plan() {
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
             8,
             1,
-            100,
+            TICK_MS,
         ),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
     let mut controller = prepared.bind(&world, &vehicles).expect("bind");
     for _ in 0..8_000 {
-        world.step(TickInput::new(100)).expect("step");
+        world.step(TickInput::new(TICK_MS)).expect("step");
         if controller.consume_world(&world).expect("consume") > 0 {
             break;
         }
@@ -223,7 +217,7 @@ fn blocked_retry_replays_the_same_plan() {
                     old,
                     blocker: old,
                     blocker_ahead: true,
-                    bumper_gap: 0.0,
+                    bumper_gap: 0,
                 },
             ))
         })
@@ -236,8 +230,8 @@ fn blocked_retry_replays_the_same_plan() {
         .pending_spawn_input(&world, old)
         .expect("same pending plan");
     assert_eq!(first.route(), second.route());
-    assert_eq!(first.progress(), second.progress());
-    assert_eq!(first.initial_speed(), second.initial_speed());
+    assert_eq!(first.progress_mm(), second.progress_mm());
+    assert_eq!(first.initial_speed_mm_s(), second.initial_speed_mm_s());
 }
 
 #[test]
@@ -249,14 +243,14 @@ fn apply_pending_host_error_restores_fifo_front() {
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
             8,
             1,
-            100,
+            TICK_MS,
         ),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
     let mut controller = prepared.bind(&world, &vehicles).expect("bind");
     for _ in 0..8_000 {
-        world.step(TickInput::new(100)).expect("step");
+        world.step(TickInput::new(TICK_MS)).expect("step");
         if controller.consume_world(&world).expect("consume") > 0 {
             break;
         }
@@ -291,7 +285,7 @@ fn take_initial_vehicles_then_bind_reaches_running() {
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
             8,
             1,
-            100,
+            TICK_MS,
         ),
     )
     .expect("install");
@@ -312,14 +306,16 @@ fn consume_world_rejects_skipped_ticks() {
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
             8,
             1,
-            100,
+            TICK_MS,
         ),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
     let mut controller = prepared.bind(&world, &vehicles).expect("bind");
-    world.step(TickInput::new(100)).expect("first step");
-    world.step(TickInput::new(100)).expect("skipped consume");
+    world.step(TickInput::new(TICK_MS)).expect("first step");
+    world
+        .step(TickInput::new(TICK_MS))
+        .expect("skipped consume");
     let error = controller.consume_world(&world).expect_err("gap");
     assert!(matches!(
         error,
@@ -339,14 +335,14 @@ fn consume_world_rejects_untracked_completed_vehicle() {
             u32::try_from(MIN_TARGET_VEHICLE_COUNT + 1).expect("fits"),
             8,
             1,
-            100,
+            TICK_MS,
         ),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
     let mut controller = prepared.bind(&world, &vehicles).expect("bind");
     let extra = spawn_near_route_end(&mut world);
-    world.step(TickInput::new(100)).expect("step");
+    world.step(TickInput::new(TICK_MS)).expect("step");
     assert_eq!(
         world.vehicle(extra).expect("extra").status(),
         VehicleStatus::Completed
@@ -360,9 +356,9 @@ fn consume_world_rejects_untracked_completed_vehicle() {
 
 fn foreign_world() -> TrafficWorld {
     const S1: &[u8] = include_bytes!(
-        "../../../crates/laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+        "../../../crates/laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
     );
-    let input = check_canonical_network_input_v1(S1, FormatLimits::V1_HARD).expect("s1");
+    let input = check_canonical_network_input(S1, FormatLimits::HARD).expect("s1");
     let foreign = build_shared_network_revision(
         input,
         SharedNetworkBuildOptions::new(
@@ -385,15 +381,15 @@ fn spawn_near_route_end(world: &mut TrafficWorld) -> VehicleHandle {
         .expect("edges")
         .to_vec();
     let last = *edges.last().expect("route has edges");
-    let last_length = world.traffic().lane_lengths_meters()[last.index()];
-    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[last.index()];
+    let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
+    let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
     let last_index = u32::try_from(edges.len() - 1).expect("index");
     world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             last_index,
-            (last_length - 0.5).max(0.0),
+            last_length.saturating_sub(50),
             speed_limit,
         ))
         .expect("extra near end")
@@ -418,7 +414,7 @@ fn consume_world_rejects_foreign_revision() {
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
             8,
             1,
-            100,
+            TICK_MS,
         ),
     )
     .expect("install");
@@ -442,14 +438,14 @@ fn pending_spawn_input_rejects_foreign_revision() {
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
             8,
             1,
-            100,
+            TICK_MS,
         ),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
     let mut controller = prepared.bind(&world, &vehicles).expect("bind");
     for _ in 0..8_000 {
-        world.step(TickInput::new(100)).expect("step");
+        world.step(TickInput::new(TICK_MS)).expect("step");
         if controller.consume_world(&world).expect("consume") > 0 {
             break;
         }
@@ -480,14 +476,14 @@ fn apply_pending_rejects_foreign_revision() {
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
             8,
             1,
-            100,
+            TICK_MS,
         ),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
     let mut controller = prepared.bind(&world, &vehicles).expect("bind");
     for _ in 0..8_000 {
-        world.step(TickInput::new(100)).expect("step");
+        world.step(TickInput::new(TICK_MS)).expect("step");
         if controller.consume_world(&world).expect("consume") > 0 {
             break;
         }
@@ -503,7 +499,7 @@ fn apply_pending_rejects_foreign_revision() {
                     old,
                     blocker: old,
                     blocker_ahead: true,
-                    bumper_gap: 0.0,
+                    bumper_gap: 0,
                 },
             ))
         })
@@ -518,7 +514,7 @@ fn apply_pending_rejects_foreign_revision() {
     assert_eq!(controller.counts().pending, pending);
 }
 
-const TICK_MS: u64 = 100;
+const TICK_MS: u64 = 16;
 const SHORT_SOAK_REPLACED: usize = 50;
 const FULL_SOAK_REPLACED: usize = 10_000;
 const SHORT_SOAK_MAX_TICKS: u32 = 50_000;

@@ -432,7 +432,7 @@ fn expected_owner_local_source_keys(
 
 pub(super) fn build_lfsm(
     output: &CompilationOutput,
-    provenance: &PortableEmissionProvenanceV1,
+    provenance: &PortableEmissionProvenance,
     source_collection_digest: [u8; 32],
     network_revision: NetworkRevisionId,
     artifact: &PortableObjectCandidate,
@@ -906,9 +906,9 @@ pub(super) fn build_lfsm(
             let mut source_locations = source.contributing.clone();
             source_locations.push(source.primary.clone());
             let constraint_version = if source.role == 9 {
-                CONSTRAINT_CONTRACT_VERSION_V1
+                CONSTRAINT_CONTRACT_VERSION
             } else {
-                STATIC_EXECUTION_CONTRACT_VERSION_V1
+                STATIC_EXECUTION_CONTRACT_VERSION
             };
             Ok(row([
                 field(1, OwnedValue::U16(source.owner_entity_kind.code())),

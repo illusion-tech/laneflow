@@ -7,7 +7,7 @@ use laneflow_bevy::{
     LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, LaneFlowVehicleReplaceOutcome,
     replace_completed_vehicle,
 };
-use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig};
 use laneflow_spatial::SpatialSession;
 use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
@@ -17,11 +17,11 @@ use laneflow_static_network::{
 };
 
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
 );
 
 fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked canonical network input");
     build_shared_network_revision(
         input,
@@ -44,15 +44,15 @@ fn drive_to_completed(world: &mut TrafficWorld) -> laneflow_runtime::VehicleHand
         .expect("edges")
         .to_vec();
     let last = *edges.last().expect("route has edges");
-    let last_length = world.traffic().lane_lengths_meters()[last.index()];
-    let speed_limit = world.traffic().lane_speed_limits_meters_per_second()[last.index()];
+    let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
+    let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
     let last_index = u32::try_from(edges.len() - 1).expect("index");
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
             route,
             last_index,
-            (last_length - 0.5).max(0.0),
+            last_length.saturating_sub(500),
             speed_limit,
         ))
         .expect("spawn near end");
@@ -108,15 +108,15 @@ fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
             VehicleProfileOrdinal::from_raw(0),
             route,
             0,
-            0.0,
-            0.0,
+            0,
+            0,
         ))
         .expect("blocker");
     let before = *app.world().get::<Transform>(entity).expect("transform");
     let outcome = replace_completed_vehicle(
         app.world_mut(),
         old,
-        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0.0, 0.0),
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
     )
     .expect("blocked is success-path for adapter");
     assert!(matches!(outcome, LaneFlowVehicleReplaceOutcome::Blocked(_)));
@@ -134,7 +134,7 @@ fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
     let outcome = replace_completed_vehicle(
         app.world_mut(),
         old,
-        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8.0, 0.0),
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 8_000, 0),
     )
     .expect("replace");
     let LaneFlowVehicleReplaceOutcome::Replaced(record) = outcome else {
@@ -181,7 +181,7 @@ fn unbound_replace_stays_unbound() {
     let outcome = replace_completed_vehicle(
         app.world_mut(),
         old,
-        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0.0, 0.0),
+        VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 0, 0),
     )
     .expect("replace");
     let LaneFlowVehicleReplaceOutcome::Replaced(record) = outcome else {

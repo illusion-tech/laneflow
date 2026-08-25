@@ -1,6 +1,6 @@
 use std::sync::{Arc, atomic::AtomicBool};
 
-use laneflow_format::{FormatLimits, RegistryCheckedFieldValue, check_canonical_network_input_v1};
+use laneflow_format::{FormatLimits, RegistryCheckedFieldValue, check_canonical_network_input};
 use laneflow_static_contract::{
     AuthoringLaneOrdinal, EntityKind, LaneEdgeKind, LaneEdgeOrdinal, ManeuverPathOrdinal,
     ParticipantClassOrdinal, RoadCorridorOrdinal, RoadSectionOrdinal, SignalControllerOrdinal,
@@ -14,20 +14,20 @@ use crate::{
 };
 
 const MIN_HEADLESS: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-variants/min-headless.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-variants/min-headless.lfca"
 );
 const FULL_SPATIAL: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
 );
 const REORDER_EQUIVALENT: &[u8] = include_bytes!(
-    "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-variants/reorder-equivalent.lfca"
+    "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-variants/reorder-equivalent.lfca"
 );
 
 const BUILD_LIMITS: SharedNetworkBuildLimits =
     SharedNetworkBuildLimits::new(64 * 1024 * 1024, 16 * 1024 * 1024);
 
 fn build(bytes: &[u8], spatial: SpatialBuildOption) -> Arc<crate::SharedNetworkRevision> {
-    let input = check_canonical_network_input_v1(bytes, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(bytes, FormatLimits::HARD)
         .expect("checked canonical network input");
     build_shared_network_revision(input, SharedNetworkBuildOptions::new(spatial, BUILD_LIMITS))
         .expect("shared network revision")
@@ -60,7 +60,7 @@ fn full_spatial_build_closes_identity_lane_csr_and_lane_pose() {
     let lane_count = revision.traffic().lane_edge_count();
     assert!(lane_count > 0);
     assert_eq!(
-        revision.traffic().lane_lengths_meters().len(),
+        revision.traffic().lane_lengths_millimetres().len(),
         usize::try_from(lane_count).expect("lane count")
     );
     assert_eq!(
@@ -71,15 +71,15 @@ fn full_spatial_build_closes_identity_lane_csr_and_lane_pose() {
     let ordinal_for_length = |length| {
         let index = revision
             .traffic()
-            .lane_lengths_meters()
+            .lane_lengths_millimetres()
             .iter()
             .position(|actual| *actual == length)
             .expect("fixture lane length");
         LaneEdgeOrdinal::try_from_usize(index).expect("fixture lane ordinal")
     };
-    let first = ordinal_for_length(10.0);
-    let middle = ordinal_for_length(8.0);
-    let last = ordinal_for_length(12.0);
+    let first = ordinal_for_length(10_000);
+    let middle = ordinal_for_length(8_000);
+    let last = ordinal_for_length(12_000);
     let stable_id = revision
         .identity()
         .stable_id::<LaneEdgeKind>(first)
@@ -271,7 +271,7 @@ fn successful_root_outlives_input_bytes_and_arc_clones_share_components() {
 
 #[test]
 fn retained_limit_fails_before_a_root_exists_and_exact_boundary_succeeds() {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked input");
     assert!(matches!(
         build_shared_network_revision(
@@ -289,7 +289,7 @@ fn retained_limit_fails_before_a_root_exists_and_exact_boundary_succeeds() {
 
     let required =
         build(FULL_SPATIAL, SpatialBuildOption::RetainAvailable).retained_logical_bytes();
-    let below_exact = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let below_exact = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked input");
     assert!(matches!(
         build_shared_network_revision(
@@ -305,7 +305,7 @@ fn retained_limit_fails_before_a_root_exists_and_exact_boundary_succeeds() {
         })
     ));
 
-    let exact = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let exact = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked input");
     let root = build_shared_network_revision(
         exact,
@@ -320,7 +320,7 @@ fn retained_limit_fails_before_a_root_exists_and_exact_boundary_succeeds() {
 
 #[test]
 fn scratch_limit_fails_before_a_root_exists_and_exact_boundary_succeeds() {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked input");
     let result = build_shared_network_revision(
         input,
@@ -338,7 +338,7 @@ fn scratch_limit_fails_before_a_root_exists_and_exact_boundary_succeeds() {
         _ => panic!("scratch budget should fail after retained budget passes"),
     };
 
-    let exact = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let exact = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked input");
     assert!(
         build_shared_network_revision(
@@ -354,7 +354,7 @@ fn scratch_limit_fails_before_a_root_exists_and_exact_boundary_succeeds() {
 
 #[test]
 fn omit_spatial_endpoint_scratch_is_budgeted_exactly() {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked input");
     let result = build_shared_network_revision(
         input,
@@ -372,7 +372,7 @@ fn omit_spatial_endpoint_scratch_is_budgeted_exactly() {
         _ => panic!("omit scratch budget should include spatial join endpoints"),
     };
 
-    let exact = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let exact = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked input");
     assert!(
         build_shared_network_revision(
@@ -388,7 +388,7 @@ fn omit_spatial_endpoint_scratch_is_budgeted_exactly() {
 
 #[test]
 fn pre_cancelled_build_returns_no_root() {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked input");
     let cancelled = AtomicBool::new(true);
     let result = build_shared_network_revision(
@@ -427,7 +427,7 @@ fn u64_field(row: laneflow_format::RegistryCheckedRowView<'_>, tag: u16) -> u64 
 
 #[test]
 fn full_spatial_preserves_section_lane_and_controller_phase_sequence() {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked input");
     let view = input.value_checked_view();
     let entities = view.registry_view().section(2).expect("entities");
@@ -576,7 +576,7 @@ fn full_spatial_access_cells_do_not_scan_and_stay_in_rule_bounds() {
 
 #[test]
 fn full_spatial_route_occurrences_are_owner_local_partitions() {
-    let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD)
+    let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
         .expect("checked input");
     let view = input.value_checked_view();
     let entities = view.registry_view().section(2).expect("entities");

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use laneflow_compiler::{PortableDiffBase, PortableEmissionProvenanceV1, emit_portable_candidate};
-use laneflow_format::{FormatLimits, check_post_emission_bundle_v1};
+use laneflow_compiler::{PortableDiffBase, PortableEmissionProvenance, emit_portable_candidate};
+use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_scenario::signalized_corridor::{
     CATALOG_VERSION, CorridorCatalog, PORTAL_IDS, PortalCatalogEntry, PortalLaneCatalogEntry,
     RouteCatalogEntry, SpawnSlotCatalogEntry, WeightedRouteChoiceCatalogEntry, validate,
@@ -285,7 +285,7 @@ impl GeneratedScenario {
 
     pub fn emit_portable_sidecars(&self) -> Result<(Vec<u8>, Vec<u8>), Error> {
         let provenance =
-            PortableEmissionProvenanceV1::try_new(COMPILER_BUILD_ID).map_err(|error| {
+            PortableEmissionProvenance::try_new(COMPILER_BUILD_ID).map_err(|error| {
                 Error::Validation {
                     stage: "portable provenance",
                     message: format!("{error:?}"),
@@ -294,19 +294,19 @@ impl GeneratedScenario {
         let candidate = emit_portable_candidate(
             &self.compilation,
             &provenance,
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
             PortableDiffBase::Genesis,
         )
         .map_err(|error| Error::Validation {
             stage: "emit LFCA",
             message: format!("{error:?}"),
         })?;
-        check_post_emission_bundle_v1(
+        check_post_emission_bundle(
             candidate.canonical_artifact().bytes(),
             candidate.source_map().bytes(),
             candidate.semantic_diff().bytes(),
             candidate.expected_semantic_diff_base(),
-            FormatLimits::V1_HARD,
+            FormatLimits::HARD,
         )
         .map_err(|error| Error::Validation {
             stage: "post-emission",

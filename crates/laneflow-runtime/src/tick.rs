@@ -1,10 +1,11 @@
 use laneflow_static_contract::{LaneEdgeOrdinal, SignalAspect, StaticRouteOrdinal};
-use laneflow_static_network::VehicleProfileView;
+use laneflow_static_network::{BoundedDistance, VehicleProfileView};
 
 use crate::tables::{
     compiled_hop_gate, occupancy_front_gap, remaining_along_route, remaining_to_route_end,
     static_route_ordinal,
 };
+use crate::units::{meters, meters_per_second, round_mm, round_um};
 use crate::{StepError, StepOutcome, TickInput, TrafficWorld, VehicleState, VehicleStatus};
 
 impl TrafficWorld {
@@ -56,101 +57,86 @@ impl TrafficWorld {
         let edges = self.route_edges(state.route)?;
         let cursor = usize::try_from(state.route_edge_index).ok()?;
         let edge = *edges.get(cursor)?;
-        let lengths = self.revision.traffic().lane_lengths_meters();
+        let lengths = self.revision.traffic().lane_lengths_millimetres();
         let speed_limits = self
             .revision
             .traffic()
-            .lane_speed_limits_meters_per_second();
+            .lane_speed_limits_millimetres_per_second();
         let current_limit = *speed_limits.get(edge.index())?;
         let profile = self
             .revision
             .traffic()
             .relations()
             .vehicle_profile(state.profile)?;
-        let desired = profile.desired_speed().min(current_limit).max(0.0);
+        let desired_mm_s = profile.desired_speed_mm_s().min(current_limit);
         let leader_gap = self.leader_bumper_gap(&state, edges, lengths);
-        let route_end = remaining_to_route_end(lengths, edges, cursor, state.progress)?;
+        let route_end = remaining_to_route_end(lengths, edges, cursor, state.progress_mm)?;
         let signal_stop = self.signal_stop_distance(&state, edges, lengths, cursor);
-        let envelope = speed_limit_path_envelope(
+        let (mut travel_m, next_speed_m) = si_comfort_travel(
+            state.speed_mm_s,
+            desired_mm_s,
+            leader_gap,
+            profile,
+            route_end,
+            signal_stop,
             edges,
             lengths,
             speed_limits,
             cursor,
-            state.progress,
+            state.progress_mm,
             delta_s,
         )?;
-
-        let mut travel = iidm_travel(state.speed, desired, leader_gap, profile, delta_s)?;
-        if let Some(gap) = leader_gap {
-            travel = travel.min((gap - profile.min_gap()).max(0.0));
+        if travel_m < 0.0 {
+            travel_m = 0.0;
         }
-        if let Some(stop) = signal_stop {
-            travel = travel.min(stop.max(0.0));
-        }
-        travel = travel.min(route_end.max(0.0)).min(envelope);
-        if !travel.is_finite() || travel < 0.0 {
+        if !travel_m.is_finite() || !next_speed_m.is_finite() {
             return None;
         }
 
-        let mut speed = if travel <= 0.0 {
-            0.0
+        let hard_room = hard_room_mm(
+            leader_gap,
+            profile.min_gap_mm(),
+            signal_stop,
+            route_end,
+            lengths.get(edge.index()).copied()?,
+            state.progress_mm,
+            self.hop_permitted(state.route, edges, cursor),
+        );
+        if hard_room == 0 {
+            state.speed_mm_s = 0;
+            state.carry_um = 0;
+            if matches!(route_end, BoundedDistance::Finite(0)) {
+                state.status = VehicleStatus::Completed;
+            }
+            return Some(state);
+        }
+
+        let um = u64::from(state.carry_um).saturating_add(round_um(travel_m)?);
+        let travel_mm = u32::try_from((um / 1_000).min(u64::from(hard_room))).ok()?;
+        let exhausted = travel_mm == hard_room;
+        if exhausted {
+            state.carry_um = 0;
         } else {
-            (2.0 * travel / delta_s - state.speed)
-                .max(0.0)
-                .min(current_limit)
-        };
-        speed = constrain_upcoming_speed_limits(
-            state.speed,
-            speed,
-            delta_s,
-            edges,
-            lengths,
-            speed_limits,
-            cursor,
-            state.progress,
-            profile.comfort_decel(),
-            profile.emergency_decel(),
-        )?;
-        travel = ((state.speed + speed) * 0.5 * delta_s).max(0.0);
-        if let Some(gap) = leader_gap {
-            travel = travel.min((gap - profile.min_gap()).max(0.0));
+            state.carry_um = u16::try_from(um % 1_000).ok()?;
         }
-        if let Some(stop) = signal_stop {
-            travel = travel.min(stop.max(0.0));
-        }
-        travel = travel.min(route_end.max(0.0)).min(envelope);
-        travel = clamp_travel_to_speed_down_boundary(
-            travel,
-            state.speed,
-            speed,
-            delta_s,
-            edges,
-            lengths,
-            speed_limits,
-            cursor,
-            state.progress,
-        )?;
-        if travel <= 0.0 {
-            speed = 0.0;
-        } else {
-            speed = (2.0 * travel / delta_s - state.speed)
-                .max(0.0)
-                .min(current_limit);
-        }
-        apply_travel(&mut state, edges, lengths, travel)?;
+        let route = state.route;
+        apply_travel_mm(&mut state, edges, lengths, travel_mm, |index| {
+            self.hop_permitted(route, edges, index)
+        })?;
         let committed_index = usize::try_from(state.route_edge_index).ok()?;
         let committed_edge = *edges.get(committed_index)?;
         let committed_limit = *speed_limits.get(committed_edge.index())?;
-        speed = speed.min(committed_limit);
-        let remaining = remaining_to_route_end(lengths, edges, committed_index, state.progress)?;
-        if remaining <= 1e-9 {
-            speed = 0.0;
-            state.status = VehicleStatus::Completed;
+        let remaining = remaining_to_route_end(lengths, edges, committed_index, state.progress_mm)?;
+        if exhausted || matches!(remaining, BoundedDistance::Finite(0)) {
+            state.speed_mm_s = 0;
+            state.carry_um = 0;
+            if matches!(remaining, BoundedDistance::Finite(0)) {
+                state.status = VehicleStatus::Completed;
+            }
+            return Some(state);
         }
-        if signal_stop.is_some_and(|stop| travel + 1e-9 >= stop) {
-            speed = 0.0;
-        }
-        state.speed = speed;
+        let speed_mm_s = round_mm(next_speed_m)?.min(committed_limit);
+        state.speed_mm_s = speed_mm_s;
         Some(state)
     }
 
@@ -158,10 +144,10 @@ impl TrafficWorld {
         &self,
         follower: &VehicleState,
         edges: &[LaneEdgeOrdinal],
-        lengths: &[f64],
-    ) -> Option<f64> {
+        lengths: &[u32],
+    ) -> Option<i64> {
         let cursor = usize::try_from(follower.route_edge_index).ok()?;
-        let mut best: Option<f64> = None;
+        let mut best: Option<i64> = None;
         for handle in self.live_order.iter().copied() {
             if handle == follower.handle {
                 continue;
@@ -182,11 +168,11 @@ impl TrafficWorld {
                 lengths,
                 edges,
                 cursor,
-                follower.progress,
+                follower.progress_mm,
                 leader_edges,
                 leader_index,
-                leader.progress,
-                leader.length,
+                leader.progress_mm,
+                leader.length_mm,
             ) else {
                 continue;
             };
@@ -199,9 +185,9 @@ impl TrafficWorld {
         &self,
         state: &VehicleState,
         edges: &[LaneEdgeOrdinal],
-        lengths: &[f64],
+        lengths: &[u32],
         cursor: usize,
-    ) -> Option<f64> {
+    ) -> Option<BoundedDistance> {
         if let Some(ordinal) = static_route_ordinal(state.route) {
             return self.static_signal_stop_distance(ordinal, state, edges, lengths, cursor);
         }
@@ -213,9 +199,9 @@ impl TrafficWorld {
         ordinal: StaticRouteOrdinal,
         state: &VehicleState,
         edges: &[LaneEdgeOrdinal],
-        lengths: &[f64],
+        lengths: &[u32],
         cursor: usize,
-    ) -> Option<f64> {
+    ) -> Option<BoundedDistance> {
         let relations = self.revision.traffic().relations();
         let mut search = cursor;
         loop {
@@ -228,7 +214,7 @@ impl TrafficWorld {
                     lengths,
                     edges,
                     cursor,
-                    state.progress,
+                    state.progress_mm,
                     from,
                     stop_at,
                 );
@@ -244,9 +230,9 @@ impl TrafficWorld {
         &self,
         state: &VehicleState,
         edges: &[LaneEdgeOrdinal],
-        lengths: &[f64],
+        lengths: &[u32],
         cursor: usize,
-    ) -> Option<f64> {
+    ) -> Option<BoundedDistance> {
         let compiled = self.compiled_dynamic_route(state.route)?;
         let network = self.revision.traffic().maneuvers();
         for index in cursor..edges.len().saturating_sub(1) {
@@ -263,12 +249,50 @@ impl TrafficWorld {
                 lengths,
                 edges,
                 cursor,
-                state.progress,
+                state.progress_mm,
                 index,
                 edge_length,
             );
         }
         None
+    }
+
+    fn hop_permitted(
+        &self,
+        route: crate::RouteHandle,
+        edges: &[LaneEdgeOrdinal],
+        hop_index: usize,
+    ) -> bool {
+        if hop_index + 1 >= edges.len() {
+            return false;
+        }
+        let from = edges[hop_index];
+        let to = edges[hop_index + 1];
+        if let Some(ordinal) = static_route_ordinal(route) {
+            return match self
+                .revision
+                .traffic()
+                .relations()
+                .static_route_transition_gates(ordinal)
+                .and_then(|gates| gates.get(hop_index))
+            {
+                Some(Some(gate)) => !self.gate_is_restrictive(*gate),
+                Some(None) | None => true,
+            };
+        }
+        let Some(compiled) = self.compiled_dynamic_route(route) else {
+            return false;
+        };
+        match compiled_hop_gate(
+            self.revision.traffic().maneuvers(),
+            compiled,
+            hop_index,
+            from,
+            to,
+        ) {
+            Some(gate) => !self.gate_is_restrictive(gate),
+            None => true,
+        }
     }
 
     fn gate_is_restrictive(&self, gate: laneflow_static_contract::ManeuverGateOrdinal) -> bool {
@@ -289,6 +313,145 @@ impl TrafficWorld {
     }
 }
 
+fn si_meters(mm: u32) -> f32 {
+    meters(mm) as f32
+}
+
+fn si_speed(mm_s: u32) -> f32 {
+    meters_per_second(mm_s) as f32
+}
+
+fn finite_meters(distance: BoundedDistance) -> Option<f32> {
+    match distance {
+        BoundedDistance::Finite(mm) => Some(si_meters(mm)),
+        BoundedDistance::BeyondFinite => None,
+    }
+}
+
+fn hard_room_mm(
+    leader_gap: Option<i64>,
+    min_gap_mm: u32,
+    signal_stop: Option<BoundedDistance>,
+    route_end: BoundedDistance,
+    edge_length_mm: u32,
+    progress_mm: u32,
+    hop_permitted: bool,
+) -> u32 {
+    let mut room = u32::MAX;
+    if let Some(gap) = leader_gap {
+        let leftover = gap.saturating_sub(i64::from(min_gap_mm));
+        let leader_room = if leftover <= 0 {
+            0
+        } else {
+            u32::try_from(leftover).unwrap_or(u32::MAX)
+        };
+        room = room.min(leader_room);
+    }
+    if let Some(BoundedDistance::Finite(stop)) = signal_stop {
+        room = room.min(stop);
+    }
+    if let BoundedDistance::Finite(remaining) = route_end {
+        room = room.min(remaining);
+    }
+    if !hop_permitted {
+        room = room.min(edge_length_mm.saturating_sub(progress_mm));
+    }
+    room
+}
+
+#[allow(clippy::too_many_arguments)]
+fn si_comfort_travel(
+    speed_mm_s: u32,
+    desired_mm_s: u32,
+    leader_gap: Option<i64>,
+    profile: VehicleProfileView,
+    route_end: BoundedDistance,
+    signal_stop: Option<BoundedDistance>,
+    edges: &[LaneEdgeOrdinal],
+    lengths: &[u32],
+    speed_limits: &[u32],
+    cursor: usize,
+    progress_mm: u32,
+    delta_s: f64,
+) -> Option<(f64, f64)> {
+    let speed = f64::from(si_speed(speed_mm_s));
+    let desired = f64::from(si_speed(desired_mm_s));
+    let leader_m = leader_gap.map(|gap| (gap.max(0) as f64) / 1_000.0);
+    let min_gap_m = f64::from(si_meters(profile.min_gap_mm()));
+    let envelope =
+        speed_limit_path_envelope(edges, lengths, speed_limits, cursor, progress_mm, delta_s)?;
+    let mut travel = iidm_travel(speed, desired, leader_m, profile, delta_s)?;
+    travel = clamp_si_travel(
+        travel,
+        leader_m,
+        min_gap_m,
+        signal_stop,
+        route_end,
+        envelope,
+    );
+    if !travel.is_finite() {
+        return None;
+    }
+    let mut next_speed = if travel <= 0.0 {
+        0.0
+    } else {
+        (2.0 * travel / delta_s - speed).max(0.0).min(desired)
+    };
+    next_speed = constrain_upcoming_speed_limits(
+        speed,
+        next_speed,
+        delta_s,
+        edges,
+        lengths,
+        speed_limits,
+        cursor,
+        progress_mm,
+        f64::from(profile.comfort_decel()),
+        f64::from(profile.emergency_decel()),
+    )?;
+    travel = ((speed + next_speed) * 0.5 * delta_s).max(0.0);
+    travel = clamp_si_travel(
+        travel,
+        leader_m,
+        min_gap_m,
+        signal_stop,
+        route_end,
+        envelope,
+    );
+    travel = clamp_travel_to_speed_down_boundary(
+        travel,
+        speed,
+        next_speed,
+        delta_s,
+        edges,
+        lengths,
+        speed_limits,
+        cursor,
+        progress_mm,
+    )?;
+    Some((travel.max(0.0), next_speed.max(0.0)))
+}
+
+fn clamp_si_travel(
+    mut travel: f64,
+    leader_m: Option<f64>,
+    min_gap_m: f64,
+    signal_stop: Option<BoundedDistance>,
+    route_end: BoundedDistance,
+    envelope: f64,
+) -> f64 {
+    if let Some(gap) = leader_m {
+        travel = travel.min((gap - min_gap_m).max(0.0));
+    }
+    if let Some(stop) = signal_stop.and_then(finite_meters) {
+        travel = travel.min(f64::from(stop).max(0.0));
+    }
+    if let Some(end) = finite_meters(route_end) {
+        travel = travel.min(f64::from(end).max(0.0));
+    }
+    travel.min(envelope).max(0.0)
+}
+
 fn iidm_travel(
     speed: f64,
     desired: f64,
@@ -299,9 +462,9 @@ fn iidm_travel(
     if !speed.is_finite() || !desired.is_finite() || delta_s <= 0.0 {
         return None;
     }
-    let accel_max = profile.max_accel();
-    let comfort = profile.comfort_decel();
-    let emergency = profile.emergency_decel();
+    let accel_max = f64::from(profile.max_accel());
+    let comfort = f64::from(profile.comfort_decel());
+    let emergency = f64::from(profile.emergency_decel());
     if accel_max <= 0.0 || comfort <= 0.0 || emergency <= 0.0 {
         return None;
     }
@@ -314,7 +477,8 @@ fn iidm_travel(
         (speed / desired).max(0.0).powi(4)
     };
     let gap_term = if let Some(gap) = leader_gap {
-        let s_star = profile.min_gap() + speed * profile.time_headway();
+        let s_star =
+            f64::from(si_meters(profile.min_gap_mm())) + speed * f64::from(profile.time_headway());
         (s_star / gap).max(0.0).powi(2)
     } else {
         0.0
@@ -327,10 +491,10 @@ fn iidm_travel(
 
 fn speed_limit_path_envelope(
     edges: &[LaneEdgeOrdinal],
-    lengths: &[f64],
-    speed_limits: &[f64],
+    lengths: &[u32],
+    speed_limits: &[u32],
     mut index: usize,
-    mut progress: f64,
+    mut progress_mm: u32,
     delta_s: f64,
 ) -> Option<f64> {
     if delta_s <= 0.0 {
@@ -340,12 +504,12 @@ fn speed_limit_path_envelope(
     let mut total = 0.0;
     loop {
         let edge = *edges.get(index)?;
-        let length = *lengths.get(edge.index())?;
-        let limit = *speed_limits.get(edge.index())?;
+        let length = meters(*lengths.get(edge.index())?);
+        let limit = meters_per_second(*speed_limits.get(edge.index())?);
         if !length.is_finite() || !limit.is_finite() || length < 0.0 || limit < 0.0 {
             return None;
         }
-        let leftover = (length - progress).max(0.0);
+        let leftover = (length - meters(progress_mm)).max(0.0);
         if leftover < 0.0 {
             return None;
         }
@@ -363,7 +527,7 @@ fn speed_limit_path_envelope(
             break;
         }
         index += 1;
-        progress = 0.0;
+        progress_mm = 0;
     }
     total.is_finite().then_some(total.max(0.0))
 }
@@ -374,35 +538,37 @@ fn constrain_upcoming_speed_limits(
     mut next_speed: f64,
     delta_s: f64,
     edges: &[LaneEdgeOrdinal],
-    lengths: &[f64],
-    speed_limits: &[f64],
+    lengths: &[u32],
+    speed_limits: &[u32],
     cursor: usize,
-    progress: f64,
+    progress_mm: u32,
     comfort: f64,
     emergency: f64,
 ) -> Option<f64> {
     for (index, edge) in edges.iter().enumerate().skip(cursor + 1) {
-        let limit = *speed_limits.get(edge.index())?;
+        let limit = meters_per_second(*speed_limits.get(edge.index())?);
         if !limit.is_finite() || limit + 1e-12 >= next_speed {
             continue;
         }
-        let distance = remaining_along_route(lengths, edges, cursor, progress, index, 0.0)?;
-        if !distance.is_finite() || distance < 0.0 {
-            return None;
+        match remaining_along_route(lengths, edges, cursor, progress_mm, index, 0)? {
+            BoundedDistance::BeyondFinite => continue,
+            BoundedDistance::Finite(0) => {
+                next_speed = next_speed.min(limit.max(0.0));
+                continue;
+            }
+            BoundedDistance::Finite(mm) => {
+                let distance = meters(mm);
+                next_speed = cap_next_speed_for_limit(
+                    current_speed,
+                    next_speed,
+                    delta_s,
+                    distance,
+                    limit,
+                    comfort,
+                    emergency,
+                )?;
+            }
         }
-        if distance <= 1e-12 {
-            next_speed = next_speed.min(limit.max(0.0));
-            continue;
-        }
-        next_speed = cap_next_speed_for_limit(
-            current_speed,
-            next_speed,
-            delta_s,
-            distance,
-            limit,
-            comfort,
-            emergency,
-        )?;
     }
     Some(next_speed.max(0.0))
 }
@@ -489,23 +655,26 @@ fn clamp_travel_to_speed_down_boundary(
     next_speed: f64,
     delta_s: f64,
     edges: &[LaneEdgeOrdinal],
-    lengths: &[f64],
-    speed_limits: &[f64],
+    lengths: &[u32],
+    speed_limits: &[u32],
     cursor: usize,
-    progress: f64,
+    progress_mm: u32,
 ) -> Option<f64> {
     let min_travel = 0.5 * current_speed * delta_s;
     for (index, edge) in edges.iter().enumerate().skip(cursor + 1) {
-        let limit = *speed_limits.get(edge.index())?;
+        let limit = meters_per_second(*speed_limits.get(edge.index())?);
         if !limit.is_finite() || limit + 1e-12 >= current_speed || limit + 1e-12 >= next_speed {
             continue;
         }
-        let distance = remaining_along_route(lengths, edges, cursor, progress, index, 0.0)?;
-        if distance <= 1e-12 {
+        let BoundedDistance::Finite(mm) =
+            remaining_along_route(lengths, edges, cursor, progress_mm, index, 0)?
+        else {
+            continue;
+        };
+        if mm == 0 {
             continue;
         }
-        // 能停在更低限速边之前时才钳在边界；min_travel 已超过距离则本拍必须进入，
-        // 否则会把行程压到低于 0.5 v Δt，再被夹成在入口边尽头静止。
+        let distance = meters(mm);
         if min_travel <= distance + 1e-12 && travel > distance {
             travel = travel.min(distance);
         }
@@ -513,41 +682,39 @@ fn clamp_travel_to_speed_down_boundary(
     Some(travel.max(0.0))
 }
 
-fn apply_travel(
+fn apply_travel_mm(
     state: &mut VehicleState,
     edges: &[LaneEdgeOrdinal],
-    lengths: &[f64],
-    mut remaining: f64,
+    lengths: &[u32],
+    mut remaining: u32,
+    hop_permitted: impl Fn(usize) -> bool,
 ) -> Option<()> {
     let mut index = usize::try_from(state.route_edge_index).ok()?;
-    while remaining > 0.0 {
+    while remaining > 0 {
         let edge = *edges.get(index)?;
         let edge_length = *lengths.get(edge.index())?;
-        let leftover = edge_length - state.progress;
-        if leftover < 0.0 {
-            return None;
-        }
+        let leftover = edge_length.saturating_sub(state.progress_mm);
         if remaining <= leftover {
-            state.progress += remaining;
+            state.progress_mm = state.progress_mm.saturating_add(remaining);
             break;
         }
         remaining -= leftover;
-        if index + 1 >= edges.len() {
-            state.progress = edge_length;
+        if !hop_permitted(index) {
+            state.progress_mm = edge_length;
             break;
         }
         index += 1;
-        state.progress = 0.0;
+        state.progress_mm = 0;
     }
     state.route_edge_index = u32::try_from(index).ok()?;
-    state.progress.is_finite().then_some(())
+    Some(())
 }
 
 #[cfg(test)]
 mod preview {
     use super::*;
 
-    use laneflow_format::{FormatLimits, check_canonical_network_input_v1};
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
     use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
     use laneflow_static_network::{
         SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
@@ -557,12 +724,12 @@ mod preview {
     use crate::{VehicleSpawnInput, WorldConfig};
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
-        "../../laneflow-compiler/tests/fixtures/portable-v1/lfca-v1-full-spatial/expected.lfca"
+        "../../laneflow-compiler/tests/fixtures/portable-v2/lfca-v2-full-spatial/expected.lfca"
     );
 
     #[test]
     fn preview_follower_constraints() {
-        let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD).unwrap();
+        let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).unwrap();
         let revision = build_shared_network_revision(
             input,
             SharedNetworkBuildOptions::new(
@@ -583,8 +750,8 @@ mod preview {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                1.0 + profile.length() + profile.min_gap() + 2.0,
-                0.0,
+                1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+                0,
             ))
             .unwrap();
         let follower = world
@@ -592,22 +759,22 @@ mod preview {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                1.0,
-                0.0,
+                1_000,
+                0,
             ))
             .unwrap();
         let state = world.vehicle_state(follower).copied().unwrap();
         let next = world.advance_active_vehicle(state, 0.1).unwrap();
         assert!(
-            next.progress > state.progress,
+            next.progress_mm > state.progress_mm || next.carry_um > state.carry_um,
             "follower should start moving, {} -> {}",
-            state.progress,
-            next.progress
+            state.progress_mm,
+            next.progress_mm
         );
     }
 
     fn install_preview_world() -> TrafficWorld {
-        let input = check_canonical_network_input_v1(FULL_SPATIAL, FormatLimits::V1_HARD).unwrap();
+        let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).unwrap();
         let revision = build_shared_network_revision(
             input,
             SharedNetworkBuildOptions::new(
@@ -628,8 +795,8 @@ mod preview {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                1.0,
-                0.0,
+                1_000,
+                0,
             ))
             .unwrap();
         world.step(TickInput::new(100)).unwrap();
@@ -679,30 +846,31 @@ mod preview {
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                1.0 + profile.length() + profile.min_gap() + 2.0,
-                0.0,
+                1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+                0,
             ))
             .unwrap();
-        let second = world
+        world
             .spawn_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                1.0,
-                0.0,
+                1_000,
+                0,
             ))
             .unwrap();
-        let before_progress = world.vehicle_state(first).unwrap().progress;
+        let before_progress = world.vehicle_state(first).unwrap().progress_mm;
         let before_tick = world.tick_index;
-        let slot = usize::try_from(second.index()).unwrap();
-        world.vehicles[slot].state.as_mut().unwrap().progress = f64::NAN;
         assert_eq!(
-            world.step(TickInput::new(100)),
-            Err(StepError::NonFiniteMotion)
+            world.step(TickInput::new(50)),
+            Err(StepError::DeltaMismatch {
+                expected_delta_time_ms: 100,
+                actual_delta_time_ms: 50,
+            })
         );
         assert_eq!(world.tick_index, before_tick);
         assert_eq!(
-            world.vehicle_state(first).unwrap().progress,
+            world.vehicle_state(first).unwrap().progress_mm,
             before_progress
         );
         assert_eq!(world.time_ms, 0);

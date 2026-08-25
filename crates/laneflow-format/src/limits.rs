@@ -29,8 +29,8 @@ pub struct FormatLimitConfig {
 }
 
 impl FormatLimitConfig {
-    /// v1 格式天花板；调用方可以复制后只减小所需维度。
-    pub const V1_HARD: Self = Self {
+    /// 格式天花板；调用方可以复制后只减小所需维度。
+    pub const HARD: Self = Self {
         max_object_bytes: FORMAT_HARD_MAX_OBJECT_BYTES,
         max_section_or_table_bytes: FORMAT_HARD_MAX_SECTION_OR_TABLE_BYTES,
         max_rows_per_table: FORMAT_HARD_MAX_ROWS_PER_TABLE,
@@ -48,17 +48,17 @@ impl FormatLimitConfig {
 
 impl Default for FormatLimitConfig {
     fn default() -> Self {
-        Self::V1_HARD
+        Self::HARD
     }
 }
 
-/// 已证明没有扩大 v1 格式天花板的有效调用方限制。
+/// 已证明没有扩大格式天花板的有效调用方限制。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FormatLimits(FormatLimitConfig);
 
 impl FormatLimits {
-    /// 直接使用全部 v1 格式安全天花板。
-    pub const V1_HARD: Self = Self(FormatLimitConfig::V1_HARD);
+    /// 直接使用全部格式安全天花板。
+    pub const HARD: Self = Self(FormatLimitConfig::HARD);
 
     /// 校验调用方配置；任一维度高于格式天花板都失败，而不是静默 clamp。
     pub fn try_new(config: FormatLimitConfig) -> Result<Self, FormatError> {
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn caller_can_only_reduce_hard_limits() {
-        let mut config = FormatLimitConfig::V1_HARD;
+        let mut config = FormatLimitConfig::HARD;
         config.max_object_bytes -= 1;
         assert_eq!(FormatLimits::try_new(config).unwrap().config(), config);
 
@@ -251,7 +251,7 @@ mod tests {
         ];
 
         for (dimension, requested, hard_limit) in cases {
-            let mut config = FormatLimitConfig::V1_HARD;
+            let mut config = FormatLimitConfig::HARD;
             match dimension {
                 LimitDimension::SectionOrTableBytes => {
                     config.max_section_or_table_bytes = requested;
