@@ -127,7 +127,7 @@ import。`RoadCorridor.road_alignment_key` 只引用当前模块的 `RoadAlignme
 |   18 | `ParticipantClass` | `participant_class_key` | 当前 module namespace                       |
 |   19 | `AccessRule`       | `access_rule_key`       | 当前 module namespace                       |
 |   20 | `VehicleProfile`   | `vehicle_profile_key`   | 当前 module namespace                       |
-|   21 | `StaticRoute`      | `static_route_key`      | 当前 module namespace                       |
+|   21 | `StaticRoute`      | `static_route_key`      | **ADR 0029：生产来源删除本实体**；种类代码保留空位 |
 |   22 | `CanonicalFrame`   | `canonical_frame_key`   | 当前 module namespace                       |
 
 所有 table 在其根向量中的物理顺序都不进入语义。一个 buffer 只属于一个 namespace，
