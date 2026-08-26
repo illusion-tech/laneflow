@@ -90,7 +90,9 @@ hop 是否受控：用已编译机动出现项定位 path，再在共享根
 | `0x0015`  | StaticRoute    | **禁止出现**          |
 | `0x0016`  | CanonicalFrame | 保留，代码与 tag 不变 |
 
-出现 `0x0015`、缺 `0x0016`、或 `formatVersion != 3`，读器失败关闭。
+出现 `0x0015`、缺 `0x0016`、或 `formatVersion != 3`，读器失败关闭。format 3 对象
+精确 TableV1 总数为 `30`（`1 + 1 + 21 + 1 + 3 + 1 + 1 + 1`）。历史 format 1/2 为
+`35`。现行生产 `table_count()` 仍为 `35`，#498 G2 随发射器改为 `30`。
 
 StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 
@@ -142,6 +144,8 @@ schema 为 `schemas/road-editing/v2/road-editing.fbs`（G2 创建）。
 首批支持矩阵「静态路线」行改为明确拒绝。
 
 生产 `CompileLimits` 不再包含 `RouteOccurrenceCount`。该限额不改挂到运行时。
+G2 删除 `add_static_route` 之前，该入口只走通用 relation / reference / source-byte
+限额，不为该死路径恢复 1920。
 
 ## 3. 共享静态路网
 
@@ -220,11 +224,16 @@ profile / class / parking: StableId128
 边稳定身份序列与毫米游标，不比对 `RouteHandle`。
 
 **同进程在线切修订**：允许原地改现有槽位的 compiled（新序号 + 重编译出现项），
-当期 `RouteHandle` 保持到该进程结束。不得把该布局写进快照。
+当期 `RouteHandle` 保持到该进程结束。不得把该布局写进快照。走廊 catalog
+controller 绑定的是 `(世界令牌, NetworkRevisionId)`：修订变化后 controller **失效**，
+调用方按新修订重新 bind。本切片不设计 catalog 原子热切换，也不让人口层在切修订后
+继续用旧修订句柄。
 
 ## 6. 必测项（G2）
 
 - 含 `StaticRoute` 或 `formatVersion = 2` 的历史 LFCA 失败关闭，诊断可区分版本与未知表。
+- format 3 LFCA 精确 TableV1 总数为 30（历史 format 1/2 为 35）；含禁止实体/关系表
+  失败关闭。
 - 身份 `entityKind = 21` 或字段标签 30 失败关闭。
 - `EntityKind::ALL.len() == 22`，`kind_index(CanonicalFrame)` 可寻址；不得把 `ALL`
   缩成 21 项后再用 `code() - 1` 索引。
@@ -246,3 +255,5 @@ profile / class / parking: StableId128
   钉在该 world 的 `install` 令牌上，不得用指针比较。`RouteHandle` 只有槽位与
   generation，不编码 world。spawn 只查本世界表。跨 world 把句柄塞进另一个 world
   是调用方错误，不作为运行时比特必测。
+- 同进程切修订后走廊 catalog controller 不得继续 `consume_world` / `apply_pending`；
+  必须按新修订重新 bind。不测 catalog 原子热切换。

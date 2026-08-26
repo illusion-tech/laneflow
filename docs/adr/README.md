@@ -60,7 +60,8 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 - `0023`: 道路编辑状态作为生产编制权威、可视化编辑器与程序化生成器共享有类型道路
   编辑模型，以及道路修改按整体替换 A 阶段演进到候选调整/原子替换 C 阶段；产品负责人
   已选择按模块 size-prefixed FlatBuffers 作为 production source 编码，并冻结 A → C 演进、
-  未发布兼容边界和后继差异职责（Accepted；#296 FlatBuffers G1）
+  未发布兼容边界和后继差异职责（Accepted；#296 FlatBuffers G1；§2.1 的 22 向量来源
+  形状已被 Accepted ADR 0029 部分取代）
 - `0024`: compiler 对最终 LFCA/LFSM/LFSD exact bytes 执行共享、无分配的后发射检查，
   以借用型能力守卫最小发布闭合；不交付独立 validator/receipt，LFCP v2 一次性移除
   receipt 且不兼容读取 v1（Accepted；#299 G1 Pass）

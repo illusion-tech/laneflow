@@ -143,7 +143,9 @@ Running(vehicle, route)
 Pending(old, frozen route plan)
 ```
 
-`apply_pending` 先校验 `NetworkRevisionId`；host callback 仍是 transport-neutral，caller 可把同一 `VehicleSpawnInput` 交给 `TrafficWorld` 或 Adapter 的 typed transaction，并将结果映射为：
+`apply_pending` 先校验传入的是 bind 时的同一个 `TrafficWorld`（不透明 install
+令牌），再校验 `NetworkRevisionId`。只核对修订 ID 不够：`RouteHandle` 是世界局部
+槽位。host callback 仍是 transport-neutral，caller 可把同一 `VehicleSpawnInput` 交给 `TrafficWorld` 或 Adapter 的 typed transaction，并将结果映射为：
 
 - `Replaced(old, new)`：controller 以 new handle 原子轮换 logical identity，回到 Running；
 - `Blocked(old, blocker, ...)`：保留 old 与 frozen plan，移动到 FIFO 队尾；
