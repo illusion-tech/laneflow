@@ -415,7 +415,9 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
 - 旧工具可能在结构 verifier 后看到新版本，但必须在任何 LaneFlow 语义 lowering 和
   规模相关分配前拒绝；不能依靠未知字段忽略完成跨版本 round trip；
 - 攻击性输入或错误 writer 在现行 `format_version = 2` 下附带的未知 vtable slot 语义上无效
-  并被忽略，但仍计入来源字节、verifier apparent size 与精确来源摘要；
+  并被忽略，但仍计入来源字节、verifier apparent size 与精确来源摘要。历史
+  `static_routes`（member 25）不是未知槽：根表 vtable 出现该槽即失败关闭，不得忽略
+  （ADR 0029）。其它未冻结空位不在本切片另设拒绝表；
 - FlatBuffers bytes 不是 LaneFlow 规范语义编码。`sourceDocumentDigest` 绑定收到的精确
   字节以便重放和完整性比较；字段布局、向量重排或不同语言 builder 的差异可能只造成
   保守 cache miss；#298 规范路网影响差异、路网修订和实体身份继续由规范模型/LIR
@@ -433,12 +435,14 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
    执行 `size_prefixed_root_with_opts`；不使用 crate 默认值；
 3. verifier 成功后检查 `format_version = 2`，其它值在 LaneFlow 语义读取和规模相关分配
    前拒绝；
-4. 对借用 view 执行第一遍语义预检：必需值、enum/union、字符串、21 类可构造声明与
+4. 在应用「未知 vtable slot 忽略」之前，检查根表 vtable 是否出现历史
+   `static_routes` 槽（member 25）；出现即失败关闭，不论向量是否为空（ADR 0029）；
+5. 对借用 view 执行第一遍语义预检：必需值、enum/union、字符串、21 类可构造声明与
    owner-local 集合基数、有限数值、引用键字节和 checked 总量；
-5. 只有第一遍证明主要规模和保守工作集上界可容纳后，才构造字段私有 Typed AST、身份
+6. 只有第一遍证明主要规模和保守工作集上界可容纳后，才构造字段私有 Typed AST、身份
    索引和后续 IR。source bytes 与 FlatBuffers view 都是调用方借用，不产生整模块 wire
    decode heap；v1 不以逐个 `Vec` / `Box` / `Arc` 的 allocator 精确会计作为接入前提；
-6. 任一失败不修改 `CompilationUnitBuilder`，后续合法模块仍可使用同一 builder/Compiler
+7. 任一失败不修改 `CompilationUnitBuilder`，后续合法模块仍可使用同一 builder/Compiler
    实例。
 
 令 `S` 为已经通过 exact-length 与 `SourceBytesPerModule/SourceBytesTotal` 检查的完整
@@ -829,7 +833,8 @@ production 依赖或实现。
 以下矩阵是已选择 size-prefixed FlatBuffers 编码的 G2 已授权输入。G2 至少实现：
 
 - size prefix、`LFRE`、版本、checked exact length、截断、trailing bytes、错位 offset、
-  非法 vtable/vector/string/union 的 known vectors；
+  非法 vtable/vector/string/union 的 known vectors；`format_version = 2` 且根表 vtable
+  出现 member 25（历史 `static_routes`）失败关闭，其余未知槽仍忽略；
 - verifier 的 `max_depth`、`max_tables`、`max_apparent_size` 以及 required presence、未知
   enum/union、非法数字、字符串/集合边界和 owner-local 关系的正负测试；
 - 21 种可构造稳定声明的 identity/reorder/insertion known vectors，确保 vector 顺序不改变
