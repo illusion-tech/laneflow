@@ -50,10 +50,14 @@ const fn max_records_per_vehicle() -> usize {
     (MAX_VEHICLE_LENGTH_MM / MIN_LANE_EDGE_LENGTH_MM) as usize + 1
 }
 
+/// 后缀表用 `u32` 下标，并保留 `u32::MAX` 作空哨兵，因此占用记录数不得超过该值。
+const SUFFIX_INDEX_LIMIT: usize = u32::MAX as usize;
+
 pub(crate) fn occupancy_record_limit(vehicle_capacity: u32) -> usize {
     usize::try_from(vehicle_capacity)
         .unwrap_or(0)
         .saturating_mul(max_records_per_vehicle())
+        .min(SUFFIX_INDEX_LIMIT)
 }
 
 const SUFFIX_NONE: u32 = u32::MAX;
@@ -77,7 +81,11 @@ fn occupancy_lo_key(record: &OccupancyRecord) -> (u32, u32, u32, u32) {
 }
 
 fn record_slot(index: usize) -> u32 {
-    u32::try_from(index).expect("occupancy record index fits u32")
+    debug_assert!(
+        index < SUFFIX_INDEX_LIMIT,
+        "occupancy record index must stay below SUFFIX_NONE"
+    );
+    u32::try_from(index).expect("occupancy record index fits u32 below SUFFIX_NONE")
 }
 
 fn suffix_slot(slot: u32) -> Option<usize> {
@@ -701,6 +709,22 @@ mod tests {
     fn unaligned_body_span_fits_planned_record_limit() {
         assert_eq!(max_records_per_vehicle(), 1_281);
         assert_eq!(occupancy_record_limit(1), 1_281);
+    }
+
+    #[test]
+    fn occupancy_record_limit_fits_suffix_u32_slots() {
+        let per_vehicle = max_records_per_vehicle();
+        let max_uncapped_vehicles = SUFFIX_INDEX_LIMIT / per_vehicle;
+        let max_uncapped = u32::try_from(max_uncapped_vehicles).expect("fits u32");
+        assert_eq!(
+            occupancy_record_limit(max_uncapped),
+            max_uncapped_vehicles.saturating_mul(per_vehicle)
+        );
+        assert_eq!(
+            occupancy_record_limit(max_uncapped.saturating_add(1)),
+            SUFFIX_INDEX_LIMIT
+        );
+        assert_eq!(occupancy_record_limit(u32::MAX), SUFFIX_INDEX_LIMIT);
     }
 
     #[test]
