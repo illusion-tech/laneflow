@@ -1,4 +1,4 @@
-use laneflow_static_contract::LaneEdgeOrdinal;
+use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, MIN_LANE_EDGE_LENGTH_MM};
 use laneflow_static_network::SharedNetworkRevision;
 
 use crate::tables::{
@@ -43,8 +43,16 @@ impl OccupancyRecord {
     };
 }
 
-/// 车身跨边数预留提示；只影响安装容量，溢出时仍可扩容。
-const BODY_SPAN_HINT: usize = 4;
+/// 一辆车在合法最短边上最多覆盖的占用记录数：`ceil(max_length / min_edge)`。
+const fn max_records_per_vehicle() -> usize {
+    (MAX_VEHICLE_LENGTH_MM / MIN_LANE_EDGE_LENGTH_MM) as usize
+}
+
+pub(crate) fn occupancy_record_limit(vehicle_capacity: u32) -> usize {
+    usize::try_from(vehicle_capacity)
+        .unwrap_or(0)
+        .saturating_mul(max_records_per_vehicle())
+}
 
 #[derive(Debug)]
 pub(crate) struct OccupancyIndex {
@@ -56,12 +64,11 @@ pub(crate) struct OccupancyIndex {
 }
 
 impl OccupancyIndex {
-    pub(crate) fn with_capacity(bucket_count: usize, vehicle_capacity: usize) -> Self {
-        let record_cap = vehicle_capacity.saturating_mul(BODY_SPAN_HINT);
+    pub(crate) fn with_capacity(bucket_count: usize, record_capacity: usize) -> Self {
         Self {
             offsets: vec![0; bucket_count.saturating_add(1)],
             scratch: vec![0; bucket_count],
-            records: Vec::with_capacity(record_cap),
+            records: Vec::with_capacity(record_capacity),
             #[cfg(test)]
             inspections: Cell::new(0),
         }
@@ -75,6 +82,11 @@ impl OccupancyIndex {
     #[cfg(test)]
     pub(crate) fn records_capacity(&self) -> usize {
         self.records.capacity()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn records_len(&self) -> usize {
+        self.records.len()
     }
 
     #[cfg(test)]
@@ -115,6 +127,17 @@ impl OccupancyIndex {
         self.sort_buckets(bucket_count);
     }
 
+    fn record_total(&self, bucket_count: usize) -> usize {
+        self.scratch.iter().take(bucket_count).copied().sum()
+    }
+
+    fn ensure_record_capacity(&mut self, planned: usize) {
+        if self.records.capacity() < planned {
+            self.records
+                .reserve(planned.saturating_sub(self.records.capacity()));
+        }
+    }
+
     fn finish_layout(&mut self, bucket_count: usize) {
         self.offsets.clear();
         self.offsets.resize(bucket_count.saturating_add(1), 0);
@@ -122,6 +145,7 @@ impl OccupancyIndex {
             self.offsets[index + 1] = self.offsets[index].saturating_add(self.scratch[index]);
         }
         let total = self.offsets.get(bucket_count).copied().unwrap_or(0);
+        debug_assert!(total <= self.records.capacity());
         self.records.clear();
         self.records.resize(total, OccupancyRecord::PLACEHOLDER);
         self.scratch.clear();
@@ -309,12 +333,14 @@ fn visit_occupancy_records(
 }
 
 impl TrafficWorld {
-    pub(crate) fn rebuild_occupancy_index(&mut self) {
+    pub(crate) fn rebuild_occupancy_index(&mut self) -> Result<(), crate::StepError> {
         let bucket_count = usize::try_from(self.revision.traffic().lane_edge_count())
             .expect("lane edge count fits usize");
+        let planned = occupancy_record_limit(self.config.vehicle_capacity());
         let occupancy = &mut self.occupancy;
         #[cfg(test)]
         occupancy.reset_inspections();
+        occupancy.ensure_record_capacity(planned);
         occupancy.scratch.clear();
         occupancy.scratch.resize(bucket_count, 0);
         visit_occupancy_records(
@@ -328,6 +354,9 @@ impl TrafficWorld {
                 }
             },
         );
+        if occupancy.record_total(bucket_count) > planned {
+            return Err(crate::StepError::OccupancyCapacityExceeded);
+        }
         occupancy.finish_layout(bucket_count);
         visit_occupancy_records(
             &self.live_order,
@@ -337,6 +366,7 @@ impl TrafficWorld {
             |record| occupancy.write_record(record),
         );
         occupancy.sort_buckets(bucket_count);
+        Ok(())
     }
 
     #[cfg(test)]
@@ -644,10 +674,10 @@ mod tests {
                 0,
             ))
             .unwrap();
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         assert_index_matches_scan(&world);
         world.step(TickInput::new(100)).unwrap();
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         assert_index_matches_scan(&world);
     }
 
@@ -657,7 +687,7 @@ mod tests {
         let stem = LaneEdgeOrdinal::from_raw(0);
         let mut world =
             TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         world.step(TickInput::new(100)).unwrap();
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem]))
@@ -671,7 +701,7 @@ mod tests {
                 0,
             ))
             .expect("solo");
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         let state = world.vehicle_state(solo).copied().unwrap();
         assert_eq!(index_gap(&world, &state), None);
         assert_index_matches_scan(&world);
@@ -710,7 +740,7 @@ mod tests {
                 0,
             ))
             .expect("ahead");
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         let state = world.vehicle_state(follower).copied().unwrap();
         assert_eq!(index_gap(&world, &state), None);
         assert_index_matches_scan(&world);
@@ -750,7 +780,7 @@ mod tests {
                 0,
             ))
             .expect("follower on stem");
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         assert_index_matches_scan(&world);
         let state = world.vehicle_state(follower).copied().unwrap();
         assert!(index_gap(&world, &state).is_some());
@@ -784,7 +814,7 @@ mod tests {
                 0,
             ))
             .expect("near end of first a");
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         assert_index_matches_scan(&world);
         let state = world.vehicle_state(follower).copied().unwrap();
         let gap = index_gap(&world, &state).expect("wrap-around leader");
@@ -836,7 +866,7 @@ mod tests {
         world
             .occupy_parking(parked, ParkingSpaceOrdinal::from_raw(0))
             .expect("park");
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         let follower_state = world.vehicle_state(follower).copied().unwrap();
         assert_eq!(index_gap(&world, &follower_state), None);
         assert_index_matches_scan(&world);
@@ -873,7 +903,7 @@ mod tests {
                 0,
             ))
             .expect("follower");
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         let follower_state = world.vehicle_state(follower).copied().unwrap();
         assert_eq!(index_gap(&world, &follower_state), None);
         assert_index_matches_scan(&world);
@@ -948,7 +978,7 @@ mod tests {
                 10_000,
             ))
             .expect("follower");
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         assert_index_matches_scan(&world);
         let follower_state = world.vehicle_state(follower).copied().unwrap();
         let leader_state = world
@@ -1046,7 +1076,7 @@ mod tests {
             inspections <= n_active.saturating_mul(4),
             "single-edge dense query should be near-linear, inspections={inspections} n={n_active}"
         );
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         assert_index_matches_scan(&world);
     }
 
@@ -1078,7 +1108,100 @@ mod tests {
                 0,
             ))
             .expect("ahead on repeated");
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         assert_index_matches_scan(&world);
+    }
+
+    #[test]
+    fn short_edge_chain_does_not_grow_record_capacity_after_warmup() {
+        let revision = compile_revision(|module| {
+            add_car_profile(module);
+            module
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "stem",
+                    length_meters: 20.0,
+                    speed_limit_meters_per_second: 10.0,
+                    successors: &[laneflow_compiler::LaneEdgeReference::local("s0")],
+                })
+                .expect("stem");
+            let keys = ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"];
+            for (index, key) in keys.iter().enumerate() {
+                if index + 1 < keys.len() {
+                    let next = laneflow_compiler::LaneEdgeReference::local(keys[index + 1]);
+                    module
+                        .add_lane_edge(LaneEdgeInput {
+                            lane_edge_key: key,
+                            length_meters: 1.0,
+                            speed_limit_meters_per_second: 10.0,
+                            successors: std::slice::from_ref(&next),
+                        })
+                        .expect("short");
+                } else {
+                    module
+                        .add_lane_edge(LaneEdgeInput {
+                            lane_edge_key: key,
+                            length_meters: 1.0,
+                            speed_limit_meters_per_second: 10.0,
+                            successors: &[],
+                        })
+                        .expect("short tail");
+                }
+            }
+        });
+        let traffic = revision.traffic();
+        let mut edges = Vec::new();
+        let mut current = (0..traffic.lane_edge_count())
+            .map(LaneEdgeOrdinal::from_raw)
+            .find(|edge| {
+                traffic
+                    .successors(*edge)
+                    .is_some_and(|successors| !successors.is_empty())
+                    && traffic.lane_lengths_millimetres()[edge.index()] >= 20_000
+            })
+            .expect("stem");
+        loop {
+            edges.push(current);
+            let Some(successors) = traffic.successors(current) else {
+                break;
+            };
+            let Some(next) = successors.first().copied() else {
+                break;
+            };
+            current = next;
+        }
+        let mut world =
+            TrafficWorld::install(revision, WorldConfig::new(1, 4, 1, 1_000)).expect("install");
+        let route = world
+            .register_route(RouteRegisterInput::new(edges))
+            .expect("route");
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                5,
+                500,
+                0,
+            ))
+            .expect("spawn spanning five 1 m edges");
+        world.step(TickInput::new(1_000)).unwrap();
+        let planned = occupancy_record_limit(1);
+        let cap = world.occupancy.records_capacity();
+        assert!(
+            cap >= planned,
+            "first rebuild must reserve the legal occupancy record limit, cap={cap} planned={planned}"
+        );
+        assert!(
+            world.occupancy.records_len() > 4,
+            "body on the 1 m chain must emit more than four occupancy records, got {}",
+            world.occupancy.records_len()
+        );
+        for _ in 0..8 {
+            world.step(TickInput::new(1_000)).unwrap();
+            assert_eq!(
+                world.occupancy.records_capacity(),
+                cap,
+                "steady ticks must not grow occupancy record capacity"
+            );
+        }
     }
 }

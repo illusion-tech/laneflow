@@ -24,7 +24,7 @@ impl TrafficWorld {
             .checked_add(expected)
             .ok_or(StepError::Overflow)?;
         let delta_s = expected as f32 / 1_000.0;
-        self.rebuild_occupancy_index();
+        self.rebuild_occupancy_index()?;
         self.next_states.clear();
         self.next_states.reserve(self.live_order.len());
         for handle in self.live_order.iter().copied() {
@@ -803,7 +803,7 @@ mod preview {
                 0,
             ))
             .unwrap();
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         let state = world.vehicle_state(follower).copied().unwrap();
         let next = world.advance_active_vehicle(state, 0.1_f32).unwrap();
         assert!(
@@ -989,7 +989,7 @@ mod preview {
                 0,
             ))
             .unwrap();
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         let mut state = world.vehicle_state(follower).copied().unwrap();
         state.carry_um = 777;
         let next = world.advance_active_vehicle(state, 0.1_f32).unwrap();
@@ -1012,7 +1012,7 @@ mod preview {
                 0,
             ))
             .unwrap();
-        world.rebuild_occupancy_index();
+        world.rebuild_occupancy_index().expect("occupancy rebuild");
         let state = world.vehicle_state(follower).copied().unwrap();
         let next = world.advance_active_vehicle(state, 0.004_f32).unwrap();
         assert_eq!(next.progress_mm, state.progress_mm);

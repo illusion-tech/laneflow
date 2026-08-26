@@ -328,7 +328,7 @@ OccupancyRecord
 4. 写入连续占用记录 buffer。
 5. 每个 bucket 原地 unstable sort。
 
-排序键为 `(hi_mm, lo_mm, update_sequence, vehicle.index)`。`update_sequence` 只做稳定 tie-break，不得把同边相同前缘的物理重叠合法化。首次重建可把 bucket 表扩到边数；其后稳态 tick 复用容量，不因占用索引新分配。
+排序键为 `(hi_mm, lo_mm, update_sequence, vehicle.index)`。`update_sequence` 只做稳定 tie-break，不得把同边相同前缘的物理重叠合法化。安装不预留按边展开的峰值。首次重建把 bucket 表扩到边数，并把占用记录容量规划为车辆容量 × (`MAX_VEHICLE_LENGTH_MM` / `MIN_LANE_EDGE_LENGTH_MM`)；合法输入下其后稳态 tick 不因占用索引新分配。超过该上限失败关闭。
 
 ### 7.3 Query 与复杂度
 

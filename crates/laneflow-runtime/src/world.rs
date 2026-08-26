@@ -86,7 +86,7 @@ impl TrafficWorld {
             live_order: Vec::with_capacity(vehicle_capacity),
             parking_occupants: vec![None; space_count].into_boxed_slice(),
             next_states: Vec::with_capacity(vehicle_capacity),
-            occupancy: OccupancyIndex::with_capacity(0, vehicle_capacity),
+            occupancy: OccupancyIndex::with_capacity(0, 0),
         };
         world.refresh_signals();
         Ok(world)
