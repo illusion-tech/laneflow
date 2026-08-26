@@ -12,7 +12,9 @@ pub const IDENTITY_MAGIC: [u8; 4] = *b"LFID";
 pub const IDENTITY_ENCODING_VERSION: u16 = 1;
 
 /// Identity v1 的实体种类 / 字段标签登记表修订；登记项增删或身份字段变化时必须提升。
-pub const IDENTITY_REGISTRY_REVISION: u16 = 1;
+///
+/// 修订 2：种类 21 / 字段标签 30 保留空位，不覆盖 `StaticRoute`（ADR 0029）。
+pub const IDENTITY_REGISTRY_REVISION: u16 = 2;
 
 /// 拼接在规范身份字节之前的 Stable ID BLAKE3 输入域分离前缀。
 ///
@@ -56,12 +58,13 @@ pub enum EntityKind {
     ParticipantClass = 18,
     AccessRule = 19,
     VehicleProfile = 20,
+    /// 保留空位（历史 `StaticRoute`）。不发射；[`from_code`] 对 21 返回 `None`。
     StaticRoute = 21,
     CanonicalFrame = 22,
 }
 
 impl EntityKind {
-    /// Registry revision 1 中按代码升序排列的全部已登记实体种类。
+    /// 按代码升序排列的 22 个槽位。代码 21 占保留空槽，可构造 21 种（ADR 0029）。
     pub const ALL: [Self; 22] = [
         Self::RoadCorridor,
         Self::RoadSection,
@@ -117,10 +120,15 @@ impl EntityKind {
             18 => Some(Self::ParticipantClass),
             19 => Some(Self::AccessRule),
             20 => Some(Self::VehicleProfile),
-            21 => Some(Self::StaticRoute),
             22 => Some(Self::CanonicalFrame),
             _ => None,
         }
+    }
+
+    /// 种类是否可构造（代码 21 空位不可构造）。
+    #[must_use]
+    pub const fn is_constructible(self) -> bool {
+        !matches!(self, Self::StaticRoute)
     }
 
     /// 返回该实体种类的身份类别。
@@ -250,7 +258,7 @@ pub enum FieldEncoding {
     StableId128,
 }
 
-/// Identity v1 的字段标签登记表。代码 23 被保留且不得解码为字段。
+/// Identity v1 的字段标签登记表。代码 23 与 30 被保留且不得解码为字段。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u16)]
 pub enum FieldTag {
@@ -290,10 +298,10 @@ pub enum FieldTag {
 }
 
 impl FieldTag {
-    /// Registry revision 1 中按代码升序排列的全部已登记字段标签。
+    /// 按代码升序排列的可构造字段标签。
     ///
-    /// 保留代码 23 不在此集合中。
-    pub const ALL: [Self; 33] = [
+    /// 保留代码 23 与 30（历史 `RouteKey`）不在此集合中。
+    pub const ALL: [Self; 32] = [
         Self::AuthoringNamespaceId,
         Self::CorridorKey,
         Self::SectionKey,
@@ -322,7 +330,6 @@ impl FieldTag {
         Self::ParticipantClassKey,
         Self::AccessRuleKey,
         Self::VehicleProfileKey,
-        Self::RouteKey,
         Self::CanonicalFrameKey,
         Self::RoadSectionStableId,
         Self::RoadCorridorStableId,
@@ -335,7 +342,7 @@ impl FieldTag {
         self as u16
     }
 
-    /// 解析已登记字段代码；未知代码和保留代码 23 返回 `None`。
+    /// 解析已登记字段代码；未知代码和保留代码 23、30 返回 `None`。
     #[must_use]
     pub const fn from_code(code: u16) -> Option<Self> {
         match code {
@@ -367,7 +374,6 @@ impl FieldTag {
             27 => Some(Self::ParticipantClassKey),
             28 => Some(Self::AccessRuleKey),
             29 => Some(Self::VehicleProfileKey),
-            30 => Some(Self::RouteKey),
             31 => Some(Self::CanonicalFrameKey),
             32 => Some(Self::RoadSectionStableId),
             33 => Some(Self::RoadCorridorStableId),
@@ -441,7 +447,7 @@ mod tests {
     fn identity_v1_constants_match_contract() {
         assert_eq!(IDENTITY_MAGIC, *b"LFID");
         assert_eq!(IDENTITY_ENCODING_VERSION, 1);
-        assert_eq!(IDENTITY_REGISTRY_REVISION, 1);
+        assert_eq!(IDENTITY_REGISTRY_REVISION, 2);
         assert_eq!(STABLE_ID_DOMAIN_PREFIX, b"laneflow.stable-id.v1\0");
     }
 
@@ -476,14 +482,31 @@ mod tests {
             ),
             (EntityKind::AccessRule, "access-rule", &[1, 28][..]),
             (EntityKind::VehicleProfile, "vehicle-profile", &[1, 29][..]),
-            (EntityKind::StaticRoute, "static-route", &[1, 30][..]),
             (EntityKind::CanonicalFrame, "canonical-frame", &[1, 31][..]),
         ];
 
-        assert_eq!(EntityKind::ALL.len(), expected.len());
-        for (index, (kind, slug, required_tag_codes)) in expected.into_iter().enumerate() {
-            assert_eq!(EntityKind::ALL[index], kind);
+        assert_eq!(EntityKind::ALL.len(), 22);
+        assert_eq!(EntityKind::ALL[20], EntityKind::StaticRoute);
+        assert_eq!(EntityKind::StaticRoute.code(), 21);
+        assert_eq!(EntityKind::from_code(21), None);
+        assert!(!EntityKind::StaticRoute.is_constructible());
+        assert_eq!(
+            EntityKind::ALL
+                .into_iter()
+                .filter(|kind| kind.is_constructible())
+                .count(),
+            21
+        );
+        assert_eq!(EntityKind::ALL.len(), expected.len() + 1);
+        let mut constructible_index = 0_usize;
+        for (index, kind) in EntityKind::ALL.into_iter().enumerate() {
             assert_eq!(kind.code(), u16::try_from(index + 1).unwrap());
+            if !kind.is_constructible() {
+                continue;
+            }
+            let (expected_kind, slug, required_tag_codes) = expected[constructible_index];
+            constructible_index += 1;
+            assert_eq!(kind, expected_kind);
             assert_eq!(EntityKind::from_code(kind.code()), Some(kind));
             assert_eq!(kind.slug(), slug);
             assert!(kind.slug().bytes().all(|byte| {
@@ -493,13 +516,10 @@ mod tests {
             for (tag, expected_code) in kind.required_tags().iter().zip(required_tag_codes) {
                 assert_eq!(tag.code(), *expected_code);
             }
-
-            for other in EntityKind::ALL.iter().copied().skip(index + 1) {
-                assert_ne!(kind.code(), other.code());
-                assert_ne!(kind.slug(), other.slug());
-            }
         }
+        assert_eq!(constructible_index, expected.len());
         assert_eq!(EntityKind::from_code(0), None);
+        assert_eq!(EntityKind::from_code(21), None);
         assert_eq!(EntityKind::from_code(23), None);
         assert_eq!(
             EntityKind::LaneEdge.category(),
@@ -515,7 +535,10 @@ mod tests {
 
     #[test]
     fn required_tags_are_registered_and_strictly_increasing() {
-        for kind in EntityKind::ALL {
+        for kind in EntityKind::ALL
+            .into_iter()
+            .filter(|kind| kind.is_constructible())
+        {
             let tags = kind.required_tags();
             assert!(!tags.is_empty(), "{}", kind.slug());
             for tag in tags {
@@ -560,7 +583,6 @@ mod tests {
             (27, "participantClassKey", FieldEncoding::Ascii),
             (28, "accessRuleKey", FieldEncoding::Ascii),
             (29, "vehicleProfileKey", FieldEncoding::Ascii),
-            (30, "routeKey", FieldEncoding::Ascii),
             (31, "canonicalFrameKey", FieldEncoding::Ascii),
             (32, "roadSectionStableId", FieldEncoding::StableId128),
             (33, "roadCorridorStableId", FieldEncoding::StableId128),
@@ -569,6 +591,7 @@ mod tests {
 
         assert_eq!(FieldTag::ALL.len(), expected.len());
         assert_eq!(FieldTag::from_code(23), None);
+        assert_eq!(FieldTag::from_code(30), None);
 
         for (tag, (code, name, encoding)) in FieldTag::ALL.into_iter().zip(expected) {
             assert_eq!(tag.code(), code);
