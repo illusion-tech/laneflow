@@ -11,6 +11,18 @@ pub(crate) fn round_mm(meters: f64) -> Option<u32> {
     Some(mm as u32)
 }
 
+/// 跟车前视：SI 有限且非负后向上取整到毫米。溢出饱和到 `u32::MAX`，禁止缩短视距。
+pub(crate) fn ceil_mm(meters: f64) -> Option<u32> {
+    if !meters.is_finite() || meters < 0.0 {
+        return None;
+    }
+    let mm = (meters * 1_000.0).ceil();
+    if mm > f64::from(u32::MAX) {
+        return Some(u32::MAX);
+    }
+    Some(mm as u32)
+}
+
 pub(crate) fn round_um(meters: f64) -> Option<u64> {
     if !meters.is_finite() {
         return None;
