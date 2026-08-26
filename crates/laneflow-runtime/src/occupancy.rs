@@ -1643,6 +1643,26 @@ mod tests {
         assert_eq!(ceil_mm(1.0), Some(1_000));
         assert_eq!(ceil_mm(1.000_1), Some(1_001));
         assert_eq!(ceil_mm(-0.1), None);
+
+        let moving = front_query_horizon_mm(5_000, profile, delta_s).expect("moving horizon");
+        let speed = 5.0_f32;
+        let v_upper = speed + profile.max_accel() * delta_s;
+        let travel_upper = 0.5 * (speed + v_upper) * delta_s;
+        let hard = travel_upper + v_upper * v_upper / (2.0 * profile.emergency_decel());
+        let min_gap = profile.min_gap_mm() as f32 / 1_000.0;
+        let comfort = min_gap + speed * profile.time_headway();
+        let minimum_gap = min_gap + travel_upper + 0.001;
+        let bumper = hard.max(comfort).max(minimum_gap);
+        assert!(
+            comfort > hard && comfort > minimum_gap,
+            "nonzero-speed case must lock the comfort term, comfort={comfort} hard={hard} minimum_gap={minimum_gap}"
+        );
+        assert_eq!(
+            moving,
+            ceil_mm(f64::from(bumper))
+                .expect("ceil bumper")
+                .saturating_add(MAX_VEHICLE_LENGTH_MM)
+        );
     }
 
     #[test]
@@ -1680,6 +1700,134 @@ mod tests {
             horizon.saturating_sub(1),
         );
         assert_eq!(beyond, None);
+    }
+
+    #[test]
+    fn subsequent_entrance_at_horizon_is_included() {
+        let first = LaneEdgeOrdinal::from_raw(0);
+        let second = LaneEdgeOrdinal::from_raw(1);
+        let follower = VehicleHandle::new(0, 0);
+        let leader = VehicleHandle::new(1, 0);
+        let lengths = [10_000_u32, 10_000];
+        let edges = [first, second];
+        let remaining_on_current = 9_000_u32;
+        let horizon = remaining_on_current;
+        let pending = vec![
+            OccupancyRecord {
+                vehicle: follower,
+                bucket: OccupancyBucketOrdinal::from_edge(first),
+                lo_mm: 0,
+                hi_mm: 1_000,
+                update_sequence: 0,
+            },
+            OccupancyRecord {
+                vehicle: leader,
+                bucket: OccupancyBucketOrdinal::from_edge(second),
+                lo_mm: 0,
+                hi_mm: 1_000,
+                update_sequence: 1,
+            },
+        ];
+        let mut occupancy = OccupancyIndex::with_capacity(2, pending.len());
+        occupancy.rebuild_from_pending(&pending, 2);
+        occupancy.reset_inspections();
+        let gap = occupancy.leader_gap(follower, &edges, 0, 1_000, &lengths, horizon);
+        assert_eq!(gap, Some(i64::from(horizon)));
+        assert_eq!(occupancy.occurrence_walks(), 1);
+
+        occupancy.reset_inspections();
+        let skipped = occupancy.leader_gap(
+            follower,
+            &edges,
+            0,
+            1_000,
+            &lengths,
+            remaining_on_current.saturating_sub(1),
+        );
+        assert_eq!(skipped, None);
+        assert_eq!(occupancy.occurrence_walks(), 0);
+    }
+
+    #[test]
+    fn subsequent_gap_beyond_horizon_is_dropped_after_visit() {
+        let first = LaneEdgeOrdinal::from_raw(0);
+        let second = LaneEdgeOrdinal::from_raw(1);
+        let follower = VehicleHandle::new(0, 0);
+        let leader = VehicleHandle::new(1, 0);
+        let lengths = [10_000_u32, 10_000];
+        let edges = [first, second];
+        let horizon = 9_000_u32;
+        let pending = vec![
+            OccupancyRecord {
+                vehicle: follower,
+                bucket: OccupancyBucketOrdinal::from_edge(first),
+                lo_mm: 0,
+                hi_mm: 1_000,
+                update_sequence: 0,
+            },
+            OccupancyRecord {
+                vehicle: leader,
+                bucket: OccupancyBucketOrdinal::from_edge(second),
+                lo_mm: 1,
+                hi_mm: 1_001,
+                update_sequence: 1,
+            },
+        ];
+        let mut occupancy = OccupancyIndex::with_capacity(2, pending.len());
+        occupancy.rebuild_from_pending(&pending, 2);
+        occupancy.reset_inspections();
+        let gap = occupancy.leader_gap(follower, &edges, 0, 1_000, &lengths, horizon);
+        assert_eq!(gap, None);
+        assert_eq!(
+            occupancy.occurrence_walks(),
+            1,
+            "entrance == horizon must still visit the later occurrence"
+        );
+    }
+
+    #[test]
+    fn wrap_occurrence_beyond_horizon_is_not_leader() {
+        let a = LaneEdgeOrdinal::from_raw(0);
+        let b = LaneEdgeOrdinal::from_raw(1);
+        let follower = VehicleHandle::new(0, 0);
+        let behind = VehicleHandle::new(1, 0);
+        let lengths = [10_000_u32, 10_000];
+        let edges = [a, b, a];
+        let horizon = 5_000_u32;
+        let pending = vec![
+            OccupancyRecord {
+                vehicle: follower,
+                bucket: OccupancyBucketOrdinal::from_edge(a),
+                lo_mm: 8_000,
+                hi_mm: 9_000,
+                update_sequence: 0,
+            },
+            OccupancyRecord {
+                vehicle: behind,
+                bucket: OccupancyBucketOrdinal::from_edge(a),
+                lo_mm: 1_000,
+                hi_mm: 2_000,
+                update_sequence: 1,
+            },
+        ];
+        let mut occupancy = OccupancyIndex::with_capacity(2, pending.len());
+        occupancy.rebuild_from_pending(&pending, 2);
+        occupancy.reset_inspections();
+        let bounded = occupancy.leader_gap(follower, &edges, 0, 9_000, &lengths, horizon);
+        let bounded_walks = occupancy.occurrence_walks();
+        occupancy.reset_inspections();
+        let unbounded = occupancy.leader_gap(follower, &edges, 0, 9_000, &lengths, u32::MAX);
+        let unbounded_walks = occupancy.occurrence_walks();
+        assert_eq!(bounded, None);
+        assert_eq!(
+            unbounded,
+            remaining_along_route_i64(&lengths, &edges, 0, 9_000, 2, 1_000)
+        );
+        assert_eq!(bounded_walks, 1, "must visit empty later b, not wrap to a");
+        assert!(
+            unbounded_walks > bounded_walks,
+            "unbounded wrap must walk the repeated a, bounded={bounded_walks} unbounded={unbounded_walks}"
+        );
     }
 
     #[test]
