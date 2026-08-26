@@ -138,10 +138,7 @@ schema 为 `schemas/road-editing/v2/road-editing.fbs`（G2 创建）。
 合成 DSL / typed AST / HIR / MIR / LIR：不再有静态路线声明或出现项表。
 首批支持矩阵「静态路线」行改为明确拒绝。
 
-`CompileLimitDimension::RouteOccurrenceCount` 仍留在
-`LF-COMP-P100-INITIAL-v1` / `v2` 的不可变维度里，路线编译路径不再消费。禁止原地
-从这两个配置档删除该维度。若生产配置要去掉它，G2 必须新开配置档标识。该限额不
-改挂到运行时。
+生产 `CompileLimits` 不再包含 `RouteOccurrenceCount`。该限额不改挂到运行时。
 
 ## 3. 共享静态路网
 
@@ -241,6 +238,6 @@ profile / class / parking: StableId128
   里存当前红灯。
 - 下游限速下降读本世界 `speed_limit_drop`，不扫剩余边；限速值仍读共享根边热列。
 - 同一修订上两个 `TrafficWorld` 各自 `register_route`；catalog / scenario bind 把句柄
-  钉在该 world（指针或 install 令牌）。`RouteHandle` 只有槽位与 generation，不编码
-  world。spawn 只查本世界表。跨 world 把句柄塞进另一个 world 是调用方错误，不作为
-  运行时比特必测。
+  钉在该 world 的 `install` 令牌上，不得用指针比较。`RouteHandle` 只有槽位与
+  generation，不编码 world。spawn 只查本世界表。跨 world 把句柄塞进另一个 world
+  是调用方错误，不作为运行时比特必测。

@@ -4521,7 +4521,6 @@ mod tests {
             CompileLimitDimension::GeometryPointCount,
             CompileLimitDimension::WaitingZoneCount,
             CompileLimitDimension::ManeuverGateCount,
-            CompileLimitDimension::RouteOccurrenceCount,
             CompileLimitDimension::IdentityFieldOccurrenceCount,
             CompileLimitDimension::RelationOccurrenceCount,
             CompileLimitDimension::ReferenceCount,
@@ -4529,6 +4528,7 @@ mod tests {
             CompileLimitDimension::MirRecordCount,
             CompileLimitDimension::HirRecordCount,
             CompileLimitDimension::TypedAstRecordCount,
+            CompileLimitDimension::DeclarationCount,
         ];
 
         for dimension in dimensions {

@@ -2992,54 +2992,6 @@ fn static_route_preserves_repeated_edge_occurrences() {
 }
 
 #[test]
-fn static_route_limit_failure_preserves_the_builder() {
-    let mut builder = junction_builder("static-route-limit.document");
-    builder
-        .add_lane_edge(LaneEdgeInput {
-            lane_edge_key: "loop",
-            length_meters: 10.0,
-            speed_limit_meters_per_second: 10.0,
-            successors: &[LaneEdgeReference::local("loop")],
-        })
-        .unwrap();
-    let over_limit = vec![
-        LaneEdgeReference::local("loop");
-        usize::try_from(
-            CompileLimits::p100_initial_v1().value(CompileLimitDimension::RouteOccurrenceCount)
-        )
-        .unwrap()
-            + 1
-    ];
-    let diagnostics = match builder.add_static_route(StaticRouteInput {
-        static_route_key: "route-over-limit",
-        edge_sequence: &over_limit,
-    }) {
-        Ok(_) => panic!("route occurrence limit must fail before owning the input"),
-        Err(diagnostics) => diagnostics,
-    };
-    assert!(matches!(
-        diagnostics.diagnostics()[0].payload(),
-        DiagnosticPayload::CompileLimitExceeded {
-            dimension: CompileLimitDimension::RouteOccurrenceCount,
-            limit: 1_920,
-            observed: 1_921,
-        }
-    ));
-
-    builder
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-valid-after-failure",
-            edge_sequence: &[LaneEdgeReference::local("loop")],
-        })
-        .unwrap();
-    assert!(
-        Compiler::new()
-            .compile(unit([builder.finish().unwrap()]))
-            .is_ok()
-    );
-}
-
-#[test]
 fn static_route_semantics_ignore_control_and_route_declaration_order() {
     let mut left = control_builder("static-route-left.document");
     add_valid_control(&mut left, false);

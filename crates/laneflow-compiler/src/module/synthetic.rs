@@ -81,7 +81,6 @@ pub struct SyntheticModuleBuilder {
     source_record_byte_len: u64,
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
-    route_occurrence_count: u64,
     geometry_point_count: u64,
 }
 
@@ -100,7 +99,6 @@ struct DeclarationResourceDelta {
     source_bytes: u64,
     maneuver_gates: u64,
     waiting_zones: u64,
-    route_occurrences: u64,
     geometry_points: u64,
 }
 
@@ -118,7 +116,6 @@ struct DeclarationResourceState {
     source_record_byte_len: u64,
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
-    route_occurrence_count: u64,
     geometry_point_count: u64,
 }
 
@@ -196,7 +193,6 @@ impl SyntheticModuleBuilder {
             source_record_byte_len: base_source_bytes,
             maneuver_gate_count: 0,
             waiting_zone_count: 0,
-            route_occurrence_count: 0,
             geometry_point_count: 0,
         })
     }
@@ -367,9 +363,6 @@ impl SyntheticModuleBuilder {
                 .maneuver_gate_count
                 .saturating_add(delta.maneuver_gates),
             waiting_zone_count: self.waiting_zone_count.saturating_add(delta.waiting_zones),
-            route_occurrence_count: self
-                .route_occurrence_count
-                .saturating_add(delta.route_occurrences),
             geometry_point_count: self
                 .geometry_point_count
                 .saturating_add(delta.geometry_points),
@@ -419,10 +412,6 @@ impl SyntheticModuleBuilder {
                 state.waiting_zone_count,
             ),
             (
-                CompileLimitDimension::RouteOccurrenceCount,
-                state.route_occurrence_count,
-            ),
-            (
                 CompileLimitDimension::GeometryPointCount,
                 state.geometry_point_count,
             ),
@@ -454,7 +443,6 @@ impl SyntheticModuleBuilder {
         self.source_record_byte_len = state.source_record_byte_len;
         self.maneuver_gate_count = state.maneuver_gate_count;
         self.waiting_zone_count = state.waiting_zone_count;
-        self.route_occurrence_count = state.route_occurrence_count;
         self.geometry_point_count = state.geometry_point_count;
     }
 
@@ -2341,7 +2329,7 @@ impl SyntheticModuleBuilder {
         }
 
         // 先只借用调用方切片完成校验和精确资源预检；超大不可信序列不得通过
-        // Vec::with_capacity 或字符串复制抢在 max_route_occurrence_count 前分配。
+        // Vec::with_capacity 或字符串复制抢在资源限额前分配。
         for reference in input.edge_sequence {
             self.validate_reference(EntityKind::LaneEdge, *reference, &span)?;
         }
@@ -2388,7 +2376,6 @@ impl SyntheticModuleBuilder {
                         occurrence_count,
                     )),
                 source_bytes,
-                route_occurrences: occurrence_count,
                 ..DeclarationResourceDelta::default()
             },
             input.static_route_key,
@@ -2990,7 +2977,6 @@ impl SyntheticModuleBuilder {
                     string_bytes: self.string_bytes,
                     maneuver_gate_count: self.maneuver_gate_count,
                     waiting_zone_count: self.waiting_zone_count,
-                    route_occurrence_count: self.route_occurrence_count,
                     geometry_point_count: self.geometry_point_count,
                     geometry_source_range_count: 0,
                     controlled_live_bytes: self

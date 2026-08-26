@@ -668,11 +668,11 @@ rebind_reserved_vehicle_route(
 ) -> ReservedVehicleRouteRebindRecord
 
 spawn_parked_vehicle(ParkedVehicleSpawnInput {
-  id, profile, route_id, route_edge_index, space
+  id, profile, route, route_edge_index, space
 }) -> ParkedVehicleSpawnRecord
 ```
 
-`ParkedVehicleSpawnInput.route_id` 沿用现有 spawn external route ID 风格；不接受 caller speed/progress/status，成功固定 Parked/zero并从 entry规范化 cursor。
+`ParkedVehicleSpawnInput.route` 是已有 `RouteHandle`；不接受 caller speed/progress/status，成功固定 Parked/zero 并从 entry 规范化 cursor。catalog `route_id` 若需要由调用方对照自己的表。
 
 Records使用：
 

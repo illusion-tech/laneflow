@@ -45,7 +45,6 @@ struct ModuleUsage {
     reference_count: u64,
     relation_occurrence_count: u64,
     identity_field_occurrence_count: u64,
-    route_occurrence_count: u64,
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
     symbol_count: u64,
@@ -201,10 +200,6 @@ impl ModuleUsage {
             (
                 CompileLimitDimension::IdentityFieldOccurrenceCount,
                 self.identity_field_occurrence_count,
-            ),
-            (
-                CompileLimitDimension::RouteOccurrenceCount,
-                self.route_occurrence_count,
             ),
             (
                 CompileLimitDimension::ManeuverGateCount,
@@ -886,9 +881,6 @@ fn charge_declaration(
         RoadEditingDeclaration::StaticRoute(value) => {
             usage.charge_table(3, 12);
             usage.charge_vector(value.edge_sequence().len(), 4);
-            usage.route_occurrence_count = usage
-                .route_occurrence_count
-                .saturating_add(u64::try_from(value.edge_sequence().len()).unwrap_or(u64::MAX));
             charge_references(
                 usage,
                 value.edge_sequence(),
