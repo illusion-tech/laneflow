@@ -56,7 +56,9 @@ use super::synthetic_record::{
 };
 
 /// 当前合成领域专用语言 `LFSOURCE` 来源记录编码版本。
-pub const SYNTHETIC_FRONTEND_VERSION: u32 = 2;
+///
+/// `3`：准入后交通一维以整数毫米 / 受检 `f32` SI 写入来源记录，不再写编制 `f64`。
+pub const SYNTHETIC_FRONTEND_VERSION: u32 = 3;
 
 pub struct SyntheticModuleBuilder {
     header: SourceModuleHeader,

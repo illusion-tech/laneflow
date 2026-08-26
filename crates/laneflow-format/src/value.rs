@@ -822,7 +822,8 @@ fn validate_lfsm_row(
             }
             require_exact_u32(row.required(5)?, 1)?;
             let frontend = row.required(6)?;
-            let expected_frontend = if language == 1 { 2 } else { 1 };
+            // SyntheticDsl `LFSOURCE` 现行编码为 3；RoadEditingSource 仍为 1。
+            let expected_frontend = if language == 1 { 3 } else { 1 };
             require_exact_u32(frontend, expected_frontend)?;
             visit_record_rows(row.required(12)?, |import| {
                 validate_identity_ascii_token(import.required(1)?, max_identity_ascii_bytes)
