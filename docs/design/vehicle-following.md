@@ -262,11 +262,11 @@ bumper_gap = route_distance(F.front, L.front) - L.length
 
 查询顺序：
 
-1. 当前物理边上 `hi_mm >` follower 前保险杠的占用记录。
-2. follower 路线后续出现项上该桶最前非 self 记录。
+1. 当前物理边上所有 `hi_mm >` follower 前保险杠的占用记录中，取最小 `lo_mm`（最紧后杠）。同边占用重叠时不得只取最小 `hi_mm`。
+2. follower 路线后续出现项上该桶全部非 self 记录中的最小 `lo_mm`。
 3. 取最小间隙（可负）。当前 `TrafficWorld` 沿剩余路线查询，不另截 braking horizon；这仍满足 ADR 0006 的搜索下界。
 
-Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时不搜索 follower 未选 branch；其他 incoming branch 上、尚未进入共享 downstream edge 的车辆不是 longitudinal leader，而应由未来 merge/conflict constraint 处理。车辆进入共享 downstream edge 后，才按普通 leader 处理。
+Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时不搜索 follower 未选 branch；其他 incoming branch 上、尚未进入共享 downstream edge 的车辆不是 longitudinal leader，而应由未来 merge/conflict constraint 处理。车辆进入共享 downstream edge 后，才按普通 leader 处理。支路汇入后同边占用可以重叠；跟车间隙仍取最紧后杠，不把重叠合法化。
 
 ### 6.3 Repeated edge 与 cycle
 
@@ -283,6 +283,7 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 - 只违反 profile `min_gap`、但未发生物理重叠的 world initialization 或 lifecycle command 输入仍合法；runtime final geometry projection 不得继续缩小该既有异常净距。
 - 初始化和 `spawn_vehicle` 必须原子拒绝同 edge、相邻 route boundary 和 repeated occurrence 可见范围内的物理重叠。
 - 其他 incoming branch 在进入共享 edge 前不做纵向 overlap 投影；Core 没有足够世界几何判断分支间碰撞。
+- 共享边上若已出现重叠占用，跟车查询取最紧后杠；这不把重叠变成合法几何。
 
 ### 6.5 状态参与
 
@@ -328,12 +329,13 @@ OccupancyRecord
 4. 写入连续占用记录 buffer。
 5. 每个 bucket 原地 unstable sort。
 
-排序键为 `(hi_mm, lo_mm, update_sequence, vehicle.index)`。`update_sequence` 只做稳定 tie-break，不得把同边相同前缘的物理重叠合法化。安装不预留按边展开的峰值。首次重建把 bucket 表扩到边数，并把占用记录容量规划为车辆容量 × (`MAX_VEHICLE_LENGTH_MM` / `MIN_LANE_EDGE_LENGTH_MM`)；合法输入下其后稳态 tick 不因占用索引新分配。超过该上限失败关闭。
+排序键为 `(hi_mm, lo_mm, update_sequence, vehicle.index)`。`update_sequence` 只做稳定 tie-break，不得把同边相同前缘的物理重叠合法化。安装不预留按边展开的峰值。首次重建把 bucket 表扩到边数，并把占用记录容量规划为车辆容量 × (`MAX_VEHICLE_LENGTH_MM` / `MIN_LANE_EDGE_LENGTH_MM` + 1)；`+ 1` 计入未对齐车身两端残段。合法输入下其后稳态 tick 不因占用索引新分配。超过该上限失败关闭。
 
 ### 7.3 Query 与复杂度
 
-- 当前边：`partition_point` 定位第一个 `hi_mm > follower_front` 的非 self 占用记录。
-- 后续出现项：沿 **follower** 剩余路线读取该桶最前非 self 记录。本切片只交付前方最近前车，不另截 braking horizon。
+- 当前边：`partition_point` 定位 `hi_mm > follower_front` 的后缀，在该后缀的非 self 记录中取最小 `lo_mm`。
+- 后续出现项：沿 **follower** 剩余路线读取该桶非 self 记录中最小 `lo_mm`。本切片只交付前方最近前车，不另截 braking horizon。
+- 实现按 `hi_mm` 排序后维护桶内后缀最小 `lo_mm`，查询 `O(1)`，避免密队列回到全对扫描。重叠占用不得只返回最小 `hi_mm`。
 - 前方距离用 follower 的 route occurrence 解释，不用 candidate 自己的路线。
 - 同一 candidate 映射多个 future occurrence 时取最小间隙（可负）。
 - 构建：`O(B + K + Σ sort(K_bucket))`，`B` 为物理边桶数，`K` 为占用记录数（约为道路交通活动车辆数 × 车身跨边数）。
