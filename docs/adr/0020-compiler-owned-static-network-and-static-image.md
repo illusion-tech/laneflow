@@ -187,9 +187,10 @@ publishable programmatic generator 必须保留 build ID、参数、seed、names
 轴。`identityEncodingVersion = 1`
 冻结 magic、kind、field count、strictly-increasing tag/length/value bytes；
 `identityRegistryRevision = 2` 必须覆盖 current target 的 topology、Gate/Waiting、
-Signals/Phase、Parking、cross-section/access/profile、static Route 与 canonical
-frame declaration。新增 kind 只 append registry revision；修改既有 kind 的字段
-集合、tag 含义或编码必须提升 encoding version。完整 kind/tag/required-sequence
+Signals/Phase、Parking、cross-section/access/profile 与 canonical frame declaration。
+种类 21 保留空位，不覆盖 `StaticRoute`（ADR 0029）。新增 kind 只 append registry
+revision；修改既有 kind 的字段集合、tag 含义或编码必须提升 encoding version。完整
+kind/tag/required-sequence
 表以 `network-compiler.md` 为规范。所有**定义子实体身份**的父子关系必须以父实体
 StableId 作为父锚点，不能只复制父实体在其来源模块内稳定的裸局部 key；这样跨模块
 同名父实体与重新归属仍由完整命名空间裁决。可选组织关系不因此自动成为身份前像；
