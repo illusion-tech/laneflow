@@ -1877,8 +1877,9 @@ registry。对绑定 LFCA 按该表投影出的每个 tuple，LFSM 必须恰有�
 tuple 都失败关闭。候选发射时，每个 tuple 必须选择同一 `ValidatedSourceMapInput` 中由 A.5 role 对应的
 owner-local view；`primaryLocation` 必须逐值等于其 `primary_source()`，
 `contributingLocations` 必须逐字节等于 `C(view)`，不能只是任意合法且有序的位置集合。
-当前普通显式关系贡献集为空，role 14..16 的 route-derived view 则精确保留各自
-ManeuverPath/ManeuverGate/WaitingZone 声明贡献位置。OwnerLocalSource 不重复保存 subject，
+当前普通显式关系贡献集为空。角色 13–16 禁止出现，不得再为已删除的静态路线出现项
+保留 route-derived view。ManeuverPath / ManeuverGate / WaitingZone 自身声明贡献位置
+仍按 A.2 与实体来源行闭合。OwnerLocalSource 不重复保存 subject，
 #298 历史完整接受域不复演该私有 view 比较，而是从绑定 LFCA 和 A.5 一一反解 subject，核对位置引用、
 集合排序、DerivedRelationSources 联合关系和下列 RoadEditing 地址投影；#299 当前 checker
 不执行该全量来源视图复验。若
@@ -2382,8 +2383,8 @@ RoadEditing primary-source projection by sourceRelationRole:
 ```
 
 role 9 的 `P` 和 `j` 只从绑定 LFCA 的 Junction/Movement/ManeuverPath/edge 关系及稳定身份
-重算；若不存在唯一最低 StableId 路径或 subject 不是其 internal edge，则失败。role 14..16
-使用同一绑定 LFCA occurrence 行中的 edge index，不使用 LFSM 自报 index。SyntheticDsl 的
+重算；若不存在唯一最低 StableId 路径或 subject 不是其 internal edge，则失败。角色 13–16
+禁止出现，不得从已删除的路线出现项行投影。SyntheticDsl 的
 Text 位置没有结构化 declaration address，因此只执行 A.2 的模块/文档/行列闭合；不得把它
 伪装为可通过上述投影的 RoadEditing 位置。
 
