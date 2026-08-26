@@ -122,8 +122,11 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 |   30 | `RouteKey`          | 保留空位；不得解码为字段       |
 |   31 | `CanonicalFrameKey` | 不变                           |
 
-`EntityKind` 可构造集合为种类 1–20 与 22，共 21 项。种类 21 不进入 `ALL`。
-字段标签可构造集合去掉 30，保留既有空位 23。身份编码版本仍为 1。
+`EntityKind` 可构造集合为种类 1–20 与 22，共 21 项。`from_code(21)` 失败，不发射、
+不解码。`EntityKind::ALL` **长度仍为 22**：代码 21 占保留空槽，`CanonicalFrame`
+仍是代码 22。共享身份表按 `kind_index = code() - 1` 寻址，backing 必须是 22 格，
+不得把 `ALL` 缩成 21 项后再用代码减一索引。字段标签可构造集合去掉 30，保留既有
+空位 23。身份编码版本仍为 1。
 
 `CanonicalIdentityTable` 不得再出现 `entityKind = 21` 行。
 
@@ -223,6 +226,8 @@ profile / class / parking: StableId128
 
 - 含 `StaticRoute` 或 `formatVersion = 2` 的历史 LFCA 失败关闭，诊断可区分版本与未知表。
 - 身份 `entityKind = 21` 或字段标签 30 失败关闭。
+- `EntityKind::ALL.len() == 22`，`kind_index(CanonicalFrame)` 可寻址；不得把 `ALL`
+  缩成 21 项后再用 `code() - 1` 索引。
 - 道路编辑 `format_version = 1` 或含 `static_routes` 的来源失败关闭；现行只接受 `2`。
 - 三边 `entry → middle → exit` 夹具：`register_route` 后两车跟车，行为不弱于原
   `static_route(0)`。

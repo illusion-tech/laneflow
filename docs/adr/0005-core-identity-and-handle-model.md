@@ -5,7 +5,10 @@
 **适用范围**: LaneFlow Core 的 external ID、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界  
 **目标态取代登记**: Accepted ADR 0020 将取代核心初始化时分配静态句柄/登记表的
 位置，并把目标态动态执行层改名为交通运行时；外部稳定标识、有类型密集句柄、热冷
-分离及动态车辆/路线生命周期继续有效。#294 完成 G4 前，本文 current 契约继续生效。<br>
+分离及动态车辆/路线生命周期继续有效。Accepted ADR 0029 部分取代本文对
+`TrafficWorld` 的 route external ID：Runtime 不持有 route ID resolver，
+`remove_route` 不返回 catalog / 外部路线 ID。#294 完成 G4 前，本文其余 current
+契约继续生效。<br>
 **关联文档**:
 
 - 上游决策:

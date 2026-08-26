@@ -47,8 +47,10 @@ typed ordinal 双向翻译；它不进入 steady tick，也不能证明同一 St
 路网修订间语义兼容。跨修订状态迁移仍必须使用由 #302 可信切换输入绑定的
 语义差异（Semantic Diff），不能采用仅凭索引的回退。显示名、来源位置和完整规范元组等
 诊断数据由可移植制品、源映射或独立诊断制品外置提供，不进入 v1 shared static
-network。本文后续“Core 初始化阶段 normalization”继续描述 current，直到 #301
-拆除 current Core/JSON 运行时入口。
+network。现行 `TrafficWorld` 路线入口以 ADR 0029 为准：`register_route` 只收边
+序号，catalog `route_id` 归调用方，Runtime 不提供 route external ID resolver。
+本文后续 v0.2 Core registry/resolver 与 “Core 初始化阶段 normalization” 是历史
+Core 描述；current Core/JSON 运行时入口已随 #301 拆除。
 
 ## 2. 背景
 
