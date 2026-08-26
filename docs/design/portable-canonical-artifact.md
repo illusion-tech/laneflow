@@ -2202,7 +2202,7 @@ provenance 仍不构成信任锚；
 每个 table container 的合法 `TableField.memberCode` 是下列闭区间；区间外的值失败关闭：
 
 ```text
- 0 RoadEditingSource       0..26    18 StopLine             0..2
+ 0 RoadEditingSource       0..24,26 18 StopLine             0..2
  1 ModuleHeader            0..3     19 SignalGroup          0..1
  2 Provenance              0..5     20 SignalController     0..4
  3 LineSegment             0..0     21 SignalPhaseState     0..1
@@ -2221,6 +2221,10 @@ provenance 仍不构成信任锚；
 16 ManeuverGate            0..6     34 StaticRoute          禁止（ADR 0029 空位）
 17 WaitingZone             0..5     35 CanonicalFrame       0..1
 ```
+
+`RoadEditingSource` 的合法 `memberCode` 是 `0..=24` 与 `26`；`25` 为历史
+`static_routes` 保留空位，禁止出现（ADR 0029）。不得把 `canonical_frames`（26）
+重编号到 25。tableKind `34` 的 `StaticRoute` 容器同样禁止出现。
 
 `StructMember` 的闭合成员表为：`Digest256(0): member 0`、
 `OptionalU64(1): member 0`、`Vec3F64(2): members 0..2`、

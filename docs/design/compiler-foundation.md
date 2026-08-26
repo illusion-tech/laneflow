@@ -511,7 +511,9 @@ CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::re
 Synthetic 路径。#315 G2 使用新的 `LF-COMP-P100-INITIAL-v2`：除新增
 `max_source_document_count = 1566` 外，其余精确上限继承 v1。该数值是 #315 已实现的
 共同接入容量，不构成任何 current JSON 前端承诺；后继前端若需要更高文档总数，必须
-携带实测存续内存和真实工作负载证据另行提升配置档版本。
+携带实测存续内存和真实工作负载证据另行提升配置档版本。`RouteOccurrenceCount` 仍是
+v1/v2 的不可变维度；ADR 0029 之后路线编译路径不再消费它，**禁止**原地从这两个
+配置档删除。若生产配置要去掉该维度，必须新开标识。
 
 `CompileLimits` 私有保存配置档修订与受支持维度，不能由调用方补字段或隐式升级。v1
 只通过既有 `ModuleCount` 隐式覆盖单文档模块；任何产生多文档模块的正式前端都必须在
@@ -875,9 +877,10 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 `SyntheticModuleBuilder::finish` 计算来源内容摘要，调用方不能自报摘要或单独配对
 来源模块描述符。首版合成来源记录使用 `frontendVersion` 版本化的确定性长度前缀
 编码，精确字节以 `LFSOURCE` 魔数 / 域前缀开头，并对完整记录精确字节计算 SHA-256
-形成 #292 已接受的 `sourceContentDigest`；编码变化必须提升前端版本并更新已知向量。
+形成 #292 已接受的 `sourceContentDigest`；**编码**变化必须提升前端版本并更新已知向量。
 现行合成前端为 `frontendVersion = 3`：准入后交通一维以整数毫米 / 受检 `f32` SI
-写入来源记录，不再写编制 `f64`。
+写入来源记录，不再写编制 `f64`（#500）。拒绝 `StaticRoute` 声明是校验收口，不是
+`LFSOURCE` 布局变化，不另开世代。含静态路线的旧合成模块失败关闭（ADR 0029）。
 调用机器的绝对路径、墙钟时间和指针地址不进入该记录。
 该摘要只服务来源沿袭和重放，不参与实体稳定标识。测试可以使用显式 `test_only`
 来源模块头；该能力不得进入发布接口。

@@ -15,8 +15,9 @@ pub(crate) struct ManeuverOccurrence {
     pub exit_route_edge_index: u32,
 }
 
-/// 本世界 compiled 路线。G2 在此物化分段 `u32` 前缀、后缀 `BoundedDistance` 与 hop 门索引；
-/// 不上 `u64`，不把 world 身份写进 `RouteHandle`（ADR 0028 / 0029）。
+/// 本世界 compiled 路线。G2 在此物化分段 `u32` 前缀、后缀 `BoundedDistance`、hop 门、
+/// 受控 hop 链和限速下降转换（现行 `speed_limit_transitions` 同形）。
+/// 不上 `u64`，不把 world 身份写进 `RouteHandle`，不存「当前红灯」（ADR 0028 / 0029）。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CompiledRoute {
     pub edges: Box<[LaneEdgeOrdinal]>,
@@ -105,7 +106,8 @@ fn record_occurrence(
     claim_internal_coverage(coverage, entry_index, exit_index, path)
 }
 
-/// 注册期唯一出现项编译器。G2 在返回的 compiled 上物化分段 `u32` 索引；不上 `u64`。
+/// 注册期唯一出现项编译器。G2 在返回的 compiled 上物化分段 `u32` 索引、受控 hop 链
+/// 与限速下降转换；不上 `u64`，不冻当前红灯。
 pub(crate) fn compile_dynamic_route(
     traffic: &SharedTrafficNetwork,
     edges: &[LaneEdgeOrdinal],

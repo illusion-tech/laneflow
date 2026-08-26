@@ -134,8 +134,8 @@ impl TrafficWorld {
 
     /// 注册本世界动态路线。失败不留下半条路线。
     ///
-    /// G2 在 compiled 槽位物化分段 `u32` 前缀与后缀 `BoundedDistance`；不上 `u64`。
-    /// 返回的句柄不含 world 身份，只在本 `TrafficWorld` 内有效。
+    /// G2 在 compiled 槽位物化分段 `u32` 前缀、后缀距离、受控 hop 链和限速下降转换；
+    /// 不上 `u64`，不存当前红灯。句柄不含 world 身份，只在本 `TrafficWorld` 内有效。
     pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
         if self.live_dynamic_routes >= self.config.dynamic_route_capacity() {
             return Err(RouteError::CapacityExceeded);
