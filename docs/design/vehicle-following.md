@@ -57,7 +57,7 @@
 - **Route occurrence**：同一个 physical edge 在有限 route sequence 中的一次出现，由 `route_edge_index` 区分。
 - **Front progress**：车辆前保险杠沿当前 physical edge 的 progress。
 - **Bumper gap**：follower 前保险杠到 leader 后保险杠的 route-relative 距离。
-- **Leader**：沿 follower 已选 route、剩余出现项上间隙最小的 Active 车辆（间隙可负）。
+- **Leader**：沿 follower 已选 route、跟车前视内剩余出现项上间隙最小的 Active 车辆（间隙可负）。
 - **Comfort controller**：正常驾驶时产生期望加速度的 IIDM 层。
 - **Safe-speed**：把 next speed 限制在 emergency braking 可处理范围内的确定性上界。
 - **Base speed limit**：Traffic/LaneGraph immutable per-edge 基础道路限速。
@@ -343,7 +343,7 @@ OccupancyRecord
 - 构建：`O(B + K + Σ sort(K_bucket))`，`B` 为物理边桶数，`K` 为占用记录数（约为道路交通活动车辆数 × 车身跨边数）。
 - 禁止每辆车扫描全体车辆和全局 `O(N_traffic_active^2)`。
 
-占用索引不进入 public API、不允许 Adapter 缓存。测试可保留全扫描预言机，仅 `cfg(test)` 对拍，不进生产热路径。
+占用索引不进入 public API、不允许 Adapter 缓存。测试可保留全扫描预言机，仅 `cfg(test)` 对拍，并按同一 `front_query_horizon` 过滤，不进生产热路径。
 
 spawn / replace 的重叠检查读已提交 `VehicleState`，仍对 `live_order` 做命令路径扫描，不用本拍占用索引。占用索引只在 `step` 内从 T 重建，生命周期命令之间不增量修补。
 
@@ -448,7 +448,7 @@ IIDM evaluator 是 Core 私有纯计算单元：输入 profile 与 observation�
 
 ### 10.1 Leader query horizon
 
-Leader 尚未找到时使用 stationary-leader worst case 推导 follower 自身搜索上界：
+Leader 尚未找到时使用 stationary-leader worst case 推导 follower 自身搜索上界。该上界即跟车前视：实现按它截断，且不得搜得更短。
 
 ```text
 dt = fixed_delta_time_ms / 1000
