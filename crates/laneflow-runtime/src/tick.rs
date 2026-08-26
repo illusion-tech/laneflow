@@ -1,11 +1,52 @@
-use laneflow_static_contract::{LaneEdgeOrdinal, SignalAspect};
+use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, SignalAspect};
 use laneflow_static_network::{BoundedDistance, VehicleProfileView};
 
 #[cfg(test)]
 use crate::tables::occupancy_front_gap;
 use crate::tables::{CompiledRoute, distance_to_occurrence_start, remaining_to_route_end};
-use crate::units::{round_mm, round_um};
+use crate::units::{ceil_mm, round_mm, round_um};
 use crate::{StepError, StepOutcome, TickInput, TrafficWorld, VehicleState, VehicleStatus};
+
+/// 整数毫米合同下覆盖 `s0` 边界舍入的专用容差。跟车前视公式里的
+/// `minimum_gap_tolerance`。
+const MINIMUM_GAP_TOLERANCE_MM: u32 = 1;
+
+/// §10.1 `front_query_horizon`：静止前车最坏情况，SI 有限后向上取整到毫米。
+///
+/// 视距是每车每拍推导的查询下界，不是目视距离。非有限输入失败关闭。
+pub(crate) fn front_query_horizon_mm(
+    speed_mm_s: u32,
+    profile: VehicleProfileView,
+    delta_s: f32,
+) -> Option<u32> {
+    if !delta_s.is_finite() || delta_s <= 0.0 {
+        return None;
+    }
+    let speed = si_speed(speed_mm_s);
+    let accel = profile.max_accel();
+    let emergency = profile.emergency_decel();
+    let min_gap = si_meters(profile.min_gap_mm());
+    let headway = profile.time_headway();
+    if ![speed, accel, emergency, min_gap, headway]
+        .into_iter()
+        .all(f32::is_finite)
+    {
+        return None;
+    }
+    if accel < 0.0 || emergency <= 0.0 || min_gap < 0.0 || headway < 0.0 {
+        return None;
+    }
+    let v_upper = speed + accel * delta_s;
+    let travel_upper = 0.5 * (speed + v_upper) * delta_s;
+    let hard_horizon = travel_upper + v_upper * v_upper / (2.0 * emergency);
+    let comfort_horizon = min_gap + speed * headway;
+    let minimum_gap_horizon = min_gap + travel_upper + si_meters(MINIMUM_GAP_TOLERANCE_MM);
+    let bumper = hard_horizon.max(comfort_horizon).max(minimum_gap_horizon);
+    if !bumper.is_finite() || bumper < 0.0 {
+        return None;
+    }
+    Some(ceil_mm(f64::from(bumper))?.saturating_add(MAX_VEHICLE_LENGTH_MM))
+}
 
 impl TrafficWorld {
     pub(crate) fn step_vehicles(&mut self, input: TickInput) -> Result<StepOutcome, StepError> {
@@ -70,7 +111,15 @@ impl TrafficWorld {
             .relations()
             .vehicle_profile(state.profile)?;
         let desired_mm_s = profile.desired_speed_mm_s().min(current_limit);
-        let leader_gap = self.leader_bumper_gap(&state, edges, lengths);
+        let horizon_mm = front_query_horizon_mm(state.speed_mm_s, profile, delta_s)?;
+        let leader_gap = self.occupancy.leader_gap(
+            state.handle,
+            edges,
+            cursor,
+            state.progress_mm,
+            lengths,
+            horizon_mm,
+        );
         let route_end =
             remaining_to_route_end(*compiled.remaining_to_end.get(cursor)?, state.progress_mm);
         let signal_stop = self.signal_stop_distance(compiled, &state, cursor);
@@ -146,6 +195,7 @@ impl TrafficWorld {
     }
 
     /// 读本拍占用索引上的前保险杠间隙。调用前必须已 `rebuild_occupancy_index`。
+    #[cfg(test)]
     pub(crate) fn leader_bumper_gap(
         &self,
         follower: &VehicleState,
@@ -153,16 +203,29 @@ impl TrafficWorld {
         lengths: &[u32],
     ) -> Option<i64> {
         let cursor = usize::try_from(follower.route_edge_index).ok()?;
+        let horizon_mm = self.front_query_horizon_mm_for(follower)?;
         self.occupancy.leader_gap(
             follower.handle,
             edges,
             cursor,
             follower.progress_mm,
             lengths,
+            horizon_mm,
         )
     }
 
-    /// `cfg(test)` 全扫描预言机，不是生产热路径。
+    #[cfg(test)]
+    pub(crate) fn front_query_horizon_mm_for(&self, follower: &VehicleState) -> Option<u32> {
+        let profile = self
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(follower.profile)?;
+        let delta_s = self.config.fixed_delta_time_ms() as f32 / 1_000.0;
+        front_query_horizon_mm(follower.speed_mm_s, profile, delta_s)
+    }
+
+    /// `cfg(test)` 全扫描再按同一 `front_query_horizon` 过滤，不是生产热路径。
     #[cfg(test)]
     pub(crate) fn leader_bumper_gap_scan(
         &self,
@@ -171,6 +234,8 @@ impl TrafficWorld {
         lengths: &[u32],
     ) -> Option<i64> {
         let cursor = usize::try_from(follower.route_edge_index).ok()?;
+        let horizon_mm = self.front_query_horizon_mm_for(follower)?;
+        let horizon = i64::from(horizon_mm);
         let mut best: Option<i64> = None;
         for handle in self.live_order.iter().copied() {
             if handle == follower.handle {
@@ -200,6 +265,9 @@ impl TrafficWorld {
             ) else {
                 continue;
             };
+            if gap > horizon {
+                continue;
+            }
             best = Some(best.map_or(gap, |current| current.min(gap)));
         }
         best

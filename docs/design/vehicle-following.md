@@ -1,7 +1,7 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted（纵向分层与 IIDM/安全投影仍有效；已提交一维几何为整数毫米，IIDM 仍为瞬时 SI）<br>
-**最后更新**: 2026-08-26
+**最后更新**: 2026-08-27
 
 **适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
@@ -64,6 +64,7 @@
 - **Effective speed ceiling**：纵向管线当前实际采用的速度上限；current v0.10 没有超车或驾驶风格放宽，因此等于 base speed limit。
 - **Safety projection**：emergency braking 仍不能避免本 tick 重叠时的最终 travel 修正。
 - **Occupancy snapshot**：单个 tick 内不可变的车辆物理占用视图。
+- **跟车前视**：每车每拍由当前速度与 profile 按 §10.1 推导的查询下界（`front_query_horizon`）；不是目视距离。
 
 ## 3. 分层与 tick phases
 
@@ -264,7 +265,8 @@ bumper_gap = route_distance(F.front, L.front) - L.length
 
 1. 当前物理边上所有 `hi_mm >` follower 前保险杠的占用记录中，取最小 `lo_mm`（最紧后杠）。同边占用重叠时不得只取最小 `hi_mm`。
 2. follower 路线后续出现项上该桶全部非 self 记录中的最小 `lo_mm`。
-3. 取最小间隙（可负）。当前 `TrafficWorld` 沿剩余路线查询，不另截 braking horizon；这仍满足 ADR 0006 的搜索下界。
+3. 取最小间隙（可负）。当前 `TrafficWorld` 按 §10.1 跟车前视截断；视距外本拍无
+   leader。截断后的视距仍满足 ADR 0006 的搜索下界。
 
 Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时不搜索 follower 未选 branch；其他 incoming branch 上、尚未进入共享 downstream edge 的车辆不是 longitudinal leader，而应由未来 merge/conflict constraint 处理。车辆进入共享 downstream edge 后，才按普通 leader 处理。支路汇入后同边占用可以重叠；跟车间隙仍取最紧后杠，不把重叠合法化。
 
@@ -273,7 +275,7 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 - 占用按物理边存储，route occurrence 由 follower `route_edge_index` 解释。
 - 同一 candidate 映射多个 future occurrence 时，只保留最小间隙（可负）。
 - Follower 始终按 `VehicleHandle` 全局排除 self。
-- 环形 route 中，物理坐标位于 follower 后方的其他车辆可以通过下一 occurrence 成为前车。当前实现沿剩余路线查找。
+- 环形 route 中，物理坐标位于 follower 后方的其他车辆可以通过下一 occurrence 成为前车。该出现项须落在跟车前视内。
 
 ### 6.4 Overlap
 
@@ -333,8 +335,8 @@ OccupancyRecord
 
 ### 7.3 Query 与复杂度
 
-- 当前边：`partition_point` 定位 `hi_mm > follower_front` 的后缀，在该后缀的非 self 记录中取最小 `lo_mm`。
-- 后续出现项：沿 **follower** 剩余路线读取该桶非 self 记录中最小 `lo_mm`。本切片只交付前方最近前车，不另截 braking horizon。
+- 当前边：`partition_point` 定位 `hi_mm > follower_front` 的后缀，在该后缀的非 self 记录中取最小 `lo_mm`。间隙大于跟车前视则本边不采纳。
+- 后续出现项：沿 **follower** 剩余路线读取该桶非 self 记录中最小 `lo_mm`。按出现项入口距离单调访问；`distance == horizon` 纳入，入口距离大于跟车前视则早停。只交付视距内最近前车；视距外本拍无 leader。占用索引仍按全部 `Active` 重建。
 - 实现按 `hi_mm` 排序后维护桶内后缀最小 `lo_mm`，以及车辆不同的次小 `lo_mm`；self 排除后查询仍 `O(1)`，避免密队列回到全对扫描。重叠占用不得只返回最小 `hi_mm`。
 - 前方距离用 follower 的 route occurrence 解释，不用 candidate 自己的路线。
 - 同一 candidate 映射多个 future occurrence 时取最小间隙（可负）。
@@ -459,7 +461,9 @@ bumper_gap_horizon = max(hard_horizon, comfort_horizon, minimum_gap_horizon)
 front_query_horizon = bumper_gap_horizon + max_vehicle_length
 ```
 
-`minimum_gap_horizon` 保证低速 follower 也能看到本 tick 内可能被侵入 minimum-gap floor 的 leader；专用 tolerance 覆盖 `s0` 边界附近的舍入。horizon 外的 leader 即使静止，follower 以 `travel_upper` 前进后仍不会低于 `s0`。当前 `TrafficWorld` 沿剩余路线查询以满足该下界，不另做 horizon 截断。
+`minimum_gap_horizon` 保证低速 follower 也能看到本 tick 内可能被侵入 minimum-gap floor 的 leader；专用 tolerance 覆盖 `s0` 边界附近的舍入。整数毫米合同下 `minimum_gap_tolerance` 取 1 mm。horizon 外的 leader 即使静止，follower 以 `travel_upper` 前进后仍不会低于 `s0`。
+
+当前 `TrafficWorld` 每车每拍按上式推导 `front_query_horizon`：先在 SI 中求有限值，再**向上取整**到毫米（禁止缩短视距），并加上契约最大车长 `MAX_VEHICLE_LENGTH_MM`。占用查询只访问视距内出现项；视距外本拍无 leader。占用索引仍按全部 `Active` 重建。
 
 ### 10.2 Emergency safe-speed
 
