@@ -335,7 +335,7 @@ OccupancyRecord
 
 - 当前边：`partition_point` 定位 `hi_mm > follower_front` 的后缀，在该后缀的非 self 记录中取最小 `lo_mm`。
 - 后续出现项：沿 **follower** 剩余路线读取该桶非 self 记录中最小 `lo_mm`。本切片只交付前方最近前车，不另截 braking horizon。
-- 实现按 `hi_mm` 排序后维护桶内后缀最小 `lo_mm`，查询 `O(1)`，避免密队列回到全对扫描。重叠占用不得只返回最小 `hi_mm`。
+- 实现按 `hi_mm` 排序后维护桶内后缀最小 `lo_mm`，以及车辆不同的次小 `lo_mm`；self 排除后查询仍 `O(1)`，避免密队列回到全对扫描。重叠占用不得只返回最小 `hi_mm`。
 - 前方距离用 follower 的 route occurrence 解释，不用 candidate 自己的路线。
 - 同一 candidate 映射多个 future occurrence 时取最小间隙（可负）。
 - 构建：`O(B + K + Σ sort(K_bucket))`，`B` 为物理边桶数，`K` 为占用记录数（约为道路交通活动车辆数 × 车身跨边数）。
