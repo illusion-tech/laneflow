@@ -3,7 +3,7 @@ use laneflow_static_network::{BoundedDistance, VehicleProfileView};
 
 #[cfg(test)]
 use crate::tables::occupancy_front_gap;
-use crate::tables::{CompiledRoute, remaining_to_occurrence_start, remaining_to_route_end};
+use crate::tables::{CompiledRoute, distance_to_occurrence_start, remaining_to_route_end};
 use crate::units::{round_mm, round_um};
 use crate::{StepError, StepOutcome, TickInput, TrafficWorld, VehicleState, VehicleStatus};
 
@@ -534,8 +534,10 @@ fn constrain_upcoming_speed_limits(
             continue;
         }
         let to_index = from.checked_add(1)?;
-        match remaining_to_occurrence_start(
-            &compiled.remaining_to_end,
+        match distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
             cursor,
             progress_mm,
             to_index,
@@ -657,8 +659,10 @@ fn clamp_travel_to_speed_down_boundary(
             continue;
         }
         let to_index = from.checked_add(1)?;
-        let BoundedDistance::Finite(mm) = remaining_to_occurrence_start(
-            &compiled.remaining_to_end,
+        let BoundedDistance::Finite(mm) = distance_to_occurrence_start(
+            &compiled.occurrence_segments,
+            &compiled.occurrence_offsets,
+            &compiled.segment_totals,
             cursor,
             progress_mm,
             to_index,

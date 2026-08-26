@@ -456,7 +456,7 @@ fn canvas_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize {
 
 fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
     let tables = [
-        (RoadEditingTableKind::RoadEditingSource, 26_u16), // last id; skip historic 25 below
+        (RoadEditingTableKind::RoadEditingSource, 25_u16),
         (RoadEditingTableKind::ModuleHeader, 3),
         (RoadEditingTableKind::Provenance, 5),
         (RoadEditingTableKind::LineSegment, 0),
@@ -495,9 +495,6 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
     let mut paths = Vec::with_capacity(512);
     for (table, last_field_id) in tables {
         for field_id in 0..=last_field_id {
-            if table == RoadEditingTableKind::RoadEditingSource && field_id == 25 {
-                continue;
-            }
             paths.push(RoadEditingPropertyPath::new(Box::new([
                 RoadEditingPropertyStep::TableField { table, field_id },
             ])));
@@ -854,6 +851,23 @@ mod tests {
                 occurrence: RoadEditingRelationOccurrence::CanonicalSetOrdinal(0),
             }
         ));
+    }
+
+    #[test]
+    fn closed_paths_include_root_canonical_frames_at_member_25() {
+        let paths = closed_property_paths();
+        let frames =
+            RoadEditingPropertyPath::new(Box::new([RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::RoadEditingSource,
+                field_id: 25,
+            }]));
+        let missing =
+            RoadEditingPropertyPath::new(Box::new([RoadEditingPropertyStep::TableField {
+                table: RoadEditingTableKind::RoadEditingSource,
+                field_id: 26,
+            }]));
+        assert!(paths.contains(&frames));
+        assert!(!paths.contains(&missing));
     }
 
     #[test]

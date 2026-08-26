@@ -678,6 +678,10 @@ pub(crate) fn remaining_to_route_end(
 }
 
 /// 当前进度到目标边起点。两端后缀相减，不扫剩余边。
+///
+/// 两端都 `BeyondFinite` 时差仍越界，不能恢复近处有限窗口；限速下降用
+/// [`distance_to_occurrence_start`]。
+#[cfg(test)]
 pub(crate) fn remaining_to_occurrence_start(
     remaining_to_end: &[BoundedDistance],
     from_index: usize,
@@ -693,6 +697,38 @@ pub(crate) fn remaining_to_occurrence_start(
         from.saturating_sub(from_progress)
             .saturating_sub_bounded(to),
     )
+}
+
+/// 当前进度到目标边起点。用分段 `u32` 坐标算查询窗口，不上 `u64`。
+///
+/// 窗口本身溢出才是 `BeyondFinite`；路终越界不影响近处有限距离。
+pub(crate) fn distance_to_occurrence_start(
+    segments: &[u32],
+    offsets: &[u32],
+    totals: &[u32],
+    from_index: usize,
+    from_progress: u32,
+    to_index: usize,
+) -> Option<BoundedDistance> {
+    if to_index < from_index {
+        return None;
+    }
+    let from_seg = usize::try_from(*segments.get(from_index)?).ok()?;
+    let to_seg = usize::try_from(*segments.get(to_index)?).ok()?;
+    if to_seg < from_seg {
+        return None;
+    }
+    let from_off = offsets.get(from_index)?.checked_add(from_progress)?;
+    let to_off = *offsets.get(to_index)?;
+    if from_seg == to_seg {
+        return Some(BoundedDistance::Finite(to_off.saturating_sub(from_off)));
+    }
+    let from_total = *totals.get(from_seg)?;
+    let mut distance = BoundedDistance::Finite(from_total.checked_sub(from_off)?);
+    for total in totals.get(from_seg + 1..to_seg)? {
+        distance = distance.add(*total);
+    }
+    Some(distance.add(to_off))
 }
 
 #[cfg(test)]
@@ -925,6 +961,26 @@ mod compile_route_tests {
         assert_eq!(
             BoundedDistance::Finite(6_000).saturating_sub(999),
             BoundedDistance::Finite(5_001)
+        );
+    }
+
+    #[test]
+    fn segmented_window_recovers_nearby_finite_across_suffix_overflow() {
+        let lengths = [1_000_u32, u32::MAX];
+        let (segments, offsets, totals) = segmented_route_coordinates(&lengths);
+        assert_eq!(segments.as_slice(), [0, 1]);
+        assert_eq!(
+            distance_to_occurrence_start(&segments, &offsets, &totals, 0, 100, 1),
+            Some(BoundedDistance::Finite(900))
+        );
+        let remaining = [
+            BoundedDistance::Finite(1_000).add(u32::MAX),
+            BoundedDistance::Finite(u32::MAX),
+        ];
+        assert_eq!(remaining[0], BoundedDistance::BeyondFinite);
+        assert_eq!(
+            remaining_to_occurrence_start(&remaining, 0, 100, 1),
+            Some(BoundedDistance::BeyondFinite)
         );
     }
 
