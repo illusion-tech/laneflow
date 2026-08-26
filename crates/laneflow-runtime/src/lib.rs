@@ -4,6 +4,7 @@ mod config;
 mod error;
 mod handle;
 mod input;
+mod occupancy;
 mod pose;
 mod tables;
 mod tick;
