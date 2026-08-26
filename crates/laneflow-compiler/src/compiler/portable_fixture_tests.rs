@@ -486,15 +486,15 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.canonical_artifact().object_key(),
-        "sha256/23ca008c927ba88e6d7625bc21360264858a00dcd3cdf047405f5f02bb910ca9"
+        "sha256/caf6b0997d914c63c08eb697efe5476dac58a508b7edd8e7c144e529939a84fd"
     );
     assert_eq!(
         candidate.source_map().object_key(),
-        "sha256/9531b81e2105970a6734674ae7c26e5af891f60289d715abd1ab16af108ffb76"
+        "sha256/c627052603d5391f189bfe0b65159b7152e1649fe6cd814a440d197e3c4f8b2c"
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/33c4d2d4f20c3a8a2040e253c80ee85f4f404ea1d999f72ab46ad1685ac19e0b"
+        "sha256/11095287753e2c963475e678575b2104b32c44a04d3a891e2c9c833a1d17fb93"
     );
     assert_eq!(
         candidate.network_revision(),

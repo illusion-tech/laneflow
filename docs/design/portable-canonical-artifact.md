@@ -1738,7 +1738,7 @@ SHA-256(
 | `0x0003`  | SourceLocation | 见下列闭合字段                                                                                                                                                                                                                                                                                                                                                                               | `sourceLocationOrdinal` |
 
 `sourceLanguage` 只允许 `1=SyntheticDsl, 3=RoadEditingSource`；LFSM v1 分别只接受
-`frontendVersion=2` 与 `frontendVersion=1`。`imports` 的每个内嵌行只有
+`frontendVersion=3` 与 `frontendVersion=1`。`imports` 的每个内嵌行只有
 `1:authoringNamespaceId:Utf8:R`，按 namespace UTF-8 bytes 严格递增；模块行必须按 §5 的
 Kahn ready-set 最小 namespace 规则从 `0` 连续编号，任意 import 必须指向更小的 module
 ordinal。循环、重复 namespace 或无法解析的 import 在编译阶段已经失败，不产生 LFSM。
