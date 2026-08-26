@@ -599,26 +599,29 @@ Identity 正反表覆盖可构造种类（修订 2：21 种 + 种类 21 空位�
 一对多关系使用 `RangeU32 + flat payload`。可选一对一反向使用并行 presence/bitset 或
 等价稀疏列，不得用 `0` 冒充有效 ordinal。tick 向 accessor 返回连续 slice 或实体 View；
 不得在成功对象上保留哈希表、字符串、全表扫描或重复验证。准入查询对越界 ordinal 返回
-缺失，`Unconstrained` 只表示本修订内无适用规则。派生执行索引（相位累计边界、下一受控
-转换、路线距离）必须从 owner-local slice 计算，距离使用与当前 Core 同构的有界表示，
-不得把溢出写成非有限浮点。构建期 intern 可用有序表；成功对象只保留冷 intern 列。
-失败不返回部分根。
+缺失，`Unconstrained` 只表示本修订内无适用规则。派生执行索引里，**相位累计边界**
+必须从 owner-local slice 在 seal 时计算。路线距离、下一受控门与限速下降转换不在
+共享根，由 `register_route` 写入本世界 compiled 表（ADR 0029）。有界距离使用
+`Finite(u32)` / `BeyondFinite`，不得把溢出写成非有限浮点。构建期 intern 可用有序表；
+成功对象只保留冷 intern 列。失败不返回部分根。
 
 共享准入平面与规则表一起在 seal 前闭合：同一 LFCA 的 `(edge, class)` / `(path, class)`
 裁决必须与当前 Core `AccessRegistry` 在 **以 LFCA AccessRule ordinal 为声明序** 时的
 unconstrained/decided 语义一致，包括胜者 rule 归因。平面是共享静态数据，不能推迟到
 每 world 可变状态。
 
-下列列由已冻结静态事实在 seal 时派生，供当前 Core tick 热路径直接借用，不得每
-tick 扫描，也不得复制进每 world 可变状态：
+下列列由已冻结静态事实在 seal 时派生，供 tick 热路径直接借用，不得每 tick 扫描，
+也不得复制进每 world 可变状态：
 
 - **信号相位累计边界**：每个 `SignalPhase` 保留控制器内累计互斥 `end_offset_ms`
   （当前 Core `ResolvedSignalPhase.end_offset_ms`）。`populate_runtime_state` 用
   `partition_point` 解析活动相位；末相位 `end_offset_ms` 必须等于 controller
   `cycle_duration_ms`。只留 `duration_ms` 会迫使每 tick 前缀求和或每 world 重建。
-- **路线执行索引**：不再由 seal 为共享根生成。`register_route` 在每世界编译出现项
-  后，距离与下一受控门按已编译边序号 + 共享根边长/门解析；有界距离同型
-  （`Finite(u32)` / `BeyondFinite`）。不进共享静态路网（ADR 0029）。
+
+路线执行索引 **不**由 seal 生成，也 **不**进入共享根。`register_route` 在本世界
+compiled 表物化分段前缀、后缀距离、受控 hop 链与限速下降转换（ADR 0029）。tick 读
+本世界索引，边长 / 门 / 限速值仍读共享根热列。有界距离同型（`Finite(u32)` /
+`BeyondFinite`）。
 
 `PartitionPlanningHints` 默认保持 #439 的边邻接度数公式。若实现要把路口
 边界权值纳入 worker 数无关提示，必须提升
