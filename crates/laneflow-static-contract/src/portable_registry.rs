@@ -186,13 +186,6 @@ const ACCESS_REGULATION_ROW: PortableRowSchema = PortableRowSchema {
     shape: PortableRowShape::Uniform,
 };
 
-const ROUTE_GATE_ROW_FIELDS: &[PortableFieldSchema] =
-    &[field(1, "maneuverGate", PortableFieldType::U32, O)];
-const ROUTE_GATE_ROW: PortableRowSchema = PortableRowSchema {
-    fields: ROUTE_GATE_ROW_FIELDS,
-    shape: PortableRowShape::Uniform,
-};
-
 const POINT_ROW_FIELDS: &[PortableFieldSchema] = &[
     field(1, "x", PortableFieldType::F32, R),
     field(2, "y", PortableFieldType::F32, R),
@@ -542,17 +535,6 @@ const VEHICLE_PROFILE_ROW: PortableRowSchema = PortableRowSchema {
     shape: PortableRowShape::Uniform,
 };
 
-const STATIC_ROUTE_FIELDS: &[PortableFieldSchema] = &[
-    field(1, "typedOrdinal", PortableFieldType::U32, R),
-    field(2, "stableId", PortableFieldType::StableId128, R),
-    field(3, "edges", PortableFieldType::OrdinalVectorU32, R),
-    record_field(4, "transitionGates", R, &ROUTE_GATE_ROW),
-];
-const STATIC_ROUTE_ROW: PortableRowSchema = PortableRowSchema {
-    fields: STATIC_ROUTE_FIELDS,
-    shape: PortableRowShape::Uniform,
-};
-
 const CANONICAL_FRAME_FIELDS: &[PortableFieldSchema] = &[
     field(1, "typedOrdinal", PortableFieldType::U32, R),
     field(2, "stableId", PortableFieldType::StableId128, R),
@@ -583,7 +565,6 @@ const LFCA_SECTION_3_TABLES: &[PortableTableSchema] = &[
     table(18, "ParticipantClass", &PARTICIPANT_CLASS_ROW, ANY),
     table(19, "AccessRule", &ACCESS_RULE_ROW, ANY),
     table(20, "VehicleProfile", &VEHICLE_PROFILE_ROW, ANY),
-    table(21, "StaticRoute", &STATIC_ROUTE_ROW, ANY),
     table(22, "CanonicalFrame", &CANONICAL_FRAME_ROW, ANY),
 ];
 
@@ -597,80 +578,8 @@ const JUNCTION_INTERNAL_EDGE_ROW: PortableRowSchema = PortableRowSchema {
     fields: JUNCTION_INTERNAL_EDGE_FIELDS,
     shape: PortableRowShape::Uniform,
 };
-const ROUTE_MANEUVER_OCCURRENCE_FIELDS: &[PortableFieldSchema] = &[
-    field(1, "staticRoute", PortableFieldType::U32, R),
-    field(2, "occurrenceIndex", PortableFieldType::U32, R),
-    field(3, "maneuverPath", PortableFieldType::U32, R),
-    field(4, "entryRouteEdgeIndex", PortableFieldType::U32, R),
-    field(5, "exitRouteEdgeIndex", PortableFieldType::U32, R),
-    field(6, "gateOccurrenceStart", PortableFieldType::U32, R),
-    field(7, "gateOccurrenceCount", PortableFieldType::U32, R),
-    field(8, "waitingOccurrenceStart", PortableFieldType::U32, R),
-    field(9, "waitingOccurrenceCount", PortableFieldType::U32, R),
-];
-const ROUTE_MANEUVER_OCCURRENCE_ROW: PortableRowSchema = PortableRowSchema {
-    fields: ROUTE_MANEUVER_OCCURRENCE_FIELDS,
-    shape: PortableRowShape::Uniform,
-};
-const ROUTE_GATE_OCCURRENCE_FIELDS: &[PortableFieldSchema] = &[
-    field(1, "staticRoute", PortableFieldType::U32, R),
-    field(2, "occurrenceIndex", PortableFieldType::U32, R),
-    field(3, "maneuverGate", PortableFieldType::U32, R),
-    field(4, "maneuverOccurrenceIndex", PortableFieldType::U32, R),
-    field(5, "fromRouteEdgeIndex", PortableFieldType::U32, R),
-    field(6, "nextGateOccurrenceIndex", PortableFieldType::U32, O),
-    field(7, "nextBoundaryRouteEdgeIndex", PortableFieldType::U32, R),
-    field(8, "waitingZoneOccurrenceIndex", PortableFieldType::U32, O),
-];
-const ROUTE_GATE_OCCURRENCE_ROW: PortableRowSchema = PortableRowSchema {
-    fields: ROUTE_GATE_OCCURRENCE_FIELDS,
-    shape: PortableRowShape::Uniform,
-};
-const ROUTE_WAITING_OCCURRENCE_FIELDS: &[PortableFieldSchema] = &[
-    field(1, "staticRoute", PortableFieldType::U32, R),
-    field(2, "occurrenceIndex", PortableFieldType::U32, R),
-    field(3, "waitingZone", PortableFieldType::U32, R),
-    field(4, "maneuverOccurrenceIndex", PortableFieldType::U32, R),
-    field(5, "entryGateOccurrenceIndex", PortableFieldType::U32, R),
-    field(6, "releaseGateOccurrenceIndex", PortableFieldType::U32, R),
-    field(7, "entryRouteEdgeIndex", PortableFieldType::U32, R),
-    field(8, "releaseRouteEdgeIndex", PortableFieldType::U32, R),
-];
-const ROUTE_WAITING_OCCURRENCE_ROW: PortableRowSchema = PortableRowSchema {
-    fields: ROUTE_WAITING_OCCURRENCE_FIELDS,
-    shape: PortableRowShape::Uniform,
-};
-const STABLE_ROUTE_REVERSE_INDEX_FIELDS: &[PortableFieldSchema] = &[
-    field(1, "entityKind", PortableFieldType::U16, R),
-    field(2, "typedOrdinal", PortableFieldType::U32, R),
-    field(3, "staticRoute", PortableFieldType::U32, R),
-    field(4, "occurrenceIndex", PortableFieldType::U32, R),
-];
-const STABLE_ROUTE_REVERSE_INDEX_ROW: PortableRowSchema = PortableRowSchema {
-    fields: STABLE_ROUTE_REVERSE_INDEX_FIELDS,
-    shape: PortableRowShape::Uniform,
-};
 const LFCA_SECTION_4_TABLES: &[PortableTableSchema] = &[
     table(1, "JunctionInternalEdge", &JUNCTION_INTERNAL_EDGE_ROW, ANY),
-    table(
-        2,
-        "RouteManeuverOccurrence",
-        &ROUTE_MANEUVER_OCCURRENCE_ROW,
-        ANY,
-    ),
-    table(3, "RouteGateOccurrence", &ROUTE_GATE_OCCURRENCE_ROW, ANY),
-    table(
-        4,
-        "RouteWaitingZoneOccurrence",
-        &ROUTE_WAITING_OCCURRENCE_ROW,
-        ANY,
-    ),
-    table(
-        5,
-        "StableRouteReverseIndex",
-        &STABLE_ROUTE_REVERSE_INDEX_ROW,
-        ANY,
-    ),
 ];
 
 // LFCA section 0x0005..0x0008.
@@ -1614,7 +1523,7 @@ mod tests {
     fn appendix_registry_matches_reviewed_literal_fingerprint() {
         // 这只是对已依据附录 A 人工复核过的 Rust 登记做防漂移固定，不是独立格式 oracle。
         // 更新该值必须先逐项审阅附录；不得从测试失败输出自动追认新的 production registry。
-        assert_eq!(appendix_registry_fingerprint(), 0xdb92_cedc_6d71_c236);
+        assert_eq!(appendix_registry_fingerprint(), 0x97b8_66bc_ea48_8436);
     }
 
     #[test]
@@ -1633,8 +1542,10 @@ mod tests {
                 );
                 for (section_index, section) in object.sections.iter().enumerate() {
                     assert_eq!(section.kind as usize, section_index + 1);
-                    for (table_index, table) in section.tables.iter().enumerate() {
-                        assert_eq!(table.kind as usize, table_index + 1);
+                    let mut previous_kind = 0_u16;
+                    for table in section.tables {
+                        assert!(table.kind > previous_kind);
+                        previous_kind = table.kind;
                     }
                 }
             }
