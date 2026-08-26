@@ -220,7 +220,8 @@ VehicleCompletedRouteEvent
   routeEdgeIndex
 ```
 
-Adapter、debug 和日志需要可读 ID 时，应通过 resolver 查询 external ID。
+Adapter、debug 和日志需要车辆 / 边可读 ID 时，通过 resolver 查询。路线可读 ID
+不进 Runtime resolver，查调用方自己的表（ADR 0029）。
 
 ### D8. route system 不承担 pathfinding
 
@@ -289,7 +290,8 @@ partial-edge target、route policy、planner cost、traffic condition、parking 
 Adapter 可以：
 
 - 读取 route event 和 vehicle runtime state。
-- 通过 resolver 查询 vehicle / route / edge external ID。
+- 通过 resolver 查询 vehicle / edge external ID。路线可读 ID 不进 Runtime
+  resolver。
 - 使用自身 geometry 数据把 edge progress 转换为 transform。
 - 在 debug UI 中显示 route edge sequence 和 completion。
 
@@ -328,7 +330,7 @@ Adapter 不应：
 - route registration 失败保持 registry 不变。
 - route removal 拒绝 live vehicle 正在引用的 route。
 - stale route handle rejection。
-- event payload 使用 handle，resolver 可回查 external ID。
+- event payload 使用 handle；路线不经 Runtime resolver 回查 external ID。
 - 10 km 边长上界、整数毫米进度与 `BeyondFinite` 路线距离，在生产矩阵中通过精确边界、单 tick 多 edge、多轮 route、溢出和失败原子性验证。残差 `f32` 进度只作 #144 历史。
 
 ## 10. v0.8 直行走廊 route profile

@@ -228,8 +228,8 @@ profile / class / parking: StableId128
 **同进程在线切修订**：允许原地改现有槽位的 compiled（新序号 + 重编译出现项），
 当期 `RouteHandle` 保持到该进程结束。不得把该布局写进快照。走廊 catalog
 controller 绑定的是 `(世界令牌, NetworkRevisionId)`：修订变化后 controller **失效**，
-调用方按新修订重新 bind。本切片不设计 catalog 原子热切换，也不让人口层在切修订后
-继续用旧修订句柄。
+调用方按新修订重新 bind。重绑不得新分配句柄，也不得丢掉切修订已保住的句柄。本切片
+不设计 catalog 原子热切换，也不让人口层在切修订后继续用旧修订句柄。
 
 ## 6. 必测项（G2）
 
@@ -259,4 +259,5 @@ controller 绑定的是 `(世界令牌, NetworkRevisionId)`：修订变化后 co
   generation，不编码 world。spawn 只查本世界表。跨 world 把句柄塞进另一个 world
   是调用方错误，不作为运行时比特必测。
 - 同进程切修订后走廊 catalog controller 不得继续 `consume_world` / `apply_pending`；
-  必须按新修订重新 bind。不测 catalog 原子热切换。
+  必须按新修订重新 bind。重绑不得新分配句柄、不得丢掉已保住的句柄。不测 catalog
+  原子热切换。
