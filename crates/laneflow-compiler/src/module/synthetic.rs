@@ -57,7 +57,8 @@ use super::synthetic_record::{
 
 /// 当前合成领域专用语言 `LFSOURCE` 来源记录编码版本。
 ///
-/// `3`：准入后交通一维以整数毫米 / 受检 `f32` SI 写入来源记录，不再写编制 `f64`。
+/// `3`：准入后交通一维以整数毫米 / 受检 `f32` SI 写入来源记录，不再写编制 `f64`（#500）。
+/// 拒绝 `StaticRoute` 声明不另升此值；只有记录布局变化才升（ADR 0029）。
 pub const SYNTHETIC_FRONTEND_VERSION: u32 = 3;
 
 pub struct SyntheticModuleBuilder {

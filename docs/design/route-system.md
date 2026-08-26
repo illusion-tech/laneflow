@@ -1,7 +1,7 @@
 # Route System 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-08-25（#496 G1：前缀溢出走 `BeyondFinite`，不因此拒绝注册）
+**最后更新**: 2026-08-26（#498 G1：`register_route` 只收边序列，外部 ID 归调用方）
 
 **适用范围**: v0.2 Lane Graph + Route 的 route definition、route validation、route lifecycle 和 simple route following 边界  
 **关联文档**:
@@ -16,6 +16,7 @@
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../adr/0028-integer-millimeter-traffic-geometry.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
+- `../adr/0029-retire-precompiled-static-route.md`
 - `../roadmap.md`
 
 ## 1. 目标
@@ -149,14 +150,17 @@ route validation 不检查：
 
 v0.2 Core runtime 支持运行时 register / remove route definition。
 
-规则：
+规则（ADR 0029；取代 v0.2 把 external route ID 写进 Runtime 的合同）：
 
-- `register_route` 接收 external route ID 和 edge external ID sequence。
+- `register_route` 只接收共享根 `LaneEdgeOrdinal` 有序非空序列，不接收 external
+  route ID。catalog / 调用方若有 `route_id`，自己持有并交叉引用句柄。
+- `TrafficWorld` 不按字符串做路线去重；同一边序列注册两次得到两个句柄。
 - `register_route` 成功后返回 active `RouteHandle`。
 - `register_route` 失败必须保持 route registry 不变。
 - `remove_route` 只能移除没有 live vehicle 引用的 route。
-- 这里的 live vehicle 包括 `Active`、`Stopped` 和 `Completed` 状态，只要车辆仍在 CoreWorld 中存在，就视为引用该 route。
-- `remove_route` 成功应返回 lifecycle record，至少包含 route handle 和 external route ID，便于 debug / Adapter 记录。
+- 这里的 live vehicle 包括 `Active`、`Stopped` 和 `Completed` 状态，只要车辆仍在
+  `TrafficWorld` 中存在，就视为引用该 route。
+- `remove_route` 成功后旧句柄 stale；调用方若要诊断用的 catalog ID，对照自己的表。
 - 旧 `RouteHandle` 在 route 移除后变为 stale；若槽位复用，新 handle 必须拥有不同 generation。
 
 v0.2 不提供 in-place route mutation。需要替换 route 时，应注册新 route，并把车辆迁移策略作为单独设计处理。
@@ -257,16 +261,16 @@ VehicleState
 
 ## 5. Runtime API 影响
 
-v0.2 Core API 预期变化：
+现行 `TrafficWorld` API（ADR 0029）：
 
-- route input 使用 external route ID 和 external edge ID sequence。
+- route input 使用共享根 `LaneEdgeOrdinal` 序列，不使用 external route ID。
 - route registry 成功后返回 `RouteHandle`。
-- vehicle spawn input 使用 route external ID 或 `RouteHandle`，具体入口可按实现阶段选择，但 runtime state 必须归一化为 handle。
+- vehicle spawn input 使用 `RouteHandle`；runtime state 只持句柄。
 - route query / event payload / vehicle runtime state 使用 handle。
-- resolver 提供 route handle 与 external route ID 的双向查询。
-- route removal 需要 route-in-use、stale handle、unknown route 和 duplicate route ID 错误路径。
-
-这是 Core API breaking change，但符合 ADR 0005 的 handle 化方向。
+- catalog `route_id` ↔ `RouteHandle` 的对照若需要，放在 scenario / Adapter，不进
+  Runtime 热表。
+- route removal 需要 route-in-use、stale handle、unknown route；**没有**
+  Runtime 级 duplicate route ID 错误路径。
 
 ## 6. Data Format 影响
 

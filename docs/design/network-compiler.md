@@ -161,18 +161,18 @@ Geometry、OSM 或 Editor frontend 不依赖 #292 的 DSL 语法或 Core-shaped 
 
 ## 3. 当前生产与目标边界
 
-| 关注点                          | 当前态生产路径（Current Production）                          | 目标态（Target）                                      |
-| ------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------- |
-| 数据编制（Authoring）           | 手写规范 JSON + corridor generator 内部 TOML/DTO              | 权威来源模块图；几何文档是主要生产来源语言            |
-| 交通加载（Traffic Load）        | JSON → private DTO → Core constructors → `InitialTrafficData` | 受检 LFCA → `SharedTrafficNetwork`                    |
-| 空间加载（Spatial Load）        | JSON + manifest → external ID bind → `SpatialRegistry`        | 可选 `SharedSpatialNetwork`                           |
-| 标识（Identity）                | 外部字符串在加载期解析为句柄                                  | 编译器生成 StableId128；共享路网使用密集 `u32` 句柄   |
-| 静态出现项（Static Occurrence） | 初始/动态 Route 注册时由 Core 编译                            | 初始/静态出现项预编译；动态 Route 由 Runtime 编译     |
-| 治理制品（Governance Artifact） | 精确当前版本 JSON Schema/fixture                              | 可移植规范制品 + 源映射 + 语义差异                    |
-| 运行时性能数据（Runtime Data）  | JSON object graph 规范化后的登记表                            | 进程内不可变 `SharedNetworkRevision`                  |
-| 执行规划（Execution Planning）  | 单世界、单一 current tick pipeline                            | 静态约束 + 可重建提示 + 每世界运行时执行计划          |
-| 道路修改（Road Modification）   | 重新加载 current package                                      | 确认建造后构建新修订 + 安全边界修订切换事务           |
-| 验证（Validation）              | schema + loader + Core/Spatial constructors                   | 编译器语义裁决 + 后发射检查 + shared-network 构建闭合 |
+| 关注点                          | 当前态生产路径（Current Production）                          | 目标态（Target）                                                       |
+| ------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| 数据编制（Authoring）           | 手写规范 JSON + corridor generator 内部 TOML/DTO              | 权威来源模块图；几何文档是主要生产来源语言                             |
+| 交通加载（Traffic Load）        | JSON → private DTO → Core constructors → `InitialTrafficData` | 受检 LFCA → `SharedTrafficNetwork`                                     |
+| 空间加载（Spatial Load）        | JSON + manifest → external ID bind → `SpatialRegistry`        | 可选 `SharedSpatialNetwork`                                            |
+| 标识（Identity）                | 外部字符串在加载期解析为句柄                                  | 编译器生成 StableId128；共享路网使用密集 `u32` 句柄                    |
+| 静态出现项（Static Occurrence） | 初始/动态 Route 注册时由 Core 编译                            | 路线出现项只在 `TrafficWorld::register_route` 编译；编译器不预编译路线 |
+| 治理制品（Governance Artifact） | 精确当前版本 JSON Schema/fixture                              | 可移植规范制品 + 源映射 + 语义差异                                     |
+| 运行时性能数据（Runtime Data）  | JSON object graph 规范化后的登记表                            | 进程内不可变 `SharedNetworkRevision`                                   |
+| 执行规划（Execution Planning）  | 单世界、单一 current tick pipeline                            | 静态约束 + 可重建提示 + 每世界运行时执行计划                           |
+| 道路修改（Road Modification）   | 重新加载 current package                                      | 确认建造后构建新修订 + 安全边界修订切换事务                            |
+| 验证（Validation）              | schema + loader + Core/Spatial constructors                   | 编译器语义裁决 + 后发射检查 + shared-network 构建闭合                  |
 
 迁移不得把目标态写成现状，也不得为了复用当前态 DTO/constructor 而冻结错误的
 编译器中间表示。
@@ -258,7 +258,8 @@ compiler 唯一负责静态路网的：
 - 稳定声明/可寻址派生实体的 StableId128 与全部 LIR row 的 deterministic ordinal；
 - dense logical ordinal、owner/member/reverse indexes；
 - Traffic/Spatial 长度共同派生；
-- initial/static Route/Maneuver/Gate/Waiting occurrence；
+- ManeuverPath / ManeuverGate / WaitingZone 静态实体与关系（**不是**路线出现项；
+  路线出现项只在 `TrafficWorld::register_route` 编译，ADR 0029）；
 - worker 数无关的静态执行约束、资源依赖组件、规范合并键与可切分边界；
 - portable artifact、source map 和 semantic diff emission；共享静态路网由独立
   `laneflow-static-network` crate 从受检 LFCA 构建。
@@ -1226,9 +1227,8 @@ current specialization 不得反向冻结终态 Traffic Runtime 的参与单元�
 `TrafficWorld` 隐藏状态。只有后续 G1 显式授予的 Runtime 自有随机流才成为每世界
 状态与运行时快照内容。
 
-compiler 预编译 authoring/static initial routes；runtime 新注册的 dynamic Route
-继续由 Traffic Runtime 按 typed dense candidate handles 编译 occurrences，保持
-ADR 0017 lifecycle 语义。
+compiler **不**预编译路线。`TrafficWorld::register_route` 在本世界编译出现项，
+保持 ADR 0017 匹配规则与 ADR 0029 单一入口。
 
 ### 9.2 空间层（Spatial）
 

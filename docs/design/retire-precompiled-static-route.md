@@ -60,15 +60,19 @@ hop 是否受控：用已编译机动出现项定位 path，再在共享根
   读该列（扣当前边内进度），不得扫描剩余边，也不得用饱和起点前缀相减。从起点
   跨段总和仍可 `BeyondFinite`；靠近终点后缀可再 `Finite`，`Completed` 只在
   `Finite(0)`。
-- 每个 hop 的下一受控门（绑定 `SignalGroup` 的门）及其沿路线的有界距离。
-  信号停车距离必须 O(1) 读该列，不得扫描剩余 hop。
+- 每个 hop 的下一受控门（绑定 `SignalGroup` 的门）及其沿路线的有界距离。这是
+  **拓扑链**（下一盏有信号的门），不是「当前红灯」。信号停车沿该链走到第一盏
+  **当前**限制的门；不得扫全部剩余 hop，也不得在槽位里存相位相关的红灯列。
 - hop → 门：按 hop 下标定位，不得对机动出现项线性扫描。
+- 限速下降转换：与现行共享根 `speed_limit_transitions` 同形（`from` / 目标边 /
+  目标限速）。tick 读该列做下游制动包络，不得扫剩余边。边限速**值**仍读共享根
+  边热列。
 
 等待区出现项按所属机动出现项 + 入口门在注册时物化到本世界表。等待运行时行为仍
 归独立切片；本切片不得把「静态有、动态无」的出现项缺口留在生产路径。
 
 共享根不再为路线预计算 `distance_to_end`、`next_controlled_transition` 或
-`speed_limit_transitions`。边限速包络仍读共享根边热列。
+`speed_limit_transitions`。这些索引改由本世界 compiled 在 `register_route` 时物化。
 
 编制 `StaticRoute.canvas_selection` 随 table 删除，不迁入 Runtime。走廊生成器停止
 `add_static_route`，把有序边键写进 catalog 0.3。LFSM 历史实体代码 34 与 LFSD
@@ -134,9 +138,10 @@ schema 为 `schemas/road-editing/v2/road-editing.fbs`（G2 创建）。
 合成 DSL / typed AST / HIR / MIR / LIR：不再有静态路线声明或出现项表。
 首批支持矩阵「静态路线」行改为明确拒绝。
 
-编译器 `CompileLimitDimension::RouteOccurrenceCount` /
-`max_route_occurrence_count` 删除。具名 P100 配置档若不能原地删维度，G2 换新
-标识。该限额不改挂到运行时。
+`CompileLimitDimension::RouteOccurrenceCount` 仍留在
+`LF-COMP-P100-INITIAL-v1` / `v2` 的不可变维度里，路线编译路径不再消费。禁止原地
+从这两个配置档删除该维度。若生产配置要去掉它，G2 必须新开配置档标识。该限额不
+改挂到运行时。
 
 ## 3. 共享静态路网
 
@@ -191,7 +196,8 @@ slot.compiled:
   hop_gate[hop]                      # 受控门或缺失；O(1)
   distance segments/offsets/totals   # 分段 u32 前缀；不上 u64
   remaining_to_end[i]                # BoundedDistance 后缀；O(1) 路终剩余
-  next_controlled[hop]               # 下一 SignalGroup 门及有界距离；O(1) 信号停车
+  next_controlled[hop]               # 下一有信号的门及有界距离；tick 沿链找当前限制
+  speed_limit_drop[k]                # from / 目标边 / 目标限速；同形于 speed_limit_transitions
   waiting: 注册时必须能编译；#282 未消费前仍不得静默丢弃
 slot.live_vehicles: u32
 RouteHandle = { slot_index, generation }   # 只在产生它的 TrafficWorld 内有效；不编码 world
@@ -229,8 +235,11 @@ profile / class / parking: StableId128
 - tick 源码路径不再按句柄种类分支（G2 可用测试或结构约束证明）。
 - 前缀和溢出仍 `BeyondFinite`，注册成功。
 - 快照夹具（G2 可不实现完整 #302）不得把 `RouteHandle` / 槽位 / 边序号写成耐久主键。
-- tick 对剩余距离与信号停车距离不扫描剩余边；compiled 索引在 `register_route` 后可查。
+- tick 对路终剩余不扫描剩余边；compiled 索引在 `register_route` 后可查。
   索引是分段 `u32` + 后缀 `BoundedDistance`，不上 `u64`。
+- 信号停车沿受控 hop 链走到第一盏当前限制的门，不扫全部剩余 hop，也不在 compiled
+  里存当前红灯。
+- 下游限速下降读本世界 `speed_limit_drop`，不扫剩余边；限速值仍读共享根边热列。
 - 同一修订上两个 `TrafficWorld` 各自 `register_route`；catalog / scenario bind 把句柄
   钉在该 world（指针或 install 令牌）。`RouteHandle` 只有槽位与 generation，不编码
   world。spawn 只查本世界表。跨 world 把句柄塞进另一个 world 是调用方错误，不作为

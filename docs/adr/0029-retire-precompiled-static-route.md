@@ -78,10 +78,12 @@ Rust 方法名、错误变体拼写和夹具字节。合入本文不授权改生
 - hop 半开区间不得相交
 - hop 门从已编译机动出现项 + 共享根机动转移候选解析，不读共享根路线表
 - 等待区出现项在注册时一并编译，供后继等待运行时消费；本切片不生产化 #282
-- 本世界 compiled 表物化分段 `u32` 前缀、后缀 `BoundedDistance`、下一受控 hop 与
-  hop→门索引（与现行 `RouteDistanceIndexView` 同形）；tick 对这些查询 O(1)，
-  不把索引写进共享根或磁盘快照。Finite 侧不上 `u64`（ADR 0028）。
-  `RouteHandle` 不编码 world 身份；跨 world 混用是调用方错误
+- 本世界 compiled 表物化分段 `u32` 前缀、后缀 `BoundedDistance`、下一受控 hop
+  链、hop→门，以及与现行 `speed_limit_transitions` 同形的限速下降转换。路终剩余
+  O(1) 读后缀。信号停车沿受控 hop 链走到第一盏当前限制的门，不在槽位存「当前
+  红灯」。限速包络读本世界下降转换，边限速值仍读共享根热列。索引不进共享根或
+  磁盘快照。Finite 侧不上 `u64`（ADR 0028）。`RouteHandle` 不编码 world 身份；
+  跨 world 混用是调用方错误
 
 `register_route` 仍不做 `(ParticipantClass, Route)` 判断；绑定期准入在 spawn。
 前缀累计超出 `u32` mm 仍是查询侧 `BeyondFinite`，**不得**因此拒绝注册。
@@ -128,8 +130,9 @@ bind 把键解析为共享根边序号，对每条 catalog 路线 `register_rout
 
 ### 5. 容量
 
-编译器 `max_route_occurrence_count = 1920` 只服务预编译静态路线，随实体退役。
-该数字不是寻路上限，也不是单条动态路线边数上限。
+编译器 `max_route_occurrence_count = 1920` 只服务预编译静态路线，随实体退役后
+路线编译路径不再消费。`LF-COMP-P100-INITIAL-v1` / `v2` 仍登记该维度，禁止原地
+删除。该数字不是寻路上限，也不是单条动态路线边数上限。
 
 每世界同时存活的路线条数继续由调用方 `WorldConfig.dynamic_route_capacity` 约束。
 单条边序列只受空序列、连通、机动匹配和分配失败约束，不另冻产品边数。走廊示例必须
@@ -186,6 +189,9 @@ compiled 边序号换成映射后的新序号并重编译出现项，句柄保�
 - 不为「理论最长边序列 × 10 km」把路线前缀或 `BoundedDistance` Finite 侧加宽到
   `u64`。
 - 不把 world / install 身份编码进 `RouteHandle`。
+- 不在 compiled 表存「当前红灯」，也不按相位重建红灯列。
+- 不因拒绝 `StaticRoute` 声明而提升合成 DSL `frontendVersion`（#500 已因 IR 毫米编码升到 3）。
+- 不原地改 `LF-COMP-P100-INITIAL-v1` / `v2` 的维度集合。
 
 ## 后果
 
@@ -195,9 +201,10 @@ compiled 边序号换成映射后的新序号并重编译出现项，句柄保�
   `format_version = 1` 的旧 `LFRE` 在语义读取前失败关闭。schema 路径
   `schemas/road-editing/v2/`（G2 落地；本 PR 不改生成绑定）。
   `frontendVersion` 同步为 `2`。file identifier 仍为 `LFRE`。
-- 合成 DSL 不再接受静态路线声明。
-- 编译器生产 `CompileLimits` 删除路线出现项维度；若具名配置档不能原地删维度，G2
-  使用新配置档标识。
+- 合成 DSL 不再接受静态路线声明；合成 `frontendVersion` 为 3（#500 编码），拒绝
+  `StaticRoute` 不另升。
+- `LF-COMP-P100-INITIAL-v1` / `v2` 保留 `RouteOccurrenceCount` 且不可删；路线编译
+  路径不再消费。若要去掉该维度必须新开配置档标识。
 - 共享 Traffic 不再投影静态路线边序列、出现项、反向索引或 seal 派生的路线距离/
   下一受控转换表。机动路径、门、等待区、停止线仍在共享根，供注册期匹配。
 - 公开 API 删除 `StaticRouteOrdinal` 消费面（Runtime/Adapter/scenario bind）。

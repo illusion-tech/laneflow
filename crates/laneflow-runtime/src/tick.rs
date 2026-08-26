@@ -181,6 +181,7 @@ impl TrafficWorld {
         best
     }
 
+    /// 下一受控门是拓扑链。绿灯则沿链继续，直到当前限制的门；不要在注册时冻红灯列。
     pub(crate) fn signal_stop_distance(
         &self,
         state: &VehicleState,
@@ -548,6 +549,7 @@ fn speed_limit_path_envelope(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// G2 改为走本世界限速下降转换，不扫剩余边。限速值仍读共享根边热列。
 fn constrain_upcoming_speed_limits(
     current_speed: f32,
     mut next_speed: f32,

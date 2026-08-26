@@ -49,6 +49,8 @@ pub enum CompileLimitDimension {
     /// 规范身份字段出现次数。
     IdentityFieldOccurrenceCount,
     /// 静态路线成员出现次数。
+    ///
+    /// `LF-COMP-P100-INITIAL-v1` / `v2` 保留该维度且不可删；G2 路线编译路径不消费。
     RouteOccurrenceCount,
     /// ManeuverGate 声明数。
     ManeuverGateCount,
@@ -149,8 +151,9 @@ pub struct CompileLimits {
 impl CompileLimits {
     /// 选择 #292 G1 冻结的首个生产资源配置档。
     ///
-    /// 返回值是完整快照；后续校准若改变任一精确上限，必须使用新的配置档标识符，而
-    /// 不能原地改变 `LF-COMP-P100-INITIAL-v1` 的语义。
+    /// 返回值是完整快照；后续校准若改变任一精确上限或维度集合，必须使用新的配置档
+    /// 标识符，而不能原地改变 `LF-COMP-P100-INITIAL-v1` 的语义。`RouteOccurrenceCount`
+    /// 仍在此配置档中；ADR 0029 之后路线编译路径不再消费它。
     #[must_use]
     pub const fn p100_initial_v1() -> Self {
         Self {
@@ -189,6 +192,8 @@ impl CompileLimits {
     /// v2 逐项继承 v1 的精确上限，只新增编译单元最多 1,566 份来源
     /// 文档的显式维度。v1 依然只接受每模块一份文档的形状。
     #[must_use]
+    /// `LF-COMP-P100-INITIAL-v2`：继承 v1 全部精确上限（含未消费的
+    /// `RouteOccurrenceCount`）并增加 `SourceDocumentCount`。不得原地删维度。
     pub const fn p100_initial_v2() -> Self {
         let mut limits = Self::p100_initial_v1();
         limits.profile = CompileLimitsProfile::P100InitialV2;
