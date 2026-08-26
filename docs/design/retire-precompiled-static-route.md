@@ -43,18 +43,25 @@ spawn_vehicle(profile, handle, route_edge_index, progress_mm, speed_mm_s)
 | 路口内部边无出现项覆盖                    | 机动不匹配 |
 | 出现项 hop 区间相交                       | 机动不匹配 |
 
-hop 是否受控：用已编译机动出现项的 `entry..exit` 定位 path，再在共享根
+hop 是否受控：用已编译机动出现项定位 path，再在共享根
 `transition_candidates(from)` 上找 `successor == to && path && transition_index`
 对应的门。无门则该 hop 不受信号限制。禁止再读已删除的
 `StaticRoute.transitionGates`。
 
+`register_route` 必须在本世界 compiled 表物化下列 **tick 索引**（不进共享根、不进
+磁盘快照；切修订原地重编译时一并重生）：
+
+- 从路线起点起每条边的前缀毫米距离；溢出 `BeyondFinite`，与查询语义相同。
+  `remaining_to_route_end` 必须 O(1) 读前缀差，不得扫描剩余边。
+- 每个 hop 的下一受控门（绑定 `SignalGroup` 的门）及其沿路线的有界距离。
+  信号停车距离必须 O(1) 读该列，不得扫描剩余 hop。
+- hop → 门：按 hop 下标定位，不得对机动出现项线性扫描。
+
 等待区出现项按所属机动出现项 + 入口门在注册时物化到本世界表。等待运行时行为仍
 归独立切片；本切片不得把「静态有、动态无」的出现项缺口留在生产路径。
 
-距离查询继续沿已编译边序号 + 共享根毫米边长做 checked 加；溢出 `BeyondFinite`，
-不拒绝注册。共享根不再为路线预计算 `distance_to_end`、`next_controlled_transition`
-或 `speed_limit_transitions`。tick 的信号停车距离沿已编译边扫描 hop 门，与
-`hop_permitted` 同一套解析。
+共享根不再为路线预计算 `distance_to_end`、`next_controlled_transition` 或
+`speed_limit_transitions`。边限速包络仍读共享根边热列。
 
 编制 `StaticRoute.canvas_selection` 随 table 删除，不迁入 Runtime。走廊生成器停止
 `add_static_route`，把有序边键写进 catalog 0.3。LFSM 历史实体代码 34 与 LFSD
@@ -111,8 +118,11 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 
 ### 2.4 编制来源与 IR
 
-道路编辑 FlatBuffers：删除 `StaticRoute` table 与 `RoadEditingSource.static_routes`。
-旧字节验证失败。G2 提升来源格式版本。
+道路编辑 FlatBuffers：`format_version = 2`；删除 `StaticRoute` table 与
+`RoadEditingSource.static_routes`；顶层声明向量 21 个（可构造 Identity 种类）。
+schema 为 `schemas/road-editing/v2/road-editing.fbs`（G2 创建）。
+`format_version = 1` / 含 `static_routes` 的旧 buffer 失败关闭。
+`frontendVersion = 2`。file identifier 仍 `LFRE`。
 
 合成 DSL / typed AST / HIR / MIR / LIR：不再有静态路线声明或出现项表。
 首批支持矩阵「静态路线」行改为明确拒绝。
@@ -171,10 +181,12 @@ slot.generation: u32
 slot.compiled:
   edges: [LaneEdgeOrdinal]
   maneuvers: [{path, entry_route_edge_index, exit_route_edge_index}]
-  gates: 可从 maneuvers + 共享根 hop 解析，G2 可内联而不单列
+  hop_gate[hop]                 # 受控门或缺失；O(1)
+  distance_from_start[i]        # BoundedDistance；O(1) 剩余距离
+  next_controlled[hop]          # 下一 SignalGroup 门及有界距离；O(1) 信号停车
   waiting: 注册时必须能编译；#282 未消费前仍不得静默丢弃
 slot.live_vehicles: u32
-RouteHandle = { slot_index, generation }
+RouteHandle = { slot_index, generation }   # 只在产生它的 TrafficWorld 内有效
 ```
 
 **磁盘快照**（ADR 0029 §6）：
@@ -200,7 +212,7 @@ profile / class / parking: StableId128
 
 - 含 `StaticRoute` 或 `formatVersion = 2` 的历史 LFCA 失败关闭，诊断可区分版本与未知表。
 - 身份 `entityKind = 21` 或字段标签 30 失败关闭。
-- 道路编辑旧 `static_routes` 来源失败关闭。
+- 道路编辑 `format_version = 1` 或含 `static_routes` 的来源失败关闭；现行只接受 `2`。
 - 三边 `entry → middle → exit` 夹具：`register_route` 后两车跟车，行为不弱于原
   `static_route(0)`。
 - 走廊 28 条路线全部注册成功；受保护左转/直行/右转覆盖与现行静态夹具同等。
@@ -209,3 +221,5 @@ profile / class / parking: StableId128
 - tick 源码路径不再按句柄种类分支（G2 可用测试或结构约束证明）。
 - 前缀和溢出仍 `BeyondFinite`，注册成功。
 - 快照夹具（G2 可不实现完整 #302）不得把 `RouteHandle` / 槽位 / 边序号写成耐久主键。
+- tick 对剩余距离与信号停车距离不扫描剩余边；compiled 索引在 `register_route` 后可查。
+- 同一修订上两个 `TrafficWorld` 不得共用 `RouteHandle`；跨 world spawn 失败。
