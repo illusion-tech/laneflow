@@ -329,7 +329,7 @@ OccupancyRecord
 4. 写入连续占用记录 buffer。
 5. 每个 bucket 原地 unstable sort。
 
-排序键为 `(hi_mm, lo_mm, update_sequence, vehicle.index)`。`update_sequence` 只做稳定 tie-break，不得把同边相同前缘的物理重叠合法化。安装不预留按边展开的峰值。首次重建把 bucket 表扩到边数，并把占用记录容量规划为车辆容量 × (`MAX_VEHICLE_LENGTH_MM` / `MIN_LANE_EDGE_LENGTH_MM` + 1)；`+ 1` 计入未对齐车身两端残段。合法输入下其后稳态 tick 不因占用索引新分配。超过该上限失败关闭。
+排序键为 `(hi_mm, lo_mm, update_sequence, vehicle.index)`。`update_sequence` 只做稳定 tie-break，不得把同边相同前缘的物理重叠合法化。安装不预留按边展开的峰值。首次重建把 bucket 表扩到边数。占用记录上限为车辆容量 × (`MAX_VEHICLE_LENGTH_MM` / `MIN_LANE_EDGE_LENGTH_MM` + 1)；`+ 1` 计入未对齐车身两端残段。该上限只作失败关闭天花板，不作为预留目标。重建先按已提交状态计数实际占用记录数 `K`：`K` 超过上限则失败关闭；否则 `try_reserve` 到 `K` 与已有高水位的较大者。分配失败失败关闭。车身跨边数上升允许一次增长；高水位内稳态 tick 不因占用索引新分配。占用区间遍历失败失败关闭，不得静默漏记。
 
 ### 7.3 Query 与复杂度
 
