@@ -78,6 +78,8 @@ Rust 方法名、错误变体拼写和夹具字节。合入本文不授权改生
 - hop 半开区间不得相交
 - hop 门从已编译机动出现项 + 共享根机动转移候选解析，不读共享根路线表
 - 等待区出现项在注册时一并编译，供后继等待运行时消费；本切片不生产化 #282
+- 本世界 compiled 表物化前缀毫米距离、下一受控 hop 与 hop→门索引；tick 对这些
+  查询 O(1)，不把索引写进共享根或磁盘快照
 
 `register_route` 仍不做 `(ParticipantClass, Route)` 判断；绑定期准入在 spawn。
 前缀累计超出 `u32` mm 仍是查询侧 `BeyondFinite`，**不得**因此拒绝注册。
@@ -183,8 +185,11 @@ compiled 边序号换成映射后的新序号并重编译出现项，句柄保�
 ## 后果
 
 - LFCA 必选实体表从 22 张变为 21 张（缺 `0x0015`，保留 `0x0016` CanonicalFrame）。
-- 道路编辑来源删除 `StaticRoute` table 与根上的 `static_routes`；旧来源验证失败。
-  G2 按既有规则提升来源格式版本，不得在声明同一 v1 schema 的前提下删必选 vector。
+- 道路编辑来源 `format_version = 2`：删除 `StaticRoute` table 与根上的
+  `static_routes`；声明向量与 Identity 可构造种类一一对应（21 个）。
+  `format_version = 1` 的旧 `LFRE` 在语义读取前失败关闭。schema 路径
+  `schemas/road-editing/v2/`（G2 落地；本 PR 不改生成绑定）。
+  `frontendVersion` 同步为 `2`。file identifier 仍为 `LFRE`。
 - 合成 DSL 不再接受静态路线声明。
 - 编译器生产 `CompileLimits` 删除路线出现项维度；若具名配置档不能原地删维度，G2
   使用新配置档标识。

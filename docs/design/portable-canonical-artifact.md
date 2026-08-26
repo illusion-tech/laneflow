@@ -1980,37 +1980,36 @@ base/target 对，不产生 LFSD 候选。只有通过该检查后，相同 `(en
 retained identity，其字段差异的 change class 由下表排他决定；`—` 表示该类没有合法字段，
 范围和集合以 LFCA 字段 tag 表示：
 
-| entity table     | Entity `Modify` | 只投影 Relation，不生成字段 `Modify` | StaticRule `Modify` | Identity 语义锚 / derived cache；不生成 `Modify` |
-| ---------------- | --------------- | ------------------------------------ | ------------------- | ------------------------------------------------ |
-| RoadCorridor     | `3`             | `4`                                  | —                   | —                                                |
-| RoadSection      | `4`             | `5`                                  | —                   | `3`                                              |
-| AuthoringLane    | —               | `4,5`                                | —                   | `3`                                              |
-| LaneEdge         | `3,4`           | `5`                                  | —                   | —                                                |
-| Junction         | —               | `3`                                  | —                   | —                                                |
-| Movement         | —               | `6`                                  | —                   | `3..5`                                           |
-| ManeuverPath     | —               | `4..6`                               | —                   | `3`                                              |
-| ManeuverGate     | `4`             | `5,7`                                | `6`                 | `3`                                              |
-| WaitingZone      | —               | —                                    | `4..6`              | `3`                                              |
-| StopLine         | `3`             | `4`                                  | —                   | —                                                |
-| SignalGroup      | —               | `3,4`                                | —                   | —                                                |
-| SignalController | —               | `5,6`                                | `3,4`               | —                                                |
-| SignalPhase      | —               | —                                    | `4,5`               | `3`                                              |
-| ParkingArea      | —               | `3`                                  | —                   | —                                                |
-| ParkingSpace     | `5,7..11`       | `3,4,6`                              | —                   | —                                                |
-| LaneGroup        | —               | `4`                                  | —                   | `3`                                              |
-| FacilityBand     | `4`             | —                                    | —                   | `3`                                              |
-| ParticipantClass | `4`             | `3`                                  | —                   | `5,6`（derived）                                 |
-| AccessRule       | —               | `3,4,6`                              | `5,7,8`             | —                                                |
-| VehicleProfile   | `4..10`         | `3`                                  | —                   | —                                                |
-| StaticRoute      | —               | `3,4`                                | —                   | —                                                |
-| CanonicalFrame   | —               | —                                    | —                   | —                                                |
+| entity table     | Entity `Modify`          | 只投影 Relation，不生成字段 `Modify` | StaticRule `Modify` | Identity 语义锚 / derived cache；不生成 `Modify` |
+| ---------------- | ------------------------ | ------------------------------------ | ------------------- | ------------------------------------------------ |
+| RoadCorridor     | `3`                      | `4`                                  | —                   | —                                                |
+| RoadSection      | `4`                      | `5`                                  | —                   | `3`                                              |
+| AuthoringLane    | —                        | `4,5`                                | —                   | `3`                                              |
+| LaneEdge         | `3,4`                    | `5`                                  | —                   | —                                                |
+| Junction         | —                        | `3`                                  | —                   | —                                                |
+| Movement         | —                        | `6`                                  | —                   | `3..5`                                           |
+| ManeuverPath     | —                        | `4..6`                               | —                   | `3`                                              |
+| ManeuverGate     | `4`                      | `5,7`                                | `6`                 | `3`                                              |
+| WaitingZone      | —                        | —                                    | `4..6`              | `3`                                              |
+| StopLine         | `3`                      | `4`                                  | —                   | —                                                |
+| SignalGroup      | —                        | `3,4`                                | —                   | —                                                |
+| SignalController | —                        | `5,6`                                | `3,4`               | —                                                |
+| SignalPhase      | —                        | —                                    | `4,5`               | `3`                                              |
+| ParkingArea      | —                        | `3`                                  | —                   | —                                                |
+| ParkingSpace     | `5,7..11`                | `3,4,6`                              | —                   | —                                                |
+| LaneGroup        | —                        | `4`                                  | —                   | `3`                                              |
+| FacilityBand     | `4`                      | —                                    | —                   | `3`                                              |
+| ParticipantClass | `4`                      | `3`                                  | —                   | `5,6`（derived）                                 |
+| AccessRule       | —                        | `3,4,6`                              | `5,7,8`             | —                                                |
+| VehicleProfile   | `4..10`                  | `3`                                  | —                   | —                                                |
+| StaticRoute      | **禁止出现**（ADR 0029） | —                                    | —                   | —                                                |
+| CanonicalFrame   | —                        | —                                    | —                   | —                                                |
 
 Relation 不是同一字段的第二种 `Modify` 编码，而是把表中 Relation 列和
 `CanonicalRelationTables` 独立规范化为 A.5 登记的 stable-identity tuple，再严格执行 A.5 的
-set/scalar/domain/occurrence 配对算法。LFSD v1 只允许 role `1..18,20..27`；其中 role
-9、14、15、16 直接来自四张规范关系表，其余来自表中 Relation 列。一个复合关系的多个字段
-必须原子投影，例如 AccessRule `targetKind/targetOrdinal`；`StaticRoute.transitionGates` 通过
-role 14..16 occurrence 闭合。`SignalPhase.states` 整个 tag 5 只属于 StaticRule，不另发 role
+set/scalar/domain/occurrence 配对算法。LFSD 只允许 role `1..12,17..18,20..27`；role
+13–16 禁止。role 9 直接来自 `JunctionInternalEdge`，其余来自表中 Relation 列。一个复合关系的多个字段
+必须原子投影，例如 AccessRule `targetKind/targetOrdinal`。`SignalPhase.states` 整个 tag 5 只属于 StaticRule，不另发 role
 19 RelationChange；role 28/29 只由 GeometryChange 覆盖。没有 LFSD role 的
 `RoadCorridor.referenceSection` 和 `StopLine.laneEdge` 只能按
 `SemanticFieldValueV1::StableRefV1` 报告，不得伪造未知 role 或比较 raw ordinal。
@@ -2178,7 +2177,8 @@ provenance 仍不构成信任锚；
 - `roadEditingRelationKind 0..12` 依次为 `Import, CurveSegment, CorridorElement,
   RoadSectionAuthoringLane, LaneEdgeSuccessor, JunctionApproachEdge,
   JunctionInternalEdge, ManeuverPathInternalEdge, SignalControllerGroup,
-  SignalControllerPhase, SignalPhaseState, AccessRuleParticipantClass, StaticRouteEdge`；
+  SignalControllerPhase, SignalPhaseState, AccessRuleParticipantClass`；
+  历史 `StaticRouteEdge` 代码保留空位，禁止出现（ADR 0029）；
 - `structKind 0..3` 依次为 `Digest256, OptionalU64, Vec3F64, LinearWidthProfile`；
 - `unionKind 0` 为 `CurveSegmentGeometry`；
 - `tableKind 0..35` 依次为 `RoadEditingSource, ModuleHeader, Provenance, LineSegment,
@@ -2208,7 +2208,7 @@ provenance 仍不构成信任锚；
 13 Junction                0..3     31 AccessRule           0..7
 14 Movement                0..4     32 IidmVehicleProfile   0..6
 15 ManeuverPath            0..5     33 VehicleProfile       0..3
-16 ManeuverGate            0..6     34 StaticRoute          0..2
+16 ManeuverGate            0..6     34 StaticRoute          禁止（ADR 0029 空位）
 17 WaitingZone             0..5     35 CanonicalFrame       0..1
 ```
 
@@ -2266,7 +2266,7 @@ key，occurrence ordinal 必须等于该位置声明的值：
 | SignalControllerPhase      | SignalController          | OrderedProductOrdinal | SignalController |
 | SignalPhaseState           | SignalPhase               | CanonicalSetOrdinal   | SignalPhase      |
 | AccessRuleParticipantClass | AccessRule                | CanonicalSetOrdinal   | AccessRule       |
-| StaticRouteEdge            | StaticRoute               | OrderedProductOrdinal | StaticRoute      |
+| StaticRouteEdge            | **禁止**（ADR 0029）      | —                     | —                |
 
 第一步 table 必须逐值等于 root container；后续步骤再按上述闭合形状逐边验证。禁止 LaneEdge
 subject 携带 AccessRule root、关系 kind 借用另一 owner 的 table，或只因每一步分别出现在全局
@@ -2277,37 +2277,37 @@ registry 就接受不可达拼接。
 `filtered row` 表示按相应 LFCA 表规范行键过滤 owner 后的零基位置。`set` 的位置只服务 wire
 排序与来源定位，不是 LFSD Move 语义；`domain/occurrence` 的位置属于语义顺序。
 
-| role / 名称                             | owner kind       | subject kind                  | 绑定 LFCA 唯一投影                      | localIndex / 序策略 | LFSD 投影          |
-| --------------------------------------- | ---------------- | ----------------------------- | --------------------------------------- | ------------------- | ------------------ |
-| `1 LaneEdgeSuccessor`                   | LaneEdge         | LaneEdge                      | `LaneEdge.successors`                   | vector / set        | Relation           |
-| `2 RoadCorridorElement`                 | RoadCorridor     | RoadSection 或 FacilityBand   | `RoadCorridor.elements`（kind+ordinal） | vector / domain     | Relation           |
-| `3 RoadSectionLane`                     | RoadSection      | AuthoringLane                 | `RoadSection.lanes`                     | vector / domain     | Relation           |
-| `4 AuthoringLaneEdge`                   | AuthoringLane    | LaneEdge                      | `AuthoringLane.edgeChain`               | vector / domain     | Relation           |
-| `5 LaneGroupMember`                     | LaneGroup        | AuthoringLane                 | `LaneGroup.members`                     | vector / domain     | Relation           |
-| `6 JunctionMovement`                    | Junction         | Movement                      | `Junction.movements`                    | vector / set        | Relation           |
-| `7 MovementManeuverPath`                | Movement         | ManeuverPath                  | `Movement.maneuverPaths`                | vector / set        | Relation           |
-| `8 ManeuverPathEdge`                    | ManeuverPath     | LaneEdge                      | `ManeuverPath.edges`                    | vector / domain     | Relation           |
-| `9 JunctionInternalEdge`                | Junction         | LaneEdge                      | `JunctionInternalEdge` owner rows       | filtered row / set  | Relation + derived |
-| `10 ManeuverPathGate`                   | ManeuverPath     | ManeuverGate                  | `ManeuverPath.maneuverGates`            | vector / domain     | Relation           |
-| `11 ManeuverPathWaitingZone`            | ManeuverPath     | WaitingZone                   | `ManeuverPath.waitingZones`             | vector / domain     | Relation           |
-| `12 StopLineManeuverGate`               | StopLine         | ManeuverGate                  | `StopLine.maneuverGates`                | vector / set        | Relation           |
-| `13 StaticRouteEdge`                    | —                | —                             | **禁止出现**（ADR 0029）                | —                   | —                  |
-| `14 StaticRouteManeuverOccurrence`      | StaticRoute      | ManeuverPath                  | `RouteManeuverOccurrence` owner rows    | occurrenceIndex     | Relation + derived |
-| `15 StaticRouteGateOccurrence`          | StaticRoute      | ManeuverGate                  | `RouteGateOccurrence` owner rows        | occurrenceIndex     | Relation + derived |
-| `16 StaticRouteWaitingZoneOccurrence`   | StaticRoute      | WaitingZone                   | `RouteWaitingZoneOccurrence` owner rows | occurrenceIndex     | Relation + derived |
-| `17 SignalControllerGroup`              | SignalController | SignalGroup                   | `SignalController.signalGroups`         | vector / set        | Relation           |
-| `18 SignalControllerPhase`              | SignalController | SignalPhase                   | `SignalController.phases`               | vector / domain     | Relation           |
-| `19 SignalPhaseState`                   | SignalPhase      | SignalGroup                   | `SignalPhase.states.signalGroup`        | vector / set        | StaticRule only    |
-| `20 ManeuverGateSignalGroup`            | ManeuverGate     | SignalGroup                   | Group 时的 `ManeuverGate.signalGroup`   | scalar              | Relation           |
-| `21 ParkingSpaceArea`                   | ParkingSpace     | ParkingArea                   | 可选 `ParkingSpace.parkingArea`         | scalar              | Relation           |
-| `22 ParkingSpaceEntry`                  | ParkingSpace     | LaneEdge                      | `ParkingSpace.entryLaneEdge`            | scalar              | Relation           |
-| `23 ParkingSpaceExit`                   | ParkingSpace     | LaneEdge                      | `ParkingSpace.exitLaneEdge`             | scalar              | Relation           |
-| `24 ParticipantClassExtends`            | ParticipantClass | ParticipantClass              | 可选 `ParticipantClass.parent`          | scalar              | Relation           |
-| `25 AccessRuleTarget`                   | AccessRule       | targetKind 指定的四种实体之一 | `AccessRule.(targetKind,targetOrdinal)` | scalar              | Relation           |
-| `26 AccessRuleParticipantClass`         | AccessRule       | ParticipantClass              | `AccessRule.participantClasses`         | vector / set        | Relation           |
-| `27 VehicleProfileParticipantClass`     | VehicleProfile   | ParticipantClass              | `VehicleProfile.participantClass`       | scalar              | Relation           |
-| `28 CanonicalFrameLaneEdgeGeometry`     | CanonicalFrame   | LaneEdge                      | `LaneEdgeGeometry` owner rows           | filtered row / set  | Geometry only      |
-| `29 CanonicalFrameFacilityBandGeometry` | CanonicalFrame   | FacilityBand                  | `FacilityBandGeometry` owner rows       | filtered row / set  | Geometry only      |
+| role / 名称                             | owner kind       | subject kind                  | 绑定 LFCA 唯一投影                         | localIndex / 序策略 | LFSD 投影          |
+| --------------------------------------- | ---------------- | ----------------------------- | ------------------------------------------ | ------------------- | ------------------ |
+| `1 LaneEdgeSuccessor`                   | LaneEdge         | LaneEdge                      | `LaneEdge.successors`                      | vector / set        | Relation           |
+| `2 RoadCorridorElement`                 | RoadCorridor     | RoadSection 或 FacilityBand   | `RoadCorridor.elements`（kind+ordinal）    | vector / domain     | Relation           |
+| `3 RoadSectionLane`                     | RoadSection      | AuthoringLane                 | `RoadSection.lanes`                        | vector / domain     | Relation           |
+| `4 AuthoringLaneEdge`                   | AuthoringLane    | LaneEdge                      | `AuthoringLane.edgeChain`                  | vector / domain     | Relation           |
+| `5 LaneGroupMember`                     | LaneGroup        | AuthoringLane                 | `LaneGroup.members`                        | vector / domain     | Relation           |
+| `6 JunctionMovement`                    | Junction         | Movement                      | `Junction.movements`                       | vector / set        | Relation           |
+| `7 MovementManeuverPath`                | Movement         | ManeuverPath                  | `Movement.maneuverPaths`                   | vector / set        | Relation           |
+| `8 ManeuverPathEdge`                    | ManeuverPath     | LaneEdge                      | `ManeuverPath.edges`                       | vector / domain     | Relation           |
+| `9 JunctionInternalEdge`                | Junction         | LaneEdge                      | `JunctionInternalEdge` owner rows          | filtered row / set  | Relation + derived |
+| `10 ManeuverPathGate`                   | ManeuverPath     | ManeuverGate                  | `ManeuverPath.maneuverGates`               | vector / domain     | Relation           |
+| `11 ManeuverPathWaitingZone`            | ManeuverPath     | WaitingZone                   | `ManeuverPath.waitingZones`                | vector / domain     | Relation           |
+| `12 StopLineManeuverGate`               | StopLine         | ManeuverGate                  | `StopLine.maneuverGates`                   | vector / set        | Relation           |
+| `13 StaticRouteEdge`                    | —                | —                             | **禁止出现**（ADR 0029；角色 13 保留空位） | —                   | —                  |
+| `14 StaticRouteManeuverOccurrence`      | —                | —                             | **禁止出现**（ADR 0029；角色 14 保留空位） | —                   | —                  |
+| `15 StaticRouteGateOccurrence`          | —                | —                             | **禁止出现**（ADR 0029；角色 15 保留空位） | —                   | —                  |
+| `16 StaticRouteWaitingZoneOccurrence`   | —                | —                             | **禁止出现**（ADR 0029；角色 16 保留空位） | —                   | —                  |
+| `17 SignalControllerGroup`              | SignalController | SignalGroup                   | `SignalController.signalGroups`            | vector / set        | Relation           |
+| `18 SignalControllerPhase`              | SignalController | SignalPhase                   | `SignalController.phases`                  | vector / domain     | Relation           |
+| `19 SignalPhaseState`                   | SignalPhase      | SignalGroup                   | `SignalPhase.states.signalGroup`           | vector / set        | StaticRule only    |
+| `20 ManeuverGateSignalGroup`            | ManeuverGate     | SignalGroup                   | Group 时的 `ManeuverGate.signalGroup`      | scalar              | Relation           |
+| `21 ParkingSpaceArea`                   | ParkingSpace     | ParkingArea                   | 可选 `ParkingSpace.parkingArea`            | scalar              | Relation           |
+| `22 ParkingSpaceEntry`                  | ParkingSpace     | LaneEdge                      | `ParkingSpace.entryLaneEdge`               | scalar              | Relation           |
+| `23 ParkingSpaceExit`                   | ParkingSpace     | LaneEdge                      | `ParkingSpace.exitLaneEdge`                | scalar              | Relation           |
+| `24 ParticipantClassExtends`            | ParticipantClass | ParticipantClass              | 可选 `ParticipantClass.parent`             | scalar              | Relation           |
+| `25 AccessRuleTarget`                   | AccessRule       | targetKind 指定的四种实体之一 | `AccessRule.(targetKind,targetOrdinal)`    | scalar              | Relation           |
+| `26 AccessRuleParticipantClass`         | AccessRule       | ParticipantClass              | `AccessRule.participantClasses`            | vector / set        | Relation           |
+| `27 VehicleProfileParticipantClass`     | VehicleProfile   | ParticipantClass              | `VehicleProfile.participantClass`          | scalar              | Relation           |
+| `28 CanonicalFrameLaneEdgeGeometry`     | CanonicalFrame   | LaneEdge                      | `LaneEdgeGeometry` owner rows              | filtered row / set  | Geometry only      |
+| `29 CanonicalFrameFacilityBandGeometry` | CanonicalFrame   | FacilityBand                  | `FacilityBandGeometry` owner rows          | filtered row / set  | Geometry only      |
 
 role 1 只投影 A.1 过滤后的 `LaneEdge.successors`；compiler-private source view 中对应被过滤
 internal-touching pair 的来源行不得进入 LFSM，也不得占用 localIndex。保留项在过滤后按 target
@@ -2347,13 +2347,10 @@ RoadEditing primary-source projection by sourceRelationRole:
 10 D(subject, ManeuverGate.1)
 11 D(subject, WaitingZone.1)
 12 D(subject, ManeuverGate.3)
-13 O(owner, StaticRouteEdge, OrderedProductOrdinal(localIndex), StaticRoute.1)
-14 O(owner, StaticRouteEdge,
-     OrderedProductOrdinal(RouteManeuverOccurrence.entryRouteEdgeIndex), StaticRoute.1)
-15 O(owner, StaticRouteEdge,
-     OrderedProductOrdinal(RouteGateOccurrence.fromRouteEdgeIndex), StaticRoute.1)
-16 O(owner, StaticRouteEdge,
-     OrderedProductOrdinal(RouteWaitingZoneOccurrence.entryRouteEdgeIndex), StaticRoute.1)
+13 禁止（ADR 0029；角色 13 空位）
+14 禁止（ADR 0029；角色 14 空位）
+15 禁止（ADR 0029；角色 15 空位）
+16 禁止（ADR 0029；角色 16 空位）
 17 O(owner, SignalControllerGroup, CanonicalSetOrdinal(localIndex), SignalController.2)
 18 O(owner, SignalControllerPhase, OrderedProductOrdinal(localIndex), SignalController.3)
 19 O(owner, SignalPhaseState, CanonicalSetOrdinal(localIndex),
@@ -2379,8 +2376,9 @@ Text 位置没有结构化 declaration address，因此只执行 A.2 的模块/�
 每个投影 tuple 精确为
 `(ownerEntityKind, ownerStableId, role, localIndex, subjectEntityKind, subjectStableId)`；subject
 ordinal 必须先经绑定 LFCA `CanonicalIdentity` 解析为全局唯一 StableId，不能进入 tuple。LFSM
-按全部 29 role 执行 A.2 的 OwnerLocal 双射；role 9/14/15/16 再执行 derived 行双射，role
+按现行允许的 role 执行 A.2 的 OwnerLocal 双射；role 9 再执行 derived 行双射，role
 28/29 再执行 source-range exact projection，且仅在迭代器非空时执行 point-range 全覆盖。
+角色 13–16 禁止出现。
 LFSD 只接受表中标为 Relation 的 role：
 
 - `set` 按 `(subjectKind, subjectStableId)` 比较成员；保留成员仅因另一成员插入导致 canonical
@@ -2388,8 +2386,8 @@ LFSD 只接受表中标为 Relation 的 role：
 - `scalar` 缺失/出现产生 Remove/Add，两端都存在但 subject 改变时产生 Reconnect，index 恒为
   `0`；
 - `domain/occurrence` 对相同 subject 按各自 localIndex 递增分配零基同值 occurrence rank，并
-  只配对两端相同 rank；配对项 index 改变产生 Move，未配对项产生 Remove/Add。这样重复
-  `StaticRoute.edges` 或 route occurrence 也只有一种配对；
+  只配对两端相同 rank；配对项 index 改变产生 Move，未配对项产生 Remove/Add。路线边
+  序列已不进 LFCA；重复边只出现在运行时 `register_route` 输入。
 - role 19 的 group StableId 与 aspect 一起进入 `SignalPhase.states` 的
   `SemanticFieldValueV1`，role 28/29 只进入 GeometryChange，不得重复生成 RelationChange。
 

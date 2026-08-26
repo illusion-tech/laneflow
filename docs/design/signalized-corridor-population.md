@@ -44,20 +44,24 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 
 ## 2. 两阶段启动
 
-#472 现行 prepare 绑定是 `validate(catalog)` 之后
-`bind(catalog, &SharedNetworkRevision)`：编制字符串经 Identity v1 派生
-`StableId128`，再查已安装修订的 `SharedIdentityIndex`。可运行世界由 LFCA 安装，不再经过已拆除的 JSON/Core
+#472 现行 prepare 绑定是 `validate(catalog)` 之后对 **某一** `TrafficWorld`
+`register_route`。编制字符串经 Identity v1 派生 `StableId128`，再查该 world 已安装
+修订的 `SharedIdentityIndex`。可运行世界由 LFCA 安装，不再经过已拆除的 JSON/Core
 运行时入口。
 
 #475 现行启动协议：
 
 启动使用 catalog `bind`、`CorridorPopulationPrepare::prepare` 与 controller `bind`：
 
-1. caller 安装共享路网修订并在内存中解析 catalog；
-2. `validate` 对 catalog 0.3 完成交叉引用与边键校验，`bind` 解析边序号、`register_route`，并把句柄钉到该 `NetworkRevisionId`；
+1. caller 安装共享路网修订并 `TrafficWorld::install`，在内存中解析 catalog；
+2. `validate` 对 catalog 0.3 完成交叉引用与边键校验；`bind` 在 **该**
+   `TrafficWorld` 上解析边序号、`register_route`，并把 `RouteHandle` 钉到
+   `NetworkRevisionId` **以及该 world 身份**（G2：传入 world 的指针相等，或
+   `install` 颁发的不透明世界令牌）。同一修订上的第二个 world 必须重新注册，
+   不得复用另一 world 的句柄；
 3. `prepare` 校验 config/profile，执行一次确定性 Fisher–Yates，返回完整 `CorridorVehiclePlan` batch；
-4. caller 在 `TrafficWorld` 上按计划逐辆 `spawn_vehicle`；
-5. population bind 必须发生在 tick 0，并按已绑定序号回查所有 vehicle、route 和 profile identity；
+4. caller 只在 **bind 时所针对的** `TrafficWorld` 上按计划逐辆 `spawn_vehicle`；
+5. population bind 必须发生在 tick 0，并按已绑定句柄回查所有 vehicle、route 和 profile identity；
 6. 全部 identity 一致后，controller 才进入 `Running = target, Pending = 0`。
 
 `take_initial_vehicles` 是一次性转移。Runtime spawn 失败或 bind 发现任一缺失、stale、route/profile/status/progress 不一致时，启动整体失败，不进入首个 step。
@@ -108,7 +112,11 @@ apply pending lifecycle commands
   -> enqueue frozen plans for next lifecycle boundary
 ```
 
-`consume_world` 与 `pending_spawn_input` 先校验传入 `TrafficWorld` 的 `NetworkRevisionId` 与 catalog bind 一致；`apply_pending` 先校验调用方提供的 `NetworkRevisionId`（通常来自即将提交 replace 的那份 `TrafficWorld`）。`consume_world` 再要求恰好消费上一拍之后的那一拍（`last_consumed_tick + 1`），并以先验证、后提交的方式处理整个 completion batch。跳过中间 tick 或同一拍重复消费都失败。Running 句柄若已从 world 消失，视为「先消失再生成」契约失败。每个 completion 必须满足：
+`consume_world` 与 `pending_spawn_input` 先校验传入的是 **bind 时的同一个**
+`TrafficWorld`（世界身份），再校验其 `NetworkRevisionId` 与 catalog bind 一致。
+只核对修订 ID 不够：`RouteHandle` 是世界局部槽位。`apply_pending` 同样先校验世界
+身份，再校验 `NetworkRevisionId`（通常来自即将提交 replace 的那份 `TrafficWorld`）。
+`consume_world` 再要求恰好消费上一拍之后的那一拍（`last_consumed_tick + 1`），并以先验证、后提交的方式处理整个 completion batch。跳过中间 tick 或同一拍重复消费都失败。Running 句柄若已从 world 消失，视为「先消失再生成」契约失败。每个 completion 必须满足：
 
 - vehicle 属于一个 `Running` logical slot，状态为 `Completed`，且同一 batch 不重复；world 中未跟踪的 Completed 车辆同样使整个 batch 失败；
 - route handle 等于该 logical slot 当前 route；

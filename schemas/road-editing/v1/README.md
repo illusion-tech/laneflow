@@ -1,6 +1,7 @@
 # 道路编辑来源缓冲区 v1 Schema
 
-**状态**: #296 FlatBuffers G1 已冻结；implementation ongoing，尚未公开发布<br>
+**状态**: 历史。ADR 0029 起生产合同为 `format_version = 2`（无 `StaticRoute`），
+schema 路径 `schemas/road-editing/v2/`。本目录只描述已发布前的 v1 字节；现行读器拒绝。<br>
 **格式标识**: `LF-ROAD-EDITING-SOURCE-v1`<br>
 **机器事实源**: [`road-editing.fbs`](road-editing.fbs)<br>
 **设计依据**:
@@ -105,30 +106,30 @@ import。`RoadCorridor.road_alignment_key` 只引用当前模块的 `RoadAlignme
 
 22 个稳定声明向量与 Identity v1 一一对应：
 
-| 代码 | FlatBuffers table  | 稳定 key 字段           | 所有者 / 身份锚点来源                       |
-| ---: | ------------------ | ----------------------- | ------------------------------------------- |
-|    1 | `RoadCorridor`     | `road_corridor_key`     | 当前 module namespace                       |
-|    2 | `RoadSection`      | `road_section_key`      | 同模块 `road_corridor` + 唯一 elements 成员 |
-|    3 | `AuthoringLane`    | `authoring_lane_key`    | 同模块 `road_section` + 唯一 lanes 成员     |
-|    4 | `LaneEdge`         | `lane_edge_key`         | 当前 module namespace；角色不参与身份       |
-|    5 | `Junction`         | `junction_key`          | 当前 module namespace                       |
-|    6 | `Movement`         | `movement_key`          | `junction` + 两个有向 approach key          |
-|    7 | `ManeuverPath`     | `maneuver_path_key`     | `movement`                                  |
-|    8 | `ManeuverGate`     | `maneuver_gate_key`     | `maneuver_path`                             |
-|    9 | `WaitingZone`      | `waiting_zone_key`      | `maneuver_path`                             |
-|   10 | `StopLine`         | `stop_line_key`         | 当前 module namespace                       |
-|   11 | `SignalGroup`      | `signal_group_key`      | 当前 module namespace                       |
-|   12 | `SignalController` | `signal_controller_key` | 当前 module namespace                       |
-|   13 | `SignalPhase`      | `signal_phase_key`      | 同模块 controller + 唯一 phases 成员        |
-|   14 | `ParkingArea`      | `parking_area_key`      | 当前 module namespace                       |
-|   15 | `ParkingSpace`     | `parking_space_key`     | 当前 module namespace；可选 area 不参与身份 |
-|   16 | `LaneGroup`        | `lane_group_key`        | `road_section`                              |
-|   17 | `FacilityBand`     | `facility_band_key`     | 同模块 corridor + 唯一 elements 成员        |
-|   18 | `ParticipantClass` | `participant_class_key` | 当前 module namespace                       |
-|   19 | `AccessRule`       | `access_rule_key`       | 当前 module namespace                       |
-|   20 | `VehicleProfile`   | `vehicle_profile_key`   | 当前 module namespace                       |
+| 代码 | FlatBuffers table  | 稳定 key 字段           | 所有者 / 身份锚点来源                              |
+| ---: | ------------------ | ----------------------- | -------------------------------------------------- |
+|    1 | `RoadCorridor`     | `road_corridor_key`     | 当前 module namespace                              |
+|    2 | `RoadSection`      | `road_section_key`      | 同模块 `road_corridor` + 唯一 elements 成员        |
+|    3 | `AuthoringLane`    | `authoring_lane_key`    | 同模块 `road_section` + 唯一 lanes 成员            |
+|    4 | `LaneEdge`         | `lane_edge_key`         | 当前 module namespace；角色不参与身份              |
+|    5 | `Junction`         | `junction_key`          | 当前 module namespace                              |
+|    6 | `Movement`         | `movement_key`          | `junction` + 两个有向 approach key                 |
+|    7 | `ManeuverPath`     | `maneuver_path_key`     | `movement`                                         |
+|    8 | `ManeuverGate`     | `maneuver_gate_key`     | `maneuver_path`                                    |
+|    9 | `WaitingZone`      | `waiting_zone_key`      | `maneuver_path`                                    |
+|   10 | `StopLine`         | `stop_line_key`         | 当前 module namespace                              |
+|   11 | `SignalGroup`      | `signal_group_key`      | 当前 module namespace                              |
+|   12 | `SignalController` | `signal_controller_key` | 当前 module namespace                              |
+|   13 | `SignalPhase`      | `signal_phase_key`      | 同模块 controller + 唯一 phases 成员               |
+|   14 | `ParkingArea`      | `parking_area_key`      | 当前 module namespace                              |
+|   15 | `ParkingSpace`     | `parking_space_key`     | 当前 module namespace；可选 area 不参与身份        |
+|   16 | `LaneGroup`        | `lane_group_key`        | `road_section`                                     |
+|   17 | `FacilityBand`     | `facility_band_key`     | 同模块 corridor + 唯一 elements 成员               |
+|   18 | `ParticipantClass` | `participant_class_key` | 当前 module namespace                              |
+|   19 | `AccessRule`       | `access_rule_key`       | 当前 module namespace                              |
+|   20 | `VehicleProfile`   | `vehicle_profile_key`   | 当前 module namespace                              |
 |   21 | `StaticRoute`      | `static_route_key`      | **ADR 0029：生产来源删除本实体**；种类代码保留空位 |
-|   22 | `CanonicalFrame`   | `canonical_frame_key`   | 当前 module namespace                       |
+|   22 | `CanonicalFrame`   | `canonical_frame_key`   | 当前 module namespace                              |
 
 所有 table 在其根向量中的物理顺序都不进入语义。一个 buffer 只属于一个 namespace，
 且全部身份 owner 必须在同一 buffer。来源 v1 要求 `RoadAlignment` 和模块级身份种类在

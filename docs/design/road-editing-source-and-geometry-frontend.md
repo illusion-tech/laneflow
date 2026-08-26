@@ -185,7 +185,8 @@ u32_le root_table_uoffset
 byte[...] size-prefixed FlatBuffer 的其余内容
 ```
 
-根表 `RoadEditingSource` 的 `format_version:uint` 必须精确为 `1`。约束如下：
+根表 `RoadEditingSource` 的 `format_version:uint` 必须精确为 `2`（ADR 0029：删除
+`StaticRoute`）。`1` 为历史 B1，语义读取前失败关闭。约束如下：
 
 - 输入至少能覆盖 size prefix、root offset 和 file identifier；
 - `flatbuffer_byte_len + 4` 必须用 checked arithmetic 计算并精确等于输入长度，禁止截断
@@ -203,24 +204,27 @@ FlatBuffers verifier 必须先证明全部被访问的 offset、vector、table�
 
 ### 9.3 schema 形状
 
-schema 路径固定为
-[`schemas/road-editing/v1/road-editing.fbs`](../../schemas/road-editing/v1/road-editing.fbs)，
-字段级领域语义由同目录
-[`README.md`](../../schemas/road-editing/v1/README.md) 与本设计共同冻结。`.fbs` 是精确
+现行 schema 路径为
+[`schemas/road-editing/v2/road-editing.fbs`](../../schemas/road-editing/v2/road-editing.fbs)
+（G2 从 v1 删除 `StaticRoute` 后落地；本 G1 冻合同不创建文件）。
+字段级领域语义由同目录 README 与本设计共同冻结。`.fbs` 是精确
 wire shape 的机器事实源；生成的 wire 类型只存在于私有、`publish = false` 的生成绑定
 边界，不进入 LaneFlow 公共 API、HIR/MIR/LIR 或 Adapter API。编译器在 verifier 成功后
 借用 generated view，先完成语义预检，再构造字段私有的有类型道路编辑模型 / Typed
 AST；不调用 FlatBuffers object API 把整模块 unpack 为第二棵 owned 对象树。
+历史 v1 见 `schemas/road-editing/v1/`，读器拒绝。
 
 schema 遵守以下闭合规则：
 
 - 根表固定为 `RoadEditingSource`，且 `module_header:ModuleHeader`、
-  `road_alignments:[RoadAlignment]` 与 22 个稳定声明向量为 required；单位由
+  `road_alignments:[RoadAlignment]` 与 **21** 个可构造稳定声明向量为 required
+  （无 `static_routes`）；单位由
   `*_meters`、`*_radians`、`*_seconds`、`*_milliseconds` 等精确字段名固定，不保存会与
   字段语义竞争的全局 `Units` table；不使用 reflection、
   FlexBuffers、nested FlatBuffer、动态 schema 或 RPC；
 - `RoadAlignment` 保存当前道路走向，具有模块内稳定编辑键但不属于 Identity v1、不分配
-  第 23 种 `StableId128`。22 个稳定声明 vector 继续按 Identity v1 种类一一对应；
+  第 23 种 `StableId128`。21 个稳定声明 vector 按 Identity 登记表修订 2 的可构造
+  种类一一对应；`StaticRoute` 不再出现；
   `RoadCorridor` 以 alignment key 和 station 区间引用走向，避免在每个走廊复制完整曲线；
 - 不使用尚未在预期 C++、C#、Rust 组合中形成共同稳定基线的 vector-of-union；v1 只有
   每个 `CurveSegment` table 内的普通 `CurveSegmentGeometry` union；
@@ -395,14 +399,14 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
 ### 9.5 版本、未知字段与摘要
 
 - 来源描述符固定使用 `SourceLanguage::RoadEditingSource = 3`、
-  `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 1`；数值 `2`
-  只是旧未发布 `GeometryDocument` 的历史编号，G2 删除且不建立别名；#297 不增加
-  compiler `SourceLanguage` 变体；
-- `format_version = 1` 是本 exact G1 schema 的精确版本，不是“最低兼容版本”。B1 尚未进入
-  publication，内部 fixture 由 exact commit/digest 绑定；任何可能让旧 bytes 被不同解释的
-  wire 或语义变化都必须提升 `format_version` 及对应 frontend/geometry semantics code，
-  当前 reader 只接受新的精确值，旧 B1 bytes 失败关闭且不提供迁移。internal family 至少
-  保持可在语义读取前识别的 `LFRE + root format_version(id:0,uint)` envelope；若连该
+  `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 2`
+  （ADR 0029 删除静态路线后升）。数值 `1` 为历史 B1 frontend；旧未发布
+  `GeometryDocument` 不得复活。#297 不增加 compiler `SourceLanguage` 变体；
+- `format_version = 2` 是本 exact schema 的精确版本，不是“最低兼容版本”。
+  `format_version = 1`（含必选 `static_routes`）在语义读取前失败关闭，不提供迁移。
+  B1 尚未进入 publication。任何可能让旧 bytes 被不同解释的 wire 或语义变化都必须
+  再提升 `format_version` 及对应 frontend/geometry semantics code。internal family
+  至少保持可在语义读取前识别的 `LFRE + root format_version(id:0,uint)` envelope；若连该
   envelope 也改变，则分配新 file identifier。新未发布版本可在新 G1 后重排其他
   field/enum/union 编号并 clean-regenerate，不承担 append/no-reuse 债务；
 - 只有后续经产品确认并发布的存档版本，才由当次产品/G1 冻结
@@ -410,7 +414,7 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
   只要求 exact schema/codegen 再现、版本拒绝与同版本 known vectors；
 - 旧工具可能在结构 verifier 后看到新版本，但必须在任何 LaneFlow 语义 lowering 和
   规模相关分配前拒绝；不能依靠未知字段忽略完成跨版本 round trip；
-- 攻击性输入或错误 writer 在 `format_version = 1` 下附带的未知 vtable slot 语义上无效
+- 攻击性输入或错误 writer 在现行 `format_version = 2` 下附带的未知 vtable slot 语义上无效
   并被忽略，但仍计入来源字节、verifier apparent size 与精确来源摘要；
 - FlatBuffers bytes 不是 LaneFlow 规范语义编码。`sourceDocumentDigest` 绑定收到的精确
   字节以便重放和完整性比较；字段布局、向量重排或不同语言 builder 的差异可能只造成
@@ -427,9 +431,9 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
    和 `LFRE` file identifier；
 2. 使用下述固定公式从当前 `CompileLimits` 与调用点剩余预算导出 `VerifierOptions`，再
    执行 `size_prefixed_root_with_opts`；不使用 crate 默认值；
-3. verifier 成功后检查 `format_version = 1`，新版本在 LaneFlow 语义读取和规模相关分配
+3. verifier 成功后检查 `format_version = 2`，其它值在 LaneFlow 语义读取和规模相关分配
    前拒绝；
-4. 对借用 view 执行第一遍语义预检：必需值、enum/union、字符串、22 类声明与
+4. 对借用 view 执行第一遍语义预检：必需值、enum/union、字符串、21 类可构造声明与
    owner-local 集合基数、有限数值、引用键字节和 checked 总量；
 5. 只有第一遍证明主要规模和保守工作集上界可容纳后，才构造字段私有 Typed AST、身份
    索引和后续 IR。source bytes 与 FlatBuffers view 都是调用方借用，不产生整模块 wire
@@ -753,7 +757,7 @@ array 等 wire 专用结构。现有探针没有完成 FB/PB 同 workload 的定
 | -------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------- |
 | 官方编辑器、初始化生成器、SDK、importer 跨语言读写 | 通过；官方 C++/C#/Rust codegen                                    | 通过；各语言 Protobuf codegen                                  | 通过                                     | 通过，但每端仍需 DTO/Schema 语义层                   |
 | 原生整数、枚举、向量与有界集合                     | 通过；固定宽度 scalar/struct/vector                               | 通过，但为压低 decode 对象放大需 packed key 等规避             | 通过                                     | 不通过原生数值目标；重新引入文本词法                 |
-| 区域/模块加载与稳定实体级差异                      | 通过；模块 blob + 22 类稳定声明向量；来源 diff 为独立后继能力     | 通过；模块记录流 + 稳定记录                                    | 通过，但整模块 decode；diff 仍需独立模型 | 通过模块拆分，但 bytes diff 无产品价值               |
+| 区域/模块加载与稳定实体级差异                      | 通过；模块 blob + 21 类可构造声明向量；来源 diff 为独立后继能力   | 通过；模块记录流 + 稳定记录                                    | 通过，但整模块 decode；diff 仍需独立模型 | 通过模块拆分，但 bytes diff 无产品价值               |
 | 精确版本、演进与一次性迁移                         | 通过；外部 exact version、显式 field id、`--conform`              | 通过；外部 exact version、field number/reserved                | 通过                                     | 通过，但 shape/数字/缺省策略由自建层承担             |
 | 损坏存档失败关闭与分配前资源预检                   | **通过且最匹配**；size exact + verifier limits + zero-object view | 条件通过；自建 framing 后仍需证明每记录 decode allocation      | 不通过当前硬预算门槛；先形成整模块对象图 | 条件通过；parser/token/container 分配账本复杂        |
 | 实体/属性/画布诊断与损坏定位                       | 通过；稳定实体/属性 + verifier trace/byte position                | 通过；稳定实体/属性 + record byte range                        | 通过，但损坏通常只有 message 范围        | 文本行列强，但不是产品主要诊断界面                   |
