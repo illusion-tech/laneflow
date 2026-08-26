@@ -1,7 +1,11 @@
 # Core ID 与 Handle 模型
 
+> **后继覆盖**：可运行世界是 `TrafficWorld`。路线入口只留
+> `register_route([LaneEdgeOrdinal…])` → `RouteHandle { index, generation }`（ADR 0029）。
+> 下文 v0.2 `CoreWorld` / `RouteInput` 只作历史导航，不是现行 API。
+
 **文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）<br>
-**最后更新**: 2026-07-29<br>
+**最后更新**: 2026-08-26<br>
 **适用范围**: v0.2 Lane Graph + Route 的 Core identity、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界，以及 compiler target 的静态 image handle 边界<br>
 **关联文档**:
 

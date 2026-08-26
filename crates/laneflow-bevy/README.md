@@ -35,7 +35,7 @@ app.insert_resource(LaneFlowSession::new(world, spatial, config).expect("paired 
 ```
 
 campus / `native_reference` 的 Core 入口已删除。现行走廊 Bevy 最小路径使用检入的
-catalog 0.2 与 LFCA，prepare 绑到已安装共享路网修订，不恢复 50–200 回流；回流见
+catalog 0.3 与 LFCA，prepare 绑到已安装共享路网修订，不恢复 50–200 回流；回流见
 [#475](https://github.com/illusion-tech/laneflow/issues/475)。Bevy debug gizmos 不是现行交付（[#473](https://github.com/illusion-tech/laneflow/issues/473) 已关闭）。
 
 ## 依赖与分发

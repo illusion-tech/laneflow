@@ -48,11 +48,6 @@ fn spawn_on_slot(
     slot: &BoundSpawnSlot,
     routes: &[laneflow_runtime::RouteHandle],
 ) {
-    let index = slot
-        .entry_edges
-        .iter()
-        .position(|edge| *edge == slot.edge)
-        .expect("slot edge is on its entry route");
     let route = *routes
         .get(slot.route_index)
         .expect("catalog route must be registered");
@@ -60,7 +55,7 @@ fn spawn_on_slot(
         .spawn_vehicle(VehicleSpawnInput::new(
             profile,
             route,
-            u32::try_from(index).expect("edge index"),
+            0,
             slot.progress_mm,
             0,
         ))

@@ -251,7 +251,7 @@ const CANONICAL_IDENTITY_ROW: PortableRowSchema = PortableRowSchema {
 const LFCA_SECTION_2_TABLES: &[PortableTableSchema] =
     &[table(1, "CanonicalIdentity", &CANONICAL_IDENTITY_ROW, ANY)];
 
-// LFCA section 0x0003: 22 canonical entity tables.
+// LFCA section 0x0003: 21 constructible entity tables (kind 21 omitted).
 
 const ROAD_CORRIDOR_FIELDS: &[PortableFieldSchema] = &[
     field(1, "typedOrdinal", PortableFieldType::U32, R),

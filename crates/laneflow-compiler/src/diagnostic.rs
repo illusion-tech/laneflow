@@ -3765,6 +3765,9 @@ impl fmt::Display for CanonicalIdentityViolationDisplay {
                 formatter,
                 "规范身份总字节数不能由当前平台表示，实际为 {actual}"
             ),
+            CanonicalIdentityViolation::UnconstructibleKind { kind } => {
+                write!(formatter, "种类代码 {kind} 是保留空位，不得编码")
+            }
         }
     }
 }

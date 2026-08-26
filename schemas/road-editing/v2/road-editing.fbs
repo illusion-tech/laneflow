@@ -357,7 +357,7 @@ table CanonicalFrame {
 }
 
 /// v2 root。road_alignments 是编辑状态记录；其余 21 个向量与可构造 Identity 种类对应。
-/// 历史 `static_routes` 占用 id 25；本 version 不得出现该 vtable member。
+/// 本 version 不得出现 vtable member 25。
 table RoadEditingSource {
   format_version:uint = 0 (id: 0);
   module_header:ModuleHeader (required, id: 1);

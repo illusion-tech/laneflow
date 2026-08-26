@@ -669,39 +669,6 @@ pub(crate) fn remaining_along_route_i64(
     distance.checked_add(i64::from(to_progress))
 }
 
-/// 从查询起点沿路线累加有界距离。从当前进度加，不上 `u64`；溢出 `BeyondFinite`。
-///
-/// 本世界索引沿用分段 `u32` + 后缀 `BoundedDistance`，不得改成饱和起点前缀相减，
-/// 也不得把 Finite 侧加宽到 `u64`。
-#[allow(dead_code)]
-pub(crate) fn remaining_along_route(
-    lengths: &[u32],
-    edges: &[LaneEdgeOrdinal],
-    from_index: usize,
-    from_progress: u32,
-    to_index: usize,
-    to_progress: u32,
-) -> Option<BoundedDistance> {
-    if to_index < from_index || (to_index == from_index && to_progress < from_progress) {
-        return None;
-    }
-    if to_index == from_index {
-        return Some(BoundedDistance::Finite(
-            to_progress.saturating_sub(from_progress),
-        ));
-    }
-    let from_edge = *edges.get(from_index)?;
-    let mut distance = BoundedDistance::Finite(
-        lengths
-            .get(from_edge.index())?
-            .saturating_sub(from_progress),
-    );
-    for edge in edges.get(from_index + 1..to_index)? {
-        distance = distance.add(*lengths.get(edge.index())?);
-    }
-    Some(distance.add(to_progress))
-}
-
 /// 当前进度到路终。O(1) 读后缀列再扣边内进度；不上 `u64`。
 pub(crate) fn remaining_to_route_end(
     remaining_to_end: BoundedDistance,
@@ -924,6 +891,19 @@ mod compile_route_tests {
             remaining_to_route_end(compiled.remaining_to_end[0], 0),
             compiled.remaining_to_end[0]
         );
+        let hop_count = path.edges().len().saturating_sub(1);
+        assert_eq!(compiled.hop_gate.len(), hop_count);
+        assert_eq!(compiled.next_controlled.len(), hop_count);
+        if let Some(gate) = compiled.hop_gate.first().copied().flatten() {
+            let next = compiled
+                .next_controlled
+                .first()
+                .copied()
+                .flatten()
+                .expect("first hop with a gate is controlled");
+            assert_eq!(next.hop, 0);
+            assert_eq!(next.gate, gate);
+        }
     }
 
     #[test]

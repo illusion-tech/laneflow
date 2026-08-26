@@ -185,8 +185,7 @@ u32_le root_table_uoffset
 byte[...] size-prefixed FlatBuffer 的其余内容
 ```
 
-根表 `RoadEditingSource` 的 `format_version:uint` 必须精确为 `2`（ADR 0029：删除
-`StaticRoute`）。`1` 为历史 B1，语义读取前失败关闭。约束如下：
+根表 `RoadEditingSource` 的 `format_version:uint` 必须精确为 `2`。`1` 失败关闭。约束如下：
 
 - 输入至少能覆盖 size prefix、root offset 和 file identifier；
 - `flatbuffer_byte_len + 4` 必须用 checked arithmetic 计算并精确等于输入长度，禁止截断
@@ -205,8 +204,7 @@ FlatBuffers verifier 必须先证明全部被访问的 offset、vector、table�
 ### 9.3 schema 形状
 
 现行 schema 路径为
-[`schemas/road-editing/v2/road-editing.fbs`](../../schemas/road-editing/v2/road-editing.fbs)
-（G2 从 v1 删除 `StaticRoute` 后落地；本 G1 冻合同不创建文件）。
+[`schemas/road-editing/v2/road-editing.fbs`](../../schemas/road-editing/v2/road-editing.fbs)。
 字段级领域语义由同目录 README 与本设计共同冻结。`.fbs` 是精确
 wire shape 的机器事实源；生成的 wire 类型只存在于私有、`publish = false` 的生成绑定
 边界，不进入 LaneFlow 公共 API、HIR/MIR/LIR 或 Adapter API。编译器在 verifier 成功后
@@ -217,14 +215,14 @@ AST；不调用 FlatBuffers object API 把整模块 unpack 为第二棵 owned �
 schema 遵守以下闭合规则：
 
 - 根表固定为 `RoadEditingSource`，且 `module_header:ModuleHeader`、
-  `road_alignments:[RoadAlignment]` 与 **21** 个可构造稳定声明向量为 required
-  （无 `static_routes`）；单位由
+  `road_alignments:[RoadAlignment]` 与 **21** 个可构造稳定声明向量为 required；
+  根表不得出现 vtable member 25。单位由
   `*_meters`、`*_radians`、`*_seconds`、`*_milliseconds` 等精确字段名固定，不保存会与
   字段语义竞争的全局 `Units` table；不使用 reflection、
   FlexBuffers、nested FlatBuffer、动态 schema 或 RPC；
 - `RoadAlignment` 保存当前道路走向，具有模块内稳定编辑键但不属于 Identity v1、不分配
   第 23 种 `StableId128`。21 个稳定声明 vector 按 Identity 登记表修订 2 的可构造
-  种类一一对应；`StaticRoute` 不再出现；
+  种类一一对应。
   `RoadCorridor` 以 alignment key 和 station 区间引用走向，避免在每个走廊复制完整曲线；
 - 不使用尚未在预期 C++、C#、Rust 组合中形成共同稳定基线的 vector-of-union；v1 只有
   每个 `CurveSegment` table 内的普通 `CurveSegmentGeometry` union；
@@ -255,7 +253,7 @@ schema 遵守以下闭合规则：
 `ManeuverGate`、`WaitingZone`、`StopLine`、`SignalGroup`、`SignalController`、
 `SignalPhase`、`ParkingArea`、`ParkingSpace`、`LaneGroup`、`FacilityBand`、
 `ParticipantClass`、`AccessRule`、`VehicleProfile` 和 `CanonicalFrame`。
-`StaticRoute` 已从生产来源删除（ADR 0029）；种类代码 21 保留空位。
+种类代码 21 保留空位。
 来源格式可以用较高层 road/cross-section intent 生成其中部分声明，但任何最终稳定实体
 都必须具有 Identity v1 要求的显式、持久 ASCII authoring key；数组位置、table offset
 和几何都不能替代稳定身份。

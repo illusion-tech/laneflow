@@ -367,9 +367,12 @@ impl CorridorPopulationPrepare {
             let spawn_slot = &catalog.spawn_slots[spawn_slot_index];
             let portal_lane = &catalog.portal_lanes[spawn_slot.portal_lane_index];
             let route_index = draw_weighted_route(&mut rng, portal_lane);
-            let route_edges = catalog.route_exits[route_index].edges.as_ref();
-            let route_edge_index =
-                route_occurrence(route_edges, spawn_slot.edge, spawn_slot.slot_id.as_str())?;
+            if catalog.route_exits[route_index].edges.first() != Some(&spawn_slot.edge) {
+                return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                    detail: format!("slot {:?} 入口边不是所选路线的第一条边", spawn_slot.slot_id),
+                });
+            }
+            let route_edge_index = 0;
             let initial_speed = normal_speed_for_edge(revision, spawn_slot.edge, desired_speed)?;
             initial_vehicles.push(CorridorVehiclePlan {
                 profile,
@@ -932,22 +935,6 @@ fn normal_speed_for_edge(
         .get(edge.index())
         .ok_or(CorridorPopulationError::MissingSpeedLimit)?;
     Ok(desired_speed_mm_s.min(speed_limit))
-}
-
-fn route_occurrence(
-    edges: &[LaneEdgeOrdinal],
-    edge: LaneEdgeOrdinal,
-    slot_id: &str,
-) -> Result<u32, CorridorPopulationError> {
-    let index = edges
-        .iter()
-        .position(|candidate| *candidate == edge)
-        .ok_or_else(|| CorridorPopulationError::BoundWorldCatalogMismatch {
-            detail: format!("slot {slot_id:?} edge 不在所选 route 上"),
-        })?;
-    u32::try_from(index).map_err(|_| CorridorPopulationError::BoundWorldCatalogMismatch {
-        detail: format!("slot {slot_id:?} route edge index 溢出"),
-    })
 }
 
 fn draw_weighted_route(rng: &mut SplitMix64, lane: &BoundPortalLane) -> usize {

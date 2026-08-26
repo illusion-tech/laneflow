@@ -894,15 +894,11 @@ pub(super) fn build_lfsm(
         .collect::<Result<Vec<_>, PortableEmissionError>>()?;
     let derived_rows = owner_local_sources
         .iter()
-        .filter(|source| matches!(source.role, 9 | 14 | 15 | 16))
+        .filter(|source| source.role == 9)
         .map(|source| {
             let mut source_locations = source.contributing.clone();
             source_locations.push(source.primary.clone());
-            let constraint_version = if source.role == 9 {
-                CONSTRAINT_CONTRACT_VERSION
-            } else {
-                STATIC_EXECUTION_CONTRACT_VERSION
-            };
+            let constraint_version = CONSTRAINT_CONTRACT_VERSION;
             Ok(row([
                 field(1, OwnedValue::U16(source.owner_entity_kind.code())),
                 field(2, OwnedValue::StableId128(source.owner_stable_id)),

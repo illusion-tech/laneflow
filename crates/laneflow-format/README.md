@@ -1,7 +1,8 @@
 # laneflow_format
 
 LaneFlow 可移植规范制品 `LFCA`、源映射封套 `LFSM`、语义差异封套 `LFSD` 与规范发布描述符
-`LFCP` 的受限线格式 crate。对象 `formatVersion` 只承认当前值 `2`。规范术语见
+`LFCP` 的受限线格式 crate。LFCA 对象 `formatVersion` 只承认当前值 `3`；LFSM /
+LFSD 封套版本只承认 `2`。规范术语见
 [`docs/reference/glossary.md`](../../docs/reference/glossary.md)。
 
 当前线格式层包括：

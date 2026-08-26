@@ -107,18 +107,13 @@ fn spawn_on_slot(
     slot: &BoundSpawnSlot,
     routes: &[laneflow_runtime::RouteHandle],
 ) -> Result<(), Box<dyn Error>> {
-    let index = slot
-        .entry_edges
-        .iter()
-        .position(|edge| *edge == slot.edge)
-        .ok_or("slot edge is not on its entry route")?;
     let route = *routes
         .get(slot.route_index)
         .ok_or("catalog route must be registered")?;
     world.spawn_vehicle(VehicleSpawnInput::new(
         profile,
         route,
-        u32::try_from(index)?,
+        0,
         slot.progress_mm,
         0,
     ))?;

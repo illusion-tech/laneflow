@@ -1005,7 +1005,7 @@ LaneFlow 发布事务，不提供任意 bytes 公共写入、对象枚举/删除
 可构造实体表、`JunctionInternalEdge`、三张空间表、ExecutionContract、
 CompilerProvenance、ArtifactClaims）。历史 format 1/2 为 22 张实体表 + 5 张关系表
 合计 `35`。现行生产 `PortableObjectKind::CanonicalArtifact` 的 `table_count()` 仍为
-`35`，#498 G2 随发射器与 registry 一起改为 `30`。`17` 是通用 RowV1 parser
+`30`。`17` 是通用 RowV1 parser
 的安全天花板，并可由通用 TableV1 达到；按 A.2 已冻结的 OwnerLocal owner/relation 矩阵，
 需要 address 的 relation owner 最大深度为二，因此同时携带完整 address、property 与 canvas
 且通过直接值域检查的 SourceLocation 当前最多 `16` 个字段。第 17 个字段只会构成不匹配的
@@ -1039,7 +1039,7 @@ production emitter 自己生成 expected：
 
 | 类别        | 向量/锚点 ID               | 证明内容                                                                                                              |
 | ----------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| G1 摘要向量 | `REV-V1-MIN-HEADLESS`      | **历史校准**（format 1 最小空表：22 实体 / 5 关系）。现行 format 3 最小锚点由 #498 G2 按 21 张实体表 + 1 张关系表重生 |
+| G1 摘要向量 | `REV-V1-MIN-HEADLESS`      | format 3 最小锚点：21 张可构造实体表 + 1 张关系表 |
 | G1 摘要向量 | `REV-V1-MIN-SPATIAL-EMPTY` | **历史校准**（同上 payload 基数）。现行 format 3 由 G2 重生                                                           |
 | G1 结构锚点 | `LFCA-V1-MIN-HEADLESS`     | 最小合法无空间 artifact 的前导、八节目录和首节 offset 推导                                                            |
 | G1 结构锚点 | `LFSM-V1-MIXED-LOCATION`   | Text、无 property 的 Declaration、OwnerLocal 和可选 canvas 形状                                                       |
@@ -1058,7 +1058,7 @@ production emitter 自己生成 expected：
 `SHA-256("laneflow.network-revision.v1\0" || payload)` 的 domain separation 与
 framing；它们 **不是** 现行 `formatVersion = 3` 合法制品。ADR 0029 之后最小合法
 LFCA 是 21 张实体表（禁止 `0x0015`）与一张 `JunctionInternalEdge` 关系表，合同版本
-按 ADR 0029。精确 SHA-256 / 节长度由 #498 G2 发射器产出后写入夹具，本 G1 不手编
+按现行 format 3 夹具。精确 SHA-256 / 节长度以仓库 `expected.lfca` 为准，不手编
 format-3 字节。
 
 历史 `REV-V1-MIN-HEADLESS` 的六节依次是：所有版本值为 `1` 的 ContractVersions；

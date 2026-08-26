@@ -38,7 +38,7 @@ Current static ParkingSpace 不持有 RouteHandle。#108/#109 current runtime �
 ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go 后不再作为生产权威。
 **现行合同是 ADR 0028**：路线前缀与距离查询为 `u32` mm，溢出 `BeyondFinite`；单边
 `u32` mm，`10_000_000` mm 上界。`register_route` **不得**因整条或
-前缀累计超过 `u32::MAX` mm 失败。路网产品不再构建 StaticRoute（ADR 0029）。距离按查询窗口独立 checked 加：从起点的前缀溢出
+前缀累计超过 `u32::MAX` mm 失败。距离按查询窗口独立 checked 加：从起点的前缀溢出
 只影响「从起点算」；从当前进度到终点、以及局部视距从查询起点加，靠近终点后可再
 `Finite`，`Completed` 只在剩余 `Finite(0)`。索引用分段 `u32` + 后缀
 `BoundedDistance`，不上 `u64`（ADR 0028）。

@@ -66,8 +66,7 @@ pub struct BoundSpawnSlot {
     pub portal_lane_index: usize,
     pub edge: LaneEdgeOrdinal,
     pub progress_mm: u32,
-    pub entry_edges: Box<[LaneEdgeOrdinal]>,
-    /// `route_exits` 下标；spawn 用 `install_routes` 返回的对应句柄。
+    /// 该 portal lane 的第一条 catalog 路线；spawn 用 `install_routes` 对应句柄。
     pub route_index: usize,
 }
 
@@ -247,11 +246,9 @@ pub fn bind(
         let lane = &portal_lanes[slot.portal_lane_index];
         slot.route_index = lane
             .choices
-            .iter()
-            .map(|choice| choice.route_index)
-            .min_by_key(|&index| route_exits[index].edges.as_ref())
-            .expect("portal lane has route choices");
-        slot.entry_edges = route_exits[slot.route_index].edges.clone();
+            .first()
+            .expect("portal lane has route choices")
+            .route_index;
     }
 
     Ok(BoundCorridorCatalog {
@@ -350,7 +347,6 @@ fn bind_slot(
         portal_lane_index: 0,
         edge,
         progress_mm,
-        entry_edges: Box::from([]),
         route_index: 0,
     })
 }
