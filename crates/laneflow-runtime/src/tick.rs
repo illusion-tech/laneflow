@@ -328,6 +328,7 @@ fn finite_meters(distance: BoundedDistance) -> Option<f32> {
     }
 }
 
+/// 本拍硬约束。`BeyondFinite` 路终/停车距离不参与包络；Finite 侧保持 `u32`，不上 `u64`。
 fn hard_room_mm(
     leader_gap: Option<i64>,
     min_gap_mm: u32,

@@ -76,6 +76,9 @@ G1 冻权威、单位、量化顺序、制品字段与跨实现算法。G2 决�
 （Spatial 单 frame 约 32 km 盒；家→公司/过境是几十公里，不是跨省 2000 km 单路单）。
 前缀和用 checked `u32` 加；溢出 → `BeyondFinite`，**禁止**因此让 `register_route`
 失败，也 **不**为「理论最长边序列 × 10 km」积上 `u64`。`BeyondFinite` 语义保留。
+实现是分段 `u32` 前缀 + 后缀 `BoundedDistance`（`segmented_route_coordinates` /
+`RouteDistanceIndexView`），不是把 Finite 侧改成 `u64`，也不是饱和起点前缀相减。
+占用间隙的 `i64` 只服务有符号空隙，不是前缀加宽先例。
 路网产品不再构建 `StaticRoute`（ADR 0029）。
 
 朝向、车头时距、加速度/减速度 **不是** 一维长度，不进毫米权威：时距与加减速

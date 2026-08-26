@@ -71,6 +71,10 @@ pub enum AccessCell {
 }
 
 /// 有界距离：Finite 侧是 `u32` 毫米。溢出是 `BeyondFinite`，禁止饱和成 `u32::MAX`。
+///
+/// 不上 `u64`：城市一趟行程（Spatial 单 frame 约 32 km，通勤/过境几十公里）落在
+/// `u32` 满量程约 4295 km 之内。为「理论最长边序列 × 10 km」加宽会把查询面变成
+/// 另一套整数合同（ADR 0028）。占用间隙的 `i64` 只服务有符号空隙，不是前缀先例。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BoundedDistance {
     Finite(u32),
@@ -113,7 +117,10 @@ pub enum RouteDistanceQuery {
     Within(u32),
 }
 
-/// 共享静态路线距离索引：分段坐标 + 后缀有界距离。
+/// 共享静态路线距离索引：分段 `u32` 坐标 + 后缀有界距离。
+///
+/// 路终剩余读后缀列，不靠饱和起点前缀相减。段内偏移与段合计保持 `u32`，溢出时封段
+/// 开新段，不上 `u64`（ADR 0028）。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RouteDistanceIndexView<'a> {
     occurrence_segments: &'a [u32],

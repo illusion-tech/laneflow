@@ -3796,6 +3796,10 @@ fn reconstruct_route_occurrences(
     Ok(expected)
 }
 
+/// 分段 `u32` 前缀坐标。下一条边长会让当前段溢出时封段、开新段。
+///
+/// 不上 `u64`：单边已有 10 km 上界，城市行程落在约 4295 km 的 Finite 窗口内。
+/// 跨段总和仍可 `BeyondFinite`；窗口内差用段内/段间 `u32` 完成（ADR 0028）。
 fn segmented_route_coordinates(edge_lengths: &[u32]) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
     let mut segments = Vec::with_capacity(edge_lengths.len());
     let mut offsets = Vec::with_capacity(edge_lengths.len());
@@ -4623,6 +4627,7 @@ mod tests {
         ));
     }
 
+    /// 单边取满 `u32` 时封段，不把前缀加宽到 `u64`；中间窗口仍 `Within`。
     #[test]
     fn segmented_coordinates_preserve_finite_windows_around_huge_edges() {
         let large = u32::MAX;

@@ -293,7 +293,7 @@ parking、StaticRoute/occurrence 等 Runtime 必需关系由 #440 逐项盘点�
 - canonical row key/ordinal 严格排序且无重复；
 - typed ordinal/count/range 全部适配 `u32` 并用 checked arithmetic；
 - entity、owner/member、topology、route occurrence 和 static-rule 引用落在正确 typed domain；
-- `CanonicalIdentity` 与 22 种稳定实体/可寻址派生实体形成完整双射；
+- `CanonicalIdentity` 与 21 种可构造稳定实体/可寻址派生实体形成完整双射（种类 21 保留空位）；
 - forward/reverse indexes round-trip；
 - 机动路径/门/等待区 range 无 gap、overlap 或跨 owner 错配；静态路线出现项不再投影（ADR 0029）；
 - execution contract versions 与派生 constraint graph 一致；
@@ -430,7 +430,7 @@ requested capacity、累计分配、returned retained bytes 和进程 RSS，不�
 | headless     | Traffic/Identity/Hints 存在，Spatial 为 `None`，geometry retained 为零                                                                       |
 | Spatial 变体 | facility-only、profile/frame-only 成功且 `lane_pose=None`；非空 lane geometry 才完整覆盖并可批量采样；长度差处于容差内、恰等于容差和超出容差 |
 | 引用合法性   | typed domain 越界、错误 owner、range overflow/gap/overlap、重复 row/key                                                                      |
-| Identity     | 22 种稳定实体与派生实体的声明 StableId 双射、正反 round-trip、同名不同 owner；派生 known vectors 由 compiler 覆盖                            |
+| Identity     | 21 种可构造稳定实体与派生实体的声明 StableId 双射、正反 round-trip、同名不同 owner；种类 21 保留空位；派生 known vectors 由 compiler 覆盖    |
 | 确定性       | 同一 LFCA + hints derivation version fresh build 内容相等；不比较 Rust padding/地址/字节                                                     |
 | 资源         | caller limit、失败无 retained、三对象真实 lifetime、editable base + target bundle + 双 root 峰值                                             |
 | 共享         | 2/8/32 worlds 不复制 component payload；per-world mutable arrays 仍独立                                                                      |

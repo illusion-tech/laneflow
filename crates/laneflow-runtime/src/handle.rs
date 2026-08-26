@@ -1,4 +1,7 @@
 /// 代际感知路线句柄。静态与动态路线共用此类型；`remove_route` 必须拒绝静态句柄。
+///
+/// 内部是槽位下标 + generation（G2 删除 `kind`）。只在产生它的 `TrafficWorld` 内有效，
+/// 不编码 world 身份，与 `VehicleHandle` / ADR 0005 相同。跨 world 混用是调用方错误。
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct RouteHandle {
     kind: RouteKind,

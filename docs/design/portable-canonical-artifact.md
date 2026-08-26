@@ -444,7 +444,7 @@ value 精确为 `count:u32 || RowV1[count]`，VBL 必须等于 `4 + sum(rowByteL
 | ------------- | ---------------------------- | -------------------- | ------------------------------------------------------------------------------ |
 | `0x0001`      | `ContractVersions`           | 是                   | identity、registry、`NetworkRevisionId` 派生算法、constraint、execution 版本轴 |
 | `0x0002`      | `CanonicalIdentityTable`     | 是                   | 完整身份前像、声明 StableId128、有类型 ordinal                                 |
-| `0x0003`      | `CanonicalEntityTables`      | 是                   | 22 种稳定实体和目标无关规范静态值                                              |
+| `0x0003`      | `CanonicalEntityTables`      | 是                   | 21 种可构造稳定实体和目标无关规范静态值（种类 21 保留空位）                    |
 | `0x0004`      | `CanonicalRelationTables`    | 是                   | 拓扑、成员、出现项、索引和静态规则关系                                         |
 | `0x0005`      | `CanonicalSpatialTables`     | 是                   | 空间存在标记、规范 f32 折线与派生采样；headless 时为规范空表                   |
 | `0x0006`      | `StaticExecutionConstraints` | 是                   | worker 数无关的静态执行约束                                                    |
@@ -1032,24 +1032,31 @@ G1 只冻结少量可人工复核的向量及推导；G2 再把完整对象 mate
 提交输入、完整 expected bytes、SHA-256、长度和修订 ID，不允许测试在运行时用
 production emitter 自己生成 expected：
 
-| 类别        | 向量/锚点 ID               | 证明内容                                                                              |
-| ----------- | -------------------------- | ------------------------------------------------------------------------------------- |
-| G1 摘要向量 | `REV-V1-MIN-HEADLESS`      | 六个合法最小语义节的 framing、domain separation 与 SHA-256                            |
-| G1 摘要向量 | `REV-V1-MIN-SPATIAL-EMPTY` | 启用空间并写入闭合 direction profile code 时 revision 必须变化                        |
-| G1 结构锚点 | `LFCA-V1-MIN-HEADLESS`     | 最小合法无空间 artifact 的前导、八节目录和首节 offset 推导                            |
-| G1 结构锚点 | `LFSM-V1-MIXED-LOCATION`   | Text、无 property 的 Declaration、OwnerLocal 和可选 canvas 形状                       |
-| G1 结构锚点 | `LFSD-V1-GENESIS-BINDING`  | Genesis 四个 base 零值和完整 target binding                                           |
-| G1 结构锚点 | `LFCP-V1-MIN-BINDINGS`     | artifact/source-map/receipt 的外部 digest+exact length 绑定                           |
-| 固定对象    | `lfca-full-spatial`        | 22 种实体、关系、规则、规范 f32 与空间表；目录 `fixtures/portable/lfca-full-spatial/` |
-| 固定对象    | `provenance-*`             | 同语义不同来源沿袭：revision 相同，artifact digest 不同                               |
-| 固定对象    | `claim-mismatch`           | 只篡改非语义 revision claim：结构预检成功、独立 revision 比较失败                     |
-| 固定对象    | `reorder-equivalent`       | 声明/集合/hash iteration 重排仍产生完全相同 bytes                                     |
-| 固定对象    | `signed-zero`              | 合法输入 `-0.0` 在编译边界变为 `+0.0`；负零 wire 被读取器拒绝                         |
-| 固定对象    | `lfsd-change-set`          | add/remove/reconnect/geometry/global spatial/rule；身份变化只含无配对 remove/add      |
-| 固定对象    | `lfsd-noop`                | 相同 base/target 的空记录但完整 binding                                               |
+| 类别        | 向量/锚点 ID               | 证明内容                                                                                                              |
+| ----------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| G1 摘要向量 | `REV-V1-MIN-HEADLESS`      | **历史校准**（format 1 最小空表：22 实体 / 5 关系）。现行 format 3 最小锚点由 #498 G2 按 21 张实体表 + 1 张关系表重生 |
+| G1 摘要向量 | `REV-V1-MIN-SPATIAL-EMPTY` | **历史校准**（同上 payload 基数）。现行 format 3 由 G2 重生                                                           |
+| G1 结构锚点 | `LFCA-V1-MIN-HEADLESS`     | 最小合法无空间 artifact 的前导、八节目录和首节 offset 推导                                                            |
+| G1 结构锚点 | `LFSM-V1-MIXED-LOCATION`   | Text、无 property 的 Declaration、OwnerLocal 和可选 canvas 形状                                                       |
+| G1 结构锚点 | `LFSD-V1-GENESIS-BINDING`  | Genesis 四个 base 零值和完整 target binding                                                                           |
+| G1 结构锚点 | `LFCP-V1-MIN-BINDINGS`     | artifact/source-map/receipt 的外部 digest+exact length 绑定                                                           |
+| 固定对象    | `lfca-full-spatial`        | 21 种可构造实体、关系、规则、规范 f32 与空间表（G2 重生夹具）；目录 `fixtures/portable/lfca-full-spatial/`            |
+| 固定对象    | `provenance-*`             | 同语义不同来源沿袭：revision 相同，artifact digest 不同                                                               |
+| 固定对象    | `claim-mismatch`           | 只篡改非语义 revision claim：结构预检成功、独立 revision 比较失败                                                     |
+| 固定对象    | `reorder-equivalent`       | 声明/集合/hash iteration 重排仍产生完全相同 bytes                                                                     |
+| 固定对象    | `signed-zero`              | 合法输入 `-0.0` 在编译边界变为 `+0.0`；负零 wire 被读取器拒绝                                                         |
+| 固定对象    | `lfsd-change-set`          | add/remove/reconnect/geometry/global spatial/rule；身份变化只含无配对 remove/add                                      |
+| 固定对象    | `lfsd-noop`                | 相同 base/target 的空记录但完整 binding                                                                               |
 
 两个 G1 revision 向量使用 §4.2 的 exact framing 和附录 A 的 section/table/row/field
-编码。`REV-V1-MIN-HEADLESS` 的六节依次是：所有版本值为 `1` 的 ContractVersions；
+编码。下列 SHA 是 **format 1 / 登记修订 1** 最小空表的人工复核校准，证明
+`SHA-256("laneflow.network-revision.v1\0" || payload)` 的 domain separation 与
+framing；它们 **不是** 现行 `formatVersion = 3` 合法制品。ADR 0029 之后最小合法
+LFCA 是 21 张实体表（禁止 `0x0015`）与一张 `JunctionInternalEdge` 关系表，合同版本
+按 ADR 0029。精确 SHA-256 / 节长度由 #498 G2 发射器产出后写入夹具，本 G1 不手编
+format-3 字节。
+
+历史 `REV-V1-MIN-HEADLESS` 的六节依次是：所有版本值为 `1` 的 ContractVersions；
 空 CanonicalIdentity；22 张空实体表；5 张空关系表；`spatialPresent=0`、direction profile
 code 为 `0` 且两张空几何表；两个版本值为 `1` 的 ExecutionContract。各节 exact length 与
 SHA-256 为：
@@ -1716,7 +1723,9 @@ SHA-256(
 | `0x0003`  | SourceLocation | 见下列闭合字段                                                                                                                                                                                                                                                                                                                                                                               | `sourceLocationOrdinal` |
 
 `sourceLanguage` 只允许 `1=SyntheticDsl, 3=RoadEditingSource`；LFSM v1 分别只接受
-`frontendVersion=3` 与 `frontendVersion=1`。`imports` 的每个内嵌行只有
+`frontendVersion=3`（SyntheticDsl，#500 `LFSOURCE` 编码）与 `frontendVersion=2`
+（RoadEditingSource，ADR 0029）。道路编辑 `frontendVersion=1` 失败关闭。
+`imports` 的每个内嵌行只有
 `1:authoringNamespaceId:Utf8:R`，按 namespace UTF-8 bytes 严格递增；模块行必须按 §5 的
 Kahn ready-set 最小 namespace 规则从 `0` 连续编号，任意 import 必须指向更小的 module
 ordinal。循环、重复 namespace 或无法解析的 import 在编译阶段已经失败，不产生 LFSM。
@@ -1814,14 +1823,15 @@ SignalPhase 为 1，AuthoringLane/ManeuverPath/LaneGroup 为 2，ManeuverGate/Wa
 4:primaryLocation:u32:R, 5:contributingLocations:OrdinalVectorU32:R`，行键为
 `(entityKind, stableId, typedOrdinal)`。
 
-该表必须与绑定 LFCA 的 `CanonicalIdentity` 和 22 张实体表形成严格双射：每个
+该表必须与绑定 LFCA 的 `CanonicalIdentity` 和 **21** 张可构造实体表形成严格双射
+（种类 21 / `StaticRoute` 保留空位，不贡献来源行）：每个
 `(entityKind, typedOrdinal, stableId)` 恰有一行且逐值相等，LFSM 不得遗漏实体、添加没有
 绑定实体的来源行或把 ordinal/stableId 重新配对。`primaryLocation` 必须解析；
 `contributingLocations` 是允许为空、按完整位置语义值严格递增且去重的集合。候选发射时定义
 `C(view)` 为把同一 `ValidatedSourceMapInput` view 的 `contributing_sources()` 按完整位置语义
 值排序、去重后映射成最终 SourceLocation ordinal 的唯一向量。每行 `primaryLocation` 必须
 逐值等于对应 stable-entity view 的 `primary_source()`，`contributingLocations` 必须逐字节
-等于 `C(view)`；当前 22 类 stable-entity view 的贡献迭代器都为空，因此 v1 该字段必须为空，
+等于 `C(view)`；当前 21 个可构造种类的 stable-entity view 贡献迭代器都为空，因此 v1 该字段必须为空，
 writer 不得添加另一合法位置作为“补充 provenance”。#298 历史完整接受域曾核对 artifact
 binding、上述双射、位置解析、v1 空贡献字段和下列 identity/address 线格式投影；#299 当前
 checker 不执行该全量复验。一个内部自洽但由不可信 emitter 替换的合法 Synthetic Text 位置
