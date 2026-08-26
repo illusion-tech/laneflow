@@ -1,9 +1,10 @@
 use laneflow_static_contract::{LaneEdgeOrdinal, SignalAspect, StaticRouteOrdinal};
 use laneflow_static_network::{BoundedDistance, VehicleProfileView};
 
+#[cfg(test)]
+use crate::tables::occupancy_front_gap;
 use crate::tables::{
-    compiled_hop_gate, occupancy_front_gap, remaining_along_route, remaining_to_route_end,
-    static_route_ordinal,
+    compiled_hop_gate, remaining_along_route, remaining_to_route_end, static_route_ordinal,
 };
 use crate::units::{round_mm, round_um};
 use crate::{StepError, StepOutcome, TickInput, TrafficWorld, VehicleState, VehicleStatus};
@@ -23,6 +24,7 @@ impl TrafficWorld {
             .checked_add(expected)
             .ok_or(StepError::Overflow)?;
         let delta_s = expected as f32 / 1_000.0;
+        self.rebuild_occupancy_index();
         self.next_states.clear();
         self.next_states.reserve(self.live_order.len());
         for handle in self.live_order.iter().copied() {
@@ -141,6 +143,23 @@ impl TrafficWorld {
     }
 
     pub(crate) fn leader_bumper_gap(
+        &self,
+        follower: &VehicleState,
+        edges: &[LaneEdgeOrdinal],
+        lengths: &[u32],
+    ) -> Option<i64> {
+        let cursor = usize::try_from(follower.route_edge_index).ok()?;
+        self.occupancy.leader_gap(
+            follower.handle,
+            edges,
+            cursor,
+            follower.progress_mm,
+            lengths,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn leader_bumper_gap_scan(
         &self,
         follower: &VehicleState,
         edges: &[LaneEdgeOrdinal],
@@ -782,6 +801,7 @@ mod preview {
                 0,
             ))
             .unwrap();
+        world.rebuild_occupancy_index();
         let state = world.vehicle_state(follower).copied().unwrap();
         let next = world.advance_active_vehicle(state, 0.1_f32).unwrap();
         assert!(
@@ -822,11 +842,17 @@ mod preview {
         let next_cap = world.next_states.capacity();
         let live_cap = world.live_order.capacity();
         let vehicle_cap = world.vehicles.capacity();
+        let occupancy_claims = world.occupancy.claims_capacity();
+        let occupancy_scratch = world.occupancy.scratch_capacity();
+        let occupancy_offsets = world.occupancy.offsets_capacity();
         for _ in 0..16 {
             world.step(TickInput::new(100)).unwrap();
             assert_eq!(world.next_states.capacity(), next_cap);
             assert_eq!(world.live_order.capacity(), live_cap);
             assert_eq!(world.vehicles.capacity(), vehicle_cap);
+            assert_eq!(world.occupancy.claims_capacity(), occupancy_claims);
+            assert_eq!(world.occupancy.scratch_capacity(), occupancy_scratch);
+            assert_eq!(world.occupancy.offsets_capacity(), occupancy_offsets);
         }
     }
 
@@ -961,6 +987,7 @@ mod preview {
                 0,
             ))
             .unwrap();
+        world.rebuild_occupancy_index();
         let mut state = world.vehicle_state(follower).copied().unwrap();
         state.carry_um = 777;
         let next = world.advance_active_vehicle(state, 0.1_f32).unwrap();
@@ -983,6 +1010,7 @@ mod preview {
                 0,
             ))
             .unwrap();
+        world.rebuild_occupancy_index();
         let state = world.vehicle_state(follower).copied().unwrap();
         let next = world.advance_active_vehicle(state, 0.004_f32).unwrap();
         assert_eq!(next.progress_mm, state.progress_mm);

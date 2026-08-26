@@ -1,7 +1,7 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted（纵向分层与 IIDM/安全投影仍有效；已提交一维几何为整数毫米，IIDM 仍为瞬时 SI）<br>
-**最后更新**: 2026-08-25
+**最后更新**: 2026-08-26
 
 **适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
@@ -287,51 +287,61 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 
 ### 6.5 状态参与
 
-`Active` 和 `Stopped` 进入 occupancy。Snapshot 开始时仍为 Active、但本 tick 将完成 route 的车辆，在本 tick 仍可作为 leader；提交为 `Completed` 后，从下一 tick occupancy 消失。Completed/despawned vehicle 不进入 occupancy。
+当前 `TrafficWorld`：`Active` 进入车道占用。`Parked` 与 `Completed` 不进入。Snapshot 开始时仍为 Active、但本 tick 将完成 route 的车辆，在本 tick 仍可作为 leader；提交为 `Completed` 后，从下一 tick occupancy 消失。
 
 ## 7. Occupancy index
 
-### 7.1 Tick-local flat index
+### 7.1 Tick-local 扁平索引
 
-Occupancy 使用按 dense `EdgeHandle` 分段的扁平私有 scratch：
+占用索引是 `TrafficWorld` crate 私有、按物理边分桶的 tick-local scratch，不进入公开 API。桶与 `LaneEdgeOrdinal` 当前 1:1；内部可用私有 `OccupancyBucketOrdinal` 别名，但不得在 #237 冻结前映射到 `LaneUseSlot`。
 
 ```text
 OccupancyIndex
-  edgeOffsets: usize[edgeCount + 1]
-  occupants: Occupant[]
+  bucketOffsets: usize[bucketCount + 1]
+  claims: OccupancyClaim[]
 
-Occupant
+OccupancyClaim
   vehicle: VehicleHandle
-  frontProgress: f64
-  vehicleLength: f64
-  updateSequence: u64
+  bucket: OccupancyBucketOrdinal
+  lo_mm: u32
+  hi_mm: u32
+  updateSequence: u32
 ```
 
-每辆 Active/Stopped vehicle 只生成一个 occupant record。跨 edge 车身通过 route distance 减去 vehicle length 处理，不把一辆车复制进多个 edge bucket。
+坐标为整数毫米。`hi_mm` 是该 claim 在本桶上的占用上沿（主 claim 为前保险杠进度；spill 为该边上车身片段上沿）。`lo_mm` 是同一片段下沿（后保险杠或该边上车尾起点）。间隙用 `i64`：`leader.lo_mm - follower_front_mm`，禁止 `u32` 回绕。
+
+每辆 Active 车辆按车身 `for_each_occupancy_interval` 写入：
+
+- 主 claim：前保险杠所在物理边；
+- 稀疏 spill claim：车身仍覆盖的更早边。
+
+这不是变道双占用。#237 的源/目标车道角色不得写入当前不变量。一辆车可以在多个 bucket 各有一条 claim；禁止把「永远只有一条 occupant」写成不变量，否则分叉共享茎上车尾不可见。
+
+`Parked` / `Completed` 不进入索引。
 
 ### 7.2 Build 与排序
 
-每 tick：
+每个成功 `step` 在运动循环前按已提交状态 T 完整重建；不跨生命周期命令增量修补。
 
-1. 复用并清零 edge counts。
-2. 按稳定 vehicle update order 计数。
-3. Prefix sum 生成 edge offsets。
-4. 写入连续 occupant buffer。
-5. 每个 edge slice 原地排序。
+1. 复用并清零 bucket counts。
+2. 按稳定 `live_order` 对 Active 车辆计数 claim。
+3. Prefix sum 生成 bucket offsets。
+4. 写入连续 claim buffer。
+5. 每个 bucket 原地 unstable sort。
 
-排序键固定为 `(front_progress.total_cmp, update_sequence)`。Progress 入索引前必须 finite，并把负零规范化为正零。完整排序键形成确定全序，可以使用原地 unstable sort；update sequence 只提供稳定 tie-break，不改变 overlap 语义。
+排序键为 `(hi_mm, lo_mm, update_sequence, vehicle.index)`。`update_sequence` 只做稳定 tie-break，不得把同边相同前缘的物理重叠合法化。首次重建可把 bucket 表扩到边数；其后稳态 tick 复用容量，不因占用索引新分配。
 
 ### 7.3 Query 与复杂度
 
-- 当前 edge 使用二分查找定位第一个更大 front progress。
-- 后续 occurrence 读取 edge slice 最前方的非 self occupant。
-- Route 注册时可预计算 cumulative edge lengths。
-- 构建目标复杂度为 `O(E + V + sum(sort(n_edge)))`。
-- 单车查询为当前 edge `O(log n_edge)` 加 horizon 内 route occurrences。
+- 当前边：`partition_point` 定位第一个 `hi_mm > follower_front` 的非 self claim。
+- 后续出现项：沿 **follower** 剩余路线（本切片不另截 braking horizon）读取该桶最前非 self claim。
+- 前方距离用 follower 的 route occurrence 解释，不用 candidate 自己的路线。
+- 同一 candidate 映射多个 future occurrence 时取最小间隙（可负，表示重叠）。
+- 构建：`O(B + K + Σ sort(K_bucket))`，`B` 为物理边桶数，`K` 为 claim 数（无变道时约为活动车辆数 × 车身跨边数）。
 - 禁止每辆车扫描全体车辆和全局 `O(V^2)`。
-- Counts、offsets、occupants、candidate 和 projection buffers 跨 tick 复用。
+- 查询 API 形状不禁止日后 predecessor / `neighbors_at`；本切片只交付前方最近前车。
 
-Occupancy 不进入 public API、不允许 Adapter 缓存，也不跨 lifecycle command 增量修补；spawn/despawn 后在下一 tick 完整重建。
+占用索引不进入 public API、不允许 Adapter 缓存。测试可保留全扫描 oracle，仅 `cfg(test)` 对拍，不进生产热路径。
 
 #106 新增的 command-spatial index 不改变上述 tick authority：它只服务 step 之间的 spawn/leave 类局部验证，是 non-authoritative private cache。查询始终从 committed `VehicleState` 读取 progress，并用 route occurrence 做最终过滤；物理 edge membership 只在 spawn/despawn、完成或真实 physical-edge transition 时同步，不因同一 physical edge 上的 progress 变化做每车每 tick 重排。它与 tick-local Occupancy 保持两套职责，禁止用 command index 替代 leader/no-overlap snapshot。
 
@@ -639,7 +649,7 @@ Public：
 
 Private：
 
-- OccupancyIndex / Occupant。
+- OccupancyIndex / OccupancyClaim。
 - LeaderObservation。
 - LongitudinalConstraintSet。
 - IIDM evaluator、safe-speed solver 和 projection graph。

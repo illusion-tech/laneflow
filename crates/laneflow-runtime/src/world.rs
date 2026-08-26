@@ -6,6 +6,7 @@ use laneflow_static_contract::{
 };
 use laneflow_static_network::SharedNetworkRevision;
 
+use crate::occupancy::OccupancyIndex;
 use crate::tables::{
     CompiledRoute, DynamicRouteSlot, VehicleSlot, bodies_overlap, compile_dynamic_route,
     occupancy_front_gap, route_access_denied, static_route_ordinal,
@@ -34,6 +35,7 @@ pub struct TrafficWorld {
     pub(crate) live_order: Vec<VehicleHandle>,
     pub(crate) parking_occupants: Box<[Option<VehicleHandle>]>,
     pub(crate) next_states: Vec<(usize, VehicleState)>,
+    pub(crate) occupancy: OccupancyIndex,
 }
 
 impl TrafficWorld {
@@ -84,6 +86,7 @@ impl TrafficWorld {
             live_order: Vec::with_capacity(vehicle_capacity),
             parking_occupants: vec![None; space_count].into_boxed_slice(),
             next_states: Vec::with_capacity(vehicle_capacity),
+            occupancy: OccupancyIndex::with_capacity(0, vehicle_capacity),
         };
         world.refresh_signals();
         Ok(world)
