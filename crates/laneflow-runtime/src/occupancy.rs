@@ -4,7 +4,7 @@ use laneflow_static_network::SharedNetworkRevision;
 use crate::tables::{
     DynamicRouteSlot, VehicleSlot, for_each_occupancy_interval, static_route_ordinal,
 };
-use crate::{RouteHandle, TrafficWorld, VehicleHandle, VehicleState, VehicleStatus};
+use crate::{RouteHandle, StepError, TrafficWorld, VehicleHandle, VehicleState, VehicleStatus};
 
 #[cfg(test)]
 use std::cell::Cell;
@@ -54,6 +54,14 @@ pub(crate) fn occupancy_record_limit(vehicle_capacity: u32) -> usize {
     usize::try_from(vehicle_capacity)
         .unwrap_or(0)
         .saturating_mul(max_records_per_vehicle())
+}
+
+fn try_reserve_len<T>(vec: &mut Vec<T>, needed: usize) -> Result<(), StepError> {
+    if vec.capacity() < needed {
+        vec.try_reserve(needed.saturating_sub(vec.capacity()))
+            .map_err(|_| StepError::OccupancyAllocFailed)?;
+    }
+    Ok(())
 }
 
 fn occupancy_lo_key(record: &OccupancyRecord) -> (u32, u32, u32, u32) {
@@ -136,13 +144,16 @@ impl OccupancyIndex {
     #[cfg(test)]
     fn rebuild_from_pending(&mut self, pending: &[OccupancyRecord], bucket_count: usize) {
         self.reset_inspections();
-        self.scratch.clear();
-        self.scratch.resize(bucket_count, 0);
+        self.try_prepare_scratch(bucket_count)
+            .expect("test occupancy scratch");
         for record in pending {
             if let Some(count) = self.scratch.get_mut(record.bucket.index()) {
                 *count += 1;
             }
         }
+        let total = self.record_total(bucket_count);
+        self.try_reserve_records(total)
+            .expect("test occupancy records");
         self.finish_layout(bucket_count);
         for record in pending {
             self.write_record(*record);
@@ -154,15 +165,18 @@ impl OccupancyIndex {
         self.scratch.iter().take(bucket_count).copied().sum()
     }
 
-    fn ensure_record_capacity(&mut self, planned: usize) {
-        if self.records.capacity() < planned {
-            self.records
-                .reserve(planned.saturating_sub(self.records.capacity()));
-        }
-        if self.suffix_min_lo.capacity() < planned {
-            self.suffix_min_lo
-                .reserve(planned.saturating_sub(self.suffix_min_lo.capacity()));
-        }
+    fn try_prepare_scratch(&mut self, bucket_count: usize) -> Result<(), StepError> {
+        try_reserve_len(&mut self.offsets, bucket_count.saturating_add(1))?;
+        try_reserve_len(&mut self.scratch, bucket_count)?;
+        self.scratch.clear();
+        self.scratch.resize(bucket_count, 0);
+        Ok(())
+    }
+
+    fn try_reserve_records(&mut self, needed: usize) -> Result<(), StepError> {
+        try_reserve_len(&mut self.records, needed)?;
+        try_reserve_len(&mut self.suffix_min_lo, needed)?;
+        Ok(())
     }
 
     fn finish_layout(&mut self, bucket_count: usize) {
@@ -369,7 +383,7 @@ fn visit_occupancy_records(
     revision: &SharedNetworkRevision,
     dynamic_routes: &[DynamicRouteSlot],
     mut visit: impl FnMut(OccupancyRecord),
-) {
+) -> Result<(), StepError> {
     let lengths = revision.traffic().lane_lengths_millimetres();
     for (sequence, handle) in live_order.iter().copied().enumerate() {
         let Some(state) = vehicle_state_in(vehicles, handle) else {
@@ -382,12 +396,12 @@ fn visit_occupancy_records(
             continue;
         };
         let Ok(index) = usize::try_from(state.route_edge_index) else {
-            continue;
+            return Err(StepError::OccupancyIntervalIncomplete);
         };
         let Ok(update_sequence) = u32::try_from(sequence) else {
-            continue;
+            return Err(StepError::OccupancyIntervalIncomplete);
         };
-        let _ = for_each_occupancy_interval(
+        for_each_occupancy_interval(
             lengths,
             edges,
             index,
@@ -402,21 +416,21 @@ fn visit_occupancy_records(
                     update_sequence,
                 });
             },
-        );
+        )
+        .ok_or(StepError::OccupancyIntervalIncomplete)?;
     }
+    Ok(())
 }
 
 impl TrafficWorld {
-    pub(crate) fn rebuild_occupancy_index(&mut self) -> Result<(), crate::StepError> {
+    pub(crate) fn rebuild_occupancy_index(&mut self) -> Result<(), StepError> {
         let bucket_count = usize::try_from(self.revision.traffic().lane_edge_count())
             .expect("lane edge count fits usize");
-        let planned = occupancy_record_limit(self.config.vehicle_capacity());
+        let ceiling = occupancy_record_limit(self.config.vehicle_capacity());
         let occupancy = &mut self.occupancy;
         #[cfg(test)]
         occupancy.reset_inspections();
-        occupancy.ensure_record_capacity(planned);
-        occupancy.scratch.clear();
-        occupancy.scratch.resize(bucket_count, 0);
+        occupancy.try_prepare_scratch(bucket_count)?;
         visit_occupancy_records(
             &self.live_order,
             &self.vehicles,
@@ -427,10 +441,12 @@ impl TrafficWorld {
                     *count += 1;
                 }
             },
-        );
-        if occupancy.record_total(bucket_count) > planned {
-            return Err(crate::StepError::OccupancyCapacityExceeded);
+        )?;
+        let total = occupancy.record_total(bucket_count);
+        if total > ceiling {
+            return Err(StepError::OccupancyCapacityExceeded);
         }
+        occupancy.try_reserve_records(total)?;
         occupancy.finish_layout(bucket_count);
         visit_occupancy_records(
             &self.live_order,
@@ -438,7 +454,7 @@ impl TrafficWorld {
             &self.revision,
             &self.dynamic_routes,
             |record| occupancy.write_record(record),
-        );
+        )?;
         occupancy.sort_buckets(bucket_count);
         Ok(())
     }
@@ -470,7 +486,7 @@ mod tests {
     };
 
     use crate::tables::{occupancy_front_gap, remaining_along_route_i64};
-    use crate::{RouteRegisterInput, TickInput, VehicleSpawnInput, WorldConfig};
+    use crate::{RouteRegisterInput, StepError, TickInput, VehicleSpawnInput, WorldConfig};
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
         "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
@@ -1348,24 +1364,117 @@ mod tests {
             ))
             .expect("spawn spanning five 1 m edges");
         world.step(TickInput::new(1_000)).unwrap();
-        let planned = occupancy_record_limit(1);
+        let ceiling = occupancy_record_limit(1);
         let cap = world.occupancy.records_capacity();
+        let len = world.occupancy.records_len();
         assert!(
-            cap >= planned,
-            "first rebuild must reserve the legal occupancy record limit, cap={cap} planned={planned}"
+            len > 4,
+            "body on the 1 m chain must emit more than four occupancy records, got {len}"
         );
         assert!(
-            world.occupancy.records_len() > 4,
-            "body on the 1 m chain must emit more than four occupancy records, got {}",
-            world.occupancy.records_len()
+            cap >= len,
+            "retained occupancy capacity must cover actual records, cap={cap} len={len}"
         );
+        assert!(
+            cap < ceiling,
+            "first rebuild must not reserve the global envelope, cap={cap} ceiling={ceiling}"
+        );
+        let mut high_water = cap;
+        for _ in 0..8 {
+            world.step(TickInput::new(1_000)).unwrap();
+            let next = world.occupancy.records_capacity();
+            assert!(
+                next < ceiling,
+                "span growth must stay below the fail-closed ceiling, cap={next} ceiling={ceiling}"
+            );
+            assert!(
+                next >= high_water,
+                "occupancy record capacity must be high-water, cap={next} high_water={high_water}"
+            );
+            high_water = next;
+        }
         for _ in 0..8 {
             world.step(TickInput::new(1_000)).unwrap();
             assert_eq!(
                 world.occupancy.records_capacity(),
-                cap,
-                "steady ticks must not grow occupancy record capacity"
+                high_water,
+                "after body-span high-water, ticks must not grow occupancy record capacity"
             );
         }
+    }
+
+    #[test]
+    fn large_vehicle_capacity_does_not_reserve_envelope() {
+        let revision = two_edge_revision();
+        let stem = LaneEdgeOrdinal::from_raw(0);
+        let mut world =
+            TrafficWorld::install(revision, WorldConfig::new(10_000, 4, 1, 100)).expect("install");
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![stem]))
+            .expect("route");
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .expect("solo");
+        world.step(TickInput::new(100)).unwrap();
+        let cap = world.occupancy.records_capacity();
+        let ceiling = occupancy_record_limit(10_000);
+        assert!(
+            cap < 256,
+            "one vehicle must not reserve the capacity envelope, cap={cap}"
+        );
+        assert!(
+            cap < ceiling,
+            "retained occupancy capacity must stay below the fail-closed ceiling, cap={cap} ceiling={ceiling}"
+        );
+        assert!(
+            world.occupancy.suffix_min_lo_capacity() < 256,
+            "suffix min table must follow actual records, cap={}",
+            world.occupancy.suffix_min_lo_capacity()
+        );
+    }
+
+    #[test]
+    fn corrupt_route_index_fails_closed_occupancy_rebuild() {
+        let revision = two_edge_revision();
+        let stem = LaneEdgeOrdinal::from_raw(0);
+        let mut world =
+            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![stem]))
+            .expect("route");
+        let handle = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .expect("solo");
+        world.step(TickInput::new(100)).unwrap();
+        let before_len = world.occupancy.records_len();
+        let before_time = world.time_ms;
+        let slot = usize::try_from(handle.index()).expect("vehicle index fits usize");
+        world.vehicles[slot]
+            .state
+            .as_mut()
+            .expect("spawned vehicle")
+            .route_edge_index = 10_000;
+        assert_eq!(
+            world.step(TickInput::new(100)),
+            Err(StepError::OccupancyIntervalIncomplete)
+        );
+        assert_eq!(world.time_ms, before_time);
+        assert_eq!(
+            world.occupancy.records_len(),
+            before_len,
+            "failed rebuild must not replace occupancy records"
+        );
     }
 }
