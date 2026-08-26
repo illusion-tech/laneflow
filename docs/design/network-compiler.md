@@ -483,7 +483,7 @@ pass 可以并行或增量执行，但 clean single-thread compile 是确定性 
 | 对象类别                                                                  | 标识形式                                                          | 典型用途                                                              |
 | ------------------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------- |
 | 稳定声明 / 可独立寻址派生实体（Stable Declaration / Addressable Derived） | `StableId128` + 有类型逻辑序号（Typed Logical Ordinal）           | 跨编译引用、源映射（Source Map）、语义差异（Semantic Diff）、发布审计 |
-| 所有者局部关系 / 出现项（Owner-local Relation / Occurrence）              | `(ownerOrdinal, role, localIndex)` 有类型键（Typed Key）          | 路线出现项（Route Occurrence）、相位状态、成员关系 / 区间             |
+| 所有者局部关系 / 出现项（Owner-local Relation / Occurrence）              | `(ownerOrdinal, role, localIndex)` 有类型键（Typed Key）          | 相位状态、成员关系 / 区间                                             |
 | 所有低层中间表示 / 共享静态表行（All LIR / Shared-static Table Rows）     | 表类型专用的有类型 `u32` 逻辑序号（Table-specific Typed Ordinal） | 编译发射、交叉索引（Cross-index）、运行时热路径（Runtime Hot Path）   |
 
 `StableId128` 不进入每个 relation、sampling point 或 occurrence。任何需要跨编译
@@ -1321,10 +1321,11 @@ Production `TrafficWorld`/Spatial 只从 `TrustedStaticImage` 拆出 view。允�
 ### 9.4 共享构建闭合（Shared Build Closure）
 
 当前 builder 在最终对象成功前检查 canonical row/order、typed count/range、跨表引用、
-身份双射、route occurrence、Traffic/Spatial edge/frame/length 对齐、execution contract
-以及 caller output/retained/scratch budget。它不重新执行来源、HIR/MIR/LIR 的完整
-编译语义，也不建立第二套 validator/receipt/证明平台。具体闭合和错误矩阵以
-`shared-static-network.md` §7/§11 为准。
+身份双射、Traffic/Spatial edge/frame/length 对齐、execution contract 以及 caller
+output/retained/scratch budget。它不检查路线出现项：format 3 没有路线实体或路线出现项
+关系表，出现项只在 `TrafficWorld::register_route` 之后进入本世界（ADR 0029）。它不重新
+执行来源、HIR/MIR/LIR 的完整编译语义，也不建立第二套 validator/receipt/证明平台。具体
+闭合和错误矩阵以 `shared-static-network.md` §7/§11 为准。
 
 #### 被 Accepted ADR 0025 取代的历史镜像结构校验器
 

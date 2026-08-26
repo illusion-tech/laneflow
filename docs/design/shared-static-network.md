@@ -284,15 +284,15 @@ O(n²) 构建。实现可以融合不影响精确预算或错误语义的子 pas
 ### 7.2 必需闭合
 
 #439 只完成其 Issue 明列的基础投影；下列尚未投影的 owner/member、access/profile、signal、
-parking、StaticRoute/occurrence 等 Runtime 必需关系由 #440 逐项盘点并闭合。实体计数存在不
-等于字段或关系已经进入 Runtime。
+parking 等 Runtime 关系由 #440 逐项盘点并闭合。StaticRoute / 路线出现项不再进入共享根
+（ADR 0029）。实体计数存在不等于字段或关系已经进入 Runtime。
 
 成功前至少检查：
 
 - section/table/row kind 与 expected LFCA registry 一致；
 - canonical row key/ordinal 严格排序且无重复；
 - typed ordinal/count/range 全部适配 `u32` 并用 checked arithmetic；
-- entity、owner/member、topology、route occurrence 和 static-rule 引用落在正确 typed domain；
+- entity、owner/member、topology 和 static-rule 引用落在正确 typed domain；
 - `CanonicalIdentity` 与 21 种可构造稳定实体/可寻址派生实体形成完整双射（种类 21 保留空位）；
 - forward/reverse indexes round-trip；
 - 机动路径/门/等待区 range 无 gap、overlap 或跨 owner 错配；静态路线出现项不再投影（ADR 0029）；
