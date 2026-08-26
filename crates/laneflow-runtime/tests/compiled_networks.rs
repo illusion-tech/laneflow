@@ -7,16 +7,17 @@ use laneflow_compiler::{
     ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput,
     ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance, SignalControlInput,
     SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
-    SignalPhaseInput, SourceModuleHeader, SourceModuleHeaderInput, StaticRouteInput, StopLineInput,
-    StopLineReference, SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
+    SignalPhaseInput, SourceModuleHeader, SourceModuleHeaderInput, StopLineInput,
+    StopLineReference, SyntheticModuleBuilder, VehicleProfileInput, derive_canonical_stable_id_v1,
+    emit_portable_candidate,
 };
 use laneflow_format::{FormatLimits, check_post_emission_bundle};
 use laneflow_runtime::{
-    InstallError, ParkingError, PoseSource, RouteRegisterInput, SpawnError, TickInput,
+    InstallError, ParkingError, PoseSource, RouteHandle, RouteRegisterInput, SpawnError, TickInput,
     TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
 };
 use laneflow_static_contract::{
-    AccessEffect, ParkingSpaceOrdinal, SignalAspect, VehicleProfileOrdinal,
+    AccessEffect, EntityKind, LaneEdgeId, ParkingSpaceOrdinal, SignalAspect, VehicleProfileOrdinal,
 };
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision, SpatialBuildOption,
@@ -87,6 +88,26 @@ fn compile_revision(
     .expect("shared network revision")
 }
 
+fn register_named(world: &mut TrafficWorld, keys: &[&str]) -> RouteHandle {
+    const NS: &str = "city/runtime-coverage";
+    let limits = CompileLimits::p100_initial_v1();
+    let edges: Vec<_> = keys
+        .iter()
+        .map(|key| {
+            let stable =
+                derive_canonical_stable_id_v1(EntityKind::LaneEdge, NS, key, &limits).expect("id");
+            world
+                .revision()
+                .identity()
+                .ordinal(LaneEdgeId::from_untyped(stable))
+                .expect(*key)
+        })
+        .collect();
+    world
+        .register_route(RouteRegisterInput::new(edges))
+        .expect("register")
+}
+
 fn add_standard_profiles(module: &mut SyntheticModuleBuilder) {
     module
         .add_participant_class(ParticipantClassInput {
@@ -103,7 +124,7 @@ fn add_standard_profiles(module: &mut SyntheticModuleBuilder) {
 }
 
 #[test]
-fn spawn_access_denied_on_static_and_dynamic_routes_leaves_no_vehicle() {
+fn spawn_access_denied_on_registered_route_leaves_no_vehicle() {
     let revision = compile_revision(|module| {
         add_standard_profiles(module);
         module
@@ -129,49 +150,16 @@ fn spawn_access_denied_on_static_and_dynamic_routes_leaves_no_vehicle() {
                 regulation: None,
                 priority: 0,
             })
-            .expect("deny rule")
-            .add_static_route(StaticRouteInput {
-                static_route_key: "through",
-                edge_sequence: &[
-                    LaneEdgeReference::local("stem"),
-                    LaneEdgeReference::local("tail"),
-                ],
-            })
-            .expect("static route");
+            .expect("deny rule");
     });
     let mut world =
         TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
-    let static_route = world
-        .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
-        .expect("static");
+    let route = register_named(&mut world, &["stem", "tail"]);
     assert_eq!(
         world
             .spawn_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
-                static_route,
-                0,
-                0,
-                0,
-            ))
-            .unwrap_err(),
-        SpawnError::AccessDenied
-    );
-    assert!(world.committed_pose_sources().as_slice().is_empty());
-
-    let edges: Vec<_> = world
-        .traffic()
-        .relations()
-        .static_route_edges(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
-        .expect("edges")
-        .to_vec();
-    let dynamic = world
-        .register_route(RouteRegisterInput::new(edges))
-        .expect("dynamic");
-    assert_eq!(
-        world
-            .spawn_vehicle(VehicleSpawnInput::new(
-                VehicleProfileOrdinal::from_raw(0),
-                dynamic,
+                route,
                 0,
                 0,
                 0,
@@ -194,11 +182,6 @@ fn occupy_other_parking_space_fails_when_already_parked() {
                 successors: &[],
             })
             .expect("edge")
-            .add_static_route(StaticRouteInput {
-                static_route_key: "route",
-                edge_sequence: &[LaneEdgeReference::local("edge")],
-            })
-            .expect("route")
             .add_parking_space(ParkingSpaceInput {
                 parking_space_key: "space-a",
                 parking_area: None,
@@ -240,9 +223,7 @@ fn occupy_other_parking_space_fails_when_already_parked() {
     });
     let mut world =
         TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
-    let route = world
-        .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
-        .expect("route");
+    let route = register_named(&mut world, &["edge"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -360,18 +341,11 @@ fn large_delta_travel_does_not_exceed_speed_limit_envelope() {
                 speed_limit_meters_per_second: 10.0,
                 successors: &[],
             })
-            .expect("edge")
-            .add_static_route(StaticRouteInput {
-                static_route_key: "route",
-                edge_sequence: &[LaneEdgeReference::local("edge")],
-            })
-            .expect("route");
+            .expect("edge");
     });
     let mut world =
         TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 1_000)).expect("install");
-    let route = world
-        .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
-        .expect("route");
+    let route = register_named(&mut world, &["edge"]);
     world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -412,21 +386,11 @@ fn speed_down_transition_caps_next_tick_travel() {
                 speed_limit_meters_per_second: 1.0,
                 successors: &[],
             })
-            .expect("slow")
-            .add_static_route(StaticRouteInput {
-                static_route_key: "route",
-                edge_sequence: &[
-                    LaneEdgeReference::local("fast"),
-                    LaneEdgeReference::local("slow"),
-                ],
-            })
-            .expect("route");
+            .expect("slow");
     });
     let mut world =
         TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 1_000)).expect("install");
-    let route = world
-        .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
-        .expect("route");
+    let route = register_named(&mut world, &["fast", "slow"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -493,18 +457,11 @@ fn equal_limit_edge_boundary_does_not_stop_the_vehicle() {
                 speed_limit_meters_per_second: 10.0,
                 successors: &[],
             })
-            .expect("b")
-            .add_static_route(StaticRouteInput {
-                static_route_key: "route",
-                edge_sequence: &[LaneEdgeReference::local("a"), LaneEdgeReference::local("b")],
-            })
-            .expect("route");
+            .expect("b");
     });
     let mut world =
         TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
-    let route = world
-        .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
-        .expect("route");
+    let route = register_named(&mut world, &["a", "b"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -549,21 +506,11 @@ fn infeasible_stop_before_lower_limit_still_enters() {
                 speed_limit_meters_per_second: 8.0,
                 successors: &[],
             })
-            .expect("slower")
-            .add_static_route(StaticRouteInput {
-                static_route_key: "route",
-                edge_sequence: &[
-                    LaneEdgeReference::local("fast"),
-                    LaneEdgeReference::local("slower"),
-                ],
-            })
-            .expect("route");
+            .expect("slower");
     });
     let mut world =
         TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 1_000)).expect("install");
-    let route = world
-        .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
-        .expect("route");
+    let route = register_named(&mut world, &["fast", "slower"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -584,11 +531,7 @@ fn infeasible_stop_before_lower_limit_still_enters() {
     else {
         panic!("lane pose");
     };
-    let first = world
-        .traffic()
-        .relations()
-        .static_route_edges(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
-        .expect("edges")[0];
+    let first = world.route_edges(route).expect("edges")[0];
     assert!(
         edge != first || progress_mm != 10_000,
         "must enter when even a stop this tick overshoots the slower-edge start, edge={edge:?} progress={progress_mm}"
@@ -613,21 +556,11 @@ fn already_below_downstream_limit_does_not_stop_at_boundary() {
                 speed_limit_meters_per_second: 5.0,
                 successors: &[],
             })
-            .expect("mid")
-            .add_static_route(StaticRouteInput {
-                static_route_key: "route",
-                edge_sequence: &[
-                    LaneEdgeReference::local("posted-fast"),
-                    LaneEdgeReference::local("mid"),
-                ],
-            })
-            .expect("route");
+            .expect("mid");
     });
     let mut world =
         TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 1_000)).expect("install");
-    let route = world
-        .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
-        .expect("route");
+    let route = register_named(&mut world, &["posted-fast", "mid"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -648,11 +581,7 @@ fn already_below_downstream_limit_does_not_stop_at_boundary() {
     else {
         panic!("lane pose");
     };
-    let first = world
-        .traffic()
-        .relations()
-        .static_route_edges(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
-        .expect("edges")[0];
+    let first = world.route_edges(route).expect("edges")[0];
     assert!(
         edge != first || progress_mm != 10_000,
         "already-legal speed must not be clamped to a stop at the posted drop, edge={edge:?} progress={progress_mm}"
@@ -768,20 +697,10 @@ fn hop_preserves_active_state_and_does_not_force_zero_carry() {
                 speed_limit_meters_per_second: 10.0,
                 successors: &[],
             })
-            .expect("second")
-            .add_static_route(StaticRouteInput {
-                static_route_key: "route",
-                edge_sequence: &[
-                    LaneEdgeReference::local("first"),
-                    LaneEdgeReference::local("second"),
-                ],
-            })
-            .expect("route");
+            .expect("second");
     });
     let mut world = TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 4)).expect("install");
-    let route = world
-        .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
-        .expect("route");
+    let route = register_named(&mut world, &["first", "second"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),

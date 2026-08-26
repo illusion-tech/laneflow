@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
-    InstallError, LookupError, StepError, TickInput, TrafficWorld, WorldConfig,
+    InstallError, RouteError, RouteRegisterInput, StepError, TickInput, TrafficWorld, WorldConfig,
 };
-use laneflow_static_contract::{EntityKind, StaticRouteOrdinal};
+use laneflow_static_contract::{EntityKind, LaneEdgeOrdinal};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
@@ -108,20 +108,30 @@ fn install_rejects_phase_not_multiple_of_tick() {
     );
 }
 
-#[test]
-fn static_route_rejects_out_of_range() {
-    let revision = revision();
-    let count = revision
+fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
+    let index = world
         .traffic()
-        .entity_counts()
-        .count(EntityKind::StaticRoute);
-    let world = TrafficWorld::install(revision, config(100, 1)).expect("install");
-    assert!(world.static_route(StaticRouteOrdinal::from_raw(0)).is_ok() || count == 0);
+        .lane_lengths_millimetres()
+        .iter()
+        .position(|actual| *actual == length)
+        .expect("fixture lane length");
+    LaneEdgeOrdinal::try_from_usize(index).expect("fixture lane ordinal")
+}
+
+#[test]
+fn remove_route_rejects_stale_handle() {
+    let mut world = TrafficWorld::install(revision(), config(100, 1)).expect("install");
+    let route = world
+        .register_route(RouteRegisterInput::new(vec![
+            edge_for_length(&world, 10_000),
+            edge_for_length(&world, 8_000),
+            edge_for_length(&world, 12_000),
+        ]))
+        .expect("register");
+    world.remove_route(route).expect("unused");
     assert_eq!(
-        world
-            .static_route(StaticRouteOrdinal::from_raw(count))
-            .unwrap_err(),
-        LookupError::UnknownStaticRoute
+        world.remove_route(route).unwrap_err(),
+        RouteError::StaleHandle
     );
 }
 

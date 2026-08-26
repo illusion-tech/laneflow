@@ -7,7 +7,7 @@ use laneflow_static_contract::{
 
 use crate::arena::TableRange;
 
-use super::{LirIdentityField, LirRouteOccurrenceRef};
+use super::LirIdentityField;
 
 pub(crate) struct LirJunction {
     pub(crate) ordinal: JunctionOrdinal,
@@ -35,7 +35,6 @@ pub(crate) struct LirManeuverPath {
     pub(crate) edges: TableRange<LaneEdgeOrdinal>,
     pub(crate) maneuver_gates: TableRange<ManeuverGateOrdinal>,
     pub(crate) waiting_zones: TableRange<WaitingZoneOrdinal>,
-    pub(crate) static_route_occurrences: TableRange<LirRouteOccurrenceRef>,
 }
 
 pub(crate) struct LirJunctionInternalEdge {
@@ -277,7 +276,6 @@ pub(super) fn freeze(
                 env.limits,
                 env.primary_span.clone(),
             )?,
-            static_route_occurrences: TableRange::empty(),
         });
     }
 

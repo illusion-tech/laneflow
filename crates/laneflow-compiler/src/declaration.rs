@@ -555,19 +555,6 @@ pub struct WaitingZoneInput<'a> {
     pub max_occupancy: u32,
 }
 
-/// 合成领域专用语言的静态路线声明输入。
-///
-/// `edge_sequence` 是编制期权威有序序列；相同 `LaneEdge` 可以在路线中多次出现，
-/// 每次出现由路线内下标区分。HIR 会据此预编译机动路径、机动门与等待区出现项，
-/// 运行时不再扫描全局控制表重新匹配。
-#[derive(Clone, Copy, Debug)]
-pub struct StaticRouteInput<'a> {
-    /// 来源模块内显式持久化且唯一的路线稳定键，对应 Identity v1 `routeKey`。
-    pub static_route_key: &'a str,
-    /// 非空、有序的车道图边序列；相邻边必须直接连通。
-    pub edge_sequence: &'a [LaneEdgeReference<'a>],
-}
-
 /// 合成领域专用语言的车道图边声明输入。
 ///
 /// 车道图边身份由 `lane_edge_key` 与所属 authoring namespace 决定，不依赖
@@ -1213,12 +1200,6 @@ pub(crate) struct WaitingZoneDeclaration {
     pub(crate) max_occupancy: u32,
 }
 
-/// 已通过字段级检查、等待解析边序列并预编译控制出现项的静态路线 Typed AST 记录。
-pub(crate) struct StaticRouteDeclaration {
-    pub(crate) header: DeclarationHeader,
-    pub(crate) edge_sequence: Box<[OwnedEntityReference<LaneEdgeKind>]>,
-}
-
 /// 官方合成前端当前支持的封闭声明集合。
 pub(crate) enum TypedAstDeclaration {
     LaneEdge(LaneEdgeDeclaration),
@@ -1232,7 +1213,6 @@ pub(crate) enum TypedAstDeclaration {
     StopLine(StopLineDeclaration),
     ManeuverGate(ManeuverGateDeclaration),
     WaitingZone(WaitingZoneDeclaration),
-    StaticRoute(StaticRouteDeclaration),
     SignalGroup(SignalGroupDeclaration),
     SignalController(SignalControllerDeclaration),
     ParkingArea(ParkingAreaDeclaration),
@@ -1409,13 +1389,6 @@ impl TypedAstDeclaration {
                 try_visit_reference(maneuver_path, &mut visit)?;
                 try_visit_reference(entry_gate, &mut visit)?;
                 try_visit_reference(release_gate, &mut visit)?;
-            }
-            Self::StaticRoute(StaticRouteDeclaration {
-                header,
-                edge_sequence,
-            }) => {
-                try_visit_declaration_header(header, &mut visit)?;
-                try_visit_references(edge_sequence, &mut visit)?;
             }
             Self::SignalController(SignalControllerDeclaration {
                 header,

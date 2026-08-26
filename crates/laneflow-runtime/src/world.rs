@@ -2,20 +2,19 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     EntityKind, ParkingSpaceOrdinal, SignalAspect, SignalControllerOrdinal, SignalGroupOrdinal,
-    StaticRouteOrdinal,
 };
 use laneflow_static_network::SharedNetworkRevision;
 
 use crate::occupancy::OccupancyIndex;
 use crate::tables::{
     CompiledRoute, DynamicRouteSlot, VehicleSlot, bodies_overlap, compile_dynamic_route,
-    occupancy_front_gap, route_access_denied, static_route_ordinal,
+    occupancy_front_gap, route_access_denied,
 };
 use crate::{
-    CommittedPoseSourceBatch, CommittedSignalGroupBatch, InstallError, LookupError, ParkingError,
-    PoseSource, ReplaceError, RouteError, RouteHandle, RouteRegisterInput, SpawnError, StepError,
-    StepOutcome, TickInput, VehicleHandle, VehicleReplaceBlock, VehicleReplaceRecord,
-    VehicleSpawnInput, VehicleState, VehicleStatus, WorldConfig,
+    CommittedPoseSourceBatch, CommittedSignalGroupBatch, InstallError, ParkingError, PoseSource,
+    ReplaceError, RouteError, RouteHandle, RouteRegisterInput, SpawnError, StepError, StepOutcome,
+    TickInput, VehicleHandle, VehicleReplaceBlock, VehicleReplaceRecord, VehicleSpawnInput,
+    VehicleState, VehicleStatus, WorldConfig,
 };
 
 /// 1-worker 交通世界。只克隆根 `Arc`，不复制静态 component。
@@ -122,22 +121,9 @@ impl TrafficWorld {
         self.config
     }
 
-    /// 取得 compiler 预编译静态路线句柄。
-    pub fn static_route(&self, route: StaticRouteOrdinal) -> Result<RouteHandle, LookupError> {
-        let count = self
-            .revision
-            .traffic()
-            .entity_counts()
-            .count(EntityKind::StaticRoute);
-        if route.raw() >= count {
-            return Err(LookupError::UnknownStaticRoute);
-        }
-        Ok(RouteHandle::static_route(route.raw()))
-    }
-
-    /// 注册本世界动态路线。失败不留下半条路线。
+    /// 注册本世界路线。失败不留下半条路线。
     ///
-    /// G2 在 compiled 槽位物化分段 `u32` 前缀、后缀距离、受控 hop 链和限速下降转换；
+    /// 在 compiled 槽位物化分段 `u32` 前缀、后缀距离、受控 hop 链和限速下降转换；
     /// 不上 `u64`，不存当前红灯。句柄不含 world 身份，只在本 `TrafficWorld` 内有效。
     pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
         if self.live_dynamic_routes >= self.config.dynamic_route_capacity() {
@@ -149,8 +135,8 @@ impl TrafficWorld {
             .dynamic_routes
             .get(slot_index)
             .map_or(0, |slot| slot.generation);
-        let handle = RouteHandle::dynamic_route(
-            u32::try_from(slot_index).expect("dynamic route index fits u32"),
+        let handle = RouteHandle::new(
+            u32::try_from(slot_index).expect("route index fits u32"),
             generation,
         );
         let slot = DynamicRouteSlot {
@@ -167,12 +153,9 @@ impl TrafficWorld {
         Ok(handle)
     }
 
-    /// 只移除本世界动态路线。静态句柄必须拒绝。
+    /// 只移除本世界已注册路线。
     pub fn remove_route(&mut self, route: RouteHandle) -> Result<(), RouteError> {
-        if route.is_static() {
-            return Err(RouteError::StaticHandle);
-        }
-        let index = usize::try_from(route.index()).expect("dynamic route index fits usize");
+        let index = usize::try_from(route.index()).expect("route index fits usize");
         let Some(slot) = self.dynamic_routes.get_mut(index) else {
             return Err(RouteError::StaleHandle);
         };
@@ -276,11 +259,8 @@ impl TrafficWorld {
         } else {
             self.vehicles[slot_index] = slot;
         }
-        if !input.route().is_static() {
-            let route_index =
-                usize::try_from(input.route().index()).expect("route index fits usize");
-            self.dynamic_routes[route_index].live_vehicles += 1;
-        }
+        let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
+        self.dynamic_routes[route_index].live_vehicles += 1;
         self.live_order.push(handle);
         Ok(handle)
     }
@@ -403,11 +383,8 @@ impl TrafficWorld {
             }
         }
         self.release_route_ref(old_route);
-        if !input.route().is_static() {
-            let route_index =
-                usize::try_from(input.route().index()).expect("route index fits usize");
-            self.dynamic_routes[route_index].live_vehicles += 1;
-        }
+        let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
+        self.dynamic_routes[route_index].live_vehicles += 1;
         self.live_order[order_index] = new;
         Ok(VehicleReplaceRecord { old, new })
     }
@@ -536,30 +513,51 @@ impl TrafficWorld {
         slot.state.as_ref()
     }
 
-    pub(crate) fn route_edges(
+    /// 本世界已注册路线的边序列。句柄无效时返回 `None`。
+    #[must_use]
+    pub fn route_edges(
         &self,
         route: RouteHandle,
     ) -> Option<&[laneflow_static_contract::LaneEdgeOrdinal]> {
-        if let Some(ordinal) = static_route_ordinal(route) {
-            return self
-                .revision
-                .traffic()
-                .relations()
-                .static_route_edges(ordinal);
-        }
-        let slot = self
-            .dynamic_routes
-            .get(usize::try_from(route.index()).ok()?)?;
-        if slot.generation != route.generation() {
-            return None;
-        }
-        Some(slot.compiled.as_ref()?.edges.as_ref())
+        Some(self.compiled_route(route)?.edges.as_ref())
     }
 
-    pub(crate) fn compiled_dynamic_route(&self, route: RouteHandle) -> Option<&CompiledRoute> {
-        if static_route_ordinal(route).is_some() {
-            return None;
-        }
+    /// 本世界当前有效路线句柄，按槽位下标。
+    pub fn live_routes(&self) -> impl Iterator<Item = RouteHandle> + '_ {
+        self.dynamic_routes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, slot)| {
+                slot.compiled.as_ref().map(|_| {
+                    RouteHandle::new(
+                        u32::try_from(index).expect("route index fits u32"),
+                        slot.generation,
+                    )
+                })
+            })
+    }
+
+    /// 查找边序列完全相同的已注册路线。切修订原地重编译后用于重绑，不新分配句柄。
+    #[must_use]
+    pub fn find_route(
+        &self,
+        edges: &[laneflow_static_contract::LaneEdgeOrdinal],
+    ) -> Option<RouteHandle> {
+        self.dynamic_routes
+            .iter()
+            .enumerate()
+            .find_map(|(index, slot)| {
+                let compiled = slot.compiled.as_ref()?;
+                (compiled.edges.as_ref() == edges).then(|| {
+                    RouteHandle::new(
+                        u32::try_from(index).expect("route index fits u32"),
+                        slot.generation,
+                    )
+                })
+            })
+    }
+
+    pub(crate) fn compiled_route(&self, route: RouteHandle) -> Option<&CompiledRoute> {
         let slot = self
             .dynamic_routes
             .get(usize::try_from(route.index()).ok()?)?;
@@ -578,25 +576,7 @@ impl TrafficWorld {
         let Some(edges) = self.route_edges(route) else {
             return true;
         };
-        if let Some(ordinal) = static_route_ordinal(route) {
-            let relations = self.revision.traffic().relations();
-            let count = relations.route_maneuver_count(ordinal).unwrap_or(0);
-            let maneuvers = (0..count).filter_map(move |index| {
-                let occurrence = relations.route_maneuver_occurrence(ordinal, index)?;
-                Some((occurrence.path(), occurrence.exit_route_edge_index()))
-            });
-            return route_access_denied(self.revision.traffic(), class, edges, cursor, maneuvers);
-        }
-        let Some(slot) = self
-            .dynamic_routes
-            .get(usize::try_from(route.index()).expect("dynamic route index fits usize"))
-        else {
-            return true;
-        };
-        if slot.generation != route.generation() {
-            return true;
-        }
-        let Some(compiled) = slot.compiled.as_ref() else {
+        let Some(compiled) = self.compiled_route(route) else {
             return true;
         };
         route_access_denied(
@@ -696,9 +676,6 @@ impl TrafficWorld {
     }
 
     pub(crate) fn release_route_ref(&mut self, route: RouteHandle) {
-        if route.is_static() {
-            return;
-        }
         let Ok(index) = usize::try_from(route.index()) else {
             return;
         };

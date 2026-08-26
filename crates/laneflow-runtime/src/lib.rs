@@ -13,9 +13,7 @@ mod vehicle;
 mod world;
 
 pub use config::{StepOutcome, TickInput, WorldConfig};
-pub use error::{
-    InstallError, LookupError, ParkingError, ReplaceError, RouteError, SpawnError, StepError,
-};
+pub use error::{InstallError, ParkingError, ReplaceError, RouteError, SpawnError, StepError};
 pub use handle::{RouteHandle, VehicleHandle};
 pub use input::{RouteRegisterInput, VehicleSpawnInput};
 pub use laneflow_static_contract::ParkingSpaceOrdinal;

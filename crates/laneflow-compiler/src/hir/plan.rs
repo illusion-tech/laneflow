@@ -1,7 +1,7 @@
 //! HIR 构建计划（build plan）与内存计划（memory plan）。
 //!
 //! [`HirBuildPlan::analyze`] 在任何与记录数成正比的阶段分配前，一次性统计编译单元的
-//! 公共基础计数与八个领域实体计数，并把持久表、lookup 预算与互斥阶段暂存区聚合为
+//! 公共基础计数与七个领域实体计数，并把持久表、lookup 预算与互斥阶段暂存区聚合为
 //! [`HirMemoryPlan`]；[`HirBuildPlan::check_limits`] 在 base 构造前按所选资源配置档
 //! 预检限额维度。各分量算术逐点复制自拆分前 `build_hir` 的资源统计段：persistent 与
 //! lookup 跨领域求和，互斥 scratch 取峰值；saturating 加法与 max 均可交换结合，分组
@@ -26,21 +26,19 @@ use super::{
     CanonicalLaneEdgeSource, HirAccessRule, HirAccessRuleKey, HirAccessRuleParticipantClass,
     HirAuthoringLane, HirAuthoringLaneEdge, HirAuthoringLaneKey, HirCanonicalFrame,
     HirCanonicalFrameKey, HirCanonicalPoint3F32, HirCorridorElement, HirDeclaredJunctionEdge,
-    HirFacilityBand, HirFacilityBandGeometry, HirFacilityBandKey, HirGateOccurrence,
-    HirGeometrySourceRange, HirImport, HirJunction, HirJunctionInternalEdge, HirJunctionKey,
-    HirJunctionMovement, HirLaneEdge, HirLaneEdgeGeometry, HirLaneEdgeKey, HirLaneEdgeReference,
-    HirLaneGroup, HirLaneGroupKey, HirLaneGroupMember, HirManeuverGate, HirManeuverGateKey,
-    HirManeuverOccurrence, HirManeuverPath, HirManeuverPathEdge, HirManeuverPathGate,
-    HirManeuverPathKey, HirManeuverPathWaitingZone, HirModule, HirModuleKey, HirMovement,
-    HirMovementKey, HirMovementManeuverPath, HirParkingArea, HirParkingAreaKey,
-    HirParkingAreaSpace, HirParkingSpace, HirParkingSpaceKey, HirParticipantClass,
-    HirParticipantClassKey, HirRoadCorridor, HirRoadCorridorKey, HirRoadSection, HirRoadSectionKey,
-    HirSignalController, HirSignalControllerGroup, HirSignalControllerKey, HirSignalGroup,
-    HirSignalGroupKey, HirSignalGroupManeuverGate, HirSignalPhase, HirSignalPhaseState,
-    HirSpatialSegment, HirStaticRoute, HirStaticRouteEdge, HirStaticRouteKey,
-    HirStaticRouteTransition, HirStopLine, HirStopLineKey, HirStopLineManeuverGate,
-    HirVehicleProfile, HirVehicleProfileKey, HirWaitingZone, HirWaitingZoneKey,
-    HirWaitingZoneOccurrence, ManeuverPathSequence, PendingSpatialGeometry, SpatialFrameAssignment,
+    HirFacilityBand, HirFacilityBandGeometry, HirFacilityBandKey, HirGeometrySourceRange,
+    HirImport, HirJunction, HirJunctionInternalEdge, HirJunctionKey, HirJunctionMovement,
+    HirLaneEdge, HirLaneEdgeGeometry, HirLaneEdgeKey, HirLaneEdgeReference, HirLaneGroup,
+    HirLaneGroupKey, HirLaneGroupMember, HirManeuverGate, HirManeuverGateKey, HirManeuverPath,
+    HirManeuverPathEdge, HirManeuverPathGate, HirManeuverPathKey, HirManeuverPathWaitingZone,
+    HirModule, HirModuleKey, HirMovement, HirMovementKey, HirMovementManeuverPath, HirParkingArea,
+    HirParkingAreaKey, HirParkingAreaSpace, HirParkingSpace, HirParkingSpaceKey,
+    HirParticipantClass, HirParticipantClassKey, HirRoadCorridor, HirRoadCorridorKey,
+    HirRoadSection, HirRoadSectionKey, HirSignalController, HirSignalControllerGroup,
+    HirSignalControllerKey, HirSignalGroup, HirSignalGroupKey, HirSignalGroupManeuverGate,
+    HirSignalPhase, HirSignalPhaseState, HirSpatialSegment, HirStopLine, HirStopLineKey,
+    HirStopLineManeuverGate, HirVehicleProfile, HirVehicleProfileKey, HirWaitingZone,
+    HirWaitingZoneKey, ManeuverPathSequence, PendingSpatialGeometry, SpatialFrameAssignment,
     declaration_header, lane_edge_declaration,
 };
 
@@ -63,7 +61,7 @@ pub(super) struct HirMemoryPlan {
     pub(super) controlled_live_bytes: u64,
 }
 
-/// 一次统计形成的 HIR 构建计划：公共基础计数、八领域计数与聚合内存计划。
+/// 一次统计形成的 HIR 构建计划：公共基础计数、七领域计数与聚合内存计划。
 pub(super) struct HirBuildPlan {
     pub(super) lane_edge_count: u64,
     pub(super) lane_edge_reference_count: u64,
@@ -74,7 +72,6 @@ pub(super) struct HirBuildPlan {
     pub(super) parking: ParkingCounts,
     pub(super) spatial: SpatialCounts,
     pub(super) access: AccessCounts,
-    pub(super) route: RouteCounts,
     pub(super) memory: HirMemoryPlan,
 }
 
@@ -94,7 +91,6 @@ impl HirBuildPlan {
             parking: parking_counts(unit),
             spatial: spatial_counts(unit),
             access: access_counts(unit),
-            route: route_counts(unit),
             memory: HirMemoryPlan {
                 hir_record_count: 0,
                 stage_scratch_bytes: 0,
@@ -119,11 +115,7 @@ impl HirBuildPlan {
             // 信号组到机动门的反向使用关系由 HIR 派生，Typed AST 只计正向绑定。
             .saturating_add(plan.signal.controlled_gates)
             // 区域归属在 Typed AST 中按停车位正向引用计数；区域成员表是 HIR 派生反向关系。
-            .saturating_add(plan.parking.memberships)
-            // 路线边引用已计入 CompilationUnit 关系数；转换以及三类派生出现项只在 HIR
-            // 中产生，按单条边至多各生成一项的上界纳入预检。
-            .saturating_add(plan.route.route_transitions)
-            .saturating_add(plan.route.route_edges.saturating_mul(3));
+            .saturating_add(plan.parking.memberships);
         let base = base_budget(
             unit,
             module_count,
@@ -154,7 +146,6 @@ impl HirBuildPlan {
             &plan.cross_section,
         );
         let access = access_budget(unit, module_count, &plan.access);
-        let route = route_budget(plan.lane_edge_count, &plan.route, &plan.junction);
         plan.memory.stage_scratch_bytes = base
             .scratch_bytes
             .max(cross_section.scratch_bytes)
@@ -163,8 +154,7 @@ impl HirBuildPlan {
             .max(signal.scratch_bytes)
             .max(parking.scratch_bytes)
             .max(spatial.scratch_bytes)
-            .max(access.scratch_bytes)
-            .max(route.scratch_bytes);
+            .max(access.scratch_bytes);
         plan.memory.persistent_bytes = base
             .persistent_bytes
             .saturating_add(cross_section.persistent_bytes)
@@ -173,8 +163,7 @@ impl HirBuildPlan {
             .saturating_add(signal.persistent_bytes)
             .saturating_add(parking.persistent_bytes)
             .saturating_add(spatial.persistent_bytes)
-            .saturating_add(access.persistent_bytes)
-            .saturating_add(route.persistent_bytes);
+            .saturating_add(access.persistent_bytes);
         plan.memory.lookup_bytes = base
             .lookup_bytes
             .saturating_add(cross_section.lookup_bytes)
@@ -183,8 +172,7 @@ impl HirBuildPlan {
             .saturating_add(signal.lookup_bytes)
             .saturating_add(parking.lookup_bytes)
             .saturating_add(spatial.lookup_bytes)
-            .saturating_add(access.lookup_bytes)
-            .saturating_add(route.lookup_bytes);
+            .saturating_add(access.lookup_bytes);
         plan.memory.controlled_live_bytes = unit
             .controlled_live_bytes
             .saturating_add(plan.memory.persistent_bytes)
@@ -749,62 +737,6 @@ fn access_budget(unit: &CompilationUnit, module_count: u64, counts: &AccessCount
     }
 }
 
-fn route_budget(
-    lane_edge_count: u64,
-    counts: &RouteCounts,
-    junction_counts: &JunctionCounts,
-) -> DomainBudget {
-    let scratch_bytes = if counts.static_routes == 0 {
-        0
-    } else {
-        // 路线编译同时持有全局候选索引、按全部 LaneEdge 建立的角色索引，以及当前
-        // 单条路线的局部输出；这里按这些集合真实的同时存续关系计算峰值。
-        requested_bytes::<CanonicalDeclarationSource<HirStaticRouteKey>>(counts.static_routes)
-            .saturating_add(requested_bytes::<Option<HirManeuverPathKey>>(
-                lane_edge_count,
-            ))
-            .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
-            .saturating_add(requested_bytes::<(
-                HirLaneEdgeKey,
-                HirLaneEdgeKey,
-                HirManeuverPathKey,
-            )>(junction_counts.maneuver_paths))
-            .saturating_add(requested_bytes::<HirStaticRouteEdge>(
-                counts.largest_route_edges,
-            ))
-            .saturating_add(requested_bytes::<HirStaticRouteTransition>(
-                counts.largest_route_edges.saturating_sub(1),
-            ))
-            .saturating_add(requested_bytes::<HirManeuverOccurrence>(
-                counts.largest_route_edges,
-            ))
-            .saturating_add(requested_bytes::<HirGateOccurrence>(
-                counts.largest_route_edges,
-            ))
-            .saturating_add(requested_bytes::<HirWaitingZoneOccurrence>(
-                counts.largest_route_edges,
-            ))
-            .saturating_add(requested_bytes::<Option<HirManeuverPathKey>>(
-                counts.largest_route_edges,
-            ))
-    };
-    DomainBudget {
-        persistent_bytes: requested_bytes::<HirStaticRoute>(counts.static_routes)
-            .saturating_add(requested_bytes::<HirStaticRouteEdge>(counts.route_edges))
-            .saturating_add(requested_bytes::<HirStaticRouteTransition>(
-                counts.route_transitions,
-            ))
-            .saturating_add(requested_bytes::<HirManeuverOccurrence>(counts.route_edges))
-            .saturating_add(requested_bytes::<HirGateOccurrence>(counts.route_edges))
-            .saturating_add(requested_bytes::<HirWaitingZoneOccurrence>(
-                counts.route_edges,
-            )),
-        // route 不建立按模块 lookup 表，不在 lookup 模块清单。
-        lookup_bytes: 0,
-        scratch_bytes,
-    }
-}
-
 #[derive(Default)]
 pub(super) struct CrossSectionCounts {
     pub(super) road_corridors: u64,
@@ -916,14 +848,6 @@ impl AccessCounts {
     }
 }
 
-#[derive(Default)]
-pub(super) struct RouteCounts {
-    pub(super) static_routes: u64,
-    pub(super) route_edges: u64,
-    pub(super) route_transitions: u64,
-    pub(super) largest_route_edges: u64,
-}
-
 fn lane_edge_count(unit: &CompilationUnit) -> u64 {
     unit.modules
         .iter()
@@ -985,7 +909,6 @@ pub(super) fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts
             | TypedAstDeclaration::StopLine(_)
             | TypedAstDeclaration::ManeuverGate(_)
             | TypedAstDeclaration::WaitingZone(_)
-            | TypedAstDeclaration::StaticRoute(_)
             | TypedAstDeclaration::SignalGroup(_)
             | TypedAstDeclaration::SignalController(_)
             | TypedAstDeclaration::ParkingArea(_)
@@ -1050,26 +973,6 @@ pub(super) fn control_counts(unit: &CompilationUnit) -> ControlCounts {
             }
             TypedAstDeclaration::ManeuverGate(_) | TypedAstDeclaration::WaitingZone(_) => {}
             _ => {}
-        }
-    }
-    counts
-}
-
-pub(super) fn route_counts(unit: &CompilationUnit) -> RouteCounts {
-    let mut counts = RouteCounts::default();
-    for declaration in unit
-        .modules
-        .iter()
-        .flat_map(|module| module.declarations.iter())
-    {
-        if let TypedAstDeclaration::StaticRoute(route) = declaration {
-            let edge_count = u64::try_from(route.edge_sequence.len()).unwrap_or(u64::MAX);
-            counts.static_routes = counts.static_routes.saturating_add(1);
-            counts.route_edges = counts.route_edges.saturating_add(edge_count);
-            counts.route_transitions = counts
-                .route_transitions
-                .saturating_add(edge_count.saturating_sub(1));
-            counts.largest_route_edges = counts.largest_route_edges.max(edge_count);
         }
     }
     counts
@@ -1228,8 +1131,7 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
             let bytes = match source_declaration {
                 TypedAstDeclaration::LaneEdge(_)
                 | TypedAstDeclaration::RoadCorridor(_)
-                | TypedAstDeclaration::Junction(_)
-                | TypedAstDeclaration::StaticRoute(_) => 22_u64
+                | TypedAstDeclaration::Junction(_) => 22_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
                 TypedAstDeclaration::RoadSection(_)

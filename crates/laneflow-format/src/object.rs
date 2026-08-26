@@ -814,9 +814,7 @@ fn preflight_object_registry_at<'a>(
         let mut cursor = SECTION_HEADER_BYTES;
         for table_schema in section_schema.tables {
             let actual_table_kind = read_u16(section_bytes, cursor, FormatStructure::Table)?;
-            if actual_table_kind == 0
-                || usize::from(actual_table_kind) > section_schema.tables.len()
-            {
+            if actual_table_kind == 0 {
                 return Err(FormatError::UnknownKind {
                     structure: FormatStructure::Table,
                     code: u64::from(actual_table_kind),
@@ -1369,7 +1367,7 @@ mod tests {
             preflight_object_registry(&wrong_table_kind, kind, FormatLimits::HARD)
                 .unwrap_err()
                 .class(),
-            FormatErrorClass::UnknownKind
+            FormatErrorClass::NonCanonicalOrder
         );
 
         let mut trailing = encoded_object(kind);

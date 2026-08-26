@@ -184,7 +184,6 @@ pub enum RoadEditingRootVectorKind {
     ParticipantClass,
     AccessRule,
     VehicleProfile,
-    StaticRoute,
     CanonicalFrame,
 }
 
@@ -233,7 +232,6 @@ pub enum RoadEditingTableKind {
     AccessRule,
     IidmVehicleProfile,
     VehicleProfile,
-    StaticRoute,
     CanonicalFrame,
 }
 
@@ -270,7 +268,6 @@ pub enum RoadEditingRelationKind {
     SignalControllerPhase,
     SignalPhaseState,
     AccessRuleParticipantClass,
-    StaticRouteEdge,
 }
 
 /// 有序产品关系或规范集合关系中的稳定 occurrence。

@@ -9,12 +9,14 @@ use core::str;
 #[cfg(test)]
 use laneflow_static_contract::FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES;
 use laneflow_static_contract::{
-    EntityKind, FORMAT_HARD_MAX_FIELDS_PER_ROW, FieldEncoding, FieldTag, HEADING_MINUS_PI_F32_BITS,
-    HEADING_PLUS_PI_F32_BITS, MAX_ACCEL_METERS_PER_SECOND_SQUARED, MAX_LANE_EDGE_LENGTH_MM,
-    MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S, MAX_TIME_HEADWAY_SECONDS,
-    MAX_VEHICLE_LENGTH_MM, MIN_ACCEL_METERS_PER_SECOND_SQUARED, MIN_LANE_EDGE_LENGTH_MM,
-    MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S, MIN_VEHICLE_LENGTH_MM,
-    PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, PortableObjectKind, PortableTableSchema,
+    CANONICAL_ARTIFACT_FORMAT_VERSION, CONSTRAINT_CONTRACT_VERSION, EntityKind,
+    FORMAT_HARD_MAX_FIELDS_PER_ROW, FieldEncoding, FieldTag, HEADING_MINUS_PI_F32_BITS,
+    HEADING_PLUS_PI_F32_BITS, IDENTITY_REGISTRY_REVISION, MAX_ACCEL_METERS_PER_SECOND_SQUARED,
+    MAX_LANE_EDGE_LENGTH_MM, MAX_MIN_GAP_MM, MAX_PARKING_LATERAL_OFFSET_ABS_MM, MAX_SPEED_MM_S,
+    MAX_TIME_HEADWAY_SECONDS, MAX_VEHICLE_LENGTH_MM, MIN_ACCEL_METERS_PER_SECOND_SQUARED,
+    MIN_LANE_EDGE_LENGTH_MM, MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S,
+    MIN_VEHICLE_LENGTH_MM, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, PortableObjectKind,
+    PortableTableSchema, STATIC_EXECUTION_CONTRACT_VERSION,
 };
 
 use crate::{
@@ -436,10 +438,10 @@ fn validate_lfca_row(
         (1, 1) => {
             require_exact_u16(row.required(1)?, bindings.contract_format)?;
             require_exact_u16(row.required(2)?, 1)?;
-            require_exact_u16(row.required(3)?, 1)?;
+            require_exact_u16(row.required(3)?, IDENTITY_REGISTRY_REVISION)?;
             require_exact_u16(row.required(4)?, 1)?;
-            require_exact_u16(row.required(5)?, bindings.contract_format)?;
-            require_exact_u16(row.required(6)?, bindings.contract_format)?;
+            require_exact_u16(row.required(5)?, CONSTRAINT_CONTRACT_VERSION)?;
+            require_exact_u16(row.required(6)?, STATIC_EXECUTION_CONTRACT_VERSION)?;
         }
         (2, 1) => {
             let entity = require_entity_kind(row.required(1)?)?;
@@ -531,8 +533,8 @@ fn validate_lfca_row(
             validate_direction_profile_applies(row.required(4)?, bindings)?;
         }
         (6, 1) => {
-            require_exact_u16(row.required(1)?, bindings.contract_format)?;
-            require_exact_u16(row.required(2)?, bindings.contract_format)?;
+            require_exact_u16(row.required(1)?, STATIC_EXECUTION_CONTRACT_VERSION)?;
+            require_exact_u16(row.required(2)?, CONSTRAINT_CONTRACT_VERSION)?;
         }
         (7, 1) => {
             validate_compiler_build_id(row.required(1)?)?;
@@ -592,14 +594,6 @@ fn validate_lfca_entity_vector_cardinalities(
         }
         19 => {
             require_vector_count(row.required(6)?, FormatStructure::OrdinalVector, 1)?;
-        }
-        21 => {
-            let edge_count =
-                require_vector_count(row.required(3)?, FormatStructure::OrdinalVector, 1)?;
-            let transition_count = vector_count(row.required(4)?, FormatStructure::RecordVector)?;
-            if transition_count != edge_count - 1 {
-                return Err(row_binding_mismatch());
-            }
         }
         _ => {}
     }
@@ -808,7 +802,7 @@ fn validate_lfsm_row(
     match (section, table) {
         (1, 1) => {
             require_exact_u16(row.required(1)?, 1)?;
-            require_exact_u16(row.required(3)?, contract_format)?;
+            require_exact_u16(row.required(3)?, CANONICAL_ARTIFACT_FORMAT_VERSION)?;
             require_exact_u16(row.required(7)?, 1)?;
             require_u64_greater(row.required(5)?, 0)?;
             validate_compiler_build_id(row.required(6)?)?;
@@ -822,8 +816,8 @@ fn validate_lfsm_row(
             }
             require_exact_u32(row.required(5)?, 1)?;
             let frontend = row.required(6)?;
-            // SyntheticDsl `LFSOURCE` 现行编码为 3；RoadEditingSource 仍为 1。
-            let expected_frontend = if language == 1 { 3 } else { 1 };
+            // SyntheticDsl `LFSOURCE` 现行编码为 3；RoadEditingSource `frontendVersion` 为 2。
+            let expected_frontend = if language == 1 { 3 } else { 2 };
             require_exact_u32(frontend, expected_frontend)?;
             visit_record_rows(row.required(12)?, |import| {
                 validate_identity_ascii_token(import.required(1)?, max_identity_ascii_bytes)
@@ -857,7 +851,6 @@ fn validate_lfsm_row(
             let role = role_field.u8()?;
             let expected_owner = match role {
                 9 => EntityKind::Junction,
-                14..=16 => EntityKind::StaticRoute,
                 _ => return Err(unknown(role_field, u64::from(role))),
             };
             if owner != expected_owner {
@@ -894,7 +887,6 @@ fn owner_kind_for_source_role(role: u8) -> Option<EntityKind> {
         7 => Some(EntityKind::Movement),
         8 | 10 | 11 => Some(EntityKind::ManeuverPath),
         12 => Some(EntityKind::StopLine),
-        13..=16 => Some(EntityKind::StaticRoute),
         17 | 18 => Some(EntityKind::SignalController),
         19 => Some(EntityKind::SignalPhase),
         20 => Some(EntityKind::ManeuverGate),
@@ -983,7 +975,7 @@ fn validate_owner_local_location(
     let owner_kind_field = row.required(16)?;
     let owner_kind = require_u8_range(owner_kind_field, 0, 1)?;
     let relation_field = row.required(17)?;
-    let relation = require_u8_range(relation_field, 0, 12)?;
+    let relation = require_u8_range(relation_field, 0, 11)?;
     let occurrence = require_u8_range(row.required(18)?, 0, 1)?;
     let (expected_owner, expected_occurrence, root) = road_relation_shape(relation);
 
@@ -1034,7 +1026,6 @@ fn road_relation_shape(relation: u8) -> (Option<EntityKind>, u8, u16) {
         9 => (Some(EntityKind::SignalController), 0, 20),
         10 => (Some(EntityKind::SignalPhase), 1, 22),
         11 => (Some(EntityKind::AccessRule), 1, 31),
-        12 => (Some(EntityKind::StaticRoute), 0, 34),
         _ => (None, 0, 0),
     }
 }
@@ -1079,8 +1070,9 @@ fn road_table_for_entity(entity: EntityKind) -> u16 {
         EntityKind::ParticipantClass => 29,
         EntityKind::AccessRule => 31,
         EntityKind::VehicleProfile => 33,
-        EntityKind::StaticRoute => 34,
         EntityKind::CanonicalFrame => 35,
+        // `from_code(21)` 失败；本函数只服务已解码种类。
+        EntityKind::StaticRoute => 0,
     }
 }
 
@@ -1384,7 +1376,7 @@ fn validate_lfcp_row(
 ) -> Result<(), FormatError> {
     match section {
         1 => {
-            require_exact_u16(row.required(1)?, bindings.contract_format)?;
+            require_exact_u16(row.required(1)?, CANONICAL_ARTIFACT_FORMAT_VERSION)?;
             require_exact_u16(row.required(2)?, 1)?;
             require_u64_greater(row.required(5)?, 0)?;
             bindings.lfcp_artifact_digest = Some(copy_digest(row.required(4)?)?);
@@ -1776,14 +1768,24 @@ mod tests {
             PortableFieldType::U8 => vec![0],
             PortableFieldType::U16 => {
                 let value: u16 = match (kind, section, table, field.tag) {
-                    (PortableObjectKind::CanonicalArtifact, 1, 1, 1 | 5 | 6)
-                    | (PortableObjectKind::CanonicalArtifact, 6, 1, 1..=2)
+                    (PortableObjectKind::CanonicalArtifact, 1, 1, 1)
+                    | (PortableObjectKind::CanonicalArtifact, 6, 1, 1)
                     | (PortableObjectKind::SourceMap, 1, 1, 3)
-                    | (PortableObjectKind::CanonicalPublicationDescriptor, 1, 1, 1)
-                    | (PortableObjectKind::CanonicalPublicationDescriptor, 2, 1, 1) => {
+                    | (PortableObjectKind::CanonicalPublicationDescriptor, 1, 1, 1) => {
+                        CANONICAL_ARTIFACT_FORMAT_VERSION
+                    }
+                    (PortableObjectKind::CanonicalPublicationDescriptor, 2, 1, 1) => {
                         kind.format_version()
                     }
-                    (PortableObjectKind::CanonicalArtifact, 1, 1, 2..=4)
+                    (PortableObjectKind::CanonicalArtifact, 1, 1, 5)
+                    | (PortableObjectKind::CanonicalArtifact, 6, 1, 2) => {
+                        CONSTRAINT_CONTRACT_VERSION
+                    }
+                    (PortableObjectKind::CanonicalArtifact, 1, 1, 6) => {
+                        STATIC_EXECUTION_CONTRACT_VERSION
+                    }
+                    (PortableObjectKind::CanonicalArtifact, 1, 1, 3) => IDENTITY_REGISTRY_REVISION,
+                    (PortableObjectKind::CanonicalArtifact, 1, 1, 2 | 4)
                     | (PortableObjectKind::CanonicalArtifact, 7, 1, 2 | 5)
                     | (PortableObjectKind::SourceMap, 1, 1, 1 | 7)
                     | (PortableObjectKind::SemanticDiff, 1, 1, 6)
@@ -2177,40 +2179,19 @@ mod tests {
         )
         .unwrap();
 
-        let static_route = |edges: &[u32], transitions: &[Vec<u8>]| {
-            row_bytes(&[
-                field_bytes(
-                    3,
-                    PortableFieldType::OrdinalVectorU32,
-                    &ordinal_value(edges),
-                ),
-                field_bytes(
-                    4,
-                    PortableFieldType::RecordVector,
-                    &record_value(transitions),
-                ),
-            ])
-        };
+        let forbidden_kind = row_bytes(&[field_bytes(
+            1,
+            PortableFieldType::U16,
+            &21_u16.to_le_bytes(),
+        )]);
         assert_eq!(
-            validate_lfca_row(
-                3,
-                21,
-                parse_test_row(&static_route(&[0, 1], &[])),
-                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
-                &mut DirectBindings::default(),
-            )
-            .unwrap_err()
-            .class(),
-            FormatErrorClass::BindingMismatch
+            require_entity_kind(parse_test_row(&forbidden_kind).required(1).unwrap())
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::UnknownKind
         );
-        validate_lfca_row(
-            3,
-            21,
-            parse_test_row(&static_route(&[0, 1], &[row_bytes(&[])])),
-            FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
-            &mut DirectBindings::default(),
-        )
-        .unwrap();
+        assert_eq!(laneflow_static_contract::EntityKind::from_code(21), None);
+        assert_eq!(laneflow_static_contract::FieldTag::from_code(30), None);
     }
 
     #[test]
@@ -2744,40 +2725,39 @@ mod tests {
     #[test]
     fn every_owner_local_role_has_one_closed_owner_kind() {
         let expected = [
-            EntityKind::LaneEdge,
-            EntityKind::RoadCorridor,
-            EntityKind::RoadSection,
-            EntityKind::AuthoringLane,
-            EntityKind::LaneGroup,
-            EntityKind::Junction,
-            EntityKind::Movement,
-            EntityKind::ManeuverPath,
-            EntityKind::Junction,
-            EntityKind::ManeuverPath,
-            EntityKind::ManeuverPath,
-            EntityKind::StopLine,
-            EntityKind::StaticRoute,
-            EntityKind::StaticRoute,
-            EntityKind::StaticRoute,
-            EntityKind::StaticRoute,
-            EntityKind::SignalController,
-            EntityKind::SignalController,
-            EntityKind::SignalPhase,
-            EntityKind::ManeuverGate,
-            EntityKind::ParkingSpace,
-            EntityKind::ParkingSpace,
-            EntityKind::ParkingSpace,
-            EntityKind::ParticipantClass,
-            EntityKind::AccessRule,
-            EntityKind::AccessRule,
-            EntityKind::VehicleProfile,
-            EntityKind::CanonicalFrame,
-            EntityKind::CanonicalFrame,
+            (1_u8, EntityKind::LaneEdge),
+            (2, EntityKind::RoadCorridor),
+            (3, EntityKind::RoadSection),
+            (4, EntityKind::AuthoringLane),
+            (5, EntityKind::LaneGroup),
+            (6, EntityKind::Junction),
+            (7, EntityKind::Movement),
+            (8, EntityKind::ManeuverPath),
+            (9, EntityKind::Junction),
+            (10, EntityKind::ManeuverPath),
+            (11, EntityKind::ManeuverPath),
+            (12, EntityKind::StopLine),
+            (17, EntityKind::SignalController),
+            (18, EntityKind::SignalController),
+            (19, EntityKind::SignalPhase),
+            (20, EntityKind::ManeuverGate),
+            (21, EntityKind::ParkingSpace),
+            (22, EntityKind::ParkingSpace),
+            (23, EntityKind::ParkingSpace),
+            (24, EntityKind::ParticipantClass),
+            (25, EntityKind::AccessRule),
+            (26, EntityKind::AccessRule),
+            (27, EntityKind::VehicleProfile),
+            (28, EntityKind::CanonicalFrame),
+            (29, EntityKind::CanonicalFrame),
         ];
         assert_eq!(owner_kind_for_source_role(0), None);
+        assert_eq!(owner_kind_for_source_role(13), None);
+        assert_eq!(owner_kind_for_source_role(14), None);
+        assert_eq!(owner_kind_for_source_role(15), None);
+        assert_eq!(owner_kind_for_source_role(16), None);
         assert_eq!(owner_kind_for_source_role(30), None);
-        for (index, owner) in expected.into_iter().enumerate() {
-            let role = u8::try_from(index + 1).unwrap();
+        for (role, owner) in expected {
             assert_eq!(owner_kind_for_source_role(role), Some(owner));
             let valid = row_bytes(&[
                 field_bytes(1, PortableFieldType::U16, &owner.code().to_le_bytes()),

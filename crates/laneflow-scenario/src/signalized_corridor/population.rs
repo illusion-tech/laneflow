@@ -4,21 +4,19 @@ use laneflow_runtime::{
     RouteHandle, TrafficWorld, VehicleHandle, VehicleReplaceBlock, VehicleReplaceRecord,
     VehicleSpawnInput, VehicleStatus,
 };
-use laneflow_static_contract::{
-    LaneEdgeOrdinal, NetworkRevisionId, StaticRouteOrdinal, VehicleProfileOrdinal,
-};
+use laneflow_static_contract::{LaneEdgeOrdinal, NetworkRevisionId, VehicleProfileOrdinal};
 use laneflow_static_network::SharedNetworkRevision;
 use thiserror::Error;
 
 use super::{BoundCorridorCatalog, BoundPortalLane, SplitMix64};
 
 /// prepare 产出的单车计划；`spawn_input` 需要已安装 `TrafficWorld`。
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CorridorVehiclePlan {
     /// 车辆 profile。
     pub profile: VehicleProfileOrdinal,
-    /// 共享根静态路线。
-    pub route: StaticRouteOrdinal,
+    /// catalog 路线的边序号序列。
+    pub edges: Box<[LaneEdgeOrdinal]>,
     /// 路线序列下标。
     pub route_edge_index: u32,
     /// 入口边进度（毫米）。
@@ -32,7 +30,7 @@ pub struct CorridorVehiclePlan {
 impl CorridorVehiclePlan {
     /// 把计划变成 `TrafficWorld::spawn_vehicle` 输入。
     pub fn spawn_input(
-        self,
+        &self,
         world: &TrafficWorld,
     ) -> Result<VehicleSpawnInput, CorridorPopulationError> {
         if world.revision().network_revision() != self.network_revision {
@@ -40,11 +38,11 @@ impl CorridorVehiclePlan {
                 detail: "计划 NetworkRevisionId 与 TrafficWorld 不一致".to_owned(),
             });
         }
-        let route = world.static_route(self.route).map_err(|_| {
+        let route = world.find_route(&self.edges).ok_or(
             CorridorPopulationError::BoundWorldCatalogMismatch {
-                detail: "TrafficWorld 缺少计划中的静态路线".to_owned(),
-            }
-        })?;
+                detail: "TrafficWorld 缺少计划中的已注册路线".to_owned(),
+            },
+        )?;
         Ok(VehicleSpawnInput::new(
             self.profile,
             route,
@@ -341,19 +339,11 @@ impl CorridorPopulationPrepare {
             .route_exits
             .iter()
             .map(|route| {
-                let edges = revision
-                    .traffic()
-                    .relations()
-                    .static_route_edges(route.route)
-                    .ok_or(CorridorPopulationError::BoundWorldCatalogMismatch {
-                        detail: "静态路线缺少边序列".to_owned(),
-                    })?;
-                let entry =
-                    *edges
-                        .first()
-                        .ok_or(CorridorPopulationError::BoundWorldCatalogMismatch {
-                            detail: "静态路线没有入口边".to_owned(),
-                        })?;
+                let entry = *route.edges.first().ok_or(
+                    CorridorPopulationError::BoundWorldCatalogMismatch {
+                        detail: "catalog 路线没有入口边".to_owned(),
+                    },
+                )?;
                 normal_speed_for_edge(revision, entry, desired_speed)
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -371,17 +361,13 @@ impl CorridorPopulationPrepare {
             let spawn_slot = &catalog.spawn_slots[spawn_slot_index];
             let portal_lane = &catalog.portal_lanes[spawn_slot.portal_lane_index];
             let route_index = draw_weighted_route(&mut rng, portal_lane);
-            let route = catalog.route_exits[route_index].route;
-            let route_edge_index = route_occurrence(
-                revision,
-                route,
-                spawn_slot.edge,
-                spawn_slot.slot_id.as_str(),
-            )?;
+            let route_edges = catalog.route_exits[route_index].edges.clone();
+            let route_edge_index =
+                route_occurrence(&route_edges, spawn_slot.edge, spawn_slot.slot_id.as_str())?;
             let initial_speed = normal_speed_for_edge(revision, spawn_slot.edge, desired_speed)?;
             initial_vehicles.push(CorridorVehiclePlan {
                 profile,
-                route,
+                edges: route_edges,
                 route_edge_index,
                 progress_mm: spawn_slot.progress_mm,
                 initial_speed_mm_s: initial_speed,
@@ -416,10 +402,22 @@ impl CorridorPopulationPrepare {
         self.initial_vehicles.take().unwrap_or_default()
     }
 
+    /// 对本世界每条 catalog 路线恰好 `register_route` 一次；已有相同边序列则重用句柄。
+    pub fn install_routes(
+        &self,
+        world: &mut TrafficWorld,
+    ) -> Result<Vec<RouteHandle>, CorridorPopulationError> {
+        self.catalog.install_routes(world).map_err(|error| {
+            CorridorPopulationError::BoundWorldCatalogMismatch {
+                detail: error.to_string(),
+            }
+        })
+    }
+
     /// 在 tick-0 world 上回查 identity 并进入 Running。
     pub fn bind(
         self,
-        world: &TrafficWorld,
+        world: &mut TrafficWorld,
         vehicles: &[VehicleHandle],
     ) -> Result<CorridorPopulationController, CorridorPopulationError> {
         if world.tick_index() != 0 {
@@ -439,30 +437,22 @@ impl CorridorPopulationPrepare {
             });
         }
 
-        let mut route_handles = Vec::with_capacity(self.catalog.route_exits.len());
+        let route_handles = self.catalog.install_routes(world).map_err(|error| {
+            CorridorPopulationError::BoundWorldCatalogMismatch {
+                detail: error.to_string(),
+            }
+        })?;
         let mut route_completion = Vec::with_capacity(self.catalog.route_exits.len());
         for route in &self.catalog.route_exits {
-            let handle = world.static_route(route.route).map_err(|_| {
-                CorridorPopulationError::BoundWorldCatalogMismatch {
-                    detail: "TrafficWorld 缺少 catalog 静态路线".to_owned(),
-                }
-            })?;
-            let edges = world
-                .traffic()
-                .relations()
-                .static_route_edges(route.route)
-                .ok_or(CorridorPopulationError::BoundWorldCatalogMismatch {
-                    detail: "静态路线边序列不可读".to_owned(),
-                })?;
-            if edges.is_empty() {
+            if route.edges.is_empty() {
                 return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
-                    detail: "静态路线没有边".to_owned(),
+                    detail: "catalog 路线没有边".to_owned(),
                 });
             }
             route_completion.push(RouteCompletionIdentity {
-                route_edge_index: u32::try_from(edges.len() - 1).expect("route index fits u32"),
+                route_edge_index: u32::try_from(route.edges.len() - 1)
+                    .expect("route index fits u32"),
             });
-            route_handles.push(handle);
         }
 
         let target = self.config.target_vehicle_count;
@@ -473,11 +463,7 @@ impl CorridorPopulationPrepare {
             let state = world
                 .vehicle(*vehicle)
                 .ok_or(CorridorPopulationError::InitialVehicleMismatch { slot_index })?;
-            let expected_route = world
-                .static_route(self.catalog.route_exits[prepared.route_index].route)
-                .map_err(|_| CorridorPopulationError::BoundWorldCatalogMismatch {
-                    detail: "TrafficWorld 缺少初始计划静态路线".to_owned(),
-                })?;
+            let expected_route = route_handles[prepared.route_index];
             if state.profile() != self.profile
                 || state.route() != expected_route
                 || state.route_edge_index() != prepared.route_edge_index
@@ -934,18 +920,10 @@ fn normal_speed_for_edge(
 }
 
 fn route_occurrence(
-    revision: &SharedNetworkRevision,
-    route: StaticRouteOrdinal,
+    edges: &[LaneEdgeOrdinal],
     edge: LaneEdgeOrdinal,
     slot_id: &str,
 ) -> Result<u32, CorridorPopulationError> {
-    let edges = revision
-        .traffic()
-        .relations()
-        .static_route_edges(route)
-        .ok_or_else(|| CorridorPopulationError::BoundWorldCatalogMismatch {
-            detail: format!("slot {slot_id:?} route 不可读"),
-        })?;
     let index = edges
         .iter()
         .position(|candidate| *candidate == edge)

@@ -57,14 +57,6 @@ pub enum StepError {
     OccupancyIntervalIncomplete,
 }
 
-/// 静态路线或停车位等共享根序号查找失败。
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
-pub enum LookupError {
-    /// 静态路线序号越界。
-    #[error("静态路线序号越界")]
-    UnknownStaticRoute,
-}
-
 /// 动态路线注册或移除失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum RouteError {
@@ -83,9 +75,6 @@ pub enum RouteError {
     /// 句柄不是本世界有效动态路线。
     #[error("路线句柄无效或已失效")]
     StaleHandle,
-    /// 不能移除静态路线。
-    #[error("不能移除静态路线")]
-    StaticHandle,
     /// 仍有 live 车辆引用该动态路线。
     #[error("动态路线仍被车辆引用")]
     InUse {

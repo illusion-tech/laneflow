@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
-    ParkingError, PoseSource, ReplaceError, RouteError, RouteRegisterInput, SpawnError, TickInput,
-    TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
+    ParkingError, PoseSource, ReplaceError, RouteError, RouteHandle, RouteRegisterInput,
+    SpawnError, TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig,
 };
 use laneflow_static_contract::{
-    EntityKind, LaneEdgeOrdinal, ParkingSpaceOrdinal, StaticRouteOrdinal, VehicleProfileOrdinal,
+    EntityKind, LaneEdgeOrdinal, ParkingSpaceOrdinal, VehicleProfileOrdinal,
 };
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
@@ -44,14 +44,26 @@ fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
     LaneEdgeOrdinal::try_from_usize(index).expect("fixture lane ordinal")
 }
 
-fn spawn_on_static(
+fn fixture_edges(world: &TrafficWorld) -> Vec<LaneEdgeOrdinal> {
+    vec![
+        edge_for_length(world, 10_000),
+        edge_for_length(world, 8_000),
+        edge_for_length(world, 12_000),
+    ]
+}
+
+fn fixture_route(world: &mut TrafficWorld) -> RouteHandle {
+    world
+        .register_route(RouteRegisterInput::new(fixture_edges(world)))
+        .expect("register")
+}
+
+fn spawn_on_route(
     world: &mut TrafficWorld,
+    route: RouteHandle,
     progress: u32,
     speed: u32,
 ) -> laneflow_runtime::VehicleHandle {
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
     world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -102,28 +114,28 @@ fn register_route_requires_connected_shared_edges() {
 }
 
 #[test]
-fn remove_route_rejects_static_handle() {
+fn remove_route_unused_succeeds_and_in_use_when_occupied() {
     let mut world = world();
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
+    let unused = fixture_route(&mut world);
+    world.remove_route(unused).expect("unused registered route");
+    assert_eq!(
+        world.remove_route(unused).unwrap_err(),
+        RouteError::StaleHandle
+    );
+
+    let route = fixture_route(&mut world);
+    let vehicle = spawn_on_route(&mut world, route, 0, 0);
     assert_eq!(
         world.remove_route(route).unwrap_err(),
-        RouteError::StaticHandle
+        RouteError::InUse { vehicle, route }
     );
 }
 
 #[test]
 fn spawn_respects_speed_limit_equality_and_overlap() {
     let mut world = world();
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
-    let edge = world
-        .traffic()
-        .relations()
-        .static_route_edges(StaticRouteOrdinal::from_raw(0))
-        .expect("static edges")[0];
+    let route = fixture_route(&mut world);
+    let edge = world.route_edges(route).expect("edges")[0];
     let limit = world.traffic().lane_speed_limits_millimetres_per_second()[edge.index()];
 
     let first = world
@@ -178,7 +190,8 @@ fn occupy_parking_enforces_one_to_one_and_same_space_idempotent() {
         .count(EntityKind::ParkingSpace);
     assert!(spaces >= 1);
     let space = ParkingSpaceOrdinal::from_raw(0);
-    let vehicle = spawn_on_static(&mut world, 0, 0);
+    let route = fixture_route(&mut world);
+    let vehicle = spawn_on_route(&mut world, route, 0, 0);
 
     world.occupy_parking(vehicle, space).expect("occupy");
     world.occupy_parking(vehicle, space).expect("idempotent");
@@ -197,19 +210,12 @@ fn occupy_parking_enforces_one_to_one_and_same_space_idempotent() {
     }
 
     let other_vehicle = {
-        let route = world
-            .static_route(StaticRouteOrdinal::from_raw(0))
-            .expect("static route");
         let profile = world
             .traffic()
             .relations()
             .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
             .expect("profile");
-        let edge = world
-            .traffic()
-            .relations()
-            .static_route_edges(StaticRouteOrdinal::from_raw(0))
-            .expect("edges")[0];
+        let edge = world.route_edges(route).expect("edges")[0];
         let length = profile.length_mm();
         world
             .spawn_vehicle(VehicleSpawnInput::new(
@@ -287,9 +293,7 @@ fn parking_keeps_dynamic_route_so_remove_fails() {
 #[test]
 fn spawn_rejects_out_of_range_index_and_progress() {
     let mut world = world();
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
+    let route = fixture_route(&mut world);
     assert_eq!(
         world
             .spawn_vehicle(VehicleSpawnInput::new(
@@ -302,11 +306,7 @@ fn spawn_rejects_out_of_range_index_and_progress() {
             .unwrap_err(),
         SpawnError::RouteIndexOutOfRange
     );
-    let edge = world
-        .traffic()
-        .relations()
-        .static_route_edges(StaticRouteOrdinal::from_raw(0))
-        .expect("edges")[0];
+    let edge = world.route_edges(route).expect("edges")[0];
     let length = world.traffic().lane_lengths_millimetres()[edge.index()];
     assert_eq!(
         world
@@ -322,16 +322,11 @@ fn spawn_rejects_out_of_range_index_and_progress() {
     );
 }
 
-fn drive_to_completed(world: &mut TrafficWorld) -> laneflow_runtime::VehicleHandle {
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
-    let edges = world
-        .traffic()
-        .relations()
-        .static_route_edges(StaticRouteOrdinal::from_raw(0))
-        .expect("edges")
-        .to_vec();
+fn drive_to_completed(
+    world: &mut TrafficWorld,
+    route: RouteHandle,
+) -> laneflow_runtime::VehicleHandle {
+    let edges = world.route_edges(route).expect("edges").to_vec();
     let last = *edges.last().expect("route has edges");
     let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
     let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
@@ -364,7 +359,8 @@ fn drive_to_completed(world: &mut TrafficWorld) -> laneflow_runtime::VehicleHand
 #[test]
 fn completed_vehicle_is_retained_without_pose_or_occupancy() {
     let mut world = world();
-    let old = drive_to_completed(&mut world);
+    let route = fixture_route(&mut world);
+    let old = drive_to_completed(&mut world, route);
     assert!(
         world
             .committed_pose_sources()
@@ -374,15 +370,7 @@ fn completed_vehicle_is_retained_without_pose_or_occupancy() {
         "Completed must leave committed_pose_sources"
     );
     assert_eq!(world.live_vehicles(), &[old]);
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
-    let edges = world
-        .traffic()
-        .relations()
-        .static_route_edges(StaticRouteOrdinal::from_raw(0))
-        .expect("edges")
-        .to_vec();
+    let edges = world.route_edges(route).expect("edges").to_vec();
     let last = *edges.last().expect("route has edges");
     let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
     let last_index = u32::try_from(edges.len() - 1).expect("index fits u32");
@@ -403,10 +391,8 @@ fn completed_vehicle_is_retained_without_pose_or_occupancy() {
 fn completed_vehicle_occupies_capacity_until_replace() {
     let mut world =
         TrafficWorld::install(revision(), WorldConfig::new(1, 4, 1, 100)).expect("install");
-    let old = drive_to_completed(&mut world);
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
+    let route = fixture_route(&mut world);
+    let old = drive_to_completed(&mut world, route);
     assert_eq!(
         world
             .spawn_vehicle(VehicleSpawnInput::new(
@@ -438,10 +424,8 @@ fn completed_vehicle_occupies_capacity_until_replace() {
 #[test]
 fn replace_is_atomic_and_blocked_overlap_is_retryable() {
     let mut world = world();
-    let old = drive_to_completed(&mut world);
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
+    let route = fixture_route(&mut world);
+    let old = drive_to_completed(&mut world, route);
     let blocker = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -502,10 +486,8 @@ fn replace_is_atomic_and_blocked_overlap_is_retryable() {
 fn replace_does_not_use_despawn_then_spawn() {
     let mut world =
         TrafficWorld::install(revision(), WorldConfig::new(1, 4, 1, 100)).expect("install");
-    let old = drive_to_completed(&mut world);
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
+    let route = fixture_route(&mut world);
+    let old = drive_to_completed(&mut world, route);
     assert!(
         world.vehicle(old).is_some(),
         "禁止先消失再生成：Completed 必须仍可读"
@@ -571,15 +553,13 @@ fn completed_dynamic_route_stays_referenced_until_replace() {
         VehicleStatus::Completed
     );
 
-    let static_route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static");
+    let replacement = fixture_route(&mut world);
     let record = world
         .replace_completed_vehicle(
             vehicle,
-            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), static_route, 0, 0, 0),
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), replacement, 0, 0, 0),
         )
-        .expect("replace onto static");
+        .expect("replace onto another registered route");
     world.remove_route(dynamic).expect("old dynamic unused");
     assert!(world.vehicle(record.new).is_some());
 }
@@ -587,9 +567,7 @@ fn completed_dynamic_route_stays_referenced_until_replace() {
 #[test]
 fn parked_and_stale_replace_leave_world_unchanged() {
     let mut world = world();
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
+    let route = fixture_route(&mut world);
     let parked = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -617,7 +595,7 @@ fn parked_and_stale_replace_leave_world_unchanged() {
     );
 
     let stale = parked;
-    let old = drive_to_completed(&mut world);
+    let old = drive_to_completed(&mut world, route);
     world
         .replace_completed_vehicle(
             old,

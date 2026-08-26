@@ -157,7 +157,6 @@ fn canonical_identity_rows(lir: &crate::lir::LirUnit) -> Vec<OwnedRow> {
     append!(EntityKind::ParticipantClass, lir.participant_classes);
     append!(EntityKind::AccessRule, lir.access_rules);
     append!(EntityKind::VehicleProfile, lir.vehicle_profiles);
-    append!(EntityKind::StaticRoute, lir.static_routes);
     append!(EntityKind::CanonicalFrame, lir.canonical_frames);
     rows
 }
@@ -563,32 +562,6 @@ fn canonical_entity_tables(
         .iter()
         .map(vehicle_profile_row)
         .collect::<Result<Vec<_>, PortableEmissionError>>()?;
-    let static_routes = lir.static_routes.iter().map(|record| {
-        let transition_gates = lir.static_route_transitions[record.transitions.as_usize_range()]
-            .iter()
-            .map(|transition| {
-                let fields = transition
-                    .maneuver_gate
-                    .map(|gate| vec![field(1, OwnedValue::U32(gate.raw()))])
-                    .unwrap_or_default();
-                row(fields)
-            })
-            .collect();
-        row([
-            field(1, OwnedValue::U32(record.ordinal.raw())),
-            field(
-                2,
-                OwnedValue::StableId128(stable_id_bytes(record.stable_id)),
-            ),
-            field(
-                3,
-                OwnedValue::OrdinalVectorU32(ordinals(
-                    &lir.static_route_edges[record.edges.as_usize_range()],
-                )),
-            ),
-            field(4, OwnedValue::RecordVector(transition_gates)),
-        ])
-    });
     let canonical_frames = lir.canonical_frames.iter().map(|record| {
         row([
             field(1, OwnedValue::U32(record.ordinal.raw())),
@@ -620,7 +593,6 @@ fn canonical_entity_tables(
         table(18, participant_classes),
         table(19, access_rules),
         table(20, vehicle_profiles),
-        table(21, static_routes),
         table(22, canonical_frames),
     ])
 }
@@ -731,149 +703,7 @@ fn canonical_relation_tables(lir: &crate::lir::LirUnit) -> Vec<OwnedTable> {
             field(2, OwnedValue::U32(record.junction.raw())),
         ])
     });
-    let mut maneuver_occurrences = Vec::new();
-    let mut gate_occurrences = Vec::new();
-    let mut waiting_occurrences = Vec::new();
-    for route in &lir.static_routes {
-        for (occurrence_index, occurrence) in lir.maneuver_occurrences
-            [route.maneuver_occurrences.as_usize_range()]
-        .iter()
-        .enumerate()
-        {
-            maneuver_occurrences.push(row([
-                field(1, OwnedValue::U32(route.ordinal.raw())),
-                field(
-                    2,
-                    OwnedValue::U32(
-                        u32::try_from(occurrence_index)
-                            .expect("compile limits cap occurrence counts at u32"),
-                    ),
-                ),
-                field(3, OwnedValue::U32(occurrence.maneuver_path.raw())),
-                field(4, OwnedValue::U32(occurrence.entry_route_edge_index)),
-                field(5, OwnedValue::U32(occurrence.exit_route_edge_index)),
-                field(
-                    6,
-                    OwnedValue::U32(
-                        occurrence
-                            .gate_occurrences
-                            .start()
-                            .saturating_sub(route.gate_occurrences.start()),
-                    ),
-                ),
-                field(7, OwnedValue::U32(occurrence.gate_occurrences.len())),
-                field(
-                    8,
-                    OwnedValue::U32(
-                        occurrence
-                            .waiting_zone_occurrences
-                            .start()
-                            .saturating_sub(route.waiting_zone_occurrences.start()),
-                    ),
-                ),
-                field(
-                    9,
-                    OwnedValue::U32(occurrence.waiting_zone_occurrences.len()),
-                ),
-            ]));
-        }
-        for (occurrence_index, occurrence) in lir.gate_occurrences
-            [route.gate_occurrences.as_usize_range()]
-        .iter()
-        .enumerate()
-        {
-            let mut fields = vec![
-                field(1, OwnedValue::U32(route.ordinal.raw())),
-                field(
-                    2,
-                    OwnedValue::U32(
-                        u32::try_from(occurrence_index)
-                            .expect("compile limits cap occurrence counts at u32"),
-                    ),
-                ),
-                field(3, OwnedValue::U32(occurrence.maneuver_gate.raw())),
-                field(4, OwnedValue::U32(occurrence.maneuver_occurrence_index)),
-                field(5, OwnedValue::U32(occurrence.from_route_edge_index)),
-            ];
-            if let Some(next) = occurrence.next_gate_occurrence_index {
-                fields.push(field(6, OwnedValue::U32(next)));
-            }
-            fields.push(field(
-                7,
-                OwnedValue::U32(occurrence.next_boundary_route_edge_index),
-            ));
-            if let Some(waiting) = occurrence.waiting_zone_occurrence_index {
-                fields.push(field(8, OwnedValue::U32(waiting)));
-            }
-            gate_occurrences.push(row(fields));
-        }
-        for (occurrence_index, occurrence) in lir.waiting_zone_occurrences
-            [route.waiting_zone_occurrences.as_usize_range()]
-        .iter()
-        .enumerate()
-        {
-            waiting_occurrences.push(row([
-                field(1, OwnedValue::U32(route.ordinal.raw())),
-                field(
-                    2,
-                    OwnedValue::U32(
-                        u32::try_from(occurrence_index)
-                            .expect("compile limits cap occurrence counts at u32"),
-                    ),
-                ),
-                field(3, OwnedValue::U32(occurrence.waiting_zone.raw())),
-                field(4, OwnedValue::U32(occurrence.maneuver_occurrence_index)),
-                field(5, OwnedValue::U32(occurrence.entry_gate_occurrence_index)),
-                field(6, OwnedValue::U32(occurrence.release_gate_occurrence_index)),
-                field(7, OwnedValue::U32(occurrence.entry_route_edge_index)),
-                field(8, OwnedValue::U32(occurrence.release_route_edge_index)),
-            ]));
-        }
-    }
-
-    let mut reverse_index = Vec::new();
-    macro_rules! append_reverse {
-        ($kind:expr, $records:expr, $occurrences:expr) => {
-            for record in $records {
-                for occurrence in &$occurrences[record.static_route_occurrences.as_usize_range()] {
-                    reverse_index.push(row([
-                        field(1, OwnedValue::U16($kind.code())),
-                        field(2, OwnedValue::U32(record.ordinal.raw())),
-                        field(3, OwnedValue::U32(occurrence.static_route.raw())),
-                        field(4, OwnedValue::U32(occurrence.occurrence_index)),
-                    ]));
-                }
-            }
-        };
-    }
-    append_reverse!(
-        EntityKind::LaneEdge,
-        &lir.lane_edges,
-        lir.lane_edge_route_occurrences
-    );
-    append_reverse!(
-        EntityKind::ManeuverPath,
-        &lir.maneuver_paths,
-        lir.maneuver_path_route_occurrences
-    );
-    append_reverse!(
-        EntityKind::ManeuverGate,
-        &lir.maneuver_gates,
-        lir.maneuver_gate_route_occurrences
-    );
-    append_reverse!(
-        EntityKind::WaitingZone,
-        &lir.waiting_zones,
-        lir.waiting_zone_route_occurrences
-    );
-
-    vec![
-        table(1, junction_internal_edges),
-        table(2, maneuver_occurrences),
-        table(3, gate_occurrences),
-        table(4, waiting_occurrences),
-        table(5, reverse_index),
-    ]
+    vec![table(1, junction_internal_edges)]
 }
 
 fn geometry_relation_flags(output: &CompilationOutput) -> BTreeMap<(u32, u8, u32), bool> {

@@ -317,18 +317,8 @@ pub(super) fn artifact_relation_tuples(
                 checked_u32_with(owner.row, 3, mismatch)?,
                 mismatch,
             )?,
-            EntityKind::StaticRoute => push_vector_relations(
-                &mut relations,
-                index,
-                *owner_kind,
-                *owner_stable_id,
-                owner.row,
-                3,
-                13,
-                EntityKind::LaneEdge,
-                mismatch,
-            )?,
-            EntityKind::WaitingZone
+            EntityKind::StaticRoute
+            | EntityKind::WaitingZone
             | EntityKind::SignalGroup
             | EntityKind::SignalPhase
             | EntityKind::ParkingArea
@@ -361,31 +351,6 @@ pub(super) fn artifact_relation_tuples(
         *local_index = local_index
             .checked_add(1)
             .ok_or(PortableEmissionError::ArithmeticOverflow)?;
-    }
-    for (table_ordinal, role, subject_kind) in [
-        (1, 14, EntityKind::ManeuverPath),
-        (2, 15, EntityKind::ManeuverGate),
-        (3, 16, EntityKind::WaitingZone),
-    ] {
-        let occurrences = relation_section.table(table_ordinal).ok_or(mismatch)?;
-        for occurrence in occurrences.rows() {
-            let owner_stable_id = index.stable_id(
-                EntityKind::StaticRoute,
-                checked_u32_with(occurrence, 1, mismatch)?,
-                mismatch,
-            )?;
-            push_artifact_relation(
-                &mut relations,
-                index,
-                EntityKind::StaticRoute,
-                owner_stable_id,
-                role,
-                checked_u32_with(occurrence, 2, mismatch)?,
-                subject_kind,
-                checked_u32_with(occurrence, 3, mismatch)?,
-                mismatch,
-            )?;
-        }
     }
     relations.sort_unstable();
     Ok(relations)
@@ -744,7 +709,7 @@ mod tests {
         let mut subject_stable_id = [0_u8; 16];
         subject_stable_id[15] = subject;
         RelationTuple {
-            owner_entity_kind: EntityKind::StaticRoute,
+            owner_entity_kind: EntityKind::LaneEdge,
             owner_stable_id,
             role,
             local_index,

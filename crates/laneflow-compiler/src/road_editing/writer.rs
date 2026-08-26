@@ -10,7 +10,7 @@ use crate::{
     GeometryDirectionProfile, RoadEditingInputViolation,
 };
 
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
 
 /// 直接拥有 FlatBuffers storage 与有效尾部起点的 size-prefixed 来源缓冲区。
 pub struct OwnedRoadEditingSourceBuffer {
@@ -101,7 +101,6 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
         let mut participant_classes = Vec::new();
         let mut access_rules = Vec::new();
         let mut vehicle_profiles = Vec::new();
-        let mut static_routes = Vec::new();
         let mut canonical_frames = Vec::new();
 
         for declaration in &declarations {
@@ -170,9 +169,6 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
                 RoadEditingDeclaration::VehicleProfile(value) => {
                     vehicle_profiles.push(encode_vehicle_profile(&mut fbb, value));
                 }
-                RoadEditingDeclaration::StaticRoute(value) => {
-                    static_routes.push(encode_static_route(&mut fbb, value));
-                }
                 RoadEditingDeclaration::CanonicalFrame(value) => {
                     canonical_frames.push(encode_canonical_frame(&mut fbb, value));
                 }
@@ -200,7 +196,6 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
         let participant_classes = fbb.create_vector(&participant_classes);
         let access_rules = fbb.create_vector(&access_rules);
         let vehicle_profiles = fbb.create_vector(&vehicle_profiles);
-        let static_routes = fbb.create_vector(&static_routes);
         let canonical_frames = fbb.create_vector(&canonical_frames);
 
         let root = wire::RoadEditingSource::create(
@@ -231,7 +226,6 @@ impl<'limits> RoadEditingSourceWriter<'limits> {
                 participant_classes: Some(participant_classes),
                 access_rules: Some(access_rules),
                 vehicle_profiles: Some(vehicle_profiles),
-                static_routes: Some(static_routes),
                 canonical_frames: Some(canonical_frames),
             },
         );
@@ -1034,23 +1028,6 @@ fn encode_vehicle_profile<'fbb>(
     )
 }
 
-fn encode_static_route<'fbb>(
-    fbb: &mut runtime::FlatBufferBuilder<'fbb>,
-    value: &StaticRouteInput,
-) -> runtime::WIPOffset<wire::StaticRoute<'fbb>> {
-    let key = fbb.create_string(value.static_route_key());
-    let edges = create_reference_vector(fbb, value.edge_sequence());
-    let canvas = create_canvas(fbb, value.canvas_selection());
-    wire::StaticRoute::create(
-        fbb,
-        &wire::StaticRouteArgs {
-            static_route_key: Some(key),
-            edge_sequence: Some(edges),
-            canvas_selection: canvas,
-        },
-    )
-}
-
 fn encode_canonical_frame<'fbb>(
     fbb: &mut runtime::FlatBufferBuilder<'fbb>,
     value: &CanonicalFrameInput,
@@ -1380,9 +1357,6 @@ pub(super) mod tests {
                 )
                 .expect("vehicle"),
             ),
-            RoadEditingDeclaration::StaticRoute(
-                StaticRouteInput::try_new("route", vec![edge_a, edge_b]).expect("route"),
-            ),
         ];
         for declaration in declarations {
             builder
@@ -1485,7 +1459,6 @@ pub(super) mod tests {
         assert_eq!(root.participant_classes().len(), 1);
         assert_eq!(root.access_rules().len(), 1);
         assert_eq!(root.vehicle_profiles().len(), 1);
-        assert_eq!(root.static_routes().len(), 1);
         assert_eq!(root.canonical_frames().len(), 1);
     }
 

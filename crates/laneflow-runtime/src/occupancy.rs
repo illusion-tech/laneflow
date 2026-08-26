@@ -1,9 +1,7 @@
 use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, MIN_LANE_EDGE_LENGTH_MM};
 use laneflow_static_network::SharedNetworkRevision;
 
-use crate::tables::{
-    DynamicRouteSlot, VehicleSlot, for_each_occupancy_interval, static_route_ordinal,
-};
+use crate::tables::{DynamicRouteSlot, VehicleSlot, for_each_occupancy_interval};
 use crate::{RouteHandle, StepError, TrafficWorld, VehicleHandle, VehicleState, VehicleStatus};
 
 #[cfg(test)]
@@ -402,14 +400,10 @@ fn vehicle_state_in(vehicles: &[VehicleSlot], handle: VehicleHandle) -> Option<&
     slot.state.as_ref()
 }
 
-fn route_edges_in<'a>(
-    revision: &'a SharedNetworkRevision,
-    dynamic_routes: &'a [DynamicRouteSlot],
+fn route_edges_in(
+    dynamic_routes: &[DynamicRouteSlot],
     route: RouteHandle,
-) -> Option<&'a [LaneEdgeOrdinal]> {
-    if let Some(ordinal) = static_route_ordinal(route) {
-        return revision.traffic().relations().static_route_edges(ordinal);
-    }
+) -> Option<&[LaneEdgeOrdinal]> {
     let slot = dynamic_routes.get(usize::try_from(route.index()).ok()?)?;
     if slot.generation != route.generation() {
         return None;
@@ -432,7 +426,7 @@ fn visit_occupancy_records(
         if state.status != VehicleStatus::Active {
             continue;
         }
-        let Some(edges) = route_edges_in(revision, dynamic_routes, state.route) else {
+        let Some(edges) = route_edges_in(dynamic_routes, state.route) else {
             continue;
         };
         let Ok(index) = usize::try_from(state.route_edge_index) else {
@@ -526,11 +520,33 @@ mod tests {
     };
 
     use crate::tables::{occupancy_front_gap, remaining_along_route_i64};
-    use crate::{RouteRegisterInput, StepError, TickInput, VehicleSpawnInput, WorldConfig};
+    use crate::{
+        RouteRegisterInput, StepError, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
+    };
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
         "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
     );
+
+    fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
+        let index = world
+            .traffic()
+            .lane_lengths_millimetres()
+            .iter()
+            .position(|actual| *actual == length)
+            .expect("fixture lane length");
+        LaneEdgeOrdinal::from_raw(u32::try_from(index).expect("ordinal"))
+    }
+
+    fn register_full_spatial_route(world: &mut TrafficWorld) -> crate::RouteHandle {
+        world
+            .register_route(RouteRegisterInput::new(vec![
+                edge_for_length(world, 10_000),
+                edge_for_length(world, 8_000),
+                edge_for_length(world, 12_000),
+            ]))
+            .expect("register full-spatial route")
+    }
 
     fn iidm() -> IidmVehicleProfileInput {
         IidmVehicleProfileInput {
@@ -933,9 +949,7 @@ mod tests {
         )
         .unwrap();
         let mut world = TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).unwrap();
-        let route = world
-            .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
-            .unwrap();
+        let route = register_full_spatial_route(&mut world);
         let profile = world
             .revision
             .traffic()
@@ -1122,9 +1136,7 @@ mod tests {
         )
         .unwrap();
         let mut world = TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).unwrap();
-        let route = world
-            .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
-            .unwrap();
+        let route = register_full_spatial_route(&mut world);
         let profile = world
             .revision
             .traffic()

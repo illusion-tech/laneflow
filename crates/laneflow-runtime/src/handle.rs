@@ -1,40 +1,16 @@
-/// 代际感知路线句柄。静态与动态路线共用此类型；`remove_route` 必须拒绝静态句柄。
+/// 代际感知路线句柄。只有槽位下标与 generation，不区分静态/动态。
 ///
-/// 内部是槽位下标 + generation（G2 删除 `kind`）。只在产生它的 `TrafficWorld` 内有效，
-/// 不编码 world 身份，与 `VehicleHandle` / ADR 0005 相同。跨 world 混用是调用方错误。
+/// 只在产生它的 `TrafficWorld` 内有效，不编码 world 身份，与 `VehicleHandle` /
+/// ADR 0005 相同。跨 world 混用是调用方错误。
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct RouteHandle {
-    kind: RouteKind,
     index: u32,
     generation: u32,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(crate) enum RouteKind {
-    Static,
-    Dynamic,
-}
-
 impl RouteHandle {
-    pub(crate) const fn static_route(index: u32) -> Self {
-        Self {
-            kind: RouteKind::Static,
-            index,
-            generation: 0,
-        }
-    }
-
-    pub(crate) const fn dynamic_route(index: u32, generation: u32) -> Self {
-        Self {
-            kind: RouteKind::Dynamic,
-            index,
-            generation,
-        }
-    }
-
-    #[must_use]
-    pub(crate) const fn is_static(self) -> bool {
-        matches!(self.kind, RouteKind::Static)
+    pub(crate) const fn new(index: u32, generation: u32) -> Self {
+        Self { index, generation }
     }
 
     #[must_use]

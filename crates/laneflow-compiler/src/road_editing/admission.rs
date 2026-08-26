@@ -34,7 +34,7 @@ use crate::{
     RoadEditingSourceViolation, RoadEditingTableKind,
 };
 
-const ROAD_EDITING_FRONTEND_VERSION: u32 = 1;
+const ROAD_EDITING_FRONTEND_VERSION: u32 = 2;
 const ROAD_EDITING_GEOMETRY_SEMANTICS_VERSION: u8 = 1;
 const ROAD_EDITING_FRONTEND_OPTIONS_DOMAIN: &[u8] = b"laneflow.road-editing.frontend-options.v1\0";
 // 每个 verifier table 对应的 retained Typed AST 请求上界。它覆盖外层 enum、嵌套 record、
@@ -133,7 +133,6 @@ fn lowering_sort_scratch_bytes(root: wire::RoadEditingSource<'_>) -> u64 {
     charge_root!(root.facility_bands(), wire::FacilityBand<'_>);
     charge_root!(root.participant_classes(), wire::ParticipantClass<'_>);
     charge_root!(root.vehicle_profiles(), wire::VehicleProfile<'_>);
-    charge_root!(root.static_routes(), wire::StaticRoute<'_>);
     charge_root!(root.canonical_frames(), wire::CanonicalFrame<'_>);
 
     // authoring lanes 保持规范排序以供随后每个 section 做 binary search，因此两个

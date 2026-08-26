@@ -15,7 +15,6 @@ fn road_editing_relation_code(value: crate::RoadEditingRelationKind) -> u8 {
         crate::RoadEditingRelationKind::SignalControllerPhase => 9,
         crate::RoadEditingRelationKind::SignalPhaseState => 10,
         crate::RoadEditingRelationKind::AccessRuleParticipantClass => 11,
-        crate::RoadEditingRelationKind::StaticRouteEdge => 12,
     }
 }
 
@@ -62,7 +61,6 @@ fn road_editing_table_code(value: crate::RoadEditingTableKind) -> u16 {
         crate::RoadEditingTableKind::AccessRule => 31,
         crate::RoadEditingTableKind::IidmVehicleProfile => 32,
         crate::RoadEditingTableKind::VehicleProfile => 33,
-        crate::RoadEditingTableKind::StaticRoute => 34,
         crate::RoadEditingTableKind::CanonicalFrame => 35,
     }
 }
@@ -369,7 +367,6 @@ fn expected_stable_source_keys(lir: &crate::lir::LirUnit) -> Vec<(EntityKind, [u
     append!(EntityKind::ParticipantClass, lir.participant_classes);
     append!(EntityKind::AccessRule, lir.access_rules);
     append!(EntityKind::VehicleProfile, lir.vehicle_profiles);
-    append!(EntityKind::StaticRoute, lir.static_routes);
     append!(EntityKind::CanonicalFrame, lir.canonical_frames);
     keys.sort_unstable();
     keys
@@ -529,7 +526,6 @@ pub(super) fn build_lfsm(
         EntityKind::VehicleProfile,
         source_map.vehicle_profile_sources()
     );
-    append_stable_sources!(EntityKind::StaticRoute, source_map.static_route_sources());
     append_stable_sources!(
         EntityKind::CanonicalFrame,
         source_map.canonical_frame_sources()
@@ -659,9 +655,6 @@ pub(super) fn build_lfsm(
                 push_owner_local!(EntityKind::AccessRule, id, source)
             }
         }
-    }
-    for source in source_map.route_relation_sources() {
-        push_owner_local!(EntityKind::StaticRoute, source.owner_stable_id(), source);
     }
     for source in source_map.spatial_relation_sources() {
         let owner_entity_kind = EntityKind::CanonicalFrame;

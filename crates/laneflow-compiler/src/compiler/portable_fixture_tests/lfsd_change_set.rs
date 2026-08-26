@@ -154,23 +154,23 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         target.semantic_diff().object_key(),
-        "sha256/9ae10537885a60d16e0d3d2d2f2bde7d0929e3c147592af554ea86d711c370ce"
+        "sha256/c905b8397cffd9e2334b856ef18a846f483f8a2279572dd775be89bf461ca319"
     );
     assert_eq!(
         base.canonical_artifact().object_key(),
-        "sha256/40dc74eb8f67564003bccbf63989afad0b2401d15c60f94bfd7babcbb9141b5a"
+        "sha256/347be7e665fa66183a4682eaf42780de8b897d141d95d8d316c58911e7d17eaa"
     );
     assert_eq!(
         base.canonical_artifact().byte_length(),
-        exact_byte_length(3_204)
+        exact_byte_length(3_124)
     );
     assert_eq!(
         target.canonical_artifact().object_key(),
-        "sha256/039f26269c80595f60f233452b30e3ee7832ad408703624b1710609c0271df40"
+        "sha256/aff992cba3a614f3e466f8f0607ada6b6ac95fb7eefc9246dfbc18f69f974a76"
     );
     assert_eq!(
         target.canonical_artifact().byte_length(),
-        exact_byte_length(4_234)
+        exact_byte_length(4_154)
     );
 
     let diff = laneflow_format::preflight_object_values(
@@ -196,7 +196,7 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     );
     assert!(matches!(
         binding.field_by_tag(5).unwrap().value().unwrap(),
-        laneflow_format::RegistryCheckedFieldValue::U64(3_204)
+        laneflow_format::RegistryCheckedFieldValue::U64(3_124)
     ));
     assert_eq!(
         binding.field_by_tag(7).unwrap().value_bytes(),
@@ -208,7 +208,7 @@ fn portable_change_set_diff_matches_frozen_exact_bytes() {
     );
     assert!(matches!(
         binding.field_by_tag(9).unwrap().value().unwrap(),
-        laneflow_format::RegistryCheckedFieldValue::U64(4_234)
+        laneflow_format::RegistryCheckedFieldValue::U64(4_154)
     ));
 
     let entity_changes = diff.section(1).unwrap().table(0).unwrap();

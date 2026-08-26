@@ -35,11 +35,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     )
     .map_err(|error| format!("{error:?}"))?;
     let bound = bind(&catalog, &revision).map_err(|error| error.to_string())?;
-    let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 8, 1, 16))?;
+    let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 32, 1, 16))?;
     let profile = *bound
         .profiles
         .get(PASSENGER_CAR_PROFILE_KEY)
         .ok_or("missing passenger-car profile")?;
+    bound
+        .install_routes(&mut world)
+        .map_err(|error| error.to_string())?;
     let (follower, leader) = follow_pair(&catalog, &bound)?;
     spawn_on_slot(&mut world, profile, leader)?;
     spawn_on_slot(&mut world, profile, follower)?;
@@ -103,16 +106,14 @@ fn spawn_on_slot(
     profile: VehicleProfileOrdinal,
     slot: &BoundSpawnSlot,
 ) -> Result<(), Box<dyn Error>> {
-    let edges = world
-        .traffic()
-        .relations()
-        .static_route_edges(slot.entry_route)
-        .ok_or("missing route edges")?;
-    let index = edges
+    let index = slot
+        .entry_edges
         .iter()
         .position(|edge| *edge == slot.edge)
         .ok_or("slot edge is not on its entry route")?;
-    let route = world.static_route(slot.entry_route)?;
+    let route = world
+        .find_route(&slot.entry_edges)
+        .ok_or("catalog route must be registered")?;
     world.spawn_vehicle(VehicleSpawnInput::new(
         profile,
         route,

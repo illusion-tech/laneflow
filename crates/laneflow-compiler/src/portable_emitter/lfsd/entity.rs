@@ -293,6 +293,9 @@ pub(super) fn genesis_entity_changes(
     let mut changes = Vec::new();
     let mut tables = section.tables();
     for entity_kind in EntityKind::ALL {
+        if !entity_kind.is_constructible() {
+            continue;
+        }
         let table = tables
             .next()
             .ok_or(PortableEmissionError::InternalBindingMismatch)?;

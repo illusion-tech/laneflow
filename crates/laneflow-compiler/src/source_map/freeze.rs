@@ -190,17 +190,6 @@ pub(crate) fn freeze_source_map(
         .saturating_add(
             u64::try_from(mir.access_rule_participant_classes.len()).unwrap_or(u64::MAX),
         );
-    let static_route_count = u64::try_from(mir.static_routes.len()).unwrap_or(u64::MAX);
-    let route_relation_count = [
-        mir.static_route_edges.len(),
-        mir.maneuver_occurrences.len(),
-        mir.gate_occurrences.len(),
-        mir.waiting_zone_occurrences.len(),
-    ]
-    .into_iter()
-    .fold(0_u64, |total, count| {
-        total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
-    });
     let source_map_fixed_logical_bytes = unit
         .modules
         .iter()
@@ -259,10 +248,6 @@ pub(crate) fn freeze_source_map(
         )
         .saturating_add(
             access_relation_count.saturating_mul(OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES),
-        )
-        .saturating_add(static_route_count.saturating_mul(STABLE_ENTITY_SOURCE_FIXED_LOGICAL_BYTES))
-        .saturating_add(
-            route_relation_count.saturating_mul(ROUTE_RELATION_SOURCE_FIXED_LOGICAL_BYTES),
         );
     // 描述符字段与 import backing 已由 CompilationUnit 持有；冻结时新增模块/文档
     // 描述符平坦表、各稳定实体来源表及 owner-local 关系来源表的连续存储。峰值仍保留
@@ -390,12 +375,6 @@ pub(crate) fn freeze_source_map(
         ))
         .saturating_add(requested_bytes::<AccessRelationSourceRecord>(
             access_relation_count,
-        ))
-        .saturating_add(requested_bytes::<
-            StableEntitySourceRecord<StaticRouteOrdinal, StaticRouteId>,
-        >(static_route_count))
-        .saturating_add(requested_bytes::<RouteRelationSourceRecord>(
-            route_relation_count,
         ));
     // 派生内部边需要按 owner 生成稠密 local index；空间关系还需要把 MIR 几何按最终
     // LaneEdgeOrdinal 重排，并为每个 frame 生成独立 local index。两张空间 scratch 表
@@ -551,11 +530,6 @@ pub(crate) fn freeze_source_map(
     );
     let mut junction_relation_sources = Vec::with_capacity(
         usize::try_from(junction_relation_count)
-            .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
-    );
-    let mut static_route_sources = Vec::with_capacity(mir.static_routes.len());
-    let mut route_relation_sources = Vec::with_capacity(
-        usize::try_from(route_relation_count)
             .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
     );
 
@@ -1309,90 +1283,6 @@ pub(crate) fn freeze_source_map(
         }
     }
 
-    for mir_key in frozen_lir
-        .static_routes
-        .stage_keys_in_lir_order()
-        .iter()
-        .copied()
-    {
-        let route = &mir.static_routes[mir_key.index()];
-        let ordinal = frozen_lir.static_routes.ordinal(mir_key);
-        static_route_sources.push(StableEntitySourceRecord {
-            ordinal,
-            stable_id: route.stable_id,
-            primary: location.resolve(route.module, &route.source_span)?,
-        });
-        let route_edges = &mir.static_route_edges[route.edges.as_usize_range()];
-        for (local_index, edge) in route_edges.iter().enumerate() {
-            route_relation_sources.push(RouteRelationSourceRecord {
-                owner_ordinal: ordinal,
-                owner_stable_id: route.stable_id,
-                role: SourceRelationRole::StaticRouteEdge,
-                local_index: u32::try_from(local_index)
-                    .expect("MIR route range precheck proved local index fits u32"),
-                primary: location.resolve(route.module, &edge.source_span)?,
-                contributing: None,
-            });
-        }
-        for (local_index, occurrence) in mir.maneuver_occurrences
-            [route.maneuver_occurrences.as_usize_range()]
-        .iter()
-        .enumerate()
-        {
-            let source_edge = &route_edges[occurrence.entry_route_edge_index as usize];
-            route_relation_sources.push(RouteRelationSourceRecord {
-                owner_ordinal: ordinal,
-                owner_stable_id: route.stable_id,
-                role: SourceRelationRole::StaticRouteManeuverOccurrence,
-                local_index: u32::try_from(local_index)
-                    .expect("MIR route range precheck proved local index fits u32"),
-                primary: location.resolve(route.module, &source_edge.source_span)?,
-                contributing: Some(location.resolve(
-                    mir.maneuver_paths[occurrence.maneuver_path.index()].module,
-                    &mir.maneuver_paths[occurrence.maneuver_path.index()].source_span,
-                )?),
-            });
-        }
-        for (local_index, occurrence) in mir.gate_occurrences
-            [route.gate_occurrences.as_usize_range()]
-        .iter()
-        .enumerate()
-        {
-            let source_edge = &route_edges[occurrence.from_route_edge_index as usize];
-            route_relation_sources.push(RouteRelationSourceRecord {
-                owner_ordinal: ordinal,
-                owner_stable_id: route.stable_id,
-                role: SourceRelationRole::StaticRouteGateOccurrence,
-                local_index: u32::try_from(local_index)
-                    .expect("MIR route range precheck proved local index fits u32"),
-                primary: location.resolve(route.module, &source_edge.source_span)?,
-                contributing: Some(location.resolve(
-                    mir.maneuver_gates[occurrence.maneuver_gate.index()].module,
-                    &mir.maneuver_gates[occurrence.maneuver_gate.index()].source_span,
-                )?),
-            });
-        }
-        for (local_index, occurrence) in mir.waiting_zone_occurrences
-            [route.waiting_zone_occurrences.as_usize_range()]
-        .iter()
-        .enumerate()
-        {
-            let source_edge = &route_edges[occurrence.entry_route_edge_index as usize];
-            route_relation_sources.push(RouteRelationSourceRecord {
-                owner_ordinal: ordinal,
-                owner_stable_id: route.stable_id,
-                role: SourceRelationRole::StaticRouteWaitingZoneOccurrence,
-                local_index: u32::try_from(local_index)
-                    .expect("MIR route range precheck proved local index fits u32"),
-                primary: location.resolve(route.module, &source_edge.source_span)?,
-                contributing: Some(location.resolve(
-                    mir.waiting_zones[occurrence.waiting_zone.index()].module,
-                    &mir.waiting_zones[occurrence.waiting_zone.index()].source_span,
-                )?),
-            });
-        }
-    }
-
     let mut internal_edge_local_indexes = vec![0_u32; mir.junctions.len()];
     for relation_index in frozen_lir.canonical_mir_internal_edge_order.iter().copied() {
         let relation = &mir.junction_internal_edges[relation_index as usize];
@@ -1482,8 +1372,6 @@ pub(crate) fn freeze_source_map(
         access_rule_sources: access_rule_sources.into_boxed_slice(),
         access_relation_sources: access_relation_sources.into_boxed_slice(),
         junction_relation_sources: junction_relation_sources.into_boxed_slice(),
-        static_route_sources: static_route_sources.into_boxed_slice(),
-        route_relation_sources: route_relation_sources.into_boxed_slice(),
         peak_controlled_live_bytes: sizing.controlled_live_bytes,
     })
 }

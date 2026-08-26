@@ -10,9 +10,9 @@ use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use bevy_transform::{TransformPlugin, components::Transform};
 use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
-use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
+use laneflow_runtime::{RouteRegisterInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId, SpatialSession};
-use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
+use laneflow_static_contract::{LaneEdgeOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
@@ -38,10 +38,24 @@ fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
     .expect("shared network revision")
 }
 
+fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
+    let index = world
+        .traffic()
+        .lane_lengths_millimetres()
+        .iter()
+        .position(|actual| *actual == length)
+        .expect("fixture lane length");
+    LaneEdgeOrdinal::try_from_usize(index).expect("fixture lane ordinal")
+}
+
 fn spawn_two_vehicles(world: &mut TrafficWorld) {
     let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
+        .register_route(RouteRegisterInput::new(vec![
+            edge_for_length(world, 10_000),
+            edge_for_length(world, 8_000),
+            edge_for_length(world, 12_000),
+        ]))
+        .expect("register");
     let profile = world
         .traffic()
         .relations()

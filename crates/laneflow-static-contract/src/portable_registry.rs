@@ -578,9 +578,12 @@ const JUNCTION_INTERNAL_EDGE_ROW: PortableRowSchema = PortableRowSchema {
     fields: JUNCTION_INTERNAL_EDGE_FIELDS,
     shape: PortableRowShape::Uniform,
 };
-const LFCA_SECTION_4_TABLES: &[PortableTableSchema] = &[
-    table(1, "JunctionInternalEdge", &JUNCTION_INTERNAL_EDGE_ROW, ANY),
-];
+const LFCA_SECTION_4_TABLES: &[PortableTableSchema] = &[table(
+    1,
+    "JunctionInternalEdge",
+    &JUNCTION_INTERNAL_EDGE_ROW,
+    ANY,
+)];
 
 // LFCA section 0x0005..0x0008.
 

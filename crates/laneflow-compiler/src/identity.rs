@@ -421,8 +421,14 @@ mod tests {
         for ((kind_code, expected_bytes, expected_id), registered_kind) in
             vectors.into_iter().zip(EntityKind::ALL)
         {
-            let kind =
-                EntityKind::from_code(kind_code).expect("known vector kind must be registered");
+            let Some(kind) = EntityKind::from_code(kind_code) else {
+                assert!(
+                    !registered_kind.is_constructible(),
+                    "known vector kind must be registered"
+                );
+                assert_eq!(kind_code, registered_kind.code());
+                continue;
+            };
             assert_eq!(kind, registered_kind);
             let owned_fields = known_vector_fields(kind);
             let compiler_fields = owned_fields

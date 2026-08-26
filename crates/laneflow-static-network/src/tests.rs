@@ -4,7 +4,7 @@ use laneflow_format::{FormatLimits, RegistryCheckedFieldValue, check_canonical_n
 use laneflow_static_contract::{
     AuthoringLaneOrdinal, EntityKind, LaneEdgeKind, LaneEdgeOrdinal, ManeuverPathOrdinal,
     ParticipantClassOrdinal, RoadCorridorOrdinal, RoadSectionOrdinal, SignalControllerOrdinal,
-    SignalPhaseOrdinal, StaticRouteOrdinal,
+    SignalPhaseOrdinal,
 };
 
 use crate::{
@@ -45,13 +45,6 @@ fn minimal_headless_build_has_required_components_and_no_spatial() {
     assert!(revision.planning_hints().edge_boundary_weights().is_empty());
     assert!(revision.spatial().is_none());
     assert!(revision.retained_logical_bytes() > 0);
-    assert!(
-        revision
-            .traffic()
-            .relations()
-            .static_route_reverse(EntityKind::LaneEdge, 0)
-            .is_none()
-    );
 }
 
 #[test]
@@ -575,85 +568,15 @@ fn full_spatial_access_cells_do_not_scan_and_stay_in_rule_bounds() {
 }
 
 #[test]
-fn full_spatial_route_occurrences_are_owner_local_partitions() {
+fn full_spatial_has_no_static_route_entity_table() {
     let input =
         check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).expect("checked input");
     let view = input.value_checked_view();
     let entities = view.registry_view().section(2).expect("entities");
-    let routes = entities.table(20).expect("StaticRoute");
-    let revision = build(FULL_SPATIAL, SpatialBuildOption::Omit);
-    let relations = revision.traffic().relations();
-    let route_count = revision
-        .traffic()
-        .entity_counts()
-        .count(EntityKind::StaticRoute);
-    for raw in 0..route_count {
-        let route = StaticRouteOrdinal::from_raw(raw);
-        let row = routes.row(raw).expect("route row");
-        let expected_edges = ordinals(row, 3)
-            .into_iter()
-            .map(LaneEdgeOrdinal::from_raw)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            relations.static_route_edges(route).expect("edges"),
-            expected_edges.as_slice()
-        );
-        assert_eq!(
-            relations
-                .static_route_transition_gates(route)
-                .expect("transition gates")
-                .len(),
-            expected_edges.len().saturating_sub(1)
-        );
-        let distance = relations
-            .route_distance_index(route)
-            .expect("route distance index");
-        assert_eq!(distance.occurrence_segments().len(), expected_edges.len());
-        assert_eq!(distance.distance_to_end().len(), expected_edges.len());
-        let mut gate_cursor = 0_u32;
-        let mut wait_cursor = 0_u32;
-        let man_count = relations.route_maneuver_count(route).expect("maneuvers");
-        for index in 0..man_count {
-            let occurrence = relations
-                .route_maneuver_occurrence(route, index)
-                .expect("maneuver");
-            assert_eq!(occurrence.gate_occurrence_range().start(), gate_cursor);
-            assert_eq!(occurrence.waiting_occurrence_range().start(), wait_cursor);
-            gate_cursor += occurrence.gate_occurrence_range().len();
-            wait_cursor += occurrence.waiting_occurrence_range().len();
-            assert!(occurrence.entry_route_edge_index() <= occurrence.exit_route_edge_index());
-            assert!(
-                (occurrence.exit_route_edge_index() as usize) < expected_edges.len()
-                    || expected_edges.is_empty()
-            );
-        }
-        assert_eq!(
-            gate_cursor,
-            u32::try_from(relations.route_gate_count(route).expect("gates")).expect("fits")
-        );
-        assert_eq!(
-            wait_cursor,
-            u32::try_from(relations.route_waiting_count(route).expect("waiting")).expect("fits")
-        );
-        for index in 0..relations.route_gate_count(route).expect("gates") {
-            let gate = relations
-                .route_gate_occurrence(route, index)
-                .expect("gate occ");
-            assert!(
-                (gate.maneuver_occurrence_index() as usize)
-                    < relations.route_maneuver_count(route).expect("mans")
-            );
-            if !expected_edges.is_empty() {
-                assert!((gate.from_route_edge_index() as usize) < expected_edges.len());
-            }
-        }
+    for table in entities.tables() {
+        assert_ne!(table.kind(), EntityKind::StaticRoute.code());
     }
-    assert!(
-        relations
-            .route_distance_to_end(StaticRouteOrdinal::from_raw(0))
-            .is_some()
-            || route_count == 0
-    );
+    let _ = build(FULL_SPATIAL, SpatialBuildOption::Omit);
 }
 
 #[test]
@@ -752,40 +675,4 @@ fn full_spatial_entity_views_cover_required_columns() {
                 .is_some()
         );
     }
-    for raw in 0..counts.count(EntityKind::LaneEdge) {
-        let hits = relations
-            .static_route_reverse(EntityKind::LaneEdge, raw)
-            .expect("reverse index");
-        assert_eq!(hits.routes().len(), hits.occurrences().len());
-        for (&route, &occurrence) in hits.routes().iter().zip(hits.occurrences()) {
-            let edges = relations.static_route_edges(route).expect("route edges");
-            assert_eq!(
-                edges.get(occurrence as usize).map(|edge| edge.raw()),
-                Some(raw)
-            );
-        }
-    }
-    for kind in [
-        EntityKind::LaneEdge,
-        EntityKind::ManeuverPath,
-        EntityKind::ManeuverGate,
-        EntityKind::WaitingZone,
-    ] {
-        let count = counts.count(kind);
-        for raw in 0..count {
-            let hits = relations
-                .static_route_reverse(kind, raw)
-                .expect("in-range reverse lookup");
-            assert_eq!(hits.routes().len(), hits.occurrences().len());
-        }
-        assert!(
-            relations.static_route_reverse(kind, count).is_none(),
-            "out-of-range reverse lookup must be None"
-        );
-    }
-    assert!(
-        relations
-            .static_route_reverse(EntityKind::RoadSection, 0)
-            .is_none()
-    );
 }

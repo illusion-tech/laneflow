@@ -8,9 +8,12 @@ use laneflow_bevy::{
     replace_completed_vehicle,
 };
 use laneflow_format::{FormatLimits, check_canonical_network_input};
-use laneflow_runtime::{TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus, WorldConfig};
+use laneflow_runtime::{
+    RouteHandle, RouteRegisterInput, TickInput, TrafficWorld, VehicleSpawnInput, VehicleStatus,
+    WorldConfig,
+};
 use laneflow_spatial::SpatialSession;
-use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
+use laneflow_static_contract::{LaneEdgeOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
@@ -33,16 +36,29 @@ fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
     .expect("shared network revision")
 }
 
-fn drive_to_completed(world: &mut TrafficWorld) -> laneflow_runtime::VehicleHandle {
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
-    let edges = world
+fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
+    let index = world
         .traffic()
-        .relations()
-        .static_route_edges(StaticRouteOrdinal::from_raw(0))
-        .expect("edges")
-        .to_vec();
+        .lane_lengths_millimetres()
+        .iter()
+        .position(|actual| *actual == length)
+        .expect("fixture lane length");
+    LaneEdgeOrdinal::try_from_usize(index).expect("fixture lane ordinal")
+}
+
+fn register_preview_route(world: &mut TrafficWorld) -> RouteHandle {
+    world
+        .register_route(RouteRegisterInput::new(vec![
+            edge_for_length(world, 10_000),
+            edge_for_length(world, 8_000),
+            edge_for_length(world, 12_000),
+        ]))
+        .expect("register")
+}
+
+fn drive_to_completed(world: &mut TrafficWorld) -> (laneflow_runtime::VehicleHandle, RouteHandle) {
+    let route = register_preview_route(world);
+    let edges = world.route_edges(route).expect("edges").to_vec();
     let last = *edges.last().expect("route has edges");
     let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
     let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
@@ -65,17 +81,14 @@ fn drive_to_completed(world: &mut TrafficWorld) -> laneflow_runtime::VehicleHand
             break;
         }
     }
-    vehicle
+    (vehicle, route)
 }
 
 #[test]
 fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
     let mut world =
         TrafficWorld::install(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
-    let old = drive_to_completed(&mut world);
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("route");
+    let (old, route) = drive_to_completed(&mut world);
     let spatial = SpatialSession::bind(world.revision())
         .expect("bind")
         .expect("spatial");
@@ -165,10 +178,7 @@ fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
 fn unbound_replace_stays_unbound() {
     let mut world =
         TrafficWorld::install(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
-    let old = drive_to_completed(&mut world);
-    let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("route");
+    let (old, route) = drive_to_completed(&mut world);
     let session = LaneFlowSession::new(
         world,
         None,
@@ -200,7 +210,7 @@ fn unbound_replace_stays_unbound() {
 fn identical_bind_is_duplicate_error() {
     let mut world =
         TrafficWorld::install(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
-    let vehicle = drive_to_completed(&mut world);
+    let (vehicle, _route) = drive_to_completed(&mut world);
     let session = LaneFlowSession::new(
         world,
         None,

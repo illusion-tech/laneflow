@@ -64,6 +64,9 @@ impl<'a> ArtifactIndex<'a> {
         let mut ordinal_stable_ids = BTreeMap::new();
         let mut entity_tables = entity_section.tables();
         for entity_kind in EntityKind::ALL {
+            if !entity_kind.is_constructible() {
+                continue;
+            }
             let entity_table = entity_tables.next().ok_or(mismatch)?;
             for entity in entity_table.rows() {
                 let typed_ordinal = checked_u32_with(entity, 1, mismatch)?;
