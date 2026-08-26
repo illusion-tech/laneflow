@@ -10,8 +10,7 @@ use laneflow_static_contract::{
     JunctionOrdinal, LaneEdgeOrdinal, LaneGroupOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
     MovementOrdinal, ParkingAreaOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal,
     RoadCorridorOrdinal, RoadSectionOrdinal, SignalControllerOrdinal, SignalGroupOrdinal,
-    SignalPhaseOrdinal, StaticRouteOrdinal, StopLineOrdinal, VehicleProfileOrdinal,
-    WaitingZoneOrdinal,
+    SignalPhaseOrdinal, StopLineOrdinal, VehicleProfileOrdinal, WaitingZoneOrdinal,
 };
 
 use crate::hir::build_hir;
@@ -32,17 +31,16 @@ pub use output::{CompilationMetrics, CompilationOutput};
 pub use views::{
     CanonicalAccessRegulationView, CanonicalAccessRuleView, CanonicalAccessTarget,
     CanonicalAuthoringLaneView, CanonicalCorridorElement, CanonicalFacilityBandGeometryView,
-    CanonicalFacilityBandView, CanonicalFrameView, CanonicalGateOccurrenceView,
-    CanonicalIdentityFieldView, CanonicalJunctionInternalEdgeView, CanonicalJunctionView,
-    CanonicalLaneEdgeGeometryView, CanonicalLaneEdgeView, CanonicalLaneGroupView,
-    CanonicalManeuverGateView, CanonicalManeuverOccurrenceView, CanonicalManeuverPathView,
-    CanonicalMovementView, CanonicalParkingAreaView, CanonicalParkingLaneAnchor,
-    CanonicalParkingSpaceGeometry, CanonicalParkingSpaceView, CanonicalParticipantClassView,
-    CanonicalPoint3F32, CanonicalRoadCorridorView, CanonicalRoadSectionView,
-    CanonicalSignalControl, CanonicalSignalControllerView, CanonicalSignalGroupView,
-    CanonicalSignalPhaseStateView, CanonicalSignalPhaseView, CanonicalSpatialSegment,
-    CanonicalStaticRouteOccurrenceRef, CanonicalStaticRouteView, CanonicalStopLineView,
-    CanonicalVehicleProfileView, CanonicalWaitingZoneOccurrenceView, CanonicalWaitingZoneView,
+    CanonicalFacilityBandView, CanonicalFrameView, CanonicalIdentityFieldView,
+    CanonicalJunctionInternalEdgeView, CanonicalJunctionView, CanonicalLaneEdgeGeometryView,
+    CanonicalLaneEdgeView, CanonicalLaneGroupView, CanonicalManeuverGateView,
+    CanonicalManeuverPathView, CanonicalMovementView, CanonicalParkingAreaView,
+    CanonicalParkingLaneAnchor, CanonicalParkingSpaceGeometry, CanonicalParkingSpaceView,
+    CanonicalParticipantClassView, CanonicalPoint3F32, CanonicalRoadCorridorView,
+    CanonicalRoadSectionView, CanonicalSignalControl, CanonicalSignalControllerView,
+    CanonicalSignalGroupView, CanonicalSignalPhaseStateView, CanonicalSignalPhaseView,
+    CanonicalSpatialSegment, CanonicalStopLineView, CanonicalVehicleProfileView,
+    CanonicalWaitingZoneView,
 };
 
 /// 已完成 #292 当前支持子集全部静态语义验证的 Canonical LIR。
@@ -489,26 +487,6 @@ impl ValidatedCanonicalLir {
             .binary_search_by_key(&edge, |relation| relation.edge)
             .ok()
             .map(|index| self.inner.junction_internal_edges[index].junction)
-    }
-
-    /// 按完整 Identity v1 前像规范顺序遍历全部静态路线。
-    pub fn static_routes(&self) -> impl ExactSizeIterator<Item = CanonicalStaticRouteView<'_>> {
-        self.inner
-            .static_routes
-            .iter()
-            .map(|record| CanonicalStaticRouteView::from_lir(&self.inner, record))
-    }
-
-    /// 通过当前 LIR 实例的有类型序号读取静态路线。
-    #[must_use]
-    pub fn static_route(
-        &self,
-        ordinal: StaticRouteOrdinal,
-    ) -> Option<CanonicalStaticRouteView<'_>> {
-        self.inner
-            .static_routes
-            .get(ordinal.index())
-            .map(|record| CanonicalStaticRouteView::from_lir(&self.inner, record))
     }
 }
 

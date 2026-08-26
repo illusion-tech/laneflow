@@ -252,9 +252,16 @@ fn allocation_ledgers_and_per_world_live_bytes() {
             live_per > 0,
             "{count} worlds must allocate per-world tables"
         );
+        // 共享根退役 StaticRoute 后 retained 变小；占用索引与 compiled 路线表在每世界上。
+        // 2/8 个空世界仍应低于一条走廊静态根；32 个允许不超过两倍。
+        let live_budget = if count >= 32 {
+            static_retained.saturating_mul(2)
+        } else {
+            static_retained
+        };
         assert!(
-            live_per * count < static_retained,
-            "{count} worlds live {} must stay below static retained {static_retained}",
+            live_per * count < live_budget,
+            "{count} worlds live {} must stay below budget {live_budget} (static retained {static_retained})",
             second.live_bytes
         );
         assert!(

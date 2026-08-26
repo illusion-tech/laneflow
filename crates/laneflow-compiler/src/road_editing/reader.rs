@@ -9,7 +9,8 @@ use crate::{
     RoadEditingRootVectorKind, RoadEditingSourceViolation, RoadEditingTableKind, SourceLocation,
 };
 
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
+const HISTORIC_STATIC_ROUTES_FIELD_ID: usize = 25;
 const MIN_SIZE_PREFIXED_LFRE_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 5;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
@@ -151,6 +152,13 @@ pub(crate) fn verify_source<'a>(
                 expected: FORMAT_VERSION,
                 actual: root.format_version(),
             },
+            expected_key,
+            None,
+        ));
+    }
+    if root_vtable_field_present(bytes, HISTORIC_STATIC_ROUTES_FIELD_ID) {
+        return Err(source_error(
+            RoadEditingSourceViolation::HistoricStaticRoutesField,
             expected_key,
             None,
         ));
@@ -410,10 +418,6 @@ fn root_vector_site(field_name: &str) -> Option<(RoadEditingRootVectorKind, Road
             RoadEditingRootVectorKind::VehicleProfile,
             RoadEditingTableKind::VehicleProfile,
         ),
-        "static_routes" => (
-            RoadEditingRootVectorKind::StaticRoute,
-            RoadEditingTableKind::StaticRoute,
-        ),
         "canonical_frames" => (
             RoadEditingRootVectorKind::CanonicalFrame,
             RoadEditingTableKind::CanonicalFrame,
@@ -524,8 +528,59 @@ fn table_count(root: wire::RoadEditingSource<'_>) -> u64 {
         count = count.saturating_add(1 + u64::from(value.regulation().is_some()));
     }
     count = count.saturating_add(len_u64(root.vehicle_profiles()).saturating_mul(2));
-    count = count.saturating_add(len_u64(root.static_routes()));
     count.saturating_add(len_u64(root.canonical_frames()))
+}
+
+fn root_vtable_field_present(bytes: &[u8], field_id: usize) -> bool {
+    if bytes.len() < 8 {
+        return false;
+    }
+    let Ok(root_offset) = bytes[4..8].try_into().map(u32::from_le_bytes) else {
+        return false;
+    };
+    let Some(root_position) =
+        4_usize.checked_add(usize::try_from(root_offset).unwrap_or(usize::MAX))
+    else {
+        return false;
+    };
+    if root_position + 4 > bytes.len() {
+        return false;
+    }
+    let Ok(vtable_distance) = bytes[root_position..root_position + 4]
+        .try_into()
+        .map(i32::from_le_bytes)
+    else {
+        return false;
+    };
+    if vtable_distance <= 0 {
+        return false;
+    }
+    let Some(vtable_position) =
+        root_position.checked_sub(usize::try_from(vtable_distance).unwrap_or(usize::MAX))
+    else {
+        return false;
+    };
+    if vtable_position + 2 > bytes.len() {
+        return false;
+    }
+    let Ok(vtable_size) = bytes[vtable_position..vtable_position + 2]
+        .try_into()
+        .map(u16::from_le_bytes)
+    else {
+        return false;
+    };
+    let entry = 4_usize.saturating_add(field_id.saturating_mul(2));
+    if entry.saturating_add(2) > usize::from(vtable_size) {
+        return false;
+    }
+    let slot = vtable_position + entry;
+    if slot + 2 > bytes.len() {
+        return false;
+    }
+    let Ok(field_offset) = bytes[slot..slot + 2].try_into().map(u16::from_le_bytes) else {
+        return false;
+    };
+    field_offset != 0
 }
 
 fn curve_program_table_count(program: wire::CurveProgram<'_>) -> u64 {
@@ -1048,7 +1103,7 @@ mod tests {
         let limits = CompileLimits::p100_initial_v1();
         let buffer = source_buffer(&limits, "roads/main");
         let mut bytes = buffer.as_bytes().to_vec();
-        overwrite_format_version(&mut bytes, 2);
+        overwrite_format_version(&mut bytes, 1);
         let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
 
         let error = verify_source(input, &limits, 0, 0).expect_err("unknown format version");
@@ -1057,8 +1112,8 @@ mod tests {
             first_diagnostic(&error).payload(),
             DiagnosticPayload::InvalidRoadEditingSource {
                 violation: RoadEditingSourceViolation::UnsupportedFormatVersion {
-                    expected: 1,
-                    actual: 2
+                    expected: 2,
+                    actual: 1
                 },
                 ..
             }

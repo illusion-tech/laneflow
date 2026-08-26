@@ -1,4 +1,4 @@
-catalog_version = "0.2"
+catalog_version = "0.3"
 
 [[portals]]
 id = "portal-main-west"
@@ -189,114 +189,286 @@ weight = 20
 [[routes]]
 route_id = "route-main-west-near-left"
 exit_portal_id = "portal-side-1-north"
+edge_ids = [
+    "edge-main-w2e-lane-0-road-0",
+    "edge-junction-1-west-left-lane-0-to-0-i0",
+    "edge-side-1-s2n-lane-0-road-2",
+]
 
 [[routes]]
 route_id = "route-main-west-far-left-via-lane-1"
 exit_portal_id = "portal-side-2-north"
+edge_ids = [
+    "edge-main-w2e-lane-1-road-0",
+    "edge-junction-1-west-straight-lane-1-to-0-i0",
+    "edge-main-w2e-lane-0-road-2",
+    "edge-junction-2-west-left-lane-0-to-0-i0",
+    "edge-side-2-s2n-lane-0-road-2",
+]
 
 [[routes]]
 route_id = "route-main-west-through-lane-1-to-0"
 exit_portal_id = "portal-main-east"
+edge_ids = [
+    "edge-main-w2e-lane-1-road-0",
+    "edge-junction-1-west-straight-lane-1-to-1-i0",
+    "edge-main-w2e-lane-1-road-2",
+    "edge-junction-2-west-straight-lane-1-to-0-i0",
+    "edge-main-w2e-lane-0-road-4",
+]
 
 [[routes]]
 route_id = "route-main-west-through-lane-1-to-1"
 exit_portal_id = "portal-main-east"
+edge_ids = [
+    "edge-main-w2e-lane-1-road-0",
+    "edge-junction-1-west-straight-lane-1-to-1-i0",
+    "edge-main-w2e-lane-1-road-2",
+    "edge-junction-2-west-straight-lane-1-to-1-i0",
+    "edge-main-w2e-lane-1-road-4",
+]
 
 [[routes]]
 route_id = "route-main-west-near-right"
 exit_portal_id = "portal-side-1-south"
+edge_ids = [
+    "edge-main-w2e-lane-2-road-0",
+    "edge-junction-1-west-right-lane-2-to-1-i0",
+    "edge-side-1-n2s-lane-1-road-2",
+]
 
 [[routes]]
 route_id = "route-main-west-through-lane-2-to-2"
 exit_portal_id = "portal-main-east"
+edge_ids = [
+    "edge-main-w2e-lane-2-road-0",
+    "edge-junction-1-west-straight-lane-2-to-2-i0",
+    "edge-main-w2e-lane-2-road-2",
+    "edge-junction-2-west-straight-lane-2-to-2-i0",
+    "edge-main-w2e-lane-2-road-4",
+]
 
 [[routes]]
 route_id = "route-main-west-far-right-via-lane-2"
 exit_portal_id = "portal-side-2-south"
+edge_ids = [
+    "edge-main-w2e-lane-2-road-0",
+    "edge-junction-1-west-straight-lane-2-to-2-i0",
+    "edge-main-w2e-lane-2-road-2",
+    "edge-junction-2-west-right-lane-2-to-1-i0",
+    "edge-side-2-n2s-lane-1-road-2",
+]
 
 [[routes]]
 route_id = "route-main-east-near-left"
 exit_portal_id = "portal-side-2-south"
+edge_ids = [
+    "edge-main-e2w-lane-0-road-0",
+    "edge-junction-2-east-left-lane-0-to-0-i0",
+    "edge-side-2-n2s-lane-0-road-2",
+]
 
 [[routes]]
 route_id = "route-main-east-far-left-via-lane-1"
 exit_portal_id = "portal-side-1-south"
+edge_ids = [
+    "edge-main-e2w-lane-1-road-0",
+    "edge-junction-2-east-straight-lane-1-to-0-i0",
+    "edge-main-e2w-lane-0-road-2",
+    "edge-junction-1-east-left-lane-0-to-0-i0",
+    "edge-side-1-n2s-lane-0-road-2",
+]
 
 [[routes]]
 route_id = "route-main-east-through-lane-1-to-0"
 exit_portal_id = "portal-main-west"
+edge_ids = [
+    "edge-main-e2w-lane-1-road-0",
+    "edge-junction-2-east-straight-lane-1-to-1-i0",
+    "edge-main-e2w-lane-1-road-2",
+    "edge-junction-1-east-straight-lane-1-to-0-i0",
+    "edge-main-e2w-lane-0-road-4",
+]
 
 [[routes]]
 route_id = "route-main-east-through-lane-1-to-1"
 exit_portal_id = "portal-main-west"
+edge_ids = [
+    "edge-main-e2w-lane-1-road-0",
+    "edge-junction-2-east-straight-lane-1-to-1-i0",
+    "edge-main-e2w-lane-1-road-2",
+    "edge-junction-1-east-straight-lane-1-to-1-i0",
+    "edge-main-e2w-lane-1-road-4",
+]
 
 [[routes]]
 route_id = "route-main-east-near-right"
 exit_portal_id = "portal-side-2-north"
+edge_ids = [
+    "edge-main-e2w-lane-2-road-0",
+    "edge-junction-2-east-right-lane-2-to-1-i0",
+    "edge-side-2-s2n-lane-1-road-2",
+]
 
 [[routes]]
 route_id = "route-main-east-through-lane-2-to-2"
 exit_portal_id = "portal-main-west"
+edge_ids = [
+    "edge-main-e2w-lane-2-road-0",
+    "edge-junction-2-east-straight-lane-2-to-2-i0",
+    "edge-main-e2w-lane-2-road-2",
+    "edge-junction-1-east-straight-lane-2-to-2-i0",
+    "edge-main-e2w-lane-2-road-4",
+]
 
 [[routes]]
 route_id = "route-main-east-far-right-via-lane-2"
 exit_portal_id = "portal-side-1-north"
+edge_ids = [
+    "edge-main-e2w-lane-2-road-0",
+    "edge-junction-2-east-straight-lane-2-to-2-i0",
+    "edge-main-e2w-lane-2-road-2",
+    "edge-junction-1-east-right-lane-2-to-1-i0",
+    "edge-side-1-s2n-lane-1-road-2",
+]
 
 [[routes]]
 route_id = "route-side-1-north-corridor-left-far-left"
 exit_portal_id = "portal-side-2-north"
+edge_ids = [
+    "edge-side-1-n2s-lane-0-road-0",
+    "edge-junction-1-north-left-lane-0-to-0-i0",
+    "edge-main-w2e-lane-0-road-2",
+    "edge-junction-2-west-left-lane-0-to-0-i0",
+    "edge-side-2-s2n-lane-0-road-2",
+]
 
 [[routes]]
 route_id = "route-side-1-north-through"
 exit_portal_id = "portal-side-1-south"
+edge_ids = [
+    "edge-side-1-n2s-lane-1-road-0",
+    "edge-junction-1-north-straight-lane-1-to-1-i0",
+    "edge-side-1-n2s-lane-1-road-2",
+]
 
 [[routes]]
 route_id = "route-side-1-north-away-right"
 exit_portal_id = "portal-main-west"
+edge_ids = [
+    "edge-side-1-n2s-lane-1-road-0",
+    "edge-junction-1-north-right-lane-1-to-2-i0",
+    "edge-main-e2w-lane-2-road-4",
+]
 
 [[routes]]
 route_id = "route-side-1-south-away-left"
 exit_portal_id = "portal-main-west"
+edge_ids = [
+    "edge-side-1-s2n-lane-0-road-0",
+    "edge-junction-1-south-left-lane-0-to-0-i0",
+    "edge-main-e2w-lane-0-road-4",
+]
 
 [[routes]]
 route_id = "route-side-1-south-through"
 exit_portal_id = "portal-side-1-north"
+edge_ids = [
+    "edge-side-1-s2n-lane-1-road-0",
+    "edge-junction-1-south-straight-lane-1-to-1-i0",
+    "edge-side-1-s2n-lane-1-road-2",
+]
 
 [[routes]]
 route_id = "route-side-1-south-corridor-right-through"
 exit_portal_id = "portal-main-east"
+edge_ids = [
+    "edge-side-1-s2n-lane-1-road-0",
+    "edge-junction-1-south-right-lane-1-to-2-i0",
+    "edge-main-w2e-lane-2-road-2",
+    "edge-junction-2-west-straight-lane-2-to-2-i0",
+    "edge-main-w2e-lane-2-road-4",
+]
 
 [[routes]]
 route_id = "route-side-1-south-corridor-right-far-right"
 exit_portal_id = "portal-side-2-south"
+edge_ids = [
+    "edge-side-1-s2n-lane-1-road-0",
+    "edge-junction-1-south-right-lane-1-to-2-i0",
+    "edge-main-w2e-lane-2-road-2",
+    "edge-junction-2-west-right-lane-2-to-1-i0",
+    "edge-side-2-n2s-lane-1-road-2",
+]
 
 [[routes]]
 route_id = "route-side-2-north-away-left"
 exit_portal_id = "portal-main-east"
+edge_ids = [
+    "edge-side-2-n2s-lane-0-road-0",
+    "edge-junction-2-north-left-lane-0-to-0-i0",
+    "edge-main-w2e-lane-0-road-4",
+]
 
 [[routes]]
 route_id = "route-side-2-north-through"
 exit_portal_id = "portal-side-2-south"
+edge_ids = [
+    "edge-side-2-n2s-lane-1-road-0",
+    "edge-junction-2-north-straight-lane-1-to-1-i0",
+    "edge-side-2-n2s-lane-1-road-2",
+]
 
 [[routes]]
 route_id = "route-side-2-north-corridor-right-through"
 exit_portal_id = "portal-main-west"
+edge_ids = [
+    "edge-side-2-n2s-lane-1-road-0",
+    "edge-junction-2-north-right-lane-1-to-2-i0",
+    "edge-main-e2w-lane-2-road-2",
+    "edge-junction-1-east-straight-lane-2-to-2-i0",
+    "edge-main-e2w-lane-2-road-4",
+]
 
 [[routes]]
 route_id = "route-side-2-north-corridor-right-far-right"
 exit_portal_id = "portal-side-1-north"
+edge_ids = [
+    "edge-side-2-n2s-lane-1-road-0",
+    "edge-junction-2-north-right-lane-1-to-2-i0",
+    "edge-main-e2w-lane-2-road-2",
+    "edge-junction-1-east-right-lane-2-to-1-i0",
+    "edge-side-1-s2n-lane-1-road-2",
+]
 
 [[routes]]
 route_id = "route-side-2-south-corridor-left-far-left"
 exit_portal_id = "portal-side-1-south"
+edge_ids = [
+    "edge-side-2-s2n-lane-0-road-0",
+    "edge-junction-2-south-left-lane-0-to-0-i0",
+    "edge-main-e2w-lane-0-road-2",
+    "edge-junction-1-east-left-lane-0-to-0-i0",
+    "edge-side-1-n2s-lane-0-road-2",
+]
 
 [[routes]]
 route_id = "route-side-2-south-through"
 exit_portal_id = "portal-side-2-north"
+edge_ids = [
+    "edge-side-2-s2n-lane-1-road-0",
+    "edge-junction-2-south-straight-lane-1-to-1-i0",
+    "edge-side-2-s2n-lane-1-road-2",
+]
 
 [[routes]]
 route_id = "route-side-2-south-away-right"
 exit_portal_id = "portal-main-east"
+edge_ids = [
+    "edge-side-2-s2n-lane-1-road-0",
+    "edge-junction-2-south-right-lane-1-to-2-i0",
+    "edge-main-w2e-lane-2-road-4",
+]
 
 [[spawn_slots]]
 slot_id = "slot-main-west-lane-0-000"

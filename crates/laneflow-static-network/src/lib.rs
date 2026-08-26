@@ -26,10 +26,9 @@ pub use origin::{
 };
 pub use relations::{
     AccessCell, AccessRuleView, AccessTarget, BoundedDistance, CorridorElement, FacilityKind,
-    ManeuverGateView, NextControlledTransition, ParkingSpaceView, ParticipantClassView,
-    RouteDistanceIndexView, RouteDistanceQuery, RouteGateOccurrence, RouteManeuverOccurrence,
-    RouteReverseHits, RouteWaitingOccurrence, SharedRelationClosure, SignalControllerView,
-    SignalGroupView, SignalPhaseView, StopLineView, VehicleProfileView, WaitingZoneView,
+    ManeuverGateView, ParkingSpaceView, ParticipantClassView, SharedRelationClosure,
+    SignalControllerView, SignalGroupView, SignalPhaseView, StopLineView, VehicleProfileView,
+    WaitingZoneView,
 };
 pub use spatial::{
     CanonicalPoint, FacilityGeometryView, LaneGeometryView, LanePoseNetwork, SegmentGeometry,

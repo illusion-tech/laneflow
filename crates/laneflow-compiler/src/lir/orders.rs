@@ -7,8 +7,7 @@ use laneflow_static_contract::{
     JunctionOrdinal, LaneEdgeOrdinal, LaneGroupOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
     MovementOrdinal, ParkingAreaOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal,
     RoadCorridorOrdinal, RoadSectionOrdinal, SignalControllerOrdinal, SignalGroupOrdinal,
-    SignalPhaseOrdinal, StaticRouteOrdinal, StopLineOrdinal, VehicleProfileOrdinal,
-    WaitingZoneOrdinal,
+    SignalPhaseOrdinal, StopLineOrdinal, VehicleProfileOrdinal, WaitingZoneOrdinal,
 };
 
 use crate::arena::ArenaKey;
@@ -17,8 +16,7 @@ use crate::mir::{
     MirJunctionKey, MirLaneEdgeKey, MirLaneGroupKey, MirManeuverGateKey, MirManeuverPathKey,
     MirMovementKey, MirParkingAreaKey, MirParkingSpaceKey, MirParticipantClassKey,
     MirRoadCorridorKey, MirRoadSectionKey, MirSignalControllerKey, MirSignalGroupKey,
-    MirSignalPhaseKey, MirStaticRouteKey, MirStopLineKey, MirUnit, MirVehicleProfileKey,
-    MirWaitingZoneKey,
+    MirSignalPhaseKey, MirStopLineKey, MirUnit, MirVehicleProfileKey, MirWaitingZoneKey,
 };
 use crate::{DiagnosticBundle, SourceLocation};
 
@@ -137,7 +135,6 @@ pub(crate) struct CanonicalOrders {
     pub(crate) vehicle_profiles: LirEntityOrder<MirVehicleProfileKey, VehicleProfileOrdinal>,
     pub(crate) canonical_frames: LirEntityOrder<MirCanonicalFrameKey, CanonicalFrameOrdinal>,
     pub(crate) access_rules: LirEntityOrder<MirAccessRuleKey, AccessRuleOrdinal>,
-    pub(crate) static_routes: LirEntityOrder<MirStaticRouteKey, StaticRouteOrdinal>,
 }
 
 impl CanonicalOrders {
@@ -821,29 +818,6 @@ impl CanonicalOrders {
             primary_span.clone(),
         )?;
 
-        let mut canonical_mir_static_route_order: Vec<MirStaticRouteKey> = dense_mir_keys(
-            LirFreezePlan::capacity(plan.route.static_routes, limits, primary_span.clone())?,
-        );
-        canonical_mir_static_route_order.sort_unstable_by(|left, right| {
-            let left = &mir.static_routes[left.index()];
-            let right = &mir.static_routes[right.index()];
-            compare_identity_parts(
-                &mir.modules[left.module.index()].authoring_namespace_id,
-                &left.stable_key,
-                None,
-                &mir.modules[right.module.index()].authoring_namespace_id,
-                &right.stable_key,
-                None,
-            )
-        });
-        let mir_static_route_to_lir = ordinal_mapping(
-            LirFreezePlan::capacity(plan.route.static_routes, limits, primary_span.clone())?,
-            &canonical_mir_static_route_order,
-            StaticRouteOrdinal::try_from_usize,
-            limits,
-            primary_span.clone(),
-        )?;
-
         Ok(Self {
             lane_edges: LirEntityOrder::from_parts(canonical_order, mir_to_lir),
             road_corridors: LirEntityOrder::from_parts(
@@ -916,10 +890,6 @@ impl CanonicalOrders {
             access_rules: LirEntityOrder::from_parts(
                 canonical_mir_access_rule_order,
                 mir_access_rule_to_lir,
-            ),
-            static_routes: LirEntityOrder::from_parts(
-                canonical_mir_static_route_order,
-                mir_static_route_to_lir,
             ),
         })
     }

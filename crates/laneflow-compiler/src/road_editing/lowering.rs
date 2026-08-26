@@ -27,8 +27,8 @@ use crate::declaration::{
     ParticipantClassDeclaration, RoadAlignmentDeclaration, RoadCorridorAuthoringGeometry,
     RoadCorridorDeclaration, RoadSectionDeclaration, SignalControllerDeclaration,
     SignalGroupDeclaration, SignalGroupStateDeclaration, SignalPhaseDeclaration, SpeedLimit,
-    StaticRouteDeclaration, StopLineDeclaration, TypedAstDeclaration, TypedAstEntityAddress,
-    VehicleProfileDeclaration, WaitingZoneDeclaration,
+    StopLineDeclaration, TypedAstDeclaration, TypedAstEntityAddress, VehicleProfileDeclaration,
+    WaitingZoneDeclaration,
 };
 use crate::{
     RoadEditingPropertyStep, RoadEditingRelationKind, RoadEditingRelationOccurrence,
@@ -378,51 +378,6 @@ pub(super) fn lower_independent_declarations(
                     value.canvas_selection(),
                 ),
             ),
-        })
-    }));
-
-    let mut static_routes: Vec<_> = root.static_routes().iter().collect();
-    static_routes.sort_unstable_by(|left, right| {
-        left.static_route_key()
-            .as_bytes()
-            .cmp(right.static_route_key().as_bytes())
-    });
-    declarations.extend(static_routes.into_iter().map(|value| {
-        let key = value.static_route_key();
-        let edge_sequence = value
-            .edge_sequence()
-            .iter()
-            .enumerate()
-            .map(|(index, edge)| {
-                lower_reference::<LaneEdgeKind>(
-                    edge,
-                    1,
-                    shared_namespace,
-                    locations.owner_local(
-                        EntityKind::StaticRoute,
-                        &[],
-                        key,
-                        RoadEditingRelationKind::StaticRouteEdge,
-                        RoadEditingRelationOccurrence::OrderedProductOrdinal(
-                            u32::try_from(index).expect("compile limits bound relation ordinals"),
-                        ),
-                        &[RoadEditingPropertyStep::TableField {
-                            table: RoadEditingTableKind::StaticRoute,
-                            field_id: 1,
-                        }],
-                        value.canvas_selection(),
-                    ),
-                )
-            })
-            .collect();
-        TypedAstDeclaration::StaticRoute(StaticRouteDeclaration {
-            header: module_scoped_header(
-                locations,
-                EntityKind::StaticRoute,
-                key,
-                value.canvas_selection(),
-            ),
-            edge_sequence,
         })
     }));
 
@@ -1842,7 +1797,7 @@ mod tests {
         LaneEdgeInput, LaneEdgeReference, ManeuverPathInput, MovementInput, MovementReference,
         ParkingAreaInput, ParticipantClassInput, ParticipantClassReference, RoadEditingDeclaration,
         RoadEditingModuleHeader, RoadEditingModuleInput, RoadEditingProvenance,
-        RoadEditingSourceModuleBuilder, RoadEditingSourceWriter, StaticRouteInput, StopLineInput,
+        RoadEditingSourceModuleBuilder, RoadEditingSourceWriter, StopLineInput,
         VehicleProfileInput,
     };
     use crate::{CompileLimits, GeometryAccuracyProfile, GeometryDirectionProfile, SourceSpan};
@@ -2041,15 +1996,6 @@ mod tests {
                 StopLineInput::try_new("stop-main", imported_edge.clone()).unwrap(),
             ))
             .unwrap();
-        builder
-            .add_declaration(RoadEditingDeclaration::StaticRoute(
-                StaticRouteInput::try_new("route-main", vec![imported_edge.clone(), imported_edge])
-                    .unwrap()
-                    .with_canvas_selection("canvas/route")
-                    .unwrap(),
-            ))
-            .unwrap();
-
         let bytes = RoadEditingSourceWriter::new(&limits)
             .write(builder.finish().unwrap())
             .unwrap();
@@ -2076,30 +2022,6 @@ mod tests {
                 .module_namespace
                 .as_ref(),
             "city/base"
-        );
-        let TypedAstDeclaration::StaticRoute(route) = &declarations[3] else {
-            panic!("expected static route");
-        };
-        assert_eq!(route.edge_sequence.len(), 2);
-        assert!(matches!(
-            route.edge_sequence[1]
-                .span
-                .road_editing()
-                .unwrap()
-                .subject(),
-            crate::RoadEditingSubject::OwnerLocal {
-                relation: RoadEditingRelationKind::StaticRouteEdge,
-                occurrence: RoadEditingRelationOccurrence::OrderedProductOrdinal(1),
-                ..
-            }
-        ));
-        assert_eq!(
-            route.edge_sequence[1]
-                .span
-                .road_editing()
-                .unwrap()
-                .canvas_selection(),
-            Some("canvas/route")
         );
     }
 

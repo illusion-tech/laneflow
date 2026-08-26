@@ -17,9 +17,8 @@ use laneflow_static_contract::{
     ParkingAreaId, ParkingAreaOrdinal, ParkingSpaceId, ParkingSpaceOrdinal, ParticipantClassId,
     ParticipantClassOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId,
     RoadSectionOrdinal, SignalControllerId, SignalControllerOrdinal, SignalGroupId,
-    SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal,
-    StopLineId, StopLineOrdinal, VehicleProfileId, VehicleProfileOrdinal, WaitingZoneId,
-    WaitingZoneOrdinal,
+    SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal, StopLineId, StopLineOrdinal,
+    VehicleProfileId, VehicleProfileOrdinal, WaitingZoneId, WaitingZoneOrdinal,
 };
 
 use crate::diagnostic::DiagnosticCollector;
@@ -59,8 +58,6 @@ const LANE_EDGE_SUCCESSOR_SOURCE_FIXED_LOGICAL_BYTES: u64 =
 const STABLE_ENTITY_SOURCE_FIXED_LOGICAL_BYTES: u64 = LANE_EDGE_SOURCE_FIXED_LOGICAL_BYTES;
 const OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES: u64 =
     2 + 4 + 16 + 2 + 4 + SOURCE_RECORD_LOCATION_VARIANT_LOGICAL_BYTES;
-const ROUTE_RELATION_SOURCE_FIXED_LOGICAL_BYTES: u64 =
-    OWNER_LOCAL_RELATION_SOURCE_FIXED_LOGICAL_BYTES + 1;
 const SPATIAL_GEOMETRY_SOURCE_RANGE_FIXED_LOGICAL_BYTES: u64 =
     4 + 4 + 4 + SOURCE_RECORD_LOCATION_VARIANT_LOGICAL_BYTES;
 
@@ -120,13 +117,13 @@ pub enum SourceRelationRole {
     ManeuverPathWaitingZone = 11,
     /// 停止线被一项机动门引用的反向关系。
     StopLineManeuverGate = 12,
-    /// 静态路线有序边序列中的一次边出现。
+    /// 保留空位：历史静态路线边出现；编码不得发射。
     StaticRouteEdge = 13,
-    /// 静态路线中一次完整机动路径匹配。
+    /// 保留空位：历史静态路线机动路径出现项；编码不得发射。
     StaticRouteManeuverOccurrence = 14,
-    /// 静态路线中一次机动门匹配。
+    /// 保留空位：历史静态路线机动门出现项；编码不得发射。
     StaticRouteGateOccurrence = 15,
-    /// 静态路线中一次等待区匹配。
+    /// 保留空位：历史静态路线等待区出现项；编码不得发射。
     StaticRouteWaitingZoneOccurrence = 16,
     /// 信号控制器唯一拥有的一项信号组。
     SignalControllerGroup = 17,
@@ -251,15 +248,6 @@ struct LaneEdgeSuccessorSourceRecord {
     primary: SourceLocationRecord,
 }
 
-struct RouteRelationSourceRecord {
-    owner_ordinal: StaticRouteOrdinal,
-    owner_stable_id: StaticRouteId,
-    role: SourceRelationRole,
-    local_index: u32,
-    primary: SourceLocationRecord,
-    contributing: Option<SourceLocationRecord>,
-}
-
 struct SignalRelationSourceRecord {
     owner: SignalRelationOwnerRecord,
     role: SourceRelationRole,
@@ -353,8 +341,6 @@ pub struct ValidatedSourceMapInput {
     access_rule_sources: Box<[StableEntitySourceRecord<AccessRuleOrdinal, AccessRuleId>]>,
     access_relation_sources: Box<[AccessRelationSourceRecord]>,
     junction_relation_sources: Box<[JunctionRelationSourceRecord]>,
-    static_route_sources: Box<[StableEntitySourceRecord<StaticRouteOrdinal, StaticRouteId>]>,
-    route_relation_sources: Box<[RouteRelationSourceRecord]>,
     peak_controlled_live_bytes: u64,
 }
 
@@ -704,28 +690,6 @@ impl ValidatedSourceMapInput {
             })
     }
 
-    /// 按 `StaticRouteOrdinal` 递增顺序遍历静态路线来源记录。
-    pub fn static_route_sources(&self) -> impl ExactSizeIterator<Item = StaticRouteSourceView<'_>> {
-        self.static_route_sources
-            .iter()
-            .map(|record| StaticRouteSourceView {
-                source_map: self,
-                record,
-            })
-    }
-
-    /// 按路线、角色和路线内下标遍历静态路线及其预编译出现项来源。
-    pub fn route_relation_sources(
-        &self,
-    ) -> impl ExactSizeIterator<Item = RouteRelationSourceView<'_>> {
-        self.route_relation_sources
-            .iter()
-            .map(|record| RouteRelationSourceView {
-                source_map: self,
-                record,
-            })
-    }
-
     fn location<'a>(&'a self, record: &'a SourceLocationRecord) -> SourceLocationView<'a> {
         match record {
             SourceLocationRecord::Text {
@@ -967,7 +931,6 @@ stable_source_view!(
     CanonicalFrameId
 );
 stable_source_view!(AccessRuleSourceView, AccessRuleOrdinal, AccessRuleId);
-stable_source_view!(StaticRouteSourceView, StaticRouteOrdinal, StaticRouteId);
 
 /// 一条横断面 owner-local 关系来源记录的只读视图。
 #[derive(Clone, Copy)]
@@ -1438,54 +1401,5 @@ impl LaneEdgeSuccessorSourceView<'_> {
     /// 返回生成关系的贡献来源；当前显式 successor 关系没有推导链。
     pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
         core::iter::empty()
-    }
-}
-
-/// 一条静态路线 owner-local 关系来源记录的只读视图。
-#[derive(Clone, Copy)]
-pub struct RouteRelationSourceView<'a> {
-    source_map: &'a ValidatedSourceMapInput,
-    record: &'a RouteRelationSourceRecord,
-}
-
-impl RouteRelationSourceView<'_> {
-    /// 返回拥有该出现项的静态路线序号。
-    #[must_use]
-    pub const fn owner_ordinal(&self) -> StaticRouteOrdinal {
-        self.record.owner_ordinal
-    }
-
-    /// 返回拥有该出现项的静态路线稳定标识。
-    #[must_use]
-    pub const fn owner_stable_id(&self) -> StaticRouteId {
-        self.record.owner_stable_id
-    }
-
-    /// 返回边、机动路径、机动门或等待区出现项角色。
-    #[must_use]
-    pub const fn role(&self) -> SourceRelationRole {
-        self.record.role
-    }
-
-    /// 返回同一路线和角色中的零基局部下标。
-    #[must_use]
-    pub const fn local_index(&self) -> u32 {
-        self.record.local_index
-    }
-
-    /// 返回声明边引用或派生出现项所锚定的路线边引用位置。
-    pub fn primary_source(&self) -> SourceLocationView<'_> {
-        self.source_map.location(&self.record.primary)
-    }
-
-    /// 返回生成出现项所依赖的静态控制声明位置。
-    ///
-    /// 显式 `StaticRouteEdge` 没有贡献来源；机动、门和等待区出现项分别返回对应
-    /// `ManeuverPath`、`ManeuverGate` 或 `WaitingZone` 声明位置。
-    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
-        self.record
-            .contributing
-            .iter()
-            .map(|record| self.source_map.location(record))
     }
 }

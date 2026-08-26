@@ -2,9 +2,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use laneflow_compiler::{CanonicalIdentityViolation, CompileLimits, derive_canonical_stable_id_v1};
+use laneflow_runtime::{RouteError, RouteHandle, RouteRegisterInput, TrafficWorld};
 use laneflow_static_contract::{
-    EntityKind, LaneEdgeId, LaneEdgeOrdinal, NetworkRevisionId, StaticRouteId, StaticRouteOrdinal,
-    VehicleProfileId, VehicleProfileOrdinal,
+    EntityKind, LaneEdgeId, LaneEdgeOrdinal, NetworkRevisionId, VehicleProfileId,
+    VehicleProfileOrdinal,
 };
 use laneflow_static_network::SharedNetworkRevision;
 
@@ -13,15 +14,15 @@ use super::{
     SHUTTLE_BUS_PROFILE_KEY, SpawnSlotCatalogEntry, validate,
 };
 
-/// prepare 阶段把 catalog 0.2 字符串绑到本共享路网修订的类型化序号。
+/// prepare 阶段把 catalog 0.3 字符串绑到本共享路网修订的类型化序号。
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoundCorridorCatalog {
     pub network_revision: NetworkRevisionId,
-    pub routes: BTreeMap<String, StaticRouteOrdinal>,
+    pub routes: BTreeMap<String, Box<[LaneEdgeOrdinal]>>,
     pub edges: BTreeMap<String, LaneEdgeOrdinal>,
     pub profiles: BTreeMap<String, VehicleProfileOrdinal>,
     pub spawn_slots: Vec<BoundSpawnSlot>,
-    /// `catalog.routes` 顺序的静态路线与出口 portal 下标。
+    /// `catalog.routes` 顺序的边序号序列与出口 portal 下标。
     pub route_exits: Vec<BoundRouteExit>,
     /// 按 portal、lane index 展开的热路径入口车道。
     pub portal_lanes: Vec<BoundPortalLane>,
@@ -29,12 +30,12 @@ pub struct BoundCorridorCatalog {
     pub portal_lane_indices: [Vec<usize>; 6],
 }
 
-/// catalog route 绑到共享根静态路线与出口 portal。
+/// catalog route 绑到本修订边序号序列与出口 portal。
 ///
 /// 入口进度按 portal lane 的 `entry_slot_index` 取，不在路线上缓存单一入口槽。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoundRouteExit {
-    pub route: StaticRouteOrdinal,
+    pub edges: Box<[LaneEdgeOrdinal]>,
     pub exit_portal_index: u8,
 }
 
@@ -65,7 +66,7 @@ pub struct BoundSpawnSlot {
     pub portal_lane_index: usize,
     pub edge: LaneEdgeOrdinal,
     pub progress_mm: u32,
-    pub entry_route: StaticRouteOrdinal,
+    pub entry_edges: Box<[LaneEdgeOrdinal]>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -77,6 +78,7 @@ pub enum BindError {
     UnknownProfile(String),
     SlotEdgeNotEntry { slot_id: String, route_id: String },
     InvalidProgress { slot_id: String },
+    RouteRegister(RouteError),
 }
 
 impl fmt::Display for BindError {
@@ -114,6 +116,7 @@ impl fmt::Display for BindError {
                     "slot {slot_id:?} progress is outside the bound edge"
                 )
             }
+            Self::RouteRegister(error) => write!(formatter, "register_route failed: {error}"),
         }
     }
 }
@@ -128,8 +131,7 @@ impl From<CatalogError> for BindError {
 
 /// 用 Identity v1 把 catalog 字符串绑到已安装共享路网修订的类型化序号。
 ///
-/// 热路径不得再查这些字符串。调用方随后用 `TrafficWorld::static_route` /
-/// `spawn_vehicle` 消费序号。
+/// 热路径不得再查这些字符串。调用方随后 `install_routes` 再 `spawn_vehicle`。
 pub fn bind(
     catalog: &CorridorCatalog,
     revision: &SharedNetworkRevision,
@@ -138,8 +140,11 @@ pub fn bind(
     let limits = CompileLimits::p100_initial_v1();
     let mut routes = BTreeMap::new();
     for route in &catalog.routes {
-        let ordinal = resolve_route(revision, &route.route_id, &limits)?;
-        routes.insert(route.route_id.clone(), ordinal);
+        let mut edges = Vec::with_capacity(route.edge_ids.len());
+        for edge_id in &route.edge_ids {
+            edges.push(resolve_edge(revision, edge_id, &limits)?);
+        }
+        routes.insert(route.route_id.clone(), edges.into_boxed_slice());
     }
     for portal in &catalog.portals {
         for lane in &portal.lanes {
@@ -186,14 +191,15 @@ pub fn bind(
     let mut route_index_by_id = HashMap::new();
     let mut route_exits = Vec::with_capacity(catalog.routes.len());
     for route in &catalog.routes {
-        let ordinal = *routes
+        let edges = routes
             .get(&route.route_id)
-            .ok_or_else(|| BindError::UnknownRoute(route.route_id.clone()))?;
+            .ok_or_else(|| BindError::UnknownRoute(route.route_id.clone()))?
+            .clone();
         let exit_portal_index =
             u8::try_from(portal_rank(&route.exit_portal_id)).expect("portal count fits u8");
         route_index_by_id.insert(route.route_id.as_str(), route_exits.len());
         route_exits.push(BoundRouteExit {
-            route: ordinal,
+            edges,
             exit_portal_index,
         });
     }
@@ -250,11 +256,34 @@ pub fn bind(
     })
 }
 
+impl BoundCorridorCatalog {
+    /// 对本世界每条 catalog 路线恰好 `register_route` 一次；已有相同边序列则重用句柄。
+    pub fn install_routes(&self, world: &mut TrafficWorld) -> Result<Vec<RouteHandle>, BindError> {
+        if world.revision().network_revision() != self.network_revision {
+            return Err(BindError::UnknownRoute(
+                "TrafficWorld 修订与 catalog bind 不一致".to_owned(),
+            ));
+        }
+        let mut handles = Vec::with_capacity(self.route_exits.len());
+        for exit in &self.route_exits {
+            if let Some(existing) = world.find_route(&exit.edges) {
+                handles.push(existing);
+                continue;
+            }
+            let handle = world
+                .register_route(RouteRegisterInput::new(exit.edges.to_vec()))
+                .map_err(BindError::RouteRegister)?;
+            handles.push(handle);
+        }
+        Ok(handles)
+    }
+}
+
 fn bind_slot(
     catalog: &CorridorCatalog,
     slot: &SpawnSlotCatalogEntry,
     revision: &SharedNetworkRevision,
-    routes: &BTreeMap<String, StaticRouteOrdinal>,
+    routes: &BTreeMap<String, Box<[LaneEdgeOrdinal]>>,
     edges: &BTreeMap<String, LaneEdgeOrdinal>,
 ) -> Result<BoundSpawnSlot, BindError> {
     let edge = *edges
@@ -271,13 +300,8 @@ fn bind_slot(
         .find(|lane| lane.lane_index == slot.lane_index)
         .expect("validate checked portal lane");
     for choice in &lane.route_choices {
-        let route = *routes
+        let route_edges = routes
             .get(&choice.route_id)
-            .ok_or_else(|| BindError::UnknownRoute(choice.route_id.clone()))?;
-        let route_edges = revision
-            .traffic()
-            .relations()
-            .static_route_edges(route)
             .ok_or_else(|| BindError::UnknownRoute(choice.route_id.clone()))?;
         if route_edges.first().copied() != Some(edge) {
             return Err(BindError::SlotEdgeNotEntry {
@@ -303,18 +327,18 @@ fn bind_slot(
         });
     }
     let progress_mm = progress_mm as u32;
-    let entry_route = lane
+    let entry_edges = lane
         .route_choices
         .iter()
         .map(|choice| {
             routes
                 .get(&choice.route_id)
-                .copied()
+                .cloned()
                 .ok_or_else(|| BindError::UnknownRoute(choice.route_id.clone()))
         })
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
-        .min_by_key(|ordinal| ordinal.raw())
+        .min_by(|left, right| left.as_ref().cmp(right.as_ref()))
         .ok_or_else(|| BindError::UnknownRoute(lane.route_choices[0].route_id.clone()))?;
     Ok(BoundSpawnSlot {
         slot_id: slot.slot_id.clone(),
@@ -324,7 +348,7 @@ fn bind_slot(
         portal_lane_index: 0,
         edge,
         progress_mm,
-        entry_route,
+        entry_edges,
     })
 }
 
@@ -333,20 +357,6 @@ fn portal_rank(portal_id: &str) -> usize {
         .iter()
         .position(|id| *id == portal_id)
         .expect("validate checked portal")
-}
-
-fn resolve_route(
-    revision: &SharedNetworkRevision,
-    key: &str,
-    limits: &CompileLimits,
-) -> Result<StaticRouteOrdinal, BindError> {
-    let stable =
-        derive_canonical_stable_id_v1(EntityKind::StaticRoute, AUTHORING_NAMESPACE, key, limits)
-            .map_err(BindError::Identity)?;
-    revision
-        .identity()
-        .ordinal(StaticRouteId::from_untyped(stable))
-        .ok_or_else(|| BindError::UnknownRoute(key.to_owned()))
 }
 
 fn resolve_edge(

@@ -43,16 +43,14 @@ fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
 }
 
 fn spawn_on_slot(world: &mut TrafficWorld, profile: VehicleProfileOrdinal, slot: &BoundSpawnSlot) {
-    let edges = world
-        .traffic()
-        .relations()
-        .static_route_edges(slot.entry_route)
-        .expect("route edges");
-    let index = edges
+    let index = slot
+        .entry_edges
         .iter()
         .position(|edge| *edge == slot.edge)
         .expect("slot edge is on its entry route");
-    let route = world.static_route(slot.entry_route).expect("static route");
+    let route = world
+        .find_route(&slot.entry_edges)
+        .expect("catalog route must be registered");
     world
         .spawn_vehicle(VehicleSpawnInput::new(
             profile,
@@ -71,6 +69,7 @@ fn spawn_two_vehicles(
     let catalog: CorridorCatalog = toml::from_str(CORRIDOR_CATALOG).expect("catalog TOML");
     let bound = bind(&catalog, revision).expect("prepare bind");
     assert_eq!(bound.network_revision, revision.network_revision());
+    bound.install_routes(world).expect("install catalog routes");
     let profile = *bound
         .profiles
         .get(PASSENGER_CAR_PROFILE_KEY)
@@ -155,7 +154,7 @@ fn sync_proxy(
 #[test]
 fn headless_app_steps_corridor_runtime_and_moves_proxy_transform() {
     let revision = revision();
-    let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 8, 1, 16))
+    let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 32, 1, 16))
         .expect("install");
     spawn_two_vehicles(&mut world, &revision);
     let spatial = SpatialSession::bind(revision)

@@ -6652,138 +6652,6 @@ impl ::core::fmt::Debug for VehicleProfile<'_> {
       ds.finish()
   }
 }
-pub enum StaticRouteOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct StaticRoute<'a> {
-  pub _tab: ::flatbuffers::Table<'a>,
-}
-
-impl<'a> ::flatbuffers::Follow<'a> for StaticRoute<'a> {
-  type Inner = StaticRoute<'a>;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
-  }
-}
-
-impl<'a> StaticRoute<'a> {
-  pub const VT_STATIC_ROUTE_KEY: ::flatbuffers::VOffsetT = 4;
-  pub const VT_EDGE_SEQUENCE: ::flatbuffers::VOffsetT = 6;
-  pub const VT_CANVAS_SELECTION: ::flatbuffers::VOffsetT = 8;
-
-  #[inline]
-  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
-    StaticRoute { _tab: table }
-  }
-  #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
-    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args StaticRouteArgs<'args>
-  ) -> ::flatbuffers::WIPOffset<StaticRoute<'bldr>> {
-    let mut builder = StaticRouteBuilder::new(_fbb);
-    if let Some(x) = args.canvas_selection { builder.add_canvas_selection(x); }
-    if let Some(x) = args.edge_sequence { builder.add_edge_sequence(x); }
-    if let Some(x) = args.static_route_key { builder.add_static_route_key(x); }
-    builder.finish()
-  }
-
-
-  #[inline]
-  pub fn static_route_key(&self) -> &'a str {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(StaticRoute::VT_STATIC_ROUTE_KEY, None).unwrap()}
-  }
-  #[inline]
-  pub fn edge_sequence(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>(StaticRoute::VT_EDGE_SEQUENCE, None).unwrap()}
-  }
-  #[inline]
-  pub fn canvas_selection(&self) -> Option<&'a str> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(StaticRoute::VT_CANVAS_SELECTION, None)}
-  }
-}
-
-impl ::flatbuffers::Verifiable for StaticRoute<'_> {
-  #[inline]
-  fn run_verifier(
-    v: &mut ::flatbuffers::Verifier, pos: usize
-  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
-    v.visit_table(pos)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("static_route_key", Self::VT_STATIC_ROUTE_KEY, true)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<&'_ str>>>>("edge_sequence", Self::VT_EDGE_SEQUENCE, true)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("canvas_selection", Self::VT_CANVAS_SELECTION, false)?
-     .finish();
-    Ok(())
-  }
-}
-pub struct StaticRouteArgs<'a> {
-    pub static_route_key: Option<::flatbuffers::WIPOffset<&'a str>>,
-    pub edge_sequence: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>,
-    pub canvas_selection: Option<::flatbuffers::WIPOffset<&'a str>>,
-}
-impl<'a> Default for StaticRouteArgs<'a> {
-  #[inline]
-  fn default() -> Self {
-    StaticRouteArgs {
-      static_route_key: None, // required field
-      edge_sequence: None, // required field
-      canvas_selection: None,
-    }
-  }
-}
-
-pub struct StaticRouteBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
-  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
-  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> StaticRouteBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_static_route_key(&mut self, static_route_key: ::flatbuffers::WIPOffset<&'b  str>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(StaticRoute::VT_STATIC_ROUTE_KEY, static_route_key);
-  }
-  #[inline]
-  pub fn add_edge_sequence(&mut self, edge_sequence: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<&'b  str>>>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(StaticRoute::VT_EDGE_SEQUENCE, edge_sequence);
-  }
-  #[inline]
-  pub fn add_canvas_selection(&mut self, canvas_selection: ::flatbuffers::WIPOffset<&'b  str>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(StaticRoute::VT_CANVAS_SELECTION, canvas_selection);
-  }
-  #[inline]
-  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> StaticRouteBuilder<'a, 'b, A> {
-    let start = _fbb.start_table();
-    StaticRouteBuilder {
-      fbb_: _fbb,
-      start_: start,
-    }
-  }
-  #[inline]
-  pub fn finish(self) -> ::flatbuffers::WIPOffset<StaticRoute<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    self.fbb_.required(o, StaticRoute::VT_STATIC_ROUTE_KEY,"static_route_key");
-    self.fbb_.required(o, StaticRoute::VT_EDGE_SEQUENCE,"edge_sequence");
-    ::flatbuffers::WIPOffset::new(o.value())
-  }
-}
-
-impl ::core::fmt::Debug for StaticRoute<'_> {
-  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-    let mut ds = f.debug_struct("StaticRoute");
-      ds.field("static_route_key", &self.static_route_key());
-      ds.field("edge_sequence", &self.edge_sequence());
-      ds.field("canvas_selection", &self.canvas_selection());
-      ds.finish()
-  }
-}
 pub enum CanonicalFrameOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -6940,7 +6808,6 @@ impl<'a> RoadEditingSource<'a> {
   pub const VT_PARTICIPANT_CLASSES: ::flatbuffers::VOffsetT = 48;
   pub const VT_ACCESS_RULES: ::flatbuffers::VOffsetT = 50;
   pub const VT_VEHICLE_PROFILES: ::flatbuffers::VOffsetT = 52;
-  pub const VT_STATIC_ROUTES: ::flatbuffers::VOffsetT = 54;
   pub const VT_CANONICAL_FRAMES: ::flatbuffers::VOffsetT = 56;
 
   #[inline]
@@ -6954,7 +6821,6 @@ impl<'a> RoadEditingSource<'a> {
   ) -> ::flatbuffers::WIPOffset<RoadEditingSource<'bldr>> {
     let mut builder = RoadEditingSourceBuilder::new(_fbb);
     if let Some(x) = args.canonical_frames { builder.add_canonical_frames(x); }
-    if let Some(x) = args.static_routes { builder.add_static_routes(x); }
     if let Some(x) = args.vehicle_profiles { builder.add_vehicle_profiles(x); }
     if let Some(x) = args.access_rules { builder.add_access_rules(x); }
     if let Some(x) = args.participant_classes { builder.add_participant_classes(x); }
@@ -7160,13 +7026,6 @@ impl<'a> RoadEditingSource<'a> {
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<VehicleProfile>>>>(RoadEditingSource::VT_VEHICLE_PROFILES, None).unwrap()}
   }
   #[inline]
-  pub fn static_routes(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<StaticRoute<'a>>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<StaticRoute>>>>(RoadEditingSource::VT_STATIC_ROUTES, None).unwrap()}
-  }
-  #[inline]
   pub fn canonical_frames(&self) -> ::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<CanonicalFrame<'a>>> {
     // Safety:
     // Created from valid Table for this object
@@ -7206,7 +7065,6 @@ impl ::flatbuffers::Verifiable for RoadEditingSource<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ParticipantClass>>>>("participant_classes", Self::VT_PARTICIPANT_CLASSES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<AccessRule>>>>("access_rules", Self::VT_ACCESS_RULES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<VehicleProfile>>>>("vehicle_profiles", Self::VT_VEHICLE_PROFILES, true)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<StaticRoute>>>>("static_routes", Self::VT_STATIC_ROUTES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<CanonicalFrame>>>>("canonical_frames", Self::VT_CANONICAL_FRAMES, true)?
      .finish();
     Ok(())
@@ -7238,7 +7096,6 @@ pub struct RoadEditingSourceArgs<'a> {
     pub participant_classes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ParticipantClass<'a>>>>>,
     pub access_rules: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<AccessRule<'a>>>>>,
     pub vehicle_profiles: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<VehicleProfile<'a>>>>>,
-    pub static_routes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<StaticRoute<'a>>>>>,
     pub canonical_frames: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<CanonicalFrame<'a>>>>>,
 }
 impl<'a> Default for RoadEditingSourceArgs<'a> {
@@ -7270,7 +7127,6 @@ impl<'a> Default for RoadEditingSourceArgs<'a> {
       participant_classes: None, // required field
       access_rules: None, // required field
       vehicle_profiles: None, // required field
-      static_routes: None, // required field
       canonical_frames: None, // required field
     }
   }
@@ -7382,10 +7238,6 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadEditingSourceBuilder<'a, 
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadEditingSource::VT_VEHICLE_PROFILES, vehicle_profiles);
   }
   #[inline]
-  pub fn add_static_routes(&mut self, static_routes: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<StaticRoute<'b >>>>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadEditingSource::VT_STATIC_ROUTES, static_routes);
-  }
-  #[inline]
   pub fn add_canonical_frames(&mut self, canonical_frames: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<CanonicalFrame<'b >>>>) {
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(RoadEditingSource::VT_CANONICAL_FRAMES, canonical_frames);
   }
@@ -7422,7 +7274,6 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RoadEditingSourceBuilder<'a, 
     self.fbb_.required(o, RoadEditingSource::VT_PARTICIPANT_CLASSES,"participant_classes");
     self.fbb_.required(o, RoadEditingSource::VT_ACCESS_RULES,"access_rules");
     self.fbb_.required(o, RoadEditingSource::VT_VEHICLE_PROFILES,"vehicle_profiles");
-    self.fbb_.required(o, RoadEditingSource::VT_STATIC_ROUTES,"static_routes");
     self.fbb_.required(o, RoadEditingSource::VT_CANONICAL_FRAMES,"canonical_frames");
     ::flatbuffers::WIPOffset::new(o.value())
   }
@@ -7456,7 +7307,6 @@ impl ::core::fmt::Debug for RoadEditingSource<'_> {
       ds.field("participant_classes", &self.participant_classes());
       ds.field("access_rules", &self.access_rules());
       ds.field("vehicle_profiles", &self.vehicle_profiles());
-      ds.field("static_routes", &self.static_routes());
       ds.field("canonical_frames", &self.canonical_frames());
       ds.finish()
   }

@@ -7,7 +7,7 @@ use laneflow_compiler::{
     ParticipantClassReference, PortableDiffBase, PortableEmissionProvenance, RoadCorridorInput,
     RoadSectionInput, RoadSectionReference, SignalAspect, SignalControlInput,
     SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
-    SignalPhaseInput, SourceModuleHeader, SourceModuleHeaderInput, StaticRouteInput, StopLineInput,
+    SignalPhaseInput, SourceModuleHeader, SourceModuleHeaderInput, StopLineInput,
     SyntheticModuleBuilder, VehicleProfileInput, emit_portable_candidate,
 };
 use laneflow_format::{FormatLimits, check_post_emission_bundle};
@@ -62,7 +62,6 @@ pub(crate) fn compile_corridor(
     add_stop_lines(&mut builder, corridor)?;
     add_signal_groups_and_controllers(&mut builder, config)?;
     add_maneuver_gates(&mut builder, corridor)?;
-    add_static_routes(&mut builder, corridor)?;
     add_cross_section(&mut builder, cross_section)?;
     add_access_rules(&mut builder, cross_section)?;
     add_canonical_frame(&mut builder, config, corridor)?;
@@ -425,27 +424,6 @@ fn add_maneuver_gates(
                 )),
             })
             .map_err(|bundle| compile_error("maneuver gate", bundle))?;
-    }
-    Ok(())
-}
-
-fn add_static_routes(
-    builder: &mut SyntheticModuleBuilder,
-    corridor: &CorridorBuild,
-) -> Result<(), Error> {
-    for route in &corridor.routes {
-        let edges: Vec<_> = route
-            .route
-            .edge_ids
-            .iter()
-            .map(|id| LaneEdgeReference::local(id.as_str()))
-            .collect();
-        builder
-            .add_static_route(StaticRouteInput {
-                static_route_key: route.route.id.as_str(),
-                edge_sequence: &edges,
-            })
-            .map_err(|bundle| compile_error("static route", bundle))?;
     }
     Ok(())
 }

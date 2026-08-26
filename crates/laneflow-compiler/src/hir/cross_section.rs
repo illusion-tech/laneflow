@@ -383,7 +383,6 @@ pub(crate) fn build_cross_section_hir(
                 | TypedAstDeclaration::StopLine(_)
                 | TypedAstDeclaration::ManeuverGate(_)
                 | TypedAstDeclaration::WaitingZone(_)
-                | TypedAstDeclaration::StaticRoute(_)
                 | TypedAstDeclaration::SignalGroup(_)
                 | TypedAstDeclaration::SignalController(_)
                 | TypedAstDeclaration::ParkingArea(_)

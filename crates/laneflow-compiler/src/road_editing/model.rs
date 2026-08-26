@@ -9,8 +9,8 @@ use laneflow_static_contract::{
     MIN_PARKING_LATERAL_OFFSET_ABS_MM, MIN_SPEED_MM_S, MIN_VEHICLE_LENGTH_MM, ManeuverGateKind,
     ManeuverPathKind, MovementKind, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, ParkingAreaKind,
     ParkingSpaceKind, ParticipantClassKind, RoadCorridorKind, RoadSectionKind, SignalAspect,
-    SignalControllerKind, SignalGroupKind, SignalPhaseKind, StaticRouteKind, StopLineKind,
-    VehicleProfileKind, WaitingZoneKind,
+    SignalControllerKind, SignalGroupKind, SignalPhaseKind, StopLineKind, VehicleProfileKind,
+    WaitingZoneKind,
 };
 
 use super::rules::{
@@ -208,7 +208,6 @@ pub type FacilityBandReference = RoadEditingReference<FacilityBandKind>;
 pub type ParticipantClassReference = RoadEditingReference<ParticipantClassKind>;
 pub type AccessRuleReference = RoadEditingReference<AccessRuleKind>;
 pub type VehicleProfileReference = RoadEditingReference<VehicleProfileKind>;
-pub type StaticRouteReference = RoadEditingReference<StaticRouteKind>;
 pub type CanonicalFrameReference = RoadEditingReference<CanonicalFrameKind>;
 
 /// 当前模块内、不进入 Identity v1 的道路走向键引用。
@@ -2064,40 +2063,6 @@ impl VehicleProfileInput {
 }
 impl_canvas!(VehicleProfileInput);
 
-/// 编制期权威的有序静态路线。
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StaticRouteInput {
-    static_route_key: Box<str>,
-    edge_sequence: Box<[LaneEdgeReference]>,
-    canvas_selection: Option<Box<str>>,
-}
-
-impl StaticRouteInput {
-    pub fn try_new(
-        static_route_key: impl Into<String>,
-        edge_sequence: Vec<LaneEdgeReference>,
-    ) -> Result<Self, DiagnosticBundle> {
-        let static_route_key = static_route_key.into();
-        validate_token(&static_route_key, "staticRoute.staticRouteKey")?;
-        require_non_empty(&edge_sequence, "staticRoute.edgeSequence")?;
-        Ok(Self {
-            static_route_key: static_route_key.into_boxed_str(),
-            edge_sequence: edge_sequence.into_boxed_slice(),
-            canvas_selection: None,
-        })
-    }
-
-    #[must_use]
-    pub fn static_route_key(&self) -> &str {
-        &self.static_route_key
-    }
-    #[must_use]
-    pub fn edge_sequence(&self) -> &[LaneEdgeReference] {
-        &self.edge_sequence
-    }
-}
-impl_canvas!(StaticRouteInput);
-
 /// 固定单位、手性与范围的规范坐标框架声明。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CanonicalFrameInput {
@@ -2122,7 +2087,7 @@ impl CanonicalFrameInput {
 }
 impl_canvas!(CanonicalFrameInput);
 
-/// Road Editing Source v1 的 22 类稳定声明闭集。
+/// Road Editing Source 的 21 个可构造声明种类；不含历史 `StaticRoute`。
 #[derive(Clone, Debug, PartialEq)]
 pub enum RoadEditingDeclaration {
     RoadCorridor(RoadCorridorInput),
@@ -2145,7 +2110,6 @@ pub enum RoadEditingDeclaration {
     ParticipantClass(ParticipantClassInput),
     AccessRule(AccessRuleInput),
     VehicleProfile(VehicleProfileInput),
-    StaticRoute(StaticRouteInput),
     CanonicalFrame(CanonicalFrameInput),
 }
 
@@ -2174,7 +2138,6 @@ impl RoadEditingDeclaration {
             Self::ParticipantClass(_) => EntityKind::ParticipantClass,
             Self::AccessRule(_) => EntityKind::AccessRule,
             Self::VehicleProfile(_) => EntityKind::VehicleProfile,
-            Self::StaticRoute(_) => EntityKind::StaticRoute,
             Self::CanonicalFrame(_) => EntityKind::CanonicalFrame,
         }
     }
@@ -2203,7 +2166,6 @@ impl RoadEditingDeclaration {
             Self::ParticipantClass(value) => value.participant_class_key(),
             Self::AccessRule(value) => value.access_rule_key(),
             Self::VehicleProfile(value) => value.vehicle_profile_key(),
-            Self::StaticRoute(value) => value.static_route_key(),
             Self::CanonicalFrame(value) => value.canonical_frame_key(),
         }
     }
@@ -2230,7 +2192,6 @@ impl RoadEditingDeclaration {
             | Self::ParticipantClass(_)
             | Self::AccessRule(_)
             | Self::VehicleProfile(_)
-            | Self::StaticRoute(_)
             | Self::CanonicalFrame(_) => Box::new([]),
         }
     }

@@ -149,7 +149,6 @@ fn measure_object_with_schema(
             section.kind,
             section_schema.kind,
             ordinal,
-            schema.sections.len(),
         )?;
         let section_length =
             measure_section(input.kind, *section, section_schema, limits, &mut budget)?;
@@ -258,7 +257,6 @@ fn measure_section(
             table.kind,
             table_schema.kind,
             ordinal,
-            schema.tables.len(),
         )?;
         let is_source_location =
             object_kind == PortableObjectKind::SourceMap && section.kind == 2 && table.kind == 3;
@@ -597,9 +595,10 @@ fn check_ordered_kind(
     actual: u16,
     expected: u16,
     ordinal: usize,
-    count: usize,
 ) -> Result<(), FormatError> {
-    if actual == 0 || usize::from(actual) > count {
+    // Table kinds may contain reserved holes (kind 22 with 21 tables). Match the
+    // registry kind, not 1..=table_count.
+    if actual == 0 {
         return Err(FormatError::UnknownKind {
             structure,
             code: u64::from(actual),

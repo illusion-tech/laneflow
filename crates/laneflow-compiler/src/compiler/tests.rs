@@ -14,8 +14,8 @@ use crate::{
     ParticipantClassInput, ParticipantClassReference, RoadCorridorInput, RoadSectionInput,
     RoadSectionReference, SignalControlInput, SignalControllerInput, SignalGroupInput,
     SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, SourceModuleDescriptor,
-    SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole, SourceSpan, StaticRouteInput,
-    StopLineInput, StopLineReference, SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput,
+    SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole, SourceSpan, StopLineInput,
+    StopLineReference, SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput,
     WaitingZoneInput,
 };
 use laneflow_static_contract::{CanonicalFrameKind, HEADING_MINUS_PI_F32_BITS};
@@ -587,69 +587,6 @@ fn branched_control_builder(document: &str, include_right_path: bool) -> Synthet
             })
             .unwrap();
     }
-    builder
-}
-
-fn route_validation_builder(document: &str) -> SyntheticModuleBuilder {
-    let mut builder = junction_builder(document);
-    builder
-        .add_lane_edge(LaneEdgeInput {
-            lane_edge_key: "entry",
-            length_meters: 10.0,
-            speed_limit_meters_per_second: 10.0,
-            successors: &[LaneEdgeReference::local("middle")],
-        })
-        .unwrap()
-        .add_lane_edge(LaneEdgeInput {
-            lane_edge_key: "other",
-            length_meters: 10.0,
-            speed_limit_meters_per_second: 10.0,
-            successors: &[LaneEdgeReference::local("middle")],
-        })
-        .unwrap()
-        .add_lane_edge(LaneEdgeInput {
-            lane_edge_key: "middle",
-            length_meters: 8.0,
-            speed_limit_meters_per_second: 8.0,
-            successors: &[
-                LaneEdgeReference::local("exit"),
-                LaneEdgeReference::local("detour"),
-            ],
-        })
-        .unwrap()
-        .add_lane_edge(LaneEdgeInput {
-            lane_edge_key: "exit",
-            length_meters: 12.0,
-            speed_limit_meters_per_second: 10.0,
-            successors: &[],
-        })
-        .unwrap()
-        .add_lane_edge(LaneEdgeInput {
-            lane_edge_key: "detour",
-            length_meters: 12.0,
-            speed_limit_meters_per_second: 10.0,
-            successors: &[],
-        })
-        .unwrap()
-        .add_junction(JunctionInput {
-            junction_key: "junction-main",
-        })
-        .unwrap()
-        .add_movement(MovementInput {
-            movement_key: "movement-through",
-            junction: JunctionReference::local("junction-main"),
-            directed_entry_approach_key: "approach-westbound",
-            directed_exit_approach_key: "approach-eastbound",
-        })
-        .unwrap()
-        .add_maneuver_path(ManeuverPathInput {
-            maneuver_path_key: "path-main",
-            movement: MovementReference::local("movement-through"),
-            entry_edge: LaneEdgeReference::local("entry"),
-            internal_edges: &[LaneEdgeReference::local("middle")],
-            exit_edge: LaneEdgeReference::local("exit"),
-        })
-        .unwrap();
     builder
 }
 
@@ -1408,16 +1345,6 @@ fn portable_emitter_closes_every_current_relation_family_and_spatial_projection(
 
     let mut route_builder = control_builder("portable-route.document");
     add_valid_control(&mut route_builder, false);
-    route_builder
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-main",
-            edge_sequence: &[
-                LaneEdgeReference::local("entry"),
-                LaneEdgeReference::local("middle"),
-                LaneEdgeReference::local("exit"),
-            ],
-        })
-        .unwrap();
     let route = Compiler::new()
         .compile(unit([route_builder.finish().unwrap()]))
         .unwrap();
@@ -1446,7 +1373,8 @@ fn portable_emitter_closes_every_current_relation_family_and_spatial_projection(
         .unwrap();
     emit(&spatial);
 
-    assert_eq!(emitted_roles, (1_u8..=29).collect());
+    let expected_roles: std::collections::BTreeSet<u8> = (1_u8..=12).chain(17_u8..=29).collect();
+    assert_eq!(emitted_roles, expected_roles);
 }
 
 #[test]
@@ -2820,328 +2748,6 @@ fn compiler_freezes_gate_stop_line_and_waiting_zone_closure() {
 }
 
 #[test]
-fn compiler_precompiles_static_route_control_occurrences_and_reverse_indexes() {
-    let mut builder = control_builder("static-route.document");
-    add_valid_control(&mut builder, false);
-    builder
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-main",
-            edge_sequence: &[
-                LaneEdgeReference::local("entry"),
-                LaneEdgeReference::local("middle"),
-                LaneEdgeReference::local("exit"),
-            ],
-        })
-        .unwrap();
-    let output = Compiler::new()
-        .compile(unit([builder.finish().unwrap()]))
-        .unwrap();
-    let lir = output.lir();
-    let route = lir.static_routes().next().unwrap();
-    let path = lir.maneuver_paths().next().unwrap();
-    let path_gates = path.maneuver_gates();
-    let waiting = lir.waiting_zones().next().unwrap();
-
-    assert_eq!(route.edges(), path.edges());
-    assert_eq!(
-        route.transition_gates().collect::<Vec<_>>(),
-        [Some(path_gates[0]), Some(path_gates[1])]
-    );
-    let maneuvers = route.maneuver_occurrences().collect::<Vec<_>>();
-    assert_eq!(maneuvers.len(), 1);
-    assert_eq!(maneuvers[0].maneuver_path(), path.ordinal());
-    assert_eq!(maneuvers[0].entry_route_edge_index(), 0);
-    assert_eq!(maneuvers[0].exit_route_edge_index(), 2);
-    assert_eq!(maneuvers[0].gate_occurrence_range(), 0..2);
-    assert_eq!(maneuvers[0].waiting_zone_occurrence_range(), 0..1);
-
-    let gates = route.gate_occurrences().collect::<Vec<_>>();
-    assert_eq!(gates.len(), 2);
-    assert_eq!(gates[0].maneuver_gate(), path_gates[0]);
-    assert_eq!(gates[0].next_gate_occurrence_index(), Some(1));
-    assert_eq!(gates[0].next_boundary_route_edge_index(), 1);
-    assert_eq!(gates[0].waiting_zone_occurrence_index(), Some(0));
-    assert_eq!(gates[1].maneuver_gate(), path_gates[1]);
-    assert_eq!(gates[1].next_gate_occurrence_index(), None);
-    assert_eq!(gates[1].next_boundary_route_edge_index(), 2);
-
-    let waiting_occurrences = route.waiting_zone_occurrences().collect::<Vec<_>>();
-    assert_eq!(waiting_occurrences.len(), 1);
-    assert_eq!(waiting_occurrences[0].waiting_zone(), waiting.ordinal());
-    assert_eq!(waiting_occurrences[0].entry_gate_occurrence_index(), 0);
-    assert_eq!(waiting_occurrences[0].release_gate_occurrence_index(), 1);
-    assert_eq!(waiting_occurrences[0].entry_route_edge_index(), 0);
-    assert_eq!(waiting_occurrences[0].release_route_edge_index(), 1);
-
-    for (edge_index, edge) in route.edges().iter().copied().enumerate() {
-        assert_eq!(
-            lir.lane_edge(edge)
-                .unwrap()
-                .static_route_occurrences()
-                .collect::<Vec<_>>(),
-            [CanonicalStaticRouteOccurrenceRef {
-                static_route: route.ordinal(),
-                occurrence_index: edge_index as u32,
-            }]
-        );
-    }
-    assert_eq!(path.static_route_occurrences().len(), 1);
-    assert_eq!(
-        lir.maneuver_gate(path_gates[0])
-            .unwrap()
-            .static_route_occurrences()
-            .len(),
-        1
-    );
-    assert_eq!(waiting.static_route_occurrences().len(), 1);
-
-    let source_map = output.source_map_input();
-    assert_eq!(source_map.static_route_sources().len(), 1);
-    let route_sources = source_map.route_relation_sources().collect::<Vec<_>>();
-    assert_eq!(
-        route_sources
-            .iter()
-            .map(|source| source.role())
-            .collect::<Vec<_>>(),
-        [
-            SourceRelationRole::StaticRouteEdge,
-            SourceRelationRole::StaticRouteEdge,
-            SourceRelationRole::StaticRouteEdge,
-            SourceRelationRole::StaticRouteManeuverOccurrence,
-            SourceRelationRole::StaticRouteGateOccurrence,
-            SourceRelationRole::StaticRouteGateOccurrence,
-            SourceRelationRole::StaticRouteWaitingZoneOccurrence,
-        ]
-    );
-    assert!(
-        route_sources[..3]
-            .iter()
-            .all(|source| source.contributing_sources().len() == 0)
-    );
-    assert!(
-        route_sources[3..]
-            .iter()
-            .all(|source| source.contributing_sources().len() == 1)
-    );
-}
-
-#[test]
-fn static_route_preserves_repeated_edge_occurrences() {
-    let mut builder = junction_builder("static-route-repeated-edge.document");
-    builder
-        .add_lane_edge(LaneEdgeInput {
-            lane_edge_key: "loop",
-            length_meters: 10.0,
-            speed_limit_meters_per_second: 10.0,
-            successors: &[
-                LaneEdgeReference::local("loop"),
-                LaneEdgeReference::local("exit"),
-            ],
-        })
-        .unwrap()
-        .add_lane_edge(LaneEdgeInput {
-            lane_edge_key: "exit",
-            length_meters: 10.0,
-            speed_limit_meters_per_second: 10.0,
-            successors: &[],
-        })
-        .unwrap()
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-loop",
-            edge_sequence: &[
-                LaneEdgeReference::local("loop"),
-                LaneEdgeReference::local("loop"),
-                LaneEdgeReference::local("exit"),
-            ],
-        })
-        .unwrap();
-
-    let output = Compiler::new()
-        .compile(unit([builder.finish().unwrap()]))
-        .unwrap();
-    let lir = output.lir();
-    let route = lir.static_routes().next().unwrap();
-    assert_eq!(route.edges()[0], route.edges()[1]);
-    assert_ne!(route.edges()[1], route.edges()[2]);
-    assert_eq!(
-        lir.lane_edge(route.edges()[0])
-            .unwrap()
-            .static_route_occurrences()
-            .collect::<Vec<_>>(),
-        [
-            CanonicalStaticRouteOccurrenceRef {
-                static_route: route.ordinal(),
-                occurrence_index: 0,
-            },
-            CanonicalStaticRouteOccurrenceRef {
-                static_route: route.ordinal(),
-                occurrence_index: 1,
-            },
-        ]
-    );
-    assert_eq!(
-        lir.lane_edge(route.edges()[2])
-            .unwrap()
-            .static_route_occurrences()
-            .collect::<Vec<_>>(),
-        [CanonicalStaticRouteOccurrenceRef {
-            static_route: route.ordinal(),
-            occurrence_index: 2,
-        }]
-    );
-}
-
-#[test]
-fn static_route_semantics_ignore_control_and_route_declaration_order() {
-    let mut left = control_builder("static-route-left.document");
-    add_valid_control(&mut left, false);
-    left.add_static_route(StaticRouteInput {
-        static_route_key: "route-main",
-        edge_sequence: &[
-            LaneEdgeReference::local("entry"),
-            LaneEdgeReference::local("middle"),
-            LaneEdgeReference::local("exit"),
-        ],
-    })
-    .unwrap();
-
-    let mut right = control_builder("static-route-right.document");
-    right
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-main",
-            edge_sequence: &[
-                LaneEdgeReference::local("entry"),
-                LaneEdgeReference::local("middle"),
-                LaneEdgeReference::local("exit"),
-            ],
-        })
-        .unwrap();
-    add_valid_control(&mut right, true);
-
-    let left = Compiler::new()
-        .compile(unit([left.finish().unwrap()]))
-        .unwrap();
-    let right = Compiler::new()
-        .compile(unit([right.finish().unwrap()]))
-        .unwrap();
-    assert_eq!(
-        left.lir.inner.semantic_digest,
-        right.lir.inner.semantic_digest
-    );
-    assert_eq!(
-        left.lir()
-            .static_routes()
-            .map(|route| (route.stable_id(), route.edges().to_vec()))
-            .collect::<Vec<_>>(),
-        right
-            .lir()
-            .static_routes()
-            .map(|route| (route.stable_id(), route.edges().to_vec()))
-            .collect::<Vec<_>>()
-    );
-}
-
-#[test]
-fn static_route_frontend_and_hir_reject_empty_disconnected_and_terminal_control() {
-    let mut empty = junction_builder("static-route-empty.document");
-    let diagnostics = match empty.add_static_route(StaticRouteInput {
-        static_route_key: "route-empty",
-        edge_sequence: &[],
-    }) {
-        Ok(_) => panic!("empty route must fail before mutation"),
-        Err(diagnostics) => diagnostics,
-    };
-    assert_eq!(
-        diagnostics.diagnostics()[0].code(),
-        DiagnosticCode::EmptyStaticRoute
-    );
-
-    let mut disconnected = junction_builder("static-route-disconnected.document");
-    disconnected
-        .add_lane_edge(LaneEdgeInput {
-            lane_edge_key: "left",
-            length_meters: 10.0,
-            speed_limit_meters_per_second: 10.0,
-            successors: &[],
-        })
-        .unwrap()
-        .add_lane_edge(LaneEdgeInput {
-            lane_edge_key: "right",
-            length_meters: 10.0,
-            speed_limit_meters_per_second: 10.0,
-            successors: &[],
-        })
-        .unwrap()
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-disconnected",
-            edge_sequence: &[
-                LaneEdgeReference::local("left"),
-                LaneEdgeReference::local("right"),
-            ],
-        })
-        .unwrap();
-    assert!(
-        compile_diagnostic_codes(disconnected)
-            .contains(&DiagnosticCode::DisconnectedStaticRouteEdge)
-    );
-
-    let mut terminal = control_builder("static-route-terminal.document");
-    add_valid_control(&mut terminal, false);
-    terminal
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-terminal",
-            edge_sequence: &[LaneEdgeReference::local("entry")],
-        })
-        .unwrap();
-    assert!(
-        compile_diagnostic_codes(terminal)
-            .contains(&DiagnosticCode::StaticRouteTerminatesAtStopLine)
-    );
-
-    let mut boundaries = route_validation_builder("static-route-boundaries.document");
-    boundaries
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-starts-inside",
-            edge_sequence: &[
-                LaneEdgeReference::local("middle"),
-                LaneEdgeReference::local("exit"),
-            ],
-        })
-        .unwrap()
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-ends-inside",
-            edge_sequence: &[
-                LaneEdgeReference::local("entry"),
-                LaneEdgeReference::local("middle"),
-            ],
-        })
-        .unwrap()
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-no-full-match",
-            edge_sequence: &[
-                LaneEdgeReference::local("entry"),
-                LaneEdgeReference::local("middle"),
-                LaneEdgeReference::local("detour"),
-            ],
-        })
-        .unwrap()
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-uncovered-internal",
-            edge_sequence: &[
-                LaneEdgeReference::local("other"),
-                LaneEdgeReference::local("middle"),
-                LaneEdgeReference::local("exit"),
-            ],
-        })
-        .unwrap();
-    let codes = compile_diagnostic_codes(boundaries);
-    assert!(codes.contains(&DiagnosticCode::StaticRouteStartsInsideJunction));
-    assert!(codes.contains(&DiagnosticCode::StaticRouteEndsInsideJunction));
-    assert!(codes.contains(&DiagnosticCode::StaticRouteManeuverNoFullMatch));
-    assert!(codes.contains(&DiagnosticCode::StaticRouteInternalEdgeUncovered));
-}
-
-#[test]
 fn control_semantics_are_invariant_to_declaration_permutation() {
     let mut left = control_builder("control-left.document");
     add_valid_control(&mut left, false);
@@ -3351,15 +2957,6 @@ fn synthetic_maneuver_path_requires_successors_for_internal_sequence() {
             internal_edges: &[LaneEdgeReference::local("internal")],
             exit_edge: LaneEdgeReference::local("exit"),
         })
-        .unwrap()
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-main",
-            edge_sequence: &[
-                LaneEdgeReference::local("entry"),
-                LaneEdgeReference::local("internal"),
-                LaneEdgeReference::local("exit"),
-            ],
-        })
         .unwrap();
 
     let diagnostics = match Compiler::new().compile(unit([builder.finish().unwrap()])) {
@@ -3458,15 +3055,6 @@ fn path_owned_internal_transition_accepts_release_stop_without_explicit_successo
             stop_line: StopLineReference::local("stop-middle"),
             signal_control: SignalControlInput::None,
         })
-        .unwrap()
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-main",
-            edge_sequence: &[
-                LaneEdgeReference::local("entry"),
-                LaneEdgeReference::local("middle"),
-                LaneEdgeReference::local("exit"),
-            ],
-        })
         .unwrap();
 
     let mut input = unit([builder.finish().unwrap()]);
@@ -3493,22 +3081,6 @@ fn path_owned_internal_transition_accepts_release_stop_without_explicit_successo
 
     let output = Compiler::new().compile(input).unwrap();
     assert_eq!(output.lir().maneuver_gates().count(), 1);
-    assert_eq!(output.lir().static_routes().count(), 1);
-    let route = output.lir().static_routes().next().unwrap();
-    let maneuvers = route.maneuver_occurrences().collect::<Vec<_>>();
-    let gates = route.gate_occurrences().collect::<Vec<_>>();
-    assert_eq!(maneuvers.len(), 1);
-    assert_eq!(maneuvers[0].entry_route_edge_index(), 0);
-    assert_eq!(maneuvers[0].exit_route_edge_index(), 2);
-    assert_eq!(maneuvers[0].gate_occurrence_range(), 0..1);
-    assert_eq!(gates.len(), 1);
-    assert_eq!(gates[0].maneuver_occurrence_index(), 0);
-    assert_eq!(gates[0].from_route_edge_index(), 1);
-    assert_eq!(gates[0].next_boundary_route_edge_index(), 2);
-    assert_eq!(
-        route.transition_gates().collect::<Vec<_>>(),
-        [None, Some(gates[0].maneuver_gate())]
-    );
 }
 
 #[test]

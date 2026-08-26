@@ -7,8 +7,8 @@ const MIN_HEADLESS_BUILD_ID: &str = "laneflow-fixture-298-min-headless-v1";
 const VARIANT_BUILD_ID: &str = "laneflow-fixture-298-variants-v1";
 const VARIANT_ALTERNATE_BUILD_ID: &str = "laneflow-fixture-298-variants-v2";
 const MIN_HEADLESS_REVISION: [u8; 32] = [
-    0x9d, 0x65, 0xc6, 0x54, 0x75, 0xc5, 0x9a, 0xeb, 0x9c, 0x83, 0x22, 0x2c, 0x10, 0x8d, 0x20, 0x1d,
-    0x0f, 0x1a, 0x75, 0xc3, 0x64, 0xbf, 0x54, 0xf8, 0xad, 0xa1, 0x21, 0xe7, 0x8c, 0xe1, 0xc0, 0xbc,
+    0x89, 0x60, 0xe5, 0xea, 0xfc, 0xdc, 0x9a, 0xc9, 0xcc, 0xc9, 0x14, 0x72, 0xe6, 0x47, 0xd1, 0xd9,
+    0x9b, 0xef, 0x72, 0xf8, 0xd3, 0x96, 0x6d, 0x27, 0x10, 0xb6, 0xa6, 0xdc, 0xdb, 0x8d, 0x5f, 0x4e,
 ];
 
 const MIN_HEADLESS_EXPECTED: &[u8] =
@@ -26,27 +26,27 @@ const SIGNED_ZERO_EXPECTED: &[u8] =
 const CLAIM_MISMATCH_EXPECTED: &[u8] =
     include_bytes!("../../../tests/fixtures/portable/lfca-variants/claim-mismatch.lfca");
 
-const MIN_HEADLESS_LENGTH: u64 = 1_255;
+const MIN_HEADLESS_LENGTH: u64 = 1_175;
 const MIN_HEADLESS_KEY: &str =
-    "sha256/babda2563fae62097b4c1ee9e170bdb55f01b56c1d435ca390e6180e2c2fe228";
-const PROVENANCE_BASE_LENGTH: u64 = 1_251;
+    "sha256/6ba6c488d93c3398bbe65261f01db52f3441813436966262c33edf6e82b15f3f";
+const PROVENANCE_BASE_LENGTH: u64 = 1_171;
 const PROVENANCE_BASE_KEY: &str =
-    "sha256/71b5da179d896a6fe831337ae71187886338f2b9a68cb2801907425bc8bb4117";
-const PROVENANCE_SOURCE_LENGTH: u64 = 1_251;
+    "sha256/cfddeccc1c1d809f5c60f7867e000c6b871eb449f3a5c259ba403f4d728558ba";
+const PROVENANCE_SOURCE_LENGTH: u64 = 1_171;
 const PROVENANCE_SOURCE_KEY: &str =
-    "sha256/9d71e63ead9b596244e6fe2c38ee872fa7118b27cf75770d15fd8f88c8af0695";
-const PROVENANCE_BUILD_LENGTH: u64 = 1_251;
+    "sha256/f419e9510d0deabdec0f863c38cf5397d423bd4d8321dbac0269f60549670119";
+const PROVENANCE_BUILD_LENGTH: u64 = 1_171;
 const PROVENANCE_BUILD_KEY: &str =
-    "sha256/7ee85de31713ae73afbd9b4bbebf00324da364b93e08926705266862e55d1ee3";
-const REORDER_EQUIVALENT_LENGTH: u64 = 3_137;
+    "sha256/46e2b95ec8f24b800357b338351e62a13b39b61db5f0d4905bd7f2ed203c83d1";
+const REORDER_EQUIVALENT_LENGTH: u64 = 3_057;
 const REORDER_EQUIVALENT_KEY: &str =
-    "sha256/8b3921a9e539f62b634fb00180a6d86f2f973c8bb445d010b80a2d96743a3ef8";
-const SIGNED_ZERO_LENGTH: u64 = 2_231;
+    "sha256/42fc47cdc7bd77e6cc829fb42386c3d23a58ca640955a1a595f19631d155a5fc";
+const SIGNED_ZERO_LENGTH: u64 = 2_151;
 const SIGNED_ZERO_KEY: &str =
-    "sha256/4719d9f30ded1b8c2b880b72eecef35d86b77e301f3d8ca6a6cb47b8b77cdc6d";
-const CLAIM_MISMATCH_LENGTH: u64 = 1_255;
+    "sha256/571fe4edd6a1ec3e702e23a35afe156d06b4ddb0f0aec5aaa4ffc92248eba029";
+const CLAIM_MISMATCH_LENGTH: u64 = 1_175;
 const CLAIM_MISMATCH_KEY: &str =
-    "sha256/c91e9c799cdc7cf51175a45c1a377d546f5b38500270bb8c44e194e707ae66b9";
+    "sha256/e98d32fc552fdb8c8f5ad9ba75bd4c7502c9801dae39ee4c03f6719de7f057b4";
 
 fn emit(output: &CompilationOutput, build_id: &str) -> crate::PortablePublicationCandidate {
     let provenance = crate::PortableEmissionProvenance::try_new(build_id).unwrap();
@@ -269,14 +269,14 @@ fn portable_min_headless_matches_g1_anchor_and_frozen_exact_bytes() {
     let first_section_offset =
         field_offset(MIN_HEADLESS_EXPECTED, view.section(0).unwrap().bytes());
     assert_eq!(first_section_offset, 0x00e0);
-    let expected_lengths = [120, 20, 356, 84, 94, 64];
+    let expected_lengths = [120, 20, 340, 20, 94, 64];
     let expected_digests = [
-        "943f88cfabdc560b98ee110575a1571742f96c9a74b7571fd51d1d42aa46d4ae",
+        "7c85ff5c1e7b073c4446ddccedc62374b95f4fa854068c6eaaa9a628b34dab47",
         "3a85cd4b4d295cdd6cfe6ea3cb119b7c59f1addcc36faf58c33809f958191c7e",
-        "54975e3435099f8ac2f6b6ec53e3bf68104d236da4a840318e9d0486a46e0f6e",
-        "041fb436600f0bd293d9a9a78bb1367144e03e51ecfafca712bbc4dedb67dc19",
+        "49c04a89e680826aa85f1eb937e6221265799d57109864cf133c0284e96317bb",
+        "3a85cd4b4d295cdd6cfe6ea3cb119b7c59f1addcc36faf58c33809f958191c7e",
         "1ac4a913965b92e3dec446f935384fc18f6947038140c2feb3b474cc854dc5ed",
-        "c5b63c7194baea4b61907840f8a49b7aefc4591f56d17d4392e47878726add60",
+        "dcd2ff297a948d5736d068e856fb9edcafbe9d721e79ef00428bedfc0ff23757",
     ];
     for (ordinal, (length, expected_digest)) in expected_lengths
         .into_iter()
@@ -287,8 +287,8 @@ fn portable_min_headless_matches_g1_anchor_and_frozen_exact_bytes() {
         assert_eq!(section.bytes().len(), length);
         assert_eq!(digest_hex(section.bytes()), expected_digest);
     }
-    assert_eq!(view.section(2).unwrap().table_count(), 22);
-    assert_eq!(view.section(3).unwrap().table_count(), 5);
+    assert_eq!(view.section(2).unwrap().table_count(), 21);
+    assert_eq!(view.section(3).unwrap().table_count(), 1);
     assert_eq!(view.section(4).unwrap().table_count(), 3);
 }
 

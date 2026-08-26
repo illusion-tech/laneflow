@@ -7,7 +7,7 @@ use laneflow_static_contract::{
 
 use crate::arena::TableRange;
 
-use super::{LirIdentityField, LirRouteOccurrenceRef, LirSignalControl};
+use super::{LirIdentityField, LirSignalControl};
 
 pub(crate) struct LirStopLine {
     pub(crate) ordinal: StopLineOrdinal,
@@ -25,7 +25,6 @@ pub(crate) struct LirManeuverGate {
     pub(crate) transition_index: u32,
     pub(crate) stop_line: StopLineOrdinal,
     pub(crate) signal_control: LirSignalControl,
-    pub(crate) static_route_occurrences: TableRange<LirRouteOccurrenceRef>,
 }
 
 pub(crate) struct LirWaitingZone {
@@ -36,7 +35,6 @@ pub(crate) struct LirWaitingZone {
     pub(crate) entry_gate: ManeuverGateOrdinal,
     pub(crate) release_gate: ManeuverGateOrdinal,
     pub(crate) max_occupancy: u32,
-    pub(crate) static_route_occurrences: TableRange<LirRouteOccurrenceRef>,
 }
 
 use super::{FreezeEnv, LirControlCounts, push_identity_field, push_lir_identity, relation_range};
@@ -152,7 +150,6 @@ pub(super) fn freeze(
                 }
                 MirSignalControl::None => LirSignalControl::None,
             },
-            static_route_occurrences: TableRange::empty(),
         });
     }
 
@@ -204,7 +201,6 @@ pub(super) fn freeze(
             entry_gate: env.orders.maneuver_gates.ordinal(waiting.entry_gate),
             release_gate: env.orders.maneuver_gates.ordinal(waiting.release_gate),
             max_occupancy: waiting.max_occupancy,
-            static_route_occurrences: TableRange::empty(),
         });
     }
 

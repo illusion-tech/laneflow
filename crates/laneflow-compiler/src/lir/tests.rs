@@ -82,7 +82,7 @@ fn lir_sorts_by_complete_identity_bytes_and_remaps_connections() {
     assert_eq!(lir.lane_edges.len(), 2);
     assert_eq!(lir.lane_edge_successors.len(), 1);
     assert_eq!(lir.lir_record_count, 3);
-    assert_eq!(lir.output_bytes, 196);
+    assert_eq!(lir.output_bytes, 180);
     assert!(lir.controlled_live_bytes > 0);
     assert_eq!(lir.lane_edges[0].ordinal.raw(), 0);
     assert_eq!(lir.lane_edges[1].ordinal.raw(), 1);
@@ -208,29 +208,6 @@ fn semantic_digest_changes_with_static_semantics() {
     )]);
 
     assert_ne!(lir(&left).semantic_digest, lir(&right).semantic_digest);
-}
-
-#[test]
-fn reverse_occurrence_ranges_and_entries_change_the_digest() {
-    fn digest(range: TableRange<LirRouteOccurrenceRef>, occurrence_index: u32) -> [u8; 32] {
-        let mut hasher = blake3::Hasher::new();
-        let occurrences = [LirRouteOccurrenceRef {
-            static_route: StaticRouteOrdinal::from_raw(0),
-            occurrence_index,
-        }];
-        hash_reverse_occurrences(
-            &mut hasher,
-            EntityKind::LaneEdge,
-            [(0, range)].into_iter(),
-            &occurrences,
-        );
-        *hasher.finalize().as_bytes()
-    }
-
-    let included = TableRange::try_from_usize(0, 1).unwrap();
-    let excluded = TableRange::try_from_usize(0, 0).unwrap();
-    assert_ne!(digest(included, 0), digest(excluded, 0));
-    assert_ne!(digest(included, 0), digest(included, 1));
 }
 
 #[test]

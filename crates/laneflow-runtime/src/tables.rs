@@ -1,12 +1,12 @@
 use laneflow_static_contract::{
     AccessEffect, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
-    ParticipantClassOrdinal, StaticRouteOrdinal,
+    ParticipantClassOrdinal, WaitingZoneOrdinal,
 };
 use laneflow_static_network::{
     AccessCell, BoundedDistance, SharedManeuverNetwork, SharedTrafficNetwork,
 };
 
-use crate::{RouteError, RouteHandle, VehicleState};
+use crate::{RouteError, VehicleState};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ManeuverOccurrence {
@@ -15,13 +15,46 @@ pub(crate) struct ManeuverOccurrence {
     pub exit_route_edge_index: u32,
 }
 
+/// 下一盏绑定 `SignalGroup` 的 hop 门。距离从本 hop 的 from 边起点算起。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct NextControlled {
+    pub hop: u32,
+    pub gate: ManeuverGateOrdinal,
+    pub distance_from_hop_start: BoundedDistance,
+}
+
+/// 限速下降转换：与共享根历史 `speed_limit_transitions` 同形。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SpeedLimitDrop {
+    pub from_route_edge_index: u32,
+    pub to_edge: LaneEdgeOrdinal,
+    pub target_mm_s: u32,
+}
+
+/// 注册时物化的等待区出现项。#282 未消费前也不得静默丢弃。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct WaitingOccurrence {
+    pub zone: WaitingZoneOrdinal,
+    pub maneuver_index: u32,
+    pub entry_hop: u32,
+    pub release_hop: u32,
+}
+
 /// 本世界 compiled 路线。G2 在此物化分段 `u32` 前缀、后缀 `BoundedDistance`、hop 门、
-/// 受控 hop 链和限速下降转换（现行 `speed_limit_transitions` 同形）。
+/// 受控 hop 链和限速下降转换。
 /// 不上 `u64`，不把 world 身份写进 `RouteHandle`，不存「当前红灯」（ADR 0028 / 0029）。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CompiledRoute {
     pub edges: Box<[LaneEdgeOrdinal]>,
     pub maneuvers: Box<[ManeuverOccurrence]>,
+    pub hop_gate: Box<[Option<ManeuverGateOrdinal>]>,
+    pub remaining_to_end: Box<[BoundedDistance]>,
+    pub occurrence_segments: Box<[u32]>,
+    pub occurrence_offsets: Box<[u32]>,
+    pub segment_totals: Box<[u32]>,
+    pub next_controlled: Box<[Option<NextControlled>]>,
+    pub speed_limit_drop: Box<[SpeedLimitDrop]>,
+    pub waiting: Box<[WaitingOccurrence]>,
 }
 
 #[derive(Clone, Debug)]
@@ -180,10 +213,155 @@ pub(crate) fn compile_dynamic_route(
         }
     }
 
+    let lengths = traffic.lane_lengths_millimetres();
+    let speeds = traffic.lane_speed_limits_millimetres_per_second();
+    let mut remaining_to_end = vec![BoundedDistance::Finite(0); edges.len()];
+    let mut suffix = BoundedDistance::Finite(0);
+    for index in (0..edges.len()).rev() {
+        let edge = edges[index];
+        suffix = suffix.add(*lengths.get(edge.index()).unwrap_or(&0));
+        remaining_to_end[index] = suffix;
+    }
+    let route_lengths: Vec<u32> = edges
+        .iter()
+        .map(|edge| *lengths.get(edge.index()).unwrap_or(&0))
+        .collect();
+    let (occurrence_segments, occurrence_offsets, segment_totals) =
+        segmented_route_coordinates(&route_lengths);
+
+    let hop_count = edges.len().saturating_sub(1);
+    let mut hop_gate = vec![None; hop_count];
+    for hop in 0..hop_count {
+        hop_gate[hop] = hop_gate_at(network, &maneuvers, hop, edges[hop], edges[hop + 1]);
+    }
+
+    let mut next_controlled = vec![None; hop_count];
+    let mut next: Option<NextControlled> = None;
+    for hop in (0..hop_count).rev() {
+        let length = route_lengths[hop];
+        if let Some(gate) = hop_gate[hop].filter(|gate| {
+            traffic
+                .relations()
+                .maneuver_gate(*gate)
+                .and_then(|view| view.signal_group())
+                .is_some()
+        }) {
+            next = Some(NextControlled {
+                hop: u32::try_from(hop).expect("hop index fits u32"),
+                gate,
+                distance_from_hop_start: BoundedDistance::Finite(0).add(length),
+            });
+        } else if let Some(controlled) = next.as_mut() {
+            controlled.distance_from_hop_start = controlled.distance_from_hop_start.add(length);
+        }
+        next_controlled[hop] = next;
+    }
+
+    let mut speed_limit_drop = Vec::new();
+    for (from_index, pair) in edges.windows(2).enumerate() {
+        let from_speed = *speeds.get(pair[0].index()).unwrap_or(&0);
+        let to_speed = *speeds.get(pair[1].index()).unwrap_or(&0);
+        if to_speed < from_speed {
+            speed_limit_drop.push(SpeedLimitDrop {
+                from_route_edge_index: u32::try_from(from_index).expect("route index fits u32"),
+                to_edge: pair[1],
+                target_mm_s: to_speed,
+            });
+        }
+    }
+
+    let waiting = compile_waiting(traffic, &hop_gate, &maneuvers)?;
+
     Ok(CompiledRoute {
         edges: edges.to_vec().into_boxed_slice(),
         maneuvers: maneuvers.into_boxed_slice(),
+        hop_gate: hop_gate.into_boxed_slice(),
+        remaining_to_end: remaining_to_end.into_boxed_slice(),
+        occurrence_segments: occurrence_segments.into_boxed_slice(),
+        occurrence_offsets: occurrence_offsets.into_boxed_slice(),
+        segment_totals: segment_totals.into_boxed_slice(),
+        next_controlled: next_controlled.into_boxed_slice(),
+        speed_limit_drop: speed_limit_drop.into_boxed_slice(),
+        waiting: waiting.into_boxed_slice(),
     })
+}
+
+/// 分段 `u32` 前缀。下一条边长会让当前段溢出时封段、开新段。不上 `u64`（ADR 0028）。
+fn segmented_route_coordinates(edge_lengths: &[u32]) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
+    let mut segments = Vec::with_capacity(edge_lengths.len());
+    let mut offsets = Vec::with_capacity(edge_lengths.len());
+    let mut totals = Vec::new();
+    let mut current_total = 0_u32;
+    let mut current_has_occurrence = false;
+    for edge_length in edge_lengths.iter().copied() {
+        let must_start_segment =
+            current_has_occurrence && current_total.checked_add(edge_length).is_none();
+        if must_start_segment {
+            totals.push(current_total);
+            current_total = 0;
+        }
+        segments.push(u32::try_from(totals.len()).expect("segment index fits"));
+        offsets.push(current_total);
+        current_total = current_total
+            .checked_add(edge_length)
+            .expect("admitted edge length fits a new segment");
+        current_has_occurrence = true;
+    }
+    if current_has_occurrence {
+        totals.push(current_total);
+    }
+    (segments, offsets, totals)
+}
+
+fn compile_waiting(
+    traffic: &SharedTrafficNetwork,
+    hop_gate: &[Option<ManeuverGateOrdinal>],
+    maneuvers: &[ManeuverOccurrence],
+) -> Result<Vec<WaitingOccurrence>, RouteError> {
+    let mut waiting = Vec::new();
+    let network = traffic.maneuvers();
+    let relations = traffic.relations();
+    for (maneuver_index, occurrence) in maneuvers.iter().enumerate() {
+        let path = network
+            .maneuver_path(occurrence.path)
+            .ok_or(RouteError::ManeuverMismatch)?;
+        for zone in path.waiting_zones() {
+            let view = relations
+                .waiting_zone(*zone)
+                .ok_or(RouteError::ManeuverMismatch)?;
+            let entry_gate = relations
+                .maneuver_gate(view.entry_gate())
+                .ok_or(RouteError::ManeuverMismatch)?;
+            let release_gate = relations
+                .maneuver_gate(view.release_gate())
+                .ok_or(RouteError::ManeuverMismatch)?;
+            if entry_gate.path() != occurrence.path || release_gate.path() != occurrence.path {
+                return Err(RouteError::ManeuverMismatch);
+            }
+            let entry_hop = occurrence
+                .entry_route_edge_index
+                .checked_add(entry_gate.transition_index())
+                .ok_or(RouteError::ManeuverMismatch)?;
+            let release_hop = occurrence
+                .entry_route_edge_index
+                .checked_add(release_gate.transition_index())
+                .ok_or(RouteError::ManeuverMismatch)?;
+            let entry_index = usize::try_from(entry_hop).expect("hop fits usize");
+            let release_index = usize::try_from(release_hop).expect("hop fits usize");
+            if hop_gate.get(entry_index).copied().flatten() != Some(view.entry_gate())
+                || hop_gate.get(release_index).copied().flatten() != Some(view.release_gate())
+            {
+                return Err(RouteError::ManeuverMismatch);
+            }
+            waiting.push(WaitingOccurrence {
+                zone: *zone,
+                maneuver_index: u32::try_from(maneuver_index).expect("occurrence index fits u32"),
+                entry_hop,
+                release_hop,
+            });
+        }
+    }
+    Ok(waiting)
 }
 
 /// 在机动路径入口跳上，用剩余边序列唯一匹配完整 `path.edges()` 前缀。
@@ -235,16 +413,16 @@ fn unique_entry_path_match_filtered<'a>(
     matched.ok_or(RouteError::ManeuverMismatch).map(Some)
 }
 
-/// 动态路线已编译 occurrence 上，即将跨越的 hop 对应的闸。
-pub(crate) fn compiled_hop_gate(
+/// 注册时按 hop 下标物化闸。tick 读 `hop_gate` 列，不得再线性扫机动出现项。
+fn hop_gate_at(
     network: &SharedManeuverNetwork,
-    compiled: &CompiledRoute,
+    maneuvers: &[ManeuverOccurrence],
     hop_index: usize,
     from: LaneEdgeOrdinal,
     to: LaneEdgeOrdinal,
 ) -> Option<ManeuverGateOrdinal> {
     let hop = u32::try_from(hop_index).ok()?;
-    let occurrence = compiled.maneuvers.iter().find(|occurrence| {
+    let occurrence = maneuvers.iter().find(|occurrence| {
         hop >= occurrence.entry_route_edge_index && hop < occurrence.exit_route_edge_index
     })?;
     let transition_index = hop.checked_sub(occurrence.entry_route_edge_index)?;
@@ -468,12 +646,6 @@ pub(crate) fn occupancy_front_gap(
     gap
 }
 
-pub(crate) fn static_route_ordinal(handle: RouteHandle) -> Option<StaticRouteOrdinal> {
-    handle
-        .is_static()
-        .then(|| StaticRouteOrdinal::from_raw(handle.index()))
-}
-
 /// 占用/投影有符号间隙（ADR 0028）。`i64` 只服务空隙，不是把路线前缀加宽到 `u64` 的先例。
 pub(crate) fn remaining_along_route_i64(
     lengths: &[u32],
@@ -499,8 +671,9 @@ pub(crate) fn remaining_along_route_i64(
 
 /// 从查询起点沿路线累加有界距离。从当前进度加，不上 `u64`；溢出 `BeyondFinite`。
 ///
-/// G2 本世界索引沿用分段 `u32` + 后缀 `BoundedDistance`（`RouteDistanceIndexView`），
+/// G2 本世界索引沿用分段 `u32` + 后缀 `BoundedDistance`，
 /// 不得改成饱和起点前缀相减，也不得把 Finite 侧加宽到 `u64`。
+#[allow(dead_code)]
 pub(crate) fn remaining_along_route(
     lengths: &[u32],
     edges: &[LaneEdgeOrdinal],
@@ -529,22 +702,29 @@ pub(crate) fn remaining_along_route(
     Some(distance.add(to_progress))
 }
 
-/// 当前进度到路终。G2 改为 O(1) 读后缀列；语义仍是本窗口 `BoundedDistance`，不上 `u64`。
+/// 当前进度到路终。O(1) 读后缀列再扣边内进度；不上 `u64`。
 pub(crate) fn remaining_to_route_end(
-    lengths: &[u32],
-    edges: &[LaneEdgeOrdinal],
+    remaining_to_end: BoundedDistance,
+    from_progress: u32,
+) -> BoundedDistance {
+    remaining_to_end.saturating_sub(from_progress)
+}
+
+/// 当前进度到目标边起点。两端后缀相减，不扫剩余边。
+pub(crate) fn remaining_to_occurrence_start(
+    remaining_to_end: &[BoundedDistance],
     from_index: usize,
     from_progress: u32,
+    to_index: usize,
 ) -> Option<BoundedDistance> {
-    let last = edges.len().checked_sub(1)?;
-    let last_edge = *edges.get(last)?;
-    remaining_along_route(
-        lengths,
-        edges,
-        from_index,
-        from_progress,
-        last,
-        *lengths.get(last_edge.index())?,
+    if to_index < from_index {
+        return None;
+    }
+    let from = remaining_to_end.get(from_index).copied()?;
+    let to = remaining_to_end.get(to_index).copied()?;
+    Some(
+        from.saturating_sub(from_progress)
+            .saturating_sub_bounded(to),
     )
 }
 
@@ -730,10 +910,10 @@ mod compile_dynamic_route_tests {
             compiled.maneuvers[0].exit_route_edge_index,
             u32::try_from(path.edges().len() - 1).expect("path length")
         );
-        let first = path.edges()[0];
-        let second = path.edges()[1];
-        let gate = compiled_hop_gate(traffic.maneuvers(), &compiled, 0, first, second);
-        assert_eq!(gate, path.maneuver_gates().first().copied());
+        assert_eq!(
+            compiled.hop_gate.first().copied().flatten(),
+            path.maneuver_gates().first().copied()
+        );
     }
 
     #[test]

@@ -7,9 +7,9 @@ use std::{error::Error, num::NonZeroU32, sync::Arc};
 use bevy::prelude::*;
 use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
-use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
+use laneflow_runtime::{RouteRegisterInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
 use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId, SpatialSession};
-use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
+use laneflow_static_contract::{LaneEdgeOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
@@ -31,7 +31,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     )
     .map_err(|error| format!("{error:?}"))?;
     let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 4, 1, 100))?;
-    let route = world.static_route(StaticRouteOrdinal::from_raw(0))?;
+    let edge_for_length = |world: &TrafficWorld, length: u32| {
+        let index = world
+            .traffic()
+            .lane_lengths_millimetres()
+            .iter()
+            .position(|actual| *actual == length)
+            .expect("fixture lane length");
+        LaneEdgeOrdinal::try_from_usize(index).expect("fixture lane ordinal")
+    };
+    let route = world.register_route(RouteRegisterInput::new(vec![
+        edge_for_length(&world, 10_000),
+        edge_for_length(&world, 8_000),
+        edge_for_length(&world, 12_000),
+    ]))?;
     let profile = world
         .traffic()
         .relations()

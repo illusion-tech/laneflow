@@ -2331,44 +2331,8 @@ fn validate_routes_and_frames(
     limits: &CompileLimits,
     expected_key: &str,
 ) -> Result<(), DiagnosticBundle> {
-    ensure_unique_by(
-        root.static_routes().iter(),
-        |value| value.static_route_key(),
-        "staticRoutes.staticRouteKey",
-        expected_key,
-    )?;
-    for value in root.static_routes() {
-        usage.charge_declaration(EntityKind::StaticRoute);
-        usage.charge_token(
-            value.static_route_key(),
-            "staticRoute.staticRouteKey",
-            limits,
-            expected_key,
-        )?;
-        let edges = value.edge_sequence();
-        if edges.is_empty() {
-            return Err(semantic_error(
-                "staticRoute.edgeSequence",
-                RoadEditingInputViolation::EmptyCollection,
-                expected_key,
-            ));
-        }
-        validate_reference_vector(
-            usage,
-            edges,
-            1,
-            "staticRoute.edgeSequence",
-            false,
-            false,
-            true,
-            namespace,
-            imports,
-            limits,
-            expected_key,
-        )?;
-        usage.charge_canvas(value.canvas_selection(), limits, expected_key)?;
-    }
-
+    let _ = namespace;
+    let _ = imports;
     ensure_unique_by(
         root.canonical_frames().iter(),
         |value| value.canonical_frame_key(),

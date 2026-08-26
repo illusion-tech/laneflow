@@ -28,7 +28,9 @@ pub(super) fn entity_stable_id(
         EntityKind::ParticipantClass => stable_id_bytes(lir.participant_classes[index].stable_id),
         EntityKind::AccessRule => stable_id_bytes(lir.access_rules[index].stable_id),
         EntityKind::VehicleProfile => stable_id_bytes(lir.vehicle_profiles[index].stable_id),
-        EntityKind::StaticRoute => stable_id_bytes(lir.static_routes[index].stable_id),
+        EntityKind::StaticRoute => {
+            unreachable!("StaticRoute is a reserved identity hole")
+        }
         EntityKind::CanonicalFrame => stable_id_bytes(lir.canonical_frames[index].stable_id),
     }
 }
@@ -222,63 +224,6 @@ pub(super) fn canonical_relation_tuples(lir: &crate::lir::LirUnit) -> Vec<Relati
         12,
         EntityKind::ManeuverGate
     );
-    append_vector_relations!(
-        &lir.static_routes,
-        edges,
-        lir.static_route_edges,
-        EntityKind::StaticRoute,
-        13,
-        EntityKind::LaneEdge
-    );
-    for route in &lir.static_routes {
-        for (index, occurrence) in lir.maneuver_occurrences
-            [route.maneuver_occurrences.as_usize_range()]
-        .iter()
-        .enumerate()
-        {
-            push_relation_tuple(
-                &mut relations,
-                lir,
-                EntityKind::StaticRoute,
-                route.ordinal.raw(),
-                14,
-                u32::try_from(index).expect("compile limits cap occurrence counts at u32"),
-                EntityKind::ManeuverPath,
-                occurrence.maneuver_path.raw(),
-            );
-        }
-        for (index, occurrence) in lir.gate_occurrences[route.gate_occurrences.as_usize_range()]
-            .iter()
-            .enumerate()
-        {
-            push_relation_tuple(
-                &mut relations,
-                lir,
-                EntityKind::StaticRoute,
-                route.ordinal.raw(),
-                15,
-                u32::try_from(index).expect("compile limits cap occurrence counts at u32"),
-                EntityKind::ManeuverGate,
-                occurrence.maneuver_gate.raw(),
-            );
-        }
-        for (index, occurrence) in lir.waiting_zone_occurrences
-            [route.waiting_zone_occurrences.as_usize_range()]
-        .iter()
-        .enumerate()
-        {
-            push_relation_tuple(
-                &mut relations,
-                lir,
-                EntityKind::StaticRoute,
-                route.ordinal.raw(),
-                16,
-                u32::try_from(index).expect("compile limits cap occurrence counts at u32"),
-                EntityKind::WaitingZone,
-                occurrence.waiting_zone.raw(),
-            );
-        }
-    }
     append_vector_relations!(
         &lir.signal_controllers,
         signal_groups,

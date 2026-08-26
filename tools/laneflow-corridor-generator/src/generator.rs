@@ -1518,6 +1518,7 @@ fn build_catalog(
         .map(|route| RouteCatalogEntry {
             route_id: route.route.id.clone(),
             exit_portal_id: route.exit_portal_id.clone(),
+            edge_ids: route.route.edge_ids.clone(),
         })
         .collect();
 

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const FLATBUFFERS_VERSION: &str = "25.12.19";
-const SCHEMA_PATH: &str = "schemas/road-editing/v1/road-editing.fbs";
+const SCHEMA_PATH: &str = "schemas/road-editing/v2/road-editing.fbs";
 const CHECKED_RUST_PATH: &str =
     "crates/laneflow-road-editing-wire/src/generated/road-editing_generated.rs";
 const WIRE_MANIFEST_PATH: &str = "crates/laneflow-road-editing-wire/Cargo.toml";

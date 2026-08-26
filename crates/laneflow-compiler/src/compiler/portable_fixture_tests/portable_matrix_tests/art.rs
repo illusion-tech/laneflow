@@ -22,9 +22,13 @@ fn art_candidate_closes_identity_tables_and_all_computed_bindings() {
 
     let identities = artifact.section(1).unwrap().table(0).unwrap();
     let entities = artifact.section(2).unwrap();
+    let constructible = EntityKind::ALL
+        .into_iter()
+        .filter(|kind| kind.is_constructible())
+        .collect::<Vec<_>>();
     assert_eq!(
         entities.table_count(),
-        u32::try_from(EntityKind::ALL.len()).unwrap()
+        u32::try_from(constructible.len()).unwrap()
     );
     assert_eq!(
         identities.row_count(),
@@ -42,7 +46,7 @@ fn art_candidate_closes_identity_tables_and_all_computed_bindings() {
             )
         })
         .collect::<std::collections::BTreeSet<_>>();
-    let entity_keys = EntityKind::ALL
+    let entity_keys = constructible
         .into_iter()
         .enumerate()
         .flat_map(|(table_ordinal, kind)| {
@@ -80,7 +84,7 @@ fn art_candidate_closes_identity_tables_and_all_computed_bindings() {
         field_sha256(source_binding, 2),
         candidate.network_revision().into_digest().into_bytes()
     );
-    assert_eq!(field_u16(source_binding, 3), 2);
+    assert_eq!(field_u16(source_binding, 3), 3);
     assert_eq!(
         field_sha256(source_binding, 4),
         candidate.canonical_artifact().digest().into_bytes()
@@ -133,11 +137,7 @@ fn art_direct_version_options_profile_and_build_mutations_fail_closed() {
     for tag in 1..=6 {
         let mut bytes = FULL_SPATIAL_EXPECTED_LFCA.to_vec();
         let range = field_value_range(&bytes, PortableObjectKind::CanonicalArtifact, 0, 0, 0, tag);
-        let replacement = if matches!(tag, 1 | 5 | 6) {
-            3_u16
-        } else {
-            2_u16
-        };
+        let replacement = 4_u16;
         bytes[range].copy_from_slice(&replacement.to_le_bytes());
         assert_eq!(
             preflight_object_values(
@@ -153,7 +153,7 @@ fn art_direct_version_options_profile_and_build_mutations_fail_closed() {
     for tag in 1..=2 {
         let mut bytes = FULL_SPATIAL_EXPECTED_LFCA.to_vec();
         let range = field_value_range(&bytes, PortableObjectKind::CanonicalArtifact, 5, 0, 0, tag);
-        bytes[range].copy_from_slice(&3_u16.to_le_bytes());
+        bytes[range].copy_from_slice(&4_u16.to_le_bytes());
         assert_eq!(
             preflight_object_values(
                 &bytes,

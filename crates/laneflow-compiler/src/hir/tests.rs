@@ -16,8 +16,8 @@ use crate::{
     ParticipantClassInput, ParticipantClassReference, RoadCorridorInput, RoadSectionInput,
     RoadSectionReference, SignalControlInput, SignalControllerInput, SignalGroupInput,
     SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, SourceModuleHeader,
-    SourceModuleHeaderInput, SourceSpan, StaticRouteInput, StopLineInput, StopLineReference,
-    SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
+    SourceModuleHeaderInput, SourceSpan, StopLineInput, StopLineReference, SyntheticModule,
+    SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
 };
 use laneflow_static_contract::{
     CanonicalFrameKind, LaneEdgeKind, PARKING_ANCHOR_ENDPOINT_CLEARANCE_MM, millimetres_from_si,
@@ -1481,15 +1481,6 @@ fn full_domain_unit() -> CompilationUnit {
             participant_classes: &[ParticipantClassReference::local("car")],
             regulation: None,
             priority: 0,
-        })
-        .unwrap()
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-main",
-            edge_sequence: &[
-                LaneEdgeReference::local("entry-a"),
-                LaneEdgeReference::local("internal"),
-                LaneEdgeReference::local("exit-a"),
-            ],
         })
         .unwrap();
     let mut unit = unit([builder.finish().unwrap()]);

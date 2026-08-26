@@ -2,9 +2,9 @@
 //!
 //! 字段保持私有，仅 `compiler` 模块可通过 `from_lir` / `from_record` 构造。
 
-use laneflow_static_contract::{FieldTag, LaneEdgeId, LaneEdgeOrdinal, StaticRouteOrdinal};
+use laneflow_static_contract::{FieldTag, LaneEdgeId, LaneEdgeOrdinal};
 
-use crate::lir::{LirIdentityField, LirLaneEdge, LirRouteOccurrenceRef, LirUnit};
+use crate::lir::{LirIdentityField, LirLaneEdge, LirUnit};
 
 mod access;
 mod cross_section;
@@ -30,11 +30,7 @@ pub use parking::{
     CanonicalParkingAreaView, CanonicalParkingLaneAnchor, CanonicalParkingSpaceGeometry,
     CanonicalParkingSpaceView,
 };
-pub use route::{
-    CanonicalGateOccurrenceView, CanonicalManeuverGateView, CanonicalManeuverOccurrenceView,
-    CanonicalStaticRouteView, CanonicalStopLineView, CanonicalWaitingZoneOccurrenceView,
-    CanonicalWaitingZoneView,
-};
+pub use route::{CanonicalManeuverGateView, CanonicalStopLineView, CanonicalWaitingZoneView};
 pub use signal::{
     CanonicalSignalControl, CanonicalSignalControllerView, CanonicalSignalGroupView,
     CanonicalSignalPhaseStateView, CanonicalSignalPhaseView,
@@ -144,16 +140,6 @@ impl CanonicalLaneEdgeView<'_> {
         &self.lir.lane_edge_successors[self.edge.successors.as_usize_range()]
     }
 
-    /// 遍历引用此边的静态路线边出现项；重复边访问会产生多个不同路线内下标。
-    pub fn static_route_occurrences(
-        &self,
-    ) -> impl ExactSizeIterator<Item = CanonicalStaticRouteOccurrenceRef> + '_ {
-        occurrence_refs(
-            &self.lir.lane_edge_route_occurrences
-                [self.edge.static_route_occurrences.as_usize_range()],
-        )
-    }
-
     /// 返回与本边同 ordinal 对齐的规范空间几何；headless LIR 返回 `None`。
     #[must_use]
     pub fn spatial_geometry(&self) -> Option<CanonicalLaneEdgeGeometryView<'_>> {
@@ -164,38 +150,6 @@ impl CanonicalLaneEdgeView<'_> {
                 CanonicalLaneEdgeGeometryView::from_lir(self.lir, self.edge.ordinal, geometry)
             })
     }
-}
-
-/// 一个稳定实体在静态路线中的反向出现项。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CanonicalStaticRouteOccurrenceRef {
-    pub(in crate::compiler) static_route: StaticRouteOrdinal,
-    pub(in crate::compiler) occurrence_index: u32,
-}
-
-impl CanonicalStaticRouteOccurrenceRef {
-    /// 返回拥有该出现项的静态路线。
-    #[must_use]
-    pub const fn static_route(self) -> StaticRouteOrdinal {
-        self.static_route
-    }
-
-    /// 返回对应关系表中、所属路线内的零基出现项下标。
-    #[must_use]
-    pub const fn occurrence_index(self) -> u32 {
-        self.occurrence_index
-    }
-}
-
-pub(in crate::compiler) fn occurrence_refs<'a>(
-    records: &'a [LirRouteOccurrenceRef],
-) -> impl ExactSizeIterator<Item = CanonicalStaticRouteOccurrenceRef> + 'a {
-    records
-        .iter()
-        .map(|record| CanonicalStaticRouteOccurrenceRef {
-            static_route: record.static_route,
-            occurrence_index: record.occurrence_index,
-        })
 }
 
 /// Canonical LIR 共享身份字段池中的一项借用视图。

@@ -14,7 +14,7 @@ use crate::{
     ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
     RoadCorridorInput, RoadSectionInput, RoadSectionReference, SignalControlInput,
     SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
-    SignalPhaseInput, SourceModuleHeader, SourceModuleHeaderInput, StaticRouteInput, StopLineInput,
+    SignalPhaseInput, SourceModuleHeader, SourceModuleHeaderInput, StopLineInput,
     StopLineReference, SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput,
     WaitingZoneInput,
 };
@@ -331,15 +331,6 @@ fn portable_fixture_full_spatial_module() -> SyntheticModule {
             iidm: canonical_iidm_profile(),
         })
         .unwrap()
-        .add_static_route(StaticRouteInput {
-            static_route_key: "route-main",
-            edge_sequence: &[
-                LaneEdgeReference::local("entry"),
-                LaneEdgeReference::local("middle"),
-                LaneEdgeReference::local("exit"),
-            ],
-        })
-        .unwrap()
         .add_canonical_frame(CanonicalFrameInput {
             canonical_frame_key: "frame-main",
             lane_edge_geometries: &geometries,
@@ -435,8 +426,8 @@ const FULL_SPATIAL_EXPECTED_LFSM: &[u8] =
 const FULL_SPATIAL_EXPECTED_LFSD: &[u8] =
     include_bytes!("../../tests/fixtures/portable/lfca-full-spatial/expected.lfsd");
 const FULL_SPATIAL_NETWORK_REVISION: [u8; 32] = [
-    0x74, 0x12, 0x3d, 0x7d, 0x3b, 0x79, 0x37, 0x7b, 0xa3, 0xee, 0x5b, 0x9e, 0xbf, 0xcd, 0x08, 0xb4,
-    0x12, 0x00, 0x2a, 0xce, 0x17, 0x4d, 0x2e, 0xa7, 0x1a, 0xe5, 0x13, 0x0e, 0x7d, 0xc5, 0xee, 0x54,
+    0x47, 0x3f, 0xd3, 0xa1, 0xda, 0xce, 0x4e, 0x4b, 0xcc, 0x5b, 0x8f, 0xf1, 0xee, 0x89, 0x18, 0xea,
+    0x11, 0x31, 0xb7, 0x8a, 0xe2, 0x2c, 0xfe, 0x17, 0x00, 0x4e, 0x5b, 0xc7, 0x4d, 0x9b, 0x5b, 0x3a,
 ];
 
 #[test]
@@ -486,15 +477,15 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     );
     assert_eq!(
         candidate.canonical_artifact().object_key(),
-        "sha256/caf6b0997d914c63c08eb697efe5476dac58a508b7edd8e7c144e529939a84fd"
+        "sha256/7f2746caf919e8e52b67c1465fc428be13cfbe63c3691de8bae2da12c768162d"
     );
     assert_eq!(
         candidate.source_map().object_key(),
-        "sha256/c627052603d5391f189bfe0b65159b7152e1649fe6cd814a440d197e3c4f8b2c"
+        "sha256/2ce7184b5702306d71d50639d5bf622423da0613f15a71dfc2f104776d678711"
     );
     assert_eq!(
         candidate.semantic_diff().object_key(),
-        "sha256/11095287753e2c963475e678575b2104b32c44a04d3a891e2c9c833a1d17fb93"
+        "sha256/c70c1a6d83241b75b79129ab155ed2b54178f7935d9c64ba88fc2b518c88dad2"
     );
     assert_eq!(
         candidate.network_revision(),
@@ -509,11 +500,11 @@ fn portable_full_spatial_candidate_matches_frozen_exact_bytes() {
     .unwrap()
     .registry_view();
     let entity_tables = artifact.section(2).unwrap();
-    assert_eq!(entity_tables.table_count(), 22);
-    assert!((0..22).all(|ordinal| entity_tables.table(ordinal).unwrap().row_count() > 0));
+    assert_eq!(entity_tables.table_count(), 21);
+    assert!((0..21).all(|ordinal| entity_tables.table(ordinal).unwrap().row_count() > 0));
     let relation_tables = artifact.section(3).unwrap();
-    assert_eq!(relation_tables.table_count(), 5);
-    assert!((0..5).all(|ordinal| relation_tables.table(ordinal).unwrap().row_count() > 0));
+    assert_eq!(relation_tables.table_count(), 1);
+    assert!(relation_tables.table(0).unwrap().row_count() > 0);
     let spatial_tables = artifact.section(4).unwrap();
     assert!(spatial_tables.table(1).unwrap().row_count() > 0);
     assert!(spatial_tables.table(2).unwrap().row_count() > 0);

@@ -27,9 +27,9 @@ use crate::declaration::{
     RoadCorridorDeclaration, RoadCorridorInput, RoadSectionDeclaration, RoadSectionInput,
     ScalarViolation, SignalControlInput, SignalControllerDeclaration, SignalControllerInput,
     SignalGroupDeclaration, SignalGroupInput, SignalGroupStateDeclaration, SignalPhaseDeclaration,
-    SpeedLimit, StaticRouteDeclaration, StaticRouteInput, StopLineDeclaration, StopLineInput,
-    TypedAstDeclaration, VehicleProfileDeclaration, VehicleProfileInput, WaitingZoneDeclaration,
-    WaitingZoneInput, closed_millimetres, facility_kind_category,
+    SpeedLimit, StopLineDeclaration, StopLineInput, TypedAstDeclaration, VehicleProfileDeclaration,
+    VehicleProfileInput, WaitingZoneDeclaration, WaitingZoneInput, closed_millimetres,
+    facility_kind_category,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
@@ -2297,112 +2297,6 @@ impl SyntheticModuleBuilder {
                 entry_gate,
                 release_gate,
                 max_occupancy: input.max_occupancy,
-            }));
-        self.commit_declaration_resources(state);
-        Ok(self)
-    }
-
-    /// 声明一条编制期静态路线并保留其有序车道图边出现序列。
-    ///
-    /// 同一边可以重复出现；调用方和后续表必须使用路线内下标区分每次出现，不能按
-    /// `LaneEdge` 身份去重。相邻连通性、路口边界和控制出现项闭包在 HIR 阶段验证。
-    ///
-    /// 本入口随 #498 G2 删除。不为它恢复已删除的 `RouteOccurrenceCount` / 1920
-    /// 独立限额；边出现计入通用 relation / reference / source-byte 上限（ADR 0029）。
-    ///
-    /// # Errors
-    ///
-    /// 路线为空，稳定键或边引用非法，跨模块引用未显式导入，声明重复，或资源上限
-    /// 超限时失败。失败不会插入部分声明或改变累计计数。
-    #[track_caller]
-    pub fn add_static_route(
-        &mut self,
-        input: StaticRouteInput<'_>,
-    ) -> Result<&mut Self, DiagnosticBundle> {
-        let span = SourceSpan::at_caller(
-            Arc::clone(&self.header.source_document_key),
-            std::panic::Location::caller(),
-        );
-        self.validate_declaration_key(EntityKind::StaticRoute, input.static_route_key, &span)?;
-        if input.edge_sequence.is_empty() {
-            return Err(DiagnosticBundle::single(Diagnostic::empty_static_route(
-                input.static_route_key,
-                span,
-            )));
-        }
-
-        // 先只借用调用方切片完成校验和精确资源预检；超大不可信序列不得通过
-        // Vec::with_capacity 或字符串复制抢在资源限额前分配。
-        for reference in input.edge_sequence {
-            self.validate_reference(EntityKind::LaneEdge, *reference, &span)?;
-        }
-        let occurrence_count = u64::try_from(input.edge_sequence.len()).unwrap_or(u64::MAX);
-        let namespace_bytes =
-            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
-        let key_bytes = u64::try_from(input.static_route_key.len()).unwrap_or(u64::MAX);
-        let reference_string_bytes = input.edge_sequence.iter().fold(0_u64, |total, edge| {
-            let namespace = edge
-                .module_namespace()
-                .unwrap_or(&self.header.authoring_namespace_id);
-            total.saturating_add(reference_spelling_parts_bytes(
-                namespace,
-                edge.declaration_key(),
-            ))
-        });
-        let controlled_reference_bytes = input.edge_sequence.iter().fold(0_u64, |total, edge| {
-            total.saturating_add(u64::try_from(edge.declaration_key().len()).unwrap_or(u64::MAX))
-        });
-        let source_bytes = input.edge_sequence.iter().fold(
-            declaration_header_len(input.static_route_key).saturating_add(4),
-            |total, edge| {
-                let namespace = edge
-                    .module_namespace()
-                    .unwrap_or(&self.header.authoring_namespace_id);
-                total.saturating_add(encoded_reference_len(namespace, edge.declaration_key()))
-            },
-        );
-        let state = self.check_declaration_resources(
-            DeclarationResourceDelta {
-                declarations: 1,
-                typed_ast_records: 3_u64.saturating_add(occurrence_count.saturating_mul(2)),
-                references: occurrence_count,
-                relations: occurrence_count,
-                identity_fields: 2,
-                symbols: 1,
-                string_items: 2_u64.saturating_add(occurrence_count),
-                string_bytes: namespace_bytes
-                    .saturating_add(key_bytes)
-                    .saturating_add(reference_string_bytes),
-                controlled_string_bytes: key_bytes.saturating_add(controlled_reference_bytes),
-                controlled_structural_bytes: size_bytes::<StaticRouteDeclaration>(1)
-                    .saturating_add(size_bytes::<OwnedEntityReference<LaneEdgeKind>>(
-                        occurrence_count,
-                    )),
-                source_bytes,
-                ..DeclarationResourceDelta::default()
-            },
-            input.static_route_key,
-            &span,
-        )?;
-
-        let mut edge_sequence = Vec::with_capacity(input.edge_sequence.len());
-        for reference in input.edge_sequence {
-            edge_sequence.push(self.own_reference(EntityKind::LaneEdge, *reference, &span)?);
-        }
-
-        let stable_key: Arc<str> = input.static_route_key.into();
-        self.declaration_index
-            .entry(EntityKind::StaticRoute)
-            .or_default()
-            .insert(Arc::clone(&stable_key), span.clone().into());
-        self.declarations
-            .push(TypedAstDeclaration::StaticRoute(StaticRouteDeclaration {
-                header: DeclarationHeader::module_scoped(
-                    EntityKind::StaticRoute,
-                    stable_key,
-                    span.into(),
-                ),
-                edge_sequence: edge_sequence.into_boxed_slice(),
             }));
         self.commit_declaration_resources(state);
         Ok(self)

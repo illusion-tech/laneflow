@@ -4,7 +4,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 /// 当前 scenario-local corridor catalog 版本。
-pub const CATALOG_VERSION: &str = "0.2";
+pub const CATALOG_VERSION: &str = "0.3";
 
 /// 走廊编制 Identity v1 的 `AuthoringNamespaceId`。
 pub const AUTHORING_NAMESPACE: &str = "laneflow/signalized-corridor";
@@ -85,6 +85,8 @@ pub struct RouteCatalogEntry {
     pub route_id: String,
     /// exit portal ID。
     pub exit_portal_id: String,
+    /// 有序 `laneEdgeKey`；非空，允许同一边多次出现。
+    pub edge_ids: Vec<String>,
 }
 
 /// corridor spawn slot wire entry。
@@ -103,7 +105,7 @@ pub struct SpawnSlotCatalogEntry {
     pub progress: f64,
 }
 
-/// catalog 0.2 线格式或交叉引用不合法。
+/// catalog 0.3 线格式或交叉引用不合法。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CatalogError {
     UnsupportedVersion(String),
@@ -135,6 +137,7 @@ pub enum CatalogError {
         route_id: String,
     },
     DuplicateRoute(String),
+    EmptyEdgeIds(String),
     UnknownPortal(String),
     RouteCount(usize),
     UnknownRoute(String),
@@ -218,6 +221,9 @@ impl fmt::Display for CatalogError {
                 "portal {portal_id:?} repeats route choice {route_id:?}"
             ),
             Self::DuplicateRoute(id) => write!(formatter, "duplicate catalog route {id:?}"),
+            Self::EmptyEdgeIds(id) => {
+                write!(formatter, "catalog route {id:?} has empty edge_ids")
+            }
             Self::UnknownPortal(id) => write!(formatter, "unknown portal {id:?}"),
             Self::RouteCount(actual) => {
                 write!(
@@ -282,7 +288,7 @@ impl fmt::Display for CatalogError {
 
 impl std::error::Error for CatalogError {}
 
-/// 校验封闭 catalog 0.2 的版本、重复 ID、portal/lane/weight 与 slot 交叉引用。
+/// 校验封闭 catalog 0.3 的版本、重复 ID、portal/lane/weight 与 slot 交叉引用。
 ///
 /// 边是否属于所选 route、progress 是否落在已安装修订的边长内，由 `bind` 对照共享路网修订检查。
 pub fn validate(catalog: &CorridorCatalog) -> Result<(), CatalogError> {
@@ -367,6 +373,12 @@ pub fn validate(catalog: &CorridorCatalog) -> Result<(), CatalogError> {
         require_id("exit_portal_id", &route.exit_portal_id)?;
         if !route_ids.insert(route.route_id.as_str()) {
             return Err(CatalogError::DuplicateRoute(route.route_id.clone()));
+        }
+        if route.edge_ids.is_empty() {
+            return Err(CatalogError::EmptyEdgeIds(route.route_id.clone()));
+        }
+        for edge_id in &route.edge_ids {
+            require_id("edge_ids", edge_id)?;
         }
         if !PORTAL_IDS.contains(&route.exit_portal_id.as_str()) {
             return Err(CatalogError::UnknownPortal(route.exit_portal_id.clone()));
@@ -484,8 +496,8 @@ mod tests {
     }
 
     #[test]
-    fn checked_in_catalog_is_closed_0_2() {
-        validate(&golden_catalog()).expect("checked-in catalog 0.2");
+    fn checked_in_catalog_is_closed_0_3() {
+        validate(&golden_catalog()).expect("checked-in catalog 0.3");
     }
 
     #[test]

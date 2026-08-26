@@ -17,27 +17,23 @@ use super::{
     LIR_ACCESS_RULE_LOGICAL_BYTES, LIR_BAND_LOGICAL_BYTES, LIR_CANONICAL_FRAME_LOGICAL_BYTES,
     LIR_CANONICAL_POINT_LOGICAL_BYTES, LIR_CORRIDOR_ELEMENT_LOGICAL_BYTES,
     LIR_CORRIDOR_LOGICAL_BYTES, LIR_FACILITY_BAND_GEOMETRY_LOGICAL_BYTES,
-    LIR_GATE_OCCURRENCE_LOGICAL_BYTES, LIR_GEOMETRY_PROFILE_LOGICAL_BYTES, LIR_GROUP_LOGICAL_BYTES,
-    LIR_IDENTITY_FIELD_LOGICAL_BYTES, LIR_JUNCTION_INTERNAL_EDGE_LOGICAL_BYTES,
-    LIR_JUNCTION_LOGICAL_BYTES, LIR_LANE_EDGE_LOGICAL_BYTES, LIR_LANE_LOGICAL_BYTES,
-    LIR_MANEUVER_GATE_LOGICAL_BYTES, LIR_MANEUVER_OCCURRENCE_LOGICAL_BYTES,
+    LIR_GEOMETRY_PROFILE_LOGICAL_BYTES, LIR_GROUP_LOGICAL_BYTES, LIR_IDENTITY_FIELD_LOGICAL_BYTES,
+    LIR_JUNCTION_INTERNAL_EDGE_LOGICAL_BYTES, LIR_JUNCTION_LOGICAL_BYTES,
+    LIR_LANE_EDGE_LOGICAL_BYTES, LIR_LANE_LOGICAL_BYTES, LIR_MANEUVER_GATE_LOGICAL_BYTES,
     LIR_MANEUVER_PATH_LOGICAL_BYTES, LIR_MOVEMENT_LOGICAL_BYTES, LIR_PARKING_AREA_LOGICAL_BYTES,
     LIR_PARKING_SPACE_LOGICAL_BYTES, LIR_PARTICIPANT_CLASS_LOGICAL_BYTES,
-    LIR_ROUTE_OCCURRENCE_REF_LOGICAL_BYTES, LIR_SECTION_LOGICAL_BYTES, LIR_SEMANTIC_DIGEST_BYTES,
-    LIR_SIGNAL_CONTROLLER_LOGICAL_BYTES, LIR_SIGNAL_GROUP_LOGICAL_BYTES,
-    LIR_SIGNAL_PHASE_LOGICAL_BYTES, LIR_SIGNAL_PHASE_STATE_LOGICAL_BYTES,
-    LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES, LIR_SPATIAL_SEGMENT_LOGICAL_BYTES,
-    LIR_STATIC_ROUTE_LOGICAL_BYTES, LIR_STOP_LINE_LOGICAL_BYTES, LIR_SUCCESSOR_LOGICAL_BYTES,
+    LIR_SECTION_LOGICAL_BYTES, LIR_SEMANTIC_DIGEST_BYTES, LIR_SIGNAL_CONTROLLER_LOGICAL_BYTES,
+    LIR_SIGNAL_GROUP_LOGICAL_BYTES, LIR_SIGNAL_PHASE_LOGICAL_BYTES,
+    LIR_SIGNAL_PHASE_STATE_LOGICAL_BYTES, LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES,
+    LIR_SPATIAL_SEGMENT_LOGICAL_BYTES, LIR_STOP_LINE_LOGICAL_BYTES, LIR_SUCCESSOR_LOGICAL_BYTES,
     LIR_TYPED_ORDINAL_LOGICAL_BYTES, LIR_VEHICLE_PROFILE_LOGICAL_BYTES,
-    LIR_WAITING_OCCURRENCE_LOGICAL_BYTES, LIR_WAITING_ZONE_LOGICAL_BYTES, LirAccessRule,
-    LirAuthoringLane, LirCanonicalFrame, LirCanonicalPoint3F32, LirCorridorElement,
-    LirFacilityBand, LirFacilityBandGeometry, LirGateOccurrence, LirIdentityField, LirJunction,
-    LirJunctionInternalEdge, LirLaneEdge, LirLaneEdgeGeometry, LirLaneGroup, LirManeuverGate,
-    LirManeuverOccurrence, LirManeuverPath, LirMovement, LirParkingArea, LirParkingSpace,
-    LirParticipantClass, LirRoadCorridor, LirRoadSection, LirRouteOccurrenceRef,
-    LirSignalController, LirSignalGroup, LirSignalPhase, LirSignalPhaseState, LirSpatialSegment,
-    LirStaticRoute, LirStaticRouteTransition, LirStopLine, LirVehicleProfile, LirWaitingZone,
-    LirWaitingZoneOccurrence, identity_field_byte_count, requested_bytes,
+    LIR_WAITING_ZONE_LOGICAL_BYTES, LirAccessRule, LirAuthoringLane, LirCanonicalFrame,
+    LirCanonicalPoint3F32, LirCorridorElement, LirFacilityBand, LirFacilityBandGeometry,
+    LirIdentityField, LirJunction, LirJunctionInternalEdge, LirLaneEdge, LirLaneEdgeGeometry,
+    LirLaneGroup, LirManeuverGate, LirManeuverPath, LirMovement, LirParkingArea, LirParkingSpace,
+    LirParticipantClass, LirRoadCorridor, LirRoadSection, LirSignalController, LirSignalGroup,
+    LirSignalPhase, LirSignalPhaseState, LirSpatialSegment, LirStopLine, LirVehicleProfile,
+    LirWaitingZone, identity_field_byte_count, requested_bytes,
 };
 
 /// 一次冻结前形成的 LIR 计数、容量与限额观测值。
@@ -57,8 +53,6 @@ pub(crate) struct LirFreezePlan {
     pub(crate) parking: LirParkingCounts,
     pub(crate) spatial: LirSpatialCounts,
     pub(crate) access: LirAccessCounts,
-    pub(crate) route: LirRouteCounts,
-    pub(crate) reverse_occurrence_count: u64,
     pub(crate) lir_record_count: u64,
     pub(crate) stage_scratch_bytes: u64,
     pub(crate) output_bytes: u64,
@@ -125,15 +119,6 @@ pub(crate) struct LirAccessCounts {
     pub(crate) vehicle_profiles: u64,
     pub(crate) access_rules: u64,
     pub(crate) rule_class_references: u64,
-}
-
-pub(crate) struct LirRouteCounts {
-    pub(crate) static_routes: u64,
-    pub(crate) route_edges: u64,
-    pub(crate) route_transitions: u64,
-    pub(crate) maneuver_occurrences: u64,
-    pub(crate) gate_occurrences: u64,
-    pub(crate) waiting_occurrences: u64,
 }
 
 impl LirFreezePlan {
@@ -203,19 +188,6 @@ impl LirFreezePlan {
             access_rules: mir_len(mir.access_rules.len()),
             rule_class_references: mir_len(mir.access_rule_participant_classes.len()),
         };
-        let route = LirRouteCounts {
-            static_routes: mir_len(mir.static_routes.len()),
-            route_edges: mir_len(mir.static_route_edges.len()),
-            route_transitions: mir_len(mir.static_route_transitions.len()),
-            maneuver_occurrences: mir_len(mir.maneuver_occurrences.len()),
-            gate_occurrences: mir_len(mir.gate_occurrences.len()),
-            waiting_occurrences: mir_len(mir.waiting_zone_occurrences.len()),
-        };
-        let reverse_occurrence_count = route
-            .route_edges
-            .saturating_add(route.maneuver_occurrences)
-            .saturating_add(route.gate_occurrences)
-            .saturating_add(route.waiting_occurrences);
         // Identity 字段出现项有独立资源维度；LIR record 指标计实体行和关系出现行，与 MIR
         // 当前已支持实体与关系的计数对象保持一致。
         // `authoring_lanes` 按拆分前 `section_lane_count` + `lane_count` 加两次；
@@ -242,13 +214,6 @@ impl LirFreezePlan {
             junction.junction_internal_edges,
             control.stop_lines,
             control.maneuver_gates,
-            route.static_routes,
-            route.route_edges,
-            route.route_transitions,
-            route.maneuver_occurrences,
-            route.gate_occurrences,
-            route.waiting_occurrences,
-            reverse_occurrence_count,
             control.waiting_zones,
             control.maneuver_gates,
             signal.groups,
@@ -300,8 +265,7 @@ impl LirFreezePlan {
             .saturating_add(access.participant_classes.saturating_mul(2))
             .saturating_add(access.vehicle_profiles.saturating_mul(2))
             .saturating_add(spatial.canonical_frames.saturating_mul(2))
-            .saturating_add(access.access_rules.saturating_mul(2))
-            .saturating_add(route.static_routes.saturating_mul(2));
+            .saturating_add(access.access_rules.saturating_mul(2));
         let identity_field_byte_count = identity_field_byte_count(mir);
         let kind_id_byte_count = mir
             .road_sections
@@ -364,7 +328,6 @@ impl LirFreezePlan {
                     .saturating_add(access.vehicle_profiles)
                     .saturating_add(spatial.canonical_frames)
                     .saturating_add(access.access_rules)
-                    .saturating_add(route.static_routes)
                     .saturating_mul(2),
             ))
             .saturating_add(requested_bytes::<u32>(junction.junction_internal_edges))
@@ -382,11 +345,6 @@ impl LirFreezePlan {
             .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
             .saturating_add(requested_bytes::<Option<usize>>(
                 cross_section.facility_bands,
-            ))
-            // 四类反向索引先以 `(targetOrdinal, occurrence)` 排序，再复制进最终连续表；
-            // 最终表已计入 output-owned bytes，这里只补临时排序对。
-            .saturating_add(requested_bytes::<(u32, LirRouteOccurrenceRef)>(
-                reverse_occurrence_count,
             ));
         // OutputBytes 使用设计冻结的目标布局中立字段宽度，不能把 Rust struct padding 或
         // 当前平台对齐冒充规范输出量；受控存续内存则按真实堆容量请求单独计算。
@@ -581,39 +539,6 @@ impl LirFreezePlan {
             )
             .saturating_add(access_regulation_byte_count)
             .saturating_add(
-                route
-                    .static_routes
-                    .saturating_mul(LIR_STATIC_ROUTE_LOGICAL_BYTES),
-            )
-            .saturating_add(
-                route
-                    .route_edges
-                    .saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES),
-            )
-            .saturating_add(
-                route
-                    .route_transitions
-                    .saturating_mul(1 + LIR_TYPED_ORDINAL_LOGICAL_BYTES),
-            )
-            .saturating_add(
-                route
-                    .maneuver_occurrences
-                    .saturating_mul(LIR_MANEUVER_OCCURRENCE_LOGICAL_BYTES),
-            )
-            .saturating_add(
-                route
-                    .gate_occurrences
-                    .saturating_mul(LIR_GATE_OCCURRENCE_LOGICAL_BYTES),
-            )
-            .saturating_add(
-                route
-                    .waiting_occurrences
-                    .saturating_mul(LIR_WAITING_OCCURRENCE_LOGICAL_BYTES),
-            )
-            .saturating_add(
-                reverse_occurrence_count.saturating_mul(LIR_ROUTE_OCCURRENCE_REF_LOGICAL_BYTES),
-            )
-            .saturating_add(
                 control
                     .waiting_zones
                     .saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES),
@@ -721,22 +646,7 @@ impl LirFreezePlan {
             .saturating_add(requested_bytes::<ParticipantClassOrdinal>(
                 access.rule_class_references,
             ))
-            .saturating_add(access_regulation_byte_count)
-            .saturating_add(requested_bytes::<LirStaticRoute>(route.static_routes))
-            .saturating_add(requested_bytes::<LaneEdgeOrdinal>(route.route_edges))
-            .saturating_add(requested_bytes::<LirStaticRouteTransition>(
-                route.route_transitions,
-            ))
-            .saturating_add(requested_bytes::<LirManeuverOccurrence>(
-                route.maneuver_occurrences,
-            ))
-            .saturating_add(requested_bytes::<LirGateOccurrence>(route.gate_occurrences))
-            .saturating_add(requested_bytes::<LirWaitingZoneOccurrence>(
-                route.waiting_occurrences,
-            ))
-            .saturating_add(requested_bytes::<LirRouteOccurrenceRef>(
-                reverse_occurrence_count,
-            ));
+            .saturating_add(access_regulation_byte_count);
         let controlled_live_bytes = unit
             .controlled_live_bytes
             .saturating_add(mir.controlled_live_bytes)
@@ -754,8 +664,6 @@ impl LirFreezePlan {
             parking,
             spatial,
             access,
-            route,
-            reverse_occurrence_count,
             lir_record_count,
             stage_scratch_bytes,
             output_bytes,

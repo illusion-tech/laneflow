@@ -109,7 +109,6 @@ impl RoadEditingLocationFactory {
         collect_root!(root.participant_classes(), participant_class_key);
         collect_root!(root.access_rules(), access_rule_key);
         collect_root!(root.vehicle_profiles(), vehicle_profile_key);
-        collect_root!(root.static_routes(), static_route_key);
         collect_root!(root.canonical_frames(), canonical_frame_key);
 
         strings.sort_unstable_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
@@ -394,7 +393,6 @@ fn location_string_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize 
         .saturating_add(root.participant_classes().len())
         .saturating_add(root.access_rules().len())
         .saturating_add(root.vehicle_profiles().len())
-        .saturating_add(root.static_routes().len())
         .saturating_add(root.canonical_frames().len())
 }
 
@@ -431,7 +429,6 @@ fn canvas_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize {
     charge_root!(root.participant_classes());
     charge_root!(root.access_rules());
     charge_root!(root.vehicle_profiles());
-    charge_root!(root.static_routes());
     charge_root!(root.canonical_frames());
     for alignment in root.road_alignments() {
         count = count.saturating_add(
@@ -459,7 +456,7 @@ fn canvas_occurrence_count(root: wire::RoadEditingSource<'_>) -> usize {
 
 fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
     let tables = [
-        (RoadEditingTableKind::RoadEditingSource, 26_u16),
+        (RoadEditingTableKind::RoadEditingSource, 26_u16), // last id; skip historic 25 below
         (RoadEditingTableKind::ModuleHeader, 3),
         (RoadEditingTableKind::Provenance, 5),
         (RoadEditingTableKind::LineSegment, 0),
@@ -493,12 +490,14 @@ fn closed_property_paths() -> Vec<RoadEditingPropertyPath> {
         (RoadEditingTableKind::AccessRule, 7),
         (RoadEditingTableKind::IidmVehicleProfile, 6),
         (RoadEditingTableKind::VehicleProfile, 3),
-        (RoadEditingTableKind::StaticRoute, 2),
         (RoadEditingTableKind::CanonicalFrame, 1),
     ];
     let mut paths = Vec::with_capacity(512);
     for (table, last_field_id) in tables {
         for field_id in 0..=last_field_id {
+            if table == RoadEditingTableKind::RoadEditingSource && field_id == 25 {
+                continue;
+            }
             paths.push(RoadEditingPropertyPath::new(Box::new([
                 RoadEditingPropertyStep::TableField { table, field_id },
             ])));

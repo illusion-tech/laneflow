@@ -3,8 +3,8 @@ use laneflow_static_contract::{
     JunctionOrdinal, LaneEdgeOrdinal, LaneGroupOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal,
     MovementOrdinal, ParkingAreaOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal,
     RoadCorridorOrdinal, RoadSectionOrdinal, SignalAspect, SignalControllerOrdinal,
-    SignalGroupOrdinal, SignalPhaseOrdinal, StaticRouteOrdinal, StopLineOrdinal,
-    VehicleProfileOrdinal, WaitingZoneOrdinal,
+    SignalGroupOrdinal, SignalPhaseOrdinal, StopLineOrdinal, VehicleProfileOrdinal,
+    WaitingZoneOrdinal,
 };
 
 use crate::RangeU32;
@@ -82,10 +82,6 @@ pub enum BoundedDistance {
 }
 
 impl BoundedDistance {
-    pub(crate) const fn finite(value: u32) -> Self {
-        Self::Finite(value)
-    }
-
     #[must_use]
     pub fn add(self, value: u32) -> Self {
         match self {
@@ -97,210 +93,24 @@ impl BoundedDistance {
         }
     }
 
-    fn checked_sum(values: impl IntoIterator<Item = u32>) -> Self {
-        let mut sum = 0_u32;
-        for value in values {
-            match sum.checked_add(value) {
-                Some(next) => sum = next,
-                None => return Self::BeyondFinite,
-            }
-        }
-        Self::Finite(sum)
-    }
-}
-
-/// 有界距离查询结果。`Within` 为毫米。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RouteDistanceQuery {
-    Passed,
-    BeyondHorizon,
-    Within(u32),
-}
-
-/// 共享静态路线距离索引：分段 `u32` 坐标 + 后缀有界距离。
-///
-/// 路终剩余读后缀列，不靠饱和起点前缀相减。段内偏移与段合计保持 `u32`，溢出时封段
-/// 开新段，不上 `u64`（ADR 0028）。
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct RouteDistanceIndexView<'a> {
-    occurrence_segments: &'a [u32],
-    occurrence_offsets: &'a [u32],
-    segment_totals: &'a [u32],
-    distance_to_end: &'a [BoundedDistance],
-}
-
-impl<'a> RouteDistanceIndexView<'a> {
-    #[cfg(test)]
-    pub(crate) const fn from_parts(
-        occurrence_segments: &'a [u32],
-        occurrence_offsets: &'a [u32],
-        segment_totals: &'a [u32],
-        distance_to_end: &'a [BoundedDistance],
-    ) -> Self {
-        Self {
-            occurrence_segments,
-            occurrence_offsets,
-            segment_totals,
-            distance_to_end,
-        }
-    }
-
+    /// 从 Finite 后缀扣边内进度。`BeyondFinite` 保持越界，不上 `u64`。
     #[must_use]
-    pub const fn occurrence_segments(self) -> &'a [u32] {
-        self.occurrence_segments
+    pub fn saturating_sub(self, value: u32) -> Self {
+        match self {
+            Self::Finite(current) => Self::Finite(current.saturating_sub(value)),
+            Self::BeyondFinite => Self::BeyondFinite,
+        }
     }
 
+    /// 两个后缀相减得到窗口距离。两端都越界时差仍越界，不上 `u64`。
     #[must_use]
-    pub const fn occurrence_offsets(self) -> &'a [u32] {
-        self.occurrence_offsets
-    }
-
-    #[must_use]
-    pub const fn segment_totals(self) -> &'a [u32] {
-        self.segment_totals
-    }
-
-    #[must_use]
-    pub const fn distance_to_end(self) -> &'a [BoundedDistance] {
-        self.distance_to_end
-    }
-
-    #[must_use]
-    pub fn distance_to_end_within(
-        self,
-        from_occurrence: usize,
-        from_progress: u32,
-        horizon: u32,
-    ) -> RouteDistanceQuery {
-        let Some(distance) = self.distance_to_end.get(from_occurrence).copied() else {
-            return RouteDistanceQuery::Passed;
-        };
-        match distance {
-            BoundedDistance::BeyondFinite => RouteDistanceQuery::BeyondHorizon,
-            BoundedDistance::Finite(distance) => {
-                let remaining = distance.saturating_sub(from_progress);
-                if remaining <= horizon {
-                    RouteDistanceQuery::Within(remaining)
-                } else {
-                    RouteDistanceQuery::BeyondHorizon
-                }
-            }
+    pub fn saturating_sub_bounded(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Finite(left), Self::Finite(right)) => Self::Finite(left.saturating_sub(right)),
+            (Self::BeyondFinite, Self::Finite(_)) => Self::BeyondFinite,
+            (Self::Finite(_), Self::BeyondFinite) => Self::Finite(0),
+            (Self::BeyondFinite, Self::BeyondFinite) => Self::BeyondFinite,
         }
-    }
-
-    #[must_use]
-    pub fn finite_distance(
-        self,
-        from_occurrence: usize,
-        from_progress: u32,
-        target_occurrence: usize,
-        target_progress: u32,
-    ) -> Option<BoundedDistance> {
-        if target_occurrence < from_occurrence
-            || (target_occurrence == from_occurrence && target_progress < from_progress)
-        {
-            return None;
-        }
-        let from = self.coordinate(from_occurrence)?;
-        let target = self.coordinate(target_occurrence)?;
-        let from_distance = match from.1.checked_add(from_progress) {
-            Some(value) => value,
-            None => return Some(BoundedDistance::BeyondFinite),
-        };
-        let target_distance = match target.1.checked_add(target_progress) {
-            Some(value) => value,
-            None => return Some(BoundedDistance::BeyondFinite),
-        };
-        if from.0 == target.0 {
-            return Some(BoundedDistance::Finite(
-                target_distance.saturating_sub(from_distance),
-            ));
-        }
-        let first_segment_distance = match self.segment_totals.get(from.0) {
-            Some(&total) => total.saturating_sub(from_distance),
-            None => return None,
-        };
-        let middle_start = from.0.checked_add(1)?;
-        let middle_segments = self
-            .segment_totals
-            .get(middle_start..target.0)?
-            .iter()
-            .copied();
-        Some(BoundedDistance::checked_sum(
-            core::iter::once(first_segment_distance)
-                .chain(middle_segments)
-                .chain(core::iter::once(target_distance)),
-        ))
-    }
-
-    #[must_use]
-    pub fn distance_within(
-        self,
-        from_occurrence: usize,
-        from_progress: u32,
-        target_occurrence: usize,
-        target_progress: u32,
-        horizon: u32,
-    ) -> RouteDistanceQuery {
-        if target_occurrence < from_occurrence
-            || (target_occurrence == from_occurrence && target_progress < from_progress)
-        {
-            return RouteDistanceQuery::Passed;
-        }
-        let Some(from) = self.coordinate(from_occurrence) else {
-            return RouteDistanceQuery::Passed;
-        };
-        let Some(target) = self.coordinate(target_occurrence) else {
-            return RouteDistanceQuery::Passed;
-        };
-
-        if from.0 == target.0 {
-            let Some(from_distance) = from.1.checked_add(from_progress) else {
-                return RouteDistanceQuery::BeyondHorizon;
-            };
-            let Some(target_distance) = target.1.checked_add(target_progress) else {
-                return RouteDistanceQuery::BeyondHorizon;
-            };
-            let distance = target_distance.saturating_sub(from_distance);
-            return if distance <= horizon {
-                RouteDistanceQuery::Within(distance)
-            } else {
-                RouteDistanceQuery::BeyondHorizon
-            };
-        }
-
-        let Some(&from_segment_total) = self.segment_totals.get(from.0) else {
-            return RouteDistanceQuery::Passed;
-        };
-        let Some(from_distance) = from.1.checked_add(from_progress) else {
-            return RouteDistanceQuery::BeyondHorizon;
-        };
-        let mut distance = from_segment_total.saturating_sub(from_distance);
-        if distance > horizon {
-            return RouteDistanceQuery::BeyondHorizon;
-        }
-        for segment in (from.0 + 1)..target.0 {
-            let Some(&segment_total) = self.segment_totals.get(segment) else {
-                return RouteDistanceQuery::Passed;
-            };
-            match distance.checked_add(segment_total) {
-                Some(next) if next <= horizon => distance = next,
-                Some(_) | None => return RouteDistanceQuery::BeyondHorizon,
-            }
-        }
-        let Some(target_distance) = target.1.checked_add(target_progress) else {
-            return RouteDistanceQuery::BeyondHorizon;
-        };
-        match distance.checked_add(target_distance) {
-            Some(next) if next <= horizon => RouteDistanceQuery::Within(next),
-            Some(_) | None => RouteDistanceQuery::BeyondHorizon,
-        }
-    }
-
-    fn coordinate(self, occurrence: usize) -> Option<(usize, u32)> {
-        let segment = usize::try_from(*self.occurrence_segments.get(occurrence)?).ok()?;
-        let offset = *self.occurrence_offsets.get(occurrence)?;
-        Some((segment, offset))
     }
 }
 
@@ -617,173 +427,6 @@ impl VehicleProfileView {
     }
 }
 
-/// 一条实体在静态路线上的 reverse 命中。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RouteReverseHits<'a> {
-    routes: &'a [StaticRouteOrdinal],
-    occurrences: &'a [u32],
-}
-
-impl<'a> RouteReverseHits<'a> {
-    #[must_use]
-    pub const fn routes(self) -> &'a [StaticRouteOrdinal] {
-        self.routes
-    }
-
-    #[must_use]
-    pub const fn occurrences(self) -> &'a [u32] {
-        self.occurrences
-    }
-}
-
-/// 路线上从某条边起的下一受控转换。
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct NextControlledTransition {
-    gate: ManeuverGateOrdinal,
-    from_route_edge_index: u32,
-    distance_from_edge_start: BoundedDistance,
-}
-
-impl NextControlledTransition {
-    #[must_use]
-    pub const fn gate(self) -> ManeuverGateOrdinal {
-        self.gate
-    }
-
-    #[must_use]
-    pub const fn from_route_edge_index(self) -> u32 {
-        self.from_route_edge_index
-    }
-
-    #[must_use]
-    pub const fn distance_from_edge_start(self) -> BoundedDistance {
-        self.distance_from_edge_start
-    }
-}
-
-/// 一条 StaticRoute 上的机动 occurrence，含 owner-local 门/等待区 range。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RouteManeuverOccurrence {
-    path: ManeuverPathOrdinal,
-    entry_route_edge_index: u32,
-    exit_route_edge_index: u32,
-    gate_occurrence_range: RangeU32,
-    waiting_occurrence_range: RangeU32,
-}
-
-impl RouteManeuverOccurrence {
-    #[must_use]
-    pub const fn path(self) -> ManeuverPathOrdinal {
-        self.path
-    }
-
-    #[must_use]
-    pub const fn entry_route_edge_index(self) -> u32 {
-        self.entry_route_edge_index
-    }
-
-    #[must_use]
-    pub const fn exit_route_edge_index(self) -> u32 {
-        self.exit_route_edge_index
-    }
-
-    #[must_use]
-    pub const fn gate_occurrence_range(self) -> RangeU32 {
-        self.gate_occurrence_range
-    }
-
-    #[must_use]
-    pub const fn waiting_occurrence_range(self) -> RangeU32 {
-        self.waiting_occurrence_range
-    }
-}
-
-/// 一条 StaticRoute 上的门 occurrence。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RouteGateOccurrence {
-    gate: ManeuverGateOrdinal,
-    maneuver_occurrence_index: u32,
-    from_route_edge_index: u32,
-    next_gate_occurrence_index: Option<u32>,
-    next_boundary_route_edge_index: u32,
-    waiting_zone_occurrence_index: Option<u32>,
-}
-
-impl RouteGateOccurrence {
-    #[must_use]
-    pub const fn gate(self) -> ManeuverGateOrdinal {
-        self.gate
-    }
-
-    #[must_use]
-    pub const fn maneuver_occurrence_index(self) -> u32 {
-        self.maneuver_occurrence_index
-    }
-
-    #[must_use]
-    pub const fn from_route_edge_index(self) -> u32 {
-        self.from_route_edge_index
-    }
-
-    #[must_use]
-    pub const fn next_gate_occurrence_index(self) -> Option<u32> {
-        self.next_gate_occurrence_index
-    }
-
-    #[must_use]
-    pub const fn next_boundary_route_edge_index(self) -> u32 {
-        self.next_boundary_route_edge_index
-    }
-
-    #[must_use]
-    pub const fn waiting_zone_occurrence_index(self) -> Option<u32> {
-        self.waiting_zone_occurrence_index
-    }
-}
-
-/// 一条 StaticRoute 上的等待区 occurrence。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RouteWaitingOccurrence {
-    zone: WaitingZoneOrdinal,
-    maneuver_occurrence_index: u32,
-    entry_gate_occurrence_index: u32,
-    release_gate_occurrence_index: u32,
-    entry_route_edge_index: u32,
-    release_route_edge_index: u32,
-}
-
-impl RouteWaitingOccurrence {
-    #[must_use]
-    pub const fn zone(self) -> WaitingZoneOrdinal {
-        self.zone
-    }
-
-    #[must_use]
-    pub const fn maneuver_occurrence_index(self) -> u32 {
-        self.maneuver_occurrence_index
-    }
-
-    #[must_use]
-    pub const fn entry_gate_occurrence_index(self) -> u32 {
-        self.entry_gate_occurrence_index
-    }
-
-    #[must_use]
-    pub const fn release_gate_occurrence_index(self) -> u32 {
-        self.release_gate_occurrence_index
-    }
-
-    #[must_use]
-    pub const fn entry_route_edge_index(self) -> u32 {
-        self.entry_route_edge_index
-    }
-
-    #[must_use]
-    pub const fn release_route_edge_index(self) -> u32 {
-        self.release_route_edge_index
-    }
-}
-
 /// 可选一对一反向：`None` 表示缺失，禁止用 `0` 冒充有效 ordinal。
 #[derive(Clone, Debug)]
 pub(crate) struct OptionalColumn<T> {
@@ -911,49 +554,6 @@ pub struct SharedRelationClosure {
     profile_max_accel: Box<[f32]>,
     profile_comfort_decel: Box<[f32]>,
     profile_emergency_decel: Box<[f32]>,
-    route_edge_ranges: Box<[RangeU32]>,
-    route_edges: Box<[LaneEdgeOrdinal]>,
-    route_gate_ranges: Box<[RangeU32]>,
-    route_transition_gates: Box<[Option<ManeuverGateOrdinal>]>,
-    route_maneuver_ranges: Box<[RangeU32]>,
-    route_maneuver_paths: Box<[ManeuverPathOrdinal]>,
-    route_maneuver_entry: Box<[u32]>,
-    route_maneuver_exit: Box<[u32]>,
-    route_maneuver_gate_occ_start: Box<[u32]>,
-    route_maneuver_gate_occ_count: Box<[u32]>,
-    route_maneuver_waiting_occ_start: Box<[u32]>,
-    route_maneuver_waiting_occ_count: Box<[u32]>,
-    route_gate_occ_ranges: Box<[RangeU32]>,
-    route_gate_occ_gates: Box<[ManeuverGateOrdinal]>,
-    route_gate_occ_maneuver: Box<[u32]>,
-    route_gate_occ_from: Box<[u32]>,
-    route_gate_occ_next: Box<[Option<u32>]>,
-    route_gate_occ_next_boundary: Box<[u32]>,
-    route_gate_occ_waiting: Box<[Option<u32>]>,
-    route_waiting_occ_ranges: Box<[RangeU32]>,
-    route_waiting_occ_zones: Box<[WaitingZoneOrdinal]>,
-    route_waiting_occ_maneuver: Box<[u32]>,
-    route_waiting_occ_entry_gate: Box<[u32]>,
-    route_waiting_occ_release_gate: Box<[u32]>,
-    route_waiting_occ_entry_edge: Box<[u32]>,
-    route_waiting_occ_release_edge: Box<[u32]>,
-    route_reverse_kind: Box<[u16]>,
-    route_reverse_ordinal: Box<[u32]>,
-    route_reverse_route: Box<[StaticRouteOrdinal]>,
-    route_reverse_occurrence: Box<[u32]>,
-    route_distance_to_end: Box<[BoundedDistance]>,
-    route_distance_ranges: Box<[RangeU32]>,
-    route_distance_segments: Box<[u32]>,
-    route_distance_offsets: Box<[u32]>,
-    route_segment_totals: Box<[u32]>,
-    route_segment_ranges: Box<[RangeU32]>,
-    next_controlled_gate: Box<[Option<ManeuverGateOrdinal>]>,
-    next_controlled_from: Box<[u32]>,
-    next_controlled_distance: Box<[BoundedDistance]>,
-    speed_limit_from: Box<[u32]>,
-    speed_limit_to_edge: Box<[LaneEdgeOrdinal]>,
-    speed_limit_target: Box<[u32]>,
-    speed_limit_ranges: Box<[RangeU32]>,
     access_class_count: u32,
     edge_row_starts: Box<[u32]>,
     edge_cells: Box<[AccessCell]>,
@@ -1297,199 +897,6 @@ impl SharedRelationClosure {
     }
 
     #[must_use]
-    pub fn static_route_edges(&self, route: StaticRouteOrdinal) -> Option<&[LaneEdgeOrdinal]> {
-        Some(
-            self.route_edge_ranges
-                .get(route.index())?
-                .slice(&self.route_edges),
-        )
-    }
-
-    #[must_use]
-    pub fn static_route_transition_gates(
-        &self,
-        route: StaticRouteOrdinal,
-    ) -> Option<&[Option<ManeuverGateOrdinal>]> {
-        Some(
-            self.route_gate_ranges
-                .get(route.index())?
-                .slice(&self.route_transition_gates),
-        )
-    }
-
-    /// 路线反向索引。`None` 表示 kind 不受支持或 ordinal 越出本修订；修订内无命中返回空切片。
-    #[must_use]
-    pub fn static_route_reverse(
-        &self,
-        kind: EntityKind,
-        ordinal: u32,
-    ) -> Option<RouteReverseHits<'_>> {
-        let limit = match kind {
-            EntityKind::LaneEdge => self.edge_row_starts.len(),
-            EntityKind::ManeuverPath => self.path_row_starts.len(),
-            EntityKind::ManeuverGate => self.gate_path.len(),
-            EntityKind::WaitingZone => self.waiting_path.len(),
-            _ => return None,
-        };
-        if usize::try_from(ordinal).ok()? >= limit {
-            return None;
-        }
-        let code = kind.code();
-        let start = partition_reverse_keys(
-            &self.route_reverse_kind,
-            &self.route_reverse_ordinal,
-            |kind_code, entity| (kind_code, entity) < (code, ordinal),
-        );
-        let end = partition_reverse_keys(
-            &self.route_reverse_kind,
-            &self.route_reverse_ordinal,
-            |kind_code, entity| (kind_code, entity) <= (code, ordinal),
-        );
-        Some(RouteReverseHits {
-            routes: &self.route_reverse_route[start..end],
-            occurrences: &self.route_reverse_occurrence[start..end],
-        })
-    }
-
-    #[must_use]
-    pub fn route_maneuver_count(&self, route: StaticRouteOrdinal) -> Option<usize> {
-        Some(self.route_maneuver_ranges.get(route.index())?.len() as usize)
-    }
-
-    #[must_use]
-    pub fn route_maneuver_occurrence(
-        &self,
-        route: StaticRouteOrdinal,
-        index: usize,
-    ) -> Option<RouteManeuverOccurrence> {
-        let range = *self.route_maneuver_ranges.get(route.index())?;
-        if index >= usize::try_from(range.len()).ok()? {
-            return None;
-        }
-        let slot = usize::try_from(range.start()).ok()? + index;
-        Some(RouteManeuverOccurrence {
-            path: *self.route_maneuver_paths.get(slot)?,
-            entry_route_edge_index: *self.route_maneuver_entry.get(slot)?,
-            exit_route_edge_index: *self.route_maneuver_exit.get(slot)?,
-            gate_occurrence_range: RangeU32::new(
-                *self.route_maneuver_gate_occ_start.get(slot)?,
-                *self.route_maneuver_gate_occ_count.get(slot)?,
-            ),
-            waiting_occurrence_range: RangeU32::new(
-                *self.route_maneuver_waiting_occ_start.get(slot)?,
-                *self.route_maneuver_waiting_occ_count.get(slot)?,
-            ),
-        })
-    }
-
-    #[must_use]
-    pub fn route_gate_count(&self, route: StaticRouteOrdinal) -> Option<usize> {
-        Some(self.route_gate_occ_ranges.get(route.index())?.len() as usize)
-    }
-
-    #[must_use]
-    pub fn route_gate_occurrence(
-        &self,
-        route: StaticRouteOrdinal,
-        index: usize,
-    ) -> Option<RouteGateOccurrence> {
-        let range = *self.route_gate_occ_ranges.get(route.index())?;
-        if index >= usize::try_from(range.len()).ok()? {
-            return None;
-        }
-        let slot = usize::try_from(range.start()).ok()? + index;
-        Some(RouteGateOccurrence {
-            gate: *self.route_gate_occ_gates.get(slot)?,
-            maneuver_occurrence_index: *self.route_gate_occ_maneuver.get(slot)?,
-            from_route_edge_index: *self.route_gate_occ_from.get(slot)?,
-            next_gate_occurrence_index: *self.route_gate_occ_next.get(slot)?,
-            next_boundary_route_edge_index: *self.route_gate_occ_next_boundary.get(slot)?,
-            waiting_zone_occurrence_index: *self.route_gate_occ_waiting.get(slot)?,
-        })
-    }
-
-    #[must_use]
-    pub fn route_waiting_count(&self, route: StaticRouteOrdinal) -> Option<usize> {
-        Some(self.route_waiting_occ_ranges.get(route.index())?.len() as usize)
-    }
-
-    #[must_use]
-    pub fn route_waiting_occurrence(
-        &self,
-        route: StaticRouteOrdinal,
-        index: usize,
-    ) -> Option<RouteWaitingOccurrence> {
-        let range = *self.route_waiting_occ_ranges.get(route.index())?;
-        if index >= usize::try_from(range.len()).ok()? {
-            return None;
-        }
-        let slot = usize::try_from(range.start()).ok()? + index;
-        Some(RouteWaitingOccurrence {
-            zone: *self.route_waiting_occ_zones.get(slot)?,
-            maneuver_occurrence_index: *self.route_waiting_occ_maneuver.get(slot)?,
-            entry_gate_occurrence_index: *self.route_waiting_occ_entry_gate.get(slot)?,
-            release_gate_occurrence_index: *self.route_waiting_occ_release_gate.get(slot)?,
-            entry_route_edge_index: *self.route_waiting_occ_entry_edge.get(slot)?,
-            release_route_edge_index: *self.route_waiting_occ_release_edge.get(slot)?,
-        })
-    }
-
-    #[must_use]
-    pub fn route_distance_to_end(&self, route: StaticRouteOrdinal) -> Option<&[BoundedDistance]> {
-        Some(
-            self.route_distance_ranges
-                .get(route.index())?
-                .slice(&self.route_distance_to_end),
-        )
-    }
-
-    #[must_use]
-    pub fn route_distance_index(
-        &self,
-        route: StaticRouteOrdinal,
-    ) -> Option<RouteDistanceIndexView<'_>> {
-        let range = *self.route_distance_ranges.get(route.index())?;
-        let segment_range = *self.route_segment_ranges.get(route.index())?;
-        Some(RouteDistanceIndexView {
-            occurrence_segments: range.slice(&self.route_distance_segments),
-            occurrence_offsets: range.slice(&self.route_distance_offsets),
-            segment_totals: segment_range.slice(&self.route_segment_totals),
-            distance_to_end: range.slice(&self.route_distance_to_end),
-        })
-    }
-
-    #[must_use]
-    pub fn next_controlled_transition(
-        &self,
-        route: StaticRouteOrdinal,
-        edge_index: usize,
-    ) -> Option<NextControlledTransition> {
-        let range = *self.route_edge_ranges.get(route.index())?;
-        if edge_index >= usize::try_from(range.len()).ok()? {
-            return None;
-        }
-        let index = usize::try_from(range.start()).ok()? + edge_index;
-        Some(NextControlledTransition {
-            gate: self.next_controlled_gate.get(index).copied().flatten()?,
-            from_route_edge_index: *self.next_controlled_from.get(index)?,
-            distance_from_edge_start: *self.next_controlled_distance.get(index)?,
-        })
-    }
-
-    #[must_use]
-    pub fn speed_limit_transitions(
-        &self,
-        route: StaticRouteOrdinal,
-    ) -> Option<(&[u32], &[LaneEdgeOrdinal], &[u32])> {
-        let range = *self.speed_limit_ranges.get(route.index())?;
-        Some((
-            range.slice(&self.speed_limit_from),
-            range.slice(&self.speed_limit_to_edge),
-            range.slice(&self.speed_limit_target),
-        ))
-    }
-
-    #[must_use]
     pub fn lane_group_members(&self, group: LaneGroupOrdinal) -> Option<&[AuthoringLaneOrdinal]> {
         Some(
             self.lane_group_member_ranges
@@ -1604,49 +1011,6 @@ impl SharedRelationClosure {
             + logical_bytes::<f32>(self.profile_max_accel.len())
             + logical_bytes::<f32>(self.profile_comfort_decel.len())
             + logical_bytes::<f32>(self.profile_emergency_decel.len())
-            + logical_bytes::<RangeU32>(self.route_edge_ranges.len())
-            + logical_bytes::<LaneEdgeOrdinal>(self.route_edges.len())
-            + logical_bytes::<RangeU32>(self.route_gate_ranges.len())
-            + logical_bytes::<Option<ManeuverGateOrdinal>>(self.route_transition_gates.len())
-            + logical_bytes::<RangeU32>(self.route_maneuver_ranges.len())
-            + logical_bytes::<ManeuverPathOrdinal>(self.route_maneuver_paths.len())
-            + logical_bytes::<u32>(self.route_maneuver_entry.len())
-            + logical_bytes::<u32>(self.route_maneuver_exit.len())
-            + logical_bytes::<u32>(self.route_maneuver_gate_occ_start.len())
-            + logical_bytes::<u32>(self.route_maneuver_gate_occ_count.len())
-            + logical_bytes::<u32>(self.route_maneuver_waiting_occ_start.len())
-            + logical_bytes::<u32>(self.route_maneuver_waiting_occ_count.len())
-            + logical_bytes::<RangeU32>(self.route_gate_occ_ranges.len())
-            + logical_bytes::<ManeuverGateOrdinal>(self.route_gate_occ_gates.len())
-            + logical_bytes::<u32>(self.route_gate_occ_maneuver.len())
-            + logical_bytes::<u32>(self.route_gate_occ_from.len())
-            + logical_bytes::<Option<u32>>(self.route_gate_occ_next.len())
-            + logical_bytes::<u32>(self.route_gate_occ_next_boundary.len())
-            + logical_bytes::<Option<u32>>(self.route_gate_occ_waiting.len())
-            + logical_bytes::<RangeU32>(self.route_waiting_occ_ranges.len())
-            + logical_bytes::<WaitingZoneOrdinal>(self.route_waiting_occ_zones.len())
-            + logical_bytes::<u32>(self.route_waiting_occ_maneuver.len())
-            + logical_bytes::<u32>(self.route_waiting_occ_entry_gate.len())
-            + logical_bytes::<u32>(self.route_waiting_occ_release_gate.len())
-            + logical_bytes::<u32>(self.route_waiting_occ_entry_edge.len())
-            + logical_bytes::<u32>(self.route_waiting_occ_release_edge.len())
-            + logical_bytes::<u16>(self.route_reverse_kind.len())
-            + logical_bytes::<u32>(self.route_reverse_ordinal.len())
-            + logical_bytes::<StaticRouteOrdinal>(self.route_reverse_route.len())
-            + logical_bytes::<u32>(self.route_reverse_occurrence.len())
-            + logical_bytes::<BoundedDistance>(self.route_distance_to_end.len())
-            + logical_bytes::<RangeU32>(self.route_distance_ranges.len())
-            + logical_bytes::<u32>(self.route_distance_segments.len())
-            + logical_bytes::<u32>(self.route_distance_offsets.len())
-            + logical_bytes::<u32>(self.route_segment_totals.len())
-            + logical_bytes::<RangeU32>(self.route_segment_ranges.len())
-            + logical_bytes::<Option<ManeuverGateOrdinal>>(self.next_controlled_gate.len())
-            + logical_bytes::<u32>(self.next_controlled_from.len())
-            + logical_bytes::<BoundedDistance>(self.next_controlled_distance.len())
-            + logical_bytes::<u32>(self.speed_limit_from.len())
-            + logical_bytes::<LaneEdgeOrdinal>(self.speed_limit_to_edge.len())
-            + logical_bytes::<u32>(self.speed_limit_target.len())
-            + logical_bytes::<RangeU32>(self.speed_limit_ranges.len())
             + logical_bytes::<u32>(self.edge_row_starts.len())
             + logical_bytes::<AccessCell>(self.edge_cells.len())
             + logical_bytes::<u32>(self.path_row_starts.len())
@@ -1687,18 +1051,10 @@ pub(crate) struct RelationPayloads {
     pub parking_spaces: u32,
     pub lane_group_members: u32,
     pub rule_classes: u32,
-    pub route_edges: u32,
-    pub route_transitions: u32,
-    pub route_maneuvers: u32,
-    pub route_gate_occurrences: u32,
-    pub route_waiting_occurrences: u32,
-    pub route_reverse: u32,
     pub intern_keys: u32,
     pub intern_utf8: u32,
     pub edge_cells: u32,
     pub path_cells: u32,
-    pub route_segment_totals: u32,
-    pub speed_limit_transitions: u32,
     pub pass_a_scratch: u64,
 }
 
@@ -1728,7 +1084,6 @@ pub(crate) fn relation_retained_floor(
     let class = counts.count(EntityKind::ParticipantClass);
     let rule = counts.count(EntityKind::AccessRule);
     let profile = counts.count(EntityKind::VehicleProfile);
-    let route = counts.count(EntityKind::StaticRoute);
     total = floor_add::<RoadSectionOrdinal>(total, corridor)?;
     total = floor_add::<RangeU32>(total, corridor)?;
     total = floor_add::<RoadCorridorOrdinal>(total, section)?;
@@ -1793,14 +1148,6 @@ pub(crate) fn relation_retained_floor(
     total = floor_add::<f32>(total, profile)?;
     total = floor_add::<f32>(total, profile)?;
     total = floor_add::<f32>(total, profile)?;
-    total = floor_add::<RangeU32>(total, route)?;
-    total = floor_add::<RangeU32>(total, route)?;
-    total = floor_add::<RangeU32>(total, route)?;
-    total = floor_add::<RangeU32>(total, route)?;
-    total = floor_add::<RangeU32>(total, route)?;
-    total = floor_add::<RangeU32>(total, route)?;
-    total = floor_add::<RangeU32>(total, route)?;
-    total = floor_add::<RangeU32>(total, route)?;
     total = floor_add::<u32>(total, lane)?;
     total = floor_add::<u32>(total, path)?;
     total = floor_add::<CorridorElement>(total, payloads.corridor_elements)?;
@@ -1817,83 +1164,11 @@ pub(crate) fn relation_retained_floor(
     total = floor_add::<ParkingSpaceOrdinal>(total, payloads.parking_spaces)?;
     total = floor_add::<AuthoringLaneOrdinal>(total, payloads.lane_group_members)?;
     total = floor_add::<ParticipantClassOrdinal>(total, payloads.rule_classes)?;
-    total = floor_add::<LaneEdgeOrdinal>(total, payloads.route_edges)?;
-    total = floor_add::<BoundedDistance>(total, payloads.route_edges)?;
-    total = floor_add::<u32>(total, payloads.route_edges)?;
-    total = floor_add::<u32>(total, payloads.route_edges)?;
-    total = floor_add::<Option<ManeuverGateOrdinal>>(total, payloads.route_edges)?;
-    total = floor_add::<u32>(total, payloads.route_edges)?;
-    total = floor_add::<BoundedDistance>(total, payloads.route_edges)?;
-    total = floor_add::<Option<ManeuverGateOrdinal>>(total, payloads.route_transitions)?;
-    total = floor_add::<ManeuverPathOrdinal>(total, payloads.route_maneuvers)?;
-    total = floor_add::<u32>(
-        total,
-        payloads
-            .route_maneuvers
-            .checked_mul(6)
-            .ok_or(BuildError::ArithmeticOverflow {
-                structure: BuildStructure::RetainedOutput,
-            })?,
-    )?;
-    total = floor_add::<ManeuverGateOrdinal>(total, payloads.route_gate_occurrences)?;
-    total = floor_add::<u32>(
-        total,
-        payloads
-            .route_gate_occurrences
-            .checked_mul(3)
-            .ok_or(BuildError::ArithmeticOverflow {
-                structure: BuildStructure::RetainedOutput,
-            })?,
-    )?;
-    total = floor_add::<Option<u32>>(
-        total,
-        payloads
-            .route_gate_occurrences
-            .checked_mul(2)
-            .ok_or(BuildError::ArithmeticOverflow {
-                structure: BuildStructure::RetainedOutput,
-            })?,
-    )?;
-    total = floor_add::<WaitingZoneOrdinal>(total, payloads.route_waiting_occurrences)?;
-    total = floor_add::<u32>(
-        total,
-        payloads.route_waiting_occurrences.checked_mul(5).ok_or(
-            BuildError::ArithmeticOverflow {
-                structure: BuildStructure::RetainedOutput,
-            },
-        )?,
-    )?;
-    total = floor_add::<u16>(total, payloads.route_reverse)?;
-    total = floor_add::<u32>(total, payloads.route_reverse)?;
-    total = floor_add::<StaticRouteOrdinal>(total, payloads.route_reverse)?;
-    total = floor_add::<u32>(total, payloads.route_reverse)?;
     total = floor_add::<Box<str>>(total, payloads.intern_keys)?;
     total = floor_add_bytes(total, payloads.intern_utf8)?;
-    total = floor_add::<u32>(total, payloads.route_segment_totals)?;
-    total = floor_add::<u32>(total, payloads.speed_limit_transitions)?;
-    total = floor_add::<LaneEdgeOrdinal>(total, payloads.speed_limit_transitions)?;
-    total = floor_add::<u32>(total, payloads.speed_limit_transitions)?;
     total = floor_add::<AccessCell>(total, payloads.edge_cells)?;
     total = floor_add::<AccessCell>(total, payloads.path_cells)?;
     Ok(total)
-}
-
-fn partition_reverse_keys(
-    kinds: &[u16],
-    ordinals: &[u32],
-    mut before: impl FnMut(u16, u32) -> bool,
-) -> usize {
-    let mut lo = 0;
-    let mut hi = kinds.len();
-    while lo < hi {
-        let mid = lo + (hi - lo) / 2;
-        if before(kinds[mid], ordinals[mid]) {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    lo
 }
 
 fn plane_cell(
@@ -2018,49 +1293,6 @@ mod builder_support {
         profile_max_accel: Box<[f32]>,
         profile_comfort_decel: Box<[f32]>,
         profile_emergency_decel: Box<[f32]>,
-        route_edge_ranges: Box<[RangeU32]>,
-        route_edges: Box<[LaneEdgeOrdinal]>,
-        route_gate_ranges: Box<[RangeU32]>,
-        route_transition_gates: Box<[Option<ManeuverGateOrdinal>]>,
-        route_maneuver_ranges: Box<[RangeU32]>,
-        route_maneuver_paths: Box<[ManeuverPathOrdinal]>,
-        route_maneuver_entry: Box<[u32]>,
-        route_maneuver_exit: Box<[u32]>,
-        route_maneuver_gate_occ_start: Box<[u32]>,
-        route_maneuver_gate_occ_count: Box<[u32]>,
-        route_maneuver_waiting_occ_start: Box<[u32]>,
-        route_maneuver_waiting_occ_count: Box<[u32]>,
-        route_gate_occ_ranges: Box<[RangeU32]>,
-        route_gate_occ_gates: Box<[ManeuverGateOrdinal]>,
-        route_gate_occ_maneuver: Box<[u32]>,
-        route_gate_occ_from: Box<[u32]>,
-        route_gate_occ_next: Box<[Option<u32>]>,
-        route_gate_occ_next_boundary: Box<[u32]>,
-        route_gate_occ_waiting: Box<[Option<u32>]>,
-        route_waiting_occ_ranges: Box<[RangeU32]>,
-        route_waiting_occ_zones: Box<[WaitingZoneOrdinal]>,
-        route_waiting_occ_maneuver: Box<[u32]>,
-        route_waiting_occ_entry_gate: Box<[u32]>,
-        route_waiting_occ_release_gate: Box<[u32]>,
-        route_waiting_occ_entry_edge: Box<[u32]>,
-        route_waiting_occ_release_edge: Box<[u32]>,
-        route_reverse_kind: Box<[u16]>,
-        route_reverse_ordinal: Box<[u32]>,
-        route_reverse_route: Box<[StaticRouteOrdinal]>,
-        route_reverse_occurrence: Box<[u32]>,
-        route_distance_to_end: Box<[BoundedDistance]>,
-        route_distance_ranges: Box<[RangeU32]>,
-        route_distance_segments: Box<[u32]>,
-        route_distance_offsets: Box<[u32]>,
-        route_segment_totals: Box<[u32]>,
-        route_segment_ranges: Box<[RangeU32]>,
-        next_controlled_gate: Box<[Option<ManeuverGateOrdinal>]>,
-        next_controlled_from: Box<[u32]>,
-        next_controlled_distance: Box<[BoundedDistance]>,
-        speed_limit_from: Box<[u32]>,
-        speed_limit_to_edge: Box<[LaneEdgeOrdinal]>,
-        speed_limit_target: Box<[u32]>,
-        speed_limit_ranges: Box<[RangeU32]>,
         access_class_count: u32,
         edge_row_starts: Box<[u32]>,
         edge_cells: Box<[AccessCell]>,
@@ -2147,49 +1379,6 @@ mod builder_support {
             profile_max_accel,
             profile_comfort_decel,
             profile_emergency_decel,
-            route_edge_ranges,
-            route_edges,
-            route_gate_ranges,
-            route_transition_gates,
-            route_maneuver_ranges,
-            route_maneuver_paths,
-            route_maneuver_entry,
-            route_maneuver_exit,
-            route_maneuver_gate_occ_start,
-            route_maneuver_gate_occ_count,
-            route_maneuver_waiting_occ_start,
-            route_maneuver_waiting_occ_count,
-            route_gate_occ_ranges,
-            route_gate_occ_gates,
-            route_gate_occ_maneuver,
-            route_gate_occ_from,
-            route_gate_occ_next,
-            route_gate_occ_next_boundary,
-            route_gate_occ_waiting,
-            route_waiting_occ_ranges,
-            route_waiting_occ_zones,
-            route_waiting_occ_maneuver,
-            route_waiting_occ_entry_gate,
-            route_waiting_occ_release_gate,
-            route_waiting_occ_entry_edge,
-            route_waiting_occ_release_edge,
-            route_reverse_kind,
-            route_reverse_ordinal,
-            route_reverse_route,
-            route_reverse_occurrence,
-            route_distance_to_end,
-            route_distance_ranges,
-            route_distance_segments,
-            route_distance_offsets,
-            route_segment_totals,
-            route_segment_ranges,
-            next_controlled_gate,
-            next_controlled_from,
-            next_controlled_distance,
-            speed_limit_from,
-            speed_limit_to_edge,
-            speed_limit_target,
-            speed_limit_ranges,
             access_class_count,
             edge_row_starts,
             edge_cells,
@@ -2265,49 +1454,6 @@ mod builder_support {
             Box::new([]),
             Box::new([]),
             empty_optional(0).expect("empty"),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
-            Box::new([]),
             Box::new([]),
             Box::new([]),
             Box::new([]),

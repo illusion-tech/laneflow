@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use laneflow_format::{FormatLimits, check_canonical_network_input};
-use laneflow_runtime::{PoseSource, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
+use laneflow_runtime::{
+    PoseSource, RouteRegisterInput, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
+};
 use laneflow_spatial::{
     CanonicalPoseBatch, FramePlacementToken, PoseInput, PoseRecordId, SpatialSession,
 };
-use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
+use laneflow_static_contract::{LaneEdgeOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
@@ -14,6 +16,16 @@ use laneflow_static_network::{
 const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
 );
+
+fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
+    let index = world
+        .traffic()
+        .lane_lengths_millimetres()
+        .iter()
+        .position(|actual| *actual == length)
+        .expect("fixture lane length");
+    LaneEdgeOrdinal::try_from_usize(index).expect("fixture lane ordinal")
+}
 
 fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
     let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
@@ -36,9 +48,12 @@ fn s1_two_vehicles_step_and_extract_pose_batch() {
     assert!(Arc::ptr_eq(&world.revision(), &revision));
 
     let mut world = world;
+    let first = edge_for_length(&world, 10_000);
+    let middle = edge_for_length(&world, 8_000);
+    let last = edge_for_length(&world, 12_000);
     let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
+        .register_route(RouteRegisterInput::new(vec![first, middle, last]))
+        .expect("register");
     let profile = world
         .traffic()
         .relations()

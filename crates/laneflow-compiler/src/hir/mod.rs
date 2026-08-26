@@ -21,7 +21,6 @@ mod control;
 mod cross_section;
 mod junction;
 mod parking;
-mod route;
 mod signal;
 mod spatial;
 
@@ -40,7 +39,7 @@ use base::{
 pub(crate) use base::{HirImport, HirLaneEdge, HirLaneEdgeReference, HirModule};
 use plan::{
     AccessCounts, ControlCounts, CrossSectionCounts, HirBuildPlan, JunctionCounts, ParkingCounts,
-    RouteCounts, SignalCounts, SpatialCounts,
+    SignalCounts, SpatialCounts,
 };
 
 pub(crate) use access::{
@@ -60,10 +59,6 @@ pub(crate) use junction::{
     HirManeuverPathEdge, HirMovement, HirMovementManeuverPath,
 };
 pub(crate) use parking::{HirParkingArea, HirParkingAreaSpace, HirParkingSpace};
-pub(crate) use route::{
-    HirGateOccurrence, HirManeuverOccurrence, HirStaticRoute, HirStaticRouteEdge,
-    HirStaticRouteTransition, HirWaitingZoneOccurrence,
-};
 pub(crate) use signal::{
     HirSignalControl, HirSignalController, HirSignalControllerGroup, HirSignalGroup,
     HirSignalGroupManeuverGate, HirSignalPhase, HirSignalPhaseState,
@@ -78,7 +73,6 @@ use control::{ControlHir, build_control_hir};
 use cross_section::{CanonicalAuthoringLaneSource, CrossSectionHir, build_cross_section_hir};
 use junction::{HirDeclaredJunctionEdge, JunctionHir, ManeuverPathSequence, build_junction_hir};
 use parking::{ParkingHir, build_parking_hir, close_parking_anchors_to_emitted_length_mm};
-use route::{RouteHir, build_route_hir};
 use signal::{SignalHir, build_signal_hir};
 #[cfg(test)]
 use spatial::canonical_point_distance;
@@ -117,7 +111,6 @@ pub(crate) enum HirManeuverPathTag {}
 pub(crate) enum HirStopLineTag {}
 pub(crate) enum HirManeuverGateTag {}
 pub(crate) enum HirWaitingZoneTag {}
-pub(crate) enum HirStaticRouteTag {}
 pub(crate) enum HirSignalGroupTag {}
 pub(crate) enum HirSignalControllerTag {}
 pub(crate) enum HirSignalPhaseTag {}
@@ -143,7 +136,6 @@ pub(crate) type HirManeuverPathKey = ArenaKey<HirManeuverPathTag>;
 pub(crate) type HirStopLineKey = ArenaKey<HirStopLineTag>;
 pub(crate) type HirManeuverGateKey = ArenaKey<HirManeuverGateTag>;
 pub(crate) type HirWaitingZoneKey = ArenaKey<HirWaitingZoneTag>;
-pub(crate) type HirStaticRouteKey = ArenaKey<HirStaticRouteTag>;
 pub(crate) type HirSignalGroupKey = ArenaKey<HirSignalGroupTag>;
 pub(crate) type HirSignalControllerKey = ArenaKey<HirSignalControllerTag>;
 pub(crate) type HirParkingAreaKey = ArenaKey<HirParkingAreaTag>;
@@ -207,12 +199,6 @@ pub(crate) struct HirUnit {
     pub(crate) spatial_segments: Box<[HirSpatialSegment]>,
     pub(crate) access_rules: Box<[HirAccessRule]>,
     pub(crate) access_rule_participant_classes: Box<[HirAccessRuleParticipantClass]>,
-    pub(crate) static_routes: Box<[HirStaticRoute]>,
-    pub(crate) static_route_edges: Box<[HirStaticRouteEdge]>,
-    pub(crate) static_route_transitions: Box<[HirStaticRouteTransition]>,
-    pub(crate) maneuver_occurrences: Box<[HirManeuverOccurrence]>,
-    pub(crate) gate_occurrences: Box<[HirGateOccurrence]>,
-    pub(crate) waiting_zone_occurrences: Box<[HirWaitingZoneOccurrence]>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) hir_record_count: u64,
     pub(crate) controlled_live_bytes: u64,
@@ -239,7 +225,6 @@ struct HirParts {
     parking: ParkingHir,
     spatial: SpatialHir,
     access: AccessHir,
-    route: RouteHir,
 }
 
 impl HirParts {
@@ -292,12 +277,6 @@ impl HirParts {
             vehicle_profiles: self.access.vehicle_profiles,
             access_rules: self.access.access_rules,
             access_rule_participant_classes: self.access.access_rule_participant_classes,
-            static_routes: self.route.static_routes,
-            static_route_edges: self.route.static_route_edges,
-            static_route_transitions: self.route.static_route_transitions,
-            maneuver_occurrences: self.route.maneuver_occurrences,
-            gate_occurrences: self.route.gate_occurrences,
-            waiting_zone_occurrences: self.route.waiting_zone_occurrences,
             hir_record_count: plan.memory.hir_record_count,
             controlled_live_bytes: plan.memory.persistent_bytes,
             peak_controlled_live_bytes: plan.memory.controlled_live_bytes,
@@ -342,7 +321,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &mut identities,
     )?;
     // 仅有的两条跨领域写边之一：control 回写 junction 机动路径的 maneuver_gates /
-    // waiting_zones 区间；读者仅 route 与 MIR。
+    // waiting_zones 区间；读者仅 MIR。
     let mut control = build_control_hir(
         unit,
         &plan.control,
@@ -400,23 +379,6 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &junction.maneuver_paths,
         &mut identities,
     )?;
-    let route = build_route_hir(
-        unit,
-        &plan.route,
-        &base.module_lookup,
-        &base.lane_edges,
-        &base.lane_edge_references,
-        &base.lane_edge_symbols,
-        &junction.maneuver_paths,
-        &junction.maneuver_path_edges,
-        &junction.junction_internal_edges,
-        &control.stop_lines,
-        &control.maneuver_gates,
-        &control.waiting_zones,
-        &control.maneuver_path_gates,
-        &control.maneuver_path_waiting_zones,
-        &mut identities,
-    )?;
     // 完整规范前像只服务本阶段的重复/碰撞判断。此后各表仅保留 16 字节有类型 ID，
     // 避免在 HIR 与 MIR 中复制可由稳定键和父项重建的 identity envelope。
     drop(identities);
@@ -430,7 +392,6 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         parking,
         spatial,
         access,
-        route,
     }
     .finish(&plan))
 }
@@ -483,7 +444,6 @@ fn declaration_header(declaration: &TypedAstDeclaration) -> &crate::declaration:
         TypedAstDeclaration::StopLine(declaration) => &declaration.header,
         TypedAstDeclaration::ManeuverGate(declaration) => &declaration.header,
         TypedAstDeclaration::WaitingZone(declaration) => &declaration.header,
-        TypedAstDeclaration::StaticRoute(declaration) => &declaration.header,
         TypedAstDeclaration::SignalGroup(declaration) => &declaration.header,
         TypedAstDeclaration::SignalController(declaration) => &declaration.header,
         TypedAstDeclaration::ParkingArea(declaration) => &declaration.header,

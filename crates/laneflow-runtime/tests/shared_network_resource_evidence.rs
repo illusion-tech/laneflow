@@ -13,17 +13,19 @@ use laneflow_compiler::{
 };
 use laneflow_corridor_generator::{CorridorConfig, generate};
 use laneflow_format::{FormatLimits, check_canonical_network_input, check_post_emission_bundle};
-use laneflow_runtime::{PoseSource, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
+use laneflow_runtime::{
+    PoseSource, RouteRegisterInput, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
+};
 use laneflow_scenario::signalized_corridor::{
     BoundCorridorCatalog, BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
 };
 use laneflow_static_contract::{
     AccessRuleKind, AuthoringLaneKind, CanonicalFrameKind, EntityKind, EntityKindMarker,
-    FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind, ManeuverGateKind,
+    FacilityBandKind, JunctionKind, LaneEdgeKind, LaneEdgeOrdinal, LaneGroupKind, ManeuverGateKind,
     ManeuverPathKind, MovementKind, Ordinal, OrdinalKind, ParkingAreaKind, ParkingSpaceKind,
     ParticipantClassKind, RoadCorridorKind, RoadSectionKind, Sha256Digest, SignalControllerKind,
-    SignalGroupKind, SignalPhaseKind, StaticRouteKind, StaticRouteOrdinal, StopLineKind,
-    VehicleProfileKind, VehicleProfileOrdinal, WaitingZoneKind,
+    SignalGroupKind, SignalPhaseKind, StopLineKind, VehicleProfileKind, VehicleProfileOrdinal,
+    WaitingZoneKind,
 };
 use laneflow_static_network::{
     BuildError, BuildStructure, SharedIdentityIndex, SharedNetworkBuildLimits,
@@ -57,14 +59,14 @@ const CORRIDOR_KERNEL_STEPS: u32 = 1_024;
 const CORRIDOR_DELTA_MS: u64 = 4;
 const WARMUP: usize = 1;
 const SAMPLES: usize = 7;
-const CORRIDOR_LFCA_LEN: usize = 458_118;
+const CORRIDOR_LFCA_LEN: usize = 418_428;
 const CORRIDOR_SHA256: [u8; 32] = [
-    0x7a, 0xd5, 0xfe, 0xc1, 0xb9, 0x0c, 0x44, 0x5c, 0x0a, 0x16, 0xbf, 0xb6, 0xbf, 0x56, 0xea, 0x4e,
-    0xe4, 0x4d, 0xc6, 0x27, 0x9a, 0xd8, 0x70, 0x6d, 0xe1, 0x2b, 0xfc, 0x2e, 0x4e, 0xc6, 0xa6, 0xae,
+    0xeb, 0x09, 0x2b, 0x66, 0x41, 0xad, 0x92, 0x03, 0xb6, 0x65, 0xee, 0x95, 0x7c, 0xaa, 0x15, 0x27,
+    0x46, 0xee, 0x0c, 0xf1, 0x96, 0x38, 0x52, 0x9b, 0x75, 0x34, 0xde, 0x3a, 0x90, 0xed, 0x5c, 0x4b,
 ];
 const CORRIDOR_NETWORK_REVISION: [u8; 32] = [
-    0xe4, 0x7b, 0xbc, 0xaf, 0x62, 0xcb, 0xc6, 0xb6, 0x98, 0x45, 0x2b, 0x18, 0x28, 0x0c, 0x03, 0x1a,
-    0x91, 0x56, 0x73, 0x32, 0x81, 0x8a, 0xdb, 0xc3, 0x44, 0x98, 0x46, 0x77, 0x2f, 0xc9, 0x9a, 0x63,
+    0xa3, 0x5c, 0xc3, 0x43, 0xfb, 0x3a, 0x88, 0x96, 0xf0, 0x18, 0x0c, 0xd6, 0xc4, 0x28, 0x38, 0x18,
+    0x31, 0x7b, 0x9f, 0x09, 0x3c, 0xa3, 0x9a, 0x11, 0x99, 0xfc, 0xa7, 0xea, 0x30, 0xc0, 0x67, 0x24,
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -203,7 +205,6 @@ fn identity_lookups(identity: &SharedIdentityIndex) -> u32 {
         + lookup_kind::<ParticipantClassKind>(identity)
         + lookup_kind::<AccessRuleKind>(identity)
         + lookup_kind::<VehicleProfileKind>(identity)
-        + lookup_kind::<StaticRouteKind>(identity)
         + lookup_kind::<CanonicalFrameKind>(identity)
 }
 
@@ -237,7 +238,6 @@ fn identity_round_trips(identity: &SharedIdentityIndex) -> u32 {
     assert_kind_round_trip::<ParticipantClassKind>(identity);
     assert_kind_round_trip::<AccessRuleKind>(identity);
     assert_kind_round_trip::<VehicleProfileKind>(identity);
-    assert_kind_round_trip::<StaticRouteKind>(identity);
     assert_kind_round_trip::<CanonicalFrameKind>(identity);
     identity_lookups(identity)
 }
@@ -310,10 +310,24 @@ fn assert_stable_ledger(
     first
 }
 
+fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
+    let index = world
+        .traffic()
+        .lane_lengths_millimetres()
+        .iter()
+        .position(|actual| *actual == length)
+        .expect("fixture lane length");
+    LaneEdgeOrdinal::try_from_usize(index).expect("fixture lane ordinal")
+}
+
 fn spawn_full_spatial_pair(world: &mut TrafficWorld) {
     let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route 0");
+        .register_route(RouteRegisterInput::new(vec![
+            edge_for_length(world, 10_000),
+            edge_for_length(world, 8_000),
+            edge_for_length(world, 12_000),
+        ]))
+        .expect("register");
     let profile = world
         .traffic()
         .relations()
@@ -340,16 +354,14 @@ fn spawn_full_spatial_pair(world: &mut TrafficWorld) {
 }
 
 fn spawn_on_slot(world: &mut TrafficWorld, profile: VehicleProfileOrdinal, slot: &BoundSpawnSlot) {
-    let edges = world
-        .traffic()
-        .relations()
-        .static_route_edges(slot.entry_route)
-        .expect("route edges");
-    let index = edges
+    let index = slot
+        .entry_edges
         .iter()
         .position(|edge| *edge == slot.edge)
         .expect("slot edge is on its entry route");
-    let route = world.static_route(slot.entry_route).expect("static route");
+    let route = world
+        .find_route(&slot.entry_edges)
+        .expect("catalog route must be registered");
     world
         .spawn_vehicle(VehicleSpawnInput::new(
             profile,
@@ -392,6 +404,7 @@ fn spawn_corridor_pair(world: &mut TrafficWorld, revision: &SharedNetworkRevisio
     let catalog: CorridorCatalog = toml::from_str(CORRIDOR_CATALOG).expect("catalog TOML");
     let bound = bind(&catalog, revision).expect("prepare bind");
     assert_eq!(bound.network_revision, revision.network_revision());
+    bound.install_routes(world).expect("install catalog routes");
     let profile = *bound
         .profiles
         .get(PASSENGER_CAR_PROFILE_KEY)
@@ -418,7 +431,7 @@ fn install_kernel_world(
     corridor: bool,
 ) -> TrafficWorld {
     let mut world =
-        TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 8, 1, delta_ms))
+        TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 32, 1, delta_ms))
             .expect("install");
     if corridor {
         spawn_corridor_pair(&mut world, revision.as_ref());

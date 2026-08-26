@@ -12,7 +12,7 @@ use laneflow_scenario::signalized_corridor::{
     DEFAULT_TARGET_VEHICLE_COUNT, MAX_TARGET_VEHICLE_COUNT, MIN_TARGET_VEHICLE_COUNT,
     PASSENGER_CAR_PROFILE_KEY, bind,
 };
-use laneflow_static_contract::{StaticRouteOrdinal, VehicleProfileOrdinal};
+use laneflow_static_contract::VehicleProfileOrdinal;
 use laneflow_static_network::{
     SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
     build_shared_network_revision,
@@ -60,8 +60,12 @@ fn prepare(
 
 fn spawn_plans(
     world: &mut TrafficWorld,
+    prepared: &CorridorPopulationPrepare,
     plans: &[laneflow_scenario::signalized_corridor::CorridorVehiclePlan],
 ) -> Vec<VehicleHandle> {
+    prepared
+        .install_routes(world)
+        .expect("install catalog routes");
     plans
         .iter()
         .map(|plan| {
@@ -76,7 +80,7 @@ fn spawn_population(
     world: &mut TrafficWorld,
     prepared: &CorridorPopulationPrepare,
 ) -> Vec<VehicleHandle> {
-    spawn_plans(world, prepared.initial_vehicles())
+    spawn_plans(world, prepared, prepared.initial_vehicles())
 }
 
 #[test]
@@ -94,12 +98,18 @@ fn config_freezes_defaults_and_closed_target_range() {
 
 #[test]
 fn prepare_50_100_200_are_deterministic_for_seed_zero() {
-    fn fingerprint(target: usize) -> Vec<(u32, u32, u32)> {
+    fn fingerprint(target: usize) -> Vec<(Vec<u32>, u32, u32)> {
         let (prepared, _) = prepare(target, 0);
         prepared
             .initial_vehicles()
             .iter()
-            .map(|plan| (plan.route.raw(), plan.route_edge_index, plan.progress_mm))
+            .map(|plan| {
+                (
+                    plan.edges.iter().map(|edge| edge.raw()).collect(),
+                    plan.route_edge_index,
+                    plan.progress_mm,
+                )
+            })
             .collect()
     }
     let fifty = fingerprint(50);
@@ -120,14 +130,14 @@ fn bind_and_replace_does_not_despawn_then_spawn() {
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            8,
+            28,
             1,
             TICK_MS,
         ),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
+    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
     assert_eq!(controller.counts().running, MIN_TARGET_VEHICLE_COUNT);
     assert_eq!(controller.counts().pending, 0);
 
@@ -181,14 +191,14 @@ fn blocked_retry_replays_the_same_plan() {
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            8,
+            28,
             1,
             TICK_MS,
         ),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
+    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
     for _ in 0..8_000 {
         world.step(TickInput::new(TICK_MS)).expect("step");
         if controller.consume_world(&world).expect("consume") > 0 {
@@ -241,14 +251,14 @@ fn apply_pending_host_error_restores_fifo_front() {
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            8,
+            28,
             1,
             TICK_MS,
         ),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
+    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
     for _ in 0..8_000 {
         world.step(TickInput::new(TICK_MS)).expect("step");
         if controller.consume_world(&world).expect("consume") > 0 {
@@ -283,7 +293,7 @@ fn take_initial_vehicles_then_bind_reaches_running() {
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            8,
+            28,
             1,
             TICK_MS,
         ),
@@ -291,8 +301,10 @@ fn take_initial_vehicles_then_bind_reaches_running() {
     .expect("install");
     let plans = prepared.take_initial_vehicles();
     assert_eq!(plans.len(), MIN_TARGET_VEHICLE_COUNT);
-    let vehicles = spawn_plans(&mut world, &plans);
-    let controller = prepared.bind(&world, &vehicles).expect("bind after take");
+    let vehicles = spawn_plans(&mut world, &prepared, &plans);
+    let controller = prepared
+        .bind(&mut world, &vehicles)
+        .expect("bind after take");
     assert_eq!(controller.counts().running, MIN_TARGET_VEHICLE_COUNT);
     assert_eq!(controller.counts().pending, 0);
 }
@@ -304,14 +316,14 @@ fn consume_world_rejects_skipped_ticks() {
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            8,
+            28,
             1,
             TICK_MS,
         ),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
+    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
     world.step(TickInput::new(TICK_MS)).expect("first step");
     world
         .step(TickInput::new(TICK_MS))
@@ -333,15 +345,16 @@ fn consume_world_rejects_untracked_completed_vehicle() {
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT + 1).expect("fits"),
-            8,
+            28,
             1,
             TICK_MS,
         ),
     )
     .expect("install");
+    let extra_edges = prepared.initial_vehicles()[0].edges.clone();
     let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
-    let extra = spawn_near_route_end(&mut world);
+    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
+    let extra = spawn_near_route_end(&mut world, &extra_edges);
     world.step(TickInput::new(TICK_MS)).expect("step");
     assert_eq!(
         world.vehicle(extra).expect("extra").status(),
@@ -370,16 +383,14 @@ fn foreign_world() -> TrafficWorld {
     TrafficWorld::install(foreign, WorldConfig::new(8, 4, 1, 100)).expect("install")
 }
 
-fn spawn_near_route_end(world: &mut TrafficWorld) -> VehicleHandle {
+fn spawn_near_route_end(
+    world: &mut TrafficWorld,
+    edges: &[laneflow_static_contract::LaneEdgeOrdinal],
+) -> VehicleHandle {
     let route = world
-        .static_route(StaticRouteOrdinal::from_raw(0))
-        .expect("static route");
-    let edges = world
-        .traffic()
-        .relations()
-        .static_route_edges(StaticRouteOrdinal::from_raw(0))
-        .expect("edges")
-        .to_vec();
+        .find_route(edges)
+        .expect("catalog routes already installed");
+    let edges = world.route_edges(route).expect("edges").to_vec();
     let last = *edges.last().expect("route has edges");
     let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
     let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
@@ -412,14 +423,14 @@ fn consume_world_rejects_foreign_revision() {
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            8,
+            28,
             1,
             TICK_MS,
         ),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
+    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
     let error = controller
         .consume_world(&foreign_world())
         .expect_err("foreign consume");
@@ -436,14 +447,14 @@ fn pending_spawn_input_rejects_foreign_revision() {
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            8,
+            28,
             1,
             TICK_MS,
         ),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
+    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
     for _ in 0..8_000 {
         world.step(TickInput::new(TICK_MS)).expect("step");
         if controller.consume_world(&world).expect("consume") > 0 {
@@ -474,14 +485,14 @@ fn apply_pending_rejects_foreign_revision() {
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
-            8,
+            28,
             1,
             TICK_MS,
         ),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&world, &vehicles).expect("bind");
+    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
     for _ in 0..8_000 {
         world.step(TickInput::new(TICK_MS)).expect("step");
         if controller.consume_world(&world).expect("consume") > 0 {
@@ -525,11 +536,11 @@ fn bound_controller(target: usize) -> (TrafficWorld, CorridorPopulationControlle
     let (prepared, revision) = prepare(target, DEFAULT_SEED);
     let mut world = TrafficWorld::install(
         Arc::clone(&revision),
-        WorldConfig::new(u32::try_from(target).expect("fits"), 8, 1, TICK_MS),
+        WorldConfig::new(u32::try_from(target).expect("fits"), 28, 1, TICK_MS),
     )
     .expect("install");
     let vehicles = spawn_population(&mut world, &prepared);
-    let controller = prepared.bind(&world, &vehicles).expect("bind");
+    let controller = prepared.bind(&mut world, &vehicles).expect("bind");
     (world, controller)
 }
 

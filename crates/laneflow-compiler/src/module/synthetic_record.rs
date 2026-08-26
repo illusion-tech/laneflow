@@ -176,10 +176,6 @@ pub(super) fn encoded_declaration_len(declaration: &TypedAstDeclaration) -> Opti
             &declaration.entry_gate,
             &declaration.release_gate,
         )),
-        TypedAstDeclaration::StaticRoute(declaration) => Some(static_route_declaration_len(
-            &declaration.header.stable_key,
-            &declaration.edge_sequence,
-        )),
         TypedAstDeclaration::SignalGroup(declaration) => {
             Some(declaration_header_len(&declaration.header.stable_key))
         }
@@ -638,21 +634,6 @@ pub(super) fn waiting_zone_declaration_len(
         .saturating_add(4)
 }
 
-pub(super) fn static_route_declaration_len(
-    stable_key: &str,
-    edge_sequence: &[OwnedEntityReference<LaneEdgeKind>],
-) -> u64 {
-    edge_sequence.iter().fold(
-        declaration_header_len(stable_key).saturating_add(4),
-        |length, edge| {
-            length.saturating_add(encoded_reference_len(
-                &edge.module_namespace,
-                edge.declaration_key(),
-            ))
-        },
-    )
-}
-
 #[inline]
 pub(super) fn lane_group_declaration_len(
     stable_key: &str,
@@ -858,17 +839,6 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
             put_owned_reference(output, &declaration.entry_gate);
             put_owned_reference(output, &declaration.release_gate);
             output.extend_from_slice(&declaration.max_occupancy.to_le_bytes());
-        }
-        TypedAstDeclaration::StaticRoute(declaration) => {
-            put_declaration_header(output, &declaration.header);
-            output.extend_from_slice(
-                &u32::try_from(declaration.edge_sequence.len())
-                    .unwrap_or(u32::MAX)
-                    .to_le_bytes(),
-            );
-            for edge in &declaration.edge_sequence {
-                put_owned_reference(output, edge);
-            }
         }
         TypedAstDeclaration::SignalGroup(declaration) => {
             put_declaration_header(output, &declaration.header);

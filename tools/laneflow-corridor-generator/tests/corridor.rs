@@ -89,7 +89,6 @@ fn default_corridor_locks_scope_counts_and_deterministic_bytes() {
     assert!(!first_lfsd.is_empty());
     let lir = first.lir();
     assert_eq!(lir.lane_edges().len(), 66);
-    assert_eq!(lir.static_routes().len(), 28);
     assert_eq!(lir.junctions().len(), 2);
     assert_eq!(lir.movements().len(), 24);
     assert_eq!(lir.maneuver_paths().len(), 32);
@@ -180,19 +179,20 @@ fn default_corridor_locks_protected_turning_geometry_routes_and_signals() {
         lir.maneuver_gates()
             .all(|gate| gate.transition_index() == 0)
     );
+    let catalog: laneflow_corridor_generator::CorridorCatalog =
+        toml::from_str(std::str::from_utf8(generated.catalog_bytes()).expect("catalog is UTF-8"))
+            .expect("catalog TOML must parse");
     let mut internal_occurrences = 0;
     let mut unique_internals = std::collections::HashSet::new();
-    for route in lir.static_routes() {
-        for edge in route.edges() {
-            let view = lir.lane_edge(*edge).expect("route edge");
-            let key = ascii_field(view.identity_fields(), FieldTag::LaneEdgeKey);
+    for route in &catalog.routes {
+        for key in &route.edge_ids {
             if key.ends_with("-i0") {
                 internal_occurrences += 1;
                 unique_internals.insert(key);
             }
         }
     }
-    assert_eq!(lir.static_routes().len(), 28);
+    assert_eq!(catalog.routes.len(), 28);
     assert_eq!(internal_occurrences, 44);
     assert_eq!(unique_internals.len(), 32);
     for controller in lir.signal_controllers() {
@@ -290,7 +290,7 @@ fn default_catalog_locks_physical_slots_lane_choices_and_weights() {
     let catalog: laneflow_corridor_generator::CorridorCatalog =
         toml::from_str(std::str::from_utf8(generated.catalog_bytes()).expect("catalog is UTF-8"))
             .expect("catalog TOML must parse");
-    assert_eq!(catalog.catalog_version, "0.2");
+    assert_eq!(catalog.catalog_version, "0.3");
     assert_eq!(
         catalog
             .portals
@@ -484,19 +484,20 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
     let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 32, 1, 16))
         .expect("install");
     assert_eq!(world.revision().network_revision(), bound.network_revision);
+    bound
+        .install_routes(&mut world)
+        .expect("install catalog routes");
 
     for slot in bound.spawn_slots.iter().take(3) {
-        let edges = world
-            .traffic()
-            .relations()
-            .static_route_edges(slot.entry_route)
-            .expect("route edges");
-        let index = edges
+        let index = slot
+            .entry_edges
             .iter()
             .position(|edge| *edge == slot.edge)
             .expect("slot edge is on its entry route");
         assert_eq!(index, 0, "catalog slots bind to the route entry edge");
-        let route = world.static_route(slot.entry_route).expect("static route");
+        let route = world
+            .find_route(&slot.entry_edges)
+            .expect("catalog route must be registered");
         world
             .spawn_vehicle(VehicleSpawnInput::new(
                 profile,

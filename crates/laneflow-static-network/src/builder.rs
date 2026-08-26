@@ -13,7 +13,7 @@ use laneflow_static_contract::{
     EntityKind, FacilityBandOrdinal, IDENTITY_ENCODING_VERSION, IDENTITY_REGISTRY_REVISION,
     LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathOrdinal, MovementOrdinal,
     NETWORK_REVISION_DERIVATION_VERSION, SPATIAL_JOIN_POSITION_TOLERANCE_METERS,
-    STATIC_EXECUTION_CONTRACT_VERSION, StableId128, StaticRouteOrdinal, WaitingZoneOrdinal,
+    STATIC_EXECUTION_CONTRACT_VERSION, StableId128, WaitingZoneOrdinal,
 };
 
 use crate::{
@@ -295,13 +295,23 @@ fn count_and_preflight(
     })?;
     let mut entity_counts = [0_u32; ENTITY_KIND_COUNT];
     let mut entity_count_total = 0_u32;
-    for (index, table) in entity_section.tables().enumerate() {
-        let Some(slot) = entity_counts.get_mut(index) else {
+    for table in entity_section.tables() {
+        let entity_kind =
+            EntityKind::from_code(table.kind()).ok_or(BuildError::InputInvariant {
+                structure: BuildStructure::CanonicalEntityTable,
+            })?;
+        if !entity_kind.is_constructible() {
+            return Err(BuildError::InputInvariant {
+                structure: BuildStructure::CanonicalEntityTable,
+            });
+        }
+        let slot = kind_index(entity_kind);
+        let Some(count) = entity_counts.get_mut(slot) else {
             return Err(BuildError::InputInvariant {
                 structure: BuildStructure::CanonicalEntityTable,
             });
         };
-        *slot = table.row_count();
+        *count = table.row_count();
         entity_count_total = checked_add_count(
             entity_count_total,
             table.row_count(),
@@ -776,8 +786,6 @@ fn relation_scratch_bytes(
         })?;
     let lane_count = entity_counts.count(EntityKind::LaneEdge);
     let path_count = entity_counts.count(EntityKind::ManeuverPath);
-    let gate_count = entity_counts.count(EntityKind::ManeuverGate);
-    let waiting_count = entity_counts.count(EntityKind::WaitingZone);
     let bucket_units = lane_count
         .checked_add(entity_counts.count(EntityKind::LaneGroup))
         .and_then(|count| count.checked_add(entity_counts.count(EntityKind::RoadSection)))
@@ -816,89 +824,7 @@ fn relation_scratch_bytes(
             .ok_or(BuildError::ArithmeticOverflow {
                 structure: BuildStructure::BuilderScratch,
             })?;
-    let reverse_entities = lane_count
-        .checked_add(path_count)
-        .and_then(|count| count.checked_add(gate_count))
-        .and_then(|count| count.checked_add(waiting_count))
-        .ok_or(BuildError::ArithmeticOverflow {
-            structure: BuildStructure::BuilderScratch,
-        })?;
-    let reverse_rows = payloads.route_reverse;
-    let reverse_live = structure_bytes::<u16>(reverse_rows, BuildStructure::BuilderScratch)?;
-    let reverse_live = reverse_live
-        .checked_add(structure_bytes::<u32>(
-            reverse_rows,
-            BuildStructure::BuilderScratch,
-        )?)
-        .ok_or(BuildError::ArithmeticOverflow {
-            structure: BuildStructure::BuilderScratch,
-        })?;
-    let reverse_live = reverse_live
-        .checked_add(structure_bytes::<StaticRouteOrdinal>(
-            reverse_rows,
-            BuildStructure::BuilderScratch,
-        )?)
-        .ok_or(BuildError::ArithmeticOverflow {
-            structure: BuildStructure::BuilderScratch,
-        })?;
-    let reverse_live = reverse_live
-        .checked_add(structure_bytes::<u32>(
-            reverse_rows,
-            BuildStructure::BuilderScratch,
-        )?)
-        .ok_or(BuildError::ArithmeticOverflow {
-            structure: BuildStructure::BuilderScratch,
-        })?;
-    let reverse_live = reverse_live
-        .checked_mul(2)
-        .ok_or(BuildError::ArithmeticOverflow {
-            structure: BuildStructure::BuilderScratch,
-        })?;
-    let reverse_live = reverse_live
-        .checked_add(structure_bytes::<usize>(
-            reverse_entities,
-            BuildStructure::BuilderScratch,
-        )?)
-        .ok_or(BuildError::ArithmeticOverflow {
-            structure: BuildStructure::BuilderScratch,
-        })?;
-    let reverse_live = reverse_live
-        .checked_add(structure_bytes::<usize>(
-            reverse_entities,
-            BuildStructure::BuilderScratch,
-        )?)
-        .ok_or(BuildError::ArithmeticOverflow {
-            structure: BuildStructure::BuilderScratch,
-        })?;
-    let route_units = payloads
-        .route_edges
-        .checked_add(payloads.route_maneuvers)
-        .and_then(|count| count.checked_add(payloads.route_gate_occurrences))
-        .and_then(|count| count.checked_add(payloads.route_waiting_occurrences))
-        .ok_or(BuildError::ArithmeticOverflow {
-            structure: BuildStructure::BuilderScratch,
-        })?;
-    let route_rebuild = structure_bytes::<u32>(route_units, BuildStructure::BuilderScratch)?;
-    let route_rebuild = route_rebuild
-        .checked_add(structure_bytes::<Option<ManeuverPathOrdinal>>(
-            payloads.route_edges,
-            BuildStructure::BuilderScratch,
-        )?)
-        .ok_or(BuildError::ArithmeticOverflow {
-            structure: BuildStructure::BuilderScratch,
-        })?;
-    let route_rebuild = route_rebuild
-        .checked_add(structure_bytes::<Option<ManeuverGateOrdinal>>(
-            payloads.route_transitions,
-            BuildStructure::BuilderScratch,
-        )?)
-        .ok_or(BuildError::ArithmeticOverflow {
-            structure: BuildStructure::BuilderScratch,
-        })?;
-    let peak = class_scratch
-        .max(access_scratch)
-        .max(reverse_live)
-        .max(route_rebuild);
+    let peak = class_scratch.max(access_scratch);
     unique
         .checked_add(intern)
         .and_then(|bytes| bytes.checked_add(peak))
@@ -2223,12 +2149,16 @@ fn build_traffic(
         .ok_or(BuildError::InputInvariant {
             structure: BuildStructure::CanonicalEntityTable,
         })?;
-    for (table_index, table) in entity_section.tables().enumerate() {
-        let entity_kind = *EntityKind::ALL
-            .get(table_index)
-            .ok_or(BuildError::InputInvariant {
+    for table in entity_section.tables() {
+        let entity_kind =
+            EntityKind::from_code(table.kind()).ok_or(BuildError::InputInvariant {
                 structure: BuildStructure::CanonicalEntityTable,
             })?;
+        if !entity_kind.is_constructible() {
+            return Err(BuildError::InputInvariant {
+                structure: BuildStructure::CanonicalEntityTable,
+            });
+        }
         for (row_index, row) in table.rows().enumerate() {
             let expected =
                 u32::try_from(row_index).map_err(|_| BuildError::ArithmeticOverflow {
@@ -2287,7 +2217,6 @@ fn build_traffic(
         view,
         &counts.entity_counts,
         &lane_lengths,
-        &lane_speed_limits,
         &successor_ranges,
         &successors,
         &maneuvers,
@@ -3371,7 +3300,7 @@ mod tests {
             StaticContractVersions::new(
                 CANONICAL_ARTIFACT_FORMAT_VERSION,
                 IDENTITY_ENCODING_VERSION,
-                2,
+                1,
                 NETWORK_REVISION_DERIVATION_VERSION,
                 CONSTRAINT_CONTRACT_VERSION,
                 STATIC_EXECUTION_CONTRACT_VERSION,

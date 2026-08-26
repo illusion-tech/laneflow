@@ -878,18 +878,6 @@ fn charge_declaration(
             )?;
             usage.charge_canvas(value.canvas_selection(), limits)?;
         }
-        RoadEditingDeclaration::StaticRoute(value) => {
-            usage.charge_table(3, 12);
-            usage.charge_vector(value.edge_sequence().len(), 4);
-            charge_references(
-                usage,
-                value.edge_sequence(),
-                current_namespace,
-                import_namespaces,
-                limits,
-            )?;
-            usage.charge_canvas(value.canvas_selection(), limits)?;
-        }
         RoadEditingDeclaration::CanonicalFrame(value) => {
             usage.charge_table(2, 8);
             usage.charge_canvas(value.canvas_selection(), limits)?

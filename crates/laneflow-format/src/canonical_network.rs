@@ -196,7 +196,7 @@ mod tests {
         let mut bytes = FULL_LFCA.to_vec();
         bytes[4..6].copy_from_slice(&1_u16.to_le_bytes());
         assert!(check_canonical_network_input(&bytes, FormatLimits::HARD).is_err());
-        bytes[4..6].copy_from_slice(&3_u16.to_le_bytes());
+        bytes[4..6].copy_from_slice(&2_u16.to_le_bytes());
         assert!(check_canonical_network_input(&bytes, FormatLimits::HARD).is_err());
     }
 

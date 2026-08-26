@@ -1,9 +1,6 @@
 //! 路口、转向动作、机动路径与派生内部边视图。
 
-use super::{
-    CanonicalIdentityFieldView, CanonicalStaticRouteOccurrenceRef, impl_stable_entity_view,
-    occurrence_refs,
-};
+use super::{CanonicalIdentityFieldView, impl_stable_entity_view};
 use crate::lir::{LirJunction, LirJunctionInternalEdge, LirManeuverPath, LirMovement, LirUnit};
 use laneflow_static_contract::{
     JunctionId, JunctionOrdinal, LaneEdgeOrdinal, ManeuverGateOrdinal, ManeuverPathId,
@@ -106,16 +103,6 @@ impl CanonicalManeuverPathView<'_> {
     #[must_use]
     pub fn waiting_zones(&self) -> &[WaitingZoneOrdinal] {
         &self.lir.maneuver_path_waiting_zones[self.record.waiting_zones.as_usize_range()]
-    }
-
-    /// 遍历完整匹配此机动路径的静态路线机动出现项。
-    pub fn static_route_occurrences(
-        &self,
-    ) -> impl ExactSizeIterator<Item = CanonicalStaticRouteOccurrenceRef> + '_ {
-        occurrence_refs(
-            &self.lir.maneuver_path_route_occurrences
-                [self.record.static_route_occurrences.as_usize_range()],
-        )
     }
 }
 
