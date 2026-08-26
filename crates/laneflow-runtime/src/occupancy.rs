@@ -56,10 +56,13 @@ pub(crate) fn occupancy_record_limit(vehicle_capacity: u32) -> usize {
         .saturating_mul(max_records_per_vehicle())
 }
 
+const SUFFIX_NONE: u32 = u32::MAX;
+
 fn try_reserve_len<T>(vec: &mut Vec<T>, needed: usize) -> Result<(), StepError> {
+    vec.try_reserve(needed.saturating_sub(vec.len()))
+        .map_err(|_| StepError::OccupancyAllocFailed)?;
     if vec.capacity() < needed {
-        vec.try_reserve(needed.saturating_sub(vec.capacity()))
-            .map_err(|_| StepError::OccupancyAllocFailed)?;
+        return Err(StepError::OccupancyAllocFailed);
     }
     Ok(())
 }
@@ -77,6 +80,40 @@ fn record_slot(index: usize) -> u32 {
     u32::try_from(index).expect("occupancy record index fits u32")
 }
 
+fn suffix_slot(slot: u32) -> Option<usize> {
+    (slot != SUFFIX_NONE).then(|| usize::try_from(slot).expect("suffix slot fits usize"))
+}
+
+fn merge_suffix_pair(
+    records: &[OccupancyRecord],
+    current: usize,
+    later_min: usize,
+    later_second: Option<usize>,
+) -> (usize, Option<usize>) {
+    let current_rec = &records[current];
+    let later_rec = &records[later_min];
+    if occupancy_lo_key(current_rec) <= occupancy_lo_key(later_rec) {
+        let second = if current_rec.vehicle != later_rec.vehicle {
+            Some(later_min)
+        } else {
+            later_second
+        };
+        (current, second)
+    } else {
+        let second = match later_second {
+            Some(idx)
+                if occupancy_lo_key(&records[idx]) <= occupancy_lo_key(current_rec)
+                    && records[idx].vehicle != later_rec.vehicle =>
+            {
+                Some(idx)
+            }
+            _ if current_rec.vehicle != later_rec.vehicle => Some(current),
+            other => other.filter(|idx| records[*idx].vehicle != later_rec.vehicle),
+        };
+        (later_min, second)
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct OccupancyIndex {
     offsets: Vec<usize>,
@@ -84,6 +121,8 @@ pub(crate) struct OccupancyIndex {
     records: Vec<OccupancyRecord>,
     /// 与 `records` 对齐：`suffix_min_lo[i]` 是同桶 `[i, bucket_end)` 中 `lo_mm` 最小记录的下标。
     suffix_min_lo: Vec<u32>,
+    /// 同后缀中车辆不同于最小值的次小 `lo_mm`，供 O(1) 排除 self。
+    suffix_second_lo: Vec<u32>,
     #[cfg(test)]
     inspections: Cell<u64>,
 }
@@ -95,6 +134,7 @@ impl OccupancyIndex {
             scratch: vec![0; bucket_count],
             records: Vec::with_capacity(record_capacity),
             suffix_min_lo: Vec::with_capacity(record_capacity),
+            suffix_second_lo: Vec::with_capacity(record_capacity),
             #[cfg(test)]
             inspections: Cell::new(0),
         }
@@ -128,6 +168,11 @@ impl OccupancyIndex {
     #[cfg(test)]
     pub(crate) fn suffix_min_lo_capacity(&self) -> usize {
         self.suffix_min_lo.capacity()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn suffix_second_lo_capacity(&self) -> usize {
+        self.suffix_second_lo.capacity()
     }
 
     fn note_inspection(&self) {
@@ -176,6 +221,7 @@ impl OccupancyIndex {
     fn try_reserve_records(&mut self, needed: usize) -> Result<(), StepError> {
         try_reserve_len(&mut self.records, needed)?;
         try_reserve_len(&mut self.suffix_min_lo, needed)?;
+        try_reserve_len(&mut self.suffix_second_lo, needed)?;
         Ok(())
     }
 
@@ -191,6 +237,8 @@ impl OccupancyIndex {
         self.records.resize(total, OccupancyRecord::PLACEHOLDER);
         self.suffix_min_lo.clear();
         self.suffix_min_lo.resize(total, 0);
+        self.suffix_second_lo.clear();
+        self.suffix_second_lo.resize(total, SUFFIX_NONE);
         self.scratch.clear();
         if bucket_count == 0 {
             return;
@@ -233,16 +281,14 @@ impl OccupancyIndex {
         }
         let last = end - 1;
         self.suffix_min_lo[last] = record_slot(last);
+        self.suffix_second_lo[last] = SUFFIX_NONE;
         for index in (start..last).rev() {
-            let later = usize::try_from(self.suffix_min_lo[index + 1])
+            let later_min = usize::try_from(self.suffix_min_lo[index + 1])
                 .expect("suffix min index fits usize");
-            let current = &self.records[index];
-            let picked = &self.records[later];
-            self.suffix_min_lo[index] = if occupancy_lo_key(current) <= occupancy_lo_key(picked) {
-                record_slot(index)
-            } else {
-                record_slot(later)
-            };
+            let later_second = suffix_slot(self.suffix_second_lo[index + 1]);
+            let (best, second) = merge_suffix_pair(&self.records, index, later_min, later_second);
+            self.suffix_min_lo[index] = record_slot(best);
+            self.suffix_second_lo[index] = second.map_or(SUFFIX_NONE, record_slot);
         }
     }
 
@@ -276,23 +322,9 @@ impl OccupancyIndex {
         if record.vehicle != skip {
             return Some(record);
         }
-        let mut best = None;
-        for index in start..end {
-            let Some(candidate) = self.records.get(index).copied() else {
-                break;
-            };
-            self.note_inspection();
-            if candidate.vehicle == skip {
-                continue;
-            }
-            best = Some(match best {
-                Some(current) if occupancy_lo_key(&current) <= occupancy_lo_key(&candidate) => {
-                    current
-                }
-                _ => candidate,
-            });
-        }
-        best
+        self.note_inspection();
+        let second = suffix_slot(*self.suffix_second_lo.get(start)?)?;
+        self.records.get(second).copied()
     }
 
     fn nearest_ahead(
@@ -669,6 +701,56 @@ mod tests {
     fn unaligned_body_span_fits_planned_record_limit() {
         assert_eq!(max_records_per_vehicle(), 1_281);
         assert_eq!(occupancy_record_limit(1), 1_281);
+    }
+
+    #[test]
+    fn try_reserve_len_grows_from_spare_capacity() {
+        let mut values = Vec::<u32>::with_capacity(4);
+        values.push(1);
+        assert!(values.len() < values.capacity());
+        let needed = values.capacity() + 1;
+        try_reserve_len(&mut values, needed).expect("reserve relative to len");
+        assert!(
+            values.capacity() >= needed,
+            "capacity={} needed={needed}",
+            values.capacity()
+        );
+        assert_eq!(values.len(), 1);
+    }
+
+    #[test]
+    fn skipping_min_lo_self_stays_constant_time() {
+        let current = LaneEdgeOrdinal::from_raw(0);
+        let later = LaneEdgeOrdinal::from_raw(1);
+        let follower = VehicleHandle::new(0, 0);
+        let mut pending = vec![OccupancyRecord {
+            vehicle: follower,
+            bucket: OccupancyBucketOrdinal::from_edge(current),
+            lo_mm: 0,
+            hi_mm: 1_000,
+            update_sequence: 0,
+        }];
+        for index in 1..=32_u32 {
+            pending.push(OccupancyRecord {
+                vehicle: VehicleHandle::new(index, 0),
+                bucket: OccupancyBucketOrdinal::from_edge(current),
+                lo_mm: 1_000 * index,
+                hi_mm: 1_000 * index + 500,
+                update_sequence: index,
+            });
+        }
+        let mut occupancy = OccupancyIndex::with_capacity(2, 40);
+        occupancy.rebuild_from_pending(&pending, 2);
+        occupancy.reset_inspections();
+        let lengths = [40_000, 10_000];
+        let edges = [current, later, current];
+        let gap = occupancy.leader_gap(follower, &edges, 0, 1_000, &lengths);
+        assert_eq!(gap, Some(0));
+        let inspections = occupancy.inspections();
+        assert!(
+            inspections <= 8,
+            "skipping the min-lo self record must stay O(1), inspections={inspections}"
+        );
     }
 
     #[test]
@@ -1436,6 +1518,11 @@ mod tests {
             world.occupancy.suffix_min_lo_capacity() < 256,
             "suffix min table must follow actual records, cap={}",
             world.occupancy.suffix_min_lo_capacity()
+        );
+        assert!(
+            world.occupancy.suffix_second_lo_capacity() < 256,
+            "suffix second table must follow actual records, cap={}",
+            world.occupancy.suffix_second_lo_capacity()
         );
     }
 

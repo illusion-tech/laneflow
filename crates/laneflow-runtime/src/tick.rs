@@ -848,6 +848,7 @@ mod preview {
         let occupancy_scratch = world.occupancy.scratch_capacity();
         let occupancy_offsets = world.occupancy.offsets_capacity();
         let occupancy_suffix = world.occupancy.suffix_min_lo_capacity();
+        let occupancy_second = world.occupancy.suffix_second_lo_capacity();
         for _ in 0..16 {
             world.step(TickInput::new(100)).unwrap();
             assert_eq!(world.next_states.capacity(), next_cap);
@@ -857,6 +858,10 @@ mod preview {
             assert_eq!(world.occupancy.scratch_capacity(), occupancy_scratch);
             assert_eq!(world.occupancy.offsets_capacity(), occupancy_offsets);
             assert_eq!(world.occupancy.suffix_min_lo_capacity(), occupancy_suffix);
+            assert_eq!(
+                world.occupancy.suffix_second_lo_capacity(),
+                occupancy_second
+            );
         }
     }
 
