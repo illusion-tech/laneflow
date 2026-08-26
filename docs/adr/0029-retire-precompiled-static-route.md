@@ -211,9 +211,9 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 - LFCA 必选实体表从 22 张变为 21 张（缺 `0x0015`，保留 `0x0016` CanonicalFrame）。
 - 道路编辑来源 `format_version = 2`：删除 `StaticRoute` table 与根上的
   `static_routes`；声明向量与 Identity 可构造种类一一对应（21 个）。
+  `canonical_frames` 为根表 field id 25（stock `flatc` 要求 field id 连续）。
   `format_version = 1` 的旧 `LFRE` 在语义读取前失败关闭。schema 路径
-  `schemas/road-editing/v2/`（G2 落地；本 PR 不改生成绑定）。
-  `frontendVersion` 同步为 `2`。file identifier 仍为 `LFRE`。
+  `schemas/road-editing/v2/`。`frontendVersion` 同步为 `2`。file identifier 仍为 `LFRE`。
 - 合成 DSL 不再接受静态路线声明；合成 `frontendVersion` 为 3（#500 编码），拒绝
   `StaticRoute` 不另升。
 - 生产 `CompileLimits` 与现行 P100 精确表不再包含 `RouteOccurrenceCount`。

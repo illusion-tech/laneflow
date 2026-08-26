@@ -1037,21 +1037,21 @@ G1 只冻结少量可人工复核的向量及推导；G2 再把完整对象 mate
 提交输入、完整 expected bytes、SHA-256、长度和修订 ID，不允许测试在运行时用
 production emitter 自己生成 expected：
 
-| 类别        | 向量/锚点 ID               | 证明内容                                                                                                              |
-| ----------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| G1 摘要向量 | `REV-V1-MIN-HEADLESS`      | format 3 最小锚点：21 张可构造实体表 + 1 张关系表 |
-| G1 摘要向量 | `REV-V1-MIN-SPATIAL-EMPTY` | **历史校准**（同上 payload 基数）。现行 format 3 由 G2 重生                                                           |
-| G1 结构锚点 | `LFCA-V1-MIN-HEADLESS`     | 最小合法无空间 artifact 的前导、八节目录和首节 offset 推导                                                            |
-| G1 结构锚点 | `LFSM-V1-MIXED-LOCATION`   | Text、无 property 的 Declaration、OwnerLocal 和可选 canvas 形状                                                       |
-| G1 结构锚点 | `LFSD-V1-GENESIS-BINDING`  | Genesis 四个 base 零值和完整 target binding                                                                           |
-| G1 结构锚点 | `LFCP-V1-MIN-BINDINGS`     | artifact/source-map/receipt 的外部 digest+exact length 绑定                                                           |
-| 固定对象    | `lfca-full-spatial`        | 21 种可构造实体、关系、规则、规范 f32 与空间表（G2 重生夹具）；目录 `fixtures/portable/lfca-full-spatial/`            |
-| 固定对象    | `provenance-*`             | 同语义不同来源沿袭：revision 相同，artifact digest 不同                                                               |
-| 固定对象    | `claim-mismatch`           | 只篡改非语义 revision claim：结构预检成功、独立 revision 比较失败                                                     |
-| 固定对象    | `reorder-equivalent`       | 声明/集合/hash iteration 重排仍产生完全相同 bytes                                                                     |
-| 固定对象    | `signed-zero`              | 合法输入 `-0.0` 在编译边界变为 `+0.0`；负零 wire 被读取器拒绝                                                         |
-| 固定对象    | `lfsd-change-set`          | add/remove/reconnect/geometry/global spatial/rule；身份变化只含无配对 remove/add                                      |
-| 固定对象    | `lfsd-noop`                | 相同 base/target 的空记录但完整 binding                                                                               |
+| 类别        | 向量/锚点 ID               | 证明内容                                                                                                   |
+| ----------- | -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| G1 摘要向量 | `REV-V1-MIN-HEADLESS`      | format 3 最小锚点：21 张可构造实体表 + 1 张关系表                                                          |
+| G1 摘要向量 | `REV-V1-MIN-SPATIAL-EMPTY` | **历史校准**（同上 payload 基数）。现行 format 3 由 G2 重生                                                |
+| G1 结构锚点 | `LFCA-V1-MIN-HEADLESS`     | 最小合法无空间 artifact 的前导、八节目录和首节 offset 推导                                                 |
+| G1 结构锚点 | `LFSM-V1-MIXED-LOCATION`   | Text、无 property 的 Declaration、OwnerLocal 和可选 canvas 形状                                            |
+| G1 结构锚点 | `LFSD-V1-GENESIS-BINDING`  | Genesis 四个 base 零值和完整 target binding                                                                |
+| G1 结构锚点 | `LFCP-V1-MIN-BINDINGS`     | artifact/source-map/receipt 的外部 digest+exact length 绑定                                                |
+| 固定对象    | `lfca-full-spatial`        | 21 种可构造实体、关系、规则、规范 f32 与空间表（G2 重生夹具）；目录 `fixtures/portable/lfca-full-spatial/` |
+| 固定对象    | `provenance-*`             | 同语义不同来源沿袭：revision 相同，artifact digest 不同                                                    |
+| 固定对象    | `claim-mismatch`           | 只篡改非语义 revision claim：结构预检成功、独立 revision 比较失败                                          |
+| 固定对象    | `reorder-equivalent`       | 声明/集合/hash iteration 重排仍产生完全相同 bytes                                                          |
+| 固定对象    | `signed-zero`              | 合法输入 `-0.0` 在编译边界变为 `+0.0`；负零 wire 被读取器拒绝                                              |
+| 固定对象    | `lfsd-change-set`          | add/remove/reconnect/geometry/global spatial/rule；身份变化只含无配对 remove/add                           |
+| 固定对象    | `lfsd-noop`                | 相同 base/target 的空记录但完整 binding                                                                    |
 
 两个 G1 revision 向量使用 §4.2 的 exact framing 和附录 A 的 section/table/row/field
 编码。下列 SHA 是 **format 1 / 登记修订 1** 最小空表的人工复核校准，证明
@@ -2210,7 +2210,7 @@ provenance 仍不构成信任锚；
 每个 table container 的合法 `TableField.memberCode` 是下列闭区间；区间外的值失败关闭：
 
 ```text
- 0 RoadEditingSource       0..24,26 18 StopLine             0..2
+ 0 RoadEditingSource       0..25    18 StopLine             0..2
  1 ModuleHeader            0..3     19 SignalGroup          0..1
  2 Provenance              0..5     20 SignalController     0..4
  3 LineSegment             0..0     21 SignalPhaseState     0..1
@@ -2230,9 +2230,8 @@ provenance 仍不构成信任锚；
 17 WaitingZone             0..5     35 CanonicalFrame       0..1
 ```
 
-`RoadEditingSource` 的合法 `memberCode` 是 `0..=24` 与 `26`；`25` 为历史
-`static_routes` 保留空位，禁止出现（ADR 0029）。不得把 `canonical_frames`（26）
-重编号到 25。tableKind `34` 的 `StaticRoute` 容器同样禁止出现。
+`RoadEditingSource` 的合法 `memberCode` 是 `0..=25`。根表无 `static_routes` 字段；
+`canonical_frames` 为 member 25。tableKind `34` 的 `StaticRoute` 容器禁止出现。
 
 `StructMember` 的闭合成员表为：`Digest256(0): member 0`、
 `OptionalU64(1): member 0`、`Vec3F64(2): members 0..2`、

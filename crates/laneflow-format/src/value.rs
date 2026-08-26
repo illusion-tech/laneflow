@@ -1219,7 +1219,7 @@ fn table_edge_target(step: PropertyStep) -> Option<u16> {
 
 fn table_field_max(container: u16) -> Option<u16> {
     const MAX: [u16; 36] = [
-        26, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 4, 5, 6, 5, 2, 1, 4, 1, 4, 1, 1, 3, 5, 2, 4, 2,
+        25, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 4, 5, 6, 5, 2, 1, 4, 1, 4, 1, 1, 3, 5, 2, 4, 2,
         2, 7, 6, 3, 2, 1,
     ];
     match container {
@@ -1229,9 +1229,6 @@ fn table_field_max(container: u16) -> Option<u16> {
 }
 
 fn table_field_member_allowed(container: u16, member: u16) -> bool {
-    if container == 0 && member == 25 {
-        return false;
-    }
     table_field_max(container).is_some_and(|max| member <= max)
 }
 
@@ -2620,7 +2617,7 @@ mod tests {
     #[test]
     fn every_registered_property_path_shape_accepts_and_invalid_compositions_fail_closed() {
         const TABLE_FIELD_MAX: [u16; 36] = [
-            26, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 4, 5, 6, 5, 2, 1, 4, 1, 4, 1, 1, 3, 5, 2, 4,
+            25, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 4, 5, 6, 5, 2, 1, 4, 1, 4, 1, 1, 3, 5, 2, 4,
             2, 2, 7, 6, 3, 2, 1,
         ];
         const STRUCT_MEMBER_MAX: [u16; 4] = [0, 0, 2, 1];
@@ -2653,7 +2650,7 @@ mod tests {
             let table = u16::try_from(table).unwrap();
             for field in 0..=max_field {
                 let result = validate_property_path(property_field(&[(0, table, field)]), table);
-                if table == 34 || (table == 0 && field == 25) {
+                if table == 34 {
                     assert_eq!(
                         result.unwrap_err().class(),
                         FormatErrorClass::UnknownKind,
