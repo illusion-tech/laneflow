@@ -14,6 +14,12 @@
 > Runtime 的 committed `RoadEditingState`。没有对应道路编辑状态的发布 LFCA 世界只能作为
 > runtime-only 来源，以已认证 asset reference 重载；其晋升与 Runtime 修订切换由 #302 原子
 > 提交。
+>
+> **后继决策（2026-08-26）**：ADR 0029（Accepted；#498 G1）部分取代本文 §2.1
+> 「Identity v1 的 22 种稳定声明分组的有类型向量」。生产 `format_version = 2`
+> 根表为 21 个可构造声明向量；`static_routes`（member 25）保留空位并禁止出现。
+> 道路编辑状态权威、A → C 候选替换与 FlatBuffers 编码选择继续有效。该来源形状
+> 条款视为历史。
 
 **关联文档**:
 
@@ -21,6 +27,7 @@
 - `0021-city-simulation-game-traffic-foundation.md`
 - `0022-authoring-curve-and-canonical-polyline-error-budgets.md`
 - `0025-checked-canonical-network-and-shared-static-network.md`
+- `0029-retire-precompiled-static-route.md`
 - `../design/shared-static-network.md`
 - `../design/road-editing-source-and-geometry-frontend.md`
 - `../design/network-compiler.md`
@@ -79,8 +86,10 @@ LaneFlow 的实际生产入口首先是可视化编辑器，同时需要游戏�
 ### 2.1 已选择的 production 编码：按模块 FlatBuffer
 
 根表保存精确格式版本、唯一模块头、一组不分配 `StableId128` 的道路走向定义，以及按
-Identity v1 的 22 种稳定声明分组的有类型向量；owner-local 值留在 owner table。该额外
-走向向量保存当前曲线编制事实，但不创造第 23 种静态路网身份。编译器先检查 size
+Identity v1 稳定声明分组的有类型向量；owner-local 值留在 owner table。§2.1 原先写
+「22 种」向量的来源形状已被 ADR 0029 部分取代：生产 `format_version = 2` 为 21 个
+可构造向量，历史 `static_routes` 空位禁止出现。该额外走向向量保存当前曲线编制事实，
+但不创造第 23 种静态路网身份。编译器先检查 size
 prefix、完整长度和 `LFRE`，再使用
 有界 verifier 验证 offset/table/vector/string/union，之后直接从借用 view 预检并降阶。
 正常编译路径不形成整模块 wire decode 对象图，也不需要为逐记录释放自建 framing。

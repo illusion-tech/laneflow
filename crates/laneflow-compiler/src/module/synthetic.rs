@@ -2307,6 +2307,9 @@ impl SyntheticModuleBuilder {
     /// 同一边可以重复出现；调用方和后续表必须使用路线内下标区分每次出现，不能按
     /// `LaneEdge` 身份去重。相邻连通性、路口边界和控制出现项闭包在 HIR 阶段验证。
     ///
+    /// 本入口随 #498 G2 删除。不为它恢复已删除的 `RouteOccurrenceCount` / 1920
+    /// 独立限额；边出现计入通用 relation / reference / source-byte 上限（ADR 0029）。
+    ///
     /// # Errors
     ///
     /// 路线为空，稳定键或边引用非法，跨模块引用未显式导入，声明重复，或资源上限

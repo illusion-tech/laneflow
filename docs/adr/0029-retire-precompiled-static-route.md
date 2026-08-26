@@ -6,7 +6,9 @@
 路线入口、信号化走廊场景 catalog、以及 #302 快照字段可消费的每世界路线表形状<br>
 **部分取代**: ADR 0017 中「目标态由编译器预编译初始路线出现项」；ADR 0020 /
 `network-compiler.md` 把 `StaticRoute` 列为 Identity v1 必选声明种类；ADR 0025 /
-共享静态路网把 `StaticRoute` 列为 Traffic 必需关系。ADR 0005 中「Runtime 持有
+共享静态路网把 `StaticRoute` 列为 Traffic 必需关系。ADR 0023 §2.1 把道路编辑根表
+写成 Identity v1 的 22 种有类型声明向量：生产 `format_version = 2` 为 21 个可构造
+向量，历史 `static_routes` 空位禁止出现。ADR 0005 中「Runtime 持有
 route external ID resolver、`remove_route` 必须返回 external route ID」对
 `TrafficWorld` 不再适用：catalog / 调用方自己持有 `route_id`，Runtime 热表只有
 `RouteHandle`。`network-compiler.md` §9.7
@@ -21,6 +23,7 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 - `0017-static-road-junction-maneuver-and-gate-identity.md`
 - `0020-compiler-owned-static-network-and-static-image.md`
 - `0021-city-simulation-game-traffic-foundation.md`
+- `0023-road-editing-state-and-phased-network-replacement.md`
 - `0025-checked-canonical-network-and-shared-static-network.md`
 - `0028-integer-millimeter-traffic-geometry.md`
 - `../design/retire-precompiled-static-route.md`
@@ -135,7 +138,9 @@ bind 把键解析为共享根边序号，对每条 catalog 路线 `register_rout
 ### 5. 容量
 
 编译器不再有 `RouteOccurrenceCount` / `max_route_occurrence_count`。该数字曾服务
-预编译静态路线出现项，不是寻路上限，也不是单条动态路线边数上限。
+预编译静态路线出现项，不是寻路上限，也不是单条动态路线边数上限。G2 删除
+`add_static_route` 之前，该入口只走通用 relation / reference / source-byte 限额，
+不为该死路径恢复 1920。
 
 每世界同时存活的路线条数继续由调用方 `WorldConfig.dynamic_route_capacity` 约束。
 单条边序列只受空序列、连通、机动匹配和分配失败约束，不另冻产品边数。走廊示例必须
@@ -166,7 +171,10 @@ bind 把键解析为共享根边序号，对每条 catalog 路线 `register_rout
 
 **同进程在线修订切换**：Adapter 可能仍持有当期句柄。允许在现有槽位 **原地** 把
 compiled 边序号换成映射后的新序号并重编译出现项，句柄保持到该进程结束。这不是
-磁盘格式，不得把槽位布局写进存档。
+磁盘格式，不得把槽位布局写进存档。走廊 catalog controller 绑定的是
+`(世界令牌, NetworkRevisionId)`：修订变化后 controller **失效**，调用方按新修订
+重新 bind。本切片不设计 catalog 原子热切换，也不让人口层在切修订后继续用旧修订
+句柄。#302 实现切修订状态机时消费本约束。
 
 出现项是 `(边序列 × 当前共享根机动网)` 的纯函数，只存在于内存热表。加载和切修订
 都用唯一 `register_route` 编译器生成；不得在快照里保留第二份出现项权威。
@@ -180,6 +188,7 @@ compiled 边序号换成映射后的新序号并重编译出现项，句柄保�
 ## 明确不做
 
 - 不实现 #302 快照容器、在线切换或存档编码。
+- 不设计走廊 catalog 在线热切换；修订变化后 controller 失效，调用方重绑。
 - 不实现 #303 规划器、动态成本或出行编排。
 - 不把出行选择策略放进 Runtime。
 - 不把 `RouteHandle` / 槽位 / `generation` / 密集序号写成存档身份。

@@ -987,7 +987,7 @@ LaneFlow 发布事务，不提供任意 bytes 公共写入、对象枚举/删除
 | ---------------------------------------- | --------------------------------------- | --------------------------------------------- |
 | 单对象 exact bytes                       | `16,777,216` bytes                      | transport/hash/read 前                        |
 | 单节或单表 exact bytes                   | `16,777,216` bytes                      | offset/length checked 后、建立 slice 前       |
-| 单对象 TableV1 总数                      | LFCA `35`、LFSM `8`、LFSD `6`、LFCP `4` | 读取任一 TableV1 前；必须精确等于对象登记形状 |
+| 单对象 TableV1 总数                      | LFCA `30`、LFSM `8`、LFSD `6`、LFCP `4` | 读取任一 TableV1 前；必须精确等于对象登记形状 |
 | 单 TableV1 RowV1 数                      | `65,536`                                | `count * 16` 检查前                           |
 | 单 RowV1 FieldV1 数                      | `17`                                    | `count * 12` 检查前；具体 row registry 更严格 |
 | 单 Identity v1 `Ascii` value bytes       | `53`                                    | token 文法检查和 StableId 重算前              |
@@ -1000,7 +1000,12 @@ LaneFlow 发布事务，不提供任意 bytes 公共写入、对象枚举/删除
 | 单次 LFCA+LFSM+LFSD 候选暂存 exact bytes | `50,331,648` bytes（48 MiB）            | 开始写入前保留总预算；每次增长前 checked 累加 |
 
 固定节数同时给出精确形状：LFCA `8`、LFSM `5`、LFSD `6`、LFCP `4`。Table 总数也是
-按附录 A 求和得到的精确形状，不是可由未知表填满的通用容量。`17` 是通用 RowV1 parser
+按附录 A 求和得到的精确形状，不是可由未知表填满的通用容量。现行 format 3 LFCA 为
+`1 + 1 + 21 + 1 + 3 + 1 + 1 + 1 = 30`（ContractVersions、CanonicalIdentity、21 张
+可构造实体表、`JunctionInternalEdge`、三张空间表、ExecutionContract、
+CompilerProvenance、ArtifactClaims）。历史 format 1/2 为 22 张实体表 + 5 张关系表
+合计 `35`。现行生产 `PortableObjectKind::CanonicalArtifact` 的 `table_count()` 仍为
+`35`，#498 G2 随发射器与 registry 一起改为 `30`。`17` 是通用 RowV1 parser
 的安全天花板，并可由通用 TableV1 达到；按 A.2 已冻结的 OwnerLocal owner/relation 矩阵，
 需要 address 的 relation owner 最大深度为二，因此同时携带完整 address、property 与 canvas
 且通过直接值域检查的 SourceLocation 当前最多 `16` 个字段。第 17 个字段只会构成不匹配的
@@ -2185,11 +2190,13 @@ provenance 仍不构成信任锚；
 
 以下代码只服务 LFSM v1，不继承 Rust enum 判别值：
 
-- `roadEditingRelationKind 0..12` 依次为 `Import, CurveSegment, CorridorElement,
-  RoadSectionAuthoringLane, LaneEdgeSuccessor, JunctionApproachEdge,
-  JunctionInternalEdge, ManeuverPathInternalEdge, SignalControllerGroup,
-  SignalControllerPhase, SignalPhaseState, AccessRuleParticipantClass`；
-  历史 `StaticRouteEdge` 代码保留空位，禁止出现（ADR 0029）；
+- `roadEditingRelationKind` 合法闭区间 `0..11` 依次为 `Import, CurveSegment,
+  CorridorElement, RoadSectionAuthoringLane, LaneEdgeSuccessor,
+  JunctionApproachEdge, JunctionInternalEdge, ManeuverPathInternalEdge,
+  SignalControllerGroup, SignalControllerPhase, SignalPhaseState,
+  AccessRuleParticipantClass`；历史 `StaticRouteEdge` 代码 12 保留空位，禁止出现
+  （ADR 0029）。不得把 12 算进合法范围。现行 format 2 读器仍接受 12，#498 G2
+  随拒绝闸口关闭；
 - `structKind 0..3` 依次为 `Digest256, OptionalU64, Vec3F64, LinearWidthProfile`；
 - `unionKind 0` 为 `CurveSegmentGeometry`；
 - `tableKind 0..35` 依次为 `RoadEditingSource, ModuleHeader, Provenance, LineSegment,
