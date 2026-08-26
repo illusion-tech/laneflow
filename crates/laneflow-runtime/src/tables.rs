@@ -15,6 +15,8 @@ pub(crate) struct ManeuverOccurrence {
     pub exit_route_edge_index: u32,
 }
 
+/// 本世界 compiled 路线。G2 在此物化分段 `u32` 前缀、后缀 `BoundedDistance` 与 hop 门索引；
+/// 不上 `u64`，不把 world 身份写进 `RouteHandle`（ADR 0028 / 0029）。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CompiledRoute {
     pub edges: Box<[LaneEdgeOrdinal]>,
@@ -103,6 +105,7 @@ fn record_occurrence(
     claim_internal_coverage(coverage, entry_index, exit_index, path)
 }
 
+/// 注册期唯一出现项编译器。G2 在返回的 compiled 上物化分段 `u32` 索引；不上 `u64`。
 pub(crate) fn compile_dynamic_route(
     traffic: &SharedTrafficNetwork,
     edges: &[LaneEdgeOrdinal],
@@ -469,6 +472,7 @@ pub(crate) fn static_route_ordinal(handle: RouteHandle) -> Option<StaticRouteOrd
         .then(|| StaticRouteOrdinal::from_raw(handle.index()))
 }
 
+/// 占用/投影有符号间隙（ADR 0028）。`i64` 只服务空隙，不是把路线前缀加宽到 `u64` 的先例。
 pub(crate) fn remaining_along_route_i64(
     lengths: &[u32],
     edges: &[LaneEdgeOrdinal],
@@ -491,6 +495,10 @@ pub(crate) fn remaining_along_route_i64(
     distance.checked_add(i64::from(to_progress))
 }
 
+/// 从查询起点沿路线累加有界距离。从当前进度加，不上 `u64`；溢出 `BeyondFinite`。
+///
+/// G2 本世界索引沿用分段 `u32` + 后缀 `BoundedDistance`（`RouteDistanceIndexView`），
+/// 不得改成饱和起点前缀相减，也不得把 Finite 侧加宽到 `u64`。
 pub(crate) fn remaining_along_route(
     lengths: &[u32],
     edges: &[LaneEdgeOrdinal],
@@ -519,6 +527,7 @@ pub(crate) fn remaining_along_route(
     Some(distance.add(to_progress))
 }
 
+/// 当前进度到路终。G2 改为 O(1) 读后缀列；语义仍是本窗口 `BoundedDistance`，不上 `u64`。
 pub(crate) fn remaining_to_route_end(
     lengths: &[u32],
     edges: &[LaneEdgeOrdinal],

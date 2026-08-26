@@ -78,8 +78,10 @@ Rust 方法名、错误变体拼写和夹具字节。合入本文不授权改生
 - hop 半开区间不得相交
 - hop 门从已编译机动出现项 + 共享根机动转移候选解析，不读共享根路线表
 - 等待区出现项在注册时一并编译，供后继等待运行时消费；本切片不生产化 #282
-- 本世界 compiled 表物化前缀毫米距离、下一受控 hop 与 hop→门索引；tick 对这些
-  查询 O(1)，不把索引写进共享根或磁盘快照
+- 本世界 compiled 表物化分段 `u32` 前缀、后缀 `BoundedDistance`、下一受控 hop 与
+  hop→门索引（与现行 `RouteDistanceIndexView` 同形）；tick 对这些查询 O(1)，
+  不把索引写进共享根或磁盘快照。Finite 侧不上 `u64`（ADR 0028）。
+  `RouteHandle` 不编码 world 身份；跨 world 混用是调用方错误
 
 `register_route` 仍不做 `(ParticipantClass, Route)` 判断；绑定期准入在 spawn。
 前缀累计超出 `u32` mm 仍是查询侧 `BeyondFinite`，**不得**因此拒绝注册。
@@ -181,6 +183,9 @@ compiled 边序号换成映射后的新序号并重编译出现项，句柄保�
 - 不把编制曲线、规范折线或车辆配置改出当前权威。
 - 不为过境/BRT 保留空的 `StaticRoute` 表。
 - 不重编号 `CanonicalFrame` 或压缩身份/关系代码。
+- 不为「理论最长边序列 × 10 km」把路线前缀或 `BoundedDistance` Finite 侧加宽到
+  `u64`。
+- 不把 world / install 身份编码进 `RouteHandle`。
 
 ## 后果
 

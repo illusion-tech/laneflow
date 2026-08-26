@@ -49,10 +49,17 @@ hop 是否受控：用已编译机动出现项定位 path，再在共享根
 `StaticRoute.transitionGates`。
 
 `register_route` 必须在本世界 compiled 表物化下列 **tick 索引**（不进共享根、不进
-磁盘快照；切修订原地重编译时一并重生）：
+磁盘快照；切修订原地重编译时一并重生；形状与现行
+`RouteDistanceIndexView` 相同）：
 
-- 从路线起点起每条边的前缀毫米距离；溢出 `BeyondFinite`，与查询语义相同。
-  `remaining_to_route_end` 必须 O(1) 读前缀差，不得扫描剩余边。
+- 分段 `u32` 前缀（段下标、段内偏移、段合计）：下一条边长会让当前段溢出时封段、
+  开新段。Finite 侧不上 `u64`。城市一趟行程（Spatial 单 frame 约 32 km，通勤/
+  过境几十公里）落在约 4295 km 的 `u32` 窗口内；为「理论最长边序列 × 10 km」加宽
+  会改查询合同（ADR 0028）。占用 `i64` 只服务有符号空隙，不是前缀先例。
+- 每条边的后缀 `BoundedDistance`（到路终）。`remaining_to_route_end` 必须 O(1)
+  读该列（扣当前边内进度），不得扫描剩余边，也不得用饱和起点前缀相减。从起点
+  跨段总和仍可 `BeyondFinite`；靠近终点后缀可再 `Finite`，`Completed` 只在
+  `Finite(0)`。
 - 每个 hop 的下一受控门（绑定 `SignalGroup` 的门）及其沿路线的有界距离。
   信号停车距离必须 O(1) 读该列，不得扫描剩余 hop。
 - hop → 门：按 hop 下标定位，不得对机动出现项线性扫描。
@@ -181,12 +188,13 @@ slot.generation: u32
 slot.compiled:
   edges: [LaneEdgeOrdinal]
   maneuvers: [{path, entry_route_edge_index, exit_route_edge_index}]
-  hop_gate[hop]                 # 受控门或缺失；O(1)
-  distance_from_start[i]        # BoundedDistance；O(1) 剩余距离
-  next_controlled[hop]          # 下一 SignalGroup 门及有界距离；O(1) 信号停车
+  hop_gate[hop]                      # 受控门或缺失；O(1)
+  distance segments/offsets/totals   # 分段 u32 前缀；不上 u64
+  remaining_to_end[i]                # BoundedDistance 后缀；O(1) 路终剩余
+  next_controlled[hop]               # 下一 SignalGroup 门及有界距离；O(1) 信号停车
   waiting: 注册时必须能编译；#282 未消费前仍不得静默丢弃
 slot.live_vehicles: u32
-RouteHandle = { slot_index, generation }   # 只在产生它的 TrafficWorld 内有效
+RouteHandle = { slot_index, generation }   # 只在产生它的 TrafficWorld 内有效；不编码 world
 ```
 
 **磁盘快照**（ADR 0029 §6）：
@@ -222,4 +230,8 @@ profile / class / parking: StableId128
 - 前缀和溢出仍 `BeyondFinite`，注册成功。
 - 快照夹具（G2 可不实现完整 #302）不得把 `RouteHandle` / 槽位 / 边序号写成耐久主键。
 - tick 对剩余距离与信号停车距离不扫描剩余边；compiled 索引在 `register_route` 后可查。
-- 同一修订上两个 `TrafficWorld` 不得共用 `RouteHandle`；跨 world spawn 失败。
+  索引是分段 `u32` + 后缀 `BoundedDistance`，不上 `u64`。
+- 同一修订上两个 `TrafficWorld` 各自 `register_route`；catalog / scenario bind 把句柄
+  钉在该 world（指针或 install 令牌）。`RouteHandle` 只有槽位与 generation，不编码
+  world。spawn 只查本世界表。跨 world 把句柄塞进另一个 world 是调用方错误，不作为
+  运行时比特必测。

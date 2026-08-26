@@ -832,7 +832,7 @@ production 依赖或实现。
   非法 vtable/vector/string/union 的 known vectors；
 - verifier 的 `max_depth`、`max_tables`、`max_apparent_size` 以及 required presence、未知
   enum/union、非法数字、字符串/集合边界和 owner-local 关系的正负测试；
-- 22 种稳定声明的 identity/reorder/insertion known vectors，确保 vector 顺序不改变
+- 21 种可构造稳定声明的 identity/reorder/insertion known vectors，确保 vector 顺序不改变
   StableId、LIR 或 #298 规范路网影响差异，并逐 kind 与现有
   `EntityKind::required_tags()` registry known vectors 对齐；
 - programmatic Rust writer → bytes → production reader → LIR；C++/C# binding 生成继续由固定

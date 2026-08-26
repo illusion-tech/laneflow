@@ -81,7 +81,11 @@ profile：车长 `100..=128_000` mm，期望车速 `1..=100_000` mm/s，`min_gap
 若分段：段内偏移与段合计是 `u32` mm；下一条边长会让当前段溢出时封段、开新段。
 不得用 `u32::MAX` 当哨兵。从起点跨段总和仍可 `BeyondFinite`；从当前进度到终点、
 以及局部视距，都从查询起点加。靠近终点后路终剩余可再 `Finite`，`Finite(0)` 才
-`Completed`。
+`Completed`。路终剩余读后缀有界距离或分段窗口差，不靠饱和起点前缀相减。城市一趟
+行程（Spatial 单 frame 约 32 km，通勤/过境几十公里）落在约 4295 km 的 `u32`
+窗口内；不要为理论最长边序列把 Finite 侧加宽到 `u64`。占用间隙的 checked `i64`
+只服务有符号空隙，不是路线前缀先例。实现落在 `BoundedDistance` 与
+`segmented_route_coordinates`。
 
 占用间隙、跨 hop 空隙与替换阻塞间隙用 checked `i64` mm。边上区间仍 `u32`。
 

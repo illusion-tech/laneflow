@@ -174,8 +174,10 @@ yellow 固定 `3 s`，每个 active set 后 all-red 固定 `1 s`，完整 cycle 
 
 ### 6.1 Native runtime 参数
 
-现行走廊 Bevy 最小路径不恢复 50–200 人口或 `--vehicles` CLI。它 `include_bytes` 检入的
-catalog 0.2 与 LFCA，prepare 绑到已安装共享路网修订，再 spawn 少数车辆。运行命令为：
+现行走廊 Bevy 最小路径不恢复 50–200 人口或 `--vehicles` CLI。权威 catalog 是 0.3
+（每条路线含有序 `laneEdgeKey`）。G2 换夹具前，仓库 `include_bytes` 仍可能是上一合同
+字节；prepare 绑到已安装共享路网修订后，按 catalog 边键 `register_route` 再 spawn
+少数车辆。运行命令为：
 
 ```powershell
 cargo +1.96.0 run --locked -p laneflow-bevy --example signalized_corridor --features native-example
@@ -280,7 +282,7 @@ lane index，RouteChoice 按 Traffic Route 输入顺序规范化。blocked retry
 - 多车同 tick completion 的 portal/lane/route 决策顺序；
 - blocked 若干 boundary 后恢复时与未阻塞车辆的 draw state。
 
-确定性承诺仍限定同一 LaneFlow 实现版本和运行环境；更改算法、catalog 0.2 规范顺序、
+确定性承诺仍限定同一 LaneFlow 实现版本和运行环境；更改算法、catalog 0.3 规范顺序、
 raw weights 或 draw order 必须经过新的版本/迁移决策，不能静默改变 replay。
 
 ## 9. 制品与配置边界
@@ -304,10 +306,11 @@ pitch、main/secondary/left/right 限速、四组 active-set timing、两个 off
 artifacts 输出文件名。它不包含车辆数、seed、回流策略或展示资源。
 
 generator 写出 `v0.2-signalized-corridor.catalog.toml` 与
-`v0.2-signalized-corridor.lfca`。catalog 记录 ordered PortalLane、weighted
+`v0.2-signalized-corridor.lfca`（文件名是场景制品名，不是 catalog 格式号）。
+catalog 0.3 记录每条路线的非空有序 `laneEdgeKey`、ordered PortalLane、weighted
 RouteChoice、共享 entry SpawnSlot、Route→exit portal 和全部 physical slot
 cross-reference。authoring config 与 catalog 都是内部 TOML。可运行世界只安装 LFCA
-构建的共享路网修订。50–200 确定性回流见
+构建的共享路网修订，路线经 bind `register_route`。50–200 确定性回流见
 [#475](https://github.com/illusion-tech/laneflow/issues/475)。
 
 同一配置和 generator 版本必须 byte-deterministically 生成相同 artifacts、size、digest 和 catalog。仓库根目录使用下列命令生成或只读检查：
@@ -337,7 +340,7 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config exam
 
 TrafficWorld 是 vehicle identity、状态、overlap、Route、SignalStop 和 speed-limit
 behavior 的权威，但不限制车辆数量，也不拥有回流 policy。`laneflow-scenario` 是目标人口、seed、
-catalog 0.2 normalization 和 portal/lane/weighted-route 决策的 reference authority；
+catalog 0.3 normalization 和 portal/lane/weighted-route 决策的 reference authority；
 未来城市游戏可以完全替换它。Traffic/Spatial 是静态拓扑和几何的权威；Adapter 是
 VehicleHandle/Entity 部分双射与宿主 schedule 的权威；Presentation 只拥有
 proxy/model/Transform/灯具和 route-class 视觉。
