@@ -93,6 +93,18 @@ impl BoundedDistance {
         }
     }
 
+    /// 两段有界距离相加。任一端越界或 `u32` 溢出则为 `BeyondFinite`，不上 `u64`。
+    #[must_use]
+    pub fn add_bounded(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Finite(left), Self::Finite(right)) => left
+                .checked_add(right)
+                .map(Self::Finite)
+                .unwrap_or(Self::BeyondFinite),
+            _ => Self::BeyondFinite,
+        }
+    }
+
     /// 从 Finite 后缀扣边内进度。`BeyondFinite` 保持越界，不上 `u64`。
     #[must_use]
     pub fn saturating_sub(self, value: u32) -> Self {

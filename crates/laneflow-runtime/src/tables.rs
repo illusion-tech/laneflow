@@ -23,7 +23,7 @@ pub(crate) struct NextControlled {
     pub distance_from_hop_start: BoundedDistance,
 }
 
-/// 限速下降转换：与共享根历史 `speed_limit_transitions` 同形。
+/// 限速下降转换：与共享根 `speed_limit_transitions` 同形。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SpeedLimitDrop {
     pub from_route_edge_index: u32,
@@ -903,7 +903,29 @@ mod compile_route_tests {
                 .expect("first hop with a gate is controlled");
             assert_eq!(next.hop, 0);
             assert_eq!(next.gate, gate);
+            let suffix = remaining_to_occurrence_start(
+                &compiled.remaining_to_end,
+                0,
+                0,
+                usize::try_from(next.hop).expect("hop") + 1,
+            );
+            if matches!(suffix, Some(BoundedDistance::Finite(_))) {
+                assert_eq!(suffix, Some(next.distance_from_hop_start));
+            }
         }
+    }
+
+    #[test]
+    fn suffix_window_cannot_recover_nearby_finite_when_both_ends_overflow() {
+        let remaining = [BoundedDistance::BeyondFinite, BoundedDistance::BeyondFinite];
+        assert_eq!(
+            remaining_to_occurrence_start(&remaining, 0, 999, 1),
+            Some(BoundedDistance::BeyondFinite)
+        );
+        assert_eq!(
+            BoundedDistance::Finite(6_000).saturating_sub(999),
+            BoundedDistance::Finite(5_001)
+        );
     }
 
     #[test]

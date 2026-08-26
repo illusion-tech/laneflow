@@ -206,6 +206,9 @@ impl TrafficWorld {
     }
 
     /// 下一受控门是拓扑链。绿灯则沿链继续，直到当前限制的门；不要在注册时冻红灯列。
+    ///
+    /// 停车距离读 hop 上已物化的 `distance_from_hop_start`，不靠两条「到路终」后缀相减。
+    /// 路终越界时近处有界门距仍是 `Finite`。
     pub(crate) fn signal_stop_distance(
         &self,
         compiled: &CompiledRoute,
@@ -213,18 +216,20 @@ impl TrafficWorld {
         cursor: usize,
     ) -> Option<BoundedDistance> {
         let mut hop = cursor;
+        let mut from_cursor_start = BoundedDistance::Finite(0);
+        let mut accumulated = false;
         while hop < compiled.next_controlled.len() {
             let Some(next) = compiled.next_controlled[hop] else {
                 return None;
             };
+            from_cursor_start = if accumulated {
+                from_cursor_start.add_bounded(next.distance_from_hop_start)
+            } else {
+                next.distance_from_hop_start
+            };
+            accumulated = true;
             if self.gate_is_restrictive(next.gate) {
-                let hop_index = usize::try_from(next.hop).ok()?;
-                return remaining_to_occurrence_start(
-                    &compiled.remaining_to_end,
-                    cursor,
-                    state.progress_mm,
-                    hop_index + 1,
-                );
+                return Some(from_cursor_start.saturating_sub(state.progress_mm));
             }
             let next_hop = usize::try_from(next.hop).ok()?.checked_add(1)?;
             if next_hop <= hop {

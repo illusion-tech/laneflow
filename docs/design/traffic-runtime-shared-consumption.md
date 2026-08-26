@@ -174,7 +174,7 @@ SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
 
 ### 4.2 路线与车辆
 
-路线按 ADR 0017 匹配规则 + ADR 0029：路网产品不预编译路线。`install` 后世界没有
+路线按 ADR 0017 匹配规则编译出现项。路网制品不声明路线（ADR 0029）。`install` 后世界没有
 路线；调用方用共享根边序号 `register_route`。
 
 - `register_route`：输入为共享根 `LaneEdgeOrdinal` 有序非空序列（不要 JSON
@@ -184,7 +184,6 @@ SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
   且 hop 半开区间 `[entry, exit)` 不得相交。非法序列失败，不留下半条路线。不做
   准入判断（ADR 0018：Route 无 class 上下文）。
 - `remove_route`：移除本世界路线。仍有 live 车辆引用则失败；成功后旧句柄 stale。
-  不再存在「静态句柄必须拒绝」分支。
 - 人口是调用方所有：`install` 不接受初始车辆。`VehicleSpawnInput` 含共享根车辆
   profile 序号、已有 `RouteHandle`、**路线序列下标**（ADR 0017 `routeEdgeIndex`：该
   `RouteHandle` 边序列上的 occurrence 位置，不是共享根 `LaneEdgeOrdinal`；`[A, B, A]`
@@ -199,7 +198,7 @@ SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
   `(class, Route)` 绑定期准入（只查当前 cursor / 序列下标起的可达后缀）。初速可以
   等于该 occurrence 当前边的基础限速，超过则拒绝。重叠、非法路线/下标/进度、未知
   profile、超容量、准入 deny、超限速失败时不得留下半辆车。
-- #475 交付 `replace_completed_vehicle`；不恢复独立 `despawn`。到达终点写成 `Completed`，保留句柄、容量与动态路线引用，不进 pose、不占车道；replace 成功时再迁移路线引用。
+- #475 交付 `replace_completed_vehicle`；不恢复独立 `despawn`。到达终点写成 `Completed`，保留句柄、容量与路线引用，不进 pose、不占车道；replace 成功时再迁移路线引用。
 
 ### 4.3 停车占用
 

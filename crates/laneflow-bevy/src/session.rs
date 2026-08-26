@@ -282,12 +282,12 @@ impl LaneFlowWorldMut<'_> {
         self.world.spawn_vehicle(input)
     }
 
-    /// 注册本世界动态路线。
+    /// 注册本世界路线。
     pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
         self.world.register_route(input)
     }
 
-    /// 移除本世界动态路线。
+    /// 移除本世界路线。
     pub fn remove_route(&mut self, route: RouteHandle) -> Result<(), RouteError> {
         self.world.remove_route(route)
     }

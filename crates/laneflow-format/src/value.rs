@@ -1106,7 +1106,7 @@ fn validate_property_path(field: FieldRef<'_>, root: u16) -> Result<(), FormatEr
 
 fn validate_property_step(row: RowRef<'_>, step: PropertyStep) -> Result<(), FormatError> {
     let valid = match step.kind {
-        0 => table_field_max(step.container).is_some_and(|max| step.member <= max),
+        0 => table_field_member_allowed(step.container, step.member),
         1 => {
             step.container <= u16::from(u8::MAX)
                 && step.member <= u16::from(u8::MAX)
@@ -1222,7 +1222,17 @@ fn table_field_max(container: u16) -> Option<u16> {
         26, 3, 5, 0, 2, 2, 1, 3, 1, 8, 4, 6, 4, 3, 4, 5, 6, 5, 2, 1, 4, 1, 4, 1, 1, 3, 5, 2, 4, 2,
         2, 7, 6, 3, 2, 1,
     ];
-    MAX.get(usize::from(container)).copied()
+    match container {
+        34 => None,
+        _ => MAX.get(usize::from(container)).copied(),
+    }
+}
+
+fn table_field_member_allowed(container: u16, member: u16) -> bool {
+    if container == 0 && member == 25 {
+        return false;
+    }
+    table_field_max(container).is_some_and(|max| member <= max)
 }
 
 fn struct_member_max(container: u16) -> Option<u16> {
@@ -2642,7 +2652,16 @@ mod tests {
         for (table, max_field) in TABLE_FIELD_MAX.into_iter().enumerate() {
             let table = u16::try_from(table).unwrap();
             for field in 0..=max_field {
-                validate_property_path(property_field(&[(0, table, field)]), table).unwrap();
+                let result = validate_property_path(property_field(&[(0, table, field)]), table);
+                if table == 34 || (table == 0 && field == 25) {
+                    assert_eq!(
+                        result.unwrap_err().class(),
+                        FormatErrorClass::UnknownKind,
+                        "reserved hole ({table}, {field}) must fail closed"
+                    );
+                    continue;
+                }
+                result.unwrap();
             }
             assert_eq!(
                 validate_property_path(property_field(&[(0, table, max_field + 1)]), table)

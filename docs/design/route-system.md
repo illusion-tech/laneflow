@@ -340,7 +340,7 @@ route completion event 的稳定顺序是 #203/caller-owned policy 建立 pendin
 #228/ADR 0017 保持 Route 是车辆实际 traversal authority。ManeuverPath 不替代、
 补全或重排 Route；它只在 Route 中完整连续匹配时形成语义 occurrence。
 
-`register_route` 在命令路径编译出现项（路网不预编译 initial route，ADR 0029）：
+`register_route` 在命令路径编译出现项（路网制品不声明路线，ADR 0029）：
 
 ```text
 ManeuverOccurrence(route, entryRouteEdgeIndex, exitRouteEdgeIndex, maneuverPath)
@@ -352,8 +352,8 @@ entry-transition candidate index 缩小匹配范围，不得对每个 Route posi
 ManeuverPaths。Compiled metadata 由 Route 共享；vehicle tick 不匹配 path、不查
 external ID、不扫描全局 catalog，也不为每辆车复制 occurrence。
 
-Dynamic Route 必须先完成 path/Gate/StopLine coverage 编译和验证，再原子提交 handle、
+`register_route` 必须先完成 path/Gate/StopLine coverage 编译和验证，再原子提交 handle、
 definition 与 metadata。失败不得留下部分 occurrence 或可观察 allocation/order。
 完整 shape、歧义规则与性能边界见
-[`road-junction-model.md`](road-junction-model.md)。#229 已将该 compiler 用于
-initial 和 dynamic Route，并在失败时保持 handle/order 原子性。
+[`road-junction-model.md`](road-junction-model.md)。#229 已将该 compiler 接入
+`register_route`，并在失败时保持 handle/order 原子性。

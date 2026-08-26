@@ -79,7 +79,7 @@ G1 冻权威、单位、量化顺序、制品字段与跨实现算法。G2 决�
 实现是分段 `u32` 前缀 + 后缀 `BoundedDistance`（`segmented_route_coordinates` /
 `RouteDistanceIndexView`），不是把 Finite 侧改成 `u64`，也不是饱和起点前缀相减。
 占用间隙的 `i64` 只服务有符号空隙，不是前缀加宽先例。
-路网产品不再构建 `StaticRoute`（ADR 0029）。
+路网制品不声明路线（ADR 0029）。
 
 朝向、车头时距、加速度/减速度 **不是** 一维长度，不进毫米权威：时距与加减速
 保持受检 `f32` SI，供 IIDM 使用。沿用 ADR 0014 上界，并加上起步下限：

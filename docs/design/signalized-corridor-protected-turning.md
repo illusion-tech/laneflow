@@ -270,17 +270,17 @@ path 连续拼接后去除共享边重复得到；catalog 不复制该 sequence�
 后执行唯一可达 protected turn 20。4-route portal 为 straight 60、turn away 20、
 turn toward corridor 后 straight 15、继续 right 5。
 
-### 6.3 Catalog 0.2 ownership
+### 6.3 Catalog ownership
 
-scenario-local catalog 从 exact `0.1` clean-break 到 exact `0.2`：
+scenario-local catalog 现行 exact `0.3`。当时从 exact `0.1` clean-break 到 exact `0.2`；
+#498 起有序边键由 catalog 拥有，不进 LFCA：
 
 - Portal 拥有 ordered PortalLane；
 - PortalLane 拥有 weighted RouteChoice，并引用一个共享 entry SpawnSlot；
 - RouteCatalogEntry 记录 Traffic Route 到 exit portal 的 cross-reference；
 - SpawnSlot 只拥有 physical portal/lane/edge/progress，不再拥有单一 Route；
 - 多条 Route 共享同一个 PortalLane entry slot；
-- Maneuver occurrence 由 Core 从 Traffic Route edge sequence 编译，catalog 不复制
-  path sequence。
+- 出现项由 `register_route` 从 catalog 边序列编译，catalog 不复制 path sequence。
 
 默认 spawn pitch 从 `20 m` 改为 `10 m`。generator 只在六个 portal 的真实
 approach road edges 上生成约 212 个唯一 physical slots；不得在某 portal 已经穿越
