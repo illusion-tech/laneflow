@@ -741,7 +741,7 @@ fn later_red_stop_caps_travel_after_permitted_gate() {
 }
 
 #[test]
-fn dynamic_route_later_red_uses_compiled_path_gate() {
+fn later_red_uses_compiled_path_gate() {
     let mut world = world_with_delta(1_000);
     let edges = fixture_edges(&world);
     let route = world

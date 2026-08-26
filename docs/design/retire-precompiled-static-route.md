@@ -27,7 +27,7 @@ spawn_vehicle(profile, handle, route_edge_index, progress_mm, speed_mm_s)
 `RouteHandle` 只有槽位下标与 generation。没有静态种类、没有共享根序号别名。
 `remove_route` 不再区分「静态句柄」；stale / in-use / 容量仍然失败关闭。
 
-注册期编译器（现 `compile_dynamic_route`，G2 可改名）是**唯一**出现项编译器。
+注册期编译器（`compile_route`）是**唯一**出现项编译器。
 输入是共享根交通视图 + 边序号切片；输出只进入本世界表。共享根不保存路线。
 
 匹配规则与现行动态路径相同，且必须覆盖现行静态 seal 已接受的语义：
@@ -178,7 +178,7 @@ edge_ids: [laneEdgeKey, ...]   # 非空；允许同一边多次出现
 - `edge_ids` 使用走廊编制 Identity v1 的 `laneEdgeKey`，与 LFCA 边身份同一套键。
 - bind 经 `SharedIdentityIndex` 把每个键解析为 `LaneEdgeOrdinal`；未知键失败。
 - 对 catalog 中每条路线恰好 `register_route` 一次；失败则整个 bind 失败，不留半份句柄。
-- 本世界 `dynamic_route_capacity >= 28`。
+- 本世界 `route_capacity >= 28`。
 - 人口 / 回流继续用 `route_id` 交叉引用，运行时只持 `RouteHandle`。
 - 生成器写 catalog 边键，不写 LFCA 路线，不在编制来源声明路线。
 

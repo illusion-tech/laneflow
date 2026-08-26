@@ -367,7 +367,7 @@ fn relation_pairing(role: u8) -> Option<RelationPairing> {
     match role {
         1 | 6 | 7 | 9 | 12 | 17 | 26 => Some(RelationPairing::Set),
         20..=25 | 27 => Some(RelationPairing::Scalar),
-        2..=5 | 8 | 10 | 11 | 13..=16 | 18 => Some(RelationPairing::DomainOccurrence),
+        2..=5 | 8 | 10 | 11 | 18 => Some(RelationPairing::DomainOccurrence),
         _ => None,
     }
 }
@@ -745,8 +745,8 @@ mod tests {
     fn occurrence_pairing_uses_same_subject_rank() {
         let mut changes = Vec::new();
         pair_domain_relations(
-            &[relation(13, 0, 7), relation(13, 2, 7)],
-            &[relation(13, 1, 7), relation(13, 2, 7)],
+            &[relation(8, 0, 7), relation(8, 2, 7)],
+            &[relation(8, 1, 7), relation(8, 2, 7)],
             &mut changes,
         );
         assert_eq!(changes.len(), 1);
@@ -763,13 +763,13 @@ mod tests {
         for role in [20, 21, 22, 23, 24, 25, 27] {
             assert_eq!(relation_pairing(role), Some(RelationPairing::Scalar));
         }
-        for role in [2, 3, 4, 5, 8, 10, 11, 13, 14, 15, 16, 18] {
+        for role in [2, 3, 4, 5, 8, 10, 11, 18] {
             assert_eq!(
                 relation_pairing(role),
                 Some(RelationPairing::DomainOccurrence)
             );
         }
-        for role in [0, 19, 28, 29, 30, u8::MAX] {
+        for role in [0, 13, 14, 15, 16, 19, 28, 29, 30, u8::MAX] {
             assert_eq!(relation_pairing(role), None);
         }
     }

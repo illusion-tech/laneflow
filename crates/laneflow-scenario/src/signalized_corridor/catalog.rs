@@ -508,6 +508,11 @@ mod tests {
             validate(&catalog),
             Err(CatalogError::UnsupportedVersion("0.1".to_owned()))
         );
+        catalog.catalog_version = "0.2".to_owned();
+        assert_eq!(
+            validate(&catalog),
+            Err(CatalogError::UnsupportedVersion("0.2".to_owned()))
+        );
     }
 
     #[test]

@@ -42,14 +42,19 @@ fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
     .expect("shared network revision")
 }
 
-fn spawn_on_slot(world: &mut TrafficWorld, profile: VehicleProfileOrdinal, slot: &BoundSpawnSlot) {
+fn spawn_on_slot(
+    world: &mut TrafficWorld,
+    profile: VehicleProfileOrdinal,
+    slot: &BoundSpawnSlot,
+    routes: &[laneflow_runtime::RouteHandle],
+) {
     let index = slot
         .entry_edges
         .iter()
         .position(|edge| *edge == slot.edge)
         .expect("slot edge is on its entry route");
-    let route = world
-        .find_route(&slot.entry_edges)
+    let route = *routes
+        .get(slot.route_index)
         .expect("catalog route must be registered");
     world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -69,14 +74,14 @@ fn spawn_two_vehicles(
     let catalog: CorridorCatalog = toml::from_str(CORRIDOR_CATALOG).expect("catalog TOML");
     let bound = bind(&catalog, revision).expect("prepare bind");
     assert_eq!(bound.network_revision, revision.network_revision());
-    bound.install_routes(world).expect("install catalog routes");
+    let routes = bound.install_routes(world).expect("install catalog routes");
     let profile = *bound
         .profiles
         .get(PASSENGER_CAR_PROFILE_KEY)
         .expect("passenger-car profile");
     let (follower, leader) = follow_pair(&catalog, &bound);
-    spawn_on_slot(world, profile, leader);
-    spawn_on_slot(world, profile, follower);
+    spawn_on_slot(world, profile, leader, &routes);
+    spawn_on_slot(world, profile, follower, &routes);
 }
 
 fn follow_pair<'a>(

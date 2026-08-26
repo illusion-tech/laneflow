@@ -47,9 +47,8 @@ pub use typed::{
     RoadCorridorOrdinal, RoadSectionId, RoadSectionKind, RoadSectionOrdinal, SignalControllerId,
     SignalControllerKind, SignalControllerOrdinal, SignalGroupId, SignalGroupKind,
     SignalGroupOrdinal, SignalPhaseId, SignalPhaseKind, SignalPhaseOrdinal, StableId, StableId128,
-    StableIdTextError, StaticRouteId, StaticRouteKind, StaticRouteOrdinal, StopLineId,
-    StopLineKind, StopLineOrdinal, VehicleProfileId, VehicleProfileKind, VehicleProfileOrdinal,
-    WaitingZoneId, WaitingZoneKind, WaitingZoneOrdinal,
+    StableIdTextError, StopLineId, StopLineKind, StopLineOrdinal, VehicleProfileId,
+    VehicleProfileKind, VehicleProfileOrdinal, WaitingZoneId, WaitingZoneKind, WaitingZoneOrdinal,
 };
 pub use values::{
     AccessEffect, CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS,

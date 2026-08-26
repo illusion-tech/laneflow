@@ -562,7 +562,7 @@ encoding version。
 |           18 | `ParticipantClass` | 声明（Declaration）                           | `participant-class` | `1,27`                    |
 |           19 | `AccessRule`       | 声明（Declaration）                           | `access-rule`       | `1,28`                    |
 |           20 | `VehicleProfile`   | 声明（Declaration）                           | `vehicle-profile`   | `1,29`                    |
-|           21 | *(保留空位)*       | 历史 `StaticRoute`；修订 2 起不发射、不解码   | —                   | —                         |
+|           21 | *(保留空位)*       | 不发射、不解码                                | —                   | —                         |
 |           22 | `CanonicalFrame`   | 声明（Declaration）                           | `canonical-frame`   | `1,31`                    |
 
 本表冻结的是 identity v1 已进入当前车辆 projection 的实体集合，不是目标 Traffic
@@ -668,7 +668,7 @@ validated canonical LIR 必须保存有类型（Typed）的
 |          27 | `participantClassKey`      | ASCII 字节（Bytes）        |
 |          28 | `accessRuleKey`            | ASCII 字节（Bytes）        |
 |          29 | `vehicleProfileKey`        | ASCII 字节（Bytes）        |
-|          30 | `routeKey`                 | ASCII 字节（Bytes）        |
+|          30 | *(保留空位)*               | 不得发射、不得解码         |
 |          31 | `canonicalFrameKey`        | ASCII 字节（Bytes）        |
 |          32 | `roadSectionStableId`      | 16 个原始字节（Raw Bytes） |
 |          33 | `roadCorridorStableId`     | 16 个原始字节（Raw Bytes） |

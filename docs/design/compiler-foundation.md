@@ -15,8 +15,8 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 标识 v1（Identity v1）登记常量、有类型稳定标识与有类型逻辑序号；
 `laneflow-compiler` 已建立生产资源配置档、来源模块头、结构化诊断、确定性
 `LFSOURCE` 来源记录、显式导入图，以及车道图边、横断面完整所有者树、路口拓扑和
-机动门 / 等待区静态闭包的受检合成领域声明。编译器侧标识 v1 编码、BLAKE3-128 派生、完整前像重复 / 碰撞登记、修订 1 全
-22 种实体的冻结已知向量与独立测试预言机已经落地；`LaneEdge`、`RoadCorridor`、
+机动门 / 等待区静态闭包的受检合成领域声明。编译器侧标识 v1 编码、BLAKE3-128 派生、完整前像重复 / 碰撞登记、修订 2
+（22 个槽位、可构造 21 种）的冻结已知向量与独立测试预言机已经落地；`LaneEdge`、`RoadCorridor`、
 `RoadSection`、`AuthoringLane`、`LaneGroup`、`FacilityBand`、`Junction`、`Movement` 和
 `ManeuverPath`、`StopLine`、`ManeuverGate` 和 `WaitingZone` 已接入有类型符号解析、
 父项先于子项的身份闭包、规范 HIR/MIR/LIR 连续表及来源伴随数据；完整
@@ -31,8 +31,7 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 路径平面目标，
 并在运行时之前拒绝继承环、无类别规则、法规来源不一致和相反效果的精确并列。
 FacilityBand target 继续由结构化能力门卫（capability guard）失败关闭，时变窗口尚未
-进入合成领域声明。`StaticRoute` 已从编制来源、IR 与制品删除（ADR 0029）；路线出现项只在
-`register_route` 编进每世界表。当前道路机动车的 `VehicleProfile` 已按
+进入合成领域声明。路线出现项只在 `register_route` 编进每世界表。当前道路机动车的 `VehicleProfile` 已按
 ADR 0028 整数毫米 / 受检 `f32` SI 约束接入（准入后 IR 不再把交通一维
 存成编制 `f64`），唯一引用一个 `ParticipantClass`，并冻结身份、
 参数、语义摘要与来源关系；它不构成其他交通执行域的通用参数基类。规范坐标框架
@@ -45,8 +44,8 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 `ValidatedCanonicalLir` 按有类型序号投影为当前 `InitialTrafficData`、可选
 `SpatialRegistry` 与稳定映射报告；它保持 `publish = false`，不读取当前 JSON，也不
 成为生产后端。公共 `Compiler` 已经原子
-返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`；首批支持矩阵中的
-动态路线生命周期及后继编译遍尚未实现。
+返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`。路线生命周期由
+`TrafficWorld::register_route` 拥有。
 #292 G1 已
 接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；#308 研究工作负载不能按原自然
 身份无损映射为生产语义。可运行交通世界现由 `TrafficWorld` 安装
@@ -877,8 +876,7 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 编码，精确字节以 `LFSOURCE` 魔数 / 域前缀开头，并对完整记录精确字节计算 SHA-256
 形成 #292 已接受的 `sourceContentDigest`；**编码**变化必须提升前端版本并更新已知向量。
 现行合成前端为 `frontendVersion = 3`：准入后交通一维以整数毫米 / 受检 `f32` SI
-写入来源记录，不再写编制 `f64`（#500）。拒绝 `StaticRoute` 声明是校验收口，不是
-`LFSOURCE` 布局变化，不另开世代。含静态路线的旧合成模块失败关闭（ADR 0029）。
+写入来源记录，不再写编制 `f64`（#500）。
 调用机器的绝对路径、墙钟时间和指针地址不进入该记录。
 该摘要只服务来源沿袭和重放，不参与实体稳定标识。测试可以使用显式 `test_only`
 来源模块头；该能力不得进入发布接口。
@@ -910,7 +908,6 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 | 停车           | 停车区域（`ParkingArea`）、停车位（`ParkingSpace`）、入口 / 出口锚点和当前态静态几何                                                              | 运行时预约 / 生命周期策略                                                      |
 | 横断面准入     | 参与者类别（`ParticipantClass`）、准入规则（`AccessRule`）、静态继承 / 准入及当前态车辆投影                                                       | 把 `ParticipantClass` 当执行域；未实现非机动车 / 行人 / 轨道行为               |
 | 车辆配置       | 当前态既有车辆跟驰模型的 `VehicleProfile` 静态参数                                                                                                | 把车辆配置提升为所有交通执行域的公共基类                                       |
-| 静态路线       | **拒绝**：编制来源不得声明路线                                                                                                                    | 每世界 `register_route`；路径规划策略（#303）                                  |
 | 空间           | 显式规范坐标框架（`CanonicalFrame`）和已量化规范 `f32` 折线、长度 / 连续性校验                                                                    | 曲线、高程求值、曲线细分（tessellation）和几何文档前端                         |
 
 首批领域专用语言必须能表达标识登记表修订 2 的全部 **可构造** 实体种类（种类 21
@@ -966,7 +963,7 @@ G1 曾冻结两个 current JSON 固定样例的等价迁移。这些 JSON 文件
 
 ### 7.3 验收
 
-- 修订 1 的每个实体种类至少有一个纳入版本控制的已知向量；
+- 修订 2 的每个可构造实体种类至少有一个纳入版本控制的已知向量；种类 21 不得编码；
 - 缺失、重复、未知、乱序标签和错误字段长度的负向向量；
 - 同级重排、无关插入、仅几何编辑的变形测试（Metamorphic Test）；
 - `LaneEdge` 覆盖 / 内部角色变化时身份不变，显式替换 / 拆分时使用新键；
@@ -1262,7 +1259,7 @@ G2 把 `compiler-calibration-workloads-v1.json` 逐项映射到真实生产语�
   不能降为合法 `Synthetic DSL`；
 - 模块图配置档的 `crossModuleReferences` 是研究阶段的独立抽象记录。生产前端
   （frontend）
-  只有由具体领域声明拥有的有类型引用；为凑齐该记录而新增 `StaticRoute` 等声明会改变
+  只有由具体领域声明拥有的有类型引用；为凑齐该记录而新增未登记种类的声明会改变
   声明数、关系数和实际编译工作，不能继续使用原自然身份；
 - #308 的阶段记录、受控分配和保留容量来自研究替身模型，不是生产
   `typed AST → HIR → MIR → Canonical LIR` 的观测值。把两者按同名指标直接判定会违反

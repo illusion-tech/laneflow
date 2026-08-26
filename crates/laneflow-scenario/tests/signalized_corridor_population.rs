@@ -62,24 +62,25 @@ fn spawn_plans(
     world: &mut TrafficWorld,
     prepared: &CorridorPopulationPrepare,
     plans: &[laneflow_scenario::signalized_corridor::CorridorVehiclePlan],
-) -> Vec<VehicleHandle> {
-    prepared
+) -> (Vec<VehicleHandle>, Vec<laneflow_runtime::RouteHandle>) {
+    let routes = prepared
         .install_routes(world)
         .expect("install catalog routes");
-    plans
+    let vehicles = plans
         .iter()
         .map(|plan| {
             world
-                .spawn_vehicle(plan.spawn_input(world).expect("spawn input"))
+                .spawn_vehicle(plan.spawn_input(world, &routes).expect("spawn input"))
                 .expect("initial spawn")
         })
-        .collect()
+        .collect();
+    (vehicles, routes)
 }
 
 fn spawn_population(
     world: &mut TrafficWorld,
     prepared: &CorridorPopulationPrepare,
-) -> Vec<VehicleHandle> {
+) -> (Vec<VehicleHandle>, Vec<laneflow_runtime::RouteHandle>) {
     spawn_plans(world, prepared, prepared.initial_vehicles())
 }
 
@@ -97,19 +98,22 @@ fn config_freezes_defaults_and_closed_target_range() {
 }
 
 #[test]
+fn install_routes_rejects_short_capacity_without_leaving_routes() {
+    let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
+    let mut world =
+        TrafficWorld::install(revision, WorldConfig::new(8, 1, 1, TICK_MS)).expect("install");
+    assert!(prepared.install_routes(&mut world).is_err());
+    assert_eq!(world.live_routes().count(), 0);
+}
+
+#[test]
 fn prepare_50_100_200_are_deterministic_for_seed_zero() {
-    fn fingerprint(target: usize) -> Vec<(Vec<u32>, u32, u32)> {
+    fn fingerprint(target: usize) -> Vec<(usize, u32, u32)> {
         let (prepared, _) = prepare(target, 0);
         prepared
             .initial_vehicles()
             .iter()
-            .map(|plan| {
-                (
-                    plan.edges.iter().map(|edge| edge.raw()).collect(),
-                    plan.route_edge_index,
-                    plan.progress_mm,
-                )
-            })
+            .map(|plan| (plan.route_index, plan.route_edge_index, plan.progress_mm))
             .collect()
     }
     let fifty = fingerprint(50);
@@ -136,8 +140,8 @@ fn bind_and_replace_does_not_despawn_then_spawn() {
         ),
     )
     .expect("install");
-    let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
+    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     assert_eq!(controller.counts().running, MIN_TARGET_VEHICLE_COUNT);
     assert_eq!(controller.counts().pending, 0);
 
@@ -197,8 +201,8 @@ fn blocked_retry_replays_the_same_plan() {
         ),
     )
     .expect("install");
-    let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
+    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     for _ in 0..8_000 {
         world.step(TickInput::new(TICK_MS)).expect("step");
         if controller.consume_world(&world).expect("consume") > 0 {
@@ -257,8 +261,8 @@ fn apply_pending_host_error_restores_fifo_front() {
         ),
     )
     .expect("install");
-    let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
+    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     for _ in 0..8_000 {
         world.step(TickInput::new(TICK_MS)).expect("step");
         if controller.consume_world(&world).expect("consume") > 0 {
@@ -301,9 +305,9 @@ fn take_initial_vehicles_then_bind_reaches_running() {
     .expect("install");
     let plans = prepared.take_initial_vehicles();
     assert_eq!(plans.len(), MIN_TARGET_VEHICLE_COUNT);
-    let vehicles = spawn_plans(&mut world, &prepared, &plans);
+    let (vehicles, routes) = spawn_plans(&mut world, &prepared, &plans);
     let controller = prepared
-        .bind(&mut world, &vehicles)
+        .bind(&mut world, &vehicles, &routes)
         .expect("bind after take");
     assert_eq!(controller.counts().running, MIN_TARGET_VEHICLE_COUNT);
     assert_eq!(controller.counts().pending, 0);
@@ -322,8 +326,8 @@ fn consume_world_rejects_skipped_ticks() {
         ),
     )
     .expect("install");
-    let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
+    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     world.step(TickInput::new(TICK_MS)).expect("first step");
     world
         .step(TickInput::new(TICK_MS))
@@ -351,10 +355,10 @@ fn consume_world_rejects_untracked_completed_vehicle() {
         ),
     )
     .expect("install");
-    let extra_edges = prepared.initial_vehicles()[0].edges.clone();
-    let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
-    let extra = spawn_near_route_end(&mut world, &extra_edges);
+    let extra_route_index = prepared.initial_vehicles()[0].route_index;
+    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
+    let extra = spawn_near_route_end(&mut world, routes[extra_route_index]);
     world.step(TickInput::new(TICK_MS)).expect("step");
     assert_eq!(
         world.vehicle(extra).expect("extra").status(),
@@ -385,11 +389,8 @@ fn foreign_world() -> TrafficWorld {
 
 fn spawn_near_route_end(
     world: &mut TrafficWorld,
-    edges: &[laneflow_static_contract::LaneEdgeOrdinal],
+    route: laneflow_runtime::RouteHandle,
 ) -> VehicleHandle {
-    let route = world
-        .find_route(edges)
-        .expect("catalog routes already installed");
     let edges = world.route_edges(route).expect("edges").to_vec();
     let last = *edges.last().expect("route has edges");
     let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
@@ -411,7 +412,9 @@ fn spawn_input_rejects_foreign_revision() {
     let (prepared, _) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
     let world = foreign_world();
     assert!(
-        prepared.initial_vehicles()[0].spawn_input(&world).is_err(),
+        prepared.initial_vehicles()[0]
+            .spawn_input(&world, &[])
+            .is_err(),
         "plan must fail-closed on another NetworkRevisionId"
     );
 }
@@ -429,8 +432,8 @@ fn consume_world_rejects_foreign_revision() {
         ),
     )
     .expect("install");
-    let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
+    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     let error = controller
         .consume_world(&foreign_world())
         .expect_err("foreign consume");
@@ -453,8 +456,8 @@ fn pending_spawn_input_rejects_foreign_revision() {
         ),
     )
     .expect("install");
-    let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
+    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     for _ in 0..8_000 {
         world.step(TickInput::new(TICK_MS)).expect("step");
         if controller.consume_world(&world).expect("consume") > 0 {
@@ -491,8 +494,8 @@ fn apply_pending_rejects_foreign_revision() {
         ),
     )
     .expect("install");
-    let vehicles = spawn_population(&mut world, &prepared);
-    let mut controller = prepared.bind(&mut world, &vehicles).expect("bind");
+    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let mut controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     for _ in 0..8_000 {
         world.step(TickInput::new(TICK_MS)).expect("step");
         if controller.consume_world(&world).expect("consume") > 0 {
@@ -539,8 +542,8 @@ fn bound_controller(target: usize) -> (TrafficWorld, CorridorPopulationControlle
         WorldConfig::new(u32::try_from(target).expect("fits"), 28, 1, TICK_MS),
     )
     .expect("install");
-    let vehicles = spawn_population(&mut world, &prepared);
-    let controller = prepared.bind(&mut world, &vehicles).expect("bind");
+    let (vehicles, routes) = spawn_population(&mut world, &prepared);
+    let controller = prepared.bind(&mut world, &vehicles, &routes).expect("bind");
     (world, controller)
 }
 

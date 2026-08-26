@@ -1,7 +1,7 @@
 use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, MIN_LANE_EDGE_LENGTH_MM};
 use laneflow_static_network::SharedNetworkRevision;
 
-use crate::tables::{DynamicRouteSlot, VehicleSlot, for_each_occupancy_interval};
+use crate::tables::{RouteSlot, VehicleSlot, for_each_occupancy_interval};
 use crate::{RouteHandle, StepError, TrafficWorld, VehicleHandle, VehicleState, VehicleStatus};
 
 #[cfg(test)]
@@ -400,11 +400,8 @@ fn vehicle_state_in(vehicles: &[VehicleSlot], handle: VehicleHandle) -> Option<&
     slot.state.as_ref()
 }
 
-fn route_edges_in(
-    dynamic_routes: &[DynamicRouteSlot],
-    route: RouteHandle,
-) -> Option<&[LaneEdgeOrdinal]> {
-    let slot = dynamic_routes.get(usize::try_from(route.index()).ok()?)?;
+fn route_edges_in(routes: &[RouteSlot], route: RouteHandle) -> Option<&[LaneEdgeOrdinal]> {
+    let slot = routes.get(usize::try_from(route.index()).ok()?)?;
     if slot.generation != route.generation() {
         return None;
     }
@@ -415,7 +412,7 @@ fn visit_occupancy_records(
     live_order: &[VehicleHandle],
     vehicles: &[VehicleSlot],
     revision: &SharedNetworkRevision,
-    dynamic_routes: &[DynamicRouteSlot],
+    routes: &[RouteSlot],
     mut visit: impl FnMut(OccupancyRecord),
 ) -> Result<(), StepError> {
     let lengths = revision.traffic().lane_lengths_millimetres();
@@ -426,7 +423,7 @@ fn visit_occupancy_records(
         if state.status != VehicleStatus::Active {
             continue;
         }
-        let Some(edges) = route_edges_in(dynamic_routes, state.route) else {
+        let Some(edges) = route_edges_in(routes, state.route) else {
             continue;
         };
         let Ok(index) = usize::try_from(state.route_edge_index) else {
@@ -469,7 +466,7 @@ impl TrafficWorld {
             &self.live_order,
             &self.vehicles,
             &self.revision,
-            &self.dynamic_routes,
+            &self.routes,
             |record| {
                 if let Some(count) = occupancy.scratch.get_mut(record.bucket.index()) {
                     *count += 1;
@@ -486,7 +483,7 @@ impl TrafficWorld {
             &self.live_order,
             &self.vehicles,
             &self.revision,
-            &self.dynamic_routes,
+            &self.routes,
             |record| occupancy.write_record(record),
         )?;
         occupancy.sort_buckets(bucket_count);

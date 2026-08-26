@@ -117,14 +117,6 @@ pub enum SourceRelationRole {
     ManeuverPathWaitingZone = 11,
     /// 停止线被一项机动门引用的反向关系。
     StopLineManeuverGate = 12,
-    /// 保留空位：历史静态路线边出现；编码不得发射。
-    StaticRouteEdge = 13,
-    /// 保留空位：历史静态路线机动路径出现项；编码不得发射。
-    StaticRouteManeuverOccurrence = 14,
-    /// 保留空位：历史静态路线机动门出现项；编码不得发射。
-    StaticRouteGateOccurrence = 15,
-    /// 保留空位：历史静态路线等待区出现项；编码不得发射。
-    StaticRouteWaitingZoneOccurrence = 16,
     /// 信号控制器唯一拥有的一项信号组。
     SignalControllerGroup = 17,
     /// 信号控制器固定时制程序中的一个有序相位。

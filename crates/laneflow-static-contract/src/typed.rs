@@ -392,12 +392,6 @@ define_entity_markers!(
         VehicleProfileOrdinal
     ),
     (
-        StaticRouteKind,
-        StaticRoute,
-        StaticRouteId,
-        StaticRouteOrdinal
-    ),
-    (
         CanonicalFrameKind,
         CanonicalFrame,
         CanonicalFrameId,

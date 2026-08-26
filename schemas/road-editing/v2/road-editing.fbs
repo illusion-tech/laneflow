@@ -2,8 +2,8 @@
 //
 // 本 schema 只冻结 portable wire shape。字符串语法、引用闭包、数值范围、所有者
 // 唯一性、曲线误差与资源上限仍由 LaneFlow 语义验证器执行。`format_version = 2`：
-// 无 `StaticRoute` table，根表不得出现历史 vtable member 25。file identifier 仍
-// `LFRE`。当前 exact version 的 table id / enum / union 判别值固定。
+// 根表不得出现 vtable member 25。file identifier 仍 `LFRE`。当前 exact version
+// 的 table id / enum / union 判别值固定。
 
 namespace LaneFlow.RoadEditing.V1;
 

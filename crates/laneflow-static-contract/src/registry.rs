@@ -13,7 +13,7 @@ pub const IDENTITY_ENCODING_VERSION: u16 = 1;
 
 /// Identity v1 的实体种类 / 字段标签登记表修订；登记项增删或身份字段变化时必须提升。
 ///
-/// 修订 2：种类 21 / 字段标签 30 保留空位，不覆盖 `StaticRoute`（ADR 0029）。
+/// 修订 2：种类 21 / 字段标签 30 为保留空位（ADR 0029）。
 pub const IDENTITY_REGISTRY_REVISION: u16 = 2;
 
 /// 拼接在规范身份字节之前的 Stable ID BLAKE3 输入域分离前缀。
@@ -58,13 +58,13 @@ pub enum EntityKind {
     ParticipantClass = 18,
     AccessRule = 19,
     VehicleProfile = 20,
-    /// 保留空位（历史 `StaticRoute`）。不发射；[`from_code`] 对 21 返回 `None`。
+    /// 保留空位。不发射；[`from_code`] 对 21 返回 `None`。
     StaticRoute = 21,
     CanonicalFrame = 22,
 }
 
 impl EntityKind {
-    /// 按代码升序排列的 22 个槽位。代码 21 占保留空槽，可构造 21 种（ADR 0029）。
+    /// 按代码升序排列的 22 个槽位。代码 21 占保留空槽，可构造 21 种。
     pub const ALL: [Self; 22] = [
         Self::RoadCorridor,
         Self::RoadSection,
@@ -125,7 +125,7 @@ impl EntityKind {
         }
     }
 
-    /// 种类是否可构造（代码 21 空位不可构造）。
+    /// 种类是否可构造。代码 21 空位不可构造。
     #[must_use]
     pub const fn is_constructible(self) -> bool {
         !matches!(self, Self::StaticRoute)
@@ -241,7 +241,7 @@ impl EntityKind {
             ],
             Self::AccessRule => &[FieldTag::AuthoringNamespaceId, FieldTag::AccessRuleKey],
             Self::VehicleProfile => &[FieldTag::AuthoringNamespaceId, FieldTag::VehicleProfileKey],
-            Self::StaticRoute => &[FieldTag::AuthoringNamespaceId, FieldTag::RouteKey],
+            Self::StaticRoute => &[],
             Self::CanonicalFrame => &[FieldTag::AuthoringNamespaceId, FieldTag::CanonicalFrameKey],
         }
     }
@@ -290,7 +290,6 @@ pub enum FieldTag {
     ParticipantClassKey = 27,
     AccessRuleKey = 28,
     VehicleProfileKey = 29,
-    RouteKey = 30,
     CanonicalFrameKey = 31,
     RoadSectionStableId = 32,
     RoadCorridorStableId = 33,
@@ -298,9 +297,7 @@ pub enum FieldTag {
 }
 
 impl FieldTag {
-    /// 按代码升序排列的可构造字段标签。
-    ///
-    /// 保留代码 23 与 30（历史 `RouteKey`）不在此集合中。
+    /// 按代码升序排列的可构造字段标签。保留代码 23 与 30 不在此集合中。
     pub const ALL: [Self; 32] = [
         Self::AuthoringNamespaceId,
         Self::CorridorKey,
@@ -414,7 +411,6 @@ impl FieldTag {
             Self::ParticipantClassKey => "participantClassKey",
             Self::AccessRuleKey => "accessRuleKey",
             Self::VehicleProfileKey => "vehicleProfileKey",
-            Self::RouteKey => "routeKey",
             Self::CanonicalFrameKey => "canonicalFrameKey",
             Self::RoadSectionStableId => "roadSectionStableId",
             Self::RoadCorridorStableId => "roadCorridorStableId",
@@ -490,6 +486,7 @@ mod tests {
         assert_eq!(EntityKind::StaticRoute.code(), 21);
         assert_eq!(EntityKind::from_code(21), None);
         assert!(!EntityKind::StaticRoute.is_constructible());
+        assert!(EntityKind::StaticRoute.required_tags().is_empty());
         assert_eq!(
             EntityKind::ALL
                 .into_iter()

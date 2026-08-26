@@ -396,14 +396,14 @@ mod tests {
         output
     }
 
-    /// Registry revision 1 全部实体种类的规范字节与 BLAKE3-128 已知向量。
+    /// Registry revision 2 全部种类槽位的规范字节与 BLAKE3-128 已知向量。
     ///
     /// 字段生成规则和文件列语义记录在向量文件头；该文件是独立预言机可复用的期望
     /// 事实，不能在测试运行时从生产编码器重写。
     const KNOWN_VECTORS: &str = include_str!("../tests/identity-v1-known-vectors.txt");
 
     #[test]
-    fn all_registry_revision_one_kinds_match_frozen_independent_vectors() {
+    fn all_registry_revision_two_kinds_match_frozen_independent_vectors() {
         let vectors = KNOWN_VECTORS
             .lines()
             .filter(|line| !line.is_empty() && !line.starts_with('#'))
