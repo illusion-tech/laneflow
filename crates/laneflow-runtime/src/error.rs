@@ -46,7 +46,7 @@ pub enum StepError {
     /// 本拍运动产生非有限速度或位移。
     #[error("步进运动非有限")]
     NonFiniteMotion,
-    /// 占用记录数超过车辆容量与合法车长/最短边给出的上限。
+    /// 占用记录数超过车辆容量、合法车长/最短边或后缀下标编码给出的上限。
     #[error("占用记录数超过规划上限")]
     OccupancyCapacityExceeded,
     /// 占用索引缓冲 `try_reserve` 失败。
