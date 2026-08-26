@@ -142,6 +142,7 @@ impl TrafficWorld {
         Some(state)
     }
 
+    /// 读本拍占用索引上的前保险杠间隙。调用前必须已 `rebuild_occupancy_index`。
     pub(crate) fn leader_bumper_gap(
         &self,
         follower: &VehicleState,
@@ -158,6 +159,7 @@ impl TrafficWorld {
         )
     }
 
+    /// `cfg(test)` 全扫描预言机，不是生产热路径。
     #[cfg(test)]
     pub(crate) fn leader_bumper_gap_scan(
         &self,
@@ -842,7 +844,7 @@ mod preview {
         let next_cap = world.next_states.capacity();
         let live_cap = world.live_order.capacity();
         let vehicle_cap = world.vehicles.capacity();
-        let occupancy_claims = world.occupancy.claims_capacity();
+        let occupancy_records = world.occupancy.records_capacity();
         let occupancy_scratch = world.occupancy.scratch_capacity();
         let occupancy_offsets = world.occupancy.offsets_capacity();
         for _ in 0..16 {
@@ -850,7 +852,7 @@ mod preview {
             assert_eq!(world.next_states.capacity(), next_cap);
             assert_eq!(world.live_order.capacity(), live_cap);
             assert_eq!(world.vehicles.capacity(), vehicle_cap);
-            assert_eq!(world.occupancy.claims_capacity(), occupancy_claims);
+            assert_eq!(world.occupancy.records_capacity(), occupancy_records);
             assert_eq!(world.occupancy.scratch_capacity(), occupancy_scratch);
             assert_eq!(world.occupancy.offsets_capacity(), occupancy_offsets);
         }

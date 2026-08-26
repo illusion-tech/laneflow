@@ -1,13 +1,17 @@
+use laneflow_static_contract::LaneEdgeOrdinal;
+use laneflow_static_network::SharedNetworkRevision;
+
+use crate::tables::{
+    DynamicRouteSlot, VehicleSlot, for_each_occupancy_interval, static_route_ordinal,
+};
+use crate::{RouteHandle, TrafficWorld, VehicleHandle, VehicleState, VehicleStatus};
+
+#[cfg(test)]
 use std::cell::Cell;
 
-use laneflow_static_contract::LaneEdgeOrdinal;
-
-use crate::tables::{for_each_occupancy_interval, remaining_along_route_i64};
-use crate::{TrafficWorld, VehicleHandle, VehicleStatus};
-
-/// 占用桶。当前与 [`LaneEdgeOrdinal`] 1:1，不映射 `LaneUseSlot`。
+/// 占用桶键：物理边序号。
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(crate) struct OccupancyBucketOrdinal(u32);
+struct OccupancyBucketOrdinal(u32);
 
 impl OccupancyBucketOrdinal {
     const fn from_edge(edge: LaneEdgeOrdinal) -> Self {
@@ -19,8 +23,9 @@ impl OccupancyBucketOrdinal {
     }
 }
 
+/// 一条物理边上的占用片段，不是资源声明。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct OccupancyClaim {
+struct OccupancyRecord {
     vehicle: VehicleHandle,
     bucket: OccupancyBucketOrdinal,
     lo_mm: u32,
@@ -28,7 +33,7 @@ struct OccupancyClaim {
     update_sequence: u32,
 }
 
-impl OccupancyClaim {
+impl OccupancyRecord {
     const PLACEHOLDER: Self = Self {
         vehicle: VehicleHandle::new(0, 0),
         bucket: OccupancyBucketOrdinal(0),
@@ -38,33 +43,26 @@ impl OccupancyClaim {
     };
 }
 
-/// 无变道时一辆车身跨越的边数上界提示；只用于安装预留，溢出时仍可扩容。
-const CLAIM_HINT: usize = 4;
+/// 车身跨边数预留提示；只影响安装容量，溢出时仍可扩容。
+const BODY_SPAN_HINT: usize = 4;
 
 #[derive(Debug)]
 pub(crate) struct OccupancyIndex {
     offsets: Vec<usize>,
     scratch: Vec<usize>,
-    claims: Vec<OccupancyClaim>,
+    records: Vec<OccupancyRecord>,
+    #[cfg(test)]
     inspections: Cell<u64>,
 }
 
 impl OccupancyIndex {
-    fn empty() -> Self {
-        Self {
-            offsets: Vec::new(),
-            scratch: Vec::new(),
-            claims: Vec::new(),
-            inspections: Cell::new(0),
-        }
-    }
-
     pub(crate) fn with_capacity(bucket_count: usize, vehicle_capacity: usize) -> Self {
-        let claim_cap = vehicle_capacity.saturating_mul(CLAIM_HINT);
+        let record_cap = vehicle_capacity.saturating_mul(BODY_SPAN_HINT);
         Self {
             offsets: vec![0; bucket_count.saturating_add(1)],
             scratch: vec![0; bucket_count],
-            claims: Vec::with_capacity(claim_cap),
+            records: Vec::with_capacity(record_cap),
+            #[cfg(test)]
             inspections: Cell::new(0),
         }
     }
@@ -75,8 +73,8 @@ impl OccupancyIndex {
     }
 
     #[cfg(test)]
-    pub(crate) fn claims_capacity(&self) -> usize {
-        self.claims.capacity()
+    pub(crate) fn records_capacity(&self) -> usize {
+        self.records.capacity()
     }
 
     #[cfg(test)]
@@ -90,23 +88,29 @@ impl OccupancyIndex {
     }
 
     fn note_inspection(&self) {
+        #[cfg(test)]
         self.inspections
             .set(self.inspections.get().saturating_add(1));
     }
 
     #[cfg(test)]
-    fn rebuild_from_pending(&mut self, pending: &[OccupancyClaim], bucket_count: usize) {
+    fn reset_inspections(&self) {
         self.inspections.set(0);
+    }
+
+    #[cfg(test)]
+    fn rebuild_from_pending(&mut self, pending: &[OccupancyRecord], bucket_count: usize) {
+        self.reset_inspections();
         self.scratch.clear();
         self.scratch.resize(bucket_count, 0);
-        for claim in pending {
-            if let Some(count) = self.scratch.get_mut(claim.bucket.index()) {
+        for record in pending {
+            if let Some(count) = self.scratch.get_mut(record.bucket.index()) {
                 *count += 1;
             }
         }
         self.finish_layout(bucket_count);
-        for claim in pending {
-            self.write_claim(*claim);
+        for record in pending {
+            self.write_record(*record);
         }
         self.sort_buckets(bucket_count);
     }
@@ -118,8 +122,8 @@ impl OccupancyIndex {
             self.offsets[index + 1] = self.offsets[index].saturating_add(self.scratch[index]);
         }
         let total = self.offsets.get(bucket_count).copied().unwrap_or(0);
-        self.claims.clear();
-        self.claims.resize(total, OccupancyClaim::PLACEHOLDER);
+        self.records.clear();
+        self.records.resize(total, OccupancyRecord::PLACEHOLDER);
         self.scratch.clear();
         if bucket_count == 0 {
             return;
@@ -128,14 +132,14 @@ impl OccupancyIndex {
             .extend_from_slice(&self.offsets[..bucket_count]);
     }
 
-    fn write_claim(&mut self, claim: OccupancyClaim) {
-        let bucket = claim.bucket.index();
+    fn write_record(&mut self, record: OccupancyRecord) {
+        let bucket = record.bucket.index();
         let Some(head) = self.scratch.get_mut(bucket) else {
             return;
         };
         let slot = *head;
-        if let Some(target) = self.claims.get_mut(slot) {
-            *target = claim;
+        if let Some(target) = self.records.get_mut(slot) {
+            *target = record;
             *head = slot.saturating_add(1);
         }
     }
@@ -144,18 +148,18 @@ impl OccupancyIndex {
         for bucket in 0..bucket_count {
             let start = self.offsets[bucket];
             let end = self.offsets[bucket + 1];
-            self.claims[start..end].sort_unstable_by_key(|claim| {
+            self.records[start..end].sort_unstable_by_key(|record| {
                 (
-                    claim.hi_mm,
-                    claim.lo_mm,
-                    claim.update_sequence,
-                    claim.vehicle.index(),
+                    record.hi_mm,
+                    record.lo_mm,
+                    record.update_sequence,
+                    record.vehicle.index(),
                 )
             });
         }
     }
 
-    fn bucket(&self, edge: LaneEdgeOrdinal) -> &[OccupancyClaim] {
+    fn bucket(&self, edge: LaneEdgeOrdinal) -> &[OccupancyRecord] {
         let index = OccupancyBucketOrdinal::from_edge(edge).index();
         let Some(start) = self.offsets.get(index).copied() else {
             return &[];
@@ -163,7 +167,7 @@ impl OccupancyIndex {
         let Some(end) = self.offsets.get(index + 1).copied() else {
             return &[];
         };
-        self.claims.get(start..end).unwrap_or(&[])
+        self.records.get(start..end).unwrap_or(&[])
     }
 
     fn nearest_ahead(
@@ -171,16 +175,16 @@ impl OccupancyIndex {
         edge: LaneEdgeOrdinal,
         self_vehicle: VehicleHandle,
         front_mm: u32,
-    ) -> Option<OccupancyClaim> {
+    ) -> Option<OccupancyRecord> {
         let bucket = self.bucket(edge);
-        let mut index = bucket.partition_point(|claim| claim.hi_mm <= front_mm);
-        while let Some(claim) = bucket.get(index).copied() {
+        let mut index = bucket.partition_point(|record| record.hi_mm <= front_mm);
+        while let Some(record) = bucket.get(index).copied() {
             self.note_inspection();
             index += 1;
-            if claim.vehicle == self_vehicle {
+            if record.vehicle == self_vehicle {
                 continue;
             }
-            return Some(claim);
+            return Some(record);
         }
         None
     }
@@ -189,16 +193,17 @@ impl OccupancyIndex {
         &self,
         edge: LaneEdgeOrdinal,
         self_vehicle: VehicleHandle,
-    ) -> Option<OccupancyClaim> {
-        for claim in self.bucket(edge) {
+    ) -> Option<OccupancyRecord> {
+        for record in self.bucket(edge) {
             self.note_inspection();
-            if claim.vehicle != self_vehicle {
-                return Some(*claim);
+            if record.vehicle != self_vehicle {
+                return Some(*record);
             }
         }
         None
     }
 
+    /// 前保险杠到最近前车后保险杠的 `i64` 毫米间隙；可负。
     pub(crate) fn leader_gap(
         &self,
         self_vehicle: VehicleHandle,
@@ -210,29 +215,96 @@ impl OccupancyIndex {
         let current = *follower_edges.get(follower_index)?;
         let mut best = self
             .nearest_ahead(current, self_vehicle, follower_progress)
-            .map(|claim| i64::from(claim.lo_mm) - i64::from(follower_progress));
-        for (found, edge) in follower_edges
+            .map(|record| i64::from(record.lo_mm) - i64::from(follower_progress));
+        let Some(current_length) = lengths.get(current.index()).copied() else {
+            return best;
+        };
+        let mut base_mm = i64::from(current_length) - i64::from(follower_progress);
+        for edge in follower_edges
             .iter()
             .copied()
-            .enumerate()
             .skip(follower_index.saturating_add(1))
         {
-            let Some(claim) = self.front_most(edge, self_vehicle) else {
-                continue;
+            if let Some(record) = self.front_most(edge, self_vehicle) {
+                if let Some(gap) = base_mm.checked_add(i64::from(record.lo_mm)) {
+                    best = Some(best.map_or(gap, |current_gap| current_gap.min(gap)));
+                }
+            }
+            let Some(edge_length) = lengths.get(edge.index()).copied() else {
+                return best;
             };
-            let Some(gap) = remaining_along_route_i64(
-                lengths,
-                follower_edges,
-                follower_index,
-                follower_progress,
-                found,
-                claim.lo_mm,
-            ) else {
-                continue;
+            let Some(next_base) = base_mm.checked_add(i64::from(edge_length)) else {
+                return best;
             };
-            best = Some(best.map_or(gap, |current_gap| current_gap.min(gap)));
+            base_mm = next_base;
         }
         best
+    }
+}
+
+fn vehicle_state_in(vehicles: &[VehicleSlot], handle: VehicleHandle) -> Option<&VehicleState> {
+    let slot = vehicles.get(usize::try_from(handle.index()).ok()?)?;
+    if slot.generation != handle.generation() {
+        return None;
+    }
+    slot.state.as_ref()
+}
+
+fn route_edges_in<'a>(
+    revision: &'a SharedNetworkRevision,
+    dynamic_routes: &'a [DynamicRouteSlot],
+    route: RouteHandle,
+) -> Option<&'a [LaneEdgeOrdinal]> {
+    if let Some(ordinal) = static_route_ordinal(route) {
+        return revision.traffic().relations().static_route_edges(ordinal);
+    }
+    let slot = dynamic_routes.get(usize::try_from(route.index()).ok()?)?;
+    if slot.generation != route.generation() {
+        return None;
+    }
+    Some(slot.compiled.as_ref()?.edges.as_ref())
+}
+
+fn visit_occupancy_records(
+    live_order: &[VehicleHandle],
+    vehicles: &[VehicleSlot],
+    revision: &SharedNetworkRevision,
+    dynamic_routes: &[DynamicRouteSlot],
+    mut visit: impl FnMut(OccupancyRecord),
+) {
+    let lengths = revision.traffic().lane_lengths_millimetres();
+    for (sequence, handle) in live_order.iter().copied().enumerate() {
+        let Some(state) = vehicle_state_in(vehicles, handle) else {
+            continue;
+        };
+        if state.status != VehicleStatus::Active {
+            continue;
+        }
+        let Some(edges) = route_edges_in(revision, dynamic_routes, state.route) else {
+            continue;
+        };
+        let Ok(index) = usize::try_from(state.route_edge_index) else {
+            continue;
+        };
+        let Ok(update_sequence) = u32::try_from(sequence) else {
+            continue;
+        };
+        let _ = for_each_occupancy_interval(
+            lengths,
+            edges,
+            index,
+            state.progress_mm,
+            state.length_mm,
+            |edge, lo_mm, hi_mm| {
+                visit(OccupancyRecord {
+                    vehicle: handle,
+                    bucket: OccupancyBucketOrdinal::from_edge(edge),
+                    lo_mm,
+                    hi_mm,
+                    update_sequence,
+                });
+            },
+        );
     }
 }
 
@@ -240,56 +312,31 @@ impl TrafficWorld {
     pub(crate) fn rebuild_occupancy_index(&mut self) {
         let bucket_count = usize::try_from(self.revision.traffic().lane_edge_count())
             .expect("lane edge count fits usize");
-        let mut occupancy = std::mem::replace(&mut self.occupancy, OccupancyIndex::empty());
-        occupancy.inspections.set(0);
+        let occupancy = &mut self.occupancy;
+        #[cfg(test)]
+        occupancy.reset_inspections();
         occupancy.scratch.clear();
         occupancy.scratch.resize(bucket_count, 0);
-        self.visit_occupancy_claims(|claim| {
-            if let Some(count) = occupancy.scratch.get_mut(claim.bucket.index()) {
-                *count += 1;
-            }
-        });
+        visit_occupancy_records(
+            &self.live_order,
+            &self.vehicles,
+            &self.revision,
+            &self.dynamic_routes,
+            |record| {
+                if let Some(count) = occupancy.scratch.get_mut(record.bucket.index()) {
+                    *count += 1;
+                }
+            },
+        );
         occupancy.finish_layout(bucket_count);
-        self.visit_occupancy_claims(|claim| occupancy.write_claim(claim));
+        visit_occupancy_records(
+            &self.live_order,
+            &self.vehicles,
+            &self.revision,
+            &self.dynamic_routes,
+            |record| occupancy.write_record(record),
+        );
         occupancy.sort_buckets(bucket_count);
-        self.occupancy = occupancy;
-    }
-
-    fn visit_occupancy_claims(&self, mut visit: impl FnMut(OccupancyClaim)) {
-        let lengths = self.revision.traffic().lane_lengths_millimetres();
-        for (sequence, handle) in self.live_order.iter().copied().enumerate() {
-            let Some(state) = self.vehicle_state(handle) else {
-                continue;
-            };
-            if state.status != VehicleStatus::Active {
-                continue;
-            }
-            let Some(edges) = self.route_edges(state.route) else {
-                continue;
-            };
-            let Ok(index) = usize::try_from(state.route_edge_index) else {
-                continue;
-            };
-            let Ok(update_sequence) = u32::try_from(sequence) else {
-                continue;
-            };
-            let _ = for_each_occupancy_interval(
-                lengths,
-                edges,
-                index,
-                state.progress_mm,
-                state.length_mm,
-                |edge, lo_mm, hi_mm| {
-                    visit(OccupancyClaim {
-                        vehicle: handle,
-                        bucket: OccupancyBucketOrdinal::from_edge(edge),
-                        lo_mm,
-                        hi_mm,
-                        update_sequence,
-                    });
-                },
-            );
-        }
     }
 
     #[cfg(test)]
@@ -312,13 +359,13 @@ mod tests {
     use laneflow_format::{
         FormatLimits, check_canonical_network_input, check_post_emission_bundle,
     };
-    use laneflow_static_contract::VehicleProfileOrdinal;
+    use laneflow_static_contract::{ParkingSpaceOrdinal, VehicleProfileOrdinal};
     use laneflow_static_network::{
         SharedNetworkBuildLimits, SharedNetworkBuildOptions, SharedNetworkRevision,
         SpatialBuildOption, build_shared_network_revision,
     };
 
-    use crate::tables::occupancy_front_gap;
+    use crate::tables::{occupancy_front_gap, remaining_along_route_i64};
     use crate::{RouteRegisterInput, TickInput, VehicleSpawnInput, WorldConfig};
 
     const FULL_SPATIAL: &[u8] = include_bytes!(
@@ -404,6 +451,57 @@ mod tests {
             .expect("profile");
     }
 
+    fn two_edge_revision() -> Arc<SharedNetworkRevision> {
+        compile_revision(|module| {
+            add_car_profile(module);
+            module
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "stem",
+                    length_meters: 20.0,
+                    speed_limit_meters_per_second: 10.0,
+                    successors: &[laneflow_compiler::LaneEdgeReference::local("tail")],
+                })
+                .expect("stem")
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "tail",
+                    length_meters: 20.0,
+                    speed_limit_meters_per_second: 10.0,
+                    successors: &[],
+                })
+                .expect("tail");
+        })
+    }
+
+    fn loop_revision() -> Arc<SharedNetworkRevision> {
+        compile_revision(|module| {
+            add_car_profile(module);
+            module
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "loop-a",
+                    length_meters: 20.0,
+                    speed_limit_meters_per_second: 10.0,
+                    successors: &[laneflow_compiler::LaneEdgeReference::local("loop-b")],
+                })
+                .expect("a")
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "loop-b",
+                    length_meters: 20.0,
+                    speed_limit_meters_per_second: 10.0,
+                    successors: &[laneflow_compiler::LaneEdgeReference::local("loop-a")],
+                })
+                .expect("b");
+        })
+    }
+
+    fn index_gap(world: &TrafficWorld, state: &VehicleState) -> Option<i64> {
+        let lengths = world.revision.traffic().lane_lengths_millimetres();
+        let edges = world.route_edges(state.route).unwrap();
+        let cursor = usize::try_from(state.route_edge_index).unwrap();
+        world
+            .occupancy
+            .leader_gap(state.handle, edges, cursor, state.progress_mm, lengths)
+    }
+
     fn assert_index_matches_scan(world: &TrafficWorld) {
         let lengths = world.revision.traffic().lane_lengths_millimetres();
         for handle in world.live_order.iter().copied() {
@@ -416,10 +514,20 @@ mod tests {
             let Some(edges) = world.route_edges(state.route) else {
                 continue;
             };
+            let cursor = usize::try_from(state.route_edge_index).unwrap();
+            let indexed =
+                world
+                    .occupancy
+                    .leader_gap(state.handle, edges, cursor, state.progress_mm, lengths);
+            let scanned = world.leader_bumper_gap_scan(state, edges, lengths);
+            let wrapped = world.leader_bumper_gap(state, edges, lengths);
             assert_eq!(
-                world.leader_bumper_gap(state, edges, lengths),
-                world.leader_bumper_gap_scan(state, edges, lengths),
+                indexed, scanned,
                 "occupancy index gap must match scan oracle for {handle:?}"
+            );
+            assert_eq!(
+                wrapped, indexed,
+                "leader_bumper_gap must use the occupancy index for {handle:?}"
             );
         }
     }
@@ -444,14 +552,14 @@ mod tests {
         let leader = VehicleHandle::new(1, 0);
         let mut index = OccupancyIndex::with_capacity(1, 2);
         let pending = vec![
-            OccupancyClaim {
+            OccupancyRecord {
                 vehicle: follower,
                 bucket: OccupancyBucketOrdinal::from_edge(edge),
                 lo_mm: 0,
                 hi_mm: 1_000,
                 update_sequence: 0,
             },
-            OccupancyClaim {
+            OccupancyRecord {
                 vehicle: leader,
                 bucket: OccupancyBucketOrdinal::from_edge(edge),
                 lo_mm: 6_000,
@@ -465,21 +573,21 @@ mod tests {
     }
 
     #[test]
-    fn later_occurrence_uses_front_most_claim() {
+    fn later_occurrence_uses_front_most_record() {
         let first = LaneEdgeOrdinal::from_raw(0);
         let second = LaneEdgeOrdinal::from_raw(1);
         let follower = VehicleHandle::new(0, 0);
         let leader = VehicleHandle::new(1, 0);
         let mut index = OccupancyIndex::with_capacity(2, 2);
         let pending = vec![
-            OccupancyClaim {
+            OccupancyRecord {
                 vehicle: follower,
                 bucket: OccupancyBucketOrdinal::from_edge(first),
                 lo_mm: 8_000,
                 hi_mm: 9_000,
                 update_sequence: 0,
             },
-            OccupancyClaim {
+            OccupancyRecord {
                 vehicle: leader,
                 bucket: OccupancyBucketOrdinal::from_edge(second),
                 lo_mm: 500,
@@ -540,6 +648,234 @@ mod tests {
         assert_index_matches_scan(&world);
         world.step(TickInput::new(100)).unwrap();
         world.rebuild_occupancy_index();
+        assert_index_matches_scan(&world);
+    }
+
+    #[test]
+    fn empty_and_solo_vehicle_have_no_leader() {
+        let revision = two_edge_revision();
+        let stem = LaneEdgeOrdinal::from_raw(0);
+        let mut world =
+            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        world.rebuild_occupancy_index();
+        world.step(TickInput::new(100)).unwrap();
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![stem]))
+            .expect("route");
+        let solo = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .expect("solo");
+        world.rebuild_occupancy_index();
+        let state = world.vehicle_state(solo).copied().unwrap();
+        assert_eq!(index_gap(&world, &state), None);
+        assert_index_matches_scan(&world);
+    }
+
+    #[test]
+    fn vehicle_behind_on_current_edge_is_not_leader() {
+        let revision = two_edge_revision();
+        let stem = LaneEdgeOrdinal::from_raw(0);
+        let mut world =
+            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![stem]))
+            .expect("route");
+        let profile = world
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
+            .unwrap();
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .expect("behind");
+        let follower = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+                0,
+            ))
+            .expect("ahead");
+        world.rebuild_occupancy_index();
+        let state = world.vehicle_state(follower).copied().unwrap();
+        assert_eq!(index_gap(&world, &state), None);
+        assert_index_matches_scan(&world);
+    }
+
+    #[test]
+    fn leader_fully_on_next_edge_matches_scan() {
+        let revision = two_edge_revision();
+        let stem = LaneEdgeOrdinal::from_raw(0);
+        let tail = LaneEdgeOrdinal::from_raw(1);
+        let mut world =
+            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![stem, tail]))
+            .expect("route");
+        let profile = world
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
+            .unwrap();
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                1,
+                profile.length_mm() + 1_000,
+                0,
+            ))
+            .expect("leader on tail");
+        let follower = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .expect("follower on stem");
+        world.rebuild_occupancy_index();
+        assert_index_matches_scan(&world);
+        let state = world.vehicle_state(follower).copied().unwrap();
+        assert!(index_gap(&world, &state).is_some());
+    }
+
+    #[test]
+    fn cycle_wrap_uses_later_occurrence_of_vehicle_behind() {
+        let revision = loop_revision();
+        let a = LaneEdgeOrdinal::from_raw(0);
+        let b = LaneEdgeOrdinal::from_raw(1);
+        let mut world =
+            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![a, b, a]))
+            .expect("route");
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .expect("physically behind");
+        let follower = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                9_000,
+                0,
+            ))
+            .expect("near end of first a");
+        world.rebuild_occupancy_index();
+        assert_index_matches_scan(&world);
+        let state = world.vehicle_state(follower).copied().unwrap();
+        let gap = index_gap(&world, &state).expect("wrap-around leader");
+        assert!(
+            gap > 20_000,
+            "leader behind on the current occurrence must be found via the next a, gap={gap}"
+        );
+    }
+
+    #[test]
+    fn parked_and_completed_are_not_leaders() {
+        let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).unwrap();
+        let revision = build_shared_network_revision(
+            input,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::RetainAvailable,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            ),
+        )
+        .unwrap();
+        let mut world = TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).unwrap();
+        let route = world
+            .static_route(laneflow_static_contract::StaticRouteOrdinal::from_raw(0))
+            .unwrap();
+        let profile = world
+            .revision
+            .traffic()
+            .relations()
+            .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
+            .unwrap();
+        let parked = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000 + profile.length_mm() + profile.min_gap_mm() + 2_000,
+                0,
+            ))
+            .unwrap();
+        let follower = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .unwrap();
+        world
+            .occupy_parking(parked, ParkingSpaceOrdinal::from_raw(0))
+            .expect("park");
+        world.rebuild_occupancy_index();
+        let follower_state = world.vehicle_state(follower).copied().unwrap();
+        assert_eq!(index_gap(&world, &follower_state), None);
+        assert_index_matches_scan(&world);
+
+        let revision = two_edge_revision();
+        let stem = LaneEdgeOrdinal::from_raw(0);
+        let tail = LaneEdgeOrdinal::from_raw(1);
+        let mut world =
+            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![stem, tail]))
+            .expect("route");
+        let tail_len = world.revision.traffic().lane_lengths_millimetres()[tail.index()];
+        let finishing = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                1,
+                tail_len,
+                0,
+            ))
+            .expect("at route end");
+        world.step(TickInput::new(100)).unwrap();
+        assert_eq!(
+            world.vehicle(finishing).unwrap().status(),
+            VehicleStatus::Completed
+        );
+        let follower = world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            ))
+            .expect("follower");
+        world.rebuild_occupancy_index();
+        let follower_state = world.vehicle_state(follower).copied().unwrap();
+        assert_eq!(index_gap(&world, &follower_state), None);
         assert_index_matches_scan(&world);
     }
 
@@ -627,7 +963,13 @@ mod tests {
         let lengths = world.revision.traffic().lane_lengths_millimetres();
         let follower_edges = world.route_edges(follower_state.route).unwrap();
         let leader_edges = world.route_edges(leader_state.route).unwrap();
-        let indexed = world.leader_bumper_gap(&follower_state, follower_edges, lengths);
+        let indexed = world.occupancy.leader_gap(
+            follower_state.handle,
+            follower_edges,
+            usize::try_from(follower_state.route_edge_index).unwrap(),
+            follower_state.progress_mm,
+            lengths,
+        );
         let pair = occupancy_front_gap(
             lengths,
             follower_edges,
@@ -693,6 +1035,10 @@ mod tests {
         let all_pairs = n_active.saturating_mul(n_active.saturating_sub(1));
         assert_eq!(n_active, u64::from(n));
         assert!(
+            inspections >= n_active.saturating_sub(1),
+            "index query must inspect at least one claim per follower with a leader, inspections={inspections} n={n_active}"
+        );
+        assert!(
             inspections < all_pairs,
             "inspections={inspections} must be below all-pairs={all_pairs}"
         );
@@ -705,25 +1051,8 @@ mod tests {
     }
 
     #[test]
-    fn repeated_edge_matches_scan_oracle() {
-        let revision = compile_revision(|module| {
-            add_car_profile(module);
-            module
-                .add_lane_edge(LaneEdgeInput {
-                    lane_edge_key: "loop-a",
-                    length_meters: 20.0,
-                    speed_limit_meters_per_second: 10.0,
-                    successors: &[laneflow_compiler::LaneEdgeReference::local("loop-b")],
-                })
-                .expect("a")
-                .add_lane_edge(LaneEdgeInput {
-                    lane_edge_key: "loop-b",
-                    length_meters: 20.0,
-                    speed_limit_meters_per_second: 10.0,
-                    successors: &[laneflow_compiler::LaneEdgeReference::local("loop-a")],
-                })
-                .expect("b");
-        });
+    fn repeated_edge_prefers_nearer_occurrence() {
+        let revision = loop_revision();
         let a = LaneEdgeOrdinal::from_raw(0);
         let b = LaneEdgeOrdinal::from_raw(1);
         let mut world =

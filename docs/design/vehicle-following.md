@@ -57,7 +57,7 @@
 - **Route occurrence**：同一个 physical edge 在有限 route sequence 中的一次出现，由 `route_edge_index` 区分。
 - **Front progress**：车辆前保险杠沿当前 physical edge 的 progress。
 - **Bumper gap**：follower 前保险杠到 leader 后保险杠的 route-relative 距离。
-- **Leader**：沿 follower 已选 route、lookahead 内最近的 Active/Stopped vehicle。
+- **Leader**：沿 follower 已选 route、剩余出现项上间隙最小的 Active 车辆（间隙可负）。
 - **Comfort controller**：正常驾驶时产生期望加速度的 IIDM 层。
 - **Safe-speed**：把 next speed 限制在 emergency braking 可处理范围内的确定性上界。
 - **Base speed limit**：Traffic/LaneGraph immutable per-edge 基础道路限速。
@@ -240,8 +240,7 @@ VehicleState
 - 删除含糊的 `effective_speed()`。
 - spawn input 使用必填 profile reference 与 `initial_speed`。
 - spawn 后 `applied_acceleration = 0`。
-- 跟驰导致速度归零时仍保持 `Active`，下一 tick 可以恢复。
-- 显式 `Stopped` 和 `Completed` 的 current speed/applied acceleration 必须为零。
+- 跟驰导致速度归零时仍保持 `Active`，下一 tick 可以恢复。`Completed` 的 current speed 必须为零。当前 `TrafficWorld` 没有独立 `Stopped` 状态。
 - route completion 后 state 归零，并只产生一次 completed event。
 - desired speed、length 和 deceleration 参数只存在于 immutable profile，不复制进 mutable state。
 
@@ -263,18 +262,18 @@ bumper_gap = route_distance(F.front, L.front) - L.length
 
 查询顺序：
 
-1. 当前 physical edge 上 front progress 更大的 occupant。
-2. follower route sequence 中后续 edge occurrence。
-3. 在 lookahead 内选择最小正 route distance 的非 self candidate。
+1. 当前物理边上 `hi_mm >` follower 前保险杠的占用记录。
+2. follower 路线后续出现项上该桶最前非 self 记录。
+3. 取最小间隙（可负）。当前 `TrafficWorld` 沿剩余路线查询，不另截 braking horizon；这仍满足 ADR 0006 的搜索下界。
 
 Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时不搜索 follower 未选 branch；其他 incoming branch 上、尚未进入共享 downstream edge 的车辆不是 longitudinal leader，而应由未来 merge/conflict constraint 处理。车辆进入共享 downstream edge 后，才按普通 leader 处理。
 
 ### 6.3 Repeated edge 与 cycle
 
-- Occupancy 按 physical edge 存储，route occurrence 由 follower `route_edge_index` 解释。
-- 同一 candidate 映射多个 future occurrence 时，只保留最小正 route distance。
+- 占用按物理边存储，route occurrence 由 follower `route_edge_index` 解释。
+- 同一 candidate 映射多个 future occurrence 时，只保留最小间隙（可负）。
 - Follower 始终按 `VehicleHandle` 全局排除 self。
-- 环形 route 中，物理坐标位于 follower 后方的其他车辆可以通过下一 occurrence 成为前车，但必须在 lookahead 内。
+- 环形 route 中，物理坐标位于 follower 后方的其他车辆可以通过下一 occurrence 成为前车。当前实现沿剩余路线查找。
 
 ### 6.4 Overlap
 
@@ -289,18 +288,18 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 
 当前 `TrafficWorld`：`Active` 进入车道占用。`Parked` 与 `Completed` 不进入。Snapshot 开始时仍为 Active、但本 tick 将完成 route 的车辆，在本 tick 仍可作为 leader；提交为 `Completed` 后，从下一 tick occupancy 消失。
 
-## 7. Occupancy index
+## 7. 占用索引
 
 ### 7.1 Tick-local 扁平索引
 
-占用索引是 `TrafficWorld` crate 私有、按物理边分桶的 tick-local scratch，不进入公开 API。桶与 `LaneEdgeOrdinal` 当前 1:1；内部可用私有 `OccupancyBucketOrdinal` 别名，但不得在 #237 冻结前映射到 `LaneUseSlot`。
+占用索引（occupancy index / `OccupancyIndex`）是 `TrafficWorld` crate 私有、按物理边分桶的 tick-local scratch，不进入公开 API。占用桶当前与 `LaneEdgeOrdinal` 1:1（私有 newtype `OccupancyBucketOrdinal`）。
 
 ```text
 OccupancyIndex
   bucketOffsets: usize[bucketCount + 1]
-  claims: OccupancyClaim[]
+  records: OccupancyRecord[]
 
-OccupancyClaim
+OccupancyRecord
   vehicle: VehicleHandle
   bucket: OccupancyBucketOrdinal
   lo_mm: u32
@@ -308,14 +307,14 @@ OccupancyClaim
   updateSequence: u32
 ```
 
-坐标为整数毫米。`hi_mm` 是该 claim 在本桶上的占用上沿（主 claim 为前保险杠进度；spill 为该边上车身片段上沿）。`lo_mm` 是同一片段下沿（后保险杠或该边上车尾起点）。间隙用 `i64`：`leader.lo_mm - follower_front_mm`，禁止 `u32` 回绕。
+坐标为整数毫米。`hi_mm` 是该占用记录在本桶上的占用上沿（主记录为前保险杠进度；车身溢出占用为该边上车身片段上沿）。`lo_mm` 是同一片段下沿（后保险杠或该边上车尾起点）。同边间隙为 `i64`：`leader.lo_mm - follower_front_mm`；跨出现项沿 follower 路线累计到该 `lo_mm`。禁止 `u32` 回绕。
 
 每辆 Active 车辆按车身 `for_each_occupancy_interval` 写入：
 
-- 主 claim：前保险杠所在物理边；
-- 稀疏 spill claim：车身仍覆盖的更早边。
+- 主记录：前保险杠所在物理边；
+- 稀疏车身溢出占用：车身仍覆盖的更早边。
 
-这不是变道双占用。#237 的源/目标车道角色不得写入当前不变量。一辆车可以在多个 bucket 各有一条 claim；禁止把「永远只有一条 occupant」写成不变量，否则分叉共享茎上车尾不可见。
+一辆车可以在多个桶各有一条占用记录，否则分叉共享茎上车尾不可见。
 
 `Parked` / `Completed` 不进入索引。
 
@@ -324,28 +323,25 @@ OccupancyClaim
 每个成功 `step` 在运动循环前按已提交状态 T 完整重建；不跨生命周期命令增量修补。
 
 1. 复用并清零 bucket counts。
-2. 按稳定 `live_order` 对 Active 车辆计数 claim。
+2. 按稳定 `live_order` 对 Active 车辆计数占用记录。
 3. Prefix sum 生成 bucket offsets。
-4. 写入连续 claim buffer。
+4. 写入连续占用记录 buffer。
 5. 每个 bucket 原地 unstable sort。
 
 排序键为 `(hi_mm, lo_mm, update_sequence, vehicle.index)`。`update_sequence` 只做稳定 tie-break，不得把同边相同前缘的物理重叠合法化。首次重建可把 bucket 表扩到边数；其后稳态 tick 复用容量，不因占用索引新分配。
 
 ### 7.3 Query 与复杂度
 
-- 当前边：`partition_point` 定位第一个 `hi_mm > follower_front` 的非 self claim。
-- 后续出现项：沿 **follower** 剩余路线（本切片不另截 braking horizon）读取该桶最前非 self claim。
+- 当前边：`partition_point` 定位第一个 `hi_mm > follower_front` 的非 self 占用记录。
+- 后续出现项：沿 **follower** 剩余路线读取该桶最前非 self 记录。本切片只交付前方最近前车，不另截 braking horizon。
 - 前方距离用 follower 的 route occurrence 解释，不用 candidate 自己的路线。
-- 同一 candidate 映射多个 future occurrence 时取最小间隙（可负，表示重叠）。
-- 构建：`O(B + K + Σ sort(K_bucket))`，`B` 为物理边桶数，`K` 为 claim 数（无变道时约为活动车辆数 × 车身跨边数）。
-- 禁止每辆车扫描全体车辆和全局 `O(V^2)`。
-- 查询 API 形状不禁止日后 predecessor / `neighbors_at`；本切片只交付前方最近前车。
+- 同一 candidate 映射多个 future occurrence 时取最小间隙（可负）。
+- 构建：`O(B + K + Σ sort(K_bucket))`，`B` 为物理边桶数，`K` 为占用记录数（约为道路交通活动车辆数 × 车身跨边数）。
+- 禁止每辆车扫描全体车辆和全局 `O(N_traffic_active^2)`。
 
-占用索引不进入 public API、不允许 Adapter 缓存。测试可保留全扫描 oracle，仅 `cfg(test)` 对拍，不进生产热路径。
+占用索引不进入 public API、不允许 Adapter 缓存。测试可保留全扫描预言机，仅 `cfg(test)` 对拍，不进生产热路径。
 
-#106 新增的 command-spatial index 不改变上述 tick authority：它只服务 step 之间的 spawn/leave 类局部验证，是 non-authoritative private cache。查询始终从 committed `VehicleState` 读取 progress，并用 route occurrence 做最终过滤；物理 edge membership 只在 spawn/despawn、完成或真实 physical-edge transition 时同步，不因同一 physical edge 上的 progress 变化做每车每 tick 重排。它与 tick-local Occupancy 保持两套职责，禁止用 command index 替代 leader/no-overlap snapshot。
-
-Route-distance 查询使用 overflow-safe segmented index；route-end 常见 horizon 先走当前/下一 edge 的快速拒绝路径，只有目标可能进入有限 horizon 时才访问完整 occurrence index。这样保留大量 finite edge 累计溢出时的正确性，同时避免无关 route scan 或把三个 `Vec` 放进热 `RouteSlot`。对应 full-scan oracle、operation counter 与性能证据见 git 历史。
+spawn / replace 的重叠检查读已提交 `VehicleState`，仍对 `live_order` 做命令路径扫描，不用本拍占用索引。占用索引只在 `step` 内从 T 重建，生命周期命令之间不增量修补。
 
 ## 8. Longitudinal constraints
 
@@ -461,7 +457,7 @@ bumper_gap_horizon = max(hard_horizon, comfort_horizon, minimum_gap_horizon)
 front_query_horizon = bumper_gap_horizon + max_vehicle_length
 ```
 
-`minimum_gap_horizon` 保证低速 follower 也能看到本 tick 内可能被侵入 minimum-gap floor 的 leader；专用 tolerance 覆盖 `s0` 边界附近的 f64 舍入。horizon 外的 leader 即使静止，follower 以 `travel_upper` 前进后仍不会低于 `s0`。查询不按固定 edge 数截断，也不默认遍历完整 route。
+`minimum_gap_horizon` 保证低速 follower 也能看到本 tick 内可能被侵入 minimum-gap floor 的 leader；专用 tolerance 覆盖 `s0` 边界附近的舍入。horizon 外的 leader 即使静止，follower 以 `travel_upper` 前进后仍不会低于 `s0`。当前 `TrafficWorld` 沿剩余路线查询以满足该下界，不另做 horizon 截断。
 
 ### 10.2 Emergency safe-speed
 
@@ -645,11 +641,11 @@ Public：
 - 迁移后的 `VehicleState` / `VehicleSpawnInput`。
 - `VehicleFollowingSafetyProjectionApplied` / `VehicleSpeedLimitProjectionApplied`。
 - `SpeedLimit`、LaneGraph 限速查询与结构化 profile/overlap/longitudinal/speed-limit errors。
-- 现有 fixed-step `CoreWorld::step` / `StepResult`。
+- 现有固定步进 `TrafficWorld::step` / `StepOutcome`。
 
 Private：
 
-- OccupancyIndex / OccupancyClaim。
+- OccupancyIndex / OccupancyRecord。
 - LeaderObservation。
 - LongitudinalConstraintSet。
 - IIDM evaluator、safe-speed solver 和 projection graph。
@@ -665,7 +661,7 @@ v0.3 不公开 controller trait、callback、registry 或 arbitrary Adapter inje
 - 初始 vehicle 输入排列变化后，按 external ID 对齐结果一致。
 - Same-edge、cross-edge、branch、merge-after-shared-edge、repeated edge 和 self exclusion。
 - Same progress/overlap rejection、min-gap-only 输入合法状态与 pre-existing sub-min-gap 非恶化。
-- Active/Stopped/Completed occupancy。
+- Active/Parked/Completed occupancy。
 - IIDM free/interaction 各分支和 desired speed 上下边界。
 - Safe-speed discriminant、emergency floor 和 projection threshold。
 - 当前 edge ceiling、60→40 advance braking、40→60 不提前加速、连续多个降限、repeated edge、hard projection attribution 与 over-limit spawn 原子失败。
