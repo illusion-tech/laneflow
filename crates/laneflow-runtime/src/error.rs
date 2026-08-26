@@ -57,26 +57,26 @@ pub enum StepError {
     OccupancyIntervalIncomplete,
 }
 
-/// 动态路线注册或移除失败。
+/// 路线注册或移除失败。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum RouteError {
     /// 边序列为空。
-    #[error("动态路线边序列不能为空")]
+    #[error("路线边序列不能为空")]
     EmptySequence,
     /// 边序号越出共享根。
-    #[error("动态路线含未知 LaneEdge")]
+    #[error("路线含未知 LaneEdge")]
     UnknownEdge,
     /// 相邻边在共享根车道后继或机动转移中都不连通。
-    #[error("动态路线边序列不连通")]
+    #[error("路线边序列不连通")]
     Disconnected,
-    /// 动态路线数量达到 world 容量。
-    #[error("动态路线数量达到容量")]
+    /// 路线数量达到 world 容量。
+    #[error("路线数量达到容量")]
     CapacityExceeded,
-    /// 句柄不是本世界有效动态路线。
+    /// 句柄不是本世界有效路线。
     #[error("路线句柄无效或已失效")]
     StaleHandle,
-    /// 仍有 live 车辆引用该动态路线。
-    #[error("动态路线仍被车辆引用")]
+    /// 仍有 live 车辆引用该路线。
+    #[error("路线仍被车辆引用")]
     InUse {
         /// 仍引用该路线的车辆。
         vehicle: VehicleHandle,

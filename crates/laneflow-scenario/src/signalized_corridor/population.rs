@@ -10,13 +10,13 @@ use thiserror::Error;
 
 use super::{BoundCorridorCatalog, BoundPortalLane, SplitMix64};
 
-/// prepare 产出的单车计划；`spawn_input` 需要已安装 `TrafficWorld`。
+/// prepare 产出的单车计划；`spawn_input` 需要已安装 `TrafficWorld` 与 `install_routes` 句柄。
 #[derive(Clone, Debug, PartialEq)]
 pub struct CorridorVehiclePlan {
     /// 车辆 profile。
     pub profile: VehicleProfileOrdinal,
-    /// catalog 路线的边序号序列。
-    pub edges: Box<[LaneEdgeOrdinal]>,
+    /// `BoundCorridorCatalog::route_exits` / `install_routes` 返回向量的下标。
+    pub route_index: usize,
     /// 路线序列下标。
     pub route_edge_index: u32,
     /// 入口边进度（毫米）。
@@ -32,17 +32,23 @@ impl CorridorVehiclePlan {
     pub fn spawn_input(
         &self,
         world: &TrafficWorld,
+        routes: &[RouteHandle],
     ) -> Result<VehicleSpawnInput, CorridorPopulationError> {
         if world.revision().network_revision() != self.network_revision {
             return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
                 detail: "计划 NetworkRevisionId 与 TrafficWorld 不一致".to_owned(),
             });
         }
-        let route = world.find_route(&self.edges).ok_or(
+        let route = *routes.get(self.route_index).ok_or(
             CorridorPopulationError::BoundWorldCatalogMismatch {
-                detail: "TrafficWorld 缺少计划中的已注册路线".to_owned(),
+                detail: "计划 route_index 超出已注册路线".to_owned(),
             },
         )?;
+        if world.route_edges(route).is_none() {
+            return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                detail: "TrafficWorld 缺少计划中的已注册路线".to_owned(),
+            });
+        }
         Ok(VehicleSpawnInput::new(
             self.profile,
             route,
@@ -361,13 +367,13 @@ impl CorridorPopulationPrepare {
             let spawn_slot = &catalog.spawn_slots[spawn_slot_index];
             let portal_lane = &catalog.portal_lanes[spawn_slot.portal_lane_index];
             let route_index = draw_weighted_route(&mut rng, portal_lane);
-            let route_edges = catalog.route_exits[route_index].edges.clone();
+            let route_edges = catalog.route_exits[route_index].edges.as_ref();
             let route_edge_index =
-                route_occurrence(&route_edges, spawn_slot.edge, spawn_slot.slot_id.as_str())?;
+                route_occurrence(route_edges, spawn_slot.edge, spawn_slot.slot_id.as_str())?;
             let initial_speed = normal_speed_for_edge(revision, spawn_slot.edge, desired_speed)?;
             initial_vehicles.push(CorridorVehiclePlan {
                 profile,
-                edges: route_edges,
+                route_index,
                 route_edge_index,
                 progress_mm: spawn_slot.progress_mm,
                 initial_speed_mm_s: initial_speed,
@@ -402,7 +408,7 @@ impl CorridorPopulationPrepare {
         self.initial_vehicles.take().unwrap_or_default()
     }
 
-    /// 对本世界每条 catalog 路线恰好 `register_route` 一次；已有相同边序列则重用句柄。
+    /// 对本世界每条 catalog 路线恰好 `register_route` 一次。
     pub fn install_routes(
         &self,
         world: &mut TrafficWorld,
@@ -419,6 +425,7 @@ impl CorridorPopulationPrepare {
         self,
         world: &mut TrafficWorld,
         vehicles: &[VehicleHandle],
+        route_handles: &[RouteHandle],
     ) -> Result<CorridorPopulationController, CorridorPopulationError> {
         if world.tick_index() != 0 {
             return Err(CorridorPopulationError::WorldAlreadyStepped {
@@ -437,11 +444,19 @@ impl CorridorPopulationPrepare {
             });
         }
 
-        let route_handles = self.catalog.install_routes(world).map_err(|error| {
-            CorridorPopulationError::BoundWorldCatalogMismatch {
-                detail: error.to_string(),
+        if route_handles.len() != self.catalog.route_exits.len() {
+            return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                detail: "已注册路线数与 catalog 不一致".to_owned(),
+            });
+        }
+        for handle in route_handles {
+            if world.route_edges(*handle).is_none() {
+                return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                    detail: "TrafficWorld 缺少计划中的已注册路线".to_owned(),
+                });
             }
-        })?;
+        }
+        let route_handles = route_handles.to_vec();
         let mut route_completion = Vec::with_capacity(self.catalog.route_exits.len());
         for route in &self.catalog.route_exits {
             if route.edges.is_empty() {

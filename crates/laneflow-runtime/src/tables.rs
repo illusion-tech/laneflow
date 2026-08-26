@@ -40,7 +40,7 @@ pub(crate) struct WaitingOccurrence {
     pub release_hop: u32,
 }
 
-/// 本世界 compiled 路线。G2 在此物化分段 `u32` 前缀、后缀 `BoundedDistance`、hop 门、
+/// 本世界 compiled 路线：分段 `u32` 前缀、后缀 `BoundedDistance`、hop 门、
 /// 受控 hop 链和限速下降转换。
 /// 不上 `u64`，不把 world 身份写进 `RouteHandle`，不存「当前红灯」（ADR 0028 / 0029）。
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -58,7 +58,7 @@ pub(crate) struct CompiledRoute {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct DynamicRouteSlot {
+pub(crate) struct RouteSlot {
     pub generation: u32,
     pub compiled: Option<CompiledRoute>,
     pub live_vehicles: u32,
@@ -139,9 +139,9 @@ fn record_occurrence(
     claim_internal_coverage(coverage, entry_index, exit_index, path)
 }
 
-/// 注册期唯一出现项编译器。G2 在返回的 compiled 上物化分段 `u32` 索引、受控 hop 链
-/// 与限速下降转换；不上 `u64`，不冻当前红灯。
-pub(crate) fn compile_dynamic_route(
+/// 注册期唯一出现项编译器。物化分段 `u32` 索引、受控 hop 链与限速下降转换；
+/// 不上 `u64`，不冻当前红灯。
+pub(crate) fn compile_route(
     traffic: &SharedTrafficNetwork,
     edges: &[LaneEdgeOrdinal],
 ) -> Result<CompiledRoute, RouteError> {
@@ -366,9 +366,9 @@ fn compile_waiting(
 
 /// 在机动路径入口跳上，用剩余边序列唯一匹配完整 `path.edges()` 前缀。
 ///
-/// 与静态路线重建同一规则：只认 `transition_index == 0`；多条不同 path 都匹配则歧义；
-/// 有入口候选但对不上完整路径则失败。非入口跳返回 `Ok(None)`，由 occurrence 覆盖表
-/// 在编译结束时对路口内部边失败关闭。
+/// 只认 `transition_index == 0`；多条不同 path 都匹配则歧义；有入口候选但对不上完整
+/// 路径则失败。非入口跳返回 `Ok(None)`，由 occurrence 覆盖表在编译结束时对路口内部边
+/// 失败关闭。
 pub(crate) fn unique_entry_path_match(
     network: &SharedManeuverNetwork,
     from: LaneEdgeOrdinal,
@@ -671,8 +671,8 @@ pub(crate) fn remaining_along_route_i64(
 
 /// 从查询起点沿路线累加有界距离。从当前进度加，不上 `u64`；溢出 `BeyondFinite`。
 ///
-/// G2 本世界索引沿用分段 `u32` + 后缀 `BoundedDistance`，
-/// 不得改成饱和起点前缀相减，也不得把 Finite 侧加宽到 `u64`。
+/// 本世界索引沿用分段 `u32` + 后缀 `BoundedDistance`，不得改成饱和起点前缀相减，
+/// 也不得把 Finite 侧加宽到 `u64`。
 #[allow(dead_code)]
 pub(crate) fn remaining_along_route(
     lengths: &[u32],
@@ -868,7 +868,7 @@ mod unique_entry_path_match_tests {
 }
 
 #[cfg(test)]
-mod compile_dynamic_route_tests {
+mod compile_route_tests {
     use super::*;
     use std::sync::Arc;
 
@@ -902,7 +902,7 @@ mod compile_dynamic_route_tests {
             .maneuvers()
             .maneuver_path(ManeuverPathOrdinal::from_raw(0))
             .expect("fixture path");
-        let compiled = compile_dynamic_route(traffic, path.edges()).expect("compile");
+        let compiled = compile_route(traffic, path.edges()).expect("compile");
         assert_eq!(compiled.maneuvers.len(), 1);
         assert_eq!(compiled.maneuvers[0].path, ManeuverPathOrdinal::from_raw(0));
         assert_eq!(compiled.maneuvers[0].entry_route_edge_index, 0);
@@ -913,6 +913,16 @@ mod compile_dynamic_route_tests {
         assert_eq!(
             compiled.hop_gate.first().copied().flatten(),
             path.maneuver_gates().first().copied()
+        );
+        let lengths = traffic.lane_lengths_millimetres();
+        let mut expected = BoundedDistance::Finite(0);
+        for index in (0..path.edges().len()).rev() {
+            expected = expected.add(*lengths.get(path.edges()[index].index()).unwrap());
+            assert_eq!(compiled.remaining_to_end[index], expected);
+        }
+        assert_eq!(
+            remaining_to_route_end(compiled.remaining_to_end[0], 0),
+            compiled.remaining_to_end[0]
         );
     }
 
@@ -929,7 +939,7 @@ mod compile_dynamic_route_tests {
             "fixture path must have an internal hop"
         );
         assert_eq!(
-            compile_dynamic_route(traffic, &path.edges()[1..]).unwrap_err(),
+            compile_route(traffic, &path.edges()[1..]).unwrap_err(),
             RouteError::ManeuverMismatch
         );
     }
@@ -948,7 +958,7 @@ mod compile_dynamic_route_tests {
             "fixture path entry must carry a StopLine"
         );
         assert_eq!(
-            compile_dynamic_route(traffic, &[entry]).unwrap_err(),
+            compile_route(traffic, &[entry]).unwrap_err(),
             RouteError::ManeuverMismatch
         );
     }
@@ -969,7 +979,7 @@ mod compile_dynamic_route_tests {
                 pair[1]
             );
         }
-        compile_dynamic_route(traffic, path.edges()).expect("full path still compiles");
+        compile_route(traffic, path.edges()).expect("full path still compiles");
     }
 
     #[test]
@@ -1009,7 +1019,7 @@ mod compile_dynamic_route_tests {
             "fixture internal edge must belong to a junction"
         );
         assert_eq!(
-            compile_dynamic_route(traffic, &[internal]).unwrap_err(),
+            compile_route(traffic, &[internal]).unwrap_err(),
             RouteError::ManeuverMismatch
         );
     }
@@ -1031,7 +1041,7 @@ mod compile_dynamic_route_tests {
             "truncated path must end on a junction-owned edge"
         );
         assert_eq!(
-            compile_dynamic_route(traffic, prefix).unwrap_err(),
+            compile_route(traffic, prefix).unwrap_err(),
             RouteError::ManeuverMismatch
         );
     }

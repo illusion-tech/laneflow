@@ -1,4 +1,4 @@
-//! 现行走廊 Bevy 最小路径：检入的 catalog 0.2 + LFCA，prepare 绑定后少数车辆 tick / pose。
+//! 现行走廊 Bevy 最小路径：检入的 catalog 0.3 + LFCA，prepare 绑定后少数车辆 tick / pose。
 //!
 //! 不恢复 50–200 人口、HUD、灯具或同一 Entity 回流。GUI 不进 CI。
 
@@ -40,12 +40,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .profiles
         .get(PASSENGER_CAR_PROFILE_KEY)
         .ok_or("missing passenger-car profile")?;
-    bound
+    let routes = bound
         .install_routes(&mut world)
         .map_err(|error| error.to_string())?;
     let (follower, leader) = follow_pair(&catalog, &bound)?;
-    spawn_on_slot(&mut world, profile, leader)?;
-    spawn_on_slot(&mut world, profile, follower)?;
+    spawn_on_slot(&mut world, profile, leader, &routes)?;
+    spawn_on_slot(&mut world, profile, follower, &routes)?;
     let spatial = SpatialSession::bind(revision)
         .map_err(|error| format!("{error:?}"))?
         .ok_or("missing spatial session")?;
@@ -105,14 +105,15 @@ fn spawn_on_slot(
     world: &mut TrafficWorld,
     profile: VehicleProfileOrdinal,
     slot: &BoundSpawnSlot,
+    routes: &[laneflow_runtime::RouteHandle],
 ) -> Result<(), Box<dyn Error>> {
     let index = slot
         .entry_edges
         .iter()
         .position(|edge| *edge == slot.edge)
         .ok_or("slot edge is not on its entry route")?;
-    let route = world
-        .find_route(&slot.entry_edges)
+    let route = *routes
+        .get(slot.route_index)
         .ok_or("catalog route must be registered")?;
     world.spawn_vehicle(VehicleSpawnInput::new(
         profile,

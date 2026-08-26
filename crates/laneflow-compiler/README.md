@@ -25,8 +25,7 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 覆盖、长度绑定和连接端点连续性，并在 Canonical LIR 中按 `LaneEdgeOrdinal` 对齐冻结
 规范 `f32` 点、累计弧长、切向与上方向采样表；完全不声明中心线时仍形成合法无图形
 配置（headless）LIR。
-路网产品不再声明 `StaticRoute`（ADR 0029）；种类 21 / 字段标签 30 保留空位。
-有序边序列只经运行时 `register_route` 进入每世界表。构建器原子拒绝非法数值 / token、非法或未
+有序边序列只经运行时 `register_route` 进入每世界表。种类 21 / 字段标签 30 为身份登记空位。构建器原子拒绝非法数值 / token、非法或未
 导入引用、重复声明和重复无序关系，并保留横断面、车道、覆盖链与完整机动路径的领域顺序。
 包内标识 v1 编码器严格校验登记字段，
 流式形成规范字节并派生 BLAKE3-128 `StableId128`；修订 2 的 22 个种类槽（可构造 21 种）由
@@ -60,7 +59,7 @@ regularity visit cache、待提交几何包装与单 corridor 临时集合使用
 文档序号，再在 AST/HIR/MIR 释放前按 LIR 稳定实体与 owner-local 关系冻结；
 共同准入分别核算构建器存续量、模块图冻结 scratch、构建峰值和成功结果存续量，模块索引、
 文档索引及模块包装均不能游离于 `CompileLimits`；
-动态路线生命周期与后继编译遍仍未实现。
+路线生命周期由 `TrafficWorld::register_route` 拥有，不在编译器内。
 
 可移植候选发射由 `emit_portable_candidate` 提供。它只能原子借用同一个
 `CompilationOutput` 中已配对的 LIR/source-map input，并接收规范化

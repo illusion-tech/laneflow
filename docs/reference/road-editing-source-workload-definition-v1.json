@@ -200,7 +200,7 @@
     "moduleCount": 5,
     "sourceDocumentCount": 5,
     "roadAlignmentCount": 35,
-    "stableDeclarationCount": 1715,
+    "stableDeclarationCount": 1575,
     "stableDeclarations": {
       "RoadCorridor": 35,
       "RoadSection": 70,
@@ -222,7 +222,6 @@
       "ParticipantClass": 15,
       "AccessRule": 90,
       "VehicleProfile": 10,
-      "StaticRoute": 140,
       "CanonicalFrame": 5
     },
     "curveProgramCount": 195,

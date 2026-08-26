@@ -1071,7 +1071,6 @@ fn road_table_for_entity(entity: EntityKind) -> u16 {
         EntityKind::AccessRule => 31,
         EntityKind::VehicleProfile => 33,
         EntityKind::CanonicalFrame => 35,
-        // `from_code(21)` 失败；本函数只服务已解码种类。
         EntityKind::StaticRoute => 0,
     }
 }
@@ -1305,7 +1304,7 @@ fn validate_change_row(
     if section == 3 {
         let role = row.required(5)?;
         let role_value = role.u8()?;
-        if !matches!(role_value, 1..=18 | 20..=27) {
+        if !matches!(role_value, 1..=12 | 17 | 18 | 20..=27) {
             return Err(unknown(role, u64::from(role_value)));
         }
         if owner_kind_for_source_role(role_value) != Some(entity) {

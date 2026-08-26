@@ -28,9 +28,7 @@ pub(super) fn entity_stable_id(
         EntityKind::ParticipantClass => stable_id_bytes(lir.participant_classes[index].stable_id),
         EntityKind::AccessRule => stable_id_bytes(lir.access_rules[index].stable_id),
         EntityKind::VehicleProfile => stable_id_bytes(lir.vehicle_profiles[index].stable_id),
-        EntityKind::StaticRoute => {
-            unreachable!("StaticRoute is a reserved identity hole")
-        }
+        EntityKind::StaticRoute => unreachable!("kind 21 is not constructible"),
         EntityKind::CanonicalFrame => stable_id_bytes(lir.canonical_frames[index].stable_id),
     }
 }

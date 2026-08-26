@@ -73,22 +73,18 @@ ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go �
 
 状态：已接受。
 
-v0.2 route definition 使用有限、显式、有序的 lane edge sequence。
+路线是有限、显式、有序的车道图边序列。生产入口是
+`TrafficWorld::register_route([e0, e1, …])`，输入为共享根 `LaneEdgeOrdinal`。
 
-概念模型：
+调用方（场景 catalog、规划器）自己持有 `route_id` 或边键；Runtime 热表只有
+`RouteHandle { index, generation }`。
 
-```text
-RouteInput
-  externalId: string
-  edgeExternalIds: string[]
-```
+route following 时：
 
-Core 不根据 lane graph 自动选择下一 edge。route following 时：
-
-- 当前 edge 来自 `edgeExternalIds[routeEdgeIndex]`。
-- 下一 edge 来自 `edgeExternalIds[routeEdgeIndex + 1]`。
-- lane graph connection 只用于验证这两个 edge 是否可连接。
-- route edge sequence 是车辆实际行驶顺序。
+- 当前边来自已注册序列的 `route_edge_index`。
+- 下一条边来自 `route_edge_index + 1`。
+- 车道图连接只用于验证这两个边是否可连接。
+- 边序列是车辆实际行驶顺序。
 
 ### D2. route target 是最后一个 edge 的出口边界
 

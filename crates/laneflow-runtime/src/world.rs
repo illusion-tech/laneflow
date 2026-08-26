@@ -7,8 +7,8 @@ use laneflow_static_network::SharedNetworkRevision;
 
 use crate::occupancy::OccupancyIndex;
 use crate::tables::{
-    CompiledRoute, DynamicRouteSlot, VehicleSlot, bodies_overlap, compile_dynamic_route,
-    occupancy_front_gap, route_access_denied,
+    CompiledRoute, RouteSlot, VehicleSlot, bodies_overlap, compile_route, occupancy_front_gap,
+    route_access_denied,
 };
 use crate::{
     CommittedPoseSourceBatch, CommittedSignalGroupBatch, InstallError, ParkingError, PoseSource,
@@ -26,9 +26,9 @@ pub struct TrafficWorld {
     pub(crate) tick_index: u64,
     pub(crate) time_ms: u64,
     pub(crate) signal_aspects: Box<[SignalAspect]>,
-    pub(crate) dynamic_routes: Vec<DynamicRouteSlot>,
+    pub(crate) routes: Vec<RouteSlot>,
     pub(crate) free_routes: Vec<usize>,
-    pub(crate) live_dynamic_routes: u32,
+    pub(crate) live_route_count: u32,
     pub(crate) vehicles: Vec<VehicleSlot>,
     pub(crate) free_vehicles: Vec<usize>,
     pub(crate) live_order: Vec<VehicleHandle>,
@@ -70,16 +70,16 @@ impl TrafficWorld {
         )
         .expect("parking space count fits usize");
         let vehicle_capacity = usize::try_from(config.vehicle_capacity()).unwrap_or(0);
-        let route_capacity = usize::try_from(config.dynamic_route_capacity()).unwrap_or(0);
+        let route_capacity = usize::try_from(config.route_capacity()).unwrap_or(0);
         let mut world = Self {
             revision,
             config,
             tick_index: 0,
             time_ms: 0,
             signal_aspects: vec![SignalAspect::Red; group_count].into_boxed_slice(),
-            dynamic_routes: Vec::with_capacity(route_capacity),
+            routes: Vec::with_capacity(route_capacity),
             free_routes: Vec::with_capacity(route_capacity),
-            live_dynamic_routes: 0,
+            live_route_count: 0,
             vehicles: Vec::with_capacity(vehicle_capacity),
             free_vehicles: Vec::with_capacity(vehicle_capacity),
             live_order: Vec::with_capacity(vehicle_capacity),
@@ -126,37 +126,37 @@ impl TrafficWorld {
     /// 在 compiled 槽位物化分段 `u32` 前缀、后缀距离、受控 hop 链和限速下降转换；
     /// 不上 `u64`，不存当前红灯。句柄不含 world 身份，只在本 `TrafficWorld` 内有效。
     pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
-        if self.live_dynamic_routes >= self.config.dynamic_route_capacity() {
+        if self.live_route_count >= self.config.route_capacity() {
             return Err(RouteError::CapacityExceeded);
         }
-        let compiled = compile_dynamic_route(self.revision.traffic(), input.edges())?;
-        let slot_index = self.free_routes.pop().unwrap_or(self.dynamic_routes.len());
+        let compiled = compile_route(self.revision.traffic(), input.edges())?;
+        let slot_index = self.free_routes.pop().unwrap_or(self.routes.len());
         let generation = self
-            .dynamic_routes
+            .routes
             .get(slot_index)
             .map_or(0, |slot| slot.generation);
         let handle = RouteHandle::new(
             u32::try_from(slot_index).expect("route index fits u32"),
             generation,
         );
-        let slot = DynamicRouteSlot {
+        let slot = RouteSlot {
             generation,
             compiled: Some(compiled),
             live_vehicles: 0,
         };
-        if slot_index == self.dynamic_routes.len() {
-            self.dynamic_routes.push(slot);
+        if slot_index == self.routes.len() {
+            self.routes.push(slot);
         } else {
-            self.dynamic_routes[slot_index] = slot;
+            self.routes[slot_index] = slot;
         }
-        self.live_dynamic_routes += 1;
+        self.live_route_count += 1;
         Ok(handle)
     }
 
     /// 只移除本世界已注册路线。
     pub fn remove_route(&mut self, route: RouteHandle) -> Result<(), RouteError> {
         let index = usize::try_from(route.index()).expect("route index fits usize");
-        let Some(slot) = self.dynamic_routes.get_mut(index) else {
+        let Some(slot) = self.routes.get_mut(index) else {
             return Err(RouteError::StaleHandle);
         };
         if slot.generation != route.generation() || slot.compiled.is_none() {
@@ -175,7 +175,7 @@ impl TrafficWorld {
             return Err(RouteError::InUse { vehicle, route });
         }
         slot.compiled = None;
-        self.live_dynamic_routes = self.live_dynamic_routes.saturating_sub(1);
+        self.live_route_count = self.live_route_count.saturating_sub(1);
         if let Some(next_generation) = slot.generation.checked_add(1) {
             slot.generation = next_generation;
             self.free_routes.push(index);
@@ -260,7 +260,7 @@ impl TrafficWorld {
             self.vehicles[slot_index] = slot;
         }
         let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
-        self.dynamic_routes[route_index].live_vehicles += 1;
+        self.routes[route_index].live_vehicles += 1;
         self.live_order.push(handle);
         Ok(handle)
     }
@@ -384,7 +384,7 @@ impl TrafficWorld {
         }
         self.release_route_ref(old_route);
         let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
-        self.dynamic_routes[route_index].live_vehicles += 1;
+        self.routes[route_index].live_vehicles += 1;
         self.live_order[order_index] = new;
         Ok(VehicleReplaceRecord { old, new })
     }
@@ -524,43 +524,18 @@ impl TrafficWorld {
 
     /// 本世界当前有效路线句柄，按槽位下标。
     pub fn live_routes(&self) -> impl Iterator<Item = RouteHandle> + '_ {
-        self.dynamic_routes
-            .iter()
-            .enumerate()
-            .filter_map(|(index, slot)| {
-                slot.compiled.as_ref().map(|_| {
-                    RouteHandle::new(
-                        u32::try_from(index).expect("route index fits u32"),
-                        slot.generation,
-                    )
-                })
+        self.routes.iter().enumerate().filter_map(|(index, slot)| {
+            slot.compiled.as_ref().map(|_| {
+                RouteHandle::new(
+                    u32::try_from(index).expect("route index fits u32"),
+                    slot.generation,
+                )
             })
-    }
-
-    /// 查找边序列完全相同的已注册路线。切修订原地重编译后用于重绑，不新分配句柄。
-    #[must_use]
-    pub fn find_route(
-        &self,
-        edges: &[laneflow_static_contract::LaneEdgeOrdinal],
-    ) -> Option<RouteHandle> {
-        self.dynamic_routes
-            .iter()
-            .enumerate()
-            .find_map(|(index, slot)| {
-                let compiled = slot.compiled.as_ref()?;
-                (compiled.edges.as_ref() == edges).then(|| {
-                    RouteHandle::new(
-                        u32::try_from(index).expect("route index fits u32"),
-                        slot.generation,
-                    )
-                })
-            })
+        })
     }
 
     pub(crate) fn compiled_route(&self, route: RouteHandle) -> Option<&CompiledRoute> {
-        let slot = self
-            .dynamic_routes
-            .get(usize::try_from(route.index()).ok()?)?;
+        let slot = self.routes.get(usize::try_from(route.index()).ok()?)?;
         if slot.generation != route.generation() {
             return None;
         }
@@ -679,7 +654,7 @@ impl TrafficWorld {
         let Ok(index) = usize::try_from(route.index()) else {
             return;
         };
-        let Some(slot) = self.dynamic_routes.get_mut(index) else {
+        let Some(slot) = self.routes.get_mut(index) else {
             return;
         };
         if slot.generation != route.generation() || slot.compiled.is_none() {

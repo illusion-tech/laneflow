@@ -484,7 +484,7 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
     let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 32, 1, 16))
         .expect("install");
     assert_eq!(world.revision().network_revision(), bound.network_revision);
-    bound
+    let routes = bound
         .install_routes(&mut world)
         .expect("install catalog routes");
 
@@ -495,8 +495,8 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
             .position(|edge| *edge == slot.edge)
             .expect("slot edge is on its entry route");
         assert_eq!(index, 0, "catalog slots bind to the route entry edge");
-        let route = world
-            .find_route(&slot.entry_edges)
+        let route = *routes
+            .get(slot.route_index)
             .expect("catalog route must be registered");
         world
             .spawn_vehicle(VehicleSpawnInput::new(

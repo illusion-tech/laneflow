@@ -240,7 +240,7 @@ fn occupy_parking_enforces_one_to_one_and_same_space_idempotent() {
 }
 
 #[test]
-fn remove_dynamic_route_rejects_live_vehicle() {
+fn remove_route_rejects_live_vehicle() {
     let mut world = world();
     let first = edge_for_length(&world, 10_000);
     let middle = edge_for_length(&world, 8_000);
@@ -264,7 +264,7 @@ fn remove_dynamic_route_rejects_live_vehicle() {
 }
 
 #[test]
-fn parking_keeps_dynamic_route_so_remove_fails() {
+fn parking_keeps_route_so_remove_fails() {
     let mut world = world();
     let first = edge_for_length(&world, 10_000);
     let middle = edge_for_length(&world, 8_000);
@@ -508,7 +508,7 @@ fn replace_does_not_use_despawn_then_spawn() {
 }
 
 #[test]
-fn completed_dynamic_route_stays_referenced_until_replace() {
+fn completed_route_stays_referenced_until_replace() {
     let mut world = world();
     let first = edge_for_length(&world, 10_000);
     let middle = edge_for_length(&world, 8_000);

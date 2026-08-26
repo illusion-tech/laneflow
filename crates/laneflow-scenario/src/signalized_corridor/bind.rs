@@ -67,6 +67,8 @@ pub struct BoundSpawnSlot {
     pub edge: LaneEdgeOrdinal,
     pub progress_mm: u32,
     pub entry_edges: Box<[LaneEdgeOrdinal]>,
+    /// `route_exits` 下标；spawn 用 `install_routes` 返回的对应句柄。
+    pub route_index: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -242,6 +244,14 @@ pub fn bind(
                 lane.portal_index == slot.portal_index && lane.lane_index == slot.lane_index
             })
             .expect("validate checked portal lane");
+        let lane = &portal_lanes[slot.portal_lane_index];
+        slot.route_index = lane
+            .choices
+            .iter()
+            .map(|choice| choice.route_index)
+            .min_by_key(|&index| route_exits[index].edges.as_ref())
+            .expect("portal lane has route choices");
+        slot.entry_edges = route_exits[slot.route_index].edges.clone();
     }
 
     Ok(BoundCorridorCatalog {
@@ -257,23 +267,28 @@ pub fn bind(
 }
 
 impl BoundCorridorCatalog {
-    /// 对本世界每条 catalog 路线恰好 `register_route` 一次；已有相同边序列则重用句柄。
+    /// 对本世界每条 catalog 路线恰好 `register_route` 一次。失败撤回本次注册的句柄。
     pub fn install_routes(&self, world: &mut TrafficWorld) -> Result<Vec<RouteHandle>, BindError> {
         if world.revision().network_revision() != self.network_revision {
             return Err(BindError::UnknownRoute(
                 "TrafficWorld 修订与 catalog bind 不一致".to_owned(),
             ));
         }
+        let needed = u32::try_from(self.route_exits.len()).expect("route count fits u32");
+        if world.config().route_capacity() < needed {
+            return Err(BindError::RouteRegister(RouteError::CapacityExceeded));
+        }
         let mut handles = Vec::with_capacity(self.route_exits.len());
         for exit in &self.route_exits {
-            if let Some(existing) = world.find_route(&exit.edges) {
-                handles.push(existing);
-                continue;
+            match world.register_route(RouteRegisterInput::new(exit.edges.to_vec())) {
+                Ok(handle) => handles.push(handle),
+                Err(error) => {
+                    for handle in handles.iter().rev().copied() {
+                        let _ = world.remove_route(handle);
+                    }
+                    return Err(BindError::RouteRegister(error));
+                }
             }
-            let handle = world
-                .register_route(RouteRegisterInput::new(exit.edges.to_vec()))
-                .map_err(BindError::RouteRegister)?;
-            handles.push(handle);
         }
         Ok(handles)
     }
@@ -327,19 +342,6 @@ fn bind_slot(
         });
     }
     let progress_mm = progress_mm as u32;
-    let entry_edges = lane
-        .route_choices
-        .iter()
-        .map(|choice| {
-            routes
-                .get(&choice.route_id)
-                .cloned()
-                .ok_or_else(|| BindError::UnknownRoute(choice.route_id.clone()))
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .min_by(|left, right| left.as_ref().cmp(right.as_ref()))
-        .ok_or_else(|| BindError::UnknownRoute(lane.route_choices[0].route_id.clone()))?;
     Ok(BoundSpawnSlot {
         slot_id: slot.slot_id.clone(),
         portal_id: slot.portal_id.clone(),
@@ -348,7 +350,8 @@ fn bind_slot(
         portal_lane_index: 0,
         edge,
         progress_mm,
-        entry_edges,
+        entry_edges: Box::from([]),
+        route_index: 0,
     })
 }
 

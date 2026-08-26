@@ -7,7 +7,7 @@
 > 证据，LFCP v2、API、检查深度和性能边界改以
 > `compiler-post-emission-check-and-minimal-publication-closure.md` 为准。无论后继实现是否
 > 生效，本文 LFCP 历史 v1/receipt 段落只作 #298 证据。LFCA/LFSM/LFSD **当前**
-> wire 以对象 `formatVersion = 3`、毫米登记表、且不含 `StaticRoute` 为准。
+> wire 以对象 `formatVersion = 3`、毫米登记表、可构造实体表 21 张（table `0x0015` 禁止出现）为准。
 >
 > **后续覆盖（#496 / #498）**：当前树只承认对象 `formatVersion` 与
 > `canonicalFormatVersion = 3` 的唯一登记表（毫米 / 受检 `f32` 热列；ADR 0029
@@ -1854,7 +1854,8 @@ local-key tag:
   Movement=8 ManeuverPath=7 ManeuverGate=15 WaitingZone=16 StopLine=17
   SignalGroup=18 SignalController=19 SignalPhase=21 ParkingArea=22
   ParkingSpace=24 LaneGroup=25 FacilityBand=26 ParticipantClass=27
-  AccessRule=28 VehicleProfile=29 StaticRoute=30 CanonicalFrame=31
+  AccessRule=28 VehicleProfile=29 CanonicalFrame=31
+  （字段标签 30 保留空位，不得作为实体 local-key）
 parent StableId anchor:
   RoadSection=33 AuthoringLane=32 Movement=34 ManeuverPath=11
   ManeuverGate=14 WaitingZone=14 SignalPhase=20 LaneGroup=32 FacilityBand=33
@@ -2194,9 +2195,8 @@ provenance 仍不构成信任锚；
   CorridorElement, RoadSectionAuthoringLane, LaneEdgeSuccessor,
   JunctionApproachEdge, JunctionInternalEdge, ManeuverPathInternalEdge,
   SignalControllerGroup, SignalControllerPhase, SignalPhaseState,
-  AccessRuleParticipantClass`；历史 `StaticRouteEdge` 代码 12 保留空位，禁止出现
-  （ADR 0029）。不得把 12 算进合法范围。现行 format 2 读器仍接受 12，#498 G2
-  随拒绝闸口关闭；
+  AccessRuleParticipantClass`；代码 12 保留空位，禁止出现。不得把 12 算进合法范围。
+  读器对代码 12 失败关闭；
 - `structKind 0..3` 依次为 `Digest256, OptionalU64, Vec3F64, LinearWidthProfile`；
 - `unionKind 0` 为 `CurveSegmentGeometry`；
 - `tableKind 0..35` 依次为 `RoadEditingSource, ModuleHeader, Provenance, LineSegment,

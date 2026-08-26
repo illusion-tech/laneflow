@@ -444,8 +444,8 @@ pub enum RoadEditingSourceViolation {
     VerifierTableBudgetExceeded,
     /// reader 只接受 exact `format_version = 2`。
     UnsupportedFormatVersion { expected: u32, actual: u32 },
-    /// `format_version = 2` 根表不得出现历史 `static_routes` vtable member 25。
-    HistoricStaticRoutesField,
+    /// `format_version = 2` 根表不得出现 vtable member 25。
+    ForbiddenRootVtableMember,
     /// verified wire 内的 source-document key 与 wire 外 expected key 不同。
     SourceDocumentKeyMismatch,
     /// verifier 后的字段值违反与第一方 authoring model 共用的闭合语义规则。

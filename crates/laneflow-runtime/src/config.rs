@@ -2,7 +2,7 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WorldConfig {
     vehicle_capacity: u32,
-    dynamic_route_capacity: u32,
+    route_capacity: u32,
     worker_count: u32,
     fixed_delta_time_ms: u64,
 }
@@ -12,13 +12,13 @@ impl WorldConfig {
     #[must_use]
     pub const fn new(
         vehicle_capacity: u32,
-        dynamic_route_capacity: u32,
+        route_capacity: u32,
         worker_count: u32,
         fixed_delta_time_ms: u64,
     ) -> Self {
         Self {
             vehicle_capacity,
-            dynamic_route_capacity,
+            route_capacity,
             worker_count,
             fixed_delta_time_ms,
         }
@@ -30,8 +30,8 @@ impl WorldConfig {
     }
 
     #[must_use]
-    pub const fn dynamic_route_capacity(self) -> u32 {
-        self.dynamic_route_capacity
+    pub const fn route_capacity(self) -> u32 {
+        self.route_capacity
     }
 
     #[must_use]

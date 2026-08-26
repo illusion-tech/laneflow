@@ -2087,7 +2087,7 @@ impl CanonicalFrameInput {
 }
 impl_canvas!(CanonicalFrameInput);
 
-/// Road Editing Source 的 21 个可构造声明种类；不含历史 `StaticRoute`。
+/// Road Editing Source 的 21 个可构造声明种类。
 #[derive(Clone, Debug, PartialEq)]
 pub enum RoadEditingDeclaration {
     RoadCorridor(RoadCorridorInput),

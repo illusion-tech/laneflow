@@ -1177,10 +1177,10 @@ fn hir_symbol_and_reference_order_ignore_declaration_insertion_order() {
     );
 }
 
-/// 覆盖全部静态语义领域的成功输入：横断面、路口、控制、信号、停车、空间、准入与路线。
+/// 覆盖全部静态语义领域的成功输入：横断面、路口、控制、信号、停车、空间与准入。
 ///
 /// 几何档与编译几何的安装方式沿用 `compiled_junction_unit`；共享内部边由两条路径
-/// 推导规范代表，停车位与准入规则引用各自独立的边，静态路线完整匹配 `path-a`。
+/// 推导规范代表，停车位与准入规则引用各自独立的边。
 fn full_domain_unit() -> CompilationUnit {
     let limits = CompileLimits::p100_initial_v1();
     let mut builder = SyntheticModuleBuilder::new(header("city/full"), &limits).unwrap();

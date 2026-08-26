@@ -142,7 +142,7 @@ bind 把键解析为共享根边序号，对每条 catalog 路线 `register_rout
 `add_static_route` 之前，该入口只走通用 relation / reference / source-byte 限额，
 不为该死路径恢复 1920。
 
-每世界同时存活的路线条数继续由调用方 `WorldConfig.dynamic_route_capacity` 约束。
+每世界同时存活的路线条数继续由调用方 `WorldConfig.route_capacity` 约束。
 单条边序列只受空序列、连通、机动匹配和分配失败约束，不另冻产品边数。走廊示例必须
 把容量设为至少 28。
 

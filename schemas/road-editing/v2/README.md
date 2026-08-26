@@ -1,7 +1,7 @@
 # 道路编辑来源缓冲区 v2 Schema
 
-**状态**: 生产。ADR 0029：`format_version = 2`，无 `StaticRoute` table，根表不得出现
-历史 vtable member 25。`format_version = 1` 的旧 `LFRE` 在语义读取前失败关闭。<br>
+**状态**: 生产。`format_version = 2`；根表不得出现 vtable member 25。
+`format_version = 1` 的旧 `LFRE` 在语义读取前失败关闭。<br>
 **格式标识**: `LF-ROAD-EDITING-SOURCE-v2`<br>
 **机器事实源**: [`road-editing.fbs`](road-editing.fbs)<br>
 **设计依据**:
@@ -24,7 +24,7 @@ file identifier。`.fbs` 冻结 wire shape；本文冻结不能只靠 verifier �
 - `format_version` 必须精确为 `2`。零、`1` 和未知值都在任何 LaneFlow 语义
   lowering 或按规模分配前拒绝。
 - `module_header`、`road_alignments` 和 21 个可构造 Identity 声明向量都必须在 wire 中
-  存在；向量可以为空。历史 `static_routes`（vtable member 25）禁止出现，不论是否为空。
+  存在；向量可以为空。vtable member 25 禁止出现，不论是否为空。
   宿主以多个模块 blob 和显式导入图组成城市项目。
 - 完整 size-prefixed bytes 是 `sourceDocumentDigest` 与 `sourceRecordByteLen` 的输入；
   buffer bytes、table offset 和 vector index 都不构成领域身份或语义等价依据。

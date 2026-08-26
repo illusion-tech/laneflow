@@ -568,7 +568,7 @@ fn full_spatial_access_cells_do_not_scan_and_stay_in_rule_bounds() {
 }
 
 #[test]
-fn full_spatial_has_no_static_route_entity_table() {
+fn full_spatial_entity_tables_skip_kind_21() {
     let input =
         check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD).expect("checked input");
     let view = input.value_checked_view();

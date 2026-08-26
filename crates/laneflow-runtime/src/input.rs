@@ -2,7 +2,7 @@ use laneflow_static_contract::{LaneEdgeOrdinal, VehicleProfileOrdinal};
 
 use crate::RouteHandle;
 
-/// 动态路线注册输入：共享根边序号的有序非空序列。
+/// 路线注册输入：共享根边序号的有序非空序列。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RouteRegisterInput {
     edges: Box<[LaneEdgeOrdinal]>,
