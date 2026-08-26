@@ -228,7 +228,7 @@ LFCA:     写 IR length_mm（此时已与将写出值同一整数）
 `desired_speed_mm_s`、`min_gap_mm`。
 
 当前制品合同：对象前导 `formatVersion` 与
-`ContractVersions.canonicalFormatVersion` 为 `3`（ADR 0029 删除 `StaticRoute` 后升闸口）；
+`ContractVersions.canonicalFormatVersion` 为 `3`；
 `constraintContractVersion` 为 `2`；`staticExecutionContractVersion` 为 `3`；
 `networkRevisionDerivationVersion` **保持 `1`**（§4.2 组帧与
 `"laneflow.network-revision.v1\0"` 未改；毫米载荷与路线表删除会改变 ID，不必新算法）；

@@ -92,7 +92,7 @@ hop 是否受控：用已编译机动出现项定位 path，再在共享根
 
 出现 `0x0015`、缺 `0x0016`、或 `formatVersion != 3`，读器失败关闭。format 3 对象
 精确 TableV1 总数为 `30`（`1 + 1 + 21 + 1 + 3 + 1 + 1 + 1`）。历史 format 1/2 为
-`35`。现行生产 `table_count()` 仍为 `35`，#498 G2 随发射器改为 `30`。
+`35`。现行生产 `table_count()` 为 `30`。
 
 StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 

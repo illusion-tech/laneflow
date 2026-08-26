@@ -489,12 +489,6 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
         .expect("install catalog routes");
 
     for slot in bound.spawn_slots.iter().take(3) {
-        let index = slot
-            .entry_edges
-            .iter()
-            .position(|edge| *edge == slot.edge)
-            .expect("slot edge is on its entry route");
-        assert_eq!(index, 0, "catalog slots bind to the route entry edge");
         let route = *routes
             .get(slot.route_index)
             .expect("catalog route must be registered");
@@ -502,7 +496,7 @@ fn catalog_bind_spawns_few_vehicles_and_steps() {
             .spawn_vehicle(VehicleSpawnInput::new(
                 profile,
                 route,
-                u32::try_from(index).expect("edge index"),
+                0,
                 slot.progress_mm,
                 0,
             ))

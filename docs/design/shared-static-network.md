@@ -1,7 +1,7 @@
 # 共享静态路网
 
 **文档状态**: Accepted（#300 G1 Pass）<br>
-**最后更新**: 2026-08-26（#498：制品 `formatVersion = 3`、不含 `StaticRoute`；#500：IR 边长提交为写出值；#496：热列为整数毫米 / `mm/s`）<br>
+**最后更新**: 2026-08-26（#498：制品 `formatVersion = 3`；#500：IR 边长提交为写出值；#496：热列为整数毫米 / `mm/s`）<br>
 **适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
 **关联文档**: `../adr/0025-checked-canonical-network-and-shared-static-network.md`、
@@ -22,8 +22,7 @@ Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验
 性能证据；#300 保持父级跟踪项，不由 #436 自动关闭。#301 交付 `TrafficWorld` 对共享根
 的消费并使它成为唯一可运行交通世界，同时拆除 current Core/JSON 运行时入口；契约见
 `traffic-runtime-shared-consumption.md`。ADR 0028 / `traffic-runtime-integer-geometry.md`
-把生产热列定为 `u32` mm 与 mm/s。ADR 0029 起制品为 **LFCA `formatVersion = 3`**，
-且不含预编译静态路线。
+把生产热列定为 `u32` mm 与 mm/s。ADR 0029 起制品为 **LFCA `formatVersion = 3`**。
 有折线时边长从弧长 round 并写回 IR；headless 用准入毫米。LFCA 与 LIR 是同一整数；
 不从 Spatial 反推。
 
@@ -284,8 +283,8 @@ O(n²) 构建。实现可以融合不影响精确预算或错误语义的子 pas
 ### 7.2 必需闭合
 
 #439 只完成其 Issue 明列的基础投影；下列尚未投影的 owner/member、access/profile、signal、
-parking 等 Runtime 关系由 #440 逐项盘点并闭合。StaticRoute / 路线出现项不再进入共享根
-（ADR 0029）。实体计数存在不等于字段或关系已经进入 Runtime。
+parking 等 Runtime 关系由 #440 逐项盘点并闭合。路线出现项只在每世界 `register_route`
+编译。实体计数存在不等于字段或关系已经进入 Runtime。
 
 成功前至少检查：
 
@@ -530,10 +529,10 @@ v0.10 切换也不需要的冷数据。它不是「#301 第一个 kernel 暂时�
 | 10   | `ManeuverPathGate`                   | #439 已覆盖   | 已在机动路径 gate range                                                                      |
 | 11   | `ManeuverPathWaitingZone`            | #439 已覆盖   | 已在机动路径 waiting range                                                                   |
 | 12   | `StopLineManeuverGate`               | 本切片必需    | #439 未投影 StopLine 实体及其反向门集合                                                      |
-| 13   | `StaticRouteEdge`                    | ADR 0029 空位 | 禁止出现；代码不重编号                                                                       |
-| 14   | `StaticRouteManeuverOccurrence`      | ADR 0029 空位 | 禁止出现；出现项只在每世界 `register_route` 编译                                             |
-| 15   | `StaticRouteGateOccurrence`          | ADR 0029 空位 | 禁止出现                                                                                     |
-| 16   | `StaticRouteWaitingZoneOccurrence`   | ADR 0029 空位 | 禁止出现                                                                                     |
+| 13   | *(保留空位)*                         | 禁止出现；代码不重编号                                                                       |
+| 14   | *(保留空位)*                         | 禁止出现                                                                                     |
+| 15   | *(保留空位)*                         | 禁止出现                                                                                     |
+| 16   | *(保留空位)*                         | 禁止出现                                                                                     |
 | 17   | `SignalControllerGroup`              | 本切片必需    | 固定时制控制器拥有的信号组                                                                   |
 | 18   | `SignalControllerPhase`              | 本切片必需    | 有序相位                                                                                     |
 | 19   | `SignalPhaseState`                   | 本切片必需    | LFCA 编码在 `SignalPhase` 实体 `RecordVector`，不是 A.5 元组；仍须投影为 group+aspect 连续表 |
@@ -575,7 +574,6 @@ Identity 正反表覆盖可构造种类（修订 2：21 种 + 种类 21 空位�
 | `ParticipantClass` | 可选 parent；`depth`、`subtree_enter`、`subtree_exit`                                            | 显示名                                                                  |
 | `AccessRule`       | 目标 kind+ordinal、`effect`、参与者类别 range、`priority`；seal 后的共享稀疏准入平面             | `regulation` 全部 UTF-8；查询时扫描规则表                               |
 | `VehicleProfile`   | `participant_class` 与全部跟驰数值列                                                             | 显示名                                                                  |
-| `StaticRoute`      | **不进入 Traffic**（ADR 0029：实体删除，种类代码 21 保留空位）                                   | 每世界 `register_route`；出行选择策略                                   |
 | `CanonicalFrame`   | 仅维持 Identity/基数；几何在 Spatial                                                             | Traffic 不复制 frame 点列                                               |
 
 ### 13.4 反向索引与闭合

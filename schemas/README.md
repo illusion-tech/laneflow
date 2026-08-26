@@ -11,10 +11,11 @@ Traffic v0.10、Spatial v0.1 与 Scenario Manifest v0.1 JSON Schema 已随 #301 
 
 | Family       | Current source                                                         | 状态                            |
 | ------------ | ---------------------------------------------------------------------- | ------------------------------- |
-| Road Editing | [`road-editing/v1/road-editing.fbs`](road-editing/v1/road-editing.fbs) | #296 已实现的生产 compiler 来源 |
+| Road Editing | [`road-editing/v2/road-editing.fbs`](road-editing/v2/road-editing.fbs) | 生产 compiler 来源；`format_version = 2` |
 
-字段级领域语义见 [`road-editing/v1/README.md`](road-editing/v1/README.md)。它使用
-size-prefixed FlatBuffers 和 `LFRE` file identifier，不是 JSON Schema。
+字段级领域语义见 [`road-editing/v2/README.md`](road-editing/v2/README.md)。它使用
+size-prefixed FlatBuffers 和 `LFRE` file identifier，不是 JSON Schema。历史 v1 见
+[`road-editing/v1/`](road-editing/v1/)，读器拒绝。
 
 Traffic v0.2–v0.10 历史 schema 已从当前树删除。当时验证流水账只保留在 git 历史
 与对应 Issue 中，不构成现行发布义务。

@@ -50,6 +50,8 @@ pub enum CanonicalIdentityViolation {
     FieldByteLengthOverflow { tag: u16, actual: u64 },
     /// 完整规范身份字节数不能由当前目标平台的 `usize` 表示。
     CanonicalByteLengthOverflow { actual: u64 },
+    /// 种类是登记表保留空位，不得编码。
+    UnconstructibleKind { kind: u16 },
 }
 
 /// 编译器内部尚未编码的一个 Identity v1 字段。
@@ -99,11 +101,6 @@ impl EncodedCanonicalIdentity {
     }
 }
 
-/// 编码并派生一个完整 Identity v1 身份。
-///
-/// 哈希器和输出缓冲区在同一次顺序写入中更新，避免为
-/// `domain_prefix || canonical_bytes` 再构造一份拼接缓冲区。返回前会验证字段集合与登记
-/// 表完全一致，因此成功值可以安全进入唯一性登记表。
 /// 为「`AuthoringNamespaceId` + 单一 ASCII 本地键」实体种类派生 Identity v1 稳定标识。
 ///
 /// prepare 绑定用它把编制字符串对上已安装 `SharedIdentityIndex`。字段顺序与种类登记表
@@ -115,6 +112,9 @@ pub fn derive_canonical_stable_id_v1(
     local_key: &str,
     limits: &CompileLimits,
 ) -> Result<StableId128, CanonicalIdentityViolation> {
+    if !kind.is_constructible() {
+        return Err(CanonicalIdentityViolation::UnconstructibleKind { kind: kind.code() });
+    }
     let tags = kind.required_tags();
     if tags.len() != 2 {
         return Err(CanonicalIdentityViolation::FieldCountMismatch {
@@ -141,11 +141,19 @@ pub fn derive_canonical_stable_id_v1(
     .stable_id())
 }
 
+/// 编码并派生一个完整 Identity v1 身份。
+///
+/// 哈希器和输出缓冲区在同一次顺序写入中更新，避免为
+/// `domain_prefix || canonical_bytes` 再构造一份拼接缓冲区。返回前会验证字段集合与登记
+/// 表完全一致，因此成功值可以安全进入唯一性登记表。不可构造种类失败关闭。
 pub(crate) fn encode_canonical_identity(
     kind: EntityKind,
     fields: &[IdentityFieldInput<'_>],
     max_single_string_bytes: u64,
 ) -> Result<EncodedCanonicalIdentity, CanonicalIdentityViolation> {
+    if !kind.is_constructible() {
+        return Err(CanonicalIdentityViolation::UnconstructibleKind { kind: kind.code() });
+    }
     let required_tags = kind.required_tags();
     if fields.len() != required_tags.len() {
         return Err(CanonicalIdentityViolation::FieldCountMismatch {
@@ -427,6 +435,12 @@ mod tests {
                     "known vector kind must be registered"
                 );
                 assert_eq!(kind_code, registered_kind.code());
+                assert_eq!(expected_bytes, "-");
+                assert_eq!(expected_id, "-");
+                assert_eq!(
+                    encode_canonical_identity(registered_kind, &[], STRING_LIMIT).unwrap_err(),
+                    CanonicalIdentityViolation::UnconstructibleKind { kind: kind_code }
+                );
                 continue;
             };
             assert_eq!(kind, registered_kind);
@@ -614,6 +628,20 @@ mod tests {
                 tag: 33,
                 actual: 15
             }
+        );
+    }
+
+    #[test]
+    fn encoder_rejects_unconstructible_kind() {
+        assert_eq!(
+            encode_canonical_identity(EntityKind::StaticRoute, &[], STRING_LIMIT).unwrap_err(),
+            CanonicalIdentityViolation::UnconstructibleKind { kind: 21 }
+        );
+        let limits = CompileLimits::p100_initial_v1();
+        assert_eq!(
+            derive_canonical_stable_id_v1(EntityKind::StaticRoute, "city/x", "k", &limits)
+                .unwrap_err(),
+            CanonicalIdentityViolation::UnconstructibleKind { kind: 21 }
         );
     }
 

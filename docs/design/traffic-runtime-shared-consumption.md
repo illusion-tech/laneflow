@@ -274,7 +274,7 @@ install 核对、`register_route` 重建，以及后继 #302 快照/修订切换
 地图：compiler 已冻夹具 `lfca-full-spatial`
 （`crates/laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/`）。
 它含 Identity、信号、停车、lane-pose 几何和可组成
-`entry → middle → exit` 的边。夹具不再含静态路线实体（ADR 0029）。
+`entry → middle → exit` 的边。
 
 Runtime 对该三边序列 `register_route`，再 `spawn_vehicle` **两辆**同一路线前后排列的车，经 `step` 做 1-worker 固定步数。CI 集成
 测试（无窗口）必须断言：

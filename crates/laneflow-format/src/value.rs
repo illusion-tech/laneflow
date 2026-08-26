@@ -1979,6 +1979,20 @@ mod tests {
             FormatErrorClass::UnknownKind
         );
 
+        let reserved_tag = row_bytes(&[
+            field_bytes(1, PortableFieldType::U16, &30_u16.to_le_bytes()),
+            field_bytes(2, PortableFieldType::Bytes, b"edge-a"),
+        ]);
+        assert_eq!(
+            validate_identity_field(
+                parse_test_row(&reserved_tag),
+                FORMAT_HARD_MAX_IDENTITY_ASCII_BYTES,
+            )
+            .unwrap_err()
+            .class(),
+            FormatErrorClass::UnknownKind
+        );
+
         let wrong_stable_id = row_bytes(&[
             field_bytes(1, PortableFieldType::U16, &11_u16.to_le_bytes()),
             field_bytes(2, PortableFieldType::Bytes, &[0x11; 15]),
@@ -2756,6 +2770,26 @@ mod tests {
         assert_eq!(owner_kind_for_source_role(15), None);
         assert_eq!(owner_kind_for_source_role(16), None);
         assert_eq!(owner_kind_for_source_role(30), None);
+        for role in [13_u8, 14, 15, 16] {
+            let reserved = row_bytes(&[
+                field_bytes(
+                    1,
+                    PortableFieldType::U16,
+                    &EntityKind::LaneEdge.code().to_le_bytes(),
+                ),
+                field_bytes(2, PortableFieldType::StableId128, &[1; 16]),
+                field_bytes(3, PortableFieldType::U8, &[role]),
+                field_bytes(4, PortableFieldType::U32, &0_u32.to_le_bytes()),
+                field_bytes(5, PortableFieldType::U32, &0_u32.to_le_bytes()),
+                field_bytes(6, PortableFieldType::OrdinalVectorU32, &0_u32.to_le_bytes()),
+            ]);
+            assert_eq!(
+                validate_owner_local_source(parse_test_row(&reserved))
+                    .unwrap_err()
+                    .class(),
+                FormatErrorClass::UnknownKind
+            );
+        }
         for (role, owner) in expected {
             assert_eq!(owner_kind_for_source_role(role), Some(owner));
             let valid = row_bytes(&[

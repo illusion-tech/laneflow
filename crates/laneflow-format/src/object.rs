@@ -1406,6 +1406,21 @@ mod tests {
                 .class(),
             FormatErrorClass::NonCanonicalOrder
         );
+
+        let mut reserved_kind = encoded_object(lfca_kind);
+        let reserved_section_offset = u64::from_le_bytes(
+            reserved_kind[entity_section_entry + 8..entity_section_entry + 16]
+                .try_into()
+                .unwrap(),
+        ) as usize;
+        reserved_kind[reserved_section_offset + 4..reserved_section_offset + 6]
+            .copy_from_slice(&21_u16.to_le_bytes());
+        assert_eq!(
+            preflight_object_registry(&reserved_kind, lfca_kind, FormatLimits::HARD)
+                .unwrap_err()
+                .class(),
+            FormatErrorClass::NonCanonicalOrder
+        );
     }
 
     #[test]

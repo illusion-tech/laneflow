@@ -105,8 +105,8 @@ fn register_route_requires_connected_shared_edges() {
 
     let route = world
         .register_route(RouteRegisterInput::new(vec![first, middle, last]))
-        .expect("connected dynamic route");
-    world.remove_route(route).expect("unused dynamic route");
+        .expect("connected route");
+    world.remove_route(route).expect("unused route");
     assert_eq!(
         world.remove_route(route).unwrap_err(),
         RouteError::StaleHandle
@@ -247,7 +247,7 @@ fn remove_route_rejects_live_vehicle() {
     let last = edge_for_length(&world, 12_000);
     let route = world
         .register_route(RouteRegisterInput::new(vec![first, middle, last]))
-        .expect("dynamic route");
+        .expect("route");
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -256,7 +256,7 @@ fn remove_route_rejects_live_vehicle() {
             0,
             0,
         ))
-        .expect("spawn on dynamic");
+        .expect("spawn");
     assert_eq!(
         world.remove_route(route).unwrap_err(),
         RouteError::InUse { vehicle, route }
@@ -271,7 +271,7 @@ fn parking_keeps_route_so_remove_fails() {
     let last = edge_for_length(&world, 12_000);
     let route = world
         .register_route(RouteRegisterInput::new(vec![first, middle, last]))
-        .expect("dynamic route");
+        .expect("route");
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
             VehicleProfileOrdinal::from_raw(0),
@@ -280,7 +280,7 @@ fn parking_keeps_route_so_remove_fails() {
             0,
             0,
         ))
-        .expect("spawn on dynamic");
+        .expect("spawn");
     world
         .occupy_parking(vehicle, ParkingSpaceOrdinal::from_raw(0))
         .expect("park");
@@ -515,7 +515,7 @@ fn completed_route_stays_referenced_until_replace() {
     let last = edge_for_length(&world, 12_000);
     let dynamic = world
         .register_route(RouteRegisterInput::new(vec![first, middle, last]))
-        .expect("dynamic");
+        .expect("route");
     let last_length = world.traffic().lane_lengths_millimetres()[last.index()];
     let speed_limit = world.traffic().lane_speed_limits_millimetres_per_second()[last.index()];
     let vehicle = world
@@ -560,7 +560,7 @@ fn completed_route_stays_referenced_until_replace() {
             VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), replacement, 0, 0, 0),
         )
         .expect("replace onto another registered route");
-    world.remove_route(dynamic).expect("old dynamic unused");
+    world.remove_route(dynamic).expect("old route unused");
     assert!(world.vehicle(record.new).is_some());
 }
 
