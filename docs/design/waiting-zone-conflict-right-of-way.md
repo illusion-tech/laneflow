@@ -70,7 +70,7 @@ Waiting runtime、Conflict/Spatial、policy/arbiter 与组合验证尚未生产�
   transition 顺序提供 path range；每个 path-transition 仍至多一个 Gate；
 - current `WaitingRegistry` 已验证同 path、Gate order、positive capacity、
   interior non-overlap，并允许相邻 WaitingZone 共享 boundary；
-- initial/dynamic Route 注册时已编译 `ManeuverOccurrence`、`GateOccurrence`、
+- `register_route` 时已编译 `ManeuverOccurrence`、`GateOccurrence`、
   `WaitingZoneOccurrence`、next Gate/exit boundary 与 empty-storage route-distance
   operands，steady tick 不匹配 path，也不缓存未经证明的累计 `f64`；
 - #281 G3 retained-memory 测量对一万/十万 repeated maneuver occurrences 分别

@@ -6769,7 +6769,8 @@ impl ::core::fmt::Debug for CanonicalFrame<'_> {
 pub enum RoadEditingSourceOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-/// v1 root。road_alignments 是编辑状态记录；其余 22 个向量与 Identity v1 一一对应。
+/// v2 root。road_alignments 是编辑状态记录；其余 21 个向量与可构造 Identity 种类对应。
+/// 本 version 不得出现 vtable member 25。
 pub struct RoadEditingSource<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }

@@ -1,4 +1,4 @@
-/// 代际感知路线句柄。只有槽位下标与 generation，不区分静态/动态。
+/// 代际感知路线句柄。只有槽位下标与 generation。
 ///
 /// 只在产生它的 `TrafficWorld` 内有效，不编码 world 身份，与 `VehicleHandle` /
 /// ADR 0005 相同。跨 world 混用是调用方错误。

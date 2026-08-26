@@ -58,7 +58,7 @@ artifact 原子迁移到 v0.9，并加入 ParticipantClass、CrossSection 与 Ac
 
 v0.9 的 Accepted 受保护转向 SSOT 见
 [`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)。
-它以 catalog 0.2、32 条 ManeuverPath 和 28 条 Route 替换 v0.8 的直行 profile；
+它当时以 catalog 0.2、32 条 ManeuverPath 和 28 条 Route 替换 v0.8 的直行 profile；
 #190 交付该具体 profile 与最小 native 集成，#191 扩大 cross-layer 验证，#192
 只执行独立收口。
 

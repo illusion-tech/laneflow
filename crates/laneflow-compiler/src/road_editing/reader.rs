@@ -41,7 +41,7 @@ impl<'a> VerifiedRoadEditingSource<'a> {
     }
 
     pub(crate) const fn typed_ast_record_count(&self) -> u64 {
-        // v1 只有 root 与 Provenance 不进入 Typed AST record 计数。
+        // root 与 Provenance 不进入 Typed AST record 计数。
         self.table_count - 2
     }
 

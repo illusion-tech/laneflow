@@ -204,11 +204,12 @@ LFCA 供下一次 `PortableDiffBase::Artifact`，但存档仍只保存 committed
 Traffic Data Layer 保存可被编译器和共享静态路网消费的静态交通事实：
 
 - lane graph
-- route
 - signal
 - parking
 - spawn rules
 - vehicle profiles
+
+通行计划不属于本层。调用方把有序边序号交给 `TrafficWorld::register_route`，出现项只进每世界表。
 
 数据格式应尽量保持引擎无关。
 
@@ -279,7 +280,7 @@ Rust workspace 中，当前可运行世界由 `laneflow-runtime` 的 `TrafficWor
 每个 `TrafficWorld` 只拥有已实现执行域的交通参与
 单元、动态通行定义、控制器/预约/停驻状态（Stationary State）等可变数组，
 以及世界 identity、输入命令游标、运行时执行计划和当前路网修订绑定。当前
-投影仍是车辆/动态路线/停车占用特化；人口、
+投影仍是车辆/路线/停车占用特化；人口、
 Routing 和游戏规则 seed 仍由 caller/出行编排层拥有；Runtime 只有在后续 G1 显式
 授予随机权威时才拥有相应随机流。
 路线出现项只在 `TrafficWorld::register_route` 编进每世界表；steady tick
@@ -313,7 +314,7 @@ Signals 分层职责：Controller 产生 indication；ManeuverGate/StopLine
 #229 在不改变上述职责分层的前提下实现了 ADR 0017：
 `Junction -> Movement -> ManeuverPath` immutable owner hierarchy、derived
 internal-edge Junction ownership 和一等 ManeuverGate。Route 继续拥有车辆实际
-traversal；initial/dynamic Route 在注册期编译 Maneuver/Gate occurrences，vehicle
+traversal；`register_route` 在本世界编译 Maneuver/Gate occurrences，vehicle
 tick 不匹配 path、不查 external ID 或扫描全局 catalog。Core current API 只公开
 Junction/Movement/ManeuverPath/ManeuverGate handles 和 resolvers，不保留 pair key。
 

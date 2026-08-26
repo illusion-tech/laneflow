@@ -208,7 +208,7 @@ fn map_candidate_closes_modules_documents_locations_and_source_bijections() {
         owner_keys
             .iter()
             .copied()
-            .filter(|key| matches!(key.2, 9 | 14 | 15 | 16))
+            .filter(|key| key.2 == 9)
             .collect()
     );
 

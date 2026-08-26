@@ -161,18 +161,18 @@ Geometry、OSM 或 Editor frontend 不依赖 #292 的 DSL 语法或 Core-shaped 
 
 ## 3. 当前生产与目标边界
 
-| 关注点                          | 当前态生产路径（Current Production）                          | 目标态（Target）                                                       |
-| ------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| 数据编制（Authoring）           | 手写规范 JSON + corridor generator 内部 TOML/DTO              | 权威来源模块图；几何文档是主要生产来源语言                             |
-| 交通加载（Traffic Load）        | JSON → private DTO → Core constructors → `InitialTrafficData` | 受检 LFCA → `SharedTrafficNetwork`                                     |
-| 空间加载（Spatial Load）        | JSON + manifest → external ID bind → `SpatialRegistry`        | 可选 `SharedSpatialNetwork`                                            |
-| 标识（Identity）                | 外部字符串在加载期解析为句柄                                  | 编译器生成 StableId128；共享路网使用密集 `u32` 句柄                    |
-| 静态出现项（Static Occurrence） | 初始/动态 Route 注册时由 Core 编译                            | 路线出现项只在 `TrafficWorld::register_route` 编译；编译器不预编译路线 |
-| 治理制品（Governance Artifact） | 精确当前版本 JSON Schema/fixture                              | 可移植规范制品 + 源映射 + 语义差异                                     |
-| 运行时性能数据（Runtime Data）  | JSON object graph 规范化后的登记表                            | 进程内不可变 `SharedNetworkRevision`                                   |
-| 执行规划（Execution Planning）  | 单世界、单一 current tick pipeline                            | 静态约束 + 可重建提示 + 每世界运行时执行计划                           |
-| 道路修改（Road Modification）   | 重新加载 current package                                      | 确认建造后构建新修订 + 安全边界修订切换事务                            |
-| 验证（Validation）              | schema + loader + Core/Spatial constructors                   | 编译器语义裁决 + 后发射检查 + shared-network 构建闭合                  |
+| 关注点                          | 当前态生产路径（Current Production）                          | 目标态（Target）                                      |
+| ------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------- |
+| 数据编制（Authoring）           | 手写规范 JSON + corridor generator 内部 TOML/DTO              | 权威来源模块图；几何文档是主要生产来源语言            |
+| 交通加载（Traffic Load）        | JSON → private DTO → Core constructors → `InitialTrafficData` | 受检 LFCA → `SharedTrafficNetwork`                    |
+| 空间加载（Spatial Load）        | JSON + manifest → external ID bind → `SpatialRegistry`        | 可选 `SharedSpatialNetwork`                           |
+| 标识（Identity）                | 外部字符串在加载期解析为句柄                                  | 编译器生成 StableId128；共享路网使用密集 `u32` 句柄   |
+| 静态出现项（Static Occurrence） | 路线出现项只在 `TrafficWorld::register_route` 编译            | 编译器不预编译路线；出现项只进每世界表                |
+| 治理制品（Governance Artifact） | 精确当前版本 JSON Schema/fixture                              | 可移植规范制品 + 源映射 + 语义差异                    |
+| 运行时性能数据（Runtime Data）  | JSON object graph 规范化后的登记表                            | 进程内不可变 `SharedNetworkRevision`                  |
+| 执行规划（Execution Planning）  | 单世界、单一 current tick pipeline                            | 静态约束 + 可重建提示 + 每世界运行时执行计划          |
+| 道路修改（Road Modification）   | 重新加载 current package                                      | 确认建造后构建新修订 + 安全边界修订切换事务           |
+| 验证（Validation）              | schema + loader + Core/Spatial constructors                   | 编译器语义裁决 + 后发射检查 + shared-network 构建闭合 |
 
 迁移不得把目标态写成现状，也不得为了复用当前态 DTO/constructor 而冻结错误的
 编译器中间表示。
@@ -1422,7 +1422,7 @@ mutation。候选构建期间当前修订继续运行。
 旧/新 `SharedIdentityIndex` 重建 StableId128 ↔ typed ordinal 映射；
 删除、重接或语义改变的网络元素必须按受信任语义差异迁移或终止其交通参与单元、
 动态通行定义、停驻/预约和控制器状态。当前道路机动车执行域仍具体表现为车辆、
-动态路线和停车。稳定 ID 保持不变不表示语义未变化；任一完整性或语义兼容条件无法
+路线和停车。稳定 ID 保持不变不表示语义未变化；任一完整性或语义兼容条件无法
 证明时，旧修订继续生效。临时封闭等不改变静态身份/拓扑的状态由后续 G1 冻结的
 runtime overlay/command 承担。
 
@@ -1923,7 +1923,7 @@ crate/type 拆除由 #301 完成。文档导航、Agent Skill ID（`laneflow-cor
 | 在线迁移候选过期            | 切换遗漏准备期间的 tick/命令或重复事件                        | 有界增量日志、追赶、静默提交、切换事件批次恰一次                                                             |
 | 迁移准备干扰正常步进        | 玩家改路导致持续抖动或延迟尖峰                                | 后台预算、落后量/干扰 Gate、显式维护暂停模式                                                                 |
 | 每次加载 LFCA 重建成本过高  | 最低产品硬件的加载或确认建造停顿不可接受                      | 后台候选、阶段计时/峰值证据；若真实测量阻断则以独立 G1 设计非权威缓存                                        |
-| 构建模式裁掉稳定身份索引    | 快照、动态路线与跨修订映射无法恢复                            | 所有模式必需冷索引与双向 round-trip                                                                          |
+| 构建模式裁掉稳定身份索引    | 快照、路线与跨修订映射无法恢复                                | 所有模式必需冷索引与双向 round-trip                                                                          |
 | 稳定身份索引替代语义证据    | 同 StableId128 的新语义错误继承旧占用、路线、预约或控制器状态 | 受信任 semantic diff；索引只复核映射；index-only 失败关闭                                                    |
 | 未受信任语义差异驱动迁移    | 篡改迁移、错误终止或状态错配                                  | 外部切换描述符、双制品独立验证、身份索引复核                                                                 |
 | 通行权运行时交付延期        | 静态契约与运行时执行能力长期不对称                            | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环                                                    |

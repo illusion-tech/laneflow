@@ -692,7 +692,7 @@ cross-Junction internal-edge conflict 抢先。
 
 ### 10.4 Route compile phase order
 
-每条 initial/dynamic Route：
+每条经 `register_route` 提交的路线：
 
 1. current Route ID/edge/connectivity rules；
 2. path candidate/full sequence match；
@@ -714,7 +714,7 @@ cross-Junction internal-edge conflict 抢先。
 - Traffic bytes；
 - Core version；
 - normalization path；
-- dynamic Route command sequence；
+- `register_route` 命令序列；
 
 必须得到相同：
 
@@ -867,7 +867,7 @@ heuristic、放宽测试或隐式 ConflictZone 补洞。
 1. 新 Core inputs、handles、dense registries、resolvers 与 borrowed iterators；
 2. owner/cardinality/connectivity/first-error/foreign-rebind validation；
 3. flat member/path-edge storage 和 entry-transition candidate index；
-4. Route initial/dynamic registration occurrence compiler 与 atomic failure；
+4. `register_route` occurrence compiler 与 atomic failure；
 5. `ManeuverGate` static/current Signals query、constraint/traversal integration；
 6. Traffic v0.8 schema/private DTO/loader/fixtures；
 7. corridor generator 显式 membership，删除 connector-name inference；
@@ -916,8 +916,8 @@ PR + final Delivery PR 的两阶段流程，但 Issue/PR 必须显式记录，�
 - zero/multiple full match；
 - repeated Route edge，以及同一 ManeuverPath 在不同 occurrence index 重复出现；
 - finite loop；
-- initial/dynamic Route 同规则；
-- failed dynamic registration authority equality；
+- `register_route` 同规则；
+- failed registration authority equality；
 - remove Route 同时清理 shared occurrence metadata。
 
 ### 16.3 Gate/Signals

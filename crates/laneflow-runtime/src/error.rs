@@ -84,10 +84,10 @@ pub enum RouteError {
         route: RouteHandle,
     },
     /// 剩余边序列同时匹配多条完整机动路径。
-    #[error("动态路线机动路径匹配不唯一")]
+    #[error("路线机动路径匹配不唯一")]
     AmbiguousManeuver,
     /// 走到机动入口，但剩余边序列对不上任何一条完整机动路径。
-    #[error("动态路线对不上完整机动路径")]
+    #[error("路线对不上完整机动路径")]
     ManeuverMismatch,
 }
 

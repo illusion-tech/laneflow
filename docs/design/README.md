@@ -9,8 +9,8 @@
 - `traffic-runtime-shared-consumption.md`：`TrafficWorld` 安装共享静态路网，
   Spatial 只 bind 同一根 `Arc`，current Core/JSON 入口已拆除。路线入口只留
   `register_route`（ADR 0029）。
-- `retire-precompiled-static-route.md`：从 LFCA / 编制来源 / 共享根删除
-  `StaticRoute`，场景 catalog 0.3 拥有示例边序列。
+- `retire-precompiled-static-route.md`：路网制品不声明路线；场景 catalog 0.3
+  拥有示例边序列（ADR 0029）。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
 - `portable-canonical-artifact.md`：LFCA / LFSM / LFSD / LFCP 格式与发布对象。
