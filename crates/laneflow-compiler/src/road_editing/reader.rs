@@ -10,7 +10,6 @@ use crate::{
 };
 
 const FORMAT_VERSION: u32 = 2;
-const FORBIDDEN_ROOT_VTABLE_MEMBER: usize = 25;
 const MIN_SIZE_PREFIXED_LFRE_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 5;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
@@ -152,13 +151,6 @@ pub(crate) fn verify_source<'a>(
                 expected: FORMAT_VERSION,
                 actual: root.format_version(),
             },
-            expected_key,
-            None,
-        ));
-    }
-    if root_vtable_field_present(bytes, FORBIDDEN_ROOT_VTABLE_MEMBER) {
-        return Err(source_error(
-            RoadEditingSourceViolation::ForbiddenRootVtableMember,
             expected_key,
             None,
         ));
@@ -529,58 +521,6 @@ fn table_count(root: wire::RoadEditingSource<'_>) -> u64 {
     }
     count = count.saturating_add(len_u64(root.vehicle_profiles()).saturating_mul(2));
     count.saturating_add(len_u64(root.canonical_frames()))
-}
-
-fn root_vtable_field_present(bytes: &[u8], field_id: usize) -> bool {
-    if bytes.len() < 8 {
-        return false;
-    }
-    let Ok(root_offset) = bytes[4..8].try_into().map(u32::from_le_bytes) else {
-        return false;
-    };
-    let Some(root_position) =
-        4_usize.checked_add(usize::try_from(root_offset).unwrap_or(usize::MAX))
-    else {
-        return false;
-    };
-    if root_position + 4 > bytes.len() {
-        return false;
-    }
-    let Ok(vtable_distance) = bytes[root_position..root_position + 4]
-        .try_into()
-        .map(i32::from_le_bytes)
-    else {
-        return false;
-    };
-    if vtable_distance <= 0 {
-        return false;
-    }
-    let Some(vtable_position) =
-        root_position.checked_sub(usize::try_from(vtable_distance).unwrap_or(usize::MAX))
-    else {
-        return false;
-    };
-    if vtable_position + 2 > bytes.len() {
-        return false;
-    }
-    let Ok(vtable_size) = bytes[vtable_position..vtable_position + 2]
-        .try_into()
-        .map(u16::from_le_bytes)
-    else {
-        return false;
-    };
-    let entry = 4_usize.saturating_add(field_id.saturating_mul(2));
-    if entry.saturating_add(2) > usize::from(vtable_size) {
-        return false;
-    }
-    let slot = vtable_position + entry;
-    if slot + 2 > bytes.len() {
-        return false;
-    }
-    let Ok(field_offset) = bytes[slot..slot + 2].try_into().map(u16::from_le_bytes) else {
-        return false;
-    };
-    field_offset != 0
 }
 
 fn curve_program_table_count(program: wire::CurveProgram<'_>) -> u64 {
@@ -1118,45 +1058,6 @@ mod tests {
                 ..
             }
         ));
-    }
-
-    #[test]
-    fn rejects_forbidden_root_vtable_member_25() {
-        let limits = CompileLimits::p100_initial_v1();
-        let buffer = source_buffer(&limits, "roads/main");
-        let mut bytes = buffer.as_bytes().to_vec();
-        plant_forbidden_root_vtable_member(&mut bytes);
-        let input = RoadEditingModuleInput::try_new("roads/main", &bytes, None).expect("input");
-
-        let error = verify_source(input, &limits, 0, 0).expect_err("forbidden member");
-
-        assert!(matches!(
-            first_diagnostic(&error).payload(),
-            DiagnosticPayload::InvalidRoadEditingSource {
-                violation: RoadEditingSourceViolation::ForbiddenRootVtableMember,
-                ..
-            }
-        ));
-    }
-
-    fn plant_forbidden_root_vtable_member(bytes: &mut [u8]) {
-        let root_offset = u32::from_le_bytes(bytes[4..8].try_into().expect("root offset"));
-        let root_position = 4_usize + usize::try_from(root_offset).expect("root position");
-        let vtable_distance = i32::from_le_bytes(
-            bytes[root_position..root_position + 4]
-                .try_into()
-                .expect("vtable offset"),
-        );
-        let vtable_position = root_position
-            .checked_sub(usize::try_from(vtable_distance).expect("positive vtable distance"))
-            .expect("vtable position");
-        let slot = vtable_position + 4 + FORBIDDEN_ROOT_VTABLE_MEMBER * 2;
-        let donor = vtable_position + 4 + 26 * 2;
-        let existing = u16::from_le_bytes(bytes[slot..slot + 2].try_into().expect("slot 25"));
-        assert_eq!(existing, 0, "member 25 must be absent on a current v2 root");
-        let offset = u16::from_le_bytes(bytes[donor..donor + 2].try_into().expect("slot 26"));
-        assert_ne!(offset, 0, "canonical_frames slot supplies a present offset");
-        bytes[slot..slot + 2].copy_from_slice(&offset.to_le_bytes());
     }
 
     #[test]

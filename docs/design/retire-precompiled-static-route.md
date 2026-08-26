@@ -136,10 +136,9 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 
 道路编辑 FlatBuffers：`format_version = 2`；删除 `StaticRoute` table 与
 `RoadEditingSource.static_routes`；顶层声明向量 21 个（可构造 Identity 种类）。
-schema 为 `schemas/road-editing/v2/road-editing.fbs`（G2 创建）。
-`format_version = 1` / 含 `static_routes` 的旧 buffer 失败关闭。
-`format_version = 2` 下根表 vtable 出现 member 25（历史 `static_routes`）同样失败关闭，
-不得当未知槽忽略。
+`canonical_frames` 为根表 field id 25；stock `flatc` 要求 field id 连续，不保留空号。
+schema 为 `schemas/road-editing/v2/road-editing.fbs`。
+`format_version = 1` 的旧 buffer 失败关闭。
 `frontendVersion = 2`。file identifier 仍 `LFRE`。
 
 合成 DSL / typed AST / HIR / MIR / LIR：不再有静态路线声明或出现项表。
@@ -239,8 +238,8 @@ controller 绑定的是 `(世界令牌, NetworkRevisionId)`：修订变化后 co
 - 身份 `entityKind = 21` 或字段标签 30 失败关闭。
 - `EntityKind::ALL.len() == 22`，`kind_index(CanonicalFrame)` 可寻址；不得把 `ALL`
   缩成 21 项后再用 `code() - 1` 索引。
-- 道路编辑 `format_version = 1` 或含 `static_routes`（含 format 2 根表 vtable
-  member 25）的来源失败关闭；现行只接受 `2`。其它未知槽仍忽略。
+- 道路编辑 `format_version = 1` 的来源失败关闭；现行只接受 `2`。根表无
+  `static_routes` 字段，field id 连续。其它未知槽仍忽略。
 - 三边 `entry → middle → exit` 夹具：`register_route` 后两车跟车，行为不弱于原
   `static_route(0)`。
 - 走廊 28 条路线全部注册成功；受保护左转/直行/右转覆盖与现行静态夹具同等。

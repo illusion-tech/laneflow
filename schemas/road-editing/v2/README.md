@@ -1,6 +1,6 @@
 # 道路编辑来源缓冲区 v2 Schema
 
-**状态**: 生产。`format_version = 2`；根表不得出现 vtable member 25。
+**状态**: 生产。`format_version = 2`；根表 field id 连续，`canonical_frames` 为 id 25。
 `format_version = 1` 的旧 `LFRE` 在语义读取前失败关闭。<br>
 **格式标识**: `LF-ROAD-EDITING-SOURCE-v2`<br>
 **机器事实源**: [`road-editing.fbs`](road-editing.fbs)<br>
@@ -24,7 +24,7 @@ file identifier。`.fbs` 冻结 wire shape；本文冻结不能只靠 verifier �
 - `format_version` 必须精确为 `2`。零、`1` 和未知值都在任何 LaneFlow 语义
   lowering 或按规模分配前拒绝。
 - `module_header`、`road_alignments` 和 21 个可构造 Identity 声明向量都必须在 wire 中
-  存在；向量可以为空。vtable member 25 禁止出现，不论是否为空。
+  存在；向量可以为空。根表无 `static_routes` 字段。
   宿主以多个模块 blob 和显式导入图组成城市项目。
 - 完整 size-prefixed bytes 是 `sourceDocumentDigest` 与 `sourceRecordByteLen` 的输入；
   buffer bytes、table offset 和 vector index 都不构成领域身份或语义等价依据。
@@ -100,7 +100,7 @@ import。`RoadCorridor.road_alignment_key` 只引用当前模块的 `RoadAlignme
 2. 显式位置/方向配置档；
 3. `road_alignments:[RoadAlignment]`；
 4. 按 Identity 可构造种类排列的 21 个有类型声明向量（种类 21 空位不占根向量；
-   `canonical_frames` 仍为 field id 26）。
+   `canonical_frames` 为 field id 25）。
 
 `RoadAlignment` 是可继续编辑的当前道路走向定义。其 `road_alignment_key` 在模块内稳定
 且唯一，但它不是第 23 种静态路网实体，不分配 `StableId128`，也不进入 LIR。它只为
@@ -108,30 +108,30 @@ import。`RoadCorridor.road_alignment_key` 只引用当前模块的 `RoadAlignme
 
 21 个可构造声明向量与 Identity 可构造种类一一对应（种类 21 保留空位，不发射）：
 
-| 代码 | FlatBuffers table  | 稳定 key 字段           | 所有者 / 身份锚点来源                              |
-| ---: | ------------------ | ----------------------- | -------------------------------------------------- |
-|    1 | `RoadCorridor`     | `road_corridor_key`     | 当前 module namespace                              |
-|    2 | `RoadSection`      | `road_section_key`      | 同模块 `road_corridor` + 唯一 elements 成员        |
-|    3 | `AuthoringLane`    | `authoring_lane_key`    | 同模块 `road_section` + 唯一 lanes 成员            |
-|    4 | `LaneEdge`         | `lane_edge_key`         | 当前 module namespace；角色不参与身份              |
-|    5 | `Junction`         | `junction_key`          | 当前 module namespace                              |
-|    6 | `Movement`         | `movement_key`          | `junction` + 两个有向 approach key                 |
-|    7 | `ManeuverPath`     | `maneuver_path_key`     | `movement`                                         |
-|    8 | `ManeuverGate`     | `maneuver_gate_key`     | `maneuver_path`                                    |
-|    9 | `WaitingZone`      | `waiting_zone_key`      | `maneuver_path`                                    |
-|   10 | `StopLine`         | `stop_line_key`         | 当前 module namespace                              |
-|   11 | `SignalGroup`      | `signal_group_key`      | 当前 module namespace                              |
-|   12 | `SignalController` | `signal_controller_key` | 当前 module namespace                              |
-|   13 | `SignalPhase`      | `signal_phase_key`      | 同模块 controller + 唯一 phases 成员               |
-|   14 | `ParkingArea`      | `parking_area_key`      | 当前 module namespace                              |
-|   15 | `ParkingSpace`     | `parking_space_key`     | 当前 module namespace；可选 area 不参与身份        |
-|   16 | `LaneGroup`        | `lane_group_key`        | `road_section`                                     |
-|   17 | `FacilityBand`     | `facility_band_key`     | 同模块 corridor + 唯一 elements 成员               |
-|   18 | `ParticipantClass` | `participant_class_key` | 当前 module namespace                              |
-|   19 | `AccessRule`       | `access_rule_key`       | 当前 module namespace                              |
-|   20 | `VehicleProfile`   | `vehicle_profile_key`   | 当前 module namespace                              |
-|   21 | *(保留空位)*       | —                       | 不发射 table；根表不得出现 member 25               |
-|   22 | `CanonicalFrame`   | `canonical_frame_key`   | 当前 module namespace                              |
+| 代码 | FlatBuffers table  | 稳定 key 字段           | 所有者 / 身份锚点来源                       |
+| ---: | ------------------ | ----------------------- | ------------------------------------------- |
+|    1 | `RoadCorridor`     | `road_corridor_key`     | 当前 module namespace                       |
+|    2 | `RoadSection`      | `road_section_key`      | 同模块 `road_corridor` + 唯一 elements 成员 |
+|    3 | `AuthoringLane`    | `authoring_lane_key`    | 同模块 `road_section` + 唯一 lanes 成员     |
+|    4 | `LaneEdge`         | `lane_edge_key`         | 当前 module namespace；角色不参与身份       |
+|    5 | `Junction`         | `junction_key`          | 当前 module namespace                       |
+|    6 | `Movement`         | `movement_key`          | `junction` + 两个有向 approach key          |
+|    7 | `ManeuverPath`     | `maneuver_path_key`     | `movement`                                  |
+|    8 | `ManeuverGate`     | `maneuver_gate_key`     | `maneuver_path`                             |
+|    9 | `WaitingZone`      | `waiting_zone_key`      | `maneuver_path`                             |
+|   10 | `StopLine`         | `stop_line_key`         | 当前 module namespace                       |
+|   11 | `SignalGroup`      | `signal_group_key`      | 当前 module namespace                       |
+|   12 | `SignalController` | `signal_controller_key` | 当前 module namespace                       |
+|   13 | `SignalPhase`      | `signal_phase_key`      | 同模块 controller + 唯一 phases 成员        |
+|   14 | `ParkingArea`      | `parking_area_key`      | 当前 module namespace                       |
+|   15 | `ParkingSpace`     | `parking_space_key`     | 当前 module namespace；可选 area 不参与身份 |
+|   16 | `LaneGroup`        | `lane_group_key`        | `road_section`                              |
+|   17 | `FacilityBand`     | `facility_band_key`     | 同模块 corridor + 唯一 elements 成员        |
+|   18 | `ParticipantClass` | `participant_class_key` | 当前 module namespace                       |
+|   19 | `AccessRule`       | `access_rule_key`       | 当前 module namespace                       |
+|   20 | `VehicleProfile`   | `vehicle_profile_key`   | 当前 module namespace                       |
+|   21 | *(保留空位)*       | —                       | 不发射 table                                |
+|   22 | `CanonicalFrame`   | `canonical_frame_key`   | 当前 module namespace                       |
 
 所有 table 在其根向量中的物理顺序都不进入语义。一个 buffer 只属于一个 namespace，
 且全部身份 owner 必须在同一 buffer。来源 v2 要求 `RoadAlignment` 和模块级身份种类在

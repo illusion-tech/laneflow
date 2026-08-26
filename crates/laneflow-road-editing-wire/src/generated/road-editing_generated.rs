@@ -6770,7 +6770,7 @@ pub enum RoadEditingSourceOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
 /// v2 root。road_alignments 是编辑状态记录；其余 21 个向量与可构造 Identity 种类对应。
-/// 本 version 不得出现 vtable member 25。
+/// field id 连续；`canonical_frames` 为 id 25。
 pub struct RoadEditingSource<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
@@ -6809,7 +6809,7 @@ impl<'a> RoadEditingSource<'a> {
   pub const VT_PARTICIPANT_CLASSES: ::flatbuffers::VOffsetT = 48;
   pub const VT_ACCESS_RULES: ::flatbuffers::VOffsetT = 50;
   pub const VT_VEHICLE_PROFILES: ::flatbuffers::VOffsetT = 52;
-  pub const VT_CANONICAL_FRAMES: ::flatbuffers::VOffsetT = 56;
+  pub const VT_CANONICAL_FRAMES: ::flatbuffers::VOffsetT = 54;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {

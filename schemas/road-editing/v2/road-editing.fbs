@@ -2,8 +2,8 @@
 //
 // 本 schema 只冻结 portable wire shape。字符串语法、引用闭包、数值范围、所有者
 // 唯一性、曲线误差与资源上限仍由 LaneFlow 语义验证器执行。`format_version = 2`：
-// 根表不得出现 vtable member 25。file identifier 仍 `LFRE`。当前 exact version
-// 的 table id / enum / union 判别值固定。
+// 根表 field id 连续；`canonical_frames` 为 id 25。无 `static_routes` 字段。
+// file identifier 仍 `LFRE`。当前 exact version 的 table id / enum / union 判别值固定。
 
 namespace LaneFlow.RoadEditing.V1;
 
@@ -357,7 +357,7 @@ table CanonicalFrame {
 }
 
 /// v2 root。road_alignments 是编辑状态记录；其余 21 个向量与可构造 Identity 种类对应。
-/// 本 version 不得出现 vtable member 25。
+/// field id 连续；`canonical_frames` 为 id 25。
 table RoadEditingSource {
   format_version:uint = 0 (id: 0);
   module_header:ModuleHeader (required, id: 1);
@@ -384,7 +384,7 @@ table RoadEditingSource {
   participant_classes:[ParticipantClass] (required, id: 22);
   access_rules:[AccessRule] (required, id: 23);
   vehicle_profiles:[VehicleProfile] (required, id: 24);
-  canonical_frames:[CanonicalFrame] (required, id: 26);
+  canonical_frames:[CanonicalFrame] (required, id: 25);
 }
 
 root_type RoadEditingSource;
