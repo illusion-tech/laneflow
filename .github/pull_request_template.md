@@ -2,7 +2,7 @@
 
 ## 范围
 
-- 关联 Issue：`Closes #`
+- 关联 Issue：Closes #
 - 切片类型：
   - [ ] docs-only（仅文档）
   - [ ] governance（治理）
