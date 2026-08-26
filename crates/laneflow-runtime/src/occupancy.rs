@@ -43,9 +43,11 @@ impl OccupancyRecord {
     };
 }
 
-/// 一辆车在合法最短边上最多覆盖的占用记录数：`ceil(max_length / min_edge)`。
+/// 一辆车在合法最短边上最多覆盖的占用记录数。
+///
+/// 车身长度 `L`、边长 `E`、前杠不在格点时两端各有残段，最多触达 `L/E + 1` 条边。
 const fn max_records_per_vehicle() -> usize {
-    (MAX_VEHICLE_LENGTH_MM / MIN_LANE_EDGE_LENGTH_MM) as usize
+    (MAX_VEHICLE_LENGTH_MM / MIN_LANE_EDGE_LENGTH_MM) as usize + 1
 }
 
 pub(crate) fn occupancy_record_limit(vehicle_capacity: u32) -> usize {
@@ -54,11 +56,26 @@ pub(crate) fn occupancy_record_limit(vehicle_capacity: u32) -> usize {
         .saturating_mul(max_records_per_vehicle())
 }
 
+fn occupancy_lo_key(record: &OccupancyRecord) -> (u32, u32, u32, u32) {
+    (
+        record.lo_mm,
+        record.hi_mm,
+        record.update_sequence,
+        record.vehicle.index(),
+    )
+}
+
+fn record_slot(index: usize) -> u32 {
+    u32::try_from(index).expect("occupancy record index fits u32")
+}
+
 #[derive(Debug)]
 pub(crate) struct OccupancyIndex {
     offsets: Vec<usize>,
     scratch: Vec<usize>,
     records: Vec<OccupancyRecord>,
+    /// 与 `records` 对齐：`suffix_min_lo[i]` 是同桶 `[i, bucket_end)` 中 `lo_mm` 最小记录的下标。
+    suffix_min_lo: Vec<u32>,
     #[cfg(test)]
     inspections: Cell<u64>,
 }
@@ -69,6 +86,7 @@ impl OccupancyIndex {
             offsets: vec![0; bucket_count.saturating_add(1)],
             scratch: vec![0; bucket_count],
             records: Vec::with_capacity(record_capacity),
+            suffix_min_lo: Vec::with_capacity(record_capacity),
             #[cfg(test)]
             inspections: Cell::new(0),
         }
@@ -97,6 +115,11 @@ impl OccupancyIndex {
     #[cfg(test)]
     pub(crate) fn offsets_capacity(&self) -> usize {
         self.offsets.capacity()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn suffix_min_lo_capacity(&self) -> usize {
+        self.suffix_min_lo.capacity()
     }
 
     fn note_inspection(&self) {
@@ -136,6 +159,10 @@ impl OccupancyIndex {
             self.records
                 .reserve(planned.saturating_sub(self.records.capacity()));
         }
+        if self.suffix_min_lo.capacity() < planned {
+            self.suffix_min_lo
+                .reserve(planned.saturating_sub(self.suffix_min_lo.capacity()));
+        }
     }
 
     fn finish_layout(&mut self, bucket_count: usize) {
@@ -148,6 +175,8 @@ impl OccupancyIndex {
         debug_assert!(total <= self.records.capacity());
         self.records.clear();
         self.records.resize(total, OccupancyRecord::PLACEHOLDER);
+        self.suffix_min_lo.clear();
+        self.suffix_min_lo.resize(total, 0);
         self.scratch.clear();
         if bucket_count == 0 {
             return;
@@ -180,18 +209,76 @@ impl OccupancyIndex {
                     record.vehicle.index(),
                 )
             });
+            self.fill_suffix_min_lo(start, end);
         }
     }
 
-    fn bucket(&self, edge: LaneEdgeOrdinal) -> &[OccupancyRecord] {
+    fn fill_suffix_min_lo(&mut self, start: usize, end: usize) {
+        if start >= end {
+            return;
+        }
+        let last = end - 1;
+        self.suffix_min_lo[last] = record_slot(last);
+        for index in (start..last).rev() {
+            let later = usize::try_from(self.suffix_min_lo[index + 1])
+                .expect("suffix min index fits usize");
+            let current = &self.records[index];
+            let picked = &self.records[later];
+            self.suffix_min_lo[index] = if occupancy_lo_key(current) <= occupancy_lo_key(picked) {
+                record_slot(index)
+            } else {
+                record_slot(later)
+            };
+        }
+    }
+
+    fn bucket_span(&self, edge: LaneEdgeOrdinal) -> (usize, usize) {
         let index = OccupancyBucketOrdinal::from_edge(edge).index();
         let Some(start) = self.offsets.get(index).copied() else {
-            return &[];
+            return (0, 0);
         };
         let Some(end) = self.offsets.get(index + 1).copied() else {
-            return &[];
+            return (0, 0);
         };
-        self.records.get(start..end).unwrap_or(&[])
+        let end = end.min(self.records.len());
+        let start = start.min(end);
+        (start, end)
+    }
+
+    fn min_lo_from(
+        &self,
+        start: usize,
+        end: usize,
+        skip: VehicleHandle,
+    ) -> Option<OccupancyRecord> {
+        if start >= end {
+            return None;
+        }
+        self.note_inspection();
+        let pick = usize::try_from(*self.suffix_min_lo.get(start)?)
+            .ok()
+            .filter(|index| *index < self.records.len())?;
+        let record = *self.records.get(pick)?;
+        if record.vehicle != skip {
+            return Some(record);
+        }
+        let mut best = None;
+        for index in start..end {
+            let Some(candidate) = self.records.get(index).copied() else {
+                break;
+            };
+            self.note_inspection();
+            if candidate.vehicle == skip {
+                continue;
+            }
+            best = Some(match best {
+                Some(current) if occupancy_lo_key(&current) <= occupancy_lo_key(&candidate) => {
+                    current
+                }
+                _ => candidate,
+            });
+        }
+        best
     }
 
     fn nearest_ahead(
@@ -200,17 +287,9 @@ impl OccupancyIndex {
         self_vehicle: VehicleHandle,
         front_mm: u32,
     ) -> Option<OccupancyRecord> {
-        let bucket = self.bucket(edge);
-        let mut index = bucket.partition_point(|record| record.hi_mm <= front_mm);
-        while let Some(record) = bucket.get(index).copied() {
-            self.note_inspection();
-            index += 1;
-            if record.vehicle == self_vehicle {
-                continue;
-            }
-            return Some(record);
-        }
-        None
+        let (start, end) = self.bucket_span(edge);
+        let skip = self.records[start..end].partition_point(|record| record.hi_mm <= front_mm);
+        self.min_lo_from(start.saturating_add(skip), end, self_vehicle)
     }
 
     fn front_most(
@@ -218,13 +297,8 @@ impl OccupancyIndex {
         edge: LaneEdgeOrdinal,
         self_vehicle: VehicleHandle,
     ) -> Option<OccupancyRecord> {
-        for record in self.bucket(edge) {
-            self.note_inspection();
-            if record.vehicle != self_vehicle {
-                return Some(*record);
-            }
-        }
-        None
+        let (start, end) = self.bucket_span(edge);
+        self.min_lo_from(start, end, self_vehicle)
     }
 
     /// 前保险杠到最近前车后保险杠的 `i64` 毫米间隙；可负。
@@ -576,6 +650,12 @@ mod tests {
     }
 
     #[test]
+    fn unaligned_body_span_fits_planned_record_limit() {
+        assert_eq!(max_records_per_vehicle(), 1_281);
+        assert_eq!(occupancy_record_limit(1), 1_281);
+    }
+
+    #[test]
     fn nearest_ahead_skips_self_and_uses_rear_bumper() {
         let edge = LaneEdgeOrdinal::from_raw(0);
         let follower = VehicleHandle::new(0, 0);
@@ -600,6 +680,90 @@ mod tests {
         index.rebuild_from_pending(&pending, 1);
         let gap = index.leader_gap(follower, &[edge], 0, 1_000, &[10_000]);
         assert_eq!(gap, Some(5_000));
+    }
+
+    #[test]
+    fn overlapping_records_use_smallest_rear_bumper() {
+        let edge = LaneEdgeOrdinal::from_raw(0);
+        let follower = VehicleHandle::new(0, 0);
+        let short = VehicleHandle::new(1, 0);
+        let mid = VehicleHandle::new(2, 0);
+        let long = VehicleHandle::new(3, 0);
+        let mut index = OccupancyIndex::with_capacity(1, 4);
+        let pending = vec![
+            OccupancyRecord {
+                vehicle: follower,
+                bucket: OccupancyBucketOrdinal::from_edge(edge),
+                lo_mm: 0,
+                hi_mm: 1_000,
+                update_sequence: 0,
+            },
+            OccupancyRecord {
+                vehicle: short,
+                bucket: OccupancyBucketOrdinal::from_edge(edge),
+                lo_mm: 5_000,
+                hi_mm: 7_000,
+                update_sequence: 1,
+            },
+            OccupancyRecord {
+                vehicle: mid,
+                bucket: OccupancyBucketOrdinal::from_edge(edge),
+                lo_mm: 6_000,
+                hi_mm: 7_500,
+                update_sequence: 2,
+            },
+            OccupancyRecord {
+                vehicle: long,
+                bucket: OccupancyBucketOrdinal::from_edge(edge),
+                lo_mm: 2_000,
+                hi_mm: 8_000,
+                update_sequence: 3,
+            },
+        ];
+        index.rebuild_from_pending(&pending, 1);
+        let gap = index.leader_gap(follower, &[edge], 0, 1_000, &[10_000]);
+        assert_eq!(gap, Some(1_000));
+    }
+
+    #[test]
+    fn overlapping_downstream_records_use_smallest_rear_bumper() {
+        let first = LaneEdgeOrdinal::from_raw(0);
+        let second = LaneEdgeOrdinal::from_raw(1);
+        let follower = VehicleHandle::new(0, 0);
+        let short = VehicleHandle::new(1, 0);
+        let long = VehicleHandle::new(2, 0);
+        let mut index = OccupancyIndex::with_capacity(2, 3);
+        let pending = vec![
+            OccupancyRecord {
+                vehicle: follower,
+                bucket: OccupancyBucketOrdinal::from_edge(first),
+                lo_mm: 8_000,
+                hi_mm: 9_000,
+                update_sequence: 0,
+            },
+            OccupancyRecord {
+                vehicle: short,
+                bucket: OccupancyBucketOrdinal::from_edge(second),
+                lo_mm: 5_000,
+                hi_mm: 7_000,
+                update_sequence: 1,
+            },
+            OccupancyRecord {
+                vehicle: long,
+                bucket: OccupancyBucketOrdinal::from_edge(second),
+                lo_mm: 2_000,
+                hi_mm: 8_000,
+                update_sequence: 2,
+            },
+        ];
+        index.rebuild_from_pending(&pending, 2);
+        let lengths = [10_000, 10_000];
+        let edges = [first, second];
+        let gap = index.leader_gap(follower, &edges, 0, 9_000, &lengths);
+        assert_eq!(
+            gap,
+            remaining_along_route_i64(&lengths, &edges, 0, 9_000, 1, 2_000)
+        );
     }
 
     #[test]
