@@ -452,10 +452,15 @@ impl CorridorPopulationPrepare {
                 detail: "已注册路线数与 catalog 不一致".to_owned(),
             });
         }
-        for handle in route_handles {
-            if world.route_edges(*handle).is_none() {
+        for (handle, exit) in route_handles.iter().zip(self.catalog.route_exits.iter()) {
+            let Some(edges) = world.route_edges(*handle) else {
                 return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
                     detail: "TrafficWorld 缺少计划中的已注册路线".to_owned(),
+                });
+            };
+            if edges != exit.edges.as_ref() {
+                return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                    detail: "已注册路线边序列与 catalog 不一致".to_owned(),
                 });
             }
         }
