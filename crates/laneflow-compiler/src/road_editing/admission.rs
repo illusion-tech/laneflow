@@ -319,10 +319,6 @@ fn precheck_accumulated_counts(
             CompileLimitDimension::WaitingZoneCount,
             counts.waiting_zone_count(),
         ),
-        (
-            CompileLimitDimension::RouteOccurrenceCount,
-            counts.route_occurrence_count(),
-        ),
     ] {
         let observed = builder.already_admitted(dimension).saturating_add(delta);
         let limit = limits.value(dimension);
@@ -624,7 +620,6 @@ fn lower_verified_source(
                 .saturating_add(display_string_bytes),
             maneuver_gate_count: counts.maneuver_gate_count(),
             waiting_zone_count: counts.waiting_zone_count(),
-            route_occurrence_count: counts.route_occurrence_count(),
             geometry_point_count,
             geometry_source_range_count,
             controlled_live_bytes,

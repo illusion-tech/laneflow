@@ -1044,7 +1044,6 @@ fn common_admission_enforces_every_owned_cumulative_resource_dimension_atomicall
         CompileLimitDimension::TotalStringBytes,
         CompileLimitDimension::ManeuverGateCount,
         CompileLimitDimension::WaitingZoneCount,
-        CompileLimitDimension::RouteOccurrenceCount,
         CompileLimitDimension::GeometryPointCount,
         CompileLimitDimension::CompilerControlledLiveBytes,
     ];
@@ -1071,7 +1070,6 @@ fn common_admission_enforces_every_owned_cumulative_resource_dimension_atomicall
             | CompileLimitDimension::TotalStringBytes
             | CompileLimitDimension::ManeuverGateCount
             | CompileLimitDimension::WaitingZoneCount
-            | CompileLimitDimension::RouteOccurrenceCount
             | CompileLimitDimension::GeometryPointCount => {
                 let mut module = TestOfficialModule::from_synthetic_with_documents(
                     module_with_document("city/a", "source/a", &[]),

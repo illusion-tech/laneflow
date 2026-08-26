@@ -56,8 +56,8 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 1. caller 安装共享路网修订并 `TrafficWorld::install`，在内存中解析 catalog；
 2. `validate` 对 catalog 0.3 完成交叉引用与边键校验；`bind` 在 **该**
    `TrafficWorld` 上解析边序号、`register_route`，并把 `RouteHandle` 钉到
-   `NetworkRevisionId` **以及该 world 身份**（G2：传入 world 的指针相等，或
-   `install` 颁发的不透明世界令牌）。同一修订上的第二个 world 必须重新注册，
+   `NetworkRevisionId` **以及 `install` 颁发的不透明、move 稳定世界令牌**。
+   不得用指针/地址比较当 world 身份。同一修订上的第二个 world 必须重新注册，
    不得复用另一 world 的句柄；
 3. `prepare` 校验 config/profile，执行一次确定性 Fisher–Yates，返回完整 `CorridorVehiclePlan` batch；
 4. caller 只在 **bind 时所针对的** `TrafficWorld` 上按计划逐辆 `spawn_vehicle`；
@@ -84,8 +84,9 @@ entry/exit portal、slot portal/lane/edge occurrence 不一致、非有限或越
 重复物理位置及非法共享 entry slot。
 
 原始 TOML 中 portal、lane、route choice、route cross-reference 和 slot 的排列不是
-runtime authority。normalize 后 portal 使用文档顺序，lane 使用 lane index，route
-choice 使用 Traffic Route 输入顺序，physical slot 使用
+runtime authority。normalize 后 portal 使用文档顺序，lane 使用 lane index，路线
+使用 catalog 文档化的 28 条路线表顺序，route choice 按该路线表顺序规范化，
+physical slot 使用
 `(portal, lane, route edge occurrence, edge progress, slot ID)`；同一语义 catalog 的
 原始重排必须得到相同结果。
 

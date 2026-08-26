@@ -413,7 +413,6 @@ impl TestOfficialModule {
             CompileLimitDimension::TotalStringBytes => counts.string_bytes = observed,
             CompileLimitDimension::ManeuverGateCount => counts.maneuver_gate_count = observed,
             CompileLimitDimension::WaitingZoneCount => counts.waiting_zone_count = observed,
-            CompileLimitDimension::RouteOccurrenceCount => counts.route_occurrence_count = observed,
             CompileLimitDimension::GeometryPointCount => counts.geometry_point_count = observed,
             _ => panic!("test dimension is not represented by ModuleResourceCounts"),
         }
@@ -814,7 +813,6 @@ impl CompilationUnitBuilder {
             CompileLimitDimension::TotalStringBytes => self.totals.string_bytes,
             CompileLimitDimension::ManeuverGateCount => self.totals.maneuver_gate_count,
             CompileLimitDimension::WaitingZoneCount => self.totals.waiting_zone_count,
-            CompileLimitDimension::RouteOccurrenceCount => self.totals.route_occurrence_count,
             CompileLimitDimension::GeometryPointCount => self.totals.geometry_point_count,
             CompileLimitDimension::CompilerControlledLiveBytes => {
                 builder_live_requested_bytes(self.totals)
@@ -1129,7 +1127,6 @@ impl CompilationUnitBuilder {
             symbol_count: self.totals.symbol_count,
             maneuver_gate_count: self.totals.maneuver_gate_count,
             waiting_zone_count: self.totals.waiting_zone_count,
-            route_occurrence_count: self.totals.route_occurrence_count,
             controlled_live_bytes: sizing.result_live_bytes,
             admission_peak_live_bytes: self
                 .totals
@@ -1156,7 +1153,6 @@ pub struct CompilationUnit {
     pub(crate) symbol_count: u64,
     pub(crate) maneuver_gate_count: u64,
     pub(crate) waiting_zone_count: u64,
-    pub(crate) route_occurrence_count: u64,
     pub(crate) controlled_live_bytes: u64,
     pub(crate) admission_peak_live_bytes: u64,
 }

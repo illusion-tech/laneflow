@@ -48,10 +48,6 @@ pub enum CompileLimitDimension {
     RelationOccurrenceCount,
     /// 规范身份字段出现次数。
     IdentityFieldOccurrenceCount,
-    /// 静态路线成员出现次数。
-    ///
-    /// `LF-COMP-P100-INITIAL-v1` / `v2` 保留该维度且不可删；G2 路线编译路径不消费。
-    RouteOccurrenceCount,
     /// ManeuverGate 声明数。
     ManeuverGateCount,
     /// WaitingZone 声明数。
@@ -96,7 +92,6 @@ impl CompileLimitDimension {
             Self::ReferenceCount => "max_reference_count",
             Self::RelationOccurrenceCount => "max_relation_occurrence_count",
             Self::IdentityFieldOccurrenceCount => "max_identity_field_occurrence_count",
-            Self::RouteOccurrenceCount => "max_route_occurrence_count",
             Self::ManeuverGateCount => "max_maneuver_gate_count",
             Self::WaitingZoneCount => "max_waiting_zone_count",
             Self::GeometryPointCount => "max_geometry_point_count",
@@ -133,7 +128,6 @@ pub struct CompileLimits {
     max_reference_count: u32,
     max_relation_occurrence_count: u32,
     max_identity_field_occurrence_count: u32,
-    max_route_occurrence_count: u32,
     max_maneuver_gate_count: u32,
     max_waiting_zone_count: u32,
     max_geometry_point_count: u32,
@@ -152,8 +146,7 @@ impl CompileLimits {
     /// 选择 #292 G1 冻结的首个生产资源配置档。
     ///
     /// 返回值是完整快照；后续校准若改变任一精确上限或维度集合，必须使用新的配置档
-    /// 标识符，而不能原地改变 `LF-COMP-P100-INITIAL-v1` 的语义。`RouteOccurrenceCount`
-    /// 仍在此配置档中；ADR 0029 之后路线编译路径不再消费它。
+    /// 标识符，而不能原地改变 `LF-COMP-P100-INITIAL-v1` 的语义。
     #[must_use]
     pub const fn p100_initial_v1() -> Self {
         Self {
@@ -171,7 +164,6 @@ impl CompileLimits {
             max_reference_count: 37_920,
             max_relation_occurrence_count: 10_032,
             max_identity_field_occurrence_count: 29_184,
-            max_route_occurrence_count: 1_920,
             max_maneuver_gate_count: 2_304,
             max_waiting_zone_count: 1_536,
             max_geometry_point_count: 22_368,
@@ -192,8 +184,6 @@ impl CompileLimits {
     /// v2 逐项继承 v1 的精确上限，只新增编译单元最多 1,566 份来源
     /// 文档的显式维度。v1 依然只接受每模块一份文档的形状。
     #[must_use]
-    /// `LF-COMP-P100-INITIAL-v2`：继承 v1 全部精确上限（含未消费的
-    /// `RouteOccurrenceCount`）并增加 `SourceDocumentCount`。不得原地删维度。
     pub const fn p100_initial_v2() -> Self {
         let mut limits = Self::p100_initial_v1();
         limits.profile = CompileLimitsProfile::P100InitialV2;
@@ -249,7 +239,6 @@ impl CompileLimits {
             CompileLimitDimension::IdentityFieldOccurrenceCount => {
                 self.max_identity_field_occurrence_count as u64
             }
-            CompileLimitDimension::RouteOccurrenceCount => self.max_route_occurrence_count as u64,
             CompileLimitDimension::ManeuverGateCount => self.max_maneuver_gate_count as u64,
             CompileLimitDimension::WaitingZoneCount => self.max_waiting_zone_count as u64,
             CompileLimitDimension::GeometryPointCount => self.max_geometry_point_count as u64,
@@ -348,7 +337,6 @@ impl CompileLimits {
             CompileLimitDimension::TotalStringBytes => self.max_total_string_bytes = limit,
             CompileLimitDimension::ManeuverGateCount => self.max_maneuver_gate_count = limit,
             CompileLimitDimension::WaitingZoneCount => self.max_waiting_zone_count = limit,
-            CompileLimitDimension::RouteOccurrenceCount => self.max_route_occurrence_count = limit,
             CompileLimitDimension::GeometryPointCount => self.max_geometry_point_count = limit,
             CompileLimitDimension::StageScratchBytes => self.max_stage_scratch_bytes = limit,
             CompileLimitDimension::CompilerControlledLiveBytes => {
@@ -382,7 +370,6 @@ mod tests {
         assert_eq!(limits.max_reference_count, 37_920);
         assert_eq!(limits.max_relation_occurrence_count, 10_032);
         assert_eq!(limits.max_identity_field_occurrence_count, 29_184);
-        assert_eq!(limits.max_route_occurrence_count, 1_920);
         assert_eq!(limits.max_maneuver_gate_count, 2_304);
         assert_eq!(limits.max_waiting_zone_count, 1_536);
         assert_eq!(limits.max_geometry_point_count, 22_368);
@@ -418,7 +405,6 @@ mod tests {
             CompileLimitDimension::ReferenceCount,
             CompileLimitDimension::RelationOccurrenceCount,
             CompileLimitDimension::IdentityFieldOccurrenceCount,
-            CompileLimitDimension::RouteOccurrenceCount,
             CompileLimitDimension::ManeuverGateCount,
             CompileLimitDimension::WaitingZoneCount,
             CompileLimitDimension::GeometryPointCount,
@@ -452,7 +438,6 @@ mod tests {
             (CompileLimitDimension::ReferenceCount, 37_920),
             (CompileLimitDimension::RelationOccurrenceCount, 10_032),
             (CompileLimitDimension::IdentityFieldOccurrenceCount, 29_184),
-            (CompileLimitDimension::RouteOccurrenceCount, 1_920),
             (CompileLimitDimension::ManeuverGateCount, 2_304),
             (CompileLimitDimension::WaitingZoneCount, 1_536),
             (CompileLimitDimension::GeometryPointCount, 22_368),

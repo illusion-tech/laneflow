@@ -129,11 +129,11 @@ R1: [A, B, A]
 
 注册 route 时必须校验：
 
-- route external ID 在 active route registry 中唯一。
 - route edge sequence 非空。
-- route 引用的所有 edge external ID 都存在于当前 lane graph。
-- 任意相邻 edge pair 都存在 lane connection。
+- 序列中的边都是当前共享根上的合法 `LaneEdgeOrdinal`。
+- 任意相邻 edge pair 都存在车道后继或机动转移候选。
 - route edge sequence 的长度可以用 `usize` 索引，且不会造成实现中的计数溢出。
+- Runtime **不**校验 external / catalog route ID，也不按字符串去重。
 
 route validation 不检查：
 
@@ -316,7 +316,6 @@ Adapter 不应：
 后续实现 issue 至少应覆盖：
 
 - empty route。
-- duplicate route ID。
 - unknown route edge。
 - disconnected route edge。
 - repeated edge route。

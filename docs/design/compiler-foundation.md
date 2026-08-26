@@ -492,7 +492,7 @@ CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::re
 这里的“全部”只指共同接入拥有的编译单元聚合维度：`ModuleCount`、`SourceDocumentCount`、
 `ImportEdgeCount`、`SourceBytesTotal`、`DeclarationCount`、`TypedAstRecordCount`、
 `ReferenceCount`、`RelationOccurrenceCount`、`IdentityFieldOccurrenceCount`、
-`RouteOccurrenceCount`、`ManeuverGateCount`、`WaitingZoneCount`、`GeometryPointCount`、
+`ManeuverGateCount`、`WaitingZoneCount`、`GeometryPointCount`、
 `SymbolCount`、`StringItemCount`、`TotalStringBytes` 和接入后实际
 `CompilerControlledLiveBytes`。`SourceBytesPerModule`、`SingleStringBytes` 与前端构造
 峰值由具体前端在 `finish` 前检查；HIR/MIR/LIR、诊断、暂存区、输出与保留容量维度仍由
@@ -511,9 +511,8 @@ CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::re
 Synthetic 路径。#315 G2 使用新的 `LF-COMP-P100-INITIAL-v2`：除新增
 `max_source_document_count = 1566` 外，其余精确上限继承 v1。该数值是 #315 已实现的
 共同接入容量，不构成任何 current JSON 前端承诺；后继前端若需要更高文档总数，必须
-携带实测存续内存和真实工作负载证据另行提升配置档版本。`RouteOccurrenceCount` 仍是
-v1/v2 的不可变维度；ADR 0029 之后路线编译路径不再消费它，**禁止**原地从这两个
-配置档删除。若生产配置要去掉该维度，必须新开标识。
+携带实测存续内存和真实工作负载证据另行提升配置档版本。现行精确上限表不含路线出现项
+维度（ADR 0029）；编译器不再计数或限制预编译静态路线出现项。
 
 `CompileLimits` 私有保存配置档修订与受支持维度，不能由调用方补字段或隐式升级。v1
 只通过既有 `ModuleCount` 隐式覆盖单文档模块；任何产生多文档模块的正式前端都必须在
@@ -774,7 +773,6 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 | `max_reference_count`                 |    37920 | 有类型引用                                       |
 | `max_relation_occurrence_count`       |    10032 | 关系出现项                                       |
 | `max_identity_field_occurrence_count` |    29184 | 标识字段出现项                                   |
-| `max_route_occurrence_count`          |        — | **删除**（ADR 0029：不再预编译静态路线出现项）   |
 | `max_maneuver_gate_count`             |     2304 | 机动门                                           |
 | `max_waiting_zone_count`              |     1536 | 等待区                                           |
 | `max_geometry_point_count`            |    22368 | 规范几何点                                       |

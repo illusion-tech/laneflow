@@ -273,7 +273,7 @@ mul2      = 0x94D049BB133111EB
 initial physical-slot permutation、每个 initial slot 的 weighted Route draw，以及
 completion 的 portal/lane/route draw 共享一个显式 state 和冻结的调用顺序。回流
 portal candidate 按本文件 Portal 表顺序移除刚驶出的 portal 后构造；PortalLane 按
-lane index，RouteChoice 按 Traffic Route 输入顺序规范化。blocked retry 不 draw。
+lane index，RouteChoice 按 catalog 文档化路线表顺序规范化。blocked retry 不 draw。
 实现必须用 golden tests 固定至少：
 
 - seed `0` 和非零 seed 的前若干 `next_u64`；

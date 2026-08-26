@@ -1072,7 +1072,6 @@ pub(super) fn route_counts(unit: &CompilationUnit) -> RouteCounts {
             counts.largest_route_edges = counts.largest_route_edges.max(edge_count);
         }
     }
-    debug_assert_eq!(counts.route_edges, unit.route_occurrence_count);
     counts
 }
 

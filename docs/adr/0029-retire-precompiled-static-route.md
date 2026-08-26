@@ -130,9 +130,8 @@ bind 把键解析为共享根边序号，对每条 catalog 路线 `register_rout
 
 ### 5. 容量
 
-编译器 `max_route_occurrence_count = 1920` 只服务预编译静态路线，随实体退役后
-路线编译路径不再消费。`LF-COMP-P100-INITIAL-v1` / `v2` 仍登记该维度，禁止原地
-删除。该数字不是寻路上限，也不是单条动态路线边数上限。
+编译器不再有 `RouteOccurrenceCount` / `max_route_occurrence_count`。该数字曾服务
+预编译静态路线出现项，不是寻路上限，也不是单条动态路线边数上限。
 
 每世界同时存活的路线条数继续由调用方 `WorldConfig.dynamic_route_capacity` 约束。
 单条边序列只受空序列、连通、机动匹配和分配失败约束，不另冻产品边数。走廊示例必须
@@ -191,7 +190,7 @@ compiled 边序号换成映射后的新序号并重编译出现项，句柄保�
 - 不把 world / install 身份编码进 `RouteHandle`。
 - 不在 compiled 表存「当前红灯」，也不按相位重建红灯列。
 - 不因拒绝 `StaticRoute` 声明而提升合成 DSL `frontendVersion`（#500 已因 IR 毫米编码升到 3）。
-- 不原地改 `LF-COMP-P100-INITIAL-v1` / `v2` 的维度集合。
+- 不为已删除的静态路线出现项保留编译限额或具名配置档死字段。
 
 ## 后果
 
@@ -203,8 +202,7 @@ compiled 边序号换成映射后的新序号并重编译出现项，句柄保�
   `frontendVersion` 同步为 `2`。file identifier 仍为 `LFRE`。
 - 合成 DSL 不再接受静态路线声明；合成 `frontendVersion` 为 3（#500 编码），拒绝
   `StaticRoute` 不另升。
-- `LF-COMP-P100-INITIAL-v1` / `v2` 保留 `RouteOccurrenceCount` 且不可删；路线编译
-  路径不再消费。若要去掉该维度必须新开配置档标识。
+- 生产 `CompileLimits` 与现行 P100 精确表不再包含 `RouteOccurrenceCount`。
 - 共享 Traffic 不再投影静态路线边序列、出现项、反向索引或 seal 派生的路线距离/
   下一受控转换表。机动路径、门、等待区、停止线仍在共享根，供注册期匹配。
 - 公开 API 删除 `StaticRouteOrdinal` 消费面（Runtime/Adapter/scenario bind）。

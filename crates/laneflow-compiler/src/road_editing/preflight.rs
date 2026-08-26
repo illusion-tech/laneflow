@@ -34,7 +34,6 @@ pub(crate) struct RoadEditingPreflightCounts {
     external_namespace_reference_count: u64,
     relation_occurrence_count: u64,
     identity_field_occurrence_count: u64,
-    route_occurrence_count: u64,
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
     authoring_point_count: u64,
@@ -66,10 +65,6 @@ impl RoadEditingPreflightCounts {
 
     pub(crate) const fn identity_field_occurrence_count(self) -> u64 {
         self.identity_field_occurrence_count
-    }
-
-    pub(crate) const fn route_occurrence_count(self) -> u64 {
-        self.route_occurrence_count
     }
 
     pub(crate) const fn maneuver_gate_count(self) -> u64 {
@@ -255,10 +250,6 @@ impl RoadEditingPreflightCounts {
             (
                 CompileLimitDimension::IdentityFieldOccurrenceCount,
                 self.identity_field_occurrence_count,
-            ),
-            (
-                CompileLimitDimension::RouteOccurrenceCount,
-                self.route_occurrence_count,
             ),
             (
                 CompileLimitDimension::ManeuverGateCount,
@@ -2362,9 +2353,6 @@ fn validate_routes_and_frames(
                 expected_key,
             ));
         }
-        usage.route_occurrence_count = usage
-            .route_occurrence_count
-            .saturating_add(u64::try_from(edges.len()).unwrap_or(u64::MAX));
         validate_reference_vector(
             usage,
             edges,

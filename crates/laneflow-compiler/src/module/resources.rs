@@ -15,7 +15,6 @@ pub(crate) struct ModuleResourceCounts {
     pub(crate) string_bytes: u64,
     pub(crate) maneuver_gate_count: u64,
     pub(crate) waiting_zone_count: u64,
-    pub(crate) route_occurrence_count: u64,
     pub(crate) geometry_point_count: u64,
     pub(crate) geometry_source_range_count: u64,
     pub(crate) controlled_live_bytes: u64,
@@ -44,7 +43,6 @@ pub(super) struct AdmissionTotals {
     pub(super) string_bytes: u64,
     pub(super) maneuver_gate_count: u64,
     pub(super) waiting_zone_count: u64,
-    pub(super) route_occurrence_count: u64,
     pub(super) geometry_point_count: u64,
     pub(super) geometry_source_range_count: u64,
     pub(super) module_payload_live_bytes: u64,
@@ -92,9 +90,6 @@ impl AdmissionTotals {
             waiting_zone_count: self
                 .waiting_zone_count
                 .saturating_add(counts.waiting_zone_count),
-            route_occurrence_count: self
-                .route_occurrence_count
-                .saturating_add(counts.route_occurrence_count),
             geometry_point_count: self
                 .geometry_point_count
                 .saturating_add(counts.geometry_point_count),
@@ -116,7 +111,7 @@ impl AdmissionTotals {
     pub(super) fn limit_observations(
         self,
         controlled_live_bytes: u64,
-    ) -> [(CompileLimitDimension, u64); 16] {
+    ) -> [(CompileLimitDimension, u64); 15] {
         [
             (CompileLimitDimension::ModuleCount, self.module_count),
             (
@@ -157,10 +152,6 @@ impl AdmissionTotals {
             (
                 CompileLimitDimension::WaitingZoneCount,
                 self.waiting_zone_count,
-            ),
-            (
-                CompileLimitDimension::RouteOccurrenceCount,
-                self.route_occurrence_count,
             ),
             (
                 CompileLimitDimension::GeometryPointCount,
