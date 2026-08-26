@@ -6,7 +6,10 @@
 路线入口、信号化走廊场景 catalog、以及 #302 快照字段可消费的每世界路线表形状<br>
 **部分取代**: ADR 0017 中「目标态由编译器预编译初始路线出现项」；ADR 0020 /
 `network-compiler.md` 把 `StaticRoute` 列为 Identity v1 必选声明种类；ADR 0025 /
-共享静态路网把 `StaticRoute` 列为 Traffic 必需关系。`network-compiler.md` §9.7
+共享静态路网把 `StaticRoute` 列为 Traffic 必需关系。ADR 0005 中「Runtime 持有
+route external ID resolver、`remove_route` 必须返回 external route ID」对
+`TrafficWorld` 不再适用：catalog / 调用方自己持有 `route_id`，Runtime 热表只有
+`RouteHandle`。`network-compiler.md` §9.7
 对动态通行定义的耐久指名改为：快照局部 ID + 共享根实体 `StableId128`，不把运行时
 槽位 / generation / 密集序号写入存档。路口 / 通行流向 / 机动路径 / 机动门 /
 出现项匹配规则 / 热路径无字符串继续有效。<br>
@@ -110,7 +113,8 @@ Rust 方法名、错误变体拼写和夹具字节。合入本文不授权改生
 Identity 种类代码 21（历史 `StaticRoute`）与字段标签 30（历史 `RouteKey`）改为
 **保留空位**：不发射、不解码为合法种类/字段，不得分配给 `CanonicalFrame` 或其他
 实体。`CanonicalFrame` 种类代码保持 22，字段标签 `CanonicalFrameKey` 保持 31。
-关系角色 13–16（历史静态路线边/三类出现项）同样保留空位，不压缩后续角色代码。
+`EntityKind::ALL` 长度仍为 22，代码 21 占空槽；可构造 21 项。关系角色 13–16（历史
+静态路线边/三类出现项）同样保留空位，不压缩后续角色代码。
 
 LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 节形状不变，版本
 保持 2；新对象不得再出现静态路线行。旧对象因 `formatVersion` 被拒，不单独兼容。

@@ -806,9 +806,9 @@ Rust runtime 固定为 crates.io `flatbuffers = 25.12.19`：Apache-2.0、MSRV 1.
 `flatc version 25.12.19`。仓库根目录的精确生成 argv 固定为：
 
 ```text
-flatc --rust -o crates/laneflow-road-editing-wire/src/generated schemas/road-editing/v1/road-editing.fbs
-flatc --cpp -o target/road-editing-codegen/cpp schemas/road-editing/v1/road-editing.fbs
-flatc --csharp -o target/road-editing-codegen/csharp schemas/road-editing/v1/road-editing.fbs
+flatc --rust -o crates/laneflow-road-editing-wire/src/generated schemas/road-editing/v2/road-editing.fbs
+flatc --cpp -o target/road-editing-codegen/cpp schemas/road-editing/v2/road-editing.fbs
+flatc --csharp -o target/road-editing-codegen/csharp schemas/road-editing/v2/road-editing.fbs
 ```
 
 只有 Rust 的 `road-editing_generated.rs` 提交仓库；C++/C# 输出只用于跨语言 fixture 与

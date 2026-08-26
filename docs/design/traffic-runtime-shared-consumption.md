@@ -195,7 +195,7 @@ SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
   带着这个序列下标前进。`committed_pose_sources` 的 `PoseSource::Lane` 仍用该
   occurrence 解出的 `LaneEdgeOrdinal` + `progress_mm`。
 - `spawn_vehicle` 返回代际感知 `VehicleHandle`（不是 `PoseRecordId`）。由 profile
-  解析 `ParticipantClass`，对静态和动态 `RouteHandle` 都按 ADR 0018 做
+  解析 `ParticipantClass`，对本世界已注册 `RouteHandle` 按 ADR 0018 做
   `(class, Route)` 绑定期准入（只查当前 cursor / 序列下标起的可达后缀）。初速可以
   等于该 occurrence 当前边的基础限速，超过则拒绝。重叠、非法路线/下标/进度、未知
   profile、超容量、准入 deny、超限速失败时不得留下半辆车。
