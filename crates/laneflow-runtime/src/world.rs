@@ -23,6 +23,8 @@ use crate::{
 pub struct TrafficWorld {
     pub(crate) revision: Arc<SharedNetworkRevision>,
     pub(crate) source: CommittedNetworkSource,
+    /// 宿主指定的世界身份；切换描述符 `worldBinding` 在事务启动时比对。
+    pub(crate) world_id: u64,
     pub(crate) config: WorldConfig,
     pub(crate) tick_index: u64,
     pub(crate) time_ms: u64,
@@ -48,6 +50,7 @@ impl TrafficWorld {
         revision: Arc<SharedNetworkRevision>,
         config: WorldConfig,
         source: CommittedNetworkSource,
+        world_id: u64,
     ) -> Result<Self, InstallError> {
         let installed = revision.canonical_origin().network_revision();
         if source.network_revision() != installed {
@@ -87,6 +90,7 @@ impl TrafficWorld {
         let mut world = Self {
             revision,
             source,
+            world_id,
             config,
             tick_index: 0,
             time_ms: 0,
@@ -109,6 +113,12 @@ impl TrafficWorld {
     #[must_use]
     pub const fn committed_source(&self) -> &CommittedNetworkSource {
         &self.source
+    }
+
+    /// 宿主指定的世界身份（切换描述符 `worldBinding` 的比对对象）。
+    #[must_use]
+    pub const fn world_id(&self) -> u64 {
+        self.world_id
     }
 
     /// 共享根。
@@ -803,6 +813,7 @@ mod overflow_tests {
                 )
                 .expect("non-empty fixture key"),
             },
+            0,
         )
         .expect("install")
     }
@@ -880,6 +891,7 @@ mod source_tests {
             revision.clone(),
             WorldConfig::new(8, 4, 1, 100),
             CommittedNetworkSource::Published { reference },
+            0,
         )
         .expect("source matches installed revision");
         assert_eq!(
@@ -904,6 +916,7 @@ mod source_tests {
             CommittedNetworkSource::Published {
                 reference: reference_for(mismatched),
             },
+            0,
         ) {
             Err(error) => error,
             Ok(world) => panic!("mismatched revision must fail closed"),

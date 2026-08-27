@@ -1,7 +1,7 @@
 use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, MIN_LANE_EDGE_LENGTH_MM};
 use laneflow_static_network::SharedNetworkRevision;
 
-use crate::tables::{RouteSlot, VehicleSlot, for_each_occupancy_interval};
+use crate::tables::{CompiledRoute, RouteSlot, VehicleSlot, for_each_occupancy_interval};
 use crate::{RouteHandle, StepError, TrafficWorld, VehicleHandle, VehicleState, VehicleStatus};
 
 #[cfg(test)]
@@ -464,6 +464,55 @@ fn route_edges_in(routes: &[RouteSlot], route: RouteHandle) -> Option<&[LaneEdge
     Some(slot.compiled.as_ref()?.edges.as_ref())
 }
 
+fn visit_occupancy_records_with(
+    live_order: &[VehicleHandle],
+    vehicles: &[VehicleSlot],
+    revision: &SharedNetworkRevision,
+    routes: &[RouteSlot],
+    routes_staged: &[(usize, CompiledRoute)],
+    mut visit: impl FnMut(OccupancyRecord),
+) -> Result<(), StepError> {
+    let lengths = revision.traffic().lane_lengths_millimetres();
+    for (sequence, handle) in live_order.iter().copied().enumerate() {
+        let Some(state) = vehicle_state_in(vehicles, handle) else {
+            continue;
+        };
+        if state.status != VehicleStatus::Active {
+            continue;
+        }
+        let staged_edges = routes_staged.iter().find_map(|(index, compiled)| {
+            (usize::try_from(state.route.index()).ok()? == *index).then(|| compiled.edges.as_ref())
+        });
+        let Some(edges) = staged_edges.or_else(|| route_edges_in(routes, state.route)) else {
+            continue;
+        };
+        let Ok(index) = usize::try_from(state.route_edge_index) else {
+            return Err(StepError::OccupancyIntervalIncomplete);
+        };
+        let Ok(update_sequence) = u32::try_from(sequence) else {
+            return Err(StepError::OccupancyIntervalIncomplete);
+        };
+        for_each_occupancy_interval(
+            lengths,
+            edges,
+            index,
+            state.progress_mm,
+            state.length_mm,
+            |edge, lo_mm, hi_mm| {
+                visit(OccupancyRecord {
+                    vehicle: handle,
+                    bucket: OccupancyBucketOrdinal::from_edge(edge),
+                    lo_mm,
+                    hi_mm,
+                    update_sequence,
+                });
+            },
+        )
+        .ok_or(StepError::OccupancyIntervalIncomplete)?;
+    }
+    Ok(())
+}
+
 fn visit_occupancy_records(
     live_order: &[VehicleHandle],
     vehicles: &[VehicleSlot],
@@ -510,6 +559,50 @@ fn visit_occupancy_records(
 }
 
 impl TrafficWorld {
+    /// 针对给定根与 staged 路线纯构造一份占用索引（不触及活动状态）。
+    ///
+    /// 供切换事务在 Prepare 段完成可失败的重建（#302 切换合同 §4：
+    /// 全部可失败步骤先于换绑），commit 段只做不可失败的替换。
+    pub(crate) fn build_occupancy_index_for(
+        &self,
+        revision: &SharedNetworkRevision,
+        routes_staged: &[(usize, CompiledRoute)],
+    ) -> Result<OccupancyIndex, StepError> {
+        let bucket_count = usize::try_from(revision.traffic().lane_edge_count())
+            .expect("lane edge count fits usize");
+        let ceiling = occupancy_record_limit(self.config.vehicle_capacity());
+        let mut staged = OccupancyIndex::with_capacity(bucket_count, 0);
+        staged.try_prepare_scratch(bucket_count)?;
+        visit_occupancy_records_with(
+            &self.live_order,
+            &self.vehicles,
+            revision,
+            &self.routes,
+            routes_staged,
+            |record| {
+                if let Some(count) = staged.scratch.get_mut(record.bucket.index()) {
+                    *count += 1;
+                }
+            },
+        )?;
+        let total = staged.record_total(bucket_count);
+        if total > ceiling {
+            return Err(StepError::OccupancyCapacityExceeded);
+        }
+        staged.try_reserve_records(total)?;
+        staged.finish_layout(bucket_count);
+        visit_occupancy_records_with(
+            &self.live_order,
+            &self.vehicles,
+            revision,
+            &self.routes,
+            routes_staged,
+            |record| staged.write_record(record),
+        )?;
+        staged.sort_buckets(bucket_count);
+        Ok(staged)
+    }
+
     pub(crate) fn rebuild_occupancy_index(&mut self) -> Result<(), StepError> {
         let bucket_count = usize::try_from(self.revision.traffic().lane_edge_count())
             .expect("lane edge count fits usize");
@@ -596,6 +689,7 @@ mod tests {
                 )
                 .expect("non-empty fixture key"),
             },
+            0,
         )
     }
 

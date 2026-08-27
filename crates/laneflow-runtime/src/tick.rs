@@ -819,6 +819,7 @@ mod preview {
                 )
                 .expect("non-empty fixture key"),
             },
+            0,
         )
     }
 
