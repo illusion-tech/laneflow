@@ -592,7 +592,9 @@ impl TrafficWorld {
         let ceiling = occupancy_record_limit(self.config.vehicle_capacity());
         let mut staged = OccupancyIndex::try_empty()?;
         staged.try_prepare_scratch(bucket_count)?;
-        let mut staged_by_slot: Vec<Option<&CompiledRoute>> = vec![None; self.routes.len()];
+        let mut staged_by_slot: Vec<Option<&CompiledRoute>> = Vec::new();
+        try_reserve_len(&mut staged_by_slot, self.routes.len())?;
+        staged_by_slot.resize(self.routes.len(), None);
         for (index, compiled) in routes_staged {
             if let Some(slot) = staged_by_slot.get_mut(*index) {
                 *slot = Some(compiled);
