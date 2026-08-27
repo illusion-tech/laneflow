@@ -2,10 +2,10 @@
 
 **文档状态**: Accepted（#302 G1）<br>
 **最后更新**: 2026-08-27<br>
-**适用范围**: 版本化 Runtime Snapshot 容器、绑定集、保存/恢复合同、checkpoint 与
+**适用范围**: 版本化 Runtime Snapshot 容器、绑定集、保存/恢复合同、检查点与
 回放、确定性状态摘要、跨修订迁移入口<br>
 **关联文档**:
-[`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12，经 #300 G1 修订：静态镜像制品已取消，origin 绑定 LFCA）、
+[`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12；其中 static image digest / validation receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准，以本文与 ADR 0025 §8 为权威）、
 [`../adr/0021-city-simulation-game-traffic-foundation.md`](../adr/0021-city-simulation-game-traffic-foundation.md)、
 [`../adr/0028-integer-millimeter-traffic-geometry.md`](../adr/0028-integer-millimeter-traffic-geometry.md)、
 [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
@@ -13,9 +13,9 @@
 [`retire-precompiled-static-route.md`](retire-precompiled-static-route.md)、
 [`shared-static-network.md`](shared-static-network.md)
 
-本文是 ADR 0020 §12（修订后）的实现级合同。路线与车辆的快照表示沿用 ADR 0029
-§6 / `retire-precompiled-static-route.md` §5 已冻结形状，本文只做全世界扩展与
-容器合同。G2 决定 Rust 拼写。
+本文是 ADR 0020 §12（按 ADR 0025 §8 修订后语义）的实现级合同。路线与车辆的快照
+表示沿用 ADR 0029 §6 / `retire-precompiled-static-route.md` §5 已冻结形状，本文
+只做全世界扩展与容器合同。G2 决定 Rust 拼写。
 
 ## 1. 制品定位与版本轴
 
@@ -34,9 +34,14 @@
 - LFCA origin：LFCA digest / byte length / `NetworkRevisionId`；
 - 来源指名：`CommittedNetworkSource`（editable 世界 = committed
   `RoadEditingState` 指名；runtime-only 世界 = `PublishedLfcaReference`）；
-- runtime 版本、static-contract versions、`networkRevisionDerivationVersion`；
+- runtime 版本、static-contract versions、`networkRevisionDerivationVersion`、
+  identity registry revision（ADR 0020 §12 要求 identity / constraint /
+  execution-constraint versions 精确相等；各轴到容器字段的显式映射由 G2 登记本文）；
 - 世界身份（快照局部）、`tick` / `time_ms`、输入命令游标；
 - 全部每世界可变状态（§4）。
+
+恢复核对 `WorldConfig` 一致性：至少 `fixed_delta_time_ms` 精确相等（信号派生与
+tick 语义依赖）；容量可与原世界不同，由恢复方重新声明。
 
 禁绑（出现即失败关闭）：runtime handle / slot / generation、密集序号、共享静态
 数组、`EditableDiffBase`、partition / worker assignment、数组地址 / layout /
@@ -50,19 +55,21 @@ capacity、调用方自有 seed/随机流（由宿主存档清单绑定；Runtim
   生成物经独立私有 wire package 隔离（沿 `laneflow-road-editing-wire` 先例）。
 - 读取 verifier-first：语义 lowering 前完成长度、基数与版本预检；未知
   `formatVersion`、未知表、越界或损坏输入失败关闭，不进入部分恢复。
-- LFCA 保持唯一自定义规范制品格式（发布链专用）；快照不是发布对象，不要求跨
-  实现字节规范序，只要求逻辑状态确定性与可验证性（§6）。
+- 发布链的自定义规范制品仍只有 LFCA / LFSM / LFSD / LFCP；快照不是发布对象，
+  不成为第二类规范制品格式，也不要求跨实现字节规范序，只要求逻辑状态确定性与
+  可验证性（§6）。
 
 ## 4. 每世界可变状态清单
 
-| 状态        | 快照表示                                                                                                                                                          |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）                                                                                   |
-| 车辆        | ADR 0029 §6 形状：`snapshot_route_id` + `route_edge_index` + `progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class / parking 绑定用 `StableId128` |
-| 停车预约    | 车辆 `StableId128` ↔ 停车位 `StableId128` 绑定与状态                                                                                                              |
-| live 顺序   | 快照局部标识的规范排序序列                                                                                                                                        |
-| tick / 时钟 | `tick` / `time_ms` / 输入命令游标                                                                                                                                 |
-| 信号灯色    | **不入快照**：由 `time_ms` + 共享根 program + offset 派生（现行消费契约）                                                                                         |
+| 状态         | 快照表示                                                                                                                                                          |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 路线表       | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）                                                                                   |
+| 车辆         | ADR 0029 §6 形状：`snapshot_route_id` + `route_edge_index` + `progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class / parking 绑定用 `StableId128` |
+| 停车占用     | 车辆 `StableId128` ↔ 停车位 `StableId128` 占用绑定与 parked 状态；预约 / 到场 / 离场状态机未冻结（现行消费契约只冻占用互斥），不在本容器字段内                    |
+| live 顺序    | 快照局部标识的规范排序序列                                                                                                                                        |
+| tick / 时钟  | `tick` / `time_ms` / 输入命令游标                                                                                                                                 |
+| 信号灯色     | **不入快照**：由 `time_ms` + 共享根 program + offset 派生（现行消费契约）                                                                                         |
+| 车道占用索引 | **不入快照**：由车辆状态确定性重建（占用索引每 tick 从已提交状态重建的现行契约）                                                                                  |
 
 - 快照局部标识（术语表）只在单个快照内稳定；恢复时经 `SharedIdentityIndex`
   解析 `StableId128` 并**新分配**句柄。原进程 `RouteHandle` / `VehicleHandle`
@@ -85,33 +92,37 @@ capacity、调用方自有 seed/随机流（由宿主存档清单绑定；Runtim
 - 恢复成功后世界处于快照 `tick` 边界的一致状态；`install` 核对与
   `register_route` 重建沿现行消费契约执行。
 
-## 6. 回放、checkpoint 与确定性状态摘要
+## 6. 回放、检查点与确定性状态摘要
 
 - **输入命令序列由宿主记录并按序重放**（术语表：输入命令序列）；Runtime 不新增
-  隐藏输入权威。回放 = 恢复快照（或 checkpoint）后按序重提交命令。
-- **确定性状态摘要**：对逻辑状态按规范排序计算的版本化摘要（`u256` 级，算法与
-  域分隔由 G2 落定并登记本文）。摘要对逻辑状态负责，不比对容器字节；同一逻辑
-  状态在任何合法编码下摘要相等。
-- **checkpoint**：回放序列中周期保存的快照锚点，与输入命令游标共同界定重放区间；
-  缩短恢复与失同步定位区间。
+  隐藏输入权威。回放 = 恢复快照（或检查点）后按序重提交命令。
+- **确定性状态摘要（术语表）**：对逻辑状态按规范排序计算的版本化摘要。本 G1
+  冻结摘要算法为 SHA-256（沿 `laneflow-format` 先例）并前置域分隔版本前缀；
+  摘要输入的精确规范化序列化由 G2 落定并登记本文。本项履行 ADR 0020 §12 /
+  ADR 0021 §6 指派给后续运行时 G1 的摘要算法冻结义务；检查点采样频率由宿主
+  选择，发布构建裁剪不适用（快照不是发布对象）。摘要对逻辑状态负责，不比对
+  容器字节；同一逻辑状态在任何合法编码下摘要相等。
+- **检查点（checkpoint）**：回放序列中周期保存的快照锚点，与输入命令游标共同
+  界定重放区间；缩短恢复与失同步定位区间。
 - 失同步诊断边界：摘要不等即报告失同步与首个可定位区间，不做自动纠偏、不重启
   世界；处置由宿主决定。
 
 ## 7. 跨修订迁移入口
 
 - 跨修订恢复必须由受信任 `NetworkRevisionCutoverDescriptor` 驱动，经 LFSD 与
-  稳定标识执行**显式迁移**（切换文档 §3：封闭策略枚举 v1-a / v1-b，无宿主回调，
-  不可映射实体整体失败关闭）。
+  稳定标识执行**显式迁移**（切换文档 §3：封闭策略枚举 v1-a 同 origin 重绑 /
+  v1-b 跨修订直移，无宿主回调，不可映射实体整体失败关闭）。
 - 旧密集序号不得直接解释为新修订实体；`SharedIdentityIndex` 完整重建稳定静态
   引用。同修订恢复不要求同 LFCA 字节：identity / constraint /
   execution-constraint versions 精确相等即可（ADR 0020 §12 语义，origin 形态
-  按 ADR 0025 修订）。
+  按 ADR 0025 §8 修订；同 origin 的切换事务重绑见切换文档 §3 v1-a）。
 
 ## 8. 必测项（G2）
 
 - 同修订 save → load exact oracle：逻辑状态（路线边序列、毫米游标、速度、状态、
-  预约、live 序、tick）全等；句柄不比对（新分配）。
-- checkpoint + 命令重放与连续步进摘要逐点相等；失同步注入能定位区间。
+  停车占用、live 序、`tick` / `time_ms` / 输入命令游标）全等；句柄不比对
+  （新分配）。
+- 检查点 + 命令重放与连续步进摘要逐点相等；失同步注入能定位区间。
 - 跨修订直移：直移成功 oracle 与不可映射实体整体失败关闭（含删边上有车、路线
   引用被删边、停车绑定失效三类）。
 - 容器拒绝面：未知 `formatVersion`、损坏长度、越界基数、含禁绑字段（句柄/
@@ -120,3 +131,4 @@ capacity、调用方自有 seed/随机流（由宿主存档清单绑定；Runtim
   时编辑不可启用。
 - 保存与候选准备并发时只捕获旧聚合；source rebase / diff-base binding 缺失或
   错配失败关闭。
+- 恢复核对 `fixed_delta_time_ms` 不一致时失败关闭。
