@@ -1,6 +1,6 @@
 # 交通观测与 Routing 接入
 
-**文档状态**: Review（#303 G1；接受并在 Issue 记录后才可申请 G2）<br>
+**文档状态**: Accepted（#303 G1 Pass）<br>
 **最后更新**: 2026-08-27<br>
 **适用范围**: 已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能门禁<br>
 **关联文档**:
@@ -11,8 +11,8 @@
 [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)、
 [`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md)
 
-本文提出 #303 的 G1 冻结候选。接受并在 Issue 记录 G1 Pass 后，Rust 名称、错误枚举
-与具体容器布局才由 G2 落定；G2 不得静默改变本文的权威分层、绑定集、时点、失败关闭
+本文是 #303 已接受的 G1 实现输入。Rust 名称、错误枚举与具体容器布局由 G2 落定；
+G2 不得静默改变本文的权威分层、绑定集、时点、失败关闭
 和预算口径，发现需要改变时必须返回 G1。
 
 1.0 前的“冻结”只表示当前证据下供实现消费的唯一权威，不是不可推翻的铁律，也不是
@@ -243,7 +243,7 @@ payload 不进路线表。注册成功后，候选成为普通每世界 `Route`�
 受控转换等多组 O(n) 热表。候选入口若独有边数上限，direct `register_route`、恢复或
 回放就能绕过同一资源合同；物理 LaneEdge 数也不能作为上限，因为路线允许重复边。
 
-#303 G1 候选因此给 `WorldConfig` 增加语义容量
+#303 G1 已接受合同因此给 `WorldConfig` 增加语义容量
 `route_edge_occurrence_capacity`：它统计本世界全部**存活动态路线**有序边序列的
 `edges.len()` 总和，每个重复 occurrence 都计一次。`register_route` 的唯一共享路径在
 任何 compiled 分配前，以 checked 算术核对「当前已占用 + 本次输入」；direct、

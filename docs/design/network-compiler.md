@@ -289,7 +289,7 @@ LFCA v1 不发射分区提示 payload。可丢弃、可重建且不拥有行为�
 - Traffic Runtime 只裁决交通参与单元如何按所属执行域的静态规则和已提交动态状态
   安全推进。
 
-具体 routing crate/API 不属于 #291 的 closed contract；后继 #303 G1 Review 候选选择
+具体 routing crate/API 不属于 #291 的 closed contract；#303 G1 已接受设计选择
 宿主自有 Routing + LaneFlow 纯契约边界，见
 [`traffic-observation-and-routing-integration.md`](traffic-observation-and-routing-integration.md)。
 这些权威边界不得被 compiler、Adapter 或 scenario policy 绕过。
@@ -1593,8 +1593,8 @@ Traffic Runtime 从已提交状态导出已提交交通观测快照，不泄漏 
 成本模型版本；路网修订标识必须来自当前 `SharedNetworkRevision` 或已
 提交交通观测快照，不能由 Routing 调用方自报。Runtime 将其与当前共享 root binding
 做精确相等比较，并继续逐项验证候选稳定引用/拓扑；修订标识相等只证明缓存一致性，
-不替代候选内容验证。Runtime 对 revision mismatch 失败关闭；#303 G1 Review 候选增加
-观测状态序号，并把候选时效拟冻结为 `[observationTick, validThroughTick]` 的
+不替代候选内容验证。Runtime 对 revision mismatch 失败关闭；#303 G1 已接受合同增加
+观测状态序号，并把候选时效冻结为 `[observationTick, validThroughTick]` 的
 fixed-tick 闭区间。
 观测导出必须同时支持按观测导出节奏（Observation Export Cadence）构造的完整基线和
 版本化增量/分区选择路径；
@@ -1602,7 +1602,7 @@ fixed-tick 闭区间。
 把上层成本模型吸入 fixed-tick，但必须为导出与候选注册边界提供可测量的条目数、字节、
 分配和耗时；Routing 也不能绕过 revision/tick 绑定直接读取 tick 中间数组。
 出行需求和路线选择策略属于城市游戏或出行编排层。#291 只冻结该职责边界；后继
-#303 G1 Review 候选不新增 `laneflow-routing` 算法 crate 或 LaneFlow wire，具体
+#303 G1 已接受设计不新增 `laneflow-routing` 算法 crate 或 LaneFlow wire，具体
 API/失效/性能合同见 `traffic-observation-and-routing-integration.md`。
 
 ## 10. 后发射检查与后继信任边界
