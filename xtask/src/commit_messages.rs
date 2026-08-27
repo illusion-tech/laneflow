@@ -467,7 +467,7 @@ Refs: #23
 ";
 
     const BREAKING_MESSAGE: &str = "\
-feat(core)!: 调整 tick API
+feat(runtime)!: 调整 tick API
 
 BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。
 Refs: #12
@@ -516,7 +516,7 @@ Refs: #12
 
     #[test]
     fn rejects_breaking_change_footer_without_bang() {
-        let message = BREAKING_MESSAGE.replace("feat(core)!:", "feat(core):");
+        let message = BREAKING_MESSAGE.replace("feat(runtime)!:", "feat(runtime):");
 
         let errors = validate_message("0123456789abcdef", &message);
 
@@ -627,6 +627,32 @@ Refs: #12
     }
 
     #[test]
+    fn accepts_current_component_scopes_and_omitted_scope() {
+        for title in [
+            "feat(runtime): 实现 fixed-step tick",
+            "refactor(static-network): 收口共享路网索引",
+            "feat(compiler): 接入新的编译遍",
+            "docs(design): 冻结运行时契约",
+            "docs(governance): 对齐提交规范",
+            "chore: 清理维护脚本",
+        ] {
+            assert!(valid_conventional_title(title), "should accept `{title}`");
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_scope_syntax() {
+        for title in [
+            "feat(): scope 不能为空",
+            "feat(Runtime): scope 不能包含大写字母",
+            "feat(_runtime): scope 不能以下划线开头",
+            "feat(runtime/ui): scope 不能包含斜杠",
+        ] {
+            assert!(!valid_conventional_title(title), "should reject `{title}`");
+        }
+    }
+
+    #[test]
     fn rejects_non_numeric_issue_reference() {
         let message = VALID_MESSAGE.replace("Refs: #23", "Refs: #abc");
 
@@ -703,7 +729,7 @@ Refs: #12
 
     #[test]
     fn accepts_breaking_change_bang() {
-        assert!(valid_conventional_title("feat(core)!: 调整 tick API"));
+        assert!(valid_conventional_title("feat(runtime)!: 调整 tick API"));
     }
 
     #[test]
@@ -729,7 +755,7 @@ Refs: #12
         assert!(!is_allowed_dependabot_commit(
             DEPENDABOT_AUTHOR_NAME,
             DEPENDABOT_AUTHOR_EMAIL,
-            "fix(core): change runtime behavior\n"
+            "fix(runtime): change runtime behavior\n"
         ));
     }
 

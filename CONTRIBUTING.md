@@ -80,13 +80,15 @@ LaneFlow 默认通过 **Merge Queue** 合入 `main`，队列最终使用 **Rebas
 推荐格式：
 
 ```text
-feat(core): 校验 route segment 连续性
+feat(runtime): 校验 route segment 连续性
 
 Refs: #12
 ```
 
 提交标题遵循 Conventional Commits。footer 使用 `Refs: #<id>`；标题带 `!` 时必须有
-`BREAKING CHANGE:`。不要再写 `Gate` / `Slice` / `Impact` 等 G3 正文字段。
+`BREAKING CHANGE:`。标题中的 scope 可省略；使用时表示主要受影响的组件或职责域，
+具体规则以 `docs/reference/commit-convention.md` 为准。不要再写 `Gate` / `Slice` /
+`Impact` 等 G3 正文字段。
 
 ## 7. 文档要求
 

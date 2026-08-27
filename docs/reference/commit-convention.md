@@ -1,7 +1,7 @@
 # 提交规范
 
 **文档状态**: Active
-**最后更新**: 2026-08-24
+**最后更新**: 2026-08-27
 **适用范围**: LaneFlow 的本地提交、AI Agent 提交说明、PR commit 审查
 
 ## 1. 目标
@@ -21,7 +21,7 @@ Refs: #<id>
 示例：
 
 ```text
-feat(core): 校验 route segment 连续性
+feat(runtime): 校验 route segment 连续性
 
 Refs: #12
 ```
@@ -40,7 +40,7 @@ PR body 使用 `Closes #<id>` 在合并后关闭 Issue。commit footer 默认仍
 
 允许的 `type`：
 
-- `feat`：新增用户可见能力或 Core 能力。
+- `feat`：新增用户可见能力或 Traffic Runtime 等产品能力。
 - `fix`：修复缺陷、错误语义或错误边界。
 - `docs`：只改文档、治理说明、模板说明。
 - `test`：新增或调整测试，不改变运行时行为。
@@ -51,15 +51,30 @@ PR body 使用 `Closes #<id>` 在合并后关闭 Issue。commit footer 默认仍
 - `chore`：维护性任务，不属于以上类型。
 - `revert`：回滚已提交变更。
 
-`scope` 应使用小写短标识，优先选择受影响区域：`core`、`governance`、`docs`、
-`ci`、`adapter`、`data`、`example`、`release`。
+`scope` 可省略。`type` 表示变更性质，`scope` 表示本提交主要影响的组件或职责域；
+scope 不等同于 PR 的切片类型，也不要求把跨层变更硬塞进 `cross-layer`。没有单一主要
+范围时可以省略 scope。
+
+scope 出现时必须是小写短标识：首字符为小写字母或数字，后续可以使用小写字母、
+数字、`.`、`_`、`-`。当前优先按实际组件或职责选择：
+
+- 产品组件：`runtime`、`compiler`、`static-network`、`format`、`spatial`、
+  `scenario`、`adapter`、`data`、`example`；
+- 治理与支持：`governance`、`design`、`architecture`、`docs`、`ci`、`release`、
+  `deps`、`research`。
+
+上述列表是当前命名建议，不是封闭白名单。`Commit message` 只校验 scope 语法，新增
+组件不需要先修改 CI 枚举。`laneflow-core` 已拆除，新提交不要再以 `core` 指代当前
+Traffic Runtime；对应范围使用 `runtime`。历史提交保持原样，不追溯改写。
 
 标题应简短描述结果，而不是过程。
 
 推荐：
 
-- `feat(core): 实现 fixed-step tick`
-- `fix(core): 拒绝非有限 edge length`
+- `feat(runtime): 实现 fixed-step tick`
+- `fix(runtime): 拒绝非有限 edge length`
+- `refactor(static-network): 收口共享路网索引`
+- `feat(compiler): 接入新的编译遍`
 - `docs(governance): 对齐提交规范`
 - `ci(governance): 校验 PR commit 信息`
 
@@ -70,7 +85,7 @@ PR body 使用 `Closes #<id>` 在合并后关闭 Issue。commit footer 默认仍
 破坏性变更必须同时使用标题 `!` 和单行 `BREAKING CHANGE:` footer。
 
 ```text
-feat(core)!: 调整 tick API
+feat(runtime)!: 调整 tick API
 
 BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填。
 Refs: #12
@@ -111,6 +126,7 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 `Commit message` job 检查：
 
 - 标题符合 Conventional Commits。
+- scope 省略或符合小写短标识语法；不检查封闭枚举。
 - 底部包含 `Refs` 或 `Closes`。
 - 破坏性变更同时包含标题 `!` 和单行 `BREAKING CHANGE:` footer。
 

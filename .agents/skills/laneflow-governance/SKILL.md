@@ -58,9 +58,10 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 
 ## 提交说明
 
-标题使用 Conventional Commits。footer 使用 `Refs: #<id>`；标题带 `!` 时必须有
-`BREAKING CHANGE:`。不要再写 `Gate` / `Slice` / `Impact` / `Scope` /
-`Validation` / `Docs`。
+标题使用 Conventional Commits。标题中的 scope 可省略；使用时表示主要受影响的组件
+或职责域，不等同于 PR 切片类型，具体规则见 `docs/reference/commit-convention.md`。
+footer 使用 `Refs: #<id>`；标题带 `!` 时必须有 `BREAKING CHANGE:`。不要再写
+`Gate` / `Slice` / `Impact` / `Scope` / `Validation` / `Docs`。
 
 ```text
 <type>[optional scope][optional !]: <description>
