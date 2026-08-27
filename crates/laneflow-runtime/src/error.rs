@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use laneflow_static_contract::NetworkRevisionId;
+
 use crate::{RouteHandle, VehicleHandle, VehicleReplaceBlock};
 
 /// `TrafficWorld::install` 失败。
@@ -27,6 +29,14 @@ pub enum InstallError {
     /// 信号 controller 的 cycle 非法。
     #[error("信号 controller cycle 必须为正且含 phase")]
     InvalidSignalProgram,
+    /// 已提交来源的修订标识与共享根不一致。
+    #[error("已提交来源的修订标识与共享根不一致")]
+    SourceRevisionMismatch {
+        /// 来源指名的修订标识。
+        source_revision: NetworkRevisionId,
+        /// 共享根 origin 的修订标识。
+        installed_revision: NetworkRevisionId,
+    },
 }
 
 /// `TrafficWorld::step` 失败。

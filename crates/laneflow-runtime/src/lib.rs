@@ -6,6 +6,7 @@ mod handle;
 mod input;
 mod occupancy;
 mod pose;
+mod source;
 mod tables;
 mod tick;
 mod units;
@@ -18,6 +19,7 @@ pub use handle::{RouteHandle, VehicleHandle};
 pub use input::{RouteRegisterInput, VehicleSpawnInput};
 pub use laneflow_static_contract::ParkingSpaceOrdinal;
 pub use pose::{CommittedPoseSourceBatch, CommittedSignalGroupBatch, PoseSource};
+pub use source::{CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference};
 pub use vehicle::{VehicleReplaceBlock, VehicleReplaceRecord, VehicleState, VehicleStatus};
 pub use world::TrafficWorld;
 
