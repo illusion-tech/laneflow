@@ -107,16 +107,19 @@ LaneFlow 的第一长期产品目标定义为：
 执行域的具体投影是 `Route`。动态成本快照和候选动态通行定义必须绑定从
 `TrustedStaticImage` 静态视图或已提交观测快照取得的路网修订标识、观测固定步进与
 成本模型版本；Runtime 对修订不匹配的候选失败关闭，并继续验证候选稳定引用和拓扑，
-不能以修订标识相等替代内容验证。过期容忍策略由 Routing G1 显式冻结。
+不能以修订标识相等替代内容验证。#303 G1 Review 候选把过期拟冻结为
+`[observationTick, validThroughTick]` 的 fixed-tick 闭区间；墙钟与隐式宽限不存在。
 
 “已提交交通观测快照”定义的是一致性时点，不要求每个固定步进复制全网。生产接入
 必须允许按观测导出节奏（Observation Export Cadence）导出完整基线，并支持版本化
 增量或分区选择；验证门禁必须分别量化观测导出、动态成本快照接收和候选通行定义
 注册的条目数、字节、分配、墙钟耗时与对固定步进的干扰。
 
-本 ADR 不冻结路径规划服务的 crate、算法或公共 API。后续 G1 可以选择独立
-`laneflow-routing` 或宿主自有实现，但交通运行时的参与单元热路径不得执行全图
-寻路。
+#303 G1 Review 候选选择宿主自有 Routing 实现 + LaneFlow 纯契约边界：不新增 reference
+`laneflow-routing` 算法 crate 或 LaneFlow wire；Runtime 只导出观测并验证/注册候选，
+具体合同见
+[`traffic-observation-and-routing-integration.md`](../design/traffic-observation-and-routing-integration.md)。
+交通运行时的参与单元热路径仍不得执行全图寻路。
 
 ### 3. 中国特色通过数据、政策和工作负载（Workload）表达
 

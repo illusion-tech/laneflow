@@ -15,6 +15,9 @@
   策略、迁移增量日志与失败关闭预算（#302 G1；G2 起实现）。
 - `traffic-runtime-snapshot.md`：版本化运行时快照容器、保存/恢复合同、回放与
   跨修订迁移入口（#302 G1；G2 起实现）。
+- `traffic-observation-and-routing-integration.md`：已提交交通观测 full/delta/partition、
+  宿主自有 Routing 成本绑定、候选路线注册与 #302 失效接缝（#303 G1 Review；接受后
+  才可申请 G2）。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
 - `portable-canonical-artifact.md`：LFCA / LFSM / LFSD / LFCP 格式与发布对象。

@@ -1,7 +1,7 @@
 # 交通运行时共享静态路网消费
 
 **文档状态**: Accepted（#301 G1；#469 合入后收口）<br>
-**最后更新**: 2026-08-26<br>
+**最后更新**: 2026-08-27<br>
 **适用范围**: `laneflow-runtime` / `TrafficWorld`、`laneflow-spatial` 目标 session、
 1-worker 车辆 tick、#301 端到端证据，以及 current `laneflow-core` / JSON 运行时入口拆除<br>
 **关联文档**: `../adr/0020-compiler-owned-static-network-and-static-image.md`、
@@ -11,6 +11,7 @@
 `../adr/0026-merge-governance-rebuild.md`、
 `network-compiler.md`、`shared-static-network.md`、
 `portable-canonical-artifact.md`、`current-package-import.md`、
+`traffic-observation-and-routing-integration.md`、
 `adapter-api.md`、
 `../adr/0003-runtime-tick-and-determinism.md`、
 `../adr/0028-integer-millimeter-traffic-geometry.md`、

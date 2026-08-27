@@ -9,6 +9,7 @@
 [`../adr/0028-integer-millimeter-traffic-geometry.md`](../adr/0028-integer-millimeter-traffic-geometry.md)、
 [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
 [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)、
+[`traffic-observation-and-routing-integration.md`](traffic-observation-and-routing-integration.md)、
 [`retire-precompiled-static-route.md`](retire-precompiled-static-route.md)、
 [`shared-static-network.md`](shared-static-network.md)
 
@@ -68,6 +69,11 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 停车、live 序引用；静态实体（边、profile、class、停车位）用 `StableId128`。
 快照局部标识只在单个快照内稳定，恢复经 `SharedIdentityIndex` 与局部标识表
 重建。一维数值全部整数毫米 / 微米 / `u32` mm/s，无浮点字段。
+
+观测导出/admission session/基线、动态成本快照、未注册候选与成本 provenance 是
+调用方拥有或可重建的交付状态，不进入快照。候选注册成功后形成的普通路线只按上表
+路线表示保存。任何成功恢复建立新的世界世代/观测 stream；恢复前的 session 与
+未注册候选全部 stale，不因同修订恢复而复活（Routing 合同 §5）。
 
 ## 4. 容器
 

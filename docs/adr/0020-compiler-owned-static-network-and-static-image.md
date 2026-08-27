@@ -681,8 +681,10 @@ phase、实体和资源组件。
 不执行全图寻路。成本快照和候选通行定义绑定从 `TrustedStaticImage` 静态视图或已
 提交观测快照取得的路网修订 token、观测 tick 与成本模型版本；当前车辆执行域使用
 Route，未来执行域由其 G1 冻结等价通行定义。Runtime 对修订不匹配失败关闭，并继续
-验证候选静态引用/拓扑；修订标识相等不替代内容验证。具体过期容忍、快照线
-格式、摘要算法、routing crate/API 与跨修订迁移算法由后续独立 G1 冻结。
+验证候选静态引用/拓扑；修订标识相等不替代内容验证。#303 G1 Review 候选在
+[`traffic-observation-and-routing-integration.md`](../design/traffic-observation-and-routing-integration.md)
+拟冻结宿主自有 Routing + LaneFlow 纯契约边界、fixed-tick 过期窗口与 full/delta/partition
+语义；跨修订迁移继续只走 #302 事务。
 已提交观测快照必须允许按观测导出节奏（Observation Export Cadence）的完整基线与
 版本化增量/分区选择；一致性时点不意味着每 tick 全量复制全网。实现 Gate 同时量化
 观测导出、动态成本快照接收和候选通行定义注册边界；上层成本模型算法仍不进入
