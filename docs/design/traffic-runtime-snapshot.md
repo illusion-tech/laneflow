@@ -17,9 +17,9 @@
 快照表示沿用 ADR 0029 §6 已冻结形状；容器 schema、字段映射与测试构造由 G2
 落定。
 
-本文 §3 中明确标为 #303 的观测/Routing 恢复接缝仍是 #303 G1 Review 提案，
-不因写入本 Accepted 文档而提前成为 #302 已接受合同；#303 G1 Pass 后移除该提案
-标记并成为当前唯一权威。
+本文明确标为 #303 的观测/Routing 恢复与回放接缝仍是 #303 G1 Review 提案，不因
+写入本 Accepted 文档而提前成为 #302 已接受合同；#303 G1 Pass 后移除该提案标记并
+成为当前唯一权威。
 
 ## 1. 问题与设计立场
 
@@ -55,6 +55,10 @@ revision）不混用单一数字；未知版本值失败关闭。
 字段**（worker 数等）不参与——执行计划按当前硬件重建、精确结果与 worker 数
 无关（ADR 0021）。
 
+**#303 G1 Review 提案**：`route_edge_occurrence_capacity` 是行为语义容量，按全部
+存活动态路线边序列的 occurrence 总数核对；重复边重复计数。恢复配置必须至少容纳
+快照路线表的总 occurrence，检查点后精确回放还要求与原配置一致。
+
 禁绑（出现即拒绝）：runtime handle / slot / generation、密集序号、共享静态
 数组、`EditableDiffBase`、partition / worker assignment、数组地址 / layout /
 capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime 无自有随机流）。
@@ -79,7 +83,8 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 成功后形成的普通路线只按上表路线表示保存。任何成功恢复建立新的世界世代/
 观测 stream；恢复前的 session 与
 未注册候选全部 stale，不因同修订恢复而复活；新 stream 从初始
-`observationStateSequence` 开始（Routing 合同 §5）。
+`observationStateSequence` 开始（Routing 合同 §5）。路线表恢复还必须经唯一
+`register_route` 路径核对 `route_edge_occurrence_capacity`；超限零部分恢复。
 
 ## 4. 容器
 
@@ -118,6 +123,12 @@ schema 位于 `schemas/runtime-snapshot/v1`，生成物隔离于私有 wire pack
 - **回放身份**：命令目标用耐久身份（快照局部标识或宿主自有 ID），不用进程
   句柄；恢复经「局部标识 → 新分配句柄」映射重提交；检查点之后由命令新建的
   实体，其耐久 ID 由命令载荷自带。
+- **#303 G1 Review 提案——候选路线回放**：`register_candidate_route` 的世界世代、
+  观测与成本绑定不进入命令序列。成功准入后只记录规范化路线注册命令：宿主耐久
+  路线 ID、当时的路网修订标识/派生版本和有序 LaneEdge `StableId128`。恢复后核对
+  当前修订、解析稳定标识并经同一 `route_edge_occurrence_capacity` 与唯一路线编译器
+  重建，再把新句柄映射回宿主 ID；不重新执行 Routing，不重放 stale admission。
+  跨修订不匹配必须经 #302 受信任迁移策略显式迁移命令稳定引用，否则拒绝。
 - **确定性状态摘要（术语表）**：对逻辑状态按规范排序计算、与容器编码无关；
   算法冻结为 SHA-256 + 域分隔版本前缀（沿 `laneflow-format` 先例），摘要输入
   的精确规范化序列化由 G2 登记。同一逻辑状态在任何合法编码下摘要相等；该摘要
@@ -150,4 +161,5 @@ G2 落定并回写本文：schema 与版本轴到字段的显式映射、摘要�
 分歧按失同步信号处理）；worker 数差异不影响 exact 语义；容器拒绝面（未知版本 / 长度 / 基数 / 禁绑
 字段）；完整性拒绝面（标识 / 引用 / 排列 / 停车绑定 / 值不变量 / 时钟不变量）；两类来源
 恢复端到端与 published 同修订重发布恢复；边界捕获拒绝跨提交状态混合；候选
-准备期保存只捕获旧聚合。
+准备期保存只捕获旧聚合。#303 G1 Review 追加：路线 occurrence 容量 max/max+1 的
+恢复原子性；检查点后成功候选注册按规范化命令重放且不调用 Routing/旧 cost binding。

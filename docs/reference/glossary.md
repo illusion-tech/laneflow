@@ -261,6 +261,8 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 动态成本快照         | dynamic cost snapshot                  | —                                  | 通用概念已接受；提案中（Proposed；#303）的对象由宿主 Routing 拥有，Runtime 不解释成本 payload。                                                               |
 | 动态成本快照绑定     | dynamic cost snapshot binding          | —                                  | 提案中（Proposed；#303）：绑定世界/修订、观测 tick/状态序号、模型/有效窗和 payload 摘要的候选来源描述。                                                       |
 | 候选路线             | candidate route                        | —                                  | 提案中（Proposed；#303）：Routing 提交的 LaneEdge 稳定标识序列；经 Runtime 来源与内容验证后成为普通路线。                                                     |
+| 已准入路线注册命令   | admitted route registration command    | —                                  | 提案中（Proposed；#303）：候选成功后进入宿主输入命令序列的规范化耐久记录；只含宿主路线 ID、修订绑定和有序边稳定标识，不重放观测/成本/admission provenance。   |
+| 路线边出现项容量     | route edge occurrence capacity         | `route_edge_occurrence_capacity`   | 提案中（Proposed；#303）：`WorldConfig` 对全部存活动态路线边序列 occurrence 总数的语义容量；重复边重复计数，所有路线入口共用，不等于共享根物理边数。          |
 | 路径规划服务         | routing service                        | —                                  | 从静态路网和已提交动态成本快照生成候选路径、但不拥有交通参与单元固定步进的服务。                                                                              |
 | 出行编排层           | trip orchestration layer               | —                                  | 拥有出行需求、候选路线选择、收费/政策偏好和调用方随机流，并以显式边界驱动 LaneFlow 的上层系统。                                                               |
 | 出行需求             | travel demand                          | —                                  | 描述谁在何时为何出发的上层输入；不由交通运行时隐藏生成。                                                                                                      |

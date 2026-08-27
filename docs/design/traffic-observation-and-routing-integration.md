@@ -171,8 +171,9 @@ session，不能共享并竞争一个隐式全局游标。
 | `exactByteLength` / `snapshotSha256`                     | 宿主成本 payload 的精确字节数；摘要以域分隔版本前缀覆盖除自身外的上述绑定字段及 exact payload                       |
 
 过期策略只使用 fixed tick：候选在 `currentTick < observationTick` 时是“来自未来”，
-在 `currentTick > validThroughTick` 时过期；两者都失败关闭。同 tick 下若当前
-`observationStateSequence <` 绑定值，同样是“来自未来”并拒绝。状态序号证明成本的
+在 `currentTick > validThroughTick` 时过期；两者都失败关闭。在同一活动世界世代/
+观测 stream 内，无论两个 tick 是否相等，只要当前 `observationStateSequence <` 绑定值，
+该组合就不可能已被导出，必须按“来自未来或损坏来源”拒绝。状态序号证明成本的
 多分区输入来自同一精确状态，不另发明 `validThroughStateSequence`；形成成本后的
 同 tick 生命周期提交不会绕过或缩短宿主显式选择的 fixed-tick 有效窗。没有墙钟、
 默认宽限、自动刷新或“版本较新即可”语义。`validThroughTick` 由成本模型/出行编排
@@ -211,13 +212,16 @@ payload，也不进入 Runtime Snapshot。模型升级必须开新 session，不
 
 Runtime 按下列顺序失败关闭，任一失败不占路线槽、不留下 compiled occurrence：
 
-1. O(1) 预检候选边数与配置/共享根上界，完成 checked 大小计算，再做 Runtime 解析/
-   compiled 分配；空序列拒绝。
+1. O(1) 预检空序列、候选边数和 checked 大小；在解析/compiled 分配前按下文统一
+   `route_edge_occurrence_capacity` 核对本次边出现项数。候选入口可以提早返回同一错误，
+   但最终权威检查必须在 direct/candidate/cutover/restore/replay 共用的注册/编译路径
+   内完成。
 2. 核对 `bindingVersion`、世界身份/世代、修订标识/派生版本、观测
    tick/state sequence/set digest、条目数/bytes/digest 字段完整且自洽；成本模型
    身份/版本必须与 admission session 精确相等。
-3. 按 §3 比较当前已提交 tick 与 `[observationTick, validThroughTick]`，并拒绝同 tick
-   来自未来的 `observationStateSequence`。
+3. 按 §3 比较当前已提交 tick 与 `[observationTick, validThroughTick]`；在同一活动
+   世界世代/stream 内，无论 tick 是否相等，都拒绝大于当前值的
+   `observationStateSequence`。
 4. 用当前根 `SharedIdentityIndex` 把每个 `LaneEdge StableId128` 解析成当前 dense ordinal；
    未知标识或错误 kind 拒绝。修订相等不能跳过这一步。
 5. 把解析后的有序序列交给现有唯一 `compile_route` / `register_route` 路径，重做连通、
@@ -230,7 +234,27 @@ payload 不进路线表。注册成功后，候选成为普通每世界 `Route`�
 
 同修订场景 catalog 的 `register_route(LaneEdgeOrdinal...)` 继续存在，服务已绑定同一
 根的本地数据；它不能接收 `StableId128`、revision/tick/model 自报字段，也不能被
-包装成隐藏 Routing。跨观测/成本边界的候选必须走本节严格入口。
+包装成隐藏 Routing。跨观测/成本边界的候选必须走本节严格入口；两类入口最终消费
+同一条路线容量和编译合同。
+
+### 4.1 统一路线边出现项容量
+
+当前唯一 `compile_route` 会按输入长度物化边序列、后缀距离、分段坐标、hop、下一
+受控转换等多组 O(n) 热表。候选入口若独有边数上限，direct `register_route`、恢复或
+回放就能绕过同一资源合同；物理 LaneEdge 数也不能作为上限，因为路线允许重复边。
+
+#303 G1 候选因此给 `WorldConfig` 增加语义容量
+`route_edge_occurrence_capacity`：它统计本世界全部**存活动态路线**有序边序列的
+`edges.len()` 总和，每个重复 occurrence 都计一次。`register_route` 的唯一共享路径在
+任何 compiled 分配前，以 checked 算术核对「当前已占用 + 本次输入」；direct、
+candidate、cutover target 重绑、snapshot restore 与 replay 一视同仁。`remove_route`
+成功后释放对应计数；注册失败、移除失败和切换放弃都不改变计数。恢复时快照路线总
+occurrence 超过恢复配置则整次恢复失败关闭。
+
+该容量不是共享根物理边数，不是单条路线的产品长度政策，也不恢复已删除静态路线
+出现项的 `1920` 历史预算。单条路线只要不超过本世界剩余 occurrence 容量，仍可合法
+重复边；G2 必须在同一共享路径实现 max/max+1、checked 溢出与分配失败零部分提交，
+并以具名 Routing 工作负载登记配置值和 retained memory 证据。
 
 ## 5. 与 #302 切换、快照和回放的接缝
 
@@ -248,8 +272,17 @@ payload 不进路线表。注册成功后，候选成为普通每世界 `Route`�
   快照局部 ID + 边稳定标识保存。任何恢复（含同修订）建立新世界世代/观测 stream
   并从新 stream 的初始 `observationStateSequence` 开始；恢复前的 session 与候选不得
   复活。成功切换递增世界世代，放弃不递增。
-- **回放**：观测导出不是输入命令，不改变确定性状态摘要；候选注册成功是普通路线
-  生命周期命令，必须由宿主命令序列以耐久调用方 ID 记录。重放不重新执行 Routing。
+- **回放**：观测导出不是输入命令，不改变确定性状态摘要；
+  `register_candidate_route` 是带观测/成本/admission provenance 的派生准入请求，
+  **不是**耐久回放命令。候选成功注册后，宿主命令序列只记录规范化的已准入路线
+  注册命令：宿主自有耐久路线 ID、当时的
+  `networkRevisionId/networkRevisionDerivationVersion` 与有序 LaneEdge `StableId128`
+  序列。它不记录世界世代、观测 stream/tick/state sequence、admission session、成本
+  模型或成本摘要。检查点后重放时，宿主先核对当前修订绑定，Runtime 再以
+  `SharedIdentityIndex` 解析稳定标识、消费 §4.1 同一容量并进入唯一
+  `compile_route`/`register_route` 路径，把新 `RouteHandle` 回映到耐久调用方 ID；
+  不重新执行 Routing，也不把已 stale 的成本绑定伪重绑到新世代。跨修订恢复若命令
+  绑定与当前根不同，只能经 #302 受信任迁移策略显式迁移稳定引用，否则失败关闭。
 
 ## 6. Adapter、Spatial 与 scenario 影响
 
@@ -284,13 +317,14 @@ seed、`WorldConfig` provenance、fixed-step 输入序列、导出 cadence、war
 | observation full       | All + 显式 1%/10%/100% 分区；零车、稀疏、一万/十万车辆；W1–W4 适用切片      | entryCount 等于选择边数（含零行）；失败零 session 推进                             |
 | observation delta      | 0%/1%/10%/100% 行变化；同 tick 零行/生命周期提交；值归零                    | exact changed entries/bytes；严格 base/state 链；无导出时 tick 零新增观测工作/分配 |
 | dynamic cost receive   | 合法 payload、length/count/digest 各类错配、上限+1、未知版本                | 容量预检先于解析/分配/哈希；不进入 Runtime tick                                    |
-| candidate registration | 1/典型/长边序列；重复边；stale/future/revision/model/identity/topology 错配 | 唯一 route 编译器；失败零路线槽变化；成功成本与墙钟按边数报告                      |
+| candidate registration | 1/典型/长边序列；重复边；stale/future/revision/model/identity/topology 错配 | 唯一 route 编译器；direct/candidate 共用 occurrence 容量；失败零路线槽/计数变化    |
 | cutover/restore        | prepare 中注册、commit、abort、同修订 restore、跨修订 cutover               | session/candidate 失效矩阵与 §5 精确一致；已注册句柄按 #302 保持                   |
 | session retained       | 同 selection 的 1/10 个消费者；1%/10%/100% 选择；open/drop                  | 单 session 与总 logical/retained bytes、open/drop 成本分别报告且按消费者数可解释   |
 
 实现级安全上限必须在读取调用方可变长度数据前从 `WorldConfig`/接收端容量合同取得；
-至少覆盖 selection rows、输出 rows、成本 `entryCount/exactByteLength`、候选 edge count
-和所有乘加溢出。G2 回写默认值、max、max+1 与不可达值证明。
+至少覆盖 selection rows、输出 rows、成本 `entryCount/exactByteLength`、全部路线入口
+共用的 `route_edge_occurrence_capacity` 和所有乘加溢出。共享根物理 LaneEdge 数不得
+冒充路线 occurrence 上限。G2 回写配置值、max、max+1 与不可达值证明。
 
 观测导出与候选注册都是 step 之间的显式调用；允许它们延迟下一 tick，但不允许与
 一次 tick 交错或产生半提交状态。无导出调用时，#303 不得新增 per-tick 全网复制、
@@ -299,8 +333,9 @@ dirty journal、墙钟任务或 allocator 活动。
 ## 8. G2 边界与必测义务
 
 G2 落定并回写：Rust 类型/错误枚举、世界/stream 不可伪造 token 与
-`observationStateSequence` 的精确表示、
-`exactByteLength` 度量函数、接收上限默认值与首轮 P100 描述性结果。若实现证明必须
+`observationStateSequence` 的精确表示、`route_edge_occurrence_capacity` 的
+`WorldConfig` API/计数器/恢复核对、规范化已准入路线注册命令的实现接缝、
+`exactByteLength` 度量函数、接收上限配置值与首轮 P100 描述性结果。若实现证明必须
 新增跨进程 wire、`laneflow-routing` 算法 crate、tick 维护 journal、持久化成本
 provenance，或无法复用唯一 route 编译器，必须停止并返回 G1。上述清单不穷尽返回
 条件：即使未命中枚举，只要实现、实测或真实产品约束证明权威边界、字段、格式选择、
@@ -318,6 +353,8 @@ API。
 状态序号；不同状态序号的分区拒绝拼接；成功跨边 step 后立即导出以及 step 间
 spawn/park/replace 后立即导出；不得复用旧 `OccupancyIndex` 形成混合状态；整数聚合
 跨边车身；Parked/Completed 排除；前保险杠在 denied hop、permitted hop 与最后一边
-端点的归属；未来/过期边界恰好等于两端时的判定；修订相等但 StableId 内容非法；
-cost digest 不授予拓扑信任；注册失败路线表完全不变；切换成功/放弃与 restore 的
-session/candidate 失效；回放只重放成功注册命令、不调用 Routing。
+端点的归属；未来/过期边界恰好等于两端时的判定；旧 tick 绑定大于当前值的状态序号
+拒绝；修订相等但 StableId 内容非法；cost digest 不授予拓扑信任；direct/candidate/
+cutover/restore/replay 在重复边与 occurrence capacity max/max+1 上同义且失败零路线槽/
+计数变化；切换成功/放弃与 restore 的 session/candidate 失效；检查点后候选成功注册
+只重放规范化已准入路线注册命令、不调用 Routing、不提交旧成本绑定。
