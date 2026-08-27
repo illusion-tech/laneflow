@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 mod config;
+mod cutover;
 mod error;
 mod handle;
 mod input;
@@ -14,6 +15,11 @@ mod vehicle;
 mod world;
 
 pub use config::{StepOutcome, TickInput, WorldConfig};
+pub use cutover::{
+    CUTOVER_DESCRIPTOR_FORMAT_VERSION, CutoverDescriptorError, CutoverPreflightLimits,
+    LfcaOriginBinding, MigrationPolicyKind, NetworkRevisionCutoverDescriptor,
+    SemanticDiffOriginBinding, WorldBinding,
+};
 pub use error::{InstallError, ParkingError, ReplaceError, RouteError, SpawnError, StepError};
 pub use handle::{RouteHandle, VehicleHandle};
 pub use input::{RouteRegisterInput, VehicleSpawnInput};
