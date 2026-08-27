@@ -315,6 +315,14 @@ impl NetworkRevisionCutoverDescriptor {
                 },
             );
         }
+        // 认证先行：origin 四联与已认证制品逐项匹配，策略判据只作用于
+        // 已认证制品（错误根因不被判据误报遮蔽）。
+        if !self.base.matches_origin(base_origin) {
+            return Err(CutoverDescriptorError::BaseOriginMismatch);
+        }
+        if !self.target.matches_origin(target_origin) {
+            return Err(CutoverDescriptorError::TargetOriginMismatch);
+        }
         match self.policy_kind {
             MigrationPolicyKind::SameRevisionRestore => {
                 if self.semantic_diff.is_some() {
@@ -354,12 +362,6 @@ impl NetworkRevisionCutoverDescriptor {
                     });
                 }
             }
-        }
-        if !self.base.matches_origin(base_origin) {
-            return Err(CutoverDescriptorError::BaseOriginMismatch);
-        }
-        if !self.target.matches_origin(target_origin) {
-            return Err(CutoverDescriptorError::TargetOriginMismatch);
         }
         Ok(())
     }
