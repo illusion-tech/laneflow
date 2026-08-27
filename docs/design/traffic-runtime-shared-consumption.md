@@ -247,7 +247,9 @@ TrafficWorld::step(TickInput) -> Result<StepOutcome, StepError>
 - **本世界**已提交/已编译表（车辆列、车道与停车占用、已注册 Route occurrence）。
 
 不得把动态 occurrence 写回共享根。`SharedIdentityIndex` 不进入 steady tick；只用于
-install 核对、`register_route` 重建，以及后继 #302 快照/修订切换。禁止：
+install 核对、`register_route` 重建，以及后继 #302 快照/修订切换（合同见
+[`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md) 与
+[`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md)）。禁止：
 
 - 先投影成 `LaneGraph` / 各 registry 再调用任何 `CoreWorld` 步进；
 - Runtime 依赖 `laneflow-core`；

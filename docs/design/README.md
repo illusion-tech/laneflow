@@ -11,6 +11,10 @@
   `register_route`（ADR 0029）。
 - `retire-precompiled-static-route.md`：路网制品不声明路线；场景 catalog 0.3
   拥有示例边序列（ADR 0029）。
+- `traffic-runtime-revision-cutover.md`：在线修订切换事务、切换描述符、封闭迁移
+  策略、迁移增量日志与失败关闭预算（#302 G1）。
+- `traffic-runtime-snapshot.md`：版本化运行时快照容器、保存/恢复合同、回放与
+  跨修订迁移入口（#302 G1）。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
 - `portable-canonical-artifact.md`：LFCA / LFSM / LFSD / LFCP 格式与发布对象。
