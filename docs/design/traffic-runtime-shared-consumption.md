@@ -161,6 +161,26 @@ SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
 `world_id`（切换描述符 `worldBinding` 以它做错误世界守卫；描述符签发者据此
 定位目标世界）。生命周期由宿主拥有，Runtime 不解释其编码。
 
+同修订换根事务（#511 交付，语义形状）：
+
+```rust
+TrafficWorld::cutover_same_revision(
+    target_revision: Arc<SharedNetworkRevision>,
+    target_source: CommittedNetworkSource,
+    descriptor: &NetworkRevisionCutoverDescriptor,
+    limits: &CutoverPreflightLimits,
+) -> Result<(), CutoverError>;
+```
+
+入口认证顺序：描述符一致性验证（含 origin 四联认证，先于策略与世界绑定
+判据）→ `worldBinding` 世界身份比对 → 策略门（仅 `same_revision_restore`）→
+target 来源绑定 → 同修订不变量预检 → 暂存（逐路线对 target 根重编译 +
+占用索引纯构造，可失败且失败关闭）→ 原子晋升（根 / 逐槽 compiled /
+来源 / 信号重导出 / 占用索引，全部不可失败换绑）。当期
+`RouteHandle` / `VehicleHandle` 跨换根保持有效；任一失败旧世界原样继续。
+完整事务合同见
+[`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)。
+
 ### 4.1 安装与绑定
 
 - `WorldConfig` 含每世界容量、1-worker 计划，以及 `fixed_delta_time_ms`（同一
