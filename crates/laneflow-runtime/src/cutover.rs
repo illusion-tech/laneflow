@@ -421,17 +421,19 @@ impl TrafficWorld {
         descriptor: &NetworkRevisionCutoverDescriptor,
         limits: &CutoverPreflightLimits,
     ) -> Result<(), CutoverError> {
-        if descriptor.policy_kind() != MigrationPolicyKind::SameRevisionRestore {
-            return Err(CutoverError::PolicyMismatch);
-        }
+        // 认证先于策略拒绝：伪造 origins 的描述符必须先收到 origin
+        // 认证错误，而不是被策略门遮蔽（#516 同一原则）。
+        let base_origin = *self.revision.canonical_origin();
+        let target_origin = *target_revision.canonical_origin();
+        descriptor.validate(base_origin, target_origin, limits)?;
         // worldBinding：世界身份在事务启动时一次性比对（命令/事件基线
         // 游标随切片 B 快照面存在，当前比对世界身份）。
         if descriptor.world_binding().world_id() != self.world_id {
             return Err(CutoverError::WorldBindingMismatch);
         }
-        let base_origin = *self.revision.canonical_origin();
-        let target_origin = *target_revision.canonical_origin();
-        descriptor.validate(base_origin, target_origin, limits)?;
+        if descriptor.policy_kind() != MigrationPolicyKind::SameRevisionRestore {
+            return Err(CutoverError::PolicyMismatch);
+        }
         if target_source.network_revision() != target_origin.network_revision() {
             return Err(CutoverError::TargetSourceRevisionMismatch);
         }
@@ -976,7 +978,11 @@ mod tests {
                         &limits()
                     )
                     .unwrap_err(),
-                CutoverError::PolicyMismatch
+                // 认证先于策略：同修订 + CrossRevisionDirect 先被描述符
+                // 验证的互斥判据拒绝；策略门只拦「验证通过但不属本入口」的策略。
+                CutoverError::Descriptor(
+                    CutoverDescriptorError::CrossRevisionRequiresUnequalRevisions
+                )
             );
             assert_eq!(
                 *world.revision().canonical_origin(),
