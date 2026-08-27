@@ -681,9 +681,9 @@ phase、实体和资源组件。
 不执行全图寻路。成本快照和候选通行定义绑定从当前 `SharedNetworkRevision` 根或已
 提交观测快照取得的路网修订 token、观测 tick 与成本模型版本；当前车辆
 执行域使用 Route，未来执行域由其 G1 冻结等价通行定义。Runtime 对修订不匹配失败
-关闭，并继续验证候选静态引用/拓扑；修订标识相等不替代内容验证。#303 G1 Review 候选在
+关闭，并继续验证候选静态引用/拓扑；修订标识相等不替代内容验证。#303 G1 已接受合同在
 [`traffic-observation-and-routing-integration.md`](../design/traffic-observation-and-routing-integration.md)
-拟增加观测状态序号并冻结宿主自有 Routing + LaneFlow 纯契约边界、fixed-tick 过期
+增加观测状态序号，并冻结宿主自有 Routing + LaneFlow 纯契约边界、fixed-tick 过期
 窗口与 full/delta/partition 语义；跨修订迁移继续只走 #302 事务。
 已提交观测快照必须允许按观测导出节奏（Observation Export Cadence）的完整基线与
 版本化增量/分区选择；一致性时点不意味着每 tick 全量复制全网。实现 Gate 同时量化

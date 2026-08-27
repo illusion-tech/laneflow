@@ -17,9 +17,8 @@
 为什么在线切换必须是失败关闭事务见 ADR；Runtime Snapshot 制品见
 `traffic-runtime-snapshot.md`。Rust 拼写、二进制编码与测试构造由 G2 落定。
 
-本文 §4.1 及 §7 中明确标为 #303 的观测/Routing 接缝仍是 #303 G1 Review 提案，
-不因写入本 Accepted 文档而提前成为 #302 已接受合同；#303 G1 Pass 后移除该提案
-标记并成为当前唯一权威。
+本文 §4.1 及 §7 的观测/Routing 接缝已由 #303 G1 接受，与 #302 合同共同构成当前
+唯一实现权威。
 
 ## 1. 问题与设计立场
 
@@ -112,11 +111,11 @@ Prepare → Delta Catch-up → Quiescent Commit → Retire
 维护暂停模式仅宿主显式声明、整个准备期停表、单独预算；不作为在线改路的
 隐式语义。
 
-### 4.1 观测与 Routing 交互（#303 G1 Review 提案）
+### 4.1 观测与 Routing 交互（#303 G1 已接受）
 
 准备期对外只导出活动旧聚合的观测，候选世界不可见。在旧世界成功执行的 Routing
 候选注册已经成为普通路线生命周期变更，必须进入迁移增量日志并在 target 根上按
-§3 重绑/重验证，并消费 #303 候选的统一 `route_edge_occurrence_capacity`；target
+§3 重绑/重验证，并消费 #303 已接受的统一 `route_edge_occurrence_capacity`；target
 路线总 occurrence 超限时整个切换失败关闭。候选聚合重复持有的路线热表属于 #302
 峰值 retained memory，不把同一逻辑路线重复计入活动聚合的语义容量。成功提交与聚合
 换绑同界递增世界世代，使旧观测导出/admission session、未注册候选和旧修订成本绑定
@@ -158,7 +157,7 @@ Prepare → Delta Catch-up → Quiescent Commit → Retire
 5. 修订绑定的 Spatial facade / 只读快照（若存在绑定）；
 6. 规范排序切换事件批次。
 
-#303 G1 Review 提案要求同一原子边界还包括：
+#303 G1 已接受合同要求同一原子边界还包括：
 
 7. 活动世界世代递增；
 8. 观测 stream 身份轮换，并从新 stream 的初始 `observationStateSequence` 开始。
@@ -219,6 +218,6 @@ G2 落定并回写本文：迁移增量日志字节默认值、`worldBinding` �
 切换有效；在途唯一（过期候选失败）；摘要比对捕获候选侧损坏；策略种类与派生
 版本不匹配拒绝；target 来源绑定验证；旧修订借用回收与 Spatial 重绑；在线准备
 干扰不变量（准备期稳态 tick 零新增分配、旧世界事件语义不变的确定性断言）；
-追赶滞后超限放弃。#303 接缝接受后还必须覆盖世界世代/观测 stream/
+追赶滞后超限放弃。#303 接缝还必须覆盖世界世代/观测 stream/
 `observationStateSequence` 与 root 同界原子变化、target 路线 occurrence 容量
 max/max+1 与超限零提交，以及 abort 三者完全不变。

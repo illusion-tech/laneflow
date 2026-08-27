@@ -300,7 +300,7 @@ partition plan 不进入快照。ADR 0028 把那些可变状态中的一维几�
 生成失同步诊断制品。交通运行时按观测导出节奏（Observation Export Cadence）导出
 完整基线或版本化增量/分区选择的已提交交通观测；路径规划据此构造动态成本快照，
 不进入交通参与单元 fixed-tick 热路径，也不要求每 tick 全量复制全网。
-#303 G1 Review 候选选择宿主自有 Routing + LaneFlow 纯契约边界，不新增算法 crate
+#303 G1 已接受设计选择宿主自有 Routing + LaneFlow 纯契约边界，不新增算法 crate
 或 LaneFlow wire；观测、成本绑定、候选注册与 #302 失效接缝见
 [`traffic-observation-and-routing-integration.md`](design/traffic-observation-and-routing-integration.md)。
 
