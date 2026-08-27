@@ -212,7 +212,7 @@ impl TrafficWorld {
     /// 只移除本世界已注册路线。
     pub fn remove_route(&mut self, route: RouteHandle) -> Result<(), RouteError> {
         let index = usize::try_from(route.index()).expect("route index fits usize");
-        let Some(slot) = self.routes.get_mut(index) else {
+        let Some(slot) = self.routes.get(index) else {
             return Err(RouteError::StaleHandle);
         };
         if slot.generation != route.generation() || slot.compiled.is_none() {
@@ -246,6 +246,12 @@ impl TrafficWorld {
             .live_route_edge_occurrence_count
             .checked_sub(removed_occurrences)
             .expect("route occurrence count covers every compiled route");
+
+        // 所有可失败预检完成后才取可变槽位并一次提交。
+        let slot = self
+            .routes
+            .get_mut(index)
+            .expect("immutable preflight proved route slot exists");
         slot.compiled = None;
         self.live_route_count = next_route_count;
         self.live_route_edge_occurrence_count = next_occurrence_count;
@@ -592,7 +598,7 @@ impl TrafficWorld {
         &self,
         route: RouteHandle,
     ) -> Option<&[laneflow_static_contract::LaneEdgeOrdinal]> {
-        Some(self.compiled_route(route)?.edges.as_ref())
+        Some(self.compiled_route(route)?.edges.as_slice())
     }
 
     /// 本世界当前有效路线句柄，按槽位下标。

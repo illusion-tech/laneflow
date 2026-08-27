@@ -261,8 +261,10 @@ occurrence 超过恢复配置则整次恢复失败关闭。
 空序列、路线槽容量、边 occurrence 容量依次预检；后两者分别返回
 `RouteError::CapacityExceeded` 与 `RouteError::EdgeOccurrenceCapacityExceeded`，checked
 加法不可表示与 max+1 共享后一个错误。仓库既有测试/证据夹具迁移时显式使用 `1_024`
-只表示该 fixture 的配置 provenance，不是产品默认值或单条路线限制。可恢复分配失败
-仍须在后续 G2 的 fallible compiled-route 物化切片闭合。
+只表示该 fixture 的配置 provenance，不是产品默认值或单条路线限制。G2 第二
+切片已将 compiled-route 的所有已知长度热表改为 `try_reserve_exact` 预留；任一预留失败
+统一返回 `RouteError::AllocationFailed`，并由确定性失败注入覆盖「首次预留」与「部分热表
+已物化」两个边界；两者都不提交路线槽、活动路线数、边 occurrence 计数或空闲表。
 
 ## 5. 与 #302 切换、快照和回放的接缝
 

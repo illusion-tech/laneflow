@@ -103,7 +103,7 @@ impl TrafficWorld {
         delta_s: f32,
     ) -> Option<VehicleState> {
         let compiled = self.compiled_route(state.route)?;
-        let edges = compiled.edges.as_ref();
+        let edges = compiled.edges.as_slice();
         let cursor = usize::try_from(state.route_edge_index).ok()?;
         let edge = *edges.get(cursor)?;
         let lengths = self.revision.traffic().lane_lengths_millimetres();
@@ -426,7 +426,7 @@ fn si_comfort_travel(
     let leader_m = leader_gap_m(leader_gap);
     let min_gap_m = si_meters(profile.min_gap_mm());
     let envelope = speed_limit_path_envelope(
-        compiled.edges.as_ref(),
+        compiled.edges.as_slice(),
         lengths,
         speed_limits,
         cursor,
