@@ -11,10 +11,10 @@ use crate::tables::{
     route_access_denied,
 };
 use crate::{
-    CommittedPoseSourceBatch, CommittedSignalGroupBatch, InstallError, ParkingError, PoseSource,
-    ReplaceError, RouteError, RouteHandle, RouteRegisterInput, SpawnError, StepError, StepOutcome,
-    TickInput, VehicleHandle, VehicleReplaceBlock, VehicleReplaceRecord, VehicleSpawnInput,
-    VehicleState, VehicleStatus, WorldConfig,
+    CommittedNetworkSource, CommittedPoseSourceBatch, CommittedSignalGroupBatch, InstallError,
+    ParkingError, PoseSource, ReplaceError, RouteError, RouteHandle, RouteRegisterInput,
+    SpawnError, StepError, StepOutcome, TickInput, VehicleHandle, VehicleReplaceBlock,
+    VehicleReplaceRecord, VehicleSpawnInput, VehicleState, VehicleStatus, WorldConfig,
 };
 
 /// 1-worker 交通世界。只克隆根 `Arc`，不复制静态 component。
@@ -22,6 +22,7 @@ use crate::{
 /// `replace_completed_vehicle`）只在两次 `step` 之间调用。
 pub struct TrafficWorld {
     pub(crate) revision: Arc<SharedNetworkRevision>,
+    pub(crate) source: Option<CommittedNetworkSource>,
     pub(crate) config: WorldConfig,
     pub(crate) tick_index: u64,
     pub(crate) time_ms: u64,
@@ -39,6 +40,10 @@ pub struct TrafficWorld {
 
 impl TrafficWorld {
     /// 安装完整共享根。失败不留下可观察的半个 world。
+    ///
+    /// 该入口不指名已提交来源（`committed_source()` 为 `None` 的遗留安装
+    /// 路径）；#302 的保存/切换路径对 `None` 失败关闭，需要来源聚合的
+    /// 调用方使用 [`Self::install_with_source`]。
     pub fn install(
         revision: Arc<SharedNetworkRevision>,
         config: WorldConfig,
@@ -73,6 +78,7 @@ impl TrafficWorld {
         let route_capacity = usize::try_from(config.route_capacity()).unwrap_or(0);
         let mut world = Self {
             revision,
+            source: None,
             config,
             tick_index: 0,
             time_ms: 0,
@@ -89,6 +95,37 @@ impl TrafficWorld {
         };
         world.refresh_signals();
         Ok(world)
+    }
+
+    /// 安装完整共享根并指名已提交来源（#302 活动聚合）。失败不留下
+    /// 可观察的半个 world。
+    ///
+    /// 来源的 `NetworkRevisionId` 必须与共享根 origin 精确相等；digest /
+    /// length 差异（同修订重发布）按合同只承担来源审计，不构成拒绝条件。
+    pub fn install_with_source(
+        revision: Arc<SharedNetworkRevision>,
+        config: WorldConfig,
+        source: CommittedNetworkSource,
+    ) -> Result<Self, InstallError> {
+        let installed = revision.canonical_origin().network_revision();
+        if source.network_revision() != installed {
+            return Err(InstallError::SourceRevisionMismatch {
+                source_revision: source.network_revision(),
+                installed_revision: installed,
+            });
+        }
+        let mut world = Self::install(revision, config)?;
+        world.source = Some(source);
+        Ok(world)
+    }
+
+    /// 已提交路网来源（`#302` 活动聚合的来源指名）。
+    ///
+    /// `None` 表示经 [`Self::install`] 的遗留安装路径未指名来源；#302 的
+    /// 保存/切换路径对其失败关闭。
+    #[must_use]
+    pub const fn committed_source(&self) -> Option<&CommittedNetworkSource> {
+        self.source.as_ref()
     }
 
     /// 共享根。
@@ -793,5 +830,103 @@ mod overflow_tests {
         );
         assert_eq!(world.tick_index, 0);
         assert_eq!(world.time_ms, u64::MAX);
+    }
+}
+
+#[cfg(test)]
+mod source_tests {
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
+    use laneflow_static_contract::{ExactByteLength, NetworkRevisionId, Sha256Digest};
+    use laneflow_static_network::{
+        SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+        build_shared_network_revision,
+    };
+
+    use super::*;
+
+    use crate::PublishedLfcaReference;
+
+    const FULL_SPATIAL: &[u8] = include_bytes!(
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+    );
+
+    fn revision() -> Arc<SharedNetworkRevision> {
+        let input = check_canonical_network_input(FULL_SPATIAL, FormatLimits::HARD)
+            .expect("checked canonical network input");
+        build_shared_network_revision(
+            input,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::RetainAvailable,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            ),
+        )
+        .expect("shared network revision")
+    }
+
+    fn reference_for(origin_revision: NetworkRevisionId) -> PublishedLfcaReference {
+        PublishedLfcaReference::new(
+            "asset://city/roads",
+            Sha256Digest::from_bytes([9; 32]),
+            ExactByteLength::new(4_096),
+            origin_revision,
+        )
+        .expect("non-empty key")
+    }
+
+    #[test]
+    fn install_keeps_legacy_none_source() {
+        let world =
+            TrafficWorld::install(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
+        assert_eq!(world.committed_source(), None);
+    }
+
+    #[test]
+    fn install_with_source_binds_matching_revision() {
+        let revision = revision();
+        let origin = revision.canonical_origin();
+        // digest / length 与根 origin 不同（重发布语义），同修订判据只比对修订标识。
+        let reference = reference_for(origin.network_revision());
+        let world = TrafficWorld::install_with_source(
+            revision.clone(),
+            WorldConfig::new(8, 4, 1, 100),
+            CommittedNetworkSource::Published { reference },
+        )
+        .expect("source matches installed revision");
+        assert_eq!(
+            world.committed_source(),
+            Some(&CommittedNetworkSource::Published {
+                reference: reference_for(origin.network_revision())
+            })
+        );
+        assert_eq!(
+            world
+                .committed_source()
+                .expect("source present")
+                .network_revision(),
+            revision.canonical_origin().network_revision()
+        );
+    }
+
+    #[test]
+    fn install_with_source_rejects_revision_mismatch() {
+        let revision = revision();
+        let mismatched = NetworkRevisionId::from_digest(Sha256Digest::from_bytes([1; 32]));
+        let error = match TrafficWorld::install_with_source(
+            revision.clone(),
+            WorldConfig::new(8, 4, 1, 100),
+            CommittedNetworkSource::Published {
+                reference: reference_for(mismatched),
+            },
+        ) {
+            Err(error) => error,
+            Ok(world) => panic!("mismatched revision must fail closed"),
+        };
+        assert_eq!(
+            error,
+            InstallError::SourceRevisionMismatch {
+                source_revision: mismatched,
+                installed_revision: revision.canonical_origin().network_revision(),
+            }
+        );
     }
 }
