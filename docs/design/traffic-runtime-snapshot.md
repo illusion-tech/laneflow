@@ -53,13 +53,13 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 
 ## 3. 每世界可变状态
 
-| 状态        | 快照表示                                                                                                                                                                                          |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）                                                                                                                   |
-| 车辆        | ADR 0029 §6 形状 + 每车唯一 `snapshot_vehicle_id`：所属 `snapshot_route_id`、`route_edge_index`、`progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class 等静态绑定用 `StableId128` |
-| 停车占用    | 车辆 `snapshot_vehicle_id` ↔ 停车位 `StableId128` 占用绑定与 parked 状态（现行契约只冻占用互斥；预约/到场/离场状态机未冻结）                                                                      |
-| live 顺序   | 车辆 `snapshot_vehicle_id` 的规范排序序列                                                                                                                                                         |
-| tick / 时钟 | `tick` / `time_ms` / 输入命令游标 / 已提交事件游标                                                                                                                                                |
+| 状态        | 快照表示                                                                                                                                                                                                                                                                                                  |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）                                                                                                                                                                                                                           |
+| 车辆        | ADR 0029 §6 形状 + 每车唯一 `snapshot_vehicle_id`：所属 `snapshot_route_id`、`route_edge_index`、`progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class 等静态绑定用 `StableId128`                                                                                                         |
+| 停车状态    | Reserved 与 Occupied 双向绑定（车辆 `snapshot_vehicle_id` ↔ 停车位 `StableId128`）与 parked 状态——预约是已提交的每世界状态（reserve/cancel/commit/leave/rebind 与 step-side arrival 已交付，`parking-system.md`），不保存即违反「全部每世界可变状态」；Arrived 就绪与 Reserved 目标缓存的派生性由 G2 判定 |
+| live 顺序   | 车辆 `snapshot_vehicle_id` 的规范排序序列                                                                                                                                                                                                                                                                 |
+| tick / 时钟 | `tick` / `time_ms` / 输入命令游标 / 已提交事件游标                                                                                                                                                                                                                                                        |
 
 车辆是运行时实体，没有 `StableId128`：它以 `snapshot_vehicle_id` 持存并被
 停车、live 序引用；静态实体（边、profile、class、停车位）用 `StableId128`。
@@ -83,13 +83,16 @@ schema 位于 `schemas/runtime-snapshot/v1`，生成物隔离于私有 wire pack
   `PublishedLfcaReference` 重新认证。同修订判据 = `NetworkRevisionId` +
   `networkRevisionDerivationVersion` + 契约版本精确相等（与切换文档 §3 一致）；
   origin 字节差异仅承担来源审计，published 重发布的摘要错配在判据满足时允许
-  恢复。资产缺失、重编译失败或版本不匹配失败关闭。
+  恢复。资产缺失、重编译失败、版本不匹配或缺 `EditableDiffBase` 对应关系失败
+  关闭。
 - 发布资产启用道路编辑须另带 committed 道路状态并完成同修订
   root / source / diff-base rebase；成功前不得启用编辑。
 - **完整性原则**：恢复的状态必须满足与 `install` / spawn 命令路径同一的不变量
   集。语义 lowering 拒绝：重复局部标识、悬空引用、live 序非活跃车辆精确排列、
   停车绑定与 parked 状态不一致、车辆值不变量破坏（`carry_um` 越界、进度超
-  边长、超速、profile 与 class 不一致、活跃车辆物理重叠）。任一违反零部分恢复。
+  边长、超速、profile 与 class 不一致、活跃车辆物理重叠），以及时钟不变量
+  破坏（`time_ms` 必须等于 `tick × fixed_delta_time_ms`，checked arithmetic
+  验证——不可达时钟对会派生出错误的信号与回放分歧）。任一违反零部分恢复。
 - 恢复成功后世界处于快照 `tick` 边界的一致状态；`install` 核对与
   `register_route` 重建沿现行消费契约执行。
 
@@ -126,8 +129,9 @@ G2 落定并回写本文：schema 与版本轴到字段的显式映射、摘要�
 序列化。
 
 必测义务：save → load exact oracle（逻辑状态含双游标与 `time_ms` 全等，句柄
-不比对）；检查点 + 命令重放逐点相等与失同步定位；行为语义配置不一致拒绝、
+不比对）；检查点 + 命令重放逐点相等与失同步定位；`fixed_delta_time_ms` 不一致
+拒绝，语义容量差异按 §2 判据处理（允许更大，回放 oracle 显式不等而非拒绝），
 worker 数差异不影响 exact 语义；容器拒绝面（未知版本 / 长度 / 基数 / 禁绑
-字段）；完整性拒绝面（标识 / 引用 / 排列 / 值不变量）；两类来源恢复端到端与
-published 同修订重发布恢复；边界捕获拒绝跨提交状态混合；候选准备期保存只
-捕获旧聚合。
+字段）；完整性拒绝面（标识 / 引用 / 排列 / 值不变量 / 时钟不变量）；两类来源
+恢复端到端与 published 同修订重发布恢复；边界捕获拒绝跨提交状态混合；候选
+准备期保存只捕获旧聚合。
