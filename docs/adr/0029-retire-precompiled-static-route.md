@@ -17,7 +17,8 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 出现项匹配规则 / 热路径无字符串继续有效。<br>
 **不取代**: ADR 0021 出行编排与路径规划分层；ADR 0018 `register_route` 不做
 `(ParticipantClass, Route)` 判断；ADR 0028 整数毫米一维几何；#303 Routing 契约。<br>
-**关联 Issue**: [#498](https://github.com/illusion-tech/laneflow/issues/498)<br>
+**关联 Issue**: [#498](https://github.com/illusion-tech/laneflow/issues/498)、
+[#303](https://github.com/illusion-tech/laneflow/issues/303)（下述容量接缝仍为 G1 Review）<br>
 **关联文档**:
 
 - `0017-static-road-junction-maneuver-and-gate-identity.md`
@@ -145,6 +146,16 @@ bind 把键解析为共享根边序号，对每条 catalog 路线 `register_rout
 每世界同时存活的路线条数继续由调用方 `WorldConfig.route_capacity` 约束。
 单条边序列只受空序列、连通、机动匹配和分配失败约束，不另冻产品边数。走廊示例必须
 把容量设为至少 28。
+
+**#303 G1 Review 提案**：当前唯一 `compile_route` 会随输入长度物化多组 O(n) 热表；
+候选入口独有上限会让 direct/restore/replay 绕过资源合同，而共享根物理边数又无法
+约束合法重复边。因此 #303 候选以 `WorldConfig.route_edge_occurrence_capacity`
+取代上段“不另冻产品边数”的无界资源含义：它统计全部存活动态路线 `edges.len()`
+总和，由唯一注册/编译路径在任何分配前对 direct、candidate、cutover、restore、
+replay 统一执行，移除路线时释放。它不是单条路线的产品政策，不等于物理边数，也不
+恢复已删除静态路线出现项的 `1920`；任意单条路线仍只受本世界剩余 occurrence 容量
+约束。
+#303 G1 Pass 前本段不改变当前生产 API；通过后移除提案标签并把本段改写为唯一权威。
 
 ### 6. 磁盘快照与在线切换的路线表示
 

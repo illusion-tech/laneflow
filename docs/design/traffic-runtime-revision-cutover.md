@@ -116,10 +116,12 @@ Prepare → Delta Catch-up → Quiescent Commit → Retire
 
 准备期对外只导出活动旧聚合的观测，候选世界不可见。在旧世界成功执行的 Routing
 候选注册已经成为普通路线生命周期变更，必须进入迁移增量日志并在 target 根上按
-§3 重绑/重验证；失败仍使整个切换失败关闭。成功提交与聚合换绑同界递增世界世代，
-使旧观测导出/admission session、未注册候选和旧修订成本绑定全部 stale；调用方在
-新修订先取 full，已经注册的路线句柄仍按逻辑恒等保持。切换放弃不递增世代、不改变
-旧观测 stream 身份。精确合同见
+§3 重绑/重验证，并消费 #303 候选的统一 `route_edge_occurrence_capacity`；target
+路线总 occurrence 超限时整个切换失败关闭。候选聚合重复持有的路线热表属于 #302
+峰值 retained memory，不把同一逻辑路线重复计入活动聚合的语义容量。成功提交与聚合
+换绑同界递增世界世代，使旧观测导出/admission session、未注册候选和旧修订成本绑定
+全部 stale；调用方在新修订先取 full，已经注册的路线句柄仍按逻辑恒等保持。切换放弃
+不递增世代、不改变旧观测 stream 身份。精确合同见
 `traffic-observation-and-routing-integration.md` §5。
 
 ## 5. 迁移增量日志与等价证明
@@ -218,4 +220,5 @@ G2 落定并回写本文：迁移增量日志字节默认值、`worldBinding` �
 版本不匹配拒绝；target 来源绑定验证；旧修订借用回收与 Spatial 重绑；在线准备
 干扰不变量（准备期稳态 tick 零新增分配、旧世界事件语义不变的确定性断言）；
 追赶滞后超限放弃。#303 接缝接受后还必须覆盖世界世代/观测 stream/
-`observationStateSequence` 与 root 同界原子变化，以及 abort 三者完全不变。
+`observationStateSequence` 与 root 同界原子变化、target 路线 occurrence 容量
+max/max+1 与超限零提交，以及 abort 三者完全不变。
