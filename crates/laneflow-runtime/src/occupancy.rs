@@ -160,6 +160,24 @@ pub(crate) struct OccupancyIndex {
 }
 
 impl OccupancyIndex {
+    /// 空构造（不预分配边级表）；全部增长走 try 路径，分配失败映射为
+    /// `OccupancyAllocFailed` 而非中止进程。供切换事务暂存构造使用。
+    pub(crate) fn try_empty() -> Result<Self, StepError> {
+        let mut index = Self {
+            offsets: Vec::new(),
+            scratch: Vec::new(),
+            records: Vec::new(),
+            suffix_min_lo: Vec::new(),
+            suffix_second_lo: Vec::new(),
+            #[cfg(test)]
+            inspections: Cell::new(0),
+            #[cfg(test)]
+            occurrence_walks: Cell::new(0),
+        };
+        index.try_prepare_scratch(0)?;
+        Ok(index)
+    }
+
     pub(crate) fn with_capacity(bucket_count: usize, record_capacity: usize) -> Self {
         Self {
             offsets: vec![0; bucket_count.saturating_add(1)],
@@ -464,12 +482,12 @@ fn route_edges_in(routes: &[RouteSlot], route: RouteHandle) -> Option<&[LaneEdge
     Some(slot.compiled.as_ref()?.edges.as_ref())
 }
 
-fn visit_occupancy_records_with(
+fn visit_occupancy_records_with<'a>(
     live_order: &[VehicleHandle],
     vehicles: &[VehicleSlot],
     revision: &SharedNetworkRevision,
     routes: &[RouteSlot],
-    routes_staged: &[(usize, CompiledRoute)],
+    staged_by_slot: &[Option<&'a CompiledRoute>],
     mut visit: impl FnMut(OccupancyRecord),
 ) -> Result<(), StepError> {
     let lengths = revision.traffic().lane_lengths_millimetres();
@@ -480,9 +498,10 @@ fn visit_occupancy_records_with(
         if state.status != VehicleStatus::Active {
             continue;
         }
-        let staged_edges = routes_staged.iter().find_map(|(index, compiled)| {
-            (usize::try_from(state.route.index()).ok()? == *index).then(|| compiled.edges.as_ref())
-        });
+        let staged_edges = usize::try_from(state.route.index())
+            .ok()
+            .and_then(|slot| staged_by_slot.get(slot).copied().flatten())
+            .map(|compiled| compiled.edges.as_ref());
         let Some(edges) = staged_edges.or_else(|| route_edges_in(routes, state.route)) else {
             continue;
         };
@@ -571,14 +590,20 @@ impl TrafficWorld {
         let bucket_count = usize::try_from(revision.traffic().lane_edge_count())
             .expect("lane edge count fits usize");
         let ceiling = occupancy_record_limit(self.config.vehicle_capacity());
-        let mut staged = OccupancyIndex::with_capacity(bucket_count, 0);
+        let mut staged = OccupancyIndex::try_empty()?;
         staged.try_prepare_scratch(bucket_count)?;
+        let mut staged_by_slot: Vec<Option<&CompiledRoute>> = vec![None; self.routes.len()];
+        for (index, compiled) in routes_staged {
+            if let Some(slot) = staged_by_slot.get_mut(*index) {
+                *slot = Some(compiled);
+            }
+        }
         visit_occupancy_records_with(
             &self.live_order,
             &self.vehicles,
             revision,
             &self.routes,
-            routes_staged,
+            &staged_by_slot,
             |record| {
                 if let Some(count) = staged.scratch.get_mut(record.bucket.index()) {
                     *count += 1;
@@ -596,7 +621,7 @@ impl TrafficWorld {
             &self.vehicles,
             revision,
             &self.routes,
-            routes_staged,
+            &staged_by_slot,
             |record| staged.write_record(record),
         )?;
         staged.sort_buckets(bucket_count);
