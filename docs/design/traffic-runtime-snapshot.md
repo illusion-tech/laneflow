@@ -7,7 +7,7 @@
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12，经 #300 G1 修订：静态镜像制品已取消，origin 绑定 LFCA）、
 [`../adr/0021-city-simulation-game-traffic-foundation.md`](../adr/0021-city-simulation-game-traffic-foundation.md)、
-[`../adr/0028-integer-millimetre-traffic-geometry.md`](../adr/0028-integer-millimetre-traffic-geometry.md)、
+[`../adr/0028-integer-millimeter-traffic-geometry.md`](../adr/0028-integer-millimeter-traffic-geometry.md)、
 [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
 [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)、
 [`retire-precompiled-static-route.md`](retire-precompiled-static-route.md)、
