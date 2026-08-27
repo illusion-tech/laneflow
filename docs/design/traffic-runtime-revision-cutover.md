@@ -155,8 +155,10 @@ Prepare → Delta Catch-up → Quiescent Commit → Retire
 4. editable aggregate 的 `EditableDiffBase`（仅当与新根 origin 精确一致时更替）；
 5. 规范排序切换事件批次（恰一次发布）。
 
-失败时以上全部保持旧值。提交成功后 target LFCA 原子成为下一次 LFSD 的 diff base
-（`shared-static-network.md` §9 口径）。允许短暂共存的内存对象：current root +
+失败时以上全部保持旧值。**仅 editable 聚合**：提交成功后 target LFCA 原子成为
+下一次 LFSD 的 diff base（`shared-static-network.md` §9 口径）；runtime-only
+发布聚合没有 `EditableDiffBase`、不发射 LFSD，本条不适用。允许短暂共存的内存
+对象：current root +
 retained base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch
 （`shared-static-network.md` 共存模型）；**迁移期动态双份**（旧世界动态状态与候选
 动态状态草稿）、迁移增量日志与未提交切换事件批次的存活字节同样计入候选共存峰值
@@ -207,7 +209,8 @@ retained base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch
   零事件（无"半批次"）。
 - 原子晋升：提交边界前后对外可见聚合与状态的一致性检查（无中间态可观察）。
 - 旧修订回收：借用视图全部退出后回收、有存活借用不回收。
-- 描述符未知版本/未知字段/origin 不匹配全部失败关闭。
+- 描述符未知版本/未知字段/未知策略种类（`migrationPolicyKind` 未知值）/origin
+  不匹配全部失败关闭。
 - 在线准备干扰不变量：准备期稳态 tick 零新增分配、旧世界事件语义不变的确定性
   断言。
 - `same_revision_restore`：同修订重发布/重编译制品原子换根后动态状态原样重绑、
