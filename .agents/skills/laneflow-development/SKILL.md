@@ -104,7 +104,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 - Rust 数字字面量等仓库级可读性规则只应用于本次触及范围；历史格式问题应单独跟踪。
 - 不要在只完成子切片时声称父任务已完成。
 - 不要隐瞒未运行的检查；说明未运行项及原因。
-- 提交标题使用 Conventional Commits，footer 使用 `Refs` / `Closes`；标题带 `!` 时必须有 `BREAKING CHANGE:`。详见 `docs/reference/commit-convention.md`。
+- 提交标题使用 Conventional Commits；scope 可省略，使用时表示主要受影响的组件或职责域，不等同于 PR 切片类型。footer 使用 `Refs` / `Closes`；标题带 `!` 时必须有 `BREAKING CHANGE:`。详见 `docs/reference/commit-convention.md`。
 
 ## 交付说明
 
