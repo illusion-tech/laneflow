@@ -121,6 +121,8 @@ Adapter / Runtime 在组合根把车辆 handle 映射到 `PoseRecordId`。禁止
 TrafficWorld::install(
     revision: Arc<SharedNetworkRevision>,
     config: WorldConfig,
+    source: CommittedNetworkSource,
+    world_id: u64,
 ) -> Result<TrafficWorld, InstallError>;
 
 TrafficWorld::register_route(input: RouteRegisterInput) -> Result<RouteHandle, RouteError>;
@@ -153,6 +155,11 @@ SpatialSession::bind(
 SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
     -> Result<CanonicalPoseBatch, PoseError>;
 ```
+
+`source` 是 #302 活动聚合的来源指名（修订标识须与根 origin 精确相等）。
+`world_id` 是宿主指定的世界身份：同一宿主进程内不得对多个世界复用同一
+`world_id`（切换描述符 `worldBinding` 以它做错误世界守卫；描述符签发者据此
+定位目标世界）。生命周期由宿主拥有，Runtime 不解释其编码。
 
 ### 4.1 安装与绑定
 
