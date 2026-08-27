@@ -1,4 +1,5 @@
 //! 已提交毫米与 IIDM 瞬时 SI 之间的换算。米制只作瞬时，不得回写。
+//! 跟车行走窗用 `ceil_mm`：溢出饱和到 `u32::MAX`，禁止包成更短视距。
 
 pub(crate) fn round_mm(meters: f64) -> Option<u32> {
     if !meters.is_finite() {

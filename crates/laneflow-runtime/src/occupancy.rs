@@ -60,6 +60,30 @@ pub(crate) fn occupancy_record_limit(vehicle_capacity: u32) -> usize {
 
 const SUFFIX_NONE: u32 = u32::MAX;
 
+/// 跟车查询的两个毫米窗：行走用 `front_query_mm`，接纳用 `bumper_gap_mm`。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct LeaderQueryHorizon {
+    /// §10.1 `bumper_gap_horizon`：后杠间隙大于此窗则本拍不接纳。
+    pub bumper_gap_mm: u32,
+    /// §10.1 `front_query_horizon`：后续出现项入口大于此窗则早停。
+    pub front_query_mm: u32,
+}
+
+impl LeaderQueryHorizon {
+    #[cfg(test)]
+    pub(crate) const UNBOUNDED: Self = Self {
+        bumper_gap_mm: u32::MAX,
+        front_query_mm: u32::MAX,
+    };
+
+    pub(crate) const fn new(bumper_gap_mm: u32, front_query_mm: u32) -> Self {
+        Self {
+            bumper_gap_mm,
+            front_query_mm,
+        }
+    }
+}
+
 fn try_reserve_len<T>(vec: &mut Vec<T>, needed: usize) -> Result<(), StepError> {
     vec.try_reserve(needed.saturating_sub(vec.len()))
         .map_err(|_| StepError::OccupancyAllocFailed)?;
@@ -369,10 +393,10 @@ impl OccupancyIndex {
         self.min_lo_from(start, end, self_vehicle)
     }
 
-    /// 前保险杠到视距内最近前车后保险杠的 `i64` 毫米间隙；可负。
+    /// 前保险杠到后杠间隙窗内最近前车后保险杠的 `i64` 毫米间隙；可负。
     ///
-    /// `horizon_mm` 是 §10.1 `front_query_horizon`（含端点）。当前边仍取后缀最小
-    /// `lo_mm`；后续出现项按入口距离单调早停。视距外本拍无 leader。
+    /// 当前边取后缀最小 `lo_mm`。后续出现项按入口距离走到 `front_query_mm`（含端点）；
+    /// 接纳只看 `bumper_gap_mm`。后杠间隙窗外本拍无 leader。
     pub(crate) fn leader_gap(
         &self,
         self_vehicle: VehicleHandle,
@@ -380,14 +404,15 @@ impl OccupancyIndex {
         follower_index: usize,
         follower_progress: u32,
         lengths: &[u32],
-        horizon_mm: u32,
+        horizon: LeaderQueryHorizon,
     ) -> Option<i64> {
-        let horizon = i64::from(horizon_mm);
+        let walk = i64::from(horizon.front_query_mm);
+        let accept = i64::from(horizon.bumper_gap_mm);
         let current = *follower_edges.get(follower_index)?;
         let mut best = self
             .nearest_ahead(current, self_vehicle, follower_progress)
             .map(|record| i64::from(record.lo_mm) - i64::from(follower_progress))
-            .filter(|gap| *gap <= horizon);
+            .filter(|gap| *gap <= accept);
         let Some(current_length) = lengths.get(current.index()).copied() else {
             return best;
         };
@@ -397,19 +422,19 @@ impl OccupancyIndex {
             .copied()
             .skip(follower_index.saturating_add(1))
         {
-            if base_mm > horizon {
+            if base_mm > walk {
                 break;
             }
             if best.is_some_and(|current_gap| base_mm > current_gap) {
                 break;
             }
             self.note_occurrence_walk();
-            if let Some(record) = self.front_most(edge, self_vehicle) {
-                if let Some(gap) = base_mm.checked_add(i64::from(record.lo_mm)) {
-                    if gap <= horizon {
-                        best = Some(best.map_or(gap, |current_gap| current_gap.min(gap)));
-                    }
-                }
+            if let Some(record) = self.front_most(edge, self_vehicle)
+                && let Some(gap) = base_mm
+                    .checked_add(i64::from(record.lo_mm))
+                    .filter(|gap| *gap <= accept)
+            {
+                best = Some(best.map_or(gap, |current_gap| current_gap.min(gap)));
             }
             let Some(edge_length) = lengths.get(edge.index()).copied() else {
                 return best;
@@ -548,7 +573,7 @@ mod tests {
     };
 
     use crate::tables::{occupancy_front_gap, remaining_along_route_i64};
-    use crate::tick::front_query_horizon_mm;
+    use crate::tick::leader_query_horizon;
     use crate::units::ceil_mm;
     use crate::{
         RouteRegisterInput, StepError, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
@@ -718,16 +743,14 @@ mod tests {
                 continue;
             };
             let cursor = usize::try_from(state.route_edge_index).unwrap();
-            let horizon_mm = world
-                .front_query_horizon_mm_for(state)
-                .expect("finite front query horizon");
+            let horizon = world.leader_query_horizon_for(state);
             let indexed = world.occupancy.leader_gap(
                 state.handle,
                 edges,
                 cursor,
                 state.progress_mm,
                 lengths,
-                horizon_mm,
+                horizon,
             );
             let scanned = world.leader_bumper_gap_scan(state, edges, lengths);
             let wrapped = world.leader_bumper_gap(state, edges, lengths);
@@ -818,7 +841,14 @@ mod tests {
         occupancy.reset_inspections();
         let lengths = [40_000, 10_000];
         let edges = [current, later, current];
-        let gap = occupancy.leader_gap(follower, &edges, 0, 1_000, &lengths, u32::MAX);
+        let gap = occupancy.leader_gap(
+            follower,
+            &edges,
+            0,
+            1_000,
+            &lengths,
+            LeaderQueryHorizon::UNBOUNDED,
+        );
         assert_eq!(gap, Some(0));
         let inspections = occupancy.inspections();
         assert!(
@@ -850,7 +880,14 @@ mod tests {
             },
         ];
         index.rebuild_from_pending(&pending, 1);
-        let gap = index.leader_gap(follower, &[edge], 0, 1_000, &[10_000], u32::MAX);
+        let gap = index.leader_gap(
+            follower,
+            &[edge],
+            0,
+            1_000,
+            &[10_000],
+            LeaderQueryHorizon::UNBOUNDED,
+        );
         assert_eq!(gap, Some(5_000));
     }
 
@@ -893,7 +930,14 @@ mod tests {
             },
         ];
         index.rebuild_from_pending(&pending, 1);
-        let gap = index.leader_gap(follower, &[edge], 0, 1_000, &[10_000], u32::MAX);
+        let gap = index.leader_gap(
+            follower,
+            &[edge],
+            0,
+            1_000,
+            &[10_000],
+            LeaderQueryHorizon::UNBOUNDED,
+        );
         assert_eq!(gap, Some(1_000));
     }
 
@@ -931,7 +975,14 @@ mod tests {
         index.rebuild_from_pending(&pending, 2);
         let lengths = [10_000, 10_000];
         let edges = [first, second];
-        let gap = index.leader_gap(follower, &edges, 0, 9_000, &lengths, u32::MAX);
+        let gap = index.leader_gap(
+            follower,
+            &edges,
+            0,
+            9_000,
+            &lengths,
+            LeaderQueryHorizon::UNBOUNDED,
+        );
         assert_eq!(
             gap,
             remaining_along_route_i64(&lengths, &edges, 0, 9_000, 1, 2_000)
@@ -964,7 +1015,14 @@ mod tests {
         index.rebuild_from_pending(&pending, 2);
         let lengths = [10_000, 5_000];
         let edges = [first, second];
-        let gap = index.leader_gap(follower, &edges, 0, 9_000, &lengths, u32::MAX);
+        let gap = index.leader_gap(
+            follower,
+            &edges,
+            0,
+            9_000,
+            &lengths,
+            LeaderQueryHorizon::UNBOUNDED,
+        );
         assert_eq!(
             gap,
             remaining_along_route_i64(&lengths, &edges, 0, 9_000, 1, 500)
@@ -1105,19 +1163,21 @@ mod tests {
                 0,
             ))
             .expect("leader on tail");
+        let stem_len = world.revision.traffic().lane_lengths_millimetres()[stem.index()];
         let follower = world
             .spawn_vehicle(VehicleSpawnInput::new(
                 VehicleProfileOrdinal::from_raw(0),
                 route,
                 0,
-                1_000,
+                stem_len.saturating_sub(1_000),
                 0,
             ))
             .expect("follower on stem");
         world.rebuild_occupancy_index().expect("occupancy rebuild");
         assert_index_matches_scan(&world);
         let state = world.vehicle_state(follower).copied().unwrap();
-        assert!(index_gap(&world, &state).is_some());
+        let gap = index_gap(&world, &state).expect("next-edge leader inside bumper window");
+        assert!(gap > 0, "next-edge rear bumper must be ahead, gap={gap}");
     }
 
     #[test]
@@ -1151,7 +1211,23 @@ mod tests {
         world.rebuild_occupancy_index().expect("occupancy rebuild");
         assert_index_matches_scan(&world);
         let state = world.vehicle_state(follower).copied().unwrap();
-        let gap = index_gap(&world, &state).expect("wrap-around leader");
+        assert_eq!(
+            index_gap(&world, &state),
+            None,
+            "wrap gap is tens of metres, beyond rest bumper_gap_horizon"
+        );
+        let lengths = world.revision.traffic().lane_lengths_millimetres();
+        let edges = world.route_edges(state.route).unwrap();
+        let cursor = usize::try_from(state.route_edge_index).unwrap();
+        let unbounded = world.occupancy.leader_gap(
+            state.handle,
+            edges,
+            cursor,
+            state.progress_mm,
+            lengths,
+            LeaderQueryHorizon::UNBOUNDED,
+        );
+        let gap = unbounded.expect("wrap-around leader without bumper filter");
         assert!(
             gap > 20_000,
             "leader behind on the current occurrence must be found via the next a, gap={gap}"
@@ -1325,16 +1401,14 @@ mod tests {
         let lengths = world.revision.traffic().lane_lengths_millimetres();
         let follower_edges = world.route_edges(follower_state.route).unwrap();
         let leader_edges = world.route_edges(leader_state.route).unwrap();
-        let horizon_mm = world
-            .front_query_horizon_mm_for(&follower_state)
-            .expect("finite front query horizon");
+        let horizon = world.leader_query_horizon_for(&follower_state);
         let indexed = world.occupancy.leader_gap(
             follower_state.handle,
             follower_edges,
             usize::try_from(follower_state.route_edge_index).unwrap(),
             follower_state.progress_mm,
             lengths,
-            horizon_mm,
+            horizon,
         );
         let pair = occupancy_front_gap(
             lengths,
@@ -1614,8 +1688,22 @@ mod tests {
         })
     }
 
+    fn expected_bumper_si(
+        speed: f32,
+        profile: laneflow_static_network::VehicleProfileView,
+        delta_s: f32,
+    ) -> f32 {
+        let v_upper = speed + profile.max_accel() * delta_s;
+        let travel_upper = 0.5 * (speed + v_upper) * delta_s;
+        let hard = travel_upper + v_upper * v_upper / (2.0 * profile.emergency_decel());
+        let min_gap = profile.min_gap_mm() as f32 / 1_000.0;
+        let comfort = min_gap + speed * profile.time_headway();
+        let minimum_gap = min_gap + travel_upper + 0.001;
+        hard.max(comfort).max(minimum_gap)
+    }
+
     #[test]
-    fn front_query_horizon_ceils_si_and_includes_max_vehicle_length() {
+    fn leader_query_horizon_ceils_bumper_then_adds_max_vehicle_length() {
         let revision = two_edge_revision();
         let profile = revision
             .traffic()
@@ -1623,55 +1711,47 @@ mod tests {
             .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
             .unwrap();
         let delta_s = 0.1_f32;
-        let mm = front_query_horizon_mm(0, profile, delta_s).expect("finite horizon");
-        let speed = 0.0_f32;
-        let v_upper = speed + profile.max_accel() * delta_s;
-        let travel_upper = 0.5 * (speed + v_upper) * delta_s;
-        let hard = travel_upper + v_upper * v_upper / (2.0 * profile.emergency_decel());
-        let min_gap = profile.min_gap_mm() as f32 / 1_000.0;
-        let comfort = min_gap + speed * profile.time_headway();
-        let minimum_gap = min_gap + travel_upper + 0.001;
-        let bumper = hard.max(comfort).max(minimum_gap);
-        let expected = ceil_mm(f64::from(bumper))
-            .expect("ceil bumper")
-            .saturating_add(MAX_VEHICLE_LENGTH_MM);
-        assert_eq!(mm, expected);
-        assert!(mm >= MAX_VEHICLE_LENGTH_MM + profile.min_gap_mm());
-        assert_eq!(front_query_horizon_mm(0, profile, f32::NAN), None);
-        assert_eq!(front_query_horizon_mm(0, profile, 0.0), None);
-        assert_eq!(front_query_horizon_mm(0, profile, -1.0), None);
+        let horizon = leader_query_horizon(0, profile, delta_s).expect("finite horizon");
+        let expected_bumper =
+            ceil_mm(f64::from(expected_bumper_si(0.0, profile, delta_s))).expect("ceil bumper");
+        assert_eq!(horizon.bumper_gap_mm, expected_bumper);
+        assert_eq!(
+            horizon.front_query_mm,
+            expected_bumper.saturating_add(MAX_VEHICLE_LENGTH_MM)
+        );
+        assert!(horizon.front_query_mm > horizon.bumper_gap_mm);
+        assert_eq!(leader_query_horizon(0, profile, f32::NAN), None);
+        assert_eq!(leader_query_horizon(0, profile, 0.0), None);
+        assert_eq!(leader_query_horizon(0, profile, -1.0), None);
         assert_eq!(ceil_mm(1.0), Some(1_000));
         assert_eq!(ceil_mm(1.000_1), Some(1_001));
         assert_eq!(ceil_mm(-0.1), None);
 
-        let moving = front_query_horizon_mm(5_000, profile, delta_s).expect("moving horizon");
+        let moving = leader_query_horizon(5_000, profile, delta_s).expect("moving horizon");
         let speed = 5.0_f32;
-        let v_upper = speed + profile.max_accel() * delta_s;
-        let travel_upper = 0.5 * (speed + v_upper) * delta_s;
-        let hard = travel_upper + v_upper * v_upper / (2.0 * profile.emergency_decel());
         let min_gap = profile.min_gap_mm() as f32 / 1_000.0;
         let comfort = min_gap + speed * profile.time_headway();
-        let minimum_gap = min_gap + travel_upper + 0.001;
-        let bumper = hard.max(comfort).max(minimum_gap);
+        let bumper_si = expected_bumper_si(speed, profile, delta_s);
         assert!(
-            comfort > hard && comfort > minimum_gap,
-            "nonzero-speed case must lock the comfort term, comfort={comfort} hard={hard} minimum_gap={minimum_gap}"
+            (comfort - bumper_si).abs() < f32::EPSILON,
+            "nonzero-speed case must lock the comfort term, comfort={comfort} bumper={bumper_si}"
         );
+        let expected_moving = ceil_mm(f64::from(bumper_si)).expect("ceil bumper");
+        assert_eq!(moving.bumper_gap_mm, expected_moving);
         assert_eq!(
-            moving,
-            ceil_mm(f64::from(bumper))
-                .expect("ceil bumper")
-                .saturating_add(MAX_VEHICLE_LENGTH_MM)
+            moving.front_query_mm,
+            expected_moving.saturating_add(MAX_VEHICLE_LENGTH_MM)
         );
     }
 
     #[test]
-    fn current_edge_leader_at_horizon_is_included() {
+    fn current_edge_accepts_bumper_window_not_front_padding() {
         let edge = LaneEdgeOrdinal::from_raw(0);
         let follower = VehicleHandle::new(0, 0);
         let leader = VehicleHandle::new(1, 0);
         let mut index = OccupancyIndex::with_capacity(1, 2);
-        let horizon = 20_000_u32;
+        let bumper = 20_000_u32;
+        let front = 150_000_u32;
         let pending = vec![
             OccupancyRecord {
                 vehicle: follower,
@@ -1683,27 +1763,66 @@ mod tests {
             OccupancyRecord {
                 vehicle: leader,
                 bucket: OccupancyBucketOrdinal::from_edge(edge),
-                lo_mm: 1_000 + horizon,
-                hi_mm: 1_000 + horizon + 2_000,
+                lo_mm: 1_000 + bumper,
+                hi_mm: 1_000 + bumper + 2_000,
                 update_sequence: 1,
             },
         ];
         index.rebuild_from_pending(&pending, 1);
-        let gap = index.leader_gap(follower, &[edge], 0, 1_000, &[400_000], horizon);
-        assert_eq!(gap, Some(i64::from(horizon)));
-        let beyond = index.leader_gap(
+        let at_bumper = index.leader_gap(
             follower,
             &[edge],
             0,
             1_000,
             &[400_000],
-            horizon.saturating_sub(1),
+            LeaderQueryHorizon::new(bumper, front),
         );
-        assert_eq!(beyond, None);
+        assert_eq!(at_bumper, Some(i64::from(bumper)));
+
+        pending_replace_lo(&mut index, &pending, follower, leader, edge, bumper + 1);
+        let phantom = index.leader_gap(
+            follower,
+            &[edge],
+            0,
+            1_000,
+            &[400_000],
+            LeaderQueryHorizon::new(bumper, front),
+        );
+        assert_eq!(
+            phantom, None,
+            "gap inside front padding must not be a leader"
+        );
+    }
+
+    fn pending_replace_lo(
+        index: &mut OccupancyIndex,
+        pending: &[OccupancyRecord],
+        follower: VehicleHandle,
+        leader: VehicleHandle,
+        edge: LaneEdgeOrdinal,
+        leader_lo: u32,
+    ) {
+        let pending = vec![
+            OccupancyRecord {
+                vehicle: follower,
+                bucket: OccupancyBucketOrdinal::from_edge(edge),
+                lo_mm: pending[0].lo_mm,
+                hi_mm: pending[0].hi_mm,
+                update_sequence: 0,
+            },
+            OccupancyRecord {
+                vehicle: leader,
+                bucket: OccupancyBucketOrdinal::from_edge(edge),
+                lo_mm: 1_000 + leader_lo,
+                hi_mm: 1_000 + leader_lo + 2_000,
+                update_sequence: 1,
+            },
+        ];
+        index.rebuild_from_pending(&pending, 1);
     }
 
     #[test]
-    fn subsequent_entrance_at_horizon_is_included() {
+    fn subsequent_entrance_walks_front_and_accepts_bumper() {
         let first = LaneEdgeOrdinal::from_raw(0);
         let second = LaneEdgeOrdinal::from_raw(1);
         let follower = VehicleHandle::new(0, 0);
@@ -1711,7 +1830,6 @@ mod tests {
         let lengths = [10_000_u32, 10_000];
         let edges = [first, second];
         let remaining_on_current = 9_000_u32;
-        let horizon = remaining_on_current;
         let pending = vec![
             OccupancyRecord {
                 vehicle: follower,
@@ -1731,8 +1849,15 @@ mod tests {
         let mut occupancy = OccupancyIndex::with_capacity(2, pending.len());
         occupancy.rebuild_from_pending(&pending, 2);
         occupancy.reset_inspections();
-        let gap = occupancy.leader_gap(follower, &edges, 0, 1_000, &lengths, horizon);
-        assert_eq!(gap, Some(i64::from(horizon)));
+        let accepted = occupancy.leader_gap(
+            follower,
+            &edges,
+            0,
+            1_000,
+            &lengths,
+            LeaderQueryHorizon::new(remaining_on_current, remaining_on_current),
+        );
+        assert_eq!(accepted, Some(i64::from(remaining_on_current)));
         assert_eq!(occupancy.occurrence_walks(), 1);
 
         occupancy.reset_inspections();
@@ -1742,21 +1867,40 @@ mod tests {
             0,
             1_000,
             &lengths,
-            remaining_on_current.saturating_sub(1),
+            LeaderQueryHorizon::new(
+                remaining_on_current.saturating_sub(1),
+                remaining_on_current.saturating_sub(1),
+            ),
         );
         assert_eq!(skipped, None);
         assert_eq!(occupancy.occurrence_walks(), 0);
+
+        occupancy.reset_inspections();
+        let phantom = occupancy.leader_gap(
+            follower,
+            &edges,
+            0,
+            1_000,
+            &lengths,
+            LeaderQueryHorizon::new(remaining_on_current.saturating_sub(1), remaining_on_current),
+        );
+        assert_eq!(phantom, None);
+        assert_eq!(
+            occupancy.occurrence_walks(),
+            1,
+            "front walk must still visit; bumper window rejects"
+        );
     }
 
     #[test]
-    fn subsequent_gap_beyond_horizon_is_dropped_after_visit() {
+    fn subsequent_gap_beyond_bumper_is_dropped_after_visit() {
         let first = LaneEdgeOrdinal::from_raw(0);
         let second = LaneEdgeOrdinal::from_raw(1);
         let follower = VehicleHandle::new(0, 0);
         let leader = VehicleHandle::new(1, 0);
         let lengths = [10_000_u32, 10_000];
         let edges = [first, second];
-        let horizon = 9_000_u32;
+        let bumper = 9_000_u32;
         let pending = vec![
             OccupancyRecord {
                 vehicle: follower,
@@ -1776,24 +1920,31 @@ mod tests {
         let mut occupancy = OccupancyIndex::with_capacity(2, pending.len());
         occupancy.rebuild_from_pending(&pending, 2);
         occupancy.reset_inspections();
-        let gap = occupancy.leader_gap(follower, &edges, 0, 1_000, &lengths, horizon);
+        let gap = occupancy.leader_gap(
+            follower,
+            &edges,
+            0,
+            1_000,
+            &lengths,
+            LeaderQueryHorizon::new(bumper, bumper),
+        );
         assert_eq!(gap, None);
         assert_eq!(
             occupancy.occurrence_walks(),
             1,
-            "entrance == horizon must still visit the later occurrence"
+            "entrance == walk window must still visit the later occurrence"
         );
     }
 
     #[test]
-    fn wrap_occurrence_beyond_horizon_is_not_leader() {
+    fn wrap_occurrence_beyond_walk_window_is_not_leader() {
         let a = LaneEdgeOrdinal::from_raw(0);
         let b = LaneEdgeOrdinal::from_raw(1);
         let follower = VehicleHandle::new(0, 0);
         let behind = VehicleHandle::new(1, 0);
         let lengths = [10_000_u32, 10_000];
         let edges = [a, b, a];
-        let horizon = 5_000_u32;
+        let window = 5_000_u32;
         let pending = vec![
             OccupancyRecord {
                 vehicle: follower,
@@ -1813,10 +1964,24 @@ mod tests {
         let mut occupancy = OccupancyIndex::with_capacity(2, pending.len());
         occupancy.rebuild_from_pending(&pending, 2);
         occupancy.reset_inspections();
-        let bounded = occupancy.leader_gap(follower, &edges, 0, 9_000, &lengths, horizon);
+        let bounded = occupancy.leader_gap(
+            follower,
+            &edges,
+            0,
+            9_000,
+            &lengths,
+            LeaderQueryHorizon::new(window, window),
+        );
         let bounded_walks = occupancy.occurrence_walks();
         occupancy.reset_inspections();
-        let unbounded = occupancy.leader_gap(follower, &edges, 0, 9_000, &lengths, u32::MAX);
+        let unbounded = occupancy.leader_gap(
+            follower,
+            &edges,
+            0,
+            9_000,
+            &lengths,
+            LeaderQueryHorizon::UNBOUNDED,
+        );
         let unbounded_walks = occupancy.occurrence_walks();
         assert_eq!(bounded, None);
         assert_eq!(
@@ -1828,6 +1993,83 @@ mod tests {
             unbounded_walks > bounded_walks,
             "unbounded wrap must walk the repeated a, bounded={bounded_walks} unbounded={unbounded_walks}"
         );
+    }
+
+    #[test]
+    fn overlapping_negative_gap_stays_visible_at_zero_bumper_window() {
+        let edge = LaneEdgeOrdinal::from_raw(0);
+        let follower = VehicleHandle::new(0, 0);
+        let leader = VehicleHandle::new(1, 0);
+        let mut index = OccupancyIndex::with_capacity(1, 2);
+        let pending = vec![
+            OccupancyRecord {
+                vehicle: follower,
+                bucket: OccupancyBucketOrdinal::from_edge(edge),
+                lo_mm: 0,
+                hi_mm: 5_000,
+                update_sequence: 0,
+            },
+            OccupancyRecord {
+                vehicle: leader,
+                bucket: OccupancyBucketOrdinal::from_edge(edge),
+                lo_mm: 4_000,
+                hi_mm: 8_000,
+                update_sequence: 1,
+            },
+        ];
+        index.rebuild_from_pending(&pending, 1);
+        let gap = index.leader_gap(
+            follower,
+            &[edge],
+            0,
+            5_000,
+            &[20_000],
+            LeaderQueryHorizon::new(0, 150_000),
+        );
+        assert_eq!(gap, Some(-1_000));
+    }
+
+    #[test]
+    fn close_current_leader_stops_later_occurrence_walks() {
+        let edges: Vec<_> = (0..16_u32).map(LaneEdgeOrdinal::from_raw).collect();
+        let lengths = vec![10_000_u32; 16];
+        let follower = VehicleHandle::new(0, 0);
+        let mut pending = vec![OccupancyRecord {
+            vehicle: follower,
+            bucket: OccupancyBucketOrdinal::from_edge(edges[0]),
+            lo_mm: 0,
+            hi_mm: 1_000,
+            update_sequence: 0,
+        }];
+        pending.push(OccupancyRecord {
+            vehicle: VehicleHandle::new(1, 0),
+            bucket: OccupancyBucketOrdinal::from_edge(edges[0]),
+            lo_mm: 1_000,
+            hi_mm: 2_000,
+            update_sequence: 1,
+        });
+        for index in 2..16_u32 {
+            pending.push(OccupancyRecord {
+                vehicle: VehicleHandle::new(index, 0),
+                bucket: OccupancyBucketOrdinal::from_edge(edges[index as usize]),
+                lo_mm: 100,
+                hi_mm: 1_000,
+                update_sequence: index,
+            });
+        }
+        let mut occupancy = OccupancyIndex::with_capacity(16, pending.len());
+        occupancy.rebuild_from_pending(&pending, 16);
+        occupancy.reset_inspections();
+        let gap = occupancy.leader_gap(
+            follower,
+            &edges,
+            0,
+            1_000,
+            &lengths,
+            LeaderQueryHorizon::UNBOUNDED,
+        );
+        assert_eq!(gap, Some(0));
+        assert_eq!(occupancy.occurrence_walks(), 0);
     }
 
     #[test]
@@ -1845,10 +2087,10 @@ mod tests {
             .relations()
             .vehicle_profile(VehicleProfileOrdinal::from_raw(0))
             .unwrap();
-        let horizon = front_query_horizon_mm(0, profile, 0.1).expect("finite horizon");
+        let horizon = leader_query_horizon(0, profile, 0.1).expect("finite horizon");
         let follower_progress = 1_000_u32;
         let far_progress = follower_progress
-            .saturating_add(horizon)
+            .saturating_add(horizon.front_query_mm)
             .saturating_add(profile.length_mm())
             .saturating_add(1);
         world
@@ -1874,8 +2116,48 @@ mod tests {
         assert_eq!(index_gap(&world, &state), None);
         assert_index_matches_scan(&world);
 
+        let phantom_progress = follower_progress
+            .saturating_add(horizon.bumper_gap_mm)
+            .saturating_add(profile.length_mm())
+            .saturating_add(1);
+        let mut phantom_world = TrafficWorld::install(
+            long_corridor_revision(400.0),
+            WorldConfig::new(8, 4, 1, 100),
+        )
+        .expect("install");
+        let phantom_route = phantom_world
+            .register_route(RouteRegisterInput::new(vec![edge]))
+            .expect("route");
+        phantom_world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                phantom_route,
+                0,
+                phantom_progress,
+                0,
+            ))
+            .expect("phantom leader");
+        let phantom_follower = phantom_world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                phantom_route,
+                0,
+                follower_progress,
+                0,
+            ))
+            .expect("follower");
+        phantom_world
+            .rebuild_occupancy_index()
+            .expect("occupancy rebuild");
+        let phantom_state = phantom_world
+            .vehicle_state(phantom_follower)
+            .copied()
+            .unwrap();
+        assert_eq!(index_gap(&phantom_world, &phantom_state), None);
+        assert_index_matches_scan(&phantom_world);
+
         let near_progress = follower_progress
-            .saturating_add(horizon)
+            .saturating_add(horizon.bumper_gap_mm)
             .saturating_add(profile.length_mm());
         let mut near_world = TrafficWorld::install(
             long_corridor_revision(400.0),
@@ -1909,15 +2191,15 @@ mod tests {
         let near_state = near_world.vehicle_state(near_follower).copied().unwrap();
         assert_eq!(
             index_gap(&near_world, &near_state),
-            Some(i64::from(horizon))
+            Some(i64::from(horizon.bumper_gap_mm))
         );
         assert_index_matches_scan(&near_world);
     }
 
     #[test]
-    fn subsequent_walks_follow_horizon_not_remaining_edge_count() {
+    fn subsequent_walks_follow_front_query_not_remaining_edge_count() {
         let follower = VehicleHandle::new(0, 0);
-        let horizon = 20_000_u32;
+        let front = 20_000_u32;
         for edge_count in [8_usize, 16, 32] {
             let edges: Vec<_> = (0..edge_count as u32)
                 .map(LaneEdgeOrdinal::from_raw)
@@ -1943,12 +2225,61 @@ mod tests {
             let mut occupancy = OccupancyIndex::with_capacity(edge_count, pending.len());
             occupancy.rebuild_from_pending(&pending, edge_count);
             occupancy.reset_inspections();
-            let gap = occupancy.leader_gap(follower, &edges, 0, 1_000, &lengths, horizon);
+            let gap = occupancy.leader_gap(
+                follower,
+                &edges,
+                0,
+                1_000,
+                &lengths,
+                LeaderQueryHorizon::new(2_000, front),
+            );
             let walks = occupancy.occurrence_walks();
             assert_eq!(gap, None, "edge_count={edge_count}");
             assert_eq!(
                 walks, 2,
-                "subsequent walks must follow horizon, edge_count={edge_count} walks={walks}"
+                "subsequent walks must follow front_query, edge_count={edge_count} walks={walks}"
+            );
+        }
+
+        let formula_front = 130_010_u32;
+        for edge_count in [32_usize, 64] {
+            let edges: Vec<_> = (0..edge_count as u32)
+                .map(LaneEdgeOrdinal::from_raw)
+                .collect();
+            let lengths = vec![10_000_u32; edge_count];
+            let last = edge_count as u32 - 1;
+            let pending = vec![
+                OccupancyRecord {
+                    vehicle: follower,
+                    bucket: OccupancyBucketOrdinal::from_edge(edges[0]),
+                    lo_mm: 0,
+                    hi_mm: 1_000,
+                    update_sequence: 0,
+                },
+                OccupancyRecord {
+                    vehicle: VehicleHandle::new(last, 0),
+                    bucket: OccupancyBucketOrdinal::from_edge(edges[last as usize]),
+                    lo_mm: 100,
+                    hi_mm: 1_000,
+                    update_sequence: last,
+                },
+            ];
+            let mut occupancy = OccupancyIndex::with_capacity(edge_count, pending.len());
+            occupancy.rebuild_from_pending(&pending, edge_count);
+            occupancy.reset_inspections();
+            let gap = occupancy.leader_gap(
+                follower,
+                &edges,
+                0,
+                1_000,
+                &lengths,
+                LeaderQueryHorizon::new(2_010, formula_front),
+            );
+            let walks = occupancy.occurrence_walks();
+            assert_eq!(gap, None, "formula-scale edge_count={edge_count}");
+            assert_eq!(
+                walks, 13,
+                "walks must follow ~130 m front_query, edge_count={edge_count} walks={walks}"
             );
         }
     }
