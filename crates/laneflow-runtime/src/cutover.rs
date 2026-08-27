@@ -5,8 +5,15 @@ use laneflow_static_contract::{
     ExactByteLength, NETWORK_REVISION_DERIVATION_VERSION, NetworkRevisionId,
     SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest,
 };
-use laneflow_static_network::CanonicalNetworkOrigin;
+use std::sync::Arc;
+
+use laneflow_static_network::{CanonicalNetworkOrigin, SharedNetworkRevision};
 use thiserror::Error;
+
+use crate::source::CommittedNetworkSource;
+use crate::tables::CompiledRoute;
+use crate::tables::compile_route;
+use crate::{StepError, TrafficWorld};
 
 /// 描述符封闭契约版本（#302 切换合同 §2）。
 pub const CUTOVER_DESCRIPTOR_FORMAT_VERSION: u16 = 1;
@@ -367,6 +374,100 @@ impl NetworkRevisionCutoverDescriptor {
     }
 }
 
+/// 切换事务失败（#302 切换合同 §8）。任一失败路径都保持旧世界原样
+/// 继续：旧修订、旧动态状态、旧来源、旧占用与信号语义不变。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+pub enum CutoverError {
+    /// 描述符一致性验证失败（对应合同 §8「描述符不一致/不可信」）。
+    #[error("切换描述符一致性验证失败")]
+    Descriptor(#[from] CutoverDescriptorError),
+    /// 本入口只承载 `same_revision_restore`；跨修订直移属切片 C。
+    #[error("本切换入口不接受该迁移策略")]
+    PolicyMismatch,
+    /// 目标来源的修订标识与 target 侧已认证制品不一致。
+    #[error("目标来源修订与 target 制品修订不一致")]
+    TargetSourceRevisionMismatch,
+    /// 候选构造失败：某条已注册路线对 target 根重编译失败（同修订下
+    /// 属防御深度，语义上不可达）。
+    #[error("路线对 target 根重编译失败")]
+    RouteRevalidationFailed,
+    /// 晋升后占用索引重建失败（同修订不变量下语义上不可达）。
+    #[error("占用索引重建失败")]
+    OccupancyRebuild(#[from] StepError),
+}
+
+impl TrafficWorld {
+    /// 同修订换根事务（#302 切换合同 §3/§4 的 `same_revision_restore`）。
+    ///
+    /// 在固定步进安全边界（生命周期命令只能在两次 `step` 之间调用）以
+    /// 原子方式把活动根换为同修订重发布/重编译制品：动态状态原样保留，
+    /// 每条已注册路线的 compiled 表对 target 根原地重编译（当期
+    /// `RouteHandle` / `VehicleHandle` 保持有效，ADR 0029 §6），信号灯色
+    /// 与占用索引按 target 根重建。任一验证或构造失败都失败关闭：旧
+    /// 世界原样继续、零可观察变化。
+    ///
+    /// 事务边界说明（v1 同步形态）：基准捕获与「日志武装」在同一次调用
+    /// 内完成——同修订换根不改变动态状态，迁移增量日志退化为空路径；
+    /// 在途唯一性由同步入口保证（不存在并发候选）；世代复核由入口处对
+    /// base 绑定的认证承担。后台候选、journal 内容与摘要复核属切片 C。
+    /// 旧修订回收由 `Arc` 引用计数自然承担（最后借用退出即回收）。
+    pub fn cutover_same_revision(
+        &mut self,
+        target_revision: Arc<SharedNetworkRevision>,
+        target_source: CommittedNetworkSource,
+        descriptor: &NetworkRevisionCutoverDescriptor,
+        limits: &CutoverPreflightLimits,
+    ) -> Result<(), CutoverError> {
+        if descriptor.policy_kind() != MigrationPolicyKind::SameRevisionRestore {
+            return Err(CutoverError::PolicyMismatch);
+        }
+        let base_origin = *self.revision.canonical_origin();
+        let target_origin = *target_revision.canonical_origin();
+        descriptor.validate(base_origin, target_origin, limits)?;
+        if target_source.network_revision() != target_origin.network_revision() {
+            return Err(CutoverError::TargetSourceRevisionMismatch);
+        }
+        // 同修订不变量：实体集合与规范排序一致，槽位形态保持。
+        let space_count = |revision: &Arc<SharedNetworkRevision>| {
+            usize::try_from(
+                revision
+                    .traffic()
+                    .entity_counts()
+                    .count(laneflow_static_contract::EntityKind::ParkingSpace),
+            )
+            .unwrap_or(0)
+        };
+        if self.revision.traffic().lane_edge_count() != target_revision.traffic().lane_edge_count()
+            || space_count(&self.revision) != space_count(&target_revision)
+        {
+            return Err(CutoverError::RouteRevalidationFailed);
+        }
+        // Prepare（staging，失败不触及旧世界）：逐路线对 target 根重编译。
+        let target_traffic = target_revision.traffic();
+        let mut staged: Vec<(usize, CompiledRoute)> = Vec::with_capacity(self.routes.len());
+        for (index, slot) in self.routes.iter().enumerate() {
+            if let Some(compiled) = slot.compiled.as_ref() {
+                staged.push((
+                    index,
+                    compile_route(target_traffic, compiled.edges.as_ref())
+                        .map_err(|_| CutoverError::RouteRevalidationFailed)?,
+                ));
+            }
+        }
+        // Quiescent Commit：全部可失败步骤已过，剩余为不可失败的原地换绑。
+        self.revision = target_revision;
+        for (index, compiled) in staged {
+            if let Some(slot) = self.routes.get_mut(index) {
+                slot.compiled = Some(compiled);
+            }
+        }
+        self.source = target_source;
+        self.refresh_signals();
+        self.rebuild_occupancy_index()?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use laneflow_format::{FormatLimits, check_canonical_network_input};
@@ -641,5 +742,278 @@ mod tests {
             nonzero.validate(base, base, &limits()),
             Err(CutoverDescriptorError::ReservedEventCursorNonZero { actual: 7 })
         );
+    }
+
+    #[cfg(test)]
+    mod transaction_tests {
+        use crate::PublishedLfcaReference;
+        use laneflow_format::{FormatLimits, check_canonical_network_input};
+        use laneflow_static_network::{
+            SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
+            build_shared_network_revision,
+        };
+
+        use super::*;
+        use crate::{RouteRegisterInput, TickInput, VehicleSpawnInput, WorldConfig};
+
+        const PROVENANCE_BASE: &[u8] = include_bytes!(
+            "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-base.lfca"
+        );
+        const PROVENANCE_BUILD: &[u8] = include_bytes!(
+            "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-build.lfca"
+        );
+
+        /// 同一 LFCA 字节按不同 Spatial 构建选项构建两个根对象：origin
+        /// 四联相同（同修订换根判据成立），根对象身份不同（真实换绑路径）。
+        /// 可行驶的同修订不同字节对不在现有夹具内；provenance 对只覆盖
+        /// 描述符层验证（见 cutover::tests）。
+        fn revision(retain: bool) -> Arc<SharedNetworkRevision> {
+            let input = check_canonical_network_input(
+                include_bytes!(
+                    "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+                ),
+                FormatLimits::HARD,
+            )
+            .expect("checked canonical network input");
+            build_shared_network_revision(
+                input,
+                SharedNetworkBuildOptions::new(
+                    if retain {
+                        SpatialBuildOption::RetainAvailable
+                    } else {
+                        SpatialBuildOption::Omit
+                    },
+                    SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+                ),
+            )
+            .expect("shared network revision")
+        }
+
+        fn source_for(origin: CanonicalNetworkOrigin, key: &str) -> CommittedNetworkSource {
+            CommittedNetworkSource::Published {
+                reference: PublishedLfcaReference::new(
+                    key,
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .expect("non-empty key"),
+            }
+        }
+
+        fn world_with_vehicle(
+            retain: bool,
+        ) -> (TrafficWorld, crate::RouteHandle, crate::VehicleHandle) {
+            let revision = revision(retain);
+            let origin = *revision.canonical_origin();
+            let mut world = TrafficWorld::install(
+                Arc::clone(&revision),
+                WorldConfig::new(8, 4, 1, 100),
+                source_for(origin, "fixture://base"),
+            )
+            .expect("install");
+            let first = laneflow_static_contract::LaneEdgeOrdinal::from_raw(0);
+            let successors: &[laneflow_static_contract::LaneEdgeOrdinal] =
+                world.traffic().successors(first).unwrap_or(&[]);
+            let edges = if let Some(second) = successors.first() {
+                vec![first, *second]
+            } else {
+                vec![first]
+            };
+            let route = world
+                .register_route(RouteRegisterInput::new(edges))
+                .expect("route");
+            let vehicle = world
+                .spawn_vehicle(VehicleSpawnInput::new(
+                    laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                    route,
+                    0,
+                    1_000,
+                    0,
+                ))
+                .expect("vehicle");
+            (world, route, vehicle)
+        }
+
+        fn limits() -> CutoverPreflightLimits {
+            CutoverPreflightLimits::new(1_048_576)
+        }
+
+        #[test]
+        fn same_revision_cutover_preserves_handles_and_state() {
+            let (mut world, route, vehicle) = world_with_vehicle(true);
+            for _ in 0..3 {
+                world.step(TickInput::new(100)).expect("step before");
+            }
+            let before = world.vehicle_state(vehicle).copied().expect("vehicle");
+            let edges_before: Vec<_> = world.route_edges(route).expect("route").to_vec();
+            let base_origin = *world.revision().canonical_origin();
+
+            let target = revision(false);
+            let target_origin = *target.canonical_origin();
+            let target_source = source_for(target_origin, "fixture://republished");
+            let descriptor = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(base_origin),
+                LfcaOriginBinding::from_canonical_origin(target_origin),
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                WorldBinding::new(1, 5, 0),
+            );
+            world
+                .cutover_same_revision(Arc::clone(&target), target_source, &descriptor, &limits())
+                .expect("same-revision cutover");
+
+            // 根与来源已换绑；句柄继续寻址同一逻辑实体，动态状态逐字段不变。
+            assert_eq!(
+                world
+                    .revision()
+                    .canonical_origin()
+                    .canonical_artifact_digest(),
+                target_origin.canonical_artifact_digest()
+            );
+            assert_eq!(
+                world.committed_source(),
+                &source_for(target_origin, "fixture://republished")
+            );
+            let after = world.vehicle_state(vehicle).copied().expect("vehicle");
+            assert_eq!(before.handle, after.handle);
+            assert_eq!(before.route, after.route);
+            assert_eq!(before.route_edge_index, after.route_edge_index);
+            assert_eq!(before.progress_mm, after.progress_mm);
+            assert_eq!(before.carry_um, after.carry_um);
+            assert_eq!(before.speed_mm_s, after.speed_mm_s);
+            assert_eq!(before.status, after.status);
+            let edges_after: Vec<_> = world.route_edges(route).expect("route").to_vec();
+            assert_eq!(edges_before, edges_after);
+            // 换绑后世界继续确定性步进。
+            world.step(TickInput::new(100)).expect("step after");
+        }
+
+        #[test]
+        fn same_revision_cutover_is_logically_identity() {
+            // 逻辑恒等 oracle：切换世界与未切换世界的后续步进逐点一致。
+            let (mut cut, _, _) = world_with_vehicle(true);
+            let (mut plain, _, vehicle_plain) = world_with_vehicle(true);
+            for _ in 0..2 {
+                cut.step(TickInput::new(100)).expect("step cut");
+                plain.step(TickInput::new(100)).expect("step plain");
+            }
+            let base_origin = *cut.revision().canonical_origin();
+            let target = revision(false);
+            let target_origin = *target.canonical_origin();
+            let descriptor = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(base_origin),
+                LfcaOriginBinding::from_canonical_origin(target_origin),
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                WorldBinding::new(1, 2, 0),
+            );
+            cut.cutover_same_revision(
+                target,
+                source_for(target_origin, "fixture://republished"),
+                &descriptor,
+                &limits(),
+            )
+            .expect("cutover");
+            for _ in 0..5 {
+                cut.step(TickInput::new(100)).expect("step cut");
+                plain.step(TickInput::new(100)).expect("step plain");
+            }
+            let cut_state = cut.vehicle_state(vehicle_plain).copied().expect("vehicle");
+            let plain_state = plain
+                .vehicle_state(vehicle_plain)
+                .copied()
+                .expect("vehicle");
+            assert_eq!(
+                (
+                    cut_state.progress_mm,
+                    cut_state.speed_mm_s,
+                    cut_state.status
+                ),
+                (
+                    plain_state.progress_mm,
+                    plain_state.speed_mm_s,
+                    plain_state.status
+                )
+            );
+        }
+
+        #[test]
+        fn policy_mismatch_rejects_before_any_change() {
+            let (mut world, _, _) = world_with_vehicle(true);
+            let before_origin = *world.revision().canonical_origin();
+            let target = revision(false);
+            let target_origin = *target.canonical_origin();
+            let descriptor = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(before_origin),
+                LfcaOriginBinding::from_canonical_origin(target_origin),
+                Some(SemanticDiffOriginBinding::new(
+                    2,
+                    laneflow_static_contract::Sha256Digest::from_bytes([5; 32]),
+                    laneflow_static_contract::ExactByteLength::new(1),
+                )),
+                MigrationPolicyKind::CrossRevisionDirect,
+                WorldBinding::new(1, 0, 0),
+            );
+            assert_eq!(
+                world
+                    .cutover_same_revision(
+                        target,
+                        source_for(target_origin, "fixture://x"),
+                        &descriptor,
+                        &limits()
+                    )
+                    .unwrap_err(),
+                CutoverError::PolicyMismatch
+            );
+            assert_eq!(
+                *world.revision().canonical_origin(),
+                before_origin,
+                "old world keeps its root"
+            );
+            world
+                .step(TickInput::new(100))
+                .expect("old world still steps");
+        }
+
+        #[test]
+        fn target_source_mismatch_fails_closed() {
+            let (mut world, _, _) = world_with_vehicle(true);
+            let before_origin = *world.revision().canonical_origin();
+            let before_source = world.committed_source().clone();
+            let target = revision(false);
+            let target_origin = *target.canonical_origin();
+            let descriptor = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(before_origin),
+                LfcaOriginBinding::from_canonical_origin(target_origin),
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                WorldBinding::new(1, 0, 0),
+            );
+            // 伪造指向其它修订的来源：来源绑定验证失败关闭。
+            let wrong_revision = laneflow_static_contract::NetworkRevisionId::from_digest(
+                laneflow_static_contract::Sha256Digest::from_bytes([1; 32]),
+            );
+            let wrong_source = CommittedNetworkSource::Published {
+                reference: PublishedLfcaReference::new(
+                    "fixture://wrong-target",
+                    before_origin.canonical_artifact_digest(),
+                    before_origin.canonical_artifact_byte_length(),
+                    wrong_revision,
+                )
+                .expect("non-empty key"),
+            };
+            assert_eq!(
+                world
+                    .cutover_same_revision(target, wrong_source, &descriptor, &limits())
+                    .unwrap_err(),
+                CutoverError::TargetSourceRevisionMismatch
+            );
+            assert_eq!(*world.revision().canonical_origin(), before_origin);
+            assert_eq!(world.committed_source(), &before_source);
+            world
+                .step(TickInput::new(100))
+                .expect("old world still steps");
+        }
     }
 }
