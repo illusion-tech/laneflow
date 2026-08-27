@@ -85,6 +85,9 @@ pub enum RouteError {
     /// 全部存活路线的边出现项总数会超过 world 容量。
     #[error("路线边出现项总数达到容量")]
     EdgeOccurrenceCapacityExceeded,
+    /// 路线编译所需缓冲无法预留。
+    #[error("路线编译缓冲分配失败")]
+    AllocationFailed,
     /// 句柄不是本世界有效路线。
     #[error("路线句柄无效或已失效")]
     StaleHandle,

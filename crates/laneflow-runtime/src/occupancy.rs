@@ -479,7 +479,7 @@ fn route_edges_in(routes: &[RouteSlot], route: RouteHandle) -> Option<&[LaneEdge
     if slot.generation != route.generation() {
         return None;
     }
-    Some(slot.compiled.as_ref()?.edges.as_ref())
+    Some(slot.compiled.as_ref()?.edges.as_slice())
 }
 
 fn visit_occupancy_records_with<'a>(
@@ -692,7 +692,9 @@ mod tests {
         SpatialBuildOption, build_shared_network_revision,
     };
 
-    use crate::tables::{occupancy_front_gap, remaining_along_route_i64};
+    use crate::tables::{
+        occupancy_front_gap, remaining_along_route_i64, with_route_allocation_failure_after,
+    };
     use crate::tick::leader_query_horizon;
     use crate::units::ceil_mm;
     use crate::{
@@ -1430,6 +1432,33 @@ mod tests {
                 .unwrap_err(),
             RouteError::EdgeOccurrenceCapacityExceeded
         );
+    }
+
+    #[test]
+    fn route_compilation_allocation_failure_leaves_world_unchanged() {
+        let revision = loop_revision();
+        let a = LaneEdgeOrdinal::from_raw(0);
+        let b = LaneEdgeOrdinal::from_raw(1);
+        let mut world =
+            install_fixture(revision, WorldConfig::new(8, 4, 3, 1, 100)).expect("install");
+
+        for successful_reservations in [0, 5] {
+            let result = with_route_allocation_failure_after(successful_reservations, || {
+                world.register_route(RouteRegisterInput::new(vec![a, b, a]))
+            });
+            assert_eq!(result.unwrap_err(), RouteError::AllocationFailed);
+            assert_eq!(world.live_route_count, 0);
+            assert_eq!(world.live_route_edge_occurrence_count, 0);
+            assert!(world.routes.is_empty());
+            assert!(world.free_routes.is_empty());
+        }
+
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![a, b, a]))
+            .expect("failpoint reset leaves world reusable");
+        assert_eq!(world.route_edges(route), Some([a, b, a].as_slice()));
+        assert_eq!(world.live_route_count, 1);
+        assert_eq!(world.live_route_edge_occurrence_count, 3);
     }
 
     #[test]

@@ -6,6 +6,9 @@ use laneflow_static_network::{
     AccessCell, BoundedDistance, SharedManeuverNetwork, SharedTrafficNetwork,
 };
 
+#[cfg(test)]
+use std::cell::Cell;
+
 use crate::{RouteError, VehicleState};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -45,16 +48,16 @@ pub(crate) struct WaitingOccurrence {
 /// 不上 `u64`，不把 world 身份写进 `RouteHandle`，不存「当前红灯」（ADR 0028 / 0029）。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CompiledRoute {
-    pub edges: Box<[LaneEdgeOrdinal]>,
-    pub maneuvers: Box<[ManeuverOccurrence]>,
-    pub hop_gate: Box<[Option<ManeuverGateOrdinal>]>,
-    pub remaining_to_end: Box<[BoundedDistance]>,
-    pub occurrence_segments: Box<[u32]>,
-    pub occurrence_offsets: Box<[u32]>,
-    pub segment_totals: Box<[u32]>,
-    pub next_controlled: Box<[Option<NextControlled>]>,
-    pub speed_limit_drop: Box<[SpeedLimitDrop]>,
-    pub waiting: Box<[WaitingOccurrence]>,
+    pub edges: Vec<LaneEdgeOrdinal>,
+    pub maneuvers: Vec<ManeuverOccurrence>,
+    pub hop_gate: Vec<Option<ManeuverGateOrdinal>>,
+    pub remaining_to_end: Vec<BoundedDistance>,
+    pub occurrence_segments: Vec<u32>,
+    pub occurrence_offsets: Vec<u32>,
+    pub segment_totals: Vec<u32>,
+    pub next_controlled: Vec<Option<NextControlled>>,
+    pub speed_limit_drop: Vec<SpeedLimitDrop>,
+    pub waiting: Vec<WaitingOccurrence>,
 }
 
 #[derive(Clone, Debug)]
@@ -68,6 +71,69 @@ pub(crate) struct RouteSlot {
 pub(crate) struct VehicleSlot {
     pub generation: u32,
     pub state: Option<VehicleState>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static ROUTE_RESERVATIONS_BEFORE_FAILURE: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+#[cfg(test)]
+struct RouteAllocationFailpointReset(Option<usize>);
+
+#[cfg(test)]
+impl Drop for RouteAllocationFailpointReset {
+    fn drop(&mut self) {
+        ROUTE_RESERVATIONS_BEFORE_FAILURE.with(|remaining| remaining.set(self.0));
+    }
+}
+
+/// 只供同线程单元测试确定性覆盖第 N 次路线编译预留失败。
+#[cfg(test)]
+pub(crate) fn with_route_allocation_failure_after<T>(
+    successful_reservations: usize,
+    run: impl FnOnce() -> T,
+) -> T {
+    ROUTE_RESERVATIONS_BEFORE_FAILURE.with(|remaining| {
+        let _reset =
+            RouteAllocationFailpointReset(remaining.replace(Some(successful_reservations)));
+        run()
+    })
+}
+
+fn try_reserve_route_exact<T>(values: &mut Vec<T>, capacity: usize) -> Result<(), RouteError> {
+    if capacity == 0 {
+        return Ok(());
+    }
+    #[cfg(test)]
+    {
+        let fail = ROUTE_RESERVATIONS_BEFORE_FAILURE.with(|remaining| match remaining.get() {
+            Some(0) => true,
+            Some(value) => {
+                remaining.set(Some(value - 1));
+                false
+            }
+            None => false,
+        });
+        if fail {
+            return Err(RouteError::AllocationFailed);
+        }
+    }
+    values
+        .try_reserve_exact(capacity)
+        .map_err(|_| RouteError::AllocationFailed)
+}
+
+fn try_route_vec<T>(capacity: usize) -> Result<Vec<T>, RouteError> {
+    let mut values = Vec::new();
+    try_reserve_route_exact(&mut values, capacity)?;
+    Ok(values)
+}
+
+fn try_route_vec_filled<T: Clone>(len: usize, value: T) -> Result<Vec<T>, RouteError> {
+    let mut values = try_route_vec(len)?;
+    values.resize(len, value);
+    Ok(values)
 }
 
 fn route_pair_connected(
@@ -170,10 +236,10 @@ pub(crate) fn compile_route(
         }
     }
 
-    let mut maneuvers: Vec<ManeuverOccurrence> = Vec::new();
     let network = traffic.maneuvers();
     let transition_len = edges.len().saturating_sub(1);
-    let mut coverage = vec![None; edges.len()];
+    let mut maneuvers: Vec<ManeuverOccurrence> = try_route_vec(transition_len)?;
+    let mut coverage = try_route_vec_filled(edges.len(), None)?;
     for entry_index in 0..transition_len {
         let Some(path_ordinal) = unique_entry_path_match(
             network,
@@ -215,27 +281,29 @@ pub(crate) fn compile_route(
 
     let lengths = traffic.lane_lengths_millimetres();
     let speeds = traffic.lane_speed_limits_millimetres_per_second();
-    let mut remaining_to_end = vec![BoundedDistance::Finite(0); edges.len()];
+    let mut remaining_to_end = try_route_vec_filled(edges.len(), BoundedDistance::Finite(0))?;
     let mut suffix = BoundedDistance::Finite(0);
     for index in (0..edges.len()).rev() {
         let edge = edges[index];
         suffix = suffix.add(*lengths.get(edge.index()).unwrap_or(&0));
         remaining_to_end[index] = suffix;
     }
-    let route_lengths: Vec<u32> = edges
-        .iter()
-        .map(|edge| *lengths.get(edge.index()).unwrap_or(&0))
-        .collect();
+    let mut route_lengths = try_route_vec(edges.len())?;
+    route_lengths.extend(
+        edges
+            .iter()
+            .map(|edge| *lengths.get(edge.index()).unwrap_or(&0)),
+    );
     let (occurrence_segments, occurrence_offsets, segment_totals) =
-        segmented_route_coordinates(&route_lengths);
+        segmented_route_coordinates(&route_lengths)?;
 
     let hop_count = edges.len().saturating_sub(1);
-    let mut hop_gate = vec![None; hop_count];
+    let mut hop_gate = try_route_vec_filled(hop_count, None)?;
     for hop in 0..hop_count {
         hop_gate[hop] = hop_gate_at(network, &maneuvers, hop, edges[hop], edges[hop + 1]);
     }
 
-    let mut next_controlled = vec![None; hop_count];
+    let mut next_controlled = try_route_vec_filled(hop_count, None)?;
     let mut next: Option<NextControlled> = None;
     for hop in (0..hop_count).rev() {
         let length = route_lengths[hop];
@@ -257,7 +325,7 @@ pub(crate) fn compile_route(
         next_controlled[hop] = next;
     }
 
-    let mut speed_limit_drop = Vec::new();
+    let mut speed_limit_drop = try_route_vec(hop_count)?;
     for (from_index, pair) in edges.windows(2).enumerate() {
         let from_speed = *speeds.get(pair[0].index()).unwrap_or(&0);
         let to_speed = *speeds.get(pair[1].index()).unwrap_or(&0);
@@ -271,26 +339,30 @@ pub(crate) fn compile_route(
     }
 
     let waiting = compile_waiting(traffic, &hop_gate, &maneuvers)?;
+    let mut compiled_edges = try_route_vec(edges.len())?;
+    compiled_edges.extend_from_slice(edges);
 
     Ok(CompiledRoute {
-        edges: edges.to_vec().into_boxed_slice(),
-        maneuvers: maneuvers.into_boxed_slice(),
-        hop_gate: hop_gate.into_boxed_slice(),
-        remaining_to_end: remaining_to_end.into_boxed_slice(),
-        occurrence_segments: occurrence_segments.into_boxed_slice(),
-        occurrence_offsets: occurrence_offsets.into_boxed_slice(),
-        segment_totals: segment_totals.into_boxed_slice(),
-        next_controlled: next_controlled.into_boxed_slice(),
-        speed_limit_drop: speed_limit_drop.into_boxed_slice(),
-        waiting: waiting.into_boxed_slice(),
+        edges: compiled_edges,
+        maneuvers,
+        hop_gate,
+        remaining_to_end,
+        occurrence_segments,
+        occurrence_offsets,
+        segment_totals,
+        next_controlled,
+        speed_limit_drop,
+        waiting,
     })
 }
 
 /// 分段 `u32` 前缀。下一条边长会让当前段溢出时封段、开新段。不上 `u64`（ADR 0028）。
-fn segmented_route_coordinates(edge_lengths: &[u32]) -> (Vec<u32>, Vec<u32>, Vec<u32>) {
-    let mut segments = Vec::with_capacity(edge_lengths.len());
-    let mut offsets = Vec::with_capacity(edge_lengths.len());
-    let mut totals = Vec::new();
+fn segmented_route_coordinates(
+    edge_lengths: &[u32],
+) -> Result<(Vec<u32>, Vec<u32>, Vec<u32>), RouteError> {
+    let mut segments = try_route_vec(edge_lengths.len())?;
+    let mut offsets = try_route_vec(edge_lengths.len())?;
+    let mut totals = try_route_vec(edge_lengths.len())?;
     let mut current_total = 0_u32;
     let mut current_has_occurrence = false;
     for edge_length in edge_lengths.iter().copied() {
@@ -310,7 +382,7 @@ fn segmented_route_coordinates(edge_lengths: &[u32]) -> (Vec<u32>, Vec<u32>, Vec
     if current_has_occurrence {
         totals.push(current_total);
     }
-    (segments, offsets, totals)
+    Ok((segments, offsets, totals))
 }
 
 fn compile_waiting(
@@ -318,9 +390,17 @@ fn compile_waiting(
     hop_gate: &[Option<ManeuverGateOrdinal>],
     maneuvers: &[ManeuverOccurrence],
 ) -> Result<Vec<WaitingOccurrence>, RouteError> {
-    let mut waiting = Vec::new();
     let network = traffic.maneuvers();
     let relations = traffic.relations();
+    let waiting_capacity = maneuvers.iter().try_fold(0_usize, |total, occurrence| {
+        let path = network
+            .maneuver_path(occurrence.path)
+            .ok_or(RouteError::ManeuverMismatch)?;
+        total
+            .checked_add(path.waiting_zones().len())
+            .ok_or(RouteError::AllocationFailed)
+    })?;
+    let mut waiting = try_route_vec(waiting_capacity)?;
     for (maneuver_index, occurrence) in maneuvers.iter().enumerate() {
         let path = network
             .maneuver_path(occurrence.path)
@@ -378,7 +458,8 @@ pub(crate) fn unique_entry_path_match(
     let Some(candidates) = network.transition_candidates(from) else {
         return Ok(None);
     };
-    let mut entry_paths = Vec::new();
+    let mut matched = None;
+    let mut saw_entry = false;
     for candidate in candidates {
         if candidate.successor() != to || candidate.transition_index() != 0 {
             continue;
@@ -386,11 +467,24 @@ pub(crate) fn unique_entry_path_match(
         let path = network
             .maneuver_path(candidate.maneuver_path())
             .ok_or(RouteError::ManeuverMismatch)?;
-        entry_paths.push((candidate.maneuver_path(), path.edges()));
+        saw_entry = true;
+        if remaining.starts_with(path.edges()) {
+            match matched {
+                None => matched = Some(candidate.maneuver_path()),
+                Some(first) if first != candidate.maneuver_path() => {
+                    return Err(RouteError::AmbiguousManeuver);
+                }
+                Some(_) => {}
+            }
+        }
     }
-    unique_entry_path_match_filtered(remaining, entry_paths)
+    if !saw_entry {
+        return Ok(None);
+    }
+    matched.ok_or(RouteError::ManeuverMismatch).map(Some)
 }
 
+#[cfg(test)]
 fn unique_entry_path_match_filtered<'a>(
     remaining: &[LaneEdgeOrdinal],
     entry_paths: impl IntoIterator<Item = (ManeuverPathOrdinal, &'a [LaneEdgeOrdinal])>,
@@ -967,7 +1061,8 @@ mod compile_route_tests {
     #[test]
     fn segmented_window_recovers_nearby_finite_across_suffix_overflow() {
         let lengths = [1_000_u32, u32::MAX];
-        let (segments, offsets, totals) = segmented_route_coordinates(&lengths);
+        let (segments, offsets, totals) =
+            segmented_route_coordinates(&lengths).expect("segmented coordinates");
         assert_eq!(segments.as_slice(), [0, 1]);
         assert_eq!(
             distance_to_occurrence_start(&segments, &offsets, &totals, 0, 100, 1),
