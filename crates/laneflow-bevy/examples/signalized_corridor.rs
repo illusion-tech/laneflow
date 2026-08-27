@@ -7,7 +7,9 @@ use std::{error::Error, num::NonZeroU32, sync::Arc};
 use bevy::prelude::*;
 use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
-use laneflow_runtime::{TrafficWorld, VehicleSpawnInput, WorldConfig};
+use laneflow_runtime::{
+    CommittedNetworkSource, PublishedLfcaReference, TrafficWorld, VehicleSpawnInput, WorldConfig,
+};
 use laneflow_scenario::signalized_corridor::{
     BoundCorridorCatalog, BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
 };
@@ -35,7 +37,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     )
     .map_err(|error| format!("{error:?}"))?;
     let bound = bind(&catalog, &revision).map_err(|error| error.to_string())?;
-    let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 32, 1, 16))?;
+    let mut world = {
+        let origin = revision.canonical_origin();
+        TrafficWorld::install(
+            Arc::clone(&revision),
+            WorldConfig::new(8, 32, 1, 16),
+            CommittedNetworkSource::Published {
+                reference: PublishedLfcaReference::new(
+                    "scenario://signalized-corridor",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .expect("non-empty scenario key"),
+            },
+        )?
+    };
     let profile = *bound
         .profiles
         .get(PASSENGER_CAR_PROFILE_KEY)

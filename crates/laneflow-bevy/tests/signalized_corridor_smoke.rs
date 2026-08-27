@@ -22,6 +22,26 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 
+fn install_fixture(
+    revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+    config: laneflow_runtime::WorldConfig,
+) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
+    let origin = *revision.canonical_origin();
+    laneflow_runtime::TrafficWorld::install(
+        revision,
+        config,
+        laneflow_runtime::CommittedNetworkSource::Published {
+            reference: laneflow_runtime::PublishedLfcaReference::new(
+                "fixture://in-process",
+                origin.canonical_artifact_digest(),
+                origin.canonical_artifact_byte_length(),
+                origin.network_revision(),
+            )
+            .expect("non-empty fixture key"),
+        },
+    )
+}
+
 const CORRIDOR_LFCA: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CATALOG: &str =
     include_str!("../../../examples/data/v0.2-signalized-corridor.catalog.toml");
@@ -154,8 +174,8 @@ fn sync_proxy(
 #[test]
 fn headless_app_steps_corridor_runtime_and_moves_proxy_transform() {
     let revision = revision();
-    let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 32, 1, 16))
-        .expect("install");
+    let mut world =
+        install_fixture(Arc::clone(&revision), WorldConfig::new(8, 32, 1, 16)).expect("install");
     spawn_two_vehicles(&mut world, &revision);
     let spatial = SpatialSession::bind(revision)
         .expect("bind")

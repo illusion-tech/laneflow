@@ -579,6 +579,26 @@ mod tests {
         RouteRegisterInput, StepError, TickInput, TrafficWorld, VehicleSpawnInput, WorldConfig,
     };
 
+    fn install_fixture(
+        revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+        config: crate::WorldConfig,
+    ) -> Result<crate::TrafficWorld, crate::InstallError> {
+        let origin = *revision.canonical_origin();
+        crate::TrafficWorld::install(
+            revision,
+            config,
+            crate::CommittedNetworkSource::Published {
+                reference: crate::PublishedLfcaReference::new(
+                    "fixture://in-process",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .expect("non-empty fixture key"),
+            },
+        )
+    }
+
     const FULL_SPATIAL: &[u8] = include_bytes!(
         "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
     );
@@ -1040,7 +1060,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let mut world = TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).unwrap();
+        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).unwrap();
         let route = register_full_spatial_route(&mut world);
         let profile = world
             .revision
@@ -1077,8 +1097,7 @@ mod tests {
     fn empty_and_solo_vehicle_have_no_leader() {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
-        let mut world =
-            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
         world.rebuild_occupancy_index().expect("occupancy rebuild");
         world.step(TickInput::new(100)).unwrap();
         let route = world
@@ -1103,8 +1122,7 @@ mod tests {
     fn vehicle_behind_on_current_edge_is_not_leader() {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
-        let mut world =
-            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem]))
             .expect("route");
@@ -1143,8 +1161,7 @@ mod tests {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
         let tail = LaneEdgeOrdinal::from_raw(1);
-        let mut world =
-            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem, tail]))
             .expect("route");
@@ -1185,8 +1202,7 @@ mod tests {
         let revision = loop_revision();
         let a = LaneEdgeOrdinal::from_raw(0);
         let b = LaneEdgeOrdinal::from_raw(1);
-        let mut world =
-            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![a, b, a]))
             .expect("route");
@@ -1245,7 +1261,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let mut world = TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).unwrap();
+        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).unwrap();
         let route = register_full_spatial_route(&mut world);
         let profile = world
             .revision
@@ -1282,8 +1298,7 @@ mod tests {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
         let tail = LaneEdgeOrdinal::from_raw(1);
-        let mut world =
-            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem, tail]))
             .expect("route");
@@ -1360,8 +1375,7 @@ mod tests {
         let branches = traffic.successors(stem).expect("branches");
         let left = branches[0];
         let right = branches[1];
-        let mut world =
-            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
         let leader_route = world
             .register_route(RouteRegisterInput::new(vec![stem, left]))
             .expect("left route");
@@ -1445,8 +1459,7 @@ mod tests {
         });
         let edge = LaneEdgeOrdinal::from_raw(0);
         let n = 32_u32;
-        let mut world =
-            TrafficWorld::install(revision, WorldConfig::new(n, 4, 1, 100)).expect("install");
+        let mut world = install_fixture(revision, WorldConfig::new(n, 4, 1, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![edge]))
             .expect("route");
@@ -1495,8 +1508,7 @@ mod tests {
         let revision = loop_revision();
         let a = LaneEdgeOrdinal::from_raw(0);
         let b = LaneEdgeOrdinal::from_raw(1);
-        let mut world =
-            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![a, b, a]))
             .expect("route");
@@ -1580,7 +1592,7 @@ mod tests {
             current = next;
         }
         let mut world =
-            TrafficWorld::install(revision, WorldConfig::new(1, 4, 1, 1_000)).expect("install");
+            install_fixture(revision, WorldConfig::new(1, 4, 1, 1_000)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(edges))
             .expect("route");
@@ -1638,7 +1650,7 @@ mod tests {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
         let mut world =
-            TrafficWorld::install(revision, WorldConfig::new(10_000, 4, 1, 100)).expect("install");
+            install_fixture(revision, WorldConfig::new(10_000, 4, 1, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem]))
             .expect("route");
@@ -2075,8 +2087,7 @@ mod tests {
     #[test]
     fn formula_horizon_hides_leader_beyond_and_matches_filtered_scan() {
         let revision = long_corridor_revision(400.0);
-        let mut world =
-            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
         let edge = LaneEdgeOrdinal::from_raw(0);
         let route = world
             .register_route(RouteRegisterInput::new(vec![edge]))
@@ -2120,7 +2131,7 @@ mod tests {
             .saturating_add(horizon.bumper_gap_mm)
             .saturating_add(profile.length_mm())
             .saturating_add(1);
-        let mut phantom_world = TrafficWorld::install(
+        let mut phantom_world = install_fixture(
             long_corridor_revision(400.0),
             WorldConfig::new(8, 4, 1, 100),
         )
@@ -2159,7 +2170,7 @@ mod tests {
         let near_progress = follower_progress
             .saturating_add(horizon.bumper_gap_mm)
             .saturating_add(profile.length_mm());
-        let mut near_world = TrafficWorld::install(
+        let mut near_world = install_fixture(
             long_corridor_revision(400.0),
             WorldConfig::new(8, 4, 1, 100),
         )
@@ -2288,8 +2299,7 @@ mod tests {
     fn corrupt_route_index_fails_closed_occupancy_rebuild() {
         let revision = two_edge_revision();
         let stem = LaneEdgeOrdinal::from_raw(0);
-        let mut world =
-            TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
         let route = world
             .register_route(RouteRegisterInput::new(vec![stem]))
             .expect("route");

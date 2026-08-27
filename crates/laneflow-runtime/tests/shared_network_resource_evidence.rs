@@ -33,6 +33,26 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 
+fn install_fixture(
+    revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+    config: laneflow_runtime::WorldConfig,
+) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
+    let origin = *revision.canonical_origin();
+    laneflow_runtime::TrafficWorld::install(
+        revision,
+        config,
+        laneflow_runtime::CommittedNetworkSource::Published {
+            reference: laneflow_runtime::PublishedLfcaReference::new(
+                "fixture://in-process",
+                origin.canonical_artifact_digest(),
+                origin.canonical_artifact_byte_length(),
+                origin.network_revision(),
+            )
+            .expect("non-empty fixture key"),
+        },
+    )
+}
+
 const MIN_HEADLESS: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/min-headless.lfca"
 );
@@ -244,7 +264,7 @@ fn identity_round_trips(identity: &SharedIdentityIndex) -> u32 {
 
 fn scene_ledger(lfca: &[u8], spatial: SpatialBuildOption) -> SceneLedger {
     let revision = build(lfca, spatial);
-    let origin = revision.canonical_origin();
+    let origin = *revision.canonical_origin();
     assert_eq!(
         origin.canonical_artifact_byte_length().get(),
         u64::try_from(lfca.len()).expect("lfca length")
@@ -430,9 +450,8 @@ fn install_kernel_world(
     delta_ms: u64,
     corridor: bool,
 ) -> TrafficWorld {
-    let mut world =
-        TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 32, 1, delta_ms))
-            .expect("install");
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(8, 32, 1, delta_ms))
+        .expect("install");
     if corridor {
         spawn_corridor_pair(&mut world, revision.as_ref());
     } else {
@@ -768,7 +787,7 @@ fn worlds_2_8_32_share_one_static_root() {
     for count in [2_u32, 8, 32] {
         let worlds: Vec<_> = (0..count)
             .map(|_| {
-                TrafficWorld::install(
+                install_fixture(
                     Arc::clone(&revision),
                     WorldConfig::new(8, 8, 1, CORRIDOR_DELTA_MS),
                 )
