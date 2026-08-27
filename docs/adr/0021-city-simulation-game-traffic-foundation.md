@@ -104,11 +104,12 @@ LaneFlow 的第一长期产品目标定义为：
 不拥有全局路径成本政策。路径规划/出行编排层结合静态路网、已提交交通观测、收费、
 游戏政策和出行偏好构造动态成本快照（Dynamic Cost Snapshot），并拥有其版本与
 成本模型；Traffic Runtime 只验证/注册候选动态通行定义并安全执行。当前道路机动车
-执行域的具体投影是 `Route`。动态成本快照和候选动态通行定义必须绑定从
-`TrustedStaticImage` 静态视图或已提交观测快照取得的路网修订标识、观测固定步进与
+执行域的具体投影是 `Route`。动态成本快照和候选动态通行定义必须绑定从当前
+`SharedNetworkRevision` 根或已提交观测快照取得的路网修订标识、观测固定步进与
 成本模型版本；Runtime 对修订不匹配的候选失败关闭，并继续验证候选稳定引用和拓扑，
-不能以修订标识相等替代内容验证。#303 G1 Review 候选把过期拟冻结为
-`[observationTick, validThroughTick]` 的 fixed-tick 闭区间；墙钟与隐式宽限不存在。
+不能以修订标识相等替代内容验证。#303 G1 Review 候选增加观测状态序号，并把过期
+拟冻结为 `[observationTick, validThroughTick]` 的 fixed-tick 闭区间；墙钟与隐式
+宽限不存在。
 
 “已提交交通观测快照”定义的是一致性时点，不要求每个固定步进复制全网。生产接入
 必须允许按观测导出节奏（Observation Export Cadence）导出完整基线，并支持版本化
