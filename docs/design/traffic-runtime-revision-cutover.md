@@ -33,47 +33,54 @@
 
 术语表把具体字段与 trust anchor 留给本 G1。冻结如下：
 
-| 字段                     | 语义                                                                              |
-| ------------------------ | --------------------------------------------------------------------------------- |
-| `formatVersion`          | 描述符封闭契约版本；未知值失败关闭                                                |
-| `baseLfcaOrigin`         | base 侧 LFCA origin：LFCA digest / byte length / `NetworkRevisionId`              |
-| `targetLfcaOrigin`       | target 侧 LFCA origin：同上三联                                                   |
-| `semanticDiffOrigin`     | LFSD origin：`semanticDiffFormatVersion` / digest / byte length；同修订恢复可缺失 |
-| `migrationPolicyVersion` | 封闭迁移策略版本枚举（§3）；未知值失败关闭                                        |
-| `worldBinding`           | 目标世界身份与基线命令/事件游标；事务启动时一次性比对，作为迁移增量日志起点       |
+| 字段                  | 语义                                                                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `formatVersion`       | 描述符封闭契约版本；未知值失败关闭                                                                                                          |
+| `baseLfcaOrigin`      | base 侧 LFCA origin 四联：LFCA digest / byte length / `NetworkRevisionId` / `networkRevisionDerivationVersion`（与 LFSD base binding 同构） |
+| `targetLfcaOrigin`    | target 侧 LFCA origin：同上四联                                                                                                             |
+| `semanticDiffOrigin`  | LFSD origin：`semanticDiffFormatVersion` / digest / byte length；同修订恢复可缺失                                                           |
+| `migrationPolicyKind` | 封闭种类选择器（术语表：封闭种类选择器）：`same_revision_restore` / `cross_revision_direct`；不是协议版本，兼容拒绝由 `formatVersion` 承担  |
+| `worldBinding`        | 目标世界身份与基线命令/事件游标；事务启动时一次性比对，作为迁移增量日志起点                                                                 |
 
 - `worldBinding` 语义：携带目标世界身份与**基线**命令/事件游标（描述符签发时点对齐
   的基线，不是实时值）。比对时点为事务启动时一次性比对，比对结果作为迁移增量日志
   的应用起点；静默期由等价证明（§5）复核最终游标，不做二次签发。证据的二进制编码
   由 G2 落定并回写本文。
 - **trust anchor**：描述符是宿主/上层在对象外可信提供的封闭契约输入（例如随宿主
-  存档清单或发布信任链交付）。Runtime 只做一致性验证：两侧 LFCA origin 与已加载/已
-  认证制品精确匹配、LFSD origin 与两侧修订绑定一致、策略版本已知。任何不匹配、
-  缺失或不可信来源都失败关闭；不得仅凭 `StableId128`、LFSD 或调用方自报 revision
-  授予迁移权限，也不得复活 #299 历史 `revision-cutover-v1` receipt 或静态镜像
-  descriptor。
+  存档清单或发布信任链交付）。Runtime 只做一致性验证：两侧 LFCA origin 四联与已
+  加载/已认证制品逐项匹配（含 `networkRevisionDerivationVersion`，与 LFSD
+  base/target binding 交叉一致）、LFSD origin 与两侧修订绑定一致、策略种类已知。
+  任何不匹配、缺失或不可信来源都失败关闭；不得仅凭 `StableId128`、LFSD 或调用方
+  自报 revision 授予迁移权限，也不得复活 #299 历史 `revision-cutover-v1` receipt
+  或静态镜像 descriptor。
 - 两侧 `SharedIdentityIndex` 职责（#302 范围要求）：base 侧索引由活动聚合当前根
   提供；target 侧索引在候选构建成功后随候选提供，并在等价证明中与 base 侧共同
   复核稳定引用映射。两个索引都不进入快照制品，各自随所属修订重建。
 - 描述符不是可扩展协议：未知字段、未知版本、附加载荷一律失败关闭（封闭契约）。
 
-## 3. 迁移策略（封闭版本枚举）
+## 3. 迁移策略（封闭种类选择器）
 
-迁移策略是 Runtime 内建的版本化封闭集合，**不提供宿主回调**——回调会把游戏规则与
-Runtime 规则复制进迁移路径，破坏封闭契约与失败关闭审计。
+迁移策略是 Runtime 内建的封闭集合，以 `migrationPolicyKind` 选择，**不提供宿主
+回调**——回调会把游戏规则与 Runtime 规则复制进迁移路径，破坏封闭契约与失败关闭
+审计。策略语义演进随描述符 `formatVersion` 整体拒绝或放行，不用 kind 值分派
+未登记行为。
 
-| 版本 | 策略           | 语义                                                                                                                                                                     |
-| ---- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| v1-a | 同 origin 重绑 | `baseLfcaOrigin == targetLfcaOrigin`；动态状态按快照局部标识 + `StableId128` 原样重绑。触发用例：宿主以切换事务原子换入同 LFCA origin 的重编译根（同修订 source rebase） |
-| v1-b | 跨修订直移     | 经 LFSD 把每个动态实体的稳定引用直移到 target；**任一实体无法映射时整个事务失败关闭**（见下）                                                                            |
+| kind                    | 语义                                                                                                                                                                                                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `same_revision_restore` | 判据：两侧 `NetworkRevisionId` 相等且 identity / constraint / execution-constraint versions 精确相等；origin digest / byte length 仅承担来源审计与同字节快速路径（ADR 0020 §12 / ADR 0025 §8）。动态状态按快照局部标识 + `StableId128` 原样重绑。触发用例：同修订 source rebase 或重发布制品的原子换根 |
+| `cross_revision_direct` | 经 LFSD 把每个动态实体的稳定引用直移到 target；**任一实体无法映射或重绑失败时整个事务失败关闭**（见下）                                                                                                                                                                                                |
 
-同修订但 LFCA 字节不同（identity / constraint / execution-constraint versions 精确
-相等即可）的恢复不经本枚举，走快照文档 §5/§7 的恢复路径（ADR 0025 §8：compiler
-provenance 导致的 LFCA exact-bytes 变化不构成跨修订迁移）。
+**不可映射实体处置（本 G1 产品决策）**：以下任一情形视为不可映射，整个迁移事务
+失败关闭，旧修订、旧动态状态、旧 `CommittedNetworkSource` 与旧 editable diff
+base 全部原样继续生效，零切换事件：
 
-**不可映射实体处置（本 G1 产品决策）**：LFSD 显示任何车辆所在边、路线边序列引用
-或停车绑定在 target 中不存在时，整个迁移事务失败关闭，旧修订、旧动态状态、旧
-`CommittedNetworkSource` 与旧 editable diff base 全部原样继续生效，零切换事件。
+1. 引用不存在：LFSD 显示车辆所在边、路线边序列引用或停车绑定在 target 中不存在；
+2. 重绑后非法（changed-but-present）：实体 `StableId128` 仍存在但语义已变化，
+   原样重绑会违反 target 不变量——例如边长缩短到低于车辆 `progress_mm`、profile
+   的 class / 长度变化导致现有状态非法、路线在 target 准入下不再合法。重绑等价于
+   在 target 修订上对该实体重新执行注册/准入的全部结构校验（`register_route`
+   检查、spawn 合法性等），任一失败即不可映射。
+
 "删路前先把车开走/清场/劝阻"的体验由宿主在发起切换**之前**用 LFSD 预检与普通
 生命周期命令编排；声明式逐类丢弃或自动改道策略属于未来独立 G1，不在 v1 契约内。
 
@@ -131,9 +138,10 @@ Prepare → Delta Catch-up → Quiescent Commit → Retire
 失败时以上全部保持旧值。提交成功后 target LFCA 原子成为下一次 LFSD 的 diff base
 （`shared-static-network.md` §9 口径）。允许短暂共存的内存对象：current root +
 retained base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch
-（`shared-static-network.md` 共存模型）；峰值按 §9 量化。旧修订回收按最后一个
-Runtime/Spatial/Adapter 借用视图/令牌退出触发，延迟单独量化；不得为提前回收撤销
-有效借用。
+（`shared-static-network.md` 共存模型）；**迁移期动态双份**（旧世界动态状态与候选
+动态状态草稿）、迁移增量日志与未提交切换事件批次的存活字节同样计入候选共存峰值
+（§9）。旧修订回收按最后一个 Runtime/Spatial/Adapter 借用视图/令牌退出触发，延迟
+单独量化；不得为提前回收撤销有效借用。
 
 ## 8. 失败关闭故障映射
 
@@ -155,25 +163,26 @@ Runtime/Spatial/Adapter 借用视图/令牌退出触发，延迟单独量化；�
 度量协议：同机描述性基线（沿 `LF-P100-REF-01` 先例），各维度在量化切片以基线
 推导登记初值；1.0 前允许按实测修订，方向只许收紧。
 
-| 维度             | G1 上限/口径                                                                                                  |
-| ---------------- | ------------------------------------------------------------------------------------------------------------- |
-| 静默提交窗口     | v1 ≤ 2 个固定步进边界，典型 1 个；窗口内须完成排空日志尾、等价证明与原子换绑；超限即放弃候选                  |
-| 在线准备干扰     | 不改变旧世界已提交状态与事件语义；稳态 tick 不因准备新增分配；资源干扰（CPU/内存）描述性报告                  |
-| 迁移增量日志     | 字节上界 + 文档化默认值；溢出失败关闭                                                                         |
-| 候选共存峰值     | current root + retained base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch 共存峰值（§7）按基线登记 |
-| 候选规范制品字节 | LFCA/LFSM/LFSD 候选 exact bytes 分别量化（#302 范围要求）                                                     |
-| save/load 停顿   | Runtime Snapshot 保存/恢复停顿按基线登记（#302 范围要求；合同见快照文档）                                     |
-| 维护暂停完整停顿 | 单独预算；只在宿主显式停表时发生                                                                              |
-| 旧修订回收延迟   | 最后借用退出后的回收延迟描述性量化                                                                            |
+| 维度             | G1 上限/口径                                                                                                                                                    |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 静默提交窗口     | v1 ≤ 2 个固定步进边界，典型 1 个；窗口内须完成排空日志尾、等价证明与原子换绑；超限即放弃候选                                                                    |
+| 在线准备干扰     | 不改变旧世界已提交状态与事件语义；稳态 tick 不因准备新增分配；资源干扰（CPU/内存）描述性报告                                                                    |
+| 迁移增量日志     | 字节上界 + 文档化默认值；溢出失败关闭                                                                                                                           |
+| 候选共存峰值     | current root + retained base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch + 迁移期动态双份 + 迁移增量日志 + 未提交事件批次的共存峰值（§7）按基线登记 |
+| 候选规范制品字节 | LFCA/LFSM/LFSD 候选 exact bytes 分别量化（#302 范围要求）                                                                                                       |
+| save/load 停顿   | Runtime Snapshot 保存/恢复停顿按基线登记（#302 范围要求；完整维度见快照文档 §8）                                                                                |
+| 维护暂停完整停顿 | 单独预算；只在宿主显式停表时发生                                                                                                                                |
+| 旧修订回收延迟   | 最后借用退出后的回收延迟描述性量化                                                                                                                              |
 
 ## 10. 必测项（G2）
 
 - §8 前 6 行故障（含候选构造失败）至少一个注入测试：断言旧聚合、旧动态状态、旧
-  source、旧 diff base 全保留且切换事件批次零发布；保存并发的断言见快照文档 §8。
+  source、旧 diff base 全保留且切换事件批次零发布；保存并发的断言见快照文档 §9。
 - 静默提交窗口超限（构造 >2 边界场景）放弃候选。
 - 日志溢出放弃后，宿主以维护暂停模式重试成功的端到端路径。
-- 不可映射实体（删边上有车 / 路线引用被删边 / 停车绑定失效）整体失败关闭；宿主
-  清场后重试成功。
+- 不可映射实体整体失败关闭：引用不存在三类（删边上有车 / 路线引用被删边 / 停车
+  绑定失效）与重绑后非法三类（边长缩短低于 `progress_mm` / profile class 或长度
+  变化致状态非法 / 路线在 target 准入下不合法）；宿主清场后重试成功。
 - 切换事件批次恰一次：提交后事件序可见一次（v1 空批次也验证零重复）；放弃路径
   零事件（无"半批次"）。
 - 原子晋升：提交边界前后对外可见聚合与状态的一致性检查（无中间态可观察）。
@@ -181,5 +190,5 @@ Runtime/Spatial/Adapter 借用视图/令牌退出触发，延迟单独量化；�
 - 描述符未知版本/未知字段/origin 不匹配全部失败关闭。
 - 在线准备干扰不变量：准备期稳态 tick 零新增分配、旧世界事件语义不变的确定性
   断言。
-- v1-a 同 origin 重绑：换入重编译根后动态状态原样重绑、句柄语义保持；同修订不同
-  字节恢复不经本枚举（对照快照文档 §7）。
+- `same_revision_restore`：同修订重发布/重编译制品原子换根后动态状态原样重绑、
+  句柄语义保持；同修订不同字节允许（判据见 §3，对照快照文档 §7）。
