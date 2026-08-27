@@ -3,6 +3,7 @@
 pub struct WorldConfig {
     vehicle_capacity: u32,
     route_capacity: u32,
+    route_edge_occurrence_capacity: u64,
     worker_count: u32,
     fixed_delta_time_ms: u64,
 }
@@ -13,12 +14,14 @@ impl WorldConfig {
     pub const fn new(
         vehicle_capacity: u32,
         route_capacity: u32,
+        route_edge_occurrence_capacity: u64,
         worker_count: u32,
         fixed_delta_time_ms: u64,
     ) -> Self {
         Self {
             vehicle_capacity,
             route_capacity,
+            route_edge_occurrence_capacity,
             worker_count,
             fixed_delta_time_ms,
         }
@@ -32,6 +35,12 @@ impl WorldConfig {
     #[must_use]
     pub const fn route_capacity(self) -> u32 {
         self.route_capacity
+    }
+
+    /// 全部存活动态路线 `edges.len()` 的总和；重复边按 occurrence 计数。
+    #[must_use]
+    pub const fn route_edge_occurrence_capacity(self) -> u64 {
+        self.route_edge_occurrence_capacity
     }
 
     #[must_use]

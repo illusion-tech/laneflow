@@ -256,6 +256,14 @@ occurrence 超过恢复配置则整次恢复失败关闭。
 重复边；G2 必须在同一共享路径实现 max/max+1、checked 溢出与分配失败零部分提交，
 并以具名 Routing 工作负载登记配置值和 retained memory 证据。
 
+**G2 首切片实现决定**：`WorldConfig::new` 在 `route_capacity` 之后要求调用方显式提供
+`u64 route_edge_occurrence_capacity`，不设产品默认值；活动总量计数器同为 `u64`。
+空序列、路线槽容量、边 occurrence 容量依次预检；后两者分别返回
+`RouteError::CapacityExceeded` 与 `RouteError::EdgeOccurrenceCapacityExceeded`，checked
+加法不可表示与 max+1 共享后一个错误。仓库既有测试/证据夹具迁移时显式使用 `1_024`
+只表示该 fixture 的配置 provenance，不是产品默认值或单条路线限制。可恢复分配失败
+仍须在后续 G2 的 fallible compiled-route 物化切片闭合。
+
 ## 5. 与 #302 切换、快照和回放的接缝
 
 - **切换准备期**：对外观测只来自仍活动的旧聚合。候选世界不可见，不导出“新修订
@@ -332,9 +340,9 @@ dirty journal、墙钟任务或 allocator 活动。
 
 ## 8. G2 边界与必测义务
 
-G2 落定并回写：Rust 类型/错误枚举、世界/stream 不可伪造 token 与
-`observationStateSequence` 的精确表示、`route_edge_occurrence_capacity` 的
-`WorldConfig` API/计数器/恢复核对、规范化已准入路线注册命令的实现接缝、
+G2 已按 §4.1 落定 `route_edge_occurrence_capacity` 的公开配置、计数器与错误拼写；
+恢复核对随 #302 快照实现接入。后续 G2 继续落定并回写：其余 Rust 类型、世界/stream
+不可伪造 token 与 `observationStateSequence` 的精确表示、规范化已准入路线注册命令的实现接缝、
 `exactByteLength` 度量函数、接收上限配置值与首轮 P100 描述性结果。若实现证明必须
 新增跨进程 wire、`laneflow-routing` 算法 crate、tick 维护 journal、持久化成本
 provenance，或无法复用唯一 route 编译器，必须停止并返回 G1。上述清单不穷尽返回

@@ -451,8 +451,11 @@ fn install_kernel_world(
     delta_ms: u64,
     corridor: bool,
 ) -> TrafficWorld {
-    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(8, 32, 1, delta_ms))
-        .expect("install");
+    let mut world = install_fixture(
+        Arc::clone(&revision),
+        WorldConfig::new(8, 32, 1_024, 1, delta_ms),
+    )
+    .expect("install");
     if corridor {
         spawn_corridor_pair(&mut world, revision.as_ref());
     } else {
@@ -790,7 +793,7 @@ fn worlds_2_8_32_share_one_static_root() {
             .map(|_| {
                 install_fixture(
                     Arc::clone(&revision),
-                    WorldConfig::new(8, 8, 1, CORRIDOR_DELTA_MS),
+                    WorldConfig::new(8, 8, 1_024, 1, CORRIDOR_DELTA_MS),
                 )
                 .expect("install")
             })
