@@ -2,10 +2,9 @@
 
 **文档状态**: Accepted（#302 G1）<br>
 **最后更新**: 2026-08-27<br>
-**适用范围**: 版本化 Runtime Snapshot 容器、绑定集、保存/恢复合同、检查点与
-回放、确定性状态摘要、跨修订迁移入口<br>
+**适用范围**: 版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口<br>
 **关联文档**:
-[`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12；其中 static image digest / validation receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准，以本文与 ADR 0025 §8 为权威）、
+[`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12；static image / receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准）、
 [`../adr/0021-city-simulation-game-traffic-foundation.md`](../adr/0021-city-simulation-game-traffic-foundation.md)、
 [`../adr/0028-integer-millimeter-traffic-geometry.md`](../adr/0028-integer-millimeter-traffic-geometry.md)、
 [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
@@ -13,174 +12,122 @@
 [`retire-precompiled-static-route.md`](retire-precompiled-static-route.md)、
 [`shared-static-network.md`](shared-static-network.md)
 
-本文是 ADR 0020 §12（按 ADR 0025 §8 修订后语义）的实现级合同。路线与车辆的快照
-表示沿用 ADR 0029 §6 / `retire-precompiled-static-route.md` §5 已冻结形状，本文
-只做全世界扩展与容器合同。G2 决定 Rust 拼写。
+本文是 ADR 0020 §12（按 ADR 0025 §8 修订后语义）的 #302 G1 设计。路线与车辆的
+快照表示沿用 ADR 0029 §6 已冻结形状；容器 schema、字段映射与测试构造由 G2
+落定。
 
-## 1. 制品定位与版本轴
+## 1. 问题与设计立场
 
-- Runtime Snapshot 是**独立版本化制品**，不进入 LFCP 发布链，也不绑定 LFCA 的
-  跨对象信任；其真实性由宿主存档清单（ADR 0021，城市游戏层拥有）在对象外绑定。
-- 版本轴分离（术语表：版本轴）：
-  - 容器 `formatVersion`（本文合同，v1）；
-  - 被绑定事实的版本：runtime 版本、static-contract versions、
-    `networkRevisionDerivationVersion`、identity registry revision。
-  - 不混用单一版本号表达多条兼容轴；未知版本值失败关闭。
+城市游戏需要存档、恢复与回放。Runtime Snapshot 是每世界可变状态的独立版本化
+制品：不进入 LFCP 发布链，真实性由宿主存档清单在对象外绑定（ADR 0021）。
+设计立场：
 
-## 2. 绑定集
+- **保存逻辑状态，不保存机器**：持久的是稳定引用、快照局部标识与整数毫米值
+  （ADR 0028）；进程句柄、槽位、generation、密集序号、数组布局不持久，恢复
+  时新分配句柄。
+- **派生即不存**：凡确定性派生的状态不入快照——信号灯色由 `time_ms` 与共享根
+  program 派生，车道占用索引每 tick 从已提交状态重建。
+- **单一时点**：保存在固定步进安全边界原子捕获一个快照点，编码只读该不可变
+  捕获，世界随后可恢复步进；不存在跨提交状态的混合捕获。
 
-必绑（缺失即失败关闭）：
+## 2. 版本轴与绑定集
 
-- LFCA origin：LFCA digest / byte length / `NetworkRevisionId`；
-- 来源指名：`CommittedNetworkSource`（editable 世界 = committed
-  `RoadEditingState` 指名；runtime-only 世界 = `PublishedLfcaReference`）；
-- runtime 版本、static-contract versions、`networkRevisionDerivationVersion`、
-  identity registry revision（ADR 0020 §12 要求 identity / constraint /
-  execution-constraint versions 精确相等；各轴到容器字段的显式映射由 G2 登记本文）；
-- 世界身份（快照局部）、`tick` / `time_ms`、输入命令游标与**已提交事件游标**
-  （切换事务 `worldBinding` 与静默期复核需要双游标基线；只记命令游标会使恢复后
-  无法重建下一次切换的事件基线）；
-- 全部每世界可变状态（§4）；
-- **`WorldConfig` 快照**：整份记录作恢复核对，并区分两类字段——
-  **行为语义配置**（`fixed_delta_time_ms` 与语义容量 `vehicle_capacity` /
-  `route_capacity` 等）与**可重建执行计划字段**（worker 数等，ADR 0021 要求
-  执行计划按当前硬件重建、精确结果与 worker 数无关）。`fixed_delta_time_ms`
-  恢复时必须精确相等（信号派生与 tick 语义依赖）；语义容量恢复时允许更大（
-  由恢复方重新声明），但**检查点/回放的 exact oracle 要求行为语义配置一致**——
-  语义容量差异会改变重放中生命周期命令的成败，破坏逐点相等；可重建执行计划
-  字段不参与 exact oracle。
+版本轴分离：容器 `formatVersion` 与被绑定事实的版本（runtime 版本、
+static-contract versions、`networkRevisionDerivationVersion`、identity registry
+revision）不混用单一数字；未知版本值失败关闭。
 
-禁绑（出现即失败关闭）：runtime handle / slot / generation、密集序号、共享静态
+必绑：LFCA origin；`CommittedNetworkSource`（editable 世界 = committed
+`RoadEditingState`；runtime-only 世界 = `PublishedLfcaReference`）；上列版本；
+世界身份（快照局部）；`tick` / `time_ms` / 输入命令与已提交事件双游标（切换
+事务的 `worldBinding` 需要双游标基线）；全部每世界可变状态（§3）；
+`WorldConfig`。
+
+`WorldConfig` 分两类，恢复语义不同：**行为语义配置**（`fixed_delta_time_ms`
+与语义容量）参与恢复核对——`fixed_delta_time_ms` 必须精确相等，语义容量差异
+会改变重放中生命周期命令的成败；**可重建执行计划字段**（worker 数等）不参与
+——执行计划按当前硬件重建、精确结果与 worker 数无关（ADR 0021）。
+
+禁绑（出现即拒绝）：runtime handle / slot / generation、密集序号、共享静态
 数组、`EditableDiffBase`、partition / worker assignment、数组地址 / layout /
-capacity、调用方自有 seed/随机流（由宿主存档清单绑定；Runtime 当前没有自有随机
-流，若未来 G1 引入，仅该显式授予的流进入快照）。
+capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime 无自有随机流）。
 
-## 3. 容器编码
+## 3. 每世界可变状态
 
-- 编码采用仓库封闭契约先例：size-prefixed FlatBuffers 文档 + file identifier
-  `LFRS` + `formatVersion` 字段；schema 位于 `schemas/runtime-snapshot/v1`，
-  生成物经独立私有 wire package 隔离（沿 `laneflow-road-editing-wire` 先例）。
-- 读取 verifier-first：语义 lowering 前完成长度、基数与版本预检；未知
-  `formatVersion`、未知表、越界或损坏输入失败关闭，不进入部分恢复。
-- 发布链的自定义规范制品仍只有 LFCA / LFSM / LFSD / LFCP；快照不是发布对象，
-  不成为第二类规范制品格式，也不要求跨实现字节规范序，只要求逻辑状态确定性与
-  可验证性（§6）。
+| 状态        | 快照表示                                                                                                                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）                                                                                                                   |
+| 车辆        | ADR 0029 §6 形状 + 每车唯一 `snapshot_vehicle_id`：所属 `snapshot_route_id`、`route_edge_index`、`progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class 等静态绑定用 `StableId128` |
+| 停车占用    | 车辆 `snapshot_vehicle_id` ↔ 停车位 `StableId128` 占用绑定与 parked 状态（现行契约只冻占用互斥；预约/到场/离场状态机未冻结）                                                                      |
+| live 顺序   | 车辆 `snapshot_vehicle_id` 的规范排序序列                                                                                                                                                         |
+| tick / 时钟 | `tick` / `time_ms` / 输入命令游标 / 已提交事件游标                                                                                                                                                |
 
-## 4. 每世界可变状态清单
+车辆是运行时实体，没有 `StableId128`：它以 `snapshot_vehicle_id` 持存并被
+停车、live 序引用；静态实体（边、profile、class、停车位）用 `StableId128`。
+快照局部标识只在单个快照内稳定，恢复经 `SharedIdentityIndex` 与局部标识表
+重建。一维数值全部整数毫米 / 微米 / `u32` mm/s，无浮点字段。
 
-| 状态         | 快照表示                                                                                                                                                                                                                                                             |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 路线表       | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）                                                                                                                                                                                      |
-| 车辆         | ADR 0029 §6 形状 + 每车唯一快照局部车辆标识 `snapshot_vehicle_id`：`snapshot_route_id` + `route_edge_index` + `progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class / parking 等静态绑定用 `StableId128`（车辆自身是运行时实体，没有 `StableId128`） |
-| 停车占用     | 车辆 `snapshot_vehicle_id` ↔ 停车位 `StableId128` 占用绑定与 parked 状态；预约 / 到场 / 离场状态机未冻结（现行消费契约只冻占用互斥），不在本容器字段内                                                                                                               |
-| live 顺序    | 车辆 `snapshot_vehicle_id` 的规范排序序列                                                                                                                                                                                                                            |
-| tick / 时钟  | `tick` / `time_ms` / 输入命令游标 / 已提交事件游标                                                                                                                                                                                                                   |
-| 信号灯色     | **不入快照**：由 `time_ms` + 共享根 program + offset 派生（现行消费契约）                                                                                                                                                                                            |
-| 车道占用索引 | **不入快照**：由车辆状态确定性重建（占用索引每 tick 从已提交状态重建的现行契约）                                                                                                                                                                                     |
+## 4. 容器
 
-- 快照局部标识（术语表）只在单个快照内稳定；恢复时静态引用经
-  `SharedIdentityIndex` 解析 `StableId128`、动态实体经快照局部标识表，**新分配**
-  句柄。原进程 `RouteHandle` / `VehicleHandle` 不得成为恢复后身份。
-- 一维数值全部为整数毫米 / 微米 / `u32` mm/s（ADR 0028），无浮点字段。
+封闭契约：size-prefixed FlatBuffers、file identifier `LFRS`、`formatVersion`；
+schema 位于 `schemas/runtime-snapshot/v1`，生成物隔离于私有 wire package（沿
+`laneflow-road-editing-wire` 先例）。读取 verifier-first：语义 lowering 前完成
+长度、基数与版本预检。发布链的自定义规范制品仍只有 LFCA / LFSM / LFSD / LFCP；
+快照不是发布对象，不要求跨实现字节规范序，只要求逻辑确定性（§6）。
 
-## 5. 保存与恢复合同
+## 5. 保存与恢复
 
-- **保存的边界捕获**：保存在固定步进安全边界**原子捕获**来源绑定与全部每世界
-  可变状态的一个快照点；此后才允许后台/流式编码，编码只读该不可变捕获，世界可
-  恢复步进。捕获跨边界（混合不同提交状态的行）即失败关闭，不产出可恢复制品。
-- **保存**只接受已进入活动聚合的 `CommittedNetworkSource`；working / candidate
-  与 `EditableDiffBase` 不进入存档。保存发生在候选准备期间时仍只捕获旧聚合与
-  对应快照（切换文档 §8）。
-- **editable 来源恢复**：先从 committed `RoadEditingState` 重新编译，建立新
-  session 的根与 exact LFCA base，再恢复快照；重编译失败、修订/契约版本不匹配
-  或缺 `EditableDiffBase` 对应关系均失败关闭。同修订不同 LFCA 字节允许（§7）：
-  重编译产物的 origin digest / length 差异只承担来源审计，不构成拒绝条件。
-- **published 来源恢复**：经不透明 asset key + LFCA digest / length / revision
-  的 `PublishedLfcaReference` 重新认证并读取 LFCA，构建共享修订后恢复快照；
-  资产缺失失败关闭。摘要错配时若认证的重发布制品与快照绑定满足同修订判据
-  （`NetworkRevisionId` + `networkRevisionDerivationVersion` + 契约版本精确
-  相等，§7），允许恢复；保存的 digest 仅承担来源审计与同字节快速路径（与
-  editable 路径对称）。
-- 发布资产要启用道路编辑，必须另带 committed 道路状态，并以重编译 exact LFCA
-  执行同修订 root / source / diff-base rebase；成功前不得启用编辑。
-- **语义完整性校验（lowering 阶段）**：verifier 通过后、任何状态提交前，语义
-  lowering 必须拒绝——重复的 `snapshot_vehicle_id` / `snapshot_route_id`、
-  引用不存在的路线/车辆/停车位的悬空引用、live 顺序不是活跃车辆的精确排列、
-  停车占用绑定与车辆 parked 状态不一致（双射破坏），以及**车辆值不变量**：
-  `carry_um` ∈ 0..=999、`route_edge_index` 在路线序列内、`progress_mm` 不超过
-  重编译后当前边长、`speed_mm_s` 不超过 profile 与边限速、profile 与 class
-  一致、活跃车辆无物理重叠（沿 `install` / spawn 命令路径的同一检查集）。
-  任一违反失败关闭且零部分恢复。
+- 保存只接受活动聚合的 `CommittedNetworkSource`；working / candidate 与
+  `EditableDiffBase` 不入档。候选准备期的保存仍只捕获旧聚合（切换文档 §8）。
+- **恢复对称原则**：editable 与 published 两类来源都先重建可信根再恢复——
+  editable 从 committed `RoadEditingState` 重编译，published 经
+  `PublishedLfcaReference` 重新认证。同修订判据 = `NetworkRevisionId` +
+  `networkRevisionDerivationVersion` + 契约版本精确相等（与切换文档 §3 一致）；
+  origin 字节差异仅承担来源审计，published 重发布的摘要错配在判据满足时允许
+  恢复。资产缺失、重编译失败或版本不匹配失败关闭。
+- 发布资产启用道路编辑须另带 committed 道路状态并完成同修订
+  root / source / diff-base rebase；成功前不得启用编辑。
+- **完整性原则**：恢复的状态必须满足与 `install` / spawn 命令路径同一的不变量
+  集。语义 lowering 拒绝：重复局部标识、悬空引用、live 序非活跃车辆精确排列、
+  停车绑定与 parked 状态不一致、车辆值不变量破坏（`carry_um` 越界、进度超
+  边长、超速、profile 与 class 不一致、活跃车辆物理重叠）。任一违反零部分恢复。
 - 恢复成功后世界处于快照 `tick` 边界的一致状态；`install` 核对与
   `register_route` 重建沿现行消费契约执行。
 
-## 6. 回放、检查点与确定性状态摘要
+## 6. 回放与确定性状态摘要
 
-- **输入命令序列由宿主记录并按序重放**（术语表：输入命令序列）；Runtime 不新增
-  隐藏输入权威。回放 = 恢复快照（或检查点）后按序重提交命令。
-- **回放身份协议**：输入命令序列的目标标识必须使用耐久身份——快照局部标识
-  （如 `snapshot_vehicle_id`）或宿主自有 ID，**不得直接记录进程句柄**（恢复后
-  句柄重新分配，重放 stale 句柄是调用方错误）。恢复时宿主经「快照局部标识 →
-  新分配句柄」映射重提交命令；检查点之后由命令新建的实体，其耐久 ID 由命令
-  载荷自带。Runtime 不维护跨恢复的句柄映射。
-- **确定性状态摘要（术语表）**：对逻辑状态按规范排序计算的版本化摘要。本 G1
-  冻结摘要算法为 SHA-256（沿 `laneflow-format` 先例）并前置域分隔版本前缀；
-  摘要输入的精确规范化序列化由 G2 落定并登记本文。本项履行 ADR 0020 §12 /
-  ADR 0021 §6 指派给后续运行时 G1 的摘要算法冻结义务；检查点采样频率由宿主
-  选择，发布构建裁剪不适用（快照不是发布对象）。摘要对逻辑状态负责，不比对
-  容器字节；同一逻辑状态在任何合法编码下摘要相等。
-- **检查点（checkpoint）**：回放序列中周期保存的快照锚点，与输入命令游标共同
-  界定重放区间；缩短恢复与失同步定位区间。
-- 失同步诊断边界：摘要不等即报告失同步与首个可定位区间，不做自动纠偏、不重启
-  世界；处置由宿主决定。
+- 输入命令序列由宿主记录并按序重放（术语表：输入命令序列）；Runtime 不新增
+  隐藏输入权威。
+- **回放身份**：命令目标用耐久身份（快照局部标识或宿主自有 ID），不用进程
+  句柄；恢复经「局部标识 → 新分配句柄」映射重提交；检查点之后由命令新建的
+  实体，其耐久 ID 由命令载荷自带。
+- **确定性状态摘要（术语表）**：对逻辑状态按规范排序计算、与容器编码无关；
+  算法冻结为 SHA-256 + 域分隔版本前缀（沿 `laneflow-format` 先例），摘要输入
+  的精确规范化序列化由 G2 登记。同一逻辑状态在任何合法编码下摘要相等；该摘要
+  同时是切换事务静默期复核的期望值来源（切换文档 §3/§5）。
+- 检查点（checkpoint）是回放序列中的快照锚点，与命令游标共同界定重放区间；
+  失同步只诊断（报告首个分歧区间），不自动纠偏、不重启世界，处置归宿主。
 
 ## 7. 跨修订迁移入口
 
-- 跨修订恢复必须由受信任 `NetworkRevisionCutoverDescriptor` 驱动，经 LFSD 与
-  稳定标识执行**显式迁移**（切换文档 §3：封闭种类选择器
-  `same_revision_restore` / `cross_revision_direct`，无宿主回调，不可映射实体——
-  含重绑后非法——整体失败关闭）。
-- 旧密集序号不得直接解释为新修订实体；`SharedIdentityIndex` 完整重建稳定静态
-  引用。同修订恢复不要求同 LFCA 字节：identity / constraint /
-  execution-constraint versions 精确相等即可（ADR 0020 §12 语义，origin 形态
-  按 ADR 0025 §8 修订；同修订换根的切换事务路径见切换文档 §3）。
+跨修订恢复必须由受信任 `NetworkRevisionCutoverDescriptor` 驱动、经 LFSD 显式
+迁移（切换文档 §3）；旧密集序号不得直接解释为新修订实体，稳定引用经
+`SharedIdentityIndex` 完整重建。同修订换根（含重发布制品）走切换事务的
+`same_revision_restore` 路径。
 
 ## 8. G1 预算与度量
 
-ADR 0021 §8 与 ADR 0020 验证门要求量化快照的制品尺寸与停顿；度量协议与切换
-文档 §9 相同（同机描述性基线，方向只许收紧）。维度：
+度量协议与切换文档 §9 相同（同机描述性基线，方向只许收紧）。维度：快照制品
+exact bytes、save 停顿（墙钟与主线程）、load 停顿（editable 重编译与
+published 认证分别度量）、恢复峰值内存、保存期间对稳态 tick 的干扰。
 
-| 维度         | 口径                                                             |
-| ------------ | ---------------------------------------------------------------- |
-| 制品字节     | 快照 exact bytes（含头部与全部表）按生产规模登记                 |
-| save 停顿    | 保存墙钟与主线程停顿（保存发生在稳态世界上的干扰）               |
-| load 停顿    | 恢复墙钟与主线程停顿（editable 重编译 / published 认证分别度量） |
-| 恢复峰值内存 | 恢复期间解析、身份重建与动态状态物化的峰值                       |
-| 稳态干扰     | 保存期间对 tick 的干扰（不改变已提交状态与事件语义）             |
+## 9. G2 边界与必测义务
 
-## 9. 必测项（G2）
+G2 落定并回写本文：schema 与版本轴到字段的显式映射、摘要输入的精确规范化
+序列化。
 
-- 同修订 save → load exact oracle：逻辑状态（路线边序列、毫米游标、速度、状态、
-  停车占用、live 序、`tick` / `time_ms` / 输入命令游标 / 已提交事件游标）全等；
-  句柄不比对（新分配）。
-- 检查点 + 命令重放与连续步进摘要逐点相等；失同步注入能定位区间。回放身份协议：
-  以 `snapshot_vehicle_id` 等耐久身份记录的命令序列，恢复后经映射重放与连续
-  步进逐点相等。
-- `WorldConfig` 恢复规则：`fixed_delta_time_ms` 不一致失败关闭；检查点/回放
-  oracle 在行为语义配置一致时逐点相等、语义容量差异下显式不等（不误判为
-  失同步缺陷）；worker 数差异不影响 exact oracle（重放逐点相等）。
-- 跨修订直移：直移成功 oracle 与不可映射实体整体失败关闭（含删边上有车、路线
-  引用被删边、停车绑定失效三类）。
-- 容器拒绝面：未知 `formatVersion`、损坏长度、越界基数、含禁绑字段（句柄/
-  generation/密集序号/浮点一维值）全部失败关闭且零部分恢复。
-- 语义完整性拒绝面：重复 `snapshot_vehicle_id` / `snapshot_route_id`、悬空
-  引用、live 序非精确排列、停车绑定与 parked 状态不一致、车辆值不变量破坏
-  （`carry_um` 超界 / `route_edge_index` 越界 / `progress_mm` 超边长 / 超速 /
-  profile-class 不一致 / 活跃车辆物理重叠），全部失败关闭且零部分恢复。
-- 边界捕获一致性：保存期间世界继续步进时，捕获点内各行来自同一提交边界
-  （构造跨边界混合输入 → 拒绝）。
-- editable / published 两类来源恢复流程端到端；发布资产缺 committed 道路状态
-  时编辑不可启用；published 同修订重发布（字节不同、判据满足）恢复成功。
-- 保存与候选准备并发时只捕获旧聚合；source rebase / diff-base binding 缺失或
-  错配失败关闭。
-- §8 五个预算维度按基线登记并进入量化切片证据。
+必测义务：save → load exact oracle（逻辑状态含双游标与 `time_ms` 全等，句柄
+不比对）；检查点 + 命令重放逐点相等与失同步定位；行为语义配置不一致拒绝、
+worker 数差异不影响 exact 语义；容器拒绝面（未知版本 / 长度 / 基数 / 禁绑
+字段）；完整性拒绝面（标识 / 引用 / 排列 / 值不变量）；两类来源恢复端到端与
+published 同修订重发布恢复；边界捕获拒绝跨提交状态混合；候选准备期保存只
+捕获旧聚合。
