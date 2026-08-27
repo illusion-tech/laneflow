@@ -10,6 +10,7 @@
 [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
 [`shared-static-network.md`](shared-static-network.md)、
 [`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md)、
+[`traffic-observation-and-routing-integration.md`](traffic-observation-and-routing-integration.md)、
 [`retire-precompiled-static-route.md`](retire-precompiled-static-route.md)
 
 本文是 ADR 0020 §6（经 ADR 0025/#300 G1 部分修订）与 ADR 0025 的 #302 G1 设计。
@@ -106,6 +107,16 @@ Prepare → Delta Catch-up → Quiescent Commit → Retire
 
 维护暂停模式仅宿主显式声明、整个准备期停表、单独预算；不作为在线改路的
 隐式语义。
+
+### 4.1 观测与 Routing 交互
+
+准备期对外只导出活动旧聚合的观测，候选世界不可见。在旧世界成功执行的 Routing
+候选注册已经成为普通路线生命周期变更，必须进入迁移增量日志并在 target 根上按
+§3 重绑/重验证；失败仍使整个切换失败关闭。成功提交与聚合换绑同界递增世界世代，
+使旧观测导出/admission session、未注册候选和旧修订成本绑定全部 stale；调用方在
+新修订先取 full，已经注册的路线句柄仍按逻辑恒等保持。切换放弃不递增世代、不改变
+旧观测 stream 身份。精确合同见
+`traffic-observation-and-routing-integration.md` §5。
 
 ## 5. 迁移增量日志与等价证明
 

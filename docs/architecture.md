@@ -1,7 +1,7 @@
 # 架构
 
 **文档状态**: Accepted（current + #291 target design + ADR 0025 / #300 G1 修订；#301 后 Runtime 为当前可运行世界；ADR 0028 / #496 已落地整数毫米一维几何）<br>
-**最后更新**: 2026-08-24<br>
+**最后更新**: 2026-08-27<br>
 **适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Runtime/Adapter 边界，以及 #291/ADR 0020/0021 和 Accepted ADR 0025 的城市模拟游戏交通基础与目标静态编译架构
 
 ## 1. 架构目标
@@ -300,6 +300,9 @@ partition plan 不进入快照。ADR 0028 把那些可变状态中的一维几�
 生成失同步诊断制品。交通运行时按观测导出节奏（Observation Export Cadence）导出
 完整基线或版本化增量/分区选择的已提交交通观测；路径规划据此构造动态成本快照，
 不进入交通参与单元 fixed-tick 热路径，也不要求每 tick 全量复制全网。
+#303 G1 Review 候选选择宿主自有 Routing + LaneFlow 纯契约边界，不新增算法 crate
+或 LaneFlow wire；观测、成本绑定、候选注册与 #302 失效接缝见
+[`traffic-observation-and-routing-integration.md`](design/traffic-observation-and-routing-integration.md)。
 
 历史 `InitialTrafficData` 只表示 Core 时代可用于初始化 world 的已验证静态 JSON
 输入。#301 后可运行世界由 `TrafficWorld::install(Arc<SharedNetworkRevision>)`
