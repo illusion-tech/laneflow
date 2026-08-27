@@ -232,6 +232,18 @@ pub enum CutoverDescriptorError {
         /// 宿主声明的上限。
         limit: u64,
     },
+    /// 跨修订直移策略下两侧修订标识相等（两 kind 互斥）。
+    #[error("跨修订直移策略要求两侧修订标识不等")]
+    CrossRevisionRequiresUnequalRevisions,
+    /// 同修订换根策略下两侧静态契约版本不相等（#302 判据）。
+    #[error("同修订换根策略要求两侧静态契约版本相等")]
+    SameRevisionRequiresEqualContractVersions,
+    /// v1 预留事件游标非零。
+    #[error("v1 预留事件游标必须为零，实际 {actual}")]
+    ReservedEventCursorNonZero {
+        /// 描述符携带的事件游标值。
+        actual: u64,
+    },
 }
 
 impl NetworkRevisionCutoverDescriptor {
@@ -281,6 +293,11 @@ impl NetworkRevisionCutoverDescriptor {
         target_origin: CanonicalNetworkOrigin,
         limits: &CutoverPreflightLimits,
     ) -> Result<(), CutoverDescriptorError> {
+        if self.world.baseline_event_cursor != 0 {
+            return Err(CutoverDescriptorError::ReservedEventCursorNonZero {
+                actual: self.world.baseline_event_cursor,
+            });
+        }
         let supported = NETWORK_REVISION_DERIVATION_VERSION;
         if self.base.network_revision_derivation_version() != supported {
             return Err(
@@ -306,11 +323,21 @@ impl NetworkRevisionCutoverDescriptor {
                 if self.base.network_revision() != self.target.network_revision() {
                     return Err(CutoverDescriptorError::SameRevisionRequiresEqualRevisions);
                 }
+                // 同修订判据含静态契约版本精确相等（#302 切换合同 §3）；
+                // 判据作用于两侧已认证制品。
+                if base_origin.static_contract_versions()
+                    != target_origin.static_contract_versions()
+                {
+                    return Err(CutoverDescriptorError::SameRevisionRequiresEqualContractVersions);
+                }
             }
             MigrationPolicyKind::CrossRevisionDirect => {
                 let Some(semantic_diff) = self.semantic_diff else {
                     return Err(CutoverDescriptorError::CrossRevisionRequiresSemanticDiff);
                 };
+                if self.base.network_revision() == self.target.network_revision() {
+                    return Err(CutoverDescriptorError::CrossRevisionRequiresUnequalRevisions);
+                }
                 if semantic_diff.semantic_diff_format_version != SEMANTIC_DIFF_FORMAT_VERSION {
                     return Err(
                         CutoverDescriptorError::SemanticDiffFormatVersionUnsupported {
@@ -353,6 +380,12 @@ mod tests {
     );
     const MIN_HEADLESS: &[u8] = include_bytes!(
         "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/min-headless.lfca"
+    );
+    const PROVENANCE_BASE: &[u8] = include_bytes!(
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-base.lfca"
+    );
+    const PROVENANCE_BUILD: &[u8] = include_bytes!(
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-build.lfca"
     );
 
     fn origin(bytes: &'static [u8], retain: bool) -> CanonicalNetworkOrigin {
@@ -552,6 +585,59 @@ mod tests {
                     supported: NETWORK_REVISION_DERIVATION_VERSION,
                 }
             )
+        );
+    }
+
+    #[test]
+    fn cross_revision_rejects_equal_revisions() {
+        let base = origin(FULL_SPATIAL, true);
+        let equal = NetworkRevisionCutoverDescriptor::new(
+            LfcaOriginBinding::from_canonical_origin(base),
+            LfcaOriginBinding::from_canonical_origin(base),
+            Some(lfsd(SEMANTIC_DIFF_FORMAT_VERSION, 1)),
+            MigrationPolicyKind::CrossRevisionDirect,
+            WorldBinding::new(1, 0, 0),
+        );
+        assert_eq!(
+            equal.validate(base, base, &limits()),
+            Err(CutoverDescriptorError::CrossRevisionRequiresUnequalRevisions)
+        );
+    }
+
+    #[test]
+    fn same_revision_restore_accepts_republished_bytes() {
+        // provenance-base / provenance-build 是同文档不同构建来源：
+        // 同 NetworkRevisionId、不同 exact bytes（ADR 0025 §8 重发布语义）。
+        let base = origin(PROVENANCE_BASE, false);
+        let target = origin(PROVENANCE_BUILD, false);
+        assert_eq!(base.network_revision(), target.network_revision());
+        assert_ne!(
+            base.canonical_artifact_digest(),
+            target.canonical_artifact_digest()
+        );
+        let descriptor = NetworkRevisionCutoverDescriptor::new(
+            LfcaOriginBinding::from_canonical_origin(base),
+            LfcaOriginBinding::from_canonical_origin(target),
+            None,
+            MigrationPolicyKind::SameRevisionRestore,
+            WorldBinding::new(3, 42, 0),
+        );
+        assert_eq!(descriptor.validate(base, target, &limits()), Ok(()));
+    }
+
+    #[test]
+    fn reserved_event_cursor_must_be_zero_in_v1() {
+        let base = origin(FULL_SPATIAL, true);
+        let nonzero = NetworkRevisionCutoverDescriptor::new(
+            LfcaOriginBinding::from_canonical_origin(base),
+            LfcaOriginBinding::from_canonical_origin(base),
+            None,
+            MigrationPolicyKind::SameRevisionRestore,
+            WorldBinding::new(1, 0, 7),
+        );
+        assert_eq!(
+            nonzero.validate(base, base, &limits()),
+            Err(CutoverDescriptorError::ReservedEventCursorNonZero { actual: 7 })
         );
     }
 }
