@@ -160,7 +160,7 @@ impl WorldBinding {
     }
 }
 
-/// 网络修订切换描述符（术语表：`NetworkRevisionCutoverDescriptor`）。
+/// 路网修订切换描述符（术语表：`NetworkRevisionCutoverDescriptor`）。
 ///
 /// 宿主/上层在对象外可信提供的封闭契约输入。Runtime 的一致性验证只回答
 /// 「这份输入与两侧已认证制品是否精确一致」，不回答「这次迁移是否该发生」。
