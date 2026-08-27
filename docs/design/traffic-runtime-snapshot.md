@@ -106,8 +106,11 @@ capacity、调用方自有 seed/随机流（由宿主存档清单绑定；Runtim
 - **语义完整性校验（lowering 阶段）**：verifier 通过后、任何状态提交前，语义
   lowering 必须拒绝——重复的 `snapshot_vehicle_id` / `snapshot_route_id`、
   引用不存在的路线/车辆/停车位的悬空引用、live 顺序不是活跃车辆的精确排列、
-  停车占用绑定与车辆 parked 状态不一致（双射破坏）。任一违反失败关闭且零
-  部分恢复。
+  停车占用绑定与车辆 parked 状态不一致（双射破坏），以及**车辆值不变量**：
+  `carry_um` ∈ 0..=999、`route_edge_index` 在路线序列内、`progress_mm` 不超过
+  重编译后当前边长、`speed_mm_s` 不超过 profile 与边限速、profile 与 class
+  一致、活跃车辆无物理重叠（沿 `install` / spawn 命令路径的同一检查集）。
+  任一违反失败关闭且零部分恢复。
 - 恢复成功后世界处于快照 `tick` 边界的一致状态；`install` 核对与
   `register_route` 重建沿现行消费契约执行。
 
@@ -171,8 +174,9 @@ ADR 0021 §8 与 ADR 0020 验证门要求量化快照的制品尺寸与停顿；
 - 容器拒绝面：未知 `formatVersion`、损坏长度、越界基数、含禁绑字段（句柄/
   generation/密集序号/浮点一维值）全部失败关闭且零部分恢复。
 - 语义完整性拒绝面：重复 `snapshot_vehicle_id` / `snapshot_route_id`、悬空
-  引用、live 序非精确排列、停车绑定与 parked 状态不一致，全部失败关闭且零
-  部分恢复。
+  引用、live 序非精确排列、停车绑定与 parked 状态不一致、车辆值不变量破坏
+  （`carry_um` 超界 / `route_edge_index` 越界 / `progress_mm` 超边长 / 超速 /
+  profile-class 不一致 / 活跃车辆物理重叠），全部失败关闭且零部分恢复。
 - 边界捕获一致性：保存期间世界继续步进时，捕获点内各行来自同一提交边界
   （构造跨边界混合输入 → 拒绝）。
 - editable / published 两类来源恢复流程端到端；发布资产缺 committed 道路状态
