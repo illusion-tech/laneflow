@@ -387,6 +387,9 @@ pub enum CutoverError {
     /// 目标来源的修订标识与 target 侧已认证制品不一致。
     #[error("目标来源修订与 target 制品修订不一致")]
     TargetSourceRevisionMismatch,
+    /// 描述符世界绑定与本世界身份不一致。
+    #[error("描述符世界绑定与本世界身份不一致")]
+    WorldBindingMismatch,
     /// 候选构造失败：某条已注册路线对 target 根重编译失败（同修订下
     /// 属防御深度，语义上不可达）。
     #[error("路线对 target 根重编译失败")]
@@ -421,6 +424,11 @@ impl TrafficWorld {
         if descriptor.policy_kind() != MigrationPolicyKind::SameRevisionRestore {
             return Err(CutoverError::PolicyMismatch);
         }
+        // worldBinding：世界身份在事务启动时一次性比对（命令/事件基线
+        // 游标随切片 B 快照面存在，当前比对世界身份）。
+        if descriptor.world_binding().world_id() != self.world_id {
+            return Err(CutoverError::WorldBindingMismatch);
+        }
         let base_origin = *self.revision.canonical_origin();
         let target_origin = *target_revision.canonical_origin();
         descriptor.validate(base_origin, target_origin, limits)?;
@@ -454,6 +462,9 @@ impl TrafficWorld {
                 ));
             }
         }
+        // Prepare（续）：针对 target 根与 staged 路线在暂存区完成可失败的
+        // 占用索引重建；commit 段只剩不可失败换绑（#302 切换合同 §4）。
+        let staged_occupancy = self.build_occupancy_index_for(&target_revision, &staged)?;
         // Quiescent Commit：全部可失败步骤已过，剩余为不可失败的原地换绑。
         self.revision = target_revision;
         for (index, compiled) in staged {
@@ -463,7 +474,7 @@ impl TrafficWorld {
         }
         self.source = target_source;
         self.refresh_signals();
-        self.rebuild_occupancy_index()?;
+        self.occupancy = staged_occupancy;
         Ok(())
     }
 }
@@ -810,6 +821,7 @@ mod tests {
                 Arc::clone(&revision),
                 WorldConfig::new(8, 4, 1, 100),
                 source_for(origin, "fixture://base"),
+                1,
             )
             .expect("install");
             let first = laneflow_static_contract::LaneEdgeOrdinal::from_raw(0);
@@ -971,6 +983,38 @@ mod tests {
                 before_origin,
                 "old world keeps its root"
             );
+            world
+                .step(TickInput::new(100))
+                .expect("old world still steps");
+        }
+
+        #[test]
+        fn world_binding_mismatch_rejects() {
+            let (mut world, _, _) = world_with_vehicle(true);
+            let before_origin = *world.revision().canonical_origin();
+            assert_eq!(world.world_id(), 1);
+            let target = revision(false);
+            let target_origin = *target.canonical_origin();
+            // 描述符签发给其它世界（world_id=9）。
+            let descriptor = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(before_origin),
+                LfcaOriginBinding::from_canonical_origin(target_origin),
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                WorldBinding::new(9, 0, 0),
+            );
+            assert_eq!(
+                world
+                    .cutover_same_revision(
+                        target,
+                        source_for(target_origin, "fixture://x"),
+                        &descriptor,
+                        &limits(),
+                    )
+                    .unwrap_err(),
+                CutoverError::WorldBindingMismatch
+            );
+            assert_eq!(*world.revision().canonical_origin(), before_origin);
             world
                 .step(TickInput::new(100))
                 .expect("old world still steps");

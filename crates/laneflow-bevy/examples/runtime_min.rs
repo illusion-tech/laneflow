@@ -47,6 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 )
                 .expect("non-empty scenario key"),
             },
+            0,
         )?
     };
     let edge_for_length = |world: &TrafficWorld, length: u32| {

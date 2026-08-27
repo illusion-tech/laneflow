@@ -30,6 +30,7 @@ fn install_fixture(
             )
             .expect("non-empty fixture key"),
         },
+        0,
     )
 }
 
