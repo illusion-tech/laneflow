@@ -7,7 +7,10 @@ use std::{error::Error, num::NonZeroU32, sync::Arc};
 use bevy::prelude::*;
 use laneflow_bevy::{LaneFlowPlugin, LaneFlowSession, LaneFlowSessionConfig, pose_input};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
-use laneflow_runtime::{RouteRegisterInput, TrafficWorld, VehicleSpawnInput, WorldConfig};
+use laneflow_runtime::{
+    CommittedNetworkSource, PublishedLfcaReference, RouteRegisterInput, TrafficWorld,
+    VehicleSpawnInput, WorldConfig,
+};
 use laneflow_spatial::{CanonicalPoseBatch, FramePlacementToken, PoseRecordId, SpatialSession};
 use laneflow_static_contract::{LaneEdgeOrdinal, VehicleProfileOrdinal};
 use laneflow_static_network::{
@@ -30,7 +33,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         ),
     )
     .map_err(|error| format!("{error:?}"))?;
-    let mut world = TrafficWorld::install(Arc::clone(&revision), WorldConfig::new(8, 4, 1, 100))?;
+    let mut world = {
+        let origin = revision.canonical_origin();
+        TrafficWorld::install(
+            Arc::clone(&revision),
+            WorldConfig::new(8, 4, 1, 100),
+            CommittedNetworkSource::Published {
+                reference: PublishedLfcaReference::new(
+                    "scenario://runtime-min",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .expect("non-empty scenario key"),
+            },
+        )?
+    };
     let edge_for_length = |world: &TrafficWorld, length: u32| {
         let index = world
             .traffic()

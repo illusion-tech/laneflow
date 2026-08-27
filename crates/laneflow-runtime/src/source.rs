@@ -1,11 +1,13 @@
 //! 已提交路网来源：#302 活动聚合的来源指名（切片 A 第一步）。
 
 use laneflow_static_contract::{ExactByteLength, NetworkRevisionId, Sha256Digest};
+use thiserror::Error;
 
 /// 已发布 LFCA 引用（术语表：published LFCA reference）构造失败。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum InvalidPublishedLfcaReference {
     /// 宿主 asset key 为空字符串。
+    #[error("已发布 LFCA 引用的 asset key 不能为空")]
     EmptyAssetKey,
 }
 

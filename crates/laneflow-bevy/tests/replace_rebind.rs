@@ -19,6 +19,26 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 
+fn install_fixture(
+    revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+    config: laneflow_runtime::WorldConfig,
+) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
+    let origin = *revision.canonical_origin();
+    laneflow_runtime::TrafficWorld::install(
+        revision,
+        config,
+        laneflow_runtime::CommittedNetworkSource::Published {
+            reference: laneflow_runtime::PublishedLfcaReference::new(
+                "fixture://in-process",
+                origin.canonical_artifact_digest(),
+                origin.canonical_artifact_byte_length(),
+                origin.network_revision(),
+            )
+            .expect("non-empty fixture key"),
+        },
+    )
+}
+
 const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
 );
@@ -86,8 +106,7 @@ fn drive_to_completed(world: &mut TrafficWorld) -> (laneflow_runtime::VehicleHan
 
 #[test]
 fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
-    let mut world =
-        TrafficWorld::install(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let mut world = install_fixture(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
     let (old, route) = drive_to_completed(&mut world);
     let spatial = SpatialSession::bind(world.revision())
         .expect("bind")
@@ -176,8 +195,7 @@ fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
 
 #[test]
 fn unbound_replace_stays_unbound() {
-    let mut world =
-        TrafficWorld::install(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let mut world = install_fixture(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
     let (old, route) = drive_to_completed(&mut world);
     let session = LaneFlowSession::new(
         world,
@@ -208,8 +226,7 @@ fn unbound_replace_stays_unbound() {
 
 #[test]
 fn identical_bind_is_duplicate_error() {
-    let mut world =
-        TrafficWorld::install(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let mut world = install_fixture(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
     let (vehicle, _route) = drive_to_completed(&mut world);
     let session = LaneFlowSession::new(
         world,

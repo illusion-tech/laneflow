@@ -13,6 +13,26 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 
+fn install_fixture(
+    revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+    config: laneflow_runtime::WorldConfig,
+) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
+    let origin = *revision.canonical_origin();
+    laneflow_runtime::TrafficWorld::install(
+        revision,
+        config,
+        laneflow_runtime::CommittedNetworkSource::Published {
+            reference: laneflow_runtime::PublishedLfcaReference::new(
+                "fixture://in-process",
+                origin.canonical_artifact_digest(),
+                origin.canonical_artifact_byte_length(),
+                origin.network_revision(),
+            )
+            .expect("non-empty fixture key"),
+        },
+    )
+}
+
 const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
 );
@@ -31,7 +51,7 @@ fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
 }
 
 fn world() -> TrafficWorld {
-    TrafficWorld::install(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install")
+    install_fixture(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install")
 }
 
 fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
@@ -389,8 +409,7 @@ fn completed_vehicle_is_retained_without_pose_or_occupancy() {
 
 #[test]
 fn completed_vehicle_occupies_capacity_until_replace() {
-    let mut world =
-        TrafficWorld::install(revision(), WorldConfig::new(1, 4, 1, 100)).expect("install");
+    let mut world = install_fixture(revision(), WorldConfig::new(1, 4, 1, 100)).expect("install");
     let route = fixture_route(&mut world);
     let old = drive_to_completed(&mut world, route);
     assert_eq!(
@@ -484,8 +503,7 @@ fn replace_is_atomic_and_blocked_overlap_is_retryable() {
 
 #[test]
 fn replace_does_not_use_despawn_then_spawn() {
-    let mut world =
-        TrafficWorld::install(revision(), WorldConfig::new(1, 4, 1, 100)).expect("install");
+    let mut world = install_fixture(revision(), WorldConfig::new(1, 4, 1, 100)).expect("install");
     let route = fixture_route(&mut world);
     let old = drive_to_completed(&mut world, route);
     assert!(

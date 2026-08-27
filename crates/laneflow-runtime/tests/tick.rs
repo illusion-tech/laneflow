@@ -13,6 +13,26 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 
+fn install_fixture(
+    revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+    config: laneflow_runtime::WorldConfig,
+) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
+    let origin = *revision.canonical_origin();
+    laneflow_runtime::TrafficWorld::install(
+        revision,
+        config,
+        laneflow_runtime::CommittedNetworkSource::Published {
+            reference: laneflow_runtime::PublishedLfcaReference::new(
+                "fixture://in-process",
+                origin.canonical_artifact_digest(),
+                origin.canonical_artifact_byte_length(),
+                origin.network_revision(),
+            )
+            .expect("non-empty fixture key"),
+        },
+    )
+}
+
 const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
 );
@@ -35,7 +55,7 @@ fn world() -> TrafficWorld {
 }
 
 fn world_with_delta(delta_ms: u64) -> TrafficWorld {
-    TrafficWorld::install(revision(), WorldConfig::new(8, 4, 1, delta_ms)).expect("install")
+    install_fixture(revision(), WorldConfig::new(8, 4, 1, delta_ms)).expect("install")
 }
 
 fn aspects_at(world: &TrafficWorld, time_ms: u64) -> Vec<SignalAspect> {
@@ -842,8 +862,7 @@ fn spawn_rejects_overlap_across_adjacent_edges() {
 
 #[test]
 fn completed_vehicle_keeps_capacity_until_replace() {
-    let mut world =
-        TrafficWorld::install(revision(), WorldConfig::new(1, 4, 1, 100)).expect("install");
+    let mut world = install_fixture(revision(), WorldConfig::new(1, 4, 1, 100)).expect("install");
     let route = fixture_route(&mut world);
     let edges = world.route_edges(route).expect("edges").to_vec();
     let last = *edges.last().expect("route has edges");

@@ -22,7 +22,7 @@ use crate::{
 /// `replace_completed_vehicle`）只在两次 `step` 之间调用。
 pub struct TrafficWorld {
     pub(crate) revision: Arc<SharedNetworkRevision>,
-    pub(crate) source: Option<CommittedNetworkSource>,
+    pub(crate) source: CommittedNetworkSource,
     pub(crate) config: WorldConfig,
     pub(crate) tick_index: u64,
     pub(crate) time_ms: u64,
@@ -39,15 +39,23 @@ pub struct TrafficWorld {
 }
 
 impl TrafficWorld {
-    /// 安装完整共享根。失败不留下可观察的半个 world。
+    /// 安装完整共享根并指名已提交来源（#302 活动聚合）。失败不留下
+    /// 可观察的半个 world。
     ///
-    /// 该入口不指名已提交来源（`committed_source()` 为 `None` 的遗留安装
-    /// 路径）；#302 的保存/切换路径对 `None` 失败关闭，需要来源聚合的
-    /// 调用方使用 [`Self::install_with_source`]。
+    /// 来源的 `NetworkRevisionId` 必须与共享根 origin 精确相等；digest /
+    /// length 差异（同修订重发布）按合同只承担来源审计，不构成拒绝条件。
     pub fn install(
         revision: Arc<SharedNetworkRevision>,
         config: WorldConfig,
+        source: CommittedNetworkSource,
     ) -> Result<Self, InstallError> {
+        let installed = revision.canonical_origin().network_revision();
+        if source.network_revision() != installed {
+            return Err(InstallError::SourceRevisionMismatch {
+                source_revision: source.network_revision(),
+                installed_revision: installed,
+            });
+        }
         let dt = config.fixed_delta_time_ms();
         if !(4..=1_000).contains(&dt) {
             return Err(InstallError::DeltaOutOfRange {
@@ -78,7 +86,7 @@ impl TrafficWorld {
         let route_capacity = usize::try_from(config.route_capacity()).unwrap_or(0);
         let mut world = Self {
             revision,
-            source: None,
+            source,
             config,
             tick_index: 0,
             time_ms: 0,
@@ -97,35 +105,10 @@ impl TrafficWorld {
         Ok(world)
     }
 
-    /// 安装完整共享根并指名已提交来源（#302 活动聚合）。失败不留下
-    /// 可观察的半个 world。
-    ///
-    /// 来源的 `NetworkRevisionId` 必须与共享根 origin 精确相等；digest /
-    /// length 差异（同修订重发布）按合同只承担来源审计，不构成拒绝条件。
-    pub fn install_with_source(
-        revision: Arc<SharedNetworkRevision>,
-        config: WorldConfig,
-        source: CommittedNetworkSource,
-    ) -> Result<Self, InstallError> {
-        let installed = revision.canonical_origin().network_revision();
-        if source.network_revision() != installed {
-            return Err(InstallError::SourceRevisionMismatch {
-                source_revision: source.network_revision(),
-                installed_revision: installed,
-            });
-        }
-        let mut world = Self::install(revision, config)?;
-        world.source = Some(source);
-        Ok(world)
-    }
-
-    /// 已提交路网来源（`#302` 活动聚合的来源指名）。
-    ///
-    /// `None` 表示经 [`Self::install`] 的遗留安装路径未指名来源；#302 的
-    /// 保存/切换路径对其失败关闭。
+    /// 已提交路网来源（#302 活动聚合的来源指名）。
     #[must_use]
-    pub const fn committed_source(&self) -> Option<&CommittedNetworkSource> {
-        self.source.as_ref()
+    pub const fn committed_source(&self) -> &CommittedNetworkSource {
+        &self.source
     }
 
     /// 共享根。
@@ -807,7 +790,21 @@ mod overflow_tests {
             ),
         )
         .expect("shared network revision");
-        TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).expect("install")
+        let origin = *revision.canonical_origin();
+        TrafficWorld::install(
+            revision,
+            WorldConfig::new(8, 4, 1, 100),
+            CommittedNetworkSource::Published {
+                reference: crate::PublishedLfcaReference::new(
+                    "fixture://overflow-tests",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .expect("non-empty fixture key"),
+            },
+        )
+        .expect("install")
     }
 
     #[test]
@@ -874,19 +871,12 @@ mod source_tests {
     }
 
     #[test]
-    fn install_keeps_legacy_none_source() {
-        let world =
-            TrafficWorld::install(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
-        assert_eq!(world.committed_source(), None);
-    }
-
-    #[test]
-    fn install_with_source_binds_matching_revision() {
+    fn install_binds_matching_revision() {
         let revision = revision();
-        let origin = revision.canonical_origin();
+        let origin = *revision.canonical_origin();
         // digest / length 与根 origin 不同（重发布语义），同修订判据只比对修订标识。
         let reference = reference_for(origin.network_revision());
-        let world = TrafficWorld::install_with_source(
+        let world = TrafficWorld::install(
             revision.clone(),
             WorldConfig::new(8, 4, 1, 100),
             CommittedNetworkSource::Published { reference },
@@ -894,24 +884,21 @@ mod source_tests {
         .expect("source matches installed revision");
         assert_eq!(
             world.committed_source(),
-            Some(&CommittedNetworkSource::Published {
+            &CommittedNetworkSource::Published {
                 reference: reference_for(origin.network_revision())
-            })
+            }
         );
         assert_eq!(
-            world
-                .committed_source()
-                .expect("source present")
-                .network_revision(),
+            world.committed_source().network_revision(),
             revision.canonical_origin().network_revision()
         );
     }
 
     #[test]
-    fn install_with_source_rejects_revision_mismatch() {
+    fn install_rejects_revision_mismatch() {
         let revision = revision();
         let mismatched = NetworkRevisionId::from_digest(Sha256Digest::from_bytes([1; 32]));
-        let error = match TrafficWorld::install_with_source(
+        let error = match TrafficWorld::install(
             revision.clone(),
             WorldConfig::new(8, 4, 1, 100),
             CommittedNetworkSource::Published {

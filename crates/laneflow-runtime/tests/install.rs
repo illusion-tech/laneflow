@@ -10,6 +10,26 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 
+fn install_fixture(
+    revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+    config: laneflow_runtime::WorldConfig,
+) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
+    let origin = *revision.canonical_origin();
+    laneflow_runtime::TrafficWorld::install(
+        revision,
+        config,
+        laneflow_runtime::CommittedNetworkSource::Published {
+            reference: laneflow_runtime::PublishedLfcaReference::new(
+                "fixture://in-process",
+                origin.canonical_artifact_digest(),
+                origin.canonical_artifact_byte_length(),
+                origin.network_revision(),
+            )
+            .expect("non-empty fixture key"),
+        },
+    )
+}
+
 const FULL_SPATIAL: &[u8] = include_bytes!(
     "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
 );
@@ -34,7 +54,7 @@ fn config(delta_ms: u64, workers: u32) -> WorldConfig {
 #[test]
 fn install_full_spatial_retains_single_arc() {
     let revision = revision();
-    let world = TrafficWorld::install(Arc::clone(&revision), config(100, 1)).expect("install");
+    let world = install_fixture(Arc::clone(&revision), config(100, 1)).expect("install");
     assert!(Arc::ptr_eq(&world.revision(), &revision));
     assert_eq!(world.tick_index(), 0);
     assert_eq!(world.time_ms(), 0);
@@ -53,7 +73,7 @@ fn install_full_spatial_retains_single_arc() {
 fn install_rejects_delta_out_of_range_and_non_one_worker() {
     let revision = revision();
     assert_eq!(
-        TrafficWorld::install(Arc::clone(&revision), config(0, 1))
+        install_fixture(Arc::clone(&revision), config(0, 1))
             .map(|_| ())
             .unwrap_err(),
         InstallError::DeltaOutOfRange {
@@ -63,7 +83,7 @@ fn install_rejects_delta_out_of_range_and_non_one_worker() {
         }
     );
     assert_eq!(
-        TrafficWorld::install(Arc::clone(&revision), config(3, 1))
+        install_fixture(Arc::clone(&revision), config(3, 1))
             .map(|_| ())
             .unwrap_err(),
         InstallError::DeltaOutOfRange {
@@ -73,7 +93,7 @@ fn install_rejects_delta_out_of_range_and_non_one_worker() {
         }
     );
     assert_eq!(
-        TrafficWorld::install(Arc::clone(&revision), config(1_001, 1))
+        install_fixture(Arc::clone(&revision), config(1_001, 1))
             .map(|_| ())
             .unwrap_err(),
         InstallError::DeltaOutOfRange {
@@ -83,7 +103,7 @@ fn install_rejects_delta_out_of_range_and_non_one_worker() {
         }
     );
     assert_eq!(
-        TrafficWorld::install(Arc::clone(&revision), config(100, 2))
+        install_fixture(Arc::clone(&revision), config(100, 2))
             .map(|_| ())
             .unwrap_err(),
         InstallError::WorkerCountNotOne
@@ -93,15 +113,15 @@ fn install_rejects_delta_out_of_range_and_non_one_worker() {
 #[test]
 fn install_accepts_finest_and_coarsest_tick() {
     let revision = revision();
-    TrafficWorld::install(Arc::clone(&revision), config(4, 1)).expect("dt=4");
-    TrafficWorld::install(revision, config(1_000, 1)).expect("dt=1000");
+    install_fixture(Arc::clone(&revision), config(4, 1)).expect("dt=4");
+    install_fixture(revision, config(1_000, 1)).expect("dt=1000");
 }
 
 #[test]
 fn install_rejects_phase_not_multiple_of_tick() {
     let revision = revision();
     assert_eq!(
-        TrafficWorld::install(Arc::clone(&revision), config(16, 1))
+        install_fixture(Arc::clone(&revision), config(16, 1))
             .map(|_| ())
             .unwrap_err(),
         InstallError::PhaseNotMultipleOfTick
@@ -120,7 +140,7 @@ fn edge_for_length(world: &TrafficWorld, length: u32) -> LaneEdgeOrdinal {
 
 #[test]
 fn remove_route_rejects_stale_handle() {
-    let mut world = TrafficWorld::install(revision(), config(100, 1)).expect("install");
+    let mut world = install_fixture(revision(), config(100, 1)).expect("install");
     let route = world
         .register_route(RouteRegisterInput::new(vec![
             edge_for_length(&world, 10_000),
@@ -138,7 +158,7 @@ fn remove_route_rejects_stale_handle() {
 #[test]
 fn step_rejects_delta_mismatch_without_advancing() {
     let world_revision = revision();
-    let mut world = TrafficWorld::install(world_revision, config(100, 1)).expect("install");
+    let mut world = install_fixture(world_revision, config(100, 1)).expect("install");
     let err = world.step(TickInput::new(50)).unwrap_err();
     assert_eq!(
         err,
@@ -153,7 +173,7 @@ fn step_rejects_delta_mismatch_without_advancing() {
 
 #[test]
 fn step_advances_tick_and_time() {
-    let mut world = TrafficWorld::install(revision(), config(100, 1)).expect("install");
+    let mut world = install_fixture(revision(), config(100, 1)).expect("install");
     let outcome = world.step(TickInput::new(100)).expect("step");
     assert_eq!(outcome.tick_index(), 1);
     assert_eq!(outcome.time_ms(), 100);

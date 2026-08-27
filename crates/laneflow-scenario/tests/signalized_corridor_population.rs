@@ -18,6 +18,26 @@ use laneflow_static_network::{
     build_shared_network_revision,
 };
 
+fn install_fixture(
+    revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+    config: laneflow_runtime::WorldConfig,
+) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
+    let origin = *revision.canonical_origin();
+    laneflow_runtime::TrafficWorld::install(
+        revision,
+        config,
+        laneflow_runtime::CommittedNetworkSource::Published {
+            reference: laneflow_runtime::PublishedLfcaReference::new(
+                "fixture://in-process",
+                origin.canonical_artifact_digest(),
+                origin.canonical_artifact_byte_length(),
+                origin.network_revision(),
+            )
+            .expect("non-empty fixture key"),
+        },
+    )
+}
+
 const CORRIDOR_LFCA: &[u8] = include_bytes!("../../../examples/data/v0.2-signalized-corridor.lfca");
 const CORRIDOR_CATALOG: &str =
     include_str!("../../../examples/data/v0.2-signalized-corridor.catalog.toml");
@@ -100,8 +120,7 @@ fn config_freezes_defaults_and_closed_target_range() {
 #[test]
 fn install_routes_rejects_short_capacity_without_leaving_routes() {
     let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world =
-        TrafficWorld::install(revision, WorldConfig::new(8, 1, 1, TICK_MS)).expect("install");
+    let mut world = install_fixture(revision, WorldConfig::new(8, 1, 1, TICK_MS)).expect("install");
     assert!(prepared.install_routes(&mut world).is_err());
     assert_eq!(world.live_routes().count(), 0);
 }
@@ -130,7 +149,7 @@ fn prepare_50_100_200_are_deterministic_for_seed_zero() {
 #[test]
 fn bind_and_replace_does_not_despawn_then_spawn() {
     let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = TrafficWorld::install(
+    let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
@@ -191,7 +210,7 @@ fn bind_and_replace_does_not_despawn_then_spawn() {
 #[test]
 fn blocked_retry_replays_the_same_plan() {
     let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = TrafficWorld::install(
+    let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
@@ -251,7 +270,7 @@ fn blocked_retry_replays_the_same_plan() {
 #[test]
 fn apply_pending_host_error_restores_fifo_front() {
     let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = TrafficWorld::install(
+    let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
@@ -293,7 +312,7 @@ fn apply_pending_host_error_restores_fifo_front() {
 #[test]
 fn take_initial_vehicles_then_bind_reaches_running() {
     let (mut prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = TrafficWorld::install(
+    let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
@@ -316,7 +335,7 @@ fn take_initial_vehicles_then_bind_reaches_running() {
 #[test]
 fn consume_world_rejects_skipped_ticks() {
     let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = TrafficWorld::install(
+    let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
@@ -345,7 +364,7 @@ fn consume_world_rejects_skipped_ticks() {
 #[test]
 fn consume_world_rejects_untracked_completed_vehicle() {
     let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = TrafficWorld::install(
+    let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT + 1).expect("fits"),
@@ -384,7 +403,7 @@ fn foreign_world() -> TrafficWorld {
         ),
     )
     .expect("foreign revision");
-    TrafficWorld::install(foreign, WorldConfig::new(8, 4, 1, 100)).expect("install")
+    install_fixture(foreign, WorldConfig::new(8, 4, 1, 100)).expect("install")
 }
 
 fn spawn_near_route_end(
@@ -422,7 +441,7 @@ fn spawn_input_rejects_foreign_revision() {
 #[test]
 fn consume_world_rejects_foreign_revision() {
     let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = TrafficWorld::install(
+    let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
@@ -446,7 +465,7 @@ fn consume_world_rejects_foreign_revision() {
 #[test]
 fn pending_spawn_input_rejects_foreign_revision() {
     let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = TrafficWorld::install(
+    let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
@@ -484,7 +503,7 @@ fn pending_spawn_input_rejects_foreign_revision() {
 #[test]
 fn apply_pending_rejects_foreign_revision() {
     let (prepared, revision) = prepare(MIN_TARGET_VEHICLE_COUNT, DEFAULT_SEED);
-    let mut world = TrafficWorld::install(
+    let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(
             u32::try_from(MIN_TARGET_VEHICLE_COUNT).expect("fits"),
@@ -537,7 +556,7 @@ const REPLAY_TICKS: u32 = 12_000;
 
 fn bound_controller(target: usize) -> (TrafficWorld, CorridorPopulationController) {
     let (prepared, revision) = prepare(target, DEFAULT_SEED);
-    let mut world = TrafficWorld::install(
+    let mut world = install_fixture(
         Arc::clone(&revision),
         WorldConfig::new(u32::try_from(target).expect("fits"), 28, 1, TICK_MS),
     )

@@ -20,6 +20,26 @@ use laneflow_static_network::{
 };
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
+fn install_fixture(
+    revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+    config: laneflow_runtime::WorldConfig,
+) -> Result<laneflow_runtime::TrafficWorld, laneflow_runtime::InstallError> {
+    let origin = *revision.canonical_origin();
+    laneflow_runtime::TrafficWorld::install(
+        revision,
+        config,
+        laneflow_runtime::CommittedNetworkSource::Published {
+            reference: laneflow_runtime::PublishedLfcaReference::new(
+                "fixture://in-process",
+                origin.canonical_artifact_digest(),
+                origin.canonical_artifact_byte_length(),
+                origin.network_revision(),
+            )
+            .expect("non-empty fixture key"),
+        },
+    )
+}
+
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
@@ -115,8 +135,7 @@ fn sample_worlds(revision: &Arc<SharedNetworkRevision>, count: usize) -> AllocSa
     let mut worlds = Vec::with_capacity(count);
     for _ in 0..count {
         worlds.push(
-            TrafficWorld::install(Arc::clone(revision), WorldConfig::new(8, 8, 1, 16))
-                .expect("install"),
+            install_fixture(Arc::clone(revision), WorldConfig::new(8, 8, 1, 16)).expect("install"),
         );
     }
     black_box(&worlds);

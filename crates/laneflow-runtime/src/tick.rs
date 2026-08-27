@@ -802,6 +802,25 @@ mod preview {
     };
 
     use crate::{RouteHandle, RouteRegisterInput, VehicleHandle, VehicleSpawnInput, WorldConfig};
+    fn install_fixture(
+        revision: std::sync::Arc<laneflow_static_network::SharedNetworkRevision>,
+        config: crate::WorldConfig,
+    ) -> Result<crate::TrafficWorld, crate::InstallError> {
+        let origin = *revision.canonical_origin();
+        crate::TrafficWorld::install(
+            revision,
+            config,
+            crate::CommittedNetworkSource::Published {
+                reference: crate::PublishedLfcaReference::new(
+                    "fixture://in-process",
+                    origin.canonical_artifact_digest(),
+                    origin.canonical_artifact_byte_length(),
+                    origin.network_revision(),
+                )
+                .expect("non-empty fixture key"),
+            },
+        )
+    }
 
     fn preview_route(world: &mut TrafficWorld) -> RouteHandle {
         let traffic = world.traffic();
@@ -846,7 +865,7 @@ mod preview {
             ),
         )
         .unwrap();
-        let mut world = TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).unwrap();
+        let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).unwrap();
         let route = preview_route(&mut world);
         let profile = world
             .traffic()
@@ -892,7 +911,7 @@ mod preview {
             ),
         )
         .unwrap();
-        TrafficWorld::install(revision, WorldConfig::new(8, 4, 1, 100)).unwrap()
+        install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).unwrap()
     }
 
     #[test]
