@@ -56,7 +56,7 @@ fn world() -> TrafficWorld {
 }
 
 fn world_with_delta(delta_ms: u64) -> TrafficWorld {
-    install_fixture(revision(), WorldConfig::new(8, 4, 1, delta_ms)).expect("install")
+    install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1, delta_ms)).expect("install")
 }
 
 fn aspects_at(world: &TrafficWorld, time_ms: u64) -> Vec<SignalAspect> {
@@ -863,7 +863,8 @@ fn spawn_rejects_overlap_across_adjacent_edges() {
 
 #[test]
 fn completed_vehicle_keeps_capacity_until_replace() {
-    let mut world = install_fixture(revision(), WorldConfig::new(1, 4, 1, 100)).expect("install");
+    let mut world =
+        install_fixture(revision(), WorldConfig::new(1, 4, 1_024, 1, 100)).expect("install");
     let route = fixture_route(&mut world);
     let edges = world.route_edges(route).expect("edges").to_vec();
     let last = *edges.last().expect("route has edges");

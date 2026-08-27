@@ -186,7 +186,8 @@ target 来源绑定 → 同修订不变量预检 → 暂存（逐路线对 targe
 
 ### 4.1 安装与绑定
 
-- `WorldConfig` 含每世界容量、1-worker 计划，以及 `fixed_delta_time_ms`（同一
+- `WorldConfig` 含每世界容量（包括 #303 的必填 `u64
+  route_edge_occurrence_capacity`）、1-worker 计划，以及 `fixed_delta_time_ms`（同一
   world 运行中不得改变）。步长 `∈ [4, 1000]`，每个 phase
   `durationMs % dt == 0 && durationMs >= dt`，否则 `install` 失败关闭、不留下
   world。短相位不得靠 tick 跳过。不接受 LFCA 字节、调用方自报 digest /

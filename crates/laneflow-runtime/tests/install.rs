@@ -49,7 +49,7 @@ fn revision() -> Arc<laneflow_static_network::SharedNetworkRevision> {
 }
 
 fn config(delta_ms: u64, workers: u32) -> WorldConfig {
-    WorldConfig::new(8, 4, workers, delta_ms)
+    WorldConfig::new(8, 4, 1_024, workers, delta_ms)
 }
 
 #[test]
@@ -59,6 +59,7 @@ fn install_full_spatial_retains_single_arc() {
     assert!(Arc::ptr_eq(&world.revision(), &revision));
     assert_eq!(world.tick_index(), 0);
     assert_eq!(world.time_ms(), 0);
+    assert_eq!(world.config().route_edge_occurrence_capacity(), 1_024);
     assert!(
         !world.committed_signal_groups().as_slice().is_empty()
             || revision

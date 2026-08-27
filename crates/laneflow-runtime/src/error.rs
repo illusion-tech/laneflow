@@ -82,6 +82,9 @@ pub enum RouteError {
     /// 路线数量达到 world 容量。
     #[error("路线数量达到容量")]
     CapacityExceeded,
+    /// 全部存活路线的边出现项总数会超过 world 容量。
+    #[error("路线边出现项总数达到容量")]
+    EdgeOccurrenceCapacityExceeded,
     /// 句柄不是本世界有效路线。
     #[error("路线句柄无效或已失效")]
     StaleHandle,

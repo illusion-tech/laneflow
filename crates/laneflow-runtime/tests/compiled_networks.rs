@@ -173,7 +173,8 @@ fn spawn_access_denied_on_registered_route_leaves_no_vehicle() {
             })
             .expect("deny rule");
     });
-    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let mut world =
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
     let route = register_named(&mut world, &["stem", "tail"]);
     assert_eq!(
         world
@@ -241,7 +242,8 @@ fn occupy_other_parking_space_fails_when_already_parked() {
             })
             .expect("space-b");
     });
-    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let mut world =
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -306,7 +308,8 @@ fn follower_on_diverge_respects_leader_overhang_on_shared_stem() {
     let branches = traffic.successors(stem).expect("branches");
     let left = branches[0];
     let right = branches[1];
-    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let mut world =
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
     let leader_route = world
         .register_route(RouteRegisterInput::new(vec![stem, left]))
         .expect("left route");
@@ -361,7 +364,8 @@ fn large_delta_travel_does_not_exceed_speed_limit_envelope() {
             })
             .expect("edge");
     });
-    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 1_000)).expect("install");
+    let mut world =
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 1_000)).expect("install");
     let route = register_named(&mut world, &["edge"]);
     world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -405,7 +409,8 @@ fn speed_down_transition_caps_next_tick_travel() {
             })
             .expect("slow");
     });
-    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 1_000)).expect("install");
+    let mut world =
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 1_000)).expect("install");
     let route = register_named(&mut world, &["fast", "slow"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -475,7 +480,8 @@ fn equal_limit_edge_boundary_does_not_stop_the_vehicle() {
             })
             .expect("b");
     });
-    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let mut world =
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
     let route = register_named(&mut world, &["a", "b"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -523,7 +529,8 @@ fn infeasible_stop_before_lower_limit_still_enters() {
             })
             .expect("slower");
     });
-    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 1_000)).expect("install");
+    let mut world =
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 1_000)).expect("install");
     let route = register_named(&mut world, &["fast", "slower"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -572,7 +579,8 @@ fn already_below_downstream_limit_does_not_stop_at_boundary() {
             })
             .expect("mid");
     });
-    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 1_000)).expect("install");
+    let mut world =
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 1_000)).expect("install");
     let route = register_named(&mut world, &["posted-fast", "mid"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(
@@ -685,7 +693,7 @@ fn install_rejects_phase_shorter_than_tick() {
         add_signalized_corridor(module, 8);
     });
     assert_eq!(
-        install_fixture(revision, WorldConfig::new(8, 4, 1, 16))
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 16))
             .map(|_| ())
             .unwrap_err(),
         InstallError::PhaseShorterThanTick
@@ -712,7 +720,8 @@ fn hop_preserves_active_state_and_does_not_force_zero_carry() {
             })
             .expect("second");
     });
-    let mut world = install_fixture(revision, WorldConfig::new(8, 4, 1, 4)).expect("install");
+    let mut world =
+        install_fixture(revision, WorldConfig::new(8, 4, 1_024, 1, 4)).expect("install");
     let route = register_named(&mut world, &["first", "second"]);
     let vehicle = world
         .spawn_vehicle(VehicleSpawnInput::new(

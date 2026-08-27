@@ -32,6 +32,7 @@ pub struct TrafficWorld {
     pub(crate) routes: Vec<RouteSlot>,
     pub(crate) free_routes: Vec<usize>,
     pub(crate) live_route_count: u32,
+    pub(crate) live_route_edge_occurrence_count: u64,
     pub(crate) vehicles: Vec<VehicleSlot>,
     pub(crate) free_vehicles: Vec<usize>,
     pub(crate) live_order: Vec<VehicleHandle>,
@@ -98,6 +99,7 @@ impl TrafficWorld {
             routes: Vec::with_capacity(route_capacity),
             free_routes: Vec::with_capacity(route_capacity),
             live_route_count: 0,
+            live_route_edge_occurrence_count: 0,
             vehicles: Vec::with_capacity(vehicle_capacity),
             free_vehicles: Vec::with_capacity(vehicle_capacity),
             live_order: Vec::with_capacity(vehicle_capacity),
@@ -156,10 +158,30 @@ impl TrafficWorld {
     /// 在 compiled 槽位物化分段 `u32` 前缀、后缀距离、受控 hop 链和限速下降转换；
     /// 不上 `u64`，不存当前红灯。句柄不含 world 身份，只在本 `TrafficWorld` 内有效。
     pub fn register_route(&mut self, input: RouteRegisterInput) -> Result<RouteHandle, RouteError> {
+        self.register_route_edges(input.edges())
+    }
+
+    /// 所有路线入口共用的权威注册路径。容量预检发生在 compiled O(n) 分配前。
+    pub(crate) fn register_route_edges(
+        &mut self,
+        edges: &[laneflow_static_contract::LaneEdgeOrdinal],
+    ) -> Result<RouteHandle, RouteError> {
+        if edges.is_empty() {
+            return Err(RouteError::EmptySequence);
+        }
         if self.live_route_count >= self.config.route_capacity() {
             return Err(RouteError::CapacityExceeded);
         }
-        let compiled = compile_route(self.revision.traffic(), input.edges())?;
+        let added_occurrences =
+            u64::try_from(edges.len()).map_err(|_| RouteError::EdgeOccurrenceCapacityExceeded)?;
+        let next_occurrence_count = self
+            .live_route_edge_occurrence_count
+            .checked_add(added_occurrences)
+            .ok_or(RouteError::EdgeOccurrenceCapacityExceeded)?;
+        if next_occurrence_count > self.config.route_edge_occurrence_capacity() {
+            return Err(RouteError::EdgeOccurrenceCapacityExceeded);
+        }
+        let compiled = compile_route(self.revision.traffic(), edges)?;
         let slot_index = self.free_routes.pop().unwrap_or(self.routes.len());
         let generation = self
             .routes
@@ -179,7 +201,11 @@ impl TrafficWorld {
         } else {
             self.routes[slot_index] = slot;
         }
-        self.live_route_count += 1;
+        self.live_route_count = self
+            .live_route_count
+            .checked_add(1)
+            .expect("route count preflight guarantees room");
+        self.live_route_edge_occurrence_count = next_occurrence_count;
         Ok(handle)
     }
 
@@ -204,8 +230,25 @@ impl TrafficWorld {
                 .expect("live_vehicles > 0 必须能找到引用车辆");
             return Err(RouteError::InUse { vehicle, route });
         }
+        let removed_occurrences = u64::try_from(
+            slot.compiled
+                .as_ref()
+                .expect("live route has compiled state")
+                .edges
+                .len(),
+        )
+        .expect("route edge count fits u64");
+        let next_route_count = self
+            .live_route_count
+            .checked_sub(1)
+            .expect("live route count covers every compiled route");
+        let next_occurrence_count = self
+            .live_route_edge_occurrence_count
+            .checked_sub(removed_occurrences)
+            .expect("route occurrence count covers every compiled route");
         slot.compiled = None;
-        self.live_route_count = self.live_route_count.saturating_sub(1);
+        self.live_route_count = next_route_count;
+        self.live_route_edge_occurrence_count = next_occurrence_count;
         if let Some(next_generation) = slot.generation.checked_add(1) {
             slot.generation = next_generation;
             self.free_routes.push(index);
@@ -803,7 +846,7 @@ mod overflow_tests {
         let origin = *revision.canonical_origin();
         TrafficWorld::install(
             revision,
-            WorldConfig::new(8, 4, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1, 100),
             CommittedNetworkSource::Published {
                 reference: crate::PublishedLfcaReference::new(
                     "fixture://overflow-tests",
@@ -889,7 +932,7 @@ mod source_tests {
         let reference = reference_for(origin.network_revision());
         let world = TrafficWorld::install(
             revision.clone(),
-            WorldConfig::new(8, 4, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1, 100),
             CommittedNetworkSource::Published { reference },
             0,
         )
@@ -912,7 +955,7 @@ mod source_tests {
         let mismatched = NetworkRevisionId::from_digest(Sha256Digest::from_bytes([1; 32]));
         let error = match TrafficWorld::install(
             revision.clone(),
-            WorldConfig::new(8, 4, 1, 100),
+            WorldConfig::new(8, 4, 1_024, 1, 100),
             CommittedNetworkSource::Published {
                 reference: reference_for(mismatched),
             },

@@ -141,8 +141,8 @@ fn sync_proxy(
 #[test]
 fn headless_app_steps_runtime_and_moves_proxy_transform() {
     let revision = revision();
-    let mut world =
-        install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let mut world = install_fixture(Arc::clone(&revision), WorldConfig::new(8, 4, 1_024, 1, 100))
+        .expect("install");
     spawn_two_vehicles(&mut world);
     let spatial = SpatialSession::bind(revision)
         .expect("bind")

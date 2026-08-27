@@ -107,7 +107,8 @@ fn drive_to_completed(world: &mut TrafficWorld) -> (laneflow_runtime::VehicleHan
 
 #[test]
 fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
-    let mut world = install_fixture(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let mut world =
+        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
     let (old, route) = drive_to_completed(&mut world);
     let spatial = SpatialSession::bind(world.revision())
         .expect("bind")
@@ -196,7 +197,8 @@ fn replace_reuses_bound_entity_and_keeps_transform_on_blocked() {
 
 #[test]
 fn unbound_replace_stays_unbound() {
-    let mut world = install_fixture(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let mut world =
+        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
     let (old, route) = drive_to_completed(&mut world);
     let session = LaneFlowSession::new(
         world,
@@ -227,7 +229,8 @@ fn unbound_replace_stays_unbound() {
 
 #[test]
 fn identical_bind_is_duplicate_error() {
-    let mut world = install_fixture(revision(), WorldConfig::new(8, 4, 1, 100)).expect("install");
+    let mut world =
+        install_fixture(revision(), WorldConfig::new(8, 4, 1_024, 1, 100)).expect("install");
     let (vehicle, _route) = drive_to_completed(&mut world);
     let session = LaneFlowSession::new(
         world,
