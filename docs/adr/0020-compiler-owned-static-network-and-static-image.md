@@ -678,13 +678,13 @@ phase、实体和资源组件。
 交通运行时从已提交状态导出交通观测快照，不拥有全局成本政策。路径规划/出行编排
 层结合静态路网、观测、收费、游戏政策和偏好构造动态成本快照并产生候选路径。
 出行需求和路线选择策略由上层出行与交通编排拥有；交通参与单元 fixed-tick 热路径
-不执行全图寻路。成本快照和候选通行定义绑定从 `TrustedStaticImage` 静态视图或已
-提交观测快照取得的路网修订 token、观测 tick 与成本模型版本；当前车辆执行域使用
-Route，未来执行域由其 G1 冻结等价通行定义。Runtime 对修订不匹配失败关闭，并继续
-验证候选静态引用/拓扑；修订标识相等不替代内容验证。#303 G1 Review 候选在
+不执行全图寻路。成本快照和候选通行定义绑定从当前 `SharedNetworkRevision` 根或已
+提交观测快照取得的路网修订 token、观测 tick 与成本模型版本；当前车辆
+执行域使用 Route，未来执行域由其 G1 冻结等价通行定义。Runtime 对修订不匹配失败
+关闭，并继续验证候选静态引用/拓扑；修订标识相等不替代内容验证。#303 G1 Review 候选在
 [`traffic-observation-and-routing-integration.md`](../design/traffic-observation-and-routing-integration.md)
-拟冻结宿主自有 Routing + LaneFlow 纯契约边界、fixed-tick 过期窗口与 full/delta/partition
-语义；跨修订迁移继续只走 #302 事务。
+拟增加观测状态序号并冻结宿主自有 Routing + LaneFlow 纯契约边界、fixed-tick 过期
+窗口与 full/delta/partition 语义；跨修订迁移继续只走 #302 事务。
 已提交观测快照必须允许按观测导出节奏（Observation Export Cadence）的完整基线与
 版本化增量/分区选择；一致性时点不意味着每 tick 全量复制全网。实现 Gate 同时量化
 观测导出、动态成本快照接收和候选通行定义注册边界；上层成本模型算法仍不进入

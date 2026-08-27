@@ -1589,12 +1589,13 @@ Traffic Runtime 从已提交状态导出已提交交通观测快照，不泄漏 
 拥有全局成本政策。路径规划/出行编排层结合静态路网、观测、收费、游戏政策与偏好
 构造版本化动态成本快照，返回可由 Runtime 注册/验证的候选通行定义；不得在每个
 交通参与单元的 fixed-tick 内全图寻路。当前车辆域使用 Route，未来执行域由其 G1
-冻结等价通行定义。成本快照和候选通行定义必须绑定路网修订、观测 tick 与成本模型
-版本；路网修订标识必须来自当前 `SharedNetworkRevision` 或已
+冻结等价通行定义。成本快照和候选通行定义必须绑定路网修订、观测 tick 与
+成本模型版本；路网修订标识必须来自当前 `SharedNetworkRevision` 或已
 提交交通观测快照，不能由 Routing 调用方自报。Runtime 将其与当前共享 root binding
 做精确相等比较，并继续逐项验证候选稳定引用/拓扑；修订标识相等只证明缓存一致性，
-不替代候选内容验证。Runtime 对 revision mismatch 失败关闭；#303 G1 Review 候选把
-候选时效拟冻结为 `[observationTick, validThroughTick]` 的 fixed-tick 闭区间。
+不替代候选内容验证。Runtime 对 revision mismatch 失败关闭；#303 G1 Review 候选增加
+观测状态序号，并把候选时效拟冻结为 `[observationTick, validThroughTick]` 的
+fixed-tick 闭区间。
 观测导出必须同时支持按观测导出节奏（Observation Export Cadence）构造的完整基线和
 版本化增量/分区选择路径；
 “已提交快照”描述一致性时点，不等同于“每 tick 复制全网全部边状态”。Runtime 不得

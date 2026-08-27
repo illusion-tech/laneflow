@@ -53,9 +53,18 @@ v1 选择**宿主自有 Routing 实现 + LaneFlow 纯契约边界**：
 
 ### 2.1 一致性时点与 v1 行形状
 
-导出只在两次 `step` 之间读取一个已提交边界。它不得观察 snapshot(T) 到 T+D
+导出只在两次 `step` 之间读取一个精确的已提交边界。它不得观察 snapshot(T) 到 T+D
 之间的 `next_states`、部分占用重建或中间信号值。导出成功不推进 `tick_index`、
-`time_ms`、命令游标或事件游标。
+`time_ms`、命令游标、事件游标或下述观测状态序号。
+
+`tick_index` 不是已提交状态的完整版本：`spawn_vehicle`、`replace_completed_vehicle`、
+`occupy_parking` 等生命周期命令可在同一 tick 内改变观测事实。因此每个活动世界还
+维护一个只在当前世界世代/观测 stream 内单调递增的
+`observationStateSequence`：成功 `step` 以及每个会改变 v1 观测行的成功生命周期
+提交各推进一次；失败、只读查询、导出和不影响 v1 行的路线表变更不推进。安装、
+恢复或成功切换建立新 stream 时从该 stream 的初始值重新开始，旧 stream 的序号
+不得跨世界世代比较。其精确整数类型和溢出错误由 G2 落定，但不得用饱和、回绕或
+仅看 tick 代替严格单调语义。
 
 v1 每条物理 `LaneEdge` 行冻结为：
 
@@ -66,17 +75,29 @@ v1 每条物理 `LaneEdge` 行冻结为：
 | `occupiedLengthMm`         | 所有 `Active` 车身在该物理边上已提交半开占用区间的并集长度；跨边片段分别计，同边重叠不重复计 |
 | `frontSpeedSumMmPerSecond` | 上述前保险杠归属车辆的已提交 `speed_mm_s` 之和                                               |
 
+前保险杠的边归属跟随车辆权威路线 occurrence，而不是另做几何猜测：当前
+`route_edge_index` 指向哪条边，`frontVehicleCount` 与 `frontSpeedSumMmPerSecond`
+就归哪条边。hop 被拒且 `progress_mm == edge_length` 时仍归旧边；hop 成功后
+`route_edge_index` 已切到下一边且 `progress_mm == 0`，归新边；Active 车辆到达最后
+一边端点后，在生命周期明确把它变为 Completed 前仍归最后一边。
+
 三项数值分别用 checked `u32/u64/u64` 累加；溢出整批失败且不推进导出 session。
 Routing 用边长与这些整数自行派生密度、平均速度或成本，不把浮点除法、舍入或成本
 政策倒灌进 Runtime。当前 `TrafficWorld` 没有动态封闭/overlay 权威，因此 v1 不伪造
 `closed` 行；#237 或后继若生产化 runtime overlay，须先回到 G1 扩展观测行。
+
+三项聚合必须从同一个 `observationStateSequence` 的已提交 `VehicleState`、路线和
+占用区间求值。当前步进求解用的私有 `OccupancyIndex` 在 snapshot(T) 上重建后才提交
+T+D 状态，不能直接当作 T+D 观测来源；G2 可以重算，或重构成带精确状态序号且经
+oracle 证明一致的共享聚合，但不能混用当前车辆状态与前一提交边界的占用缓存。
 
 完整基线对所选边**逐边出行，包含全零行**，按 `laneEdgeStableId` 升序规范排列。
 增量也按同序排列；值从非零变零时必须显式发全零行，不使用删除或 tombstone 语义。
 
 每批头至少携带：封闭 `bindingVersion`、#302 世界身份/世界世代、
 `NetworkRevisionId/networkRevisionDerivationVersion`、stream 身份、
-`selectionDigest`、full/delta kind、base/current sequence 与 tick、精确 `entryCount`。
+`selectionDigest`、full/delta kind、base/current delivery sequence、tick 与
+`observationStateSequence`、精确 `entryCount`。
 批次另报告 `logicalBytes`（实际初始化的头/行存储）和 `retainedBytes`（批次拥有的实际
 容量）；两者是当前实现版本的精确资源观测，不是跨语言编码或稳定 ABI。G2 冻结计算
 函数并验证无 spare-capacity 伪报。
@@ -111,16 +132,20 @@ TrafficWorld::export_observation(
 
 session 是调用方持有、Runtime 签发的不可伪造能力，绑定：#302 同一世界身份/世代、当前
 `NetworkRevisionId` / `networkRevisionDerivationVersion`、`selectionDigest`、观测
-stream 身份、上一成功序号/`tick` 与上一行值。它不进入世界确定性状态。
+stream 身份、上一成功 delivery sequence / `tick` / `observationStateSequence` 与
+上一行值。它不进入世界确定性状态。
 
 - 新 session 第一次只允许 `Full`。成功批次 `sequence = 0`，并成为下一增量的
   精确基线；full 的 base 字段必须缺失，不用零值伪造 base。
 - `Delta` 只与该 session 上一次**成功**批次比较；批次头携带
-  `(baseSequence, baseTick, sequence, tick)`。消费者只能严格连续应用，缺批、重排、
-  重复或 base 不匹配必须丢弃局部结果并重新取 full。
+  `(baseSequence, baseTick, baseObservationStateSequence, sequence, tick,
+  observationStateSequence)`。消费者只能严格连续应用，缺批、重排、重复或 base
+  不匹配必须丢弃局部结果并重新取 full。
 - 调用方可随时显式 `Full` 重置基线；新的 full 递增 sequence，不复用旧基线身份。
-- 同一已提交 tick 可重复导出：连续 delta 可以是零行，但序号仍唯一递增；批次 tick
-  不得小于 base tick。
+- 同一已提交 tick 可重复导出：若中间没有观测相关提交，连续 delta 可以是零行，
+  `observationStateSequence` 不变但 delivery sequence 仍唯一递增；若同 tick 内发生
+  生命周期提交，则状态序号必须递增并按新状态计算变化行。批次
+  `(tick, observationStateSequence)` 不得早于 base。
 - 输出分配/容量、checked 算术或任何行构造失败时，不返回部分批次、不更新 session。
 
 观测导出节奏完全由宿主调用决定。Runtime 不按墙钟自动调度，不为“以后可能导出”
@@ -133,21 +158,25 @@ session，不能共享并竞争一个隐式全局游标。
 动态成本快照是 Routing service 拥有的不可变对象。LaneFlow 冻结其候选来源绑定，
 不冻结成本条目 payload、算法或宿主 wire。每份快照至少提供：
 
-| 字段                                                     | 契约                                                                                                                                       |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `bindingVersion`                                         | 本绑定封闭版本；未知值拒绝                                                                                                                 |
-| `worldIdentity` / `worldGeneration`                      | 与观测 session 相同的 #302 `worldBinding` 世界身份及活动聚合世代；不复制其基线命令/事件游标                                                |
-| `networkRevisionId` / `networkRevisionDerivationVersion` | 从所消费观测原样复制                                                                                                                       |
-| `observationTick` / `observationSetDigest`               | 形成成本的共同已提交 tick，以及按 stream/sequence/selection digest 规范排列后形成的观测输入集合摘要；多分区输入必须同世界、同修订、同 tick |
-| `costModelId` / `costModelVersion`                       | 宿主拥有的不透明模型身份与封闭版本，只做精确相等比较                                                                                       |
-| `validThroughTick`                                       | 最后允许候选注册的已提交 tick（含）；必须 `>= observationTick`                                                                             |
-| `entryCount`                                             | Routing 接收并验证的精确成本条目数                                                                                                         |
-| `exactByteLength` / `snapshotSha256`                     | 宿主成本 payload 的精确字节数；摘要以域分隔版本前缀覆盖除自身外的上述绑定字段及 exact payload                                              |
+| 字段                                                     | 契约                                                                                                                |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `bindingVersion`                                         | 本绑定封闭版本；未知值拒绝                                                                                          |
+| `worldIdentity` / `worldGeneration`                      | 与观测 session 相同的 #302 `worldBinding` 世界身份及活动聚合世代；不复制其基线命令/事件游标                         |
+| `networkRevisionId` / `networkRevisionDerivationVersion` | 从所消费观测原样复制                                                                                                |
+| `observationTick` / `observationStateSequence`           | 形成成本的共同已提交 tick 与该 tick 内精确观测状态序号；多分区输入必须同世界、同世代、同修订、同 tick、同状态序号   |
+| `observationSetDigest`                                   | 按 stream/delivery sequence/selection digest 规范排列后形成的观测输入集合摘要；不能把不同状态序号的分区拼成一份成本 |
+| `costModelId` / `costModelVersion`                       | 宿主拥有的不透明模型身份与封闭版本，只做精确相等比较                                                                |
+| `validThroughTick`                                       | 最后允许候选注册的已提交 tick（含）；必须 `>= observationTick`                                                      |
+| `entryCount`                                             | Routing 接收并验证的精确成本条目数                                                                                  |
+| `exactByteLength` / `snapshotSha256`                     | 宿主成本 payload 的精确字节数；摘要以域分隔版本前缀覆盖除自身外的上述绑定字段及 exact payload                       |
 
 过期策略只使用 fixed tick：候选在 `currentTick < observationTick` 时是“来自未来”，
-在 `currentTick > validThroughTick` 时过期；两者都失败关闭。区间内允许注册。没有
-墙钟、默认宽限、自动刷新或“版本较新即可”语义。`validThroughTick` 由成本模型/出行
-编排在构造快照时显式决定并被摘要绑定，Runtime 不暗设产品政策。
+在 `currentTick > validThroughTick` 时过期；两者都失败关闭。同 tick 下若当前
+`observationStateSequence <` 绑定值，同样是“来自未来”并拒绝。状态序号证明成本的
+多分区输入来自同一精确状态，不另发明 `validThroughStateSequence`；形成成本后的
+同 tick 生命周期提交不会绕过或缩短宿主显式选择的 fixed-tick 有效窗。没有墙钟、
+默认宽限、自动刷新或“版本较新即可”语义。`validThroughTick` 由成本模型/出行编排
+在构造快照时显式决定并被摘要绑定，Runtime 不暗设产品政策。
 
 `snapshotSha256` 证明候选引用的是哪份绑定 + payload，不授予信任或迁移权限。Routing
 receiver 必须先核对调用方容量上限与 exact bytes，再解析/分配/哈希，并验证实际
@@ -184,10 +213,11 @@ Runtime 按下列顺序失败关闭，任一失败不占路线槽、不留下 co
 
 1. O(1) 预检候选边数与配置/共享根上界，完成 checked 大小计算，再做 Runtime 解析/
    compiled 分配；空序列拒绝。
-2. 核对 `bindingVersion`、世界身份/世代、修订标识/派生版本、观测 tick/set digest、
-   条目数/bytes/digest 字段完整且自洽；成本模型身份/版本必须与 admission session
-   精确相等。
-3. 按 §3 比较当前已提交 tick 与 `[observationTick, validThroughTick]`。
+2. 核对 `bindingVersion`、世界身份/世代、修订标识/派生版本、观测
+   tick/state sequence/set digest、条目数/bytes/digest 字段完整且自洽；成本模型
+   身份/版本必须与 admission session 精确相等。
+3. 按 §3 比较当前已提交 tick 与 `[observationTick, validThroughTick]`，并拒绝同 tick
+   来自未来的 `observationStateSequence`。
 4. 用当前根 `SharedIdentityIndex` 把每个 `LaneEdge StableId128` 解析成当前 dense ordinal；
    未知标识或错误 kind 拒绝。修订相等不能跳过这一步。
 5. 把解析后的有序序列交给现有唯一 `compile_route` / `register_route` 路径，重做连通、
@@ -207,15 +237,17 @@ payload 不进路线表。注册成功后，候选成为普通每世界 `Route`�
 - **切换准备期**：对外观测只来自仍活动的旧聚合。候选世界不可见，不导出“新修订
   预览观测”。在旧世界成功注册的候选路线已经成为路线生命周期变更，必须进入 #302
   迁移增量日志并在 target 根重绑/重验证；失败则整个切换失败关闭。
-- **切换提交**：成功原子切换后，旧观测/admission session、未注册候选及旧修订成本绑定全部
-  stale；调用方须在新修订开新 session 并先取 full。已经注册的 `RouteHandle` 按 #302
-  逻辑恒等迁移保持有效，不因成本来源过期被撤销。
+- **切换提交**：成功原子切换后，世界世代递增、观测 stream 与其
+  `observationStateSequence` 同界重建；旧观测/admission session、未注册候选及旧修订
+  成本绑定全部 stale。调用方须在新修订开新 session 并先取 full。已经注册的
+  `RouteHandle` 按 #302 逻辑恒等迁移保持有效，不因成本来源过期被撤销。
 - **切换放弃**：旧 session 与旧修订候选继续按原 tick 窗口工作；不得仅因出现过候选
   根而换 stream 身份。
 - **保存/恢复**：观测/admission session/基线、动态成本快照、未注册候选和成本 provenance 都是
   调用方/派生交付状态，不进 Runtime Snapshot。已注册路线只按 #302/ADR 0029 的
-  快照局部 ID + 边稳定标识保存。任何恢复（含同修订）建立新世界世代/观测 stream，
-  恢复前的 session 与候选不得复活；成功切换递增世界世代，放弃不递增。
+  快照局部 ID + 边稳定标识保存。任何恢复（含同修订）建立新世界世代/观测 stream
+  并从新 stream 的初始 `observationStateSequence` 开始；恢复前的 session 与候选不得
+  复活。成功切换递增世界世代，放弃不递增。
 - **回放**：观测导出不是输入命令，不改变确定性状态摘要；候选注册成功是普通路线
   生命周期命令，必须由宿主命令序列以耐久调用方 ID 记录。重放不重新执行 Routing。
 
@@ -239,13 +271,22 @@ payload 不进路线表。注册成功后，候选成为普通每世界 `Route`�
 条目数、exact bytes、累计分配、峰值 retained bytes、墙钟与 tick 间隔干扰同时报告，
 不能用单个平均耗时代替。
 
-| 边界                   | 必测切片                                                                    | 必过不变量                                                                   |
-| ---------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| observation full       | All + 显式 1%/10%/100% 分区；零车、稀疏、10k/100k 车辆                      | entryCount 等于选择边数（含零行）；失败零 session 推进                       |
-| observation delta      | 0%/1%/10%/100% 行变化；同 tick 零行；值归零                                 | exact changed entries/bytes；严格 base 链；无导出时 tick 零新增观测工作/分配 |
-| dynamic cost receive   | 合法 payload、length/count/digest 各类错配、上限+1、未知版本                | 容量预检先于解析/分配/哈希；不进入 Runtime tick                              |
-| candidate registration | 1/典型/长边序列；重复边；stale/future/revision/model/identity/topology 错配 | 唯一 route 编译器；失败零路线槽变化；成功成本与墙钟按边数报告                |
-| cutover/restore        | prepare 中注册、commit、abort、同修订 restore、跨修订 cutover               | session/candidate 失效矩阵与 §5 精确一致；已注册句柄按 #302 保持             |
+`LF-P100-REF-01` 只冻结参考机器，不是 workload。每个正式 case 必须绑定可重放的
+workload ID、source commit、路网/状态/selection digest、车辆规模与 lifecycle mix、
+seed、`WorldConfig` provenance、fixed-step 输入序列、导出 cadence、warm-up、样本/round
+规则和 candidate/oracle 边界。观测 full/delta 优先复用
+[`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md) 的
+`LF-SYNTH-v1` W1–W4；新增 Routing 专用拓扑或成本 payload 时使用新的具名 workload，
+不把“典型”“长路线”当作可重放身份。
+
+| 边界                   | 必测切片                                                                    | 必过不变量                                                                         |
+| ---------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| observation full       | All + 显式 1%/10%/100% 分区；零车、稀疏、一万/十万车辆；W1–W4 适用切片      | entryCount 等于选择边数（含零行）；失败零 session 推进                             |
+| observation delta      | 0%/1%/10%/100% 行变化；同 tick 零行/生命周期提交；值归零                    | exact changed entries/bytes；严格 base/state 链；无导出时 tick 零新增观测工作/分配 |
+| dynamic cost receive   | 合法 payload、length/count/digest 各类错配、上限+1、未知版本                | 容量预检先于解析/分配/哈希；不进入 Runtime tick                                    |
+| candidate registration | 1/典型/长边序列；重复边；stale/future/revision/model/identity/topology 错配 | 唯一 route 编译器；失败零路线槽变化；成功成本与墙钟按边数报告                      |
+| cutover/restore        | prepare 中注册、commit、abort、同修订 restore、跨修订 cutover               | session/candidate 失效矩阵与 §5 精确一致；已注册句柄按 #302 保持                   |
+| session retained       | 同 selection 的 1/10 个消费者；1%/10%/100% 选择；open/drop                  | 单 session 与总 logical/retained bytes、open/drop 成本分别报告且按消费者数可解释   |
 
 实现级安全上限必须在读取调用方可变长度数据前从 `WorldConfig`/接收端容量合同取得；
 至少覆盖 selection rows、输出 rows、成本 `entryCount/exactByteLength`、候选 edge count
@@ -257,7 +298,8 @@ dirty journal、墙钟任务或 allocator 活动。
 
 ## 8. G2 边界与必测义务
 
-G2 落定并回写：Rust 类型/错误枚举、世界/stream 不可伪造 token 的精确表示、
+G2 落定并回写：Rust 类型/错误枚举、世界/stream 不可伪造 token 与
+`observationStateSequence` 的精确表示、
 `exactByteLength` 度量函数、接收上限默认值与首轮 P100 描述性结果。若实现证明必须
 新增跨进程 wire、`laneflow-routing` 算法 crate、tick 维护 journal、持久化成本
 provenance，或无法复用唯一 route 编译器，必须停止并返回 G1。上述清单不穷尽返回
@@ -272,7 +314,10 @@ contract test/性能证据的最小成本 receiver fixture，
 API。
 
 自动化 contract tests 除 §7 矩阵外至少覆盖：full 首批约束；delta 缺批/重排/重复/
-跨 selection 拒绝；全零清除；导出失败 session 不前移；整数聚合跨边车身；Parked/
-Completed 排除；未来/过期边界恰好等于两端时的判定；修订相等但 StableId 内容非法；
+跨 selection 拒绝；全零清除；导出失败 session 不前移；同 tick 生命周期提交推进
+状态序号；不同状态序号的分区拒绝拼接；成功跨边 step 后立即导出以及 step 间
+spawn/park/replace 后立即导出；不得复用旧 `OccupancyIndex` 形成混合状态；整数聚合
+跨边车身；Parked/Completed 排除；前保险杠在 denied hop、permitted hop 与最后一边
+端点的归属；未来/过期边界恰好等于两端时的判定；修订相等但 StableId 内容非法；
 cost digest 不授予拓扑信任；注册失败路线表完全不变；切换成功/放弃与 restore 的
 session/candidate 失效；回放只重放成功注册命令、不调用 Routing。
