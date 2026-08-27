@@ -397,6 +397,14 @@ pub enum CutoverError {
     /// 晋升后占用索引重建失败（同修订不变量下语义上不可达）。
     #[error("占用索引重建失败")]
     OccupancyRebuild(#[from] StepError),
+    /// 暂存结构容量预留失败。
+    ///
+    /// 语义边界：失败关闭合同覆盖逻辑故障与可恢复错误；进程级分配
+    /// abort（与 tick 路径 `Vec::reserve` 同类）不在此列。本暂存表用
+    /// try 预留是与占用暂存周边的一致性选择，不是消除 abort——
+    /// `compile_route` 与 tick 热路径的不可失败分配是既有全 crate 立场。
+    #[error("切换暂存容量预留失败")]
+    StagingAllocFailed,
 }
 
 impl TrafficWorld {
@@ -454,7 +462,10 @@ impl TrafficWorld {
         }
         // Prepare（staging，失败不触及旧世界）：逐路线对 target 根重编译。
         let target_traffic = target_revision.traffic();
-        let mut staged: Vec<(usize, CompiledRoute)> = Vec::with_capacity(self.routes.len());
+        let mut staged: Vec<(usize, CompiledRoute)> = Vec::new();
+        staged
+            .try_reserve(self.routes.len())
+            .map_err(|_| CutoverError::StagingAllocFailed)?;
         for (index, slot) in self.routes.iter().enumerate() {
             if let Some(compiled) = slot.compiled.as_ref() {
                 staged.push((
