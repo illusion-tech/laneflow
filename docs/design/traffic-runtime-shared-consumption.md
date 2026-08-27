@@ -18,9 +18,12 @@
 `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`、
 `../adr/0018-multimodal-cross-section-and-access-overlay.md`
 
-本文是 #301 的实现级 G1 输入。已提交一维几何以
-`traffic-runtime-integer-geometry.md` / ADR 0028 为现行合同。它不授权 #302
-在线修订切换、#441 系统化性能账本、#303 Routing 或 #294 残留文档/Skill 改名。
+本文是 #301 的实现级 G1 输入，并已按 #511 登记同修订换根事务入口（§4）。
+已提交一维几何以 `traffic-runtime-integer-geometry.md` / ADR 0028 为现行
+合同。#302 的跨修订直移、迁移增量日志与快照容器仍由
+[`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md) 与
+[`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md) 合同与后续切片
+交付；#441 系统化性能账本、#303 Routing 与 #294 残留改名同理不在本文。
 
 ## 1. 结论
 
