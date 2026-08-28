@@ -1204,6 +1204,51 @@ mod tests {
     }
 
     #[test]
+    fn maintenance_pause_retry_succeeds_after_online_overflow() {
+        // 切换合同 §4/§5：溢出放弃后宿主可显式改用维护暂停模式重试——
+        // 整个准备期停表（Prepare 与静默提交之间零步进），日志零增长，
+        // 同一预算下在线失败的场景成功；暂停停顿单独计量（§9）。
+        let mut cut = installed_world(ORACLE_BASE, "fixture://cut");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        let vehicle = spawn_on(&mut cut, route, 10_000, 5_000);
+        let limits = CutoverTransactionLimits {
+            max_journal_bytes: 64,
+            ..CutoverTransactionLimits::default()
+        };
+        // 在线尝试：追赶窗口内一步即溢出，整体放弃、零事件。
+        let mut tx = prepare(&mut cut, ORACLE_TARGET, ORACLE_LFSD, &limits);
+        cut.step(TickInput::new(100))
+            .expect("online step overflows");
+        assert_eq!(
+            tx.pump(&mut cut).unwrap_err(),
+            CutoverError::JournalOverflow
+        );
+        assert_eq!(cut.event_cursor(), 0);
+        assert_eq!(cut.world_generation(), WorldGeneration::INITIAL);
+        // 维护暂停重试：停表，零记录泵入 + 静默提交。
+        let mut tx = prepare(&mut cut, ORACLE_TARGET, ORACLE_LFSD, &limits);
+        let outcome = tx.pump(&mut cut).expect("paused pump drains empty journal");
+        assert_eq!(outcome.applied_records, 0);
+        assert!(outcome.caught_up);
+        let commit = tx.commit(&mut cut).expect("paused commit");
+        assert_eq!(commit.events.as_slice().len(), 1);
+        assert_eq!(cut.event_cursor(), 1);
+        assert_eq!(cut.world_generation(), commit.world_generation);
+        assert_eq!(
+            cut.revision().canonical_origin().network_revision(),
+            revision(ORACLE_TARGET)
+                .canonical_origin()
+                .network_revision()
+        );
+        // 恢复运行：句柄保持、继续步进。
+        assert_eq!(cut.vehicle_state(vehicle).expect("vehicle").route(), route);
+        cut.step(TickInput::new(100)).expect("resumes on target");
+    }
+
+    #[test]
     fn snapshot_during_armed_window_captures_old_state_only() {
         let mut cut = installed_world(ORACLE_BASE, "fixture://cut");
         let mut plain = installed_world(ORACLE_BASE, "fixture://plain");
