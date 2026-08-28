@@ -403,11 +403,13 @@ impl TrafficWorld {
                 edges,
             });
         }
+        let route_id_by_handle: std::collections::HashMap<(u32, u32), u64> = route_ids
+            .iter()
+            .map(|&(generation, index, snapshot_route_id)| ((generation, index), snapshot_route_id))
+            .collect();
         let route_id_for = |generation: u32, index: u32| -> u64 {
-            route_ids
-                .iter()
-                .find(|(g, i, _)| *g == generation && *i == index)
-                .map(|(_, _, id)| *id)
+            *route_id_by_handle
+                .get(&(generation, index))
                 .expect("live vehicle route resolves to snapshot route id")
         };
 
@@ -448,14 +450,18 @@ impl TrafficWorld {
                 }),
             });
         }
+        let vehicle_id_by_handle: std::collections::HashMap<(u32, u32), u64> = vehicle_ids
+            .iter()
+            .map(|&(generation, index, snapshot_vehicle_id)| {
+                ((generation, index), snapshot_vehicle_id)
+            })
+            .collect();
         let live_order = self
             .live_order
             .iter()
             .map(|handle| {
-                vehicle_ids
-                    .iter()
-                    .find(|(g, i, _)| *g == handle.generation() && *i == handle.index())
-                    .map(|(_, _, id)| *id)
+                *vehicle_id_by_handle
+                    .get(&(handle.generation(), handle.index()))
                     .expect("live order handle resolves to snapshot vehicle id")
             })
             .collect();
