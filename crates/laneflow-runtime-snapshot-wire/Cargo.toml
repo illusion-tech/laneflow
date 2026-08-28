@@ -1,0 +1,21 @@
+[package]
+name = "laneflow-runtime-snapshot-wire"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license = "Apache-2.0"
+description = "LaneFlow 运行时快照（LFRS）的私有 FlatBuffers 生成绑定。"
+publish = false
+
+[lib]
+name = "laneflow_runtime_snapshot_wire"
+path = "src/lib.rs"
+
+[dependencies]
+flatbuffers = { version = "=25.12.19", default-features = false, features = ["std"] }
+
+# 本 package 只承载固定 flatc 生成物。手写 LaneFlow crate 继续继承 workspace
+# `unsafe_code = forbid`；生成路径以 CI clean-regeneration 与边界扫描单独审计。
+[lints.rust]
+unsafe_code = "allow"

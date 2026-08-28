@@ -2897,6 +2897,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-runtime-snapshot-wire"
+version = "0.0.0"
+dependencies = [
+ "flatbuffers",
+]
+
+[[package]]
 name = "laneflow-scenario"
 version = "0.0.0"
 dependencies = [

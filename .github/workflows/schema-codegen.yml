@@ -1,26 +1,30 @@
-name: Road Editing Codegen
+name: Schema Codegen
 
 on:
   pull_request:
     paths:
       - "schemas/road-editing/**"
+      - "schemas/runtime-snapshot/**"
       - "crates/laneflow-road-editing-wire/**"
+      - "crates/laneflow-runtime-snapshot-wire/**"
       - "**/Cargo.toml"
       - "xtask/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - ".github/workflows/road-editing-codegen.yml"
+      - ".github/workflows/schema-codegen.yml"
   push:
     branches:
       - main
     paths:
       - "schemas/road-editing/**"
+      - "schemas/runtime-snapshot/**"
       - "crates/laneflow-road-editing-wire/**"
+      - "crates/laneflow-runtime-snapshot-wire/**"
       - "**/Cargo.toml"
       - "xtask/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - ".github/workflows/road-editing-codegen.yml"
+      - ".github/workflows/schema-codegen.yml"
 
 permissions:
   contents: read
@@ -123,7 +127,11 @@ jobs:
           test -n "$flatc_path"
           cargo +1.98.0 run --locked -p xtask -- \
             check-road-editing-codegen --flatc "$flatc_path"
+          cargo +1.98.0 run --locked -p xtask -- \
+            check-runtime-snapshot-codegen --flatc "$flatc_path"
 
-      - name: Compile generated Rust binding
+      - name: Compile generated Rust bindings
         shell: bash
-        run: cargo +1.98.0 test --locked -p laneflow-road-editing-wire
+        run: |
+          cargo +1.98.0 test --locked -p laneflow-road-editing-wire
+          cargo +1.98.0 test --locked -p laneflow-runtime-snapshot-wire

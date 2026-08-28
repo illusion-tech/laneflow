@@ -1,0 +1,116 @@
+// LaneFlow 运行时快照容器 v1。
+//
+// 本 schema 只冻结 portable wire shape（#302 G1 快照合同 §4）。局部标识唯一性、
+// 引用闭包、排列精确性、停车绑定一致性、值与时钟不变量、禁绑字段与版本轴核对
+// 仍由 Runtime 语义 lowering 执行。`format_version = 1`：根表 field id 连续
+// 0..=16；`source_kind` 为 0（Unspecified）或未知值由语义 lowering 拒绝。
+// file identifier `LFRS`。快照不是发布对象，不要求跨实现字节规范序，只要求
+// 逻辑确定性（合同 §6）。派生状态（信号灯色、占用索引、profile 派生车长）与
+// 禁绑字段（句柄/槽位/generation/密集序号/共享静态数组/EditableDiffBase/
+// partition 分配）不入容器。
+//
+// 版本轴分离（合同 §2）：容器 `format_version`（id 0）与被绑定事实的版本
+// ——`runtime_state_version`（id 1，逻辑状态形状轴）、
+// `static_contract_versions`（id 11，六轴静态契约版本集）——不混用单一数字。
+
+namespace LaneFlow.RuntimeSnapshot.V1;
+
+/// 32-byte SHA-256 摘要。
+struct Digest256 {
+  bytes:[ubyte:32];
+}
+
+/// 16-byte 稳定标识（边 / profile / class / 停车位等静态实体）。
+struct StableId128 {
+  bytes:[ubyte:16];
+}
+
+/// 被绑定共享根的静态契约版本集（六轴，各为封闭 u16 版本）。
+struct StaticContractVersionSet {
+  canonical_format_version:ushort;
+  identity_encoding_version:ushort;
+  identity_registry_revision:ushort;
+  network_revision_derivation_version:ushort;
+  constraint_contract_version:ushort;
+  static_execution_contract_version:ushort;
+}
+
+/// 已提交路网来源的封闭种类。v1 只有 `Published`；editable 载荷进入生产
+/// 依赖面时新增成员并升 `format_version`。
+enum SourceKind:ubyte {
+  Unspecified = 0,
+  Published = 1
+}
+
+/// 已提交车辆生命周期状态（与 Runtime `VehicleStatus` 一一对应）。
+enum VehicleStatusKind:ubyte {
+  Unspecified = 0,
+  Active = 1,
+  Parked = 2,
+  Completed = 3
+}
+
+/// `WorldConfig` 的完整绑定。恢复核对按合同 §2 两分：
+/// `fixed_delta_time_ms` 必须精确相等；`vehicle_capacity` / `route_capacity`
+/// 为语义容量，只许放大；`worker_count` 属可重建执行计划字段，不参与核对。
+table WorldConfigBinding {
+  vehicle_capacity:uint;
+  route_capacity:uint;
+  worker_count:uint;
+  fixed_delta_time_ms:ulong;
+}
+
+/// `PublishedLfcaReference` 的 wire 形状（`SourceKind.Published` 专属）。
+table PublishedSourceBinding {
+  asset_key:string (required);
+  artifact_digest:Digest256;
+  artifact_byte_length:ulong;
+  network_revision:Digest256;
+}
+
+/// 快照路线表条目：快照局部路线 ID + 有序边稳定标识序列（允许重复边）。
+/// 槽位 / generation / `LaneEdgeOrdinal` / 出现项不持久（ADR 0029 §6）。
+table SnapshotRoute {
+  snapshot_route_id:ulong;
+  edges:[StableId128] (required);
+}
+
+/// 快照车辆：快照局部车辆 ID + 局部路线引用 + 路线序列下标与一维运动状态。
+/// `parking_space` 缺席表示未绑定；profile 派生车长不入档。
+table SnapshotVehicle {
+  snapshot_vehicle_id:ulong;
+  snapshot_route_id:ulong;
+  route_edge_index:uint;
+  progress_mm:uint;
+  carry_um:ushort;
+  speed_mm_s:uint;
+  status:VehicleStatusKind;
+  profile:StableId128;
+  class:StableId128;
+  parking_space:StableId128;
+}
+
+/// Runtime Snapshot 根表：绑定集 + 全部每世界可变状态（合同 §2/§3）。
+table RuntimeSnapshot {
+  format_version:uint;
+  runtime_state_version:ushort;
+  world_id:ulong;
+  tick:ulong;
+  time_ms:ulong;
+  command_cursor:ulong;
+  event_cursor:ulong;
+  world_config:WorldConfigBinding (required);
+  network_revision:Digest256;
+  lfca_artifact_digest:Digest256;
+  lfca_artifact_byte_length:ulong;
+  static_contract_versions:StaticContractVersionSet;
+  source_kind:SourceKind;
+  source_published:PublishedSourceBinding;
+  routes:[SnapshotRoute] (required);
+  vehicles:[SnapshotVehicle] (required);
+  live_order:[ulong] (required);
+}
+
+root_type RuntimeSnapshot;
+file_identifier "LFRS";
+file_extension "lfrs";
