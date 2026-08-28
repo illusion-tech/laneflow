@@ -1,0 +1,925 @@
+//! 跨修订直移核心（#302 切换合同 §3；#513 切片 C-2）。
+//!
+//! LFSD 认证消费见 [`crate::cutover`] 的描述符方法。本模块交付另外两件：
+//! base→target 稳定引用重绑表（两侧 `SharedIdentityIndex` 共同解析，LFSD
+//! 绑定行完成两侧制品交叉验证后，映射权威即身份索引对）与结构克隆迁移
+//! （候选与旧世界槽位布局一致——当期句柄恒等保持；逐实体重绑即重验证，
+//! 任一实体引用不存在或原样重绑违反 target 不变量都整体失败关闭）。
+
+use std::sync::Arc;
+
+use laneflow_static_contract::{
+    EntityKind, EntityKindMarker, LaneEdgeOrdinal, Ordinal, OrdinalKind, ParkingSpaceOrdinal,
+    ParticipantClassOrdinal, SignalAspect, VehicleProfileOrdinal,
+};
+use laneflow_static_network::{SharedIdentityIndex, SharedNetworkRevision};
+
+use crate::tables::{RouteSlot, VehicleSlot, bodies_overlap, compile_route, route_access_denied};
+use crate::{CommittedNetworkSource, CutoverError, TrafficWorld, VehicleHandle, VehicleStatus};
+
+/// base→target 稳定引用重绑表：按实体种类分列的稠密序数映射。
+///
+/// 构造自两侧 `SharedIdentityIndex`（切换合同 §2：base 侧来自活动聚合、
+/// target 侧随候选；等价证明中共同复核稳定引用映射）。base 序数在 target
+/// 无对应稳定引用时为 `None`——使用处即「引用不存在」失败关闭点。
+pub(crate) struct CrossRevisionRebinding {
+    lane_edges: Vec<Option<LaneEdgeOrdinal>>,
+    parking_spaces: Vec<Option<ParkingSpaceOrdinal>>,
+    vehicle_profiles: Vec<Option<VehicleProfileOrdinal>>,
+    participant_classes: Vec<Option<ParticipantClassOrdinal>>,
+}
+
+fn map_kind<K>(
+    base: &SharedIdentityIndex,
+    target: &SharedIdentityIndex,
+    kind: EntityKind,
+) -> Vec<Option<Ordinal<K>>>
+where
+    K: EntityKindMarker + OrdinalKind,
+{
+    (0..base.entity_count(kind))
+        .map(|raw| {
+            let ordinal = Ordinal::<K>::from_raw(raw);
+            let stable = base
+                .stable_id(ordinal)
+                .expect("dense identity table resolves in-bounds ordinal");
+            target.ordinal(stable)
+        })
+        .collect()
+}
+
+impl CrossRevisionRebinding {
+    /// 从两侧身份索引构建重绑表。
+    #[must_use]
+    pub(crate) fn build(base: &SharedIdentityIndex, target: &SharedIdentityIndex) -> Self {
+        Self {
+            lane_edges: map_kind(base, target, EntityKind::LaneEdge),
+            parking_spaces: map_kind(base, target, EntityKind::ParkingSpace),
+            vehicle_profiles: map_kind(base, target, EntityKind::VehicleProfile),
+            participant_classes: map_kind(base, target, EntityKind::ParticipantClass),
+        }
+    }
+
+    /// 车道边序数重绑；`None` = 引用不存在。
+    #[must_use]
+    pub(crate) fn lane_edge(&self, base: LaneEdgeOrdinal) -> Option<LaneEdgeOrdinal> {
+        self.lane_edges.get(base.index()).copied().flatten()
+    }
+
+    /// 停车位序数重绑；`None` = 引用不存在。
+    #[must_use]
+    pub(crate) fn parking_space(&self, base: ParkingSpaceOrdinal) -> Option<ParkingSpaceOrdinal> {
+        self.parking_spaces.get(base.index()).copied().flatten()
+    }
+
+    /// 车辆 profile 序数重绑；`None` = 引用不存在。
+    #[must_use]
+    pub(crate) fn vehicle_profile(
+        &self,
+        base: VehicleProfileOrdinal,
+    ) -> Option<VehicleProfileOrdinal> {
+        self.vehicle_profiles.get(base.index()).copied().flatten()
+    }
+
+    /// 参与者类别序数重绑；`None` = 引用不存在。
+    #[must_use]
+    pub(crate) fn participant_class(
+        &self,
+        base: ParticipantClassOrdinal,
+    ) -> Option<ParticipantClassOrdinal> {
+        self.participant_classes
+            .get(base.index())
+            .copied()
+            .flatten()
+    }
+}
+
+fn try_clone<T: Clone>(source: &[T]) -> Result<Vec<T>, CutoverError> {
+    let mut clone = Vec::new();
+    clone
+        .try_reserve_exact(source.len())
+        .map_err(|_| CutoverError::StagingAllocFailed)?;
+    clone.extend_from_slice(source);
+    Ok(clone)
+}
+
+/// 把 `world` 的动态状态结构克隆到 `target_revision` 上并完成直移。
+///
+/// 候选与旧世界槽位布局一致（当期 `RouteHandle` / `VehicleHandle` 恒等保持，
+/// 切换合同 §3 逻辑恒等）；tick/时间/游标保持克隆时点的基线值。逐实体
+/// 重绑即重验证：任一引用不存在、路线重编译失败或车辆原样重绑违反
+/// target 不变量（进度越界、超速、后缀访问被拒、与其它迁移车辆重叠）都
+/// 返回错误并丢弃候选——旧世界从不被本函数触及。
+pub(crate) fn migrate_structural_clone(
+    world: &TrafficWorld,
+    target_revision: Arc<SharedNetworkRevision>,
+    target_source: CommittedNetworkSource,
+    rebinding: &CrossRevisionRebinding,
+) -> Result<TrafficWorld, CutoverError> {
+    let target_traffic = target_revision.traffic();
+
+    // 路线：逐槽位重绑边序数并对 target 根重编译（等价重执行 register_route
+    // 的编译检查）。
+    let mut routes = Vec::new();
+    routes
+        .try_reserve_exact(world.routes.len())
+        .map_err(|_| CutoverError::StagingAllocFailed)?;
+    for slot in &world.routes {
+        let Some(compiled) = slot.compiled.as_ref() else {
+            routes.push(RouteSlot {
+                generation: slot.generation,
+                compiled: None,
+                live_vehicles: slot.live_vehicles,
+            });
+            continue;
+        };
+        let mut target_edges = Vec::new();
+        target_edges
+            .try_reserve_exact(compiled.edges.len())
+            .map_err(|_| CutoverError::StagingAllocFailed)?;
+        for edge in &compiled.edges {
+            let Some(target_edge) = rebinding.lane_edge(*edge) else {
+                return Err(CutoverError::UnmappableLaneEdge {
+                    base_edge: edge.raw(),
+                });
+            };
+            target_edges.push(target_edge);
+        }
+        let migrated = compile_route(target_traffic, target_edges.as_slice()).map_err(|error| {
+            if error == crate::RouteError::AllocationFailed {
+                CutoverError::StagingAllocFailed
+            } else {
+                CutoverError::RouteRevalidationFailed
+            }
+        })?;
+        routes.push(RouteSlot {
+            generation: slot.generation,
+            compiled: Some(migrated),
+            live_vehicles: slot.live_vehicles,
+        });
+    }
+
+    // 车辆：profile / 类别 / 停车位重绑，整值状态原样保留。
+    let mut vehicles = Vec::new();
+    vehicles
+        .try_reserve_exact(world.vehicles.len())
+        .map_err(|_| CutoverError::StagingAllocFailed)?;
+    for slot in &world.vehicles {
+        let Some(state) = slot.state.as_ref() else {
+            vehicles.push(VehicleSlot {
+                generation: slot.generation,
+                state: None,
+            });
+            continue;
+        };
+        let mut migrated = *state;
+        migrated.profile = rebinding.vehicle_profile(state.profile).ok_or(
+            CutoverError::UnmappableVehicleProfile {
+                base_profile: state.profile.raw(),
+            },
+        )?;
+        migrated.class = rebinding.participant_class(state.class).ok_or(
+            CutoverError::UnmappableParticipantClass {
+                base_class: state.class.raw(),
+            },
+        )?;
+        migrated.parking = match state.parking {
+            None => None,
+            Some(space) => Some(rebinding.parking_space(space).ok_or(
+                CutoverError::UnmappableParkingSpace {
+                    base_space: space.raw(),
+                },
+            )?),
+        };
+        vehicles.push(VehicleSlot {
+            generation: slot.generation,
+            state: Some(migrated),
+        });
+    }
+
+    // 停车占用表：按 target 车位集合重建并逐占用者重绑键。
+    let target_space_count = usize::try_from(
+        target_traffic
+            .entity_counts()
+            .count(EntityKind::ParkingSpace),
+    )
+    .expect("target parking space count fits usize");
+    let mut parking_occupants = Vec::new();
+    parking_occupants
+        .try_reserve_exact(target_space_count)
+        .map_err(|_| CutoverError::StagingAllocFailed)?;
+    parking_occupants.resize(target_space_count, None);
+    for (base_index, occupant) in world.parking_occupants.iter().enumerate() {
+        if let Some(vehicle) = occupant {
+            let base_space = ParkingSpaceOrdinal::from_raw(
+                u32::try_from(base_index).expect("parking index fits u32"),
+            );
+            let target_space = rebinding.parking_space(base_space).ok_or(
+                CutoverError::UnmappableParkingSpace {
+                    base_space: base_space.raw(),
+                },
+            )?;
+            parking_occupants[target_space.index()] = Some(*vehicle);
+        }
+    }
+
+    let group_count = usize::try_from(
+        target_traffic
+            .entity_counts()
+            .count(EntityKind::SignalGroup),
+    )
+    .expect("target signal group count fits usize");
+
+    let free_routes = try_clone(world.free_routes.as_slice())?;
+    let free_vehicles = try_clone(world.free_vehicles.as_slice())?;
+    let live_order = try_clone(world.live_order.as_slice())?;
+    let mut next_states = Vec::new();
+    next_states
+        .try_reserve_exact(world.next_states.capacity())
+        .map_err(|_| CutoverError::StagingAllocFailed)?;
+
+    // occurrence 总数重算（迁移不增减边数；防御性闭合后文校验容量）。
+    let mut occurrence_total: u64 = 0;
+    for slot in &routes {
+        if let Some(compiled) = slot.compiled.as_ref() {
+            occurrence_total +=
+                u64::try_from(compiled.edges.len()).expect("route edge count fits u64");
+        }
+    }
+
+    let mut candidate = TrafficWorld {
+        revision: target_revision,
+        source: target_source,
+        world_id: world.world_id,
+        world_generation: world.world_generation,
+        config: world.config,
+        tick_index: world.tick_index,
+        time_ms: world.time_ms,
+        command_cursor: world.command_cursor,
+        observation_state_sequence: world.observation_state_sequence,
+        signal_aspects: vec![SignalAspect::Red; group_count].into_boxed_slice(),
+        routes,
+        free_routes,
+        live_route_count: world.live_route_count,
+        live_route_edge_occurrence_count: occurrence_total,
+        vehicles,
+        free_vehicles,
+        live_order,
+        parking_occupants: parking_occupants.into_boxed_slice(),
+        next_states,
+        occupancy: crate::occupancy::OccupancyIndex::with_capacity(0, 0),
+        migration_journal: None,
+    };
+    if candidate.live_route_edge_occurrence_count > world.config.route_edge_occurrence_capacity() {
+        return Err(CutoverError::EdgeOccurrenceCapacityExceeded {
+            total: candidate.live_route_edge_occurrence_count,
+            capacity: world.config.route_edge_occurrence_capacity(),
+        });
+    }
+    candidate.refresh_signals();
+    revalidate_migrated_vehicles(&candidate)?;
+    Ok(candidate)
+}
+
+/// 重绑即重验证：对候选内每个 live 车辆按其生命周期状态复核 target
+/// 不变量（切换合同 §3 原则 2，等价重执行 spawn 检查）。
+fn revalidate_migrated_vehicles(candidate: &TrafficWorld) -> Result<(), CutoverError> {
+    let traffic = candidate.revision.traffic();
+    let lengths = traffic.lane_lengths_millimetres();
+    let speed_limits = traffic.lane_speed_limits_millimetres_per_second();
+
+    let mut active: Vec<(
+        VehicleHandle,
+        &[laneflow_static_contract::LaneEdgeOrdinal],
+        usize,
+        u32,
+        u32,
+    )> = Vec::new();
+    for handle in candidate.live_order.iter().copied() {
+        let state = candidate
+            .vehicle_state(handle)
+            .expect("live order closes over live vehicles");
+        let edges = candidate
+            .route_edges(state.route)
+            .expect("migrated vehicle route stays live");
+        let cursor = usize::try_from(state.route_edge_index).map_err(|_| {
+            CutoverError::VehicleRevalidationFailed {
+                vehicle: handle.index(),
+            }
+        })?;
+        let Some(edge) = edges.get(cursor).copied() else {
+            return Err(CutoverError::VehicleRevalidationFailed {
+                vehicle: handle.index(),
+            });
+        };
+        if state.progress_mm > lengths[edge.index()] {
+            return Err(CutoverError::VehicleRevalidationFailed {
+                vehicle: handle.index(),
+            });
+        }
+        if state.status == VehicleStatus::Active {
+            if state.speed_mm_s > speed_limits[edge.index()] {
+                return Err(CutoverError::VehicleRevalidationFailed {
+                    vehicle: handle.index(),
+                });
+            }
+            let compiled = candidate
+                .compiled_route(state.route)
+                .expect("migrated route stays compiled");
+            if route_access_denied(
+                traffic,
+                state.class,
+                edges,
+                cursor,
+                compiled
+                    .maneuvers
+                    .iter()
+                    .map(|occurrence| (occurrence.path, occurrence.exit_route_edge_index)),
+            ) {
+                return Err(CutoverError::VehicleRevalidationFailed {
+                    vehicle: handle.index(),
+                });
+            }
+            active.push((handle, edges, cursor, state.progress_mm, state.length_mm));
+        }
+    }
+
+    // Active 车辆两两重叠复核（重执行 spawn 检查的占用面；量级随候选规模
+    // 二次增长，属在线准备期成本，随切片 C 证据登记）。
+    for (index, &(handle_a, edges_a, cursor_a, progress_a, length_a)) in active.iter().enumerate() {
+        for &(handle_b, edges_b, cursor_b, progress_b, length_b) in active.iter().skip(index + 1) {
+            if bodies_overlap(
+                lengths, edges_a, cursor_a, progress_a, length_a, edges_b, cursor_b, progress_b,
+                length_b,
+            ) {
+                return Err(CutoverError::VehicleRevalidationFailed {
+                    vehicle: handle_b.index().max(handle_a.index()),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use laneflow_format::{FormatLimits, check_canonical_network_input};
+    use laneflow_static_contract::{
+        ExactByteLength, SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest, StableId128,
+        VehicleProfileOrdinal,
+    };
+    use laneflow_static_network::{
+        CanonicalNetworkOrigin, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
+        SpatialBuildOption, build_shared_network_revision,
+    };
+    use sha2::Digest as _;
+
+    use super::*;
+    use crate::{
+        CUTOVER_DESCRIPTOR_FORMAT_VERSION, LfcaOriginBinding, MigrationPolicyKind,
+        NetworkRevisionCutoverDescriptor, PoseSource, RouteRegisterInput,
+        SemanticDiffOriginBinding, TickInput, VehicleSpawnInput, WorldBinding, WorldConfig,
+        WorldGeneration,
+    };
+
+    const BASE: &[u8] =
+        include_bytes!("../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/base.lfca");
+    const TARGET: &[u8] = include_bytes!(
+        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/target.lfca"
+    );
+    const LFSD_BYTES: &[u8] = include_bytes!(
+        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/expected.lfsd"
+    );
+    const ORACLE_BASE: &[u8] = include_bytes!(
+        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-base.lfca"
+    );
+    const ORACLE_TARGET: &[u8] = include_bytes!(
+        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-target.lfca"
+    );
+
+    fn revision(bytes: &[u8]) -> Arc<SharedNetworkRevision> {
+        let input = check_canonical_network_input(bytes, FormatLimits::HARD)
+            .expect("checked canonical network input");
+        build_shared_network_revision(
+            input,
+            SharedNetworkBuildOptions::new(
+                SpatialBuildOption::Omit,
+                SharedNetworkBuildLimits::new(64 * 1_024 * 1_024, 16 * 1_024 * 1_024),
+            ),
+        )
+        .expect("shared network revision")
+    }
+
+    fn source_for(origin: CanonicalNetworkOrigin, key: &str) -> CommittedNetworkSource {
+        CommittedNetworkSource::Published {
+            reference: crate::PublishedLfcaReference::new(
+                key,
+                origin.canonical_artifact_digest(),
+                origin.canonical_artifact_byte_length(),
+                origin.network_revision(),
+            )
+            .expect("non-empty key"),
+        }
+    }
+
+    fn lfsd_binding(bytes: &[u8]) -> SemanticDiffOriginBinding {
+        let digest: [u8; 32] = sha2::Sha256::digest(bytes).into();
+        SemanticDiffOriginBinding::new(
+            SEMANTIC_DIFF_FORMAT_VERSION,
+            Sha256Digest::from_bytes(digest),
+            ExactByteLength::new(u64::try_from(bytes.len()).expect("fixture length fits u64")),
+        )
+    }
+
+    fn cross_revision_descriptor(
+        base_origin: CanonicalNetworkOrigin,
+        target_origin: CanonicalNetworkOrigin,
+        binding: SemanticDiffOriginBinding,
+    ) -> NetworkRevisionCutoverDescriptor {
+        NetworkRevisionCutoverDescriptor::new(
+            LfcaOriginBinding::from_canonical_origin(base_origin),
+            LfcaOriginBinding::from_canonical_origin(target_origin),
+            Some(binding),
+            MigrationPolicyKind::CrossRevisionDirect,
+            WorldBinding::new(0, WorldGeneration::INITIAL, 0, 0),
+        )
+    }
+
+    fn installed_world(bytes: &[u8], key: &str) -> TrafficWorld {
+        let revision = revision(bytes);
+        let origin = *revision.canonical_origin();
+        TrafficWorld::install(
+            revision,
+            WorldConfig::new(8, 4, 1_024, 1, 100),
+            source_for(origin, key),
+            0,
+        )
+        .expect("install")
+    }
+
+    fn entry_exit(world: &TrafficWorld) -> (LaneEdgeOrdinal, LaneEdgeOrdinal) {
+        let traffic = world.traffic();
+        for raw in 0..traffic.lane_edge_count() {
+            let edge = LaneEdgeOrdinal::from_raw(raw);
+            if let Some(successor) = traffic
+                .successors(edge)
+                .and_then(|items| items.first().copied())
+            {
+                return (edge, successor);
+            }
+        }
+        panic!("fixture exposes a connected edge pair");
+    }
+
+    fn unmappable_edge(
+        world: &TrafficWorld,
+        rebinding: &CrossRevisionRebinding,
+    ) -> LaneEdgeOrdinal {
+        for raw in 0..world.traffic().lane_edge_count() {
+            let edge = LaneEdgeOrdinal::from_raw(raw);
+            if rebinding.lane_edge(edge).is_none() {
+                return edge;
+            }
+        }
+        panic!("fixture exposes an unmappable edge");
+    }
+
+    fn parking_spaces(
+        world: &TrafficWorld,
+        rebinding: &CrossRevisionRebinding,
+    ) -> (ParkingSpaceOrdinal, ParkingSpaceOrdinal) {
+        let count = world
+            .traffic()
+            .entity_counts()
+            .count(EntityKind::ParkingSpace);
+        let mut retained = None;
+        let mut removed = None;
+        for raw in 0..count {
+            let space = ParkingSpaceOrdinal::from_raw(raw);
+            if rebinding.parking_space(space).is_none() {
+                removed = Some(space);
+            } else {
+                retained = Some(space);
+            }
+        }
+        (
+            retained.expect("retained space"),
+            removed.expect("removed space"),
+        )
+    }
+
+    fn stable_edge(world: &TrafficWorld, edge: LaneEdgeOrdinal) -> StableId128 {
+        *world
+            .revision
+            .identity()
+            .stable_id(edge)
+            .expect("edge ordinal resolves")
+            .as_untyped()
+    }
+
+    fn stable_space(world: &TrafficWorld, space: ParkingSpaceOrdinal) -> StableId128 {
+        *world
+            .revision
+            .identity()
+            .stable_id(space)
+            .expect("space ordinal resolves")
+            .as_untyped()
+    }
+
+    fn stable_profile(world: &TrafficWorld, profile: VehicleProfileOrdinal) -> StableId128 {
+        *world
+            .revision
+            .identity()
+            .stable_id(profile)
+            .expect("profile ordinal resolves")
+            .as_untyped()
+    }
+
+    fn stable_pose_batch(world: &TrafficWorld) -> Vec<(VehicleHandle, (StableId128, u32))> {
+        world
+            .committed_pose_sources()
+            .as_slice()
+            .iter()
+            .map(|(handle, source)| match source {
+                PoseSource::Lane { edge, progress_mm } => {
+                    (*handle, (stable_edge(world, *edge), *progress_mm))
+                }
+                PoseSource::Parking { space } => (*handle, (stable_space(world, *space), 0)),
+            })
+            .collect()
+    }
+
+    fn spawn_on(
+        world: &mut TrafficWorld,
+        route: crate::RouteHandle,
+        progress: u32,
+        speed: u32,
+    ) -> VehicleHandle {
+        world
+            .spawn_vehicle(VehicleSpawnInput::new(
+                VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                progress,
+                speed,
+            ))
+            .expect("spawn")
+    }
+
+    fn expect_migration_error(
+        world: &TrafficWorld,
+        target_revision: Arc<SharedNetworkRevision>,
+        rebinding: &CrossRevisionRebinding,
+    ) -> CutoverError {
+        let target_origin = *target_revision.canonical_origin();
+        match migrate_structural_clone(
+            world,
+            target_revision,
+            source_for(target_origin, "fixture://expect-error"),
+            rebinding,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("expected migration to fail closed"),
+        }
+    }
+
+    #[test]
+    fn verify_semantic_diff_accepts_authentic_pairs() {
+        let base = revision(BASE);
+        let target = revision(TARGET);
+        let descriptor = cross_revision_descriptor(
+            *base.canonical_origin(),
+            *target.canonical_origin(),
+            lfsd_binding(LFSD_BYTES),
+        );
+        assert_eq!(
+            descriptor.format_version(),
+            CUTOVER_DESCRIPTOR_FORMAT_VERSION
+        );
+        assert_eq!(
+            descriptor.verify_semantic_diff(
+                LFSD_BYTES,
+                *base.canonical_origin(),
+                *target.canonical_origin()
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn verify_semantic_diff_rejects_inconsistent_bytes() {
+        let base = revision(BASE);
+        let target = revision(TARGET);
+        let base_origin = *base.canonical_origin();
+        let target_origin = *target.canonical_origin();
+
+        // 摘要不符：翻转一个字节但绑定保持原声明。
+        let mut tampered = LFSD_BYTES.to_vec();
+        let last = tampered.len() - 1;
+        tampered[last] ^= 0x01;
+        let descriptor =
+            cross_revision_descriptor(base_origin, target_origin, lfsd_binding(LFSD_BYTES));
+        assert_eq!(
+            descriptor.verify_semantic_diff(&tampered, base_origin, target_origin),
+            Err(crate::CutoverDescriptorError::SemanticDiffDigestMismatch)
+        );
+
+        // 长度不符。
+        let wrong_length = SemanticDiffOriginBinding::new(
+            SEMANTIC_DIFF_FORMAT_VERSION,
+            lfsd_binding(LFSD_BYTES).semantic_diff_digest(),
+            ExactByteLength::new(u64::try_from(LFSD_BYTES.len() + 1).expect("fits")),
+        );
+        let descriptor = cross_revision_descriptor(base_origin, target_origin, wrong_length);
+        assert_eq!(
+            descriptor.verify_semantic_diff(LFSD_BYTES, base_origin, target_origin),
+            Err(
+                crate::CutoverDescriptorError::SemanticDiffByteLengthMismatch {
+                    declared: u64::try_from(LFSD_BYTES.len() + 1).expect("fits"),
+                    actual: u64::try_from(LFSD_BYTES.len()).expect("fits"),
+                }
+            )
+        );
+
+        // 两侧 origin 对调：base 侧绑定比对失败。
+        let descriptor =
+            cross_revision_descriptor(base_origin, target_origin, lfsd_binding(LFSD_BYTES));
+        assert_eq!(
+            descriptor.verify_semantic_diff(LFSD_BYTES, target_origin, base_origin),
+            Err(crate::CutoverDescriptorError::SemanticDiffBaseBindingMismatch)
+        );
+    }
+
+    #[test]
+    fn rebinding_maps_retained_and_reports_removed_references() {
+        let base = revision(BASE);
+        let target = revision(TARGET);
+        let rebinding = CrossRevisionRebinding::build(base.identity(), target.identity());
+        let world = installed_world(BASE, "fixture://rebinding");
+        let target_world = installed_world(TARGET, "fixture://rebinding-target");
+        let doomed = unmappable_edge(&world, &rebinding);
+        assert!(rebinding.lane_edge(doomed).is_none());
+        let (entry, exit) = entry_exit(&world);
+        for edge in [entry, exit] {
+            let mapped = rebinding.lane_edge(edge).expect("retained edge maps");
+            assert_eq!(
+                stable_edge(&world, edge),
+                stable_edge(&target_world, mapped)
+            );
+        }
+        let (space_main, space_doomed) = parking_spaces(&world, &rebinding);
+        assert!(rebinding.parking_space(space_doomed).is_none());
+        assert!(rebinding.parking_space(space_main).is_some());
+
+        // oracle 对：交通引用全部恒等映射（含 profile/类别）。
+        let oracle_base = revision(ORACLE_BASE);
+        let oracle_target = revision(ORACLE_TARGET);
+        let oracle_rebinding =
+            CrossRevisionRebinding::build(oracle_base.identity(), oracle_target.identity());
+        let oracle_world = installed_world(ORACLE_BASE, "fixture://oracle-rebinding");
+        let (entry, exit) = entry_exit(&oracle_world);
+        for edge in [entry, exit] {
+            assert_eq!(oracle_rebinding.lane_edge(edge), Some(edge));
+        }
+        let count = oracle_world
+            .traffic()
+            .entity_counts()
+            .count(EntityKind::ParkingSpace);
+        for raw in 0..count {
+            let space = ParkingSpaceOrdinal::from_raw(raw);
+            assert_eq!(oracle_rebinding.parking_space(space), Some(space));
+        }
+        let profile_count = oracle_world
+            .traffic()
+            .entity_counts()
+            .count(EntityKind::VehicleProfile);
+        for raw in 0..profile_count {
+            let profile = VehicleProfileOrdinal::from_raw(raw);
+            assert_eq!(oracle_rebinding.vehicle_profile(profile), Some(profile));
+        }
+    }
+
+    #[test]
+    fn migrate_happy_world_preserves_handles_and_logical_state() {
+        let mut world = installed_world(BASE, "fixture://migration-base");
+        let (entry, _exit) = entry_exit(&world);
+        // 快乐路径使用单边路线：target 对 exit 追加了 passenger-car 拒绝，
+        // 含 exit 的后缀在重验证时必然被拒（那是访问翻转用例的舞台）。
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry]))
+            .expect("route");
+        let leader = spawn_on(&mut world, route, 20_000, 5_000);
+        let completed = spawn_on(&mut world, route, 10_000, 5_000);
+        let parked = spawn_on(&mut world, route, 2_000, 5_000);
+        let target_revision = revision(TARGET);
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+        let (space_main, _) = parking_spaces(&world, &rebinding);
+        world.occupy_parking(parked, space_main).expect("parking");
+        let completed_index = usize::try_from(completed.index()).expect("index");
+        world.vehicles[completed_index]
+            .state
+            .as_mut()
+            .expect("completed")
+            .status = VehicleStatus::Completed;
+        for _ in 0..2 {
+            world.step(TickInput::new(100)).expect("step");
+        }
+
+        let target_origin = *target_revision.canonical_origin();
+        let candidate = migrate_structural_clone(
+            &world,
+            Arc::clone(&target_revision),
+            source_for(target_origin, "fixture://migration-target"),
+            &rebinding,
+        )
+        .expect("migration succeeds");
+
+        // 根与来源换绑；句柄恒等；整值状态逐字段保持。
+        assert!(Arc::ptr_eq(&candidate.revision, &target_revision));
+        for handle in [leader, completed, parked] {
+            let before = world.vehicle_state(handle).expect("vehicle");
+            let after = candidate.vehicle_state(handle).expect("vehicle");
+            assert_eq!(before.handle, after.handle);
+            assert_eq!(before.route, after.route);
+            assert_eq!(before.route_edge_index, after.route_edge_index);
+            assert_eq!(before.progress_mm, after.progress_mm);
+            assert_eq!(before.carry_um, after.carry_um);
+            assert_eq!(before.speed_mm_s, after.speed_mm_s);
+            assert_eq!(before.length_mm, after.length_mm);
+            assert_eq!(before.status, after.status);
+            assert_eq!(
+                stable_profile(&world, before.profile),
+                stable_profile(&candidate, after.profile)
+            );
+        }
+        // 位姿批次按稳定引用逐点相等。
+        assert_eq!(stable_pose_batch(&world), stable_pose_batch(&candidate));
+        // 停车占用按稳定车位保持。
+        let mapped_space = rebinding.parking_space(space_main).expect("retained space");
+        assert_eq!(
+            candidate.committed_parking_occupant(mapped_space),
+            Some(parked)
+        );
+        // 候选在新根上继续确定性步进。
+        let mut candidate = candidate;
+        candidate
+            .step(TickInput::new(100))
+            .expect("candidate steps");
+        assert_eq!(candidate.tick_index(), world.tick_index() + 1);
+    }
+
+    #[test]
+    fn migrate_fails_closed_on_missing_edge_reference() {
+        let mut world = installed_world(BASE, "fixture://migration-base");
+        let rebinding_probe = revision(TARGET);
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), rebinding_probe.identity());
+        let doomed = unmappable_edge(&world, &rebinding);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![doomed]))
+            .expect("single-edge route");
+        spawn_on(&mut world, route, 1_000, 5_000);
+        assert_eq!(
+            expect_migration_error(&world, revision(TARGET), &rebinding),
+            CutoverError::UnmappableLaneEdge {
+                base_edge: doomed.raw()
+            }
+        );
+    }
+
+    #[test]
+    fn migrate_fails_closed_on_missing_parking_reference() {
+        let mut world = installed_world(BASE, "fixture://migration-base");
+        let (entry, exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        let vehicle = spawn_on(&mut world, route, 1_000, 5_000);
+        let target_revision = revision(TARGET);
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+        let (_, space_doomed) = parking_spaces(&world, &rebinding);
+        world
+            .occupy_parking(vehicle, space_doomed)
+            .expect("park on doomed space");
+        assert_eq!(
+            expect_migration_error(&world, target_revision, &rebinding),
+            CutoverError::UnmappableParkingSpace {
+                base_space: space_doomed.raw()
+            }
+        );
+    }
+
+    #[test]
+    fn migrate_fails_closed_on_shortened_edge_progress() {
+        let mut world = installed_world(BASE, "fixture://migration-base");
+        let (entry, exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        // base 侧 entry 长 100 m，target 缩为 60 m：80 m 进度合法生成但重绑越界。
+        let vehicle = spawn_on(&mut world, route, 80_000, 5_000);
+        let target_revision = revision(TARGET);
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+        assert_eq!(
+            expect_migration_error(&world, target_revision, &rebinding),
+            CutoverError::VehicleRevalidationFailed {
+                vehicle: vehicle.index()
+            }
+        );
+    }
+
+    #[test]
+    fn migrate_fails_closed_on_lowered_speed_limit() {
+        let mut world = installed_world(BASE, "fixture://migration-base");
+        let (entry, exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        // base 限速 20 m/s，target 降为 8 m/s：15 m/s 合法生成但重绑超速。
+        let vehicle = spawn_on(&mut world, route, 10_000, 15_000);
+        let target_revision = revision(TARGET);
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+        assert_eq!(
+            expect_migration_error(&world, target_revision, &rebinding),
+            CutoverError::VehicleRevalidationFailed {
+                vehicle: vehicle.index()
+            }
+        );
+    }
+
+    #[test]
+    fn migrate_fails_closed_on_newly_denied_suffix_access() {
+        let mut world = installed_world(BASE, "fixture://migration-base");
+        let (entry, exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        let vehicle = spawn_on(&mut world, route, 10_000, 5_000);
+        let target_revision = revision(TARGET);
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+        assert_eq!(
+            expect_migration_error(&world, target_revision, &rebinding),
+            CutoverError::VehicleRevalidationFailed {
+                vehicle: vehicle.index()
+            }
+        );
+    }
+
+    #[test]
+    fn migrated_oracle_world_steps_identically_to_unmigrated() {
+        let mut world = installed_world(ORACLE_BASE, "fixture://oracle-base");
+        let (entry, exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        let leader = spawn_on(&mut world, route, 20_000, 5_000);
+        let follower = spawn_on(&mut world, route, 2_000, 5_000);
+        for _ in 0..2 {
+            world.step(TickInput::new(100)).expect("step");
+        }
+        let target_revision = revision(ORACLE_TARGET);
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+        let target_origin = *target_revision.canonical_origin();
+        let mut candidate = migrate_structural_clone(
+            &world,
+            Arc::clone(&target_revision),
+            source_for(target_origin, "fixture://oracle-target"),
+            &rebinding,
+        )
+        .expect("identity migration succeeds");
+        assert_ne!(
+            world.revision().canonical_origin().network_revision(),
+            candidate.revision().canonical_origin().network_revision()
+        );
+
+        // 切换边界：已提交状态逐点一致（恒等 oracle，验收标准第二条）。
+        let assert_same = |world: &TrafficWorld, candidate: &TrafficWorld| {
+            assert_eq!(world.tick_index(), candidate.tick_index());
+            assert_eq!(world.time_ms(), candidate.time_ms());
+            assert_eq!(world.live_vehicles(), candidate.live_vehicles());
+            for handle in [leader, follower] {
+                assert_eq!(
+                    world.vehicle_state(handle).expect("vehicle"),
+                    candidate.vehicle_state(handle).expect("vehicle")
+                );
+            }
+            assert_eq!(
+                world.committed_pose_sources().as_slice(),
+                candidate.committed_pose_sources().as_slice()
+            );
+        };
+        assert_same(&world, &candidate);
+        // 继续步进仍逐点一致（交通语义段逐字节相等的直接推论）。
+        for _ in 0..4 {
+            world.step(TickInput::new(100)).expect("base step");
+            candidate.step(TickInput::new(100)).expect("candidate step");
+            assert_same(&world, &candidate);
+        }
+    }
+}

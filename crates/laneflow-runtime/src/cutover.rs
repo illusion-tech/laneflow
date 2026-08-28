@@ -7,6 +7,10 @@ use laneflow_static_contract::{
 };
 use std::sync::Arc;
 
+use laneflow_format::{RegistryCheckedFieldValue, preflight_object_values};
+use laneflow_static_contract::PortableObjectKind;
+use sha2::Digest as _;
+
 use laneflow_static_network::{CanonicalNetworkOrigin, SharedNetworkRevision};
 use thiserror::Error;
 
@@ -118,6 +122,12 @@ impl SemanticDiffOriginBinding {
     #[must_use]
     pub const fn semantic_diff_byte_length(&self) -> ExactByteLength {
         self.semantic_diff_byte_length
+    }
+
+    /// 绑定的 LFSD exact-byte 摘要（#513 切片 C：字节级认证比对对象）。
+    #[must_use]
+    pub const fn semantic_diff_digest(&self) -> Sha256Digest {
+        self.semantic_diff_digest
     }
 }
 
@@ -261,6 +271,33 @@ pub enum CutoverDescriptorError {
         /// 描述符携带的事件游标值。
         actual: u64,
     },
+    /// LFSD 实际字节长度与描述符绑定声明不一致（先于解析与哈希后的
+    /// 第二道长度闭合；O(1) 预检仍由 `validate` 承担）。
+    #[error("LFSD 实际字节长度 {actual} 与绑定声明 {declared} 不一致")]
+    SemanticDiffByteLengthMismatch {
+        /// 绑定声明的 exact-byte 长度。
+        declared: u64,
+        /// 实际提供的字节数。
+        actual: u64,
+    },
+    /// LFSD 字节 SHA-256 摘要与描述符绑定声明不一致。
+    #[error("LFSD 字节摘要与绑定声明不一致")]
+    SemanticDiffDigestMismatch,
+    /// LFSD 字节未通过注册表结构/值域校验。
+    #[error("LFSD 结构未通过注册表校验")]
+    SemanticDiffStructureInvalid,
+    /// LFSD 绑定行种类不受支持。
+    #[error("LFSD 绑定行种类 {actual} 不受支持")]
+    SemanticDiffBindingKindUnsupported {
+        /// 绑定行携带的种类值。
+        actual: u8,
+    },
+    /// LFSD base 侧绑定与已认证 base 制品逐项比对失败。
+    #[error("LFSD base 侧绑定与已认证制品不一致")]
+    SemanticDiffBaseBindingMismatch,
+    /// LFSD target 侧绑定与已认证 target 制品逐项比对失败。
+    #[error("LFSD target 侧绑定与已认证制品不一致")]
+    SemanticDiffTargetBindingMismatch,
 }
 
 impl NetworkRevisionCutoverDescriptor {
@@ -382,6 +419,100 @@ impl NetworkRevisionCutoverDescriptor {
         }
         Ok(())
     }
+
+    /// LFSD 字节认证消费（#513 切片 C；切换合同 §2「与 LFSD base/target
+    /// binding 同构，逐项交叉验证」）。
+    ///
+    /// 先做 O(1) 长度比对与字节 SHA-256 认证，再经注册表校验读取器解析，
+    /// 最后把绑定行与两侧已认证制品逐项交叉验证。任何不一致都按「描述符
+    /// 不一致/不可信」失败关闭；O(1) 上限预检已由 [`Self::validate`]
+    /// 在任何解析、分配或哈希之前承担。
+    // 生产消费方是本切片后续提交的切换事务；接入后移除。
+    #[allow(dead_code)]
+    pub(crate) fn verify_semantic_diff(
+        &self,
+        lfsd_bytes: &[u8],
+        base_origin: CanonicalNetworkOrigin,
+        target_origin: CanonicalNetworkOrigin,
+    ) -> Result<(), CutoverDescriptorError> {
+        let Some(binding) = self.semantic_diff.as_ref() else {
+            return Err(CutoverDescriptorError::CrossRevisionRequiresSemanticDiff);
+        };
+        let declared_length = binding.semantic_diff_byte_length().get();
+        let actual_length = u64::try_from(lfsd_bytes.len()).map_err(|_| {
+            CutoverDescriptorError::SemanticDiffByteLengthMismatch {
+                declared: declared_length,
+                actual: u64::MAX,
+            }
+        })?;
+        if actual_length != declared_length {
+            return Err(CutoverDescriptorError::SemanticDiffByteLengthMismatch {
+                declared: declared_length,
+                actual: actual_length,
+            });
+        }
+        let digest: [u8; 32] = sha2::Sha256::digest(lfsd_bytes).into();
+        if Sha256Digest::from_bytes(digest) != binding.semantic_diff_digest() {
+            return Err(CutoverDescriptorError::SemanticDiffDigestMismatch);
+        }
+        let view = preflight_object_values(
+            lfsd_bytes,
+            PortableObjectKind::SemanticDiff,
+            laneflow_format::FormatLimits::HARD,
+        )
+        .map_err(|_| CutoverDescriptorError::SemanticDiffStructureInvalid)?
+        .registry_view();
+        let row = view
+            .section(0)
+            .and_then(|section| section.table(0))
+            .and_then(|table| table.row(0))
+            .ok_or(CutoverDescriptorError::SemanticDiffStructureInvalid)?;
+        let field = |tag: u16| {
+            row.field_by_tag(tag)
+                .expect("schema-required LFSD binding field")
+                .value()
+                .expect("registry-checked LFSD binding value")
+        };
+        let u8_of = |tag: u16| match field(tag) {
+            RegistryCheckedFieldValue::U8(value) => value,
+            _ => panic!("LFSD binding field type drift at tag {tag}"),
+        };
+        let u16_of = |tag: u16| match field(tag) {
+            RegistryCheckedFieldValue::U16(value) => value,
+            _ => panic!("LFSD binding field type drift at tag {tag}"),
+        };
+        let u64_of = |tag: u16| match field(tag) {
+            RegistryCheckedFieldValue::U64(value) => value,
+            _ => panic!("LFSD binding field type drift at tag {tag}"),
+        };
+        let sha_of = |tag: u16| match field(tag) {
+            RegistryCheckedFieldValue::Sha256(value) => value,
+            _ => panic!("LFSD binding field type drift at tag {tag}"),
+        };
+        // 绑定行种类：v1 只承认制品绑定（值 1，沿 lfsd-noop/change-set 冻结值）。
+        const SEMANTIC_DIFF_ARTIFACT_BINDING_KIND: u8 = 1;
+        let binding_kind = u8_of(1);
+        if binding_kind != SEMANTIC_DIFF_ARTIFACT_BINDING_KIND {
+            return Err(CutoverDescriptorError::SemanticDiffBindingKindUnsupported {
+                actual: binding_kind,
+            });
+        }
+        let base_matches = u16_of(2) == NETWORK_REVISION_DERIVATION_VERSION
+            && NetworkRevisionId::from_digest(sha_of(3)) == base_origin.network_revision()
+            && sha_of(4) == base_origin.canonical_artifact_digest()
+            && u64_of(5) == base_origin.canonical_artifact_byte_length().get();
+        if !base_matches {
+            return Err(CutoverDescriptorError::SemanticDiffBaseBindingMismatch);
+        }
+        let target_matches = u16_of(6) == NETWORK_REVISION_DERIVATION_VERSION
+            && NetworkRevisionId::from_digest(sha_of(7)) == target_origin.network_revision()
+            && sha_of(8) == target_origin.canonical_artifact_digest()
+            && u64_of(9) == target_origin.canonical_artifact_byte_length().get();
+        if !target_matches {
+            return Err(CutoverDescriptorError::SemanticDiffTargetBindingMismatch);
+        }
+        Ok(())
+    }
 }
 
 /// 切换事务失败（#302 切换合同 §8）。任一失败路径都保持旧世界原样
@@ -425,6 +556,47 @@ pub enum CutoverError {
     /// 任一失败保持旧根、旧来源、旧路线和旧占用不变。
     #[error("切换暂存容量预留失败")]
     StagingAllocFailed,
+    /// 引用不存在：base 侧车道边在 target 修订无稳定对应（#513 切片 C；
+    /// 切换合同 §3 不可映射）。
+    #[error("车道边在 target 修订不存在稳定对应（base 序数 {base_edge}）")]
+    UnmappableLaneEdge {
+        /// base 侧车道边序数原始值。
+        base_edge: u32,
+    },
+    /// 引用不存在：base 侧停车位在 target 修订无稳定对应。
+    #[error("停车位在 target 修订不存在稳定对应（base 序数 {base_space}）")]
+    UnmappableParkingSpace {
+        /// base 侧停车位序数原始值。
+        base_space: u32,
+    },
+    /// 引用不存在：base 侧车辆 profile 在 target 修订无稳定对应。
+    #[error("车辆 profile 在 target 修订不存在稳定对应（base 序数 {base_profile}）")]
+    UnmappableVehicleProfile {
+        /// base 侧车辆 profile 序数原始值。
+        base_profile: u32,
+    },
+    /// 引用不存在：base 侧参与者类别在 target 修订无稳定对应。
+    #[error("参与者类别在 target 修订不存在稳定对应（base 序数 {base_class}）")]
+    UnmappableParticipantClass {
+        /// base 侧参与者类别序数原始值。
+        base_class: u32,
+    },
+    /// 重绑后非法：车辆原样重绑违反 target 修订不变量（进度越界、超速、
+    /// 后缀访问被拒或与其它迁移车辆重叠）。
+    #[error("车辆原样重绑违反 target 不变量（车辆序数 {vehicle}）")]
+    VehicleRevalidationFailed {
+        /// 违反不变量的车辆槽位序数。
+        vehicle: u32,
+    },
+    /// 迁移后路线总 occurrence 超出世界容量配置（防御性闭合：迁移本身
+    /// 不增减 occurrence）。
+    #[error("迁移后路线总 occurrence {total} 超出容量 {capacity}")]
+    EdgeOccurrenceCapacityExceeded {
+        /// 迁移后路线边 occurrence 总数。
+        total: u64,
+        /// 世界配置的 occurrence 容量。
+        capacity: u64,
+    },
 }
 
 impl TrafficWorld {
