@@ -7,4 +7,4 @@ if [ -z "$commit_msg_file" ]; then
   exit 1
 fi
 
-cargo +1.96.0 run --locked -p xtask -- check-commit-message-file "$commit_msg_file"
+cargo +1.98.0 run --locked -p xtask -- check-commit-message-file "$commit_msg_file"

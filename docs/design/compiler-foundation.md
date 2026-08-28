@@ -2,7 +2,7 @@
 
 **文档状态**: #292 已接受并完成 G4；#315 共同受检模块接入契约已实现；
 #297 current JSON 编译器导入设计已取消；#299 后继边界见 Accepted ADR 0024<br>
-**最后更新**: 2026-08-26<br>
+**最后更新**: 2026-08-28<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
@@ -1091,7 +1091,7 @@ G2 只需测量真实生产实现与标准库基线，不再强制重跑 #308 �
 实现无法满足第 11.3 节预算，或新候选会改变公共接口、确定性语义、拒绝服务边界或
 依赖方向时，才携带精确分层证据回到 G1。纯私有、依赖中立且不改变预算的等价优化可在
 G2/G3 审阅中处理。新增依赖仍须记录最低支持 Rust 版本（Minimum Supported Rust
-Version，MSRV）1.96、许可证、维护状态、安全记录和依赖树。
+Version，MSRV）1.98、许可证、维护状态、安全记录和依赖树。
 
 ### 10.3 并行与增量
 

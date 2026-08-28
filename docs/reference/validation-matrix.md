@@ -49,13 +49,13 @@ Rust 测试。本地仍应按本矩阵主动运行与切片相关的命令，不
 凡新增或修改含 GFM 表格的 Markdown，使用仓库内同一实现格式化：
 
 ```powershell
-cargo +1.96.0 run --locked -p xtask -- format-md-tables <path...>
+cargo +1.98.0 run --locked -p xtask -- format-md-tables <path...>
 ```
 
 只读检查：
 
 ```powershell
-cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
+cargo +1.98.0 run --locked -p xtask -- format-md-tables --check <path...>
 ```
 
 CI 的 `Markdown tables` job 对协作范围内的 Markdown 执行相同检查，但只警告，不阻断合并。

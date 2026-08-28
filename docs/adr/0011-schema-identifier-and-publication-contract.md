@@ -89,8 +89,8 @@ GitHub Pages 配置为 `build_type=workflow` 且强制 HTTPS。部署 workflow�
 PR/main CI 运行：
 
 ```powershell
-cargo +1.96.0 run --locked -p xtask -- check-schema-publication-contract
-cargo +1.96.0 run --locked -p xtask -- build-schema-publication target/schema-publication-site
+cargo +1.98.0 run --locked -p xtask -- check-schema-publication-contract
+cargo +1.98.0 run --locked -p xtask -- build-schema-publication target/schema-publication-site
 ```
 
 检查覆盖 multi-family catalog shape、current source 文件、published version 顺序、文件名、`$schema`、`$id`、source revision/blob OID、working-tree/source byte equality、runtime source 无 canonical URL 硬编码，以及 Pages artifact 只包含 published set。

@@ -49,12 +49,12 @@ jobs:
 
       - name: Install Rust MSRV toolchain
         shell: bash
-        run: rustup toolchain install 1.96.0 --profile minimal
+        run: rustup toolchain install 1.98.0 --profile minimal
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: laneflow-msrv-1.96.0-road-editing-codegen-${{ runner.os }}
+          shared-key: laneflow-msrv-1.98.0-road-editing-codegen-${{ runner.os }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
@@ -121,9 +121,9 @@ jobs:
           set -euo pipefail
           flatc_path="${LINUX_FLATC:-${WINDOWS_FLATC:-}}"
           test -n "$flatc_path"
-          cargo +1.96.0 run --locked -p xtask -- \
+          cargo +1.98.0 run --locked -p xtask -- \
             check-road-editing-codegen --flatc "$flatc_path"
 
       - name: Compile generated Rust binding
         shell: bash
-        run: cargo +1.96.0 test --locked -p laneflow-road-editing-wire
+        run: cargo +1.98.0 test --locked -p laneflow-road-editing-wire

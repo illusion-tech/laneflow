@@ -154,9 +154,9 @@ Dependabot 无法生成 LaneFlow 的完整治理正文，因此 commit 校验器
 修改依赖、Cargo manifest、许可证、`deny.toml`、Dependabot 或依赖 CI 的 PR，至少运行并记录：
 
 ```powershell
-cargo +1.96.0 metadata --locked --format-version 1
+cargo +1.98.0 metadata --locked --format-version 1
 cargo deny --locked --all-features check advisories bans licenses sources
-cargo +1.96.0 test --workspace --locked
+cargo +1.98.0 test --workspace --locked
 ```
 
 还必须按 `security-scanning.md` 读取 GitHub 的实际 Dependabot setting 与 open alerts。API 失败、功能 disabled、cargo-deny 未运行或 policy check 失败都不能记为零告警或通过。

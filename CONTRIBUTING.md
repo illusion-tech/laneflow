@@ -118,7 +118,7 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 
 - Commit message：Conventional Commits 标题、`Refs` / `Closes`、必要时 `BREAKING CHANGE:`；`xtask` 构建使用 `Swatinem/rust-cache`（仅 `main` 写回缓存）。
 - Markdown tables：表格格式检查只警告，不阻断合并。
-- Rust checks：job 始终运行以保持 required check 稳定。变更触及 `crates/`、`xtask/`、`tools/`、`examples/`、`research/`、`Cargo.toml` / `Cargo.lock`、`deny.toml`、本 workflow 或 `docs/governance/github-workflow.md` 时，安装 Rust 1.96.0 并运行 `fmt` 与 `test --workspace --locked`。走廊 catalog 与 LFCA 对拍由 `laneflow-corridor-generator` 测试覆盖，不再单独跑 generator `check`。`schemas/road-editing/` 由独立 Codegen workflow 覆盖，不因 `.fbs` 拉起整仓 Rust 测试。Bevy `runtime_min` 与 `signalized_corridor` 在 Adapter、Runtime、Spatial、scenario、format、static-contract、static-network、compiler 或 `examples/data/` 变更时编译。纯文档等非 Rust 路径跳过重型 cargo 并显式记录 skip。
+- Rust checks：job 始终运行以保持 required check 稳定。变更触及 `crates/`、`xtask/`、`tools/`、`examples/`、`research/`、`Cargo.toml` / `Cargo.lock`、`deny.toml`、本 workflow 或 `docs/governance/github-workflow.md` 时，安装 Rust 1.98.0 并运行 `fmt` 与 `test --workspace --locked`。走廊 catalog 与 LFCA 对拍由 `laneflow-corridor-generator` 测试覆盖，不再单独跑 generator `check`。`schemas/road-editing/` 由独立 Codegen workflow 覆盖，不因 `.fbs` 拉起整仓 Rust 测试。Bevy `runtime_min` 与 `signalized_corridor` 在 Adapter、Runtime、Spatial、scenario、format、static-contract、static-network、compiler 或 `examples/data/` 变更时编译。纯文档等非 Rust 路径跳过重型 cargo 并显式记录 skip。
 - Dependency policy：cargo-deny 检查 RustSec advisories、许可证、wildcard dependency 和 crate 来源。
 - Analyze (actions) / Analyze (rust)：advanced CodeQL。
 - Review conversation：未解决对话由 GitHub Ruleset 原生阻断；普通 Review 不由自定义 CI Check 计数或盖章。
