@@ -20,7 +20,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         Some("check-commit-messages") => commit_messages::check_commit_messages(args.get(1).map(String::as_str)),
         Some("check-commit-message-file") => {
             let path = args.get(1).ok_or(
-                "缺少 commit message 文件路径，例如: cargo +1.96.0 run --locked -p xtask -- check-commit-message-file .git/COMMIT_EDITMSG",
+                "缺少 commit message 文件路径，例如: cargo +1.98.0 run --locked -p xtask -- check-commit-message-file .git/COMMIT_EDITMSG",
             )?;
             commit_messages::check_commit_message_file(path)
         }

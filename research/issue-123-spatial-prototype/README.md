@@ -14,7 +14,7 @@
 复现命令：
 
 ```powershell
-cargo +1.96.0 test -p laneflow-spatial-research --locked
+cargo +1.98.0 test -p laneflow-spatial-research --locked
 cargo +stable test -p laneflow-spatial-research --locked
 ```
 

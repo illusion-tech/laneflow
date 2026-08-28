@@ -10,20 +10,20 @@ LFCA（含 Spatial）。不写出 current JSON。50–200 确定性回流见
 从仓库根目录生成 checked-in 默认制品：
 
 ```powershell
-cargo +1.96.0 run --locked -p laneflow-corridor-generator -- generate --config examples/config/v0.10-signalized-corridor.toml
+cargo +1.98.0 run --locked -p laneflow-corridor-generator -- generate --config examples/config/v0.10-signalized-corridor.toml
 ```
 
 只检查当前制品是否与配置逐字节一致：
 
 ```powershell
-cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.10-signalized-corridor.toml
+cargo +1.98.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.10-signalized-corridor.toml
 ```
 
 `check` 不写文件。两个命令比较 catalog 与 LFCA 字节，并做 catalog cross-reference 校验。
 
 ## 依赖与分发
 
-- `toml 1.1.4+spec-1.1.0` 只解析/序列化仓库内部配置与 catalog，许可证为 MIT OR Apache-2.0，MSRV 低于 workspace 1.96。
+- `toml 1.1.4+spec-1.1.0` 只解析/序列化仓库内部配置与 catalog，许可证为 MIT OR Apache-2.0，MSRV 低于 workspace 1.98。
 - 工具离线运行，不进入 Runtime fixed-step 或 Adapter 热路径，不引入网络、引擎或 copyleft 依赖。
 
 ## 边界
