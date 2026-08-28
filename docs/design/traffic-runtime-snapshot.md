@@ -1,7 +1,7 @@
 # 运行时快照
 
 **文档状态**: Accepted（#302 G1）<br>
-**最后更新**: 2026-08-27<br>
+**最后更新**: 2026-08-28<br>
 **适用范围**: 版本化 Runtime Snapshot 的设计原则、绑定集、保存/恢复语义、回放、确定性状态摘要与跨修订迁移入口<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)（§12；static image / receipt 条款已被 ADR 0025 §8 取代，origin 以 LFCA 为准）、
@@ -58,8 +58,13 @@ revision）不混用单一数字；未知版本值失败关闭。
 存活动态路线边序列的 occurrence 总数核对；重复边重复计数。恢复配置必须至少容纳
 快照路线表的总 occurrence，检查点后精确回放还要求与原配置一致。
 
-禁绑（出现即拒绝）：runtime handle / slot / generation、密集序号、共享静态
-数组、`EditableDiffBase`、partition / worker assignment、数组地址 / layout /
+世界世代是活动进程内失效状态，不是被恢复的逻辑内容：`WorldGeneration` 不进入
+快照；同进程原位恢复必须从活动 world checked 取得下一世代，重新安装的世界从
+初值建立且不得与仍存活的旧 `world_id`/会话并存。恢复实现不得从快照复制旧世代，
+也不得用初值回绕伪装一次原位恢复。
+
+禁绑（出现即拒绝）：runtime handle / slot / entity generation、`WorldGeneration`、
+密集序号、共享静态数组、`EditableDiffBase`、partition / worker assignment、数组地址 / layout /
 capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime 无自有随机流）。
 
 ## 3. 每世界可变状态

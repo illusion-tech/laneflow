@@ -23,7 +23,7 @@ use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     CommittedNetworkSource, CutoverPreflightLimits, LfcaOriginBinding, MigrationPolicyKind,
     NetworkRevisionCutoverDescriptor, PoseSource, PublishedLfcaReference, TickInput, TrafficWorld,
-    VehicleSpawnInput, WorldBinding, WorldConfig,
+    VehicleSpawnInput, WorldConfig,
 };
 use laneflow_scenario::signalized_corridor::{
     BoundCorridorCatalog, BoundSpawnSlot, CorridorCatalog, PASSENGER_CAR_PROFILE_KEY, bind,
@@ -78,7 +78,7 @@ fn descriptor_for(
         LfcaOriginBinding::from_canonical_origin(target_origin),
         None,
         MigrationPolicyKind::SameRevisionRestore,
-        WorldBinding::new(1, 0, 0),
+        world.world_binding(),
     )
 }
 

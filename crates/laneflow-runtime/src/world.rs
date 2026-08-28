@@ -17,6 +17,36 @@ use crate::{
     VehicleReplaceRecord, VehicleSpawnInput, VehicleState, VehicleStatus, WorldConfig,
 };
 
+/// 活动世界世代。安装时从 [`Self::INITIAL`] 开始，每次成功换绑活动聚合时递增。
+///
+/// 字段保持私有：调用方应从 [`TrafficWorld::world_generation`] 取得当前值，
+/// 再把它绑定到切换、观测或 Routing 会话，而不是自行猜测世代。
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct WorldGeneration(u64);
+
+impl WorldGeneration {
+    /// 新安装世界的初始世代。
+    pub const INITIAL: Self = Self(0);
+
+    /// 用于日志、诊断与同进程绑定的精确 `u64` 值。
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+
+    pub(crate) const fn checked_next(self) -> Option<Self> {
+        match self.0.checked_add(1) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn from_raw_for_test(value: u64) -> Self {
+        Self(value)
+    }
+}
+
 /// 1-worker 交通世界。只克隆根 `Arc`，不复制静态 component。
 /// 生命周期命令（`register_route` / `spawn_vehicle` / `occupy_parking` /
 /// `replace_completed_vehicle`）只在两次 `step` 之间调用。
@@ -25,6 +55,8 @@ pub struct TrafficWorld {
     pub(crate) source: CommittedNetworkSource,
     /// 宿主指定的世界身份；切换描述符 `worldBinding` 在事务启动时比对。
     pub(crate) world_id: u64,
+    /// 活动聚合世代；成功切换/恢复的唯一失效轴。
+    pub(crate) world_generation: WorldGeneration,
     pub(crate) config: WorldConfig,
     pub(crate) tick_index: u64,
     pub(crate) time_ms: u64,
@@ -92,6 +124,7 @@ impl TrafficWorld {
             revision,
             source,
             world_id,
+            world_generation: WorldGeneration::INITIAL,
             config,
             tick_index: 0,
             time_ms: 0,
@@ -121,6 +154,12 @@ impl TrafficWorld {
     #[must_use]
     pub const fn world_id(&self) -> u64 {
         self.world_id
+    }
+
+    /// 当前活动世界世代。成功切换后递增；失败或放弃保持不变。
+    #[must_use]
+    pub const fn world_generation(&self) -> WorldGeneration {
+        self.world_generation
     }
 
     /// 共享根。
@@ -943,6 +982,7 @@ mod source_tests {
             0,
         )
         .expect("source matches installed revision");
+        assert_eq!(world.world_generation(), WorldGeneration::INITIAL);
         assert_eq!(
             world.committed_source(),
             &CommittedNetworkSource::Published {

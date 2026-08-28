@@ -27,7 +27,7 @@ pub use laneflow_static_contract::ParkingSpaceOrdinal;
 pub use pose::{CommittedPoseSourceBatch, CommittedSignalGroupBatch, PoseSource};
 pub use source::{CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference};
 pub use vehicle::{VehicleReplaceBlock, VehicleReplaceRecord, VehicleState, VehicleStatus};
-pub use world::TrafficWorld;
+pub use world::{TrafficWorld, WorldGeneration};
 
 #[cfg(test)]
 mod tests {
