@@ -158,10 +158,11 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   Routing，不重放 stale admission。
   跨修订不匹配必须经 #302 受信任迁移策略显式迁移命令稳定引用，否则拒绝。
 - **确定性状态摘要（术语表）**：对逻辑状态按规范排序计算、与容器编码无关；
-  G2 v1 算法冻结为 SHA-256，域分隔字节为
-  `laneflow:runtime-state-digest:v1\0`，随后写 `u16` 摘要版本 1 与 `u16`
-  `runtime_state_version` 1；整数均小端；摘要版本 2（v1 车辆记录内嵌所属路线
-  内容，内容相同的路线实例间车辆绑定不可区分，已废弃）。
+  算法冻结为 SHA-256，域分隔字节为
+  `laneflow:runtime-state-digest:v1\0`，随后写 `u16` 摘要版本 3 与 `u16`
+  `runtime_state_version` 1；整数均小端。摘要版本沿革：1（车辆记录内嵌所属
+  路线内容，内容相同的路线实例间车辆绑定不可区分，已废弃）；2（live 序条目
+  无路线绑定，同值车辆跨路线换序不可区分，已废弃）；3（现行）。
   顶层依次写：`world_id`、语义 `NetworkRevisionId`、六轴静态契约版本、行为语义
   配置（vehicle/route/occurrence 容量与 fixed dt；不写 worker）、tick/时间/双游标；
   再写路线实例分组多重集、live 更新序列。每条记录写 `u64 byteLength + bytes`，
@@ -172,8 +173,10 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   presence `u8` 与可选 `StableId128`——路线内容由所属分组承载，车辆记录不内嵌。
   分组多重集按完整分组字节升序；内容相同但车辆绑定不同的路线实例因此可区分
   （remove 语义不同），内容与绑定均相同的实例可交换（全部后续命令行为一致）。
-  live 序按运行时更新顺序写对应车辆记录。这样局部 ID、句柄与表排列变化不影响
-  摘要，但多重度、车辆-路线绑定与 live 顺序仍被保留。LFCA exact-byte digest/length、Published 审计来源、
+  live 序按运行时更新顺序逐位写「车辆记录 + 所属路线记录」：跨路线换序可
+  区分（pose 批次按 live 序产出，顺序可观测）；所属路线内容相同的同值车辆
+  换序保持等价（有序对内容相同，全部后续命令行为一致）。这样局部 ID、句柄
+  与表排列变化不影响摘要，但多重度、车辆-路线绑定与 live 顺序仍被保留。LFCA exact-byte digest/length、Published 审计来源、
   worker、`WorldGeneration`、观测 session 不入摘要。同一逻辑状态在任何合法容器编码
   与恢复句柄分配下摘要相等；该摘要同时是切换事务静默期复核的期望值来源（切换文档
   §3/§5）。
