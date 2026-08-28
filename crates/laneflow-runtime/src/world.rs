@@ -209,21 +209,7 @@ impl TrafficWorld {
         &mut self,
         edges: &[laneflow_static_contract::LaneEdgeOrdinal],
     ) -> Result<RouteHandle, RouteError> {
-        if edges.is_empty() {
-            return Err(RouteError::EmptySequence);
-        }
-        if self.live_route_count >= self.config.route_capacity() {
-            return Err(RouteError::CapacityExceeded);
-        }
-        let added_occurrences =
-            u64::try_from(edges.len()).map_err(|_| RouteError::EdgeOccurrenceCapacityExceeded)?;
-        let next_occurrence_count = self
-            .live_route_edge_occurrence_count
-            .checked_add(added_occurrences)
-            .ok_or(RouteError::EdgeOccurrenceCapacityExceeded)?;
-        if next_occurrence_count > self.config.route_edge_occurrence_capacity() {
-            return Err(RouteError::EdgeOccurrenceCapacityExceeded);
-        }
+        let next_occurrence_count = self.preflight_route_registration(edges.len())?;
         let compiled = compile_route(self.revision.traffic(), edges)?;
         let slot_index = self.free_routes.pop().unwrap_or(self.routes.len());
         let generation = self
@@ -250,6 +236,30 @@ impl TrafficWorld {
             .expect("route count preflight guarantees room");
         self.live_route_edge_occurrence_count = next_occurrence_count;
         Ok(handle)
+    }
+
+    /// 所有路线入口共享的 O(1) 容量预检。调用方可在稳定标识解析前提早失败，
+    /// 但提交入口仍须再次调用本函数，避免形成旁路权威。
+    pub(crate) fn preflight_route_registration(
+        &self,
+        edge_count: usize,
+    ) -> Result<u64, RouteError> {
+        if edge_count == 0 {
+            return Err(RouteError::EmptySequence);
+        }
+        if self.live_route_count >= self.config.route_capacity() {
+            return Err(RouteError::CapacityExceeded);
+        }
+        let added_occurrences =
+            u64::try_from(edge_count).map_err(|_| RouteError::EdgeOccurrenceCapacityExceeded)?;
+        let next_occurrence_count = self
+            .live_route_edge_occurrence_count
+            .checked_add(added_occurrences)
+            .ok_or(RouteError::EdgeOccurrenceCapacityExceeded)?;
+        if next_occurrence_count > self.config.route_edge_occurrence_capacity() {
+            return Err(RouteError::EdgeOccurrenceCapacityExceeded);
+        }
+        Ok(next_occurrence_count)
     }
 
     /// 只移除本世界已注册路线。

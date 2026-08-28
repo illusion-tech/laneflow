@@ -12,5 +12,12 @@
 当前已提交车辆状态重算所选 LaneEdge 的整数聚合。无导出调用时不维护观测副本、
 dirty journal 或后台任务，观测 session/基线也不进入 Runtime Snapshot。
 
+动态成本 payload 与 Routing 算法仍由宿主拥有。Runtime 只从实际观测批次构造
+`ObservationSetBinding`，签发 `RoutingAdmissionSession`，并由
+`register_candidate_route` 校验世界/世代/修订/模型/有效窗后把 LaneEdge 稳定标识降低到
+唯一路线编译入口。回放/恢复使用不含旧成本 provenance 的
+`register_admitted_route`；两条路径与 direct `register_route` 共用路线槽和边出现项容量。
+
 本 crate 不依赖 Spatial、compiler、Serde、文件系统或 `laneflow-core`。契约见
-`docs/design/traffic-runtime-shared-consumption.md`。
+`docs/design/traffic-runtime-shared-consumption.md` 与
+`docs/design/traffic-observation-and-routing-integration.md`。

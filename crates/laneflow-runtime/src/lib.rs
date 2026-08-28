@@ -8,6 +8,7 @@ mod input;
 mod observation;
 mod occupancy;
 mod pose;
+mod routing;
 mod source;
 mod tables;
 mod tick;
@@ -31,6 +32,12 @@ pub use observation::{
     ObservationSelection, ObservationStateSequence, ObservationStreamBinding,
 };
 pub use pose::{CommittedPoseSourceBatch, CommittedSignalGroupBatch, PoseSource};
+pub use routing::{
+    AdmittedRouteRegisterError, AdmittedRouteRegisterInput, CandidateRouteError,
+    CandidateRouteInput, CostModelKey, DYNAMIC_COST_BINDING_VERSION, DynamicCostBindingError,
+    DynamicCostSnapshotBinding, ObservationSetBinding, ObservationSetError,
+    RoutingAdmissionSession, bind_observation_set,
+};
 pub use source::{CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference};
 pub use vehicle::{VehicleReplaceBlock, VehicleReplaceRecord, VehicleState, VehicleStatus};
 pub use world::{TrafficWorld, WorldGeneration};
