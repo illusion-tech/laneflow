@@ -41,7 +41,7 @@ pub use routing::{
 };
 pub use snapshot::{
     CapturedRoute, CapturedSnapshot, CapturedVehicle, RUNTIME_STATE_VERSION,
-    SNAPSHOT_FORMAT_VERSION,
+    SNAPSHOT_FORMAT_VERSION, encode_lfrs,
 };
 pub use source::{CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference};
 pub use vehicle::{VehicleReplaceBlock, VehicleReplaceRecord, VehicleState, VehicleStatus};
