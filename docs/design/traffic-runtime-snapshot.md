@@ -151,9 +151,21 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   Routing，不重放 stale admission。
   跨修订不匹配必须经 #302 受信任迁移策略显式迁移命令稳定引用，否则拒绝。
 - **确定性状态摘要（术语表）**：对逻辑状态按规范排序计算、与容器编码无关；
-  算法冻结为 SHA-256 + 域分隔版本前缀（沿 `laneflow-format` 先例），摘要输入
-  的精确规范化序列化由 G2 登记。同一逻辑状态在任何合法编码下摘要相等；该摘要
-  同时是切换事务静默期复核的期望值来源（切换文档 §3/§5）。
+  G2 v1 算法冻结为 SHA-256，域分隔字节为
+  `laneflow:runtime-state-digest:v1\0`，随后写 `u16` 摘要版本 1 与 `u16`
+  `runtime_state_version` 1；整数均小端。
+  顶层依次写：`world_id`、语义 `NetworkRevisionId`、六轴静态契约版本、行为语义
+  配置（vehicle/route/occurrence 容量与 fixed dt；不写 worker）、tick/时间/双游标；
+  再写路线内容多重集、车辆内容多重集、live 更新序列。每个集合先写 `u64` 数量，
+  每条记录写 `u64 byteLength + bytes`。路线记录 = `u64 edgeCount` + 有序边
+  `StableId128`；车辆记录 = 所属路线记录 + route index / progress / carry / speed +
+  status 封闭 `u8`（Active=1/Parked=2/Completed=3）+ profile/class `StableId128` +
+  parking presence `u8` 与可选 `StableId128`。路线/车辆多重集按完整记录字节升序；
+  live 序按运行时更新顺序写对应车辆记录。这样局部 ID、句柄与表排列变化不影响摘要，
+  但多重度和 live 顺序仍被保留。LFCA exact-byte digest/length、Published 审计来源、
+  worker、`WorldGeneration`、观测 session 不入摘要。同一逻辑状态在任何合法容器编码
+  与恢复句柄分配下摘要相等；该摘要同时是切换事务静默期复核的期望值来源（切换文档
+  §3/§5）。
 - 检查点（checkpoint）是回放序列中的快照锚点，与命令游标共同界定重放区间；
   失同步只诊断（报告首个分歧区间），不自动纠偏、不重启世界，处置归宿主。
 
