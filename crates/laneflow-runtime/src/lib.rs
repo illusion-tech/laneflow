@@ -10,6 +10,7 @@ mod occupancy;
 mod pose;
 mod routing;
 mod snapshot;
+mod snapshot_digest;
 mod snapshot_restore;
 mod source;
 mod tables;
@@ -43,6 +44,9 @@ pub use routing::{
 pub use snapshot::{
     CapturedRoute, CapturedSnapshot, CapturedVehicle, RUNTIME_STATE_VERSION,
     SNAPSHOT_FORMAT_VERSION, encode_lfrs,
+};
+pub use snapshot_digest::{
+    RUNTIME_STATE_DIGEST_DOMAIN, RUNTIME_STATE_DIGEST_VERSION, deterministic_state_digest,
 };
 pub use snapshot_restore::{
     RestoredSnapshot, SnapshotLimitDimension, SnapshotRestoreError, SnapshotRestoreLimits,

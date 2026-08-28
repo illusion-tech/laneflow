@@ -23,6 +23,9 @@ Runtime Snapshot 以 `capture_snapshot` 在固定步进边界冻结不可变逻�
 预算，再执行版本、来源、配置、标识、引用、排列、停车和值不变量 lowering；所有路线
 经 `register_admitted_route`，所有车辆/停车经共同运行时不变量入口在局部 world 中
 重建，完全成功后才返回 `RestoredSnapshot` 及局部 ID 到新句柄映射。
+`deterministic_state_digest` 按逻辑路线/车辆内容规范化，不依赖 LFRS 字节、进程句柄、
+局部 ID、Published 审计地址或 worker 计划；容量、tick/时间/双游标与 live 顺序仍进入
+SHA-256 状态身份。
 
 本 crate 不依赖 Spatial、compiler、Serde、文件系统或 `laneflow-core`。契约见
 `docs/design/traffic-runtime-shared-consumption.md` 与
