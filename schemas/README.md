@@ -9,11 +9,13 @@
 Traffic v0.10、Spatial v0.1 与 Scenario Manifest v0.1 JSON Schema 已随 #301 删除，
 不再作为仓库内部 loader、测试或 authoring 契约。
 
-| Family       | Current source                                                         | 状态                                     |
-| ------------ | ---------------------------------------------------------------------- | ---------------------------------------- |
-| Road Editing | [`road-editing/v2/road-editing.fbs`](road-editing/v2/road-editing.fbs) | 生产 compiler 来源；`format_version = 2` |
+| Family           | Current source                                                                         | 状态                                     |
+| ---------------- | -------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Road Editing     | [`road-editing/v2/road-editing.fbs`](road-editing/v2/road-editing.fbs)                 | 生产 compiler 来源；`format_version = 2` |
+| Runtime Snapshot | [`runtime-snapshot/v1/runtime-snapshot.fbs`](runtime-snapshot/v1/runtime-snapshot.fbs) | 生产快照容器；`format_version = 1`       |
 
-字段级领域语义见 [`road-editing/v2/README.md`](road-editing/v2/README.md)。它使用
+字段级领域语义见 [`road-editing/v2/README.md`](road-editing/v2/README.md) 与
+[`runtime-snapshot/v1/README.md`](runtime-snapshot/v1/README.md)。它使用
 size-prefixed FlatBuffers 和 `LFRE` file identifier，不是 JSON Schema。`format_version
 = 1` 的 buffer 由读器失败关闭；历史 schema 以 git 为准，不作为生产入口。
 
