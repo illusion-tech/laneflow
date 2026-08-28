@@ -3,10 +3,12 @@
 //! 保存 = 固定步进安全边界上对已提交状态的**单一时点**捕获：只读
 //! 已提交事实、把进程句柄解析为快照局部标识与稳定标识。派生状态
 //! （信号灯色、占用索引、profile 派生车长）与禁绑字段（句柄 / 槽位 /
-//! generation / 密集序号）不入快照。LFRS 编码待 `WorldConfig` 的
-//! `route_edge_occurrence_capacity` 运行时面（#521）落地后同界衔接，
-//! 不虚构值。
+//! generation / 密集序号）不入快照。编码阶段只读不可变捕获，把完整
+//! `WorldConfig`（含 `route_edge_occurrence_capacity`）、绑定集与逻辑状态
+//! 映射到 size-prefixed `LFRS`；不回读活动 world，也不推进游标。
 
+use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v1 as wire;
+use laneflow_runtime_snapshot_wire::runtime;
 use laneflow_static_contract::StableId128 as ContractStableId128;
 use laneflow_static_network::CanonicalNetworkOrigin;
 
@@ -80,6 +82,142 @@ pub struct CapturedVehicle {
     pub(crate) class: ContractStableId128,
     /// 停车位稳定标识；`None` 表示未绑定。
     pub(crate) parking_space: Option<ContractStableId128>,
+}
+
+/// 把不可变快照点编码为 size-prefixed `LFRS` v1。
+///
+/// 捕获与编码分离：调用方可先在固定步进安全边界调用
+/// [`TrafficWorld::capture_snapshot`]，再把本函数放到后台线程。编码只映射已捕获
+/// 事实，不重新读取活动 world；输出始终携带 `LFRS` file identifier。
+#[must_use]
+pub fn encode_lfrs(snapshot: &CapturedSnapshot) -> Vec<u8> {
+    let mut fbb = runtime::FlatBufferBuilder::new();
+
+    let world_config = wire::WorldConfigBinding::create(
+        &mut fbb,
+        &wire::WorldConfigBindingArgs {
+            vehicle_capacity: snapshot.config.vehicle_capacity(),
+            route_capacity: snapshot.config.route_capacity(),
+            route_edge_occurrence_capacity: snapshot.config.route_edge_occurrence_capacity(),
+            worker_count: snapshot.config.worker_count(),
+            fixed_delta_time_ms: snapshot.config.fixed_delta_time_ms(),
+        },
+    );
+
+    let route_offsets = snapshot
+        .routes
+        .iter()
+        .map(|route| {
+            let edges = route
+                .edges
+                .iter()
+                .map(|stable_id| wire::StableId128::new(stable_id.as_bytes()))
+                .collect::<Vec<_>>();
+            let edges = fbb.create_vector(&edges);
+            wire::SnapshotRoute::create(
+                &mut fbb,
+                &wire::SnapshotRouteArgs {
+                    snapshot_route_id: route.snapshot_route_id,
+                    edges: Some(edges),
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    let routes = fbb.create_vector(&route_offsets);
+
+    let vehicle_offsets = snapshot
+        .vehicles
+        .iter()
+        .map(|vehicle| {
+            let profile = wire::StableId128::new(vehicle.profile.as_bytes());
+            let class = wire::StableId128::new(vehicle.class.as_bytes());
+            let parking_space = vehicle
+                .parking_space
+                .map(|stable_id| wire::StableId128::new(stable_id.as_bytes()));
+            wire::SnapshotVehicle::create(
+                &mut fbb,
+                &wire::SnapshotVehicleArgs {
+                    snapshot_vehicle_id: vehicle.snapshot_vehicle_id,
+                    snapshot_route_id: vehicle.snapshot_route_id,
+                    route_edge_index: vehicle.route_edge_index,
+                    progress_mm: vehicle.progress_mm,
+                    carry_um: vehicle.carry_um,
+                    speed_mm_s: vehicle.speed_mm_s,
+                    status: encode_vehicle_status(vehicle.status),
+                    profile: Some(&profile),
+                    class: Some(&class),
+                    parking_space: parking_space.as_ref(),
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    let vehicles = fbb.create_vector(&vehicle_offsets);
+    let live_order = fbb.create_vector(&snapshot.live_order);
+
+    let (source_kind, source_published) = match &snapshot.source {
+        CommittedNetworkSource::Published { reference } => {
+            let asset_key = fbb.create_string(reference.asset_key());
+            let artifact_digest =
+                wire::Digest256::new(reference.canonical_artifact_digest().as_bytes());
+            let network_revision =
+                wire::Digest256::new(reference.network_revision().as_digest().as_bytes());
+            let published = wire::PublishedSourceBinding::create(
+                &mut fbb,
+                &wire::PublishedSourceBindingArgs {
+                    asset_key: Some(asset_key),
+                    artifact_digest: Some(&artifact_digest),
+                    artifact_byte_length: reference.canonical_artifact_byte_length().get(),
+                    network_revision: Some(&network_revision),
+                },
+            );
+            (wire::SourceKind::Published, Some(published))
+        }
+    };
+
+    let origin = snapshot.origin;
+    let network_revision = wire::Digest256::new(origin.network_revision().as_digest().as_bytes());
+    let artifact_digest = wire::Digest256::new(origin.canonical_artifact_digest().as_bytes());
+    let contracts = origin.static_contract_versions();
+    let contract_versions = wire::StaticContractVersionSet::new(
+        contracts.canonical_format_version(),
+        contracts.identity_encoding_version(),
+        contracts.identity_registry_revision(),
+        contracts.network_revision_derivation_version(),
+        contracts.constraint_contract_version(),
+        contracts.static_execution_contract_version(),
+    );
+    let root = wire::RuntimeSnapshot::create(
+        &mut fbb,
+        &wire::RuntimeSnapshotArgs {
+            format_version: SNAPSHOT_FORMAT_VERSION,
+            runtime_state_version: RUNTIME_STATE_VERSION,
+            world_id: snapshot.world_id,
+            tick: snapshot.tick,
+            time_ms: snapshot.time_ms,
+            command_cursor: snapshot.command_cursor,
+            event_cursor: snapshot.event_cursor,
+            world_config: Some(world_config),
+            network_revision: Some(&network_revision),
+            lfca_artifact_digest: Some(&artifact_digest),
+            lfca_artifact_byte_length: origin.canonical_artifact_byte_length().get(),
+            static_contract_versions: Some(&contract_versions),
+            source_kind,
+            source_published,
+            routes: Some(routes),
+            vehicles: Some(vehicles),
+            live_order: Some(live_order),
+        },
+    );
+    wire::finish_size_prefixed_runtime_snapshot_buffer(&mut fbb, root);
+    fbb.finished_data().to_vec()
+}
+
+const fn encode_vehicle_status(status: VehicleStatus) -> wire::VehicleStatusKind {
+    match status {
+        VehicleStatus::Active => wire::VehicleStatusKind::Active,
+        VehicleStatus::Parked => wire::VehicleStatusKind::Parked,
+        VehicleStatus::Completed => wire::VehicleStatusKind::Completed,
+    }
 }
 
 impl CapturedSnapshot {
@@ -344,6 +482,179 @@ mod tests {
         // 捕获后世界照常步进：单一时点捕获不持借用、不改状态。
         world.step(TickInput::new(100)).expect("step after capture");
         assert_eq!(world.command_cursor(), before_cursor);
+    }
+
+    #[test]
+    fn encode_lfrs_maps_the_complete_captured_binding_and_state() {
+        let (mut world, route, vehicle) = world_with_vehicle(true);
+        world.step(TickInput::new(100)).expect("step");
+        let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
+        world.occupy_parking(vehicle, space).expect("parking");
+        let (_, active_vehicle) = spawn_on(&mut world, route);
+        let snapshot = world.capture_snapshot();
+
+        let bytes = encode_lfrs(&snapshot);
+        assert_eq!(bytes, encode_lfrs(&snapshot));
+        assert!(wire::runtime_snapshot_size_prefixed_buffer_has_identifier(
+            &bytes
+        ));
+        let prefixed_len = u32::from_le_bytes(bytes[..4].try_into().expect("size prefix"));
+        assert_eq!(
+            usize::try_from(prefixed_len).expect("usize"),
+            bytes.len() - 4
+        );
+        let root = wire::size_prefixed_root_as_runtime_snapshot(&bytes).expect("verified LFRS");
+
+        assert_eq!(root.format_version(), SNAPSHOT_FORMAT_VERSION);
+        assert_eq!(root.runtime_state_version(), RUNTIME_STATE_VERSION);
+        assert_eq!(root.world_id(), snapshot.world_id());
+        assert_eq!(root.tick(), snapshot.tick());
+        assert_eq!(root.time_ms(), snapshot.time_ms());
+        assert_eq!(root.command_cursor(), snapshot.command_cursor());
+        assert_eq!(root.event_cursor(), snapshot.event_cursor());
+
+        let config = root.world_config();
+        assert_eq!(
+            config.vehicle_capacity(),
+            snapshot.config().vehicle_capacity()
+        );
+        assert_eq!(config.route_capacity(), snapshot.config().route_capacity());
+        assert_eq!(
+            config.route_edge_occurrence_capacity(),
+            snapshot.config().route_edge_occurrence_capacity()
+        );
+        assert_eq!(config.worker_count(), snapshot.config().worker_count());
+        assert_eq!(
+            config.fixed_delta_time_ms(),
+            snapshot.config().fixed_delta_time_ms()
+        );
+
+        let origin = snapshot.origin();
+        assert_eq!(
+            root.network_revision().expect("network revision").0,
+            *origin.network_revision().as_digest().as_bytes()
+        );
+        assert_eq!(
+            root.lfca_artifact_digest().expect("artifact digest").0,
+            *origin.canonical_artifact_digest().as_bytes()
+        );
+        assert_eq!(
+            root.lfca_artifact_byte_length(),
+            origin.canonical_artifact_byte_length().get()
+        );
+        let expected_contracts = origin.static_contract_versions();
+        let contracts = root.static_contract_versions().expect("contract versions");
+        assert_eq!(
+            contracts.canonical_format_version(),
+            expected_contracts.canonical_format_version()
+        );
+        assert_eq!(
+            contracts.identity_encoding_version(),
+            expected_contracts.identity_encoding_version()
+        );
+        assert_eq!(
+            contracts.identity_registry_revision(),
+            expected_contracts.identity_registry_revision()
+        );
+        assert_eq!(
+            contracts.network_revision_derivation_version(),
+            expected_contracts.network_revision_derivation_version()
+        );
+        assert_eq!(
+            contracts.constraint_contract_version(),
+            expected_contracts.constraint_contract_version()
+        );
+        assert_eq!(
+            contracts.static_execution_contract_version(),
+            expected_contracts.static_execution_contract_version()
+        );
+
+        let CommittedNetworkSource::Published { reference } = snapshot.source();
+        assert_eq!(root.source_kind(), wire::SourceKind::Published);
+        let published = root.source_published().expect("published source");
+        assert_eq!(published.asset_key(), reference.asset_key());
+        assert_eq!(
+            published.artifact_digest().expect("source digest").0,
+            *reference.canonical_artifact_digest().as_bytes()
+        );
+        assert_eq!(
+            published.artifact_byte_length(),
+            reference.canonical_artifact_byte_length().get()
+        );
+        assert_eq!(
+            published.network_revision().expect("source revision").0,
+            *reference.network_revision().as_digest().as_bytes()
+        );
+
+        let routes = root.routes();
+        assert_eq!(routes.len(), snapshot.routes().len());
+        for (index, captured_route) in snapshot.routes().iter().enumerate() {
+            let route = routes.get(index);
+            assert_eq!(route.snapshot_route_id(), captured_route.snapshot_route_id);
+            assert_eq!(route.edges().len(), captured_route.edges.len());
+            for (wire_edge, captured_edge) in route.edges().iter().zip(captured_route.edges.iter())
+            {
+                assert_eq!(wire_edge.0, *captured_edge.as_bytes());
+            }
+        }
+
+        let vehicles = root.vehicles();
+        assert_eq!(vehicles.len(), snapshot.vehicles().len());
+        for (index, captured) in snapshot.vehicles().iter().enumerate() {
+            let vehicle = vehicles.get(index);
+            assert_eq!(vehicle.snapshot_vehicle_id(), captured.snapshot_vehicle_id);
+            assert_eq!(vehicle.snapshot_route_id(), captured.snapshot_route_id);
+            assert_eq!(vehicle.route_edge_index(), captured.route_edge_index);
+            assert_eq!(vehicle.progress_mm(), captured.progress_mm);
+            assert_eq!(vehicle.carry_um(), captured.carry_um);
+            assert_eq!(vehicle.speed_mm_s(), captured.speed_mm_s);
+            assert_eq!(vehicle.status(), encode_vehicle_status(captured.status));
+            assert_eq!(
+                vehicle.profile().expect("profile stable id").0,
+                *captured.profile.as_bytes()
+            );
+            assert_eq!(
+                vehicle.class().expect("class stable id").0,
+                *captured.class.as_bytes()
+            );
+            assert_eq!(
+                vehicle.parking_space().map(|stable_id| stable_id.0),
+                captured
+                    .parking_space
+                    .map(|stable_id| *stable_id.as_bytes())
+            );
+        }
+        assert_eq!(vehicles.get(0).status(), wire::VehicleStatusKind::Parked);
+        assert_eq!(vehicles.get(1).status(), wire::VehicleStatusKind::Active);
+        assert_eq!(
+            snapshot.live_order(),
+            root.live_order().iter().collect::<Vec<_>>().as_slice()
+        );
+        assert_eq!(
+            world.vehicle(active_vehicle).expect("active").status(),
+            VehicleStatus::Active
+        );
+    }
+
+    #[test]
+    fn encode_lfrs_keeps_required_empty_state_vectors() {
+        let root_revision = crate::cutover::tests::transaction_tests::revision(true);
+        let origin = *root_revision.canonical_origin();
+        let world = TrafficWorld::install(
+            root_revision,
+            WorldConfig::new(8, 4, 1_024, 1, 100),
+            crate::cutover::tests::transaction_tests::source_for(
+                origin,
+                "fixture://empty-snapshot",
+            ),
+            9,
+        )
+        .expect("install");
+        let bytes = encode_lfrs(&world.capture_snapshot());
+        let root = wire::size_prefixed_root_as_runtime_snapshot(&bytes).expect("verified LFRS");
+        assert!(root.routes().is_empty());
+        assert!(root.vehicles().is_empty());
+        assert!(root.live_order().is_empty());
     }
 
     fn spawn_on(

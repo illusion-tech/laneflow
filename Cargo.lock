@@ -2886,6 +2886,7 @@ dependencies = [
  "laneflow-compiler",
  "laneflow-corridor-generator",
  "laneflow-format",
+ "laneflow-runtime-snapshot-wire",
  "laneflow-scenario",
  "laneflow-spatial",
  "laneflow-static-contract",

@@ -7,6 +7,11 @@ clean regeneration 由
 `cargo +1.98.0 run --locked -p xtask -- check-runtime-snapshot-codegen --flatc <flatc>`
 校验（固定 flatc 25.12.19）。
 
+生产 writer 位于 `laneflow-runtime::encode_lfrs`：先由
+`TrafficWorld::capture_snapshot` 在固定步进安全边界捕获不可变逻辑状态，再离线编码；
+writer 不回读活动 world、不推进命令游标，并逐字段写入完整 `WorldConfig`（包括
+`route_edge_occurrence_capacity`）、LFCA origin、已提交来源、路线/车辆表与 live 顺序。
+
 本 schema 只冻结 wire shape。局部标识唯一性、引用闭包、排列精确性、停车绑定
 一致性、值与时钟不变量、禁绑字段与版本轴核对由 Runtime 语义 lowering 执行
 （`Unspecified = 0` 枚举值与未知枚举值在 lowering 拒绝，不在 verifier 层）。

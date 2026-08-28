@@ -102,6 +102,9 @@ schema 位于 `schemas/runtime-snapshot/v1`，生成物隔离于私有 wire pack
 `laneflow-road-editing-wire` 先例）。读取 verifier-first：语义 lowering 前完成
 长度、基数与版本预检。发布链的自定义规范制品仍只有 LFCA / LFSM / LFSD / LFCP；
 快照不是发布对象，不要求跨实现字节规范序，只要求逻辑确定性（§6）。
+G2 writer 入口为 `encode_lfrs(&CapturedSnapshot)`：它只读边界捕获，不回读活动
+world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空表也编码为
+存在的空 vector。
 
 ## 5. 保存与恢复
 
