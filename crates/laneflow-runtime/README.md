@@ -20,7 +20,8 @@ dirty journal 或后台任务，观测 session/基线也不进入 Runtime Snapsh
 
 Runtime Snapshot 以 `capture_snapshot` 在固定步进边界冻结不可变逻辑状态，再由
 `encode_lfrs` 离线编码。`restore_lfrs` 先核对 framing / file identifier / verifier
-预算，再执行版本、来源、配置、标识、引用、排列、停车和值不变量 lowering；所有路线
+预算，再执行版本、v1 table 未知字段槽、来源、配置、标识、引用、排列、停车和值
+不变量 lowering；所有路线
 经 `register_admitted_route`，所有车辆/停车经共同运行时不变量入口在局部 world 中
 重建，完全成功后才返回 `RestoredSnapshot` 及局部 ID 到新句柄映射。
 `deterministic_state_digest` 按逻辑路线/车辆内容规范化，不依赖 LFRS 字节、进程句柄、

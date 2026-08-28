@@ -20,6 +20,19 @@ const MIN_SIZE_PREFIXED_LFRS_BYTES: usize = 12;
 const MAX_SCHEMA_TABLE_DEPTH: usize = 4;
 const APPARENT_SIZE_MULTIPLIER: usize = 16;
 const MICROMETRES_PER_MILLIMETRE: u16 = 1_000;
+const ROOT_V1_FIELDS: usize = vtable_field_count(wire::RuntimeSnapshot::VT_LIVE_ORDER);
+const WORLD_CONFIG_V1_FIELDS: usize =
+    vtable_field_count(wire::WorldConfigBinding::VT_FIXED_DELTA_TIME_MS);
+const PUBLISHED_SOURCE_V1_FIELDS: usize =
+    vtable_field_count(wire::PublishedSourceBinding::VT_NETWORK_REVISION);
+const ROUTE_V1_FIELDS: usize = vtable_field_count(wire::SnapshotRoute::VT_EDGES);
+const VEHICLE_V1_FIELDS: usize = vtable_field_count(wire::SnapshotVehicle::VT_PARKING_SPACE);
+
+const fn vtable_field_count(
+    last_field: laneflow_runtime_snapshot_wire::runtime::VOffsetT,
+) -> usize {
+    (last_field as usize - 4) / 2 + 1
+}
 
 /// 快照读取的调用方硬上限维度。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -109,6 +122,16 @@ pub enum SnapshotRestoreError {
     UnsupportedRuntimeStateVersion {
         /// 实际版本。
         actual: u16,
+    },
+    /// v1 table 出现 schema 未登记的字段槽；这类字段可能携带禁绑状态。
+    #[error("LFRS v1 table {table} 含未知字段槽: supported={supported}, actual={actual}")]
+    UnknownTableFields {
+        /// table 名。
+        table: &'static str,
+        /// v1 登记字段数。
+        supported: usize,
+        /// wire vtable 声明字段数。
+        actual: usize,
     },
     /// v1 event cursor 必须为零。
     #[error("v1 event cursor 必须为零: {actual}")]
@@ -544,6 +567,7 @@ fn validate_bindings(
             actual: root.runtime_state_version(),
         });
     }
+    validate_closed_v1_tables(root)?;
     if root.event_cursor() != 0 {
         return Err(SnapshotRestoreError::EventCursorNonZero {
             actual: root.event_cursor(),
@@ -688,6 +712,45 @@ fn validate_bindings(
         snapshot_config.route_edge_occurrence_capacity(),
         target_config.route_edge_occurrence_capacity(),
     )?;
+    Ok(())
+}
+
+fn validate_closed_v1_tables(root: wire::RuntimeSnapshot<'_>) -> Result<(), SnapshotRestoreError> {
+    validate_table_field_count("RuntimeSnapshot", root._tab, ROOT_V1_FIELDS)?;
+    validate_table_field_count(
+        "WorldConfigBinding",
+        root.world_config()._tab,
+        WORLD_CONFIG_V1_FIELDS,
+    )?;
+    if let Some(published) = root.source_published() {
+        validate_table_field_count(
+            "PublishedSourceBinding",
+            published._tab,
+            PUBLISHED_SOURCE_V1_FIELDS,
+        )?;
+    }
+    for route in root.routes() {
+        validate_table_field_count("SnapshotRoute", route._tab, ROUTE_V1_FIELDS)?;
+    }
+    for vehicle in root.vehicles() {
+        validate_table_field_count("SnapshotVehicle", vehicle._tab, VEHICLE_V1_FIELDS)?;
+    }
+    Ok(())
+}
+
+fn validate_table_field_count(
+    table_name: &'static str,
+    table: laneflow_runtime_snapshot_wire::runtime::Table<'_>,
+    supported: usize,
+) -> Result<(), SnapshotRestoreError> {
+    let actual = table.vtable().num_fields();
+    if actual > supported {
+        return Err(SnapshotRestoreError::UnknownTableFields {
+            table: table_name,
+            supported,
+            actual,
+        });
+    }
     Ok(())
 }
 
@@ -1067,6 +1130,29 @@ mod tests {
             SnapshotRestoreError::FileIdentifierMismatch
         );
 
+        let valid = encode_lfrs(&world.capture_snapshot());
+        let asset_key_len = {
+            let root = wire::size_prefixed_root_as_runtime_snapshot(&valid).expect("valid LFRS");
+            u64::try_from(
+                root.source_published()
+                    .expect("published")
+                    .asset_key()
+                    .len(),
+            )
+            .expect("asset key length")
+        };
+        assert_eq!(
+            restore_lfrs(
+                &valid,
+                world.revision(),
+                world.committed_source().clone(),
+                world.config(),
+                SnapshotRestoreLimits::new(u64::try_from(valid.len()).expect("wire length"), 0),
+            )
+            .unwrap_err(),
+            limit_error(SnapshotLimitDimension::AssetKeyBytes, 0, asset_key_len)
+        );
+
         let mut structurally_invalid = encode_lfrs(&world.capture_snapshot());
         structurally_invalid[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
         assert_eq!(
@@ -1156,6 +1242,201 @@ mod tests {
             ),
             Err(SnapshotRestoreError::DuplicateVehicleId { .. })
         ));
+    }
+
+    #[test]
+    fn config_axes_and_republished_source_follow_restore_contract() {
+        let (world, _, _) = world_with_vehicle(true);
+        let revision = world.revision();
+        let source = world.committed_source().clone();
+        let config = world.config();
+        let bytes = encode_lfrs(&world.capture_snapshot());
+
+        let different_dt = WorldConfig::new(
+            config.vehicle_capacity(),
+            config.route_capacity(),
+            config.route_edge_occurrence_capacity(),
+            config.worker_count(),
+            config.fixed_delta_time_ms() + 1,
+        );
+        assert_eq!(
+            restore_lfrs(
+                &bytes,
+                Arc::clone(&revision),
+                source.clone(),
+                different_dt,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::FixedDeltaTimeMismatch {
+                snapshot: config.fixed_delta_time_ms(),
+                target: config.fixed_delta_time_ms() + 1,
+            }
+        );
+
+        let smaller_routes = WorldConfig::new(
+            config.vehicle_capacity(),
+            config.route_capacity() - 1,
+            config.route_edge_occurrence_capacity(),
+            config.worker_count(),
+            config.fixed_delta_time_ms(),
+        );
+        assert_eq!(
+            restore_lfrs(
+                &bytes,
+                Arc::clone(&revision),
+                source.clone(),
+                smaller_routes,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::TargetCapacitySmaller {
+                dimension: SnapshotLimitDimension::Routes,
+                snapshot: u64::from(config.route_capacity()),
+                target: u64::from(config.route_capacity() - 1),
+            }
+        );
+
+        let smaller_occurrences = WorldConfig::new(
+            config.vehicle_capacity(),
+            config.route_capacity(),
+            config.route_edge_occurrence_capacity() - 1,
+            config.worker_count(),
+            config.fixed_delta_time_ms(),
+        );
+        assert_eq!(
+            restore_lfrs(
+                &bytes,
+                Arc::clone(&revision),
+                source.clone(),
+                smaller_occurrences,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::TargetCapacitySmaller {
+                dimension: SnapshotLimitDimension::RouteEdgeOccurrences,
+                snapshot: config.route_edge_occurrence_capacity(),
+                target: config.route_edge_occurrence_capacity() - 1,
+            }
+        );
+
+        let larger = WorldConfig::new(
+            config.vehicle_capacity() + 1,
+            config.route_capacity() + 1,
+            config.route_edge_occurrence_capacity() + 1,
+            config.worker_count(),
+            config.fixed_delta_time_ms(),
+        );
+        let restored = restore_lfrs(
+            &bytes,
+            Arc::clone(&revision),
+            source.clone(),
+            larger,
+            generous_limits(),
+        )
+        .expect("semantic capacities may grow");
+        assert_eq!(restored.world().config(), larger);
+        drop(restored);
+
+        let mut saved_with_other_worker = world.capture_snapshot();
+        saved_with_other_worker.config = WorldConfig::new(
+            config.vehicle_capacity(),
+            config.route_capacity(),
+            config.route_edge_occurrence_capacity(),
+            99,
+            config.fixed_delta_time_ms(),
+        );
+        let restored = restore_lfrs(
+            &encode_lfrs(&saved_with_other_worker),
+            Arc::clone(&revision),
+            source.clone(),
+            config,
+            generous_limits(),
+        )
+        .expect("saved worker plan is ignored and rebuilt from target config");
+        assert_eq!(
+            restored.world().config().worker_count(),
+            config.worker_count()
+        );
+        drop(restored);
+
+        let republished = CommittedNetworkSource::Published {
+            reference: crate::PublishedLfcaReference::new(
+                "asset://same-revision-republished",
+                laneflow_static_contract::Sha256Digest::from_bytes([0xa5; 32]),
+                laneflow_static_contract::ExactByteLength::new(777),
+                revision.network_revision(),
+            )
+            .expect("republished source"),
+        };
+        assert_ne!(republished, source);
+        let restored = restore_lfrs(
+            &bytes,
+            revision,
+            republished.clone(),
+            config,
+            generous_limits(),
+        )
+        .expect("same semantic revision permits republished exact bytes");
+        assert_eq!(restored.world().committed_source(), &republished);
+    }
+
+    #[test]
+    fn occurrence_capacity_max_and_max_plus_one_fail_atomically() {
+        let (world, _, _) = world_with_vehicle(true);
+        let revision = world.revision();
+        let source = world.committed_source().clone();
+        let mut at_max = world.capture_snapshot();
+        let occurrence_count = at_max
+            .routes
+            .iter()
+            .map(|route| u64::try_from(route.edges.len()).expect("edge count"))
+            .sum::<u64>();
+        at_max.config = WorldConfig::new(
+            at_max.config.vehicle_capacity(),
+            at_max.config.route_capacity(),
+            occurrence_count,
+            at_max.config.worker_count(),
+            at_max.config.fixed_delta_time_ms(),
+        );
+        let exact_config = at_max.config;
+        let restored = restore_lfrs(
+            &encode_lfrs(&at_max),
+            Arc::clone(&revision),
+            source.clone(),
+            exact_config,
+            generous_limits(),
+        )
+        .expect("occurrence total exactly at max");
+        assert_eq!(
+            restored
+                .world()
+                .capture_snapshot()
+                .routes()
+                .iter()
+                .map(|route| u64::try_from(route.edges().len()).expect("edge count"))
+                .sum::<u64>(),
+            occurrence_count
+        );
+
+        let mut max_plus_one = at_max;
+        let extra_edge = max_plus_one.routes[0].edges[0];
+        max_plus_one.routes[0].edges.push(extra_edge);
+        assert_eq!(
+            restore_lfrs(
+                &encode_lfrs(&max_plus_one),
+                revision,
+                source,
+                exact_config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            limit_error(
+                SnapshotLimitDimension::RouteEdgeOccurrences,
+                occurrence_count,
+                occurrence_count + 1,
+            )
+        );
     }
 
     #[test]
@@ -1281,6 +1562,117 @@ mod tests {
         let config = world.config();
         let valid = encode_lfrs(&world.capture_snapshot());
 
+        let mut unknown_format = valid.clone();
+        let format_offset = {
+            let root = wire::size_prefixed_root_as_runtime_snapshot(&unknown_format)
+                .expect("verified LFRS");
+            table_field_offset(root._tab, wire::RuntimeSnapshot::VT_FORMAT_VERSION)
+        };
+        unknown_format[format_offset..format_offset + 4].copy_from_slice(&2_u32.to_le_bytes());
+        assert_eq!(
+            restore_lfrs(
+                &unknown_format,
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::UnsupportedFormatVersion { actual: 2 }
+        );
+
+        let mut unknown_runtime = valid.clone();
+        let runtime_offset = {
+            let root = wire::size_prefixed_root_as_runtime_snapshot(&unknown_runtime)
+                .expect("verified LFRS");
+            table_field_offset(root._tab, wire::RuntimeSnapshot::VT_RUNTIME_STATE_VERSION)
+        };
+        unknown_runtime[runtime_offset..runtime_offset + 2].copy_from_slice(&2_u16.to_le_bytes());
+        assert_eq!(
+            restore_lfrs(
+                &unknown_runtime,
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::UnsupportedRuntimeStateVersion { actual: 2 }
+        );
+
+        let mut unknown_fields = valid.clone();
+        append_zero_root_vtable_field(&mut unknown_fields);
+        assert_eq!(
+            restore_lfrs(
+                &unknown_fields,
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::UnknownTableFields {
+                table: "RuntimeSnapshot",
+                supported: ROOT_V1_FIELDS,
+                actual: ROOT_V1_FIELDS + 4,
+            }
+        );
+
+        let mut missing_published = valid.clone();
+        clear_root_table_field(
+            &mut missing_published,
+            wire::RuntimeSnapshot::VT_SOURCE_PUBLISHED,
+        );
+        assert_eq!(
+            restore_lfrs(
+                &missing_published,
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::MissingField {
+                field: "source_published",
+            }
+        );
+
+        let mut missing_required_routes = valid.clone();
+        clear_root_table_field(
+            &mut missing_required_routes,
+            wire::RuntimeSnapshot::VT_ROUTES,
+        );
+        assert_eq!(
+            restore_lfrs(
+                &missing_required_routes,
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::InvalidFlatbuffer
+        );
+
+        let mut unknown_source = valid.clone();
+        let source_kind_offset = {
+            let root = wire::size_prefixed_root_as_runtime_snapshot(&unknown_source)
+                .expect("verified LFRS");
+            table_field_offset(root._tab, wire::RuntimeSnapshot::VT_SOURCE_KIND)
+        };
+        unknown_source[source_kind_offset] = 0xff;
+        assert_eq!(
+            restore_lfrs(
+                &unknown_source,
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            )
+            .unwrap_err(),
+            SnapshotRestoreError::UnsupportedSourceKind { actual: 0xff }
+        );
+
         let mut unknown_status = valid.clone();
         let status_offset = {
             let root = wire::size_prefixed_root_as_runtime_snapshot(&unknown_status)
@@ -1387,6 +1779,71 @@ mod tests {
         let relative = usize::from(table.vtable().get(field));
         assert_ne!(relative, 0, "fixture field must be present");
         table.loc() + relative
+    }
+
+    fn root_vtable_start(bytes: &[u8]) -> usize {
+        let root = wire::size_prefixed_root_as_runtime_snapshot(bytes).expect("verified LFRS");
+        let table = root._tab.loc();
+        let backwards = i32::from_le_bytes(
+            bytes[table..table + 4]
+                .try_into()
+                .expect("root table vtable offset"),
+        );
+        assert!(backwards > 0);
+        table - usize::try_from(backwards).expect("positive vtable offset")
+    }
+
+    fn clear_root_table_field(
+        bytes: &mut [u8],
+        field: laneflow_runtime_snapshot_wire::runtime::VOffsetT,
+    ) {
+        let vtable = root_vtable_start(bytes);
+        let entry = vtable + usize::from(field);
+        bytes[entry..entry + 2].copy_from_slice(&0_u16.to_le_bytes());
+    }
+
+    fn append_zero_root_vtable_field(bytes: &mut Vec<u8>) {
+        let (vtable, table, backwards) = {
+            let root = wire::size_prefixed_root_as_runtime_snapshot(bytes).expect("verified LFRS");
+            let table = root._tab.loc();
+            let backwards = i32::from_le_bytes(
+                bytes[table..table + 4]
+                    .try_into()
+                    .expect("root table vtable offset"),
+            );
+            (root_vtable_start(bytes), table, backwards)
+        };
+        let current_bytes = u16::from_le_bytes(
+            bytes[vtable..vtable + 2]
+                .try_into()
+                .expect("vtable byte length"),
+        );
+        let extended_bytes = current_bytes
+            .checked_add(8)
+            .expect("four extra fields preserve root table alignment");
+        let extra = vtable + usize::from(current_bytes);
+        bytes.splice(extra..extra, [0_u8; 8]);
+        let declared = u32::from_le_bytes(bytes[..4].try_into().expect("size prefix"));
+        bytes[..4].copy_from_slice(
+            &declared
+                .checked_add(8)
+                .expect("extended size prefix")
+                .to_le_bytes(),
+        );
+        let root_offset = u32::from_le_bytes(bytes[4..8].try_into().expect("root offset"));
+        bytes[4..8].copy_from_slice(
+            &root_offset
+                .checked_add(8)
+                .expect("shifted root offset")
+                .to_le_bytes(),
+        );
+        bytes[table + 8..table + 12].copy_from_slice(
+            &backwards
+                .checked_add(8)
+                .expect("shifted vtable offset")
+                .to_le_bytes(),
+        );
+        bytes[vtable..vtable + 2].copy_from_slice(&extended_bytes.to_le_bytes());
     }
 
     #[test]
