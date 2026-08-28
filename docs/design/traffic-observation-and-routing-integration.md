@@ -183,6 +183,47 @@ session，不能共享并竞争一个隐式全局游标。
 | `entryCount`                                             | Routing 接收并验证的精确成本条目数                                                                                  |
 | `exactByteLength` / `snapshotSha256`                     | 宿主成本 payload 的精确字节数；摘要以域分隔版本前缀覆盖除自身外的上述绑定字段及 exact payload                       |
 
+G2 将宿主不透明成本模型键落定为
+`CostModelKey { modelId: Sha256Digest, modelVersion: u32 }`；`modelId` 是宿主所选模型
+身份的定长摘要值，不证明算法来源或可信性。形成成本前，宿主通过
+`bind_observation_set` 把一个或多个实际成功的观测批次降低为字段私有的
+`ObservationSetBinding`。该入口逐项拒绝不同 stream、修订/派生版本、tick 或状态序号，
+再按 `(worldId, worldGeneration, deliverySequence, selectionDigest)` 升序规范化；完全相同
+的输入绑定重复出现也拒绝。`observationSetDigest` 的精确输入为：
+
+```text
+"laneflow:runtime-observation-set:v1\0"
+|| inputCount:u64-le
+|| repeated(
+     worldId:u64-le
+     || worldGeneration:u64-le
+     || deliverySequence:u64-le
+     || selectionDigest:32 raw bytes
+   )
+```
+
+`snapshotSha256` 的 G2 精确输入为：
+
+```text
+"laneflow:dynamic-cost-snapshot:v1\0"
+|| bindingVersion:u16-le
+|| worldId:u64-le
+|| worldGeneration:u64-le
+|| networkRevisionId:32 raw bytes
+|| networkRevisionDerivationVersion:u16-le
+|| observationTick:u64-le
+|| observationStateSequence:u64-le
+|| observationSetDigest:32 raw bytes
+|| costModelId:32 raw bytes
+|| costModelVersion:u32-le
+|| validThroughTick:u64-le
+|| entryCount:u64-le
+|| exactByteLength:u64-le
+|| exact payload bytes
+```
+
+这些摘要规则是同进程 contract 的规范输入，不新增 LaneFlow wire 或发布格式。
+
 过期策略只使用 fixed tick：候选在 `currentTick < observationTick` 时是“来自未来”，
 在 `currentTick > validThroughTick` 时过期；两者都失败关闭。在同一活动世界世代/
 观测 stream 内，无论两个 tick 是否相等，只要当前 `observationStateSequence <` 绑定值，
@@ -211,13 +252,17 @@ struct CandidateRouteInput {
 
 TrafficWorld::open_routing_admission(
     cost_model: CostModelKey,
-) -> Result<RoutingAdmissionSession, CandidateRouteError>;
+) -> RoutingAdmissionSession;
 
 TrafficWorld::register_candidate_route(
     admission: &RoutingAdmissionSession,
     input: CandidateRouteInput,
 ) -> Result<RouteHandle, CandidateRouteError>;
 ```
+
+G2 将 `open_routing_admission` 落为不可失败：它只复制当前世界/世代/修订与定长模型键，
+不分配、不解析，也不在 Runtime 留隐式 session 状态；为不存在的失败原因保留 `Result`
+只会形成空壳错误合同。
 
 `RoutingAdmissionSession` 是 Runtime 签发、调用方持有的不可伪造能力，绑定当前
 世界身份/世代、修订和调用方显式选择的 `(costModelId, costModelVersion)`；它不保存成本
@@ -310,6 +355,12 @@ occurrence 超过恢复配置则整次恢复失败关闭。
   不重新执行 Routing，也不把已 stale 的成本绑定伪重绑到新世代。跨修订恢复若命令
   绑定与当前根不同，只能经 #302 受信任迁移策略显式迁移稳定引用，否则失败关闭。
 
+  G2 的 Runtime 实现接缝是
+  `register_admitted_route(AdmittedRouteRegisterInput) -> Result<RouteHandle, ...>`：输入只含
+  `networkRevisionId/networkRevisionDerivationVersion` 和有序 LaneEdge `StableId128`；宿主
+  耐久路线 ID 留在宿主命令序列，并用返回的新句柄回映。该同进程 Rust 输入没有独立
+  wire/version 轴；若宿主持久化命令，由宿主拥有其容器版本。
+
 ## 6. Adapter、Spatial 与 scenario 影响
 
 - `laneflow-spatial` 不依赖观测或 Routing 类型；`committed_pose_sources()` 也不升级
@@ -373,9 +424,22 @@ G2 已按 §2 落定完整/增量/分区观测实现：
 G2 也已按 §4.1 落定 `route_edge_occurrence_capacity` 的公开配置、计数器与错误拼写，
 并复用 #302 的字段私有 `WorldGeneration(u64)`：安装初值 `0`，成功切换 checked
 递增并与 root 同界提交，失败/耗尽不变；`WorldBinding` 同时校验世界身份与该世代，
-旧描述符即使 origin 相同也会 stale。恢复核对随 #302 快照实现接入。后续 G2 继续
-落定并回写：规范化已准入路线注册命令的实现接缝、
-`exactByteLength` 度量函数、接收上限配置值与首轮 P100 描述性结果。若实现证明必须
+旧描述符即使 origin 相同也会 stale。恢复核对随 #302 快照实现接入。
+
+G2 已进一步落定 `ObservationSetBinding`、`DynamicCostSnapshotBinding`、字段私有的
+`RoutingAdmissionSession`、`CandidateRouteInput` 与规范化
+`AdmittedRouteRegisterInput`；candidate/replay 都先把稳定标识解析为当前根 ordinal，
+最终仍调用唯一 `register_route_edges`，不复制路线编译器。`open_routing_admission`
+因无失败原因按事实落为无分配、不可失败入口；candidate/admitted Rust 输入也不新增
+无事实依据的独立版本轴。
+
+仅用于 contract/performance 的成本 receiver fixture 以
+`u64::try_from(payload.len())` 度量 `exactByteLength`，并由调用方显式提供
+`maxEntryCount/maxExactByteLength`；它在解析、分配和哈希前先拒绝 bytes/count 上限，
+随后验证实际固定宽度 fixture 条目数与 §3 摘要。该配置是宿主 receiver provenance，
+不进入 `WorldConfig`，也不是 LaneFlow 产品默认成本格式。后续 G2 仍需登记具名 Routing
+P100 工作负载的 receiver 配置值与首轮描述性结果，并与 #512 的真实 restore/replay
+消费一起闭合。若实现证明必须
 新增跨进程 wire、`laneflow-routing` 算法 crate、tick 维护 journal、持久化成本
 provenance，或无法复用唯一 route 编译器，必须停止并返回 G1。上述清单不穷尽返回
 条件：即使未命中枚举，只要实现、实测或真实产品约束证明权威边界、字段、格式选择、
@@ -384,10 +448,8 @@ provenance，或无法复用唯一 route 编译器，必须停止并返回 G1。
 #303 不另发明世界身份/世代：观测与 Routing token 必须直接复用上述
 `TrafficWorld` / `worldBinding` 的唯一身份、世代字段和失效点，但不把命令/事件
 游标复制进 Routing 绑定。
-G2 同时交付仅用于
-contract test/性能证据的最小成本 receiver fixture，
-让宿主实现验证 length/count/digest 和上限矩阵；该 fixture 不成为 Routing 产品或算法
-API。
+G2 同时交付的最小成本 receiver fixture 仅存在于 `#[cfg(test)]`，让宿主实现验证
+length/count/digest 和上限矩阵；该 fixture 不成为 Routing 产品或算法 API。
 
 自动化 contract tests 除 §7 矩阵外至少覆盖：full 首批约束；delta 缺批/重排/重复/
 跨 selection 拒绝；全零清除；导出失败 session 不前移；同 tick 生命周期提交推进
