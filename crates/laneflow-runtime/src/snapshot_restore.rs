@@ -1489,6 +1489,102 @@ mod tests {
     }
 
     #[test]
+    fn dangling_references_and_live_order_gaps_fail_closed() {
+        let (world, _route, _first) = world_with_vehicle(true);
+        let revision = world.revision();
+        let source = world.committed_source().clone();
+        let config = world.config();
+
+        // 悬空路线引用：车辆指向不存在的局部路线 ID（合同 §5「悬空引用」）。
+        let mut dangling_route = world.capture_snapshot();
+        dangling_route.vehicles[0].snapshot_route_id =
+            dangling_route.routes[0].snapshot_route_id + 99;
+        assert!(matches!(
+            restore_lfrs(
+                &encode_lfrs(&dangling_route),
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            ),
+            Err(SnapshotRestoreError::UnknownRouteReference { .. })
+        ));
+
+        // live 序含未知车辆：非零但不指向任何快照车辆。
+        let mut unknown_live = world.capture_snapshot();
+        unknown_live.live_order[0] = 99;
+        assert!(matches!(
+            restore_lfrs(
+                &encode_lfrs(&unknown_live),
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            ),
+            Err(SnapshotRestoreError::UnknownLiveOrderVehicle { .. })
+        ));
+
+        // live 序缺项：长度小于活跃车辆数（合同 §5「精确排列」）。
+        let mut incomplete_live = world.capture_snapshot();
+        incomplete_live.live_order.pop();
+        assert!(matches!(
+            restore_lfrs(
+                &encode_lfrs(&incomplete_live),
+                Arc::clone(&revision),
+                source,
+                config,
+                generous_limits(),
+            ),
+            Err(SnapshotRestoreError::IncompleteLiveOrder { .. })
+        ));
+    }
+
+    #[test]
+    fn unknown_parking_space_and_participant_class_fail_closed() {
+        let (mut world, _, first) = world_with_vehicle(true);
+        world
+            .occupy_parking(
+                first,
+                laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
+            )
+            .expect("park first");
+        let revision = world.revision();
+        let source = world.committed_source().clone();
+        let config = world.config();
+
+        // 未知停车位稳定标识：绑定一致（Parked + Some）但 ID 不解析。
+        let mut unknown_space = world.capture_snapshot();
+        unknown_space.vehicles[0].parking_space = Some(
+            laneflow_static_contract::StableId128::from_bytes([0xAB; 16]),
+        );
+        assert!(matches!(
+            restore_lfrs(
+                &encode_lfrs(&unknown_space),
+                Arc::clone(&revision),
+                source.clone(),
+                config,
+                generous_limits(),
+            ),
+            Err(SnapshotRestoreError::UnknownParkingSpace { .. })
+        ));
+
+        // 未知参与者类别稳定标识：profile 可解析、class 不解析。
+        let mut unknown_class = world.capture_snapshot();
+        unknown_class.vehicles[0].class =
+            laneflow_static_contract::StableId128::from_bytes([0xCD; 16]);
+        assert!(matches!(
+            restore_lfrs(
+                &encode_lfrs(&unknown_class),
+                revision,
+                source,
+                config,
+                generous_limits(),
+            ),
+            Err(SnapshotRestoreError::UnknownParticipantClass { .. })
+        ));
+    }
+
+    #[test]
     fn vehicle_identity_value_and_overlap_invariants_fail_closed() {
         let (world, _, _) = world_with_vehicle(true);
         let revision = world.revision();

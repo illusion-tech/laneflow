@@ -9,8 +9,9 @@ use std::{collections::BTreeMap, sync::Arc};
 use laneflow_format::{FormatLimits, check_canonical_network_input};
 use laneflow_runtime::{
     AdmittedRouteRegisterInput, CommittedNetworkSource, PublishedLfcaReference, RestoredSnapshot,
-    RouteHandle, RouteRegisterInput, SnapshotRestoreLimits, TickInput, TrafficWorld, VehicleHandle,
-    VehicleSpawnInput, WorldConfig, deterministic_state_digest, encode_lfrs, restore_lfrs,
+    RouteError, RouteHandle, RouteRegisterInput, SnapshotRestoreLimits, TickInput, TrafficWorld,
+    VehicleHandle, VehicleSpawnInput, WorldConfig, deterministic_state_digest, encode_lfrs,
+    restore_lfrs,
 };
 use laneflow_static_contract::{
     LaneEdgeOrdinal, ParkingSpaceId, ParkingSpaceOrdinal, Sha256Digest, VehicleProfileId,
@@ -198,6 +199,74 @@ fn first_divergence_interval(
                 (expected_point.command_cursor, expected_point.tick),
             )
         })
+}
+
+#[test]
+fn replay_divergence_under_capacity_mismatch_is_a_desync_signal() {
+    let mut original = world();
+    let edges = fixture_edges(&original);
+    // 填满原配置路线容量（4/4）并放一辆检查点车辆。
+    let mut routes = Vec::new();
+    for _ in 0..4 {
+        routes.push(
+            original
+                .register_route(RouteRegisterInput::new(edges.clone()))
+                .expect("route within original capacity"),
+        );
+    }
+    original
+        .spawn_vehicle(VehicleSpawnInput::new(
+            VehicleProfileOrdinal::from_raw(0),
+            routes[0],
+            0,
+            0,
+            0,
+        ))
+        .expect("checkpoint vehicle");
+    let checkpoint = original.capture_snapshot();
+    let checkpoint_point = ReplayPoint {
+        command_cursor: checkpoint.command_cursor(),
+        tick: checkpoint.tick(),
+        digest: deterministic_state_digest(&checkpoint),
+    };
+    let cursor = checkpoint.command_cursor();
+    let bytes = encode_lfrs(&checkpoint);
+
+    // 宿主按 §2 判据以放大语义容量恢复（只许放大，允许；dt/occurrence 不变）。
+    let restored = restore_lfrs(
+        &bytes,
+        original.revision(),
+        original.committed_source().clone(),
+        WorldConfig::new(8, 8, 1_024, 1, 100),
+        SnapshotRestoreLimits::new(16 * 1_024 * 1_024, 4 * 1_024),
+    )
+    .expect("restore with enlarged route capacity");
+    let mut replayed = restored.into_world();
+
+    // 同一条注册命令：原世界容量已满被拒（命令未应用、游标不动），
+    // 放大配置的重放世界成功（游标推进）。§2：容量差异改变重放中生命
+    // 周期命令的成败，分歧按失同步信号处理，不判为实现缺陷、不冒充
+    // exact replay。
+    let rejected = original.register_route(RouteRegisterInput::new(edges.clone()));
+    assert!(matches!(rejected, Err(RouteError::CapacityExceeded)));
+    let expected = vec![capture_point(&original)];
+
+    replayed
+        .register_route(RouteRegisterInput::new(edges))
+        .expect("enlarged capacity accepts the same command");
+    let actual = vec![capture_point(&replayed)];
+
+    assert_eq!(original.command_cursor(), cursor);
+    assert_eq!(replayed.command_cursor(), cursor + 1);
+    // 首个分歧区间锚定在检查点（最后一个相等点），分歧点即容量边界
+    // 命令之后的对拍点（期望侧命令未应用，游标停在检查点值）。
+    assert_eq!(
+        first_divergence_interval(checkpoint_point, &expected, &actual),
+        Some((
+            (cursor, checkpoint_point.tick),
+            (cursor, checkpoint_point.tick)
+        ))
+    );
 }
 
 #[test]
