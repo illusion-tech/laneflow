@@ -91,6 +91,9 @@ pub enum RouteError {
     /// 路线编译所需缓冲无法预留。
     #[error("路线编译缓冲分配失败")]
     AllocationFailed,
+    /// 本次成功路线命令本应推进输入命令游标，但游标已耗尽。
+    #[error("输入命令游标已耗尽")]
+    CommandCursorExhausted,
     /// 句柄不是本世界有效路线。
     #[error("路线句柄无效或已失效")]
     StaleHandle,
@@ -140,6 +143,9 @@ pub enum SpawnError {
     /// 本次成功生成本应推进观测状态序号，但序号已耗尽。
     #[error("观测状态序号已耗尽")]
     ObservationStateSequenceExhausted,
+    /// 本次成功生成本应推进输入命令游标，但游标已耗尽。
+    #[error("输入命令游标已耗尽")]
+    CommandCursorExhausted,
 }
 
 /// `replace_completed_vehicle` 失败。预检失败时已提交世界不变。
@@ -181,6 +187,9 @@ pub enum ReplaceError {
     /// 本次成功替换本应推进观测状态序号，但序号已耗尽。
     #[error("观测状态序号已耗尽")]
     ObservationStateSequenceExhausted,
+    /// 本次成功替换本应推进输入命令游标，但游标已耗尽。
+    #[error("输入命令游标已耗尽")]
+    CommandCursorExhausted,
 }
 
 /// `occupy_parking` 失败。
@@ -201,4 +210,7 @@ pub enum ParkingError {
     /// 本次成功停车本应推进观测状态序号，但序号已耗尽。
     #[error("观测状态序号已耗尽")]
     ObservationStateSequenceExhausted,
+    /// 本次成功停车命令本应推进输入命令游标，但游标已耗尽。
+    #[error("输入命令游标已耗尽")]
+    CommandCursorExhausted,
 }
