@@ -13,7 +13,7 @@ use thiserror::Error;
 use crate::source::CommittedNetworkSource;
 use crate::tables::CompiledRoute;
 use crate::tables::compile_route;
-use crate::{RouteError, StepError, TrafficWorld, WorldGeneration};
+use crate::{ObservationStateSequence, RouteError, StepError, TrafficWorld, WorldGeneration};
 
 /// 描述符封闭契约版本（#302 切换合同 §2）。
 pub const CUTOVER_DESCRIPTOR_FORMAT_VERSION: u16 = 1;
@@ -534,6 +534,7 @@ impl TrafficWorld {
         self.refresh_signals();
         self.occupancy = staged_occupancy;
         self.world_generation = next_world_generation;
+        self.observation_state_sequence = ObservationStateSequence::INITIAL;
         Ok(())
     }
 }

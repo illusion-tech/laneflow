@@ -53,6 +53,9 @@ pub enum StepError {
     /// `tick_index` 或 `time_ms` 的 checked 加法溢出。
     #[error("tick_index 或 time_ms 溢出")]
     Overflow,
+    /// 当前观测 stream 的状态序号无法继续递增。
+    #[error("观测状态序号已耗尽")]
+    ObservationStateSequenceExhausted,
     /// 本拍运动产生非有限速度或位移。
     #[error("步进运动非有限")]
     NonFiniteMotion,
@@ -134,6 +137,9 @@ pub enum SpawnError {
     /// 与已提交车辆车身重叠。
     #[error("spawn 与已提交车辆重叠")]
     Overlap,
+    /// 本次成功生成本应推进观测状态序号，但序号已耗尽。
+    #[error("观测状态序号已耗尽")]
+    ObservationStateSequenceExhausted,
 }
 
 /// `replace_completed_vehicle` 失败。预检失败时已提交世界不变。
@@ -172,6 +178,9 @@ pub enum ReplaceError {
     /// 入口占用/重叠；可原样重放同一 `VehicleSpawnInput`。
     #[error("入口占用阻塞")]
     Blocked(VehicleReplaceBlock),
+    /// 本次成功替换本应推进观测状态序号，但序号已耗尽。
+    #[error("观测状态序号已耗尽")]
+    ObservationStateSequenceExhausted,
 }
 
 /// `occupy_parking` 失败。
@@ -189,4 +198,7 @@ pub enum ParkingError {
     /// 目标车位已被其他车占用。
     #[error("停车位已被其他车辆占用")]
     SpaceOccupiedByOther,
+    /// 本次成功停车本应推进观测状态序号，但序号已耗尽。
+    #[error("观测状态序号已耗尽")]
+    ObservationStateSequenceExhausted,
 }

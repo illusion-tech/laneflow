@@ -160,7 +160,8 @@ Prepare → Delta Catch-up → Quiescent Commit → Retire
 #303 G1 已接受合同要求同一原子边界还包括：
 
 7. 活动世界世代递增；
-8. 观测 stream 身份轮换，并从新 stream 的初始 `observationStateSequence` 开始。
+8. 由新 `(world_id, WorldGeneration)` 自然形成新的 `ObservationStreamBinding`，并把
+   `ObservationStateSequence` 同界重置为初值 `0`；不维护第三套 stream 计数器。
 
 以上两项不能在聚合晋升前后另行修改；成功提交后调用方不可能观察到“新 root +
 旧世代/stream”或“旧 root + 新世代/stream”。放弃保持两项原值。

@@ -2890,6 +2890,7 @@ dependencies = [
  "laneflow-spatial",
  "laneflow-static-contract",
  "laneflow-static-network",
+ "sha2",
  "stats_alloc",
  "thiserror 2.0.20",
  "toml",

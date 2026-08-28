@@ -60,11 +60,11 @@ v1 选择**宿主自有 Routing 实现 + LaneFlow 纯契约边界**：
 `tick_index` 不是已提交状态的完整版本：`spawn_vehicle`、`replace_completed_vehicle`、
 `occupy_parking` 等生命周期命令可在同一 tick 内改变观测事实。因此每个活动世界还
 维护一个只在当前世界世代/观测 stream 内单调递增的
-`observationStateSequence`：成功 `step` 以及每个会改变 v1 观测行的成功生命周期
+`ObservationStateSequence(u64)` / `observationStateSequence`：成功 `step` 以及每个会改变 v1 观测行的成功生命周期
 提交各推进一次；失败、只读查询、导出和不影响 v1 行的路线表变更不推进。安装、
 恢复或成功切换建立新 stream 时从该 stream 的初始值重新开始，旧 stream 的序号
-不得跨世界世代比较。其精确整数类型和溢出错误由 G2 落定，但不得用饱和、回绕或
-仅看 tick 代替严格单调语义。
+不得跨世界世代比较。初值为 `0`，推进使用 checked `+1`；耗尽时本应改变观测行的
+命令/step 失败且已提交世界不变，不得用饱和、回绕或仅看 tick 代替严格单调语义。
 
 v1 每条物理 `LaneEdge` 行冻结为：
 
@@ -94,13 +94,16 @@ oracle 证明一致的共享聚合，但不能混用当前车辆状态与前一�
 完整基线对所选边**逐边出行，包含全零行**，按 `laneEdgeStableId` 升序规范排列。
 增量也按同序排列；值从非零变零时必须显式发全零行，不使用删除或 tombstone 语义。
 
-每批头至少携带：封闭 `bindingVersion`、#302 世界身份/世界世代、
-`NetworkRevisionId/networkRevisionDerivationVersion`、stream 身份、
-`selectionDigest`、full/delta kind、base/current delivery sequence、tick 与
+每批头至少携带：封闭 `bindingVersion`、#302 世界身份/世界世代组成的
+`ObservationStreamBinding`、
+`NetworkRevisionId/networkRevisionDerivationVersion`、`selectionDigest`、full/delta kind、
+base/current delivery sequence、tick 与
 `observationStateSequence`、精确 `entryCount`。
-批次另报告 `logicalBytes`（实际初始化的头/行存储）和 `retainedBytes`（批次拥有的实际
-容量）；两者是当前实现版本的精确资源观测，不是跨语言编码或稳定 ABI。G2 冻结计算
-函数并验证无 spare-capacity 伪报。
+批次另报告 `logicalBytes`（`size_of::<CommittedTrafficObservationBatch>() +
+rows.len() * size_of::<CommittedTrafficObservationRow>()`）和 `retainedBytes`（同式把
+`len` 换成实际 `capacity`）；session 对自身结构和 selection / ordinal map / baseline
+三组缓冲按同一规则报告。它们是当前实现版本的精确资源观测，不是跨语言编码或稳定
+ABI；所有乘加 checked，不能把 logical rows 冒充 retained capacity。
 
 ### 2.2 分区选择
 
@@ -110,7 +113,10 @@ oracle 证明一致的共享聚合，但不能混用当前车辆状态与前一�
 - 当前修订下按 `StableId128` 升序、无重复、非空的显式 LaneEdge 集合。
 
 创建导出 session 时，Runtime 用 `SharedIdentityIndex` 一次性解析并验证选择，计算带
-域分隔版本的 SHA-256 `selectionDigest`。未知标识、错误实体 kind、重复或不规范排序
+域分隔版本的 SHA-256 `selectionDigest`。G2 摘要输入精确为
+`"laneflow:runtime-observation-selection:v1\0" || entryCount:u64-le ||
+laneEdgeStableId[0..N]:raw-16-bytes`；`AllLaneEdges` 与内容完全相同的显式选择得到相同
+摘要，不把选择表达方式伪装成内容差异。未知标识、错误实体 kind、重复或不规范排序
 失败关闭，不留下 session。选择在 session 生命周期内不可变；调用方要换分区必须
 新建 session 并先取完整基线。禁止把执行计划分区编号、dense ordinal 或几何包围盒
 解释规则写进该契约。
@@ -130,10 +136,17 @@ TrafficWorld::export_observation(
 ) -> Result<CommittedTrafficObservationBatch, ObservationError>;
 ```
 
-session 是调用方持有、Runtime 签发的不可伪造能力，绑定：#302 同一世界身份/世代、当前
+session 是调用方持有、Runtime 签发且字段私有、无公共构造器的
+`ObservationExportSession`，绑定：#302 同一世界身份/世代、当前
 `NetworkRevisionId` / `networkRevisionDerivationVersion`、`selectionDigest`、观测
 stream 身份、上一成功 delivery sequence / `tick` / `observationStateSequence` 与
 上一行值。它不进入世界确定性状态。
+
+G2 不另设会与共同世代漂移的 stream 计数器：每个活动世界世代只有一个观测 stream，
+字段私有的 `ObservationStreamBinding { world_id: u64, world_generation:
+WorldGeneration }` 就是唯一 stream 身份。`ObservationExportMode::{Full, Delta}` 进入同一
+`export_observation` 入口；新 session 首次 delta、旧世代/revision session、delivery
+sequence 耗尽、聚合/资源算术溢出和分配失败全部失败关闭且不推进 session。
 
 - 新 session 第一次只允许 `Full`。成功批次 `sequence = 0`，并成为下一增量的
   精确基线；full 的 base 字段必须缺失，不用零值伪造 base。
@@ -345,12 +358,23 @@ dirty journal、墙钟任务或 allocator 活动。
 
 ## 8. G2 边界与必测义务
 
-G2 已按 §4.1 落定 `route_edge_occurrence_capacity` 的公开配置、计数器与错误拼写，
+G2 已按 §2 落定完整/增量/分区观测实现：
+
+- `ObservationStateSequence(u64)` 安装/新世代初值 `0`，成功 step 与改变 v1 行的
+  spawn/replace/park checked 递增；路线表变更、幂等停车、失败和导出不推进；
+- `ObservationStreamBinding` 直接复用世界身份/共同世界世代，不维护第三套 stream
+  状态；成功切换与世代递增同界重置状态序号，旧 session stale；
+- `AllLaneEdges` 与严格升序显式 LaneEdge 集合在 open 时一次性解析并摘要；full 含
+  全零行，delta 严格比较上一次成功基线并显式发送归零行；
+- 导出从当前 `VehicleState` / compiled route 重算前杠归属与跨边车身区间并集，不读取
+  前一拍 `OccupancyIndex`；所有输出预留可失败，任一失败不推进 session；
+- batch/session 的 logical/retained bytes 按 §2.1 的实现内布局函数精确报告。
+
+G2 也已按 §4.1 落定 `route_edge_occurrence_capacity` 的公开配置、计数器与错误拼写，
 并复用 #302 的字段私有 `WorldGeneration(u64)`：安装初值 `0`，成功切换 checked
 递增并与 root 同界提交，失败/耗尽不变；`WorldBinding` 同时校验世界身份与该世代，
 旧描述符即使 origin 相同也会 stale。恢复核对随 #302 快照实现接入。后续 G2 继续
-落定并回写：观测 stream 不可伪造 token 与 `observationStateSequence` 的精确表示、
-规范化已准入路线注册命令的实现接缝、
+落定并回写：规范化已准入路线注册命令的实现接缝、
 `exactByteLength` 度量函数、接收上限配置值与首轮 P100 描述性结果。若实现证明必须
 新增跨进程 wire、`laneflow-routing` 算法 crate、tick 维护 journal、持久化成本
 provenance，或无法复用唯一 route 编译器，必须停止并返回 G1。上述清单不穷尽返回
