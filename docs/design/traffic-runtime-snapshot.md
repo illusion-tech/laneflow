@@ -160,16 +160,20 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 - **确定性状态摘要（术语表）**：对逻辑状态按规范排序计算、与容器编码无关；
   G2 v1 算法冻结为 SHA-256，域分隔字节为
   `laneflow:runtime-state-digest:v1\0`，随后写 `u16` 摘要版本 1 与 `u16`
-  `runtime_state_version` 1；整数均小端。
+  `runtime_state_version` 1；整数均小端；摘要版本 2（v1 车辆记录内嵌所属路线
+  内容，内容相同的路线实例间车辆绑定不可区分，已废弃）。
   顶层依次写：`world_id`、语义 `NetworkRevisionId`、六轴静态契约版本、行为语义
   配置（vehicle/route/occurrence 容量与 fixed dt；不写 worker）、tick/时间/双游标；
-  再写路线内容多重集、车辆内容多重集、live 更新序列。每个集合先写 `u64` 数量，
-  每条记录写 `u64 byteLength + bytes`。路线记录 = `u64 edgeCount` + 有序边
-  `StableId128`；车辆记录 = 所属路线记录 + route index / progress / carry / speed +
-  status 封闭 `u8`（Active=1/Parked=2/Completed=3）+ profile/class `StableId128` +
-  parking presence `u8` 与可选 `StableId128`。路线/车辆多重集按完整记录字节升序；
-  live 序按运行时更新顺序写对应车辆记录。这样局部 ID、句柄与表排列变化不影响摘要，
-  但多重度和 live 顺序仍被保留。LFCA exact-byte digest/length、Published 审计来源、
+  再写路线实例分组多重集、live 更新序列。每条记录写 `u64 byteLength + bytes`，
+  每个集合先写 `u64` 数量。路线实例分组 = 路线记录 + `u64` 绑定车辆数 + 绑定
+  车辆记录多重集（按记录字节升序）。路线记录 = `u64 edgeCount` + 有序边
+  `StableId128`；车辆记录 = route index / progress / carry / speed + status 封闭
+  `u8`（Active=1/Parked=2/Completed=3）+ profile/class `StableId128` + parking
+  presence `u8` 与可选 `StableId128`——路线内容由所属分组承载，车辆记录不内嵌。
+  分组多重集按完整分组字节升序；内容相同但车辆绑定不同的路线实例因此可区分
+  （remove 语义不同），内容与绑定均相同的实例可交换（全部后续命令行为一致）。
+  live 序按运行时更新顺序写对应车辆记录。这样局部 ID、句柄与表排列变化不影响
+  摘要，但多重度、车辆-路线绑定与 live 顺序仍被保留。LFCA exact-byte digest/length、Published 审计来源、
   worker、`WorldGeneration`、观测 session 不入摘要。同一逻辑状态在任何合法容器编码
   与恢复句柄分配下摘要相等；该摘要同时是切换事务静默期复核的期望值来源（切换文档
   §3/§5）。
