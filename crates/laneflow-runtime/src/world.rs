@@ -61,6 +61,9 @@ pub struct TrafficWorld {
     pub(crate) config: WorldConfig,
     pub(crate) tick_index: u64,
     pub(crate) time_ms: u64,
+    /// 已应用输入命令计数（快照合同 §3 双游标之一；切换 `worldBinding`
+    /// 基线在事务启动时与之逐项比对）。
+    pub(crate) command_cursor: u64,
     /// 当前世界世代/观测 stream 内严格单调的已提交状态序号。
     pub(crate) observation_state_sequence: ObservationStateSequence,
     pub(crate) signal_aspects: Box<[SignalAspect]>,
@@ -131,6 +134,7 @@ impl TrafficWorld {
             config,
             tick_index: 0,
             time_ms: 0,
+            command_cursor: 0,
             observation_state_sequence: ObservationStateSequence::INITIAL,
             signal_aspects: vec![SignalAspect::Red; group_count].into_boxed_slice(),
             routes: Vec::with_capacity(route_capacity),
@@ -190,6 +194,17 @@ impl TrafficWorld {
         self.time_ms
     }
 
+    /// 已应用输入命令计数（快照合同 §3 双游标之一）。
+    ///
+    /// 生命周期命令（`register_route` / `remove_route` / `spawn_vehicle` /
+    /// `replace_completed_vehicle` / `occupy_parking`）成功返回即计数，
+    /// 幂等成功（如重复占用同车位）同样计数；失败命令不计数。`step`
+    /// 与切换事务不是输入命令，不推进本游标。安装后为零。
+    #[must_use]
+    pub const fn command_cursor(&self) -> u64 {
+        self.command_cursor
+    }
+
     /// 安装时冻结的 world 配置。
     #[must_use]
     pub const fn config(&self) -> WorldConfig {
@@ -210,6 +225,10 @@ impl TrafficWorld {
         edges: &[laneflow_static_contract::LaneEdgeOrdinal],
     ) -> Result<RouteHandle, RouteError> {
         let next_occurrence_count = self.preflight_route_registration(edges.len())?;
+        let next_command_cursor = self
+            .command_cursor
+            .checked_add(1)
+            .expect("route preflight guarantees command cursor room");
         let compiled = compile_route(self.revision.traffic(), edges)?;
         let slot_index = self.free_routes.pop().unwrap_or(self.routes.len());
         let generation = self
@@ -235,6 +254,7 @@ impl TrafficWorld {
             .checked_add(1)
             .expect("route count preflight guarantees room");
         self.live_route_edge_occurrence_count = next_occurrence_count;
+        self.command_cursor = next_command_cursor;
         Ok(handle)
     }
 
@@ -259,6 +279,9 @@ impl TrafficWorld {
         if next_occurrence_count > self.config.route_edge_occurrence_capacity() {
             return Err(RouteError::EdgeOccurrenceCapacityExceeded);
         }
+        self.command_cursor
+            .checked_add(1)
+            .ok_or(RouteError::CommandCursorExhausted)?;
         Ok(next_occurrence_count)
     }
 
@@ -299,6 +322,10 @@ impl TrafficWorld {
             .live_route_edge_occurrence_count
             .checked_sub(removed_occurrences)
             .expect("route occurrence count covers every compiled route");
+        let next_command_cursor = self
+            .command_cursor
+            .checked_add(1)
+            .ok_or(RouteError::CommandCursorExhausted)?;
 
         // 所有可失败预检完成后才取可变槽位并一次提交。
         let slot = self
@@ -312,6 +339,7 @@ impl TrafficWorld {
             slot.generation = next_generation;
             self.free_routes.push(index);
         }
+        self.command_cursor = next_command_cursor;
         Ok(())
     }
 
@@ -363,6 +391,10 @@ impl TrafficWorld {
             .observation_state_sequence
             .checked_next()
             .ok_or(SpawnError::ObservationStateSequenceExhausted)?;
+        let next_command_cursor = self
+            .command_cursor
+            .checked_add(1)
+            .ok_or(SpawnError::CommandCursorExhausted)?;
 
         let slot_index = self.free_vehicles.pop().unwrap_or(self.vehicles.len());
         let generation = self
@@ -399,6 +431,7 @@ impl TrafficWorld {
         self.routes[route_index].live_vehicles += 1;
         self.live_order.push(handle);
         self.observation_state_sequence = next_observation_state_sequence;
+        self.command_cursor = next_command_cursor;
         Ok(handle)
     }
 
@@ -475,6 +508,10 @@ impl TrafficWorld {
             .observation_state_sequence
             .checked_next()
             .ok_or(ReplaceError::ObservationStateSequenceExhausted)?;
+        let next_command_cursor = self
+            .command_cursor
+            .checked_add(1)
+            .ok_or(ReplaceError::CommandCursorExhausted)?;
 
         let old_route = old_state.route;
         let old_index = usize::try_from(old.index()).expect("vehicle index fits usize");
@@ -528,6 +565,7 @@ impl TrafficWorld {
         self.routes[route_index].live_vehicles += 1;
         self.live_order[order_index] = new;
         self.observation_state_sequence = next_observation_state_sequence;
+        self.command_cursor = next_command_cursor;
         Ok(VehicleReplaceRecord { old, new })
     }
 
@@ -546,12 +584,20 @@ impl TrafficWorld {
         };
         if let Some(current) = state.parking {
             if current == space {
+                self.command_cursor = self
+                    .command_cursor
+                    .checked_add(1)
+                    .ok_or(ParkingError::CommandCursorExhausted)?;
                 return Ok(());
             }
             return Err(ParkingError::VehicleBoundToOtherSpace);
         }
         if let Some(other) = *occupant_slot {
             if other == vehicle {
+                self.command_cursor = self
+                    .command_cursor
+                    .checked_add(1)
+                    .ok_or(ParkingError::CommandCursorExhausted)?;
                 return Ok(());
             }
             return Err(ParkingError::SpaceOccupiedByOther);
@@ -563,6 +609,10 @@ impl TrafficWorld {
             .observation_state_sequence
             .checked_next()
             .ok_or(ParkingError::ObservationStateSequenceExhausted)?;
+        let next_command_cursor = self
+            .command_cursor
+            .checked_add(1)
+            .ok_or(ParkingError::CommandCursorExhausted)?;
         let slot_index = usize::try_from(vehicle.index()).expect("vehicle index fits usize");
         let state = self.vehicles[slot_index]
             .state
@@ -574,6 +624,7 @@ impl TrafficWorld {
         state.parking = Some(space);
         self.parking_occupants[space_index] = Some(vehicle);
         self.observation_state_sequence = next_observation_state_sequence;
+        self.command_cursor = next_command_cursor;
         Ok(())
     }
 

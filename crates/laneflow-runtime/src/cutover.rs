@@ -162,7 +162,8 @@ impl WorldBinding {
         self.world_generation
     }
 
-    /// 基线输入命令游标。
+    /// 基线输入命令游标；事务启动时与目标世界的已应用命令计数逐项
+    /// 比对（快照边界锚点与切换基线指同一命令序列位置）。
     #[must_use]
     pub const fn baseline_command_cursor(&self) -> u64 {
         self.baseline_command_cursor
@@ -260,14 +261,6 @@ pub enum CutoverDescriptorError {
         /// 描述符携带的事件游标值。
         actual: u64,
     },
-    /// v1 预留命令游标非零。运行时尚无输入命令序列计数面，唯一真实
-    /// 基线值为零；非零值在切片 B 引入真实计数面前一律拒绝（切换
-    /// 合同 §2 的启动比对以退化形式成立，不虚构守卫）。
-    #[error("v1 预留命令游标必须为零，实际 {actual}")]
-    ReservedCommandCursorNonZero {
-        /// 描述符携带的命令游标值。
-        actual: u64,
-    },
 }
 
 impl NetworkRevisionCutoverDescriptor {
@@ -320,11 +313,6 @@ impl NetworkRevisionCutoverDescriptor {
         if self.world.baseline_event_cursor != 0 {
             return Err(CutoverDescriptorError::ReservedEventCursorNonZero {
                 actual: self.world.baseline_event_cursor,
-            });
-        }
-        if self.world.baseline_command_cursor != 0 {
-            return Err(CutoverDescriptorError::ReservedCommandCursorNonZero {
-                actual: self.world.baseline_command_cursor,
             });
         }
         let supported = NETWORK_REVISION_DERIVATION_VERSION;
@@ -412,6 +400,15 @@ pub enum CutoverError {
     /// 描述符世界绑定与本世界身份不一致。
     #[error("描述符世界身份或活动世代与本世界不一致")]
     WorldBindingMismatch,
+    /// 描述符命令基线游标与本世界已应用命令计数不一致（切换合同 §2
+    /// 启动比对；快照检查点与切换基线必须指同一命令序列位置）。
+    #[error("命令基线游标不一致：描述符 {descriptor}，世界 {world}")]
+    BaselineCommandCursorMismatch {
+        /// 描述符携带的基线命令游标。
+        descriptor: u64,
+        /// 事务启动时世界的已应用命令计数。
+        world: u64,
+    },
     /// 活动世界世代无法继续递增；事务在任何暂存或提交前失败关闭。
     #[error("活动世界世代已耗尽")]
     WorldGenerationExhausted,
@@ -433,11 +430,11 @@ pub enum CutoverError {
 impl TrafficWorld {
     /// 签发当前活动聚合的切换世界绑定。
     ///
-    /// v1 尚无输入命令/事件计数面，双游标为零；#512/#513 在同一入口
-    /// 接入真实游标，调用方无需复制世界身份或世代拼装逻辑。
+    /// 输入命令游标取当前世界已应用命令计数；v1 尚无事件发布通道，
+    /// event cursor 保持零。调用方无需复制世界身份、世代或游标拼装逻辑。
     #[must_use]
     pub const fn world_binding(&self) -> WorldBinding {
-        WorldBinding::new(self.world_id, self.world_generation, 0, 0)
+        WorldBinding::new(self.world_id, self.world_generation, self.command_cursor, 0)
     }
 
     /// 同修订换根事务（#302 切换合同 §3/§4 的 `same_revision_restore`）。
@@ -466,12 +463,18 @@ impl TrafficWorld {
         let base_origin = *self.revision.canonical_origin();
         let target_origin = *target_revision.canonical_origin();
         descriptor.validate(base_origin, target_origin, limits)?;
-        // worldBinding：世界身份与活动世代在事务启动时逐项比对；双游标
-        // 随切片 B/C 接入真实计数面。
+        // worldBinding：世界身份、活动世代与命令基线游标在事务启动时
+        // 逐项比对。事件游标 v1 无事件通道，由 validate 保持恒零。
         if descriptor.world_binding().world_id() != self.world_id
             || descriptor.world_binding().world_generation() != self.world_generation
         {
             return Err(CutoverError::WorldBindingMismatch);
+        }
+        if descriptor.world_binding().baseline_command_cursor() != self.command_cursor {
+            return Err(CutoverError::BaselineCommandCursorMismatch {
+                descriptor: descriptor.world_binding().baseline_command_cursor(),
+                world: self.command_cursor,
+            });
         }
         if descriptor.policy_kind() != MigrationPolicyKind::SameRevisionRestore {
             return Err(CutoverError::PolicyMismatch);
@@ -540,7 +543,7 @@ impl TrafficWorld {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use laneflow_format::{FormatLimits, check_canonical_network_input};
     use laneflow_static_network::{
         SharedNetworkBuildLimits, SharedNetworkBuildOptions, SpatialBuildOption,
@@ -820,8 +823,10 @@ mod tests {
     }
 
     #[test]
-    fn reserved_command_cursor_must_be_zero_in_v1() {
+    fn command_cursor_baseline_must_match_world_at_cutover() {
         let base = origin(FULL_SPATIAL, true);
+        // validate 不再拒绝非零命令游标：它与描述符其余字段一样可携带
+        // 任意基线值，真正的一致性比对发生在事务启动时（见下）。
         let nonzero = NetworkRevisionCutoverDescriptor::new(
             LfcaOriginBinding::from_canonical_origin(base),
             LfcaOriginBinding::from_canonical_origin(base),
@@ -829,14 +834,12 @@ mod tests {
             MigrationPolicyKind::SameRevisionRestore,
             WorldBinding::new(1, WorldGeneration::INITIAL, 5, 0),
         );
-        assert_eq!(
-            nonzero.validate(base, base, &limits()),
-            Err(CutoverDescriptorError::ReservedCommandCursorNonZero { actual: 5 })
-        );
+        assert_eq!(nonzero.validate(base, base, &limits()), Ok(()));
+        assert_eq!(nonzero.world_binding().baseline_command_cursor(), 5);
     }
 
     #[cfg(test)]
-    mod transaction_tests {
+    pub(crate) mod transaction_tests {
         use crate::PublishedLfcaReference;
         use laneflow_format::{FormatLimits, check_canonical_network_input};
         use laneflow_static_network::{
@@ -846,7 +849,10 @@ mod tests {
 
         use super::*;
         use crate::tables::with_route_allocation_failure_after;
-        use crate::{RouteRegisterInput, TickInput, VehicleSpawnInput, WorldConfig};
+        use crate::{
+            ParkingError, ReplaceError, RouteRegisterInput, SpawnError, TickInput,
+            VehicleSpawnInput, VehicleStatus, WorldConfig,
+        };
 
         const PROVENANCE_BASE: &[u8] = include_bytes!(
             "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-base.lfca"
@@ -859,7 +865,7 @@ mod tests {
         /// 四联相同（同修订换根判据成立），根对象身份不同（真实换绑路径）。
         /// 可行驶的同修订不同字节对不在现有夹具内；provenance 对只覆盖
         /// 描述符层验证（见 cutover::tests）。
-        fn revision(retain: bool) -> Arc<SharedNetworkRevision> {
+        pub(crate) fn revision(retain: bool) -> Arc<SharedNetworkRevision> {
             let input = check_canonical_network_input(
                 include_bytes!(
                     "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
@@ -881,7 +887,10 @@ mod tests {
             .expect("shared network revision")
         }
 
-        fn source_for(origin: CanonicalNetworkOrigin, key: &str) -> CommittedNetworkSource {
+        pub(crate) fn source_for(
+            origin: CanonicalNetworkOrigin,
+            key: &str,
+        ) -> CommittedNetworkSource {
             CommittedNetworkSource::Published {
                 reference: PublishedLfcaReference::new(
                     key,
@@ -893,7 +902,7 @@ mod tests {
             }
         }
 
-        fn world_with_vehicle(
+        pub(crate) fn world_with_vehicle(
             retain: bool,
         ) -> (TrafficWorld, crate::RouteHandle, crate::VehicleHandle) {
             let revision = revision(retain);
@@ -1288,6 +1297,143 @@ mod tests {
             world
                 .step(TickInput::new(100))
                 .expect("old world still steps");
+        }
+
+        #[test]
+        fn command_cursor_counts_applied_commands_only() {
+            let (mut world, _, vehicle) = world_with_vehicle(true);
+            // 夹具 = 1 次路线注册 + 1 次车辆生成。
+            assert_eq!(world.command_cursor(), 2);
+            // step 不是输入命令。
+            world.step(TickInput::new(100)).expect("step");
+            assert_eq!(world.command_cursor(), 2);
+            // 成功的停车占用计数。
+            let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
+            world.occupy_parking(vehicle, space).expect("parking");
+            assert_eq!(world.command_cursor(), 3);
+            // 幂等成功同样计数。
+            world.occupy_parking(vehicle, space).expect("idempotent");
+            assert_eq!(world.command_cursor(), 4);
+        }
+
+        #[test]
+        fn command_cursor_exhaustion_fails_closed_for_lifecycle_commands() {
+            let (mut world, route, vehicle) = world_with_vehicle(true);
+            let route_edges = world.route_edges(route).expect("route").to_vec();
+            let spawn = VehicleSpawnInput::new(
+                laneflow_static_contract::VehicleProfileOrdinal::from_raw(0),
+                route,
+                0,
+                1_000,
+                0,
+            );
+            let removable_route = world
+                .register_route(RouteRegisterInput::new(route_edges.clone()))
+                .expect("route without vehicles");
+
+            world.command_cursor = u64::MAX;
+            assert_eq!(
+                world
+                    .register_route(RouteRegisterInput::new(route_edges.clone()))
+                    .unwrap_err(),
+                RouteError::CommandCursorExhausted
+            );
+            assert_eq!(world.live_route_count, 2);
+            assert_eq!(
+                world.remove_route(removable_route).unwrap_err(),
+                RouteError::CommandCursorExhausted
+            );
+            assert_eq!(
+                world.route_edges(removable_route),
+                Some(route_edges.as_slice())
+            );
+
+            let vehicle_index = usize::try_from(vehicle.index()).expect("vehicle index");
+            world.vehicles[vehicle_index]
+                .state
+                .as_mut()
+                .expect("vehicle")
+                .status = VehicleStatus::Completed;
+            let before_completed = *world.vehicle_state(vehicle).expect("completed vehicle");
+            assert_eq!(
+                world.spawn_vehicle(spawn).unwrap_err(),
+                SpawnError::CommandCursorExhausted
+            );
+            assert_eq!(world.vehicle_state(vehicle), Some(&before_completed));
+            assert_eq!(
+                world.replace_completed_vehicle(vehicle, spawn).unwrap_err(),
+                ReplaceError::CommandCursorExhausted
+            );
+            assert_eq!(world.vehicle_state(vehicle), Some(&before_completed));
+
+            world.vehicles[vehicle_index]
+                .state
+                .as_mut()
+                .expect("vehicle")
+                .status = VehicleStatus::Active;
+            let before_active = *world.vehicle_state(vehicle).expect("active vehicle");
+            let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
+            assert_eq!(
+                world.occupy_parking(vehicle, space).unwrap_err(),
+                ParkingError::CommandCursorExhausted
+            );
+            assert_eq!(world.vehicle_state(vehicle), Some(&before_active));
+            assert_eq!(world.parking_occupants[space.index()], None);
+            assert_eq!(world.command_cursor(), u64::MAX);
+
+            let (mut parked_world, _, parked_vehicle) = world_with_vehicle(true);
+            parked_world
+                .occupy_parking(parked_vehicle, space)
+                .expect("parking");
+            parked_world.command_cursor = u64::MAX;
+            let before_parked = *parked_world
+                .vehicle_state(parked_vehicle)
+                .expect("parked vehicle");
+            assert_eq!(
+                parked_world
+                    .occupy_parking(parked_vehicle, space)
+                    .unwrap_err(),
+                ParkingError::CommandCursorExhausted
+            );
+            assert_eq!(
+                parked_world.vehicle_state(parked_vehicle),
+                Some(&before_parked)
+            );
+            assert_eq!(
+                parked_world.parking_occupants[space.index()],
+                Some(parked_vehicle)
+            );
+            assert_eq!(parked_world.command_cursor(), u64::MAX);
+        }
+
+        #[test]
+        fn command_cursor_baseline_mismatch_fails_closed() {
+            let (mut world, _, _) = world_with_vehicle(true);
+            let before_origin = *world.revision().canonical_origin();
+            let target = revision(false);
+            let target_origin = *target.canonical_origin();
+            let descriptor = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(before_origin),
+                LfcaOriginBinding::from_canonical_origin(target_origin),
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                WorldBinding::new(1, world.world_generation(), world.command_cursor() + 1, 0),
+            );
+            assert_eq!(
+                world
+                    .cutover_same_revision(
+                        target,
+                        source_for(target_origin, "fixture://stale-baseline"),
+                        &descriptor,
+                        &limits(),
+                    )
+                    .unwrap_err(),
+                CutoverError::BaselineCommandCursorMismatch {
+                    descriptor: world.command_cursor() + 1,
+                    world: world.command_cursor(),
+                }
+            );
+            assert_eq!(*world.revision().canonical_origin(), before_origin);
         }
     }
 }
