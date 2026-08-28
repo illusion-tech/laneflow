@@ -5,6 +5,7 @@ use laneflow_static_contract::{
 };
 use laneflow_static_network::SharedNetworkRevision;
 
+use crate::migration_journal::{MigrationDeltaJournal, MigrationJournalError, VehicleDelta};
 use crate::occupancy::OccupancyIndex;
 use crate::tables::{
     CompiledRoute, RouteSlot, VehicleSlot, bodies_overlap, compile_route, occupancy_front_gap,
@@ -77,6 +78,10 @@ pub struct TrafficWorld {
     pub(crate) parking_occupants: Box<[Option<VehicleHandle>]>,
     pub(crate) next_states: Vec<(usize, VehicleState)>,
     pub(crate) occupancy: OccupancyIndex,
+    /// 武装中的迁移增量日志（#513 切片 C）：`Some` ⟺ 本世界存在在途切换事务。
+    /// 武装与解除都只发生在切换事务的原子边界；溢出粘性置位，从不影响本世界
+    /// 自身的提交路径。
+    pub(crate) migration_journal: Option<MigrationDeltaJournal>,
 }
 
 impl TrafficWorld {
@@ -147,6 +152,7 @@ impl TrafficWorld {
             parking_occupants: vec![None; space_count].into_boxed_slice(),
             next_states: Vec::with_capacity(vehicle_capacity),
             occupancy: OccupancyIndex::with_capacity(0, 0),
+            migration_journal: None,
         };
         world.refresh_signals();
         Ok(world)
@@ -211,6 +217,35 @@ impl TrafficWorld {
         self.config
     }
 
+    /// 武装迁移增量日志（#513 切片 C）。只在切换事务 Prepare 边界调用：以
+    /// 当前命令游标为覆盖区间下界，按字节上界一次预留 arena（此后武装期
+    /// 稳态 tick 写入预留空间、不新增分配）。已有在途日志时武装失败。
+    // 生产消费方是本切片后续提交的候选追赶；接入后移除。
+    #[allow(dead_code)]
+    pub(crate) fn arm_migration_journal(
+        &mut self,
+        byte_bound: u64,
+    ) -> Result<(), MigrationJournalError> {
+        if self.migration_journal.is_some() {
+            return Err(MigrationJournalError::AlreadyArmed);
+        }
+        let journal = MigrationDeltaJournal::arm(byte_bound, self.command_cursor)?;
+        self.migration_journal = Some(journal);
+        Ok(())
+    }
+
+    /// 解除并取回迁移增量日志（切换事务放弃或提交边界的收尾步骤）。
+    #[allow(dead_code)]
+    pub(crate) fn disarm_migration_journal(&mut self) -> Option<MigrationDeltaJournal> {
+        self.migration_journal.take()
+    }
+
+    /// 武装中的日志只读视图（滞后、溢出与覆盖区间观测）。
+    #[allow(dead_code)]
+    pub(crate) fn migration_journal(&self) -> Option<&MigrationDeltaJournal> {
+        self.migration_journal.as_ref()
+    }
+
     /// 注册本世界路线。失败不留下半条路线。
     ///
     /// 在 compiled 槽位物化分段 `u32` 前缀、后缀距离、受控 hop 链和限速下降转换；
@@ -255,6 +290,9 @@ impl TrafficWorld {
             .expect("route count preflight guarantees room");
         self.live_route_edge_occurrence_count = next_occurrence_count;
         self.command_cursor = next_command_cursor;
+        if let Some(journal) = self.migration_journal.as_mut() {
+            journal.record_route_registered(next_command_cursor, handle, edges);
+        }
         Ok(handle)
     }
 
@@ -335,11 +373,21 @@ impl TrafficWorld {
         slot.compiled = None;
         self.live_route_count = next_route_count;
         self.live_route_edge_occurrence_count = next_occurrence_count;
+        let mut recyclable = false;
         if let Some(next_generation) = slot.generation.checked_add(1) {
             slot.generation = next_generation;
             self.free_routes.push(index);
+            recyclable = true;
         }
         self.command_cursor = next_command_cursor;
+        if let Some(journal) = self.migration_journal.as_mut() {
+            journal.record_route_removed(
+                next_command_cursor,
+                route.index(),
+                recyclable,
+                self.routes[index].generation,
+            );
+        }
         Ok(())
     }
 
@@ -432,6 +480,9 @@ impl TrafficWorld {
         self.live_order.push(handle);
         self.observation_state_sequence = next_observation_state_sequence;
         self.command_cursor = next_command_cursor;
+        if let Some(journal) = self.migration_journal.as_mut() {
+            journal.record_vehicle_spawned(next_command_cursor, VehicleDelta::from_state(&state));
+        }
         Ok(handle)
     }
 
@@ -566,6 +617,18 @@ impl TrafficWorld {
         self.live_order[order_index] = new;
         self.observation_state_sequence = next_observation_state_sequence;
         self.command_cursor = next_command_cursor;
+        let new_delta = VehicleDelta::from_state(
+            self.vehicle_state(new)
+                .expect("freshly committed replacement vehicle"),
+        );
+        if let Some(journal) = self.migration_journal.as_mut() {
+            journal.record_vehicle_replaced(
+                next_command_cursor,
+                old,
+                u32::try_from(order_index).expect("live order index fits u32"),
+                new_delta,
+            );
+        }
         Ok(VehicleReplaceRecord { old, new })
     }
 
@@ -625,6 +688,9 @@ impl TrafficWorld {
         self.parking_occupants[space_index] = Some(vehicle);
         self.observation_state_sequence = next_observation_state_sequence;
         self.command_cursor = next_command_cursor;
+        if let Some(journal) = self.migration_journal.as_mut() {
+            journal.record_parking_occupied(next_command_cursor, vehicle, space.raw());
+        }
         Ok(())
     }
 

@@ -5,6 +5,9 @@ mod cutover;
 mod error;
 mod handle;
 mod input;
+// 读侧与武装入口的生产消费方是本切片（#513）后续提交的候选追赶；接入后移除。
+#[allow(dead_code)]
+mod migration_journal;
 mod observation;
 mod occupancy;
 mod pose;
