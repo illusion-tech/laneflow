@@ -176,8 +176,11 @@ fn routing_g2_wall_clock_evidence() {
             .expect("steady tick after")
     });
 
+    let config = fixture.world.config();
+    let observation_set = fixture.cost_binding.observation_set();
+    let cost_model = fixture.cost_binding.cost_model();
     println!(
-        "routing-g2-wall-clock workload_id={WORKLOAD_ID} seed={} lfca_exact_bytes={} artifact_digest={:x} topology_network_revision={:x} workload_manifest_digest={:x} state_digest={:x} selection_digest={:x} fixed_input_sequence_digest={:x} edge_count={} vehicle_count=0 cost_entry_count={} cost_exact_bytes={} receiver_limits_entries={} receiver_limits_bytes={} sample_warmup={} samples={} classification=descriptive-initial-not-product-pass",
+        "routing-g2-wall-clock workload_id={WORKLOAD_ID} seed={} lfca_exact_bytes={} artifact_digest={:x} topology_network_revision={:x} workload_manifest_digest={:x} state_digest={:x} selection_digest={:x} fixed_input_sequence_digest={:x} edge_count={} world_config_vehicle_capacity={} world_config_route_capacity={} world_config_route_edge_occurrence_capacity={} world_config_worker_count={} world_config_fixed_delta_ms={} binding_version={} observation_tick={} observation_state_sequence={} observation_set_digest={:x} cost_model_id={:x} cost_model_version={} valid_through_tick={} snapshot_sha256={:x} cost_entry_count={} cost_exact_bytes={} receiver_limits_entries={} receiver_limits_bytes={} sample_warmup={} samples={} classification=descriptive-initial-not-product-pass",
         support::routing_evidence::WORKLOAD_SEED,
         fixture.lfca_exact_bytes,
         fixture.artifact_digest,
@@ -187,6 +190,19 @@ fn routing_g2_wall_clock_evidence() {
         fixture.initial_full.selection_digest(),
         fixed_input_sequence_digest(FIXED_INPUT_SEQUENCE),
         EDGE_COUNT,
+        config.vehicle_capacity(),
+        config.route_capacity(),
+        config.route_edge_occurrence_capacity(),
+        config.worker_count(),
+        config.fixed_delta_time_ms(),
+        fixture.cost_binding.binding_version(),
+        observation_set.observation_tick(),
+        observation_set.observation_state_sequence().get(),
+        observation_set.digest(),
+        cost_model.model_id(),
+        cost_model.model_version(),
+        fixture.cost_binding.valid_through_tick(),
+        fixture.cost_binding.snapshot_sha256(),
         fixture.cost_binding.entry_count(),
         fixture.cost_binding.exact_byte_length(),
         ReceiverLimits::EXACT_WORKLOAD.max_entry_count,
