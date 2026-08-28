@@ -12,9 +12,10 @@ use crate::tables::{
 };
 use crate::{
     CommittedNetworkSource, CommittedPoseSourceBatch, CommittedSignalGroupBatch, InstallError,
-    ParkingError, PoseSource, ReplaceError, RouteError, RouteHandle, RouteRegisterInput,
-    SpawnError, StepError, StepOutcome, TickInput, VehicleHandle, VehicleReplaceBlock,
-    VehicleReplaceRecord, VehicleSpawnInput, VehicleState, VehicleStatus, WorldConfig,
+    ObservationStateSequence, ParkingError, PoseSource, ReplaceError, RouteError, RouteHandle,
+    RouteRegisterInput, SpawnError, StepError, StepOutcome, TickInput, VehicleHandle,
+    VehicleReplaceBlock, VehicleReplaceRecord, VehicleSpawnInput, VehicleState, VehicleStatus,
+    WorldConfig,
 };
 
 /// 活动世界世代。安装时从 [`Self::INITIAL`] 开始，每次成功换绑活动聚合时递增。
@@ -60,6 +61,8 @@ pub struct TrafficWorld {
     pub(crate) config: WorldConfig,
     pub(crate) tick_index: u64,
     pub(crate) time_ms: u64,
+    /// 当前世界世代/观测 stream 内严格单调的已提交状态序号。
+    pub(crate) observation_state_sequence: ObservationStateSequence,
     pub(crate) signal_aspects: Box<[SignalAspect]>,
     pub(crate) routes: Vec<RouteSlot>,
     pub(crate) free_routes: Vec<usize>,
@@ -128,6 +131,7 @@ impl TrafficWorld {
             config,
             tick_index: 0,
             time_ms: 0,
+            observation_state_sequence: ObservationStateSequence::INITIAL,
             signal_aspects: vec![SignalAspect::Red; group_count].into_boxed_slice(),
             routes: Vec::with_capacity(route_capacity),
             free_routes: Vec::with_capacity(route_capacity),
@@ -345,6 +349,10 @@ impl TrafficWorld {
         {
             return Err(SpawnError::Overlap);
         }
+        let next_observation_state_sequence = self
+            .observation_state_sequence
+            .checked_next()
+            .ok_or(SpawnError::ObservationStateSequenceExhausted)?;
 
         let slot_index = self.free_vehicles.pop().unwrap_or(self.vehicles.len());
         let generation = self
@@ -380,6 +388,7 @@ impl TrafficWorld {
         let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
         self.routes[route_index].live_vehicles += 1;
         self.live_order.push(handle);
+        self.observation_state_sequence = next_observation_state_sequence;
         Ok(handle)
     }
 
@@ -452,6 +461,10 @@ impl TrafficWorld {
                 bumper_gap,
             }));
         }
+        let next_observation_state_sequence = self
+            .observation_state_sequence
+            .checked_next()
+            .ok_or(ReplaceError::ObservationStateSequenceExhausted)?;
 
         let old_route = old_state.route;
         let old_index = usize::try_from(old.index()).expect("vehicle index fits usize");
@@ -504,6 +517,7 @@ impl TrafficWorld {
         let route_index = usize::try_from(input.route().index()).expect("route index fits usize");
         self.routes[route_index].live_vehicles += 1;
         self.live_order[order_index] = new;
+        self.observation_state_sequence = next_observation_state_sequence;
         Ok(VehicleReplaceRecord { old, new })
     }
 
@@ -535,6 +549,10 @@ impl TrafficWorld {
         if state.status != VehicleStatus::Active {
             return Err(ParkingError::UnknownVehicle);
         }
+        let next_observation_state_sequence = self
+            .observation_state_sequence
+            .checked_next()
+            .ok_or(ParkingError::ObservationStateSequenceExhausted)?;
         let slot_index = usize::try_from(vehicle.index()).expect("vehicle index fits usize");
         let state = self.vehicles[slot_index]
             .state
@@ -545,6 +563,7 @@ impl TrafficWorld {
         state.carry_um = 0;
         state.parking = Some(space);
         self.parking_occupants[space_index] = Some(vehicle);
+        self.observation_state_sequence = next_observation_state_sequence;
         Ok(())
     }
 

@@ -69,6 +69,10 @@ impl TrafficWorld {
             .time_ms
             .checked_add(expected)
             .ok_or(StepError::Overflow)?;
+        let observation_state_sequence = self
+            .observation_state_sequence
+            .checked_next()
+            .ok_or(StepError::ObservationStateSequenceExhausted)?;
         let delta_s = expected as f32 / 1_000.0;
         self.rebuild_occupancy_index()?;
         self.next_states.clear();
@@ -93,6 +97,7 @@ impl TrafficWorld {
         self.next_states = updates;
         self.tick_index = tick_index;
         self.time_ms = time_ms;
+        self.observation_state_sequence = observation_state_sequence;
         self.refresh_signals();
         Ok(StepOutcome::new(tick_index, time_ms))
     }

@@ -5,6 +5,7 @@ mod cutover;
 mod error;
 mod handle;
 mod input;
+mod observation;
 mod occupancy;
 mod pose;
 mod source;
@@ -24,6 +25,11 @@ pub use error::{InstallError, ParkingError, ReplaceError, RouteError, SpawnError
 pub use handle::{RouteHandle, VehicleHandle};
 pub use input::{RouteRegisterInput, VehicleSpawnInput};
 pub use laneflow_static_contract::ParkingSpaceOrdinal;
+pub use observation::{
+    CommittedTrafficObservationBatch, CommittedTrafficObservationRow, OBSERVATION_BINDING_VERSION,
+    ObservationBatchBase, ObservationError, ObservationExportMode, ObservationExportSession,
+    ObservationSelection, ObservationStateSequence, ObservationStreamBinding,
+};
 pub use pose::{CommittedPoseSourceBatch, CommittedSignalGroupBatch, PoseSource};
 pub use source::{CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference};
 pub use vehicle::{VehicleReplaceBlock, VehicleReplaceRecord, VehicleState, VehicleStatus};

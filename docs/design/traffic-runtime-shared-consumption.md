@@ -147,11 +147,20 @@ TrafficWorld::step(input: TickInput) -> Result<StepOutcome, StepError>;
 TrafficWorld::revision() -> Arc<SharedNetworkRevision>;
 TrafficWorld::traffic() -> /* 共享根 Traffic 借用 */;
 TrafficWorld::world_generation() -> WorldGeneration;
+TrafficWorld::observation_state_sequence() -> ObservationStateSequence;
 TrafficWorld::tick_index() -> u64;
 TrafficWorld::time_ms() -> u64;
 TrafficWorld::committed_pose_sources() -> CommittedPoseSourceBatch;
 TrafficWorld::committed_parking_occupant(space) -> Option<VehicleHandle>;
 TrafficWorld::committed_signal_groups() -> CommittedSignalGroupBatch;
+
+TrafficWorld::open_observation_export(
+    selection: ObservationSelection,
+) -> Result<ObservationExportSession, ObservationError>;
+TrafficWorld::export_observation(
+    session: &mut ObservationExportSession,
+    mode: ObservationExportMode,
+) -> Result<CommittedTrafficObservationBatch, ObservationError>;
 
 SpatialSession::bind(
     revision: Arc<SharedNetworkRevision>,
@@ -166,6 +175,10 @@ SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
 定位目标世界）。生命周期由宿主拥有，Runtime 不解释其编码。Runtime 同时拥有
 字段私有的 `WorldGeneration(u64)`：安装从 `0` 开始，成功切换/原位恢复 checked
 递增，失败或放弃不变；调用方从 world 取得，不能把宿主自报值写回。
+每个世界世代只有一个观测 stream：`ObservationStreamBinding` 直接由
+`(world_id, WorldGeneration)` 组成，不另维护重复计数器。字段私有的
+`ObservationStateSequence(u64)` 在 stream 内从 `0` 开始，成功 step 与真正改变观测行的
+生命周期提交 checked 递增；观测导出、路线表变更、幂等停车和失败不推进。
 
 同修订换根事务（#511 交付，语义形状）：
 
@@ -185,7 +198,7 @@ TrafficWorld::world_binding() -> WorldBinding;
 `same_revision_restore`）→ target 来源绑定 → 同修订不变量预检 → 下一世代
 checked 预计算 → 暂存（逐路线对 target 根重编译 +
 占用索引纯构造，可失败且失败关闭）→ 原子晋升（根 / 逐槽 compiled /
-来源 / 信号重导出 / 占用索引 / 世界世代，全部不可失败换绑）。当期
+来源 / 信号重导出 / 占用索引 / 世界世代 / 观测状态序号重置，全部不可失败换绑）。当期
 `RouteHandle` / `VehicleHandle` 跨换根保持有效；任一失败旧世界原样继续。
 完整事务合同见
 [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)。
