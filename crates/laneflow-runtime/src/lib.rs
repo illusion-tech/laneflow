@@ -2,11 +2,11 @@
 
 mod config;
 mod cutover;
+mod cutover_migration;
+mod cutover_transaction;
 mod error;
 mod handle;
 mod input;
-// 读侧与武装入口的生产消费方是本切片（#513）后续提交的候选追赶；接入后移除。
-#[allow(dead_code)]
 mod migration_journal;
 mod observation;
 mod occupancy;
@@ -28,13 +28,15 @@ pub use cutover::{
     CutoverPreflightLimits, LfcaOriginBinding, MigrationPolicyKind,
     NetworkRevisionCutoverDescriptor, SemanticDiffOriginBinding, WorldBinding,
 };
-// 直移核心的生产消费方是本切片（#513）后续提交的切换事务；接入后移除。
-#[allow(dead_code)]
-mod cutover_migration;
+pub use cutover_transaction::{
+    CutoverCommit, CutoverTransaction, CutoverTransactionLimits, DEFAULT_MAX_CATCH_UP_LAG_TICKS,
+    DEFAULT_MAX_RECORDS_PER_PUMP, PumpOutcome,
+};
 pub use error::{InstallError, ParkingError, ReplaceError, RouteError, SpawnError, StepError};
 pub use handle::{RouteHandle, VehicleHandle};
 pub use input::{RouteRegisterInput, VehicleSpawnInput};
 pub use laneflow_static_contract::ParkingSpaceOrdinal;
+pub use migration_journal::DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES;
 pub use observation::{
     CommittedTrafficObservationBatch, CommittedTrafficObservationRow, OBSERVATION_BINDING_VERSION,
     ObservationBatchBase, ObservationError, ObservationExportMode, ObservationExportSession,

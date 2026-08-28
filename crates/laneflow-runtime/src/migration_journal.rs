@@ -124,8 +124,11 @@ impl VehicleDelta {
         put_u32(out, self.parking.unwrap_or(0));
     }
 
-    fn decode(bytes: &[u8]) -> Self {
-        assert!(bytes.len() >= 48, "vehicle delta needs 48 bytes");
+    pub(crate) fn decode(bytes: &[u8]) -> Self {
+        assert!(
+            bytes.len() >= VEHICLE_DELTA_BYTES,
+            "vehicle delta needs full width"
+        );
         let parking_present = bytes[43] == 1;
         Self {
             slot: read_u32(bytes, 0),
@@ -146,7 +149,7 @@ impl VehicleDelta {
 }
 
 /// 车辆增量固定字节宽度。
-const VEHICLE_DELTA_BYTES: usize = 48;
+pub(crate) const VEHICLE_DELTA_BYTES: usize = 48;
 
 fn status_to_raw(status: VehicleStatus) -> u8 {
     match status {
@@ -242,6 +245,8 @@ pub(crate) struct MigrationDeltaJournal {
     record_count: u64,
     first_tick: Option<u64>,
     last_tick: Option<u64>,
+    // 覆盖区间下界登记：测试断言与证据消费。
+    #[allow(dead_code)]
     baseline_command_cursor: u64,
     /// 打开的 TICK 记录的 entry_count 字段在 arena 中的绝对偏移。
     open_tick_count_at: Option<usize>,
@@ -285,26 +290,36 @@ impl MigrationDeltaJournal {
     }
 
     /// 已写入字节数。
+    // 滞后/溢出观测面：测试与切片 C 证据消费。
+    #[allow(dead_code)]
     pub(crate) fn written_bytes(&self) -> u64 {
         u64::try_from(self.bytes.len()).expect("journal length fits u64")
     }
 
     /// 成功写入的记录数。
+    // 滞后/溢出观测面：测试与切片 C 证据消费。
+    #[allow(dead_code)]
     pub(crate) const fn record_count(&self) -> u64 {
         self.record_count
     }
 
     /// 武装后首条 TICK 记录的 tick 序号。
+    // 滞后/溢出观测面：测试与切片 C 证据消费。
+    #[allow(dead_code)]
     pub(crate) const fn first_tick(&self) -> Option<u64> {
         self.first_tick
     }
 
     /// 最近一条 TICK 记录的 tick 序号。
+    // 滞后/溢出观测面：测试与切片 C 证据消费。
+    #[allow(dead_code)]
     pub(crate) const fn last_tick(&self) -> Option<u64> {
         self.last_tick
     }
 
     /// 覆盖区间下界的基线命令游标。
+    // 滞后/溢出观测面：测试与切片 C 证据消费。
+    #[allow(dead_code)]
     pub(crate) const fn baseline_command_cursor(&self) -> u64 {
         self.baseline_command_cursor
     }
