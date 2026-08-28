@@ -84,6 +84,82 @@ pub struct CapturedVehicle {
     pub(crate) parking_space: Option<ContractStableId128>,
 }
 
+impl CapturedRoute {
+    /// 本快照内唯一的路线局部 ID。
+    #[must_use]
+    pub const fn snapshot_route_id(&self) -> u64 {
+        self.snapshot_route_id
+    }
+
+    /// 路线的有序 LaneEdge 稳定标识序列。
+    #[must_use]
+    pub fn edges(&self) -> &[ContractStableId128] {
+        &self.edges
+    }
+}
+
+impl CapturedVehicle {
+    /// 本快照内唯一的车辆局部 ID。
+    #[must_use]
+    pub const fn snapshot_vehicle_id(&self) -> u64 {
+        self.snapshot_vehicle_id
+    }
+
+    /// 所属路线的快照局部 ID。
+    #[must_use]
+    pub const fn snapshot_route_id(&self) -> u64 {
+        self.snapshot_route_id
+    }
+
+    /// 当前路线边下标。
+    #[must_use]
+    pub const fn route_edge_index(&self) -> u32 {
+        self.route_edge_index
+    }
+
+    /// 当前边进度（毫米）。
+    #[must_use]
+    pub const fn progress_mm(&self) -> u32 {
+        self.progress_mm
+    }
+
+    /// 亚毫米余数（微米）。
+    #[must_use]
+    pub const fn carry_um(&self) -> u16 {
+        self.carry_um
+    }
+
+    /// 当前速度（毫米每秒）。
+    #[must_use]
+    pub const fn speed_mm_s(&self) -> u32 {
+        self.speed_mm_s
+    }
+
+    /// 生命周期状态。
+    #[must_use]
+    pub const fn status(&self) -> VehicleStatus {
+        self.status
+    }
+
+    /// 车辆 profile 稳定标识。
+    #[must_use]
+    pub const fn profile(&self) -> ContractStableId128 {
+        self.profile
+    }
+
+    /// 参与者类别稳定标识。
+    #[must_use]
+    pub const fn class(&self) -> ContractStableId128 {
+        self.class
+    }
+
+    /// 已占用停车位的稳定标识；未停车时为 `None`。
+    #[must_use]
+    pub const fn parking_space(&self) -> Option<ContractStableId128> {
+        self.parking_space
+    }
+}
+
 /// 把不可变快照点编码为 size-prefixed `LFRS` v1。
 ///
 /// 捕获与编码分离：调用方可先在固定步进安全边界调用
