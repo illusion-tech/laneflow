@@ -265,6 +265,9 @@ occurrence 超过恢复配置则整次恢复失败关闭。
 切片已将 compiled-route 的所有已知长度热表改为 `try_reserve_exact` 预留；任一预留失败
 统一返回 `RouteError::AllocationFailed`，并由确定性失败注入覆盖「首次预留」与「部分热表
 已物化」两个边界；两者都不提交路线槽、活动路线数、边 occurrence 计数或空闲表。
+同修订 cutover 对 target 根重编译路线时复用同一 `compile_route`；其热表预留失败映射为
+`CutoverError::StagingAllocFailed`，并以确定性失败注入验证旧根、来源、路线、车辆与
+占用保持可继续步进的原子放弃状态。
 
 ## 5. 与 #302 切换、快照和回放的接缝
 
