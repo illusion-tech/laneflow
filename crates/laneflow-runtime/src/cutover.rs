@@ -251,6 +251,14 @@ pub enum CutoverDescriptorError {
         /// 描述符携带的事件游标值。
         actual: u64,
     },
+    /// v1 预留命令游标非零。运行时尚无输入命令序列计数面，唯一真实
+    /// 基线值为零；非零值在切片 B 引入真实计数面前一律拒绝（切换
+    /// 合同 §2 的启动比对以退化形式成立，不虚构守卫）。
+    #[error("v1 预留命令游标必须为零，实际 {actual}")]
+    ReservedCommandCursorNonZero {
+        /// 描述符携带的命令游标值。
+        actual: u64,
+    },
 }
 
 impl NetworkRevisionCutoverDescriptor {
@@ -303,6 +311,11 @@ impl NetworkRevisionCutoverDescriptor {
         if self.world.baseline_event_cursor != 0 {
             return Err(CutoverDescriptorError::ReservedEventCursorNonZero {
                 actual: self.world.baseline_event_cursor,
+            });
+        }
+        if self.world.baseline_command_cursor != 0 {
+            return Err(CutoverDescriptorError::ReservedCommandCursorNonZero {
+                actual: self.world.baseline_command_cursor,
             });
         }
         let supported = NETWORK_REVISION_DERIVATION_VERSION;
@@ -553,14 +566,14 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(origin),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(7, 120, 0),
+            WorldBinding::new(7, 0, 0),
         );
         assert_eq!(descriptor.validate(origin, origin, &limits()), Ok(()));
         assert_eq!(
             descriptor.format_version(),
             CUTOVER_DESCRIPTOR_FORMAT_VERSION
         );
-        assert_eq!(descriptor.world_binding().baseline_command_cursor(), 120);
+        assert_eq!(descriptor.world_binding().baseline_command_cursor(), 0);
         assert_eq!(descriptor.world_binding().baseline_event_cursor(), 0);
     }
 
@@ -747,7 +760,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(target),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(3, 42, 0),
+            WorldBinding::new(3, 0, 0),
         );
         assert_eq!(descriptor.validate(base, target, &limits()), Ok(()));
     }
@@ -765,6 +778,22 @@ mod tests {
         assert_eq!(
             nonzero.validate(base, base, &limits()),
             Err(CutoverDescriptorError::ReservedEventCursorNonZero { actual: 7 })
+        );
+    }
+
+    #[test]
+    fn reserved_command_cursor_must_be_zero_in_v1() {
+        let base = origin(FULL_SPATIAL, true);
+        let nonzero = NetworkRevisionCutoverDescriptor::new(
+            LfcaOriginBinding::from_canonical_origin(base),
+            LfcaOriginBinding::from_canonical_origin(base),
+            None,
+            MigrationPolicyKind::SameRevisionRestore,
+            WorldBinding::new(1, 5, 0),
+        );
+        assert_eq!(
+            nonzero.validate(base, base, &limits()),
+            Err(CutoverDescriptorError::ReservedCommandCursorNonZero { actual: 5 })
         );
     }
 
@@ -882,7 +911,7 @@ mod tests {
                 LfcaOriginBinding::from_canonical_origin(target_origin),
                 None,
                 MigrationPolicyKind::SameRevisionRestore,
-                WorldBinding::new(1, 5, 0),
+                WorldBinding::new(1, 0, 0),
             );
             world
                 .cutover_same_revision(Arc::clone(&target), target_source, &descriptor, &limits())
@@ -917,11 +946,49 @@ mod tests {
         #[test]
         fn same_revision_cutover_is_logically_identity() {
             // 逻辑恒等 oracle：切换世界与未切换世界的后续步进逐点一致。
-            let (mut cut, _, _) = world_with_vehicle(true);
+            // 逐点 = 每一步之后比对完整规范化已提交状态（tick/时间、全部
+            // 车辆整值状态、位姿来源、信号灯色组、停车占用），并在切换
+            // 边界处（cutover 后、继续步进前）先比对一次；各世界只使用
+            // 自己的句柄。
+            let (mut cut, _, vehicle_cut) = world_with_vehicle(true);
             let (mut plain, _, vehicle_plain) = world_with_vehicle(true);
+            let assert_committed_state_equal = |cut: &TrafficWorld, plain: &TrafficWorld| {
+                assert_eq!(cut.tick_index(), plain.tick_index());
+                assert_eq!(cut.time_ms(), plain.time_ms());
+                assert_eq!(cut.live_vehicles(), plain.live_vehicles());
+                assert_eq!(
+                    cut.vehicle_state(vehicle_cut).expect("vehicle"),
+                    plain.vehicle_state(vehicle_plain).expect("vehicle")
+                );
+                assert_eq!(
+                    cut.committed_pose_sources().as_slice(),
+                    plain.committed_pose_sources().as_slice()
+                );
+                assert_eq!(
+                    cut.committed_signal_groups().as_slice(),
+                    plain.committed_signal_groups().as_slice()
+                );
+                let spaces = usize::try_from(
+                    plain
+                        .traffic()
+                        .entity_counts()
+                        .count(laneflow_static_contract::EntityKind::ParkingSpace),
+                )
+                .expect("parking space count fits usize");
+                for raw in 0..spaces {
+                    let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(
+                        u32::try_from(raw).expect("ordinal fits u32"),
+                    );
+                    assert_eq!(
+                        cut.committed_parking_occupant(space),
+                        plain.committed_parking_occupant(space)
+                    );
+                }
+            };
             for _ in 0..2 {
                 cut.step(TickInput::new(100)).expect("step cut");
                 plain.step(TickInput::new(100)).expect("step plain");
+                assert_committed_state_equal(&cut, &plain);
             }
             let base_origin = *cut.revision().canonical_origin();
             let target = revision(false);
@@ -931,7 +998,7 @@ mod tests {
                 LfcaOriginBinding::from_canonical_origin(target_origin),
                 None,
                 MigrationPolicyKind::SameRevisionRestore,
-                WorldBinding::new(1, 2, 0),
+                WorldBinding::new(1, 0, 0),
             );
             cut.cutover_same_revision(
                 target,
@@ -940,27 +1007,14 @@ mod tests {
                 &limits(),
             )
             .expect("cutover");
-            for _ in 0..5 {
+            // 切换边界：提交后、继续步进前，已提交状态必须已与未切换
+            // 世界逐点一致。
+            assert_committed_state_equal(&cut, &plain);
+            for _ in 0..8 {
                 cut.step(TickInput::new(100)).expect("step cut");
                 plain.step(TickInput::new(100)).expect("step plain");
+                assert_committed_state_equal(&cut, &plain);
             }
-            let cut_state = cut.vehicle_state(vehicle_plain).copied().expect("vehicle");
-            let plain_state = plain
-                .vehicle_state(vehicle_plain)
-                .copied()
-                .expect("vehicle");
-            assert_eq!(
-                (
-                    cut_state.progress_mm,
-                    cut_state.speed_mm_s,
-                    cut_state.status
-                ),
-                (
-                    plain_state.progress_mm,
-                    plain_state.speed_mm_s,
-                    plain_state.status
-                )
-            );
         }
 
         #[test]
