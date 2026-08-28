@@ -4,7 +4,7 @@ version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-license = "Apache-2.0"
+license.workspace = true
 description = "LaneFlow 运行时快照（LFRS）的私有 FlatBuffers 生成绑定。"
 publish = false
 

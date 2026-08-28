@@ -26,25 +26,25 @@ writer 不回读活动 world、不推进命令游标，并逐字段写入完整 
 
 ## 根表字段映射（`RuntimeSnapshot`，field id 连续 0..=16）
 
-| id  | 字段                        | 绑定内容                                                                                                                                                                    |
-| --- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | `format_version`            | 容器格式版本（=1）                                                                                                                                                          |
-| 1   | `runtime_state_version`     | Runtime 逻辑状态形状轴（=1）                                                                                                                                                |
-| 2   | `world_id`                  | 世界身份（快照局部）                                                                                                                                                        |
-| 3   | `tick`                      | tick 游标                                                                                                                                                                   |
-| 4   | `time_ms`                   | 时钟；lowering 核对 `time_ms == tick × fixed_delta_time_ms`                                                                                                                 |
-| 5   | `command_cursor`            | 输入命令游标（已应用命令计数）                                                                                                                                              |
-| 6   | `event_cursor`              | 已提交事件游标（v1 无事件通道，恒零）                                                                                                                                       |
-| 7   | `world_config`              | `WorldConfig` 全量（含 `route_edge_occurrence_capacity`，#303 G1 已接受合同，运行时面随 #521 落地）；恢复核对按 §2 两分（dt 精确相等 / 语义容量只许放大 / worker 数不参与） |
-| 8   | `network_revision`          | LFCA origin 四联之一：`NetworkRevisionId`                                                                                                                                   |
-| 9   | `lfca_artifact_digest`      | LFCA origin 四联之二：规范制品摘要（来源审计，非语义兼容门）                                                                                                                |
-| 10  | `lfca_artifact_byte_length` | LFCA origin 四联之三：exact byte length                                                                                                                                     |
-| 11  | `static_contract_versions`  | LFCA origin 四联之四：静态契约版本集                                                                                                                                        |
-| 12  | `source_kind`               | `CommittedNetworkSource` 封闭种类；v1 仅 `Published`                                                                                                                        |
-| 13  | `source_published`          | `PublishedLfcaReference`（`asset_key` / digest / length / revision）                                                                                                        |
-| 14  | `routes`                    | 路线表：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）                                                                                                       |
-| 15  | `vehicles`                  | 车辆表：局部 ID、局部路线引用、`route_edge_index`、毫米状态、status、profile/class `StableId128`、可选停车位                                                                |
-| 16  | `live_order`                | `snapshot_vehicle_id` 的规范排序序列（lowering 核对为活跃车辆精确排列）                                                                                                     |
+| id  | 字段                        | 绑定内容                                                                                                                                                                      |
+| --- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | `format_version`            | 容器格式版本（=1）                                                                                                                                                            |
+| 1   | `runtime_state_version`     | Runtime 逻辑状态形状轴（=1）                                                                                                                                                  |
+| 2   | `world_id`                  | 世界身份（快照局部）                                                                                                                                                          |
+| 3   | `tick`                      | tick 游标                                                                                                                                                                     |
+| 4   | `time_ms`                   | 时钟；lowering 核对 `time_ms == tick × fixed_delta_time_ms`                                                                                                                   |
+| 5   | `command_cursor`            | 输入命令游标（已应用命令计数）                                                                                                                                                |
+| 6   | `event_cursor`              | 已提交事件游标（v1 无事件通道，恒零）                                                                                                                                         |
+| 7   | `world_config`              | `WorldConfig` 全量（含 `route_edge_occurrence_capacity`，#303 G1 已接受合同，运行时面已随 #521 落地）；恢复核对按 §2 两分（dt 精确相等 / 语义容量只许放大 / worker 数不参与） |
+| 8   | `network_revision`          | LFCA origin 四联之一：`NetworkRevisionId`                                                                                                                                     |
+| 9   | `lfca_artifact_digest`      | LFCA origin 四联之二：规范制品摘要（来源审计，非语义兼容门）                                                                                                                  |
+| 10  | `lfca_artifact_byte_length` | LFCA origin 四联之三：exact byte length                                                                                                                                       |
+| 11  | `static_contract_versions`  | LFCA origin 四联之四：静态契约版本集                                                                                                                                          |
+| 12  | `source_kind`               | `CommittedNetworkSource` 封闭种类；v1 仅 `Published`                                                                                                                          |
+| 13  | `source_published`          | `PublishedLfcaReference`（`asset_key` / digest / length / revision）                                                                                                          |
+| 14  | `routes`                    | 路线表：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）                                                                                                         |
+| 15  | `vehicles`                  | 车辆表：局部 ID、局部路线引用、`route_edge_index`、毫米状态、status、profile/class `StableId128`、可选停车位                                                                  |
+| 16  | `live_order`                | `snapshot_vehicle_id` 的规范排序序列（lowering 核对为活跃车辆精确排列）                                                                                                       |
 
 ## 禁绑字段（合同 §2，出现即属违规编码）
 

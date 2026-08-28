@@ -200,7 +200,7 @@ workload `signalized-corridor-v1` = `v0.2-signalized-corridor.lfca`（exact
 快照点 `tick = 64`、`command_cursor = 30`。以下数字均为初值，不是产品 Pass 阈值。
 
 证据按仪器隔离：`snapshot_budget_evidence.rs` 用 `stats_alloc` 量捕获/编码/恢复账本
-并硬断言稳态 tick 零分配及保存后的确定性；`snapshot_peak_evidence.rs` 是只有一个
+并硬断言保存前后稳态 tick 分配账本相等（实测均为零）及保存后的确定性；`snapshot_peak_evidence.rs` 是只有一个
 测试的独立 DHAT integration binary，profiler 只包围一次 fresh restore，量恢复调用
 新增堆块的实际高水位；`snapshot_wall_clock_evidence.rs` 不插桩且 `#[ignore]`，量
 release 墙钟中位和后台编码竞争。复现命令：

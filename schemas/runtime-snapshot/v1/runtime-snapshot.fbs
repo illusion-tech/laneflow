@@ -54,7 +54,7 @@ enum VehicleStatusKind:ubyte {
 /// `fixed_delta_time_ms` 必须精确相等；`vehicle_capacity` / `route_capacity` /
 /// `route_edge_occurrence_capacity` 为语义容量，只许放大（occurrence 容量按
 /// 全部存活动态路线边序列的总 occurrence 计，重复边重复计数，#303 G1 已接受
-/// 合同；运行时面随 #521 落地）；`worker_count` 属可重建执行计划字段，不参与核对。
+/// 合同；运行时面已随 #521 落地）；`worker_count` 属可重建执行计划字段，不参与核对。
 table WorldConfigBinding {
   vehicle_capacity:uint;
   route_capacity:uint;
