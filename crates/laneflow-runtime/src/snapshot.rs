@@ -33,7 +33,7 @@ pub struct CapturedSnapshot {
     pub(crate) time_ms: u64,
     /// 已应用输入命令计数。
     pub(crate) command_cursor: u64,
-    /// 已提交事件游标（v1 无事件通道，恒零）。
+    /// 已提交切换事件游标（#513 切片 C 起为真实轴）。
     pub(crate) event_cursor: u64,
     /// 安装时冻结的世界配置。
     pub(crate) config: WorldConfig,
@@ -471,7 +471,7 @@ impl TrafficWorld {
             tick: self.tick_index,
             time_ms: self.time_ms,
             command_cursor: self.command_cursor,
-            event_cursor: 0,
+            event_cursor: self.event_cursor,
             config: self.config,
             origin: *self.revision.canonical_origin(),
             source: self.source.clone(),

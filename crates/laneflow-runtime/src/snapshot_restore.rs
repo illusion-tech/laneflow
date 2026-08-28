@@ -133,12 +133,6 @@ pub enum SnapshotRestoreError {
         /// wire vtable 声明字段数。
         actual: usize,
     },
-    /// v1 event cursor 必须为零。
-    #[error("v1 event cursor 必须为零: {actual}")]
-    EventCursorNonZero {
-        /// 实际值。
-        actual: u64,
-    },
     /// 必需的结构字段缺席。
     #[error("LFRS 必需字段缺席: {field}")]
     MissingField {
@@ -473,6 +467,7 @@ pub fn restore_lfrs(
     world.tick_index = root.tick();
     world.time_ms = root.time_ms();
     world.command_cursor = root.command_cursor();
+    world.event_cursor = root.event_cursor();
     world.observation_state_sequence = ObservationStateSequence::INITIAL;
     world.next_states.clear();
     world.refresh_signals();
@@ -568,11 +563,6 @@ fn validate_bindings(
         });
     }
     validate_closed_v1_tables(root)?;
-    if root.event_cursor() != 0 {
-        return Err(SnapshotRestoreError::EventCursorNonZero {
-            actual: root.event_cursor(),
-        });
-    }
     let network_revision = root
         .network_revision()
         .ok_or(SnapshotRestoreError::MissingField {
@@ -1853,19 +1843,19 @@ mod tests {
             SnapshotRestoreError::SnapshotSourceRevisionMismatch
         );
 
+        // 事件游标随切片 C 事件批次通道成为真实轴：非零值恢复为世界状态。
         let mut event_cursor = world.capture_snapshot();
         event_cursor.event_cursor = 7;
-        assert_eq!(
-            restore_lfrs(
-                &encode_lfrs(&event_cursor),
-                world.revision(),
-                world.committed_source().clone(),
-                config,
-                generous_limits(),
-            )
-            .unwrap_err(),
-            SnapshotRestoreError::EventCursorNonZero { actual: 7 }
-        );
+        let restored = restore_lfrs(
+            &encode_lfrs(&event_cursor),
+            world.revision(),
+            world.committed_source().clone(),
+            config,
+            generous_limits(),
+        )
+        .unwrap()
+        .into_world();
+        assert_eq!(restored.event_cursor(), 7);
     }
 
     fn table_field_offset(

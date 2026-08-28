@@ -65,6 +65,9 @@ pub struct TrafficWorld {
     /// 已应用输入命令计数（快照合同 §3 双游标之一；切换 `worldBinding`
     /// 基线在事务启动时与之逐项比对）。
     pub(crate) command_cursor: u64,
+    /// 已提交切换事件游标（#513 切片 C-4）：每次成功切换原子递增一个
+    /// 事件批次；事件批次只随晋升恰一次交付。
+    pub(crate) event_cursor: u64,
     /// 当前世界世代/观测 stream 内严格单调的已提交状态序号。
     pub(crate) observation_state_sequence: ObservationStateSequence,
     pub(crate) signal_aspects: Box<[SignalAspect]>,
@@ -140,6 +143,7 @@ impl TrafficWorld {
             tick_index: 0,
             time_ms: 0,
             command_cursor: 0,
+            event_cursor: 0,
             observation_state_sequence: ObservationStateSequence::INITIAL,
             signal_aspects: vec![SignalAspect::Red; group_count].into_boxed_slice(),
             routes: Vec::with_capacity(route_capacity),
@@ -209,6 +213,14 @@ impl TrafficWorld {
     #[must_use]
     pub const fn command_cursor(&self) -> u64 {
         self.command_cursor
+    }
+
+    /// 已提交切换事件游标（快照合同 §3 双游标之一；#513 切片 C 起
+    /// 随事件批次通道成为真实轴）。安装后为零；每次成功切换（含放弃后
+    /// 重试成功）恰递增一个事件批次。
+    #[must_use]
+    pub const fn event_cursor(&self) -> u64 {
+        self.event_cursor
     }
 
     /// 安装时冻结的 world 配置。
