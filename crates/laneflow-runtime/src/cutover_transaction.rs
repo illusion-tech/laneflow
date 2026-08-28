@@ -17,7 +17,8 @@ use laneflow_static_contract::{
 use laneflow_static_network::SharedNetworkRevision;
 
 use crate::cutover::{
-    CutoverError, CutoverPreflightLimits, MigrationPolicyKind, NetworkRevisionCutoverDescriptor,
+    CutoverError, CutoverEventBatch, CutoverPreflightLimits, MigrationPolicyKind,
+    NetworkRevisionCutoverDescriptor,
 };
 use crate::cutover_migration::{
     CrossRevisionRebinding, migrate_structural_clone, revalidate_migrated_vehicles,
@@ -73,12 +74,14 @@ pub struct PumpOutcome {
 }
 
 /// 静默提交成功记录。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CutoverCommit {
     /// 晋升后的世界世代。
     pub world_generation: WorldGeneration,
     /// 静默点原子取样的最终命令游标（半开覆盖区间的上界）。
     pub final_command_cursor: u64,
+    /// 恰一次交付的切换事件批次（#302 切换合同 §6）。
+    pub events: CutoverEventBatch,
 }
 
 /// 跨修订直移切换事务（切换合同 §4 状态机的进程内形态）。
@@ -131,6 +134,12 @@ impl TrafficWorld {
             return Err(CutoverError::BaselineCommandCursorMismatch {
                 descriptor: descriptor.world_binding().baseline_command_cursor(),
                 world: self.command_cursor,
+            });
+        }
+        if descriptor.world_binding().baseline_event_cursor() != self.event_cursor {
+            return Err(CutoverError::BaselineEventCursorMismatch {
+                descriptor: descriptor.world_binding().baseline_event_cursor(),
+                world: self.event_cursor,
             });
         }
         if descriptor.policy_kind() != MigrationPolicyKind::CrossRevisionDirect {
@@ -310,6 +319,11 @@ impl CutoverTransaction {
         if expected_digest != candidate_digest {
             return Err(CutoverError::DigestMismatch);
         }
+        // 事件批次在可失败区构建（分配可失败），晋升区只做游标递增。
+        let events = CutoverEventBatch::revision_cutover_committed(
+            self.next_world_generation,
+            self.target_revision.canonical_origin().network_revision(),
+        );
         let candidate = &mut self.candidate;
         // 不可失败原地晋升：逐字段交换（零分配），世代与观测序号同界写入。
         std::mem::swap(&mut world.revision, &mut candidate.revision);
@@ -333,9 +347,11 @@ impl CutoverTransaction {
         world.command_cursor = final_command_cursor;
         world.world_generation = self.next_world_generation;
         world.observation_state_sequence = ObservationStateSequence::INITIAL;
+        world.event_cursor += events.len();
         Ok(CutoverCommit {
             world_generation: self.next_world_generation,
             final_command_cursor,
+            events,
         })
     }
 

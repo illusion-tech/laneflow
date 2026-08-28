@@ -256,6 +256,7 @@ pub(crate) fn migrate_structural_clone(
         tick_index: world.tick_index,
         time_ms: world.time_ms,
         command_cursor: world.command_cursor,
+        event_cursor: world.event_cursor,
         observation_state_sequence: world.observation_state_sequence,
         signal_aspects: vec![SignalAspect::Red; group_count].into_boxed_slice(),
         routes,

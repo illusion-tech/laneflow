@@ -265,12 +265,6 @@ pub enum CutoverDescriptorError {
     /// 同修订换根策略下两侧静态契约版本不相等（#302 判据）。
     #[error("同修订换根策略要求两侧静态契约版本相等")]
     SameRevisionRequiresEqualContractVersions,
-    /// v1 预留事件游标非零。
-    #[error("v1 预留事件游标必须为零，实际 {actual}")]
-    ReservedEventCursorNonZero {
-        /// 描述符携带的事件游标值。
-        actual: u64,
-    },
     /// LFSD 实际字节长度与描述符绑定声明不一致（先于解析与哈希后的
     /// 第二道长度闭合；O(1) 预检仍由 `validate` 承担）。
     #[error("LFSD 实际字节长度 {actual} 与绑定声明 {declared} 不一致")]
@@ -347,11 +341,6 @@ impl NetworkRevisionCutoverDescriptor {
         target_origin: CanonicalNetworkOrigin,
         limits: &CutoverPreflightLimits,
     ) -> Result<(), CutoverDescriptorError> {
-        if self.world.baseline_event_cursor != 0 {
-            return Err(CutoverDescriptorError::ReservedEventCursorNonZero {
-                actual: self.world.baseline_event_cursor,
-            });
-        }
         let supported = NETWORK_REVISION_DERIVATION_VERSION;
         if self.base.network_revision_derivation_version() != supported {
             return Err(
@@ -618,22 +607,91 @@ pub enum CutoverError {
     /// 事务与世界的日志配对被破坏：世界未持有本事务武装的日志。
     #[error("世界未武装迁移增量日志")]
     JournalMissing,
+    /// 描述符事件基线游标与本世界已提交事件计数不一致（#513 切片 C-4：
+    /// 事件批次通道引入后在签发入口收紧的轴）。
+    #[error("事件基线游标不一致：描述符 {descriptor}，世界 {world}")]
+    BaselineEventCursorMismatch {
+        /// 描述符携带的基线事件游标。
+        descriptor: u64,
+        /// 事务启动时世界的已提交事件计数。
+        world: u64,
+    },
     /// 迁移增量重放与候选槽位布局不一致（内部不变量破坏）。
     #[error("迁移增量重放与候选布局不一致")]
     ReplayInconsistent,
 }
 
+/// 切换事件（#302 切换合同 §6）：迁移函数生成、准备期不可见、只与新
+/// 修订/状态绑定原子提交恰一次的封闭枚举。v1 不含实体消失类生命周期
+/// 事件；不得扩展为通用事件通道。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CutoverEvent {
+    /// 修订切换已提交：世界世代与新修订标识（观测失效与句柄保持语义的
+    /// 规范通知面）。
+    RevisionCutoverCommitted {
+        /// 晋升后的世界世代。
+        world_generation: WorldGeneration,
+        /// 新活动聚合的路网修订标识。
+        network_revision: NetworkRevisionId,
+    },
+}
+
+/// 切换事件批次：成功提交时恰一次交付的规范排序集合。v1 每次成功切换
+/// 恰含一条 [`CutoverEvent::RevisionCutoverCommitted`]；放弃零发布。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CutoverEventBatch {
+    events: Vec<CutoverEvent>,
+}
+
+impl CutoverEventBatch {
+    pub(crate) fn revision_cutover_committed(
+        world_generation: WorldGeneration,
+        network_revision: NetworkRevisionId,
+    ) -> Self {
+        Self {
+            events: vec![CutoverEvent::RevisionCutoverCommitted {
+                world_generation,
+                network_revision,
+            }],
+        }
+    }
+
+    /// 批次内事件（规范排序）。
+    #[must_use]
+    pub fn as_slice(&self) -> &[CutoverEvent] {
+        self.events.as_slice()
+    }
+
+    /// 批次是否为空（允许空集是合同形态，v1 每次成功切换恒非空）。
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
+    pub(crate) fn len(&self) -> u64 {
+        u64::try_from(self.events.len()).expect("event count fits u64")
+    }
+}
+
 impl TrafficWorld {
     /// 签发当前活动聚合的切换世界绑定。
     ///
-    /// 输入命令游标取当前世界已应用命令计数；v1 尚无事件发布通道，
-    /// event cursor 保持零。调用方无需复制世界身份、世代或游标拼装逻辑。
+    /// 输入命令游标取当前世界已应用命令计数；事件游标取已提交切换事件
+    /// 计数（#513 切片 C-4 起为真实轴）。调用方无需复制世界身份、世代
+    /// 或游标拼装逻辑。
     #[must_use]
     pub const fn world_binding(&self) -> WorldBinding {
-        WorldBinding::new(self.world_id, self.world_generation, self.command_cursor, 0)
+        WorldBinding::new(
+            self.world_id,
+            self.world_generation,
+            self.command_cursor,
+            self.event_cursor,
+        )
     }
 
     /// 同修订换根事务（#302 切换合同 §3/§4 的 `same_revision_restore`）。
+    ///
+    /// 成功返回切换事件批次（恰一次交付）；世界事件游标同界递增。
     ///
     /// 在固定步进安全边界（生命周期命令只能在两次 `step` 之间调用）以
     /// 原子方式把活动根换为同修订重发布/重编译制品：动态状态原样保留，
@@ -653,7 +711,7 @@ impl TrafficWorld {
         target_source: CommittedNetworkSource,
         descriptor: &NetworkRevisionCutoverDescriptor,
         limits: &CutoverPreflightLimits,
-    ) -> Result<(), CutoverError> {
+    ) -> Result<CutoverEventBatch, CutoverError> {
         // 在途唯一：武装中的日志 ⟺ 存在在途切换事务（切换合同 §4）。
         if self.migration_journal.is_some() {
             return Err(CutoverError::InFlightTransaction);
@@ -674,6 +732,12 @@ impl TrafficWorld {
             return Err(CutoverError::BaselineCommandCursorMismatch {
                 descriptor: descriptor.world_binding().baseline_command_cursor(),
                 world: self.command_cursor,
+            });
+        }
+        if descriptor.world_binding().baseline_event_cursor() != self.event_cursor {
+            return Err(CutoverError::BaselineEventCursorMismatch {
+                descriptor: descriptor.world_binding().baseline_event_cursor(),
+                world: self.event_cursor,
             });
         }
         if descriptor.policy_kind() != MigrationPolicyKind::SameRevisionRestore {
@@ -738,7 +802,12 @@ impl TrafficWorld {
         self.occupancy = staged_occupancy;
         self.world_generation = next_world_generation;
         self.observation_state_sequence = ObservationStateSequence::INITIAL;
-        Ok(())
+        let events = CutoverEventBatch::revision_cutover_committed(
+            next_world_generation,
+            target_origin.network_revision(),
+        );
+        self.event_cursor += events.len();
+        Ok(events)
     }
 }
 
@@ -1004,22 +1073,6 @@ pub(crate) mod tests {
             WorldBinding::new(3, WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(descriptor.validate(base, target, &limits()), Ok(()));
-    }
-
-    #[test]
-    fn reserved_event_cursor_must_be_zero_in_v1() {
-        let base = origin(FULL_SPATIAL, true);
-        let nonzero = NetworkRevisionCutoverDescriptor::new(
-            LfcaOriginBinding::from_canonical_origin(base),
-            LfcaOriginBinding::from_canonical_origin(base),
-            None,
-            MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 7),
-        );
-        assert_eq!(
-            nonzero.validate(base, base, &limits()),
-            Err(CutoverDescriptorError::ReservedEventCursorNonZero { actual: 7 })
-        );
     }
 
     #[test]
@@ -1634,6 +1687,65 @@ pub(crate) mod tests {
                 }
             );
             assert_eq!(*world.revision().canonical_origin(), before_origin);
+        }
+        #[test]
+        fn event_cursor_baseline_is_compared_at_transaction_start() {
+            // #513 切片 C-4：事件批次通道引入后，事件基线游标在事务启动时
+            // 与世界已提交事件计数逐项比对（不再是非零即拒的预留轴）。
+            let (mut world, _, _) = world_with_vehicle(true);
+            let base = origin(FULL_SPATIAL, true);
+            let descriptor = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(base),
+                LfcaOriginBinding::from_canonical_origin(base),
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                WorldBinding::new(1, WorldGeneration::INITIAL, 2, 7),
+            );
+            assert_eq!(descriptor.validate(base, base, &limits()), Ok(()));
+            assert_eq!(world.event_cursor(), 0);
+            assert_eq!(
+                world
+                    .cutover_same_revision(
+                        revision(false),
+                        source_for(base, "fixture://event-cursor"),
+                        &descriptor,
+                        &limits(),
+                    )
+                    .unwrap_err(),
+                CutoverError::BaselineEventCursorMismatch {
+                    descriptor: 7,
+                    world: 0,
+                }
+            );
+        }
+
+        #[test]
+        fn successful_same_revision_cutover_delivers_event_batch_once() {
+            let (mut world, _, _) = world_with_vehicle(true);
+            let base = *world.revision().canonical_origin();
+            let descriptor = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(base),
+                LfcaOriginBinding::from_canonical_origin(base),
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                world.world_binding(),
+            );
+            let events = world
+                .cutover_same_revision(
+                    revision(false),
+                    source_for(base, "fixture://event-batch"),
+                    &descriptor,
+                    &limits(),
+                )
+                .expect("same-revision cutover");
+            assert_eq!(events.as_slice().len(), 1);
+            assert!(matches!(
+                events.as_slice()[0],
+                CutoverEvent::RevisionCutoverCommitted { world_generation, network_revision }
+                    if world_generation.get() == 1 && network_revision == base.network_revision()
+            ));
+            assert_eq!(world.event_cursor(), 1);
+            assert_eq!(world.world_binding().baseline_event_cursor(), 1);
         }
     }
 }
