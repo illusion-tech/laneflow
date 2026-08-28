@@ -1,6 +1,7 @@
 use laneflow_static_contract::{LaneEdgeOrdinal, MAX_VEHICLE_LENGTH_MM, SignalAspect};
 use laneflow_static_network::{BoundedDistance, VehicleProfileView};
 
+use crate::migration_journal::VehicleDelta;
 use crate::occupancy::LeaderQueryHorizon;
 #[cfg(test)]
 use crate::tables::occupancy_front_gap;
@@ -91,8 +92,21 @@ impl TrafficWorld {
             self.next_states.push((slot, next));
         }
         let mut updates = std::mem::take(&mut self.next_states);
+        // 武装期 TICK 记录在状态写回前开帧、写回后闭帧；无变化条目被过滤，
+        // 零变化步进仍保留空记录（tick/时间是候选时钟与摘要头部的收敛依据）。
+        if let Some(journal) = self.migration_journal.as_mut() {
+            journal.begin_tick(tick_index, time_ms);
+        }
         for (slot, next) in updates.drain(..) {
-            self.vehicles[slot].state = Some(next);
+            let previous = self.vehicles[slot].state.replace(next);
+            if let Some(journal) = self.migration_journal.as_mut() {
+                if !previous.as_ref().is_some_and(|old| *old == next) {
+                    journal.tick_entry(&VehicleDelta::from_state(&next));
+                }
+            }
+        }
+        if let Some(journal) = self.migration_journal.as_mut() {
+            journal.finish_tick();
         }
         self.next_states = updates;
         self.tick_index = tick_index;
