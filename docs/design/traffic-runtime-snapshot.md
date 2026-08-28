@@ -189,6 +189,34 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 exact bytes、save 停顿（墙钟与主线程）、load 停顿（editable 重编译与
 published 认证分别度量）、恢复峰值内存、保存期间对稳态 tick 的干扰。
 
+### 切片 B 初值（published fresh restore）
+
+同机描述性基线：`LF-P100-REF-01`（2026-08-28，rustc 1.98.0，release）。固定
+workload `signalized-corridor-v1` = `v0.2-signalized-corridor.lfca`（exact
+418,428 bytes，28 条 catalog 路线、2 车辆、`4 ms` 固定步进），安装后运行 64 tick；
+快照点 `tick = 64`、`command_cursor = 30`。以下数字均为初值，不是产品 Pass 阈值。
+
+证据按仪器隔离：`snapshot_budget_evidence.rs` 用 `stats_alloc` 量捕获/编码/恢复账本
+并硬断言稳态 tick 零分配及保存后的确定性；`snapshot_peak_evidence.rs` 是只有一个
+测试的独立 DHAT integration binary，profiler 只包围一次 fresh restore，量恢复调用
+新增堆块的实际高水位；`snapshot_wall_clock_evidence.rs` 不插桩且 `#[ignore]`，量
+release 墙钟中位和后台编码竞争。复现命令：
+
+```text
+cargo +1.98.0 test --release --locked -p laneflow-runtime --test snapshot_budget_evidence -- --nocapture
+cargo +1.98.0 test --release --locked -p laneflow-runtime --test snapshot_peak_evidence -- --nocapture
+cargo +1.98.0 test --release --locked -p laneflow-runtime --test snapshot_wall_clock_evidence -- --ignored --nocapture
+```
+
+| 维度                 | 切片 B 初值（release，LF-P100-REF-01）                                                                                                                                                                                                          |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 快照制品 exact bytes | LFRS `3,248` bytes                                                                                                                                                                                                                              |
+| save 主线程停顿      | 边界 `capture_snapshot` 中位 `0.002 ms`；账本 34 次分配 / 3,435 bytes，返回时净 live `2,955` bytes。随后 `encode_lfrs` 可移到后台，中位 `0.0072 ms`；账本 34 次分配 + 12 次重分配 / 9,480 allocated bytes，返回时净 live `7,448` bytes          |
+| published load 停顿  | 目标 Published 根/source 已由调用方取得后，`restore_lfrs` 内绑定认证 + verifier + 语义 lowering + fresh world 重建整次中位 `0.063 ms`；账本 386 次分配 + 13 次重分配 / 23,240 allocated bytes，返回时净 live `18,256` bytes                     |
+| editable load 停顿   | **尚未登记，不视为已满足**：当前没有 committed `RoadEditingState` 生产来源变体；随该类型落地后单列重编译与恢复，不用 published 数值代替                                                                                                         |
+| 恢复峰值内存         | DHAT 增量堆实际高水位 `19,240` bytes / 272 blocks；调用返回时 `17,920` bytes / 266 blocks。输入 LFRS 与既有共享根/source 在 profiler 前准备，不重复计入增量                                                                                     |
+| 保存期稳态 tick 干扰 | 保存前后各 32 tick 的分配账本均 0 次 / 0 bytes；后台连续执行 4,096 次 encode 时，128 tick 墙钟中位 `0.001 ms`，与无竞争基线 `0.001 ms` 相同（比值 `1,000,000 ppm`）；同 tick 序列最终确定性状态摘要相等。CPU 干扰数值仅描述本机，不作跨机硬断言 |
+
 ## 9. G2 边界与必测义务
 
 G2 落定并回写本文：schema 与版本轴到字段的显式映射、摘要输入的精确规范化
