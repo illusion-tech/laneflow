@@ -1,8 +1,8 @@
 name: 调研
 description: 探索尚未纳入路线图的想法
-title: "[调研]: "
+type: Task
 labels:
-  - research
+  - work:research
 body:
   - type: textarea
     id: question

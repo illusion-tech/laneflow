@@ -1,8 +1,8 @@
 name: 适配器
 description: 请求或变更 Engine Adapter
-title: "[适配器]: "
+type: Feature
 labels:
-  - adapter
+  - area:adapter
 body:
   - type: dropdown
     id: engine
@@ -25,10 +25,10 @@ body:
     validations:
       required: true
   - type: textarea
-    id: core-boundary
+    id: runtime-boundary
     attributes:
-      label: Core 边界
-      description: 是否涉及 Core API 或 Adapter API 变更？
+      label: 交通运行时边界
+      description: 是否涉及 Traffic Runtime API 或 Adapter API 变更？
     validations:
       required: true
   - type: textarea

@@ -1,7 +1,7 @@
 # 开发闸口
 
 **文档状态**: Active
-**最后更新**: 2026-08-25
+**最后更新**: 2026-08-28
 
 **适用范围**: LaneFlow 的需求、设计、实现、评审与合并
 
@@ -23,16 +23,16 @@
 
 ## 2. 切片类型
 
-每个 Issue 或 PR 应选择最接近的切片类型：
+每个 PR 应选择最接近的验证切片类型；它与 Issue Type、`area:*` 标签不是同一维度：
 
 - `docs-only`：只改文档。
 - `governance`：流程、模板、CI、项目治理。
-- `core-runtime`：LaneFlow Core 运行时逻辑。
+- `core-runtime`：Traffic Runtime 运行时逻辑；该字符串是现有 PR 验证分类标识符。
 - `data-spec`：lane graph、route、signal、parking 等数据格式。
 - `adapter`：Unity、Unreal、Godot、O3DE、Web 等引擎适配。
 - `authoring-tool`：道路、路线、停车位等编辑或转换工具。
 - `example`：示例项目、示例场景或演示数据。
-- `cross-layer`：同时影响 Core、数据格式、Adapter 或示例的高风险变更。
+- `cross-layer`：同时影响 Traffic Runtime、数据格式、Adapter 或示例的高风险变更。
 
 切片写在 PR 模板里给人看，不进 commit 门禁。
 
@@ -49,8 +49,10 @@
 - 影响范围
 - 是否需要 ADR 或 design 文档
 
-通过标准：已有 GitHub Issue，任务边界可独立评审，验收标准可验证。Project、
-Labels 等侧边栏字段直接在 GitHub 上维护，不要抄进 Issue 正文。
+通过标准：已有 GitHub Issue，已按 `Feature` / `Bug` / `Task` 设置原生 Type，任务边界
+可独立评审，验收标准可验证。Project、Labels 等侧边栏字段直接在 GitHub 上维护，
+不要抄进 Issue 正文。G0 完成且 G1 已接受或不适用、至少有一个 `area:*`、没有开放
+blocker 时，Project 才能进入 `Ready`。
 
 小型 `docs-only` 或 `governance` 任务可以把 G0–G2 合成一条开工说明，但必须发生在
 实现或开 PR 之前。
@@ -59,7 +61,7 @@ Labels 等侧边栏字段直接在 GitHub 上维护，不要抄进 Issue 正文�
 
 以下变更必须先通过 G1：
 
-- Core API 新增、删除或破坏性变更。
+- Traffic Runtime API 新增、删除或破坏性变更。
 - 数据格式或 schema 变更。
 - Adapter 协议变更。
 - 运行时 tick、路线、避让、信号灯、停车系统等核心规则变更。
@@ -74,16 +76,21 @@ exact head 重新取得审阅；不得沿用旧 head 的设计结论。
 或兼容层，改写 ADR/design 并只留一套。态度见
 `.agents/skills/laneflow-pre-1.0/SKILL.md`。1.0 之后的对外兼容必须单开 G1。
 
+Project 的 `Design gate` 使用 `N/A`、`Required`、`Accepted`。`Required` 表示尚未完成
+设计冻结，不能进入 `Ready`；`Accepted` 必须能链接到本节允许的设计证据。
+
 ## 5. G2 开工
 
 开工前应确认：
 
-- Issue 状态为 `Ready` 或等价状态。
+- Issue 的 Project Status 为 `Ready`。
+- Issue 有 assignee，且没有开放的 blocked-by 依赖。
 - 已阅读相关 ADR 和 design 文档。
-- 已知道本次是否影响 Core、data spec、Adapter 或 example。
+- 已知道本次是否影响 Traffic Runtime、data spec、Adapter 或 example。
 - 已知道需要补哪些测试和文档。
 
-如果实现中发现设计输入不稳定，应暂停扩展实现，回到 G1 补设计或拆子切片。
+记录 G2 后把 Project Status 更新为 `In Progress`。如果实现中发现设计输入不稳定，
+应暂停扩展实现，回到 G1 补设计或拆子切片。
 
 ## 6. 合并门禁
 
@@ -104,7 +111,7 @@ exact head 重新取得审阅；不得沿用旧 head 的设计结论。
 - `governance`：说明影响的流程和模板。
 - `core-runtime`：提供单元测试、确定性行为说明或未覆盖原因。
 - `data-spec`：说明兼容性、版本影响和示例数据影响。
-- `adapter`：说明引擎边界、Core 依赖方向和手工验证结果。
+- `adapter`：说明引擎边界、Traffic Runtime 依赖方向和手工验证结果。
 - `example`：说明示例运行方式和覆盖能力。
 - `cross-layer`：说明端到端路径、回归风险和是否需要示例 smoke test。
 
@@ -150,8 +157,8 @@ gh pr merge <number> --repo illusion-tech/laneflow --match-head-commit <H_pr>
 默认一个 Issue 一个完成它的 PR。合并后 GitHub 按 `Closes #<issue>` 关闭 Issue。
 未完成的验收拆 follow-up Issue，不要留着父 Issue 等第二份档案。
 
-Project 将对应卡片移到 `Done`。不要求手写 G4 JSON，也不运行
-`check-gate-evidence`。
+Project 将以 `Completed` 关闭的 Issue 移到 `Done`；以 `Not planned` 或 Duplicate
+关闭的 Issue 移到 `Cancelled`。不要求手写 G4 JSON，也不运行 `check-gate-evidence`。
 
 ## 8. 例外
 

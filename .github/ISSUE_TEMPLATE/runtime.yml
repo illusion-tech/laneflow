@@ -1,14 +1,14 @@
-name: Core
-description: 提出或变更 LaneFlow Core 运行时行为
-title: "[Core]: "
+name: 交通运行时
+description: 提出或变更 LaneFlow Traffic Runtime 行为
+type: Feature
 labels:
-  - core-runtime
+  - area:runtime
 body:
   - type: textarea
     id: goal
     attributes:
       label: 目标
-      description: Core 运行时行为应新增或变更什么？
+      description: 交通运行时行为应新增或变更什么？
     validations:
       required: true
   - type: dropdown
@@ -17,10 +17,10 @@ body:
       label: 子系统
       options:
         - runtime-tick
-        - vehicle-state
+        - participant-state
         - lane-graph
         - route-system
-        - vehicle-following
+        - participant-following
         - signal-system
         - intersection-rules
         - parking-system
@@ -30,8 +30,8 @@ body:
   - type: textarea
     id: api-impact
     attributes:
-      label: Core API 影响
-      description: 是否新增、变更或破坏 Core API？是否需要 ADR 或 design 文档？
+      label: Traffic Runtime API 影响
+      description: 是否新增、变更或破坏 Traffic Runtime API？是否需要 ADR 或 design 文档？
     validations:
       required: true
   - type: textarea

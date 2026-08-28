@@ -1,8 +1,8 @@
 name: 文档
-description: 文档或治理规范变更
-title: "[文档]: "
+description: 文档内容变更；治理规范请使用治理模板
+type: Task
 labels:
-  - docs
+  - area:docs
 body:
   - type: textarea
     id: goal
@@ -21,7 +21,6 @@ body:
         - roadmap
         - adr
         - design
-        - governance
         - reference
         - agents-skills
         - other

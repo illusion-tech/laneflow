@@ -35,10 +35,21 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 ## Issue
 
 - 使用仓库模板。不要填写已删除的元数据审计或 Gate Ledger。
+- 用原生 `Feature` / `Bug` / `Task` 表达工作性质；不要用同义标签或标题前缀重复。
+- 标题只写中文结果陈述，精确标识符保留原文。
+- 用 `area:*` 表达影响范围，用 `work:*` 表达工作方式；进入 `Ready` 前至少一个
+  `area:*`，跨层任务使用多个 area 标签。
 - 侧边栏的 Project、Milestone、parent、blocked-by 直接在 GitHub 上维护。
+- parent / sub-issue 表达分解，blocked-by / blocking 表达真实依赖；父任务不自动等于
+  blocker。
 - 默认一个 Issue 一个完成它的 PR。PR body 使用 `Closes #<issue>`。
 - commit footer 使用 `Refs: #<issue>`。
 - 高影响变更在实现前确认 ADR / design；文档 / 缺陷 / 调研不强制 G1。
+
+Project 状态只使用 `Backlog`、`Ready`、`In Progress`、`In Review`、`Done`、
+`Cancelled`。不要设置 `Blocked` 状态；从原生依赖关系读取阻塞。G0/G1 完成、至少一个
+area 标签且无 blocker 才能进入 `Ready`；G2 记录并有 assignee 后进入
+`In Progress`；closing PR 打开后进入 `In Review`。
 
 ## Review conversation 与合并
 

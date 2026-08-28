@@ -1,8 +1,8 @@
 name: 设计
 description: 提出或完善 LaneFlow 设计
-title: "[设计]: "
+type: Task
 labels:
-  - design
+  - work:design
 body:
   - type: textarea
     id: topic
@@ -17,7 +17,7 @@ body:
       label: 影响领域
       options:
         - project-scope
-        - core-api
+        - runtime-api
         - runtime-tick
         - lane-graph
         - route-system

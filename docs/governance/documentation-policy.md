@@ -1,7 +1,7 @@
 # 文档边界政策
 
 **文档状态**: Active  
-**最后更新**: 2026-08-23
+**最后更新**: 2026-08-28
 **适用范围**: LaneFlow 的 GitHub 治理、仓库文档治理和 AI Agent 开发上下文
 
 ## 1. 目标
@@ -29,7 +29,12 @@ Issue 用于承载：
 - AI Agent 开发任务说明
 - 验收 checklist
 
-Issue 不作为长期权威设计来源。涉及长期设计、Core API、数据格式或 Adapter 协议的结论，必须回写到仓库文档。
+Issue 的工作性质使用 GitHub 原生 `Feature` / `Bug` / `Task`；影响范围与工作方式使用
+`area:*` / `work:*` 标签；阶段使用 Project Status；交付目标使用 Milestone；任务分解
+与真实依赖分别使用 parent / sub-issue 和 blocked-by / blocking。标题只写结果，不把
+这些字段复制成方括号前缀。字段职责与取值见 `github-workflow.md`。
+
+Issue 不作为长期权威设计来源。涉及长期设计、Traffic Runtime API、数据格式或 Adapter 协议的结论，必须回写到仓库文档。
 
 ### Pull Requests
 
@@ -38,7 +43,7 @@ PR 用于承载：
 - 本次变更范围
 - 关联 Issue
 - 测试与验证结果
-- Core API 影响
+- Traffic Runtime API 影响
 - 数据格式影响
 - Adapter 协议影响
 - 已知风险与例外
@@ -58,10 +63,12 @@ GitHub Projects 用于承载：
 - In Progress
 - In Review
 - Done
-- Blocked
+- Cancelled
+- Type、Priority、Design gate
 - Milestone 视图
 
-Project 管当前优先级和进度，不承载详细架构。
+Project 管当前优先级和进度，不承载详细架构。阻塞不用 `Blocked` 状态表达，而从原生
+blocked-by 关系读取。
 长期仓库文档可以保存稳定依赖顺序、实现开工前置条件和有日期的历史完成事实，但不得
 镜像当前 Project 列、当前 Milestone 归属或原生 `Blocked by` / `Blocking` 状态；
 这些实时元数据必须在使用时从 GitHub 读取。
@@ -91,7 +98,7 @@ Releases 用于记录发布事实：
 
 - 版本说明
 - breaking changes
-- Core API 版本
+- Traffic Runtime API 版本
 - 数据格式版本
 - Adapter 兼容矩阵
 - 示例项目状态
@@ -108,7 +115,7 @@ LaneFlow 初期默认不使用 GitHub Wiki。长期知识应进入仓库文档�
 - `docs/architecture.md`：长期架构说明和分层职责。
 - `docs/roadmap.md`：稳定路线图和版本能力边界。
 - `docs/adr/`：高影响、难回退的架构决策。
-- `docs/design/`：Core、数据格式、Adapter、运行时规则等具体设计。
+- `docs/design/`：Traffic Runtime、数据格式、Adapter、运行时规则等具体设计。
 - `docs/governance/`：GitHub 流程、开发闸口、AI Agent 开发规范。
 - `docs/reference/`：术语、模板、校验矩阵、命名约定，以及仍约束实现的机器可读
   编制种子 / 生产编译基线。不存放里程碑收口审阅、逐切片验证流水账、原始性能轮次
@@ -127,7 +134,7 @@ B1 仍是未发布的内部 source。
 
 以下内容如果只存在于 Issue、PR、Discussion 或聊天记录中，不算正式完成：
 
-- Core API 边界
+- Traffic Runtime API 边界
 - 数据格式和 schema
 - Adapter 协议
 - 运行时 tick 规则
