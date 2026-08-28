@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use crate::{CapturedRoute, CapturedSnapshot, CapturedVehicle, VehicleStatus};
 
 /// 确定性状态摘要规范化版本。
-pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 2;
+pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 3;
 /// SHA-256 域分隔前缀；尾随 NUL 属于前缀字节。
 pub const RUNTIME_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-state-digest:v1\0";
 
@@ -16,9 +16,10 @@ pub const RUNTIME_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-state-digest:v
 /// SHA-256 摘要。
 ///
 /// 规范输入包括：摘要版本、世界身份、语义路网修订与六轴静态契约版本、行为语义
-/// 配置（容量 + fixed dt）、tick/时间/双游标、路线内容多重集、车辆内容多重集与 live
-/// 更新顺序。LFCA exact-byte digest/length、Published asset 审计来源、worker 计划、
-/// `WorldGeneration` 与观测 session 不进入逻辑摘要。
+/// 配置（容量 + fixed dt）、tick/时间/双游标、路线实例分组多重集（路线内容 +
+/// 车辆绑定）与 live 更新顺序（条目绑定所属路线记录）。LFCA exact-byte
+/// digest/length、Published asset 审计来源、worker 计划、`WorldGeneration` 与观测
+/// session 不进入逻辑摘要。
 #[must_use]
 pub fn deterministic_state_digest(snapshot: &CapturedSnapshot) -> Sha256Digest {
     let vehicle_by_id = snapshot
@@ -27,7 +28,7 @@ pub fn deterministic_state_digest(snapshot: &CapturedSnapshot) -> Sha256Digest {
         .map(|vehicle| {
             (
                 vehicle.snapshot_vehicle_id,
-                canonical_vehicle_record(vehicle),
+                (canonical_vehicle_record(vehicle), vehicle.snapshot_route_id),
             )
         })
         .collect::<BTreeMap<_, _>>();
@@ -43,7 +44,7 @@ pub fn deterministic_state_digest(snapshot: &CapturedSnapshot) -> Sha256Digest {
                 .vehicles
                 .iter()
                 .filter(|vehicle| vehicle.snapshot_route_id == route.snapshot_route_id)
-                .map(|vehicle| &vehicle_by_id[&vehicle.snapshot_vehicle_id])
+                .map(|vehicle| &vehicle_by_id[&vehicle.snapshot_vehicle_id].0)
                 .collect();
             bound.sort_unstable();
             let mut group = canonical_route_record(route);
@@ -58,6 +59,12 @@ pub fn deterministic_state_digest(snapshot: &CapturedSnapshot) -> Sha256Digest {
         })
         .collect::<Vec<_>>();
     route_groups.sort_unstable();
+
+    let route_record_by_id = snapshot
+        .routes
+        .iter()
+        .map(|route| (route.snapshot_route_id, canonical_route_record(route)))
+        .collect::<BTreeMap<_, _>>();
 
     let mut canonical = Vec::new();
     canonical.extend_from_slice(RUNTIME_STATE_DIGEST_DOMAIN);
@@ -101,11 +108,18 @@ pub fn deterministic_state_digest(snapshot: &CapturedSnapshot) -> Sha256Digest {
         &mut canonical,
         u64::try_from(snapshot.live_order.len()).expect("live order count fits u64"),
     );
+    // live 序条目 = 车辆记录 + 所属路线记录（内容）。跨路线换序因此可区分
+    // （pose 批次按 live 序产出，顺序可观测）；所属路线内容相同的同值车辆
+    // 换序保持等价（有序对内容相同）。
     for snapshot_vehicle_id in &snapshot.live_order {
-        let record = vehicle_by_id
+        let (record, snapshot_route_id) = &vehicle_by_id
             .get(snapshot_vehicle_id)
             .expect("captured live_order closes over captured vehicles");
         push_record(&mut canonical, record);
+        let route_record = &route_record_by_id
+            .get(snapshot_route_id)
+            .expect("captured vehicle route closes over captured routes");
+        push_record(&mut canonical, route_record);
     }
 
     let mut hasher = Sha256::new();
@@ -254,6 +268,47 @@ mod tests {
     }
 
     #[test]
+    fn digest_distinguishes_live_order_across_different_routes() {
+        // 两条内容不同的路线、两辆同值车：live 序换序 => pose 批次顺序不同，
+        // 摘要必须区分；所属路线内容相同时换序保持等价（边界登记）。
+        let (world, _, _) = world_with_vehicle(true);
+        let base = world.capture_snapshot();
+        let second_route_id = base.routes[0].snapshot_route_id + 1;
+        let second_vehicle_id = base.vehicles[0].snapshot_vehicle_id + 1;
+
+        let mut forward = base.clone();
+        let mut different_edges = base.routes[0].edges.clone();
+        // 内容不同：追加重复首边（occurrence 语义允许重复边）。
+        different_edges.push(base.routes[0].edges[0]);
+        forward.routes.push(CapturedRoute {
+            snapshot_route_id: second_route_id,
+            edges: different_edges,
+        });
+        let mut second = base.vehicles[0].clone();
+        second.snapshot_vehicle_id = second_vehicle_id;
+        second.snapshot_route_id = second_route_id;
+        forward.vehicles.push(second.clone());
+        forward.live_order.push(second_vehicle_id);
+
+        let mut reversed = forward.clone();
+        reversed.live_order = vec![second_vehicle_id, base.vehicles[0].snapshot_vehicle_id];
+        assert_ne!(
+            deterministic_state_digest(&forward),
+            deterministic_state_digest(&reversed)
+        );
+
+        // 边界：两条路线内容改回相同 => 条目字节相同，换序等价。
+        let mut equal_forward = forward.clone();
+        equal_forward.routes[1].edges = base.routes[0].edges.clone();
+        let mut equal_reversed = equal_forward.clone();
+        equal_reversed.live_order = reversed.live_order.clone();
+        assert_eq!(
+            deterministic_state_digest(&equal_forward),
+            deterministic_state_digest(&equal_reversed)
+        );
+    }
+
+    #[test]
     fn digest_ignores_local_ids_source_audit_and_worker_plan() {
         let (world, _, _) = world_with_vehicle(true);
         let original = world.capture_snapshot();
@@ -261,9 +316,9 @@ mod tests {
         assert_eq!(
             expected,
             Sha256Digest::from_bytes([
-                0x37, 0x15, 0x05, 0xc7, 0x41, 0x0f, 0x20, 0x23, 0xc6, 0x19, 0x6a, 0x43, 0x67, 0xd8,
-                0x1f, 0x50, 0x8f, 0x05, 0x01, 0xf7, 0x13, 0x7c, 0xca, 0xe2, 0xb0, 0x72, 0xbb, 0xd9,
-                0x5b, 0x68, 0xf1, 0x9c,
+                0xd7, 0x85, 0xfc, 0x18, 0xd2, 0xa3, 0xfb, 0xd1, 0xee, 0xc2, 0x64, 0x5e, 0x4a, 0xac,
+                0xed, 0xb6, 0x7d, 0x4f, 0xad, 0xd9, 0x7e, 0x2f, 0xaa, 0x24, 0x8a, 0xee, 0x52, 0x68,
+                0xdc, 0xf6, 0x13, 0x84,
             ])
         );
         let mut equivalent = original.clone();
