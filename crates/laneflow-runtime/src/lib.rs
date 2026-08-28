@@ -28,6 +28,9 @@ pub use cutover::{
     CutoverPreflightLimits, LfcaOriginBinding, MigrationPolicyKind,
     NetworkRevisionCutoverDescriptor, SemanticDiffOriginBinding, WorldBinding,
 };
+// 直移核心的生产消费方是本切片（#513）后续提交的切换事务；接入后移除。
+#[allow(dead_code)]
+mod cutover_migration;
 pub use error::{InstallError, ParkingError, ReplaceError, RouteError, SpawnError, StepError};
 pub use handle::{RouteHandle, VehicleHandle};
 pub use input::{RouteRegisterInput, VehicleSpawnInput};

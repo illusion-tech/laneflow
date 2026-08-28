@@ -13,6 +13,7 @@ name = "laneflow_runtime"
 path = "src/lib.rs"
 
 [dependencies]
+laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 laneflow-runtime-snapshot-wire = { version = "0.0.0", path = "../laneflow-runtime-snapshot-wire" }
 laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
 laneflow-static-network = { version = "0.0.0", path = "../laneflow-static-network" }
@@ -23,7 +24,6 @@ thiserror = "2.0"
 dhat = "=0.3.3"
 laneflow-compiler = { version = "0.0.0", path = "../laneflow-compiler" }
 laneflow-corridor-generator = { version = "0.0.0", path = "../../tools/laneflow-corridor-generator" }
-laneflow-format = { version = "0.0.0", path = "../laneflow-format" }
 laneflow-scenario = { version = "0.0.0", path = "../laneflow-scenario" }
 laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
 stats_alloc = "=0.1.10"
