@@ -1107,13 +1107,6 @@ pub(crate) mod tests {
             VehicleSpawnInput, VehicleStatus, WorldConfig,
         };
 
-        const PROVENANCE_BASE: &[u8] = include_bytes!(
-            "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-base.lfca"
-        );
-        const PROVENANCE_BUILD: &[u8] = include_bytes!(
-            "../../laneflow-compiler/tests/fixtures/portable/lfca-variants/provenance-build.lfca"
-        );
-
         /// 同一 LFCA 字节按不同 Spatial 构建选项构建两个根对象：origin
         /// 四联相同（同修订换根判据成立），根对象身份不同（真实换绑路径）。
         /// 可行驶的同修订不同字节对不在现有夹具内；provenance 对只覆盖

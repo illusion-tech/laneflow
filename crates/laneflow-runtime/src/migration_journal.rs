@@ -26,6 +26,26 @@ use crate::{RouteHandle, VehicleHandle, VehicleState, VehicleStatus};
 /// （合同 §9「迁移增量日志」行）。
 pub const DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES: u64 = 8 * 1024 * 1024;
 
+/// 武装中迁移增量日志的宿主可观测统计快照（#513 切片 C：追赶滞后与
+/// 后台资源预算的观测面）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MigrationJournalStats {
+    /// 字节上界（arena 预留量）。
+    pub byte_bound: u64,
+    /// 已写入字节数。
+    pub written_bytes: u64,
+    /// 成功写入的记录数。
+    pub record_count: u64,
+    /// 是否已溢出（粘性）。
+    pub overflowed: bool,
+    /// 武装后首条 TICK 记录的 tick 序号。
+    pub first_tick: Option<u64>,
+    /// 最近一条 TICK 记录的 tick 序号。
+    pub last_tick: Option<u64>,
+    /// 覆盖区间下界的基线命令游标。
+    pub baseline_command_cursor: u64,
+}
+
 /// 日志武装失败（切换合同 §8 按「候选构造失败」处置：丢弃候选，旧世界无感知）。
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub(crate) enum MigrationJournalError {
@@ -245,8 +265,6 @@ pub(crate) struct MigrationDeltaJournal {
     record_count: u64,
     first_tick: Option<u64>,
     last_tick: Option<u64>,
-    // 覆盖区间下界登记：测试断言与证据消费。
-    #[allow(dead_code)]
     baseline_command_cursor: u64,
     /// 打开的 TICK 记录的 entry_count 字段在 arena 中的绝对偏移。
     open_tick_count_at: Option<usize>,
@@ -290,38 +308,42 @@ impl MigrationDeltaJournal {
     }
 
     /// 已写入字节数。
-    // 滞后/溢出观测面：测试与切片 C 证据消费。
-    #[allow(dead_code)]
     pub(crate) fn written_bytes(&self) -> u64 {
         u64::try_from(self.bytes.len()).expect("journal length fits u64")
     }
 
     /// 成功写入的记录数。
-    // 滞后/溢出观测面：测试与切片 C 证据消费。
-    #[allow(dead_code)]
     pub(crate) const fn record_count(&self) -> u64 {
         self.record_count
     }
 
     /// 武装后首条 TICK 记录的 tick 序号。
-    // 滞后/溢出观测面：测试与切片 C 证据消费。
-    #[allow(dead_code)]
     pub(crate) const fn first_tick(&self) -> Option<u64> {
         self.first_tick
     }
 
     /// 最近一条 TICK 记录的 tick 序号。
-    // 滞后/溢出观测面：测试与切片 C 证据消费。
-    #[allow(dead_code)]
     pub(crate) const fn last_tick(&self) -> Option<u64> {
         self.last_tick
     }
 
     /// 覆盖区间下界的基线命令游标。
-    // 滞后/溢出观测面：测试与切片 C 证据消费。
-    #[allow(dead_code)]
     pub(crate) const fn baseline_command_cursor(&self) -> u64 {
         self.baseline_command_cursor
+    }
+
+    /// 宿主可观测统计快照：滞后、字节占用、溢出与覆盖区间下界。
+    #[must_use]
+    pub fn stats(&self) -> MigrationJournalStats {
+        MigrationJournalStats {
+            byte_bound: self.byte_bound,
+            written_bytes: self.written_bytes(),
+            record_count: self.record_count(),
+            overflowed: self.overflowed(),
+            first_tick: self.first_tick(),
+            last_tick: self.last_tick(),
+            baseline_command_cursor: self.baseline_command_cursor(),
+        }
     }
 
     /// 解码整个日志。溢出日志不可解码：其尾记录可能残缺，事务必须先观察到

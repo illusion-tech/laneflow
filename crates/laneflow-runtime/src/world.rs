@@ -254,6 +254,18 @@ impl TrafficWorld {
         self.migration_journal.as_ref()
     }
 
+    /// 武装中迁移增量日志的统计快照；`None` = 无在途切换事务。宿主据此
+    /// 观测追赶滞后（tick 距离）、字节占用与溢出，编排泵入节奏或在超限
+    /// 前显式改用维护暂停模式重试。
+    #[must_use]
+    pub fn migration_journal_stats(
+        &self,
+    ) -> Option<crate::migration_journal::MigrationJournalStats> {
+        self.migration_journal
+            .as_ref()
+            .map(|journal| journal.stats())
+    }
+
     /// 注册本世界路线。失败不留下半条路线。
     ///
     /// 在 compiled 槽位物化分段 `u32` 前缀、后缀距离、受控 hop 链和限速下降转换；

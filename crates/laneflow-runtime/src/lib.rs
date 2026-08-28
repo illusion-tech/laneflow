@@ -36,7 +36,7 @@ pub use error::{InstallError, ParkingError, ReplaceError, RouteError, SpawnError
 pub use handle::{RouteHandle, VehicleHandle};
 pub use input::{RouteRegisterInput, VehicleSpawnInput};
 pub use laneflow_static_contract::ParkingSpaceOrdinal;
-pub use migration_journal::DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES;
+pub use migration_journal::{DEFAULT_MIGRATION_DELTA_JOURNAL_BYTES, MigrationJournalStats};
 pub use observation::{
     CommittedTrafficObservationBatch, CommittedTrafficObservationRow, OBSERVATION_BINDING_VERSION,
     ObservationBatchBase, ObservationError, ObservationExportMode, ObservationExportSession,
