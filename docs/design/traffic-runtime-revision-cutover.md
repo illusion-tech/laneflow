@@ -244,11 +244,11 @@ G2 回写（切片 A 落定，#511）：
   target 根重编译成功）加逻辑恒等 oracle（切换与未切换世界在切换边界与
   每一步之后比对完整规范化已提交状态：tick/时间、全部车辆整值状态、
   位姿来源、信号灯色组、停车占用）。等修订号 ⇒ 语义载荷相等 ⇒ 重编译
-  确定性同构，因此 Prepare 段重编译/计数失败在合法输入下结构性不可达，
-  作为防御性闭合保留：不可注入测试，由失败关闭检视覆盖，不属于 §8
-  「候选构造失败」的可注入形态（v1 可失败 Prepare = 暂存分配失败
+  确定性同构，因此 Prepare 段路线内容/计数失败在合法输入下结构性不可达，
+  作为防御性闭合保留。#303 将 compiled-route 热表改为可失败预留后，v1
+  可注入 Prepare 失败包括候选表或路线编译缓冲预留失败
   （`StagingAllocFailed`）与占用重建容量预留失败
-  （`OccupancyRebuild(OccupancyAllocFailed)`）两条路径）。
+  （`OccupancyRebuild(OccupancyAllocFailed)`）；两者都在提交前返回并保持旧聚合不变。
 - 同步形态边界：Prepare 与 Quiescent Commit 在同一次 `&mut self` 调用内
   完成，无 tick 交错、无并发候选；「稳态 tick 不因准备新增分配」的 v1
   可测形式 = 切换前后稳态 tick 分配账本相等（实测均为零，§9 初值表）。

@@ -13,7 +13,7 @@ use thiserror::Error;
 use crate::source::CommittedNetworkSource;
 use crate::tables::CompiledRoute;
 use crate::tables::compile_route;
-use crate::{StepError, TrafficWorld};
+use crate::{RouteError, StepError, TrafficWorld};
 
 /// 描述符封闭契约版本（#302 切换合同 §2）。
 pub const CUTOVER_DESCRIPTOR_FORMAT_VERSION: u16 = 1;
@@ -410,12 +410,10 @@ pub enum CutoverError {
     /// 晋升后占用索引重建失败（同修订不变量下语义上不可达）。
     #[error("占用索引重建失败")]
     OccupancyRebuild(#[from] StepError),
-    /// 暂存结构容量预留失败。
+    /// 暂存结构或路线编译缓冲容量预留失败。
     ///
-    /// 语义边界：失败关闭合同覆盖逻辑故障与可恢复错误；进程级分配
-    /// abort（与 tick 路径 `Vec::reserve` 同类）不在此列。本暂存表用
-    /// try 预留是与占用暂存周边的一致性选择，不是消除 abort——
-    /// `compile_route` 与 tick 热路径的不可失败分配是既有全 crate 立场。
+    /// 切换候选表和每条 compiled-route 热表都在提交前可失败预留；
+    /// 任一失败保持旧根、旧来源、旧路线和旧占用不变。
     #[error("切换暂存容量预留失败")]
     StagingAllocFailed,
 }
@@ -483,8 +481,13 @@ impl TrafficWorld {
             if let Some(compiled) = slot.compiled.as_ref() {
                 staged.push((
                     index,
-                    compile_route(target_traffic, compiled.edges.as_ref())
-                        .map_err(|_| CutoverError::RouteRevalidationFailed)?,
+                    compile_route(target_traffic, compiled.edges.as_slice()).map_err(|error| {
+                        if error == RouteError::AllocationFailed {
+                            CutoverError::StagingAllocFailed
+                        } else {
+                            CutoverError::RouteRevalidationFailed
+                        }
+                    })?,
                 ));
             }
         }
@@ -807,6 +810,7 @@ mod tests {
         };
 
         use super::*;
+        use crate::tables::with_route_allocation_failure_after;
         use crate::{RouteRegisterInput, TickInput, VehicleSpawnInput, WorldConfig};
 
         const PROVENANCE_BASE: &[u8] = include_bytes!(
@@ -861,7 +865,7 @@ mod tests {
             let origin = *revision.canonical_origin();
             let mut world = TrafficWorld::install(
                 Arc::clone(&revision),
-                WorldConfig::new(8, 4, 1, 100),
+                WorldConfig::new(8, 4, 1_024, 1, 100),
                 source_for(origin, "fixture://base"),
                 1,
             )
@@ -941,6 +945,42 @@ mod tests {
             assert_eq!(edges_before, edges_after);
             // 换绑后世界继续确定性步进。
             world.step(TickInput::new(100)).expect("step after");
+        }
+
+        #[test]
+        fn route_allocation_failure_aborts_without_partial_cutover() {
+            let (mut world, route, vehicle) = world_with_vehicle(true);
+            let before_origin = *world.revision().canonical_origin();
+            let before_source = world.committed_source().clone();
+            let before_state = world.vehicle_state(vehicle).copied().expect("vehicle");
+            let before_edges = world.route_edges(route).expect("route").to_vec();
+
+            let target = revision(false);
+            let target_origin = *target.canonical_origin();
+            let descriptor = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(before_origin),
+                LfcaOriginBinding::from_canonical_origin(target_origin),
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                WorldBinding::new(1, 0, 0),
+            );
+            let result = with_route_allocation_failure_after(0, || {
+                world.cutover_same_revision(
+                    target,
+                    source_for(target_origin, "fixture://republished"),
+                    &descriptor,
+                    &limits(),
+                )
+            });
+
+            assert_eq!(result.unwrap_err(), CutoverError::StagingAllocFailed);
+            assert_eq!(*world.revision().canonical_origin(), before_origin);
+            assert_eq!(world.committed_source(), &before_source);
+            assert_eq!(world.vehicle_state(vehicle), Some(&before_state));
+            assert_eq!(world.route_edges(route), Some(before_edges.as_slice()));
+            world
+                .step(TickInput::new(100))
+                .expect("old world still steps");
         }
 
         #[test]
