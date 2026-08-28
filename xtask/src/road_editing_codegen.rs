@@ -57,7 +57,7 @@ fn parse_flatc_path(args: &[String]) -> Result<PathBuf, String> {
     match args {
         [flag, path] if flag == "--flatc" && !path.is_empty() => Ok(PathBuf::from(path)),
         _ => Err(
-            "用法：cargo +1.96.0 run --locked -p xtask -- check-road-editing-codegen --flatc <flatc-path>"
+            "用法：cargo +1.98.0 run --locked -p xtask -- check-road-editing-codegen --flatc <flatc-path>"
                 .to_string(),
         ),
     }

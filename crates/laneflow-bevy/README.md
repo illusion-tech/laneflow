@@ -50,7 +50,7 @@ catalog 0.3 与 LFCA，prepare 绑到已安装共享路网修订，不恢复 50�
 最小 Bevy 证据是 `runtime_min`；走廊最小路径是 `signalized_corridor`：
 
 ```powershell
-cargo +1.96.0 test --locked -p laneflow-bevy --test runtime_min_smoke
-cargo +1.96.0 test --locked -p laneflow-bevy --test signalized_corridor_smoke
-cargo +1.96.0 check --locked -p laneflow-bevy --example runtime_min --example signalized_corridor --features native-example
+cargo +1.98.0 test --locked -p laneflow-bevy --test runtime_min_smoke
+cargo +1.98.0 test --locked -p laneflow-bevy --test signalized_corridor_smoke
+cargo +1.98.0 check --locked -p laneflow-bevy --example runtime_min --example signalized_corridor --features native-example
 ```
