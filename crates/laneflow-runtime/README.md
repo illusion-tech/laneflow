@@ -29,6 +29,9 @@ SHA-256 状态身份。
 检查点宿主可从不可变 `CapturedRoute` / `CapturedVehicle` 读取局部 ID 与逻辑字段，
 恢复后从 `RestoredSnapshot::route_mappings` / `vehicle_mappings` 取得按局部 ID 排序的
 完整新句柄表；检查点后的实体继续由宿主命令自带耐久 ID，Runtime 不接管输入日志。
+快照预算证据按仪器拆分为 allocation ledger、DHAT restore heap high-water mark 与
+未插桩 release wall-clock 三个独立 integration binaries，避免把累计分配量或插桩
+计时误报为恢复峰值/产品门槛。
 
 本 crate 不依赖 Spatial、compiler、Serde、文件系统或 `laneflow-core`。契约见
 `docs/design/traffic-runtime-shared-consumption.md` 与
