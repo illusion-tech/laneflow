@@ -58,3 +58,9 @@ capacity、调用方自有随机流。派生状态（信号灯色、车道占用
 同修订判据 = `NetworkRevisionId` + `networkRevisionDerivationVersion` + 契约版本
 精确相等；origin 字节差异仅承担来源审计，published 重发布的摘要错配在判据满足
 时允许恢复。
+
+生产 reader 为 `laneflow-runtime::restore_lfrs`：framing 与 file identifier 先于
+有界 verifier；verifier 先于领域分配；版本/绑定/配置与根表基数先于语义 lowering。
+恢复在不可见的局部 world 内完成，路线统一经 `register_admitted_route`，车辆与停车
+复用共同 Runtime 不变量，最终重建派生信号/占用并把命令游标还原为捕获值；任一失败
+不返回半个 world。

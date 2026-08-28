@@ -18,6 +18,13 @@ dirty journal 或后台任务，观测 session/基线也不进入 Runtime Snapsh
 唯一路线编译入口。回放/恢复使用不含旧成本 provenance 的
 `register_admitted_route`；两条路径与 direct `register_route` 共用路线槽和边出现项容量。
 
+Runtime Snapshot 以 `capture_snapshot` 在固定步进边界冻结不可变逻辑状态，再由
+`encode_lfrs` 离线编码。`restore_lfrs` 先核对 framing / file identifier / verifier
+预算，再执行版本、来源、配置、标识、引用、排列、停车和值不变量 lowering；所有路线
+经 `register_admitted_route`，所有车辆/停车经共同运行时不变量入口在局部 world 中
+重建，完全成功后才返回 `RestoredSnapshot` 及局部 ID 到新句柄映射。
+
 本 crate 不依赖 Spatial、compiler、Serde、文件系统或 `laneflow-core`。契约见
 `docs/design/traffic-runtime-shared-consumption.md` 与
-`docs/design/traffic-observation-and-routing-integration.md`。
+`docs/design/traffic-observation-and-routing-integration.md`、
+`docs/design/traffic-runtime-snapshot.md`。

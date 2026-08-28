@@ -127,6 +127,14 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   验证——不可达时钟对会派生出错误的信号与回放分歧）。任一违反零部分恢复。
 - 恢复成功后世界处于快照 `tick` 边界的一致状态；`install` 核对与
   `register_admitted_route` 规范化路线重建沿现行消费契约执行。
+- G2 fresh restore 入口 `restore_lfrs` 的顺序不可绕过：调用方 wire / asset-key
+  上限 → size prefix / file identifier → 有界 FlatBuffers verifier → 版本/绑定/配置与
+  表基数预检 → 标识、引用、排列、停车和值不变量 lowering → 局部 world 路线/车辆/
+  占用重建。任一失败只丢弃 staging；成功才返回 world 与快照局部路线/车辆 ID 到新
+  句柄的映射。fresh restore 从初始 `WorldGeneration` / 初始观测 stream 建立；调用方
+  不得让同一 `world_id` 的旧 world 或旧 session 并存。Published 目标允许同修订
+  重发布的 digest / length 不同，但目标 source 与目标根、快照 source 与快照根各自的
+  `NetworkRevisionId` 必须闭合。
 
 ## 6. 回放与确定性状态摘要
 

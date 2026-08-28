@@ -10,6 +10,7 @@ mod occupancy;
 mod pose;
 mod routing;
 mod snapshot;
+mod snapshot_restore;
 mod source;
 mod tables;
 mod tick;
@@ -42,6 +43,10 @@ pub use routing::{
 pub use snapshot::{
     CapturedRoute, CapturedSnapshot, CapturedVehicle, RUNTIME_STATE_VERSION,
     SNAPSHOT_FORMAT_VERSION, encode_lfrs,
+};
+pub use snapshot_restore::{
+    RestoredSnapshot, SnapshotLimitDimension, SnapshotRestoreError, SnapshotRestoreLimits,
+    restore_lfrs,
 };
 pub use source::{CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference};
 pub use vehicle::{VehicleReplaceBlock, VehicleReplaceRecord, VehicleState, VehicleStatus};
