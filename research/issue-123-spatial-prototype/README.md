@@ -15,7 +15,6 @@
 
 ```powershell
 cargo +1.98.0 test -p laneflow-spatial-research --locked
-cargo +stable test -p laneflow-spatial-research --locked
 ```
 
 本目录中的常量和接口形状只有研究意义；正式实现必须以 #123 已接受的 ADR、设计文档和后续实施 Issue 为准。
