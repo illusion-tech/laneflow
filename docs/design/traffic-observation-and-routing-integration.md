@@ -378,8 +378,8 @@ occurrence 超过恢复配置则整次恢复失败关闭。
 度量沿 `LF-P100-REF-01` 同机描述性基线；G2 登记首轮数值。1.0 前预算可依据可复现的
 实现、工作负载和产品证据收紧、放宽或重构；每次变化必须说明原判据为何不再成立、
 更新同一事实源，并在影响实现合同或验收结论时返回 G1，不能在 G2 静默改口径。所有
-条目数、exact bytes、累计分配、峰值 retained bytes、墙钟与 tick 间隔干扰同时报告，
-不能用单个平均耗时代替。
+条目数、exact bytes、累计分配、峰值 retained bytes（或由累计分配导出的同等保守
+上界）、墙钟与 tick 间隔干扰同时报告，不能用单个平均耗时代替。
 
 `LF-P100-REF-01` 只冻结参考机器，不是 workload。每个正式 case 必须绑定可重放的
 workload ID、source commit、路网/状态/selection digest、车辆规模与 lifecycle mix、
@@ -406,6 +406,82 @@ seed、`WorldConfig` provenance、fixed-step 输入序列、导出 cadence、war
 观测导出与候选注册都是 step 之间的显式调用；允许它们延迟下一 tick，但不允许与
 一次 tick 交错或产生半提交状态。无导出调用时，#303 不得新增 per-tick 全网复制、
 dirty journal、墙钟任务或 allocator 活动。
+
+### 7.1 `LF-ROUTING-G2-LINEAR-v1` 首轮描述性证据
+
+2026-08-28，G2 以 source commit
+`67c4cf2e89f7cef66b3ad6f2892fe8a261b6199d` 在当前
+`LF-P100-REF-01` 物理机运行首轮具名 Routing case。机器按当前权威
+`laneflow-p100-hardware-identity-v2` 复核通过；实际环境为 Windows 11 Insider build
+29648、交流电/平衡电源计划、Rust 1.98.0 / LLVM 22.1.8。厂商性能模式未登记，因此
+即使数值满足本 case 的描述性观察，也不能形成 Product Pass。
+
+工作负载与绑定冻结为：
+
+| 输入                   | 值                                                                                       |
+| ---------------------- | ---------------------------------------------------------------------------------------- |
+| topology               | seed 303；4096-edge directed linear chain；每边 100 m、13.9 m/s；Spatial omitted         |
+| state                  | 0 vehicles；64 × 4 ms warm-up；AllLaneEdges；state sequence 64                           |
+| `WorldConfig`          | vehicle 0；route 1；occurrence 4096；worker 1；fixed delta 4 ms                          |
+| cost receiver          | binding v1；4096 × (`StableId128` + `u64-le`)；98304 exact bytes；上限恰为该 count/bytes |
+| candidate              | 1 / 128 / 4096 edges；输入构造在测量区外；成功注册后在测量区外移除                       |
+| allocation protocol    | 插桩 release 独立进程；steady tick 各 32 samples；墙钟不在该进程采信                     |
+| wall-clock protocol    | 未插桩 release；3 个 fresh-process rounds；每操作 3 warm-up + 21 measured samples        |
+| certification boundary | `Product TBD / Uncertified`；不是 `LF-SYNTH-v1` W1–W4，也不覆盖真实车辆/产品组合         |
+
+可重放身份为：LFCA exact bytes 1311878，artifact
+`b65e84e4813d9298ce9d3c5f70abbb05c0ab24027b81b9b7762ef04a8e7119e4`，
+`NetworkRevisionId = 5c55b3a80c544717bc912b7a3a5049cde6e7f4f9cd136be2fd214daa91d75861`，
+workload manifest `2fb3ece10d5c20ba0394d52dfd5dfdda137a1d3dc8b71869b50e0896cc75c326`，
+state `621c4e55ee2ec4e2587debc8d4b122929bc61ae3e3058bd99f855191a2ab8e82`，
+selection `07854493ce2896c4b39df07c426fa8d73e558f16efe19cff2f37199a09afd204`，
+observation set `2ca476504489ee1aead1484a3312efba95d0f1f2dac6f9a813f51a3d86da1505`，
+dynamic cost snapshot
+`e2d09babfe471eedb44b4a4b6fbb00b99e01d61667c54f948cf275e340413c19`。
+allocation 与 wall-clock 分别使用独立 fixed-input-sequence digest
+`405c07b9bd7f879ad8de57f473dc87e1da8e549a7151a5be99e7107d0503e72d` /
+`2ab6edd3852bd6b3c7989b8389f8bbf259e4a4a7b6b18c27a96be05fbbf7ed01`。
+
+分配/retained 账本如下。`peak live upper bound` 是测量区累计 allocated bytes 给出的
+保守上界；candidate 的 `adjusted live` 把在测量区外分配、在注册时被消费的 caller
+输入 bytes 加回，防止把 route retained 误算成较小值。
+
+| 操作                   | allocation / reallocation | allocated / deallocated bytes | live/retained 结果                              | peak live upper bound |
+| ---------------------- | ------------------------- | ----------------------------- | ----------------------------------------------- | --------------------- |
+| steady tick before     | 0 / 0                     | 0 / 0                         | live delta 0                                    | 0                     |
+| observation full       | 2 / 0                     | 327680 / 163840               | batch 164032；session 278720；live delta 163840 | 327680                |
+| observation delta zero | 1 / 0                     | 163840 / 163840               | batch 192；session 278720；live delta 0         | 163840                |
+| cost receiver          | 0 / 0                     | 0 / 0                         | live delta 0                                    | 0                     |
+| candidate 1 edge       | 8 / 0                     | 40 / 32                       | adjusted live after registration 24             | 40                    |
+| candidate 128 edges    | 12 / 0                    | 11216 / 4096                  | adjusted live after registration 9168           | 11216                 |
+| candidate 4096 edges   | 12 / 0                    | 360400 / 131072               | adjusted live after registration 294864         | 360400                |
+| steady tick after      | 0 / 0                     | 0 / 0                         | live delta 0                                    | 0                     |
+
+墙钟表中 p50/MAD/p95/p99 均先逐 round 计算、再取三个 round-level 值的中位数；
+`worst` 是全部 63 个 measured samples 的最大值。单位均为 ns。
+
+| 操作                   | p50 median | MAD median | p95 median | p99 median | worst   |
+| ---------------------- | ---------- | ---------- | ---------- | ---------- | ------- |
+| steady tick before     | 19300      | 0          | 19500      | 27400      | 196000  |
+| observation full       | 153500     | 10400      | 165700     | 180900     | 247200  |
+| observation delta zero | 52500      | 100        | 56900      | 59600      | 196700  |
+| cost receiver          | 99900      | 100        | 118500     | 122700     | 147100  |
+| candidate 1 edge       | 1000       | 0          | 1100       | 1100       | 1100    |
+| candidate 128 edges    | 26300      | 200        | 33700      | 35700      | 53800   |
+| candidate 4096 edges   | 821000     | 4200       | 841300     | 1082700    | 3905400 |
+| steady tick after      | 19100      | 100        | 19200      | 19600      | 23600   |
+
+证据支持的结论仅为：无显式 #303 调用时，零车稳态 tick 前后保持 0 allocation / 0
+reallocation；receiver 在 exact count/bytes 预检后零分配；candidate 的 retained 与墙钟
+随 1/128/4096 edges 呈可解释扩展。4096-edge 最坏单样本 3.9054 ms 虽低于本 fixture 的
+4 ms quantum，但它是 OS/tail 可见的描述值，不构成产品预算或 SLA。显式调用可能以自身
+墙钟延迟下一 tick，但测试前后状态与分配不变量证明其不与一次 tick 交错，也未留下持续
+allocator 工作。
+
+完整环境、配置、逐 round raw samples、分配账本与复现命令登记在
+[#521 raw evidence comment](https://github.com/illusion-tech/laneflow/pull/521#issuecomment-5449994930)。
+该不可变 PR 证据与 source commit 配对，闭合 §7 的首轮具名描述性切片；真实 snapshot
+restore/replay 消费仍由 #512 后续集成验证，不能由本 case 替代。
 
 ## 8. G2 边界与必测义务
 
@@ -437,9 +513,9 @@ G2 已进一步落定 `ObservationSetBinding`、`DynamicCostSnapshotBinding`、�
 `u64::try_from(payload.len())` 度量 `exactByteLength`，并由调用方显式提供
 `maxEntryCount/maxExactByteLength`；它在解析、分配和哈希前先拒绝 bytes/count 上限，
 随后验证实际固定宽度 fixture 条目数与 §3 摘要。该配置是宿主 receiver provenance，
-不进入 `WorldConfig`，也不是 LaneFlow 产品默认成本格式。后续 G2 仍需登记具名 Routing
-P100 工作负载的 receiver 配置值与首轮描述性结果，并与 #512 的真实 restore/replay
-消费一起闭合。若实现证明必须
+不进入 `WorldConfig`，也不是 LaneFlow 产品默认成本格式。§7.1 已登记具名 Routing
+工作负载的 receiver 配置值与首轮 P100 参考机描述性结果；G2 剩余集成边界是 #512 的
+真实 restore/replay 消费。若实现证明必须
 新增跨进程 wire、`laneflow-routing` 算法 crate、tick 维护 journal、持久化成本
 provenance，或无法复用唯一 route 编译器，必须停止并返回 G1。上述清单不穷尽返回
 条件：即使未命中枚举，只要实现、实测或真实产品约束证明权威边界、字段、格式选择、
