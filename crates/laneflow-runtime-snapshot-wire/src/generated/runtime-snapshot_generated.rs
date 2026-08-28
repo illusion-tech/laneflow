@@ -616,8 +616,10 @@ pub enum WorldConfigBindingOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
 /// `WorldConfig` 的完整绑定。恢复核对按合同 §2 两分：
-/// `fixed_delta_time_ms` 必须精确相等；`vehicle_capacity` / `route_capacity`
-/// 为语义容量，只许放大；`worker_count` 属可重建执行计划字段，不参与核对。
+/// `fixed_delta_time_ms` 必须精确相等；`vehicle_capacity` / `route_capacity` /
+/// `route_edge_occurrence_capacity` 为语义容量，只许放大（occurrence 容量按
+/// 全部存活动态路线边序列的总 occurrence 计，重复边重复计数，#303 G1 已接受
+/// 合同；运行时面随 #521 落地）；`worker_count` 属可重建执行计划字段，不参与核对。
 pub struct WorldConfigBinding<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
@@ -633,8 +635,9 @@ impl<'a> ::flatbuffers::Follow<'a> for WorldConfigBinding<'a> {
 impl<'a> WorldConfigBinding<'a> {
   pub const VT_VEHICLE_CAPACITY: ::flatbuffers::VOffsetT = 4;
   pub const VT_ROUTE_CAPACITY: ::flatbuffers::VOffsetT = 6;
-  pub const VT_WORKER_COUNT: ::flatbuffers::VOffsetT = 8;
-  pub const VT_FIXED_DELTA_TIME_MS: ::flatbuffers::VOffsetT = 10;
+  pub const VT_ROUTE_EDGE_OCCURRENCE_CAPACITY: ::flatbuffers::VOffsetT = 8;
+  pub const VT_WORKER_COUNT: ::flatbuffers::VOffsetT = 10;
+  pub const VT_FIXED_DELTA_TIME_MS: ::flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -647,6 +650,7 @@ impl<'a> WorldConfigBinding<'a> {
   ) -> ::flatbuffers::WIPOffset<WorldConfigBinding<'bldr>> {
     let mut builder = WorldConfigBindingBuilder::new(_fbb);
     builder.add_fixed_delta_time_ms(args.fixed_delta_time_ms);
+    builder.add_route_edge_occurrence_capacity(args.route_edge_occurrence_capacity);
     builder.add_worker_count(args.worker_count);
     builder.add_route_capacity(args.route_capacity);
     builder.add_vehicle_capacity(args.vehicle_capacity);
@@ -667,6 +671,13 @@ impl<'a> WorldConfigBinding<'a> {
     // Created from valid Table for this object
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u32>(WorldConfigBinding::VT_ROUTE_CAPACITY, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn route_edge_occurrence_capacity(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(WorldConfigBinding::VT_ROUTE_EDGE_OCCURRENCE_CAPACITY, Some(0)).unwrap()}
   }
   #[inline]
   pub fn worker_count(&self) -> u32 {
@@ -692,6 +703,7 @@ impl ::flatbuffers::Verifiable for WorldConfigBinding<'_> {
     v.visit_table(pos)?
      .visit_field::<u32>("vehicle_capacity", Self::VT_VEHICLE_CAPACITY, false)?
      .visit_field::<u32>("route_capacity", Self::VT_ROUTE_CAPACITY, false)?
+     .visit_field::<u64>("route_edge_occurrence_capacity", Self::VT_ROUTE_EDGE_OCCURRENCE_CAPACITY, false)?
      .visit_field::<u32>("worker_count", Self::VT_WORKER_COUNT, false)?
      .visit_field::<u64>("fixed_delta_time_ms", Self::VT_FIXED_DELTA_TIME_MS, false)?
      .finish();
@@ -701,6 +713,7 @@ impl ::flatbuffers::Verifiable for WorldConfigBinding<'_> {
 pub struct WorldConfigBindingArgs {
     pub vehicle_capacity: u32,
     pub route_capacity: u32,
+    pub route_edge_occurrence_capacity: u64,
     pub worker_count: u32,
     pub fixed_delta_time_ms: u64,
 }
@@ -710,6 +723,7 @@ impl<'a> Default for WorldConfigBindingArgs {
     WorldConfigBindingArgs {
       vehicle_capacity: 0,
       route_capacity: 0,
+      route_edge_occurrence_capacity: 0,
       worker_count: 0,
       fixed_delta_time_ms: 0,
     }
@@ -728,6 +742,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> WorldConfigBindingBuilder<'a,
   #[inline]
   pub fn add_route_capacity(&mut self, route_capacity: u32) {
     self.fbb_.push_slot::<u32>(WorldConfigBinding::VT_ROUTE_CAPACITY, route_capacity, 0);
+  }
+  #[inline]
+  pub fn add_route_edge_occurrence_capacity(&mut self, route_edge_occurrence_capacity: u64) {
+    self.fbb_.push_slot::<u64>(WorldConfigBinding::VT_ROUTE_EDGE_OCCURRENCE_CAPACITY, route_edge_occurrence_capacity, 0);
   }
   #[inline]
   pub fn add_worker_count(&mut self, worker_count: u32) {
@@ -757,6 +775,7 @@ impl ::core::fmt::Debug for WorldConfigBinding<'_> {
     let mut ds = f.debug_struct("WorldConfigBinding");
       ds.field("vehicle_capacity", &self.vehicle_capacity());
       ds.field("route_capacity", &self.route_capacity());
+      ds.field("route_edge_occurrence_capacity", &self.route_edge_occurrence_capacity());
       ds.field("worker_count", &self.worker_count());
       ds.field("fixed_delta_time_ms", &self.fixed_delta_time_ms());
       ds.finish()
