@@ -220,8 +220,6 @@ impl TrafficWorld {
     /// 武装迁移增量日志（#513 切片 C）。只在切换事务 Prepare 边界调用：以
     /// 当前命令游标为覆盖区间下界，按字节上界一次预留 arena（此后武装期
     /// 稳态 tick 写入预留空间、不新增分配）。已有在途日志时武装失败。
-    // 生产消费方是本切片后续提交的候选追赶；接入后移除。
-    #[allow(dead_code)]
     pub(crate) fn arm_migration_journal(
         &mut self,
         byte_bound: u64,
@@ -235,13 +233,11 @@ impl TrafficWorld {
     }
 
     /// 解除并取回迁移增量日志（切换事务放弃或提交边界的收尾步骤）。
-    #[allow(dead_code)]
     pub(crate) fn disarm_migration_journal(&mut self) -> Option<MigrationDeltaJournal> {
         self.migration_journal.take()
     }
 
     /// 武装中的日志只读视图（滞后、溢出与覆盖区间观测）。
-    #[allow(dead_code)]
     pub(crate) fn migration_journal(&self) -> Option<&MigrationDeltaJournal> {
         self.migration_journal.as_ref()
     }
@@ -1154,7 +1150,7 @@ mod source_tests {
             0,
         ) {
             Err(error) => error,
-            Ok(world) => panic!("mismatched revision must fail closed"),
+            Ok(_) => panic!("mismatched revision must fail closed"),
         };
         assert_eq!(
             error,

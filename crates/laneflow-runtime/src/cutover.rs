@@ -427,8 +427,6 @@ impl NetworkRevisionCutoverDescriptor {
     /// 最后把绑定行与两侧已认证制品逐项交叉验证。任何不一致都按「描述符
     /// 不一致/不可信」失败关闭；O(1) 上限预检已由 [`Self::validate`]
     /// 在任何解析、分配或哈希之前承担。
-    // 生产消费方是本切片后续提交的切换事务；接入后移除。
-    #[allow(dead_code)]
     pub(crate) fn verify_semantic_diff(
         &self,
         lfsd_bytes: &[u8],
@@ -597,6 +595,32 @@ pub enum CutoverError {
         /// 世界配置的 occurrence 容量。
         capacity: u64,
     },
+    /// 已存在在途切换事务（切换合同 §4 在途唯一；#513 切片 C）。
+    #[error("存在在途切换事务")]
+    InFlightTransaction,
+    /// 迁移增量日志溢出（粘性失败；事务放弃，旧世界不受影响）。
+    #[error("迁移增量日志溢出")]
+    JournalOverflow,
+    /// 追赶滞后（tick 距离）超过上限。
+    #[error("追赶滞后 {lag} tick 超过上限 {limit}")]
+    CatchUpLagExceeded {
+        /// 事务启动时观察到的滞后。
+        lag: u64,
+        /// 配置的滞后上限。
+        limit: u64,
+    },
+    /// 静默期确定性状态摘要复核失败（候选侧损坏；切换合同 §5）。
+    #[error("静默期确定性摘要复核失败")]
+    DigestMismatch,
+    /// 切换事务已结算（提交或放弃后不可继续泵入或提交）。
+    #[error("切换事务已结算")]
+    TransactionSettled,
+    /// 事务与世界的日志配对被破坏：世界未持有本事务武装的日志。
+    #[error("世界未武装迁移增量日志")]
+    JournalMissing,
+    /// 迁移增量重放与候选槽位布局不一致（内部不变量破坏）。
+    #[error("迁移增量重放与候选布局不一致")]
+    ReplayInconsistent,
 }
 
 impl TrafficWorld {
@@ -630,6 +654,10 @@ impl TrafficWorld {
         descriptor: &NetworkRevisionCutoverDescriptor,
         limits: &CutoverPreflightLimits,
     ) -> Result<(), CutoverError> {
+        // 在途唯一：武装中的日志 ⟺ 存在在途切换事务（切换合同 §4）。
+        if self.migration_journal.is_some() {
+            return Err(CutoverError::InFlightTransaction);
+        }
         // 认证先于策略拒绝：伪造 origins 的描述符必须先收到 origin
         // 认证错误，而不是被策略门遮蔽（#516 同一原则）。
         let base_origin = *self.revision.canonical_origin();

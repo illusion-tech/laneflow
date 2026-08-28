@@ -283,77 +283,102 @@ pub(crate) fn migrate_structural_clone(
 
 /// 重绑即重验证：对候选内每个 live 车辆按其生命周期状态复核 target
 /// 不变量（切换合同 §3 原则 2，等价重执行 spawn 检查）。
-fn revalidate_migrated_vehicles(candidate: &TrafficWorld) -> Result<(), CutoverError> {
+pub(crate) fn revalidate_migrated_vehicles(candidate: &TrafficWorld) -> Result<(), CutoverError> {
+    for handle in candidate.live_order.iter().copied() {
+        revalidate_vehicle_on(candidate, handle)?;
+    }
+    Ok(())
+}
+
+/// 单个车辆在候选上的重验证（切片 C-3 的增量重放复用同一入口）。
+///
+/// 复核面：路线解析、序列下标与进度对 target 边长、Active 的限速与后缀
+/// 访问、Active 与其它 Active 的重叠（按 live 序线性扫描）。
+pub(crate) fn revalidate_vehicle_on(
+    candidate: &TrafficWorld,
+    handle: VehicleHandle,
+) -> Result<(), CutoverError> {
     let traffic = candidate.revision.traffic();
     let lengths = traffic.lane_lengths_millimetres();
     let speed_limits = traffic.lane_speed_limits_millimetres_per_second();
-
-    let mut active: Vec<(
-        VehicleHandle,
-        &[laneflow_static_contract::LaneEdgeOrdinal],
-        usize,
-        u32,
-        u32,
-    )> = Vec::new();
-    for handle in candidate.live_order.iter().copied() {
-        let state = candidate
-            .vehicle_state(handle)
-            .expect("live order closes over live vehicles");
-        let edges = candidate
-            .route_edges(state.route)
-            .expect("migrated vehicle route stays live");
-        let cursor = usize::try_from(state.route_edge_index).map_err(|_| {
-            CutoverError::VehicleRevalidationFailed {
-                vehicle: handle.index(),
-            }
+    let state = candidate
+        .vehicle_state(handle)
+        .ok_or(CutoverError::VehicleRevalidationFailed {
+            vehicle: handle.index(),
         })?;
-        let Some(edge) = edges.get(cursor).copied() else {
-            return Err(CutoverError::VehicleRevalidationFailed {
+    let edges =
+        candidate
+            .route_edges(state.route)
+            .ok_or(CutoverError::VehicleRevalidationFailed {
                 vehicle: handle.index(),
-            });
-        };
-        if state.progress_mm > lengths[edge.index()] {
+            })?;
+    let cursor = usize::try_from(state.route_edge_index).map_err(|_| {
+        CutoverError::VehicleRevalidationFailed {
+            vehicle: handle.index(),
+        }
+    })?;
+    let Some(edge) = edges.get(cursor).copied() else {
+        return Err(CutoverError::VehicleRevalidationFailed {
+            vehicle: handle.index(),
+        });
+    };
+    if state.progress_mm > lengths[edge.index()] {
+        return Err(CutoverError::VehicleRevalidationFailed {
+            vehicle: handle.index(),
+        });
+    }
+    if state.status == VehicleStatus::Active {
+        if state.speed_mm_s > speed_limits[edge.index()] {
             return Err(CutoverError::VehicleRevalidationFailed {
                 vehicle: handle.index(),
             });
         }
-        if state.status == VehicleStatus::Active {
-            if state.speed_mm_s > speed_limits[edge.index()] {
-                return Err(CutoverError::VehicleRevalidationFailed {
-                    vehicle: handle.index(),
-                });
+        let compiled = candidate
+            .compiled_route(state.route)
+            .expect("live vehicle route stays compiled");
+        if route_access_denied(
+            traffic,
+            state.class,
+            edges,
+            cursor,
+            compiled
+                .maneuvers
+                .iter()
+                .map(|occurrence| (occurrence.path, occurrence.exit_route_edge_index)),
+        ) {
+            return Err(CutoverError::VehicleRevalidationFailed {
+                vehicle: handle.index(),
+            });
+        }
+        for other in candidate.live_order.iter().copied() {
+            if other == handle {
+                continue;
             }
-            let compiled = candidate
-                .compiled_route(state.route)
-                .expect("migrated route stays compiled");
-            if route_access_denied(
-                traffic,
-                state.class,
+            let Some(leader) = candidate.vehicle_state(other) else {
+                continue;
+            };
+            if leader.status != VehicleStatus::Active {
+                continue;
+            }
+            let Some(leader_edges) = candidate.route_edges(leader.route) else {
+                continue;
+            };
+            let Ok(leader_cursor) = usize::try_from(leader.route_edge_index) else {
+                continue;
+            };
+            if bodies_overlap(
+                lengths,
                 edges,
                 cursor,
-                compiled
-                    .maneuvers
-                    .iter()
-                    .map(|occurrence| (occurrence.path, occurrence.exit_route_edge_index)),
+                state.progress_mm,
+                state.length_mm,
+                leader_edges,
+                leader_cursor,
+                leader.progress_mm,
+                leader.length_mm,
             ) {
                 return Err(CutoverError::VehicleRevalidationFailed {
                     vehicle: handle.index(),
-                });
-            }
-            active.push((handle, edges, cursor, state.progress_mm, state.length_mm));
-        }
-    }
-
-    // Active 车辆两两重叠复核（重执行 spawn 检查的占用面；量级随候选规模
-    // 二次增长，属在线准备期成本，随切片 C 证据登记）。
-    for (index, &(handle_a, edges_a, cursor_a, progress_a, length_a)) in active.iter().enumerate() {
-        for &(handle_b, edges_b, cursor_b, progress_b, length_b) in active.iter().skip(index + 1) {
-            if bodies_overlap(
-                lengths, edges_a, cursor_a, progress_a, length_a, edges_b, cursor_b, progress_b,
-                length_b,
-            ) {
-                return Err(CutoverError::VehicleRevalidationFailed {
-                    vehicle: handle_b.index().max(handle_a.index()),
                 });
             }
         }
