@@ -323,6 +323,24 @@ impl RestoredSnapshot {
         self.world
     }
 
+    /// 全部快照局部路线 ID 到新句柄的映射，按局部 ID 升序。
+    ///
+    /// 宿主用它重建检查点已有路线的耐久身份表；检查点之后新注册路线的宿主 ID
+    /// 仍由输入命令载荷拥有。
+    #[must_use]
+    pub fn route_mappings(&self) -> &[(u64, RouteHandle)] {
+        &self.routes
+    }
+
+    /// 全部快照局部车辆 ID 到新句柄的映射，按局部 ID 升序。
+    ///
+    /// 宿主用它重建检查点已有车辆的耐久身份表；检查点之后新生成车辆的宿主 ID
+    /// 仍由输入命令载荷拥有。
+    #[must_use]
+    pub fn vehicle_mappings(&self) -> &[(u64, VehicleHandle)] {
+        &self.vehicles
+    }
+
     /// 按快照局部路线 ID 查询新句柄。
     #[must_use]
     pub fn route_handle(&self, snapshot_route_id: u64) -> Option<RouteHandle> {

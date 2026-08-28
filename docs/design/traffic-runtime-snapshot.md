@@ -143,6 +143,10 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 - **回放身份**：命令目标用耐久身份（快照局部标识或宿主自有 ID），不用进程
   句柄；恢复经「局部标识 → 新分配句柄」映射重提交；检查点之后由命令新建的
   实体，其耐久 ID 由命令载荷自带。
+- **G2 身份接缝**：`CapturedRoute` / `CapturedVehicle` 以只读访问器公开局部 ID 与
+  逻辑字段；`RestoredSnapshot::route_mappings` / `vehicle_mappings` 返回按局部 ID
+  升序的完整新句柄表，单 ID 查询只作便利入口。宿主据此把自己保存的耐久 ID
+  重绑到本次进程句柄；Runtime 不保存或解释宿主 ID。
 - **#303 G1 已接受合同——候选路线回放**：`register_candidate_route` 的世界世代、
   观测与成本绑定不进入命令序列。成功准入后只记录规范化路线注册命令：宿主耐久
   路线 ID、当时的路网修订标识/派生版本和有序 LaneEdge `StableId128`。恢复后核对
@@ -167,7 +171,9 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   与恢复句柄分配下摘要相等；该摘要同时是切换事务静默期复核的期望值来源（切换文档
   §3/§5）。
 - 检查点（checkpoint）是回放序列中的快照锚点，与命令游标共同界定重放区间；
-  失同步只诊断（报告首个分歧区间），不自动纠偏、不重启世界，处置归宿主。
+  G2 对拍点冻结为 `(command_cursor, tick, deterministic_state_digest)`；宿主从检查点
+  依序重放并比较各点，首个不等点与上一个相等点构成首个分歧区间。失同步只诊断，
+  不自动纠偏、不重启世界，处置归宿主。
 
 ## 7. 跨修订迁移入口
 
