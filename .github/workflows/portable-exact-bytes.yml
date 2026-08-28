@@ -42,18 +42,18 @@ jobs:
 
       - name: Install Rust MSRV toolchain
         shell: pwsh
-        run: rustup toolchain install 1.96.0 --profile minimal
+        run: rustup toolchain install 1.98.0 --profile minimal
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: laneflow-msrv-1.96.0-portable-exact-${{ matrix.label }}
+          shared-key: laneflow-msrv-1.98.0-portable-exact-${{ matrix.label }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
       - name: Exercise portable format safety boundaries
         shell: pwsh
-        run: cargo +1.96.0 test -p laneflow-format --locked
+        run: cargo +1.98.0 test -p laneflow-format --locked
 
       - name: Export two independent process runs
         shell: pwsh
@@ -70,7 +70,7 @@ jobs:
           foreach ($run in $runs) {
             $env:LANEFLOW_PORTABLE_EVIDENCE_DIR = Join-Path $evidenceRoot $run.Name
             $env:LANEFLOW_PORTABLE_ALLOCATION_PERTURBATION_BYTES = $run.Perturbation
-            cargo +1.96.0 test -p laneflow-compiler `
+            cargo +1.98.0 test -p laneflow-compiler `
               compiler::portable_fixture_tests::ci_evidence::portable_exact_bytes_ci_evidence `
               --locked -- --ignored --exact --test-threads=1
           }

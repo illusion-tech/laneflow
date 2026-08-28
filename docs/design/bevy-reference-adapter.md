@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-08-24
+**最后更新**: 2026-08-28
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -30,7 +30,7 @@ v0.7 的完成目标是提供一条可构建、可测试、可演示且默认依
 
 - v0.7 只支持 Bevy `0.19.x`；实际 patch 由仓库 `Cargo.lock` 固定。
 - 升级到 Bevy 0.20 必须创建独立迁移 Issue，重新审计 API、feature graph、MSRV、许可证、RustSec 与性能，不在 v0.7 中静默放宽版本范围。
-- LaneFlow workspace MSRV 继续为 Rust `1.96.0`。Bevy 0.19.0 的 MSRV 为 Rust 1.95.0，因此不提高 LaneFlow 的工具链下限。
+- LaneFlow workspace MSRV 为 Rust `1.98.0`（#495 显式提升，不跟随开发机静默变化）。Bevy 0.19.0 的 MSRV 为 Rust 1.95.0，不构成 LaneFlow 的工具链下限约束。
 - Bevy 0.19.0 使用 `MIT OR Apache-2.0`，可进入 LaneFlow 当前 cargo-deny 允许范围；最终实现仍必须以实际 lock graph 重新运行完整 dependency policy。
 - production `laneflow-bevy` 直接依赖最小 modular crates：`bevy_app`、`bevy_ecs`、`bevy_time` 与 `bevy_transform`。LaneFlow 生产依赖只有 `laneflow-runtime` 与 `laneflow-spatial`；`occupy_parking` 的停车序号走 Runtime 再导出，不把 `laneflow-static-contract` 写入 Adapter 生产 graph。
 - production manifest 对四个 modular crates 关闭 default features；`bevy_app`、`bevy_ecs`、`bevy_time` 只启用 `std`，`bevy_transform` 启用 `std + bevy-support`。默认 graph 不激活 Bevy reflect、async executor 或 backtrace。
@@ -160,8 +160,8 @@ Presentation 从 committed `TrafficWorld::committed_pose_sources()` 重建 pose 
 现行最小 native example 是 `runtime_min`：安装 `TrafficWorld` 与可选 `SpatialSession`，用 compiler 夹具 `lfca-full-spatial`，不读取 campus JSON，也不构造 `CoreWorld`。
 
 ```powershell
-cargo +1.96.0 check --locked -p laneflow-bevy --example runtime_min --features native-example
-cargo +1.96.0 test --locked -p laneflow-bevy --test runtime_min_smoke
+cargo +1.98.0 check --locked -p laneflow-bevy --example runtime_min --features native-example
+cargo +1.98.0 test --locked -p laneflow-bevy --test runtime_min_smoke
 ```
 
 `native-example` 仍是非默认 opt-in，完整 `DefaultPlugins` / window / renderer 留在示例边界。v0.7 `native_reference`、campus JSON 与 `laneflow_data::from_scenario_json_slice` 已删除。现行走廊 native example 使用检入 catalog 0.3 与 LFCA，prepare 绑到已安装共享路网修订并 `register_route`；50–200 回流见 [#475](https://github.com/illusion-tech/laneflow/issues/475)。

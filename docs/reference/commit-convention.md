@@ -143,7 +143,7 @@ Dependabot 无法生成 Issue footer。range 校验器只对同时满足以下�
 本地可运行：
 
 ```powershell
-cargo +1.96.0 run --locked -p xtask -- check-commit-messages origin/main..HEAD
+cargo +1.98.0 run --locked -p xtask -- check-commit-messages origin/main..HEAD
 ```
 
 启用仓库内置 hook：

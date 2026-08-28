@@ -31,18 +31,18 @@ jobs:
 
       - name: Install Rust MSRV toolchain for commit message checks
         shell: bash
-        run: rustup toolchain install 1.96.0 --profile minimal
+        run: rustup toolchain install 1.98.0 --profile minimal
 
       - name: Cache Rust dependencies for commit message checks
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: laneflow-msrv-1.96.0-commit-message
+          shared-key: laneflow-msrv-1.98.0-commit-message
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
       - name: Check commit messages
         shell: bash
-        run: cargo +1.96.0 run --locked -p xtask -- check-commit-messages
+        run: cargo +1.98.0 run --locked -p xtask -- check-commit-messages
 
   markdown-tables:
     name: Markdown tables
@@ -53,12 +53,12 @@ jobs:
 
       - name: Install Rust MSRV toolchain for markdown table checks
         shell: bash
-        run: rustup toolchain install 1.96.0 --profile minimal
+        run: rustup toolchain install 1.98.0 --profile minimal
 
       - name: Cache Rust dependencies for markdown table checks
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: laneflow-msrv-1.96.0-markdown-tables
+          shared-key: laneflow-msrv-1.98.0-markdown-tables
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
@@ -66,7 +66,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          cargo +1.96.0 run --locked -p xtask -- format-md-tables --check \
+          cargo +1.98.0 run --locked -p xtask -- format-md-tables --check \
             README.md AGENTS.md CONTRIBUTING.md crates docs research schemas .github .agents .cursor
           status=$?
           set -e
@@ -119,13 +119,13 @@ jobs:
       - name: Install Rust MSRV toolchain
         if: steps.filter.outputs.rust == 'true'
         shell: bash
-        run: rustup toolchain install 1.96.0 --profile minimal --component rustfmt
+        run: rustup toolchain install 1.98.0 --profile minimal --component rustfmt
 
       - name: Cache Rust dependencies
         if: steps.filter.outputs.rust == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: laneflow-msrv-1.96.0-rust
+          shared-key: laneflow-msrv-1.98.0-rust
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
 
@@ -134,24 +134,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rustc +1.96.0 --version
-          cargo +1.96.0 --version
+          rustc +1.98.0 --version
+          cargo +1.98.0 --version
 
       - name: Check formatting
         if: steps.filter.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.96.0 fmt --all -- --check
+        run: cargo +1.98.0 fmt --all -- --check
 
       - name: Run workspace tests
         if: steps.filter.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.96.0 test --workspace --locked
+        run: cargo +1.98.0 test --workspace --locked
 
       - name: Compile Bevy native examples
         if: steps.filter.outputs.bevy == 'true'
         shell: bash
         run: >-
-          cargo +1.96.0 check --locked -p laneflow-bevy
+          cargo +1.98.0 check --locked -p laneflow-bevy
           --example runtime_min --example signalized_corridor
           --features native-example
 
@@ -173,8 +173,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rustup toolchain install 1.96.0 --profile minimal
-          rustup default 1.96.0
+          rustup toolchain install 1.98.0 --profile minimal
+          rustup default 1.98.0
 
       - name: Install cargo-deny 0.20.2
         shell: bash

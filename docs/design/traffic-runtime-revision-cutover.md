@@ -216,8 +216,9 @@ candidate root、scratch、旧/候选动态双份、迁移增量日志与未提�
 跨轮确定性、切换前后稳态 tick 账本相等为硬断言，随 CI 运行）；
 `cutover_wall_clock_evidence.rs`（未插桩，`#[ignore]`）出墙钟中位，
 复现命令
-`cargo +1.96.0 test --release --locked -p laneflow-runtime --test cutover_wall_clock_evidence -- --ignored --nocapture`
-——墙钟初值为 release profile 手动运行值，dev profile 计时不得登记。
+`cargo +1.98.0 test --release --locked -p laneflow-runtime --test cutover_wall_clock_evidence -- --ignored --nocapture`
+——墙钟初值为 release profile 手动运行值（rustc 1.96.0 测得；复现命令
+钉版随 #495 升为 1.98.0，数值重测属再登记），dev profile 计时不得登记。
 中位数对偶数样本取中间两值平均。初值只覆盖同修订换根路径；跨修订行
 （追赶滞后、日志、事件批次、维护暂停、候选制品字节、save/load 停顿）
 随切片 B/C 登记空缺，不视为已满足。
