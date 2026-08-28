@@ -515,7 +515,7 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | R0 Research reference     | 2026-07-31 历史研究环境：MECHREVO JIAOLONG；AMD Ryzen 9 9955HX 16C/32T；61.68 GiB；Windows 11 Pro Insider Preview build 29617；平衡电源计划；`x86_64-pc-windows-msvc`；Rust 1.96.0 / LLVM 22.1.2                                                                                                                                                              | 延续 #212 与 #308 的配对优化、分析和编译器校准；只产生研究证据                        |
 | P10 Product minimum       | 具体设备/SKU、release OS、内存容量与数值内存上限均为 TBD                                                                                                                                                                                                                                                                                                      | 一万产品 SLA 的最终认证平台；填入前保持 Uncertified                                   |
-| P100 目标产品推荐参考机型 | `referenceMachineId = LF-P100-REF-01`；`hardwareIdentitySha256 = a4992211b6e629e3f682e45ad9e58eca559aa4bfe452c6f7e1c2dec554afe949`；MECHREVO JIAOLONG Series；AMD Ryzen 9 9955HX 16C/32T；64 GiB DDR5-5600（2 × 32 GiB，R0 时 OS 可见 61.68 GiB）；NVIDIA GeForce RTX 5070 Ti Laptop GPU 12227 MiB 与 AMD Radeon 集成显卡；产品 release OS 与数值内存上限 TBD | 目标产品推荐配置与十万扩展目标的最终认证平台；具名物理机已选定，Product Pass 仍待认证 |
+| P100 目标产品推荐参考机型 | `referenceMachineId = LF-P100-REF-01`；`hardwareIdentitySha256 = be3637be955f6c2c9e9e55b80419794adfac64b709d573602a37da9a8672fd20`；MECHREVO JIAOLONG Series；AMD Ryzen 9 9955HX 16C/32T；64 GiB DDR5-5600（2 × 32 GiB，R0 时 OS 可见 61.68 GiB）；NVIDIA GeForce RTX 5070 Ti Laptop GPU 12227 MiB 与 AMD Radeon 集成显卡；产品 release OS 与数值内存上限 TBD | 目标产品推荐配置与十万扩展目标的最终认证平台；具名物理机已选定，Product Pass 仍待认证 |
 | O1 一百万 observation     | 暂用 P100                                                                                                                                                                                                                                                                                                                                                     | 只记录 observation，不形成产品 SLA                                                    |
 
 2026-08-02，产品负责人选定当前物理机器为 P100。R0 与 P100 因而复用同一台硬件，
@@ -524,15 +524,20 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
 实际环境。独立显卡只用于完整机型识别；渲染器、资产和游戏宿主的图形预算不属于
 LaneFlow 性能门禁，不能由 #308 编译器证据或本文 Core 预算代替。
 
-P100 的具名物理机绑定规则冻结为 `laneflow-p100-hardware-identity-v1`：按下列顺序拼接
-UTF-8 文本且末尾不加换行，再计算 SHA-256；三个值均先去除首尾空白并转为大写。
+P100 的具名物理机绑定规则以
+[`road-editing-source-reference-machine-v1.json`](../reference/road-editing-source-reference-machine-v1.json)
+中的 `laneflow-p100-hardware-identity-v2` 为当前权威：采集下列三个 SMBIOS 值，
+每个值去除**全部**空白字符并转为大写，按该顺序以单个 U+000A 拼接、无尾换行，
+再对 UTF-8 exact bytes 计算 SHA-256。
 
 ```text
-laneflow-p100-hardware-identity-v1
-smbiosUuid=<Win32_ComputerSystemProduct.UUID>
-biosSerial=<Win32_BIOS.SerialNumber>
-baseboardSerial=<Win32_BaseBoard.SerialNumber>
+<normalized Win32_ComputerSystemProduct.UUID>
+<normalized Win32_BIOS.SerialNumber>
+<normalized Win32_BaseBoard.SerialNumber>
 ```
+
+v1 的历史证据不追溯改写；持续生效的 Runtime/P100 测量统一使用 v2，避免同一物理机
+存在两套并行身份权威。2026-08-28 的本机复核得到上述 v2 指纹，与参考机声明一致。
 
 仓库只发布指纹，不保存或输出三个原始 SMBIOS 值。正式 P100 测量必须同时匹配
 `LF-P100-REF-01`、上述身份方案和完整 SHA-256；缺字段、指纹不符或仅配置相同均按替代
