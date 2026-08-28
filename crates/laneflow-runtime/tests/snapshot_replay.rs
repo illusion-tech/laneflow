@@ -243,6 +243,25 @@ fn replay_divergence_under_capacity_mismatch_is_a_desync_signal() {
     .expect("restore with enlarged route capacity");
     let mut replayed = restored.into_world();
 
+    // 恢复时刻即可检测：语义容量是摘要输入，放大容量的恢复世界与原
+    // 检查点摘要已经不同——「容量不同不冒充 exact replay」在恢复边界
+    // 即成立，分歧先于任何重放命令存在。
+    let restored_checkpoint = capture_point(&replayed);
+    assert_ne!(restored_checkpoint, checkpoint_point);
+    // 因此首个分歧区间就是检查点本身：两侧流此前没有相等点可锚定，
+    // 定位器把检查点作为参照原点报告零宽区间。
+    assert_eq!(
+        first_divergence_interval(
+            checkpoint_point,
+            &[checkpoint_point],
+            &[restored_checkpoint]
+        ),
+        Some((
+            (cursor, checkpoint_point.tick),
+            (cursor, checkpoint_point.tick)
+        ))
+    );
+
     // 同一条注册命令：原世界容量已满被拒（命令未应用、游标不动），
     // 放大配置的重放世界成功（游标推进）。§2：容量差异改变重放中生命
     // 周期命令的成败，分歧按失同步信号处理，不判为实现缺陷、不冒充
@@ -259,9 +278,11 @@ fn replay_divergence_under_capacity_mismatch_is_a_desync_signal() {
     assert_eq!(original.command_cursor(), cursor);
     assert_eq!(replayed.command_cursor(), cursor + 1);
     // 首个分歧区间锚定在检查点（最后一个相等点），分歧点即容量边界
-    // 命令之后的对拍点（期望侧命令未应用，游标停在检查点值）。
+    // 命令之后的对拍点（期望侧命令未应用，游标停在检查点值）；锚点取
+    // 恢复侧检查点——它是恢复侧流的真实最后已知点，两侧流没有更早的
+    // 相等点。
     assert_eq!(
-        first_divergence_interval(checkpoint_point, &expected, &actual),
+        first_divergence_interval(restored_checkpoint, &expected, &actual),
         Some((
             (cursor, checkpoint_point.tick),
             (cursor, checkpoint_point.tick)

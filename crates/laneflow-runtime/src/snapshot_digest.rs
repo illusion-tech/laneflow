@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use crate::{CapturedRoute, CapturedSnapshot, CapturedVehicle, VehicleStatus};
 
 /// 确定性状态摘要规范化版本。
-pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 1;
+pub const RUNTIME_STATE_DIGEST_VERSION: u16 = 2;
 /// SHA-256 域分隔前缀；尾随 NUL 属于前缀字节。
 pub const RUNTIME_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-state-digest:v1\0";
 
@@ -21,31 +21,43 @@ pub const RUNTIME_STATE_DIGEST_DOMAIN: &[u8] = b"laneflow:runtime-state-digest:v
 /// `WorldGeneration` 与观测 session 不进入逻辑摘要。
 #[must_use]
 pub fn deterministic_state_digest(snapshot: &CapturedSnapshot) -> Sha256Digest {
-    let route_by_id = snapshot
-        .routes
-        .iter()
-        .map(|route| (route.snapshot_route_id, route))
-        .collect::<BTreeMap<_, _>>();
-
-    let mut route_records = snapshot
-        .routes
-        .iter()
-        .map(canonical_route_record)
-        .collect::<Vec<_>>();
-    route_records.sort_unstable();
-
     let vehicle_by_id = snapshot
         .vehicles
         .iter()
         .map(|vehicle| {
             (
                 vehicle.snapshot_vehicle_id,
-                canonical_vehicle_record(vehicle, &route_by_id),
+                canonical_vehicle_record(vehicle),
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let mut vehicle_records = vehicle_by_id.values().cloned().collect::<Vec<_>>();
-    vehicle_records.sort_unstable();
+
+    // 路线实例分组：路线内容 + 绑定其上的车辆记录多重集。内容相同但绑定
+    // 不同的实例因此可区分（remove 语义不同）；内容与绑定均相同的实例
+    // 可交换（全部后续命令行为一致），保持摘要相等。
+    let mut route_groups = snapshot
+        .routes
+        .iter()
+        .map(|route| {
+            let mut bound: Vec<&Vec<u8>> = snapshot
+                .vehicles
+                .iter()
+                .filter(|vehicle| vehicle.snapshot_route_id == route.snapshot_route_id)
+                .map(|vehicle| &vehicle_by_id[&vehicle.snapshot_vehicle_id])
+                .collect();
+            bound.sort_unstable();
+            let mut group = canonical_route_record(route);
+            push_u64(
+                &mut group,
+                u64::try_from(bound.len()).expect("vehicle count fits u64"),
+            );
+            for record in bound {
+                push_record(&mut group, record);
+            }
+            group
+        })
+        .collect::<Vec<_>>();
+    route_groups.sort_unstable();
 
     let mut canonical = Vec::new();
     canonical.extend_from_slice(RUNTIME_STATE_DIGEST_DOMAIN);
@@ -80,17 +92,10 @@ pub fn deterministic_state_digest(snapshot: &CapturedSnapshot) -> Sha256Digest {
 
     push_u64(
         &mut canonical,
-        u64::try_from(route_records.len()).expect("route count fits u64"),
+        u64::try_from(route_groups.len()).expect("route group count fits u64"),
     );
-    for record in route_records {
-        push_record(&mut canonical, &record);
-    }
-    push_u64(
-        &mut canonical,
-        u64::try_from(vehicle_records.len()).expect("vehicle count fits u64"),
-    );
-    for record in vehicle_records {
-        push_record(&mut canonical, &record);
+    for group in route_groups {
+        push_record(&mut canonical, &group);
     }
     push_u64(
         &mut canonical,
@@ -120,14 +125,10 @@ fn canonical_route_record(route: &CapturedRoute) -> Vec<u8> {
     record
 }
 
-fn canonical_vehicle_record(
-    vehicle: &CapturedVehicle,
-    route_by_id: &BTreeMap<u64, &CapturedRoute>,
-) -> Vec<u8> {
-    let route = route_by_id
-        .get(&vehicle.snapshot_route_id)
-        .expect("captured vehicle route closes over captured routes");
-    let mut record = canonical_route_record(route);
+fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Vec<u8> {
+    // 路线内容由所属实例分组承载，车辆记录不内嵌（内容相同的路线实例
+    // 以其车辆绑定区分，见分组构造）。
+    let mut record = Vec::new();
     push_u32(&mut record, vehicle.route_edge_index);
     push_u32(&mut record, vehicle.progress_mm);
     push_u16(&mut record, vehicle.carry_um);
@@ -171,6 +172,7 @@ fn push_u64(target: &mut Vec<u8>, value: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CapturedRoute;
     use crate::cutover::tests::transaction_tests::world_with_vehicle;
     use crate::{
         SnapshotRestoreLimits, TickInput, VehicleSpawnInput, WorldConfig, encode_lfrs, restore_lfrs,
@@ -214,6 +216,44 @@ mod tests {
     }
 
     #[test]
+    fn digest_distinguishes_vehicle_binding_across_identical_routes() {
+        // 两条内容相同的路线：车辆绑定分布不同 => 逻辑状态不同（remove 语义
+        // 不同），摘要必须区分；内容与绑定均相同的实例互换 => 等价，摘要相等。
+        let (world, _, _) = world_with_vehicle(true);
+        let base = world.capture_snapshot();
+        let second_vehicle = {
+            let mut vehicle = base.vehicles[0].clone();
+            vehicle.snapshot_vehicle_id = base.vehicles[0].snapshot_vehicle_id + 1;
+            vehicle
+        };
+        let mut split = base.clone();
+        split.routes.push(CapturedRoute {
+            snapshot_route_id: base.routes[0].snapshot_route_id + 1,
+            edges: base.routes[0].edges.clone(),
+        });
+        split.vehicles.push(second_vehicle.clone());
+        split.vehicles[1].snapshot_route_id = split.routes[1].snapshot_route_id;
+        split.live_order.push(second_vehicle.snapshot_vehicle_id);
+
+        // A：两车分挂两条相同路线；B：两车同挂第一条、第二条空置。
+        let mut merged = split.clone();
+        merged.vehicles[1].snapshot_route_id = split.routes[0].snapshot_route_id;
+        assert_ne!(
+            deterministic_state_digest(&split),
+            deterministic_state_digest(&merged)
+        );
+
+        // 互换可交换实例的车辆绑定（分组不变）=> 摘要相等。
+        let mut swapped = split.clone();
+        swapped.vehicles[0].snapshot_route_id = split.routes[1].snapshot_route_id;
+        swapped.vehicles[1].snapshot_route_id = split.routes[0].snapshot_route_id;
+        assert_eq!(
+            deterministic_state_digest(&split),
+            deterministic_state_digest(&swapped)
+        );
+    }
+
+    #[test]
     fn digest_ignores_local_ids_source_audit_and_worker_plan() {
         let (world, _, _) = world_with_vehicle(true);
         let original = world.capture_snapshot();
@@ -221,9 +261,9 @@ mod tests {
         assert_eq!(
             expected,
             Sha256Digest::from_bytes([
-                0x4a, 0x96, 0x66, 0x2b, 0x75, 0x0c, 0xff, 0xd8, 0x67, 0x02, 0x28, 0xf1, 0x13, 0xef,
-                0xc1, 0x10, 0xe7, 0x4c, 0x7b, 0x38, 0xcf, 0x67, 0x85, 0xb4, 0x7f, 0x99, 0xd2, 0x8d,
-                0x03, 0x6b, 0x50, 0xdb,
+                0x37, 0x15, 0x05, 0xc7, 0x41, 0x0f, 0x20, 0x23, 0xc6, 0x19, 0x6a, 0x43, 0x67, 0xd8,
+                0x1f, 0x50, 0x8f, 0x05, 0x01, 0xf7, 0x13, 0x7c, 0xca, 0xe2, 0xb0, 0x72, 0xbb, 0xd9,
+                0x5b, 0x68, 0xf1, 0x9c,
             ])
         );
         let mut equivalent = original.clone();

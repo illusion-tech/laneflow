@@ -100,7 +100,7 @@ jobs:
               - 'deny.toml'
               - '.github/workflows/ci.yml'
               - '.github/workflows/codeql.yml'
-              - '.github/workflows/road-editing-codegen.yml'
+              - '.github/workflows/schema-codegen.yml'
               - 'docs/governance/github-workflow.md'
             bevy:
               - 'crates/laneflow-bevy/**'
