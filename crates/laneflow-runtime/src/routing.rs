@@ -1136,6 +1136,7 @@ mod tests {
         let direct = world
             .register_route(RouteRegisterInput::new(edges.clone()))
             .expect("direct at max");
+        assert_eq!(world.command_cursor(), 1);
         assert_eq!(world.live_route_edge_occurrence_count, 3);
         assert_eq!(
             world
@@ -1143,7 +1144,9 @@ mod tests {
                 .unwrap_err(),
             RouteError::EdgeOccurrenceCapacityExceeded
         );
+        assert_eq!(world.command_cursor(), 1);
         world.remove_route(direct).expect("remove direct");
+        assert_eq!(world.command_cursor(), 2);
 
         let batch = full_observation(&world);
         let cost_model = model(5, 1);
@@ -1157,11 +1160,14 @@ mod tests {
                 .unwrap_err(),
             CandidateRouteError::Route(RouteError::EdgeOccurrenceCapacityExceeded)
         );
+        assert_eq!(world.command_cursor(), 2);
         let candidate = world
             .register_candidate_route(&admission, CandidateRouteInput::new(cost, stable.clone()))
             .expect("candidate at max");
+        assert_eq!(world.command_cursor(), 3);
         assert_eq!(world.live_route_edge_occurrence_count, 3);
         world.remove_route(candidate).expect("remove candidate");
+        assert_eq!(world.command_cursor(), 4);
 
         let replay = world
             .register_admitted_route(AdmittedRouteRegisterInput::new(
@@ -1170,9 +1176,11 @@ mod tests {
                 stable.clone(),
             ))
             .expect("replay at max");
+        assert_eq!(world.command_cursor(), 5);
         assert_eq!(world.route_edges(replay), Some(edges.as_slice()));
         assert_eq!(world.live_route_edge_occurrence_count, 3);
         world.remove_route(replay).expect("remove replay");
+        assert_eq!(world.command_cursor(), 6);
 
         with_route_allocation_failure_after(0, || {
             assert_eq!(
@@ -1185,6 +1193,52 @@ mod tests {
                 CandidateRouteError::Route(RouteError::AllocationFailed)
             );
         });
+        assert_eq!(world.command_cursor(), 6);
+        assert_eq!(world.live_route_count, 0);
+        assert_eq!(world.live_route_edge_occurrence_count, 0);
+    }
+
+    #[test]
+    fn route_command_cursor_exhaustion_is_shared_and_fails_closed() {
+        let mut world = world_with_limits(41, 8, 1_024);
+        let edges = fixture_edges(&world);
+        let stable = stable_edges(&world, &edges);
+        let origin = *world.revision.canonical_origin();
+        let derivation = origin
+            .static_contract_versions()
+            .network_revision_derivation_version();
+        let batch = full_observation(&world);
+        let cost_model = model(5, 1);
+        let cost = fixture_cost_binding(&[&batch], cost_model, 0, &[1_u8; 8]);
+        let admission = world.open_routing_admission(cost_model);
+
+        world.command_cursor = u64::MAX;
+        assert_eq!(
+            world
+                .register_route(RouteRegisterInput::new(edges))
+                .unwrap_err(),
+            RouteError::CommandCursorExhausted
+        );
+        assert_eq!(
+            world
+                .register_candidate_route(
+                    &admission,
+                    CandidateRouteInput::new(cost, stable.clone()),
+                )
+                .unwrap_err(),
+            CandidateRouteError::Route(RouteError::CommandCursorExhausted)
+        );
+        assert_eq!(
+            world
+                .register_admitted_route(AdmittedRouteRegisterInput::new(
+                    origin.network_revision(),
+                    derivation,
+                    stable,
+                ))
+                .unwrap_err(),
+            AdmittedRouteRegisterError::Route(RouteError::CommandCursorExhausted)
+        );
+        assert_eq!(world.command_cursor(), u64::MAX);
         assert_eq!(world.live_route_count, 0);
         assert_eq!(world.live_route_edge_occurrence_count, 0);
     }

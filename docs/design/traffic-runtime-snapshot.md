@@ -88,7 +88,12 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 观测 stream；恢复前的 session 与
 未注册候选全部 stale，不因同修订恢复而复活；新 stream 从初始
 `observationStateSequence` 开始（Routing 合同 §5）。路线表恢复还必须经唯一
-`register_route` 路径核对 `route_edge_occurrence_capacity`；超限零部分恢复。
+`register_admitted_route` 规范化入口核对修订、稳定标识、
+`route_edge_occurrence_capacity` 与共同路线编译器；超限零部分恢复。
+
+输入命令游标只统计成功应用的生命周期命令；direct / candidate / admitted 三类路线
+注册在共同提交点恰好计数一次，保存不计数。游标以 checked arithmetic 推进；耗尽时
+所有路线、生成、替换与停车入口都在修改状态前失败关闭，不允许回绕或饱和伪装成功。
 
 ## 4. 容器
 
@@ -118,7 +123,7 @@ schema 位于 `schemas/runtime-snapshot/v1`，生成物隔离于私有 wire pack
   破坏（`time_ms` 必须等于 `tick × fixed_delta_time_ms`，checked arithmetic
   验证——不可达时钟对会派生出错误的信号与回放分歧）。任一违反零部分恢复。
 - 恢复成功后世界处于快照 `tick` 边界的一致状态；`install` 核对与
-  `register_route` 重建沿现行消费契约执行。
+  `register_admitted_route` 规范化路线重建沿现行消费契约执行。
 
 ## 6. 回放与确定性状态摘要
 
@@ -131,7 +136,8 @@ schema 位于 `schemas/runtime-snapshot/v1`，生成物隔离于私有 wire pack
   观测与成本绑定不进入命令序列。成功准入后只记录规范化路线注册命令：宿主耐久
   路线 ID、当时的路网修订标识/派生版本和有序 LaneEdge `StableId128`。恢复后核对
   当前修订、解析稳定标识并经同一 `route_edge_occurrence_capacity` 与唯一路线编译器
-  重建，再把新句柄映射回宿主 ID；不重新执行 Routing，不重放 stale admission。
+  的 `register_admitted_route` 入口重建，再把新句柄映射回宿主 ID；不重新执行
+  Routing，不重放 stale admission。
   跨修订不匹配必须经 #302 受信任迁移策略显式迁移命令稳定引用，否则拒绝。
 - **确定性状态摘要（术语表）**：对逻辑状态按规范排序计算、与容器编码无关；
   算法冻结为 SHA-256 + 域分隔版本前缀（沿 `laneflow-format` 先例），摘要输入

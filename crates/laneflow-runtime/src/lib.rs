@@ -9,6 +9,7 @@ mod observation;
 mod occupancy;
 mod pose;
 mod routing;
+mod snapshot;
 mod source;
 mod tables;
 mod tick;
@@ -37,6 +38,10 @@ pub use routing::{
     CandidateRouteInput, CostModelKey, DYNAMIC_COST_BINDING_VERSION, DynamicCostBindingError,
     DynamicCostSnapshotBinding, ObservationSetBinding, ObservationSetError,
     RoutingAdmissionSession, bind_observation_set,
+};
+pub use snapshot::{
+    CapturedRoute, CapturedSnapshot, CapturedVehicle, RUNTIME_STATE_VERSION,
+    SNAPSHOT_FORMAT_VERSION,
 };
 pub use source::{CommittedNetworkSource, InvalidPublishedLfcaReference, PublishedLfcaReference};
 pub use vehicle::{VehicleReplaceBlock, VehicleReplaceRecord, VehicleState, VehicleStatus};
