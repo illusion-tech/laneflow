@@ -1,8 +1,6 @@
 name: 缺陷
 description: 报告 LaneFlow 行为不正确的问题
-title: "[缺陷]: "
-labels:
-  - bug
+type: Bug
 body:
   - type: textarea
     id: summary
@@ -15,15 +13,22 @@ body:
     id: area
     attributes:
       label: 影响范围
+      description: 可多选；提交后由维护者把所选项同步为对应的 area:* 标签。
+      multiple: true
       options:
-        - core-runtime
-        - data-spec
-        - adapter
-        - authoring-tool
-        - example
-        - docs-only
-        - governance
-        - unknown
+        - area:runtime
+        - area:compiler
+        - area:static-network
+        - area:spatial
+        - area:scenario
+        - area:data-spec
+        - area:adapter
+        - area:authoring
+        - area:example
+        - area:docs
+        - area:governance
+        - area:ci
+        - area:release
     validations:
       required: true
   - type: textarea

@@ -1,0 +1,50 @@
+name: 治理
+description: 变更 GitHub、贡献流程、开发闸口、CI 门禁或发布治理
+type: Task
+labels:
+  - area:governance
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 治理问题
+      description: 当前流程、配置或事实源有什么问题？
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+      description: 变更后应形成什么单一权威规则？
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: 非目标
+      description: 明确不改变哪些流程、门禁或产品行为。
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: 影响范围
+      description: 涉及哪些模板、文档、Project、Ruleset、workflow 或仓库设置？
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: rollout
+    attributes:
+      label: 切换与验证
+      description: 说明迁移顺序、失败关闭边界、回滚方式和线上复核方法。
+    validations:
+      required: true

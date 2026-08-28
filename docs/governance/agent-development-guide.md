@@ -1,7 +1,7 @@
 # AI Agent 开发指南
 
 **文档状态**: Active
-**最后更新**: 2026-08-25
+**最后更新**: 2026-08-28
 
 **适用范围**: 使用 AI Agent 参与 LaneFlow 的设计、开发、测试、文档和治理工作
 
@@ -24,7 +24,7 @@ AI Agent 开工前应读取：
 8. 与任务相关的 `docs/adr/` 文档。
 9. 受影响代码区域的现有实现和测试。
 
-如果相关 design 或 ADR 不存在，但任务涉及 Core API、数据格式或 Adapter 协议，应先
+如果相关 design 或 ADR 不存在，但任务涉及 Traffic Runtime API、数据格式或 Adapter 协议，应先
 补设计或提出 G1 阻断。
 
 `.cursor/skills/` 只作为 Cursor 自动发现入口。跨 Agent 的执行规范应维护在
@@ -34,9 +34,9 @@ AI Agent 开工前应读取：
 
 AI Agent 应遵守以下流程：
 
-1. 确认任务类型和影响范围。
-2. 在 GitHub 侧边栏维护 Project、Milestone、Labels 等；不要把这些字段抄进 Issue
-   正文。高影响变更先确认 ADR / design。
+1. 确认 Issue 原生 Type、`area:*` 影响范围，以及 PR 验证切片类型；三者不是同一维度。
+2. 在 GitHub 侧边栏维护 Project、Milestone、Labels、parent 与 blocked-by 等；不要把
+   这些字段抄进 Issue 正文。高影响变更先确认 ADR / design。
 3. 读取现有代码和测试。
 4. 制定小范围实现计划。
 5. 修改代码或文档。
@@ -49,12 +49,12 @@ AI Agent 应遵守以下流程：
 修改 Rust 代码时还应读取 `docs/reference/rust-code-style.md`。其中无法由 `rustfmt`
 表达的规则只约束本次触及范围；不得在无关功能 PR 中顺带重排历史格式。
 
-## 4. Core 开发规则
+## 4. Traffic Runtime 开发规则
 
-- Core 不应依赖 Unity、Unreal、Godot、O3DE、WebGL、DOM 或任何具体引擎 API。
-- Core 应以确定性 runtime 行为为优先目标。
-- Core API 变更需要同步更新 design 文档。
-- 破坏性 Core API 变更需要 ADR 或明确的 design 决策。
+- Traffic Runtime 不应依赖 Unity、Unreal、Godot、O3DE、WebGL、DOM 或任何具体引擎 API。
+- Traffic Runtime 应以确定性 runtime 行为为优先目标。
+- Traffic Runtime API 变更需要同步更新 design 文档。
+- 破坏性 Traffic Runtime API 变更需要 ADR 或明确的 design 决策。
 - 路线、车道图、信号灯、避让、停车等核心规则应尽量有单元测试。
 
 ## 5. Data Spec 开发规则
@@ -68,9 +68,9 @@ AI Agent 应遵守以下流程：
 
 ## 6. Adapter 开发规则
 
-- Adapter 可以依赖引擎，Core 不可以。
+- Adapter 可以依赖引擎，Traffic Runtime 不可以。
 - Adapter 负责展示、模型、动画、LOD、调试可视化和引擎生命周期对接。
-- Adapter 不应复制 Core 的交通规则。
+- Adapter 不应复制 Traffic Runtime 的交通规则。
 - Adapter 协议变化需要更新 `docs/design/adapter-api.md`。
 - 新增 Adapter 时应提供最小示例或手工验证说明。
 
@@ -96,8 +96,8 @@ AI Agent 应遵守以下流程：
 
 AI Agent 不应：
 
-- 未读相关文档就修改 Core API。
-- 把引擎依赖引入 Core。
+- 未读相关文档就修改 Traffic Runtime API。
+- 把引擎依赖引入 Traffic Runtime。
 - 在一个 PR 中混合无关重构和功能开发。
 - 修改数据格式但不更新文档。
 - 声称父任务完成但只交付子范围。

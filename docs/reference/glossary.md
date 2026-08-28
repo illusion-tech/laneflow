@@ -1,7 +1,7 @@
 # LaneFlow 双语术语表
 
 **文档状态**: Active<br>
-**最后更新**: 2026-08-27<br>
+**最后更新**: 2026-08-28<br>
 **适用范围**: LaneFlow 架构、ADR、设计文档、Agent Skill、Issue/PR 设计说明、
 #291 编译器时代静态路网方案与城市模拟游戏交通基础
 
@@ -36,24 +36,30 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 
 ## 2. 状态、治理与迁移
 
-| 中文规范术语         | 英文辅助名（English Alias）              | 精确标识符 / 缩写  | 中文规范含义                                                                                                                                                   |
-| -------------------- | ---------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 当前态               | current state                            | `current`          | 当前已实现、并受现有 ADR/API 约束的唯一可运行生产事实。生产切换完成后由新路径承担，不得再把已拆除路径写成当前态。                                              |
-| 目标态               | target state                             | `target`           | 已形成设计但尚未完成生产切换的目标事实。生产切换完成后该路径成为当前态，不得继续写成尚未落地的目标。                                                           |
-| 生产路径             | production path                          | —                  | 被正式产品入口使用并受兼容、验证与治理约束的执行路径。                                                                                                         |
-| 单一事实源           | single source of truth                   | SSOT               | 同一事实只由一个规范来源拥有，派生物不得反向竞争权威。                                                                                                         |
-| 权威职责             | authority                                | —                  | 对某类事实作最终裁决并承担一致性责任的组件职责。                                                                                                               |
-| 一次性不兼容切换     | clean break                              | —                  | 不保留长期双 API 的显式破坏性切换。                                                                                                                            |
-| 生产切换             | production cutover                       | —                  | 目标路径替代当前生产路径，成为仓库内唯一可运行世界。不以 current/target 等价对照为前提，也不以后继性能、规模或安全认证通过为前提；那些认证针对已切换路径本身。 |
-| 集成专用桥           | integration-only bridge                  | —                  | 只服务迁移验证、不属于生产 API，并在切换后删除的桥接实现。                                                                                                     |
-| 迁移预言机           | migration oracle                         | —                  | 用于对照目标实现语义、行为或字节结果的独立基准实现。                                                                                                           |
-| 开发闸口             | development gate                         | `G0`–`G2`          | LaneFlow 从立项、设计冻结到开工的人流程；合并由 required checks、GitHub 原生未解决对话阻断与 Merge Queue 承担。                                                |
-| 仅遥测               | telemetry-only                           | —                  | 只记录或观察状态、不发布 required 结论也不更新既有门禁结论的运行方式。                                                                                         |
-| 合并队列             | merge queue                              | GitHub Merge Queue | GitHub 对已满足 PR 级要求的变更按队列顺序创建合并组、验证最新默认分支组合并在成功后执行合并的平台机制。                                                        |
-| 合并组               | merge group                              | `merge_group`      | 合并队列为最新默认分支、队列前序变更与当前 PR 生成的临时集成候选；其 Head SHA 承载队列级机器检查。                                                             |
-| 城市模拟游戏交通基础 | city simulation game traffic foundation  | —                  | 面向中国特色城市模拟游戏、但不拥有城市经济与出行需求的可嵌入、确定性、可扩展交通基础设施。                                                                     |
-| 城市模拟游戏层       | city simulation game layer               | —                  | 拥有人口、经济、土地利用、建筑、工作/居住、物流任务与游戏规则的宿主上层。                                                                                      |
-| 出行与交通编排层     | mobility and traffic orchestration layer | —                  | 拥有出行需求、出发时刻、交通参与单元生成、目的地、人口生命周期与路线选择策略的上层。                                                                           |
+| 中文规范术语         | 英文辅助名（English Alias）              | 精确标识符 / 缩写          | 中文规范含义                                                                                                                                                   |
+| -------------------- | ---------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 当前态               | current state                            | `current`                  | 当前已实现、并受现有 ADR/API 约束的唯一可运行生产事实。生产切换完成后由新路径承担，不得再把已拆除路径写成当前态。                                              |
+| 目标态               | target state                             | `target`                   | 已形成设计但尚未完成生产切换的目标事实。生产切换完成后该路径成为当前态，不得继续写成尚未落地的目标。                                                           |
+| 生产路径             | production path                          | —                          | 被正式产品入口使用并受兼容、验证与治理约束的执行路径。                                                                                                         |
+| 单一事实源           | single source of truth                   | SSOT                       | 同一事实只由一个规范来源拥有，派生物不得反向竞争权威。                                                                                                         |
+| 权威职责             | authority                                | —                          | 对某类事实作最终裁决并承担一致性责任的组件职责。                                                                                                               |
+| 一次性不兼容切换     | clean break                              | —                          | 不保留长期双 API 的显式破坏性切换。                                                                                                                            |
+| 生产切换             | production cutover                       | —                          | 目标路径替代当前生产路径，成为仓库内唯一可运行世界。不以 current/target 等价对照为前提，也不以后继性能、规模或安全认证通过为前提；那些认证针对已切换路径本身。 |
+| 集成专用桥           | integration-only bridge                  | —                          | 只服务迁移验证、不属于生产 API，并在切换后删除的桥接实现。                                                                                                     |
+| 迁移预言机           | migration oracle                         | —                          | 用于对照目标实现语义、行为或字节结果的独立基准实现。                                                                                                           |
+| 开发闸口             | development gate                         | `G0`–`G2`                  | LaneFlow 从立项、设计冻结到开工的人流程；合并由 required checks、GitHub 原生未解决对话阻断与 Merge Queue 承担。                                                |
+| Issue 类型           | issue type                               | `Feature` / `Bug` / `Task` | GitHub 原生的工作性质字段：功能、缺陷或任务；不由标题前缀或同义标签重复表达。                                                                                  |
+| 领域标签             | area label                               | `area:*`                   | 表达 Issue 或 PR 影响领域的 GitHub Label；跨层工作使用多个领域标签，进入 `Ready` 前至少设置一个。                                                              |
+| 工作方式标签         | work-mode label                          | `work:*`                   | 表达设计、调研、验证或安全等工作方式的 GitHub Label；不表达生命周期状态。                                                                                      |
+| 项目状态             | project status                           | Project `Status`           | 表达 Issue 当前生命周期阶段的 Project 字段；阻塞由原生依赖关系表达，不设置 `Blocked` 状态。                                                                    |
+| 设计闸口字段         | design gate field                        | `Design gate`              | Project 单选字段，取值为 `N/A`、`Required`、`Accepted`；它索引 G1 判断，不替代 ADR、design 或 Issue 中的设计证据。                                             |
+| 真实阻塞依赖         | blocking dependency                      | blocked-by / blocking      | GitHub 原生 Issue 依赖关系，表示某项工作实际阻止另一项工作前进；父子分解本身不自动形成阻塞。                                                                   |
+| 仅遥测               | telemetry-only                           | —                          | 只记录或观察状态、不发布 required 结论也不更新既有门禁结论的运行方式。                                                                                         |
+| 合并队列             | merge queue                              | GitHub Merge Queue         | GitHub 对已满足 PR 级要求的变更按队列顺序创建合并组、验证最新默认分支组合并在成功后执行合并的平台机制。                                                        |
+| 合并组               | merge group                              | `merge_group`              | 合并队列为最新默认分支、队列前序变更与当前 PR 生成的临时集成候选；其 Head SHA 承载队列级机器检查。                                                             |
+| 城市模拟游戏交通基础 | city simulation game traffic foundation  | —                          | 面向中国特色城市模拟游戏、但不拥有城市经济与出行需求的可嵌入、确定性、可扩展交通基础设施。                                                                     |
+| 城市模拟游戏层       | city simulation game layer               | —                          | 拥有人口、经济、土地利用、建筑、工作/居住、物流任务与游戏规则的宿主上层。                                                                                      |
+| 出行与交通编排层     | mobility and traffic orchestration layer | —                          | 拥有出行需求、出发时刻、交通参与单元生成、目的地、人口生命周期与路线选择策略的上层。                                                                           |
 
 ## 3. 编制来源与编译管线
 

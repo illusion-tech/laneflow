@@ -1,26 +1,26 @@
-name: 功能
-description: 请求新增 LaneFlow 能力
-type: Feature
+name: 任务
+description: 创建不属于功能、缺陷或专用模板的具体工作
+type: Task
 body:
   - type: textarea
     id: background
     attributes:
       label: 背景
-      description: 这对应什么场景或用户需求？
+      description: 为什么需要完成这项工作？
     validations:
       required: true
   - type: textarea
     id: goal
     attributes:
       label: 目标
-      description: 完成后 LaneFlow 应支持什么？
+      description: 完成后应得到什么可验证结果？
     validations:
       required: true
   - type: textarea
     id: non-goals
     attributes:
       label: 非目标
-      description: 明确不在本次范围内的内容是什么？
+      description: 明确不在本次范围内的内容。
     validations:
       required: true
   - type: dropdown
@@ -49,7 +49,6 @@ body:
     id: acceptance
     attributes:
       label: 验收标准
-      description: 列出可验证、可检查的验收项。
       placeholder: |
         - [ ] ...
         - [ ] ...
@@ -59,6 +58,6 @@ body:
     id: docs
     attributes:
       label: 相关文档 / ADR
-      description: 链接相关 design 文档、ADR，或说明需要新建哪些文档。
+      description: 链接相关文档，或说明为什么不需要。
     validations:
       required: false

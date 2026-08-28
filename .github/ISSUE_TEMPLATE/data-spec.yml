@@ -1,8 +1,8 @@
 name: 数据规范
 description: 提出或变更 LaneFlow 数据格式或 schema
-title: "[数据规范]: "
+type: Feature
 labels:
-  - data-spec
+  - area:data-spec
 body:
   - type: textarea
     id: goal
@@ -36,7 +36,7 @@ body:
     id: consumers
     attributes:
       label: 受影响消费者
-      description: 哪些 Core 系统、Adapter、工具或示例会消费这份数据？
+      description: 哪些 Traffic Runtime 系统、Adapter、工具或示例会消费这份数据？
     validations:
       required: true
   - type: textarea

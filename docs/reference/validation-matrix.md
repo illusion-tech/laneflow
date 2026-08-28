@@ -1,7 +1,7 @@
 # 验证矩阵
 
 **文档状态**: Active
-**最后更新**: 2026-08-24
+**最后更新**: 2026-08-28
 
 **适用范围**: LaneFlow 各切片类型在合并前的最小验证要求
 **关联文档**:
@@ -18,13 +18,14 @@
 
 ## 1. 目标
 
-本文把 `development-gates.md` 中“按切片类型验证”的要求收敛为一张可执行矩阵，回答每种切片：
+本文把 `development-gates.md` 中“按 PR 验证切片类型验证”的要求收敛为一张可执行矩阵；
+切片类型不等同于 GitHub 原生 Issue Type 或 `area:*` 标签。本矩阵回答每种切片：
 
 - 哪些检查必须做。
 - 哪些检查通常不需要。
 - 无法运行时如何记录。
 
-矩阵不要求所有 PR 跑同一组重复检查，但要求每次变更显式说明验证结论。Rust Core workspace
+矩阵不要求所有 PR 跑同一组重复检查，但要求每次变更显式说明验证结论。Rust workspace
 落地后，`core-runtime` 切片默认应运行 `cargo fmt --all -- --check` 与
 `cargo test --workspace --locked`。仓库 CI 的 `Rust checks` job 按路径分流：非 Rust 契约输入
 路径跳过重型 cargo。道路编辑 FlatBuffers 变更走独立 Codegen，不因 `.fbs` 拉起整仓
@@ -32,16 +33,16 @@ Rust 测试。本地仍应按本矩阵主动运行与切片相关的命令，不
 
 ## 2. 切片类型到验证矩阵
 
-| 切片类型         | 必须的验证                                                                                         | 通常不需要                                  |
-| ---------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `docs-only`      | 文档可读性检查、链接有效、无行为变更声明                                                           | build、单元测试、schema 校验                |
-| `governance`     | 模板/路径/引用一致性、受影响流程说明；涉及 workflow/ruleset 时复核权限与 GitHub 实际状态           | 运行时测试                                  |
-| `core-runtime`   | `cargo fmt --all -- --check`、`cargo test --workspace --locked`、确定性行为说明、Core API 影响说明 | adapter build、示例 smoke（除非影响主路径） |
-| `data-spec`      | schema/格式校验、兼容性与版本影响、示例数据影响                                                    | adapter build（除非协议联动）               |
-| `adapter`        | adapter build、手工场景验证、transform 同步验证、Core 依赖方向检查                                 | 跨引擎全量测试（除非显式要求）              |
-| `authoring-tool` | 工具运行验证、输出数据可被 Core 消费、格式一致性                                                   | 引擎端 build                                |
-| `example`        | 示例可运行说明、覆盖能力说明、所依赖数据格式版本                                                   | 完整单元测试套件                            |
-| `cross-layer`    | 以上相关项全部适用、端到端路径验证、是否需要示例 smoke 的显式判断                                  | 无默认豁免                                  |
+| 切片类型         | 必须的验证                                                                                                    | 通常不需要                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `docs-only`      | 文档可读性检查、链接有效、无行为变更声明                                                                      | build、单元测试、schema 校验                |
+| `governance`     | 模板/路径/引用一致性、受影响流程说明；涉及 workflow/ruleset 时复核权限与 GitHub 实际状态                      | 运行时测试                                  |
+| `core-runtime`   | `cargo fmt --all -- --check`、`cargo test --workspace --locked`、确定性行为说明、Traffic Runtime API 影响说明 | adapter build、示例 smoke（除非影响主路径） |
+| `data-spec`      | schema/格式校验、兼容性与版本影响、示例数据影响                                                               | adapter build（除非协议联动）               |
+| `adapter`        | adapter build、手工场景验证、transform 同步验证、Traffic Runtime 依赖方向检查                                 | 跨引擎全量测试（除非显式要求）              |
+| `authoring-tool` | 工具运行验证、输出数据可被 Traffic Runtime 消费、格式一致性                                                   | 引擎端 build                                |
+| `example`        | 示例可运行说明、覆盖能力说明、所依赖数据格式版本                                                              | 完整单元测试套件                            |
+| `cross-layer`    | 以上相关项全部适用、端到端路径验证、是否需要示例 smoke 的显式判断                                             | 无默认豁免                                  |
 
 ## 3. Markdown 表格格式
 

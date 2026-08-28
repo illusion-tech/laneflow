@@ -31,7 +31,16 @@ Issue 应说明：
 - 影响范围
 - 相关文档或 ADR
 
-如果任务涉及 Core API、数据格式或 Adapter 协议，可能需要先补设计文档或 ADR。
+创建时使用仓库 Issue Form，并按工作性质选择 GitHub 原生 Type：新增能力或有意改变
+行为/契约使用 `Feature`，权威契约与实际行为不一致使用 `Bug`，设计、调研、文档、
+治理、重构、验证、依赖、发布或清理使用 `Task`。标题只写简短结果，不添加 `[功能]`
+等分类前缀。
+
+提交后维护结构化元数据：至少一个 `area:*` 标签、适用的 `work:*` 标签、Project
+Status，以及排期工作对应的 Milestone。parent / sub-issue 只表达任务分解，真实阻塞
+使用 blocked-by / blocking。如果任务涉及 Traffic Runtime API、数据格式或 Adapter
+协议，可能需要先补设计文档或 ADR。完整规则见
+`docs/governance/github-workflow.md` 第 2–4 节。
 
 ## 3. 分支
 
@@ -52,7 +61,7 @@ PR 应使用仓库 PR 模板，并至少说明：
 - 关联 Issue
 - 本次变更范围
 - 本次明确不做范围
-- Core API 影响
+- Traffic Runtime API 影响
 - 数据格式影响
 - Adapter API 影响
 - 文档更新情况

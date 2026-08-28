@@ -6,7 +6,7 @@
 - 切片类型：
   - [ ] docs-only（仅文档）
   - [ ] governance（治理）
-  - [ ] core-runtime（Core 运行时）
+  - [ ] core-runtime（Traffic Runtime 运行时）
   - [ ] data-spec（数据格式）
   - [ ] adapter（引擎适配）
   - [ ] authoring-tool（编辑工具）
@@ -17,7 +17,7 @@
 
 ## 影响
 
-- Core API：`无` / 说明：
+- Traffic Runtime API：`无` / 说明：
 - 数据格式：`无` / 说明：
 - Adapter API：`无` / 说明：
 - 依赖 / 许可证：`无` / 说明：

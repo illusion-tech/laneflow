@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active
-**最后更新**: 2026-08-24
+**最后更新**: 2026-08-28
 
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
@@ -24,6 +24,19 @@ LaneFlow 采用 GitHub-first 治理：
 
 所有可执行开发任务应先有 Issue。
 
+Issue 的结构化字段各自只表达一个维度：
+
+| 维度                | 权威位置                                  | 用途                                        |
+| ------------------- | ----------------------------------------- | ------------------------------------------- |
+| 工作性质            | GitHub 原生 Issue Type                    | 这是功能、缺陷还是任务                      |
+| 影响范围 / 工作方式 | Labels                                    | 影响哪些领域、采用什么工作方式              |
+| 当前阶段            | Project Status                            | 任务处于 Backlog、Ready、实施、评审还是终态 |
+| 交付目标            | Milestone                                 | 任务是否属于一个已排期的版本或具名交付      |
+| 任务关系            | parent / sub-issue、blocked-by / blocking | 分解层级与真实依赖                          |
+
+标题只写简短、可验证的中文结果陈述；精确标识符保留原文。禁止用 `[功能]`、`[Core]`、
+`[数据规范]` 等方括号前缀重复分类，也不得让机器解析标题、正文或评论来恢复元数据。
+
 Issue 应至少说明：
 
 - 背景
@@ -35,19 +48,82 @@ Issue 应至少说明：
 
 不要在正文抄 Project / Milestone / parent / blocked-by。那些字段在 GitHub 侧边栏。
 
-推荐 Issue 类型（与 `.github/ISSUE_TEMPLATE/` 对应）：
+### 2.1 原生 Issue Type
 
-- `功能`（Feature）
-- `缺陷`（Bug）
-- `设计`（Design）
-- `Core`
-- `数据规范`（Data Spec）
-- `适配器`（Adapter）
-- `文档`（Docs）
-- `调研`（Research）
+LaneFlow 使用组织已启用的三个 GitHub 原生类型；英文名称是平台精确标识符，不翻译或
+复制成同义标签：
 
-仓库默认关闭 blank issue。高影响变更使用设计 / Core / 数据规范 / 适配器模板中的
-可选设计链接。文档 / 缺陷 / 调研不强制 G1 勾选。
+| Type      | 选择标准                                                 |
+| --------- | -------------------------------------------------------- |
+| `Feature` | 新增产品能力，或有意改变现行行为、API、数据契约          |
+| `Bug`     | 当前权威契约与实际行为不一致                             |
+| `Task`    | 设计、调研、文档、治理、重构、验证、依赖、发布或清理工作 |
+
+判定顺序：非预期行为优先 `Bug`；设计、调研、文档、治理使用对应专用模板并归为
+`Task`；新增 Traffic Runtime、数据规范或 Adapter 能力使用专用模板并归为 `Feature`；
+其余使用通用功能或任务模板。不得为 LaneFlow 单独新增组织级 Issue Type，除非另开
+治理 Issue 评估对组织内全部仓库的影响。
+
+### 2.2 Issue Forms
+
+仓库默认关闭 blank issue。`.github/ISSUE_TEMPLATE/` 提供：
+
+| 表单       | Type      | 自动标签          |
+| ---------- | --------- | ----------------- |
+| 功能       | `Feature` | 无                |
+| 缺陷       | `Bug`     | 无                |
+| 任务       | `Task`    | 无                |
+| 设计       | `Task`    | `work:design`     |
+| 调研       | `Task`    | `work:research`   |
+| 交通运行时 | `Feature` | `area:runtime`    |
+| 数据规范   | `Feature` | `area:data-spec`  |
+| 适配器     | `Feature` | `area:adapter`    |
+| 文档       | `Task`    | `area:docs`       |
+| 治理       | `Task`    | `area:governance` |
+
+高影响变更在实现前冻结 ADR / design。文档、缺陷、调研不默认要求 G1，但实际影响达到
+G1 条件时仍必须补齐设计判断。
+
+### 2.3 Labels
+
+Labels 不重复 Type 或 Project Status。Issue 进入 `Ready` 前至少有一个 `area:*`；跨层
+任务同时使用多个 area 标签，不创建 `cross-layer` 标签。
+
+领域标签：
+
+- `area:runtime`
+- `area:compiler`
+- `area:static-network`
+- `area:spatial`
+- `area:scenario`
+- `area:data-spec`
+- `area:adapter`
+- `area:authoring`
+- `area:example`
+- `area:docs`
+- `area:governance`
+- `area:ci`
+- `area:release`
+
+工作方式标签：`work:design`、`work:research`、`work:verification`、`work:security`。
+`dependencies`、`github_actions`、`rust` 只作为 Dependabot / PR 集成元数据，不是 Issue
+必填分类。完成 Type 迁移后，Issue 不再使用 `feature`、`bug`、`enhancement`、
+`documentation` 表达工作性质。
+
+由于 PR 没有原生 Issue Type，已有 `feature` / `bug` PR 标签暂时保留，但不得再添加到
+Issue；本次迁移只从 Issue 移除它们。`enhancement` / `documentation` 在确认没有 PR
+使用后删除。
+
+既有标签按下列单一映射迁移：`core-runtime` → `area:runtime`、`data-spec` →
+`area:data-spec`、`adapter` → `area:adapter`、`governance` → `area:governance`、
+`docs` → `area:docs`、`design` → `work:design`、`research` → `work:research`。
+
+### 2.4 关系与交付目标
+
+- parent / sub-issue 表达任务分解；父任务本身不自动阻塞子任务。
+- blocked-by / blocking 只表达阻止当前 Gate 前进的真实依赖；不要用状态标签代替。
+- Milestone 表达已排期的版本或具名交付。Backlog、调研与尚未排期的工作可以没有
+  Milestone；承诺进入具体交付的工作必须设置。
 
 默认一个 Issue 一个完成它的 PR。PR body 使用 `Closes #<issue>`。仓库打开
 linked PR 合并后自动关闭 Issue。未完成验收时拆 follow-up Issue。
@@ -56,14 +132,26 @@ linked PR 合并后自动关闭 Issue。未完成验收时拆 follow-up Issue。
 
 GitHub Project 用于管理当前状态。推荐列：
 
-- `Backlog`
-- `Ready`
-- `In Progress`
-- `In Review`
-- `Blocked`
-- `Done`
+- `Backlog`：G0 未通过，或尚未排期。
+- `Ready`：G0 完成；G1 已接受或不适用；至少有一个 `area:*`；没有开放 blocker。
+- `In Progress`：G2 已记录，且已有 assignee。
+- `In Review`：用于关闭 Issue 的 PR 已打开。
+- `Done`：Issue 以 `Completed` 关闭。
+- `Cancelled`：Issue 以 `Not planned` 或 Duplicate 关闭。
 
-`Done` = PR 已合且 Issue 已关。
+Project 不设置 `Blocked` 状态；阻塞由 GitHub 原生 blocked-by 关系实时派生。内置字段
+启用 `Type`，自定义单选字段使用：
+
+- `Priority`：`P0`、`P1`、`P2`、`P3`。
+- `Design gate`：`N/A`、`Required`、`Accepted`。
+
+Priority 含义：`P0` 是需要立即处理的安全、数据损坏、主干或发布阻断；`P1` 是当前
+Milestone 关键路径；`P2` 是已排期但非关键路径；`P3` 是机会性 Backlog。没有排期
+判断时字段可以暂空，不能用 Priority 代替 Status 或 Milestone。
+
+LaneFlow Project 的规范工作项是 Issue。自动添加只匹配
+`repo:illusion-tech/laneflow is:issue`；PR 通过 Issue 的 Linked pull requests 关联，不再
+把新 PR 作为独立状态卡。历史 PR 卡片可分批归档，不在迁移中突然删除。
 
 ## 4. Milestone 规则
 
@@ -88,7 +176,7 @@ Milestone 用于表达版本边界，而不是单个大任务。每个 Milestone
 
 - 关联一个 Issue，body 使用 `Closes #<issue>`。
 - 明确本次变更范围和明确不做范围。
-- 说明是否影响 Core API、数据格式、Adapter 协议或依赖。
+- 说明是否影响 Traffic Runtime API、数据格式、Adapter 协议或依赖。
 - 记录测试、构建和文档检查结果。
 - 记录已知风险。
 
@@ -179,6 +267,6 @@ GitHub CodeQL、Secret Scanning 和 Dependabot 见 `security-scanning.md`。
 
 ## 9. Release 规则
 
-每次 Release 应说明版本目标、新增能力、修复、breaking changes、Core API 版本、
+每次 Release 应说明版本目标、新增能力、修复、breaking changes、Traffic Runtime API 版本、
 数据格式版本、Adapter 兼容情况和示例项目状态。公开发布前按 `security-scanning.md`
 与 `dependency-security.md` 重新验证。
