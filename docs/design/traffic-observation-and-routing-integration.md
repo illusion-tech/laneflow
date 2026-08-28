@@ -1,7 +1,7 @@
 # 交通观测与 Routing 接入
 
 **文档状态**: Accepted（#303 G1 Pass）<br>
-**最后更新**: 2026-08-27<br>
+**最后更新**: 2026-08-28<br>
 **适用范围**: 已提交交通观测的 full/delta/partition 导出、动态成本绑定、候选路线注册、过期语义、#302 切换/快照交互与独立性能门禁<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)、
@@ -345,17 +345,21 @@ dirty journal、墙钟任务或 allocator 活动。
 
 ## 8. G2 边界与必测义务
 
-G2 已按 §4.1 落定 `route_edge_occurrence_capacity` 的公开配置、计数器与错误拼写；
-恢复核对随 #302 快照实现接入。后续 G2 继续落定并回写：其余 Rust 类型、世界/stream
-不可伪造 token 与 `observationStateSequence` 的精确表示、规范化已准入路线注册命令的实现接缝、
+G2 已按 §4.1 落定 `route_edge_occurrence_capacity` 的公开配置、计数器与错误拼写，
+并复用 #302 的字段私有 `WorldGeneration(u64)`：安装初值 `0`，成功切换 checked
+递增并与 root 同界提交，失败/耗尽不变；`WorldBinding` 同时校验世界身份与该世代，
+旧描述符即使 origin 相同也会 stale。恢复核对随 #302 快照实现接入。后续 G2 继续
+落定并回写：观测 stream 不可伪造 token 与 `observationStateSequence` 的精确表示、
+规范化已准入路线注册命令的实现接缝、
 `exactByteLength` 度量函数、接收上限配置值与首轮 P100 描述性结果。若实现证明必须
 新增跨进程 wire、`laneflow-routing` 算法 crate、tick 维护 journal、持久化成本
 provenance，或无法复用唯一 route 编译器，必须停止并返回 G1。上述清单不穷尽返回
 条件：即使未命中枚举，只要实现、实测或真实产品约束证明权威边界、字段、格式选择、
 过期政策或预算有误，也必须修正设计，而不是服从错误文档。
 
-#303 不另发明世界身份/世代：其 token 必须直接复用 #302 G2 对 `worldBinding` 中世界
-身份和活动聚合世代的唯一实现与失效点，但不把命令/事件游标复制进 Routing 绑定。
+#303 不另发明世界身份/世代：观测与 Routing token 必须直接复用上述
+`TrafficWorld` / `worldBinding` 的唯一身份、世代字段和失效点，但不把命令/事件
+游标复制进 Routing 绑定。
 G2 同时交付仅用于
 contract test/性能证据的最小成本 receiver fixture，
 让宿主实现验证 length/count/digest 和上限矩阵；该 fixture 不成为 Routing 产品或算法

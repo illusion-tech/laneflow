@@ -1,7 +1,7 @@
 # 交通运行时共享静态路网消费
 
 **文档状态**: Accepted（#301 G1；#469 合入后收口）<br>
-**最后更新**: 2026-08-27<br>
+**最后更新**: 2026-08-28<br>
 **适用范围**: `laneflow-runtime` / `TrafficWorld`、`laneflow-spatial` 目标 session、
 1-worker 车辆 tick、#301 端到端证据，以及 current `laneflow-core` / JSON 运行时入口拆除<br>
 **关联文档**: `../adr/0020-compiler-owned-static-network-and-static-image.md`、
@@ -146,6 +146,7 @@ TrafficWorld::step(input: TickInput) -> Result<StepOutcome, StepError>;
 
 TrafficWorld::revision() -> Arc<SharedNetworkRevision>;
 TrafficWorld::traffic() -> /* 共享根 Traffic 借用 */;
+TrafficWorld::world_generation() -> WorldGeneration;
 TrafficWorld::tick_index() -> u64;
 TrafficWorld::time_ms() -> u64;
 TrafficWorld::committed_pose_sources() -> CommittedPoseSourceBatch;
@@ -162,7 +163,9 @@ SpatialSession::extract_pose_batch(/* PoseRecordId + PoseSource */)
 `source` 是 #302 活动聚合的来源指名（修订标识须与根 origin 精确相等）。
 `world_id` 是宿主指定的世界身份：同一宿主进程内不得对多个世界复用同一
 `world_id`（切换描述符 `worldBinding` 以它做错误世界守卫；描述符签发者据此
-定位目标世界）。生命周期由宿主拥有，Runtime 不解释其编码。
+定位目标世界）。生命周期由宿主拥有，Runtime 不解释其编码。Runtime 同时拥有
+字段私有的 `WorldGeneration(u64)`：安装从 `0` 开始，成功切换/原位恢复 checked
+递增，失败或放弃不变；调用方从 world 取得，不能把宿主自报值写回。
 
 同修订换根事务（#511 交付，语义形状）：
 
@@ -173,13 +176,16 @@ TrafficWorld::cutover_same_revision(
     descriptor: &NetworkRevisionCutoverDescriptor,
     limits: &CutoverPreflightLimits,
 ) -> Result<(), CutoverError>;
+
+TrafficWorld::world_binding() -> WorldBinding;
 ```
 
 入口认证顺序：描述符一致性验证（含 origin 四联认证，先于策略与世界绑定
-判据）→ `worldBinding` 世界身份比对 → 策略门（仅 `same_revision_restore`）→
-target 来源绑定 → 同修订不变量预检 → 暂存（逐路线对 target 根重编译 +
+判据）→ `worldBinding` 世界身份/世代比对 → 策略门（仅
+`same_revision_restore`）→ target 来源绑定 → 同修订不变量预检 → 下一世代
+checked 预计算 → 暂存（逐路线对 target 根重编译 +
 占用索引纯构造，可失败且失败关闭）→ 原子晋升（根 / 逐槽 compiled /
-来源 / 信号重导出 / 占用索引，全部不可失败换绑）。当期
+来源 / 信号重导出 / 占用索引 / 世界世代，全部不可失败换绑）。当期
 `RouteHandle` / `VehicleHandle` 跨换根保持有效；任一失败旧世界原样继续。
 完整事务合同见
 [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md)。

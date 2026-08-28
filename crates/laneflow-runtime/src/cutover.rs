@@ -13,7 +13,7 @@ use thiserror::Error;
 use crate::source::CommittedNetworkSource;
 use crate::tables::CompiledRoute;
 use crate::tables::compile_route;
-use crate::{RouteError, StepError, TrafficWorld};
+use crate::{RouteError, StepError, TrafficWorld, WorldGeneration};
 
 /// 描述符封闭契约版本（#302 切换合同 §2）。
 pub const CUTOVER_DESCRIPTOR_FORMAT_VERSION: u16 = 1;
@@ -121,13 +121,14 @@ impl SemanticDiffOriginBinding {
     }
 }
 
-/// 世界绑定（#302 切换合同 §2）：目标世界身份与基线命令/事件双游标。
+/// 世界绑定（#302 切换合同 §2）：目标世界身份、活动聚合世代与基线命令/事件双游标。
 ///
-/// 游标是描述符签发时点对齐的基线，不是实时值；比对时点为事务启动时
-/// （后续步骤交付）。世界身份编码与二进制形态属 G2 留白。
+/// 游标是描述符签发时点对齐的基线，不是实时值；世界身份与世代在事务
+/// 启动时逐项比对。精确值域为宿主 `u64` 身份加 Runtime 签发的 `u64` 世代。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WorldBinding {
     world_id: u64,
+    world_generation: WorldGeneration,
     baseline_command_cursor: u64,
     baseline_event_cursor: u64,
 }
@@ -137,11 +138,13 @@ impl WorldBinding {
     #[must_use]
     pub const fn new(
         world_id: u64,
+        world_generation: WorldGeneration,
         baseline_command_cursor: u64,
         baseline_event_cursor: u64,
     ) -> Self {
         Self {
             world_id,
+            world_generation,
             baseline_command_cursor,
             baseline_event_cursor,
         }
@@ -151,6 +154,12 @@ impl WorldBinding {
     #[must_use]
     pub const fn world_id(&self) -> u64 {
         self.world_id
+    }
+
+    /// 描述符签发时的活动世界世代。
+    #[must_use]
+    pub const fn world_generation(&self) -> WorldGeneration {
+        self.world_generation
     }
 
     /// 基线输入命令游标。
@@ -401,8 +410,11 @@ pub enum CutoverError {
     #[error("目标来源修订与 target 制品修订不一致")]
     TargetSourceRevisionMismatch,
     /// 描述符世界绑定与本世界身份不一致。
-    #[error("描述符世界绑定与本世界身份不一致")]
+    #[error("描述符世界身份或活动世代与本世界不一致")]
     WorldBindingMismatch,
+    /// 活动世界世代无法继续递增；事务在任何暂存或提交前失败关闭。
+    #[error("活动世界世代已耗尽")]
+    WorldGenerationExhausted,
     /// 候选构造失败：某条已注册路线对 target 根重编译失败（同修订下
     /// 属防御深度，语义上不可达）。
     #[error("路线对 target 根重编译失败")]
@@ -419,6 +431,15 @@ pub enum CutoverError {
 }
 
 impl TrafficWorld {
+    /// 签发当前活动聚合的切换世界绑定。
+    ///
+    /// v1 尚无输入命令/事件计数面，双游标为零；#512/#513 在同一入口
+    /// 接入真实游标，调用方无需复制世界身份或世代拼装逻辑。
+    #[must_use]
+    pub const fn world_binding(&self) -> WorldBinding {
+        WorldBinding::new(self.world_id, self.world_generation, 0, 0)
+    }
+
     /// 同修订换根事务（#302 切换合同 §3/§4 的 `same_revision_restore`）。
     ///
     /// 在固定步进安全边界（生命周期命令只能在两次 `step` 之间调用）以
@@ -445,9 +466,11 @@ impl TrafficWorld {
         let base_origin = *self.revision.canonical_origin();
         let target_origin = *target_revision.canonical_origin();
         descriptor.validate(base_origin, target_origin, limits)?;
-        // worldBinding：世界身份在事务启动时一次性比对（命令/事件基线
-        // 游标随切片 B 快照面存在，当前比对世界身份）。
-        if descriptor.world_binding().world_id() != self.world_id {
+        // worldBinding：世界身份与活动世代在事务启动时逐项比对；双游标
+        // 随切片 B/C 接入真实计数面。
+        if descriptor.world_binding().world_id() != self.world_id
+            || descriptor.world_binding().world_generation() != self.world_generation
+        {
             return Err(CutoverError::WorldBindingMismatch);
         }
         if descriptor.policy_kind() != MigrationPolicyKind::SameRevisionRestore {
@@ -471,6 +494,12 @@ impl TrafficWorld {
         {
             return Err(CutoverError::RouteRevalidationFailed);
         }
+        // 世代耗尽必须在任何候选暂存/分配之前失败关闭；成功值只在
+        // Quiescent Commit 与根、来源和动态派生状态同界写入。
+        let next_world_generation = self
+            .world_generation
+            .checked_next()
+            .ok_or(CutoverError::WorldGenerationExhausted)?;
         // Prepare（staging，失败不触及旧世界）：逐路线对 target 根重编译。
         let target_traffic = target_revision.traffic();
         let mut staged: Vec<(usize, CompiledRoute)> = Vec::new();
@@ -504,6 +533,7 @@ impl TrafficWorld {
         self.source = target_source;
         self.refresh_signals();
         self.occupancy = staged_occupancy;
+        self.world_generation = next_world_generation;
         Ok(())
     }
 }
@@ -569,7 +599,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(origin),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(7, 0, 0),
+            WorldBinding::new(7, WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(descriptor.validate(origin, origin, &limits()), Ok(()));
         assert_eq!(
@@ -578,6 +608,10 @@ mod tests {
         );
         assert_eq!(descriptor.world_binding().baseline_command_cursor(), 0);
         assert_eq!(descriptor.world_binding().baseline_event_cursor(), 0);
+        assert_eq!(
+            descriptor.world_binding().world_generation(),
+            WorldGeneration::INITIAL
+        );
     }
 
     #[test]
@@ -590,7 +624,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(target),
             Some(lfsd(SEMANTIC_DIFF_FORMAT_VERSION, 4_096)),
             MigrationPolicyKind::CrossRevisionDirect,
-            WorldBinding::new(7, 0, 0),
+            WorldBinding::new(7, WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(descriptor.validate(base, target, &limits()), Ok(()));
     }
@@ -609,7 +643,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(origin),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, 0, 0),
+            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             base.validate(origin, origin, &limits()),
@@ -620,7 +654,7 @@ mod tests {
             mutated,
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, 0, 0),
+            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             target.validate(origin, origin, &limits()),
@@ -637,7 +671,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(base),
             Some(lfsd(SEMANTIC_DIFF_FORMAT_VERSION, 1)),
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, 0, 0),
+            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             with_lfsd.validate(base, base, &limits()),
@@ -648,7 +682,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(other),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, 0, 0),
+            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             unequal.validate(base, other, &limits()),
@@ -659,7 +693,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(other),
             None,
             MigrationPolicyKind::CrossRevisionDirect,
-            WorldBinding::new(1, 0, 0),
+            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             without_lfsd.validate(base, other, &limits()),
@@ -676,7 +710,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(target),
             Some(lfsd(SEMANTIC_DIFF_FORMAT_VERSION, 2_048)),
             MigrationPolicyKind::CrossRevisionDirect,
-            WorldBinding::new(1, 0, 0),
+            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
         );
         let tight = CutoverPreflightLimits::new(1_024);
         assert_eq!(
@@ -691,7 +725,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(target),
             Some(lfsd(99, 1)),
             MigrationPolicyKind::CrossRevisionDirect,
-            WorldBinding::new(1, 0, 0),
+            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             wrong_format.validate(base, target, &limits()),
@@ -718,7 +752,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(origin_value),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, 0, 0),
+            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             descriptor.validate(origin_value, origin_value, &limits()),
@@ -739,7 +773,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(base),
             Some(lfsd(SEMANTIC_DIFF_FORMAT_VERSION, 1)),
             MigrationPolicyKind::CrossRevisionDirect,
-            WorldBinding::new(1, 0, 0),
+            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(
             equal.validate(base, base, &limits()),
@@ -763,7 +797,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(target),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(3, 0, 0),
+            WorldBinding::new(3, WorldGeneration::INITIAL, 0, 0),
         );
         assert_eq!(descriptor.validate(base, target, &limits()), Ok(()));
     }
@@ -776,7 +810,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(base),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, 0, 7),
+            WorldBinding::new(1, WorldGeneration::INITIAL, 0, 7),
         );
         assert_eq!(
             nonzero.validate(base, base, &limits()),
@@ -792,7 +826,7 @@ mod tests {
             LfcaOriginBinding::from_canonical_origin(base),
             None,
             MigrationPolicyKind::SameRevisionRestore,
-            WorldBinding::new(1, 5, 0),
+            WorldBinding::new(1, WorldGeneration::INITIAL, 5, 0),
         );
         assert_eq!(
             nonzero.validate(base, base, &limits()),
@@ -915,8 +949,9 @@ mod tests {
                 LfcaOriginBinding::from_canonical_origin(target_origin),
                 None,
                 MigrationPolicyKind::SameRevisionRestore,
-                WorldBinding::new(1, 0, 0),
+                world.world_binding(),
             );
+            let before_generation = world.world_generation();
             world
                 .cutover_same_revision(Arc::clone(&target), target_source, &descriptor, &limits())
                 .expect("same-revision cutover");
@@ -943,6 +978,7 @@ mod tests {
             assert_eq!(before.status, after.status);
             let edges_after: Vec<_> = world.route_edges(route).expect("route").to_vec();
             assert_eq!(edges_before, edges_after);
+            assert_eq!(world.world_generation().get(), before_generation.get() + 1);
             // 换绑后世界继续确定性步进。
             world.step(TickInput::new(100)).expect("step after");
         }
@@ -962,8 +998,9 @@ mod tests {
                 LfcaOriginBinding::from_canonical_origin(target_origin),
                 None,
                 MigrationPolicyKind::SameRevisionRestore,
-                WorldBinding::new(1, 0, 0),
+                world.world_binding(),
             );
+            let before_generation = world.world_generation();
             let result = with_route_allocation_failure_after(0, || {
                 world.cutover_same_revision(
                     target,
@@ -978,9 +1015,90 @@ mod tests {
             assert_eq!(world.committed_source(), &before_source);
             assert_eq!(world.vehicle_state(vehicle), Some(&before_state));
             assert_eq!(world.route_edges(route), Some(before_edges.as_slice()));
+            assert_eq!(world.world_generation(), before_generation);
             world
                 .step(TickInput::new(100))
                 .expect("old world still steps");
+        }
+
+        #[test]
+        fn successful_cutover_stales_previous_world_binding() {
+            let (mut world, _, _) = world_with_vehicle(true);
+            let origin = *world.revision().canonical_origin();
+            let stale_binding = world.world_binding();
+            let first_target = revision(true);
+            let descriptor = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(origin),
+                LfcaOriginBinding::from_canonical_origin(origin),
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                stale_binding,
+            );
+            world
+                .cutover_same_revision(
+                    first_target,
+                    source_for(origin, "fixture://first-cutover"),
+                    &descriptor,
+                    &limits(),
+                )
+                .expect("first cutover");
+            assert_eq!(world.world_generation().get(), 1);
+
+            let committed_root = world.revision();
+            let committed_source = world.committed_source().clone();
+            let generation_after_first = world.world_generation();
+            let second_target = revision(true);
+            assert_eq!(*second_target.canonical_origin(), origin);
+            assert_eq!(
+                world
+                    .cutover_same_revision(
+                        second_target,
+                        source_for(origin, "fixture://stale-retry"),
+                        &descriptor,
+                        &limits(),
+                    )
+                    .unwrap_err(),
+                CutoverError::WorldBindingMismatch
+            );
+            assert!(Arc::ptr_eq(&world.revision(), &committed_root));
+            assert_eq!(world.committed_source(), &committed_source);
+            assert_eq!(world.world_generation(), generation_after_first);
+        }
+
+        #[test]
+        fn exhausted_world_generation_aborts_before_staging() {
+            let (mut world, route, vehicle) = world_with_vehicle(true);
+            world.world_generation = WorldGeneration::from_raw_for_test(u64::MAX);
+            let before_root = world.revision();
+            let before_source = world.committed_source().clone();
+            let before_state = world.vehicle_state(vehicle).copied().expect("vehicle");
+            let before_edges = world.route_edges(route).expect("route").to_vec();
+
+            let target = revision(false);
+            let target_origin = *target.canonical_origin();
+            let descriptor = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(*before_root.canonical_origin()),
+                LfcaOriginBinding::from_canonical_origin(target_origin),
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                world.world_binding(),
+            );
+            assert_eq!(
+                world
+                    .cutover_same_revision(
+                        target,
+                        source_for(target_origin, "fixture://generation-exhausted"),
+                        &descriptor,
+                        &limits(),
+                    )
+                    .unwrap_err(),
+                CutoverError::WorldGenerationExhausted
+            );
+            assert!(Arc::ptr_eq(&world.revision(), &before_root));
+            assert_eq!(world.committed_source(), &before_source);
+            assert_eq!(world.world_generation().get(), u64::MAX);
+            assert_eq!(world.vehicle_state(vehicle), Some(&before_state));
+            assert_eq!(world.route_edges(route), Some(before_edges.as_slice()));
         }
 
         #[test]
@@ -1038,7 +1156,7 @@ mod tests {
                 LfcaOriginBinding::from_canonical_origin(target_origin),
                 None,
                 MigrationPolicyKind::SameRevisionRestore,
-                WorldBinding::new(1, 0, 0),
+                cut.world_binding(),
             );
             cut.cutover_same_revision(
                 target,
@@ -1072,7 +1190,7 @@ mod tests {
                     laneflow_static_contract::ExactByteLength::new(1),
                 )),
                 MigrationPolicyKind::CrossRevisionDirect,
-                WorldBinding::new(1, 0, 0),
+                world.world_binding(),
             );
             assert_eq!(
                 world
@@ -1112,7 +1230,7 @@ mod tests {
                 LfcaOriginBinding::from_canonical_origin(target_origin),
                 None,
                 MigrationPolicyKind::SameRevisionRestore,
-                WorldBinding::new(9, 0, 0),
+                WorldBinding::new(9, WorldGeneration::INITIAL, 0, 0),
             );
             assert_eq!(
                 world
@@ -1143,7 +1261,7 @@ mod tests {
                 LfcaOriginBinding::from_canonical_origin(target_origin),
                 None,
                 MigrationPolicyKind::SameRevisionRestore,
-                WorldBinding::new(1, 0, 0),
+                world.world_binding(),
             );
             // 伪造指向其它修订的来源：来源绑定验证失败关闭。
             let wrong_revision = laneflow_static_contract::NetworkRevisionId::from_digest(
