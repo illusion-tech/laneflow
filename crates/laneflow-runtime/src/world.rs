@@ -258,22 +258,6 @@ impl TrafficWorld {
         self.migration_journal.take()
     }
 
-    /// 释放动态状态重表（失败结算时归还候选内存；结算后事务不可再消费，
-    /// 仅保留骨架与共享根 Arc）。
-    pub(crate) fn release_dynamic_state(&mut self) {
-        self.routes = Vec::new();
-        self.free_routes = Vec::new();
-        self.vehicles = Vec::new();
-        self.free_vehicles = Vec::new();
-        self.live_order = Vec::new();
-        self.parking_occupants = Box::default();
-        self.next_states = Vec::new();
-        self.signal_aspects = Box::default();
-        self.occupancy = crate::occupancy::OccupancyIndex::with_capacity(0, 0);
-        self.live_route_count = 0;
-        self.live_route_edge_occurrence_count = 0;
-    }
-
     /// 世界级在途切换恢复入口：显式放弃武装中的迁移增量日志。
     ///
     /// 事务被静默丢弃、或以错世界结算（消耗形 `commit`/`abandon` 在

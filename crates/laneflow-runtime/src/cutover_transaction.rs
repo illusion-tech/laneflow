@@ -104,7 +104,9 @@ pub struct CutoverCommit {
 /// [`TrafficWorld::abandon_in_flight_cutover`]。
 #[must_use = "未以 commit 或 abandon 结算的切换事务会使其来源世界保持在途锁定"]
 pub struct CutoverTransaction {
-    candidate: TrafficWorld,
+    /// 直移候选：`None` ⟺ 已结算（失败收尾整体丢弃，成功提交随事务
+    /// 消耗析构）——已结算事务不滞留新旧根的任何 Arc 与动态表。
+    candidate: Option<TrafficWorld>,
     rebinding: CrossRevisionRebinding,
     /// 目标根 origin 小值捕获：事件与摘要只需修订号与 origin，失败结算
     /// 后事务不滞留目标根的任何 Arc（骨架换绑回旧世界根共享）。
@@ -211,7 +213,7 @@ impl TrafficWorld {
             }
         };
         Ok(CutoverTransaction {
-            candidate,
+            candidate: Some(candidate),
             rebinding,
             target_origin,
             limits: *transaction_limits,
@@ -227,10 +229,14 @@ impl TrafficWorld {
 }
 
 impl CutoverTransaction {
-    /// 候选当前已追到的 tick（滞后观测）。
+    /// 候选当前已追到的 tick（滞后观测）。仅对在途事务有意义：已结算
+    /// 事务无候选，按内部不变量 panic。
     #[must_use]
-    pub const fn candidate_tick(&self) -> u64 {
-        self.candidate.tick_index()
+    pub fn candidate_tick(&self) -> u64 {
+        self.candidate
+            .as_ref()
+            .expect("live transaction owns a candidate")
+            .tick_index()
     }
 
     /// 已应用的迁移增量记录数。
@@ -261,14 +267,12 @@ impl CutoverTransaction {
         Ok(())
     }
 
-    /// 失败路径的统一收尾：解除世界日志武装、标记结算并释放候选重状态
-    /// （动态表与重绑表即时归还，候选骨架换绑回旧世界根共享——目标根的
-    /// 全部 Arc 释放，宿主保留事务变量不滞留任何净新增内存）。
-    /// 旧世界原样继续。
+    /// 失败路径的统一收尾：解除世界日志武装、标记结算并**整体丢弃候选**
+    /// （新旧根的任何 Arc、动态表与重绑表全部归还；已结算事务只剩
+    /// Copy 字段，宿主保留事务变量不滞留净新增内存）。旧世界原样继续。
     fn settle_failure(&mut self, world: &mut TrafficWorld) {
         self.settled = true;
-        self.candidate.release_dynamic_state();
-        self.candidate.revision = Arc::clone(&world.revision);
+        self.candidate = None;
         self.rebinding.release();
         world.disarm_migration_journal();
     }
@@ -283,9 +287,12 @@ impl CutoverTransaction {
             self.settle_failure(world);
             return Err(CutoverError::JournalOverflow);
         }
-        let lag = world
-            .tick_index()
-            .saturating_sub(self.candidate.tick_index());
+        let lag = world.tick_index().saturating_sub(
+            self.candidate
+                .as_ref()
+                .expect("live transaction owns a candidate")
+                .tick_index(),
+        );
         if lag > self.limits.max_catch_up_lag_ticks {
             self.settle_failure(world);
             return Err(CutoverError::CatchUpLagExceeded {
@@ -332,7 +339,13 @@ impl CutoverTransaction {
                 caught_up = false;
                 break;
             }
-            apply_record(&mut self.candidate, &self.rebinding, &record)?;
+            apply_record(
+                self.candidate
+                    .as_mut()
+                    .expect("live transaction owns a candidate"),
+                &self.rebinding,
+                &record,
+            )?;
             applied += 1;
             offset = records.offset();
         }
@@ -364,25 +377,29 @@ impl CutoverTransaction {
         // 排空日志尾（静默期不再有新提交；排空量受日志字节上界约束，
         // 不受每泵预算限制——预算只约束后台追赶）。
         self.apply_up_to(world, u64::MAX)?;
-        if self.candidate.tick_index() != world.tick_index() {
+        let candidate = self
+            .candidate
+            .as_mut()
+            .expect("live transaction owns a candidate");
+        if candidate.tick_index() != world.tick_index() {
             // 日志记录了全部已提交 step；tick 不一致即重放路径损坏。
             return Err(CutoverError::ReplayInconsistent);
         }
         // 最终游标在同一原子边界取样（半开覆盖区间上界；幂等重占等无记录
         // 提交的归属由取样而非重放决定），先写入候选供摘要复核与晋升共用。
         let final_command_cursor = world.command_cursor;
-        self.candidate.command_cursor = final_command_cursor;
+        candidate.command_cursor = final_command_cursor;
         // 可失败步骤全部前置：占用索引重建 + 终态全量重验证。
-        self.candidate
+        candidate
             .rebuild_occupancy_index()
             .map_err(CutoverError::OccupancyRebuild)?;
-        revalidate_migrated_vehicles(&self.candidate)?;
+        revalidate_migrated_vehicles(candidate)?;
         // 确定性摘要复核：期望值 = 旧世界静默点捕获 + target origin 头部
         // 替换（记录内容按稳定引用键控，直移不改写；候选侧走自身捕获）。
         let mut expected = world.capture_snapshot();
         expected.origin = self.target_origin;
         let expected_digest = deterministic_state_digest(&expected);
-        let candidate_digest = deterministic_state_digest(&self.candidate.capture_snapshot());
+        let candidate_digest = deterministic_state_digest(&candidate.capture_snapshot());
         if expected_digest != candidate_digest {
             return Err(CutoverError::DigestMismatch);
         }
@@ -397,7 +414,6 @@ impl CutoverTransaction {
             .event_cursor
             .checked_add(event_advance)
             .ok_or(CutoverError::EventCursorExhausted)?;
-        let candidate = &mut self.candidate;
         // 不可失败原地晋升：逐字段交换（零分配），世代与观测序号同界写入。
         std::mem::swap(&mut world.revision, &mut candidate.revision);
         std::mem::swap(&mut world.source, &mut candidate.source);
@@ -1158,7 +1174,11 @@ mod tests {
 
         // 注入候选侧损坏：进度偏移 1 mm，重验证通过但摘要必不相等。
         let index = usize::try_from(vehicle.index()).expect("index");
-        let state = tx.candidate.vehicles[index]
+        let state = tx
+            .candidate
+            .as_mut()
+            .expect("live transaction owns a candidate")
+            .vehicles[index]
             .state
             .as_mut()
             .expect("candidate vehicle");
@@ -1437,7 +1457,10 @@ mod tests {
         world.step(TickInput::new(100)).expect("step");
         tx.pump(&mut world).expect("pump");
         let index = usize::try_from(vehicle.index()).expect("index");
-        tx.candidate.vehicles[index]
+        tx.candidate
+            .as_mut()
+            .expect("live transaction owns a candidate")
+            .vehicles[index]
             .state
             .as_mut()
             .expect("candidate vehicle")
@@ -1743,12 +1766,48 @@ mod tests {
             tx.pump(&mut cut).unwrap_err(),
             CutoverError::JournalOverflow
         );
-        // 宿主保留事务变量：候选动态表与重绑表已即时归还，不滞留整份候选。
-        assert!(tx.candidate.routes.is_empty());
-        assert!(tx.candidate.vehicles.is_empty());
-        assert!(tx.candidate.live_order.is_empty());
-        assert!(tx.candidate.signal_aspects.is_empty());
+        // 宿主保留事务变量：候选被整体丢弃，不滞留任何净新增内存。
+        assert!(tx.candidate.is_none());
         assert!(cut.migration_journal().is_none());
+    }
+
+    #[test]
+    fn settled_transaction_dropped_with_world_releases_old_root() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://old-root-release");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        spawn_on(&mut cut, route, 10_000, 5_000);
+        let old_root = Arc::downgrade(&cut.revision);
+        let target_revision = revision(ORACLE_TARGET);
+        let target_origin = *target_revision.canonical_origin();
+        let descriptor = descriptor_for(&cut, target_origin, ORACLE_LFSD);
+        let mut tx = cut
+            .prepare_cross_revision_cutover(
+                target_revision,
+                source_for(target_origin, "fixture://old-root-release"),
+                &descriptor,
+                ORACLE_LFSD,
+                &preflight_limits(),
+                &CutoverTransactionLimits {
+                    max_journal_bytes: 64,
+                    ..CutoverTransactionLimits::default()
+                },
+            )
+            .expect("prepare");
+        cut.step(TickInput::new(100))
+            .expect("step overflows journal");
+        assert_eq!(
+            tx.pump(&mut cut).unwrap_err(),
+            CutoverError::JournalOverflow
+        );
+        // 宿主丢弃世界、只保留已结算事务：旧根不得经事务残留。
+        drop(cut);
+        assert!(
+            old_root.upgrade().is_none(),
+            "settled transaction must not retain the old root"
+        );
     }
 
     #[test]
