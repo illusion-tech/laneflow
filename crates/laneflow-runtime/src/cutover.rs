@@ -540,6 +540,9 @@ pub enum CutoverError {
     /// 事件游标无法继续推进；在任何换绑或晋升前失败关闭。
     #[error("事件游标已耗尽")]
     EventCursorExhausted,
+    /// 世界级恢复入口调用时无在途切换可放弃。
+    #[error("无在途切换事务")]
+    NoInFlightTransaction,
     /// 候选构造失败：某条已注册路线对 target 根重编译失败（同修订下
     /// 属防御深度，语义上不可达）。
     #[error("路线对 target 根重编译失败")]
@@ -663,6 +666,7 @@ pub enum CutoverEvent {
 
 /// 切换事件批次：成功提交时恰一次交付的规范排序集合。v1 每次成功切换
 /// 恰含一条 [`CutoverEvent::RevisionCutoverCommitted`]；放弃零发布。
+///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CutoverEventBatch {
     events: Vec<CutoverEvent>,
@@ -1238,7 +1242,7 @@ pub(crate) mod tests {
                 world.world_binding(),
             );
             let before_generation = world.world_generation();
-            world
+            let _ = world
                 .cutover_same_revision(Arc::clone(&target), target_source, &descriptor, &limits())
                 .expect("same-revision cutover");
 
@@ -1351,7 +1355,7 @@ pub(crate) mod tests {
                 MigrationPolicyKind::SameRevisionRestore,
                 stale_binding,
             );
-            world
+            let _ = world
                 .cutover_same_revision(
                     first_target,
                     source_for(origin, "fixture://first-cutover"),
@@ -1445,13 +1449,14 @@ pub(crate) mod tests {
                 MigrationPolicyKind::SameRevisionRestore,
                 cut.world_binding(),
             );
-            cut.cutover_same_revision(
-                target,
-                source_for(target_origin, "fixture://republished"),
-                &descriptor,
-                &limits(),
-            )
-            .expect("cutover");
+            let _ = cut
+                .cutover_same_revision(
+                    target,
+                    source_for(target_origin, "fixture://republished"),
+                    &descriptor,
+                    &limits(),
+                )
+                .expect("cutover");
             // 切换边界：提交后、继续步进前，已提交状态必须已与未切换
             // 世界逐点一致。
             assert_committed_state_equal(&cut, &plain);

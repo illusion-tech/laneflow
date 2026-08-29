@@ -12,9 +12,9 @@ use crate::tables::{
     route_access_denied,
 };
 use crate::{
-    CommittedNetworkSource, CommittedPoseSourceBatch, CommittedSignalGroupBatch, InstallError,
-    ObservationStateSequence, ParkingError, PoseSource, ReplaceError, RouteError, RouteHandle,
-    RouteRegisterInput, SpawnError, StepError, StepOutcome, TickInput, VehicleHandle,
+    CommittedNetworkSource, CommittedPoseSourceBatch, CommittedSignalGroupBatch, CutoverError,
+    InstallError, ObservationStateSequence, ParkingError, PoseSource, ReplaceError, RouteError,
+    RouteHandle, RouteRegisterInput, SpawnError, StepError, StepOutcome, TickInput, VehicleHandle,
     VehicleReplaceBlock, VehicleReplaceRecord, VehicleSpawnInput, VehicleState, VehicleStatus,
     WorldConfig,
 };
@@ -247,6 +247,22 @@ impl TrafficWorld {
     /// 解除并取回迁移增量日志（切换事务放弃或提交边界的收尾步骤）。
     pub(crate) fn disarm_migration_journal(&mut self) -> Option<MigrationDeltaJournal> {
         self.migration_journal.take()
+    }
+
+    /// 世界级在途切换恢复入口：显式放弃武装中的迁移增量日志。
+    ///
+    /// 事务被静默丢弃、或以错世界结算（消耗形 `commit`/`abandon` 在
+    /// [`CutoverError::TransactionWorldMismatch`] 后丢弃事务对象）时，来源
+    /// 世界会保持在途锁定（`InFlightTransaction`）且不再存在可结算的事务
+    /// 对象——本入口即该状态下的唯一恢复手段：旧世界从当前状态继续步进，
+    /// 零事件、无候选晋升。无在途事务时按 [`CutoverError::NoInFlightTransaction`]
+    /// 失败关闭。
+    pub fn abandon_in_flight_cutover(&mut self) -> Result<(), CutoverError> {
+        if self.disarm_migration_journal().is_some() {
+            Ok(())
+        } else {
+            Err(CutoverError::NoInFlightTransaction)
+        }
     }
 
     /// 武装中的日志只读视图（滞后、溢出与覆盖区间观测）。
