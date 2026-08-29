@@ -85,6 +85,10 @@ pub struct TrafficWorld {
     /// 武装与解除都只发生在切换事务的原子边界；溢出粘性置位，从不影响本世界
     /// 自身的提交路径。
     pub(crate) migration_journal: Option<MigrationDeltaJournal>,
+    /// 日志武装轮次：每次成功武装递增（进程内守卫，不落盘）。事务绑定
+    /// 武装时的轮次，配对校验一并比对——世界级恢复后重新武装的新日志
+    /// 对旧事务按配对失配失败关闭，防止旧事务认领后继日志。
+    pub(crate) migration_epoch: u64,
 }
 
 impl TrafficWorld {
@@ -157,6 +161,7 @@ impl TrafficWorld {
             next_states: Vec::with_capacity(vehicle_capacity),
             occupancy: OccupancyIndex::with_capacity(0, 0),
             migration_journal: None,
+            migration_epoch: 0,
         };
         world.refresh_signals();
         Ok(world)
@@ -240,6 +245,10 @@ impl TrafficWorld {
             return Err(MigrationJournalError::AlreadyArmed);
         }
         let journal = MigrationDeltaJournal::arm(byte_bound, self.command_cursor)?;
+        self.migration_epoch = self
+            .migration_epoch
+            .checked_add(1)
+            .expect("migration epoch fits u64");
         self.migration_journal = Some(journal);
         Ok(())
     }
@@ -247,6 +256,22 @@ impl TrafficWorld {
     /// 解除并取回迁移增量日志（切换事务放弃或提交边界的收尾步骤）。
     pub(crate) fn disarm_migration_journal(&mut self) -> Option<MigrationDeltaJournal> {
         self.migration_journal.take()
+    }
+
+    /// 释放动态状态重表（失败结算时归还候选内存；结算后事务不可再消费，
+    /// 仅保留骨架与共享根 Arc）。
+    pub(crate) fn release_dynamic_state(&mut self) {
+        self.routes = Vec::new();
+        self.free_routes = Vec::new();
+        self.vehicles = Vec::new();
+        self.free_vehicles = Vec::new();
+        self.live_order = Vec::new();
+        self.parking_occupants = Box::default();
+        self.next_states = Vec::new();
+        self.signal_aspects = Box::default();
+        self.occupancy = crate::occupancy::OccupancyIndex::with_capacity(0, 0);
+        self.live_route_count = 0;
+        self.live_route_edge_occurrence_count = 0;
     }
 
     /// 世界级在途切换恢复入口：显式放弃武装中的迁移增量日志。

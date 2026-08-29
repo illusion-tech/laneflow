@@ -111,6 +111,9 @@ pub struct CutoverTransaction {
     next_world_generation: WorldGeneration,
     world_id: u64,
     prepare_world_generation: WorldGeneration,
+    /// prepare 时的日志武装轮次：世界级恢复后重新武装的新日志按配对
+    /// 失配失败关闭，旧事务不得认领后继日志。
+    armed_epoch: u64,
     applied_records: u64,
     /// 日志消费的字节偏移（记录边界）：泵送从此处续读，避免每次泵从头
     /// 重扫已消费记录（总量二次方）。
@@ -181,6 +184,7 @@ impl TrafficWorld {
         // 武装日志：以当前命令游标为半开覆盖区间下界，字节上界一次预留。
         self.arm_migration_journal(transaction_limits.max_journal_bytes)
             .map_err(|_| CutoverError::StagingAllocFailed)?;
+        let armed_epoch = self.migration_epoch;
         // 基准捕获（结构克隆）+ 直移构造候选；失败即解除武装。
         let rebinding = match CrossRevisionRebinding::build(
             self.revision.identity(),
@@ -212,6 +216,7 @@ impl TrafficWorld {
             next_world_generation,
             world_id: self.world_id,
             prepare_world_generation: self.world_generation,
+            armed_epoch,
             applied_records: 0,
             consumed_offset: 0,
             settled: false,
@@ -240,10 +245,12 @@ impl CutoverTransaction {
         }
     }
 
-    /// 事务与世界配对校验：身份或世代不符即失败关闭，不触及任何一方。
+    /// 事务与世界配对校验：身份、世代或日志武装轮次不符即失败关闭，
+    /// 不触及任何一方（轮次比对覆盖世界级恢复后旧事务认领后继日志）。
     fn ensure_origin_world(&self, world: &TrafficWorld) -> Result<(), CutoverError> {
         if world.world_id != self.world_id
             || world.world_generation != self.prepare_world_generation
+            || world.migration_epoch != self.armed_epoch
         {
             return Err(CutoverError::TransactionWorldMismatch {
                 expected_world: self.world_id,
@@ -252,9 +259,13 @@ impl CutoverTransaction {
         Ok(())
     }
 
-    /// 失败路径的统一收尾：解除世界日志武装、标记结算。旧世界原样继续。
+    /// 失败路径的统一收尾：解除世界日志武装、标记结算并释放候选重状态
+    /// （动态表与重绑表即时归还，宿主保留事务变量不再滞留整份候选）。
+    /// 旧世界原样继续。
     fn settle_failure(&mut self, world: &mut TrafficWorld) {
         self.settled = true;
+        self.candidate.release_dynamic_state();
+        self.rebinding.release();
         world.disarm_migration_journal();
     }
 
@@ -1584,6 +1595,77 @@ mod tests {
             .abandon(&mut cut)
             .expect("clean abandon after recovery");
         assert!(cut.migration_journal_stats().is_none());
+    }
+
+    #[test]
+    fn stale_transaction_cannot_adopt_recovered_journal() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://stale");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        spawn_on(&mut cut, route, 10_000, 5_000);
+        cut.step(TickInput::new(100)).expect("step");
+        let stale = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        // 宿主误用：恢复在途锁定的同时仍持有旧事务，随后重新发起。
+        cut.abandon_in_flight_cutover().expect("recover");
+        let mut fresh = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        cut.step(TickInput::new(100)).expect("silence step");
+        // 旧事务对新轮次日志失败关闭：pump 与 abandon 都不触碰新日志。
+        let mut stale = stale;
+        assert_eq!(
+            stale.pump(&mut cut).unwrap_err(),
+            CutoverError::TransactionWorldMismatch { expected_world: 0 }
+        );
+        assert!(
+            cut.migration_journal_stats().is_some(),
+            "新事务日志原样武装"
+        );
+        assert_eq!(
+            stale.abandon(&mut cut).unwrap_err(),
+            CutoverError::TransactionWorldMismatch { expected_world: 0 }
+        );
+        assert!(cut.migration_journal_stats().is_some());
+        // 新事务不受影响，正常结算。
+        fresh.pump(&mut cut).expect("fresh pump");
+        let _ = fresh.commit(&mut cut).expect("fresh commit");
+    }
+
+    #[test]
+    fn pump_failure_settlement_releases_candidate_state() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://release");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        spawn_on(&mut cut, route, 10_000, 5_000);
+        let limits = CutoverTransactionLimits {
+            max_journal_bytes: 64,
+            ..CutoverTransactionLimits::default()
+        };
+        let mut tx = prepare(&mut cut, ORACLE_TARGET, ORACLE_LFSD, &limits);
+        cut.step(TickInput::new(100))
+            .expect("step overflows journal");
+        assert_eq!(
+            tx.pump(&mut cut).unwrap_err(),
+            CutoverError::JournalOverflow
+        );
+        // 宿主保留事务变量：候选动态表与重绑表已即时归还，不滞留整份候选。
+        assert!(tx.candidate.routes.is_empty());
+        assert!(tx.candidate.vehicles.is_empty());
+        assert!(tx.candidate.live_order.is_empty());
+        assert!(tx.candidate.signal_aspects.is_empty());
+        assert!(cut.migration_journal().is_none());
     }
 
     #[test]
