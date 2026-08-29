@@ -77,6 +77,7 @@ pub struct PumpOutcome {
 }
 
 /// 静默提交成功记录。
+///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CutoverCommit {
     /// 晋升后的世界世代。
@@ -96,7 +97,8 @@ pub struct CutoverCommit {
 /// [`CutoverError::TransactionWorldMismatch`] 失败关闭，防止误解除他世界
 /// 的在途日志。事务必须以 `commit` 或 `abandon` 结算——静默丢弃会使其
 /// 来源世界保持在途锁定（`InFlightTransaction`）；不实现 `Drop` 副作用，
-/// 解除日志武装始终显式发生在结算路径内。
+/// 解除日志武装始终显式发生在结算路径内。事务丢失后的世界级恢复入口为
+/// [`TrafficWorld::abandon_in_flight_cutover`]。
 #[must_use = "未以 commit 或 abandon 结算的切换事务会使其来源世界保持在途锁定"]
 pub struct CutoverTransaction {
     candidate: TrafficWorld,
@@ -177,8 +179,16 @@ impl TrafficWorld {
         self.arm_migration_journal(transaction_limits.max_journal_bytes)
             .map_err(|_| CutoverError::StagingAllocFailed)?;
         // 基准捕获（结构克隆）+ 直移构造候选；失败即解除武装。
-        let rebinding =
-            CrossRevisionRebinding::build(self.revision.identity(), target_revision.identity());
+        let rebinding = match CrossRevisionRebinding::build(
+            self.revision.identity(),
+            target_revision.identity(),
+        ) {
+            Ok(rebinding) => rebinding,
+            Err(error) => {
+                self.disarm_migration_journal();
+                return Err(error);
+            }
+        };
         let candidate = match migrate_structural_clone(
             self,
             Arc::clone(&target_revision),
@@ -1022,7 +1032,7 @@ mod tests {
         let limits = CutoverTransactionLimits::default();
         let mut tx = prepare(&mut cut, ORACLE_TARGET, ORACLE_LFSD, &limits);
         tx.pump(&mut cut).expect("pump after retry prepare");
-        tx.commit(&mut cut).expect("retry commit");
+        let _ = tx.commit(&mut cut).expect("retry commit");
     }
 
     #[test]
@@ -1105,7 +1115,7 @@ mod tests {
         );
 
         tx.pump(&mut cut).expect("pump");
-        tx.commit(&mut cut).expect("commit");
+        let _ = tx.commit(&mut cut).expect("commit");
     }
 
     #[test]
@@ -1166,7 +1176,8 @@ mod tests {
         let rebinding_probe = crate::cutover_migration::CrossRevisionRebinding::build(
             cut.revision.identity(),
             target_probe.identity(),
-        );
+        )
+        .unwrap();
         let mut doomed = None;
         for raw in 0..cut.traffic().lane_edge_count() {
             let edge = LaneEdgeOrdinal::from_raw(raw);
@@ -1194,7 +1205,7 @@ mod tests {
             &CutoverTransactionLimits::default(),
         );
         tx.pump(&mut cut).expect("pump");
-        tx.commit(&mut cut).expect("commit after clearing");
+        let _ = tx.commit(&mut cut).expect("commit after clearing");
         assert_eq!(
             cut.revision().canonical_origin().network_revision(),
             target_probe.canonical_origin().network_revision()
@@ -1308,7 +1319,7 @@ mod tests {
         assert_eq!(reused.index(), doomed_slot, "world reuses the freed slot");
         let reused_edges = cut.route_edges(reused).expect("reused route").to_vec();
         tx.pump(&mut cut).expect("pump replays slot reuse");
-        tx.commit(&mut cut).expect("commit");
+        let _ = tx.commit(&mut cut).expect("commit");
 
         // 提交后注册不得与存活路线碰撞：复用路线仍可解析、句柄互异、
         // 存活路线边序列未被覆盖。
@@ -1353,7 +1364,7 @@ mod tests {
         );
         cut.step(TickInput::new(100)).expect("window step");
         tx.pump(&mut cut).expect("pump");
-        tx.commit(&mut cut).expect("commit");
+        let _ = tx.commit(&mut cut).expect("commit");
         assert_eq!(
             cut.observation_state_sequence(),
             crate::ObservationStateSequence::INITIAL
@@ -1483,7 +1494,102 @@ mod tests {
         // 正确世界仍可结算。
         let mut tx = tx;
         tx.pump(&mut cut).expect("pump on origin world");
-        tx.commit(&mut cut).expect("commit");
+        let _ = tx.commit(&mut cut).expect("commit");
+    }
+
+    #[test]
+    fn rebinding_reservation_failure_disarms_and_world_continues() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://rebind-fail");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        spawn_on(&mut cut, route, 10_000, 5_000);
+        cut.step(TickInput::new(100)).expect("step");
+        let target_revision = revision(ORACLE_TARGET);
+        let target_origin = *target_revision.canonical_origin();
+        let descriptor = descriptor_for(&cut, target_origin, ORACLE_LFSD);
+        let result = crate::cutover_migration::with_staging_allocation_failure_after(0, || {
+            cut.prepare_cross_revision_cutover(
+                target_revision,
+                source_for(target_origin, "fixture://rebind-target"),
+                &descriptor,
+                ORACLE_LFSD,
+                &preflight_limits(),
+                &CutoverTransactionLimits::default(),
+            )
+        });
+        assert_eq!(
+            match result {
+                Err(error) => error,
+                Ok(_) => panic!("reservation failure must fail closed"),
+            },
+            CutoverError::StagingAllocFailed
+        );
+        assert!(
+            cut.migration_journal_stats().is_none(),
+            "失败解除武装，不留下在途日志"
+        );
+        cut.step(TickInput::new(100)).expect("world unaffected");
+    }
+
+    #[test]
+    fn world_mismatch_consuming_settle_recovers_via_world_entry() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://cut");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        spawn_on(&mut cut, route, 10_000, 5_000);
+        cut.step(TickInput::new(100)).expect("step");
+        let mut other = {
+            let revision = revision(ORACLE_BASE);
+            let origin = *revision.canonical_origin();
+            TrafficWorld::install(
+                revision,
+                WorldConfig::new(8, 4, 1_024, 1, 100),
+                source_for(origin, "fixture://other-world"),
+                9,
+            )
+            .expect("install other world")
+        };
+        let tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        // 错世界结算：消耗形 API 丢弃事务对象，来源世界保持在途锁定。
+        assert_eq!(
+            tx.commit(&mut other).unwrap_err(),
+            CutoverError::TransactionWorldMismatch { expected_world: 0 }
+        );
+        drop(other);
+        assert!(cut.migration_journal_stats().is_some(), "来源世界仍武装");
+        // 世界级恢复入口：显式放弃在途候选，旧世界从当前状态继续。
+        cut.abandon_in_flight_cutover().expect("recover in-flight");
+        assert!(cut.migration_journal_stats().is_none());
+        cut.step(TickInput::new(100)).expect("world continues");
+        // 恢复后可重新发起并正常结算。
+        let retry = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        retry
+            .abandon(&mut cut)
+            .expect("clean abandon after recovery");
+        assert!(cut.migration_journal_stats().is_none());
+    }
+
+    #[test]
+    fn abandon_in_flight_cutover_fails_without_in_flight() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://clean");
+        assert_eq!(
+            cut.abandon_in_flight_cutover().unwrap_err(),
+            CutoverError::NoInFlightTransaction
+        );
     }
 
     #[test]
@@ -1553,7 +1659,7 @@ mod tests {
             .expect("third edge stays within capacity");
         tx.pump(&mut tight)
             .expect("pump applies to the capacity bound");
-        tx.commit(&mut tight).expect("commit at the capacity bound");
+        let _ = tx.commit(&mut tight).expect("commit at the capacity bound");
     }
 
     #[test]
@@ -1645,7 +1751,7 @@ mod tests {
         assert_eq!(second.applied_records, 1);
         assert!(second.caught_up);
         assert_eq!(tx.applied_records(), 2);
-        tx.commit(&mut cut).expect("commit after segmented pumps");
+        let _ = tx.commit(&mut cut).expect("commit after segmented pumps");
     }
 
     #[test]
@@ -1694,7 +1800,7 @@ mod tests {
             &CutoverTransactionLimits::default(),
         );
         tx.pump(&mut cut).expect("pump after clearing");
-        tx.commit(&mut cut).expect("commit after clearing");
+        let _ = tx.commit(&mut cut).expect("commit after clearing");
         cut.step(TickInput::new(100)).expect("steps on target");
     }
 
@@ -1897,6 +2003,6 @@ mod tests {
             crate::deterministic_state_digest(&plain.capture_snapshot())
         );
         tx.pump(&mut cut).expect("pump unaffected by capture");
-        tx.commit(&mut cut).expect("commit unaffected by capture");
+        let _ = tx.commit(&mut cut).expect("commit unaffected by capture");
     }
 }

@@ -17,6 +17,60 @@ use laneflow_static_network::{SharedIdentityIndex, SharedNetworkRevision};
 use crate::tables::{RouteSlot, VehicleSlot, bodies_overlap, compile_route, route_access_denied};
 use crate::{CommittedNetworkSource, CutoverError, TrafficWorld, VehicleHandle, VehicleStatus};
 
+#[cfg(test)]
+thread_local! {
+    static STAGING_RESERVATIONS_BEFORE_FAILURE: core::cell::Cell<Option<usize>> =
+        const { core::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+struct StagingAllocationFailpointReset(Option<usize>);
+
+#[cfg(test)]
+impl Drop for StagingAllocationFailpointReset {
+    fn drop(&mut self) {
+        STAGING_RESERVATIONS_BEFORE_FAILURE.with(|remaining| remaining.set(self.0));
+    }
+}
+
+/// 只供同线程单元测试确定性覆盖第 N 次切换暂存预留失败。
+#[cfg(test)]
+pub(crate) fn with_staging_allocation_failure_after<T>(
+    successful_reservations: usize,
+    run: impl FnOnce() -> T,
+) -> T {
+    STAGING_RESERVATIONS_BEFORE_FAILURE.with(|remaining| {
+        let _reset =
+            StagingAllocationFailpointReset(remaining.replace(Some(successful_reservations)));
+        run()
+    })
+}
+
+/// 切换暂存预留：分配失败统一收敛到 [`CutoverError::StagingAllocFailed`]，
+/// 由 Prepare 在解除日志武装后返回，旧世界保持可用。
+fn try_reserve_staging_exact<T>(values: &mut Vec<T>, capacity: usize) -> Result<(), CutoverError> {
+    if capacity == 0 {
+        return Ok(());
+    }
+    #[cfg(test)]
+    {
+        let fail = STAGING_RESERVATIONS_BEFORE_FAILURE.with(|remaining| match remaining.get() {
+            Some(0) => true,
+            Some(value) => {
+                remaining.set(Some(value - 1));
+                false
+            }
+            None => false,
+        });
+        if fail {
+            return Err(CutoverError::StagingAllocFailed);
+        }
+    }
+    values
+        .try_reserve_exact(capacity)
+        .map_err(|_| CutoverError::StagingAllocFailed)
+}
+
 /// base→target 稳定引用重绑表：按实体种类分列的稠密序数映射。
 ///
 /// 构造自两侧 `SharedIdentityIndex`（切换合同 §2：base 侧来自活动聚合、
@@ -33,31 +87,35 @@ fn map_kind<K>(
     base: &SharedIdentityIndex,
     target: &SharedIdentityIndex,
     kind: EntityKind,
-) -> Vec<Option<Ordinal<K>>>
+) -> Result<Vec<Option<Ordinal<K>>>, CutoverError>
 where
     K: EntityKindMarker + OrdinalKind,
 {
-    (0..base.entity_count(kind))
-        .map(|raw| {
-            let ordinal = Ordinal::<K>::from_raw(raw);
-            let stable = base
-                .stable_id(ordinal)
-                .expect("dense identity table resolves in-bounds ordinal");
-            target.ordinal(stable)
-        })
-        .collect()
+    let count = usize::try_from(base.entity_count(kind)).expect("entity count fits usize");
+    let mut map = Vec::new();
+    try_reserve_staging_exact(&mut map, count)?;
+    for raw in 0..base.entity_count(kind) {
+        let ordinal = Ordinal::<K>::from_raw(raw);
+        let stable = base
+            .stable_id(ordinal)
+            .expect("dense identity table resolves in-bounds ordinal");
+        map.push(target.ordinal(stable));
+    }
+    Ok(map)
 }
 
 impl CrossRevisionRebinding {
-    /// 从两侧身份索引构建重绑表。
-    #[must_use]
-    pub(crate) fn build(base: &SharedIdentityIndex, target: &SharedIdentityIndex) -> Self {
-        Self {
-            lane_edges: map_kind(base, target, EntityKind::LaneEdge),
-            parking_spaces: map_kind(base, target, EntityKind::ParkingSpace),
-            vehicle_profiles: map_kind(base, target, EntityKind::VehicleProfile),
-            participant_classes: map_kind(base, target, EntityKind::ParticipantClass),
-        }
+    /// 从两侧身份索引构建重绑表；预留失败按切换暂存失败关闭。
+    pub(crate) fn build(
+        base: &SharedIdentityIndex,
+        target: &SharedIdentityIndex,
+    ) -> Result<Self, CutoverError> {
+        Ok(Self {
+            lane_edges: map_kind(base, target, EntityKind::LaneEdge)?,
+            parking_spaces: map_kind(base, target, EntityKind::ParkingSpace)?,
+            vehicle_profiles: map_kind(base, target, EntityKind::VehicleProfile)?,
+            participant_classes: map_kind(base, target, EntityKind::ParticipantClass)?,
+        })
     }
 
     /// 车道边序数重绑；`None` = 引用不存在。
@@ -737,7 +795,7 @@ mod tests {
     fn rebinding_maps_retained_and_reports_removed_references() {
         let base = revision(BASE);
         let target = revision(TARGET);
-        let rebinding = CrossRevisionRebinding::build(base.identity(), target.identity());
+        let rebinding = CrossRevisionRebinding::build(base.identity(), target.identity()).unwrap();
         let world = installed_world(BASE, "fixture://rebinding");
         let target_world = installed_world(TARGET, "fixture://rebinding-target");
         let doomed = unmappable_edge(&world, &rebinding);
@@ -758,7 +816,8 @@ mod tests {
         let oracle_base = revision(ORACLE_BASE);
         let oracle_target = revision(ORACLE_TARGET);
         let oracle_rebinding =
-            CrossRevisionRebinding::build(oracle_base.identity(), oracle_target.identity());
+            CrossRevisionRebinding::build(oracle_base.identity(), oracle_target.identity())
+                .unwrap();
         let oracle_world = installed_world(ORACLE_BASE, "fixture://oracle-rebinding");
         let (entry, exit) = entry_exit(&oracle_world);
         for edge in [entry, exit] {
@@ -796,7 +855,8 @@ mod tests {
         let parked = spawn_on(&mut world, route, 2_000, 5_000);
         let target_revision = revision(TARGET);
         let rebinding =
-            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
+                .unwrap();
         let (space_main, _) = parking_spaces(&world, &rebinding);
         world.occupy_parking(parked, space_main).expect("parking");
         let completed_index = usize::try_from(completed.index()).expect("index");
@@ -857,7 +917,8 @@ mod tests {
         let mut world = installed_world(BASE, "fixture://migration-base");
         let rebinding_probe = revision(TARGET);
         let rebinding =
-            CrossRevisionRebinding::build(world.revision.identity(), rebinding_probe.identity());
+            CrossRevisionRebinding::build(world.revision.identity(), rebinding_probe.identity())
+                .unwrap();
         let doomed = unmappable_edge(&world, &rebinding);
         let route = world
             .register_route(RouteRegisterInput::new(vec![doomed]))
@@ -881,7 +942,8 @@ mod tests {
         let vehicle = spawn_on(&mut world, route, 1_000, 5_000);
         let target_revision = revision(TARGET);
         let rebinding =
-            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
+                .unwrap();
         let (_, space_doomed) = parking_spaces(&world, &rebinding);
         world
             .occupy_parking(vehicle, space_doomed)
@@ -905,7 +967,8 @@ mod tests {
         let vehicle = spawn_on(&mut world, route, 80_000, 5_000);
         let target_revision = revision(TARGET);
         let rebinding =
-            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
+                .unwrap();
         assert_eq!(
             expect_migration_error(&world, target_revision, &rebinding),
             CutoverError::VehicleRevalidationFailed {
@@ -925,7 +988,8 @@ mod tests {
         let vehicle = spawn_on(&mut world, route, 10_000, 15_000);
         let target_revision = revision(TARGET);
         let rebinding =
-            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
+                .unwrap();
         assert_eq!(
             expect_migration_error(&world, target_revision, &rebinding),
             CutoverError::VehicleRevalidationFailed {
@@ -944,7 +1008,8 @@ mod tests {
         let vehicle = spawn_on(&mut world, route, 10_000, 5_000);
         let target_revision = revision(TARGET);
         let rebinding =
-            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
+                .unwrap();
         assert_eq!(
             expect_migration_error(&world, target_revision, &rebinding),
             CutoverError::VehicleRevalidationFailed {
@@ -966,7 +1031,8 @@ mod tests {
         let vehicle = spawn_on(&mut world, route, 10_000, 5_000);
         let target_revision = revision(PROFILE_TARGET);
         let rebinding =
-            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
+                .unwrap();
         assert_eq!(
             expect_migration_error(&mut world, target_revision, &rebinding),
             CutoverError::ProfileDerivationMismatch {
@@ -1001,7 +1067,8 @@ mod tests {
         world.vehicles[index].state.as_mut().expect("vehicle").class = other_class;
         let target_revision = revision(TARGET);
         let rebinding =
-            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
+                .unwrap();
         assert_eq!(
             expect_migration_error(&mut world, target_revision, &rebinding),
             CutoverError::ProfileDerivationMismatch {
@@ -1024,7 +1091,8 @@ mod tests {
         }
         let target_revision = revision(ORACLE_TARGET);
         let rebinding =
-            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
+                .unwrap();
         let target_origin = *target_revision.canonical_origin();
         let mut candidate = migrate_structural_clone(
             &world,
