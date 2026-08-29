@@ -337,7 +337,13 @@ G2 回写（切片 A 落定，#511）：
   世界每次成功武装递增 `migration_epoch`（进程内守卫，不落盘），事务绑定
   武装轮次并纳入配对校验——恢复后重新武装的新日志对旧事务按
   `TransactionWorldMismatch` 失败关闭，旧事务不得认领后继日志。失败结算
-  显式释放候选动态表与重绑表；候选信号灯色切片同走可失败预留。
+  显式释放候选动态表与重绑表；候选信号灯色切片同走可失败预留。重验证
+  全状态闭合（第七轮）：速度上限与后缀准入对 Parked/Completed 同样生效
+  （快照恢复经 spawn_vehicle 全状态重建，迁移存量必须同判据），Completed
+  须恰在末边末端（与恢复侧 `InvalidCompletedState` 同判据——目标加长
+  末边时旧端点属不可映射）；事件批次构造改可失败预留；候选五张动态表
+  （routes/free_routes→`route_capacity`、vehicles/free_vehicles/
+  live_order→`vehicle_capacity`）补齐 install 同构容量余量。
 
 必测义务：§8 每类故障的注入测试（保全旧值 + 零事件）；静默提交窗口两类超限
 放弃；维护暂停重试端到端；不可映射整体失败与宿主清场重试（引用不存在与重绑
@@ -350,6 +356,7 @@ G2 回写（切片 A 落定，#511）：
 续读的预算断点不丢记录（泵分段等价）；重绑预留失败解除武装；错世界消耗
 结算后的世界级恢复路径与无在途失败关闭；恢复后旧事务对新日志失败关闭；
 失败结算释放候选（动态表与重绑表清空的 test-only 断言）；信号灯色预留
-失败注入。#303 接缝还必须覆盖世界世代/观测 stream/
+失败注入；Parked 车辆拒绝后缀的 Prepare 端到端；Completed 末端不变量
+直测（拒绝与放行两侧）；候选容量余量断言。#303 接缝还必须覆盖世界世代/观测 stream/
 `observationStateSequence` 与 root 同界原子变化、target 路线 occurrence 容量
 max/max+1 与超限零提交，以及 abort 三者完全不变。

@@ -679,13 +679,16 @@ impl CutoverEventBatch {
     pub(crate) fn revision_cutover_committed(
         world_generation: WorldGeneration,
         network_revision: NetworkRevisionId,
-    ) -> Self {
-        Self {
-            events: vec![CutoverEvent::RevisionCutoverCommitted {
-                world_generation,
-                network_revision,
-            }],
-        }
+    ) -> Result<Self, CutoverError> {
+        let mut events = Vec::new();
+        events
+            .try_reserve_exact(1)
+            .map_err(|_| CutoverError::StagingAllocFailed)?;
+        events.push(CutoverEvent::RevisionCutoverCommitted {
+            world_generation,
+            network_revision,
+        });
+        Ok(Self { events })
     }
 
     /// 批次内事件（规范排序）。
@@ -826,7 +829,7 @@ impl TrafficWorld {
         let events = CutoverEventBatch::revision_cutover_committed(
             next_world_generation,
             target_origin.network_revision(),
-        );
+        )?;
         let event_advance = events.len();
         self.event_cursor
             .checked_add(event_advance)

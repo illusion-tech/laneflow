@@ -296,9 +296,28 @@ pub(crate) fn migrate_structural_clone(
     )
     .expect("target signal group count fits usize");
 
-    let free_routes = try_clone(world.free_routes.as_slice())?;
-    let free_vehicles = try_clone(world.free_vehicles.as_slice())?;
-    let live_order = try_clone(world.live_order.as_slice())?;
+    let mut free_routes = try_clone(world.free_routes.as_slice())?;
+    let mut free_vehicles = try_clone(world.free_vehicles.as_slice())?;
+    let mut live_order = try_clone(world.live_order.as_slice())?;
+    // install 同构容量余量：晋升后的世界在配置容量内的生命周期命令不触发
+    // 无检分配；窗口重放的 push 同界（上游注册已受容量约束）。
+    let route_capacity = usize::try_from(world.config.route_capacity()).unwrap_or(0);
+    let vehicle_capacity = usize::try_from(world.config.vehicle_capacity()).unwrap_or(0);
+    routes
+        .try_reserve_exact(route_capacity.saturating_sub(routes.len()))
+        .map_err(|_| CutoverError::StagingAllocFailed)?;
+    free_routes
+        .try_reserve_exact(route_capacity.saturating_sub(free_routes.len()))
+        .map_err(|_| CutoverError::StagingAllocFailed)?;
+    vehicles
+        .try_reserve_exact(vehicle_capacity.saturating_sub(vehicles.len()))
+        .map_err(|_| CutoverError::StagingAllocFailed)?;
+    free_vehicles
+        .try_reserve_exact(vehicle_capacity.saturating_sub(free_vehicles.len()))
+        .map_err(|_| CutoverError::StagingAllocFailed)?;
+    live_order
+        .try_reserve_exact(vehicle_capacity.saturating_sub(live_order.len()))
+        .map_err(|_| CutoverError::StagingAllocFailed)?;
     let mut next_states = Vec::new();
     next_states
         .try_reserve_exact(world.next_states.capacity())
@@ -893,6 +912,36 @@ mod tests {
             let profile = VehicleProfileOrdinal::from_raw(raw);
             assert_eq!(oracle_rebinding.vehicle_profile(profile), Some(profile));
         }
+    }
+
+    #[test]
+    fn candidate_tables_carry_install_parity_capacity_headroom() {
+        let mut world = installed_world(BASE, "fixture://headroom");
+        let (entry, _exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry]))
+            .expect("route");
+        spawn_on(&mut world, route, 10_000, 5_000);
+        let target_revision = revision(TARGET);
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
+                .unwrap();
+        let target_origin = *target_revision.canonical_origin();
+        let candidate = migrate_structural_clone(
+            &mut world,
+            Arc::clone(&target_revision),
+            source_for(target_origin, "fixture://headroom-target"),
+            &rebinding,
+        )
+        .expect("migrate");
+        // 与 install 同构：晋升后的世界在配置容量内的命令不触发无检分配。
+        let route_capacity = usize::try_from(candidate.config.route_capacity()).unwrap();
+        let vehicle_capacity = usize::try_from(candidate.config.vehicle_capacity()).unwrap();
+        assert!(candidate.routes.capacity() >= route_capacity);
+        assert!(candidate.free_routes.capacity() >= route_capacity);
+        assert!(candidate.vehicles.capacity() >= vehicle_capacity);
+        assert!(candidate.free_vehicles.capacity() >= vehicle_capacity);
+        assert!(candidate.live_order.capacity() >= vehicle_capacity);
     }
 
     #[test]
