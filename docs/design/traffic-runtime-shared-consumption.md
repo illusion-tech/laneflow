@@ -78,6 +78,7 @@ laneflow-static-network ────────> laneflow-format
 laneflow-static-network ────────> laneflow-static-contract
 laneflow-runtime ───────────────> laneflow-static-network
 laneflow-runtime ───────────────> laneflow-static-contract
+laneflow-runtime ───────────────> laneflow-format（仅 LFSD 受检读取，#513）
 laneflow-spatial ───────────────> laneflow-static-network
 laneflow-spatial ───────────────> laneflow-static-contract
 Adapter / 示例 ─────────────────> laneflow-runtime
@@ -87,7 +88,7 @@ Adapter / 示例 ─────────────────> laneflow-s
 
 | 包                 | 拥有                                                                                    | 禁止                                                           |
 | ------------------ | --------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `laneflow-runtime` | 固定步进、已实现执行域的每世界可变状态、动态 Route occurrence 编译、1-worker 执行计划   | Spatial、compiler、Serde、文件系统、`laneflow-core`、LFCA 解析 |
+| `laneflow-runtime` | 固定步进、已实现执行域的每世界可变状态、动态 Route occurrence 编译、1-worker 执行计划   | Spatial、compiler、Serde、文件系统、`laneflow-core`、LFCA 解析（例外：经 `laneflow-format` 受检读取 LFSD 用于切换认证，#513 切片 C；LFCA 解析仍由 static-network builder 承担） |
 | `laneflow-spatial` | 规范位姿采样、session scratch/output；pose 批次只使用不透明 `PoseRecordId` 与共享根序号 | Traffic tick 权威、compiler、引擎、Runtime、车辆 handle        |
 
 `network-compiler.md` 历史 crate 图中的 Spatial → Runtime 作废。几何属于修订根，

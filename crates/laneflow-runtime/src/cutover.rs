@@ -1,5 +1,6 @@
-//! 切换描述符（#302 切片 A 第二步）：宿主对象外可信封闭输入的进程内类型
-//! 与一致性验证。状态机与原子晋升由后续步骤交付。
+//! 切换描述符（#302 切片 A）：宿主对象外可信封闭输入的进程内类型与
+//! 一致性验证。同修订同步换根与跨修订切换事务（#513 切片 C）同处本文件
+//! 与 `cutover_transaction`。
 
 use laneflow_static_contract::{
     ExactByteLength, NETWORK_REVISION_DERIVATION_VERSION, NetworkRevisionId,
@@ -179,8 +180,9 @@ impl WorldBinding {
         self.baseline_command_cursor
     }
 
-    /// 基线已提交事件游标。当前 Runtime 没有事件发布通道，v1 为预留
-    /// 恒零值（#511 G2 记录登记的口径）。
+    /// 基线已提交切换事件游标；事务启动时与本世界已提交事件计数逐项比对
+    /// （失配即 `BaselineEventCursorMismatch`）。#513 切片 C 起随事件批次
+    /// 通道成为真实轴。
     #[must_use]
     pub const fn baseline_event_cursor(&self) -> u64 {
         self.baseline_event_cursor
@@ -619,6 +621,13 @@ pub enum CutoverError {
     /// 迁移增量重放与候选槽位布局不一致（内部不变量破坏）。
     #[error("迁移增量重放与候选布局不一致")]
     ReplayInconsistent,
+    /// 事务与其传入的世界不匹配：事务绑定构造它的世界身份与世代，
+    /// 传入其它世界按此失败关闭（防止误解除他世界的在途日志）。
+    #[error("切换事务与传入世界不匹配（事务属世界 {expected_world}）")]
+    TransactionWorldMismatch {
+        /// 事务所属的世界身份。
+        expected_world: u64,
+    },
 }
 
 /// 切换事件（#302 切换合同 §6）：迁移函数生成、准备期不可见、只与新
@@ -703,8 +712,8 @@ impl TrafficWorld {
     /// 事务边界说明（v1 同步形态）：基准捕获与「日志武装」在同一次调用
     /// 内完成——同修订换根不改变动态状态，迁移增量日志退化为空路径；
     /// 在途唯一性由同步入口保证（不存在并发候选）；世代复核由入口处对
-    /// base 绑定的认证承担。后台候选、journal 内容与摘要复核属切片 C。
-    /// 旧修订回收由 `Arc` 引用计数自然承担（最后借用退出即回收）。
+    /// base 绑定的认证承担。旧修订回收由 `Arc` 引用计数自然承担（最后
+    /// 借用退出即回收）。
     pub fn cutover_same_revision(
         &mut self,
         target_revision: Arc<SharedNetworkRevision>,
@@ -721,8 +730,8 @@ impl TrafficWorld {
         let base_origin = *self.revision.canonical_origin();
         let target_origin = *target_revision.canonical_origin();
         descriptor.validate(base_origin, target_origin, limits)?;
-        // worldBinding：世界身份、活动世代与命令基线游标在事务启动时
-        // 逐项比对。事件游标 v1 无事件通道，由 validate 保持恒零。
+        // worldBinding：世界身份、活动世代与命令/事件双基线游标都在
+        // 事务启动时逐项比对。
         if descriptor.world_binding().world_id() != self.world_id
             || descriptor.world_binding().world_generation() != self.world_generation
         {

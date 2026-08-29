@@ -321,7 +321,7 @@ impl CapturedSnapshot {
         self.command_cursor
     }
 
-    /// 已提交事件游标（v1 恒零）。
+    /// 已提交切换事件游标（#513 切片 C 起为真实轴）。
     #[must_use]
     pub const fn event_cursor(&self) -> u64 {
         self.event_cursor
