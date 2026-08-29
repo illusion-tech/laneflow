@@ -118,6 +118,14 @@ impl CrossRevisionRebinding {
         })
     }
 
+    /// 释放四张重绑表（失败结算时归还内存；结算后事务不可再消费）。
+    pub(crate) fn release(&mut self) {
+        self.lane_edges = Vec::new();
+        self.parking_spaces = Vec::new();
+        self.vehicle_profiles = Vec::new();
+        self.participant_classes = Vec::new();
+    }
+
     /// 车道边序数重绑；`None` = 引用不存在。
     #[must_use]
     pub(crate) fn lane_edge(&self, base: LaneEdgeOrdinal) -> Option<LaneEdgeOrdinal> {
@@ -295,6 +303,9 @@ pub(crate) fn migrate_structural_clone(
     next_states
         .try_reserve_exact(world.next_states.capacity())
         .map_err(|_| CutoverError::StagingAllocFailed)?;
+    let mut signal_aspects = Vec::new();
+    try_reserve_staging_exact(&mut signal_aspects, group_count)?;
+    signal_aspects.resize(group_count, SignalAspect::Red);
 
     // occurrence 总数重算（迁移不增减边数；防御性闭合后文校验容量）。
     let mut occurrence_total: u64 = 0;
@@ -316,7 +327,7 @@ pub(crate) fn migrate_structural_clone(
         command_cursor: world.command_cursor,
         event_cursor: world.event_cursor,
         observation_state_sequence: world.observation_state_sequence,
-        signal_aspects: vec![SignalAspect::Red; group_count].into_boxed_slice(),
+        signal_aspects: signal_aspects.into_boxed_slice(),
         routes,
         free_routes,
         live_route_count: world.live_route_count,
@@ -328,6 +339,7 @@ pub(crate) fn migrate_structural_clone(
         next_states,
         occupancy: crate::occupancy::OccupancyIndex::with_capacity(0, 0),
         migration_journal: None,
+        migration_epoch: 0,
     };
     if candidate.live_route_edge_occurrence_count > world.config.route_edge_occurrence_capacity() {
         return Err(CutoverError::EdgeOccurrenceCapacityExceeded {
@@ -584,6 +596,36 @@ mod tests {
             MigrationPolicyKind::CrossRevisionDirect,
             WorldBinding::new(0, WorldGeneration::INITIAL, 0, 0),
         )
+    }
+
+    const FULL_SPATIAL_LFCA: &[u8] = include_bytes!(
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+    );
+
+    #[test]
+    fn signal_aspect_staging_reservation_failure_fails_closed() {
+        // full-spatial 带信号组（group_count > 0）：重绑表已在外层构建，
+        // 迁移内的首次切换暂存预留即候选信号灯色切片。
+        let mut world = installed_world(FULL_SPATIAL_LFCA, "fixture://signal-stage");
+        let target = revision(FULL_SPATIAL_LFCA);
+        let target_origin = *target.canonical_origin();
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), target.identity()).unwrap();
+        let result = with_staging_allocation_failure_after(0, || {
+            migrate_structural_clone(
+                &mut world,
+                Arc::clone(&target),
+                source_for(target_origin, "fixture://signal-stage-target"),
+                &rebinding,
+            )
+        });
+        assert_eq!(
+            match result {
+                Err(error) => error,
+                Ok(_) => panic!("signal staging failure must fail closed"),
+            },
+            CutoverError::StagingAllocFailed
+        );
     }
 
     fn installed_world(bytes: &[u8], key: &str) -> TrafficWorld {
