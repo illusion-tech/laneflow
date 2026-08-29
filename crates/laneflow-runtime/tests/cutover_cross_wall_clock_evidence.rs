@@ -164,14 +164,14 @@ fn cross_revision_cutover_wall_clock_evidence() {
             transaction.pump(&mut world).expect("pump");
         }
         let started = Instant::now();
-        transaction.commit(&mut world).expect("commit");
+        let _ = transaction.commit(&mut world).expect("commit");
         commit_ns.push(started.elapsed().as_nanos() as f64);
         assert!(world.migration_journal_stats().is_none());
 
         // 尾排空形态：全程不泵，静默提交一次吞下整本日志（最坏排空）。
         let mut drained = world_with_fleet();
         let descriptor = descriptor_for(&drained);
-        let mut transaction = drained
+        let transaction = drained
             .prepare_cross_revision_cutover(
                 build(ORACLE_TARGET),
                 source_for("fixture://cross-drained", ORACLE_TARGET),
@@ -185,7 +185,7 @@ fn cross_revision_cutover_wall_clock_evidence() {
             drained.step(TickInput::new(DELTA_MS)).expect("window step");
         }
         let started = Instant::now();
-        transaction
+        let _ = transaction
             .commit(&mut drained)
             .expect("commit drains whole journal");
         drain_commit_ns.push(started.elapsed().as_nanos() as f64);
@@ -205,7 +205,7 @@ fn cross_revision_cutover_wall_clock_evidence() {
             )
             .expect("prepare");
         transaction.pump(&mut paused).expect("paused pump");
-        transaction.commit(&mut paused).expect("paused commit");
+        let _ = transaction.commit(&mut paused).expect("paused commit");
         pause_ns.push(started.elapsed().as_nanos() as f64);
     }
     println!("prepare median: {:.3} ms", median(&mut prepare_ns) / 1.0e6);

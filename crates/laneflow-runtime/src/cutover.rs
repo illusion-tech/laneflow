@@ -667,6 +667,9 @@ pub enum CutoverEvent {
 /// 切换事件批次：成功提交时恰一次交付的规范排序集合。v1 每次成功切换
 /// 恰含一条 [`CutoverEvent::RevisionCutoverCommitted`]；放弃零发布。
 ///
+/// `#[must_use]`：事件批次是切换成功后唯一一份交付物（恰一次），语句位置
+/// 丢弃（如 `cutover_same_revision(...)?;`）属交付丢失，编译期即警告。
+#[must_use = "事件批次是切换恰一次交付物，丢弃即丢失交付"]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CutoverEventBatch {
     events: Vec<CutoverEvent>,

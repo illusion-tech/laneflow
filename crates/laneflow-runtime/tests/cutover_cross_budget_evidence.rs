@@ -259,7 +259,7 @@ fn cross_revision_cutover_budget_evidence() {
     let commit_ledger = {
         let region = Region::new(&GLOBAL);
         transaction.pump(&mut armed).expect("pump");
-        transaction.commit(&mut armed).expect("commit");
+        let _ = transaction.commit(&mut armed).expect("commit");
         Ledger::from_change(region.change())
     };
     println!("drain+commit ledger: {commit_ledger:?}");
