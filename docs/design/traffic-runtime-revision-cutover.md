@@ -343,7 +343,10 @@ G2 回写（切片 A 落定，#511）：
   须恰在末边末端（与恢复侧 `InvalidCompletedState` 同判据——目标加长
   末边时旧端点属不可映射）；事件批次构造改可失败预留；候选五张动态表
   （routes/free_routes→`route_capacity`、vehicles/free_vehicles/
-  live_order→`vehicle_capacity`）补齐 install 同构容量余量。
+  live_order→`vehicle_capacity`）补齐 install 同构容量余量。边界登记
+  （第八轮）：静默窗口的摘要构造（`capture_snapshot` 与
+  `deterministic_state_digest`）继承快照轴的分配画像（save 路径同形态），
+  其失败关闭化随 #532 按轴排期，不属切换事务自身引入的分配债。
 
 必测义务：§8 每类故障的注入测试（保全旧值 + 零事件）；静默提交窗口两类超限
 放弃；维护暂停重试端到端；不可映射整体失败与宿主清场重试（引用不存在与重绑
