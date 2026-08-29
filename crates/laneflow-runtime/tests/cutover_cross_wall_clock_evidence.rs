@@ -140,6 +140,7 @@ fn median(values: &mut [f64]) -> f64 {
 fn cross_revision_cutover_wall_clock_evidence() {
     let mut prepare_ns = Vec::with_capacity(SAMPLES);
     let mut commit_ns = Vec::with_capacity(SAMPLES);
+    let mut drain_commit_ns = Vec::with_capacity(SAMPLES);
     let mut pause_ns = Vec::with_capacity(SAMPLES);
     for _ in 0..SAMPLES {
         // 在线形态：Prepare →（窗口步进 + 泵入）→ 静默提交。
@@ -167,6 +168,28 @@ fn cross_revision_cutover_wall_clock_evidence() {
         commit_ns.push(started.elapsed().as_nanos() as f64);
         assert!(world.migration_journal_stats().is_none());
 
+        // 尾排空形态：全程不泵，静默提交一次吞下整本日志（最坏排空）。
+        let mut drained = world_with_fleet();
+        let descriptor = descriptor_for(&drained);
+        let mut transaction = drained
+            .prepare_cross_revision_cutover(
+                build(ORACLE_TARGET),
+                source_for("fixture://cross-drained", ORACLE_TARGET),
+                &descriptor,
+                ORACLE_LFSD,
+                &CutoverPreflightLimits::new(1_048_576),
+                &CutoverTransactionLimits::default(),
+            )
+            .expect("prepare");
+        for _ in 0..WINDOW_TICKS {
+            drained.step(TickInput::new(DELTA_MS)).expect("window step");
+        }
+        let started = Instant::now();
+        transaction
+            .commit(&mut drained)
+            .expect("commit drains whole journal");
+        drain_commit_ns.push(started.elapsed().as_nanos() as f64);
+
         // 维护暂停形态：停表内 Prepare → 排空 → 静默提交（完整停顿）。
         let mut paused = world_with_fleet();
         let descriptor = descriptor_for(&paused);
@@ -187,9 +210,13 @@ fn cross_revision_cutover_wall_clock_evidence() {
     }
     println!("prepare median: {:.3} ms", median(&mut prepare_ns) / 1.0e6);
     println!(
-        "quiescent commit median (drain {} records + rebuild + revalidate + digest + swap): {:.3} ms",
-        WINDOW_TICKS,
+        "quiescent commit median (tail already pumped; rebuild + revalidate + digest + swap): {:.3} ms",
         median(&mut commit_ns) / 1.0e6
+    );
+    println!(
+        "quiescent commit median (draining full {}-tick journal tail in one call): {:.3} ms",
+        WINDOW_TICKS,
+        median(&mut drain_commit_ns) / 1.0e6
     );
     println!(
         "maintenance pause full median (prepare + drain + commit, no steps): {:.3} ms",
