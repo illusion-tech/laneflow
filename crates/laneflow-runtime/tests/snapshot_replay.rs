@@ -96,11 +96,11 @@ fn fixture_edges(world: &TrafficWorld) -> Vec<LaneEdgeOrdinal> {
 }
 
 fn capture_point(world: &TrafficWorld) -> ReplayPoint {
-    let snapshot = world.capture_snapshot();
+    let snapshot = world.capture_snapshot().expect("capture");
     ReplayPoint {
         command_cursor: snapshot.command_cursor(),
         tick: snapshot.tick(),
-        digest: deterministic_state_digest(&snapshot),
+        digest: deterministic_state_digest(&snapshot).expect("digest"),
     }
 }
 
@@ -223,11 +223,11 @@ fn replay_divergence_under_capacity_mismatch_is_a_desync_signal() {
             0,
         ))
         .expect("checkpoint vehicle");
-    let checkpoint = original.capture_snapshot();
+    let checkpoint = original.capture_snapshot().expect("capture");
     let checkpoint_point = ReplayPoint {
         command_cursor: checkpoint.command_cursor(),
         tick: checkpoint.tick(),
-        digest: deterministic_state_digest(&checkpoint),
+        digest: deterministic_state_digest(&checkpoint).expect("digest"),
     };
     let cursor = checkpoint.command_cursor();
     let bytes = encode_lfrs(&checkpoint);
@@ -306,11 +306,11 @@ fn checkpoint_replay_is_pointwise_equal_and_locates_first_desync_interval() {
             0,
         ))
         .expect("checkpoint vehicle");
-    let checkpoint = original.capture_snapshot();
+    let checkpoint = original.capture_snapshot().expect("capture");
     let checkpoint_point = ReplayPoint {
         command_cursor: checkpoint.command_cursor(),
         tick: checkpoint.tick(),
-        digest: deterministic_state_digest(&checkpoint),
+        digest: deterministic_state_digest(&checkpoint).expect("digest"),
     };
     let checkpoint_route_id = checkpoint.routes()[0].snapshot_route_id();
     let checkpoint_vehicle_id = checkpoint.vehicles()[0].snapshot_vehicle_id();

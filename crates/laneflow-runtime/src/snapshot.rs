@@ -11,6 +11,7 @@ use laneflow_runtime_snapshot_wire::generated::lane_flow::runtime_snapshot::v1 a
 use laneflow_runtime_snapshot_wire::runtime;
 use laneflow_static_contract::StableId128 as ContractStableId128;
 use laneflow_static_network::CanonicalNetworkOrigin;
+use thiserror::Error;
 
 use crate::{CommittedNetworkSource, TrafficWorld, VehicleStatus, WorldConfig};
 
@@ -21,6 +22,98 @@ pub const RUNTIME_STATE_VERSION: u16 = 1;
 
 /// 快照局部标识的起点（1..=N 分配，0 保留为非法）。
 const FIRST_SNAPSHOT_ID: u64 = 1;
+
+/// 快照捕获失败（#532 capture 轴错误族；`SnapshotRestoreError` 的保存侧对偶）。
+///
+/// 捕获只读已提交状态，唯一失败模式是容量预留失败；失败时世界无感知
+/// （不推进游标、不改状态），宿主清点后可直接重试。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
+pub enum SnapshotCaptureError {
+    /// 捕获期容量预留失败（分配压力下失败关闭，旧世界原样继续）。
+    #[error("快照捕获容量预留失败")]
+    ReservationFailed,
+}
+
+#[cfg(test)]
+thread_local! {
+    static SNAPSHOT_RESERVATIONS_BEFORE_FAILURE: core::cell::Cell<Option<usize>> =
+        const { core::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+struct SnapshotAllocationFailpointReset(Option<usize>);
+
+#[cfg(test)]
+impl Drop for SnapshotAllocationFailpointReset {
+    fn drop(&mut self) {
+        SNAPSHOT_RESERVATIONS_BEFORE_FAILURE.with(|remaining| remaining.set(self.0));
+    }
+}
+
+/// 只供同线程单元测试确定性覆盖第 N 次快照轴预留失败（capture 与摘要共用
+/// 一个计数器，注入点在各自模块映射为本轴错误族）。
+#[cfg(test)]
+pub(crate) fn with_snapshot_allocation_failure_after<T>(
+    successful_reservations: usize,
+    run: impl FnOnce() -> T,
+) -> T {
+    SNAPSHOT_RESERVATIONS_BEFORE_FAILURE.with(|remaining| {
+        let _reset =
+            SnapshotAllocationFailpointReset(remaining.replace(Some(successful_reservations)));
+        run()
+    })
+}
+
+/// 快照轴预留的注入检查：命中注入计数时返回真（不实际预留），
+/// 否则递减计数。零增量预留不计入（与 staging 家族同语义）。
+#[cfg(test)]
+pub(crate) fn snapshot_reservation_injected_failure() -> bool {
+    SNAPSHOT_RESERVATIONS_BEFORE_FAILURE.with(|remaining| match remaining.get() {
+        Some(0) => true,
+        Some(value) => {
+            remaining.set(Some(value - 1));
+            false
+        }
+        None => false,
+    })
+}
+
+/// 快照捕获侧可失败精确预留。
+fn capture_try_reserve_exact<T>(
+    values: &mut Vec<T>,
+    additional: usize,
+) -> Result<(), SnapshotCaptureError> {
+    if additional == 0 {
+        return Ok(());
+    }
+    #[cfg(test)]
+    if snapshot_reservation_injected_failure() {
+        return Err(SnapshotCaptureError::ReservationFailed);
+    }
+    values
+        .try_reserve_exact(additional)
+        .map_err(|_| SnapshotCaptureError::ReservationFailed)
+}
+
+/// 句柄查表 HashMap 的可失败预留（同一注入点；`try_reserve` 按至少容量预留）。
+fn capture_map_try_reserve<K, V, S>(
+    map: &mut std::collections::HashMap<K, V, S>,
+    capacity: usize,
+) -> Result<(), SnapshotCaptureError>
+where
+    K: Eq + std::hash::Hash,
+    S: std::hash::BuildHasher,
+{
+    if capacity == 0 {
+        return Ok(());
+    }
+    #[cfg(test)]
+    if snapshot_reservation_injected_failure() {
+        return Err(SnapshotCaptureError::ReservationFailed);
+    }
+    map.try_reserve(capacity)
+        .map_err(|_| SnapshotCaptureError::ReservationFailed)
+}
 
 /// 快照点已捕获的逻辑状态：编码无关的绑定集 + 全部每世界可变状态。
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -367,16 +460,19 @@ impl CapturedSnapshot {
 impl TrafficWorld {
     /// 在固定步进安全边界捕获快照点（快照合同 §5 单一时点）。
     ///
-    /// 只读已提交状态，不改变世界、不推进游标。局部标识分配规范：路线
-    /// 按 live 槽位序取 `1..=N`，车辆按 live 槽位序取 `1..=M`；`live_order`
-    /// 保存实际更新顺序，与局部 ID 的自然序解耦。
-    #[must_use]
-    pub fn capture_snapshot(&self) -> CapturedSnapshot {
+    /// 只读已提交状态，不改变世界、不推进游标；全部容量按计数可失败预留，
+    /// 预留失败即 [`SnapshotCaptureError`]，世界无感知、宿主可直接重试。
+    /// 局部标识分配规范：路线按 live 槽位序取 `1..=N`，车辆按 live 槽位序
+    /// 取 `1..=M`；`live_order` 保存实际更新顺序，与局部 ID 的自然序解耦。
+    pub fn capture_snapshot(&self) -> Result<CapturedSnapshot, SnapshotCaptureError> {
         let identity = self.revision.identity();
 
         // 路线：live 槽位序枚举，序号→稳定标识经 SharedIdentityIndex。
-        let mut routes = Vec::with_capacity(usize::try_from(self.live_route_count).unwrap_or(0));
-        let mut route_ids: Vec<(u32, u32, u64)> = Vec::with_capacity(routes.capacity());
+        let route_capacity = usize::try_from(self.live_route_count).unwrap_or(0);
+        let mut routes = Vec::new();
+        let mut route_ids: Vec<(u32, u32, u64)> = Vec::new();
+        capture_try_reserve_exact(&mut routes, route_capacity)?;
+        capture_try_reserve_exact(&mut route_ids, route_capacity)?;
         for (slot_index, slot) in self.routes.iter().enumerate() {
             if slot.compiled.is_none() {
                 continue;
@@ -387,26 +483,30 @@ impl TrafficWorld {
             );
             let snapshot_route_id = FIRST_SNAPSHOT_ID + routes.len() as u64;
             route_ids.push((slot.generation, handle.index(), snapshot_route_id));
-            let edges: Vec<ContractStableId128> = self
+            let edge_ordinals = self
                 .route_edges(handle)
-                .expect("live route slot resolves edges")
-                .iter()
-                .map(|ordinal| {
+                .expect("live route slot resolves edges");
+            let mut edges: Vec<ContractStableId128> = Vec::new();
+            capture_try_reserve_exact(&mut edges, edge_ordinals.len())?;
+            for ordinal in edge_ordinals {
+                edges.push(
                     identity
                         .stable_id(*ordinal)
                         .map(|stable| *stable.as_untyped())
-                        .expect("live edge ordinal resolves to stable id")
-                })
-                .collect();
+                        .expect("live edge ordinal resolves to stable id"),
+                );
+            }
             routes.push(CapturedRoute {
                 snapshot_route_id,
                 edges,
             });
         }
-        let route_id_by_handle: std::collections::HashMap<(u32, u32), u64> = route_ids
-            .iter()
-            .map(|&(generation, index, snapshot_route_id)| ((generation, index), snapshot_route_id))
-            .collect();
+        let mut route_id_by_handle: std::collections::HashMap<(u32, u32), u64> =
+            std::collections::HashMap::new();
+        capture_map_try_reserve(&mut route_id_by_handle, route_ids.len())?;
+        for &(generation, index, snapshot_route_id) in &route_ids {
+            route_id_by_handle.insert((generation, index), snapshot_route_id);
+        }
         let route_id_for = |generation: u32, index: u32| -> u64 {
             *route_id_by_handle
                 .get(&(generation, index))
@@ -414,8 +514,10 @@ impl TrafficWorld {
         };
 
         // 车辆：live 槽位序枚举，profile/class/停车位解析为稳定标识。
-        let mut vehicles = Vec::with_capacity(self.live_order.len());
-        let mut vehicle_ids: Vec<(u32, u32, u64)> = Vec::with_capacity(vehicles.capacity());
+        let mut vehicles = Vec::new();
+        let mut vehicle_ids: Vec<(u32, u32, u64)> = Vec::new();
+        capture_try_reserve_exact(&mut vehicles, self.live_order.len())?;
+        capture_try_reserve_exact(&mut vehicle_ids, self.live_order.len())?;
         for (slot_index, slot) in self.vehicles.iter().enumerate() {
             let Some(state) = slot.state.as_ref() else {
                 continue;
@@ -450,23 +552,23 @@ impl TrafficWorld {
                 }),
             });
         }
-        let vehicle_id_by_handle: std::collections::HashMap<(u32, u32), u64> = vehicle_ids
-            .iter()
-            .map(|&(generation, index, snapshot_vehicle_id)| {
-                ((generation, index), snapshot_vehicle_id)
-            })
-            .collect();
-        let live_order = self
-            .live_order
-            .iter()
-            .map(|handle| {
+        let mut vehicle_id_by_handle: std::collections::HashMap<(u32, u32), u64> =
+            std::collections::HashMap::new();
+        capture_map_try_reserve(&mut vehicle_id_by_handle, vehicle_ids.len())?;
+        for &(generation, index, snapshot_vehicle_id) in &vehicle_ids {
+            vehicle_id_by_handle.insert((generation, index), snapshot_vehicle_id);
+        }
+        let mut live_order = Vec::new();
+        capture_try_reserve_exact(&mut live_order, self.live_order.len())?;
+        for handle in &self.live_order {
+            live_order.push(
                 *vehicle_id_by_handle
                     .get(&(handle.generation(), handle.index()))
-                    .expect("live order handle resolves to snapshot vehicle id")
-            })
-            .collect();
+                    .expect("live order handle resolves to snapshot vehicle id"),
+            );
+        }
 
-        CapturedSnapshot {
+        Ok(CapturedSnapshot {
             world_id: self.world_id,
             tick: self.tick_index,
             time_ms: self.time_ms,
@@ -474,11 +576,14 @@ impl TrafficWorld {
             event_cursor: self.event_cursor,
             config: self.config,
             origin: *self.revision.canonical_origin(),
-            source: self.source.clone(),
+            source: self
+                .source
+                .try_clone()
+                .map_err(|_| SnapshotCaptureError::ReservationFailed)?,
             routes,
             vehicles,
             live_order,
-        }
+        })
     }
 }
 
@@ -491,7 +596,7 @@ mod tests {
     #[test]
     fn capture_binds_cursors_config_and_origin() {
         let (world, _, _) = world_with_vehicle(true);
-        let snapshot = world.capture_snapshot();
+        let snapshot = world.capture_snapshot().expect("capture");
         assert_eq!(snapshot.world_id(), 1);
         assert_eq!(snapshot.tick(), 0);
         assert_eq!(snapshot.time_ms(), 0);
@@ -511,7 +616,7 @@ mod tests {
         world.occupy_parking(vehicle, space).expect("parking");
         let (_, vehicle_2) = spawn_on(&mut world, route);
 
-        let snapshot = world.capture_snapshot();
+        let snapshot = world.capture_snapshot().expect("capture");
         // 路线：单条，局部 ID 1，边序解析为稳定标识。
         assert_eq!(snapshot.routes().len(), 1);
         assert_eq!(snapshot.routes()[0].snapshot_route_id, 1);
@@ -557,13 +662,37 @@ mod tests {
         let (mut world, _, _) = world_with_vehicle(true);
         world.step(TickInput::new(100)).expect("step");
         let before_cursor = world.command_cursor();
-        let first = world.capture_snapshot();
-        let second = world.capture_snapshot();
+        let first = world.capture_snapshot().expect("capture");
+        let second = world.capture_snapshot().expect("capture");
         assert_eq!(first, second);
         assert_eq!(world.command_cursor(), before_cursor);
         // 捕获后世界照常步进：单一时点捕获不持借用、不改状态。
         world.step(TickInput::new(100)).expect("step after capture");
         assert_eq!(world.command_cursor(), before_cursor);
+    }
+
+    #[test]
+    fn capture_reservation_failure_fails_closed_and_is_retryable() {
+        // #532：捕获的每个预留注入点都失败关闭——世界无感知，清点后
+        // 重试得到同一快照（save 路径的失败关闭由 capture 侧承载）。
+        let (mut world, _, _) = world_with_vehicle(true);
+        world.step(TickInput::new(100)).expect("step");
+        let baseline = world.capture_snapshot().expect("baseline capture");
+        let baseline_bytes = encode_lfrs(&baseline);
+        let before_cursor = world.command_cursor();
+        for fail_after in 0..8 {
+            let failed =
+                with_snapshot_allocation_failure_after(fail_after, || world.capture_snapshot());
+            assert_eq!(
+                failed,
+                Err(SnapshotCaptureError::ReservationFailed),
+                "fail_after={fail_after}"
+            );
+            assert_eq!(world.command_cursor(), before_cursor);
+        }
+        let retried = world.capture_snapshot().expect("retry after clearing");
+        assert_eq!(retried, baseline);
+        assert_eq!(encode_lfrs(&retried), baseline_bytes);
     }
 
     #[test]
@@ -573,7 +702,7 @@ mod tests {
         let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0);
         world.occupy_parking(vehicle, space).expect("parking");
         let (_, active_vehicle) = spawn_on(&mut world, route);
-        let snapshot = world.capture_snapshot();
+        let snapshot = world.capture_snapshot().expect("capture");
 
         let bytes = encode_lfrs(&snapshot);
         assert_eq!(bytes, encode_lfrs(&snapshot));
@@ -732,7 +861,7 @@ mod tests {
             9,
         )
         .expect("install");
-        let bytes = encode_lfrs(&world.capture_snapshot());
+        let bytes = encode_lfrs(&world.capture_snapshot().expect("capture"));
         let root = wire::size_prefixed_root_as_runtime_snapshot(&bytes).expect("verified LFRS");
         assert!(root.routes().is_empty());
         assert!(root.vehicles().is_empty());
@@ -779,7 +908,7 @@ mod tests {
             ))
             .expect("register third");
         let _ = third;
-        let snapshot = world.capture_snapshot();
+        let snapshot = world.capture_snapshot().expect("capture");
         assert_eq!(snapshot.routes().len(), 2);
         assert_eq!(snapshot.routes()[0].snapshot_route_id, 1);
         assert_eq!(snapshot.routes()[1].snapshot_route_id, 2);

@@ -396,10 +396,12 @@ impl CutoverTransaction {
         revalidate_migrated_vehicles(candidate)?;
         // 确定性摘要复核：期望值 = 旧世界静默点捕获 + target origin 头部
         // 替换（记录内容按稳定引用键控，直移不改写；候选侧走自身捕获）。
-        let mut expected = world.capture_snapshot();
+        // 捕获与摘要的预留失败按快照轴错误族失败关闭（#532），不冒充
+        // `StagingAllocFailed`（那是切换暂存预留的错误面）。
+        let mut expected = world.capture_snapshot()?;
         expected.origin = self.target_origin;
-        let expected_digest = deterministic_state_digest(&expected);
-        let candidate_digest = deterministic_state_digest(&candidate.capture_snapshot());
+        let expected_digest = deterministic_state_digest(&expected)?;
+        let candidate_digest = deterministic_state_digest(&candidate.capture_snapshot()?)?;
         if expected_digest != candidate_digest {
             return Err(CutoverError::DigestMismatch);
         }
@@ -1193,6 +1195,74 @@ mod tests {
         assert_eq!(cut.vehicle_state(vehicle).copied(), Some(before_state));
         cut.step(TickInput::new(100))
             .expect("old world keeps stepping");
+    }
+
+    #[test]
+    fn quiescent_digest_reservation_failures_fail_closed() {
+        // #532：静默期捕获/摘要的预留失败按快照轴错误族失败关闭
+        // （`QuiescentCapture` / `QuiescentDigest`，不冒充 `StagingAllocFailed`）；
+        // 旧世界原样继续、零切换事件，清点后重开事务可成功提交。
+        let mut cut = installed_world(ORACLE_BASE, "fixture://cut");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        let vehicle = spawn_on(&mut cut, route, 10_000, 5_000);
+        cut.step(TickInput::new(100)).expect("step");
+        let before_state = cut.vehicle_state(vehicle).copied().expect("vehicle");
+        let before_event_cursor = cut.world_binding().baseline_event_cursor();
+
+        // 覆盖四个消费点：预期捕获、预期摘要、候选捕获、候选摘要。
+        for fail_after in [0usize, 10, 20, 30, 40] {
+            let mut tx = prepare(
+                &mut cut,
+                ORACLE_TARGET,
+                ORACLE_LFSD,
+                &CutoverTransactionLimits::default(),
+            );
+            cut.step(TickInput::new(100)).expect("step");
+            tx.pump(&mut cut).expect("pump");
+            let before_revision = *cut.revision.canonical_origin();
+            let before_generation = cut.world_generation();
+            let error = crate::snapshot::with_snapshot_allocation_failure_after(fail_after, || {
+                tx.commit(&mut cut)
+            })
+            .unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    CutoverError::QuiescentCapture(crate::SnapshotCaptureError::ReservationFailed)
+                        | CutoverError::QuiescentDigest(
+                            crate::SnapshotDigestError::ReservationFailed
+                        )
+                ),
+                "fail_after={fail_after}: {error:?}"
+            );
+            assert_eq!(*cut.revision.canonical_origin(), before_revision);
+            assert_eq!(cut.world_generation(), before_generation);
+            assert_eq!(
+                cut.world_binding().baseline_event_cursor(),
+                before_event_cursor
+            );
+            cut.step(TickInput::new(100))
+                .expect("old world keeps stepping");
+        }
+        assert_ne!(cut.vehicle_state(vehicle).copied(), Some(before_state));
+
+        // 清点后重开事务：同一世界重试成功，事件恰一次交付。
+        let mut tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        tx.pump(&mut cut).expect("pump");
+        let commit = tx.commit(&mut cut).expect("retry commits");
+        assert_eq!(commit.events.len(), 1);
+        assert_eq!(
+            cut.world_binding().baseline_event_cursor(),
+            before_event_cursor + 1
+        );
     }
 
     #[test]
@@ -2220,14 +2290,15 @@ mod tests {
         cut.step(TickInput::new(100)).expect("step");
         plain.step(TickInput::new(100)).expect("plain step");
         // 准备期保存：只捕获旧修订与旧动态状态，事务不受影响（§8 行）。
-        let captured = cut.capture_snapshot();
+        let captured = cut.capture_snapshot().expect("capture");
         assert_eq!(
             captured.origin.network_revision(),
             cut.revision().canonical_origin().network_revision()
         );
         assert_eq!(
-            crate::deterministic_state_digest(&captured),
-            crate::deterministic_state_digest(&plain.capture_snapshot())
+            crate::deterministic_state_digest(&captured).expect("digest"),
+            crate::deterministic_state_digest(&plain.capture_snapshot().expect("capture"))
+                .expect("digest")
         );
         tx.pump(&mut cut).expect("pump unaffected by capture");
         let _ = tx.commit(&mut cut).expect("commit unaffected by capture");

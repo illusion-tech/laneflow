@@ -198,6 +198,7 @@ candidate root、scratch、旧/候选动态双份、迁移增量日志与未提�
 | 日志溢出                    | 放弃候选；旧世界继续；零事件                                                                             |
 | 追赶失败 / 预算超限         | 放弃候选；旧世界继续；零事件                                                                             |
 | 语义证据缺失                | 等价证明或摘要比对失败 → 放弃候选；零事件                                                                |
+| 静默期捕获/摘要预留失败     | 提交失败关闭（`QuiescentCapture` / `QuiescentDigest`）；旧世界原样继续；零事件；事务随 `commit` 消耗析构 |
 | 不可映射实体（§3）          | 整体失败关闭；旧修订/状态/source/diff base 全保留；零事件                                                |
 | 保存发生在候选准备期        | 只捕获旧 `CommittedNetworkSource` 与对应 Runtime Snapshot；事务不受影响（快照文档 §5）                   |
 | 事务丢失（丢弃/错世界结算） | 来源世界保持 `InFlightTransaction` 锁定；宿主以 `abandon_in_flight_cutover` 显式放弃，旧世界继续；零事件 |
@@ -344,9 +345,13 @@ G2 回写（切片 A 落定，#511）：
   末边时旧端点属不可映射）；事件批次构造改可失败预留；候选五张动态表
   （routes/free_routes→`route_capacity`、vehicles/free_vehicles/
   live_order→`vehicle_capacity`）补齐 install 同构容量余量。边界登记
-  （第八轮）：静默窗口的摘要构造（`capture_snapshot` 与
+  （第八轮，已随 #532 落地）：静默窗口的摘要构造（`capture_snapshot` 与
   `deterministic_state_digest`）继承快照轴的分配画像（save 路径同形态），
-  其失败关闭化随 #532 按轴排期，不属切换事务自身引入的分配债。第九轮：
+  现已按轴失败关闭化——capture 与摘要的全部预留（含句柄查表与 source 克隆）
+  可失败，失败映射 `QuiescentCapture` / `QuiescentDigest`（语义准确，不冒充
+  `StagingAllocFailed`），旧世界原样、零事件、清点后重开事务可提交；`LFRS`
+  wire 编码（FlatBufferBuilder 内部分配）不属失败关闭可达面，保存路径的失败
+  关闭由捕获侧承载（快照文档 §5）。第九轮：
   失败结算后事务不滞留目标根的任何 Arc——事件与摘要只捕获 origin 小值，
   候选骨架换绑回旧世界根共享（旧世界存活期间零边际内存）。第十轮终态：
   候选字段 Option 化，失败结算整体置 `None`——已结算事务只剩 Copy 字段，
@@ -366,6 +371,8 @@ G2 回写（切片 A 落定，#511）：
 失败结算释放候选（动态表与重绑表清空的 test-only 断言）；信号灯色预留
 失败注入；Parked 车辆拒绝后缀的 Prepare 端到端；Completed 末端不变量
 直测（拒绝与放行两侧）；候选容量余量断言；失败结算释放目标根与旧根的
-弱引用断言（后者含丢弃世界后的端到端形态）。#303 接缝还必须覆盖世界世代/观测 stream/
+弱引用断言（后者含丢弃世界后的端到端形态）；静默期捕获/摘要预留失败注入
+（预期与候选两侧共四个消费点，失败关闭零事件、清点后重开事务恰一次提交；
+capture 失败的世界无感知与可重试——save 侧同承载）。#303 接缝还必须覆盖世界世代/观测 stream/
 `observationStateSequence` 与 root 同界原子变化、target 路线 occurrence 容量
 max/max+1 与超限零提交，以及 abort 三者完全不变。

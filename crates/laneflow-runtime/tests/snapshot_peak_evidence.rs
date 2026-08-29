@@ -24,8 +24,8 @@ fn published_restore_peak_heap_baseline() {
             .step(TickInput::new(snapshot_evidence::DELTA_MS))
             .expect("warmup step");
     }
-    let snapshot = world.capture_snapshot();
-    let expected_digest = deterministic_state_digest(&snapshot);
+    let snapshot = world.capture_snapshot().expect("capture");
+    let expected_digest = deterministic_state_digest(&snapshot).expect("digest");
     let bytes = encode_lfrs(&snapshot);
     let target_revision = world.revision();
     let target_source = world.committed_source().clone();
@@ -50,7 +50,8 @@ fn published_restore_peak_heap_baseline() {
     assert!(stats.total_bytes >= stats.max_bytes as u64);
     assert!(stats.max_bytes >= stats.curr_bytes);
     assert_eq!(
-        deterministic_state_digest(&restored.world().capture_snapshot()),
+        deterministic_state_digest(&restored.world().capture_snapshot().expect("capture"))
+            .expect("digest"),
         expected_digest
     );
     println!(
