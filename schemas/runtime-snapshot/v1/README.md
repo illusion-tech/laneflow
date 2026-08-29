@@ -34,7 +34,7 @@ writer 不回读活动 world、不推进命令游标，并逐字段写入完整 
 | 3   | `tick`                      | tick 游标                                                                                                                                                                     |
 | 4   | `time_ms`                   | 时钟；lowering 核对 `time_ms == tick × fixed_delta_time_ms`                                                                                                                   |
 | 5   | `command_cursor`            | 输入命令游标（已应用命令计数）                                                                                                                                                |
-| 6   | `event_cursor`              | 已提交事件游标（v1 无事件通道，恒零）                                                                                                                                         |
+| 6   | `event_cursor`              | 已提交切换事件游标（#513 切片 C 起为真实轴，随世界状态保存/恢复）                                                                                                                                         |
 | 7   | `world_config`              | `WorldConfig` 全量（含 `route_edge_occurrence_capacity`，#303 G1 已接受合同，运行时面已随 #521 落地）；恢复核对按 §2 两分（dt 精确相等 / 语义容量只许放大 / worker 数不参与） |
 | 8   | `network_revision`          | LFCA origin 四联之一：`NetworkRevisionId`                                                                                                                                     |
 | 9   | `lfca_artifact_digest`      | LFCA origin 四联之二：规范制品摘要（来源审计，非语义兼容门）                                                                                                                  |

@@ -24,8 +24,8 @@ mod world;
 
 pub use config::{StepOutcome, TickInput, WorldConfig};
 pub use cutover::{
-    CUTOVER_DESCRIPTOR_FORMAT_VERSION, CutoverDescriptorError, CutoverError,
-    CutoverPreflightLimits, LfcaOriginBinding, MigrationPolicyKind,
+    CUTOVER_DESCRIPTOR_FORMAT_VERSION, CutoverDescriptorError, CutoverError, CutoverEvent,
+    CutoverEventBatch, CutoverPreflightLimits, LfcaOriginBinding, MigrationPolicyKind,
     NetworkRevisionCutoverDescriptor, SemanticDiffOriginBinding, WorldBinding,
 };
 pub use cutover_transaction::{

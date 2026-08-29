@@ -3,11 +3,12 @@
 //! Prepare →（宿主泵式 Delta Catch-up）→ Quiescent Commit / 放弃。候选由
 //! Prepare 时的结构克隆直移构造（切片 C-2），此后只应用迁移增量（切片 C-1
 //! 日志）：不模拟未来、不重执行输入命令。静默提交在同一原子边界排空日志
-//! 尾 → 占用重建 + 全量重验证 → 确定性摘要复核（期望值 = 旧世界静默点
-//! 捕获的头部替换形式：`origin` 换为 target，记录内容全部按稳定引用键控、
-//! 直移不改写）→ 最终游标原子取样 → 不可失败原地晋升（世代 checked+1、
-//! 观测序号同界重置）。任一失败整体放弃：旧修订、旧动态状态、旧来源
-//! 原样生效、零事件。
+//! 尾 → 最终命令游标原子取样并写入候选 → 占用重建 + 全量重验证 →
+//! 确定性摘要复核（期望值 = 旧世界静默点捕获的头部替换形式：`origin`
+//! 换为 target，记录内容全部按稳定引用键控、直移不改写；取样必须先于
+//! 摘要——双游标是摘要输入）→ 不可失败原地晋升（世代 checked+1、观测
+//! 序号同界重置）。任一失败整体放弃：旧修订、旧动态状态、旧来源原样
+//! 生效、零事件。
 
 use std::sync::Arc;
 
@@ -36,8 +37,10 @@ use crate::{
 
 /// 最大追赶滞后的文档化默认值（tick 距离；切换合同 §9）。
 ///
-/// v1 取 600 tick：4 ms 固定步进下约 2.4 s 的可追窗口；更紧的宿主预算
-/// 可显式配置更小值。初值随切片 C 证据登记。
+/// v1 取 600 tick：4 ms 固定步进下约 2.4 s 的可追窗口上限；实际可追
+/// 窗口由日志字节上界与滞后上限共同约束——千车量级先撞字节上界
+/// （8 MiB / 约 48 KB 每 tick ≈ 174 tick），更紧的宿主预算可显式配置
+/// 更小值。初值随切片 C 证据登记。
 pub const DEFAULT_MAX_CATCH_UP_LAG_TICKS: u64 = 600;
 
 /// 每泵记录数预算的文档化默认值（后台工作上限；切换合同 §9）。
@@ -88,15 +91,21 @@ pub struct CutoverCommit {
 ///
 /// 生命周期：`prepare_cross_revision_cutover` 构造 → 宿主在步进间隙反复
 /// [`Self::pump`] → [`Self::commit`] 在固定步进安全边界（旧世界已停表）
-/// 静默提交；任一失败（含泵入途中）都整体放弃——调用方直接丢弃事务对象，
-/// 旧世界从暂停点恢复步进。事务不实现 `Drop` 副作用：解除日志武装始终
-/// 显式发生在失败/提交路径内。
+/// 静默提交；任一失败（含泵入途中）都整体放弃。事务绑定构造它的世界
+/// 身份与世代：`pump`/`commit`/`abandon` 传入其它世界按
+/// [`CutoverError::TransactionWorldMismatch`] 失败关闭，防止误解除他世界
+/// 的在途日志。事务必须以 `commit` 或 `abandon` 结算——静默丢弃会使其
+/// 来源世界保持在途锁定（`InFlightTransaction`）；不实现 `Drop` 副作用，
+/// 解除日志武装始终显式发生在结算路径内。
+#[must_use = "未以 commit 或 abandon 结算的切换事务会使其来源世界保持在途锁定"]
 pub struct CutoverTransaction {
     candidate: TrafficWorld,
     rebinding: CrossRevisionRebinding,
     target_revision: Arc<SharedNetworkRevision>,
     limits: CutoverTransactionLimits,
     next_world_generation: WorldGeneration,
+    world_id: u64,
+    prepare_world_generation: WorldGeneration,
     applied_records: u64,
     settled: bool,
 }
@@ -178,6 +187,8 @@ impl TrafficWorld {
             target_revision,
             limits: *transaction_limits,
             next_world_generation,
+            world_id: self.world_id,
+            prepare_world_generation: self.world_generation,
             applied_records: 0,
             settled: false,
         })
@@ -203,6 +214,18 @@ impl CutoverTransaction {
         } else {
             Ok(())
         }
+    }
+
+    /// 事务与世界配对校验：身份或世代不符即失败关闭，不触及任何一方。
+    fn ensure_origin_world(&self, world: &TrafficWorld) -> Result<(), CutoverError> {
+        if world.world_id != self.world_id
+            || world.world_generation != self.prepare_world_generation
+        {
+            return Err(CutoverError::TransactionWorldMismatch {
+                expected_world: self.world_id,
+            });
+        }
+        Ok(())
     }
 
     /// 失败路径的统一收尾：解除世界日志武装、标记结算。旧世界原样继续。
@@ -238,6 +261,7 @@ impl CutoverTransaction {
     /// 迁移增量。宿主在旧世界步进间隙调用；不模拟未来、不重执行输入。
     pub fn pump(&mut self, world: &mut TrafficWorld) -> Result<PumpOutcome, CutoverError> {
         self.ensure_live()?;
+        self.ensure_origin_world(world)?;
         self.check_health(world)?;
         let outcome = self.apply_up_to(world, self.limits.max_records_per_pump);
         match outcome {
@@ -281,11 +305,12 @@ impl CutoverTransaction {
     }
 
     /// Quiescent Commit（切换合同 §4/§5）：在固定步进安全边界调用——
-    /// 旧世界已停表、含输入。排空日志尾后依次完成占用重建、全量重验证、
-    /// 确定性摘要复核与最终游标原子取样；全部通过后只剩不可失败的原地
-    /// 晋升。任一失败整体放弃，旧世界从暂停点恢复步进。
+    /// 旧世界已停表、含输入。排空日志尾后依次完成最终游标原子取样（写入
+    /// 候选）、占用重建、全量重验证与确定性摘要复核；全部通过后只剩
+    /// 不可失败的原地晋升。任一失败整体放弃，旧世界从暂停点恢复步进。
     pub fn commit(&mut self, world: &mut TrafficWorld) -> Result<CutoverCommit, CutoverError> {
         self.ensure_live()?;
+        self.ensure_origin_world(world)?;
         let outcome = self.commit_internal(world);
         self.settled = true;
         world.disarm_migration_journal();
@@ -356,8 +381,14 @@ impl CutoverTransaction {
     }
 
     /// 显式放弃：丢弃候选并解除日志武装；旧世界从暂停点恢复步进。
-    pub fn abandon(self, world: &mut TrafficWorld) {
+    /// 已结算事务或错误世界按失败关闭返回，不解除任何日志。
+    pub fn abandon(self, world: &mut TrafficWorld) -> Result<(), CutoverError> {
+        if self.settled {
+            return Err(CutoverError::TransactionSettled);
+        }
+        self.ensure_origin_world(world)?;
         world.disarm_migration_journal();
+        Ok(())
     }
 }
 
@@ -480,19 +511,16 @@ fn apply_record(
             let compiled = compile_candidate_route(candidate, target_edges.as_slice())?;
             let slot_index =
                 usize::try_from(*slot).map_err(|_| CutoverError::ReplayInconsistent)?;
-            let next_count = candidate.live_route_count.checked_add(1).ok_or(
-                CutoverError::EdgeOccurrenceCapacityExceeded {
-                    total: u64::MAX,
-                    capacity: candidate.config.route_edge_occurrence_capacity(),
-                },
-            )?;
+            // 计数加法在容量约束（u64 容量、注册路径先比容量）下结构性
+            // 不可达溢出；按内部不变量处理，不用数据错误变体承载哨兵值。
+            let next_count = candidate
+                .live_route_count
+                .checked_add(1)
+                .expect("route count preflight guarantees room");
             let next_occurrence = candidate
                 .live_route_edge_occurrence_count
                 .checked_add(u64::try_from(target_edges.len()).expect("edge count fits u64"))
-                .ok_or(CutoverError::EdgeOccurrenceCapacityExceeded {
-                    total: u64::MAX,
-                    capacity: candidate.config.route_edge_occurrence_capacity(),
-                })?;
+                .expect("occurrence preflight guarantees room");
             if next_occurrence > candidate.config.route_edge_occurrence_capacity() {
                 return Err(CutoverError::EdgeOccurrenceCapacityExceeded {
                     total: next_occurrence,
