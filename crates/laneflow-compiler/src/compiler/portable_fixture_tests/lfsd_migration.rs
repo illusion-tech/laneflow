@@ -213,6 +213,54 @@ fn oracle_module(target: bool) -> SyntheticModule {
     builder.finish().unwrap()
 }
 
+fn profile_drift_module(target: bool) -> SyntheticModule {
+    let iidm = IidmVehicleProfileInput {
+        length_meters: if target { 6.0 } else { 4.5 },
+        desired_speed_meters_per_second: 13.75,
+        min_gap_meters: 2.0,
+        time_headway_seconds: 1.4,
+        max_acceleration_meters_per_second_squared: 1.8,
+        comfortable_deceleration_meters_per_second_squared: 2.0,
+        emergency_deceleration_meters_per_second_squared: 4.5,
+    };
+    let mut builder = portable_fixture_builder(
+        "city/portable-migration-drift",
+        "portable-migration-drift.document",
+    );
+    builder
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "entry",
+            length_meters: 100.0,
+            speed_limit_meters_per_second: 20.0,
+            successors: &[LaneEdgeReference::local("exit")],
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "exit",
+            length_meters: 100.0,
+            speed_limit_meters_per_second: 20.0,
+            successors: &[],
+        })
+        .unwrap()
+        .add_participant_class(ParticipantClassInput {
+            participant_class_key: "road-user",
+            extends: None,
+        })
+        .unwrap()
+        .add_participant_class(ParticipantClassInput {
+            participant_class_key: "passenger-car",
+            extends: Some(ParticipantClassReference::local("road-user")),
+        })
+        .unwrap()
+        .add_vehicle_profile(VehicleProfileInput {
+            vehicle_profile_key: "standard-car",
+            participant_class: ParticipantClassReference::local("passenger-car"),
+            iidm,
+        })
+        .unwrap();
+    builder.finish().unwrap()
+}
+
 fn pair(
     module: fn(bool) -> SyntheticModule,
 ) -> (
@@ -252,6 +300,13 @@ fn migration_pair() -> (
     pair(migration_module)
 }
 
+fn profile_drift_pair() -> (
+    crate::PortablePublicationCandidate,
+    crate::PortablePublicationCandidate,
+) {
+    pair(profile_drift_module)
+}
+
 fn oracle_pair() -> (
     crate::PortablePublicationCandidate,
     crate::PortablePublicationCandidate,
@@ -271,6 +326,12 @@ const ORACLE_TARGET: &[u8] =
     include_bytes!("../../../tests/fixtures/portable/lfsd-migration/oracle-target.lfca");
 const ORACLE_LFSD: &[u8] =
     include_bytes!("../../../tests/fixtures/portable/lfsd-migration/oracle-expected.lfsd");
+const PROFILE_BASE: &[u8] =
+    include_bytes!("../../../tests/fixtures/portable/lfsd-migration/profile-base.lfca");
+const PROFILE_TARGET: &[u8] =
+    include_bytes!("../../../tests/fixtures/portable/lfsd-migration/profile-target.lfca");
+const PROFILE_LFSD: &[u8] =
+    include_bytes!("../../../tests/fixtures/portable/lfsd-migration/profile-expected.lfsd");
 
 fn artifact_view(bytes: &[u8]) -> laneflow_format::RegistryCheckedObjectView<'_> {
     laneflow_format::preflight_object_values(
@@ -313,6 +374,18 @@ fn portable_migration_pair_matches_frozen_exact_bytes() {
         "sha256/a239a8a1a2adc32124f9385faa3911ee915788c44bfc1db29c5ca87214c8c3e1"
     );
     assert_ne!(obase.network_revision(), otarget.network_revision());
+
+    // profile 漂移对：target 仅改 standard-car 车长（4.5 m → 6.0 m），
+    // 派生不变量重验证的不可映射场景（运行时侧消费）。
+    let (pbase, ptarget) = profile_drift_pair();
+    assert_eq!(pbase.canonical_artifact().bytes(), PROFILE_BASE);
+    assert_eq!(ptarget.canonical_artifact().bytes(), PROFILE_TARGET);
+    assert_eq!(ptarget.semantic_diff().bytes(), PROFILE_LFSD);
+    assert_eq!(
+        ptarget.semantic_diff().object_key(),
+        "sha256/2cdb4c6b16c4f56092dda0b23f987791a8d2bd3c8ee87f58547478a2424bf470"
+    );
+    assert_ne!(pbase.network_revision(), ptarget.network_revision());
 }
 
 #[test]
@@ -414,13 +487,31 @@ fn dump_portable_migration_when_requested() {
         otarget.semantic_diff().bytes(),
     )
     .unwrap();
+    let (pbase, ptarget) = profile_drift_pair();
+    std::fs::write(
+        dir.join("profile-base.lfca"),
+        pbase.canonical_artifact().bytes(),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("profile-target.lfca"),
+        ptarget.canonical_artifact().bytes(),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("profile-expected.lfsd"),
+        ptarget.semantic_diff().bytes(),
+    )
+    .unwrap();
     std::fs::write(
         dir.join("bindings.txt"),
         format!(
             "migration_base_len={}\nmigration_base_key={}\nmigration_target_len={}\n\
              migration_target_key={}\nmigration_lfsd_len={}\nmigration_lfsd_key={}\n\
              oracle_base_len={}\noracle_base_key={}\noracle_target_len={}\n\
-             oracle_target_key={}\noracle_lfsd_len={}\noracle_lfsd_key={}\n",
+             oracle_target_key={}\noracle_lfsd_len={}\noracle_lfsd_key={}\n\
+             drift_base_len={}\ndrift_base_key={}\ndrift_target_len={}\n\
+             drift_target_key={}\ndrift_lfsd_len={}\ndrift_lfsd_key={}\n",
             base.canonical_artifact().bytes().len(),
             base.canonical_artifact().object_key(),
             target.canonical_artifact().bytes().len(),
@@ -433,6 +524,12 @@ fn dump_portable_migration_when_requested() {
             otarget.canonical_artifact().object_key(),
             otarget.semantic_diff().bytes().len(),
             otarget.semantic_diff().object_key(),
+            pbase.canonical_artifact().bytes().len(),
+            pbase.canonical_artifact().object_key(),
+            ptarget.canonical_artifact().bytes().len(),
+            ptarget.canonical_artifact().object_key(),
+            ptarget.semantic_diff().bytes().len(),
+            ptarget.semantic_diff().object_key(),
         ),
     )
     .unwrap();

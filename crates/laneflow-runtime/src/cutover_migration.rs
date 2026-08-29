@@ -307,6 +307,19 @@ pub(crate) fn revalidate_vehicle_on(
         .ok_or(CutoverError::VehicleRevalidationFailed {
             vehicle: handle.index(),
         })?;
+    // 派生不变量（重执行 spawn 检查的派生面）：target profile 派生的
+    // class/length 必须与车辆存量一致，否则不可映射——直移保留存量会
+    // 与 save/restore 的派生态分歧（class 侧恢复被拒、length 侧静默漂移）。
+    let profile = traffic.relations().vehicle_profile(state.profile).ok_or(
+        CutoverError::ProfileDerivationMismatch {
+            vehicle: handle.index(),
+        },
+    )?;
+    if profile.class() != state.class || profile.length_mm() != state.length_mm {
+        return Err(CutoverError::ProfileDerivationMismatch {
+            vehicle: handle.index(),
+        });
+    }
     let edges =
         candidate
             .route_edges(state.route)
@@ -421,6 +434,12 @@ mod tests {
     );
     const ORACLE_TARGET: &[u8] = include_bytes!(
         "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/oracle-target.lfca"
+    );
+    const PROFILE_BASE: &[u8] = include_bytes!(
+        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/profile-base.lfca"
+    );
+    const PROFILE_TARGET: &[u8] = include_bytes!(
+        "../../laneflow-compiler/tests/fixtures/portable/lfsd-migration/profile-target.lfca"
     );
 
     fn revision(bytes: &[u8]) -> Arc<SharedNetworkRevision> {
@@ -891,6 +910,63 @@ mod tests {
         assert_eq!(
             expect_migration_error(&world, target_revision, &rebinding),
             CutoverError::VehicleRevalidationFailed {
+                vehicle: vehicle.index()
+            }
+        );
+    }
+
+    #[test]
+    fn migrate_fails_closed_on_profile_length_drift() {
+        // profile 漂移对：target 仅改 standard-car 车长（4.5 m → 6.0 m）。
+        // 直移保留存量车长会与 save/restore 的派生态分歧（length 不入
+        // 摘要、静默漂移），按不可映射整体失败关闭。
+        let mut world = installed_world(PROFILE_BASE, "fixture://drift-base");
+        let (entry, exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        let vehicle = spawn_on(&mut world, route, 10_000, 5_000);
+        let target_revision = revision(PROFILE_TARGET);
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+        assert_eq!(
+            expect_migration_error(&mut world, target_revision, &rebinding),
+            CutoverError::ProfileDerivationMismatch {
+                vehicle: vehicle.index()
+            }
+        );
+    }
+
+    #[test]
+    fn migrate_fails_closed_on_profile_class_drift() {
+        // class 漂移（手注入第二个类别序数模拟 target profile 改派类别）：
+        // 直移保留存量类别会使迁移后世界的存档在恢复侧被
+        // ProfileClassMismatch 拒绝，同样按不可映射失败关闭。
+        let mut world = installed_world(BASE, "fixture://migration-base");
+        let (entry, _exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry]))
+            .expect("route");
+        let vehicle = spawn_on(&mut world, route, 1_000, 5_000);
+        let other_class = {
+            let count = world
+                .traffic()
+                .entity_counts()
+                .count(EntityKind::ParticipantClass);
+            let current = world.vehicle_state(vehicle).expect("vehicle").class();
+            (0..count)
+                .map(laneflow_static_contract::ParticipantClassOrdinal::from_raw)
+                .find(|class| *class != current)
+                .expect("fixture exposes a second class")
+        };
+        let index = usize::try_from(vehicle.index()).expect("index");
+        world.vehicles[index].state.as_mut().expect("vehicle").class = other_class;
+        let target_revision = revision(TARGET);
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity());
+        assert_eq!(
+            expect_migration_error(&mut world, target_revision, &rebinding),
+            CutoverError::ProfileDerivationMismatch {
                 vehicle: vehicle.index()
             }
         );

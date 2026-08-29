@@ -621,6 +621,14 @@ pub enum CutoverError {
     /// 迁移增量重放与候选槽位布局不一致（内部不变量破坏）。
     #[error("迁移增量重放与候选布局不一致")]
     ReplayInconsistent,
+    /// 重绑后非法（派生轴）：target profile 派生的参与者类别或车长与
+    /// 车辆存量不一致——直移保留存量会使迁移态与 save/restore 的派生态
+    /// 分歧（class 侧恢复被拒、length 侧静默漂移），按不可映射失败关闭。
+    #[error("target profile 派生属性与车辆存量不一致（车辆序数 {vehicle}）")]
+    ProfileDerivationMismatch {
+        /// 违反派生不变量的车辆槽位序数。
+        vehicle: u32,
+    },
     /// 事务与其传入的世界不匹配：事务绑定构造它的世界身份与世代，
     /// 传入其它世界按此失败关闭（防止误解除他世界的在途日志）。
     #[error("切换事务与传入世界不匹配（事务属世界 {expected_world}）")]
