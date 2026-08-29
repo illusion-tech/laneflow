@@ -538,7 +538,15 @@ fn apply_record(
                     .try_reserve_exact(1)
                     .map_err(|_| CutoverError::StagingAllocFailed)?;
                 candidate.routes.push(staged);
-            } else if let Some(existing) = candidate.routes.get_mut(slot_index) {
+            } else if slot_index < candidate.routes.len() {
+                // 复用槽只能来自空闲表栈顶（镜像 world 注册路径的 LIFO
+                // 弹出）；不消费空闲表会让晋升把含占用槽的表换回世界，
+                // 后续注册复用同一槽并覆盖存活路线。
+                if candidate.free_routes.last().copied() != Some(slot_index) {
+                    return Err(CutoverError::ReplayInconsistent);
+                }
+                candidate.free_routes.pop();
+                let existing = &mut candidate.routes[slot_index];
                 if existing.compiled.is_some() {
                     return Err(CutoverError::ReplayInconsistent);
                 }
@@ -1274,6 +1282,55 @@ mod tests {
         // 恢复运行：句柄保持、继续步进。
         assert_eq!(cut.vehicle_state(vehicle).expect("vehicle").route(), route);
         cut.step(TickInput::new(100)).expect("resumes on target");
+    }
+
+    #[test]
+    fn slot_reuse_replay_consumes_free_list_and_prevents_post_commit_collision() {
+        // P1 回归：切换前删除释放槽 → 窗口内注册复用该槽 → 提交。重放
+        // 必须按 LIFO 消费候选空闲表，否则晋升把含占用槽的空闲表换回
+        // 世界，提交后首次注册会复用同一槽并覆盖存活路线（句柄碰撞）。
+        let mut cut = installed_world(ORACLE_BASE, "fixture://cut");
+        let (entry, exit) = entry_exit(&cut);
+        let survivor = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("survivor route");
+        let doomed = cut
+            .register_route(RouteRegisterInput::new(vec![entry]))
+            .expect("doomed route");
+        let vehicle = spawn_on(&mut cut, survivor, 10_000, 5_000);
+        cut.remove_route(doomed).expect("free the doomed slot");
+        let doomed_slot = doomed.index();
+
+        let mut tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        // 窗口内注册复用被释放的槽（世界侧经 free_routes.pop()）。
+        let reused = cut
+            .register_route(RouteRegisterInput::new(vec![exit]))
+            .expect("reused route");
+        assert_eq!(reused.index(), doomed_slot, "world reuses the freed slot");
+        let reused_edges = cut.route_edges(reused).expect("reused route").to_vec();
+        tx.pump(&mut cut).expect("pump replays slot reuse");
+        tx.commit(&mut cut).expect("commit");
+
+        // 提交后注册不得与存活路线碰撞：复用路线仍可解析、句柄互异、
+        // 存活路线边序列未被覆盖。
+        let after = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("post-commit route");
+        assert_ne!(after.index(), reused.index());
+        assert_ne!(after, reused);
+        assert_eq!(cut.route_edges(reused), Some(reused_edges.as_slice()));
+        let survivor_edges = cut.route_edges(survivor).expect("survivor route");
+        assert_eq!(survivor_edges.len(), 2);
+        assert_eq!(
+            cut.vehicle_state(vehicle).expect("vehicle").route(),
+            survivor
+        );
+        cut.step(TickInput::new(100)).expect("steps on target");
     }
 
     #[test]
