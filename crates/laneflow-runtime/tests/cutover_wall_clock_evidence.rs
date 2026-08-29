@@ -211,7 +211,7 @@ fn cutover_side_wall_clock_baseline() {
                 source_base.clone()
             };
             let started = Instant::now();
-            world
+            let _ = world
                 .cutover_same_revision(Arc::clone(&target), source, &descriptor, &limits())
                 .expect("same-revision cutover");
             let elapsed = started.elapsed().as_nanos();
@@ -237,7 +237,7 @@ fn cutover_side_wall_clock_baseline() {
             source_base.clone()
         };
         let started = Instant::now();
-        world
+        let _ = world
             .cutover_same_revision(fresh, source, &descriptor, &limits())
             .expect("same-revision cutover");
         let elapsed = started.elapsed().as_nanos();

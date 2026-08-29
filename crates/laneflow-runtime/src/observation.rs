@@ -1188,7 +1188,7 @@ mod tests {
             MigrationPolicyKind::SameRevisionRestore,
             world.world_binding(),
         );
-        world
+        let _ = world
             .cutover_same_revision(
                 target,
                 source_for(target_origin, "fixture://observation-cutover"),

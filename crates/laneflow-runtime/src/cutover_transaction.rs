@@ -78,6 +78,9 @@ pub struct PumpOutcome {
 
 /// 静默提交成功记录。
 ///
+/// `#[must_use]`：内含 [`CutoverEventBatch`]（恰一次交付物），语句位置丢弃
+/// 属交付丢失。
+#[must_use = "提交记录内含事件批次，丢弃即丢失交付"]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CutoverCommit {
     /// 晋升后的世界世代。

@@ -230,7 +230,7 @@ fn measure_round() -> (Ledger, Ledger, Ledger) {
             source_base.clone()
         };
         let region = Region::new(GLOBAL);
-        world
+        let _ = world
             .cutover_same_revision(Arc::clone(&target), source, &descriptor, &limits())
             .expect("same-revision cutover");
         let ledger = Ledger::from_change(region.change());
