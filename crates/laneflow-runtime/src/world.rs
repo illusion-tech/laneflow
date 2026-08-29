@@ -998,7 +998,7 @@ pub(crate) fn fill_signal_aspects(
     }
 }
 
-fn validate_signal_programs(
+pub(crate) fn validate_signal_programs(
     revision: &SharedNetworkRevision,
     fixed_delta_time_ms: u64,
 ) -> Result<(), InstallError> {
