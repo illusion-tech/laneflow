@@ -1381,40 +1381,10 @@ pub(crate) mod tests {
             // 车辆整值状态、位姿来源、信号灯色组、停车占用），并在切换
             // 边界处（cutover 后、继续步进前）先比对一次；各世界只使用
             // 自己的句柄。
-            let (mut cut, _, vehicle_cut) = world_with_vehicle(true);
-            let (mut plain, _, vehicle_plain) = world_with_vehicle(true);
+            let (mut cut, _, _) = world_with_vehicle(true);
+            let (mut plain, _, _) = world_with_vehicle(true);
             let assert_committed_state_equal = |cut: &TrafficWorld, plain: &TrafficWorld| {
-                assert_eq!(cut.tick_index(), plain.tick_index());
-                assert_eq!(cut.time_ms(), plain.time_ms());
-                assert_eq!(cut.live_vehicles(), plain.live_vehicles());
-                assert_eq!(
-                    cut.vehicle_state(vehicle_cut).expect("vehicle"),
-                    plain.vehicle_state(vehicle_plain).expect("vehicle")
-                );
-                assert_eq!(
-                    cut.committed_pose_sources().as_slice(),
-                    plain.committed_pose_sources().as_slice()
-                );
-                assert_eq!(
-                    cut.committed_signal_groups().as_slice(),
-                    plain.committed_signal_groups().as_slice()
-                );
-                let spaces = usize::try_from(
-                    plain
-                        .traffic()
-                        .entity_counts()
-                        .count(laneflow_static_contract::EntityKind::ParkingSpace),
-                )
-                .expect("parking space count fits usize");
-                for raw in 0..spaces {
-                    let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(
-                        u32::try_from(raw).expect("ordinal fits u32"),
-                    );
-                    assert_eq!(
-                        cut.committed_parking_occupant(space),
-                        plain.committed_parking_occupant(space)
-                    );
-                }
+                crate::cutover_migration::assert_committed_logical_state_equal(cut, plain);
             };
             for _ in 0..2 {
                 cut.step(TickInput::new(100)).expect("step cut");
