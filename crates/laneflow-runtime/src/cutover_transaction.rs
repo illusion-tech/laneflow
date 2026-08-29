@@ -1512,6 +1512,45 @@ mod tests {
     }
 
     #[test]
+    fn parked_vehicle_on_denied_suffix_fails_prepare() {
+        // Parked 车辆同样过恢复经 spawn_vehicle 的准入面：目标对 exit 加
+        // passenger-car 拒绝后，停在 entry（后缀含 exit）的 Parked 车不可
+        // 映射，Prepare 整体失败关闭。
+        let mut cut = installed_world(BASE, "fixture://parked-deny");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        let vehicle = spawn_on(&mut cut, route, 10_000, 5_000);
+        let space = ParkingSpaceOrdinal::from_raw(0);
+        cut.occupy_parking(vehicle, space).expect("parking");
+        let target_revision = revision(TARGET);
+        let target_origin = *target_revision.canonical_origin();
+        let descriptor = descriptor_for(&cut, target_origin, LFSD_BYTES);
+        assert_eq!(
+            match cut.prepare_cross_revision_cutover(
+                target_revision,
+                source_for(target_origin, "fixture://parked-deny-target"),
+                &descriptor,
+                LFSD_BYTES,
+                &preflight_limits(),
+                &CutoverTransactionLimits::default(),
+            ) {
+                Err(error) => error,
+                Ok(_) => panic!("parked vehicle on denied suffix must fail closed"),
+            },
+            CutoverError::VehicleRevalidationFailed {
+                vehicle: vehicle.index()
+            }
+        );
+        assert!(
+            cut.migration_journal_stats().is_none(),
+            "失败解除武装，不留下在途日志"
+        );
+        cut.step(TickInput::new(100)).expect("world unaffected");
+    }
+
+    #[test]
     fn rebinding_reservation_failure_disarms_and_world_continues() {
         let mut cut = installed_world(ORACLE_BASE, "fixture://rebind-fail");
         let (entry, exit) = entry_exit(&cut);

@@ -411,29 +411,41 @@ pub(crate) fn revalidate_vehicle_on(
             vehicle: handle.index(),
         });
     }
+    // 全状态闭合（恢复兼容）：快照恢复对每个车辆（含 Parked/Completed）
+    // 都经 spawn_vehicle 重建，速度上限与后缀准入对全部状态生效——迁移后
+    // 存量必须同样满足，否则晋升的是恢复不兼容态。
+    if state.speed_mm_s > speed_limits[edge.index()] {
+        return Err(CutoverError::VehicleRevalidationFailed {
+            vehicle: handle.index(),
+        });
+    }
+    let compiled = candidate
+        .compiled_route(state.route)
+        .expect("live vehicle route stays compiled");
+    if route_access_denied(
+        traffic,
+        state.class,
+        edges,
+        cursor,
+        compiled
+            .maneuvers
+            .iter()
+            .map(|occurrence| (occurrence.path, occurrence.exit_route_edge_index)),
+    ) {
+        return Err(CutoverError::VehicleRevalidationFailed {
+            vehicle: handle.index(),
+        });
+    }
+    // Completed 恰在末边末端：与恢复侧 InvalidCompletedState 同判据
+    //（目标加长末边时，旧端点不再在末端，属不可映射）。
+    if state.status == VehicleStatus::Completed
+        && (cursor + 1 != edges.len() || state.progress_mm != lengths[edge.index()])
+    {
+        return Err(CutoverError::VehicleRevalidationFailed {
+            vehicle: handle.index(),
+        });
+    }
     if state.status == VehicleStatus::Active {
-        if state.speed_mm_s > speed_limits[edge.index()] {
-            return Err(CutoverError::VehicleRevalidationFailed {
-                vehicle: handle.index(),
-            });
-        }
-        let compiled = candidate
-            .compiled_route(state.route)
-            .expect("live vehicle route stays compiled");
-        if route_access_denied(
-            traffic,
-            state.class,
-            edges,
-            cursor,
-            compiled
-                .maneuvers
-                .iter()
-                .map(|occurrence| (occurrence.path, occurrence.exit_route_edge_index)),
-        ) {
-            return Err(CutoverError::VehicleRevalidationFailed {
-                vehicle: handle.index(),
-            });
-        }
         for other in candidate.live_order.iter().copied() {
             if other == handle {
                 continue;
@@ -884,6 +896,49 @@ mod tests {
     }
 
     #[test]
+    fn completed_vehicle_off_route_end_fails_revalidation() {
+        // Completed 恰在末边末端（恢复侧 InvalidCompletedState 同判据）：
+        // 任意非末端形态——含目标加长末边后旧端点成为中段——都不可映射。
+        let mut world = installed_world(BASE, "fixture://completed-end");
+        let (entry, _exit) = entry_exit(&world);
+        let route = world
+            .register_route(RouteRegisterInput::new(vec![entry]))
+            .expect("route");
+        let handle = spawn_on(&mut world, route, 10_000, 5_000);
+        let target_revision = revision(TARGET);
+        let rebinding =
+            CrossRevisionRebinding::build(world.revision.identity(), target_revision.identity())
+                .unwrap();
+        let target_origin = *target_revision.canonical_origin();
+        let mut candidate = migrate_structural_clone(
+            &mut world,
+            Arc::clone(&target_revision),
+            source_for(target_origin, "fixture://completed-end-target"),
+            &rebinding,
+        )
+        .expect("active vehicle migration succeeds");
+        let index = usize::try_from(handle.index()).expect("index");
+        candidate.vehicles[index]
+            .state
+            .as_mut()
+            .expect("vehicle")
+            .status = VehicleStatus::Completed;
+        assert_eq!(
+            revalidate_vehicle_on(&candidate, handle),
+            Err(CutoverError::VehicleRevalidationFailed {
+                vehicle: handle.index()
+            })
+        );
+        // 恰在末端（目标 entry 60 m = 60_000 mm）即恢复兼容。
+        candidate.vehicles[index]
+            .state
+            .as_mut()
+            .expect("vehicle")
+            .progress_mm = 60_000;
+        assert_eq!(revalidate_vehicle_on(&candidate, handle), Ok(()));
+    }
+
+    #[test]
     fn migrate_happy_world_preserves_handles_and_logical_state() {
         let mut world = installed_world(BASE, "fixture://migration-base");
         let (entry, _exit) = entry_exit(&world);
@@ -893,7 +948,9 @@ mod tests {
             .register_route(RouteRegisterInput::new(vec![entry]))
             .expect("route");
         let leader = spawn_on(&mut world, route, 20_000, 5_000);
-        let completed = spawn_on(&mut world, route, 10_000, 5_000);
+        // Completed 必须恰在末端：base entry 100 m，target 缩至 60 m——
+        // 停在目标末端（60_000 mm）对两侧判据同时成立。
+        let completed = spawn_on(&mut world, route, 60_000, 5_000);
         let parked = spawn_on(&mut world, route, 2_000, 5_000);
         let target_revision = revision(TARGET);
         let rebinding =
