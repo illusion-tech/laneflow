@@ -335,7 +335,7 @@ mod tests {
         world.step(TickInput::new(100)).expect("step");
         let snapshot = world.capture_snapshot().expect("capture");
         let expected = deterministic_state_digest(&snapshot).expect("baseline digest");
-        for fail_after in 0..10 {
+        for fail_after in 0..14 {
             let failed =
                 crate::snapshot::with_snapshot_allocation_failure_after(fail_after, || {
                     deterministic_state_digest(&snapshot)
