@@ -15,7 +15,7 @@ use std::sync::Arc;
 use laneflow_static_contract::{
     LaneEdgeOrdinal, ParkingSpaceOrdinal, ParticipantClassOrdinal, VehicleProfileOrdinal,
 };
-use laneflow_static_network::SharedNetworkRevision;
+use laneflow_static_network::{CanonicalNetworkOrigin, SharedNetworkRevision};
 
 use crate::cutover::{
     CutoverError, CutoverEventBatch, CutoverPreflightLimits, MigrationPolicyKind,
@@ -106,7 +106,9 @@ pub struct CutoverCommit {
 pub struct CutoverTransaction {
     candidate: TrafficWorld,
     rebinding: CrossRevisionRebinding,
-    target_revision: Arc<SharedNetworkRevision>,
+    /// 目标根 origin 小值捕获：事件与摘要只需修订号与 origin，失败结算
+    /// 后事务不滞留目标根的任何 Arc（骨架换绑回旧世界根共享）。
+    target_origin: CanonicalNetworkOrigin,
     limits: CutoverTransactionLimits,
     next_world_generation: WorldGeneration,
     world_id: u64,
@@ -211,7 +213,7 @@ impl TrafficWorld {
         Ok(CutoverTransaction {
             candidate,
             rebinding,
-            target_revision,
+            target_origin,
             limits: *transaction_limits,
             next_world_generation,
             world_id: self.world_id,
@@ -260,11 +262,13 @@ impl CutoverTransaction {
     }
 
     /// 失败路径的统一收尾：解除世界日志武装、标记结算并释放候选重状态
-    /// （动态表与重绑表即时归还，宿主保留事务变量不再滞留整份候选）。
+    /// （动态表与重绑表即时归还，候选骨架换绑回旧世界根共享——目标根的
+    /// 全部 Arc 释放，宿主保留事务变量不滞留任何净新增内存）。
     /// 旧世界原样继续。
     fn settle_failure(&mut self, world: &mut TrafficWorld) {
         self.settled = true;
         self.candidate.release_dynamic_state();
+        self.candidate.revision = Arc::clone(&world.revision);
         self.rebinding.release();
         world.disarm_migration_journal();
     }
@@ -376,7 +380,7 @@ impl CutoverTransaction {
         // 确定性摘要复核：期望值 = 旧世界静默点捕获 + target origin 头部
         // 替换（记录内容按稳定引用键控，直移不改写；候选侧走自身捕获）。
         let mut expected = world.capture_snapshot();
-        expected.origin = *self.target_revision.canonical_origin();
+        expected.origin = self.target_origin;
         let expected_digest = deterministic_state_digest(&expected);
         let candidate_digest = deterministic_state_digest(&self.candidate.capture_snapshot());
         if expected_digest != candidate_digest {
@@ -386,7 +390,7 @@ impl CutoverTransaction {
         // 游标推进量在此预检，耗尽先于任何换绑失败关闭。
         let events = CutoverEventBatch::revision_cutover_committed(
             self.next_world_generation,
-            self.target_revision.canonical_origin().network_revision(),
+            self.target_origin.network_revision(),
         )?;
         let event_advance = events.len();
         world
@@ -1548,6 +1552,46 @@ mod tests {
             "失败解除武装，不留下在途日志"
         );
         cut.step(TickInput::new(100)).expect("world unaffected");
+    }
+
+    #[test]
+    fn failure_settlement_releases_target_root() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://target-release");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        spawn_on(&mut cut, route, 10_000, 5_000);
+        let target_revision = revision(ORACLE_TARGET);
+        let target_weak = Arc::downgrade(&target_revision);
+        let target_origin = *target_revision.canonical_origin();
+        let descriptor = descriptor_for(&cut, target_origin, ORACLE_LFSD);
+        let mut tx = cut
+            .prepare_cross_revision_cutover(
+                target_revision,
+                source_for(target_origin, "fixture://target-release"),
+                &descriptor,
+                ORACLE_LFSD,
+                &preflight_limits(),
+                &CutoverTransactionLimits {
+                    max_journal_bytes: 64,
+                    ..CutoverTransactionLimits::default()
+                },
+            )
+            .expect("prepare");
+        cut.step(TickInput::new(100))
+            .expect("step overflows journal");
+        assert_eq!(
+            tx.pump(&mut cut).unwrap_err(),
+            CutoverError::JournalOverflow
+        );
+        // 失败结算后目标根的全部 Arc 释放（骨架已换绑回旧世界根共享）。
+        assert!(
+            target_weak.upgrade().is_none(),
+            "settled transaction must not retain the target root"
+        );
+        assert!(cut.migration_journal().is_none());
+        cut.step(TickInput::new(100)).expect("world continues");
     }
 
     #[test]
