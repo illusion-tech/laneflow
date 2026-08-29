@@ -387,7 +387,7 @@ impl CutoverTransaction {
         let events = CutoverEventBatch::revision_cutover_committed(
             self.next_world_generation,
             self.target_revision.canonical_origin().network_revision(),
-        );
+        )?;
         let event_advance = events.len();
         world
             .event_cursor
