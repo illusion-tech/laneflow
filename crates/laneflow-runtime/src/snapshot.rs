@@ -680,7 +680,7 @@ mod tests {
         let baseline = world.capture_snapshot().expect("baseline capture");
         let baseline_bytes = encode_lfrs(&baseline);
         let before_cursor = world.command_cursor();
-        for fail_after in 0..8 {
+        for fail_after in 0..9 {
             let failed =
                 with_snapshot_allocation_failure_after(fail_after, || world.capture_snapshot());
             assert_eq!(
