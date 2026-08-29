@@ -22,7 +22,10 @@ pub enum SnapshotDigestError {
     ReservationFailed,
 }
 
-/// 固定前缀与两个计数字段的总字节数（一次预留，小字段写入不再分配）。
+/// 固定前缀的总字节数（一次预留）。计数字段与记录统一走可失败写入
+/// （`try_push_u64` / `try_push_record`）——`try_reserve_exact` 只保证当次
+/// len + additional，前缀预留的冗余会被后续精确重预留冲销，动态写入不能
+/// 依赖前缀预算。
 const fn canonical_prefix_len() -> usize {
     RUNTIME_STATE_DIGEST_DOMAIN.len()
         + 2
@@ -35,8 +38,6 @@ const fn canonical_prefix_len() -> usize {
         + 8 // 三个容量字段
         + 8 // fixed dt
         + 8 * 4 // tick / 时间 / 双游标
-        + 8
-        + 8 // 路线分组数 / live 条目数
 }
 
 /// 摘要轴可失败精确预留（注入点与 capture 侧共用同一快照轴计数器）。
@@ -164,17 +165,17 @@ pub fn deterministic_state_digest(
     push_u64(&mut canonical, snapshot.command_cursor);
     push_u64(&mut canonical, snapshot.event_cursor);
 
-    push_u64(
+    try_push_u64(
         &mut canonical,
         u64::try_from(route_groups.len()).expect("route group count fits u64"),
-    );
+    )?;
     for group in &route_groups {
         try_push_record(&mut canonical, group)?;
     }
-    push_u64(
+    try_push_u64(
         &mut canonical,
         u64::try_from(snapshot.live_order.len()).expect("live order count fits u64"),
-    );
+    )?;
     // live 序条目 = 车辆记录 + 所属路线记录（内容）。跨路线换序因此可区分
     // （pose 批次按 live 序产出，顺序可观测）；所属路线内容相同的同值车辆
     // 换序保持等价（有序对内容相同）。
@@ -241,10 +242,18 @@ fn canonical_vehicle_record(vehicle: &CapturedVehicle) -> Result<Vec<u8>, Snapsh
     Ok(record)
 }
 
-/// 预留后写入长度前缀记录（预留成功则后续写入不再分配）。
+/// 预留后写入长度前缀记录（预留成功则本次写入不再分配）。
 fn try_push_record(target: &mut Vec<u8>, record: &[u8]) -> Result<(), SnapshotDigestError> {
     digest_try_reserve_exact(target, 8 + record.len())?;
     push_record(target, record);
+    Ok(())
+}
+
+/// 预留后写入 `u64` 小字段（计数字段；前缀预留的冗余会被精确重预留
+/// 冲销，不能依赖前缀预算）。
+fn try_push_u64(target: &mut Vec<u8>, value: u64) -> Result<(), SnapshotDigestError> {
+    digest_try_reserve_exact(target, 8)?;
+    push_u64(target, value);
     Ok(())
 }
 
