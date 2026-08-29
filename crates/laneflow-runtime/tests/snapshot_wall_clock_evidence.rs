@@ -41,7 +41,7 @@ fn capture_clocks(world: &TrafficWorld) -> Vec<u128> {
     let mut clocks = Vec::with_capacity(WALL_SAMPLES);
     for index in 0..(WALL_WARMUP + WALL_SAMPLES) {
         let started = Instant::now();
-        let snapshot = black_box(world.capture_snapshot());
+        let snapshot = black_box(world.capture_snapshot().expect("capture"));
         let elapsed = started.elapsed().as_nanos();
         drop(snapshot);
         if index >= WALL_WARMUP {
@@ -87,7 +87,8 @@ fn restore_clocks(
         .expect("published restore");
         let elapsed = started.elapsed().as_nanos();
         assert_eq!(
-            deterministic_state_digest(&restored.world().capture_snapshot()),
+            deterministic_state_digest(&restored.world().capture_snapshot().expect("capture"))
+                .expect("digest"),
             expected_digest
         );
         drop(restored);
@@ -125,9 +126,9 @@ fn snapshot_side_wall_clock_baseline() {
             .expect("warmup step");
     }
     snapshot_evidence::assert_two_lane_poses(&world);
-    let snapshot = world.capture_snapshot();
+    let snapshot = world.capture_snapshot().expect("capture");
     let bytes = encode_lfrs(&snapshot);
-    let expected_digest = deterministic_state_digest(&snapshot);
+    let expected_digest = deterministic_state_digest(&snapshot).expect("digest");
 
     let capture_ns = median(&mut capture_clocks(&world));
     let encode_ns = median(&mut encode_clocks(&snapshot));
@@ -153,7 +154,9 @@ fn snapshot_side_wall_clock_baseline() {
     .expect("baseline restore")
     .into_world();
     let baseline_tick_ns = median(&mut tick_clocks(&mut baseline_world));
-    let expected_after_ticks = deterministic_state_digest(&baseline_world.capture_snapshot());
+    let expected_after_ticks =
+        deterministic_state_digest(&baseline_world.capture_snapshot().expect("capture"))
+            .expect("digest");
     drop(baseline_world);
 
     let mut contended_world = restore_lfrs(
@@ -183,7 +186,8 @@ fn snapshot_side_wall_clock_baseline() {
     let contended_tick_ns = median(&mut contended_clocks);
     assert_eq!(
         expected_after_ticks,
-        deterministic_state_digest(&contended_world.capture_snapshot()),
+        deterministic_state_digest(&contended_world.capture_snapshot().expect("capture"))
+            .expect("digest"),
         "background encoding must not alter tick semantics"
     );
     let tick_interference_ppm = contended_tick_ns

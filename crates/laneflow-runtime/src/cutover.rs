@@ -614,6 +614,13 @@ pub enum CutoverError {
     /// 静默期确定性状态摘要复核失败（候选侧损坏；切换合同 §5）。
     #[error("静默期确定性摘要复核失败")]
     DigestMismatch,
+    /// 静默期摘要构造的快照捕获预留失败（快照轴错误族，#532；语义为
+    /// 分配压力下的可用性失败关闭，不是候选损坏）。
+    #[error("静默期快照捕获预留失败")]
+    QuiescentCapture(#[from] crate::snapshot::SnapshotCaptureError),
+    /// 静默期摘要规范化预留失败（快照轴错误族，#532；同上语义）。
+    #[error("静默期状态摘要预留失败")]
+    QuiescentDigest(#[from] crate::snapshot_digest::SnapshotDigestError),
     /// 切换事务已结算（提交或放弃后不可继续泵入或提交）。
     #[error("切换事务已结算")]
     TransactionSettled,

@@ -122,6 +122,11 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   关闭。
 - 发布资产启用道路编辑须另带 committed 道路状态并完成同修订
   root / source / diff-base rebase；成功前不得启用编辑。
+- **捕获与编码的失败关闭分工（#532）**：`capture_snapshot` 的全部容量按计数
+  可失败预留（路线/车辆/边表、句柄查表 HashMap 与 source 克隆的 asset key），
+  预留失败返回 `SnapshotCaptureError`，世界无感知、宿主清点后可直接重试；
+  `LFRS` wire 编码含第三方 FlatBufferBuilder 的内部分配，失败关闭化不可达，
+  保存路径的失败关闭由捕获侧承载（编码输入是已物化的有界快照）。
 - **完整性原则**：恢复的状态必须满足与 `install` / spawn 命令路径同一的不变量
   集。语义 lowering 拒绝：重复局部标识、悬空引用、live 序不是活跃车辆的精确排列、
   停车绑定与 parked 状态不一致、车辆值不变量破坏（`carry_um` 越界、进度超
@@ -173,6 +178,9 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   presence `u8` 与可选 `StableId128`——路线内容由所属分组承载，车辆记录不内嵌。
   分组多重集按完整分组字节升序；绑定分布形状因此可区分（分挂与同挂的
   remove 语义不同），内容与绑定均相同的实例可交换（全部后续命令行为一致）。
+  摘要计算的全部缓冲按计数可失败预留（#532：记录表/分组表用「按局部 ID
+  排序的扁平表 + 二分查找」承载原 `BTreeMap` 语义——`BTreeMap` 无可失败预留
+  API，输出字节不变）；预留失败返回 `SnapshotDigestError`，无副作用、可重试。
   等价类边界：同内容实例间的**归属**差异（哪条实例拥有哪份绑定集合）是实例
   重标记轨道上的同一逻辑状态，摘要不区分——区分它只能依赖槽位派生的局部
   ID，与下述「局部 ID、句柄与表排列变化不影响摘要」直接冲突（restore 的
@@ -247,6 +255,8 @@ G2 已落定并回写：schema 与版本轴到字段的显式映射见
 恢复端到端与 published 同修订重发布恢复；边界捕获拒绝跨提交状态混合；候选
 准备期保存只捕获旧聚合。#303 G1 已接受合同追加：路线 occurrence 容量 max/max+1 的
 恢复原子性；检查点后成功候选注册按规范化命令重放且不调用 Routing/旧 cost binding。
+#532 追加：捕获与摘要的预留失败注入——失败关闭（世界无感知）、清点后重试得到
+同一快照/摘要；save 路径的失败关闭由捕获侧承载（编码边界见 §5）。
 
 ### #512 Draft 实施状态
 

@@ -976,7 +976,7 @@ mod tests {
                 laneflow_static_contract::ParkingSpaceOrdinal::from_raw(0),
             )
             .expect("park second");
-        let snapshot = original.capture_snapshot();
+        let snapshot = original.capture_snapshot().expect("capture");
         assert_eq!(snapshot.vehicles[0].status, VehicleStatus::Active);
         assert_eq!(snapshot.vehicles[1].status, VehicleStatus::Parked);
         let bytes = encode_lfrs(&snapshot);
@@ -1067,7 +1067,7 @@ mod tests {
     #[test]
     fn framing_and_wire_limits_fail_before_flatbuffers_lowering() {
         let (world, _, _) = world_with_vehicle(true);
-        let bytes = encode_lfrs(&world.capture_snapshot());
+        let bytes = encode_lfrs(&world.capture_snapshot().expect("capture"));
         assert_eq!(
             restore_lfrs(
                 &bytes,
@@ -1120,7 +1120,7 @@ mod tests {
             SnapshotRestoreError::FileIdentifierMismatch
         );
 
-        let valid = encode_lfrs(&world.capture_snapshot());
+        let valid = encode_lfrs(&world.capture_snapshot().expect("capture"));
         let asset_key_len = {
             let root = wire::size_prefixed_root_as_runtime_snapshot(&valid).expect("valid LFRS");
             u64::try_from(
@@ -1143,7 +1143,7 @@ mod tests {
             limit_error(SnapshotLimitDimension::AssetKeyBytes, 0, asset_key_len)
         );
 
-        let mut structurally_invalid = encode_lfrs(&world.capture_snapshot());
+        let mut structurally_invalid = encode_lfrs(&world.capture_snapshot().expect("capture"));
         structurally_invalid[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
         assert_eq!(
             restore_lfrs(
@@ -1165,7 +1165,7 @@ mod tests {
         let source = world.committed_source().clone();
         let config = world.config();
 
-        let mut invalid_clock = world.capture_snapshot();
+        let mut invalid_clock = world.capture_snapshot().expect("capture");
         invalid_clock.time_ms = 1;
         assert_eq!(
             restore_lfrs(
@@ -1188,7 +1188,7 @@ mod tests {
         );
         assert!(matches!(
             restore_lfrs(
-                &encode_lfrs(&world.capture_snapshot()),
+                &encode_lfrs(&world.capture_snapshot().expect("capture")),
                 Arc::clone(&revision),
                 source.clone(),
                 smaller,
@@ -1200,7 +1200,7 @@ mod tests {
             })
         ));
 
-        let mut duplicate_route = world.capture_snapshot();
+        let mut duplicate_route = world.capture_snapshot().expect("capture");
         duplicate_route
             .routes
             .push(duplicate_route.routes[0].clone());
@@ -1215,7 +1215,7 @@ mod tests {
             Err(SnapshotRestoreError::DuplicateRouteId { .. })
         ));
 
-        let mut duplicate_vehicle = world.capture_snapshot();
+        let mut duplicate_vehicle = world.capture_snapshot().expect("capture");
         duplicate_vehicle
             .vehicles
             .push(duplicate_vehicle.vehicles[0].clone());
@@ -1240,7 +1240,7 @@ mod tests {
         let revision = world.revision();
         let source = world.committed_source().clone();
         let config = world.config();
-        let bytes = encode_lfrs(&world.capture_snapshot());
+        let bytes = encode_lfrs(&world.capture_snapshot().expect("capture"));
 
         let different_dt = WorldConfig::new(
             config.vehicle_capacity(),
@@ -1328,7 +1328,7 @@ mod tests {
         assert_eq!(restored.world().config(), larger);
         drop(restored);
 
-        let mut saved_with_other_worker = world.capture_snapshot();
+        let mut saved_with_other_worker = world.capture_snapshot().expect("capture");
         saved_with_other_worker.config = WorldConfig::new(
             config.vehicle_capacity(),
             config.route_capacity(),
@@ -1376,7 +1376,7 @@ mod tests {
         let (world, _, _) = world_with_vehicle(true);
         let revision = world.revision();
         let source = world.committed_source().clone();
-        let mut at_max = world.capture_snapshot();
+        let mut at_max = world.capture_snapshot().expect("capture");
         let occurrence_count = at_max
             .routes
             .iter()
@@ -1402,6 +1402,7 @@ mod tests {
             restored
                 .world()
                 .capture_snapshot()
+                .expect("capture")
                 .routes()
                 .iter()
                 .map(|route| u64::try_from(route.edges().len()).expect("edge count"))
@@ -1451,7 +1452,7 @@ mod tests {
         let source = world.committed_source().clone();
         let config = world.config();
 
-        let mut parking_mismatch = world.capture_snapshot();
+        let mut parking_mismatch = world.capture_snapshot().expect("capture");
         parking_mismatch.vehicles[0].parking_space = None;
         assert!(matches!(
             restore_lfrs(
@@ -1464,7 +1465,7 @@ mod tests {
             Err(SnapshotRestoreError::ParkingStatusMismatch { .. })
         ));
 
-        let mut duplicate_live = world.capture_snapshot();
+        let mut duplicate_live = world.capture_snapshot().expect("capture");
         duplicate_live.live_order[1] = duplicate_live.live_order[0];
         assert!(matches!(
             restore_lfrs(
@@ -1486,7 +1487,7 @@ mod tests {
         let config = world.config();
 
         // 悬空路线引用：车辆指向不存在的局部路线 ID（合同 §5「悬空引用」）。
-        let mut dangling_route = world.capture_snapshot();
+        let mut dangling_route = world.capture_snapshot().expect("capture");
         dangling_route.vehicles[0].snapshot_route_id =
             dangling_route.routes[0].snapshot_route_id + 99;
         assert!(matches!(
@@ -1501,7 +1502,7 @@ mod tests {
         ));
 
         // live 序含未知车辆：非零但不指向任何快照车辆。
-        let mut unknown_live = world.capture_snapshot();
+        let mut unknown_live = world.capture_snapshot().expect("capture");
         unknown_live.live_order[0] = 99;
         assert!(matches!(
             restore_lfrs(
@@ -1515,7 +1516,7 @@ mod tests {
         ));
 
         // live 序缺项：长度小于活跃车辆数（合同 §5「精确排列」）。
-        let mut incomplete_live = world.capture_snapshot();
+        let mut incomplete_live = world.capture_snapshot().expect("capture");
         incomplete_live.live_order.pop();
         assert!(matches!(
             restore_lfrs(
@@ -1543,7 +1544,7 @@ mod tests {
         let config = world.config();
 
         // 未知停车位稳定标识：绑定一致（Parked + Some）但 ID 不解析。
-        let mut unknown_space = world.capture_snapshot();
+        let mut unknown_space = world.capture_snapshot().expect("capture");
         unknown_space.vehicles[0].parking_space = Some(
             laneflow_static_contract::StableId128::from_bytes([0xAB; 16]),
         );
@@ -1559,7 +1560,7 @@ mod tests {
         ));
 
         // 未知参与者类别稳定标识：profile 可解析、class 不解析。
-        let mut unknown_class = world.capture_snapshot();
+        let mut unknown_class = world.capture_snapshot().expect("capture");
         unknown_class.vehicles[0].class =
             laneflow_static_contract::StableId128::from_bytes([0xCD; 16]);
         assert!(matches!(
@@ -1581,7 +1582,7 @@ mod tests {
         let source = world.committed_source().clone();
         let config = world.config();
 
-        let mut unknown_profile = world.capture_snapshot();
+        let mut unknown_profile = world.capture_snapshot().expect("capture");
         unknown_profile.vehicles[0].profile = StableId128::from_bytes([0xff; 16]);
         assert!(matches!(
             restore_lfrs(
@@ -1594,7 +1595,7 @@ mod tests {
             Err(SnapshotRestoreError::UnknownVehicleProfile { .. })
         ));
 
-        let mut invalid_carry = world.capture_snapshot();
+        let mut invalid_carry = world.capture_snapshot().expect("capture");
         invalid_carry.vehicles[0].carry_um = 1_000;
         assert!(matches!(
             restore_lfrs(
@@ -1607,7 +1608,7 @@ mod tests {
             Err(SnapshotRestoreError::CarryOutOfRange { .. })
         ));
 
-        let mut invalid_completed = world.capture_snapshot();
+        let mut invalid_completed = world.capture_snapshot().expect("capture");
         invalid_completed.vehicles[0].status = VehicleStatus::Completed;
         assert!(matches!(
             restore_lfrs(
@@ -1620,7 +1621,7 @@ mod tests {
             Err(SnapshotRestoreError::InvalidCompletedState { .. })
         ));
 
-        let mut overlap = world.capture_snapshot();
+        let mut overlap = world.capture_snapshot().expect("capture");
         let mut duplicate = overlap.vehicles[0].clone();
         duplicate.snapshot_vehicle_id = 2;
         overlap.vehicles.push(duplicate);
@@ -1646,7 +1647,7 @@ mod tests {
         let revision = world.revision();
         let source = world.committed_source().clone();
         let config = world.config();
-        let valid = encode_lfrs(&world.capture_snapshot());
+        let valid = encode_lfrs(&world.capture_snapshot().expect("capture"));
 
         let mut unknown_format = valid.clone();
         let format_offset = {
@@ -1844,7 +1845,7 @@ mod tests {
         );
 
         // 事件游标随切片 C 事件批次通道成为真实轴：非零值恢复为世界状态。
-        let mut event_cursor = world.capture_snapshot();
+        let mut event_cursor = world.capture_snapshot().expect("capture");
         event_cursor.event_cursor = 7;
         let restored = restore_lfrs(
             &encode_lfrs(&event_cursor),
@@ -1940,7 +1941,7 @@ mod tests {
                 world.route_edges(route).expect("route").to_vec(),
             ))
             .expect("second route");
-        let snapshot = world.capture_snapshot();
+        let snapshot = world.capture_snapshot().expect("capture");
         let restored = restore_lfrs(
             &encode_lfrs(&snapshot),
             world.revision(),

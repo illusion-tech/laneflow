@@ -60,7 +60,7 @@ fn steady_tick_ledger(world: &mut TrafficWorld) -> Ledger {
 
 fn measure_capture(world: &TrafficWorld) -> (CapturedSnapshot, Ledger) {
     let region = Region::new(GLOBAL);
-    let snapshot = black_box(world.capture_snapshot());
+    let snapshot = black_box(world.capture_snapshot().expect("capture"));
     let ledger = Ledger::from_change(region.change());
     (snapshot, ledger)
 }
@@ -136,19 +136,22 @@ fn snapshot_side_budget_baseline() {
     ));
     let (restored, restore_one) =
         measure_restore(&bytes, &target_revision, &target_source, target_config);
-    let restored_digest = deterministic_state_digest(&restored.world().capture_snapshot());
+    let restored_digest =
+        deterministic_state_digest(&restored.world().capture_snapshot().expect("capture"))
+            .expect("digest");
     drop(restored);
     let (second_restored, restore_two) =
         measure_restore(&bytes, &target_revision, &target_source, target_config);
     assert_eq!(restore_one, restore_two, "restore ledger drift");
     assert_eq!(
-        deterministic_state_digest(&snapshot),
+        deterministic_state_digest(&snapshot).expect("digest"),
         restored_digest,
         "restore logical digest"
     );
     assert_eq!(
         restored_digest,
-        deterministic_state_digest(&second_restored.world().capture_snapshot()),
+        deterministic_state_digest(&second_restored.world().capture_snapshot().expect("capture"))
+            .expect("digest"),
         "second restore logical digest"
     );
     drop(second_restored);
@@ -162,7 +165,7 @@ fn snapshot_side_budget_baseline() {
     }
     black_box(steady_tick_ledger(&mut interference_world));
     let steady_before = steady_tick_ledger(&mut interference_world);
-    let save_point = interference_world.capture_snapshot();
+    let save_point = interference_world.capture_snapshot().expect("capture");
     let save_bytes = encode_lfrs(&save_point);
     black_box(save_bytes.len());
     let steady_after = steady_tick_ledger(&mut interference_world);
@@ -170,7 +173,9 @@ fn snapshot_side_budget_baseline() {
         steady_before, steady_after,
         "snapshot save must not change steady tick allocation shape"
     );
-    let expected_after_save = deterministic_state_digest(&interference_world.capture_snapshot());
+    let expected_after_save =
+        deterministic_state_digest(&interference_world.capture_snapshot().expect("capture"))
+            .expect("digest");
     let oracle_revision = interference_world.revision();
     let oracle_source = interference_world.committed_source().clone();
     let oracle_config = interference_world.config();
@@ -191,7 +196,7 @@ fn snapshot_side_budget_baseline() {
     }
     assert_eq!(
         expected_after_save,
-        deterministic_state_digest(&oracle.capture_snapshot()),
+        deterministic_state_digest(&oracle.capture_snapshot().expect("capture")).expect("digest"),
         "save activity must not alter committed tick semantics"
     );
 

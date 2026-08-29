@@ -69,6 +69,30 @@ impl PublishedLfcaReference {
     pub const fn network_revision(&self) -> NetworkRevisionId {
         self.network_revision
     }
+
+    /// 可失败克隆：asset key 按长度可失败预留（快照捕获消费，#532）。
+    ///
+    /// 语义与 [`Clone`] 一致，仅在分配压力下返回 `Err` 而不中止进程；
+    /// 预留注入点与 capture 侧共用同一快照轴计数器。
+    pub fn try_clone(&self) -> Result<Self, crate::snapshot::SnapshotCaptureError> {
+        let mut asset_key = String::new();
+        if !self.asset_key.is_empty() {
+            #[cfg(test)]
+            if crate::snapshot::snapshot_reservation_injected_failure() {
+                return Err(crate::snapshot::SnapshotCaptureError::ReservationFailed);
+            }
+            asset_key
+                .try_reserve(self.asset_key.len())
+                .map_err(|_| crate::snapshot::SnapshotCaptureError::ReservationFailed)?;
+        }
+        asset_key.push_str(&self.asset_key);
+        Ok(Self {
+            asset_key,
+            canonical_artifact_digest: self.canonical_artifact_digest,
+            canonical_artifact_byte_length: self.canonical_artifact_byte_length,
+            network_revision: self.network_revision,
+        })
+    }
 }
 
 /// 已提交路网来源（术语表：committed network source）。
@@ -93,6 +117,15 @@ impl CommittedNetworkSource {
     pub const fn network_revision(&self) -> NetworkRevisionId {
         match self {
             Self::Published { reference } => reference.network_revision(),
+        }
+    }
+
+    /// 可失败克隆（快照捕获消费，#532）；变体形状跟随本枚举演进。
+    pub fn try_clone(&self) -> Result<Self, crate::snapshot::SnapshotCaptureError> {
+        match self {
+            Self::Published { reference } => Ok(Self::Published {
+                reference: reference.try_clone()?,
+            }),
         }
     }
 }
