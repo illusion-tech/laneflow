@@ -400,6 +400,44 @@ pub(crate) fn revalidate_vehicle_on(
     Ok(())
 }
 
+/// 统一的已提交逻辑状态比较器（切片 C 测试共用；含信号灯色组轴）。
+#[cfg(test)]
+pub(crate) fn assert_committed_logical_state_equal(left: &TrafficWorld, right: &TrafficWorld) {
+    assert_eq!(left.tick_index(), right.tick_index());
+    assert_eq!(left.time_ms(), right.time_ms());
+    assert_eq!(left.live_vehicles(), right.live_vehicles());
+    for handle in right.live_vehicles() {
+        assert_eq!(
+            left.vehicle_state(*handle).expect("vehicle"),
+            right.vehicle_state(*handle).expect("vehicle"),
+        );
+    }
+    assert_eq!(
+        left.committed_pose_sources().as_slice(),
+        right.committed_pose_sources().as_slice(),
+    );
+    assert_eq!(
+        left.committed_signal_groups().as_slice(),
+        right.committed_signal_groups().as_slice(),
+    );
+    let spaces = usize::try_from(
+        right
+            .traffic()
+            .entity_counts()
+            .count(laneflow_static_contract::EntityKind::ParkingSpace),
+    )
+    .expect("space count");
+    for raw in 0..spaces {
+        let space = laneflow_static_contract::ParkingSpaceOrdinal::from_raw(
+            u32::try_from(raw).expect("fits u32"),
+        );
+        assert_eq!(
+            left.committed_parking_occupant(space),
+            right.committed_parking_occupant(space),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use laneflow_format::{FormatLimits, check_canonical_network_input};
@@ -979,8 +1017,8 @@ mod tests {
         let route = world
             .register_route(RouteRegisterInput::new(vec![entry, exit]))
             .expect("route");
-        let leader = spawn_on(&mut world, route, 20_000, 5_000);
-        let follower = spawn_on(&mut world, route, 2_000, 5_000);
+        spawn_on(&mut world, route, 20_000, 5_000);
+        spawn_on(&mut world, route, 2_000, 5_000);
         for _ in 0..2 {
             world.step(TickInput::new(100)).expect("step");
         }
@@ -1002,19 +1040,7 @@ mod tests {
 
         // 切换边界：已提交状态逐点一致（恒等 oracle，验收标准第二条）。
         let assert_same = |world: &TrafficWorld, candidate: &TrafficWorld| {
-            assert_eq!(world.tick_index(), candidate.tick_index());
-            assert_eq!(world.time_ms(), candidate.time_ms());
-            assert_eq!(world.live_vehicles(), candidate.live_vehicles());
-            for handle in [leader, follower] {
-                assert_eq!(
-                    world.vehicle_state(handle).expect("vehicle"),
-                    candidate.vehicle_state(handle).expect("vehicle")
-                );
-            }
-            assert_eq!(
-                world.committed_pose_sources().as_slice(),
-                candidate.committed_pose_sources().as_slice()
-            );
+            assert_committed_logical_state_equal(world, candidate);
         };
         assert_same(&world, &candidate);
         // 继续步进仍逐点一致（交通语义段逐字节相等的直接推论）。

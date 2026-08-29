@@ -739,8 +739,8 @@ fn compile_candidate_route(
 mod tests {
     use laneflow_format::{FormatLimits, check_canonical_network_input};
     use laneflow_static_contract::{
-        EntityKind, ExactByteLength, ParkingSpaceOrdinal, SEMANTIC_DIFF_FORMAT_VERSION,
-        Sha256Digest, VehicleProfileOrdinal,
+        ExactByteLength, ParkingSpaceOrdinal, SEMANTIC_DIFF_FORMAT_VERSION, Sha256Digest,
+        VehicleProfileOrdinal,
     };
     use laneflow_static_network::{
         CanonicalNetworkOrigin, SharedNetworkBuildLimits, SharedNetworkBuildOptions,
@@ -750,7 +750,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        LfcaOriginBinding, RouteRegisterInput, SemanticDiffOriginBinding, TickInput,
+        CutoverEvent, LfcaOriginBinding, ObservationError, ObservationExportMode,
+        ObservationSelection, RouteRegisterInput, SemanticDiffOriginBinding, TickInput,
         VehicleSpawnInput, WorldConfig,
     };
 
@@ -885,33 +886,7 @@ mod tests {
     }
 
     fn assert_same_committed(cut: &TrafficWorld, plain: &TrafficWorld) {
-        assert_eq!(cut.tick_index(), plain.tick_index());
-        assert_eq!(cut.time_ms(), plain.time_ms());
-        assert_eq!(cut.live_vehicles(), plain.live_vehicles());
-        for handle in plain.live_vehicles() {
-            assert_eq!(
-                cut.vehicle_state(*handle).expect("vehicle"),
-                plain.vehicle_state(*handle).expect("vehicle"),
-            );
-        }
-        assert_eq!(
-            cut.committed_pose_sources().as_slice(),
-            plain.committed_pose_sources().as_slice(),
-        );
-        let spaces = usize::try_from(
-            plain
-                .traffic()
-                .entity_counts()
-                .count(EntityKind::ParkingSpace),
-        )
-        .expect("space count");
-        for raw in 0..spaces {
-            let space = ParkingSpaceOrdinal::from_raw(u32::try_from(raw).expect("fits u32"));
-            assert_eq!(
-                cut.committed_parking_occupant(space),
-                plain.committed_parking_occupant(space),
-            );
-        }
+        crate::cutover_migration::assert_committed_logical_state_equal(cut, plain);
     }
 
     #[test]
@@ -925,9 +900,9 @@ mod tests {
         plain
             .register_route(RouteRegisterInput::new(vec![entry, exit]))
             .expect("route");
-        let leader = spawn_on(&mut cut, route, 20_000, 5_000);
+        spawn_on(&mut cut, route, 20_000, 5_000);
         spawn_on(&mut plain, route, 20_000, 5_000);
-        let follower = spawn_on(&mut cut, route, 2_000, 5_000);
+        spawn_on(&mut cut, route, 2_000, 5_000);
         spawn_on(&mut plain, route, 2_000, 5_000);
         for _ in 0..2 {
             cut.step(TickInput::new(100)).expect("cut step");
@@ -992,7 +967,6 @@ mod tests {
             plain.step(TickInput::new(100)).expect("plain step");
             assert_same_committed(&cut, &plain);
         }
-        let _ = (leader, follower);
     }
 
     #[test]
@@ -1331,6 +1305,413 @@ mod tests {
             survivor
         );
         cut.step(TickInput::new(100)).expect("steps on target");
+    }
+
+    #[test]
+    fn commit_resets_observation_seam_and_invalidates_old_sessions() {
+        // #303 接缝（跨修订侧）：世界世代/观测 stream/状态序号与 root
+        // 同界原子变化；旧 session 报 StreamBindingMismatch，新 stream
+        // 从初始序号起步并绑定 target 修订。
+        let mut cut = installed_world(ORACLE_BASE, "fixture://cut");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        spawn_on(&mut cut, route, 10_000, 5_000);
+        cut.step(TickInput::new(100)).expect("step");
+        let mut session = cut
+            .open_observation_export(ObservationSelection::AllLaneEdges)
+            .expect("open");
+        cut.export_observation(&mut session, ObservationExportMode::Full)
+            .expect("full");
+
+        let mut tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        cut.step(TickInput::new(100)).expect("window step");
+        tx.pump(&mut cut).expect("pump");
+        tx.commit(&mut cut).expect("commit");
+        assert_eq!(
+            cut.observation_state_sequence(),
+            crate::ObservationStateSequence::INITIAL
+        );
+        assert_eq!(
+            cut.export_observation(&mut session, ObservationExportMode::Delta)
+                .unwrap_err(),
+            ObservationError::StreamBindingMismatch
+        );
+        let mut replacement = cut
+            .open_observation_export(ObservationSelection::AllLaneEdges)
+            .expect("replacement session");
+        let full = cut
+            .export_observation(&mut replacement, ObservationExportMode::Full)
+            .expect("replacement full");
+        assert_eq!(full.sequence(), 0);
+        assert_eq!(
+            full.observation_state_sequence(),
+            crate::ObservationStateSequence::INITIAL
+        );
+    }
+
+    #[test]
+    fn failures_and_abandon_keep_observation_seam_untouched() {
+        // #303 接缝（abort 三者完全不变）：摘要复核失败与显式 abandon
+        // 都保持世代/root/观测序号，旧 session 继续 Delta。
+        let setup = |key: &str| {
+            let mut world = installed_world(ORACLE_BASE, key);
+            let (entry, exit) = entry_exit(&world);
+            let route = world
+                .register_route(RouteRegisterInput::new(vec![entry, exit]))
+                .expect("route");
+            let vehicle = spawn_on(&mut world, route, 10_000, 5_000);
+            world.step(TickInput::new(100)).expect("step");
+            let mut session = world
+                .open_observation_export(ObservationSelection::AllLaneEdges)
+                .expect("open");
+            world
+                .export_observation(&mut session, ObservationExportMode::Full)
+                .expect("full");
+            (world, vehicle, session)
+        };
+
+        // 摘要复核失败路径。
+        let (mut world, vehicle, mut session) = setup("fixture://digest-fail");
+        let mut tx = prepare(
+            &mut world,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        world.step(TickInput::new(100)).expect("step");
+        tx.pump(&mut world).expect("pump");
+        let index = usize::try_from(vehicle.index()).expect("index");
+        tx.candidate.vehicles[index]
+            .state
+            .as_mut()
+            .expect("candidate vehicle")
+            .progress_mm += 1;
+        let generation_before = world.world_generation();
+        let sequence_before = world.observation_state_sequence();
+        assert_eq!(
+            tx.commit(&mut world).unwrap_err(),
+            CutoverError::DigestMismatch
+        );
+        assert_eq!(world.world_generation(), generation_before);
+        assert_eq!(world.observation_state_sequence(), sequence_before);
+        assert_eq!(world.event_cursor(), 0);
+        let delta = world
+            .export_observation(&mut session, ObservationExportMode::Delta)
+            .expect("old session remains live");
+        assert_eq!(delta.sequence(), 1);
+
+        // 显式 abandon 路径。
+        let (mut world, _, mut session) = setup("fixture://abandon");
+        let tx = prepare(
+            &mut world,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        let generation_before = world.world_generation();
+        let sequence_before = world.observation_state_sequence();
+        tx.abandon(&mut world).expect("abandon");
+        assert_eq!(world.world_generation(), generation_before);
+        assert_eq!(world.observation_state_sequence(), sequence_before);
+        assert!(world.migration_journal_stats().is_none());
+        let delta = world
+            .export_observation(&mut session, ObservationExportMode::Delta)
+            .expect("old session remains live after abandon");
+        assert_eq!(delta.sequence(), 1);
+    }
+
+    #[test]
+    fn transaction_world_mismatch_fails_closed() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://cut");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        spawn_on(&mut cut, route, 10_000, 5_000);
+        let mut tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        // 另一个世界（不同 world_id）误用本事务：失败关闭且不解除任何
+        // 一方的日志；原世界保持在途。
+        let mut other = {
+            let revision = revision(ORACLE_BASE);
+            let origin = *revision.canonical_origin();
+            TrafficWorld::install(
+                revision,
+                WorldConfig::new(8, 4, 1_024, 1, 100),
+                source_for(origin, "fixture://other-world"),
+                9,
+            )
+            .expect("install other world")
+        };
+        assert_eq!(
+            tx.pump(&mut other).unwrap_err(),
+            CutoverError::TransactionWorldMismatch { expected_world: 0 }
+        );
+        assert!(other.migration_journal_stats().is_none());
+        assert!(cut.migration_journal_stats().is_some());
+        // 正确世界仍可结算。
+        let mut tx = tx;
+        tx.pump(&mut cut).expect("pump on origin world");
+        tx.commit(&mut cut).expect("commit");
+    }
+
+    #[test]
+    fn occurrence_capacity_bounds_window_registrations() {
+        // max+1 注入：世界侧 occurrence 计数被测试置零（驱动防御闭合——
+        // 合法输入下世界预检与重放算术同构，本分支结构性不可达）。
+        let mut cut = {
+            let revision = revision(ORACLE_BASE);
+            let origin = *revision.canonical_origin();
+            TrafficWorld::install(
+                revision,
+                WorldConfig::new(8, 4, 2, 1, 100),
+                source_for(origin, "fixture://capacity-cut"),
+                0,
+            )
+            .expect("install")
+        };
+        let (entry, exit) = entry_exit(&cut);
+        cut.register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        cut.live_route_edge_occurrence_count = 0;
+        let mut tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        cut.register_route(RouteRegisterInput::new(vec![entry]))
+            .expect("window route passes tampered world preflight");
+        assert_eq!(
+            tx.pump(&mut cut).unwrap_err(),
+            CutoverError::EdgeOccurrenceCapacityExceeded {
+                total: 3,
+                capacity: 2,
+            }
+        );
+        assert!(cut.migration_journal_stats().is_none());
+        cut.step(TickInput::new(100)).expect("old world continues");
+
+        // max 形态：恰好等于容量时通过。
+        let mut tight = {
+            let revision = revision(ORACLE_BASE);
+            let origin = *revision.canonical_origin();
+            TrafficWorld::install(
+                revision,
+                WorldConfig::new(8, 4, 3, 1, 100),
+                source_for(origin, "fixture://capacity-tight"),
+                0,
+            )
+            .expect("install")
+        };
+        let (entry, exit) = entry_exit(&tight);
+        tight
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        let mut tx = prepare(
+            &mut tight,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits {
+                max_journal_bytes: 64 * 1_024,
+                ..CutoverTransactionLimits::default()
+            },
+        );
+        tight
+            .register_route(RouteRegisterInput::new(vec![exit]))
+            .expect("third edge stays within capacity");
+        tx.pump(&mut tight)
+            .expect("pump applies to the capacity bound");
+        tx.commit(&mut tight).expect("commit at the capacity bound");
+    }
+
+    #[test]
+    fn vehicle_replaced_during_window_replays_correctly() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://cut");
+        let mut plain = installed_world(ORACLE_BASE, "fixture://plain");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        plain
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        let old = spawn_on(&mut cut, route, 20_000, 5_000);
+        spawn_on(&mut plain, route, 20_000, 5_000);
+        for _ in 0..2 {
+            cut.step(TickInput::new(100)).expect("cut step");
+            plain.step(TickInput::new(100)).expect("plain step");
+        }
+        let mut tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        // 窗口内两世界同序列：强制完成 + 原子替换。
+        let force_complete = |world: &mut TrafficWorld, handle: crate::VehicleHandle| {
+            let index = usize::try_from(handle.index()).expect("index");
+            world.vehicles[index]
+                .state
+                .as_mut()
+                .expect("vehicle")
+                .status = crate::VehicleStatus::Completed;
+        };
+        force_complete(&mut cut, old);
+        force_complete(&mut plain, old);
+        let replacement =
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), route, 0, 2_000, 0);
+        cut.replace_completed_vehicle(old, replacement)
+            .expect("cut replace");
+        plain
+            .replace_completed_vehicle(old, replacement)
+            .expect("plain replace");
+        for _ in 0..2 {
+            cut.step(TickInput::new(100)).expect("cut step");
+            plain.step(TickInput::new(100)).expect("plain step");
+        }
+        tx.pump(&mut cut).expect("pump replays replacement");
+        let commit = tx.commit(&mut cut).expect("commit");
+        assert_eq!(commit.events.as_slice().len(), 1);
+        assert!(!commit.events.is_empty());
+        assert!(matches!(
+            commit.events.as_slice()[0],
+            CutoverEvent::RevisionCutoverCommitted { .. }
+        ));
+        assert_same_committed(&cut, &plain);
+        for _ in 0..3 {
+            cut.step(TickInput::new(100)).expect("cut step");
+            plain.step(TickInput::new(100)).expect("plain step");
+            assert_same_committed(&cut, &plain);
+        }
+    }
+
+    #[test]
+    fn pump_budget_splits_application_across_pumps() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://cut");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        spawn_on(&mut cut, route, 10_000, 5_000);
+        let mut tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits {
+                max_records_per_pump: 1,
+                ..CutoverTransactionLimits::default()
+            },
+        );
+        cut.step(TickInput::new(100)).expect("step");
+        spawn_on(&mut cut, route, 2_000, 0);
+        // 两条记录（TICK + SPAWNED）按预算分段应用。
+        let first = tx.pump(&mut cut).expect("first pump");
+        assert_eq!(first.applied_records, 1);
+        assert!(!first.caught_up);
+        assert_eq!(tx.applied_records(), 1);
+        let second = tx.pump(&mut cut).expect("second pump");
+        assert_eq!(second.applied_records, 1);
+        assert!(second.caught_up);
+        assert_eq!(tx.applied_records(), 2);
+        tx.commit(&mut cut).expect("commit after segmented pumps");
+    }
+
+    #[test]
+    fn newly_denied_suffix_increment_fails_and_clearing_retries() {
+        // 窗口内「重绑后非法」：base 合法生成于 [entry, exit] 的车辆在
+        // target 的 exit 拒绝下按增量重验证失败关闭；宿主清场（完成并
+        // 替换到允许路线、移除受限路线）后显式重试成功。
+        let mut cut = installed_world(BASE, "fixture://migration-base");
+        let (entry, exit) = entry_exit(&cut);
+        let allowed = cut
+            .register_route(RouteRegisterInput::new(vec![entry]))
+            .expect("allowed route");
+        spawn_on(&mut cut, allowed, 20_000, 5_000);
+        let mut tx = prepare(
+            &mut cut,
+            TARGET,
+            LFSD_BYTES,
+            &CutoverTransactionLimits::default(),
+        );
+        let denied_route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route legal on base");
+        let vehicle = spawn_on(&mut cut, denied_route, 1_000, 5_000);
+        assert_eq!(
+            tx.pump(&mut cut).unwrap_err(),
+            CutoverError::VehicleRevalidationFailed {
+                vehicle: vehicle.index()
+            }
+        );
+        assert_eq!(cut.event_cursor(), 0);
+        // 清场：完成并替换到允许路线，移除受限路线。
+        let index = usize::try_from(vehicle.index()).expect("index");
+        cut.vehicles[index].state.as_mut().expect("vehicle").status =
+            crate::VehicleStatus::Completed;
+        cut.replace_completed_vehicle(
+            vehicle,
+            VehicleSpawnInput::new(VehicleProfileOrdinal::from_raw(0), allowed, 0, 1_000, 0),
+        )
+        .expect("clear onto allowed route");
+        cut.remove_route(denied_route)
+            .expect("clear restricted route");
+        let mut tx = prepare(
+            &mut cut,
+            TARGET,
+            LFSD_BYTES,
+            &CutoverTransactionLimits::default(),
+        );
+        tx.pump(&mut cut).expect("pump after clearing");
+        tx.commit(&mut cut).expect("commit after clearing");
+        cut.step(TickInput::new(100)).expect("steps on target");
+    }
+
+    #[test]
+    fn cross_revision_target_source_mismatch_fails_before_armed() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://cut");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        spawn_on(&mut cut, route, 10_000, 5_000);
+        let target_revision = revision(ORACLE_TARGET);
+        let target_origin = *target_revision.canonical_origin();
+        let descriptor = descriptor_for(&cut, target_origin, ORACLE_LFSD);
+        let wrong_source = source_for(
+            *revision(ORACLE_BASE).canonical_origin(),
+            "fixture://wrong-target-source",
+        );
+        assert_eq!(
+            match cut.prepare_cross_revision_cutover(
+                target_revision,
+                wrong_source,
+                &descriptor,
+                ORACLE_LFSD,
+                &preflight_limits(),
+                &CutoverTransactionLimits::default(),
+            ) {
+                Err(error) => error,
+                Ok(_) => panic!("wrong target source must fail closed"),
+            },
+            CutoverError::TargetSourceRevisionMismatch
+        );
+        assert!(
+            cut.migration_journal_stats().is_none(),
+            "失败先于武装，不留下在途日志"
+        );
+        cut.step(TickInput::new(100)).expect("world unaffected");
     }
 
     #[test]
