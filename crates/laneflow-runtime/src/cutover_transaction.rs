@@ -107,6 +107,9 @@ pub struct CutoverTransaction {
     world_id: u64,
     prepare_world_generation: WorldGeneration,
     applied_records: u64,
+    /// 日志消费的字节偏移（记录边界）：泵送从此处续读，避免每次泵从头
+    /// 重扫已消费记录（总量二次方）。
+    consumed_offset: usize,
     settled: bool,
 }
 
@@ -197,6 +200,7 @@ impl TrafficWorld {
             world_id: self.world_id,
             prepare_world_generation: self.world_generation,
             applied_records: 0,
+            consumed_offset: 0,
             settled: false,
         })
     }
@@ -290,20 +294,21 @@ impl CutoverTransaction {
         let Some(journal) = world.migration_journal() else {
             return Err(CutoverError::JournalMissing);
         };
-        let mut records = journal.records();
-        for _ in 0..self.applied_records {
-            records.next();
-        }
+        let mut records = journal.records_from(self.consumed_offset);
+        // 偏移只前进到已应用记录的边界：预算断点处预取的下一条不计入。
+        let mut offset = self.consumed_offset;
         let mut applied: u64 = 0;
         let mut caught_up = true;
-        for record in records {
+        while let Some(record) = records.next() {
             if applied >= max_records {
                 caught_up = false;
                 break;
             }
             apply_record(&mut self.candidate, &self.rebinding, &record)?;
             applied += 1;
+            offset = records.offset();
         }
+        self.consumed_offset = offset;
         self.applied_records += applied;
         Ok(PumpOutcome {
             applied_records: applied,
@@ -315,11 +320,13 @@ impl CutoverTransaction {
     /// 旧世界已停表、含输入。排空日志尾后依次完成最终游标原子取样（写入
     /// 候选）、占用重建、全量重验证与确定性摘要复核；全部通过后只剩
     /// 不可失败的原地晋升。任一失败整体放弃，旧世界从暂停点恢复步进。
-    pub fn commit(&mut self, world: &mut TrafficWorld) -> Result<CutoverCommit, CutoverError> {
+    ///
+    /// 消耗事务：换出的旧世界（候选槽内）随事务析构同步释放，Retire
+    /// 不依赖宿主后续丢弃；结算态在类型层不可重入。
+    pub fn commit(mut self, world: &mut TrafficWorld) -> Result<CutoverCommit, CutoverError> {
         self.ensure_live()?;
         self.ensure_origin_world(world)?;
         let outcome = self.commit_internal(world);
-        self.settled = true;
         world.disarm_migration_journal();
         outcome
     }
@@ -1205,7 +1212,7 @@ mod tests {
         let vehicle = spawn_on(&mut cut, route, 10_000, 5_000);
         let space = ParkingSpaceOrdinal::from_raw(0);
         cut.occupy_parking(vehicle, space).expect("parking");
-        let mut tx = prepare(
+        let tx = prepare(
             &mut cut,
             ORACLE_TARGET,
             ORACLE_LFSD,
@@ -1830,6 +1837,33 @@ mod tests {
         cut.step(TickInput::new(100)).expect("world unaffected");
     }
 
+    #[test]
+    fn commit_consumes_transaction_and_releases_retired_world() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://retire");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        spawn_on(&mut cut, route, 10_000, 5_000);
+        cut.step(TickInput::new(100)).expect("step");
+        let retired = Arc::downgrade(&cut.revision);
+        let mut tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        cut.step(TickInput::new(100)).expect("silence step");
+        tx.pump(&mut cut).expect("pump");
+        let commit = tx.commit(&mut cut).expect("commit");
+        assert_eq!(commit.world_generation, cut.world_generation());
+        // 事务已消耗：换出的旧世界随事务析构同步释放（§4 Retire）。
+        assert!(
+            retired.upgrade().is_none(),
+            "retired revision must drop with the consumed transaction"
+        );
+        cut.step(TickInput::new(100)).expect("promoted world steps");
+    }
 
     #[test]
     fn snapshot_during_armed_window_captures_old_state_only() {

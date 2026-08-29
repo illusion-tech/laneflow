@@ -346,16 +346,20 @@ impl MigrationDeltaJournal {
         }
     }
 
-    /// 解码整个日志。溢出日志不可解码：其尾记录可能残缺，事务必须先观察到
-    /// 溢出并放弃整个日志。
-    pub(crate) fn records(&self) -> RecordIter<'_> {
+    /// 从记录边界的字节偏移处续读（消费侧持久化游标；偏移必须由
+    /// [`RecordIter::offset`] 产生且不超过已写字节）。
+    pub(crate) fn records_from(&self, offset: usize) -> RecordIter<'_> {
         assert!(
             !self.overflowed,
             "overflowed migration journal must be abandoned, not decoded"
         );
+        assert!(
+            offset <= self.bytes.len(),
+            "resumed offset beyond written journal bytes"
+        );
         RecordIter {
             bytes: self.bytes.as_slice(),
-            pos: 0,
+            pos: offset,
         }
     }
 
@@ -527,6 +531,13 @@ fn read_u32_chunk(chunk: &[u8]) -> u32 {
 pub(crate) struct RecordIter<'a> {
     bytes: &'a [u8],
     pos: usize,
+}
+
+impl<'a> RecordIter<'a> {
+    /// 当前消费位置（记录边界字节偏移；空日志或耗尽时为写入字节数）。
+    pub(crate) const fn offset(&self) -> usize {
+        self.pos
+    }
 }
 
 impl<'a> Iterator for RecordIter<'a> {
@@ -762,7 +773,7 @@ mod tests {
         world
             .migration_journal()
             .expect("armed journal")
-            .records()
+            .records_from(0)
             .collect()
     }
 
@@ -785,6 +796,33 @@ mod tests {
     }
 
     #[test]
+    fn records_from_resumes_at_record_boundary() {
+        let mut journal = MigrationDeltaJournal::arm(4_096, 5).expect("arm");
+        let delta = sample_delta(3, 1);
+        journal.begin_tick(7, 700);
+        journal.tick_entry(&delta);
+        journal.finish_tick();
+        journal.begin_tick(8, 800);
+        journal.finish_tick();
+        journal.record_route_removed(7, 2, true, 5);
+
+        let full: Vec<_> = journal.records_from(0).collect();
+        let mut head = journal.records_from(0);
+        assert!(head.next().is_some());
+        let offset = head.offset();
+        let tail: Vec<_> = journal.records_from(offset).collect();
+        assert_eq!(tail.len(), full.len() - 1);
+        assert_eq!(tail.as_slice(), &full[1..]);
+        // 耗尽后的偏移即写入字节数。
+        let mut rest = journal.records_from(offset);
+        while rest.next().is_some() {}
+        assert_eq!(
+            rest.offset(),
+            usize::try_from(journal.stats().written_bytes).unwrap()
+        );
+    }
+
+    #[test]
     fn journal_record_roundtrip_all_kinds() {
         let mut journal = MigrationDeltaJournal::arm(4_096, 5).expect("arm");
         let delta = sample_delta(3, 1);
@@ -803,7 +841,7 @@ mod tests {
         journal.record_vehicle_replaced(9, VehicleHandle::new(6, 0), 2, sample_delta(6, 1));
         journal.record_parking_occupied(10, VehicleHandle::new(6, 1), 3);
 
-        let records: Vec<_> = journal.records().collect();
+        let records: Vec<_> = journal.records_from(0).collect();
         assert_eq!(records.len(), 7);
         let JournalRecord::Tick {
             tick_index,
