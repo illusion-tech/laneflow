@@ -532,6 +532,14 @@ pub enum CutoverError {
     /// 活动世界世代无法继续递增；事务在任何暂存或提交前失败关闭。
     #[error("活动世界世代已耗尽")]
     WorldGenerationExhausted,
+    /// 目标修订的信号程序与本世界固定步长不兼容：相位短于步长或非步长
+    /// 整数倍（install 路径 `PhaseShorterThanTick` / `PhaseNotMultipleOfTick`
+    /// 的跨修订对等校验；切换合同 §3 重绑即重验证）。
+    #[error("目标修订信号程序与本世界固定步长不兼容")]
+    TargetSignalProgramInvalid,
+    /// 事件游标无法继续推进；在任何换绑或晋升前失败关闭。
+    #[error("事件游标已耗尽")]
+    EventCursorExhausted,
     /// 候选构造失败：某条已注册路线对 target 根重编译失败（同修订下
     /// 属防御深度，语义上不可达）。
     #[error("路线对 target 根重编译失败")]
@@ -807,6 +815,15 @@ impl TrafficWorld {
         // Prepare（续）：针对 target 根与 staged 路线在暂存区完成可失败的
         // 占用索引重建；commit 段只剩不可失败换绑（#302 切换合同 §4）。
         let staged_occupancy = self.build_occupancy_index_for(&target_revision, &staged)?;
+        // 事件批次与游标推进量在换绑前构建并预检：耗尽先于任何突变失败关闭。
+        let events = CutoverEventBatch::revision_cutover_committed(
+            next_world_generation,
+            target_origin.network_revision(),
+        );
+        let event_advance = events.len();
+        self.event_cursor
+            .checked_add(event_advance)
+            .ok_or(CutoverError::EventCursorExhausted)?;
         // Quiescent Commit：全部可失败步骤已过，剩余为不可失败的原地换绑。
         self.revision = target_revision;
         for (index, compiled) in staged {
@@ -819,11 +836,7 @@ impl TrafficWorld {
         self.occupancy = staged_occupancy;
         self.world_generation = next_world_generation;
         self.observation_state_sequence = ObservationStateSequence::INITIAL;
-        let events = CutoverEventBatch::revision_cutover_committed(
-            next_world_generation,
-            target_origin.network_revision(),
-        );
-        self.event_cursor += events.len();
+        self.event_cursor += event_advance;
         Ok(events)
     }
 }
@@ -1254,6 +1267,37 @@ pub(crate) mod tests {
             assert_eq!(world.world_generation().get(), before_generation.get() + 1);
             // 换绑后世界继续确定性步进。
             world.step(TickInput::new(100)).expect("step after");
+        }
+
+        #[test]
+        fn same_revision_cutover_fails_closed_on_event_cursor_exhaustion() {
+            let (mut world, _route, _vehicle) = world_with_vehicle(true);
+            world.event_cursor = u64::MAX;
+            let base_origin = *world.revision().canonical_origin();
+            let target = revision(false);
+            let target_origin = *target.canonical_origin();
+            let descriptor = NetworkRevisionCutoverDescriptor::new(
+                LfcaOriginBinding::from_canonical_origin(base_origin),
+                LfcaOriginBinding::from_canonical_origin(target_origin),
+                None,
+                MigrationPolicyKind::SameRevisionRestore,
+                world.world_binding(),
+            );
+            let before_generation = world.world_generation();
+            assert_eq!(
+                world
+                    .cutover_same_revision(
+                        target,
+                        source_for(target_origin, "fixture://cursor-exhausted"),
+                        &descriptor,
+                        &limits(),
+                    )
+                    .unwrap_err(),
+                CutoverError::EventCursorExhausted
+            );
+            assert_eq!(world.event_cursor, u64::MAX, "耗尽不改动游标");
+            assert_eq!(world.world_generation(), before_generation);
+            world.step(TickInput::new(100)).expect("world unaffected");
         }
 
         #[test]

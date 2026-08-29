@@ -157,6 +157,13 @@ impl TrafficWorld {
         if target_source.network_revision() != target_origin.network_revision() {
             return Err(CutoverError::TargetSourceRevisionMismatch);
         }
+        // 目标信号程序按本世界步长复验（install 路径的对等校验）：候选不经
+        // `TrafficWorld::install` 构造，相位与步长的合同约束必须在此显式把关。
+        crate::world::validate_signal_programs(
+            target_revision.as_ref(),
+            self.config.fixed_delta_time_ms(),
+        )
+        .map_err(|_| CutoverError::TargetSignalProgramInvalid)?;
         descriptor.verify_semantic_diff(lfsd_bytes, base_origin, target_origin)?;
         // 世代耗尽必须在任何候选暂存/分配之前失败关闭。
         let next_world_generation = self
@@ -344,11 +351,17 @@ impl CutoverTransaction {
         if expected_digest != candidate_digest {
             return Err(CutoverError::DigestMismatch);
         }
-        // 事件批次在可失败区构建（分配可失败），晋升区只做游标递增。
+        // 事件批次在可失败区构建（分配可失败），晋升区只做游标递增；
+        // 游标推进量在此预检，耗尽先于任何换绑失败关闭。
         let events = CutoverEventBatch::revision_cutover_committed(
             self.next_world_generation,
             self.target_revision.canonical_origin().network_revision(),
         );
+        let event_advance = events.len();
+        world
+            .event_cursor
+            .checked_add(event_advance)
+            .ok_or(CutoverError::EventCursorExhausted)?;
         let candidate = &mut self.candidate;
         // 不可失败原地晋升：逐字段交换（零分配），世代与观测序号同界写入。
         std::mem::swap(&mut world.revision, &mut candidate.revision);
@@ -372,7 +385,7 @@ impl CutoverTransaction {
         world.command_cursor = final_command_cursor;
         world.world_generation = self.next_world_generation;
         world.observation_state_sequence = ObservationStateSequence::INITIAL;
-        world.event_cursor += events.len();
+        world.event_cursor += event_advance;
         Ok(CutoverCommit {
             world_generation: self.next_world_generation,
             final_command_cursor,
@@ -1713,6 +1726,110 @@ mod tests {
         );
         cut.step(TickInput::new(100)).expect("world unaffected");
     }
+
+    const FULL_SPATIAL_LFCA: &[u8] = include_bytes!(
+        "../../laneflow-compiler/tests/fixtures/portable/lfca-full-spatial/expected.lfca"
+    );
+
+    fn installed_world_with_dt(bytes: &[u8], key: &str, dt: u64) -> TrafficWorld {
+        let revision = revision(bytes);
+        let origin = *revision.canonical_origin();
+        TrafficWorld::install(
+            revision,
+            WorldConfig::new(8, 4, 1_024, 1, dt),
+            source_for(origin, key),
+            0,
+        )
+        .expect("install")
+    }
+
+    #[test]
+    fn prepare_rejects_target_signal_program_misaligned_with_tick() {
+        // 源修订无信号控制器（任意步长可安装）；目标 full-spatial 相位
+        // 30_000/5_000 ms，dt=600 下 5_000 非步长整数倍。
+        let mut cut = installed_world_with_dt(BASE, "fixture://signal-cut", 600);
+        let target_revision = revision(FULL_SPATIAL_LFCA);
+        let target_origin = *target_revision.canonical_origin();
+        let descriptor = descriptor_for(&cut, target_origin, &[]);
+        assert_eq!(
+            match cut.prepare_cross_revision_cutover(
+                target_revision,
+                source_for(target_origin, "fixture://signal-target"),
+                &descriptor,
+                &[],
+                &preflight_limits(),
+                &CutoverTransactionLimits::default(),
+            ) {
+                Err(error) => error,
+                Ok(_) => panic!("misaligned signal program must fail closed"),
+            },
+            CutoverError::TargetSignalProgramInvalid
+        );
+        assert!(
+            cut.migration_journal_stats().is_none(),
+            "失败先于武装，不留下在途日志"
+        );
+        cut.step(TickInput::new(600)).expect("world unaffected");
+    }
+
+    #[test]
+    fn prepare_signal_gate_passes_aligned_program_to_diff_auth() {
+        // 对照：dt=500 与两相位均整除，信号关卡放行，失败移交 LFSD 认证。
+        let mut cut = installed_world_with_dt(BASE, "fixture://signal-aligned", 500);
+        let target_revision = revision(FULL_SPATIAL_LFCA);
+        let target_origin = *target_revision.canonical_origin();
+        let descriptor = descriptor_for(&cut, target_origin, &[]);
+        let error = match cut.prepare_cross_revision_cutover(
+            target_revision,
+            source_for(target_origin, "fixture://signal-target"),
+            &descriptor,
+            &[],
+            &preflight_limits(),
+            &CutoverTransactionLimits::default(),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("empty diff bytes must fail LFSD auth"),
+        };
+        assert!(
+            matches!(error, CutoverError::Descriptor(_)),
+            "aligned program must pass the signal gate: {error}"
+        );
+        assert!(
+            cut.migration_journal_stats().is_none(),
+            "失败先于武装，不留下在途日志"
+        );
+    }
+
+    #[test]
+    fn commit_fails_closed_on_event_cursor_exhaustion() {
+        let mut cut = installed_world(ORACLE_BASE, "fixture://cursor-cut");
+        let (entry, exit) = entry_exit(&cut);
+        let route = cut
+            .register_route(RouteRegisterInput::new(vec![entry, exit]))
+            .expect("route");
+        spawn_on(&mut cut, route, 10_000, 5_000);
+        cut.step(TickInput::new(100)).expect("step");
+        cut.event_cursor = u64::MAX;
+        let before_generation = cut.world_generation();
+        let mut tx = prepare(
+            &mut cut,
+            ORACLE_TARGET,
+            ORACLE_LFSD,
+            &CutoverTransactionLimits::default(),
+        );
+        cut.step(TickInput::new(100)).expect("silence step");
+        tx.pump(&mut cut).expect("pump");
+        // 耗尽在任何换绑前失败关闭：旧世界原样、武装解除、游标不动。
+        assert_eq!(
+            tx.commit(&mut cut).unwrap_err(),
+            CutoverError::EventCursorExhausted
+        );
+        assert_eq!(cut.event_cursor, u64::MAX);
+        assert_eq!(cut.world_generation(), before_generation);
+        assert!(cut.migration_journal_stats().is_none(), "结算解除武装");
+        cut.step(TickInput::new(100)).expect("world unaffected");
+    }
+
 
     #[test]
     fn snapshot_during_armed_window_captures_old_state_only() {
