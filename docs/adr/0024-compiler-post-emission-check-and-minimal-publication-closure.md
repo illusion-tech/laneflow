@@ -71,8 +71,10 @@ laneflow-compiler ──┐
 #300 static-image ──┘
 ```
 
-如果未来检查必须依赖 `std`、文件系统或内部并行，或者出现第二种独立规范制品生产者，
-应重新进入 ADR，而不是在本决定中预建抽象。
+checker core 继续不依赖 `std`、文件系统或内部并行。百万级路径允许
+`laneflow-format` 提供可选 `std` closed-staged backing adapter；它只把平台不可变 handle
+实现为 sealed source，不进入格式解析、hash/binding 算法或通用 installer。若 checker core
+本身以后需要文件系统/并行，或出现第二种独立规范制品生产者，仍须重新进入 ADR。
 
 ### 3. 检查最终字节与跨对象绑定，不复验完整路网语义
 
@@ -105,12 +107,15 @@ laneflow-compiler ──┐
 
 `laneflow-format` 提供字段私有、无公共构造器的
 `PostEmissionCheckedBundle<L, M, D>`。safe downstream 不能为普通文件路径、可写映射、
-内部可变 buffer 或 callback 实现来源 trait；immutable slice/owned bytes 通过 safe 入口，
-平台内容对象或 spool backing 则必须先 atomic no-replace/关闭全部写 handle，再通过窄
-`unsafe` admission 建立 sealed `ImmutableObjectSource<S>`。unsafe 前置条件要求能力存续期
-没有可写别名、offset read 稳定且不按路径重开。该能力保存或借用三个受检对象来源，只暴露受检
-只读访问和重新计算的绑定；它不可序列化，不表示对象已经发布、认证或可信。完整 slice
-通过同一接口的零复制 adapter 进入，不建立第二个 checker。
+内部可变 buffer 或 callback 实现来源 trait；immutable slice/owned bytes 通过 safe 入口。
+百万级文件路径由字段私有 staged writer 在 flush、固定 file identity/exact length、关闭全部
+writable handle 并取得阻止后续写入的同一 read-only handle 后，构造 sealed
+`ClosedStagedObjectSource<S>`。它在 bundle 检查时仍未安装；检查成功后由 installer 消费并
+atomic no-replace 晋升为内容对象。Windows 必须用拒绝 write sharing 的 handle 语义，Unix
+必须使用未暴露路径的 exclusive staging inode、匿名/unlinked inode 或等价保证；平台不能证明
+时失败关闭或复制到 owned immutable bytes。平台 `unsafe` 只封装在实现内部，不提供
+downstream admission API。该能力只暴露受检只读访问和重新计算的绑定；它不可序列化，不表示
+对象已经发布、认证或可信。完整 slice 通过同一接口的零复制 adapter 进入，不建立第二个 checker。
 
 compiler 使用拥有不可变 staged source handle 与 expected base binding 的
 `PortablePublicationCandidate`；候选可以由完整 slice 支撑，但百万级路径不要求三份
@@ -161,7 +166,7 @@ LFCP v1 和 `CanonicalPublicationReceiptViewV1` 退出生产实现。不提供 v
 
 后发射检查必须：
 
-- 保持 `no_std`；
+- checker core 保持 `no_std`；可选 `std` staged adapter 不改变检查算法；
 - 不发生堆分配；
 - 不复制 LFCA/LFSM/LFSD；
 - 按三个来源的总 exact bytes 线性扫描，不复制或同时保留完整对象；

@@ -30,6 +30,8 @@ Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭�
 > `SharedNetworkRevision` 必须支持至少 `1,000,000` 个现实混合稳定静态实体。chunk 只属于
 > 可移植 LFCA/LFSM/LFSD 容器，不恢复本文否决的 target-specific 静态镜像、mmap ABI、
 > 多修订拼城或 Runtime 分区身份。
+> 该容量必须由 `LF-COMP-SINGLE-NETWORK-1M-v1` 从 official source 真实编译到
+> `SharedNetworkRevision`；不得只用手工 LFCA 或 reader/builder 测试代替 compiler/emitter。
 
 ## 背景
 

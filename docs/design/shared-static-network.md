@@ -76,9 +76,12 @@ impl<L, M, D> PostEmissionCheckedBundle<L, M, D> {
 ```
 
 `BoundedReReadableObjectSource` 是 `laneflow-format` sealed 的 immutable-backing
-capability；调用方不能让普通路径、可写文件/映射或内部可变 buffer 实现它。发布资产必须
-先取得 atomic no-replace 内容对象 handle，本地候选必须使用 immutable slice/owned bytes；
-其它来源须先 copy/spool 并关闭全部写 handle，再经窄 `unsafe` admission 建立 sealed wrapper。
+capability；调用方不能让普通路径、可写文件/映射或内部可变 buffer 实现它。发布资产可以
+使用 atomic no-replace 内容对象 handle；本地候选可以使用 immutable slice/owned bytes，或由
+字段私有 staged writer 在 flush、固定 file identity/exact length、关闭全部 writable handle 并
+阻止后续写入后产生的 `ClosedStagedObjectSource`。该来源参加检查时仍未安装；平台不能证明
+同一 read-only handle 生命周期内不存在可写别名时失败关闭或复制到 owned immutable bytes。
+平台 `unsafe` 不作为 downstream admission API。
 `CheckedCanonicalNetworkInput` 保存并只读取检查时的同一个 source handle；builder 不按路径
 重新打开，也不接受内容可漂移的 staged handle。
 

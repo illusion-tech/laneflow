@@ -1502,7 +1502,7 @@ LFSM 接受前必须先用 tag 3/4/5 绑定 LFCA 4 exact bytes，再暴露任一
 | -------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | Entity `Add`         | `subjectStableId`                                                         | `afterValue:R`（完整目标 RowV1），`beforeValue:F`                          |
 | Entity `Remove`      | `subjectStableId`                                                         | `beforeValue:R`（完整 base RowV1），`afterValue:F`                         |
-| Entity `Modify`      | `subjectStableId, fieldTag`                                               | before/after 至少一个存在；都存在时必须不同                                |
+| Entity `Modify`      | `subjectStableId, fieldTag`                                               | payload 必须与 base/target 字段存在性精确一致，见下文                      |
 | Relation `Add`       | `ownerStableId, subjectStableId, role, afterLocalIndex`                   | tag 9/10 禁止                                                              |
 | Relation `Remove`    | `ownerStableId, subjectStableId, role, beforeLocalIndex`                  | tag 9/10 禁止                                                              |
 | Relation `Move`      | `ownerStableId, subjectStableId, role, beforeLocalIndex, afterLocalIndex` | tag 9/10 禁止，两个 index 必须不同                                         |
@@ -1510,10 +1510,25 @@ LFSM 接受前必须先用 tag 3/4/5 绑定 LFCA 4 exact bytes，再暴露任一
 | Geometry `Add`       | `subjectStableId`                                                         | `afterCanonicalValue:R`，before 禁止                                       |
 | Geometry `Remove`    | `subjectStableId`                                                         | `beforeCanonicalValue:R`，after 禁止                                       |
 | Geometry `Modify`    | `subjectStableId`                                                         | before/after 都必需且不同                                                  |
-| StaticRule `Modify`  | `subjectStableId, fieldTag`                                               | before/after 至少一个存在；都存在时必须不同                                |
+| StaticRule `Modify`  | `subjectStableId, fieldTag`                                               | payload 必须与 base/target 字段存在性精确一致，见下文                      |
 
 Relation 行的 `entityKind` 是 owner kind，其余表是 subject kind。Relation 只允许 role
 `1..18, 20..27, 30..31`；role 19 只投影 StaticRule，role 28/29/32 只投影 Geometry。
+
+`Entity Modify` 与 `StaticRule Modify` 的 before/after payload 不能任选“至少一侧”。checker
+必须先从绑定的 base/target LFCA 确认该 `fieldTag` 的实际存在性，再按下表要求唯一编码；`R/F`
+表示必需/禁止，两个字段都存在时其规范 bytes 必须不同：
+
+| base 字段 | target 字段 | before payload | after payload | 结果                |
+| --------- | ----------- | -------------- | ------------- | ------------------- |
+| 存在      | 存在        | R              | R             | 两值不同的 `Modify` |
+| 缺失      | 存在        | F              | R             | optional 字段新增   |
+| 存在      | 缺失        | R              | F             | optional 字段删除   |
+| 缺失      | 缺失        | F              | F             | 禁止生成 change row |
+
+required 字段在两端都必须存在，因此其 `Modify` 永远携带 before/after 两侧完整 payload。
+payload 缺侧、放错侧、两侧相同、或为两端都缺失的字段生成行都使整份 LFSD 失败关闭。该规则
+同时约束 emitter、LFSD reader 与双重闭合检查，不能从 change row 自报的 payload 反推字段存在性。
 
 ### 5.3 字段变化分类
 
@@ -1775,6 +1790,12 @@ fail-closed 的唯一生命周期合同见
 | 单 LFSM SourceLocation chunk 行数 | `65,536`；完整 location ordinal 空间仍为全局 `u32`                                  |
 | 同时 staged LFCA+LFSM+LFSD chunk  | `50,331,648 bytes`；不得据此缓存三个完整对象                                        |
 
+LFCA 4 实现必须退役 LFCA 1 把 `FORMAT_HARD_MAX_OBJECT_BYTES = 16,777,216` 和
+`FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES = 50,331,648` 分别解释为完整对象、完整三对象候选
+ceiling 的旧语义。`16,777,216` 只保留为单 `TableV1` chunk ceiling，`50,331,648` 只保留为
+三个同时 staged chunk 的内存 ceiling；完整对象与 bundle 由调用方具名配置档中的受检 `u64`
+预算约束。不得为了沿用常量名称而重新引入 16 MiB 完整对象或 48 MiB 完整候选限制。
+
 reader/checker 必须先验证对象 exact length、section directory、chunk directory 的 checked
 长度和调用方预算，再为 directory、行、字符串或向量分配。writer、digest 和 checker 必须
 按 chunk 流式工作；不允许为了保留旧 48 MiB staging 模型而把完整百万级对象复制三份。
@@ -1812,6 +1833,14 @@ CanonicalFrame，并在对应领域交付后包括 ConflictZone/ParticipantStrea
 循环 occurrence 和聚合注册量验证；本合同不要求荒谬的“单条路线穿过一百万个冲突区”，
 也不把一百万静态实体写成一百万活动车辆 fixed-tick 认证。
 
+三档 official source 编译都必须显式选择
+`LF-COMP-SINGLE-NETWORK-1M-v1`，其精确有限向量见
+[`compiler-foundation.md` §5.3](compiler-foundation.md#53-编译资源上限)。一百万档必须在
+`max_stable_entity_count = 1000000` 内完成真实 compiler/emitter；手工拼装 LFCA、只运行
+reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构成该容量证据。大型配置档
+只控制失败关闭资源上限，emitter 的 LFCA/LFSM/LFSD 必须落入 sealed closed staged file；
+不得把 `max_portable_bundle_bytes` 解释为同等 RAM 预留或性能 SLA。
+
 ## 8. 实现验收
 
 公共格式实现必须原子满足：
@@ -1826,6 +1855,8 @@ CanonicalFrame，并在对应领域交付后包括 ConflictZone/ParticipantStrea
 6. ParkingFacility 与 ConflictZone/ParticipantStream/ConflictZoneRegion 的 known vectors、
    来源投影、语义差异、规范排序扰动和旧 LFCA 版本 rejection 定向反例；
 7. `10000`/`100000`/`1000000` 单修订证据、真实 round-trip 与发布事务原子性验证。
+   三档均使用 `LF-COMP-SINGLE-NETWORK-1M-v1`，一百万档不得在 emission 前由较小 P100
+   profile 拒绝；
 
 固定向量不得在测试运行时用 production emitter 自己生成 expected。目标实现至少冻结并
 检入输入、完整 expected bytes、SHA-256、exact length、object key 与 revision/binding：
@@ -1845,6 +1876,7 @@ CanonicalFrame，并在对应领域交付后包括 ConflictZone/ParticipantStrea
 | `lfsm-role9-filtered-row`       | path occurrence 顺序/重复变化不改 filtered-row localIndex，primary 仍定位到选中来源 occurrence      |
 | `parking-anchor-multiset`       | 同一 LaneEdge 多 anchor 删除/新增一个时保留基数，progress-only 变化只走完整字段 payload             |
 | `closed-value-rejection`        | regulation tag 缺失或恰一行成功，零/多行与非法 `x-lane-*` / `x-*` ASCII token 稳定失败              |
+| `lfsd-field-presence`           | required/optional 字段的四种 base/target 存在性只接受唯一 before/after payload 形状                 |
 
 实现切片必须把这些向量原子重生为 `4/3/3/2`；不得继续把旧版本 bytes 当作当前成功向量，
 也不得为保留旧 fixture 增加双读分支。

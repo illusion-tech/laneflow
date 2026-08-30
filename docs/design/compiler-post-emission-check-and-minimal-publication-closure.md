@@ -28,7 +28,8 @@
 - 对象 framing、registry 和直接值域预检；
 - 借用型 `ValueCheckedObjectView`；
 - 有界 writer；
-- `no_std` 且不依赖 heap；
+- checker core 保持 `no_std` 且不依赖 heap；Windows/Unix closed staged source 是可选
+  `std` backing adapter，不进入格式解析或 binding 算法；
 - 无分配的 `check_post_emission_bundle` 与字段私有的
   `PostEmissionCheckedBundle`。
 
@@ -53,12 +54,12 @@ future laneflow-static-network ──┘              │
                                                 └──> laneflow-static-contract
 ```
 
-| 包                         | 新增或保留职责                                                                              | 明确不拥有                                 |
-| -------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `laneflow-static-contract` | 版本、格式硬上限、`NetworkRevisionId`、`Sha256Digest`、对象/字段登记                        | 读取字节、hash、发布                       |
-| `laneflow-format`          | 单对象预检、bundle 后发射检查、对象摘要、revision 重算、跨对象 binding、来源绑定 capability | 来源/LIR、文件系统、manifest、完整路网语义 |
-| `laneflow-compiler`        | 来源和 IR 语义、发射、候选拥有、LFCP v2、安装编排、manifest 提交                            | 第二套验证语义、对象内真实性               |
-| #300                       | 复用 public checked view 构造进程内 `SharedNetworkRevision`                                 | 反向依赖 compiler-private LIR/emitter      |
+| 包                         | 新增或保留职责                                                                                                                 | 明确不拥有                                     |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| `laneflow-static-contract` | 版本、格式硬上限、`NetworkRevisionId`、`Sha256Digest`、对象/字段登记                                                           | 读取字节、hash、发布                           |
+| `laneflow-format`          | 单对象预检、bundle 后发射检查、对象摘要、revision 重算、跨对象 binding、来源绑定 capability；可选 `std` staged backing adapter | 来源/LIR、通用文件安装、manifest、完整路网语义 |
+| `laneflow-compiler`        | 来源和 IR 语义、发射、候选拥有、LFCP v2、安装编排、manifest 提交                                                               | 第二套验证语义、对象内真实性                   |
+| #300                       | 复用 public checked view 构造进程内 `SharedNetworkRevision`                                                                    | 反向依赖 compiler-private LIR/emitter          |
 
 新增依赖：
 
@@ -88,6 +89,9 @@ mod private {
     pub trait SealedImmutableBacking {}
 }
 
+pub struct ClosedStagedObjectSource<S> { /* 字段私有 */ }
+pub struct InstalledImmutableObjectSource<S> { /* 字段私有 */ }
+
 pub trait BoundedReReadableObjectSource: private::SealedImmutableBacking {
     fn exact_byte_length(&self) -> ExactByteLength;
     fn read_exact_at(
@@ -115,12 +119,27 @@ where
 
 该 sealed supertrait 是能力边界，不是仅靠文档约束任意调用方实现：safe downstream code
 不能为路径、普通 `File`、可写映射、内部可变 buffer 或 callback 自行实现来源 trait。
-`laneflow-format` 只为调用期间没有可写别名的完整 slice/owned immutable bytes 提供 safe
-构造入口。平台内容对象必须先完成 atomic no-replace 安装，任意 reader 必须先完整
-copy/spool、固定 exact length 并关闭全部写 handle，再经显式 `unsafe` admission 构造
-字段私有的 `ImmutableObjectSource<S>`；该 unsafe 合同要求 backing 在能力释放前没有可写
-别名、同一 handle 的 offset read 稳定且不按路径重开。无法证明这些条件时不得调用该入口，
-safe API 返回 `MutableObjectSource` 或等价错误。
+`laneflow-format` 只登记三种 backing：调用期间没有可写别名的完整 slice/owned immutable
+bytes、已关闭暂存对象 `ClosedStagedObjectSource<S>`、已经 atomic no-replace 安装的
+`InstalledImmutableObjectSource<S>`。不得要求对象先安装才能参加 bundle 检查。
+
+`ClosedStagedObjectSource<S>` 只能由字段私有的 staged writer 完成 `finish` 状态转换获得：
+
+1. writer 在调用方不可见的唯一 staging 名称或匿名对象上独占写入；
+2. `finish` 完成 flush，固定 file identity 与 exact length，关闭进程内全部 writable handle；
+3. backend 获得并在能力生命周期内保留同一 read-only handle，同时阻止任何新 writable
+   handle 指向该 backing；Windows 使用拒绝 write sharing、但允许 installer 所需原子 rename
+   的 handle 语义，Unix 使用未向调用方暴露路径的 exclusive staging inode、匿名/unlinked
+   inode 或等价保证；
+4. 路径、原始 `File`、writable mapping、writer token 与重新开启写权限的能力均不暴露给
+   safe downstream；检查、共享静态构建与 installer 只克隆或消费该 read-only handle；
+5. 平台不能证明上述条件时返回 `ImmutableStagingUnsupported`，或先复制到 owned immutable
+   bytes；不得提前安装对象，也不得退化为“通常不会被改写”。
+
+平台模块为上述两个字段私有 wrapper 实现 sealed trait；所需 `unsafe` 只能封装在
+`laneflow-format`/installer 内部并由 Windows/Ubuntu 定向测试证明，不能作为 downstream
+admission API。安装阶段消费 `ClosedStagedObjectSource` 并把同一 backing 原子晋升为内容
+对象；安装前后都重新核对 identity、exact length、digest 与 winner bytes。
 
 完整 slice 通过零复制 adapter 实现同一来源接口，不建立第二个检查入口。检查期间发生
 任何 backing identity/length 漂移都是不可能由 safe API 表达的状态；若平台 capability
@@ -136,8 +155,9 @@ safe API 返回 `MutableObjectSource` 或等价错误。
 - 不实现序列化、签名、trust 或 publication 状态转换。
 
 来源在检查生命周期内必须保持 exact length 与 bytes 不变，并支持 checker 按目录、chunk
-与绑定需求重复顺序扫描。writer/installer 可以逐 chunk 关闭对象，而不要求 LFCA、LFSM、
-LFSD 三份百万级完整对象同时驻留。slice adapter 与其它来源必须
+与绑定需求重复顺序扫描。emitter 可以逐 chunk 写入 staged writer，并在每个对象完成后转成
+`ClosedStagedObjectSource`，不要求 LFCA、LFSM、LFSD 三份百万级完整对象同时驻留。
+slice adapter 与其它来源必须
 产生相同 digest、exact length、`NetworkRevisionId`、binding 与 first error。能力只保存
 后续安装/构建所需的受检来源句柄或借用，不复制三份对象，也不暴露未验证 chunk。
 
@@ -232,7 +252,8 @@ pub enum PostEmissionCheckError {
 ## 7. Compiler 候选与发布生命周期
 
 `PortablePublicationCandidate` 拥有 LFCA/LFSM/LFSD 三个 sealed immutable-backing
-object source，并保存从实际 `PortableDiffBase` 计算的 expected base binding。完整
+object source；百万级生产路径使用 `ClosedStagedObjectSource`，并保存从实际
+`PortableDiffBase` 计算的 expected base binding。完整
 `Box<[u8]>` 可以通过零复制 adapter 支撑小对象，但不是候选的强制存储形状。它仍是未发布
 候选，不因 emitter 完成而可信。
 
@@ -344,8 +365,10 @@ LFSD 当前仍是未被 LFCP/manifest 引用的内容对象。安装它只保留
 `LocalPortableObjectInstaller` 的成功语义不是普通覆盖式 rename：
 
 1. 调用方预配置并信任发布根及其祖先目录；installer 只在该根下维护固定的 objects 与
-   staging 子目录，并在同一文件系统创建唯一暂存文件；
-2. writer 完成对象后 flush 文件数据、关闭，再从最终 exact bytes 重算 digest/length；对象
+   staging 子目录，并在同一文件系统创建唯一暂存文件；该文件在 bundle 检查前必须已经
+   完成 `ClosedStagedObjectSource` 状态转换，但仍未安装、未发布；
+2. writer 完成对象后 flush 文件数据、关闭全部 writable handle，再从保留的同一 read-only
+   handle 对最终 exact bytes 重算 digest/length；对象
    key 只能从 checked capability 派生为 `sha256/<64 lowercase hex>`，调用方不能覆盖；
 3. 安装前再次核对暂存长度、bytes、格式预检与 bundle/LFCP binding；禁止先创建最终路径再
    复制、流式写入或截断；
@@ -368,7 +391,8 @@ WORM 策略属于部署责任；消费者从磁盘、网络或宿主包取得对
 
 硬约束：
 
-- `laneflow-format` 继续 `no_std`；
+- `laneflow-format` checker core 继续 `no_std`；可选 `std` staged adapter 只建立/读取
+  backing capability，不改变 checker 算法；
 - checker 自身零 heap allocation；
 - 零完整对象复制；
 - 不建立第二份路网对象图；
@@ -404,6 +428,7 @@ G2 最小测试集合：
 | LFCP v2    | 固定 exact bytes/digest/offset；receipt 字段不存在                                     |
 | installer  | 每个对象和 LFCP v2 的 write/flush/close/install/winner/manifest fault                  |
 | backing    | safe code 不能为可变来源实现 sealed trait；slice 零复制成功；mutable/reopen/drift 失败 |
+| staging    | Windows/Ubuntu 的 finish 后写入重开拒绝、同 handle 重读、检查前未安装、检查后原子晋升  |
 | 资源       | checker allocation 为零；P100 两进程均满足 30% 门槛                                    |
 | 平台       | Windows/Ubuntu 对现有 LFCA/LFSM/LFSD 与新 LFCP v2 fixed vector 一致                    |
 
