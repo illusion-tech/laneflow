@@ -20,13 +20,15 @@
   起实现）。
 - `shared-static-network.md`：从受检 LFCA 构建 `SharedNetworkRevision`。
 - `adapter-api.md`：Runtime / Spatial 与引擎适配器的只读快照、位姿和权威边界。
-- `portable-canonical-artifact.md`：LFCA / LFSM / LFSD / LFCP 格式与发布对象。
+- `portable-canonical-artifact.md`：#549 Review 中的统一 LFCA 4 / LFSM 3 / LFSD 3 /
+  LFCP 2、确定性分块与单路网一百万现实混合静态实体容量合同。
 - `compiler-post-emission-check-and-minimal-publication-closure.md`：后发射检查与
   LFCP v2 最小发布闭合。
 - `compiler-foundation.md`：编译器 crate、Typed AST → HIR → MIR → Canonical LIR、
   合成 DSL 与官方前端接入。
 - `network-compiler.md`：#291 目标静态编译架构。
-- `road-editing-source-and-geometry-frontend.md`：道路编辑 FlatBuffers B1 生产入口。
+- `road-editing-source-and-geometry-frontend.md`：道路编辑 FlatBuffers B1 生产入口与
+  #549 Road Editing v3 clean-break target。
 
 ## 领域规则
 

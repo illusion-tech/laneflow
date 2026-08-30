@@ -1,7 +1,7 @@
 # 交通运行时整数毫米几何
 
-**文档状态**: Accepted（#496；#500 编译器 IR 交通一维）<br>
-**最后更新**: 2026-08-26<br>
+**文档状态**: Accepted（#496；#500 编译器 IR 交通一维）；#549 格式轴修订处于 Review<br>
+**最后更新**: 2026-08-30<br>
 **适用范围**: `TrafficWorld` 已提交一维几何与速度、`WorldConfig` 步长、
 `laneflow-static-network` 热列、LFCA 长度/速度字段、compiler Typed AST / HIR /
 MIR / LIR 交通一维存储、公开 `Canonical*View`、compiler 边长派生、
@@ -238,6 +238,11 @@ LFCA:     写 IR length_mm（此时已与将写出值同一整数）
 `canonicalArtifactFormatVersion` 等于所绑 LFCA。LFSD `semanticDiffFormatVersion = 2`。
 Genesis 的 target 合同行必须与所绑 LFCA 一致；Artifact 两端合同行仍须相等。走廊按
 Genesis 重生，不做格式迁移 diff。
+
+#549 target 把上述格式组合原子更新为 LFCA/LFSM/LFSD `4/3/3`、
+`staticExecutionContractVersion = 4`、`identityRegistryRevision = 3`；
+`constraintContractVersion = 2`、`networkRevisionDerivationVersion = 1` 与本文件的全部
+整数毫米字段/量化语义保持不变。当前 3/2/2 reader 在 clean-break 实现后删除，不双读。
 
 共享路网受检输入与后发射检查只走这一套 registry，不可伪造。
 

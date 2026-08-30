@@ -16,6 +16,10 @@
 编译器 IR 收口 [#500](https://github.com/illusion-tech/laneflow/issues/500)。
 #496 的已提交整数合同是 [#302](https://github.com/illusion-tech/laneflow/issues/302)
 快照字段冻结的设计前置（快照不得先冻 `f64` 进度）。<br>
+**#549 proposed amendment（Review；2026-08-30）**：格式组合目标切换为
+LFCA/LFSM/LFSD `4/3/3`、`staticExecutionContractVersion = 4`、
+`identityRegistryRevision = 3`；本 ADR 的整数毫米字段、量化顺序、约束版本 2 和路网修订
+派生版本 1 不变。生产实现 clean-break，不保留 3/2/2 双读。<br>
 **关联文档**:
 
 - `0003-runtime-tick-and-determinism.md`

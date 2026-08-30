@@ -19,6 +19,10 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 `(ParticipantClass, Route)` 判断；ADR 0028 整数毫米一维几何；#303 Routing 契约。<br>
 **关联 Issue**: [#498](https://github.com/illusion-tech/laneflow/issues/498)、
 [#303](https://github.com/illusion-tech/laneflow/issues/303)（下述容量接缝已由 G1 接受）<br>
+**#549 proposed amendment（Review；2026-08-30）**：LFCA/LFSM/LFSD 目标版本改为
+`4/3/3`，Identity registry target 改为 revision 3；kind 21、tag 30 与 relation role
+13–16 的保留语义不变，新 kind 23/24 不复用任何路线空位。下述 2→3 与 registry
+revision 2 表保留本 ADR 当次 clean-break 的历史决策，不是 #549 的最终目标。<br>
 **关联文档**:
 
 - `0017-static-road-junction-maneuver-and-gate-identity.md`
