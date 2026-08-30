@@ -1,7 +1,7 @@
 # 架构
 
 **文档状态**: Accepted（current + #291 target design + ADR 0025 / #300 G1 修订；#301 后 Runtime 为当前可运行世界；ADR 0028 / #496 已落地整数毫米一维几何）<br>
-**最后更新**: 2026-08-27<br>
+**最后更新**: 2026-08-30（#540 停车设施合同）<br>
 **适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Runtime/Adapter 边界，以及 #291/ADR 0020/0021 和 Accepted ADR 0025 的城市模拟游戏交通基础与目标静态编译架构
 
 ## 1. 架构目标
@@ -226,15 +226,23 @@ semantic normalization 在 compiler；共享静态路网不取代 LFCA publicati
 长期兼容或迁移工具承诺。
 
 静态领域模型（车道图、Junction/Movement/ManeuverPath、StopLine、ManeuverGate、
-SignalGroup、固定时制 Controller/Phase、ParkingArea/ParkingSpace、横断面与准入、
+SignalGroup、固定时制 Controller/Phase、`ParkingFacility/ParkingSpace`、横断面与准入、
 WaitingZone）由编译器写入 Canonical LIR / LFCA，再进入共享静态路网。JSON schema
 与 `laneflow-data` 已删除，不再是现行契约。详细现行路径见
 `design/portable-canonical-artifact.md`、`design/shared-static-network.md` 与对应
 领域设计。
 
-共享静态路网只承载 immutable ParkingArea/ParkingSpace、entry/exit anchors 与
-edge-relative geometry，不持久化 reservation、occupancy、initial parked vehicles
-或 runtime handles。停车占用权威在 `TrafficWorld`。
+共享静态路网承载 immutable `ParkingFacility/ParkingSpace`、显式泊位几何、
+virtual capacity 与规范 entry/exit anchors，不持久化 reservation、occupancy、
+initial parked vehicles 或 runtime handles。停车占用权威在 `TrafficWorld`。一个设施
+可以同时组织显式泊位和不物化泊位的虚拟容量；Runtime 以 tagged
+`ExplicitSpace | VirtualPool` binding 管理 reserve/park/leave；虚拟 Parked 车辆保留
+live identity，但不产生 committed pose。真正移除仍由原子 `despawn_vehicle` 完成，并
+在同一提交释放停车 binding/route 引用；无 pose 不等于移除。完整合同见
+`design/parking-system.md`。
+
+**实现状态**：#541 尚未完成；当前代码仍使用 `ParkingArea` 和具体泊位占用。该事实只
+说明实现差距，不构成第二套目标架构。
 
 #229 已按 #228/ADR 0017 把 Traffic 原子切换为 v0.8：clean break 增加
 Junction、Movement、ManeuverPath，并以一等 ManeuverGate 取代 pair-based Gate。

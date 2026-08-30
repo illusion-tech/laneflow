@@ -1,7 +1,7 @@
 # 修订切换事务
 
 **文档状态**: Accepted（#302 G1）<br>
-**最后更新**: 2026-08-28<br>
+**最后更新**: 2026-08-30（#540 parking migration 合同）<br>
 **适用范围**: 在线路网修订切换的设计原则、切换描述符、迁移策略、失败关闭语义与 G1 预算<br>
 **关联文档**:
 [`../adr/0020-compiler-owned-static-network-and-static-image.md`](../adr/0020-compiler-owned-static-network-and-static-image.md)、
@@ -11,7 +11,8 @@
 [`shared-static-network.md`](shared-static-network.md)、
 [`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md)、
 [`traffic-observation-and-routing-integration.md`](traffic-observation-and-routing-integration.md)、
-[`retire-precompiled-static-route.md`](retire-precompiled-static-route.md)
+[`retire-precompiled-static-route.md`](retire-precompiled-static-route.md)、
+[`parking-system.md`](parking-system.md)
 
 本文是 ADR 0020 §6（经 ADR 0025/#300 G1 部分修订）与 ADR 0025 的 #302 G1 设计。
 为什么在线切换必须是失败关闭事务见 ADR；Runtime Snapshot 制品见
@@ -19,6 +20,10 @@
 
 本文 §4.1 及 §7 的观测/Routing 接缝已由 #303 G1 接受，与 #302 合同共同构成当前
 唯一实现权威。
+
+> **实现状态**：#540 合同把停车迁移定义为 tagged
+> `ExplicitSpace | VirtualPool` binding，并严格服从本文整事务、失败关闭和 zero-publish
+> 原则；#541 尚未实现。规则见下节与 `parking-system.md` §7。
 
 ## 1. 问题与设计立场
 
@@ -78,6 +83,24 @@ revision 不构成迁移权限；#299 历史 receipt 与静态镜像 descriptor 
    动态状态、旧 source、旧 diff base 原样生效，零事件。「删路前清场/劝阻」的
    游戏体验由宿主在发起前用 LFSD 预检与生命周期命令编排；声明式逐类丢弃或
    自动改道是未来独立 G1 的设计空间，不在本契约。
+
+### 3.1 停车 target 的重绑合同
+
+- 显式 binding 按 `ParkingSpace StableId128`，虚拟 binding 按
+  `ParkingFacility StableId128` 重绑；target kind 不得改变。
+- 目标虚拟容量增大允许；减小仅当目标容量仍容纳全部 Reserved+Occupied binding 时
+  允许，否则整个 cutover 失败。
+- Reserved virtual binding 的 selected entry 以
+  `(LaneEdge StableId128, progress_mm)` 精确重绑；anchor 缺失或位移即失败。
+- Occupied virtual binding 不保留旧 entry，但目标 facility 必须仍通过非空 exit 的
+  静态验证；离场使用目标修订当前 exit 集。
+- 删除 bound space/facility、移除仍有 binding 的 virtual pool 或形成重复显式占用均
+  失败。不得自动改派到另一泊位、另一设施或另一入口。
+- 设施拆除前，宿主可以在 cutover 事务外先按确定顺序调用原子 `despawn_vehicle` 清理
+  Reserved/Occupied/Parked 车辆，或用已冻结迁移策略把车辆移出；despawn 同一提交释放
+  parking binding/count/route 引用。切换本身仍不隐式删除车辆，清场未闭合就整体失败。
+- 所有 parking counts/ranges 从 staging aggregate 重建并闭合；任一错误发生在 commit
+  前，旧根、旧 binding、双游标和 Adapter 表现均不变。
 
 ## 4. 状态机
 

@@ -39,7 +39,8 @@
 - `route-system.md`：路线定义与跟随。
 - `vehicle-following.md`：跟车、安全距离与投影。
 - `signal-system.md`：固定时制信号、门控与车辆合规。
-- `parking-system.md`：停车占用、生命周期与 ParkingStop。
+- `parking-system.md`：#540 G1 Accepted；`ParkingFacility`、显式泊位/虚拟容量、
+  anchor selector、reserve/park/leave、原子 despawn、无 pose 停驻与迁移合同（#541 起实现）。
 - `road-junction-model.md`：Junction / Movement / ManeuverPath / ManeuverGate。
 - `waiting-zone-conflict-right-of-way.md`：待行区、冲突与通行权（Accepted 设计；
   运行时生产化按独立 Issue）。
@@ -57,6 +58,8 @@
 - `real-road-workloads.md`：LuST 真实路网契约。
 - `lust-bevy-population-control.md`：LuST / Bevy 示例层人口调节。
 - `core-runtime-scalability-audit.md`：城市级可扩展性前置约束；不实现生产分区。
+- `chinese-style-city-workload.md`：#304 的 topology/demand/runtime 分层草案；其中 #540
+  停车切片已 Accepted，其他城市工作负载切片仍待各自冻结。
 
 ## 已退役（只保留结论）
 
