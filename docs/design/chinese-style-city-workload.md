@@ -142,13 +142,19 @@ demand/Routing 策略，不在 #540 Runtime authority 内。
 运行时必须分别记录：
 
 - explicit/virtual reserved、occupied、vacant；
-- 每个 live vehicle 的 exact tagged binding；
-- virtual reservation 的 selected entry；
+- 每个 live vehicle 的 exact tagged binding，以及只允许
+  `Active + None/Reserved`、`Parked + Occupied`、`Completed + None` 的状态矩阵；
+- Reserved binding 的 bound route、exact entry occurrence 与 virtual selected entry；
 - park/leave/cancel/despawn 的 command result；
 - exact arrival 的 occurrence、整数毫米 anchor、`speed_mm_s=0`、`carry_um=0` 以及
   `SignalStop -> ParkingStop -> RouteEnd` 同值归因；
 - `N_active`、`N_individual` 和 `N_presented` 的状态变化；
 - stable digest/order 和失败零副作用证据。
+
+Reserve/rebind 只接受从 committed cursor 前向可达的 entry；同一 `progress_mm` 但
+`carry_um > 0` 视为已越过。合法 reservation 由 ParkingStop 保持，不通过 route completion
+自动释放。leave 必须携带恢复 route，并通过 route-aware overlap 与 direct-follower
+emergency-envelope admission 后才能提交。
 
 成功 virtual park 后：
 

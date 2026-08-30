@@ -209,11 +209,18 @@ despawn_vehicle(
 - `ReplaceError::Blocked` 仅入口占用/重叠，可重试；Adapter 此时映射与 Transform 不变。
 - 已绑定：成功则同一 Entity 轮换到新句柄。未绑定保持未绑定。
 - 到达路线终点写成 `Completed`，保留句柄与容量，不进 pose、不占车道。
-- Runtime despawn 对 Active、Completed、Reserved、Occupied/Parked 都是失败原子的真正
-  移除；parking release 由 typed record 回显，不能在 handle stale 后反查拼装。
+- Runtime despawn 对每个 live `VehicleStatus`（`Active | Parked | Completed`）都是真正
+  移除，并按合法状态矩阵原子释放可选 `Reserved | Occupied` parking binding；parking
+  release 由 typed record 回显，不能在 handle stale 后反查拼装。
 - Adapter despawn 先预检映射/清理容量，再提交 Runtime removal，并以不可失败路径恰好
   一次清除映射和销毁/回收宿主对象；预检或 Runtime 失败时两侧均不变。
 - virtual Parked 无 pose 不是 despawn；只有 typed removal outcome 可以触发上述映射清理。
+
+#541 的 parking typed mapping 必须保留完整 caller-selected payload：reserve 回显 bound
+route/entry occurrence/virtual entry selector，leave 回显恢复 route/exit occurrence/virtual
+exit selector，rebind 回显 old/new route 与 current/entry occurrence/selector。Adapter 不从
+facility、LaneEdge 或无 pose 状态反推被省略的 route/anchor，也不把不同 payload 的调用
+合并成 `NoChange`。
 
 当前 Bevy 生命周期边界是 `LaneFlowFixedSet::Lifecycle`。原子替换只走 typed
 `replace_completed_vehicle`，已绑定车辆移除只走 typed `despawn_vehicle`。Adapter 不复制

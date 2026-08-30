@@ -75,13 +75,13 @@ capacity、调用方自有 seed/随机流（宿主存档清单绑定；Runtime �
 
 ## 3. 每世界可变状态
 
-| 状态        | 快照表示                                                                                                                                                                                                                                                                                    |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）                                                                                                                                                                                                             |
-| 车辆        | ADR 0029 §6 形状 + 每车唯一 `snapshot_vehicle_id`：所属 `snapshot_route_id`、`route_edge_index`、`progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class 等静态绑定用 `StableId128`                                                                                           |
-| 停车状态    | 保存 `Reserved | Occupied` + tagged target；显式 target 保存 `ParkingSpace StableId128`，虚拟 target 保存 `ParkingFacility StableId128`；Reserved 保存 entry route occurrence，Reserved virtual 另存 `(entry LaneEdge StableId128, progress_mm)`；counts/capacity 不作为第二 authority 入档 |
-| live 顺序   | 车辆 `snapshot_vehicle_id` 的规范排序序列                                                                                                                                                                                                                                                   |
-| tick / 时钟 | `tick` / `time_ms` / 输入命令游标 / 已提交事件游标                                                                                                                                                                                                                                          |
+| 状态        | 快照表示                                                                                                                                                                                                                                                                                                                                 |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 路线表      | ADR 0029 §6 形状：`snapshot_route_id` + 有序边 `StableId128` 序列（允许重复边）                                                                                                                                                                                                                                                          |
+| 车辆        | ADR 0029 §6 形状 + 每车唯一 `snapshot_vehicle_id`：所属 `snapshot_route_id`、`route_edge_index`、`progress_mm` / `carry_um` / `speed_mm_s` / `status`；profile / class 等静态绑定用 `StableId128`                                                                                                                                        |
+| 停车状态    | 保存 `Reserved | Occupied` + tagged target；显式 target 保存 `ParkingSpace StableId128`，虚拟 target 保存 `ParkingFacility StableId128`；Reserved 保存 entry route occurrence，所属 route 即同一车辆的 `snapshot_route_id`，Reserved virtual 另存 `(entry LaneEdge StableId128, progress_mm)`；counts/capacity 不作为第二 authority 入档 |
+| live 顺序   | 车辆 `snapshot_vehicle_id` 的规范排序序列                                                                                                                                                                                                                                                                                                |
+| tick / 时钟 | `tick` / `time_ms` / 输入命令游标 / 已提交事件游标                                                                                                                                                                                                                                                                                       |
 
 车辆是运行时实体，没有 `StableId128`：它以 `snapshot_vehicle_id` 持存并被
 停车、live 序引用；静态实体（边、profile、class、停车位和停车设施）用 `StableId128`。
@@ -94,6 +94,11 @@ occurrence，`progress_mm` 必须精确等于解析后的整数毫米 anchor，�
 `speed_mm_s == 0`、`carry_um == 0`。任一项不同都不是 Arrived；reader 不允许用同一
 LaneEdge、距离容差或“已经越过”补成到达。virtual entry 的 semantic anchor 恢复为目标
 修订内的 typed selector后，仍必须满足上述同一谓词。
+
+Reserved entry 还必须从保存的 vehicle cursor 前向可达。对同一 route，entry occurrence
+更大即合法；occurrence 相同时，entry progress 必须更大，或 progress 相同且
+`carry_um == 0`。因此“同一 `progress_mm` 但保存了非零 carry”既不是 Arrived，也不是
+仍可到达的 reservation，reader 必须拒绝，不能清零 carry 修复。
 
 **#303 G1 已接受合同**：观测导出/admission session/基线、动态成本快照、未注册
 候选与成本 provenance 是调用方拥有或可重建的交付状态，不进入快照。候选注册
@@ -147,7 +152,9 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   保存路径的失败关闭由捕获侧承载（编码输入是已物化的有界快照）。
 - **完整性原则**：恢复的状态必须满足与 `install` / spawn 命令路径同一的不变量
   集。语义 lowering 拒绝：重复局部标识、悬空引用、live 序不是活跃车辆的精确排列、
-  停车绑定与 parked 状态不一致、车辆值不变量破坏（`carry_um` 越界、进度超
+  parking 状态矩阵不一致（只允许 `Active + None/Reserved`、`Parked + Occupied`、
+  `Completed + None`）、Reserved binding 所属 route/entry occurrence 与 vehicle record
+  不一致或 entry 不再前向可达、车辆值不变量破坏（`carry_um` 越界、进度超
   边长、超速、profile 与 class 不一致、活跃车辆物理重叠），以及时钟不变量
   破坏（`time_ms` 必须等于 `tick × fixed_delta_time_ms`，checked arithmetic
   验证——不可达时钟对会派生出错误的信号与回放分歧）。任一违反零部分恢复。
@@ -208,7 +215,9 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
   `entryRouteEdgeIndex` 当且仅当 Reserved 时存在，并按 `u32` 数值区分同一 LaneEdge 在
   route 中的不同 occurrence；它必须解析到该 target 的 entry。`semanticEntry` 当且仅当
   `Reserved + VirtualPool` 时存在；ExplicitSpace 和 Occupied VirtualPool 均禁止该字段。
-  Parked 车辆必须是 Occupied binding，Reserved 车辆仍可为 Active。counts/capacity 从
+  parking binding 不重复写 route handle/ID：车辆所在 route group 就是 Reserved binding
+  的 route，改变 vehicle 的 route group 已会改变摘要。Parked 车辆必须是 Occupied
+  binding，Reserved 车辆必须是 Active，Completed 必须 unbound。counts/capacity 从
   绑定与共享修订派生，不进入摘要。这样只改变 target tag、Reserved/Occupied 状态、
   route occurrence 或所选 virtual entry 的两个世界一定产生不同摘要。
 
@@ -243,6 +252,13 @@ world；输出为带 `LFRS` file identifier 的 size-prefixed buffer，必需空
 迁移（切换文档 §3）；旧密集序号不得直接解释为新修订实体，稳定引用经
 `SharedIdentityIndex` 完整重建。同修订换根（含重发布制品）走切换事务的
 `same_revision_restore` 路径。
+
+跨修订恢复对 Reserved target 采用与在线 cutover 相同的 entry 规则：virtual
+reservation 的已保存 semantic entry 必须 exact 存在；explicit reservation 从同一
+`ParkingSpace` 的目标静态 entry 重新解析，并相对已保存 vehicle cursor 重做前向可达
+判定。显式 entry 向前移动可恢复，移到 cursor 后方则整次失败；reader 不倒车、teleport
+或自动改派另一 entry。Occupied binding 不保留旧 entry，仍按目标修订验证 target 与
+离场静态闭合。
 
 ## 8. G1 预算与度量
 
@@ -294,6 +310,9 @@ v2 的 schema 与版本轴到字段映射由 #541 在
 恢复端到端与 published 同修订重发布恢复；边界捕获拒绝跨提交状态混合；候选
 准备期保存只捕获旧聚合。#303 G1 已接受合同追加：路线 occurrence 容量 max/max+1 的
 恢复原子性；检查点后成功候选注册按规范化命令重放且不调用 Routing/旧 cost binding。
+#541 追加：parking 状态矩阵、Reserved route ownership、entry occurrence/edge 闭合与
+前向可达单项反例（含同 `progress_mm` 非零 carry）；跨修订 virtual semantic entry exact
+重绑，以及 explicit entry 前移允许/移到 cursor 后方失败；任一失败零部分恢复。
 #532 追加：捕获与摘要的预留失败注入——失败关闭（世界无感知）、清点后重试得到
 同一快照/摘要；save 路径的失败关闭由捕获侧承载（编码边界见 §5）。
 
