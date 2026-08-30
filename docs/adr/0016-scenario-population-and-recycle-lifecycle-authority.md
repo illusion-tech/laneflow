@@ -69,10 +69,11 @@ despawn_vehicle(vehicle: VehicleHandle)
   -> Result<VehicleDespawnRecord { vehicle, parking_release? }, DespawnError>
 ```
 
-该命令接受所有 live lifecycle states。对 Reserved、Occupied/Parked vehicle，它在一次
-compute-then-apply 中清除停车资源/count、反向 binding、route 引用、live order 与
-vehicle identity；Active/Completed 走同一原子移除边界。任一 stale handle、状态不变量、
-预留或算术失败都保持 Runtime 完全不变。成功后旧 handle 立即 stale。
+该命令接受所有 live `VehicleStatus`（`Active | Parked | Completed`）。它按停车状态矩阵
+清除可选 `Reserved | Occupied` binding、停车资源/count、反向 binding、route 引用、live
+order 与 vehicle identity；无 binding 的 Active/Completed 走同一原子移除边界。任一
+stale handle、状态不变量、预留或算术失败都保持 Runtime 完全不变。成功后旧 handle
+立即 stale。
 
 `despawn_vehicle` 只表达“这个车辆现在确实不存在了”，用于设施拆除前清场、交通回收、
 长期 Parked 清理和宿主明确删除。它不选择替代车辆、入口或 route，也不是 population
@@ -213,8 +214,9 @@ Traffic v0.8 只承载 immutable lane graph、Junction/Movement/ManeuverPath、r
 - old handle stale、new handle live、logical slot 人口不变；
 - Runtime replace 的所有 validation failure 都保持 world 不变；
 - Adapter 预检/提交失败不留下 stale 或双重映射；
-- Active、Completed、Reserved、Occupied/Parked 的 atomic despawn；停车资源/count、route
-  引用、live order 与 handle generation 一次闭合，所有失败零副作用；
+- 三种 live `VehicleStatus` 与合法可选 Reserved/Occupied binding 组合的 atomic despawn；
+  停车资源/count、route 引用、live order 与 handle generation 一次闭合，非法状态矩阵与
+  所有其他失败均零副作用；
 - Adapter 对可见、隐藏和已池化 virtual Parked proxy 的 removal 都恰好一次清映射；无
   pose、park 或 leave 失败不能误触发 removal；
 - pending proxy 保持最后 pose，成功回流复用同一 Entity；

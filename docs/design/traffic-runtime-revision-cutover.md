@@ -90,6 +90,13 @@ revision 不构成迁移权限；#299 历史 receipt 与静态镜像 descriptor 
   `ParkingFacility StableId128` 重绑；target kind 不得改变。
 - 目标虚拟容量增大允许；减小仅当目标容量仍容纳全部 Reserved+Occupied binding 时
   允许，否则整个 cutover 失败。
+- Reserved binding 的 route 是同一 vehicle 当前 route；entry occurrence 必须在重绑后的
+  route 上解析到目标 entry edge，并从 vehicle committed cursor 前向可达。前向可达按
+  occurrence 优先、同 occurrence 再比较 `progress_mm/carry_um`：同一整数毫米但
+  `carry_um > 0` 已越过 anchor，不能接受。
+- Reserved explicit binding 不重复保存旧静态 entry。target `ParkingSpace` 重绑后从目标
+  修订重新解析当前 entry；entry 向前移动且仍前向可达可以继续，移到 committed cursor
+  后方则整个 cutover 失败，不倒车、不 teleport、不自动改派。
 - Reserved virtual binding 的 selected entry 以
   `(LaneEdge StableId128, progress_mm)` 精确重绑；anchor 缺失或位移即失败。
 - Occupied virtual binding 不保留旧 entry，但目标 facility 必须仍通过非空 exit 的
@@ -97,10 +104,12 @@ revision 不构成迁移权限；#299 历史 receipt 与静态镜像 descriptor 
 - 删除 bound space/facility、移除仍有 binding 的 virtual pool 或形成重复显式占用均
   失败。不得自动改派到另一泊位、另一设施或另一入口。
 - 设施拆除前，宿主可以在 cutover 事务外先按确定顺序调用原子 `despawn_vehicle` 清理
-  Reserved/Occupied/Parked 车辆，或用已冻结迁移策略把车辆移出；despawn 同一提交释放
+  带 Reserved/Occupied binding 的 Active/Parked 车辆，或用已冻结迁移策略把车辆移出；
+  despawn 同一提交释放
   parking binding/count/route 引用。切换本身仍不隐式删除车辆，清场未闭合就整体失败。
-- 所有 parking counts/ranges 从 staging aggregate 重建并闭合；任一错误发生在 commit
-  前，旧根、旧 binding、双游标和 Adapter 表现均不变。
+- staging 只接受 `Active + None/Reserved`、`Parked + Occupied`、`Completed + None`；
+  所有 parking counts/ranges 从 aggregate 重建并闭合。任一错误发生在 commit 前，旧根、
+  旧 binding、双游标和 Adapter 表现均不变。
 
 ## 4. 状态机
 
@@ -399,3 +408,6 @@ G2 回写（切片 A 落定，#511）：
 capture 失败的世界无感知与可重试——save 侧同承载）。#303 接缝还必须覆盖世界世代/观测 stream/
 `observationStateSequence` 与 root 同界原子变化、target 路线 occurrence 容量
 max/max+1 与超限零提交，以及 abort 三者完全不变。
+#541 parking 接缝追加：状态矩阵与 Reserved route ownership；virtual selected entry exact
+重绑；explicit entry 前移且仍前向可达的放行、移到 cursor 后方的拒绝；同
+`progress_mm` 非零 carry 的越界反例；capacity/binding 重建与任一失败的零发布。

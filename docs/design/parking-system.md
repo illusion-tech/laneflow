@@ -188,6 +188,7 @@ pool 一定有资源，因此不得只公开一个含糊的 `available` 作为�
 vehicle_binding[v] = None
   | Reserved {
       target,
+      route,
       entry_route_occurrence,
       virtual_entry_selector: RequiredExactlyForVirtualPool
     }
@@ -204,6 +205,19 @@ virtual_state[f] = {
 
 这些结构由一个 `ParkingRuntimeState` 私有 aggregate 拥有。`VehicleState` 可以只读暴露
 tagged binding/status，但不是可独立修改的第二 authority。
+
+`VehicleStatus` 与 parking binding 是两条正交但受约束的状态轴，合法组合只有：
+
+| `VehicleStatus` | parking binding      | 语义                         |
+| --------------- | -------------------- | ---------------------------- |
+| `Active`        | `None` 或 `Reserved` | 正常道路车辆或正在驶向入口   |
+| `Parked`        | `Occupied`           | 已由停车资源持有             |
+| `Completed`     | `None`               | 已到路线终点，等待替换或移除 |
+
+`Reserved` / `Occupied` 不是 `VehicleStatus`。Reserved binding 的 `route` 必须与
+`VehicleState.route` 相同；Occupied 后车辆仍通过 `VehicleState` 保留 live route
+reference。任何其他组合都是 aggregate invariant violation，不得被 snapshot、cutover 或
+despawn 当作可修复输入。
 
 虚拟设施按 `F` 保存 counts/ranges，按实际 binding `B` 保存稀疏成员；不得按
 `virtual_capacity` 建 slot vector、bitset、free list 或伪 space handles。显式泊位保持
@@ -240,7 +254,7 @@ cancel_parking(vehicle, target)
 park_vehicle(vehicle, target)
 leave_parking(vehicle, leave_target)
 rebind_parking_route(vehicle, rebind_target)
-spawn_parked_vehicle(vehicle_input, target, dormant_route)
+spawn_parked_vehicle(parked_input, target)
 despawn_vehicle(vehicle)
 
 enum ReserveParkingTarget {
@@ -258,10 +272,12 @@ enum ReserveParkingTarget {
 enum LeaveParkingTarget {
     ExplicitSpace {
         space,
+        route,
         exit_route_occurrence,
     },
     VirtualPool {
         facility,
+        route,
         exit_anchor: VirtualExitAnchorSelector,
         exit_route_occurrence,
     },
@@ -270,13 +286,24 @@ enum LeaveParkingTarget {
 enum RebindParkingTarget {
     ExplicitSpace {
         space,
+        new_route,
+        new_current_route_occurrence,
         new_entry_route_occurrence,
     },
     VirtualPool {
         facility,
+        new_route,
+        new_current_route_occurrence,
         new_entry_anchor: VirtualEntryAnchorSelector,
         new_entry_route_occurrence,
     },
+}
+
+struct ParkedVehicleSpawnInput {
+    profile,
+    route,
+    route_occurrence,
+    progress_mm,
 }
 ```
 
@@ -293,21 +320,44 @@ presence 规则是封闭的：virtual reserve/rebind 必须携带 entry selector
 entry/exit。park/cancel/despawn 消费既有 exact binding，parked spawn 直接构造
 Occupied 且不发生道路边界穿越，因此也不虚构 selector。
 
+Reserve 使用车辆当前 `VehicleState.route`；成功 record 与 Reserved binding 都回显/保存
+该 route。Leave 必须显式携带要恢复的 route。Rebind 必须同时给出新 route 上与车辆当前
+物理边对应的 current occurrence，以及该 route 上的 entry occurrence；只给 entry
+occurrence 无法在 repeated-edge route 上无损迁移当前 cursor。`ParkedVehicleSpawnInput`
+携带的是 Parked 状态必须保留的 retained route cursor，不是 entry/exit selector，也不授予
+lane occupancy；命令固定提交 `speed_mm_s = 0`、`carry_um = 0` 和零 acceleration。
+
+对 Reserved entry 定义唯一的前向可达谓词。设当前或映射后的 cursor 为
+`(c_occ, c_progress_mm, c_carry_um)`，entry 为 `(e_occ, e_progress_mm)`：
+
+```text
+forward_reachable :=
+  e_occ > c_occ
+  || (e_occ == c_occ
+      && (e_progress_mm > c_progress_mm
+          || (e_progress_mm == c_progress_mm && c_carry_um == 0)))
+```
+
+`carry_um > 0` 表示车辆已越过同一整数毫米位置；此时相同 `progress_mm` 的 anchor 在物理
+上已经位于车辆后方，不能因整数主值相等而接受。该谓词用于 reserve、rebind、snapshot
+restore 与 cutover revalidation；不得退化为只比较 occurrence 或裸 `>= progress_mm`。
+
 ### 5.2 Reserve
 
 Reserve 依次验证：
 
-1. vehicle live、未绑定，target ordinal/kind 当前有效；
+1. vehicle live、`VehicleStatus::Active` 且未绑定，target ordinal/kind 当前有效；
 2. 显式 space Vacant，或虚拟 pool 的 `reserved + occupied < capacity`；
 3. entry 属于 target：显式 target 必须匹配 space entry；虚拟 target 的显式 entry
    selector 必须由该设施拥有，并解析出唯一 exact anchor；
-4. caller 指定的动态 route occurrence 必须是该 anchor 所在 LaneEdge 的 exact
+4. caller 指定的动态 route occurrence 必须是车辆当前 route 上该 anchor 所在 LaneEdge 的 exact
    occurrence；anchor 内的 `progress_mm` 只来自 selector，不能由 occurrence 或 facility
-   猜测；route/class/access 必须合法；
+   猜测；entry 必须按 §5.1 谓词从当前 cursor 前向可达，route/class/access 必须合法；
 5. route 引用容量和全部 checked arithmetic 可提交。
 
-成功后立即消耗资源。对虚拟 target，binding 保存所选 entry ordinal；同修订内使用 typed
-ordinal，snapshot 使用 semantic anchor。Runtime 不在多个 entry 之间自动选一个。
+成功后立即消耗资源。binding 保存当前 route 与 exact entry occurrence；对虚拟 target
+另保存所选 entry ordinal。同修订内使用 typed ordinal，snapshot 使用 semantic anchor。
+Runtime 不在多个 entry 之间自动选一个，也不接受已经位于 committed cursor 后方的 entry。
 
 ### 5.3 Approach 与 arrival
 
@@ -328,6 +378,11 @@ arrival。到达提交若由 ParkingStop 截停，必须一次把 occurrence/pro
 值并把 speed/carry 清零。信号、leader、waiting/conflict 和 ParkingStop 从同一
 tick-start snapshot 归约 final admissible motion；数值 target 完全相同时，归因顺序沿用
 `SignalStop -> ParkingStop -> RouteEnd`，只改变 observation attribution，不改变运动结果。
+当 ParkingStop 与 RouteEnd 同值时，ParkingStop 归因意味着车辆保持
+`Active + Reserved + Arrived`，不得同时提交 `Completed`；相同的是数值运动结果，不是
+生命周期结果。合法 Reserved entry 始终前向可达，因此正常步进不存在
+`Completed + Reserved` 或 route-completion 自动释放分支；若实现仍推导出该组合，整拍以
+内部不变量错误失败关闭。
 
 ### 5.4 Park
 
@@ -354,28 +409,94 @@ exit selector。调用方同时给出恢复 route 和 occurrence。Runtime 在�
 - virtual exit selector 属于 target，并解析出 exact anchor；route occurrence 的 LaneEdge
   精确匹配该 anchor，插入 progress 精确使用 selector 的整数毫米值；
 - route/class/access 有效；
-- 车辆在该 occurrence 的前后间隙满足现行 no-overlap/safe insertion 规则；
+- 车辆在该 occurrence 的前后间隙满足下述 no-overlap/safe insertion 规则；
 - 所有 handle、索引和算术可提交。
 
-全部通过后才一次提交 `Parked -> Active`、建立 lane authority 并释放 parking resource。
-任何失败保持 binding、容量、vehicle status、lane occupancy 和 pose source 全部不变。
+全部通过后才一次提交 `Parked -> Active`、用命令 route/occurrence/exit progress 替换 retained
+route cursor、清零 motion、建立 lane authority、原子轮换 route reference 并释放 parking
+resource。任何失败保持 binding、容量、vehicle status、retained route cursor、lane
+occupancy 和 pose source 全部不变。
+
+安全插入必须在车辆仍为 `Parked + Occupied` 时，先暂存一个位于 exact exit anchor 的
+`Active` candidate；candidate 的 route/occurrence 来自命令，progress 来自静态 space
+exit 或 virtual selector，speed/carry/acceleration 均为零。提交前必须同时满足：
+
+1. 与全部已提交 Active lane occupants 无物理 overlap，覆盖 same edge、相邻 route
+   boundary、车身跨边、repeated occurrence，以及 candidate/existing 双向 route
+   visibility；
+2. 对所有会把 candidate 视为新 stationary direct leader 的 Active follower，复用
+   `vehicle-following.md` 的 emergency safe-speed 与 projection 判据，证明下一 tick 无需
+   依赖 geometry hard projection 就能保持无重叠；
+3. 静止 follower 只需通过物理几何检查；不额外要求 comfort `min_gap`，小于 comfort
+   目标但 emergency-feasible 的 gap 由后续 Following 自然恢复；
+4. 不借用当前 SignalStop、ParkingStop、Waiting/Conflict constraint 来放宽 gap，也不在
+   leave 命令中修改 follower、tick 或事件。
+
+第 2 项的 admission predicate 不是实现自行解释的“看起来够远”。对每个 direct follower，
+令 `v` 为当前速度、`b_f` 为 emergency deceleration、`dt` 为 world fixed step、`s` 为按
+route-aware 整数占用求得并按 Following 同一规则转换的当前 bumper gap；candidate 的
+leader speed 为零。先取 emergency braking 在下一 tick 可达到的最低非负速度：
+
+```text
+u_min = max(0, v - b_f * dt)
+```
+
+只有下式以 `u = u_min` 成立且全部中间值 finite 时才允许 leave：
+
+```text
+0.5 * (v + u_min) * dt + u_min^2 / (2 * b_f) <= s
+```
+
+这正是 `vehicle-following.md` §10.2 在 stationary leader 下的 emergency envelope，并保证
+emergency floor 不高于 safe-speed 上界；不成立则返回 leave-unsafe-follower，而不是允许
+下一 tick 用 geometry hard projection 补救。`v == 0` 时该式退化为 `0 <= s`，因此静止
+follower 只剩物理几何要求。
+
+生产查询可以用 edge-local/route-aware index 缩小候选，但必须保留 full-scan reference
+oracle 对拍。多个 blocker 以稳定 live/update order 选择；物理 overlap 与
+unsafe-follower 必须是两个可区分错误，不能统一为含糊的 `unsafe exit`。
 
 ### 5.6 Cancel、rebind、despawn 与 parked spawn
 
-- cancel 只接受 exact Reserved pair，释放资源并解除 entry/route 依赖；Occupied 不能 cancel。
-- rebind 只改变 Reserved pair 的 route occurrence/selected entry；virtual rebind 必须显式
-  携带新的 entry selector，并按一次事务验证，不得暂时释放容量。
+- cancel 只接受 exact Reserved pair，释放资源并删除 reservation/entry binding；车辆仍为
+  Active，`VehicleState.route/cursor` 不变并继续持有该 live route reference。Occupied
+  不能 cancel。
+- rebind 只接受 `Active + Reserved`。`new_current_route_occurrence` 必须在 `new_route` 上解析
+  到车辆当前 physical LaneEdge；命令保留当前 `progress_mm/carry_um/speed_mm_s` 和
+  acceleration，不 teleport，再按 §5.1 从该映射 cursor 验证新 entry 前向可达及
+  route/class/access。成功后一次替换 `VehicleState.route/current occurrence` 与 Reserved
+  binding 的 route/entry/selected entry；virtual rebind 必须显式携带新的 entry selector，
+  旧 route reference 的释放与新 route reference 的取得同一提交，全程不得暂时释放容量或
+  产生无 route 的中间状态。
 - `despawn_vehicle` 是真正移除 live vehicle 的独立原子命令，不是回流的“先删后建”。它
-  接受 Active/Completed/Reserved/Occupied/Parked；停车侧对 Reserved/Occupied/Parked
-  通过 aggregate 同步释放资源、反向 binding、route 引用和 vehicle identity；stale
+  接受全部 live `VehicleStatus`（`Active | Parked | Completed`），并按合法状态矩阵同步
+  释放可选 `Reserved | Occupied` binding、资源/count、route 引用和 vehicle identity；stale
   handle 失败不能释放后来占用同槽位的车辆。
-- parked spawn/restore 是专用构造入口：一次验证容量、target、route 和 vehicle 后建立
-  完整 Occupied+Parked invariant；普通 park 不能借此跳过 reservation。
+- parked spawn/restore 是专用构造入口：一次验证容量、target、profile、retained route
+  cursor 与 route/class/access 后建立完整 `Occupied + Parked` invariant；retained cursor
+  必须在 route/edge/progress 闭包内，但不进入 lane occupancy，也不要求等于任何 entry。
+  这使 only-virtual 或多入口设施无需伪造“停车时采用哪个入口”。普通 park 不能借此跳过
+  reservation。
 
 ### 5.7 幂等和错误分类
 
-窄幂等只覆盖“同一 live vehicle + 同一 exact target + 已经是请求的最终状态”。实现需要
-返回显式 `NoChange`/等价结果，不能伪装成新提交。
+窄幂等只允许当前 committed state 能完整证明同一命令载荷的情形，返回显式
+`NoChange`/等价结果，不能伪装成新提交：
+
+| 命令    | 允许 `NoChange` 的唯一条件                                                                                                             |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| reserve | 已存在完全相同的 Reserved payload：vehicle、target、route、entry occurrence，以及 virtual 时的 entry selector；资源反向 binding 也一致 |
+| park    | 已是同一 vehicle/target 的 `Parked + Occupied` exact pair                                                                              |
+| rebind  | 当前 vehicle route/current occurrence 与完整 Reserved payload 已逐字段等于请求的新 route/current occurrence/entry occurrence/selector  |
+
+cancel 与 leave 成功后已删除证明旧命令的 binding，不能仅凭“现在未绑定/目标空闲”猜测曾经
+成功，重复调用返回 not-reserved/not-occupied。parked spawn 创建新 identity，无 no-op；
+despawn 的 stale handle 是错误，也不能当 no-op。不同车辆、不同 target 或任一 payload
+字段不同均不得被幂等吞掉。
+
+`NoChange` 判定只能在 vehicle/target/route/selector/occurrence 均解析并通过 kind、ownership、
+edge 与数值闭包后执行；malformed 或 stale payload 不能因当前最终状态相似而被吞掉。
+reserve/rebind 的成功 record、输入命令日志与 replay payload 都保存同一完整字段集。
 
 至少区分：
 
@@ -383,8 +504,9 @@ exit selector。调用方同时给出恢复 route 和 occurrence。Runtime 在�
 - target kind mismatch、vehicle already bound、target bound by another vehicle；
 - virtual capacity exhausted；
 - entry/exit selector missing/not owned by target、route occurrence/anchor mismatch；
+- entry behind cursor/not forward reachable、rebind current occurrence/physical edge mismatch；
 - not reserved/not arrived/not occupied；
-- unsafe exit insertion；
+- leave physical overlap、leave unsafe follower；
 - route referenced/cannot remove；
 - arithmetic/configuration capacity exceeded。
 
@@ -398,18 +520,28 @@ exit selector。调用方同时给出恢复 route 和 occurrence。Runtime 在�
 - Reserved Active vehicle仍正常参与上述道路行为，并受所选 entry 的 ParkingStop 约束。
 - arrival 只按 §5.3 的 exact occurrence/progress/zero-speed/zero-carry 谓词成立；
   `SignalStop -> ParkingStop -> RouteEnd` 的同值归因顺序保持不变。
+- arrival query 始终从 committed state 派生；successful step 只在 tick-start 为 false、提交后
+  为 true 时产生一次 arrival observation。reserve/rebind 命令若直接建立 already-arrived
+  committed pair，命令 result 回显该事实，但不补造延迟 step observation；后续 step 也不
+  重复发送。
 - command 在 step 边界线性化；step 内只读一个 tick-start committed snapshot，并一次提交。
+- 合法 `NoChange` 仍是成功消费的一条输入命令，input command cursor checked `+1`；它不改变
+  parking/vehicle authority、`observationStateSequence`、tick/time 或事件游标。cursor 耗尽
+  时连 no-op 也必须零副作用失败，不能返回未计数成功。
 - parking member/query/observation 按既有 live/stable vehicle order；不能暴露 hash order。
 - 批量 despawn/restore/cutover 可以一次 canonical scan 处理 `B` 个 binding；不得对每个
   facility 再扫描全部 vehicle 形成 `O(F*V)`。
 - counts 是提交时更新、测试中可重算的缓存。摘要必须覆盖 target tag、stable identity、
-  binding state、Reserved entry route occurrence、selected entry 和 canonical member order。
-- virtual reserve/rebind/leave 的 typed command result 必须回显 caller 提供且已解析成功的
-  entry/exit selector 与 exact route occurrence；不能只回显 facility 后要求 Adapter 或
-  replay 侧重新猜 anchor。
+  binding state、车辆所属 route group、Reserved entry route occurrence、selected entry 和
+  canonical member order。
+- reserve result 必须回显 target、bound route、entry occurrence 与 virtual entry selector；
+  leave result 必须回显 target、恢复 route、exit occurrence 与 virtual exit selector；rebind
+  result 必须回显 old/new route、current/entry occurrence 与 virtual entry selector。不能只
+  回显 facility 后要求 Adapter、snapshot 或 replay 侧重新猜 route/anchor。
 - 不为 command 重新引入全局 event sequence。成功 lifecycle command 的 committed record
-  按 command cursor/caller order 观察；step 产生的 arrival/release observation 按稳定 live
-  order 观察。同步 typed command result 与 step/observation cursor 按各自既有合同输出，
+  按 command cursor/caller order 观察；step 只产生 arrival observation，按稳定 live order
+  观察。cancel/leave/despawn 的资源释放由同步 typed record 表达，不产生延迟 release
+  observation。同步 typed command result 与 step/observation cursor 按各自既有合同输出，
   不能把两条顺序轴混成延迟 backlog。
 
 ## 7. Snapshot、回放与修订切换
@@ -425,6 +557,7 @@ target:
   ExplicitSpace { parking_space_stable_id }
   VirtualPool { parking_facility_stable_id }
 Reserved additionally:
+  bound route is the vehicle record's snapshot_route_id
   entry_route_edge_index within the bound dynamic route
 Reserved VirtualPool additionally:
   selected_entry { lane_edge_stable_id, progress_mm }
@@ -434,9 +567,11 @@ Reserved VirtualPool additionally:
 目标共享修订解析并从 binding 重建。若存档同时保存派生 count，reader 必须拒绝该未登记
 字段，不能容忍第二 authority。
 
-恢复顺序：解析/版本检查 → 稳定 identity 解析 → target/anchor/route 闭合 → 资源守恒
-检查 → 分配新 runtime handles → 构建完整 aggregate → 原子发布。任何一步失败都没有部分
-world。
+route 不在 parking binding 中重复编码：Reserved binding 所属 route 必须是同一 vehicle
+record 的 `snapshot_route_id`，确定性摘要中的 route-group 也覆盖该关系。恢复顺序：
+解析/版本检查 → 稳定 identity 解析 → target/anchor/route 闭合 → 状态矩阵与前向可达
+检查 → 资源守恒检查 → 分配新 runtime handles → 构建完整 aggregate → 原子发布。任何
+一步失败都没有部分 world。
 
 ### 7.2 精确回放
 
@@ -449,21 +584,27 @@ vehicle order。
 
 迁移先按 StableId 解析 target：
 
-| 变化                                             | 处理                                                     |
-| ------------------------------------------------ | -------------------------------------------------------- |
-| facility/space 同身份且兼容                      | 继续验证并重绑                                           |
-| virtual capacity 增大                            | 允许                                                     |
-| virtual capacity 减小但仍 `>= reserved+occupied` | 允许                                                     |
-| virtual capacity 小于现有 binding                | 整体失败                                                 |
-| bound facility/space 缺失或 kind 改变            | 整体失败                                                 |
-| Reserved virtual selected entry 缺失/位移        | 整体失败                                                 |
-| Occupied virtual facility 更换 entry             | 不影响该 parked binding                                  |
-| Occupied virtual facility 无合法 exit            | 静态候选本身拒绝；不能发布                               |
-| bound explicit space 被移出设施                  | target 仍是同一 space 时可保留；设施报表归属随新修订更新 |
-| bound explicit space 被删除                      | 整体失败                                                 |
+| 变化                                               | 处理                                                     |
+| -------------------------------------------------- | -------------------------------------------------------- |
+| facility/space 同身份且兼容                        | 继续验证并重绑                                           |
+| virtual capacity 增大                              | 允许                                                     |
+| virtual capacity 减小但仍 `>= reserved+occupied`   | 允许                                                     |
+| virtual capacity 小于现有 binding                  | 整体失败                                                 |
+| bound facility/space 缺失或 kind 改变              | 整体失败                                                 |
+| Reserved explicit entry 在目标修订中仍前向可达     | 以目标 space 当前静态 entry 继续重绑                     |
+| Reserved explicit entry 移到 committed cursor 后方 | 整体失败；不倒车、不 teleport、不自动改派                |
+| Reserved virtual selected entry 缺失/位移          | 整体失败                                                 |
+| Occupied virtual facility 更换 entry               | 不影响该 parked binding                                  |
+| Occupied virtual facility 无合法 exit              | 静态候选本身拒绝；不能发布                               |
+| bound explicit space 被移出设施                    | target 仍是同一 space 时可保留；设施报表归属随新修订更新 |
+| bound explicit space 被删除                        | 整体失败                                                 |
 
-设施 StableId 不含 capacity、anchors 或成员集合，因此调整这些业务事实不会无谓创建新
-设施 identity；迁移策略负责判断活动 binding 是否仍兼容。
+显式 reservation 不把静态 entry 重复写进快照；跨修订时从同一 `ParkingSpace` 的目标静态
+事实重新解析，再用 §5.1 谓词相对车辆 committed cursor 检查前向可达。entry 向前移动可以
+继续接近；移到 cursor 后方则整个事务失败。virtual reservation 保存的是 caller 已选的
+semantic entry，必须 exact 重绑，不应用上述“采用目标当前 entry”规则。设施 StableId
+不含 capacity、anchors 或成员集合，因此调整这些业务事实不会无谓创建新设施 identity；
+迁移策略负责判断活动 binding 是否仍兼容。
 
 ## 8. Spatial 与 Adapter
 
@@ -546,9 +687,15 @@ build/load 峰值；本设计不复制或改写其格式容量上限，所有判
 - arrival 必须覆盖 exact occurrence、exact integer-mm anchor、`speed_mm_s=0`、
   `carry_um=0` 四个维度的单项反例，并覆盖
   `SignalStop -> ParkingStop -> RouteEnd` exact-tie attribution；
+- reserve/rebind 的前向可达反例覆盖 occurrence 在后、同 occurrence progress 在后、同
+  `progress_mm` 但 `carry_um>0`，以及 exact anchor + zero carry；
 - park 前未到达、重复 park、错误 target、stale handle；
-- 多出口 leave、unsafe insertion、错误出口；失败后仍 Parked/Occupied/无 pose；
-- cancel、rebind、Active/Reserved/Occupied/Parked despawn、route removal、parked spawn；
+- 多出口 leave、same-edge/相邻边/车身跨边/repeated occurrence overlap、移动 direct
+  follower unsafe 与静止 follower、错误出口；失败后仍 Parked/Occupied/无 pose；
+- cancel、跨 route rebind 的 current occurrence 映射、三种 `VehicleStatus` 加可选
+  Reserved/Occupied binding 的 despawn、route removal、explicit/virtual parked spawn；
+- `NoChange` 逐字段反例：reserve/rebind 任一 route/occurrence/selector 改变必须失败而非
+  no-op；cancel/leave/despawn/spawn 的重复调用不得被含糊吞掉；
 - counts 从成员重算，stable member/observation order；
 - Parked 不进入 occupancy/leader/motion/traversal。
 
@@ -557,8 +704,10 @@ build/load 峰值；本设计不复制或改写其格式容量上限，所有判
 - explicit/virtual Reserved 与 Occupied save/load；
 - same bytes + same input 的 digest/replay 等价；
 - missing/wrong-kind target、duplicate binding、capacity overcommit 失败关闭；
+- 状态矩阵、Reserved route ownership 与前向可达损坏失败关闭；
 - capacity increase、safe decrease、unsafe decrease；
-- reserved selected entry 移除失败，occupied entry 变化按合同允许；
+- reserved virtual selected entry 移除失败；reserved explicit entry 前移允许、移到车辆
+  cursor 后方失败；occupied entry 变化按合同允许；
 - zero-publish：任一 parking migration 失败不改变旧 world/root/cursors/Adapter。
 
 ### 10.4 Adapter/资源

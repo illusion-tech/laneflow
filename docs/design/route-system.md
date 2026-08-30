@@ -33,7 +33,14 @@ limit；v0.8 再增加 ManeuverPath/Gate occurrence compiler；v0.9 增加
 横断面/准入静态模型与 (class, Route) 绑定期静态准入校验；current v0.10 增加
 multi-Gate/WaitingZone occurrence 与 profile-route-cursor 静态可行性校验。唯一生产入口是 runtime `register_route`（ADR 0029）；出现项编译器只服务该入口。
 
-Current static ParkingSpace 不持有 RouteHandle。#108/#109 current runtime 消费有限显式 route/occurrence：Reserved approach 选择当前 cursor 后的 first-reachable entry occurrence，leave/rebind 由 caller 提供明确 route occurrence，Parked/Reserved vehicle 保留 live route reference。Overflow-safe route prefix 不得新增“整条 route 累计距离必须 finite”的合法性条件。完整端到端验证由 #110 固化，详细契约见 [`parking-system.md`](parking-system.md)。
+Current static ParkingSpace 不持有 RouteHandle。#108/#109 production runtime 仍保留历史
+first-reachable reservation；#540 Accepted target 由 caller 显式选择 entry anchor 与 exact
+occurrence，并要求它从 committed cursor 前向可达。leave 显式携带恢复 route/exit
+occurrence；rebind 同时携带新 route、当前 physical edge 在新 route 上的 occurrence 与
+entry occurrence。Parked/Reserved vehicle 均保留 live route reference，`remove_route`
+不得删除任一 live vehicle 正在引用的 route。#541 以 clean break 替换 production
+模型。Overflow-safe route prefix 不得新增“整条 route 累计距离必须 finite”的合法性条件。
+详细契约见 [`parking-system.md`](parking-system.md)。
 
 ADR 0014 曾接受补偿残差感知 `f32` 进度为下一目标；#144 no-go 后不再作为生产权威。
 **现行合同是 ADR 0028**：路线前缀与距离查询为 `u32` mm，溢出 `BeyondFinite`；单边
@@ -154,7 +161,7 @@ v0.2 Core runtime 支持运行时 register / remove route definition。
 - `register_route` 成功后返回 active `RouteHandle`。
 - `register_route` 失败必须保持 route registry 不变。
 - `remove_route` 只能移除没有 live vehicle 引用的 route。
-- 这里的 live vehicle 包括 `Active`、`Stopped` 和 `Completed` 状态，只要车辆仍在
+- 这里的 live vehicle 包括 `Active`、`Parked` 和 `Completed` 状态，只要车辆仍在
   `TrafficWorld` 中存在，就视为引用该 route。
 - `remove_route` 成功后旧句柄 stale；调用方若要诊断用的 catalog ID，对照自己的表。
 - 旧 `RouteHandle` 在 route 移除后变为 stale；若槽位复用，新 handle 必须拥有不同 generation。
@@ -254,7 +261,8 @@ VehicleState
 - `routeEdgeIndex` 必须在 route edge sequence 范围内。
 - `edgeProgress` 必须落在当前 edge 的 `[0, edge length]` 范围内。
 - initial completed vehicle 必须位于 route 最后 edge，且 progress 在最后 edge length 的 edge boundary 领域阈值范围内。
-- stopped / completed vehicle 不移动，但仍保留 route 引用，直到 despawn。
+- parked / completed vehicle 不移动，但仍保留 route 引用，直到 leave/rebind 原子替换或
+  despawn 原子移除。
 
 ## 5. Runtime API 影响
 

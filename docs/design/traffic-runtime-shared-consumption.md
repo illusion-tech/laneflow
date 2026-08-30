@@ -70,8 +70,9 @@
 - 不把 `laneflow-core-design` Skill 标识符改名（若仍需独立残留 Issue，不得反向
   保留 `laneflow-core` crate）。
 - #301 当时未恢复独立 `despawn`，回流只由 #475 原子替换交付；#540 已显式修订该边界，
-  #541 必须增加真正移除用的原子 `despawn_vehicle`，包括 Reserved/Occupied/Parked 的停车
-  释放闭环。它不能用于拼接可失败的 despawn + spawn 回流。#301 当时也不冻结停车
+  #541 必须增加真正移除用的原子 `despawn_vehicle`，包括 Active/Parked 车辆所带的
+  Reserved/Occupied binding 释放闭环。它不能用于拼接可失败的 despawn + spawn 回流。
+  #301 当时也不冻结停车
   预约/到场/离场状态机或搬入 `CoreEvent`；这些变化不得回写为 #301 已交付能力。
 - 不实现时变准入；`register_route` 不做 `(ParticipantClass, Route)` 判断。
 

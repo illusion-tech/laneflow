@@ -349,7 +349,14 @@ SignalController、Adapter、JunctionGroup 与二维几何均不拥有最终通�
 grant 不覆盖 leader、safe-speed、RouteEnd、minimum-gap 或 no-overlap。该设计已
 通过 G1，但仍须由后续独立 implementation slices 生产化并完成各自 G0-G4。
 
-v0.5 Parking runtime 由 Core 私有 binding aggregate 持有唯一 authority；`VehicleStatus::Parked` 与 exact Occupied binding 一致，Parked vehicle 保留 live identity但不进入 travel-lane occupancy。#108 已公开 borrowed snapshot 和 caller-selected lifecycle commands；#109 已把 ParkingStop、SignalStop、RouteEnd 与 leader/no-overlap 纳入同一 fixed-tick constraint/traversal pipeline，并交付 arrival、route-completion release、step events 与 Reserved capability activation。Adapter 只消费 immutable registry、snapshot、records/events 和 position authority。详细设计见 ADR 0010 与 `design/parking-system.md`。
+Parking runtime 由私有 binding aggregate 持有唯一 authority；`VehicleStatus::Parked` 与
+exact Occupied binding 一致，Parked vehicle 保留 live identity 但不进入 travel-lane
+occupancy。#108/#109 production 仍是显式泊位历史实现；#540 Accepted target 以
+`ParkingFacility` 同时承载显式泊位与稀疏 virtual capacity，Reserved entry 必须由 caller
+精确选择并保持前向可达，不保留 route-completion 自动释放。ParkingStop、SignalStop、
+RouteEnd 与 leader/no-overlap 仍进入同一 fixed-tick constraint/traversal pipeline；Adapter
+只消费 immutable registry、snapshot、typed records/observations 和 position authority。
+#541 负责一次 clean break 实现。详细设计见 ADR 0010 与 `design/parking-system.md`。
 
 ## 6. Engine Adapter Layer
 

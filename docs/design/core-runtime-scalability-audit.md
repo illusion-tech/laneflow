@@ -552,7 +552,7 @@ caller-owned seed/随机流由上层 Save Manifest 绑定；只有后续 G1 显�
 - missing/generation、spawn/replace、非 Active→Active、profile/route binding、route occurrence/edge transition、Parking release 后首次 Active 强制刷新；Completed/despawn 丢弃缓存。semantic-reactive 另外在 leader identity 或 restrictive Signal/Parking stop-set identity 变化时刷新。
 - forced refresh 不改变固定 cohort phase；每车每 tick 最多刷新一次。cache 使用 committed/candidate 事务边界，failed step 不交换；清除注入后 retry 与 fresh replay 的 world、motion 和 events 相同。
 - `N=1` harness 不创建无用 cache；256 tick 中 `StepResult`、authority state、leader identity 与 13 个 longitudinal float bit pattern 全部等于 production oracle。
-- no-overlap、finite/non-negative speed、route/status/identity continuity 为零容忍；Signal phase/group events 逐 tick 完全一致。ChangedEdge、Parking arrival、route-completion release 与 Completed 的 payload/顺序/因果一致，允许的 tick shift 不超过 `N-1`；release 与 Completed 保持同 tick 且 release 在前。
+- no-overlap、finite/non-negative speed、route/status/identity continuity 为零容忍；Signal phase/group events 逐 tick 完全一致。ChangedEdge、Parking arrival、route-completion release 与 Completed 的 payload/顺序/因果一致，允许的 tick shift 不超过 `N-1`；release 与 Completed 保持同 tick 且 release 在前。这里的 route-completion release 仅是已移除 P4 harness 对 #109 production 的历史 oracle；#540 target 不保留该分支。
 - synchronized 只保留为 cadence spike stress；stable-staggered 不把 partition、slot、raw handle bits 或 worker completion order 引入 phase。
 
 fidelity budget 使用：
