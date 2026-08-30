@@ -267,6 +267,65 @@ LFCA 4、LFSM 3 与 LFSD 3。field id `0..=17` 的含义及其余字段如下：
 |       27 | `participant_streams`   | 稳定 stream、Junction、ManeuverPath 与有序 passages      |
 |       28 | `conflict_zone_regions` | owner-local 可选 2.5D region；空向量表示 headless        |
 
+v3 新增/替换 table 的 field id 与类型语义固定为：
+
+```text
+ParkingFacility:
+  0 parking_facility_key:string required
+  1 canvas_selection:string optional
+  2 virtual_capacity:uint
+  3 virtual_entries:[ParkingLaneAnchor] required
+  4 virtual_exits:[ParkingLaneAnchor] required
+
+ParkingSpace:
+  0 parking_space_key:string required
+  1 parking_facility:string optional
+  2 entry:ParkingLaneAnchor required
+  3 exit:ParkingLaneAnchor required
+  4 geometry:ParkingSpaceGeometry required
+  5 canvas_selection:string optional
+
+ConflictZone:
+  0 conflict_zone_key:string required
+  1 junction:string required
+  2 canvas_selection:string optional
+
+PathAnchor:
+  0 kind:PathAnchorKind
+  1 gate:string optional
+  2 boundary_index:uint
+  3 path_edge_index:uint
+  4 progress_meters:double
+
+ConflictPassage:
+  0 conflict_zone:string required
+  1 entry:PathAnchor required
+  2 exit:PathAnchor required
+
+ParticipantStream:
+  0 participant_stream_key:string required
+  1 junction:string required
+  2 maneuver_path:string required
+  3 passages:[ConflictPassage] required
+  4 canvas_selection:string optional
+
+ConflictZoneRegion:
+  0 conflict_zone:string required
+  1 canonical_frame:string required
+  2 min_y:double
+  3 max_y:double
+  4 ring_xz:[Vec2F64] required
+  5 canvas_selection:string optional
+```
+
+`PathAnchorKind` 的 source code 为 `0 Unspecified / 1 Gate / 2 EdgeBoundary / 3 Interior`；
+compiler 分别映射到 LFCA anchor kind `0/1/2`。Gate 只允许 gate reference；EdgeBoundary
+只解释 boundary index；Interior 只解释 path edge index 与严格正的 progress，所有不适用
+string 必须缺失、不适用 scalar 必须为规范零。`Vec2F64` 的 member 0/1 分别为 x/z。
+这些 table/field/member 的 LFSM container code 与可达 property path 由
+[`portable-canonical-artifact.md` §4.1](portable-canonical-artifact.md#41-bindings-与来源池登记)
+唯一登记，schema declaration order 或生成语言 enum 不得另行改号。
+
 因此根表包含 23 个可构造稳定声明向量；`conflict_zone_regions` 是空间 owner-local
 记录向量，不是第 24 种稳定实体。所有向量继续 required，语义上允许空。
 `ParkingSpace.parking_facility` 不进入泊位身份。每个 conflict passage 只保存 zone 与

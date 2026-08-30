@@ -38,7 +38,7 @@
 - 在 emitter 和 publication 中逐对象调用
   `preflight_object_values`，并在发布路径调用 bundle 后发射检查；
 - 在 compiler-private 代码中计算 `NetworkRevisionId`；
-- 用 `PortablePublicationCandidate` 拥有三份 exact bytes 及缓存绑定；
+- 用 `PortablePublicationCandidate` 拥有三份不可变 staged object source 及 expected base binding；
 - 按 LFCA/LFSM/LFSD/LFCP v2 顺序安装，随后恰好一次调用 manifest adapter。
 
 #299 没有重写这些基础设施；它把 bundle 级计算和比较下沉到 `laneflow-format`，并已删除
@@ -132,7 +132,8 @@ capability 只在三个来源句柄都可克隆时实现 `Clone`，不要求 `Co
 后发射检查只接纳 LFCA/LFSM/LFSD 对象版本 `4/3/3`；
 `canonicalArtifactFormatVersion` 必须与所绑 LFCA 一致，Genesis target 合同行须与 LFCA
 一致。
-`NetworkRevisionId` 仍按 `portable-canonical-artifact.md` §4.2 的 v1 算法重算
+`NetworkRevisionId` 仍按
+[`portable-canonical-artifact.md` §3.8](portable-canonical-artifact.md#38-路网修订标识) 的 v1 算法重算
 （派生版本保持 `1`）。公开入口不带世代后缀。详见 ADR 0028。
 
 ## 5. 检查顺序
@@ -215,9 +216,17 @@ pub enum PostEmissionCheckError {
 
 ## 7. Compiler 候选与发布生命周期
 
-`PortablePublicationCandidate` 继续拥有 LFCA/LFSM/LFSD `Box<[u8]>`，并新增/保存从实际
-`PortableDiffBase` 计算的 expected base binding。它仍是未发布候选，不因 emitter 完成
-而可信。
+`PortablePublicationCandidate` 拥有 LFCA/LFSM/LFSD 三个不可变、有界、可重读 staged
+object source，并保存从实际 `PortableDiffBase` 计算的 expected base binding。完整
+`Box<[u8]>` 可以通过零复制 adapter 支撑小对象，但不是候选的强制存储形状。它仍是未发布
+候选，不因 emitter 完成而可信。
+
+emitter 只能同时借用同一个 `CompilationOutput` 的 canonical LIR 与
+`ValidatedSourceMapInput`，并接收一份显式 `PortableEmissionProvenance` 和一个
+`PortableDiffBase`。调用方不能分别构造、重新配对或覆盖 LFCA/LFSM/LFSD binding。
+完整规范输入相同则所有支持平台产生相同 bytes；limits 与 worker 数只控制资源，不进入
+bytes。显式改变 build/source provenance 可以改变 artifact/LFSM/LFCP digest，但在规范语义
+未变时不得改变 `NetworkRevisionId`。
 
 ```text
 CompilationOutput
@@ -314,6 +323,31 @@ LFSD 当前仍是未被 LFCP/manifest 引用的内容对象。安装它只保留
 
 任一步失败都不调用后续步骤，不返回部分 committed 状态。已经成功安装的 immutable
 内容对象可以保持未引用并供相同 bytes 重用。
+
+### 9.1 内容对象安装合同
+
+`LocalPortableObjectInstaller` 的成功语义不是普通覆盖式 rename：
+
+1. 调用方预配置并信任发布根及其祖先目录；installer 只在该根下维护固定的 objects 与
+   staging 子目录，并在同一文件系统创建唯一暂存文件；
+2. writer 完成对象后 flush 文件数据、关闭，再从最终 exact bytes 重算 digest/length；对象
+   key 只能从 checked capability 派生为 `sha256/<64 lowercase hex>`，调用方不能覆盖；
+3. 安装前再次核对暂存长度、bytes、格式预检与 bundle/LFCP binding；禁止先创建最终路径再
+   复制、流式写入或截断；
+4. 使用具有原子可见与 no-replace 保证的平台原语一次安装。平台不能证明这些语义时返回
+   `AtomicInstallUnsupported`，不能退化为“通常原子”；
+5. 目标已存在时读取既有 winner，重算 digest/length 并比较 exact bytes；完全相同才返回
+   `Reused`，不同则 collision/mismatch 失败，始终不能覆盖；
+6. `Installed` 与 `Reused` 都必须在对象目录元数据持久化屏障完成后返回。平台只能证明目录项
+   可见、不能证明 manifest 提交前的持久化顺序时，同样返回 `AtomicInstallUnsupported`；
+7. LFCP v2 必须引用实际安装 winner 的 LFCA/LFSM binding。LFSD 虽按同一对象合同安装，仍不
+   因此获得 manifest binding 或迁移授权；
+8. 只有全部对象安装和 winner 复核成功后才调用外部认证 manifest adapter 一次。失败清理
+   staging 引用；已安装但未被 manifest 引用的 immutable 对象可以保留，不构成部分发布。
+
+该 installer 不建立操作系统安全边界。拥有发布根写权限的进程、ACL、账户隔离、只读挂载与
+WORM 策略属于部署责任；消费者从磁盘、网络或宿主包取得对象后仍须按认证 binding 重算
+摘要。它也不是通用对象存储 API：不拥有枚举/删除/GC、远程 backend、压缩、加密或配额策略。
 
 ## 10. 性能与资源
 

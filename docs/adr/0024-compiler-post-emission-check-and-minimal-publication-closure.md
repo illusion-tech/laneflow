@@ -1,6 +1,6 @@
 # ADR 0024：编译器后发射检查与最小发布闭合
 
-**状态**: Accepted（#299 G2 已实现；2026-08-18）<br>
+**状态**: Review<br>
 **日期**: 2026-08-18<br>
 **适用范围**: LFCA/LFSM/LFSD 最终字节检查、`laneflow-format` 职责、LFCP、
 compiler 发布事务、#300/#302 的上游输入边界<br>
@@ -13,6 +13,11 @@ LIR、可移植规范制品、目标静态镜像或对象外信任锚决定<br>
 > LFCA/LFSM/LFSD、LFCP v2 或后发射检查；它把本文面向 #300 的“构造目标静态镜像”
 > 下游改为“从同一受检 LFCA capability 构建进程内 `SharedNetworkRevision`”，并取消
 > 独立镜像发布对象。
+>
+> LFCA 4 / LFSM 3 / LFSD 3 的分块容量合同把本文输入从“三份完整 slice 同时驻留”修订为
+> 三个不可变、有界、可重读对象来源。完整 slice 只是零复制 adapter；候选、检查能力与
+> installer 可以保存 staged source handle，不要求 `Box<[u8]>`。这不改变最终 exact bytes、
+> 零 heap checker、跨对象 binding、LFCP 2 或 manifest 单提交决定。
 
 **关联文档**:
 
@@ -72,7 +77,7 @@ laneflow-compiler ──┐
 
 公共后发射入口只接受：
 
-- 最终关闭的 LFCA/LFSM/LFSD exact bytes；
+- 最终关闭、exact length 已知且在检查期间不可变的 LFCA/LFSM/LFSD 可重读对象来源；
 - 显式 `ExpectedSemanticDiffBase`；
 - 调用方 `FormatLimits`。
 
@@ -97,12 +102,15 @@ laneflow-compiler ──┐
 ### 4. 使用借用型能力守卫发布副作用
 
 `laneflow-format` 提供字段私有、无公共构造器的
-`PostEmissionCheckedBundle<'a>`。该能力借用三个输入对象，只暴露受检视图和
-重新计算的绑定；它不可序列化，不表示对象已经发布、认证或可信。
+`PostEmissionCheckedBundle<L, M, D>`。该能力保存或借用三个受检对象来源，只暴露受检
+只读访问和重新计算的绑定；它不可序列化，不表示对象已经发布、认证或可信。完整 slice
+通过同一接口的零复制 adapter 进入，不建立第二个 checker。
 
-compiler 继续使用拥有字节的 `PortablePublicationCandidate`，避免自引用拥有类型。
+compiler 使用拥有不可变 staged source handle 与 expected base binding 的
+`PortablePublicationCandidate`；候选可以由完整 slice 支撑，但百万级路径不要求三份
+`Box<[u8]>` 同时驻留。
 `commit_portable_publication` 必须在第一次 installer 或 manifest 副作用之前建立
-借用型受检能力；LFCP v2 builder 和 manifest commit candidate 的私有构造只能消费该
+受检能力；LFCP v2 builder 和 manifest commit candidate 的私有构造只能消费该
 局部受检状态。
 
 ### 5. LFCP v2 一次性移除 receipt
@@ -150,7 +158,7 @@ LFCP v1 和 `CanonicalPublicationReceiptViewV1` 退出生产实现。不提供 v
 - 保持 `no_std`；
 - 不发生堆分配；
 - 不复制 LFCA/LFSM/LFSD；
-- 按候选总 exact bytes 线性执行；
+- 按三个来源的总 exact bytes 线性扫描，不复制或同时保留完整对象；
 - 不创建线程或内部并行任务；
 - 在解析或 hash 前用 O(1) 长度检查拒绝超限输入；
 - 每次发布只执行一次完整 bundle 检查。
