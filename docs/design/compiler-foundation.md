@@ -251,8 +251,9 @@ pub struct SourceDocumentOrigin { /* 字段私有的逐文档显示/审计来源
 pub struct SourceDocumentDescriptor { /* 私有字段 */ }
 
 impl CompileLimits {
-    // v1 保持不可变。
+    // P100 v1/v2 保持不可变。
     pub fn p100_initial_v2() -> Self;
+    pub fn single_network_1m_v1() -> Self;
 }
 ```
 
@@ -467,6 +468,10 @@ Synthetic 路径。#315 G2 使用新的 `LF-COMP-P100-INITIAL-v2`：除新增
 携带实测存续内存和真实工作负载证据另行提升配置档版本。现行精确上限表不含路线出现项
 维度。
 
+LFCA 4 的一百万稳定静态实体端到端路径使用独立的
+`LF-COMP-SINGLE-NETWORK-1M-v1`；它不是 v1/v2 的隐式升级，也不改变既有生产基线。
+该配置档只由显式 constructor 选择，保持字段私有、没有 `Default`/unlimited/调用方覆写。
+
 `CompileLimits` 私有保存配置档修订与受支持维度，不能由调用方补字段或隐式升级。v1
 只通过既有 `ModuleCount` 隐式覆盖单文档模块；任何产生多文档模块的正式前端都必须在
 读取、哈希、解析或按规模分配前确认 builder 选择了 v2 或后继显式包含
@@ -677,8 +682,9 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
 ### 5.3 编译资源上限
 
 编译资源上限（Compile Limits）的精确类型 `CompileLimits` 是显式输入，不提供隐式
-无限生产模式，也不得以 Rust `Default` 或来源自报字段绕过宿主选择。当前生产实现提供
-`CompileLimits::p100_initial_v1()` 与 `CompileLimits::p100_initial_v2()`。调用方必须显式选择具名配置档，测试可以在包内构造
+无限生产模式，也不得以 Rust `Default` 或来源自报字段绕过宿主选择。公共面提供
+`CompileLimits::p100_initial_v1()`、`CompileLimits::p100_initial_v2()` 与
+`CompileLimits::single_network_1m_v1()`。调用方必须显式选择具名配置档，测试可以在包内构造
 更小边界，但不能获得无限配置。字段保持私有，避免把内部阶段布局变成公共兼容面；
 配置档增加维度或改变任一上限时必须提升标识符修订并重新执行边界测试。
 
@@ -751,6 +757,55 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 `TypedAstRecordCount` 计数。配置档 v2 在实现中成为生产选择前，必须按第 3.3 与 10.4 节完成五级、
 多文档和边界重新资格验证。
 
+**百万单路网配置档：**`LF-COMP-SINGLE-NETWORK-1M-v1` 是
+`10000`/`100000`/`1000000` 三档现实混合稳定静态实体端到端证据的唯一大型具名配置档。
+它不表示所有维度都应预分配到上限，也不保证任意理论性一百万实体组合都可接受；官方
+现实混合 fixture 必须在下列每个独立维度内完成 official source → compiler → emission，
+任一维度超限即配置档未取得一百万资格，不能改用调用方自定义上限绕过。
+
+| 私有配置字段                          |   精确上限 | 计数对象 / 单位                                         |
+| ------------------------------------- | ---------: | ------------------------------------------------------- |
+| `max_module_count`                    |      65536 | 来源模块                                                |
+| `max_import_edge_count`               |     262144 | 模块导入边                                              |
+| `max_source_document_count`           |     196608 | 来源文档描述符                                          |
+| `max_source_bytes_per_module`         |  536870912 | 单个来源模块字节                                        |
+| `max_source_bytes_total`              |  536870912 | 编译单元来源字节                                        |
+| `max_declaration_count`               |    1500000 | 来源声明                                                |
+| `max_stable_entity_count`             |    1000000 | `CanonicalIdentity` 完整逻辑行                          |
+| `max_typed_ast_record_count`          |    8000000 | 有类型抽象语法树逻辑记录                                |
+| `max_hir_record_count`                |    8000000 | HIR 逻辑记录                                            |
+| `max_mir_record_count`                |    8000000 | MIR 逻辑记录                                            |
+| `max_lir_record_count`                |    8000000 | LIR 逻辑记录                                            |
+| `max_reference_count`                 |   16000000 | 有类型引用                                              |
+| `max_relation_occurrence_count`       |   16000000 | 关系出现项                                              |
+| `max_identity_field_occurrence_count` |    8000000 | 标识字段出现项                                          |
+| `max_maneuver_gate_count`             |    1000000 | 机动门                                                  |
+| `max_waiting_zone_count`              |    1000000 | 等待区                                                  |
+| `max_geometry_point_count`            |   16000000 | 规范几何点                                              |
+| `max_symbol_count`                    |    2000000 | 符号                                                    |
+| `max_string_item_count`               |    8000000 | 驻留字符串项                                            |
+| `max_single_string_bytes`             |       4096 | 单个驻留语义字符串 / key token component 字节           |
+| `max_total_string_bytes`              |  536870912 | 驻留字符串总字节                                        |
+| `max_diagnostic_count`                |         16 | 规范排序后保留的诊断                                    |
+| `max_stage_scratch_bytes`             |  536870912 | 单次编译遍暂存请求字节                                  |
+| `max_output_bytes`                    | 1073741824 | 正在构造的 LIR / 伴随输出逻辑字节                       |
+| `max_portable_object_bytes`           | 4294967296 | 单个 file-backed LFCA/LFSM/LFSD exact bytes             |
+| `max_portable_bundle_bytes`           | 8589934592 | 三个 closed staged object 的 exact bytes 总和           |
+| `max_compiler_controlled_live_bytes`  | 6442450944 | 编译器控制总存续请求字节；不含 file-backed staged bytes |
+| `max_retained_capacity_bytes`         |  536870912 | 一次编译返回后编译器允许保留的无语义容量字节            |
+
+该配置档的计数字段继续使用可覆盖 `u32` wire 空间的受检整数；全部 `*Bytes` 私有字段必须以
+`u64` 表达。现有实现中的 `u32` byte 字段须原位加宽，不能截断或 clamp 六 GiB ceiling；这是
+1.0 前字段私有实现替换，不建立第二套 `CompileLimits`。转换为 `usize` 只允许发生在同时通过
+配置档上限和目标平台 addressability 检查之后，32-bit target 无法表达请求时必须在分配前
+失败关闭。
+
+大型配置档的 `max_portable_object_bytes`/`max_portable_bundle_bytes` 约束磁盘暂存 exact
+bytes，不进入 `CompilerControlledLiveBytes`；emitter 必须写入 sealed closed staged file，
+不能为了满足该档把三对象物化为 `Box<[u8]>`。编译器按实际计数 reserve，完成后自动释放超过
+`max_retained_capacity_bytes` 的暂存容量。六 GiB 总存续上限是 16 GiB 主机的失败关闭 ceiling，
+不是目标常驻量或性能 SLA；官方一百万 fixture 仍须报告实际 retained/scratch/peak memory。
+
 `max_single_string_bytes` 约束进入 Typed AST/HIR/诊断/source-map interner 的单个语义
 字符串或 key component，不约束已经由 source-specific parser 就地拆分且不作为第二份
 字符串驻留的完整 framing/reference spelling。#296 owner-qualified FlatBuffers reference
@@ -768,14 +823,16 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 
 - 模块数、导入边数和单模块 / 总来源字节；
 - 各有类型抽象语法树、HIR、MIR 和 LIR 表的记录数；
+- LIR seal 后的 `CanonicalIdentity` 稳定实体总数；
 - 关系、字段字节、来源位置与诊断数；
 - 单个驻留字符串 / key component 长度和已驻留字符串总字节数；source-specific 借用
   framing 的完整长度另由其闭合语法上限约束；
 - 编译期间允许的暂存区峰值字节数；
+- 单个 file-backed LFCA/LFSM/LFSD exact bytes 与三对象 closed staged bundle 总字节数；
 - 来源副本、字符串、各阶段表、关系、诊断、暂存区和正在构造的输出共同形成的
   编译器控制总存续内存峰值，以及编译结束后允许保留的内部容量。
 
-同一个不可变 `CompileLimits` 必须贯穿三个受检边界：
+同一个不可变 `CompileLimits` 必须贯穿四个受检边界：
 
 1. `SyntheticModuleBuilder` 在字符串、来源位置、声明和规范化调用记录扩容前执行
    单模块上限；
@@ -783,7 +840,10 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
    导入、总来源字节、总驻留字符串、模块/文档索引和模块包装的累计存续上限，并在
    冻结模块图前预检拓扑排序、环检测、规范重排的阶段 scratch 与总共存峰值；
 3. `Compiler` 在每个编译遍分配后继表或扩大暂存区前执行 AST/HIR/MIR/LIR、关系、
-   诊断、暂存内存和总存续内存上限。
+   诊断、暂存内存和总存续内存上限；
+4. LFCA 4 emitter 在 seal identity、开始每个 portable object 和把 closed staged source 加入
+   bundle 前，分别执行稳定实体、单对象 exact bytes 和 bundle exact bytes 上限；失败关闭
+   staged writer，不返回部分 `PortablePublicationCandidate`。
 
 模块已经在更宽上限下构造不表示可以绕过编译单元上限；
 `CompilationUnitBuilder::add_synthetic_module` 必须以受检加法重新核对累计计数。
@@ -1118,6 +1178,12 @@ LIR 或后继制品。
 - 来源模块描述符由构建器派生、`sourceContentDigest` 已知向量、重复
   `sourceDocumentKey`；
 - 表、区间、有类型逻辑序号、模块 / 编译单元累计资源上限和暂存区边界；
+- `LF-COMP-SINGLE-NETWORK-1M-v1` constructor 的全部精确字段已知向量；稳定实体、单个
+  portable object、bundle、编译器控制总存续内存与 retained capacity 在上限值成功、
+  `+1` 时于返回部分候选前稳定失败；
+- `10000`/`100000`/`1000000` 现实混合 official source 使用同一大型配置档贯通 compiler 与
+  file-backed emission；记录实际计数、exact bytes、retained/scratch/peak memory，并证明
+  实现按实际计数增长而非按配置档 ceiling 预分配；
 - 标识 v1 已知向量和变形测试；
 - 声明置换与无关插入；
 - 属性测试（Property Testing）：有效所有者树、路线 / 路径序列和平面区间往返
