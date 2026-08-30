@@ -1,12 +1,9 @@
 # 可移植规范制品与辅助制品格式
 
-**文档状态**: Review（#549 G1；统一 LFCA 4 / LFSM 3 / LFSD 3 / LFCP 2）<br>
+**文档状态**: Review<br>
 **最后更新**: 2026-08-30<br>
-**适用范围**: LFCA、LFSM、LFSD、LFCP 的当前目标线格式、规范排序、跨对象绑定、
+**适用范围**: LFCA、LFSM、LFSD、LFCP 的权威格式、规范排序、跨对象绑定、
 失败关闭与格式安全天花板<br>
-**实现状态**: 本文只定义一套目标合同。生产实现仍只接受 LFCA 3；#549 G1 接受后必须
-另立一个原子实现切片，统一切换到本文的 LFCA 4、LFSM 3、LFSD 3 与 Road Editing v3。
-旧格式的设计和逐轮证据只从 Git/GitHub 历史追溯，不在当前权威正文保留第二套说明。<br>
 **关联决策与设计**:
 
 - [`../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`](../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md)
@@ -15,15 +12,13 @@
 - [`../adr/0028-integer-millimeter-traffic-geometry.md`](../adr/0028-integer-millimeter-traffic-geometry.md)
 - [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)
 - [`parking-system.md`](parking-system.md)
-- [Issue #540：虚拟停车设施与不可见停驻生命周期](https://github.com/illusion-tech/laneflow/issues/540)
-- [Issue #283：冲突静态与空间配对](https://github.com/illusion-tech/laneflow/issues/283)
 - [`network-compiler.md`](network-compiler.md)
 - [`compiler-post-emission-check-and-minimal-publication-closure.md`](compiler-post-emission-check-and-minimal-publication-closure.md)
 - [`shared-static-network.md`](shared-static-network.md)
 
 ## 1. 权威结论
 
-当前目标对象集合只有四种。LFCA、LFSM 与 LFSD 使用同一套分块节格式；LFCP 继续使用
+对象集合只有四种。LFCA、LFSM 与 LFSD 使用同一套分块节格式；LFCP 继续使用
 非分块 singleton 节：
 
 | 对象           | magic  | 对象版本 | 节数 | 逻辑表种类 | 作用                                               |
@@ -449,9 +444,9 @@ Junction 必须产生新 identity。
 排序并从 0 连续分配 typed ordinal。全部可构造 kind 的 `StableId128` 必须全局唯一；
 重复前像和 BLAKE3-128 截断碰撞都失败关闭。
 
-kind 14 / tag 22 只原子改名，数值和相同 namespace+key 的前像字节不变；因此同一现实
-设施的 `StableId128` 不因 `ParkingArea -> ParkingFacility` 改名而变化。LFCA 格式与设施
-语义仍变化，所以新旧 artifact 的 `NetworkRevisionId` 不会被判成同一修订。
+`ParkingFacility` 固定使用 kind 14 / tag 22；数值和相同 namespace+key 的前像字节不变。
+LFCA 不接受 `ParkingArea` wire 名称或 alias；设施语义变化会产生不同的
+`NetworkRevisionId`。
 
 ### 3.4 实体表登记
 
@@ -842,13 +837,13 @@ role 9；保留 role 13..16 禁止出现。
 | `35 ParticipantStreamConflictPassage`   | ParticipantStream | ConflictZone                  | `ParticipantStream.passages[].conflictZone` | vector / domain     | Relation + field payload |
 | `36 CanonicalFrameConflictZoneRegion`   | CanonicalFrame    | ConflictZone                  | `ConflictZoneRegion` owner rows             | filtered row / set  | Geometry only            |
 
-role 21 的名称原子改为 `ParkingSpaceFacility`，数值不变；role 30/31 是追加项，与 identity
-field tag 是不同编号空间，不复活 `StaticRoute`。设施声明、`virtualCapacity` 和每个 anchor
+role 21 的名称固定为 `ParkingSpaceFacility`；role 30/31 与 identity field tag 是不同编号
+空间，不复活 `StaticRoute`。设施声明、`virtualCapacity` 和每个 anchor
 都必须回指 exact Road Editing v3 property path。anchor 先按
 `(LaneEdge StableId128, progressMillimetres)` 规范排序，因此来源 vector 顺序不能改变
 canonical localIndex。
 
-新增 role 的 Road Editing v3 primary-source projection 固定为：
+role 30–36 的 Road Editing v3 primary-source projection 固定为：
 
 | role | primary declaration / owner-local path                                                                      |
 | ---: | ----------------------------------------------------------------------------------------------------------- |
@@ -1228,9 +1223,9 @@ CanonicalFrame，并在对应领域交付后包括 ConflictZone/ParticipantStrea
 循环 occurrence 和聚合注册量验证；本合同不要求荒谬的“单条路线穿过一百万个冲突区”，
 也不把一百万静态实体写成一百万活动车辆 fixed-tick 认证。
 
-## 8. 统一实现验收
+## 8. 实现验收
 
-#549 G1 接受后必须另立一次 clean-break 的公共格式实现切片，并同步完成：
+公共格式实现必须原子满足：
 
 1. Road Editing v3、Road Editing frontend 3、Synthetic frontend 4、Identity registry
    revision 3、LFCA 4、LFSM 3 与 LFSD 3；
@@ -1240,9 +1235,9 @@ CanonicalFrame，并在对应领域交付后包括 ConflictZone/ParticipantStrea
 4. `laneflow-format` 对 unknown/extra/missing/duplicate/chunk order/digest/limit 做失败关闭；
 5. compiler、LFSM/LFSD、LFCP、SharedNetworkRevision、Runtime、Spatial/Adapter 一次贯通；
 6. ParkingFacility 与 ConflictZone/ParticipantStream/ConflictZoneRegion 的 known vectors、
-   来源投影、语义差异、规范排序扰动和 LFCA 3 rejection 定向反例；
+   来源投影、语义差异、规范排序扰动和旧 LFCA 版本 rejection 定向反例；
 7. `10000`/`100000`/`1000000` 单修订证据、真实 round-trip 与发布事务原子性验证。
 
-领域 Runtime 行为仍由 #282/#283/#540 的后继实施拥有；公共格式实现不得顺带实现
-Waiting admission、ConflictArbiter 或 Parking lifecycle。实现发现本文存在未定义或互相
-冲突的 wire 选择时必须回到 #549 G1 修正文档，不能让实现细节成为第二套事实源。
+领域 Runtime 行为不属于本公共格式合同；实现不得顺带引入 Waiting admission、
+ConflictArbiter 或 Parking lifecycle。未定义或互相冲突的 wire 选择必须先修订权威设计，
+不能让实现细节成为第二套事实源。

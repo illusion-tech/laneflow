@@ -1,18 +1,17 @@
 # 编译器后发射检查与最小发布闭合
 
-> **状态**：Accepted（#299 G2 实现；2026-08-18）；#549 分块对象检查修订处于 Review<br>
+> **状态**：Review<br>
 > **日期**：2026-08-30<br>
 > **权威决策**：ADR 0024<br>
-> **实现状态**：G2 生产实现与本地验证已完成；G3/G4 证据和治理闭合仍按 Issue Gate Ledger 推进
 
 ## 1. 目标与非目标
 
-本设计把 #299 收缩为一个 compiler 发布硬化切片：
+本设计定义 compiler 发布硬化边界：
 
 1. 对最终 LFCA/LFSM/LFSD exact bytes 建立不可绕过的 bundle 级检查；
 2. 让 LFCP v2 和 manifest 发布只能消费本次检查得到的局部能力；
 3. 删除独立 validator、receipt 和第二套语义实现；
-4. 保持检查无分配、线性、单线程且可由 #300 复用。
+4. 保持检查有界、线性、单线程且可由共享静态路网构建复用。
 
 本设计不实现：
 
@@ -22,9 +21,9 @@
 - 共享静态路网构建与 Runtime/Spatial 闭合；
 - LFSD 的迁移授权或 Runtime 修订切换。
 
-## 2. 当前实现基线
+## 2. 合同基线
 
-`laneflow-format` 当前已经提供：
+`laneflow-format` 必须提供：
 
 - 对象 framing、registry 和直接值域预检；
 - 借用型 `ValueCheckedObjectView`；
@@ -33,7 +32,7 @@
 - 无分配的 `check_post_emission_bundle` 与字段私有的
   `PostEmissionCheckedBundle`。
 
-`laneflow-compiler` 当前已经：
+`laneflow-compiler` 必须：
 
 - 从一个 `CompilationOutput` 产生 LFCA/LFSM/LFSD；
 - 在 emitter 和 publication 中逐对象调用
@@ -54,12 +53,12 @@ future laneflow-static-network ──┘              │
                                                 └──> laneflow-static-contract
 ```
 
-| 包                         | 新增或保留职责                                                                            | 明确不拥有                                 |
-| -------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `laneflow-static-contract` | 版本、格式硬上限、`NetworkRevisionId`、`Sha256Digest`、对象/字段登记                      | 读取字节、hash、发布                       |
-| `laneflow-format`          | 单对象预检、bundle 后发射检查、对象摘要、revision 重算、跨对象 binding、借用型 capability | 来源/LIR、文件系统、manifest、完整路网语义 |
-| `laneflow-compiler`        | 来源和 IR 语义、发射、候选拥有、LFCP v2、安装编排、manifest 提交                          | 第二套验证语义、对象内真实性               |
-| #300                       | 复用 public checked view 构造进程内 `SharedNetworkRevision`                               | 反向依赖 compiler-private LIR/emitter      |
+| 包                         | 新增或保留职责                                                                              | 明确不拥有                                 |
+| -------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `laneflow-static-contract` | 版本、格式硬上限、`NetworkRevisionId`、`Sha256Digest`、对象/字段登记                        | 读取字节、hash、发布                       |
+| `laneflow-format`          | 单对象预检、bundle 后发射检查、对象摘要、revision 重算、跨对象 binding、来源绑定 capability | 来源/LIR、文件系统、manifest、完整路网语义 |
+| `laneflow-compiler`        | 来源和 IR 语义、发射、候选拥有、LFCP v2、安装编排、manifest 提交                            | 第二套验证语义、对象内真实性               |
+| #300                       | 复用 public checked view 构造进程内 `SharedNetworkRevision`                                 | 反向依赖 compiler-private LIR/emitter      |
 
 新增依赖：
 
@@ -85,37 +84,54 @@ pub enum ExpectedSemanticDiffBase {
     },
 }
 
-pub fn check_post_emission_bundle<'a>(
-    lfca: &'a [u8],
-    lfsm: &'a [u8],
-    lfsd: &'a [u8],
+pub trait BoundedReReadableObjectSource {
+    fn exact_byte_length(&self) -> ExactByteLength;
+    fn read_exact_at(
+        &self,
+        offset: u64,
+        destination: &mut [u8],
+    ) -> Result<(), ObjectSourceError>;
+}
+
+pub fn check_post_emission_bundle<L, M, D>(
+    lfca: L,
+    lfsm: M,
+    lfsd: D,
     expected_base: ExpectedSemanticDiffBase,
     limits: FormatLimits,
-) -> Result<PostEmissionCheckedBundle<'a>, PostEmissionCheckError>;
+) -> Result<PostEmissionCheckedBundle<L, M, D>, PostEmissionCheckError>
+where
+    L: BoundedReReadableObjectSource,
+    M: BoundedReReadableObjectSource,
+    D: BoundedReReadableObjectSource,
+{
+    // private implementation
+}
 ```
 
-`PostEmissionCheckedBundle<'a>` 必须：
+完整 slice 通过零复制 adapter 实现同一来源接口，不建立第二个检查入口。
+
+`PostEmissionCheckedBundle<L, M, D>` 必须：
 
 - 字段私有且没有 public/`unsafe` 构造器；
-- 直接借用三个 exact-byte slice；
-- 保存三对象的 `ValueCheckedObjectView`、SHA-256、`ExactByteLength`；
+- 保存三个不可变受检来源句柄、SHA-256、`ExactByteLength` 与版本/登记表检查结果；
 - 保存重算且已与 LFCA claim 比较的 `NetworkRevisionId`；
 - 保存已从 LFSM 读取并完成跨对象比较的 compiler/source binding；
 - 通过只读 accessor 暴露上述值；
 - 不实现序列化、签名、trust 或 publication 状态转换。
 
-上述 slice API 是当前实现。#549 target 还必须提供等价的有界、可重读对象来源入口，使
-writer/installer 可以逐 chunk 关闭对象并由 checker 顺序扫描，而不要求 LFCA、LFSM、
-LFSD 三份百万级完整对象同时驻留。完整 slice 只作为该入口的内存适配器；两种入口必须
+来源在检查生命周期内必须保持 exact length 与 bytes 不变，并支持 checker 按目录、chunk
+与绑定需求重复顺序扫描。writer/installer 可以逐 chunk 关闭对象，而不要求 LFCA、LFSM、
+LFSD 三份百万级完整对象同时驻留。slice adapter 与其它来源必须
 产生相同 digest、exact length、`NetworkRevisionId`、binding 与 first error。能力只保存
 后续安装/构建所需的受检来源句柄或借用，不复制三份对象，也不暴露未验证 chunk。
 
-轻量 capability 可以实现 `Clone`/`Copy`；不可伪造来自字段私有性和构造入口，而不是
-一次性消费技巧。
+capability 只在三个来源句柄都可克隆时实现 `Clone`，不要求 `Copy`；不可伪造来自字段
+私有性和构造入口，而不是一次性消费技巧。
 
-#496 / ADR 0028 的当前实现只接纳 LFCA/LFSM/LFSD 对象版本 `3/2/2`。#549 target 原子
-切换到 `4/3/3`；`canonicalArtifactFormatVersion` 必须与所绑 LFCA 一致，Genesis target
-合同行须与 LFCA 一致。两套版本不在同一生产 reader 中并存。
+后发射检查只接纳 LFCA/LFSM/LFSD 对象版本 `4/3/3`；
+`canonicalArtifactFormatVersion` 必须与所绑 LFCA 一致，Genesis target 合同行须与 LFCA
+一致。
 `NetworkRevisionId` 仍按 `portable-canonical-artifact.md` §4.2 的 v1 算法重算
 （派生版本保持 `1`）。公开入口不带世代后缀。详见 ADR 0028。
 
@@ -124,9 +140,9 @@ LFSD 三份百万级完整对象同时驻留。完整 slice 只作为该入口�
 检查顺序固定以下安全约束，但不把内部扫描遍数冻结为协议：
 
 1. 用三个对象来源的已知 exact length 逐一检查调用方 `maxObjectBytes`；
-2. 当前 slice 入口 checked-add 三个长度并检查 `CandidateStagingBytes`；#549 来源入口只
-   计量实际同时 retained/staged bytes，不得仅因三个对象 exact length 之和超过旧 48 MiB
-   常量而拒绝合法的百万级修订；
+2. 检查实际同时 retained/staged bytes；slice 适配器 checked-add 三个长度，流式来源按
+   实际生命周期计量，不得仅因三个对象 exact length 之和超过旧常量而拒绝合法的百万级
+   修订；
 3. 分别运行 `preflight_object_values`；
 4. 计算三对象 SHA-256 和精确长度；
 5. 从 LFCA 六个语义节重算 `NetworkRevisionId`；
@@ -208,11 +224,11 @@ CompilationOutput
     │
     ├─ emit LFCA/LFSM/LFSD
     ▼
-PortablePublicationCandidate (owns bytes; unpublished)
+PortablePublicationCandidate (owns staged object sources; unpublished)
     │
     ├─ check_post_emission_bundle
     ▼
-PostEmissionCheckedBundle<'candidate> (borrowed; in-memory only)
+PostEmissionCheckedBundle<L, M, D> (checked sources; process-local only)
     │
     ├─ install LFCA/LFSM/LFSD
     ├─ build/install LFCP v2

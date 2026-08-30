@@ -1,6 +1,6 @@
 # ADR 0020：编译器拥有的静态路网与目标静态镜像
 
-**状态**: Accepted（#291 G1）<br>
+**状态**: Review<br>
 **日期**: 2026-07-29<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网权威、可移植规范制品（Portable Canonical Artifact）、
@@ -22,12 +22,6 @@ descriptor/完整性清单、mmap/chunk 和镜像摘要/长度决定；该设计
 独立记录资源与性能证据；#300 保持父级跟踪项。精确后继边界见
 `../design/compiler-post-emission-check-and-minimal-publication-closure.md` 与
 `../design/shared-static-network.md`。<br>
-
-**#549 proposed amendment（Review；2026-08-30）**：Identity registry target 原子提升
-到 revision 3；LFCA/LFSM/LFSD 切换为 4/3/3 并采用确定性逻辑表分块。kind 14 / tag 22
-原位改名为 `ParkingFacility` / `parkingFacilityKey`，kind 23/24 与 tag 35/36 追加给
-`ConflictZone` / `ParticipantStream`。一个逻辑路网修订至少支持一百万个现实混合稳定
-静态实体；物理 chunk 不进入 StableId、typed ordinal、路网修订或 Runtime 分区。<br>
 
 **2026-08-10 范围澄清**：current Traffic/Spatial/Scenario JSON 从未作为外部资产发布，
 只属于当前仓库加载器和夹具；它不建立 compiler import frontend、批量迁移工具或长期
@@ -192,16 +186,17 @@ publishable programmatic generator 必须保留 build ID、参数、seed、names
 标识编码封装（Identity Envelope）与实体登记表（Entity Registry）使用独立版本
 轴。`identityEncodingVersion = 1`
 冻结 magic、kind、field count、strictly-increasing tag/length/value bytes；
-当前实现的 `identityRegistryRevision = 2` 覆盖 topology、Gate/Waiting、Signals/Phase、
-Parking、cross-section/access/profile 与 canonical frame declaration；#549 target 的
-revision 3 在不改变既有 identity canonical bytes 的前提下追加上述冲突种类并统一停车名称。
+`identityRegistryRevision = 3` 覆盖 topology、Gate/Waiting、Signals/Phase、
+Parking、cross-section/access/profile、canonical frame、`ConflictZone` 与
+`ParticipantStream` declaration，并统一使用 `ParkingFacility` 名称；既有 identity
+canonical bytes 不变。
 种类 21 保留空位，不覆盖 `StaticRoute`（ADR 0029）。新增 kind 只 append registry
 revision；修改既有 kind 的字段集合、tag 含义或编码必须提升 encoding version。完整
 kind/tag/required-sequence
 表以 `network-compiler.md` 为规范。所有**定义子实体身份**的父子关系必须以父实体
 StableId 作为父锚点，不能只复制父实体在其来源模块内稳定的裸局部 key；这样跨模块
 同名父实体与重新归属仍由完整命名空间裁决。可选组织关系不因此自动成为身份前像；
-例如目标 `ParkingSpace.facilityId` 仅在显式存在时形成
+例如 `ParkingSpace.facilityId` 仅在显式存在时形成
 `ParkingSpace -> ParkingFacility` 关系，
 不参与 `ParkingSpace` 的 StableId128 派生。
 

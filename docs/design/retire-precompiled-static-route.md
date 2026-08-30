@@ -1,6 +1,6 @@
 # 退役预编译静态路线
 
-**文档状态**: Accepted（#498 G1）；#549 格式/registry 修订处于 Review<br>
+**文档状态**: Review<br>
 **最后更新**: 2026-08-30<br>
 **适用范围**: 从路网产品删除 `StaticRoute` 后的制品表、身份空位、运行时编译、
 场景 catalog 0.3 与每世界路线表形状<br>
@@ -12,9 +12,8 @@
 [`compiler-foundation.md`](compiler-foundation.md)、
 [`example-scenarios.md`](example-scenarios.md)
 
-本文是 ADR 0029 的实现级合同。为什么删除见 ADR。G2 决定 Rust 拼写。
-其中 revision 2 是当前实现事实；#549 target 提升到 revision 3，但继续保留 kind 21、
-tag 30 与 relation role 13–16，且不恢复制品路线。新增 kind 23/24 不复用路线空位。
+本文是 ADR 0029 的实现级合同。为什么删除见 ADR。kind 21、tag 30 与 relation role
+13–16 保留为空位；kind 23/24 不复用路线空位，制品不恢复制品路线。
 
 ## 1. 单一路线入口
 
@@ -92,9 +91,9 @@ hop 是否受控：用已编译机动出现项定位 path，再在共享根
 | `0x0015`  | StaticRoute    | **禁止出现**          |
 | `0x0016`  | CanonicalFrame | 保留，代码与 tag 不变 |
 
-出现 `0x0015`、缺 `0x0016`、或 `formatVersion != 3`，读器失败关闭。format 3 对象
-精确 TableV1 总数为 `30`（`1 + 1 + 21 + 1 + 3 + 1 + 1 + 1`）。历史 format 1/2 为
-`35`。现行生产 `table_count()` 为 `30`。
+出现 `0x0015`、缺 `0x0016`、或 `formatVersion != 4`，读器失败关闭。format 4 对象
+精确逻辑表种类数为 `33`；逻辑实体表种类为 `23`，每类可由一个或多个 TableV1 chunk
+承载。
 
 StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 
@@ -115,33 +114,33 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 
 其余关系角色代码不重编号。
 
-### 2.3 Identity 登记表修订 2
+### 2.3 Identity 登记表修订 3
 
-`identityRegistryRevision = 2`。
+`identityRegistryRevision = 3`。
 
-| 代码 | 历史                | 修订 2                         |
+| 代码 | 历史                | 修订 3                         |
 | ---: | ------------------- | ------------------------------ |
 |   21 | `StaticRoute`       | 保留空位；`from_code(21)` 失败 |
 |   22 | `CanonicalFrame`    | 不变                           |
 |   30 | `RouteKey`          | 保留空位；不得解码为字段       |
 |   31 | `CanonicalFrameKey` | 不变                           |
 
-`EntityKind` 可构造集合为种类 1–20 与 22，共 21 项。`from_code(21)` 失败，不发射、
-不解码。`EntityKind::ALL` **长度仍为 22**：代码 21 占保留空槽，`CanonicalFrame`
-仍是代码 22。共享身份表按 `kind_index = code() - 1` 寻址，backing 必须是 22 格，
-不得把 `ALL` 缩成 21 项后再用代码减一索引。字段标签可构造集合去掉 30，保留既有
-空位 23。身份编码版本仍为 1。
+`EntityKind` 可构造集合为种类 1–20、22–24，共 23 项。`from_code(21)` 失败，不发射、
+不解码。代码 21 占保留空槽，`CanonicalFrame`、`ConflictZone` 与
+`ParticipantStream` 分别使用代码 22、23、24。共享身份表按
+`kind_index = code() - 1` 寻址，backing 必须是 24 格。字段标签 23 与 30 保留为空位。
+身份编码版本仍为 1。
 
 `CanonicalIdentityTable` 不得再出现 `entityKind = 21` 行。
 
 ### 2.4 编制来源与 IR
 
-道路编辑 FlatBuffers：`format_version = 2`；删除 `StaticRoute` table 与
-`RoadEditingSource.static_routes`；顶层声明向量 21 个（可构造 Identity 种类）。
-`canonical_frames` 为根表 field id 25；stock `flatc` 要求 field id 连续，不保留空号。
-schema 为 `schemas/road-editing/v2/road-editing.fbs`。
-`format_version = 1` 的旧 buffer 失败关闭。
-`frontendVersion = 2`。file identifier 仍 `LFRE`。
+道路编辑 FlatBuffers：`format_version = 3`；删除 `StaticRoute` table 与
+`RoadEditingSource.static_routes`；顶层稳定声明向量 23 个（可构造 Identity 种类）。
+`canonical_frames` 为根表 field id 25，`conflict_zones` 与 `participant_streams`
+分别为 26、27；stock `flatc` 要求 field id 连续，不保留空号。schema 为
+`schemas/road-editing/v3/road-editing.fbs`。其它版本失败关闭。
+`frontendVersion = 3`。file identifier 仍 `LFRE`。
 
 合成 DSL / typed AST / HIR / MIR / LIR：不再有静态路线声明或出现项表。
 首批支持矩阵「静态路线」行改为明确拒绝。
@@ -234,13 +233,12 @@ controller 绑定的是 `(世界令牌, NetworkRevisionId)`：修订变化后 co
 
 ## 6. 必测项（G2）
 
-- 含 `StaticRoute` 或 `formatVersion = 2` 的历史 LFCA 失败关闭，诊断可区分版本与未知表。
-- format 3 LFCA 精确 TableV1 总数为 30（历史 format 1/2 为 35）；含禁止实体/关系表
-  失败关闭。
+- 含 `StaticRoute` 或 `formatVersion != 4` 的 LFCA 失败关闭，诊断可区分版本与未知表。
+- format 4 LFCA 精确逻辑表种类数为 33；含禁止实体/关系表失败关闭。
 - 身份 `entityKind = 21` 或字段标签 30 失败关闭。
-- `EntityKind::ALL.len() == 22`，`kind_index(CanonicalFrame)` 可寻址；不得把 `ALL`
-  缩成 21 项后再用 `code() - 1` 索引。
-- 道路编辑 `format_version = 1` 的来源失败关闭；现行只接受 `2`。根表无
+- identity backing 长度为 24，`kind_index(CanonicalFrame/ConflictZone/ParticipantStream)`
+  均可寻址；代码 21 保留空槽。
+- 道路编辑只接受 `format_version = 3`。根表无
   `static_routes` 字段，field id 连续。其它未知槽仍忽略。
 - 三边 `entry → middle → exit` 夹具：`register_route` 后两车跟车，行为不弱于原
   `static_route(0)`。

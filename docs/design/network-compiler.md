@@ -1,25 +1,13 @@
 # 路网编译器与共享静态路网
 
-> **后继架构修订（2026-08-18）**：Accepted ADR 0024 / #299 G1 已把独立
-> `laneflow-validator`、规范发布 receipt 和三类 receipt 统一交付方案替换为
-> `laneflow-format` 共享后发射检查与最小发布闭合。canonical publication 使用
-> LFCP v2 且不再包含 receipt。Accepted ADR 0025 / #300 G1 已进一步取消 target/profile-
-> specific 静态镜像文件、ABI、descriptor、integrity manifest、mmap 和缓存，以受检
-> LFCA 构建进程内 `SharedNetworkRevision`。本文明确标为“历史镜像方案”的条款只保留
-> #291/#298 决策沿革，不再是当前 #300 实现输入。当前规范见
-> `compiler-post-emission-check-and-minimal-publication-closure.md` 与
-> `shared-static-network.md`。
-
-**文档状态**: Accepted（#291 target design + ADR 0025 / #300 G1 修订）；#549 对 LFCA 4、
-Identity registry revision 3 与百万级单路网容量的统一修订处于 Review<br>
-#315 共同受检模块接入契约已实现；#297 current JSON 编译器导入设计已取消<br>
+**文档状态**: Review<br>
 **最后更新**: 2026-08-27<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网编译权威、标识派生、可移植规范制品（Portable Canonical
 Artifact）、共享静态路网（Shared Static Network）、源映射（Source Map）、语义差异
 （Semantic Diff）、compiler 后发射检查、交通运行时（Traffic Runtime）命名、
 静态执行约束（Static Execution Constraints）、不可变路网修订
-（Immutable Network Revision）和当前态（Current）→目标态（Target）迁移<br>
+（Immutable Network Revision）<br>
 **实现状态**: 部分实现；当前态生产路径仍使用 Traffic v0.10 / SpatialPackage v0.1 /
 ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial Registry）；
 #292 已完成编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
@@ -533,13 +521,10 @@ add/remove。
 
 `identityEncodingVersion = 1` 冻结公共字节 envelope；
 `identityRegistryRevision = 3` 冻结本表的 kind、slug 和 required tag sequence
-（种类 21 与标签 23/30 为保留空位，不发射、不解码；ADR 0029、#549）。
+（种类 21 与标签 23/30 为保留空位，不发射、不解码；ADR 0029）。
 required tags 必须按数值严格递增编码：
 
-本表是 #291 G1 已接受的 v1 设计，但尚无已发布的 known vector、规范制品或生产
-reader；因此本次统一 `LaneEdge` 身份、移除 `ParkingSpace` 对可选停车区域归属的
-身份依赖并重排代码 / 标签，是在首次实现冻结前修正 v1 定义，不是对已发布 v1 的
-原地兼容修改。首次 implementation G1 必须发布 known vectors；一旦发布，新增 kind
+本表冻结 identity v1 的规范登记。新增 kind
 只能提升 registry revision，修改既有 kind 的字段、标签含义或编码必须提升
 encoding version。
 
@@ -570,7 +555,7 @@ encoding version。
 |           23 | `ConflictZone`      | 声明（Declaration）                           | `conflict-zone`      | `1,34,35`                 |
 |           24 | `ParticipantStream` | 声明（Declaration）                           | `participant-stream` | `1,34,36`                 |
 
-本表冻结的是 identity v1 已进入当前车辆 projection 的实体集合，不是目标 Traffic
+本表冻结的是 identity v1 可构造静态实体集合，不是 Traffic
 Runtime 永久封闭的参与单元种类表。`VehicleProfile` 只服务当前道路机动车执行域；
 路线不再作为路网声明种类（ADR 0029）。未来非机动车、步行或轨道执行域若需要不同的
 运行参数配置（Runtime Parameter Profile）或通行定义，必须由其 G1 登记新的实体种类/
@@ -641,10 +626,9 @@ validated canonical LIR 必须保存有类型（Typed）的
 - 缺失边键只能产生待确认建议，未持久化确认前不得发布匿名、按几何或按序号派生的
   边身份。
 
-#549 统一登记 `ParkingFacility`、`ConflictZone` 与 `ParticipantStream`，并将
-`identityRegistryRevision` 提升到 3；生产实现必须与 LFCA 4、LFSM 3、LFSD 3 的
-clean break 原子交付，不得在现行 LFCA 3 reader 中提前接受 revision 3。`JunctionGroup`
-等其它未来 domain 只有在各自 G1 冻结后才能 append 新 kind code。新增 kind 提升
+`ParkingFacility`、`ConflictZone` 与 `ParticipantStream` 统一登记在
+`identityRegistryRevision = 3`。`JunctionGroup`
+等其它未来 domain 只有在权威设计冻结后才能 append 新 kind code。新增 kind 提升
 registry revision，但不改变既有 kind 的 bytes/ID；修改既有 kind 的 required field、
 tag 含义或编码必须提升 `identityEncodingVersion`。LFCA 的物理分块只改变承载方式；
 typed ordinal 与 StableId 仍在完整逻辑表范围内定义，不得改成 `(chunk,row)` 身份。
@@ -821,7 +805,7 @@ Accepted ADR 0025 / #300 G1 不生成第二个持久化性能制品。`laneflow-
 只接受字段私有的 `CheckedCanonicalNetworkInput`，按 LFCA wire order 先计数和预算，
 再一次性 reserve/fill 连续 typed columns、CSR/ranges、身份索引、按显式非语义 derivation
 version 从受检关系确定性派生的规划提示，以及可选 Spatial 数据，完成跨表/身份/
-Traffic-Spatial/执行约束闭合后返回。生产构建只认 `formatVersion = 3` 的受检输入；
+Traffic-Spatial/执行约束闭合后返回。构建只认 `formatVersion = 4` 的受检输入；
 详见 `shared-static-network.md` §3.1。闭合后返回：
 
 ```text
