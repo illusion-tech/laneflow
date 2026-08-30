@@ -37,7 +37,9 @@ Current static ParkingSpace 不持有 RouteHandle。#108/#109 production runtime
 first-reachable reservation；#540 Accepted target 由 caller 显式选择 entry anchor 与 exact
 occurrence，并要求它从 committed cursor 前向可达。leave 显式携带恢复 route/exit
 occurrence；rebind 同时携带新 route、当前 physical edge 在新 route 上的 occurrence 与
-entry occurrence。Parked/Reserved vehicle 均保留 live route reference，`remove_route`
+entry occurrence，并要求新旧 route 展开的完整车身 physical occupancy footprint 相同，
+不能只匹配前缘 edge 后把跨 predecessor 的车尾换到另一支路。Parked/Reserved vehicle 均
+保留 live route reference，`remove_route`
 不得删除任一 live vehicle 正在引用的 route。#541 以 clean break 替换 production
 模型。Overflow-safe route prefix 不得新增“整条 route 累计距离必须 finite”的合法性条件。
 详细契约见 [`parking-system.md`](parking-system.md)。
