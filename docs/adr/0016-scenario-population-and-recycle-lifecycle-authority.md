@@ -2,8 +2,8 @@
 
 **状态**: Accepted<br>
 **日期**: 2026-07-22<br>
-**最后更新**: 2026-08-24（#475 TrafficWorld 原子替换与走廊回流）<br>
-**适用范围**: Signalized Corridor 的 caller-owned population policy、TrafficWorld 原子替换命令、seeded 回流、Bevy proxy 复用与启动配置边界
+**最后更新**: 2026-08-30（#540 原子移除与停车生命周期修订）<br>
+**适用范围**: Signalized Corridor 的 caller-owned population policy、TrafficWorld 原子替换/移除命令、seeded 回流、Bevy proxy 复用与启动配置边界
 
 ## 背景
 
@@ -11,7 +11,9 @@ v0.7 已交付固定步长 Core、动态 vehicle handle、Traffic/Spatial/Scenar
 
 - `TrafficWorld::spawn_vehicle` 是独立原子命令，但不能把已完成车辆替换为新 identity；
 - `VehicleHandle` 必须在替换后失效，不能把同一 handle 重置到另一条 route；
-- `LaneFlowSession::world_mut()` 只提交 spawn / register / remove / occupy；已绑定车辆的原子替换必须走 typed `replace_completed_vehicle`，不得经 `&mut TrafficWorld` 绕过映射轮换；
+- `LaneFlowSession::world_mut()` 只适合不会改变已绑定 handle 身份的 Runtime 命令；已绑定
+  车辆的原子替换或移除必须走 typed Session 入口，不得经 `&mut TrafficWorld` 绕过映射
+  轮换/清理；
 - Completed vehicle 不再进入 pose batch，因此已绑定 proxy 会保留最后一次合法 Transform；
 - 共享静态路网与 catalog 不持久化 initial vehicles、spawn schedule、runtime handles 或 Adapter metadata；
 - TrafficWorld fixed step 不读取 wall clock、全局随机数或引擎状态。
@@ -22,7 +24,7 @@ v0.7 已交付固定步长 Core、动态 vehicle handle、Traffic/Spatial/Scenar
 
 ### 1. Population policy 完全由 caller 拥有
 
-`laneflow-runtime` 不提供人口 controller，也不把目标数量、seed、portal/route catalog、pending recycle 或抽样策略纳入 TrafficWorld public API。Runtime 只提供第 2 节的通用原子 replace command。城市模拟游戏、headless host 或 reference scenario 可以各自拥有生命周期策略，并在两个 `step` 之间显式调用该命令。
+`laneflow-runtime` 不提供人口 controller，也不把目标数量、seed、portal/route catalog、pending recycle 或抽样策略纳入 TrafficWorld public API。Runtime 只提供第 2 节的通用原子 replace/remove commands。城市模拟游戏、headless host 或 reference scenario 可以各自拥有生命周期策略，并在两个 `step` 之间显式调用这些命令。
 
 #203 / #475 只实现走廊 reference scenario 所需的 caller-owned 确定性策略；它不是 `TrafficWorld` 字段，不得成为 `TrafficWorld::step` 的隐藏状态，也不构成所有 LaneFlow 集成必须采用的默认人口模型。未来城市游戏可以完全替换该 policy，而无需修改 Runtime。
 
@@ -40,7 +42,7 @@ caller policy 不拥有：
 - Bevy `Entity`、Transform、prefab/model 或 schedule 类型；
 - LFCA / catalog 解析或文件系统路径。
 
-### 2. TrafficWorld 提供原子 replace/recycle command
+### 2. TrafficWorld 提供原子 replace/recycle 与 remove commands
 
 Runtime 提供通用 typed command：
 
@@ -57,7 +59,25 @@ replace_completed_vehicle(old: VehicleHandle, input: VehicleSpawnInput)
 4. 一次提交旧结束与新开始；
 5. 返回足以让调用方更新绑定和诊断的 old/new record。
 
-到达路线终点时写成 `Completed`，**保留槽位与句柄**；不进 pose 批次、不再步进、不占车道占用，但占车辆容量。#301 的立刻退役不是现行回流路径。公开契约不恢复独立 `despawn`。Runtime 没有 Core 那套 external ID 字符串，因此不把 `Preserve | ReplaceWith` 搬进 `TrafficWorld`。
+到达路线终点时写成 `Completed`，**保留槽位与句柄**；不进 pose 批次、不再步进、不占车道占用，但占车辆容量。#301 的立刻退役不是现行回流路径。Runtime 没有 Core 那套 external ID 字符串，因此不把 `Preserve | ReplaceWith` 搬进 `TrafficWorld`。
+
+#540 修订后，Runtime 同时保留真正移除车辆的独立原子命令（Rust 最终拼写由 #541
+落定）：
+
+```text
+despawn_vehicle(vehicle: VehicleHandle)
+  -> Result<VehicleDespawnRecord { vehicle, parking_release? }, DespawnError>
+```
+
+该命令接受所有 live lifecycle states。对 Reserved、Occupied/Parked vehicle，它在一次
+compute-then-apply 中清除停车资源/count、反向 binding、route 引用、live order 与
+vehicle identity；Active/Completed 走同一原子移除边界。任一 stale handle、状态不变量、
+预留或算术失败都保持 Runtime 完全不变。成功后旧 handle 立即 stale。
+
+`despawn_vehicle` 只表达“这个车辆现在确实不存在了”，用于设施拆除前清场、交通回收、
+长期 Parked 清理和宿主明确删除。它不选择替代车辆、入口或 route，也不是 population
+recycle 的第一步；需要保持人口并尝试新入口时，仍必须使用
+`replace_completed_vehicle`，不能拼成可失败的 despawn + spawn 两步事务。
 
 物理 overlap 是可重试的 typed `Blocked`，携带 old/blocker handle、前后关系和 bumper gap；其他 validation/invariant failure 返回致命 `ReplaceError`。任一失败结果都保持 `TrafficWorld` committed authority 不变。
 
@@ -74,9 +94,15 @@ Engine Adapter 暴露 typed lifecycle 入口。调用前先验证：
 - replacement command 输入可在 Runtime 侧完整预检；
 - old/new 映射切换所需容量已准备。
 
-全部预检成功后，Session 先提交 Runtime replace，再以不可失败的已预留路径把同一 Entity 从 old handle 切换到 new handle。未绑定车辆只提交 Runtime replacement。任一预检失败时 Runtime 与映射均不变。实现不得暴露一个可在 Runtime 成功后任意失败、从而留下 stale mapping 的公共两步调用协议。禁止公开「先 `despawn` 再 `spawn`」两步协议。
+全部预检成功后，Session 先提交 Runtime replace，再以不可失败的已预留路径把同一 Entity 从 old handle 切换到 new handle。未绑定车辆只提交 Runtime replacement。任一预检失败时 Runtime 与映射均不变。实现不得暴露一个可在 Runtime 成功后任意失败、从而留下 stale mapping 的公共两步调用协议。禁止公开「先 `despawn` 再 `spawn`」两步回流协议。
 
 Completed vehicle 不产生 pose record；pending 期间 proxy 保留最后一次合法 Transform。成功 replace 后，下一次 presentation batch 使用 new handle 的入口 pose 更新同一 Entity。Adapter 不 despawn/respawn proxy 或 model。
+
+对真正移除，Session 提供 typed despawn-and-unbind 组合事务：预检 handle ↔ Entity/池槽
+映射和清理路径，提交 Runtime `despawn_vehicle` 后，以不可失败路径恰好一次移除映射并
+销毁或回收宿主对象。未绑定车辆只提交 Runtime removal。virtual Parked 车辆可能已经无
+pose、隐藏或在表现池中，但仍必须以 typed removal 清除映射；“本帧没有 pose”绝不是
+despawn 信号。禁止对已绑定 handle 经 `world_mut()` 调 raw despawn 后再补删映射。
 
 ### 4. Lifecycle 决策绑定 fixed-step 边界
 
@@ -141,6 +167,8 @@ Traffic v0.8 只承载 immutable lane graph、Junction/Movement/ManeuverPath、r
 - Runtime 和 Adapter 都增加 public typed lifecycle API；走廊 policy 不成为 TrafficWorld API；
 - 走廊必须维护 PRNG golden sequence，算法变更会改变同版本 reference replay；
 - Adapter 需要在一个 owner 内完成 Runtime/mapping 预检和提交，不能由 example 拼接松散调用；
+- Runtime 与 Adapter 需要额外的 typed atomic removal record/transaction，停车释放信息
+  不能靠调用后反查已经 stale 的 handle；
 - pending Completed vehicle 会暂时保留 Runtime slot 和 proxy；
 - 本 ADR 不提供保存/恢复完整 population controller state 的序列化格式。
 
@@ -154,9 +182,9 @@ Traffic v0.8 只承载 immutable lane graph、Junction/Movement/ManeuverPath、r
 
 拒绝。它会让缓存的旧 handle 静默指向新的旅程，违反 ADR 0005 的 stale-handle/generation 契约。
 
-### 由 Bevy example 直接调用 raw despawn 再 spawn
+### 由 Bevy example 直接调用 raw despawn 再 spawn 做回流
 
-拒绝。它让 Bevy 成为回流规则 owner，无法用于 headless/其他引擎，也无法原子维护 Session 映射。公开契约不恢复独立 `despawn`。
+拒绝。它让 Bevy 成为回流规则 owner，无法用于 headless/其他引擎，也无法原子维护 Session 映射。该拒绝不禁止用于真正移除的 typed `despawn_vehicle`；它禁止的是用 raw 两步协议冒充原子回流。
 
 ### 先 despawn，再尝试 spawn
 
@@ -172,8 +200,11 @@ Traffic v0.8 只承载 immutable lane graph、Junction/Movement/ManeuverPath、r
 
 ## 兼容性
 
-- TrafficWorld API：新增 caller-driven typed atomic replace command，属于 pre-1.0 public API change；不新增人口 controller、车辆数量限制或 RNG。
-- Adapter API：新增 typed lifecycle/binding transaction，属于 pre-1.0 public API change。
+- TrafficWorld API：保留 caller-driven typed atomic replace，并新增/保留真正移除用的
+  typed atomic `despawn_vehicle`；两者都属于 pre-1.0 public API change，不新增人口
+  controller、车辆数量限制或 RNG。
+- Adapter API：replace-and-rebind 与 despawn-and-unbind 都是 typed lifecycle/binding
+  transaction，属于 pre-1.0 public API change。
 - 静态路网：继续由共享修订安装；本 ADR 不切换 LFCA 形状。
 - Determinism：Runtime replacement 保留 stable update order；走廊 seeded policy 的承诺范围继续是同一实现版本和运行环境，seed 是 caller policy 的显式 input/state。
 
@@ -182,6 +213,10 @@ Traffic v0.8 只承载 immutable lane graph、Junction/Movement/ManeuverPath、r
 - old handle stale、new handle live、logical slot 人口不变；
 - Runtime replace 的所有 validation failure 都保持 world 不变；
 - Adapter 预检/提交失败不留下 stale 或双重映射；
+- Active、Completed、Reserved、Occupied/Parked 的 atomic despawn；停车资源/count、route
+  引用、live order 与 handle generation 一次闭合，所有失败零副作用；
+- Adapter 对可见、隐藏和已池化 virtual Parked proxy 的 removal 都恰好一次清映射；无
+  pose、park 或 leave 失败不能误触发 removal；
 - pending proxy 保持最后 pose，成功回流复用同一 Entity；
 - 走廊 policy 在相同 seed 和 fixed-step input sequence 下得到相同 initial/recycle decisions；
 - 不同 outer-frame chunking 得到相同 Runtime/population state；

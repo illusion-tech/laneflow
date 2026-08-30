@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（#301 后 current 为 `TrafficWorld` + `SpatialSession`）
 
-**最后更新**: 2026-08-24
+**最后更新**: 2026-08-30（#540 virtual parking 合同）
 
 **适用范围**: 交通运行时（Traffic Runtime）、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与生命周期契约；具体 Bevy 0.19 specialization 见 `bevy-reference-adapter.md`
 
@@ -22,6 +22,7 @@
 - `bevy-reference-adapter.md`
 - `example-scenarios.md`
 - `traffic-runtime-shared-consumption.md`
+- `parking-system.md`
 
 ## 1. 目标与术语
 
@@ -30,6 +31,10 @@
 本文中的“宿主”指接入 LaneFlow 的 Bevy、Unity、Unreal、Godot 或 Web 运行环境；“位姿（pose）”指位置和朝向基向量；“批量（batch）”指按稳定顺序一次处理多辆车。组件名 Runtime、Data、Spatial、Adapter 和 Presentation 分别表示交通运行时、数据层、空间层、适配层和表现层。
 
 `laneflow-core` / `CoreWorld` / JSON 运行时入口已由 #301 拆除。current 可运行世界是 `laneflow-runtime::TrafficWorld`。历史 Core snapshot / `SpatialRegistry` 形状不再是生产契约。
+
+> **实现状态**：#540 合同规定显式 parked vehicle 继续使用 ParkingSpace pose；virtual
+> parked vehicle 仍是 live Runtime identity，但不进入 committed pose source 集合。
+> #541 尚未完成，当前 Runtime 仍只支持具体停车位占用。
 
 ## 2. 权威职责
 
@@ -75,8 +80,9 @@ Bevy Reference Adapter 把上述 world 与可选 Spatial 收进唯一活动的 `
 `LaneFlowSession::new` 在提供 Spatial 时强制 `Arc::ptr_eq`，失败为 `RevisionMismatch`。
 生命周期命令经 `LaneFlowSession::world_mut()` 调用 `TrafficWorld` 的
 `register_route` / `spawn_vehicle` / `remove_route` / `occupy_parking`。原子替换只走 typed
-`laneflow_bevy::replace_completed_vehicle`，以免 Runtime 成功后留下 stale 映射。
-只读观察走 `world()`。
+`laneflow_bevy::replace_completed_vehicle`；真正移除已绑定车辆只走 typed
+`despawn_vehicle`/despawn-and-unbind 入口。两者都不得经 raw `world_mut()` 绕过宿主映射
+事务，以免 Runtime 成功后留下 stale 映射。只读观察走 `world()`。
 
 适配器只能从已提交状态生成表现结果。推进、Spatial 提取或宿主转换任一步失败时，都不能留下只完成一部分的车辆映射或变换批次。
 
@@ -95,12 +101,27 @@ PoseInput {
 }
 ```
 
-- 行驶中或停止中的车道车辆使用 `Lane`；已停放车辆使用 `Parking`。位置权威判别由 source enum 表达，不增加可互相矛盾的 status 字段。
+- 行驶中或停止中的车道车辆使用 `Lane`；显式泊位中的已停放车辆使用 `Parking`。位置权威判别由 source enum 表达，不增加可互相矛盾的 status 字段。
 - lane 进度与共享根边长同域；parking 用共享根停车位序号。
 - 已完成或已移除车辆不出现在 `committed_pose_sources`，由调用方决定是否清理宿主实体。
 - 输入和输出顺序必须稳定，不能依赖引擎实体组件系统（ECS）或散列表的遍历顺序。
 - 一批必须同一 canonical frame；批次头带共享根 `NetworkRevisionId`、
   `CanonicalFrameOrdinal` 与 `FramePlacementToken`，混 frame 整批失败。
+
+#540 合同增加一种“live 但不可表现”的已提交状态，而不是给 `PoseInput` 增加
+`ParkingFacility` 分支：
+
+- 成功 virtual park 后，Runtime binding/status 已提交，车辆从
+  `committed_pose_sources` 缺席；Adapter 此时才隐藏或回收宿主实体。
+- virtual park 失败时仍保留原 lane pose 和实体；virtual leave 失败时继续隐藏。
+- 成功 leave 后，Runtime 同一提交建立 Active/lane authority；Adapter 只在新的 committed
+  Lane source 可见后重建/显示实体。
+- “本批无 pose”本身不能判定 despawn、Completed 或 virtual Parked。Adapter 必须消费
+  Runtime typed status/binding 或 committed lifecycle observation；可见性不能反向裁决
+  parking authority。
+- 成功 typed `despawn_vehicle` 才表示真正移除。Adapter 必须在同一组合事务中清除
+  Runtime handle ↔ 宿主 Entity/池槽映射；对象当前可见、因 virtual Parked 隐藏或已经
+  回收到表现池，都只能改变清理动作，不能改变 removal 语义。
 
 Spatial 提供 LaneFlow 自有的有界 `f32` canonical 位姿。生产输出为：
 
@@ -155,9 +176,12 @@ Bevy/glam、Unity `Vector3`、Unreal `FVector`、Godot `Vector3` 以及 JavaScri
 
 现行入口是 `TrafficWorld` 与 `LaneFlowSession`。
 
-## 8. 生命周期命令与原子替换
+## 8. 生命周期命令、原子替换与原子移除
 
-#475 冻结 `TrafficWorld::replace_completed_vehicle` 与 Bevy typed replace-and-rebind。不恢复独立 `despawn`，也不把已拆除的事件模型搬进 Runtime。
+#475 冻结 `TrafficWorld::replace_completed_vehicle` 与 Bevy typed replace-and-rebind。
+#540 修订 ADR 0016：保留真正移除用的原子 `despawn_vehicle`，并要求 Adapter 提供 typed
+despawn-and-unbind；它不得被拼成 replacement 的“先删后建”，也不恢复已拆除的全局事件
+backlog。
 
 ```rust
 TrafficWorld::replace_completed_vehicle(
@@ -170,14 +194,29 @@ replace_completed_vehicle(
     old: VehicleHandle,
     input: VehicleSpawnInput,
 ) -> Result<LaneFlowVehicleReplaceOutcome, LaneFlowAdapterError>
+
+TrafficWorld::despawn_vehicle(
+    vehicle: VehicleHandle,
+) -> Result<VehicleDespawnRecord, DespawnError>
+
+despawn_vehicle(
+    world: &mut bevy_ecs::world::World,
+    vehicle: VehicleHandle,
+) -> Result<LaneFlowVehicleDespawnOutcome, LaneFlowAdapterError>
 ```
 
 - 预检失败则已提交世界不变；成功则一次提交旧结束与新开始。
 - `ReplaceError::Blocked` 仅入口占用/重叠，可重试；Adapter 此时映射与 Transform 不变。
 - 已绑定：成功则同一 Entity 轮换到新句柄。未绑定保持未绑定。
 - 到达路线终点写成 `Completed`，保留句柄与容量，不进 pose、不占车道。
+- Runtime despawn 对 Active、Completed、Reserved、Occupied/Parked 都是失败原子的真正
+  移除；parking release 由 typed record 回显，不能在 handle stale 后反查拼装。
+- Adapter despawn 先预检映射/清理容量，再提交 Runtime removal，并以不可失败路径恰好
+  一次清除映射和销毁/回收宿主对象；预检或 Runtime 失败时两侧均不变。
+- virtual Parked 无 pose 不是 despawn；只有 typed removal outcome 可以触发上述映射清理。
 
 当前 Bevy 生命周期边界是 `LaneFlowFixedSet::Lifecycle`。原子替换只走 typed
-`replace_completed_vehicle`。Adapter 不复制跟车、信号或停车规则。
+`replace_completed_vehicle`，已绑定车辆移除只走 typed `despawn_vehicle`。Adapter 不复制
+跟车、信号或停车规则。
 
 Population 的 seed、portal/lane 抽样、pending/retry queue 仍是 engine-neutral caller-owned authority，不进入 Adapter 或 Bevy ECS；初始人口在 Session 创建前完成。

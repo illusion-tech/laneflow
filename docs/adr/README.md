@@ -34,7 +34,8 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 - `0007`: Traffic Data crate、loader 与 Core normalization 边界
 - `0008`: 1.0 前单一当前数据格式与迁移兼容策略
 - `0009`: Signal indication、MovementGate/StopLine、法规策略与 Core safety 分层
-- `0010`: Parking binding、vehicle lifecycle/position authority 与 Core/Adapter 分层
+- `0010`: `ParkingFacility`、显式/虚拟停车资源、vehicle lifecycle、原子 despawn、
+  快照/cutover 与 Adapter 权威（Accepted；#540 G1）
 - `0011`: JSON Schema canonical URI、公共发布、不可变版本与长期保留契约（已被 0026 取代；只保留历史说明）
 - `0012`: Core 数值权威、累计精度与局部表现转换边界（已被 0014 取代；继续描述迁移前当前生产实现）
 - `0013`: 引擎无关的空间几何、长度权威、制品配对与适配器位姿边界（精度条款已被 0015 取代）

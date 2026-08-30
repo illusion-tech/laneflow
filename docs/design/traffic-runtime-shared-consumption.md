@@ -1,7 +1,7 @@
 # 交通运行时共享静态路网消费
 
 **文档状态**: Accepted（#301 G1；#469 合入后收口）<br>
-**最后更新**: 2026-08-28<br>
+**最后更新**: 2026-08-30（#540 停车设施消费边界）<br>
 **适用范围**: `laneflow-runtime` / `TrafficWorld`、`laneflow-spatial` 目标 session、
 1-worker 车辆 tick、#301 端到端证据，以及 current `laneflow-core` / JSON 运行时入口拆除<br>
 **关联文档**: `../adr/0020-compiler-owned-static-network-and-static-image.md`、
@@ -24,6 +24,11 @@
 [`traffic-runtime-revision-cutover.md`](traffic-runtime-revision-cutover.md) 与
 [`traffic-runtime-snapshot.md`](traffic-runtime-snapshot.md) 合同与后续切片
 交付；#441 系统化性能账本、#303 Routing 与 #294 残留改名同理不在本文。
+
+> **实现状态**：停车目标合同以 `ParkingFacility` 完整替换 `ParkingArea`，允许显式泊位
+> 与虚拟容量混合，并以 tagged target 交付 reserve/park/leave；权威见
+> `parking-system.md`。#541 尚未完成，当前生产实现仍是
+> `ParkingArea/ParkingSpace + occupy_parking`。
 
 ## 1. 结论
 
@@ -64,8 +69,10 @@
   [#475](https://github.com/illusion-tech/laneflow/issues/475)。
 - 不把 `laneflow-core-design` Skill 标识符改名（若仍需独立残留 Issue，不得反向
   保留 `laneflow-core` crate）。
-- 不恢复独立 `despawn`；原子替换由 #475 交付。不冻停车预约/到场/离场状态机，也不把
-  `CoreEvent` 枚举搬进 Runtime。
+- #301 当时未恢复独立 `despawn`，回流只由 #475 原子替换交付；#540 已显式修订该边界，
+  #541 必须增加真正移除用的原子 `despawn_vehicle`，包括 Reserved/Occupied/Parked 的停车
+  释放闭环。它不能用于拼接可失败的 despawn + spawn 回流。#301 当时也不冻结停车
+  预约/到场/离场状态机或搬入 `CoreEvent`；这些变化不得回写为 #301 已交付能力。
 - 不实现时变准入；`register_route` 不做 `(ParticipantClass, Route)` 判断。
 
 ## 3. 包依赖
@@ -86,10 +93,10 @@ Adapter / 示例 ─────────────────> laneflow-s
 （Adapter 生产 graph 不直接依赖 laneflow-static-contract；停车序号由 Runtime 再导出。）
 ```
 
-| 包                 | 拥有                                                                                    | 禁止                                                           |
-| ------------------ | --------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| 包                 | 拥有                                                                                    | 禁止                                                                                                                                                                            |
+| ------------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `laneflow-runtime` | 固定步进、已实现执行域的每世界可变状态、动态 Route occurrence 编译、1-worker 执行计划   | Spatial、compiler、Serde、文件系统、`laneflow-core`、LFCA 解析（例外：经 `laneflow-format` 受检读取 LFSD 用于切换认证，#513 切片 C；LFCA 解析仍由 static-network builder 承担） |
-| `laneflow-spatial` | 规范位姿采样、session scratch/output；pose 批次只使用不透明 `PoseRecordId` 与共享根序号 | Traffic tick 权威、compiler、引擎、Runtime、车辆 handle        |
+| `laneflow-spatial` | 规范位姿采样、session scratch/output；pose 批次只使用不透明 `PoseRecordId` 与共享根序号 | Traffic tick 权威、compiler、引擎、Runtime、车辆 handle                                                                                                                         |
 
 `network-compiler.md` 历史 crate 图中的 Spatial → Runtime 作废。几何属于修订根，
 session 是 revision-scoped，不是 world-scoped。N 个 `TrafficWorld` 共用一份
@@ -101,6 +108,8 @@ pose 记录身份（不承诺最终 Rust 拼写）：
   Runtime/Core handle。
 - `PoseSource::Lane`：`LaneEdgeOrdinal` + 与共享根边长同域的进度 `progress_mm: u32`。
 - `PoseSource::Parking`：共享根上的停车位序号。
+- virtual Parked 不生成 `PoseSource`；这不是 despawn，Adapter 必须结合
+  Runtime committed status/binding 处理隐藏与重现。显式泊位仍使用 `PoseSource::Parking`。
 - 一批必须同一 canonical frame；混 frame 整批失败。
 - 批次头保存：`bind` 所用 `Arc` 的 `NetworkRevisionId`、该批 `CanonicalFrameId`
   （或共享根 `CanonicalFrameOrdinal`）与调用方 `FramePlacementToken`。Spatial
@@ -118,6 +127,11 @@ Adapter / Runtime 在组合根把车辆 handle 映射到 `PoseRecordId`。禁止
 （`register_route` / `remove_route` / `spawn_vehicle` / `occupy_parking` /
 `replace_completed_vehicle`）只在 `step` 之间调用；单条失败原子，不得在一次
 `step` 中间改实体集合。`Completed` 车辆保留到 replace：不进 pose、不占车道，占容量。
+
+这是 #301/current API 清单。#541 按 #540/ADR 0016 增加原子 `despawn_vehicle` 后，
+`Completed` 可以继续原子 replace，也可以被 caller 明确移除；停车车辆移除必须在同一
+命令中释放 binding/count/route reference。Adapter 对已绑定车辆必须走 typed
+despawn-and-unbind，不得经 raw `world_mut()` 留下 stale 映射。
 
 语义形状（不承诺最终 Rust 字段名）：
 
@@ -250,7 +264,10 @@ checked 预计算 → 暂存（逐路线对 target 根重编译 +
   `(class, Route)` 绑定期准入（只查当前 cursor / 序列下标起的可达后缀）。初速可以
   等于该 occurrence 当前边的基础限速，超过则拒绝。重叠、非法路线/下标/进度、未知
   profile、超容量、准入 deny、超限速失败时不得留下半辆车。
-- #475 交付 `replace_completed_vehicle`；不恢复独立 `despawn`。到达终点写成 `Completed`，保留句柄、容量与路线引用，不进 pose、不占车道；replace 成功时再迁移路线引用。
+- #475 交付 `replace_completed_vehicle`；#301/current 未恢复独立 `despawn`。到达终点写成
+  `Completed`，保留句柄、容量与路线引用，不进 pose、不占车道；replace 成功时再迁移
+  路线引用。#540 target 另增真正移除用的原子 `despawn_vehicle`，由 #541 实现，不把它
+  反写成 #301/current 已有入口。
 
 ### 4.3 停车占用
 

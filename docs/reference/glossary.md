@@ -1,7 +1,7 @@
 # LaneFlow 双语术语表
 
 **文档状态**: Active<br>
-**最后更新**: 2026-08-28<br>
+**最后更新**: 2026-08-30（登记 #540 停车设施术语）<br>
 **适用范围**: LaneFlow 架构、ADR、设计文档、Agent Skill、Issue/PR 设计说明、
 #291 编译器时代静态路网方案与城市模拟游戏交通基础
 
@@ -430,7 +430,11 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 跟车前视            | vehicle-following front lookahead   | `front_query_horizon` | 每车每拍由当前速度与车辆 profile 按跟车 §10.1 推导的出现项行走窗：`bumper_gap_horizon` 向上取整到毫米后再加最大车长。占用查询在此窗内行走；接纳用后杠间隙窗 `bumper_gap_horizon`。占用索引仍按全部 Active 重建；不是目视距离。 |
 | 信号                | signal                              | —                     | 由信号控制器和信号组产生、供车辆解释通行约束的运行时指示。                                                                                                                                                                     |
 | 路口规则            | intersection rules                  | —                     | 对冲突流、准入、授权、预约和通行顺序进行运行时裁决的规则集合。                                                                                                                                                                 |
-| 停车                | parking                             | —                     | 对停车设施、停车位、预约、进入、占用和离开进行管理的领域行为。                                                                                                                                                                 |
+| 停车                | parking                             | —                     | 对停车设施、显式停车位、虚拟容量、预约、进入、占用和离开进行管理的领域行为。                                                                                                                                                   |
+| 停车设施            | parking facility                    | `ParkingFacility`     | 已接受（Accepted；#540 G1）的唯一设施实体；可同时组织显式停车位与不可见虚拟容量，并可拥有多个虚拟入口/出口。完整取代 `ParkingArea`，不是并行别名。                                                                             |
+| 虚拟停车容量        | virtual parking capacity            | `virtual_capacity`    | 停车设施中不展开为具体泊位、内部路网或 parked pose 的计数容量；Runtime 只为实际 Reserved/Occupied 车辆保存稀疏 binding。                                                                                                       |
+| 停车目标            | parking target                      | `ParkingTarget`       | caller 精确选择的 tagged 资源：具体 `ExplicitSpace` 或设施 `VirtualPool`。Runtime 不在二者之间自动选位。                                                                                                                       |
+| 虚拟停驻            | virtual parked state                | —                     | 车辆仍保留 live identity、route 和设施 binding，但不进入道路运动/占用，也不产生 committed pose 的 Parked 状态；不等于 despawn、聚合车辆或隐藏路网。                                                                            |
 | 每世界可变状态      | per-world mutable state             | —                     | 交通参与单元、通行定义、控制器时钟、预约、占用和缓冲区等不能进入共享静态路网的状态；当前投影包括车辆、路线和停车。                                                                                                             |
 | 空间层              | Spatial layer                       | `laneflow-spatial`    | 拥有规范几何采样和位姿语义、但不拥有交通规则的引擎无关组件。                                                                                                                                                                   |
 | 引擎适配器          | engine adapter                      | Adapter               | 把运行时快照和空间位姿映射到宿主引擎生命周期与表现对象的组件。                                                                                                                                                                 |
@@ -497,8 +501,8 @@ Accepted 不表示目标态实现已经存在，也不得据此改写 current �
 | 信号组         | `SignalGroup`                                              | 面向一组门或通行意图输出信号指示的静态组。                                                                      |
 | 信号控制器     | `SignalController`                                         | 产生信号相位和指示时间序列的静态控制程序。                                                                      |
 | 信号相位       | `SignalPhase`                                              | 信号控制器内具有稳定键的阶段声明。                                                                              |
-| 停车设施       | `ParkingFacility`                                          | 组织显式停车位与可选虚拟容量的静态设施；`ParkingArea` 不是别名或 wire 名称。                                    |
-| 停车位         | `ParkingSpace`                                             | 可被预约和占用的显式静态位置；可选归属于停车设施，该组织关系不构成停车位身份父锚点。                            |
+| 停车设施       | `ParkingFacility`                                          | 已接受（Accepted；#540 G1）的唯一停车设施实体；可同时组织显式停车位与虚拟容量，并拥有多个 virtual entry/exit。  |
+| 停车位         | `ParkingSpace`                                             | 有排他占用、静态几何和 parked pose 的具体位置；可选归属于停车设施，该组织关系不构成停车位身份父锚点。           |
 | 车道组         | `LaneGroup`                                                | 道路区段内组织车道成员的静态分组。                                                                              |
 | 设施带         | `FacilityBand`                                             | 道路走廊内不直接承担机动车遍历拓扑的设施横带。                                                                  |
 | 参与者类别     | `ParticipantClass`                                         | 数据声明、可继承的准入分类；不定义交通执行域，也不证明对应运行时行为已经实现。                                  |
