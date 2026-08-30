@@ -1,6 +1,6 @@
 # ADR 0025：受检规范路网与共享静态路网修订
 
-**状态**: Accepted（#300 G1 Pass；2026-08-19）<br>
+**状态**: Review<br>
 **日期**: 2026-08-18<br>
 **适用范围**: LFCA 到目标态交通运行时/Spatial 的静态数据构建、内存布局、共享生命周期、
 不可变路网修订、玩家道路编辑与保存边界<br>
@@ -22,14 +22,13 @@ Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭�
 - `../design/network-compiler.md`
 - `../design/portable-canonical-artifact.md`
 
-> **#496 / ADR 0028**：交通热列为整数毫米。**#498 / ADR 0029**：生产只承认
-> `formatVersion = 3` 的受检 LFCA；路网不含 `StaticRoute`。公开 API 不带世代后缀；
-> 读器拒绝 `formatVersion != 3`。
-
-> **#549 proposed amendment（Review；2026-08-30）**：生产目标原子切换到 LFCA 4；
-> 65,536 行与 16 MiB 改为单个规范 table chunk 上限，一个
-> `SharedNetworkRevision` 至少支持一百万个现实混合稳定静态实体。chunk 只属于可移植
-> LFCA/LFSM/LFSD 容器，不恢复本文已否决的 target-specific 静态镜像、mmap ABI、
+> **#496 / ADR 0028**：交通热列为整数毫米。**#498 / ADR 0029**：只承认
+> `formatVersion = 4` 的受检 LFCA；路网不含 `StaticRoute`。公开 API 不带世代后缀；
+> 读器拒绝 `formatVersion != 4`。
+>
+> LFCA 的 `65,536` 行与 `16,777,216` bytes 是单个规范 table chunk 上限；一个
+> `SharedNetworkRevision` 必须支持至少 `1,000,000` 个现实混合稳定静态实体。chunk 只属于
+> 可移植 LFCA/LFSM/LFSD 容器，不恢复本文否决的 target-specific 静态镜像、mmap ABI、
 > 多修订拼城或 Runtime 分区身份。
 
 ## 背景
@@ -65,8 +64,8 @@ target/profile selector、镜像摘要/长度、`StaticImageDescriptor` 或
 同时不交付：
 
 - mmap 或跨进程页共享；
-- target-specific static image 的 flat chunk / Merkle 完整性方案；#549 的 portable
-  table chunk 与逐 chunk SHA-256 不构成第二套 Runtime 镜像；
+- target-specific static image 的 flat chunk / Merkle 完整性方案；portable table chunk
+  与逐 chunk SHA-256 不构成第二套 Runtime 镜像；
 - Spatial/冷页按需验证；
 - Windows/Linux/ARM/Web 等镜像变体矩阵；
 - 静态镜像内容寻址安装或磁盘缓存；

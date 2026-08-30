@@ -1,14 +1,13 @@
 # 0029 退役预编译静态路线，路线入口只留 `register_route`
 
-**状态**: Accepted（#498 G1）<br>
+**状态**: Review<br>
 **日期**: 2026-08-26<br>
 **适用范围**: 路网产品中的路线实体、LFCA / 共享静态路网 / 编制来源、`TrafficWorld`
 路线入口、信号化走廊场景 catalog、以及 #302 快照字段可消费的每世界路线表形状<br>
 **部分取代**: ADR 0017 中「目标态由编译器预编译初始路线出现项」；ADR 0020 /
 `network-compiler.md` 把 `StaticRoute` 列为 Identity v1 必选声明种类；ADR 0025 /
-共享静态路网把 `StaticRoute` 列为 Traffic 必需关系。ADR 0023 §2.1 把道路编辑根表
-写成 Identity v1 的 22 种有类型声明向量：生产 `format_version = 2` 为 21 个可构造
-向量，历史 `static_routes` 空位禁止出现。ADR 0005 中「Runtime 持有
+共享静态路网把 `StaticRoute` 列为 Traffic 必需关系。道路编辑根表使用
+`format_version = 3`，包含 23 个可构造声明向量且没有 `static_routes`。ADR 0005 中「Runtime 持有
 route external ID resolver、`remove_route` 必须返回 external route ID」对
 `TrafficWorld` 不再适用：catalog / 调用方自己持有 `route_id`，Runtime 热表只有
 `RouteHandle`。`network-compiler.md` §9.7
@@ -19,10 +18,6 @@ route external ID resolver、`remove_route` 必须返回 external route ID」对
 `(ParticipantClass, Route)` 判断；ADR 0028 整数毫米一维几何；#303 Routing 契约。<br>
 **关联 Issue**: [#498](https://github.com/illusion-tech/laneflow/issues/498)、
 [#303](https://github.com/illusion-tech/laneflow/issues/303)（下述容量接缝已由 G1 接受）<br>
-**#549 proposed amendment（Review；2026-08-30）**：LFCA/LFSM/LFSD 目标版本改为
-`4/3/3`，Identity registry target 改为 revision 3；kind 21、tag 30 与 relation role
-13–16 的保留语义不变，新 kind 23/24 不复用任何路线空位。下述 2→3 与 registry
-revision 2 表保留本 ADR 当次 clean-break 的历史决策，不是 #549 的最终目标。<br>
 **关联文档**:
 
 - `0017-static-road-junction-maneuver-and-gate-identity.md`
@@ -105,27 +100,28 @@ Rust 方法名、错误变体拼写和夹具字节。合入本文不授权改生
 
 破坏制品形状，升拒绝闸口；不重编号其余种类。
 
-| 闸口                               | 现行 | 本切片后 |
-| ---------------------------------- | ---: | -------: |
-| 对象 `formatVersion`               |    2 |        3 |
-| `canonicalFormatVersion`           |    2 |        3 |
-| `identityEncodingVersion`          |    1 |        1 |
-| `identityRegistryRevision`         |    1 |        2 |
-| `networkRevisionDerivationVersion` |    1 |        1 |
-| `constraintContractVersion`        |    2 |        2 |
-| `staticExecutionContractVersion`   |    2 |        3 |
+| 闸口                               | 权威值 |
+| ---------------------------------- | -----: |
+| 对象 `formatVersion`               |      4 |
+| `canonicalFormatVersion`           |      4 |
+| `identityEncodingVersion`          |      1 |
+| `identityRegistryRevision`         |      3 |
+| `networkRevisionDerivationVersion` |      1 |
+| `constraintContractVersion`        |      2 |
+| `staticExecutionContractVersion`   |      4 |
 
-读器拒绝 `formatVersion != 3`。含 `StaticRoute` 表或种类代码 21 的对象失败关闭。
-不恢复制品 v2 读器，不为旧字节提供迁移器。
+读器拒绝 `formatVersion != 4`。含 `StaticRoute` 表或种类代码 21 的对象失败关闭。
+不恢复制品旧读器，不为旧字节提供迁移器。
 
 Identity 种类代码 21（历史 `StaticRoute`）与字段标签 30（历史 `RouteKey`）改为
 **保留空位**：不发射、不解码为合法种类/字段，不得分配给 `CanonicalFrame` 或其他
-实体。`CanonicalFrame` 种类代码保持 22，字段标签 `CanonicalFrameKey` 保持 31。
-`EntityKind::ALL` 长度仍为 22，代码 21 占空槽；可构造 21 项。关系角色 13–16（历史
+实体。`CanonicalFrame`、`ConflictZone`、`ParticipantStream` 种类代码分别为 22、23、24，
+字段标签 `CanonicalFrameKey` 保持 31。identity backing 长度为 24，代码 21 占空槽；
+可构造 23 项。关系角色 13–16（历史
 静态路线边/三类出现项）同样保留空位，不压缩后续角色代码。
 
-LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 节形状不变，版本
-保持 2；新对象不得再出现静态路线行。旧对象因 `formatVersion` 被拒，不单独兼容。
+LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 均为 3；对象不得再出现
+静态路线行。旧对象因 `formatVersion` 被拒，不单独兼容。
 
 ### 4. 场景 catalog 0.3 拥有示例边序列
 
@@ -217,18 +213,18 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
   `u64`。
 - 不把 world / install 身份编码进 `RouteHandle`。
 - 不在 compiled 表存「当前红灯」，也不按相位重建红灯列。
-- 不因拒绝 `StaticRoute` 声明而提升合成 DSL `frontendVersion`（#500 已因 IR 毫米编码升到 3）。
+- 不因拒绝 `StaticRoute` 声明而再次提升合成 DSL `frontendVersion`；权威版本固定为 4。
 - 不为已删除的静态路线出现项保留编译限额或具名配置档死字段。
 
 ## 后果
 
 - LFCA 必选实体表从 22 张变为 21 张（缺 `0x0015`，保留 `0x0016` CanonicalFrame）。
-- 道路编辑来源 `format_version = 2`：删除 `StaticRoute` table 与根上的
-  `static_routes`；声明向量与 Identity 可构造种类一一对应（21 个）。
-  `canonical_frames` 为根表 field id 25（stock `flatc` 要求 field id 连续）。
-  `format_version = 1` 的旧 `LFRE` 在语义读取前失败关闭。schema 路径
-  `schemas/road-editing/v2/`。`frontendVersion` 同步为 `2`。file identifier 仍为 `LFRE`。
-- 合成 DSL 不再接受静态路线声明；合成 `frontendVersion` 为 3（#500 编码），拒绝
+- 道路编辑来源 `format_version = 3`：没有 `StaticRoute` table 与根上的
+  `static_routes`；声明向量与 Identity 可构造种类一一对应（23 个）。
+  `canonical_frames`、`conflict_zones` 与 `participant_streams` 分别为根表 field id
+  25、26、27。schema 路径为 `schemas/road-editing/v3/`；`frontendVersion = 3`，file
+  identifier 仍为 `LFRE`。
+- 合成 DSL 不接受静态路线声明；合成 `frontendVersion` 为 4，拒绝
   `StaticRoute` 不另升。
 - 生产 `CompileLimits` 与现行 P100 精确表不再包含 `RouteOccurrenceCount`。
 - 共享 Traffic 不再投影静态路线边序列、出现项、反向索引或 seal 派生的路线距离/
@@ -258,11 +254,11 @@ catalog 原子热切换，也不让人口层在切修订后继续用旧修订句
 11. **磁盘与在线切换共用一种表示。** 在线需要保留进程内句柄，磁盘应当作废旧句柄。
     否决合成。
 
-## 落地顺序与验收
+## 验收
 
-G2 唯一 Delivery 必须证明：
+实现必须证明：
 
-- 生产路径无 `StaticRoute` / `static_route`；旧 LFCA 含该实体或 `formatVersion != 3`
+- 生产路径无 `StaticRoute` / `static_route`；旧 LFCA 含该实体或 `formatVersion != 4`
   则失败关闭。
 - 走廊、Bevy smoke、`runtime_min`、替换/回流测试只通过 `register_route` 放车，
   受保护转向覆盖不弱于现行静态夹具。

@@ -1,6 +1,6 @@
 # 0028 交通一维几何整数毫米与固定步进合同
 
-**状态**: Accepted（#496；已提交一维 / 制品 / Runtime；#500 编译器 IR 交通一维）<br>
+**状态**: Review<br>
 **日期**: 2026-08-24<br>
 **适用范围**: 交通运行时已提交一维几何、固定步进合法区间、已提交速度、LFCA
 长度/速度字段、compiler 边长派生、编译器 Typed AST / HIR / MIR / LIR 交通一维
@@ -16,10 +16,6 @@
 编译器 IR 收口 [#500](https://github.com/illusion-tech/laneflow/issues/500)。
 #496 的已提交整数合同是 [#302](https://github.com/illusion-tech/laneflow/issues/302)
 快照字段冻结的设计前置（快照不得先冻 `f64` 进度）。<br>
-**#549 proposed amendment（Review；2026-08-30）**：格式组合目标切换为
-LFCA/LFSM/LFSD `4/3/3`、`staticExecutionContractVersion = 4`、
-`identityRegistryRevision = 3`；本 ADR 的整数毫米字段、量化顺序、约束版本 2 和路网修订
-派生版本 1 不变。生产实现 clean-break，不保留 3/2/2 双读。<br>
 **关联文档**:
 
 - `0003-runtime-tick-and-determinism.md`
@@ -259,18 +255,18 @@ lockstep 不在本合同范围。
 不得用本切片宣称全 tick 位级回放。不同合法步长的世界轨迹 **不可比**，不是回归
 失败。
 
-### 7. 破坏性制品与 API；当前树只承认一套合同；#302 必须消费本合同
+### 7. 破坏性制品与 API；只承认一套合同
 
 允许破坏。1.0 前不保留制品双栈：旧米制登记表、旧读器、旧夹具以 git 历史为准，
 **不**进当前树，也 **不** 做 v1→毫米转换。公开 Rust 入口不带 `V1`/`V2` 后缀。
 
-当前对象前导 `formatVersion` 与 `ContractVersions.canonicalFormatVersion` 为 **`3`**
-（ADR 0029）。`constraintContractVersion` 为 **`2`**；`staticExecutionContractVersion`
-为 **`3`**。LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 为 **`2`**。
+对象前导 `formatVersion` 与 `ContractVersions.canonicalFormatVersion` 为 **`4`**。
+`constraintContractVersion` 为 **`2`**；`staticExecutionContractVersion`
+为 **`4`**。LFSM `sourceMapFormatVersion` 与 LFSD `semanticDiffFormatVersion` 为 **`3`**。
 `networkRevisionDerivationVersion` 保持 **`1`**（哈希算法未改，见下）。
-`identityEncodingVersion` 保持 `1`，`identityRegistryRevision` 为 **`2`**（ADR 0029）。
-读器拒绝 `formatVersion != 3`。LFSM `canonicalArtifactFormatVersion` 必须等于所绑
-LFCA 的 `canonicalFormatVersion`（故为 `3`）。
+`identityEncodingVersion` 保持 `1`，`identityRegistryRevision` 为 **`3`**（ADR 0029）。
+读器拒绝 `formatVersion != 4`。LFSM `canonicalArtifactFormatVersion` 必须等于所绑
+LFCA 的 `canonicalFormatVersion`（故为 `4`）。
 
 LFSD Genesis 的 target `ContractVersions` / `ExecutionContract` 必须与所绑 LFCA
 一致。Artifact diff 两端合同行仍须逐字段相等。检入走廊按 Genesis 重生，不走格式

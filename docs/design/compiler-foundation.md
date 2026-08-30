@@ -1,8 +1,6 @@
 # 编译器基础设施与合成领域专用语言前端
 
-**文档状态**: #292 已接受并完成 G4；#315 共同受检模块接入契约已实现；
-#297 current JSON 编译器导入设计已取消；#299 后继边界见 Accepted ADR 0024；
-#549 的 Synthetic frontend 4 clean-break 处于 Review<br>
+**文档状态**: Review<br>
 **最后更新**: 2026-08-30<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
@@ -11,55 +9,11 @@ Typed AST）→高层中间表示（High-level Intermediate Representation，HIR
 （Validated Canonical Low-level Intermediate Representation，Canonical LIR）、
 合成领域专用语言前端（Synthetic Domain-specific Language Frontend，Synthetic DSL
 Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism）编译、诊断
-（Diagnostic）与当前态等价投影<br>
-**实现状态**: #292 已完成 G4；`laneflow-static-contract` 已建立 `no_std` 值类型、
-标识 v1（Identity v1）登记常量、有类型稳定标识与有类型逻辑序号；
-`laneflow-compiler` 已建立生产资源配置档、来源模块头、结构化诊断、确定性
-`LFSOURCE` 来源记录、显式导入图，以及车道图边、横断面完整所有者树、路口拓扑和
-机动门 / 等待区静态闭包的受检合成领域声明。编译器侧标识 v1 编码、BLAKE3-128 派生、完整前像重复 / 碰撞登记、修订 2
-（22 个槽位、可构造 21 种）的冻结已知向量与独立测试预言机已经落地；`LaneEdge`、`RoadCorridor`、
-`RoadSection`、`AuthoringLane`、`LaneGroup`、`FacilityBand`、`Junction`、`Movement` 和
-`ManeuverPath`、`StopLine`、`ManeuverGate` 和 `WaitingZone` 已接入有类型符号解析、
-父项先于子项的身份闭包、规范 HIR/MIR/LIR 连续表及来源伴随数据；完整
-`entry + internal + exit` 路径、派生路口内部边排他角色、路径转换门、每条 `LaneEdge`
-至多一条 `StopLine` 与入口候选路径完整覆盖约束、等待区静态区间约束已经闭合。不可变
-固定时制信号程序、完整相位状态和机动门信号绑定
-已在运行时之前闭合；停车区域（`ParkingArea`）、停车位（`ParkingSpace`）、入口 / 出口
-车道锚点、当前态静态几何和区域反向成员索引也已接入相同原子管线，其中区域归属不参与
-停车位身份。参与者类别（`ParticipantClass`）单继承闭包与静态准入规则
-（`AccessRule`）已经接入；编译器保留效果（effect）、类别集合、优先级（priority）和
-法规来源，分别冻结 LaneEdge / LaneGroup / RoadSection 的边平面目标与 ManeuverPath
-路径平面目标，
-并在运行时之前拒绝继承环、无类别规则、法规来源不一致和相反效果的精确并列。
-FacilityBand target 继续由结构化能力门卫（capability guard）失败关闭，时变窗口尚未
-进入合成领域声明。路线出现项只在 `register_route` 编进每世界表。当前道路机动车的 `VehicleProfile` 已按
-ADR 0028 整数毫米 / 受检 `f32` SI 约束接入（准入后 IR 不再把交通一维
-存成编制 `f64`），唯一引用一个 `ParticipantClass`，并冻结身份、
-参数、语义摘要与来源关系；它不构成其他交通执行域的通用参数基类。规范坐标框架
-（`CanonicalFrame`）已把 SpatialPackage v0.1 的稳定 `frameId` 接入 Typed
-AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方向和有界点范围仍是
-全局固定空间契约，声明不拥有 CRS、宿主放置或可变原点。车道图边中心线已经接入同一
-管线：空间存在时验证全图恰好一次覆盖、规范 `f32` 线段、交通长度绑定和连接端点连续性，
-再按 `LaneEdgeOrdinal` 对齐冻结点、累计弧长、切向与上方向采样表；不声明中心线时仍允许
-无图形配置（headless）LIR。集成专用 `laneflow-compiler-test-support` 已把
-`ValidatedCanonicalLir` 按有类型序号投影为当前 `InitialTrafficData`、可选
-`SpatialRegistry` 与稳定映射报告；它保持 `publish = false`，不读取当前 JSON，也不
-成为生产后端。公共 `Compiler` 已经原子
-返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`。路线生命周期由
-`TrafficWorld::register_route` 拥有。
-#292 G1 已
-接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；#308 研究工作负载不能按原自然
-身份无损映射为生产语义。可运行交通世界现由 `TrafficWorld` 安装
-`SharedNetworkRevision`；`laneflow-data` / `laneflow-core` / current JSON 已拆除。
-#315 已按 G2 授权落地共同私有
-`TypedAstModule` / `TypedAstDeclaration`、逻辑模块与来源文档独立登记、原子共同接入、
-文档集摘要以及 `LF-COMP-P100-INITIAL-v2`。#296 因 production 来源产品前提纠偏返回
-FlatBuffers；#332 草稿中的旧 Geometry JSON 原型只作历史证据。
-新的 FlatBuffers 道路编辑来源契约由
-`road-editing-source-and-geometry-frontend.md` 冻结并由默认 production compiler 入口实现，
-但仍是 unpublished B1，不构成已发布存档格式或长期兼容承诺。当前任务与 Gate 状态以
-GitHub Issue / PR 为准。#297 调整后不建立 current JSON 编译器前端；
-精确退役和测试边界见 `current-package-import.md`。
+（Diagnostic）与权威来源投影<br>
+
+编译器以有类型来源模块为入口，经 Typed AST → HIR → MIR → Canonical LIR 原子产出
+受检规范制品与来源伴随数据。路线生命周期由 `TrafficWorld::register_route` 拥有；
+已删除的 JSON 入口不构成编译器前端或兼容合同。
 
 **关联决策与设计**:
 
@@ -876,20 +830,15 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 来源模块描述符。首版合成来源记录使用 `frontendVersion` 版本化的确定性长度前缀
 编码，精确字节以 `LFSOURCE` 魔数 / 域前缀开头，并对完整记录精确字节计算 SHA-256
 形成 #292 已接受的 `sourceContentDigest`；**编码**变化必须提升前端版本并更新已知向量。
-现行合成前端为 `frontendVersion = 3`：准入后交通一维以整数毫米 / 受检 `f32` SI
-写入来源记录，不再写编制 `f64`（#500）。
-调用机器的绝对路径、墙钟时间和指针地址不进入该记录。
-该摘要只服务来源沿袭和重放，不参与实体稳定标识。测试可以使用显式 `test_only`
-来源模块头；该能力不得进入发布接口。
-
-#549 接受后的唯一目标是 Synthetic `frontendVersion = 4`。版本提升不是为了改变上述
-整数/浮点语义，而是把 `ParkingArea` 记录原子替换为 `ParkingFacility`，并把
+合成前端固定为 `frontendVersion = 4`：准入后交通一维以整数毫米 / 受检 `f32` SI
+写入来源记录，不再写编制 `f64`。它使用 `ParkingFacility`，并把
 `virtualCapacity`、有序 virtual entry/exit、`ConflictZone`、`ParticipantStream`、
 owner-local conflict passages 与可选 `ConflictZoneRegion` 纳入同一确定性来源记录。
 新增记录按稳定实体 identity bytes 与 owner-local 规范序排序；几何、hash iteration、
-调用顺序和 worker 数不得影响 exact `LFSOURCE` bytes。实现必须与 Road Editing frontend 3、
-Identity registry revision 3、LFCA 4、LFSM 3、LFSD 3 一次切换并更新全部 known vectors；
-现行 frontend 3 在该实现合入前仍是生产事实，不保留 3/4 双编码器或迁移 façade。
+调用顺序和 worker 数不得影响 exact `LFSOURCE` bytes。
+调用机器的绝对路径、墙钟时间和指针地址不进入该记录。
+该摘要只服务来源沿袭和重放，不参与实体稳定标识。测试可以使用显式 `test_only`
+来源模块头；该能力不得进入发布接口。
 
 领域专用语言构建器的声明方法使用 `#[track_caller]` 或等价宏捕获 Rust 文件、行和
 列作为来源位置。#292 已接受的每个来源模块另有调用方提供、与机器路径无关的稳定
@@ -907,28 +856,22 @@ Identity registry revision 3、LFCA 4、LFSM 3、LFSD 3 一次切换并更新全
 
 ### 6.2 首批支持矩阵
 
-| 领域           | #292 首批支持                                                                                                                                     | 明确拒绝 / 后继                                                                |
+| 领域           | 支持                                                                                                                                              | 明确拒绝 / 后继                                                                |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | 模块           | 稳定命名空间、显式导入、来源沿袭、跨模块有类型引用                                                                                                | 网络 / 文件系统隐式发现、匿名可发布模块                                        |
 | 车道拓扑       | 显式 `laneEdgeKey`、长度、限速、后继关系、自环、合法孤立边                                                                                        | 从坐标或数组位置生成边键                                                       |
 | 横断面         | 道路走廊（`RoadCorridor`）、道路区段（`RoadSection`）、编制车道（`AuthoringLane`）、车道组（`LaneGroup`）、设施带（`FacilityBand`）及唯一所有者树 | 动态车道用途、多执行域运行时行为                                               |
-| 路口           | 路口（`Junction`）、通行流向（`Movement`）、机动路径（`ManeuverPath`）、入口 / 内部 / 出口边及共享内部边角色                                      | `ConflictZone`、`ParticipantStream`、`JunctionGroup`                           |
+| 路口           | 路口（`Junction`）、通行流向（`Movement`）、机动路径（`ManeuverPath`）、`ConflictZone`、`ParticipantStream`、有序 passage 及共享内部边角色        | `JunctionGroup`、冲突运行时仲裁与通行权策略                                    |
 | 机动门与等待区 | 多机动门（`ManeuverGate`）、停止线（`StopLine`）、等待区（`WaitingZone`）                                                                         | 路线出现项（只在 `register_route`）；等待运行时、`ConflictArbiter`、通行权策略 |
 | 信号           | 当前态定时信号组（`SignalGroup`）、信号控制器（`SignalController`）、信号相位（`SignalPhase`）及机动门控制绑定                                    | 感应控制、宿主回调或未冻结的控制器类型                                         |
-| 停车           | 停车区域（`ParkingArea`）、停车位（`ParkingSpace`）、入口 / 出口锚点和当前态静态几何                                                              | 运行时预约 / 生命周期策略                                                      |
+| 停车           | 停车设施（`ParkingFacility`）、停车位（`ParkingSpace`）、virtual capacity、有序入口 / 出口锚点和静态几何                                          | 运行时预约 / 生命周期策略                                                      |
 | 横断面准入     | 参与者类别（`ParticipantClass`）、准入规则（`AccessRule`）、静态继承 / 准入及当前态车辆投影                                                       | 把 `ParticipantClass` 当执行域；未实现非机动车 / 行人 / 轨道行为               |
 | 车辆配置       | 当前态既有车辆跟驰模型的 `VehicleProfile` 静态参数                                                                                                | 把车辆配置提升为所有交通执行域的公共基类                                       |
-| 空间           | 显式规范坐标框架（`CanonicalFrame`）和已量化规范 `f32` 折线、长度 / 连续性校验                                                                    | 曲线、高程求值、曲线细分（tessellation）和几何文档前端                         |
+| 空间           | 显式规范坐标框架（`CanonicalFrame`）、已量化规范 `f32` 折线、可选 `ConflictZoneRegion`、长度 / 连续性校验                                         | 曲线、高程求值、曲线细分（tessellation）和几何文档前端                         |
 
-首批领域专用语言必须能表达标识登记表修订 2 的全部 **可构造** 实体种类（种类 21
-与字段标签 30 为保留空位，不得声明）。支持“声明该实体”不表示对应目标交通运行时
+领域专用语言必须能表达标识登记表修订 3 的全部 **可构造** 实体种类（种类 21、
+字段标签 23 与 30 为保留空位，不得声明）。支持“声明该实体”不表示对应交通运行时
 执行域或动态能力已经实现。
-
-#549 的 revision 3 target 在这个首批矩阵上只扩展公共静态输入：停车行改为
-`ParkingFacility`，路口行增加 `ConflictZone`、`ParticipantStream` 与 owner-local
-passage，空间行增加可选 `ConflictZoneRegion`。它不把 Waiting runtime、
-`ConflictArbiter`、停车生命周期或新的执行域行为塞进编译器前端；这些仍由各自领域
-Delivery Issue 拥有。
 
 ### 6.3 迁移场景
 
@@ -950,14 +893,13 @@ G1 曾冻结两个 current JSON 固定样例的等价迁移。这些 JSON 文件
 
 - `StableId128([u8; 16])` 与有类型包装；
 - `identityEncodingVersion = 1`；
-- `identityRegistryRevision = 2`（种类 21 / 标签 30 保留空位，ADR 0029）；
+- `identityRegistryRevision = 3`（种类 21、标签 23 / 30 保留空位，ADR 0029）；
 - 实体种类代码 / 英文短名、字段标签代码 / 编码和必需标签序列；
 - `LFID` 魔数、文本形态规则和 `BLAKE3` 域分隔字节。
 
-以上是现行实现事实。#549 target 将 registry 原子提升到 revision 3，保留
-`identityEncodingVersion = 1` 与既有 kind 的 canonical bytes/StableId，原位重命名
-kind 14 / tag 22 为 `ParkingFacility` / `parkingFacilityKey`，追加 kind 23/24 与 tag 35/36，
-并保持 kind 21、tag 23/30 禁止编码。它不得在 LFCA 3 路径中提前部分启用。
+登记表保留 `identityEncodingVersion = 1` 与既有 kind 的 canonical bytes/StableId；
+kind 14 / tag 22 使用 `ParkingFacility` / `parkingFacilityKey`，kind 23/24 与 tag 35/36
+分别用于 `ConflictZone` / `ParticipantStream`，kind 21、tag 23/30 禁止编码。
 
 `laneflow-compiler` 独立实现：
 
@@ -984,8 +926,8 @@ kind 14 / tag 22 为 `ParkingFacility` / `parkingFacilityKey`，追加 kind 23/2
 
 ### 7.3 验收
 
-- 现行修订 2、#549 实现后的修订 3 中，每个可构造实体种类至少有一个纳入版本控制的
-  已知向量；种类 21 与修订对应的保留标签不得编码；
+- 修订 3 的每个可构造实体种类至少有一个纳入版本控制的已知向量；种类 21 与保留标签
+  不得编码；
 - 缺失、重复、未知、乱序标签和错误字段长度的负向向量；
 - 同级重排、无关插入、仅几何编辑的变形测试（Metamorphic Test）；
 - `LaneEdge` 覆盖 / 内部角色变化时身份不变，显式替换 / 拆分时使用新键；
