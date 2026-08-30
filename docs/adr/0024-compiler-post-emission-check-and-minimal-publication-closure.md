@@ -15,8 +15,9 @@ LIR、可移植规范制品、目标静态镜像或对象外信任锚决定<br>
 > 独立镜像发布对象。
 >
 > LFCA 4 / LFSM 3 / LFSD 3 的分块容量合同把本文输入从“三份完整 slice 同时驻留”修订为
-> 三个不可变、有界、可重读对象来源。完整 slice 只是零复制 adapter；候选、检查能力与
-> installer 可以保存 staged source handle，不要求 `Box<[u8]>`。这不改变最终 exact bytes、
+> 三个由 `laneflow-format` 封闭构造、证明 backing 无可写别名的不可变、有界、可重读对象
+> 来源。完整 slice 只是零复制 adapter；候选、检查能力与 installer 可以保存冻结 source
+> handle，不要求 `Box<[u8]>`。这不改变最终 exact bytes、
 > 零 heap checker、跨对象 binding、LFCP 2 或 manifest 单提交决定。
 
 **关联文档**:
@@ -77,7 +78,8 @@ laneflow-compiler ──┐
 
 公共后发射入口只接受：
 
-- 最终关闭、exact length 已知且在检查期间不可变的 LFCA/LFSM/LFSD 可重读对象来源；
+- 最终关闭、exact length 已知、由 `laneflow-format` sealed capability 证明 backing 在检查和
+  后续能力消费期间没有可写别名的 LFCA/LFSM/LFSD 可重读对象来源；
 - 显式 `ExpectedSemanticDiffBase`；
 - 调用方 `FormatLimits`。
 
@@ -102,7 +104,11 @@ laneflow-compiler ──┐
 ### 4. 使用借用型能力守卫发布副作用
 
 `laneflow-format` 提供字段私有、无公共构造器的
-`PostEmissionCheckedBundle<L, M, D>`。该能力保存或借用三个受检对象来源，只暴露受检
+`PostEmissionCheckedBundle<L, M, D>`。safe downstream 不能为普通文件路径、可写映射、
+内部可变 buffer 或 callback 实现来源 trait；immutable slice/owned bytes 通过 safe 入口，
+平台内容对象或 spool backing 则必须先 atomic no-replace/关闭全部写 handle，再通过窄
+`unsafe` admission 建立 sealed `ImmutableObjectSource<S>`。unsafe 前置条件要求能力存续期
+没有可写别名、offset read 稳定且不按路径重开。该能力保存或借用三个受检对象来源，只暴露受检
 只读访问和重新计算的绑定；它不可序列化，不表示对象已经发布、认证或可信。完整 slice
 通过同一接口的零复制 adapter 进入，不建立第二个 checker。
 
