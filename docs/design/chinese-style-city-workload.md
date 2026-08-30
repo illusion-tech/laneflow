@@ -154,7 +154,9 @@ demand/Routing 策略，不在 #540 Runtime authority 内。
 Reserve/rebind 只接受从 committed cursor 前向可达的 entry；同一 `progress_mm` 但
 `carry_um > 0` 视为已越过。合法 reservation 由 ParkingStop 保持，不通过 route completion
 自动释放。leave 必须携带恢复 route，并通过 route-aware overlap 与 direct-follower
-emergency-envelope admission 后才能提交。
+emergency-envelope admission 后才能提交；该 admission 同时扣除 Following 承诺保留的
+gap，不能让下一 tick geometry hard projection 补救。rebind 在车身跨 predecessor 时还
+必须保持新旧完整 physical occupancy footprint 相同。
 
 成功 virtual park 后：
 

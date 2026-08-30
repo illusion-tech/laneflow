@@ -433,24 +433,45 @@ exit 或 virtual selector，speed/carry/acceleration 均为零。提交前必须
    leave 命令中修改 follower、tick 或事件。
 
 第 2 项的 admission predicate 不是实现自行解释的“看起来够远”。对每个 direct follower，
-令 `v` 为当前速度、`b_f` 为 emergency deceleration、`dt` 为 world fixed step、`s` 为按
-route-aware 整数占用求得并按 Following 同一规则转换的当前 bumper gap；candidate 的
-leader speed 为零。先取 emergency braking 在下一 tick 可达到的最低非负速度：
+先按 `vehicle-following.md` §11.2 的相同整数规则计算：
+
+```text
+g0_mm = max(0, route_aware_bumper_gap_mm)
+preserved_gap_mm = min(g0_mm, follower.min_gap_mm)
+raw_available_gap_mm = g0_mm - preserved_gap_mm
+available_gap_mm = 0                 if raw_available_gap_mm <= 1
+                   raw_available_gap_mm otherwise
+```
+
+这里的 `1` 是现行 `minimum_gap_tolerance = 1 mm`，不是新的 Parking tolerance。令 `v` 为
+当前速度、`b_f` 为 emergency deceleration、`dt` 为 world fixed step、`s` 为 `g0_mm`
+按 Following 同一规则转换的 SI bumper gap；candidate 的 leader speed 为零。先取 emergency
+braking 在下一 tick 可达到的最低非负速度：
 
 ```text
 u_min = max(0, v - b_f * dt)
 ```
 
-只有下式以 `u = u_min` 成立且全部中间值 finite 时才允许 leave：
+再按 `vehicle-following.md` §11.3 求下一 tick 的 emergency minimum travel：
+
+```text
+emergency_min_travel = v^2 / (2 * b_f)                 if v <= b_f * dt
+                       v * dt - 0.5 * b_f * dt^2       otherwise
+```
+
+只有以下两项都按 Following 相同量化/比较规则成立，且全部中间值 finite 时才允许 leave：
 
 ```text
 0.5 * (v + u_min) * dt + u_min^2 / (2 * b_f) <= s
+emergency_min_travel <= available_gap_mm / 1000
 ```
 
-这正是 `vehicle-following.md` §10.2 在 stationary leader 下的 emergency envelope，并保证
-emergency floor 不高于 safe-speed 上界；不成立则返回 leave-unsafe-follower，而不是允许
-下一 tick 用 geometry hard projection 补救。`v == 0` 时该式退化为 `0 <= s`，因此静止
-follower 只剩物理几何要求。
+第一项是 §10.2 在 stationary leader 下的 safe-speed envelope，保证 emergency floor 不高于
+safe-speed 上界；第二项显式扣除 §11.2 承诺保留的 gap，保证下一 tick 的 geometry cap 不会
+把 emergency minimum travel 再压小。任一项不成立都返回 leave-unsafe-follower，而不是
+允许下一 tick 用 geometry hard projection 补救。`v == 0` 时两项左侧都为零，因此静止
+follower 只剩物理几何要求；`g0_mm <= min_gap_mm` 且 `v > 0` 时 available gap 为零，必须
+拒绝。
 
 生产查询可以用 edge-local/route-aware index 缩小候选，但必须保留 full-scan reference
 oracle 对拍。多个 blocker 以稳定 live/update order 选择；物理 overlap 与
@@ -462,8 +483,13 @@ unsafe-follower 必须是两个可区分错误，不能统一为含糊的 `unsaf
   Active，`VehicleState.route/cursor` 不变并继续持有该 live route reference。Occupied
   不能 cancel。
 - rebind 只接受 `Active + Reserved`。`new_current_route_occurrence` 必须在 `new_route` 上解析
-  到车辆当前 physical LaneEdge；命令保留当前 `progress_mm/carry_um/speed_mm_s` 和
-  acceleration，不 teleport，再按 §5.1 从该映射 cursor 验证新 entry 前向可达及
+  到车辆当前 physical LaneEdge；命令保留当前 `progress_mm/carry_um/speed_mm_s`、length 和
+  acceleration。Runtime 必须分别按旧 route/cursor 与 candidate 新 route/cursor 展开该车
+  完整车身占用区间，并要求规范序列 `(physical LaneEdge, lo_mm, hi_mm)` 逐项完全相同。
+  只匹配前缘所在边不够：只要车尾仍跨在一个或多个 predecessor occurrence 上，新旧
+  predecessor footprint 不同就必须以 body-footprint-mismatch 失败，不能把车尾 teleport 到
+  另一条支路；车身已完全进入当前边，或新旧 predecessor 物理区间完全相同，才可继续。
+  通过 footprint equality 后，再按 §5.1 从映射 cursor 验证新 entry 前向可达及
   route/class/access。成功后一次替换 `VehicleState.route/current occurrence` 与 Reserved
   binding 的 route/entry/selected entry；virtual rebind 必须显式携带新的 entry selector，
   旧 route reference 的释放与新 route reference 的取得同一提交，全程不得暂时释放容量或
@@ -504,7 +530,8 @@ reserve/rebind 的成功 record、输入命令日志与 replay payload 都保存
 - target kind mismatch、vehicle already bound、target bound by another vehicle；
 - virtual capacity exhausted；
 - entry/exit selector missing/not owned by target、route occurrence/anchor mismatch；
-- entry behind cursor/not forward reachable、rebind current occurrence/physical edge mismatch；
+- entry behind cursor/not forward reachable、rebind current occurrence/physical edge mismatch、
+  rebind body footprint mismatch；
 - not reserved/not arrived/not occupied；
 - leave physical overlap、leave unsafe follower；
 - route referenced/cannot remove；
@@ -691,8 +718,11 @@ build/load 峰值；本设计不复制或改写其格式容量上限，所有判
   `progress_mm` 但 `carry_um>0`，以及 exact anchor + zero carry；
 - park 前未到达、重复 park、错误 target、stale handle；
 - 多出口 leave、same-edge/相邻边/车身跨边/repeated occurrence overlap、移动 direct
-  follower unsafe 与静止 follower、错误出口；失败后仍 Parked/Occupied/无 pose；
-- cancel、跨 route rebind 的 current occurrence 映射、三种 `VehicleStatus` 加可选
+  follower unsafe 与静止 follower、错误出口；direct follower 覆盖 gap 小于/等于/略高于
+  `min_gap`、1 mm tolerance 两侧、safe-speed 通过但 preserved-gap geometry 不通过的反例；
+  失败后仍 Parked/Occupied/无 pose；
+- cancel、跨 route rebind 的 current occurrence 映射、车尾跨 predecessor 时不同 physical
+  footprint 拒绝/相同 footprint 放行/车身完全进入当前边放行、三种 `VehicleStatus` 加可选
   Reserved/Occupied binding 的 despawn、route removal、explicit/virtual parked spawn；
 - `NoChange` 逐字段反例：reserve/rebind 任一 route/occurrence/selector 改变必须失败而非
   no-op；cancel/leave/despawn/spawn 的重复调用不得被含糊吞掉；

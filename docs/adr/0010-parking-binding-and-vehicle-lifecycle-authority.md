@@ -190,15 +190,18 @@ Vacant capacity -> Reserved(vehicle) -> Occupied/Parked(vehicle) -> Vacant capac
   leader 的 Active follower 在下一 tick 不依赖 geometry hard projection 的 emergency
   可行性。静止 follower 只检查几何，不要求 comfort `min_gap`，也不借用当前信号/停车/
   waiting/conflict stop 放宽间隙。成功后一次提交 `Parked -> Active/lane authority` 并释放
-  资源。精确 predicate 见停车设计 §5.5：对 stationary candidate，令
-  `u_min = max(0, v - b_f*dt)`，必须满足
-  `0.5*(v+u_min)*dt + u_min^2/(2*b_f) <= bumper_gap`；否则返回 unsafe-follower。
+  资源。精确 predicate 见停车设计 §5.5：除 stationary-leader safe-speed envelope 外，还
+  必须按 Following 的 `preserved_gap = min(g0, follower.min_gap)` 与 1 mm tolerance 扣出
+  `available_gap`，并证明下一 tick `emergency_min_travel <= available_gap`；否则返回
+  unsafe-follower，不能让 geometry hard projection 补救。
 - **cancel/rebind/route removal**：必须通过同一 aggregate 更新所有关联状态；virtual
   rebind 必须显式携带新的 entry selector；rebind 还必须给出新 route、车辆当前
   physical edge 在新 route 上的 exact current occurrence，以及新 entry occurrence。
-  Runtime 保留车辆 progress/carry/speed，不 teleport，并以映射后的 cursor 重做前向可达/
-  准入验证后一次替换车辆与 binding 的 route/occurrence。reserved vehicle 仍持有精确
-  route/entry 依赖，不能静默删除被引用 route。
+  Runtime 保留车辆 progress/carry/speed，并要求旧/新 route 下展开的完整车身
+  `(physical edge, lo_mm, hi_mm)` footprint 逐项相同；只匹配前缘 edge 不能防止跨
+  predecessor 的车尾 teleport。通过后以映射 cursor 重做前向可达/准入验证，再一次替换
+  车辆与 binding 的 route/occurrence。reserved vehicle 仍持有精确 route/entry 依赖，不能
+  静默删除被引用 route。
 - **despawn**：保留独立原子 `despawn_vehicle` 作为真正移除能力。它接受全部 live
   `VehicleStatus`；对带 Reserved binding 的 Active 或带 Occupied binding 的 Parked
   vehicle，在一次提交中释放资源/count、反向 binding、route 引用与 live identity；
