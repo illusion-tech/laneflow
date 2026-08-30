@@ -594,12 +594,29 @@ LaneEdgeGeometry.segments:
   6:upX:f32:R, 7:upY:f32:R, 8:upZ:f32:R
 ```
 
+`AccessRule.regulation` 的 tag 7 缺失表示没有 regulation；tag 存在时其
+`RecordVector` 必须恰有一行。零行、两行以上或从多行中任选一行都失败关闭。
+
 `ParticipantStream.passages` 的 anchor kind 固定为 `0=Gate, 1=EdgeBoundary, 2=Interior`。
 Gate reference 是同一 stream ManeuverPath 的 `ManeuverGate` typed ordinal；EdgeBoundary
 reference 是 `0..=pathEdgeCount` 的 boundary index；Interior reference 是
 `0..<pathEdgeCount` 的 path edge index，且对应 progress tag 必需并满足
 `0 < progressMillimetres < edgeLengthMillimetres`。非 Interior 禁止 progress tag。
-admission Gate 必须从 entry anchor 唯一派生，不进入 LFCA passage row。
+
+三种 variant 先映射到同一规范路径位置键，再比较 entry/exit 和排序 passage：
+
+```text
+Gate(transitionIndex=t)            -> (pathEdgeIndex=t+1, progressMillimetres=0)
+EdgeBoundary(boundaryIndex=b)      -> (pathEdgeIndex=b,   progressMillimetres=0)
+Interior(pathEdgeIndex=i, progress=p) -> (pathEdgeIndex=i, progressMillimetres=p)
+```
+
+位置键按两个无符号整数的字典序比较。`boundaryIndex == pathEdgeCount` 是路径末端哨兵；
+Interior 已排除 0 和 edge length，因此不会与边界重合。若 boundary `b` 同时存在唯一
+`transitionIndex=b-1` 的 ManeuverGate，该位置只能编码为 `Gate`；只有该 boundary 没有
+Gate 时才允许 `EdgeBoundary`。官方来源准入必须规范化为这一表示，LFCA reader 对另一种
+等价 variant 失败关闭；不得让 Gate ordinal 决定路径顺序。admission Gate 必须从规范化
+entry 位置唯一派生，不进入 LFCA passage row。
 
 上表连同 `CanonicalIdentity.identityFields` 已穷举 LFCA 4 的全部 `RecordVector` 行布局；
 这些内嵌行均不得再含 `RecordVector`。任何未登记的内嵌字段、额外 tag 或第二层嵌套失败关闭。
@@ -678,10 +695,12 @@ Identity 前像中重复表达的所有权或边界语义必须与实体行严�
 `AccessRule.targetKind = 0 LaneEdge / 1 LaneGroup / 2 RoadSection / 3 ManeuverPath`；
 `AccessRule.effect = 0 Deny / 1 Allow`。任何其他 discriminant 失败关闭。
 
-`RoadSection.kindId` 只允许 `motorLane`、`nonMotorLane` 或 `x-lane-` 加非空后缀；
+`kindId` 的完整 bytes 必须是非空 ASCII，并匹配
+`[A-Za-z0-9][A-Za-z0-9._:/-]*`；扩展前缀后的 suffix 也必须独立匹配同一语法，不能只有
+前缀。`RoadSection.kindId` 只允许 `motorLane`、`nonMotorLane` 或 `x-lane-` 加非空后缀；
 `FacilityBand.kindId` 只允许 `sidewalk`、`median`、`plantingStrip`、`facilityStrip`、
 `shoulder` 或 `x-` 加非空后缀，但 `x-lane-` 仍属于 RoadSection。两者都先通过非空 ASCII
-token 约束。整数毫米、停车、VehicleProfile 与信号计时的逐字段闭包以
+token 语法。整数毫米、停车、VehicleProfile 与信号计时的逐字段闭包以
 [`traffic-runtime-integer-geometry.md`](traffic-runtime-integer-geometry.md) 和
 [`numeric-representation.md`](numeric-representation.md) 的现行表为权威，LFCA reader
 必须执行同一闭包；这些引用不是只约束编译输入。特别地：边长 `100..=10000000 mm`、
@@ -1275,7 +1294,8 @@ geometry 没有 curve range。role 32 的 range location 必须落到同一
 
 `localIndex` 一律是 owner 内局部下标；`vector` 是相应 LFCA vector/RecordVector 的零基位置，
 `scalar` 在字段存在时固定为 `0`，`filtered row` 是按表规范行键过滤 owner 后的零基位置。
-`set` 的位置只服务 wire 排序和来源定位，不产生 LFSD Move；`domain` 的位置属于语义顺序。
+`set` 的位置只服务 wire 排序和来源定位，不产生 LFSD Move；`multiset`（重集）另以同
+subject occurrence rank 保留重复基数；`domain` 的位置属于语义顺序。
 
 | role / 名称                             | owner kind        | subject kind                  | 绑定 LFCA 唯一投影                          | localIndex / 序策略 | LFSD 投影                |
 | --------------------------------------- | ----------------- | ----------------------------- | ------------------------------------------- | ------------------- | ------------------------ |
@@ -1291,8 +1311,8 @@ geometry 没有 curve range。role 32 的 range location 必须落到同一
 | `10 ManeuverPathGate`                   | ManeuverPath      | ManeuverGate                  | `ManeuverPath.maneuverGates`                | vector / domain     | Relation                 |
 | `11 ManeuverPathWaitingZone`            | ManeuverPath      | WaitingZone                   | `ManeuverPath.waitingZones`                 | vector / domain     | Relation                 |
 | `12 StopLineManeuverGate`               | StopLine          | ManeuverGate                  | `StopLine.maneuverGates`                    | vector / set        | Relation                 |
-| `13 ParkingFacilityVirtualEntry`        | ParkingFacility   | LaneEdge                      | `ParkingFacility.virtualEntries[].laneEdge` | vector / set        | Relation + field payload |
-| `14 ParkingFacilityVirtualExit`         | ParkingFacility   | LaneEdge                      | `ParkingFacility.virtualExits[].laneEdge`   | vector / set        | Relation + field payload |
+| `13 ParkingFacilityVirtualEntry`        | ParkingFacility   | LaneEdge                      | `ParkingFacility.virtualEntries[].laneEdge` | vector / multiset   | Relation + field payload |
+| `14 ParkingFacilityVirtualExit`         | ParkingFacility   | LaneEdge                      | `ParkingFacility.virtualExits[].laneEdge`   | vector / multiset   | Relation + field payload |
 | `15 JunctionConflictZone`               | Junction          | ConflictZone                  | 按 `ConflictZone.junction` 过滤实体行       | filtered row / set  | Relation                 |
 | `16 JunctionParticipantStream`          | Junction          | ParticipantStream             | 按 `ParticipantStream.junction` 过滤实体行  | filtered row / set  | Relation                 |
 | `17 SignalControllerGroup`              | SignalController  | SignalGroup                   | `SignalController.signalGroups`             | vector / set        | Relation                 |
@@ -1353,11 +1373,13 @@ RoadEditing primary-source projection 不是“任一合法 property path”。�
 |   28 | LaneEdge subject Declaration；可选 point ranges 另投影其曲线 segment OwnerLocal                          |
 |   29 | FacilityBand subject Declaration；可选 point ranges 另投影其曲线 segment OwnerLocal                      |
 
-role 9 对同一 Junction/internal LaneEdge，从绑定 LFCA 中选择 StableId 最小、且 internal-edge
-occurrence 序列包含该 edge 的 ManeuverPath；`localIndex` 使用该 edge 在所选 internal
-sequence 的第一次零基 occurrence。其 primary 必须是该 ManeuverPath 的对应
-`internal_edges[occurrence]` OwnerLocal；不存在候选或无法得到唯一投影时失败关闭。这个选择
-只从绑定 LFCA 稳定身份和关系重算，不能使用 LFSM 自报路径打破平局。
+role 9 对给定 Junction 先按 `JunctionInternalEdge` owner row 的规范行键过滤；关系 tuple
+的 `localIndex` 必须是该过滤结果的零基行位置。primary source 另行从绑定 LFCA 中选择
+StableId 最小、且 internal-edge occurrence 序列包含该 subject edge 的 ManeuverPath，再取
+该 edge 在所选 internal sequence 的第一次零基 occurrence，映射到对应
+`internal_edges[occurrence]` OwnerLocal。这个 source occurrence 只定位 primary，绝不
+替代或改变 filtered-row `localIndex`；不存在候选或无法得到唯一投影时失败关闭。选择只从
+绑定 LFCA 稳定身份和关系重算，不能使用 LFSM 自报路径打破平局。
 
 role 30–32 的 Road Editing v3 primary-source projection 固定为：
 
@@ -1369,8 +1391,9 @@ role 30–32 的 Road Editing v3 primary-source projection 固定为：
 
 role 13/14/31/32 的 OwnerLocal location 必须分别携带 relation kind 12/13/14/15；role 15/16/30
 使用稳定实体 Declaration 的对应 scalar property，不伪造 OwnerLocal occurrence。
-role 31 的 local index 是 passage 规范领域顺序，不是来源 vector 位置；role 13/14/15/16/32
-是 set，只在 relation tuple 集合变化时生成 LFSD relation change。role 32 的
+role 31 的 local index 是 passage 规范领域顺序，不是来源 vector 位置；role 13/14 是按
+同一 LaneEdge subject 的 occurrence rank 保留 multiplicity 的 multiset；role 15/16/32 是
+set。它们只在相应 relation tuple 集合或重集变化时生成 LFSD relation change。role 32 的
 `SpatialGeometrySourceRange` 覆盖 ring point range；role 31 的 entry/exit property steps
 必须落到同一个 passage owner-local row。独立 writer/checker 必须从绑定 LFCA 与这些
 路径一一反解，不能仅凭 role 数值猜测 projection。
@@ -1531,15 +1554,16 @@ header；Entity Add/Remove 保存所在一侧完整 LFCA entity `RowV1`。所有
 
 `ParkingFacility.virtualEntries/virtualExits` 必须双重闭合，而不是重复表达同一信息：
 
-- role 13/14 的 RelationChange 表达 owner、LaneEdge subject 和规范 localIndex；
+- role 13/14 的 RelationChange 表达 owner、LaneEdge subject、同 subject occurrence rank
+  和所在一侧规范 localIndex；
 - tag 5/6 的 Entity Modify 表达完整 anchor payload，确保同一 LaneEdge 上只有
   `progressMillimetres` 变化时仍可观察；
 - tag 5/6 的 `SemanticFieldValueV1` 精确为
   `count:u32 || (LaneEdge StableRefV1 || progressMillimetres:u32)[count]`，保持 LFCA 规范顺序；
 - 任一 anchor 语义 vector 变化都必须产生 tag 5/6 字段投影；只有
-  `(owner, role, LaneEdge subject, canonical localIndex)` relation tuple 集合实际变化时才
-  另外产生 RelationChange。仅 progress 改变而 LaneEdge/localIndex 不变时不得伪造
-  Add/Remove/Move/Reconnect；
+  `(owner, role, LaneEdge subject, per-subject occurrence rank)` relation multiset 实际变化时才
+  另外产生 RelationChange。仅 progress 改变且同 LaneEdge 的 anchor 数量不变时，即使
+  规范 localIndex 因重新排序而变化，也不得伪造 Add/Remove/Move/Reconnect；
 - `virtualCapacity` 只由 tag 4 StaticRule Modify 表达；显式成员只由 tag 3/role 21 闭合。
 
 这项双投影是必要的现实边界：anchor 没有全局 StableId，而仅凭 relation 的 LaneEdge
@@ -1611,13 +1635,17 @@ relation tuple 的两端配对算法由 §4.3 的序策略唯一决定：
 
 - `set` 以 `(subjectKind, subjectStableId)` 比较成员；已有成员仅因另一成员插入导致规范位置
   改变时不产生 Move，Add/Remove 仍携带所在一侧重算的 localIndex；
+- `multiset` 先按 `(subjectKind, subjectStableId)` 分组，再按各自规范 localIndex 为同 subject
+  分配零基 occurrence rank；两端只配对相同 subject 与 rank，数量减少/增加分别产生
+  Remove/Add，记录携带所在一侧重算的 localIndex。其他 subject 插入或同一 anchor 的
+  progress payload 改变不产生 Move；payload 变化由对应 Entity Modify 完整表达；
 - `scalar` 缺失/出现产生 Remove/Add；两端都存在而 target 改变时产生 Reconnect，index 恒为 0；
 - `domain` 对同一 subject 按各自 localIndex 递增分配零基 occurrence rank，只配对两端相同
   rank；配对项 index 改变产生 Move，未配对项产生 Remove/Add。因此同一 edge 在
   ManeuverPath 中重复 occurrence 不会被错误折叠；
 - role 19 只进入 `SignalPhase.states` StaticRule，role 28/29/32 只进入 Geometry；不得再
-  生成 RelationChange。role 13/14 的 set tuple 与完整 anchor field payload 双重闭合，
-  role 31 的 domain tuple 与 passage field payload 双重闭合。
+  生成 RelationChange。role 13/14 的 multiset tuple 与 anchor field payload、role 31 的
+  domain tuple 与 passage field payload 双重闭合。
 
 `ManeuverGate.transitionIndex` 是 entity tag 4 的规范标量，不是 role 10 localIndex；它变化
 必须产生 Entity Modify，即使 gate 在 path vector 的位置未变。只有 vector 位置变化才另产生
@@ -1813,6 +1841,10 @@ CanonicalFrame，并在对应领域交付后包括 ConflictZone/ParticipantStrea
 | `signed-zero`                   | 编译边界把 `-0.0` 规范为 `+0.0`，负零 wire 失败                                                     |
 | `lfsd-change-set` / `lfsd-noop` | add/remove/modify/reconnect/move、空间配置及空差异的完整两端绑定                                    |
 | `lfcp-min-bindings`             | LFCP 2 的三节、`0x0068` 首节 offset、object keys 与无 receipt/LFSD binding                          |
+| `path-anchor-boundary`          | Gate/EdgeBoundary/Interior 统一位置键、边界唯一 variant、entry/exit/order 与 admission Gate 派生    |
+| `lfsm-role9-filtered-row`       | path occurrence 顺序/重复变化不改 filtered-row localIndex，primary 仍定位到选中来源 occurrence      |
+| `parking-anchor-multiset`       | 同一 LaneEdge 多 anchor 删除/新增一个时保留基数，progress-only 变化只走完整字段 payload             |
+| `closed-value-rejection`        | regulation tag 缺失或恰一行成功，零/多行与非法 `x-lane-*` / `x-*` ASCII token 稳定失败              |
 
 实现切片必须把这些向量原子重生为 `4/3/3/2`；不得继续把旧版本 bytes 当作当前成功向量，
 也不得为保留旧 fixture 增加双读分支。

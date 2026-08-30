@@ -84,7 +84,11 @@ pub enum ExpectedSemanticDiffBase {
     },
 }
 
-pub trait BoundedReReadableObjectSource {
+mod private {
+    pub trait SealedImmutableBacking {}
+}
+
+pub trait BoundedReReadableObjectSource: private::SealedImmutableBacking {
     fn exact_byte_length(&self) -> ExactByteLength;
     fn read_exact_at(
         &self,
@@ -109,7 +113,18 @@ where
 }
 ```
 
-完整 slice 通过零复制 adapter 实现同一来源接口，不建立第二个检查入口。
+该 sealed supertrait 是能力边界，不是仅靠文档约束任意调用方实现：safe downstream code
+不能为路径、普通 `File`、可写映射、内部可变 buffer 或 callback 自行实现来源 trait。
+`laneflow-format` 只为调用期间没有可写别名的完整 slice/owned immutable bytes 提供 safe
+构造入口。平台内容对象必须先完成 atomic no-replace 安装，任意 reader 必须先完整
+copy/spool、固定 exact length 并关闭全部写 handle，再经显式 `unsafe` admission 构造
+字段私有的 `ImmutableObjectSource<S>`；该 unsafe 合同要求 backing 在能力释放前没有可写
+别名、同一 handle 的 offset read 稳定且不按路径重开。无法证明这些条件时不得调用该入口，
+safe API 返回 `MutableObjectSource` 或等价错误。
+
+完整 slice 通过零复制 adapter 实现同一来源接口，不建立第二个检查入口。检查期间发生
+任何 backing identity/length 漂移都是不可能由 safe API 表达的状态；若平台 capability
+仍检测到漂移，必须失败关闭且不得返回受检 bundle。
 
 `PostEmissionCheckedBundle<L, M, D>` 必须：
 
@@ -216,7 +231,7 @@ pub enum PostEmissionCheckError {
 
 ## 7. Compiler 候选与发布生命周期
 
-`PortablePublicationCandidate` 拥有 LFCA/LFSM/LFSD 三个不可变、有界、可重读 staged
+`PortablePublicationCandidate` 拥有 LFCA/LFSM/LFSD 三个 sealed immutable-backing
 object source，并保存从实际 `PortableDiffBase` 计算的 expected base binding。完整
 `Box<[u8]>` 可以通过零复制 adapter 支撑小对象，但不是候选的强制存储形状。它仍是未发布
 候选，不因 emitter 完成而可信。
@@ -378,18 +393,19 @@ G2 一次性复用 #298 `LF-COMP-PRODUCTION-CORRIDOR-v1`：
 
 G2 最小测试集合：
 
-| 类别       | 必需证据                                                                              |
-| ---------- | ------------------------------------------------------------------------------------- |
-| 成功       | Genesis 与 Artifact base 的完整 emit→check→install→LFCP v2→manifest                   |
-| 单对象     | LFCA/LFSM/LFSD 截断、追加、错误 kind/version、caller limit                            |
-| revision   | LFCA declared revision 单独篡改后稳定失败                                             |
-| source map | LFCA digest/length/revision/compiler/source binding 任一错配                          |
-| diff       | Genesis 非零 base；Artifact base 或 target 的派生版本/revision/digest/length 任一错配 |
-| 原子性     | 任一 check failure 时 installer 与 manifest 调用次数均为零                            |
-| LFCP v2    | 固定 exact bytes/digest/offset；receipt 字段不存在                                    |
-| installer  | 每个对象和 LFCP v2 的 write/flush/close/install/winner/manifest fault                 |
-| 资源       | checker allocation 为零；P100 两进程均满足 30% 门槛                                   |
-| 平台       | Windows/Ubuntu 对现有 LFCA/LFSM/LFSD 与新 LFCP v2 fixed vector 一致                   |
+| 类别       | 必需证据                                                                               |
+| ---------- | -------------------------------------------------------------------------------------- |
+| 成功       | Genesis 与 Artifact base 的完整 emit→check→install→LFCP v2→manifest                    |
+| 单对象     | LFCA/LFSM/LFSD 截断、追加、错误 kind/version、caller limit                             |
+| revision   | LFCA declared revision 单独篡改后稳定失败                                              |
+| source map | LFCA digest/length/revision/compiler/source binding 任一错配                           |
+| diff       | Genesis 非零 base；Artifact base 或 target 的派生版本/revision/digest/length 任一错配  |
+| 原子性     | 任一 check failure 时 installer 与 manifest 调用次数均为零                             |
+| LFCP v2    | 固定 exact bytes/digest/offset；receipt 字段不存在                                     |
+| installer  | 每个对象和 LFCP v2 的 write/flush/close/install/winner/manifest fault                  |
+| backing    | safe code 不能为可变来源实现 sealed trait；slice 零复制成功；mutable/reopen/drift 失败 |
+| 资源       | checker allocation 为零；P100 两进程均满足 30% 门槛                                    |
+| 平台       | Windows/Ubuntu 对现有 LFCA/LFSM/LFSD 与新 LFCP v2 fixed vector 一致                    |
 
 不新增独立 fuzz service、证明 oracle 或测试 DSL。现有格式 mutation/property 测试可以
 继续复用，但不成为新的产品层。

@@ -75,6 +75,13 @@ impl<L, M, D> PostEmissionCheckedBundle<L, M, D> {
 }
 ```
 
+`BoundedReReadableObjectSource` 是 `laneflow-format` sealed 的 immutable-backing
+capability；调用方不能让普通路径、可写文件/映射或内部可变 buffer 实现它。发布资产必须
+先取得 atomic no-replace 内容对象 handle，本地候选必须使用 immutable slice/owned bytes；
+其它来源须先 copy/spool 并关闭全部写 handle，再经窄 `unsafe` admission 建立 sealed wrapper。
+`CheckedCanonicalNetworkInput` 保存并只读取检查时的同一个 source handle；builder 不按路径
+重新打开，也不接受内容可漂移的 staged handle。
+
 单对象函数服务已通过宿主 admission 的发布 LFCA；bundle accessor 服务同进程 compiler
 候选。两者必须复用同一内部 LFCA 检查/绑定实现。能力必须满足：
 
