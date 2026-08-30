@@ -1,6 +1,6 @@
 # ADR 0020：编译器拥有的静态路网与目标静态镜像
 
-**状态**: Review<br>
+**状态**: Accepted<br>
 **日期**: 2026-07-29<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网权威、可移植规范制品（Portable Canonical Artifact）、

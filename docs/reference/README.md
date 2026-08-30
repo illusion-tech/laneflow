@@ -19,8 +19,6 @@
 - `road-editing-source-semantic-seed-v1.json`：#296 不可变 benchmark 语义种子；
   只供 test/research generator 读取，不是 production JSON。
 - `road-editing-source-reference-machine-v1.json`：#296 道路编辑来源校准参考机。
-- `road-editing-source-workload-definition-v1.json`：#296
-  `LF-ROAD-EDITING-P100-v1` 的机器可读定义。
 
 #308 研究执行器与 R0 巨大 Evidence 不在当前工作区。G4 精确证据提交为
 [`de4cd460a96415cafbd811141568b81f74d73534`](https://github.com/illusion-tech/laneflow/tree/de4cd460a96415cafbd811141568b81f74d73534)，

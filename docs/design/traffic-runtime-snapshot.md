@@ -271,7 +271,7 @@ published 认证分别度量）、恢复峰值内存、保存期间对稳态 tic
 
 同机描述性基线：`LF-P100-REF-01`（2026-08-28，rustc 1.98.0，release）。固定
 workload `signalized-corridor-v1` = `v0.2-signalized-corridor.lfca`（exact
-418,428 bytes，28 条 catalog 路线、2 车辆、`4 ms` 固定步进），安装后运行 64 tick；
+420,332 bytes，28 条 catalog 路线、2 车辆、`4 ms` 固定步进），安装后运行 64 tick；
 快照点 `tick = 64`、`command_cursor = 30`。以下数字均为初值，不是产品 Pass 阈值。
 
 证据按仪器隔离：`snapshot_budget_evidence.rs` 用 `stats_alloc` 量捕获/编码/恢复账本

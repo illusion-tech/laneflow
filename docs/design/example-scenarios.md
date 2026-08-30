@@ -175,7 +175,7 @@ yellow 固定 `3 s`，每个 active set 后 all-red 固定 `1 s`，完整 cycle 
 ### 6.1 Native runtime 参数
 
 现行走廊 Bevy 最小路径不恢复 50–200 人口或 `--vehicles` CLI。权威 catalog 是 0.3
-（每条路线含有序 `laneEdgeKey`）。仓库夹具为 format 3 LFCA 与 catalog 0.3；
+（每条路线含有序 `laneEdgeKey`）。仓库夹具为 format 4 LFCA 与 catalog 0.3；
 prepare 绑到已安装共享路网修订后，按 catalog 边键 `register_route` 再 spawn
 少数车辆。运行命令为：
 

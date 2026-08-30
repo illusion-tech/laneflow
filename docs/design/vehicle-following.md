@@ -124,7 +124,7 @@ Validation：
 
 ### 4.2 Package 版本
 
-Vehicle Profile 现行持久化是 LFCA `formatVersion = 3` 的 `VehicleProfile` 表（毫米 /
+Vehicle Profile 现行持久化是 LFCA `formatVersion = 4` 的 `VehicleProfile` 表（毫米 /
 受检 `f32`）。current JSON `schemas/laneflow-data-v0.10.schema.json` 已删除，只作历史形状。历史概念 package 曾列出：
 
 ```json

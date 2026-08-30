@@ -103,7 +103,7 @@ Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通�
 
 完成状态：2026-07-21 已完成。当时收口流水账见 git 历史。现行设计见 [`design/numeric-representation.md`](design/numeric-representation.md) 与 [`design/spatial-geometry.md`](design/spatial-geometry.md)。
 
-已接受交通权威为整数毫米（ADR 0028 / #496；边长/进度/车长/停车锚点为 `u32` mm，速度为 `mm/s`）、共享静态路网与 LFCA 对象合同 `formatVersion = 3`（含 static Junction/Movement/ManeuverPath、multi-Gate/WaitingZone、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。仓库夹具与读器承认 format 3。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退，不再构成现行权威；Spatial `f32` 通过误差、零分配、内存和一万/十万性能 Gate。未来重启三维/编制数值迁移必须新建议题并重新进入 G1。
+已接受交通权威为整数毫米（ADR 0028 / #496；边长/进度/车长/停车锚点为 `u32` mm，速度为 `mm/s`）、共享静态路网与 LFCA 对象合同 `formatVersion = 4`（含 static Junction/Movement/ManeuverPath、ConflictZone/ParticipantStream、multi-Gate/WaitingZone、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。仓库夹具与读器只承认 format 4。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退，不再构成现行权威；Spatial `f32` 通过误差、零分配、内存和一万/十万性能 Gate。未来重启三维/编制数值迁移必须新建议题并重新进入 G1。
 
 范围：
 
@@ -315,7 +315,7 @@ Accepted ADR 0024 的 #299 后发射检查不重新执行逐实体身份派生�
 `laneflow-core/CoreWorld` clean-break 为 `laneflow-runtime/TrafficWorld`，并通过
 中立 `laneflow-static-contract`/`laneflow-static-network` 保持无环依赖。
 
-编译器从 LIR 派生 worker 数无关的静态执行约束事实并规范发射到 LFCA 关系；LFCA v1
+编译器从 LIR 派生 worker 数无关的静态执行约束事实并规范发射到 LFCA 4 关系；LFCA 4
 不保存提示 payload，`laneflow-static-network` 按显式非语义 derivation version 确定性派生
 可丢弃的分区规划提示。每个 `TrafficWorld` 再依据硬件、容量和动态负载建立自己的运行时
 执行计划。最终
@@ -336,34 +336,14 @@ Cutover Descriptor，`NetworkRevisionCutoverDescriptor`）绑定，不能自行�
 与运行时快照不进入共享静态路网。路径规划读取静态路网和已提交动态成本快照；出行需求
 与路线选择策略仍由城市游戏/出行编排层拥有。
 
-当前 Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1、
-`InitialTrafficData` 与 Spatial registry 只在 #301 完成前作为仓库内 current 运行时
-路径；#301 完成后 `laneflow-runtime` 为唯一可运行交通世界，上述 JSON/Core 入口拆除。
-#292 已
-重划为编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端（Synthetic DSL
-Frontend）的首个纵向闭环；#291 G1
-前置条件已经满足，#292 已完成 G4。#308 已
-完成 G4，并交付机器可读工作负载、实测校准 / 压力规模、资源预算建议和私有容器
-证据；#292 的 G2 同时确认研究抽象
-工作负载不能按原自然身份无损映射为合法生产语义；仅追加（append-only）G1 修订已
-选择真实产品场景，并完成 P100 首轮生产编译基线；其实现、迁移等价、外部审阅和生产基线均已随
-交付 PR（Delivery PR）#314 完成 G4。当前 Project 状态和原生依赖关系以 GitHub 为准。
+现行生产路径由编译器原生有类型来源进入 Typed AST / HIR / MIR / Canonical LIR，发射
+LFCA/LFSM/LFSD，经后发射检查后构建共享静态路网，并由 `TrafficWorld` 与可选 Spatial
+消费。旧 Traffic/Spatial JSON、`InitialTrafficData`、Core 与迁移投影桥都已删除，不建立
+兼容导入或第二套运行时权威。
 
-迁移顺序为“#291 架构 G1（已完成）→ #308 非生产预算校准完成 G4（已完成）→ #292
-静态契约/编译器基础设施/合成领域专用语言 + 集成专用 LIR→当前态投影完成 G4
-（已完成）→ 恢复 #282–#285”。官方生产前端先由 #315 建立共同受检
-模块接入；#296 道路编辑来源前端/MIR 继续按自身 Gate 推进。#297 已取消当前态包迁移
-导入，改为收口 current JSON 退役与编译器原生投影测试边界；它可以与恢复的运行时
-切片并行推进。#298 已完成 G4，并交付可移植规范制品 /
-源映射 / 语义差异；#299 按 Accepted ADR 0024 交付 compiler 后发射检查/LFCP v2/最小发布闭合、
-#300 交付从受检 LFCA 构建的性能优先共享静态路网、#301 交付交通
-运行时 / 空间层共享消费路径并拆除 current Core/JSON 运行时入口、#302 交付不可变路网
-修订 / 运行时快照（Runtime Snapshot）/ 在线修订切换，随后进入目标路径行为 / 性能 /
-安全认证闸口。crate 拆除由 #301 完成；#294 不再独占生产切换。Projection 不进入
-compiler production dependency。编译器性能工作负载及其规模计数由对应实现 G1 依据编制 / 中间表示证据
-独立冻结；#292 已以 #308 研究证据完成首轮资源估算，原生产性能自然身份在 G2 被
-确认不适用后已由追加 G1 修订，并形成真实生产 R0；不能从 #72 的运行时
-交通参与单元规模反推。#72 继续拥有交通参与单元按执行域
+编译器性能工作负载及其规模计数必须依据真实编制/中间表示证据独立冻结；历史研究替身只作
+资源估算和实现选择输入，不能冒充产品通过，也不能从 #72 的运行时交通参与单元规模反推。
+#72 继续拥有交通参与单元按执行域
 分解的保真度（Fidelity）、分区（Partition）、调度、迁移与内存证据；其既有证据只
 覆盖当前道路机动车车辆特化。#236/#237 仍是独立产品 / 研究输入，不自动并入首个
 前端（Frontend）。

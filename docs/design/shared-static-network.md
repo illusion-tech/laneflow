@@ -1,6 +1,6 @@
 # 共享静态路网
 
-**文档状态**: Review<br>
+**文档状态**: Accepted<br>
 **最后更新**: 2026-08-30<br>
 **适用范围**: `laneflow-static-network`、受检 LFCA admission、共享静态路网构建、
 Traffic/Identity/Spatial 内存数据、Runtime-facing 访问与资源/性能验收<br>
@@ -76,12 +76,12 @@ impl<L, M, D> PostEmissionCheckedBundle<L, M, D> {
 ```
 
 `BoundedReReadableObjectSource` 是 `laneflow-format` sealed 的 immutable-backing
-capability；调用方不能让普通路径、可写文件/映射或内部可变 buffer 实现它。发布资产可以
-使用 atomic no-replace 内容对象 handle；本地候选可以使用 immutable slice/owned bytes，或由
-字段私有 staged writer 在 flush、固定 file identity/exact length、关闭全部 writable handle 并
-阻止后续写入后产生的 `ClosedStagedObjectSource`。该来源参加检查时仍未安装；平台不能证明
-同一 read-only handle 生命周期内不存在可写别名时失败关闭或复制到 owned immutable bytes。
-平台 `unsafe` 不作为 downstream admission API。
+capability；调用方不能让普通路径、可写文件/映射或内部可变 buffer 实现它。本地候选可以
+使用 immutable slice/owned bytes，或由字段私有 staged writer 在 flush、固定 file identity/
+exact length 并结束 writer 写阶段后产生的 `ClosedStagedObjectSource`。能力内部可以继续持有
+具写访问权的字段私有 `File`，但 finish 后没有 LaneFlow safe API 可达的写能力；检查期间检测到 identity、
+length 或 bytes 漂移时失败关闭。该能力不要求把 backing 安装到内容仓库，也不承担 OS 级
+rename、no-replace、目录耐久或 winner 竞争。
 `CheckedCanonicalNetworkInput` 保存并只读取检查时的同一个 source handle；builder 不按路径
 重新打开，也不接受内容可漂移的 staged handle。
 
@@ -129,7 +129,7 @@ component 结构所需的不变量。它不重新哈希 Identity 前像，也不
   │   -> SharedNetworkRevision
   ┘
 RoadEditingState
-  -> compiler -> in-memory LFCA
+  -> compiler -> file-backed LFCA/LFSM/LFSD
   -> PostEmissionCheckedBundle
 ```
 
@@ -175,7 +175,7 @@ component 由根直接拥有；公共 accessor 只返回绑定根生命周期的
 Spatial/诊断任务需要延长生命周期，必须克隆根 `Arc`，再从该根借用对应 component。
 
 根类型与只读借用必须是 `Send + Sync`；具体 auto-trait、accessor 返回类型以及 component
-不可独立取得 owned value 的 API 形状由 G2 compile-time/API tests 固定。
+不可独立取得 owned value 的 API 形状由 compile-time/API tests 固定。
 
 ## 5. `SharedTrafficNetwork`
 
@@ -193,9 +193,7 @@ Traffic component 必须提供以下 Runtime 静态事实：
 - Traffic/Spatial 共用的 edge/frame ordinal contract。
 
 显示名、来源位置、规范身份 field-tag/value 前像、LFSM/LFSD 和 compiler provenance 不进入
-Traffic retained data。#439 已交付其中的 Identity 基数、LaneEdge 热列/可执行 CSR 与
-机动候选；其余字段与关系的逐项归属由 [§13](#13-440-剩余-runtime-关系闭包) 冻结，不得用
-本节总清单代替 #440 G1。
+Traffic retained data。字段与关系的逐项归属由 [§13](#13-runtime-关系闭包) 冻结。
 
 ### 5.2 默认物理策略
 
@@ -207,8 +205,8 @@ Traffic retained data。#439 已交付其中的 Identity 基数、LaneEdge 热�
 - 逐 tick 批量访问必须可借用连续 slice；
 - 单元素便利 accessor 必须可内联，不能隐藏 hash、scan 或 allocation。
 
-AoS、SoA 和 AoSoA 的精确组合不在 G1 形成 ABI。G2 必须先以 SoA/热冷分离为基线；若
-选择 AoS/AoSoA，须用 #301 相同 production access kernel 说明 cache/SIMD 收益和 retained
+AoS、SoA 和 AoSoA 的精确组合不形成 ABI。实现以 SoA/热冷分离为基线；若选择
+AoS/AoSoA，须用相同 production access kernel 说明 cache/SIMD 收益和 retained
 memory 代价。
 
 ## 6. Identity、planning hints 与 Spatial
@@ -231,7 +229,7 @@ memory 代价。
 
 ### 6.2 `PartitionPlanningHints`
 
-LFCA v1 不保存分区提示 payload。`laneflow-static-network` 是 v1 提示的唯一派生 owner：
+LFCA 4 不保存分区提示 payload。`laneflow-static-network` 是现行提示的唯一派生 owner：
 它按 `partitionPlanningHintsDerivationVersion` 标识的确定性函数，从受检 LFCA 的规范关系、
 拓扑和 execution contract 派生 worker-count-neutral 资源/边界/成本信息。compiler 只拥有
 并发所需的静态语义与规范关系，不再从 LIR 向不可见的旁路传递提示。
@@ -322,7 +320,7 @@ builder 必须闭合 owner/member、access/profile、signal、parking 与冲突�
 - allocation failure（按 Rust/平台可稳定表达的边界）。
 
 任一错误都不返回部分 component 或根 `Arc`、不修改现有 revision、不写文件或安装对象。
-取消点可以放在 pass 边界和有界批次之间；#300 不拥有编辑器任务队列或调度策略。
+取消点可以放在 pass 边界和有界批次之间；本 crate 不拥有编辑器任务队列或调度策略。
 
 ## 8. 所有权、并发与切换接口
 
@@ -334,7 +332,8 @@ component handle：Traffic/Identity/Spatial 访问从同一根借用，或从 #3
 component 内没有锁、原子字段或 interior mutability；运行时可变 arrays、控制器时钟、占用
 和执行计划全部 per world。
 
-#300 不实现 cutover。它只保证候选是完全拥有、不可变、可独立丢弃的对象，并暴露：
+`laneflow-static-network` 不实现 cutover。它只保证候选是完全拥有、不可变、可独立丢弃的
+对象，并暴露：
 
 - origin/revision/contract metadata；
 - Identity round-trip；
@@ -352,7 +351,8 @@ snapshot/facade，并负责事件恰一次和旧修订退休；旧修订在最�
 ```text
 Working RoadEditingState + editor preview
   --用户确认建造-->
-compiler -> in-memory LFCA -> checked input -> candidate SharedNetworkRevision
+compiler -> file-backed LFCA/LFSM/LFSD -> PostEmissionCheckedBundle
+         -> same-backing checked input -> candidate SharedNetworkRevision
   --#302 成功提交-->
 CommittedRoadNetwork {
   CommittedNetworkSource = RoadEditingState | PublishedLfcaReference,
@@ -364,7 +364,7 @@ CommittedRoadNetwork {
 - preview 不触发 LFCA/shared-network build；
 - 确认建造触发一次完整候选；
 - 当前 revision 在候选期间继续运行；
-- G1 不假设构建慢于玩家下一次确认，也不设计高频 FIFO/latest-wins 系统；
+- 本合同不设计高频 FIFO/latest-wins 系统；
 - 保存只读取已经进入活动 Runtime aggregate 的 `CommittedRoadNetwork`；working/candidate
   不保存，也不序列化共享数组；
 - `CommittedRoadNetwork` 的来源是 `CommittedNetworkSource`：可编辑世界保存 committed
@@ -403,10 +403,10 @@ CommittedRoadNetwork {
 不得为了未证明的 allocator 峰值收益引入手写 `unsafe` 初始化。报告区分 logical bytes、
 requested capacity、累计分配、returned retained bytes 和进程 RSS，不能互相冒充。
 
-### 10.2 一次性交付测量
+### 10.2 资源测量
 
-本节由 #441 独立验收；它不得反向扩大 #439 的功能范围，也不得在 #440 的最终静态字段集合
-或 #301 production traversal kernel 就绪前用临时布局冒充最终证据。
+资源测量不得反向扩大共享静态路网的功能范围，也不得用临时字段集合或临时 traversal
+kernel 冒充当前证据。
 
 最小 headless、facility-only、profile/frame-only、full lane Spatial 和最大合法产品场景
 分别记录；必须按 `10000` / `100000` / `1000000` 个现实混合稳定静态实体
@@ -418,13 +418,13 @@ requested capacity、累计分配、returned retained bytes 和进程 RSS，不�
 - allocation/reallocation count 与累计字节；
 - scratch peak、builder 成功后不借用三对象、失败 retained 为零；
 - 发布构建的 LFCA + candidate arrays + scratch，以及可编辑切换的 current root + retained
-  base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch 两类共存峰值；若 G2 用窄化
+  base LFCA + target LFCA/LFSM/LFSD + candidate root + scratch 两类共存峰值；若实现用窄化
   capability 证明 LFSM/LFSD 可在 builder 前释放，仍须分别报告后发射检查峰值和构建峰值；
 - 2/8/32 worlds 的新增 shared-control bytes；
-- Identity lookup 和至少一个 #301 production contiguous traversal kernel。
+- Identity lookup 和至少一个 production contiguous traversal kernel。
 
-结果保存在 PR/Gate 评论或现有验证参考中，不创建新 schema/benchmark product。数值只作
-描述性证据；没有最低产品硬件和完整 #301 kernel 时不声明 Product Pass。
+结果保存在现有验证参考中，不创建新 schema/benchmark product。数值只作描述性证据；
+没有最低产品硬件和完整 production kernel 时不声明 Product Pass。
 
 ## 11. 测试矩阵
 
@@ -442,13 +442,13 @@ requested capacity、累计分配、returned retained bytes 和进程 RSS，不�
 | 保存来源     | editable RoadEditingState 与 published LFCA reference 均只绑定活动根；缺失/错配来源失败关闭                                                  |
 | 差异基线     | published→editable 同修订 rebase；exact base LFCA 与 root origin 一致；提交成功/失败时 base 原子更替/保留                                    |
 | 并发         | `Send + Sync`、多 reader、tick/snapshot 内单 revision；无内部 mutation                                                                       |
-| 性能         | SoA/CSR baseline 与 #301 production access kernel；AoS/AoSoA 变更需比较证据                                                                  |
+| 性能         | SoA/CSR baseline 与 production access kernel；AoS/AoSoA 变更需比较证据                                                                       |
 
 任意原始字节、截断、错位、oversized 和 FieldV1 结构 fuzz 继续由 `laneflow-format` 覆盖；
-#300 只补充能够通过格式直接值域但不能构成功能正确 Runtime 结构的 cross-table mutation，
+builder 测试只补充能够通过格式直接值域但不能构成功能正确 Runtime 结构的 cross-table mutation，
 不把自洽伪造输入或独立 compiler 复验扩展为当前产品目标。
 
-## 12. G1 非目标与返回条件
+## 12. 非目标与重新进入设计的条件
 
 非目标：
 
@@ -457,59 +457,53 @@ requested capacity、累计分配、returned retained bytes 和进程 RSS，不�
 - Runtime snapshot/save container 格式；
 - 局部/增量 shared-network build；
 - target-specific SIMD 已选实现；
-- G1 数值产品 SLA 或新性能证明框架。
+- 没有产品硬件证据的数值 SLA 或新性能证明框架。
 
-出现以下情况必须返回 G1：
+出现以下情况必须重新进入设计：
 
 - production Runtime 需要 LFCA 中不存在的新静态语义；
 - 需要第二条 LIR → Runtime backend；
 - 需要持久化/跨进程 static cache 或稳定 FFI/raw-layout ABI；
 - component 不能保持 immutable/`Send + Sync`；
 - 为达到目标必须引入手写 `unsafe`、最终 partition/worker assignment 或每世界状态；
-- #301 实测证明已冻结 accessor 无法支持性能所需布局演进。
+- production 实测证明已冻结 accessor 无法支持性能所需布局演进。
 
-## 13. #440 剩余 Runtime 关系闭包
+## 13. Runtime 关系闭包
 
-**文档状态**: Accepted（#440 G1 Pass；G2 实现按本附录闭合）<br>
-**适用范围**: `SharedTrafficNetwork` 在 #439 基础投影之后仍需闭合的 LFCA v1
-compiled relation / 实体字段；不改变 ADR 0025、§1–§12 的根所有权、admission、
-Spatial 基线或性能证据职责。
+**适用范围**: `SharedTrafficNetwork` 从 LFCA 4 保留的完整 compiled relation / 实体字段；
+不改变 ADR 0025、§1–§12 的根所有权、admission、Spatial 基线或性能证据职责。<br>
 
-#439 已完成 G4，Delivery PR #436 已合入 `main`：受检输入、根唯一
-`Arc<SharedNetworkRevision>`、22 类实体 Identity 双射、LaneEdge 长度/限速、普通后继
-与 `ManeuverPath.edges` 合并后的 successor/predecessor CSR、机动路径/转换/门/等待区
-候选，以及可选 Spatial 车道/设施带几何。#440 只补齐 Runtime 后续消费所需、且尚未投影
-的静态事实，并提供 production accessor。#441 仍独占系统化性能证据；#301 仍独占 tick /
-每世界状态。
+现行根以唯一 `Arc<SharedNetworkRevision>` 绑定 23 类实体 Identity 双射、LaneEdge
+长度/限速、普通后继与 `ManeuverPath.edges` 合并后的 successor/predecessor CSR、机动路径/
+转换/门/等待区候选、完整 Runtime 静态关系，以及可选 Spatial 几何。
 
 ### 13.1 已锁定产品决策
 
-1. **覆盖切面 = v0.10 切换完整集。** 投影当前 Core 已经从 Traffic JSON 消费的全部
-   静态事实，使 #301 去掉 current JSON 时不必再开第二次静态投影。不投影
+1. **覆盖切面 = 当前 Runtime 完整集。** 投影 `TrafficWorld` 所需的全部静态事实。不投影
    `#282` 等待区占用求解、`#284` 冲突裁决、`#237` 动态车道用途。
 2. **热路径不进 UTF-8；设施 kind 用有类型列。** `Movement` 的 directed entry/exit
    approach key 与 `AccessRule.regulation` 的司法管辖/version/source 仍留在
-   LFCA/LFSM。`regulation` 是当前 Core 的审计 provenance，v1 不参与准入计算；切换后
+   LFCA/LFSM。`regulation` 是冷审计 provenance，不参与准入计算；
    Traffic 不提供等价 `regulation()` 查询。`RoadSection`/`FacilityBand` 必须保留与当前
    `FacilityKind` 等价的紧凑类型列：seed kind 用封闭代码；`x-` 自定义 token 进入冷
    intern 表，行上只存 intern id。不得把原文 `kind_id` UTF-8 做成每行热列。
 3. **停车几何全部进 Traffic。** `ParkingSpace` 的入口/出口边与 progress、lateral、
-   heading、length、width 进入 `SharedTrafficNetwork`，使 headless 也能完成当前
-   Core 已有的泊位绑定。#440 不把泊位 pose 扩进 #439 Spatial 基线。
+   heading、length、width 进入 `SharedTrafficNetwork`，使 headless 也能完成
+   现行泊位绑定。泊位 pose 不进入 Spatial 基线。
 4. **不新建 Junction approach 实体。** 只闭合 `Junction → Movement → ManeuverPath`
-   与 `JunctionInternalEdge`。approach key 不进 Traffic；若日后 `#237`/`#301` 需要
+   与 `JunctionInternalEdge`。approach key 不进 Traffic；若后续能力需要
    分组，再用 ordinal 派生。
-5. **共享 resolved 准入平面是查询权威。** builder seal 时按当前 Core
+5. **共享 resolved 准入平面是查询权威。** builder seal 时按现行准入合同
    `AccessRegistry` 语义（参与者继承、target 特异性、priority）生成稀疏
    `(edge, class)` 与 `(path, class)` 平面，查询为 O(1)。规则表只保留归因/
    审计所需的胜者 rule handle 与原始 target/effect/classes/priority，不能作为查询时
    全表扫描或每 world 重建的权威。无约束单元必须用与成功对象内无效 handle 区分的
    表示，不得伪造 typed handle。同 effect、同特异性、同 priority 的并列规则，
-   **不再承诺 Traffic JSON 声明顺序**：builder 只看见 LFCA，LIR/LFCA 已按 Identity v1
+   **不承诺任何来源声明顺序**：builder 只看见 LFCA，LIR/LFCA 已按 Identity v1
    规范顺序排列 AccessRule。并列归因与歧义配对一律使用 LFCA AccessRule canonical
    ordinal（较小者胜出 / 作为 first_rule）。不得为保留 JSON 顺序而新增 LFCA 字段或
    读取 LFSM。测试必须按 LFCA 表序构造并列规则，不得用 JSON 文件顺序当 oracle。
-6. **本附录是关系投影的设计事实源。** 任何已登记关系都必须按本节明确的目标 component
+6. **本节是关系投影的设计事实源。** 任何已登记关系都必须按本节明确的目标 component
    投影或明确禁止，不得因首个消费 kernel 暂时不用而丢失。
 
 ### 13.2 32 个 compiled relation role
@@ -558,7 +552,7 @@ Identity 正反表覆盖登记表修订 3 的连续 kind `1..=23`。本表只冻
 Traffic retained 标量/向量；
 未列出的 UTF-8、身份前像、来源位置一律不投影。
 
-| 实体                | 本切片进入 Traffic 的字段                                                                        | 明确不进入                                                              |
+| 实体                | 进入 Traffic 的字段                                                                              | 明确不进入                                                              |
 | ------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
 | `RoadCorridor`      | `reference_section`；元素 range（角色 2）                                                        | 无额外显示名                                                            |
 | `RoadSection`       | `road_corridor`；车道 range（角色 3）；有类型 `FacilityKind`（seed 代码或冷 intern id）          | 原文 `kind_id` UTF-8 热列                                               |
@@ -566,7 +560,7 @@ Traffic retained 标量/向量；
 | `LaneEdge`          | 长度/限速/CSR、**可选**编制属主、内部边属主与停止线反向                                          | 强制全覆盖属主；一边多条停止线                                          |
 | `Junction`          | `movements` range                                                                                | 任何 approach 实体或 UTF-8 key                                          |
 | `Movement`          | `junction`；`maneuver_paths` range                                                               | `directed_entry_approach_key`、`directed_exit_approach_key`             |
-| `ManeuverPath`      | #439 已有 movement/edges/gates/waiting                                                           | 无                                                                      |
+| `ManeuverPath`      | movement/edges/gates/waiting                                                                     | 无                                                                      |
 | `ManeuverGate`      | `maneuver_path`、`transition_index`、`stop_line`、signal-control 标签与可选 `SignalGroup`        | 法规或冲突字段                                                          |
 | `WaitingZone`       | `maneuver_path`、`entry_gate`、`release_gate`、`max_occupancy`                                   | 占用账本、队列、#282 runtime 状态                                       |
 | `StopLine`          | `lane_edge`；机动门 range                                                                        | 无                                                                      |
@@ -589,7 +583,7 @@ Traffic retained 标量/向量；
 
 ### 13.4 反向索引与闭合
 
-除 LFCA 实体行上已有的属主标量外，本切片还必须在 seal 前建立并 round-trip 下列
+除 LFCA 实体行上已有的属主标量外，builder 还必须在 seal 前建立并 round-trip 下列
 索引。成功对象内不得保存无效 typed handle sentinel。
 
 - `LaneEdge → AuthoringLane`：**可选/稀疏**。合法 LFCA 允许 LaneGraph 边不属于任何
@@ -597,7 +591,7 @@ Traffic retained 标量/向量；
   必须返回明确缺失，不得拒绝制品或伪造属主。
 - `AuthoringLane → LaneGroup`：可选；仅当该编制车道是组成员时存在。
 - `LaneEdge → Junction`：**可选**；仅内部边（角色 9）有属主。
-- `LaneEdge → StopLine`：**可选一对一**。当前 Core `SignalRegistry::stop_line_for_edge`
+- `LaneEdge → StopLine`：**可选一对一**。现行 Runtime accessor
   与「一边至多一条停止线」不变量必须保留；缺失为合法，重复属主在 seal 前失败关闭。
   不得靠扫描全部 StopLine 实现该查询。
 - `StopLine ↔ ManeuverGate`；
@@ -617,7 +611,7 @@ Traffic retained 标量/向量；
 成功对象只保留冷 intern 列。失败不返回部分根。
 
 共享准入平面与规则表一起在 seal 前闭合：同一 LFCA 的 `(edge, class)` / `(path, class)`
-裁决必须与当前 Core `AccessRegistry` 在 **以 LFCA AccessRule ordinal 为声明序** 时的
+裁决必须与现行准入合同在 **以 LFCA AccessRule ordinal 为声明序** 时的
 unconstrained/decided 语义一致，包括胜者 rule 归因。平面是共享静态数据，不能推迟到
 每 world 可变状态。
 
@@ -625,7 +619,7 @@ unconstrained/decided 语义一致，包括胜者 rule 归因。平面是共享�
 也不得复制进每 world 可变状态：
 
 - **信号相位累计边界**：每个 `SignalPhase` 保留控制器内累计互斥 `end_offset_ms`
-  （当前 Core `ResolvedSignalPhase.end_offset_ms`）。`populate_runtime_state` 用
+  （`ResolvedSignalPhase.end_offset_ms`）。`populate_runtime_state` 用
   `partition_point` 解析活动相位；末相位 `end_offset_ms` 必须等于 controller
   `cycle_duration_ms`。只留 `duration_ms` 会迫使每 tick 前缀求和或每 world 重建。
 
@@ -634,27 +628,27 @@ compiled 表物化分段前缀、后缀距离、受控 hop 链与限速下降转
 本世界索引，边长 / 门 / 限速值仍读共享根热列。有界距离同型（`Finite(u32)` /
 `BeyondFinite`）。
 
-`PartitionPlanningHints` 默认保持 #439 的边邻接度数公式。若实现要把路口
+`PartitionPlanningHints` 默认保持边邻接度数公式。若实现要把路口
 边界权值纳入 worker 数无关提示，必须提升
 `partitionPlanningHintsDerivationVersion`，并证明不改变精确执行结果；不得把最终
-partition/worker 写入共享对象。本 G1 不把提示算法升级当作完成条件。
+partition/worker 写入共享对象。提示算法升级不是本合同的隐含完成条件。
 
-### 13.5 本切片测试增量
+### 13.5 测试增量
 
-在 §11 矩阵上，#440 Delivery 至少补齐：
+在 §11 矩阵上至少补齐：
 
 - 走廊元素并行属主：同一走廊交错 `RoadSection`/`FacilityBand` 不得被线性化为单类型链；
 - 未覆盖 LaneEdge：不属于任何 `AuthoringLane.edgeChain` 的合法边构建成功，编制属主反向
   为缺失；内部边才有 Junction 属主；
-- 有类型 `FacilityKind`：seed kind 往返等于当前 Core 解析结果；自定义 `x-` token 只出现在
+- 有类型 `FacilityKind`：seed kind 往返等于现行解析结果；自定义 `x-` token 只出现在
   冷 intern 表；
 - 准入四域、`ParticipantClass` 区间编码与 **resolved 平面**：LaneGroup/RoadSection 目标
   可通过覆盖链落到 LaneEdge；错误域（含 FacilityBand target）失败关闭；unconstrained、
-  target 特异性、priority 必须与当前 Core 平面一致；同 effect 并列的胜者/歧义配对按
-  LFCA AccessRule ordinal，不得用 JSON 声明序当 oracle；查询不得扫描规则表；
+  target 特异性、priority 必须与现行准入平面一致；同 effect 并列的胜者/歧义配对按
+  LFCA AccessRule ordinal，不得用来源声明序当 oracle；查询不得扫描规则表；
 - `LaneEdge → StopLine`：无停止线的边构建成功且反向缺失；一边两条停止线失败关闭；
 - 信号 program：controller offset/cycle、phase duration、group aspect 与门绑定
-  往返相等；累计 `end_offset_ms` 与 `partition_point` 相位边界精确等于当前 Core；
+  往返相等；累计 `end_offset_ms` 与 `partition_point` 相位边界精确等于现行 Runtime；
   不得出现冲突裁决字段；
 - 路线执行索引：共享根不含路线；`register_route` 后的距离/受控门查询由每世界
   compiled 边序号证明（ADR 0029）；
@@ -663,17 +657,17 @@ partition/worker 写入共享对象。本 G1 不把提示算法升级当作完�
   Traffic 热路径 accessor；
 - 损坏的跨表引用、错误 owner、range overflow/gap/overlap。
 
-### 13.6 本切片非目标与返回条件
+### 13.6 关系闭包非目标与变更条件
 
 非目标沿用 §12，并额外明确：
 
-- 不重做 #439 的受检输入、Identity、LaneEdge CSR、机动候选或 Spatial 基线；
+- 不重做受检输入、Identity、LaneEdge CSR、机动候选或 Spatial 基线；
 - 不重算 StableId 前像或 segment 几何派生，不建第二套验证器；
-- 不实现 #301 tick / Spatial session / Adapter，不实现 #302 切换；
-- 不交付 #441 性能证据；
+- 不实现 tick / Spatial session / Adapter 或修订切换；
+- 不以本节替代系统资源/性能证据；
 - 不冻结 ABI、mmap、cache 或平台 SIMD。
 
-除 §12 所列情形外，出现以下情况也必须返回 G1：
+除 §12 所列情形外，出现以下情况也必须重新进入设计：
 
 - 生产 Runtime 需要把已排除的 UTF-8 冷字段（含 `regulation` 审计查询）或 approach
   实体变成切换完成条件；
@@ -681,7 +675,7 @@ partition/worker 写入共享对象。本 G1 不把提示算法升级当作完�
 - AccessRule 需要第五个 target domain 或时变 overlay 才能完成 v0.10 切换；
 - 准入查询必须在 tick/绑定期扫描规则表，或每 world 重建 resolved 平面才能保持当前
   Core 语义；
-- 必须把 Traffic JSON 声明顺序而不是 LFCA AccessRule ordinal 当作并列规则归因权威，
+- 必须把来源声明顺序而不是 LFCA AccessRule ordinal 当作并列规则归因权威，
   才能完成 v0.10 切换；
 - 固定时制相位解析必须每 tick 扫描/累加 `duration_ms`，或每 world 重建累计边界；
 - 必须把路线边序列或出现项写回共享根才能完成 tick 或 #302 快照。

@@ -1,6 +1,6 @@
 # 可移植规范制品与辅助制品格式
 
-**文档状态**: Review<br>
+**文档状态**: Accepted<br>
 **最后更新**: 2026-08-30<br>
 **适用范围**: LFCA、LFSM、LFSD、LFCP 的权威格式、规范排序、跨对象绑定、
 失败关闭与格式安全天花板<br>
@@ -1692,8 +1692,8 @@ Remove/Modify/Move/Reconnect，StaticRule 为空，并恰有一条空间 Initial
 由两份受绑定 LFCA 独立重算。LFCA 3 到 LFCA 4 是不支持的语义合同转换，不生成跨格式 LFSD。
 `semanticDiffDigest` 是完整 LFSD exact bytes 的 SHA-256，`semanticDiffByteLength` 是同一
 字节序列的精确 `u64` 长度；两者不嵌回 LFSD。内容寻址 key 唯一为
-`"sha256/" || hexLower(semanticDiffDigest)`，调用方不能覆盖。该绑定供候选、安装器与后继
-切换合同使用，不进入 LFCP；LFSD 自身不授予迁移权限。
+`"sha256/" || hexLower(semanticDiffDigest)`，调用方不能覆盖。该绑定供候选、宿主资产绑定与
+后继切换合同使用，不进入 LFCP；LFSD 自身不授予迁移权限。
 
 ## 6. LFCP 2 与发布闭合
 
@@ -1759,13 +1759,12 @@ object key 精确为 `sha256/<64 lowercase hex>`。LFCP 不包含验证收据，
 LFSD 是供修订切换认证使用的诊断/迁移制品。真实性由 LFCP exact bytes 之外的外部认证
 manifest/指针提供。
 
-发布顺序固定为：关闭 LFCA/LFSM/LFSD 候选 → 对最终 bytes 做结构和值域预检与最小
-后发射闭合 → 安装 content-addressed objects → 构造并安装 LFCP 2 → 外部认证 manifest
-恰好一次提交。任何失败都不得返回可发布 capability，也不得让部分安装对象变成已认证
-发布。atomic no-replace、并发 winner exact-byte 复用、目录持久化屏障与 unsupported
-fail-closed 的唯一生命周期合同见
-[`compiler-post-emission-check-and-minimal-publication-closure.md` §9](compiler-post-emission-check-and-minimal-publication-closure.md#9-原子发布事务)；
-本文件只拥有 wire 与绑定，不复制第二套 installer 状态机。
+LaneFlow 顺序固定为：关闭 LFCA/LFSM/LFSD 候选 → 对最终 bytes 做结构和值域预检与 bundle
+后发射闭合 → 按需从 checked capability 构造 LFCP 2。宿主、CI 或打包工具决定是否以及如何
+持久化与认证这些 exact bytes；内容仓库、atomic no-replace、winner 和目录持久化不属于本
+wire 或 compiler/format 核心合同。加载方仍须按受认证 LFCP/宿主描述符重新验证收到的 bytes。
+职责边界见
+[`compiler-post-emission-check-and-minimal-publication-closure.md` §9](compiler-post-emission-check-and-minimal-publication-closure.md#9-宿主持久化与原子边界)。
 
 ## 7. 格式安全天花板
 
@@ -1790,11 +1789,9 @@ fail-closed 的唯一生命周期合同见
 | 单 LFSM SourceLocation chunk 行数 | `65,536`；完整 location ordinal 空间仍为全局 `u32`                                  |
 | 同时 staged LFCA+LFSM+LFSD chunk  | `50,331,648 bytes`；不得据此缓存三个完整对象                                        |
 
-LFCA 4 实现必须退役 LFCA 1 把 `FORMAT_HARD_MAX_OBJECT_BYTES = 16,777,216` 和
-`FORMAT_HARD_MAX_CANDIDATE_STAGING_BYTES = 50,331,648` 分别解释为完整对象、完整三对象候选
-ceiling 的旧语义。`16,777,216` 只保留为单 `TableV1` chunk ceiling，`50,331,648` 只保留为
-三个同时 staged chunk 的内存 ceiling；完整对象与 bundle 由调用方具名配置档中的受检 `u64`
-预算约束。不得为了沿用常量名称而重新引入 16 MiB 完整对象或 48 MiB 完整候选限制。
+`16,777,216` 只表示单 `TableV1` chunk ceiling，`50,331,648` 只表示三个同时 staged chunk
+的内存 ceiling；两者都不是完整对象或完整三对象候选上限。完整对象与 bundle 由调用方
+具名配置档中的受检 `u64` 预算约束，不得重新引入 16 MiB 完整对象或 48 MiB 完整候选限制。
 
 reader/checker 必须先验证对象 exact length、section directory、chunk directory 的 checked
 长度和调用方预算，再为 directory、行、字符串或向量分配。writer、digest 和 checker 必须
@@ -1828,13 +1825,20 @@ CanonicalFrame，并在对应领域交付后包括 ConflictZone/ParticipantStrea
 - `1000000`：单逻辑修订容量门禁。
 
 三档都报告 LFCA/LFSM/LFSD exact bytes、chunk 数与分布、compile/emission/check/load/build
-各阶段时间、retained/scratch/peak bytes、digest、失败原子性和声明排列扰动。headless 与
-完整 Spatial 分开报告。路线登记另外使用现实短/典型/长路线、密集 passage、重复/
+各阶段时间、retained/scratch/peak bytes 和 digest。失败原子性与排列扰动由日常定向回归、
+固定向量和规模证据按风险组合，不在十万/百万档重复已经与规模无关的同一分支；headless
+与完整 Spatial 分开报告。路线登记另外使用现实短/典型/长路线、密集 passage、重复/
 循环 occurrence 和聚合注册量验证；本合同不要求荒谬的“单条路线穿过一百万个冲突区”，
 也不把一百万静态实体写成一百万活动车辆 fixed-tick 认证。
 
+排列扰动必须区分两条边界：只改变模块准入顺序、内部集合或 hash 迭代顺序而不改变
+official source exact bytes 时，三对象 exact bytes 必须相同；若直接重排来源文档中的声明，
+`sourceDocumentDigest` 与 `sourceCollectionDigest` 按定义必须变化，此时要求语义节与
+`NetworkRevisionId` 不变，而 provenance、LFSM 来源位置及其跨对象 binding 所在的 exact
+bytes 和对象摘要相应变化。不得为了制造伪 exact-byte 相等而丢弃真实来源绑定。
+
 三档 official source 编译都必须显式选择
-`LF-COMP-SINGLE-NETWORK-1M-v1`，其精确有限向量见
+`LF-COMP-SINGLE-NETWORK-1M-v2`，其精确有限向量见
 [`compiler-foundation.md` §5.3](compiler-foundation.md#53-编译资源上限)。一百万档必须在
 `max_stable_entity_count = 1000000` 内完成真实 compiler/emitter；手工拼装 LFCA、只运行
 reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构成该容量证据。大型配置档
@@ -1854,8 +1858,9 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
 5. compiler、LFSM/LFSD、LFCP、SharedNetworkRevision、Runtime、Spatial/Adapter 一次贯通；
 6. ParkingFacility 与 ConflictZone/ParticipantStream/ConflictZoneRegion 的 known vectors、
    来源投影、语义差异、规范排序扰动和旧 LFCA 版本 rejection 定向反例；
-7. `10000`/`100000`/`1000000` 单修订证据、真实 round-trip 与发布事务原子性验证。
-   三档均使用 `LF-COMP-SINGLE-NETWORK-1M-v1`，一百万档不得在 emission 前由较小 P100
+7. `10000`/`100000`/`1000000` 单修订证据、真实 round-trip、bundle 失败零受检能力与
+   SharedNetworkRevision 构建失败零部分根验证。
+   三档均使用 `LF-COMP-SINGLE-NETWORK-1M-v2`，一百万档不得在 emission 前由较小 P100
    profile 拒绝；
 
 固定向量不得在测试运行时用 production emitter 自己生成 expected。目标实现至少冻结并
@@ -1878,16 +1883,16 @@ reader/builder、修改私有 limits 或使用 unlimited 测试入口均不构�
 | `closed-value-rejection`        | regulation tag 缺失或恰一行成功，零/多行与非法 `x-lane-*` / `x-*` ASCII token 稳定失败              |
 | `lfsd-field-presence`           | required/optional 字段的四种 base/target 存在性只接受唯一 before/after payload 形状                 |
 
-实现切片必须把这些向量原子重生为 `4/3/3/2`；不得继续把旧版本 bytes 当作当前成功向量，
+这些向量必须原子保持 `4/3/3/2`；不得把旧版本 bytes 当作当前成功向量，
 也不得为保留旧 fixture 增加双读分支。
 
 确定性矩阵至少覆盖 Windows x86-64 与 Ubuntu x86-64、single-thread 与 compiler 支持的全部
 worker 数、两个 fresh process、不同 hash seed/分配地址，以及无 Spatial/完整 Spatial 两条
 生产分支。安全矩阵覆盖每个 preamble/directory/chunk/table/row/field 边界的截断与追加、
 单 bit 损坏、未知/重复/乱序、gap/overlap、chunk digest、length/digest/revision/source-map/
-base-target 错配和所有 hard-limit `+1`。发布矩阵在 write、flush、close、no-replace install、
-winner compare、directory durability 与 manifest commit 的每个失败点证明不返回部分 committed
-状态。规模证据与 exact-byte 分支证据按风险组合，不建立无意义的全轴笛卡尔积。
+base-target 错配和所有 hard-limit `+1`。staging 矩阵在 write、patch、flush、finish、不可变映射
+与 backing identity/length/bytes 漂移的失败点证明不返回受检 bundle；共享静态构建失败时不
+返回部分根。规模证据与 exact-byte 分支证据按风险组合，不建立无意义的全轴笛卡尔积。
 
 领域 Runtime 行为不属于本公共格式合同；实现不得顺带引入 Waiting admission、
 ConflictArbiter 或 Parking lifecycle。未定义或互相冲突的 wire 选择必须先修订权威设计，

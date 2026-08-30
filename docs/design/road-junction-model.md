@@ -16,7 +16,6 @@ identity/behavior，新增横断面与准入静态模型；#196 protected-turnin
 - `../adr/0007-traffic-data-crate-and-loader-boundary.md`
 - `../adr/0008-pre-1.0-data-format-version-policy.md`
 - `../adr/0009-signal-indication-gate-and-policy-separation.md`
-- `../adr/0011-schema-identifier-and-publication-contract.md`
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `../adr/0018-multimodal-cross-section-and-access-overlay.md`
@@ -885,9 +884,9 @@ heuristic、放宽测试或隐式 ConflictZone 补洞。
 - old/new Gate API 同时公开；
 - current docs 声称 0.8 已实现但 production loader 尚未切换。
 
-如 schema publication 需要 main commit provenance，可按 ADR 0011 使用 Related source
-PR + final Delivery PR 的两阶段流程，但 Issue/PR 必须显式记录，且 source-only main
-不得被文档误写为已公开下载的 current schema。
+历史 schema 的 main commit provenance 使用 Git commit permalink 与对应 Issue/PR；
+当前树不保留 source-only publication 阶段，也不得把内部 schema 写成公开下载合同
+（ADR 0026）。
 
 ## 16. 测试矩阵
 

@@ -1,6 +1,6 @@
 # 退役预编译静态路线
 
-**文档状态**: Review<br>
+**文档状态**: Accepted<br>
 **最后更新**: 2026-08-30<br>
 **适用范围**: 从路网产品删除 `StaticRoute` 后的制品表、连续身份登记、运行时编译、
 场景 catalog 0.3 与每世界路线表形状<br>
@@ -70,7 +70,7 @@ hop 是否受控：用已编译机动出现项定位 path，再在共享根
   边热列。
 
 等待区出现项按所属机动出现项 + 入口门在注册时物化到本世界表。等待运行时行为仍
-归独立切片；本切片不得把「静态有、动态无」的出现项缺口留在生产路径。
+归独立能力；现行路线注册不得把「静态有、动态无」的出现项缺口留在生产路径。
 
 共享根不再为路线预计算 `distance_to_end`、`next_controlled_transition` 或
 `speed_limit_transitions`。这些索引改由本世界 compiled 在 `register_route` 时物化。
@@ -143,8 +143,7 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 首批支持矩阵「静态路线」行改为明确拒绝。
 
 生产 `CompileLimits` 不再包含 `RouteOccurrenceCount`。该限额不改挂到运行时。
-G2 删除 `add_static_route` 之前，该入口只走通用 relation / reference / source-byte
-限额，不为该死路径恢复 1920。
+现行树不保留 `add_static_route`；也不为已删除路径恢复 1920 限额。
 
 ## 3. 共享静态路网
 
@@ -164,7 +163,7 @@ seal 不再为路线做 owner-local 分区或出现项闭合。空路线不是�
 
 `catalog_version = "0.3"`。拒绝 `0.2`。
 
-`RouteCatalogEntry` 增加有序边键（拼写由 G2 定，语义如下）：
+`RouteCatalogEntry` 使用有序边键，语义如下：
 
 ```text
 route_id: string
@@ -189,7 +188,7 @@ edge_ids: [laneEdgeKey, ...]   # 非空；允许同一边多次出现
 
 三者不是同一份布局。
 
-**内存热表**（G2 tick 只读这一套 + 共享根机动/信号/边长）：
+**内存热表**（tick 只读这一套 + 共享根机动/信号/边长）：
 
 ```text
 slot.generation: u32
@@ -225,10 +224,10 @@ profile / class / parking: StableId128
 **同进程在线切修订**：允许原地改现有槽位的 compiled（新序号 + 重编译出现项），
 当期 `RouteHandle` 保持到该进程结束。不得把该布局写进快照。走廊 catalog
 controller 绑定的是 `(世界令牌, NetworkRevisionId)`：修订变化后 controller **失效**，
-调用方按新修订重新 bind。重绑不得新分配句柄，也不得丢掉切修订已保住的句柄。本切片
+调用方按新修订重新 bind。重绑不得新分配句柄，也不得丢掉切修订已保住的句柄。本合同
 不设计 catalog 原子热切换，也不让人口层在切修订后继续用旧修订句柄。
 
-## 6. 必测项（G2）
+## 6. 必测项
 
 - `formatVersion != 4` 的 LFCA 失败关闭；旧 `StaticRoute` 行不能通过 format 4 的
   `ConflictZone` 表、身份与关系闭合。
@@ -244,9 +243,9 @@ controller 绑定的是 `(世界令牌, NetworkRevisionId)`：修订变化后 co
 - 走廊 28 条路线全部注册成功；受保护左转/直行/右转覆盖与现行静态夹具同等。
 - 内部边缺口、停止线末端、歧义 path 在 `register_route` 失败，不留槽位。
 - `remove_route` 在有车时失败；无车时旧句柄 stale。
-- tick 源码路径不再按句柄种类分支（G2 可用测试或结构约束证明）。
+- tick 源码路径不再按句柄种类分支（用测试或结构约束证明）。
 - 前缀和溢出仍 `BeyondFinite`，注册成功。
-- 快照夹具（G2 可不实现完整 #302）不得把 `RouteHandle` / 槽位 / 边序号写成耐久主键。
+- 快照夹具不得把 `RouteHandle` / 槽位 / 边序号写成耐久主键；完整快照实现由快照合同负责。
 - tick 对路终剩余不扫描剩余边；compiled 索引在 `register_route` 后可查。
   索引是分段 `u32` + 后缀 `BoundedDistance`，不上 `u64`。
 - 信号停车沿受控 hop 链走到第一盏当前限制的门，不扫全部剩余 hop，也不在 compiled
