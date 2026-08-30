@@ -1,6 +1,6 @@
 # 道路编辑来源与几何编制前端
 
-**文档状态**: Review<br>
+**文档状态**: Accepted<br>
 **最后更新**: 2026-08-30<br>
 **适用范围**: 道路编辑状态、有类型道路编辑模型、几何编制前端、程序化生成器接入、
 来源持久化编码与 topology/geometry MIR 降阶<br>
@@ -58,13 +58,13 @@
 
 #296 的 A 阶段只冻结稳定实体/属性位置，并为 #298 的规范 LIR 差异提供确定输入；它不
 实现 `RoadEditingSourceDiff`。C 阶段需要的 authoring-only 差异（例如控制点改变但规范
-LIR 未改变）由已登记的后继 Delivery Issue [#345] 拥有；不能把
+LIR 未改变）由独立的后继来源差异能力 [#345] 拥有；不能把
 #298 的 LIR 差异冒充完整编辑来源差异。
 
 ## 4. 道路编辑状态的最小内容
 
-本节描述可持久化内容的形状，不授予任意工作副本进入城市存档。ADR 0025 / #300 G1
-接受的保存入口只读取活动 Runtime 的 `CommittedNetworkSource`；本节只约束其中可编辑的
+本节描述可持久化内容的形状，不授予任意工作副本进入城市存档。现行保存入口只读取活动
+Runtime 的 `CommittedNetworkSource`；本节只约束其中可编辑的
 committed `RoadEditingState` 变体。runtime-only 的 `PublishedLfcaReference` 同样是合法来源，
 但不携带 authoring payload，因此不适用下列 `RoadEditingState` 必须保存内容。
 
@@ -101,7 +101,7 @@ committed `RoadEditingState` 变体。runtime-only 的 `PublishedLfcaReference` 
 物化为同一版本化道路编辑状态，并保存实际结果与来源沿袭。匿名 AST 继续只允许非发布
 测试。
 
-产品负责人于 2026-08-10 进一步确认：#296 G2 至少交付第一方 Rust 的字段私有、有类型
+现行 API 提供第一方 Rust 的字段私有、有类型
 构造与写入能力，使游戏初始化生成器不必直接操作 generated wire table。C++/C# 等宿主
 可以从同一公开 `.fbs` 生成绑定，但完整跨语言 SDK、引擎事务封装和编辑器 UI 不并入
 #296；它们在后继交付中复用相同字段语义和 production buffer。第一方 Rust 构造面、
@@ -115,7 +115,7 @@ FlatBuffers writer 与编译器 reader 必须共享验证规则，不得形成�
 #296 编译器输入；该观测不构成原始 primitive 到 cubic 的连续硬保证。
 v1 不保存其原始 primitive 语义。后继若增加 curve union，未发布 B1 也必须提升来源格式
 版本、拒绝旧版本并 clean-regenerate；只有已经产品确认并发布的存档语义才由当次
-产品/G1 决定是否交付迁移。MIR 按 ADR 0022 的配置档执行 stationing、offset、确定性细分
+产品设计决定是否交付迁移。MIR 按 ADR 0022 的配置档执行 stationing、offset、确定性细分
 与直接检查，LIR
 只保留规范 `f32` 折线及派生静态语义。
 
@@ -146,21 +146,21 @@ v1 不保存其原始 primitive 语义。后继若增加 curve union，未发布
 - 原子保存模块及其导入/关系更新，失败不产生半写状态。
 
 物理编码不必直接成为多人协作协议，但必须保留稳定实体/属性定位，使后继
-[#345] 的 `RoadEditingSourceDiff` 能比较 authoring-only 改动；当前 #296 只交付模块级读取、
-编译和保存，不交付该 diff engine。模块边界保证一次小改动不解析或重写整个城市。
+[#345] 的 `RoadEditingSourceDiff` 能比较 authoring-only 改动；当前合同包含模块级读取、
+编译和保存，不隐含该 diff engine。模块边界保证一次小改动不解析或重写整个城市。
 
 ## 9. 来源编码决策与评估
 
 ### 9.1 已选择的 production 编码：按模块保存的 FlatBuffers 来源缓冲区
 
 生产来源编码使用 LaneFlow 自有的**道路编辑来源缓冲区**
-（Road Editing Source Buffer）`LF-ROAD-EDITING-SOURCE-v1`：
+（Road Editing Source Buffer）`LF-ROAD-EDITING-SOURCE-v3`：
 
 - 一个逻辑来源模块恰好对应一个 size-prefixed FlatBuffer；
 - FlatBuffers 根表固定为 `RoadEditingSource`，文件标识符固定为 ASCII `LFRE`；
 - 根表包含唯一模块头和按稳定声明种类分组的有类型向量；
 - 城市项目/存档以多个模块 blob 组成模块图，不建立一个必须整体读取的全城来源文件；
-- 宿主项目/存档负责跨模块保存事务和 blob 定位，LaneFlow 不在 v1 发明第二个城市存档
+- 宿主项目/存档负责跨模块保存事务和 blob 定位，LaneFlow 不在该线格式中发明第二个城市存档
   容器或文件系统布局。
 
 选择的主要原因不是二进制体积，而是产品需求的组合：C++、C#、Rust 等预期工具链可从
@@ -350,7 +350,7 @@ v1 字段所有权进一步固定为同模块 owner tree：`RoadCorridor.element
 物理 vector 顺序误作 owner 或身份。
 
 owner-qualified 地址必须继续穿过共同 Typed AST/HIR，不能在 reader 末端退化回旧的
-`module namespace + stable_key`。#296 G2 把 compiler-private 共同表示扩展为以下逻辑形状；
+`module namespace + stable_key`。compiler-private 共同表示使用以下逻辑形状；
 实现可用等价的受计量 interner/ordinal 优化布局，但不能拼接伪 key：
 
 ```rust
@@ -408,7 +408,7 @@ README 的 270-byte 派生上限检查。完整引用只是借用 source bytes �
 reference 禁止跨模块，普通关系目标才可引用 imports。
 
 模块沿袭与编译选项摘要的精确前像、direct 固定检查值、键/引用语法、字段所有者、
-有序/集合向量及 scalar 缺省语义由 schema 同目录 `README.md` 冻结。G2 writer 与 reader
+有序/集合向量及 scalar 缺省语义由 schema 同目录 `README.md` 冻结。writer 与 reader
 必须共用这些规则，不能让 generated builder 的“字段可省略”变成另一套 LaneFlow 语义。
 
 ### 9.3.1 拓扑/几何 lowering 闭包
@@ -470,10 +470,10 @@ v1 的物理局部性边界是**模块**，不是 FlatBuffers table：
   namespace/owner tuple/local key 排序。reader 接受任意物理顺序，在模块内先闭合 owner
   tree，再进入共同身份和最终规范顺序；
 - A 阶段保存整个候选模块并原子替换；C 阶段复用相同模块事务和实体身份，但其来源差异
-  引擎属于独立后继 Delivery Issue，不由 #296 或 #298 隐式提供。
+  引擎属于独立后继能力，不由当前 compiler/LIR 合同隐式提供。
 
 若未来实际城市证明单模块重写成为可观察瓶颈，应先以 workload 证据调整模块粒度；
-只有模块边界仍不足时，才另立 G1 讨论实体日志、增量容器或数据库存储。v1 不提前承担
+只有模块边界仍不足时，才重新设计实体日志、增量容器或数据库存储。当前格式不提前承担
 这些复杂度。
 
 ### 9.5 版本、未知字段与摘要
@@ -485,19 +485,19 @@ LFSD 3。
   `SourceLanguage::as_str() = "road-editing-source"` 和 `frontendVersion = 3`；
 - `format_version = 3` 是本 exact schema 的精确版本，不是“最低兼容版本”。
   其它版本在语义读取前失败关闭，不提供迁移。
-  B1 尚未进入 publication。任何可能让旧 bytes 被不同解释的 wire 或语义变化都必须
+  该 exact schema 未作为稳定 public format 发布。任何可能让旧 bytes 被不同解释的 wire 或语义变化都必须
   再提升 `format_version` 及对应 frontend/geometry semantics code。internal family
   至少保持可在语义读取前识别的 `LFRE + root format_version(id:0,uint)` envelope；若连该
-  envelope 也改变，则分配新 file identifier。新未发布版本可在新 G1 后重排其他
+  envelope 也改变，则分配新 file identifier。新未发布版本可在重新设计后重排其他
   field/enum/union 编号并 clean-regenerate，不承担 append/no-reuse 债务；
-- 只有后续经产品确认并发布的存档版本，才由当次产品/G1 冻结
-  append/deprecated/no-reuse、跨版本 `flatc --conform` 和是否提供一次性迁移；当前 B1
+- 只有后续经产品确认并发布的存档版本，才由当次产品设计冻结
+  append/deprecated/no-reuse、跨版本 `flatc --conform` 和是否提供一次性迁移；当前内部格式
   只要求 exact schema/codegen 再现、版本拒绝与同版本 known vectors；
 - 旧工具可能在结构 verifier 后看到新版本，但必须在任何 LaneFlow 语义 lowering 和
   规模相关分配前拒绝；不能依靠未知字段忽略完成跨版本 round trip；
 - 攻击性输入或错误 writer 在 `format_version = 3` 下附带的未知 vtable slot 语义上无效
   并被忽略，但仍计入来源字节、verifier apparent size 与精确来源摘要。根表无
-  `static_routes` 字段。其它未冻结空位不在本切片另设拒绝表；
+  `static_routes` 字段。其它未冻结空位不在本合同另设拒绝表；
 - FlatBuffers bytes 不是 LaneFlow 规范语义编码。`sourceDocumentDigest` 绑定收到的精确
   字节以便重放和完整性比较；字段布局、向量重排或不同语言 builder 的差异可能只造成
   保守 cache miss；#298 规范路网影响差异、路网修订和实体身份继续由规范模型/LIR
@@ -548,7 +548,7 @@ verifier 访问的其余每个 table occurrence（包括 curve/union payload、o
 16 倍 apparent-size 上限是 v1 的固定 DAG 放大政策，不是测量结果：官方 writer 不得在
 不同逻辑字段 occurrence 之间主动复用 table/vector/string offset，FlatBuffers 自身的
 vtable dedup 例外；第三方 writer 可使用同一 schema，但超出 16 倍的高度共享 DAG 作为
-资源不兼容输入拒绝。G2 必须用正常 Rust/C++/C# writer fixture、边界与边界加一证明该
+资源不兼容输入拒绝。必须用正常 Rust/C++/C# writer fixture、边界与边界加一证明该
 公式；不能绕过 verifier，也不能新增第二套 FlatBuffers offset parser。错误 trace、
 Typed AST、身份索引和诊断的逐 allocation 生命周期及 allocator 证据由 [#374] 独立闭合，
 不阻断本契约的 canonical LIR 下游消费。
@@ -577,8 +577,10 @@ exact-minus-one 和正式 allocator/P100 协议统一由 [#374] 交付；若产�
 - `flatc` 生成 Rust 源码放入私有、`publish = false` 的
   `laneflow-road-editing-wire` package；该 package 只承载固定生成物和必要 Cargo
   metadata，不成为产品层、公共 SDK 或可扩展前端接口；
-- 现有 first-party 手写 crate 继续继承 workspace `unsafe_code = forbid`；唯一例外是
-  精确生成路径，且生成文件必须带 `@generated` 标记；
+- 道路编辑生产调用图中的 first-party 手写 crate 继续继承 workspace
+  `unsafe_code = forbid`；固定生成路径必须带 `@generated` 标记。ADR 0024 另行冻结的
+  `laneflow-format` staged backing 只读 mmap 小岛不属于道路编辑 wire 调用图，并由同一
+  xtask 以精确 manifest、source 和表达式单独扫描；
 - `laneflow-compiler` 只调用 verifier 驱动的安全 root/accessor，不重导出 wire 类型，
   其 `unsafe_code = forbid` 也使 `_unchecked` 入口无法被调用；
 - CI 以固定 `flatc` 重生成，只规范化平台原生 CRLF/LF 后要求 canonical bytes
@@ -588,7 +590,7 @@ exact-minus-one 和正式 allocator/P100 协议统一由 [#374] 交付；若产�
 
 ### 9.7 来源位置与公共入口
 
-现有文本 `SourceSpan` 不再承担所有来源形状。#296 G2 把诊断位置收敛为字段私有的闭合
+现有文本 `SourceSpan` 不再承担所有来源形状。诊断位置收敛为字段私有的闭合
 和类型：
 
 ```rust
@@ -679,7 +681,7 @@ AST/module 或 builder 释放后仍可解析。两种返回对象只公开只读
 `DiagnosticBundle` 返回后，其 candidate context、handle vector 和 retained capacity 转为
 caller-owned，不再计入下一次 compiler 调用；仍由 builder 同时持有的 admitted context
 allocation 继续且只在 builder ledger 中计一次。调用方保留旧 bundle 并重试不会让 builder
-重复承担旧 bundle handle/capacity，但 G2 必须覆盖“旧 bundle 仍存续 + 同 builder 新候选”
+重复承担旧 bundle handle/capacity，但测试必须覆盖“旧 bundle 仍存续 + 同 builder 新候选”
 生命周期测试，并分别报告 compiler ledger 与 caller-retained bytes。
 
 verifier 失败使用 `Input` document identity、`Wire` subject、field/vector trace 和可选
@@ -726,7 +728,7 @@ wire view、裸 Typed AST、可伪造 module descriptor 或绕过 builder 余额
 schema/writer 物化相同来源缓冲区，再进入此唯一编译路径；是否持久化由产品事务决定，
 但可发布编译必须保存实际接受的 bytes 与来源沿袭。
 
-同一 G2 还必须在 `laneflow_compiler::road_editing` 公开以下第一方 Rust **编制模型与
+`laneflow_compiler::road_editing` 还必须公开以下第一方 Rust **编制模型与
 writer**；它们是程序化生成器/编辑器可使用的 production API，但不是编译器 Typed AST。
 production **编译输入**仍只有上面的借用 bytes，generated wire adapter 和验证后
 Typed AST/HIR/MIR 仍只在 compiler-private / 私有 `laneflow-road-editing-wire` 边界：
@@ -805,7 +807,7 @@ schema table/vector/string、每一次 schema emission `push/align` 最多 8-byt
 vtable 上界，以及 `finish_size_prefixed` 的 root offset、`LFRE` identifier、size prefix 和
 final minimum alignment 逐项计算
 checked wire upper bound，超过 `SourceBytesPerModule` 即失败。storage
-只按该上界预分配一次；实际 size prefix 必须等于 `as_bytes().len() - 4`。G2 边界测试
+只按该上界预分配一次；实际 size prefix 必须等于 `as_bytes().len() - 4`。边界测试
 必须覆盖 wire upper、来源字节和候选失败原子性；write 峰值、返回 buffer retained
 capacity 和该 buffer 随后进入 reader 时的精确组合峰值由 #374 继续校准。
 
@@ -833,7 +835,7 @@ array 等 wire 专用结构。现有探针没有完成 FB/PB 同 workload 的定
 ### 9.9 候选比较与依赖结论
 
 先按 ADR 0023 已冻结的八项产品需求逐项比较；“通过（有代价）”表示产品能力成立，但
-代价必须进入 G2 workload 或治理门禁，不能被当成零成本：
+代价必须进入实际 workload 与治理证据，不能被当成零成本：
 
 | 产品需求                                           | size-prefixed FlatBuffers                                         | 有界记录流 + Protobuf                                          | 单一根对象 Protobuf                      | JSON                                                 |
 | -------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------- |
@@ -844,11 +846,11 @@ array 等 wire 专用结构。现有探针没有完成 FB/PB 同 workload 的定
 | 损坏存档失败关闭与分配前资源预检                   | **通过且最匹配**；size exact + verifier limits + zero-object view | 条件通过；自建 framing 后仍需证明每记录 decode allocation      | 不通过当前硬预算门槛；先形成整模块对象图 | 条件通过；parser/token/container 分配账本复杂        |
 | 实体/属性/画布诊断与损坏定位                       | 通过；稳定实体/属性 + verifier trace/byte position                | 通过；稳定实体/属性 + record byte range                        | 通过，但损坏通常只有 message 范围        | 文本行列强，但不是产品主要诊断界面                   |
 | Rust 编译器与 C++/C# 宿主、依赖和维护成本          | 通过（有代价）；单一官方项目，生成 `unsafe` 需窄审计边界          | 通过（有代价）；Rust `prost` + 各宿主 runtime + 自定义 framing | 通过（有代价）                           | 依赖成熟，但 LaneFlow 自建严格 lexer/schema 叠加明显 |
-| 代表性城市保存、加载、编译和协作成本               | 预计通过，G2 必须实测；读取无 wire heap，保存重建当前模块         | 预计通过，G2 必须实测；每记录 decode/释放和 framing 有固定成本 | 编译峰值预期最差                         | 已有复杂度证据；人工可读收益不进入产品矩阵           |
+| 代表性城市保存、加载、编译和协作成本               | 预计通过，必须实测；读取无 wire heap，保存重建当前模块            | 预计通过，必须实测；每记录 decode/释放和 framing 有固定成本    | 编译峰值预期最差                         | 已有复杂度证据；人工可读收益不进入产品矩阵           |
 
 矩阵中只有 FlatBuffers 在不增加自定义 record parser 的同时满足不可信输入预验证和编译
 读取零对象图分配。产品负责人已接受它的两项真实代价——模块保存时重建 buffer、生成
-Rust 绑定含 `unsafe`——并选择 A；G2 仍须以绝对 workload 证明资源预算，不把选择写成
+Rust 绑定含 `unsafe`——并选择 A；仍须以绝对 workload 证明资源预算，不把选择写成
 未经测量的 PB 性能劣势。
 
 | 候选                          | 产品收益                                                              | 代价 / 风险                                                           | 结论                     |
@@ -899,7 +901,7 @@ schema probe，不进入 source tree。命令不得增加 `--gen-object-api`、`
 LF 后 byte-for-byte 比较生成物；不得规范化空白、标识符或其他源码字节。CI 还以同一固定
 binary 生成 C++/C# probe；未发布 B1 后继版本不运行跨版本 `--conform`。
 
-G1 已冻结依赖版本与生成器身份；各 G2 实现 PR 实际新增依赖时仍须运行
+依赖版本与生成器身份固定；实际新增依赖时仍须运行
 `cargo metadata`、固定版本 `cargo-deny`、workspace tests，并按
 `dependency-security.md` 复核许可证、来源、RustSec/Dependabot 和分发影响；`flatc` 与
 runtime 必须保持同一固定版本，生成物 clean regeneration 属于数据格式 G3 必需证据；
@@ -908,7 +910,7 @@ production 依赖或实现。
 
 ## 10. 测试、性能与 workload
 
-以下矩阵是已选择 size-prefixed FlatBuffers 编码的 G2 已授权输入。G2 至少实现：
+以下矩阵是已选择 size-prefixed FlatBuffers 编码的实现与验证要求：
 
 - size prefix、`LFRE`、版本、checked exact length、截断、trailing bytes、错位 offset、
   非法 vtable/vector/string/union 的 known vectors；唯一接受 `format_version = 3`，
@@ -921,7 +923,7 @@ production 依赖或实现。
   `EntityKind::required_tags()` registry known vectors 对齐；
 - programmatic Rust writer → bytes → production reader → LIR；C++/C# binding 生成继续由固定
   `flatc` 检查覆盖，跨语言 writer → Rust reader fixture 在 B1 publication 或外部 SDK
-  promotion 前补齐，不阻断内部 #296 Delivery；
+  promotion 前补齐，不阻断内部使用；
 - line/cubic/taper 的 scalar-dual 逐 bit known vectors，覆盖大坐标、九种档位阈值
   `-1/0/+1 ULP`、source-offset canonical weld、水平 cusp/近 cusp、regularity depth/node 上限；
 - 模块独立加载、导入闭包、实体属性诊断、候选失败不污染、失败后恢复和同实例重复编译；
@@ -931,88 +933,46 @@ production 依赖或实现。
   `canvas_selection` 的生命周期测试；
 - 无序 relation 物理排列不改变 canonical occurrence/诊断/source-map，以及 caller 保留旧
   `DiagnosticBundle` 后同一 builder 重试的计量/生命周期测试；
-- 任意字节 fuzz / differential harness 在 B1 publication 或外部输入开放前补齐；内部 #296
-  Delivery 保留 verifier limits、known corrupt vectors 和 production 调用图无 `_unchecked` 的
+- 任意字节 fuzz / differential harness 在 B1 publication 或外部输入开放前补齐；内部能力
+  保留 verifier limits、known corrupt vectors 和 production 调用图无 `_unchecked` 的
   确定性检查，旧 JSON bytes 和任意新版本仍失败关闭；
-- 固定 `flatc` 的 Rust 生成物 clean-diff、C++/C# probe、生成路径外无 `unsafe` /
-  `allow(unsafe_code)`；跨版本 `--conform` 只在后续 promotion/publication 决策已经建立
+- 固定 `flatc` 的 Rust 生成物 clean-diff、C++/C# probe、生成路径外除 ADR 0024 已登记的
+  单一只读 mmap 调用外无 `unsafe` / `allow(unsafe_code)`；跨版本 `--conform` 只在后续 promotion/publication 决策已经建立
   兼容承诺时成为门禁；
 - `SourceBytesPerModule`、`SourceBytesTotal`、`DeclarationCount`、字符串、几何点、
   verifier table/depth/apparent size 与 `CompilerControlledLiveBytes` 的边界/边界加一。
 
-新的 [`LF-ROAD-EDITING-P100-v1` 机器可读定义](../reference/road-editing-source-workload-definition-v1.json)
-冻结 5 个模块、1,715 个稳定声明、35 条 alignment reference curve、160 条 junction
-internal curve（合计 195 个 curve program）、205 条 offset curve、线性 width/taper
-分布、九种 2/5/10 cm B1 目标 × 1/2/5° 配置组合、4097 点观测网格和单模块改写生命周期。
-非恒定宽度只分配给恰有一个路口连接端的 corridor，且该连接端逐 bit 保持 seed
-基准宽度；相对基准宽度的端点偏差只允许出现在非路口端，归零 profile 只分配给
-FacilityBand，不能通过改写 junction internal curve 或跨 edge weld 掩盖位置/方向不闭合。
-它把旧 P100 JSON fixture
-仅作为带 SHA-256 的**基准语义种子**：G2 的 test-only generator 按机器可读映射规则把
-其中道路拓扑、坐标、控制、停车、准入和字符串逐项映射到公开有类型编制模型，再由
-第一方 FlatBuffers writer 生成输入；production compiler/writer 不解析该 JSON，也不形成
-旧格式兼容。正式 evidence 另外绑定 schema、语义种子和生成器 SHA-256、writer/编译器
-exact commit、每模块 fixture digest 与 byte length。writer 尚不存在时不能在 G1 伪造
-fixture digest，因此 workload definition 与 G2 measurement evidence 是两个明确制品，
-后者不得改变前者的计数、映射或场景。
+道路编辑入口与其余官方前端共同受
+`LF-COMP-SINGLE-NETWORK-1M-v2` 计数、来源字节、暂存、编译器控制存续内存和 file-backed
+制品上限约束。资源测试必须从现行 `LF-ROAD-EDITING-SOURCE-v3` writer 生成输入，并报告
+实际模块 bytes、声明/关系/几何点计数、scratch、retained capacity 与峰值内存；不得把已删除
+的 v1 workload、旧 JSON fixture 或单次观测继续当作当前机器事实源。
 
-基准 P100 的 35 条 alignment 都是 line，不能单独证明 curved-offset regularity 的正常成本。
-同一机器定义因此另冻结正式五模块 companion workload
-`LF-ROAD-EDITING-P100-REGULARITY-v1`：它不修改 semantic seed，只在生成后把
-`p100.m00/corridor-main-road-0/road` 的同端点 line 替换为机器定义中的单 cubic，保留全部
-声明、引用、连接端基准宽度、宽度/taper 与 275 个 segment 总数。该变体每次 compile
-必须得到 3 次 cubic regularity node visit。独立 fresh-process CPU/scratch/live-byte peak、
-与主 P100 的分离测量及正式统计属于 #374；#296 只保留该变体的几何正确性断言。
-
-九种 profile 组合继续作为几何正确性、regularity 与离散误差观测矩阵；P100 的执行、
-typed-model build、encode/save、各阶段 CPU/内存、returned buffer retained capacity、
-rewrite 共存、fresh-process 样本统计和 exact revision 绑定统一由 #374 独立拥有。#296
-冻结工作负载和小型正确性 fixture，但不再把 P100 执行或 allocator 证明作为 Delivery
-前置，也不得把历史或单次观测改写为所有合法输入的硬上限。
-未选的 Protobuf 不实现第二条 production reader；该缺失不允许文档宣称 FB 已实测快于
-PB，但也不阻断已完成的产品选择。在 #374 取得正式新证据前，不复用旧 JSON 的
-`3_669_800 B` 等峰值或性能结论，也不声称 P100 资源结果或逐字节硬上限已经闭合。
-墙钟中位数/MAD、fresh-process 样本和相对旧实现的正式解释同样属于 #374；#296 不在没有
-产品加载 SLA 时虚构绝对毫秒门槛。
-这些证据只支持 B1 内部产品判断，不得把固定网格最大观测值改写为连续硬保证；B1 schema
-在产品复核前不发布、不承担长期存档兼容。
+[`road-editing-source-semantic-seed-v1.json`](../reference/road-editing-source-semantic-seed-v1.json)
+和 [`road-editing-source-reference-machine-v1.json`](../reference/road-editing-source-reference-machine-v1.json)
+只保留为历史研究证据，不进入现行 schema、fixture、配置档或生产读取路径。任何新的道路编辑
+专项 workload 必须基于 v3 输入另分配标识符，并与其生成器、exact bytes 和测量环境一起冻结。
 
 ## 11. 兼容和清理边界
 
 - Geometry JSON v1 尚未发布且未被选择，不建立读取兼容、双写、自动迁移或隐藏 fallback；
-- 新 G2 不得从 #332 草稿带入 `module/geometry/json.rs`、JSON shape parser、旧 JSON
-  Schema 或只服务该 production 格式的校准/证据生成逻辑；旧 P100 fixture 仅以机器可读
-  workload 指定的精确摘要作为不可变
-  benchmark 语义种子保留，读取器只存在于 test/research target，不能被 production feature
-  或 crate 依赖。几何求值、MIR lowering 和与格式无关的 known vectors 转移到新
+- 现行实现不得从 #332 草稿带入 `module/geometry/json.rs`、JSON shape parser、旧 JSON
+  Schema 或只服务该 production 格式的校准/证据生成逻辑；历史语义种子只存在于
+  test/research 证据，不能被 production feature 或 crate 依赖。几何求值、MIR lowering
+  和与格式无关的 known vectors 转移到现行
   typed/wire fixture，不保留隐藏 JSON fallback；
 - 不新增或保留 `.proto`、Protobuf framing、`PackedAsciiKeyList` 或 `prost`；改为新增
   `.fbs`、固定 `flatc` 再现入口和私有 generated wire package；
 - ADR 0022 的曲线/折线误差档位独立保留并在新来源模型上重新验证；
-- 本轮只交付 ADR 0022 B1 内部完整验证语义：schema 不进入 publication，不承诺长期存档
+- 当前只承诺 ADR 0022 B1 内部完整验证语义：schema 不进入 publication，不承诺长期存档
   兼容，也不把 2/5/10 cm 写成连续硬上限；后继 certified continuous-bound 语义或 B1
   production promotion 都重新走
-  产品/G1，而不是在同一语义版本内静默换算法；
-- #315 的共同模块接入、来源摘要和资源维度如需适配非文本来源，必须在 #296 G1 明确
+  产品设计判断，而不是在同一语义版本内静默换算法；
+- 共同模块接入、来源摘要和资源维度如需适配非文本来源，必须明确
   兼容的抽象语义；不得复制第二套 admission；
 - #298 只消费 LIR，不得读取道路编辑状态；#302 只消费可信修订和迁移描述符，不得成为
   编辑器模型权威。
 
-## 12. G1 接受证据
-
-1. ADR 0023、architecture、roadmap、glossary、network/compiler design 一致；
-2. 产品负责人已于 2026-08-10 选择 size-prefixed FlatBuffers，接受模块重建和受控
-   generated `unsafe` 审计边界，不选择两个 Protobuf 候选和 JSON 的原因已记录；
-3. 被选编码的稳定标识、exact bytes/schema、版本、依赖、资源失败关闭和审计边界已
-   冻结，未选候选不进入 production 实现；
-4. 有类型模型、模块/文档组成、来源位置和公共入口已精确到可实现；
-5. A 阶段的候选替换失败原子性、身份边界和与 #302 的职责分离已冻结；
-6. C 阶段 authoring-only `RoadEditingSourceDiff` 已登记为后继 Delivery Issue [#345]，且与
-   #298 的规范 LIR 影响差异边界明确；
-7. 兼容/删除清单、verifier 公式、测试矩阵、最小资源护栏和机器可读新 workload 已冻结；
-   逐 allocation 资源账本与 allocator 正式证据已独立登记为 [#374]；
-8. `14cdbdaa9a6a2c9fbb070354ff1d52fd4e88504f` 已取得 external clean review，并在
-   #296 记录 FlatBuffers `G1 Pass`；后续拆分只改变交付单元，不延续旧 JSON 权威。
 
 [#345]: https://github.com/illusion-tech/laneflow/issues/345
 [#374]: https://github.com/illusion-tech/laneflow/issues/374

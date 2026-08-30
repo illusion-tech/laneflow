@@ -623,7 +623,8 @@ schema 为准，语义不得偏离：
   bump 切换。
 - SpatialPackage 与 ScenarioManifest 保持 `0.1`；横断面不改变 edge centerline
   binding。
-- 已发布 schema/bytes 继续 immutable（ADR 0011）。
+- 历史 schema/bytes 由 Git 历史与不可变 commit 保存，不进入当前树或 production loader
+  （ADR 0026）。
 
 ## 10. Validation 与 first-error
 

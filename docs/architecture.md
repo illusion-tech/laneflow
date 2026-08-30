@@ -131,10 +131,11 @@ component 可选。headless 构建不保留 geometry；稳定身份索引不进�
 非空 LaneEdge geometry 才形成完整 lane-pose sampling capability。共享结果拥有自己的连续
 数组且不借用 LFCA backing。runtime-only 世界可以在构建后释放 LFCA；可编辑 session 为
 后续 LFSD 保留的 exact base LFCA 由 editor/#302 独立拥有，不进入共享根。#300 v1 不定义
-静态镜像 descriptor、integrity manifest、chunk、mmap、磁盘 cache 或 target/profile 文件变体。
+静态镜像 descriptor、integrity manifest、SharedNetwork mmap ABI、磁盘 cache 或
+target/profile 文件变体；#551 的私有 staged backing 只读映射不是共享根布局或持久化缓存。
 
 LFCA 的规范关系保存编译器派生的静态执行约束事实（Static Execution Constraint
-Facts）；LFCA v1 不保存提示 payload。`laneflow-static-network` 按显式非语义 derivation
+Facts）；LFCA 4 不保存提示 payload。`laneflow-static-network` 按显式非语义 derivation
 version 确定性派生 `PartitionPlanningHints` component，Runtime 可以忽略或重建，但不得保存
 最终分区/工作线程分配（Partition/Worker Assignment）。每个世界依据这些约束、硬件与
 动态负载建立自己的
@@ -161,9 +162,9 @@ Journal）记录已提交动态状态/生命周期变化及命令/事件游标�
 标识，Runtime 不接受调用方或 LFSD 自报修订。#300/#302 分别冻结共享静态路网和切换
 输入。当前 production descriptor 是不含 receipt 的 LFCP v2；LFCP v1 只保留为
 #298 已实现的历史契约。目标职责、上层
-边界与历史 ADR 的关系见 ADR 0020/0021 及 Accepted ADR 0024。#301 完成前，本文其余
-current 章节描述仓库内仍可运行的 Core 路径；#301 完成后这些章节须改为历史描述或删除，
-以 `docs/design/traffic-runtime-shared-consumption.md` 为准。
+边界与历史 ADR 的关系见 ADR 0020/0021 及 Accepted ADR 0024。现行可运行世界只有
+`TrafficWorld`；旧 Core 路径不属于本文当前合同。精确消费边界以
+`docs/design/traffic-runtime-shared-consumption.md` 为准。
 
 ## 3. Authoring Layer
 

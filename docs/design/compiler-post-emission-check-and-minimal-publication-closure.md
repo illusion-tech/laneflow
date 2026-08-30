@@ -1,15 +1,15 @@
 # 编译器后发射检查与最小发布闭合
 
-> **状态**：Review<br>
+> **状态**：Accepted<br>
 > **日期**：2026-08-30<br>
 > **权威决策**：ADR 0024<br>
 
 ## 1. 目标与非目标
 
-本设计定义 compiler 发布硬化边界：
+本设计定义 compiler 最终制品与宿主发布之间的硬化边界：
 
 1. 对最终 LFCA/LFSM/LFSD exact bytes 建立不可绕过的 bundle 级检查；
-2. 让 LFCP v2 和 manifest 发布只能消费本次检查得到的局部能力；
+2. 让 LFCP v2 只能从本次检查得到的局部能力构造；
 3. 删除独立 validator、receipt 和第二套语义实现；
 4. 保持检查有界、线性、单线程且可由共享静态路网构建复用。
 
@@ -20,6 +20,8 @@
 - 独立认证、签名、审计服务或通用证明协议；
 - 共享静态路网构建与 Runtime/Spatial 闭合；
 - LFSD 的迁移授权或 Runtime 修订切换。
+- 内容寻址仓库、并发 winner、atomic no-replace 文件晋升、目录持久化或 manifest 提交；
+  这些属于选择持久化制品的宿主、CI、打包工具或未来独立存储后端。
 
 ## 2. 合同基线
 
@@ -36,43 +38,47 @@
 `laneflow-compiler` 必须：
 
 - 从一个 `CompilationOutput` 产生 LFCA/LFSM/LFSD；
-- 在 emitter 和 publication 中逐对象调用
-  `preflight_object_values`，并在发布路径调用 bundle 后发射检查；
+- 在 emitter 中逐对象调用 `preflight_object_values`，并在任何 LFCP 构造或共享静态构建前
+  调用 bundle 后发射检查；
 - 在 compiler-private 代码中计算 `NetworkRevisionId`；
 - 用 `PortablePublicationCandidate` 拥有三份不可变 staged object source 及 expected base binding；
-- 按 LFCA/LFSM/LFSD/LFCP v2 顺序安装，随后恰好一次调用 manifest adapter。
-
-#299 没有重写这些基础设施；它把 bundle 级计算和比较下沉到 `laneflow-format`，并已删除
-receipt 路径与 LFCP v1 生产 API。
+- 让 checker 与共享静态构建直接复用同一 file-backed backing，不复制完整对象；
+- 从 checked capability 构造 LFCP v2 exact bytes 和 binding，持久化与认证由宿主负责。
 
 ## 3. 包与职责
 
 ```text
 laneflow-compiler ───────────────┐
                                  ├──> laneflow-format
-future laneflow-static-network ──┘              │
+laneflow-static-network ─────────┘              │
                                                 └──> laneflow-static-contract
 ```
 
-| 包                         | 新增或保留职责                                                                                                                 | 明确不拥有                                     |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
-| `laneflow-static-contract` | 版本、格式硬上限、`NetworkRevisionId`、`Sha256Digest`、对象/字段登记                                                           | 读取字节、hash、发布                           |
-| `laneflow-format`          | 单对象预检、bundle 后发射检查、对象摘要、revision 重算、跨对象 binding、来源绑定 capability；可选 `std` staged backing adapter | 来源/LIR、通用文件安装、manifest、完整路网语义 |
-| `laneflow-compiler`        | 来源和 IR 语义、发射、候选拥有、LFCP v2、安装编排、manifest 提交                                                               | 第二套验证语义、对象内真实性                   |
-| #300                       | 复用 public checked view 构造进程内 `SharedNetworkRevision`                                                                    | 反向依赖 compiler-private LIR/emitter          |
+| 包                         | 新增或保留职责                                                                                                                 | 明确不拥有                                 |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| `laneflow-static-contract` | 版本、格式硬上限、`NetworkRevisionId`、`Sha256Digest`、对象/字段登记                                                           | 读取字节、hash、发布                       |
+| `laneflow-format`          | 单对象预检、bundle 后发射检查、对象摘要、revision 重算、跨对象 binding、来源绑定 capability；可选 `std` staged backing adapter | 来源/LIR、文件安装、manifest、完整路网语义 |
+| `laneflow-compiler`        | 来源和 IR 语义、file-backed 发射、候选拥有、LFCP v2 exact bytes 与 binding                                                     | 第二套验证语义、对象内真实性、内容仓库事务 |
+| `laneflow-static-network`  | 复用 public checked view 构造进程内 `SharedNetworkRevision`                                                                    | 反向依赖 compiler-private LIR/emitter      |
 
 新增依赖：
 
 ```toml
 # crates/laneflow-format/Cargo.toml
 sha2 = { version = "0.11", default-features = false }
+memmap2 = { version = "0.9.11", optional = true }
+tempfile = { version = "3.27.0", optional = true }
 ```
 
-该版本已由 compiler 使用，不新增第三方包或 feature。
+`std` staged adapter 直接声明 `memmap2` 与 `tempfile`；checker/writer core 默认仍为
+`no_std`。写侧使用安全的顺序 file sink 与定点回填，唯一 `unsafe` island 是 finish 后的
+私有只读映射；`tempfile` 在 Unix 使用匿名或立即 unlink 的 backing，在 Windows 使用
+`share_mode(0)` + delete-on-close 的 backing。该适配器只持有临时 backing，不提供安装或
+发布事务。
 
 ## 4. 公共检查 API
 
-G2 实现保持下列语义形状；精确 Rust 字段布局可以在不扩大能力的前提下调整。
+公共 API 保持下列语义形状；精确 Rust 字段布局可以在不扩大能力的前提下调整。
 
 ```rust
 pub enum ExpectedSemanticDiffBase {
@@ -89,8 +95,7 @@ mod private {
     pub trait SealedImmutableBacking {}
 }
 
-pub struct ClosedStagedObjectSource<S> { /* 字段私有 */ }
-pub struct InstalledImmutableObjectSource<S> { /* 字段私有 */ }
+pub struct ClosedStagedObjectSource { /* 字段私有 */ }
 
 pub trait BoundedReReadableObjectSource: private::SealedImmutableBacking {
     fn exact_byte_length(&self) -> ExactByteLength;
@@ -119,27 +124,23 @@ where
 
 该 sealed supertrait 是能力边界，不是仅靠文档约束任意调用方实现：safe downstream code
 不能为路径、普通 `File`、可写映射、内部可变 buffer 或 callback 自行实现来源 trait。
-`laneflow-format` 只登记三种 backing：调用期间没有可写别名的完整 slice/owned immutable
-bytes、已关闭暂存对象 `ClosedStagedObjectSource<S>`、已经 atomic no-replace 安装的
-`InstalledImmutableObjectSource<S>`。不得要求对象先安装才能参加 bundle 检查。
+`laneflow-format` 只登记调用期间没有可写别名的完整 slice/owned immutable bytes，以及已
+关闭的暂存对象 `ClosedStagedObjectSource`。不得要求对象先持久化或安装才能参加 bundle
+检查与共享静态构建。
 
-`ClosedStagedObjectSource<S>` 只能由字段私有的 staged writer 完成 `finish` 状态转换获得：
+`ClosedStagedObjectSource` 只能由字段私有的 staged writer 完成 `finish` 状态转换获得：
 
-1. writer 在调用方不可见的唯一 staging 名称或匿名对象上独占写入；
-2. `finish` 完成 flush，固定 file identity 与 exact length，关闭进程内全部 writable handle；
-3. backend 获得并在能力生命周期内保留同一 read-only handle，同时阻止任何新 writable
-   handle 指向该 backing；Windows 使用拒绝 write sharing、但允许 installer 所需原子 rename
-   的 handle 语义，Unix 使用未向调用方暴露路径的 exclusive staging inode、匿名/unlinked
-   inode 或等价保证；
+1. writer 在调用方提供且由 LaneFlow capability 独占的临时 backing 上写入；
+2. `finish` 完成 flush，固定 file identity 与 exact length，并结束 staged writer 的写阶段；
+3. backend 在能力生命周期内保留字段私有的 immutable capability/backing；底层可以仍由具写
+   访问权的 `File` 支撑，但 finish 后没有 LaneFlow safe API 可达的写能力；
 4. 路径、原始 `File`、writable mapping、writer token 与重新开启写权限的能力均不暴露给
-   safe downstream；检查、共享静态构建与 installer 只克隆或消费该 read-only handle；
-5. 平台不能证明上述条件时返回 `ImmutableStagingUnsupported`，或先复制到 owned immutable
-   bytes；不得提前安装对象，也不得退化为“通常不会被改写”。
+   safe downstream；检查与共享静态构建只借用或消费该 immutable capability/backing；
+5. identity、exact length 或 bytes 在检查期间发生漂移时失败关闭。宿主绕过 capability 直接
+   修改其临时文件属于宿主错误，不要求 LaneFlow 建立操作系统级内容仓库隔离。
 
-平台模块为上述两个字段私有 wrapper 实现 sealed trait；所需 `unsafe` 只能封装在
-`laneflow-format`/installer 内部并由 Windows/Ubuntu 定向测试证明，不能作为 downstream
-admission API。安装阶段消费 `ClosedStagedObjectSource` 并把同一 backing 原子晋升为内容
-对象；安装前后都重新核对 identity、exact length、digest 与 winner bytes。
+可选 `std` adapter 可以用平台文件 API 或只读映射实现字段私有 wrapper；所需平台细节不能
+成为 downstream admission API，也不承担 rename、no-replace、目录持久化或 winner 竞争。
 
 完整 slice 通过零复制 adapter 实现同一来源接口，不建立第二个检查入口。检查期间发生
 任何 backing identity/length 漂移都是不可能由 safe API 表达的状态；若平台 capability
@@ -159,7 +160,8 @@ admission API。安装阶段消费 `ClosedStagedObjectSource` 并把同一 backi
 `ClosedStagedObjectSource`，不要求 LFCA、LFSM、LFSD 三份百万级完整对象同时驻留。
 slice adapter 与其它来源必须
 产生相同 digest、exact length、`NetworkRevisionId`、binding 与 first error。能力只保存
-后续安装/构建所需的受检来源句柄或借用，不复制三份对象，也不暴露未验证 chunk。
+后续 LFCP 构造/共享静态构建所需的受检来源句柄或借用，不复制三份对象，也不暴露未验证
+chunk。
 
 capability 只在三个来源句柄都可克隆时实现 `Clone`，不要求 `Copy`；不可伪造来自字段
 私有性和构造入口，而不是一次性消费技巧。
@@ -236,6 +238,7 @@ expected base 必须由 compiler 发射调用保存的实际 base binding 或后
 
 ```rust
 pub enum PostEmissionCheckError {
+    ObjectSource { object: PortableObjectKind, error: ObjectSourceError },
     Format(FormatError),
     LimitExceeded { /* existing dimension/actual/limit */ },
     NetworkRevisionMismatch,
@@ -246,16 +249,17 @@ pub enum PostEmissionCheckError {
 }
 ```
 
-直接格式和值域错误继续保留 `FormatError` 的结构和 offset。跨对象错误不建立 check ID、
-结果向量或策略插件；测试只依赖稳定大类和必要绑定值。
+直接格式和值域错误继续保留 `FormatError` 的结构和 offset。来源读取失败、越界或 backing
+漂移进入独立 `ObjectSource` 大类，不伪装成 wire 错误。跨对象错误不建立 check ID、结果
+向量或策略插件；测试只依赖稳定大类和必要绑定值。
 
-## 7. Compiler 候选与发布生命周期
+## 7. Compiler 候选与消费生命周期
 
 `PortablePublicationCandidate` 拥有 LFCA/LFSM/LFSD 三个 sealed immutable-backing
 object source；百万级生产路径使用 `ClosedStagedObjectSource`，并保存从实际
 `PortableDiffBase` 计算的 expected base binding。完整
-`Box<[u8]>` 可以通过零复制 adapter 支撑小对象，但不是候选的强制存储形状。它仍是未发布
-候选，不因 emitter 完成而可信。
+`Box<[u8]>` 可以通过零复制 adapter 支撑小对象，但不是百万级生产候选的存储形状。候选
+不因 emitter 完成而可信。
 
 emitter 只能同时借用同一个 `CompilationOutput` 的 canonical LIR 与
 `ValidatedSourceMapInput`，并接收一份显式 `PortableEmissionProvenance` 和一个
@@ -275,19 +279,14 @@ PortablePublicationCandidate (owns staged object sources; unpublished)
     ▼
 PostEmissionCheckedBundle<L, M, D> (checked sources; process-local only)
     │
-    ├─ install LFCA/LFSM/LFSD
-    ├─ build/install LFCP v2
-    └─ authenticated manifest commit exactly once
-    ▼
-ManifestCommittedPortablePublication
+    ├─ build SharedNetworkRevision
+    └─ build LFCP v2 exact bytes/bindings when requested
 ```
 
-`commit_portable_publication` 必须在任何 installer 调用前完成 bundle 检查。内部
-LFCP builder 接受 checked capability，不从 candidate 缓存字段读取 digest/revision；
-object key 从 capability 的 digest 派生。
-
-公开 installer 仍可安装普通内容寻址对象，但“已安装”不等于“已发布”。只有
-`PortableManifestCommitter` 返回成功后才能构造 committed capability。
+LFCP builder 接受 checked capability，不从 candidate 缓存字段读取 digest/revision；object
+key 从 capability 的 digest 派生。宿主、CI 或打包工具可以复制、流式读取或持久化受检 exact
+bytes，并用 LFCP binding 建立自身认证清单；LaneFlow 不把某种文件事务包装成发布能力。加载
+时仍从宿主交付的 LFCP/LFCA/LFSM bytes 重新核对认证 binding、digest、length 与 revision。
 
 ## 8. LFCP v2
 
@@ -330,62 +329,27 @@ LFCP v2 exact bytes 由新的
 生产实现直接把 `CANONICAL_PUBLICATION_DESCRIPTOR_VERSION` 提升为 `2`，registry 只
 接受 v2。不保留 v1 parser/schema/branch。
 
-G2 已删除：
+现行树不保留 `CanonicalPublicationReceiptViewV1`、receipt subject/binding、receipt
+validation/install/error 分支或 v1 生产兼容测试。旧 fixture 与实现由 Git 历史保存，不得
+继续作为当前 wire。若发现已公开的 LFCP v1 消费者，必须重新进入兼容决策。
 
-- `CanonicalPublicationReceiptViewV1`；
-- receipt subject/binding structs；
-- receipt validation/install/error branches；
-- test-only opaque receipt；
-- `LFCP-V1-MIN-BINDINGS` 的生产兼容测试。
+## 9. 宿主持久化与原子边界
 
-旧 fixture 和 #298 文档仍可作为 Git/GitHub 历史证据引用，但不得继续作为当前 accepted
-wire。若 G2 前发现 GitHub Releases 之外已有 LFCP v1 公开消费者，必须返回 G1 重开兼容
-决定。
+LaneFlow 不拥有 LFCA/LFSM/LFSD/LFCP 的内容仓库或文件安装事务。宿主、CI、打包工具或发布
+服务选择是否以及如何持久化 exact bytes，并负责其并发、崩溃一致性、目录耐久、签名与认证
+manifest。未来若 LaneFlow 自建并发内容寻址仓库，必须单开设计与 Issue，不把 OS/文件系统
+事务塞回 compiler、format 或 Runtime 核心合同。
 
-## 9. 原子发布事务
+本设计保留三种互不混同的原子性：
 
-成功顺序固定为：
+1. bundle 检查失败时不返回 `PostEmissionCheckedBundle`，也不触发 LFCP 构造或共享静态构建；
+2. `SharedNetworkRevision` 构建失败时不返回部分 Traffic/Identity/Hints/Spatial 根；
+3. Runtime 激活时整份活动修订一次替换，不能独立切换 Traffic 与 Spatial；该提交点由 #302
+   定义，不属于文件安装。
 
-1. bundle 检查；
-2. LFCA 安装和 winner binding 比较；
-3. LFSM 安装和 winner binding 比较；
-4. LFSD 安装和 winner binding 比较；
-5. LFCP v2 构造、格式预检、安装和 winner binding 比较；
-6. 外部认证 manifest 恰好一次提交；
-7. 返回 committed capability。
-
-LFSD 当前仍是未被 LFCP/manifest 引用的内容对象。安装它只保留后继 #302 的候选输入，
-不表示发布、认证、迁移授权或激活。
-
-任一步失败都不调用后续步骤，不返回部分 committed 状态。已经成功安装的 immutable
-内容对象可以保持未引用并供相同 bytes 重用。
-
-### 9.1 内容对象安装合同
-
-`LocalPortableObjectInstaller` 的成功语义不是普通覆盖式 rename：
-
-1. 调用方预配置并信任发布根及其祖先目录；installer 只在该根下维护固定的 objects 与
-   staging 子目录，并在同一文件系统创建唯一暂存文件；该文件在 bundle 检查前必须已经
-   完成 `ClosedStagedObjectSource` 状态转换，但仍未安装、未发布；
-2. writer 完成对象后 flush 文件数据、关闭全部 writable handle，再从保留的同一 read-only
-   handle 对最终 exact bytes 重算 digest/length；对象
-   key 只能从 checked capability 派生为 `sha256/<64 lowercase hex>`，调用方不能覆盖；
-3. 安装前再次核对暂存长度、bytes、格式预检与 bundle/LFCP binding；禁止先创建最终路径再
-   复制、流式写入或截断；
-4. 使用具有原子可见与 no-replace 保证的平台原语一次安装。平台不能证明这些语义时返回
-   `AtomicInstallUnsupported`，不能退化为“通常原子”；
-5. 目标已存在时读取既有 winner，重算 digest/length 并比较 exact bytes；完全相同才返回
-   `Reused`，不同则 collision/mismatch 失败，始终不能覆盖；
-6. `Installed` 与 `Reused` 都必须在对象目录元数据持久化屏障完成后返回。平台只能证明目录项
-   可见、不能证明 manifest 提交前的持久化顺序时，同样返回 `AtomicInstallUnsupported`；
-7. LFCP v2 必须引用实际安装 winner 的 LFCA/LFSM binding。LFSD 虽按同一对象合同安装，仍不
-   因此获得 manifest binding 或迁移授权；
-8. 只有全部对象安装和 winner 复核成功后才调用外部认证 manifest adapter 一次。失败清理
-   staging 引用；已安装但未被 manifest 引用的 immutable 对象可以保留，不构成部分发布。
-
-该 installer 不建立操作系统安全边界。拥有发布根写权限的进程、ACL、账户隔离、只读挂载与
-WORM 策略属于部署责任；消费者从磁盘、网络或宿主包取得对象后仍须按认证 binding 重算
-摘要。它也不是通用对象存储 API：不拥有枚举/删除/GC、远程 backend、压缩、加密或配额策略。
+LFCP v2 只绑定 checked LFCA/LFSM exact bytes 与 publication provenance。生成 LFCP 不表示宿主
+已经持久化、认证、发布或激活任何对象；加载方仍必须根据受认证宿主描述符重新验证收到的
+bytes。
 
 ## 10. 性能与资源
 
@@ -398,62 +362,61 @@ WORM 策略属于部署责任；消费者从磁盘、网络或宿主包取得对
 - 不建立第二份路网对象图；
 - 单线程、确定性；
 - 总成本 O(total exact bytes)；
-- 每次 publication 调用一次完整 bundle check。
+- 每个候选在 LFCP 构造或共享静态构建前完成一次完整 bundle check。
 
-checker 内每对象 digest 最多计算一次，revision 最多计算一次。安装器从文件系统重新
-读取/hash winner 属于持久化完整性边界，不能省略，也不计入 checker 门槛。
+checker 内每对象 digest 最多计算一次，revision 最多计算一次。宿主持久化或加载时的额外
+hash 属于宿主交付完整性边界，不计入 checker 门槛。
 
-G2 一次性复用 #298 `LF-COMP-PRODUCTION-CORRIDOR-v1`：
-
-- 同一 `LF-P100-REF-01`；
-- 两次 fresh process；
-- 各自预热一次并记录七个正式样本；
-- 单独记录 checker 与 `compile + emit + check`；
-- 最高级 checker median 在两个进程中均不超过同进程 emitter median 的 `30%`；
-- installer I/O 单独记录；
-- 不新增常驻 benchmark 基础设施。
+现行资源证据在单线程 release 配置下覆盖 `10000` / `100000` / `1000000` 个现实混合稳定静态
+实体，并逐阶段记录 source build、compile、file-backed emit、checker 与共享静态构建的
+墙钟、对象 exact bytes、compiler-controlled peak、staged backing bytes 和 retained bytes。
+代码与类型路径审计证明 staged 路径不构造完整对象 heap buffer；每档至少执行一次完整端到端
+路径，证明百万级路径可达、返回候选不常驻完整 heap bytes、阶段峰值有记录且 checker 零 heap
+allocation。单次资源样本不独立证明 emit 过程从未短暂分配完整 buffer，也不是统计性能结论或
+Product Pass；仓库不要求不存在的专用 benchmark/harness。
 
 ## 11. 验证矩阵
 
-G2 最小测试集合：
+最小测试集合：
 
-| 类别       | 必需证据                                                                               |
-| ---------- | -------------------------------------------------------------------------------------- |
-| 成功       | Genesis 与 Artifact base 的完整 emit→check→install→LFCP v2→manifest                    |
-| 单对象     | LFCA/LFSM/LFSD 截断、追加、错误 kind/version、caller limit                             |
-| revision   | LFCA declared revision 单独篡改后稳定失败                                              |
-| source map | LFCA digest/length/revision/compiler/source binding 任一错配                           |
-| diff       | Genesis 非零 base；Artifact base 或 target 的派生版本/revision/digest/length 任一错配  |
-| 原子性     | 任一 check failure 时 installer 与 manifest 调用次数均为零                             |
-| LFCP v2    | 固定 exact bytes/digest/offset；receipt 字段不存在                                     |
-| installer  | 每个对象和 LFCP v2 的 write/flush/close/install/winner/manifest fault                  |
-| backing    | safe code 不能为可变来源实现 sealed trait；slice 零复制成功；mutable/reopen/drift 失败 |
-| staging    | Windows/Ubuntu 的 finish 后写入重开拒绝、同 handle 重读、检查前未安装、检查后原子晋升  |
-| 资源       | checker allocation 为零；P100 两进程均满足 30% 门槛                                    |
-| 平台       | Windows/Ubuntu 对现有 LFCA/LFSM/LFSD 与新 LFCP v2 fixed vector 一致                    |
+| 类别       | 必需证据                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------ |
+| 成功       | Genesis 与 Artifact base 的完整 file-backed emit→check→SharedNetworkRevision；按需构造 LFCP v2   |
+| 单对象     | LFCA/LFSM/LFSD 截断、追加、错误 kind/version、caller limit                                       |
+| revision   | LFCA declared revision 单独篡改后稳定失败                                                        |
+| source map | LFCA digest/length/revision/compiler/source binding 任一错配                                     |
+| diff       | Genesis 非零 base；Artifact base 或 target 的派生版本/revision/digest/length 任一错配            |
+| 原子性     | 任一 check/build failure 不返回受检 bundle或部分共享根                                           |
+| LFCP v2    | 固定 exact bytes/digest/offset；receipt 字段不存在；只从 checked capability 构造                 |
+| backing    | safe code 不能为可变来源实现 sealed trait；slice 零复制；staged finish 后无 LaneFlow 写能力      |
+| staging    | 同一 backing 发射、重复检查和共享静态构建；identity/length/bytes 漂移失败；无完整对象级复制      |
+| 资源       | 10k/100k/1m 的 file-backed 路径、checker allocation 与 compile/emit/check/build 分阶段内存和耗时 |
+| 平台       | Windows/Ubuntu 对 LFCA/LFSM/LFSD 与 LFCP v2 fixed vector 一致，不包含文件安装事务                |
 
 不新增独立 fuzz service、证明 oracle 或测试 DSL。现有格式 mutation/property 测试可以
 继续复用，但不成为新的产品层。
 
-## 12. G2 修改范围
+## 12. 实现范围
 
 实际修改集中在：
 
 - `crates/laneflow-format`：bundle checker、hash、capability、错误和测试；
 - `crates/laneflow-static-contract`：LFCP 当前版本与 v2 registry；
-- `crates/laneflow-compiler`：expected base binding、publication v2、LFCP v2、删除 receipt；
+- `crates/laneflow-compiler`：file-backed emission、expected base binding、LFCP v2、删除 receipt；
+- `crates/laneflow-static-network`：直接消费 checked backing 并构造不借输入的共享根；
 - portable exact-byte fixtures/workflow；
-- #300/#302 的依赖说明。
+- #282/#283/#541 的直接消费证据与 #302 原子切换边界说明。
 
-本 Issue 不新建 crate，不修改 Runtime/Adapter API，不实现共享静态路网或修订切换。
+本合同不要求新建 crate，不修改 Runtime/Adapter 动态 API，也不实现修订切换；受检
+file-backed LFCA 必须可直接构造现有 `SharedNetworkRevision`。
 
-## 13. G1/G2 停止条件
+## 13. 重新进入设计的条件
 
-出现下列任一情况必须返回 G1：
+出现下列任一情况必须重新进入设计：
 
 - 无法在不分配/复制完整对象的前提下完成已接受检查；
-- checker P100 门槛失败且局部优化不能关闭；
+- checker 资源门槛失败且局部优化不能关闭；
 - LFCP v1 已存在未登记的公开消费者；
-- #300 必须依赖新的语义能力而非本设计的 checked view；
+- 共享静态构建必须依赖新的语义能力而非本设计的 checked view；
 - 实现需要完整身份、图语义或 LFSD 重建才能满足验收；
-- 需要改变 LFCA/LFSM/LFSD v1 wire，而不仅是 LFCP v2。
+- 需要改变 LFCA 4 / LFSM 3 / LFSD 3 wire，而不仅是 LFCP 2。

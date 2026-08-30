@@ -1,6 +1,6 @@
 # ADR 0025：受检规范路网与共享静态路网修订
 
-**状态**: Review<br>
+**状态**: Accepted<br>
 **日期**: 2026-08-18<br>
 **适用范围**: LFCA 到目标态交通运行时/Spatial 的静态数据构建、内存布局、共享生命周期、
 不可变路网修订、玩家道路编辑与保存边界<br>
@@ -30,7 +30,7 @@ Traffic/Spatial/每世界可变状态分层、稳定身份索引和失败关闭�
 > `SharedNetworkRevision` 必须支持至少 `1,000,000` 个现实混合稳定静态实体。chunk 只属于
 > 可移植 LFCA/LFSM/LFSD 容器，不恢复本文否决的 target-specific 静态镜像、mmap ABI、
 > 多修订拼城或 Runtime 分区身份。
-> 该容量必须由 `LF-COMP-SINGLE-NETWORK-1M-v1` 从 official source 真实编译到
+> 该容量必须由 `LF-COMP-SINGLE-NETWORK-1M-v2` 从 official source 真实编译到
 > `SharedNetworkRevision`；不得只用手工 LFCA 或 reader/builder 测试代替 compiler/emitter。
 
 ## 背景
@@ -149,7 +149,7 @@ Traffic、Identity、Planning Hints 和 Spatial 可以在 builder 内物理独�
 和按 `(EntityKind, StableId128)` 排序的反向查找。它服务动态通行定义、存档/快照恢复和
 跨修订迁移，不进入逐交通参与单元 fixed tick。
 
-LFCA v1 不保存分区提示 payload。`laneflow-static-network` 按根中记录但不进入 LFCA/
+LFCA 4 不保存分区提示 payload。`laneflow-static-network` 按根中记录但不进入 LFCA/
 `NetworkRevisionId` 的 `partitionPlanningHintsDerivationVersion`，从受检规范关系与 execution
 contract 确定性派生 `PartitionPlanningHints`。它保存 worker 数无关、可以忽略或重建的
 成本/边界提示，不保存最终 partition、worker assignment、动态负载、world seed 或每世界
@@ -249,8 +249,7 @@ committed 道路状态重编译后，只要 `NetworkRevisionId` 与 #302 冻结�
 
 ### 9. 性能证据不建设第二套证明平台
 
-#300 的该项 G2 验收由 #441 在 #440 的最终静态字段集合和 #301 production kernel
-就绪后单独记录：
+共享静态路网的资源证据至少记录：
 
 - LFCA/LFSM/LFSD candidate exact bytes、各 component logical/retained bytes；
 - count/build/closure 墙钟与累计分配；
@@ -261,9 +260,9 @@ committed 道路状态重编译后，只要 `NetworkRevisionId` 与 #302 冻结�
 - 2/8/32 worlds 的 shared-static 增量；
 - identity 双向 lookup 与 Runtime-facing 连续 range traversal 的描述性成本。
 
-这些结果直接记录在 PR/Gate 证据中，不新增 benchmark crate、JSON/Schema 协议或常驻
-性能服务。#300 不在没有最低产品硬件与完整 Runtime kernel 的情况下虚构绝对毫秒 SLA；
-#301 必须用 production tick/pose 访问路径证明布局选择，没有该证据不能声称城市级
+这些结果进入可复现的测量证据，不新增 benchmark crate、JSON/Schema 协议或常驻
+性能服务。没有最低产品硬件与完整 Runtime kernel 时不虚构绝对毫秒 SLA；
+布局选择必须由 production tick/pose 访问路径证明，没有该证据不能声称城市级
 Runtime 性能通过。
 
 ## 后果
@@ -284,10 +283,10 @@ Runtime 性能通过。
 - 每次进程加载或确认建造都要执行一次 LFCA → shared static network 转换；
 - 构建期会短暂同时持有 LFCA 与最终 typed arrays；道路切换还会同时持有当前和候选修订；
 - 不提供跨进程 mmap 页共享；
-- Runtime 真实访问模式未实现前，具体最佳 SoA/AoSoA 分组仍需要 #301 验证；
+- 具体最佳 SoA/AoSoA 分组仍须以真实 Runtime kernel 访问模式验证；
 - Runtime loader 信任官方受检 LFCA 中已经由 compiler 派生的 StableId 与 segment 数值；
   compiler known vectors、后发射检查和端到端测试若缺失，会形成产品正确性回归风险；
-- 如果未来最低产品硬件证明重建成本不可接受，需要以非权威缓存的新 G1 重新引入持久化，
+- 如果未来最低产品硬件证明重建成本不可接受，需要另行设计非权威持久化缓存，
   不能把本实现的 Rust 内存布局直接写盘。
 
 ## 被拒绝的替代方案
@@ -313,18 +312,5 @@ LFCA 是规范发布格式，顺序 cursor 适合检查和构建；保留的 ord
 
 ### 把内部 Rust 结构直接序列化为缓存
 
-它会重新引入未版本化 ABI、padding/target/依赖漂移和不可信读取问题；缓存必须由未来
-独立 G1 设计，拒绝当前实现顺带写盘。
-
-## G1 接受记录
-
-本 ADR 已在 [#300 G1 设计冻结判断](https://github.com/illusion-tech/laneflow/issues/300#issuecomment-5331072207)
-通过后从 Proposed 更新为 Accepted；以下条件均已满足：
-
-1. `shared-static-network.md` 冻结构建输入、component/API、资源、安全和测试边界；
-2. architecture、network compiler、road editing、roadmap、glossary、相关 Skills 和
-   #301/#302 入口与本 ADR 一致；
-3. #300 Issue 标题、范围、非目标与验收标准已更新，G1 仍不被误写为 G2 实现完成；
-4. 设计 PR current exact head 通过文档/契约检查，取得有效 external clean review，
-   findings 已处置并取得 clean re-review；
-5. #300 Gate Ledger 回链正式 G1 判断。
+它会重新引入未版本化 ABI、padding/target/依赖漂移和不可信读取问题；缓存必须另行设计，
+拒绝当前实现顺带写盘。

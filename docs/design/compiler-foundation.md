@@ -1,6 +1,6 @@
 # 编译器基础设施与合成领域专用语言前端
 
-**文档状态**: Review<br>
+**文档状态**: Accepted<br>
 **最后更新**: 2026-08-30<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
@@ -50,12 +50,11 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 ## 1. 设计状态与目标
 
 本文把已接受（Accepted）的架构决策记录（Architecture Decision Record，ADR）0020
-与 `network-compiler.md` 的长期封闭契约（Closed Contract）收窄为 #292 可以直接
-实现和验证的首个纵向切片。本文不重新讨论下列已接受结论：
+与 `network-compiler.md` 的长期封闭契约（Closed Contract）落实为现行编译器基础。
+本文不重新讨论下列已接受结论：
 
 - 编译器是全部静态路网语义的唯一编译权威；
-- 不存在 L1/L2，也不以 `InitialTrafficData`、当前核心对象图（current Core object
-  graph）或当前空间登记表（current Spatial registry）作为编译器中间表示；
+- 不存在 L1/L2，也不以运行时对象图或 Spatial 登记表作为编译器中间表示；
 - 所有正式前端是权威来源模块图（Authoritative Source Module Graph）中的平级来源
   模块（Source Module）；
 - 只有以已验证规范低层中间表示为静态语义核心的成功编译结果可以进入编译发射器
@@ -66,38 +65,23 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 - 干净单工作线程编译（Clean Single-thread Compile）是并行或增量实现的确定性
   预言机：内存 LIR 必须具有相同规范语义，后继制品发射器存在时则必须产生相同精确
   字节；
-- #301 完成前，由 `Traffic v0.10`、`SpatialPackage v0.1`、
-  `ScenarioManifest v0.1`、`laneflow-data`、`laneflow-core` 和
-  `laneflow-spatial` 组成的当前路径仍是仓库内可运行契约；#301 完成后该路径拆除。
-
-#292 的目标是：
+现行编译器基础负责：
 
 1. 建立可以继续承载官方几何文档前端、导入前端与编辑器编制界面的真实编译器基础；
 2. 用合成领域专用语言前端完成首个可执行全管线；
 3. 首次实现并冻结标识 v1 的字节、已知向量（Known Vector）和失败关闭（Fail
    Closed）语义；
-4. 以集成专用桥（Integration-only Bridge）把已验证规范低层中间表示投影到当前核心
-   和空间层，形成迁移等价证据；
+4. 以发射、后发射检查和共享静态路网构建证明 Canonical LIR 到当前运行时输入的闭合；
 5. 建立编译时延、峰值 / 保留内存（Retained Memory）和规模扩展基线，不以运行时
    交通参与单元规模替代编译器工作量。
 
-#292 G1 已接受本文并在 GitHub 议题（Issue）#292 记录 `G1 Pass`；随后完成 G2、G3
-与 G4，当前完成事实和证据见第 13 节。第 12 节继续保存当时的 G1 接受结果与 G2
-前置，不把历史 Gate 记录改写成一次性完成；仓库长期文档也不镜像项目（Project）当前列。
-
 ## 2. 包与依赖切片
 
-### 2.1 本议题新增的包
+### 2.1 当前包边界
 
 ```text
-laneflow-compiler-test-support ---> laneflow-compiler
-laneflow-compiler-test-support ---> laneflow-core
-laneflow-compiler-test-support ---> laneflow-spatial
-
 laneflow-compiler -------------> laneflow-static-contract
-
-仅测试开发依赖:
-laneflow-compiler-test-support - - -> laneflow-data
+laneflow-compiler -------------> laneflow-format
 ```
 
 实线箭头表示左侧的正常库依赖右侧，虚线只表示测试开发依赖；正常库依赖形成包依赖图
@@ -105,11 +89,10 @@ laneflow-compiler-test-support - - -> laneflow-data
 
 中文术语与英文辅助名统一见 `../reference/glossary.md`；下表不重复定义双语映射。
 
-| 包                               | 本议题拥有职责                                                                       | 禁止职责 / 依赖                                                             |
-| -------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
-| `laneflow-static-contract`       | `StableId128`、实体种类 / 字段标签登记、标识版本、有类型逻辑序号和值级公共常量       | `Serde`、文件系统、编译遍、当前核心、目标交通运行时、空间层、编译器标识实现 |
-| `laneflow-compiler`              | 权威来源模块图、编译器中间表示、合成领域专用语言前端、编译遍、诊断、编译器侧标识实现 | 当前数据层 / 核心 / 空间层对象图、公共制品格式、镜像应用二进制接口          |
-| `laneflow-compiler-test-support` | 已验证规范低层中间表示到当前核心 / 空间层的投影、等价测试辅助                        | 生产后端、反向补语义、从当前对象图派生标识、被编译器依赖                    |
+| 包                         | 拥有职责                                                                         | 禁止职责 / 依赖                                           |
+| -------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `laneflow-static-contract` | `StableId128`、实体种类 / 字段标签登记、标识版本、有类型逻辑序号和值级公共常量   | `Serde`、文件系统、编译遍、运行时、空间层、编译器标识实现 |
+| `laneflow-compiler`        | 权威来源模块图、中间表示、官方前端、编译遍、诊断、标识实现、制品发射与发布前编排 | 运行时 / 空间层对象图、文件安装策略、持久化运行时内存布局 |
 
 `laneflow-static-contract` 使用 `#![no_std]`，只保存跨编译器、格式、镜像与运行时的
 小型值类型和机器可读登记常量。它不提供完整标识编码函数；标识生成仍由 compiler
@@ -122,44 +105,30 @@ HIR 和 MIR 的区块分配键（arena key）则留在编译器内部。这样�
 `laneflow-format`、`laneflow-static-network` 和 `laneflow-runtime` 可以共享零成本
 类型，而编译器临时表不会被误写成长期公共契约。
 
-`laneflow-compiler-test-support` 设置 `publish = false`。它只在测试开发依赖中使用
-`laneflow-data` 加载当前态固定样例作为迁移预言机（Migration Oracle），该扩展在
-#292 G1 显式登记；它的正常库依赖不使用 `JSON` 加载器，也不让
-`laneflow-compiler` 看见当前态类型。
+### 2.2 下游职责
 
-### 2.2 本议题不提前建立的包
+- `laneflow-format` 拥有公共可移植规范制品、后发射检查与 LFCP 2；
+- `laneflow-static-network` 拥有受检 LFCA 构建闭合、performance-first layout 与共享生命周期；
+- `laneflow-runtime` 与空间层消费同一 `SharedNetworkRevision`；
+- 路网修订切换与运行时快照由各自 Runtime 合同负责。
 
-- `laneflow-format` 的公共可移植规范制品（Portable Canonical Artifact）格式由 #298
-  交付；
-- `laneflow-format` 的后发射检查与 LFCP v2 最小发布闭合由 #299 交付；不创建
-  `laneflow-validator`；
-- `laneflow-static-network` 的受检 LFCA 构建闭合、performance-first layout 与共享
-  生命周期由 #300 交付；
-- `laneflow-runtime` 与空间层共享静态路网消费路径由 #301 交付；#301 同时使
-  `TrafficWorld` 成为唯一可运行世界并拆除 current Core/JSON 运行时入口；
-- 不可变路网修订、运行时快照（Runtime Snapshot）与在线路网修订切换由 #302 交付。
-
-#292 可以定义后继编译发射器所需的只读已验证规范低层中间表示视图（View），但不得用私有
-临时线格式提前冻结 #298/#300 的公共字节契约。
+编译器只公开后继发射器所需的只读 Canonical LIR 视图，不以私有临时线格式建立第二套
+公共字节契约。
 
 ### 2.3 #315 官方前端共同接入、#296 道路编辑与 #297 调整后边界
 
-#315 已实现的共同受检模块接入继续服务 Synthetic、道路编辑和后续正式编制前端，
-不因 #297 调整而回退。current JSON 不再是编译器前端：
+#315 建立的共同受检模块接入继续服务 Synthetic、道路编辑和后续正式编制前端。
+JSON 不属于编译器前端：
 
 ```text
-laneflow-compiler ----------------> laneflow-static-contract
-laneflow-compiler -X-------------> laneflow-current-source / laneflow-data
-
-laneflow-data --------------------> laneflow-current-source
-laneflow-data --------------------> laneflow-core / laneflow-spatial
+laneflow-compiler ----------------> laneflow-static-contract / laneflow-format
+laneflow-compiler -X-------------> JSON loader / runtime / spatial
 ```
 
-`laneflow-current-source` 只集中当前加载器的 wire DTO、版本、摘要和配对；不提供严格
-导入策略、编译器位置表或资源余额。编译器不建立 `current-v0_10-import` 特性，项目不
-建立 `laneflow-current-import`。编译器原生有类型模块是投影测试的唯一输入。
+编译器不建立 current JSON 导入特性或迁移包；编译器原生有类型模块是测试和生产接入的
+唯一输入。
 
-#296 FlatBuffers G1 已选择字段私有、借用完整 size-prefixed FlatBuffers bytes 的
+道路编辑 FlatBuffers 合同选择字段私有、借用完整 size-prefixed FlatBuffers bytes 的
 `RoadEditingModuleInput`，并由唯一原子
 `CompilationUnitBuilder::add_road_editing_module` 在同一次 builder 可变借用中取得
 剩余预算、执行有界 verifier、语义预检、降阶和共同接入。它不公开预构造
@@ -167,22 +136,20 @@ laneflow-data --------------------> laneflow-core / laneflow-spatial
 
 道路编辑来源的 owner tree 必须在单模块内闭合：模块级 key 按 kind 唯一，
 owner-scoped key 只在直接 parent 下唯一，来源地址和 writer 顺序携带完整 owner-key
-tuple。#296 同时提供第一方 Rust 字段私有有类型来源构造面和 writer；writer 只生成
+tuple。第一方 Rust 接口同时提供字段私有有类型来源构造面和 writer；writer 只生成
 标准 owned bytes，编译器仍把 reader/verifier 作为不受信任字节的唯一准入边界。
 
-### 2.4 #297 current JSON 退役边界
+### 2.4 JSON 退役边界
 
-#297 原 current 包迁移导入设计已由
-[`current-package-import.md`](current-package-import.md) 取代。项目没有已发布或用户持有的
-current JSON，因此不建立迁移前端、严格导入能力、资产报告或离线导入器。仓库内部
-夹具在新编制来源可表达相同场景后一次性转换或删除。
+项目没有已发布或用户持有的旧 JSON，因此不建立迁移前端、严格导入能力、资产报告或
+离线导入器。旧迁移方案只保留在 Git 历史；当前夹具使用编译器原生有类型来源。
 ## 3. 公共接口与构造权威
 
 ### 3.1 生产公共面
 
-`laneflow-compiler` 的首版生产公共面限制为四类能力：官方来源构造、编译执行、
-诊断与资源限制、只读已验证输出。#292 只交付合成领域专用语言前端的来源构造接口，
-不公开通用前端插件接口。以下第一段代码只列出 #292 G4 已交付的受检构造面：
+`laneflow-compiler` 的生产公共面限制为四类能力：官方来源构造、编译执行、
+诊断与资源限制、只读已验证输出。它只公开合成领域专用语言前端的来源构造接口，
+不公开通用前端插件接口。以下第一段代码列出现行受检构造面：
 
 ```rust
 pub struct SourceModuleHeader { /* 调用方提供的非内容字段，私有字段 */ }
@@ -240,11 +207,11 @@ impl CompilationOutput {
 }
 ```
 
-以上代码表达 #292 G1 与后继性能证据边界修订已接受的公共接口形状。G2 可以在不改变公共构造、所有权、
-可见性、错误和确定性契约的前提下细化包内私有字段与实现名称；任何公共接口或上述
-契约变化都必须重新进入 G1，不得作为实现细节直接修改。
+以上代码表达现行公共接口形状。实现可以在不改变公共构造、所有权、可见性、错误和确定性
+契约的前提下细化包内私有字段与实现名称；任何公共接口或上述契约变化都必须重新进入设计，
+不得作为实现细节直接修改。
 
-以下第二段代码登记 #315 已实现的多文档共同能力；它不包含 current JSON 专用入口：
+以下第二段代码登记多文档共同能力；它不包含 JSON 专用入口：
 
 ```rust
 pub struct SourceDocumentOrigin { /* 字段私有的逐文档显示/审计来源 */ }
@@ -253,11 +220,11 @@ pub struct SourceDocumentDescriptor { /* 私有字段 */ }
 impl CompileLimits {
     // P100 v1/v2 保持不可变。
     pub fn p100_initial_v2() -> Self;
-    pub fn single_network_1m_v1() -> Self;
+    pub fn single_network_1m_v2() -> Self;
 }
 ```
 
-#315 G2 已实现下列共同变化：`SourceModuleDescriptor` 保留为只读公共逻辑模块值，
+共同接入包含下列变化：`SourceModuleDescriptor` 保留为只读公共逻辑模块值，
 新增版本化文档集摘要查询；文档专属的键、摘要、长度和来源记录由只读公共
 `SourceDocumentDescriptor` / `SourceDocumentOrigin` 暴露。二者不提供公开构造器；
 `ValidatedSourceMapInput` 分别提供稳定顺序的模块与文档视图。
@@ -290,10 +257,10 @@ impl CompileLimits {
 - 前端专用语法（Frontend-specific Syntax）可以作为来源诊断元数据保留，但不得
   绕过共同 HIR/MIR 编译遍。
 
-**#315 G1 Accepted：**把第一项扩展为每个逻辑来源模块拥有一个或多个来源文档；每份
+现行规则把第一项扩展为每个逻辑来源模块拥有一个或多个来源文档；每份
 文档各自绑定稳定文档键、精确内容摘要、长度和逐文档来源记录。模块级来源沿袭只描述
-工具、选项和整体转换，不能替代各文档自身的显示/审计来源。该规则属于 #315 G1
-已接受目标边界；`SourceDocumentDescriptor` / `SourceDocumentOrigin` 已由 #315 G2 实现。
+工具、选项和整体转换，不能替代各文档自身的显示/审计来源；
+`SourceDocumentDescriptor` / `SourceDocumentOrigin` 是当前表示的一部分。
 
 第三方工具在 v0.10 可以调用公开的合成领域专用语言构造接口；后继官方几何文档
 前端、导入前端或编辑器编制界面分别通过其冻结的来源契约接入，而不是让调用方构造
@@ -312,12 +279,12 @@ impl CompileLimits {
 
 本段只登记后继决策入口，不预选具体协议，也不构成 v0.10 兼容承诺。
 
-### 3.3 官方前端共同受检模块接入（#315 G1 Accepted）
+### 3.3 官方前端共同受检模块接入
 
-#315 G1 已接受把当前 `CompilationUnitBuilder` / `CompilationUnit` 对
+当前 `CompilationUnitBuilder` / `CompilationUnit` 对
 `SyntheticModule` 的内部依赖替换为编译器私有（compiler-private）共同表示，同时保持
 公开构造面为来源专用的具体类型。下列名称表达所有权和阶段边界；除已经接受的公开类型名以及
-`TypedAstModule` / `TypedAstDeclaration` 外，G2 可以选择等价的私有实现名称：
+`TypedAstModule` / `TypedAstDeclaration` 外，实现可以选择等价的私有名称：
 
 ```rust
 pub struct SyntheticModule { /* 字段私有的官方具体模块 */ }
@@ -387,7 +354,7 @@ pub struct CompilationUnit {
 `sourceDocumentDigest`。算法或编码变化必须提升文档集摘要版本并更新已知向量；不能选择“第一个
 文档”充当模块摘要，也不能让单文档模块把文档摘要与文档集摘要混为同一语义。
 
-#315 G2 已把此前承载共同有类型抽象语法树声明的私有 `SyntheticDeclaration` 改名为
+共同有类型抽象语法树声明使用私有
 `TypedAstDeclaration`。HIR 只遍历
 `TypedAstModule` 与 `TypedAstDeclaration`，不能按 `SourceLanguage`、前端种类或公开
 模块封装在记录级分支。`SourceLanguage` 连续登记为 `1=SyntheticDsl`、
@@ -461,15 +428,15 @@ CanonicalIdentity 随后严格按 Identity v1 registry 的完整 `EntityKind::re
 维度；来源角色、显示/审计来源字符串和共享驻留表必须分别计入既有
 `StringItemCount`、`TotalStringBytes` 与 `CompilerControlledLiveBytes`。
 
-`LF-COMP-P100-INITIAL-v1` 的维度和数值保持不可变，只继续描述 #292 已交付的单文档
-Synthetic 路径。#315 G2 使用新的 `LF-COMP-P100-INITIAL-v2`：除新增
-`max_source_document_count = 1566` 外，其余精确上限继承 v1。该数值是 #315 已实现的
-共同接入容量，不构成任何 current JSON 前端承诺；后继前端若需要更高文档总数，必须
+`LF-COMP-P100-INITIAL-v1` 的维度和数值保持不可变，只描述单文档 Synthetic 路径。
+共同接入使用 `LF-COMP-P100-INITIAL-v2`：除新增
+`max_source_document_count = 1566` 外，其余精确上限继承 v1。该数值是共同接入容量，
+不构成任何 current JSON 前端承诺；后继前端若需要更高文档总数，必须
 携带实测存续内存和真实工作负载证据另行提升配置档版本。现行精确上限表不含路线出现项
 维度。
 
 LFCA 4 的一百万稳定静态实体端到端路径使用独立的
-`LF-COMP-SINGLE-NETWORK-1M-v1`；它不是 v1/v2 的隐式升级，也不改变既有生产基线。
+`LF-COMP-SINGLE-NETWORK-1M-v2`；它不是 P100 v1/v2 的隐式升级，也不改变既有生产基线。
 该配置档只由显式 constructor 选择，保持字段私有、没有 `Default`/unlimited/调用方覆写。
 
 `CompileLimits` 私有保存配置档修订与受支持维度，不能由调用方补字段或隐式升级。v1
@@ -483,7 +450,7 @@ LFCA 4 的一百万稳定静态实体端到端路径使用独立的
 存续量检查编译单元级编译器控制存续字节数。由此不会把互不共存的多份来源
 全文虚构为同时存续，也不会因摘要已经存在而漏掉总输入规模上限。
 
-共同接入不需要特征对象（trait object）。若 G2 为代码组织使用私有枚举（enum）或封闭
+共同接入不需要特征对象（trait object）。若实现为代码组织使用私有枚举（enum）或封闭
 特征（sealed trait），只允许每个模块一次的常数次分派，并且必须在进入
 `TypedAstModule` 前消除；任何声明、引用、关系、
 字符串或几何点循环都不得承担前端变体分支或虚调用。
@@ -504,8 +471,8 @@ current JSON 退役与投影测试边界，不再拥有编译器前端。
 - 来源位置与来源沿袭；
 - 官方前端展开来源，但不保存当前核心句柄或目标布局（Layout）。
 
-**#315 G1 Accepted：**把第一项扩展为同时保留一个逻辑模块的一个或多个
-`SourceDocumentDescriptor`；该 descriptor set 已是 G2 实现的当前阶段表示，
+现行规则把第一项扩展为同时保留一个逻辑模块的一个或多个
+`SourceDocumentDescriptor`；该 descriptor set 是当前阶段表示，
 Synthetic 只是其中恰有一份文档的具体前端。
 
 同一个有类型抽象语法树模块内的声明按来源顺序保存，来源顺序只服务诊断和显式有序
@@ -582,7 +549,7 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 ### 4.5 已验证源映射输入与编译结果
 
 已验证源映射输入（Validated Source-map Input）与 LIR 在同一次成功编译中原子
-冻结，但不属于静态路网语义。#292 G4 已接受且当前实现的基线至少保存：
+冻结，但不属于静态路网语义。当前基线至少保存：
 
 - 来源模块描述符、每个模块绑定的一份来源文档登记和来源沿袭；
 - 稳定实体的实体种类、`StableId128`、有类型逻辑序号与主要 / 关联来源位置；
@@ -590,7 +557,7 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
   位置；
 - 生成关系的推导链和贡献来源位置（contributing spans）。
 
-**#315 G2 Implemented：**一模块一文档基线已扩展为分离的来源模块描述符表、来源文档描述符表
+一模块一文档基线已扩展为分离的来源模块描述符表、来源文档描述符表
 与逐文档来源记录：每个文档显式关联所属逻辑模块和一条来源记录，模块级工具/转换沿袭不能
 替代该关联；编译单元按第 3.3 节的独立文档顺序冻结全局来源文档登记。从有类型抽象语法树
 降阶到 HIR 时，每个声明、关系或诊断位置都把自身
@@ -621,7 +588,7 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
 
 返回 `DiagnosticBundle` 后，candidate context、bundle handle vector 与 retained capacity
 转为 caller-owned，不计入后续 compiler 调用；builder 仍持有的 admitted context allocation
-继续只在 builder ledger 计一次。G2 必须验证 caller 保留旧 bundle 时同一 builder 重试，
+继续只在 builder ledger 计一次。测试必须覆盖 caller 保留旧 bundle 时同一 builder 重试，
 并把 compiler-controlled 与 caller-retained bytes 分开报告。
 
 后继 #298 只能从同一个已验证编译结果（Validated Compilation Output）中的 LIR 与
@@ -654,10 +621,9 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
 区域。编译遍只有在本阶段错误级诊断为零时才能提交输出。整个编译单元只有在全部
 编译遍成功时才能返回完整 `CompilationOutput`。
 
-本顺序是 `network-compiler.md` 推荐顺序在 #292 首个纵向切片内的收窄，不是对上游
-顺序的修订：来源格式升级由后继几何文档 / 导入前端接入；静态执行约束与分区规划
-提示在对应后继 G1 加入同一 MIR/LIR 管线；规范制品、源映射 / 语义差异和共享静态路网的
-原子发射分别由 #298/#300 交付。后继阶段只能在相应位置增加编译遍或发射器，不得在
+本顺序是 `network-compiler.md` 权威顺序的实现收窄，不是对上游顺序的修订。来源格式升级
+由相应几何文档或导入前端接入；静态执行约束与分区规划提示必须加入同一 MIR/LIR 管线；
+规范制品、源映射 / 语义差异和共享静态路网只能在相应位置增加编译遍或发射器，不得在
 后端补语义。
 
 ### 5.2 确定性规则
@@ -675,7 +641,7 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
 - 干净重复编译、不同哈希种子、声明置换和受支持平台必须产生相同 LIR 语义摘要；
 - 后继可移植规范制品实现后，干净编译、增量编译和并行编译还必须逐字节一致。
 
-首版实现只要求交付干净单工作线程预言机。并行和增量不得通过公共接口泄漏线程数、
+当前规范预言机是干净单工作线程编译。并行和增量不得通过公共接口泄漏线程数、
 分片号或缓存身份；只有实际的编译器工作负载（Workload）证明收益后才能增加
 生产依赖。
 
@@ -684,11 +650,11 @@ context，Arc allocation/strong handle/vector capacity 和失败 retained bytes 
 编译资源上限（Compile Limits）的精确类型 `CompileLimits` 是显式输入，不提供隐式
 无限生产模式，也不得以 Rust `Default` 或来源自报字段绕过宿主选择。公共面提供
 `CompileLimits::p100_initial_v1()`、`CompileLimits::p100_initial_v2()` 与
-`CompileLimits::single_network_1m_v1()`。调用方必须显式选择具名配置档，测试可以在包内构造
+`CompileLimits::single_network_1m_v2()`。调用方必须显式选择具名配置档，测试可以在包内构造
 更小边界，但不能获得无限配置。字段保持私有，避免把内部阶段布局变成公共兼容面；
 配置档增加维度或改变任一上限时必须提升标识符修订并重新执行边界测试。
 
-**#315 G2 Implemented：**多文档共同接入已增加 `CompileLimits::p100_initial_v2()`，并保留
+多文档共同接入使用 `CompileLimits::p100_initial_v2()`，并保留
 v1 的精确语义和构造器。配置档选择也是官方前端准入能力，不只是数值查表：v1 仅以
 `ModuleCount` 隐式约束一模块一文档形状，
 多文档模块要求 v2 或后继显式携带 `SourceDocumentCount` 的配置档。实现不得为 v1 合成默认文档上限、
@@ -697,15 +663,13 @@ v1 的精确语义和构造器。配置档选择也是官方前端准入能力�
 `SourceDocumentCount` 已经是当前编译器配置档；#296 的具体入口须按自身设计选择并
 执行该配置档契约。
 
-**#296 最小资源护栏 v1：**道路编辑来源继续执行来源字节、verifier depth/table/
+**道路编辑来源最小资源护栏：**道路编辑来源继续执行来源字节、verifier depth/table/
 apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输出和总工作集的主要逻辑
 上限；所有乘加使用 checked arithmetic，候选失败不得提交。`CompilerControlledLiveBytes`
 在该入口首先是故意保守的逻辑工作集 ceiling，不宣称仅凭普通 Rust 计数器即可逐字节
 约束实际 allocator。`Vec` capacity/扩容共存、`Arc` header/DST padding、HIR/MIR/LIR
-阶段精确生命周期、失败诊断与 allocator/P100 正式证据由
-[#374](https://github.com/illusion-tech/laneflow/issues/374) 独立交付；它阻断 #305 的
-最终 cutover Gate，但不阻断 #298、#345、#351–#354。该拆分不放宽 schema、verifier、
-主要规模上限、失败原子性或 canonical LIR 语义。
+阶段精确生命周期、失败诊断与 allocator/P100 证据必须独立测量；这不放宽 schema、
+verifier、主要规模上限、失败原子性或 canonical LIR 语义。
 
 `LF-COMP-P100-INITIAL-v1` 以 #308 九个压力分层的逐维上包络为来源。来源 / 领域计数
 取 G4 原始测量制品 `v0.10-compiler-budget-calibration-raw.json`（现仅存 git 历史
@@ -745,7 +709,7 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 | `max_compiler_controlled_live_bytes`  | 43269120 | 编译器控制总存续请求字节                         |
 | `max_retained_capacity_bytes`         | 36925688 | 一次编译结束后编译器实例允许保留的无语义容量字节 |
 
-**#315 G1 Accepted 配置档：**`LF-COMP-P100-INITIAL-v2` 继承上表全部精确值并增加：
+`LF-COMP-P100-INITIAL-v2` 继承上表全部精确值并增加：
 
 | 私有配置字段                | 精确上限 | 计数对象 / 单位 |
 | --------------------------- | -------: | --------------- |
@@ -757,7 +721,7 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 `TypedAstRecordCount` 计数。配置档 v2 在实现中成为生产选择前，必须按第 3.3 与 10.4 节完成五级、
 多文档和边界重新资格验证。
 
-**百万单路网配置档：**`LF-COMP-SINGLE-NETWORK-1M-v1` 是
+**百万单路网配置档：**`LF-COMP-SINGLE-NETWORK-1M-v2` 是
 `10000`/`100000`/`1000000` 三档现实混合稳定静态实体端到端证据的唯一大型具名配置档。
 它不表示所有维度都应预分配到上限，也不保证任意理论性一百万实体组合都可接受；官方
 现实混合 fixture 必须在下列每个独立维度内完成 official source → compiler → emission，
@@ -787,12 +751,18 @@ apparent-size、声明/引用/关系/字符串/几何点、阶段 scratch、输�
 | `max_single_string_bytes`             |       4096 | 单个驻留语义字符串 / key token component 字节           |
 | `max_total_string_bytes`              |  536870912 | 驻留字符串总字节                                        |
 | `max_diagnostic_count`                |         16 | 规范排序后保留的诊断                                    |
-| `max_stage_scratch_bytes`             |  536870912 | 单次编译遍暂存请求字节                                  |
+| `max_stage_scratch_bytes`             | 2147483648 | 单次编译遍暂存请求字节                                  |
 | `max_output_bytes`                    | 1073741824 | 正在构造的 LIR / 伴随输出逻辑字节                       |
 | `max_portable_object_bytes`           | 4294967296 | 单个 file-backed LFCA/LFSM/LFSD exact bytes             |
 | `max_portable_bundle_bytes`           | 8589934592 | 三个 closed staged object 的 exact bytes 总和           |
 | `max_compiler_controlled_live_bytes`  | 6442450944 | 编译器控制总存续请求字节；不含 file-backed staged bytes |
 | `max_retained_capacity_bytes`         |  536870912 | 一次编译返回后编译器允许保留的无语义容量字节            |
+
+`max_stage_scratch_bytes` 是失败关闭天花板，不是启动预留；实现仍按实际记录数申请。现实混合
+百万档的规范排序与闭包暂存需求接近 1 GiB，因此配置档保留 2 GiB 上限，避免把一次正常的
+百万路网编译误判成极限组合，同时仍受 6 GiB compiler-controlled live 总上限约束。改变该
+精确上限必须分配新的配置档标识符/版本；不得原地改变
+`LF-COMP-SINGLE-NETWORK-1M-v2` 的语义。pre-1.0 不为被取代的配置档保留兼容 façade。
 
 该配置档的计数字段继续使用可覆盖 `u32` wire 空间的受检整数；全部 `*Bytes` 私有字段必须以
 `u64` 表达。现有实现中的 `u32` byte 字段须原位加宽，不能截断或 clamp 六 GiB ceiling；这是
@@ -813,8 +783,8 @@ bytes，不进入 `CompilerControlledLiveBytes`；emitter 必须写入 sealed cl
 53-byte key components；每个 component 分别消费 `StringItemCount`，实际 bytes 消费
 `TotalStringBytes`，完整 wire spelling 只由 `SourceBytes*` 与 reference occurrence 计量。
 
-单模块来源上限与总来源上限同值，是从已资格验证的总来源上限作出的失败关闭收窄；#292 G2
-仍须分别验证单模块与跨模块累计边界。阶段记录数是实现预算而不是公共数据模型：生产 IR
+单模块来源上限与总来源上限同值，是从已资格验证的总来源上限作出的失败关闭收窄；
+必须分别验证单模块与跨模块累计边界。阶段记录数是实现预算而不是公共数据模型：生产 IR
 可以使用不同 Rust 结构，但必须为每个逻辑记录定义可审计计数，且不能用拆分/合并结构
 绕过总存续字节上限。上述逐维最大值不是已经测过的“所有维度同时取最大”组合；任意
 输入同时逼近多个上限时，`max_compiler_controlled_live_bytes` 仍是最终全局失败边界。
@@ -852,7 +822,7 @@ bytes，不进入 `CompilerControlledLiveBytes`；emitter 必须写入 sealed cl
 核对；所有请求容量和累计字节使用受检加法，平台无法表示请求值时必须在分配前失败。
 该段描述 #292/#315 既有共同编译器会计目标；#296 道路编辑来源在 #374 完成前按上文
 “最小资源护栏 v1”的保守逻辑 ceiling 验收，不把每个 allocator allocation 的精确相等
-关系作为 #296 Delivery 前置。
+关系作为道路编辑前端实现前置。
 
 `max_diagnostic_count` 限制保留的诊断记录数，不限制仍可安全检查的诊断候选数。每个
 已执行编译遍必须检查其输入中全部可安全判定的候选，并用按第 5.2 节全局规范顺序
@@ -906,12 +876,12 @@ owner-local conflict passages 与可选 `ConflictZoneRegion` 纳入同一确定�
 `file!()` 结果只作本地显示和来源沿袭。循环展开的多个声明可以共享调用位置，但诊断
 必须同时携带声明的显式稳定键；来源位置、文件路径和展开序号都不得参与标识。
 
-**#315 G1 Accepted：**在不原地改义上述字段的前提下迁移为逐文档形状：每个 `SyntheticModule`
+现行逐文档形状在不原地改义上述字段的前提下，使每个 `SyntheticModule`
 恰有一个 `SourceDocumentDescriptor`，其 `sourceDocumentDigest` 必须逐字节等于既有
 `sourceContentDigest`；再按第 3.3 节从单文档描述符派生模块级
 `sourceDocumentSetDigest`。构建器把 `sourceDocumentKey`、摘要和 `LFSOURCE` 精确记录
 长度不可分绑定到该描述符；后继多文档官方前端也为每份文档派生独立描述符并沿用
-编译单元级唯一性规则。该迁移已由 #315 G2 落地，并以逐文档与文档集两类已知向量锁定。
+编译单元级唯一性规则；逐文档与文档集两类已知向量锁定该语义。
 
 ### 6.2 首批支持矩阵
 
@@ -1024,7 +994,7 @@ property path，以及可选 interned canvas selection。只有 FlatBuffers 结�
 范围，道路编辑来源使用有类型实体/属性位置。宿主路径只服务显示和来源沿袭，不参与
 规范标识、规范排序、可移植规范制品或语义差异。
 
-**#315 G2 Implemented：**每个位置的文档键必须存在于所属逻辑模块的文档描述符集，并解析
+每个位置的文档键必须存在于所属逻辑模块的文档描述符集，并解析
 为独立来源文档序号；来源模块序号不能替代或推导文档序号。该多文档解析规则已经由
 跨文档来源映射测试证明。
 
@@ -1097,11 +1067,11 @@ loader 的正确性由其自身测试负责。
 实现标识 v1 已接受的 BLAKE3-128 算法，不是用基准重新选择持久标识算法；该依赖仍须
 完成 MSRV、许可证、维护、安全和依赖树审计。
 
-### 10.2 #308 候选结论与 G2 实现选择
+### 10.2 #308 历史研究结论与现行容器选择
 
-#308 的三十条候选比较没有得到可重复改善：二十五条处于噪声范围内，一条证据不足，
-四条为可重复回退。因此 #292 G1 不为一次性研究继续扩大候选矩阵，也不因本轮结果
-新增 `xxhash-rust`、`hashbrown` 或 `indexmap` 生产依赖。首版实现冻结为：
+#308 的三十条历史候选比较没有得到可重复改善：二十五条处于噪声范围内，一条证据不足，
+四条为可重复回退。因此现行实现不新增 `xxhash-rust`、`hashbrown` 或 `indexmap`
+生产依赖，并采用：
 
 - 调用方可控的命名空间、符号和文档键使用标准库随机种子 `HashMap`，完整键相等是
   正确性条件；
@@ -1110,10 +1080,10 @@ loader 的正确性由其自身测试负责。
 - 持久 `StableId128` 继续使用身份 v1 已接受的 BLAKE3-128；它不参与内部容器竞选；
 - `XXH3`、XXH64、FNV-1a64 与确定性桶/基数排序均不作为首版默认实现。
 
-G2 只需测量真实生产实现与标准库基线，不再强制重跑 #308 的完整候选矩阵。只有实际
-实现无法满足第 11.3 节预算，或新候选会改变公共接口、确定性语义、拒绝服务边界或
-依赖方向时，才携带精确分层证据回到 G1。纯私有、依赖中立且不改变预算的等价优化可在
-G2/G3 审阅中处理。新增依赖仍须记录最低支持 Rust 版本（Minimum Supported Rust
+真实生产实现只需与标准库基线比较，不强制重跑 #308 的完整候选矩阵。只有实现无法满足
+现行预算，或新候选会改变公共接口、确定性语义、拒绝服务边界或依赖方向时，才携带精确
+分层证据重新进入设计。纯私有、依赖中立且不改变预算的等价优化可在常规审阅中处理。
+新增依赖仍须记录最低支持 Rust 版本（Minimum Supported Rust
 Version，MSRV）1.98、许可证、维护状态、安全记录和依赖树。
 
 ### 10.3 并行与增量
@@ -1130,10 +1100,10 @@ Version，MSRV）1.98、许可证、维护状态、安全记录和依赖树。
 增量能力同样必须以干净编译为预言机；缓存未命中 / 命中只影响复用，不改变诊断、
 LIR 或后继制品。
 
-### 10.4 #315 共同接入性能与验证边界（Accepted）
+### 10.4 共同接入性能与验证边界
 
-#315 不进入交通运行时（Traffic Runtime）固定步进热路径，但仍不能以“离线”作为重复
-工作和无界内存的豁免。G2/G3 必须在同一 P100 机器、相同发布配置（release）和相同
+共同接入不进入交通运行时（Traffic Runtime）固定步进热路径，但仍不能以“离线”作为重复
+工作和无界内存的豁免。性能证据必须在同一 P100 机器、相同发布配置（release）和相同
 `LF-COMP-P100-PRODUCTION-R0-v1` 五级工作负载上形成基线/候选（base/candidate）配对证据：
 
 - 既有 `Compiler::compile` 计时边界继续覆盖完整 HIR→MIR→LIR→源映射管线，确认共同
@@ -1178,7 +1148,7 @@ LIR 或后继制品。
 - 来源模块描述符由构建器派生、`sourceContentDigest` 已知向量、重复
   `sourceDocumentKey`；
 - 表、区间、有类型逻辑序号、模块 / 编译单元累计资源上限和暂存区边界；
-- `LF-COMP-SINGLE-NETWORK-1M-v1` constructor 的全部精确字段已知向量；稳定实体、单个
+- `LF-COMP-SINGLE-NETWORK-1M-v2` constructor 的全部精确字段已知向量；稳定实体、单个
   portable object、bundle、编译器控制总存续内存与 retained capacity 在上限值成功、
   `+1` 时于返回部分候选前稳定失败；
 - `10000`/`100000`/`1000000` 现实混合 official source 使用同一大型配置档贯通 compiler 与
@@ -1194,9 +1164,8 @@ LIR 或后继制品。
 - 以编译失败测试（Compile-fail Test）证明未验证阶段无法调用集成专用投影或编译
   发射器，以及调用方不能构造描述符 / 模块错配。
 
-#315 的 `SourceDocumentDescriptor`、逐文档/文档集摘要已知向量和一模块多文档独立
-源映射测试只属于第 10.4 节的 **#315 G1 Accepted** 验证增量；它们不倒改上述 #292
-已接受的历史通用正确性测试矩阵；#315 G2 已增加并通过这些验证。
+`SourceDocumentDescriptor`、逐文档/文档集摘要已知向量和一模块多文档独立源映射测试
+属于第 10.4 节的附加验证，不替代上述通用正确性测试矩阵。
 
 ### 11.2 编译器工作负载
 
@@ -1233,7 +1202,7 @@ LIR 或后继制品。
 - 输出 LIR 表 / 关系 / 标识字段字节数；
 - 失败输入在限制边界的最大工作量。
 
-### 11.3 #308 G4 证据与 #292 首轮性能门槛
+### 11.3 历史 #308 证据与首轮性能门槛
 
 本节保存 #292 原 G1 的研究输入和判定方法。第 11.4 节确认其生产适用性缺口后，第
 11.5 节的 append-only G1 修订已经取代其“产品通过门槛”角色；本节数值现只作容量
@@ -1255,7 +1224,7 @@ R0 研究基线；产品负责人另行把同一台 `LF-P100-REF-01` 物理机�
 | 校准 |      30986300 |    21751700 |         18752072 |       21650640 |   18477896 |           56187294 |
 | 压力 |      49878400 |    45679900 |         37474040 |       43269120 |   36925688 |          100798860 |
 
-G2/G3 在 P100 上执行生产干净单工作线程编译时必须遵循以下判定：
+在 P100 上执行生产干净单工作线程编译时遵循以下判定：
 
 1. 使用第 11.2 节相同生成规则、模块图、规模、冷实例 / 稳定容量复用边界与计时边界；
 2. 语义正确性先于性能，生产 LIR 摘要不能与研究摘要直接比较，必须由编译器原生
@@ -1276,9 +1245,9 @@ G2/G3 在 P100 上执行生产干净单工作线程编译时必须遵循以下�
 吞吐或研究替身的进程数量换算成编译器产品容量。预算来源、计数对象、单位、P100
 硬件身份与证据提交必须保留可追溯性。
 
-### 11.4 G2 实现核对发现的门槛适用性缺口
+### 11.4 历史实现核对发现的门槛适用性缺口
 
-G2 把 `compiler-calibration-workloads-v1.json` 逐项映射到真实生产语义时确认：第 11.3
+历史实现把 `compiler-calibration-workloads-v1.json` 逐项映射到真实生产语义时确认：第 11.3
 节冻结的“相同生成规则 + 相同自然身份”目前不可成立，因而尚不能产生诚实的 126 条
 生产通过记录。精确差额是：
 
@@ -1294,8 +1263,8 @@ G2 把 `compiler-calibration-workloads-v1.json` 逐项映射到真实生产语�
   `typed AST → HIR → MIR → Canonical LIR` 的观测值。把两者按同名指标直接判定会违反
   第 11.3 节“研究替身不得冒充产品预言机”的边界。
 
-因此，`LF-COMP-P100-R0-v1` 仍是资源上限与实现选型的研究输入，不是 #292 当前提交的
-产品通过结论。进入整体 G3 前必须回到 G1，二选一冻结后才能建立规模扩展生产基线：
+因此，`LF-COMP-P100-R0-v1` 仍是资源上限与实现选型的历史研究输入，不是现行产品通过
+结论。当时从以下两种方案中选择后才建立规模扩展生产基线：
 
 1. 修订三项生产工作负载，使每个规模都能构造完整合法领域语义，并以新工作负载修订
    重新测量生产门槛；
@@ -1305,16 +1274,16 @@ G2 把 `compiler-calibration-workloads-v1.json` 逐项映射到真实生产语�
 不得通过忽略不适用分层、复用原自然身份或只测两个固定样例来伪造生产性能通过。两个
 固定样例的迁移等价证据仍由第 9.1 节独立成立。
 
-### 11.5 G1 修订后的首轮生产基线
+### 11.5 首轮生产基线
 
-#292 的 append-only [G1 性能证据边界修订][g1-performance-revision] 已选择第 11.4 节
-方案 2：`LF-COMP-P100-R0-v1` 保留为非门禁容量估算输入，真实生产
+历史性能证据边界修订选择第 11.4 节方案 2：`LF-COMP-P100-R0-v1` 保留为非门禁容量
+估算输入，真实生产
 `Compiler::compile` 使用 `LF-COMP-P100-PRODUCTION-R0-v1` 形成首轮描述性基线。
 
 工作负载 `LF-COMP-PRODUCTION-CORRIDOR-v1` 把完整信号化走廊 Traffic + Spatial 样例
 复制到独立命名空间。首次试运行证明第 6 份走廊会让 `SourceBytesTotal=560374` 超过
-`LF-COMP-P100-INITIAL-v1` 的 `542741` 字节上限；[G1 规模阶梯更正][g1-scale-correction]
-因而冻结 1、2、3、4、5 份完整走廊，不放宽资源配置档。
+`LF-COMP-P100-INITIAL-v1` 的 `542741` 字节上限；历史规模阶梯更正因而冻结 1、2、3、4、
+5 份完整走廊，不放宽资源配置档。
 
 P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造在停表外，唯一计时区只
 覆盖 `Compiler::compile`。全部 35 个样本成功且同级语义指纹一致；1→5 份走廊的墙钟
@@ -1322,124 +1291,3 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 642529→3211621 字节，保留容量恒为 0。完整紧凑证据与环境边界见
 `v0.10-compiler-production-baseline.md` 和配对 JSON。
 该结果成为后继同机生产回退对照，不是产品 SLA、城市容量或 #298 制品发射预算。
-
-## 12. #292 G1 接受结果与 G2 前置
-
-#292 G1 已确认：
-
-- [x] 公共接口、第三方前端非承诺边界、阶段类型私有性和包依赖有向无环图通过本地
-      架构审阅；
-- [x] 合成领域专用语言前端的支持 / 拒绝矩阵与两个迁移场景闭合；
-- [x] 标识 v1 值类型、独立编码边界和已知向量计划闭合；
-- [x] #308 已按自身 Gate 完成非生产校准研究；`CompileLimits` 与容量估算输入已经由
-      精确提交和机器可读 Evidence 冻结；G2 发现后的生产性能边界由第 11.5 节追加
-      G1 修订；
-- [x] 哈希 / 缓存候选结论、拒绝服务边界和依赖审计要求已冻结；首版保留标准库基线，
-      真实生产实现结果进入 G2/G3；
-- [x] 集成专用投影的静态语义、行为、事件、确定性和空间层等价矩阵闭合；
-- [x] ADR 0020、`network-compiler.md`、设计索引和术语引用一致；
-- [x] 全面本地文档 / 架构审阅没有未处置发现；
-- [x] 对 G1 当前精确提交（exact head）取得有效外部审阅者的干净完成态审阅；
-- [x] #292 新增仅追加的 `## G1 设计判断` `Pass` 评论。
-
-`G1 Pass` 只冻结实现输入。实现开始前仍须复核 GitHub 元数据 / 原生依赖、记录 G2，
-并让实时 Project 状态与 G2 一致；具体状态只从 GitHub 读取。不得把本地分支、G1
-启动评论或本文的 Accepted 状态单独当作 G2 授权。
-
-## 13. #292 G4 完成状态
-
-本节是 #292 当时的完成证据快照。2026-08-10 删除 current JSON 测试转换器并改为
-编译器原生投影夹具，不倒改当时已经成立的 G4 事实。
-
-#292 已依次记录 [G2 Pass](https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5160723273)、
-[G3 交付确认](https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5177504302) 与
-[G4 完成判断](https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5177635981)。
-截至 G4 合入 `main@c20308cd4c2d311862f7b4c9aaa1d6768e62406e`：
-
-- [x] 三个包、编译阶段、G1 首批领域语义、Identity v1、诊断和资源上限已经实现；
-- [x] 集成专用投影与两个 `LF-COMP-CURRENT-EQUIV-v1` 样例已经形成静态、空间、行为、
-      事件和重复编译证据；
-- [x] 工作区编译检查/测试/文档测试（workspace check/test/doctest）、三个新包严格
-      Clippy、发布配置测试（release tests）、rustdoc、cargo-deny 与 Markdown 表格检查
-      已经完成；
-- [x] 第 11.4 节的不适用差额已经取得仅追加（append-only）G1 修订，并形成五级
-      `LF-COMP-P100-PRODUCTION-R0-v1` 生产基线；
-- [x] Related PR #307 与 Delivery PR #314 已通过各自 G3、正常检查和精确头
-      （exact-head）外部干净审阅后合入，#292 已完成 G4 并关闭。
-
-本节只同步 #292 的已完成事实。#315 已接受增量不得倒改 #292 的 G1/G2/G3/G4 证据，也不能
-把 #292 的生产基线自动解释为新前端的解析成本预算。
-
-## 14. #315 G1 接受结果与 G2 前置
-
-本节保留 #315 当时的 G1 输入；其中为 #297 预留的 current 严格导入、位置表、资源
-配置和包依赖目标已于 2026-08-10 被 `current-package-import.md` 取代，不再是活动设计。
-
-- [x] `CompilationUnit` 只保存共同 `TypedAstModule`，HIR 不再依赖
-      `SyntheticModule` 或前端变体；逻辑模块与一个或多个来源文档分离建模，源映射不从
-      模块序号推导文档序号；
-- [x] 具体官方模块、私有共同接入、来源记录释放时点与失败原子性已经冻结；
-- [x] 命名空间/文档、导入图、全部资源维度和规范模块顺序只有一个实现权威；
-- [x] `LF-COMP-P100-INITIAL-v1` 保持不可变；v2 的 `SourceDocumentCount`、三文档容量推导、
-      五级/边界重新资格验证和配置档版本迁移已经冻结；多文档准入只接受显式具备该维度的配置档，
-      v1 不合成默认值或自动升级，固定三文档 current 在解析前拒绝 v1；
-- [x] #296/#297 的具体受检入口与 `laneflow-current-source` /
-      `laneflow-current-import` 目标包依赖图闭合；compiler 只在默认关闭、可退役的迁移
-      特性下依赖 current-source 的字段私有受检能力，importer 以 compiler 为唯一 LaneFlow 直接依赖、
-      第三方直接依赖限于已冻结支撑白名单且公共输入签名不泄漏 current-source 类型；两者均不依赖
-      当前态 Core/Spatial 对象图；
-- [x] `laneflow-current-source` 是场景清单到原始 Traffic/Spatial 制品精确绑定和线格式
-      解析的唯一权威；当前态生产兼容策略不新增制品数、引用长度或引用总字节拒绝条件，严格编译导入
-      策略则通过 source-owned 可克隆精确长度迭代器预检，在任何集合索引分配前以 builder 剩余
-      `CurrentSourceLimits` 检查这些维度及实际/声明/组合字节与解码计数；compiler 不镜像 source
-      硬上限或构造中间 view `Vec`，且不存在默认、无限、过期上限快照或先无界解码后统计的严格入口；
-- [x] ScenarioManifest 组合入口只消费原子成功结果，不重复或绕过长度、SHA-256、媒体
-      类型与引用验证；生产兼容结果不构造或保留 compiler-only 位置表，严格导入结果保留
-      Manifest/Traffic/Spatial 三个来源文档的独立身份、逐文档来源记录和受限字段/记录位置表，且两者
-      共享单一解析权威、均不重读原始字节；`CurrentSourceInput` 有外部 crate 可调用的零复制构造器，
-      compiler 当前态入口只接受该借用原始输入并在独占 builder 调用内完成严格验证、降阶和原子提交，
-      不公开接受预构造导入能力值；同时保留无需空间制品的 Traffic-only current Core 契约；
-- [x] 记录级零动态分派、零完整克隆、一次摘要/计数/排序、多文档紧凑序号解析与配对性能
-      验证方案闭合；
-- [x] 第三方自定义前端非承诺、各议题职责和 G2 阻塞关系没有歧义；
-- [x] `network-compiler.md`、路线图、设计索引、Skills 与术语表引用一致；
-- [x] 对 G1 精确头完成本地全面审阅和有效外部审阅，并在 #315 追加只读
-      [`## G1 设计判断` Pass 评论](https://github.com/illusion-tech/laneflow/issues/315#issuecomment-5189018791)。
-
-本清单已由 #315 G1 Pass 接受为目标实现输入；在当时它不修改 #292 已接受的历史 Gate
-记录，也尚未授权生产 Rust 实现。后继 G2 授权与实现结果见第 15 节。当时 #315 的
-Delivery PR 收口是 #296/#297 进入各自 G2 的硬前置；该前置后来以 #315
-`G4 Exception` 关闭，但不替代后继议题自身 Gate 或 exact-main 复核。
-
-## 15. #315 共同接入实现事实与交付边界
-
-#315 已取得只读
-[`## G2 设计判断` Pass 评论](https://github.com/illusion-tech/laneflow/issues/315#issuecomment-5189685733)，
-并在 `main@4465df3` 基线上实现以下共同接入事实：
-
-- [x] 编译单元只保留私有共同 `TypedAstModule` / `TypedAstDeclaration`，具体官方模块
-      通过同一条字段私有、原子准入路径提交；生产公共面没有通用前端 trait 或
-      `add_module`；
-- [x] 逻辑模块与来源文档独立登记，文档集摘要、逐文档摘要/长度/所属命名空间和冷来源
-      记录已落地；来源记录完成摘要后释放，不进入编译单元保留状态；
-- [x] `LF-COMP-P100-INITIAL-v1` 保持不可变，v2 只新增精确的
-      `SourceDocumentCount = 1566`，v1 多文档以结构化配置档不兼容诊断失败关闭；
-- [x] 共同准入保留文档归属/序号索引，来源映射按每条 span 的文档键解析独立紧凑序号并
-      核对所属逻辑模块，不从模块序号推断文档；
-- [x] 边界、边界加一、候选内/跨候选重复键、输入重排、已知向量、逐文档单次摘要、全部
-      共同资源维度、三文档模块/实体声明与关系跨文档来源、失败原子性、第二官方包装和公共 API
-      compile-fail 测试已经覆盖；
-- [x] 构建器模块向量、模块索引、文档索引、冻结 scratch、结果模块包装和源映射平坦文档表
-      均进入分阶段资源账本；专项 admission-only 基准报告 median/MAD、冷来源字符串字节、
-      构建器/结果存续、冻结 scratch 与准入控制峰值；逐轮验证流水账见 git 历史；
-- [x] #296 道路编辑来源语义明确排除在本切片之外；当时排除的 #297 current 导入设计现已
-      取消，不再是后继实现目标。
-
-本节只记录稳定实现边界，不充当动态治理状态。Delivery PR、required CI、精确头外部审阅、
-full-set G3 证据与治理收口必须从 GitHub 和对应验证快照读取。#315 后来以
-[`G4 Exception`](https://github.com/illusion-tech/laneflow/issues/315#issuecomment-5203763190)
-关闭；#296 因而不再等待其代码交付，但自身 G2 必须显式复核继承的例外证明边界；
-#297 调整后重新完成范围对应的 Gate。
-
-[g1-performance-revision]: https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5175472658
-[g1-scale-correction]: https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5175536346

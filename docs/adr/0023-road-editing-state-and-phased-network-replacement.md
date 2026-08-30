@@ -15,11 +15,11 @@
 > runtime-only 来源，以已认证 asset reference 重载；其晋升与 Runtime 修订切换由 #302 原子
 > 提交。
 >
-> **后继决策（2026-08-26）**：ADR 0029（Accepted；#498 G1）部分取代本文 §2.1
-> 「Identity v1 的 22 种稳定声明分组的有类型向量」。生产 `format_version = 2`
-> 根表为 21 个可构造声明向量；无 `static_routes` 字段；`canonical_frames` 为 field id 25。
-> 道路编辑状态权威、A → C 候选替换与 FlatBuffers 编码选择继续有效。该来源形状
-> 条款视为历史。
+> **后继决策**：ADR 0029 取代本文 §2.1 的静态路线来源形状；当前生产
+> `format_version = 3` 根表保存 23 个可构造 Identity 声明向量及 owner-local
+> `conflict_zone_regions`，无 `static_routes` 字段，field id 连续至 28。
+> 道路编辑状态权威、A → C 候选替换与 FlatBuffers 编码选择继续有效；本文旧来源
+> 形状只作历史背景。
 
 **关联文档**:
 
@@ -86,10 +86,10 @@ LaneFlow 的实际生产入口首先是可视化编辑器，同时需要游戏�
 ### 2.1 已选择的 production 编码：按模块 FlatBuffer
 
 根表保存精确格式版本、唯一模块头、一组不分配 `StableId128` 的道路走向定义，以及按
-Identity v1 稳定声明分组的有类型向量；owner-local 值留在 owner table。§2.1 原先写
-「22 种」向量的来源形状已被 ADR 0029 部分取代：生产 `format_version = 2` 为 21 个
-可构造向量，无 `static_routes` 字段。该额外走向向量保存当前曲线编制事实，
-但不创造第 23 种静态路网身份。编译器先检查 size
+Identity v1 稳定声明分组的有类型向量；owner-local 值留在 owner table。当前生产
+`format_version = 3` 为 23 个可构造 Identity 向量及 owner-local
+`conflict_zone_regions`，无 `static_routes` 字段。额外道路走向向量保存当前曲线编制
+事实，但不创造静态路网身份。编译器先检查 size
 prefix、完整长度和 `LFRE`，再使用
 有界 verifier 验证 offset/table/vector/string/union，之后直接从借用 view 预检并降阶。
 正常编译路径不形成整模块 wire decode 对象图，也不需要为逐记录释放自建 framing。
@@ -107,10 +107,11 @@ FlatBuffers 的理由：workspace `unsafe_code = forbid` 的产品意图是禁�
 代码随意引入未证明的不安全操作，而不是假装第三方 runtime 或受控生成物没有
 `unsafe`。
 
-生成绑定因此放入唯一的私有、`publish = false` package；手写 crate 继续继承
-`unsafe_code = forbid`，编译器只调用 verifier 驱动的安全 root/accessor，不能调用
+生成绑定因此放入私有、`publish = false` package；道路编辑生产调用图中的手写 crate
+继续继承 `unsafe_code = forbid`，编译器只调用 verifier 驱动的安全 root/accessor，不能调用
 `_unchecked`。固定版本 `flatc`、checked-in 生成物、clean regeneration diff、生成路径
-外的 `unsafe`/lint-exception 扫描、fuzz 和依赖升级复审共同构成审计边界。这个 package
+外的 `unsafe`/lint-exception 扫描、fuzz 和依赖升级复审共同构成审计边界。ADR 0024
+另行冻结的 `laneflow-format` 单一只读 mmap 小岛不进入此 wire 调用图。这个 package
 不是新产品层、公共库或前端插件接口。
 
 #296 同时交付第一方 Rust 的字段私有、有类型构造与写入能力，满足游戏初始化时的
@@ -217,8 +218,8 @@ Delivery Issue [#345] 交付来源差异/冲突合并，并与 #298 的路网影
 - FlatBuffers 提供 C++、C#、Rust 等工具链共用的有类型 schema、原生标量和 verifier；
 - size prefix、file identifier 和自定义 `VerifierOptions` 让输入在语义 lowering 前失败
   关闭，借用 view 避免 Protobuf 整模块/逐记录 decode 对象与分配；
-- 官方 Rust 生成物中的 `unsafe` 进入唯一私有生成绑定边界，手写 crate 的
-  `unsafe_code = forbid` 不放宽，production 调用图只允许受检安全入口；
+- 官方 Rust 生成物中的 `unsafe` 进入私有生成绑定边界，道路编辑 production 调用图中的
+  手写 crate 不放宽 `unsafe_code = forbid`，只允许受检安全入口；
 - FlatBuffers 的只读 buffer 不承担编辑模型职责；模块保存仍是有类型模型重建 blob；
 - 有界记录流 + Protobuf 的主要优势是 generated Rust 无 `unsafe`，主要代价是自定义
   framing、逐记录对象分配与 wire shape 规避；
@@ -282,8 +283,8 @@ lowering 和编译器资源计量不需要第二套 offset parser 或整模块 w
 ### 因 Rust 生成代码包含 `unsafe` 而直接拒绝 FlatBuffers
 
 这混淆了 LaneFlow 手写代码政策与固定第三方生成物的事实。生成的 offset/accessor 实现
-确实需要严格审计，但可以用私有 generated package、手写 crate `forbid`、安全 verifier
-入口、固定生成器、再现检查和 fuzz 形成窄边界；因此不能仅凭出现 `unsafe` 关键字淘汰
+确实需要严格审计，但可以用私有 generated package、道路编辑手写 crate `forbid`、安全
+verifier 入口、固定生成器、再现检查和 fuzz 形成窄边界；因此不能仅凭出现 `unsafe` 关键字淘汰
 更符合产品矩阵的编码。
 
 ### 在 FlatBuffer blob 上直接原地完成道路编辑

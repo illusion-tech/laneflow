@@ -1,6 +1,6 @@
 # 0028 交通一维几何整数毫米与固定步进合同
 
-**状态**: Review<br>
+**状态**: Accepted<br>
 **日期**: 2026-08-24<br>
 **适用范围**: 交通运行时已提交一维几何、固定步进合法区间、已提交速度、LFCA
 长度/速度字段、compiler 边长派生、编译器 Typed AST / HIR / MIR / LIR 交通一维
@@ -183,7 +183,7 @@ IIDM 与安全包络仍在 `f32` SI 中计算。进入 IIDM 前把 mm / mm/s 转
      hop 的硬停保持 `Active`。
    - 若 `travel_mm < hard_room_mm`：保留 `carry_um = um % 1000`，速度量化为
      `u32` mm/s，**独立于** 本拍是否凑满 1 mm。整数行程落地后，已提交速度不得超过
-     **所在边**限速（余数最多比 SI 包络多送 1 mm 跨边）。如何夹紧属 G2。
+      **所在边**限速（余数最多比 SI 包络多送 1 mm 跨边）。实现必须保证这一结果不变量。
 
 跨边：仅当本拍行程到达 `fromEdge` 终点 **且** 下一条 hop 存在 **且** 该转移 Gate
 （若有）许可。`progress_mm = 0`，**保留** `carry_um`（除非跨边后立即命中硬停）。
@@ -362,7 +362,7 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
   10 cm；空路巡航在有效加速度小于 `0.5 mm/s / Δt` 时可以稳定低于期望车速（最钝
   合法画像约 7%）。二者都是接受面，不是再加一层余数的理由。
 - `hard_room_mm` 与现行快照截断同构；跟车设计文档 §11.2 的投影前车行程仍是另一轴。
-- G2 同时改 compiler 发射、唯一登记表、admission、共享列和 Runtime 热状态。
+- compiler 发射、唯一登记表、admission、共享列和 Runtime 热状态必须保持同一套合同。
   Genesis 发当前合同；禁止为旧格式做 Artifact 迁移 diff。
 - #500：准入后编译器交通一维与制品 / Runtime 同一套整数权威。有折线在空间冻结提交
   弧长量化；停车锚点相对该提交边长关闭。弧长量化越出 `100..=10_000_000` mm 时以边长
@@ -375,18 +375,8 @@ G2 对照门是本契约自洽，**不是**相对 current-`f64` 的 `5%` 墙钟�
 - #302 不得在本切片完成前进入自身 G1 的快照字段冻结。
 - 同进程并行不因撤回跨 CPU 位级承诺而改合同；跨机器联机仍需独立 ADR。
 
-## 实施与治理
+## 变更控制
 
-1. #496 G1：本 ADR、`traffic-runtime-integer-geometry.md`、ADR 0003/0014 修订
-   与 glossary/数值/跟车/消费/信号/制品/共享静态路网 admission 同步。设计 PR
-   `Refs: #496`，不 `Closes`。
-2. #496 G2：唯一 Delivery PR 实现合同、对齐走廊相位并重生夹具，`Closes #496`。
-3. #500 G1：修订本节编译器 IR 权威与 `traffic-runtime-integer-geometry.md` §6。
-   设计 PR `Refs: #500`，不 `Closes`。不改 Runtime 已提交合同、不改 LFCA 列名。
-4. #500 G2：唯一 Delivery PR 把 Typed AST / HIR / MIR / LIR 交通一维改为整数毫米
-   （时距 / 加减速 / 朝向为受检 `f32` SI），公开 `Canonical*View` 删除交通一维米制
-   访问器、只留毫米权威（`length_mm` / `speed_limit_mm_s` / `progress_mm` /
-   `lateral_offset_mm` / `desired_speed_mm_s` / `min_gap_mm`），重生编译器可移植
-   夹具，`Closes #500`。
-5. 实现中若发现必须改变毫米量子、步长区间、加速度下限或「先整数硬约束再余数」，
-   停工并重开 G1。
+任何实现必须同时更新 compiler IR/发射、唯一登记表、admission、共享列、Runtime 热状态、
+公开 `Canonical*View` 与可移植夹具。若必须改变毫米量子、步长区间、加速度下限或
+「先整数硬约束再余数」，须重新进入设计决策，不得在实现中静默改变。

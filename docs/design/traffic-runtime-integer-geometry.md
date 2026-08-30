@@ -1,6 +1,6 @@
 # 交通运行时整数毫米几何
 
-**文档状态**: Review<br>
+**文档状态**: Accepted<br>
 **最后更新**: 2026-08-30<br>
 **适用范围**: `TrafficWorld` 已提交一维几何与速度、`WorldConfig` 步长、
 `laneflow-static-network` 热列、LFCA 长度/速度字段、compiler Typed AST / HIR /
@@ -60,7 +60,7 @@ IIDM 仍在 `f32` SI 中算出「这一拍最多走多远」。**先**用整数�
 
 检入走廊 `examples/config/v0.10-signalized-corridor.toml` 使用
 `fixed_delta_ms = 16`、`yellow_ms = 3008`、`all_red_ms = 1008`。制品
-`formatVersion` 随 ADR 0029 为 `3`。
+`formatVersion` 随当前 LFCA 合同为 `4`。
 
 ## 3. 共享列与 profile
 
