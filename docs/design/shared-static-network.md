@@ -285,8 +285,7 @@ builder 必须闭合 owner/member、access/profile、signal、parking 与冲突�
 - canonical row key/ordinal 严格排序且无重复；
 - typed ordinal/count/range 全部适配 `u32` 并用 checked arithmetic；
 - entity、owner/member、topology 和 static-rule 引用落在正确 typed domain；
-- `CanonicalIdentity` 与 23 种可构造稳定实体形成完整双射
-  （种类 21 保留空位）；
+- `CanonicalIdentity` 与连续 kind `1..=23` 的稳定实体形成完整双射；
 - forward/reverse indexes round-trip；
 - 机动路径/门/等待区 range 无 gap、overlap 或跨 owner 错配；
 - execution contract versions 与派生 constraint graph 一致；
@@ -425,7 +424,7 @@ requested capacity、累计分配、returned retained bytes 和进程 RSS，不�
 | headless     | Traffic/Identity/Hints 存在，Spatial 为 `None`，geometry retained 为零                                                                       |
 | Spatial 变体 | facility-only、profile/frame-only 成功且 `lane_pose=None`；非空 lane geometry 才完整覆盖并可批量采样；长度差处于容差内、恰等于容差和超出容差 |
 | 引用合法性   | typed domain 越界、错误 owner、range overflow/gap/overlap、重复 row/key                                                                      |
-| Identity     | 23 种可构造稳定实体的声明 StableId 双射、正反 round-trip、同名不同 owner；种类 21 保留空位；派生 known vectors 由 compiler 覆盖              |
+| Identity     | 连续 kind `1..=23` 的稳定实体声明 StableId 双射、正反 round-trip、同名不同 owner；派生 known vectors 由 compiler 覆盖                        |
 | 确定性       | 同一 LFCA + hints derivation version fresh build 内容相等；不比较 Rust padding/地址/字节                                                     |
 | 资源         | caller limit、失败无 retained、三对象真实 lifetime、editable base + target bundle + 双 root 峰值                                             |
 | 共享         | 2/8/32 worlds 不复制 component payload；per-world mutable arrays 仍独立                                                                      |
@@ -503,53 +502,49 @@ Spatial 基线或性能证据职责。
 6. **本附录是关系投影的设计事实源。** 任何已登记关系都必须按本节明确的目标 component
    投影或明确禁止，不得因首个消费 kernel 暂时不用而丢失。
 
-### 13.2 36 个 compiled relation role
+### 13.2 32 个 compiled relation role
 
 角色代码与 `SourceRelationRole` / LFCA A.5 一致。Traffic 关系必须投影为密集 typed handle
 与 SoA/CSR/flat range，并在 seal 前闭合；Spatial 关系只进入可选空间 component。
 
-| 角色 | 名称                                 | 归属                   | 说明                                                                                     |
-| ---- | ------------------------------------ | ---------------------- | ---------------------------------------------------------------------------------------- |
-| 1    | `LaneEdgeSuccessor`                  | Traffic 投影           | 可执行 successor/predecessor CSR；内部边从普通后继中剔除                                 |
-| 2    | `RoadCorridorElement`                | Traffic 投影           | `RoadSection` 或 `FacilityBand` 的有序并行成员，不得压成单链                             |
-| 3    | `RoadSectionLane`                    | Traffic 投影           | `RoadSection → AuthoringLane`                                                            |
-| 4    | `AuthoringLaneEdge`                  | Traffic 投影           | 编制车道覆盖链；准入从 LaneGroup/RoadSection 走到 LaneEdge 的必经边                      |
-| 5    | `LaneGroupMember`                    | Traffic 投影           | `LaneGroup → AuthoringLane`；AccessRule 四域包含 LaneGroup                               |
-| 6    | `JunctionMovement`                   | Traffic 投影           | `Junction → Movement`；不派生 approach 实体                                              |
-| 7    | `MovementManeuverPath`               | Traffic 投影           | `Movement → ManeuverPath`                                                                |
-| 8    | `ManeuverPathEdge`                   | Traffic 投影           | `SharedManeuverNetwork` 连续边 range                                                     |
-| 9    | `JunctionInternalEdge`               | Traffic 投影           | 路口内部边排他属主，并从普通 CSR 剔除                                                    |
-| 10   | `ManeuverPathGate`                   | Traffic 投影           | 机动路径 gate range                                                                      |
-| 11   | `ManeuverPathWaitingZone`            | Traffic 投影           | 机动路径 waiting range                                                                   |
-| 12   | `StopLineManeuverGate`               | Traffic 投影           | StopLine 及其反向门集合                                                                  |
-| 13   | *(保留空位)*                         | 禁止出现；代码不重编号 |                                                                                          |
-| 14   | *(保留空位)*                         | 禁止出现               |                                                                                          |
-| 15   | *(保留空位)*                         | 禁止出现               |                                                                                          |
-| 16   | *(保留空位)*                         | 禁止出现               |                                                                                          |
-| 17   | `SignalControllerGroup`              | Traffic 投影           | 固定时制控制器拥有的信号组                                                               |
-| 18   | `SignalControllerPhase`              | Traffic 投影           | 有序相位                                                                                 |
-| 19   | `SignalPhaseState`                   | Traffic 投影           | LFCA 编码在 `SignalPhase` 实体 `RecordVector`，不是 A.5 元组；投影为 group+aspect 连续表 |
-| 20   | `ManeuverGateSignalGroup`            | Traffic 投影           | 门到信号组的 indication 绑定；不引入法规/冲突权威                                        |
-| 21   | `ParkingSpaceFacility`               | Traffic 投影           | 可选停车设施归属                                                                         |
-| 22   | `ParkingSpaceEntry`                  | Traffic 投影           | 入口边；progress 见实体字段                                                              |
-| 23   | `ParkingSpaceExit`                   | Traffic 投影           | 出口边；progress 见实体字段                                                              |
-| 24   | `ParticipantClassExtends`            | Traffic 投影           | 单继承父类                                                                               |
-| 25   | `AccessRuleTarget`                   | Traffic 投影           | 仅 LFCA 已冻四域：LaneEdge / LaneGroup / RoadSection / ManeuverPath                      |
-| 26   | `AccessRuleParticipantClass`         | Traffic 投影           | 规则选择的参与者类别集合                                                                 |
-| 27   | `VehicleProfileParticipantClass`     | Traffic 投影           | 车型唯一类别                                                                             |
-| 28   | `CanonicalFrameLaneEdgeGeometry`     | Spatial 投影           | Spatial 基线，不进 Traffic                                                               |
-| 29   | `CanonicalFrameFacilityBandGeometry` | Spatial 投影           | Spatial 基线，不进 Traffic                                                               |
-| 30   | `ParkingFacilityVirtualEntry`        | 领域静态投影           | virtual pool 的有序入口 anchor                                                           |
-| 31   | `ParkingFacilityVirtualExit`         | 领域静态投影           | virtual pool 的有序出口 anchor                                                           |
-| 32   | `JunctionConflictZone`               | 领域静态投影           | Junction 到 zone 的规范集合                                                              |
-| 33   | `JunctionParticipantStream`          | 领域静态投影           | Junction 到 stream 的规范集合                                                            |
-| 34   | `ParticipantStreamManeuverPath`      | 领域静态投影           | stream 的唯一 ManeuverPath                                                               |
-| 35   | `ParticipantStreamConflictPassage`   | 领域静态投影           | 有序 passage 与 entry/exit payload                                                       |
-| 36   | `CanonicalFrameConflictZoneRegion`   | 领域静态投影           | 可选 2.5D region，只进 Spatial                                                           |
+| 角色 | 名称                                 | 归属         | 说明                                                                                     |
+| ---- | ------------------------------------ | ------------ | ---------------------------------------------------------------------------------------- |
+| 1    | `LaneEdgeSuccessor`                  | Traffic 投影 | 可执行 successor/predecessor CSR；内部边从普通后继中剔除                                 |
+| 2    | `RoadCorridorElement`                | Traffic 投影 | `RoadSection` 或 `FacilityBand` 的有序并行成员，不得压成单链                             |
+| 3    | `RoadSectionLane`                    | Traffic 投影 | `RoadSection → AuthoringLane`                                                            |
+| 4    | `AuthoringLaneEdge`                  | Traffic 投影 | 编制车道覆盖链；准入从 LaneGroup/RoadSection 走到 LaneEdge 的必经边                      |
+| 5    | `LaneGroupMember`                    | Traffic 投影 | `LaneGroup → AuthoringLane`；AccessRule 四域包含 LaneGroup                               |
+| 6    | `JunctionMovement`                   | Traffic 投影 | `Junction → Movement`；不派生 approach 实体                                              |
+| 7    | `MovementManeuverPath`               | Traffic 投影 | `Movement → ManeuverPath`                                                                |
+| 8    | `ManeuverPathEdge`                   | Traffic 投影 | `SharedManeuverNetwork` 连续边 range                                                     |
+| 9    | `JunctionInternalEdge`               | Traffic 投影 | 路口内部边排他属主，并从普通 CSR 剔除                                                    |
+| 10   | `ManeuverPathGate`                   | Traffic 投影 | 机动路径 gate range                                                                      |
+| 11   | `ManeuverPathWaitingZone`            | Traffic 投影 | 机动路径 waiting range                                                                   |
+| 12   | `StopLineManeuverGate`               | Traffic 投影 | StopLine 及其反向门集合                                                                  |
+| 13   | `ParkingFacilityVirtualEntry`        | 领域静态投影 | virtual pool 的有序入口 anchor                                                           |
+| 14   | `ParkingFacilityVirtualExit`         | 领域静态投影 | virtual pool 的有序出口 anchor                                                           |
+| 15   | `JunctionConflictZone`               | 领域静态投影 | Junction 到 zone 的规范集合                                                              |
+| 16   | `JunctionParticipantStream`          | 领域静态投影 | Junction 到 stream 的规范集合                                                            |
+| 17   | `SignalControllerGroup`              | Traffic 投影 | 固定时制控制器拥有的信号组                                                               |
+| 18   | `SignalControllerPhase`              | Traffic 投影 | 有序相位                                                                                 |
+| 19   | `SignalPhaseState`                   | Traffic 投影 | LFCA 编码在 `SignalPhase` 实体 `RecordVector`，不是 A.5 元组；投影为 group+aspect 连续表 |
+| 20   | `ManeuverGateSignalGroup`            | Traffic 投影 | 门到信号组的 indication 绑定；不引入法规/冲突权威                                        |
+| 21   | `ParkingSpaceFacility`               | Traffic 投影 | 可选停车设施归属                                                                         |
+| 22   | `ParkingSpaceEntry`                  | Traffic 投影 | 入口边；progress 见实体字段                                                              |
+| 23   | `ParkingSpaceExit`                   | Traffic 投影 | 出口边；progress 见实体字段                                                              |
+| 24   | `ParticipantClassExtends`            | Traffic 投影 | 单继承父类                                                                               |
+| 25   | `AccessRuleTarget`                   | Traffic 投影 | 仅 LFCA 已冻四域：LaneEdge / LaneGroup / RoadSection / ManeuverPath                      |
+| 26   | `AccessRuleParticipantClass`         | Traffic 投影 | 规则选择的参与者类别集合                                                                 |
+| 27   | `VehicleProfileParticipantClass`     | Traffic 投影 | 车型唯一类别                                                                             |
+| 28   | `CanonicalFrameLaneEdgeGeometry`     | Spatial 投影 | Spatial 基线，不进 Traffic                                                               |
+| 29   | `CanonicalFrameFacilityBandGeometry` | Spatial 投影 | Spatial 基线，不进 Traffic                                                               |
+| 30   | `ParticipantStreamManeuverPath`      | 领域静态投影 | stream 的唯一 ManeuverPath                                                               |
+| 31   | `ParticipantStreamConflictPassage`   | 领域静态投影 | 有序 passage 与 entry/exit payload                                                       |
+| 32   | `CanonicalFrameConflictZoneRegion`   | 领域静态投影 | 可选 2.5D region，只进 Spatial                                                           |
 
 ### 13.3 实体字段
 
-Identity 正反表覆盖登记表修订 3 的 23 种可构造种类；种类 21 始终为空位。本表只冻结
+Identity 正反表覆盖登记表修订 3 的连续 kind `1..=23`。本表只冻结
 Traffic retained 标量/向量；
 未列出的 UTF-8、身份前像、来源位置一律不投影。
 

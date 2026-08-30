@@ -2,7 +2,7 @@
 
 **文档状态**: Review<br>
 **最后更新**: 2026-08-30<br>
-**适用范围**: 从路网产品删除 `StaticRoute` 后的制品表、身份空位、运行时编译、
+**适用范围**: 从路网产品删除 `StaticRoute` 后的制品表、连续身份登记、运行时编译、
 场景 catalog 0.3 与每世界路线表形状<br>
 **关联文档**: [`../adr/0029-retire-precompiled-static-route.md`](../adr/0029-retire-precompiled-static-route.md)、
 [`traffic-runtime-shared-consumption.md`](traffic-runtime-shared-consumption.md)、
@@ -12,8 +12,8 @@
 [`compiler-foundation.md`](compiler-foundation.md)、
 [`example-scenarios.md`](example-scenarios.md)
 
-本文是 ADR 0029 的实现级合同。为什么删除见 ADR。kind 21、tag 30 与 relation role
-13–16 保留为空位；kind 23/24 不复用路线空位，制品不恢复制品路线。
+本文是 ADR 0029 的实现级合同。为什么删除见 ADR。旧对象由 exact version 整体拒绝；
+现行登记不保留 `StaticRoute` 编号墓碑，也不恢复制品路线。
 
 ## 1. 单一路线入口
 
@@ -76,62 +76,59 @@ hop 是否受控：用已编译机动出现项定位 path，再在共享根
 `speed_limit_transitions`。这些索引改由本世界 compiled 在 `register_route` 时物化。
 
 编制 `StaticRoute.canvas_selection` 随 table 删除，不迁入 Runtime。走廊生成器停止
-`add_static_route`，把有序边键写进 catalog 0.3。LFSM 历史实体代码 34 与 LFSD
-关系角色 13–16 禁止出现。
+`add_static_route`，把有序边键写进 catalog 0.3。LFSM/LFSD 的现行来源登记连续；旧
+StaticRoute table、关系和 property path 不能通过新格式闭合。
 
 ## 2. LFCA / 关系 / 身份删除清单
 
 ### 2.1 实体表
 
-`CanonicalEntityTables` 必选表从 22 张改为 21 张。下列 **必须存在**：
-`0x0001..=0x0014` 与 `0x0016`（CanonicalFrame）。
+`CanonicalEntityTables` 精确包含连续 `0x0001..=0x0017` 共 23 个逻辑表种类。
 
-| tableKind | 名称           | 本切片后              |
-| --------- | -------------- | --------------------- |
-| `0x0015`  | StaticRoute    | **禁止出现**          |
-| `0x0016`  | CanonicalFrame | 保留，代码与 tag 不变 |
+| tableKind | 现行名称            |
+| --------- | ------------------- |
+| `0x0015`  | `ConflictZone`      |
+| `0x0016`  | `CanonicalFrame`    |
+| `0x0017`  | `ParticipantStream` |
 
-出现 `0x0015`、缺 `0x0016`、或 `formatVersion != 4`，读器失败关闭。format 4 对象
-精确逻辑表种类数为 `33`；逻辑实体表种类为 `23`，每类可由一个或多个 TableV1 chunk
-承载。
+缺少任一表、`formatVersion != 4`，或 `0x0015` 行不满足 `ConflictZone` schema，读器
+失败关闭。format 4 对象精确逻辑表种类数为 `33`；每个实体逻辑表可由一个或多个
+TableV1 chunk 承载。
 
 StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 
 ### 2.2 出现项与关系角色
 
-从 LFCA 关系 / 派生执行索引删除，角色代码改保留空位：
-
-| 角色 | 历史名称                           | 本切片后           |
-| ---: | ---------------------------------- | ------------------ |
-|   13 | `StaticRouteEdge`                  | 保留空位，禁止出现 |
-|   14 | `StaticRouteManeuverOccurrence`    | 保留空位，禁止出现 |
-|   15 | `StaticRouteGateOccurrence`        | 保留空位，禁止出现 |
-|   16 | `StaticRouteWaitingZoneOccurrence` | 保留空位，禁止出现 |
+静态路线边与三类出现项不再拥有 LFCA 关系或 `sourceRelationRole`。现行 role 13–16
+分别为 `ParkingFacilityVirtualEntry`、`ParkingFacilityVirtualExit`、
+`JunctionConflictZone` 与 `JunctionParticipantStream`；其 owner/subject/schema 不接受
+任何路线行。
 
 派生索引（路线距离前缀、下一受控转换、限速下降转换、边/路径/门/等待区反向路线
 出现项）随实体删除。LaneEdge / ManeuverPath / ManeuverGate / WaitingZone 自身表
 保留；它们不再持有「属于哪条静态路线」的反向向量。
 
-其余关系角色代码不重编号。
+既有合法关系角色代码不重编号。
 
 ### 2.3 Identity 登记表修订 3
 
 `identityRegistryRevision = 3`。
 
-| 代码 | 历史                | 修订 3                         |
-| ---: | ------------------- | ------------------------------ |
-|   21 | `StaticRoute`       | 保留空位；`from_code(21)` 失败 |
-|   22 | `CanonicalFrame`    | 不变                           |
-|   30 | `RouteKey`          | 保留空位；不得解码为字段       |
-|   31 | `CanonicalFrameKey` | 不变                           |
+| 编号空间     | 代码 | 修订 3                 |
+| ------------ | ---: | ---------------------- |
+| `EntityKind` |   21 | `ConflictZone`         |
+| `EntityKind` |   22 | `CanonicalFrame`       |
+| `EntityKind` |   23 | `ParticipantStream`    |
+| field tag    |   23 | `ConflictZoneKey`      |
+| field tag    |   30 | `ParticipantStreamKey` |
+| field tag    |   31 | `CanonicalFrameKey`    |
 
-`EntityKind` 可构造集合为种类 1–20、22–24，共 23 项。`from_code(21)` 失败，不发射、
-不解码。代码 21 占保留空槽，`CanonicalFrame`、`ConflictZone` 与
-`ParticipantStream` 分别使用代码 22、23、24。共享身份表按
-`kind_index = code() - 1` 寻址，backing 必须是 24 格。字段标签 23 与 30 保留为空位。
-身份编码版本仍为 1。
+`EntityKind` 可构造集合为连续种类 1–23，共 23 项。共享身份表按
+`kind_index = code() - 1` 寻址，backing 精确为 23 格。字段标签连续为 1–34；
+`ConflictZone` 与 `ParticipantStream` 的 required tag 分别为 `[1,23,34]` 与
+`[1,30,34]`。身份编码版本仍为 1，既有合法实体的规范字节不变。
 
-`CanonicalIdentityTable` 不得再出现 `entityKind = 21` 行。
+`CanonicalIdentityTable` 的 kind 21 行只允许 `ConflictZone` 前像；旧路线前像失败关闭。
 
 ### 2.4 编制来源与 IR
 
@@ -140,7 +137,7 @@ StaticRoute 行上的 `3:edges`、`4:transitionGates` 一并消失。
 `canonical_frames` 为根表 field id 25，`conflict_zones` 与 `participant_streams`
 分别为 26、27；stock `flatc` 要求 field id 连续，不保留空号。schema 为
 `schemas/road-editing/v3/road-editing.fbs`。其它版本失败关闭。
-`frontendVersion = 3`。file identifier 仍 `LFRE`。
+`frontendVersion = 3`，`SourceLanguage::RoadEditingSource = 2`。file identifier 仍 `LFRE`。
 
 合成 DSL / typed AST / HIR / MIR / LIR：不再有静态路线声明或出现项表。
 首批支持矩阵「静态路线」行改为明确拒绝。
@@ -233,11 +230,13 @@ controller 绑定的是 `(世界令牌, NetworkRevisionId)`：修订变化后 co
 
 ## 6. 必测项（G2）
 
-- 含 `StaticRoute` 或 `formatVersion != 4` 的 LFCA 失败关闭，诊断可区分版本与未知表。
-- format 4 LFCA 精确逻辑表种类数为 33；含禁止实体/关系表失败关闭。
-- 身份 `entityKind = 21` 或字段标签 30 失败关闭。
-- identity backing 长度为 24，`kind_index(CanonicalFrame/ConflictZone/ParticipantStream)`
-  均可寻址；代码 21 保留空槽。
+- `formatVersion != 4` 的 LFCA 失败关闭；旧 `StaticRoute` 行不能通过 format 4 的
+  `ConflictZone` 表、身份与关系闭合。
+- format 4 LFCA 精确逻辑表种类数为 33；实体表种类 `0x0001..=0x0017` 连续。
+- Identity kind `1..=23`、field tag `1..=34` 连续；kind 21 / tag 23 是
+  `ConflictZone`，kind 23 / tag 30 是 `ParticipantStream`。
+- identity backing 长度为 23，`kind_index(CanonicalFrame/ConflictZone/ParticipantStream)`
+  均可寻址。
 - 道路编辑只接受 `format_version = 3`。根表无
   `static_routes` 字段，field id 连续。其它未知槽仍忽略。
 - 三边 `entry → middle → exit` 夹具：`register_route` 后两车跟车，行为不弱于原

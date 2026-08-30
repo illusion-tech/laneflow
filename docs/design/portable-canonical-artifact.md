@@ -37,7 +37,7 @@ identityRegistryRevision              = 3
 networkRevisionDerivationVersion      = 1
 constraintContractVersion             = 2
 staticExecutionContractVersion        = 4
-sourceMapFormatVersion                 = 3
+sourceMapFormatVersion                = 3
 semanticDiffFormatVersion             = 3
 canonicalPublicationDescriptorVersion = 2
 ```
@@ -367,7 +367,7 @@ chunk 表达，不伪造空 `TableV1`。
 | ----------- | ---------------------------- | ---------------- | ------------------------------------------------------ |
 | `0x0001`    | `ContractVersions`           | 是               | 格式、identity、修订派生、constraint 与 execution 版本 |
 | `0x0002`    | `CanonicalIdentityTable`     | 是               | 完整 identity 前像、`StableId128` 与 typed ordinal     |
-| `0x0003`    | `CanonicalEntityTables`      | 是               | 23 种可构造静态实体；kind 21 保留空位                  |
+| `0x0003`    | `CanonicalEntityTables`      | 是               | 23 种可构造静态实体；kind `1..=23` 连续                |
 | `0x0004`    | `CanonicalRelationTables`    | 是               | 不能由实体字段直接表达的规范关系                       |
 | `0x0005`    | `CanonicalSpatialTables`     | 是               | 空间存在、规范折线与派生采样                           |
 | `0x0006`    | `StaticExecutionConstraints` | 是               | worker-count-neutral 的静态执行约束                    |
@@ -426,7 +426,7 @@ LFCA 4 的对象组合图如下；第一节 wire offset 固定为 `0x00e0`（`32
 1:canonicalFormatVersion:u16:R                 (=4)
 2:identityEncodingVersion:u16:R                (=1)
 3:identityRegistryRevision:u16:R               (=3)
-4:networkRevisionDerivationVersion:u16:R        (=1)
+4:networkRevisionDerivationVersion:u16:R       (=1)
 5:constraintContractVersion:u16:R              (=2)
 6:staticExecutionContractVersion:u16:R         (=4)
 ```
@@ -470,28 +470,29 @@ StableId128 := first-16-bytes(
 10 StopLine          11 SignalGroup       12 SignalController
 13 SignalPhase       14 ParkingFacility   15 ParkingSpace
 16 LaneGroup         17 FacilityBand      18 ParticipantClass
-19 AccessRule        20 VehicleProfile    21 RESERVED
-22 CanonicalFrame    23 ConflictZone      24 ParticipantStream
+19 AccessRule        20 VehicleProfile    21 ConflictZone
+22 CanonicalFrame    23 ParticipantStream
 ```
 
-revision 3 的 identity field tag 沿用 v1 数值；tag 22 的名称为
-`parkingFacilityKey`。tag 23 与不再可构造的 `routeKey` tag 30 保留空位。主要字段为：
+revision 3 的 identity field tag 连续登记为 `1..=34`；tag 22 的名称为
+`parkingFacilityKey`，tag 23/30 分别为 `conflictZoneKey` / `participantStreamKey`。
+主要字段为：
 
 ```text
  1 authoringNamespaceId  2 corridorKey       3 sectionKey
  4 laneKey               5 laneEdgeKey       6 junctionKey
  7 pathKey               8 movementKey       9 directedEntryApproachKey
-10 directedExitApproachKey                  11 movementStableId
+10 directedExitApproachKey                   11 movementStableId
 12 entryEdgeStableId     13 exitEdgeStableId 14 maneuverPathStableId
 15 gateKey               16 waitingZoneKey   17 stopLineKey
 18 signalGroupKey        19 signalControllerKey
-20 signalControllerStableId                 21 phaseKey
-22 parkingFacilityKey    23 RESERVED         24 parkingSpaceKey
+20 signalControllerStableId                  21 phaseKey
+22 parkingFacilityKey    23 conflictZoneKey  24 parkingSpaceKey
 25 laneGroupKey          26 facilityBandKey  27 participantClassKey
-28 accessRuleKey         29 vehicleProfileKey 30 RESERVED
-31 canonicalFrameKey     32 roadSectionStableId
-33 roadCorridorStableId  34 junctionStableId
-35 conflictZoneKey       36 participantStreamKey
+28 accessRuleKey         29 vehicleProfileKey
+30 participantStreamKey  31 canonicalFrameKey
+32 roadSectionStableId   33 roadCorridorStableId
+34 junctionStableId
 ```
 
 全部可构造 kind 的 required tag sequence 为：
@@ -507,13 +508,13 @@ revision 3 的 identity field tag 沿用 v1 数值；tag 22 的名称为
 15 ParkingSpace      [1,24]           16 LaneGroup         [1,25,32]
 17 FacilityBand      [1,26,33]        18 ParticipantClass  [1,27]
 19 AccessRule        [1,28]           20 VehicleProfile    [1,29]
-22 CanonicalFrame    [1,31]
-23 ConflictZone      [1,34,35]
-24 ParticipantStream [1,34,36]
+21 ConflictZone      [1,23,34]        22 CanonicalFrame    [1,31]
+23 ParticipantStream [1,30,34]
 ```
 
-kind 21 与 identity tag 23/30 是保留空位，不得构造或复用，出现在 wire 中即失败关闭。
-上表中的方括号数字全部是 identity field tag。
+kind `1..=23` 与 identity tag `1..=34` 都是连续的现行登记；历史 `StaticRoute` / `routeKey`
+不再保留编号墓碑，也不得由名字、旧字段形状或旧对象版本复活。上表中的方括号数字全部是
+identity field tag。
 
 新增 kind 必须提升 `identityRegistryRevision`，但不得改变既有 kind 的 identity canonical
 bytes 或 `StableId128`。只有修改既有 kind 的 required field、tag 含义或编码时才提升
@@ -531,7 +532,7 @@ LFCA 不接受 `ParkingArea` wire 名称或 alias；设施语义变化会产生�
 
 ### 3.4 实体表登记
 
-`CanonicalEntityTables(0x0003)` 精确包含下列 23 个逻辑表种类；`0x0015` 禁止出现。
+`CanonicalEntityTables(0x0003)` 精确包含下列 23 个连续逻辑表种类。
 每行共同以
 `1:typedOrdinal:u32:R, 2:stableId:StableId128:R` 开始：
 
@@ -557,9 +558,9 @@ LFCA 不接受 `ParkingArea` wire 名称或 alias；设施语义变化会产生�
 | `0x0012`  | ParticipantClass  | `3:parent:u32:O, 4:depth:u32:R, 5:subtreeEnter:u32:R, 6:subtreeExit:u32:R`                                                                                                                                                                                                                                         |
 | `0x0013`  | AccessRule        | `3:targetKind:u8:R, 4:targetOrdinal:u32:R, 5:effect:u8:R, 6:participantClasses:OrdinalVectorU32:R, 7:regulation:RecordVector:O, 8:priority:i32:R`                                                                                                                                                                  |
 | `0x0014`  | VehicleProfile    | `3:participantClass:u32:R, 4:lengthMillimetres:u32:R, 5:desiredSpeedMillimetresPerSecond:u32:R, 6:minGapMillimetres:u32:R, 7:timeHeadwaySeconds:f32:R, 8:maxAccelerationMetersPerSecondSquared:f32:R, 9:comfortableDecelerationMetersPerSecondSquared:f32:R, 10:emergencyDecelerationMetersPerSecondSquared:f32:R` |
+| `0x0015`  | ConflictZone      | `3:junction:u32:R`                                                                                                                                                                                                                                                                                                 |
 | `0x0016`  | CanonicalFrame    | 无额外字段                                                                                                                                                                                                                                                                                                         |
-| `0x0017`  | ConflictZone      | `3:junction:u32:R`                                                                                                                                                                                                                                                                                                 |
-| `0x0018`  | ParticipantStream | `3:junction:u32:R, 4:maneuverPath:u32:R, 5:passages:RecordVector:R`                                                                                                                                                                                                                                                |
+| `0x0017`  | ParticipantStream | `3:junction:u32:R, 4:maneuverPath:u32:R, 5:passages:RecordVector:R`                                                                                                                                                                                                                                                |
 
 内嵌行：
 
@@ -1079,14 +1080,13 @@ SHA-256(
  6 JunctionInternalEdge          7 ManeuverPathInternalEdge
  8 SignalControllerGroup         9 SignalControllerPhase
 10 SignalPhaseState             11 AccessRuleParticipantClass
-12 RESERVED
-13 ParkingFacilityVirtualEntry  14 ParkingFacilityVirtualExit
-15 ParticipantStreamPassage     16 ConflictZoneRegion
+12 ParkingFacilityVirtualEntry  13 ParkingFacilityVirtualExit
+14 ParticipantStreamPassage     15 ConflictZoneRegion
 ```
 
-code 12 是已删除路线关系的保留空位。13/14 要求 Address owner=ParkingFacility 与
-CanonicalSet occurrence；15 要求 Address owner=ParticipantStream 与 OrderedProduct
-occurrence；16 要求 ModuleHeader owner 与按 `(ConflictZone StableId, CanonicalFrame StableId)`
+code 12/13 要求 Address owner=ParkingFacility 与 CanonicalSet occurrence；14 要求
+Address owner=ParticipantStream 与 OrderedProduct occurrence；15 要求 ModuleHeader owner 与
+按 `(ConflictZone StableId, CanonicalFrame StableId)`
 规范化的 CanonicalSet occurrence。未知代码、错误 owner/occurrence 或把这些代码按数值强转
 为 `sourceRelationRole` 都失败关闭。
 
@@ -1111,14 +1111,13 @@ container code 与可用 field id 为：
 28 FacilityBand[0..4]            29 ParticipantClass[0..2]
 30 AccessRegulation[0..2]        31 AccessRule[0..7]
 32 IidmVehicleProfile[0..6]      33 VehicleProfile[0..3]
-34 RESERVED                      35 CanonicalFrame[0..1]
+34 ConflictZoneRegion[0..5]      35 CanonicalFrame[0..1]
 36 ConflictZone[0..2]            37 PathAnchor[0..4]
 38 ConflictPassage[0..2]         39 ParticipantStream[0..4]
-40 ConflictZoneRegion[0..5]
 ```
 
-code 23 是 `ParkingFacility`，不接受 `ParkingArea` 名称；code 34 是已删除 StaticRoute 的
-保留空位。新增 source table 的 field id 语义固定为：
+code 23 是 `ParkingFacility`，不接受 `ParkingArea` 名称；新增 source table 的 field id
+语义固定为：
 
 ```text
 ConflictZone:       0 key, 1 junction, 2 canvas_selection
@@ -1164,7 +1163,7 @@ RoadEditing 变体的 optional 字段还受以下闭合矩阵约束：
 
 `propertySteps` 必须有 `1..=4` 行并构成 Road Editing v3 登记的一条完整可达路径，不能只因
 各 step 单独合法就拼接。`sourceLanguage` 只允许 `1=SyntheticDsl` 与
-`3=RoadEditingSource`；LFSM 3 分别要求 `frontendVersion=4` 与 `frontendVersion=3`。
+`2=RoadEditingSource`；LFSM 3 分别要求 `frontendVersion=4` 与 `frontendVersion=3`。
 前者只允许 Text 且 `SourceDocument.displaySource` 必须缺失，后者只允许 RoadEditing 且
 display source 可选。optional `canvasSelection` 缺失与存在但为空是不同语义值，writer
 不得互换。
@@ -1221,8 +1220,8 @@ generator build、parameters-and-inputs digest、optional random seed、provenan
 source-location ordinal 都是完整逻辑表中的全局 `u32`，不得改写成
 `(chunkIndex, rowInChunk)` 或其它物理地址。`OwnerLocalSource` 必须
 与下节的全部合法关系 tuple 形成严格双射；可选 scalar 缺失时恰无行。几何范围只允许 role
-28/29/36，并且必须有相同行键的 `OwnerLocalSource` 父行。`DerivedRelationSource` 当前只允许
-role 9；保留 role 13..16 禁止出现。
+28/29/32，并且必须有相同行键的 `OwnerLocalSource` 父行。`DerivedRelationSource` 当前只允许
+role 9。
 
 对任一 compiler-private source view，令 `C(view)` 为把
 `contributing_sources()` 按完整位置语义值排序、去重后映射成最终 location ordinal 的唯一
@@ -1240,8 +1239,8 @@ RoadCorridor=2 RoadSection=3 AuthoringLane=4 LaneEdge=5 Junction=6
 Movement=8 ManeuverPath=7 ManeuverGate=15 WaitingZone=16 StopLine=17
 SignalGroup=18 SignalController=19 SignalPhase=21 ParkingFacility=22
 ParkingSpace=24 LaneGroup=25 FacilityBand=26 ParticipantClass=27
-AccessRule=28 VehicleProfile=29 CanonicalFrame=31 ConflictZone=35
-ParticipantStream=36
+AccessRule=28 VehicleProfile=29 CanonicalFrame=31 ConflictZone=23
+ParticipantStream=30
 ```
 
 parent anchor 为 RoadSection/AuthoringLane/LaneGroup 的 33/32/32，
@@ -1254,7 +1253,7 @@ hex 或 LFSM 自报地址替代。
 `geometry_source_ranges()`：同一父行按 `pointStart` 严格相邻、非空、无重叠，从 0 覆盖到
 对应 geometry point count；`sourceSegmentOrdinal` 和 location 逐值投影，不得合并、拆分或
 换入另一条合法 segment。role 28/29 的 range 非空性必须与 LFCA
-`directionProfileApplies` 相等；role 36 覆盖 ConflictZoneRegion ring，不能把 min/max height
+`directionProfileApplies` 相等；role 32 覆盖 ConflictZoneRegion ring，不能把 min/max height
 或另一 region 的位置伪装为 ring range。父行 contributing locations 必须等于子行 locations
 按完整语义值排序去重后的投影。范围为空时恰无子行，不伪造来源 segment。
 
@@ -1262,7 +1261,7 @@ role 28/29 的非空 range location 必须是同一 Address owner 下的 RoadEdi
 `CurveSegment` OwnerLocal，occurrence 为
 `OrderedProductOrdinal(sourceSegmentOrdinal)`，property path 精确落到
 `CurveSegment.geometry`；全部 ranges 的 module/document/owner 必须相同。Synthetic Text
-geometry 没有 curve range。role 36 的 range location 必须落到同一
+geometry 没有 curve range。role 32 的 range location 必须落到同一
 `ConflictZoneRegion.ring_xz` owner-local 记录，不能借用 `min_y/max_y` 或 zone declaration
 位置。只证明 location 在全局语法上合法不足以通过这些闭合。
 
@@ -1292,7 +1291,10 @@ geometry 没有 curve range。role 36 的 range location 必须落到同一
 | `10 ManeuverPathGate`                   | ManeuverPath      | ManeuverGate                  | `ManeuverPath.maneuverGates`                | vector / domain     | Relation                 |
 | `11 ManeuverPathWaitingZone`            | ManeuverPath      | WaitingZone                   | `ManeuverPath.waitingZones`                 | vector / domain     | Relation                 |
 | `12 StopLineManeuverGate`               | StopLine          | ManeuverGate                  | `StopLine.maneuverGates`                    | vector / set        | Relation                 |
-| `13..16 RESERVED`                       | —                 | —                             | 禁止出现                                    | —                   | —                        |
+| `13 ParkingFacilityVirtualEntry`        | ParkingFacility   | LaneEdge                      | `ParkingFacility.virtualEntries[].laneEdge` | vector / set        | Relation + field payload |
+| `14 ParkingFacilityVirtualExit`         | ParkingFacility   | LaneEdge                      | `ParkingFacility.virtualExits[].laneEdge`   | vector / set        | Relation + field payload |
+| `15 JunctionConflictZone`               | Junction          | ConflictZone                  | 按 `ConflictZone.junction` 过滤实体行       | filtered row / set  | Relation                 |
+| `16 JunctionParticipantStream`          | Junction          | ParticipantStream             | 按 `ParticipantStream.junction` 过滤实体行  | filtered row / set  | Relation                 |
 | `17 SignalControllerGroup`              | SignalController  | SignalGroup                   | `SignalController.signalGroups`             | vector / set        | Relation                 |
 | `18 SignalControllerPhase`              | SignalController  | SignalPhase                   | `SignalController.phases`                   | vector / domain     | Relation                 |
 | `19 SignalPhaseState`                   | SignalPhase       | SignalGroup                   | `SignalPhase.states.signalGroup`            | vector / set        | StaticRule only          |
@@ -1306,16 +1308,11 @@ geometry 没有 curve range。role 36 的 range location 必须落到同一
 | `27 VehicleProfileParticipantClass`     | VehicleProfile    | ParticipantClass              | `VehicleProfile.participantClass`           | scalar              | Relation                 |
 | `28 CanonicalFrameLaneEdgeGeometry`     | CanonicalFrame    | LaneEdge                      | `LaneEdgeGeometry` owner rows               | filtered row / set  | Geometry only            |
 | `29 CanonicalFrameFacilityBandGeometry` | CanonicalFrame    | FacilityBand                  | `FacilityBandGeometry` owner rows           | filtered row / set  | Geometry only            |
-| `30 ParkingFacilityVirtualEntry`        | ParkingFacility   | LaneEdge                      | `ParkingFacility.virtualEntries[].laneEdge` | vector / set        | Relation + field payload |
-| `31 ParkingFacilityVirtualExit`         | ParkingFacility   | LaneEdge                      | `ParkingFacility.virtualExits[].laneEdge`   | vector / set        | Relation + field payload |
-| `32 JunctionConflictZone`               | Junction          | ConflictZone                  | 按 `ConflictZone.junction` 过滤实体行       | filtered row / set  | Relation                 |
-| `33 JunctionParticipantStream`          | Junction          | ParticipantStream             | 按 `ParticipantStream.junction` 过滤实体行  | filtered row / set  | Relation                 |
-| `34 ParticipantStreamManeuverPath`      | ParticipantStream | ManeuverPath                  | `ParticipantStream.maneuverPath`            | scalar              | Relation                 |
-| `35 ParticipantStreamConflictPassage`   | ParticipantStream | ConflictZone                  | `ParticipantStream.passages[].conflictZone` | vector / domain     | Relation + field payload |
-| `36 CanonicalFrameConflictZoneRegion`   | CanonicalFrame    | ConflictZone                  | `ConflictZoneRegion` owner rows             | filtered row / set  | Geometry only            |
+| `30 ParticipantStreamManeuverPath`      | ParticipantStream | ManeuverPath                  | `ParticipantStream.maneuverPath`            | scalar              | Relation                 |
+| `31 ParticipantStreamConflictPassage`   | ParticipantStream | ConflictZone                  | `ParticipantStream.passages[].conflictZone` | vector / domain     | Relation + field payload |
+| `32 CanonicalFrameConflictZoneRegion`   | CanonicalFrame    | ConflictZone                  | `ConflictZoneRegion` owner rows             | filtered row / set  | Geometry only            |
 
-role 21 的名称固定为 `ParkingSpaceFacility`；role 30/31 与 identity field tag 是不同编号
-空间，不复活 `StaticRoute`。设施声明、`virtualCapacity` 和每个 anchor
+role 21 的名称固定为 `ParkingSpaceFacility`。设施声明、`virtualCapacity` 和每个 anchor
 都必须回指 exact Road Editing v3 property path。anchor 先按
 `(LaneEdge StableId128, progressMillimetres)` 规范排序，因此来源 vector 顺序不能改变
 canonical localIndex。
@@ -1324,34 +1321,37 @@ RoadEditing primary-source projection 不是“任一合法 property path”。�
 的唯一来源语义；`Declaration` 表示目标 declaration 的位置，`OwnerLocal` 表示相应 owner
 关系 occurrence 的位置，set/domain 的 occurrence kind 必须与本节 role 表一致：
 
-|  role | Road Editing v3 primary source projection                                                                |
-| ----: | -------------------------------------------------------------------------------------------------------- |
-|     1 | LaneEdge owner 的 `successors[canonical localIndex]` OwnerLocal                                          |
-|     2 | RoadCorridor owner 的 `elements[localIndex]` OwnerLocal                                                  |
-|     3 | AuthoringLane subject Declaration                                                                        |
-|     4 | AuthoringLane owner 的 `lane_edge` declaration property                                                  |
-|     5 | AuthoringLane subject 的 `lane_group` property                                                           |
-|     6 | Movement subject 的 `junction` property                                                                  |
-|     7 | ManeuverPath subject 的 `movement` property                                                              |
-|     8 | 首项为 ManeuverPath `entry_edge`；末项为 `exit_edge`；中间项为 `internal_edges[localIndex-1]` OwnerLocal |
-|     9 | 见下文从 Junction 内部边反解出的 ManeuverPath `internal_edges` OwnerLocal                                |
-|    10 | ManeuverGate subject 的 `maneuver_path` property                                                         |
-|    11 | WaitingZone subject 的 `maneuver_path` property                                                          |
-|    12 | ManeuverGate subject 的 `stop_line` property                                                             |
-| 13–16 | 禁止                                                                                                     |
-|    17 | SignalController owner 的 `signal_groups[canonical localIndex]` OwnerLocal                               |
-|    18 | SignalController owner 的 `signal_phases[localIndex]` OwnerLocal                                         |
-|    19 | SignalPhase owner 的 `states[canonical localIndex].signal_group` OwnerLocal                              |
-|    20 | ManeuverGate owner 的 `signal_group` property                                                            |
-|    21 | ParkingSpace owner 的 `parking_facility` property                                                        |
-|    22 | ParkingSpace owner 的 `entry.lane_edge` property                                                         |
-|    23 | ParkingSpace owner 的 `exit.lane_edge` property                                                          |
-|    24 | ParticipantClass owner 的 `extends` property                                                             |
-|    25 | AccessRule owner 的 `target_reference` property                                                          |
-|    26 | AccessRule owner 的 `participant_classes[canonical localIndex]` OwnerLocal                               |
-|    27 | VehicleProfile owner 的 `participant_class` property                                                     |
-|    28 | LaneEdge subject Declaration；可选 point ranges 另投影其曲线 segment OwnerLocal                          |
-|    29 | FacilityBand subject Declaration；可选 point ranges 另投影其曲线 segment OwnerLocal                      |
+| role | Road Editing v3 primary source projection                                                                |
+| ---: | -------------------------------------------------------------------------------------------------------- |
+|    1 | LaneEdge owner 的 `successors[canonical localIndex]` OwnerLocal                                          |
+|    2 | RoadCorridor owner 的 `elements[localIndex]` OwnerLocal                                                  |
+|    3 | AuthoringLane subject Declaration                                                                        |
+|    4 | AuthoringLane owner 的 `lane_edge` declaration property                                                  |
+|    5 | AuthoringLane subject 的 `lane_group` property                                                           |
+|    6 | Movement subject 的 `junction` property                                                                  |
+|    7 | ManeuverPath subject 的 `movement` property                                                              |
+|    8 | 首项为 ManeuverPath `entry_edge`；末项为 `exit_edge`；中间项为 `internal_edges[localIndex-1]` OwnerLocal |
+|    9 | 见下文从 Junction 内部边反解出的 ManeuverPath `internal_edges` OwnerLocal                                |
+|   10 | ManeuverGate subject 的 `maneuver_path` property                                                         |
+|   11 | WaitingZone subject 的 `maneuver_path` property                                                          |
+|   12 | ManeuverGate subject 的 `stop_line` property                                                             |
+|   13 | `RoadEditingSource.parking_facilities[].virtual_entries[]`                                               |
+|   14 | `RoadEditingSource.parking_facilities[].virtual_exits[]`                                                 |
+|   15 | `RoadEditingSource.conflict_zones[].junction`                                                            |
+|   16 | `RoadEditingSource.participant_streams[].junction`                                                       |
+|   17 | SignalController owner 的 `signal_groups[canonical localIndex]` OwnerLocal                               |
+|   18 | SignalController owner 的 `signal_phases[localIndex]` OwnerLocal                                         |
+|   19 | SignalPhase owner 的 `states[canonical localIndex].signal_group` OwnerLocal                              |
+|   20 | ManeuverGate owner 的 `signal_group` property                                                            |
+|   21 | ParkingSpace owner 的 `parking_facility` property                                                        |
+|   22 | ParkingSpace owner 的 `entry.lane_edge` property                                                         |
+|   23 | ParkingSpace owner 的 `exit.lane_edge` property                                                          |
+|   24 | ParticipantClass owner 的 `extends` property                                                             |
+|   25 | AccessRule owner 的 `target_reference` property                                                          |
+|   26 | AccessRule owner 的 `participant_classes[canonical localIndex]` OwnerLocal                               |
+|   27 | VehicleProfile owner 的 `participant_class` property                                                     |
+|   28 | LaneEdge subject Declaration；可选 point ranges 另投影其曲线 segment OwnerLocal                          |
+|   29 | FacilityBand subject Declaration；可选 point ranges 另投影其曲线 segment OwnerLocal                      |
 
 role 9 对同一 Junction/internal LaneEdge，从绑定 LFCA 中选择 StableId 最小、且 internal-edge
 occurrence 序列包含该 edge 的 ManeuverPath；`localIndex` 使用该 edge 在所选 internal
@@ -1359,23 +1359,19 @@ sequence 的第一次零基 occurrence。其 primary 必须是该 ManeuverPath �
 `internal_edges[occurrence]` OwnerLocal；不存在候选或无法得到唯一投影时失败关闭。这个选择
 只从绑定 LFCA 稳定身份和关系重算，不能使用 LFSM 自报路径打破平局。
 
-role 30–36 的 Road Editing v3 primary-source projection 固定为：
+role 30–32 的 Road Editing v3 primary-source projection 固定为：
 
 | role | primary declaration / owner-local path                                                                      |
 | ---: | ----------------------------------------------------------------------------------------------------------- |
-|   30 | `RoadEditingSource.parking_facilities[].virtual_entries[]`                                                  |
-|   31 | `RoadEditingSource.parking_facilities[].virtual_exits[]`                                                    |
-|   32 | `RoadEditingSource.conflict_zones[].junction`                                                               |
-|   33 | `RoadEditingSource.participant_streams[].junction`                                                          |
-|   34 | `RoadEditingSource.participant_streams[].maneuver_path`                                                     |
-|   35 | `RoadEditingSource.participant_streams[].passages[]`；完整 passage element 是 owner-local subject           |
-|   36 | `RoadEditingSource.conflict_zone_regions[].canonical_frame`；ring/high range 共用该 region primary location |
+|   30 | `RoadEditingSource.participant_streams[].maneuver_path`                                                     |
+|   31 | `RoadEditingSource.participant_streams[].passages[]`；完整 passage element 是 owner-local subject           |
+|   32 | `RoadEditingSource.conflict_zone_regions[].canonical_frame`；ring/high range 共用该 region primary location |
 
-role 30/31/35/36 的 OwnerLocal location 必须分别携带 relation kind 13/14/15/16；role 32–34
+role 13/14/31/32 的 OwnerLocal location 必须分别携带 relation kind 12/13/14/15；role 15/16/30
 使用稳定实体 Declaration 的对应 scalar property，不伪造 OwnerLocal occurrence。
-role 35 的 local index 是 passage 规范领域顺序，不是来源 vector 位置；role 30/31/32/33/36
-是 set，只在 relation tuple 集合变化时生成 LFSD relation change。role 36 的
-`SpatialGeometrySourceRange` 覆盖 ring point range；role 35 的 entry/exit property steps
+role 31 的 local index 是 passage 规范领域顺序，不是来源 vector 位置；role 13/14/15/16/32
+是 set，只在 relation tuple 集合变化时生成 LFSD relation change。role 32 的
+`SpatialGeometrySourceRange` 覆盖 ring point range；role 31 的 entry/exit property steps
 必须落到同一个 passage owner-local row。独立 writer/checker 必须从绑定 LFCA 与这些
 路径一一反解，不能仅凭 role 数值猜测 projection。
 
@@ -1493,9 +1489,8 @@ LFSM 接受前必须先用 tag 3/4/5 绑定 LFCA 4 exact bytes，再暴露任一
 | Geometry `Modify`    | `subjectStableId`                                                         | before/after 都必需且不同                                                  |
 | StaticRule `Modify`  | `subjectStableId, fieldTag`                                               | before/after 至少一个存在；都存在时必须不同                                |
 
-Relation 行的 `entityKind` 是 owner kind，其余表是 subject kind；实体 kind 21 禁止出现。
-Relation 只允许 role `1..12, 17..18, 20..27, 30..35`。role 13..16 保留，role 19 只投影
-StaticRule，role 28/29/36 只投影 Geometry。
+Relation 行的 `entityKind` 是 owner kind，其余表是 subject kind。Relation 只允许 role
+`1..18, 20..27, 30..31`；role 19 只投影 StaticRule，role 28/29/32 只投影 Geometry。
 
 ### 5.3 字段变化分类
 
@@ -1536,7 +1531,7 @@ header；Entity Add/Remove 保存所在一侧完整 LFCA entity `RowV1`。所有
 
 `ParkingFacility.virtualEntries/virtualExits` 必须双重闭合，而不是重复表达同一信息：
 
-- role 30/31 的 RelationChange 表达 owner、LaneEdge subject 和规范 localIndex；
+- role 13/14 的 RelationChange 表达 owner、LaneEdge subject 和规范 localIndex；
 - tag 5/6 的 Entity Modify 表达完整 anchor payload，确保同一 LaneEdge 上只有
   `progressMillimetres` 变化时仍可观察；
 - tag 5/6 的 `SemanticFieldValueV1` 精确为
@@ -1550,7 +1545,7 @@ header；Entity Add/Remove 保存所在一侧完整 LFCA entity `RowV1`。所有
 这项双投影是必要的现实边界：anchor 没有全局 StableId，而仅凭 relation 的 LaneEdge
 StableId 无法区分同一条边上的不同 progress。
 
-`ParticipantStream.passages` 使用同样的“relation + field payload”闭合：role 35 表达
+`ParticipantStream.passages` 使用同样的“relation + field payload”闭合：role 31 表达
 `(ParticipantStream, ConflictZone, canonical localIndex)`；tag 5 `Entity Modify` 表达
 完整 passage 值。稳定值不允许携带 artifact-local ordinal：
 
@@ -1571,7 +1566,7 @@ ParticipantStream.passages SemanticFieldValueV1 :=
 ```
 
 anchor payload 变化必须产生 tag 5 Modify；只有 zone/localIndex relation tuple 变化时才另外
-生成 role 35 Add/Remove/Move。admission Gate 始终重新派生，不进入 LFSD。Genesis 和
+生成 role 31 Add/Remove/Move。admission Gate 始终重新派生，不进入 LFSD。Genesis 和
 Artifact diff 都必须覆盖全部 passage，不得因它没有独立 StableId 而省略。
 
 其他 ordinal-bearing 字段不得直接比较 artifact-local `u32`。`StableRefV1` 精确为
@@ -1620,9 +1615,9 @@ relation tuple 的两端配对算法由 §4.3 的序策略唯一决定：
 - `domain` 对同一 subject 按各自 localIndex 递增分配零基 occurrence rank，只配对两端相同
   rank；配对项 index 改变产生 Move，未配对项产生 Remove/Add。因此同一 edge 在
   ManeuverPath 中重复 occurrence 不会被错误折叠；
-- role 19 只进入 `SignalPhase.states` StaticRule，role 28/29/36 只进入 Geometry；不得再
-  生成 RelationChange。role 30/31 的 set tuple 与完整 anchor field payload 双重闭合，
-  role 35 的 domain tuple 与 passage field payload 双重闭合。
+- role 19 只进入 `SignalPhase.states` StaticRule，role 28/29/32 只进入 Geometry；不得再
+  生成 RelationChange。role 13/14 的 set tuple 与完整 anchor field payload 双重闭合，
+  role 31 的 domain tuple 与 passage field payload 双重闭合。
 
 `ManeuverGate.transitionIndex` 是 entity tag 4 的规范标量，不是 role 10 localIndex；它变化
 必须产生 Entity Modify，即使 gate 在 path vector 的位置未变。只有 vector 位置变化才另产生
